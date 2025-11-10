@@ -1,0 +1,6 @@
+docs/
+.github/
+.git/
+.vscode/
+frontend/
+documentation/
