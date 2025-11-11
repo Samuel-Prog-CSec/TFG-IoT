@@ -1,41 +1,89 @@
+/**
+ * @fileoverview Motor de juego stateful que gestiona todas las partidas activas.
+ * Maneja el ciclo de vida completo de las partidas, validación de respuestas y comunicación en tiempo real.
+ * @module services/gameEngine
+ */
+
 const logger = require('../utils/logger');
 const GamePlay = require('../models/GamePlay');
 const GameSession = require('../models/GameSession');
 
 /**
- * GameEngine (stateful service)
+ * GameEngine - Servicio con estado para gestión de partidas en tiempo real.
  *
- * Gestiona el estado de TODAS las partidas activas.
- * Es un servicio "stateful" que vive en el servidor.
- * Se instancia UNA VEZ en server.js y se le inyecta `io`.
+ * Este servicio mantiene en memoria el estado de TODAS las partidas activas del sistema.
+ * Es un singleton que se instancia UNA VEZ en server.js con la instancia de Socket.IO inyectada.
+ *
+ * Responsabilidades principales:
+ * - Gestionar el ciclo de vida de las partidas (inicio, pausa, finalización)
+ * - Generar y enviar desafíos a los jugadores
+ * - Validar respuestas escaneadas mediante tarjetas RFID
+ * - Manejar timeouts y calcular puntuaciones
+ * - Emitir eventos en tiempo real a los clientes vía Socket.IO
+ * - Bloquear tarjetas para evitar conflictos entre partidas simultáneas
+ *
+ * @class GameEngine
  */
 class GameEngine {
+  /**
+   * Crea una nueva instancia del motor de juego.
+   *
+   * @constructor
+   * @param {import("socket.io").Server} io - Instancia de Socket.IO para comunicación en tiempo real
+   */
   constructor(io) {
+    /**
+     * Instancia de Socket.IO para emitir eventos a los clientes conectados.
+     * @type {import("socket.io").Server}
+     */
     this.io = io;
 
     /**
-     * Almacén de estado en memoria.
-     * Mapea un playId (String) con el estado de esa partida.
+     * Almacén en memoria del estado de todas las partidas activas.
+     * Mapea un playId (String) con el objeto de estado completo de esa partida.
+     *
      * @type {Map<string, Object>}
+     * @property {Object} playDoc - Documento Mongoose de GamePlay
+     * @property {Object} sessionDoc - Documento Mongoose de GameSession
+     * @property {Object|null} currentChallenge - Desafío actual que debe resolver el jugador
+     * @property {NodeJS.Timeout|null} roundTimer - Manejador del setTimeout para el límite de tiempo
+     * @property {boolean} awaitingResponse - Indica si se está esperando una respuesta del jugador
+     * @property {number} roundStartTime - Timestamp de inicio de la ronda actual
      */
     this.activePlays = new Map();
 
     /**
-     * EL MAPA MÁGICO (Búsqueda Inversa O(1))
-     * Mapea un card UID (String) con el playId (String) al que pertenece.
-     * Esto elimina la necesidad de iterar activePlays en cada escaneo.
+     * Mapa de búsqueda inversa para encontrar partidas por UID de tarjeta.
+     * Mapea un UID de tarjeta (String) con el playId (String) que la está usando.
+     *
+     * Este mapa permite búsqueda O(1) al escanear una tarjeta, eliminando la necesidad
+     * de iterar por todas las partidas activas. Es la clave de rendimiento del sistema.
+     *
      * @type {Map<string, string>}
      */
     this.cardUidToPlayId = new Map();
   }
 
-  // --- 1. CICLO DE VIDA DE LA PARTIDA ---
+  // ============================================================================
+  // CICLO DE VIDA DE LA PARTIDA
+  // ============================================================================
 
   /**
-   * Inicia una nueva partida.
-   * Este método es llamado desde server.js (en el evento socket 'start_play').
-   * @param {Object} playDoc - El documento Mongoose de GamePlay.
-   * @param {Object} sessionDoc - El documento Mongoose de GameSession.
+   * Inicia una nueva partida en el sistema.
+   *
+   * Este método:
+   * 1. Bloquea las tarjetas RFID para esta partida (evita duplicados)
+   * 2. Crea el estado inicial en memoria
+   * 3. Envía el primer desafío al jugador
+   *
+   * Este método es llamado desde server.js al recibir el evento socket 'start_play'.
+   *
+   * @async
+   * @param {Object} playDoc - Documento Mongoose de GamePlay (partida)
+   * @param {Object} sessionDoc - Documento Mongoose de GameSession (configuración)
+   * @returns {Promise<void>}
+   * @emits error - Si alguna tarjeta ya está en uso por otra partida
+   * @emits new_round - Cuando se envía el primer desafío al cliente
    */
   async startPlay(playDoc, sessionDoc) {
     const playId = playDoc._id.toString();
@@ -57,10 +105,10 @@ class GameEngine {
 
     // 2. Crear el estado en memoria
     const playState = {
-      playDoc,                // El documento Mongoose de la partida
-      sessionDoc,             // La configuración de la sesión
+      playDoc,
+      sessionDoc,
       currentChallenge: null,
-      roundTimer: null,       // Manejador para el setTimeout
+      roundTimer: null,
       awaitingResponse: false
     };
 
@@ -73,9 +121,19 @@ class GameEngine {
   }
 
   /**
-   * Finaliza una partida.
-   * Guarda el estado final en la BD y limpia la memoria.
-   * @param {string} playId - El ID de la partida a finalizar.
+   * Finaliza una partida y libera todos sus recursos.
+   *
+   * Este método:
+   * 1. Limpia los timers pendientes
+   * 2. Guarda el estado final en la base de datos
+   * 3. Emite el evento 'game_over' al cliente
+   * 4. Libera las tarjetas bloqueadas
+   * 5. Elimina la partida de la memoria activa
+   *
+   * @async
+   * @param {string} playId - ID de la partida a finalizar
+   * @returns {Promise<void>}
+   * @emits game_over - Con puntuación final y métricas
    */
   async endPlay(playId) {
     const playState = this.activePlays.get(playId);
@@ -113,11 +171,24 @@ class GameEngine {
     logger.info(`Partida ${playId} finalizada y limpiada de memoria.`);
   }
 
-  // --- 2. LÓGICA DEL JUEGO ---
+  // ============================================================================
+  // LÓGICA DEL JUEGO
+  // ============================================================================
 
   /**
-   * Envía el siguiente desafío (o finaliza el juego).
-   * @param {string} playId - El ID de la partida.
+   * Genera y envía el siguiente desafío al jugador, o finaliza la partida.
+   *
+   * Este método:
+   * 1. Verifica si el juego debe continuar o finalizar
+   * 2. Limpia el timer de la ronda anterior
+   * 3. Genera un desafío aleatorio según la mecánica
+   * 4. Emite el desafío al cliente vía Socket.IO
+   * 5. Programa el timeout para la ronda
+   *
+   * @async
+   * @param {string} playId - ID de la partida
+   * @returns {Promise<void>}
+   * @emits new_round - Con el desafío y límite de tiempo
    */
   async sendNextRound(playId) {
     const playState = this.activePlays.get(playId);
@@ -136,7 +207,8 @@ class GameEngine {
     }
 
     // 3. Generar el desafío (mecánica de asociación)
-    // TODO: Esto debe abstraerse cuando haya más mecánicas
+    // TODO: Tener en cuenta la dificultad, evitar repeticiones, etc.
+    // TODO: Esto debe abstraerse cuando haya más mecánicas (memoria, secuencias, etc.)
     const randomIndex = Math.floor(Math.random() * sessionDoc.cardMappings.length);
     const challengeMapping = sessionDoc.cardMappings[randomIndex];
 
@@ -160,8 +232,6 @@ class GameEngine {
       roundNumber: playDoc.currentRound,
       totalRounds: sessionDoc.config.numberOfRounds,
       challenge: {
-        // 'displayData' es el objeto que definimos
-        // (ej. { "type": "image", "src": "/img/france_flag.jpg" })
         displayData: challengeMapping.displayData
       },
       timeLimit: sessionDoc.config.timeLimit,
@@ -176,12 +246,25 @@ class GameEngine {
     }, sessionDoc.config.timeLimit * 1000);
   }
 
-  // --- 3. MANEJO DE ENTRADAS ---
+  // ============================================================================
+  // MANEJO DE ENTRADAS (ESCANEOS RFID)
+  // ============================================================================
 
   /**
-   * Manejador central para todos los escaneos de RFID.
-   * Este método es llamado desde server.js (en rfidService.on('rfid_event')).
-   * @param {string} uid - El UID de la tarjeta escaneada.
+   * Manejador central para todos los escaneos de tarjetas RFID.
+   *
+   * Este método es invocado desde server.js cada vez que el rfidService detecta una tarjeta.
+   * Utiliza el mapa cardUidToPlayId para búsqueda O(1) de la partida asociada.
+   *
+   * Flujo:
+   * 1. Buscar a qué partida pertenece la tarjeta escaneada
+   * 2. Verificar que la partida esté esperando respuesta
+   * 3. Limpiar el timer de timeout
+   * 4. Procesar la respuesta
+   *
+   * @async
+   * @param {string} uid - UID de la tarjeta RFID escaneada (formato hexadecimal mayúsculas)
+   * @returns {Promise<void>}
    */
   async handleCardScan(uid) {
     // 1. Búsqueda O(1) para encontrar la partida
@@ -203,12 +286,12 @@ class GameEngine {
     // 3. Encontrar el mapping de la tarjeta escaneada
     const scannedCardMapping = playState.sessionDoc.cardMappings.find(m => m.uid === uid);
     if (!scannedCardMapping) {
-      // Esto no debería pasar NUNCA si cardUidToPlayId está sincronizado
+      // Esto NO debería ocurrir si el Map está sincronizado correctamente
       logger.error(`Error CRÍTICO: ${uid} mapeado a ${playId} pero no encontrado en sessionDoc.`);
       return;
     }
 
-    // 4. Respuesta recibida -> limpiar el timer
+    // 4. Respuesta recibida → limpiar el timer
     clearTimeout(playState.roundTimer);
     playState.roundTimer = null;
     playState.awaitingResponse = false;
@@ -218,10 +301,21 @@ class GameEngine {
   }
 
   /**
-   * Procesa la respuesta de un jugador (escaneo).
-   * @param {string} playId - El ID de la partida.
-   * @param {Object} playState - El estado actual de la partida.
-   * @param {Object} scannedCard - El mapping de la tarjeta escaneada.
+   * Procesa y valida la respuesta del jugador tras un escaneo.
+   *
+   * Este método:
+   * 1. Compara la tarjeta escaneada con la respuesta correcta
+   * 2. Calcula puntuación (positiva o negativa)
+   * 3. Registra el evento en la base de datos
+   * 4. Emite el resultado al cliente
+   * 5. Programa el siguiente desafío con un delay (para feedback visual)
+   *
+   * @async
+   * @param {string} playId - ID de la partida
+   * @param {Object} playState - Estado actual de la partida en memoria
+   * @param {Object} scannedCard - Mapping de la tarjeta escaneada
+   * @returns {Promise<void>}
+   * @emits validation_result - Con corrección, puntos y nueva puntuación
    */
   async processResponse(playId, playState, scannedCard) {
     const { playDoc, sessionDoc, currentChallenge } = playState;
@@ -268,9 +362,7 @@ class GameEngine {
       isCorrect,
       expected: currentChallenge.displayData,
       actual: {
-        value: scannedCard.assignedValue,
-        // ¿Enviar el 'alias' de la tarjeta física para feedback?
-        // alias: (await Card.findById(scannedCard.cardId)).alias
+        value: scannedCard.assignedValue
       },
       pointsAwarded,
       newScore: playDoc.score
@@ -278,15 +370,23 @@ class GameEngine {
 
     logger.info(`Partida: ${playId} | Ronda: ${playDoc.currentRound} | ${eventType} (${symbol}${pointsAwarded} pts)`);
 
-    // 5. Pasar a la siguiente ronda (tras un breve delay)
-    playDoc.currentRound++; // Incrementar la ronda
+    // 5. Pasar a la siguiente ronda (tras un breve delay para feedback)
+    playDoc.currentRound++;
     setTimeout(() => {
       this.sendNextRound(playId);
     }, 4000); // Delay de 4s para que el jugador vea el resultado
   }
 
   /**
-   * Maneja el caso en que el timer de la ronda se agota.
+   * Maneja el timeout cuando el jugador no responde a tiempo.
+   *
+   * Este método se ejecuta automáticamente cuando el timer de la ronda expira.
+   * No otorga ni resta puntos, pero registra el evento y avanza a la siguiente ronda.
+   *
+   * @async
+   * @param {string} playId - ID de la partida
+   * @returns {Promise<void>}
+   * @emits validation_result - Indicando timeout sin puntuación
    */
   async handleTimeout(playId) {
     const playState = this.activePlays.get(playId);
@@ -326,13 +426,25 @@ class GameEngine {
     playDoc.currentRound++;
     setTimeout(() => {
       this.sendNextRound(playId);
-    }, 2000);
+    }, 2000); // Delay reducido para timeouts
   }
 
-  // --- 4. UTILIDADES ---
+  // ============================================================================
+  // UTILIDADES Y GESTIÓN DE ESTADO
+  // ============================================================================
 
+  /**
+   * Obtiene el estado actual de una partida.
+   * Retorna una versión simplificada sin exponer los documentos Mongoose internos.
+   *
+   * @param {string} playId - ID de la partida
+   * @returns {Object|null} Estado simplificado de la partida, o null si no existe
+   * @property {string} playId - ID de la partida
+   * @property {number} currentRound - Ronda actual
+   * @property {number} score - Puntuación actual
+   * @property {number} maxRounds - Total de rondas configuradas
+   */
   getPlayState(playId) {
-    // No devolver el estado interno (con los Mongoose docs)
     const playState = this.activePlays.get(playId);
     if (!playState) return null;
 
@@ -344,6 +456,16 @@ class GameEngine {
     };
   }
 
+  /**
+   * Pausa una partida en curso.
+   *
+   * TODO: Implementar lógica completa de pausa
+   * - Limpiar timer actual
+   * - Guardar estado en BD
+   * - Emitir evento de pausa al cliente
+   *
+   * @param {string} playId - ID de la partida a pausar
+   */
   pausePlay(playId) {
     // TODO: Implementar lógica de pausa
     // - Limpiar timer
@@ -351,6 +473,16 @@ class GameEngine {
     // - Guardar estado en BD????
   }
 
+  /**
+   * Reanuda una partida pausada.
+   *
+   * TODO: Implementar lógica completa de reanudación
+   * - Restaurar estado desde BD si es necesario
+   * - Reenviar el desafío actual
+   * - Reiniciar el timer
+   *
+   * @param {string} playId - ID de la partida a reanudar
+   */
   resumePlay(playId) {
     // TODO: Implementar lógica de reanudar
     // - Llamar a sendNextRound

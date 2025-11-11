@@ -19,4 +19,5 @@
   - 14.1 El rfidService nos da un uid (String, ej. "A1-B2-C3-..."), pero nuestro modelo GameSession.cardMappings solo tiene el cardId (ObjectId) para evitar redundancia. Esto obligaría al GameEngine a hacer una consulta a la base de datos (un populate) por cada escaneo para averiguar si el uid "A1-B2-C3" corresponde a ese cardId.
   - 14.2 El GameSession es un "contrato" para una partida, ¿sería válido que este contrato almacene tanto el identificador lógico (cardId) como el físico (uid) en el momento de su creación? ¿Rendimiento en tiempo real es más importante que la pureza de la normalización?
   - 14.3 Alternativamente, ¿deberíamos mantener la normalización y optimizar las consultas del GameEngine para minimizar el impacto en el rendimiento?
+15. Actualmente, el modelo 'GameContext' referencia a un único 'GameMechanic'. ¿Deberíamos permitir que un 'GameContext' pueda estar asociado a múltiples 'GameMechanics' para mayor flexibilidad en la creación de sesiones de juego? Por ejemplo, el contexto "Geografía" podría ser utilizado tanto para una mecánica de "Asociación" como para una de "Secuencia".
 

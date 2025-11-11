@@ -1,6 +1,27 @@
+/**
+ * @fileoverview Configuración y gestión de la conexión a MongoDB.
+ * Maneja conexión, desconexión y eventos de la base de datos.
+ * @module config/database
+ */
+
 const mongoose = require('mongoose');
 const logger = require('../utils/logger');
 
+/**
+ * Establece la conexión con la base de datos MongoDB.
+ *
+ * La URI de conexión se obtiene de la variable de entorno MONGODB_URI.
+ * Configura event listeners para monitorear el estado de la conexión.
+ *
+ * @async
+ * @returns {Promise<mongoose.Connection>} Promesa que resuelve con la conexión establecida
+ * @throws {Error} Si falla la conexión inicial, termina el proceso con exit(1)
+ * @example
+ * const { connectDB } = require('./config/database');
+ *
+ * await connectDB();
+ * // MongoDB conectado y listo para usar
+ */
 const connectDB = async () => {
   try {
     const conn = await mongoose.connect(process.env.MONGODB_URI, {
@@ -10,7 +31,7 @@ const connectDB = async () => {
 
     logger.info(`MongoDB Connected: ${conn.connection.host}`);
 
-    // Connection events
+    // Listeners de eventos de conexión
     mongoose.connection.on('error', (err) => {
       logger.error(`MongoDB connection error: ${err}`);
     });
@@ -19,7 +40,7 @@ const connectDB = async () => {
       logger.warn('MongoDB disconnected');
     });
 
-    // Graceful shutdown
+    // Cierre controlado de la aplicación (Ctrl+C)
     process.on('SIGINT', async () => {
       await mongoose.connection.close();
       logger.info('MongoDB connection closed through app termination');
@@ -33,6 +54,18 @@ const connectDB = async () => {
   }
 };
 
+/**
+ * Cierra la conexión con MongoDB de forma controlada.
+ * Debe ser llamado al finalizar la aplicación para liberar recursos.
+ *
+ * @async
+ * @returns {Promise<void>}
+ * @example
+ * const { disconnectDB } = require('./config/database');
+ *
+ * // Al cerrar el servidor
+ * await disconnectDB();
+ */
 const disconnectDB = async () => {
   try {
     await mongoose.connection.close();

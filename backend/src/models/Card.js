@@ -1,5 +1,26 @@
+/**
+ * @fileoverview Modelo de datos para tarjetas RFID físicas del sistema.
+ * Representa una tarjeta física que puede ser escaneada por el lector RC522.
+ * @module models/Card
+ */
+
 const mongoose = require('mongoose');
 
+/**
+ * Esquema de Mongoose para tarjetas RFID.
+ *
+ * @typedef {Object} Card
+ * @property {string} uid - Identificador único de la tarjeta (8 o 14 caracteres hexadecimales)
+ * @property {string} alias - Nombre amigable para identificar la tarjeta en el mundo real
+ * @property {string} type - Tipo de tarjeta RFID (MIFARE 1KB, MIFARE 4KB, NTAG, UNKNOWN)
+ * @property {string} status - Estado de la tarjeta (active, inactive, lost)
+ * @property {Object} metadata - Metadatos adicionales de la tarjeta
+ * @property {string} [metadata.color] - Color asociado a la tarjeta para identificación visual
+ * @property {string} [metadata.icon] - Icono asociado a la tarjeta
+ * @property {Date} [metadata.lastUsed] - Última fecha de uso de la tarjeta
+ * @property {Date} createdAt - Fecha de creación del registro (añadido por timestamps)
+ * @property {Date} updatedAt - Fecha de última actualización (añadido por timestamps)
+ */
 const cardSchema = new mongoose.Schema({
   uid: {
     type: String,
@@ -8,7 +29,7 @@ const cardSchema = new mongoose.Schema({
     uppercase: true,
     trim: true
   },
-  alias: { // Nombre amigable para identificar la tarjeta en el mundo real
+  alias: {
     type: String,
     required: true,
     trim: true
@@ -36,15 +57,29 @@ const cardSchema = new mongoose.Schema({
   timestamps: true
 });
 
-/* Búsqueda por UID
-   REDUNDANTE???
+/**
+ * Índice para búsqueda rápida por UID.
+ * Aunque el campo ya es único, este índice mejora el rendimiento de las búsquedas.
  */
 cardSchema.index({ uid: 1 });
 
-// Si el panel de administración lista las tarjetas por estado: active, inactive, lost (POR CONCRETAR)
+/**
+ * Índice para filtrar tarjetas por estado.
+ * Útil para listar tarjetas activas/inactivas en el panel de administración.
+ */
 cardSchema.index({ status: 1 });
 
-// Update lastUsed timestamp
+/**
+ * Actualiza la fecha del último uso de la tarjeta.
+ * Este método debe ser llamado cada vez que se escanea la tarjeta en una partida.
+ *
+ * @instance
+ * @memberof Card
+ * @returns {Promise<Card>} Promesa que resuelve con el documento actualizado
+ * @example
+ * const card = await Card.findOne({ uid: '32B8FA05' });
+ * await card.updateLastUsed();
+ */
 cardSchema.methods.updateLastUsed = function() {
   this.metadata.lastUsed = new Date();
   return this.save();

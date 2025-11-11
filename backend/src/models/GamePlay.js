@@ -1,12 +1,51 @@
+/**
+ * @fileoverview Modelo de datos para partidas individuales de estudiantes.
+ * Registra el progreso, eventos y estadísticas de una partida en curso o completada.
+ * @module models/GamePlay
+ */
+
 const mongoose = require('mongoose');
 
+/**
+ * Esquema de Mongoose para partidas de juego.
+ * Una partida representa una instancia de juego ejecutada por un estudiante.
+ *
+ * @typedef {Object} GamePlay
+ * @property {ObjectId} sessionId - Referencia a la sesión de juego configurada
+ * @property {string} playerId - Identificador del jugador (será ObjectId cuando exista modelo User)
+ * @property {number} score - Puntuación total acumulada en la partida
+ * @property {number} currentRound - Número de la ronda actual
+ * @property {Array<GameEvent>} events - Log de todos los eventos ocurridos durante la partida
+ * @property {Object} metrics - Métricas estadísticas de la partida
+ * @property {number} metrics.totalAttempts - Total de intentos realizados
+ * @property {number} metrics.correctAttempts - Cantidad de respuestas correctas
+ * @property {number} metrics.errorAttempts - Cantidad de respuestas incorrectas
+ * @property {number} metrics.timeoutAttempts - Cantidad de timeouts (sin respuesta)
+ * @property {number} metrics.averageResponseTime - Tiempo medio de respuesta en milisegundos
+ * @property {number} metrics.completionTime - Tiempo total de la partida en milisegundos
+ * @property {string} status - Estado de la partida (in-progress, completed, abandoned)
+ * @property {Date} startedAt - Fecha y hora de inicio de la partida
+ * @property {Date} [completedAt] - Fecha y hora de finalización de la partida
+ * @property {Date} createdAt - Fecha de creación del registro
+ * @property {Date} updatedAt - Fecha de última actualización
+ *
+ * @typedef {Object} GameEvent
+ * @property {Date} timestamp - Momento exacto del evento
+ * @property {string} eventType - Tipo de evento (card_scanned, correct, error, timeout, round_start, round_end)
+ * @property {string} [cardUid] - UID de la tarjeta involucrada (si aplica)
+ * @property {string} [expectedValue] - Valor esperado como respuesta correcta
+ * @property {string} [actualValue] - Valor real de la respuesta del jugador
+ * @property {number} [pointsAwarded] - Puntos otorgados/restados en este evento
+ * @property {number} [timeElapsed] - Tiempo transcurrido en milisegundos
+ * @property {number} [roundNumber] - Número de ronda asociado al evento
+ */
 const gamePlaySchema = new mongoose.Schema({
   sessionId: {
     type: mongoose.Schema.Types.ObjectId,
     ref: 'GameSession',
     required: true
   },
-  playerId: { // TODO: Incluir referencia a User cuando se cree el modelo
+  playerId: {
     type: String,
     required: true
   },
@@ -29,7 +68,7 @@ const gamePlaySchema = new mongoose.Schema({
       trim : true,
       enum: ['card_scanned', 'correct', 'error', 'timeout', 'round_start', 'round_end']
     },
-    cardUid: { // Para eventos relacionados con cartas (ELIMINAR requiered: true?????)
+    cardUid: {
       type: String,
       required: false
     },
@@ -82,17 +121,36 @@ const gamePlaySchema = new mongoose.Schema({
 });
 
 /**
- * Añade un evento a la partida y actualiza todas
- * las métricas y puntuación asociadas.
+ * Añade un evento al log de la partida y actualiza métricas y puntuación.
+ * Este método es el núcleo de la actualización del estado de la partida.
  *
- * @param {Object} eventData - El objeto del evento.
- * @param {Number} [eventData.pointsAwarded] - (Opcional) puntos a sumar/restar.
+ * @instance
+ * @memberof GamePlay
+ * @param {Object} eventData - Datos del evento a registrar
+ * @param {string} eventData.eventType - Tipo de evento (correct, error, timeout, etc.)
+ * @param {string} [eventData.cardUid] - UID de la tarjeta escaneada
+ * @param {string} [eventData.expectedValue] - Valor esperado
+ * @param {string} [eventData.actualValue] - Valor real proporcionado
+ * @param {number} [eventData.pointsAwarded] - Puntos a sumar o restar
+ * @param {number} [eventData.timeElapsed] - Tiempo de respuesta en ms
+ * @param {number} [eventData.roundNumber] - Número de ronda
+ * @returns {Promise<GamePlay>} Promesa que resuelve con el documento actualizado
+ * @example
+ * await gamePlay.addEvent({
+ *   eventType: 'correct',
+ *   cardUid: '32B8FA05',
+ *   expectedValue: 'España',
+ *   actualValue: 'España',
+ *   pointsAwarded: 10,
+ *   timeElapsed: 3500,
+ *   roundNumber: 1
+ * });
  */
 gamePlaySchema.methods.addEvent = function(eventData) {
   // Añadir al log de eventos
   this.events.push(eventData);
 
-  // Actualizar métricas básicas
+  // Actualizar métricas básicas según el tipo de evento
   this.metrics.totalAttempts++;
 
   if (eventData.eventType === 'correct') {
@@ -103,21 +161,42 @@ gamePlaySchema.methods.addEvent = function(eventData) {
     this.metrics.timeoutAttempts++;
   }
 
-  // Actualizar el score principal
+  // Actualizar puntuación si se proporcionaron puntos
   if (eventData.pointsAwarded && typeof eventData.pointsAwarded === 'number') {
     this.score += eventData.pointsAwarded;
   }
 
-  // Guardar todo en una sola operación atómica
+  // Guardar cambios en una operación atómica
   return this.save();
 };
 
+/**
+ * Verifica si la partida está actualmente en progreso.
+ *
+ * @instance
+ * @memberof GamePlay
+ * @returns {boolean} true si el estado es 'in-progress', false en caso contrario
+ */
+gamePlaySchema.methods.isInProgress = function() {
+  return this.status === 'in-progress';
+};
+
+/**
+ * Marca la partida como completada y calcula métricas finales.
+ * Actualiza el estado, registra la hora de finalización y calcula estadísticas.
+ *
+ * @instance
+ * @memberof GamePlay
+ * @returns {Promise<GamePlay>} Promesa que resuelve con el documento actualizado
+ * @example
+ * await gamePlay.complete();
+ */
 gamePlaySchema.methods.complete = function() {
   this.status = 'completed';
   this.completedAt = new Date();
   this.metrics.completionTime = this.completedAt - this.startedAt;
 
-  // Calcular el tiempo medio de respuesta
+  // Calcular el tiempo medio de respuesta a partir de los eventos
   const responseTimes = this.events
     .filter(e => e.timeElapsed)
     .map(e => e.timeElapsed);
@@ -131,12 +210,17 @@ gamePlaySchema.methods.complete = function() {
   return this.save();
 };
 
-/* Índice para el GameEngine - Caso de uso:
- * "Dáme la partida activa (status: 'in-progress') del jugador X (playerId) en la sesión Y (sessionId)".
+/**
+ * Índice compuesto para búsquedas eficientes en el GameEngine.
+ * Permite encontrar rápidamente la partida activa de un jugador en una sesión.
+ * Caso de uso: "Obtener la partida en progreso del jugador X en la sesión Y"
  */
 gamePlaySchema.index({ sessionId: 1, playerId: 1, status: 1 });
 
-// Índice para las partidas de un jugador
+/**
+ * Índice para listar todas las partidas de un jugador.
+ * Útil para ver el historial de partidas de un estudiante.
+ */
 gamePlaySchema.index({ playerId: 1 });
 
 module.exports = mongoose.model('GamePlay', gamePlaySchema);
