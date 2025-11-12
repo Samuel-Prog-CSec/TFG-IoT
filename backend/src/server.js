@@ -16,11 +16,11 @@ const GamePlay = require('./models/GamePlay');
 const GameSession = require('./models/GameSession');
 const logger = require('./utils/logger');
 
-// Importar rutas
-const cardRoutes = require('./routes/cards');
-const sessionRoutes = require('./routes/sessions');
-const playRoutes = require('./routes/plays');
-const mechanicRoutes = require('./routes/mechanics');
+// Importar rutas (comentadas temporalmente - por implementar)
+// const cardRoutes = require('./routes/cards');
+// const sessionRoutes = require('./routes/sessions');
+// const playRoutes = require('./routes/plays');
+// const mechanicRoutes = require('./routes/mechanics');
 
 // Crear aplicación Express
 const app = express();
@@ -61,10 +61,11 @@ app.use((req, res, next) => {
 // RUTAS DE LA API REST
 // ============================================================================
 
-app.use('/api/cards', cardRoutes);
-app.use('/api/sessions', sessionRoutes);
-app.use('/api/plays', playRoutes);
-app.use('/api/mechanics', mechanicRoutes);
+// Rutas comentadas temporalmente - por implementar
+// app.use('/api/cards', cardRoutes);
+// app.use('/api/sessions', sessionRoutes);
+// app.use('/api/plays', playRoutes);
+// app.use('/api/mechanics', mechanicRoutes);
 
 /**
  * Endpoint de salud del servidor.
