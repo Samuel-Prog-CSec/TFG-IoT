@@ -127,6 +127,13 @@ const gameSessionSchema = new mongoose.Schema({
     enum: ['created', 'active', 'paused', 'completed'],
     default: 'created'
   },
+  difficulty: {
+    type: String,
+    lowercase: true,
+    trim: true,
+    enum: ['easy', 'medium', 'hard'],
+    default: 'medium'
+  },
   startedAt: Date,
   endedAt: Date,
   createdBy: String

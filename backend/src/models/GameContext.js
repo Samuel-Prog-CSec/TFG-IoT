@@ -69,15 +69,9 @@ const gameContextSchema = new mongoose.Schema({
     },
     audioUrl: String,
     imageUrl: String
-  }],
-  difficulty: {
-    type: String,
-    lowercase: true,
-    trim: true,
-    enum: ['easy', 'medium', 'hard'],
-    default: 'medium'
-  }
-}, {
+  }]
+}, 
+{
   timestamps: true
 });
 
