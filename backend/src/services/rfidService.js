@@ -1,6 +1,23 @@
 /**
  * @fileoverview Servicio para gestionar la comunicación con el sensor RFID vía puerto serie.
  * Mantiene conexión persistente con el ESP8266 y emite eventos cuando se detectan tarjetas.
+ *
+ * LIMITACIÓN ACTUAL (duda #1): Este servicio usa SerialPort, lo que limita la conexión a UN SOLO
+ * dispositivo ESP8266 conectado físicamente al servidor. Esto significa que todos los jugadores
+ * comparten el mismo lector RFID.
+ *
+ * MEJORA FUTURA - MQTT (duda #1): Considerar migrar a MQTT para permitir:
+ * - Múltiples ESP8266 (uno por usuario/aula)
+ * - Comunicación inalámbrica más escalable
+ * - Menor acoplamiento hardware-servidor
+ * - Cada estudiante podría tener su propio lector RFID
+ * - Despliegue en múltiples ubicaciones físicas
+ *
+ * Implementación sugerida:
+ * - ESP8266 publica mensajes a topics MQTT: "rfid/reader_{id}/card_detected"
+ * - Backend suscrito a topics y procesa eventos por reader_id
+ * - Asociar reader_id con playId en gameEngine
+ *
  * @module services/rfidService
  */
 

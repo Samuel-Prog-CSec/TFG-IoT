@@ -10,6 +10,10 @@ const mongoose = require('mongoose');
  * Esquema de Mongoose para mecánicas de juego.
  * Una mecánica define las reglas y el tipo de interacción del juego.
  *
+ * NOTA (duda #8): Este modelo NO contiene referencia a contextos disponibles.
+ * Los contextos son independientes de las mecánicas y tienen compatibilidad absoluta.
+ * La relación se establece al crear una GameSession donde se elige mecánica + contexto.
+ *
  * @typedef {Object} GameMechanic
  * @property {string} name - Identificador interno de la mecánica (ej: 'association', 'sequence', 'memory')
  * @property {string} displayName - Nombre amigable para mostrar en la interfaz

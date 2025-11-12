@@ -9,9 +9,12 @@ const mongoose = require('mongoose');
 /**
  * Esquema de Mongoose para tarjetas RFID.
  *
+ * NOTA: El campo 'alias' fue eliminado (duda #2) ya que es redundante.
+ * Las tarjetas obtienen su significado contextual a través del campo 'assignedValue'
+ * en GameSession.cardMappings cuando el profesor crea una sesión de juego.
+ *
  * @typedef {Object} Card
  * @property {string} uid - Identificador único de la tarjeta (8 o 14 caracteres hexadecimales)
- * @property {string} alias - Nombre amigable para identificar la tarjeta en el mundo real
  * @property {string} type - Tipo de tarjeta RFID (MIFARE 1KB, MIFARE 4KB, NTAG, UNKNOWN)
  * @property {string} status - Estado de la tarjeta (active, inactive, lost)
  * @property {Object} metadata - Metadatos adicionales de la tarjeta
@@ -27,11 +30,6 @@ const cardSchema = new mongoose.Schema({
     required: true,
     unique: true,
     uppercase: true,
-    trim: true
-  },
-  alias: {
-    type: String,
-    required: true,
     trim: true
   },
   type: {

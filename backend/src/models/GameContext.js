@@ -8,10 +8,26 @@ const mongoose = require('mongoose');
 
 /**
  * Esquema de Mongoose para contextos de juego.
- * Un contexto define el tema y los assets (recursos) específicos para una mecánica.
+ * Un contexto define el tema y los assets (recursos) específicos que pueden usarse con cualquier mecánica.
+ *
+ * IMPORTANTE (dudas #15 y #15.1): Los contextos tienen compatibilidad ABSOLUTA con todas las mecánicas.
+ * Un mismo contexto (ej: "Geografía") puede usarse con cualquier mecánica (Asociación, Secuencia, Memoria, etc.).
+ * Por ello, NO existe referencia a mechanicId - el contexto es independiente de la mecánica.
+ *
+ * GESTIÓN DE ASSETS (dudas #12 y #13):
+ * - Los contextos pueden ser PREDEFINIDOS (incluidos en seeders) o creados por profesores
+ * - Los profesores pueden AÑADIR assets a contextos existentes
+ * - Los profesores pueden CREAR contextos completamente nuevos
+ * - Los archivos multimedia (imageUrl, audioUrl) se almacenan en Supabase Storage
+ * - Las URLs apuntan a buckets de Supabase con políticas de acceso público
+ * - El backend expone un endpoint API REST para subir archivos a Supabase
+ * - Flujo de subida:
+ *   1. Frontend envía archivo al backend (POST /api/assets/upload)
+ *   2. Backend valida tipo/tamaño y sube a Supabase
+ *   3. Backend retorna URL pública del asset
+ *   4. Frontend usa la URL en el formulario de creación de contexto
  *
  * @typedef {Object} GameContext
- * @property {ObjectId} mechanicId - Referencia a la mecánica a la que pertenece este contexto
  * @property {string} contextId - Identificador único del contexto (ej: 'geography', 'history')
  * @property {string} name - Nombre amigable del contexto para mostrar en la interfaz
  * @property {Array<Asset>} assets - Array de recursos/elementos del contexto
@@ -23,15 +39,10 @@ const mongoose = require('mongoose');
  * @property {string} key - Clave única del elemento (ej: 'spain', 'france')
  * @property {string} [display] - Representación visual del elemento (ej: emoji de bandera '🇪🇸')
  * @property {string} value - Valor textual del elemento (ej: 'España', 'Francia')
- * @property {string} [audioUrl] - URL del archivo de audio asociado
- * @property {string} [imageUrl] - URL de la imagen asociada
+ * @property {string} [audioUrl] - URL del archivo de audio en Supabase Storage (duda #12)
+ * @property {string} [imageUrl] - URL de la imagen en Supabase Storage (duda #12)
  */
 const gameContextSchema = new mongoose.Schema({
-  mechanicId: {
-    type: mongoose.Schema.Types.ObjectId,
-    ref: 'GameMechanic',
-    required: true
-  },
   contextId: {
     type: String,
     required: true,
@@ -85,9 +96,9 @@ gameContextSchema.path('assets').validate(function(value) {
 }, 'El array de assets no puede estar vacío.');
 
 /**
- * Índice compuesto para búsqueda eficiente de contextos por mecánica.
- * Usado para listar todos los contextos disponibles para una mecánica específica.
+ * Índice único para contextId.
+ * Permite búsqueda rápida de contextos por su identificador.
  */
-gameContextSchema.index({ mechanicId: 1, contextId: 1 });
+gameContextSchema.index({ contextId: 1 });
 
 module.exports = mongoose.model('GameContext', gameContextSchema);

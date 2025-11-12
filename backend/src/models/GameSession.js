@@ -1,6 +1,24 @@
 /**
  * @fileoverview Modelo de datos para sesiones de juego configuradas por el profesor.
  * Define la configuración completa de un juego antes de que los estudiantes lo jueguen.
+ *
+ * IMPORTANTE (duda #16): Una GameSession representa la CONFIGURACIÓN de una "sala de juego".
+ * Múltiples GamePlays (partidas individuales) pueden estar asociadas a una misma GameSession.
+ * Cada estudiante tiene su propia partida (GamePlay) independiente, pero comparten la configuración
+ * de la sesión (mecánica, contexto, tarjetas, reglas). Los estudiantes juegan a su propio ritmo.
+ *
+ * FLUJO DE CREACIÓN (dudas #3, #4, #5, #10, #18):
+ * 1. El profesor selecciona una mecánica de juego (ej: "Asociación")
+ * 2. El profesor selecciona un contexto compatible (ej: "Geografía")
+ * 3. El profesor consulta las tarjetas RFID disponibles en la BD (duda #5)
+ * 4. El profesor selecciona qué tarjetas usar en el juego (duda #4)
+ * 5. El profesor asigna valores de los assets del contexto a cada tarjeta (dudas #3, #10)
+ *    Ejemplo: Tarjeta UID=32B8FA05 → assignedValue="España" (del asset geography)
+ * 6. El profesor configura las reglas (rondas, tiempo límite, puntos)
+ * 7. Se crea la GameSession con status='created'
+ * 8. El profesor crea GamePlays (partidas) para cada estudiante (duda #18)
+ * 9. Los estudiantes juegan de forma independiente usando las tarjetas físicas
+ *
  * @module models/GameSession
  */
 
@@ -9,6 +27,7 @@ const mongoose = require('mongoose');
 /**
  * Esquema de Mongoose para sesiones de juego.
  * Una sesión es la configuración completa de un juego: mecánica, contexto, tarjetas y reglas.
+ * Esta configuración es compartida por múltiples estudiantes que juegan en paralelo.
  *
  * @typedef {Object} GameSession
  * @property {ObjectId} mechanicId - Referencia a la mecánica de juego utilizada
@@ -29,8 +48,8 @@ const mongoose = require('mongoose');
  *
  * @typedef {Object} CardMapping
  * @property {ObjectId} cardId - Referencia al documento de la tarjeta RFID
- * @property {string} uid - UID de la tarjeta (denormalizado para búsquedas rápidas)
- * @property {string} assignedValue - Valor asignado a esta tarjeta para el juego
+ * @property {string} uid - UID de la tarjeta (denormalizado para búsquedas rápidas - duda #14)
+ * @property {string} assignedValue - Valor asignado a esta tarjeta para el juego (dudas #3, #10)
  * @property {Mixed} displayData - Datos de visualización para el frontend (flexible)
  */
 const gameSessionSchema = new mongoose.Schema({
@@ -92,6 +111,7 @@ const gameSessionSchema = new mongoose.Schema({
       type: String,
       required: true,
       uppercase: true,
+      required: true,
       trim: true
     },
     assignedValue: {

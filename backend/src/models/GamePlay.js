@@ -1,6 +1,12 @@
 /**
  * @fileoverview Modelo de datos para partidas individuales de estudiantes.
  * Registra el progreso, eventos y estadísticas de una partida en curso o completada.
+ *
+ * IMPORTANTE (dudas #6, #16, #18): Una GamePlay representa UNA PARTIDA INDIVIDUAL de un estudiante.
+ * Múltiples GamePlays pueden estar asociadas a la misma GameSession (configuración compartida).
+ * El profesor crea la GameSession con la configuración del juego, luego crea una GamePlay por cada
+ * estudiante que quiera jugar. Cada estudiante juega de forma independiente a su propio ritmo.
+ *
  * @module models/GamePlay
  */
 
@@ -21,7 +27,7 @@ const mongoose = require('mongoose');
  * @property {number} metrics.correctAttempts - Cantidad de respuestas correctas
  * @property {number} metrics.errorAttempts - Cantidad de respuestas incorrectas
  * @property {number} metrics.timeoutAttempts - Cantidad de timeouts (sin respuesta)
- * @property {number} metrics.averageResponseTime - Tiempo medio de respuesta en milisegundos
+ * @property {number} metrics.averageResponseTime - Tiempo medio de respuesta en milisegundos (duda #17)
  * @property {number} metrics.completionTime - Tiempo total de la partida en milisegundos
  * @property {string} status - Estado de la partida (in-progress, completed, abandoned)
  * @property {Date} startedAt - Fecha y hora de inicio de la partida
@@ -36,7 +42,7 @@ const mongoose = require('mongoose');
  * @property {string} [expectedValue] - Valor esperado como respuesta correcta
  * @property {string} [actualValue] - Valor real de la respuesta del jugador
  * @property {number} [pointsAwarded] - Puntos otorgados/restados en este evento
- * @property {number} [timeElapsed] - Tiempo transcurrido en milisegundos
+ * @property {number} [timeElapsed] - Tiempo transcurrido en milisegundos desde inicio de ronda (duda #17)
  * @property {number} [roundNumber] - Número de ronda asociado al evento
  */
 const gamePlaySchema = new mongoose.Schema({
