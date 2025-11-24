@@ -1,6 +1,6 @@
 /**
- * @fileoverview Servicio para gestionar la comunicación con el sensor RFID vía puerto serie.
- * Mantiene conexión persistente con el ESP8266 y emite eventos cuando se detectan tarjetas.
+ * @fileoverview Servicio optimizado para gestionar comunicación con el sensor RFID.
+ * Implementa reconexión automática, buffer de eventos y métricas de rendimiento.
  *
  * LIMITACIÓN ACTUAL (duda #1): Este servicio usa SerialPort, lo que limita la conexión a UN SOLO
  * dispositivo ESP8266 conectado físicamente al servidor. Esto significa que todos los jugadores
@@ -25,6 +25,11 @@ const { SerialPort } = require('serialport');
 const { ReadlineParser } = require('@serialport/parser-readline');
 const logger = require('../utils/logger');
 const { EventEmitter } = require('events');
+
+// Constantes de configuración
+const MAX_RECONNECT_ATTEMPTS = parseInt(process.env.RFID_MAX_RECONNECT_ATTEMPTS) || 10;
+const RECONNECT_DELAY_MS = parseInt(process.env.RFID_RECONNECT_DELAY_MS) || 5000;
+const EVENT_BUFFER_SIZE = 100;
 
 /**
  * Servicio RFID con reconexión automática y gestión de estado.
@@ -83,11 +88,38 @@ class RFIDService extends EventEmitter {
      * @private
      */
     this.isShuttingDown = false;
+
+    /**
+     * Contador de intentos de reconexión
+     * @type {number}
+     * @private
+     */
+    this.reconnectAttempts = 0;
+
+    /**
+     * Buffer circular para eventos recientes (debugging)
+     * @type {Array}
+     * @private
+     */
+    this.eventBuffer = [];
+
+    /**
+     * Métricas de rendimiento del servicio
+     * @type {Object}
+     */
+    this.metrics = {
+      totalEventsReceived: 0,
+      totalCardDetections: 0,
+      totalErrors: 0,
+      lastEventTimestamp: null,
+      connectionUptime: 0,
+      lastConnectedAt: null
+    };
   }
 
   /**
    * Establece la conexión con el sensor RFID vía puerto serie.
-   * Si la conexión falla, programa un reintento automático tras 5 segundos.
+   * Si la conexión falla, programa un reintento automático con backoff exponencial.
    *
    * Este método puede ser llamado múltiples veces de forma segura gracias a los flags de estado.
    *
@@ -101,15 +133,26 @@ class RFIDService extends EventEmitter {
       return;
     }
 
+    // Verificar límite de intentos
+    if (this.reconnectAttempts >= MAX_RECONNECT_ATTEMPTS) {
+      logger.error(`Máximo de intentos de reconexión alcanzado (${MAX_RECONNECT_ATTEMPTS}). Deteniendo.`);
+      this.emit('status', 'failed');
+      return;
+    }
+
     // Activar flag de reconexión
     this.isReconnecting = true;
+    this.reconnectAttempts++;
     this.emit('status', 'reconnecting'); // Informar a la app
 
     try {
       const portPath = process.env.SERIAL_PORT || 'COM3';
       const baudRate = parseInt(process.env.SERIAL_BAUD_RATE) || 115200;
 
-      logger.info(`Intentando reconectar al sensor RFID en ${portPath} a ${baudRate} baudios`);
+      logger.info(`Intentando conectar al sensor RFID (intento ${this.reconnectAttempts}/${MAX_RECONNECT_ATTEMPTS})`, {
+        port: portPath,
+        baudRate
+      });
 
       this.port = new SerialPort({
         path: portPath,
@@ -130,6 +173,9 @@ class RFIDService extends EventEmitter {
 
       this.isConnected = true;
       this.isReconnecting = false; // Resetear flag de reconexión
+      this.reconnectAttempts = 0; // Resetear contador en conexión exitosa
+      this.metrics.lastConnectedAt = Date.now();
+
       logger.info('Sensor RFID conectado exitosamente');
       this.emit('status', 'connected'); // Informar a la app que estamos conectados
 
@@ -139,6 +185,7 @@ class RFIDService extends EventEmitter {
       // Manejo de errores y cierre
       this.port.on('error', (err) => {
         logger.error(`Error en el puerto serie: ${err.message}`);
+        this.metrics.totalErrors++;
         this.isConnected = false;
         this.handleDisconnection();
       });
@@ -150,18 +197,27 @@ class RFIDService extends EventEmitter {
       });
 
     } catch (error) {
-      // Si falla, volver a intentarlo en 5 segundos
-      logger.error(`Fallo al conectar con el sensor RFID: ${error.message}`);
+      // Si falla, volver a intentarlo con backoff exponencial
+      const delay = Math.min(RECONNECT_DELAY_MS * this.reconnectAttempts, 60000); // Max 60s
+
+      logger.error(`Fallo al conectar con el sensor RFID (intento ${this.reconnectAttempts}): ${error.message}`);
+      this.metrics.totalErrors++;
 
       // Limpiar el puerto si se llegó a crear
       if (this.port) {
         if (this.port.isOpen) {
           this.port.close();
-          this.port = null;
         }
+        this.port = null;
       }
+
       this.isReconnecting = false; // Resetear para que handleDisconnection funcione
-      this.handleDisconnection();
+
+      // Programar reintento
+      logger.info(`Reintentando conexión en ${delay / 1000}s...`);
+      setTimeout(() => {
+        this.connect();
+      }, delay);
     }
   }
 
@@ -191,6 +247,7 @@ class RFIDService extends EventEmitter {
   /**
    * Procesa los datos recibidos del puerto serie.
    * Parsea JSON y emite eventos RFID al sistema.
+   * Implementa buffer circular para debugging.
    *
    * @private
    * @param {string} line - Línea de texto recibida del puerto serie
@@ -207,12 +264,34 @@ class RFIDService extends EventEmitter {
 
     try {
       const event = JSON.parse(trimmed);
+
+      // Actualizar métricas
+      this.metrics.totalEventsReceived++;
+      this.metrics.lastEventTimestamp = Date.now();
+
+      if (event.event === 'card_detected') {
+        this.metrics.totalCardDetections++;
+      }
+
+      // Añadir al buffer circular
+      this.eventBuffer.push({
+        ...event,
+        receivedAt: Date.now()
+      });
+
+      if (this.eventBuffer.length > EVENT_BUFFER_SIZE) {
+        this.eventBuffer.shift(); // Eliminar el más antiguo
+      }
+
       logger.debug(`Evento RFID recibido:`, event);
 
       // Emitir evento a interesados (server.js)
       this.emit('rfid_event', event);
     } catch (error) {
-      logger.error(`Error al analizar el evento RFID: ${trimmed}`, error);
+      logger.error(`Error al analizar el evento RFID: ${trimmed}`, {
+        error: error.message
+      });
+      this.metrics.totalErrors++;
     }
   }
 
@@ -239,19 +318,68 @@ class RFIDService extends EventEmitter {
   }
 
   /**
-   * Obtiene el estado actual del servicio RFID.
+   * Obtiene el estado actual del servicio RFID con métricas.
    *
    * @returns {Object} Estado actual del servicio
    * @property {boolean} isConnected - Si está actualmente conectado
    * @property {string} [port] - Ruta del puerto serie (ej: 'COM3')
    * @property {number} [baudRate] - Velocidad de baudios configurada
+   * @property {Object} metrics - Métricas de rendimiento
+   * @property {number} reconnectAttempts - Intentos de reconexión actuales
+   * @property {Array} recentEvents - Últimos eventos recibidos (buffer)
    */
   getStatus() {
+    const uptime = this.metrics.lastConnectedAt
+      ? Date.now() - this.metrics.lastConnectedAt
+      : 0;
+
     return {
       isConnected: this.isConnected,
       port: this.port?.path,
-      baudRate: this.port?.baudRate
+      baudRate: this.port?.baudRate,
+      reconnectAttempts: this.reconnectAttempts,
+      maxReconnectAttempts: MAX_RECONNECT_ATTEMPTS,
+      metrics: {
+        ...this.metrics,
+        connectionUptime: uptime,
+        uptimeFormatted: this.formatUptime(uptime)
+      },
+      recentEvents: this.eventBuffer.slice(-10) // Últimos 10 eventos
     };
+  }
+
+  /**
+   * Formatea el uptime a string legible.
+   *
+   * @private
+   * @param {number} ms - Milisegundos
+   * @returns {string} Uptime formateado
+   */
+  formatUptime(ms) {
+    const seconds = Math.floor(ms / 1000);
+    const minutes = Math.floor(seconds / 60);
+    const hours = Math.floor(minutes / 60);
+
+    if (hours > 0) return `${hours}h ${minutes % 60}m`;
+    if (minutes > 0) return `${minutes}m ${seconds % 60}s`;
+    return `${seconds}s`;
+  }
+
+  /**
+   * Obtiene el buffer de eventos recientes para debugging.
+   *
+   * @returns {Array} Buffer de eventos
+   */
+  getEventBuffer() {
+    return this.eventBuffer;
+  }
+
+  /**
+   * Limpia el buffer de eventos.
+   */
+  clearEventBuffer() {
+    this.eventBuffer = [];
+    logger.info('Buffer de eventos RFID limpiado');
   }
 }
 

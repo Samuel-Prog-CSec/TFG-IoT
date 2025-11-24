@@ -1,13 +1,17 @@
 {
   "name": "rfid-games-backend",
-  "version": "1.0.0",
+  "version": "0.1.0",
   "description": "Backend server for RFID educational games - MERN stack",
   "main": "src/server.js",
   "scripts": {
     "start": "node src/server.js",
     "dev": "nodemon src/server.js",
-    "seed": "node src/utils/seeders.js",
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "seed": "node seeders/index.js",
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "security:check-&-fix": "npm audit && npm audit fix",
+    "deps:update-minor": "npx npm-check-updates -t minor -u && npm install",
+    "deps:update-major": "npx npm-check-updates -t major -u && npm install",
+    "deps:analyze": "npx npm-check-updates && npx depcheck && npm outdated"
   },
   "keywords": [
     "rfid",
@@ -16,22 +20,29 @@
     "mern",
     "iot"
   ],
-  "author": "Samuel",
-  "license": "MIT",
+  "author": "Samuel Blanchart Pérez",
   "dependencies": {
-    "express": "^4.18.2",
-    "mongoose": "^8.0.0",
-    "socket.io": "^4.6.0",
-    "serialport": "^12.0.0",
-    "@serialport/parser-readline": "^12.0.0",
+    "@sentry/node": "^10.26.0",
+    "@sentry/profiling-node": "^10.26.0",
+    "@serialport/parser-readline": "^13.0.0",
+    "bcrypt": "^6.0.0",
+    "compression": "^1.8.1",
     "cors": "^2.8.5",
-    "dotenv": "^16.3.1",
-    "winston": "^3.11.0"
+    "dotenv": "^17.2.3",
+    "express": "^5.1.0",
+    "express-rate-limit": "^8.2.1",
+    "helmet": "^8.1.0",
+    "jsonwebtoken": "^9.0.2",
+    "mongoose": "^9.0.0",
+    "serialport": "^13.0.0",
+    "socket.io": "^4.8.1",
+    "winston": "^3.18.3",
+    "zod": "^4.1.13"
   },
   "devDependencies": {
-    "nodemon": "^3.0.1"
+    "nodemon": "^3.1.11"
   },
   "engines": {
-    "node": ">=18.0.0"
+    "node": ">=22.0.0"
   }
 }

@@ -15,3 +15,5 @@
 17. En el modelo 'GamePlay', ¿deberíamos incluir un campo para registrar la duración total de la partida o el tiempo empleado por cada jugador? Actualmente, sólo manejamos el tiempo máximo por ronda para manejar timeouts, pero no tenemos un seguimiento del tiempo total de juego. ----> Contabilizar tiempo de respueta que tarda en responder desde que se inicia la pregunta o la cuestion, hasta que el ninio responde para controlar los datos de la clase.
 18. Cuando se crea una 'GameSession', ¿cómo manejamos la creación de partidas? ¿Se crean todas las partidas de una vez o se generan dinámicamente a medida que los jugadores se unen o avanzan en el juego? ----> Las crea el profesor y el ninio juega.
 
+---
+

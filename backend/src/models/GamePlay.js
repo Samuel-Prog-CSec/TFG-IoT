@@ -18,7 +18,7 @@ const mongoose = require('mongoose');
  *
  * @typedef {Object} GamePlay
  * @property {ObjectId} sessionId - Referencia a la sesión de juego configurada
- * @property {string} playerId - Identificador del jugador (será ObjectId cuando exista modelo User)
+ * @property {ObjectId} playerId - Identificador del jugador (ref: User con role='student')
  * @property {number} score - Puntuación total acumulada en la partida
  * @property {number} currentRound - Número de la ronda actual
  * @property {Array<GameEvent>} events - Log de todos los eventos ocurridos durante la partida
@@ -52,7 +52,8 @@ const gamePlaySchema = new mongoose.Schema({
     required: true
   },
   playerId: {
-    type: String,
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'User',
     required: true
   },
   score: {

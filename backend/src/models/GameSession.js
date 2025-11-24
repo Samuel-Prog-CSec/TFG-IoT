@@ -42,7 +42,7 @@ const mongoose = require('mongoose');
  * @property {string} status - Estado de la sesión (created, active, paused, completed)
  * @property {Date} [startedAt] - Fecha y hora de inicio de la sesión
  * @property {Date} [endedAt] - Fecha y hora de finalización de la sesión
- * @property {string} [createdBy] - ID del usuario que creó la sesión (profesor)
+ * @property {ObjectId} createdBy - ID del profesor que creó la sesión (ref: User)
  * @property {Date} createdAt - Fecha de creación del registro
  * @property {Date} updatedAt - Fecha de última actualización
  *
@@ -136,7 +136,11 @@ const gameSessionSchema = new mongoose.Schema({
   },
   startedAt: Date,
   endedAt: Date,
-  createdBy: String
+  createdBy: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'User',
+    required: true
+  }
 }, {
   timestamps: true
 });

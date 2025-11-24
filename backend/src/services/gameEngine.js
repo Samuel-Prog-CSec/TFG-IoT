@@ -1,12 +1,17 @@
 /**
- * @fileoverview Motor de juego stateful que gestiona todas las partidas activas.
- * Maneja el ciclo de vida completo de las partidas, validación de respuestas y comunicación en tiempo real.
+ * @fileoverview Motor de juego stateful optimizado con gestión avanzada de partidas.
+ * Maneja el ciclo de vida completo con rooms de Socket.IO, limits y cleanup automático.
  * @module services/gameEngine
  */
 
 const logger = require('../utils/logger');
 const GamePlay = require('../models/GamePlay');
 const GameSession = require('../models/GameSession');
+
+// Constantes de configuración
+const MAX_ACTIVE_PLAYS = parseInt(process.env.MAX_ACTIVE_PLAYS) || 1000;
+const PLAY_TIMEOUT_MS = parseInt(process.env.PLAY_TIMEOUT_MS) || 3600000; // 1 hora
+const CLEANUP_INTERVAL_MS = 300000; // 5 minutos
 
 /**
  * GameEngine - Servicio con estado para gestión de partidas en tiempo real.
@@ -49,6 +54,7 @@ class GameEngine {
      * @property {NodeJS.Timeout|null} roundTimer - Manejador del setTimeout para el límite de tiempo
      * @property {boolean} awaitingResponse - Indica si se está esperando una respuesta del jugador
      * @property {number} roundStartTime - Timestamp de inicio de la ronda actual
+     * @property {number} createdAt - Timestamp de creación para detectar partidas abandonadas
      */
     this.activePlays = new Map();
 
@@ -62,6 +68,86 @@ class GameEngine {
      * @type {Map<string, string>}
      */
     this.cardUidToPlayId = new Map();
+
+    /**
+     * Métricas del motor de juego para monitoreo.
+     * @type {Object}
+     */
+    this.metrics = {
+      totalPlaysStarted: 0,
+      totalPlaysCompleted: 0,
+      totalPlaysCancelled: 0,
+      totalCardScans: 0,
+      averagePlayDuration: 0
+    };
+
+    // Iniciar cleanup automático de partidas abandonadas
+    this.startCleanupTimer();
+
+    logger.info('GameEngine inicializado', {
+      maxActivePlays: MAX_ACTIVE_PLAYS,
+      playTimeoutMs: PLAY_TIMEOUT_MS,
+      cleanupIntervalMs: CLEANUP_INTERVAL_MS
+    });
+  }
+
+  /**
+   * Inicia el timer de cleanup para detectar y finalizar partidas abandonadas.
+   * Se ejecuta cada CLEANUP_INTERVAL_MS (5 minutos por defecto).
+   *
+   * @private
+   */
+  startCleanupTimer() {
+    this.cleanupInterval = setInterval(() => {
+      this.cleanupAbandonedPlays();
+    }, CLEANUP_INTERVAL_MS);
+  }
+
+  /**
+   * Detecta y limpia partidas que han estado activas por más tiempo del permitido.
+   * Previene memory leaks de partidas que nunca finalizaron correctamente.
+   *
+   * @private
+   */
+  async cleanupAbandonedPlays() {
+    const now = Date.now();
+    const abandonedPlays = [];
+
+    for (const [playId, playState] of this.activePlays.entries()) {
+      const timeSinceCreation = now - playState.createdAt;
+
+      if (timeSinceCreation > PLAY_TIMEOUT_MS) {
+        abandonedPlays.push(playId);
+      }
+    }
+
+    if (abandonedPlays.length > 0) {
+      logger.warn(`Detectadas ${abandonedPlays.length} partidas abandonadas, limpiando...`, {
+        playIds: abandonedPlays
+      });
+
+      for (const playId of abandonedPlays) {
+        await this.endPlay(playId);
+        this.metrics.totalPlaysCancelled++;
+      }
+    }
+
+    logger.debug('Cleanup ejecutado', {
+      activePlays: this.activePlays.size,
+      cardMappings: this.cardUidToPlayId.size,
+      metrics: this.metrics
+    });
+  }
+
+  /**
+   * Detiene el cleanup timer. Llamado durante el shutdown del servidor.
+   * @private
+   */
+  stopCleanupTimer() {
+    if (this.cleanupInterval) {
+      clearInterval(this.cleanupInterval);
+      logger.info('Cleanup timer detenido');
+    }
   }
 
   // ============================================================================
@@ -72,9 +158,10 @@ class GameEngine {
    * Inicia una nueva partida en el sistema.
    *
    * Este método:
-   * 1. Bloquea las tarjetas RFID para esta partida (evita duplicados)
-   * 2. Crea el estado inicial en memoria
-   * 3. Envía el primer desafío al jugador
+   * 1. Verifica límites del sistema
+   * 2. Bloquea las tarjetas RFID para esta partida (evita duplicados)
+   * 3. Crea el estado inicial en memoria
+   * 4. Envía el primer desafío al jugador
    *
    * Este método es llamado desde server.js al recibir el evento socket 'start_play'.
    *
@@ -88,16 +175,28 @@ class GameEngine {
   async startPlay(playDoc, sessionDoc) {
     const playId = playDoc._id.toString();
 
+    // 0. Verificar límite de partidas activas
+    if (this.activePlays.size >= MAX_ACTIVE_PLAYS) {
+      logger.error(`Límite de partidas activas alcanzado: ${MAX_ACTIVE_PLAYS}`);
+      this.io.to(`play_${playId}`).emit('error', {
+        message: 'Servidor sobrecargado, intenta más tarde'
+      });
+      return;
+    }
+
     // 1. Bloquear las tarjetas para este juego
     // Esto previene que la misma tarjeta se use en dos juegos a la vez
     for (const mapping of sessionDoc.cardMappings) {
       if (this.cardUidToPlayId.has(mapping.uid)) {
         // La tarjeta ya está en otro juego activo
         logger.error(`Error al iniciar ${playId}: Tarjeta ${mapping.uid} ya en uso.`);
-        this.io.to(`play_${playId}`).emit('error', { message: `La tarjeta ${mapping.alias || mapping.uid} ya está en otro juego.` });
+        this.io.to(`play_${playId}`).emit('error', {
+          message: `La tarjeta ${mapping.assignedValue || mapping.uid} ya está en uso en otra partida`
+        });
         return;
       }
     }
+
     // Si todas las tarjetas están libres, las reservamos
     for (const mapping of sessionDoc.cardMappings) {
       this.cardUidToPlayId.set(mapping.uid, playId);
@@ -109,12 +208,20 @@ class GameEngine {
       sessionDoc,
       currentChallenge: null,
       roundTimer: null,
-      awaitingResponse: false
+      awaitingResponse: false,
+      createdAt: Date.now() // Para detectar abandonos
     };
 
     // 3. Almacenar el estado
     this.activePlays.set(playId, playState);
-    logger.info(`Partida ${playId} iniciada. ${sessionDoc.cardMappings.length} tarjetas bloqueadas.`);
+    this.metrics.totalPlaysStarted++;
+
+    logger.info(`Partida ${playId} iniciada. ${sessionDoc.cardMappings.length} tarjetas bloqueadas.`, {
+      playId,
+      playerId: playDoc.playerId,
+      sessionId: sessionDoc._id,
+      activePlaysCount: this.activePlays.size
+    });
 
     // 4. Enviar la primera ronda
     await this.sendNextRound(playId);
@@ -129,6 +236,7 @@ class GameEngine {
    * 3. Emite el evento 'game_over' al cliente
    * 4. Libera las tarjetas bloqueadas
    * 5. Elimina la partida de la memoria activa
+   * 6. Actualiza métricas
    *
    * @async
    * @param {string} playId - ID de la partida a finalizar
@@ -148,8 +256,22 @@ class GameEngine {
 
     // 2. Guardar el estado final en la BD
     try {
+      const playDuration = Date.now() - playState.createdAt;
+
       await playState.playDoc.complete(); // Llama al método .complete() del modelo
-      logger.info(`Partida ${playId} guardada en BD con score: ${playState.playDoc.score}`);
+
+      logger.info(`Partida ${playId} guardada en BD`, {
+        playId,
+        score: playState.playDoc.score,
+        duration: `${(playDuration / 1000).toFixed(2)}s`
+      });
+
+      // Actualizar métricas
+      this.metrics.totalPlaysCompleted++;
+      this.metrics.averagePlayDuration =
+        (this.metrics.averagePlayDuration * (this.metrics.totalPlaysCompleted - 1) + playDuration)
+        / this.metrics.totalPlaysCompleted;
+
     } catch (err) {
       logger.error(`Error al guardar partida final ${playId}: ${err.message}`);
     }
@@ -165,10 +287,13 @@ class GameEngine {
     for (const mapping of playState.sessionDoc.cardMappings) {
       this.cardUidToPlayId.delete(mapping.uid);
     }
+
     // Borrar la partida de la memoria activa
     this.activePlays.delete(playId);
 
-    logger.info(`Partida ${playId} finalizada y limpiada de memoria.`);
+    logger.info(`Partida ${playId} finalizada y limpiada de memoria`, {
+      activePlaysRemaining: this.activePlays.size
+    });
   }
 
   // ============================================================================
@@ -486,6 +611,47 @@ class GameEngine {
   resumePlay(playId) {
     // TODO: Implementar lógica de reanudar
     // - Llamar a sendNextRound
+  }
+
+  /**
+   * Detiene el motor de juego y limpia todos los recursos.
+   * Debe ser llamado durante el shutdown del servidor.
+   *
+   * @async
+   * @returns {Promise<void>}
+   */
+  async shutdown() {
+    logger.info('Iniciando shutdown del GameEngine...');
+
+    // Detener el cleanup timer
+    this.stopCleanupTimer();
+
+    // Finalizar todas las partidas activas
+    const activePlayIds = Array.from(this.activePlays.keys());
+
+    logger.info(`Finalizando ${activePlayIds.length} partidas activas...`);
+
+    for (const playId of activePlayIds) {
+      await this.endPlay(playId);
+    }
+
+    logger.info('GameEngine detenido correctamente', {
+      metrics: this.metrics
+    });
+  }
+
+  /**
+   * Obtiene métricas del motor de juego.
+   *
+   * @returns {Object} Métricas actuales
+   */
+  getMetrics() {
+    return {
+      ...this.metrics,
+      activePlays: this.activePlays.size,
+      cardMappings: this.cardUidToPlayId.size,
+      timestamp: new Date().toISOString()
+    };
   }
 }
 

@@ -7,31 +7,49 @@
 require('dotenv').config();
 const express = require('express');
 const cors = require('cors');
-const http = require('http');
+const http = require('server');
+const helmet = require('helmet');
+const compression = require('compression');
 const { Server } = require('socket.io');
 const { connectDB, disconnectDB } = require('./config/database');
+const { initSentry, Sentry } = require('./config/sentry');
+const {
+  corsOptions,
+  helmetOptions,
+  globalRateLimiter,
+  authRateLimiter,
+  createResourceRateLimiter
+} = require('./config/security');
 const rfidService = require('./services/rfidService');
 const GameEngine = require('./services/gameEngine');
 const GamePlay = require('./models/GamePlay');
 const GameSession = require('./models/GameSession');
 const logger = require('./utils/logger');
+const { errorHandler, notFoundHandler } = require('./middlewares/errorHandler');
 
-// Importar rutas (comentadas temporalmente - por implementar)
-// const cardRoutes = require('./routes/cards');
-// const sessionRoutes = require('./routes/sessions');
-// const playRoutes = require('./routes/plays');
-// const mechanicRoutes = require('./routes/mechanics');
+// Importar rutas
+const authRoutes = require('./routes/auth');
+const userRoutes = require('./routes/users');
+const cardRoutes = require('./routes/cards');
+const mechanicRoutes = require('./routes/mechanics');
+const contextRoutes = require('./routes/contexts');
+const sessionRoutes = require('./routes/sessions');
+const playRoutes = require('./routes/plays');
 
 // Crear aplicación Express
 const app = express();
 const server = http.createServer(app);
 
-// Configurar Socket.io con CORS
+// Inicializar Sentry
+initSentry();
+
+// Configurar Socket.io con CORS seguro
 const io = new Server(server, {
-  cors: {
-    origin: process.env.CORS_ORIGIN || 'http://localhost:3000',
-    methods: ['GET', 'POST']
-  }
+  cors: corsOptions,
+  pingTimeout: 60000, // 60 segundos
+  pingInterval: 25000, // 25 segundos
+  transports: ['websocket', 'polling'], // Preferir WebSocket
+  allowEIO3: false // Solo usar Engine.IO v4
 });
 
 /**
@@ -45,15 +63,42 @@ const gameEngine = new GameEngine(io);
 // MIDDLEWARE
 // ============================================================================
 
-app.use(cors({
-  origin: process.env.CORS_ORIGIN || 'http://localhost:3000'
+// Sentry request handler (DEBE ser el primero)
+app.use(Sentry.Handlers.requestHandler());
+app.use(Sentry.Handlers.tracingHandler());
+
+// Security headers con Helmet (configuración centralizada)
+app.use(helmet(helmetOptions));
+
+// Compression para respuestas (solo si aporta valor)
+// Threshold: Solo comprimir si > 1KB
+app.use(compression({
+  threshold: 1024, // 1KB
+  filter: (req, res) => {
+    // No comprimir si el cliente no lo soporta
+    if (req.headers['x-no-compression']) {
+      return false;
+    }
+    // Usar filtro por defecto de compression
+    return compression.filter(req, res);
+  }
 }));
+
+// Rate limiting global (todas las rutas /api/*)
+app.use('/api/', globalRateLimiter);
+
+// CORS con whitelist dinámica
+app.use(cors(corsOptions));
+
 app.use(express.json()); // Parsear application/json
 app.use(express.urlencoded({ extended: true })); // Parsear application/x-www-form-urlencoded
 
 // Middleware de logging de requests
 app.use((req, res, next) => {
-  logger.info(`${req.method} ${req.path}`);
+  logger.info(`${req.method} ${req.path}`, {
+    ip: req.ip,
+    userAgent: req.get('user-agent')
+  });
   next();
 });
 
@@ -61,11 +106,26 @@ app.use((req, res, next) => {
 // RUTAS DE LA API REST
 // ============================================================================
 
-// Rutas comentadas temporalmente - por implementar
-// app.use('/api/cards', cardRoutes);
-// app.use('/api/sessions', sessionRoutes);
-// app.use('/api/plays', playRoutes);
-// app.use('/api/mechanics', mechanicRoutes);
+// Rutas de autenticación (con rate limit específico)
+app.use('/api/auth', authRateLimiter, authRoutes);
+
+// Rutas de gestión de usuarios
+app.use('/api/users', userRoutes);
+
+// Rutas de gestión de tarjetas RFID
+app.use('/api/cards', cardRoutes);
+
+// Rutas de mecánicas de juego
+app.use('/api/mechanics', mechanicRoutes);
+
+// Rutas de contextos temáticos (rate limit en creación)
+app.use('/api/contexts', contextRoutes);
+
+// Rutas de sesiones de juego (rate limit en creación)
+app.use('/api/sessions', sessionRoutes);
+
+// Rutas de partidas individuales
+app.use('/api/plays', playRoutes);
 
 /**
  * Endpoint de salud del servidor.
@@ -76,10 +136,35 @@ app.use((req, res, next) => {
  * @returns {boolean} rfidConnected - Si el sensor RFID está conectado
  */
 app.get('/api/health', (req, res) => {
+  const rfidStatus = rfidService.getStatus();
+
   res.json({
     status: 'ok',
     timestamp: new Date().toISOString(),
-    rfidConnected: rfidService.getStatus().isConnected
+    environment: process.env.NODE_ENV || 'development',
+    rfid: {
+      connected: rfidStatus.isConnected,
+      uptime: rfidStatus.metrics.uptimeFormatted,
+      totalCardDetections: rfidStatus.metrics.totalCardDetections
+    }
+  });
+});
+
+/**
+ * Endpoint de métricas del sistema (solo para desarrollo).
+ * @route GET /api/metrics
+ * @returns {Object} 200 - Métricas del gameEngine y rfidService
+ */
+app.get('/api/metrics', (req, res) => {
+  // Solo en desarrollo
+  if (process.env.NODE_ENV === 'production') {
+    return res.status(404).json({ message: 'Not found' });
+  }
+
+  res.json({
+    timestamp: new Date().toISOString(),
+    gameEngine: gameEngine.getMetrics(),
+    rfidService: rfidService.getStatus()
   });
 });
 
@@ -93,12 +178,16 @@ app.get('/', (req, res) => {
     message: 'API REST de Juegos RFID',
     version: '0.1.0',
     endpoints: {
+      auth: '/api/auth',
+      users: '/api/users',
       cards: '/api/cards',
+      mechanics: '/api/mechanics',
+      contexts: '/api/contexts',
       sessions: '/api/sessions',
       plays: '/api/plays',
-      mechanics: '/api/mechanics',
       health: '/api/health'
-    }
+    },
+    documentation: 'Ver README.md para documentación completa'
   });
 });
 
@@ -106,22 +195,14 @@ app.get('/', (req, res) => {
 // MANEJO DE ERRORES
 // ============================================================================
 
-// Middleware de manejo de errores no capturados
-app.use((err, req, res, next) => {
-  logger.error(`Error sin manejar: ${err.message}`, { stack: err.stack });
-  res.status(500).json({
-    success: false,
-    error: 'Error interno del servidor'
-  });
-});
+// Sentry error handler (ANTES del errorHandler personalizado)
+app.use(Sentry.Handlers.errorHandler());
 
 // Manejador 404 para rutas no encontradas
-app.use((req, res) => {
-  res.status(404).json({
-    success: false,
-    error: 'Ruta no encontrada'
-  });
-});
+app.use(notFoundHandler);
+
+// Middleware de manejo de errores centralizado (DEBE ser el último)
+app.use(errorHandler);
 
 // ============================================================================
 // SOCKET.IO - EVENTOS EN TIEMPO REAL
@@ -323,24 +404,47 @@ const startServer = async () => {
 };
 
 // ============================================================================
-// MANEJO DE CIERRE CONTROLADO
+// MANEJO DE CIERRE CONTROLADO (GRACEFUL SHUTDOWN)
 // ============================================================================
 
 /**
  * Manejador de señal SIGTERM para cierre controlado del servidor.
  * Cierra conexiones a BD, sensor RFID y servidor HTTP de forma ordenada.
  */
-process.on('SIGTERM', async () => {
-  logger.info('Recibido SIGTERM, cerrando el servidor de manera controlada');
+const gracefulShutdown = async (signal) => {
+  logger.info(`Recibido ${signal}, cerrando el servidor de manera controlada...`);
 
-  await disconnectDB(); // Cerrar conexión a la base de datos
-  rfidService.disconnect(); // Detener la reconexión al sensor RFID
+  // 1. Detener el servidor HTTP (no acepta más conexiones)
+  server.close(async () => {
+    logger.info('Servidor HTTP cerrado');
 
-  server.close(() => {
-    logger.info('Servidor cerrado');
-    process.exit(0);
+    try {
+      // 2. Detener el motor de juego y finalizar partidas activas
+      await gameEngine.shutdown();
+
+      // 3. Cerrar conexión RFID
+      rfidService.disconnect();
+
+      // 4. Desconectar de la base de datos
+      await disconnectDB();
+
+      logger.info('Shutdown completo. Saliendo...');
+      process.exit(0);
+    } catch (error) {
+      logger.error(`Error durante shutdown: ${error.message}`);
+      process.exit(1);
+    }
   });
-});
+
+  // Si no se cierra en 30 segundos, forzar salida
+  setTimeout(() => {
+    logger.error('Forzando shutdown tras timeout de 30s');
+    process.exit(1);
+  }, 30000);
+};
+
+process.on('SIGTERM', () => gracefulShutdown('SIGTERM'));
+process.on('SIGINT', () => gracefulShutdown('SIGINT')); // Ctrl+C
 
 // Iniciar el servidor
 startServer();
