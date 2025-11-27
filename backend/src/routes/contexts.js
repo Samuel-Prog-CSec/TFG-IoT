@@ -20,6 +20,7 @@ const {
 
 const { authenticate, requireRole } = require('../middlewares/auth');
 const { validateBody, validateQuery, validateParams } = require('../middlewares/validation');
+const { createResourceRateLimiter } = require('../config/security');
 const {
   createGameContextSchema,
   updateGameContextSchema,
@@ -72,6 +73,7 @@ router.get(
  */
 router.post(
   '/',
+  createResourceRateLimiter, // Rate limiting para prevenir spam
   authenticate,
   requireRole('teacher'),
   validateBody(createGameContextSchema),

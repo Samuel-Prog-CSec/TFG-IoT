@@ -19,6 +19,7 @@ const {
 
 const { authenticate, requireRole } = require('../middlewares/auth');
 const { validateBody, validateQuery, validateParams } = require('../middlewares/validation');
+const { createResourceRateLimiter } = require('../config/security');
 const {
   createStudentSchema,
   updateUserSchema,
@@ -84,10 +85,11 @@ router.get(
  * @route   POST /api/users
  * @desc    Crear nuevo ALUMNO (profesor autenticado crea alumnos sin credenciales)
  * @access  Private (Teacher)
- * ⚠️ IMPORTANTE: Este endpoint solo crea alumnos (role='student', sin email/password)
+ * Este endpoint solo crea alumnos (role='student', sin email/password)
  */
 router.post(
   '/',
+  createResourceRateLimiter, // Rate limiting para prevenir spam
   authenticate,
   requireRole('teacher'),
   validateBody(createStudentSchema),

@@ -10,6 +10,7 @@ const GameContext = require('../models/GameContext');
 const Card = require('../models/Card');
 const { NotFoundError, ValidationError, ForbiddenError } = require('../utils/errors');
 const logger = require('../utils/logger');
+const { gameSessionDTO, gameSessionListDTO, paginationDTO } = require('../utils/dtos');
 
 /**
  * Obtener lista de sesiones con paginación y filtros.
@@ -78,15 +79,11 @@ const getSessions = async (req, res, next) => {
 
     res.json({
       success: true,
-      data: {
-        sessions,
-        pagination: {
-          page: parseInt(page),
-          limit: parseInt(limit),
-          total,
-          pages: Math.ceil(total / limit)
-        }
-      }
+      data: paginationDTO(gameSessionListDTO(sessions), {
+        page: parseInt(page),
+        limit: parseInt(limit),
+        total
+      })
     });
   } catch (error) {
     next(error);
@@ -125,9 +122,7 @@ const getSessionById = async (req, res, next) => {
 
     res.json({
       success: true,
-      data: {
-        session
-      }
+      data: gameSessionDTO(session)
     });
   } catch (error) {
     next(error);
@@ -216,9 +211,7 @@ const createSession = async (req, res, next) => {
     res.status(201).json({
       success: true,
       message: 'Sesión creada exitosamente',
-      data: {
-        session
-      }
+      data: gameSessionDTO(session)
     });
   } catch (error) {
     next(error);
@@ -276,9 +269,7 @@ const updateSession = async (req, res, next) => {
     res.json({
       success: true,
       message: 'Sesión actualizada exitosamente',
-      data: {
-        session
-      }
+      data: gameSessionDTO(session)
     });
   } catch (error) {
     next(error);
@@ -369,9 +360,7 @@ const startSession = async (req, res, next) => {
     res.json({
       success: true,
       message: 'Sesión iniciada exitosamente',
-      data: {
-        session
-      }
+      data: gameSessionDTO(session)
     });
   } catch (error) {
     next(error);
@@ -414,9 +403,7 @@ const pauseSession = async (req, res, next) => {
     res.json({
       success: true,
       message: 'Sesión pausada exitosamente',
-      data: {
-        session
-      }
+      data: gameSessionDTO(session)
     });
   } catch (error) {
     next(error);
@@ -459,9 +446,7 @@ const endSession = async (req, res, next) => {
     res.json({
       success: true,
       message: 'Sesión finalizada exitosamente',
-      data: {
-        session
-      }
+      data: gameSessionDTO(session)
     });
   } catch (error) {
     next(error);

@@ -7,6 +7,7 @@
 const Card = require('../models/Card');
 const { NotFoundError, ConflictError } = require('../utils/errors');
 const logger = require('../utils/logger');
+const { cardDTO, cardListDTO, paginationDTO } = require('../utils/dtos');
 
 /**
  * Obtener lista de tarjetas con paginación y filtros.
@@ -62,15 +63,11 @@ const getCards = async (req, res, next) => {
 
     res.json({
       success: true,
-      data: {
-        cards,
-        pagination: {
-          page: parseInt(page),
-          limit: parseInt(limit),
-          total,
-          pages: Math.ceil(total / limit)
-        }
-      }
+      data: paginationDTO(cardListDTO(cards), {
+        page: parseInt(page),
+        limit: parseInt(limit),
+        total
+      })
     });
   } catch (error) {
     next(error);
@@ -108,9 +105,7 @@ const getCardById = async (req, res, next) => {
 
     res.json({
       success: true,
-      data: {
-        card
-      }
+      data: cardDTO(card)
     });
   } catch (error) {
     next(error);
@@ -157,9 +152,7 @@ const createCard = async (req, res, next) => {
     res.status(201).json({
       success: true,
       message: 'Tarjeta registrada exitosamente',
-      data: {
-        card
-      }
+      data: cardDTO(card)
     });
   } catch (error) {
     next(error);
@@ -208,9 +201,7 @@ const updateCard = async (req, res, next) => {
     res.json({
       success: true,
       message: 'Tarjeta actualizada exitosamente',
-      data: {
-        card
-      }
+      data: cardDTO(card)
     });
   } catch (error) {
     next(error);
@@ -314,7 +305,7 @@ const createCardsBatch = async (req, res, next) => {
       success: true,
       message: `${createdCards.length} tarjetas registradas exitosamente`,
       data: {
-        cards: createdCards,
+        cards: cardListDTO(createdCards),
         count: createdCards.length
       }
     });

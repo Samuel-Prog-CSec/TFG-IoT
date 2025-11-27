@@ -7,6 +7,7 @@
 const GameContext = require('../models/GameContext');
 const { NotFoundError, ConflictError, ValidationError } = require('../utils/errors');
 const logger = require('../utils/logger');
+const { gameContextDTO, gameContextListDTO, paginationDTO } = require('../utils/dtos');
 
 /**
  * Obtener lista de contextos con paginación y filtros.
@@ -60,15 +61,11 @@ const getContexts = async (req, res, next) => {
 
     res.json({
       success: true,
-      data: {
-        contexts,
-        pagination: {
-          page: parseInt(page),
-          limit: parseInt(limit),
-          total,
-          pages: Math.ceil(total / limit)
-        }
-      }
+      data: paginationDTO(gameContextListDTO(contexts), {
+        page: parseInt(page),
+        limit: parseInt(limit),
+        total
+      })
     });
   } catch (error) {
     next(error);
@@ -105,9 +102,7 @@ const getContextById = async (req, res, next) => {
 
     res.json({
       success: true,
-      data: {
-        context
-      }
+      data: gameContextDTO(context)
     });
   } catch (error) {
     next(error);
@@ -156,9 +151,7 @@ const createContext = async (req, res, next) => {
     res.status(201).json({
       success: true,
       message: 'Contexto creado exitosamente',
-      data: {
-        context
-      }
+      data: gameContextDTO(context)
     });
   } catch (error) {
     next(error);
@@ -203,9 +196,7 @@ const updateContext = async (req, res, next) => {
     res.json({
       success: true,
       message: 'Contexto actualizado exitosamente',
-      data: {
-        context
-      }
+      data: gameContextDTO(context)
     });
   } catch (error) {
     next(error);
@@ -302,9 +293,7 @@ const addAsset = async (req, res, next) => {
     res.status(201).json({
       success: true,
       message: 'Asset añadido exitosamente',
-      data: {
-        context
-      }
+      data: gameContextDTO(context)
     });
   } catch (error) {
     next(error);
@@ -358,9 +347,7 @@ const removeAsset = async (req, res, next) => {
     res.json({
       success: true,
       message: 'Asset eliminado exitosamente',
-      data: {
-        context
-      }
+      data: gameContextDTO(context)
     });
   } catch (error) {
     next(error);

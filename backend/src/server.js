@@ -5,16 +5,22 @@
  */
 
 require('dotenv').config();
+
+// Validar variables de entorno ANTES de cualquier inicialización
+const { validateEnv } = require('./utils/envValidator');
+validateEnv(); // Falla FAST si falta alguna configuración crítica
+
 const express = require('express');
 const cors = require('cors');
-const http = require('server');
+const http = require('http');
 const helmet = require('helmet');
 const compression = require('compression');
-const { Server } = require('socket.io');
+const { socketio } = require('socket.io');
 const { connectDB, disconnectDB } = require('./config/database');
 const { initSentry, Sentry } = require('./config/sentry');
 const {
   corsOptions,
+  csrfProtection, // Middleware CSRF
   helmetOptions,
   globalRateLimiter,
   authRateLimiter,
@@ -26,6 +32,7 @@ const GamePlay = require('./models/GamePlay');
 const GameSession = require('./models/GameSession');
 const logger = require('./utils/logger');
 const { errorHandler, notFoundHandler } = require('./middlewares/errorHandler');
+const { getHealthStatus } = require('./utils/healthCheck');
 
 // Importar rutas
 const authRoutes = require('./routes/auth');
@@ -44,7 +51,7 @@ const server = http.createServer(app);
 initSentry();
 
 // Configurar Socket.io con CORS seguro
-const io = new Server(server, {
+const io = new socketio(server, {
   cors: corsOptions,
   pingTimeout: 60000, // 60 segundos
   pingInterval: 25000, // 25 segundos
@@ -90,6 +97,9 @@ app.use('/api/', globalRateLimiter);
 // CORS con whitelist dinámica
 app.use(cors(corsOptions));
 
+// CSRF Protection para métodos que modifican datos
+app.use(csrfProtection);
+
 app.use(express.json()); // Parsear application/json
 app.use(express.urlencoded({ extended: true })); // Parsear application/x-www-form-urlencoded
 
@@ -128,26 +138,22 @@ app.use('/api/sessions', sessionRoutes);
 app.use('/api/plays', playRoutes);
 
 /**
- * Endpoint de salud del servidor.
+ * Endpoint de salud del servidor con información detallada.
  * @route GET /api/health
- * @returns {Object} 200 - Estado del servidor y conexión RFID
- * @returns {string} status - 'ok' si el servidor está funcionando
- * @returns {string} timestamp - Hora actual en formato ISO
- * @returns {boolean} rfidConnected - Si el sensor RFID está conectado
+ * @returns {Object} 200 - Estado completo del servidor, MongoDB y RFID
  */
-app.get('/api/health', (req, res) => {
-  const rfidStatus = rfidService.getStatus();
-
-  res.json({
-    status: 'ok',
-    timestamp: new Date().toISOString(),
-    environment: process.env.NODE_ENV || 'development',
-    rfid: {
-      connected: rfidStatus.isConnected,
-      uptime: rfidStatus.metrics.uptimeFormatted,
-      totalCardDetections: rfidStatus.metrics.totalCardDetections
-    }
-  });
+app.get('/api/health', async (req, res) => {
+  try {
+    const healthStatus = await getHealthStatus(rfidService);
+    res.json(healthStatus);
+  } catch (error) {
+    logger.error('Error en health check:', error);
+    res.status(500).json({
+      status: 'error',
+      message: 'Health check failed',
+      error: error.message
+    });
+  }
 });
 
 /**

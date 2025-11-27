@@ -7,6 +7,7 @@
 const User = require('../models/User');
 const { NotFoundError, ForbiddenError } = require('../utils/errors');
 const logger = require('../utils/logger');
+const { userDTO, userListDTO, paginationDTO } = require('../utils/dtos');
 
 /**
  * Obtener lista de usuarios con paginación y filtros.
@@ -75,15 +76,7 @@ const getUsers = async (req, res, next) => {
 
     res.json({
       success: true,
-      data: {
-        users: users.map(user => user.toSafeObject()),
-        pagination: {
-          page: parseInt(page),
-          limit: parseInt(limit),
-          total,
-          pages: Math.ceil(total / limit)
-        }
-      }
+      ...paginationDTO(userListDTO(users), parseInt(page), parseInt(limit), total)
     });
   } catch (error) {
     next(error);
@@ -117,9 +110,7 @@ const getUserById = async (req, res, next) => {
 
     res.json({
       success: true,
-      data: {
-        user: user.toSafeObject()
-      }
+      data: userDTO(user)
     });
   } catch (error) {
     next(error);
@@ -189,7 +180,7 @@ const createUser = async (req, res, next) => {
         success: false,
         message: errorMsg,
         data: {
-          existingStudent: existingStudent.toSafeObject()
+          existingStudent: userDTO(existingStudent)
         }
       });
     }
@@ -217,9 +208,7 @@ const createUser = async (req, res, next) => {
     res.status(201).json({
       success: true,
       message: 'Alumno creado exitosamente',
-      data: {
-        user: student.toSafeObject()
-      }
+      data: userDTO(student)
     });
   } catch (error) {
     next(error);
@@ -306,7 +295,7 @@ const updateUser = async (req, res, next) => {
           success: false,
           message: errorMsg,
           data: {
-            existingUser: existingUser.toSafeObject()
+            existingUser: userDTO(existingUser)
           }
         });
       }
@@ -368,9 +357,7 @@ const updateUser = async (req, res, next) => {
     res.json({
       success: true,
       message: 'Usuario actualizado exitosamente',
-      data: {
-        user: user.toSafeObject()
-      }
+      data: userDTO(user)
     });
   } catch (error) {
     next(error);
@@ -527,7 +514,7 @@ const getStudentsByTeacher = async (req, res, next) => {
     res.json({
       success: true,
       data: {
-        students: students.map(student => student.toSafeObject()),
+        students: userListDTO(students),
         count: students.length
       }
     });

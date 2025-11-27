@@ -7,6 +7,7 @@
 const GameMechanic = require('../models/GameMechanic');
 const { NotFoundError, ConflictError } = require('../utils/errors');
 const logger = require('../utils/logger');
+const { gameMechanicDTO, gameMechanicListDTO, paginationDTO } = require('../utils/dtos');
 
 /**
  * Obtener lista de mecánicas con paginación y filtros.
@@ -63,15 +64,11 @@ const getMechanics = async (req, res, next) => {
 
     res.json({
       success: true,
-      data: {
-        mechanics,
-        pagination: {
-          page: parseInt(page),
-          limit: parseInt(limit),
-          total,
-          pages: Math.ceil(total / limit)
-        }
-      }
+      data: paginationDTO(gameMechanicListDTO(mechanics), {
+        page: parseInt(page),
+        limit: parseInt(limit),
+        total
+      })
     });
   } catch (error) {
     next(error);
@@ -108,9 +105,7 @@ const getMechanicById = async (req, res, next) => {
 
     res.json({
       success: true,
-      data: {
-        mechanic
-      }
+      data: gameMechanicDTO(mechanic)
     });
   } catch (error) {
     next(error);
@@ -159,9 +154,7 @@ const createMechanic = async (req, res, next) => {
     res.status(201).json({
       success: true,
       message: 'Mecánica creada exitosamente',
-      data: {
-        mechanic
-      }
+      data: gameMechanicDTO(mechanic)
     });
   } catch (error) {
     next(error);
@@ -210,9 +203,7 @@ const updateMechanic = async (req, res, next) => {
     res.json({
       success: true,
       message: 'Mecánica actualizada exitosamente',
-      data: {
-        mechanic
-      }
+      data: gameMechanicDTO(mechanic)
     });
   } catch (error) {
     next(error);
@@ -278,7 +269,7 @@ const getActiveMechanics = async (req, res, next) => {
     res.json({
       success: true,
       data: {
-        mechanics,
+        mechanics: gameMechanicListDTO(mechanics),
         count: mechanics.length
       }
     });

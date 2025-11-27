@@ -19,6 +19,7 @@ const {
 
 const { authenticate, requireRole } = require('../middlewares/auth');
 const { validateBody, validateQuery, validateParams } = require('../middlewares/validation');
+const { createResourceRateLimiter, eventRateLimiter } = require('../config/security');
 const {
   createGamePlaySchema,
   addEventSchema,
@@ -73,6 +74,7 @@ router.get(
  */
 router.post(
   '/',
+  createResourceRateLimiter, // Rate limiting para prevenir spam
   authenticate,
   requireRole('teacher'),
   validateBody(createGamePlaySchema),
@@ -86,6 +88,7 @@ router.post(
  */
 router.post(
   '/:id/events',
+  eventRateLimiter, // Rate limiter permisivo para eventos de juego en tiempo real
   authenticate,
   validateParams(gamePlayParamsSchema),
   validateBody(addEventSchema),

@@ -24,28 +24,84 @@ const corsWhitelist = process.env.CORS_WHITELIST
  */
 const corsOptions = {
   origin: (origin, callback) => {
-    // Permitir requests sin origin (ej: Postman, apps móviles)
-    if (!origin) {
+    const isProduction = process.env.NODE_ENV === 'production';
+
+    // En producción: SIEMPRE requerir origin
+    if (isProduction && !origin) {
+      return callback(new Error('Origin header requerido en producción'), false);
+    }
+
+    // En desarrollo: Permitir peticiones sin origin (Postman, curl, etc.)
+    if (!isProduction && !origin) {
       return callback(null, true);
     }
 
-    if (corsWhitelist.indexOf(origin) !== -1) {
+    // Validación estricta contra whitelist
+    if (corsWhitelist.includes(origin)) {
       callback(null, true);
     } else {
-      callback(new Error('No permitido por política CORS'));
+      callback(new Error(`Origin ${origin} no autorizado por política CORS`), false);
     }
   },
   credentials: true, // Permitir cookies y headers de autenticación
-  optionsSuccessStatus: 200,
+  optionsSuccessStatus: 204,
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH'],
   allowedHeaders: [
     'Content-Type',
     'Authorization',
     'X-Requested-With',
-    'Accept'
+    'Accept',
+    'X-CSRF-Token' // Para protección CSRF
   ],
   exposedHeaders: ['X-Total-Count', 'X-Page-Count'],
   maxAge: 86400 // Cache preflight por 24 horas
+};
+
+/**
+ * Middleware CSRF Protection
+ * Valida que las peticiones vengan de orígenes autorizados
+ * mediante verificación de Referer/Origin header
+ *
+ * @param {import('express').Request} req - Request de Express
+ * @param {import('express').Response} res - Response de Express
+ * @param {Function} next - Next middleware
+ */
+const csrfProtection = (req, res, next) => {
+  // Solo aplicar a métodos que modifican datos
+  if (['POST', 'PUT', 'DELETE', 'PATCH'].includes(req.method)) {
+    const referer = req.get('Referer') || req.get('Origin');
+
+    // En producción, SIEMPRE requerir referer
+    if (process.env.NODE_ENV === 'production' && !referer) {
+      return res.status(403).json({
+        success: false,
+        message: 'Referer/Origin header requerido para operaciones de modificación'
+      });
+    }
+
+    // Si hay referer, verificar que esté en la whitelist
+    if (referer) {
+      let refererOrigin;
+      try {
+        const refererUrl = new URL(referer);
+        refererOrigin = `${refererUrl.protocol}//${refererUrl.host}`;
+      } catch (error) {
+        return res.status(403).json({
+          success: false,
+          message: 'Referer header inválido'
+        });
+      }
+
+      if (!corsWhitelist.includes(refererOrigin)) {
+        return res.status(403).json({
+          success: false,
+          message: 'Referer no autorizado'
+        });
+      }
+    }
+  }
+
+  next();
 };
 
 /**
@@ -144,6 +200,23 @@ const createResourceRateLimiter = rateLimit({
 });
 
 /**
+ * Rate limiter para eventos de juego (más permisivo).
+ * Usado en POST /api/plays/:id/events durante partidas activas.
+ *
+ * @type {import('express-rate-limit').RateLimitRequestHandler}
+ */
+const eventRateLimiter = rateLimit({
+  windowMs: 60 * 1000, // 1 minuto
+  max: 30, // 30 eventos por minuto (más permisivo para juego en tiempo real)
+  message: {
+    success: false,
+    message: 'Demasiados eventos de juego, espera un momento'
+  },
+  standardHeaders: true,
+  legacyHeaders: false
+});
+
+/**
  * Rate limiter para subida de archivos.
  * Muy restrictivo debido al costo de procesamiento.
  *
@@ -162,10 +235,12 @@ const uploadRateLimiter = rateLimit({
 
 module.exports = {
   corsOptions,
+  csrfProtection,
   helmetOptions,
   globalRateLimiter,
   authRateLimiter,
   createResourceRateLimiter,
+  eventRateLimiter,
   uploadRateLimiter,
   corsWhitelist
 };

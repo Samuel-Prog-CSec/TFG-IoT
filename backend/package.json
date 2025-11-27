@@ -7,6 +7,11 @@
     "start": "node src/server.js",
     "dev": "nodemon src/server.js",
     "seed": "node seeders/index.js",
+    "seed:reset": "node seeders/index.js --reset",
+    "lint": "eslint src/**/*.js seeders/**/*.js",
+    "lint:fix": "eslint src/**/*.js seeders/**/*.js --fix",
+    "format": "prettier --write \"src/**/*.js\" \"seeders/**/*.js\"",
+    "format:check": "prettier --check \"src/**/*.js\" \"seeders/**/*.js\"",
     "test": "echo \"Error: no test specified\" && exit 1",
     "security:check-&-fix": "npm audit && npm audit fix",
     "deps:update-minor": "npx npm-check-updates -t minor -u && npm install",
@@ -25,6 +30,7 @@
     "@sentry/node": "^10.26.0",
     "@sentry/profiling-node": "^10.26.0",
     "@serialport/parser-readline": "^13.0.0",
+    "@supabase/supabase-js": "^2.86.0",
     "bcrypt": "^6.0.0",
     "compression": "^1.8.1",
     "cors": "^2.8.5",
@@ -34,13 +40,18 @@
     "helmet": "^8.1.0",
     "jsonwebtoken": "^9.0.2",
     "mongoose": "^9.0.0",
+    "multer": "^2.0.2",
     "serialport": "^13.0.0",
     "socket.io": "^4.8.1",
     "winston": "^3.18.3",
     "zod": "^4.1.13"
   },
   "devDependencies": {
-    "nodemon": "^3.1.11"
+    "eslint": "^9.21.0",
+    "eslint-config-prettier": "^10.0.1",
+    "eslint-plugin-prettier": "^5.5.4",
+    "nodemon": "^3.1.11",
+    "prettier": "^3.4.2"
   },
   "engines": {
     "node": ">=22.0.0"

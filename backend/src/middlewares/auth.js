@@ -75,7 +75,7 @@ const generateAccessToken = (user, deviceFingerprint) => {
 
   const token = jwt.sign(
     payload,
-    process.env.JWT_SECRET || 'dev-secret-change-in-production',
+    process.env.JWT_SECRET, // Sin fallback inseguro - validado en envValidator
     {
       expiresIn,
       issuer: 'rfid-games-platform',
@@ -114,7 +114,7 @@ const generateRefreshToken = (user, deviceFingerprint) => {
 
   const token = jwt.sign(
     payload,
-    process.env.JWT_REFRESH_SECRET || 'dev-refresh-secret-change-in-production',
+    process.env.JWT_REFRESH_SECRET, // Sin fallback inseguro - validado en envValidator
     {
       expiresIn,
       issuer: 'rfid-games-platform',
@@ -171,7 +171,7 @@ const verifyAccessToken = (token, req) => {
   try {
     const decoded = jwt.verify(
       token,
-      process.env.JWT_SECRET || 'dev-secret-change-in-production',
+      process.env.JWT_SECRET, // Sin fallback inseguro - validado en envValidator
       {
         issuer: 'rfid-games-platform',
         audience: 'rfid-games-client'
@@ -226,7 +226,7 @@ const verifyRefreshToken = (token, req) => {
   try {
     const decoded = jwt.verify(
       token,
-      process.env.JWT_REFRESH_SECRET || 'dev-refresh-secret-change-in-production',
+      process.env.JWT_REFRESH_SECRET, // Sin fallback inseguro - validado en envValidator
       {
         issuer: 'rfid-games-platform',
         audience: 'rfid-games-client'

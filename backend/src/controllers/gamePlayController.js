@@ -9,6 +9,7 @@ const GameSession = require('../models/GameSession');
 const User = require('../models/User');
 const { NotFoundError, ValidationError, ForbiddenError } = require('../utils/errors');
 const logger = require('../utils/logger');
+const { gamePlayDTO, gamePlayListDTO, paginationDTO } = require('../utils/dtos');
 
 /**
  * Obtener lista de partidas con paginación y filtros.
@@ -76,15 +77,11 @@ const getPlays = async (req, res, next) => {
 
     res.json({
       success: true,
-      data: {
-        plays,
-        pagination: {
-          page: parseInt(page),
-          limit: parseInt(limit),
-          total,
-          pages: Math.ceil(total / limit)
-        }
-      }
+      data: paginationDTO(gamePlayListDTO(plays), {
+        page: parseInt(page),
+        limit: parseInt(limit),
+        total
+      })
     });
   } catch (error) {
     next(error);
@@ -130,9 +127,7 @@ const getPlayById = async (req, res, next) => {
 
     res.json({
       success: true,
-      data: {
-        play
-      }
+      data: gamePlayDTO(play)
     });
   } catch (error) {
     next(error);
@@ -216,9 +211,7 @@ const createPlay = async (req, res, next) => {
     res.status(201).json({
       success: true,
       message: 'Partida creada exitosamente',
-      data: {
-        play
-      }
+      data: gamePlayDTO(play)
     });
   } catch (error) {
     next(error);
@@ -264,7 +257,7 @@ const addEvent = async (req, res, next) => {
       success: true,
       message: 'Evento registrado exitosamente',
       data: {
-        play,
+        ...gamePlayDTO(play),
         event: eventData
       }
     });
@@ -323,7 +316,7 @@ const completePlay = async (req, res, next) => {
       success: true,
       message: 'Partida completada exitosamente',
       data: {
-        play,
+        ...gamePlayDTO(play),
         rating: calculateRating(play.score, play.sessionId.config.pointsPerCorrect)
       }
     });
@@ -370,9 +363,7 @@ const abandonPlay = async (req, res, next) => {
     res.json({
       success: true,
       message: 'Partida abandonada',
-      data: {
-        play
-      }
+      data: gamePlayDTO(play)
     });
   } catch (error) {
     next(error);
