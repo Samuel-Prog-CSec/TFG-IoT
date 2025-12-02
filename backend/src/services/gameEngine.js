@@ -50,6 +50,7 @@ class GameEngine {
      * @type {Map<string, Object>}
      * @property {Object} playDoc - Documento Mongoose de GamePlay
      * @property {Object} sessionDoc - Documento Mongoose de GameSession
+     * @property {Map<string, Object>} uidToMapping - Índice O(1) para búsqueda rápida: uid → cardMapping
      * @property {Object|null} currentChallenge - Desafío actual que debe resolver el jugador
      * @property {NodeJS.Timeout|null} roundTimer - Manejador del setTimeout para el límite de tiempo
      * @property {boolean} awaitingResponse - Indica si se está esperando una respuesta del jugador
@@ -202,17 +203,23 @@ class GameEngine {
       this.cardUidToPlayId.set(mapping.uid, playId);
     }
 
-    // 2. Crear el estado en memoria
+    // 2. Construir índice O(1) para búsqueda rápida de mappings por UID
+    const uidToMapping = new Map(
+      sessionDoc.cardMappings.map(m => [m.uid, m])
+    );
+
+    // 3. Crear el estado en memoria
     const playState = {
       playDoc,
       sessionDoc,
+      uidToMapping, // Índice O(1): uid → mapping completo
       currentChallenge: null,
       roundTimer: null,
       awaitingResponse: false,
       createdAt: Date.now() // Para detectar abandonos
     };
 
-    // 3. Almacenar el estado
+    // 4. Almacenar el estado
     this.activePlays.set(playId, playState);
     this.metrics.totalPlaysStarted++;
 
@@ -223,7 +230,7 @@ class GameEngine {
       activePlaysCount: this.activePlays.size
     });
 
-    // 4. Enviar la primera ronda
+    // 5. Enviar la primera ronda
     await this.sendNextRound(playId);
   }
 
@@ -408,11 +415,11 @@ class GameEngine {
       return;
     }
 
-    // 3. Encontrar el mapping de la tarjeta escaneada
-    const scannedCardMapping = playState.sessionDoc.cardMappings.find(m => m.uid === uid);
+    // 3. Búsqueda O(1) del mapping de la tarjeta escaneada
+    const scannedCardMapping = playState.uidToMapping.get(uid);
     if (!scannedCardMapping) {
-      // Esto NO debería ocurrir si el Map está sincronizado correctamente
-      logger.error(`Error CRÍTICO: ${uid} mapeado a ${playId} pero no encontrado en sessionDoc.`);
+      // Esto NO debería ocurrir si el índice está sincronizado correctamente
+      logger.error(`Error CRÍTICO: ${uid} mapeado a ${playId} pero no encontrado en uidToMapping.`);
       return;
     }
 

@@ -17,3 +17,9 @@
 
 ---
 
+DUDAS DICIEMBRE:
+1. ¿Cómo eliminar los datos de los seeders? ¿Haciendo un drop de la base de datos o eliminando los datos de cada colección individualmente?
+2. Cuando estamos en entorno de desarrollo/testing, ¿cómo podemos obtener un token JWT válido para hacer peticiones autenticadas a la API? ¿Deberíamos crear un endpoint especial para obtener tokens de prueba o hay otra forma recomendada?
+  - 2.1. ¿Deben poderse desactivar las protecciones de autenticación en entorno de desarrollo para facilitar las pruebas?
+3. ¿Separamos las rutas y controladores de los assets y los contextos o los mantenemos juntos en uno solo (el de contextos)?
+4. ¿Es correcto mantener un metadata en el modelos de Card para almacenar información adicional sobre las tarjetas, como descripciones, etiquetas o cualquier otro dato relevante que no encaje en los campos predefinidos? Choca con el uso de assets en contextos

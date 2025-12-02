@@ -47,7 +47,8 @@ const gameMechanicSchema = new mongoose.Schema({
     default: true
   }
 }, {
-  timestamps: true
+  timestamps: true,
+  collection: 'game_mechanics'
 });
 
 /**
@@ -55,10 +56,5 @@ const gameMechanicSchema = new mongoose.Schema({
  * Usado para listar solo las mecánicas disponibles en la creación de sesiones.
  */
 gameMechanicSchema.index({ isActive: 1 });
-
-/**
- * Índice para búsqueda rápida por nombre de mecánica.
- */
-gameMechanicSchema.index({ name: 1 });
 
 module.exports = mongoose.model('GameMechanic', gameMechanicSchema);

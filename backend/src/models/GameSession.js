@@ -25,6 +25,23 @@
 const mongoose = require('mongoose');
 
 /**
+ * Calcula la dificultad del juego basándose en el número de tarjetas.
+ * 
+ * Rangos de dificultad:
+ * - easy: 2-5 tarjetas (juegos simples para niños pequeños)
+ * - medium: 6-12 tarjetas (dificultad intermedia)
+ * - hard: 13-30 tarjetas (juegos más desafiantes)
+ * 
+ * @param {number} numberOfCards - Número de tarjetas en el juego
+ * @returns {string} Nivel de dificultad ('easy', 'medium', 'hard')
+ */
+const calculateDifficulty = (numberOfCards) => {
+  if (numberOfCards <= 5) return 'easy';
+  if (numberOfCards <= 12) return 'medium';
+  return 'hard';
+};
+
+/**
  * Esquema de Mongoose para sesiones de juego.
  * Una sesión es la configuración completa de un juego: mecánica, contexto, tarjetas y reglas.
  * Esta configuración es compartida por múltiples estudiantes que juegan en paralelo.
@@ -33,13 +50,14 @@ const mongoose = require('mongoose');
  * @property {ObjectId} mechanicId - Referencia a la mecánica de juego utilizada
  * @property {ObjectId} contextId - Referencia al contexto temático del juego
  * @property {Object} config - Configuración de las reglas del juego
- * @property {number} config.numberOfCards - Cantidad de tarjetas RFID usadas en el juego (2-20)
+ * @property {number} config.numberOfCards - Cantidad de tarjetas RFID usadas en el juego (2-30)
  * @property {number} config.numberOfRounds - Número de rondas/desafíos del juego
  * @property {number} config.timeLimit - Tiempo límite por ronda en segundos (3-60)
  * @property {number} config.pointsPerCorrect - Puntos otorgados por respuesta correcta
  * @property {number} config.penaltyPerError - Puntos restados por respuesta incorrecta (número negativo)
  * @property {Array<CardMapping>} cardMappings - Mapeo de tarjetas RFID a valores del juego
  * @property {string} status - Estado de la sesión (created, active, paused, completed)
+ * @property {string} difficulty - Dificultad del juego (easy, medium, hard)
  * @property {Date} [startedAt] - Fecha y hora de inicio de la sesión
  * @property {Date} [endedAt] - Fecha y hora de finalización de la sesión
  * @property {ObjectId} createdBy - ID del profesor que creó la sesión (ref: User)
@@ -68,7 +86,7 @@ const gameSessionSchema = new mongoose.Schema({
       type: Number,
       required: true,
       min: 2,
-      max: 20
+      max: 30
     },
     numberOfRounds: {
       type: Number,
@@ -142,7 +160,8 @@ const gameSessionSchema = new mongoose.Schema({
     required: true
   }
 }, {
-  timestamps: true
+  timestamps: true,
+  collection: 'game_sessions'
 });
 
 /**
@@ -198,6 +217,24 @@ gameSessionSchema.methods.isActive = function() {
 };
 
 /**
+ * Middleware pre-save para auto-calcular la dificultad.
+ * Se ejecuta antes de guardar y calcula la dificultad basándose en numberOfCards.
+ */
+gameSessionSchema.pre('save', function(next) {
+  // Solo auto-calcular si:
+  // 1. Es un documento nuevo
+  // 2. Se modificó numberOfCards
+  const shouldAutoCalculate = 
+    this.isNew || 
+    this.isModified('config.numberOfCards');
+  if (shouldAutoCalculate && this.config && this.config.numberOfCards) {
+    this.difficulty = calculateDifficulty(this.config.numberOfCards);
+  }
+
+  next();
+});
+
+/**
  * Validación personalizada para el array de cardMappings.
  * Asegura que:
  * 1. El array no esté vacío
@@ -234,4 +271,7 @@ gameSessionSchema.index({ mechanicId: 1 });
  */
 gameSessionSchema.index({ contextId: 1 });
 
-module.exports = mongoose.model('GameSession', gameSessionSchema);
+const GameSession = mongoose.model('GameSession', gameSessionSchema);
+
+// Exportar modelo y función auxiliar
+module.exports = GameSession;

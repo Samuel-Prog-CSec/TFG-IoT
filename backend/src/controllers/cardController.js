@@ -23,7 +23,7 @@ const getCards = async (req, res, next) => {
   try {
     const {
       page = 1,
-      limit = 20,
+      limit = 30,
       sortBy = 'createdAt',
       order = 'desc',
       status,
@@ -43,7 +43,7 @@ const getCards = async (req, res, next) => {
     }
 
     // Paginación
-    const skip = (page - 1) * limit;
+    const skip = (page - 1) * limit; // Calcular offset
     const sortOptions = { [sortBy]: order === 'asc' ? 1 : -1 };
 
     // Ejecutar query

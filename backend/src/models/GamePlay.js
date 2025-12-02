@@ -72,18 +72,19 @@ const gamePlaySchema = new mongoose.Schema({
     eventType: {
       type: String,
       lowercase: true,
+      required: true,
       trim : true,
       enum: ['card_scanned', 'correct', 'error', 'timeout', 'round_start', 'round_end']
     },
-    cardUid: {
-      type: String,
-      required: false
-    },
+    cardUid: String,
     expectedValue: String,
     actualValue: String,
     pointsAwarded: Number,
     timeElapsed: Number,
-    roundNumber: Number
+    roundNumber: {
+      type: Number,
+      required: true
+    }
   }],
   metrics: {
     totalAttempts: {
@@ -124,7 +125,8 @@ const gamePlaySchema = new mongoose.Schema({
   },
   completedAt: Date
 }, {
-  timestamps: true
+  timestamps: true,
+  collection: 'gameplays'
 });
 
 /**

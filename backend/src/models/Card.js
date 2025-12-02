@@ -52,14 +52,9 @@ const cardSchema = new mongoose.Schema({
     lastUsed: Date
   }
 }, {
-  timestamps: true
+  timestamps: true, // Añade createdAt y updatedAt automáticamente
+  collection: 'cards'
 });
-
-/**
- * Índice para búsqueda rápida por UID.
- * Aunque el campo ya es único, este índice mejora el rendimiento de las búsquedas.
- */
-cardSchema.index({ uid: 1 });
 
 /**
  * Índice para filtrar tarjetas por estado.

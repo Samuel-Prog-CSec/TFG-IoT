@@ -9,6 +9,12 @@ const { nodeProfilingIntegration } = require('@sentry/profiling-node');
 const logger = require('../utils/logger');
 
 /**
+ * Flag para saber si Sentry está activo
+ * @type {boolean}
+ */
+let isSentryEnabled = false;
+
+/**
  * Inicializa Sentry con la configuración apropiada según el entorno.
  * Actualizado para Sentry v10+ con nueva API de integraciones.
  *
@@ -18,6 +24,7 @@ function initSentry() {
   // Solo inicializar si hay DSN configurado
   if (!process.env.SENTRY_DSN) {
     logger.warn('SENTRY_DSN no configurado. Sentry deshabilitado.');
+    isSentryEnabled = false;
     return;
   }
 
@@ -61,7 +68,65 @@ function initSentry() {
     },
   });
 
+  isSentryEnabled = true;
   logger.info(`Sentry inicializado en modo ${process.env.NODE_ENV || 'development'}`);
 }
 
-module.exports = { initSentry, Sentry };
+/**
+ * Middleware dummy que no hace nada (usado cuando Sentry está deshabilitado)
+ * @param {import('express').Request} req
+ * @param {import('express').Response} res
+ * @param {import('express').NextFunction} next
+ */
+const noopMiddleware = (req, res, next) => next();
+
+/**
+ * Middleware de error dummy (usado cuando Sentry está deshabilitado)
+ * @param {Error} err
+ * @param {import('express').Request} req
+ * @param {import('express').Response} res
+ * @param {import('express').NextFunction} next
+ */
+const noopErrorMiddleware = (err, req, res, next) => next(err);
+
+/**
+ * Objeto que envuelve los Handlers de Sentry con fallback cuando está deshabilitado.
+ * En Sentry v10+ los handlers están directamente en Sentry.
+ */
+const SentryHandlers = {
+  requestHandler: () => isSentryEnabled ? Sentry.Handlers.requestHandler() : noopMiddleware,
+  tracingHandler: () => isSentryEnabled ? Sentry.Handlers.tracingHandler() : noopMiddleware,
+  errorHandler: () => isSentryEnabled ? Sentry.Handlers.errorHandler() : noopErrorMiddleware
+};
+
+/**
+ * Wrapper para captureException que no hace nada si Sentry está deshabilitado
+ * @param {Error} exception
+ * @param {Object} [hint]
+ */
+const captureException = (exception, hint) => {
+  if (isSentryEnabled) {
+    Sentry.captureException(exception, hint);
+  }
+};
+
+/**
+ * Wrapper para captureMessage que no hace nada si Sentry está deshabilitado
+ * @param {string} message
+ * @param {Object} [hint]
+ */
+const captureMessage = (message, hint) => {
+  if (isSentryEnabled) {
+    Sentry.captureMessage(message, hint);
+  }
+};
+
+module.exports = {
+  initSentry,
+  Sentry: {
+    ...Sentry,
+    Handlers: SentryHandlers,
+    captureException,
+    captureMessage
+  }
+};

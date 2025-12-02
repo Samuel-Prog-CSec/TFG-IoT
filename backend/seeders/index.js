@@ -19,6 +19,7 @@ const seedCards = require('./02-cards');
 const seedMechanics = require('./03-mechanics');
 const seedContexts = require('./04-contexts');
 const seedSessions = require('./05-sessions');
+const seedGamePlays = require('./06-gameplays');
 
 /**
  * Conecta a la base de datos.
@@ -89,6 +90,11 @@ async function runSeeders() {
     const sessions = await seedSessions(users, mechanics, contexts, cards);
     logger.info(`  ✓ ${sessions.length} sesiones creadas\n`);
 
+    // 6. Partidas individuales (GamePlays)
+    logger.info('6️⃣  Seeding partidas (GamePlays)...');
+    const gamePlays = await seedGamePlays(sessions, users.students);
+    logger.info(`  ✓ ${gamePlays.length} partidas creadas\n`);
+
     logger.info('✅ Seeders completados exitosamente!');
     logger.info('\n📊 Resumen:');
     logger.info(`   - ${users.teachers.length} profesores`);
@@ -96,13 +102,19 @@ async function runSeeders() {
     logger.info(`   - ${cards.length} tarjetas RFID`);
     logger.info(`   - ${mechanics.length} mecánicas de juego`);
     logger.info(`   - ${contexts.length} contextos de juego`);
-    logger.info(`   - ${sessions.length} sesiones de juego\n`);
+    logger.info(`   - ${sessions.length} sesiones de juego`);
+    logger.info(`   - ${gamePlays.length} partidas (GamePlays)\n`);
 
     // Mostrar credenciales de profesores
-    logger.info('🔑 Credenciales de profesores:');
-    users.teachers.forEach((teacher, index) => {
-      logger.info(`   ${index + 1}. ${teacher.email} / password123`);
-    });
+    logger.info('🔑 Credenciales de profesores para testing:');
+    logger.info('   ┌────────────────────────────────────────────┐');
+    logger.info('   │  Email              │  Password            │');
+    logger.info('   ├────────────────────────────────────────────┤');
+    logger.info('   │  maria@test.com     │  Test1234!           │');
+    logger.info('   │  carlos@test.com    │  Test1234!           │');
+    logger.info('   │  ana@test.com       │  Test1234!           │');
+    logger.info('   │  admin@test.com     │  Admin1234!          │');
+    logger.info('   └────────────────────────────────────────────┘');
     logger.info('');
 
   } catch (error) {

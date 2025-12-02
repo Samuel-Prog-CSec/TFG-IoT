@@ -300,8 +300,8 @@ const completePlay = async (req, res, next) => {
     const player = await User.findById(play.playerId._id);
     await player.updateStudentMetrics({
       score: play.score,
-      correctAnswers: play.metrics.correctAttempts,
-      errors: play.metrics.errorAttempts,
+      correctAttempts: play.metrics.correctAttempts,
+      errorAttempts: play.metrics.errorAttempts,
       averageResponseTime: play.metrics.averageResponseTime
     });
 

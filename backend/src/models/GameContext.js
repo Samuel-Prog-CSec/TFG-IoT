@@ -30,8 +30,8 @@ const mongoose = require('mongoose');
  * @typedef {Object} GameContext
  * @property {string} contextId - Identificador único del contexto (ej: 'geography', 'history')
  * @property {string} name - Nombre amigable del contexto para mostrar en la interfaz
+ * @property {boolean} isActive - Indica si el contexto está habilitado en el sistema
  * @property {Array<Asset>} assets - Array de recursos/elementos del contexto
- * @property {string} difficulty - Nivel de dificultad del contexto (easy, medium, hard)
  * @property {Date} createdAt - Fecha de creación del registro
  * @property {Date} updatedAt - Fecha de última actualización
  *
@@ -54,6 +54,10 @@ const gameContextSchema = new mongoose.Schema({
     type: String,
     required: true
   },
+  isActive: {
+    type: Boolean,
+    default: true
+  },
   assets: [{
     key: {
       type: String,
@@ -72,7 +76,8 @@ const gameContextSchema = new mongoose.Schema({
   }]
 }, 
 {
-  timestamps: true
+  timestamps: true,
+  collection: 'game_contexts'
 });
 
 /**
@@ -88,11 +93,5 @@ gameContextSchema.path('assets').validate(function(value) {
   }
   return true;
 }, 'El array de assets no puede estar vacío.');
-
-/**
- * Índice único para contextId.
- * Permite búsqueda rápida de contextos por su identificador.
- */
-gameContextSchema.index({ contextId: 1 });
 
 module.exports = mongoose.model('GameContext', gameContextSchema);

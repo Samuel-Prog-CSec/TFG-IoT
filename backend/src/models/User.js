@@ -154,7 +154,8 @@ const userSchema = new mongoose.Schema({
   },
   lastLoginAt: Date
 }, {
-  timestamps: true
+  timestamps: true,
+  collection: 'users'
 });
 
 /**
@@ -185,7 +186,7 @@ userSchema.pre('save', async function(next) {
   // VALIDACIÓN PARA ALUMNOS (role: 'student')
   // ========================================
   if (this.role === 'student') {
-    // ✅ VALIDACIÓN ESTRICTA: Los alumnos NO deben tener email ni password
+    // VALIDACIÓN ESTRICTA: Los alumnos NO deben tener email ni password
     if (this.email) {
       return next(new Error('Los alumnos NO deben tener email. Son creados por profesores y no inician sesión.'));
     }
@@ -193,7 +194,7 @@ userSchema.pre('save', async function(next) {
       return next(new Error('Los alumnos NO deben tener contraseña. Son creados por profesores y no inician sesión.'));
     }
 
-    // ✅ Validar que tenga un creador (profesor)
+    // VALIDAR que tenga un creador (profesor)
     if (!this.createdBy && this.isNew) {
       return next(new Error('Los alumnos deben ser creados por un profesor (campo createdBy requerido)'));
     }
@@ -343,12 +344,6 @@ userSchema.set('toJSON', {
     return ret;
   }
 });
-
-/**
- * Índice para búsqueda por email (login de profesores).
- * Es único y sparse para permitir múltiples alumnos sin email.
- */
-userSchema.index({ email: 1 });
 
 /**
  * Índice para filtrar usuarios por rol.

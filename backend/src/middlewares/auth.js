@@ -11,6 +11,18 @@ const User = require('../models/User');
 const logger = require('../utils/logger');
 
 /**
+ * Flag para bypass de autenticación en desarrollo.
+ * NUNCA debe estar habilitado en producción.
+ */
+const AUTH_BYPASS_ENABLED =
+  process.env.NODE_ENV === 'development' &&
+  process.env.AUTH_BYPASS_FOR_DEV === 'true';
+
+if (AUTH_BYPASS_ENABLED) {
+  logger.warn('AUTH_BYPASS_FOR_DEV está habilitado. NO usar en producción.');
+}
+
+/**
  * In-memory blacklist para tokens revocados.
  * TODO: En producción, usar Redis con TTL para escalabilidad.
  * Map<token_jti, expiration_timestamp>
@@ -310,6 +322,9 @@ const parseExpiration = (expiration) => {
  * Extrae y verifica el access token del header Authorization.
  * Adjunta el usuario completo a req.user y el JTI a req.tokenJti.
  *
+ * En desarrollo con AUTH_BYPASS_FOR_DEV=true, permite acceso sin token
+ * usando un usuario "mock" de profesor.
+ *
  * Uso:
  * router.get('/profile', authenticate, getProfile);
  *
@@ -319,7 +334,71 @@ const parseExpiration = (expiration) => {
  */
 const authenticate = async (req, res, next) => {
   try {
-    // Extraer token del header
+    // Bypass de autenticación para desarrollo
+    if (AUTH_BYPASS_ENABLED) {
+      const authHeader = req.headers.authorization;
+
+      // Si hay token, intentar usarlo normalmente
+      if (authHeader && authHeader.startsWith('Bearer ')) {
+        // Intentar autenticación normal (sin validar fingerprint estrictamente)
+        try {
+          const token = authHeader.split(' ')[1];
+          const decoded = jwt.verify(token, process.env.JWT_SECRET, {
+            issuer: 'rfid-games-platform',
+            audience: 'rfid-games-client'
+          });
+
+          const user = await User.findById(decoded.id).select('-password');
+          if (user && user.status === 'active') {
+            req.user = user;
+            req.tokenJti = decoded.jti;
+            req.tokenExp = decoded.exp;
+            logger.debug('Usuario autenticado (dev mode con token)', {
+              userId: user._id,
+              email: user.email
+            });
+            return next();
+          }
+        } catch (tokenError) {
+          logger.debug('Token inválido en dev mode, usando mock user', {
+            error: tokenError.message
+          });
+        }
+      }
+
+      // Sin token válido: usar mock user (primer profesor disponible)
+      const mockUser = await User.findOne({ role: 'teacher', status: 'active' }).select('-password');
+
+      if (mockUser) {
+        req.user = mockUser;
+        req.tokenJti = 'dev-bypass-jti';
+        req.tokenExp = Math.floor(Date.now() / 1000) + 3600;
+
+        logger.debug('Auth bypass activo - usando mock user', {
+          userId: mockUser._id,
+          email: mockUser.email,
+          path: req.path
+        });
+
+        return next();
+      }
+
+      // Si no hay usuarios en la BD, crear uno temporal en memoria
+      req.user = {
+        _id: 'dev-mock-user-id',
+        name: 'Dev User',
+        email: 'dev@test.com',
+        role: 'teacher',
+        status: 'active'
+      };
+      req.tokenJti = 'dev-bypass-jti';
+      req.tokenExp = Math.floor(Date.now() / 1000) + 3600;
+
+      logger.debug('Auth bypass activo - usando usuario temporal', { path: req.path });
+      return next();
+    }
+
+    // Flujo normal de autenticación (producción)
     const authHeader = req.headers.authorization;
 
     if (!authHeader || !authHeader.startsWith('Bearer ')) {

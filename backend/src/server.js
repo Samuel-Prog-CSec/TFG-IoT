@@ -15,7 +15,7 @@ const cors = require('cors');
 const http = require('http');
 const helmet = require('helmet');
 const compression = require('compression');
-const { socketio } = require('socket.io');
+const { Server } = require('socket.io');
 const { connectDB, disconnectDB } = require('./config/database');
 const { initSentry, Sentry } = require('./config/sentry');
 const {
@@ -51,7 +51,7 @@ const server = http.createServer(app);
 initSentry();
 
 // Configurar Socket.io con CORS seguro
-const io = new socketio(server, {
+const io = new Server(server, {
   cors: corsOptions,
   pingTimeout: 60000, // 60 segundos
   pingInterval: 25000, // 25 segundos
@@ -392,9 +392,14 @@ const startServer = async () => {
     await connectDB();
     logger.info('Base de datos conectada');
 
-    // Conectar al sensor RFID
-    logger.info('Iniciando servicio RFID...');
-    rfidService.connect(); // Servicio logueará por su cuenta si se conecta o no
+    // Conectar al sensor RFID (solo si está habilitado)
+    const rfidEnabled = process.env.RFID_ENABLED !== 'false';
+    if (rfidEnabled) {
+      logger.info('Iniciando servicio RFID...');
+      rfidService.connect(); // Servicio logueará por su cuenta si se conecta o no
+    } else {
+      logger.info('Servicio RFID deshabilitado (RFID_ENABLED=false)');
+    }
 
     // Iniciar servidor HTTP
     server.listen(PORT, () => {

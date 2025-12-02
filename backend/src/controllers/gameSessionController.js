@@ -134,7 +134,7 @@ const getSessionById = async (req, res, next) => {
  *
  * POST /api/sessions
  * Headers: Authorization: Bearer <token>
- * Body: { mechanicId, contextId, config, cardMappings, difficulty? }
+ * Body: { mechanicId, contextId, config, cardMappings }
  *
  * @param {import('express').Request} req
  * @param {import('express').Response} res
@@ -142,7 +142,7 @@ const getSessionById = async (req, res, next) => {
  */
 const createSession = async (req, res, next) => {
   try {
-    const { mechanicId, contextId, config, cardMappings, difficulty } = req.body;
+    const { mechanicId, contextId, config, cardMappings } = req.body;
 
     // Verificar que la mecánica existe y está activa
     const mechanic = await GameMechanic.findById(mechanicId);
@@ -183,15 +183,17 @@ const createSession = async (req, res, next) => {
     }
 
     // Crear la sesión
-    const session = await GameSession.create({
+    // NOTA: La dificultad se auto-calcula en el modelo basándose en numberOfCards
+    const sessionData = {
       mechanicId,
       contextId,
       config,
       cardMappings,
-      difficulty: difficulty || 'medium',
       status: 'created',
       createdBy: req.user._id
-    });
+    };
+
+    const session = await GameSession.create(sessionData);
 
     // Populate para respuesta completa
     await session.populate([
@@ -224,7 +226,7 @@ const createSession = async (req, res, next) => {
  *
  * PUT /api/sessions/:id
  * Headers: Authorization: Bearer <token>
- * Body: { config?, difficulty? }
+ * Body: { config? }
  *
  * @param {import('express').Request} req
  * @param {import('express').Response} res
@@ -233,7 +235,7 @@ const createSession = async (req, res, next) => {
 const updateSession = async (req, res, next) => {
   try {
     const { id } = req.params;
-    const { config, difficulty } = req.body;
+    const { config } = req.body;
 
     const session = await GameSession.findById(id);
 
@@ -254,9 +256,6 @@ const updateSession = async (req, res, next) => {
     // Actualizar campos
     if (config) {
       session.config = { ...session.config, ...config };
-    }
-    if (difficulty) {
-      session.difficulty = difficulty;
     }
 
     await session.save();

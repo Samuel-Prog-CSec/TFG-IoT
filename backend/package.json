@@ -8,6 +8,7 @@
     "dev": "nodemon src/server.js",
     "seed": "node seeders/index.js",
     "seed:reset": "node seeders/index.js --reset",
+    "token": "node scripts/get-test-token.js",
     "lint": "eslint src/**/*.js seeders/**/*.js",
     "lint:fix": "eslint src/**/*.js seeders/**/*.js --fix",
     "format": "prettier --write \"src/**/*.js\" \"seeders/**/*.js\"",
@@ -20,10 +21,17 @@
   },
   "keywords": [
     "rfid",
-    "educational",
-    "games",
+    "backend",
+    "educational_games",
     "mern",
-    "iot"
+    "iot",
+    "nodejs",
+    "express",
+    "mongodb",
+    "socket.io",
+    "serialport",
+    "sentry",
+    "api_rest"
   ],
   "author": "Samuel Blanchart Pérez",
   "dependencies": {
