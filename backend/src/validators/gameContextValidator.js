@@ -9,8 +9,7 @@ const { z } = require('zod');
 /**
  * Schema para ObjectId de MongoDB
  */
-const objectIdSchema = z.string()
-  .regex(/^[0-9a-fA-F]{24}$/, 'Formato de ObjectId inválido');
+const objectIdSchema = z.string().regex(/^[0-9a-fA-F]{24}$/, 'Formato de ObjectId inválido');
 
 /**
  * Schema para un asset individual dentro del contexto.
@@ -28,32 +27,32 @@ const objectIdSchema = z.string()
  * }
  */
 const assetSchema = z.object({
-  key: z.string()
+  key: z
+    .string()
     .min(1, 'La clave del asset es requerida')
     .max(100, 'La clave no puede exceder 100 caracteres')
     .trim()
     .toLowerCase()
-    .regex(/^[a-z0-9_-]+$/, 'La clave solo puede contener letras minúsculas, números, guiones y guiones bajos'),
+    .regex(
+      /^[a-z0-9_-]+$/,
+      'La clave solo puede contener letras minúsculas, números, guiones y guiones bajos'
+    ),
 
-  display: z.string()
+  display: z
+    .string()
     .min(1, 'El display del asset es requerido')
     .max(200, 'El display no puede exceder 200 caracteres')
     .trim(),
 
-  value: z.string()
+  value: z
+    .string()
     .min(1, 'El valor del asset es requerido')
     .max(200, 'El valor no puede exceder 200 caracteres')
     .trim(),
 
-  audioUrl: z.string()
-    .url('La URL del audio debe ser válida')
-    .trim()
-    .optional(),
+  audioUrl: z.string().url('La URL del audio debe ser válida').trim().optional(),
 
-  imageUrl: z.string()
-    .url('La URL de la imagen debe ser válida')
-    .trim()
-    .optional()
+  imageUrl: z.string().url('La URL de la imagen debe ser válida').trim().optional()
 });
 
 /**
@@ -78,76 +77,80 @@ const assetSchema = z.object({
  *   ]
  * }
  */
-const createGameContextSchema = z.object({
-  contextId: z.string()
-    .min(2, 'El contextId debe tener al menos 2 caracteres')
-    .max(50, 'El contextId no puede exceder 50 caracteres')
-    .trim()
-    .toLowerCase()
-    .regex(/^[a-z0-9_-]+$/, 'El contextId solo puede contener letras minúsculas, números, guiones y guiones bajos'),
+const createGameContextSchema = z
+  .object({
+    contextId: z
+      .string()
+      .min(2, 'El contextId debe tener al menos 2 caracteres')
+      .max(50, 'El contextId no puede exceder 50 caracteres')
+      .trim()
+      .toLowerCase()
+      .regex(
+        /^[a-z0-9_-]+$/,
+        'El contextId solo puede contener letras minúsculas, números, guiones y guiones bajos'
+      ),
 
-  name: z.string()
-    .min(2, 'El nombre debe tener al menos 2 caracteres')
-    .max(100, 'El nombre no puede exceder 100 caracteres')
-    .trim(),
+    name: z
+      .string()
+      .min(2, 'El nombre debe tener al menos 2 caracteres')
+      .max(100, 'El nombre no puede exceder 100 caracteres')
+      .trim(),
 
-  assets: z.array(assetSchema)
-    .min(2, 'Debe haber al menos 2 assets en el contexto')
-    .max(100, 'No se pueden tener más de 100 assets')
-}).refine(
-  (data) => {
-    // Validar que las keys de los assets sean únicas
-    const keys = data.assets.map(asset => asset.key);
-    const uniqueKeys = new Set(keys);
-    return keys.length === uniqueKeys.size;
-  },
-  {
-    message: 'Las claves (keys) de los assets deben ser únicas',
-    path: ['assets']
-  }
-);
+    assets: z
+      .array(assetSchema)
+      .min(2, 'Debe haber al menos 2 assets en el contexto')
+      .max(100, 'No se pueden tener más de 100 assets')
+  })
+  .refine(
+    data => {
+      // Validar que las keys de los assets sean únicas
+      const keys = data.assets.map(asset => asset.key);
+      const uniqueKeys = new Set(keys);
+      return keys.length === uniqueKeys.size;
+    },
+    {
+      message: 'Las claves (keys) de los assets deben ser únicas',
+      path: ['assets']
+    }
+  );
 
 /**
  * Schema para actualizar un contexto existente.
  * Permite actualización parcial pero valida unicidad de keys si se modifican assets.
  */
-const updateGameContextSchema = z.object({
-  contextId: z.string()
-    .min(2)
-    .max(50)
-    .trim()
-    .toLowerCase()
-    .regex(/^[a-z0-9_-]+$/)
-    .optional(),
+const updateGameContextSchema = z
+  .object({
+    contextId: z
+      .string()
+      .min(2)
+      .max(50)
+      .trim()
+      .toLowerCase()
+      .regex(/^[a-z0-9_-]+$/)
+      .optional(),
 
-  name: z.string()
-    .min(2)
-    .max(100)
-    .trim()
-    .optional(),
+    name: z.string().min(2).max(100).trim().optional(),
 
-  assets: z.array(assetSchema)
-    .min(2)
-    .max(100)
-    .optional()
-}).refine(
-  (data) => Object.keys(data).length > 0,
-  { message: 'Debe proporcionar al menos un campo para actualizar' }
-).refine(
-  (data) => {
-    // Si se actualizan assets, validar unicidad
-    if (data.assets) {
-      const keys = data.assets.map(asset => asset.key);
-      const uniqueKeys = new Set(keys);
-      return keys.length === uniqueKeys.size;
+    assets: z.array(assetSchema).min(2).max(100).optional()
+  })
+  .refine(data => Object.keys(data).length > 0, {
+    message: 'Debe proporcionar al menos un campo para actualizar'
+  })
+  .refine(
+    data => {
+      // Si se actualizan assets, validar unicidad
+      if (data.assets) {
+        const keys = data.assets.map(asset => asset.key);
+        const uniqueKeys = new Set(keys);
+        return keys.length === uniqueKeys.size;
+      }
+      return true;
+    },
+    {
+      message: 'Las claves (keys) de los assets deben ser únicas',
+      path: ['assets']
     }
-    return true;
-  },
-  {
-    message: 'Las claves (keys) de los assets deben ser únicas',
-    path: ['assets']
-  }
-);
+  );
 
 /**
  * Schema para query params de búsqueda de contextos.
@@ -156,27 +159,23 @@ const updateGameContextSchema = z.object({
  * GET /contexts?page=1&limit=10&sortBy=name&order=asc&search=geo
  */
 const gameContextQuerySchema = z.object({
-  page: z.string()
+  page: z
+    .string()
     .optional()
-    .transform(val => val ? parseInt(val, 10) : 1)
+    .transform(val => (val ? parseInt(val, 10) : 1))
     .pipe(z.number().int().min(1)),
 
-  limit: z.string()
+  limit: z
+    .string()
     .optional()
-    .transform(val => val ? parseInt(val, 10) : 20)
+    .transform(val => (val ? parseInt(val, 10) : 20))
     .pipe(z.number().int().min(1).max(100)),
 
-  sortBy: z.enum(['contextId', 'name', 'createdAt', 'updatedAt'])
-    .optional()
-    .default('createdAt'),
+  sortBy: z.enum(['contextId', 'name', 'createdAt', 'updatedAt']).optional().default('createdAt'),
 
-  order: z.enum(['asc', 'desc'])
-    .optional()
-    .default('desc'),
+  order: z.enum(['asc', 'desc']).optional().default('desc'),
 
-  search: z.string()
-    .trim()
-    .optional()
+  search: z.string().trim().optional()
 });
 
 /**

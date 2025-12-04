@@ -24,15 +24,13 @@ const logger = require('../utils/logger');
  */
 const connectDB = async () => {
   try {
-    const conn = await mongoose.connect(process.env.MONGODB_URI, {
-      useNewUrlParser: true,
-      useUnifiedTopology: true,
-    });
+    // Mongoose 9.x no requiere opciones adicionales de conexión
+    const conn = await mongoose.connect(process.env.MONGO_URI);
 
     logger.info(`MongoDB Connected: ${conn.connection.host}`);
 
     // Listeners de eventos de conexión
-    mongoose.connection.on('error', (err) => {
+    mongoose.connection.on('error', err => {
       logger.error(`MongoDB connection error: ${err}`);
     });
 

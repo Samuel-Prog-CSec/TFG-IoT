@@ -11,13 +11,11 @@ const { z } = require('zod');
  * Debe ser 8 o 14 caracteres hexadecimales (MIFARE/NTAG).
  * @type {import('zod').ZodString}
  */
-const uidSchema = z.string()
+const uidSchema = z
+  .string()
   .trim()
   .toUpperCase()
-  .regex(
-    /^[0-9A-F]{8}$|^[0-9A-F]{14}$/,
-    'UID debe ser 8 o 14 caracteres hexadecimales'
-  );
+  .regex(/^[0-9A-F]{8}$|^[0-9A-F]{14}$/, 'UID debe ser 8 o 14 caracteres hexadecimales');
 
 /**
  * Schema para crear una nueva tarjeta RFID.
@@ -25,18 +23,24 @@ const uidSchema = z.string()
 const createCardSchema = z.object({
   uid: uidSchema,
 
-  type: z.enum(['MIFARE_1KB', 'MIFARE_4KB', 'NTAG', 'UNKNOWN'], {
-    errorMap: () => ({ message: 'Tipo de tarjeta inválido' })
-  }).default('UNKNOWN'),
+  type: z
+    .enum(['MIFARE_1KB', 'MIFARE_4KB', 'NTAG', 'UNKNOWN'], {
+      errorMap: () => ({ message: 'Tipo de tarjeta inválido' })
+    })
+    .default('UNKNOWN'),
 
-  status: z.enum(['active', 'inactive', 'lost'], {
-    errorMap: () => ({ message: 'Estado de tarjeta inválido' })
-  }).default('active'),
+  status: z
+    .enum(['active', 'inactive', 'lost'], {
+      errorMap: () => ({ message: 'Estado de tarjeta inválido' })
+    })
+    .default('active'),
 
-  metadata: z.object({
-    color: z.string().trim().optional(),
-    icon: z.string().trim().optional()
-  }).optional()
+  metadata: z
+    .object({
+      color: z.string().trim().optional(),
+      icon: z.string().trim().optional()
+    })
+    .optional()
 });
 
 /**
@@ -48,10 +52,12 @@ const updateCardSchema = z.object({
 
   status: z.enum(['active', 'inactive', 'lost']).optional(),
 
-  metadata: z.object({
-    color: z.string().trim().optional(),
-    icon: z.string().trim().optional()
-  }).optional()
+  metadata: z
+    .object({
+      color: z.string().trim().optional(),
+      icon: z.string().trim().optional()
+    })
+    .optional()
 });
 
 /**
@@ -61,11 +67,13 @@ const cardQuerySchema = z.object({
   uid: uidSchema.optional(),
   type: z.enum(['MIFARE_1KB', 'MIFARE_4KB', 'NTAG', 'UNKNOWN']).optional(),
   status: z.enum(['active', 'inactive', 'lost']).optional(),
-  page: z.string()
+  page: z
+    .string()
     .transform(val => parseInt(val, 10))
     .pipe(z.number().int().min(1).default(1))
     .optional(),
-  limit: z.string()
+  limit: z
+    .string()
     .transform(val => parseInt(val, 10))
     .pipe(z.number().int().min(1).max(100).default(20))
     .optional(),

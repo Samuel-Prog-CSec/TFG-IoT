@@ -7,6 +7,7 @@
 const GameMechanic = require('../models/GameMechanic');
 const { NotFoundError, ConflictError } = require('../utils/errors');
 const logger = require('../utils/logger');
+const { gameMechanicDTO, gameMechanicListDTO, paginationDTO } = require('../utils/dtos');
 
 /**
  * Obtener lista de mecánicas con paginación y filtros.
@@ -32,7 +33,9 @@ const getMechanics = async (req, res, next) => {
     // Construir filtro
     const filter = {};
 
-    if (isActive !== undefined) filter.isActive = isActive;
+    if (isActive !== undefined) {
+      filter.isActive = isActive;
+    }
 
     // Búsqueda por nombre o displayName
     if (search) {
@@ -48,10 +51,7 @@ const getMechanics = async (req, res, next) => {
 
     // Ejecutar query
     const [mechanics, total] = await Promise.all([
-      GameMechanic.find(filter)
-        .sort(sortOptions)
-        .limit(parseInt(limit))
-        .skip(skip),
+      GameMechanic.find(filter).sort(sortOptions).limit(parseInt(limit)).skip(skip),
       GameMechanic.countDocuments(filter)
     ]);
 
@@ -63,15 +63,11 @@ const getMechanics = async (req, res, next) => {
 
     res.json({
       success: true,
-      data: {
-        mechanics,
-        pagination: {
-          page: parseInt(page),
-          limit: parseInt(limit),
-          total,
-          pages: Math.ceil(total / limit)
-        }
-      }
+      data: paginationDTO(gameMechanicListDTO(mechanics), {
+        page: parseInt(page),
+        limit: parseInt(limit),
+        total
+      })
     });
   } catch (error) {
     next(error);
@@ -108,9 +104,7 @@ const getMechanicById = async (req, res, next) => {
 
     res.json({
       success: true,
-      data: {
-        mechanic
-      }
+      data: gameMechanicDTO(mechanic)
     });
   } catch (error) {
     next(error);
@@ -159,9 +153,7 @@ const createMechanic = async (req, res, next) => {
     res.status(201).json({
       success: true,
       message: 'Mecánica creada exitosamente',
-      data: {
-        mechanic
-      }
+      data: gameMechanicDTO(mechanic)
     });
   } catch (error) {
     next(error);
@@ -193,11 +185,21 @@ const updateMechanic = async (req, res, next) => {
     }
 
     // Actualizar campos permitidos (name es inmutable)
-    if (displayName) mechanic.displayName = displayName;
-    if (description) mechanic.description = description;
-    if (icon) mechanic.icon = icon;
-    if (rules) mechanic.rules = { ...mechanic.rules, ...rules };
-    if (isActive !== undefined) mechanic.isActive = isActive;
+    if (displayName) {
+      mechanic.displayName = displayName;
+    }
+    if (description) {
+      mechanic.description = description;
+    }
+    if (icon) {
+      mechanic.icon = icon;
+    }
+    if (rules) {
+      mechanic.rules = { ...mechanic.rules, ...rules };
+    }
+    if (isActive !== undefined) {
+      mechanic.isActive = isActive;
+    }
 
     await mechanic.save();
 
@@ -210,9 +212,7 @@ const updateMechanic = async (req, res, next) => {
     res.json({
       success: true,
       message: 'Mecánica actualizada exitosamente',
-      data: {
-        mechanic
-      }
+      data: gameMechanicDTO(mechanic)
     });
   } catch (error) {
     next(error);
@@ -271,14 +271,12 @@ const deleteMechanic = async (req, res, next) => {
  */
 const getActiveMechanics = async (req, res, next) => {
   try {
-    const mechanics = await GameMechanic.find({ isActive: true })
-      .sort({ name: 1 })
-      .select('-__v');
+    const mechanics = await GameMechanic.find({ isActive: true }).sort({ name: 1 }).select('-__v');
 
     res.json({
       success: true,
       data: {
-        mechanics,
+        mechanics: gameMechanicListDTO(mechanics),
         count: mechanics.length
       }
     });

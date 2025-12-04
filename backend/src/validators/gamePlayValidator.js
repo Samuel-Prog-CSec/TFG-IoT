@@ -9,8 +9,7 @@ const { z } = require('zod');
 /**
  * Schema para ObjectId de MongoDB
  */
-const objectIdSchema = z.string()
-  .regex(/^[0-9a-fA-F]{24}$/, 'Formato de ObjectId inválido');
+const objectIdSchema = z.string().regex(/^[0-9a-fA-F]{24}$/, 'Formato de ObjectId inválido');
 
 /**
  * Schema para un evento individual en la partida.
@@ -28,42 +27,31 @@ const objectIdSchema = z.string()
  * }
  */
 const gameEventSchema = z.object({
-  timestamp: z.date()
-    .default(() => new Date()),
+  timestamp: z.date().default(() => new Date()),
 
-  eventType: z.enum([
-    'card_scanned',
-    'correct',
-    'error',
-    'timeout',
-    'round_start',
-    'round_end'
-  ]),
+  eventType: z.enum(['card_scanned', 'correct', 'error', 'timeout', 'round_start', 'round_end']),
 
-  cardUid: z.string()
+  cardUid: z
+    .string()
     .trim()
     .toUpperCase()
     .regex(/^[0-9A-F]{8}$|^[0-9A-F]{14}$/)
     .optional(),
 
-  expectedValue: z.string()
-    .trim()
-    .optional(),
+  expectedValue: z.string().trim().optional(),
 
-  actualValue: z.string()
-    .trim()
-    .optional(),
+  actualValue: z.string().trim().optional(),
 
-  pointsAwarded: z.number()
-    .int('pointsAwarded debe ser un número entero')
-    .optional(),
+  pointsAwarded: z.number().int('pointsAwarded debe ser un número entero').optional(),
 
-  timeElapsed: z.number()
+  timeElapsed: z
+    .number()
     .int('timeElapsed debe ser un número entero (milisegundos)')
     .min(0, 'El tiempo no puede ser negativo')
     .optional(),
 
-  roundNumber: z.number()
+  roundNumber: z
+    .number()
     .int('roundNumber debe ser un número entero')
     .min(1, 'El número de ronda debe ser al menos 1')
     .optional()
@@ -74,34 +62,17 @@ const gameEventSchema = z.object({
  * Se actualiza automáticamente con cada evento.
  */
 const gameMetricsSchema = z.object({
-  totalAttempts: z.number()
-    .int()
-    .min(0)
-    .default(0),
+  totalAttempts: z.number().int().min(0).default(0),
 
-  correctAttempts: z.number()
-    .int()
-    .min(0)
-    .default(0),
+  correctAttempts: z.number().int().min(0).default(0),
 
-  errorAttempts: z.number()
-    .int()
-    .min(0)
-    .default(0),
+  errorAttempts: z.number().int().min(0).default(0),
 
-  timeoutAttempts: z.number()
-    .int()
-    .min(0)
-    .default(0),
+  timeoutAttempts: z.number().int().min(0).default(0),
 
-  averageResponseTime: z.number()
-    .min(0)
-    .default(0),
+  averageResponseTime: z.number().min(0).default(0),
 
-  completionTime: z.number()
-    .int()
-    .min(0)
-    .default(0)
+  completionTime: z.number().int().min(0).default(0)
 });
 
 /**
@@ -123,21 +94,21 @@ const gameMetricsSchema = z.object({
  *   playerId: '507f1f77bcf86cd799439012'
  * }
  */
-const createGamePlaySchema = z.object({
-  sessionId: objectIdSchema,
+const createGamePlaySchema = z
+  .object({
+    sessionId: objectIdSchema,
 
-  playerId: objectIdSchema
-})
-.refine(
-  async (data) => {
-    // NOTA: Esta validación se hará en el Controller/Service
-    // Aquí solo validamos formato, no existencia en DB
-    return true;
-  },
-  {
-    message: 'sessionId y playerId deben referenciar documentos existentes'
-  }
-);
+    playerId: objectIdSchema
+  })
+  .refine(
+    async data =>
+      // NOTA: Esta validación se hará en el Controller/Service
+      // Aquí solo validamos formato, no existencia en DB
+      true,
+    {
+      message: 'sessionId y playerId deben referenciar documentos existentes'
+    }
+  );
 
 /**
  * Schema para actualizar una partida existente.
@@ -146,25 +117,19 @@ const createGamePlaySchema = z.object({
  * mediante el método addEvent() del modelo. Este schema es para
  * actualizaciones manuales excepcionales (ej: completar forzosamente).
  */
-const updateGamePlaySchema = z.object({
-  status: z.enum(['in-progress', 'completed', 'abandoned'])
-    .optional(),
+const updateGamePlaySchema = z
+  .object({
+    status: z.enum(['in-progress', 'completed', 'abandoned']).optional(),
 
-  score: z.number()
-    .int('El score debe ser un número entero')
-    .optional(),
+    score: z.number().int('El score debe ser un número entero').optional(),
 
-  currentRound: z.number()
-    .int('currentRound debe ser un número entero')
-    .min(1)
-    .optional(),
+    currentRound: z.number().int('currentRound debe ser un número entero').min(1).optional(),
 
-  completedAt: z.date()
-    .optional()
-}).refine(
-  (data) => Object.keys(data).length > 0,
-  { message: 'Debe proporcionar al menos un campo para actualizar' }
-);
+    completedAt: z.date().optional()
+  })
+  .refine(data => Object.keys(data).length > 0, {
+    message: 'Debe proporcionar al menos un campo para actualizar'
+  });
 
 /**
  * Schema para añadir un evento a una partida existente.
@@ -198,39 +163,41 @@ const addEventSchema = gameEventSchema.omit({ timestamp: true });
  * GET /plays?playerId=507f...&status=completed&minScore=50&page=1
  */
 const gamePlayQuerySchema = z.object({
-  page: z.string()
+  page: z
+    .string()
     .optional()
-    .transform(val => val ? parseInt(val, 10) : 1)
+    .transform(val => (val ? parseInt(val, 10) : 1))
     .pipe(z.number().int().min(1)),
 
-  limit: z.string()
+  limit: z
+    .string()
     .optional()
-    .transform(val => val ? parseInt(val, 10) : 20)
+    .transform(val => (val ? parseInt(val, 10) : 20))
     .pipe(z.number().int().min(1).max(100)),
 
-  sortBy: z.enum(['createdAt', 'startedAt', 'completedAt', 'score'])
+  sortBy: z
+    .enum(['createdAt', 'startedAt', 'completedAt', 'score'])
     .optional()
     .default('createdAt'),
 
-  order: z.enum(['asc', 'desc'])
-    .optional()
-    .default('desc'),
+  order: z.enum(['asc', 'desc']).optional().default('desc'),
 
   sessionId: objectIdSchema.optional(),
 
   playerId: objectIdSchema.optional(),
 
-  status: z.enum(['in-progress', 'completed', 'abandoned'])
-    .optional(),
+  status: z.enum(['in-progress', 'completed', 'abandoned']).optional(),
 
-  minScore: z.string()
+  minScore: z
+    .string()
     .optional()
-    .transform(val => val ? parseInt(val, 10) : undefined)
+    .transform(val => (val ? parseInt(val, 10) : undefined))
     .pipe(z.number().int().optional()),
 
-  maxScore: z.string()
+  maxScore: z
+    .string()
     .optional()
-    .transform(val => val ? parseInt(val, 10) : undefined)
+    .transform(val => (val ? parseInt(val, 10) : undefined))
     .pipe(z.number().int().optional())
 });
 

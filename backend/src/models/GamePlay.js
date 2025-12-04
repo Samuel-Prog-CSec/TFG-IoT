@@ -45,87 +45,94 @@ const mongoose = require('mongoose');
  * @property {number} [timeElapsed] - Tiempo transcurrido en milisegundos desde inicio de ronda (duda #17)
  * @property {number} [roundNumber] - Número de ronda asociado al evento
  */
-const gamePlaySchema = new mongoose.Schema({
-  sessionId: {
-    type: mongoose.Schema.Types.ObjectId,
-    ref: 'GameSession',
-    required: true
-  },
-  playerId: {
-    type: mongoose.Schema.Types.ObjectId,
-    ref: 'User',
-    required: true
-  },
-  score: {
-    type: Number,
-    default: 0
-  },
-  currentRound: {
-    type: Number,
-    default: 1
-  },
-  events: [{
-    timestamp: {
+const gamePlaySchema = new mongoose.Schema(
+  {
+    sessionId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'GameSession',
+      required: true
+    },
+    playerId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'User',
+      required: true
+    },
+    score: {
+      type: Number,
+      default: 0
+    },
+    currentRound: {
+      type: Number,
+      default: 1
+    },
+    events: [
+      {
+        timestamp: {
+          type: Date,
+          default: Date.now
+        },
+        eventType: {
+          type: String,
+          lowercase: true,
+          required: true,
+          trim: true,
+          enum: ['card_scanned', 'correct', 'error', 'timeout', 'round_start', 'round_end']
+        },
+        cardUid: String,
+        expectedValue: String,
+        actualValue: String,
+        pointsAwarded: Number,
+        timeElapsed: Number,
+        roundNumber: {
+          type: Number,
+          required: true
+        }
+      }
+    ],
+    metrics: {
+      totalAttempts: {
+        type: Number,
+        default: 0
+      },
+      correctAttempts: {
+        type: Number,
+        default: 0
+      },
+      errorAttempts: {
+        type: Number,
+        default: 0
+      },
+      timeoutAttempts: {
+        type: Number,
+        default: 0
+      },
+      averageResponseTime: {
+        type: Number,
+        default: 0
+      },
+      completionTime: {
+        type: Number,
+        default: 0
+      }
+    },
+    status: {
+      type: String,
+      lowercase: true,
+      trim: true,
+      enum: ['in-progress', 'completed', 'abandoned'],
+      default: 'in-progress'
+    },
+    startedAt: {
       type: Date,
       default: Date.now
     },
-    eventType: {
-      type: String,
-      lowercase: true,
-      trim : true,
-      enum: ['card_scanned', 'correct', 'error', 'timeout', 'round_start', 'round_end']
-    },
-    cardUid: {
-      type: String,
-      required: false
-    },
-    expectedValue: String,
-    actualValue: String,
-    pointsAwarded: Number,
-    timeElapsed: Number,
-    roundNumber: Number
-  }],
-  metrics: {
-    totalAttempts: {
-      type: Number,
-      default: 0
-    },
-    correctAttempts: {
-      type: Number,
-      default: 0
-    },
-    errorAttempts: {
-      type: Number,
-      default: 0
-    },
-    timeoutAttempts: {
-      type: Number,
-      default: 0
-    },
-    averageResponseTime: {
-      type: Number,
-      default: 0
-    },
-    completionTime: {
-      type: Number,
-      default: 0
-    }
+    completedAt: Date
   },
-  status: {
-    type: String,
-    lowercase: true,
-    trim : true,
-    enum: ['in-progress', 'completed', 'abandoned'],
-    default: 'in-progress'
-  },
-  startedAt: {
-    type: Date,
-    default: Date.now
-  },
-  completedAt: Date
-}, {
-  timestamps: true
-});
+  {
+    timestamps: true,
+    collection: 'gameplays'
+  }
+);
 
 /**
  * Añade un evento al log de la partida y actualiza métricas y puntuación.
@@ -153,7 +160,7 @@ const gamePlaySchema = new mongoose.Schema({
  *   roundNumber: 1
  * });
  */
-gamePlaySchema.methods.addEvent = function(eventData) {
+gamePlaySchema.methods.addEvent = function (eventData) {
   // Añadir al log de eventos
   this.events.push(eventData);
 
@@ -184,7 +191,7 @@ gamePlaySchema.methods.addEvent = function(eventData) {
  * @memberof GamePlay
  * @returns {boolean} true si el estado es 'in-progress', false en caso contrario
  */
-gamePlaySchema.methods.isInProgress = function() {
+gamePlaySchema.methods.isInProgress = function () {
   return this.status === 'in-progress';
 };
 
@@ -198,15 +205,13 @@ gamePlaySchema.methods.isInProgress = function() {
  * @example
  * await gamePlay.complete();
  */
-gamePlaySchema.methods.complete = function() {
+gamePlaySchema.methods.complete = function () {
   this.status = 'completed';
   this.completedAt = new Date();
   this.metrics.completionTime = this.completedAt - this.startedAt;
 
   // Calcular el tiempo medio de respuesta a partir de los eventos
-  const responseTimes = this.events
-    .filter(e => e.timeElapsed)
-    .map(e => e.timeElapsed);
+  const responseTimes = this.events.filter(e => e.timeElapsed).map(e => e.timeElapsed);
 
   // Evitar división por cero
   if (responseTimes.length > 0) {

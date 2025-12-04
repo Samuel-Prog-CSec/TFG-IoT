@@ -19,6 +19,7 @@ const {
 
 const { authenticate, requireRole } = require('../middlewares/auth');
 const { validateBody, validateQuery, validateParams } = require('../middlewares/validation');
+const { createResourceRateLimiter } = require('../config/security');
 const {
   createStudentSchema,
   updateUserSchema,
@@ -35,13 +36,7 @@ const paramsSchema = z.object({
  * @desc    Obtener lista de usuarios con filtros
  * @access  Private (Teacher)
  */
-router.get(
-  '/',
-  authenticate,
-  requireRole('teacher'),
-  validateQuery(userQuerySchema),
-  getUsers
-);
+router.get('/', authenticate, requireRole('teacher'), validateQuery(userQuerySchema), getUsers);
 
 /**
  * @route   GET /api/users/teacher/:teacherId/students
@@ -61,33 +56,24 @@ router.get(
  * @desc    Obtener usuario por ID
  * @access  Private
  */
-router.get(
-  '/:id',
-  authenticate,
-  validateParams(paramsSchema),
-  getUserById
-);
+router.get('/:id', authenticate, validateParams(paramsSchema), getUserById);
 
 /**
  * @route   GET /api/users/:id/stats
  * @desc    Obtener estadísticas de un alumno
  * @access  Private
  */
-router.get(
-  '/:id/stats',
-  authenticate,
-  validateParams(paramsSchema),
-  getUserStats
-);
+router.get('/:id/stats', authenticate, validateParams(paramsSchema), getUserStats);
 
 /**
  * @route   POST /api/users
  * @desc    Crear nuevo ALUMNO (profesor autenticado crea alumnos sin credenciales)
  * @access  Private (Teacher)
- * ⚠️ IMPORTANTE: Este endpoint solo crea alumnos (role='student', sin email/password)
+ * Este endpoint solo crea alumnos (role='student', sin email/password)
  */
 router.post(
   '/',
+  createResourceRateLimiter, // Rate limiting para prevenir spam
   authenticate,
   requireRole('teacher'),
   validateBody(createStudentSchema),

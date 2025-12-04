@@ -19,6 +19,7 @@ const {
 
 const { authenticate, requireRole } = require('../middlewares/auth');
 const { validateBody, validateQuery, validateParams } = require('../middlewares/validation');
+const { createResourceRateLimiter } = require('../config/security');
 const {
   createCardSchema,
   updateCardSchema,
@@ -31,37 +32,21 @@ const {
  * @desc    Obtener estadísticas de tarjetas
  * @access  Private (Teacher)
  */
-router.get(
-  '/stats',
-  authenticate,
-  requireRole('teacher'),
-  getCardStats
-);
+router.get('/stats', authenticate, requireRole('teacher'), getCardStats);
 
 /**
  * @route   GET /api/cards
  * @desc    Obtener lista de tarjetas con filtros
  * @access  Private (Teacher)
  */
-router.get(
-  '/',
-  authenticate,
-  requireRole('teacher'),
-  validateQuery(cardQuerySchema),
-  getCards
-);
+router.get('/', authenticate, requireRole('teacher'), validateQuery(cardQuerySchema), getCards);
 
 /**
  * @route   GET /api/cards/:id
  * @desc    Obtener tarjeta por ID o UID
  * @access  Private (Teacher)
  */
-router.get(
-  '/:id',
-  authenticate,
-  requireRole('teacher'),
-  getCardById
-);
+router.get('/:id', authenticate, requireRole('teacher'), getCardById);
 
 /**
  * @route   POST /api/cards
@@ -70,6 +55,7 @@ router.get(
  */
 router.post(
   '/',
+  createResourceRateLimiter, // Rate limiting para prevenir spam
   authenticate,
   requireRole('teacher'),
   validateBody(createCardSchema),
@@ -81,12 +67,7 @@ router.post(
  * @desc    Registrar múltiples tarjetas
  * @access  Private (Teacher)
  */
-router.post(
-  '/batch',
-  authenticate,
-  requireRole('teacher'),
-  createCardsBatch
-);
+router.post('/batch', authenticate, requireRole('teacher'), createCardsBatch);
 
 /**
  * @route   PUT /api/cards/:id
@@ -106,11 +87,6 @@ router.put(
  * @desc    Eliminar tarjeta (soft delete)
  * @access  Private (Teacher)
  */
-router.delete(
-  '/:id',
-  authenticate,
-  requireRole('teacher'),
-  deleteCard
-);
+router.delete('/:id', authenticate, requireRole('teacher'), deleteCard);
 
 module.exports = router;

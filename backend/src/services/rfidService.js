@@ -135,7 +135,9 @@ class RFIDService extends EventEmitter {
 
     // Verificar límite de intentos
     if (this.reconnectAttempts >= MAX_RECONNECT_ATTEMPTS) {
-      logger.error(`Máximo de intentos de reconexión alcanzado (${MAX_RECONNECT_ATTEMPTS}). Deteniendo.`);
+      logger.error(
+        `Máximo de intentos de reconexión alcanzado (${MAX_RECONNECT_ATTEMPTS}). Deteniendo.`
+      );
       this.emit('status', 'failed');
       return;
     }
@@ -149,14 +151,17 @@ class RFIDService extends EventEmitter {
       const portPath = process.env.SERIAL_PORT || 'COM3';
       const baudRate = parseInt(process.env.SERIAL_BAUD_RATE) || 115200;
 
-      logger.info(`Intentando conectar al sensor RFID (intento ${this.reconnectAttempts}/${MAX_RECONNECT_ATTEMPTS})`, {
-        port: portPath,
-        baudRate
-      });
+      logger.info(
+        `Intentando conectar al sensor RFID (intento ${this.reconnectAttempts}/${MAX_RECONNECT_ATTEMPTS})`,
+        {
+          port: portPath,
+          baudRate
+        }
+      );
 
       this.port = new SerialPort({
         path: portPath,
-        baudRate: baudRate,
+        baudRate,
         autoOpen: false
       });
 
@@ -165,9 +170,12 @@ class RFIDService extends EventEmitter {
 
       // Open port
       await new Promise((resolve, reject) => {
-        this.port.open((err) => {
-          if (err) reject(err);
-          else resolve();
+        this.port.open(err => {
+          if (err) {
+            reject(err);
+          } else {
+            resolve();
+          }
         });
       });
 
@@ -180,10 +188,10 @@ class RFIDService extends EventEmitter {
       this.emit('status', 'connected'); // Informar a la app que estamos conectados
 
       // Setup listeners (SOLO después de conectar)
-      this.parser.on('data', (line) => this.handleSerialData(line));
+      this.parser.on('data', line => this.handleSerialData(line));
 
       // Manejo de errores y cierre
-      this.port.on('error', (err) => {
+      this.port.on('error', err => {
         logger.error(`Error en el puerto serie: ${err.message}`);
         this.metrics.totalErrors++;
         this.isConnected = false;
@@ -195,12 +203,13 @@ class RFIDService extends EventEmitter {
         this.isConnected = false;
         this.handleDisconnection();
       });
-
     } catch (error) {
       // Si falla, volver a intentarlo con backoff exponencial
       const delay = Math.min(RECONNECT_DELAY_MS * this.reconnectAttempts, 60000); // Max 60s
 
-      logger.error(`Fallo al conectar con el sensor RFID (intento ${this.reconnectAttempts}): ${error.message}`);
+      logger.error(
+        `Fallo al conectar con el sensor RFID (intento ${this.reconnectAttempts}): ${error.message}`
+      );
       this.metrics.totalErrors++;
 
       // Limpiar el puerto si se llegó a crear
@@ -230,7 +239,9 @@ class RFIDService extends EventEmitter {
    */
   handleDisconnection() {
     // Si se está reconectando O si se está cerrando la app, no hacer nada
-    if (this.isReconnecting || this.isShuttingDown) return;
+    if (this.isReconnecting || this.isShuttingDown) {
+      return;
+    }
 
     this.isConnected = false;
     this.emit('status', 'disconnected');
@@ -306,7 +317,7 @@ class RFIDService extends EventEmitter {
     this.isShuttingDown = true;
 
     if (this.port && this.port.isOpen) {
-      this.port.close((err) => {
+      this.port.close(err => {
         if (err) {
           logger.error(`Error cerrando el puerto serie: ${err.message}`);
         } else {
@@ -329,9 +340,7 @@ class RFIDService extends EventEmitter {
    * @property {Array} recentEvents - Últimos eventos recibidos (buffer)
    */
   getStatus() {
-    const uptime = this.metrics.lastConnectedAt
-      ? Date.now() - this.metrics.lastConnectedAt
-      : 0;
+    const uptime = this.metrics.lastConnectedAt ? Date.now() - this.metrics.lastConnectedAt : 0;
 
     return {
       isConnected: this.isConnected,
@@ -360,8 +369,12 @@ class RFIDService extends EventEmitter {
     const minutes = Math.floor(seconds / 60);
     const hours = Math.floor(minutes / 60);
 
-    if (hours > 0) return `${hours}h ${minutes % 60}m`;
-    if (minutes > 0) return `${minutes}m ${seconds % 60}s`;
+    if (hours > 0) {
+      return `${hours}h ${minutes % 60}m`;
+    }
+    if (minutes > 0) {
+      return `${minutes}m ${seconds % 60}s`;
+    }
     return `${seconds}s`;
   }
 

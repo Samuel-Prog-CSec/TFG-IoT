@@ -30,8 +30,8 @@ const mongoose = require('mongoose');
  * @typedef {Object} GameContext
  * @property {string} contextId - Identificador único del contexto (ej: 'geography', 'history')
  * @property {string} name - Nombre amigable del contexto para mostrar en la interfaz
+ * @property {boolean} isActive - Indica si el contexto está habilitado en el sistema
  * @property {Array<Asset>} assets - Array de recursos/elementos del contexto
- * @property {string} difficulty - Nivel de dificultad del contexto (easy, medium, hard)
  * @property {Date} createdAt - Fecha de creación del registro
  * @property {Date} updatedAt - Fecha de última actualización
  *
@@ -42,38 +42,47 @@ const mongoose = require('mongoose');
  * @property {string} [audioUrl] - URL del archivo de audio en Supabase Storage (duda #12)
  * @property {string} [imageUrl] - URL de la imagen en Supabase Storage (duda #12)
  */
-const gameContextSchema = new mongoose.Schema({
-  contextId: {
-    type: String,
-    required: true,
-    lowercase: true,
-    trim: true,
-    unique: true
-  },
-  name: {
-    type: String,
-    required: true
-  },
-  assets: [{
-    key: {
+const gameContextSchema = new mongoose.Schema(
+  {
+    contextId: {
       type: String,
       required: true,
       lowercase: true,
-      trim: true
+      trim: true,
+      unique: true
     },
-    display: String,
-    value: {
+    name: {
       type: String,
-      required: true,
-      trim: true
+      required: true
     },
-    audioUrl: String,
-    imageUrl: String
-  }]
-}, 
-{
-  timestamps: true
-});
+    isActive: {
+      type: Boolean,
+      default: true
+    },
+    assets: [
+      {
+        key: {
+          type: String,
+          required: true,
+          lowercase: true,
+          trim: true
+        },
+        display: String,
+        value: {
+          type: String,
+          required: true,
+          trim: true
+        },
+        audioUrl: String,
+        imageUrl: String
+      }
+    ]
+  },
+  {
+    timestamps: true,
+    collection: 'game_contexts'
+  }
+);
 
 /**
  * Validación personalizada para el array de assets.
@@ -82,17 +91,11 @@ const gameContextSchema = new mongoose.Schema({
  * @param {Array<Asset>} value - El array de assets a validar
  * @returns {boolean} true si el array no está vacío, false en caso contrario
  */
-gameContextSchema.path('assets').validate(function(value) {
+gameContextSchema.path('assets').validate(value => {
   if (value.length === 0) {
     return false;
   }
   return true;
 }, 'El array de assets no puede estar vacío.');
-
-/**
- * Índice único para contextId.
- * Permite búsqueda rápida de contextos por su identificador.
- */
-gameContextSchema.index({ contextId: 1 });
 
 module.exports = mongoose.model('GameContext', gameContextSchema);

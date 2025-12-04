@@ -1,0 +1,16 @@
+node_modules
+dist
+build
+coverage
+.env
+.env.local
+*.log
+
+# Ignore all files in the docs/ directory
+docs/
+
+# Ignore all files in the reports/ directory
+reports/
+
+# Ignore all files in the logs/ directory
+logs/

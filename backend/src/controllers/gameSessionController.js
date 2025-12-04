@@ -10,6 +10,7 @@ const GameContext = require('../models/GameContext');
 const Card = require('../models/Card');
 const { NotFoundError, ValidationError, ForbiddenError } = require('../utils/errors');
 const logger = require('../utils/logger');
+const { gameSessionDTO, gameSessionListDTO, paginationDTO } = require('../utils/dtos');
 
 /**
  * Obtener lista de sesiones con paginación y filtros.
@@ -38,11 +39,21 @@ const getSessions = async (req, res, next) => {
     // Construir filtro
     const filter = {};
 
-    if (mechanicId) filter.mechanicId = mechanicId;
-    if (contextId) filter.contextId = contextId;
-    if (status) filter.status = status;
-    if (difficulty) filter.difficulty = difficulty;
-    if (createdBy) filter.createdBy = createdBy;
+    if (mechanicId) {
+      filter.mechanicId = mechanicId;
+    }
+    if (contextId) {
+      filter.contextId = contextId;
+    }
+    if (status) {
+      filter.status = status;
+    }
+    if (difficulty) {
+      filter.difficulty = difficulty;
+    }
+    if (createdBy) {
+      filter.createdBy = createdBy;
+    }
 
     // Los profesores ven todas sus sesiones, los alumnos no deberían acceder
     if (req.user.role === 'student') {
@@ -78,15 +89,11 @@ const getSessions = async (req, res, next) => {
 
     res.json({
       success: true,
-      data: {
-        sessions,
-        pagination: {
-          page: parseInt(page),
-          limit: parseInt(limit),
-          total,
-          pages: Math.ceil(total / limit)
-        }
-      }
+      data: paginationDTO(gameSessionListDTO(sessions), {
+        page: parseInt(page),
+        limit: parseInt(limit),
+        total
+      })
     });
   } catch (error) {
     next(error);
@@ -118,16 +125,13 @@ const getSessionById = async (req, res, next) => {
     }
 
     // Verificar permisos: solo el creador o admin
-    if (session.createdBy._id.toString() !== req.user._id.toString() &&
-        req.user.role !== 'admin') {
+    if (session.createdBy._id.toString() !== req.user._id.toString() && req.user.role !== 'admin') {
       throw new ForbiddenError('No tienes permiso para ver esta sesión');
     }
 
     res.json({
       success: true,
-      data: {
-        session
-      }
+      data: gameSessionDTO(session)
     });
   } catch (error) {
     next(error);
@@ -139,7 +143,7 @@ const getSessionById = async (req, res, next) => {
  *
  * POST /api/sessions
  * Headers: Authorization: Bearer <token>
- * Body: { mechanicId, contextId, config, cardMappings, difficulty? }
+ * Body: { mechanicId, contextId, config, cardMappings }
  *
  * @param {import('express').Request} req
  * @param {import('express').Response} res
@@ -147,7 +151,7 @@ const getSessionById = async (req, res, next) => {
  */
 const createSession = async (req, res, next) => {
   try {
-    const { mechanicId, contextId, config, cardMappings, difficulty } = req.body;
+    const { mechanicId, contextId, config, cardMappings } = req.body;
 
     // Verificar que la mecánica existe y está activa
     const mechanic = await GameMechanic.findById(mechanicId);
@@ -168,7 +172,7 @@ const createSession = async (req, res, next) => {
     if (context.assets.length < config.numberOfCards) {
       throw new ValidationError(
         `El contexto solo tiene ${context.assets.length} assets, ` +
-        `pero se requieren ${config.numberOfCards}`
+          `pero se requieren ${config.numberOfCards}`
       );
     }
 
@@ -188,15 +192,17 @@ const createSession = async (req, res, next) => {
     }
 
     // Crear la sesión
-    const session = await GameSession.create({
+    // NOTA: La dificultad se auto-calcula en el modelo basándose en numberOfCards
+    const sessionData = {
       mechanicId,
       contextId,
       config,
       cardMappings,
-      difficulty: difficulty || 'medium',
       status: 'created',
       createdBy: req.user._id
-    });
+    };
+
+    const session = await GameSession.create(sessionData);
 
     // Populate para respuesta completa
     await session.populate([
@@ -216,9 +222,7 @@ const createSession = async (req, res, next) => {
     res.status(201).json({
       success: true,
       message: 'Sesión creada exitosamente',
-      data: {
-        session
-      }
+      data: gameSessionDTO(session)
     });
   } catch (error) {
     next(error);
@@ -231,7 +235,7 @@ const createSession = async (req, res, next) => {
  *
  * PUT /api/sessions/:id
  * Headers: Authorization: Bearer <token>
- * Body: { config?, difficulty? }
+ * Body: { config? }
  *
  * @param {import('express').Request} req
  * @param {import('express').Response} res
@@ -240,7 +244,7 @@ const createSession = async (req, res, next) => {
 const updateSession = async (req, res, next) => {
   try {
     const { id } = req.params;
-    const { config, difficulty } = req.body;
+    const { config } = req.body;
 
     const session = await GameSession.findById(id);
 
@@ -262,9 +266,6 @@ const updateSession = async (req, res, next) => {
     if (config) {
       session.config = { ...session.config, ...config };
     }
-    if (difficulty) {
-      session.difficulty = difficulty;
-    }
 
     await session.save();
 
@@ -276,9 +277,7 @@ const updateSession = async (req, res, next) => {
     res.json({
       success: true,
       message: 'Sesión actualizada exitosamente',
-      data: {
-        session
-      }
+      data: gameSessionDTO(session)
     });
   } catch (error) {
     next(error);
@@ -369,9 +368,7 @@ const startSession = async (req, res, next) => {
     res.json({
       success: true,
       message: 'Sesión iniciada exitosamente',
-      data: {
-        session
-      }
+      data: gameSessionDTO(session)
     });
   } catch (error) {
     next(error);
@@ -414,9 +411,7 @@ const pauseSession = async (req, res, next) => {
     res.json({
       success: true,
       message: 'Sesión pausada exitosamente',
-      data: {
-        session
-      }
+      data: gameSessionDTO(session)
     });
   } catch (error) {
     next(error);
@@ -459,9 +454,7 @@ const endSession = async (req, res, next) => {
     res.json({
       success: true,
       message: 'Sesión finalizada exitosamente',
-      data: {
-        session
-      }
+      data: gameSessionDTO(session)
     });
   } catch (error) {
     next(error);

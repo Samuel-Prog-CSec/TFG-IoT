@@ -9,6 +9,7 @@ const GameSession = require('../models/GameSession');
 const User = require('../models/User');
 const { NotFoundError, ValidationError, ForbiddenError } = require('../utils/errors');
 const logger = require('../utils/logger');
+const { gamePlayDTO, gamePlayListDTO, paginationDTO } = require('../utils/dtos');
 
 /**
  * Obtener lista de partidas con paginación y filtros.
@@ -37,15 +38,25 @@ const getPlays = async (req, res, next) => {
     // Construir filtro
     const filter = {};
 
-    if (sessionId) filter.sessionId = sessionId;
-    if (playerId) filter.playerId = playerId;
-    if (status) filter.status = status;
+    if (sessionId) {
+      filter.sessionId = sessionId;
+    }
+    if (playerId) {
+      filter.playerId = playerId;
+    }
+    if (status) {
+      filter.status = status;
+    }
 
     // Filtro de score range
     if (minScore !== undefined || maxScore !== undefined) {
       filter.score = {};
-      if (minScore !== undefined) filter.score.$gte = parseInt(minScore);
-      if (maxScore !== undefined) filter.score.$lte = parseInt(maxScore);
+      if (minScore !== undefined) {
+        filter.score.$gte = parseInt(minScore);
+      }
+      if (maxScore !== undefined) {
+        filter.score.$lte = parseInt(maxScore);
+      }
     }
 
     // Profesores ven todas, alumnos solo las suyas
@@ -76,15 +87,11 @@ const getPlays = async (req, res, next) => {
 
     res.json({
       success: true,
-      data: {
-        plays,
-        pagination: {
-          page: parseInt(page),
-          limit: parseInt(limit),
-          total,
-          pages: Math.ceil(total / limit)
-        }
-      }
+      data: paginationDTO(gamePlayListDTO(plays), {
+        page: parseInt(page),
+        limit: parseInt(limit),
+        total
+      })
     });
   } catch (error) {
     next(error);
@@ -130,9 +137,7 @@ const getPlayById = async (req, res, next) => {
 
     res.json({
       success: true,
-      data: {
-        play
-      }
+      data: gamePlayDTO(play)
     });
   } catch (error) {
     next(error);
@@ -216,9 +221,7 @@ const createPlay = async (req, res, next) => {
     res.status(201).json({
       success: true,
       message: 'Partida creada exitosamente',
-      data: {
-        play
-      }
+      data: gamePlayDTO(play)
     });
   } catch (error) {
     next(error);
@@ -264,7 +267,7 @@ const addEvent = async (req, res, next) => {
       success: true,
       message: 'Evento registrado exitosamente',
       data: {
-        play,
+        ...gamePlayDTO(play),
         event: eventData
       }
     });
@@ -288,9 +291,7 @@ const completePlay = async (req, res, next) => {
   try {
     const { id } = req.params;
 
-    const play = await GamePlay.findById(id)
-      .populate('playerId')
-      .populate('sessionId');
+    const play = await GamePlay.findById(id).populate('playerId').populate('sessionId');
 
     if (!play) {
       throw new NotFoundError('Partida');
@@ -307,8 +308,8 @@ const completePlay = async (req, res, next) => {
     const player = await User.findById(play.playerId._id);
     await player.updateStudentMetrics({
       score: play.score,
-      correctAnswers: play.metrics.correctAttempts,
-      errors: play.metrics.errorAttempts,
+      correctAttempts: play.metrics.correctAttempts,
+      errorAttempts: play.metrics.errorAttempts,
       averageResponseTime: play.metrics.averageResponseTime
     });
 
@@ -323,7 +324,7 @@ const completePlay = async (req, res, next) => {
       success: true,
       message: 'Partida completada exitosamente',
       data: {
-        play,
+        ...gamePlayDTO(play),
         rating: calculateRating(play.score, play.sessionId.config.pointsPerCorrect)
       }
     });
@@ -370,9 +371,7 @@ const abandonPlay = async (req, res, next) => {
     res.json({
       success: true,
       message: 'Partida abandonada',
-      data: {
-        play
-      }
+      data: gamePlayDTO(play)
     });
   } catch (error) {
     next(error);
@@ -401,7 +400,9 @@ const getPlayerStats = async (req, res, next) => {
     }
 
     const filter = { playerId, status: 'completed' };
-    if (sessionId) filter.sessionId = sessionId;
+    if (sessionId) {
+      filter.sessionId = sessionId;
+    }
 
     // Calcular estadísticas agregadas
     const stats = await GamePlay.aggregate([
@@ -437,9 +438,10 @@ const getPlayerStats = async (req, res, next) => {
     delete result._id;
 
     // Calcular tasa de acierto
-    const accuracyRate = result.totalCorrect + result.totalErrors > 0
-      ? (result.totalCorrect / (result.totalCorrect + result.totalErrors) * 100).toFixed(2)
-      : 0;
+    const accuracyRate =
+      result.totalCorrect + result.totalErrors > 0
+        ? ((result.totalCorrect / (result.totalCorrect + result.totalErrors)) * 100).toFixed(2)
+        : 0;
 
     res.json({
       success: true,
@@ -467,10 +469,18 @@ const getPlayerStats = async (req, res, next) => {
 function calculateRating(score, maxPointsPerRound) {
   const percentage = (score / (maxPointsPerRound * 5)) * 100; // Asumiendo 5 rondas
 
-  if (percentage >= 90) return '⭐⭐⭐⭐⭐';
-  if (percentage >= 75) return '⭐⭐⭐⭐';
-  if (percentage >= 60) return '⭐⭐⭐';
-  if (percentage >= 40) return '⭐⭐';
+  if (percentage >= 90) {
+    return '⭐⭐⭐⭐⭐';
+  }
+  if (percentage >= 75) {
+    return '⭐⭐⭐⭐';
+  }
+  if (percentage >= 60) {
+    return '⭐⭐⭐';
+  }
+  if (percentage >= 40) {
+    return '⭐⭐';
+  }
   return '⭐';
 }
 

@@ -7,6 +7,7 @@
 const User = require('../models/User');
 const { NotFoundError, ForbiddenError } = require('../utils/errors');
 const logger = require('../utils/logger');
+const { userDTO, userListDTO, paginationDTO } = require('../utils/dtos');
 
 /**
  * Obtener lista de usuarios con paginación y filtros.
@@ -35,9 +36,15 @@ const getUsers = async (req, res, next) => {
     // Construir filtro
     const filter = {};
 
-    if (role) filter.role = role;
-    if (classroom) filter['profile.classroom'] = classroom;
-    if (status) filter.status = status;
+    if (role) {
+      filter.role = role;
+    }
+    if (classroom) {
+      filter['profile.classroom'] = classroom;
+    }
+    if (status) {
+      filter.status = status;
+    }
 
     // Búsqueda por nombre o email
     if (search) {
@@ -59,11 +66,7 @@ const getUsers = async (req, res, next) => {
 
     // Ejecutar query
     const [users, total] = await Promise.all([
-      User.find(filter)
-        .sort(sortOptions)
-        .limit(parseInt(limit))
-        .skip(skip)
-        .select('-password'),
+      User.find(filter).sort(sortOptions).limit(parseInt(limit)).skip(skip).select('-password'),
       User.countDocuments(filter)
     ]);
 
@@ -75,15 +78,7 @@ const getUsers = async (req, res, next) => {
 
     res.json({
       success: true,
-      data: {
-        users: users.map(user => user.toSafeObject()),
-        pagination: {
-          page: parseInt(page),
-          limit: parseInt(limit),
-          total,
-          pages: Math.ceil(total / limit)
-        }
-      }
+      ...paginationDTO(userListDTO(users), parseInt(page), parseInt(limit), total)
     });
   } catch (error) {
     next(error);
@@ -117,9 +112,7 @@ const getUserById = async (req, res, next) => {
 
     res.json({
       success: true,
-      data: {
-        user: user.toSafeObject()
-      }
+      data: userDTO(user)
     });
   } catch (error) {
     next(error);
@@ -189,7 +182,7 @@ const createUser = async (req, res, next) => {
         success: false,
         message: errorMsg,
         data: {
-          existingStudent: existingStudent.toSafeObject()
+          existingStudent: userDTO(existingStudent)
         }
       });
     }
@@ -217,9 +210,7 @@ const createUser = async (req, res, next) => {
     res.status(201).json({
       success: true,
       message: 'Alumno creado exitosamente',
-      data: {
-        user: student.toSafeObject()
-      }
+      data: userDTO(student)
     });
   } catch (error) {
     next(error);
@@ -291,9 +282,10 @@ const updateUser = async (req, res, next) => {
       const existingUser = await User.findOne(duplicateFilter);
 
       if (existingUser) {
-        const errorMsg = user.role === 'student' && duplicateFilter['profile.classroom']
-          ? `Ya existe un alumno activo llamado "${name}" en la clase "${duplicateFilter['profile.classroom']}"`
-          : `Ya existe un usuario activo llamado "${name}"`;
+        const errorMsg =
+          user.role === 'student' && duplicateFilter['profile.classroom']
+            ? `Ya existe un alumno activo llamado "${name}" en la clase "${duplicateFilter['profile.classroom']}"`
+            : `Ya existe un usuario activo llamado "${name}"`;
 
         logger.warn('Intento de actualizar con nombre duplicado', {
           userId: user._id,
@@ -306,7 +298,7 @@ const updateUser = async (req, res, next) => {
           success: false,
           message: errorMsg,
           data: {
-            existingUser: existingUser.toSafeObject()
+            existingUser: userDTO(existingUser)
           }
         });
       }
@@ -368,9 +360,7 @@ const updateUser = async (req, res, next) => {
     res.json({
       success: true,
       message: 'Usuario actualizado exitosamente',
-      data: {
-        user: user.toSafeObject()
-      }
+      data: userDTO(user)
     });
   } catch (error) {
     next(error);
@@ -462,10 +452,14 @@ const getUserStats = async (req, res, next) => {
     }
 
     // Calcular estadísticas adicionales
-    const accuracyRate = user.studentMetrics.totalGamesPlayed > 0
-      ? (user.studentMetrics.totalCorrectAnswers /
-         (user.studentMetrics.totalCorrectAnswers + user.studentMetrics.totalErrors) * 100).toFixed(2)
-      : 0;
+    const accuracyRate =
+      user.studentMetrics.totalGamesPlayed > 0
+        ? (
+            (user.studentMetrics.totalCorrectAnswers /
+              (user.studentMetrics.totalCorrectAnswers + user.studentMetrics.totalErrors)) *
+            100
+          ).toFixed(2)
+        : 0;
 
     res.json({
       success: true,
@@ -520,14 +514,12 @@ const getStudentsByTeacher = async (req, res, next) => {
 
     const sortOptions = { [sortBy]: order === 'asc' ? 1 : -1 };
 
-    const students = await User.find(filter)
-      .sort(sortOptions)
-      .select('-password');
+    const students = await User.find(filter).sort(sortOptions).select('-password');
 
     res.json({
       success: true,
       data: {
-        students: students.map(student => student.toSafeObject()),
+        students: userListDTO(students),
         count: students.length
       }
     });

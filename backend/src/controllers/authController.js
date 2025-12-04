@@ -11,12 +11,9 @@ const {
   UnauthorizedError,
   ConflictError
 } = require('../utils/errors');
-const {
-  generateTokenPair,
-  verifyRefreshToken,
-  revokeToken
-} = require('../middlewares/auth');
+const { generateTokenPair, verifyRefreshToken, revokeToken } = require('../middlewares/auth');
 const logger = require('../utils/logger');
+const { userDTO } = require('../utils/dtos');
 
 /**
  * Registrar un nuevo PROFESOR (SOLO para profesores, endpoint público).
@@ -78,7 +75,7 @@ const register = async (req, res, next) => {
       success: true,
       message: 'Profesor registrado exitosamente',
       data: {
-        user: teacher.toSafeObject(),
+        user: userDTO(teacher),
         ...tokens
       }
     });
@@ -141,7 +138,7 @@ const login = async (req, res, next) => {
       success: true,
       message: 'Login exitoso',
       data: {
-        user: user.toSafeObject(),
+        user: userDTO(user),
         ...tokens
       }
     });
@@ -171,9 +168,7 @@ const getProfile = async (req, res, next) => {
 
     res.json({
       success: true,
-      data: {
-        user: user.toSafeObject()
-      }
+      data: userDTO(user)
     });
   } catch (error) {
     next(error);
@@ -202,7 +197,9 @@ const updateProfile = async (req, res, next) => {
     }
 
     // Actualizar campos
-    if (name) user.name = name;
+    if (name) {
+      user.name = name;
+    }
     if (profile) {
       user.profile = { ...user.profile.toObject(), ...profile };
     }
@@ -217,9 +214,7 @@ const updateProfile = async (req, res, next) => {
     res.json({
       success: true,
       message: 'Perfil actualizado exitosamente',
-      data: {
-        user: user.toSafeObject()
-      }
+      data: userDTO(user)
     });
   } catch (error) {
     next(error);

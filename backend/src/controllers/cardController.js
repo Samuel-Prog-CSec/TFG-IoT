@@ -5,8 +5,9 @@
  */
 
 const Card = require('../models/Card');
-const { NotFoundError, ConflictError } = require('../utils/errors');
+const { NotFoundError, ConflictError, ValidationError } = require('../utils/errors');
 const logger = require('../utils/logger');
+const { cardDTO, cardListDTO, paginationDTO } = require('../utils/dtos');
 
 /**
  * Obtener lista de tarjetas con paginación y filtros.
@@ -22,7 +23,7 @@ const getCards = async (req, res, next) => {
   try {
     const {
       page = 1,
-      limit = 20,
+      limit = 30,
       sortBy = 'createdAt',
       order = 'desc',
       status,
@@ -33,8 +34,12 @@ const getCards = async (req, res, next) => {
     // Construir filtro
     const filter = {};
 
-    if (status) filter.status = status;
-    if (type) filter.type = type;
+    if (status) {
+      filter.status = status;
+    }
+    if (type) {
+      filter.type = type;
+    }
 
     // Búsqueda por UID parcial
     if (search) {
@@ -42,15 +47,12 @@ const getCards = async (req, res, next) => {
     }
 
     // Paginación
-    const skip = (page - 1) * limit;
+    const skip = (page - 1) * limit; // Calcular offset
     const sortOptions = { [sortBy]: order === 'asc' ? 1 : -1 };
 
     // Ejecutar query
     const [cards, total] = await Promise.all([
-      Card.find(filter)
-        .sort(sortOptions)
-        .limit(parseInt(limit))
-        .skip(skip),
+      Card.find(filter).sort(sortOptions).limit(parseInt(limit)).skip(skip),
       Card.countDocuments(filter)
     ]);
 
@@ -62,15 +64,11 @@ const getCards = async (req, res, next) => {
 
     res.json({
       success: true,
-      data: {
-        cards,
-        pagination: {
-          page: parseInt(page),
-          limit: parseInt(limit),
-          total,
-          pages: Math.ceil(total / limit)
-        }
-      }
+      data: paginationDTO(cardListDTO(cards), {
+        page: parseInt(page),
+        limit: parseInt(limit),
+        total
+      })
     });
   } catch (error) {
     next(error);
@@ -108,9 +106,7 @@ const getCardById = async (req, res, next) => {
 
     res.json({
       success: true,
-      data: {
-        card
-      }
+      data: cardDTO(card)
     });
   } catch (error) {
     next(error);
@@ -157,9 +153,7 @@ const createCard = async (req, res, next) => {
     res.status(201).json({
       success: true,
       message: 'Tarjeta registrada exitosamente',
-      data: {
-        card
-      }
+      data: cardDTO(card)
     });
   } catch (error) {
     next(error);
@@ -191,8 +185,12 @@ const updateCard = async (req, res, next) => {
     }
 
     // Actualizar campos permitidos
-    if (type) card.type = type;
-    if (status) card.status = status;
+    if (type) {
+      card.type = type;
+    }
+    if (status) {
+      card.status = status;
+    }
     if (metadata) {
       card.metadata = { ...card.metadata.toObject(), ...metadata };
     }
@@ -208,9 +206,7 @@ const updateCard = async (req, res, next) => {
     res.json({
       success: true,
       message: 'Tarjeta actualizada exitosamente',
-      data: {
-        card
-      }
+      data: cardDTO(card)
     });
   } catch (error) {
     next(error);
@@ -297,9 +293,7 @@ const createCardsBatch = async (req, res, next) => {
 
     if (existingCards.length > 0) {
       const existingUids = existingCards.map(c => c.uid);
-      throw new ConflictError(
-        `Las siguientes tarjetas ya existen: ${existingUids.join(', ')}`
-      );
+      throw new ConflictError(`Las siguientes tarjetas ya existen: ${existingUids.join(', ')}`);
     }
 
     // Insertar todas las tarjetas
@@ -314,7 +308,7 @@ const createCardsBatch = async (req, res, next) => {
       success: true,
       message: `${createdCards.length} tarjetas registradas exitosamente`,
       data: {
-        cards: createdCards,
+        cards: cardListDTO(createdCards),
         count: createdCards.length
       }
     });

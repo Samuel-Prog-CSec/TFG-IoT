@@ -5,9 +5,14 @@
  */
 
 require('dotenv').config();
+
+// Validar variables de entorno ANTES de cualquier inicialización
+const { validateEnv } = require('./utils/envValidator');
+validateEnv(); // Falla FAST si falta alguna configuración crítica
+
 const express = require('express');
 const cors = require('cors');
-const http = require('server');
+const http = require('http');
 const helmet = require('helmet');
 const compression = require('compression');
 const { Server } = require('socket.io');
@@ -15,6 +20,7 @@ const { connectDB, disconnectDB } = require('./config/database');
 const { initSentry, Sentry } = require('./config/sentry');
 const {
   corsOptions,
+  csrfProtection, // Middleware CSRF
   helmetOptions,
   globalRateLimiter,
   authRateLimiter,
@@ -26,6 +32,7 @@ const GamePlay = require('./models/GamePlay');
 const GameSession = require('./models/GameSession');
 const logger = require('./utils/logger');
 const { errorHandler, notFoundHandler } = require('./middlewares/errorHandler');
+const { getHealthStatus } = require('./utils/healthCheck');
 
 // Importar rutas
 const authRoutes = require('./routes/auth');
@@ -72,23 +79,28 @@ app.use(helmet(helmetOptions));
 
 // Compression para respuestas (solo si aporta valor)
 // Threshold: Solo comprimir si > 1KB
-app.use(compression({
-  threshold: 1024, // 1KB
-  filter: (req, res) => {
-    // No comprimir si el cliente no lo soporta
-    if (req.headers['x-no-compression']) {
-      return false;
+app.use(
+  compression({
+    threshold: 1024, // 1KB
+    filter: (req, res) => {
+      // No comprimir si el cliente no lo soporta
+      if (req.headers['x-no-compression']) {
+        return false;
+      }
+      // Usar filtro por defecto de compression
+      return compression.filter(req, res);
     }
-    // Usar filtro por defecto de compression
-    return compression.filter(req, res);
-  }
-}));
+  })
+);
 
 // Rate limiting global (todas las rutas /api/*)
 app.use('/api/', globalRateLimiter);
 
 // CORS con whitelist dinámica
 app.use(cors(corsOptions));
+
+// CSRF Protection para métodos que modifican datos
+app.use(csrfProtection);
 
 app.use(express.json()); // Parsear application/json
 app.use(express.urlencoded({ extended: true })); // Parsear application/x-www-form-urlencoded
@@ -128,26 +140,22 @@ app.use('/api/sessions', sessionRoutes);
 app.use('/api/plays', playRoutes);
 
 /**
- * Endpoint de salud del servidor.
+ * Endpoint de salud del servidor con información detallada.
  * @route GET /api/health
- * @returns {Object} 200 - Estado del servidor y conexión RFID
- * @returns {string} status - 'ok' si el servidor está funcionando
- * @returns {string} timestamp - Hora actual en formato ISO
- * @returns {boolean} rfidConnected - Si el sensor RFID está conectado
+ * @returns {Object} 200 - Estado completo del servidor, MongoDB y RFID
  */
-app.get('/api/health', (req, res) => {
-  const rfidStatus = rfidService.getStatus();
-
-  res.json({
-    status: 'ok',
-    timestamp: new Date().toISOString(),
-    environment: process.env.NODE_ENV || 'development',
-    rfid: {
-      connected: rfidStatus.isConnected,
-      uptime: rfidStatus.metrics.uptimeFormatted,
-      totalCardDetections: rfidStatus.metrics.totalCardDetections
-    }
-  });
+app.get('/api/health', async (req, res) => {
+  try {
+    const healthStatus = await getHealthStatus(rfidService);
+    res.json(healthStatus);
+  } catch (error) {
+    logger.error('Error en health check:', error);
+    res.status(500).json({
+      status: 'error',
+      message: 'Health check failed',
+      error: error.message
+    });
+  }
 });
 
 /**
@@ -212,7 +220,7 @@ app.use(errorHandler);
  * Manejador de conexiones Socket.IO.
  * Define todos los eventos WebSocket para comunicación en tiempo real.
  */
-io.on('connection', (socket) => {
+io.on('connection', socket => {
   logger.info(`Cliente conectado: ${socket.id}`);
 
   /**
@@ -221,7 +229,7 @@ io.on('connection', (socket) => {
    * @param {Object} data - Datos del evento
    * @param {string} data.playId - ID de la partida a la que unirse
    */
-  socket.on('join_play', async (data) => {
+  socket.on('join_play', async data => {
     const { playId } = data;
     socket.join(`play_${playId}`);
     /* TODO: Incluir información del jugador cuando exista el modelo User
@@ -249,7 +257,7 @@ io.on('connection', (socket) => {
    * @param {Object} data - Datos del evento
    * @param {string} data.playId - ID de la partida a abandonar
    */
-  socket.on('leave_play', (data) => {
+  socket.on('leave_play', data => {
     const { playId } = data;
     socket.leave(`play_${playId}`);
     logger.info(`Socket ${socket.id} abandonó la partida ${playId}`);
@@ -261,7 +269,7 @@ io.on('connection', (socket) => {
    * @param {Object} data - Datos del evento
    * @param {string} data.playId - ID de la partida a iniciar
    */
-  socket.on('start_play', async (data) => {
+  socket.on('start_play', async data => {
     try {
       const { playId } = data;
       const play = await GamePlay.findById(playId).populate('sessionId');
@@ -287,7 +295,7 @@ io.on('connection', (socket) => {
    * @param {Object} data - Datos del evento
    * @param {string} data.playId - ID de la partida a pausar
    */
-  socket.on('pause_play', (data) => {
+  socket.on('pause_play', data => {
     const { playId } = data;
     gameEngine.pausePlay(playId);
   });
@@ -298,7 +306,7 @@ io.on('connection', (socket) => {
    * @param {Object} data - Datos del evento
    * @param {string} data.playId - ID de la partida a reanudar
    */
-  socket.on('resume_play', (data) => {
+  socket.on('resume_play', data => {
     const { playId } = data;
     gameEngine.resumePlay(playId);
   });
@@ -309,7 +317,7 @@ io.on('connection', (socket) => {
    * @param {Object} data - Datos del evento
    * @param {string} data.playId - ID de la partida
    */
-  socket.on('next_round', (data) => {
+  socket.on('next_round', data => {
     const { playId } = data;
     gameEngine.sendNextRound(playId);
   });
@@ -331,7 +339,7 @@ io.on('connection', (socket) => {
  * Manejador de eventos del servicio RFID.
  * Procesa eventos del sensor y los distribuye al sistema.
  */
-rfidService.on('rfid_event', (event) => {
+rfidService.on('rfid_event', event => {
   // Enviar el evento a todos los clientes conectados (para la UI)
   io.emit('rfid_event', event);
 
@@ -360,7 +368,7 @@ rfidService.on('rfid_event', (event) => {
  * Manejador de cambios de estado del servicio RFID.
  * Notifica a los clientes sobre el estado de la conexión.
  */
-rfidService.on('status', (status) => {
+rfidService.on('status', status => {
   logger.info(`Estado del servicio RFID: ${status}`); // 'connected', 'disconnected', 'reconnecting'
 
   // Enviar el estado a todos los clientes (para actualización en la UI)
@@ -386,9 +394,14 @@ const startServer = async () => {
     await connectDB();
     logger.info('Base de datos conectada');
 
-    // Conectar al sensor RFID
-    logger.info('Iniciando servicio RFID...');
-    rfidService.connect(); // Servicio logueará por su cuenta si se conecta o no
+    // Conectar al sensor RFID (solo si está habilitado)
+    const rfidEnabled = process.env.RFID_ENABLED !== 'false';
+    if (rfidEnabled) {
+      logger.info('Iniciando servicio RFID...');
+      rfidService.connect(); // Servicio logueará por su cuenta si se conecta o no
+    } else {
+      logger.info('Servicio RFID deshabilitado (RFID_ENABLED=false)');
+    }
 
     // Iniciar servidor HTTP
     server.listen(PORT, () => {
@@ -411,7 +424,7 @@ const startServer = async () => {
  * Manejador de señal SIGTERM para cierre controlado del servidor.
  * Cierra conexiones a BD, sensor RFID y servidor HTTP de forma ordenada.
  */
-const gracefulShutdown = async (signal) => {
+const gracefulShutdown = async signal => {
   logger.info(`Recibido ${signal}, cerrando el servidor de manera controlada...`);
 
   // 1. Detener el servidor HTTP (no acepta más conexiones)

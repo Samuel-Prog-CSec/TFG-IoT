@@ -58,111 +58,115 @@ const bcrypt = require('bcrypt');
  * @property {Date} createdAt - Fecha de creación del registro
  * @property {Date} updatedAt - Fecha de última actualización
  */
-const userSchema = new mongoose.Schema({
-  name: {
-    type: String,
-    required: [true, 'El nombre es obligatorio'],
-    trim: true,
-    minlength: [2, 'El nombre debe tener al menos 2 caracteres'],
-    maxlength: [100, 'El nombre no puede exceder 100 caracteres']
-  },
-  email: {
-    type: String,
-    trim: true,
-    lowercase: true,
-    unique: true,
-    sparse: true, // Permite múltiples documentos con email undefined (para alumnos)
-    match: [/^\w+([\.-]?\w+)*@\w+([\.-]?\w+)*(\.\w{2,3})+$/, 'El email no es válido']
-  },
-  password: {
-    type: String,
-    minlength: [6, 'La contraseña debe tener al menos 6 caracteres']
-  },
-  role: {
-    type: String,
-    lowercase: true,
-    trim: true,
-    enum: {
-      values: ['teacher', 'student'],
-      message: 'El rol debe ser teacher o student'
-    },
-    required: [true, 'El rol es obligatorio'],
-    default: 'student'
-  },
-  profile: {
-    avatar: {
+const userSchema = new mongoose.Schema(
+  {
+    name: {
       type: String,
-      default: null
+      required: [true, 'El nombre es obligatorio'],
+      trim: true,
+      minlength: [2, 'El nombre debe tener al menos 2 caracteres'],
+      maxlength: [100, 'El nombre no puede exceder 100 caracteres']
     },
-    age: {
-      type: Number,
-      min: [3, 'La edad mínima es 3 años'],
-      max: [99, 'La edad máxima es 99 años']
-    },
-    classroom: {
+    email: {
       type: String,
       trim: true,
-      maxlength: [50, 'El nombre de la clase no puede exceder 50 caracteres']
+      lowercase: true,
+      unique: true,
+      sparse: true, // Permite múltiples documentos con email undefined (para alumnos)
+      match: [/^\w+([.-]?\w+)*@\w+([.-]?\w+)*(\.\w{2,3})+$/, 'El email no es válido']
     },
-    birthdate: Date
+    password: {
+      type: String,
+      minlength: [6, 'La contraseña debe tener al menos 6 caracteres']
+    },
+    role: {
+      type: String,
+      lowercase: true,
+      trim: true,
+      enum: {
+        values: ['teacher', 'student'],
+        message: 'El rol debe ser teacher o student'
+      },
+      required: [true, 'El rol es obligatorio'],
+      default: 'student'
+    },
+    profile: {
+      avatar: {
+        type: String,
+        default: null
+      },
+      age: {
+        type: Number,
+        min: [3, 'La edad mínima es 3 años'],
+        max: [99, 'La edad máxima es 99 años']
+      },
+      classroom: {
+        type: String,
+        trim: true,
+        maxlength: [50, 'El nombre de la clase no puede exceder 50 caracteres']
+      },
+      birthdate: Date
+    },
+    studentMetrics: {
+      totalGamesPlayed: {
+        type: Number,
+        default: 0,
+        min: 0
+      },
+      totalScore: {
+        type: Number,
+        default: 0
+      },
+      averageScore: {
+        type: Number,
+        default: 0
+      },
+      bestScore: {
+        type: Number,
+        default: 0
+      },
+      totalCorrectAnswers: {
+        type: Number,
+        default: 0,
+        min: 0
+      },
+      totalErrors: {
+        type: Number,
+        default: 0,
+        min: 0
+      },
+      averageResponseTime: {
+        type: Number,
+        default: 0,
+        min: 0
+      },
+      lastPlayedAt: Date
+    },
+    status: {
+      type: String,
+      lowercase: true,
+      trim: true,
+      enum: ['active', 'inactive'],
+      default: 'active'
+    },
+    createdBy: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'User'
+    },
+    lastLoginAt: Date
   },
-  studentMetrics: {
-    totalGamesPlayed: {
-      type: Number,
-      default: 0,
-      min: 0
-    },
-    totalScore: {
-      type: Number,
-      default: 0
-    },
-    averageScore: {
-      type: Number,
-      default: 0
-    },
-    bestScore: {
-      type: Number,
-      default: 0
-    },
-    totalCorrectAnswers: {
-      type: Number,
-      default: 0,
-      min: 0
-    },
-    totalErrors: {
-      type: Number,
-      default: 0,
-      min: 0
-    },
-    averageResponseTime: {
-      type: Number,
-      default: 0,
-      min: 0
-    },
-    lastPlayedAt: Date
-  },
-  status: {
-    type: String,
-    lowercase: true,
-    trim: true,
-    enum: ['active', 'inactive'],
-    default: 'active'
-  },
-  createdBy: {
-    type: mongoose.Schema.Types.ObjectId,
-    ref: 'User'
-  },
-  lastLoginAt: Date
-}, {
-  timestamps: true
-});
+  {
+    timestamps: true,
+    collection: 'users'
+  }
+);
 
 /**
  * Hook pre-save para validaciones personalizadas.
  * - Los profesores DEBEN tener email y password
  * - Los alumnos NO deben tener email ni password (validación estricta)
  */
-userSchema.pre('save', async function(next) {
+userSchema.pre('save', async function (next) {
   // ========================================
   // VALIDACIÓN PARA PROFESORES (role: 'teacher')
   // ========================================
@@ -185,17 +189,27 @@ userSchema.pre('save', async function(next) {
   // VALIDACIÓN PARA ALUMNOS (role: 'student')
   // ========================================
   if (this.role === 'student') {
-    // ✅ VALIDACIÓN ESTRICTA: Los alumnos NO deben tener email ni password
+    // VALIDACIÓN ESTRICTA: Los alumnos NO deben tener email ni password
     if (this.email) {
-      return next(new Error('Los alumnos NO deben tener email. Son creados por profesores y no inician sesión.'));
+      return next(
+        new Error(
+          'Los alumnos NO deben tener email. Son creados por profesores y no inician sesión.'
+        )
+      );
     }
     if (this.password) {
-      return next(new Error('Los alumnos NO deben tener contraseña. Son creados por profesores y no inician sesión.'));
+      return next(
+        new Error(
+          'Los alumnos NO deben tener contraseña. Son creados por profesores y no inician sesión.'
+        )
+      );
     }
 
-    // ✅ Validar que tenga un creador (profesor)
+    // VALIDAR que tenga un creador (profesor)
     if (!this.createdBy && this.isNew) {
-      return next(new Error('Los alumnos deben ser creados por un profesor (campo createdBy requerido)'));
+      return next(
+        new Error('Los alumnos deben ser creados por un profesor (campo createdBy requerido)')
+      );
     }
   }
 
@@ -214,7 +228,7 @@ userSchema.pre('save', async function(next) {
  * const user = await User.findOne({ email: 'profesor@example.com' });
  * const isMatch = await user.comparePassword('miPassword123');
  */
-userSchema.methods.comparePassword = async function(candidatePassword) {
+userSchema.methods.comparePassword = async function (candidatePassword) {
   if (!this.password) {
     return false;
   }
@@ -231,7 +245,7 @@ userSchema.methods.comparePassword = async function(candidatePassword) {
  * @example
  * await teacher.updateLastLogin();
  */
-userSchema.methods.updateLastLogin = function() {
+userSchema.methods.updateLastLogin = function () {
   this.lastLoginAt = new Date();
   return this.save();
 };
@@ -256,7 +270,7 @@ userSchema.methods.updateLastLogin = function() {
  *   averageResponseTime: 3500
  * });
  */
-userSchema.methods.updateStudentMetrics = function(playResults) {
+userSchema.methods.updateStudentMetrics = function (playResults) {
   if (this.role !== 'student') {
     throw new Error('Solo los alumnos tienen métricas de juego');
   }
@@ -288,7 +302,8 @@ userSchema.methods.updateStudentMetrics = function(playResults) {
   if (totalAttempts > 0) {
     this.studentMetrics.averageResponseTime =
       (this.studentMetrics.averageResponseTime * previousWeight +
-        playResults.averageResponseTime * newWeight) / totalAttempts;
+        playResults.averageResponseTime * newWeight) /
+      totalAttempts;
   }
 
   // Actualizar última fecha de juego
@@ -305,7 +320,7 @@ userSchema.methods.updateStudentMetrics = function(playResults) {
  * @memberof User
  * @returns {Object} Objeto con los datos del usuario sin campos sensibles
  */
-userSchema.methods.toSafeObject = function() {
+userSchema.methods.toSafeObject = function () {
   const obj = this.toObject();
   delete obj.password;
   return obj;
@@ -318,7 +333,7 @@ userSchema.methods.toSafeObject = function() {
  * @memberof User
  * @returns {boolean} true si el rol es 'teacher', false en caso contrario
  */
-userSchema.methods.isTeacher = function() {
+userSchema.methods.isTeacher = function () {
   return this.role === 'teacher';
 };
 
@@ -329,7 +344,7 @@ userSchema.methods.isTeacher = function() {
  * @memberof User
  * @returns {boolean} true si el rol es 'student', false en caso contrario
  */
-userSchema.methods.isStudent = function() {
+userSchema.methods.isStudent = function () {
   return this.role === 'student';
 };
 
@@ -338,17 +353,11 @@ userSchema.methods.isStudent = function() {
  * Esto mejora la seguridad evitando exponer contraseñas accidentalmente.
  */
 userSchema.set('toJSON', {
-  transform: function(doc, ret, options) {
+  transform(doc, ret, options) {
     delete ret.password;
     return ret;
   }
 });
-
-/**
- * Índice para búsqueda por email (login de profesores).
- * Es único y sparse para permitir múltiples alumnos sin email.
- */
-userSchema.index({ email: 1 });
 
 /**
  * Índice para filtrar usuarios por rol.

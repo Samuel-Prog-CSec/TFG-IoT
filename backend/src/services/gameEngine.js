@@ -50,6 +50,7 @@ class GameEngine {
      * @type {Map<string, Object>}
      * @property {Object} playDoc - Documento Mongoose de GamePlay
      * @property {Object} sessionDoc - Documento Mongoose de GameSession
+     * @property {Map<string, Object>} uidToMapping - Índice O(1) para búsqueda rápida: uid → cardMapping
      * @property {Object|null} currentChallenge - Desafío actual que debe resolver el jugador
      * @property {NodeJS.Timeout|null} roundTimer - Manejador del setTimeout para el límite de tiempo
      * @property {boolean} awaitingResponse - Indica si se está esperando una respuesta del jugador
@@ -202,28 +203,35 @@ class GameEngine {
       this.cardUidToPlayId.set(mapping.uid, playId);
     }
 
-    // 2. Crear el estado en memoria
+    // 2. Construir índice O(1) para búsqueda rápida de mappings por UID
+    const uidToMapping = new Map(sessionDoc.cardMappings.map(m => [m.uid, m]));
+
+    // 3. Crear el estado en memoria
     const playState = {
       playDoc,
       sessionDoc,
+      uidToMapping, // Índice O(1): uid → mapping completo
       currentChallenge: null,
       roundTimer: null,
       awaitingResponse: false,
       createdAt: Date.now() // Para detectar abandonos
     };
 
-    // 3. Almacenar el estado
+    // 4. Almacenar el estado
     this.activePlays.set(playId, playState);
     this.metrics.totalPlaysStarted++;
 
-    logger.info(`Partida ${playId} iniciada. ${sessionDoc.cardMappings.length} tarjetas bloqueadas.`, {
-      playId,
-      playerId: playDoc.playerId,
-      sessionId: sessionDoc._id,
-      activePlaysCount: this.activePlays.size
-    });
+    logger.info(
+      `Partida ${playId} iniciada. ${sessionDoc.cardMappings.length} tarjetas bloqueadas.`,
+      {
+        playId,
+        playerId: playDoc.playerId,
+        sessionId: sessionDoc._id,
+        activePlaysCount: this.activePlays.size
+      }
+    );
 
-    // 4. Enviar la primera ronda
+    // 5. Enviar la primera ronda
     await this.sendNextRound(playId);
   }
 
@@ -245,7 +253,9 @@ class GameEngine {
    */
   async endPlay(playId) {
     const playState = this.activePlays.get(playId);
-    if (!playState) return;
+    if (!playState) {
+      return;
+    }
 
     logger.info(`Finalizando partida ${playId}...`);
 
@@ -269,9 +279,8 @@ class GameEngine {
       // Actualizar métricas
       this.metrics.totalPlaysCompleted++;
       this.metrics.averagePlayDuration =
-        (this.metrics.averagePlayDuration * (this.metrics.totalPlaysCompleted - 1) + playDuration)
-        / this.metrics.totalPlaysCompleted;
-
+        (this.metrics.averagePlayDuration * (this.metrics.totalPlaysCompleted - 1) + playDuration) /
+        this.metrics.totalPlaysCompleted;
     } catch (err) {
       logger.error(`Error al guardar partida final ${playId}: ${err.message}`);
     }
@@ -317,7 +326,9 @@ class GameEngine {
    */
   async sendNextRound(playId) {
     const playState = this.activePlays.get(playId);
-    if (!playState) return;
+    if (!playState) {
+      return;
+    }
 
     // 1. Comprobar si el juego ha terminado
     const { playDoc, sessionDoc } = playState;
@@ -363,7 +374,9 @@ class GameEngine {
       score: playDoc.score
     });
 
-    logger.debug(`Ronda ${playDoc.currentRound} iniciada para ${playId}. Esperando tarjeta ${challengeMapping.uid}`);
+    logger.debug(
+      `Ronda ${playDoc.currentRound} iniciada para ${playId}. Esperando tarjeta ${challengeMapping.uid}`
+    );
 
     // 6. Programar el timeout
     playState.roundTimer = setTimeout(() => {
@@ -408,11 +421,11 @@ class GameEngine {
       return;
     }
 
-    // 3. Encontrar el mapping de la tarjeta escaneada
-    const scannedCardMapping = playState.sessionDoc.cardMappings.find(m => m.uid === uid);
+    // 3. Búsqueda O(1) del mapping de la tarjeta escaneada
+    const scannedCardMapping = playState.uidToMapping.get(uid);
     if (!scannedCardMapping) {
-      // Esto NO debería ocurrir si el Map está sincronizado correctamente
-      logger.error(`Error CRÍTICO: ${uid} mapeado a ${playId} pero no encontrado en sessionDoc.`);
+      // Esto NO debería ocurrir si el índice está sincronizado correctamente
+      logger.error(`Error CRÍTICO: ${uid} mapeado a ${playId} pero no encontrado en uidToMapping.`);
       return;
     }
 
@@ -493,7 +506,9 @@ class GameEngine {
       newScore: playDoc.score
     });
 
-    logger.info(`Partida: ${playId} | Ronda: ${playDoc.currentRound} | ${eventType} (${symbol}${pointsAwarded} pts)`);
+    logger.info(
+      `Partida: ${playId} | Ronda: ${playDoc.currentRound} | ${eventType} (${symbol}${pointsAwarded} pts)`
+    );
 
     // 5. Pasar a la siguiente ronda (tras un breve delay para feedback)
     playDoc.currentRound++;
@@ -571,7 +586,9 @@ class GameEngine {
    */
   getPlayState(playId) {
     const playState = this.activePlays.get(playId);
-    if (!playState) return null;
+    if (!playState) {
+      return null;
+    }
 
     return {
       playId: playState.playDoc._id.toString(),
