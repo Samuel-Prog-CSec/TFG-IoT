@@ -30,7 +30,7 @@ const connectDB = async () => {
     logger.info(`MongoDB Connected: ${conn.connection.host}`);
 
     // Listeners de eventos de conexión
-    mongoose.connection.on('error', (err) => {
+    mongoose.connection.on('error', err => {
       logger.error(`MongoDB connection error: ${err}`);
     });
 

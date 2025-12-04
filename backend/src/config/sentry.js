@@ -33,9 +33,7 @@ function initSentry() {
     environment: process.env.NODE_ENV || 'development',
 
     // Integraciones (v10+ usa funciones en lugar de clases)
-    integrations: [
-      nodeProfilingIntegration(),
-    ],
+    integrations: [nodeProfilingIntegration()],
 
     // Performance Monitoring
     tracesSampleRate: process.env.NODE_ENV === 'production' ? 0.1 : 1.0, // 10% en prod, 100% en dev
@@ -65,7 +63,7 @@ function initSentry() {
       }
 
       return event;
-    },
+    }
   });
 
   isSentryEnabled = true;
@@ -94,9 +92,9 @@ const noopErrorMiddleware = (err, req, res, next) => next(err);
  * En Sentry v10+ los handlers están directamente en Sentry.
  */
 const SentryHandlers = {
-  requestHandler: () => isSentryEnabled ? Sentry.Handlers.requestHandler() : noopMiddleware,
-  tracingHandler: () => isSentryEnabled ? Sentry.Handlers.tracingHandler() : noopMiddleware,
-  errorHandler: () => isSentryEnabled ? Sentry.Handlers.errorHandler() : noopErrorMiddleware
+  requestHandler: () => (isSentryEnabled ? Sentry.Handlers.requestHandler() : noopMiddleware),
+  tracingHandler: () => (isSentryEnabled ? Sentry.Handlers.tracingHandler() : noopMiddleware),
+  errorHandler: () => (isSentryEnabled ? Sentry.Handlers.errorHandler() : noopErrorMiddleware)
 };
 
 /**

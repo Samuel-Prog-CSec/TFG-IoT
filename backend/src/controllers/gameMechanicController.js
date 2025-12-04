@@ -33,7 +33,9 @@ const getMechanics = async (req, res, next) => {
     // Construir filtro
     const filter = {};
 
-    if (isActive !== undefined) filter.isActive = isActive;
+    if (isActive !== undefined) {
+      filter.isActive = isActive;
+    }
 
     // Búsqueda por nombre o displayName
     if (search) {
@@ -49,10 +51,7 @@ const getMechanics = async (req, res, next) => {
 
     // Ejecutar query
     const [mechanics, total] = await Promise.all([
-      GameMechanic.find(filter)
-        .sort(sortOptions)
-        .limit(parseInt(limit))
-        .skip(skip),
+      GameMechanic.find(filter).sort(sortOptions).limit(parseInt(limit)).skip(skip),
       GameMechanic.countDocuments(filter)
     ]);
 
@@ -186,11 +185,21 @@ const updateMechanic = async (req, res, next) => {
     }
 
     // Actualizar campos permitidos (name es inmutable)
-    if (displayName) mechanic.displayName = displayName;
-    if (description) mechanic.description = description;
-    if (icon) mechanic.icon = icon;
-    if (rules) mechanic.rules = { ...mechanic.rules, ...rules };
-    if (isActive !== undefined) mechanic.isActive = isActive;
+    if (displayName) {
+      mechanic.displayName = displayName;
+    }
+    if (description) {
+      mechanic.description = description;
+    }
+    if (icon) {
+      mechanic.icon = icon;
+    }
+    if (rules) {
+      mechanic.rules = { ...mechanic.rules, ...rules };
+    }
+    if (isActive !== undefined) {
+      mechanic.isActive = isActive;
+    }
 
     await mechanic.save();
 
@@ -262,9 +271,7 @@ const deleteMechanic = async (req, res, next) => {
  */
 const getActiveMechanics = async (req, res, next) => {
   try {
-    const mechanics = await GameMechanic.find({ isActive: true })
-      .sort({ name: 1 })
-      .select('-__v');
+    const mechanics = await GameMechanic.find({ isActive: true }).sort({ name: 1 }).select('-__v');
 
     res.json({
       success: true,

@@ -38,15 +38,25 @@ const getPlays = async (req, res, next) => {
     // Construir filtro
     const filter = {};
 
-    if (sessionId) filter.sessionId = sessionId;
-    if (playerId) filter.playerId = playerId;
-    if (status) filter.status = status;
+    if (sessionId) {
+      filter.sessionId = sessionId;
+    }
+    if (playerId) {
+      filter.playerId = playerId;
+    }
+    if (status) {
+      filter.status = status;
+    }
 
     // Filtro de score range
     if (minScore !== undefined || maxScore !== undefined) {
       filter.score = {};
-      if (minScore !== undefined) filter.score.$gte = parseInt(minScore);
-      if (maxScore !== undefined) filter.score.$lte = parseInt(maxScore);
+      if (minScore !== undefined) {
+        filter.score.$gte = parseInt(minScore);
+      }
+      if (maxScore !== undefined) {
+        filter.score.$lte = parseInt(maxScore);
+      }
     }
 
     // Profesores ven todas, alumnos solo las suyas
@@ -281,9 +291,7 @@ const completePlay = async (req, res, next) => {
   try {
     const { id } = req.params;
 
-    const play = await GamePlay.findById(id)
-      .populate('playerId')
-      .populate('sessionId');
+    const play = await GamePlay.findById(id).populate('playerId').populate('sessionId');
 
     if (!play) {
       throw new NotFoundError('Partida');
@@ -392,7 +400,9 @@ const getPlayerStats = async (req, res, next) => {
     }
 
     const filter = { playerId, status: 'completed' };
-    if (sessionId) filter.sessionId = sessionId;
+    if (sessionId) {
+      filter.sessionId = sessionId;
+    }
 
     // Calcular estadísticas agregadas
     const stats = await GamePlay.aggregate([
@@ -428,9 +438,10 @@ const getPlayerStats = async (req, res, next) => {
     delete result._id;
 
     // Calcular tasa de acierto
-    const accuracyRate = result.totalCorrect + result.totalErrors > 0
-      ? (result.totalCorrect / (result.totalCorrect + result.totalErrors) * 100).toFixed(2)
-      : 0;
+    const accuracyRate =
+      result.totalCorrect + result.totalErrors > 0
+        ? ((result.totalCorrect / (result.totalCorrect + result.totalErrors)) * 100).toFixed(2)
+        : 0;
 
     res.json({
       success: true,
@@ -458,10 +469,18 @@ const getPlayerStats = async (req, res, next) => {
 function calculateRating(score, maxPointsPerRound) {
   const percentage = (score / (maxPointsPerRound * 5)) * 100; // Asumiendo 5 rondas
 
-  if (percentage >= 90) return '⭐⭐⭐⭐⭐';
-  if (percentage >= 75) return '⭐⭐⭐⭐';
-  if (percentage >= 60) return '⭐⭐⭐';
-  if (percentage >= 40) return '⭐⭐';
+  if (percentage >= 90) {
+    return '⭐⭐⭐⭐⭐';
+  }
+  if (percentage >= 75) {
+    return '⭐⭐⭐⭐';
+  }
+  if (percentage >= 60) {
+    return '⭐⭐⭐';
+  }
+  if (percentage >= 40) {
+    return '⭐⭐';
+  }
   return '⭐';
 }
 

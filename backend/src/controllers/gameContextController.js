@@ -21,13 +21,7 @@ const { gameContextDTO, gameContextListDTO, paginationDTO } = require('../utils/
  */
 const getContexts = async (req, res, next) => {
   try {
-    const {
-      page = 1,
-      limit = 20,
-      sortBy = 'createdAt',
-      order = 'desc',
-      search
-    } = req.query;
+    const { page = 1, limit = 20, sortBy = 'createdAt', order = 'desc', search } = req.query;
 
     // Construir filtro
     const filter = {};
@@ -46,10 +40,7 @@ const getContexts = async (req, res, next) => {
 
     // Ejecutar query
     const [contexts, total] = await Promise.all([
-      GameContext.find(filter)
-        .sort(sortOptions)
-        .limit(parseInt(limit))
-        .skip(skip),
+      GameContext.find(filter).sort(sortOptions).limit(parseInt(limit)).skip(skip),
       GameContext.countDocuments(filter)
     ]);
 
@@ -181,9 +172,15 @@ const updateContext = async (req, res, next) => {
     }
 
     // Actualizar campos
-    if (contextId) context.contextId = contextId.toLowerCase();
-    if (name) context.name = name;
-    if (assets) context.assets = assets;
+    if (contextId) {
+      context.contextId = contextId.toLowerCase();
+    }
+    if (name) {
+      context.name = name;
+    }
+    if (assets) {
+      context.assets = assets;
+    }
 
     await context.save();
 
@@ -321,9 +318,7 @@ const removeAsset = async (req, res, next) => {
     }
 
     // Verificar que el asset exista
-    const assetIndex = context.assets.findIndex(
-      asset => asset.key === assetKey.toLowerCase()
-    );
+    const assetIndex = context.assets.findIndex(asset => asset.key === assetKey.toLowerCase());
 
     if (assetIndex === -1) {
       throw new NotFoundError('Asset');
@@ -372,8 +367,9 @@ const getContextAssets = async (req, res, next) => {
     if (id.match(/^[0-9a-fA-F]{24}$/)) {
       context = await GameContext.findById(id).select('contextId name assets');
     } else {
-      context = await GameContext.findOne({ contextId: id.toLowerCase() })
-        .select('contextId name assets');
+      context = await GameContext.findOne({ contextId: id.toLowerCase() }).select(
+        'contextId name assets'
+      );
     }
 
     if (!context) {

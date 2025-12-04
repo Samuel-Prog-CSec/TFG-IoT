@@ -165,9 +165,7 @@ async function addEventToPlay(playId, eventData) {
  * @throws {ValidationError} Si la partida ya no está en progreso
  */
 async function completePlay(playId) {
-  const play = await GamePlay.findById(playId)
-    .populate('playerId')
-    .populate('sessionId');
+  const play = await GamePlay.findById(playId).populate('playerId').populate('sessionId');
 
   if (!play) {
     throw new NotFoundError('Partida');
@@ -212,10 +210,18 @@ async function completePlay(playId) {
 function calculateRating(score, maxPointsPerRound) {
   const percentage = (score / (maxPointsPerRound * 5)) * 100; // Asumiendo 5 rondas
 
-  if (percentage >= 90) return '⭐⭐⭐⭐⭐';
-  if (percentage >= 75) return '⭐⭐⭐⭐';
-  if (percentage >= 60) return '⭐⭐⭐';
-  if (percentage >= 40) return '⭐⭐';
+  if (percentage >= 90) {
+    return '⭐⭐⭐⭐⭐';
+  }
+  if (percentage >= 75) {
+    return '⭐⭐⭐⭐';
+  }
+  if (percentage >= 60) {
+    return '⭐⭐⭐';
+  }
+  if (percentage >= 40) {
+    return '⭐⭐';
+  }
   return '⭐';
 }
 
@@ -229,7 +235,9 @@ function calculateRating(score, maxPointsPerRound) {
  */
 async function getPlayerStats(playerId, sessionId = null) {
   const filter = { playerId, status: 'completed' };
-  if (sessionId) filter.sessionId = sessionId;
+  if (sessionId) {
+    filter.sessionId = sessionId;
+  }
 
   const stats = await GamePlay.aggregate([
     { $match: filter },
@@ -264,9 +272,12 @@ async function getPlayerStats(playerId, sessionId = null) {
   delete result._id;
 
   // Calcular tasa de acierto
-  const accuracyRate = result.totalCorrect + result.totalErrors > 0
-    ? parseFloat(((result.totalCorrect / (result.totalCorrect + result.totalErrors)) * 100).toFixed(2))
-    : 0;
+  const accuracyRate =
+    result.totalCorrect + result.totalErrors > 0
+      ? parseFloat(
+          ((result.totalCorrect / (result.totalCorrect + result.totalErrors)) * 100).toFixed(2)
+        )
+      : 0;
 
   return {
     playerId,

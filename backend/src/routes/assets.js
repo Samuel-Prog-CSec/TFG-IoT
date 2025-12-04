@@ -13,10 +13,6 @@ const upload = multer({
 
 // POST /api/contexts/:contextId/assets
 // 'file' es el nombre del campo en el formulario del frontend
-router.post(
-  '/:contextId/assets',
-  upload.single('file'),
-  assetController.uploadAsset
-);
+router.post('/:contextId/assets', upload.single('file'), assetController.uploadAsset);
 
 module.exports = router;

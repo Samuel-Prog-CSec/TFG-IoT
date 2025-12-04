@@ -116,7 +116,6 @@ async function runSeeders() {
     logger.info('   │  admin@test.com     │  Admin1234!          │');
     logger.info('   └────────────────────────────────────────────┘');
     logger.info('');
-
   } catch (error) {
     logger.error('❌ Error ejecutando seeders:', error);
     throw error;

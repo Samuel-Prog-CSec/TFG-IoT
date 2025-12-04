@@ -15,8 +15,7 @@ const logger = require('../utils/logger');
  * NUNCA debe estar habilitado en producción.
  */
 const AUTH_BYPASS_ENABLED =
-  process.env.NODE_ENV === 'development' &&
-  process.env.AUTH_BYPASS_FOR_DEV === 'true';
+  process.env.NODE_ENV === 'development' && process.env.AUTH_BYPASS_FOR_DEV === 'true';
 
 if (AUTH_BYPASS_ENABLED) {
   logger.warn('AUTH_BYPASS_FOR_DEV está habilitado. NO usar en producción.');
@@ -52,7 +51,7 @@ setInterval(() => {
  * @param {import('express').Request} req - Request de Express
  * @returns {string} Hash SHA256 del fingerprint
  */
-const generateDeviceFingerprint = (req) => {
+const generateDeviceFingerprint = req => {
   const userAgent = req.headers['user-agent'] || '';
   const acceptLanguage = req.headers['accept-language'] || '';
   const acceptEncoding = req.headers['accept-encoding'] || '';
@@ -299,9 +298,11 @@ const revokeToken = (jti, expiresAt) => {
  * @param {string} expiration - Ej: '15m', '7d', '30d'
  * @returns {number} Segundos
  */
-const parseExpiration = (expiration) => {
+const parseExpiration = expiration => {
   const match = expiration.match(/^(\d+)([smhd])$/);
-  if (!match) return 900; // Default 15 minutos
+  if (!match) {
+    return 900;
+  } // Default 15 minutos
 
   const value = parseInt(match[1]);
   const unit = match[2];
@@ -367,7 +368,9 @@ const authenticate = async (req, res, next) => {
       }
 
       // Sin token válido: usar mock user (primer profesor disponible)
-      const mockUser = await User.findOne({ role: 'teacher', status: 'active' }).select('-password');
+      const mockUser = await User.findOne({ role: 'teacher', status: 'active' }).select(
+        '-password'
+      );
 
       if (mockUser) {
         req.user = mockUser;
@@ -450,8 +453,9 @@ const authenticate = async (req, res, next) => {
  * @param {...string} allowedRoles - Roles permitidos
  * @returns {Function} Middleware de Express
  */
-const requireRole = (...allowedRoles) => {
-  return (req, res, next) => {
+const requireRole =
+  (...allowedRoles) =>
+  (req, res, next) => {
     try {
       if (!req.user) {
         throw new UnauthorizedError('Autenticación requerida');
@@ -465,9 +469,7 @@ const requireRole = (...allowedRoles) => {
           path: req.path
         });
 
-        throw new ForbiddenError(
-          `Acceso denegado. Roles permitidos: ${allowedRoles.join(', ')}`
-        );
+        throw new ForbiddenError(`Acceso denegado. Roles permitidos: ${allowedRoles.join(', ')}`);
       }
 
       next();
@@ -475,7 +477,6 @@ const requireRole = (...allowedRoles) => {
       next(error);
     }
   };
-};
 
 /**
  * Middleware para verificar que el usuario accede solo a sus propios recursos.
@@ -487,8 +488,9 @@ const requireRole = (...allowedRoles) => {
  * @param {string} resourceIdField - Campo en req.params o req.body con el ID del recurso
  * @returns {Function} Middleware de Express
  */
-const requireOwnership = (resourceIdField = 'id') => {
-  return async (req, res, next) => {
+const requireOwnership =
+  (resourceIdField = 'id') =>
+  async (req, res, next) => {
     try {
       if (!req.user) {
         throw new UnauthorizedError('Autenticación requerida');
@@ -506,7 +508,7 @@ const requireOwnership = (resourceIdField = 'id') => {
       if (resourceId && resourceId.toString() !== req.user._id.toString()) {
         logger.warn('Acceso denegado por ownership', {
           userId: req.user._id,
-          resourceId: resourceId,
+          resourceId,
           path: req.path
         });
 
@@ -518,7 +520,6 @@ const requireOwnership = (resourceIdField = 'id') => {
       next(error);
     }
   };
-};
 
 /**
  * Middleware opcional de autenticación.

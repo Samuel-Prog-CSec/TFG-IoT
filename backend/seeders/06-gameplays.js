@@ -21,10 +21,10 @@ function generatePlayEvents(numberOfRounds, config) {
   let timeoutAttempts = 0;
   const responseTimes = [];
 
-  const startTime = Date.now() - (numberOfRounds * 20000); // Simular que empezó hace un rato
+  const startTime = Date.now() - numberOfRounds * 20000; // Simular que empezó hace un rato
 
   for (let round = 1; round <= numberOfRounds; round++) {
-    const roundStartTime = startTime + ((round - 1) * 15000);
+    const roundStartTime = startTime + (round - 1) * 15000;
 
     // Evento: round_start
     events.push({
@@ -85,9 +85,10 @@ function generatePlayEvents(numberOfRounds, config) {
   }
 
   // Calcular métricas
-  const averageResponseTime = responseTimes.length > 0
-    ? Math.round(responseTimes.reduce((a, b) => a + b, 0) / responseTimes.length)
-    : 0;
+  const averageResponseTime =
+    responseTimes.length > 0
+      ? Math.round(responseTimes.reduce((a, b) => a + b, 0) / responseTimes.length)
+      : 0;
 
   return {
     events,
@@ -113,16 +114,12 @@ function generateGamePlaysData(sessions, students) {
   const gamePlays = [];
 
   // Filtrar sesiones activas o completadas
-  const playableSessions = sessions.filter(s =>
-    s.status === 'active' || s.status === 'completed'
-  );
+  const playableSessions = sessions.filter(s => s.status === 'active' || s.status === 'completed');
 
   playableSessions.forEach((session, sessionIndex) => {
     // Asignar 2-3 alumnos aleatorios a cada sesión
     const numPlayers = Math.floor(Math.random() * 2) + 2;
-    const selectedStudents = students
-      .sort(() => 0.5 - Math.random())
-      .slice(0, numPlayers);
+    const selectedStudents = students.sort(() => 0.5 - Math.random()).slice(0, numPlayers);
 
     selectedStudents.forEach((student, studentIndex) => {
       const numberOfRounds = session.config.numberOfRounds;
@@ -149,20 +146,19 @@ function generateGamePlaysData(sessions, students) {
         sessionId: session._id,
         playerId: student._id,
         score: status === 'in-progress' ? Math.floor(playData.score / 2) : playData.score,
-        currentRound: status === 'in-progress'
-          ? Math.ceil(numberOfRounds / 2)
-          : numberOfRounds + 1,
+        currentRound: status === 'in-progress' ? Math.ceil(numberOfRounds / 2) : numberOfRounds + 1,
         events: playData.events,
-        metrics: status === 'in-progress'
-          ? {
-              totalAttempts: Math.floor(playData.metrics.totalAttempts / 2),
-              correctAttempts: Math.floor(playData.metrics.correctAttempts / 2),
-              errorAttempts: Math.floor(playData.metrics.errorAttempts / 2),
-              timeoutAttempts: Math.floor(playData.metrics.timeoutAttempts / 2),
-              averageResponseTime: playData.metrics.averageResponseTime,
-              completionTime: 0
-            }
-          : playData.metrics,
+        metrics:
+          status === 'in-progress'
+            ? {
+                totalAttempts: Math.floor(playData.metrics.totalAttempts / 2),
+                correctAttempts: Math.floor(playData.metrics.correctAttempts / 2),
+                errorAttempts: Math.floor(playData.metrics.errorAttempts / 2),
+                timeoutAttempts: Math.floor(playData.metrics.timeoutAttempts / 2),
+                averageResponseTime: playData.metrics.averageResponseTime,
+                completionTime: 0
+              }
+            : playData.metrics,
         status,
         startedAt: session.startedAt || new Date(Date.now() - 30 * 60 * 1000),
         completedAt

@@ -22,9 +22,9 @@ exports.uploadAsset = async (req, res) => {
 
     // 3. Construir el nuevo objeto Asset
     const newAsset = {
-      key: key,             // ej. "lion"
-      value: value,         // ej. "León"
-      display: value,       // Por defecto
+      key, // ej. "lion"
+      value, // ej. "León"
+      display: value, // Por defecto
       [type === 'audio' ? 'audioUrl' : 'imageUrl']: publicUrl // Asignación dinámica
     };
 
@@ -37,7 +37,6 @@ exports.uploadAsset = async (req, res) => {
       data: newAsset,
       message: 'Asset subido y vinculado correctamente'
     });
-
   } catch (error) {
     // Si falla MongoDB, idealmente deberíamos borrar la imagen de Supabase (Rollback)
     res.status(500).json({ success: false, error: error.message });

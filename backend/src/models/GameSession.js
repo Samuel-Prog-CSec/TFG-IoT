@@ -26,18 +26,22 @@ const mongoose = require('mongoose');
 
 /**
  * Calcula la dificultad del juego basándose en el número de tarjetas.
- * 
+ *
  * Rangos de dificultad:
  * - easy: 2-5 tarjetas (juegos simples para niños pequeños)
  * - medium: 6-12 tarjetas (dificultad intermedia)
  * - hard: 13-30 tarjetas (juegos más desafiantes)
- * 
+ *
  * @param {number} numberOfCards - Número de tarjetas en el juego
  * @returns {string} Nivel de dificultad ('easy', 'medium', 'hard')
  */
-const calculateDifficulty = (numberOfCards) => {
-  if (numberOfCards <= 5) return 'easy';
-  if (numberOfCards <= 12) return 'medium';
+const calculateDifficulty = numberOfCards => {
+  if (numberOfCards <= 5) {
+    return 'easy';
+  }
+  if (numberOfCards <= 12) {
+    return 'medium';
+  }
   return 'hard';
 };
 
@@ -70,99 +74,103 @@ const calculateDifficulty = (numberOfCards) => {
  * @property {string} assignedValue - Valor asignado a esta tarjeta para el juego (dudas #3, #10)
  * @property {Mixed} displayData - Datos de visualización para el frontend (flexible)
  */
-const gameSessionSchema = new mongoose.Schema({
-  mechanicId: {
-    type: mongoose.Schema.Types.ObjectId,
-    ref: 'GameMechanic',
-    required: true
-  },
-  contextId: {
-    type: mongoose.Schema.Types.ObjectId,
-    ref: 'GameContext',
-    required: true
-  },
-  config: {
-    numberOfCards: {
-      type: Number,
-      required: true,
-      min: 2,
-      max: 30
+const gameSessionSchema = new mongoose.Schema(
+  {
+    mechanicId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'GameMechanic',
+      required: true
     },
-    numberOfRounds: {
-      type: Number,
-      min: 1,
-      max: 20,
-      default: 5
+    contextId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'GameContext',
+      required: true
     },
-    timeLimit: {
-      type: Number,
-      min: 3,
-      max: 60,
-      default: 15
-    },
-    pointsPerCorrect: {
-      type: Number,
-      min: [1, 'Los puntos por acierto deben ser mayores que 0'],
-      default: 10,
-      validate: {
-        validator: Number.isInteger,
-        message: 'Los puntos por acierto deben ser un entero'
+    config: {
+      numberOfCards: {
+        type: Number,
+        required: true,
+        min: 2,
+        max: 30
+      },
+      numberOfRounds: {
+        type: Number,
+        min: 1,
+        max: 20,
+        default: 5
+      },
+      timeLimit: {
+        type: Number,
+        min: 3,
+        max: 60,
+        default: 15
+      },
+      pointsPerCorrect: {
+        type: Number,
+        min: [1, 'Los puntos por acierto deben ser mayores que 0'],
+        default: 10,
+        validate: {
+          validator: Number.isInteger,
+          message: 'Los puntos por acierto deben ser un entero'
+        }
+      },
+      penaltyPerError: {
+        type: Number,
+        max: [-1, 'Los puntos por error deben ser menores que 0'],
+        default: -2,
+        validate: {
+          validator: Number.isInteger,
+          message: 'Los puntos por error deben ser un entero'
+        }
       }
     },
-    penaltyPerError: {
-      type: Number,
-      max: [-1, 'Los puntos por error deben ser menores que 0'],
-      default: -2,
-      validate: {
-        validator: Number.isInteger,
-        message: 'Los puntos por error deben ser un entero'
+    cardMappings: [
+      {
+        cardId: {
+          type: mongoose.Schema.Types.ObjectId,
+          ref: 'Card',
+          required: true
+        },
+        uid: {
+          type: String,
+          required: true,
+          uppercase: true,
+          trim: true
+        },
+        assignedValue: {
+          type: String,
+          required: true
+        },
+        displayData: mongoose.Schema.Types.Mixed
       }
+    ],
+    status: {
+      type: String,
+      lowercase: true,
+      trim: true,
+      enum: ['created', 'active', 'paused', 'completed'],
+      default: 'created'
+    },
+    difficulty: {
+      type: String,
+      lowercase: true,
+      trim: true,
+      enum: ['easy', 'medium', 'hard'],
+      default: 'medium'
+    },
+    startedAt: Date,
+    endedAt: Date,
+    createdBy: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'User',
+      required: true
     }
   },
-  cardMappings: [{
-    cardId: {
-      type: mongoose.Schema.Types.ObjectId,
-      ref: 'Card',
-      required: true
-    },
-    uid: {
-      type: String,
-      required: true,
-      uppercase: true,
-      required: true,
-      trim: true
-    },
-    assignedValue: {
-      type: String,
-      required: true
-    },
-    displayData: mongoose.Schema.Types.Mixed
-  }],
-  status: {
-    type: String,
-    lowercase: true,
-    trim: true,
-    enum: ['created', 'active', 'paused', 'completed'],
-    default: 'created'
-  },
-  difficulty: {
-    type: String,
-    lowercase: true,
-    trim: true,
-    enum: ['easy', 'medium', 'hard'],
-    default: 'medium'
-  },
-  startedAt: Date,
-  endedAt: Date,
-  createdBy: {
-    type: mongoose.Schema.Types.ObjectId,
-    ref: 'User',
-    required: true
+  {
+    timestamps: true,
+    collection: 'game_sessions'
   }
-}, {
-  timestamps: true,
-  collection: 'game_sessions'
-});
+);
 
 /**
  * Inicia la sesión de juego.
@@ -172,7 +180,7 @@ const gameSessionSchema = new mongoose.Schema({
  * @memberof GameSession
  * @returns {Promise<GameSession>} Promesa que resuelve con el documento actualizado
  */
-gameSessionSchema.methods.start = function() {
+gameSessionSchema.methods.start = function () {
   this.status = 'active';
   this.startedAt = new Date();
   return this.save();
@@ -186,7 +194,7 @@ gameSessionSchema.methods.start = function() {
  * @memberof GameSession
  * @returns {Promise<GameSession>} Promesa que resuelve con el documento actualizado
  */
-gameSessionSchema.methods.pause = function() {
+gameSessionSchema.methods.pause = function () {
   this.status = 'paused';
   return this.save();
 };
@@ -199,7 +207,7 @@ gameSessionSchema.methods.pause = function() {
  * @memberof GameSession
  * @returns {Promise<GameSession>} Promesa que resuelve con el documento actualizado
  */
-gameSessionSchema.methods.end = function() {
+gameSessionSchema.methods.end = function () {
   this.status = 'completed';
   this.endedAt = new Date();
   return this.save();
@@ -212,7 +220,7 @@ gameSessionSchema.methods.end = function() {
  * @memberof GameSession
  * @returns {boolean} true si el estado es 'active', false en caso contrario
  */
-gameSessionSchema.methods.isActive = function() {
+gameSessionSchema.methods.isActive = function () {
   return this.status === 'active';
 };
 
@@ -220,13 +228,11 @@ gameSessionSchema.methods.isActive = function() {
  * Middleware pre-save para auto-calcular la dificultad.
  * Se ejecuta antes de guardar y calcula la dificultad basándose en numberOfCards.
  */
-gameSessionSchema.pre('save', function(next) {
+gameSessionSchema.pre('save', function (next) {
   // Solo auto-calcular si:
   // 1. Es un documento nuevo
   // 2. Se modificó numberOfCards
-  const shouldAutoCalculate = 
-    this.isNew || 
-    this.isModified('config.numberOfCards');
+  const shouldAutoCalculate = this.isNew || this.isModified('config.numberOfCards');
   if (shouldAutoCalculate && this.config && this.config.numberOfCards) {
     this.difficulty = calculateDifficulty(this.config.numberOfCards);
   }
@@ -243,7 +249,7 @@ gameSessionSchema.pre('save', function(next) {
  * @param {Array<CardMapping>} value - El array de cardMappings a validar
  * @returns {boolean} true si la validación es exitosa, false en caso contrario
  */
-gameSessionSchema.path('cardMappings').validate(function(value) {
+gameSessionSchema.path('cardMappings').validate(function (value) {
   if (value.length === 0) {
     return false;
   }

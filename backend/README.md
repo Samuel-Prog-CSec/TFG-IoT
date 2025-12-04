@@ -453,8 +453,8 @@ NODE_ENV=production
 MONGODB_URI=mongodb+srv://<user>:<pass>@cluster.mongodb.net/rfid_games
 JWT_SECRET=<secret-super-seguro-produccion>
 JWT_REFRESH_SECRET=<refresh-secret-super-seguro>
-CORS_WHITELIST=https://tuapp.com
-SENTRY_DSN=<tu-sentry-dsn>
+CORS_WHITELIST=https://app.com
+SENTRY_DSN=<sentry-dsn>
 SENTRY_ENVIRONMENT=production
 SENTRY_TRACES_SAMPLE_RATE=0.1  # 10% en prod
 ```

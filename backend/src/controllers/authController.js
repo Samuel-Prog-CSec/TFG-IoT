@@ -11,11 +11,7 @@ const {
   UnauthorizedError,
   ConflictError
 } = require('../utils/errors');
-const {
-  generateTokenPair,
-  verifyRefreshToken,
-  revokeToken
-} = require('../middlewares/auth');
+const { generateTokenPair, verifyRefreshToken, revokeToken } = require('../middlewares/auth');
 const logger = require('../utils/logger');
 const { userDTO } = require('../utils/dtos');
 
@@ -201,7 +197,9 @@ const updateProfile = async (req, res, next) => {
     }
 
     // Actualizar campos
-    if (name) user.name = name;
+    if (name) {
+      user.name = name;
+    }
     if (profile) {
       user.profile = { ...user.profile.toObject(), ...profile };
     }

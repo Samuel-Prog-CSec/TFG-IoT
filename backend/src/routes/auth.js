@@ -18,10 +18,7 @@ const {
 
 const { authenticate, logout } = require('../middlewares/auth');
 const { validateBody } = require('../middlewares/validation');
-const {
-  registerTeacherSchema,
-  loginSchema
-} = require('../validators/userValidator');
+const { registerTeacherSchema, loginSchema } = require('../validators/userValidator');
 
 /**
  * @route   POST /api/auth/register

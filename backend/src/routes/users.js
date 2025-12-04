@@ -36,13 +36,7 @@ const paramsSchema = z.object({
  * @desc    Obtener lista de usuarios con filtros
  * @access  Private (Teacher)
  */
-router.get(
-  '/',
-  authenticate,
-  requireRole('teacher'),
-  validateQuery(userQuerySchema),
-  getUsers
-);
+router.get('/', authenticate, requireRole('teacher'), validateQuery(userQuerySchema), getUsers);
 
 /**
  * @route   GET /api/users/teacher/:teacherId/students
@@ -62,24 +56,14 @@ router.get(
  * @desc    Obtener usuario por ID
  * @access  Private
  */
-router.get(
-  '/:id',
-  authenticate,
-  validateParams(paramsSchema),
-  getUserById
-);
+router.get('/:id', authenticate, validateParams(paramsSchema), getUserById);
 
 /**
  * @route   GET /api/users/:id/stats
  * @desc    Obtener estadísticas de un alumno
  * @access  Private
  */
-router.get(
-  '/:id/stats',
-  authenticate,
-  validateParams(paramsSchema),
-  getUserStats
-);
+router.get('/:id/stats', authenticate, validateParams(paramsSchema), getUserStats);
 
 /**
  * @route   POST /api/users

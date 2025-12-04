@@ -25,25 +25,24 @@ class StorageService {
       const filePath = `${folder}/${timestamp}-${sanitizedName}`;
 
       // 2. Subir el archivo (Buffer)
-      const { data, error } = await this.supabase
-        .storage
+      const { data, error } = await this.supabase.storage
         .from(BUCKET_NAME)
         .upload(filePath, file.buffer, {
           contentType: file.mimetype,
           upsert: false
         });
 
-      if (error) throw error;
+      if (error) {
+        throw error;
+      }
 
       // 3. Obtener la URL pública
-      const { data: publicUrlData } = this.supabase
-        .storage
+      const { data: publicUrlData } = this.supabase.storage
         .from(BUCKET_NAME)
         .getPublicUrl(filePath);
 
       logger.info(`Archivo subido exitosamente: ${filePath}`);
       return publicUrlData.publicUrl;
-
     } catch (error) {
       logger.error(`Error subiendo a Supabase: ${error.message}`);
       throw new Error('Fallo en la subida del archivo');

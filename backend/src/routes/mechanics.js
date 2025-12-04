@@ -55,6 +55,7 @@ router.get(
   '/:id',
   authenticate,
   requireRole('teacher'),
+  validateParams(gameMechanicParamsSchema),
   getMechanicById
 );
 

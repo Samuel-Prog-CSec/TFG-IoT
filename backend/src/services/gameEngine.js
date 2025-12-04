@@ -204,9 +204,7 @@ class GameEngine {
     }
 
     // 2. Construir índice O(1) para búsqueda rápida de mappings por UID
-    const uidToMapping = new Map(
-      sessionDoc.cardMappings.map(m => [m.uid, m])
-    );
+    const uidToMapping = new Map(sessionDoc.cardMappings.map(m => [m.uid, m]));
 
     // 3. Crear el estado en memoria
     const playState = {
@@ -223,12 +221,15 @@ class GameEngine {
     this.activePlays.set(playId, playState);
     this.metrics.totalPlaysStarted++;
 
-    logger.info(`Partida ${playId} iniciada. ${sessionDoc.cardMappings.length} tarjetas bloqueadas.`, {
-      playId,
-      playerId: playDoc.playerId,
-      sessionId: sessionDoc._id,
-      activePlaysCount: this.activePlays.size
-    });
+    logger.info(
+      `Partida ${playId} iniciada. ${sessionDoc.cardMappings.length} tarjetas bloqueadas.`,
+      {
+        playId,
+        playerId: playDoc.playerId,
+        sessionId: sessionDoc._id,
+        activePlaysCount: this.activePlays.size
+      }
+    );
 
     // 5. Enviar la primera ronda
     await this.sendNextRound(playId);
@@ -252,7 +253,9 @@ class GameEngine {
    */
   async endPlay(playId) {
     const playState = this.activePlays.get(playId);
-    if (!playState) return;
+    if (!playState) {
+      return;
+    }
 
     logger.info(`Finalizando partida ${playId}...`);
 
@@ -276,9 +279,8 @@ class GameEngine {
       // Actualizar métricas
       this.metrics.totalPlaysCompleted++;
       this.metrics.averagePlayDuration =
-        (this.metrics.averagePlayDuration * (this.metrics.totalPlaysCompleted - 1) + playDuration)
-        / this.metrics.totalPlaysCompleted;
-
+        (this.metrics.averagePlayDuration * (this.metrics.totalPlaysCompleted - 1) + playDuration) /
+        this.metrics.totalPlaysCompleted;
     } catch (err) {
       logger.error(`Error al guardar partida final ${playId}: ${err.message}`);
     }
@@ -324,7 +326,9 @@ class GameEngine {
    */
   async sendNextRound(playId) {
     const playState = this.activePlays.get(playId);
-    if (!playState) return;
+    if (!playState) {
+      return;
+    }
 
     // 1. Comprobar si el juego ha terminado
     const { playDoc, sessionDoc } = playState;
@@ -370,7 +374,9 @@ class GameEngine {
       score: playDoc.score
     });
 
-    logger.debug(`Ronda ${playDoc.currentRound} iniciada para ${playId}. Esperando tarjeta ${challengeMapping.uid}`);
+    logger.debug(
+      `Ronda ${playDoc.currentRound} iniciada para ${playId}. Esperando tarjeta ${challengeMapping.uid}`
+    );
 
     // 6. Programar el timeout
     playState.roundTimer = setTimeout(() => {
@@ -500,7 +506,9 @@ class GameEngine {
       newScore: playDoc.score
     });
 
-    logger.info(`Partida: ${playId} | Ronda: ${playDoc.currentRound} | ${eventType} (${symbol}${pointsAwarded} pts)`);
+    logger.info(
+      `Partida: ${playId} | Ronda: ${playDoc.currentRound} | ${eventType} (${symbol}${pointsAwarded} pts)`
+    );
 
     // 5. Pasar a la siguiente ronda (tras un breve delay para feedback)
     playDoc.currentRound++;
@@ -578,7 +586,9 @@ class GameEngine {
    */
   getPlayState(playId) {
     const playState = this.activePlays.get(playId);
-    if (!playState) return null;
+    if (!playState) {
+      return null;
+    }
 
     return {
       playId: playState.playDoc._id.toString(),

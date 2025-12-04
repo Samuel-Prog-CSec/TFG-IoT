@@ -5,7 +5,7 @@
  */
 
 const Card = require('../models/Card');
-const { NotFoundError, ConflictError } = require('../utils/errors');
+const { NotFoundError, ConflictError, ValidationError } = require('../utils/errors');
 const logger = require('../utils/logger');
 const { cardDTO, cardListDTO, paginationDTO } = require('../utils/dtos');
 
@@ -34,8 +34,12 @@ const getCards = async (req, res, next) => {
     // Construir filtro
     const filter = {};
 
-    if (status) filter.status = status;
-    if (type) filter.type = type;
+    if (status) {
+      filter.status = status;
+    }
+    if (type) {
+      filter.type = type;
+    }
 
     // Búsqueda por UID parcial
     if (search) {
@@ -48,10 +52,7 @@ const getCards = async (req, res, next) => {
 
     // Ejecutar query
     const [cards, total] = await Promise.all([
-      Card.find(filter)
-        .sort(sortOptions)
-        .limit(parseInt(limit))
-        .skip(skip),
+      Card.find(filter).sort(sortOptions).limit(parseInt(limit)).skip(skip),
       Card.countDocuments(filter)
     ]);
 
@@ -184,8 +185,12 @@ const updateCard = async (req, res, next) => {
     }
 
     // Actualizar campos permitidos
-    if (type) card.type = type;
-    if (status) card.status = status;
+    if (type) {
+      card.type = type;
+    }
+    if (status) {
+      card.status = status;
+    }
     if (metadata) {
       card.metadata = { ...card.metadata.toObject(), ...metadata };
     }
@@ -288,9 +293,7 @@ const createCardsBatch = async (req, res, next) => {
 
     if (existingCards.length > 0) {
       const existingUids = existingCards.map(c => c.uid);
-      throw new ConflictError(
-        `Las siguientes tarjetas ya existen: ${existingUids.join(', ')}`
-      );
+      throw new ConflictError(`Las siguientes tarjetas ya existen: ${existingUids.join(', ')}`);
     }
 
     // Insertar todas las tarjetas

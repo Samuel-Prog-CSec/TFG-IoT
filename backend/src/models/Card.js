@@ -24,37 +24,40 @@ const mongoose = require('mongoose');
  * @property {Date} createdAt - Fecha de creación del registro (añadido por timestamps)
  * @property {Date} updatedAt - Fecha de última actualización (añadido por timestamps)
  */
-const cardSchema = new mongoose.Schema({
-  uid: {
-    type: String,
-    required: true,
-    unique: true,
-    uppercase: true,
-    trim: true
+const cardSchema = new mongoose.Schema(
+  {
+    uid: {
+      type: String,
+      required: true,
+      unique: true,
+      uppercase: true,
+      trim: true
+    },
+    type: {
+      type: String,
+      uppercase: true,
+      trim: true,
+      enum: ['MIFARE 1KB', 'MIFARE 4KB', 'NTAG', 'UNKNOWN'],
+      default: 'NTAG'
+    },
+    status: {
+      type: String,
+      lowercase: true,
+      trim: true,
+      enum: ['active', 'inactive', 'lost'],
+      default: 'active'
+    },
+    metadata: {
+      color: String,
+      icon: String,
+      lastUsed: Date
+    }
   },
-  type: {
-    type: String,
-    uppercase: true,
-    trim: true,
-    enum: ['MIFARE 1KB', 'MIFARE 4KB', 'NTAG', 'UNKNOWN'],
-    default: 'NTAG'
-  },
-  status: {
-    type: String,
-    lowercase: true,
-    trim: true,
-    enum: ['active', 'inactive', 'lost'],
-    default: 'active'
-  },
-  metadata: {
-    color: String,
-    icon: String,
-    lastUsed: Date
+  {
+    timestamps: true, // Añade createdAt y updatedAt automáticamente
+    collection: 'cards'
   }
-}, {
-  timestamps: true, // Añade createdAt y updatedAt automáticamente
-  collection: 'cards'
-});
+);
 
 /**
  * Índice para filtrar tarjetas por estado.
@@ -73,7 +76,7 @@ cardSchema.index({ status: 1 });
  * const card = await Card.findOne({ uid: '32B8FA05' });
  * await card.updateLastUsed();
  */
-cardSchema.methods.updateLastUsed = function() {
+cardSchema.methods.updateLastUsed = function () {
   this.metadata.lastUsed = new Date();
   return this.save();
 };

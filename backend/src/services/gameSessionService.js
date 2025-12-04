@@ -260,7 +260,7 @@ async function getSessionStats(sessionId) {
   const GamePlay = require('../models/GamePlay'); // Import dinámico para evitar dependencia circular
 
   const stats = await GamePlay.aggregate([
-    { $match: { sessionId: sessionId, status: 'completed' } },
+    { $match: { sessionId, status: 'completed' } },
     {
       $group: {
         _id: null,
@@ -273,13 +273,15 @@ async function getSessionStats(sessionId) {
     }
   ]);
 
-  return stats[0] || {
-    totalPlays: 0,
-    averageScore: 0,
-    bestScore: 0,
-    worstScore: 0,
-    averageCompletionTime: 0
-  };
+  return (
+    stats[0] || {
+      totalPlays: 0,
+      averageScore: 0,
+      bestScore: 0,
+      worstScore: 0,
+      averageCompletionTime: 0
+    }
+  );
 }
 
 module.exports = {

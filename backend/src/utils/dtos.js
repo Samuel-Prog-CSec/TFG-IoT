@@ -16,8 +16,10 @@
  * const safeUser = userDTO(user);
  * res.json({ success: true, data: safeUser });
  */
-const userDTO = (user) => {
-  if (!user) return null;
+const userDTO = user => {
+  if (!user) {
+    return null;
+  }
 
   const userData = typeof user.toObject === 'function' ? user.toObject() : user;
 
@@ -28,23 +30,28 @@ const userDTO = (user) => {
     email: userData.role === 'teacher' ? userData.email : undefined,
     role: userData.role,
     status: userData.status,
-    profile: userData.profile ? {
-      avatar: userData.profile.avatar,
-      age: userData.profile.age,
-      classroom: userData.profile.classroom,
-      birthdate: userData.profile.birthdate
-    } : undefined,
+    profile: userData.profile
+      ? {
+          avatar: userData.profile.avatar,
+          age: userData.profile.age,
+          classroom: userData.profile.classroom,
+          birthdate: userData.profile.birthdate
+        }
+      : undefined,
     // Métricas solo para alumnos
-    studentMetrics: userData.role === 'student' && userData.studentMetrics ? {
-      totalGamesPlayed: userData.studentMetrics.totalGamesPlayed,
-      totalScore: userData.studentMetrics.totalScore,
-      averageScore: userData.studentMetrics.averageScore,
-      bestScore: userData.studentMetrics.bestScore,
-      totalCorrectAnswers: userData.studentMetrics.totalCorrectAnswers,
-      totalErrors: userData.studentMetrics.totalErrors,
-      averageResponseTime: userData.studentMetrics.averageResponseTime,
-      lastPlayedAt: userData.studentMetrics.lastPlayedAt
-    } : undefined,
+    studentMetrics:
+      userData.role === 'student' && userData.studentMetrics
+        ? {
+            totalGamesPlayed: userData.studentMetrics.totalGamesPlayed,
+            totalScore: userData.studentMetrics.totalScore,
+            averageScore: userData.studentMetrics.averageScore,
+            bestScore: userData.studentMetrics.bestScore,
+            totalCorrectAnswers: userData.studentMetrics.totalCorrectAnswers,
+            totalErrors: userData.studentMetrics.totalErrors,
+            averageResponseTime: userData.studentMetrics.averageResponseTime,
+            lastPlayedAt: userData.studentMetrics.lastPlayedAt
+          }
+        : undefined,
     createdBy: userData.createdBy?.toString(),
     lastLoginAt: userData.lastLoginAt,
     createdAt: userData.createdAt,
@@ -60,8 +67,10 @@ const userDTO = (user) => {
  * @param {Array} users - Array de documentos User
  * @returns {Array} Array de usuarios transformados
  */
-const userListDTO = (users) => {
-  if (!Array.isArray(users)) return [];
+const userListDTO = users => {
+  if (!Array.isArray(users)) {
+    return [];
+  }
   return users.map(userDTO).filter(Boolean);
 };
 
@@ -72,8 +81,10 @@ const userListDTO = (users) => {
  * @param {Object} gameplay - Documento GamePlay de Mongoose
  * @returns {Object|null} Partida transformada o null si no existe
  */
-const gamePlayDTO = (gameplay) => {
-  if (!gameplay) return null;
+const gamePlayDTO = gameplay => {
+  if (!gameplay) {
+    return null;
+  }
 
   const playData = typeof gameplay.toObject === 'function' ? gameplay.toObject() : gameplay;
 
@@ -85,24 +96,27 @@ const gamePlayDTO = (gameplay) => {
     currentRound: playData.currentRound,
     status: playData.status,
     // Eventos transformados (sin __id interno de subdocumentos)
-    events: playData.events?.map(event => ({
-      timestamp: event.timestamp,
-      eventType: event.eventType,
-      cardUid: event.cardUid,
-      expectedValue: event.expectedValue,
-      actualValue: event.actualValue,
-      pointsAwarded: event.pointsAwarded,
-      timeElapsed: event.timeElapsed,
-      roundNumber: event.roundNumber
-    })) || [],
-    metrics: playData.metrics ? {
-      totalAttempts: playData.metrics.totalAttempts,
-      correctAttempts: playData.metrics.correctAttempts,
-      errorAttempts: playData.metrics.errorAttempts,
-      timeoutAttempts: playData.metrics.timeoutAttempts,
-      averageResponseTime: playData.metrics.averageResponseTime,
-      completionTime: playData.metrics.completionTime
-    } : undefined,
+    events:
+      playData.events?.map(event => ({
+        timestamp: event.timestamp,
+        eventType: event.eventType,
+        cardUid: event.cardUid,
+        expectedValue: event.expectedValue,
+        actualValue: event.actualValue,
+        pointsAwarded: event.pointsAwarded,
+        timeElapsed: event.timeElapsed,
+        roundNumber: event.roundNumber
+      })) || [],
+    metrics: playData.metrics
+      ? {
+          totalAttempts: playData.metrics.totalAttempts,
+          correctAttempts: playData.metrics.correctAttempts,
+          errorAttempts: playData.metrics.errorAttempts,
+          timeoutAttempts: playData.metrics.timeoutAttempts,
+          averageResponseTime: playData.metrics.averageResponseTime,
+          completionTime: playData.metrics.completionTime
+        }
+      : undefined,
     startedAt: playData.startedAt,
     completedAt: playData.completedAt,
     createdAt: playData.createdAt,
@@ -117,8 +131,10 @@ const gamePlayDTO = (gameplay) => {
  * @param {Array} gameplays - Array de documentos GamePlay
  * @returns {Array} Array de partidas transformadas
  */
-const gamePlayListDTO = (gameplays) => {
-  if (!Array.isArray(gameplays)) return [];
+const gamePlayListDTO = gameplays => {
+  if (!Array.isArray(gameplays)) {
+    return [];
+  }
   return gameplays.map(gamePlayDTO).filter(Boolean);
 };
 
@@ -129,8 +145,10 @@ const gamePlayListDTO = (gameplays) => {
  * @param {Object} session - Documento GameSession de Mongoose
  * @returns {Object|null} Sesión transformada o null si no existe
  */
-const gameSessionDTO = (session) => {
-  if (!session) return null;
+const gameSessionDTO = session => {
+  if (!session) {
+    return null;
+  }
 
   const sessionData = typeof session.toObject === 'function' ? session.toObject() : session;
 
@@ -138,20 +156,23 @@ const gameSessionDTO = (session) => {
     id: sessionData._id?.toString(),
     mechanicId: sessionData.mechanicId?.toString() || sessionData.mechanicId,
     contextId: sessionData.contextId?.toString() || sessionData.contextId,
-    config: sessionData.config ? {
-      numberOfCards: sessionData.config.numberOfCards,
-      numberOfRounds: sessionData.config.numberOfRounds,
-      timeLimit: sessionData.config.timeLimit,
-      pointsPerCorrect: sessionData.config.pointsPerCorrect,
-      penaltyPerError: sessionData.config.penaltyPerError
-    } : undefined,
+    config: sessionData.config
+      ? {
+          numberOfCards: sessionData.config.numberOfCards,
+          numberOfRounds: sessionData.config.numberOfRounds,
+          timeLimit: sessionData.config.timeLimit,
+          pointsPerCorrect: sessionData.config.pointsPerCorrect,
+          penaltyPerError: sessionData.config.penaltyPerError
+        }
+      : undefined,
     // CardMappings transformados
-    cardMappings: sessionData.cardMappings?.map(mapping => ({
-      cardId: mapping.cardId?.toString(),
-      uid: mapping.uid,
-      assignedValue: mapping.assignedValue,
-      displayData: mapping.displayData
-    })) || [],
+    cardMappings:
+      sessionData.cardMappings?.map(mapping => ({
+        cardId: mapping.cardId?.toString(),
+        uid: mapping.uid,
+        assignedValue: mapping.assignedValue,
+        displayData: mapping.displayData
+      })) || [],
     status: sessionData.status,
     difficulty: sessionData.difficulty,
     startedAt: sessionData.startedAt,
@@ -169,8 +190,10 @@ const gameSessionDTO = (session) => {
  * @param {Array} sessions - Array de documentos GameSession
  * @returns {Array} Array de sesiones transformadas
  */
-const gameSessionListDTO = (sessions) => {
-  if (!Array.isArray(sessions)) return [];
+const gameSessionListDTO = sessions => {
+  if (!Array.isArray(sessions)) {
+    return [];
+  }
   return sessions.map(gameSessionDTO).filter(Boolean);
 };
 
@@ -181,8 +204,10 @@ const gameSessionListDTO = (sessions) => {
  * @param {Object} card - Documento Card de Mongoose
  * @returns {Object|null} Tarjeta transformada o null si no existe
  */
-const cardDTO = (card) => {
-  if (!card) return null;
+const cardDTO = card => {
+  if (!card) {
+    return null;
+  }
 
   const cardData = typeof card.toObject === 'function' ? card.toObject() : card;
 
@@ -191,11 +216,13 @@ const cardDTO = (card) => {
     uid: cardData.uid,
     type: cardData.type,
     status: cardData.status,
-    metadata: cardData.metadata ? {
-      color: cardData.metadata.color,
-      icon: cardData.metadata.icon,
-      lastUsed: cardData.metadata.lastUsed
-    } : undefined,
+    metadata: cardData.metadata
+      ? {
+          color: cardData.metadata.color,
+          icon: cardData.metadata.icon,
+          lastUsed: cardData.metadata.lastUsed
+        }
+      : undefined,
     createdAt: cardData.createdAt,
     updatedAt: cardData.updatedAt
     // NO incluir: __v
@@ -208,8 +235,10 @@ const cardDTO = (card) => {
  * @param {Array} cards - Array de documentos Card
  * @returns {Array} Array de tarjetas transformadas
  */
-const cardListDTO = (cards) => {
-  if (!Array.isArray(cards)) return [];
+const cardListDTO = cards => {
+  if (!Array.isArray(cards)) {
+    return [];
+  }
   return cards.map(cardDTO).filter(Boolean);
 };
 
@@ -220,8 +249,10 @@ const cardListDTO = (cards) => {
  * @param {Object} mechanic - Documento GameMechanic de Mongoose
  * @returns {Object|null} Mecánica transformada o null si no existe
  */
-const gameMechanicDTO = (mechanic) => {
-  if (!mechanic) return null;
+const gameMechanicDTO = mechanic => {
+  if (!mechanic) {
+    return null;
+  }
 
   const mechanicData = typeof mechanic.toObject === 'function' ? mechanic.toObject() : mechanic;
 
@@ -245,8 +276,10 @@ const gameMechanicDTO = (mechanic) => {
  * @param {Array} mechanics - Array de documentos GameMechanic
  * @returns {Array} Array de mecánicas transformadas
  */
-const gameMechanicListDTO = (mechanics) => {
-  if (!Array.isArray(mechanics)) return [];
+const gameMechanicListDTO = mechanics => {
+  if (!Array.isArray(mechanics)) {
+    return [];
+  }
   return mechanics.map(gameMechanicDTO).filter(Boolean);
 };
 
@@ -257,8 +290,10 @@ const gameMechanicListDTO = (mechanics) => {
  * @param {Object} context - Documento GameContext de Mongoose
  * @returns {Object|null} Contexto transformado o null si no existe
  */
-const gameContextDTO = (context) => {
-  if (!context) return null;
+const gameContextDTO = context => {
+  if (!context) {
+    return null;
+  }
 
   const contextData = typeof context.toObject === 'function' ? context.toObject() : context;
 
@@ -267,13 +302,14 @@ const gameContextDTO = (context) => {
     contextId: contextData.contextId,
     name: contextData.name,
     // Assets transformados (sin __id interno)
-    assets: contextData.assets?.map(asset => ({
-      key: asset.key,
-      display: asset.display,
-      value: asset.value,
-      audioUrl: asset.audioUrl,
-      imageUrl: asset.imageUrl
-    })) || [],
+    assets:
+      contextData.assets?.map(asset => ({
+        key: asset.key,
+        display: asset.display,
+        value: asset.value,
+        audioUrl: asset.audioUrl,
+        imageUrl: asset.imageUrl
+      })) || [],
     createdAt: contextData.createdAt,
     updatedAt: contextData.updatedAt
     // NO incluir: __v
@@ -286,8 +322,10 @@ const gameContextDTO = (context) => {
  * @param {Array} contexts - Array de documentos GameContext
  * @returns {Array} Array de contextos transformados
  */
-const gameContextListDTO = (contexts) => {
-  if (!Array.isArray(contexts)) return [];
+const gameContextListDTO = contexts => {
+  if (!Array.isArray(contexts)) {
+    return [];
+  }
   return contexts.map(gameContextDTO).filter(Boolean);
 };
 

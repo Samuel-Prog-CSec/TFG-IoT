@@ -42,43 +42,47 @@ const mongoose = require('mongoose');
  * @property {string} [audioUrl] - URL del archivo de audio en Supabase Storage (duda #12)
  * @property {string} [imageUrl] - URL de la imagen en Supabase Storage (duda #12)
  */
-const gameContextSchema = new mongoose.Schema({
-  contextId: {
-    type: String,
-    required: true,
-    lowercase: true,
-    trim: true,
-    unique: true
-  },
-  name: {
-    type: String,
-    required: true
-  },
-  isActive: {
-    type: Boolean,
-    default: true
-  },
-  assets: [{
-    key: {
+const gameContextSchema = new mongoose.Schema(
+  {
+    contextId: {
       type: String,
       required: true,
       lowercase: true,
-      trim: true
+      trim: true,
+      unique: true
     },
-    display: String,
-    value: {
+    name: {
       type: String,
-      required: true,
-      trim: true
+      required: true
     },
-    audioUrl: String,
-    imageUrl: String
-  }]
-}, 
-{
-  timestamps: true,
-  collection: 'game_contexts'
-});
+    isActive: {
+      type: Boolean,
+      default: true
+    },
+    assets: [
+      {
+        key: {
+          type: String,
+          required: true,
+          lowercase: true,
+          trim: true
+        },
+        display: String,
+        value: {
+          type: String,
+          required: true,
+          trim: true
+        },
+        audioUrl: String,
+        imageUrl: String
+      }
+    ]
+  },
+  {
+    timestamps: true,
+    collection: 'game_contexts'
+  }
+);
 
 /**
  * Validación personalizada para el array de assets.
@@ -87,7 +91,7 @@ const gameContextSchema = new mongoose.Schema({
  * @param {Array<Asset>} value - El array de assets a validar
  * @returns {boolean} true si el array no está vacío, false en caso contrario
  */
-gameContextSchema.path('assets').validate(function(value) {
+gameContextSchema.path('assets').validate(value => {
   if (value.length === 0) {
     return false;
   }

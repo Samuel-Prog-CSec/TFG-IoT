@@ -13,11 +13,7 @@ const logger = require('./logger');
  *
  * @type {string[]}
  */
-const REQUIRED_ENV_VARS = [
-  'JWT_SECRET',
-  'JWT_REFRESH_SECRET',
-  'MONGO_URI'
-];
+const REQUIRED_ENV_VARS = ['JWT_SECRET', 'JWT_REFRESH_SECRET', 'MONGO_URI'];
 
 /**
  * Variables de entorno REQUERIDAS solo en producción.
@@ -25,10 +21,7 @@ const REQUIRED_ENV_VARS = [
  *
  * @type {string[]}
  */
-const REQUIRED_IN_PRODUCTION = [
-  'SENTRY_DSN',
-  'CORS_WHITELIST'
-];
+const REQUIRED_IN_PRODUCTION = ['SENTRY_DSN', 'CORS_WHITELIST'];
 
 /**
  * Variables recomendadas (warning si faltan).
@@ -81,10 +74,10 @@ function validateEnv() {
   if (missing.length > 0) {
     const error = new Error(
       `CONFIGURACIÓN CRÍTICA FALTANTE\n\n` +
-      `Las siguientes variables de entorno son REQUERIDAS:\n` +
-      missing.map(v => `  - ${v}`).join('\n') +
-      `\n\nCrea un archivo .env con estas variables o configúralas en el sistema.\n` +
-      `Ejemplo: JWT_SECRET=tu_secret_aqui_muy_largo_y_aleatorio\n`
+        `Las siguientes variables de entorno son REQUERIDAS:\n` +
+        missing.map(v => `  - ${v}`).join('\n') +
+        `\n\nCrea un archivo .env con estas variables o configúralas en el sistema.\n` +
+        `Ejemplo: JWT_SECRET=tu_secret_aqui_muy_largo_y_aleatorio\n`
     );
 
     logger.error('Variables de entorno faltantes:', { missing });
@@ -99,10 +92,7 @@ function validateEnv() {
 
   // Warnings para recomendadas
   if (warnings.length > 0) {
-    logger.warn(
-      'Variables de entorno recomendadas no configuradas (usando defaults):',
-      warnings
-    );
+    logger.warn('Variables de entorno recomendadas no configuradas (usando defaults):', warnings);
   }
 
   logger.info('Validación de variables de entorno completada exitosamente');
@@ -119,16 +109,16 @@ function validateJWTSecrets() {
   if (jwtSecret.length < 32) {
     throw new Error(
       `JWT_SECRET es demasiado corto (${jwtSecret.length} caracteres).\n` +
-      `Debe tener al menos 32 caracteres para ser seguro.\n` +
-      `Genera uno aleatorio con: node -e "console.log(require('crypto').randomBytes(64).toString('hex'))"`
+        `Debe tener al menos 32 caracteres para ser seguro.\n` +
+        `Genera uno aleatorio con: node -e "console.log(require('crypto').randomBytes(64).toString('hex'))"`
     );
   }
 
   if (jwtRefreshSecret.length < 32) {
     throw new Error(
       `JWT_REFRESH_SECRET es demasiado corto (${jwtRefreshSecret.length} caracteres).\n` +
-      `Debe tener al menos 32 caracteres para ser seguro.\n` +
-      `Genera uno aleatorio con: node -e "console.log(require('crypto').randomBytes(64).toString('hex'))"`
+        `Debe tener al menos 32 caracteres para ser seguro.\n` +
+        `Genera uno aleatorio con: node -e "console.log(require('crypto').randomBytes(64).toString('hex'))"`
     );
   }
 
@@ -144,15 +134,14 @@ function validateJWTSecrets() {
 
   if (insecureDefaults.includes(jwtSecret.toLowerCase())) {
     throw new Error(
-      `JWT_SECRET contiene un valor por defecto inseguro.\n` +
-      `Genera un secret aleatorio único.`
+      `JWT_SECRET contiene un valor por defecto inseguro.\n` + `Genera un secret aleatorio único.`
     );
   }
 
   if (insecureDefaults.includes(jwtRefreshSecret.toLowerCase())) {
     throw new Error(
       `JWT_REFRESH_SECRET contiene un valor por defecto inseguro.\n` +
-      `Genera un secret aleatorio único.`
+        `Genera un secret aleatorio único.`
     );
   }
 
@@ -160,7 +149,7 @@ function validateJWTSecrets() {
   if (jwtSecret === jwtRefreshSecret) {
     logger.warn(
       'JWT_SECRET y JWT_REFRESH_SECRET son idénticos. ' +
-      'Se recomienda usar secrets diferentes para mayor seguridad.'
+        'Se recomienda usar secrets diferentes para mayor seguridad.'
     );
   }
 }
@@ -176,18 +165,15 @@ function validateMongoURI() {
   if (!mongoUri.startsWith('mongodb://') && !mongoUri.startsWith('mongodb+srv://')) {
     throw new Error(
       `MONGO_URI tiene formato inválido.\n` +
-      `Debe empezar con 'mongodb://' o 'mongodb+srv://'.\n` +
-      `Valor actual: ${mongoUri.substring(0, 30)}...`
+        `Debe empezar con 'mongodb://' o 'mongodb+srv://'.\n` +
+        `Valor actual: ${mongoUri.substring(0, 30)}...`
     );
   }
 
   // Validar que no esté vacío después del protocolo
   const uriWithoutProtocol = mongoUri.replace(/^mongodb(\+srv)?:\/\//, '');
   if (uriWithoutProtocol.length === 0) {
-    throw new Error(
-      `MONGO_URI está incompleto.\n` +
-      `Debe incluir host y base de datos.`
-    );
+    throw new Error(`MONGO_URI está incompleto.\n` + `Debe incluir host y base de datos.`);
   }
 }
 

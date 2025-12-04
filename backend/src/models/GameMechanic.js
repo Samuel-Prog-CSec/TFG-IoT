@@ -24,32 +24,35 @@ const mongoose = require('mongoose');
  * @property {Date} createdAt - Fecha de creación del registro
  * @property {Date} updatedAt - Fecha de última actualización
  */
-const gameMechanicSchema = new mongoose.Schema({
-  name: {
-    type: String,
-    required: true,
-    unique: true,
-    lowercase: true,
-    trim: true
+const gameMechanicSchema = new mongoose.Schema(
+  {
+    name: {
+      type: String,
+      required: true,
+      unique: true,
+      lowercase: true,
+      trim: true
+    },
+    displayName: {
+      type: String,
+      required: true
+    },
+    description: String,
+    icon: String,
+    rules: {
+      type: mongoose.Schema.Types.Mixed,
+      default: {}
+    },
+    isActive: {
+      type: Boolean,
+      default: true
+    }
   },
-  displayName: {
-    type: String,
-    required: true
-  },
-  description: String,
-  icon: String,
-  rules: {
-    type: mongoose.Schema.Types.Mixed,
-    default: {}
-  },
-  isActive: {
-    type: Boolean,
-    default: true
+  {
+    timestamps: true,
+    collection: 'game_mechanics'
   }
-}, {
-  timestamps: true,
-  collection: 'game_mechanics'
-});
+);
 
 /**
  * Índice para filtrar mecánicas activas.

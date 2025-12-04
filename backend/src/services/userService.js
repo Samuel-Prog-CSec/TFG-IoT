@@ -169,9 +169,15 @@ async function updateUser(userId, updates, requestingUserId) {
   }
 
   // Actualizar campos
-  if (updates.name) user.name = updates.name;
-  if (updates.email) user.email = updates.email;
-  if (updates.status) user.status = updates.status;
+  if (updates.name) {
+    user.name = updates.name;
+  }
+  if (updates.email) {
+    user.email = updates.email;
+  }
+  if (updates.status) {
+    user.status = updates.status;
+  }
 
   if (updates.profile) {
     user.profile = { ...user.profile.toObject(), ...updates.profile };
@@ -235,15 +241,36 @@ async function getStudentComparativeStats(studentId) {
 
   // Calcular comparación porcentual
   const comparison = {
-    scoreVsClass: classAverage.avgScore > 0
-      ? parseFloat((((student.studentMetrics.averageScore - classAverage.avgScore) / classAverage.avgScore) * 100).toFixed(2))
-      : 0,
-    gamesVsClass: classAverage.avgGamesPlayed > 0
-      ? parseFloat((((student.studentMetrics.totalGamesPlayed - classAverage.avgGamesPlayed) / classAverage.avgGamesPlayed) * 100).toFixed(2))
-      : 0,
-    responseTimeVsClass: classAverage.avgResponseTime > 0
-      ? parseFloat((((student.studentMetrics.averageResponseTime - classAverage.avgResponseTime) / classAverage.avgResponseTime) * 100).toFixed(2))
-      : 0
+    scoreVsClass:
+      classAverage.avgScore > 0
+        ? parseFloat(
+            (
+              ((student.studentMetrics.averageScore - classAverage.avgScore) /
+                classAverage.avgScore) *
+              100
+            ).toFixed(2)
+          )
+        : 0,
+    gamesVsClass:
+      classAverage.avgGamesPlayed > 0
+        ? parseFloat(
+            (
+              ((student.studentMetrics.totalGamesPlayed - classAverage.avgGamesPlayed) /
+                classAverage.avgGamesPlayed) *
+              100
+            ).toFixed(2)
+          )
+        : 0,
+    responseTimeVsClass:
+      classAverage.avgResponseTime > 0
+        ? parseFloat(
+            (
+              ((student.studentMetrics.averageResponseTime - classAverage.avgResponseTime) /
+                classAverage.avgResponseTime) *
+              100
+            ).toFixed(2)
+          )
+        : 0
   };
 
   return {

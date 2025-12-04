@@ -115,24 +115,25 @@ const helmetOptions = {
     directives: {
       defaultSrc: ["'self'"],
       baseUri: ["'self'"],
-      fontSrc: ["'self'", "https:", "data:"],
+      fontSrc: ["'self'", 'https:', 'data:'],
       formAction: ["'self'"],
       frameAncestors: ["'none'"], // Prevenir clickjacking
-      imgSrc: ["'self'", "data:", "https:"], // Permitir imágenes de Supabase
+      imgSrc: ["'self'", 'data:', 'https:'], // Permitir imágenes de Supabase
       scriptSrc: ["'self'"],
       scriptSrcAttr: ["'none'"],
-      styleSrc: ["'self'", "https:", "'unsafe-inline'"], // Tailwind requiere unsafe-inline
+      styleSrc: ["'self'", 'https:', "'unsafe-inline'"], // Tailwind requiere unsafe-inline
       upgradeInsecureRequests: [], // Forzar HTTPS en producción
-      mediaSrc: ["'self'", "https:"], // Permitir audios de Supabase
+      mediaSrc: ["'self'", 'https:'], // Permitir audios de Supabase
       connectSrc: [
         "'self'",
-        "https://api.sentry.io", // Sentry
+        'https://api.sentry.io', // Sentry
         process.env.SUPABASE_URL || '' // Supabase Storage
       ].filter(Boolean)
     }
   },
   crossOriginEmbedderPolicy: false, // Necesario para audio/video cross-origin
-  crossOriginResourcePolicy: { policy: "cross-origin" }, // Permitir recursos de Supabase
+  crossOriginResourcePolicy: { policy: 'cross-origin' }, // Permitir recursos de Supabase
+  xPoweredBy: false, // Ocultar tecnología del servidor
   hsts: {
     maxAge: 31536000, // 1 año
     includeSubDomains: true,
@@ -159,7 +160,7 @@ const globalRateLimiter = rateLimit({
   standardHeaders: true, // Rate limit info en headers `RateLimit-*`
   legacyHeaders: false, // Deshabilitar headers `X-RateLimit-*`
   skipSuccessfulRequests: false,
-  skipFailedRequests: false,
+  skipFailedRequests: false
   // Opcional: Usar Redis store en producción
   // store: new RedisStore({ client: redisClient })
 });

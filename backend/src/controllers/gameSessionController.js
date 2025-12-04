@@ -39,11 +39,21 @@ const getSessions = async (req, res, next) => {
     // Construir filtro
     const filter = {};
 
-    if (mechanicId) filter.mechanicId = mechanicId;
-    if (contextId) filter.contextId = contextId;
-    if (status) filter.status = status;
-    if (difficulty) filter.difficulty = difficulty;
-    if (createdBy) filter.createdBy = createdBy;
+    if (mechanicId) {
+      filter.mechanicId = mechanicId;
+    }
+    if (contextId) {
+      filter.contextId = contextId;
+    }
+    if (status) {
+      filter.status = status;
+    }
+    if (difficulty) {
+      filter.difficulty = difficulty;
+    }
+    if (createdBy) {
+      filter.createdBy = createdBy;
+    }
 
     // Los profesores ven todas sus sesiones, los alumnos no deberían acceder
     if (req.user.role === 'student') {
@@ -115,8 +125,7 @@ const getSessionById = async (req, res, next) => {
     }
 
     // Verificar permisos: solo el creador o admin
-    if (session.createdBy._id.toString() !== req.user._id.toString() &&
-        req.user.role !== 'admin') {
+    if (session.createdBy._id.toString() !== req.user._id.toString() && req.user.role !== 'admin') {
       throw new ForbiddenError('No tienes permiso para ver esta sesión');
     }
 
@@ -163,7 +172,7 @@ const createSession = async (req, res, next) => {
     if (context.assets.length < config.numberOfCards) {
       throw new ValidationError(
         `El contexto solo tiene ${context.assets.length} assets, ` +
-        `pero se requieren ${config.numberOfCards}`
+          `pero se requieren ${config.numberOfCards}`
       );
     }
 

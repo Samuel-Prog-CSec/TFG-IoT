@@ -36,9 +36,15 @@ const getUsers = async (req, res, next) => {
     // Construir filtro
     const filter = {};
 
-    if (role) filter.role = role;
-    if (classroom) filter['profile.classroom'] = classroom;
-    if (status) filter.status = status;
+    if (role) {
+      filter.role = role;
+    }
+    if (classroom) {
+      filter['profile.classroom'] = classroom;
+    }
+    if (status) {
+      filter.status = status;
+    }
 
     // Búsqueda por nombre o email
     if (search) {
@@ -60,11 +66,7 @@ const getUsers = async (req, res, next) => {
 
     // Ejecutar query
     const [users, total] = await Promise.all([
-      User.find(filter)
-        .sort(sortOptions)
-        .limit(parseInt(limit))
-        .skip(skip)
-        .select('-password'),
+      User.find(filter).sort(sortOptions).limit(parseInt(limit)).skip(skip).select('-password'),
       User.countDocuments(filter)
     ]);
 
@@ -280,9 +282,10 @@ const updateUser = async (req, res, next) => {
       const existingUser = await User.findOne(duplicateFilter);
 
       if (existingUser) {
-        const errorMsg = user.role === 'student' && duplicateFilter['profile.classroom']
-          ? `Ya existe un alumno activo llamado "${name}" en la clase "${duplicateFilter['profile.classroom']}"`
-          : `Ya existe un usuario activo llamado "${name}"`;
+        const errorMsg =
+          user.role === 'student' && duplicateFilter['profile.classroom']
+            ? `Ya existe un alumno activo llamado "${name}" en la clase "${duplicateFilter['profile.classroom']}"`
+            : `Ya existe un usuario activo llamado "${name}"`;
 
         logger.warn('Intento de actualizar con nombre duplicado', {
           userId: user._id,
@@ -449,10 +452,14 @@ const getUserStats = async (req, res, next) => {
     }
 
     // Calcular estadísticas adicionales
-    const accuracyRate = user.studentMetrics.totalGamesPlayed > 0
-      ? (user.studentMetrics.totalCorrectAnswers /
-         (user.studentMetrics.totalCorrectAnswers + user.studentMetrics.totalErrors) * 100).toFixed(2)
-      : 0;
+    const accuracyRate =
+      user.studentMetrics.totalGamesPlayed > 0
+        ? (
+            (user.studentMetrics.totalCorrectAnswers /
+              (user.studentMetrics.totalCorrectAnswers + user.studentMetrics.totalErrors)) *
+            100
+          ).toFixed(2)
+        : 0;
 
     res.json({
       success: true,
@@ -507,9 +514,7 @@ const getStudentsByTeacher = async (req, res, next) => {
 
     const sortOptions = { [sortBy]: order === 'asc' ? 1 : -1 };
 
-    const students = await User.find(filter)
-      .sort(sortOptions)
-      .select('-password');
+    const students = await User.find(filter).sort(sortOptions).select('-password');
 
     res.json({
       success: true,

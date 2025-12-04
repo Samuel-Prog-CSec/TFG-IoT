@@ -19,7 +19,8 @@ const mechanicsData = [
   {
     name: 'association',
     displayName: 'Asociación',
-    description: 'El alumno debe asociar cada desafío con la tarjeta correcta. ' +
+    description:
+      'El alumno debe asociar cada desafío con la tarjeta correcta. ' +
       'Por ejemplo: se muestra la bandera de España y el alumno debe escanear la tarjeta asignada a "España".',
     icon: '🔗',
     rules: {
@@ -43,9 +44,9 @@ const mechanicsData = [
       // Comportamiento
       behavior: {
         allowRepetition: true, // Un mismo desafío puede repetirse
-        showFeedback: true,    // Mostrar si es correcto/incorrecto
-        soundEffects: true,    // Reproducir sonidos
-        showTimer: true        // Mostrar cuenta regresiva
+        showFeedback: true, // Mostrar si es correcto/incorrecto
+        soundEffects: true, // Reproducir sonidos
+        showTimer: true // Mostrar cuenta regresiva
       }
     },
     isActive: true
@@ -53,7 +54,8 @@ const mechanicsData = [
   {
     name: 'sequence',
     displayName: 'Secuencia',
-    description: 'El alumno debe escanear las tarjetas en un orden específico. ' +
+    description:
+      'El alumno debe escanear las tarjetas en un orden específico. ' +
       'Por ejemplo: ordenar los números del 1 al 5, o los días de la semana.',
     icon: '🔢',
     rules: {
@@ -73,10 +75,10 @@ const mechanicsData = [
         maxTimeLimit: 120
       },
       behavior: {
-        strictOrder: true,      // Debe ser en orden exacto
-        allowSkip: false,       // No puede saltarse elementos
-        showProgress: true,     // Mostrar progreso (ej: "3 de 5")
-        resetOnError: false     // Si se equivoca, ¿reinicia la secuencia?
+        strictOrder: true, // Debe ser en orden exacto
+        allowSkip: false, // No puede saltarse elementos
+        showProgress: true, // Mostrar progreso (ej: "3 de 5")
+        resetOnError: false // Si se equivoca, ¿reinicia la secuencia?
       }
     },
     isActive: true
@@ -84,7 +86,8 @@ const mechanicsData = [
   {
     name: 'memory',
     displayName: 'Memoria',
-    description: 'Se muestra un patrón de elementos y el alumno debe reproducirlo escaneando las tarjetas en el mismo orden.',
+    description:
+      'Se muestra un patrón de elementos y el alumno debe reproducirlo escaneando las tarjetas en el mismo orden.',
     icon: '🧠',
     rules: {
       defaults: {
@@ -103,10 +106,10 @@ const mechanicsData = [
         maxTimeLimit: 60
       },
       behavior: {
-        showPattern: true,          // Mostrar el patrón al inicio
-        patternDisplayTime: 5,      // Segundos que se muestra el patrón
-        incrementDifficulty: true,  // Aumentar longitud del patrón
-        allowRetry: false           // Permitir reintentar el patrón
+        showPattern: true, // Mostrar el patrón al inicio
+        patternDisplayTime: 5, // Segundos que se muestra el patrón
+        incrementDifficulty: true, // Aumentar longitud del patrón
+        allowRetry: false // Permitir reintentar el patrón
       }
     },
     isActive: true
@@ -114,7 +117,8 @@ const mechanicsData = [
   {
     name: 'classification',
     displayName: 'Clasificación',
-    description: 'El alumno debe clasificar elementos en categorías. ' +
+    description:
+      'El alumno debe clasificar elementos en categorías. ' +
       'Por ejemplo: separar frutas de verduras, o animales terrestres de acuáticos.',
     icon: '📂',
     rules: {
@@ -134,9 +138,9 @@ const mechanicsData = [
         maxTimeLimit: 45
       },
       behavior: {
-        maxCategories: 4,              // Máximo de categorías permitidas
-        minCategories: 2,              // Mínimo de categorías
-        showCategoryHints: true,       // Mostrar pistas de categoría
+        maxCategories: 4, // Máximo de categorías permitidas
+        minCategories: 2, // Mínimo de categorías
+        showCategoryHints: true, // Mostrar pistas de categoría
         allowMultipleCategories: false // Un elemento puede estar en varias categorías
       }
     },
@@ -145,7 +149,8 @@ const mechanicsData = [
   {
     name: 'speed',
     displayName: 'Velocidad',
-    description: 'El alumno debe responder lo más rápido posible. Bonificación por tiempo de respuesta.',
+    description:
+      'El alumno debe responder lo más rápido posible. Bonificación por tiempo de respuesta.',
     icon: '⚡',
     rules: {
       defaults: {
@@ -164,10 +169,10 @@ const mechanicsData = [
         maxTimeLimit: 15
       },
       behavior: {
-        timeBonus: true,           // Puntos extra por respuesta rápida
-        timeBonusThreshold: 3,     // Segundos para obtener bonus
-        timeBonusPoints: 5,        // Puntos de bonus
-        showLeaderboard: true      // Mostrar ranking de tiempos
+        timeBonus: true, // Puntos extra por respuesta rápida
+        timeBonusThreshold: 3, // Segundos para obtener bonus
+        timeBonusPoints: 5, // Puntos de bonus
+        showLeaderboard: true // Mostrar ranking de tiempos
       }
     },
     isActive: false // Deshabilitado por defecto (mecánica avanzada)

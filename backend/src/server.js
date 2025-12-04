@@ -79,17 +79,19 @@ app.use(helmet(helmetOptions));
 
 // Compression para respuestas (solo si aporta valor)
 // Threshold: Solo comprimir si > 1KB
-app.use(compression({
-  threshold: 1024, // 1KB
-  filter: (req, res) => {
-    // No comprimir si el cliente no lo soporta
-    if (req.headers['x-no-compression']) {
-      return false;
+app.use(
+  compression({
+    threshold: 1024, // 1KB
+    filter: (req, res) => {
+      // No comprimir si el cliente no lo soporta
+      if (req.headers['x-no-compression']) {
+        return false;
+      }
+      // Usar filtro por defecto de compression
+      return compression.filter(req, res);
     }
-    // Usar filtro por defecto de compression
-    return compression.filter(req, res);
-  }
-}));
+  })
+);
 
 // Rate limiting global (todas las rutas /api/*)
 app.use('/api/', globalRateLimiter);
@@ -218,7 +220,7 @@ app.use(errorHandler);
  * Manejador de conexiones Socket.IO.
  * Define todos los eventos WebSocket para comunicación en tiempo real.
  */
-io.on('connection', (socket) => {
+io.on('connection', socket => {
   logger.info(`Cliente conectado: ${socket.id}`);
 
   /**
@@ -227,7 +229,7 @@ io.on('connection', (socket) => {
    * @param {Object} data - Datos del evento
    * @param {string} data.playId - ID de la partida a la que unirse
    */
-  socket.on('join_play', async (data) => {
+  socket.on('join_play', async data => {
     const { playId } = data;
     socket.join(`play_${playId}`);
     /* TODO: Incluir información del jugador cuando exista el modelo User
@@ -255,7 +257,7 @@ io.on('connection', (socket) => {
    * @param {Object} data - Datos del evento
    * @param {string} data.playId - ID de la partida a abandonar
    */
-  socket.on('leave_play', (data) => {
+  socket.on('leave_play', data => {
     const { playId } = data;
     socket.leave(`play_${playId}`);
     logger.info(`Socket ${socket.id} abandonó la partida ${playId}`);
@@ -267,7 +269,7 @@ io.on('connection', (socket) => {
    * @param {Object} data - Datos del evento
    * @param {string} data.playId - ID de la partida a iniciar
    */
-  socket.on('start_play', async (data) => {
+  socket.on('start_play', async data => {
     try {
       const { playId } = data;
       const play = await GamePlay.findById(playId).populate('sessionId');
@@ -293,7 +295,7 @@ io.on('connection', (socket) => {
    * @param {Object} data - Datos del evento
    * @param {string} data.playId - ID de la partida a pausar
    */
-  socket.on('pause_play', (data) => {
+  socket.on('pause_play', data => {
     const { playId } = data;
     gameEngine.pausePlay(playId);
   });
@@ -304,7 +306,7 @@ io.on('connection', (socket) => {
    * @param {Object} data - Datos del evento
    * @param {string} data.playId - ID de la partida a reanudar
    */
-  socket.on('resume_play', (data) => {
+  socket.on('resume_play', data => {
     const { playId } = data;
     gameEngine.resumePlay(playId);
   });
@@ -315,7 +317,7 @@ io.on('connection', (socket) => {
    * @param {Object} data - Datos del evento
    * @param {string} data.playId - ID de la partida
    */
-  socket.on('next_round', (data) => {
+  socket.on('next_round', data => {
     const { playId } = data;
     gameEngine.sendNextRound(playId);
   });
@@ -337,7 +339,7 @@ io.on('connection', (socket) => {
  * Manejador de eventos del servicio RFID.
  * Procesa eventos del sensor y los distribuye al sistema.
  */
-rfidService.on('rfid_event', (event) => {
+rfidService.on('rfid_event', event => {
   // Enviar el evento a todos los clientes conectados (para la UI)
   io.emit('rfid_event', event);
 
@@ -366,7 +368,7 @@ rfidService.on('rfid_event', (event) => {
  * Manejador de cambios de estado del servicio RFID.
  * Notifica a los clientes sobre el estado de la conexión.
  */
-rfidService.on('status', (status) => {
+rfidService.on('status', status => {
   logger.info(`Estado del servicio RFID: ${status}`); // 'connected', 'disconnected', 'reconnecting'
 
   // Enviar el estado a todos los clientes (para actualización en la UI)
@@ -422,7 +424,7 @@ const startServer = async () => {
  * Manejador de señal SIGTERM para cierre controlado del servidor.
  * Cierra conexiones a BD, sensor RFID y servidor HTTP de forma ordenada.
  */
-const gracefulShutdown = async (signal) => {
+const gracefulShutdown = async signal => {
   logger.info(`Recibido ${signal}, cerrando el servidor de manera controlada...`);
 
   // 1. Detener el servidor HTTP (no acepta más conexiones)

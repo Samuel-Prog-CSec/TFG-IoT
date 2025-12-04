@@ -47,24 +47,14 @@ router.get(
  * @desc    Obtener contexto por ID o contextId
  * @access  Private (Teacher)
  */
-router.get(
-  '/:id',
-  authenticate,
-  requireRole('teacher'),
-  getContextById
-);
+router.get('/:id', authenticate, requireRole('teacher'), getContextById);
 
 /**
  * @route   GET /api/contexts/:id/assets
  * @desc    Obtener assets de un contexto
  * @access  Private (Teacher)
  */
-router.get(
-  '/:id/assets',
-  authenticate,
-  requireRole('teacher'),
-  getContextAssets
-);
+router.get('/:id/assets', authenticate, requireRole('teacher'), getContextAssets);
 
 /**
  * @route   POST /api/contexts
@@ -126,11 +116,6 @@ router.delete(
  * @desc    Eliminar asset de un contexto
  * @access  Private (Teacher)
  */
-router.delete(
-  '/:id/assets/:assetKey',
-  authenticate,
-  requireRole('teacher'),
-  removeAsset
-);
+router.delete('/:id/assets/:assetKey', authenticate, requireRole('teacher'), removeAsset);
 
 module.exports = router;

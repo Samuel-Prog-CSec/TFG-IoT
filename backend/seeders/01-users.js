@@ -62,11 +62,26 @@ const teachersData = [
  * Nombres de alumnos para generación.
  */
 const studentNames = [
-  'Sofía García', 'Lucas Martín', 'Valentina López', 'Mateo Fernández',
-  'Emma Rodríguez', 'Diego Sánchez', 'Isabella Pérez', 'Santiago Gómez',
-  'Camila Díaz', 'Sebastián Torres', 'Victoria Ruiz', 'Nicolás Moreno',
-  'Martina Jiménez', 'Benjamín Álvarez', 'Luciana Romero', 'Daniel Navarro',
-  'Emilia Domínguez', 'Joaquín Vázquez', 'Julieta Ramos', 'Gabriel Molina'
+  'Sofía García',
+  'Lucas Martín',
+  'Valentina López',
+  'Mateo Fernández',
+  'Emma Rodríguez',
+  'Diego Sánchez',
+  'Isabella Pérez',
+  'Santiago Gómez',
+  'Camila Díaz',
+  'Sebastián Torres',
+  'Victoria Ruiz',
+  'Nicolás Moreno',
+  'Martina Jiménez',
+  'Benjamín Álvarez',
+  'Luciana Romero',
+  'Daniel Navarro',
+  'Emilia Domínguez',
+  'Joaquín Vázquez',
+  'Julieta Ramos',
+  'Gabriel Molina'
 ];
 
 /**
@@ -102,7 +117,7 @@ function generateCoherentMetrics(gamesPlayed) {
   const totalErrors = totalRounds - totalCorrect;
 
   // Calcular puntuación
-  const totalScore = (totalCorrect * pointsPerCorrect) - (totalErrors * penaltyPerError);
+  const totalScore = totalCorrect * pointsPerCorrect - totalErrors * penaltyPerError;
   const averageScore = Math.round(totalScore / gamesPlayed);
 
   // Mejor puntuación (una partida perfecta o casi)
@@ -125,7 +140,7 @@ function generateCoherentMetrics(gamesPlayed) {
     averageScore: Math.max(0, averageScore),
     bestScore: Math.max(0, bestScore),
     totalCorrectAnswers: totalCorrect,
-    totalErrors: totalErrors,
+    totalErrors,
     averageResponseTime,
     lastPlayedAt
   };
@@ -182,12 +197,14 @@ async function seedUsers() {
     // Crear 5 alumnos por cada profesor (excepto admin)
     const regularTeachers = teachers.filter(t => t.email !== 'admin@test.com');
     const studentsPromises = regularTeachers.map((teacher, index) =>
-      User.insertMany(generateStudentsData(
-        teacher,
-        studentNames,
-        index * 5, // Offset para usar nombres diferentes
-        5
-      ))
+      User.insertMany(
+        generateStudentsData(
+          teacher,
+          studentNames,
+          index * 5, // Offset para usar nombres diferentes
+          5
+        )
+      )
     );
 
     const studentsArrays = await Promise.all(studentsPromises);
