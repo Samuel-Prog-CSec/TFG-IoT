@@ -1,7 +1,7 @@
 const js = require('@eslint/js');
 const globals = require('globals');
 const prettierPlugin = require('eslint-plugin-prettier');
-const prettierConfig = require('eslint-config-prettier');
+const eslintConfigPrettier = require('eslint-config-prettier');
 
 /** @type {import('eslint').Linter.Config[]} */
 module.exports = [
@@ -24,6 +24,8 @@ module.exports = [
     ]
   },
   js.configs.recommended,
+  // eslint-config-prettier desactiva reglas de ESLint que conflictan con Prettier
+  eslintConfigPrettier,
   {
     plugins: {
       prettier: prettierPlugin
@@ -37,26 +39,23 @@ module.exports = [
       }
     },
     rules: {
-      // Merge prettier rules (disabling conflicting ones)
-      ...prettierConfig.rules,
-      
       // Enable prettier formatting as a rule
       'prettier/prettier': 'error',
-      
+
       // Best Practices & Improvements
       'no-console': 'off', // Backend logging
-      'no-unused-vars': ['warn', { 'argsIgnorePattern': '^_', 'varsIgnorePattern': '^_' }],
+      'no-unused-vars': ['warn', { argsIgnorePattern: '^_', varsIgnorePattern: '^_' }],
       'no-var': 'error',
       'prefer-const': 'error',
       'prefer-arrow-callback': 'warn',
       'arrow-body-style': ['warn', 'as-needed'],
       'no-duplicate-imports': 'error',
-      'eqeqeq': ['error', 'always'],
-      'curly': ['error', 'all'],
+      eqeqeq: ['error', 'always'],
+      curly: ['error', 'all'],
       'no-throw-literal': 'error',
       'prefer-promise-reject-errors': 'error',
       'no-async-promise-executor': 'error',
-      
+
       // Modern JS Improvements
       'object-shorthand': ['error', 'always'],
       'no-useless-rename': 'error',

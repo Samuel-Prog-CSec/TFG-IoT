@@ -5,6 +5,7 @@ coverage
 .env
 .env.local
 *.log
+*.md
 
 # Ignore all files in the docs/ directory
 docs/
