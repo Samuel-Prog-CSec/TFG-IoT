@@ -13,7 +13,7 @@
     "lint:fix": "eslint src/**/*.js seeders/**/*.js --fix",
     "format": "prettier --write \"src/**/*.js\" \"seeders/**/*.js\"",
     "format:check": "prettier --check \"src/**/*.js\" \"seeders/**/*.js\"",
-    "test": "echo \"Error: no test specified\" && exit 1",
+    "test": "jest",
     "security:check-&-fix": "npm audit && npm audit fix",
     "deps:update-minor": "npx npm-check-updates -t minor -u && npm install",
     "deps:update-major": "npx npm-check-updates -t major -u && npm install",
@@ -60,8 +60,10 @@
     "eslint-config-prettier": "^10.1.8",
     "eslint-plugin-prettier": "^5.5.4",
     "globals": "^16.5.0",
+    "jest": "^30.2.0",
     "nodemon": "^3.1.11",
-    "prettier": "^3.7.4"
+    "prettier": "^3.7.4",
+    "supertest": "^7.1.4"
   },
   "engines": {
     "node": ">=22.0.0"
