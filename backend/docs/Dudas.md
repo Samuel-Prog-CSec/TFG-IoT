@@ -25,99 +25,106 @@
 
 ## Arquitectura y Escalabilidad
 
-xx. **Gestión de sesiones WebSocket**: Actualmente el `gameEngine` mantiene los estados en memoria (`activePlays`, `cardToPlayMap`). Si el servidor se reinicia, ¿se pierden todas las partidas en curso? ¿Deberíamos persistir el estado de las partidas activas en MongoDB/Redis para recuperarlas tras un reinicio?
+19. **Gestión de sesiones WebSocket**: Actualmente el `gameEngine` mantiene los estados en memoria (`activePlays`, `cardToPlayMap`). Si el servidor se reinicia, ¿se pierden todas las partidas en curso? ¿Deberíamos persistir el estado de las partidas activas en MongoDB/Redis para recuperarlas tras un reinicio?
 
-xx. **Múltiples instancias del backend**: Si en el futuro desplegamos múltiples instancias del servidor (load balancing), ¿cómo sincronizamos el estado de las partidas entre instancias? ¿Deberíamos usar Redis Pub/Sub o Socket.IO con adaptador de Redis?
+20. **Múltiples instancias del backend**: Si en el futuro desplegamos múltiples instancias del servidor (load balancing), ¿cómo sincronizamos el estado de las partidas entre instancias? ¿Deberíamos usar Redis Pub/Sub o Socket.IO con adaptador de Redis?
 
-xx. **Límite de partidas simultáneas**: ¿Existe un límite máximo de partidas activas simultáneas que el sistema debería soportar? ¿Deberíamos implementar un sistema de cola si se supera ese límite?
+21. **Límite de partidas simultáneas**: ¿Existe un límite máximo de partidas activas simultáneas que el sistema debería soportar? ¿Deberíamos implementar un sistema de cola si se supera ese límite?
 
 ## Hardware y Comunicación RFID
 
-xx. **Múltiples sensores RFID**: ¿El sistema debería soportar múltiples sensores RFID conectados simultáneamente (diferentes aulas/mesas)? Si es así, ¿cómo identificamos qué sensor envió la lectura y cómo la asociamos a la partida correcta?
+22. **Múltiples sensores RFID**: ¿El sistema debería soportar múltiples sensores RFID conectados simultáneamente (diferentes aulas/mesas)? Si es así, ¿cómo identificamos qué sensor envió la lectura y cómo la asociamos a la partida correcta?
 
-xx. **Modo offline del sensor**: Si el backend pierde conexión temporalmente, ¿el ESP8266 debería almacenar las lecturas en buffer y enviarlas cuando se restablezca la conexión? ¿O simplemente las descarta?
+23. **Modo offline del sensor**: Si el backend pierde conexión temporalmente, ¿el ESP8266 debería almacenar las lecturas en buffer y enviarlas cuando se restablezca la conexión? ¿O simplemente las descarta?
 
-xx. **Validación de tarjetas duplicadas**: ¿Qué ocurre si un alumno escanea la misma tarjeta dos veces seguidas por error? ¿Deberíamos implementar un "debounce" para evitar lecturas duplicadas en un intervalo corto de tiempo?
+24. **Validación de tarjetas duplicadas**: ¿Qué ocurre si un alumno escanea la misma tarjeta dos veces seguidas por error? ¿Deberíamos implementar un "debounce" para evitar lecturas duplicadas en un intervalo corto de tiempo?
 
-xx. **Gestión de modos de escaneo RFID**: El sensor RFID puede usarse para múltiples propósitos (gameplay, registro de tarjetas, asignación de assets). ¿Cómo gestionamos la exclusión mutua entre modos? ¿Qué ocurre si un profesor intenta registrar una tarjeta mientras otro tiene una partida activa?
+25. **Gestión de modos de escaneo RFID**: El sensor RFID puede usarse para múltiples propósitos (gameplay, registro de tarjetas, asignación de assets). ¿Cómo gestionamos la exclusión mutua entre modos? ¿Qué ocurre si un profesor intenta registrar una tarjeta mientras otro tiene una partida activa?
 
-xx. **Timeout de modos de escaneo**: Si el profesor activa el modo "asignación" pero no escanea ninguna tarjeta en X segundos, ¿volvemos automáticamente a modo idle? ¿Cuánto tiempo de timeout es razonable?
+26. **Timeout de modos de escaneo**: Si el profesor activa el modo "asignación" pero no escanea ninguna tarjeta en X segundos, ¿volvemos automáticamente a modo idle? ¿Cuánto tiempo de timeout es razonable?
 
 ## Lógica de Juego
 
-xx. **Rondas con múltiples respuestas correctas**: En la mecánica de "Asociación", ¿puede haber varias tarjetas correctas para un mismo desafío? Por ejemplo: "¿Cuáles son países de Europa?" donde España, Francia e Italia serían correctas.
+27. **Rondas con múltiples respuestas correctas**: En la mecánica de "Asociación", ¿puede haber varias tarjetas correctas para un mismo desafío? Por ejemplo: "¿Cuáles son países de Europa?" donde España, Francia e Italia serían correctas.
 
-xx. **Orden de las rondas**: ¿Las rondas/desafíos se presentan en orden aleatorio, secuencial, o configurable por el profesor? ¿Debería haber opción de repetir rondas fallidas al final?
+28. **Orden de las rondas**: ¿Las rondas/desafíos se presentan en orden aleatorio, secuencial, o configurable por el profesor? ¿Debería haber opción de repetir rondas fallidas al final?
 
-xx. **Sistema de pistas**: ¿Deberíamos implementar un sistema de pistas para ayudar a los alumnos? Por ejemplo, mostrar las primeras letras de la respuesta o reproducir un audio adicional. ¿Afectaría esto a la puntuación?
+29. **Sistema de pistas**: ¿Deberíamos implementar un sistema de pistas para ayudar a los alumnos? Por ejemplo, mostrar las primeras letras de la respuesta o reproducir un audio adicional. ¿Afectaría esto a la puntuación?
 
-xx. **Pausa y reanudación de partidas**: Si un alumno necesita pausar la partida (ir al baño, recreo), ¿cómo gestionamos el estado? ¿El tiempo de la ronda actual se congela o se reinicia?
+30. **Pausa y reanudación de partidas**: Si un alumno necesita pausar la partida (ir al baño, recreo), ¿cómo gestionamos el estado? ¿El tiempo de la ronda actual se congela o se reinicia?
 
 ## Gestión de Usuarios y Datos
 
-xx. **Eliminación de datos de alumnos**: Por GDPR/LOPD, ¿cómo gestionamos el derecho al olvido? Si un alumno deja el centro, ¿eliminamos sus datos completamente o los anonimizamos para mantener estadísticas agregadas?
+31. **Eliminación de datos de alumnos**: Por GDPR/LOPD, ¿cómo gestionamos el derecho al olvido? Si un alumno deja el centro, ¿eliminamos sus datos completamente o los anonimizamos para mantener estadísticas agregadas?
 
-xx. **Transferencia de alumnos entre profesores**: Si un alumno cambia de clase/profesor, ¿sus métricas históricas se transfieren al nuevo profesor o empiezan de cero?
+32. **Transferencia de alumnos entre profesores**: Si un alumno cambia de clase/profesor, ¿sus métricas históricas se transfieren al nuevo profesor o empiezan de cero?
 
-xx. **Límite de alumnos por profesor**: ¿Deberíamos limitar el número de alumnos que un profesor puede gestionar? ¿Y el número de sesiones activas simultáneas?
+33. **Límite de alumnos por profesor**: ¿Deberíamos limitar el número de alumnos que un profesor puede gestionar? ¿Y el número de sesiones activas simultáneas?
 
-xx. **Datos históricos vs. datos activos**: ¿Cuánto tiempo mantenemos el historial detallado de partidas (`GamePlay.events`)? ¿Deberíamos archivar partidas antiguas para optimizar consultas?
+34. **Datos históricos vs. datos activos**: ¿Cuánto tiempo mantenemos el historial detallado de partidas (`GamePlay.events`)? ¿Deberíamos archivar partidas antiguas para optimizar consultas?
 
-xx. **Eliminación de seeders**: ¿Cómo eliminar los datos de los seeders? ¿Haciendo un drop de la base de datos o eliminando los datos de cada colección individualmente?
+35. **Eliminación de seeders**: ¿Cómo eliminar los datos de los seeders? ¿Haciendo un drop de la base de datos o eliminando los datos de cada colección individualmente?
 
-xx. **Relación entre profesores y cartas**: ¿Las cartas son un conjunto inconexo dentro de la BD o sería mejor relacionar cartas con mazos y cada mazo con un profesor en concreto? Cada profesor sólo puede CRUD sobre su propio mazo de cartas. ¿Un profesor puede tener acceso solo a las cartas que él ha creado o puede usar cartas creadas por otros profesores del mismo centro educativo (si puede usar las de otros, entonces denerían estar relacionados los mazos al centro educativo también)?
+36. **Relación entre profesores y cartas**: ¿Las cartas son un conjunto inconexo dentro de la BD o sería mejor relacionar cartas con mazos y cada mazo con un profesor en concreto? Cada profesor sólo puede CRUD sobre su propio mazo de cartas. ¿Un profesor puede tener acceso solo a las cartas que él ha creado o puede usar cartas creadas por otros profesores del mismo centro educativo (si puede usar las de otros, entonces denerían estar relacionados los mazos al centro educativo también)?
 
-xx. **Relacionar el centro educativo con el profesor**: ¿El profesor debe estar linkado a un centro educativo? En caso de que se contemple que el sistema pueda funcionar en distintos centros a la vez, puede ser interesante esta distinción.
-  - xx.1. En caso de que deba tener un campo de centro, ¿cómo gestionamos esta relación en el modelo de datos? ¿Deberíamos crear un modelo separado para 'School' y asociarlo con los usuarios que tienen rol de profesor?
+37. **Relacionar el centro educativo con el profesor**: ¿El profesor debe estar linkado a un centro educativo? En caso de que se contemple que el sistema pueda funcionar en distintos centros a la vez, puede ser interesante esta distinción.
+  - 37.1. En caso de que deba tener un campo de centro, ¿cómo gestionamos esta relación en el modelo de datos? ¿Deberíamos crear un modelo separado para 'School' y asociarlo con los usuarios que tienen rol de profesor?
 
-xx. **Campo metadata dentro del modelo `Card`**: ¿Es correcto mantener un metadata en el modelos de Card para almacenar información adicional sobre las tarjetas, como descripciones, etiquetas o cualquier otro dato relevante que no encaje en los campos predefinidos? Choca con el uso de assets en contextos
+38. **Campo metadata dentro del modelo `Card`**: ¿Es correcto mantener un metadata en el modelos de Card para almacenar información adicional sobre las tarjetas, como descripciones, etiquetas o cualquier otro dato relevante que no encaje en los campos predefinidos? Choca con el uso de assets en contextos
 
-xx. **Maps en memoria**: En GamePlay mantenemos dos maps para filtrar por partidas que están en activo y para filtrar por tarjetas jugadas. ¿Es correcto mantener estos dos campos en memoria o deberíamos buscar otra forma de optimizar estas consultas? ¿Redis podría ser una solución adecuada para este caso?
+39. **Maps en memoria**: En GamePlay mantenemos dos maps para filtrar por partidas que están en activo y para filtrar por tarjetas jugadas. ¿Es correcto mantener estos dos campos en memoria o deberíamos buscar otra forma de optimizar estas consultas? ¿Redis podría ser una solución adecuada para este caso?
 
 ## Métricas y Estadísticas
 
-xx. **Cálculo de tendencias**: Para identificar "tendencias positivas o negativas" en el aprendizaje de un alumno, ¿qué ventana temporal usamos? ¿Últimas 5 partidas, última semana, último mes?
+40. **Cálculo de tendencias**: Para identificar "tendencias positivas o negativas" en el aprendizaje de un alumno, ¿qué ventana temporal usamos? ¿Últimas 5 partidas, última semana, último mes?
 
-xx. **Comparación con la clase**: Para comparar el rendimiento de un alumno con "la media de la clase", ¿consideramos todos los alumnos del profesor o solo los del mismo aula/edad?
+41. **Comparación con la clase**: Para comparar el rendimiento de un alumno con "la media de la clase", ¿consideramos todos los alumnos del profesor o solo los del mismo aula/edad?
 
-xx. **Exportación de datos**: ¿El profesor debería poder exportar las estadísticas de sus alumnos (CSV, PDF)? ¿Qué datos incluimos y cuáles excluimos por privacidad?
+42. **Exportación de datos**: ¿El profesor debería poder exportar las estadísticas de sus alumnos (CSV, PDF)? ¿Qué datos incluimos y cuáles excluimos por privacidad?
 
 ## Assets y Contenido
 
-xx. **Límites de almacenamiento en Supabase**: ¿Cuál es el límite de almacenamiento por profesor para assets multimedia? ¿Cómo gestionamos cuando se alcanza el límite?
+43. **Límites de almacenamiento en Supabase**: ¿Cuál es el límite de almacenamiento por profesor para assets multimedia? ¿Cómo gestionamos cuando se alcanza el límite?
 
-xx. **Formatos de archivos permitidos**: ¿Qué formatos de imagen (PNG, JPG, SVG, WebP) y audio (MP3, WAV, OGG) soportamos? ¿Deberíamos convertir automáticamente a formatos optimizados?
+44. **Formatos de archivos permitidos**: ¿Qué formatos de imagen (PNG, JPG, SVG, WebP) y audio (MP3, WAV, OGG) soportamos? ¿Deberíamos convertir automáticamente a formatos optimizados?
 
-xx. **Assets compartidos vs. privados**: Los contextos creados por un profesor, ¿son visibles/usables por otros profesores del mismo centro? ¿O cada profesor tiene su biblioteca privada? ¿Todos los profesores de todos los centros pueden ver los contextos creados por otros profesores?
+45. **Assets compartidos vs. privados**: Los contextos creados por un profesor, ¿son visibles/usables por otros profesores del mismo centro? ¿O cada profesor tiene su biblioteca privada? ¿Todos los profesores de todos los centros pueden ver los contextos creados por otros profesores?
 
-xx. **Moderación de contenido**: ¿Necesitamos revisar/aprobar los assets subidos por profesores antes de que estén disponibles? ¿O confiamos en que el contenido es apropiado?
+46. **Moderación de contenido**: ¿Necesitamos revisar/aprobar los assets subidos por profesores antes de que estén disponibles? ¿O confiamos en que el contenido es apropiado?
 
-xx. **Controlador contexto y de assets**: ¿Separamos las rutas y controladores de los assets y los contextos o los mantenemos juntos en uno solo (el de contextos)?
+47. **Controlador contexto y de assets**: ¿Separamos las rutas y controladores de los assets y los contextos o los mantenemos juntos en uno solo (el de contextos)?
 
 ## Seguridad y Autenticación
 
-xx. **Sesiones de profesor concurrentes**: ¿Un profesor puede tener sesiones activas en múltiples dispositivos simultáneamente? ¿O deberíamos invalidar la sesión anterior al iniciar una nueva?
+48. **Sesiones de profesor concurrentes**: ¿Un profesor puede tener sesiones activas en múltiples dispositivos simultáneamente? ¿O deberíamos invalidar la sesión anterior al iniciar una nueva?
 
-xx. **Tokens de refresh**: ¿Cuánto tiempo dura el refresh token? ¿Deberíamos implementar rotación de refresh tokens para mayor seguridad?
+49. **Tokens de refresh**: ¿Cuánto tiempo dura el refresh token? ¿Deberíamos implementar rotación de refresh tokens para mayor seguridad?
 
-xx. **Recuperación de contraseña**: ¿Implementamos flujo de "olvidé mi contraseña" con email? ¿O el administrador del centro restablece las contraseñas manualmente?
+50. **Recuperación de contraseña**: ¿Implementamos flujo de "olvidé mi contraseña" con email? ¿O el administrador del centro restablece las contraseñas manualmente?
 
-xx. **Permisos para añadir assets vs. todos los profesores pueden**: El profesor puede crear contextos nuevos y añadir assets a contextos ya existentes. ¿Cómo gestionamos los permisos para estas acciones? ¿Deberíamos implementar un sistema de roles más granular para controlar quién puede crear o modificar contextos y assets? ¿O todos los usuarios con rol de profesor tienen estos permisos por defecto?
+51. **Permisos para añadir assets vs. todos los profesores pueden**: El profesor puede crear contextos nuevos y añadir assets a contextos ya existentes. ¿Cómo gestionamos los permisos para estas acciones? ¿Deberíamos implementar un sistema de roles más granular para controlar quién puede crear o modificar contextos y assets? ¿O todos los usuarios con rol de profesor tienen estos permisos por defecto?
 
-xx. **JWT en entorno de desarrollo**: Cuando estamos en entorno de desarrollo/testing, ¿cómo podemos obtener un token JWT válido para hacer peticiones autenticadas a la API? ¿Deberíamos crear un endpoint especial para obtener tokens de prueba o hay otra forma recomendada?
-  - xx.1. ¿Deben poderse desactivar las protecciones de autenticación en entorno de desarrollo para facilitar las pruebas?
-  - xx.2. Actualmente se contemplan 2 opciones: desactivar seguridad en desarrollo o un script que genera tokens JWT de prueba para logear un user de prueba. ¿Cuál es la mejor práctica recomendada?
+52. **JWT en entorno de desarrollo**: Cuando estamos en entorno de desarrollo/testing, ¿cómo podemos obtener un token JWT válido para hacer peticiones autenticadas a la API? ¿Deberíamos crear un endpoint especial para obtener tokens de prueba o hay otra forma recomendada?
+  - 52.1. ¿Deben poderse desactivar las protecciones de autenticación en entorno de desarrollo para facilitar las pruebas?
+  - 52.2. Actualmente se contemplan 2 opciones: desactivar seguridad en desarrollo o un script que genera tokens JWT de prueba para logear un user de prueba. ¿Cuál es la mejor práctica recomendada?
 
 ## Despliegue y Operaciones
 
-xx. **Entorno de staging**: ¿Necesitamos un entorno de staging/pre-producción para pruebas antes de desplegar a producción?
+53. **Entorno de staging**: ¿Necesitamos un entorno de staging/pre-producción para pruebas antes de desplegar a producción?
 
-xx. **Backups de base de datos**: ¿Con qué frecuencia hacemos backups de MongoDB? ¿Cuánto tiempo los retenemos?
+54. **Backups de base de datos**: ¿Con qué frecuencia hacemos backups de MongoDB? ¿Cuánto tiempo los retenemos?
 
-xx. **Monitorización de salud**: Además de Sentry para errores, ¿implementamos health checks y métricas de rendimiento (latencia, uso de memoria, conexiones activas)?
+55. **Monitorización de salud**: Además de Sentry para errores, ¿implementamos health checks y métricas de rendimiento (latencia, uso de memoria, conexiones activas)?
 
 ## Accesibilidad
 
-xx. **Soporte para alumnos con necesidades especiales**: ¿Deberíamos considerar adaptaciones para alumnos con discapacidad visual (descripciones de audio), auditiva (feedback visual reforzado), o motora (tiempos extendidos)?
+56. **Soporte para alumnos con necesidades especiales**: ¿Deberíamos considerar adaptaciones para alumnos con discapacidad visual (descripciones de audio), auditiva (feedback visual reforzado), o motora (tiempos extendidos)?
 
-xx. **Idiomas del sistema**: ¿La interfaz del profesor estará solo en español o soportaremos múltiples idiomas? ¿Y el contenido de los juegos?
+57. **Idiomas del sistema**: ¿La interfaz del profesor estará solo en español o soportaremos múltiples idiomas? ¿Y el contenido de los juegos?
+
+## Migraciones
+
+58. **Migración NodeJS a Bun**: ¿Es recomendable migrar el backend de NodeJS a Bun? ¿Velocidad de arranque y despliegue?
+
+59. **Migración de MongoDB a Supabase**: ¿Es recomendable migrar la base de datos de MongoDB a Supabase? ¿Ventajas y desventajas? ¿Seguridad y ventajas de usar Supabase en producción?
+  - 59.1. En el caso de quedarnos en MongoDB, ¿sería recomendable mover la parte de autenticación a Supabase con SQL?
