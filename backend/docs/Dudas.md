@@ -1,4 +1,4 @@
-# DUDAS OCTUBRE-NOVIEMBRE:
+# DUDAS OCTUBRE-NOVIEMBRE
 
 2. 'Alias' en el modelo 'Card', ¿debería eliminarse? Debido a la presencia de 'assignedValue' en 'GameSession', 'alias' parece redundante. ----> Es redundante
 3. ¿Cuándo se asigna el valor a las tarjetas? ¿Durante la creación de la sesión de juego o en otro momento? ----> Durante la creacion de la sesion el profesor elige los valores de un asset.
@@ -19,14 +19,9 @@
 
 ---
 
-# DUDAS DICIEMBRE:
+# DUDAS DICIEMBRE
 
-xx. ¿Separamos las rutas y controladores de los assets y los contextos o los mantenemos juntos en uno solo (el de contextos)?
-
-xx. ¿Es correcto mantener un metadata en el modelos de Card para almacenar información adicional sobre las tarjetas, como descripciones, etiquetas o cualquier otro dato relevante que no encaje en los campos predefinidos? Choca con el uso de assets en contextos
-
-xx. En GamePlay mantenemos dos maps para filtrar por partidas que están en activo y para filtrar por tarjetas jugadas. ¿Es correcto mantener estos dos campos en memoria o deberíamos buscar otra forma de optimizar estas consultas? ¿Redis podría ser una solución adecuada para este caso?
-
+**Duda principal**: ¿El sistema contempla que hay un único servidor en el que trabajan todos los profesores de distintos centros educativos o por el contrario cada centro educativo cuenta con su propio sistema?
 
 ## Arquitectura y Escalabilidad
 
@@ -75,6 +70,10 @@ xx. **Relación entre profesores y cartas**: ¿Las cartas son un conjunto incone
 xx. **Relacionar el centro educativo con el profesor**: ¿El profesor debe estar linkado a un centro educativo? En caso de que se contemple que el sistema pueda funcionar en distintos centros a la vez, puede ser interesante esta distinción.
   - xx.1. En caso de que deba tener un campo de centro, ¿cómo gestionamos esta relación en el modelo de datos? ¿Deberíamos crear un modelo separado para 'School' y asociarlo con los usuarios que tienen rol de profesor?
 
+xx. **Campo metadata dentro del modelo `Card`**: ¿Es correcto mantener un metadata en el modelos de Card para almacenar información adicional sobre las tarjetas, como descripciones, etiquetas o cualquier otro dato relevante que no encaje en los campos predefinidos? Choca con el uso de assets en contextos
+
+xx. **Maps en memoria**: En GamePlay mantenemos dos maps para filtrar por partidas que están en activo y para filtrar por tarjetas jugadas. ¿Es correcto mantener estos dos campos en memoria o deberíamos buscar otra forma de optimizar estas consultas? ¿Redis podría ser una solución adecuada para este caso?
+
 ## Métricas y Estadísticas
 
 xx. **Cálculo de tendencias**: Para identificar "tendencias positivas o negativas" en el aprendizaje de un alumno, ¿qué ventana temporal usamos? ¿Últimas 5 partidas, última semana, último mes?
@@ -92,6 +91,8 @@ xx. **Formatos de archivos permitidos**: ¿Qué formatos de imagen (PNG, JPG, SV
 xx. **Assets compartidos vs. privados**: Los contextos creados por un profesor, ¿son visibles/usables por otros profesores del mismo centro? ¿O cada profesor tiene su biblioteca privada? ¿Todos los profesores de todos los centros pueden ver los contextos creados por otros profesores?
 
 xx. **Moderación de contenido**: ¿Necesitamos revisar/aprobar los assets subidos por profesores antes de que estén disponibles? ¿O confiamos en que el contenido es apropiado?
+
+xx. **Controlador contexto y de assets**: ¿Separamos las rutas y controladores de los assets y los contextos o los mantenemos juntos en uno solo (el de contextos)?
 
 ## Seguridad y Autenticación
 
