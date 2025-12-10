@@ -149,7 +149,7 @@ const userSchema = new mongoose.Schema(
       enum: ['active', 'inactive'],
       default: 'active'
     },
-    createdBy: {
+    assignedTeacher: {
       type: mongoose.Schema.Types.ObjectId,
       ref: 'User'
     },

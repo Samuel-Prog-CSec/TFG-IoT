@@ -119,7 +119,7 @@ const gamePlaySchema = new mongoose.Schema(
       type: String,
       lowercase: true,
       trim: true,
-      enum: ['in-progress', 'completed', 'abandoned'],
+      enum: ['in-progress', 'completed', 'abandoned', 'paused'],
       default: 'in-progress'
     },
     startedAt: {

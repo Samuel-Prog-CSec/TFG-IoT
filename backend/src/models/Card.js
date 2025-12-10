@@ -46,11 +46,6 @@ const cardSchema = new mongoose.Schema(
       trim: true,
       enum: ['active', 'inactive', 'lost'],
       default: 'active'
-    },
-    metadata: {
-      color: String,
-      icon: String,
-      lastUsed: Date
     }
   },
   {
