@@ -6,6 +6,15 @@
 
 const rateLimit = require('express-rate-limit');
 
+// Helper para crear rate limiters que se deshabilitan en tests
+const createRateLimiter = (options) => {
+  // Check NODE_ENV or existence of Jest global 'it'
+  if (process.env.NODE_ENV === 'test' || typeof global.it === 'function') {
+    return (req, res, next) => next();
+  }
+  return rateLimit(options);
+};
+
 /**
  * Whitelist de orígenes permitidos para CORS.
  * En producción, solo dominios específicos deberían estar permitidos.
@@ -150,7 +159,7 @@ const helmetOptions = {
  *
  * @type {import('express-rate-limit').RateLimitRequestHandler}
  */
-const globalRateLimiter = rateLimit({
+const globalRateLimiter = createRateLimiter({
   windowMs: parseInt(process.env.RATE_LIMIT_WINDOW_MS) || 15 * 60 * 1000, // 15 minutos
   max: parseInt(process.env.RATE_LIMIT_MAX_REQUESTS) || 100, // 100 requests
   message: {
@@ -171,7 +180,7 @@ const globalRateLimiter = rateLimit({
  *
  * @type {import('express-rate-limit').RateLimitRequestHandler}
  */
-const authRateLimiter = rateLimit({
+const authRateLimiter = createRateLimiter({
   windowMs: 15 * 60 * 1000, // 15 minutos
   max: 5, // Solo 5 intentos
   message: {
@@ -189,7 +198,7 @@ const authRateLimiter = rateLimit({
  *
  * @type {import('express-rate-limit').RateLimitRequestHandler}
  */
-const createResourceRateLimiter = rateLimit({
+const createResourceRateLimiter = createRateLimiter({
   windowMs: 60 * 1000, // 1 minuto
   max: 10, // 10 creaciones por minuto
   message: {
@@ -206,7 +215,7 @@ const createResourceRateLimiter = rateLimit({
  *
  * @type {import('express-rate-limit').RateLimitRequestHandler}
  */
-const eventRateLimiter = rateLimit({
+const eventRateLimiter = createRateLimiter({
   windowMs: 60 * 1000, // 1 minuto
   max: 30, // 30 eventos por minuto (más permisivo para juego en tiempo real)
   message: {
@@ -223,7 +232,7 @@ const eventRateLimiter = rateLimit({
  *
  * @type {import('express-rate-limit').RateLimitRequestHandler}
  */
-const uploadRateLimiter = rateLimit({
+const uploadRateLimiter = createRateLimiter({
   windowMs: 60 * 60 * 1000, // 1 hora
   max: 20, // 20 uploads por hora
   message: {

@@ -43,6 +43,10 @@ class GameEngine {
      */
     this.io = io;
 
+    if (!this.io) {
+      logger.warn('GameEngine inicializado sin instancia de Socket.IO');
+    }
+
     /**
      * Almacén en memoria del estado de todas las partidas activas.
      * Mapea un playId (String) con el objeto de estado completo de esa partida.

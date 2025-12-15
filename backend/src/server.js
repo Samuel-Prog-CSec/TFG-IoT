@@ -460,6 +460,9 @@ process.on('SIGTERM', () => gracefulShutdown('SIGTERM'));
 process.on('SIGINT', () => gracefulShutdown('SIGINT')); // Ctrl+C
 
 // Iniciar el servidor
-startServer();
+// Iniciar el servidor solo si se ejecuta directamente
+if (require.main === module) {
+  startServer();
+}
 
-module.exports = { app, server, io };
+module.exports = { app, server, io, gameEngine };

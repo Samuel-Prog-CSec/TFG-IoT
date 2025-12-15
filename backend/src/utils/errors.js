@@ -37,7 +37,7 @@ class AppError extends Error {
  * @example
  * throw new ValidationError('El email es inválido');
  */
-class ValidationError extends AppError {
+class ApiValidationError extends AppError {
   /**
    * @param {string} message - Descripción de la validación fallida
    */
@@ -164,7 +164,7 @@ class InternalServerError extends AppError {
 
 module.exports = {
   AppError,
-  ValidationError,
+  ValidationError: ApiValidationError,
   NotFoundError,
   UnauthorizedError,
   ForbiddenError,

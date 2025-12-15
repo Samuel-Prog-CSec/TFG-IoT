@@ -115,6 +115,13 @@ class RFIDService extends EventEmitter {
       connectionUptime: 0,
       lastConnectedAt: null
     };
+
+    /**
+     * Timer para reconexión
+     * @type {NodeJS.Timeout|null}
+     * @private
+     */
+    this.reconnectTimer = null;
   }
 
   /**
@@ -224,7 +231,7 @@ class RFIDService extends EventEmitter {
 
       // Programar reintento
       logger.info(`Reintentando conexión en ${delay / 1000}s...`);
-      setTimeout(() => {
+      this.reconnectTimer = setTimeout(() => {
         this.connect();
       }, delay);
     }
@@ -249,7 +256,7 @@ class RFIDService extends EventEmitter {
 
     // Activar el flag y reintentar conexión
     this.isReconnecting = true;
-    setTimeout(() => {
+    this.reconnectTimer = setTimeout(() => {
       this.isReconnecting = false; // Resetear el flag antes de llamar
       this.connect(); // Volver a intentar la conexión
     }, 5000); // 5 segundos de espera
@@ -315,6 +322,11 @@ class RFIDService extends EventEmitter {
   disconnect() {
     // Activar el flag para que handleDisconnection no intente reconectar
     this.isShuttingDown = true;
+    
+    if (this.reconnectTimer) {
+        clearTimeout(this.reconnectTimer);
+        this.reconnectTimer = null;
+    }
 
     if (this.port && this.port.isOpen) {
       this.port.close(err => {

@@ -34,15 +34,29 @@ const tokenBlacklist = new Map();
  * Limpia tokens expirados de la blacklist cada hora.
  * Evita que la blacklist crezca indefinidamente en memoria.
  */
-setInterval(() => {
-  const now = Date.now();
-  for (const [jti, expiresAt] of tokenBlacklist.entries()) {
-    if (expiresAt < now) {
-      tokenBlacklist.delete(jti);
+let blacklistInterval;
+const startBlacklistCleanup = () => {
+    if (blacklistInterval) return;
+    blacklistInterval = setInterval(() => {
+        const now = Date.now();
+        for (const [jti, expiresAt] of tokenBlacklist.entries()) {
+            if (expiresAt < now) {
+                tokenBlacklist.delete(jti);
+            }
+        }
+        logger.debug(`Blacklist limpiada. Tokens activos: ${tokenBlacklist.size}`);
+    }, 3600000); // 1 hora
+};
+
+const stopBlacklistCleanup = () => {
+    if (blacklistInterval) {
+        clearInterval(blacklistInterval);
+        blacklistInterval = null;
     }
-  }
-  logger.debug(`Blacklist limpiada. Tokens activos: ${tokenBlacklist.size}`);
-}, 3600000); // 1 hora
+};
+
+// Start cleanup by default
+startBlacklistCleanup();
 
 /**
  * Genera un fingerprint único del dispositivo basado en headers.
@@ -619,5 +633,6 @@ module.exports = {
   requireRole,
   requireOwnership,
   optionalAuth,
+  stopBlacklistCleanup,
   logout
 };
