@@ -1,0 +1,495 @@
+/**
+ * @fileoverview Controller para gestión de partidas individuales (GamePlay).
+ * Maneja las partidas de estudiantes, eventos y actualización de métricas.
+ * @module controllers/gamePlayController
+ */
+
+const GamePlay = require('../models/GamePlay');
+const GameSession = require('../models/GameSession');
+const User = require('../models/User');
+const { NotFoundError, ValidationError, ForbiddenError } = require('../utils/errors');
+const logger = require('../utils/logger');
+const { gamePlayDTO, gamePlayListDTO, paginationDTO } = require('../utils/dtos');
+
+/**
+ * Obtener lista de partidas con paginación y filtros.
+ *
+ * GET /api/plays?page=1&sessionId=...&playerId=...&status=completed
+ * Headers: Authorization: Bearer <token>
+ *
+ * @param {import('express').Request} req
+ * @param {import('express').Response} res
+ * @param {import('express').NextFunction} next
+ */
+const getPlays = async (req, res, next) => {
+  try {
+    const {
+      page = 1,
+      limit = 20,
+      sortBy = 'createdAt',
+      order = 'desc',
+      sessionId,
+      playerId,
+      status,
+      minScore,
+      maxScore
+    } = req.query;
+
+    // Construir filtro
+    const filter = {};
+
+    if (sessionId) {
+      filter.sessionId = sessionId;
+    }
+    if (playerId) {
+      filter.playerId = playerId;
+    }
+    if (status) {
+      filter.status = status;
+    }
+
+    // Filtro de score range
+    if (minScore !== undefined || maxScore !== undefined) {
+      filter.score = {};
+      if (minScore !== undefined) {
+        filter.score.$gte = parseInt(minScore);
+      }
+      if (maxScore !== undefined) {
+        filter.score.$lte = parseInt(maxScore);
+      }
+    }
+
+    // Profesores ven todas, alumnos solo las suyas
+    if (req.user.role === 'student') {
+      filter.playerId = req.user._id;
+    }
+
+    // Paginación
+    const skip = (page - 1) * limit;
+    const sortOptions = { [sortBy]: order === 'asc' ? 1 : -1 };
+
+    // Ejecutar query con populate
+    const [plays, total] = await Promise.all([
+      GamePlay.find(filter)
+        .populate('sessionId', 'mechanicId contextId config difficulty')
+        .populate('playerId', 'name profile.age profile.classroom')
+        .sort(sortOptions)
+        .limit(parseInt(limit))
+        .skip(skip),
+      GamePlay.countDocuments(filter)
+    ]);
+
+    logger.info('Lista de partidas obtenida', {
+      requestedBy: req.user._id,
+      filters: filter,
+      resultsCount: plays.length
+    });
+
+    res.json({
+      success: true,
+      data: paginationDTO(gamePlayListDTO(plays), {
+        page: parseInt(page),
+        limit: parseInt(limit),
+        total
+      })
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+/**
+ * Obtener una partida específica por ID.
+ *
+ * GET /api/plays/:id
+ * Headers: Authorization: Bearer <token>
+ *
+ * @param {import('express').Request} req
+ * @param {import('express').Response} res
+ * @param {import('express').NextFunction} next
+ */
+const getPlayById = async (req, res, next) => {
+  try {
+    const { id } = req.params;
+
+    const play = await GamePlay.findById(id)
+      .populate({
+        path: 'sessionId',
+        populate: [
+          { path: 'mechanicId', select: 'name displayName icon' },
+          { path: 'contextId', select: 'contextId name assets' }
+        ]
+      })
+      .populate('playerId', 'name profile');
+
+    if (!play) {
+      throw new NotFoundError('Partida');
+    }
+
+    // Verificar permisos: el jugador, el creador de la sesión, o admin
+    const session = await GameSession.findById(play.sessionId._id);
+    const isOwner = play.playerId._id.toString() === req.user._id.toString();
+    const isCreator = session.createdBy.toString() === req.user._id.toString();
+
+    if (!isOwner && !isCreator && req.user.role !== 'admin') {
+      throw new ForbiddenError('No tienes permiso para ver esta partida');
+    }
+
+    res.json({
+      success: true,
+      data: gamePlayDTO(play)
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+/**
+ * Crear una nueva partida.
+ * El profesor crea partidas para sus alumnos.
+ *
+ * POST /api/plays
+ * Headers: Authorization: Bearer <token>
+ * Body: { sessionId, playerId }
+ *
+ * @param {import('express').Request} req
+ * @param {import('express').Response} res
+ * @param {import('express').NextFunction} next
+ */
+const createPlay = async (req, res, next) => {
+  try {
+    const { sessionId, playerId } = req.body;
+
+    // Verificar que la sesión existe y está activa
+    const session = await GameSession.findById(sessionId);
+    if (!session) {
+      throw new NotFoundError('Sesión de juego');
+    }
+
+    if (!session.isActive()) {
+      throw new ValidationError('La sesión no está activa');
+    }
+
+    // Verificar permisos: solo el creador de la sesión puede crear partidas
+    if (session.createdBy.toString() !== req.user._id.toString()) {
+      throw new ForbiddenError('No tienes permiso para crear partidas en esta sesión');
+    }
+
+    // Verificar que el jugador existe y es un estudiante
+    const player = await User.findById(playerId);
+    if (!player) {
+      throw new NotFoundError('Jugador');
+    }
+
+    if (player.role !== 'student') {
+      throw new ValidationError('Solo los estudiantes pueden jugar partidas');
+    }
+
+    // Verificar que no existe ya una partida activa para este jugador en esta sesión
+    const existingPlay = await GamePlay.findOne({
+      sessionId,
+      playerId,
+      status: { $in: ['in-progress'] }
+    });
+
+    if (existingPlay) {
+      throw new ValidationError('El jugador ya tiene una partida activa en esta sesión');
+    }
+
+    // Crear la partida
+    const play = await GamePlay.create({
+      sessionId,
+      playerId,
+      status: 'in-progress',
+      score: 0,
+      currentRound: 1
+    });
+
+    // Populate para respuesta
+    await play.populate([
+      { path: 'sessionId', select: 'mechanicId contextId config difficulty' },
+      { path: 'playerId', select: 'name profile' }
+    ]);
+
+    logger.info('Partida creada', {
+      playId: play._id,
+      sessionId,
+      playerId,
+      createdBy: req.user._id
+    });
+
+    res.status(201).json({
+      success: true,
+      message: 'Partida creada exitosamente',
+      data: gamePlayDTO(play)
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+/**
+ * Añadir un evento a una partida.
+ * Usado por el GameEngine cuando el alumno escanea una tarjeta.
+ *
+ * POST /api/plays/:id/events
+ * Body: { eventType, cardUid?, expectedValue?, actualValue?, pointsAwarded?, timeElapsed?, roundNumber? }
+ *
+ * @param {import('express').Request} req
+ * @param {import('express').Response} res
+ * @param {import('express').NextFunction} next
+ */
+const addEvent = async (req, res, next) => {
+  try {
+    const { id } = req.params;
+    const eventData = req.body;
+
+    const play = await GamePlay.findById(id);
+
+    if (!play) {
+      throw new NotFoundError('Partida');
+    }
+
+    if (!play.isInProgress()) {
+      throw new ValidationError('La partida no está en progreso');
+    }
+
+    // Usar el método del modelo para añadir evento
+    await play.addEvent(eventData);
+
+    logger.info('Evento añadido a partida', {
+      playId: play._id,
+      eventType: eventData.eventType,
+      roundNumber: eventData.roundNumber
+    });
+
+    res.json({
+      success: true,
+      message: 'Evento registrado exitosamente',
+      data: {
+        ...gamePlayDTO(play),
+        event: eventData
+      }
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+/**
+ * Completar una partida.
+ * Calcula métricas finales y actualiza User.studentMetrics.
+ *
+ * POST /api/plays/:id/complete
+ * Headers: Authorization: Bearer <token>
+ *
+ * @param {import('express').Request} req
+ * @param {import('express').Response} res
+ * @param {import('express').NextFunction} next
+ */
+const completePlay = async (req, res, next) => {
+  try {
+    const { id } = req.params;
+
+    const play = await GamePlay.findById(id).populate('playerId').populate('sessionId');
+
+    if (!play) {
+      throw new NotFoundError('Partida');
+    }
+
+    if (!play.isInProgress()) {
+      throw new ValidationError('La partida ya no está en progreso');
+    }
+
+    // Usar el método del modelo para completar
+    await play.complete();
+
+    // Actualizar métricas del estudiante
+    const player = await User.findById(play.playerId._id);
+    await player.updateStudentMetrics({
+      score: play.score,
+      correctAttempts: play.metrics.correctAttempts,
+      errorAttempts: play.metrics.errorAttempts,
+      averageResponseTime: play.metrics.averageResponseTime
+    });
+
+    logger.info('Partida completada', {
+      playId: play._id,
+      playerId: play.playerId._id,
+      finalScore: play.score,
+      completedAt: play.completedAt
+    });
+
+    res.json({
+      success: true,
+      message: 'Partida completada exitosamente',
+      data: {
+        ...gamePlayDTO(play),
+        rating: calculateRating(play.score, play.sessionId.config.pointsPerCorrect)
+      }
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+/**
+ * Abandonar una partida.
+ *
+ * POST /api/plays/:id/abandon
+ * Headers: Authorization: Bearer <token>
+ *
+ * @param {import('express').Request} req
+ * @param {import('express').Response} res
+ * @param {import('express').NextFunction} next
+ */
+const abandonPlay = async (req, res, next) => {
+  try {
+    const { id } = req.params;
+
+    const play = await GamePlay.findById(id);
+
+    if (!play) {
+      throw new NotFoundError('Partida');
+    }
+
+    if (!play.isInProgress()) {
+      throw new ValidationError('La partida ya no está en progreso');
+    }
+
+    // Cambiar status a abandoned
+    play.status = 'abandoned';
+    play.completedAt = new Date();
+    await play.save();
+
+    logger.info('Partida abandonada', {
+      playId: play._id,
+      playerId: play.playerId,
+      abandonedAt: play.completedAt
+    });
+
+    res.json({
+      success: true,
+      message: 'Partida abandonada',
+      data: gamePlayDTO(play)
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+/**
+ * Obtener estadísticas de un jugador.
+ *
+ * GET /api/plays/stats/:playerId
+ * Query: ?sessionId=... (opcional para filtrar por sesión)
+ * Headers: Authorization: Bearer <token>
+ *
+ * @param {import('express').Request} req
+ * @param {import('express').Response} res
+ * @param {import('express').NextFunction} next
+ */
+const getPlayerStats = async (req, res, next) => {
+  try {
+    const { playerId } = req.params;
+    const { sessionId } = req.query;
+
+    // Verificar permisos
+    if (req.user.role === 'student' && req.user._id.toString() !== playerId) {
+      throw new ForbiddenError('No tienes permiso para ver estas estadísticas');
+    }
+
+    const filter = { playerId, status: 'completed' };
+    if (sessionId) {
+      filter.sessionId = sessionId;
+    }
+
+    // Calcular estadísticas agregadas
+    const stats = await GamePlay.aggregate([
+      { $match: filter },
+      {
+        $group: {
+          _id: null,
+          totalPlays: { $sum: 1 },
+          totalScore: { $sum: '$score' },
+          averageScore: { $avg: '$score' },
+          bestScore: { $max: '$score' },
+          worstScore: { $min: '$score' },
+          totalCorrect: { $sum: '$metrics.correctAttempts' },
+          totalErrors: { $sum: '$metrics.errorAttempts' },
+          averageResponseTime: { $avg: '$metrics.averageResponseTime' },
+          totalCompletionTime: { $sum: '$metrics.completionTime' }
+        }
+      }
+    ]);
+
+    const result = stats[0] || {
+      totalPlays: 0,
+      totalScore: 0,
+      averageScore: 0,
+      bestScore: 0,
+      worstScore: 0,
+      totalCorrect: 0,
+      totalErrors: 0,
+      averageResponseTime: 0,
+      totalCompletionTime: 0
+    };
+
+    delete result._id;
+
+    // Calcular tasa de acierto
+    const accuracyRate =
+      result.totalCorrect + result.totalErrors > 0
+        ? ((result.totalCorrect / (result.totalCorrect + result.totalErrors)) * 100).toFixed(2)
+        : 0;
+
+    res.json({
+      success: true,
+      data: {
+        playerId,
+        sessionId: sessionId || 'all',
+        stats: {
+          ...result,
+          accuracyRate: parseFloat(accuracyRate)
+        }
+      }
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+/**
+ * Helper: Calcular rating basado en puntuación.
+ *
+ * @param {number} score - Puntuación final
+ * @param {number} maxPointsPerRound - Puntos máximos por ronda
+ * @returns {string} Rating (⭐⭐⭐⭐⭐, ⭐⭐⭐⭐, etc.)
+ */
+function calculateRating(score, maxPointsPerRound) {
+  const percentage = (score / (maxPointsPerRound * 5)) * 100; // Asumiendo 5 rondas
+
+  if (percentage >= 90) {
+    return '⭐⭐⭐⭐⭐';
+  }
+  if (percentage >= 75) {
+    return '⭐⭐⭐⭐';
+  }
+  if (percentage >= 60) {
+    return '⭐⭐⭐';
+  }
+  if (percentage >= 40) {
+    return '⭐⭐';
+  }
+  return '⭐';
+}
+
+module.exports = {
+  getPlays,
+  getPlayById,
+  createPlay,
+  addEvent,
+  completePlay,
+  abandonPlay,
+  getPlayerStats
+};
