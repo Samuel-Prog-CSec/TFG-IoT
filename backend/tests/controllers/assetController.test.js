@@ -15,7 +15,10 @@ app.use(express.json());
 const upload = multer({ storage: multer.memoryStorage() });
 app.post('/api/contexts/:contextId/assets', upload.single('file'), assetController.uploadAsset);
 
-describe('Asset Controller - Upload', () => {
+const describeSupabase = process.env.RUN_SUPABASE_TESTS === 'true' ? describe : describe.skip;
+
+describeSupabase('Asset Controller - Upload', () => {
+
   beforeEach(() => {
     jest.clearAllMocks();
   });

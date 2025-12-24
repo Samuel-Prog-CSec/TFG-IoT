@@ -149,6 +149,10 @@ const userSchema = new mongoose.Schema(
       enum: ['active', 'inactive'],
       default: 'active'
     },
+    createdBy: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'User'
+    },
     assignedTeacher: {
       type: mongoose.Schema.Types.ObjectId,
       ref: 'User'
@@ -166,16 +170,16 @@ const userSchema = new mongoose.Schema(
  * - Los profesores DEBEN tener email y password
  * - Los alumnos NO deben tener email ni password (validación estricta)
  */
-userSchema.pre('save', async function (next) {
+userSchema.pre('save', async function () {
   // ========================================
   // VALIDACIÓN PARA PROFESORES (role: 'teacher')
   // ========================================
   if (this.role === 'teacher') {
     if (!this.email) {
-      return next(new Error('Los profesores deben tener un email'));
+      throw new Error('Los profesores deben tener un email');
     }
     if (!this.password && this.isNew) {
-      return next(new Error('Los profesores deben tener una contraseña'));
+      throw new Error('Los profesores deben tener una contraseña');
     }
 
     // Encriptar contraseña solo si fue modificada
@@ -191,29 +195,23 @@ userSchema.pre('save', async function (next) {
   if (this.role === 'student') {
     // VALIDACIÓN ESTRICTA: Los alumnos NO deben tener email ni password
     if (this.email) {
-      return next(
-        new Error(
-          'Los alumnos NO deben tener email. Son creados por profesores y no inician sesión.'
-        )
+      throw new Error(
+        'Los alumnos NO deben tener email. Son creados por profesores y no inician sesión.'
       );
     }
     if (this.password) {
-      return next(
-        new Error(
-          'Los alumnos NO deben tener contraseña. Son creados por profesores y no inician sesión.'
-        )
+      throw new Error(
+        'Los alumnos NO deben tener contraseña. Son creados por profesores y no inician sesión.'
       );
     }
 
     // VALIDAR que tenga un creador (profesor)
     if (!this.createdBy && this.isNew) {
-      return next(
-        new Error('Los alumnos deben ser creados por un profesor (campo createdBy requerido)')
-      );
+      throw new Error('Los alumnos deben ser creados por un profesor (campo createdBy requerido)');
     }
   }
 
-  next();
+  // En hooks async no se usa callback next(); la promesa resuelta continúa el save.
 });
 
 /**

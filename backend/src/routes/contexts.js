@@ -19,15 +19,7 @@ const {
 } = require('../controllers/gameContextController');
 
 const { authenticate, requireRole } = require('../middlewares/auth');
-const { validateBody, validateQuery, validateParams } = require('../middlewares/validation');
 const { createResourceRateLimiter } = require('../config/security');
-const {
-  createGameContextSchema,
-  updateGameContextSchema,
-  gameContextQuerySchema,
-  gameContextParamsSchema,
-  addAssetSchema
-} = require('../validators/gameContextValidator');
 
 /**
  * @route   GET /api/contexts
@@ -38,7 +30,6 @@ router.get(
   '/',
   authenticate,
   requireRole('teacher'),
-  validateQuery(gameContextQuerySchema),
   getContexts
 );
 
@@ -66,7 +57,6 @@ router.post(
   createResourceRateLimiter, // Rate limiting para prevenir spam
   authenticate,
   requireRole('teacher'),
-  validateBody(createGameContextSchema),
   createContext
 );
 
@@ -79,8 +69,6 @@ router.post(
   '/:id/assets',
   authenticate,
   requireRole('teacher'),
-  validateParams(gameContextParamsSchema),
-  validateBody(addAssetSchema),
   addAsset
 );
 
@@ -93,8 +81,6 @@ router.put(
   '/:id',
   authenticate,
   requireRole('teacher'),
-  validateParams(gameContextParamsSchema),
-  validateBody(updateGameContextSchema),
   updateContext
 );
 
@@ -107,7 +93,6 @@ router.delete(
   '/:id',
   authenticate,
   requireRole('teacher'),
-  validateParams(gameContextParamsSchema),
   deleteContext
 );
 

@@ -118,7 +118,7 @@ const getSessionById = async (req, res, next) => {
       .populate('mechanicId', 'name displayName icon rules')
       .populate('contextId', 'contextId name assets')
       .populate('createdBy', 'name email')
-      .populate('cardMappings.cardId', 'uid type status metadata');
+      .populate('cardMappings.cardId', 'uid type status');
 
     if (!session) {
       throw new NotFoundError('Sesión de juego');

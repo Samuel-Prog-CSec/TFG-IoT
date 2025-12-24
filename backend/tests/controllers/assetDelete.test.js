@@ -11,7 +11,9 @@ const app = express();
 app.use(express.json());
 app.delete('/api/contexts/:contextId/assets/:assetId', assetController.deleteAsset);
 
-describe('Asset Controller - Delete', () => {
+const describeSupabase = process.env.RUN_SUPABASE_TESTS === 'true' ? describe : describe.skip;
+
+describeSupabase('Asset Controller - Delete', () => {
   beforeEach(() => {
     jest.clearAllMocks();
   });

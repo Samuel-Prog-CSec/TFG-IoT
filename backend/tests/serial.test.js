@@ -1,51 +1,76 @@
-const { SerialPort } = require('serialport');
-const { ReadlineParser } = require('@serialport/parser-readline');
 const rfidService = require('../src/services/rfidService');
 
-// Mock serialport
-jest.mock('serialport', () => {
-    return {
-        SerialPort: jest.fn().mockImplementation(() => ({
-            pipe: jest.fn().mockReturnThis(),
-            on: jest.fn(),
-            open: jest.fn().mockImplementation((cb) => cb && cb(null)),
-            write: jest.fn(),
-            close: jest.fn().mockImplementation((cb) => cb && cb(null)),
-            isOpen: true
-        }))
-    };
-});
-
-jest.mock('@serialport/parser-readline', () => {
-    return {
-        ReadlineParser: jest.fn().mockImplementation(() => ({
-             on: jest.fn(),
-             pipe: jest.fn()
-        }))
-    };
-});
+// Forzar configuración para que connect() no haga early-return
+const ORIGINAL_RFID_ENABLED = process.env.RFID_ENABLED;
+const ORIGINAL_SERIAL_PORT = process.env.SERIAL_PORT;
+process.env.RFID_ENABLED = 'true';
+process.env.SERIAL_PORT = 'COM_TEST';
 
 describe('RFID Service (Serial Simulation)', () => {
-    let mockPortInstance;
-    let mockParserInstance;
+    let SerialPortMock;
+    let ReadlineParserMock;
+    let parserInstance;
+    afterAll(() => {
+      if (ORIGINAL_RFID_ENABLED === undefined) delete process.env.RFID_ENABLED;
+      else process.env.RFID_ENABLED = ORIGINAL_RFID_ENABLED;
+
+      if (ORIGINAL_SERIAL_PORT === undefined) delete process.env.SERIAL_PORT;
+      else process.env.SERIAL_PORT = ORIGINAL_SERIAL_PORT;
+    });
 
     beforeEach(() => {
         jest.clearAllMocks();
         // Reset singleton state if needed? 
         // rfidService is stateful singleton.
         // We might need to manually reset its properties if tests interfere.
+                process.env.RFID_ENABLED = 'true';
+                process.env.SERIAL_PORT = 'COM_TEST';
+
+                if (rfidService.reconnectTimer) {
+                    clearTimeout(rfidService.reconnectTimer);
+                    rfidService.reconnectTimer = null;
+                }
         rfidService.isConnected = false;
         rfidService.isReconnecting = false;
+                rfidService.isShuttingDown = false;
+                rfidService.reconnectAttempts = 0;
         rfidService.port = null;
         rfidService.parser = null;
+
+                parserInstance = { on: jest.fn() };
+
+                ReadlineParserMock = jest.fn().mockImplementation(() => ({}));
+                SerialPortMock = jest.fn().mockImplementation(() => ({
+                    pipe: jest.fn(() => parserInstance),
+                    on: jest.fn(),
+                    open: jest.fn().mockImplementation(cb => cb && cb(null)),
+                    write: jest.fn(),
+                    close: jest.fn().mockImplementation(cb => cb && cb(null)),
+                    isOpen: true,
+                    path: 'COM_TEST',
+                    baudRate: 115200
+                }));
+
+                rfidService.setSerialImplementations({
+                    SerialPort: SerialPortMock,
+                    ReadlineParser: ReadlineParserMock
+                });
     });
+
+        afterEach(() => {
+            if (rfidService.reconnectTimer) {
+                clearTimeout(rfidService.reconnectTimer);
+                rfidService.reconnectTimer = null;
+            }
+            rfidService.isReconnecting = false;
+        });
 
     it('should connect to serial port successfully', async () => {
         const emitSpy = jest.spyOn(rfidService, 'emit');
         
         await rfidService.connect();
 
-        expect(SerialPort).toHaveBeenCalledTimes(1);
+        expect(SerialPortMock).toHaveBeenCalledTimes(1);
         expect(rfidService.isConnected).toBe(true);
         expect(emitSpy).toHaveBeenCalledWith('status', 'connected');
     });
@@ -104,12 +129,13 @@ describe('RFID Service (Serial Simulation)', () => {
         expect(rfidService.isReconnecting).toBe(true); // Should trigger reconnect
         
         // Fast forward time
-        jest.advanceTimersByTime(6000); 
+        jest.advanceTimersByTime(6000);
+        await Promise.resolve();
         
         // Should have called connect again
         // Since connect is async/recursive via timeout, checking internal state or spy on connect is tricky
         // But we can check if SerialPort constructor was called again
-        expect(SerialPort).toHaveBeenCalledTimes(2); // 1 initial + 1 reconnect
+        expect(SerialPortMock).toHaveBeenCalledTimes(2); // 1 initial + 1 reconnect
 
         jest.useRealTimers();
     });

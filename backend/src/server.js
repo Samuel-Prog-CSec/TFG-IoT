@@ -4,7 +4,9 @@
  * @module server
  */
 
-require('dotenv').config();
+// Dotenv prints "injecting env" tips unless quiet=true (noisy for tests).
+const dotenv = require('dotenv');
+dotenv.config(process.env.NODE_ENV === 'test' ? { quiet: true } : undefined);
 
 // Validar variables de entorno ANTES de cualquier inicialización
 const { validateEnv } = require('./utils/envValidator');
@@ -395,12 +397,13 @@ const startServer = async () => {
     logger.info('Base de datos conectada');
 
     // Conectar al sensor RFID (solo si está habilitado)
-    const rfidEnabled = process.env.RFID_ENABLED !== 'false';
+    // Sprint 1.5: por defecto deshabilitado salvo RFID_ENABLED=true
+    const rfidEnabled = process.env.RFID_ENABLED === 'true';
     if (rfidEnabled) {
       logger.info('Iniciando servicio RFID...');
       rfidService.connect(); // Servicio logueará por su cuenta si se conecta o no
     } else {
-      logger.info('Servicio RFID deshabilitado (RFID_ENABLED=false)');
+      logger.info('Servicio RFID deshabilitado (RFID_ENABLED!=true)');
     }
 
     // Iniciar servidor HTTP

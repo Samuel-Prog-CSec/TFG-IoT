@@ -118,7 +118,7 @@ const getCardById = async (req, res, next) => {
  *
  * POST /api/cards
  * Headers: Authorization: Bearer <token>
- * Body: { uid, type?, status?, metadata? }
+ * Body: { uid, type?, status? }
  *
  * @param {import('express').Request} req
  * @param {import('express').Response} res
@@ -126,7 +126,7 @@ const getCardById = async (req, res, next) => {
  */
 const createCard = async (req, res, next) => {
   try {
-    const { uid, type, status, metadata } = req.body;
+    const { uid, type, status } = req.body;
 
     // Verificar si el UID ya existe
     const existingCard = await Card.findOne({ uid: uid.toUpperCase() });
@@ -139,8 +139,7 @@ const createCard = async (req, res, next) => {
     const card = await Card.create({
       uid: uid.toUpperCase(),
       type: type || 'UNKNOWN',
-      status: status || 'active',
-      metadata: metadata || {}
+      status: status || 'active'
     });
 
     logger.info('Tarjeta registrada', {
@@ -165,7 +164,7 @@ const createCard = async (req, res, next) => {
  *
  * PUT /api/cards/:id
  * Headers: Authorization: Bearer <token>
- * Body: { type?, status?, metadata? }
+ * Body: { type?, status? }
  *
  * NOTA: El UID no se puede modificar después de crear la tarjeta.
  *
@@ -176,7 +175,7 @@ const createCard = async (req, res, next) => {
 const updateCard = async (req, res, next) => {
   try {
     const { id } = req.params;
-    const { type, status, metadata } = req.body;
+    const { type, status } = req.body;
 
     const card = await Card.findById(id);
 
@@ -190,9 +189,6 @@ const updateCard = async (req, res, next) => {
     }
     if (status) {
       card.status = status;
-    }
-    if (metadata) {
-      card.metadata = { ...card.metadata.toObject(), ...metadata };
     }
 
     await card.save();
@@ -258,7 +254,7 @@ const deleteCard = async (req, res, next) => {
  *
  * POST /api/cards/batch
  * Headers: Authorization: Bearer <token>
- * Body: { cards: [{ uid, type?, metadata? }] }
+ * Body: { cards: [{ uid, type? }] }
  *
  * @param {import('express').Request} req
  * @param {import('express').Response} res

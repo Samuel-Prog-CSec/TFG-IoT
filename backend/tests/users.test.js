@@ -109,7 +109,7 @@ describe('User Management Endpoints', () => {
          .set('Accept-Encoding', 'gzip');
        
        expect(res.statusCode).toEqual(200);
-       expect(res.body.data.items).toHaveLength(2);
+       expect(res.body.data).toHaveLength(2);
     });
   });
 

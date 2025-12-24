@@ -56,7 +56,9 @@ const stopBlacklistCleanup = () => {
 };
 
 // Start cleanup by default
-startBlacklistCleanup();
+if (process.env.NODE_ENV !== 'test') {
+  startBlacklistCleanup();
+}
 
 /**
  * Genera un fingerprint único del dispositivo basado en headers.
@@ -592,7 +594,7 @@ const logout = async (req, res, next) => {
     revokeToken(req.tokenJti, accessTokenExp);
 
     // Si se proporciona refresh token, también revocarlo
-    const { refreshToken } = req.body;
+    const refreshToken = req.body?.refreshToken;
     if (refreshToken) {
       try {
         const decoded = verifyRefreshToken(refreshToken, req);

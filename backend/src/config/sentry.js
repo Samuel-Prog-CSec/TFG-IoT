@@ -21,6 +21,13 @@ let isSentryEnabled = false;
  * @returns {void}
  */
 function initSentry() {
+  // Sprint 1.5: Sentry deshabilitado por defecto (Sprint 3: seguridad)
+  if (process.env.SENTRY_ENABLED !== 'true') {
+    isSentryEnabled = false;
+    logger.info('Sentry deshabilitado (SENTRY_ENABLED!=true).');
+    return;
+  }
+
   // Solo inicializar si hay DSN configurado
   if (!process.env.SENTRY_DSN) {
     logger.warn('SENTRY_DSN no configurado. Sentry deshabilitado.');

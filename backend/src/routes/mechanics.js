@@ -17,14 +17,7 @@ const {
 } = require('../controllers/gameMechanicController');
 
 const { authenticate, requireRole, optionalAuth } = require('../middlewares/auth');
-const { validateBody, validateQuery, validateParams } = require('../middlewares/validation');
 const { createResourceRateLimiter } = require('../config/security');
-const {
-  createGameMechanicSchema,
-  updateGameMechanicSchema,
-  gameMechanicQuerySchema,
-  gameMechanicParamsSchema
-} = require('../validators/gameMechanicValidator');
 
 /**
  * @route   GET /api/mechanics/active
@@ -42,7 +35,6 @@ router.get(
   '/',
   authenticate,
   requireRole('teacher'),
-  validateQuery(gameMechanicQuerySchema),
   getMechanics
 );
 
@@ -55,7 +47,6 @@ router.get(
   '/:id',
   authenticate,
   requireRole('teacher'),
-  validateParams(gameMechanicParamsSchema),
   getMechanicById
 );
 
@@ -69,7 +60,6 @@ router.post(
   createResourceRateLimiter, // Rate limiting para prevenir spam
   authenticate,
   requireRole('teacher'),
-  validateBody(createGameMechanicSchema),
   createMechanic
 );
 
@@ -82,8 +72,6 @@ router.put(
   '/:id',
   authenticate,
   requireRole('teacher'),
-  validateParams(gameMechanicParamsSchema),
-  validateBody(updateGameMechanicSchema),
   updateMechanic
 );
 
@@ -96,7 +84,6 @@ router.delete(
   '/:id',
   authenticate,
   requireRole('teacher'),
-  validateParams(gameMechanicParamsSchema),
   deleteMechanic
 );
 

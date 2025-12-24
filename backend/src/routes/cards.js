@@ -18,14 +18,7 @@ const {
 } = require('../controllers/cardController');
 
 const { authenticate, requireRole } = require('../middlewares/auth');
-const { validateBody, validateQuery, validateParams } = require('../middlewares/validation');
 const { createResourceRateLimiter } = require('../config/security');
-const {
-  createCardSchema,
-  updateCardSchema,
-  cardQuerySchema,
-  cardParamsSchema
-} = require('../validators/cardValidator');
 
 /**
  * @route   GET /api/cards/stats
@@ -39,7 +32,7 @@ router.get('/stats', authenticate, requireRole('teacher'), getCardStats);
  * @desc    Obtener lista de tarjetas con filtros
  * @access  Private (Teacher)
  */
-router.get('/', authenticate, requireRole('teacher'), validateQuery(cardQuerySchema), getCards);
+router.get('/', authenticate, requireRole('teacher'), getCards);
 
 /**
  * @route   GET /api/cards/:id
@@ -58,7 +51,6 @@ router.post(
   createResourceRateLimiter, // Rate limiting para prevenir spam
   authenticate,
   requireRole('teacher'),
-  validateBody(createCardSchema),
   createCard
 );
 
@@ -78,7 +70,6 @@ router.put(
   '/:id',
   authenticate,
   requireRole('teacher'),
-  validateBody(updateCardSchema),
   updateCard
 );
 

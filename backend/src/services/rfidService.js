@@ -21,8 +21,6 @@
  * @module services/rfidService
  */
 
-const { SerialPort } = require('serialport');
-const { ReadlineParser } = require('@serialport/parser-readline');
 const logger = require('../utils/logger');
 const { EventEmitter } = require('events');
 
@@ -54,6 +52,16 @@ class RFIDService extends EventEmitter {
    */
   constructor() {
     super();
+
+    /**
+     * Implementaciones inyectables para facilitar testing.
+     * En producción se resuelven vía require dinámico.
+     * @private
+     */
+    this._serialImpl = {
+      SerialPort: null,
+      ReadlineParser: null
+    };
 
     /**
      * Instancia del puerto serie
@@ -135,6 +143,19 @@ class RFIDService extends EventEmitter {
    * @emits status - 'reconnecting' cuando intenta conectar, 'connected' cuando tiene éxito
    */
   async connect() {
+    // Sprint 1.5: RFID deshabilitado por defecto salvo RFID_ENABLED=true
+    if (process.env.RFID_ENABLED !== 'true') {
+      this.emit('status', 'disabled');
+      return;
+    }
+
+    // Configuración obligatoria cuando RFID está habilitado
+    if (!process.env.SERIAL_PORT) {
+      logger.error('RFID_ENABLED=true pero SERIAL_PORT no está configurado.');
+      this.emit('status', 'misconfigured');
+      return;
+    }
+
     // Si ya está conectado, intentando reconectar o cerrándose, no hacer nada
     if (this.isConnected || this.isReconnecting || this.isShuttingDown) {
       return;
@@ -155,8 +176,12 @@ class RFIDService extends EventEmitter {
     this.emit('status', 'reconnecting'); // Informar a la app
 
     try {
-      const portPath = process.env.SERIAL_PORT || 'COM3';
+      const portPath = process.env.SERIAL_PORT;
       const baudRate = parseInt(process.env.SERIAL_BAUD_RATE) || 115200;
+
+      const SerialPortCtor = this._serialImpl.SerialPort || require('serialport').SerialPort;
+      const ReadlineParserCtor =
+        this._serialImpl.ReadlineParser || require('@serialport/parser-readline').ReadlineParser;
 
       logger.info(
         `Intentando conectar al sensor RFID (intento ${this.reconnectAttempts}/${MAX_RECONNECT_ATTEMPTS})`,
@@ -166,14 +191,14 @@ class RFIDService extends EventEmitter {
         }
       );
 
-      this.port = new SerialPort({
+      this.port = new SerialPortCtor({
         path: portPath,
         baudRate,
         autoOpen: false
       });
 
       // Crear parser para lectura basada en líneas
-      this.parser = this.port.pipe(new ReadlineParser({ delimiter: '\n' }));
+      this.parser = this.port.pipe(new ReadlineParserCtor({ delimiter: '\n' }));
 
       // Open port
       await new Promise((resolve, reject) => {
@@ -235,6 +260,17 @@ class RFIDService extends EventEmitter {
         this.connect();
       }, delay);
     }
+  }
+
+  /**
+   * Inyecta implementaciones de SerialPort/ReadlineParser (útil en tests).
+   * @param {Object} impl
+   * @param {Function|null} [impl.SerialPort]
+   * @param {Function|null} [impl.ReadlineParser]
+   */
+  setSerialImplementations({ SerialPort, ReadlineParser }) {
+    if (SerialPort !== undefined) this._serialImpl.SerialPort = SerialPort;
+    if (ReadlineParser !== undefined) this._serialImpl.ReadlineParser = ReadlineParser;
   }
 
   /**

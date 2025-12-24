@@ -18,15 +18,7 @@ const {
 } = require('../controllers/gamePlayController');
 
 const { authenticate, requireRole } = require('../middlewares/auth');
-const { validateBody, validateQuery, validateParams } = require('../middlewares/validation');
 const { createResourceRateLimiter, eventRateLimiter } = require('../config/security');
-const {
-  createGamePlaySchema,
-  addEventSchema,
-  gamePlayQuerySchema,
-  gamePlayParamsSchema,
-  playerStatsQuerySchema
-} = require('../validators/gamePlayValidator');
 
 /**
  * @route   GET /api/plays/stats/:playerId
@@ -36,12 +28,6 @@ const {
 router.get(
   '/stats/:playerId',
   authenticate,
-  validateParams(
-    gamePlayParamsSchema.extend({
-      playerId: gamePlayParamsSchema.shape.id
-    })
-  ),
-  validateQuery(playerStatsQuerySchema),
   getPlayerStats
 );
 
@@ -50,14 +36,14 @@ router.get(
  * @desc    Obtener lista de partidas con filtros
  * @access  Private
  */
-router.get('/', authenticate, validateQuery(gamePlayQuerySchema), getPlays);
+router.get('/', authenticate, getPlays);
 
 /**
  * @route   GET /api/plays/:id
  * @desc    Obtener partida por ID
  * @access  Private
  */
-router.get('/:id', authenticate, validateParams(gamePlayParamsSchema), getPlayById);
+router.get('/:id', authenticate, getPlayById);
 
 /**
  * @route   POST /api/plays
@@ -69,7 +55,6 @@ router.post(
   createResourceRateLimiter, // Rate limiting para prevenir spam
   authenticate,
   requireRole('teacher'),
-  validateBody(createGamePlaySchema),
   createPlay
 );
 
@@ -82,8 +67,6 @@ router.post(
   '/:id/events',
   eventRateLimiter, // Rate limiter permisivo para eventos de juego en tiempo real
   authenticate,
-  validateParams(gamePlayParamsSchema),
-  validateBody(addEventSchema),
   addEvent
 );
 
@@ -92,13 +75,13 @@ router.post(
  * @desc    Completar una partida
  * @access  Private
  */
-router.post('/:id/complete', authenticate, validateParams(gamePlayParamsSchema), completePlay);
+router.post('/:id/complete', authenticate, completePlay);
 
 /**
  * @route   POST /api/plays/:id/abandon
  * @desc    Abandonar una partida
  * @access  Private
  */
-router.post('/:id/abandon', authenticate, validateParams(gamePlayParamsSchema), abandonPlay);
+router.post('/:id/abandon', authenticate, abandonPlay);
 
 module.exports = router;
