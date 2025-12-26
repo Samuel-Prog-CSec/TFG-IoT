@@ -134,6 +134,154 @@ Este documento detalla los endpoints de la API REST para el Backend de Juegos Ed
 2. **Iniciar:** Inicializa el `GameEngine` para esta sesión.
 3. **Finalizar:** Cierra métricas y libera recursos.
 
+**Nota importante (Decks y mapeos):**
+- El mapeo de tarjetas (`cardMappings`) de una sesión **se deriva del mazo** (`deckId`).
+- Al crear/consultar/actualizar/iniciar una sesión, el backend **sincroniza** el mapping con el mazo actual, para que si el mazo cambia (nuevas tarjetas, cambios de valores), la sesión use siempre el mapping vigente.
+- `config.numberOfCards` depende del número de `cardMappings` del mazo y se ajusta automáticamente.
+
+---
+
+### 6.1. Mazos Reutilizables (`/decks`)
+
+Los **mazos** (CardDeck) permiten al profesor **reutilizar** la configuración de mapeos `UID → assignedValue` para un `GameContext` y usarla en múltiples sesiones.
+
+| Método | Endpoint | Descripción | Acceso | Rate Limit |
+|:-------|:---------|:------------|:-------|:-----------|
+| `GET` | `/` | Listar mazos del profesor (paginado + filtros) | Profesor | - |
+| `GET` | `/:id` | Obtener mazo por ID | Profesor | - |
+| `POST` | `/` | Crear nuevo mazo | Profesor | Creación |
+| `PUT` | `/:id` | Actualizar mazo | Profesor | Creación |
+| `DELETE` | `/:id` | Eliminar mazo (soft delete → `archived`) | Profesor | Creación |
+
+#### Reglas de Validación (negocio)
+- `cardMappings` debe tener entre **2 y 20** elementos.
+- Dentro del mazo no se permiten duplicados de: `uid`, `cardId`, `assignedValue`.
+- Cada `assignedValue` debe existir en `GameContext.assets[].value` del `contextId` del mazo.
+- Todas las `Card` referenciadas deben existir y estar en `status=active`.
+- Consistencia: el `uid` del mapping debe coincidir con el `uid` de la tarjeta (`Card.uid`).
+
+#### GET `/decks` (listado)
+**Query params (opcionales):**
+- `page`, `limit`, `sortBy`, `order`
+- `contextId`: filtra por contexto
+- `status`: `active` | `archived`
+- `search`: busca por `name` / `description`
+
+**Respuesta (200):**
+```json
+{
+  "success": true,
+  "data": {
+    "data": [
+      {
+        "id": "...",
+        "name": "Geografía - Banderas",
+        "description": "Mazo para banderas",
+        "contextId": "...",
+        "status": "active",
+        "createdBy": "...",
+        "createdAt": "2025-12-15T10:00:00.000Z",
+        "updatedAt": "2025-12-15T10:00:00.000Z"
+      }
+    ],
+    "pagination": {
+      "page": 1,
+      "limit": 20,
+      "total": 1,
+      "totalPages": 1,
+      "hasMore": false,
+      "hasPrevious": false
+    }
+  }
+}
+```
+
+#### GET `/decks/:id`
+**Respuesta (200):**
+```json
+{
+  "success": true,
+  "data": {
+    "id": "...",
+    "name": "Geografía - Banderas",
+    "description": "Mazo para banderas",
+    "contextId": "...",
+    "context": {
+      "id": "...",
+      "contextId": "geography",
+      "name": "Geografía"
+    },
+    "cardMappings": [
+      {
+        "id": "...",
+        "cardId": "...",
+        "uid": "AA000001",
+        "assignedValue": "España",
+        "displayData": { "key": "spain", "display": "🇪🇸", "value": "España" }
+      }
+    ],
+    "status": "active",
+    "createdBy": "...",
+    "createdAt": "2025-12-15T10:00:00.000Z",
+    "updatedAt": "2025-12-15T10:00:00.000Z"
+  }
+}
+```
+
+#### POST `/decks` (crear)
+**Body:**
+```json
+{
+  "name": "Test Deck",
+  "description": "Deck para reutilizar",
+  "contextId": "<ObjectId>",
+  "status": "active",
+  "cardMappings": [
+    {
+      "cardId": "<ObjectId>",
+      "uid": "AA000001",
+      "assignedValue": "A",
+      "displayData": { "key": "asset1", "display": "A1", "value": "A" }
+    },
+    {
+      "cardId": "<ObjectId>",
+      "uid": "AA000002",
+      "assignedValue": "B",
+      "displayData": { "key": "asset2", "display": "A2", "value": "B" }
+    }
+  ]
+}
+```
+
+**Respuesta (201):**
+```json
+{
+  "success": true,
+  "message": "Mazo creado exitosamente",
+  "data": {
+    "id": "...",
+    "name": "Test Deck",
+    "contextId": "...",
+    "status": "active",
+    "cardMappings": [
+      {
+        "id": "...",
+        "cardId": "...",
+        "uid": "AA000001",
+        "assignedValue": "A",
+        "displayData": { "key": "asset1", "display": "A1", "value": "A" }
+      }
+    ]
+  }
+}
+```
+
+#### PUT `/decks/:id` (actualizar)
+Permite actualizar `name`, `description`, `status`, `contextId` y/o `cardMappings`. Si cambia `contextId`, se revalida que `assignedValue` siga existiendo en los assets del nuevo contexto.
+
+#### DELETE `/decks/:id` (soft delete)
+No borra el documento: cambia `status` a `archived`.
+
 ---
 
 ### 7. Partidas (`/plays`)

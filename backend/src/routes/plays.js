@@ -25,11 +25,7 @@ const { createResourceRateLimiter, eventRateLimiter } = require('../config/secur
  * @desc    Obtener estadísticas de un jugador
  * @access  Private
  */
-router.get(
-  '/stats/:playerId',
-  authenticate,
-  getPlayerStats
-);
+router.get('/stats/:playerId', authenticate, getPlayerStats);
 
 /**
  * @route   GET /api/plays

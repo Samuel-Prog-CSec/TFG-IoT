@@ -102,8 +102,12 @@ function validateEnv() {
   // En desarrollo/test, se permite arrancar sin storage y se muestra warning.
   if (!process.env.SUPABASE_URL || !process.env.SUPABASE_SERVICE_KEY) {
     if (isProduction) {
-      if (!process.env.SUPABASE_URL) missing.push('SUPABASE_URL');
-      if (!process.env.SUPABASE_SERVICE_KEY) missing.push('SUPABASE_SERVICE_KEY');
+      if (!process.env.SUPABASE_URL) {
+        missing.push('SUPABASE_URL');
+      }
+      if (!process.env.SUPABASE_SERVICE_KEY) {
+        missing.push('SUPABASE_SERVICE_KEY');
+      }
     } else {
       warnings.push('SUPABASE_URL/SUPABASE_SERVICE_KEY (Storage deshabilitado)');
     }

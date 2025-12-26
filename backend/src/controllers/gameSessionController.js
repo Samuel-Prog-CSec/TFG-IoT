@@ -8,9 +8,90 @@ const GameSession = require('../models/GameSession');
 const GameMechanic = require('../models/GameMechanic');
 const GameContext = require('../models/GameContext');
 const Card = require('../models/Card');
+const CardDeck = require('../models/CardDeck');
 const { NotFoundError, ValidationError, ForbiddenError } = require('../utils/errors');
 const logger = require('../utils/logger');
 const { gameSessionDTO, gameSessionListDTO, paginationDTO } = require('../utils/dtos');
+
+const MIN_DECK_CARDS = 2;
+
+function normalizeSessionMappingsFromDeck(deck) {
+  const mappings = Array.isArray(deck.cardMappings) ? deck.cardMappings : [];
+
+  return mappings.map(m => ({
+    cardId: m.cardId,
+    uid: (m.uid || '').toString().trim().toUpperCase(),
+    assignedValue: (m.assignedValue || '').toString().trim(),
+    displayData: m.displayData
+  }));
+}
+
+async function syncSessionFromDeck(session, { deckId, userId }) {
+  const deck = await CardDeck.findById(deckId);
+  if (!deck) {
+    throw new NotFoundError('Mazo');
+  }
+
+  if (deck.createdBy.toString() !== userId.toString()) {
+    throw new ForbiddenError('No tienes permiso para usar este mazo');
+  }
+
+  if (deck.status && deck.status !== 'active') {
+    throw new ValidationError('El mazo seleccionado no está activo');
+  }
+
+  const cardMappings = normalizeSessionMappingsFromDeck(deck);
+  if (cardMappings.length < MIN_DECK_CARDS) {
+    throw new ValidationError(`El mazo debe tener al menos ${MIN_DECK_CARDS} cardMappings`);
+  }
+
+  const context = await GameContext.findById(deck.contextId);
+  if (!context) {
+    throw new NotFoundError('Contexto de juego');
+  }
+
+  const allowedValues = new Set((context.assets || []).map(a => a.value));
+  const invalidValues = cardMappings.map(m => m.assignedValue).filter(v => !allowedValues.has(v));
+  if (invalidValues.length > 0) {
+    throw new ValidationError(
+      `assignedValue no existe en los assets del contexto: ${[...new Set(invalidValues)].join(', ')}`
+    );
+  }
+
+  const cardIds = cardMappings.map(m => m.cardId);
+  const cards = await Card.find({ _id: { $in: cardIds } });
+  if (cards.length !== cardIds.length) {
+    throw new ValidationError('Una o más tarjetas no existen');
+  }
+
+  const inactiveCards = cards.filter(card => card.status !== 'active');
+  if (inactiveCards.length > 0) {
+    throw new ValidationError(
+      `Las siguientes tarjetas no están activas: ${inactiveCards.map(c => c.uid).join(', ')}`
+    );
+  }
+
+  const cardById = new Map(cards.map(c => [c._id.toString(), c]));
+  const mismatch = cardMappings.filter(m => {
+    const card = cardById.get(m.cardId.toString());
+    return !card || card.uid !== m.uid;
+  });
+  if (mismatch.length > 0) {
+    throw new ValidationError(
+      `UID no coincide con la tarjeta para: ${mismatch.map(m => m.uid).join(', ')}`
+    );
+  }
+
+  session.deckId = deck._id;
+  session.contextId = deck.contextId;
+  session.cardMappings = cardMappings;
+  session.config = {
+    ...session.config,
+    numberOfCards: cardMappings.length
+  };
+
+  return { deck, context, cardMappings };
+}
 
 /**
  * Obtener lista de sesiones con paginación y filtros.
@@ -73,6 +154,7 @@ const getSessions = async (req, res, next) => {
     const [sessions, total] = await Promise.all([
       GameSession.find(filter)
         .populate('mechanicId', 'name displayName icon')
+        .populate('deckId', 'name status contextId')
         .populate('contextId', 'contextId name')
         .populate('createdBy', 'name email')
         .sort(sortOptions)
@@ -114,20 +196,33 @@ const getSessionById = async (req, res, next) => {
   try {
     const { id } = req.params;
 
-    const session = await GameSession.findById(id)
-      .populate('mechanicId', 'name displayName icon rules')
-      .populate('contextId', 'contextId name assets')
-      .populate('createdBy', 'name email')
-      .populate('cardMappings.cardId', 'uid type status');
+    // 1) Cargar sesión sin populate para poder sincronizar si aplica
+    const session = await GameSession.findById(id);
 
     if (!session) {
       throw new NotFoundError('Sesión de juego');
     }
 
     // Verificar permisos: solo el creador o admin
-    if (session.createdBy._id.toString() !== req.user._id.toString() && req.user.role !== 'admin') {
+    if (session.createdBy.toString() !== req.user._id.toString() && req.user.role !== 'admin') {
       throw new ForbiddenError('No tienes permiso para ver esta sesión');
     }
+
+    // 2) Al "seleccionar" una sesión (ver detalle), sincronizar SIEMPRE desde el mazo
+    // para evitar que se quede con mapeos antiguos.
+    if (session.deckId) {
+      await syncSessionFromDeck(session, { deckId: session.deckId, userId: session.createdBy });
+      await session.save();
+    }
+
+    // 3) Populate final para respuesta completa
+    await session.populate([
+      { path: 'mechanicId', select: 'name displayName icon rules' },
+      { path: 'deckId', select: 'name status contextId' },
+      { path: 'contextId', select: 'contextId name assets' },
+      { path: 'createdBy', select: 'name email' },
+      { path: 'cardMappings.cardId', select: 'uid type status' }
+    ]);
 
     res.json({
       success: true,
@@ -151,7 +246,19 @@ const getSessionById = async (req, res, next) => {
  */
 const createSession = async (req, res, next) => {
   try {
-    const { mechanicId, contextId, config, cardMappings } = req.body;
+    const { mechanicId, contextId, deckId, config = {}, cardMappings } = req.body;
+
+    // NUEVA REGLA: el mapping de la sesión SIEMPRE depende del mazo asignado.
+    // Por tanto, no aceptamos cardMappings manuales al crear la sesión.
+    if (cardMappings) {
+      throw new ValidationError(
+        'cardMappings no se acepta: la sesión toma el mapping desde el mazo (deckId)'
+      );
+    }
+
+    if (!deckId) {
+      throw new ValidationError('deckId es requerido para crear una sesión');
+    }
 
     // Verificar que la mecánica existe y está activa
     const mechanic = await GameMechanic.findById(mechanicId);
@@ -162,47 +269,43 @@ const createSession = async (req, res, next) => {
       throw new ValidationError('La mecánica seleccionada no está activa');
     }
 
-    // Verificar que el contexto existe
-    const context = await GameContext.findById(contextId);
-    if (!context) {
-      throw new NotFoundError('Contexto de juego');
+    // La sesión se construye a partir del mazo
+    const session = new GameSession({
+      mechanicId,
+      deckId,
+      // contextId / cardMappings / numberOfCards se rellenan al sincronizar
+      contextId: contextId || undefined,
+      config: {
+        ...config
+      },
+      status: 'created',
+      createdBy: req.user._id
+    });
+
+    const {
+      deck,
+      context,
+      cardMappings: syncedMappings
+    } = await syncSessionFromDeck(session, {
+      deckId,
+      userId: req.user._id
+    });
+
+    // Si el cliente envía contextId explícito, debe coincidir con el del mazo
+    if (contextId && deck.contextId.toString() !== contextId.toString()) {
+      throw new ValidationError('contextId no coincide con el contexto del mazo');
     }
 
-    // Verificar que hay suficientes assets en el contexto
-    if (context.assets.length < config.numberOfCards) {
+    // Si el cliente envía numberOfCards, debe coincidir con el del mazo
+    if (config.numberOfCards !== undefined && config.numberOfCards !== syncedMappings.length) {
       throw new ValidationError(
-        `El contexto solo tiene ${context.assets.length} assets, ` +
-          `pero se requieren ${config.numberOfCards}`
-      );
-    }
-
-    // Verificar que todas las tarjetas existen y están activas
-    const cardIds = cardMappings.map(mapping => mapping.cardId);
-    const cards = await Card.find({ _id: { $in: cardIds } });
-
-    if (cards.length !== cardIds.length) {
-      throw new ValidationError('Una o más tarjetas no existen');
-    }
-
-    const inactiveCards = cards.filter(card => card.status !== 'active');
-    if (inactiveCards.length > 0) {
-      throw new ValidationError(
-        `Las siguientes tarjetas no están activas: ${inactiveCards.map(c => c.uid).join(', ')}`
+        `config.numberOfCards (${config.numberOfCards}) no coincide con el número de cardMappings del mazo (${syncedMappings.length})`
       );
     }
 
     // Crear la sesión
     // NOTA: La dificultad se auto-calcula en el modelo basándose en numberOfCards
-    const sessionData = {
-      mechanicId,
-      contextId,
-      config,
-      cardMappings,
-      status: 'created',
-      createdBy: req.user._id
-    };
-
-    const session = await GameSession.create(sessionData);
+    await session.save();
 
     // Populate para respuesta completa
     await session.populate([
@@ -215,7 +318,8 @@ const createSession = async (req, res, next) => {
       sessionId: session._id,
       mechanicId: mechanic.name,
       contextId: context.contextId,
-      cardsCount: cardMappings.length,
+      cardsCount: syncedMappings.length,
+      deckId,
       createdBy: req.user._id
     });
 
@@ -244,7 +348,7 @@ const createSession = async (req, res, next) => {
 const updateSession = async (req, res, next) => {
   try {
     const { id } = req.params;
-    const { config } = req.body;
+    const { deckId, config } = req.body;
 
     const session = await GameSession.findById(id);
 
@@ -257,13 +361,29 @@ const updateSession = async (req, res, next) => {
       throw new ForbiddenError('No tienes permiso para actualizar esta sesión');
     }
 
-    // Solo se puede actualizar si no ha iniciado
-    if (session.status !== 'created') {
-      throw new ValidationError('Solo se pueden actualizar sesiones que no han iniciado');
+    // Solo se puede actualizar si NO está activa
+    if (session.status === 'active') {
+      throw new ValidationError('No se puede actualizar una sesión activa');
     }
 
-    // Actualizar campos
+    // Si se proporciona deckId, se cambia el mazo. Si no, se mantiene.
+    if (deckId !== undefined) {
+      session.deckId = deckId;
+    }
+
+    if (!session.deckId) {
+      throw new ValidationError('La sesión no tiene mazo asignado (deckId)');
+    }
+
+    // Regla: SIEMPRE sincronizar mapping con el mazo actual (aunque no haya cambiado).
+    await syncSessionFromDeck(session, { deckId: session.deckId, userId: req.user._id });
+
+    // Actualizar campos (excepto numberOfCards, que depende del mazo)
     if (config) {
+      if (config.numberOfCards !== undefined) {
+        throw new ValidationError('config.numberOfCards no se puede modificar: depende del mazo');
+      }
+
       session.config = { ...session.config, ...config };
     }
 
@@ -355,6 +475,24 @@ const startSession = async (req, res, next) => {
     // Verificar permisos
     if (session.createdBy.toString() !== req.user._id.toString()) {
       throw new ForbiddenError('No tienes permiso para iniciar esta sesión');
+    }
+
+    // Permitir iniciar si es una sesión nueva o una sesión ya jugada (repetición)
+    if (!['created', 'completed'].includes(session.status)) {
+      throw new ValidationError('Solo se puede iniciar una sesión en estado created o completed');
+    }
+
+    if (!session.deckId) {
+      throw new ValidationError('La sesión no tiene mazo asignado (deckId)');
+    }
+
+    // SIEMPRE sincronizar mapping antes de iniciar
+    await syncSessionFromDeck(session, { deckId: session.deckId, userId: req.user._id });
+
+    // Si era una sesión completada, limpiar endedAt al reiniciar
+    if (session.status === 'completed') {
+      session.endedAt = undefined;
+      await session.save();
     }
 
     // Usar el método del modelo

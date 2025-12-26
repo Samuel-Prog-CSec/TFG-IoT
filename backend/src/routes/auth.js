@@ -25,13 +25,11 @@ const { authenticate, logout } = require('../middlewares/auth');
  * IMPORTANTE: Los alumnos NO se registran aquí, son creados en POST /api/users
  */
 
-
 /**
  * @route   POST /api/auth/login
  * @desc    Login de profesor (solo teachers)
  * @access  Public
  */
-
 
 // Sprint 2 (mantenimiento): Zod deshabilitado temporalmente en rutas.
 router.post('/register', register);
