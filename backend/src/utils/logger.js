@@ -7,6 +7,12 @@
 const winston = require('winston');
 
 const isTest = process.env.NODE_ENV === 'test';
+const isProduction = process.env.NODE_ENV === 'production';
+
+// En tests, por defecto se silencia. Permite override explícito para debugging:
+//   LOG_LEVEL=debug npm test
+const isSilentInTest = isTest && !process.env.LOG_LEVEL;
+const logLevel = process.env.LOG_LEVEL || (isProduction ? 'info' : 'debug');
 
 /**
  * Logger centralizado de la aplicación.
@@ -34,8 +40,8 @@ const isTest = process.env.NODE_ENV === 'test';
  * logger.error('Error al conectar con el sensor RFID', { error: err.message });
  */
 const logger = winston.createLogger({
-  level: process.env.NODE_ENV === 'production' ? 'info' : 'debug',
-  silent: isTest,
+  level: logLevel,
+  silent: isSilentInTest,
   format: winston.format.combine(
     winston.format.timestamp({ format: 'YYYY-MM-DD HH:mm:ss' }),
     winston.format.errors({ stack: true }),
@@ -44,10 +50,7 @@ const logger = winston.createLogger({
   ),
   defaultMeta: { service: 'rfid-games-backend' },
   transports: isTest
-    ? [
-        // En tests: silenciar completamente para evitar ruido y problemas de FS
-        new winston.transports.Console({ silent: true })
-      ]
+    ? [new winston.transports.Console({ silent: isSilentInTest })]
     : [
         // Salida a consola con formato legible y colores
         new winston.transports.Console({

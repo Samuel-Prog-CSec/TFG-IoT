@@ -151,7 +151,11 @@ class RFIDService extends EventEmitter {
 
     // Configuración obligatoria cuando RFID está habilitado
     if (!process.env.SERIAL_PORT) {
-      logger.error('RFID_ENABLED=true pero SERIAL_PORT no está configurado.');
+      // Sub-tarea T-016.3: detección informativa de puertos disponibles
+      const availablePorts = await this._listAvailablePortsSafe();
+      logger.error('RFID_ENABLED=true pero SERIAL_PORT no está configurado.', {
+        availablePorts
+      });
       this.emit('status', 'misconfigured');
       return;
     }
@@ -259,6 +263,36 @@ class RFIDService extends EventEmitter {
       this.reconnectTimer = setTimeout(() => {
         this.connect();
       }, delay);
+    }
+  }
+
+  /**
+   * Lista puertos serie disponibles (informativo) sin lanzar errores.
+   * - No requiere hardware, solo consulta al SO.
+   * - Si falla o no está disponible, devuelve un array vacío.
+   * @private
+   * @returns {Promise<Array<{path?: string, friendlyName?: string, manufacturer?: string}>>}
+   */
+  async _listAvailablePortsSafe() {
+    try {
+      const SerialPortCtor = this._serialImpl.SerialPort || require('serialport').SerialPort;
+      if (!SerialPortCtor?.list) {
+        return [];
+      }
+
+      const ports = await SerialPortCtor.list();
+      if (!Array.isArray(ports)) {
+        return [];
+      }
+
+      // Reducir el payload del log (suficiente para debug)
+      return ports.map(p => ({
+        path: p.path,
+        friendlyName: p.friendlyName,
+        manufacturer: p.manufacturer
+      }));
+    } catch (error) {
+      return [];
     }
   }
 
