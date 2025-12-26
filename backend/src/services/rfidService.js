@@ -292,6 +292,7 @@ class RFIDService extends EventEmitter {
         manufacturer: p.manufacturer
       }));
     } catch (error) {
+      logger.error(`Error al listar puertos serie: ${error.message}`);
       return [];
     }
   }
@@ -303,8 +304,12 @@ class RFIDService extends EventEmitter {
    * @param {Function|null} [impl.ReadlineParser]
    */
   setSerialImplementations({ SerialPort, ReadlineParser }) {
-    if (SerialPort !== undefined) this._serialImpl.SerialPort = SerialPort;
-    if (ReadlineParser !== undefined) this._serialImpl.ReadlineParser = ReadlineParser;
+    if (SerialPort !== undefined) {
+      this._serialImpl.SerialPort = SerialPort;
+    }
+    if (ReadlineParser !== undefined) {
+      this._serialImpl.ReadlineParser = ReadlineParser;
+    }
   }
 
   /**
@@ -392,10 +397,10 @@ class RFIDService extends EventEmitter {
   disconnect() {
     // Activar el flag para que handleDisconnection no intente reconectar
     this.isShuttingDown = true;
-    
+
     if (this.reconnectTimer) {
-        clearTimeout(this.reconnectTimer);
-        this.reconnectTimer = null;
+      clearTimeout(this.reconnectTimer);
+      this.reconnectTimer = null;
     }
 
     if (this.port && this.port.isOpen) {

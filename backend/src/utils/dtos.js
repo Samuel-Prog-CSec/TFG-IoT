@@ -154,8 +154,16 @@ const gameSessionDTO = session => {
 
   return {
     id: sessionData._id?.toString(),
-    mechanicId: sessionData.mechanicId?.toString() || sessionData.mechanicId,
-    contextId: sessionData.contextId?.toString() || sessionData.contextId,
+    mechanicId:
+      sessionData.mechanicId?._id?.toString() ||
+      sessionData.mechanicId?.toString() ||
+      sessionData.mechanicId,
+    deckId:
+      sessionData.deckId?._id?.toString() || sessionData.deckId?.toString() || sessionData.deckId,
+    contextId:
+      sessionData.contextId?._id?.toString() ||
+      sessionData.contextId?.toString() ||
+      sessionData.contextId,
     config: sessionData.config
       ? {
           numberOfCards: sessionData.config.numberOfCards,
@@ -323,6 +331,86 @@ const gameContextListDTO = contexts => {
 };
 
 /**
+ * DTO para CardDeck (mazo reutilizable).
+ *
+ * @param {Object} deck - Documento CardDeck de Mongoose
+ * @returns {Object|null} Mazo transformado o null si no existe
+ */
+const cardDeckDTO = deck => {
+  if (!deck) {
+    return null;
+  }
+
+  const deckData = typeof deck.toObject === 'function' ? deck.toObject() : deck;
+
+  const contextObject =
+    deckData.contextId && typeof deckData.contextId === 'object' && deckData.contextId._id
+      ? {
+          id: deckData.contextId._id?.toString(),
+          contextId: deckData.contextId.contextId,
+          name: deckData.contextId.name
+        }
+      : undefined;
+
+  const createdByObject =
+    deckData.createdBy && typeof deckData.createdBy === 'object' && deckData.createdBy._id
+      ? {
+          id: deckData.createdBy._id?.toString(),
+          name: deckData.createdBy.name,
+          email: deckData.createdBy.email
+        }
+      : undefined;
+
+  return {
+    id: deckData._id?.toString(),
+    name: deckData.name,
+    description: deckData.description,
+    contextId: contextObject?.id || deckData.contextId?.toString() || deckData.contextId,
+    context: contextObject,
+    cardMappings:
+      deckData.cardMappings?.map(mapping => {
+        const cardObject =
+          mapping.cardId && typeof mapping.cardId === 'object' && mapping.cardId._id
+            ? {
+                id: mapping.cardId._id?.toString(),
+                uid: mapping.cardId.uid,
+                type: mapping.cardId.type,
+                status: mapping.cardId.status,
+                metadata: mapping.cardId.metadata
+              }
+            : undefined;
+
+        return {
+          id: mapping._id?.toString(),
+          cardId: mapping.cardId?._id?.toString() || mapping.cardId?.toString() || mapping.cardId,
+          uid: mapping.uid,
+          assignedValue: mapping.assignedValue,
+          displayData: mapping.displayData,
+          card: cardObject
+        };
+      }) || [],
+    status: deckData.status,
+    createdBy: createdByObject?.id || deckData.createdBy?.toString() || deckData.createdBy,
+    creator: createdByObject,
+    createdAt: deckData.createdAt,
+    updatedAt: deckData.updatedAt
+  };
+};
+
+/**
+ * DTO para array de CardDecks.
+ *
+ * @param {Array} decks - Array de documentos CardDeck
+ * @returns {Array} Array de mazos transformados
+ */
+const cardDeckListDTO = decks => {
+  if (!Array.isArray(decks)) {
+    return [];
+  }
+  return decks.map(cardDeckDTO).filter(Boolean);
+};
+
+/**
  * DTO para respuestas paginadas.
  * Envuelve datos paginados con metadatos de paginación.
  *
@@ -338,8 +426,20 @@ const gameContextListDTO = contexts => {
  * const paginated = paginationDTO(usersSafe, 1, 20, 150);
  * res.json({ success: true, ...paginated });
  */
-const paginationDTO = (data, page, limit, total) => {
-  const totalPages = Math.ceil(total / limit);
+const paginationDTO = (data, pageOrMeta, limitArg, totalArg) => {
+  // Firma retrocompatible:
+  // - paginationDTO(items, page, limit, total)
+  // - paginationDTO(items, { page, limit, total })
+  const meta =
+    pageOrMeta && typeof pageOrMeta === 'object'
+      ? pageOrMeta
+      : { page: pageOrMeta, limit: limitArg, total: totalArg };
+
+  const page = Number(meta.page) || 1;
+  const limit = Number(meta.limit) || data?.length || 0;
+  const total = Number(meta.total) || 0;
+
+  const totalPages = limit > 0 ? Math.ceil(total / limit) : 0;
 
   return {
     data,
@@ -362,6 +462,7 @@ module.exports = {
   cardDTO,
   gameMechanicDTO,
   gameContextDTO,
+  cardDeckDTO,
 
   // Listas
   userListDTO,
@@ -370,6 +471,7 @@ module.exports = {
   cardListDTO,
   gameMechanicListDTO,
   gameContextListDTO,
+  cardDeckListDTO,
 
   // Paginación
   paginationDTO

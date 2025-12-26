@@ -6,12 +6,13 @@ const GamePlay = require('../src/models/GamePlay');
 const GameMechanic = require('../src/models/GameMechanic');
 const GameContext = require('../src/models/GameContext');
 const Card = require('../src/models/Card');
+const CardDeck = require('../src/models/CardDeck');
 const { generateTokenPair } = require('../src/middlewares/auth');
 
 describe('Game Full Flow', () => {
     let teacherUser, teacherToken;
     let studentUser, studentId;
-    let mechanicId, contextId, cardId1, cardId2;
+    let mechanicId, contextId, cardId1, cardId2, deckId;
     let sessionId, playId;
 
     const fingerprintHeaders = {
@@ -35,6 +36,7 @@ describe('Game Full Flow', () => {
         await GameMechanic.deleteMany({});
         await GameContext.deleteMany({});
         await Card.deleteMany({});
+        await CardDeck.deleteMany({});
 
         // 1. Setup Data
         teacherUser = await User.create({
@@ -81,33 +83,42 @@ describe('Game Full Flow', () => {
             createdBy: teacherUser._id
         });
         contextId = context._id;
+
+        // Deck (reutilizable)
+        const deck = await CardDeck.create({
+            name: 'Test Deck',
+            description: 'Deck for session creation test',
+            contextId,
+            createdBy: teacherUser._id,
+            status: 'active',
+            cardMappings: [
+                {
+                    cardId: cardId1,
+                    uid: 'AA000001',
+                    assignedValue: 'A',
+                    displayData: { key: 'asset1', display: 'A1', value: 'A' }
+                },
+                {
+                    cardId: cardId2,
+                    uid: 'AA000002',
+                    assignedValue: 'B',
+                    displayData: { key: 'asset2', display: 'A2', value: 'B' }
+                }
+            ]
+        });
+        deckId = deck._id;
     });
 
-    it('1. Create Session Configuration', async () => {
+    it('1. Create Session Configuration from Deck', async () => {
         const sessionData = {
             mechanicId,
-            contextId,
+            deckId,
             config: {
-                numberOfCards: 2,
                 pointsPerCorrect: 10,
-                                numberOfRounds: 5,
-                                timeLimit: 15,
-                                penaltyPerError: -2
-            },
-            cardMappings: [
-                                {
-                                    cardId: cardId1,
-                                    uid: 'AA000001',
-                                    assignedValue: 'A',
-                                    displayData: { key: 'asset1', display: 'A1', value: 'A' }
-                                },
-                                {
-                                    cardId: cardId2,
-                                    uid: 'AA000002',
-                                    assignedValue: 'B',
-                                    displayData: { key: 'asset2', display: 'A2', value: 'B' }
-                                }
-            ]
+                numberOfRounds: 5,
+                timeLimit: 15,
+                penaltyPerError: -2
+            }
         };
 
         const res = await request(app)
@@ -117,6 +128,12 @@ describe('Game Full Flow', () => {
             .send(sessionData);
 
         expect(res.statusCode).toEqual(201);
+        expect(res.body.success).toBe(true);
+        expect(res.body.data).toBeTruthy();
+        expect(res.body.data.deckId).toBe(deckId.toString());
+        expect(res.body.data.contextId).toBe(contextId.toString());
+        expect(res.body.data.cardMappings).toHaveLength(2);
+
         sessionId = res.body.data.id;
         expect(sessionId).toBeDefined();
     });

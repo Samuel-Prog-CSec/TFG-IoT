@@ -31,24 +31,14 @@ router.get('/active', optionalAuth, getActiveMechanics);
  * @desc    Obtener lista de mecánicas con filtros
  * @access  Private (Teacher)
  */
-router.get(
-  '/',
-  authenticate,
-  requireRole('teacher'),
-  getMechanics
-);
+router.get('/', authenticate, requireRole('teacher'), getMechanics);
 
 /**
  * @route   GET /api/mechanics/:id
  * @desc    Obtener mecánica por ID o nombre
  * @access  Private (Teacher)
  */
-router.get(
-  '/:id',
-  authenticate,
-  requireRole('teacher'),
-  getMechanicById
-);
+router.get('/:id', authenticate, requireRole('teacher'), getMechanicById);
 
 /**
  * @route   POST /api/mechanics
@@ -68,23 +58,13 @@ router.post(
  * @desc    Actualizar mecánica
  * @access  Private (Teacher)
  */
-router.put(
-  '/:id',
-  authenticate,
-  requireRole('teacher'),
-  updateMechanic
-);
+router.put('/:id', authenticate, requireRole('teacher'), updateMechanic);
 
 /**
  * @route   DELETE /api/mechanics/:id
  * @desc    Eliminar mecánica (soft delete)
  * @access  Private (Teacher)
  */
-router.delete(
-  '/:id',
-  authenticate,
-  requireRole('teacher'),
-  deleteMechanic
-);
+router.delete('/:id', authenticate, requireRole('teacher'), deleteMechanic);
 
 module.exports = router;

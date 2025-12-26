@@ -26,12 +26,7 @@ const { createResourceRateLimiter } = require('../config/security');
  * @desc    Obtener lista de contextos con filtros
  * @access  Private (Teacher)
  */
-router.get(
-  '/',
-  authenticate,
-  requireRole('teacher'),
-  getContexts
-);
+router.get('/', authenticate, requireRole('teacher'), getContexts);
 
 /**
  * @route   GET /api/contexts/:id
@@ -65,36 +60,21 @@ router.post(
  * @desc    Añadir asset a un contexto
  * @access  Private (Teacher)
  */
-router.post(
-  '/:id/assets',
-  authenticate,
-  requireRole('teacher'),
-  addAsset
-);
+router.post('/:id/assets', authenticate, requireRole('teacher'), addAsset);
 
 /**
  * @route   PUT /api/contexts/:id
  * @desc    Actualizar contexto
  * @access  Private (Teacher)
  */
-router.put(
-  '/:id',
-  authenticate,
-  requireRole('teacher'),
-  updateContext
-);
+router.put('/:id', authenticate, requireRole('teacher'), updateContext);
 
 /**
  * @route   DELETE /api/contexts/:id
  * @desc    Eliminar contexto
  * @access  Private (Teacher)
  */
-router.delete(
-  '/:id',
-  authenticate,
-  requireRole('teacher'),
-  deleteContext
-);
+router.delete('/:id', authenticate, requireRole('teacher'), deleteContext);
 
 /**
  * @route   DELETE /api/contexts/:id/assets/:assetKey

@@ -44,6 +44,7 @@ const mechanicRoutes = require('./routes/mechanics');
 const contextRoutes = require('./routes/contexts');
 const sessionRoutes = require('./routes/sessions');
 const playRoutes = require('./routes/plays');
+const deckRoutes = require('./routes/decks');
 
 // Crear aplicación Express
 const app = express();
@@ -141,6 +142,9 @@ app.use('/api/sessions', sessionRoutes);
 // Rutas de partidas individuales
 app.use('/api/plays', playRoutes);
 
+// Rutas de mazos reutilizables
+app.use('/api/decks', deckRoutes);
+
 /**
  * Endpoint de salud del servidor con información detallada.
  * @route GET /api/health
@@ -195,6 +199,7 @@ app.get('/', (req, res) => {
       contexts: '/api/contexts',
       sessions: '/api/sessions',
       plays: '/api/plays',
+      decks: '/api/decks',
       health: '/api/health'
     },
     documentation: 'Ver README.md para documentación completa'

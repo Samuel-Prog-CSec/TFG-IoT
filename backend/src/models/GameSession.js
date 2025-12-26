@@ -52,6 +52,7 @@ const calculateDifficulty = numberOfCards => {
  *
  * @typedef {Object} GameSession
  * @property {ObjectId} mechanicId - Referencia a la mecánica de juego utilizada
+ * @property {ObjectId} [deckId] - Referencia al mazo de tarjetas RFID reutilizable
  * @property {ObjectId} contextId - Referencia al contexto temático del juego
  * @property {Object} config - Configuración de las reglas del juego
  * @property {number} config.numberOfCards - Cantidad de tarjetas RFID usadas en el juego (2-30)
@@ -79,6 +80,11 @@ const gameSessionSchema = new mongoose.Schema(
     mechanicId: {
       type: mongoose.Schema.Types.ObjectId,
       ref: 'GameMechanic',
+      required: true
+    },
+    deckId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'CardDeck',
       required: true
     },
     contextId: {

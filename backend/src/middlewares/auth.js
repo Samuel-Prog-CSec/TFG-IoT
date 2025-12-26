@@ -36,23 +36,25 @@ const tokenBlacklist = new Map();
  */
 let blacklistInterval;
 const startBlacklistCleanup = () => {
-    if (blacklistInterval) return;
-    blacklistInterval = setInterval(() => {
-        const now = Date.now();
-        for (const [jti, expiresAt] of tokenBlacklist.entries()) {
-            if (expiresAt < now) {
-                tokenBlacklist.delete(jti);
-            }
-        }
-        logger.debug(`Blacklist limpiada. Tokens activos: ${tokenBlacklist.size}`);
-    }, 3600000); // 1 hora
+  if (blacklistInterval) {
+    return;
+  }
+  blacklistInterval = setInterval(() => {
+    const now = Date.now();
+    for (const [jti, expiresAt] of tokenBlacklist.entries()) {
+      if (expiresAt < now) {
+        tokenBlacklist.delete(jti);
+      }
+    }
+    logger.debug(`Blacklist limpiada. Tokens activos: ${tokenBlacklist.size}`);
+  }, 3600000); // 1 hora
 };
 
 const stopBlacklistCleanup = () => {
-    if (blacklistInterval) {
-        clearInterval(blacklistInterval);
-        blacklistInterval = null;
-    }
+  if (blacklistInterval) {
+    clearInterval(blacklistInterval);
+    blacklistInterval = null;
+  }
 };
 
 // Start cleanup by default

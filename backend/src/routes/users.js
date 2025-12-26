@@ -72,22 +72,13 @@ router.post(
  * @desc    Actualizar usuario
  * @access  Private
  */
-router.put(
-  '/:id',
-  authenticate,
-  updateUser
-);
+router.put('/:id', authenticate, updateUser);
 
 /**
  * @route   DELETE /api/users/:id
  * @desc    Eliminar usuario (soft delete)
  * @access  Private (Teacher)
  */
-router.delete(
-  '/:id',
-  authenticate,
-  requireRole('teacher'),
-  deleteUser
-);
+router.delete('/:id', authenticate, requireRole('teacher'), deleteUser);
 
 module.exports = router;

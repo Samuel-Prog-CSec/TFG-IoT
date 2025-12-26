@@ -66,12 +66,7 @@ router.post('/batch', authenticate, requireRole('teacher'), createCardsBatch);
  * @desc    Actualizar tarjeta
  * @access  Private (Teacher)
  */
-router.put(
-  '/:id',
-  authenticate,
-  requireRole('teacher'),
-  updateCard
-);
+router.put('/:id', authenticate, requireRole('teacher'), updateCard);
 
 /**
  * @route   DELETE /api/cards/:id
