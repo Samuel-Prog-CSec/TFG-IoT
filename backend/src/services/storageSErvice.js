@@ -20,16 +20,27 @@ const BUCKET_NAME = 'game-assets';
 class StorageService {
   /**
    * Inicializa el cliente de Supabase.
-   * Si faltan credenciales, configura un cliente dummy para evitar crash en tests/despliegue incompleto.
+   * - Producción: falla FAST si faltan credenciales.
+   * - Desarrollo/Test: deshabilita el servicio con warning claro.
    */
   constructor() {
-    if (!SUPABASE_URL || !SUPABASE_KEY) {
-      logger.warn('Supabase credentials missing. Storage service will not work as expected.');
+    this.enabled = Boolean(SUPABASE_URL && SUPABASE_KEY);
+
+    if (!this.enabled) {
+      const message =
+        'Credenciales de Supabase faltantes. ' +
+        'Configura SUPABASE_URL y SUPABASE_SERVICE_KEY para habilitar Storage.';
+
+      if (process.env.NODE_ENV === 'production') {
+        throw new Error(message);
+      }
+
+      logger.warn(message);
+      this.supabase = null;
+      return;
     }
-    this.supabase = createClient(
-      SUPABASE_URL || 'https://placeholder.supabase.co',
-      SUPABASE_KEY || 'placeholder'
-    );
+
+    this.supabase = createClient(SUPABASE_URL, SUPABASE_KEY);
   }
 
   /**
@@ -50,6 +61,9 @@ class StorageService {
    */
   async uploadFile(file, contextId, type = 'misc') {
     try {
+      if (!this.enabled || !this.supabase) {
+        throw new Error('Storage deshabilitado: faltan credenciales de Supabase');
+      }
       // 1. Generar nombre único y path
       const timestamp = Date.now();
       const sanitizedName = file.originalname.replace(/[^a-zA-Z0-9.]/g, '_');
@@ -91,6 +105,10 @@ class StorageService {
    */
   async deleteFile(publicUrl) {
     try {
+      if (!this.enabled || !this.supabase) {
+        // En dev/test, si Storage está deshabilitado, ignorar borrados de rollback.
+        return;
+      }
       // Extraer el path relativo desde la URL
       // URL típica: https://xyz.supabase.co/storage/v1/object/public/game-assets/ctx-123/image/abc.png
       // Necesitamos: ctx-123/image/abc.png

@@ -216,13 +216,6 @@ const cardDTO = card => {
     uid: cardData.uid,
     type: cardData.type,
     status: cardData.status,
-    metadata: cardData.metadata
-      ? {
-          color: cardData.metadata.color,
-          icon: cardData.metadata.icon,
-          lastUsed: cardData.metadata.lastUsed
-        }
-      : undefined,
     createdAt: cardData.createdAt,
     updatedAt: cardData.updatedAt
     // NO incluir: __v

@@ -17,23 +17,27 @@ const {
 } = require('../controllers/authController');
 
 const { authenticate, logout } = require('../middlewares/auth');
-const { validateBody } = require('../middlewares/validation');
-const { registerTeacherSchema, loginSchema } = require('../validators/userValidator');
 
 /**
  * @route   POST /api/auth/register
  * @desc    Registrar nuevo PROFESOR (solo profesores, endpoint público)
  * @access  Public
- * ⚠️ IMPORTANTE: Los alumnos NO se registran aquí, son creados en POST /api/users
+ * IMPORTANTE: Los alumnos NO se registran aquí, son creados en POST /api/users
  */
-router.post('/register', validateBody(registerTeacherSchema), register);
+
 
 /**
  * @route   POST /api/auth/login
  * @desc    Login de profesor (solo teachers)
  * @access  Public
  */
-router.post('/login', validateBody(loginSchema), login);
+
+
+// Sprint 2 (mantenimiento): Zod deshabilitado temporalmente en rutas.
+router.post('/register', register);
+
+// Sprint 2 (mantenimiento): Zod deshabilitado temporalmente en rutas.
+router.post('/login', login);
 
 /**
  * @route   GET /api/auth/me

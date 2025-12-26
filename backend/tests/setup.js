@@ -15,26 +15,41 @@ beforeAll(async () => {
 });
 
 afterAll(async () => {
-    // Drop the test database after tests
-    if (mongoose.connection.readyState !== 0) {
-        await mongoose.connection.db.dropDatabase();
-        await mongoose.disconnect();
-    }
-    // Close the server to avoid open handles
-    if (server) {
-        server.close();
-    }
-    // Shutdown game engine (clears timers)
-    if (gameEngine) {
-        await gameEngine.shutdown();
-    }
-    
-    // Stop auth blacklist cleanup interval
-    stopBlacklistCleanup();
-    
-    // Disconnect RFID service to clear reconnection timers
-    if (rfidService) {
-        rfidService.disconnect();
+    try {
+        // Shutdown game engine (clears timers)
+        if (gameEngine) {
+            await gameEngine.shutdown();
+        }
+
+        // Stop auth blacklist cleanup interval
+        stopBlacklistCleanup();
+
+        // Disconnect RFID service to clear reconnection timers
+        if (rfidService) {
+            await rfidService.disconnect();
+        }
+
+        // Close the server to avoid open handles
+        if (server && server.listening) {
+            await new Promise(resolve => server.close(resolve));
+        }
+
+        // Drop the test database after tests
+        if (mongoose.connection.readyState !== 0) {
+            await mongoose.connection.db.dropDatabase();
+            await mongoose.disconnect();
+        }
+    } catch (error) {
+        // Best-effort teardown: don't block test completion
+        // eslint-disable-next-line no-console
+        console.error('Error during Jest teardown:', error);
+        try {
+            if (mongoose.connection.readyState !== 0) {
+                await mongoose.disconnect();
+            }
+        } catch (_) {
+            // ignore
+        }
     }
 });
 

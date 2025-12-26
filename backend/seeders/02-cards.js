@@ -15,24 +15,8 @@ const logger = require('../src/utils/logger');
  * @returns {Array} Array de datos de tarjetas
  */
 function generateCardsData(count) {
-  // Tipos válidos según el modelo (con espacio, no guion bajo)
-  const types = ['MIFARE 1KB', 'MIFARE 4KB', 'NTAG'];
-
-  // Colores y iconos para identificación visual
-  const colors = [
-    { color: 'rojo', emoji: '🔴' },
-    { color: 'azul', emoji: '🔵' },
-    { color: 'verde', emoji: '🟢' },
-    { color: 'amarillo', emoji: '🟡' },
-    { color: 'naranja', emoji: '🟠' },
-    { color: 'morado', emoji: '🟣' },
-    { color: 'rosa', emoji: '🩷' },
-    { color: 'negro', emoji: '⚫' },
-    { color: 'blanco', emoji: '⚪' },
-    { color: 'marrón', emoji: '🟤' }
-  ];
-
-  const icons = ['⭐', '❤️', '🌟', '🎈', '🎨', '🎵', '🚀', '🌈', '🎯', '🏆'];
+  // Tipos válidos según el modelo
+  const types = ['MIFARE_1KB', 'MIFARE_4KB', 'NTAG'];
 
   const cards = [];
 
@@ -42,17 +26,10 @@ function generateCardsData(count) {
     const hexNum = (i + 1).toString(16).toUpperCase().padStart(4, '0');
     const uid = `AA00${hexNum}`;
 
-    const colorData = colors[i % colors.length];
-
     cards.push({
       uid,
       type: types[i % types.length],
-      status: 'active',
-      metadata: {
-        color: colorData.emoji,
-        icon: icons[i % icons.length],
-        lastUsed: null
-      }
+      status: 'active'
     });
   }
 
@@ -67,63 +44,53 @@ const specialCards = [
   {
     uid: 'AAAAAAAA',
     type: 'NTAG',
-    status: 'active',
-    metadata: { color: '🔴', icon: '⭐' }
+    status: 'active'
   },
   {
     uid: 'BBBBBBBB',
     type: 'NTAG',
-    status: 'active',
-    metadata: { color: '🔵', icon: '❤️' }
+    status: 'active'
   },
   {
     uid: 'CCCCCCCC',
     type: 'NTAG',
-    status: 'active',
-    metadata: { color: '🟢', icon: '🌟' }
+    status: 'active'
   },
   {
     uid: 'DDDDDDDD',
     type: 'NTAG',
-    status: 'active',
-    metadata: { color: '🟡', icon: '🎈' }
+    status: 'active'
   },
   {
     uid: 'EEEEEEEE',
     type: 'NTAG',
-    status: 'active',
-    metadata: { color: '🟠', icon: '🎨' }
+    status: 'active'
   },
   {
     uid: 'FFFFFFFF',
     type: 'NTAG',
-    status: 'active',
-    metadata: { color: '🟣', icon: '🎵' }
+    status: 'active'
   },
   {
     uid: '12345678',
-    type: 'MIFARE 1KB',
-    status: 'active',
-    metadata: { color: '⚫', icon: '🚀' }
+    type: 'MIFARE_1KB',
+    status: 'active'
   },
   {
     uid: '87654321',
-    type: 'MIFARE 1KB',
-    status: 'active',
-    metadata: { color: '⚪', icon: '🌈' }
+    type: 'MIFARE_1KB',
+    status: 'active'
   },
   // Tarjetas de 14 caracteres (NTAG)
   {
     uid: '04AABBCCDD1234',
     type: 'NTAG',
-    status: 'active',
-    metadata: { color: '🩷', icon: '🎯' }
+    status: 'active'
   },
   {
     uid: '04112233445566',
     type: 'NTAG',
-    status: 'active',
-    metadata: { color: '🟤', icon: '🏆' }
+    status: 'active'
   }
 ];
 

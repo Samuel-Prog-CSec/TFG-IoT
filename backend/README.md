@@ -435,6 +435,41 @@ npm run test:watch       # Modo watch
 npm run test:coverage    # Cobertura de código
 ```
 
+#### RFIDService: por qué no importamos SerialPort arriba
+
+En [src/services/rfidService.js](src/services/rfidService.js) **no** se hace `require('serialport')` en el top-level del módulo.
+En su lugar, el `require()` se hace **dentro de** `connect()` (lazy load) y además existe `setSerialImplementations()`.
+
+Motivos:
+- **Evitar acceso a hardware / bindings nativos en tests**: el simple import de `serialport` puede inicializar dependencias nativas o dejar handles abiertos.
+- **Hacer el mock fiable**: en Jest, si el módulo se importa antes del `jest.mock()`, queda cacheado y el mock no aplica.
+- **Mantener RFID opt-in**: si `RFID_ENABLED!==true` o falta `SERIAL_PORT`, no se carga SerialPort ni se intenta abrir puertos.
+
+Cómo se mockea en tests (inyección, sin depender de `jest.mock`):
+
+```js
+const rfidService = require('../src/services/rfidService');
+
+const parserInstance = { on: jest.fn() };
+const SerialPortMock = jest.fn(() => ({
+  pipe: jest.fn(() => parserInstance),
+  on: jest.fn(),
+  open: jest.fn(cb => cb && cb(null)),
+  close: jest.fn(cb => cb && cb(null)),
+  isOpen: true,
+  path: 'COM_TEST',
+  baudRate: 115200
+}));
+const ReadlineParserMock = jest.fn(() => ({}));
+
+rfidService.setSerialImplementations({
+  SerialPort: SerialPortMock,
+  ReadlineParser: ReadlineParserMock
+});
+```
+
+Ejemplo real: [tests/serial.test.js](tests/serial.test.js)
+
 ## 🚢 Despliegue
 
 ### Pre-Despliegue

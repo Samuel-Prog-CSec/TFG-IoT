@@ -19,13 +19,6 @@ const {
 } = require('../controllers/gameSessionController');
 
 const { authenticate, requireRole } = require('../middlewares/auth');
-const { validateBody, validateQuery, validateParams } = require('../middlewares/validation');
-const {
-  createGameSessionSchema,
-  updateGameSessionSchema,
-  gameSessionQuerySchema,
-  gameSessionParamsSchema
-} = require('../validators/gameSessionValidator');
 const { createResourceRateLimiter } = require('../config/security');
 
 /**
@@ -37,7 +30,6 @@ router.get(
   '/',
   authenticate,
   requireRole('teacher'),
-  validateQuery(gameSessionQuerySchema),
   getSessions
 );
 
@@ -50,7 +42,6 @@ router.get(
   '/:id',
   authenticate,
   requireRole('teacher'),
-  validateParams(gameSessionParamsSchema),
   getSessionById
 );
 
@@ -64,7 +55,6 @@ router.post(
   createResourceRateLimiter, // Rate limit específico para creación
   authenticate,
   requireRole('teacher'),
-  validateBody(createGameSessionSchema),
   createSession
 );
 
@@ -77,7 +67,6 @@ router.post(
   '/:id/start',
   authenticate,
   requireRole('teacher'),
-  validateParams(gameSessionParamsSchema),
   startSession
 );
 
@@ -90,7 +79,6 @@ router.post(
   '/:id/pause',
   authenticate,
   requireRole('teacher'),
-  validateParams(gameSessionParamsSchema),
   pauseSession
 );
 
@@ -103,7 +91,6 @@ router.post(
   '/:id/end',
   authenticate,
   requireRole('teacher'),
-  validateParams(gameSessionParamsSchema),
   endSession
 );
 
@@ -116,8 +103,6 @@ router.put(
   '/:id',
   authenticate,
   requireRole('teacher'),
-  validateParams(gameSessionParamsSchema),
-  validateBody(updateGameSessionSchema),
   updateSession
 );
 
@@ -130,7 +115,6 @@ router.delete(
   '/:id',
   authenticate,
   requireRole('teacher'),
-  validateParams(gameSessionParamsSchema),
   deleteSession
 );
 

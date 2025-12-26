@@ -14,7 +14,19 @@ describe('Game Full Flow', () => {
     let mechanicId, contextId, cardId1, cardId2;
     let sessionId, playId;
 
-    const mockReq = { headers: { 'user-agent': 'jest' } };
+    const fingerprintHeaders = {
+        'User-Agent': 'jest-test',
+        'Accept-Language': 'en',
+        'Accept-Encoding': 'gzip'
+    };
+
+    const mockReq = {
+        headers: {
+            'user-agent': 'jest-test',
+            'accept-language': 'en',
+            'accept-encoding': 'gzip'
+        }
+    };
 
     beforeAll(async () => {
         await User.deleteMany({});
@@ -52,8 +64,8 @@ describe('Game Full Flow', () => {
         mechanicId = mechanic._id;
 
         // Cards
-        const card1 = await Card.create({ uid: 'CARD_1', type: 'rfid', status: 'active' });
-        const card2 = await Card.create({ uid: 'CARD_2', type: 'rfid', status: 'active' });
+        const card1 = await Card.create({ uid: 'AA000001', type: 'NTAG', status: 'active' });
+        const card2 = await Card.create({ uid: 'AA000002', type: 'NTAG', status: 'active' });
         cardId1 = card1._id;
         cardId2 = card2._id;
 
@@ -63,8 +75,8 @@ describe('Game Full Flow', () => {
             name: 'Test Context',
             description: 'Test',
             assets: [
-                { id: 'asset1', name: 'Asset 1', value: 'A' },
-                { id: 'asset2', name: 'Asset 2', value: 'B' }
+                { key: 'asset1', display: 'A1', value: 'A' },
+                { key: 'asset2', display: 'A2', value: 'B' }
             ],
             createdBy: teacherUser._id
         });
@@ -78,17 +90,30 @@ describe('Game Full Flow', () => {
             config: {
                 numberOfCards: 2,
                 pointsPerCorrect: 10,
-                maxRounds: 5
+                                numberOfRounds: 5,
+                                timeLimit: 15,
+                                penaltyPerError: -2
             },
             cardMappings: [
-                { cardId: cardId1, assetId: 'asset1' },
-                { cardId: cardId2, assetId: 'asset2' }
+                                {
+                                    cardId: cardId1,
+                                    uid: 'AA000001',
+                                    assignedValue: 'A',
+                                    displayData: { key: 'asset1', display: 'A1', value: 'A' }
+                                },
+                                {
+                                    cardId: cardId2,
+                                    uid: 'AA000002',
+                                    assignedValue: 'B',
+                                    displayData: { key: 'asset2', display: 'A2', value: 'B' }
+                                }
             ]
         };
 
         const res = await request(app)
             .post('/api/sessions')
             .set('Authorization', `Bearer ${teacherToken}`)
+            .set(fingerprintHeaders)
             .send(sessionData);
 
         expect(res.statusCode).toEqual(201);
@@ -99,7 +124,8 @@ describe('Game Full Flow', () => {
     it('2. Start Session', async () => {
         const res = await request(app)
             .post(`/api/sessions/${sessionId}/start`)
-            .set('Authorization', `Bearer ${teacherToken}`);
+            .set('Authorization', `Bearer ${teacherToken}`)
+            .set(fingerprintHeaders);
 
         expect(res.statusCode).toEqual(200);
         expect(res.body.data.status).toBe('active');
@@ -110,6 +136,7 @@ describe('Game Full Flow', () => {
         const res = await request(app)
             .post('/api/plays')
             .set('Authorization', `Bearer ${teacherToken}`)
+            .set(fingerprintHeaders)
             .send({
                 sessionId,
                 playerId: studentId
@@ -121,54 +148,34 @@ describe('Game Full Flow', () => {
     });
 
     it('4. Simulate Game Events (Play)', async () => {
-        // Simulate card scan event (Correct)
-        const event1 = {
-            eventType: 'card_scan',
-            cardUid: 'CARD_1',
-            expectedValue: 'A', // Assuming logic checks this
-            pointsAwarded: 10,
-            roundNumber: 1
-        };
+                // Simular 5 eventos correctos para construir score=50
+                for (let round = 1; round <= 5; round++) {
+                    const res = await request(app)
+                        .post(`/api/plays/${playId}/events`)
+                        .set('Authorization', `Bearer ${teacherToken}`)
+                        .set(fingerprintHeaders)
+                        .send({
+                            eventType: 'correct',
+                            cardUid: round % 2 === 0 ? 'AA000002' : 'AA000001',
+                            expectedValue: round % 2 === 0 ? 'B' : 'A',
+                            actualValue: round % 2 === 0 ? 'B' : 'A',
+                            pointsAwarded: 10,
+                            timeElapsed: 1000,
+                            roundNumber: round
+                        });
 
-        // Note: Logic for checking correctness is usually in GameEngine, 
-        // but here we are hitting the controller addEvent directly which 
-        // might just record what we send or trigger logic if implemented.
-        // Looking at gamePlayController.addEvent, it calls `play.addEvent(eventData)`.
-        
-        await request(app)
-            .post(`/api/plays/${playId}/events`)
-            // No auth needed for RFID events usually? 
-            // Wait, controller doesn't seem to enforce auth on addEvent?
-            // Let's check routes.
-            // If it's internal/engine called, maybe it's protected or open to localhost?
-            // Checking users.js ... no, checking plays.js (I need to check routes/plays.js)
-            .send(event1);
-            
-         // Assuming route protection is handled, let's use teacher token for now 
-         // as simple simulation of engine calling it, or if it's public for engine.
-         // Actually, usually engine calls model directly. 
-         // But the User asked "Test endpoint works". 
-         // If `addEvent` is exposed via API, it's likely for the frontend/engine integration.
-         
-         // Let's assume teacher token or just try.
+                    expect(res.statusCode).toEqual(200);
+                }
     });
     
     // I need to check routes/plays.js to know if addEvent is protected.
     // I'll assume it is protected or I need to bypass.
     
     it('5. Complete Play and Check Metrics', async () => {
-        // Manually update play metrics to simulate game engine results
-        // because addEvent might just append log without calculating score 
-        // unless GamePlay model has logic.
-        const play = await GamePlay.findById(playId);
-        play.score = 50;
-        play.metrics.correctAttempts = 5;
-        play.metrics.errorAttempts = 0;
-        await play.save();
-
         const res = await request(app)
             .post(`/api/plays/${playId}/complete`)
-            .set('Authorization', `Bearer ${teacherToken}`);
+            .set('Authorization', `Bearer ${teacherToken}`)
+            .set(fingerprintHeaders);
 
         expect(res.statusCode).toEqual(200);
         expect(res.body.data.status).toBe('completed');

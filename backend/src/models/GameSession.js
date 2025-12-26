@@ -228,7 +228,7 @@ gameSessionSchema.methods.isActive = function () {
  * Middleware pre-save para auto-calcular la dificultad.
  * Se ejecuta antes de guardar y calcula la dificultad basándose en numberOfCards.
  */
-gameSessionSchema.pre('save', function (next) {
+gameSessionSchema.pre('save', function () {
   // Solo auto-calcular si:
   // 1. Es un documento nuevo
   // 2. Se modificó numberOfCards
@@ -236,8 +236,6 @@ gameSessionSchema.pre('save', function (next) {
   if (shouldAutoCalculate && this.config && this.config.numberOfCards) {
     this.difficulty = calculateDifficulty(this.config.numberOfCards);
   }
-
-  next();
 });
 
 /**

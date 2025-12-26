@@ -87,7 +87,10 @@ class GameEngine {
     };
 
     // Iniciar cleanup automático de partidas abandonadas
-    this.startCleanupTimer();
+    // En tests lo deshabilitamos para evitar open handles en Jest.
+    if (process.env.NODE_ENV !== 'test') {
+      this.startCleanupTimer();
+    }
 
     logger.info('GameEngine inicializado', {
       maxActivePlays: MAX_ACTIVE_PLAYS,

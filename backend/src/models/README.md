@@ -24,89 +24,57 @@ models/
 ## 🔗 Diagrama de Relaciones
 
 ```
-┌─────────────────────────────────────────────────────────────────────┐
-│                          SISTEMA COMPLETO                            │
-└─────────────────────────────────────────────────────────────────────┘
+┌──────────────────────────────────────────────────────────────────────┐
+│                           SISTEMA COMPLETO                           │
+└──────────────────────────────────────────────────────────────────────┘
 
-┌─────────────┐
-│    User     │  (Profesores y Alumnos)
-├─────────────┤
-│ - name      │
-│ - email*    │  * Solo profesores tienen email/password
-│ - password* │
-│ - role      │  'teacher' | 'student'
-│ - profile   │
-│ - metrics   │  Solo para alumnos (estadísticas acumuladas)
-└─────┬───────┘
-      │
-      │ createdBy (1:N)
-      │ ┌─────────────────────────────────────┐
-      │ │                                     │
-      ├─►  GameSession (Configuración)       │
-      │    ├───────────────────────────┐     │
-      │    │ - mechanicId    ─────┐    │     │
-      │    │ - contextId     ────┐│    │     │
-      │    │ - config            ││    │     │
-      │    │ - cardMappings ─┐   ││    │     │
-      │    │ - status        │   ││    │     │
-      │    │ - createdBy     │   ││    │     │
-      │    └─────────────────┼───┼┼────┘     │
-      │                      │   ││           │
-      │                      │   ││           │
-      │                      │   ││           │
-      │ playerId (1:N)       │   ││           │
-      │ ┌───────────────────┐│   ││           │
-      └─►  GamePlay         ││   ││           │
-         (Partida)          ││   ││           │
-         ├────────────────┐ ││   ││           │
-         │ - sessionId ───┼─┘│   ││           │
-         │ - playerId     │  │   ││           │
-         │ - score        │  │   ││           │
-         │ - currentRound │  │   ││           │
-         │ - events[]     │  │   ││           │
-         │ - metrics      │  │   ││           │
-         │ - status       │  │   ││           │
-         └────────────────┘  │   ││           │
-                             │   ││           │
-         ┌───────────────┐   │   ││           │
-         │     Card      │◄──┘   ││           │
-         ├───────────────┤       ││           │
-         │ - uid         │       ││           │
-         │ - type        │       ││           │
-         │ - status      │       ││           │
-         │ - metadata    │       ││           │
-         └───────────────┘       ││           │
-                                 ││           │
-         ┌──────────────────┐    ││           │
-         │  GameContext     │◄───┘│           │
-         ├──────────────────┤     │           │
-         │ - contextId      │     │           │
-         │ - name           │     │           │
-         │ - assets[]       │     │           │
-         │   * key          │     │           │
-         │   * display      │     │           │
-         │   * value        │     │           │
-         │   * audioUrl     │     │           │
-         │   * imageUrl     │     │           │
-         └──────────────────┘     │           │
-                                  │           │
-         ┌──────────────────┐     │           │
-         │  GameMechanic    │◄────┘           │
-         ├──────────────────┤                 │
-         │ - name           │                 │
-         │ - displayName    │                 │
-         │ - description    │                 │
-         │ - icon           │                 │
-         │ - rules          │                 │
-         │ - isActive       │                 │
-         └──────────────────┘                 │
-                                              │
-└─────────────────────────────────────────────┘
+  ┌────────────────┐
+  │      User      │  (teacher / student)
+  ├────────────────┤
+  │ - name         │
+  │ - email*       │  * Solo profesores tienen email/password
+  │ - password*    │
+  │ - role         │
+  │ - createdBy    │  (solo alumnos) -> User (teacher)
+  └───────┬────────┘
+          │ createdBy (1:N)
+          v
+  ┌───────────────────────┐
+  │      GameSession      │  (configuración)
+  ├───────────────────────┤
+  │ - mechanicId  ────────┼───────────────► GameMechanic (1:1)
+  │ - contextId   ────────┼───────────────► GameContext  (1:1)
+  │ - config              │
+  │ - cardMappings[]      │  (contiene cardId + uid + assignedValue)
+  │ - createdBy  ─────────┤-----> User (teacher)
+  └───────────┬───────────┘
+              │ sessionId (1:N)
+              v
+  ┌───────────────────────┐
+  │       GamePlay        │  (partida)
+  ├───────────────────────┤
+  │ - sessionId  ─────────┤-----> GameSession
+  │ - playerId   ─────────┤─► User (student)
+  │ - events[] / metrics  │
+  └───────────────────────┘
+
+  ┌───────────────────────┐
+  │      GameContext      │
+  ├───────────────────────┤
+  │ - contextId           │
+  │ - assets[] (key/value)│
+  └───────────────────────┘
+
+  ┌───────────────────────┐
+  │     GameMechanic      │
+  ├───────────────────────┤
+  │ - name / rules        │
+  └───────────────────────┘
 
 LEYENDA:
-─►  : Referencia (ObjectId)
-1:N : Relación uno a muchos
-*   : Campo requerido solo bajo ciertas condiciones
+─►/-> : Referencia (ObjectId)
+1:N   : Relación uno a muchos
+*     : Campo requerido solo bajo ciertas condiciones
 ```
 
 ---
@@ -160,14 +128,10 @@ LEYENDA:
 
 **Campos Principales:**
 - `uid` (String, único, uppercase): Identificador único de 8 o 14 caracteres hexadecimales
-- `type` (Enum): 'MIFARE 1KB' | 'MIFARE 4KB' | 'NTAG' | 'UNKNOWN'
+- `type` (Enum): 'MIFARE_1KB' | 'MIFARE_4KB' | 'NTAG' | 'UNKNOWN'
 - `status` (Enum): 'active' | 'inactive' | 'lost'
-- `metadata.color` (String): Color para identificación visual
-- `metadata.icon` (String): Icono asociado
-- `metadata.lastUsed` (Date): Última fecha de uso
 
-**Métodos de Instancia:**
-- `updateLastUsed()`: Actualiza la fecha del último escaneo
+**Nota:** El campo `metadata` fue eliminado del modelo `Card`.
 
 **Índices:**
 - `{ uid: 1 }` (único)
@@ -204,45 +168,22 @@ LEYENDA:
 
 **Relaciones:**
 - **1:N con GameSession**: Una mecánica se usa en múltiples sesiones (`mechanicId`)
-
 **Nota Importante (duda #8):** NO contiene referencia a contextos. Los contextos son independientes y tienen compatibilidad absoluta con todas las mecánicas.
 
 ---
 
-### 4. **GameContext** (Contexto Temático)
-
-**Colección:** `gamecontexts`
-
-**Propósito:** Define los contextos temáticos con assets (geografía, historia, ciencia, etc.).
 
 **Campos Principales:**
-- `contextId` (String, único, lowercase): Identificador único ('geography', 'history', 'science')
-- `name` (String): Nombre amigable
-- `assets[]` (Array): Assets del contexto
   - `key` (String, único, lowercase): Identificador del asset
   - `display` (String): Representación visual (emoji, texto)
-  - `value` (String): Valor textual del asset
-  - `audioUrl` (String): URL en Supabase Storage
-  - `imageUrl` (String): URL en Supabase Storage
-
-**Métodos de Instancia:**
 - `addAsset(assetData)`: Añade un nuevo asset
 - `removeAsset(key)`: Elimina un asset por key
-- `updateAsset(key, assetData)`: Actualiza un asset existente
-- `getAssetByKey(key)`: Obtiene un asset por su key
-- `getRandomAssets(count)`: Obtiene N assets aleatorios
 
-**Índices:**
 - `{ contextId: 1 }` (único)
 - `{ 'assets.key': 1 }`
 
 **Relaciones:**
 - **1:N con GameSession**: Un contexto se usa en múltiples sesiones (`contextId`)
-
-**Nota Importante (dudas #15, #15.1):** Compatibilidad ABSOLUTA con todas las mecánicas. No existe referencia a `mechanicId` - el contexto es independiente. Los contextos pueden ser predefinidos (seeders) o creados por profesores. Los archivos multimedia se almacenan en Supabase Storage.
-
----
-
 ### 5. **GameSession** (Sesión de Juego)
 
 **Colección:** `gamesessions`
@@ -255,7 +196,6 @@ LEYENDA:
 - `config` (Object): Configuración de reglas
   - `numberOfCards` (Number, 2-20): Cantidad de tarjetas usadas
   - `numberOfRounds` (Number, 1-20): Número de rondas
-  - `timeLimit` (Number, 3-60): Tiempo límite por ronda en segundos
   - `pointsPerCorrect` (Number, ≥1): Puntos por respuesta correcta
   - `penaltyPerError` (Number, ≤-1): Puntos por respuesta incorrecta
 - `cardMappings[]` (Array): Asignación de tarjetas a valores
@@ -282,16 +222,10 @@ LEYENDA:
 
 **Relaciones:**
 - **N:1 con User**: Un profesor crea la sesión (`createdBy`)
-- **N:1 con GameMechanic**: Una sesión usa una mecánica (`mechanicId`)
 - **N:1 con GameContext**: Una sesión usa un contexto (`contextId`)
 - **N:M con Card**: Una sesión usa múltiples tarjetas (a través de `cardMappings`)
 - **1:N con GamePlay**: Una sesión puede tener múltiples partidas
-
-**Validaciones:**
-- `cardMappings.length` debe coincidir con `config.numberOfCards`
-
 **Nota Importante (duda #16):** Una GameSession es la CONFIGURACIÓN compartida. Múltiples GamePlays pueden asociarse a una misma GameSession.
-
 **Flujo de Creación (dudas #3-5, #10, #18):**
 1. Profesor selecciona mecánica
 2. Profesor selecciona contexto
