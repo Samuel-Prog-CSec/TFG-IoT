@@ -35,10 +35,10 @@
   ],
   "author": "Samuel Blanchart Pérez",
   "dependencies": {
-    "@sentry/node": "^10.30.0",
-    "@sentry/profiling-node": "^10.30.0",
+    "@sentry/node": "^10.32.1",
+    "@sentry/profiling-node": "^10.32.1",
     "@serialport/parser-readline": "^13.0.0",
-    "@supabase/supabase-js": "^2.87.1",
+    "@supabase/supabase-js": "^2.89.0",
     "bcrypt": "^6.0.0",
     "compression": "^1.8.1",
     "cors": "^2.8.5",
@@ -47,12 +47,12 @@
     "express-rate-limit": "^8.2.1",
     "helmet": "^8.1.0",
     "jsonwebtoken": "^9.0.3",
-    "mongoose": "^9.0.1",
+    "mongoose": "^9.0.2",
     "multer": "^2.0.2",
     "serialport": "^13.0.0",
-    "socket.io": "^4.8.1",
+    "socket.io": "^4.8.3",
     "winston": "^3.19.0",
-    "zod": "^4.2.0"
+    "zod": "^4.2.1"
   },
   "devDependencies": {
     "@eslint/js": "^9.39.2",
