@@ -5,7 +5,7 @@
  */
 
 const GameContext = require('../models/GameContext');
-const storageService = require('../services/storageService');
+const storageService = require('../services/storageService.js');
 const imageProcessingService = require('../services/imageProcessingService');
 const audioValidationService = require('../services/audioValidationService');
 const logger = require('../utils/logger');
