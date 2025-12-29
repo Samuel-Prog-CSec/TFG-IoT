@@ -95,6 +95,8 @@ const gamePlayDTO = gameplay => {
     score: playData.score,
     currentRound: playData.currentRound,
     status: playData.status,
+    pausedAt: playData.pausedAt,
+    remainingTime: playData.remainingTime,
     // Eventos transformados (sin __id interno de subdocumentos)
     events:
       playData.events?.map(event => ({

@@ -248,6 +248,8 @@ LEYENDA:
 - `playerId` (ObjectId → User): Alumno que juega la partida
 - `score` (Number): Puntuación acumulada
 - `currentRound` (Number): Ronda actual
+- `pausedAt` (Date | null): Timestamp de cuándo se pausó (si aplica)
+- `remainingTime` (Number | null): Tiempo restante de la ronda en ms (si aplica)
 - `events[]` (Array): Log de eventos de la partida
   - `timestamp` (Date): Momento del evento
   - `eventType` (Enum): 'card_scanned' | 'correct' | 'error' | 'timeout' | 'round_start' | 'round_end'
@@ -264,7 +266,7 @@ LEYENDA:
   - `timeoutAttempts` (Number): Timeouts sin respuesta
   - `averageResponseTime` (Number): Tiempo medio de respuesta en ms
   - `completionTime` (Number): Duración total en ms
-- `status` (Enum): 'in-progress' | 'completed' | 'abandoned'
+- `status` (Enum): 'in-progress' | 'paused' | 'completed' | 'abandoned'
 - `startedAt` (Date): Fecha de inicio
 - `completedAt` (Date): Fecha de finalización
 

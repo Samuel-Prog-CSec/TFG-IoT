@@ -189,7 +189,7 @@ const createPlay = async (req, res, next) => {
     const existingPlay = await GamePlay.findOne({
       sessionId,
       playerId,
-      status: { $in: ['in-progress'] }
+      status: { $in: ['in-progress', 'paused'] }
     });
 
     if (existingPlay) {
@@ -222,6 +222,121 @@ const createPlay = async (req, res, next) => {
       success: true,
       message: 'Partida creada exitosamente',
       data: gamePlayDTO(play)
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+/**
+ * Pausar una partida en curso.
+ * Congela el timer de la ronda actual (vía GameEngine) y persiste pausedAt/remainingTime.
+ *
+ * POST /api/plays/:id/pause
+ * Headers: Authorization: Bearer <token>
+ *
+ * @param {import('express').Request} req
+ * @param {import('express').Response} res
+ * @param {import('express').NextFunction} next
+ */
+const pausePlay = async (req, res, next) => {
+  try {
+    const { id } = req.params;
+
+    const play = await GamePlay.findById(id).populate('sessionId');
+    if (!play) {
+      throw new NotFoundError('Partida');
+    }
+
+    const session = play.sessionId;
+    if (!session) {
+      throw new ValidationError('La partida no tiene sesión asociada');
+    }
+
+    // Solo el creador de la sesión puede pausar/reanudar
+    if (session.createdBy.toString() !== req.user._id.toString()) {
+      throw new ForbiddenError('No tienes permiso para pausar esta partida');
+    }
+
+    if (play.status !== 'in-progress') {
+      throw new ValidationError('La partida no está en progreso');
+    }
+
+    const gameEngine = req.app.get('gameEngine');
+    if (!gameEngine) {
+      throw new ValidationError('Motor de juego no disponible');
+    }
+
+    // Pausar en el motor (con control de permisos)
+    const result = await gameEngine.pausePlayInternal(id, { requestedBy: req.user._id.toString() });
+    if (result.remainingTimeMs === null && play.status !== 'paused') {
+      // Si no estaba activa en memoria, no podemos congelar el timer.
+      throw new ValidationError('La partida no está activa en el motor de juego');
+    }
+
+    const updated = await GamePlay.findById(id);
+
+    res.json({
+      success: true,
+      message: 'Partida pausada',
+      data: gamePlayDTO(updated)
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+/**
+ * Reanudar una partida pausada.
+ * Rearma el timer con el tiempo restante (vía GameEngine) y limpia pausedAt/remainingTime.
+ *
+ * POST /api/plays/:id/resume
+ * Headers: Authorization: Bearer <token>
+ *
+ * @param {import('express').Request} req
+ * @param {import('express').Response} res
+ * @param {import('express').NextFunction} next
+ */
+const resumePlay = async (req, res, next) => {
+  try {
+    const { id } = req.params;
+
+    const play = await GamePlay.findById(id).populate('sessionId');
+    if (!play) {
+      throw new NotFoundError('Partida');
+    }
+
+    const session = play.sessionId;
+    if (!session) {
+      throw new ValidationError('La partida no tiene sesión asociada');
+    }
+
+    if (session.createdBy.toString() !== req.user._id.toString()) {
+      throw new ForbiddenError('No tienes permiso para reanudar esta partida');
+    }
+
+    if (play.status !== 'paused') {
+      throw new ValidationError('La partida no está pausada');
+    }
+
+    const gameEngine = req.app.get('gameEngine');
+    if (!gameEngine) {
+      throw new ValidationError('Motor de juego no disponible');
+    }
+
+    const result = await gameEngine.resumePlayInternal(id, {
+      requestedBy: req.user._id.toString()
+    });
+    if (result.remainingTimeMs === null && play.status === 'paused') {
+      throw new ValidationError('La partida no está activa en el motor de juego');
+    }
+
+    const updated = await GamePlay.findById(id);
+
+    res.json({
+      success: true,
+      message: 'Partida reanudada',
+      data: gamePlayDTO(updated)
     });
   } catch (error) {
     next(error);
@@ -464,10 +579,11 @@ const getPlayerStats = async (req, res, next) => {
  *
  * @param {number} score - Puntuación final
  * @param {number} maxPointsPerRound - Puntos máximos por ronda
+ * @param {number} rounds - Número total de rondas
  * @returns {string} Rating (⭐⭐⭐⭐⭐, ⭐⭐⭐⭐, etc.)
  */
-function calculateRating(score, maxPointsPerRound) {
-  const percentage = (score / (maxPointsPerRound * 5)) * 100; // Asumiendo 5 rondas
+function calculateRating(score, maxPointsPerRound, rounds) {
+  const percentage = (score / (maxPointsPerRound * rounds)) * 100;
 
   if (percentage >= 90) {
     return '⭐⭐⭐⭐⭐';
@@ -491,5 +607,7 @@ module.exports = {
   addEvent,
   completePlay,
   abandonPlay,
+  pausePlay,
+  resumePlay,
   getPlayerStats
 };

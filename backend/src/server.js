@@ -33,6 +33,7 @@ const GameEngine = require('./services/gameEngine');
 const GamePlay = require('./models/GamePlay');
 const GameSession = require('./models/GameSession');
 const logger = require('./utils/logger');
+const { verifyAccessToken } = require('./middlewares/auth');
 const { errorHandler, notFoundHandler } = require('./middlewares/errorHandler');
 const { getHealthStatus } = require('./utils/healthCheck');
 
@@ -68,6 +69,9 @@ const io = new Server(server, {
  * @type {GameEngine}
  */
 const gameEngine = new GameEngine(io);
+
+// Exponer el gameEngine a controllers (REST) sin imports circulares.
+app.set('gameEngine', gameEngine);
 
 // ============================================================================
 // MIDDLEWARE
@@ -303,8 +307,30 @@ io.on('connection', socket => {
    * @param {string} data.playId - ID de la partida a pausar
    */
   socket.on('pause_play', data => {
-    const { playId } = data;
-    gameEngine.pausePlay(playId);
+    (async () => {
+      try {
+        const { playId, accessToken } = data || {};
+
+        if (!accessToken) {
+          socket.emit('error', { message: 'No autorizado' });
+          return;
+        }
+
+        // Reusar verifyAccessToken (fingerprint basado en headers del handshake)
+        const mockReq = { headers: socket.handshake.headers };
+        const decoded = verifyAccessToken(accessToken, mockReq);
+
+        if (decoded.role !== 'teacher') {
+          socket.emit('error', { message: 'Solo un profesor puede pausar partidas' });
+          return;
+        }
+
+        await gameEngine.pausePlayInternal(playId, { requestedBy: decoded.id });
+      } catch (error) {
+        logger.error(`Error al pausar la partida: ${error.message}`);
+        socket.emit('error', { message: 'Error al pausar la partida' });
+      }
+    })();
   });
 
   /**
@@ -314,8 +340,29 @@ io.on('connection', socket => {
    * @param {string} data.playId - ID de la partida a reanudar
    */
   socket.on('resume_play', data => {
-    const { playId } = data;
-    gameEngine.resumePlay(playId);
+    (async () => {
+      try {
+        const { playId, accessToken } = data || {};
+
+        if (!accessToken) {
+          socket.emit('error', { message: 'No autorizado' });
+          return;
+        }
+
+        const mockReq = { headers: socket.handshake.headers };
+        const decoded = verifyAccessToken(accessToken, mockReq);
+
+        if (decoded.role !== 'teacher') {
+          socket.emit('error', { message: 'Solo un profesor puede reanudar partidas' });
+          return;
+        }
+
+        await gameEngine.resumePlayInternal(playId, { requestedBy: decoded.id });
+      } catch (error) {
+        logger.error(`Error al reanudar la partida: ${error.message}`);
+        socket.emit('error', { message: 'Error al reanudar la partida' });
+      }
+    })();
   });
 
   /**

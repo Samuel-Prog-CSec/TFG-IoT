@@ -220,7 +220,12 @@ class GameEngine {
       uidToMapping, // Índice O(1): uid → mapping completo
       currentChallenge: null,
       roundTimer: null,
+      nextRoundTimer: null,
       awaitingResponse: false,
+      paused: false,
+      pausedAt: null,
+      remainingTimeMs: null,
+      roundElapsedBeforePauseMs: 0,
       createdAt: Date.now() // Para detectar abandonos
     };
 
@@ -269,6 +274,9 @@ class GameEngine {
     // 1. Limpiar timers pendientes
     if (playState.roundTimer) {
       clearTimeout(playState.roundTimer);
+    }
+    if (playState.nextRoundTimer) {
+      clearTimeout(playState.nextRoundTimer);
     }
 
     // 2. Guardar el estado final en la BD
@@ -337,6 +345,11 @@ class GameEngine {
       return;
     }
 
+    // Si está pausada, NO avanzar rondas ni rearmar timers.
+    if (playState.paused || playState.playDoc.status === 'paused') {
+      return;
+    }
+
     // 1. Comprobar si el juego ha terminado
     const { playDoc, sessionDoc } = playState;
     if (playDoc.currentRound > sessionDoc.config.numberOfRounds) {
@@ -347,6 +360,10 @@ class GameEngine {
     // 2. Limpiar cualquier timer anterior
     if (playState.roundTimer) {
       clearTimeout(playState.roundTimer);
+    }
+    if (playState.nextRoundTimer) {
+      clearTimeout(playState.nextRoundTimer);
+      playState.nextRoundTimer = null;
     }
 
     // 3. Generar el desafío (mecánica de asociación)
@@ -363,6 +380,8 @@ class GameEngine {
     };
     playState.roundStartTime = Date.now();
     playState.awaitingResponse = true;
+    playState.remainingTimeMs = null;
+    playState.roundElapsedBeforePauseMs = 0;
 
     // 4. Guardar el inicio de la ronda en la BD (evento 'round_start')
     await playDoc.addEvent({
@@ -421,6 +440,13 @@ class GameEngine {
 
     // 2. Obtener el estado del juego
     const playState = this.activePlays.get(playId);
+
+    // Ignorar escaneos si la partida está pausada
+    if (playState?.paused || playState?.playDoc?.status === 'paused') {
+      logger.debug(`Tarjeta ${uid} ignorada: partida ${playId} en pausa.`);
+      return;
+    }
+
     if (!playState || !playState.awaitingResponse) {
       // El juego existe, pero no está esperando una respuesta
       // (ej. escaneo demasiado rápido, o entre rondas)
@@ -519,7 +545,7 @@ class GameEngine {
 
     // 5. Pasar a la siguiente ronda (tras un breve delay para feedback)
     playDoc.currentRound++;
-    setTimeout(() => {
+    playState.nextRoundTimer = setTimeout(() => {
       this.sendNextRound(playId);
     }, 4000); // Delay de 4s para que el jugador vea el resultado
   }
@@ -539,6 +565,11 @@ class GameEngine {
     const playState = this.activePlays.get(playId);
     if (!playState || !playState.awaitingResponse) {
       // La respuesta llegó justo a tiempo, el timer ya fue limpiado
+      return;
+    }
+
+    // Si está pausada, ignorar (race conditions)
+    if (playState.paused || playState.playDoc.status === 'paused') {
       return;
     }
 
@@ -571,7 +602,7 @@ class GameEngine {
 
     // 5. Pasar a la siguiente ronda
     playDoc.currentRound++;
-    setTimeout(() => {
+    playState.nextRoundTimer = setTimeout(() => {
       this.sendNextRound(playId);
     }, 2000); // Delay reducido para timeouts
   }
@@ -616,10 +647,95 @@ class GameEngine {
    * @param {string} playId - ID de la partida a pausar
    */
   pausePlay(playId) {
-    // TODO: Implementar lógica de pausa
-    // - Limpiar timer
-    // - Setear estado 'awaitingResponse = false'
-    // - Guardar estado en BD????
+    return this.pausePlayInternal(playId);
+  }
+
+  /**
+   * Pausa una partida en curso (impl).
+   * Congela el timer de la ronda actual y persiste el estado en BD.
+   *
+   * @private
+   * @param {string} playId
+   * @param {Object} [options]
+   * @param {string} [options.requestedBy] - userId del profesor (opcional, para control de permisos)
+   * @returns {Promise<{ remainingTimeMs: number | null }>} tiempo restante en ms
+   */
+  async pausePlayInternal(playId, options = {}) {
+    const playState = this.activePlays.get(playId);
+    if (!playState) {
+      return { remainingTimeMs: null };
+    }
+
+    // Control de permisos (si nos pasan el profesor)
+    if (options.requestedBy) {
+      const ownerId =
+        playState.sessionDoc?.createdBy?.toString?.() || playState.sessionDoc?.createdBy;
+      if (ownerId && ownerId.toString() !== options.requestedBy.toString()) {
+        this.io
+          .to(`play_${playId}`)
+          .emit('error', { message: 'No autorizado para pausar esta partida' });
+        return { remainingTimeMs: null };
+      }
+    }
+
+    if (playState.paused || playState.playDoc.status === 'paused') {
+      return {
+        remainingTimeMs: playState.remainingTimeMs ?? playState.playDoc.remainingTime ?? null
+      };
+    }
+
+    // Cancelar timers activos
+    if (playState.roundTimer) {
+      clearTimeout(playState.roundTimer);
+      playState.roundTimer = null;
+    }
+    if (playState.nextRoundTimer) {
+      clearTimeout(playState.nextRoundTimer);
+      playState.nextRoundTimer = null;
+    }
+
+    // Calcular tiempo restante de la ronda actual
+    let remainingTimeMs = null;
+    if (
+      playState.currentChallenge &&
+      playState.roundStartTime &&
+      playState.sessionDoc?.config?.timeLimit
+    ) {
+      const totalMs = playState.sessionDoc.config.timeLimit * 1000;
+      const elapsedMs = Math.max(0, Date.now() - playState.roundStartTime);
+      playState.roundElapsedBeforePauseMs = Math.min(totalMs, elapsedMs);
+
+      // Solo congelamos la ronda si estábamos esperando respuesta
+      if (playState.awaitingResponse) {
+        remainingTimeMs = Math.max(0, totalMs - playState.roundElapsedBeforePauseMs);
+      }
+    }
+
+    // Marcar como pausada y bloquear escaneos
+    playState.paused = true;
+    playState.pausedAt = Date.now();
+    playState.remainingTimeMs = remainingTimeMs;
+    playState.awaitingResponse = false;
+
+    // Persistir en BD
+    try {
+      playState.playDoc.status = 'paused';
+      playState.playDoc.pausedAt = new Date(playState.pausedAt);
+      playState.playDoc.remainingTime = remainingTimeMs;
+      await playState.playDoc.save();
+    } catch (err) {
+      logger.error(`Error persistiendo pausa para ${playId}: ${err.message}`);
+    }
+
+    // Notificar al cliente
+    this.io.to(`play_${playId}`).emit('play_paused', {
+      playId,
+      currentRound: playState.playDoc.currentRound,
+      remainingTimeMs
+    });
+
+    logger.info(`Partida ${playId} pausada`, { playId, remainingTimeMs });
+    return { remainingTimeMs };
   }
 
   /**
@@ -633,8 +749,99 @@ class GameEngine {
    * @param {string} playId - ID de la partida a reanudar
    */
   resumePlay(playId) {
-    // TODO: Implementar lógica de reanudar
-    // - Llamar a sendNextRound
+    return this.resumePlayInternal(playId);
+  }
+
+  /**
+   * Reanuda una partida pausada (impl).
+   * Reinicia el timer desde el tiempo restante y mantiene el desafío actual.
+   *
+   * @private
+   * @param {string} playId
+   * @param {Object} [options]
+   * @param {string} [options.requestedBy] - userId del profesor (opcional, para control de permisos)
+   * @returns {Promise<{ remainingTimeMs: number | null }>} tiempo restante rearmado en ms
+   */
+  async resumePlayInternal(playId, options = {}) {
+    const playState = this.activePlays.get(playId);
+    if (!playState) {
+      return { remainingTimeMs: null };
+    }
+
+    // Control de permisos (si nos pasan el profesor)
+    if (options.requestedBy) {
+      const ownerId =
+        playState.sessionDoc?.createdBy?.toString?.() || playState.sessionDoc?.createdBy;
+      if (ownerId && ownerId.toString() !== options.requestedBy.toString()) {
+        this.io
+          .to(`play_${playId}`)
+          .emit('error', { message: 'No autorizado para reanudar esta partida' });
+        return { remainingTimeMs: null };
+      }
+    }
+
+    if (!playState.paused && playState.playDoc.status !== 'paused') {
+      return { remainingTimeMs: null };
+    }
+
+    // Cancelar timers residuales
+    if (playState.roundTimer) {
+      clearTimeout(playState.roundTimer);
+      playState.roundTimer = null;
+    }
+    if (playState.nextRoundTimer) {
+      clearTimeout(playState.nextRoundTimer);
+      playState.nextRoundTimer = null;
+    }
+
+    const remainingTimeMs = playState.remainingTimeMs ?? playState.playDoc.remainingTime ?? null;
+
+    // Restaurar el roundStartTime para que el cálculo timeElapsed NO incluya la pausa
+    if (playState.currentChallenge && typeof playState.roundElapsedBeforePauseMs === 'number') {
+      playState.roundStartTime = Date.now() - playState.roundElapsedBeforePauseMs;
+    }
+
+    // Marcar como reanudada
+    playState.paused = false;
+    playState.pausedAt = null;
+    playState.remainingTimeMs = null;
+    playState.awaitingResponse = true;
+
+    // Persistir en BD
+    try {
+      playState.playDoc.status = 'in-progress';
+      playState.playDoc.pausedAt = null;
+      playState.playDoc.remainingTime = null;
+      await playState.playDoc.save();
+    } catch (err) {
+      logger.error(`Error persistiendo reanudación para ${playId}: ${err.message}`);
+    }
+
+    // Reenviar desafío actual (útil si el cliente recargó)
+    if (playState.currentChallenge) {
+      this.io.to(`play_${playId}`).emit('play_resumed', {
+        playId,
+        currentRound: playState.playDoc.currentRound,
+        remainingTimeMs,
+        challenge: { displayData: playState.currentChallenge.displayData }
+      });
+    } else {
+      this.io.to(`play_${playId}`).emit('play_resumed', {
+        playId,
+        currentRound: playState.playDoc.currentRound,
+        remainingTimeMs
+      });
+    }
+
+    // Rearmar timer con el tiempo restante (si aplica)
+    if (playState.currentChallenge && typeof remainingTimeMs === 'number' && remainingTimeMs > 0) {
+      playState.roundTimer = setTimeout(() => {
+        this.handleTimeout(playId);
+      }, remainingTimeMs);
+    }
+
+    logger.info(`Partida ${playId} reanudada`, { playId, remainingTimeMs });
+    return { remainingTimeMs };
   }
 
   /**

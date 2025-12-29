@@ -14,6 +14,8 @@ const {
   addEvent,
   completePlay,
   abandonPlay,
+  pausePlay,
+  resumePlay,
   getPlayerStats
 } = require('../controllers/gamePlayController');
 
@@ -79,5 +81,19 @@ router.post('/:id/complete', authenticate, completePlay);
  * @access  Private
  */
 router.post('/:id/abandon', authenticate, abandonPlay);
+
+/**
+ * @route   POST /api/plays/:id/pause
+ * @desc    Pausar una partida en curso
+ * @access  Private (Teacher)
+ */
+router.post('/:id/pause', authenticate, requireRole('teacher'), pausePlay);
+
+/**
+ * @route   POST /api/plays/:id/resume
+ * @desc    Reanudar una partida pausada
+ * @access  Private (Teacher)
+ */
+router.post('/:id/resume', authenticate, requireRole('teacher'), resumePlay);
 
 module.exports = router;

@@ -575,6 +575,9 @@ io.on('connection', (socket) => {
 | `cancel_card_assignment` | `{}` | Cancelar modo asignación |
 | `join_play` | `{ playId }` | Unirse a partida (existente) |
 | `start_play` | `{ playId }` | Iniciar partida (existente) |
+| `pause_play` | `{ playId, accessToken }` | Pausar partida (solo profesor) |
+| `resume_play` | `{ playId, accessToken }` | Reanudar partida (solo profesor) |
+| `next_round` | `{ playId }` | Solicitar siguiente ronda |
 | `leave_play` | `{ playId }` | Abandonar partida (existente) |
 
 #### Servidor → Cliente
@@ -592,6 +595,8 @@ io.on('connection', (socket) => {
 | `mode_timeout` | `{ mode, context }` | Timeout del modo activo |
 | `rfid_event` | `{ event, uid?, type?, ... }` | Evento RFID (modo idle) |
 | `rfid_status` | `{ status }` | Estado de conexión sensor |
+| `play_paused` | `{ playId, currentRound, remainingTimeMs }` | Partida pausada |
+| `play_resumed` | `{ playId, currentRound, remainingTimeMs, challenge? }` | Partida reanudada |
 
 ### 6.2 Códigos de Error
 
@@ -609,6 +614,10 @@ io.on('connection', (socket) => {
 ## 7. Consideraciones de Seguridad
 
 ### 7.1 Autenticación de WebSockets
+
+**Nota (implementación actual):** En este backend, los eventos sensibles de partida (`pause_play` y `resume_play`) requieren `accessToken` en el payload del propio evento. El servidor valida el token usando el fingerprint del dispositivo (a partir de `socket.handshake.headers`).
+
+El siguiente ejemplo muestra un enfoque alternativo (autenticación global por handshake) a modo de referencia:
 
 ```javascript
 // Middleware de autenticación para Socket.IO

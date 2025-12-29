@@ -292,9 +292,15 @@ No borra el documento: cambia `status` a `archived`.
 | `GET` | `/:id` | Obtener partida específica | Privado |
 | `GET` | `/stats/:playerId` | Obtener estadísticas de jugador | Privado |
 | `POST` | `/` | Iniciar nueva instancia de partida | Profesor |
+| `POST` | `/:id/pause` | Pausar partida (congela el temporizador) | Profesor (dueño de la sesión) |
+| `POST` | `/:id/resume` | Reanudar partida (reanuda desde el tiempo restante) | Profesor (dueño de la sesión) |
 | `POST` | `/:id/events` | Registrar evento de juego | Privado |
 | `POST` | `/:id/complete` | Marcar partida como completada | Privado |
 | `POST` | `/:id/abandon` | Marcar partida como abandonada | Privado |
+
+**Notas:**
+- Al pausar, se persisten los campos `pausedAt` y `remainingTime` (milisegundos) en `GamePlay`.
+- Al reanudar, `pausedAt` y `remainingTime` vuelven a `null` y el temporizador continúa desde el tiempo restante.
 
 ---
 
@@ -306,10 +312,17 @@ No borra el documento: cambia `status` a `archived`.
 |:-------|:----------|:------------|:-----|
 | `join_play` | Cliente -> Servidor | Unirse a la sala de juego | `{ playId }` |
 | `start_play` | Cliente -> Servidor | Comenzar partida | `{ playId }` |
+| `pause_play` | Cliente -> Servidor | Pausar partida | `{ playId, accessToken }` |
+| `resume_play` | Cliente -> Servidor | Reanudar partida | `{ playId, accessToken }` |
 | `play_state` | Servidor -> Cliente | Estado inicial | `{ currentRound, score }` |
 | `new_round` | Servidor -> Cliente | Nuevo desafío | `{ challenge, timeLimit }` |
 | `validation_result` | Servidor -> Cliente | Resultado respuesta | `{ isCorrect, points, newScore }` |
+| `play_paused` | Servidor -> Cliente | Partida pausada | `{ playId, currentRound, remainingTimeMs }` |
+| `play_resumed` | Servidor -> Cliente | Partida reanudada | `{ playId, currentRound, remainingTimeMs, challenge? }` |
 | `rfid_event` | Servidor -> Cliente | Tarjeta escaneada | `{ uid, type }` |
+
+**Seguridad (WebSocket):**
+- Para `pause_play` y `resume_play` se requiere `accessToken` (JWT) en el payload. El backend lo valida junto con el fingerprint del dispositivo (headers del handshake).
 
 ---
 *Generado: 15-12-2025*

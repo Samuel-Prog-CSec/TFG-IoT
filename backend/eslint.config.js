@@ -18,7 +18,8 @@ module.exports = [
       'reports/',
       'logs/',
       'tests/',
-      '**/*.md',
+      '*.md',
+      '**/README*.md',
       '**/*.json',
       'scripts/'
     ]
@@ -31,11 +32,11 @@ module.exports = [
       prettier: prettierPlugin
     },
     languageOptions: {
-      ecmaVersion: 2022,
-      sourceType: 'module',
+      ecmaVersion: 'latest',
+      sourceType: 'commonjs',
       globals: {
         ...globals.node,
-        ...globals.es2021
+        ...globals.es2024
       }
     },
     rules: {

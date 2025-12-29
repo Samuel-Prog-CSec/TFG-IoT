@@ -286,6 +286,8 @@ npm run deps:analyze          # Analizar dependencias
 | GET | `/` | Listar partidas | Teacher/Student (own) |
 | GET | `/:id` | Obtener partida | Teacher/Owner |
 | POST | `/` | Crear partida | Teacher |
+| POST | `/:id/pause` | Pausar partida | Teacher/Owner |
+| POST | `/:id/resume` | Reanudar partida | Teacher/Owner |
 | POST | `/:id/events` | Añadir evento | Sistema |
 | POST | `/:id/complete` | Completar partida | Teacher/Owner |
 | POST | `/:id/abandon` | Abandonar partida | Teacher/Owner |
@@ -307,8 +309,8 @@ npm run deps:analyze          # Analizar dependencias
 | `join_play` | `{ playId }` | Unirse a una partida |
 | `leave_play` | `{ playId }` | Abandonar partida |
 | `start_play` | `{ playId }` | Iniciar partida |
-| `pause_play` | `{ playId }` | Pausar partida |
-| `resume_play` | `{ playId }` | Reanudar partida |
+| `pause_play` | `{ playId, accessToken }` | Pausar partida (requiere profesor) |
+| `resume_play` | `{ playId, accessToken }` | Reanudar partida (requiere profesor) |
 | `next_round` | `{ playId }` | Solicitar siguiente ronda |
 
 ### Servidor → Cliente
@@ -320,6 +322,8 @@ npm run deps:analyze          # Analizar dependencias
 | `play_state` | `{ playId, currentRound, score, ... }` | Estado inicial de partida |
 | `new_round` | `{ roundNumber, challenge, timeLimit, ... }` | Nuevo desafío |
 | `validation_result` | `{ isCorrect, pointsAwarded, newScore, ... }` | Resultado de respuesta |
+| `play_paused` | `{ playId, currentRound, remainingTimeMs }` | Partida pausada |
+| `play_resumed` | `{ playId, currentRound, remainingTimeMs, challenge? }` | Partida reanudada |
 | `game_over` | `{ finalScore, metrics }` | Partida finalizada |
 | `error` | `{ message }` | Error en la partida |
 

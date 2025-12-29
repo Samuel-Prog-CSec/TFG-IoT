@@ -30,6 +30,8 @@ const mongoose = require('mongoose');
  * @property {number} metrics.averageResponseTime - Tiempo medio de respuesta en milisegundos (duda #17)
  * @property {number} metrics.completionTime - Tiempo total de la partida en milisegundos
  * @property {string} status - Estado de la partida (in-progress, completed, abandoned)
+ * @property {Date} [pausedAt] - Fecha/hora de la última pausa
+ * @property {number} [remainingTime] - Tiempo restante de la ronda actual en ms (cuando está pausada)
  * @property {Date} startedAt - Fecha y hora de inicio de la partida
  * @property {Date} [completedAt] - Fecha y hora de finalización de la partida
  * @property {Date} createdAt - Fecha de creación del registro
@@ -121,6 +123,15 @@ const gamePlaySchema = new mongoose.Schema(
       trim: true,
       enum: ['in-progress', 'completed', 'abandoned', 'paused'],
       default: 'in-progress'
+    },
+    pausedAt: {
+      type: Date,
+      default: null
+    },
+    remainingTime: {
+      type: Number,
+      default: null,
+      min: 0
     },
     startedAt: {
       type: Date,

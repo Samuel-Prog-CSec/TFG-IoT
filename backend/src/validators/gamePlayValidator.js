@@ -119,7 +119,7 @@ const createGamePlaySchema = z
  */
 const updateGamePlaySchema = z
   .object({
-    status: z.enum(['in-progress', 'completed', 'abandoned']).optional(),
+    status: z.enum(['in-progress', 'completed', 'abandoned', 'paused']).optional(),
 
     score: z.number().int('El score debe ser un número entero').optional(),
 
@@ -186,7 +186,7 @@ const gamePlayQuerySchema = z.object({
 
   playerId: objectIdSchema.optional(),
 
-  status: z.enum(['in-progress', 'completed', 'abandoned']).optional(),
+  status: z.enum(['in-progress', 'completed', 'abandoned', 'paused']).optional(),
 
   minScore: z
     .string()
