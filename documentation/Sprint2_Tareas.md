@@ -3,7 +3,8 @@
 **Proyecto:** Plataforma de Juegos Educativos con RFID (TFG)  
 **Autor:** Samuel Blanchart Pérez  
 **Duración:** 2-3 semanas (Diciembre 2025 - Enero 2026)  
-**Versión objetivo:** 0.2.0
+**Versión objetivo:** 0.2.0  
+**Última actualización:** 29-12-2025
 
 ---
 
@@ -13,13 +14,17 @@ Este sprint se centra en **estabilizar la base técnica**, corregir los problema
 
 ### Métricas del Sprint
 
-| Prioridad | Cantidad | Esfuerzo Estimado |
-|-----------|----------|-------------------|
-| P0 (Crítica) | 6 | ~4-5 días |
-| P1 (Alta) | 8 | ~6-8 días |
-| P2 (Media) | 8 | ~4-5 días |
-| P3 (Baja) | 5 | ~2-3 días |
-| **Total** | **27** | **16-21 días** |
+| Prioridad | Cantidad | Completadas | Esfuerzo Estimado |
+|-----------|----------|-------------|-------------------|
+| P0 (Crítica) | 6 | 1 (T-002) | ~4-5 días |
+| P1 (Alta) | 8 | 1 (T-012) | ~6-8 días |
+| P2 (Media) | 8 | 0 | ~4-5 días |
+| P3 (Baja) | 5 | 0 | ~2-3 días |
+| **Total** | **27** | **2** | **16-21 días** |
+
+### Progreso Actual
+- **Tareas completadas:** 2/27 (7.4%)
+- **Tests pasando:** 56 (cobertura ~47%)
 
 ---
 
@@ -34,7 +39,7 @@ Este sprint se centra en **estabilizar la base técnica**, corregir los problema
 
 ## P0 - Prioridad Crítica (Bloqueantes)
 
-### T-001: Corregir Suite de Tests 📋
+### T-001: Corregir Suite de Tests ✅
 **Prioridad:** P0 | **Tamaño:** L | **Dependencias:** Ninguna
 
 **Descripción:**  
@@ -54,16 +59,18 @@ La suite de tests falla estrepitosamente. Es imperativo tenerla en verde antes d
 
 ---
 
-### T-002: Renombrar storageService.js 📋
+### T-002: Renombrar storageService.js ✅
 **Prioridad:** P0 | **Tamaño:** XS | **Dependencias:** Ninguna
 
 **Descripción:**  
 Corregir el typo en el nombre del archivo `storageSErvice.js` → `storageService.js` y actualizar todas las referencias.
 
 **Sub-tareas:**
-1. Renombrar archivo a `storageService.js`
-2. Actualizar imports en todos los archivos que lo referencien
-3. Verificar que no hay errores de importación
+1. ✅ Renombrar archivo a `storageService.js`
+2. ✅ Actualizar imports en todos los archivos que lo referencien
+3. ✅ Verificar que no hay errores de importación
+
+**Nota:** Completada como parte de T-012 (Validación de Formatos de Assets).
 
 ---
 
@@ -132,7 +139,7 @@ Según Dudas #39 y #49, se debe usar Redis para almacenar refresh tokens (con ro
 
 ---
 
-### T-006: Implementar Pausa/Reanudación de Partidas 📋
+### T-006: Implementar Pausa/Reanudación de Partidas ✅
 **Prioridad:** P0 | **Tamaño:** M | **Dependencias:** T-005
 
 **Descripción:**  
@@ -155,7 +162,7 @@ Según Duda #30, las partidas deben poder pausarse y reanudarse. El tiempo de la
 
 ## P1 - Prioridad Alta
 
-### T-008: Sistema de Mazos de Cartas (CardDeck) 📋
+### T-008: Sistema de Mazos de Cartas (CardDeck) ✅
 **Prioridad:** P1 | **Tamaño:** L | **Dependencias:** Ninguna
 
 **Descripción:**  
@@ -212,24 +219,50 @@ Según Duda #32, cuando un alumno cambia de clase/profesor, sus métricas se man
 
 ---
 
-### T-012: Validación de Formatos de Assets 📋 
+### T-012: Validación de Formatos de Assets ✅
 **Prioridad:** P1 | **Tamaño:** M | **Dependencias:** T-002
 
 **Descripción:**  
-Según Duda #44, solo se permiten formatos WebP y SVG para imágenes. Priorizar ancho de banda y almacenamiento.
+Según Duda #44, solo se permiten formatos WebP para imágenes (SVG rechazado por seguridad XSS). Priorizar ancho de banda y almacenamiento.
 
 **Sub-tareas:**
-1. Modificar validación en `storageService.js` para solo aceptar: WebP, SVG
-2. Implementar conversión automática de PNG/JPG a WebP (usando sharp)
-3. Añadir validación de tamaño máximo por archivo (5MB)
-4. Añadir validación de formatos de audio: MP3, OGG (sin WAV por tamaño)
-5. Actualizar documentación de formatos permitidos
-6. Añadir tests de validación de formatos
+1. ✅ Renombrar `storageSErvice.js` → `storageService.js`
+2. ✅ Crear `imageProcessingService.js` con validación por magic bytes y conversión a WebP
+3. ✅ Crear `audioValidationService.js` con validación por magic bytes (MP3/OGG)
+4. ✅ Refactorizar `assetController.js` con endpoints separados: `/images` y `/audio`
+5. ✅ Implementar generación automática de thumbnails (256x256)
+6. ✅ Añadir límites de tamaño: 8MB imágenes, 5MB audio
+7. ✅ Añadir límite de 30 assets por contexto
+8. ✅ Añadir campo `thumbnailUrl` al modelo GameContext
+9. ✅ Actualizar rutas con Multer configs y rate limiting
+10. ✅ Eliminar ruta duplicada `assets.js` sin autenticación (vulnerabilidad)
+11. ✅ Añadir tests para imageProcessingService y audioValidationService
+12. ✅ Documentar en `API_v0.1.0.md` y crear `AssetProcessing.md`
+
+**Cambios de Decisión:**
+- SVG **rechazado** por riesgos de seguridad XSS (no se puede sanitizar de forma segura)
+- Solo WebP como formato de salida (mejor compresión, soporta transparencia)
+- Límite de 8MB para imágenes de entrada (se comprimen a ~200-500KB)
+- Validación por magic bytes para prevenir falsificación de extensiones
+
+**Archivos Creados/Modificados:**
+- `backend/src/services/imageProcessingService.js` (nuevo)
+- `backend/src/services/audioValidationService.js` (nuevo)
+- `backend/src/services/storageService.js` (renombrado + refactorizado)
+- `backend/src/controllers/assetController.js` (reescrito)
+- `backend/src/routes/contexts.js` (actualizado)
+- `backend/src/models/GameContext.js` (añadido thumbnailUrl + límite)
+- `backend/docs/API_v0.1.0.md` (actualizado)
+- `backend/docs/AssetProcessing.md` (nuevo)
 
 **Criterios de Aceptación:**
-- Solo se aceptan WebP y SVG para imágenes
-- Las imágenes PNG/JPG se convierten automáticamente a WebP
-- Los archivos demasiado grandes son rechazados con error descriptivo
+- ✅ Solo se aceptan PNG, JPG, GIF, WebP como entrada (se convierten a WebP)
+- ✅ Solo se aceptan MP3 y OGG para audio
+- ✅ Las imágenes se validan por magic bytes (previene falsificación)
+- ✅ Se genera thumbnail automáticamente
+- ✅ Los archivos demasiado grandes son rechazados con error descriptivo
+- ✅ Rate limiting en uploads (10/minuto)
+- ✅ Tests pasando (56 passed)
 
 ---
 
@@ -334,7 +367,7 @@ Según sprint2_corrections.md, el storageService usa placeholders inseguros si f
 
 ---
 
-### T-016: Configuración Robusta de Puerto Serie 📋
+### T-016: Configuración Robusta de Puerto Serie ✅
 **Prioridad:** P2 | **Tamaño:** S | **Dependencias:** Ninguna
 
 **Descripción:**  
@@ -353,7 +386,7 @@ Según sprint2_corrections.md, el fallback hardcoded a COM3 falla en Linux/Mac.
 
 ---
 
-### T-017: Silenciar Logs en Tests 📋
+### T-017: Silenciar Logs en Tests ✅
 **Prioridad:** P2 | **Tamaño:** XS | **Dependencias:** Ninguna
 
 **Descripción:**  

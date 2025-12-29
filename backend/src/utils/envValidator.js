@@ -35,7 +35,8 @@ const RECOMMENDED_ENV_VARS = [
   'PORT',
   'NODE_ENV',
   'REDIS_HOST',
-  'REDIS_PORT'
+  'REDIS_PORT',
+  'SUPABASE_BUCKET'
 ];
 
 /**

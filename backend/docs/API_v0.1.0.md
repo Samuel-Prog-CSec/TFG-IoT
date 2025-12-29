@@ -93,26 +93,186 @@ Este documento detalla los endpoints de la API REST para el Backend de Juegos Ed
 
 ### 5. Contextos de Juego (`/contexts`)
 
-| Método | Endpoint | Descripción | Acceso |
-|:-------|:---------|:------------|:-------|
-| `GET` | `/` | Listar contextos | Profesor |
-| `GET` | `/:id` | Obtener detalles de contexto | Profesor |
-| `GET` | `/:id/assets` | Obtener recursos (assets) del contexto | Profesor |
-| `POST` | `/` | Crear nuevo contexto | Profesor |
-| `POST` | `/:id/assets` | Añadir recurso al contexto | Profesor |
-| `PUT` | `/:id` | Actualizar contexto | Profesor |
-| `DELETE` | `/:id` | Eliminar contexto | Profesor |
-| `DELETE` | `/:id/assets/:key` | Eliminar recurso | Profesor |
+| Método | Endpoint | Descripción | Acceso | Rate Limit |
+|:-------|:---------|:------------|:-------|:-----------|
+| `GET` | `/` | Listar contextos | Profesor | - |
+| `GET` | `/:id` | Obtener detalles de contexto | Profesor | - |
+| `GET` | `/:id/assets` | Obtener recursos (assets) del contexto | Profesor | - |
+| `GET` | `/upload-config` | Obtener configuración de subida de assets | Profesor | - |
+| `POST` | `/` | Crear nuevo contexto | Profesor | Creación |
+| `POST` | `/:id/images` | Subir imagen al contexto (WebP) | Profesor | Upload |
+| `POST` | `/:id/audio` | Subir audio al contexto (MP3/OGG) | Profesor | Upload |
+| `PUT` | `/:id` | Actualizar contexto | Profesor | Creación |
+| `DELETE` | `/:id` | Eliminar contexto | Profesor | Creación |
+| `DELETE` | `/:id/images/:assetKey` | Eliminar imagen del asset | Profesor | - |
+| `DELETE` | `/:id/audio/:assetKey` | Eliminar audio del asset | Profesor | - |
+
+#### Rate Limits Especiales
+- **Upload:** 10 subidas / minuto por IP
+
+#### Límites de Assets
+- **Máximo:** 30 assets por contexto
+
+---
+
+#### GET `/contexts/upload-config`
+
+Obtiene la configuración actual de subida de assets.
+
+**Respuesta (200):**
+```json
+{
+  "success": true,
+  "data": {
+    "image": {
+      "allowedFormats": ["PNG", "JPG", "JPEG", "GIF", "WebP"],
+      "outputFormat": "WebP",
+      "maxInputSizeMB": 8,
+      "minDimensions": { "width": 256, "height": 256 },
+      "maxDimensions": { "width": 2048, "height": 2048 },
+      "thumbnailDimensions": { "width": 256, "height": 256 }
+    },
+    "audio": {
+      "allowedFormats": ["MP3", "OGG"],
+      "maxSizeMB": 5,
+      "recommendedMaxDurationSeconds": 30
+    },
+    "maxAssetsPerContext": 30,
+    "storageEnabled": true
+  }
+}
+```
+
+---
+
+#### POST `/:id/images`
+
+Sube una imagen a un asset del contexto. La imagen se procesa automáticamente:
+- Se valida el tipo real mediante magic bytes (previene falsificación de extensiones)
+- Se convierte a formato WebP (calidad 85%)
+- Se redimensiona si excede 768x768 (manteniendo aspect ratio)
+- Se genera un thumbnail de 256x256
+
+**Headers:**
+- `Content-Type: multipart/form-data`
+
+**Form Data:**
+- `image`: Archivo de imagen (PNG, JPG, GIF, WebP)
+- `key`: Identificador único del asset (ej: "espana")
+- `value`: Valor textual del asset (ej: "España")
+- `display`: Representación visual (emoji/texto) - opcional
+
+**Respuesta (201):**
+```json
+{
+  "success": true,
+  "message": "Imagen subida y procesada correctamente",
+  "data": {
+    "key": "espana",
+    "value": "España",
+    "display": "🇪🇸",
+    "imageUrl": "https://storage.supabase.co/.../espana_main.webp",
+    "thumbnailUrl": "https://storage.supabase.co/.../espana_thumb.webp"
+  }
+}
+```
+
+**Errores comunes:**
+- `400` - Archivo no proporcionado o formato inválido
+- `400` - Imagen demasiado pequeña (< 256x256)
+- `400` - Límite de assets alcanzado (30)
+- `404` - Contexto no encontrado
+- `413` - Archivo demasiado grande (> 8MB)
+
+---
+
+#### POST `/:id/audio`
+
+Sube un archivo de audio a un asset existente del contexto.
+
+**Headers:**
+- `Content-Type: multipart/form-data`
+
+**Form Data:**
+- `audio`: Archivo de audio (MP3, OGG)
+- `key`: Identificador del asset al que asociar el audio
+
+**Respuesta (200):**
+```json
+{
+  "success": true,
+  "message": "Audio subido correctamente",
+  "data": {
+    "key": "espana",
+    "audioUrl": "https://storage.supabase.co/.../espana.mp3"
+  }
+}
+```
+
+**Errores comunes:**
+- `400` - Archivo no proporcionado o formato inválido
+- `404` - Contexto o asset no encontrado
+- `413` - Archivo demasiado grande (> 5MB)
+
+---
+
+#### DELETE `/:id/images/:assetKey`
+
+Elimina la imagen (y thumbnail) de un asset específico.
+
+**Respuesta (200):**
+```json
+{
+  "success": true,
+  "message": "Imagen eliminada correctamente"
+}
+```
+
+---
+
+#### DELETE `/:id/audio/:assetKey`
+
+Elimina el audio de un asset específico.
+
+**Respuesta (200):**
+```json
+{
+  "success": true,
+  "message": "Audio eliminado correctamente"
+}
+```
+
+---
+
+**Estructura de Asset (modelo):**
+```json
+{
+  "key": "espana",
+  "display": "🇪🇸",
+  "value": "España",
+  "imageUrl": "https://storage.supabase.co/.../espana_main.webp",
+  "thumbnailUrl": "https://storage.supabase.co/.../espana_thumb.webp",
+  "audioUrl": "https://storage.supabase.co/.../espana.mp3"
+}
+```
 
 **Estructura (Crear Contexto):**
 ```json
 {
   "name": "Conceptos Básicos",
   "description": "Sumas sencillas",
-  "mechanicId": "...",
-  "assets": [...]
+  "contextId": "matematicas",
+  "assets": [
+    {
+      "key": "uno",
+      "display": "1️⃣",
+      "value": "Uno"
+    }
+  ]
 }
 ```
+
+**Nota:** Las imágenes y audios se suben después de crear el contexto, usando los endpoints de upload.
 
 ---
 
@@ -325,4 +485,12 @@ No borra el documento: cambia `status` a `archived`.
 - Para `pause_play` y `resume_play` se requiere `accessToken` (JWT) en el payload. El backend lo valida junto con el fingerprint del dispositivo (headers del handshake).
 
 ---
-*Generado: 15-12-2025*
+
+## Documentación Relacionada
+
+- **[AssetProcessing.md](./AssetProcessing.md)** - Guía completa de procesamiento de imágenes y audio
+- **[WebSockets-ExtendedUsage.md](./WebSockets-ExtendedUsage.md)** - Uso extendido de WebSockets
+
+---
+*Última actualización: 29-12-2025*
+*Versión: 0.1.0*

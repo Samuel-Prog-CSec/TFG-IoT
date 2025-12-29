@@ -40,11 +40,14 @@ describe('storageService', () => {
     expect(storageService.supabase).toBe(null);
     expect(mockLogger.warn).toHaveBeenCalled();
 
+    // Nueva firma: uploadFile(buffer, contextId, type, originalFilename, mimeType)
     await expect(
       storageService.uploadFile(
-        { buffer: Buffer.from('x'), mimetype: 'text/plain', originalname: 'a.txt' },
+        Buffer.from('x'),
         'ctx1',
-        'misc'
+        'misc',
+        'a.txt',
+        'text/plain'
       )
     ).rejects.toThrow('Fallo en la subida del archivo');
 
@@ -85,10 +88,13 @@ describe('storageService', () => {
 
     const storageService = require('../src/services/storageService');
 
+    // Nueva firma: uploadFile(buffer, contextId, type, originalFilename, mimeType)
     const url = await storageService.uploadFile(
-      { buffer: Buffer.from('x'), mimetype: 'text/plain', originalname: 'a b.txt' },
+      Buffer.from('x'),
       'ctx1',
-      'misc'
+      'misc',
+      'a b.txt',
+      'text/plain'
     );
 
     expect(url).toBe('https://public/url');

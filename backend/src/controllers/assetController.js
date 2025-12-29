@@ -1,147 +1,406 @@
 /**
  * @fileoverview Controlador para la gestión de assets (recursos multimedia) de los contextos de juego.
- * Gestiona la subida de archivos y su vinculación con los registros de MongoDB.
+ * Gestiona la subida de imágenes (WebP) y audio (MP3/OGG) con validación y procesamiento.
  * @module controllers/assetController
  */
 
 const GameContext = require('../models/GameContext');
 const storageService = require('../services/storageService');
+const imageProcessingService = require('../services/imageProcessingService');
+const audioValidationService = require('../services/audioValidationService');
+const logger = require('../utils/logger');
+const { NotFoundError, ValidationError, ConflictError } = require('../utils/errors');
 
 /**
- * Sube un nuevo asset (imagen o audio) y lo vincula a un contexto existente.
- *
- * Flujo de operación:
- * 1. Valida la presencia del archivo y el tipo correcto.
- * 2. Verifica la existencia del GameContext en MongoDB.
- * 3. Sube el archivo físico a Supabase Storage a través del {@link storageService}.
- * 4. Crea el objeto asset y lo añade al array de assets del contexto.
- * 5. Guarda los cambios en MongoDB.
- *
- * Implementa estrategia de ROLLBACK:
- * Si falla el guardado en MongoDB después de subir el archivo, intenta eliminar
- * el archivo de Supabase para mantener la consistencia y no dejar archivos huérfanos.
+ * Límite máximo de assets por contexto.
+ * @constant {number}
+ */
+const MAX_ASSETS_PER_CONTEXT = 30;
+
+/**
+ * Verifica que el contexto existe y no ha alcanzado el límite de assets.
  *
  * @async
- * @function uploadAsset
- * @param {Object} req - Objeto de petición Express.
- * @param {Object} req.params - Parámetros de la URL.
- * @param {string} req.params.contextId - ID del contexto al que se añadirá el asset.
- * @param {Object} req.body - Cuerpo de la petición (multipart/form-data).
- * @param {string} req.body.key - Clave única identificadora del asset (ej: 'lion').
- * @param {string} req.body.value - Valor o etiqueta del asset (ej: 'León').
- * @param {string} req.body.type - Tipo de asset: 'image' | 'audio'.
- * @param {Object} req.file - Archivo subido procesado por Multer.
- * @param {Object} res - Objeto de respuesta Express.
- * @returns {Promise<void>} Envía una respuesta JSON con el asset creado o un error.
+ * @param {string} contextId - ID del contexto
+ * @returns {Promise<Object>} El documento del contexto
+ * @throws {NotFoundError} Si el contexto no existe
+ * @throws {ValidationError} Si se alcanzó el límite de assets
  */
-exports.uploadAsset = async (req, res) => {
-  let publicUrl = null;
+async function getContextAndValidateLimit(contextId) {
+  const context = await GameContext.findById(contextId);
+
+  if (!context) {
+    throw new NotFoundError('Contexto de juego');
+  }
+
+  if (context.assets.length >= MAX_ASSETS_PER_CONTEXT) {
+    throw new ValidationError(
+      `El contexto ha alcanzado el límite máximo de ${MAX_ASSETS_PER_CONTEXT} assets`
+    );
+  }
+
+  return context;
+}
+
+/**
+ * Verifica que la key del asset no exista ya en el contexto.
+ *
+ * @param {Object} context - Documento del contexto
+ * @param {string} key - Clave del asset a verificar
+ * @throws {ConflictError} Si la key ya existe
+ */
+function validateUniqueKey(context, key) {
+  const existingAsset = context.assets.find(asset => asset.key === key.toLowerCase());
+
+  if (existingAsset) {
+    throw new ConflictError('Un asset con esta key ya existe en este contexto');
+  }
+}
+
+/**
+ * Sube una nueva imagen y la vincula a un contexto existente.
+ * Procesa la imagen: valida, convierte a WebP, redimensiona y genera thumbnail.
+ *
+ * POST /api/contexts/:id/images
+ * Headers: Authorization: Bearer <token>
+ * Body: multipart/form-data { file, key, value, display? }
+ *
+ * @async
+ * @param {import('express').Request} req
+ * @param {import('express').Response} res
+ * @param {import('express').NextFunction} next
+ */
+const uploadImage = async (req, res, next) => {
+  let imageUrl = null;
+  let thumbnailUrl = null;
 
   try {
-    const { contextId } = req.params;
-    const { key, value, type } = req.body; // type: 'image' | 'audio'
+    const { id: contextId } = req.params;
+    const { key, value, display } = req.body;
     const file = req.file;
 
+    // Validaciones básicas
     if (!file) {
-      return res.status(400).json({ success: false, error: 'No se ha subido ningún archivo' });
+      throw new ValidationError('No se ha subido ningún archivo');
     }
 
-    if (!['image', 'audio'].includes(type)) {
-      return res.status(400).json({ success: false, error: 'El tipo debe ser "image" o "audio"' });
+    if (!key || !value) {
+      throw new ValidationError('Los campos key y value son requeridos');
     }
 
-    // 1. Verificar que el contexto existe
-    const context = await GameContext.findById(contextId);
-    if (!context) {
-      return res.status(404).json({ success: false, error: 'Contexto no encontrado' });
-    }
+    // Obtener contexto y validar límite
+    const context = await getContextAndValidateLimit(contextId);
 
-    // 2. Subir a Supabase
-    // Pasamos fileName, contextId y type para ordenar la carpeta
-    publicUrl = await storageService.uploadFile(file, contextId, type);
+    // Validar key única
+    validateUniqueKey(context, key);
 
-    // 3. Construir el nuevo objeto Asset
+    // Procesar imagen (validación, conversión a WebP, thumbnail)
+    const { mainImage, thumbnail, metadata } = await imageProcessingService.processImage(file);
+
+    // Subir imagen principal a Supabase
+    imageUrl = await storageService.uploadFile(
+      mainImage,
+      contextId,
+      'image',
+      `${key}.webp`,
+      'image/webp'
+    );
+
+    // Subir thumbnail
+    thumbnailUrl = await storageService.uploadFile(
+      thumbnail,
+      contextId,
+      'thumbnail',
+      `${key}_thumb.webp`,
+      'image/webp'
+    );
+
+    // Construir nuevo asset
     const newAsset = {
-      key,
+      key: key.toLowerCase(),
       value,
-      display: value,
-      // Asignación dinámica según el tipo
-      imageUrl: type === 'image' ? publicUrl : undefined,
-      audioUrl: type === 'audio' ? publicUrl : undefined
+      display: display || value,
+      imageUrl,
+      thumbnailUrl
     };
 
-    // 4. Guardar en MongoDB
+    // Guardar en MongoDB
     context.assets.push(newAsset);
     await context.save();
 
+    logger.info('Imagen subida exitosamente', {
+      contextId: context.contextId,
+      assetKey: key,
+      uploadedBy: req.user._id,
+      metadata
+    });
+
     res.status(201).json({
       success: true,
-      data: newAsset,
-      message: 'Asset subido y vinculado correctamente'
+      message: 'Imagen subida y procesada correctamente',
+      data: {
+        asset: newAsset,
+        processing: {
+          originalDimensions: `${metadata.originalWidth}x${metadata.originalHeight}`,
+          format: metadata.format,
+          quality: metadata.quality
+        }
+      }
     });
   } catch (error) {
-    // Rollback: Si falló algo después de subir la imagen (ej: error en mongo),
-    // intentamos borrar la imagen de Supabase para no dejar basura.
-    if (publicUrl) {
-      await storageService.deleteFile(publicUrl);
+    // Rollback: eliminar archivos subidos si falló algo después
+    if (imageUrl) {
+      await storageService.deleteFile(imageUrl);
+    }
+    if (thumbnailUrl) {
+      await storageService.deleteFile(thumbnailUrl);
     }
 
-    console.error(error);
-    res.status(500).json({ success: false, error: error.message });
+    next(error);
   }
 };
 
 /**
- * Elimina un asset de un contexto, borrando tanto el archivo de Supabase como el registro en MongoDB.
+ * Sube un nuevo archivo de audio y lo vincula a un contexto existente.
+ * Valida el formato por magic bytes (MP3/OGG).
  *
- * Flujo de operación:
- * 1. Busca el contexto y el asset específico dentro del array de assets.
- * 2. Si el asset tiene URLs asociadas (imagen o audio), llama a {@link storageService.deleteFile} para limpiar Supabase.
- * 3. Elimina el subdocumento del array de assets usando el método `pull()`.
- * 4. Guarda el contexto actualizado.
+ * POST /api/contexts/:id/audio
+ * Headers: Authorization: Bearer <token>
+ * Body: multipart/form-data { file, key, value, display? }
  *
  * @async
- * @function deleteAsset
- * @param {Object} req - Objeto de petición Express.
- * @param {string} req.params.contextId - ID del contexto.
- * @param {string} req.params.assetId - ID (_id) del asset a eliminar.
- * @param {Object} res - Objeto de respuesta Express.
- * @returns {Promise<void>}
+ * @param {import('express').Request} req
+ * @param {import('express').Response} res
+ * @param {import('express').NextFunction} next
  */
-exports.deleteAsset = async (req, res) => {
+const uploadAudio = async (req, res, next) => {
+  let audioUrl = null;
+
   try {
-    const { contextId, assetId } = req.params;
+    const { id: contextId } = req.params;
+    const { key, value, display } = req.body;
+    const file = req.file;
 
-    // 1. Buscar el contexto
+    // Validaciones básicas
+    if (!file) {
+      throw new ValidationError('No se ha subido ningún archivo');
+    }
+
+    if (!key || !value) {
+      throw new ValidationError('Los campos key y value son requeridos');
+    }
+
+    // Obtener contexto y validar límite
+    const context = await getContextAndValidateLimit(contextId);
+
+    // Validar key única
+    validateUniqueKey(context, key);
+
+    // Validar audio (magic bytes, tamaño)
+    const { buffer, metadata } = await audioValidationService.validateAudio(file);
+
+    // Subir a Supabase
+    audioUrl = await storageService.uploadFile(
+      buffer,
+      contextId,
+      'audio',
+      `${key}.${metadata.format}`,
+      metadata.mime
+    );
+
+    // Construir nuevo asset
+    const newAsset = {
+      key: key.toLowerCase(),
+      value,
+      display: display || value,
+      audioUrl
+    };
+
+    // Guardar en MongoDB
+    context.assets.push(newAsset);
+    await context.save();
+
+    logger.info('Audio subido exitosamente', {
+      contextId: context.contextId,
+      assetKey: key,
+      uploadedBy: req.user._id,
+      format: metadata.formatName,
+      size: metadata.size
+    });
+
+    res.status(201).json({
+      success: true,
+      message: 'Audio subido y vinculado correctamente',
+      data: {
+        asset: newAsset,
+        metadata: {
+          format: metadata.formatName,
+          size: `${(metadata.size / 1024).toFixed(1)} KB`
+        }
+      }
+    });
+  } catch (error) {
+    // Rollback: eliminar archivo si falló después de subir
+    if (audioUrl) {
+      await storageService.deleteFile(audioUrl);
+    }
+
+    next(error);
+  }
+};
+
+/**
+ * Elimina una imagen de un contexto, borrando archivos de Supabase y registro en MongoDB.
+ *
+ * DELETE /api/contexts/:id/images/:assetKey
+ * Headers: Authorization: Bearer <token>
+ *
+ * @async
+ * @param {import('express').Request} req
+ * @param {import('express').Response} res
+ * @param {import('express').NextFunction} next
+ */
+const deleteImage = async (req, res, next) => {
+  try {
+    const { id: contextId, assetKey } = req.params;
+
     const context = await GameContext.findById(contextId);
+
     if (!context) {
-      return res.status(404).json({ success: false, error: 'Contexto no encontrado' });
+      throw new NotFoundError('Contexto de juego');
     }
 
-    // 2. Buscar el asset dentro del array
-    const asset = context.assets.id(assetId);
-    if (!asset) {
-      return res.status(404).json({ success: false, error: 'Asset no encontrado' });
+    // Buscar asset por key
+    const assetIndex = context.assets.findIndex(
+      asset => asset.key === assetKey.toLowerCase() && asset.imageUrl
+    );
+
+    if (assetIndex === -1) {
+      throw new NotFoundError('Asset de imagen');
     }
 
-    // 3. Eliminar archivos de Supabase si existen
+    const asset = context.assets[assetIndex];
+
+    // Verificar que queden al menos 2 assets después de eliminar
+    if (context.assets.length <= 2) {
+      throw new ValidationError('El contexto debe tener al menos 2 assets');
+    }
+
+    // Eliminar archivos de Supabase
     if (asset.imageUrl) {
       await storageService.deleteFile(asset.imageUrl);
     }
+    if (asset.thumbnailUrl) {
+      await storageService.deleteFile(asset.thumbnailUrl);
+    }
+
+    // Eliminar asset del array
+    context.assets.splice(assetIndex, 1);
+    await context.save();
+
+    logger.info('Imagen eliminada exitosamente', {
+      contextId: context.contextId,
+      assetKey,
+      deletedBy: req.user._id
+    });
+
+    res.json({
+      success: true,
+      message: 'Imagen eliminada correctamente'
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+/**
+ * Elimina un audio de un contexto, borrando archivo de Supabase y registro en MongoDB.
+ *
+ * DELETE /api/contexts/:id/audio/:assetKey
+ * Headers: Authorization: Bearer <token>
+ *
+ * @async
+ * @param {import('express').Request} req
+ * @param {import('express').Response} res
+ * @param {import('express').NextFunction} next
+ */
+const deleteAudio = async (req, res, next) => {
+  try {
+    const { id: contextId, assetKey } = req.params;
+
+    const context = await GameContext.findById(contextId);
+
+    if (!context) {
+      throw new NotFoundError('Contexto de juego');
+    }
+
+    // Buscar asset por key
+    const assetIndex = context.assets.findIndex(
+      asset => asset.key === assetKey.toLowerCase() && asset.audioUrl
+    );
+
+    if (assetIndex === -1) {
+      throw new NotFoundError('Asset de audio');
+    }
+
+    const asset = context.assets[assetIndex];
+
+    // Verificar que queden al menos 2 assets después de eliminar
+    if (context.assets.length <= 2) {
+      throw new ValidationError('El contexto debe tener al menos 2 assets');
+    }
+
+    // Eliminar archivo de Supabase
     if (asset.audioUrl) {
       await storageService.deleteFile(asset.audioUrl);
     }
 
-    // 4. Eliminar el asset del array y guardar
-    context.assets.pull({ _id: assetId });
+    // Eliminar asset del array
+    context.assets.splice(assetIndex, 1);
     await context.save();
 
-    res.status(200).json({
+    logger.info('Audio eliminado exitosamente', {
+      contextId: context.contextId,
+      assetKey,
+      deletedBy: req.user._id
+    });
+
+    res.json({
       success: true,
-      message: 'Asset eliminado correctamente'
+      message: 'Audio eliminado correctamente'
     });
   } catch (error) {
-    console.error(error);
-    res.status(500).json({ success: false, error: error.message });
+    next(error);
   }
+};
+
+/**
+ * Obtiene la configuración de límites para uploads.
+ * Útil para que el frontend muestre información al usuario.
+ *
+ * GET /api/contexts/upload-config
+ * Headers: Authorization: Bearer <token>
+ *
+ * @param {import('express').Request} req
+ * @param {import('express').Response} res
+ */
+const getUploadConfig = (req, res) => {
+  res.json({
+    success: true,
+    data: {
+      image: imageProcessingService.getConfig(),
+      audio: audioValidationService.getConfig(),
+      maxAssetsPerContext: MAX_ASSETS_PER_CONTEXT,
+      storageEnabled: storageService.isEnabled()
+    }
+  });
+};
+
+module.exports = {
+  uploadImage,
+  uploadAudio,
+  deleteImage,
+  deleteAudio,
+  getUploadConfig,
+  MAX_ASSETS_PER_CONTEXT
 };

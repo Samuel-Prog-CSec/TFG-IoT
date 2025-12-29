@@ -40,8 +40,16 @@ const mongoose = require('mongoose');
  * @property {string} [display] - Representación visual del elemento (ej: emoji de bandera '🇪🇸')
  * @property {string} value - Valor textual del elemento (ej: 'España', 'Francia')
  * @property {string} [audioUrl] - URL del archivo de audio en Supabase Storage (duda #12)
- * @property {string} [imageUrl] - URL de la imagen en Supabase Storage (duda #12)
+ * @property {string} [imageUrl] - URL de la imagen principal en Supabase Storage (768x768 max, WebP)
+ * @property {string} [thumbnailUrl] - URL del thumbnail en Supabase Storage (256x256, WebP)
  */
+
+/**
+ * Límite máximo de assets por contexto.
+ * @constant {number}
+ */
+const MAX_ASSETS_PER_CONTEXT = 30;
+
 const gameContextSchema = new mongoose.Schema(
   {
     contextId: {
@@ -74,7 +82,8 @@ const gameContextSchema = new mongoose.Schema(
           trim: true
         },
         audioUrl: String,
-        imageUrl: String
+        imageUrl: String,
+        thumbnailUrl: String
       }
     ]
   },
@@ -86,16 +95,20 @@ const gameContextSchema = new mongoose.Schema(
 
 /**
  * Validación personalizada para el array de assets.
- * Asegura que cada contexto tenga al menos un asset disponible.
+ * Asegura que cada contexto tenga al menos un asset y no exceda el máximo.
  *
  * @param {Array<Asset>} value - El array de assets a validar
- * @returns {boolean} true si el array no está vacío, false en caso contrario
+ * @returns {boolean} true si el array cumple las restricciones
  */
 gameContextSchema.path('assets').validate(value => {
   if (value.length === 0) {
     return false;
   }
+  if (value.length > MAX_ASSETS_PER_CONTEXT) {
+    return false;
+  }
   return true;
-}, 'El array de assets no puede estar vacío.');
+}, `El array de assets debe tener entre 1 y ${MAX_ASSETS_PER_CONTEXT} elementos.`);
 
 module.exports = mongoose.model('GameContext', gameContextSchema);
+module.exports.MAX_ASSETS_PER_CONTEXT = MAX_ASSETS_PER_CONTEXT;

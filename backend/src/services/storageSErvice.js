@@ -6,12 +6,22 @@
  */
 
 const { createClient } = require('@supabase/supabase-js');
+const path = require('path');
 const logger = require('../utils/logger');
 
 // Variables de entorno
 const SUPABASE_URL = process.env.SUPABASE_URL;
 const SUPABASE_KEY = process.env.SUPABASE_SERVICE_KEY; // Service Key para permisos de escritura backend
-const BUCKET_NAME = 'game-assets';
+const BUCKET_NAME = process.env.SUPABASE_BUCKET || 'game-assets';
+
+/**
+ * Configuración del servicio de storage.
+ * @constant {Object}
+ */
+const STORAGE_CONFIG = {
+  // Longitud máxima para nombres de archivo sanitizados
+  MAX_FILENAME_LENGTH: 50
+};
 
 /**
  * Clase Singleton para interactuar con el bucket de almacenamiento de Supabase.
@@ -50,33 +60,31 @@ class StorageService {
    * Esto garantiza orden y evita colisiones de nombres.
    *
    * @async
-   * @param {Object} file - Objeto file proporcionado por Multer.
-   * @param {Buffer} file.buffer - El contenido binario del archivo.
-   * @param {string} file.mimetype - El tipo MIME del archivo (ej: 'image/png').
-   * @param {string} file.originalname - El nombre original del archivo subido.
-   * @param {string} contextId - El ID del GameContext asociado (para crear la carpeta carpeta contenedora).
-   * @param {string} [type='misc'] - Categoría del asset ('image' o 'audio') para subcarpeta.
+   * @param {Buffer} buffer - El contenido binario del archivo.
+   * @param {string} contextId - El ID del GameContext asociado (para crear la carpeta contenedora).
+   * @param {string} type - Categoría del asset ('image', 'audio', 'thumbnail').
+   * @param {string} originalFilename - El nombre original del archivo subido.
+   * @param {string} mimeType - El tipo MIME del archivo (ej: 'image/webp').
    * @returns {Promise<string>} La URL pública absoluta del archivo subido.
    * @throws {Error} Si ocurre un error durante la subida o la configuración de Supabase.
    */
-  async uploadFile(file, contextId, type = 'misc') {
+  async uploadFile(buffer, contextId, type, originalFilename, mimeType) {
     try {
       if (!this.enabled || !this.supabase) {
         throw new Error('Storage deshabilitado: faltan credenciales de Supabase');
       }
-      // 1. Generar nombre único y path
+
+      // 1. Generar nombre único y path sanitizado
       const timestamp = Date.now();
-      const sanitizedName = file.originalname.replace(/[^a-zA-Z0-9.]/g, '_');
-      // Folder structure: ctx-123/image/123456-lion.png
+      const sanitizedName = this.sanitizeFilename(originalFilename);
+      // Folder structure: ctx-123/image/123456-lion.webp
       const filePath = `ctx-${contextId}/${type}/${timestamp}-${sanitizedName}`;
 
       // 2. Subir el archivo (Buffer)
-      const { error } = await this.supabase.storage
-        .from(BUCKET_NAME)
-        .upload(filePath, file.buffer, {
-          contentType: file.mimetype,
-          upsert: false
-        });
+      const { error } = await this.supabase.storage.from(BUCKET_NAME).upload(filePath, buffer, {
+        contentType: mimeType,
+        upsert: false
+      });
 
       if (error) {
         throw error;
@@ -87,12 +95,34 @@ class StorageService {
         .from(BUCKET_NAME)
         .getPublicUrl(filePath);
 
-      logger.info(`Archivo subido exitosamente: ${filePath}`);
+      logger.info('Archivo subido exitosamente', { filePath, type, size: buffer.length });
       return publicUrlData.publicUrl;
     } catch (error) {
-      logger.error(`Error subiendo a Supabase: ${error.message}`);
+      logger.error('Error subiendo a Supabase', { error: error.message, type, contextId });
       throw new Error('Fallo en la subida del archivo');
     }
+  }
+
+  /**
+   * Sanitiza el nombre de archivo para prevenir ataques de path traversal y caracteres inválidos.
+   *
+   * @param {string} filename - Nombre original del archivo
+   * @returns {string} Nombre sanitizado seguro
+   */
+  sanitizeFilename(filename) {
+    // Extraer extensión y base por separado
+    const ext = path.extname(filename).toLowerCase();
+    const base = path.basename(filename, ext);
+
+    // Sanitizar la base: solo alfanuméricos y guiones bajos
+    const sanitizedBase = base
+      .replace(/[^a-zA-Z0-9]/g, '_')
+      .replace(/_+/g, '_') // Colapsar múltiples guiones bajos
+      .replace(/^_|_$/g, '') // Eliminar guiones al inicio/final
+      .substring(0, STORAGE_CONFIG.MAX_FILENAME_LENGTH);
+
+    // Devolver con extensión si existe
+    return sanitizedBase ? `${sanitizedBase}${ext}` : `file${ext}`;
   }
 
   /**
@@ -126,13 +156,32 @@ class StorageService {
         throw error;
       }
 
-      logger.info(`Archivo eliminado exitosamente: ${filePath}`);
+      logger.info('Archivo eliminado exitosamente', { filePath });
     } catch (error) {
-      logger.error(`Error eliminando de Supabase: ${error.message}`);
+      logger.error('Error eliminando de Supabase', { error: error.message, publicUrl });
       // No lanzamos error para no romper flujos principales si falla la limpieza,
       // pero logueamos el error.
     }
   }
+
+  /**
+   * Verifica si el servicio de storage está habilitado.
+   *
+   * @returns {boolean} true si el servicio está disponible
+   */
+  isEnabled() {
+    return this.enabled;
+  }
+
+  /**
+   * Obtiene el nombre del bucket actual.
+   *
+   * @returns {string} Nombre del bucket
+   */
+  getBucketName() {
+    return BUCKET_NAME;
+  }
 }
 
 module.exports = new StorageService();
+module.exports.STORAGE_CONFIG = STORAGE_CONFIG;
