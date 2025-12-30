@@ -311,7 +311,8 @@ const gameContextDTO = context => {
         display: asset.display,
         value: asset.value,
         audioUrl: asset.audioUrl,
-        imageUrl: asset.imageUrl
+        imageUrl: asset.imageUrl,
+        thumbnailUrl: asset.thumbnailUrl
       })) || [],
     createdAt: contextData.createdAt,
     updatedAt: contextData.updatedAt
