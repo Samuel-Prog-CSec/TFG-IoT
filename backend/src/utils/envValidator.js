@@ -34,10 +34,18 @@ const RECOMMENDED_ENV_VARS = [
   'JWT_REFRESH_EXPIRES_IN',
   'PORT',
   'NODE_ENV',
-  'REDIS_HOST',
-  'REDIS_PORT',
+  'REDIS_URL',
+  'REDIS_KEY_PREFIX',
   'SUPABASE_BUCKET'
 ];
+
+/**
+ * Variables REQUERIDAS en producción para Redis.
+ * En desarrollo se usa localhost por defecto.
+ *
+ * @type {string[]}
+ */
+const REQUIRED_REDIS_IN_PRODUCTION = ['REDIS_URL'];
 
 /**
  * Valida que todas las variables requeridas estén configuradas.
@@ -114,6 +122,20 @@ function validateEnv() {
     }
   }
 
+  // Redis: requerido en producción para tokens y estado de partidas
+  // En desarrollo se usa redis://localhost:6379 por defecto
+  if (!process.env.REDIS_URL) {
+    if (isProduction) {
+      for (const envVar of REQUIRED_REDIS_IN_PRODUCTION) {
+        missing.push(envVar);
+      }
+    } else {
+      // En desarrollo, establecer default y advertir
+      process.env.REDIS_URL = 'redis://localhost:6379';
+      warnings.push('REDIS_URL (usando redis://localhost:6379)');
+    }
+  }
+
   // Validar recomendadas
   for (const envVar of RECOMMENDED_ENV_VARS) {
     if (!process.env[envVar]) {
@@ -144,6 +166,11 @@ function validateEnv() {
   // Validar formato de MONGO_URI
   // En tests puede venir de mongodb-memory-server u override en setup
   validateMongoURI();
+
+  // Validar formato de REDIS_URL
+  if (process.env.REDIS_URL) {
+    validateRedisURL();
+  }
 
   // Warnings para recomendadas
   if (warnings.length > 0) {
@@ -229,6 +256,38 @@ function validateMongoURI() {
   const uriWithoutProtocol = mongoUri.replace(/^mongodb(\+srv)?:\/\//, '');
   if (uriWithoutProtocol.length === 0) {
     throw new Error(`MONGO_URI está incompleto.\n` + `Debe incluir host y base de datos.`);
+  }
+}
+
+/**
+ * Valida que REDIS_URL tenga formato correcto.
+ * Soporta redis:// y rediss:// (TLS).
+ * @throws {Error} Si el formato es inválido
+ */
+function validateRedisURL() {
+  const redisUrl = process.env.REDIS_URL;
+
+  // Validar que empiece con redis:// o rediss://
+  if (!redisUrl.startsWith('redis://') && !redisUrl.startsWith('rediss://')) {
+    throw new Error(
+      `REDIS_URL tiene formato inválido.\n` +
+        `Debe empezar con 'redis://' o 'rediss://' (TLS).\n` +
+        `Ejemplo: redis://localhost:6379 o rediss://user:pass@host:6379`
+    );
+  }
+
+  // Validar que se pueda parsear como URL
+  try {
+    const url = new URL(redisUrl);
+    if (!url.hostname) {
+      throw new Error('Falta hostname en REDIS_URL');
+    }
+  } catch (error) {
+    throw new Error(
+      `REDIS_URL no es una URL válida.\n` +
+        `Error: ${error.message}\n` +
+        `Ejemplo correcto: redis://localhost:6379`
+    );
   }
 }
 

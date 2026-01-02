@@ -46,7 +46,7 @@ describe('Game Full Flow', () => {
             role: 'teacher',
             status: 'active'
         });
-        teacherToken = generateTokenPair(teacherUser, mockReq).accessToken;
+        teacherToken = (await generateTokenPair(teacherUser, mockReq)).accessToken;
 
         const student = await User.create({
             name: 'Game Student',

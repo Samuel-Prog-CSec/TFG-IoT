@@ -1,4 +1,6 @@
 const mockAdminPing = jest.fn();
+const mockIsRedisConnected = jest.fn();
+const mockPingRedis = jest.fn();
 
 jest.mock('mongoose', () => ({
   connection: {
@@ -13,6 +15,12 @@ jest.mock('mongoose', () => ({
   }
 }));
 
+// Mock de Redis config
+jest.mock('../src/config/redis', () => ({
+  isRedisConnected: () => mockIsRedisConnected(),
+  ping: () => mockPingRedis()
+}));
+
 jest.mock('../src/utils/logger', () => ({
   info: jest.fn(),
   warn: jest.fn(),
@@ -24,6 +32,11 @@ describe('healthCheck utils', () => {
   beforeEach(() => {
     jest.resetModules();
     mockAdminPing.mockReset();
+    mockIsRedisConnected.mockReset();
+    mockPingRedis.mockReset();
+    // Por defecto, Redis está conectado
+    mockIsRedisConnected.mockReturnValue(true);
+    mockPingRedis.mockResolvedValue({ connected: true, latency: 1 });
   });
 
   it('checkRFIDHealth returns not_initialized when no service', async () => {

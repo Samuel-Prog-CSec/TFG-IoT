@@ -19,6 +19,7 @@ const helmet = require('helmet');
 const compression = require('compression');
 const { Server } = require('socket.io');
 const { connectDB, disconnectDB } = require('./config/database');
+const { connectRedis, disconnectRedis } = require('./config/redis');
 const { initSentry, Sentry } = require('./config/sentry');
 const {
   corsOptions,
@@ -318,7 +319,7 @@ io.on('connection', socket => {
 
         // Reusar verifyAccessToken (fingerprint basado en headers del handshake)
         const mockReq = { headers: socket.handshake.headers };
-        const decoded = verifyAccessToken(accessToken, mockReq);
+        const decoded = await verifyAccessToken(accessToken, mockReq);
 
         if (decoded.role !== 'teacher') {
           socket.emit('error', { message: 'Solo un profesor puede pausar partidas' });
@@ -350,7 +351,7 @@ io.on('connection', socket => {
         }
 
         const mockReq = { headers: socket.handshake.headers };
-        const decoded = verifyAccessToken(accessToken, mockReq);
+        const decoded = await verifyAccessToken(accessToken, mockReq);
 
         if (decoded.role !== 'teacher') {
           socket.emit('error', { message: 'Solo un profesor puede reanudar partidas' });
@@ -448,6 +449,26 @@ const startServer = async () => {
     await connectDB();
     logger.info('Base de datos conectada');
 
+    // Conectar a Redis
+    try {
+      await connectRedis();
+      logger.info('Redis conectado');
+
+      // Recuperar partidas huérfanas de un reinicio anterior
+      const recoveredCount = await gameEngine.recoverActivePlays();
+      if (recoveredCount > 0) {
+        logger.info(`${recoveredCount} partidas recuperadas y marcadas como abandonadas`);
+      }
+    } catch (redisError) {
+      // En desarrollo, continuar sin Redis con warning
+      if (process.env.NODE_ENV === 'production') {
+        throw redisError;
+      }
+      logger.warn('Redis no disponible, continuando sin persistencia de estado:', {
+        error: redisError.message
+      });
+    }
+
     // Conectar al sensor RFID (solo si está habilitado)
     // Sprint 1.5: por defecto deshabilitado salvo RFID_ENABLED=true
     const rfidEnabled = process.env.RFID_ENABLED === 'true';
@@ -493,7 +514,11 @@ const gracefulShutdown = async signal => {
       // 3. Cerrar conexión RFID
       rfidService.disconnect();
 
-      // 4. Desconectar de la base de datos
+      // 4. Desconectar de Redis
+      await disconnectRedis();
+      logger.info('Redis desconectado');
+
+      // 5. Desconectar de la base de datos
       await disconnectDB();
 
       logger.info('Shutdown completo. Saliendo...');

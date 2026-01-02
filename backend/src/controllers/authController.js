@@ -11,9 +11,17 @@ const {
   UnauthorizedError,
   ConflictError
 } = require('../utils/errors');
-const { generateTokenPair, verifyRefreshToken, revokeToken } = require('../middlewares/auth');
+const {
+  generateTokenPair,
+  verifyRefreshToken,
+  revokeToken,
+  storeRefreshToken,
+  markRefreshTokenAsUsed,
+  deleteRefreshToken
+} = require('../middlewares/auth');
 const logger = require('../utils/logger');
 const { userDTO } = require('../utils/dtos');
+const crypto = require('crypto');
 
 /**
  * Registrar un nuevo PROFESOR (SOLO para profesores, endpoint público).
@@ -69,7 +77,7 @@ const register = async (req, res, next) => {
     });
 
     // Generar par de tokens para login automático
-    const tokens = generateTokenPair(teacher, req);
+    const tokens = await generateTokenPair(teacher, req);
 
     res.status(201).json({
       success: true,
@@ -125,8 +133,11 @@ const login = async (req, res, next) => {
     // Actualizar lastLoginAt
     await user.updateLastLogin();
 
-    // Generar par de tokens (access + refresh)
-    const tokens = generateTokenPair(user, req);
+    // Generar par de tokens (access + refresh) con nueva familia
+    const tokens = await generateTokenPair(user, req);
+
+    // Eliminar datos internos antes de enviar respuesta
+    const { _internal, ...publicTokens } = tokens;
 
     logger.info('Login exitoso', {
       userId: user._id,
@@ -139,7 +150,7 @@ const login = async (req, res, next) => {
       message: 'Login exitoso',
       data: {
         user: userDTO(user),
-        ...tokens
+        ...publicTokens
       }
     });
   } catch (error) {
@@ -286,8 +297,8 @@ const refreshAccessToken = async (req, res, next) => {
       throw new ValidationError('Refresh token requerido');
     }
 
-    // Verificar refresh token (incluye fingerprint y blacklist)
-    const decoded = verifyRefreshToken(refreshToken, req);
+    // Verificar refresh token (incluye fingerprint, blacklist y detección de robo)
+    const decoded = await verifyRefreshToken(refreshToken, req);
 
     // Buscar usuario
     const user = await User.findById(decoded.id);
@@ -300,25 +311,37 @@ const refreshAccessToken = async (req, res, next) => {
       throw new UnauthorizedError('Usuario inactivo');
     }
 
-    // TOKEN ROTATION: Revocar el refresh token actual
-    const oldRefreshTokenExp = decoded.exp * 1000;
-    revokeToken(decoded.jti, oldRefreshTokenExp);
+    // Obtener información del token para mantener la familia
+    const { getRefreshTokenInfo } = require('../middlewares/auth');
+    const tokenInfo = await getRefreshTokenInfo(decoded.jti);
+    const familyId = tokenInfo?.familyId || crypto.randomUUID();
 
-    // Generar nuevo par de tokens
-    const tokens = generateTokenPair(user, req);
+    // TOKEN ROTATION:
+    // 1. Marcar el token actual como "usado" (para detectar reuso)
+    await markRefreshTokenAsUsed(decoded.jti, familyId);
+
+    // 2. Eliminar el token de la lista de tokens activos
+    await deleteRefreshToken(decoded.jti);
+
+    // 3. Generar nuevo par de tokens (mantiene la familia)
+    const tokens = await generateTokenPair(user, req, familyId);
+
+    // Eliminar datos internos antes de enviar
+    const { _internal, ...publicTokens } = tokens;
 
     logger.info('Tokens refrescados con token rotation', {
       userId: user._id,
       email: user.email,
       oldRefreshTokenJti: decoded.jti,
-      newRefreshTokenJti: 'generated'
+      newRefreshTokenJti: _internal.refreshTokenJti,
+      familyId
     });
 
     res.json({
       success: true,
       message: 'Tokens refrescados exitosamente',
       data: {
-        ...tokens
+        ...publicTokens
       }
     });
   } catch (error) {

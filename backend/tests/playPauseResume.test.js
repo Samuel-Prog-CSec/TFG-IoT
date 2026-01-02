@@ -50,7 +50,7 @@ describe('GamePlay pause/resume', () => {
       role: 'teacher',
       status: 'active'
     });
-    teacherToken = generateTokenPair(teacherUser, mockReq).accessToken;
+    teacherToken = (await generateTokenPair(teacherUser, mockReq)).accessToken;
 
     studentUser = await User.create({
       name: 'Pause Student',
@@ -58,7 +58,7 @@ describe('GamePlay pause/resume', () => {
       createdBy: teacherUser._id,
       status: 'active'
     });
-    studentToken = generateTokenPair(studentUser, mockReq).accessToken;
+    studentToken = (await generateTokenPair(studentUser, mockReq)).accessToken;
 
     const mechanic = await GameMechanic.create({
       name: 'pause-mechanic',
