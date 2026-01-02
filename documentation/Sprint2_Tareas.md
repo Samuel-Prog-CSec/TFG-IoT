@@ -115,7 +115,7 @@ Según Duda #48, un profesor NO puede tener sesiones activas en múltiples dispo
 
 ---
 
-### T-005: Configurar Redis para Tokens y Estado 📋
+### T-005: Configurar Redis para Tokens y Estado ✅
 **Prioridad:** P0 | **Tamaño:** XL | **Dependencias:** Ninguna
 
 **Descripción:**  

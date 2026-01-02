@@ -1,0 +1,77 @@
+# Docker compose - Plataforma de juegos educativos con RFID
+# Servicios: Redis (caché y estado de partidas) y Redis Commander (UI de administración)
+#
+# Uso:
+#   docker-compose up -d          # Iniciar servicios en background
+#   docker-compose down           # Detener servicios
+#   docker-compose logs -f redis  # Ver logs de Redis en tiempo real
+#
+# Autor: Samuel Blanchart Pérez
+# Versión: 0.2.0
+
+services:
+  # ============================================
+  # REDIS - Caché, tokens y estado de partidas
+  # ============================================
+  redis:
+    image: redis:7-alpine
+    container_name: rfid-games-redis
+    restart: unless-stopped
+    ports:
+      - "${REDIS_PORT:-6379}:6379"
+    volumes:
+      # Persistencia de datos - sobrevive reinicios
+      - redis-data:/data
+    command: >
+      redis-server
+      --appendonly yes
+      --appendfsync everysec
+      --maxmemory 256mb
+      --maxmemory-policy allkeys-lru
+      --tcp-keepalive 60
+      --timeout 0
+      --loglevel notice
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 5s
+    networks:
+      - rfid-games-network
+
+  # ============================================
+  # REDIS COMMANDER - UI para debugging y administración
+  # Acceder en: http://localhost:8081
+  # ============================================
+  redis-commander:
+    image: rediscommander/redis-commander:latest
+    container_name: rfid-games-redis-ui
+    restart: unless-stopped
+    ports:
+      - "${REDIS_COMMANDER_PORT:-8081}:8081"
+    environment:
+      - REDIS_HOSTS=local:redis:6379
+    depends_on:
+      redis:
+        condition: service_healthy
+    profiles:
+      - debug
+    networks:
+      - rfid-games-network
+
+# ============================================
+# VOLÚMENES PERSISTENTES
+# ============================================
+volumes:
+  redis-data:
+    driver: local
+    name: rfid-games-redis-data
+
+# ============================================
+# RED INTERNA
+# ============================================
+networks:
+  rfid-games-network:
+    driver: bridge
+    name: rfid-games-network

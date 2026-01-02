@@ -33,7 +33,7 @@ describe('Card Management Endpoints', () => {
       status: 'active'
     });
 
-    teacherToken = generateTokenPair(teacherUser, mockReq).accessToken;
+    teacherToken = (await generateTokenPair(teacherUser, mockReq)).accessToken;
   });
 
   it('should create a card successfully', async () => {

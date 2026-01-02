@@ -30,15 +30,8 @@ describe('User Management Endpoints', () => {
     // Create teacher manually to bypass auth middleware restrictions for registration if any
     teacherUser = await User.create(validTeacher);
     
-    // Generate token
-    const tokens = generateTokenPair(teacherUser, { headers: {} }); // Mock req for fingerprint? 
-    // Wait, generateTokenPair needs req for fingerprint.
-    // We can mock it or use the one from auth flow.
-    // Let's use a helper or just mock the fingerprint generation if possible, 
-    // or just pass a mock request object.
-    
-    // Actually, generateTokenPair uses req.headers['user-agent'] etc.
-    // We can simulate it.
+    // Generate token - generateTokenPair es async, necesita await
+    // Mock request object con headers para fingerprint
     const mockReq = { 
         headers: { 
             'user-agent': 'jest-test',
@@ -46,7 +39,7 @@ describe('User Management Endpoints', () => {
             'accept-encoding': 'gzip'
         } 
     };
-    teacherToken = generateTokenPair(teacherUser, mockReq).accessToken;
+    teacherToken = (await generateTokenPair(teacherUser, mockReq)).accessToken;
   });
 
   describe('POST /api/users (Create Student)', () => {

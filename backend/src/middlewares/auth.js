@@ -1,6 +1,7 @@
 /**
  * @fileoverview Middleware de autenticación y autorización con JWT mejorado.
  * Implementa access tokens + refresh tokens con rotación y fingerprinting.
+ * Usa Redis para blacklist de tokens y almacenamiento de refresh tokens.
  * @module middlewares/auth
  */
 
@@ -9,6 +10,7 @@ const crypto = require('crypto');
 const { UnauthorizedError, ForbiddenError } = require('../utils/errors');
 const User = require('../models/User');
 const logger = require('../utils/logger');
+const redisService = require('../services/redisService');
 
 /**
  * Flag para bypass de autenticación en desarrollo.
@@ -22,45 +24,215 @@ if (AUTH_BYPASS_ENABLED) {
 }
 
 /**
- * In-memory blacklist para tokens revocados.
- * TODO: En producción, usar Redis con TTL para escalabilidad.
- * Map<token_jti, expiration_timestamp>
- *
- * @type {Map<string, number>}
+ * Constantes de seguridad para tokens.
  */
-const tokenBlacklist = new Map();
+const TOKEN_SECURITY = {
+  /** Grace period para tokens rotados (10 segundos) */
+  ROTATION_GRACE_PERIOD_MS: 10000,
+  /** Duración del refresh token en segundos (7 días) */
+  REFRESH_TOKEN_TTL_SECONDS: 7 * 24 * 60 * 60,
+  /** Duración del flag de seguridad en segundos (1 hora) */
+  SECURITY_FLAG_TTL_SECONDS: 3600
+};
 
 /**
- * Limpia tokens expirados de la blacklist cada hora.
- * Evita que la blacklist crezca indefinidamente en memoria.
+ * Revoca un token añadiéndolo a la blacklist en Redis.
+ * El token no podrá ser usado hasta su expiración natural.
+ *
+ * @param {string} jti - ID único del token (JTI claim)
+ * @param {number} expiresAt - Timestamp de expiración del token (en ms)
+ * @returns {Promise<boolean>} True si se revocó correctamente.
  */
-let blacklistInterval;
-const startBlacklistCleanup = () => {
-  if (blacklistInterval) {
-    return;
+const revokeToken = async (jti, expiresAt) => {
+  const ttlSeconds = Math.ceil((expiresAt - Date.now()) / 1000);
+
+  if (ttlSeconds <= 0) {
+    logger.debug('Token ya expirado, no se añade a blacklist', { jti });
+    return true;
   }
-  blacklistInterval = setInterval(() => {
-    const now = Date.now();
-    for (const [jti, expiresAt] of tokenBlacklist.entries()) {
-      if (expiresAt < now) {
-        tokenBlacklist.delete(jti);
-      }
-    }
-    logger.debug(`Blacklist limpiada. Tokens activos: ${tokenBlacklist.size}`);
-  }, 3600000); // 1 hora
+
+  const success = await redisService.setWithTTL(
+    redisService.NAMESPACES.BLACKLIST,
+    jti,
+    '1',
+    ttlSeconds
+  );
+
+  if (success) {
+    logger.info('Token revocado', { jti, expiresAt: new Date(expiresAt), ttlSeconds });
+  }
+
+  return success;
 };
 
-const stopBlacklistCleanup = () => {
-  if (blacklistInterval) {
-    clearInterval(blacklistInterval);
-    blacklistInterval = null;
+/**
+ * Verifica si un token está revocado en la blacklist.
+ *
+ * @param {string} jti - ID único del token (JTI claim)
+ * @returns {Promise<boolean>} True si el token está revocado.
+ */
+const isTokenRevoked = async jti =>
+  await redisService.exists(redisService.NAMESPACES.BLACKLIST, jti);
+
+/**
+ * Revoca TODOS los tokens de un usuario (logout forzado por seguridad).
+ * Establece un flag que invalida cualquier token emitido antes de ahora.
+ *
+ * @param {string} userId - ID del usuario
+ * @param {string} reason - Razón de la revocación (para logging)
+ * @returns {Promise<boolean>} True si se estableció el flag.
+ */
+const revokeAllUserTokens = async (userId, reason = 'security') => {
+  const success = await redisService.setWithTTL(
+    redisService.NAMESPACES.SECURITY,
+    userId,
+    Date.now().toString(),
+    TOKEN_SECURITY.SECURITY_FLAG_TTL_SECONDS
+  );
+
+  if (success) {
+    logger.warn('Todos los tokens de usuario revocados', { userId, reason });
+  }
+
+  return success;
+};
+
+/**
+ * Verifica si un usuario tiene un flag de logout forzado.
+ * Si el token fue emitido antes del flag, es inválido.
+ *
+ * @param {string} userId - ID del usuario
+ * @param {number} tokenIssuedAt - Timestamp de emisión del token (iat claim)
+ * @returns {Promise<{revoked: boolean, reason: string|null}>}
+ */
+const checkSecurityFlag = async (userId, tokenIssuedAt) => {
+  const flagTimestamp = await redisService.get(redisService.NAMESPACES.SECURITY, userId);
+
+  if (!flagTimestamp) {
+    return { revoked: false, reason: null };
+  }
+
+  const flagTime = parseInt(flagTimestamp, 10);
+  const tokenTimeMs = tokenIssuedAt * 1000; // iat está en segundos
+
+  if (tokenTimeMs < flagTime) {
+    return {
+      revoked: true,
+      reason: 'SESSION_REVOKED_SECURITY'
+    };
+  }
+
+  return { revoked: false, reason: null };
+};
+
+// =============================================================================
+// REFRESH TOKEN MANAGEMENT (Redis)
+// =============================================================================
+
+/**
+ * Almacena un refresh token en Redis con su familia.
+ * Cada refresh token pertenece a una "familia" que comparte el mismo origen.
+ *
+ * @param {string} jti - ID único del token
+ * @param {string} userId - ID del usuario
+ * @param {string} familyId - ID de la familia de tokens
+ * @returns {Promise<boolean>} True si se almacenó correctamente.
+ */
+const storeRefreshToken = async (jti, userId, familyId) =>
+  await redisService.hset(
+    redisService.NAMESPACES.REFRESH,
+    jti,
+    {
+      userId,
+      familyId,
+      createdAt: Date.now()
+    },
+    TOKEN_SECURITY.REFRESH_TOKEN_TTL_SECONDS
+  );
+
+/**
+ * Obtiene información de un refresh token almacenado.
+ *
+ * @param {string} jti - ID único del token
+ * @returns {Promise<{userId: string, familyId: string, createdAt: number}|null>}
+ */
+const getRefreshTokenInfo = async jti =>
+  await redisService.hgetall(redisService.NAMESPACES.REFRESH, jti);
+
+/**
+ * Marca un refresh token como "usado" (rotado).
+ * Se mantiene durante el grace period + TTL para detectar reuso.
+ *
+ * @param {string} jti - ID del token rotado
+ * @param {string} familyId - ID de la familia para detección de robo
+ * @returns {Promise<boolean>}
+ */
+const markRefreshTokenAsUsed = async (jti, familyId) =>
+  // Almacenar con el mismo TTL que los refresh tokens
+  await redisService.setWithTTL(
+    redisService.NAMESPACES.USED,
+    jti,
+    JSON.stringify({ familyId, usedAt: Date.now() }),
+    TOKEN_SECURITY.REFRESH_TOKEN_TTL_SECONDS
+  );
+/**
+ * Verifica si un refresh token ya fue usado (posible robo).
+ *
+ * @param {string} jti - ID del token
+ * @returns {Promise<{used: boolean, familyId: string|null, usedAt: number|null}>}
+ */
+const isRefreshTokenUsed = async jti => {
+  const data = await redisService.get(redisService.NAMESPACES.USED, jti);
+
+  if (!data) {
+    return { used: false, familyId: null, usedAt: null };
+  }
+
+  try {
+    const parsed = JSON.parse(data);
+    return {
+      used: true,
+      familyId: parsed.familyId,
+      usedAt: parsed.usedAt
+    };
+  } catch {
+    return { used: true, familyId: null, usedAt: null };
   }
 };
 
-// Start cleanup by default
-if (process.env.NODE_ENV !== 'test') {
-  startBlacklistCleanup();
-}
+/**
+ * Elimina un refresh token de Redis (al rotar o revocar).
+ *
+ * @param {string} jti - ID del token
+ * @returns {Promise<boolean>}
+ */
+const deleteRefreshToken = async jti =>
+  await redisService.del(redisService.NAMESPACES.REFRESH, jti);
+
+/**
+ * Helper para convertir strings de expiración a segundos.
+ *
+ * @param {string} expiration - Ej: '15m', '7d', '30d'
+ * @returns {number} Segundos
+ */
+const parseExpiration = expiration => {
+  const match = expiration.match(/^(\d+)([smhd])$/);
+  if (!match) {
+    return 900; // Default 15 minutos
+  }
+
+  const value = parseInt(match[1]);
+  const unit = match[2];
+
+  const multipliers = {
+    s: 1,
+    m: 60,
+    h: 3600,
+    d: 86400
+  };
+
+  return value * multipliers[unit];
+};
 
 /**
  * Genera un fingerprint único del dispositivo basado en headers.
@@ -161,22 +333,31 @@ const generateRefreshToken = (user, deviceFingerprint) => {
 /**
  * Genera par de tokens (access + refresh).
  * Usado en login y refresh.
+ * Almacena el refresh token en Redis para tracking y detección de robo.
  *
  * @param {Object} user - Usuario de Mongoose
  * @param {import('express').Request} req - Request para fingerprint
- * @returns {Object} Par de tokens
+ * @param {string} [existingFamilyId] - ID de familia existente (para rotación)
+ * @returns {Promise<Object>} Par de tokens
  */
-const generateTokenPair = (user, req) => {
+const generateTokenPair = async (user, req, existingFamilyId = null) => {
   const fingerprint = generateDeviceFingerprint(req);
 
   const accessToken = generateAccessToken(user, fingerprint);
   const refreshToken = generateRefreshToken(user, fingerprint);
 
+  // Crear o reutilizar familyId para detección de robo
+  const familyId = existingFamilyId || crypto.randomUUID();
+
+  // Almacenar refresh token en Redis
+  await storeRefreshToken(refreshToken.jti, user._id.toString(), familyId);
+
   logger.info('Par de tokens generado', {
     userId: user._id,
     email: user.email,
     accessTokenJti: accessToken.jti,
-    refreshTokenJti: refreshToken.jti
+    refreshTokenJti: refreshToken.jti,
+    familyId
   });
 
   return {
@@ -184,7 +365,11 @@ const generateTokenPair = (user, req) => {
     refreshToken: refreshToken.token,
     accessTokenExpiresIn: accessToken.expiresIn,
     refreshTokenExpiresIn: refreshToken.expiresIn,
-    tokenType: 'Bearer'
+    tokenType: 'Bearer',
+    _internal: {
+      refreshTokenJti: refreshToken.jti,
+      familyId
+    }
   };
 };
 
@@ -193,10 +378,10 @@ const generateTokenPair = (user, req) => {
  *
  * @param {string} token - JWT token
  * @param {import('express').Request} req - Request para verificar fingerprint
- * @returns {Object} Payload decodificado
+ * @returns {Promise<Object>} Payload decodificado
  * @throws {UnauthorizedError} Si el token es inválido, expirado o revocado
  */
-const verifyAccessToken = (token, req) => {
+const verifyAccessToken = async (token, req) => {
   try {
     const decoded = jwt.verify(
       token,
@@ -212,9 +397,19 @@ const verifyAccessToken = (token, req) => {
       throw new UnauthorizedError('Token type inválido');
     }
 
-    // Verificar blacklist
-    if (tokenBlacklist.has(decoded.jti)) {
+    // Verificar blacklist en Redis
+    const revoked = await isTokenRevoked(decoded.jti);
+    if (revoked) {
       throw new UnauthorizedError('Token revocado');
+    }
+
+    // Verificar flag de seguridad (logout forzado)
+    const securityCheck = await checkSecurityFlag(decoded.id, decoded.iat);
+    if (securityCheck.revoked) {
+      throw new UnauthorizedError(
+        'Tu sesión fue cerrada por motivos de seguridad. Por favor, inicia sesión de nuevo.',
+        securityCheck.reason
+      );
     }
 
     // Verificar fingerprint del dispositivo
@@ -245,13 +440,14 @@ const verifyAccessToken = (token, req) => {
 
 /**
  * Verifica y decodifica un refresh token.
+ * También detecta reuso de tokens (posible robo).
  *
  * @param {string} token - Refresh token
  * @param {import('express').Request} req - Request para verificar fingerprint
- * @returns {Object} Payload decodificado
+ * @returns {Promise<Object>} Payload decodificado
  * @throws {UnauthorizedError} Si el token es inválido, expirado o revocado
  */
-const verifyRefreshToken = (token, req) => {
+const verifyRefreshToken = async (token, req) => {
   try {
     const decoded = jwt.verify(
       token,
@@ -267,9 +463,41 @@ const verifyRefreshToken = (token, req) => {
       throw new UnauthorizedError('Token type inválido');
     }
 
-    // Verificar blacklist
-    if (tokenBlacklist.has(decoded.jti)) {
+    // Verificar blacklist en Redis
+    const revoked = await isTokenRevoked(decoded.jti);
+    if (revoked) {
       throw new UnauthorizedError('Refresh token revocado');
+    }
+
+    // Verificar si el token ya fue usado (detección de robo)
+    const usedCheck = await isRefreshTokenUsed(decoded.jti);
+    if (usedCheck.used) {
+      // ¿Está dentro del grace period?
+      const gracePeriodEnd = usedCheck.usedAt + TOKEN_SECURITY.ROTATION_GRACE_PERIOD_MS;
+
+      if (Date.now() > gracePeriodEnd) {
+        // Token reusado después del grace period = posible robo
+        logger.error('ALERTA DE SEGURIDAD: Reuso de refresh token detectado', {
+          jti: decoded.jti,
+          userId: decoded.id,
+          usedAt: new Date(usedCheck.usedAt),
+          familyId: usedCheck.familyId
+        });
+
+        // Invalidar TODOS los tokens del usuario
+        await revokeAllUserTokens(decoded.id, 'token_reuse_detected');
+
+        throw new UnauthorizedError(
+          'Tu sesión fue cerrada por motivos de seguridad. Por favor, inicia sesión de nuevo.',
+          'SESSION_REVOKED_SECURITY'
+        );
+      }
+
+      // Dentro del grace period: permitir pero con warning
+      logger.debug('Refresh token reusado dentro del grace period', {
+        jti: decoded.jti,
+        userId: decoded.id
+      });
     }
 
     // Verificar fingerprint
@@ -296,43 +524,6 @@ const verifyRefreshToken = (token, req) => {
     }
     throw new UnauthorizedError('Error al verificar refresh token');
   }
-};
-
-/**
- * Revoca un token añadiéndolo a la blacklist.
- * El token no podrá ser usado hasta su expiración natural.
- *
- * @param {string} jti - ID único del token (JTI claim)
- * @param {number} expiresAt - Timestamp de expiración del token
- */
-const revokeToken = (jti, expiresAt) => {
-  tokenBlacklist.set(jti, expiresAt);
-  logger.info('Token revocado', { jti, expiresAt: new Date(expiresAt) });
-};
-
-/**
- * Helper para convertir strings de expiración a segundos.
- *
- * @param {string} expiration - Ej: '15m', '7d', '30d'
- * @returns {number} Segundos
- */
-const parseExpiration = expiration => {
-  const match = expiration.match(/^(\d+)([smhd])$/);
-  if (!match) {
-    return 900;
-  } // Default 15 minutos
-
-  const value = parseInt(match[1]);
-  const unit = match[2];
-
-  const multipliers = {
-    s: 1,
-    m: 60,
-    h: 3600,
-    d: 86400
-  };
-
-  return value * multipliers[unit];
 };
 
 /**
@@ -429,7 +620,7 @@ const authenticate = async (req, res, next) => {
     const token = authHeader.split(' ')[1];
 
     // Verificar access token (incluye validación de fingerprint)
-    const decoded = verifyAccessToken(token, req);
+    const decoded = await verifyAccessToken(token, req);
 
     // Buscar usuario en la base de datos
     const user = await User.findById(decoded.id).select('-password');
@@ -558,7 +749,7 @@ const optionalAuth = async (req, res, next) => {
     }
 
     const token = authHeader.split(' ')[1];
-    const decoded = verifyAccessToken(token, req);
+    const decoded = await verifyAccessToken(token, req);
     const user = await User.findById(decoded.id).select('-password');
 
     if (user && user.status === 'active') {
@@ -593,15 +784,15 @@ const logout = async (req, res, next) => {
   try {
     // Revocar el access token actual
     const accessTokenExp = req.tokenExp * 1000; // Convertir a milisegundos
-    revokeToken(req.tokenJti, accessTokenExp);
+    await revokeToken(req.tokenJti, accessTokenExp);
 
     // Si se proporciona refresh token, también revocarlo
     const refreshToken = req.body?.refreshToken;
     if (refreshToken) {
       try {
-        const decoded = verifyRefreshToken(refreshToken, req);
+        const decoded = await verifyRefreshToken(refreshToken, req);
         const refreshTokenExp = decoded.exp * 1000;
-        revokeToken(decoded.jti, refreshTokenExp);
+        await revokeToken(decoded.jti, refreshTokenExp);
       } catch (error) {
         // Si el refresh token ya expiró o es inválido, no importa
         logger.debug('Refresh token inválido en logout, ignorando', {
@@ -626,17 +817,38 @@ const logout = async (req, res, next) => {
 };
 
 module.exports = {
+  // Token generation
   generateTokenPair,
   generateAccessToken,
   generateRefreshToken,
+
+  // Token verification
   verifyAccessToken,
   verifyRefreshToken,
-  generateDeviceFingerprint,
+
+  // Token management (Redis)
   revokeToken,
+  isTokenRevoked,
+  revokeAllUserTokens,
+  checkSecurityFlag,
+
+  // Refresh token management (Redis)
+  storeRefreshToken,
+  getRefreshTokenInfo,
+  markRefreshTokenAsUsed,
+  isRefreshTokenUsed,
+  deleteRefreshToken,
+
+  // Utilities
+  generateDeviceFingerprint,
+
+  // Middlewares
   authenticate,
   requireRole,
   requireOwnership,
   optionalAuth,
-  stopBlacklistCleanup,
-  logout
+  logout,
+
+  // Constants
+  TOKEN_SECURITY
 };
