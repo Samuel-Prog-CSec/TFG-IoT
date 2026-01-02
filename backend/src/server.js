@@ -34,9 +34,10 @@ const GameEngine = require('./services/gameEngine');
 const GamePlay = require('./models/GamePlay');
 const GameSession = require('./models/GameSession');
 const logger = require('./utils/logger');
-const { verifyAccessToken } = require('./middlewares/auth');
+const { verifyAccessToken, authenticate, requireRole } = require('./middlewares/auth');
 const { errorHandler, notFoundHandler } = require('./middlewares/errorHandler');
 const { getHealthStatus } = require('./utils/healthCheck');
+const runtimeMetrics = require('./utils/runtimeMetrics');
 
 // Importar rutas
 const authRoutes = require('./routes/auth');
@@ -122,6 +123,21 @@ app.use((req, res, next) => {
   next();
 });
 
+// Middleware de métricas de latencia (para /api/*)
+app.use('/api', (req, res, next) => {
+  const startNs = process.hrtime.bigint();
+
+  res.on('finish', () => {
+    const durationMs = Number(process.hrtime.bigint() - startNs) / 1e6;
+    runtimeMetrics.recordHttpRequest({
+      durationMs,
+      statusCode: res.statusCode
+    });
+  });
+
+  next();
+});
+
 // ============================================================================
 // RUTAS DE LA API REST
 // ============================================================================
@@ -158,7 +174,27 @@ app.use('/api/decks', deckRoutes);
 app.get('/api/health', async (req, res) => {
   try {
     const healthStatus = await getHealthStatus(rfidService);
-    res.json(healthStatus);
+    const httpStatus = ['healthy', 'degraded'].includes(healthStatus.status) ? 200 : 503;
+    res.status(httpStatus).json(healthStatus);
+  } catch (error) {
+    logger.error('Error en health check:', error);
+    res.status(500).json({
+      status: 'error',
+      message: 'Health check failed',
+      error: error.message
+    });
+  }
+});
+
+/**
+ * Alias del health check para herramientas externas.
+ * @route GET /health
+ */
+app.get('/health', async (req, res) => {
+  try {
+    const healthStatus = await getHealthStatus(rfidService);
+    const httpStatus = ['healthy', 'degraded'].includes(healthStatus.status) ? 200 : 503;
+    res.status(httpStatus).json(healthStatus);
   } catch (error) {
     logger.error('Error en health check:', error);
     res.status(500).json({
@@ -174,16 +210,20 @@ app.get('/api/health', async (req, res) => {
  * @route GET /api/metrics
  * @returns {Object} 200 - Métricas del gameEngine y rfidService
  */
-app.get('/api/metrics', (req, res) => {
-  // Solo en desarrollo
-  if (process.env.NODE_ENV === 'production') {
-    return res.status(404).json({ message: 'Not found' });
-  }
+app.get('/api/metrics', authenticate, requireRole('teacher', 'super_admin'), (req, res) => {
+  const snapshot = runtimeMetrics.getSnapshot();
 
   res.json({
     timestamp: new Date().toISOString(),
+    http: snapshot.http,
+    websocket: {
+      connectedClients: io?.engine?.clientsCount ?? 0
+    },
     gameEngine: gameEngine.getMetrics(),
-    rfidService: rfidService.getStatus()
+    rfid: {
+      processed: snapshot.rfid,
+      service: rfidService.getStatus()
+    }
   });
 });
 
@@ -395,6 +435,9 @@ io.on('connection', socket => {
  * Procesa eventos del sensor y los distribuye al sistema.
  */
 rfidService.on('rfid_event', event => {
+  // Métricas internas (observabilidad)
+  runtimeMetrics.recordRfidEvent(event);
+
   // Enviar el evento a todos los clientes conectados (para la UI)
   io.emit('rfid_event', event);
 

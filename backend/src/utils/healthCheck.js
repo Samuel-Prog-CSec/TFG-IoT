@@ -155,11 +155,42 @@ async function getHealthStatus(rfidService = null) {
   const memory = getMemoryUsage();
   const uptime = getUptime();
 
-  // Determinar estado general (MongoDB y Redis deben estar healthy)
-  const isHealthy = mongoHealth.status === 'healthy' && redisHealth.status === 'healthy';
+  // Determinar estado general.
+  // - MongoDB es crítico siempre.
+  // - Redis es crítico en producción, pero en development/test se considera "degraded".
+  const env = process.env.NODE_ENV || 'development';
+  const mongoOk = mongoHealth.status === 'healthy';
+  const redisOk = redisHealth.status === 'healthy';
+
+  const issues = {
+    critical: [],
+    degraded: []
+  };
+
+  if (!mongoOk) {
+    issues.critical.push('mongodb');
+  }
+
+  if (!redisOk) {
+    if (env === 'production') {
+      issues.critical.push('redis');
+    } else {
+      issues.degraded.push('redis');
+    }
+  }
+
+  let overallStatus = 'healthy';
+  if (!mongoOk) {
+    overallStatus = 'unhealthy';
+  } else if (env === 'production' && !redisOk) {
+    overallStatus = 'unhealthy';
+  } else if (env !== 'production' && !redisOk) {
+    overallStatus = 'degraded';
+  }
 
   return {
-    status: isHealthy ? 'healthy' : 'unhealthy',
+    status: overallStatus,
+    issues,
     timestamp: new Date().toISOString(),
     uptime,
     environment: process.env.NODE_ENV || 'development',

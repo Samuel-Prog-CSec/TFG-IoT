@@ -152,8 +152,61 @@ describe('healthCheck utils', () => {
     });
 
     expect(res.status).toBe('healthy');
+    expect(res).toHaveProperty('issues');
+    expect(res.issues).toHaveProperty('critical');
+    expect(res.issues).toHaveProperty('degraded');
+    expect(res.issues.critical).toEqual([]);
+    expect(res.issues.degraded).toEqual([]);
     expect(res.services.mongodb.status).toBe('healthy');
     expect(res.services.rfid.status).toBe('healthy');
     expect(res.system).toHaveProperty('pid');
+  });
+
+  it('getHealthStatus returns degraded in non-production when Redis is down', async () => {
+    const originalEnv = process.env.NODE_ENV;
+    process.env.NODE_ENV = 'test';
+
+    mockAdminPing.mockResolvedValueOnce({ ok: 1 });
+    mockIsRedisConnected.mockReturnValue(false);
+
+    const { getHealthStatus } = require('../src/utils/healthCheck');
+
+    const res = await getHealthStatus({
+      isConnected: () => true,
+      port: 'COM9',
+      baudRate: 115200
+    });
+
+    expect(res.services.mongodb.status).toBe('healthy');
+    expect(res.services.redis.status).toBe('disconnected');
+    expect(res.status).toBe('degraded');
+    expect(res.issues.critical).toEqual([]);
+    expect(res.issues.degraded).toEqual(['redis']);
+
+    process.env.NODE_ENV = originalEnv;
+  });
+
+  it('getHealthStatus returns unhealthy in production when Redis is down', async () => {
+    const originalEnv = process.env.NODE_ENV;
+    process.env.NODE_ENV = 'production';
+
+    mockAdminPing.mockResolvedValueOnce({ ok: 1 });
+    mockIsRedisConnected.mockReturnValue(false);
+
+    const { getHealthStatus } = require('../src/utils/healthCheck');
+
+    const res = await getHealthStatus({
+      isConnected: () => true,
+      port: 'COM9',
+      baudRate: 115200
+    });
+
+    expect(res.services.mongodb.status).toBe('healthy');
+    expect(res.services.redis.status).toBe('disconnected');
+    expect(res.status).toBe('unhealthy');
+    expect(res.issues.critical).toEqual(['redis']);
+    expect(res.issues.degraded).toEqual([]);
+
+    process.env.NODE_ENV = originalEnv;
   });
 });

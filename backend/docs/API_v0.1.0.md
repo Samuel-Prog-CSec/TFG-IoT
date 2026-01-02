@@ -19,6 +19,60 @@ Este documento detalla los endpoints de la API REST para el Backend de Juegos Ed
 
 ## Endpoints
 
+### 0. Sistema y Observabilidad
+
+| Método | Endpoint | Descripción | Acceso |
+|:-------|:---------|:------------|:-------|
+| `GET` | `/health` | Health check (MongoDB, Redis, RFID, memoria, uptime) | Público |
+| `GET` | `/metrics` | Métricas runtime (latencia HTTP, conexiones WS, partidas activas, eventos RFID) | Profesor |
+
+> Nota: La URL base del documento es `/api`. Por tanto:
+> - `GET /api/health` es el endpoint principal.
+> - `GET /health` existe como alias en la raíz (útil para herramientas externas).
+> - `GET /api/metrics` es una ruta protegida.
+
+#### GET `/health`
+
+Devuelve el estado de salud del sistema.
+
+- **200** si MongoDB está saludable y (en no-producción) Redis puede estar degradado.
+- **503** si alguna dependencia crítica no está saludable (en producción, Redis se considera crítico).
+
+Respuesta (resumen):
+```json
+{
+  "status": "healthy",
+  "issues": { "critical": [], "degraded": [] },
+  "timestamp": "2026-01-02T12:00:00.000Z",
+  "uptime": "0h 10m 5s",
+  "services": {
+    "mongodb": { "status": "healthy", "responseTime": "2ms" },
+    "redis": { "status": "healthy", "responseTime": "1ms" },
+    "rfid": { "status": "disconnected" }
+  },
+  "system": { "memory": { "heapUsed": "40 MB" } }
+}
+```
+
+En entornos `development/test`, si Redis no está disponible, el campo `status` puede ser `degraded`.
+
+El campo `issues` desglosa dependencias afectadas:
+- `issues.critical`: servicios críticos que fuerzan `503` en producción.
+- `issues.degraded`: servicios degradados (permitidos en no-producción).
+
+#### GET `/metrics` (equivale a `GET /api/metrics`)
+
+Devuelve métricas runtime del backend.
+
+- Requiere `Authorization: Bearer <token>`.
+- Roles permitidos: `teacher` (y futuro `super_admin`).
+
+Campos relevantes:
+- `http.avgLatencyMs`: latencia media (ms) desde arranque.
+- `websocket.connectedClients`: conexiones activas.
+- `gameEngine.activePlays`: partidas activas.
+- `rfid.processed.totalEventsProcessed`: eventos RFID procesados por el servidor.
+
 ### 1. Autenticación (`/auth`)
 
 | Método | Endpoint          | Descripción | Acceso | Rate Limit |
