@@ -26,10 +26,12 @@ const userDTO = user => {
   return {
     id: userData._id?.toString(),
     name: userData.name,
-    // Email solo para profesores (alumnos no tienen email)
-    email: userData.role === 'teacher' ? userData.email : undefined,
+    // Email solo para roles con login (alumnos no tienen email)
+    email: ['teacher', 'super_admin'].includes(userData.role) ? userData.email : undefined,
     role: userData.role,
     status: userData.status,
+    accountStatus:
+      ['teacher', 'super_admin'].includes(userData.role) ? userData.accountStatus : undefined,
     profile: userData.profile
       ? {
           avatar: userData.profile.avatar,

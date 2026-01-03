@@ -14,15 +14,22 @@ describe('System Endpoints (/health, /api/metrics)', () => {
     });
 
     it('should return metrics for an authenticated teacher', async () => {
-      const registerRes = await request(app).post('/api/auth/register').send({
-        name: 'Metrics Teacher',
-        email: 'metrics-teacher@test.com',
-        password: 'password123',
-        role: 'teacher'
+      await User.create({
+        name: 'Metrics Super Admin',
+        email: 'metrics-superadmin@test.com',
+        password: 'Admin1234!',
+        role: 'super_admin',
+        accountStatus: 'approved',
+        status: 'active'
       });
 
-      expect(registerRes.statusCode).toBe(201);
-      const accessToken = registerRes.body?.data?.accessToken;
+      const loginRes = await request(app).post('/api/auth/login').send({
+        email: 'metrics-superadmin@test.com',
+        password: 'Admin1234!'
+      });
+
+      expect(loginRes.statusCode).toBe(200);
+      const accessToken = loginRes.body?.data?.accessToken;
       expect(accessToken).toBeTruthy();
 
       const res = await request(app)

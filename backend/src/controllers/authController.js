@@ -9,6 +9,7 @@ const {
   ValidationError,
   NotFoundError,
   UnauthorizedError,
+  ForbiddenError,
   ConflictError
 } = require('../utils/errors');
 const {
@@ -67,7 +68,8 @@ const register = async (req, res, next) => {
       password, // Se encripta automáticamente en el pre-save hook
       role: 'teacher', // ✅ FORZADO - Este endpoint solo crea profesores
       profile: profile || {},
-      status: 'active'
+      status: 'active',
+      accountStatus: 'pending_approval'
     });
 
     logger.info('Profesor registrado', {
@@ -76,20 +78,36 @@ const register = async (req, res, next) => {
       email: teacher.email
     });
 
-    // Generar par de tokens para login automático
-    const tokens = await generateTokenPair(teacher, req);
-
     res.status(201).json({
       success: true,
-      message: 'Profesor registrado exitosamente',
+      message: 'Profesor registrado. Cuenta pendiente de aprobación por Super Admin.',
       data: {
-        user: userDTO(teacher),
-        ...tokens
+        user: userDTO(teacher)
       }
     });
   } catch (error) {
     next(error);
   }
+};
+
+const assertAccountApprovedForLogin = user => {
+  if (!['teacher', 'super_admin'].includes(user.role)) {
+    return;
+  }
+
+  if (user.accountStatus === 'approved') {
+    return;
+  }
+
+  if (user.accountStatus === 'pending_approval') {
+    throw new ForbiddenError('Cuenta pendiente de aprobación');
+  }
+
+  if (user.accountStatus === 'rejected') {
+    throw new ForbiddenError('Cuenta rechazada');
+  }
+
+  throw new ForbiddenError('Cuenta no aprobada');
 };
 
 /**
@@ -113,15 +131,18 @@ const login = async (req, res, next) => {
       throw new UnauthorizedError('Credenciales inválidas');
     }
 
-    // Verificar que sea un profesor
-    if (user.role !== 'teacher') {
-      throw new UnauthorizedError('Solo los profesores pueden iniciar sesión');
+    // Verificar que sea un usuario con login
+    if (!['teacher', 'super_admin'].includes(user.role)) {
+      throw new UnauthorizedError('Solo profesores y super admin pueden iniciar sesión');
     }
 
     // Verificar que esté activo
     if (user.status !== 'active') {
       throw new UnauthorizedError('Usuario inactivo');
     }
+
+    // Verificar aprobación de cuenta (para roles con login)
+    assertAccountApprovedForLogin(user);
 
     // Comparar contraseña
     const isPasswordValid = await user.comparePassword(password);
@@ -310,6 +331,9 @@ const refreshAccessToken = async (req, res, next) => {
     if (user.status !== 'active') {
       throw new UnauthorizedError('Usuario inactivo');
     }
+
+    // Bloquear refresh para cuentas no aprobadas
+    assertAccountApprovedForLogin(user);
 
     // Obtener información del token para mantener la familia
     const { getRefreshTokenInfo } = require('../middlewares/auth');

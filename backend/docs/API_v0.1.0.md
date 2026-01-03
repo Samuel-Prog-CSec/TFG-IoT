@@ -65,7 +65,7 @@ El campo `issues` desglosa dependencias afectadas:
 Devuelve métricas runtime del backend.
 
 - Requiere `Authorization: Bearer <token>`.
-- Roles permitidos: `teacher` (y futuro `super_admin`).
+- Roles permitidos: `teacher` y `super_admin`.
 
 Campos relevantes:
 - `http.avgLatencyMs`: latencia media (ms) desde arranque.
@@ -78,7 +78,7 @@ Campos relevantes:
 | Método | Endpoint          | Descripción | Acceso | Rate Limit |
 |:-------|:------------------|:------------|:-------|:-----------|
 | `POST` | `/register`       | Registrar nuevo profesor | Público | 5/15m |
-| `POST` | `/login`          | Login de profesor | Público | 5/15m |
+| `POST` | `/login`          | Login (profesor o super admin) | Público | 5/15m |
 | `POST` | `/refresh`        | Refrescar access token | Público | - |
 | `POST` | `/logout`         | Cerrar sesión y revocar tokens | Privado | - |
 | `GET`  | `/me`             | Obtener perfil actual | Privado | - |
@@ -93,6 +93,23 @@ Campos relevantes:
   "password": "contraseñaSegura123"
 }
 ```
+
+Notas:
+- Al registrar un profesor, la cuenta queda en `accountStatus: pending_approval` y NO se emiten tokens.
+- Un `super_admin` debe aprobar/rechazar la cuenta antes de que el profesor pueda hacer login.
+
+### 1.1 Administración (`/admin`)
+
+Endpoints protegidos para el flujo de aprobación de profesores.
+
+| Método | Endpoint                     | Descripción | Acceso |
+|:-------|:-----------------------------|:------------|:-------|
+| `POST` | `/users/:id/approve`         | Aprobar profesor | `super_admin` |
+| `POST` | `/users/:id/reject`          | Rechazar profesor | `super_admin` |
+
+Notas:
+- Solo se puede aprobar/rechazar usuarios con `role: teacher`.
+- El rechazo/aprobación se aplica mediante el campo `accountStatus` (`approved` / `rejected`).
 
 ---
 

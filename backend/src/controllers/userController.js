@@ -497,7 +497,8 @@ const getStudentsByTeacher = async (req, res, next) => {
     const { classroom, sortBy = 'name', order = 'asc' } = req.query;
 
     // Verificar permisos: solo el profesor o un admin
-    if (req.user._id.toString() !== teacherId && req.user.role !== 'admin') {
+      // Verificar permisos: solo el profesor o un super admin
+      if (req.user._id.toString() !== teacherId && req.user.role !== 'super_admin') {
       throw new ForbiddenError('No tienes permiso para ver estos alumnos');
     }
 

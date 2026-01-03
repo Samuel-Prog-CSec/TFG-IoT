@@ -126,12 +126,12 @@ const getPlayById = async (req, res, next) => {
       throw new NotFoundError('Partida');
     }
 
-    // Verificar permisos: el jugador, el creador de la sesión, o admin
+    // Verificar permisos: el jugador, el creador de la sesión, o super admin
     const session = await GameSession.findById(play.sessionId._id);
     const isOwner = play.playerId._id.toString() === req.user._id.toString();
     const isCreator = session.createdBy.toString() === req.user._id.toString();
 
-    if (!isOwner && !isCreator && req.user.role !== 'admin') {
+    if (!isOwner && !isCreator && req.user.role !== 'super_admin') {
       throw new ForbiddenError('No tienes permiso para ver esta partida');
     }
 

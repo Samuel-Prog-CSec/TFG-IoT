@@ -48,6 +48,7 @@ const contextRoutes = require('./routes/contexts');
 const sessionRoutes = require('./routes/sessions');
 const playRoutes = require('./routes/plays');
 const deckRoutes = require('./routes/decks');
+const adminRoutes = require('./routes/admin');
 
 // Crear aplicación Express
 const app = express();
@@ -165,6 +166,9 @@ app.use('/api/plays', playRoutes);
 
 // Rutas de mazos reutilizables
 app.use('/api/decks', deckRoutes);
+
+// Rutas de administración (solo super admin)
+app.use('/api/admin', adminRoutes);
 
 /**
  * Endpoint de salud del servidor con información detallada.
