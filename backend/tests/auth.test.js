@@ -4,13 +4,32 @@ const User = require('../src/models/User');
 
 describe('Authentication Endpoints', () => {
   let teacherToken;
-  let teacherUser;
+  let superAdminToken;
 
   const validTeacher = {
     name: 'Test Teacher',
     email: 'teacher@test.com',
     password: 'password123',
     role: 'teacher'
+  };
+
+  const createAndLoginSuperAdmin = async () => {
+    await User.create({
+      name: 'Super Admin',
+      email: 'superadmin@test.com',
+      password: 'Admin1234!',
+      role: 'super_admin',
+      accountStatus: 'approved',
+      status: 'active'
+    });
+
+    const loginRes = await request(app).post('/api/auth/login').send({
+      email: 'superadmin@test.com',
+      password: 'Admin1234!'
+    });
+
+    expect(loginRes.statusCode).toBe(200);
+    return loginRes.body.data.accessToken;
   };
 
   beforeEach(async () => {
@@ -27,7 +46,8 @@ describe('Authentication Endpoints', () => {
       expect(res.statusCode).toEqual(201);
       expect(res.body.success).toBe(true);
       expect(res.body.data.user).toHaveProperty('email', validTeacher.email);
-      expect(res.body.data).toHaveProperty('accessToken');
+      expect(res.body.data.user).toHaveProperty('accountStatus', 'pending_approval');
+      expect(res.body.data).not.toHaveProperty('accessToken');
     });
 
     it('should fail to register with existing email', async () => {
@@ -45,13 +65,28 @@ describe('Authentication Endpoints', () => {
 
   describe('POST /api/auth/login', () => {
     beforeEach(async () => {
-      // Create a user for login tests
-      const res = await request(app).post('/api/auth/register').send(validTeacher);
-      teacherToken = res.body.data.accessToken;
-      teacherUser = res.body.data.user;
+      // Create pending teacher
+      await request(app).post('/api/auth/register').send(validTeacher);
+      superAdminToken = await createAndLoginSuperAdmin();
     });
 
-    it('should login with valid credentials', async () => {
+    it('should block login for pending teacher', async () => {
+      const res = await request(app)
+        .post('/api/auth/login')
+        .send({
+          email: validTeacher.email,
+          password: validTeacher.password
+        });
+
+      expect(res.statusCode).toEqual(403);
+    });
+
+    it('should login with valid credentials after approval', async () => {
+      const teacher = await User.findOne({ email: validTeacher.email });
+      await request(app)
+        .post(`/api/admin/users/${teacher._id}/approve`)
+        .set('Authorization', `Bearer ${superAdminToken}`);
+
       const res = await request(app)
         .post('/api/auth/login')
         .send({
@@ -64,7 +99,12 @@ describe('Authentication Endpoints', () => {
       expect(res.body.data).toHaveProperty('accessToken');
     });
 
-    it('should fail login with wrong password', async () => {
+    it('should fail login with wrong password (approved account)', async () => {
+      const teacher = await User.findOne({ email: validTeacher.email });
+      await request(app)
+        .post(`/api/admin/users/${teacher._id}/approve`)
+        .set('Authorization', `Bearer ${superAdminToken}`);
+
       const res = await request(app)
         .post('/api/auth/login')
         .send({
@@ -78,8 +118,20 @@ describe('Authentication Endpoints', () => {
 
   describe('GET /api/auth/me', () => {
     beforeEach(async () => {
-      const res = await request(app).post('/api/auth/register').send(validTeacher);
-      teacherToken = res.body.data.accessToken;
+      await request(app).post('/api/auth/register').send(validTeacher);
+      superAdminToken = await createAndLoginSuperAdmin();
+
+      const teacher = await User.findOne({ email: validTeacher.email });
+      await request(app)
+        .post(`/api/admin/users/${teacher._id}/approve`)
+        .set('Authorization', `Bearer ${superAdminToken}`);
+
+      const loginRes = await request(app).post('/api/auth/login').send({
+        email: validTeacher.email,
+        password: validTeacher.password
+      });
+
+      teacherToken = loginRes.body.data.accessToken;
     });
 
     it('should return profile for authenticated user', async () => {
@@ -99,8 +151,20 @@ describe('Authentication Endpoints', () => {
 
   describe('POST /api/auth/logout', () => {
     beforeEach(async () => {
-      const res = await request(app).post('/api/auth/register').send(validTeacher);
-      teacherToken = res.body.data.accessToken;
+      await request(app).post('/api/auth/register').send(validTeacher);
+      superAdminToken = await createAndLoginSuperAdmin();
+
+      const teacher = await User.findOne({ email: validTeacher.email });
+      await request(app)
+        .post(`/api/admin/users/${teacher._id}/approve`)
+        .set('Authorization', `Bearer ${superAdminToken}`);
+
+      const loginRes = await request(app).post('/api/auth/login').send({
+        email: validTeacher.email,
+        password: validTeacher.password
+      });
+
+      teacherToken = loginRes.body.data.accessToken;
     });
 
     it('should logout successfully', async () => {

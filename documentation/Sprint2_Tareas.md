@@ -74,7 +74,7 @@ Corregir el typo en el nombre del archivo `storageSErvice.js` → `storageServic
 
 ---
 
-### T-003: Implementar Sistema Super Admin 📋
+### T-003: Implementar Sistema Super Admin ✅
 **Prioridad:** P0 | **Tamaño:** L | **Dependencias:** Ninguna
 
 **Descripción:**  
@@ -91,7 +91,7 @@ Según Duda #51, los profesores nuevos deben ser validados por un super admin an
 
 **Criterios de Aceptación:**
 - Un profesor recién registrado no puede hacer login hasta ser aprobado
-- Solo super_admin puede aprobar/rechazar usuarios
+- Solo super_admin puede aprobar/rechazar usuarios (de tipo profesor)
 - El super_admin inicial se crea vía seeder
 
 ---

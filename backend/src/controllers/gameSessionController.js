@@ -141,7 +141,7 @@ const getSessions = async (req, res, next) => {
       throw new ForbiddenError('Los alumnos no pueden acceder a sesiones directamente');
     }
 
-    // Filtrar por sesiones del profesor actual si no es admin
+    // Filtrar por sesiones del profesor actual (super_admin puede ver todas)
     if (req.user.role === 'teacher' && !createdBy) {
       filter.createdBy = req.user._id;
     }
@@ -203,8 +203,11 @@ const getSessionById = async (req, res, next) => {
       throw new NotFoundError('Sesión de juego');
     }
 
-    // Verificar permisos: solo el creador o admin
-    if (session.createdBy.toString() !== req.user._id.toString() && req.user.role !== 'admin') {
+    // Verificar permisos: solo el creador o super admin
+    if (
+      session.createdBy.toString() !== req.user._id.toString() &&
+      req.user.role !== 'super_admin'
+    ) {
       throw new ForbiddenError('No tienes permiso para ver esta sesión');
     }
 

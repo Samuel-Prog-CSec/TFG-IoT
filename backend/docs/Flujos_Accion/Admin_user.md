@@ -1,56 +1,30 @@
-Análisis de la Propuesta
-✅ Ventajas
-Control de acceso: Evitas registros no autorizados
-Validación de identidad: Puedes verificar que los profesores son reales
-Gestión centralizada: Un admin puede supervisar todos los profesores
-Auditoría: Sabes quién aprobó a cada profesor y cuándo
-Opciones de Implementación
-Te presento 3 enfoques ordenados de menor a mayor complejidad:
+# Flujo Super Admin (Aprobación de Profesores)
 
-Opción 1: Aprobación Manual (Recomendada para TFG)
-El profesor se registra pero queda en estado pending hasta que un admin lo apruebe.
+## Roles
 
-Flujo:
+- `super_admin`: valida (aprueba/rechaza) profesores.
+- `teacher`: profesor con login (requiere aprobación).
+- `student`: alumno (sin login).
 
-Profesor se registra → estado pending
-Admin ve lista de profesores pendientes
-Admin aprueba/rechaza → estado cambia a active o rejected
-Profesor ya puede hacer login
-Opción 2: Código de Invitación
-El admin genera códigos únicos que los profesores usan al registrarse.
+## Estado de cuenta (`accountStatus`)
 
-Flujo:
+Campo aplicable a usuarios con login (`teacher`, `super_admin`):
 
-Admin genera código de invitación
-Admin comparte código con profesor (email, presencial, etc.)
-Profesor usa el código al registrarse → activo inmediatamente
-Opción 3: Registro Cerrado (Solo Admin Crea Profesores)
-El registro público está deshabilitado. Solo el admin puede crear profesores.
+- `pending_approval`: pendiente de aprobación.
+- `approved`: aprobado.
+- `rejected`: rechazado.
 
-Flujo:
+## Flujo implementado
 
-No existe página de registro para profesores
-Admin crea profesor desde su panel
-Sistema envía credenciales temporales por email
-Profesor hace login y cambia contraseña
-Mi Recomendación: Opción 1
-Para un TFG, la Opción 1 es la mejor porque:
+1. El profesor se registra en `POST /api/auth/register`.
+2. El backend crea el usuario con `role=teacher` y `accountStatus=pending_approval`.
+3. El profesor NO puede iniciar sesión hasta ser aprobado.
+4. El super admin aprueba o rechaza:
+	- `POST /api/admin/users/:id/approve` → `accountStatus=approved`
+	- `POST /api/admin/users/:id/reject` → `accountStatus=rejected`
+5. Una vez aprobado, el profesor puede hacer login normalmente en `POST /api/auth/login`.
 
-Sencillez: No requiere sistema de emails ni códigos
-Flexibilidad: El profesor puede registrarse cuando quiera
-Control: El admin decide quién entra
-Trazabilidad: Registro de quién aprobó a quién
-Implementación Básica
-Panel Admin (Vista Básica)
-Creación del Admin Inicial
-Para crear el primer admin, tienes dos opciones:
+## Notas
 
-Opción A: Seeder (Recomendada)
-Opción B: Variable de entorno para primer registro
-¿Quieres que desarrolle más alguna de estas opciones?
-Puedo ayudarte con:
-
-Schema completo del User con roles admin/teacher/student
-Middleware de autorización por roles
-Rutas protegidas para el panel admin
-Componentes React para el panel de aprobación
+- Los endpoints `/api/admin/*` están protegidos con autenticación + rol `super_admin`.
+- Solo se permite aprobar/rechazar usuarios con `role=teacher`.

@@ -2,9 +2,13 @@
  * @fileoverview Modelo de datos para usuarios del sistema (Profesores y Alumnos).
  *
  * CONTEXTO DEL SISTEMA:
- * El sistema contempla dos roles de usuario con características muy diferentes:
+ * El sistema contempla tres roles de usuario con características muy diferentes:
  *
- * 1. PROFESORES (role: 'teacher'):
+ * 1. SUPER ADMIN (role: 'super_admin'):
+ *    - Valida (aprueba/rechaza) nuevos profesores antes de que puedan acceder al sistema
+ *    - Tiene credenciales de acceso (email/password)
+ *
+ * 2. PROFESORES (role: 'teacher'):
  *    - Son los ÚNICOS que inician sesión y gestionan la aplicación
  *    - Crean y configuran sesiones de juego (GameSession)
  *    - Crean y asignan partidas a los alumnos (GamePlay)
@@ -12,7 +16,7 @@
  *    - Pueden añadir contenido a los contextos existentes
  *    - Tienen credenciales de acceso (email/password)
  *
- * 2. ALUMNOS (role: 'student'):
+ * 3. ALUMNOS (role: 'student'):
  *    - Usuarios de entre 4-6 años que NO inician sesión
  *    - Son creados y gestionados por los profesores
  *    - NO tienen credenciales de acceso (password es opcional)
@@ -31,13 +35,15 @@ const bcrypt = require('bcrypt');
 
 /**
  * Esquema de Mongoose para usuarios del sistema.
- * Soporta dos roles: 'teacher' (profesor con login) y 'student' (alumno sin login).
+ * Soporta tres roles: 'super_admin' (valida profesores), 'teacher' (profesor con login) y
+ * 'student' (alumno sin login).
  *
  * @typedef {Object} User
  * @property {string} name - Nombre completo del usuario
  * @property {string} [email] - Email del usuario (requerido solo para profesores)
  * @property {string} [password] - Contraseña encriptada (requerido solo para profesores)
- * @property {string} role - Rol del usuario ('teacher' o 'student')
+ * @property {string} role - Rol del usuario ('super_admin', 'teacher' o 'student')
+ * @property {string} [accountStatus] - Estado de la cuenta para roles con login
  * @property {Object} [profile] - Información de perfil adicional
  * @property {string} [profile.avatar] - URL del avatar del usuario
  * @property {number} [profile.age] - Edad del alumno (solo para students)
@@ -84,11 +90,18 @@ const userSchema = new mongoose.Schema(
       lowercase: true,
       trim: true,
       enum: {
-        values: ['teacher', 'student'],
-        message: 'El rol debe ser teacher o student'
+        values: ['super_admin', 'teacher', 'student'],
+        message: 'El rol debe ser super_admin, teacher o student'
       },
       required: [true, 'El rol es obligatorio'],
       default: 'student'
+    },
+    accountStatus: {
+      type: String,
+      lowercase: true,
+      trim: true,
+      enum: ['pending_approval', 'approved', 'rejected'],
+      default: 'approved'
     },
     profile: {
       avatar: {
@@ -172,9 +185,9 @@ const userSchema = new mongoose.Schema(
  */
 userSchema.pre('save', async function () {
   // ========================================
-  // VALIDACIÓN PARA PROFESORES (role: 'teacher')
+  // VALIDACIÓN PARA ROLES CON LOGIN (teacher/super_admin)
   // ========================================
-  if (this.role === 'teacher') {
+  if (this.role === 'teacher' || this.role === 'super_admin') {
     if (!this.email) {
       throw new Error('Los profesores deben tener un email');
     }
@@ -333,6 +346,17 @@ userSchema.methods.toSafeObject = function () {
  */
 userSchema.methods.isTeacher = function () {
   return this.role === 'teacher';
+};
+
+/**
+ * Verifica si el usuario es un super admin.
+ *
+ * @instance
+ * @memberof User
+ * @returns {boolean} true si el rol es 'super_admin', false en caso contrario
+ */
+userSchema.methods.isSuperAdmin = function () {
+  return this.role === 'super_admin';
 };
 
 /**

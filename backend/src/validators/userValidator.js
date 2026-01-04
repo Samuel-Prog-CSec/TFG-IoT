@@ -47,8 +47,8 @@ const createUserSchema = z
     password: passwordSchema.optional(),
 
     role: z
-      .enum(['teacher', 'student'], {
-        errorMap: () => ({ message: 'El rol debe ser teacher o student' })
+      .enum(['super_admin', 'teacher', 'student'], {
+        errorMap: () => ({ message: 'El rol debe ser super_admin, teacher o student' })
       })
       .default('student'),
 
@@ -79,15 +79,15 @@ const createUserSchema = z
     createdBy: objectIdSchema.optional()
   })
   .refine(
-    // Validación: Los profesores DEBEN tener email y password
+    // Validación: Roles con login DEBEN tener email y password
     data => {
-      if (data.role === 'teacher') {
+      if (data.role === 'teacher' || data.role === 'super_admin') {
         return !!data.email && !!data.password;
       }
       return true;
     },
     {
-      message: 'Los profesores deben tener email y contraseña',
+      message: 'Los usuarios con login deben tener email y contraseña',
       path: ['email']
     }
   )
@@ -216,7 +216,7 @@ const loginSchema = z.object({
  * Schema para query de búsqueda de usuarios.
  */
 const userQuerySchema = z.object({
-  role: z.enum(['teacher', 'student']).optional(),
+  role: z.enum(['super_admin', 'teacher', 'student']).optional(),
   status: z.enum(['active', 'inactive']).optional(),
   classroom: z.string().trim().optional(),
   createdBy: objectIdSchema.optional(),

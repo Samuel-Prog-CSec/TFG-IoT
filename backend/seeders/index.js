@@ -14,6 +14,7 @@ const logger = require('../src/utils/logger');
 require('dotenv').config();
 
 // Importar seeders individuales
+const seedSuperAdmin = require('./00-super-admin');
 const seedUsers = require('./01-users');
 const seedCards = require('./02-cards');
 const seedMechanics = require('./03-mechanics');
@@ -64,39 +65,45 @@ async function runSeeders() {
   try {
     logger.info('🌱 Iniciando seeders...\n');
 
-    // 1. Usuarios (profesores y alumnos)
-    logger.info('1️⃣  Seeding usuarios...');
+    // 1. Super Admin inicial
+    logger.info('1️⃣  Seeding super admin...');
+    const superAdmin = await seedSuperAdmin();
+    logger.info(`  ✓ Super admin listo: ${superAdmin.email}\n`);
+
+    // 2. Usuarios (profesores y alumnos)
+    logger.info('2️⃣  Seeding usuarios...');
     const users = await seedUsers();
     logger.info(`  ✓ ${users.teachers.length} profesores creados`);
     logger.info(`  ✓ ${users.students.length} alumnos creados\n`);
 
-    // 2. Tarjetas RFID
-    logger.info('2️⃣  Seeding tarjetas RFID...');
+    // 3. Tarjetas RFID
+    logger.info('3️⃣  Seeding tarjetas RFID...');
     const cards = await seedCards();
     logger.info(`  ✓ ${cards.length} tarjetas creadas\n`);
 
-    // 3. Mecánicas de juego
-    logger.info('3️⃣  Seeding mecánicas de juego...');
+    // 4. Mecánicas de juego
+    logger.info('4️⃣  Seeding mecánicas de juego...');
     const mechanics = await seedMechanics();
     logger.info(`  ✓ ${mechanics.length} mecánicas creadas\n`);
 
-    // 4. Contextos de juego
-    logger.info('4️⃣  Seeding contextos de juego...');
+    // 5. Contextos de juego
+    logger.info('5️⃣  Seeding contextos de juego...');
     const contexts = await seedContexts();
     logger.info(`  ✓ ${contexts.length} contextos creados\n`);
 
-    // 5. Sesiones de juego
-    logger.info('5️⃣  Seeding sesiones de juego...');
+    // 6. Sesiones de juego
+    logger.info('6️⃣  Seeding sesiones de juego...');
     const sessions = await seedSessions(users, mechanics, contexts, cards);
     logger.info(`  ✓ ${sessions.length} sesiones creadas\n`);
 
-    // 6. Partidas individuales (GamePlays)
-    logger.info('6️⃣  Seeding partidas (GamePlays)...');
+    // 7. Partidas individuales (GamePlays)
+    logger.info('7️⃣  Seeding partidas (GamePlays)...');
     const gamePlays = await seedGamePlays(sessions, users.students);
     logger.info(`  ✓ ${gamePlays.length} partidas creadas\n`);
 
     logger.info('✅ Seeders completados exitosamente!');
     logger.info('\n📊 Resumen:');
+    logger.info(`   - 1 super admin`);
     logger.info(`   - ${users.teachers.length} profesores`);
     logger.info(`   - ${users.students.length} alumnos`);
     logger.info(`   - ${cards.length} tarjetas RFID`);
@@ -106,14 +113,14 @@ async function runSeeders() {
     logger.info(`   - ${gamePlays.length} partidas (GamePlays)\n`);
 
     // Mostrar credenciales de profesores
-    logger.info('🔑 Credenciales de profesores para testing:');
+    logger.info('🔑 Credenciales para testing:');
     logger.info('   ┌────────────────────────────────────────────┐');
     logger.info('   │  Email              │  Password            │');
     logger.info('   ├────────────────────────────────────────────┤');
+    logger.info('   │  admin@test.com     │  Admin1234!          │');
     logger.info('   │  maria@test.com     │  Test1234!           │');
     logger.info('   │  carlos@test.com    │  Test1234!           │');
     logger.info('   │  ana@test.com       │  Test1234!           │');
-    logger.info('   │  admin@test.com     │  Admin1234!          │');
     logger.info('   └────────────────────────────────────────────┘');
     logger.info('');
   } catch (error) {

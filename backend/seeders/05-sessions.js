@@ -73,7 +73,7 @@ function findContext(contexts, contextId) {
  */
 function generateSessionsData(users, mechanics, contexts, cards) {
   const sessions = [];
-  const teachers = users.teachers.filter(t => t.email !== 'admin@test.com');
+  const teachers = users.teachers;
 
   // =============================================
   // Sesiones predefinidas para cada profesor

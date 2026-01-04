@@ -559,7 +559,11 @@ const authenticate = async (req, res, next) => {
           });
 
           const user = await User.findById(decoded.id).select('-password');
-          if (user && user.status === 'active') {
+          if (
+            user &&
+            user.status === 'active' &&
+            (!['teacher', 'super_admin'].includes(user.role) || user.accountStatus === 'approved')
+          ) {
             req.user = user;
             req.tokenJti = decoded.jti;
             req.tokenExp = decoded.exp;
@@ -577,9 +581,11 @@ const authenticate = async (req, res, next) => {
       }
 
       // Sin token válido: usar mock user (primer profesor disponible)
-      const mockUser = await User.findOne({ role: 'teacher', status: 'active' }).select(
-        '-password'
-      );
+      const mockUser = await User.findOne({
+        role: { $in: ['teacher', 'super_admin'] },
+        status: 'active',
+        accountStatus: 'approved'
+      }).select('-password');
 
       if (mockUser) {
         req.user = mockUser;
@@ -601,7 +607,8 @@ const authenticate = async (req, res, next) => {
         name: 'Dev User',
         email: 'dev@test.com',
         role: 'teacher',
-        status: 'active'
+        status: 'active',
+        accountStatus: 'approved'
       };
       req.tokenJti = 'dev-bypass-jti';
       req.tokenExp = Math.floor(Date.now() / 1000) + 3600;
@@ -631,6 +638,20 @@ const authenticate = async (req, res, next) => {
 
     if (user.status !== 'active') {
       throw new UnauthorizedError('Usuario inactivo');
+    }
+
+    if (
+      ['teacher', 'super_admin'].includes(user.role) &&
+      user.accountStatus &&
+      user.accountStatus !== 'approved'
+    ) {
+      const message =
+        user.accountStatus === 'pending_approval'
+          ? 'Cuenta pendiente de aprobación'
+          : user.accountStatus === 'rejected'
+            ? 'Cuenta rechazada'
+            : 'Cuenta no aprobada';
+      throw new ForbiddenError(message);
     }
 
     // Adjuntar usuario y metadata del token a la request

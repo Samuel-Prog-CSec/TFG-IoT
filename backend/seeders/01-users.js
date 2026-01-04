@@ -39,20 +39,10 @@ const teachersData = [
     email: 'ana@test.com',
     password: 'Test1234!',
     role: 'teacher',
+    accountStatus: 'approved',
     profile: {
       avatar: '👩‍🏫',
       birthdate: new Date('1990-03-10')
-    },
-    status: 'active'
-  },
-  {
-    name: 'Admin Principal',
-    email: 'admin@test.com',
-    password: 'Admin1234!',
-    role: 'teacher',
-    profile: {
-      avatar: '👨‍💼',
-      birthdate: new Date('1980-01-01')
     },
     status: 'active'
   }
@@ -191,23 +181,34 @@ function generateStudentsData(teacher, names, startIndex, count) {
  */
 async function seedUsers() {
   try {
-    // Crear profesores
-    const teachers = await User.insertMany(teachersData);
+    // Crear profesores (usar create/save para aplicar hooks de password)
+    const teachers = [];
+    for (const teacherData of teachersData) {
+      // Asegurar que quedan aprobados en seed
+      const teacher = await User.create({
+        ...teacherData,
+        role: 'teacher',
+        accountStatus: 'approved',
+        status: 'active'
+      });
+      teachers.push(teacher);
+    }
 
-    // Crear 5 alumnos por cada profesor (excepto admin)
-    const regularTeachers = teachers.filter(t => t.email !== 'admin@test.com');
-    const studentsPromises = regularTeachers.map((teacher, index) =>
-      User.insertMany(
-        generateStudentsData(
-          teacher,
-          studentNames,
-          index * 5, // Offset para usar nombres diferentes
-          5
-        )
-      )
-    );
+    // Crear 5 alumnos por cada profesor
+    const studentsArrays = [];
+    for (const [index, teacher] of teachers.entries()) {
+      const studentsData = generateStudentsData(
+        teacher,
+        studentNames,
+        index * 5, // Offset para usar nombres diferentes
+        5
+      );
 
-    const studentsArrays = await Promise.all(studentsPromises);
+      // Para alumnos, insertMany es seguro (no hay password) y acelera el seed
+      const createdStudents = await User.insertMany(studentsData);
+      studentsArrays.push(createdStudents);
+    }
+
     const students = studentsArrays.flat();
 
     logger.info('✅ Usuarios seeded exitosamente');
