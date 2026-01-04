@@ -151,11 +151,25 @@ const login = async (req, res, next) => {
       throw new UnauthorizedError('Credenciales inválidas');
     }
 
-    // Actualizar lastLoginAt
+    // SINGLE SESSION: Invalidar sesión anterior
+    const sessionId = crypto.randomUUID();
+    user.currentSessionId = sessionId;
+
+    // Actualizar lastLoginAt (esto guarda también el currentSessionId)
     await user.updateLastLogin();
 
-    // Generar par de tokens (access + refresh) con nueva familia
-    const tokens = await generateTokenPair(user, req);
+    // Notificar al dispositivo anterior vía WebSocket
+    const io = req.app.get('io');
+    if (io) {
+      io.to(`user_${user._id}`).emit('session_invalidated', {
+        reason: 'NEW_LOGIN',
+        timestamp: Date.now()
+      });
+      logger.debug(`Evento session_invalidated emitido para usuario ${user._id}`);
+    }
+
+    // Generar par de tokens (access + refresh) con nueva familia y sessionId
+    const tokens = await generateTokenPair(user, req, sessionId);
 
     // Eliminar datos internos antes de enviar respuesta
     const { _internal, ...publicTokens } = tokens;
@@ -321,8 +335,8 @@ const refreshAccessToken = async (req, res, next) => {
     // Verificar refresh token (incluye fingerprint, blacklist y detección de robo)
     const decoded = await verifyRefreshToken(refreshToken, req);
 
-    // Buscar usuario
-    const user = await User.findById(decoded.id);
+    // Buscar usuario (incluyendo currentSessionId para validación)
+    const user = await User.findById(decoded.id).select('+currentSessionId');
 
     if (!user) {
       throw new UnauthorizedError('Usuario no encontrado');
@@ -340,6 +354,19 @@ const refreshAccessToken = async (req, res, next) => {
     const tokenInfo = await getRefreshTokenInfo(decoded.jti);
     const familyId = tokenInfo?.familyId || crypto.randomUUID();
 
+    // SINGLE SESSION VALIDATION
+    if (decoded.sid && user.currentSessionId && decoded.sid !== user.currentSessionId) {
+      throw new UnauthorizedError('Tu sesión ha expirado (nueva sesión activa)');
+    }
+
+    // Asegurar que el usuario tenga sesión si no la tenía (migración legacy)
+    let sessionId = user.currentSessionId;
+    if (!sessionId) {
+      sessionId = crypto.randomUUID();
+      user.currentSessionId = sessionId;
+      await user.save();
+    }
+
     // TOKEN ROTATION:
     // 1. Marcar el token actual como "usado" (para detectar reuso)
     await markRefreshTokenAsUsed(decoded.jti, familyId);
@@ -347,8 +374,8 @@ const refreshAccessToken = async (req, res, next) => {
     // 2. Eliminar el token de la lista de tokens activos
     await deleteRefreshToken(decoded.jti);
 
-    // 3. Generar nuevo par de tokens (mantiene la familia)
-    const tokens = await generateTokenPair(user, req, familyId);
+    // 3. Generar nuevo par de tokens (mantiene la familia y sesión)
+    const tokens = await generateTokenPair(user, req, sessionId, familyId);
 
     // Eliminar datos internos antes de enviar
     const { _internal, ...publicTokens } = tokens;

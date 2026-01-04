@@ -529,6 +529,95 @@ const getStudentsByTeacher = async (req, res, next) => {
   }
 };
 
+/**
+ * Transferir un alumno a otro profesor.
+ *
+ * POST /api/users/:id/transfer
+ * Headers: Authorization: Bearer <token>
+ * Body: { newTeacherId, newClassroom }
+ *
+ * REGLAS DE SEGURIDAD (PUSH MODEL):
+ * - Solo el profesor actual (createdBy) o un super_admin pueden iniciar la transferencia.
+ * - Esto previene que otros profesores "reclamen" alumnos que no les pertenecen.
+ * - El nuevo profesor debe existir y ser válido.
+ *
+ * @param {import('express').Request} req
+ * @param {import('express').Response} res
+ * @param {import('express').NextFunction} next
+ */
+const transferStudent = async (req, res, next) => {
+  try {
+    const { id } = req.params;
+    const { newTeacherId, newClassroom } = req.body;
+
+    if (!newTeacherId || !newClassroom) {
+      return res.status(400).json({
+        success: false,
+        message: 'Se requiere newTeacherId y newClassroom'
+      });
+    }
+
+    const student = await User.findById(id);
+
+    if (!student) {
+      throw new NotFoundError('Alumno');
+    }
+
+    if (student.role !== 'student') {
+      return res.status(400).json({
+        success: false,
+        message: 'Solo se pueden transferir usuarios con rol de alumno'
+      });
+    }
+
+    // VERIFICACIÓN DE SEGURIDAD: Solo el dueño actual o super admin puede transferir
+    const isOwner = student.createdBy.toString() === req.user._id.toString();
+    const isSuperAdmin = req.user.role === 'super_admin';
+
+    if (!isOwner && !isSuperAdmin) {
+      throw new ForbiddenError('Solo el profesor actual puede transferir a este alumno');
+    }
+
+    // Verificar que el nuevo profesor existe y es válido
+    const newTeacher = await User.findOne({
+      _id: newTeacherId,
+      role: 'teacher',
+      status: 'active'
+    });
+
+    if (!newTeacher) {
+      return res.status(400).json({
+        success: false,
+        message: 'El nuevo profesor no existe o no está activo'
+      });
+    }
+
+    // Registrar cambios para auditoría (log)
+    logger.info('Iniciando transferencia de alumno', {
+      studentId: student._id,
+      studentName: student.name,
+      fromTeacher: student.createdBy,
+      toTeacher: newTeacherId,
+      initiatedBy: req.user._id
+    });
+
+    // Realizar transferencia
+    student.createdBy = newTeacherId;
+    student.profile.classroom = newClassroom;
+    
+    await student.save();
+
+    res.json({
+      success: true,
+      message: 'Alumno transferido exitosamente',
+      data: userDTO(student)
+    });
+
+  } catch (error) {
+    next(error);
+  }
+};
+
 module.exports = {
   getUsers,
   getUserById,
@@ -536,5 +625,6 @@ module.exports = {
   updateUser,
   deleteUser,
   getUserStats,
-  getStudentsByTeacher
+  getStudentsByTeacher,
+  transferStudent
 };

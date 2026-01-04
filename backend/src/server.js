@@ -75,6 +75,8 @@ const gameEngine = new GameEngine(io);
 
 // Exponer el gameEngine a controllers (REST) sin imports circulares.
 app.set('gameEngine', gameEngine);
+// Exponer io a controllers para notificaciones (e.g. session_invalidated)
+app.set('io', io);
 
 // ============================================================================
 // MIDDLEWARE
@@ -278,6 +280,37 @@ app.use(errorHandler);
  */
 io.on('connection', socket => {
   logger.info(`Cliente conectado: ${socket.id}`);
+
+  /**
+   * Evento: Autenticar socket y unirse a room de usuario.
+   * Permite enviar notificaciones dirigidas (e.g. session_invalidated).
+   * @event authenticate
+   * @param {Object} data - { accessToken }
+   */
+  socket.on('authenticate', async data => {
+    try {
+      const { accessToken } = data || {};
+      if (!accessToken) return;
+
+      // Verificar token (usando el mismo secret que la API REST)
+      // Nota: Requerimos una verificación completa incluyendo fingerprint si es posible,
+      // pero para sockets a veces el handshake headers es diferente.
+      // Simplificamos usando verifyAccessToken con headers del handshake.
+      const mockReq = { headers: socket.handshake.headers };
+      const decoded = await verifyAccessToken(accessToken, mockReq);
+
+      if (decoded && decoded.id) {
+        // Unirse a la room del usuario
+        const roomName = `user_${decoded.id}`;
+        socket.join(roomName);
+        logger.debug(`Socket ${socket.id} autenticado como usuario ${decoded.id} (${decoded.role})`);
+        socket.emit('authenticated', { success: true, userId: decoded.id });
+      }
+    } catch (error) {
+      logger.warn(`Fallo de autenticación socket ${socket.id}: ${error.message}`);
+      socket.emit('error', { message: 'Autenticación fallida', error: error.message });
+    }
+  });
 
   /**
    * Evento: Cliente se une a una partida.

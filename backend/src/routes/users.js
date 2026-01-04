@@ -14,7 +14,8 @@ const {
   updateUser,
   deleteUser,
   getUserStats,
-  getStudentsByTeacher
+  getStudentsByTeacher,
+  transferStudent
 } = require('../controllers/userController');
 
 const { authenticate, requireRole } = require('../middlewares/auth');
@@ -80,5 +81,12 @@ router.put('/:id', authenticate, updateUser);
  * @access  Private (Teacher)
  */
 router.delete('/:id', authenticate, requireRole('teacher'), deleteUser);
+
+/**
+ * @route   POST /api/users/:id/transfer
+ * @desc    Transferir alumno a otro profesor
+ * @access  Private (Teacher)
+ */
+router.post('/:id/transfer', authenticate, requireRole('teacher'), transferStudent);
 
 module.exports = router;

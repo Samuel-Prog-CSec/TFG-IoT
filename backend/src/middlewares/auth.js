@@ -261,7 +261,7 @@ const generateDeviceFingerprint = req => {
  * @property {string} jti - ID único del token (para revocación)
  * @property {number} expiresIn - Tiempo de expiración en segundos
  */
-const generateAccessToken = (user, deviceFingerprint) => {
+const generateAccessToken = (user, deviceFingerprint, sessionId) => {
   const jti = crypto.randomUUID(); // ID único del token
   const expiresIn = process.env.JWT_EXPIRES_IN || '15m'; // 15 minutos por defecto
 
@@ -270,7 +270,10 @@ const generateAccessToken = (user, deviceFingerprint) => {
     id: user._id.toString(),
     email: user.email,
     role: user.role,
+    email: user.email,
+    role: user.role,
     fp: deviceFingerprint, // Fingerprint embebido
+    sid: sessionId, // Session ID para single session enforcement
     type: 'access'
   };
 
@@ -302,14 +305,16 @@ const generateAccessToken = (user, deviceFingerprint) => {
  * @property {string} jti - ID único del token
  * @property {number} expiresIn - Tiempo de expiración en segundos
  */
-const generateRefreshToken = (user, deviceFingerprint) => {
+const generateRefreshToken = (user, deviceFingerprint, sessionId) => {
   const jti = crypto.randomUUID();
   const expiresIn = process.env.JWT_REFRESH_EXPIRES_IN || '30d';
 
   const payload = {
     jti,
     id: user._id.toString(),
+    id: user._id.toString(),
     fp: deviceFingerprint,
+    sid: sessionId, // Session ID
     type: 'refresh'
   };
 
@@ -337,14 +342,13 @@ const generateRefreshToken = (user, deviceFingerprint) => {
  *
  * @param {Object} user - Usuario de Mongoose
  * @param {import('express').Request} req - Request para fingerprint
- * @param {string} [existingFamilyId] - ID de familia existente (para rotación)
  * @returns {Promise<Object>} Par de tokens
  */
-const generateTokenPair = async (user, req, existingFamilyId = null) => {
+const generateTokenPair = async (user, req, sessionId, existingFamilyId = null) => {
   const fingerprint = generateDeviceFingerprint(req);
 
-  const accessToken = generateAccessToken(user, fingerprint);
-  const refreshToken = generateRefreshToken(user, fingerprint);
+  const accessToken = generateAccessToken(user, fingerprint, sessionId);
+  const refreshToken = generateRefreshToken(user, fingerprint, sessionId);
 
   // Crear o reutilizar familyId para detección de robo
   const familyId = existingFamilyId || crypto.randomUUID();
@@ -629,8 +633,8 @@ const authenticate = async (req, res, next) => {
     // Verificar access token (incluye validación de fingerprint)
     const decoded = await verifyAccessToken(token, req);
 
-    // Buscar usuario en la base de datos
-    const user = await User.findById(decoded.id).select('-password');
+    // Buscar usuario en la base de datos (y seleccionar currentSessionId para validación)
+    const user = await User.findById(decoded.id).select('-password +currentSessionId');
 
     if (!user) {
       throw new UnauthorizedError('Usuario no encontrado');
@@ -652,6 +656,12 @@ const authenticate = async (req, res, next) => {
             ? 'Cuenta rechazada'
             : 'Cuenta no aprobada';
       throw new ForbiddenError(message);
+    }
+
+    // SINGLE SESSION ENFORCEMENT
+    // Verificar que la sesión del token coincide con la sesión actual del usuario
+    if (decoded.sid && user.currentSessionId && decoded.sid !== user.currentSessionId) {
+       throw new UnauthorizedError('Tu sesión ha expirado porque se ha iniciado sesión en otro dispositivo.');
     }
 
     // Adjuntar usuario y metadata del token a la request
