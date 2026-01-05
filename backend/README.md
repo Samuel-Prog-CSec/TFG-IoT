@@ -163,8 +163,8 @@ SERIAL_BAUD_RATE=115200
 RFID_MAX_RECONNECT_ATTEMPTS=10
 
 # GameEngine
-MAX_ACTIVE_PLAYS=1000         # Umbral para warnings (soft limit)
-PLAY_TIMEOUT_MS=3600000       # 1 hora
+ACTIVE_PLAYS_WARNING_THRESHOLD=1000  # Umbral para warnings (soft limit)
+PLAY_TIMEOUT_MS=3600000              # 1 hora
 ```
 
 Ver `.env.example` para la lista completa.

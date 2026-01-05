@@ -464,14 +464,14 @@ El sistema es una **plataforma de juegos educativos interactivos** que utiliza *
 **Criterios de Aceptación:**
 - Bucket: `game-assets`
 - Nomenclatura: `{folder}/{timestamp}-{filename}`
-- **Tipos permitidos: WebP, SVG para imágenes; MP3, OGG para audio** (Duda #44)
+- **Tipos permitidos: WebP para imágenes; MP3, OGG para audio** (Duda #44, actualizado: SVG rechazado por XSS)
 - Tamaño máximo: 5MB por archivo
 - URLs públicas retornadas
 - **Conversión automática de PNG/JPG a WebP** (Duda #44)
 
 **Endpoint:** `POST /api/assets/upload`
 
-> **ACTUALIZACIÓN [Duda #44]:** Se modifican los formatos permitidos. Anteriormente se permitían PNG, JPG, GIF. Ahora **solo WebP y SVG** para optimizar ancho de banda y almacenamiento.
+> **ACTUALIZACIÓN [Duda #44]:** Se modifican los formatos permitidos. Anteriormente se permitían PNG, JPG, GIF. Ahora **solo WebP** para imágenes (SVG rechazado por riesgos de seguridad XSS) para optimizar ancho de banda y almacenamiento.
 
 ---
 
@@ -1543,7 +1543,7 @@ El sistema es una **plataforma de juegos educativos interactivos** que utiliza *
 
 | Código | Cambio | Motivo |
 |--------|--------|--------|
-| RF-JGO-011 | Solo WebP/SVG | Duda #44: Optimizar almacenamiento |
+| RF-JGO-011 | Solo WebP (SVG rechazado XSS) | Duda #44: Optimizar almacenamiento |
 | RF-JGO-024 | Estado `paused` añadido | Duda #30: Pausa de partidas |
 | RF-RT-001 | Estado en Redis | Dudas #19, #39: Persistencia |
 | RNF-SEG-001 | Refresh 7 días | Duda #49: Mayor seguridad |

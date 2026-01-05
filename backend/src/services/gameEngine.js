@@ -11,7 +11,8 @@ const GameSession = require('../models/GameSession');
 const redisService = require('./redisService');
 
 // Constantes de configuración
-const MAX_ACTIVE_PLAYS = parseInt(process.env.MAX_ACTIVE_PLAYS) || 1000;
+// Umbral de alerta (soft limit) - no bloquea, solo emite warnings
+const ACTIVE_PLAYS_WARNING_THRESHOLD = parseInt(process.env.ACTIVE_PLAYS_WARNING_THRESHOLD) || 1000;
 const PLAY_TIMEOUT_MS = parseInt(process.env.PLAY_TIMEOUT_MS) || 3600000; // 1 hora
 const CLEANUP_INTERVAL_MS = 300000; // 5 minutos
 
@@ -95,7 +96,7 @@ class GameEngine {
     }
 
     logger.info('GameEngine inicializado', {
-      maxActivePlays: MAX_ACTIVE_PLAYS,
+      activePlaysWarningThreshold: ACTIVE_PLAYS_WARNING_THRESHOLD,
       playTimeoutMs: PLAY_TIMEOUT_MS,
       cleanupIntervalMs: CLEANUP_INTERVAL_MS
     });
@@ -185,10 +186,10 @@ class GameEngine {
   async startPlay(playDoc, sessionDoc) {
     const playId = playDoc._id.toString();
 
-    // 0. Verificar límite de partidas activas (Monitorización)
-    if (this.activePlays.size >= MAX_ACTIVE_PLAYS) {
+    // 0. Verificar umbral de partidas activas (Monitorización - solo warning)
+    if (this.activePlays.size >= ACTIVE_PLAYS_WARNING_THRESHOLD) {
       logger.warn(
-        `Límite de partidas activas alcanzado o superado: ${this.activePlays.size}/${MAX_ACTIVE_PLAYS}`
+        `Umbral de partidas activas alcanzado o superado: ${this.activePlays.size}/${ACTIVE_PLAYS_WARNING_THRESHOLD}`
       );
       // Duda #21: No bloqueamos, solo alertamos
     }
