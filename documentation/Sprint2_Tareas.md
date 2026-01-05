@@ -295,71 +295,9 @@ Según Duda #44, solo se permiten formatos WebP para imágenes (SVG rechazado po
 
 ---
 
-### T-013: Compartir Contextos entre Profesores 📋 (REVISAR, PUEDE QUE NO HAGA FALTA)
-
-**Prioridad:** P1 | **Tamaño:** S | **Dependencias:** Ninguna
-
-**Descripción:**  
-Según Duda #45, los contextos son compartidos entre todos los profesores.
-
-**Sub-tareas:**
-
-1. Verificar que la API de contextos no filtra por `createdBy`
-2. Añadir campo `visibility` al modelo GameContext: `public` (default), `private`
-3. Modificar endpoints GET para mostrar todos los contextos públicos
-4. Documentar política de compartición
-
-**Criterios de Aceptación:**
-
-- Todos los profesores pueden ver y usar los contextos públicos
-- Un profesor puede marcar un contexto como privado si lo desea
-
----
-
-### T-021: Conectar Frontend con la BD (vía API REST) 📋
-
-**Prioridad:** P1 | **Tamaño:** L | **Dependencias:** T-001
-
-**Descripción:**
-La UI del frontend debe dejar de usar mockups/datos estáticos y consumir datos reales desde el backend a través de la **API REST**, de forma que toda la parte visual “beba” de la BD (MongoDB) indirectamente.
-
-**Alcance (MVP Sprint 2):**
-
-- Sustituir datos mock en páginas principales por llamadas reales a API.
-- Añadir estados de carga/error y manejo de sesión (JWT) coherente.
-- Mantener el diseño actual: cambiar fuente de datos, no la UX.
-
-**Sub-tareas:**
-
-1. Auditar páginas/componentes con datos estáticos y listar fuentes de mock actuales
-2. Centralizar llamadas API en `frontend/src/services/` (axios), con base URL y manejo de errores
-3. Integrar autenticación real:
-   - Login contra backend
-   - Almacenar/access token de forma consistente (y adjuntarlo en cada request)
-   - Manejar expiración/401 (logout o refresh si ya está implementado)
-4. Conectar pantallas (mínimo):
-   - Gestión de alumnos (lista/alta/edición)
-   - Gestión de tarjetas (lista/alta/edición)
-   - Sesiones/partidas (listado y creación según endpoints existentes)
-5. Añadir estados UI:
-   - Loading (spinners/placeholder existentes)
-   - Errores (mensaje claro; sin stack)
-   - Estado vacío (cuando no hay datos)
-6. Añadir validaciones básicas en frontend (formulario) alineadas con validadores Zod del backend
-7. Probar manualmente el flujo completo contra backend local y asegurar que no quedan arrays hardcodeados para datos dinámicos
-
-**Criterios de Aceptación:**
-
-- No se usan datos estáticos para entidades dinámicas (users/students, cards, sessions, plays) en las pantallas conectadas
-- Las pantallas muestran datos reales obtenidos desde la API y reaccionan a cambios (crear/editar/refrescar)
-- El frontend maneja correctamente `loading`, `empty` y errores HTTP (incluido 401)
-- La integración no introduce cambios de UX fuera de lo necesario (solo reemplazo de fuente de datos)
-
----
-
 ## P2 - Prioridad Media
 
-### T-014: Health Checks y Métricas de Rendimiento 📋
+### T-014: Health Checks y Métricas de Rendimiento ✅
 
 **Prioridad:** P2 | **Tamaño:** M | **Dependencias:** T-005
 
@@ -450,7 +388,7 @@ Según sprint2_corrections.md, los tests emiten demasiados logs que dificultan v
 
 ---
 
-### T-019: Eliminar Límite de Partidas Simultáneas 📋
+### T-019: Eliminar Límite de Partidas Simultáneas ✅
 
 **Prioridad:** P2 | **Tamaño:** XS | **Dependencias:** T-005
 
@@ -459,20 +397,20 @@ Según Duda #21, no hay límite de partidas simultáneas (de momento).
 
 **Sub-tareas:**
 
-1. Eliminar o aumentar significativamente MAX_ACTIVE_PLAYS
-2. Añadir monitorización para alertar si se supera un umbral
-3. Documentar decisión y posibles impactos
+1. ✅ Eliminar o aumentar significativamente MAX_ACTIVE_PLAYS
+2. ✅ Añadir monitorización para alertar si se supera un umbral
+3. ✅ Documentar decisión y posibles impactos
 
 **Criterios de Aceptación:**
 
-- El sistema no rechaza partidas por límite alcanzado
-- Hay alertas si el sistema se acerca a límites de recursos
+- ✅ El sistema no rechaza partidas por límite alcanzado
+- ✅ Hay alertas si el sistema se acerca a límites de recursos
 
 ---
 
 ## P3 - Prioridad Baja
 
-### T-022: Script de Drop de Base de Datos 📋
+### T-022: Script de Drop de Base de Datos ✅
 
 **Prioridad:** P3 | **Tamaño:** XS | **Dependencias:** Ninguna
 
@@ -481,15 +419,15 @@ Según Duda #35, crear script para eliminar datos de seeders haciendo drop de la
 
 **Sub-tareas:**
 
-1. Crear script `scripts/drop-db.js`
-2. Añadir confirmación interactiva antes de eliminar
-3. Bloquear ejecución en producción
-4. Documentar uso
+1. ✅ Crear script `scripts/drop-db.js`
+2. ✅ Añadir confirmación interactiva antes de eliminar
+3. ✅ Bloquear ejecución en producción
+4. ✅ Documentar uso
 
 **Criterios de Aceptación:**
 
-- El script elimina la BD completa
-- No se puede ejecutar en producción
+- ✅ El script elimina la BD completa
+- ✅ No se puede ejecutar en producción
 
 ---
 
@@ -529,8 +467,8 @@ T-005 (Redis) ──────────────────────
                                      │  │                              │
 T-006 (Pausa/Reanudación) ───────────┼──┘                              │
                                      │                                 ▼
-T-007 (GDPR) ────────────────────────┤                          Sprint 2
-                                     │                          Completado
+                                     │                              Sprint 2
+                                     │                              Completado
 T-008 (CardDeck) ────────────────────┤
                                      │
 T-009 (Multi-Sensor) ────────────────┼──┬──────────────────────────────
@@ -542,10 +480,8 @@ T-011 (Transferencia) ───────────────┤
 T-012 (Formatos Assets) ─────────────┤
                                      │
 T-013 (Compartir Contextos) ─────────┘
-
-T-021 (Frontend ↔ API REST) ──────────┬────────────────────────────────
                                      │
-T-001 (Tests) ────────────────────────┘
+T-001 (Tests) ───────────────────────┘
 ```
 
 ---

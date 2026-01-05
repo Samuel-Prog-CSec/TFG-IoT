@@ -185,13 +185,12 @@ class GameEngine {
   async startPlay(playDoc, sessionDoc) {
     const playId = playDoc._id.toString();
 
-    // 0. Verificar límite de partidas activas
+    // 0. Verificar límite de partidas activas (Monitorización)
     if (this.activePlays.size >= MAX_ACTIVE_PLAYS) {
-      logger.error(`Límite de partidas activas alcanzado: ${MAX_ACTIVE_PLAYS}`);
-      this.io.to(`play_${playId}`).emit('error', {
-        message: 'Servidor sobrecargado, intenta más tarde'
-      });
-      return;
+      logger.warn(
+        `Límite de partidas activas alcanzado o superado: ${this.activePlays.size}/${MAX_ACTIVE_PLAYS}`
+      );
+      // Duda #21: No bloqueamos, solo alertamos
     }
 
     // 1. Bloquear las tarjetas para este juego

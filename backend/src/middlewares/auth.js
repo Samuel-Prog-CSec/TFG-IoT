@@ -270,8 +270,6 @@ const generateAccessToken = (user, deviceFingerprint, sessionId) => {
     id: user._id.toString(),
     email: user.email,
     role: user.role,
-    email: user.email,
-    role: user.role,
     fp: deviceFingerprint, // Fingerprint embebido
     sid: sessionId, // Session ID para single session enforcement
     type: 'access'
@@ -311,7 +309,6 @@ const generateRefreshToken = (user, deviceFingerprint, sessionId) => {
 
   const payload = {
     jti,
-    id: user._id.toString(),
     id: user._id.toString(),
     fp: deviceFingerprint,
     sid: sessionId, // Session ID
@@ -661,7 +658,9 @@ const authenticate = async (req, res, next) => {
     // SINGLE SESSION ENFORCEMENT
     // Verificar que la sesión del token coincide con la sesión actual del usuario
     if (decoded.sid && user.currentSessionId && decoded.sid !== user.currentSessionId) {
-       throw new UnauthorizedError('Tu sesión ha expirado porque se ha iniciado sesión en otro dispositivo.');
+      throw new UnauthorizedError(
+        'Tu sesión ha expirado porque se ha iniciado sesión en otro dispositivo.'
+      );
     }
 
     // Adjuntar usuario y metadata del token a la request

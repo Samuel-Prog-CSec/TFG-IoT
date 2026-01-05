@@ -21,7 +21,7 @@ module.exports = [
       '*.md',
       '**/README*.md',
       '**/*.json',
-      'scripts/'
+      '**/*.json'
     ]
   },
   js.configs.recommended,

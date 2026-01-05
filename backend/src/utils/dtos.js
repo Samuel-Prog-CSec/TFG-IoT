@@ -30,8 +30,9 @@ const userDTO = user => {
     email: ['teacher', 'super_admin'].includes(userData.role) ? userData.email : undefined,
     role: userData.role,
     status: userData.status,
-    accountStatus:
-      ['teacher', 'super_admin'].includes(userData.role) ? userData.accountStatus : undefined,
+    accountStatus: ['teacher', 'super_admin'].includes(userData.role)
+      ? userData.accountStatus
+      : undefined,
     profile: userData.profile
       ? {
           avatar: userData.profile.avatar,

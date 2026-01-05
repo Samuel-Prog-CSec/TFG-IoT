@@ -163,7 +163,7 @@ SERIAL_BAUD_RATE=115200
 RFID_MAX_RECONNECT_ATTEMPTS=10
 
 # GameEngine
-MAX_ACTIVE_PLAYS=1000
+MAX_ACTIVE_PLAYS=1000         # Umbral para warnings (soft limit)
 PLAY_TIMEOUT_MS=3600000       # 1 hora
 ```
 
@@ -187,11 +187,12 @@ npm start
 npm run dev                   # Desarrollo con hot-reload
 npm start                     # Producción
 npm run seed                  # Ejecutar seeders (próximamente)
-npm test                      # Tests (próximamente)
+npm test                      # Tests
 npm run security:check-&-fix  # Auditoría de seguridad
 npm run deps:update-minor     # Actualizar dependencias menores
 npm run deps:update-major     # Actualizar dependencias mayores
 npm run deps:analyze          # Analizar dependencias
+npm run drop-db               # Eliminar base de datos (solo desarrollo)
 ```
 
 ## 📡 API Endpoints

@@ -497,8 +497,8 @@ const getStudentsByTeacher = async (req, res, next) => {
     const { classroom, sortBy = 'name', order = 'asc' } = req.query;
 
     // Verificar permisos: solo el profesor o un admin
-      // Verificar permisos: solo el profesor o un super admin
-      if (req.user._id.toString() !== teacherId && req.user.role !== 'super_admin') {
+    // Verificar permisos: solo el profesor o un super admin
+    if (req.user._id.toString() !== teacherId && req.user.role !== 'super_admin') {
       throw new ForbiddenError('No tienes permiso para ver estos alumnos');
     }
 
@@ -604,7 +604,7 @@ const transferStudent = async (req, res, next) => {
     // Realizar transferencia
     student.createdBy = newTeacherId;
     student.profile.classroom = newClassroom;
-    
+
     await student.save();
 
     res.json({
@@ -612,7 +612,6 @@ const transferStudent = async (req, res, next) => {
       message: 'Alumno transferido exitosamente',
       data: userDTO(student)
     });
-
   } catch (error) {
     next(error);
   }

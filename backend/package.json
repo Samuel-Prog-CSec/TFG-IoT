@@ -8,7 +8,7 @@
     "dev": "nodemon src/server.js",
     "seed": "node seeders/index.js",
     "seed:reset": "node seeders/index.js --reset",
-    "token": "node scripts/get-test-token.js",
+    "drop-db": "node scripts/drop-db.js",
     "lint": "eslint src/**/*.js seeders/**/*.js",
     "lint:fix": "eslint src/**/*.js seeders/**/*.js --fix",
     "format": "prettier --write \"src/**/*.js\" \"seeders/**/*.js\"",
