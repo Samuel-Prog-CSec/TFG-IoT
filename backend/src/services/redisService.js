@@ -464,7 +464,7 @@ const scanByNamespace = async (namespace, pattern = '*') => {
     // SCAN no aplica keyPrefix automáticamente, hay que añadirlo
     const keyPrefix = getKeyPrefix();
     const fullPattern = `${keyPrefix}${namespace}:${pattern}`;
-    
+
     // En entorno de test, usar KEYS en lugar de SCAN por limitaciones de ioredis-mock
     if (process.env.NODE_ENV === 'test') {
       const keys = await redis.keys(fullPattern);

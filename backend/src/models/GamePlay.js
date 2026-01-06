@@ -78,7 +78,15 @@ const gamePlaySchema = new mongoose.Schema(
           lowercase: true,
           required: true,
           trim: true,
-          enum: ['card_scanned', 'correct', 'error', 'timeout', 'round_start', 'round_end', 'server_restart']
+          enum: [
+            'card_scanned',
+            'correct',
+            'error',
+            'timeout',
+            'round_start',
+            'round_end',
+            'server_restart'
+          ]
         },
         cardUid: String,
         expectedValue: String,

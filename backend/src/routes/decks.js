@@ -37,27 +37,55 @@ router.get('/', authenticate, requireRole('teacher'), validateQuery(cardDeckQuer
  * @desc    Obtener mazo por ID
  * @access  Private (Teacher)
  */
-router.get('/:id', authenticate, requireRole('teacher'), validateParams(cardDeckParamsSchema), getDeckById);
+router.get(
+  '/:id',
+  authenticate,
+  requireRole('teacher'),
+  validateParams(cardDeckParamsSchema),
+  getDeckById
+);
 
 /**
  * @route   POST /api/decks
  * @desc    Crear nuevo mazo
  * @access  Private (Teacher)
  */
-router.post('/', createResourceRateLimiter, authenticate, requireRole('teacher'), validateBody(createCardDeckSchema), createDeck);
+router.post(
+  '/',
+  createResourceRateLimiter,
+  authenticate,
+  requireRole('teacher'),
+  validateBody(createCardDeckSchema),
+  createDeck
+);
 
 /**
  * @route   PUT /api/decks/:id
  * @desc    Actualizar mazo
  * @access  Private (Teacher)
  */
-router.put('/:id', createResourceRateLimiter, authenticate, requireRole('teacher'), validateParams(cardDeckParamsSchema), validateBody(updateCardDeckSchema), updateDeck);
+router.put(
+  '/:id',
+  createResourceRateLimiter,
+  authenticate,
+  requireRole('teacher'),
+  validateParams(cardDeckParamsSchema),
+  validateBody(updateCardDeckSchema),
+  updateDeck
+);
 
 /**
  * @route   DELETE /api/decks/:id
  * @desc    Eliminar (archivar) mazo
  * @access  Private (Teacher)
  */
-router.delete('/:id', createResourceRateLimiter, authenticate, requireRole('teacher'), validateParams(cardDeckParamsSchema), deleteDeck);
+router.delete(
+  '/:id',
+  createResourceRateLimiter,
+  authenticate,
+  requireRole('teacher'),
+  validateParams(cardDeckParamsSchema),
+  deleteDeck
+);
 
 module.exports = router;

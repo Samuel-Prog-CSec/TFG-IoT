@@ -290,7 +290,9 @@ io.on('connection', socket => {
   socket.on('authenticate', async data => {
     try {
       const { accessToken } = data || {};
-      if (!accessToken) return;
+      if (!accessToken) {
+        return;
+      }
 
       // Verificar token (usando el mismo secret que la API REST)
       // Nota: Requerimos una verificación completa incluyendo fingerprint si es posible,
@@ -303,7 +305,9 @@ io.on('connection', socket => {
         // Unirse a la room del usuario
         const roomName = `user_${decoded.id}`;
         socket.join(roomName);
-        logger.debug(`Socket ${socket.id} autenticado como usuario ${decoded.id} (${decoded.role})`);
+        logger.debug(
+          `Socket ${socket.id} autenticado como usuario ${decoded.id} (${decoded.role})`
+        );
         socket.emit('authenticated', { success: true, userId: decoded.id });
       }
     } catch (error) {
