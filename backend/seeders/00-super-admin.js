@@ -8,7 +8,9 @@
 const User = require('../src/models/User');
 const logger = require('../src/utils/logger');
 
-const SUPER_ADMIN_EMAIL = 'admin@test.com';
+// Credenciales externalizadas a variables de entorno (con fallback para desarrollo)
+const SUPER_ADMIN_EMAIL = process.env.SUPER_ADMIN_EMAIL || 'admin@test.com';
+const SUPER_ADMIN_PASSWORD = process.env.SUPER_ADMIN_PASSWORD || 'Admin1234!';
 
 async function seedSuperAdmin() {
   try {
@@ -32,7 +34,7 @@ async function seedSuperAdmin() {
     const superAdmin = await User.create({
       name: 'Admin Principal',
       email: SUPER_ADMIN_EMAIL,
-      password: 'Admin1234!',
+      password: SUPER_ADMIN_PASSWORD,
       role: 'super_admin',
       accountStatus: 'approved',
       profile: {

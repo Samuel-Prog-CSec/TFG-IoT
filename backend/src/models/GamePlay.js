@@ -39,7 +39,7 @@ const mongoose = require('mongoose');
  *
  * @typedef {Object} GameEvent
  * @property {Date} timestamp - Momento exacto del evento
- * @property {string} eventType - Tipo de evento (card_scanned, correct, error, timeout, round_start, round_end)
+ * @property {string} eventType - Tipo de evento (card_scanned, correct, error, timeout, round_start, round_end, server_restart)
  * @property {string} [cardUid] - UID de la tarjeta involucrada (si aplica)
  * @property {string} [expectedValue] - Valor esperado como respuesta correcta
  * @property {string} [actualValue] - Valor real de la respuesta del jugador
@@ -78,7 +78,15 @@ const gamePlaySchema = new mongoose.Schema(
           lowercase: true,
           required: true,
           trim: true,
-          enum: ['card_scanned', 'correct', 'error', 'timeout', 'round_start', 'round_end']
+          enum: [
+            'card_scanned',
+            'correct',
+            'error',
+            'timeout',
+            'round_start',
+            'round_end',
+            'server_restart'
+          ]
         },
         cardUid: String,
         expectedValue: String,

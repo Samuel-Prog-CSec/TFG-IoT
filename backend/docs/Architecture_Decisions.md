@@ -12,7 +12,7 @@ El objetivo de este límite era proteger los recursos del servidor (memoria, CPU
 
 Se ha decidido **eliminar el bloqueo duro** para nuevas partidas.
 
-1.  La variable `MAX_ACTIVE_PLAYS` se mantiene como un **umbral de monitorización** (Soft Limit).
+1.  La variable `ACTIVE_PLAYS_WARNING_THRESHOLD` (antes `MAX_ACTIVE_PLAYS`) se mantiene como un **umbral de monitorización** (Soft Limit).
 2.  Si se supera el umbral, el sistema **permite** crear la partida, pero registra un **WARNING** en los logs.
 3.  Se confía en la monitorización externa y alertas (Sentry/Logs) para detectar saturación real.
 

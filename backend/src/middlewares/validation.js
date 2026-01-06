@@ -25,8 +25,8 @@ const validateBody = schema => (req, res, next) => {
     next();
   } catch (error) {
     if (error instanceof z.ZodError) {
-      // Formatear errores de Zod
-      const formattedErrors = error.errors.map(err => ({
+      // Formatear errores de Zod (usar .issues en Zod v4+)
+      const formattedErrors = error.issues.map(err => ({
         field: err.path.join('.'),
         message: err.message
       }));
@@ -59,7 +59,8 @@ const validateQuery = schema => (req, res, next) => {
     next();
   } catch (error) {
     if (error instanceof z.ZodError) {
-      const formattedErrors = error.errors.map(err => ({
+      // Formatear errores de Zod (usar .issues en Zod v4+)
+      const formattedErrors = error.issues.map(err => ({
         field: err.path.join('.'),
         message: err.message
       }));
@@ -93,7 +94,8 @@ const validateParams = schema => (req, res, next) => {
     next();
   } catch (error) {
     if (error instanceof z.ZodError) {
-      const formattedErrors = error.errors.map(err => ({
+      // Formatear errores de Zod (usar .issues en Zod v4+)
+      const formattedErrors = error.issues.map(err => ({
         field: err.path.join('.'),
         message: err.message
       }));

@@ -13,7 +13,7 @@
  * @version 1.0.0
  */
 
-const { getRedis, isRedisConnected } = require('../config/redis');
+const { getRedis, isRedisConnected, getKeyPrefix } = require('../config/redis');
 const logger = require('../utils/logger');
 
 /**
@@ -448,10 +448,11 @@ const srem = async (namespace, id, member) => {
 
 /**
  * Busca keys por patrón usando SCAN (no bloqueante).
+ * En entorno de test usa KEYS como fallback debido a limitaciones de ioredis-mock.
  *
  * @param {string} namespace - Namespace a buscar.
  * @param {string} [pattern='*'] - Patrón de búsqueda (sin prefijo).
- * @returns {Promise<string[]>} Array de keys encontradas.
+ * @returns {Promise<string[]>} Array de keys encontradas (sin keyPrefix).
  */
 const scanByNamespace = async (namespace, pattern = '*') => {
   if (!checkRedisAvailable()) {
@@ -460,7 +461,16 @@ const scanByNamespace = async (namespace, pattern = '*') => {
 
   try {
     const redis = getRedis();
-    const fullPattern = `${namespace}:${pattern}`;
+    // SCAN no aplica keyPrefix automáticamente, hay que añadirlo
+    const keyPrefix = getKeyPrefix();
+    const fullPattern = `${keyPrefix}${namespace}:${pattern}`;
+
+    // En entorno de test, usar KEYS en lugar de SCAN por limitaciones de ioredis-mock
+    if (process.env.NODE_ENV === 'test') {
+      const keys = await redis.keys(fullPattern);
+      return keys.map(k => k.replace(keyPrefix, ''));
+    }
+
     const keys = [];
 
     // Usar scanStream para no bloquear
@@ -471,7 +481,9 @@ const scanByNamespace = async (namespace, pattern = '*') => {
 
     return new Promise((resolve, reject) => {
       stream.on('data', resultKeys => {
-        keys.push(...resultKeys);
+        // Eliminar el keyPrefix de las keys retornadas para mantener consistencia
+        const strippedKeys = resultKeys.map(k => k.replace(keyPrefix, ''));
+        keys.push(...strippedKeys);
       });
 
       stream.on('end', () => {
