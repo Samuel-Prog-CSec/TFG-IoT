@@ -1,0 +1,77 @@
+@startuml RFID_Init_Sequence
+
+!theme plain
+skinparam backgroundColor #FEFEFE
+skinparam sequenceMessageAlign center
+
+title Flujo de Inicialización del Sistema RFID
+
+participant "Server\n(Node.js)" as Server
+participant "RFIDService" as RFID
+participant "SerialPort" as Serial
+participant "ESP8266" as ESP
+participant "Frontend" as FE
+
+== Arranque del Servidor ==
+
+Server -> Server : startServer()
+Server -> Server : connectDB()
+Server -> Server : connectRedis()
+
+alt RFID_ENABLED = true
+    Server -> RFID : connect()
+    
+    RFID -> RFID : Verificar\nSERIAL_PORT config
+    
+    alt SERIAL_PORT no configurado
+        RFID -> RFID : _listAvailablePortsSafe()
+        RFID -> Server : emit('status', 'misconfigured')
+        note right: Log con puertos disponibles
+    else SERIAL_PORT configurado
+        RFID -> Serial : new SerialPort(\n{ path, baudRate: 115200 })
+        Serial -> ESP : Conexión USB
+        
+        activate ESP
+        ESP -> ESP : Inicializar RC522
+        ESP -> Serial : {"event":"init",\n"status":"success",\n"version":"0xB2"}
+        deactivate ESP
+        
+        Serial -> RFID : data event
+        RFID -> RFID : handleSerialData()
+        RFID -> RFID : Actualizar métricas
+        
+        RFID -> Server : emit('status', 'connected')
+        Server -> FE : rfid_status\n{ status: 'connected' }
+    end
+    
+else RFID_ENABLED != true
+    Server -> Server : Log: "Servicio RFID\ndeshabilitado"
+    RFID -> RFID : emit('status', 'disabled')
+end
+
+== Heartbeat Periódico (cada 10s) ==
+
+loop cada 10 segundos
+    ESP -> Serial : {"event":"status",\n"uptime":10000,\n"cards_detected":0}
+    Serial -> RFID : data event
+    RFID -> RFID : Actualizar buffer\ny métricas
+end
+
+== Desconexión Inesperada ==
+
+Serial -> RFID : close event
+RFID -> Server : emit('status', 'disconnected')
+Server -> FE : rfid_status\n{ status: 'disconnected' }
+
+RFID -> RFID : handleDisconnection()
+
+note right of RFID
+  Reintento automático
+  con backoff exponencial
+  (máx. 10 intentos)
+end note
+
+RFID -> RFID : setTimeout(5000)
+RFID -> RFID : connect() [retry]
+
+@enduml

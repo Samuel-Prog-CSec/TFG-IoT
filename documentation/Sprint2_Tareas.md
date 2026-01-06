@@ -431,7 +431,7 @@ Según Duda #35, crear script para eliminar datos de seeders haciendo drop de la
 
 ---
 
-### T-025: Documentar Protocolo de Eventos RFID 📋
+### T-025: Documentar Protocolo de Eventos RFID ✅
 
 **Prioridad:** P3 | **Tamaño:** S | **Dependencias:** T-009, T-010
 
@@ -440,15 +440,36 @@ Documentar completamente el protocolo de comunicación RFID incluyendo múltiple
 
 **Sub-tareas:**
 
-1. Documentar formato JSON de eventos del sensor
-2. Documentar flujo de asociación sensor-partida
-3. Documentar modos de escaneo
-4. Crear diagramas de secuencia
+1. ✅ Documentar formato JSON de eventos del sensor (`init`, `card_detected`, `card_removed`, `status`, `error`)
+2. ✅ Documentar flujo de asociación sensor-partida (bloqueo de UIDs, validación de respuestas)
+3. ✅ Documentar modos de escaneo (idle, gameplay, card_registration, card_assignment)
+4. ✅ Crear diagramas de secuencia (inicialización, gameplay, registro de tarjetas)
+
+**Archivos Creados:**
+
+- `backend/docs/RFID_Protocol.md` - Documentación completa del protocolo (~600 líneas)
+- `backend/docs/diagrams/rfid_architecture.puml` - Diagrama de arquitectura (PlantUML)
+- `backend/docs/diagrams/rfid_scan_modes.puml` - Diagrama de estados de modos (PlantUML)
+- `backend/docs/diagrams/rfid_gameplay_sequence.puml` - Secuencia de gameplay (PlantUML)
+- `backend/docs/diagrams/rfid_init_sequence.puml` - Secuencia de inicialización (PlantUML)
+- `backend/docs/diagrams/rfid_card_registration.puml` - Secuencia de registro de tarjetas (PlantUML)
+
+**Documentación Incluida:**
+
+- Arquitectura del sistema RFID con diagrama
+- Especificaciones hardware del sensor RC522
+- Protocolo serial JSON con todos los eventos
+- Sistema de modos de escaneo con diagrama de estados
+- Flujos de asociación sensor-partida con estructuras de datos
+- Tabla completa de eventos WebSocket
+- Diagramas de secuencia (inicialización, gameplay, registro)
+- Guía de configuración y troubleshooting
+- Apéndices con tipos de tarjetas y códigos de error
 
 **Criterios de Aceptación:**
 
-- Existe documentación completa del protocolo RFID
-- Incluye diagramas de secuencia
+- ✅ Existe documentación completa del protocolo RFID
+- ✅ Incluye diagramas de secuencia
 
 ---
 

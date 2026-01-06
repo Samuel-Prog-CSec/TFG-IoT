@@ -1,0 +1,72 @@
+@startuml RFID_Gameplay_Sequence
+
+!theme plain
+skinparam backgroundColor #FEFEFE
+skinparam sequenceMessageAlign center
+
+title Flujo de Gameplay - Escaneo RFID
+
+actor Alumno as User
+participant "Frontend" as FE
+participant "Socket.IO" as Socket
+participant "GameEngine" as Engine
+participant "RFIDService" as RFID
+participant "Sensor\nRC522" as Sensor
+database "MongoDB" as DB
+
+== Inicio de Partida ==
+
+User -> FE : Inicia partida
+FE -> Socket : start_play\n{ playId }
+Socket -> Engine : startPlay(play, session)
+
+Engine -> Engine : Verificar tarjetas\nno en uso
+
+Engine -> Engine : Bloquear UIDs en\ncardUidToPlayId Map
+
+Engine -> DB : Registrar evento\n'round_start'
+
+Engine -> Socket : new_round\n{ challenge, timeLimit }
+Socket -> FE : new_round
+FE -> User : "Busca: España 🇪🇸"
+
+== Escaneo de Tarjeta ==
+
+User -> Sensor : Escanea tarjeta\nfísica
+Sensor -> RFID : JSON:\n{"event":"card_detected",\n"uid":"32B8FA05"}
+
+RFID -> Engine : handleCardScan(uid)
+
+Engine -> Engine : 1. cardUidToPlayId.get(uid)\n→ playId
+
+Engine -> Engine : 2. activePlays.get(playId)\n→ playState
+
+Engine -> Engine : 3. Verificar\nawaitingResponse
+
+Engine -> Engine : 4. uidToMapping.get(uid)\n→ cardMapping
+
+Engine -> Engine : 5. Comparar con\ncurrentChallenge
+
+alt Respuesta Correcta
+    Engine -> Engine : score += pointsPerCorrect
+    Engine -> DB : addEvent('correct')
+    Engine -> Socket : validation_result\n{ isCorrect: true, +10 pts }
+    Socket -> FE : validation_result
+    FE -> User : ✅ ¡Correcto! +10 puntos
+else Respuesta Incorrecta
+    Engine -> Engine : score += penaltyPerError
+    Engine -> DB : addEvent('error')
+    Engine -> Socket : validation_result\n{ isCorrect: false, -2 pts }
+    Socket -> FE : validation_result
+    FE -> User : ❌ Incorrecto -2 puntos
+end
+
+== Siguiente Ronda (tras 4s delay) ==
+
+Engine -> Engine : currentRound++
+Engine -> DB : Registrar evento\n'round_start'
+Engine -> Socket : new_round\n{ nextChallenge }
+Socket -> FE : new_round
+FE -> User : "Busca: Francia 🇫🇷"
+
+@enduml
