@@ -8,4 +8,11 @@ export default defineConfig({
     react(),
     tailwindcss(),
   ],
+  server: {
+    host: true, // Necesario para que Docker pueda mapear el puerto
+    port: 5173,
+    watch: {
+      usePolling: true, // Recomendado al desarrollar en Windows con Docker
+    }
+  }
 })

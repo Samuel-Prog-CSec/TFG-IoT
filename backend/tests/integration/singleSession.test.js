@@ -68,7 +68,9 @@ describe('Single Session Enforcement', () => {
     expect(check2.statusCode).toBe(200);
 
     // 3. Verify token1 is now INVALID
-    const check1Again = await request(app).get('/api/auth/me').set('Authorization', `Bearer ${token1}`);
+    const check1Again = await request(app)
+      .get('/api/auth/me')
+      .set('Authorization', `Bearer ${token1}`);
     expect(check1Again.statusCode).toBe(401);
     expect(check1Again.body.message).toMatch(/expirado|inicia sesión/i);
   });
@@ -76,20 +78,20 @@ describe('Single Session Enforcement', () => {
   it('should invalidate refresh token from first session', async () => {
     // 1. First Login
     const login1 = await request(app).post('/api/auth/login').send({
-        email: teacherCreds.email,
-        password: teacherCreds.password
+      email: teacherCreds.email,
+      password: teacherCreds.password
     });
     const refreshToken1 = login1.body.data.refreshToken;
 
     // 2. Second Login
     await request(app).post('/api/auth/login').send({
-        email: teacherCreds.email,
-        password: teacherCreds.password
+      email: teacherCreds.email,
+      password: teacherCreds.password
     });
 
     // 3. Try access token refresh with refreshToken1
     const refreshRes = await request(app).post('/api/auth/refresh').send({
-        refreshToken: refreshToken1
+      refreshToken: refreshToken1
     });
 
     // Should fail because session ID in refreshToken1 mismatch user.currentSessionId

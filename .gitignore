@@ -1,4 +1,5 @@
 .git/
 .vscode/
 .agent/
-.github/
+node_modules/
+.github/*.md

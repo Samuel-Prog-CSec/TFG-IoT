@@ -1,5 +1,3 @@
-import { motion } from 'framer-motion';
-
 export default function ChartSection({ title, children }) {
     return (
         <motion.div 

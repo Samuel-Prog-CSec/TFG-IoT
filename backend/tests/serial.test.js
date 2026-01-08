@@ -7,136 +7,145 @@ process.env.RFID_ENABLED = 'true';
 process.env.SERIAL_PORT = 'COM_TEST';
 
 describe('RFID Service (Serial Simulation)', () => {
-    let SerialPortMock;
-    let ReadlineParserMock;
-    let parserInstance;
-    afterAll(() => {
-      if (ORIGINAL_RFID_ENABLED === undefined) delete process.env.RFID_ENABLED;
-      else process.env.RFID_ENABLED = ORIGINAL_RFID_ENABLED;
+  let SerialPortMock;
+  let ReadlineParserMock;
+  let parserInstance;
+  afterAll(() => {
+    if (ORIGINAL_RFID_ENABLED === undefined) {
+      delete process.env.RFID_ENABLED;
+    } else {
+      process.env.RFID_ENABLED = ORIGINAL_RFID_ENABLED;
+    }
 
-      if (ORIGINAL_SERIAL_PORT === undefined) delete process.env.SERIAL_PORT;
-      else process.env.SERIAL_PORT = ORIGINAL_SERIAL_PORT;
+    if (ORIGINAL_SERIAL_PORT === undefined) {
+      delete process.env.SERIAL_PORT;
+    } else {
+      process.env.SERIAL_PORT = ORIGINAL_SERIAL_PORT;
+    }
+  });
+
+  beforeEach(() => {
+    jest.clearAllMocks();
+    // Reset singleton state if needed?
+    // rfidService is stateful singleton.
+    // We might need to manually reset its properties if tests interfere.
+    process.env.RFID_ENABLED = 'true';
+    process.env.SERIAL_PORT = 'COM_TEST';
+
+    if (rfidService.reconnectTimer) {
+      clearTimeout(rfidService.reconnectTimer);
+      rfidService.reconnectTimer = null;
+    }
+    rfidService.isConnected = false;
+    rfidService.isReconnecting = false;
+    rfidService.isShuttingDown = false;
+    rfidService.reconnectAttempts = 0;
+    rfidService.port = null;
+    rfidService.parser = null;
+
+    parserInstance = { on: jest.fn() };
+
+    ReadlineParserMock = jest.fn().mockImplementation(() => ({}));
+    SerialPortMock = jest.fn().mockImplementation(() => ({
+      pipe: jest.fn(() => parserInstance),
+      on: jest.fn(),
+      open: jest.fn().mockImplementation(cb => cb && cb(null)),
+      write: jest.fn(),
+      close: jest.fn().mockImplementation(cb => cb && cb(null)),
+      isOpen: true,
+      path: 'COM_TEST',
+      baudRate: 115200
+    }));
+
+    rfidService.setSerialImplementations({
+      SerialPort: SerialPortMock,
+      ReadlineParser: ReadlineParserMock
     });
+  });
 
-    beforeEach(() => {
-        jest.clearAllMocks();
-        // Reset singleton state if needed? 
-        // rfidService is stateful singleton.
-        // We might need to manually reset its properties if tests interfere.
-                process.env.RFID_ENABLED = 'true';
-                process.env.SERIAL_PORT = 'COM_TEST';
+  afterEach(() => {
+    if (rfidService.reconnectTimer) {
+      clearTimeout(rfidService.reconnectTimer);
+      rfidService.reconnectTimer = null;
+    }
+    rfidService.isReconnecting = false;
+  });
 
-                if (rfidService.reconnectTimer) {
-                    clearTimeout(rfidService.reconnectTimer);
-                    rfidService.reconnectTimer = null;
-                }
-        rfidService.isConnected = false;
-        rfidService.isReconnecting = false;
-                rfidService.isShuttingDown = false;
-                rfidService.reconnectAttempts = 0;
-        rfidService.port = null;
-        rfidService.parser = null;
+  it('should connect to serial port successfully', async () => {
+    const emitSpy = jest.spyOn(rfidService, 'emit');
 
-                parserInstance = { on: jest.fn() };
+    await rfidService.connect();
 
-                ReadlineParserMock = jest.fn().mockImplementation(() => ({}));
-                SerialPortMock = jest.fn().mockImplementation(() => ({
-                    pipe: jest.fn(() => parserInstance),
-                    on: jest.fn(),
-                    open: jest.fn().mockImplementation(cb => cb && cb(null)),
-                    write: jest.fn(),
-                    close: jest.fn().mockImplementation(cb => cb && cb(null)),
-                    isOpen: true,
-                    path: 'COM_TEST',
-                    baudRate: 115200
-                }));
+    expect(SerialPortMock).toHaveBeenCalledTimes(1);
+    expect(rfidService.isConnected).toBe(true);
+    expect(emitSpy).toHaveBeenCalledWith('status', 'connected');
+  });
 
-                rfidService.setSerialImplementations({
-                    SerialPort: SerialPortMock,
-                    ReadlineParser: ReadlineParserMock
-                });
-    });
+  it('should handle card_detected event from serial', async () => {
+    await rfidService.connect();
 
-        afterEach(() => {
-            if (rfidService.reconnectTimer) {
-                clearTimeout(rfidService.reconnectTimer);
-                rfidService.reconnectTimer = null;
-            }
-            rfidService.isReconnecting = false;
-        });
+    // Get the parser 'on' handler to simulate data
+    // rfidService.parser.on('data', handler)
+    // We need to capture the handler passed to on('data')
+    const parserOnSpy = rfidService.parser.on;
+    const dataHandler = parserOnSpy.mock.calls.find(call => call[0] === 'data')[1];
 
-    it('should connect to serial port successfully', async () => {
-        const emitSpy = jest.spyOn(rfidService, 'emit');
-        
-        await rfidService.connect();
+    const emitSpy = jest.spyOn(rfidService, 'emit');
 
-        expect(SerialPortMock).toHaveBeenCalledTimes(1);
-        expect(rfidService.isConnected).toBe(true);
-        expect(emitSpy).toHaveBeenCalledWith('status', 'connected');
-    });
+    // Simulate JSON data
+    const cardEvent = { event: 'card_detected', uid: 'UNKNOWN_CARD', type: 'rfid' };
+    dataHandler(JSON.stringify(cardEvent));
 
-    it('should handle card_detected event from serial', async () => {
-        await rfidService.connect();
-        
-        // Get the parser 'on' handler to simulate data
-        // rfidService.parser.on('data', handler)
-        // We need to capture the handler passed to on('data')
-        const parserOnSpy = rfidService.parser.on;
-        const dataHandler = parserOnSpy.mock.calls.find(call => call[0] === 'data')[1];
+    expect(emitSpy).toHaveBeenCalledWith(
+      'rfid_event',
+      expect.objectContaining({
+        event: 'card_detected',
+        uid: 'UNKNOWN_CARD'
+      })
+    );
 
-        const emitSpy = jest.spyOn(rfidService, 'emit');
+    // Check buffer
+    const status = rfidService.getStatus();
+    expect(status.metrics.totalCardDetections).toBe(1);
+  });
 
-        // Simulate JSON data
-        const cardEvent = { event: 'card_detected', uid: 'UNKNOWN_CARD', type: 'rfid' };
-        dataHandler(JSON.stringify(cardEvent));
+  it('should ignore invalid json', async () => {
+    await rfidService.connect();
+    const parserOnSpy = rfidService.parser.on;
+    const dataHandler = parserOnSpy.mock.calls.find(call => call[0] === 'data')[1];
 
-        expect(emitSpy).toHaveBeenCalledWith('rfid_event', expect.objectContaining({
-            event: 'card_detected',
-            uid: 'UNKNOWN_CARD'
-        }));
+    const emitSpy = jest.spyOn(rfidService, 'emit');
 
-        // Check buffer
-        const status = rfidService.getStatus();
-        expect(status.metrics.totalCardDetections).toBe(1);
-    });
+    dataHandler('INVALID DATA');
 
-    it('should ignore invalid json', async () => {
-        await rfidService.connect();
-        const parserOnSpy = rfidService.parser.on;
-        const dataHandler = parserOnSpy.mock.calls.find(call => call[0] === 'data')[1];
-        
-        const emitSpy = jest.spyOn(rfidService, 'emit');
+    expect(emitSpy).not.toHaveBeenCalledWith('rfid_event', expect.any(Object));
+  });
 
-        dataHandler('INVALID DATA');
+  it('should handle disconnection and attempt reconnect', async () => {
+    // Use fake timers to test reconnection delay
+    jest.useFakeTimers();
 
-        expect(emitSpy).not.toHaveBeenCalledWith('rfid_event', expect.any(Object));
-    });
+    await rfidService.connect();
+    expect(rfidService.isConnected).toBe(true);
 
-    it('should handle disconnection and attempt reconnect', async () => {
-        // Use fake timers to test reconnection delay
-        jest.useFakeTimers();
-        
-        await rfidService.connect();
-        expect(rfidService.isConnected).toBe(true);
-        
-        // Simulate error event on port
-        const portOnSpy = rfidService.port.on;
-        const errorHandler = portOnSpy.mock.calls.find(call => call[0] === 'error')[1];
-        
-        errorHandler(new Error('Simulated disconnection'));
-        
-        expect(rfidService.isConnected).toBe(false);
-        expect(rfidService.isReconnecting).toBe(true); // Should trigger reconnect
-        
-        // Fast forward time
-        jest.advanceTimersByTime(6000);
-        await Promise.resolve();
-        
-        // Should have called connect again
-        // Since connect is async/recursive via timeout, checking internal state or spy on connect is tricky
-        // But we can check if SerialPort constructor was called again
-        expect(SerialPortMock).toHaveBeenCalledTimes(2); // 1 initial + 1 reconnect
+    // Simulate error event on port
+    const portOnSpy = rfidService.port.on;
+    const errorHandler = portOnSpy.mock.calls.find(call => call[0] === 'error')[1];
 
-        jest.useRealTimers();
-    });
+    errorHandler(new Error('Simulated disconnection'));
+
+    expect(rfidService.isConnected).toBe(false);
+    expect(rfidService.isReconnecting).toBe(true); // Should trigger reconnect
+
+    // Fast forward time
+    jest.advanceTimersByTime(6000);
+    await Promise.resolve();
+
+    // Should have called connect again
+    // Since connect is async/recursive via timeout, checking internal state or spy on connect is tricky
+    // But we can check if SerialPort constructor was called again
+    expect(SerialPortMock).toHaveBeenCalledTimes(2); // 1 initial + 1 reconnect
+
+    jest.useRealTimers();
+  });
 });

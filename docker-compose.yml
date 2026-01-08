@@ -11,6 +11,57 @@
 
 services:
   # ============================================
+  # FRONTEND (React + Nginx)
+  # ============================================
+  frontend:
+    build: ./frontend
+    container_name: rfid-games-frontend
+    restart: unless-stopped
+    ports:
+      - "80:80"  # Acceso en http://localhost
+    depends_on:
+      - backend
+    networks:
+      - rfid-games-network
+  
+  # ============================================
+  # BACKEND (Node.js API REST)
+  # ============================================
+  backend:
+    build: ./backend
+    container_name: rfid-games-backend
+    restart: unless-stopped
+    ports:
+      - "5000:5000"
+    environment:
+      - PORT=5000
+      - NODE_ENV=production
+      # Conexión interna a servicios Docker (usamos los nombres del servicio)
+      - REDIS_URL=redis://redis:6379
+      - MONGO_URI=mongodb://mongo:27017/rfid_games_db
+    env_file:
+      - .env
+    depends_on:
+      - redis
+      - mongo
+    networks:
+      - rfid-games-network
+
+  # ============================================
+  # BASE DE DATOS (MongoDB Local)
+  # ============================================
+  mongo:
+    image: mongo:6.0
+    container_name: rfid-games-mongo
+    restart: unless-stopped
+    ports:
+      - "27017:27017"
+    volumes:
+      - mongo-data:/data/db
+    networks:
+      - rfid-games-network
+
+  # ============================================
   # REDIS - Caché, tokens y estado de partidas
   # ============================================
   redis:
@@ -67,6 +118,9 @@ volumes:
   redis-data:
     driver: local
     name: rfid-games-redis-data
+  mongo-data:
+    driver: local
+    name: rfid-games-mongo-data
 
 # ============================================
 # RED INTERNA

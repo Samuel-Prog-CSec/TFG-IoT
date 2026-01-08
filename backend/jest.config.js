@@ -5,6 +5,7 @@ module.exports = {
   testMatch: ['**/tests/**/*.test.js'],
   collectCoverage: true,
   coverageDirectory: 'coverage',
+  coverageReporters: ['text', 'lcov', 'clover'], // 'lcov' es el que lee SonarCloud
   coveragePathIgnorePatterns: ['/node_modules/'],
   testTimeout: 30000,
   // IMPORTANT: these tests share a single DB + server instance (see tests/setup.js).

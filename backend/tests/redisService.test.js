@@ -36,7 +36,12 @@ describe('RedisService', () => {
 
   describe('Operaciones básicas (String)', () => {
     it('setWithTTL y get deberían almacenar y recuperar valores', async () => {
-      await redisService.setWithTTL(redisService.NAMESPACES.BLACKLIST, 'test-key', 'test-value', 3600);
+      await redisService.setWithTTL(
+        redisService.NAMESPACES.BLACKLIST,
+        'test-key',
+        'test-value',
+        3600
+      );
 
       const result = await redisService.get(redisService.NAMESPACES.BLACKLIST, 'test-key');
 
@@ -132,8 +137,16 @@ describe('RedisService', () => {
     it('sismember debería verificar membresía', async () => {
       await redisService.sadd(redisService.NAMESPACES.TOKEN_FAMILY, 'family-2', 'member-1');
 
-      const isMember = await redisService.sismember(redisService.NAMESPACES.TOKEN_FAMILY, 'family-2', 'member-1');
-      const isNotMember = await redisService.sismember(redisService.NAMESPACES.TOKEN_FAMILY, 'family-2', 'member-2');
+      const isMember = await redisService.sismember(
+        redisService.NAMESPACES.TOKEN_FAMILY,
+        'family-2',
+        'member-1'
+      );
+      const isNotMember = await redisService.sismember(
+        redisService.NAMESPACES.TOKEN_FAMILY,
+        'family-2',
+        'member-2'
+      );
 
       expect(isMember).toBe(true);
       expect(isNotMember).toBe(false);
@@ -144,7 +157,11 @@ describe('RedisService', () => {
 
       await redisService.srem(redisService.NAMESPACES.TOKEN_FAMILY, 'family-3', 'to-remove');
 
-      const isMember = await redisService.sismember(redisService.NAMESPACES.TOKEN_FAMILY, 'family-3', 'to-remove');
+      const isMember = await redisService.sismember(
+        redisService.NAMESPACES.TOKEN_FAMILY,
+        'family-3',
+        'to-remove'
+      );
       expect(isMember).toBe(false);
     });
   });

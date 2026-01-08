@@ -19,11 +19,11 @@ const { disconnectRedis } = require('../src/config/redis');
 beforeAll(async () => {
   // Use a distinct database for testing to avoid data loss
   const TEST_MONGO_URI = process.env.TEST_MONGO_URI || 'mongodb://localhost:27017/rfid-games-test';
-  
+
   if (mongoose.connection.readyState !== 0) {
     await mongoose.disconnect();
   }
-  
+
   await mongoose.connect(TEST_MONGO_URI);
 });
 

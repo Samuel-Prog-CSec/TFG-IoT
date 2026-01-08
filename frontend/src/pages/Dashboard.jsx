@@ -1,4 +1,3 @@
-import { motion } from 'framer-motion';
 import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
 import { Users, Gamepad2, Trophy } from 'lucide-react';
 import StatCard from '../components/dashboard/StatCard';

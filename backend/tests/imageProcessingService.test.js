@@ -32,18 +32,18 @@ describe('imageProcessingService', () => {
 
   beforeEach(() => {
     jest.clearAllMocks();
-    
+
     // Resetear el módulo para forzar re-import con mocks frescos
     jest.resetModules();
-    
+
     // Re-registrar los mocks después del reset
     jest.doMock('../src/utils/logger', () => mockLogger);
     jest.doMock('file-type', () => ({ fromBuffer: mockFromBuffer }));
     jest.doMock('sharp', () => mockSharp);
-    
+
     // Importar el servicio con los mocks activos
     imageProcessingService = require('../src/services/imageProcessingService');
-    
+
     // Configurar valores por defecto para los mocks
     mockSharpInstance.metadata.mockResolvedValue({
       width: 500,

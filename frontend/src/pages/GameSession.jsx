@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { motion, AnimatePresence } from 'framer-motion';
+import { AnimatePresence } from 'framer-motion';
 import { Timer, Zap, Shield, AlertTriangle, RefreshCw, CheckCircle, XCircle } from 'lucide-react';
 import clsx from 'clsx';
 // import useSound from 'use-sound'; // Placeholder for future polish
@@ -8,7 +8,7 @@ export default function GameSession() {
   const [timeLeft, setTimeLeft] = useState(600); // 10 minutes
   const [gameState, setGameState] = useState('playing'); // playing, victory, gameover
   const [score, setScore] = useState(0);
-  const [round, setRound] = useState(1);
+  const [round] = useState(1);
 
   // Simulate timer
   useEffect(() => {

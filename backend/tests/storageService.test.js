@@ -42,16 +42,12 @@ describe('storageService', () => {
 
     // Nueva firma: uploadFile(buffer, contextId, type, originalFilename, mimeType)
     await expect(
-      storageService.uploadFile(
-        Buffer.from('x'),
-        'ctx1',
-        'misc',
-        'a.txt',
-        'text/plain'
-      )
+      storageService.uploadFile(Buffer.from('x'), 'ctx1', 'misc', 'a.txt', 'text/plain')
     ).rejects.toThrow('Fallo en la subida del archivo');
 
-    await expect(storageService.deleteFile('https://example.com/anything')).resolves.toBeUndefined();
+    await expect(
+      storageService.deleteFile('https://example.com/anything')
+    ).resolves.toBeUndefined();
   });
 
   it('throws fast in production when creds missing', async () => {
