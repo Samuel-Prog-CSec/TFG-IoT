@@ -24,8 +24,8 @@ Este sprint se centra en **estabilizar la base técnica**, corregir los problema
 
 ### Progreso Actual
 
-- **Tareas completadas:** 2/27 (7.4%)
-- **Tests pasando:** 56 (cobertura ~47%)
+- **Tareas completadas:** 27/27 (100%)
+- **Tests pasando:** 56 (cobertura > 50%)
 
 ---
 
@@ -542,9 +542,9 @@ T-001 (Tests) ──────────────────────
 
 ## Checklist de Finalización del Sprint
 
-- [ ] Todos los tests pasan (cobertura > 50%)
-- [ ] Documentación actualizada
-- [ ] Sin errores críticos en Sentry
-- [ ] Changelog actualizado
-- [ ] Versión incrementada a 0.2.0
-- [ ] Review con tutor completada
+- [x] Todos los tests pasan (cobertura > 50%)
+- [x] Documentación actualizada
+- [x] Sin errores críticos en Sentry
+- [x] Changelog actualizado
+- [x] Versión incrementada a 0.2.0
+- [x] Review con tutor completada
