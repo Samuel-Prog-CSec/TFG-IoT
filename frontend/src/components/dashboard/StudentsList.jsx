@@ -1,5 +1,3 @@
-import { motion } from 'framer-motion';
-
 // Mock Data temporarily here, eventually from props or API
 const studentProgressData = [
   { id: 1, name: 'Alex Johnson', progress: 92, status: 'Activo' },

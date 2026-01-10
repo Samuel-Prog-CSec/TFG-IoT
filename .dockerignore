@@ -1,0 +1,60 @@
+# ===========================================
+# Docker ignore - Plataforma juegos RFID
+# ===========================================
+
+# Dependencias
+node_modules/
+**/node_modules/
+
+# Logs
+logs/
+*.log
+npm-debug.log*
+
+# Variables de entorno (nunca incluir en imagen)
+.env
+.env.local
+.env.*.local
+**/.env
+
+# Archivos de desarrollo
+.git/
+.gitignore
+.vscode/
+.idea/
+*.md
+!README.md
+
+# Tests
+tests/
+**/*.test.js
+**/*.spec.js
+coverage/
+.nyc_output/
+
+# Documentación
+docs/
+documentation/
+
+# Build artifacts
+dist/
+build/
+*.tsbuildinfo
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Archivos temporales
+*.tmp
+*.temp
+*.swp
+*~
+
+# PlatformIO (ESP8266)
+rfid_scanner/.pio/
+rfid_scanner/.vscode/
+
+# Frontend build (si se dockeriza separado)
+frontend/node_modules/
+frontend/dist/

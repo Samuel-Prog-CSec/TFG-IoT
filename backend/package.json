@@ -1,6 +1,6 @@
 {
   "name": "rfid-games-backend",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Backend server for RFID educational games - MERN stack",
   "main": "src/server.js",
   "scripts": {
@@ -8,9 +8,10 @@
     "dev": "nodemon src/server.js",
     "seed": "node seeders/index.js",
     "seed:reset": "node seeders/index.js --reset",
-    "token": "node scripts/get-test-token.js",
-    "lint": "eslint src/**/*.js seeders/**/*.js",
-    "lint:fix": "eslint src/**/*.js seeders/**/*.js --fix",
+    "drop-db": "node scripts/drop-db.js",
+    "lint": "eslint ./src/**/*.js ./seeders/**/*.js ./scripts/**/*.js",
+    "lint:staged": "eslint",
+    "lint:fix": "eslint . --fix",
     "format": "prettier --write \"src/**/*.js\" \"seeders/**/*.js\"",
     "format:check": "prettier --check \"src/**/*.js\" \"seeders/**/*.js\"",
     "test": "cross-env NODE_ENV=test jest",
@@ -35,24 +36,29 @@
   ],
   "author": "Samuel Blanchart Pérez",
   "dependencies": {
-    "@sentry/node": "^10.30.0",
-    "@sentry/profiling-node": "^10.30.0",
+    "@sentry/node": "^10.32.1",
+    "@sentry/profiling-node": "^10.32.1",
     "@serialport/parser-readline": "^13.0.0",
-    "@supabase/supabase-js": "^2.87.1",
+    "@supabase/supabase-js": "^2.90.0",
     "bcrypt": "^6.0.0",
     "compression": "^1.8.1",
     "cors": "^2.8.5",
     "dotenv": "^17.2.3",
+    "eslint-plugin-security": "^3.0.1",
+    "eslint-plugin-sonarjs": "^3.0.5",
     "express": "^5.2.1",
     "express-rate-limit": "^8.2.1",
+    "file-type": "16.5.4",
     "helmet": "^8.1.0",
+    "ioredis": "^5.9.0",
     "jsonwebtoken": "^9.0.3",
-    "mongoose": "^9.0.1",
+    "mongoose": "^9.1.2",
     "multer": "^2.0.2",
     "serialport": "^13.0.0",
-    "socket.io": "^4.8.1",
+    "sharp": "^0.34.5",
+    "socket.io": "^4.8.3",
     "winston": "^3.19.0",
-    "zod": "^4.2.0"
+    "zod": "^4.3.5"
   },
   "devDependencies": {
     "@eslint/js": "^9.39.2",
@@ -60,13 +66,14 @@
     "eslint": "^9.39.2",
     "eslint-config-prettier": "^10.1.8",
     "eslint-plugin-prettier": "^5.5.4",
-    "globals": "^16.5.0",
+    "globals": "^17.0.0",
+    "ioredis-mock": "^8.13.1",
     "jest": "^30.2.0",
     "nodemon": "^3.1.11",
     "prettier": "^3.7.4",
-    "supertest": "^7.1.4"
+    "supertest": "^7.2.2"
   },
   "engines": {
-    "node": ">=22.0.0"
+    "node": ">=24.12.0"
   }
 }

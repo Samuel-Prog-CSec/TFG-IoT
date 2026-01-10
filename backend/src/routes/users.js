@@ -14,29 +14,19 @@ const {
   updateUser,
   deleteUser,
   getUserStats,
-  getStudentsByTeacher
+  getStudentsByTeacher,
+  transferStudent
 } = require('../controllers/userController');
 
 const { authenticate, requireRole } = require('../middlewares/auth');
-const { validateBody, validateQuery, validateParams } = require('../middlewares/validation');
 const { createResourceRateLimiter } = require('../config/security');
-const {
-  createStudentSchema,
-  updateUserSchema,
-  userQuerySchema
-} = require('../validators/userValidator');
-const { z } = require('zod');
-
-const paramsSchema = z.object({
-  id: z.string().regex(/^[0-9a-fA-F]{24}$/, 'ID inválido')
-});
 
 /**
  * @route   GET /api/users
  * @desc    Obtener lista de usuarios con filtros
  * @access  Private (Teacher)
  */
-router.get('/', authenticate, requireRole('teacher'), validateQuery(userQuerySchema), getUsers);
+router.get('/', authenticate, requireRole('teacher'), getUsers);
 
 /**
  * @route   GET /api/users/teacher/:teacherId/students
@@ -47,7 +37,6 @@ router.get(
   '/teacher/:teacherId/students',
   authenticate,
   requireRole('teacher'),
-  validateParams(paramsSchema.extend({ teacherId: paramsSchema.shape.id })),
   getStudentsByTeacher
 );
 
@@ -56,14 +45,14 @@ router.get(
  * @desc    Obtener usuario por ID
  * @access  Private
  */
-router.get('/:id', authenticate, validateParams(paramsSchema), getUserById);
+router.get('/:id', authenticate, getUserById);
 
 /**
  * @route   GET /api/users/:id/stats
  * @desc    Obtener estadísticas de un alumno
  * @access  Private
  */
-router.get('/:id/stats', authenticate, validateParams(paramsSchema), getUserStats);
+router.get('/:id/stats', authenticate, getUserStats);
 
 /**
  * @route   POST /api/users
@@ -76,7 +65,6 @@ router.post(
   createResourceRateLimiter, // Rate limiting para prevenir spam
   authenticate,
   requireRole('teacher'),
-  validateBody(createStudentSchema),
   createUser
 );
 
@@ -85,25 +73,20 @@ router.post(
  * @desc    Actualizar usuario
  * @access  Private
  */
-router.put(
-  '/:id',
-  authenticate,
-  validateParams(paramsSchema),
-  validateBody(updateUserSchema),
-  updateUser
-);
+router.put('/:id', authenticate, updateUser);
 
 /**
  * @route   DELETE /api/users/:id
  * @desc    Eliminar usuario (soft delete)
  * @access  Private (Teacher)
  */
-router.delete(
-  '/:id',
-  authenticate,
-  requireRole('teacher'),
-  validateParams(paramsSchema),
-  deleteUser
-);
+router.delete('/:id', authenticate, requireRole('teacher'), deleteUser);
+
+/**
+ * @route   POST /api/users/:id/transfer
+ * @desc    Transferir alumno a otro profesor
+ * @access  Private (Teacher)
+ */
+router.post('/:id/transfer', authenticate, requireRole('teacher'), transferStudent);
 
 module.exports = router;

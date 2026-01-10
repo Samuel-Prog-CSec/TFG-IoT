@@ -1,0 +1,68 @@
+@startuml RFID_Start_Play_Sequence
+
+!theme plain
+skinparam backgroundColor #FEFEFE
+skinparam sequenceMessageAlign center
+
+title Flujo de Inicio de Partida
+
+participant "Cliente" as Client
+participant "Socket.IO" as Socket
+participant "GameEngine" as Engine
+database "MongoDB" as DB
+database "Redis" as Redis
+
+== Evento start_play ==
+
+Client -> Socket : start_play\n{ playId }
+
+Socket -> DB : GamePlay.findById(playId)\n.populate('sessionId')
+
+DB --> Socket : playDoc + sessionDoc
+
+Socket -> Engine : startPlay(playDoc, sessionDoc)
+
+== Bloqueo de Tarjetas ==
+
+Engine -> Engine : Verificar UIDs\nno en uso
+
+alt Alguna tarjeta en uso
+    Engine -> Socket : emit('error')\n"Tarjeta X en uso"
+    Socket -> Client : error
+else Todas disponibles
+    loop Para cada cardMapping
+        Engine -> Engine : cardUidToPlayId.set(uid, playId)
+    end
+end
+
+== Crear Estado en Memoria ==
+
+Engine -> Engine : Construir uidToMapping\nMap para O(1) lookup
+
+Engine -> Engine : Crear playState\nen activePlays Map
+
+== Persistencia ==
+
+Engine -> Redis : Sincronizar estado\nplayId: {...}
+
+Engine -> Redis : Mapear tarjetas\nuid: playId
+
+== Primera Ronda ==
+
+Engine -> DB : addEvent('round_start')
+
+Engine -> Socket : emit('new_round')\n{ challenge, timeLimit }
+
+Socket -> Client : new_round
+
+note right of Engine
+  playState contiene:
+  - playDoc
+  - sessionDoc
+  - uidToMapping
+  - currentChallenge
+  - roundTimer
+  - awaitingResponse
+end note
+
+@enduml

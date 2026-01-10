@@ -1,0 +1,37 @@
+{
+  "name": "tfg-iot",
+  "version": "0.2.0",
+  "description": "",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "prepare": "husky"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Samuel-Prog-CSec/TFG-IoT.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "commonjs",
+  "bugs": {
+    "url": "https://github.com/Samuel-Prog-CSec/TFG-IoT/issues"
+  },
+  "homepage": "https://github.com/Samuel-Prog-CSec/TFG-IoT#readme",
+  "dependencies": {
+    "@commitlint/cli": "^20.3.0",
+    "@commitlint/config-conventional": "^20.3.0",
+    "husky": "^9.1.7",
+    "lint-staged": "^16.2.7"
+  },
+  "lint-staged": {
+    "backend/**/*.js": [
+      "npm --prefix backend run lint:staged --",
+      "npm --prefix backend test -- --findRelatedTests --passWithNoTests"
+    ],
+    "frontend/**/*.{js,jsx}": [
+      "npm --prefix frontend run lint --"
+    ]
+  }
+}

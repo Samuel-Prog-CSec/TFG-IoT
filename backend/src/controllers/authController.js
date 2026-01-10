@@ -9,11 +9,20 @@ const {
   ValidationError,
   NotFoundError,
   UnauthorizedError,
+  ForbiddenError,
   ConflictError
 } = require('../utils/errors');
-const { generateTokenPair, verifyRefreshToken, revokeToken } = require('../middlewares/auth');
+const {
+  generateTokenPair,
+  verifyRefreshToken,
+  revokeToken,
+  storeRefreshToken,
+  markRefreshTokenAsUsed,
+  deleteRefreshToken
+} = require('../middlewares/auth');
 const logger = require('../utils/logger');
 const { userDTO } = require('../utils/dtos');
+const crypto = require('crypto');
 
 /**
  * Registrar un nuevo PROFESOR (SOLO para profesores, endpoint público).
@@ -59,7 +68,8 @@ const register = async (req, res, next) => {
       password, // Se encripta automáticamente en el pre-save hook
       role: 'teacher', // ✅ FORZADO - Este endpoint solo crea profesores
       profile: profile || {},
-      status: 'active'
+      status: 'active',
+      accountStatus: 'pending_approval'
     });
 
     logger.info('Profesor registrado', {
@@ -68,20 +78,36 @@ const register = async (req, res, next) => {
       email: teacher.email
     });
 
-    // Generar par de tokens para login automático
-    const tokens = generateTokenPair(teacher, req);
-
     res.status(201).json({
       success: true,
-      message: 'Profesor registrado exitosamente',
+      message: 'Profesor registrado. Cuenta pendiente de aprobación por Super Admin.',
       data: {
-        user: userDTO(teacher),
-        ...tokens
+        user: userDTO(teacher)
       }
     });
   } catch (error) {
     next(error);
   }
+};
+
+const assertAccountApprovedForLogin = user => {
+  if (!['teacher', 'super_admin'].includes(user.role)) {
+    return;
+  }
+
+  if (user.accountStatus === 'approved') {
+    return;
+  }
+
+  if (user.accountStatus === 'pending_approval') {
+    throw new ForbiddenError('Cuenta pendiente de aprobación');
+  }
+
+  if (user.accountStatus === 'rejected') {
+    throw new ForbiddenError('Cuenta rechazada');
+  }
+
+  throw new ForbiddenError('Cuenta no aprobada');
 };
 
 /**
@@ -105,15 +131,18 @@ const login = async (req, res, next) => {
       throw new UnauthorizedError('Credenciales inválidas');
     }
 
-    // Verificar que sea un profesor
-    if (user.role !== 'teacher') {
-      throw new UnauthorizedError('Solo los profesores pueden iniciar sesión');
+    // Verificar que sea un usuario con login
+    if (!['teacher', 'super_admin'].includes(user.role)) {
+      throw new UnauthorizedError('Solo profesores y super admin pueden iniciar sesión');
     }
 
     // Verificar que esté activo
     if (user.status !== 'active') {
       throw new UnauthorizedError('Usuario inactivo');
     }
+
+    // Verificar aprobación de cuenta (para roles con login)
+    assertAccountApprovedForLogin(user);
 
     // Comparar contraseña
     const isPasswordValid = await user.comparePassword(password);
@@ -122,11 +151,28 @@ const login = async (req, res, next) => {
       throw new UnauthorizedError('Credenciales inválidas');
     }
 
-    // Actualizar lastLoginAt
+    // SINGLE SESSION: Invalidar sesión anterior
+    const sessionId = crypto.randomUUID();
+    user.currentSessionId = sessionId;
+
+    // Actualizar lastLoginAt (esto guarda también el currentSessionId)
     await user.updateLastLogin();
 
-    // Generar par de tokens (access + refresh)
-    const tokens = generateTokenPair(user, req);
+    // Notificar al dispositivo anterior vía WebSocket
+    const io = req.app.get('io');
+    if (io) {
+      io.to(`user_${user._id}`).emit('session_invalidated', {
+        reason: 'NEW_LOGIN',
+        timestamp: Date.now()
+      });
+      logger.debug(`Evento session_invalidated emitido para usuario ${user._id}`);
+    }
+
+    // Generar par de tokens (access + refresh) con nueva familia y sessionId
+    const tokens = await generateTokenPair(user, req, sessionId);
+
+    // Eliminar datos internos antes de enviar respuesta
+    const { _internal, ...publicTokens } = tokens;
 
     logger.info('Login exitoso', {
       userId: user._id,
@@ -139,7 +185,7 @@ const login = async (req, res, next) => {
       message: 'Login exitoso',
       data: {
         user: userDTO(user),
-        ...tokens
+        ...publicTokens
       }
     });
   } catch (error) {
@@ -286,11 +332,11 @@ const refreshAccessToken = async (req, res, next) => {
       throw new ValidationError('Refresh token requerido');
     }
 
-    // Verificar refresh token (incluye fingerprint y blacklist)
-    const decoded = verifyRefreshToken(refreshToken, req);
+    // Verificar refresh token (incluye fingerprint, blacklist y detección de robo)
+    const decoded = await verifyRefreshToken(refreshToken, req);
 
-    // Buscar usuario
-    const user = await User.findById(decoded.id);
+    // Buscar usuario (incluyendo currentSessionId para validación)
+    const user = await User.findById(decoded.id).select('+currentSessionId');
 
     if (!user) {
       throw new UnauthorizedError('Usuario no encontrado');
@@ -300,25 +346,53 @@ const refreshAccessToken = async (req, res, next) => {
       throw new UnauthorizedError('Usuario inactivo');
     }
 
-    // TOKEN ROTATION: Revocar el refresh token actual
-    const oldRefreshTokenExp = decoded.exp * 1000;
-    revokeToken(decoded.jti, oldRefreshTokenExp);
+    // Bloquear refresh para cuentas no aprobadas
+    assertAccountApprovedForLogin(user);
 
-    // Generar nuevo par de tokens
-    const tokens = generateTokenPair(user, req);
+    // Obtener información del token para mantener la familia
+    const { getRefreshTokenInfo } = require('../middlewares/auth');
+    const tokenInfo = await getRefreshTokenInfo(decoded.jti);
+    const familyId = tokenInfo?.familyId || crypto.randomUUID();
+
+    // SINGLE SESSION VALIDATION
+    if (decoded.sid && user.currentSessionId && decoded.sid !== user.currentSessionId) {
+      throw new UnauthorizedError('Tu sesión ha expirado (nueva sesión activa)');
+    }
+
+    // Asegurar que el usuario tenga sesión si no la tenía (migración legacy)
+    let sessionId = user.currentSessionId;
+    if (!sessionId) {
+      sessionId = crypto.randomUUID();
+      user.currentSessionId = sessionId;
+      await user.save();
+    }
+
+    // TOKEN ROTATION:
+    // 1. Marcar el token actual como "usado" (para detectar reuso)
+    await markRefreshTokenAsUsed(decoded.jti, familyId);
+
+    // 2. Eliminar el token de la lista de tokens activos
+    await deleteRefreshToken(decoded.jti);
+
+    // 3. Generar nuevo par de tokens (mantiene la familia y sesión)
+    const tokens = await generateTokenPair(user, req, sessionId, familyId);
+
+    // Eliminar datos internos antes de enviar
+    const { _internal, ...publicTokens } = tokens;
 
     logger.info('Tokens refrescados con token rotation', {
       userId: user._id,
       email: user.email,
       oldRefreshTokenJti: decoded.jti,
-      newRefreshTokenJti: 'generated'
+      newRefreshTokenJti: _internal.refreshTokenJti,
+      familyId
     });
 
     res.json({
       success: true,
       message: 'Tokens refrescados exitosamente',
       data: {
-        ...tokens
+        ...publicTokens
       }
     });
   } catch (error) {

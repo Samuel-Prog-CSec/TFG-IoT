@@ -26,6 +26,7 @@ Sistema backend profesional con Express.js, MongoDB, Socket.IO y comunicación s
 - **WebSocket en tiempo real** con Socket.IO para gameplay
 - **Comunicación serial RFID** con ESP8266 + RC522
 - **Autenticación JWT** con refresh tokens y token rotation
+- **Single Session Policy** para seguridad de sesiones concurrentes
 - **Base de datos MongoDB** con Mongoose ODM
 
 ### Seguridad
@@ -162,8 +163,8 @@ SERIAL_BAUD_RATE=115200
 RFID_MAX_RECONNECT_ATTEMPTS=10
 
 # GameEngine
-MAX_ACTIVE_PLAYS=1000
-PLAY_TIMEOUT_MS=3600000       # 1 hora
+ACTIVE_PLAYS_WARNING_THRESHOLD=1000  # Umbral para warnings (soft limit)
+PLAY_TIMEOUT_MS=3600000              # 1 hora
 ```
 
 Ver `.env.example` para la lista completa.
@@ -186,42 +187,44 @@ npm start
 npm run dev                   # Desarrollo con hot-reload
 npm start                     # Producción
 npm run seed                  # Ejecutar seeders (próximamente)
-npm test                      # Tests (próximamente)
+npm test                      # Tests
 npm run security:check-&-fix  # Auditoría de seguridad
 npm run deps:update-minor     # Actualizar dependencias menores
 npm run deps:update-major     # Actualizar dependencias mayores
 npm run deps:analyze          # Analizar dependencias
+npm run drop-db               # Eliminar base de datos (solo desarrollo)
 ```
 
 ## 📡 API Endpoints
 
 ### Autenticación (`/api/auth`)
 
-| Método | Endpoint | Descripción | Autenticación | Rol |
-|--------|----------|-------------|---------------|-----|
-| POST | `/register` | Registrar **PROFESOR** (público) | No | - |
-| POST | `/login` | Login de profesor | No | - |
-| POST | `/refresh` | Refrescar access token | No (refresh token) | - |
-| POST | `/logout` | Cerrar sesión y revocar tokens | Sí | Teacher |
-| GET | `/me` | Obtener perfil del usuario | Sí | Teacher |
-| PUT | `/me` | Actualizar perfil | Sí | Teacher |
-| PUT | `/change-password` | Cambiar contraseña | Sí | Teacher |
+| Método | Endpoint           | Descripción                      | Autenticación      | Rol     |
+| ------ | ------------------ | -------------------------------- | ------------------ | ------- |
+| POST   | `/register`        | Registrar **PROFESOR** (público) | No                 | -       |
+| POST   | `/login`           | Login de profesor                | No                 | -       |
+| POST   | `/refresh`         | Refrescar access token           | No (refresh token) | -       |
+| POST   | `/logout`          | Cerrar sesión y revocar tokens   | Sí                 | Teacher |
+| GET    | `/me`              | Obtener perfil del usuario       | Sí                 | Teacher |
+| PUT    | `/me`              | Actualizar perfil                | Sí                 | Teacher |
+| PUT    | `/change-password` | Cambiar contraseña               | Sí                 | Teacher |
 
 **⚠️ IMPORTANTE**: Los alumnos NO se registran en `/register`. Son creados por profesores en `POST /api/users`.
 
 ### Usuarios (`/api/users`)
 
-| Método | Endpoint | Descripción | Rol |
-|--------|----------|-------------|-----|
-| GET | `/` | Listar usuarios | Teacher |
-| GET | `/:id` | Obtener usuario | Teacher |
-| POST | `/` | Crear **ALUMNO** (sin email/password) | Teacher |
-| PUT | `/:id` | Actualizar usuario (nombre, clase, profesor) | Teacher |
-| DELETE | `/:id` | Desactivar usuario | Teacher |
-| GET | `/:id/stats` | Estadísticas del usuario | Teacher/Owner |
-| GET | `/teacher/:teacherId/students` | Alumnos de un profesor | Teacher |
+| Método | Endpoint                       | Descripción                                  | Rol           |
+| ------ | ------------------------------ | -------------------------------------------- | ------------- |
+| GET    | `/`                            | Listar usuarios                              | Teacher       |
+| GET    | `/:id`                         | Obtener usuario                              | Teacher       |
+| POST   | `/`                            | Crear **ALUMNO** (sin email/password)        | Teacher       |
+| PUT    | `/:id`                         | Actualizar usuario (nombre, clase, profesor) | Teacher       |
+| DELETE | `/:id`                         | Desactivar usuario                           | Teacher       |
+| GET    | `/:id/stats`                   | Estadísticas del usuario                     | Teacher/Owner |
+| GET    | `/teacher/:teacherId/students` | Alumnos de un profesor                       | Teacher       |
 
 **⚠️ IMPORTANTE**:
+
 - `POST /api/users` solo crea alumnos (sin credenciales). Los profesores se registran en `/api/auth/register`.
 - **Validación de duplicados**: No se pueden crear dos alumnos activos con el mismo nombre (nombre = Nombre + Apellidos) en la misma clase del mismo profesor.
 - **Actualización de alumnos**: Se puede cambiar nombre, clase (`profile.classroom`), profesor asignado (`createdBy`), edad, etc.
@@ -232,96 +235,100 @@ npm run deps:analyze          # Analizar dependencias
 
 ### Tarjetas RFID (`/api/cards`)
 
-| Método | Endpoint | Descripción | Rol |
-|--------|----------|-------------|-----|
-| GET | `/` | Listar tarjetas | Teacher |
-| GET | `/:id` | Obtener tarjeta | Teacher |
-| POST | `/` | Crear tarjeta | Teacher |
-| PUT | `/:id` | Actualizar tarjeta | Teacher |
-| DELETE | `/:id` | Desactivar tarjeta | Teacher |
-| POST | `/batch` | Crear múltiples tarjetas | Teacher |
-| GET | `/stats` | Estadísticas de tarjetas | Teacher |
+| Método | Endpoint | Descripción              | Rol     |
+| ------ | -------- | ------------------------ | ------- |
+| GET    | `/`      | Listar tarjetas          | Teacher |
+| GET    | `/:id`   | Obtener tarjeta          | Teacher |
+| POST   | `/`      | Crear tarjeta            | Teacher |
+| PUT    | `/:id`   | Actualizar tarjeta       | Teacher |
+| DELETE | `/:id`   | Desactivar tarjeta       | Teacher |
+| POST   | `/batch` | Crear múltiples tarjetas | Teacher |
+| GET    | `/stats` | Estadísticas de tarjetas | Teacher |
 
 ### Mecánicas (`/api/mechanics`)
 
-| Método | Endpoint | Descripción | Rol |
-|--------|----------|-------------|-----|
-| GET | `/` | Listar mecánicas | Teacher |
-| GET | `/active` | Mecánicas activas | Public |
-| GET | `/:id` | Obtener mecánica | Teacher |
-| POST | `/` | Crear mecánica | Teacher |
-| PUT | `/:id` | Actualizar mecánica | Teacher |
-| DELETE | `/:id` | Desactivar mecánica | Teacher |
+| Método | Endpoint  | Descripción         | Rol     |
+| ------ | --------- | ------------------- | ------- |
+| GET    | `/`       | Listar mecánicas    | Teacher |
+| GET    | `/active` | Mecánicas activas   | Public  |
+| GET    | `/:id`    | Obtener mecánica    | Teacher |
+| POST   | `/`       | Crear mecánica      | Teacher |
+| PUT    | `/:id`    | Actualizar mecánica | Teacher |
+| DELETE | `/:id`    | Desactivar mecánica | Teacher |
 
 ### Contextos (`/api/contexts`)
 
-| Método | Endpoint | Descripción | Rol |
-|--------|----------|-------------|-----|
-| GET | `/` | Listar contextos | Teacher |
-| GET | `/:id` | Obtener contexto | Teacher |
-| POST | `/` | Crear contexto | Teacher |
-| PUT | `/:id` | Actualizar contexto | Teacher |
-| DELETE | `/:id` | Eliminar contexto | Teacher |
-| POST | `/:id/assets` | Añadir asset | Teacher |
-| DELETE | `/:id/assets/:key` | Eliminar asset | Teacher |
-| GET | `/:id/assets` | Listar assets | Teacher |
+| Método | Endpoint           | Descripción         | Rol     |
+| ------ | ------------------ | ------------------- | ------- |
+| GET    | `/`                | Listar contextos    | Teacher |
+| GET    | `/:id`             | Obtener contexto    | Teacher |
+| POST   | `/`                | Crear contexto      | Teacher |
+| PUT    | `/:id`             | Actualizar contexto | Teacher |
+| DELETE | `/:id`             | Eliminar contexto   | Teacher |
+| POST   | `/:id/assets`      | Añadir asset        | Teacher |
+| DELETE | `/:id/assets/:key` | Eliminar asset      | Teacher |
+| GET    | `/:id/assets`      | Listar assets       | Teacher |
 
 ### Sesiones (`/api/sessions`)
 
-| Método | Endpoint | Descripción | Rol |
-|--------|----------|-------------|-----|
-| GET | `/` | Listar sesiones | Teacher |
-| GET | `/:id` | Obtener sesión | Teacher/Owner |
-| POST | `/` | Crear sesión | Teacher |
-| PUT | `/:id` | Actualizar sesión | Teacher/Owner |
-| DELETE | `/:id` | Eliminar sesión | Teacher/Owner |
-| POST | `/:id/start` | Iniciar sesión | Teacher/Owner |
-| POST | `/:id/pause` | Pausar sesión | Teacher/Owner |
-| POST | `/:id/end` | Finalizar sesión | Teacher/Owner |
+| Método | Endpoint     | Descripción       | Rol           |
+| ------ | ------------ | ----------------- | ------------- |
+| GET    | `/`          | Listar sesiones   | Teacher       |
+| GET    | `/:id`       | Obtener sesión    | Teacher/Owner |
+| POST   | `/`          | Crear sesión      | Teacher       |
+| PUT    | `/:id`       | Actualizar sesión | Teacher/Owner |
+| DELETE | `/:id`       | Eliminar sesión   | Teacher/Owner |
+| POST   | `/:id/start` | Iniciar sesión    | Teacher/Owner |
+| POST   | `/:id/pause` | Pausar sesión     | Teacher/Owner |
+| POST   | `/:id/end`   | Finalizar sesión  | Teacher/Owner |
 
 ### Partidas (`/api/plays`)
 
-| Método | Endpoint | Descripción | Rol |
-|--------|----------|-------------|-----|
-| GET | `/` | Listar partidas | Teacher/Student (own) |
-| GET | `/:id` | Obtener partida | Teacher/Owner |
-| POST | `/` | Crear partida | Teacher |
-| POST | `/:id/events` | Añadir evento | Sistema |
-| POST | `/:id/complete` | Completar partida | Teacher/Owner |
-| POST | `/:id/abandon` | Abandonar partida | Teacher/Owner |
-| GET | `/stats/:playerId` | Estadísticas del jugador | Teacher/Owner |
+| Método | Endpoint           | Descripción              | Rol                   |
+| ------ | ------------------ | ------------------------ | --------------------- |
+| GET    | `/`                | Listar partidas          | Teacher/Student (own) |
+| GET    | `/:id`             | Obtener partida          | Teacher/Owner         |
+| POST   | `/`                | Crear partida            | Teacher               |
+| POST   | `/:id/pause`       | Pausar partida           | Teacher/Owner         |
+| POST   | `/:id/resume`      | Reanudar partida         | Teacher/Owner         |
+| POST   | `/:id/events`      | Añadir evento            | Sistema               |
+| POST   | `/:id/complete`    | Completar partida        | Teacher/Owner         |
+| POST   | `/:id/abandon`     | Abandonar partida        | Teacher/Owner         |
+| GET    | `/stats/:playerId` | Estadísticas del jugador | Teacher/Owner         |
 
 ### Sistema
 
-| Método | Endpoint | Descripción |
-|--------|----------|-------------|
-| GET | `/api/health` | Health check |
-| GET | `/api/metrics` | Métricas del sistema (dev only) |
+| Método | Endpoint       | Descripción                     |
+| ------ | -------------- | ------------------------------- |
+| GET    | `/api/health`  | Health check                    |
+| GET    | `/api/metrics` | Métricas del sistema (dev only) |
 
 ## 🔌 WebSocket Events
 
 ### Cliente → Servidor
 
-| Evento | Payload | Descripción |
-|--------|---------|-------------|
-| `join_play` | `{ playId }` | Unirse a una partida |
-| `leave_play` | `{ playId }` | Abandonar partida |
-| `start_play` | `{ playId }` | Iniciar partida |
-| `pause_play` | `{ playId }` | Pausar partida |
-| `resume_play` | `{ playId }` | Reanudar partida |
-| `next_round` | `{ playId }` | Solicitar siguiente ronda |
+| Evento        | Payload                   | Descripción                          |
+| ------------- | ------------------------- | ------------------------------------ |
+| `join_play`   | `{ playId }`              | Unirse a una partida                 |
+| `leave_play`  | `{ playId }`              | Abandonar partida                    |
+| `start_play`  | `{ playId }`              | Iniciar partida                      |
+| `pause_play`  | `{ playId, accessToken }` | Pausar partida (requiere profesor)   |
+| `resume_play` | `{ playId, accessToken }` | Reanudar partida (requiere profesor) |
+| `next_round`  | `{ playId }`              | Solicitar siguiente ronda            |
 
 ### Servidor → Cliente
 
-| Evento | Payload | Descripción |
-|--------|---------|-------------|
-| `rfid_event` | `{ event, uid, type, ... }` | Evento del sensor RFID |
-| `rfid_status` | `{ status }` | Estado del sensor |
-| `play_state` | `{ playId, currentRound, score, ... }` | Estado inicial de partida |
-| `new_round` | `{ roundNumber, challenge, timeLimit, ... }` | Nuevo desafío |
-| `validation_result` | `{ isCorrect, pointsAwarded, newScore, ... }` | Resultado de respuesta |
-| `game_over` | `{ finalScore, metrics }` | Partida finalizada |
-| `error` | `{ message }` | Error en la partida |
+| Evento              | Payload                                                 | Descripción               |
+| ------------------- | ------------------------------------------------------- | ------------------------- |
+| `rfid_event`        | `{ event, uid, type, ... }`                             | Evento del sensor RFID    |
+| `rfid_status`       | `{ status }`                                            | Estado del sensor         |
+| `play_state`        | `{ playId, currentRound, score, ... }`                  | Estado inicial de partida |
+| `new_round`         | `{ roundNumber, challenge, timeLimit, ... }`            | Nuevo desafío             |
+| `validation_result` | `{ isCorrect, pointsAwarded, newScore, ... }`           | Resultado de respuesta    |
+| `play_paused`       | `{ playId, currentRound, remainingTimeMs }`             | Partida pausada           |
+| `play_resumed`      | `{ playId, currentRound, remainingTimeMs, challenge? }` | Partida reanudada         |
+| `game_over`         | `{ finalScore, metrics }`                               | Partida finalizada        |
+| `error`             | `{ message }`                                           | Error en la partida       |
 
 ## 🔒 Seguridad
 
@@ -434,6 +441,42 @@ npm test                 # Ejecutar todos los tests
 npm run test:watch       # Modo watch
 npm run test:coverage    # Cobertura de código
 ```
+
+#### RFIDService: por qué no importamos SerialPort arriba
+
+En [src/services/rfidService.js](src/services/rfidService.js) **no** se hace `require('serialport')` en el top-level del módulo.
+En su lugar, el `require()` se hace **dentro de** `connect()` (lazy load) y además existe `setSerialImplementations()`.
+
+Motivos:
+
+- **Evitar acceso a hardware / bindings nativos en tests**: el simple import de `serialport` puede inicializar dependencias nativas o dejar handles abiertos.
+- **Hacer el mock fiable**: en Jest, si el módulo se importa antes del `jest.mock()`, queda cacheado y el mock no aplica.
+- **Mantener RFID opt-in**: si `RFID_ENABLED!==true` o falta `SERIAL_PORT`, no se carga SerialPort ni se intenta abrir puertos.
+
+Cómo se mockea en tests (inyección, sin depender de `jest.mock`):
+
+```js
+const rfidService = require('../src/services/rfidService');
+
+const parserInstance = { on: jest.fn() };
+const SerialPortMock = jest.fn(() => ({
+  pipe: jest.fn(() => parserInstance),
+  on: jest.fn(),
+  open: jest.fn(cb => cb && cb(null)),
+  close: jest.fn(cb => cb && cb(null)),
+  isOpen: true,
+  path: 'COM_TEST',
+  baudRate: 115200
+}));
+const ReadlineParserMock = jest.fn(() => ({}));
+
+rfidService.setSerialImplementations({
+  SerialPort: SerialPortMock,
+  ReadlineParser: ReadlineParserMock
+});
+```
+
+Ejemplo real: [tests/serial.test.js](tests/serial.test.js)
 
 ## 🚢 Despliegue
 

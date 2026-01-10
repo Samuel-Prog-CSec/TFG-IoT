@@ -7,7 +7,7 @@
 const rateLimit = require('express-rate-limit');
 
 // Helper para crear rate limiters que se deshabilitan en tests
-const createRateLimiter = (options) => {
+const createRateLimiter = options => {
   // Check NODE_ENV or existence of Jest global 'it'
   if (process.env.NODE_ENV === 'test' || typeof global.it === 'function') {
     return (req, res, next) => next();

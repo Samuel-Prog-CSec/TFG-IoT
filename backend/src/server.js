@@ -4,7 +4,9 @@
  * @module server
  */
 
-require('dotenv').config();
+// Dotenv prints "injecting env" tips unless quiet=true (noisy for tests).
+const dotenv = require('dotenv');
+dotenv.config(process.env.NODE_ENV === 'test' ? { quiet: true } : undefined);
 
 // Validar variables de entorno ANTES de cualquier inicialización
 const { validateEnv } = require('./utils/envValidator');
@@ -17,6 +19,7 @@ const helmet = require('helmet');
 const compression = require('compression');
 const { Server } = require('socket.io');
 const { connectDB, disconnectDB } = require('./config/database');
+const { connectRedis, disconnectRedis } = require('./config/redis');
 const { initSentry, Sentry } = require('./config/sentry');
 const {
   corsOptions,
@@ -31,8 +34,10 @@ const GameEngine = require('./services/gameEngine');
 const GamePlay = require('./models/GamePlay');
 const GameSession = require('./models/GameSession');
 const logger = require('./utils/logger');
+const { verifyAccessToken, authenticate, requireRole } = require('./middlewares/auth');
 const { errorHandler, notFoundHandler } = require('./middlewares/errorHandler');
 const { getHealthStatus } = require('./utils/healthCheck');
+const runtimeMetrics = require('./utils/runtimeMetrics');
 
 // Importar rutas
 const authRoutes = require('./routes/auth');
@@ -42,6 +47,8 @@ const mechanicRoutes = require('./routes/mechanics');
 const contextRoutes = require('./routes/contexts');
 const sessionRoutes = require('./routes/sessions');
 const playRoutes = require('./routes/plays');
+const deckRoutes = require('./routes/decks');
+const adminRoutes = require('./routes/admin');
 
 // Crear aplicación Express
 const app = express();
@@ -65,6 +72,11 @@ const io = new Server(server, {
  * @type {GameEngine}
  */
 const gameEngine = new GameEngine(io);
+
+// Exponer el gameEngine a controllers (REST) sin imports circulares.
+app.set('gameEngine', gameEngine);
+// Exponer io a controllers para notificaciones (e.g. session_invalidated)
+app.set('io', io);
 
 // ============================================================================
 // MIDDLEWARE
@@ -114,6 +126,21 @@ app.use((req, res, next) => {
   next();
 });
 
+// Middleware de métricas de latencia (para /api/*)
+app.use('/api', (req, res, next) => {
+  const startNs = process.hrtime.bigint();
+
+  res.on('finish', () => {
+    const durationMs = Number(process.hrtime.bigint() - startNs) / 1e6;
+    runtimeMetrics.recordHttpRequest({
+      durationMs,
+      statusCode: res.statusCode
+    });
+  });
+
+  next();
+});
+
 // ============================================================================
 // RUTAS DE LA API REST
 // ============================================================================
@@ -139,6 +166,12 @@ app.use('/api/sessions', sessionRoutes);
 // Rutas de partidas individuales
 app.use('/api/plays', playRoutes);
 
+// Rutas de mazos reutilizables
+app.use('/api/decks', deckRoutes);
+
+// Rutas de administración (solo super admin)
+app.use('/api/admin', adminRoutes);
+
 /**
  * Endpoint de salud del servidor con información detallada.
  * @route GET /api/health
@@ -147,7 +180,27 @@ app.use('/api/plays', playRoutes);
 app.get('/api/health', async (req, res) => {
   try {
     const healthStatus = await getHealthStatus(rfidService);
-    res.json(healthStatus);
+    const httpStatus = ['healthy', 'degraded'].includes(healthStatus.status) ? 200 : 503;
+    res.status(httpStatus).json(healthStatus);
+  } catch (error) {
+    logger.error('Error en health check:', error);
+    res.status(500).json({
+      status: 'error',
+      message: 'Health check failed',
+      error: error.message
+    });
+  }
+});
+
+/**
+ * Alias del health check para herramientas externas.
+ * @route GET /health
+ */
+app.get('/health', async (req, res) => {
+  try {
+    const healthStatus = await getHealthStatus(rfidService);
+    const httpStatus = ['healthy', 'degraded'].includes(healthStatus.status) ? 200 : 503;
+    res.status(httpStatus).json(healthStatus);
   } catch (error) {
     logger.error('Error en health check:', error);
     res.status(500).json({
@@ -163,16 +216,20 @@ app.get('/api/health', async (req, res) => {
  * @route GET /api/metrics
  * @returns {Object} 200 - Métricas del gameEngine y rfidService
  */
-app.get('/api/metrics', (req, res) => {
-  // Solo en desarrollo
-  if (process.env.NODE_ENV === 'production') {
-    return res.status(404).json({ message: 'Not found' });
-  }
+app.get('/api/metrics', authenticate, requireRole('teacher', 'super_admin'), (req, res) => {
+  const snapshot = runtimeMetrics.getSnapshot();
 
   res.json({
     timestamp: new Date().toISOString(),
+    http: snapshot.http,
+    websocket: {
+      connectedClients: io?.engine?.clientsCount ?? 0
+    },
     gameEngine: gameEngine.getMetrics(),
-    rfidService: rfidService.getStatus()
+    rfid: {
+      processed: snapshot.rfid,
+      service: rfidService.getStatus()
+    }
   });
 });
 
@@ -193,6 +250,7 @@ app.get('/', (req, res) => {
       contexts: '/api/contexts',
       sessions: '/api/sessions',
       plays: '/api/plays',
+      decks: '/api/decks',
       health: '/api/health'
     },
     documentation: 'Ver README.md para documentación completa'
@@ -222,6 +280,41 @@ app.use(errorHandler);
  */
 io.on('connection', socket => {
   logger.info(`Cliente conectado: ${socket.id}`);
+
+  /**
+   * Evento: Autenticar socket y unirse a room de usuario.
+   * Permite enviar notificaciones dirigidas (e.g. session_invalidated).
+   * @event authenticate
+   * @param {Object} data - { accessToken }
+   */
+  socket.on('authenticate', async data => {
+    try {
+      const { accessToken } = data || {};
+      if (!accessToken) {
+        return;
+      }
+
+      // Verificar token (usando el mismo secret que la API REST)
+      // Nota: Requerimos una verificación completa incluyendo fingerprint si es posible,
+      // pero para sockets a veces el handshake headers es diferente.
+      // Simplificamos usando verifyAccessToken con headers del handshake.
+      const mockReq = { headers: socket.handshake.headers };
+      const decoded = await verifyAccessToken(accessToken, mockReq);
+
+      if (decoded && decoded.id) {
+        // Unirse a la room del usuario
+        const roomName = `user_${decoded.id}`;
+        socket.join(roomName);
+        logger.debug(
+          `Socket ${socket.id} autenticado como usuario ${decoded.id} (${decoded.role})`
+        );
+        socket.emit('authenticated', { success: true, userId: decoded.id });
+      }
+    } catch (error) {
+      logger.warn(`Fallo de autenticación socket ${socket.id}: ${error.message}`);
+      socket.emit('error', { message: 'Autenticación fallida', error: error.message });
+    }
+  });
 
   /**
    * Evento: Cliente se une a una partida.
@@ -296,8 +389,30 @@ io.on('connection', socket => {
    * @param {string} data.playId - ID de la partida a pausar
    */
   socket.on('pause_play', data => {
-    const { playId } = data;
-    gameEngine.pausePlay(playId);
+    (async () => {
+      try {
+        const { playId, accessToken } = data || {};
+
+        if (!accessToken) {
+          socket.emit('error', { message: 'No autorizado' });
+          return;
+        }
+
+        // Reusar verifyAccessToken (fingerprint basado en headers del handshake)
+        const mockReq = { headers: socket.handshake.headers };
+        const decoded = await verifyAccessToken(accessToken, mockReq);
+
+        if (decoded.role !== 'teacher') {
+          socket.emit('error', { message: 'Solo un profesor puede pausar partidas' });
+          return;
+        }
+
+        await gameEngine.pausePlayInternal(playId, { requestedBy: decoded.id });
+      } catch (error) {
+        logger.error(`Error al pausar la partida: ${error.message}`);
+        socket.emit('error', { message: 'Error al pausar la partida' });
+      }
+    })();
   });
 
   /**
@@ -307,8 +422,29 @@ io.on('connection', socket => {
    * @param {string} data.playId - ID de la partida a reanudar
    */
   socket.on('resume_play', data => {
-    const { playId } = data;
-    gameEngine.resumePlay(playId);
+    (async () => {
+      try {
+        const { playId, accessToken } = data || {};
+
+        if (!accessToken) {
+          socket.emit('error', { message: 'No autorizado' });
+          return;
+        }
+
+        const mockReq = { headers: socket.handshake.headers };
+        const decoded = await verifyAccessToken(accessToken, mockReq);
+
+        if (decoded.role !== 'teacher') {
+          socket.emit('error', { message: 'Solo un profesor puede reanudar partidas' });
+          return;
+        }
+
+        await gameEngine.resumePlayInternal(playId, { requestedBy: decoded.id });
+      } catch (error) {
+        logger.error(`Error al reanudar la partida: ${error.message}`);
+        socket.emit('error', { message: 'Error al reanudar la partida' });
+      }
+    })();
   });
 
   /**
@@ -340,6 +476,9 @@ io.on('connection', socket => {
  * Procesa eventos del sensor y los distribuye al sistema.
  */
 rfidService.on('rfid_event', event => {
+  // Métricas internas (observabilidad)
+  runtimeMetrics.recordRfidEvent(event);
+
   // Enviar el evento a todos los clientes conectados (para la UI)
   io.emit('rfid_event', event);
 
@@ -394,13 +533,34 @@ const startServer = async () => {
     await connectDB();
     logger.info('Base de datos conectada');
 
+    // Conectar a Redis
+    try {
+      await connectRedis();
+      logger.info('Redis conectado');
+
+      // Recuperar partidas huérfanas de un reinicio anterior
+      const recoveredCount = await gameEngine.recoverActivePlays();
+      if (recoveredCount > 0) {
+        logger.info(`${recoveredCount} partidas recuperadas y marcadas como abandonadas`);
+      }
+    } catch (redisError) {
+      // En desarrollo, continuar sin Redis con warning
+      if (process.env.NODE_ENV === 'production') {
+        throw redisError;
+      }
+      logger.warn('Redis no disponible, continuando sin persistencia de estado:', {
+        error: redisError.message
+      });
+    }
+
     // Conectar al sensor RFID (solo si está habilitado)
-    const rfidEnabled = process.env.RFID_ENABLED !== 'false';
+    // Sprint 1.5: por defecto deshabilitado salvo RFID_ENABLED=true
+    const rfidEnabled = process.env.RFID_ENABLED === 'true';
     if (rfidEnabled) {
       logger.info('Iniciando servicio RFID...');
       rfidService.connect(); // Servicio logueará por su cuenta si se conecta o no
     } else {
-      logger.info('Servicio RFID deshabilitado (RFID_ENABLED=false)');
+      logger.info('Servicio RFID deshabilitado (RFID_ENABLED!=true)');
     }
 
     // Iniciar servidor HTTP
@@ -438,7 +598,11 @@ const gracefulShutdown = async signal => {
       // 3. Cerrar conexión RFID
       rfidService.disconnect();
 
-      // 4. Desconectar de la base de datos
+      // 4. Desconectar de Redis
+      await disconnectRedis();
+      logger.info('Redis desconectado');
+
+      // 5. Desconectar de la base de datos
       await disconnectDB();
 
       logger.info('Shutdown completo. Saliendo...');

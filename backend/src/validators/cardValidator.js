@@ -33,14 +33,7 @@ const createCardSchema = z.object({
     .enum(['active', 'inactive', 'lost'], {
       errorMap: () => ({ message: 'Estado de tarjeta inválido' })
     })
-    .default('active'),
-
-  metadata: z
-    .object({
-      color: z.string().trim().optional(),
-      icon: z.string().trim().optional()
-    })
-    .optional()
+    .default('active')
 });
 
 /**
@@ -50,14 +43,7 @@ const createCardSchema = z.object({
 const updateCardSchema = z.object({
   type: z.enum(['MIFARE_1KB', 'MIFARE_4KB', 'NTAG', 'UNKNOWN']).optional(),
 
-  status: z.enum(['active', 'inactive', 'lost']).optional(),
-
-  metadata: z
-    .object({
-      color: z.string().trim().optional(),
-      icon: z.string().trim().optional()
-    })
-    .optional()
+  status: z.enum(['active', 'inactive', 'lost']).optional()
 });
 
 /**

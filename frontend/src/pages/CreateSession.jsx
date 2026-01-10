@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { motion, AnimatePresence } from 'framer-motion';
+import { AnimatePresence } from 'framer-motion';
 import { Layers, Map, Database, Tag, Settings, Save, Check, ChevronRight, ChevronLeft } from 'lucide-react';
 import clsx from 'clsx';
 import { api, calculateDifficulty } from '../services/mockApi';

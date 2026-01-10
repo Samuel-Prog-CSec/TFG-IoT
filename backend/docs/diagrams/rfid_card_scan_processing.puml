@@ -1,0 +1,70 @@
+@startuml RFID_Card_Scan_Processing
+
+!theme plain
+skinparam backgroundColor #FEFEFE
+skinparam sequenceMessageAlign center
+
+title Flujo de Procesamiento de Escaneo RFID
+
+participant "Sensor\nRC522" as Sensor
+participant "RFIDService" as RFID
+participant "GameEngine" as Engine
+database "MongoDB" as DB
+participant "Socket.IO" as Socket
+participant "Cliente" as Client
+
+== Detección de Tarjeta ==
+
+Sensor -> RFID : JSON:\n{"event":"card_detected",\n"uid":"32B8FA05"}
+
+RFID -> RFID : handleSerialData()\nParsear JSON
+
+RFID -> RFID : Actualizar métricas\n+ buffer circular
+
+RFID -> Engine : emit('rfid_event', event)
+
+== Búsqueda O(1) ==
+
+Engine -> Engine : playId = cardUidToPlayId\n.get("32B8FA05")
+
+alt UID no mapeado a ninguna partida
+    Engine -> Engine : Log debug:\n"Tarjeta no activa"
+else UID mapeado a una partida
+    Engine -> Engine : playState = activePlays\n.get(playId)
+    
+    alt Partida pausada o no espera respuesta
+        Engine -> Engine : Ignorar escaneo
+    else awaitingResponse = true
+        
+        == Validación de Respuesta ==
+        
+        Engine -> Engine : clearTimeout(roundTimer)
+        Engine -> Engine : awaitingResponse = false
+        
+        Engine -> Engine : scannedCard = uidToMapping\n.get(uid)
+        
+        Engine -> Engine : isCorrect = (scannedCard.uid\n== currentChallenge.uid)
+        
+        alt Respuesta correcta
+            Engine -> Engine : score += pointsPerCorrect
+            Engine -> DB : addEvent('correct', +10)
+        else Respuesta incorrecta
+            Engine -> Engine : score += penaltyPerError
+            Engine -> DB : addEvent('error', -2)
+        end
+        
+        == Notificar Cliente ==
+        
+        Engine -> Socket : emit('validation_result')\n{ isCorrect, pointsAwarded, newScore }
+        
+        Socket -> Client : validation_result
+        
+        == Siguiente Ronda (4s delay) ==
+        
+        Engine -> Engine : currentRound++
+        Engine -> Engine : setTimeout(4000)
+        Engine -> Engine : sendNextRound(playId)
+    end
+end
+
+@enduml
