@@ -3,3 +3,4 @@
 .agent/
 node_modules/
 .github/*.md
+development/
