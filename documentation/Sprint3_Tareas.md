@@ -63,13 +63,36 @@ La arquitectura actual del `rfidService.js` lee del puerto serie del servidor ba
                                                        [Backend Cloud]
 ```
 
+**Contrato de evento RFID (v1 - propuesto):**
+```json
+{
+   "uid": "32B8FA05",
+   "type": "MIFARE_1KB",
+   "sensorId": "teacher-pc-01",
+   "timestamp": 1736467200000,
+   "source": "web_serial"
+}
+```
+
+Reglas mínimas:
+- `uid`: string uppercase (8 o 14 hex)
+- `type`: enum (mismo set que el backend)
+- `sensorId`: string (requerido si hay multi-sensor)
+- `timestamp`: number (epoch ms) generado en cliente
+- `source`: enum (`web_serial` | `server_serial`)
+
 **Sub-tareas:**
 
 1. **Frontend - Crear servicio WebSerialService.js:**
    - Clase para gestionar conexión al puerto serie
    - Método `connect()` que solicita puerto al usuario
+   - Métodos `startReading()` / `stopReading()` para controlar el ciclo de lectura
+   - Lectura **solo** cuando la UI esté en un flujo que lo requiera (según modo/pantalla)
+   - Cleanup automático al cambiar de ruta o desmontar componente (evitar listeners/bucles colgados)
    - Método `startReading()` para leer datos continuamente
    - Parser JSON para eventos del sensor
+   - Normalización a un **contrato de evento** estable (p.ej. `{ uid, type, sensorId, timestamp, source }`)
+   - Dedupe/cooldown cliente (evitar spam por UID repetido)
    - Emisión de eventos vía Socket.IO al backend
 
 2. **Frontend - Crear componente RFIDConnector.jsx:**
@@ -77,6 +100,7 @@ La arquitectura actual del `rfidService.js` lee del puerto serie del servidor ba
    - Indicador de estado de conexión (conectado/desconectado)
    - Lista de puertos disponibles
    - Manejo de errores de conexión con mensajes claros
+   - Estados UX: permiso denegado, puerto ocupado, desconexión inesperada, reconexión manual
 
 3. **Frontend - Detectar soporte de Web Serial:**
    - Verificar `'serial' in navigator`
@@ -85,6 +109,7 @@ La arquitectura actual del `rfidService.js` lee del puerto serie del servidor ba
 4. **Backend - Crear evento WebSocket `rfid_scan_from_client`:**
    - Recibir eventos RFID desde el frontend
    - Validar estructura del evento
+   - El backend mantiene la autoridad: valida el **modo actual** (server-side) antes de procesar
    - Procesar igual que `rfidService.on('rfid_event')`
 
 5. **Backend - Hacer rfidService.js opcional:**
@@ -102,14 +127,18 @@ La arquitectura actual del `rfidService.js` lee del puerto serie del servidor ba
 8. **Tests de integración:**
    - Mock de Web Serial API
    - Verificar flujo completo sensor → frontend → backend → gameEngine
+   - Test: dedupe/cooldown evita eventos duplicados por UID
+   - Test: en `idle` no se emiten eventos al backend
 
 **Criterios de Aceptación:**
 
 - [ ] El profesor puede conectar el sensor RFID desde Chrome
+- [ ] El frontend controla cuándo leer (start/stop) según modo/pantalla para evitar lecturas inútiles
 - [ ] Los eventos del sensor llegan al backend vía WebSocket
 - [ ] El gameEngine procesa las lecturas correctamente
 - [ ] Funciona tanto en desarrollo local como en despliegue cloud
 - [ ] Navegadores no soportados muestran mensaje informativo
+- [ ] El contrato de evento RFID se valida (cliente y servidor) y rechaza inputs malformados
 
 **Notas Técnicas:**
 - Web Serial API requiere HTTPS en producción (localhost exento)
@@ -214,10 +243,15 @@ Los handlers de Socket.IO no tienen limitación de frecuencia, permitiendo ataqu
    - Si excede límite 3 veces consecutivas: bloqueo de 60 segundos
    - Log de seguridad para análisis posterior
 
-5. **Tests de rate limiting:**
+5. **Límites por seguridad operativa:**
+   - Límite de tamaño de payload por evento (rechazar si excede)
+   - Cooldown/dedupe adicional para `rfid_scan_from_client` por `userId`/`sensorId`
+
+6. **Tests de rate limiting:**
    - Test: permite tráfico normal
    - Test: bloquea tráfico excesivo
    - Test: desbloquea tras timeout
+   - Test: rechaza payloads demasiado grandes
 
 **Criterios de Aceptación:**
 
@@ -225,6 +259,7 @@ Los handlers de Socket.IO no tienen limitación de frecuencia, permitiendo ataqu
 - [ ] Bloqueo temporal tras abuso repetido
 - [ ] Logs de seguridad generados
 - [ ] Tests de rate limiting pasando
+- [ ] Payloads excesivos se rechazan y quedan registrados
 
 ---
 
@@ -351,12 +386,17 @@ Algunos eventos WebSocket no verifican autenticación ni ownership, permitiendo 
    - No broadcast global
    - Solo a room de la partida correspondiente
 
+5. **Control de acceso a rooms:**
+   - El socket solo puede unirse a rooms (play/registro) tras pasar ownership + modo
+   - Evitar que un cliente fuerce `join` a rooms ajenas
+
 **Criterios de Aceptación:**
 
 - [ ] Conexión WebSocket requiere token válido
 - [ ] Eventos de partida verifican ownership
 - [ ] Super admin puede controlar cualquier partida
 - [ ] Tests de autorización WebSocket pasando
+- [ ] No es posible unirse a rooms de otras partidas
 
 ---
 
@@ -367,6 +407,8 @@ Algunos eventos WebSocket no verifican autenticación ni ownership, permitiendo 
 
 **Descripción:**  
 Los eventos RFID se emiten globalmente (`io.emit`), exponiendo UIDs de tarjetas a todos los clientes conectados.
+
+Nota de contrato: aunque el evento de entrada RFID (v1) incluya `uid`, en **gameplay** el backend debe emitir hacia el cliente únicamente datos mínimos (`displayData` / resultado), y reservar `uid` solo para flujos de `card_registration`/diagnóstico.
 
 **Sub-tareas:**
 
@@ -446,6 +488,8 @@ Soporte para múltiples sensores RFID conectados a diferentes PCs de profesores,
    - Añadir campo `sensorId` a eventos JSON
    - Firmware: configurar ID único por sensor
 
+   > Nota: en modo `RFID_MODE=client` el frontend (Web Serial) debe adjuntar `sensorId` al emitir `rfid_scan_from_client`.
+
 2. **Añadir `sensorId` a GameSession:**
    - Campo opcional en schema
    - Se asigna al iniciar partida
@@ -456,6 +500,7 @@ Soporte para múltiples sensores RFID conectados a diferentes PCs de profesores,
 
 4. **Validar origen de eventos:**
    - Verificar `sensorId` coincide con sesión
+   - Validar también el **modo actual** (server-side) y que la sesión/partida pertenece al profesor autenticado
    - Ignorar eventos de otros sensores
 
 5. **UI para seleccionar sensor:**
@@ -467,6 +512,7 @@ Soporte para múltiples sensores RFID conectados a diferentes PCs de profesores,
 - [ ] Cada sensor tiene ID único
 - [ ] Partida asociada a sensor específico
 - [ ] Eventos de otros sensores ignorados
+- [ ] Backend rechaza eventos si `sensorId` o modo no coinciden con la sesión
 - [ ] UI muestra sensores disponibles
 
 ---
@@ -504,12 +550,18 @@ Prevenir lecturas accidentales implementando modos de operación del sensor.
    - Color diferente por modo
    - Mensaje de estado
 
+5. **Frontend - Control de lectura por contexto (ciclo de vida):**
+   - En `idle`: `stopReading()` (o no iniciar lectura)
+   - En `gameplay/card_registration/card_assignment`: `startReading()` solo en las pantallas correspondientes
+   - Evitar emitir eventos al backend si el modo UI es `idle` (reducción de ruido/coste)
+
 **Criterios de Aceptación:**
 
 - [ ] Lecturas ignoradas en modo idle
 - [ ] Solo procesa lecturas en modo correcto
 - [ ] UI muestra y permite cambiar modo
 - [ ] Transiciones de modo correctas
+- [ ] El frontend no lee/no envía scans cuando el modo es `idle`
 
 ---
 
@@ -1113,6 +1165,7 @@ T-033 (Docker) ──► T-023 (Staging)                              │
 
 ### Seguridad
 - [ ] Rate limiting en WebSocket implementado (T-045)
+- [ ] Límites de payload + cooldown/dedupe WS aplicados (T-045)
 - [ ] Auth obligatoria en todos los eventos WS (T-046)
 - [ ] Eventos RFID no se emiten globalmente (T-047)
 - [ ] 100% endpoints validados con Zod (T-032)
@@ -1120,15 +1173,18 @@ T-033 (Docker) ──► T-023 (Staging)                              │
 
 ### Arquitectura
 - [ ] Web Serial API funciona en producción (T-044)
+- [ ] Contrato de evento RFID validado (T-044)
 - [ ] DTOs en todos los controllers (T-041)
 - [ ] Logging con PinoJS (T-031)
 - [ ] Docker multi-stage (T-033)
+- [ ] Versionado coherente entre paquetes (root/backend/frontend)
 
 ### Funcionalidad
 - [ ] Frontend conectado a API real (T-021)
 - [ ] CRUD completo funcionando
 - [ ] Wizard de sesión implementado (T-036)
 - [ ] Gestión de mazos funcional (T-035)
+- [ ] Modos RFID controlan lectura y emisión (T-010)
 
 ### Testing
 - [ ] Tests backend > 50% cobertura
