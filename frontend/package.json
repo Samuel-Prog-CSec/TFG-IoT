@@ -16,7 +16,7 @@
     "@dnd-kit/utilities": "^3.2.2",
     "@tailwindcss/vite": "^4.1.17",
     "clsx": "^2.1.1",
-    "framer-motion": "^12.23.25",
+    "framer-motion": "^12.26.2",
     "lucide-react": "^0.556.0",
     "react": "^19.2.1",
     "react-dom": "^19.2.1",
