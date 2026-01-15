@@ -70,7 +70,7 @@
     "ioredis-mock": "^8.13.1",
     "jest": "^30.2.0",
     "nodemon": "^3.1.11",
-    "prettier": "^3.7.4",
+    "prettier": "^3.8.0",
     "supertest": "^7.2.2"
   },
   "engines": {
