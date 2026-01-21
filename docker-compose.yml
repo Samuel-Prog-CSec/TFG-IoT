@@ -51,7 +51,7 @@ services:
   # BASE DE DATOS (MongoDB Local)
   # ============================================
   mongo:
-    image: mongo:6.0
+    image: mongo:latest
     container_name: rfid-games-mongo
     restart: unless-stopped
     ports:
