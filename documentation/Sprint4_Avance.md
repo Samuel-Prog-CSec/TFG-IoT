@@ -1,0 +1,192 @@
+# Sprint 4 - Avance de Documentación
+
+## T-023: Staging Environment 📋
+
+**Prioridad:** P3 | **Tamaño:** S | **Dependencias:** T-033
+
+**Descripción:**  
+Documentación para despliegue en entorno de staging pre-producción.
+
+**Sub-tareas:**
+
+1. **Documento `docs/Deployment_Staging.md`:**
+   - Requisitos de infraestructura
+   - Variables de entorno
+   - Proceso de despliegue
+   - Checklist pre-deploy
+
+2. **Script de deploy:**
+   - Automatizar con shell script o CI
+
+3. **Monitorización:**
+   - Health checks
+   - Logs centralizados
+
+**Criterios de Aceptación:**
+
+- [ ] Documentación completa
+- [ ] Proceso replicable
+- [ ] Staging desplegable siguiendo docs
+
+---
+
+## T-007: GDPR Anonimización (Duda #31) 📋
+
+**Prioridad:** P2 | **Tamaño:** M | **Dependencias:** Ninguna  
+**Origen:** Duda #31 de Diciembre (Derecho al olvido)
+
+**Descripción:**  
+Endpoint para anonimizar datos de alumnos cumpliendo con GDPR. Los datos personales se eliminan pero las métricas se mantienen para estadísticas agregadas.
+
+**Sub-tareas:**
+
+1. **Crear endpoint `DELETE /api/users/:id/anonymize`:**
+   - Solo para rol `teacher` propietario o `super_admin`
+   - No eliminar, sino anonimizar
+
+2. **Proceso de anonimización:**
+   - `name` → `"Alumno Anónimo #XXXX"` (últimos 6 chars del ID)
+   - `profile` → `{}`
+   - `email` → `null`
+   - `status` → `'anonymized'`
+   - **Mantener:** `studentMetrics`, `createdAt`
+
+3. **Validaciones:**
+   - No permitir anonimizar profesores
+   - No permitir anonimizar usuarios ya anónimos
+
+4. **Log de auditoría:**
+   - Registrar quién anonimizó y cuándo
+   - Motivo opcional
+
+5. **Tests:**
+   - Anonimización exitosa
+   - Métricas preservadas
+   - Rechazo de roles no autorizados
+
+**Criterios de Aceptación:**
+
+- [ ] Datos personales eliminados/reemplazados
+- [ ] Métricas preservadas para estadísticas
+- [ ] Log de auditoría generado
+- [ ] No se puede revertir la anonimización
+
+---
+
+### T-050: Mockup Interactivo de Pantalla de Partida 📋
+
+**Prioridad:** P2 | **Tamaño:** M | **Dependencias:** Ninguna  
+**Origen:** Preparación para Sprint 4 - Gameplay funcional
+
+**Descripción:**  
+Crear un mockup visual e interactivo de la pantalla de juego (GamePlay) que muestre el diseño, animaciones, colores y flujo de interacción **sin conexión al backend**. El objetivo es validar la experiencia de usuario antes de implementar la lógica real en el Sprint 4.
+
+El mockup debe simular:
+- Presentación del desafío (qué debe responder el alumno)
+- Feedback visual de acierto/error
+- Progreso de la partida (rondas, puntuación)
+- Animaciones de transición entre estados
+- Temporizador visual
+
+**Público objetivo:** Niños de 4-6 años, por lo que el diseño debe ser:
+- Colorido y atractivo
+- Con formas grandes y redondeadas
+- Feedback inmediato y claro (sonidos + visuales)
+- Sin texto complejo (usar iconos/emojis)
+
+**Sub-tareas:**
+
+1. **Crear página `GamePlayMockup.jsx`:**
+   - Ruta temporal `/game-mockup` (solo desarrollo)
+   - Estado local simulado (no Redux/Context)
+   - Botones para simular eventos RFID
+
+2. **Componente `ChallengeDisplay.jsx`:**
+   - Área central grande para mostrar el desafío
+   - Soportar: imagen, emoji, texto grande, audio (icono de speaker)
+   - Animación de entrada (scale + fade)
+   - Diseño adaptado a niños (bordes redondeados, sombras suaves)
+
+3. **Componente `ScoreBoard.jsx`:**
+   - Puntuación actual con animación de incremento
+   - Indicador de ronda actual (ej: ⭐⭐⭐○○ para 3/5)
+   - Animación de "combo" si aciertos consecutivos
+   - Posición fija en esquina superior
+
+4. **Componente `TimerBar.jsx`:**
+   - Barra de progreso que se vacía con el tiempo
+   - Cambio de color según urgencia (verde → amarillo → rojo)
+   - Animación de "shake" cuando queda poco tiempo
+   - Sonido de tick-tock en últimos 5 segundos (opcional)
+
+5. **Componente `FeedbackOverlay.jsx`:**
+   - **Acierto:** confetti, checkmark verde grande, sonido de éxito
+   - **Error:** shake de pantalla, X roja, sonido de error suave
+   - **Timeout:** reloj con X, mensaje "¡Tiempo!"
+   - Animación de 1.5-2 segundos antes de siguiente ronda
+
+6. **Componente `RFIDWaitingIndicator.jsx`:**
+   - Animación pulsante indicando "Esperando tarjeta..."
+   - Icono de tarjeta RFID animado
+   - Mensaje amigable: "¡Pasa tu tarjeta!" con emoji
+
+7. **Componente `GameOverScreen.jsx`:**
+   - Pantalla final con puntuación total
+   - Estrellas según rendimiento (1-3 estrellas)
+   - Animación de celebración (confetti, emojis flotantes)
+   - Botón "Volver a jugar" (simulado)
+   - Mensaje personalizado según resultado
+
+8. **Implementar flujo simulado completo:**
+   - Estado: `waiting` → `challenge_shown` → `waiting_scan` → `feedback` → `next_round` / `game_over`
+   - Botones de debug para simular: scan correcto, scan incorrecto, timeout
+   - Datos mock de 5 rondas con diferentes desafíos
+
+9. **Sistema de sonidos:**
+   - Crear hooks `useSound.js` para gestionar audio
+   - Sonidos: inicio, correcto, incorrecto, timeout, fin
+   - Usar Web Audio API o librería howler.js
+   - Botón de mute visible
+
+10. **Animaciones con Framer Motion o CSS:**
+    - Transiciones suaves entre estados
+    - Microinteracciones (hover, press)
+    - Animación de números al cambiar puntuación
+    - Particles/confetti para celebraciones
+
+11. **Paleta de colores para gameplay:**
+    - Fondo: gradiente suave (no cansar vista)
+    - Acierto: verde brillante (#4CAF50)
+    - Error: rojo suave (#FF6B6B, no agresivo)
+    - Primario: morado del branding (#667eea)
+    - Elementos: bordes redondeados (20px+), sombras suaves
+
+12. **Responsive y accesibilidad:**
+    - Funciona en tablet (landscape preferido)
+    - Botones grandes (mínimo 60x60px)
+    - Contraste adecuado para visibilidad
+    - Reducir movimiento si `prefers-reduced-motion`
+
+**Criterios de Aceptación:**
+
+- [ ] Mockup accesible en ruta `/game-mockup`
+- [ ] Flujo completo de 5 rondas simulable sin backend
+- [ ] Animaciones de acierto/error claramente diferenciadas
+- [ ] Temporizador visual con cambio de color
+- [ ] Pantalla de fin de juego con estrellas y celebración
+- [ ] Sonidos implementados con opción de mute
+- [ ] Diseño atractivo para niños de 4-6 años
+- [ ] Botones de debug para simular eventos
+- [ ] Funciona correctamente en tablet (1024x768)
+- [ ] No hay conexión al backend (100% mock)
+
+**Notas de Diseño:**
+- Inspiración: apps educativas como Khan Academy Kids, Duolingo
+- Evitar elementos que distraigan del desafío principal
+- Feedback positivo incluso en errores (animar a seguir jugando)
+- Considerar modo "alto contraste" para accesibilidad
+
+**Entregables:**
+- Componentes visuales listos para integrar con gameEngine
+- Documentación de props esperadas por cada componente
+- Guía de estados y transiciones del flujo de juego

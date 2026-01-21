@@ -16,22 +16,6 @@ Este sprint representa un **salto de calidad significativo** ("Hardening") con t
 2. **Integración Frontend-Backend**: Conexión completa de la UI con la API real.
 3. **Seguridad y Calidad**: Rate limiting WebSocket, validación Zod completa, DTOs, y logging estructurado.
 
-### Métricas del Sprint
-
-| Prioridad    | Cantidad | Esfuerzo Estimado |
-| ------------ | -------- | ----------------- |
-| P0 (Crítica) | 5        | ~6-8 días         |
-| P1 (Alta)    | 9        | ~8-10 días        |
-| P2 (Media)   | 6        | ~4-5 días         |
-| P3 (Baja)    | 3        | ~2-3 días         |
-| **Total**    | **23**   | **20-26 días**    |
-
-### Progreso Actual
-
-- **Tareas completadas:** 0/23 (0%)
-- **Tests pasando:** 56 (cobertura > 50%)
-- **Auditorías completadas:** Arquitectura ✅ | Seguridad ✅
-
 ---
 
 ## Leyenda
@@ -730,6 +714,98 @@ Wizard paso a paso para crear sesiones de juego de forma intuitiva.
 
 ---
 
+### T-049: Dashboard Analytics Avanzado 📋
+
+**Prioridad:** P1 | **Tamaño:** L | **Dependencias:** T-021  
+**Origen:** Requisito pedagógico - Análisis de aprendizaje
+
+**Descripción:**  
+Mejorar el Dashboard del profesor con visualizaciones avanzadas y métricas de aprendizaje que permitan identificar patrones, detectar dificultades y tomar decisiones pedagógicas informadas. El objetivo es transformar datos crudos en **conocimiento accionable** sobre el progreso de cada alumno y del grupo.
+
+**Objetivos pedagógicos:**
+- Detectar alumnos con dificultades de aprendizaje específicas
+- Identificar contextos/mecánicas que generan más errores
+- Comparar progreso individual vs media de la clase
+- Visualizar evolución temporal del aprendizaje
+- Alertar sobre patrones preocupantes (regresión, estancamiento)
+
+**Sub-tareas:**
+
+1. **Backend - Endpoints de Analytics:**
+   - `GET /api/analytics/student/:id/progress`: progreso temporal del alumno
+   - `GET /api/analytics/student/:id/difficulties`: áreas problemáticas detectadas
+   - `GET /api/analytics/classroom/summary`: resumen de la clase
+   - `GET /api/analytics/classroom/comparison`: comparativa entre alumnos
+   - `GET /api/analytics/context/:id/errors`: errores frecuentes por contexto
+
+2. **Backend - Servicio de Análisis (`services/analyticsService.js`):**
+   - Calcular tendencia de puntuación (mejora/empeora/estable)
+   - Identificar contextos con mayor tasa de error por alumno
+   - Calcular percentiles de rendimiento en la clase
+   - Detectar patrones de timeout (posible falta de atención)
+   - Identificar mecánicas donde el alumno destaca/flaquea
+
+3. **Frontend - Página `DashboardAnalytics.jsx`:**
+   - Vista general con KPIs principales
+   - Selector de alumno individual / vista de clase
+   - Filtros por rango de fechas y contexto/mecánica
+   - Export de datos a CSV (opcional)
+
+4. **Frontend - Componente `StudentProgressChart.jsx`:**
+   - Gráfico de líneas: evolución de puntuación en el tiempo
+   - Indicador visual de tendencia (▲ mejorando, ▼ empeorando, ─ estable)
+   - Comparación con media de la clase (línea punteada)
+   - Tooltips con detalles de cada partida
+
+5. **Frontend - Componente `DifficultyHeatmap.jsx`:**
+   - Matriz: contextos × mecánicas
+   - Color por tasa de acierto (verde → rojo)
+   - Click para ver detalle de errores específicos
+   - Identificar combinaciones problemáticas
+
+6. **Frontend - Componente `ClassroomOverview.jsx`:**
+   - Ranking de alumnos por puntuación media
+   - Distribución de rendimiento (histograma)
+   - Alumnos "en riesgo" destacados (bajo rendimiento sostenido)
+   - Comparativa de tiempo de respuesta medio
+
+7. **Frontend - Componente `AlertsPanel.jsx`:**
+   - Alertas automáticas:
+     - "🔴 [Alumno] ha bajado un 30% en las últimas 3 partidas"
+     - "🟡 [Alumno] tiene +50% errores en Geografía"
+     - "🟢 [Alumno] ha mejorado consistentemente esta semana"
+   - Configurar umbrales de alerta
+
+8. **Frontend - Componente `ErrorAnalysis.jsx`:**
+   - Lista de errores más frecuentes por contexto
+   - Qué respuesta incorrecta se da más (ej: confunde España con Portugal)
+   - Sugerencias de refuerzo basadas en errores
+
+9. **Integración con librerías de visualización:**
+   - Instalar y configurar Chart.js o Recharts
+   - Componentes wrapper reutilizables
+   - Tema consistente con la paleta de la aplicación
+
+**Criterios de Aceptación:**
+
+- [ ] Profesor puede ver evolución temporal de puntuación por alumno
+- [ ] Gráfico muestra tendencia clara (mejora/empeora/estable)
+- [ ] Heatmap identifica contextos/mecánicas problemáticas
+- [ ] Vista de clase permite comparar alumnos entre sí
+- [ ] Alertas automáticas notifican sobre patrones preocupantes
+- [ ] Datos se actualizan tras cada partida completada
+- [ ] UI es responsive y carga en < 2 segundos
+- [ ] El profesor puede filtrar por rango de fechas
+- [ ] Se identifican claramente los alumnos "en riesgo"
+
+**Notas de UX:**
+- Usar colores semánticos: verde (bien), amarillo (atención), rojo (problema)
+- Tooltips explicativos en cada métrica
+- Empty states informativos si no hay suficientes datos
+- Considerar exportación de informes para reuniones con padres
+
+---
+
 ### T-038: E2E Tests Frontend 📋
 
 **Prioridad:** P1 | **Tamaño:** M | **Dependencias:** T-021
@@ -819,49 +895,6 @@ Las rondas deben presentarse en orden aleatorio para evitar que los alumnos memo
 - [ ] Rondas se presentan en orden aleatorio
 - [ ] Algoritmo Fisher-Yates implementado correctamente
 - [ ] Test de aleatoriedad pasando
-
----
-
-### T-007: GDPR Anonimización (Duda #31) 📋
-
-**Prioridad:** P2 | **Tamaño:** M | **Dependencias:** Ninguna  
-**Origen:** Duda #31 de Diciembre (Derecho al olvido)
-
-**Descripción:**  
-Endpoint para anonimizar datos de alumnos cumpliendo con GDPR. Los datos personales se eliminan pero las métricas se mantienen para estadísticas agregadas.
-
-**Sub-tareas:**
-
-1. **Crear endpoint `DELETE /api/users/:id/anonymize`:**
-   - Solo para rol `teacher` propietario o `super_admin`
-   - No eliminar, sino anonimizar
-
-2. **Proceso de anonimización:**
-   - `name` → `"Alumno Anónimo #XXXX"` (últimos 6 chars del ID)
-   - `profile` → `{}`
-   - `email` → `null`
-   - `status` → `'anonymized'`
-   - **Mantener:** `studentMetrics`, `createdAt`
-
-3. **Validaciones:**
-   - No permitir anonimizar profesores
-   - No permitir anonimizar usuarios ya anónimos
-
-4. **Log de auditoría:**
-   - Registrar quién anonimizó y cuándo
-   - Motivo opcional
-
-5. **Tests:**
-   - Anonimización exitosa
-   - Métricas preservadas
-   - Rechazo de roles no autorizados
-
-**Criterios de Aceptación:**
-
-- [ ] Datos personales eliminados/reemplazados
-- [ ] Métricas preservadas para estadísticas
-- [ ] Log de auditoría generado
-- [ ] No se puede revertir la anonimización
 
 ---
 
@@ -1060,36 +1093,6 @@ Mejoras visuales, animaciones y feedback de usuario para pulir la experiencia.
 
 ---
 
-### T-023: Staging Environment 📋
-
-**Prioridad:** P3 | **Tamaño:** S | **Dependencias:** T-033
-
-**Descripción:**  
-Documentación para despliegue en entorno de staging pre-producción.
-
-**Sub-tareas:**
-
-1. **Documento `docs/Deployment_Staging.md`:**
-   - Requisitos de infraestructura
-   - Variables de entorno
-   - Proceso de despliegue
-   - Checklist pre-deploy
-
-2. **Script de deploy:**
-   - Automatizar con shell script o CI
-
-3. **Monitorización:**
-   - Health checks
-   - Logs centralizados
-
-**Criterios de Aceptación:**
-
-- [ ] Documentación completa
-- [ ] Proceso replicable
-- [ ] Staging desplegable siguiendo docs
-
----
-
 ### T-048: Security Logging (SEC-MED-02) 📋
 
 **Prioridad:** P3 | **Tamaño:** M | **Dependencias:** T-031  
@@ -1147,7 +1150,12 @@ T-021 (Frontend API) ───────────────────�
         ├──► T-035 (Mazos Frontend) ──► T-036 (Wizard)          │
         ├──► T-037 (Replicar Sesión)                            │
         ├──► T-038 (E2E Tests)                                  │
-        └──► T-040 (UI Polish)                                  │
+        ├──► T-040 (UI Polish)                                  │
+        └──► T-049 (Dashboard Analytics) ◄── Nuevo              │
+                                                                 │
+T-050 (Mockup Gameplay) ──► Sprint 4 (Gameplay Funcional) ◄─────┤
+        │                                                        │
+        └── Sin dependencias (puede empezar en paralelo)        │
                                                                  │
 T-032 (Zod Completo) ──► T-034 (Swagger)                        │
                                                                  │
@@ -1185,6 +1193,8 @@ T-033 (Docker) ──► T-023 (Staging)                              │
 - [ ] Wizard de sesión implementado (T-036)
 - [ ] Gestión de mazos funcional (T-035)
 - [ ] Modos RFID controlan lectura y emisión (T-010)
+- [ ] Dashboard Analytics muestra métricas de aprendizaje (T-049)
+- [ ] Mockup de pantalla de juego validado visualmente (T-050)
 
 ### Testing
 - [ ] Tests backend > 50% cobertura
