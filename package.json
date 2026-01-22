@@ -31,7 +31,7 @@
       "npm --prefix backend test -- --findRelatedTests --passWithNoTests"
     ],
     "frontend/**/*.{js,jsx}": [
-      "npm --prefix frontend run lint --"
+      "npm --prefix frontend run lint:staged --"
     ]
   }
 }

@@ -1,9 +1,9 @@
 import { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { DndContext, DragOverlay, useSensor, useSensors, PointerSensor, defaultDropAnimationSideEffects } from '@dnd-kit/core';
+import { DndContext, DragOverlay, useSensor, useSensors, PointerSensor, defaultDropAnimationSideEffects, useDroppable } from '@dnd-kit/core';
 import { SortableContext, useSortable } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
-import { AnimatePresence } from 'framer-motion';
+import { motion, AnimatePresence } from 'framer-motion';
 import { Layers, RotateCcw, Play, CheckCircle } from 'lucide-react';
 import clsx from 'clsx';
 import { api } from '../services/mockApi';
@@ -330,7 +330,6 @@ function CardView({ card, isOverlay, variant = 'default' }) {
 }
 
 // Helper hook to simplify droppable usage with dnd-kit
-import { useDroppable } from '@dnd-kit/core';
 function useDroppableCompat(props) {
     const { setNodeRef, isOver } = useDroppable(props);
     return { setNodeRef, isOver };

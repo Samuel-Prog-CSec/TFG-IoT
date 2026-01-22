@@ -71,7 +71,7 @@ export const STUDENTS = [
     { id: 's5', name: 'Daniel Miller', avatar: 'D' },
 ];
 
-let SESSIONS = [];
+const SESSIONS = [];
 
 // --- API Methods ---
 
