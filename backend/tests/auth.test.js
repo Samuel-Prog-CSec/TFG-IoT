@@ -9,8 +9,7 @@ describe('Authentication Endpoints', () => {
   const validTeacher = {
     name: 'Test Teacher',
     email: 'teacher@test.com',
-    password: 'password123',
-    role: 'teacher'
+    password: 'Password123'
   };
 
   const createAndLoginSuperAdmin = async () => {

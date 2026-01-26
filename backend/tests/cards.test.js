@@ -28,7 +28,7 @@ describe('Card Management Endpoints', () => {
     teacherUser = await User.create({
       name: 'Cards Teacher',
       email: 'cards.teacher@test.com',
-      password: 'password123',
+      password: 'Password123',
       role: 'teacher',
       status: 'active'
     });

@@ -8,6 +8,7 @@ const Card = require('../models/Card');
 const { NotFoundError, ConflictError, ValidationError } = require('../utils/errors');
 const logger = require('../utils/logger');
 const { cardDTO, cardListDTO, paginationDTO } = require('../utils/dtos');
+const { escapeRegex } = require('../utils/escapeRegex');
 
 /**
  * Obtener lista de tarjetas con paginación y filtros.
@@ -43,7 +44,8 @@ const getCards = async (req, res, next) => {
 
     // Búsqueda por UID parcial
     if (search) {
-      filter.uid = { $regex: search.toUpperCase(), $options: 'i' };
+      const safeSearch = escapeRegex(search.toUpperCase());
+      filter.uid = { $regex: safeSearch, $options: 'i' };
     }
 
     // Paginación

@@ -45,7 +45,7 @@ describe('CardDeck Management Endpoints', () => {
     teacherUser = await User.create({
       name: 'Deck Teacher',
       email: 'deck.teacher@test.com',
-      password: 'password123',
+      password: 'Password123',
       role: 'teacher',
       accountStatus: 'approved',
       status: 'active'
@@ -305,7 +305,7 @@ describe('CardDeck Management Endpoints', () => {
       const otherTeacher = await User.create({
         name: 'Other Teacher',
         email: 'other.teacher@test.com',
-        password: 'password123',
+        password: 'Password123',
         role: 'teacher',
         accountStatus: 'approved',
         status: 'active'

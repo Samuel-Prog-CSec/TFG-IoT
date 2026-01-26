@@ -5,11 +5,7 @@
  */
 
 const { z } = require('zod');
-
-/**
- * Schema para ObjectId de MongoDB
- */
-const objectIdSchema = z.string().regex(/^[0-9a-fA-F]{24}$/, 'Formato de ObjectId inválido');
+const { objectIdSchema, paginationSchema } = require('./commonValidator');
 
 /**
  * Schema para crear una nueva mecánica de juego.
@@ -32,36 +28,40 @@ const objectIdSchema = z.string().regex(/^[0-9a-fA-F]{24}$/, 'Formato de ObjectI
  *   isActive: true
  * }
  */
-const createGameMechanicSchema = z.object({
-  name: z
-    .string()
-    .min(2, 'El nombre debe tener al menos 2 caracteres')
-    .max(50, 'El nombre no puede exceder 50 caracteres')
-    .trim()
-    .toLowerCase()
-    .regex(
-      /^[a-z0-9_-]+$/,
-      'El nombre solo puede contener letras minúsculas, números, guiones y guiones bajos'
-    ),
+const mechanicNameSchema = z
+  .string()
+  .min(2, 'El nombre debe tener al menos 2 caracteres')
+  .max(50, 'El nombre no puede exceder 50 caracteres')
+  .trim()
+  .toLowerCase()
+  .regex(
+    /^[a-z0-9_-]+$/,
+    'El nombre solo puede contener letras minúsculas, números, guiones y guiones bajos'
+  );
 
-  displayName: z
-    .string()
-    .min(2, 'El nombre de visualización debe tener al menos 2 caracteres')
-    .max(100, 'El nombre de visualización no puede exceder 100 caracteres')
-    .trim(),
+const createGameMechanicSchema = z
+  .object({
+    name: mechanicNameSchema,
 
-  description: z
-    .string()
-    .min(10, 'La descripción debe tener al menos 10 caracteres')
-    .max(500, 'La descripción no puede exceder 500 caracteres')
-    .trim(),
+    displayName: z
+      .string()
+      .min(2, 'El nombre de visualización debe tener al menos 2 caracteres')
+      .max(100, 'El nombre de visualización no puede exceder 100 caracteres')
+      .trim(),
 
-  icon: z.string().trim().optional(),
+    description: z
+      .string()
+      .min(10, 'La descripción debe tener al menos 10 caracteres')
+      .max(500, 'La descripción no puede exceder 500 caracteres')
+      .trim(),
 
-  rules: z.record(z.any()).optional().default({}),
+    icon: z.string().trim().optional(),
 
-  isActive: z.boolean().default(true)
-});
+    rules: z.record(z.any()).optional().default({}),
+
+    isActive: z.boolean().default(true)
+  })
+  .strict();
 
 /**
  * Schema para actualizar una mecánica existente.
@@ -69,6 +69,7 @@ const createGameMechanicSchema = z.object({
  */
 const updateGameMechanicSchema = createGameMechanicSchema
   .partial()
+  .strict()
   .refine(data => Object.keys(data).length > 0, {
     message: 'Debe proporcionar al menos un campo para actualizar'
   });
@@ -79,42 +80,36 @@ const updateGameMechanicSchema = createGameMechanicSchema
  * @example
  * GET /mechanics?page=1&limit=10&isActive=true&sortBy=name&order=asc
  */
-const gameMechanicQuerySchema = z.object({
-  page: z
-    .string()
-    .optional()
-    .transform(val => (val ? parseInt(val, 10) : 1))
-    .pipe(z.number().int().min(1)),
-
-  limit: z
-    .string()
-    .optional()
-    .transform(val => (val ? parseInt(val, 10) : 20))
-    .pipe(z.number().int().min(1).max(100)),
-
+const gameMechanicQuerySchema = paginationSchema.extend({
   sortBy: z.enum(['name', 'displayName', 'createdAt', 'updatedAt']).optional().default('createdAt'),
-
-  order: z.enum(['asc', 'desc']).optional().default('desc'),
 
   isActive: z
     .string()
     .optional()
     .transform(val => (val === 'true' ? true : val === 'false' ? false : undefined))
-    .pipe(z.boolean().optional()),
-
-  search: z.string().trim().optional()
+    .pipe(z.boolean().optional())
 });
 
 /**
  * Schema para validar parámetros de ruta (:id)
  */
-const gameMechanicParamsSchema = z.object({
-  id: objectIdSchema
-});
+const gameMechanicParamsSchema = z
+  .object({
+    id: z.union([objectIdSchema, mechanicNameSchema])
+  })
+  .strict();
+
+const gameMechanicIdParamsSchema = z
+  .object({
+    id: objectIdSchema
+  })
+  .strict();
 
 module.exports = {
   createGameMechanicSchema,
   updateGameMechanicSchema,
   gameMechanicQuerySchema,
-  gameMechanicParamsSchema
+  gameMechanicParamsSchema,
+  gameMechanicIdParamsSchema,
+  mechanicNameSchema
 };

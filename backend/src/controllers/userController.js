@@ -8,6 +8,7 @@ const User = require('../models/User');
 const { NotFoundError, ForbiddenError } = require('../utils/errors');
 const logger = require('../utils/logger');
 const { userDTO, userListDTO, paginationDTO } = require('../utils/dtos');
+const { escapeRegex } = require('../utils/escapeRegex');
 
 /**
  * Obtener lista de usuarios con paginación y filtros.
@@ -48,9 +49,10 @@ const getUsers = async (req, res, next) => {
 
     // Búsqueda por nombre o email
     if (search) {
+      const safeSearch = escapeRegex(search);
       filter.$or = [
-        { name: { $regex: search, $options: 'i' } },
-        { email: { $regex: search, $options: 'i' } }
+        { name: { $regex: safeSearch, $options: 'i' } },
+        { email: { $regex: safeSearch, $options: 'i' } }
       ];
     }
 
@@ -153,7 +155,7 @@ const createUser = async (req, res, next) => {
     // ✅ VALIDAR DUPLICADOS: Verificar que no exista un alumno activo con el mismo nombre
     // creado por este profesor en la misma clase (si se especifica)
     const duplicateFilter = {
-      name: { $regex: new RegExp(`^${name.trim()}$`, 'i') }, // Case-insensitive
+      name: { $regex: new RegExp(`^${escapeRegex(name.trim())}$`, 'i') }, // Case-insensitive
       role: 'student',
       createdBy: req.user._id,
       status: 'active'
@@ -261,7 +263,7 @@ const updateUser = async (req, res, next) => {
     if (name && name.trim() !== user.name) {
       const duplicateFilter = {
         _id: { $ne: user._id }, // Excluir el usuario actual
-        name: { $regex: new RegExp(`^${name.trim()}$`, 'i') },
+        name: { $regex: new RegExp(`^${escapeRegex(name.trim())}$`, 'i') },
         role: user.role,
         status: 'active'
       };

@@ -7,8 +7,7 @@ describe('Single Session Enforcement', () => {
   const teacherCreds = {
     name: 'Session Teacher',
     email: 'session_teacher@test.com',
-    password: 'password123',
-    role: 'teacher'
+    password: 'Password123'
   };
 
   const createAndLoginSuperAdmin = async () => {

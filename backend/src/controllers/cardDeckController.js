@@ -15,6 +15,7 @@ const {
 } = require('../utils/errors');
 const logger = require('../utils/logger');
 const { cardDeckDTO, cardDeckListDTO, paginationDTO } = require('../utils/dtos');
+const { escapeRegex } = require('../utils/escapeRegex');
 
 const MAX_DECK_CARDS = 20;
 const MIN_DECK_CARDS = 2;
@@ -137,9 +138,10 @@ const getDecks = async (req, res, next) => {
     }
 
     if (search) {
+      const safeSearch = escapeRegex(search);
       filter.$or = [
-        { name: { $regex: search, $options: 'i' } },
-        { description: { $regex: search, $options: 'i' } }
+        { name: { $regex: safeSearch, $options: 'i' } },
+        { description: { $regex: safeSearch, $options: 'i' } }
       ];
     }
 

@@ -8,6 +8,7 @@ const GameContext = require('../models/GameContext');
 const { NotFoundError, ConflictError, ValidationError } = require('../utils/errors');
 const logger = require('../utils/logger');
 const { gameContextDTO, gameContextListDTO, paginationDTO } = require('../utils/dtos');
+const { escapeRegex } = require('../utils/escapeRegex');
 
 /**
  * Obtener lista de contextos con paginación y filtros.
@@ -28,9 +29,10 @@ const getContexts = async (req, res, next) => {
 
     // Búsqueda por contextId o nombre
     if (search) {
+      const safeSearch = escapeRegex(search);
       filter.$or = [
-        { contextId: { $regex: search, $options: 'i' } },
-        { name: { $regex: search, $options: 'i' } }
+        { contextId: { $regex: safeSearch, $options: 'i' } },
+        { name: { $regex: safeSearch, $options: 'i' } }
       ];
     }
 

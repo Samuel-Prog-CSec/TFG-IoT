@@ -8,6 +8,7 @@ const GameMechanic = require('../models/GameMechanic');
 const { NotFoundError, ConflictError } = require('../utils/errors');
 const logger = require('../utils/logger');
 const { gameMechanicDTO, gameMechanicListDTO, paginationDTO } = require('../utils/dtos');
+const { escapeRegex } = require('../utils/escapeRegex');
 
 /**
  * Obtener lista de mecánicas con paginación y filtros.
@@ -39,9 +40,10 @@ const getMechanics = async (req, res, next) => {
 
     // Búsqueda por nombre o displayName
     if (search) {
+      const safeSearch = escapeRegex(search);
       filter.$or = [
-        { name: { $regex: search, $options: 'i' } },
-        { displayName: { $regex: search, $options: 'i' } }
+        { name: { $regex: safeSearch, $options: 'i' } },
+        { displayName: { $regex: safeSearch, $options: 'i' } }
       ];
     }
 

@@ -33,7 +33,7 @@ describe('Super Admin Approval Flow', () => {
     const registerRes = await request(app).post('/api/auth/register').send({
       name: 'Pending Teacher',
       email: 'pending-teacher@test.com',
-      password: 'password123'
+      password: 'Password123'
     });
 
     expect(registerRes.statusCode).toBe(201);
@@ -50,7 +50,7 @@ describe('Super Admin Approval Flow', () => {
 
     const loginRes = await request(app).post('/api/auth/login').send({
       email: 'pending-teacher@test.com',
-      password: 'password123'
+      password: 'Password123'
     });
 
     expect(loginRes.statusCode).toBe(200);
@@ -61,7 +61,7 @@ describe('Super Admin Approval Flow', () => {
     await request(app).post('/api/auth/register').send({
       name: 'Rejected Teacher',
       email: 'rejected-teacher@test.com',
-      password: 'password123'
+      password: 'Password123'
     });
 
     const teacher = await User.findOne({ email: 'rejected-teacher@test.com' });
@@ -75,7 +75,7 @@ describe('Super Admin Approval Flow', () => {
 
     const loginRes = await request(app).post('/api/auth/login').send({
       email: 'rejected-teacher@test.com',
-      password: 'password123'
+      password: 'Password123'
     });
 
     expect(loginRes.statusCode).toBe(403);
@@ -85,7 +85,7 @@ describe('Super Admin Approval Flow', () => {
     const approvedTeacher = await User.create({
       name: 'Teacher',
       email: 'teacher@test.com',
-      password: 'password123',
+      password: 'Password123',
       role: 'teacher',
       accountStatus: 'approved',
       status: 'active'
@@ -93,7 +93,7 @@ describe('Super Admin Approval Flow', () => {
 
     const teacherLoginRes = await request(app).post('/api/auth/login').send({
       email: 'teacher@test.com',
-      password: 'password123'
+      password: 'Password123'
     });
 
     expect(teacherLoginRes.statusCode).toBe(200);
@@ -102,7 +102,7 @@ describe('Super Admin Approval Flow', () => {
     const target = await User.create({
       name: 'Another Teacher',
       email: 'another@test.com',
-      password: 'password123',
+      password: 'Password123',
       role: 'teacher',
       accountStatus: 'pending_approval',
       status: 'active'
@@ -123,7 +123,7 @@ describe('Super Admin Approval Flow', () => {
     const teacher = await User.create({
       name: 'Teacher Creator',
       email: 'creator@test.com',
-      password: 'password123',
+      password: 'Password123',
       role: 'teacher',
       accountStatus: 'approved',
       status: 'active'

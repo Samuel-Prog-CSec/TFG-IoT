@@ -38,6 +38,8 @@ const { verifyAccessToken, authenticate, requireRole } = require('./middlewares/
 const { errorHandler, notFoundHandler } = require('./middlewares/errorHandler');
 const { getHealthStatus } = require('./utils/healthCheck');
 const runtimeMetrics = require('./utils/runtimeMetrics');
+const { validateQuery } = require('./middlewares/validation');
+const { emptyObjectSchema } = require('./validators/commonValidator');
 
 // Importar rutas
 const authRoutes = require('./routes/auth');
@@ -177,7 +179,7 @@ app.use('/api/admin', adminRoutes);
  * @route GET /api/health
  * @returns {Object} 200 - Estado completo del servidor, MongoDB y RFID
  */
-app.get('/api/health', async (req, res) => {
+app.get('/api/health', validateQuery(emptyObjectSchema), async (req, res) => {
   try {
     const healthStatus = await getHealthStatus(rfidService);
     const httpStatus = ['healthy', 'degraded'].includes(healthStatus.status) ? 200 : 503;
@@ -196,7 +198,7 @@ app.get('/api/health', async (req, res) => {
  * Alias del health check para herramientas externas.
  * @route GET /health
  */
-app.get('/health', async (req, res) => {
+app.get('/health', validateQuery(emptyObjectSchema), async (req, res) => {
   try {
     const healthStatus = await getHealthStatus(rfidService);
     const httpStatus = ['healthy', 'degraded'].includes(healthStatus.status) ? 200 : 503;
@@ -216,32 +218,38 @@ app.get('/health', async (req, res) => {
  * @route GET /api/metrics
  * @returns {Object} 200 - Métricas del gameEngine y rfidService
  */
-app.get('/api/metrics', authenticate, requireRole('teacher', 'super_admin'), (req, res) => {
-  const snapshot = runtimeMetrics.getSnapshot();
+app.get(
+  '/api/metrics',
+  authenticate,
+  requireRole('teacher', 'super_admin'),
+  validateQuery(emptyObjectSchema),
+  (req, res) => {
+    const snapshot = runtimeMetrics.getSnapshot();
 
-  res.json({
-    timestamp: new Date().toISOString(),
-    http: snapshot.http,
-    websocket: {
-      connectedClients: io?.engine?.clientsCount ?? 0
-    },
-    gameEngine: gameEngine.getMetrics(),
-    rfid: {
-      processed: snapshot.rfid,
-      service: rfidService.getStatus()
-    }
-  });
-});
+    res.json({
+      timestamp: new Date().toISOString(),
+      http: snapshot.http,
+      websocket: {
+        connectedClients: io?.engine?.clientsCount ?? 0
+      },
+      gameEngine: gameEngine.getMetrics(),
+      rfid: {
+        processed: snapshot.rfid,
+        service: rfidService.getStatus()
+      }
+    });
+  }
+);
 
 /**
  * Endpoint raíz de la API.
  * @route GET /
  * @returns {Object} 200 - Información general de la API
  */
-app.get('/', (req, res) => {
+app.get('/', validateQuery(emptyObjectSchema), (req, res) => {
   res.json({
     message: 'API REST de Juegos RFID',
-    version: '0.1.0',
+    version: '0.2.0',
     endpoints: {
       auth: '/api/auth',
       users: '/api/users',

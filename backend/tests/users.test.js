@@ -11,7 +11,7 @@ describe('User Management Endpoints', () => {
   const validTeacher = {
     name: 'Teacher User',
     email: 'teacher.crud@test.com',
-    password: 'password123',
+    password: 'Password123',
     role: 'teacher',
     status: 'active'
   };
