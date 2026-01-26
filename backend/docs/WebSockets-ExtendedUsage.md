@@ -599,6 +599,10 @@ io.on('connection', socket => {
 | `resume_play`              | `{ playId, accessToken }`                   | Reanudar partida (solo profesor) |
 | `next_round`               | `{ playId }`                                | Solicitar siguiente ronda        |
 | `leave_play`               | `{ playId }`                                | Abandonar partida (existente)    |
+| `join_card_registration`   | `{}`                                        | Unirse al room de registro       |
+| `leave_card_registration`  | `{}`                                        | Salir del room de registro       |
+| `join_admin_room`          | `{}`                                        | Unirse al room de admin          |
+| `leave_admin_room`         | `{}`                                        | Salir del room de admin          |
 
 #### Servidor → Cliente
 
@@ -613,8 +617,8 @@ io.on('connection', socket => {
 | `card_assignment_scan`        | `{ uid, cardId, cardMetadata, assetKey, assetDisplay }` | Tarjeta asignada                                   |
 | `card_assignment_error`       | `{ message, uid, assetKey }`                            | Error en asignación                                |
 | `mode_timeout`                | `{ mode, context }`                                     | Timeout del modo activo                            |
-| `rfid_event`                  | `{ event, uid?, type?, ... }`                           | Evento RFID (modo idle)                            |
-| `rfid_status`                 | `{ status }`                                            | Estado de conexión sensor                          |
+| `rfid_event`                  | `{ event, uid?, type?, ... }`                           | Evento RFID dirigido por room                      |
+| `rfid_status`                 | `{ status }`                                            | Estado de conexión sensor (admin_room)             |
 | `play_paused`                 | `{ playId, currentRound, remainingTimeMs }`             | Partida pausada                                    |
 | `play_resumed`                | `{ playId, currentRound, remainingTimeMs, challenge? }` | Partida reanudada                                  |
 | `session_invalidated`         | `{ reason, timestamp }`                                 | Sesión cerrada por nuevo login en otro dispositivo |
@@ -629,6 +633,12 @@ io.on('connection', socket => {
 | `CARD_EXISTS`    | Tarjeta ya registrada                     | Usar tarjeta existente           |
 | `CARD_NOT_FOUND` | Tarjeta no en BD                          | Registrar tarjeta primero        |
 | `CARD_INACTIVE`  | Tarjeta desactivada                       | Activar tarjeta o usar otra      |
+| `RATE_LIMITED`   | Exceso de eventos en ventana corta        | Reducir frecuencia de envío      |
+| `TEMP_BLOCKED`   | Bloqueo temporal por abuso repetido       | Esperar y reintentar             |
+| `PAYLOAD_TOO_LARGE` | Payload supera el tamaño permitido     | Reducir tamaño de payload        |
+| `DUPLICATE_RFID_EVENT` | Evento RFID duplicado              | Evitar emitir UID repetido       |
+| `AUTH_REQUIRED`  | Token requerido en handshake              | Enviar token al conectar         |
+| `FORBIDDEN`      | No tienes permisos                        | Revisar rol/ownership            |
 
 ---
 
@@ -636,30 +646,23 @@ io.on('connection', socket => {
 
 ### 7.1 Autenticación de WebSockets
 
-**Nota (implementación actual):** En este backend, los eventos sensibles de partida (`pause_play` y `resume_play`) requieren `accessToken` en el payload del propio evento. El servidor valida el token usando el fingerprint del dispositivo (a partir de `socket.handshake.headers`).
+**Autenticación obligatoria:** El socket debe enviar `token` en `socket.handshake.auth.token` (o header Authorization). El servidor valida el token en el handshake y asigna `socket.data.userId` y `socket.data.userRole`.
 
 El siguiente ejemplo muestra un enfoque alternativo (autenticación global por handshake) a modo de referencia:
 
 ```javascript
-// Middleware de autenticación para Socket.IO
+// Middleware de autenticación obligatorio para Socket.IO
 io.use(async (socket, next) => {
   const token = socket.handshake.auth.token;
-
-  if (!token) {
-    return next(new Error('Token no proporcionado'));
-  }
+  if (!token) return next(new Error('Token requerido'));
 
   try {
-    const decoded = verifyAccessToken(token);
-    const user = await User.findById(decoded.id);
-
-    if (!user || user.status !== 'active') {
-      return next(new Error('Usuario no válido'));
-    }
-
-    socket.user = user;
+    const decoded = verifyAccessToken(token, { headers: socket.handshake.headers });
+    socket.data.userId = decoded.id;
+    socket.data.userRole = decoded.role;
+    socket.join(`user_${decoded.id}`);
     next();
-  } catch (error) {
+  } catch {
     next(new Error('Token inválido'));
   }
 });
@@ -683,18 +686,24 @@ socket.on('start_card_registration', () => {
 
 ### 7.3 Rate Limiting de Eventos
 
-```javascript
-const rateLimit = require('socket.io-rate-limiter');
+El backend aplica **rate limiting por evento** con ventana deslizante, bloqueo temporal y control de payload. La clave de rate limit prioriza `userId` (si el socket está autenticado) y usa `socket.id` como fallback.
 
-// Limitar eventos por socket
-io.use(
-  rateLimit({
-    points: 10, // 10 eventos
-    duration: 1, // por segundo
-    blockDuration: 5 // bloquear 5s si excede
-  })
-);
-```
+**Política por defecto (configurable):**
+
+| Evento | Ventana | Máx | Nota |
+| --- | --- | --- | --- |
+| `authenticate` | 1s | 3 | Evitar brute force por socket |
+| `join_play` | 1s | 3 | Protección de rooms |
+| `leave_play` | 1s | 3 | Protección de rooms |
+| `start_play` | 1s | 1 | Evitar duplicados |
+| `pause_play` | 1s | 2 | Control moderado |
+| `resume_play` | 1s | 2 | Control moderado |
+| `next_round` | 1s | 5 | Tolerante para UI |
+| `rfid_scan_from_client` | 3s | 2 | ~1 evento cada 1.5s |
+
+**Bloqueo temporal:** 3 violaciones consecutivas → 60s de bloqueo.
+
+**Payload máximo:** 16 KB global, 8 KB para `rfid_scan_from_client`.
 
 ---
 

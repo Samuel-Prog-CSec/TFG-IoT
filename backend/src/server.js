@@ -21,6 +21,7 @@ const { Server } = require('socket.io');
 const { connectDB, disconnectDB } = require('./config/database');
 const { connectRedis, disconnectRedis } = require('./config/redis');
 const { initSentry, Sentry } = require('./config/sentry');
+const { socketPayloadLimits } = require('./config/socketRateLimits');
 const {
   corsOptions,
   csrfProtection, // Middleware CSRF
@@ -36,6 +37,7 @@ const GameSession = require('./models/GameSession');
 const logger = require('./utils/logger');
 const { verifyAccessToken, authenticate, requireRole } = require('./middlewares/auth');
 const { errorHandler, notFoundHandler } = require('./middlewares/errorHandler');
+const { createSocketRateLimiter } = require('./middlewares/socketRateLimiter');
 const { getHealthStatus } = require('./utils/healthCheck');
 const runtimeMetrics = require('./utils/runtimeMetrics');
 const { validateQuery } = require('./middlewares/validation');
@@ -64,6 +66,7 @@ const io = new Server(server, {
   cors: corsOptions,
   pingTimeout: 60000, // 60 segundos
   pingInterval: 25000, // 25 segundos
+  maxHttpBufferSize: socketPayloadLimits.globalBytes, // Límite global de payload (bytes)
   transports: ['websocket', 'polling'], // Preferir WebSocket
   allowEIO3: false // Solo usar Engine.IO v4
 });
@@ -74,6 +77,78 @@ const io = new Server(server, {
  * @type {GameEngine}
  */
 const gameEngine = new GameEngine(io);
+
+// Rate limiting para WebSockets (instancia única compartida)
+const socketRateLimiter = createSocketRateLimiter({ logger });
+
+/**
+ * Middleware de autenticación obligatoria para Socket.IO.
+ * Requiere token en handshake (auth.token o Authorization header).
+ */
+io.use(async (socket, next) => {
+  try {
+    const tokenFromAuth = socket.handshake?.auth?.token;
+    const headerAuth = socket.handshake?.headers?.authorization || '';
+    const tokenFromHeader = headerAuth.startsWith('Bearer ') ? headerAuth.slice(7) : null;
+    const accessToken = tokenFromAuth || tokenFromHeader;
+
+    if (!accessToken) {
+      return next(new Error('Token requerido')); // Bloquear conexión
+    }
+
+    const mockReq = { headers: socket.handshake.headers };
+    const decoded = await verifyAccessToken(accessToken, mockReq);
+
+    if (!decoded?.id) {
+      return next(new Error('Token inválido'));
+    }
+
+    socket.data.userId = decoded.id;
+    socket.data.userRole = decoded.role;
+    socketRateLimiter.setIdentity(socket, { id: decoded.id, role: decoded.role });
+
+    // Unirse automáticamente a la room del usuario para notificaciones dirigidas
+    socket.join(`user_${decoded.id}`);
+
+    return next();
+  } catch (error) {
+    logger.warn('Autenticación de socket fallida', {
+      socketId: socket.id,
+      error: error.message
+    });
+    return next(new Error('Autenticación inválida'));
+  }
+});
+
+/**
+ * Verifica ownership de una partida para el socket actual.
+ * @param {import('socket.io').Socket} socket
+ * @param {string} playId
+ * @returns {Promise<{play: Object, session: Object}|null>}
+ */
+const requirePlayOwnership = async (socket, playId) => {
+  if (!socket?.data?.userId) {
+    socket.emit('error', { code: 'AUTH_REQUIRED', message: 'Autenticación requerida' });
+    return null;
+  }
+
+  const play = await GamePlay.findById(playId).populate('sessionId');
+  if (!play) {
+    socket.emit('error', { code: 'NOT_FOUND', message: 'Partida no encontrada' });
+    return null;
+  }
+
+  const session = play.sessionId;
+  const isSuperAdmin = socket.data.userRole === 'super_admin';
+  const ownsSession = session?.createdBy?.toString() === socket.data.userId;
+
+  if (!isSuperAdmin && !ownsSession) {
+    socket.emit('error', { code: 'FORBIDDEN', message: 'No tienes acceso a esta partida' });
+    return null;
+  }
+
+  return { play, session };
+};
 
 // Exponer el gameEngine a controllers (REST) sin imports circulares.
 app.set('gameEngine', gameEngine);
@@ -230,7 +305,8 @@ app.get(
       timestamp: new Date().toISOString(),
       http: snapshot.http,
       websocket: {
-        connectedClients: io?.engine?.clientsCount ?? 0
+        connectedClients: io?.engine?.clientsCount ?? 0,
+        events: snapshot.websocket
       },
       gameEngine: gameEngine.getMetrics(),
       rfid: {
@@ -289,40 +365,8 @@ app.use(errorHandler);
 io.on('connection', socket => {
   logger.info(`Cliente conectado: ${socket.id}`);
 
-  /**
-   * Evento: Autenticar socket y unirse a room de usuario.
-   * Permite enviar notificaciones dirigidas (e.g. session_invalidated).
-   * @event authenticate
-   * @param {Object} data - { accessToken }
-   */
-  socket.on('authenticate', async data => {
-    try {
-      const { accessToken } = data || {};
-      if (!accessToken) {
-        return;
-      }
-
-      // Verificar token (usando el mismo secret que la API REST)
-      // Nota: Requerimos una verificación completa incluyendo fingerprint si es posible,
-      // pero para sockets a veces el handshake headers es diferente.
-      // Simplificamos usando verifyAccessToken con headers del handshake.
-      const mockReq = { headers: socket.handshake.headers };
-      const decoded = await verifyAccessToken(accessToken, mockReq);
-
-      if (decoded && decoded.id) {
-        // Unirse a la room del usuario
-        const roomName = `user_${decoded.id}`;
-        socket.join(roomName);
-        logger.debug(
-          `Socket ${socket.id} autenticado como usuario ${decoded.id} (${decoded.role})`
-        );
-        socket.emit('authenticated', { success: true, userId: decoded.id });
-      }
-    } catch (error) {
-      logger.warn(`Fallo de autenticación socket ${socket.id}: ${error.message}`);
-      socket.emit('error', { message: 'Autenticación fallida', error: error.message });
-    }
-  });
+  const onEvent = (eventName, handler) =>
+    socket.on(eventName, socketRateLimiter.wrap(socket, eventName, handler));
 
   /**
    * Evento: Cliente se une a una partida.
@@ -330,8 +374,18 @@ io.on('connection', socket => {
    * @param {Object} data - Datos del evento
    * @param {string} data.playId - ID de la partida a la que unirse
    */
-  socket.on('join_play', async data => {
-    const { playId } = data;
+  onEvent('join_play', async data => {
+    const { playId } = data || {};
+    if (!playId) {
+      socket.emit('error', { message: 'playId requerido' });
+      return;
+    }
+
+    const ownership = await requirePlayOwnership(socket, playId);
+    if (!ownership) {
+      return;
+    }
+
     socket.join(`play_${playId}`);
     /* TODO: Incluir información del jugador cuando exista el modelo User
     const player = await User.findById(data.playerId);
@@ -358,8 +412,16 @@ io.on('connection', socket => {
    * @param {Object} data - Datos del evento
    * @param {string} data.playId - ID de la partida a abandonar
    */
-  socket.on('leave_play', data => {
-    const { playId } = data;
+  onEvent('leave_play', async data => {
+    const { playId } = data || {};
+    if (!playId) {
+      socket.emit('error', { message: 'playId requerido' });
+      return;
+    }
+    const ownership = await requirePlayOwnership(socket, playId);
+    if (!ownership) {
+      return;
+    }
     socket.leave(`play_${playId}`);
     logger.info(`Socket ${socket.id} abandonó la partida ${playId}`);
   });
@@ -370,18 +432,19 @@ io.on('connection', socket => {
    * @param {Object} data - Datos del evento
    * @param {string} data.playId - ID de la partida a iniciar
    */
-  socket.on('start_play', async data => {
+  onEvent('start_play', async data => {
     try {
-      const { playId } = data;
-      const play = await GamePlay.findById(playId).populate('sessionId');
-
-      if (!play) {
-        socket.emit('error', { message: 'Partida no encontrada' });
+      const { playId } = data || {};
+      if (!playId) {
+        socket.emit('error', { message: 'playId requerido' });
+        return;
+      }
+      const ownership = await requirePlayOwnership(socket, playId);
+      if (!ownership) {
         return;
       }
 
-      const session = play.sessionId;
-      gameEngine.startPlay(play, session);
+      gameEngine.startPlay(ownership.play, ownership.session);
 
       logger.info(`Partida comenzada: ${playId}`);
     } catch (error) {
@@ -396,7 +459,7 @@ io.on('connection', socket => {
    * @param {Object} data - Datos del evento
    * @param {string} data.playId - ID de la partida a pausar
    */
-  socket.on('pause_play', data => {
+  onEvent('pause_play', data => {
     (async () => {
       try {
         const { playId, accessToken } = data || {};
@@ -415,6 +478,11 @@ io.on('connection', socket => {
           return;
         }
 
+        const ownership = await requirePlayOwnership(socket, playId);
+        if (!ownership) {
+          return;
+        }
+
         await gameEngine.pausePlayInternal(playId, { requestedBy: decoded.id });
       } catch (error) {
         logger.error(`Error al pausar la partida: ${error.message}`);
@@ -429,7 +497,7 @@ io.on('connection', socket => {
    * @param {Object} data - Datos del evento
    * @param {string} data.playId - ID de la partida a reanudar
    */
-  socket.on('resume_play', data => {
+  onEvent('resume_play', data => {
     (async () => {
       try {
         const { playId, accessToken } = data || {};
@@ -447,6 +515,11 @@ io.on('connection', socket => {
           return;
         }
 
+        const ownership = await requirePlayOwnership(socket, playId);
+        if (!ownership) {
+          return;
+        }
+
         await gameEngine.resumePlayInternal(playId, { requestedBy: decoded.id });
       } catch (error) {
         logger.error(`Error al reanudar la partida: ${error.message}`);
@@ -461,9 +534,44 @@ io.on('connection', socket => {
    * @param {Object} data - Datos del evento
    * @param {string} data.playId - ID de la partida
    */
-  socket.on('next_round', data => {
-    const { playId } = data;
-    gameEngine.sendNextRound(playId);
+  onEvent('next_round', data => {
+    const { playId } = data || {};
+    if (!playId) {
+      socket.emit('error', { message: 'playId requerido' });
+      return;
+    }
+    requirePlayOwnership(socket, playId).then(ownership => {
+      if (!ownership) {
+        return;
+      }
+      gameEngine.sendNextRound(playId);
+    });
+  });
+
+  onEvent('join_card_registration', () => {
+    if (socket.data.userRole !== 'teacher' && socket.data.userRole !== 'super_admin') {
+      socket.emit('error', { code: 'FORBIDDEN', message: 'Solo profesores' });
+      return;
+    }
+    socket.join('card_registration');
+    logger.info(`Socket ${socket.id} se unió a card_registration`);
+  });
+
+  onEvent('leave_card_registration', () => {
+    socket.leave('card_registration');
+  });
+
+  onEvent('join_admin_room', () => {
+    if (socket.data.userRole !== 'super_admin') {
+      socket.emit('error', { code: 'FORBIDDEN', message: 'Solo super admin' });
+      return;
+    }
+    socket.join('admin_room');
+    logger.info(`Socket ${socket.id} se unió a admin_room`);
+  });
+
+  onEvent('leave_admin_room', () => {
+    socket.leave('admin_room');
   });
 
   /**
@@ -487,8 +595,21 @@ rfidService.on('rfid_event', event => {
   // Métricas internas (observabilidad)
   runtimeMetrics.recordRfidEvent(event);
 
-  // Enviar el evento a todos los clientes conectados (para la UI)
-  io.emit('rfid_event', event);
+  // Emitir eventos RFID de forma dirigida
+  const playId = event?.uid ? gameEngine.getPlayIdByCardUid(event.uid) : null;
+
+  if (event.event === 'card_detected' && playId) {
+    // En gameplay no exponemos UID
+    io.to(`play_${playId}`).emit('rfid_event', {
+      event: 'card_detected'
+    });
+  } else if (event.event === 'card_detected' || event.event === 'card_removed') {
+    // Registro de tarjetas (solo a room dedicada)
+    io.to('card_registration').emit('rfid_event', event);
+  } else {
+    // Eventos de diagnóstico (init, status, error)
+    io.to('admin_room').emit('rfid_event', event);
+  }
 
   // Procesar eventos específicos según el tipo
   switch (event.event) {
@@ -518,8 +639,8 @@ rfidService.on('rfid_event', event => {
 rfidService.on('status', status => {
   logger.info(`Estado del servicio RFID: ${status}`); // 'connected', 'disconnected', 'reconnecting'
 
-  // Enviar el estado a todos los clientes (para actualización en la UI)
-  io.emit('rfid_status', { status });
+  // Estado RFID solo para admin_room
+  io.to('admin_room').emit('rfid_status', { status });
 });
 
 // ============================================================================
