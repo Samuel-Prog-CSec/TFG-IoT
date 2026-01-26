@@ -15,13 +15,12 @@ const {
 const {
   generateTokenPair,
   verifyRefreshToken,
-  revokeToken,
-  storeRefreshToken,
   markRefreshTokenAsUsed,
   deleteRefreshToken
 } = require('../middlewares/auth');
 const logger = require('../utils/logger');
 const { userDTO } = require('../utils/dtos');
+const { disconnectUserSockets } = require('../utils/socketUtils');
 const crypto = require('crypto');
 
 /**
@@ -161,11 +160,11 @@ const login = async (req, res, next) => {
     // Notificar al dispositivo anterior vía WebSocket
     const io = req.app.get('io');
     if (io) {
-      io.to(`user_${user._id}`).emit('session_invalidated', {
-        reason: 'NEW_LOGIN',
-        timestamp: Date.now()
+      disconnectUserSockets(io, user._id.toString(), 'NEW_LOGIN');
+      logger.warn('Sesión previa invalidada y sockets desconectados', {
+        userId: user._id,
+        reason: 'NEW_LOGIN'
       });
-      logger.debug(`Evento session_invalidated emitido para usuario ${user._id}`);
     }
 
     // Generar par de tokens (access + refresh) con nueva familia y sessionId

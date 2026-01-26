@@ -192,7 +192,7 @@ Conectar la UI React con el backend real, eliminando mocks y estableciendo la co
 
 ---
 
-### T-045: Rate Limiting en WebSocket (SEC-CRIT-01) 📋
+### T-045: Rate Limiting en WebSocket (SEC-CRIT-01) ✅
 
 **Prioridad:** P0 | **Tamaño:** M | **Dependencias:** Ninguna  
 **Origen:** Auditoría de Seguridad - Vulnerabilidad Crítica
@@ -247,7 +247,7 @@ Los handlers de Socket.IO no tienen limitación de frecuencia, permitiendo ataqu
 
 ---
 
-### T-032: Hardening de Validación con Zod (SEC-HIGH-03) 📋
+### T-032: Hardening de Validación con Zod (SEC-HIGH-03) ✅
 
 **Prioridad:** P0 | **Tamaño:** L | **Dependencias:** Ninguna  
 **Origen:** Auditoría de Seguridad - Validación incompleta
@@ -341,7 +341,7 @@ Los controllers devuelven documentos Mongoose directamente, exponiendo campos co
 
 ## P1 - Prioridad Alta
 
-### T-046: Autenticación WebSocket Obligatoria (SEC-HIGH-01) 📋
+### T-046: Autenticación WebSocket Obligatoria (SEC-HIGH-01) ✅
 
 **Prioridad:** P1 | **Tamaño:** M | **Dependencias:** Ninguna  
 **Origen:** Auditoría de Seguridad

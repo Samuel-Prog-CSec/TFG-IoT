@@ -263,7 +263,7 @@ Según Duda #44, solo se permiten formatos WebP para imágenes (SVG rechazado po
 9. ✅ Actualizar rutas con Multer configs y rate limiting
 10. ✅ Eliminar ruta duplicada `assets.js` sin autenticación (vulnerabilidad)
 11. ✅ Añadir tests para imageProcessingService y audioValidationService
-12. ✅ Documentar en `API_v0.1.0.md` y crear `AssetProcessing.md`
+12. ✅ Documentar en `API_v0.3.0.md` y crear `AssetProcessing.md`
 
 **Cambios de Decisión:**
 
@@ -280,7 +280,7 @@ Según Duda #44, solo se permiten formatos WebP para imágenes (SVG rechazado po
 - `backend/src/controllers/assetController.js` (reescrito)
 - `backend/src/routes/contexts.js` (actualizado)
 - `backend/src/models/GameContext.js` (añadido thumbnailUrl + límite)
-- `backend/docs/API_v0.1.0.md` (actualizado)
+- `backend/docs/API_v0.3.0.md` (actualizado)
 - `backend/docs/AssetProcessing.md` (nuevo)
 
 **Criterios de Aceptación:**

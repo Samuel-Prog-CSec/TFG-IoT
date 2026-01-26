@@ -39,3 +39,27 @@ Se ha decidido **eliminar el bloqueo duro** para nuevas partidas.
 ### Estado Futuro
 
 Si el sistema escala a producción masiva, se deberá reimplementar un rate-limiting más inteligente (ej. por IP o por Tenant) o escalar horizontalmente el backend (lo cual requeriría migrar el estado en memoria de `gameEngine` totalmente a Redis).
+
+---
+
+## ADR-002: Autenticación Obligatoria en WebSockets y Desconexión por Invalidez
+
+### Contexto
+
+Los eventos Socket.IO permiten controlar partidas y emitir escaneos RFID en tiempo real. Sin una autenticación obligatoria en el handshake y sin revocación activa, un socket podría continuar enviando eventos incluso después de que la cuenta sea inhabilitada o se inicie sesión en otro dispositivo.
+
+### Decisión
+
+Se establece autenticación obligatoria en el handshake de Socket.IO, con validación de:
+
+1. Token JWT (access token) desde `auth.token` o header `Authorization`.
+2. Estado de cuenta (`active`) y aprobación (`approved` para docentes).
+3. Single-session (el `sid` del token debe coincidir con `currentSessionId`).
+
+Además, cuando una sesión se invalida (nuevo login) o la cuenta se desactiva/rechaza, se emite `session_invalidated` y se **desconectan** los sockets activos del usuario.
+
+### Consecuencias
+
+- **Seguridad mejorada**: evita control de partidas o lecturas RFID desde sesiones inválidas.
+- **Coherencia de sesión**: garantiza que el canal en tiempo real respete single-session.
+- **Coste aceptable**: se añade una consulta de usuario en el handshake, asumible por volumen de conexiones.

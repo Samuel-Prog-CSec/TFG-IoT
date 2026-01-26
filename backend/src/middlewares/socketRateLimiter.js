@@ -80,7 +80,10 @@ class SocketRateLimiter {
 
     try {
       return Buffer.byteLength(JSON.stringify(payload), 'utf8');
-    } catch (_) {
+    } catch (error) {
+      if (this.logger) {
+        this.logger.debug('Fallo al calcular tamaño del payload:', error.message);
+      }
       return socketPayloadLimits.globalBytes + 1;
     }
   }
@@ -245,7 +248,6 @@ class SocketRateLimiter {
   wrap(socket, eventName, handler) {
     return async (payload, ...args) => {
       const rateKey = this.getKey(socket);
-      const now = this.nowProvider();
 
       const payloadCheck = this.checkPayloadSize(eventName, payload);
       if (!payloadCheck.allowed) {
@@ -253,6 +255,10 @@ class SocketRateLimiter {
           eventName,
           socketId: socket.id,
           rateKey,
+          userId: socket?.data?.userId,
+          userRole: socket?.data?.userRole,
+          ip: socket?.handshake?.address,
+          securityEvent: 'WS_PAYLOAD_TOO_LARGE',
           sizeBytes: payloadCheck.sizeBytes,
           maxBytes: payloadCheck.maxBytes
         });
@@ -276,7 +282,11 @@ class SocketRateLimiter {
         this.logger.warn('Evento RFID duplicado bloqueado', {
           eventName,
           socketId: socket.id,
-          rateKey
+          rateKey,
+          userId: socket?.data?.userId,
+          userRole: socket?.data?.userRole,
+          ip: socket?.handshake?.address,
+          securityEvent: 'WS_RFID_DEDUPE'
         });
 
         socket.emit('error', {
@@ -299,6 +309,10 @@ class SocketRateLimiter {
           eventName,
           socketId: socket.id,
           rateKey,
+          userId: socket?.data?.userId,
+          userRole: socket?.data?.userRole,
+          ip: socket?.handshake?.address,
+          securityEvent: rateResult.blocked ? 'WS_TEMP_BLOCKED' : 'WS_RATE_LIMITED',
           blocked: rateResult.blocked,
           retryAfterMs: rateResult.retryAfterMs
         });

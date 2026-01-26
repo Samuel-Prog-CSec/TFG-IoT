@@ -9,6 +9,8 @@ const { NotFoundError, ForbiddenError } = require('../utils/errors');
 const logger = require('../utils/logger');
 const { userDTO, userListDTO, paginationDTO } = require('../utils/dtos');
 const { escapeRegex } = require('../utils/escapeRegex');
+const { revokeAllUserTokens } = require('../middlewares/auth');
+const { disconnectUserSockets } = require('../utils/socketUtils');
 
 /**
  * Obtener lista de usuarios con paginación y filtros.
@@ -155,7 +157,7 @@ const createUser = async (req, res, next) => {
     // ✅ VALIDAR DUPLICADOS: Verificar que no exista un alumno activo con el mismo nombre
     // creado por este profesor en la misma clase (si se especifica)
     const duplicateFilter = {
-      name: { $regex: new RegExp(`^${escapeRegex(name.trim())}$`, 'i') }, // Case-insensitive
+      name: { $regex: `^${escapeRegex(name.trim())}$`, $options: 'i' }, // Case-insensitive
       role: 'student',
       createdBy: req.user._id,
       status: 'active'
@@ -263,7 +265,7 @@ const updateUser = async (req, res, next) => {
     if (name && name.trim() !== user.name) {
       const duplicateFilter = {
         _id: { $ne: user._id }, // Excluir el usuario actual
-        name: { $regex: new RegExp(`^${escapeRegex(name.trim())}$`, 'i') },
+        name: { $regex: `^${escapeRegex(name.trim())}$`, $options: 'i' },
         role: user.role,
         status: 'active'
       };
@@ -348,6 +350,12 @@ const updateUser = async (req, res, next) => {
 
     await user.save();
 
+    if (status === 'inactive' && ['teacher', 'super_admin'].includes(user.role)) {
+      await revokeAllUserTokens(user._id.toString(), 'account_inactivated');
+      const io = req.app.get('io');
+      disconnectUserSockets(io, user._id.toString(), 'ACCOUNT_INACTIVATED');
+    }
+
     logger.info('Usuario actualizado', {
       userId: user._id,
       updatedBy: req.user._id,
@@ -397,6 +405,12 @@ const deleteUser = async (req, res, next) => {
     // Soft delete
     user.status = 'inactive';
     await user.save();
+
+    if (['teacher', 'super_admin'].includes(user.role)) {
+      await revokeAllUserTokens(user._id.toString(), 'account_deleted');
+      const io = req.app.get('io');
+      disconnectUserSockets(io, user._id.toString(), 'ACCOUNT_INACTIVATED');
+    }
 
     logger.info('Usuario eliminado (soft delete)', {
       userId: user._id,

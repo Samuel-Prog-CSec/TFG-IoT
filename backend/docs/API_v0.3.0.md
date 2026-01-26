@@ -1,9 +1,9 @@
-# Documentación de la API ("RFID Games Backend") - v0.1.0
+# Documentación de la API ("RFID Games Backend") - v0.3.0
 
 Este documento detalla los endpoints de la API REST para el Backend de Juegos Educativos RFID.
 
 **URL Base:** `/api`
-**Versión:** 0.1.0
+**Versión:** 0.3.0
 
 ## Autenticación y Seguridad
 
@@ -594,19 +594,30 @@ No borra el documento: cambia `status` a `archived`.
 | Evento              | Dirección           | Descripción               | Datos                                                   |
 | :------------------ | :------------------ | :------------------------ | :------------------------------------------------------ |
 | `join_play`         | Cliente -> Servidor | Unirse a la sala de juego | `{ playId }`                                            |
+| `leave_play`        | Cliente -> Servidor | Salir de la sala de juego | `{ playId }`                                            |
 | `start_play`        | Cliente -> Servidor | Comenzar partida          | `{ playId }`                                            |
-| `pause_play`        | Cliente -> Servidor | Pausar partida            | `{ playId, accessToken }`                               |
-| `resume_play`       | Cliente -> Servidor | Reanudar partida          | `{ playId, accessToken }`                               |
+| `pause_play`        | Cliente -> Servidor | Pausar partida            | `{ playId }`                                            |
+| `resume_play`       | Cliente -> Servidor | Reanudar partida          | `{ playId }`                                            |
+| `next_round`        | Cliente -> Servidor | Siguiente ronda manual    | `{ playId }`                                            |
+| `join_card_registration` | Cliente -> Servidor | Unirse a sala de registro | `{}`                                               |
+| `leave_card_registration`| Cliente -> Servidor | Salir de sala de registro | `{}`                                               |
+| `join_admin_room`   | Cliente -> Servidor | Unirse a sala admin       | `{}`                                                    |
+| `leave_admin_room`  | Cliente -> Servidor | Salir de sala admin       | `{}`                                                    |
+| `rfid_scan_from_client` | Cliente -> Servidor | Escaneo RFID desde cliente | `{ uid, type, sensorId, timestamp, source }`          |
 | `play_state`        | Servidor -> Cliente | Estado inicial            | `{ currentRound, score }`                               |
 | `new_round`         | Servidor -> Cliente | Nuevo desafío             | `{ challenge, timeLimit }`                              |
 | `validation_result` | Servidor -> Cliente | Resultado respuesta       | `{ isCorrect, points, newScore }`                       |
 | `play_paused`       | Servidor -> Cliente | Partida pausada           | `{ playId, currentRound, remainingTimeMs }`             |
 | `play_resumed`      | Servidor -> Cliente | Partida reanudada         | `{ playId, currentRound, remainingTimeMs, challenge? }` |
 | `rfid_event`        | Servidor -> Cliente | Tarjeta escaneada         | `{ uid, type }`                                         |
+| `session_invalidated` | Servidor -> Cliente | Sesión invalidada         | `{ reason, timestamp }`                                 |
 
 **Seguridad (WebSocket):**
 
-- Para `pause_play` y `resume_play` se requiere `accessToken` (JWT) en el payload. El backend lo valida junto con el fingerprint del dispositivo (headers del handshake).
+- La conexión WebSocket **requiere token** en el handshake (`auth.token` o `Authorization: Bearer <token>`).
+- El backend valida **rol**, **estado de cuenta** y **single-session** antes de aceptar eventos.
+- Eventos de control (`join_play`, `start_play`, `pause_play`, `resume_play`, `next_round`) solo están permitidos a `teacher`/`super_admin`.
+- Los sockets se desconectan automáticamente si la sesión es invalidada (por login en otro dispositivo o cambios de seguridad).
 
 ---
 
@@ -617,5 +628,5 @@ No borra el documento: cambia `status` a `archived`.
 
 ---
 
-_Última actualización: 29-12-2025_
-_Versión: 0.1.0_
+_Última actualización: 26-01-2026_
+_Versión: 0.3.0_

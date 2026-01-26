@@ -13,6 +13,8 @@ const User = require('../models/User');
 const { ValidationError, NotFoundError } = require('../utils/errors');
 const logger = require('../utils/logger');
 const { userDTO } = require('../utils/dtos');
+const { revokeAllUserTokens } = require('../middlewares/auth');
+const { disconnectUserSockets } = require('../utils/socketUtils');
 
 const assertTargetIsTeacher = user => {
   if (!user) {
@@ -75,6 +77,11 @@ const rejectTeacher = async (req, res, next) => {
 
     target.accountStatus = 'rejected';
     await target.save();
+
+    await revokeAllUserTokens(target._id.toString(), 'account_rejected');
+
+    const io = req.app.get('io');
+    disconnectUserSockets(io, target._id.toString(), 'ACCOUNT_REJECTED');
 
     logger.info('Profesor rechazado por super admin', {
       rejectedUserId: target._id,

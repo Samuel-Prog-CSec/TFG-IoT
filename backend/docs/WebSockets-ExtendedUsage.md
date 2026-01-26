@@ -595,14 +595,15 @@ io.on('connection', socket => {
 | `cancel_card_assignment`   | `{}`                                        | Cancelar modo asignación         |
 | `join_play`                | `{ playId }`                                | Unirse a partida (existente)     |
 | `start_play`               | `{ playId }`                                | Iniciar partida (existente)      |
-| `pause_play`               | `{ playId, accessToken }`                   | Pausar partida (solo profesor)   |
-| `resume_play`              | `{ playId, accessToken }`                   | Reanudar partida (solo profesor) |
+| `pause_play`               | `{ playId }`                                | Pausar partida (solo profesor)   |
+| `resume_play`              | `{ playId }`                                | Reanudar partida (solo profesor) |
 | `next_round`               | `{ playId }`                                | Solicitar siguiente ronda        |
 | `leave_play`               | `{ playId }`                                | Abandonar partida (existente)    |
 | `join_card_registration`   | `{}`                                        | Unirse al room de registro       |
 | `leave_card_registration`  | `{}`                                        | Salir del room de registro       |
 | `join_admin_room`          | `{}`                                        | Unirse al room de admin          |
 | `leave_admin_room`         | `{}`                                        | Salir del room de admin          |
+| `rfid_scan_from_client`    | `{ uid, type, sensorId, timestamp, source }` | Escaneo RFID desde cliente       |
 
 #### Servidor → Cliente
 
@@ -646,7 +647,7 @@ io.on('connection', socket => {
 
 ### 7.1 Autenticación de WebSockets
 
-**Autenticación obligatoria:** El socket debe enviar `token` en `socket.handshake.auth.token` (o header Authorization). El servidor valida el token en el handshake y asigna `socket.data.userId` y `socket.data.userRole`.
+**Autenticación obligatoria:** El socket debe enviar `token` en `socket.handshake.auth.token` (o header `Authorization: Bearer ...`). El servidor valida el token en el handshake, comprueba estado de cuenta y single-session, y asigna `socket.data.userId` y `socket.data.userRole`.
 
 El siguiente ejemplo muestra un enfoque alternativo (autenticación global por handshake) a modo de referencia:
 
@@ -658,6 +659,7 @@ io.use(async (socket, next) => {
 
   try {
     const decoded = verifyAccessToken(token, { headers: socket.handshake.headers });
+    // Se valida estado de cuenta y single-session antes de aceptar
     socket.data.userId = decoded.id;
     socket.data.userRole = decoded.role;
     socket.join(`user_${decoded.id}`);
@@ -668,12 +670,14 @@ io.use(async (socket, next) => {
 });
 ```
 
-### 7.2 Autorización por Rol
+### 7.2 Autorización por Rol y Ownership
+
+Los eventos de control de partida (`join_play`, `start_play`, `pause_play`, `resume_play`, `next_round`) requieren **rol docente** (`teacher` o `super_admin`) y **ownership** de la sesión asociada a la partida.
 
 ```javascript
-socket.on('start_card_registration', () => {
-  // Solo profesores pueden registrar tarjetas
-  if (socket.user.role !== 'teacher') {
+socket.on('join_card_registration', () => {
+  // Solo profesores y super admin pueden registrar tarjetas
+  if (!['teacher', 'super_admin'].includes(socket.data.userRole)) {
     socket.emit('error', {
       code: 'FORBIDDEN',
       message: 'Solo profesores pueden registrar tarjetas'
@@ -704,6 +708,11 @@ El backend aplica **rate limiting por evento** con ventana deslizante, bloqueo t
 **Bloqueo temporal:** 3 violaciones consecutivas → 60s de bloqueo.
 
 **Payload máximo:** 16 KB global, 8 KB para `rfid_scan_from_client`.
+
+### 7.4 Invalidez de sesión y desconexión
+
+- Si un usuario inicia sesión en otro dispositivo, se emite `session_invalidated` al socket anterior y se **desconecta** automáticamente.
+- Si la cuenta se inactiva o se rechaza, el servidor revoca tokens y **cierra sockets activos** para evitar eventos en tiempo real no autorizados.
 
 ---
 
