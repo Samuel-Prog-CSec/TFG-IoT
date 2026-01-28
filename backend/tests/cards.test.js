@@ -74,17 +74,19 @@ describe('Card Management Endpoints', () => {
     expect(res.statusCode).toEqual(200);
     expect(res.body.success).toBe(true);
 
-    const items = Array.isArray(res.body.data) ? res.body.data : res.body.data?.data;
+    const items = res.body.data;
     expect(Array.isArray(items)).toBe(true);
     expect(items.length).toBeGreaterThanOrEqual(2);
 
-    const pagination = res.body.pagination ?? res.body.data?.pagination;
+    const pagination = res.body.pagination;
     expect(pagination).toBeTruthy();
     expect(pagination).toHaveProperty('page');
     expect(typeof pagination.page).toBe('number');
     expect(pagination.page).toBeGreaterThanOrEqual(1);
     expect(pagination).toHaveProperty('total');
     expect(pagination.total).toBeGreaterThanOrEqual(2);
+    expect(pagination).toHaveProperty('hasNext');
+    expect(pagination).toHaveProperty('hasPrev');
   });
 
   it('should get a card by UID', async () => {

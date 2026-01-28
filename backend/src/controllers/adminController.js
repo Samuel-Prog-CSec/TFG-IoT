@@ -12,7 +12,7 @@
 const User = require('../models/User');
 const { ValidationError, NotFoundError } = require('../utils/errors');
 const logger = require('../utils/logger');
-const { userDTO } = require('../utils/dtos');
+const { toUserDTOV1 } = require('../utils/dtos');
 const { revokeAllUserTokens } = require('../middlewares/auth');
 const { disconnectUserSockets } = require('../utils/socketUtils');
 
@@ -53,7 +53,7 @@ const approveTeacher = async (req, res, next) => {
       success: true,
       message: 'Profesor aprobado exitosamente',
       data: {
-        user: userDTO(target)
+        user: toUserDTOV1(target)
       }
     });
   } catch (error) {
@@ -93,7 +93,7 @@ const rejectTeacher = async (req, res, next) => {
       success: true,
       message: 'Profesor rechazado exitosamente',
       data: {
-        user: userDTO(target)
+        user: toUserDTOV1(target)
       }
     });
   } catch (error) {

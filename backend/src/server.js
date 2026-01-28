@@ -39,6 +39,7 @@ const { errorHandler, notFoundHandler } = require('./middlewares/errorHandler');
 const { createSocketRateLimiter } = require('./middlewares/socketRateLimiter');
 const { getHealthStatus } = require('./utils/healthCheck');
 const runtimeMetrics = require('./utils/runtimeMetrics');
+const { toSystemMetricsDTOV1 } = require('./utils/dtos');
 const { validateQuery } = require('./middlewares/validation');
 const { emptyObjectSchema } = require('./validators/commonValidator');
 
@@ -435,19 +436,21 @@ app.get(
   (req, res) => {
     const snapshot = runtimeMetrics.getSnapshot();
 
-    res.json({
-      timestamp: new Date().toISOString(),
-      http: snapshot.http,
-      websocket: {
-        connectedClients: io?.engine?.clientsCount ?? 0,
-        events: snapshot.websocket
-      },
-      gameEngine: gameEngine.getMetrics(),
-      rfid: {
-        processed: snapshot.rfid,
-        service: rfidService.getStatus()
-      }
-    });
+    res.json(
+      toSystemMetricsDTOV1({
+        timestamp: new Date().toISOString(),
+        http: snapshot.http,
+        websocket: {
+          connectedClients: io?.engine?.clientsCount ?? 0,
+          events: snapshot.websocket
+        },
+        gameEngine: gameEngine.getMetrics(),
+        rfid: {
+          processed: snapshot.rfid,
+          service: rfidService.getStatus()
+        }
+      })
+    );
   }
 );
 

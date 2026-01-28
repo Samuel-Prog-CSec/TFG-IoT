@@ -19,7 +19,7 @@ const {
   deleteRefreshToken
 } = require('../middlewares/auth');
 const logger = require('../utils/logger');
-const { userDTO } = require('../utils/dtos');
+const { toUserDTOV1, toAuthResponseDTOV1 } = require('../utils/dtos');
 const { disconnectUserSockets } = require('../utils/socketUtils');
 const crypto = require('crypto');
 
@@ -81,7 +81,7 @@ const register = async (req, res, next) => {
       success: true,
       message: 'Profesor registrado. Cuenta pendiente de aprobación por Super Admin.',
       data: {
-        user: userDTO(teacher)
+        user: toUserDTOV1(teacher)
       }
     });
   } catch (error) {
@@ -182,10 +182,7 @@ const login = async (req, res, next) => {
     res.json({
       success: true,
       message: 'Login exitoso',
-      data: {
-        user: userDTO(user),
-        ...publicTokens
-      }
+      data: toAuthResponseDTOV1(user, publicTokens)
     });
   } catch (error) {
     next(error);
@@ -213,7 +210,7 @@ const getProfile = async (req, res, next) => {
 
     res.json({
       success: true,
-      data: userDTO(user)
+      data: toUserDTOV1(user)
     });
   } catch (error) {
     next(error);
@@ -259,7 +256,7 @@ const updateProfile = async (req, res, next) => {
     res.json({
       success: true,
       message: 'Perfil actualizado exitosamente',
-      data: userDTO(user)
+      data: toUserDTOV1(user)
     });
   } catch (error) {
     next(error);

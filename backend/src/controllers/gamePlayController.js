@@ -9,7 +9,12 @@ const GameSession = require('../models/GameSession');
 const User = require('../models/User');
 const { NotFoundError, ValidationError, ForbiddenError } = require('../utils/errors');
 const logger = require('../utils/logger');
-const { gamePlayDTO, gamePlayListDTO, paginationDTO } = require('../utils/dtos');
+const {
+  toGamePlayDetailDTOV1,
+  toGamePlayListDTOV1,
+  toPaginatedDTOV1,
+  toPlayerStatsDTOV1
+} = require('../utils/dtos');
 
 /**
  * Obtener lista de partidas con paginación y filtros.
@@ -52,10 +57,10 @@ const getPlays = async (req, res, next) => {
     if (minScore !== undefined || maxScore !== undefined) {
       filter.score = {};
       if (minScore !== undefined) {
-        filter.score.$gte = parseInt(minScore);
+        filter.score.$gte = Number.parseInt(minScore, 10);
       }
       if (maxScore !== undefined) {
-        filter.score.$lte = parseInt(maxScore);
+        filter.score.$lte = Number.parseInt(maxScore, 10);
       }
     }
 
@@ -74,7 +79,7 @@ const getPlays = async (req, res, next) => {
         .populate('sessionId', 'mechanicId contextId config difficulty')
         .populate('playerId', 'name profile.age profile.classroom')
         .sort(sortOptions)
-        .limit(parseInt(limit))
+        .limit(Number.parseInt(limit, 10))
         .skip(skip),
       GamePlay.countDocuments(filter)
     ]);
@@ -87,9 +92,9 @@ const getPlays = async (req, res, next) => {
 
     res.json({
       success: true,
-      data: paginationDTO(gamePlayListDTO(plays), {
-        page: parseInt(page),
-        limit: parseInt(limit),
+      ...toPaginatedDTOV1(toGamePlayListDTOV1(plays), {
+        page: Number.parseInt(page, 10),
+        limit: Number.parseInt(limit, 10),
         total
       })
     });
@@ -137,7 +142,7 @@ const getPlayById = async (req, res, next) => {
 
     res.json({
       success: true,
-      data: gamePlayDTO(play)
+      data: toGamePlayDetailDTOV1(play)
     });
   } catch (error) {
     next(error);
@@ -221,7 +226,7 @@ const createPlay = async (req, res, next) => {
     res.status(201).json({
       success: true,
       message: 'Partida creada exitosamente',
-      data: gamePlayDTO(play)
+      data: toGamePlayDetailDTOV1(play)
     });
   } catch (error) {
     next(error);
@@ -279,7 +284,7 @@ const pausePlay = async (req, res, next) => {
     res.json({
       success: true,
       message: 'Partida pausada',
-      data: gamePlayDTO(updated)
+      data: toGamePlayDetailDTOV1(updated)
     });
   } catch (error) {
     next(error);
@@ -336,7 +341,7 @@ const resumePlay = async (req, res, next) => {
     res.json({
       success: true,
       message: 'Partida reanudada',
-      data: gamePlayDTO(updated)
+      data: toGamePlayDetailDTOV1(updated)
     });
   } catch (error) {
     next(error);
@@ -382,7 +387,7 @@ const addEvent = async (req, res, next) => {
       success: true,
       message: 'Evento registrado exitosamente',
       data: {
-        ...gamePlayDTO(play),
+        ...toGamePlayDetailDTOV1(play),
         event: eventData
       }
     });
@@ -439,7 +444,7 @@ const completePlay = async (req, res, next) => {
       success: true,
       message: 'Partida completada exitosamente',
       data: {
-        ...gamePlayDTO(play),
+        ...toGamePlayDetailDTOV1(play),
         rating: calculateRating(play.score, play.sessionId.config.pointsPerCorrect)
       }
     });
@@ -486,7 +491,7 @@ const abandonPlay = async (req, res, next) => {
     res.json({
       success: true,
       message: 'Partida abandonada',
-      data: gamePlayDTO(play)
+      data: toGamePlayDetailDTOV1(play)
     });
   } catch (error) {
     next(error);
@@ -560,14 +565,12 @@ const getPlayerStats = async (req, res, next) => {
 
     res.json({
       success: true,
-      data: {
+      data: toPlayerStatsDTOV1({
         playerId,
         sessionId: sessionId || 'all',
-        stats: {
-          ...result,
-          accuracyRate: parseFloat(accuracyRate)
-        }
-      }
+        stats: result,
+        accuracyRate: Number.parseFloat(accuracyRate)
+      })
     });
   } catch (error) {
     next(error);

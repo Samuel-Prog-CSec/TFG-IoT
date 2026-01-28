@@ -11,7 +11,11 @@ const Card = require('../models/Card');
 const CardDeck = require('../models/CardDeck');
 const { NotFoundError, ValidationError, ForbiddenError } = require('../utils/errors');
 const logger = require('../utils/logger');
-const { gameSessionDTO, gameSessionListDTO, paginationDTO } = require('../utils/dtos');
+const {
+  toGameSessionDetailDTOV1,
+  toGameSessionListDTOV1,
+  toPaginatedDTOV1
+} = require('../utils/dtos');
 
 const MIN_DECK_CARDS = 2;
 
@@ -171,7 +175,7 @@ const getSessions = async (req, res, next) => {
 
     res.json({
       success: true,
-      data: paginationDTO(gameSessionListDTO(sessions), {
+      ...toPaginatedDTOV1(toGameSessionListDTOV1(sessions), {
         page: parseInt(page),
         limit: parseInt(limit),
         total
@@ -229,7 +233,7 @@ const getSessionById = async (req, res, next) => {
 
     res.json({
       success: true,
-      data: gameSessionDTO(session)
+      data: toGameSessionDetailDTOV1(session)
     });
   } catch (error) {
     next(error);
@@ -329,7 +333,7 @@ const createSession = async (req, res, next) => {
     res.status(201).json({
       success: true,
       message: 'Sesión creada exitosamente',
-      data: gameSessionDTO(session)
+      data: toGameSessionDetailDTOV1(session)
     });
   } catch (error) {
     next(error);
@@ -400,7 +404,7 @@ const updateSession = async (req, res, next) => {
     res.json({
       success: true,
       message: 'Sesión actualizada exitosamente',
-      data: gameSessionDTO(session)
+      data: toGameSessionDetailDTOV1(session)
     });
   } catch (error) {
     next(error);
@@ -509,7 +513,7 @@ const startSession = async (req, res, next) => {
     res.json({
       success: true,
       message: 'Sesión iniciada exitosamente',
-      data: gameSessionDTO(session)
+      data: toGameSessionDetailDTOV1(session)
     });
   } catch (error) {
     next(error);
@@ -552,7 +556,7 @@ const pauseSession = async (req, res, next) => {
     res.json({
       success: true,
       message: 'Sesión pausada exitosamente',
-      data: gameSessionDTO(session)
+      data: toGameSessionDetailDTOV1(session)
     });
   } catch (error) {
     next(error);
@@ -595,7 +599,7 @@ const endSession = async (req, res, next) => {
     res.json({
       success: true,
       message: 'Sesión finalizada exitosamente',
-      data: gameSessionDTO(session)
+      data: toGameSessionDetailDTOV1(session)
     });
   } catch (error) {
     next(error);

@@ -7,7 +7,7 @@
 const GameMechanic = require('../models/GameMechanic');
 const { NotFoundError, ConflictError } = require('../utils/errors');
 const logger = require('../utils/logger');
-const { gameMechanicDTO, gameMechanicListDTO, paginationDTO } = require('../utils/dtos');
+const { toGameMechanicDTOV1, toGameMechanicListDTOV1, toPaginatedDTOV1 } = require('../utils/dtos');
 const { escapeRegex } = require('../utils/escapeRegex');
 
 /**
@@ -65,7 +65,7 @@ const getMechanics = async (req, res, next) => {
 
     res.json({
       success: true,
-      data: paginationDTO(gameMechanicListDTO(mechanics), {
+      ...toPaginatedDTOV1(toGameMechanicListDTOV1(mechanics), {
         page: parseInt(page),
         limit: parseInt(limit),
         total
@@ -106,7 +106,7 @@ const getMechanicById = async (req, res, next) => {
 
     res.json({
       success: true,
-      data: gameMechanicDTO(mechanic)
+      data: toGameMechanicDTOV1(mechanic)
     });
   } catch (error) {
     next(error);
@@ -155,7 +155,7 @@ const createMechanic = async (req, res, next) => {
     res.status(201).json({
       success: true,
       message: 'Mecánica creada exitosamente',
-      data: gameMechanicDTO(mechanic)
+      data: toGameMechanicDTOV1(mechanic)
     });
   } catch (error) {
     next(error);
@@ -214,7 +214,7 @@ const updateMechanic = async (req, res, next) => {
     res.json({
       success: true,
       message: 'Mecánica actualizada exitosamente',
-      data: gameMechanicDTO(mechanic)
+      data: toGameMechanicDTOV1(mechanic)
     });
   } catch (error) {
     next(error);
@@ -277,8 +277,8 @@ const getActiveMechanics = async (req, res, next) => {
 
     res.json({
       success: true,
-      data: {
-        mechanics: gameMechanicListDTO(mechanics),
+      data: toGameMechanicListDTOV1(mechanics),
+      meta: {
         count: mechanics.length
       }
     });
