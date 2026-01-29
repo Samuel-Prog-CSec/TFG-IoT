@@ -58,7 +58,7 @@ afterAll(async () => {
     }
   } catch (error) {
     // Best-effort teardown: don't block test completion
-    // eslint-disable-next-line no-console
+
     console.error('Error during Jest teardown:', error);
     try {
       if (mongoose.connection.readyState !== 0) {

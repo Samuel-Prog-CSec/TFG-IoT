@@ -315,13 +315,17 @@ npm run drop-db               # Eliminar base de datos (solo desarrollo)
 | `pause_play`  | `{ playId, accessToken }` | Pausar partida (requiere profesor)   |
 | `resume_play` | `{ playId, accessToken }` | Reanudar partida (requiere profesor) |
 | `next_round`  | `{ playId }`              | Solicitar siguiente ronda            |
+| `join_card_registration`  | `{}`               | Unirse a room de registro            |
+| `leave_card_registration` | `{}`               | Salir de room de registro            |
+| `join_admin_room`         | `{}`               | Unirse a room admin                  |
+| `leave_admin_room`        | `{}`               | Salir de room admin                  |
 
 ### Servidor → Cliente
 
 | Evento              | Payload                                                 | Descripción               |
 | ------------------- | ------------------------------------------------------- | ------------------------- |
 | `rfid_event`        | `{ event, uid, type, ... }`                             | Evento del sensor RFID    |
-| `rfid_status`       | `{ status }`                                            | Estado del sensor         |
+| `rfid_status`       | `{ status }`                                            | Estado del sensor (admin) |
 | `play_state`        | `{ playId, currentRound, score, ... }`                  | Estado inicial de partida |
 | `new_round`         | `{ roundNumber, challenge, timeLimit, ... }`            | Nuevo desafío             |
 | `validation_result` | `{ isCorrect, pointsAwarded, newScore, ... }`           | Resultado de respuesta    |
@@ -360,6 +364,12 @@ npm run drop-db               # Eliminar base de datos (solo desarrollo)
 - **Autenticación**: 5 intentos/15 min en login/register
 - **Creación**: 10 operaciones/min en POST endpoints
 - **Uploads**: 20 archivos/hora
+- **WebSockets**: límites por evento con ventana deslizante, bloqueo temporal y payload máximo (16 KB global, 8 KB para `rfid_scan_from_client`)
+
+### WebSocket Auth
+
+- **Handshake requerido**: el cliente debe enviar `token` en `socket.handshake.auth.token` (o `Authorization: Bearer <token>`).
+- El servidor asigna `socket.data.userId` y `socket.data.userRole` y se une a `user_{id}` automáticamente.
 
 ## 📊 Monitoreo
 

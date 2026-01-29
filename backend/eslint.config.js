@@ -22,7 +22,7 @@ module.exports = [
       'docs/',
       'reports/',
       'logs/',
-      '*.md',
+      '**/*.md',
       '**/README*.md',
       '**/*.json'
     ]

@@ -5,11 +5,7 @@
  */
 
 const { z } = require('zod');
-
-/**
- * Schema para ObjectId de MongoDB
- */
-const objectIdSchema = z.string().regex(/^[0-9a-fA-F]{24}$/, 'Formato de ObjectId inválido');
+const { objectIdSchema, paginationSchema, uidSchema } = require('./commonValidator');
 
 /**
  * Schema para configuración de la sesión.
@@ -61,23 +57,21 @@ const sessionConfigSchema = z.object({
  *   displayData: { emoji: '🇪🇸', audioUrl: '...', color: 'red' }
  * }
  */
-const cardMappingSchema = z.object({
-  cardId: objectIdSchema,
+const cardMappingSchema = z
+  .object({
+    cardId: objectIdSchema,
 
-  uid: z
-    .string()
-    .trim()
-    .toUpperCase()
-    .regex(/^[0-9A-F]{8}$|^[0-9A-F]{14}$/, 'UID debe ser 8 o 14 caracteres hexadecimales'),
+    uid: uidSchema,
 
-  assignedValue: z
-    .string()
-    .min(1, 'El valor asignado es requerido')
-    .max(200, 'El valor asignado no puede exceder 200 caracteres')
-    .trim(),
+    assignedValue: z
+      .string()
+      .min(1, 'El valor asignado es requerido')
+      .max(200, 'El valor asignado no puede exceder 200 caracteres')
+      .trim(),
 
-  displayData: z.record(z.any()).optional().default({})
-});
+    displayData: z.record(z.any()).optional().default({})
+  })
+  .strict();
 
 /**
  * Schema para crear una nueva sesión de juego.
@@ -115,57 +109,22 @@ const cardMappingSchema = z.object({
  *   createdBy: '507f1f77bcf86cd799439013'
  * }
  */
+const sessionConfigInputSchema = sessionConfigSchema.partial();
+
 const createGameSessionSchema = z
   .object({
     mechanicId: objectIdSchema,
 
-    contextId: objectIdSchema,
+    deckId: objectIdSchema,
 
-    config: sessionConfigSchema,
+    contextId: objectIdSchema.optional(),
 
-    cardMappings: z
-      .array(cardMappingSchema)
-      .min(2, 'Debe haber al menos 2 cardMappings')
-      .max(20, 'No pueden haber más de 20 cardMappings'),
-
-    difficulty: z.enum(['easy', 'medium', 'hard']).default('medium'),
-
-    createdBy: objectIdSchema.optional() // Se puede inferir del JWT en el middleware auth
+    config: sessionConfigInputSchema.optional()
   })
-  .refine(
-    data =>
-      // VALIDACIÓN CRÍTICA: numberOfCards debe coincidir con cardMappings.length
-      data.cardMappings.length === data.config.numberOfCards,
-    {
-      message: 'La cantidad de cardMappings debe coincidir con config.numberOfCards',
-      path: ['cardMappings']
-    }
-  )
-  .refine(
-    data => {
-      // VALIDACIÓN: UIDs en cardMappings deben ser únicos
-      const uids = data.cardMappings.map(mapping => mapping.uid);
-      const uniqueUids = new Set(uids);
-      return uids.length === uniqueUids.size;
-    },
-    {
-      message:
-        'Los UIDs en cardMappings deben ser únicos (no se puede usar la misma tarjeta dos veces)',
-      path: ['cardMappings']
-    }
-  )
-  .refine(
-    data => {
-      // VALIDACIÓN: cardIds en cardMappings deben ser únicos
-      const cardIds = data.cardMappings.map(mapping => mapping.cardId);
-      const uniqueCardIds = new Set(cardIds);
-      return cardIds.length === uniqueCardIds.size;
-    },
-    {
-      message: 'Los cardIds en cardMappings deben ser únicos',
-      path: ['cardMappings']
-    }
-  );
+  .strict()
+  .refine(data => Object.keys(data).length > 0, {
+    message: 'Debe proporcionar datos para crear la sesión'
+  });
 
 /**
  * Schema para actualizar una sesión existente.
@@ -176,12 +135,15 @@ const createGameSessionSchema = z
  */
 const updateGameSessionSchema = z
   .object({
-    config: sessionConfigSchema.partial().optional(),
+    deckId: objectIdSchema.optional(),
+
+    config: sessionConfigInputSchema.optional(),
 
     status: z.enum(['created', 'active', 'paused', 'completed']).optional(),
 
     difficulty: z.enum(['easy', 'medium', 'hard']).optional()
   })
+  .strict()
   .refine(data => Object.keys(data).length > 0, {
     message: 'Debe proporcionar al menos un campo para actualizar'
   });
@@ -199,25 +161,11 @@ const updateGameSessionSchema = z
  * @example
  * GET /sessions?status=active&difficulty=medium&page=1&limit=10
  */
-const gameSessionQuerySchema = z.object({
-  page: z
-    .string()
-    .optional()
-    .transform(val => (val ? parseInt(val, 10) : 1))
-    .pipe(z.number().int().min(1)),
-
-  limit: z
-    .string()
-    .optional()
-    .transform(val => (val ? parseInt(val, 10) : 20))
-    .pipe(z.number().int().min(1).max(100)),
-
+const gameSessionQuerySchema = paginationSchema.extend({
   sortBy: z
     .enum(['createdAt', 'updatedAt', 'startedAt', 'difficulty'])
     .optional()
     .default('createdAt'),
-
-  order: z.enum(['asc', 'desc']).optional().default('desc'),
 
   mechanicId: objectIdSchema.optional(),
 
@@ -233,17 +181,21 @@ const gameSessionQuerySchema = z.object({
 /**
  * Schema para validar parámetros de ruta (:id)
  */
-const gameSessionParamsSchema = z.object({
-  id: objectIdSchema
-});
+const gameSessionParamsSchema = z
+  .object({
+    id: objectIdSchema
+  })
+  .strict();
 
 /**
  * Schema para acciones de la sesión (start, pause, end).
  * No requiere body, solo valida que el ID sea correcto.
  */
-const sessionActionSchema = z.object({
-  id: objectIdSchema
-});
+const sessionActionSchema = z
+  .object({
+    id: objectIdSchema
+  })
+  .strict();
 
 module.exports = {
   createGameSessionSchema,
@@ -252,5 +204,6 @@ module.exports = {
   gameSessionParamsSchema,
   sessionActionSchema,
   sessionConfigSchema,
+  sessionConfigInputSchema,
   cardMappingSchema
 };

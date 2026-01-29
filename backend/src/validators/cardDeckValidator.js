@@ -7,21 +7,7 @@
  */
 
 const { z } = require('zod');
-
-/**
- * Schema para ObjectId de MongoDB
- */
-const objectIdSchema = z.string().regex(/^[0-9a-fA-F]{24}$/, 'Formato de ObjectId inválido');
-
-/**
- * Schema para validar UID de tarjeta RFID.
- * Debe ser 8 o 14 caracteres hexadecimales (MIFARE/NTAG).
- */
-const uidSchema = z
-  .string()
-  .trim()
-  .toUpperCase()
-  .regex(/^[0-9A-F]{8}$|^[0-9A-F]{14}$/, 'UID debe ser 8 o 14 caracteres hexadecimales');
+const { objectIdSchema, paginationSchema, uidSchema } = require('./commonValidator');
 
 /**
  * Schema para un mapeo de tarjeta dentro de un mazo.
@@ -34,19 +20,21 @@ const uidSchema = z
  *   displayData: { display: '🇪🇸', audioUrl: '...' }
  * }
  */
-const cardDeckMappingSchema = z.object({
-  cardId: objectIdSchema,
+const cardDeckMappingSchema = z
+  .object({
+    cardId: objectIdSchema,
 
-  uid: uidSchema,
+    uid: uidSchema,
 
-  assignedValue: z
-    .string()
-    .min(1, 'El valor asignado es requerido')
-    .max(200, 'El valor asignado no puede exceder 200 caracteres')
-    .trim(),
+    assignedValue: z
+      .string()
+      .min(1, 'El valor asignado es requerido')
+      .max(200, 'El valor asignado no puede exceder 200 caracteres')
+      .trim(),
 
-  displayData: z.record(z.any()).optional().default({})
-});
+    displayData: z.record(z.any()).optional().default({})
+  })
+  .strict();
 
 /**
  * Schema para crear un mazo.
@@ -82,6 +70,7 @@ const createCardDeckSchema = z
 
     createdBy: objectIdSchema.optional()
   })
+  .strict()
   .refine(
     data => {
       const uids = data.cardMappings.map(m => m.uid);
@@ -143,6 +132,7 @@ const updateCardDeckSchema = z
 
     status: z.enum(['active', 'archived']).optional()
   })
+  .strict()
   .refine(data => Object.keys(data).length > 0, {
     message: 'Debe proporcionar al menos un campo para actualizar'
   })
@@ -189,22 +179,8 @@ const updateCardDeckSchema = z
 /**
  * Schema para query params de listado/búsqueda de mazos.
  */
-const cardDeckQuerySchema = z.object({
-  page: z
-    .string()
-    .optional()
-    .transform(val => (val ? parseInt(val, 10) : 1))
-    .pipe(z.number().int().min(1)),
-
-  limit: z
-    .string()
-    .optional()
-    .transform(val => (val ? parseInt(val, 10) : 20))
-    .pipe(z.number().int().min(1).max(100)),
-
+const cardDeckQuerySchema = paginationSchema.extend({
   sortBy: z.enum(['createdAt', 'updatedAt', 'name', 'status']).optional().default('createdAt'),
-
-  order: z.enum(['asc', 'desc']).optional().default('desc'),
 
   contextId: objectIdSchema.optional(),
 
@@ -216,9 +192,11 @@ const cardDeckQuerySchema = z.object({
 /**
  * Schema para validar parámetros de ruta (:id)
  */
-const cardDeckParamsSchema = z.object({
-  id: objectIdSchema
-});
+const cardDeckParamsSchema = z
+  .object({
+    id: objectIdSchema
+  })
+  .strict();
 
 module.exports = {
   objectIdSchema,

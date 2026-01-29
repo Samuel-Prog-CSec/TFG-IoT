@@ -482,6 +482,15 @@ class GameEngine {
   }
 
   /**
+   * Obtiene el playId asociado a un UID de tarjeta si está en una partida activa.
+   * @param {string} uid
+   * @returns {string|null}
+   */
+  getPlayIdByCardUid(uid) {
+    return this.cardUidToPlayId.get(uid) || null;
+  }
+
+  /**
    * Procesa y valida la respuesta del jugador tras un escaneo.
    *
    * Este método:

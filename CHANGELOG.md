@@ -50,7 +50,7 @@ y este proyecto adhiere a [Semantic Versioning](https://semver.org/spec/v2.0.0.h
 - **Motor de Juego:** `GameEngine` con soporte para WebSocket (Socket.IO) en tiempo real.
 - **Mecánicas:** Base para mecánicas de juego, comenzando con asociación simple.
 - **Tests:** Suite completa de tests e2e e integración (Auth, Flujo de Juego, Serial).
-- **Documentación:** API REST documentada en `/docs/API_v0.1.0.md`.
+- **Documentación:** API REST documentada en `/docs/API_v0.3.0.md`.
 
 ### Corregido
 

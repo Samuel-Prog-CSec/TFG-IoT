@@ -595,10 +595,15 @@ io.on('connection', socket => {
 | `cancel_card_assignment`   | `{}`                                        | Cancelar modo asignación         |
 | `join_play`                | `{ playId }`                                | Unirse a partida (existente)     |
 | `start_play`               | `{ playId }`                                | Iniciar partida (existente)      |
-| `pause_play`               | `{ playId, accessToken }`                   | Pausar partida (solo profesor)   |
-| `resume_play`              | `{ playId, accessToken }`                   | Reanudar partida (solo profesor) |
+| `pause_play`               | `{ playId }`                                | Pausar partida (solo profesor)   |
+| `resume_play`              | `{ playId }`                                | Reanudar partida (solo profesor) |
 | `next_round`               | `{ playId }`                                | Solicitar siguiente ronda        |
 | `leave_play`               | `{ playId }`                                | Abandonar partida (existente)    |
+| `join_card_registration`   | `{}`                                        | Unirse al room de registro       |
+| `leave_card_registration`  | `{}`                                        | Salir del room de registro       |
+| `join_admin_room`          | `{}`                                        | Unirse al room de admin          |
+| `leave_admin_room`         | `{}`                                        | Salir del room de admin          |
+| `rfid_scan_from_client`    | `{ uid, type, sensorId, timestamp, source }` | Escaneo RFID desde cliente       |
 
 #### Servidor → Cliente
 
@@ -613,8 +618,8 @@ io.on('connection', socket => {
 | `card_assignment_scan`        | `{ uid, cardId, cardMetadata, assetKey, assetDisplay }` | Tarjeta asignada                                   |
 | `card_assignment_error`       | `{ message, uid, assetKey }`                            | Error en asignación                                |
 | `mode_timeout`                | `{ mode, context }`                                     | Timeout del modo activo                            |
-| `rfid_event`                  | `{ event, uid?, type?, ... }`                           | Evento RFID (modo idle)                            |
-| `rfid_status`                 | `{ status }`                                            | Estado de conexión sensor                          |
+| `rfid_event`                  | `{ event, uid?, type?, ... }`                           | Evento RFID dirigido por room                      |
+| `rfid_status`                 | `{ status }`                                            | Estado de conexión sensor (admin_room)             |
 | `play_paused`                 | `{ playId, currentRound, remainingTimeMs }`             | Partida pausada                                    |
 | `play_resumed`                | `{ playId, currentRound, remainingTimeMs, challenge? }` | Partida reanudada                                  |
 | `session_invalidated`         | `{ reason, timestamp }`                                 | Sesión cerrada por nuevo login en otro dispositivo |
@@ -629,6 +634,12 @@ io.on('connection', socket => {
 | `CARD_EXISTS`    | Tarjeta ya registrada                     | Usar tarjeta existente           |
 | `CARD_NOT_FOUND` | Tarjeta no en BD                          | Registrar tarjeta primero        |
 | `CARD_INACTIVE`  | Tarjeta desactivada                       | Activar tarjeta o usar otra      |
+| `RATE_LIMITED`   | Exceso de eventos en ventana corta        | Reducir frecuencia de envío      |
+| `TEMP_BLOCKED`   | Bloqueo temporal por abuso repetido       | Esperar y reintentar             |
+| `PAYLOAD_TOO_LARGE` | Payload supera el tamaño permitido     | Reducir tamaño de payload        |
+| `DUPLICATE_RFID_EVENT` | Evento RFID duplicado              | Evitar emitir UID repetido       |
+| `AUTH_REQUIRED`  | Token requerido en handshake              | Enviar token al conectar         |
+| `FORBIDDEN`      | No tienes permisos                        | Revisar rol/ownership            |
 
 ---
 
@@ -636,41 +647,37 @@ io.on('connection', socket => {
 
 ### 7.1 Autenticación de WebSockets
 
-**Nota (implementación actual):** En este backend, los eventos sensibles de partida (`pause_play` y `resume_play`) requieren `accessToken` en el payload del propio evento. El servidor valida el token usando el fingerprint del dispositivo (a partir de `socket.handshake.headers`).
+**Autenticación obligatoria:** El socket debe enviar `token` en `socket.handshake.auth.token` (o header `Authorization: Bearer ...`). El servidor valida el token en el handshake, comprueba estado de cuenta y single-session, y asigna `socket.data.userId` y `socket.data.userRole`.
 
 El siguiente ejemplo muestra un enfoque alternativo (autenticación global por handshake) a modo de referencia:
 
 ```javascript
-// Middleware de autenticación para Socket.IO
+// Middleware de autenticación obligatorio para Socket.IO
 io.use(async (socket, next) => {
   const token = socket.handshake.auth.token;
-
-  if (!token) {
-    return next(new Error('Token no proporcionado'));
-  }
+  if (!token) return next(new Error('Token requerido'));
 
   try {
-    const decoded = verifyAccessToken(token);
-    const user = await User.findById(decoded.id);
-
-    if (!user || user.status !== 'active') {
-      return next(new Error('Usuario no válido'));
-    }
-
-    socket.user = user;
+    const decoded = verifyAccessToken(token, { headers: socket.handshake.headers });
+    // Se valida estado de cuenta y single-session antes de aceptar
+    socket.data.userId = decoded.id;
+    socket.data.userRole = decoded.role;
+    socket.join(`user_${decoded.id}`);
     next();
-  } catch (error) {
+  } catch {
     next(new Error('Token inválido'));
   }
 });
 ```
 
-### 7.2 Autorización por Rol
+### 7.2 Autorización por Rol y Ownership
+
+Los eventos de control de partida (`join_play`, `start_play`, `pause_play`, `resume_play`, `next_round`) requieren **rol docente** (`teacher` o `super_admin`) y **ownership** de la sesión asociada a la partida.
 
 ```javascript
-socket.on('start_card_registration', () => {
-  // Solo profesores pueden registrar tarjetas
-  if (socket.user.role !== 'teacher') {
+socket.on('join_card_registration', () => {
+  // Solo profesores y super admin pueden registrar tarjetas
+  if (!['teacher', 'super_admin'].includes(socket.data.userRole)) {
     socket.emit('error', {
       code: 'FORBIDDEN',
       message: 'Solo profesores pueden registrar tarjetas'
@@ -683,18 +690,29 @@ socket.on('start_card_registration', () => {
 
 ### 7.3 Rate Limiting de Eventos
 
-```javascript
-const rateLimit = require('socket.io-rate-limiter');
+El backend aplica **rate limiting por evento** con ventana deslizante, bloqueo temporal y control de payload. La clave de rate limit prioriza `userId` (si el socket está autenticado) y usa `socket.id` como fallback.
 
-// Limitar eventos por socket
-io.use(
-  rateLimit({
-    points: 10, // 10 eventos
-    duration: 1, // por segundo
-    blockDuration: 5 // bloquear 5s si excede
-  })
-);
-```
+**Política por defecto (configurable):**
+
+| Evento | Ventana | Máx | Nota |
+| --- | --- | --- | --- |
+| `authenticate` | 1s | 3 | Evitar brute force por socket |
+| `join_play` | 1s | 3 | Protección de rooms |
+| `leave_play` | 1s | 3 | Protección de rooms |
+| `start_play` | 1s | 1 | Evitar duplicados |
+| `pause_play` | 1s | 2 | Control moderado |
+| `resume_play` | 1s | 2 | Control moderado |
+| `next_round` | 1s | 5 | Tolerante para UI |
+| `rfid_scan_from_client` | 3s | 2 | ~1 evento cada 1.5s |
+
+**Bloqueo temporal:** 3 violaciones consecutivas → 60s de bloqueo.
+
+**Payload máximo:** 16 KB global, 8 KB para `rfid_scan_from_client`.
+
+### 7.4 Invalidez de sesión y desconexión
+
+- Si un usuario inicia sesión en otro dispositivo, se emite `session_invalidated` al socket anterior y se **desconecta** automáticamente.
+- Si la cuenta se inactiva o se rechaza, el servidor revoca tokens y **cierra sockets activos** para evitar eventos en tiempo real no autorizados.
 
 ---
 

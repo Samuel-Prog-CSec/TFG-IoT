@@ -29,6 +29,18 @@ const {
 
 const { authenticate, requireRole } = require('../middlewares/auth');
 const { createResourceRateLimiter, uploadRateLimiter } = require('../config/security');
+const { validateBody, validateQuery, validateParams } = require('../middlewares/validation');
+const {
+  createGameContextSchema,
+  updateGameContextSchema,
+  gameContextQuerySchema,
+  gameContextParamsSchema,
+  gameContextIdParamsSchema,
+  gameContextAssetParamsSchema,
+  addAssetSchema,
+  uploadAssetMetaSchema
+} = require('../validators/gameContextValidator');
+const { emptyObjectSchema } = require('../validators/commonValidator');
 
 const { IMAGE_CONFIG } = require('../services/imageProcessingService');
 const { AUDIO_CONFIG } = require('../services/audioValidationService');
@@ -77,63 +89,109 @@ const audioUpload = multer({
  * @route   GET /api/contexts
  * @desc    Obtener lista de contextos con filtros
  * @access  Private (Teacher)
+ * @validation query: gameContextQuerySchema
  */
-router.get('/', authenticate, requireRole('teacher'), getContexts);
-
-/**
- * @route   GET /api/contexts/:id
- * @desc    Obtener contexto por ID o contextId
- * @access  Private (Teacher)
- */
-router.get('/:id', authenticate, requireRole('teacher'), getContextById);
-
-/**
- * @route   GET /api/contexts/:id/assets
- * @desc    Obtener assets de un contexto
- * @access  Private (Teacher)
- */
-router.get('/:id/assets', authenticate, requireRole('teacher'), getContextAssets);
-
-/**
- * @route   POST /api/contexts
- * @desc    Crear nuevo contexto
- * @access  Private (Teacher)
- */
-router.post(
+router.get(
   '/',
-  createResourceRateLimiter, // Rate limiting para prevenir spam
   authenticate,
   requireRole('teacher'),
-  createContext
+  validateQuery(gameContextQuerySchema),
+  getContexts
 );
 
 /**
  * @route   GET /api/contexts/upload-config
  * @desc    Obtener configuración de límites para uploads
  * @access  Private (Teacher)
+ * @validation query: emptyObjectSchema
  */
-router.get('/upload-config', authenticate, requireRole('teacher'), getUploadConfig);
+router.get(
+  '/upload-config',
+  authenticate,
+  requireRole('teacher'),
+  validateQuery(emptyObjectSchema),
+  getUploadConfig
+);
+
+/**
+ * @route   GET /api/contexts/:id
+ * @desc    Obtener contexto por ID o contextId
+ * @access  Private (Teacher)
+ * @validation params: gameContextParamsSchema | query: emptyObjectSchema
+ */
+router.get(
+  '/:id',
+  authenticate,
+  requireRole('teacher'),
+  validateParams(gameContextParamsSchema),
+  validateQuery(emptyObjectSchema),
+  getContextById
+);
+
+/**
+ * @route   GET /api/contexts/:id/assets
+ * @desc    Obtener assets de un contexto
+ * @access  Private (Teacher)
+ * @validation params: gameContextParamsSchema | query: emptyObjectSchema
+ */
+router.get(
+  '/:id/assets',
+  authenticate,
+  requireRole('teacher'),
+  validateParams(gameContextParamsSchema),
+  validateQuery(emptyObjectSchema),
+  getContextAssets
+);
+
+/**
+ * @route   POST /api/contexts
+ * @desc    Crear nuevo contexto
+ * @access  Private (Teacher)
+ * @validation body: createGameContextSchema | query: emptyObjectSchema
+ */
+router.post(
+  '/',
+  createResourceRateLimiter, // Rate limiting para prevenir spam
+  authenticate,
+  requireRole('teacher'),
+  validateQuery(emptyObjectSchema),
+  validateBody(createGameContextSchema),
+  createContext
+);
 
 /**
  * @route   POST /api/contexts/:id/assets
  * @desc    Añadir asset a un contexto (sin archivo, solo metadatos)
  * @access  Private (Teacher)
  * @deprecated Usa POST /api/contexts/:id/images o /audio para subir con archivo
+ * @validation params: gameContextIdParamsSchema | body: addAssetSchema | query: emptyObjectSchema
  */
-router.post('/:id/assets', authenticate, requireRole('teacher'), addAsset);
+router.post(
+  '/:id/assets',
+  authenticate,
+  requireRole('teacher'),
+  validateParams(gameContextIdParamsSchema),
+  validateQuery(emptyObjectSchema),
+  validateBody(addAssetSchema),
+  addAsset
+);
 
 /**
  * @route   POST /api/contexts/:id/images
  * @desc    Subir imagen a un contexto (convierte a WebP, genera thumbnail)
  * @access  Private (Teacher)
  * @body    multipart/form-data { file, key, value, display? }
+ * @validation params: gameContextIdParamsSchema | body: uploadAssetMetaSchema | query: emptyObjectSchema
  */
 router.post(
   '/:id/images',
   uploadRateLimiter,
   authenticate,
   requireRole('teacher'),
+  validateParams(gameContextIdParamsSchema),
+  validateQuery(emptyObjectSchema),
   imageUpload.single('file'),
+  validateBody(uploadAssetMetaSchema),
   uploadImage
 );
 
@@ -142,13 +200,17 @@ router.post(
  * @desc    Subir audio a un contexto (valida MP3/OGG)
  * @access  Private (Teacher)
  * @body    multipart/form-data { file, key, value, display? }
+ * @validation params: gameContextIdParamsSchema | body: uploadAssetMetaSchema | query: emptyObjectSchema
  */
 router.post(
   '/:id/audio',
   uploadRateLimiter,
   authenticate,
   requireRole('teacher'),
+  validateParams(gameContextIdParamsSchema),
+  validateQuery(emptyObjectSchema),
   audioUpload.single('file'),
+  validateBody(uploadAssetMetaSchema),
   uploadAudio
 );
 
@@ -156,36 +218,77 @@ router.post(
  * @route   PUT /api/contexts/:id
  * @desc    Actualizar contexto
  * @access  Private (Teacher)
+ * @validation params: gameContextIdParamsSchema | body: updateGameContextSchema | query: emptyObjectSchema
  */
-router.put('/:id', authenticate, requireRole('teacher'), updateContext);
+router.put(
+  '/:id',
+  authenticate,
+  requireRole('teacher'),
+  validateParams(gameContextIdParamsSchema),
+  validateQuery(emptyObjectSchema),
+  validateBody(updateGameContextSchema),
+  updateContext
+);
 
 /**
  * @route   DELETE /api/contexts/:id
  * @desc    Eliminar contexto
  * @access  Private (Teacher)
+ * @validation params: gameContextIdParamsSchema | query: emptyObjectSchema
  */
-router.delete('/:id', authenticate, requireRole('teacher'), deleteContext);
+router.delete(
+  '/:id',
+  authenticate,
+  requireRole('teacher'),
+  validateParams(gameContextIdParamsSchema),
+  validateQuery(emptyObjectSchema),
+  deleteContext
+);
 
 /**
  * @route   DELETE /api/contexts/:id/assets/:assetKey
  * @desc    Eliminar asset de un contexto (genérico, legacy)
  * @access  Private (Teacher)
  * @deprecated Usa DELETE /api/contexts/:id/images/:assetKey o /audio/:assetKey
+ * @validation params: gameContextAssetParamsSchema | query: emptyObjectSchema
  */
-router.delete('/:id/assets/:assetKey', authenticate, requireRole('teacher'), removeAsset);
+router.delete(
+  '/:id/assets/:assetKey',
+  authenticate,
+  requireRole('teacher'),
+  validateParams(gameContextAssetParamsSchema),
+  validateQuery(emptyObjectSchema),
+  removeAsset
+);
 
 /**
  * @route   DELETE /api/contexts/:id/images/:assetKey
  * @desc    Eliminar imagen de un contexto
  * @access  Private (Teacher)
+ * @validation params: gameContextAssetParamsSchema | query: emptyObjectSchema
  */
-router.delete('/:id/images/:assetKey', authenticate, requireRole('teacher'), deleteImage);
+router.delete(
+  '/:id/images/:assetKey',
+  authenticate,
+  requireRole('teacher'),
+  validateParams(gameContextAssetParamsSchema),
+  validateQuery(emptyObjectSchema),
+  deleteImage
+);
 
 /**
  * @route   DELETE /api/contexts/:id/audio/:assetKey
  * @desc    Eliminar audio de un contexto
  * @access  Private (Teacher)
+ * @validation params: gameContextAssetParamsSchema | query: emptyObjectSchema
  */
-router.delete('/:id/audio/:assetKey', authenticate, requireRole('teacher'), deleteAudio);
+router.delete(
+  '/:id/audio/:assetKey',
+  authenticate,
+  requireRole('teacher'),
+  validateParams(gameContextAssetParamsSchema),
+  validateQuery(emptyObjectSchema),
+  deleteAudio
+);
 
 module.exports = router;

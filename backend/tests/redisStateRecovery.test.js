@@ -84,7 +84,7 @@ describe('Redis State Recovery - GameEngine.recoverActivePlays()', () => {
     teacher = await User.create({
       name: 'Test Teacher',
       email: 'recovery-test@test.com',
-      password: 'password123',
+      password: 'Password123',
       role: 'teacher',
       status: 'active',
       accountStatus: 'approved'

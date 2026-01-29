@@ -12,7 +12,10 @@
 const User = require('../models/User');
 const { ValidationError, NotFoundError } = require('../utils/errors');
 const logger = require('../utils/logger');
-const { userDTO } = require('../utils/dtos');
+const { toUserDTOV1 } = require('../utils/dtos');
+const { revokeAllUserTokens } = require('../middlewares/auth');
+const { disconnectUserSockets } = require('../utils/socketUtils');
+const { getRequestContext } = require('../utils/securityLogger');
 
 const assertTargetIsTeacher = user => {
   if (!user) {
@@ -51,7 +54,7 @@ const approveTeacher = async (req, res, next) => {
       success: true,
       message: 'Profesor aprobado exitosamente',
       data: {
-        user: userDTO(target)
+        user: toUserDTOV1(target)
       }
     });
   } catch (error) {
@@ -76,6 +79,15 @@ const rejectTeacher = async (req, res, next) => {
     target.accountStatus = 'rejected';
     await target.save();
 
+    await revokeAllUserTokens(target._id.toString(), 'account_rejected', {
+      ...getRequestContext(req),
+      userId: target._id,
+      rejectedBy: req.user?._id
+    });
+
+    const io = req.app.get('io');
+    disconnectUserSockets(io, target._id.toString(), 'ACCOUNT_REJECTED');
+
     logger.info('Profesor rechazado por super admin', {
       rejectedUserId: target._id,
       rejectedEmail: target.email,
@@ -86,7 +98,7 @@ const rejectTeacher = async (req, res, next) => {
       success: true,
       message: 'Profesor rechazado exitosamente',
       data: {
-        user: userDTO(target)
+        user: toUserDTOV1(target)
       }
     });
   } catch (error) {

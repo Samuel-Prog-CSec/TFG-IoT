@@ -10,7 +10,7 @@ describe('Student Transfer', () => {
   const mockTeacher = (name, email) => ({
     name,
     email,
-    password: 'password123',
+    password: 'Password123',
     role: 'teacher',
     status: 'active'
   });
