@@ -292,7 +292,7 @@ Varios endpoints carecen de validación completa de body, query params y route p
 
 ---
 
-### T-041: Capa de Transformación DTOs (ARCH-03) 📋
+### T-041: Capa de Transformación DTOs (ARCH-03) ✅
 
 **Prioridad:** P0 | **Tamaño:** M | **Dependencias:** Ninguna  
 **Origen:** Auditoría de Arquitectura - Exposición de datos sensibles

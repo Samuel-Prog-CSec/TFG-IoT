@@ -19,9 +19,10 @@ const {
   deleteRefreshToken
 } = require('../middlewares/auth');
 const logger = require('../utils/logger');
+const { logSecurityEvent, getRequestContext } = require('../utils/securityLogger');
 const { toUserDTOV1, toAuthResponseDTOV1 } = require('../utils/dtos');
 const { disconnectUserSockets } = require('../utils/socketUtils');
-const crypto = require('crypto');
+const crypto = require('node:crypto');
 
 /**
  * Registrar un nuevo PROFESOR (SOLO para profesores, endpoint público).
@@ -42,21 +43,40 @@ const crypto = require('crypto');
  * @param {import('express').NextFunction} next
  */
 const register = async (req, res, next) => {
+  let securityLogged = false;
   try {
     const { name, email, password, profile } = req.body;
+    const requestContext = getRequestContext(req);
 
     // Validar campos obligatorios para profesores
     if (!email) {
+      logSecurityEvent('AUTH_REGISTER_FAILED', {
+        ...requestContext,
+        reason: 'EMAIL_REQUIRED'
+      });
+      securityLogged = true;
       throw new ValidationError('El email es obligatorio para profesores');
     }
 
     if (!password) {
+      logSecurityEvent('AUTH_REGISTER_FAILED', {
+        ...requestContext,
+        reason: 'PASSWORD_REQUIRED',
+        email
+      });
+      securityLogged = true;
       throw new ValidationError('La contraseña es obligatoria para profesores');
     }
 
     // Verificar si el email ya existe
     const existingUser = await User.findOne({ email });
     if (existingUser) {
+      logSecurityEvent('AUTH_REGISTER_FAILED', {
+        ...requestContext,
+        reason: 'EMAIL_ALREADY_REGISTERED',
+        email
+      });
+      securityLogged = true;
       throw new ConflictError('El email ya está registrado');
     }
 
@@ -71,7 +91,8 @@ const register = async (req, res, next) => {
       accountStatus: 'pending_approval'
     });
 
-    logger.info('Profesor registrado', {
+    logSecurityEvent('AUTH_REGISTER_SUCCESS', {
+      ...requestContext,
       userId: teacher._id,
       role: teacher.role,
       email: teacher.email
@@ -85,6 +106,13 @@ const register = async (req, res, next) => {
       }
     });
   } catch (error) {
+    if (!securityLogged && (error instanceof ValidationError || error instanceof ConflictError)) {
+      logSecurityEvent('AUTH_REGISTER_FAILED', {
+        ...getRequestContext(req),
+        reason: error.message,
+        email: req.body?.email
+      });
+    }
     next(error);
   }
 };
@@ -120,33 +148,77 @@ const assertAccountApprovedForLogin = user => {
  * @param {import('express').NextFunction} next
  */
 const login = async (req, res, next) => {
+  let securityLogged = false;
+  let user = null;
   try {
     const { email, password } = req.body;
+    const requestContext = getRequestContext(req);
 
     // Buscar usuario por email (incluir password para comparación)
-    const user = await User.findOne({ email }).select('+password');
+    user = await User.findOne({ email }).select('+password');
 
     if (!user) {
+      logSecurityEvent('AUTH_LOGIN_FAILED', {
+        ...requestContext,
+        reason: 'USER_NOT_FOUND',
+        email
+      });
+      securityLogged = true;
       throw new UnauthorizedError('Credenciales inválidas');
     }
 
     // Verificar que sea un usuario con login
     if (!['teacher', 'super_admin'].includes(user.role)) {
+      logSecurityEvent('AUTH_LOGIN_FAILED', {
+        ...requestContext,
+        reason: 'ROLE_NOT_ALLOWED',
+        email,
+        userId: user._id,
+        role: user.role
+      });
+      securityLogged = true;
       throw new UnauthorizedError('Solo profesores y super admin pueden iniciar sesión');
     }
 
     // Verificar que esté activo
     if (user.status !== 'active') {
+      logSecurityEvent('AUTH_LOGIN_FAILED', {
+        ...requestContext,
+        reason: 'USER_INACTIVE',
+        email,
+        userId: user._id,
+        status: user.status
+      });
+      securityLogged = true;
       throw new UnauthorizedError('Usuario inactivo');
     }
 
     // Verificar aprobación de cuenta (para roles con login)
-    assertAccountApprovedForLogin(user);
+    try {
+      assertAccountApprovedForLogin(user);
+    } catch (error) {
+      logSecurityEvent('AUTH_LOGIN_FAILED', {
+        ...requestContext,
+        reason: error.message,
+        email,
+        userId: user._id,
+        accountStatus: user.accountStatus
+      });
+      securityLogged = true;
+      throw error;
+    }
 
     // Comparar contraseña
     const isPasswordValid = await user.comparePassword(password);
 
     if (!isPasswordValid) {
+      logSecurityEvent('AUTH_LOGIN_FAILED', {
+        ...requestContext,
+        reason: 'INVALID_PASSWORD',
+        email,
+        userId: user._id
+      });
+      securityLogged = true;
       throw new UnauthorizedError('Credenciales inválidas');
     }
 
@@ -161,7 +233,8 @@ const login = async (req, res, next) => {
     const io = req.app.get('io');
     if (io) {
       disconnectUserSockets(io, user._id.toString(), 'NEW_LOGIN');
-      logger.warn('Sesión previa invalidada y sockets desconectados', {
+      logSecurityEvent('AUTH_SESSION_INVALIDATED', {
+        ...requestContext,
         userId: user._id,
         reason: 'NEW_LOGIN'
       });
@@ -173,7 +246,8 @@ const login = async (req, res, next) => {
     // Eliminar datos internos antes de enviar respuesta
     const { _internal, ...publicTokens } = tokens;
 
-    logger.info('Login exitoso', {
+    logSecurityEvent('AUTH_LOGIN_SUCCESS', {
+      ...requestContext,
       userId: user._id,
       email: user.email,
       role: user.role
@@ -185,6 +259,17 @@ const login = async (req, res, next) => {
       data: toAuthResponseDTOV1(user, publicTokens)
     });
   } catch (error) {
+    if (
+      !securityLogged &&
+      (error instanceof UnauthorizedError || error instanceof ForbiddenError)
+    ) {
+      logSecurityEvent('AUTH_LOGIN_FAILED', {
+        ...getRequestContext(req),
+        reason: error.message,
+        email: req.body?.email,
+        userId: user?._id
+      });
+    }
     next(error);
   }
 };
@@ -275,8 +360,10 @@ const updateProfile = async (req, res, next) => {
  * @param {import('express').NextFunction} next
  */
 const changePassword = async (req, res, next) => {
+  let securityLogged = false;
   try {
     const { currentPassword, newPassword } = req.body;
+    const requestContext = getRequestContext(req);
 
     const user = await User.findById(req.user._id).select('+password');
 
@@ -288,6 +375,12 @@ const changePassword = async (req, res, next) => {
     const isPasswordValid = await user.comparePassword(currentPassword);
 
     if (!isPasswordValid) {
+      logSecurityEvent('AUTH_PASSWORD_CHANGE_FAILED', {
+        ...requestContext,
+        userId: user._id,
+        reason: 'INVALID_CURRENT_PASSWORD'
+      });
+      securityLogged = true;
       throw new UnauthorizedError('Contraseña actual incorrecta');
     }
 
@@ -295,7 +388,8 @@ const changePassword = async (req, res, next) => {
     user.password = newPassword;
     await user.save();
 
-    logger.info('Contraseña cambiada', {
+    logSecurityEvent('AUTH_PASSWORD_CHANGED', {
+      ...requestContext,
       userId: user._id,
       email: user.email
     });
@@ -305,6 +399,13 @@ const changePassword = async (req, res, next) => {
       message: 'Contraseña actualizada exitosamente'
     });
   } catch (error) {
+    if (!securityLogged && error instanceof UnauthorizedError) {
+      logSecurityEvent('AUTH_PASSWORD_CHANGE_FAILED', {
+        ...getRequestContext(req),
+        userId: req.user?._id,
+        reason: error.message
+      });
+    }
     next(error);
   }
 };
@@ -321,10 +422,17 @@ const changePassword = async (req, res, next) => {
  * @param {import('express').NextFunction} next
  */
 const refreshAccessToken = async (req, res, next) => {
+  let securityLogged = false;
   try {
     const { refreshToken } = req.body;
+    const requestContext = getRequestContext(req);
 
     if (!refreshToken) {
+      logSecurityEvent('AUTH_REFRESH_FAILED', {
+        ...requestContext,
+        reason: 'REFRESH_TOKEN_REQUIRED'
+      });
+      securityLogged = true;
       throw new ValidationError('Refresh token requerido');
     }
 
@@ -376,7 +484,8 @@ const refreshAccessToken = async (req, res, next) => {
     // Eliminar datos internos antes de enviar
     const { _internal, ...publicTokens } = tokens;
 
-    logger.info('Tokens refrescados con token rotation', {
+    logSecurityEvent('AUTH_REFRESH_SUCCESS', {
+      ...requestContext,
       userId: user._id,
       email: user.email,
       oldRefreshTokenJti: decoded.jti,
@@ -392,6 +501,12 @@ const refreshAccessToken = async (req, res, next) => {
       }
     });
   } catch (error) {
+    if (!securityLogged) {
+      logSecurityEvent('AUTH_REFRESH_FAILED', {
+        ...getRequestContext(req),
+        reason: error.message
+      });
+    }
     next(error);
   }
 };

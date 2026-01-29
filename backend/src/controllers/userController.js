@@ -17,6 +17,7 @@ const {
 const { escapeRegex } = require('../utils/escapeRegex');
 const { revokeAllUserTokens } = require('../middlewares/auth');
 const { disconnectUserSockets } = require('../utils/socketUtils');
+const { getRequestContext } = require('../utils/securityLogger');
 
 /**
  * Obtener lista de usuarios con paginación y filtros.
@@ -406,7 +407,11 @@ const updateUser = async (req, res, next) => {
     await user.save();
 
     if (status === 'inactive' && ['teacher', 'super_admin'].includes(user.role)) {
-      await revokeAllUserTokens(user._id.toString(), 'account_inactivated');
+      await revokeAllUserTokens(user._id.toString(), 'account_inactivated', {
+        ...getRequestContext(req),
+        userId: user._id,
+        updatedBy: req.user._id
+      });
       const io = req.app.get('io');
       disconnectUserSockets(io, user._id.toString(), 'ACCOUNT_INACTIVATED');
     }
@@ -464,7 +469,11 @@ const deleteUser = async (req, res, next) => {
     await user.save();
 
     if (['teacher', 'super_admin'].includes(user.role)) {
-      await revokeAllUserTokens(user._id.toString(), 'account_deleted');
+      await revokeAllUserTokens(user._id.toString(), 'account_deleted', {
+        ...getRequestContext(req),
+        userId: user._id,
+        deletedBy: req.user._id
+      });
       const io = req.app.get('io');
       disconnectUserSockets(io, user._id.toString(), 'ACCOUNT_INACTIVATED');
     }

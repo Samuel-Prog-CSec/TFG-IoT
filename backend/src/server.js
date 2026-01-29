@@ -14,7 +14,7 @@ validateEnv(); // Falla FAST si falta alguna configuración crítica
 
 const express = require('express');
 const cors = require('cors');
-const http = require('http');
+const http = require('node:http');
 const helmet = require('helmet');
 const compression = require('compression');
 const { Server } = require('socket.io');
@@ -40,6 +40,7 @@ const { createSocketRateLimiter } = require('./middlewares/socketRateLimiter');
 const { getHealthStatus } = require('./utils/healthCheck');
 const runtimeMetrics = require('./utils/runtimeMetrics');
 const { toSystemMetricsDTOV1 } = require('./utils/dtos');
+const { logSecurityEvent, getSocketContext } = require('./utils/securityLogger');
 const { validateQuery } = require('./middlewares/validation');
 const { emptyObjectSchema } = require('./validators/commonValidator');
 
@@ -89,23 +90,15 @@ const RFID_CARD_TYPES = new Set(['MIFARE_1KB', 'MIFARE_4KB', 'NTAG', 'UNKNOWN'])
  * @param {import('socket.io').Socket} socket
  * @returns {Object}
  */
-const getSocketMeta = socket => ({
-  socketId: socket?.id,
+const buildSocketSecurityMeta = socket => ({
+  ...getSocketContext(socket),
   userId: socket?.data?.userId,
-  userRole: socket?.data?.userRole,
-  ip: socket?.handshake?.address,
-  origin: socket?.handshake?.headers?.origin,
-  userAgent: socket?.handshake?.headers?.['user-agent']
+  userRole: socket?.data?.userRole
 });
 
-/**
- * Log de seguridad para WebSockets.
- * @param {string} message
- * @param {Object} meta
- */
-const logSocketSecurityEvent = (message, meta) => {
-  logger.warn(message, {
-    securityEvent: 'WS_SECURITY',
+const logSocketSecurityEvent = (eventCode, socket, meta = {}) => {
+  logSecurityEvent(eventCode, {
+    ...buildSocketSecurityMeta(socket),
     ...meta
   });
 };
@@ -128,8 +121,8 @@ io.use(async (socket, next) => {
     }
 
     if (!accessToken) {
-      logSocketSecurityEvent('Conexión WebSocket rechazada: token ausente', {
-        ...getSocketMeta(socket),
+      logSocketSecurityEvent('WS_AUTH_FAILED', socket, {
+        reason: 'TOKEN_MISSING',
         tokenSource
       });
       return next(new Error('Token requerido')); // Bloquear conexión
@@ -139,8 +132,8 @@ io.use(async (socket, next) => {
     const decoded = await verifyAccessToken(accessToken, mockReq);
 
     if (!decoded?.id) {
-      logSocketSecurityEvent('Conexión WebSocket rechazada: token inválido', {
-        ...getSocketMeta(socket),
+      logSocketSecurityEvent('WS_AUTH_FAILED', socket, {
+        reason: 'TOKEN_INVALID',
         tokenSource
       });
       return next(new Error('Token inválido'));
@@ -151,8 +144,8 @@ io.use(async (socket, next) => {
       '+currentSessionId role status accountStatus'
     );
     if (!user) {
-      logSocketSecurityEvent('Conexión WebSocket rechazada: usuario no encontrado', {
-        ...getSocketMeta(socket),
+      logSocketSecurityEvent('WS_AUTH_FAILED', socket, {
+        reason: 'USER_NOT_FOUND',
         tokenSource,
         userId: decoded.id
       });
@@ -160,8 +153,8 @@ io.use(async (socket, next) => {
     }
 
     if (user.status !== 'active') {
-      logSocketSecurityEvent('Conexión WebSocket rechazada: usuario inactivo', {
-        ...getSocketMeta(socket),
+      logSocketSecurityEvent('WS_AUTH_FAILED', socket, {
+        reason: 'USER_INACTIVE',
         tokenSource,
         userId: user._id,
         status: user.status
@@ -174,8 +167,8 @@ io.use(async (socket, next) => {
       user.accountStatus &&
       user.accountStatus !== 'approved'
     ) {
-      logSocketSecurityEvent('Conexión WebSocket rechazada: cuenta no aprobada', {
-        ...getSocketMeta(socket),
+      logSocketSecurityEvent('WS_AUTH_FAILED', socket, {
+        reason: 'ACCOUNT_NOT_APPROVED',
         tokenSource,
         userId: user._id,
         accountStatus: user.accountStatus
@@ -184,8 +177,8 @@ io.use(async (socket, next) => {
     }
 
     if (decoded.sid && user.currentSessionId && decoded.sid !== user.currentSessionId) {
-      logSocketSecurityEvent('Conexión WebSocket rechazada: sesión inválida (single-session)', {
-        ...getSocketMeta(socket),
+      logSocketSecurityEvent('WS_AUTH_FAILED', socket, {
+        reason: 'SESSION_MISMATCH',
         tokenSource,
         userId: user._id
       });
@@ -201,9 +194,8 @@ io.use(async (socket, next) => {
 
     return next();
   } catch (error) {
-    logger.warn('Autenticación de socket fallida', {
-      socketId: socket.id,
-      error: error.message
+    logSocketSecurityEvent('WS_AUTH_FAILED', socket, {
+      reason: error.message
     });
     return next(new Error('Autenticación inválida'));
   }
@@ -219,19 +211,19 @@ io.use(async (socket, next) => {
 const requireSocketRole = (socket, allowedRoles, eventName) => {
   if (!socket?.data?.userId) {
     socket.emit('error', { code: 'AUTH_REQUIRED', message: 'Autenticación requerida' });
-    logSocketSecurityEvent('Evento WebSocket rechazado: autenticación requerida', {
-      ...getSocketMeta(socket),
-      eventName
+    logSocketSecurityEvent('AUTHZ_ACCESS_DENIED', socket, {
+      eventName,
+      reason: 'AUTH_REQUIRED'
     });
     return false;
   }
 
   if (!allowedRoles.includes(socket.data.userRole)) {
     socket.emit('error', { code: 'FORBIDDEN', message: 'No autorizado para este evento' });
-    logSocketSecurityEvent('Evento WebSocket rechazado: rol no permitido', {
-      ...getSocketMeta(socket),
+    logSocketSecurityEvent('AUTHZ_ACCESS_DENIED', socket, {
       eventName,
-      allowedRoles
+      allowedRoles,
+      reason: 'ROLE_NOT_ALLOWED'
     });
     return false;
   }
@@ -248,10 +240,10 @@ const requireSocketRole = (socket, allowedRoles, eventName) => {
 const requirePlayOwnership = async (socket, playId, eventName) => {
   if (!socket?.data?.userId) {
     socket.emit('error', { code: 'AUTH_REQUIRED', message: 'Autenticación requerida' });
-    logSocketSecurityEvent('Acceso a partida rechazado: autenticación requerida', {
-      ...getSocketMeta(socket),
+    logSocketSecurityEvent('AUTHZ_ACCESS_DENIED', socket, {
       playId,
-      eventName
+      eventName,
+      reason: 'AUTH_REQUIRED'
     });
     return null;
   }
@@ -259,10 +251,10 @@ const requirePlayOwnership = async (socket, playId, eventName) => {
   const play = await GamePlay.findById(playId).populate('sessionId');
   if (!play) {
     socket.emit('error', { code: 'NOT_FOUND', message: 'Partida no encontrada' });
-    logSocketSecurityEvent('Acceso a partida rechazado: partida no encontrada', {
-      ...getSocketMeta(socket),
+    logSocketSecurityEvent('AUTHZ_ACCESS_DENIED', socket, {
       playId,
-      eventName
+      eventName,
+      reason: 'PLAY_NOT_FOUND'
     });
     return null;
   }
@@ -273,11 +265,11 @@ const requirePlayOwnership = async (socket, playId, eventName) => {
 
   if (!isSuperAdmin && !ownsSession) {
     socket.emit('error', { code: 'FORBIDDEN', message: 'No tienes acceso a esta partida' });
-    logSocketSecurityEvent('Acceso a partida rechazado: ownership inválido', {
-      ...getSocketMeta(socket),
+    logSocketSecurityEvent('AUTHZ_ACCESS_DENIED', socket, {
       playId,
       eventName,
-      sessionId: session?._id
+      sessionId: session?._id,
+      reason: 'OWNERSHIP_INVALID'
     });
     return null;
   }
@@ -729,27 +721,27 @@ io.on('connection', socket => {
 
     if (!uid || !type || !sensorId || !timestamp || !source) {
       socket.emit('error', { code: 'VALIDATION_ERROR', message: 'Payload RFID incompleto' });
-      logSocketSecurityEvent('Evento RFID rechazado: payload incompleto', {
-        ...getSocketMeta(socket),
-        eventName: 'rfid_scan_from_client'
+      logSocketSecurityEvent('SECURITY_RFID_EVENT_INVALID', socket, {
+        eventName: 'rfid_scan_from_client',
+        reason: 'PAYLOAD_INCOMPLETE'
       });
       return;
     }
 
     if (typeof sensorId !== 'string' || sensorId.trim().length === 0) {
       socket.emit('error', { code: 'VALIDATION_ERROR', message: 'sensorId inválido' });
-      logSocketSecurityEvent('Evento RFID rechazado: sensorId inválido', {
-        ...getSocketMeta(socket),
-        eventName: 'rfid_scan_from_client'
+      logSocketSecurityEvent('SECURITY_RFID_EVENT_INVALID', socket, {
+        eventName: 'rfid_scan_from_client',
+        reason: 'SENSOR_ID_INVALID'
       });
       return;
     }
 
     if (typeof timestamp !== 'number' || Number.isNaN(timestamp)) {
       socket.emit('error', { code: 'VALIDATION_ERROR', message: 'timestamp inválido' });
-      logSocketSecurityEvent('Evento RFID rechazado: timestamp inválido', {
-        ...getSocketMeta(socket),
-        eventName: 'rfid_scan_from_client'
+      logSocketSecurityEvent('SECURITY_RFID_EVENT_INVALID', socket, {
+        eventName: 'rfid_scan_from_client',
+        reason: 'TIMESTAMP_INVALID'
       });
       return;
     }
@@ -759,9 +751,9 @@ io.on('connection', socket => {
     const isValidUid = /^[0-9A-F]{8}$|^[0-9A-F]{14}$/.test(normalizedUid);
     if (!isValidUid) {
       socket.emit('error', { code: 'VALIDATION_ERROR', message: 'UID inválido' });
-      logSocketSecurityEvent('Evento RFID rechazado: UID inválido', {
-        ...getSocketMeta(socket),
+      logSocketSecurityEvent('SECURITY_RFID_EVENT_INVALID', socket, {
         eventName: 'rfid_scan_from_client',
+        reason: 'UID_INVALID',
         uid: normalizedUid
       });
       return;
@@ -770,9 +762,9 @@ io.on('connection', socket => {
     const normalizedType = String(type).trim().toUpperCase();
     if (!RFID_CARD_TYPES.has(normalizedType)) {
       socket.emit('error', { code: 'VALIDATION_ERROR', message: 'Tipo de tarjeta inválido' });
-      logSocketSecurityEvent('Evento RFID rechazado: tipo inválido', {
-        ...getSocketMeta(socket),
+      logSocketSecurityEvent('SECURITY_RFID_EVENT_INVALID', socket, {
         eventName: 'rfid_scan_from_client',
+        reason: 'TYPE_INVALID',
         type: normalizedType
       });
       return;
@@ -780,9 +772,9 @@ io.on('connection', socket => {
 
     if (source !== 'web_serial') {
       socket.emit('error', { code: 'VALIDATION_ERROR', message: 'Source inválido' });
-      logSocketSecurityEvent('Evento RFID rechazado: source inválido', {
-        ...getSocketMeta(socket),
+      logSocketSecurityEvent('SECURITY_RFID_EVENT_INVALID', socket, {
         eventName: 'rfid_scan_from_client',
+        reason: 'SOURCE_INVALID',
         source
       });
       return;

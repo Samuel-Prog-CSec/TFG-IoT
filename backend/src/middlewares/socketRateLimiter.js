@@ -6,6 +6,7 @@
 
 const logger = require('../utils/logger');
 const runtimeMetrics = require('../utils/runtimeMetrics');
+const { logSecurityEvent, getSocketContext } = require('../utils/securityLogger');
 const {
   socketRateLimits,
   socketRateLimitDefaults,
@@ -251,14 +252,12 @@ class SocketRateLimiter {
 
       const payloadCheck = this.checkPayloadSize(eventName, payload);
       if (!payloadCheck.allowed) {
-        this.logger.warn('Payload WebSocket demasiado grande', {
+        logSecurityEvent('SECURITY_PAYLOAD_TOO_LARGE', {
+          ...getSocketContext(socket),
           eventName,
-          socketId: socket.id,
           rateKey,
           userId: socket?.data?.userId,
           userRole: socket?.data?.userRole,
-          ip: socket?.handshake?.address,
-          securityEvent: 'WS_PAYLOAD_TOO_LARGE',
           sizeBytes: payloadCheck.sizeBytes,
           maxBytes: payloadCheck.maxBytes
         });
@@ -279,14 +278,12 @@ class SocketRateLimiter {
 
       const dedupeCheck = this.checkRfidDedupe(eventName, payload, rateKey);
       if (!dedupeCheck.allowed) {
-        this.logger.warn('Evento RFID duplicado bloqueado', {
+        logSecurityEvent('SECURITY_RFID_DEDUPE', {
+          ...getSocketContext(socket),
           eventName,
-          socketId: socket.id,
           rateKey,
           userId: socket?.data?.userId,
-          userRole: socket?.data?.userRole,
-          ip: socket?.handshake?.address,
-          securityEvent: 'WS_RFID_DEDUPE'
+          userRole: socket?.data?.userRole
         });
 
         socket.emit('error', {
@@ -305,14 +302,12 @@ class SocketRateLimiter {
       if (!rateResult.allowed) {
         const errorCode = rateResult.blocked ? 'TEMP_BLOCKED' : 'RATE_LIMITED';
 
-        this.logger.warn('Rate limit WebSocket excedido', {
+        logSecurityEvent('SECURITY_RATE_LIMITED', {
+          ...getSocketContext(socket),
           eventName,
-          socketId: socket.id,
           rateKey,
           userId: socket?.data?.userId,
           userRole: socket?.data?.userRole,
-          ip: socket?.handshake?.address,
-          securityEvent: rateResult.blocked ? 'WS_TEMP_BLOCKED' : 'WS_RATE_LIMITED',
           blocked: rateResult.blocked,
           retryAfterMs: rateResult.retryAfterMs
         });

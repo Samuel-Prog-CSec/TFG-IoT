@@ -15,6 +15,7 @@ const logger = require('../utils/logger');
 const { toUserDTOV1 } = require('../utils/dtos');
 const { revokeAllUserTokens } = require('../middlewares/auth');
 const { disconnectUserSockets } = require('../utils/socketUtils');
+const { getRequestContext } = require('../utils/securityLogger');
 
 const assertTargetIsTeacher = user => {
   if (!user) {
@@ -78,7 +79,11 @@ const rejectTeacher = async (req, res, next) => {
     target.accountStatus = 'rejected';
     await target.save();
 
-    await revokeAllUserTokens(target._id.toString(), 'account_rejected');
+    await revokeAllUserTokens(target._id.toString(), 'account_rejected', {
+      ...getRequestContext(req),
+      userId: target._id,
+      rejectedBy: req.user?._id
+    });
 
     const io = req.app.get('io');
     disconnectUserSockets(io, target._id.toString(), 'ACCOUNT_REJECTED');
