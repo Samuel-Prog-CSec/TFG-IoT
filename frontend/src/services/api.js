@@ -1,0 +1,457 @@
+/**
+ * @fileoverview Cliente HTTP con Axios para comunicación con el backend
+ * Incluye interceptores para autenticación, refresh automático de tokens,
+ * manejo de errores y retry en fallos de red.
+ * 
+ * @module services/api
+ */
+
+import axios from 'axios';
+
+// ============================================
+// CONFIGURACIÓN
+// ============================================
+
+const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:5000/api';
+const TIMEOUT = 10000; // 10 segundos
+const MAX_RETRIES = 3;
+const RETRY_DELAY = 1000; // 1 segundo base para exponential backoff
+const MAX_TOTAL_TIME = 30000; // 30 segundos máximo para todos los reintentos
+
+// Eventos personalizados para comunicación con AuthContext
+export const AUTH_EVENTS = {
+  SESSION_EXPIRED: 'auth:session_expired',
+  SESSION_INVALIDATED: 'auth:session_invalidated',
+  UNAUTHORIZED: 'auth:unauthorized',
+};
+
+// ============================================
+// INSTANCIA AXIOS
+// ============================================
+
+const api = axios.create({
+  baseURL: API_BASE_URL,
+  timeout: TIMEOUT,
+  headers: {
+    'Content-Type': 'application/json',
+  },
+  withCredentials: true, // Para cookies httpOnly si se usan
+});
+
+// ============================================
+// GESTIÓN DE TOKENS (en memoria para seguridad)
+// ============================================
+
+let accessToken = null;
+let refreshToken = localStorage.getItem('refreshToken');
+let isRefreshing = false;
+let failedQueue = [];
+
+/**
+ * Procesa la cola de peticiones que fallaron durante el refresh
+ * @param {Error|null} error - Error si el refresh falló
+ * @param {string|null} token - Nuevo token si el refresh fue exitoso
+ */
+const processQueue = (error, token = null) => {
+  failedQueue.forEach((prom) => {
+    if (error) {
+      prom.reject(error);
+    } else {
+      prom.resolve(token);
+    }
+  });
+  failedQueue = [];
+};
+
+/**
+ * Establece los tokens de autenticación
+ * @param {string} access - Access token (se guarda en memoria)
+ * @param {string} refresh - Refresh token (se guarda en localStorage)
+ */
+export const setTokens = (access, refresh) => {
+  accessToken = access;
+  refreshToken = refresh;
+  if (refresh) {
+    localStorage.setItem('refreshToken', refresh);
+  }
+};
+
+/**
+ * Obtiene el access token actual
+ * @returns {string|null} Access token
+ */
+export const getAccessToken = () => accessToken;
+
+/**
+ * Obtiene el refresh token actual
+ * @returns {string|null} Refresh token
+ */
+export const getRefreshToken = () => refreshToken;
+
+/**
+ * Limpia todos los tokens (logout)
+ */
+export const clearTokens = () => {
+  accessToken = null;
+  refreshToken = null;
+  localStorage.removeItem('refreshToken');
+};
+
+/**
+ * Verifica si hay una sesión activa (tiene refresh token)
+ * @returns {boolean}
+ */
+export const hasSession = () => !!refreshToken;
+
+// ============================================
+// INTERCEPTOR DE REQUEST
+// ============================================
+
+api.interceptors.request.use(
+  (config) => {
+    // Añadir access token a las peticiones si existe
+    if (accessToken) {
+      config.headers.Authorization = `Bearer ${accessToken}`;
+    }
+    
+    // Añadir timestamp para debugging
+    config.metadata = { startTime: Date.now() };
+    
+    return config;
+  },
+  (error) => {
+    return Promise.reject(error);
+  }
+);
+
+// ============================================
+// INTERCEPTOR DE RESPONSE
+// ============================================
+
+api.interceptors.response.use(
+  (response) => {
+    // Log de tiempo de respuesta en desarrollo
+    if (import.meta.env.DEV && response.config.metadata) {
+      const duration = Date.now() - response.config.metadata.startTime;
+      console.debug(`[API] ${response.config.method?.toUpperCase()} ${response.config.url} - ${duration}ms`);
+    }
+    return response;
+  },
+  async (error) => {
+    const originalRequest = error.config;
+
+    // Si no hay respuesta (error de red), intentar retry
+    if (!error.response) {
+      return handleNetworkError(error, originalRequest);
+    }
+
+    const { status, data } = error.response;
+
+    // 401 - Token expirado o inválido
+    if (status === 401 && !originalRequest._retry) {
+      // Si el error es de token expirado, intentar refresh
+      if (data?.code === 'TOKEN_EXPIRED' || data?.message?.includes('expired')) {
+        return handleTokenRefresh(originalRequest);
+      }
+
+      // Si no hay refresh token o el refresh falló, emitir evento
+      window.dispatchEvent(new CustomEvent(AUTH_EVENTS.UNAUTHORIZED));
+      clearTokens();
+      return Promise.reject(error);
+    }
+
+    // 403 - Cuenta no aprobada o rechazada
+    if (status === 403) {
+      const errorCode = data?.code;
+      if (errorCode === 'ACCOUNT_PENDING' || errorCode === 'ACCOUNT_REJECTED') {
+        // No limpiar tokens, solo propagar el error con info
+        return Promise.reject({
+          ...error,
+          accountStatus: errorCode === 'ACCOUNT_PENDING' ? 'pending_approval' : 'rejected',
+        });
+      }
+    }
+
+    return Promise.reject(error);
+  }
+);
+
+// ============================================
+// MANEJO DE REFRESH TOKEN
+// ============================================
+
+/**
+ * Maneja el refresh del access token
+ * @param {Object} originalRequest - Petición original que falló
+ * @returns {Promise} Promesa con la petición reintentada
+ */
+async function handleTokenRefresh(originalRequest) {
+  if (isRefreshing) {
+    // Si ya se está haciendo refresh, encolar la petición
+    return new Promise((resolve, reject) => {
+      failedQueue.push({ resolve, reject });
+    })
+      .then((token) => {
+        originalRequest.headers.Authorization = `Bearer ${token}`;
+        return api(originalRequest);
+      })
+      .catch((err) => Promise.reject(err));
+  }
+
+  originalRequest._retry = true;
+  isRefreshing = true;
+
+  try {
+    if (!refreshToken) {
+      throw new Error('No refresh token available');
+    }
+
+    const response = await axios.post(`${API_BASE_URL}/auth/refresh`, {
+      refreshToken,
+    });
+
+    const { accessToken: newAccessToken, refreshToken: newRefreshToken } = response.data.data;
+    
+    setTokens(newAccessToken, newRefreshToken);
+    processQueue(null, newAccessToken);
+
+    originalRequest.headers.Authorization = `Bearer ${newAccessToken}`;
+    return api(originalRequest);
+  } catch (refreshError) {
+    processQueue(refreshError, null);
+    clearTokens();
+    window.dispatchEvent(new CustomEvent(AUTH_EVENTS.SESSION_EXPIRED));
+    return Promise.reject(refreshError);
+  } finally {
+    isRefreshing = false;
+  }
+}
+
+// ============================================
+// MANEJO DE ERRORES DE RED CON RETRY
+// ============================================
+
+/**
+ * Maneja errores de red con retry exponencial
+ * @param {Error} error - Error original
+ * @param {Object} originalRequest - Petición original
+ * @returns {Promise} Promesa con retry o error
+ */
+async function handleNetworkError(error, originalRequest) {
+  const retryCount = originalRequest._retryCount || 0;
+  
+  // Inicializar tiempo de inicio en el primer intento
+  if (!originalRequest._retryStartTime) {
+    originalRequest._retryStartTime = Date.now();
+  }
+  
+  // Verificar si hemos excedido el tiempo total máximo
+  const elapsedTime = Date.now() - originalRequest._retryStartTime;
+  if (elapsedTime >= MAX_TOTAL_TIME) {
+    console.error(`[API] Max total time (${MAX_TOTAL_TIME}ms) exceeded for ${originalRequest.url}`);
+    return Promise.reject({
+      ...error,
+      isNetworkError: true,
+      message: 'Tiempo de espera agotado. Por favor, verifica tu conexión a internet.',
+    });
+  }
+
+  if (retryCount >= MAX_RETRIES) {
+    console.error(`[API] Max retries (${MAX_RETRIES}) exceeded for ${originalRequest.url}`);
+    return Promise.reject({
+      ...error,
+      isNetworkError: true,
+      message: 'Error de conexión. Por favor, verifica tu conexión a internet.',
+    });
+  }
+
+  originalRequest._retryCount = retryCount + 1;
+  const delay = RETRY_DELAY * Math.pow(2, retryCount); // Exponential backoff
+
+  console.warn(`[API] Network error, retrying (${retryCount + 1}/${MAX_RETRIES}) in ${delay}ms...`);
+
+  await new Promise((resolve) => setTimeout(resolve, delay));
+  return api(originalRequest);
+}
+
+// ============================================
+// HELPERS DE RESPUESTA
+// ============================================
+
+/**
+ * Extrae datos de una respuesta exitosa de la API
+ * @param {Object} response - Respuesta de axios
+ * @returns {Object} Datos de la respuesta
+ */
+export const extractData = (response) => response.data?.data || response.data;
+
+/**
+ * Extrae mensaje de error de una respuesta de la API
+ * @param {Error} error - Error de axios
+ * @returns {string} Mensaje de error
+ */
+export const extractErrorMessage = (error) => {
+  if (error.isNetworkError) {
+    return error.message;
+  }
+  
+  if (error.response?.data?.message) {
+    return error.response.data.message;
+  }
+  
+  if (error.response?.data?.errors?.length > 0) {
+    return error.response.data.errors.map((e) => e.message).join('. ');
+  }
+  
+  return 'Ha ocurrido un error inesperado';
+};
+
+/**
+ * Extrae errores de validación de una respuesta de la API
+ * @param {Error} error - Error de axios
+ * @returns {Object} Objeto con errores por campo
+ */
+export const extractValidationErrors = (error) => {
+  const errors = {};
+  const validationErrors = error.response?.data?.errors || [];
+  
+  validationErrors.forEach((err) => {
+    if (err.field) {
+      errors[err.field] = err.message;
+    }
+  });
+  
+  return errors;
+};
+
+// ============================================
+// API ENDPOINTS - AUTH
+// ============================================
+
+export const authAPI = {
+  /**
+   * Registrar nuevo profesor
+   * @param {Object} data - { name, email, password }
+   * @returns {Promise} Respuesta con mensaje de éxito
+   */
+  register: (data) => api.post('/auth/register', data),
+
+  /**
+   * Iniciar sesión
+   * @param {Object} credentials - { email, password }
+   * @returns {Promise} Respuesta con user, accessToken, refreshToken
+   */
+  login: (credentials) => api.post('/auth/login', credentials),
+
+  /**
+   * Cerrar sesión
+   * @returns {Promise} Respuesta de confirmación
+   */
+  logout: () => api.post('/auth/logout'),
+
+  /**
+   * Obtener perfil del usuario actual
+   * @returns {Promise} Respuesta con datos del usuario
+   */
+  getProfile: () => api.get('/auth/profile'),
+
+  /**
+   * Actualizar perfil del usuario
+   * @param {Object} data - Datos a actualizar
+   * @returns {Promise} Respuesta con usuario actualizado
+   */
+  updateProfile: (data) => api.put('/auth/profile', data),
+
+  /**
+   * Cambiar contraseña
+   * @param {Object} data - { currentPassword, newPassword }
+   * @returns {Promise} Respuesta de confirmación
+   */
+  changePassword: (data) => api.put('/auth/change-password', data),
+
+  /**
+   * Refrescar access token
+   * @returns {Promise} Respuesta con nuevos tokens
+   */
+  refreshToken: () => api.post('/auth/refresh', { refreshToken: getRefreshToken() }),
+};
+
+// ============================================
+// API ENDPOINTS - ADMIN
+// ============================================
+
+export const adminAPI = {
+  /**
+   * Obtener lista de profesores pendientes de aprobación
+   * @param {Object} params - Parámetros de paginación { page, limit }
+   * @returns {Promise} Respuesta con lista paginada
+   */
+  getPendingTeachers: (params = {}) => 
+    api.get('/admin/pending', { params }),
+
+  /**
+   * Aprobar profesor
+   * @param {string} userId - ID del usuario a aprobar
+   * @returns {Promise} Respuesta de confirmación
+   */
+  approveTeacher: (userId) => 
+    api.post(`/admin/users/${userId}/approve`),
+
+  /**
+   * Rechazar profesor
+   * @param {string} userId - ID del usuario a rechazar
+   * @param {string} reason - Razón del rechazo (opcional)
+   * @returns {Promise} Respuesta de confirmación
+   */
+  rejectTeacher: (userId, reason = '') => 
+    api.post(`/admin/users/${userId}/reject`, { reason }),
+};
+
+// ============================================
+// API ENDPOINTS - USERS (para futuro uso)
+// ============================================
+
+export const usersAPI = {
+  /**
+   * Obtener lista de usuarios
+   * @param {Object} params - Parámetros de búsqueda y paginación
+   * @returns {Promise} Respuesta con lista paginada
+   */
+  getUsers: (params = {}) => 
+    api.get('/users', { params }),
+
+  /**
+   * Obtener usuario por ID
+   * @param {string} userId - ID del usuario
+   * @returns {Promise} Respuesta con datos del usuario
+   */
+  getUser: (userId) => 
+    api.get(`/users/${userId}`),
+
+  /**
+   * Crear nuevo usuario (estudiante)
+   * @param {Object} data - Datos del usuario
+   * @returns {Promise} Respuesta con usuario creado
+   */
+  createUser: (data) => 
+    api.post('/users', data),
+
+  /**
+   * Actualizar usuario
+   * @param {string} userId - ID del usuario
+   * @param {Object} data - Datos a actualizar
+   * @returns {Promise} Respuesta con usuario actualizado
+   */
+  updateUser: (userId, data) => 
+    api.put(`/users/${userId}`, data),
+
+  /**
+   * Eliminar usuario
+   * @param {string} userId - ID del usuario
+   * @returns {Promise} Respuesta de confirmación
+   */
+  deleteUser: (userId) => 
+    api.delete(`/users/${userId}`),
+};
+
+export default api;

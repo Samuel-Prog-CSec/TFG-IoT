@@ -300,3 +300,88 @@ Permitir clonar una sesión existente para reutilizar su configuración.
 - [ ] Estado inicial 'created'
 
 ---
+
+## T-051: Migrar refreshToken a httpOnly Cookie 🔒
+
+**Prioridad:** P1 (Seguridad) | **Tamaño:** M | **Dependencias:** Ninguna  
+**Origen:** Auditoría de seguridad Sprint 3
+
+**Descripción:**  
+Actualmente el `refreshToken` se almacena en `localStorage`, lo que lo expone a ataques XSS. Debe migrarse a cookies `httpOnly` para mejorar la seguridad de la autenticación.
+
+**Contexto de Seguridad:**
+- `localStorage` es accesible desde JavaScript → vulnerable a XSS
+- Cookies `httpOnly` no son accesibles desde JS del cliente
+- Añadir `SameSite=Strict` para protección contra CSRF
+
+**Sub-tareas:**
+
+1. **Backend - Modificar `/api/auth/login`:**
+   - En vez de devolver `refreshToken` en body JSON, enviarlo como cookie `httpOnly`
+   - Configuración de cookie:
+     ```javascript
+     res.cookie('refreshToken', token, {
+       httpOnly: true,
+       secure: process.env.NODE_ENV === 'production',
+       sameSite: 'strict',
+       maxAge: 7 * 24 * 60 * 60 * 1000, // 7 días
+       path: '/api/auth'
+     });
+     ```
+   - Body solo retorna `{ accessToken, expiresIn, user }`
+
+2. **Backend - Modificar `/api/auth/refresh`:**
+   - Leer `refreshToken` desde `req.cookies` en vez de `req.body`
+   - Renovar la cookie con nuevo token
+
+3. **Backend - Modificar `/api/auth/logout`:**
+   - Limpiar cookie con `res.clearCookie('refreshToken')`
+
+4. **Backend - Middleware de cookies:**
+   - Asegurar que `cookie-parser` está instalado y configurado
+   - Añadir a la cadena de middlewares
+
+5. **Frontend - `services/api.js`:**
+   - Eliminar `localStorage.setItem('refreshToken', ...)`
+   - Eliminar `localStorage.getItem('refreshToken')`
+   - Eliminar `localStorage.removeItem('refreshToken')`
+   - `authAPI.refreshToken()` ya no envía body, solo hace POST vacío
+   - Axios con `withCredentials: true` ya maneja cookies automáticamente
+
+6. **Frontend - `context/AuthContext.jsx`:**
+   - Eliminar referencias a `refreshToken` en memoria
+   - `hasSession()` debe verificar de otra forma (ej: intentar refresh)
+   - Considerar nuevo endpoint `/api/auth/check` para verificar sesión
+
+7. **Tests:**
+   - Login establece cookie httpOnly
+   - Refresh funciona leyendo cookie
+   - Logout limpia cookie
+   - Cookie no accesible desde JS
+   - CORS configurado para credenciales
+
+8. **Documentación:**
+   - Actualizar API_v0.3.0.md con nuevos headers/cookies
+   - Documentar cambios para desarrolladores
+
+**Consideraciones de Migración:**
+- Usuarios con sesión activa deberán re-loguearse
+- Desplegar backend primero, luego frontend
+- Mantener compatibilidad temporal si es necesario
+
+**Criterios de Aceptación:**
+
+- [ ] `refreshToken` NO aparece en `localStorage`
+- [ ] `refreshToken` se envía como cookie `httpOnly`
+- [ ] Cookie tiene flags `secure` (prod), `sameSite=strict`
+- [ ] Frontend funciona sin cambios visibles para usuario
+- [ ] Logout limpia correctamente la cookie
+- [ ] Tests de seguridad pasan
+- [ ] Documentación actualizada
+
+**Notas de Seguridad:**
+- Esta es una mejora de seguridad importante
+- Considerar también implementar CSRF tokens si se usan más endpoints POST
+- Monitorear logs de Sentry por errores de autenticación post-migración
+
+---

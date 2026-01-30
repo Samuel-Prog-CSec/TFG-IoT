@@ -131,7 +131,7 @@ Reglas mínimas:
 
 ---
 
-### T-021: Integración Frontend con API REST 📋
+### T-021: Integración Frontend con API REST 🔄
 
 **Prioridad:** P0 | **Tamaño:** XL | **Dependencias:** Ninguna
 
@@ -549,7 +549,7 @@ Prevenir lecturas accidentales implementando modos de operación del sensor.
 
 ---
 
-### T-042: Aprobación de Profesores - Frontend (Duda #51) 📋
+### T-042: Aprobación de Profesores - Frontend (Duda #51) 🔄
 
 **Prioridad:** P1 | **Tamaño:** M | **Dependencias:** T-021
 
@@ -590,7 +590,7 @@ Implementar UI para que el Super Admin apruebe o rechace profesores pendientes.
 
 ---
 
-### T-043: Sesión Única por Usuario - Frontend (Duda #48) 📋
+### T-043: Sesión Única por Usuario - Frontend (Duda #48) 🔄
 
 **Prioridad:** P1 | **Tamaño:** M | **Dependencias:** T-021
 
@@ -985,7 +985,7 @@ Mejoras visuales, animaciones y feedback de usuario para pulir la experiencia.
 
 ---
 
-### T-048: Security Logging (SEC-MED-02) 📋
+### T-048: Security Logging (SEC-MED-02) ✅
 
 **Prioridad:** P3 | **Tamaño:** M | **Dependencias:** T-031  
 **Origen:** Auditoría de Seguridad
