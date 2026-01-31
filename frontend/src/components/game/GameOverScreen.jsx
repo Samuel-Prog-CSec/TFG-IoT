@@ -188,7 +188,7 @@ function GameOverScreen({
             <motion.div
               key={i}
               initial={{ 
-                x: Math.random() * 100 + '%',
+                x: `${Math.random() * 100  }%`,
                 y: '100%',
                 opacity: 0
               }}

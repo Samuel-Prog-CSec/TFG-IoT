@@ -16,6 +16,11 @@ export const ROUTES = {
   BOARD_SETUP_WITH_ID: (sessionId) => `/board-setup/${sessionId}`,
   GAME: (sessionId) => `/game/${sessionId}`,
   
+  // Gestión de Mazos de Cartas (CardDecks)
+  CARD_DECKS: '/decks',
+  CARD_DECKS_NEW: '/decks/new',
+  CARD_DECKS_EDIT: (deckId) => `/decks/${deckId}/edit`,
+  
   // Admin (solo super_admin)
   ADMIN_APPROVALS: '/admin/approvals',
 };
@@ -28,6 +33,11 @@ export const NAV_ROUTES = [
     path: ROUTES.DASHBOARD,
     label: 'Dashboard',
     icon: 'LayoutDashboard',
+  },
+  {
+    path: ROUTES.CARD_DECKS,
+    label: 'Mis Mazos',
+    icon: 'Layers',
   },
   {
     path: ROUTES.CREATE_SESSION,

@@ -20,6 +20,11 @@ const CreateSession = lazy(() => import('./pages/CreateSession'));
 const BoardSetup = lazy(() => import('./pages/BoardSetup'));
 const GameSession = lazy(() => import('./pages/GameSession'));
 
+// Card Decks pages
+const CardDecksPage = lazy(() => import('./pages/CardDecksPage'));
+const DeckCreationWizard = lazy(() => import('./pages/DeckCreationWizard'));
+const DeckEditPage = lazy(() => import('./pages/DeckEditPage'));
+
 // Auth pages
 const Login = lazy(() => import('./pages/Login'));
 const Register = lazy(() => import('./pages/Register'));
@@ -108,6 +113,12 @@ function AppRoutes() {
       >
         <Route index element={<SuspenseWrapper><Dashboard /></SuspenseWrapper>} />
         <Route path="dashboard" element={<SuspenseWrapper><Dashboard /></SuspenseWrapper>} />
+        
+        {/* Gestión de Mazos de Cartas */}
+        <Route path="decks" element={<SuspenseWrapper><CardDecksPage /></SuspenseWrapper>} />
+        <Route path="decks/new" element={<SuspenseWrapper><DeckCreationWizard /></SuspenseWrapper>} />
+        <Route path="decks/:deckId/edit" element={<SuspenseWrapper><DeckEditPage /></SuspenseWrapper>} />
+        
         <Route path="create-session" element={<SuspenseWrapper><CreateSession /></SuspenseWrapper>} />
         <Route path="board-setup" element={<SuspenseWrapper><BoardSetup /></SuspenseWrapper>} />
         <Route path="board-setup/:sessionId" element={<SuspenseWrapper><BoardSetup /></SuspenseWrapper>} />

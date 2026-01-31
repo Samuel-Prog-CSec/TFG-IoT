@@ -385,3 +385,82 @@ Actualmente el `refreshToken` se almacena en `localStorage`, lo que lo expone a 
 - Monitorear logs de Sentry por errores de autenticación post-migración
 
 ---
+## T-052: Soporte prefers-reduced-motion 📋
+
+**Prioridad:** P3 | **Tamaño:** S | **Dependencias:** T-035 (CardDecks)  
+**Origen:** Consideraciones de accesibilidad durante implementación de UI premium
+
+**Descripción:**  
+Implementar soporte para la media query `prefers-reduced-motion` en todos los componentes con animaciones. Usuarios con esta preferencia activada en su sistema operativo deben ver una versión simplificada sin animaciones.
+
+**Contexto:**
+Los componentes UI premium creados en T-035 (CardDecks) incluyen animaciones elaboradas que pueden causar problemas a usuarios con:
+- Vestibular disorders
+- Sensibilidad a movimiento
+- Epilepsia fotosensible
+- Preferencia personal por interfaces estáticas
+
+**Sub-tareas:**
+
+1. **Crear hook `useReducedMotion.js`:**
+   ```javascript
+   export function useReducedMotion() {
+     const [prefersReducedMotion, setPrefersReducedMotion] = useState(false);
+     
+     useEffect(() => {
+       const mediaQuery = window.matchMedia('(prefers-reduced-motion: reduce)');
+       setPrefersReducedMotion(mediaQuery.matches);
+       
+       const handler = (e) => setPrefersReducedMotion(e.matches);
+       mediaQuery.addEventListener('change', handler);
+       return () => mediaQuery.removeEventListener('change', handler);
+     }, []);
+     
+     return prefersReducedMotion;
+   }
+   ```
+
+2. **Aplicar en componentes con animaciones:**
+   - `WizardStepper.jsx` - Deshabilitar confetti, simplificar transitions
+   - `DeckCard.jsx` - Deshabilitar 3D tilt, solo hover opacity
+   - `RFIDScannerPanel.jsx` - Deshabilitar radar waves
+   - `AssetSelector.jsx` - Sin stagger, entrada inmediata
+   - Todos los modales - Sin scale animation
+
+3. **Variantes de Framer Motion:**
+   ```javascript
+   const variants = prefersReducedMotion 
+     ? { hidden: { opacity: 0 }, visible: { opacity: 1 } }
+     : { hidden: { opacity: 0, y: 20 }, visible: { opacity: 1, y: 0 } };
+   ```
+
+4. **CSS fallback:**
+   ```css
+   @media (prefers-reduced-motion: reduce) {
+     *, *::before, *::after {
+       animation-duration: 0.01ms !important;
+       transition-duration: 0.01ms !important;
+     }
+   }
+   ```
+
+5. **Tests:**
+   - Simular media query en tests
+   - Verificar que componentes respetan la preferencia
+   - Verificar que UX sigue siendo funcional sin animaciones
+
+**Criterios de Aceptación:**
+
+- [ ] Hook `useReducedMotion` creado y exportado
+- [ ] Todos los componentes UI premium respetan la preferencia
+- [ ] Confetti y particle effects deshabilitados
+- [ ] Transiciones reducidas a opacity simple
+- [ ] Tests cubren ambos modos
+- [ ] Documentación actualizada
+
+**Recursos:**
+- [MDN: prefers-reduced-motion](https://developer.mozilla.org/en-US/docs/Web/CSS/@media/prefers-reduced-motion)
+- [web.dev: prefers-reduced-motion](https://web.dev/prefers-reduced-motion/)
+- [Framer Motion: Reduced Motion](https://www.framer.com/motion/guide-accessibility/)
+
+---

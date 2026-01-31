@@ -454,4 +454,232 @@ export const usersAPI = {
     api.delete(`/users/${userId}`),
 };
 
+// ============================================
+// API ENDPOINTS - DECKS (Mazos de Cartas)
+// ============================================
+
+export const decksAPI = {
+  /**
+   * Obtener lista de mazos del profesor
+   * @param {Object} params - Parámetros de búsqueda y paginación
+   * @param {number} [params.page=1] - Página actual
+   * @param {number} [params.limit=20] - Elementos por página
+   * @param {string} [params.sortBy='createdAt'] - Campo de ordenación
+   * @param {string} [params.order='desc'] - Dirección de ordenación
+   * @param {string} [params.contextId] - Filtrar por contexto
+   * @param {string} [params.status] - Filtrar por estado (active/archived)
+   * @param {string} [params.search] - Búsqueda por nombre/descripción
+   * @returns {Promise} Respuesta con lista paginada de mazos
+   */
+  getDecks: (params = {}) => 
+    api.get('/decks', { params }),
+
+  /**
+   * Obtener mazo por ID con detalles completos
+   * @param {string} deckId - ID del mazo
+   * @returns {Promise} Respuesta con datos del mazo
+   */
+  getDeckById: (deckId) => 
+    api.get(`/decks/${deckId}`),
+
+  /**
+   * Crear nuevo mazo
+   * @param {Object} data - Datos del mazo
+   * @param {string} data.name - Nombre del mazo (2-100 caracteres)
+   * @param {string} [data.description] - Descripción opcional (máx 500 caracteres)
+   * @param {string} data.contextId - ID del contexto temático
+   * @param {Array} data.cardMappings - Array de mapeos tarjeta-valor
+   * @returns {Promise} Respuesta con mazo creado
+   */
+  createDeck: (data) => 
+    api.post('/decks', data),
+
+  /**
+   * Actualizar mazo existente
+   * @param {string} deckId - ID del mazo
+   * @param {Object} data - Datos a actualizar (todos opcionales)
+   * @returns {Promise} Respuesta con mazo actualizado
+   */
+  updateDeck: (deckId, data) => 
+    api.put(`/decks/${deckId}`, data),
+
+  /**
+   * Archivar (soft delete) mazo
+   * @param {string} deckId - ID del mazo
+   * @returns {Promise} Respuesta de confirmación
+   */
+  deleteDeck: (deckId) => 
+    api.delete(`/decks/${deckId}`),
+
+  /**
+   * Obtener contador de mazos activos del profesor
+   * Útil para mostrar "X/50 mazos" en la UI
+   * @returns {Promise} Respuesta con { active, archived, total }
+   */
+  getDecksCount: async () => {
+    const [activeRes, archivedRes] = await Promise.all([
+      api.get('/decks', { params: { status: 'active', limit: 1 } }),
+      api.get('/decks', { params: { status: 'archived', limit: 1 } }),
+    ]);
+    return {
+      active: activeRes.data?.pagination?.total || 0,
+      archived: archivedRes.data?.pagination?.total || 0,
+      total: (activeRes.data?.pagination?.total || 0) + (archivedRes.data?.pagination?.total || 0),
+    };
+  },
+};
+
+// ============================================
+// API ENDPOINTS - CONTEXTS (Contextos de Juego)
+// ============================================
+
+export const contextsAPI = {
+  /**
+   * Obtener lista de contextos disponibles
+   * @param {Object} params - Parámetros de búsqueda
+   * @param {boolean} [params.isActive=true] - Filtrar solo activos
+   * @returns {Promise} Respuesta con lista de contextos
+   */
+  getContexts: (params = { isActive: true }) => 
+    api.get('/contexts', { params }),
+
+  /**
+   * Obtener contexto por ID con sus assets
+   * @param {string} contextId - ID del contexto
+   * @returns {Promise} Respuesta con datos del contexto y assets
+   */
+  getContextById: (contextId) => 
+    api.get(`/contexts/${contextId}`),
+
+  /**
+   * Obtener solo los assets de un contexto
+   * @param {string} contextId - ID del contexto
+   * @returns {Promise} Respuesta con array de assets
+   */
+  getContextAssets: (contextId) => 
+    api.get(`/contexts/${contextId}/assets`),
+};
+
+// ============================================
+// API ENDPOINTS - CARDS (Tarjetas RFID)
+// ============================================
+
+export const cardsAPI = {
+  /**
+   * Obtener lista de tarjetas del profesor
+   * @param {Object} params - Parámetros de búsqueda y paginación
+   * @param {string} [params.status='active'] - Filtrar por estado
+   * @returns {Promise} Respuesta con lista paginada de tarjetas
+   */
+  getCards: (params = {}) => 
+    api.get('/cards', { params }),
+
+  /**
+   * Obtener tarjetas disponibles (activas) para crear mazos
+   * @returns {Promise} Respuesta con lista de tarjetas activas
+   */
+  getAvailableCards: () => 
+    api.get('/cards', { params: { status: 'active', limit: 100 } }),
+
+  /**
+   * Obtener tarjeta por ID
+   * @param {string} cardId - ID de la tarjeta
+   * @returns {Promise} Respuesta con datos de la tarjeta
+   */
+  getCardById: (cardId) => 
+    api.get(`/cards/${cardId}`),
+
+  /**
+   * Buscar tarjeta por UID
+   * @param {string} uid - UID de la tarjeta RFID
+   * @returns {Promise} Respuesta con datos de la tarjeta
+   */
+  getCardByUid: (uid) => 
+    api.get('/cards', { params: { uid: uid.toUpperCase(), limit: 1 } }),
+
+  /**
+   * Crear nueva tarjeta
+   * @param {Object} data - Datos de la tarjeta
+   * @param {string} data.uid - UID de la tarjeta (8 o 14 hex)
+   * @param {string} [data.type] - Tipo de tarjeta
+   * @returns {Promise} Respuesta con tarjeta creada
+   */
+  createCard: (data) => 
+    api.post('/cards', data),
+};
+
+// ============================================
+// API ENDPOINTS - MECHANICS (Mecánicas de Juego)
+// ============================================
+
+export const mechanicsAPI = {
+  /**
+   * Obtener lista de mecánicas de juego disponibles
+   * @param {Object} params - Parámetros de búsqueda
+   * @param {boolean} [params.isActive=true] - Filtrar solo activas
+   * @returns {Promise} Respuesta con lista de mecánicas
+   */
+  getMechanics: (params = { isActive: true }) => 
+    api.get('/mechanics', { params }),
+
+  /**
+   * Obtener mecánica por ID
+   * @param {string} mechanicId - ID de la mecánica
+   * @returns {Promise} Respuesta con datos de la mecánica
+   */
+  getMechanicById: (mechanicId) => 
+    api.get(`/mechanics/${mechanicId}`),
+};
+
+// ============================================
+// API ENDPOINTS - SESSIONS (Sesiones de Juego)
+// ============================================
+
+export const sessionsAPI = {
+  /**
+   * Obtener lista de sesiones del profesor
+   * @param {Object} params - Parámetros de búsqueda y paginación
+   * @returns {Promise} Respuesta con lista paginada de sesiones
+   */
+  getSessions: (params = {}) => 
+    api.get('/sessions', { params }),
+
+  /**
+   * Obtener sesión por ID
+   * @param {string} sessionId - ID de la sesión
+   * @returns {Promise} Respuesta con datos de la sesión
+   */
+  getSessionById: (sessionId) => 
+    api.get(`/sessions/${sessionId}`),
+
+  /**
+   * Crear nueva sesión de juego
+   * @param {Object} data - Datos de la sesión
+   * @param {string} data.mechanicId - ID de la mecánica
+   * @param {string} data.contextId - ID del contexto
+   * @param {Array} data.cardMappings - Mapeos de tarjetas
+   * @param {Object} data.config - Configuración de la sesión
+   * @returns {Promise} Respuesta con sesión creada
+   */
+  createSession: (data) => 
+    api.post('/sessions', data),
+
+  /**
+   * Actualizar sesión existente
+   * @param {string} sessionId - ID de la sesión
+   * @param {Object} data - Datos a actualizar
+   * @returns {Promise} Respuesta con sesión actualizada
+   */
+  updateSession: (sessionId, data) => 
+    api.put(`/sessions/${sessionId}`, data),
+
+  /**
+   * Eliminar sesión
+   * @param {string} sessionId - ID de la sesión
+   * @returns {Promise} Respuesta de confirmación
+   */
+  deleteSession: (sessionId) => 
+    api.delete(`/sessions/${sessionId}`),
+};
+
 export default api;

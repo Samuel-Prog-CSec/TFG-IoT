@@ -19,8 +19,9 @@ const seedUsers = require('./01-users');
 const seedCards = require('./02-cards');
 const seedMechanics = require('./03-mechanics');
 const seedContexts = require('./04-contexts');
-const seedSessions = require('./05-sessions');
-const seedGamePlays = require('./06-gameplays');
+const seedCardDecks = require('./05-carddecks');
+const seedSessions = require('./06-sessions');
+const seedGamePlays = require('./07-gameplays');
 
 /**
  * Conecta a la base de datos.
@@ -91,13 +92,18 @@ async function runSeeders() {
     const contexts = await seedContexts();
     logger.info(`  ✓ ${contexts.length} contextos creados\n`);
 
-    // 6. Sesiones de juego
-    logger.info('6️⃣  Seeding sesiones de juego...');
-    const sessions = await seedSessions(users, mechanics, contexts, cards);
+    // 6. Mazos de tarjetas (CardDecks)
+    logger.info('6️⃣  Seeding mazos de tarjetas...');
+    const decks = await seedCardDecks(users, contexts, cards);
+    logger.info(`  ✓ ${decks.length} mazos creados\n`);
+
+    // 7. Sesiones de juego
+    logger.info('7️⃣  Seeding sesiones de juego...');
+    const sessions = await seedSessions(users, mechanics, contexts, cards, decks);
     logger.info(`  ✓ ${sessions.length} sesiones creadas\n`);
 
-    // 7. Partidas individuales (GamePlays)
-    logger.info('7️⃣  Seeding partidas (GamePlays)...');
+    // 8. Partidas individuales (GamePlays)
+    logger.info('8️⃣  Seeding partidas (GamePlays)...');
     const gamePlays = await seedGamePlays(sessions, users.students);
     logger.info(`  ✓ ${gamePlays.length} partidas creadas\n`);
 
@@ -109,6 +115,7 @@ async function runSeeders() {
     logger.info(`   - ${cards.length} tarjetas RFID`);
     logger.info(`   - ${mechanics.length} mecánicas de juego`);
     logger.info(`   - ${contexts.length} contextos de juego`);
+    logger.info(`   - ${decks.length} mazos de tarjetas`);
     logger.info(`   - ${sessions.length} sesiones de juego`);
     logger.info(`   - ${gamePlays.length} partidas (GamePlays)\n`);
 
