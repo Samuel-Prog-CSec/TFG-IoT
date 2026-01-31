@@ -36,11 +36,14 @@ import {
   AssetSelector,
   ButtonPremium,
   GlassCard,
-  InputPremium
+  InputPremium,
+  ConfirmationModal,
+  useConfirmationModal
 } from '../components/ui';
-import { decksAPI, contextsAPI, cardsAPI, extractData, extractErrorMessage } from '../services/api';
-import { useDeckWizardDraft, formatDraftDate } from '../hooks';
+import { decksAPI, cardsAPI, extractData, extractErrorMessage } from '../services/api';
+import { useDeckWizardDraft, formatDraftDate, useContexts } from '../hooks';
 import { ROUTES } from '../constants/routes';
+import { GAME_CONFIG } from '../constants/gameConfig';
 import { toast } from 'sonner';
 
 // Configuración del wizard
@@ -75,8 +78,8 @@ const WIZARD_STEPS = [
   }
 ];
 
-const MIN_CARDS = 2;
-const MAX_CARDS = 20;
+const MIN_CARDS = GAME_CONFIG.MIN_CARDS;
+const MAX_CARDS = GAME_CONFIG.MAX_CARDS;
 
 /**
  * Componente principal del wizard de creación de mazos
@@ -94,10 +97,14 @@ export default function DeckCreationWizard() {
   const [cardAssignments, setCardAssignments] = useState({});
   const [deckName, setDeckName] = useState('');
   
-  // Datos auxiliares
-  const [contexts, setContexts] = useState([]);
+  // Hook centralizado de contextos
+  const { 
+    contexts, 
+    loading: loadingContexts 
+  } = useContexts({ autoLoad: true, onlyActive: true });
+  
+  // Datos auxiliares de cartas
   const [availableCards, setAvailableCards] = useState([]);
-  const [loadingContexts, setLoadingContexts] = useState(true);
   const [loadingCards, setLoadingCards] = useState(true);
   
   // Modo de captura de cartas
@@ -105,6 +112,12 @@ export default function DeckCreationWizard() {
   
   // Modal de borrador
   const [showDraftModal, setShowDraftModal] = useState(false);
+  
+  // Modal de confirmación para salir
+  const exitConfirmation = useConfirmationModal();
+  
+  // Verificar si hay datos sin guardar
+  const hasUnsavedData = selectedCards.length > 0 || selectedContext !== null || Object.keys(cardAssignments).length > 0 || deckName.trim() !== '';
   
   // Hook de persistencia de borrador
   const { 
@@ -117,29 +130,22 @@ export default function DeckCreationWizard() {
     draftTimestamp 
   } = useDeckWizardDraft();
 
-  // Cargar datos iniciales
+  // Cargar cartas disponibles
   useEffect(() => {
-    const loadInitialData = async () => {
+    const loadCards = async () => {
       try {
-        // Cargar contextos y cartas en paralelo
-        const [ctxRes, cardsRes] = await Promise.all([
-          contextsAPI.getContexts(),
-          cardsAPI.getCards({ status: 'active', limit: 100 })
-        ]);
-        
-        setContexts(extractData(ctxRes) || []);
+        const cardsRes = await cardsAPI.getCards({ status: 'active', limit: 100 });
         setAvailableCards(extractData(cardsRes)?.data || []);
       } catch (err) {
-        toast.error('Error al cargar datos', {
+        toast.error('Error al cargar cartas', {
           description: extractErrorMessage(err)
         });
       } finally {
-        setLoadingContexts(false);
         setLoadingCards(false);
       }
     };
     
-    loadInitialData();
+    loadCards();
   }, []);
 
   // Mostrar modal si hay borrador guardado
@@ -181,6 +187,23 @@ export default function DeckCreationWizard() {
     discardDraft();
     setShowDraftModal(false);
   }, [discardDraft]);
+
+  // Handler para salir del wizard con confirmación
+  const handleExitWizard = useCallback(() => {
+    if (hasUnsavedData) {
+      exitConfirmation.openModal({
+        title: 'Salir sin guardar',
+        message: 'Tienes cambios sin guardar. El borrador se mantendrá guardado automáticamente. ¿Seguro que quieres salir?',
+        confirmText: 'Salir',
+        variant: 'warning',
+        onConfirm: () => {
+          navigate(ROUTES.CARD_DECKS);
+        }
+      });
+    } else {
+      navigate(ROUTES.CARD_DECKS);
+    }
+  }, [hasUnsavedData, navigate, exitConfirmation]);
 
   // Handler para escaneo RFID mock
   const handleRFIDScan = useCallback((card) => {
@@ -365,7 +388,7 @@ export default function DeckCreationWizard() {
         className="max-w-5xl mx-auto mb-8"
       >
         <button
-          onClick={() => navigate(ROUTES.CARD_DECKS)}
+          onClick={handleExitWizard}
           className="flex items-center gap-2 text-slate-400 hover:text-white transition-colors mb-4"
         >
           <ArrowLeft size={18} />
@@ -509,6 +532,9 @@ export default function DeckCreationWizard() {
           </motion.div>
         )}
       </AnimatePresence>
+
+      {/* Modal de confirmación para salir */}
+      <ConfirmationModal {...exitConfirmation.modalProps} />
     </div>
   );
 }

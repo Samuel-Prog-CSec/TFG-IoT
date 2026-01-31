@@ -6,7 +6,7 @@
  * @module pages/CardDecksPage
  */
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import { 
@@ -17,18 +17,19 @@ import {
   AlertCircle,
   Archive,
   RefreshCw,
-  X,
-  FileQuestion
+  X
 } from 'lucide-react';
 import { cn } from '../lib/utils';
-import { decksAPI, contextsAPI, extractData, extractErrorMessage } from '../services/api';
-import { DeckCard, DeckCardSkeleton, ButtonPremium, GlassCard } from '../components/ui';
+import { decksAPI, extractErrorMessage } from '../services/api';
+import { DeckCard, DeckCardSkeleton, ButtonPremium, GlassCard, ConfirmationModal, useConfirmationModal } from '../components/ui';
+import { useContexts } from '../hooks';
 import { ROUTES } from '../constants/routes';
 import { toast } from 'sonner';
-import confetti from 'canvas-confetti';
 
 // Límite de mazos por profesor (sincronizado con backend)
 const MAX_DECKS = 50;
+// Umbral para reducir animaciones por rendimiento
+const REDUCED_MOTION_THRESHOLD = 15;
 
 /**
  * Página principal de gestión de mazos
@@ -46,7 +47,6 @@ export default function CardDecksPage() {
   const [searchQuery, setSearchQuery] = useState('');
   const [statusFilter, setStatusFilter] = useState('active');
   const [contextFilter, setContextFilter] = useState('');
-  const [contexts, setContexts] = useState([]);
   const [showFilters, setShowFilters] = useState(false);
   
   // Paginación
@@ -55,23 +55,18 @@ export default function CardDecksPage() {
   const [loadingMore, setLoadingMore] = useState(false);
   
   // Modal de confirmación para archivar
-  const [archiveModal, setArchiveModal] = useState({ open: false, deck: null });
+  const archiveModal = useConfirmationModal();
+  const [archivingDeck, setArchivingDeck] = useState(null);
+  const [archiveLoading, setArchiveLoading] = useState(false);
 
-  // Cargar contextos para filtro
-  useEffect(() => {
-    const loadContexts = async () => {
-      try {
-        const response = await contextsAPI.getContexts();
-        setContexts(extractData(response) || []);
-      } catch {
-        // Silenciar error de contextos, no es crítico
-      }
-    };
-    loadContexts();
-  }, []);
+  // Hook de contextos (para filtro)
+  const { contexts } = useContexts({ autoLoad: true, onlyActive: true });
+
+  // Calcular si usar animaciones reducidas
+  const useReducedMotion = useMemo(() => decks.length > REDUCED_MOTION_THRESHOLD, [decks.length]);
 
   // Cargar mazos
-  const loadDecks = useCallback(async (resetPage = true) => {
+  const loadDecks = useCallback(async (resetPage = true, skipCount = false) => {
     try {
       if (resetPage) {
         setLoading(true);
@@ -105,9 +100,18 @@ export default function CardDecksPage() {
 
       setHasMore(pagination.page < pagination.totalPages);
       
-      // Actualizar contador
-      const countData = await decksAPI.getDecksCount();
-      setDeckCount(countData);
+      // Optimización: Usar total de paginación cuando está disponible
+      // Solo llamar al endpoint de conteo cuando es necesario
+      if (!skipCount) {
+        // Si estamos en estado 'active' sin filtros, usamos pagination.total
+        if (statusFilter === 'active' && !searchQuery && !contextFilter && pagination.total !== undefined) {
+          setDeckCount(prev => ({ ...prev, active: pagination.total }));
+        } else {
+          // Necesitamos el conteo completo (incluye archived)
+          const countData = await decksAPI.getDecksCount();
+          setDeckCount(countData);
+        }
+      }
 
     } catch (err) {
       setError(extractErrorMessage(err));
@@ -154,24 +158,28 @@ export default function CardDecksPage() {
   };
 
   const handleArchiveDeck = (deck) => {
-    setArchiveModal({ open: true, deck });
+    setArchivingDeck(deck);
+    archiveModal.open();
   };
 
   const confirmArchive = async () => {
-    if (!archiveModal.deck) return;
+    if (!archivingDeck) return;
     
+    setArchiveLoading(true);
     try {
-      await decksAPI.deleteDeck(archiveModal.deck._id);
+      await decksAPI.deleteDeck(archivingDeck._id);
       toast.success('Mazo archivado', {
-        description: `"${archiveModal.deck.name}" ha sido archivado correctamente.`,
+        description: `"${archivingDeck.name}" ha sido archivado correctamente.`,
       });
+      archiveModal.close();
+      setArchivingDeck(null);
       loadDecks(true);
     } catch (err) {
       toast.error('Error al archivar', {
         description: extractErrorMessage(err),
       });
     } finally {
-      setArchiveModal({ open: false, deck: null });
+      setArchiveLoading(false);
     }
   };
 
@@ -454,7 +462,7 @@ export default function CardDecksPage() {
             animate="visible"
             variants={{
               visible: {
-                transition: { staggerChildren: 0.05 },
+                transition: { staggerChildren: useReducedMotion ? 0.02 : 0.05 },
               },
             }}
           >
@@ -471,6 +479,7 @@ export default function CardDecksPage() {
                   onView={handleViewDeck}
                   onEdit={handleEditDeck}
                   onDelete={handleArchiveDeck}
+                  reducedMotion={useReducedMotion}
                 />
               </motion.div>
             ))}
@@ -492,56 +501,25 @@ export default function CardDecksPage() {
       )}
 
       {/* Modal de confirmación para archivar */}
-      <AnimatePresence>
-        {archiveModal.open && (
-          <motion.div
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
-            className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm"
-            onClick={() => setArchiveModal({ open: false, deck: null })}
-          >
-            <motion.div
-              initial={{ scale: 0.9, opacity: 0 }}
-              animate={{ scale: 1, opacity: 1 }}
-              exit={{ scale: 0.9, opacity: 0 }}
-              onClick={(e) => e.stopPropagation()}
-              className="bg-slate-900 border border-white/10 rounded-2xl p-6 max-w-md w-full shadow-2xl"
-            >
-              <div className="flex items-center gap-4 mb-4">
-                <div className="w-12 h-12 rounded-xl bg-amber-500/20 flex items-center justify-center">
-                  <Archive className="text-amber-400" size={24} />
-                </div>
-                <div>
-                  <h3 className="text-lg font-semibold text-white">Archivar mazo</h3>
-                  <p className="text-sm text-slate-400">Esta acción es reversible</p>
-                </div>
-              </div>
-
-              <p className="text-slate-300 mb-6">
-                ¿Estás seguro de que quieres archivar <strong className="text-white">"{archiveModal.deck?.name}"</strong>? 
-                El mazo no se eliminará, pero no aparecerá en tus mazos activos.
-              </p>
-
-              <div className="flex gap-3 justify-end">
-                <ButtonPremium
-                  variant="ghost"
-                  onClick={() => setArchiveModal({ open: false, deck: null })}
-                >
-                  Cancelar
-                </ButtonPremium>
-                <ButtonPremium
-                  variant="danger"
-                  onClick={confirmArchive}
-                  icon={<Archive size={16} />}
-                >
-                  Archivar
-                </ButtonPremium>
-              </div>
-            </motion.div>
-          </motion.div>
-        )}
-      </AnimatePresence>
+      <ConfirmationModal
+        open={archiveModal.isOpen}
+        onClose={() => {
+          archiveModal.close();
+          setArchivingDeck(null);
+        }}
+        onConfirm={confirmArchive}
+        title="Archivar mazo"
+        description={
+          <>
+            ¿Estás seguro de que quieres archivar{' '}
+            <strong className="text-white">"{archivingDeck?.name}"</strong>?
+            El mazo no se eliminará, pero no aparecerá en tus mazos activos.
+          </>
+        }
+        variant="archive"
+        confirmLabel="Archivar"
+        loading={archiveLoading}
+      />
     </div>
   );
 }

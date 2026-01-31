@@ -10,6 +10,9 @@ export { default as ProgressBarPremium, GameTimerBar } from './ProgressBarPremiu
 export { default as StatusBadge, CountBadge } from './StatusBadge';
 export { default as SkeletonShimmer, SkeletonCard, SkeletonStatCard } from './SkeletonShimmer';
 
+// Modal de confirmación reutilizable
+export { default as ConfirmationModal, useConfirmationModal } from './ConfirmationModal';
+
 // Componentes para gestión de mazos (CardDeck)
 export { default as WizardStepper, WizardStepperCompact } from './WizardStepper';
 export { default as DeckCard, DeckCardSkeleton } from './DeckCard';

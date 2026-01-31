@@ -19,7 +19,6 @@ import {
   AlertTriangle,
   Trash2,
   Plus,
-  RefreshCw,
   X
 } from 'lucide-react';
 import { cn } from '../lib/utils';
@@ -30,14 +29,17 @@ import {
   AssetSelector,
   CardSelector,
   RFIDScannerPanel,
-  SkeletonCard
+  SkeletonCard,
+  ConfirmationModal,
+  useConfirmationModal
 } from '../components/ui';
-import { decksAPI, contextsAPI, cardsAPI, extractData, extractErrorMessage } from '../services/api';
+import { useContexts } from '../hooks';
+import { decksAPI, cardsAPI, extractData, extractErrorMessage } from '../services/api';
 import { ROUTES } from '../constants/routes';
+import { GAME_CONFIG } from '../constants/gameConfig';
 import { toast } from 'sonner';
 
-const MIN_CARDS = 2;
-const MAX_CARDS = 20;
+const { MIN_CARDS, MAX_CARDS } = GAME_CONFIG;
 
 /**
  * Página de edición de mazo
@@ -58,8 +60,13 @@ export default function DeckEditPage() {
   const [selectedContext, setSelectedContext] = useState(null);
   const [cardAssignments, setCardAssignments] = useState({});
   
+  // Hook de contextos
+  const { contexts, loading: contextsLoading, findContextById } = useContexts({ 
+    autoLoad: true, 
+    onlyActive: true 
+  });
+  
   // Datos auxiliares
-  const [contexts, setContexts] = useState([]);
   const [availableCards, setAvailableCards] = useState([]);
   
   // UI states
@@ -68,7 +75,10 @@ export default function DeckEditPage() {
   const [captureMode, setCaptureMode] = useState('manual');
   const [activeCardId, setActiveCardId] = useState(null);
   const [hasChanges, setHasChanges] = useState(false);
-  const [showDeleteModal, setShowDeleteModal] = useState(false);
+  
+  // Modal de confirmación para eliminar
+  const deleteModal = useConfirmationModal();
+  const [deleteLoading, setDeleteLoading] = useState(false);
 
   // Cargar datos iniciales
   useEffect(() => {
@@ -77,15 +87,13 @@ export default function DeckEditPage() {
         setLoading(true);
         setError(null);
 
-        // Cargar todo en paralelo
-        const [deckRes, ctxRes, cardsRes] = await Promise.all([
+        // Cargar mazo y cartas en paralelo (contextos ya se cargan con useContexts)
+        const [deckRes, cardsRes] = await Promise.all([
           decksAPI.getDeckById(deckId),
-          contextsAPI.getContexts(),
           cardsAPI.getCards({ status: 'active', limit: 100 })
         ]);
 
         const deckData = extractData(deckRes);
-        const contextsData = extractData(ctxRes) || [];
         const cardsData = extractData(cardsRes)?.data || [];
 
         if (!deckData) {
@@ -94,12 +102,7 @@ export default function DeckEditPage() {
 
         setDeck(deckData);
         setDeckName(deckData.name);
-        setContexts(contextsData);
         setAvailableCards(cardsData);
-
-        // Establecer contexto seleccionado
-        const ctx = contextsData.find(c => c._id === deckData.contextId?._id || c._id === deckData.contextId);
-        setSelectedContext(ctx || null);
 
         // Establecer cartas y asignaciones
         if (deckData.cards && Array.isArray(deckData.cards)) {
@@ -139,6 +142,17 @@ export default function DeckEditPage() {
 
     loadData();
   }, [deckId]);
+
+  // Establecer contexto seleccionado cuando los contextos se carguen
+  useEffect(() => {
+    if (!deck || !contexts.length) return;
+    
+    const contextId = deck.contextId?._id || deck.contextId;
+    const ctx = findContextById(contextId);
+    if (ctx && !selectedContext) {
+      setSelectedContext(ctx);
+    }
+  }, [deck, contexts, findContextById, selectedContext]);
 
   // Detectar cambios
   useEffect(() => {
@@ -283,16 +297,19 @@ export default function DeckEditPage() {
 
   // Archivar mazo
   const handleDelete = async () => {
+    setDeleteLoading(true);
     try {
       await decksAPI.deleteDeck(deckId);
       toast.success('Mazo archivado');
+      deleteModal.close();
       navigate(ROUTES.CARD_DECKS);
     } catch (err) {
       toast.error('Error al archivar', {
         description: extractErrorMessage(err)
       });
+    } finally {
+      setDeleteLoading(false);
     }
-    setShowDeleteModal(false);
   };
 
   // Loading state
@@ -359,7 +376,7 @@ export default function DeckEditPage() {
           <div className="flex items-center gap-3">
             <ButtonPremium
               variant="ghost"
-              onClick={() => setShowDeleteModal(true)}
+              onClick={() => deleteModal.open()}
               icon={<Trash2 size={16} />}
               className="text-rose-400 hover:text-rose-300"
             >
@@ -498,32 +515,51 @@ export default function DeckEditPage() {
                   </p>
                 </div>
 
-                <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
-                  {contexts.map((context) => (
-                    <motion.button
-                      key={context._id}
-                      onClick={() => handleContextChange(context)}
-                      className={cn(
-                        'relative p-4 rounded-xl border-2 transition-all text-left',
-                        selectedContext?._id === context._id
-                          ? 'border-indigo-500 bg-indigo-500/10'
-                          : 'border-white/10 bg-slate-800/30 hover:border-white/20'
-                      )}
-                      whileHover={{ scale: 1.02 }}
-                      whileTap={{ scale: 0.98 }}
-                    >
-                      <div className="flex flex-wrap gap-1 mb-3 h-10 overflow-hidden">
-                        {context.assets?.slice(0, 6).map((asset, i) => (
-                          <span key={i} className="text-2xl">{asset.display || '📦'}</span>
-                        ))}
+                {contextsLoading ? (
+                  <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
+                    {[...Array(6)].map((_, i) => (
+                      <div 
+                        key={i} 
+                        className="p-4 rounded-xl border-2 border-white/5 bg-slate-800/30 animate-pulse"
+                      >
+                        <div className="flex gap-1 mb-3 h-10">
+                          {[...Array(4)].map((_, j) => (
+                            <div key={j} className="w-8 h-8 rounded bg-slate-700" />
+                          ))}
+                        </div>
+                        <div className="h-5 w-24 bg-slate-700 rounded mb-2" />
+                        <div className="h-3 w-16 bg-slate-700/50 rounded" />
                       </div>
-                      <h3 className="font-medium text-white mb-1">{context.name}</h3>
-                      <p className="text-xs text-slate-400">
-                        {context.assets?.length || 0} assets
-                      </p>
-                    </motion.button>
-                  ))}
-                </div>
+                    ))}
+                  </div>
+                ) : (
+                  <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
+                    {contexts.map((context) => (
+                      <motion.button
+                        key={context._id}
+                        onClick={() => handleContextChange(context)}
+                        className={cn(
+                          'relative p-4 rounded-xl border-2 transition-all text-left',
+                          selectedContext?._id === context._id
+                            ? 'border-indigo-500 bg-indigo-500/10'
+                            : 'border-white/10 bg-slate-800/30 hover:border-white/20'
+                        )}
+                        whileHover={{ scale: 1.02 }}
+                        whileTap={{ scale: 0.98 }}
+                      >
+                        <div className="flex flex-wrap gap-1 mb-3 h-10 overflow-hidden">
+                          {context.assets?.slice(0, 6).map((asset, i) => (
+                            <span key={i} className="text-2xl">{asset.display || '📦'}</span>
+                          ))}
+                        </div>
+                        <h3 className="font-medium text-white mb-1">{context.name}</h3>
+                        <p className="text-xs text-slate-400">
+                          {context.assets?.length || 0} assets
+                        </p>
+                      </motion.button>
+                    ))}
+                  </div>
+                )}
               </GlassCard>
             </motion.div>
           )}
@@ -677,56 +713,22 @@ export default function DeckEditPage() {
       </AnimatePresence>
 
       {/* Modal confirmar archivo */}
-      <AnimatePresence>
-        {showDeleteModal && (
-          <motion.div
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
-            className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm"
-            onClick={() => setShowDeleteModal(false)}
-          >
-            <motion.div
-              initial={{ scale: 0.9, opacity: 0 }}
-              animate={{ scale: 1, opacity: 1 }}
-              exit={{ scale: 0.9, opacity: 0 }}
-              onClick={(e) => e.stopPropagation()}
-              className="bg-slate-900 border border-white/10 rounded-2xl p-6 max-w-md w-full"
-            >
-              <div className="flex items-center gap-4 mb-4">
-                <div className="w-12 h-12 rounded-xl bg-rose-500/20 flex items-center justify-center">
-                  <Trash2 className="text-rose-400" size={24} />
-                </div>
-                <div>
-                  <h3 className="text-lg font-semibold text-white">Archivar mazo</h3>
-                  <p className="text-sm text-slate-400">Esta acción es reversible</p>
-                </div>
-              </div>
-
-              <p className="text-slate-300 mb-6">
-                ¿Estás seguro de archivar <strong className="text-white">"{deckName}"</strong>?
-                El mazo dejará de aparecer en tu lista de mazos activos.
-              </p>
-
-              <div className="flex gap-3 justify-end">
-                <ButtonPremium
-                  variant="ghost"
-                  onClick={() => setShowDeleteModal(false)}
-                >
-                  Cancelar
-                </ButtonPremium>
-                <ButtonPremium
-                  variant="danger"
-                  onClick={handleDelete}
-                  icon={<Trash2 size={16} />}
-                >
-                  Archivar
-                </ButtonPremium>
-              </div>
-            </motion.div>
-          </motion.div>
-        )}
-      </AnimatePresence>
+      <ConfirmationModal
+        open={deleteModal.isOpen}
+        onClose={deleteModal.close}
+        onConfirm={handleDelete}
+        title="Archivar mazo"
+        description={
+          <>
+            ¿Estás seguro de archivar{' '}
+            <strong className="text-white">"{deckName}"</strong>?
+            El mazo dejará de aparecer en tu lista de mazos activos.
+          </>
+        }
+        variant="archive"
+        confirmLabel="Archivar"
+        loading={deleteLoading}
+      />
 
       {/* Indicador de cambios sin guardar */}
       <AnimatePresence>

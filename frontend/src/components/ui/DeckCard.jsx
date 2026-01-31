@@ -3,10 +3,15 @@
  * Incluye efecto 3D tilt, gradiente animado en borde, preview de assets con parallax,
  * y acciones hover con slide-up.
  * 
+ * Optimizaciones de rendimiento:
+ * - Animaciones reducidas cuando hay muchas cards (>15)
+ * - Respeta prefers-reduced-motion del sistema
+ * - will-change aplicado solo en hover
+ * 
  * @module components/ui/DeckCard
  */
 
-import { useState, useRef } from 'react';
+import { useState, useRef, useMemo } from 'react';
 import { motion, useMotionValue, useSpring, useTransform } from 'framer-motion';
 import { Layers, Edit2, Trash2, Eye, MoreVertical, Calendar, CreditCard } from 'lucide-react';
 import { cn } from '../../lib/utils';
@@ -29,6 +34,7 @@ import { cn } from '../../lib/utils';
  * @param {Function} [props.onSelect] - Callback al seleccionar (para wizard)
  * @param {boolean} [props.selectable=false] - Modo seleccionable
  * @param {boolean} [props.selected=false] - Estado seleccionado
+ * @param {boolean} [props.reducedMotion=false] - Reducir animaciones para rendimiento
  * @param {string} [props.className] - Clases adicionales
  */
 export default function DeckCard({
@@ -39,24 +45,42 @@ export default function DeckCard({
   onSelect,
   selectable = false,
   selected = false,
+  reducedMotion = false,
   className,
 }) {
   const [isHovered, setIsHovered] = useState(false);
   const cardRef = useRef(null);
 
+  // Detectar preferencia de movimiento reducido del sistema
+  const prefersReducedMotion = useMemo(() => {
+    if (typeof window === 'undefined') return false;
+    return window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+  }, []);
+
+  // Determinar si usar animaciones completas
+  const useFullAnimations = !reducedMotion && !prefersReducedMotion;
+
   // Valores para efecto 3D tilt
   const x = useMotionValue(0);
   const y = useMotionValue(0);
 
-  const mouseXSpring = useSpring(x, { stiffness: 500, damping: 100 });
-  const mouseYSpring = useSpring(y, { stiffness: 500, damping: 100 });
+  // Springs más suaves cuando hay animaciones reducidas
+  const springConfig = useFullAnimations 
+    ? { stiffness: 400, damping: 90 }
+    : { stiffness: 200, damping: 50 };
 
-  const rotateX = useTransform(mouseYSpring, [-0.5, 0.5], ['10deg', '-10deg']);
-  const rotateY = useTransform(mouseXSpring, [-0.5, 0.5], ['-10deg', '10deg']);
+  const mouseXSpring = useSpring(x, springConfig);
+  const mouseYSpring = useSpring(y, springConfig);
 
-  // Efecto parallax para los assets preview
-  const assetX = useTransform(mouseXSpring, [-0.5, 0.5], [10, -10]);
-  const assetY = useTransform(mouseYSpring, [-0.5, 0.5], [10, -10]);
+  // Ángulo de rotación (reducido si necesario)
+  const rotationAmount = useFullAnimations ? 10 : 5;
+  const rotateX = useTransform(mouseYSpring, [-0.5, 0.5], [`${rotationAmount}deg`, `-${rotationAmount}deg`]);
+  const rotateY = useTransform(mouseXSpring, [-0.5, 0.5], [`-${rotationAmount}deg`, `${rotationAmount}deg`]);
+
+  // Efecto parallax para los assets preview (reducido si necesario)
+  const parallaxAmount = useFullAnimations ? 10 : 4;
+  const assetX = useTransform(mouseXSpring, [-0.5, 0.5], [parallaxAmount, -parallaxAmount]);
+  const assetY = useTransform(mouseYSpring, [-0.5, 0.5], [parallaxAmount, -parallaxAmount]);
 
   const handleMouseMove = (e) => {
     if (!cardRef.current) return;
@@ -111,6 +135,16 @@ export default function DeckCard({
       animate={{ opacity: 1, y: 0 }}
       whileHover={{ z: 20 }}
       transition={{ duration: 0.3 }}
+      role={selectable ? 'button' : 'article'}
+      aria-label={selectable ? `Seleccionar mazo ${deck.name}` : `Mazo ${deck.name}`}
+      aria-selected={selectable ? selected : undefined}
+      tabIndex={selectable ? 0 : undefined}
+      onKeyDown={selectable ? (e) => {
+        if (e.key === 'Enter' || e.key === ' ') {
+          e.preventDefault();
+          handleClick();
+        }
+      } : undefined}
     >
       <motion.div
         className={cn(
@@ -124,9 +158,10 @@ export default function DeckCard({
           selectable && 'hover:ring-2 hover:ring-indigo-400/50'
         )}
         style={{
-          rotateX: isHovered ? rotateX : 0,
-          rotateY: isHovered ? rotateY : 0,
+          rotateX: useFullAnimations && isHovered ? rotateX : 0,
+          rotateY: useFullAnimations && isHovered ? rotateY : 0,
           transformStyle: 'preserve-3d',
+          willChange: isHovered ? 'transform' : 'auto',
         }}
       >
         {/* Gradiente animado en el borde */}
@@ -171,8 +206,10 @@ export default function DeckCard({
                   whileHover={{ scale: 1.1 }}
                   whileTap={{ scale: 0.95 }}
                   onClick={(e) => e.stopPropagation()}
+                  aria-label={`Opciones para mazo ${deck.name}`}
+                  aria-haspopup="true"
                 >
-                  <MoreVertical size={18} />
+                  <MoreVertical size={18} aria-hidden="true" />
                 </motion.button>
               </div>
             )}
@@ -189,8 +226,8 @@ export default function DeckCard({
           <motion.div 
             className="flex items-center gap-2 mb-4"
             style={{
-              x: isHovered ? assetX : 0,
-              y: isHovered ? assetY : 0,
+              x: useFullAnimations && isHovered ? assetX : 0,
+              y: useFullAnimations && isHovered ? assetY : 0,
             }}
           >
             {previewAssets.map((mapping, index) => (
@@ -316,8 +353,9 @@ function ActionButton({ icon: Icon, label, onClick, variant = 'default' }) {
       onClick={onClick}
       whileHover={{ scale: 1.05 }}
       whileTap={{ scale: 0.95 }}
+      aria-label={label}
     >
-      <Icon size={14} />
+      <Icon size={14} aria-hidden="true" />
       <span>{label}</span>
     </motion.button>
   );
