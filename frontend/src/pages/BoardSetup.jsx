@@ -6,6 +6,7 @@ import { CSS } from '@dnd-kit/utilities';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Layers, RotateCcw, Play, CheckCircle } from 'lucide-react';
 import clsx from 'clsx';
+import confetti from 'canvas-confetti';
 import { api } from '../services/mockApi';
 
 export default function BoardSetup() {
@@ -141,6 +142,15 @@ export default function BoardSetup() {
         // Place active card in target
         newSlots[targetSlotId] = activeCard;
         setSlots(newSlots);
+
+        // 🎉 Confetti effect for feedback
+        confetti({
+            particleCount: 30,
+            spread: 50,
+            origin: { y: 0.7 },
+            colors: ['#6366f1', '#8b5cf6', '#a855f7'],
+            disableForReducedMotion: true
+        });
     }
   };
 

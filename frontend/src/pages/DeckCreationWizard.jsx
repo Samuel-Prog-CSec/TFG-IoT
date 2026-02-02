@@ -78,8 +78,8 @@ const WIZARD_STEPS = [
   }
 ];
 
-const MIN_CARDS = GAME_CONFIG.MIN_CARDS;
-const MAX_CARDS = GAME_CONFIG.MAX_CARDS;
+const {MIN_CARDS} = GAME_CONFIG;
+const {MAX_CARDS} = GAME_CONFIG;
 
 /**
  * Componente principal del wizard de creación de mazos
@@ -134,7 +134,7 @@ export default function DeckCreationWizard() {
   useEffect(() => {
     const loadCards = async () => {
       try {
-        const cardsRes = await cardsAPI.getCards({ status: 'active', limit: 100 });
+        const cardsRes = await cardsAPI.getCards({ limit: 100 });
         setAvailableCards(extractData(cardsRes)?.data || []);
       } catch (err) {
         toast.error('Error al cargar cartas', {
@@ -612,6 +612,7 @@ function StepCards({
               scannedCards={selectedCards}
               onRemoveCard={onRemoveCard}
               maxCards={maxCards}
+              availableCards={availableCards}
             />
           </motion.div>
         ) : (

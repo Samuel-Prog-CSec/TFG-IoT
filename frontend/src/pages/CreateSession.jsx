@@ -144,7 +144,7 @@ export default function CreateSession() {
     const loadData = async () => {
       try {
         const [decksRes, mechsRes] = await Promise.all([
-          decksAPI.getDecks({ status: 'active', limit: 50 }),
+          decksAPI.getDecks({ limit: 50 }),
           mechanicsAPI.getMechanics()
         ]);
         

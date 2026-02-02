@@ -150,6 +150,7 @@ export default function AppLayout() {
             Menú Principal
           </p>
           <NavItem to="/dashboard" icon={<LayoutDashboard size={20} />} label="Dashboard" />
+          <NavItem to="/decks" icon={<Layers size={20} />} label="Mis Mazos" />
           <NavItem to="/create-session" icon={<PlusCircle size={20} />} label="Nueva Sesión" />
         </nav>
 

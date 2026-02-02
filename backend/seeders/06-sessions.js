@@ -58,7 +58,7 @@ function findDeckByContext(teacherDecks, contexts, contextKey) {
  * Cada template define qué tipo de sesión crear.
  */
 const sessionTemplates = [
-  // --- SESIONES ACTIVAS ---
+  // --- SESIONES ACTIVAS (HOY) ---
   {
     contextKey: 'colors-basic',
     mechanicName: 'association',
@@ -70,133 +70,105 @@ const sessionTemplates = [
     },
     status: 'active',
     difficulty: 'easy',
-    description: 'Asociación con Colores'
+    description: 'Asociación con Colores - Grupo A'
   },
+
+  // --- SESIONES COMPLETADAS (HISTÓRICO RECIENTE - Mismo día o ayer) ---
+  // Para mostrar actividad reciente en el dashboard
   {
     contextKey: 'animals-farm',
     mechanicName: 'association',
     config: {
-      numberOfRounds: 6,
-      timeLimit: 12,
+      numberOfRounds: 10,
+      timeLimit: 10,
       pointsPerCorrect: 10,
       penaltyPerError: -3
     },
-    status: 'active',
+    status: 'completed',
     difficulty: 'medium',
-    description: 'Asociación con Animales de Granja'
+    description: 'Exámen Animales de Granja',
+    daysAgo: 0 // Hoy
   },
-
-  // --- SESIONES CREADAS (pendientes de iniciar) ---
   {
     contextKey: 'numbers-1-10',
     mechanicName: 'sequence',
     config: {
-      numberOfRounds: 3,
-      timeLimit: 30,
+      numberOfRounds: 8,
+      timeLimit: 20,
       pointsPerCorrect: 15,
       penaltyPerError: -5
     },
-    status: 'created',
-    difficulty: 'easy',
-    description: 'Secuencia con Números'
+    status: 'completed',
+    difficulty: 'medium',
+    description: 'Práctica de Números',
+    daysAgo: 1 // Ayer
   },
+
+  // --- SESIONES COMPLETADAS (HISTÓRICO SEMANAL) ---
+  // Para ver tendencias en el gráfico
   {
     contextKey: 'shapes',
     mechanicName: 'memory',
-    config: {
-      numberOfRounds: 5,
-      timeLimit: 20,
-      pointsPerCorrect: 20,
-      penaltyPerError: -3
-    },
-    status: 'created',
+    config: { numberOfRounds: 5, timeLimit: 20, pointsPerCorrect: 20, penaltyPerError: -3 },
+    status: 'completed',
     difficulty: 'medium',
-    description: 'Memoria con Formas'
+    description: 'Memoria de Formas - Lunes',
+    daysAgo: 2
   },
   {
     contextKey: 'emotions',
     mechanicName: 'classification',
-    config: {
-      numberOfRounds: 5,
-      timeLimit: 20,
-      pointsPerCorrect: 10,
-      penaltyPerError: -2
-    },
-    status: 'created',
+    config: { numberOfRounds: 6, timeLimit: 15, pointsPerCorrect: 10, penaltyPerError: -2 },
+    status: 'completed',
     difficulty: 'hard',
-    description: 'Clasificación con Emociones'
+    description: 'Identificando Emociones',
+    daysAgo: 3
   },
   {
     contextKey: 'alphabet-vowels',
     mechanicName: 'association',
-    config: {
-      numberOfRounds: 5,
-      timeLimit: 15,
-      pointsPerCorrect: 10,
-      penaltyPerError: -2
-    },
-    status: 'created',
+    config: { numberOfRounds: 5, timeLimit: 15, pointsPerCorrect: 10, penaltyPerError: -2 },
+    status: 'completed',
     difficulty: 'easy',
-    description: 'Asociación con Vocales'
+    description: 'Repaso de Vocales',
+    daysAgo: 4
   },
-
-  // --- SESIONES COMPLETADAS (históricas) ---
   {
     contextKey: 'fruits',
     mechanicName: 'association',
-    config: {
-      numberOfRounds: 5,
-      timeLimit: 15,
-      pointsPerCorrect: 10,
-      penaltyPerError: -2
-    },
+    config: { numberOfRounds: 5, timeLimit: 15, pointsPerCorrect: 10, penaltyPerError: -2 },
     status: 'completed',
     difficulty: 'easy',
-    description: 'Asociación con Frutas',
-    daysAgo: 2 // Completada hace 2 días
-  },
-  {
-    contextKey: 'animals-wild',
-    mechanicName: 'association',
-    config: {
-      numberOfRounds: 5,
-      timeLimit: 12,
-      pointsPerCorrect: 12,
-      penaltyPerError: -3
-    },
-    status: 'completed',
-    difficulty: 'medium',
-    description: 'Asociación con Animales Salvajes',
-    daysAgo: 5 // Completada hace 5 días
+    description: 'Frutas y Colores',
+    daysAgo: 5
   },
   {
     contextKey: 'transport',
     mechanicName: 'sequence',
-    config: {
-      numberOfRounds: 4,
-      timeLimit: 25,
-      pointsPerCorrect: 15,
-      penaltyPerError: -4
-    },
+    config: { numberOfRounds: 4, timeLimit: 25, pointsPerCorrect: 15, penaltyPerError: -4 },
     status: 'completed',
     difficulty: 'medium',
-    description: 'Secuencia de Transportes',
-    daysAgo: 7 // Completada hace una semana
+    description: 'Secuencias de Transporte',
+    daysAgo: 6
+  },
+  {
+    contextKey: 'animals-wild',
+    mechanicName: 'association',
+    config: { numberOfRounds: 8, timeLimit: 12, pointsPerCorrect: 12, penaltyPerError: -3 },
+    status: 'completed',
+    difficulty: 'medium',
+    description: 'Animales Salvajes - Repaso',
+    daysAgo: 7
   },
 
-  // --- SESIONES PAUSADAS ---
+  // --- SESIONES CREADAS (FUTURO) ---
   {
     contextKey: 'weekdays',
     mechanicName: 'sequence',
-    config: {
-      numberOfRounds: 3,
-      timeLimit: 30,
-      pointsPerCorrect: 15,
-      penaltyPerError: -5
-    },
-    status: 'paused',
-    difficulty: 'easy',
-    description: 'Secuencia de Días de la Semana'
+    config: { numberOfRounds: 7, timeLimit: 30, pointsPerCorrect: 15, penaltyPerError: -5 },
+    status: 'created',
+    difficulty: 'medium',
+    description: 'Prueba de Días de la Semana'
   }
 ];
 

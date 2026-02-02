@@ -89,6 +89,10 @@ export default function DeckCard({
     const yPos = (e.clientY - rect.top) / rect.height - 0.5;
     x.set(xPos);
     y.set(yPos);
+    
+    // Set CSS variables for holographic effect
+    cardRef.current.style.setProperty('--mouse-x', `${e.clientX - rect.left}px`);
+    cardRef.current.style.setProperty('--mouse-y', `${e.clientY - rect.top}px`);
   };
 
   const handleMouseLeave = () => {
@@ -200,12 +204,15 @@ export default function DeckCard({
 
             {/* Menú de acciones (solo si no es selectable) */}
             {!selectable && (
-              <div className="relative">
+              <div className="relative z-20">
                 <motion.button
                   className="p-2 rounded-lg text-slate-400 hover:text-white hover:bg-white/10 transition-colors"
                   whileHover={{ scale: 1.1 }}
                   whileTap={{ scale: 0.95 }}
-                  onClick={(e) => e.stopPropagation()}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    // Implement menu logic if needed, or keep as visual
+                  }}
                   aria-label={`Opciones para mazo ${deck.name}`}
                   aria-haspopup="true"
                 >
@@ -271,7 +278,7 @@ export default function DeckCard({
           {/* Acciones hover (slide-up) */}
           {!selectable && (
             <motion.div
-              className="absolute bottom-0 left-0 right-0 p-4 pt-8 bg-gradient-to-t from-slate-900 via-slate-900/95 to-transparent"
+              className="absolute bottom-0 left-0 right-0 p-4 pt-8 bg-gradient-to-t from-slate-900 via-slate-900/95 to-transparent z-20"
               initial={{ opacity: 0, y: 20 }}
               animate={{ 
                 opacity: isHovered ? 1 : 0, 
@@ -319,7 +326,7 @@ export default function DeckCard({
         <motion.div
           className="absolute inset-0 opacity-0 group-hover:opacity-100 pointer-events-none"
           style={{
-            background: 'radial-gradient(circle at var(--mouse-x, 50%) var(--mouse-y, 50%), rgba(139, 92, 246, 0.15) 0%, transparent 50%)',
+            background: 'radial-gradient(800px circle at var(--mouse-x) var(--mouse-y), rgba(255, 255, 255, 0.1) 0%, transparent 40%)',
           }}
         />
       </motion.div>

@@ -65,6 +65,7 @@ export default function RFIDScannerPanel({
   maxCards = 20,
   allowDuplicates = false,
   showMockButton = true,
+  availableCards = [], // Cartas reales disponibles para simular
   className,
 }) {
   const [isScanning, setIsScanning] = useState(true);
@@ -88,20 +89,43 @@ export default function RFIDScannerPanel({
       return;
     }
 
-    const uid = generateMockUid();
-    
-    // Verificar duplicados
-    if (!allowDuplicates && scannedCards.some(c => c.uid === uid)) {
-      setError('Esta tarjeta ya ha sido escaneada');
-      setTimeout(() => setError(null), 3000);
-      return;
+    let newCard;
+
+    // Si tenemos cartas disponibles (pasadas desde el padre), usamos una de ellas
+    if (availableCards && availableCards.length > 0) {
+      // Filtrar las que ya están escaneadas
+      const availableToScan = availableCards.filter(
+        c => !scannedCards.some(sc => sc._id === c._id || sc.uid === c.uid)
+      );
+
+      if (availableToScan.length > 0) {
+        // Seleccionar aleatoria
+        const randomCard = availableToScan[Math.floor(Math.random() * availableToScan.length)];
+        newCard = {
+          ...randomCard,
+          scannedAt: new Date()
+        };
+      }
     }
 
-    const newCard = {
-      uid,
-      type: 'MIFARE_1KB',
-      scannedAt: new Date(),
-    };
+    // Si no encontramos carta real, generamos mock
+    if (!newCard) {
+      const uid = generateMockUid();
+      
+      // Verificar duplicados
+      if (!allowDuplicates && scannedCards.some(c => c.uid === uid)) {
+        setError('Esta tarjeta ya ha sido escaneada');
+        setTimeout(() => setError(null), 3000);
+        return;
+      }
+
+      newCard = {
+        _id: `mock-${uid}`, // ID temporal para evitar keys duplicadas o nulas
+        uid,
+        type: 'MIFARE_1KB',
+        scannedAt: new Date(),
+      };
+    }
 
     setLastScanned(newCard);
     onCardScanned(newCard);
@@ -124,7 +148,7 @@ export default function RFIDScannerPanel({
 
     // Limpiar animación de última escaneada
     setTimeout(() => setLastScanned(null), 1500);
-  }, [scannedCards, maxCards, allowDuplicates, onCardScanned]);
+  }, [scannedCards, maxCards, allowDuplicates, onCardScanned, availableCards]);
 
   // Eliminar tarjeta
   const handleRemoveCard = (uid) => {

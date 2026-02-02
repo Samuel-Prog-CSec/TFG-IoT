@@ -18,12 +18,12 @@ services:
     container_name: rfid-games-frontend
     restart: unless-stopped
     ports:
-      - "80:80"  # Acceso en http://localhost
+      - "80:80" # Acceso en http://localhost
     depends_on:
       - backend
     networks:
       - rfid-games-network
-  
+
   # ============================================
   # BACKEND (Node.js API REST)
   # ============================================
@@ -44,6 +44,8 @@ services:
     depends_on:
       - redis
       - mongo
+    command: >
+      sh -c "npm run seed && npm start"
     networks:
       - rfid-games-network
 
