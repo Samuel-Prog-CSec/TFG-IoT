@@ -452,6 +452,24 @@ export const usersAPI = {
    */
   deleteUser: (userId) => 
     api.delete(`/users/${userId}`),
+
+  /**
+   * Obtener alumnos de un profesor específico
+   * @param {string} teacherId - ID del profesor
+   * @param {Object} params - Parámetros opcionales (classroom, sortBy, order)
+   * @returns {Promise} Respuesta con lista de alumnos
+   */
+  getStudentsByTeacher: (teacherId, params = {}) =>
+    api.get(`/users/teacher/${teacherId}/students`, { params }),
+
+  /**
+   * Transferir un alumno a otro profesor
+   * @param {string} studentId - ID del alumno
+   * @param {Object} payload - { newTeacherId, newClassroom, reason? }
+   * @returns {Promise} Respuesta de confirmación
+   */
+  transferStudent: (studentId, payload) =>
+    api.post(`/users/${studentId}/transfer`, payload),
 };
 
 // ============================================

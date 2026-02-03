@@ -229,7 +229,8 @@ const transferStudentSchema = z
       .string()
       .trim()
       .min(1, 'newClassroom es requerido')
-      .max(50, 'newClassroom no puede exceder 50 caracteres')
+      .max(50, 'newClassroom no puede exceder 50 caracteres'),
+    reason: z.string().trim().max(200, 'reason no puede exceder 200 caracteres').optional()
   })
   .strict();
 

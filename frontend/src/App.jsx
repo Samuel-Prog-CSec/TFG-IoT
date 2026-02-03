@@ -19,6 +19,7 @@ const Dashboard = lazy(() => import('./pages/Dashboard'));
 const CreateSession = lazy(() => import('./pages/CreateSession'));
 const BoardSetup = lazy(() => import('./pages/BoardSetup'));
 const GameSession = lazy(() => import('./pages/GameSession'));
+const TransferStudents = lazy(() => import('./pages/TransferStudents'));
 
 // Card Decks pages
 const CardDecksPage = lazy(() => import('./pages/CardDecksPage'));
@@ -122,6 +123,11 @@ function AppRoutes() {
         <Route path="create-session" element={<SuspenseWrapper><CreateSession /></SuspenseWrapper>} />
         <Route path="board-setup" element={<SuspenseWrapper><BoardSetup /></SuspenseWrapper>} />
         <Route path="board-setup/:sessionId" element={<SuspenseWrapper><BoardSetup /></SuspenseWrapper>} />
+        <Route path="students/transfer" element={
+          <RequireRole roles={['teacher', 'super_admin']}>
+            <SuspenseWrapper><TransferStudents /></SuspenseWrapper>
+          </RequireRole>
+        } />
       </Route>
 
       {/* ============================================ */}

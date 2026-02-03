@@ -131,8 +131,7 @@ Reglas mínimas:
 
 ---
 
-### T-021: Integración Frontend con API REST 🔄
-
+### T-021: Integración Frontend con API REST ✅
 **Prioridad:** P0 | **Tamaño:** XL | **Dependencias:** Ninguna
 
 **Descripción:**  
@@ -159,24 +158,18 @@ Conectar la UI React con el backend real, eliminando mocks y estableciendo la co
    - Eliminar alumno con confirmación
    - Búsqueda por nombre y filtros por aula
 
-4. **CRUD completo de Tarjetas:**
-   - Listar tarjetas activas del profesor
-   - Registrar nueva tarjeta (integrado con sensor RFID)
-   - Editar metadatos (color, icono)
-   - Desactivar/Reactivar tarjeta
-
-5. **CRUD completo de Sesiones:**
+4. **CRUD completo de Sesiones:**
    - Listar sesiones del profesor con estados
    - Crear sesión con wizard (T-036)
    - Ver detalles de sesión con estadísticas
    - Iniciar/Pausar/Reanudar/Finalizar sesión
 
-6. **Gestión de estados de carga:**
+5. **Gestión de estados de carga:**
    - Estado `{ data, loading, error }` en cada componente
    - Loading spinners durante peticiones
    - Skeleton loaders para listas
 
-7. **Manejo de errores con feedback visual:**
+6. **Manejo de errores con feedback visual:**
    - Toast notifications (éxito, error, warning)
    - Mensajes descriptivos del backend
    - Retry automático en errores de red (3 intentos)
@@ -185,7 +178,6 @@ Conectar la UI React con el backend real, eliminando mocks y estableciendo la co
 
 - [ ] Login/Logout funciona con JWT real
 - [ ] Tokens se refrescan automáticamente antes de expirar
-- [ ] CRUD de alumnos, tarjetas y sesiones funcional
 - [ ] Estados de carga visibles en toda la UI
 - [ ] Errores mostrados con toast notifications
 - [ ] No hay código de mock en producción
@@ -549,7 +541,7 @@ Prevenir lecturas accidentales implementando modos de operación del sensor.
 
 ---
 
-### T-042: Aprobación de Profesores - Frontend (Duda #51) 🔄
+### T-042: Aprobación de Profesores - Frontend (Duda #51) ✅
 
 **Prioridad:** P1 | **Tamaño:** M | **Dependencias:** T-021
 
@@ -590,7 +582,7 @@ Implementar UI para que el Super Admin apruebe o rechace profesores pendientes.
 
 ---
 
-### T-043: Sesión Única por Usuario - Frontend (Duda #48) 🔄
+### T-043: Sesión Única por Usuario - Frontend (Duda #48) ✅
 
 **Prioridad:** P1 | **Tamaño:** M | **Dependencias:** T-021
 
@@ -741,7 +733,7 @@ El wizard de CreateSession fue simplificado a 4 pasos ya que la selección de ca
 
 ---
 
-### T-049: Dashboard Analytics Avanzado 📋
+### T-049: Dashboard Analytics Avanzado ✅
 
 **Prioridad:** P1 | **Tamaño:** L | **Dependencias:** T-021  
 **Origen:** Requisito pedagógico - Análisis de aprendizaje

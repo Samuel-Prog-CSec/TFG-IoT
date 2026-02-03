@@ -15,6 +15,9 @@ export const ROUTES = {
   BOARD_SETUP: '/board-setup',
   BOARD_SETUP_WITH_ID: (sessionId) => `/board-setup/${sessionId}`,
   GAME: (sessionId) => `/game/${sessionId}`,
+
+  // Alumnos
+  STUDENT_TRANSFER: '/students/transfer',
   
   // Gestión de Mazos de Cartas (CardDecks)
   CARD_DECKS: '/decks',
@@ -33,6 +36,11 @@ export const NAV_ROUTES = [
     path: ROUTES.DASHBOARD,
     label: 'Dashboard',
     icon: 'LayoutDashboard',
+  },
+  {
+    path: ROUTES.STUDENT_TRANSFER,
+    label: 'Transferencias',
+    icon: 'ArrowRightLeft',
   },
   {
     path: ROUTES.CARD_DECKS,

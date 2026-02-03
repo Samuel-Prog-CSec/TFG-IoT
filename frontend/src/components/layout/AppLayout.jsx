@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react';
+import PropTypes from 'prop-types';
 import { Outlet, NavLink, useLocation } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import { 
@@ -9,9 +10,10 @@ import {
   Menu, 
   X,
   Sparkles,
-  ChevronRight,
   UserCheck,
-  Shield
+  Shield,
+  Layers,
+  ArrowRightLeft
 } from 'lucide-react';
 import { cn, pageVariants } from '../../lib/utils';
 import { useAuth } from '../../context/AuthContext';
@@ -35,6 +37,11 @@ export default function AppLayout() {
   useEffect(() => {
     if (isMobile) setSidebarOpen(false);
   }, [location, isMobile]);
+
+  let sidebarOffset = 0;
+  if (!sidebarOpen) {
+    sidebarOffset = isMobile ? -320 : 0;
+  }
 
   return (
     <div className="flex h-screen bg-slate-900 text-white font-sans overflow-hidden">
@@ -71,7 +78,7 @@ export default function AppLayout() {
       <motion.aside
         initial={false}
         animate={{
-          x: sidebarOpen ? 0 : (isMobile ? -320 : 0),
+          x: sidebarOffset,
         }}
         transition={{ type: 'spring', damping: 30, stiffness: 300 }}
         className={cn(
@@ -150,6 +157,7 @@ export default function AppLayout() {
             Menú Principal
           </p>
           <NavItem to="/dashboard" icon={<LayoutDashboard size={20} />} label="Dashboard" />
+          <NavItem to={ROUTES.STUDENT_TRANSFER} icon={<ArrowRightLeft size={20} />} label="Transferencias" />
           <NavItem to="/decks" icon={<Layers size={20} />} label="Mis Mazos" />
           <NavItem to="/create-session" icon={<PlusCircle size={20} />} label="Nueva Sesión" />
         </nav>
@@ -238,3 +246,9 @@ function NavItem({ to, icon, label }) {
     </NavLink>
   );
 }
+
+NavItem.propTypes = {
+  to: PropTypes.string.isRequired,
+  icon: PropTypes.node.isRequired,
+  label: PropTypes.string.isRequired,
+};
