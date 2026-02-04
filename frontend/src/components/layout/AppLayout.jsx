@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react';
+import PropTypes from 'prop-types';
 import { Outlet, NavLink, useLocation } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import { 
@@ -9,14 +10,21 @@ import {
   Menu, 
   X,
   Sparkles,
-  ChevronRight
+  UserCheck,
+  Shield,
+  Layers,
+  ArrowRightLeft,
+  CalendarClock
 } from 'lucide-react';
 import { cn, pageVariants } from '../../lib/utils';
+import { useAuth } from '../../context/AuthContext';
+import { ROUTES } from '../../constants/routes';
 
 export default function AppLayout() {
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [isMobile, setIsMobile] = useState(false);
   const location = useLocation();
+  const { user, logout, isSuperAdmin } = useAuth();
 
   // Check for mobile viewport
   useEffect(() => {
@@ -30,6 +38,11 @@ export default function AppLayout() {
   useEffect(() => {
     if (isMobile) setSidebarOpen(false);
   }, [location, isMobile]);
+
+  let sidebarOffset = 0;
+  if (!sidebarOpen) {
+    sidebarOffset = isMobile ? -320 : 0;
+  }
 
   return (
     <div className="flex h-screen bg-slate-900 text-white font-sans overflow-hidden">
@@ -66,7 +79,7 @@ export default function AppLayout() {
       <motion.aside
         initial={false}
         animate={{
-          x: sidebarOpen ? 0 : (isMobile ? -320 : 0),
+          x: sidebarOffset,
         }}
         transition={{ type: 'spring', damping: 30, stiffness: 300 }}
         className={cn(
@@ -105,23 +118,49 @@ export default function AppLayout() {
         {/* User Info */}
         <div className="p-4 mx-4 mt-4 rounded-xl bg-white/5 border border-white/5">
           <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-full bg-gradient-to-br from-purple-400 to-pink-400 flex items-center justify-center text-white font-bold shadow-lg">
-              P
+            <div className={cn(
+              "w-10 h-10 rounded-full flex items-center justify-center text-white font-bold shadow-lg",
+              isSuperAdmin 
+                ? "bg-gradient-to-br from-amber-400 to-orange-500" 
+                : "bg-gradient-to-br from-purple-400 to-pink-400"
+            )}>
+              {user?.name?.charAt(0)?.toUpperCase() || 'U'}
             </div>
             <div className="flex-1 min-w-0">
-              <p className="text-sm font-medium text-white truncate">Profesor Demo</p>
-              <p className="text-xs text-slate-500 truncate">demo@eduplay.com</p>
+              <p className="text-sm font-medium text-white truncate">
+                {user?.name || 'Usuario'}
+              </p>
+              <p className="text-xs text-slate-500 truncate">
+                {user?.email || 'Sin email'}
+              </p>
             </div>
-            <ChevronRight size={16} className="text-slate-500" />
+            {isSuperAdmin && (
+              <div className="flex items-center justify-center w-6 h-6 rounded-full bg-amber-500/20">
+                <Shield size={12} className="text-amber-400" />
+              </div>
+            )}
           </div>
         </div>
 
         {/* Navigation */}
         <nav className="flex-1 p-4 space-y-1 overflow-y-auto custom-scrollbar">
+          {/* Admin Navigation */}
+          {isSuperAdmin && (
+            <>
+              <p className="px-4 py-2 text-xs font-semibold text-slate-500 uppercase tracking-wider">
+                Administración
+              </p>
+              <NavItem to={ROUTES.ADMIN_APPROVALS} icon={<UserCheck size={20} />} label="Aprobaciones" />
+            </>
+          )}
+          
           <p className="px-4 py-2 text-xs font-semibold text-slate-500 uppercase tracking-wider">
             Menú Principal
           </p>
           <NavItem to="/dashboard" icon={<LayoutDashboard size={20} />} label="Dashboard" />
+          <NavItem to={ROUTES.SESSIONS} icon={<CalendarClock size={20} />} label="Sesiones" />
+          <NavItem to={ROUTES.STUDENT_TRANSFER} icon={<ArrowRightLeft size={20} />} label="Transferencias" />
+          <NavItem to="/decks" icon={<Layers size={20} />} label="Mis Mazos" />
           <NavItem to="/create-session" icon={<PlusCircle size={20} />} label="Nueva Sesión" />
         </nav>
 
@@ -131,7 +170,10 @@ export default function AppLayout() {
             <Settings size={20} className="group-hover:rotate-90 transition-transform duration-300" />
             <span className="font-medium">Configuración</span>
           </button>
-          <button className="flex items-center gap-3 w-full px-4 py-3 text-rose-400/80 hover:text-rose-400 hover:bg-rose-500/10 rounded-xl transition-all duration-200">
+          <button 
+            onClick={logout}
+            className="flex items-center gap-3 w-full px-4 py-3 text-rose-400/80 hover:text-rose-400 hover:bg-rose-500/10 rounded-xl transition-all duration-200"
+          >
             <LogOut size={20} />
             <span className="font-medium">Cerrar Sesión</span>
           </button>
@@ -206,3 +248,9 @@ function NavItem({ to, icon, label }) {
     </NavLink>
   );
 }
+
+NavItem.propTypes = {
+  to: PropTypes.string.isRequired,
+  icon: PropTypes.node.isRequired,
+  label: PropTypes.string.isRequired,
+};

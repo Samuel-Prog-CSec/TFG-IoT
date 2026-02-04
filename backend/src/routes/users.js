@@ -38,7 +38,13 @@ const { emptyObjectSchema } = require('../validators/commonValidator');
  * @access  Private (Teacher)
  * @validation query: userQuerySchema
  */
-router.get('/', authenticate, requireRole('teacher'), validateQuery(userQuerySchema), getUsers);
+router.get(
+  '/',
+  authenticate,
+  requireRole('teacher', 'super_admin'),
+  validateQuery(userQuerySchema),
+  getUsers
+);
 
 /**
  * @route   GET /api/users/teacher/:teacherId/students
@@ -49,7 +55,7 @@ router.get('/', authenticate, requireRole('teacher'), validateQuery(userQuerySch
 router.get(
   '/teacher/:teacherId/students',
   authenticate,
-  requireRole('teacher'),
+  requireRole('teacher', 'super_admin'),
   validateParams(teacherIdParamsSchema),
   validateQuery(teacherStudentsQuerySchema),
   getStudentsByTeacher
@@ -139,7 +145,7 @@ router.delete(
 router.post(
   '/:id/transfer',
   authenticate,
-  requireRole('teacher'),
+  requireRole('teacher', 'super_admin'),
   validateParams(userIdParamsSchema),
   validateQuery(emptyObjectSchema),
   validateBody(transferStudentSchema),

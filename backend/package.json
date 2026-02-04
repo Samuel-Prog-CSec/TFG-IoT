@@ -8,6 +8,7 @@
     "dev": "nodemon src/server.js",
     "seed": "node seeders/index.js",
     "seed:reset": "node seeders/index.js --reset",
+    "migrate:sessions": "node scripts/migrate-session-status.js",
     "drop-db": "node scripts/drop-db.js",
     "lint": "eslint ./src/**/*.js ./seeders/**/*.js ./scripts/**/*.js",
     "lint:test": "eslint ./tests/**/*.js",

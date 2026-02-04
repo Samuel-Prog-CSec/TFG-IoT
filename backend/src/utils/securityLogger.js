@@ -85,6 +85,10 @@ const SECURITY_EVENTS = {
     message: 'Acceso denegado por autorización',
     sentry: { threshold: 20, windowMs: 60 * 1000, level: 'warning' }
   },
+  STUDENT_TRANSFER: {
+    level: 'info',
+    message: 'Transferencia de alumno registrada'
+  },
   WS_AUTH_FAILED: {
     level: 'warn',
     message: 'Autenticación WebSocket fallida',

@@ -12,10 +12,11 @@
 const User = require('../models/User');
 const { ValidationError, NotFoundError } = require('../utils/errors');
 const logger = require('../utils/logger');
-const { toUserDTOV1 } = require('../utils/dtos');
+const { toUserDTOV1, toUserListDTOV1, toPaginatedDTOV1 } = require('../utils/dtos');
 const { revokeAllUserTokens } = require('../middlewares/auth');
 const { disconnectUserSockets } = require('../utils/socketUtils');
 const { getRequestContext } = require('../utils/securityLogger');
+const { escapeRegex } = require('../utils/escapeRegex');
 
 const assertTargetIsTeacher = user => {
   if (!user) {
@@ -24,6 +25,52 @@ const assertTargetIsTeacher = user => {
 
   if (user.role !== 'teacher') {
     throw new ValidationError('Solo se pueden aprobar o rechazar cuentas de profesores');
+  }
+};
+
+/**
+ * Obtener lista paginada de profesores pendientes de aprobación.
+ */
+const getPendingTeachers = async (req, res, next) => {
+  try {
+    const { page = 1, limit = 20, sortBy = 'createdAt', order = 'desc', search } = req.query;
+
+    const filter = {
+      role: 'teacher',
+      accountStatus: 'pending_approval'
+    };
+
+    if (search) {
+      const safeSearch = escapeRegex(search);
+      filter.$or = [
+        { name: { $regex: safeSearch, $options: 'i' } },
+        { email: { $regex: safeSearch, $options: 'i' } }
+      ];
+    }
+
+    const skip = (page - 1) * limit;
+    const sortOptions = { [sortBy]: order === 'asc' ? 1 : -1 };
+
+    const [teachers, total] = await Promise.all([
+      User.find(filter)
+        .sort(sortOptions)
+        .limit(Number.parseInt(limit, 10))
+        .skip(skip)
+        .select('-password'),
+      User.countDocuments(filter)
+    ]);
+
+    res.json({
+      success: true,
+      ...toPaginatedDTOV1(
+        toUserListDTOV1(teachers),
+        Number.parseInt(page, 10),
+        Number.parseInt(limit, 10),
+        total
+      )
+    });
+  } catch (error) {
+    next(error);
   }
 };
 
@@ -107,6 +154,7 @@ const rejectTeacher = async (req, res, next) => {
 };
 
 module.exports = {
+  getPendingTeachers,
   approveTeacher,
   rejectTeacher
 };

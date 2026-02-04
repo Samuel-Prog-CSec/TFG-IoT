@@ -349,15 +349,6 @@ describe('Validation (Zod) - All API endpoints', () => {
       expect(res.statusCode).toBe(400);
     });
 
-    it('POST /api/sessions/:id/pause - invalid params', async () => {
-      const res = await request(app)
-        .post('/api/sessions/invalid/pause')
-        .set(makeAuthHeaders(teacherToken))
-        .send({});
-
-      expect(res.statusCode).toBe(400);
-    });
-
     it('POST /api/sessions/:id/end - invalid params', async () => {
       const res = await request(app)
         .post('/api/sessions/invalid/end')

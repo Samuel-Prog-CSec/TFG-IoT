@@ -300,3 +300,228 @@ Permitir clonar una sesión existente para reutilizar su configuración.
 - [ ] Estado inicial 'created'
 
 ---
+
+## T-051: Migrar refreshToken a httpOnly Cookie 🔒
+
+**Prioridad:** P1 (Seguridad) | **Tamaño:** M | **Dependencias:** Ninguna  
+**Origen:** Auditoría de seguridad Sprint 3
+
+**Descripción:**  
+Actualmente el `refreshToken` se almacena en `localStorage`, lo que lo expone a ataques XSS. Debe migrarse a cookies `httpOnly` para mejorar la seguridad de la autenticación.
+
+**Contexto de Seguridad:**
+- `localStorage` es accesible desde JavaScript → vulnerable a XSS
+- Cookies `httpOnly` no son accesibles desde JS del cliente
+- Añadir `SameSite=Strict` para protección contra CSRF
+
+**Sub-tareas:**
+
+1. **Backend - Modificar `/api/auth/login`:**
+   - En vez de devolver `refreshToken` en body JSON, enviarlo como cookie `httpOnly`
+   - Configuración de cookie:
+     ```javascript
+     res.cookie('refreshToken', token, {
+       httpOnly: true,
+       secure: process.env.NODE_ENV === 'production',
+       sameSite: 'strict',
+       maxAge: 7 * 24 * 60 * 60 * 1000, // 7 días
+       path: '/api/auth'
+     });
+     ```
+   - Body solo retorna `{ accessToken, expiresIn, user }`
+
+2. **Backend - Modificar `/api/auth/refresh`:**
+   - Leer `refreshToken` desde `req.cookies` en vez de `req.body`
+   - Renovar la cookie con nuevo token
+
+3. **Backend - Modificar `/api/auth/logout`:**
+   - Limpiar cookie con `res.clearCookie('refreshToken')`
+
+4. **Backend - Middleware de cookies:**
+   - Asegurar que `cookie-parser` está instalado y configurado
+   - Añadir a la cadena de middlewares
+
+5. **Frontend - `services/api.js`:**
+   - Eliminar `localStorage.setItem('refreshToken', ...)`
+   - Eliminar `localStorage.getItem('refreshToken')`
+   - Eliminar `localStorage.removeItem('refreshToken')`
+   - `authAPI.refreshToken()` ya no envía body, solo hace POST vacío
+   - Axios con `withCredentials: true` ya maneja cookies automáticamente
+
+6. **Frontend - `context/AuthContext.jsx`:**
+   - Eliminar referencias a `refreshToken` en memoria
+   - `hasSession()` debe verificar de otra forma (ej: intentar refresh)
+   - Considerar nuevo endpoint `/api/auth/check` para verificar sesión
+
+7. **Tests:**
+   - Login establece cookie httpOnly
+   - Refresh funciona leyendo cookie
+   - Logout limpia cookie
+   - Cookie no accesible desde JS
+   - CORS configurado para credenciales
+
+8. **Documentación:**
+   - Actualizar API_v0.3.0.md con nuevos headers/cookies
+   - Documentar cambios para desarrolladores
+
+**Consideraciones de Migración:**
+- Usuarios con sesión activa deberán re-loguearse
+- Desplegar backend primero, luego frontend
+- Mantener compatibilidad temporal si es necesario
+
+**Criterios de Aceptación:**
+
+- [ ] `refreshToken` NO aparece en `localStorage`
+- [ ] `refreshToken` se envía como cookie `httpOnly`
+- [ ] Cookie tiene flags `secure` (prod), `sameSite=strict`
+- [ ] Frontend funciona sin cambios visibles para usuario
+- [ ] Logout limpia correctamente la cookie
+- [ ] Tests de seguridad pasan
+- [ ] Documentación actualizada
+
+**Notas de Seguridad:**
+- Esta es una mejora de seguridad importante
+- Considerar también implementar CSRF tokens si se usan más endpoints POST
+- Monitorear logs de Sentry por errores de autenticación post-migración
+
+---
+
+## T-052: Soporte prefers-reduced-motion 📋
+
+**Prioridad:** P3 | **Tamaño:** S | **Dependencias:** T-035 (CardDecks)  
+**Origen:** Consideraciones de accesibilidad durante implementación de UI premium
+
+**Descripción:**  
+Implementar soporte para la media query `prefers-reduced-motion` en todos los componentes con animaciones. Usuarios con esta preferencia activada en su sistema operativo deben ver una versión simplificada sin animaciones.
+
+**Contexto:**
+Los componentes UI premium creados en T-035 (CardDecks) incluyen animaciones elaboradas que pueden causar problemas a usuarios con:
+- Vestibular disorders
+- Sensibilidad a movimiento
+- Epilepsia fotosensible
+- Preferencia personal por interfaces estáticas
+
+**Sub-tareas:**
+
+1. **Crear hook `useReducedMotion.js`:**
+   ```javascript
+   export function useReducedMotion() {
+     const [prefersReducedMotion, setPrefersReducedMotion] = useState(false);
+     
+     useEffect(() => {
+       const mediaQuery = window.matchMedia('(prefers-reduced-motion: reduce)');
+       setPrefersReducedMotion(mediaQuery.matches);
+       
+       const handler = (e) => setPrefersReducedMotion(e.matches);
+       mediaQuery.addEventListener('change', handler);
+       return () => mediaQuery.removeEventListener('change', handler);
+     }, []);
+     
+     return prefersReducedMotion;
+   }
+   ```
+
+2. **Aplicar en componentes con animaciones:**
+   - `WizardStepper.jsx` - Deshabilitar confetti, simplificar transitions
+   - `DeckCard.jsx` - Deshabilitar 3D tilt, solo hover opacity
+   - `RFIDScannerPanel.jsx` - Deshabilitar radar waves
+   - `AssetSelector.jsx` - Sin stagger, entrada inmediata
+   - Todos los modales - Sin scale animation
+
+3. **Variantes de Framer Motion:**
+   ```javascript
+   const variants = prefersReducedMotion 
+     ? { hidden: { opacity: 0 }, visible: { opacity: 1 } }
+     : { hidden: { opacity: 0, y: 20 }, visible: { opacity: 1, y: 0 } };
+   ```
+
+4. **CSS fallback:**
+   ```css
+   @media (prefers-reduced-motion: reduce) {
+     *, *::before, *::after {
+       animation-duration: 0.01ms !important;
+       transition-duration: 0.01ms !important;
+     }
+   }
+   ```
+
+5. **Tests:**
+   - Simular media query en tests
+   - Verificar que componentes respetan la preferencia
+   - Verificar que UX sigue siendo funcional sin animaciones
+
+**Criterios de Aceptación:**
+
+- [ ] Hook `useReducedMotion` creado y exportado
+- [ ] Todos los componentes UI premium respetan la preferencia
+- [ ] Confetti y particle effects deshabilitados
+- [ ] Transiciones reducidas a opacity simple
+- [ ] Tests cubren ambos modos
+- [ ] Documentación actualizada
+
+**Recursos:**
+- [MDN: prefers-reduced-motion](https://developer.mozilla.org/en-US/docs/Web/CSS/@media/prefers-reduced-motion)
+- [web.dev: prefers-reduced-motion](https://web.dev/prefers-reduced-motion/)
+- [Framer Motion: Reduced Motion](https://www.framer.com/motion/guide-accessibility/)
+
+---
+
+### T-038: E2E Tests Frontend 📋
+
+**Prioridad:** P1 | **Tamaño:** M | **Dependencias:** T-021
+
+**Descripción:**  
+Tests end-to-end con Playwright para flujos críticos de la aplicación.
+
+**Flujos a testear:**
+1. Login → Dashboard → Ver estadísticas
+2. CRUD completo de alumno
+3. Crear sesión con wizard
+4. Iniciar y completar partida (mock RFID)
+
+**Sub-tareas:**
+
+1. **Configurar Playwright:**
+   - Instalar dependencias
+   - Configurar base URL
+   - Setup de fixtures
+
+2. **Tests de autenticación:**
+   - Login exitoso
+   - Login fallido
+   - Logout
+   - Refresh de token
+
+3. **Tests de gestión de alumnos:**
+   - Crear alumno
+   - Editar alumno
+   - Eliminar alumno
+   - Búsqueda
+
+4. **Tests de sesiones:**
+   - Crear sesión con wizard
+   - Iniciar sesión
+   - Pausar/Reanudar
+
+5. **Integración CI:**
+   - GitHub Action para ejecutar tests
+   - Reportes de resultados
+
+**Criterios de Aceptación:**
+
+- [ ] 4 flujos E2E implementados
+- [ ] Tests corren en CI automáticamente
+- [ ] Reportes generados
+- [ ] Cobertura de flujos críticos
+
+---
+
+### T-053: Cambio de estados de GameSession 📋
+**Prioridad:** P2 | **Tamaño:** S | **Dependencias:** Ninguna
+
+**Descripción:**
+Desarrollar y definir los momentos y condiciones bajo las cuales una GameSession cambia de estado (`created`, `active`, `completed`).
+
+En principio, para que esté definida una sesión como active debe tener AL MENOS una partida activa (o pausada) asociada a esa sesión. Si no hay partidas activas o pausadas, la sesión debe considerarse completada.
+
+---

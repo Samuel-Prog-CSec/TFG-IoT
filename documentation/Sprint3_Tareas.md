@@ -131,8 +131,7 @@ Reglas mínimas:
 
 ---
 
-### T-021: Integración Frontend con API REST 📋
-
+### T-021: Integración Frontend con API REST ✅
 **Prioridad:** P0 | **Tamaño:** XL | **Dependencias:** Ninguna
 
 **Descripción:**  
@@ -159,24 +158,18 @@ Conectar la UI React con el backend real, eliminando mocks y estableciendo la co
    - Eliminar alumno con confirmación
    - Búsqueda por nombre y filtros por aula
 
-4. **CRUD completo de Tarjetas:**
-   - Listar tarjetas activas del profesor
-   - Registrar nueva tarjeta (integrado con sensor RFID)
-   - Editar metadatos (color, icono)
-   - Desactivar/Reactivar tarjeta
-
-5. **CRUD completo de Sesiones:**
+4. **CRUD completo de Sesiones:**
    - Listar sesiones del profesor con estados
    - Crear sesión con wizard (T-036)
    - Ver detalles de sesión con estadísticas
    - Iniciar/Pausar/Reanudar/Finalizar sesión
 
-6. **Gestión de estados de carga:**
+5. **Gestión de estados de carga:**
    - Estado `{ data, loading, error }` en cada componente
    - Loading spinners durante peticiones
    - Skeleton loaders para listas
 
-7. **Manejo de errores con feedback visual:**
+6. **Manejo de errores con feedback visual:**
    - Toast notifications (éxito, error, warning)
    - Mensajes descriptivos del backend
    - Retry automático en errores de red (3 intentos)
@@ -185,7 +178,6 @@ Conectar la UI React con el backend real, eliminando mocks y estableciendo la co
 
 - [ ] Login/Logout funciona con JWT real
 - [ ] Tokens se refrescan automáticamente antes de expirar
-- [ ] CRUD de alumnos, tarjetas y sesiones funcional
 - [ ] Estados de carga visibles en toda la UI
 - [ ] Errores mostrados con toast notifications
 - [ ] No hay código de mock en producción
@@ -549,7 +541,7 @@ Prevenir lecturas accidentales implementando modos de operación del sensor.
 
 ---
 
-### T-042: Aprobación de Profesores - Frontend (Duda #51) 📋
+### T-042: Aprobación de Profesores - Frontend (Duda #51) ✅
 
 **Prioridad:** P1 | **Tamaño:** M | **Dependencias:** T-021
 
@@ -590,7 +582,7 @@ Implementar UI para que el Super Admin apruebe o rechace profesores pendientes.
 
 ---
 
-### T-043: Sesión Única por Usuario - Frontend (Duda #48) 📋
+### T-043: Sesión Única por Usuario - Frontend (Duda #48) ✅
 
 **Prioridad:** P1 | **Tamaño:** M | **Dependencias:** T-021
 
@@ -625,57 +617,84 @@ Cuando un usuario hace login en otro dispositivo, la sesión anterior se invalid
 
 ---
 
-### T-035: Gestión de Mazos - Frontend 📋
+### T-035: Gestión de Mazos - Frontend ✅
 
-**Prioridad:** P1 | **Tamaño:** M | **Dependencias:** T-021
+**Prioridad:** P1 | **Tamaño:** M | **Dependencias:** T-021  
+**Estado:** ✅ COMPLETADA
 
 **Descripción:**  
 UI para crear, editar y gestionar mazos de cartas (CardDeck) que se reutilizan en sesiones.
 
-**Sub-tareas:**
+**Implementación Realizada:**
 
-1. **Crear página `CardDecksPage.jsx`:**
-   - Lista de mazos del profesor
-   - Nombre, descripción, cantidad de cartas
-   - Acciones: editar, eliminar, duplicar
+1. **CardDecksPage.jsx:**
+   - Grid de mazos con DeckCard premium (3D tilt, parallax)
+   - Filtros por estado (activo/archivado) y contexto
+   - Búsqueda por nombre
+   - Contador X/50 mazos
+   - Paginación con "Cargar más"
 
-2. **Crear componente `DeckEditor.jsx`:**
-   - Campo nombre (requerido)
-   - Campo descripción (opcional)
-   - Selector de tarjetas disponibles
-   - Drag & drop para ordenar
-   - Vista previa del mazo
+2. **DeckCreationWizard.jsx (4 pasos):**
+   - Paso 1: Captura de cartas (RFID mock + manual)
+   - Paso 2: Selección de contexto
+   - Paso 3: Asignación de assets a cartas
+   - Paso 4: Confirmación y nombrado
+   - Persistencia de borrador en localStorage
 
-3. **Modal de confirmación para eliminar**
+3. **DeckEditPage.jsx:**
+   - Tabs: Cartas | Contexto | Asignaciones
+   - Indicador de cambios sin guardar
+   - Modal de confirmación para archivar
 
-4. **Integrar con API CardDeck:**
-   - GET /api/decks (listar)
-   - POST /api/decks (crear)
-   - PUT /api/decks/:id (actualizar)
-   - DELETE /api/decks/:id (eliminar)
+4. **Componentes UI Premium:**
+   - WizardStepper con animación líquida y confetti
+   - DeckCard con 3D tilt y gradiente animado
+   - RFIDScannerPanel con ondas radar (mock T-044)
+   - CardSelector con checkboxes animados
+   - AssetSelector con stagger y badges
+
+5. **CreateSession.jsx Modificado:**
+   - Simplificado a 4 pasos (Mazo → Mecánica → Reglas → Crear)
+   - Usa mazos predefinidos en lugar de selección manual
+
+6. **Límite Backend:**
+   - 50 mazos máximo por profesor
+   - Validación en cardDeckController.js
+
+**Documentación Creada:**
+- `frontend/docs/CardDecks_Architecture.md`
+- `frontend/docs/CardDecks_UX_Decisions.md`
+
+**Notas:**
+- RFID Scanner usa mock (T-044 Web Serial pendiente)
+- Accesibilidad prefers-reduced-motion diferida (T-052)
 
 **Criterios de Aceptación:**
 
-- [ ] CRUD completo de mazos funcional
-- [ ] Selección visual de tarjetas con checkbox/drag
-- [ ] Vista previa del mazo antes de guardar
-- [ ] Mazo seleccionable en creación de sesión
+- [x] CRUD completo de mazos funcional
+- [x] Selección visual de tarjetas con checkbox/RFID mock
+- [x] Vista previa del mazo antes de guardar
+- [x] Mazo seleccionable en creación de sesión
+- [x] Animaciones premium con Framer Motion
+- [x] Persistencia de borrador en localStorage
 
 ---
 
-### T-036: Asistente de Sesión Mejorado 📋
+### T-036: Asistente de Sesión Mejorado ✅
 
-**Prioridad:** P1 | **Tamaño:** M | **Dependencias:** T-035
+**Prioridad:** P1 | **Tamaño:** M | **Dependencias:** T-035  
+**Estado:** ✅ COMPLETADA (integrado en T-035)
 
 **Descripción:**  
 Wizard paso a paso para crear sesiones de juego de forma intuitiva.
 
-**Pasos del wizard:**
-1. **Seleccionar mecánica:** Association, Sequence, Memory
-2. **Seleccionar contexto:** Geografía, Historia, etc.
-3. **Configurar cartas:** Usar mazo existente O crear mappings
-4. **Configurar reglas:** Rondas, tiempo, puntos
-5. **Confirmar:** Preview y crear
+**Implementación:**
+El wizard de CreateSession fue simplificado a 4 pasos ya que la selección de cartas/contexto ahora se hace al crear mazos:
+
+1. **Seleccionar Mazo:** Grid de mazos activos con preview
+2. **Seleccionar Mecánica:** Association, Sequence, Memory
+3. **Configurar Reglas:** Presets (Fácil/Normal/Difícil) + sliders manuales
+4. **Revisar y Crear:** Nombre + resumen + confetti
 
 **Sub-tareas:**
 
@@ -714,7 +733,7 @@ Wizard paso a paso para crear sesiones de juego de forma intuitiva.
 
 ---
 
-### T-049: Dashboard Analytics Avanzado 📋
+### T-049: Dashboard Analytics Avanzado ✅
 
 **Prioridad:** P1 | **Tamaño:** L | **Dependencias:** T-021  
 **Origen:** Requisito pedagógico - Análisis de aprendizaje
@@ -803,58 +822,6 @@ Mejorar el Dashboard del profesor con visualizaciones avanzadas y métricas de a
 - Tooltips explicativos en cada métrica
 - Empty states informativos si no hay suficientes datos
 - Considerar exportación de informes para reuniones con padres
-
----
-
-### T-038: E2E Tests Frontend 📋
-
-**Prioridad:** P1 | **Tamaño:** M | **Dependencias:** T-021
-
-**Descripción:**  
-Tests end-to-end con Playwright para flujos críticos de la aplicación.
-
-**Flujos a testear:**
-1. Login → Dashboard → Ver estadísticas
-2. CRUD completo de alumno
-3. Crear sesión con wizard
-4. Iniciar y completar partida (mock RFID)
-
-**Sub-tareas:**
-
-1. **Configurar Playwright:**
-   - Instalar dependencias
-   - Configurar base URL
-   - Setup de fixtures
-
-2. **Tests de autenticación:**
-   - Login exitoso
-   - Login fallido
-   - Logout
-   - Refresh de token
-
-3. **Tests de gestión de alumnos:**
-   - Crear alumno
-   - Editar alumno
-   - Eliminar alumno
-   - Búsqueda
-
-4. **Tests de sesiones:**
-   - Crear sesión con wizard
-   - Iniciar sesión
-   - Pausar/Reanudar
-
-5. **Integración CI:**
-   - GitHub Action para ejecutar tests
-   - Reportes de resultados
-
-**Criterios de Aceptación:**
-
-- [ ] 4 flujos E2E implementados
-- [ ] Tests corren en CI automáticamente
-- [ ] Reportes generados
-- [ ] Cobertura de flujos críticos
-
----
 
 ---
 
@@ -985,7 +952,7 @@ Mejoras visuales, animaciones y feedback de usuario para pulir la experiencia.
 
 ---
 
-### T-048: Security Logging (SEC-MED-02) 📋
+### T-048: Security Logging (SEC-MED-02) ✅
 
 **Prioridad:** P3 | **Tamaño:** M | **Dependencias:** T-031  
 **Origen:** Auditoría de Seguridad

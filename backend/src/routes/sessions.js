@@ -1,6 +1,6 @@
 /**
  * @fileoverview Rutas de gestión de sesiones de juego.
- * Endpoints CRUD para sesiones con acciones (start, pause, end).
+ * Endpoints CRUD para sesiones con acciones (start, end).
  * @module routes/sessions
  */
 
@@ -14,7 +14,6 @@ const {
   updateSession,
   deleteSession,
   startSession,
-  pauseSession,
   endSession
 } = require('../controllers/gameSessionController');
 
@@ -89,22 +88,6 @@ router.post(
   validateQuery(emptyObjectSchema),
   validateBody(emptyObjectSchema),
   startSession
-);
-
-/**
- * @route   POST /api/sessions/:id/pause
- * @desc    Pausar sesión activa
- * @access  Private (Teacher)
- * @validation params: sessionActionSchema | body: emptyObjectSchema | query: emptyObjectSchema
- */
-router.post(
-  '/:id/pause',
-  authenticate,
-  requireRole('teacher'),
-  validateParams(sessionActionSchema),
-  validateQuery(emptyObjectSchema),
-  validateBody(emptyObjectSchema),
-  pauseSession
 );
 
 /**

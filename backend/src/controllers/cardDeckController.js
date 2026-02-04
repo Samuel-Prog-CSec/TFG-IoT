@@ -17,8 +17,18 @@ const logger = require('../utils/logger');
 const { toCardDeckDetailDTOV1, toCardDeckListDTOV1, toPaginatedDTOV1 } = require('../utils/dtos');
 const { escapeRegex } = require('../utils/escapeRegex');
 
+/**
+ * Límites de configuración para mazos de cartas.
+ * @constant {number} MAX_DECK_CARDS - Máximo de tarjetas por mazo (coherente con configuración de sesión)
+ * @constant {number} MIN_DECK_CARDS - Mínimo de tarjetas por mazo (necesario para juego básico)
+ * @constant {number} MAX_DECKS_PER_TEACHER - Máximo de mazos activos por profesor.
+ *   Decisión de diseño: 50 mazos permite flexibilidad suficiente para múltiples cursos/temáticas
+ *   sin comprometer rendimiento de queries ni UX (listas muy largas son difíciles de gestionar).
+ *   Los mazos archivados NO cuentan hacia este límite.
+ */
 const MAX_DECK_CARDS = 20;
 const MIN_DECK_CARDS = 2;
+const MAX_DECKS_PER_TEACHER = 50;
 
 function validateDeckMappingsStructure(cardMappings) {
   if (!Array.isArray(cardMappings)) {
@@ -218,6 +228,19 @@ const createDeck = async (req, res, next) => {
 
     if (!contextId) {
       throw new ValidationError('contextId es requerido');
+    }
+
+    // Verificar límite de mazos activos por profesor
+    const activeDecksCount = await CardDeck.countDocuments({
+      createdBy: req.user._id,
+      status: 'active'
+    });
+
+    if (activeDecksCount >= MAX_DECKS_PER_TEACHER) {
+      throw new ValidationError(
+        `Has alcanzado el límite de ${MAX_DECKS_PER_TEACHER} mazos activos. ` +
+          'Archiva alguno existente para poder crear más.'
+      );
     }
 
     const normalizedMappings = validateDeckMappingsStructure(cardMappings);

@@ -17,7 +17,7 @@ const {
 const { escapeRegex } = require('../utils/escapeRegex');
 const { revokeAllUserTokens } = require('../middlewares/auth');
 const { disconnectUserSockets } = require('../utils/socketUtils');
-const { getRequestContext } = require('../utils/securityLogger');
+const { getRequestContext, logSecurityEvent } = require('../utils/securityLogger');
 
 /**
  * Obtener lista de usuarios con paginación y filtros.
@@ -65,9 +65,8 @@ const getUsers = async (req, res, next) => {
       ];
     }
 
-    // Solo profesores ven a todos - los alumnos no deberían llegar aquí
-    // pero por seguridad, filtramos por createdBy si no es teacher
-    if (req.user.role !== 'teacher') {
+    // Solo alumnos deben limitarse a su propio perfil
+    if (req.user.role === 'student') {
       filter._id = req.user._id; // Solo puede ver su propio perfil
     }
 
@@ -606,7 +605,7 @@ const getStudentsByTeacher = async (req, res, next) => {
 const transferStudent = async (req, res, next) => {
   try {
     const { id } = req.params;
-    const { newTeacherId, newClassroom } = req.body;
+    const { newTeacherId, newClassroom, reason } = req.body;
 
     if (!newTeacherId || !newClassroom) {
       return res.status(400).json({
@@ -650,13 +649,16 @@ const transferStudent = async (req, res, next) => {
       });
     }
 
+    const fromTeacherId = student.createdBy;
+
     // Registrar cambios para auditoría (log)
     logger.info('Iniciando transferencia de alumno', {
       studentId: student._id,
       studentName: student.name,
-      fromTeacher: student.createdBy,
+      fromTeacher: fromTeacherId,
       toTeacher: newTeacherId,
-      initiatedBy: req.user._id
+      initiatedBy: req.user._id,
+      reason
     });
 
     // Realizar transferencia
@@ -664,6 +666,17 @@ const transferStudent = async (req, res, next) => {
     student.profile.classroom = newClassroom;
 
     await student.save();
+
+    logSecurityEvent('STUDENT_TRANSFER', {
+      ...getRequestContext(req),
+      studentId: student._id,
+      studentName: student.name,
+      fromTeacher: fromTeacherId,
+      toTeacher: newTeacherId,
+      initiatedBy: req.user._id,
+      newClassroom,
+      reason
+    });
 
     res.json({
       success: true,

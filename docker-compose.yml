@@ -18,12 +18,12 @@ services:
     container_name: rfid-games-frontend
     restart: unless-stopped
     ports:
-      - "80:80"  # Acceso en http://localhost
+      - "80:80" # Acceso en http://localhost
     depends_on:
       - backend
     networks:
       - rfid-games-network
-  
+
   # ============================================
   # BACKEND (Node.js API REST)
   # ============================================
@@ -35,7 +35,7 @@ services:
       - "5000:5000"
     environment:
       - PORT=5000
-      - NODE_ENV=production
+      - NODE_ENV=${NODE_ENV:-development}
       # Conexión interna a servicios Docker (usamos los nombres del servicio)
       - REDIS_URL=redis://redis:6379
       - MONGO_URI=mongodb://mongo:27017/rfid_games_db
@@ -44,6 +44,8 @@ services:
     depends_on:
       - redis
       - mongo
+    command: >
+      sh -c "npm run seed:reset && npm run migrate:sessions && npm start"
     networks:
       - rfid-games-network
 

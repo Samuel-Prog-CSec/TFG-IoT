@@ -217,7 +217,7 @@ const createResourceRateLimiter = createRateLimiter({
  */
 const eventRateLimiter = createRateLimiter({
   windowMs: 60 * 1000, // 1 minuto
-  max: 30, // 30 eventos por minuto (más permisivo para juego en tiempo real)
+  max: 120, // 120 eventos por minuto (2 por segundo - permite ráfagas rápidas)
   message: {
     success: false,
     message: 'Demasiados eventos de juego, espera un momento'
