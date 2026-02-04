@@ -6,10 +6,10 @@
 const express = require('express');
 const router = express.Router();
 const analyticsController = require('../controllers/analyticsController');
-const { verifyToken, isTeacher } = require('../middlewares/auth');
+const { authenticate, requireRole } = require('../middlewares/auth');
 
-// Todas las rutas requieren estar autenticado como profesor
-router.use(verifyToken, isTeacher);
+// Todas las rutas requieren estar autenticado como profesor o super admin
+router.use(authenticate, requireRole('teacher', 'super_admin'));
 
 // Rutas de estudiante individual
 router.get('/student/:id/progress', analyticsController.getStudentProgress);

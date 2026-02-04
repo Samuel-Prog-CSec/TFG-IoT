@@ -1,4 +1,4 @@
-import axios from '../lib/axios';
+import api, { extractData } from './api';
 
 const analyticsService = {
   /**
@@ -6,8 +6,8 @@ const analyticsService = {
    * @returns {Promise<Object>} KPIs de la clase
    */
   getClassroomSummary: async () => {
-    const response = await axios.get('/analytics/classroom/summary');
-    return response.data;
+    const response = await api.get('/analytics/classroom/summary');
+    return extractData(response);
   },
 
   /**
@@ -16,10 +16,10 @@ const analyticsService = {
    * @returns {Promise<Array>} Datos para el gráfico
    */
   getClassroomComparison: async (timeRange = '7d') => {
-    const response = await axios.get('/analytics/classroom/comparison', {
+    const response = await api.get('/analytics/classroom/comparison', {
       params: { timeRange }
     });
-    return response.data;
+    return extractData(response);
   },
 
   /**
@@ -27,8 +27,8 @@ const analyticsService = {
    * @returns {Promise<Array>}
    */
   getClassroomDifficulties: async () => {
-    const response = await axios.get('/analytics/classroom/difficulties');
-    return response.data;
+    const response = await api.get('/analytics/classroom/difficulties');
+    return extractData(response);
   },
 
   /**
@@ -37,8 +37,8 @@ const analyticsService = {
    * @returns {Promise<Array>} Lista de dificultades por contexto/mecánica
    */
   getStudentDifficulties: async (studentId) => {
-    const response = await axios.get(`/analytics/student/${studentId}/difficulties`);
-    return response.data;
+    const response = await api.get(`/analytics/student/${studentId}/difficulties`);
+    return extractData(response);
   },
 
   /**
@@ -48,10 +48,10 @@ const analyticsService = {
    * @returns {Promise<Array>} Datos para el gráfico de progreso
    */
   getStudentProgress: async (studentId, timeRange = '30d') => {
-    const response = await axios.get(`/analytics/student/${studentId}/progress`, {
+    const response = await api.get(`/analytics/student/${studentId}/progress`, {
       params: { timeRange }
     });
-    return response.data;
+    return extractData(response);
   }
 };
 

@@ -144,11 +144,11 @@ export default function CreateSession() {
     const loadData = async () => {
       try {
         const [decksRes, mechsRes] = await Promise.all([
-          decksAPI.getDecks({ limit: 50 }),
+          decksAPI.getDecks({ limit: 50, status: 'active' }),
           mechanicsAPI.getMechanics()
         ]);
         
-        const decksData = extractData(decksRes)?.data || [];
+        const decksData = extractData(decksRes) || [];
         const mechsData = extractData(mechsRes) || [];
         
         setDecks(decksData);
@@ -168,20 +168,22 @@ export default function CreateSession() {
 
   // Handlers
   const handleSelectDeck = (deck) => {
+    const deckId = deck.id || deck._id;
     setSelectedDeck(deck);
     setSessionConfig(prev => ({
       ...prev,
-      deckId: deck._id,
+      deckId,
       // Auto-generar nombre basado en el mazo
       name: prev.name || `Sesión - ${deck.name}`
     }));
   };
 
   const handleSelectMechanic = (mechanic) => {
+    const mechanicId = mechanic.id || mechanic._id;
     setSelectedMechanic(mechanic);
     setSessionConfig(prev => ({
       ...prev,
-      mechanicId: mechanic._id
+      mechanicId
     }));
   };
 
@@ -241,7 +243,11 @@ export default function CreateSession() {
         difficulty: sessionConfig.difficulty,
         config: {
           ...sessionConfig.config,
-          numberOfCards: selectedDeck?.cards?.length || 0
+          numberOfCards:
+            selectedDeck?.cardMappings?.length ||
+            selectedDeck?.cardsCount ||
+            selectedDeck?.cards?.length ||
+            0
         }
       };
       
@@ -463,25 +469,32 @@ function StepDeck({ decks, loading, selectedDeckId, onSelect }) {
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-        {decks.map((deck) => (
+        {decks.map((deck) => {
+          const deckId = deck.id || deck._id;
+          const cardsPreview = deck.cardMappings || [];
+          const cardsCount = deck.cardMappings?.length || deck.cardsCount || 0;
+          const contextName = deck.context?.name || deck.contextId?.name || 'Contexto';
+
+          return (
           <motion.button
-            key={deck._id}
+            key={deckId}
             onClick={() => onSelect(deck)}
             className={cn(
               'relative p-4 rounded-xl border-2 text-left transition-all',
               'hover:border-indigo-500/50 hover:bg-indigo-500/5',
-              selectedDeckId === deck._id
+              selectedDeckId === deckId
                 ? 'border-indigo-500 bg-indigo-500/10'
                 : 'border-white/10 bg-slate-800/30'
             )}
+            aria-pressed={selectedDeckId === deckId}
             whileHover={{ scale: 1.02 }}
             whileTap={{ scale: 0.98 }}
           >
-            {selectedDeckId === deck._id && (
+            {selectedDeckId === deckId && (
               <motion.div
                 initial={{ scale: 0 }}
                 animate={{ scale: 1 }}
-                className="absolute top-2 right-2 w-6 h-6 rounded-full bg-indigo-500 flex items-center justify-center"
+                className="absolute top-2 right-2 w-7 h-7 rounded-full bg-indigo-500 flex items-center justify-center shadow-lg shadow-indigo-500/40"
               >
                 <Check size={14} className="text-white" />
               </motion.div>
@@ -489,9 +502,9 @@ function StepDeck({ decks, loading, selectedDeckId, onSelect }) {
 
             {/* Preview de assets */}
             <div className="flex flex-wrap gap-1 mb-3 h-8 overflow-hidden">
-              {deck.cards?.slice(0, 6).map((card, i) => (
-                <span key={i} className="text-xl">
-                  {card.assignedAsset?.display || '🃏'}
+              {cardsPreview.slice(0, 6).map((mapping) => (
+                <span key={mapping.id || mapping.uid} className="text-xl">
+                  {mapping.displayData?.display || mapping.displayData?.emoji || '🃏'}
                 </span>
               ))}
             </div>
@@ -500,15 +513,16 @@ function StepDeck({ decks, loading, selectedDeckId, onSelect }) {
             <div className="flex items-center gap-3 text-xs text-slate-400">
               <span className="flex items-center gap-1">
                 <CreditCard size={12} />
-                {deck.cards?.length || 0} cartas
+                {cardsCount} cartas
               </span>
               <span className="flex items-center gap-1">
                 <Palette size={12} />
-                {deck.contextId?.name || 'Contexto'}
+                {contextName}
               </span>
             </div>
           </motion.button>
-        ))}
+          );
+        })}
       </div>
 
       <div className="mt-6 pt-4 border-t border-white/5 flex justify-center">
@@ -560,26 +574,28 @@ function StepMechanic({ mechanics, loading, selectedMechanicId, onSelect }) {
       <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
         {mechanics.map((mechanic) => {
           const icon = mechanicIcons[mechanic.name?.toLowerCase()] || mechanicIcons.default;
+          const mechanicId = mechanic.id || mechanic._id;
           
           return (
             <motion.button
-              key={mechanic._id}
+              key={mechanicId}
               onClick={() => onSelect(mechanic)}
               className={cn(
                 'relative p-6 rounded-xl border-2 text-left transition-all',
                 'hover:border-purple-500/50 hover:bg-purple-500/5',
-                selectedMechanicId === mechanic._id
+                selectedMechanicId === mechanicId
                   ? 'border-purple-500 bg-purple-500/10'
                   : 'border-white/10 bg-slate-800/30'
               )}
+              aria-pressed={selectedMechanicId === mechanicId}
               whileHover={{ scale: 1.03, y: -4 }}
               whileTap={{ scale: 0.98 }}
             >
-              {selectedMechanicId === mechanic._id && (
+              {selectedMechanicId === mechanicId && (
                 <motion.div
                   initial={{ scale: 0 }}
                   animate={{ scale: 1 }}
-                  className="absolute top-3 right-3 w-6 h-6 rounded-full bg-purple-500 flex items-center justify-center"
+                  className="absolute top-3 right-3 w-7 h-7 rounded-full bg-purple-500 flex items-center justify-center shadow-lg shadow-purple-500/40"
                 >
                   <Check size={14} className="text-white" />
                 </motion.div>

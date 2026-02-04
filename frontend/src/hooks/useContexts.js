@@ -37,7 +37,7 @@ export function useContexts({ autoLoad = true, onlyActive = true } = {}) {
       setLoading(true);
       setError(null);
 
-      const params = onlyActive ? { isActive: true } : {};
+      const params = {};
       const response = await contextsAPI.getContexts(params);
       const data = extractData(response) || [];
 

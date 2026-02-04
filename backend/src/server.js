@@ -54,6 +54,7 @@ const sessionRoutes = require('./routes/sessions');
 const playRoutes = require('./routes/plays');
 const deckRoutes = require('./routes/decks');
 const adminRoutes = require('./routes/admin');
+const analyticsRoutes = require('./routes/analyticsRoutes');
 
 // Crear aplicación Express
 const app = express();
@@ -375,6 +376,9 @@ app.use('/api/decks', deckRoutes);
 
 // Rutas de administración (solo super admin)
 app.use('/api/admin', adminRoutes);
+
+// Rutas de analíticas
+app.use('/api/analytics', analyticsRoutes);
 
 /**
  * Endpoint de salud del servidor con información detallada.

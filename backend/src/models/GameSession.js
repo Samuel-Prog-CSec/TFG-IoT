@@ -61,7 +61,7 @@ const calculateDifficulty = numberOfCards => {
  * @property {number} config.pointsPerCorrect - Puntos otorgados por respuesta correcta
  * @property {number} config.penaltyPerError - Puntos restados por respuesta incorrecta (número negativo)
  * @property {Array<CardMapping>} cardMappings - Mapeo de tarjetas RFID a valores del juego
- * @property {string} status - Estado de la sesión (created, active, paused, completed)
+ * @property {string} status - Estado de la sesión (created, active, completed)
  * @property {string} difficulty - Dificultad del juego (easy, medium, hard)
  * @property {Date} [startedAt] - Fecha y hora de inicio de la sesión
  * @property {Date} [endedAt] - Fecha y hora de finalización de la sesión
@@ -154,7 +154,7 @@ const gameSessionSchema = new mongoose.Schema(
       type: String,
       lowercase: true,
       trim: true,
-      enum: ['created', 'active', 'paused', 'completed'],
+      enum: ['created', 'active', 'completed'],
       default: 'created'
     },
     difficulty: {
@@ -193,19 +193,6 @@ gameSessionSchema.methods.start = function () {
 };
 
 /**
- * Pausa la sesión de juego.
- * Cambia el estado a 'paused' sin modificar los timestamps.
- *
- * @instance
- * @memberof GameSession
- * @returns {Promise<GameSession>} Promesa que resuelve con el documento actualizado
- */
-gameSessionSchema.methods.pause = function () {
-  this.status = 'paused';
-  return this.save();
-};
-
-/**
  * Finaliza la sesión de juego.
  * Cambia el estado a 'completed' y registra la hora de finalización.
  *
@@ -239,7 +226,7 @@ gameSessionSchema.pre('save', function () {
   // 1. Es un documento nuevo
   // 2. Se modificó numberOfCards
   const shouldAutoCalculate = this.isNew || this.isModified('config.numberOfCards');
-  if (shouldAutoCalculate && this.config && this.config.numberOfCards) {
+  if (shouldAutoCalculate && this.config?.numberOfCards) {
     this.difficulty = calculateDifficulty(this.config.numberOfCards);
   }
 });

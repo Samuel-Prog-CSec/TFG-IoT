@@ -82,7 +82,7 @@ export default function DeckCard({
   const assetX = useTransform(mouseXSpring, [-0.5, 0.5], [parallaxAmount, -parallaxAmount]);
   const assetY = useTransform(mouseYSpring, [-0.5, 0.5], [parallaxAmount, -parallaxAmount]);
 
-  const handleMouseMove = (e) => {
+  const handlePointerMove = (e) => {
     if (!cardRef.current) return;
     const rect = cardRef.current.getBoundingClientRect();
     const xPos = (e.clientX - rect.left) / rect.width - 0.5;
@@ -95,7 +95,7 @@ export default function DeckCard({
     cardRef.current.style.setProperty('--mouse-y', `${e.clientY - rect.top}px`);
   };
 
-  const handleMouseLeave = () => {
+  const handlePointerLeave = () => {
     setIsHovered(false);
     x.set(0);
     y.set(0);
@@ -128,9 +128,9 @@ export default function DeckCard({
         'relative group cursor-pointer perspective-1000',
         className
       )}
-      onMouseMove={handleMouseMove}
-      onMouseEnter={() => setIsHovered(true)}
-      onMouseLeave={handleMouseLeave}
+      onPointerMove={handlePointerMove}
+      onPointerEnter={() => setIsHovered(true)}
+      onPointerLeave={handlePointerLeave}
       onClick={handleClick}
       style={{
         transformStyle: 'preserve-3d',
@@ -278,7 +278,10 @@ export default function DeckCard({
           {/* Acciones hover (slide-up) */}
           {!selectable && (
             <motion.div
-              className="absolute bottom-0 left-0 right-0 p-4 pt-8 bg-gradient-to-t from-slate-900 via-slate-900/95 to-transparent z-20"
+              className={cn(
+                'absolute bottom-0 left-0 right-0 p-4 pt-8 bg-gradient-to-t from-slate-900 via-slate-900/95 to-transparent z-20',
+                isHovered ? 'pointer-events-auto' : 'pointer-events-none'
+              )}
               initial={{ opacity: 0, y: 20 }}
               animate={{ 
                 opacity: isHovered ? 1 : 0, 

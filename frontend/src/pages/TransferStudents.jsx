@@ -46,7 +46,7 @@ export default function TransferStudents() {
         status: 'active',
         sortBy: 'name',
         order: 'asc',
-        limit: 200
+        limit: 100
       });
 
       const teachersData = extractData(teachersRes) || [];

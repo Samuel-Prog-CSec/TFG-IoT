@@ -150,11 +150,17 @@ export default function CardDecksPage() {
 
   const handleViewDeck = (deck) => {
     // TODO: Abrir modal de detalle
-    navigate(ROUTES.CARD_DECKS_EDIT(deck._id));
+    const deckId = deck.id || deck._id;
+    if (deckId) {
+      navigate(ROUTES.CARD_DECKS_EDIT(deckId));
+    }
   };
 
   const handleEditDeck = (deck) => {
-    navigate(ROUTES.CARD_DECKS_EDIT(deck._id));
+    const deckId = deck.id || deck._id;
+    if (deckId) {
+      navigate(ROUTES.CARD_DECKS_EDIT(deckId));
+    }
   };
 
   const handleArchiveDeck = (deck) => {
@@ -167,7 +173,11 @@ export default function CardDecksPage() {
     
     setArchiveLoading(true);
     try {
-      await decksAPI.deleteDeck(archivingDeck._id);
+      const deckId = archivingDeck.id || archivingDeck._id;
+      if (!deckId) {
+        throw new Error('No se encontró el ID del mazo.');
+      }
+      await decksAPI.deleteDeck(deckId);
       toast.success('Mazo archivado', {
         description: `"${archivingDeck.name}" ha sido archivado correctamente.`,
       });
@@ -466,9 +476,11 @@ export default function CardDecksPage() {
               },
             }}
           >
-            {decks.map((deck, index) => (
+            {decks.map((deck, index) => {
+              const deckId = deck.id || deck._id;
+              return (
               <motion.div
-                key={deck._id}
+                key={deckId}
                 variants={{
                   hidden: { opacity: 0, y: 20 },
                   visible: { opacity: 1, y: 0 },
@@ -482,7 +494,8 @@ export default function CardDecksPage() {
                   reducedMotion={useReducedMotion}
                 />
               </motion.div>
-            ))}
+              );
+            })}
           </motion.div>
 
           {/* Cargar más */}

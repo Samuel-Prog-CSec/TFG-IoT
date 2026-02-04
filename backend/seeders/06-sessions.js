@@ -201,12 +201,8 @@ function generateSessionsForTeacher(teacher, teacherDecks, mechanics, contexts) 
     let startedAt = null;
     let endedAt = null;
 
-    if (template.status === 'active' || template.status === 'paused') {
+    if (template.status === 'active') {
       startedAt = new Date();
-      // Si está pausada, empezó hace una hora
-      if (template.status === 'paused') {
-        startedAt = new Date(Date.now() - 60 * 60 * 1000);
-      }
     } else if (template.status === 'completed' && template.daysAgo) {
       const daysInMs = template.daysAgo * 24 * 60 * 60 * 1000;
       startedAt = new Date(Date.now() - daysInMs);

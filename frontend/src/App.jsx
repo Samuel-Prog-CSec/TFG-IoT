@@ -20,6 +20,9 @@ const CreateSession = lazy(() => import('./pages/CreateSession'));
 const BoardSetup = lazy(() => import('./pages/BoardSetup'));
 const GameSession = lazy(() => import('./pages/GameSession'));
 const TransferStudents = lazy(() => import('./pages/TransferStudents'));
+const SessionsPage = lazy(() => import('./pages/SessionsPage'));
+const SessionDetail = lazy(() => import('./pages/SessionDetail'));
+const SessionEdit = lazy(() => import('./pages/SessionEdit'));
 
 // Card Decks pages
 const CardDecksPage = lazy(() => import('./pages/CardDecksPage'));
@@ -119,6 +122,11 @@ function AppRoutes() {
         <Route path="decks" element={<SuspenseWrapper><CardDecksPage /></SuspenseWrapper>} />
         <Route path="decks/new" element={<SuspenseWrapper><DeckCreationWizard /></SuspenseWrapper>} />
         <Route path="decks/:deckId/edit" element={<SuspenseWrapper><DeckEditPage /></SuspenseWrapper>} />
+
+        {/* Sesiones de juego (configuración) */}
+        <Route path="sessions" element={<SuspenseWrapper><SessionsPage /></SuspenseWrapper>} />
+        <Route path="sessions/:sessionId" element={<SuspenseWrapper><SessionDetail /></SuspenseWrapper>} />
+        <Route path="sessions/:sessionId/edit" element={<SuspenseWrapper><SessionEdit /></SuspenseWrapper>} />
         
         <Route path="create-session" element={<SuspenseWrapper><CreateSession /></SuspenseWrapper>} />
         <Route path="board-setup" element={<SuspenseWrapper><BoardSetup /></SuspenseWrapper>} />

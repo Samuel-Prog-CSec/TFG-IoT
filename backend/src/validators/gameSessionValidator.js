@@ -87,7 +87,7 @@ const cardMappingSchema = z
  * 1. Profesor selecciona mecánica (ej: 'association')
  * 2. Profesor selecciona contexto (ej: 'geography')
  * 3. Profesor asigna tarjetas disponibles a valores del contexto
- * 4. Sistema valida que todo sea coherente
+ * 4. Sistema valida que la configuración sea coherente
  *
  * @example
  * {
@@ -130,7 +130,7 @@ const createGameSessionSchema = z
  * Schema para actualizar una sesión existente.
  * Solo permite actualizar config y status si la sesión NO ha iniciado.
  *
- * IMPORTANTE: Una vez iniciada (status='active'), solo se permite cambiar a 'paused'.
+ * IMPORTANTE: Una vez iniciada (status='active'), no se permite modificar el estado.
  * No se permite modificar cardMappings, mechanicId ni contextId después de crear.
  */
 const updateGameSessionSchema = z
@@ -138,8 +138,6 @@ const updateGameSessionSchema = z
     deckId: objectIdSchema.optional(),
 
     config: sessionConfigInputSchema.optional(),
-
-    status: z.enum(['created', 'active', 'paused', 'completed']).optional(),
 
     difficulty: z.enum(['easy', 'medium', 'hard']).optional()
   })
@@ -171,7 +169,7 @@ const gameSessionQuerySchema = paginationSchema.extend({
 
   contextId: objectIdSchema.optional(),
 
-  status: z.enum(['created', 'active', 'paused', 'completed']).optional(),
+  status: z.enum(['created', 'active', 'completed']).optional(),
 
   difficulty: z.enum(['easy', 'medium', 'hard']).optional(),
 

@@ -162,7 +162,7 @@ const getSessions = async (req, res, next) => {
         .populate('contextId', 'contextId name')
         .populate('createdBy', 'name email')
         .sort(sortOptions)
-        .limit(parseInt(limit))
+        .limit(Number.parseInt(limit, 10))
         .skip(skip),
       GameSession.countDocuments(filter)
     ]);
@@ -176,8 +176,8 @@ const getSessions = async (req, res, next) => {
     res.json({
       success: true,
       ...toPaginatedDTOV1(toGameSessionListDTOV1(sessions), {
-        page: parseInt(page),
-        limit: parseInt(limit),
+        page: Number.parseInt(page, 10),
+        limit: Number.parseInt(limit, 10),
         total
       })
     });
@@ -521,49 +521,6 @@ const startSession = async (req, res, next) => {
 };
 
 /**
- * Pausar una sesión activa.
- *
- * POST /api/sessions/:id/pause
- * Headers: Authorization: Bearer <token>
- *
- * @param {import('express').Request} req
- * @param {import('express').Response} res
- * @param {import('express').NextFunction} next
- */
-const pauseSession = async (req, res, next) => {
-  try {
-    const { id } = req.params;
-
-    const session = await GameSession.findById(id);
-
-    if (!session) {
-      throw new NotFoundError('Sesión de juego');
-    }
-
-    // Verificar permisos
-    if (session.createdBy.toString() !== req.user._id.toString()) {
-      throw new ForbiddenError('No tienes permiso para pausar esta sesión');
-    }
-
-    // Usar el método del modelo
-    await session.pause();
-
-    logger.info('Sesión pausada', {
-      sessionId: session._id,
-      pausedBy: req.user._id
-    });
-
-    res.json({
-      success: true,
-      message: 'Sesión pausada exitosamente',
-      data: toGameSessionDetailDTOV1(session)
-    });
-  } catch (error) {
-    next(error);
-  }
-};
-
-/**
  * Finalizar una sesión.
  *
  * POST /api/sessions/:id/end
@@ -613,6 +570,5 @@ module.exports = {
   updateSession,
   deleteSession,
   startSession,
-  pauseSession,
   endSession
 };

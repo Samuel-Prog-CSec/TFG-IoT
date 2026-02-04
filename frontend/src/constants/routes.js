@@ -18,6 +18,11 @@ export const ROUTES = {
 
   // Alumnos
   STUDENT_TRANSFER: '/students/transfer',
+
+  // Sesiones
+  SESSIONS: '/sessions',
+  SESSION_DETAIL: (sessionId) => `/sessions/${sessionId}`,
+  SESSION_EDIT: (sessionId) => `/sessions/${sessionId}/edit`,
   
   // Gestión de Mazos de Cartas (CardDecks)
   CARD_DECKS: '/decks',
@@ -36,6 +41,11 @@ export const NAV_ROUTES = [
     path: ROUTES.DASHBOARD,
     label: 'Dashboard',
     icon: 'LayoutDashboard',
+  },
+  {
+    path: ROUTES.SESSIONS,
+    label: 'Sesiones',
+    icon: 'CalendarClock',
   },
   {
     path: ROUTES.STUDENT_TRANSFER,

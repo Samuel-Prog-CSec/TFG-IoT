@@ -385,6 +385,7 @@ Actualmente el `refreshToken` se almacena en `localStorage`, lo que lo expone a 
 - Monitorear logs de Sentry por errores de autenticación post-migración
 
 ---
+
 ## T-052: Soporte prefers-reduced-motion 📋
 
 **Prioridad:** P3 | **Tamaño:** S | **Dependencias:** T-035 (CardDecks)  
@@ -462,5 +463,65 @@ Los componentes UI premium creados en T-035 (CardDecks) incluyen animaciones ela
 - [MDN: prefers-reduced-motion](https://developer.mozilla.org/en-US/docs/Web/CSS/@media/prefers-reduced-motion)
 - [web.dev: prefers-reduced-motion](https://web.dev/prefers-reduced-motion/)
 - [Framer Motion: Reduced Motion](https://www.framer.com/motion/guide-accessibility/)
+
+---
+
+### T-038: E2E Tests Frontend 📋
+
+**Prioridad:** P1 | **Tamaño:** M | **Dependencias:** T-021
+
+**Descripción:**  
+Tests end-to-end con Playwright para flujos críticos de la aplicación.
+
+**Flujos a testear:**
+1. Login → Dashboard → Ver estadísticas
+2. CRUD completo de alumno
+3. Crear sesión con wizard
+4. Iniciar y completar partida (mock RFID)
+
+**Sub-tareas:**
+
+1. **Configurar Playwright:**
+   - Instalar dependencias
+   - Configurar base URL
+   - Setup de fixtures
+
+2. **Tests de autenticación:**
+   - Login exitoso
+   - Login fallido
+   - Logout
+   - Refresh de token
+
+3. **Tests de gestión de alumnos:**
+   - Crear alumno
+   - Editar alumno
+   - Eliminar alumno
+   - Búsqueda
+
+4. **Tests de sesiones:**
+   - Crear sesión con wizard
+   - Iniciar sesión
+   - Pausar/Reanudar
+
+5. **Integración CI:**
+   - GitHub Action para ejecutar tests
+   - Reportes de resultados
+
+**Criterios de Aceptación:**
+
+- [ ] 4 flujos E2E implementados
+- [ ] Tests corren en CI automáticamente
+- [ ] Reportes generados
+- [ ] Cobertura de flujos críticos
+
+---
+
+### T-053: Cambio de estados de GameSession 📋
+**Prioridad:** P2 | **Tamaño:** S | **Dependencias:** Ninguna
+
+**Descripción:**
+Desarrollar y definir los momentos y condiciones bajo las cuales una GameSession cambia de estado (`created`, `active`, `completed`).
+
+En principio, para que esté definida una sesión como active debe tener AL MENOS una partida activa (o pausada) asociada a esa sesión. Si no hay partidas activas o pausadas, la sesión debe considerarse completada.
 
 ---

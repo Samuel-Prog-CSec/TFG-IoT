@@ -52,8 +52,7 @@ export default function WizardStepper({
   allowNavigation = false,
   className,
 }) {
-  const lastStepRef = useRef(currentStep);
-  const isLastStep = currentStep === steps.length;
+  const isLastStep = currentStep >= steps.length - 1;
   const wasLastStep = useRef(false);
 
   // Efecto de confetti al llegar al último paso
@@ -76,11 +75,12 @@ export default function WizardStepper({
   }, [isLastStep]);
 
   // Calcular progreso
-  const progress = ((currentStep - 1) / (steps.length - 1)) * 100;
+  const totalSteps = Math.max(steps.length - 1, 1);
+  const progress = (currentStep / totalSteps) * 100;
 
-  const handleStepClick = (stepId) => {
-    if (allowNavigation && stepId < currentStep && onStepClick) {
-      onStepClick(stepId);
+  const handleStepClick = (stepIndex) => {
+    if (allowNavigation && stepIndex < currentStep && onStepClick) {
+      onStepClick(stepIndex);
     }
   };
 
@@ -91,10 +91,10 @@ export default function WizardStepper({
         {/* Línea de progreso con efecto de fluido */}
         <motion.div
           className="h-full rounded-full relative"
-          initial={{ width: 0 }}
+          initial={false}
           animate={{ width: `${progress}%` }}
           transition={{ 
-            duration: 0.6, 
+            duration: 0.25, 
             ease: [0.32, 0.72, 0, 1],
           }}
           style={{
@@ -122,8 +122,8 @@ export default function WizardStepper({
       {/* Steps */}
       <div className="flex justify-between relative">
         {steps.map((step, index) => {
-          const isActive = step.id === currentStep;
-          const isCompleted = step.id < currentStep;
+          const isActive = index === currentStep;
+          const isCompleted = index < currentStep;
           const isClickable = allowNavigation && isCompleted;
 
           return (
@@ -136,7 +136,7 @@ export default function WizardStepper({
             >
               {/* Botón del paso */}
               <motion.button
-                onClick={() => handleStepClick(step.id)}
+                onClick={() => handleStepClick(index)}
                 disabled={!isClickable}
                 className={cn(
                   'w-10 h-10 rounded-full flex items-center justify-center',

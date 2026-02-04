@@ -45,7 +45,7 @@ services:
       - redis
       - mongo
     command: >
-      sh -c "npm run seed && npm start"
+      sh -c "npm run seed:reset && npm run migrate:sessions && npm start"
     networks:
       - rfid-games-network
 

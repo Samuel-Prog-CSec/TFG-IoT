@@ -825,58 +825,6 @@ Mejorar el Dashboard del profesor con visualizaciones avanzadas y métricas de a
 
 ---
 
-### T-038: E2E Tests Frontend 📋
-
-**Prioridad:** P1 | **Tamaño:** M | **Dependencias:** T-021
-
-**Descripción:**  
-Tests end-to-end con Playwright para flujos críticos de la aplicación.
-
-**Flujos a testear:**
-1. Login → Dashboard → Ver estadísticas
-2. CRUD completo de alumno
-3. Crear sesión con wizard
-4. Iniciar y completar partida (mock RFID)
-
-**Sub-tareas:**
-
-1. **Configurar Playwright:**
-   - Instalar dependencias
-   - Configurar base URL
-   - Setup de fixtures
-
-2. **Tests de autenticación:**
-   - Login exitoso
-   - Login fallido
-   - Logout
-   - Refresh de token
-
-3. **Tests de gestión de alumnos:**
-   - Crear alumno
-   - Editar alumno
-   - Eliminar alumno
-   - Búsqueda
-
-4. **Tests de sesiones:**
-   - Crear sesión con wizard
-   - Iniciar sesión
-   - Pausar/Reanudar
-
-5. **Integración CI:**
-   - GitHub Action para ejecutar tests
-   - Reportes de resultados
-
-**Criterios de Aceptación:**
-
-- [ ] 4 flujos E2E implementados
-- [ ] Tests corren en CI automáticamente
-- [ ] Reportes generados
-- [ ] Cobertura de flujos críticos
-
----
-
----
-
 ## P2 - Prioridad Media
 
 ### T-027: Orden Aleatorio de Rondas (Duda #28) 📋
