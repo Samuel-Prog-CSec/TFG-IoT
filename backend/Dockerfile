@@ -1,25 +1,59 @@
 # /backend/Dockerfile
+# Multi-stage build para aplicación Node.js
+# Autor: Samuel Blanchart Pérez
+# Versión: 1.0.0
 
-# 1. Usamos una imagen base ligera de Node 24
-FROM node:24-alpine
+# ============================================
+# STAGE 1: Dependencies
+# Instala todas las dependencias
+# ============================================
+FROM node:24-alpine AS deps
 
-# 2. Directorio de trabajo dentro del contenedor
 WORKDIR /app
 
-# 3. Copiamos solo los archivos de dependencias primero (para aprovechar caché de Docker)
+# Copiar archivos de dependencias
 COPY package*.json ./
 
-# 4. Instalamos dependencias (usamos 'npm ci' para entornos limpios/producción)
-RUN npm ci --only=production
+# Instalar todas las dependencias (incluyendo dev para build)
+RUN npm ci && npm cache clean --force
 
-# 5. Copiamos el resto del código fuente
-COPY . .
+# ============================================
+# STAGE 2: Production
+# Imagen final optimizada para producción
+# ============================================
+FROM node:24-alpine AS production
 
-# 6. Exponemos el puerto
-EXPOSE 5000
+# Metadatos OCI
+LABEL org.opencontainers.image.title="RFID Games Backend"
+LABEL org.opencontainers.image.description="Backend API for RFID educational games platform"
+LABEL org.opencontainers.image.authors="Samuel Blanchart Pérez"
+LABEL org.opencontainers.image.version="0.2.0"
 
-# 7. Usuario no-root por seguridad
+# Configuración de entorno
+ENV NODE_ENV=production
+WORKDIR /app
+
+# Copiar package.json para npm scripts
+COPY package*.json ./
+
+# Instalar SOLO dependencias de producción
+RUN npm ci --only=production && npm cache clean --force
+
+# Copiar código fuente necesario
+COPY src/ ./src/
+COPY seeders/ ./seeders/
+COPY scripts/ ./scripts/
+
+# Permisos seguros - usuario non-root
+RUN chown -R node:node /app
 USER node
 
-# 8. Comando de inicio
-CMD ["npm", "start"]
+# Puerto de la aplicación
+EXPOSE 5000
+
+# Health check - verifica que el servidor responde
+HEALTHCHECK --interval=30s --timeout=10s --start-period=10s --retries=3 \
+  CMD node -e "const http = require('http'); http.get('http://localhost:5000/health', (r) => process.exit(r.statusCode === 200 ? 0 : 1)).on('error', () => process.exit(1))"
+
+# Comando de inicio
+CMD ["node", "src/server.js"]

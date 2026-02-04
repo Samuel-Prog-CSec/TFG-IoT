@@ -38,6 +38,7 @@ Este sprint representa un **salto de calidad significativo** ("Hardening") con t
 La arquitectura actual del `rfidService.js` lee del puerto serie del servidor backend. Esto **impide el despliegue en la nube** (Heroku, Railway, etc.) porque no hay acceso a puertos USB. Se debe migrar a **Web Serial API** para que el sensor conectado al PC del profesor sea leído directamente por el navegador.
 
 **Arquitectura Objetivo:**
+
 ```
 [Sensor RFID] ──USB──► [PC Profesor] ──Web Serial API──► [Frontend Chrome]
                                                               │
@@ -48,17 +49,19 @@ La arquitectura actual del `rfidService.js` lee del puerto serie del servidor ba
 ```
 
 **Contrato de evento RFID (v1 - propuesto):**
+
 ```json
 {
-   "uid": "32B8FA05",
-   "type": "MIFARE_1KB",
-   "sensorId": "teacher-pc-01",
-   "timestamp": 1736467200000,
-   "source": "web_serial"
+  "uid": "32B8FA05",
+  "type": "MIFARE_1KB",
+  "sensorId": "teacher-pc-01",
+  "timestamp": 1736467200000,
+  "source": "web_serial"
 }
 ```
 
 Reglas mínimas:
+
 - `uid`: string uppercase (8 o 14 hex)
 - `type`: enum (mismo set que el backend)
 - `sensorId`: string (requerido si hay multi-sensor)
@@ -125,6 +128,7 @@ Reglas mínimas:
 - [ ] El contrato de evento RFID se valida (cliente y servidor) y rechaza inputs malformados
 
 **Notas Técnicas:**
+
 - Web Serial API requiere HTTPS en producción (localhost exento)
 - Solo Chrome (v89+) y Edge (v89+) soportan Web Serial
 - El usuario debe dar permiso explícito para acceder al puerto
@@ -132,6 +136,7 @@ Reglas mínimas:
 ---
 
 ### T-021: Integración Frontend con API REST ✅
+
 **Prioridad:** P0 | **Tamaño:** XL | **Dependencias:** Ninguna
 
 **Descripción:**  
@@ -295,7 +300,7 @@ Los controllers devuelven documentos Mongoose directamente, exponiendo campos co
 **Sub-tareas:**
 
 1. **Expandir `utils/dtos.js` con todos los DTOs:**
-   - `toUserDTO(user)`: excluir password, __v
+   - `toUserDTO(user)`: excluir password, \_\_v
    - `toStudentDTO(user)`: incluir studentMetrics
    - `toGamePlayDTO(play)`: excluir events completos (solo resumen)
    - `toGamePlayDetailDTO(play)`: incluir events para vista detallada
@@ -502,6 +507,7 @@ Soporte para múltiples sensores RFID conectados a diferentes PCs de profesores,
 Prevenir lecturas accidentales implementando modos de operación del sensor.
 
 **Modos disponibles:**
+
 - `idle`: Sensor ignorado, no procesa lecturas
 - `gameplay`: Solo procesa lecturas para la partida activa
 - `card_registration`: Permite registrar nuevas tarjetas
@@ -662,10 +668,12 @@ UI para crear, editar y gestionar mazos de cartas (CardDeck) que se reutilizan e
    - Validación en cardDeckController.js
 
 **Documentación Creada:**
+
 - `frontend/docs/CardDecks_Architecture.md`
 - `frontend/docs/CardDecks_UX_Decisions.md`
 
 **Notas:**
+
 - RFID Scanner usa mock (T-044 Web Serial pendiente)
 - Accesibilidad prefers-reduced-motion diferida (T-052)
 
@@ -742,6 +750,7 @@ El wizard de CreateSession fue simplificado a 4 pasos ya que la selección de ca
 Mejorar el Dashboard del profesor con visualizaciones avanzadas y métricas de aprendizaje que permitan identificar patrones, detectar dificultades y tomar decisiones pedagógicas informadas. El objetivo es transformar datos crudos en **conocimiento accionable** sobre el progreso de cada alumno y del grupo.
 
 **Objetivos pedagógicos:**
+
 - Detectar alumnos con dificultades de aprendizaje específicas
 - Identificar contextos/mecánicas que generan más errores
 - Comparar progreso individual vs media de la clase
@@ -818,6 +827,7 @@ Mejorar el Dashboard del profesor con visualizaciones avanzadas y métricas de a
 - [ ] Se identifican claramente los alumnos "en riesgo"
 
 **Notas de UX:**
+
 - Usar colores semánticos: verde (bien), amarillo (atención), rojo (problema)
 - Tooltips explicativos en cada métrica
 - Empty states informativos si no hay suficientes datos
@@ -838,6 +848,7 @@ Las rondas deben presentarse en orden aleatorio para evitar que los alumnos memo
 **Sub-tareas:**
 
 1. **Implementar Fisher-Yates shuffle en GameEngine:**
+
    ```javascript
    shuffleArray(array) {
      const shuffled = [...array];
@@ -1031,14 +1042,16 @@ T-033 (Docker) ──► T-023 (Staging)                              │
 ## Checklist de Calidad del Sprint
 
 ### Seguridad
+
 - [ ] Rate limiting en WebSocket implementado (T-045)
 - [ ] Límites de payload + cooldown/dedupe WS aplicados (T-045)
 - [ ] Auth obligatoria en todos los eventos WS (T-046)
 - [ ] Eventos RFID no se emiten globalmente (T-047)
 - [ ] 100% endpoints validados con Zod (T-032)
-- [ ] Ningún endpoint expone password o __v (T-041)
+- [ ] Ningún endpoint expone password o \_\_v (T-041)
 
 ### Arquitectura
+
 - [ ] Web Serial API funciona en producción (T-044)
 - [ ] Contrato de evento RFID validado (T-044)
 - [ ] DTOs en todos los controllers (T-041)
@@ -1047,6 +1060,7 @@ T-033 (Docker) ──► T-023 (Staging)                              │
 - [ ] Versionado coherente entre paquetes (root/backend/frontend)
 
 ### Funcionalidad
+
 - [ ] Frontend conectado a API real (T-021)
 - [ ] CRUD completo funcionando
 - [ ] Wizard de sesión implementado (T-036)
@@ -1056,61 +1070,7 @@ T-033 (Docker) ──► T-023 (Staging)                              │
 - [ ] Mockup de pantalla de juego validado visualmente (T-050)
 
 ### Testing
+
 - [ ] Tests backend > 50% cobertura
 - [ ] E2E tests críticos pasando (T-038)
 - [ ] Sin errores nuevos en Sentry
-
----
-
-## Notas Adicionales
-
-### Decisiones Arquitectónicas Clave
-
-| Decisión | Justificación |
-|----------|---------------|
-| Web Serial API | Permite despliegue cloud sin acceso a puertos USB del servidor |
-| PinoJS sobre Winston | Mejor rendimiento, JSON nativo, más ligero (~30% más rápido) |
-| Rate limiting manual | Control fino sobre límites por tipo de evento |
-| DTOs obligatorios | Previene data leakage, mejor documentación, respuestas consistentes |
-
-### Riesgos Identificados
-
-| Riesgo | Probabilidad | Impacto | Mitigación |
-|--------|--------------|---------|------------|
-| Web Serial solo Chrome/Edge | Media | Alto | Mensaje claro, documentar requisito |
-| Complejidad migración RFID | Media | Alto | Mantener modo dual (server/client) |
-| Tiempo integración frontend | Alta | Medio | Priorizar flujos críticos primero |
-| Breaking changes en API | Baja | Medio | Versionado de API, changelog |
-
-### Requisitos de Infraestructura
-
-| Servicio | Desarrollo | Producción |
-|----------|------------|------------|
-| Node.js | v22+ | v22+ (LTS) |
-| MongoDB | Local/Docker | Atlas (M10+) |
-| Redis | Local/Docker | Redis Cloud / ElastiCache |
-| Storage | Local | Supabase Storage |
-| Hosting Backend | localhost:5000 | Railway / Render |
-| Hosting Frontend | localhost:5173 | Vercel / Netlify |
-
----
-
-## Referencias de Auditoría
-
-Las tareas de este sprint están basadas en las auditorías realizadas:
-
-- **Arquitectura/Rendimiento:** `Auditoria_total_agente/Arquitectura_Rendimiento/`
-  - [01_Resumen_Ejecutivo.md](../Auditoria_total_agente/Arquitectura_Rendimiento/01_Resumen_Ejecutivo.md)
-  - [02_Analisis_Rendimiento.md](../Auditoria_total_agente/Arquitectura_Rendimiento/02_Analisis_Rendimiento.md)
-  - [03_Patrones_Arquitectura.md](../Auditoria_total_agente/Arquitectura_Rendimiento/03_Patrones_Arquitectura.md)
-
-- **Seguridad:** `Auditoria_total_agente/Seguridad/`
-  - [01_Resumen_Ejecutivo.md](../Auditoria_total_agente/Seguridad/01_Resumen_Ejecutivo.md)
-  - [02_Vulnerabilidades_Detalle.md](../Auditoria_total_agente/Seguridad/02_Vulnerabilidades_Detalle.md)
-  - [03_Checklist_OWASP.md](../Auditoria_total_agente/Seguridad/03_Checklist_OWASP.md)
-
----
-
-**Documento actualizado:** 10-01-2026  
-**Autor:** Agente de Auditoría (basado en análisis de código)  
-**Próxima revisión:** Al completar 50% de tareas
