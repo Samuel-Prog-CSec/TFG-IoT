@@ -66,7 +66,7 @@ Reglas mínimas:
 - `type`: enum (mismo set que el backend)
 - `sensorId`: string (requerido si hay multi-sensor)
 - `timestamp`: number (epoch ms) generado en cliente
-- `source`: enum (`web_serial` | `server_serial`)
+- `source`: enum (`web_serial`)
 
 **Sub-tareas:**
 
@@ -99,14 +99,13 @@ Reglas mínimas:
    - El backend mantiene la autoridad: valida el **modo actual** (server-side) antes de procesar
    - Procesar igual que `rfidService.on('rfid_event')`
 
-5. **Backend - Hacer rfidService.js opcional:**
-   - Variable de entorno `RFID_MODE=server|client`
-   - En desarrollo: sensor en servidor (actual)
-   - En producción: sensor en cliente (Web Serial)
+5. **Backend - Configurar fuente RFID:**
+   - Variable de entorno `RFID_SOURCE=client|disabled`
+   - El backend solo acepta eventos de cliente (Web Serial)
 
 6. **Documentar arquitectura híbrida:**
    - Crear `docs/WebSerial_Architecture.md`
-   - Diagramas de flujo para ambos modos
+   - Diagramas de flujo para ambos modos (usando PUML)
 
 7. **Añadir polyfill/fallback para navegadores no soportados:**
    - Mensaje claro: "Usa Chrome o Edge para conectar el sensor"
@@ -469,7 +468,7 @@ Soporte para múltiples sensores RFID conectados a diferentes PCs de profesores,
    - Añadir campo `sensorId` a eventos JSON
    - Firmware: configurar ID único por sensor
 
-   > Nota: en modo `RFID_MODE=client` el frontend (Web Serial) debe adjuntar `sensorId` al emitir `rfid_scan_from_client`.
+   > Nota: con `RFID_SOURCE=client` el frontend (Web Serial) debe adjuntar `sensorId` al emitir `rfid_scan_from_client`.
 
 2. **Añadir `sensorId` a GameSession:**
    - Campo opcional en schema

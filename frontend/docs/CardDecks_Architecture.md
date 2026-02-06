@@ -189,12 +189,8 @@ const DRAFT_EXPIRY = 7 * 24 * 60 * 60 * 1000; // 7 días
 ### 3. RFID Mock vs Web Serial
 
 **Estado Actual:**
-- RFID Scanner usa simulación con tarjetas predefinidas
-- Botón "Simular escaneo" para testing
-
-**Pendiente (T-044):**
-- Implementación real con Web Serial API
-- Conexión directa con lector RC522
+- Web Serial API implementado para escaneo real
+- El modo simulación queda disponible solo en desarrollo
 
 ### 4. Separación Mazo ↔ Sesión
 

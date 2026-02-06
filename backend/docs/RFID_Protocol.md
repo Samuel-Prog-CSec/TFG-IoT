@@ -30,6 +30,9 @@
 >
 > Para generar imágenes: `plantuml diagrams/*.puml`
 
+> [!NOTE]
+> Para la arquitectura Web Serial completa, ver [WebSerial_Architecture.md](WebSerial_Architecture.md).
+
 ---
 
 ## 1. Introducción
@@ -47,12 +50,13 @@ El sistema RFID permite:
 
 ### 1.2 Componentes Principales
 
-| Componente       | Ubicación                             | Descripción                                          |
-| ---------------- | ------------------------------------- | ---------------------------------------------------- |
-| Firmware ESP8266 | `rfid_scanner/`                       | Código del microcontrolador que lee tarjetas         |
-| RFIDService      | `backend/src/services/rfidService.js` | Servicio Node.js que gestiona la comunicación serial |
-| GameEngine       | `backend/src/services/gameEngine.js`  | Motor de juego que procesa escaneos durante partidas |
-| WebSockets       | `backend/src/server.js`               | Comunicación en tiempo real con clientes             |
+| Componente       | Ubicación                             | Descripción                                              |
+| ---------------- | ------------------------------------- | -------------------------------------------------------- |
+| Firmware ESP8266 | `rfid_scanner/`                       | Código del microcontrolador que lee tarjetas             |
+| Web Serial API   | Frontend (navegador)                  | Lectura del puerto serie desde el PC del profesor        |
+| RFIDService      | `backend/src/services/rfidService.js` | Servicio Node.js que ingiere eventos desde el cliente    |
+| GameEngine       | `backend/src/services/gameEngine.js`  | Motor de juego que procesa escaneos durante partidas     |
+| WebSockets       | `backend/src/server.js`               | Comunicación en tiempo real con clientes (Socket.IO)     |
 
 ---
 
@@ -91,21 +95,23 @@ El flujo de datos sigue una arquitectura de eventos unidireccional:
 1. **Detección física**: La tarjeta MIFARE entra en el campo NFC del RC522 (13.56 MHz)
 2. **Lectura SPI**: El RC522 comunica el UID al ESP8266 vía SPI
 3. **Serialización**: El firmware convierte los datos a JSON y los envía por USB serial (115200 baud)
-4. **Parsing**: `RFIDService` parsea el JSON y emite eventos internos
-5. **Procesamiento**: `GameEngine` procesa el evento según el modo activo
-6. **Notificación**: Socket.IO emite el resultado al frontend en tiempo real
+4. **Lectura en navegador**: Web Serial API captura el JSON en el PC del profesor
+5. **Normalización**: El frontend normaliza el evento al contrato estable
+6. **Transporte**: Socket.IO envía el evento al backend
+7. **Procesamiento**: `GameEngine` procesa el evento según el modo activo
+8. **Notificación**: Socket.IO emite el resultado al frontend en tiempo real
 
-### 2.3 Limitación Actual: Un Único Sensor
+### 2.3 Limitaciones actuales
 
 > [!WARNING]
-> **Limitación conocida**: El sistema actual usa conexión serial USB, lo que limita a **UN ÚNICO sensor** físicamente conectado al servidor. Todos los jugadores comparten el mismo lector RFID.
+> **Limitaciones conocidas**: Web Serial requiere HTTPS (excepto localhost) y actualmente solo funciona en Chrome/Edge. Cada profesor debe conectar el sensor físicamente a su propio PC.
 
-**Decisión de diseño**: Se optó por serial USB por su simplicidad y fiabilidad. La latencia es mínima (~5ms) y no requiere configuración de red.
+**Decisión de diseño**: Se prioriza despliegue cloud y escalabilidad por aula, evitando depender de USB en el servidor.
 
 **Mejora futura propuesta (MQTT)**:
 
 - Múltiples ESP8266 conectados vía WiFi
-- Cada aula/usuario puede tener su propio lector
+- Cada aula/usuario puede tener su propio lector sin cable USB
 - Comunicación mediante topics MQTT: `rfid/reader_{id}/card_detected`
 
 ---
@@ -161,6 +167,9 @@ El firmware implementa las siguientes funcionalidades:
 | Formato      | JSON (una línea por evento) |
 | Delimitador  | Salto de línea (`\n`)       |
 | Codificación | ASCII/UTF-8                 |
+
+> [!NOTE]
+> Este JSON se consume directamente en el navegador mediante Web Serial API.
 
 ### 4.2 Tipos de Eventos
 
@@ -307,20 +316,41 @@ Emitido cuando ocurre un error en el sensor.
 
 ---
 
+### 4.5 Contrato de Evento RFID (Web Serial)
+
+El navegador normaliza los eventos del firmware al siguiente contrato estable y lo envía al backend por Socket.IO (`rfid_scan_from_client`).
+
+```json
+{
+  "uid": "32B8FA05",
+  "type": "MIFARE_1KB",
+  "sensorId": "sensor-0f5e1b9c",
+  "timestamp": 1736467200000,
+  "source": "web_serial"
+}
+```
+
+| Campo | Tipo | Reglas |
+| --- | --- | --- |
+| `uid` | string | Hexadecimal mayusculas, 8 o 14 caracteres |
+| `type` | string | `MIFARE_1KB` \| `MIFARE_4KB` \| `NTAG` \| `UNKNOWN` |
+| `sensorId` | string | Identificador persistente por navegador |
+| `timestamp` | number | Epoch en milisegundos (cliente) |
+| `source` | string | Siempre `web_serial` |
+
 ## 5. Backend: Servicio RFID
 
 ### 5.1 RFIDService
 
-El servicio `rfidService.js` es un **singleton** que gestiona la conexión con el sensor RFID vía puerto serial.
+El servicio `rfidService.js` es un **singleton** que ingiere eventos RFID enviados por el navegador.
 
 #### Características Principales
 
-| Característica               | Descripción                                                   |
-| ---------------------------- | ------------------------------------------------------------- |
-| **Reconexión automática**    | Reintenta conexión con backoff exponencial (máx. 10 intentos) |
-| **Buffer de eventos**        | Almacena los últimos 100 eventos para debugging               |
-| **Métricas**                 | Contador de eventos, detecciones, errores y uptime            |
-| **Habilitación condicional** | Solo se activa si `RFID_ENABLED=true`                         |
+| Característica               | Descripción                                        |
+| ---------------------------- | -------------------------------------------------- |
+| **Buffer de eventos**        | Almacena los últimos 100 eventos para debugging    |
+| **Métricas**                 | Contador de eventos, detecciones, errores y uptime |
+| **Habilitación condicional** | Activo si `RFID_SOURCE=client`                     |
 
 #### Estados del Servicio
 
@@ -328,43 +358,30 @@ El servicio `rfidService.js` es un **singleton** que gestiona la conexión con e
 
 El servicio puede estar en uno de los siguientes estados:
 
-| Estado          | Descripción                                                                                    |
-| --------------- | ---------------------------------------------------------------------------------------------- |
-| `disabled`      | `RFID_ENABLED` no está configurado como `true`. El servicio no intenta conectar.               |
-| `misconfigured` | `RFID_ENABLED=true` pero `SERIAL_PORT` está vacío. Se listan los puertos disponibles en logs.  |
-| `reconnecting`  | Intentando establecer conexión con el sensor. Backoff exponencial entre reintentos.            |
-| `connected`     | Conexión establecida. Leyendo eventos JSON del sensor y emitiendo en tiempo real.              |
-| `disconnected`  | Conexión perdida (cable desconectado, error USB). Auto-retry en 5 segundos.                    |
-| `failed`        | Se alcanzó el máximo de reintentos (10). Requiere intervención manual o reinicio del servidor. |
+| Estado          | Descripción                                                             |
+| --------------- | ----------------------------------------------------------------------- |
+| `disabled`      | `RFID_SOURCE=disabled`. El backend ignora eventos RFID.                 |
+| `misconfigured` | `RFID_SOURCE` inválido. Requiere corrección en entorno.                 |
+| `client_ready`  | Servicio activo esperando eventos del cliente (Web Serial).            |
+| `stopped`       | Servicio detenido (shutdown o no inicializado aún).                    |
 
-**Decisión de diseño**: El backoff exponencial evita saturar el sistema con reintentos cuando el sensor no está disponible, mientras que el auto-retry garantiza recuperación automática ante desconexiones temporales.
+**Decisión de diseño**: El backend mantiene autoridad validando el contrato del evento y delegando la lectura física al navegador del profesor.
 
 #### Eventos Emitidos por RFIDService
 
 | Evento       | Payload                       | Descripción                                                                                                       |
 | ------------ | ----------------------------- | ----------------------------------------------------------------------------------------------------------------- |
 | `rfid_event` | `{ event, uid?, type?, ... }` | Cualquier evento del sensor parseado                                                                              |
-| `status`     | `string`                      | Cambio de estado de conexión (`connected`, `disconnected`, `reconnecting`, `disabled`, `misconfigured`, `failed`) |
+| `status`     | `string`                      | Cambio de estado (`client_ready`, `disabled`, `misconfigured`, `stopped`)                                         |
 
 ### 5.2 Configuración del Servicio
 
 Variables de entorno en `.env`:
 
 ```env
-# Habilitar/deshabilitar el servicio RFID
-RFID_ENABLED=true
-
-# Puerto serie del sensor (obligatorio si RFID_ENABLED=true)
-SERIAL_PORT=/dev/ttyUSB0
-
-# Velocidad de comunicación (opcional, default: 115200)
-SERIAL_BAUD_RATE=115200
-
-# Máximo de intentos de reconexión (opcional, default: 10)
-RFID_MAX_RECONNECT_ATTEMPTS=10
-
-# Delay inicial de reconexión en ms (opcional, default: 5000)
-RFID_RECONNECT_DELAY_MS=5000
+# Fuente de eventos RFID
+# Opciones: client | disabled
+RFID_SOURCE=client
 ```
 
 ### 5.3 API del Servicio
@@ -373,11 +390,8 @@ RFID_RECONNECT_DELAY_MS=5000
 // Obtener estado actual
 const status = rfidService.getStatus();
 // Returns: {
-//   isConnected: boolean,
-//   port: string,
-//   baudRate: number,
-//   reconnectAttempts: number,
-//   maxReconnectAttempts: number,
+//   status: string,
+//   source: string,
 //   metrics: { totalEventsReceived, totalCardDetections, ... },
 //   recentEvents: Array
 // }
@@ -482,8 +496,9 @@ interface PlayState {
 
 > 📊 **Diagrama**: [rfid_card_scan_processing.puml](diagrams/rfid_card_scan_processing.puml)
 
-1. El sensor detecta una tarjeta y `RFIDService` emite `rfid_event`.
-2. `GameEngine` recibe el evento con el UID.
+1. El sensor detecta una tarjeta y el navegador envía `rfid_scan_from_client`.
+2. `RFIDService` ingiere el evento y lo reemite internamente.
+3. `GameEngine` recibe el evento con el UID.
 3. **Búsqueda O(1)**: Usa `cardUidToPlayId` para identificar a qué partida pertenece el UID.
 4. Si encuentra una partida activa, obtiene su estado de `activePlays`.
 5. Verifica si la partida está esperando respuesta (`awaitingResponse`).
@@ -521,6 +536,7 @@ Cuando un alumno escanea una tarjeta durante una partida:
 | `cancel_card_registration` | `{}`                         | Cancelar modo registro                |
 | `start_card_assignment`    | `{ assetKey, assetDisplay }` | Activar modo asignación               |
 | `cancel_card_assignment`   | `{}`                         | Cancelar modo asignación              |
+| `rfid_scan_from_client`     | `{ uid, type, sensorId, ... }` | Evento RFID desde Web Serial        |
 
 ### 8.2 Eventos Servidor → Cliente
 
@@ -529,7 +545,7 @@ Cuando un alumno escanea una tarjeta durante una partida:
 | Evento        | Payload                       | Descripción                             |
 | ------------- | ----------------------------- | --------------------------------------- |
 | `rfid_event`  | `{ event, uid?, type?, ... }` | Evento directo del sensor (modo idle)   |
-| `rfid_status` | `{ status }`                  | Cambio de estado de conexión del sensor |
+| `rfid_status` | `{ status }`                  | Estado del servicio RFID (client_ready/disabled) |
 
 #### Eventos de Partida
 
@@ -560,56 +576,28 @@ Cuando un alumno escanea una tarjeta durante una partida:
 
 ### 9.1 Requisitos de Sistema
 
-| Componente | Requisito                                       |
-| ---------- | ----------------------------------------------- |
-| Node.js    | v18+                                            |
-| Puerto USB | Disponible para sensor                          |
-| Permisos   | Acceso a `/dev/ttyUSB*` (Linux) o COM (Windows) |
+| Componente | Requisito                                           |
+| ---------- | --------------------------------------------------- |
+| Node.js    | v18+                                                |
+| Navegador  | Chrome/Edge con Web Serial habilitado              |
+| HTTPS      | Obligatorio en produccion (localhost exento)       |
+| USB local  | Sensor conectado al PC del profesor                |
 
 ### 9.2 Configuración de Variables de Entorno
 
 ```env
 # === RFID Configuration ===
 
-# Habilitar el servicio RFID (default: false)
-RFID_ENABLED=true
-
-# Puerto serie del sensor
-# Linux: /dev/ttyUSB0, /dev/ttyACM0
-# macOS: /dev/cu.usbserial-*
-# Windows: COM3, COM4, etc.
-SERIAL_PORT=/dev/ttyUSB0
-
-# Velocidad de comunicación (debe coincidir con firmware)
-SERIAL_BAUD_RATE=115200
-
-# Intentos máximos de reconexión
-RFID_MAX_RECONNECT_ATTEMPTS=10
-
-# Delay inicial de reconexión en ms
-RFID_RECONNECT_DELAY_MS=5000
+# Fuente de eventos RFID
+# Opciones: client | disabled
+RFID_SOURCE=client
 ```
 
-### 9.3 Permisos en Linux
+### 9.3 Notas de despliegue
 
-```bash
-# Añadir usuario al grupo dialout para acceso a puertos serie
-sudo usermod -a -G dialout $USER
-
-# Alternativamente, dar permisos temporales
-sudo chmod 666 /dev/ttyUSB0
-```
-
-### 9.4 Detección Automática de Puertos
-
-El servicio lista automáticamente los puertos disponibles al fallar la conexión:
-
-```
-[ERROR] RFID_ENABLED=true pero SERIAL_PORT no está configurado.
-Available ports: [
-  { path: '/dev/ttyUSB0', friendlyName: 'USB-Serial Controller', manufacturer: 'Prolific' }
-]
-```
+- El sensor solo se conecta al PC del profesor, no al servidor cloud.
+- El navegador solicita permisos al usuario para acceder al puerto.
+- En produccion se requiere HTTPS para habilitar Web Serial.
 
 ---
 
@@ -622,22 +610,14 @@ Available ports: [
 | No detecta tarjetas       | Alimentación insuficiente            | Usar fuente 3.3V estable, no 5V          |
 | UID inconsistentes        | Módulo clon con firmware no estándar | El firmware incluye fallback para clones |
 | `init_failure`            | Cable suelto o módulo dañado         | Verificar conexiones SPI                 |
-| Puerto no encontrado      | Permisos insuficientes               | Añadir usuario a grupo `dialout`         |
-| Reconexión infinita       | Cable USB defectuoso                 | Cambiar cable o puerto USB               |
-| Heartbeat sin detecciones | Tarjeta muy lejos                    | Acercar tarjeta a 1-2 cm del módulo      |
+| Permiso denegado          | Usuario rechazo el permiso serial     | Reconectar y aceptar permiso             |
+| Web Serial no disponible  | Navegador no soportado o sin HTTPS   | Usar Chrome/Edge y HTTPS                 |
 
 ### 10.2 Verificación de Funcionamiento
 
-```bash
-# Ver eventos del sensor en tiempo real
-cat /dev/ttyUSB0
-
-# Verificar que el puerto existe
-ls -la /dev/ttyUSB*
-
-# Monitorear con screen
-screen /dev/ttyUSB0 115200
-```
+1. Abrir la pantalla que habilita RFID.
+2. Pulsar "Conectar" y seleccionar el puerto.
+3. Escanear una tarjeta y verificar que el evento llega a la UI.
 
 ### 10.3 Logs del Backend
 
@@ -646,10 +626,9 @@ screen /dev/ttyUSB0 115200
 // En .env: LOG_LEVEL=debug
 
 // Logs esperados al iniciar:
-// [INFO] Iniciando servicio RFID...
-// [INFO] Intentando conectar al sensor RFID (intento 1/10)
-// [INFO] Sensor RFID conectado exitosamente
-// [DEBUG] Evento RFID recibido: { event: 'init', status: 'success', version: '0xB2' }
+// [INFO] Iniciando servicio RFID en modo cliente...
+// [INFO] Estado del servicio RFID: client_ready
+// [DEBUG] Evento RFID recibido desde cliente
 ```
 
 ### 10.4 Métricas de Diagnóstico

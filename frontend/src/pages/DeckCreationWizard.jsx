@@ -1,7 +1,7 @@
 /**
  * @fileoverview Wizard de creación de mazos de cartas
  * Permite al profesor crear un mazo paso a paso:
- * 1. Capturar cartas (RFID mock + fallback manual)
+ * 1. Capturar cartas (RFID + fallback manual)
  * 2. Seleccionar contexto temático
  * 3. Asignar assets a cada carta
  * 4. Confirmar y nombrar el mazo
@@ -12,6 +12,7 @@
  */
 
 import { useState, useEffect, useCallback } from 'react';
+import PropTypes from 'prop-types';
 import { useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import confetti from 'canvas-confetti';
@@ -153,7 +154,7 @@ export default function DeckCreationWizard() {
     if (hasDraft && !showDraftModal) {
       setShowDraftModal(true);
     }
-  }, [hasDraft]);
+  }, [hasDraft, showDraftModal]);
 
   // Guardar borrador automáticamente
   useEffect(() => {
@@ -205,7 +206,7 @@ export default function DeckCreationWizard() {
     }
   }, [hasUnsavedData, navigate, exitConfirmation]);
 
-  // Handler para escaneo RFID mock
+  // Handler para escaneo RFID
   const handleRFIDScan = useCallback((card) => {
     if (selectedCards.length >= MAX_CARDS) {
       toast.warning('Límite alcanzado', {
@@ -613,6 +614,7 @@ function StepCards({
               onRemoveCard={onRemoveCard}
               maxCards={maxCards}
               availableCards={availableCards}
+              showMockButton={import.meta.env.MODE === 'development'}
             />
           </motion.div>
         ) : (
@@ -935,3 +937,38 @@ function StepConfirm({
     </div>
   );
 }
+
+StepCards.propTypes = {
+  captureMode: PropTypes.oneOf(['rfid', 'manual']).isRequired,
+  setCaptureMode: PropTypes.func.isRequired,
+  selectedCards: PropTypes.arrayOf(PropTypes.object).isRequired,
+  availableCards: PropTypes.arrayOf(PropTypes.object).isRequired,
+  loadingCards: PropTypes.bool.isRequired,
+  onRFIDScan: PropTypes.func.isRequired,
+  onManualSelect: PropTypes.func.isRequired,
+  onRemoveCard: PropTypes.func.isRequired,
+  minCards: PropTypes.number.isRequired,
+  maxCards: PropTypes.number.isRequired
+};
+
+StepContext.propTypes = {
+  contexts: PropTypes.arrayOf(PropTypes.object).isRequired,
+  loadingContexts: PropTypes.bool.isRequired,
+  selectedContext: PropTypes.object,
+  onSelectContext: PropTypes.func.isRequired
+};
+
+StepAssign.propTypes = {
+  selectedCards: PropTypes.arrayOf(PropTypes.object).isRequired,
+  selectedContext: PropTypes.object,
+  cardAssignments: PropTypes.object.isRequired,
+  onAssignAsset: PropTypes.func.isRequired
+};
+
+StepConfirm.propTypes = {
+  deckName: PropTypes.string.isRequired,
+  setDeckName: PropTypes.func.isRequired,
+  selectedCards: PropTypes.arrayOf(PropTypes.object).isRequired,
+  selectedContext: PropTypes.object,
+  cardAssignments: PropTypes.object.isRequired
+};

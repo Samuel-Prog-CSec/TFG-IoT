@@ -3,17 +3,19 @@
  * Incluye animación de ondas radar, efecto "card fly-in" al detectar,
  * partículas de confirmación y contador animado.
  * 
- * NOTA: Este componente usa mock/simulación hasta que se complete T-044 (Web Serial API).
- * Una vez completada T-044, integrar eventos WebSocket 'rfid_event' reales.
+ * NOTA: Este componente integra Web Serial para escaneo real y deja simulacion para desarrollo.
  * 
  * @module components/ui/RFIDScannerPanel
  */
 
 import { useState, useEffect, useCallback, useRef } from 'react';
+import PropTypes from 'prop-types';
 import { motion, AnimatePresence, useSpring, useTransform } from 'framer-motion';
 import { CreditCard, Wifi, WifiOff, Plus, Trash2, AlertCircle, Zap } from 'lucide-react';
 import { cn } from '../../lib/utils';
 import confetti from 'canvas-confetti';
+import RFIDConnector from './RFIDConnector';
+import webSerialService from '../../services/webSerialService';
 
 // Generar UID aleatorio para mock
 const generateMockUid = () => {
@@ -68,7 +70,8 @@ export default function RFIDScannerPanel({
   availableCards = [], // Cartas reales disponibles para simular
   className,
 }) {
-  const [isScanning, setIsScanning] = useState(true);
+  const [isScanning, setIsScanning] = useState(false);
+  const [rfidStatus, setRfidStatus] = useState('disconnected');
   const [lastScanned, setLastScanned] = useState(null);
   const [error, setError] = useState(null);
   const containerRef = useRef(null);
@@ -80,6 +83,82 @@ export default function RFIDScannerPanel({
   useEffect(() => {
     countSpring.set(scannedCards.length);
   }, [scannedCards.length, countSpring]);
+
+  useEffect(() => {
+    const handleStatus = (payload) => {
+      const nextStatus = payload?.status || 'disconnected';
+      setRfidStatus(nextStatus);
+      setIsScanning(nextStatus === 'reading');
+    };
+
+    webSerialService.on('status', handleStatus);
+
+    return () => {
+      webSerialService.off('status', handleStatus);
+    };
+  }, []);
+
+  const handleCardAdded = useCallback((newCard) => {
+    setLastScanned(newCard);
+    onCardScanned(newCard);
+
+    if (containerRef.current) {
+      const rect = containerRef.current.getBoundingClientRect();
+      confetti({
+        particleCount: 15,
+        spread: 40,
+        origin: {
+          x: (rect.left + rect.width / 2) / window.innerWidth,
+          y: (rect.top + 100) / window.innerHeight,
+        },
+        colors: ['#6366f1', '#8b5cf6', '#a855f7'],
+        scalar: 0.6,
+        gravity: 0.8,
+      });
+    }
+
+    setTimeout(() => setLastScanned(null), 1500);
+  }, [onCardScanned]);
+
+  const handleRealScan = useCallback((payload) => {
+    if (!payload?.uid) {
+      return;
+    }
+
+    if (scannedCards.length >= maxCards) {
+      setError(`Máximo de ${maxCards} tarjetas alcanzado`);
+      setTimeout(() => setError(null), 3000);
+      return;
+    }
+
+    if (!allowDuplicates && scannedCards.some(c => c.uid === payload.uid)) {
+      setError('Esta tarjeta ya ha sido escaneada');
+      setTimeout(() => setError(null), 3000);
+      return;
+    }
+
+    const matchedCard = availableCards?.find(
+      c => String(c.uid || '').toUpperCase() === payload.uid
+    );
+
+    if (availableCards?.length && !matchedCard) {
+      setError('Tarjeta no registrada en el sistema');
+      setTimeout(() => setError(null), 3000);
+      return;
+    }
+
+    const newCard = matchedCard || {
+      _id: `scan-${payload.uid}`,
+      uid: payload.uid,
+      type: payload.type || 'UNKNOWN',
+      scannedAt: new Date()
+    };
+
+    handleCardAdded({
+      ...newCard,
+      scannedAt: new Date()
+    });
+  }, [allowDuplicates, availableCards, handleCardAdded, maxCards, scannedCards]);
 
   // Simular escaneo (mock para desarrollo)
   const handleMockScan = useCallback(() => {
@@ -127,28 +206,8 @@ export default function RFIDScannerPanel({
       };
     }
 
-    setLastScanned(newCard);
-    onCardScanned(newCard);
-
-    // Mini confetti al escanear
-    if (containerRef.current) {
-      const rect = containerRef.current.getBoundingClientRect();
-      confetti({
-        particleCount: 15,
-        spread: 40,
-        origin: {
-          x: (rect.left + rect.width / 2) / window.innerWidth,
-          y: (rect.top + 100) / window.innerHeight,
-        },
-        colors: ['#6366f1', '#8b5cf6', '#a855f7'],
-        scalar: 0.6,
-        gravity: 0.8,
-      });
-    }
-
-    // Limpiar animación de última escaneada
-    setTimeout(() => setLastScanned(null), 1500);
-  }, [scannedCards, maxCards, allowDuplicates, onCardScanned, availableCards]);
+    handleCardAdded(newCard);
+  }, [scannedCards, maxCards, allowDuplicates, availableCards, handleCardAdded]);
 
   // Eliminar tarjeta
   const handleRemoveCard = (uid) => {
@@ -156,6 +215,7 @@ export default function RFIDScannerPanel({
   };
 
   const isValid = scannedCards.length >= minCards && scannedCards.length <= maxCards;
+  const isConnected = rfidStatus === 'connected' || rfidStatus === 'reading';
   const progress = Math.min((scannedCards.length / minCards) * 100, 100);
 
   return (
@@ -168,7 +228,7 @@ export default function RFIDScannerPanel({
             <motion.div
               className={cn(
                 'w-10 h-10 rounded-xl flex items-center justify-center',
-                isScanning ? 'bg-emerald-500/20' : 'bg-slate-700/50'
+                isConnected ? 'bg-emerald-500/20' : 'bg-slate-700/50'
               )}
               animate={isScanning ? {
                 boxShadow: [
@@ -179,7 +239,7 @@ export default function RFIDScannerPanel({
               } : {}}
               transition={{ duration: 2, repeat: Infinity }}
             >
-              {isScanning ? (
+              {isConnected ? (
                 <Wifi className="text-emerald-400" size={20} />
               ) : (
                 <WifiOff className="text-slate-500" size={20} />
@@ -188,7 +248,7 @@ export default function RFIDScannerPanel({
             <div>
               <h3 className="font-semibold text-white">Escáner RFID</h3>
               <p className="text-xs text-slate-500">
-                {isScanning ? 'Esperando tarjetas...' : 'Escáner pausado'}
+                {isConnected ? 'Esperando tarjetas...' : 'Escáner desconectado'}
               </p>
             </div>
           </div>
@@ -205,6 +265,10 @@ export default function RFIDScannerPanel({
               <span className="text-slate-500">/{maxCards}</span>
             </motion.div>
           </div>
+        </div>
+
+        <div className="px-4 pb-4">
+          <RFIDConnector onScan={handleRealScan} />
         </div>
 
         {/* Área de escaneo con animación */}
@@ -330,7 +394,7 @@ export default function RFIDScannerPanel({
               Simular Escaneo (Dev)
             </motion.button>
             <p className="text-[10px] text-slate-600 text-center mt-2">
-              ⚠️ Mock activo - T-044 pendiente para escaneo real
+              Modo simulacion activo para pruebas locales
             </p>
           </div>
         )}
@@ -430,3 +494,28 @@ export function RFIDScannerMini({ isConnected = false, cardCount = 0, className 
     </div>
   );
 }
+
+RFIDScannerPanel.propTypes = {
+  scannedCards: PropTypes.arrayOf(
+    PropTypes.shape({
+      uid: PropTypes.string.isRequired,
+      type: PropTypes.string,
+      cardId: PropTypes.string,
+      scannedAt: PropTypes.instanceOf(Date)
+    })
+  ),
+  onCardScanned: PropTypes.func.isRequired,
+  onCardRemoved: PropTypes.func.isRequired,
+  minCards: PropTypes.number,
+  maxCards: PropTypes.number,
+  allowDuplicates: PropTypes.bool,
+  showMockButton: PropTypes.bool,
+  availableCards: PropTypes.arrayOf(PropTypes.object),
+  className: PropTypes.string
+};
+
+RFIDScannerMini.propTypes = {
+  isConnected: PropTypes.bool,
+  cardCount: PropTypes.number,
+  className: PropTypes.string
+};

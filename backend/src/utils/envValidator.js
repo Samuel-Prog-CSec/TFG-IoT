@@ -51,6 +51,7 @@ const REQUIRED_REDIS_IN_PRODUCTION = ['REDIS_URL'];
  * Valida que todas las variables requeridas estén configuradas.
  * @throws {Error} Si falta alguna variable crítica
  */
+// eslint-disable-next-line sonarjs/cognitive-complexity
 function validateEnv() {
   const missing = [];
   const warnings = [];
@@ -98,13 +99,26 @@ function validateEnv() {
     }
   }
 
-  // RFID: SERIAL_PORT solo es obligatorio si RFID_ENABLED=true
-  if (process.env.RFID_ENABLED === 'true' && !process.env.SERIAL_PORT) {
+  // RFID: fuente requerida en producción (client|disabled)
+  if (!process.env.RFID_SOURCE) {
     if (isProduction) {
-      missing.push('SERIAL_PORT');
+      missing.push('RFID_SOURCE');
     } else {
-      warnings.push('SERIAL_PORT (RFID_ENABLED=true pero falta puerto)');
+      process.env.RFID_SOURCE = 'client';
+      warnings.push('RFID_SOURCE (usando client por defecto)');
     }
+  }
+
+  if (process.env.RFID_SOURCE) {
+    const source = process.env.RFID_SOURCE.trim().toLowerCase();
+    const allowedSources = ['client', 'disabled'];
+    if (!allowedSources.includes(source)) {
+      throw new Error(
+        `RFID_SOURCE inválido: ${process.env.RFID_SOURCE}. ` +
+          `Valores permitidos: ${allowedSources.join(', ')}`
+      );
+    }
+    process.env.RFID_SOURCE = source;
   }
 
   // Supabase Storage: requerido en producción (uploads de assets)

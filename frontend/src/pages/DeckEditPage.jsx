@@ -705,6 +705,7 @@ export default function DeckEditPage() {
                   onCardScanned={handleAddCard}
                   scannedCards={[]}
                   maxCards={MAX_CARDS - selectedCards.length}
+                  showMockButton={import.meta.env.MODE === 'development'}
                 />
               )}
             </motion.div>

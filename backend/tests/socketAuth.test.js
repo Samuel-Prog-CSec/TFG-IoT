@@ -69,6 +69,7 @@ describe('Socket.IO auth & ownership', () => {
   let playId;
 
   beforeAll(async () => {
+    process.env.RFID_SOURCE = 'client';
     await User.deleteMany({});
     await GameSession.deleteMany({});
     await GamePlay.deleteMany({});
@@ -221,6 +222,8 @@ describe('Socket.IO auth & ownership', () => {
   test('rechaza RFID client event con UID inválido', async () => {
     const socket = await connectSocket(port, teacherOwnerToken);
 
+    socket.emit('join_card_registration');
+
     socket.emit('rfid_scan_from_client', {
       uid: 'INVALID',
       type: 'NTAG',
@@ -231,6 +234,79 @@ describe('Socket.IO auth & ownership', () => {
 
     const errorPayload = await waitForEvent(socket, 'error');
     expect(errorPayload).toEqual(expect.objectContaining({ code: 'VALIDATION_ERROR' }));
+
+    socket.disconnect();
+  });
+
+  test('rechaza RFID client event fuera de modo permitido', async () => {
+    const socket = await connectSocket(port, teacherOwnerToken);
+
+    socket.emit('rfid_scan_from_client', {
+      uid: 'CC0000AA',
+      type: 'NTAG',
+      sensorId: 'sensor-1',
+      timestamp: Date.now(),
+      source: 'web_serial'
+    });
+
+    const errorPayload = await waitForEvent(socket, 'error');
+    expect(errorPayload).toEqual(expect.objectContaining({ code: 'RFID_MODE_INVALID' }));
+
+    socket.disconnect();
+  });
+
+  test('rechaza RFID client event con sensorId no autorizado', async () => {
+    const tempTeacher = await User.create({
+      name: 'Socket Sensor Teacher',
+      email: `socket-sensor-${Date.now()}@test.com`,
+      password: 'password',
+      role: 'teacher',
+      status: 'active',
+      accountStatus: 'approved'
+    });
+    const tempToken = (await generateTokenPair(tempTeacher, mockReq)).accessToken;
+    const socket = await connectSocket(port, tempToken);
+
+    socket.emit('join_card_registration');
+    await new Promise(resolve => setTimeout(resolve, 50));
+
+    await new Promise((resolve, reject) => {
+      const timer = setTimeout(() => {
+        reject(new Error('Timeout esperando primer rfid_event'));
+      }, 2000);
+
+      socket.once('rfid_event', () => {
+        clearTimeout(timer);
+        resolve();
+      });
+
+      socket.once('error', payload => {
+        clearTimeout(timer);
+        reject(new Error(`RFID error: ${payload?.code || 'UNKNOWN'}`));
+      });
+
+      socket.emit('rfid_scan_from_client', {
+        uid: 'CC0000AB',
+        type: 'NTAG',
+        sensorId: 'sensor-allowed',
+        timestamp: Date.now(),
+        source: 'web_serial'
+      });
+    });
+
+    await new Promise(resolve => setTimeout(resolve, 3200));
+
+    const errorPromise = waitForEvent(socket, 'error');
+    socket.emit('rfid_scan_from_client', {
+      uid: 'CC0000AC',
+      type: 'NTAG',
+      sensorId: 'sensor-blocked',
+      timestamp: Date.now(),
+      source: 'web_serial'
+    });
+
+    const errorPayload = await errorPromise;
+    expect(errorPayload).toEqual(expect.objectContaining({ code: 'RFID_SENSOR_MISMATCH' }));
 
     socket.disconnect();
   });

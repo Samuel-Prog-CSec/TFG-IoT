@@ -1,7 +1,9 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useMemo } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Wifi, WifiOff, Pause, Play, Volume2, VolumeX } from 'lucide-react';
 import { cn } from '../lib/utils';
+import RFIDConnector from '../components/ui/RFIDConnector';
+import webSerialService from '../services/webSerialService';
 import { 
   ChallengeDisplay, 
   TimerBar, 
@@ -31,7 +33,7 @@ export default function GameSession() {
   const [feedback, setFeedback] = useState(null);
   const [mascotMood, setMascotMood] = useState('idle');
   const [soundEnabled, setSoundEnabled] = useState(true);
-  const [rfidConnected] = useState(true);
+  const [rfidConnected, setRfidConnected] = useState(false);
 
   // Mock challenge data - will come from backend
   const [challenge, setChallenge] = useState({
@@ -42,7 +44,7 @@ export default function GameSession() {
   });
 
   // Assets pool for demo
-  const assetsPool = [
+  const assetsPool = useMemo(() => [
     { display: '🇪🇸', value: 'España' },
     { display: '🇫🇷', value: 'Francia' },
     { display: '🇮🇹', value: 'Italia' },
@@ -51,7 +53,7 @@ export default function GameSession() {
     { display: '🇵🇹', value: 'Portugal' },
     { display: '🇯🇵', value: 'Japón' },
     { display: '🇧🇷', value: 'Brasil' },
-  ];
+  ], []);
 
   // Timer effect
   useEffect(() => {
@@ -68,7 +70,7 @@ export default function GameSession() {
     }, 1000);
 
     return () => clearInterval(timer);
-  }, [gameState, currentRound]);
+  }, [gameState, currentRound, handleTimeout]);
 
   // Advance to next round or finish game
   const advanceRound = useCallback(() => {
@@ -95,10 +97,10 @@ export default function GameSession() {
       setFeedback(null);
       advanceRound();
     }, 1500);
-  }, [advanceRound]);
+  }, [advanceRound, POINTS_ERROR]);
 
-  // Simulate RFID scan (will be replaced by real WebSocket event)
-  const handleSimulatedScan = () => {
+  // Simulacion de escaneo para fallback local
+  const handleSimulatedScan = useCallback(() => {
     if (gameState !== 'playing') return;
 
     // Simulate random success/fail (70% success rate for demo)
@@ -119,7 +121,26 @@ export default function GameSession() {
       setFeedback(null);
       advanceRound();
     }, 1500);
-  };
+  }, [gameState, POINTS_CORRECT, POINTS_ERROR, advanceRound]);
+
+  useEffect(() => {
+    const handleStatus = (payload) => {
+      const nextStatus = payload?.status;
+      setRfidConnected(nextStatus === 'connected' || nextStatus === 'reading');
+    };
+
+    const handleScan = () => {
+      handleSimulatedScan();
+    };
+
+    webSerialService.on('status', handleStatus);
+    webSerialService.on('scan', handleScan);
+
+    return () => {
+      webSerialService.off('status', handleStatus);
+      webSerialService.off('scan', handleScan);
+    };
+  }, [handleSimulatedScan]);
 
   // Start game
   const startGame = () => {
@@ -222,6 +243,10 @@ export default function GameSession() {
         </div>
       </header>
 
+      <div className="relative z-10 px-4 sm:px-6">
+        <RFIDConnector className="max-w-md" showSensorId={false} />
+      </div>
+
       {/* Timer Bar */}
       {(gameState === 'playing' || gameState === 'paused') && (
         <div className="relative z-10 px-4 sm:px-6 mb-4">
@@ -293,16 +318,17 @@ export default function GameSession() {
                 ¡Busca la tarjeta de <span className="text-white font-bold">{challenge.value}</span>!
               </motion.p>
 
-              {/* Demo scan button (will be removed when RFID is connected) */}
-              <motion.button
-                initial={{ opacity: 0 }}
-                animate={{ opacity: 1 }}
-                transition={{ delay: 0.5 }}
-                onClick={handleSimulatedScan}
-                className="mt-8 px-6 py-3 bg-white/5 border border-white/10 rounded-xl text-slate-400 text-sm hover:bg-white/10 transition-all"
-              >
-                🎴 Simular escaneo RFID
-              </motion.button>
+              {!rfidConnected && (
+                <motion.button
+                  initial={{ opacity: 0 }}
+                  animate={{ opacity: 1 }}
+                  transition={{ delay: 0.5 }}
+                  onClick={handleSimulatedScan}
+                  className="mt-8 px-6 py-3 bg-white/5 border border-white/10 rounded-xl text-slate-400 text-sm hover:bg-white/10 transition-all"
+                >
+                  Simular escaneo RFID
+                </motion.button>
+              )}
             </motion.div>
           )}
         </AnimatePresence>
