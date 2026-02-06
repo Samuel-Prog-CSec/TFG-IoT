@@ -29,7 +29,7 @@ Este sprint representa un **salto de calidad significativo** ("Hardening") con t
 
 ## P0 - Prioridad Crítica (Bloqueantes)
 
-### T-044: Migración RFID a Web Serial API 📋
+### T-044: Migración RFID a Web Serial API 🔄
 
 **Prioridad:** P0 | **Tamaño:** XL | **Dependencias:** Ninguna  
 **Origen:** Decisión arquitectónica crítica para despliegue en producción
@@ -381,7 +381,7 @@ Algunos eventos WebSocket no verifican autenticación ni ownership, permitiendo 
 
 ---
 
-### T-047: Eventos RFID Dirigidos (SEC-HIGH-02) 📋
+### T-047: Eventos RFID Dirigidos (SEC-HIGH-02) 🔄
 
 **Prioridad:** P1 | **Tamaño:** S | **Dependencias:** T-044  
 **Origen:** Auditoría de Seguridad - Data leakage
@@ -455,7 +455,7 @@ Migrar de Winston a PinoJS para logging JSON estructurado con mejor rendimiento.
 
 ---
 
-### T-009: Multi-Sensor RFID (Duda #22) 📋
+### T-009: Multi-Sensor RFID (Duda #22) 🔄
 
 **Prioridad:** P1 | **Tamaño:** L | **Dependencias:** T-044  
 **Origen:** Duda #22 de Diciembre
@@ -498,7 +498,7 @@ Soporte para múltiples sensores RFID conectados a diferentes PCs de profesores,
 
 ---
 
-### T-010: Modos RFID (Control de Flujo) (Duda #25) 📋
+### T-010: Modos RFID (Control de Flujo) (Duda #25) 🔄
 
 **Prioridad:** P1 | **Tamaño:** M | **Dependencias:** T-044  
 **Origen:** Duda #25 de Diciembre
@@ -876,7 +876,7 @@ Las rondas deben presentarse en orden aleatorio para evitar que los alumnos memo
 
 ---
 
-### T-033: Dockerización Profesional 📋
+### T-033: Dockerización Profesional ✅
 
 **Prioridad:** P2 | **Tamaño:** M | **Dependencias:** Ninguna
 
@@ -1009,29 +1009,28 @@ Logger dedicado para eventos de seguridad con alertas para eventos críticos.
 ```
 T-044 (Web Serial) ──────────────────────────────────────────────┐
         │                                                        │
-        ├──► T-047 (RFID Dirigido)                              │
-        ├──► T-009 (Multi-Sensor)                               │
-        └──► T-010 (Modos RFID)                                 │
+        ├──► T-047 (RFID Dirigido)                               │
+        ├──► T-009 (Multi-Sensor)                                │
+        └──► T-010 (Modos RFID)                                  │
                                                                  │
 T-021 (Frontend API) ────────────────────────────────────────────┤
         │                                                        │
-        ├──► T-042 (Aprobación Frontend)                        │
-        ├──► T-043 (Sesión Única Frontend)                      │
-        ├──► T-035 (Mazos Frontend) ──► T-036 (Wizard)          │
-        ├──► T-037 (Replicar Sesión)                            │
-        ├──► T-038 (E2E Tests)                                  │
-        ├──► T-040 (UI Polish)                                  │
-        └──► T-049 (Dashboard Analytics) ◄── Nuevo              │
+        ├──► T-042 (Aprobación Frontend)                         │
+        ├──► T-043 (Sesión Única Frontend)                       │
+        ├──► T-035 (Mazos Frontend) ──► T-036 (Wizard)           │
+        ├──► T-037 (Replicar Sesión)                             │
+        ├──► T-040 (UI Polish)                                   │
+        └──► T-049 (Dashboard Analytics) ◄── Nuevo               │
                                                                  │
-T-050 (Mockup Gameplay) ──► Sprint 4 (Gameplay Funcional) ◄─────┤
+T-050 (Mockup Gameplay) ──► Sprint 4 (Gameplay Funcional)  ◄─────┤
         │                                                        │
-        └── Sin dependencias (puede empezar en paralelo)        │
+        └── Sin dependencias (puede empezar en paralelo)         │
                                                                  │
-T-032 (Zod Completo) ──► T-034 (Swagger)                        │
+T-032 (Zod Completo) ──► T-034 (Swagger)                         │
                                                                  │
-T-031 (PinoJS) ──► T-048 (Security Logging)                     │
+T-031 (PinoJS) ──► T-048 (Security Logging)                      │
                                                                  │
-T-033 (Docker) ──► T-023 (Staging)                              │
+T-033 (Docker) ──► T-023 (Staging)                               │
                                                                  ▼
                                                            Sprint 3
                                                            Completado
@@ -1072,5 +1071,3 @@ T-033 (Docker) ──► T-023 (Staging)                              │
 ### Testing
 
 - [ ] Tests backend > 50% cobertura
-- [ ] E2E tests críticos pasando (T-038)
-- [ ] Sin errores nuevos en Sentry
