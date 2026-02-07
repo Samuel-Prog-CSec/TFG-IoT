@@ -10,6 +10,8 @@ import { socketService } from './socket';
 const SENSOR_ID_KEY = 'rfid_sensor_id';
 const DEFAULT_BAUD_RATE = 115200;
 const DEFAULT_DEDUPE_MS = 1200;
+const MAX_RECONNECT_ATTEMPTS = 3;
+const RECONNECT_DELAY_BASE_MS = 1000;
 
 const CARD_TYPES = new Set(['MIFARE_1KB', 'MIFARE_4KB', 'NTAG', 'UNKNOWN']);
 
@@ -59,6 +61,9 @@ class WebSerialService {
     this.lastScanByUid = new Map();
     this.forwardToServer = true;
     this.hasSerialDisconnectListener = false;
+    this.reconnectAttempts = 0;
+    this.reconnecting = false;
+    this.lastPort = null;
   }
 
   isSupported() {
@@ -110,6 +115,8 @@ class WebSerialService {
     this.port = await navigator.serial.requestPort();
     await this.port.open({ baudRate: DEFAULT_BAUD_RATE });
     this.setStatus('connected');
+    this.reconnectAttempts = 0;
+    this.reconnecting = false;
 
     if (navigator.serial?.addEventListener && !this.hasSerialDisconnectListener) {
       navigator.serial.addEventListener('disconnect', this.handleDisconnect);
@@ -119,6 +126,7 @@ class WebSerialService {
 
   handleDisconnect = () => {
     this.stopReading();
+    this.lastPort = this.port;
     this.port = null;
     this.setStatus('disconnected', 'device_disconnected');
 
@@ -126,7 +134,54 @@ class WebSerialService {
       navigator.serial.removeEventListener('disconnect', this.handleDisconnect);
       this.hasSerialDisconnectListener = false;
     }
+
+    // Intentar reconectar automáticamente
+    this.attemptReconnect();
   };
+
+  async attemptReconnect() {
+    if (this.reconnecting || this.reconnectAttempts >= MAX_RECONNECT_ATTEMPTS) {
+      if (this.reconnectAttempts >= MAX_RECONNECT_ATTEMPTS) {
+        this.emit('error', {
+          message: 'Máximo de intentos de reconexión alcanzado',
+          details: 'Por favor, reconecta el sensor manualmente.'
+        });
+      }
+      return;
+    }
+
+    this.reconnecting = true;
+    this.reconnectAttempts++;
+    this.setStatus('reconnecting', { attempt: this.reconnectAttempts });
+
+    const delay = RECONNECT_DELAY_BASE_MS * Math.pow(2, this.reconnectAttempts - 1);
+    
+    setTimeout(async () => {
+      try {
+        // En Web Serial, no podemos "reabrir" el mismo objeto puerto fácilmente si se desconectó físicamente
+        // Pero si fue un error lógico o temporal, intentamos.
+        // Si fue una desconexión física, el usuario debe interactuar de nuevo (seguridad del navegador).
+        // Sin embargo, si el puerto vuelve a aparecer, podemos intentar buscarlo en getPorts().
+        const ports = await navigator.serial.getPorts();
+        // Intentar encontrar un puerto que coincida si es posible, o usar el último conocido si sigue ahí
+        const portToTry = ports.find(p => p === this.lastPort) || ports[0];
+
+        if (portToTry) {
+           this.port = portToTry;
+           await this.port.open({ baudRate: DEFAULT_BAUD_RATE });
+           this.setStatus('connected');
+           this.reconnectAttempts = 0;
+           this.reconnecting = false;
+           this.startReading(); // Reiniciar lectura
+        } else {
+          throw new Error('No se encontró el puerto para reconectar');
+        }
+      } catch (error) {
+        this.reconnecting = false;
+        this.attemptReconnect(); // Reintentar
+      }
+    }, delay);
+  }
 
   async disconnect() {
     await this.stopReading();

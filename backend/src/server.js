@@ -100,7 +100,7 @@ const getRfidModeState = userId => {
   return rfidModeByUserId.get(userId) || { mode: RFID_MODES.IDLE, sensorId: null, socketId: null };
 };
 
-const setRfidModeState = (userId, mode, socketId) => {
+const setRfidModeState = (userId, mode, socketId, metadata = {}) => {
   if (!userId) {
     return;
   }
@@ -114,6 +114,7 @@ const setRfidModeState = (userId, mode, socketId) => {
     mode,
     socketId,
     sensorId: null,
+    metadata,
     updatedAt: Date.now()
   });
 };
@@ -583,6 +584,11 @@ io.on('connection', socket => {
       userId: socket.data.userId
     });
 
+    // T-010: Activar modo GAMEPLAY automáticamente al unirse a una partida
+    setRfidModeState(socket.data.userId, RFID_MODES.GAMEPLAY, socket.id, { playId });
+    /* Note: Se asume que el profesor entra para supervisar/jugar.
+       Si el sensorId está vinculado a la sesión, se validará en 'rfid_scan_from_client'. */
+
     // Enviar estado inicial de la partida
     const playState = gameEngine.getPlayState(playId);
     if (playState) {
@@ -610,6 +616,7 @@ io.on('connection', socket => {
       return;
     }
     socket.leave(`play_${playId}`);
+    clearRfidModeState(socket.data.userId, socket.id);
     logger.info(`Socket ${socket.id} abandonó la partida ${playId}`, {
       userId: socket.data.userId
     });
@@ -673,6 +680,9 @@ io.on('connection', socket => {
         }
 
         await gameEngine.pausePlayInternal(playId, { requestedBy: socket.data.userId });
+
+        // T-010 Mejora: Poner el sensor en IDLE al pausar
+        setRfidModeState(socket.data.userId, RFID_MODES.IDLE, socket.id);
       } catch (error) {
         logger.error(`Error al pausar la partida: ${error.message}`);
         socket.emit('error', { message: 'Error al pausar la partida' });
@@ -706,6 +716,9 @@ io.on('connection', socket => {
         }
 
         await gameEngine.resumePlayInternal(playId, { requestedBy: socket.data.userId });
+
+        // T-010 Mejora: Volver a GAMEPLAY al reanudar
+        setRfidModeState(socket.data.userId, RFID_MODES.GAMEPLAY, socket.id);
       } catch (error) {
         logger.error(`Error al reanudar la partida: ${error.message}`);
         socket.emit('error', { message: 'Error al reanudar la partida' });
@@ -854,21 +867,47 @@ io.on('connection', socket => {
       return;
     }
 
+    // T-009: Validar sensorId contra la sesión activa si estamos en modo GAMEPLAY
+    if (modeState.mode === RFID_MODES.GAMEPLAY && modeState.metadata?.playId) {
+      const playState = gameEngine.getPlayState(modeState.metadata.playId);
+      // El playState.sessionDoc contiene el sensorId de la sesión
+      const sessionSensorId = playState?.sessionDoc?.sensorId;
+
+      if (sessionSensorId && sessionSensorId !== parsed.data.sensorId) {
+        socket.emit('error', {
+          code: 'RFID_SENSOR_UNAUTHORIZED',
+          message: 'Este sensor no está autorizado para esta sesión de juego'
+        });
+        logSocketSecurityEvent('SECURITY_RFID_EVENT_INVALID', socket, {
+          eventName: 'rfid_scan_from_client',
+          reason: 'RFID_SENSOR_UNAUTHORIZED',
+          sessionId: playState?.sessionDoc?._id,
+          expected: sessionSensorId,
+          received: parsed.data.sensorId
+        });
+        return;
+      }
+    }
+
+    // Validación básica de consistencia de sensor (fijar el primero detectado en el modo)
     if (modeState.sensorId && modeState.sensorId !== parsed.data.sensorId) {
       socket.emit('error', {
         code: 'RFID_SENSOR_MISMATCH',
-        message: 'Sensor RFID no autorizado para este modo'
+        message:
+          'Sensor RFID no coincide con el sensor activo de la sesión (o cambió inesperadamente)'
       });
       logSocketSecurityEvent('SECURITY_RFID_EVENT_INVALID', socket, {
         eventName: 'rfid_scan_from_client',
         reason: 'RFID_SENSOR_MISMATCH',
         mode: modeState.mode,
-        sensorId: parsed.data.sensorId
+        expected: modeState.sensorId,
+        received: parsed.data.sensorId
       });
       return;
     }
 
     if (!modeState.sensorId) {
+      // Fijar el sensorId la primera vez que recibimos un evento válido en este modo
       rfidModeByUserId.set(socket.data.userId, {
         ...modeState,
         sensorId: parsed.data.sensorId,

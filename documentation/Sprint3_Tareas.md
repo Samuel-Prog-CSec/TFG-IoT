@@ -29,7 +29,7 @@ Este sprint representa un **salto de calidad significativo** ("Hardening") con t
 
 ## P0 - Prioridad Crítica (Bloqueantes)
 
-### T-044: Migración RFID a Web Serial API 🔄
+### T-044: Migración RFID a Web Serial API ✅
 
 **Prioridad:** P0 | **Tamaño:** XL | **Dependencias:** Ninguna  
 **Origen:** Decisión arquitectónica crítica para despliegue en producción
@@ -454,7 +454,7 @@ Migrar de Winston a PinoJS para logging JSON estructurado con mejor rendimiento.
 
 ---
 
-### T-009: Multi-Sensor RFID (Duda #22) 🔄
+### T-009: Multi-Sensor RFID (Duda #22) ✅
 
 **Prioridad:** P1 | **Tamaño:** L | **Dependencias:** T-044  
 **Origen:** Duda #22 de Diciembre
@@ -497,7 +497,7 @@ Soporte para múltiples sensores RFID conectados a diferentes PCs de profesores,
 
 ---
 
-### T-010: Modos RFID (Control de Flujo) (Duda #25) 🔄
+### T-010: Modos RFID (Control de Flujo) (Duda #25) ✅
 
 **Prioridad:** P1 | **Tamaño:** M | **Dependencias:** T-044  
 **Origen:** Duda #25 de Diciembre

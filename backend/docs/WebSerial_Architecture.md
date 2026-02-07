@@ -47,14 +47,21 @@ Reglas:
 ## Validacion y Seguridad
 
 - El backend valida el payload con Zod y rechaza eventos malformados.
+- **Validacion Estricta de SensorId (T-009):** En el modo `gameplay`, el backend verifica que el `sensorId` del evento coincida con el vinculado a la `GameSession` activa. Si hay discrepancia, el evento se rechaza por seguridad.
 - Se aplica rate limiting y dedupe por `sensorId` para evitar spam.
 - En gameplay, el backend no expone el UID al cliente.
 
-## Limitaciones
+## Gestion de Modos y Control de Flujo (T-010)
 
-- Web Serial requiere HTTPS en produccion (localhost exento).
-- Solo Chrome/Edge soportan Web Serial.
-- El usuario debe otorgar permisos explicitos al puerto.
+El sistema conmuta automaticamente el modo del lector RFID para optimizar el consumo y evitar lecturas accidentales:
+- **Auto-Gameplay:** Al entrar en una partida (`join_play`), el sensor se activa en modo `gameplay`.
+- **Pausa Inteligente:** Si la partida se pausa (`pause_play`), el sensor pasa a modo `idle`. Se reactiva al reanudar (`resume_play`).
+- **Cleanup:** Al salir de la partida o desconectarse, se limpia el estado del modo para ese usuario.
+
+## Robustez y Experiencia de Usuario
+
+- **Reconexion Automatica (Frontend):** Si se detecta una desconexion del puerto serie, el `WebSerialService` inicia una secuencia de reintentos con backoff exponencial (1s, 2s, 4s).
+- **Indicador Visual:** Un componente flotante en el frontend (`RFIDModeHandler`) muestra el estado del sensor y el modo activo en todo momento.
 
 ## Operacion
 

@@ -54,6 +54,7 @@ const calculateDifficulty = numberOfCards => {
  * @property {ObjectId} mechanicId - Referencia a la mecánica de juego utilizada
  * @property {ObjectId} [deckId] - Referencia al mazo de tarjetas RFID reutilizable
  * @property {ObjectId} contextId - Referencia al contexto temático del juego
+ * @property {string} [sensorId] - ID del sensor RFID asignado a esta sesión (T-009)
  * @property {Object} config - Configuración de las reglas del juego
  * @property {number} config.numberOfCards - Cantidad de tarjetas RFID usadas en el juego (2-30)
  * @property {number} config.numberOfRounds - Número de rondas/desafíos del juego
@@ -91,6 +92,10 @@ const gameSessionSchema = new mongoose.Schema(
       type: mongoose.Schema.Types.ObjectId,
       ref: 'GameContext',
       required: true
+    },
+    sensorId: {
+      type: String,
+      trim: true
     },
     config: {
       numberOfCards: {
@@ -267,6 +272,11 @@ gameSessionSchema.index({ mechanicId: 1 });
  * Índice para listar sesiones de un contexto específico.
  */
 gameSessionSchema.index({ contextId: 1 });
+
+/**
+ * Índice para buscar sesiones por sensor asignado.
+ */
+gameSessionSchema.index({ sensorId: 1 });
 
 const GameSession = mongoose.model('GameSession', gameSessionSchema);
 
