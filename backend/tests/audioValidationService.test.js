@@ -11,6 +11,8 @@ const mockLogger = {
   debug: jest.fn()
 };
 
+mockLogger.child = jest.fn(() => mockLogger);
+
 const mockFromBuffer = jest.fn();
 
 // Registrar mocks ANTES de cualquier import

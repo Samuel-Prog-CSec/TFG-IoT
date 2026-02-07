@@ -27,7 +27,7 @@ import {
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { adminAPI, extractData, extractErrorMessage } from '../../services/api';
-import { ButtonPremium, InputPremium, GlassCard, StatusBadge, SkeletonCard } from '../../components/ui';
+import { ButtonPremium, InputPremium, GlassCard, StatusBadge, SkeletonCard, EmptyState } from '../../components/ui';
 import { cn } from '../../lib/utils';
 
 /**
@@ -322,30 +322,6 @@ PendingTeacherCard.propTypes = {
 };
 
 /**
- * Estado vacío
- */
-function EmptyState() {
-  return (
-    <motion.div
-      initial={{ opacity: 0, y: 20 }}
-      animate={{ opacity: 1, y: 0 }}
-      className="flex flex-col items-center justify-center py-16"
-    >
-      <div className="w-24 h-24 rounded-2xl bg-slate-800/50 flex items-center justify-center mb-6">
-        <Inbox className="w-12 h-12 text-slate-600" />
-      </div>
-      <h3 className="text-xl font-semibold text-white mb-2">
-        No hay solicitudes pendientes
-      </h3>
-      <p className="text-slate-400 text-center max-w-sm">
-        Todas las solicitudes de profesores han sido procesadas. 
-        Vuelve más tarde para revisar nuevas solicitudes.
-      </p>
-    </motion.div>
-  );
-}
-
-/**
  * Skeleton de carga
  */
 function LoadingSkeleton() {
@@ -607,7 +583,12 @@ export default function ApprovalPanel() {
           {loading ? (
             <LoadingSkeleton />
           ) : filteredTeachers.length === 0 ? (
-            <EmptyState />
+            <EmptyState
+              title="No hay solicitudes pendientes"
+              description="Todas las solicitudes de profesores han sido procesadas. Vuelve mas tarde para revisar nuevas solicitudes."
+              icon={<Inbox className="w-10 h-10" />}
+              className="bg-transparent"
+            />
           ) : (
             <div className="space-y-4">
               <AnimatePresence mode="popLayout">

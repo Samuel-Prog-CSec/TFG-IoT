@@ -5,7 +5,7 @@
  */
 
 const mongoose = require('mongoose');
-const logger = require('./logger');
+const logger = require('./logger').child({ component: 'healthCheck' });
 const { isRedisConnected, ping: pingRedis } = require('../config/redis');
 
 /**

@@ -7,7 +7,7 @@
 
 const User = require('../models/User');
 const { NotFoundError, ValidationError, ConflictError } = require('../utils/errors');
-const logger = require('../utils/logger');
+const logger = require('../utils/logger').child({ component: 'userService' });
 
 /**
  * Valida que un email no esté duplicado al crear o actualizar usuarios.
@@ -102,7 +102,7 @@ async function createStudent(studentData) {
   await validateStudentNameUniqueness(name, createdBy);
 
   // Validar edad obligatoria para estudiantes
-  if (!profile || !profile.age) {
+  if (!profile?.age) {
     throw new ValidationError('La edad es obligatoria para estudiantes');
   }
 
@@ -243,7 +243,7 @@ async function getStudentComparativeStats(studentId) {
   const comparison = {
     scoreVsClass:
       classAverage.avgScore > 0
-        ? parseFloat(
+        ? Number.parseFloat(
             (
               ((student.studentMetrics.averageScore - classAverage.avgScore) /
                 classAverage.avgScore) *
@@ -253,7 +253,7 @@ async function getStudentComparativeStats(studentId) {
         : 0,
     gamesVsClass:
       classAverage.avgGamesPlayed > 0
-        ? parseFloat(
+        ? Number.parseFloat(
             (
               ((student.studentMetrics.totalGamesPlayed - classAverage.avgGamesPlayed) /
                 classAverage.avgGamesPlayed) *
@@ -263,7 +263,7 @@ async function getStudentComparativeStats(studentId) {
         : 0,
     responseTimeVsClass:
       classAverage.avgResponseTime > 0
-        ? parseFloat(
+        ? Number.parseFloat(
             (
               ((student.studentMetrics.averageResponseTime - classAverage.avgResponseTime) /
                 classAverage.avgResponseTime) *

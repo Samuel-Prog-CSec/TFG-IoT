@@ -14,7 +14,7 @@
  */
 
 const { getRedis, isRedisConnected, getKeyPrefix } = require('../config/redis');
-const logger = require('../utils/logger');
+const logger = require('../utils/logger').child({ component: 'redisService' });
 
 /**
  * Namespaces para organizar keys en Redis.

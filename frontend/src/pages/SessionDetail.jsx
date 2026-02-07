@@ -24,6 +24,9 @@ import {
   ButtonPremium,
   GlassCard,
   StatusBadge,
+  SkeletonCard,
+  EmptyState,
+  Tooltip,
   ConfirmationModal,
   useConfirmationModal
 } from '../components/ui';
@@ -98,13 +101,32 @@ export default function SessionDetail() {
 
   if (loading) {
     return (
-      <div className="p-8 text-slate-300">Cargando sesión...</div>
+      <div className="p-6 lg:p-8 max-w-6xl mx-auto space-y-6">
+        <SkeletonCard className="h-32" />
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+          <SkeletonCard className="lg:col-span-2 h-72" />
+          <SkeletonCard className="h-72" />
+        </div>
+        <SkeletonCard className="h-64" />
+      </div>
     );
   }
 
   if (!session) {
     return (
-      <div className="p-8 text-slate-300">Sesión no encontrada.</div>
+      <div className="p-6 lg:p-8 max-w-6xl mx-auto">
+        <EmptyState
+          title="Sesion no encontrada"
+          description="La sesion solicitada no existe o no esta disponible."
+          icon={<Layers size={28} />}
+          action={(
+            <ButtonPremium variant="secondary" onClick={() => navigate(ROUTES.SESSIONS)}>
+              <ArrowLeft size={16} />
+              Volver a sesiones
+            </ButtonPremium>
+          )}
+        />
+      </div>
     );
   }
 
@@ -149,13 +171,15 @@ export default function SessionDetail() {
               <Pencil size={16} />
               Editar
             </ButtonPremium>
-            <ButtonPremium
-              variant="ghost"
-              onClick={deleteModal.open}
-              disabled={!canDelete}
-            >
-              <Trash2 size={16} />
-            </ButtonPremium>
+            <Tooltip content="Eliminar sesion">
+              <ButtonPremium
+                variant="ghost"
+                onClick={deleteModal.open}
+                disabled={!canDelete}
+              >
+                <Trash2 size={16} />
+              </ButtonPremium>
+            </Tooltip>
           </div>
         </header>
 
@@ -234,7 +258,12 @@ export default function SessionDetail() {
         <GlassCard className="p-6">
           <h2 className="text-lg font-semibold text-white mb-4">Mapping de tarjetas</h2>
           {mappingCards.length === 0 ? (
-            <p className="text-slate-400">No hay tarjetas asignadas todavía.</p>
+            <EmptyState
+              title="Sin tarjetas asignadas"
+              description="Aun no hay tarjetas vinculadas a esta sesion."
+              icon={<Layers size={26} />}
+              className="bg-transparent border border-white/5"
+            />
           ) : (
             <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
               {mappingCards.map((mapping) => {

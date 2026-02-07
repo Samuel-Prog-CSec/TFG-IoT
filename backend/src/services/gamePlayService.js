@@ -9,7 +9,7 @@ const GamePlay = require('../models/GamePlay');
 const GameSession = require('../models/GameSession');
 const User = require('../models/User');
 const { NotFoundError, ValidationError, ForbiddenError } = require('../utils/errors');
-const logger = require('../utils/logger');
+const logger = require('../utils/logger').child({ component: 'gamePlayService' });
 
 /**
  * Valida que una sesión de juego esté disponible para crear partidas.
@@ -274,7 +274,7 @@ async function getPlayerStats(playerId, sessionId = null) {
   // Calcular tasa de acierto
   const accuracyRate =
     result.totalCorrect + result.totalErrors > 0
-      ? parseFloat(
+      ? Number.parseFloat(
           ((result.totalCorrect / (result.totalCorrect + result.totalErrors)) * 100).toFixed(2)
         )
       : 0;

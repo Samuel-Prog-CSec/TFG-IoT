@@ -275,9 +275,9 @@ const logSecurityEvent = (eventCode, meta = {}) => {
   });
 
   if (typeof securityLogger[level] === 'function') {
-    securityLogger[level](eventConfig.message, sanitizedMeta);
+    securityLogger[level](sanitizedMeta, eventConfig.message);
   } else {
-    securityLogger.info(eventConfig.message, sanitizedMeta);
+    securityLogger.info(sanitizedMeta, eventConfig.message);
   }
 
   if (eventConfig.sentry && shouldAlert(eventConfig, state, now)) {

@@ -2,13 +2,13 @@
 
 ## Propósito
 
-Establecer un sistema de logging de seguridad uniforme, con trazabilidad, sanitización de datos sensibles y alertas en Sentry. La solución mantiene Winston como backend de logging actual, pero está preparada para migración a PinoJS sin cambios en la interfaz pública.
+Establecer un sistema de logging de seguridad uniforme, con trazabilidad, sanitización de datos sensibles y alertas en Sentry. La solución utiliza Pino como backend de logging actual sin cambios en la interfaz pública.
 
 ## Decisiones de diseño
 
 ### 1) Módulo independiente
 
-Se creó un módulo dedicado `securityLogger` que centraliza `logSecurityEvent()`. Esto evita dispersión de reglas de seguridad en múltiples archivos y facilita la migración futura a PinoJS sin tocar los controladores o middlewares.
+Se creó un módulo dedicado `securityLogger` que centraliza `logSecurityEvent()`. Esto evita dispersión de reglas de seguridad en múltiples archivos y permite evolucionar la estrategia sin tocar los controladores o middlewares.
 
 **Aporte:**
 

@@ -28,10 +28,12 @@ import {
   SelectPremium,
   StatusBadge,
   SkeletonCard,
+  Tooltip,
+  EmptyState,
   ConfirmationModal,
   useConfirmationModal
 } from '../components/ui';
-import { pageVariants } from '../lib/utils';
+import { pageVariants, staggerContainer, staggerItem } from '../lib/utils';
 
 const STATUS_OPTIONS = [
   { value: '', label: 'Todas' },
@@ -233,23 +235,27 @@ export default function SessionsPage() {
 
     if (sessions.length === 0) {
       return (
-        <GlassCard className="p-10 text-center">
-          <p className="text-slate-300 text-lg font-semibold">No hay sesiones todavía</p>
-          <p className="text-slate-500 mt-2">
-            Crea una nueva sesión para preparar tu próxima experiencia de juego.
-          </p>
-          <div className="mt-6 flex justify-center">
+        <EmptyState
+          title="No hay sesiones todavia"
+          description="Crea una nueva sesion para preparar tu proxima experiencia de juego."
+          icon={<CalendarClock size={28} />}
+          action={(
             <ButtonPremium variant="primary" onClick={() => navigate(ROUTES.CREATE_SESSION)}>
               <PlusCircle size={18} />
-              Crear sesión
+              Crear sesion
             </ButtonPremium>
-          </div>
-        </GlassCard>
+          )}
+        />
       );
     }
 
     return (
-      <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-6">
+      <motion.div
+        className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-6"
+        variants={staggerContainer}
+        initial="hidden"
+        animate="show"
+      >
         {sessions.map((session) => {
           const statusInfo = statusToBadge(session.status);
           const title = session.deck?.name || 'Sesión sin mazo';
@@ -260,77 +266,82 @@ export default function SessionsPage() {
           const canDelete = session.status === 'created';
 
           return (
-            <GlassCard
-              key={sessionId}
-              className="p-5 flex flex-col gap-4 hover:border-white/20 transition-all"
-            >
-              <div className="flex items-start justify-between gap-3">
-                <div>
-                  <h3 className="text-lg font-semibold text-white">{title}</h3>
-                  <p className="text-sm text-slate-400">{mechanicLabel} · {contextLabel}</p>
+            <motion.div key={sessionId} variants={staggerItem}>
+              <GlassCard className="p-5 flex flex-col gap-4 hover:border-white/20 transition-all">
+                <div className="flex items-start justify-between gap-3">
+                  <div>
+                    <h3 className="text-lg font-semibold text-white">{title}</h3>
+                    <p className="text-sm text-slate-400">{mechanicLabel} · {contextLabel}</p>
+                  </div>
+                  <StatusBadge status={statusInfo.tone}>{statusInfo.label}</StatusBadge>
                 </div>
-                <StatusBadge status={statusInfo.tone}>{statusInfo.label}</StatusBadge>
-              </div>
 
-              <div className="grid grid-cols-2 gap-3 text-xs text-slate-300">
-                <div className="bg-white/5 rounded-lg p-2">
-                  <p className="text-slate-400">Tarjetas</p>
-                  <p className="text-white font-semibold">{session.config?.numberOfCards || session.cardMappingsCount}</p>
+                <div className="grid grid-cols-2 gap-3 text-xs text-slate-300">
+                  <div className="bg-white/5 rounded-lg p-2">
+                    <p className="text-slate-400">Tarjetas</p>
+                    <p className="text-white font-semibold">{session.config?.numberOfCards || session.cardMappingsCount}</p>
+                  </div>
+                  <div className="bg-white/5 rounded-lg p-2">
+                    <p className="text-slate-400">Rondas</p>
+                    <p className="text-white font-semibold">{session.config?.numberOfRounds}</p>
+                  </div>
+                  <div className="bg-white/5 rounded-lg p-2">
+                    <p className="text-slate-400">Tiempo</p>
+                    <p className="text-white font-semibold">{session.config?.timeLimit}s</p>
+                  </div>
+                  <div className="bg-white/5 rounded-lg p-2">
+                    <p className="text-slate-400">Puntos</p>
+                    <p className="text-white font-semibold">+{session.config?.pointsPerCorrect}</p>
+                  </div>
                 </div>
-                <div className="bg-white/5 rounded-lg p-2">
-                  <p className="text-slate-400">Rondas</p>
-                  <p className="text-white font-semibold">{session.config?.numberOfRounds}</p>
-                </div>
-                <div className="bg-white/5 rounded-lg p-2">
-                  <p className="text-slate-400">Tiempo</p>
-                  <p className="text-white font-semibold">{session.config?.timeLimit}s</p>
-                </div>
-                <div className="bg-white/5 rounded-lg p-2">
-                  <p className="text-slate-400">Puntos</p>
-                  <p className="text-white font-semibold">+{session.config?.pointsPerCorrect}</p>
-                </div>
-              </div>
 
-              <div className="flex flex-wrap gap-2 mt-auto">
-                <ButtonPremium
-                  variant="secondary"
-                  onClick={() => navigate(ROUTES.SESSION_DETAIL(sessionId))}
-                  className="flex-1"
-                >
-                  <Eye size={16} />
-                  Ver detalle
-                </ButtonPremium>
-                <ButtonPremium
-                  variant="ghost"
-                  onClick={() => navigate(ROUTES.BOARD_SETUP_WITH_ID(sessionId))}
-                >
-                  <Map size={16} />
-                </ButtonPremium>
-                <ButtonPremium
-                  variant="ghost"
-                  onClick={() => navigate(ROUTES.SESSION_EDIT(sessionId))}
-                  disabled={!canEdit}
-                >
-                  <Pencil size={16} />
-                </ButtonPremium>
-                <ButtonPremium
-                  variant="ghost"
-                  onClick={() => handleDelete(session)}
-                  disabled={!canDelete}
-                >
-                  <Trash2 size={16} />
-                </ButtonPremium>
-              </div>
+                <div className="flex flex-wrap gap-2 mt-auto">
+                  <ButtonPremium
+                    variant="secondary"
+                    onClick={() => navigate(ROUTES.SESSION_DETAIL(sessionId))}
+                    className="flex-1"
+                  >
+                    <Eye size={16} />
+                    Ver detalle
+                  </ButtonPremium>
+                  <Tooltip content="Ver mapping">
+                    <ButtonPremium
+                      variant="ghost"
+                      onClick={() => navigate(ROUTES.BOARD_SETUP_WITH_ID(sessionId))}
+                    >
+                      <Map size={16} />
+                    </ButtonPremium>
+                  </Tooltip>
+                  <Tooltip content="Editar sesion">
+                    <ButtonPremium
+                      variant="ghost"
+                      onClick={() => navigate(ROUTES.SESSION_EDIT(sessionId))}
+                      disabled={!canEdit}
+                    >
+                      <Pencil size={16} />
+                    </ButtonPremium>
+                  </Tooltip>
+                  <Tooltip content="Eliminar sesion">
+                    <ButtonPremium
+                      variant="ghost"
+                      onClick={() => handleDelete(session)}
+                      disabled={!canDelete}
+                    >
+                      <Trash2 size={16} />
+                    </ButtonPremium>
+                  </Tooltip>
+                </div>
 
-              {!canEdit && (
-                <p className="text-xs text-slate-500">
-                  Solo sesiones en borrador se pueden editar o eliminar.
-                </p>
-              )}
-            </GlassCard>
+                {!canEdit && (
+                  <p className="text-xs text-slate-500">
+                    Solo sesiones en borrador se pueden editar o eliminar.
+                  </p>
+                )}
+              </GlassCard>
+            </motion.div>
           );
         })}
-      </div>
+      </motion.div>
     );
   })();
 

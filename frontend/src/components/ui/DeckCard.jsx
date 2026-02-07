@@ -15,6 +15,7 @@ import { useState, useRef, useMemo } from 'react';
 import { motion, useMotionValue, useSpring, useTransform } from 'framer-motion';
 import { Layers, Edit2, Trash2, Eye, MoreVertical, Calendar, CreditCard } from 'lucide-react';
 import { cn } from '../../lib/utils';
+import Tooltip from './Tooltip';
 
 /**
  * DeckCard - Card visual premium para mazos
@@ -205,19 +206,21 @@ export default function DeckCard({
             {/* Menú de acciones (solo si no es selectable) */}
             {!selectable && (
               <div className="relative z-20">
-                <motion.button
-                  className="p-2 rounded-lg text-slate-400 hover:text-white hover:bg-white/10 transition-colors"
-                  whileHover={{ scale: 1.1 }}
-                  whileTap={{ scale: 0.95 }}
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    // Implement menu logic if needed, or keep as visual
-                  }}
-                  aria-label={`Opciones para mazo ${deck.name}`}
-                  aria-haspopup="true"
-                >
-                  <MoreVertical size={18} aria-hidden="true" />
-                </motion.button>
+                <Tooltip content="Opciones">
+                  <motion.button
+                    className="p-2 rounded-lg text-slate-400 hover:text-white hover:bg-white/10 transition-colors"
+                    whileHover={{ scale: 1.1 }}
+                    whileTap={{ scale: 0.95 }}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      // Implement menu logic if needed, or keep as visual
+                    }}
+                    aria-label={`Opciones para mazo ${deck.name}`}
+                    aria-haspopup="true"
+                  >
+                    <MoreVertical size={18} aria-hidden="true" />
+                  </motion.button>
+                </Tooltip>
               </div>
             )}
           </div>
@@ -335,7 +338,7 @@ export default function DeckCard({
       </motion.div>
 
       {/* CSS para animación del gradiente */}
-      <style jsx global>{`
+      <style>{`
         @keyframes gradient-shift {
           0% { background-position: 0% 50%; }
           50% { background-position: 100% 50%; }

@@ -10,7 +10,7 @@ const GameMechanic = require('../models/GameMechanic');
 const GameContext = require('../models/GameContext');
 const Card = require('../models/Card');
 const { NotFoundError, ValidationError } = require('../utils/errors');
-const logger = require('../utils/logger');
+const logger = require('../utils/logger').child({ component: 'gameSessionService' });
 
 /**
  * Valida que una mecánica exista y esté activa.
@@ -240,11 +240,11 @@ async function validateSessionDeletion(sessionId) {
     throw new ValidationError('Solo se pueden eliminar sesiones que no han iniciado');
   }
 
-  // TODO: Verificar si hay GamePlays asociadas
-  // const plays = await GamePlay.countDocuments({ sessionId });
-  // if (plays > 0) {
-  //   throw new ValidationError('No se puede eliminar una sesión con partidas asociadas');
-  // }
+  const GamePlay = require('../models/GamePlay');
+  const plays = await GamePlay.countDocuments({ sessionId });
+  if (plays > 0) {
+    throw new ValidationError('No se puede eliminar una sesión con partidas asociadas');
+  }
 
   return session;
 }

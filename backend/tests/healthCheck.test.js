@@ -21,12 +21,16 @@ jest.mock('../src/config/redis', () => ({
   ping: () => mockPingRedis()
 }));
 
-jest.mock('../src/utils/logger', () => ({
+const mockLogger = {
   info: jest.fn(),
   warn: jest.fn(),
   error: jest.fn(),
   debug: jest.fn()
-}));
+};
+
+mockLogger.child = jest.fn(() => mockLogger);
+
+jest.mock('../src/utils/logger', () => mockLogger);
 
 describe('healthCheck utils', () => {
   beforeEach(() => {

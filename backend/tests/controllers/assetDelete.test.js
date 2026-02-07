@@ -22,8 +22,8 @@ describeSupabase('Asset Controller - Delete Image', () => {
   it('SHOULD delete image asset successfully', async () => {
     const mockAsset = {
       key: 'espana',
-      imageUrl: 'http://supa.base/img.png',
-      thumbnailUrl: 'http://supa.base/thumb.png',
+      imageUrl: 'https://supa.base/img.png',
+      thumbnailUrl: 'https://supa.base/thumb.png',
       audioUrl: null
     };
 
@@ -41,8 +41,8 @@ describeSupabase('Asset Controller - Delete Image', () => {
 
     expect(response.status).toBe(200);
     expect(GameContext.findById).toHaveBeenCalledWith('ctx-1');
-    expect(storageService.deleteFile).toHaveBeenCalledWith('http://supa.base/img.png');
-    expect(storageService.deleteFile).toHaveBeenCalledWith('http://supa.base/thumb.png');
+    expect(storageService.deleteFile).toHaveBeenCalledWith('https://supa.base/img.png');
+    expect(storageService.deleteFile).toHaveBeenCalledWith('https://supa.base/thumb.png');
     expect(mockContext.save).toHaveBeenCalled();
   });
 
@@ -73,7 +73,7 @@ describeSupabase('Asset Controller - Delete Audio', () => {
       key: 'espana',
       imageUrl: null,
       thumbnailUrl: null,
-      audioUrl: 'http://supa.base/audio.mp3'
+      audioUrl: 'https://supa.base/audio.mp3'
     };
 
     const mockContext = {
@@ -90,7 +90,7 @@ describeSupabase('Asset Controller - Delete Audio', () => {
 
     expect(response.status).toBe(200);
     expect(GameContext.findById).toHaveBeenCalledWith('ctx-1');
-    expect(storageService.deleteFile).toHaveBeenCalledWith('http://supa.base/audio.mp3');
+    expect(storageService.deleteFile).toHaveBeenCalledWith('https://supa.base/audio.mp3');
     expect(mockContext.save).toHaveBeenCalled();
   });
 });

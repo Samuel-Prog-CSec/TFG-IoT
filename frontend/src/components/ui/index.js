@@ -9,6 +9,8 @@ export { default as SelectPremium } from './SelectPremium';
 export { default as ProgressBarPremium, GameTimerBar } from './ProgressBarPremium';
 export { default as StatusBadge, CountBadge } from './StatusBadge';
 export { default as SkeletonShimmer, SkeletonCard, SkeletonStatCard } from './SkeletonShimmer';
+export { default as Tooltip } from './Tooltip';
+export { default as EmptyState } from './EmptyState';
 
 // Modal de confirmación reutilizable
 export { default as ConfirmationModal, useConfirmationModal } from './ConfirmationModal';

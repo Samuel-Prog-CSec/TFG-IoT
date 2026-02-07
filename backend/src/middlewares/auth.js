@@ -9,7 +9,7 @@ const jwt = require('jsonwebtoken');
 const crypto = require('node:crypto');
 const { UnauthorizedError, ForbiddenError } = require('../utils/errors');
 const User = require('../models/User');
-const logger = require('../utils/logger');
+const logger = require('../utils/logger').child({ component: 'auth' });
 const { logSecurityEvent, getRequestContext } = require('../utils/securityLogger');
 const redisService = require('../services/redisService');
 
@@ -125,7 +125,7 @@ const checkSecurityFlag = async (userId, tokenIssuedAt) => {
     return { revoked: false, reason: null };
   }
 
-  const flagTime = parseInt(flagTimestamp, 10);
+  const flagTime = Number.parseInt(flagTimestamp, 10);
   const tokenTimeMs = tokenIssuedAt * 1000; // iat está en segundos
 
   if (tokenTimeMs < flagTime) {
@@ -229,12 +229,12 @@ const deleteRefreshToken = async jti =>
  * @returns {number} Segundos
  */
 const parseExpiration = expiration => {
-  const match = expiration.match(/^(\d+)([smhd])$/);
+  const match = /^(\d+)([smhd])$/.exec(expiration);
   if (!match) {
     return 900; // Default 15 minutos
   }
 
-  const value = parseInt(match[1]);
+  const value = Number.parseInt(match[1], 10);
   const unit = match[2];
 
   const multipliers = {
@@ -477,6 +477,111 @@ const verifyAccessToken = async (token, req) => {
 };
 
 /**
+ * Helper para obtener el token Bearer del header Authorization.
+ *
+ * @param {string} authHeader - Header Authorization
+ * @returns {string|null} Token Bearer o null si no está presente
+ */
+const getBearerToken = authHeader =>
+  authHeader?.startsWith('Bearer ') ? authHeader.split(' ')[1] : null;
+
+/**
+ * Helper para obtener un mensaje de estado de cuenta.
+ *
+ * @param {string} accountStatus - Estado de la cuenta
+ * @returns {string|null} Mensaje de estado o null si no aplica
+ */
+const getAccountStatusMessage = accountStatus => {
+  if (accountStatus === 'pending_approval') {
+    return 'Cuenta pendiente de aprobación';
+  }
+  if (accountStatus === 'rejected') {
+    return 'Cuenta rechazada';
+  }
+  if (accountStatus) {
+    return 'Cuenta no aprobada';
+  }
+  return null;
+};
+
+/**
+ * Intenta autenticar un usuario usando un bypass en desarrollo.
+ *
+ * @param {import('express').Request} req - Request de Express
+ * @param {string} authHeader - Header Authorization
+ * @returns {Promise<boolean>} True si la autenticación fue exitosa
+ */
+const tryAuthenticateBypass = async (req, authHeader) => {
+  if (!AUTH_BYPASS_ENABLED) {
+    return false;
+  }
+
+  if (authHeader?.startsWith('Bearer ')) {
+    try {
+      const token = authHeader.split(' ')[1];
+      const decoded = jwt.verify(token, process.env.JWT_SECRET, {
+        issuer: 'rfid-games-platform',
+        audience: 'rfid-games-client'
+      });
+
+      const user = await User.findById(decoded.id).select('-password');
+      if (
+        user &&
+        user.status === 'active' &&
+        (!['teacher', 'super_admin'].includes(user.role) || user.accountStatus === 'approved')
+      ) {
+        req.user = user;
+        req.tokenJti = decoded.jti;
+        req.tokenExp = decoded.exp;
+        logger.debug('Usuario autenticado (dev mode con token)', {
+          userId: user._id,
+          email: user.email
+        });
+        return true;
+      }
+    } catch (tokenError) {
+      logger.debug('Token inválido en dev mode, usando mock user', {
+        error: tokenError.message
+      });
+    }
+  }
+
+  const mockUser = await User.findOne({
+    role: { $in: ['teacher', 'super_admin'] },
+    status: 'active',
+    accountStatus: 'approved'
+  }).select('-password');
+
+  if (mockUser) {
+    req.user = mockUser;
+    req.tokenJti = 'dev-bypass-jti';
+    req.tokenExp = Math.floor(Date.now() / 1000) + 3600;
+
+    logger.debug('Auth bypass activo - usando mock user', {
+      userId: mockUser._id,
+      email: mockUser.email,
+      path: req.path
+    });
+
+    return true;
+  }
+
+  req.user = {
+    _id: 'dev-mock-user-id',
+    name: 'Dev User',
+    email: 'dev@test.com',
+    role: 'teacher',
+    status: 'active',
+    accountStatus: 'approved'
+  };
+  req.tokenJti = 'dev-bypass-jti';
+  req.tokenExp = Math.floor(Date.now() / 1000) + 3600;
+
+  logger.debug('Auth bypass activo - usando usuario temporal', { path: req.path });
+  return true;
+};
+
+/**
  * Verifica y decodifica un refresh token.
  * También detecta reuso de tokens (posible robo).
  *
@@ -585,90 +690,21 @@ const verifyRefreshToken = async (token, req) => {
 const authenticate = async (req, res, next) => {
   try {
     // Bypass de autenticación para desarrollo
-    if (AUTH_BYPASS_ENABLED) {
-      const authHeader = req.headers.authorization;
-
-      // Si hay token, intentar usarlo normalmente
-      if (authHeader && authHeader.startsWith('Bearer ')) {
-        // Intentar autenticación normal (sin validar fingerprint estrictamente)
-        try {
-          const token = authHeader.split(' ')[1];
-          const decoded = jwt.verify(token, process.env.JWT_SECRET, {
-            issuer: 'rfid-games-platform',
-            audience: 'rfid-games-client'
-          });
-
-          const user = await User.findById(decoded.id).select('-password');
-          if (
-            user &&
-            user.status === 'active' &&
-            (!['teacher', 'super_admin'].includes(user.role) || user.accountStatus === 'approved')
-          ) {
-            req.user = user;
-            req.tokenJti = decoded.jti;
-            req.tokenExp = decoded.exp;
-            logger.debug('Usuario autenticado (dev mode con token)', {
-              userId: user._id,
-              email: user.email
-            });
-            return next();
-          }
-        } catch (tokenError) {
-          logger.debug('Token inválido en dev mode, usando mock user', {
-            error: tokenError.message
-          });
-        }
-      }
-
-      // Sin token válido: usar mock user (primer profesor disponible)
-      const mockUser = await User.findOne({
-        role: { $in: ['teacher', 'super_admin'] },
-        status: 'active',
-        accountStatus: 'approved'
-      }).select('-password');
-
-      if (mockUser) {
-        req.user = mockUser;
-        req.tokenJti = 'dev-bypass-jti';
-        req.tokenExp = Math.floor(Date.now() / 1000) + 3600;
-
-        logger.debug('Auth bypass activo - usando mock user', {
-          userId: mockUser._id,
-          email: mockUser.email,
-          path: req.path
-        });
-
-        return next();
-      }
-
-      // Si no hay usuarios en la BD, crear uno temporal en memoria
-      req.user = {
-        _id: 'dev-mock-user-id',
-        name: 'Dev User',
-        email: 'dev@test.com',
-        role: 'teacher',
-        status: 'active',
-        accountStatus: 'approved'
-      };
-      req.tokenJti = 'dev-bypass-jti';
-      req.tokenExp = Math.floor(Date.now() / 1000) + 3600;
-
-      logger.debug('Auth bypass activo - usando usuario temporal', { path: req.path });
+    const authHeader = req.headers.authorization;
+    const bypassed = await tryAuthenticateBypass(req, authHeader);
+    if (bypassed) {
       return next();
     }
 
     // Flujo normal de autenticación (producción)
-    const authHeader = req.headers.authorization;
-
-    if (!authHeader || !authHeader.startsWith('Bearer ')) {
+    const token = getBearerToken(authHeader);
+    if (!token) {
       logSecurityEvent('AUTH_TOKEN_INVALID', {
         ...getRequestContext(req),
         reason: 'MISSING_ACCESS_TOKEN'
       });
       throw new UnauthorizedError('Access token no proporcionado');
     }
-
-    const token = authHeader.split(' ')[1];
 
     // Verificar access token (incluye validación de fingerprint)
     const decoded = await verifyAccessToken(token, req);
@@ -700,12 +736,7 @@ const authenticate = async (req, res, next) => {
       user.accountStatus &&
       user.accountStatus !== 'approved'
     ) {
-      const message =
-        user.accountStatus === 'pending_approval'
-          ? 'Cuenta pendiente de aprobación'
-          : user.accountStatus === 'rejected'
-            ? 'Cuenta rechazada'
-            : 'Cuenta no aprobada';
+      const message = getAccountStatusMessage(user.accountStatus);
       logSecurityEvent('AUTHZ_ACCESS_DENIED', {
         ...getRequestContext(req),
         userId: user._id,
@@ -838,12 +869,10 @@ const requireOwnership =
 const optionalAuth = async (req, res, next) => {
   try {
     const authHeader = req.headers.authorization;
-
-    if (!authHeader || !authHeader.startsWith('Bearer ')) {
+    const token = getBearerToken(authHeader);
+    if (!token) {
       return next(); // Sin token, continuar sin error
     }
-
-    const token = authHeader.split(' ')[1];
     const decoded = await verifyAccessToken(token, req);
     const user = await User.findById(decoded.id).select('-password');
 

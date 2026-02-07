@@ -18,8 +18,14 @@ jest.mock('../../src/models/GameContext');
 const app = express();
 app.use(express.json());
 
-const imageUpload = multer({ storage: multer.memoryStorage() });
-const audioUpload = multer({ storage: multer.memoryStorage() });
+const imageUpload = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 8 * 1024 * 1024 }
+});
+const audioUpload = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 5 * 1024 * 1024 }
+});
 
 // Mock user middleware
 app.use((req, res, next) => {

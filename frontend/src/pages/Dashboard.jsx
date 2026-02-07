@@ -9,6 +9,7 @@ import StudentProgressChart from '../components/dashboard/StudentProgressChart';
 import ClassroomOverview from '../components/dashboard/ClassroomOverview';
 import AlertsPanel from '../components/dashboard/AlertsPanel';
 import DifficultyHeatmap from '../components/dashboard/DifficultyHeatmap';
+import { SkeletonCard, SkeletonStatCard } from '../components/ui';
 
 export default function Dashboard() {
   useDocumentTitle('Dashboard');
@@ -66,7 +67,29 @@ export default function Dashboard() {
   }
 
   if (loading) {
-      return <div className="p-8 text-center text-slate-500">Cargando análisis...</div>;
+      return (
+        <main className="p-6 lg:p-8 max-w-7xl mx-auto space-y-8">
+          <div className="flex flex-col sm:flex-row sm:items-end sm:justify-between gap-4">
+            <SkeletonCard className="h-20 flex-1" />
+            <SkeletonCard className="h-12 w-48" />
+          </div>
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 lg:gap-6">
+            {[...Array(4)].map((_, index) => (
+              <SkeletonStatCard key={`stat-skeleton-${index}`} />
+            ))}
+          </div>
+          <div className="grid grid-cols-1 xl:grid-cols-3 gap-6 lg:gap-8">
+            <div className="xl:col-span-2 space-y-6">
+              <SkeletonCard className="h-80" />
+              <SkeletonCard className="h-80" />
+            </div>
+            <div className="space-y-6">
+              <SkeletonCard className="h-48" />
+              <SkeletonCard className="h-48" />
+            </div>
+          </div>
+        </main>
+      );
   }
 
   return (

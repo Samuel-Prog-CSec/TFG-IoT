@@ -8,8 +8,8 @@
  * @module services/rfidService
  */
 
-const logger = require('../utils/logger');
-const { EventEmitter } = require('events');
+const logger = require('../utils/logger').child({ component: 'rfidService' });
+const { EventEmitter } = require('node:events');
 
 // Constantes de configuración
 const EVENT_BUFFER_SIZE = 100;
