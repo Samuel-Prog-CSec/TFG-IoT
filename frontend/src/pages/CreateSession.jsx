@@ -15,6 +15,7 @@ import { useState, useEffect } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import confetti from 'canvas-confetti';
+import { webSerialService } from '../services/webSerialService';
 import { 
   Layers, 
   Settings, 
@@ -30,7 +31,8 @@ import {
   Plus,
   AlertTriangle,
   Sparkles,
-  Eye
+  Eye,
+  Wifi
 } from 'lucide-react';
 import { cn } from '../lib/utils';
 import { 
@@ -132,15 +134,26 @@ export default function CreateSession() {
       timeLimit: 15,
       pointsPerCorrect: 10,
       penaltyPerError: -2
-    }
+    },
+    linkSensor: false
   });
   
   // Objetos seleccionados (para mostrar detalles)
   const [selectedDeck, setSelectedDeck] = useState(null);
   const [selectedMechanic, setSelectedMechanic] = useState(null);
+  const [currentSensorId, setCurrentSensorId] = useState(null);
 
   // Cargar mazos y mecánicas
   useEffect(() => {
+    // Escuchar el sensor ID actual
+    setCurrentSensorId(webSerialService.sensorId);
+    
+    // Update sessionConfig.linkSensor based on currentSensorId
+    setSessionConfig(prev => ({
+      ...prev,
+      linkSensor: !!webSerialService.sensorId // Set to true if sensorId exists, false otherwise
+    }));
+    
     const loadData = async () => {
       try {
         const [decksRes, mechsRes] = await Promise.all([
@@ -248,7 +261,8 @@ export default function CreateSession() {
             selectedDeck?.cardsCount ||
             selectedDeck?.cards?.length ||
             0
-        }
+        },
+        sensorId: sessionConfig.linkSensor ? currentSensorId : undefined
       };
       
       const response = await sessionsAPI.createSession(payload);
@@ -307,6 +321,9 @@ export default function CreateSession() {
             difficulty={sessionConfig.difficulty}
             onDifficultyChange={handleDifficultyChange}
             onConfigChange={handleConfigChange}
+            linkSensor={sessionConfig.linkSensor}
+            onLinkSensorChange={(val) => setSessionConfig(prev => ({ ...prev, linkSensor: val }))}
+            currentSensorId={currentSensorId}
           />
         );
       case 3:
@@ -619,7 +636,15 @@ function StepMechanic({ mechanics, loading, selectedMechanicId, onSelect }) {
 /**
  * Paso 3: Configurar Reglas
  */
-function StepRules({ config, difficulty, onDifficultyChange, onConfigChange }) {
+function StepRules({ 
+  config, 
+  difficulty, 
+  onDifficultyChange, 
+  onConfigChange,
+  linkSensor,
+  onLinkSensorChange,
+  currentSensorId
+}) {
   const difficulties = [
     { id: 'easy', label: 'Fácil', color: 'emerald', description: 'Más tiempo, sin penalización' },
     { id: 'medium', label: 'Normal', color: 'amber', description: 'Configuración equilibrada' },
@@ -763,6 +788,50 @@ function StepRules({ config, difficulty, onDifficultyChange, onConfigChange }) {
                 {config.penaltyPerError}
               </span>
             </div>
+          </div>
+        </div>
+      </GlassCard>
+
+      {/* T-009: Vincular Sensor RFID */}
+      <GlassCard className="p-6 lg:col-span-2">
+        <div className="flex flex-col md:flex-row md:items-center justify-between gap-6">
+          <div className="flex-1">
+            <h2 className="text-lg font-semibold text-white mb-2 flex items-center gap-2">
+              <Wifi size={20} className="text-indigo-400" />
+              Vincular Sensor RFID (T-009)
+            </h2>
+            <p className="text-sm text-slate-400">
+              Si activas esta opción, solo las lecturas provenientes de tu sensor actual 
+              serán válidas para esta sesión. Útil en entornos con múltiples sensores simultáneos.
+            </p>
+          </div>
+          
+          <div className="flex items-center gap-4">
+            {currentSensorId ? (
+              <div className="flex flex-col items-end gap-2">
+                <div className="flex items-center gap-3 p-3 rounded-xl bg-slate-800/50 border border-white/10">
+                  <span className="text-xs font-mono text-slate-500 max-w-[150px] truncate">
+                    ID: {currentSensorId}
+                  </span>
+                  <div className="flex items-center h-6 w-12 rounded-full bg-slate-700 relative p-1 cursor-pointer"
+                       onClick={() => onLinkSensorChange(!linkSensor)}>
+                    <motion.div 
+                      className={cn("h-4 w-4 rounded-full shadow-sm", linkSensor ? "bg-indigo-500" : "bg-slate-500")}
+                      transition={{ type: "spring", stiffness: 500, damping: 30 }}
+                      animate={{ x: linkSensor ? 24 : 0 }}
+                    />
+                  </div>
+                </div>
+                <span className={cn("text-xs font-medium", linkSensor ? "text-indigo-400" : "text-slate-500")}>
+                  {linkSensor ? "Sensor vinculado" : "Sin vincular"}
+                </span>
+              </div>
+            ) : (
+              <div className="flex items-center gap-2 text-amber-500 bg-amber-500/10 p-3 rounded-xl border border-amber-500/20">
+                <AlertTriangle size={16} />
+                <span className="text-sm">Sensor no detectado</span>
+              </div>
+            )}
           </div>
         </div>
       </GlassCard>

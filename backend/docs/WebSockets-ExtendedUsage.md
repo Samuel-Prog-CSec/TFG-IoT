@@ -17,16 +17,17 @@
 
 ### 1.1 Uso Existente de WebSockets
 
-Actualmente, Socket.IO se utiliza exclusivamente en el contexto del **GameEngine** para:
+Actualmente, Socket.IO se utiliza en el contexto del **GameEngine** y como canal de ingesta RFID para:
 
-| Funcionalidad     | Evento              | Descripción                      |
-| ----------------- | ------------------- | -------------------------------- |
-| Unirse a partida  | `join_play`         | Cliente se une a sala de partida |
-| Iniciar partida   | `start_play`        | Activa el flujo de juego         |
-| Nuevo desafío     | `new_round`         | Envía pregunta al alumno         |
-| Validar respuesta | `validation_result` | Resultado de escaneo RFID        |
-| Fin de partida    | `game_over`         | Puntuación y métricas finales    |
-| Estado sensor     | `rfid_status`       | Conexión/desconexión del sensor  |
+| Funcionalidad     | Evento                  | Descripción                                      |
+| ----------------- | ----------------------- | ------------------------------------------------ |
+| Unirse a partida  | `join_play`             | Cliente se une a sala de partida                 |
+| Iniciar partida   | `start_play`            | Activa el flujo de juego                         |
+| Nuevo desafío     | `new_round`             | Envía pregunta al alumno                         |
+| Validar respuesta | `validation_result`     | Resultado de escaneo RFID                        |
+| Fin de partida    | `game_over`             | Puntuación y métricas finales                    |
+| Ingesta RFID      | `rfid_scan_from_client` | Evento RFID enviado por Web Serial (cliente)     |
+| Estado RFID       | `rfid_status`           | Estado del servicio RFID (client_ready/disabled) |
 
 ### 1.2 Limitación Actual
 

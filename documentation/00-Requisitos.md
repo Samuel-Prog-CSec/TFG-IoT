@@ -803,33 +803,32 @@ El sistema es una **plataforma de juegos educativos interactivos** que utiliza *
 
 ---
 
-### RF-RFID-006: Comunicación Serial ✅
+### RF-RFID-006: Comunicación Web Serial ✅
 
-**Descripción:** El backend debe comunicarse con el sensor RFID vía puerto serie.
+**Descripción:** El navegador del profesor debe comunicarse con el sensor RFID vía Web Serial y enviar eventos al backend.
 
 **Criterios de Aceptación:**
-- Puerto configurable via variable de entorno (SERIAL_PORT)
-- Baud rate: 115200
-- Parser de líneas para lectura de JSON
-- Manejo de buffer para datos incompletos
+- Lectura serial en el frontend con Web Serial API
+- Normalización a contrato estable `{ uid, type, sensorId, timestamp, source }`
+- Emisión al backend por Socket.IO (`rfid_scan_from_client`)
+- Control de habilitación por variable de entorno (`RFID_SOURCE=client|disabled`)
 
 ---
 
-### RF-RFID-007: Reconexión Automática ✅
+### RF-RFID-007: Control de Conexión en Cliente ✅
 
-**Descripción:** El servicio RFID debe reconectarse automáticamente tras desconexión.
+**Descripción:** La UI debe permitir conectar y desconectar el sensor RFID de forma explícita.
 
 **Criterios de Aceptación:**
-- Detección de desconexión por cierre de puerto o error
-- Intentos de reconexión con backoff exponencial
-- Máximo de intentos configurable
-- Evento de status emitido en cada cambio
+- Botón de conectar/desconectar en las pantallas que lo requieran
+- Indicador visual de estado (conectado, leyendo, desconectado)
+- Mensaje claro si el navegador no soporta Web Serial
 
 ---
 
 ### RF-RFID-008: Eventos del Sensor ✅
 
-**Descripción:** El sensor debe emitir eventos en formato JSON que el backend procesa.
+**Descripción:** El sensor debe emitir eventos en formato JSON que el frontend procesa y reenvía al backend.
 
 **Eventos Soportados:**
 | Evento | Descripción | Payload |

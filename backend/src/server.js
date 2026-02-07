@@ -43,6 +43,7 @@ const { toSystemMetricsDTOV1 } = require('./utils/dtos');
 const { logSecurityEvent, getSocketContext } = require('./utils/securityLogger');
 const { validateQuery } = require('./middlewares/validation');
 const { emptyObjectSchema } = require('./validators/commonValidator');
+const { rfidClientEventSchema } = require('./validators/rfidValidator');
 
 // Importar rutas
 const authRoutes = require('./routes/auth');
@@ -83,8 +84,57 @@ const gameEngine = new GameEngine(io);
 // Rate limiting para WebSockets (instancia única compartida)
 const socketRateLimiter = createSocketRateLimiter({ logger });
 
-// Tipos válidos de tarjeta RFID (para validación básica de eventos Web Serial)
-const RFID_CARD_TYPES = new Set(['MIFARE_1KB', 'MIFARE_4KB', 'NTAG', 'UNKNOWN']);
+const RFID_MODES = Object.freeze({
+  IDLE: 'idle',
+  GAMEPLAY: 'gameplay',
+  CARD_REGISTRATION: 'card_registration',
+  CARD_ASSIGNMENT: 'card_assignment'
+});
+
+const rfidModeByUserId = new Map();
+
+const getRfidModeState = userId => {
+  if (!userId) {
+    return { mode: RFID_MODES.IDLE, sensorId: null, socketId: null };
+  }
+  return rfidModeByUserId.get(userId) || { mode: RFID_MODES.IDLE, sensorId: null, socketId: null };
+};
+
+const setRfidModeState = (userId, mode, socketId, metadata = {}) => {
+  if (!userId) {
+    return;
+  }
+
+  if (mode === RFID_MODES.IDLE) {
+    rfidModeByUserId.delete(userId);
+    return;
+  }
+
+  rfidModeByUserId.set(userId, {
+    mode,
+    socketId,
+    sensorId: null,
+    metadata,
+    updatedAt: Date.now()
+  });
+};
+
+const clearRfidModeState = (userId, socketId) => {
+  if (!userId) {
+    return;
+  }
+
+  const current = rfidModeByUserId.get(userId);
+  if (!current) {
+    return;
+  }
+
+  if (socketId && current.socketId !== socketId) {
+    return;
+  }
+
+  rfidModeByUserId.delete(userId);
+};
 
 /**
  * Construye metadata común de socket para logging.
@@ -534,6 +584,11 @@ io.on('connection', socket => {
       userId: socket.data.userId
     });
 
+    // T-010: Activar modo GAMEPLAY automáticamente al unirse a una partida
+    setRfidModeState(socket.data.userId, RFID_MODES.GAMEPLAY, socket.id, { playId });
+    /* Note: Se asume que el profesor entra para supervisar/jugar.
+       Si el sensorId está vinculado a la sesión, se validará en 'rfid_scan_from_client'. */
+
     // Enviar estado inicial de la partida
     const playState = gameEngine.getPlayState(playId);
     if (playState) {
@@ -561,6 +616,7 @@ io.on('connection', socket => {
       return;
     }
     socket.leave(`play_${playId}`);
+    clearRfidModeState(socket.data.userId, socket.id);
     logger.info(`Socket ${socket.id} abandonó la partida ${playId}`, {
       userId: socket.data.userId
     });
@@ -624,6 +680,9 @@ io.on('connection', socket => {
         }
 
         await gameEngine.pausePlayInternal(playId, { requestedBy: socket.data.userId });
+
+        // T-010 Mejora: Poner el sensor en IDLE al pausar
+        setRfidModeState(socket.data.userId, RFID_MODES.IDLE, socket.id);
       } catch (error) {
         logger.error(`Error al pausar la partida: ${error.message}`);
         socket.emit('error', { message: 'Error al pausar la partida' });
@@ -657,6 +716,9 @@ io.on('connection', socket => {
         }
 
         await gameEngine.resumePlayInternal(playId, { requestedBy: socket.data.userId });
+
+        // T-010 Mejora: Volver a GAMEPLAY al reanudar
+        setRfidModeState(socket.data.userId, RFID_MODES.GAMEPLAY, socket.id);
       } catch (error) {
         logger.error(`Error al reanudar la partida: ${error.message}`);
         socket.emit('error', { message: 'Error al reanudar la partida' });
@@ -692,11 +754,27 @@ io.on('connection', socket => {
       return;
     }
     socket.join('card_registration');
+    setRfidModeState(socket.data.userId, RFID_MODES.CARD_REGISTRATION, socket.id);
     logger.info(`Socket ${socket.id} se unió a card_registration`);
   });
 
   onEvent('leave_card_registration', () => {
     socket.leave('card_registration');
+    clearRfidModeState(socket.data.userId, socket.id);
+  });
+
+  onEvent('join_card_assignment', () => {
+    if (!requireSocketRole(socket, ['teacher', 'super_admin'], 'join_card_assignment')) {
+      return;
+    }
+    socket.join('card_assignment');
+    setRfidModeState(socket.data.userId, RFID_MODES.CARD_ASSIGNMENT, socket.id);
+    logger.info(`Socket ${socket.id} se unió a card_assignment`);
+  });
+
+  onEvent('leave_card_assignment', () => {
+    socket.leave('card_assignment');
+    clearRfidModeState(socket.data.userId, socket.id);
   });
 
   onEvent('join_admin_room', () => {
@@ -721,76 +799,127 @@ io.on('connection', socket => {
       return;
     }
 
-    const { uid, type, sensorId, timestamp, source } = data || {};
-
-    if (!uid || !type || !sensorId || !timestamp || !source) {
-      socket.emit('error', { code: 'VALIDATION_ERROR', message: 'Payload RFID incompleto' });
-      logSocketSecurityEvent('SECURITY_RFID_EVENT_INVALID', socket, {
-        eventName: 'rfid_scan_from_client',
-        reason: 'PAYLOAD_INCOMPLETE'
+    if ((process.env.RFID_SOURCE || 'client').trim().toLowerCase() !== 'client') {
+      socket.emit('error', {
+        code: 'RFID_DISABLED',
+        message: 'RFID en modo cliente deshabilitado'
       });
       return;
     }
 
-    if (typeof sensorId !== 'string' || sensorId.trim().length === 0) {
-      socket.emit('error', { code: 'VALIDATION_ERROR', message: 'sensorId inválido' });
+    const parsed = rfidClientEventSchema.safeParse(data || {});
+    if (!parsed.success) {
+      const firstError = parsed.error.issues?.[0];
+      socket.emit('error', {
+        code: 'VALIDATION_ERROR',
+        message: firstError?.message || 'Payload RFID inválido'
+      });
       logSocketSecurityEvent('SECURITY_RFID_EVENT_INVALID', socket, {
         eventName: 'rfid_scan_from_client',
-        reason: 'SENSOR_ID_INVALID'
+        reason: 'ZOD_VALIDATION_ERROR',
+        details: parsed.error.issues
       });
       return;
     }
 
-    if (typeof timestamp !== 'number' || Number.isNaN(timestamp)) {
-      socket.emit('error', { code: 'VALIDATION_ERROR', message: 'timestamp inválido' });
+    const modeState = getRfidModeState(socket.data.userId);
+    const allowedModes = new Set([
+      RFID_MODES.CARD_REGISTRATION,
+      RFID_MODES.CARD_ASSIGNMENT,
+      RFID_MODES.GAMEPLAY
+    ]);
+    if (!allowedModes.has(modeState.mode)) {
+      socket.emit('error', {
+        code: 'RFID_MODE_INVALID',
+        message: 'Modo RFID no permite lecturas'
+      });
       logSocketSecurityEvent('SECURITY_RFID_EVENT_INVALID', socket, {
         eventName: 'rfid_scan_from_client',
-        reason: 'TIMESTAMP_INVALID'
+        reason: 'RFID_MODE_INVALID',
+        mode: modeState.mode
       });
       return;
     }
 
-    const normalizedUid = String(uid).trim().toUpperCase();
-    const normalizedSensorId = sensorId.trim();
-    const isValidUid = /^[0-9A-F]{8}$|^[0-9A-F]{14}$/.test(normalizedUid);
-    if (!isValidUid) {
-      socket.emit('error', { code: 'VALIDATION_ERROR', message: 'UID inválido' });
+    if (modeState.mode === RFID_MODES.CARD_REGISTRATION && !socket.rooms.has('card_registration')) {
+      socket.emit('error', {
+        code: 'RFID_MODE_INVALID',
+        message: 'Modo RFID invalido para registro'
+      });
       logSocketSecurityEvent('SECURITY_RFID_EVENT_INVALID', socket, {
         eventName: 'rfid_scan_from_client',
-        reason: 'UID_INVALID',
-        uid: normalizedUid
+        reason: 'RFID_MODE_ROOM_MISMATCH',
+        mode: modeState.mode
       });
       return;
     }
 
-    const normalizedType = String(type).trim().toUpperCase();
-    if (!RFID_CARD_TYPES.has(normalizedType)) {
-      socket.emit('error', { code: 'VALIDATION_ERROR', message: 'Tipo de tarjeta inválido' });
+    if (modeState.mode === RFID_MODES.CARD_ASSIGNMENT && !socket.rooms.has('card_assignment')) {
+      socket.emit('error', {
+        code: 'RFID_MODE_INVALID',
+        message: 'Modo RFID invalido para asignacion'
+      });
       logSocketSecurityEvent('SECURITY_RFID_EVENT_INVALID', socket, {
         eventName: 'rfid_scan_from_client',
-        reason: 'TYPE_INVALID',
-        type: normalizedType
+        reason: 'RFID_MODE_ROOM_MISMATCH',
+        mode: modeState.mode
       });
       return;
     }
 
-    if (source !== 'web_serial') {
-      socket.emit('error', { code: 'VALIDATION_ERROR', message: 'Source inválido' });
+    // T-009: Validar sensorId contra la sesión activa si estamos en modo GAMEPLAY
+    if (modeState.mode === RFID_MODES.GAMEPLAY && modeState.metadata?.playId) {
+      const playState = gameEngine.getPlayState(modeState.metadata.playId);
+      // El playState.sessionDoc contiene el sensorId de la sesión
+      const sessionSensorId = playState?.sessionDoc?.sensorId;
+
+      if (sessionSensorId && sessionSensorId !== parsed.data.sensorId) {
+        socket.emit('error', {
+          code: 'RFID_SENSOR_UNAUTHORIZED',
+          message: 'Este sensor no está autorizado para esta sesión de juego'
+        });
+        logSocketSecurityEvent('SECURITY_RFID_EVENT_INVALID', socket, {
+          eventName: 'rfid_scan_from_client',
+          reason: 'RFID_SENSOR_UNAUTHORIZED',
+          sessionId: playState?.sessionDoc?._id,
+          expected: sessionSensorId,
+          received: parsed.data.sensorId
+        });
+        return;
+      }
+    }
+
+    // Validación básica de consistencia de sensor (fijar el primero detectado en el modo)
+    if (modeState.sensorId && modeState.sensorId !== parsed.data.sensorId) {
+      socket.emit('error', {
+        code: 'RFID_SENSOR_MISMATCH',
+        message:
+          'Sensor RFID no coincide con el sensor activo de la sesión (o cambió inesperadamente)'
+      });
       logSocketSecurityEvent('SECURITY_RFID_EVENT_INVALID', socket, {
         eventName: 'rfid_scan_from_client',
-        reason: 'SOURCE_INVALID',
-        source
+        reason: 'RFID_SENSOR_MISMATCH',
+        mode: modeState.mode,
+        expected: modeState.sensorId,
+        received: parsed.data.sensorId
       });
       return;
     }
 
-    rfidService.emit('rfid_event', {
+    if (!modeState.sensorId) {
+      // Fijar el sensorId la primera vez que recibimos un evento válido en este modo
+      rfidModeByUserId.set(socket.data.userId, {
+        ...modeState,
+        sensorId: parsed.data.sensorId,
+        socketId: socket.id,
+        updatedAt: Date.now()
+      });
+    }
+
+    rfidService.ingestEvent({
       event: 'card_detected',
-      uid: normalizedUid,
-      type: normalizedType,
-      sensorId: normalizedSensorId,
-      timestamp,
-      source
+      mode: modeState.mode,
+      ...parsed.data
     });
   });
 
@@ -799,6 +928,7 @@ io.on('connection', socket => {
    * @event disconnect
    */
   socket.on('disconnect', () => {
+    clearRfidModeState(socket.data.userId, socket.id);
     logger.info(`Cliente desconectado: ${socket.id}`, {
       userId: socket.data.userId,
       role: socket.data.userRole
@@ -821,11 +951,13 @@ rfidService.on('rfid_event', event => {
   // Emitir eventos RFID de forma dirigida
   const playId = event?.uid ? gameEngine.getPlayIdByCardUid(event.uid) : null;
 
-  if (event.event === 'card_detected' && playId) {
+  if (event.event === 'card_detected' && event.mode === RFID_MODES.GAMEPLAY && playId) {
     // En gameplay no exponemos UID
     io.to(`play_${playId}`).emit('rfid_event', {
       event: 'card_detected'
     });
+  } else if (event.event === 'card_detected' && event.mode === RFID_MODES.CARD_ASSIGNMENT) {
+    io.to('card_assignment').emit('rfid_event', event);
   } else if (event.event === 'card_detected' || event.event === 'card_removed') {
     // Registro de tarjetas (solo a room dedicada)
     io.to('card_registration').emit('rfid_event', event);
@@ -841,7 +973,9 @@ rfidService.on('rfid_event', event => {
       break;
     case 'card_detected':
       logger.info(`Tarjeta detectada: ${event.uid} (${event.type})`);
-      gameEngine.handleCardScan(event.uid, event.type);
+      if (event.mode === RFID_MODES.GAMEPLAY) {
+        gameEngine.handleCardScan(event.uid, event.type);
+      }
       break;
     case 'card_removed':
       logger.info(`Tarjeta retirada: ${event.uid}`);
@@ -905,15 +1039,8 @@ const startServer = async () => {
       });
     }
 
-    // Conectar al sensor RFID (solo si está habilitado)
-    // Sprint 1.5: por defecto deshabilitado salvo RFID_ENABLED=true
-    const rfidEnabled = process.env.RFID_ENABLED === 'true';
-    if (rfidEnabled) {
-      logger.info('Iniciando servicio RFID...');
-      rfidService.connect(); // Servicio logueará por su cuenta si se conecta o no
-    } else {
-      logger.info('Servicio RFID deshabilitado (RFID_ENABLED!=true)');
-    }
+    logger.info('Iniciando servicio RFID en modo cliente...');
+    rfidService.start();
 
     // Iniciar servidor HTTP
     server.listen(PORT, () => {
@@ -948,7 +1075,7 @@ const gracefulShutdown = async signal => {
       await gameEngine.shutdown();
 
       // 3. Cerrar conexión RFID
-      rfidService.disconnect();
+      rfidService.stop();
 
       // 4. Desconectar de Redis
       await disconnectRedis();

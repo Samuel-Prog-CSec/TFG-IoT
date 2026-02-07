@@ -119,6 +119,8 @@ const createGameSessionSchema = z
 
     contextId: objectIdSchema.optional(),
 
+    sensorId: z.string().max(100, 'sensorId no puede exceder 100 caracteres').trim().optional(),
+
     config: sessionConfigInputSchema.optional()
   })
   .strict()
@@ -136,6 +138,8 @@ const createGameSessionSchema = z
 const updateGameSessionSchema = z
   .object({
     deckId: objectIdSchema.optional(),
+
+    sensorId: z.string().max(100, 'sensorId no puede exceder 100 caracteres').trim().optional(),
 
     config: sessionConfigInputSchema.optional(),
 

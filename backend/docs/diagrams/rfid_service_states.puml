@@ -6,60 +6,37 @@ skinparam backgroundColor #FEFEFE
 title Estados del Servicio RFIDService
 
 state "disabled" as DISABLED {
-    DISABLED : RFID_ENABLED != true
+    DISABLED : RFID_SOURCE = disabled
     DISABLED : Servicio desactivado
 }
 
 state "misconfigured" as MISCONF {
-    MISCONF : RFID_ENABLED = true
-    MISCONF : pero SERIAL_PORT vacío
+    MISCONF : RFID_SOURCE invalido
+    MISCONF : Requiere correccion
 }
 
-state "reconnecting" as RECON {
-    RECON : Intentando conectar
-    RECON : Backoff exponencial
-    RECON : Max 10 intentos
+state "client_ready" as READY {
+    READY : Esperando eventos
+    READY : Web Serial cliente
 }
 
-state "connected" as CONN {
-    CONN : Conexión establecida
-    CONN : Leyendo eventos JSON
-    CONN : Métricas activas
+state "stopped" as STOPPED {
+    STOPPED : Servicio detenido
 }
 
-state "disconnected" as DISC {
-    DISC : Conexión perdida
-    DISC : Auto-retry en 5s
-}
+[*] --> DISABLED : RFID_SOURCE = disabled
 
-state "failed" as FAILED {
-    FAILED : Max reintentos alcanzado
-    FAILED : Requiere intervención
-}
+[*] --> READY : RFID_SOURCE = client
 
-[*] --> DISABLED : RFID_ENABLED != true
+[*] --> MISCONF : RFID_SOURCE invalido
 
-[*] --> MISCONF : RFID_ENABLED = true\nSERIAL_PORT vacío
+READY --> STOPPED : shutdown
 
-[*] --> RECON : RFID_ENABLED = true\nSERIAL_PORT configurado
+STOPPED --> READY : start()
 
-RECON --> CONN : Éxito
-RECON --> DISC : Error (intento < 10)
-RECON --> FAILED : Error (intento >= 10)
-
-CONN --> DISC : Desconexión USB\no error serial
-
-DISC --> RECON : Auto-retry (5s)
-
-note right of CONN
-  emit('status', 'connected')
+note right of READY
+  emit('status', 'client_ready')
   emit('rfid_event', {...})
-end note
-
-note left of FAILED
-  Requiere reinicio
-  del servidor o
-  intervención manual
 end note
 
 @enduml

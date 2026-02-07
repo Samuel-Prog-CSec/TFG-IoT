@@ -46,27 +46,28 @@ describe('healthCheck utils', () => {
     expect(res.status).toBe('not_initialized');
   });
 
-  it('checkRFIDHealth returns disconnected when service is not connected', async () => {
+  it('checkRFIDHealth returns stopped when service is stopped', async () => {
     const { checkRFIDHealth } = require('../src/utils/healthCheck');
 
     const res = checkRFIDHealth({
-      isConnected: () => false,
-      port: 'COM9',
-      baudRate: 9600
+      getStatus: () => ({
+        status: 'stopped',
+        source: 'client'
+      })
     });
 
-    expect(res.status).toBe('disconnected');
-    expect(res.port).toBe('COM9');
-    expect(res.baudRate).toBe(9600);
+    expect(res.status).toBe('stopped');
+    expect(res.source).toBe('client');
   });
 
-  it('checkRFIDHealth returns healthy when service is connected', async () => {
+  it('checkRFIDHealth returns healthy when service is client_ready', async () => {
     const { checkRFIDHealth } = require('../src/utils/healthCheck');
 
     const res = checkRFIDHealth({
-      isConnected: () => true,
-      port: 'COM9',
-      baudRate: 115200
+      getStatus: () => ({
+        status: 'client_ready',
+        source: 'client'
+      })
     });
 
     expect(res.status).toBe('healthy');
@@ -76,7 +77,7 @@ describe('healthCheck utils', () => {
     const { checkRFIDHealth } = require('../src/utils/healthCheck');
 
     const res = checkRFIDHealth({
-      isConnected: () => {
+      getStatus: () => {
         throw new Error('boom');
       }
     });
@@ -146,9 +147,10 @@ describe('healthCheck utils', () => {
     const { getHealthStatus } = require('../src/utils/healthCheck');
 
     const res = await getHealthStatus({
-      isConnected: () => true,
-      port: 'COM9',
-      baudRate: 115200
+      getStatus: () => ({
+        status: 'client_ready',
+        source: 'client'
+      })
     });
 
     expect(res.status).toBe('healthy');
@@ -172,9 +174,10 @@ describe('healthCheck utils', () => {
     const { getHealthStatus } = require('../src/utils/healthCheck');
 
     const res = await getHealthStatus({
-      isConnected: () => true,
-      port: 'COM9',
-      baudRate: 115200
+      getStatus: () => ({
+        status: 'client_ready',
+        source: 'client'
+      })
     });
 
     expect(res.services.mongodb.status).toBe('healthy');
@@ -196,9 +199,10 @@ describe('healthCheck utils', () => {
     const { getHealthStatus } = require('../src/utils/healthCheck');
 
     const res = await getHealthStatus({
-      isConnected: () => true,
-      port: 'COM9',
-      baudRate: 115200
+      getStatus: () => ({
+        status: 'client_ready',
+        source: 'client'
+      })
     });
 
     expect(res.services.mongodb.status).toBe('healthy');

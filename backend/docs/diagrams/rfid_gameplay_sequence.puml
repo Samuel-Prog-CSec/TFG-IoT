@@ -11,6 +11,7 @@ participant "Frontend" as FE
 participant "Socket.IO" as Socket
 participant "GameEngine" as Engine
 participant "RFIDService" as RFID
+participant "Web Serial" as WebSerial
 participant "Sensor\nRC522" as Sensor
 database "MongoDB" as DB
 
@@ -33,8 +34,9 @@ FE -> User : "Busca: España 🇪🇸"
 == Escaneo de Tarjeta ==
 
 User -> Sensor : Escanea tarjeta\nfísica
-Sensor -> RFID : JSON:\n{"event":"card_detected",\n"uid":"32B8FA05"}
-
+Sensor -> WebSerial : JSON:\n{"event":"card_detected",\n"uid":"32B8FA05"}
+WebSerial -> Socket : rfid_scan_from_client
+Socket -> RFID : ingestEvent
 RFID -> Engine : handleCardScan(uid)
 
 Engine -> Engine : 1. cardUidToPlayId.get(uid)\n→ playId

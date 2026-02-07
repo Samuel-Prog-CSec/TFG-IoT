@@ -102,7 +102,7 @@ class SocketService {
         if (!isResolved) {
           isResolved = true;
           cleanup();
-          console.debug('[Socket] Conectado:', this.socket.id);
+          console.warn('[Socket] Conectado:', this.socket.id);
           this.isConnected = true;
           resolve();
         }
@@ -127,7 +127,7 @@ class SocketService {
 
       // Manejar desconexión
       this.socket.on(SOCKET_EVENTS.DISCONNECT, (reason) => {
-        console.debug('[Socket] Desconectado:', reason);
+        console.warn('[Socket] Desconectado:', reason);
         this.isConnected = false;
         
         // Si el servidor forzó la desconexión, intentar reconectar
@@ -243,6 +243,18 @@ class SocketService {
         }
       });
     });
+  }
+
+  /**
+   * Emitir un evento sin esperar ACK del servidor.
+   * @param {string} event - Nombre del evento
+   * @param {*} data - Datos a enviar
+   */
+  emitFireAndForget(event, data) {
+    if (!this.socket?.connected) {
+      throw new Error('Socket no conectado');
+    }
+    this.socket.emit(event, data);
   }
 
   /**

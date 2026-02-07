@@ -5,14 +5,15 @@
  * @module App
  */
 
-import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
-import { lazy, Suspense } from 'react';
+import { BrowserRouter, Routes, Route, Navigate, useLocation } from 'react-router-dom';
+import { lazy, Suspense, useMemo } from 'react';
 import { Toaster } from 'sonner';
 import { AuthProvider } from './context/AuthContext';
 import { ProtectedRoute, GuestRoute, RequireRole } from './components/auth';
 import AppLayout from './components/layout/AppLayout';
 import { ErrorBoundary } from './components/common';
 import { ROUTES } from './constants/routes';
+import RFIDModeHandler from './components/game/RFIDModeHandler';
 
 // Lazy loaded pages for better performance
 const Dashboard = lazy(() => import('./pages/Dashboard'));
@@ -79,98 +80,62 @@ function SuspenseWrapper({ children }) {
 }
 
 /**
- * Componente de rutas de la aplicación
+ * Componente que envuelve el contenido de la aplicación para poder usar useLocation
  */
-function AppRoutes() {
+function AppContent() {
+  const location = useLocation();
+  
+  // T-010: Determinar el modo RFID basado en la ruta
+  const rfidMode = useMemo(() => {
+    const path = location.pathname;
+    if (path.startsWith('/game/')) return 'gameplay';
+    if (path.includes('/register-cards')) return 'card_registration';
+    if (path.includes('/assign-cards')) return 'card_assignment';
+    return 'idle';
+  }, [location.pathname]);
+
   return (
-    <Routes>
-      {/* ============================================ */}
-      {/* RUTAS PÚBLICAS (solo para usuarios NO autenticados) */}
-      {/* ============================================ */}
-      <Route 
-        path="/login" 
-        element={
-          <GuestRoute>
-            <SuspenseWrapper><Login /></SuspenseWrapper>
-          </GuestRoute>
-        } 
-      />
-      <Route 
-        path="/register" 
-        element={
-          <GuestRoute>
-            <SuspenseWrapper><Register /></SuspenseWrapper>
-          </GuestRoute>
-        } 
-      />
+    <>
+      <Routes>
+        {/* RUTAS PÚBLICAS */}
+        <Route path="/login" element={<GuestRoute><SuspenseWrapper><Login /></SuspenseWrapper></GuestRoute>} />
+        <Route path="/register" element={<GuestRoute><SuspenseWrapper><Register /></SuspenseWrapper></GuestRoute>} />
 
-      {/* ============================================ */}
-      {/* RUTAS PROTEGIDAS (requieren autenticación) */}
-      {/* ============================================ */}
-      <Route 
-        path="/" 
-        element={
-          <ProtectedRoute>
-            <AppLayout />
-          </ProtectedRoute>
-        }
-      >
-        <Route index element={<SuspenseWrapper><Dashboard /></SuspenseWrapper>} />
-        <Route path="dashboard" element={<SuspenseWrapper><Dashboard /></SuspenseWrapper>} />
-        
-        {/* Gestión de Mazos de Cartas */}
-        <Route path="decks" element={<SuspenseWrapper><CardDecksPage /></SuspenseWrapper>} />
-        <Route path="decks/new" element={<SuspenseWrapper><DeckCreationWizard /></SuspenseWrapper>} />
-        <Route path="decks/:deckId/edit" element={<SuspenseWrapper><DeckEditPage /></SuspenseWrapper>} />
-
-        {/* Sesiones de juego (configuración) */}
-        <Route path="sessions" element={<SuspenseWrapper><SessionsPage /></SuspenseWrapper>} />
-        <Route path="sessions/:sessionId" element={<SuspenseWrapper><SessionDetail /></SuspenseWrapper>} />
-        <Route path="sessions/:sessionId/edit" element={<SuspenseWrapper><SessionEdit /></SuspenseWrapper>} />
-        
-        <Route path="create-session" element={<SuspenseWrapper><CreateSession /></SuspenseWrapper>} />
-        <Route path="board-setup" element={<SuspenseWrapper><BoardSetup /></SuspenseWrapper>} />
-        <Route path="board-setup/:sessionId" element={<SuspenseWrapper><BoardSetup /></SuspenseWrapper>} />
-        <Route path="students/transfer" element={
-          <RequireRole roles={['teacher', 'super_admin']}>
-            <SuspenseWrapper><TransferStudents /></SuspenseWrapper>
-          </RequireRole>
-        } />
-      </Route>
-
-      {/* ============================================ */}
-      {/* RUTAS DE ADMIN (solo para super_admin) */}
-      {/* ============================================ */}
-      <Route 
-        path="/admin" 
-        element={
-          <ProtectedRoute>
-            <RequireRole roles="super_admin">
-              <AppLayout />
+        {/* RUTAS PROTEGIDAS */}
+        <Route path="/" element={<ProtectedRoute><AppLayout /></ProtectedRoute>}>
+          <Route index element={<SuspenseWrapper><Dashboard /></SuspenseWrapper>} />
+          <Route path="dashboard" element={<SuspenseWrapper><Dashboard /></SuspenseWrapper>} />
+          <Route path="decks" element={<SuspenseWrapper><CardDecksPage /></SuspenseWrapper>} />
+          <Route path="decks/new" element={<SuspenseWrapper><DeckCreationWizard /></SuspenseWrapper>} />
+          <Route path="decks/:deckId/edit" element={<SuspenseWrapper><DeckEditPage /></SuspenseWrapper>} />
+          <Route path="sessions" element={<SuspenseWrapper><SessionsPage /></SuspenseWrapper>} />
+          <Route path="sessions/:sessionId" element={<SuspenseWrapper><SessionDetail /></SuspenseWrapper>} />
+          <Route path="sessions/:sessionId/edit" element={<SuspenseWrapper><SessionEdit /></SuspenseWrapper>} />
+          <Route path="create-session" element={<SuspenseWrapper><CreateSession /></SuspenseWrapper>} />
+          <Route path="board-setup" element={<SuspenseWrapper><BoardSetup /></SuspenseWrapper>} />
+          <Route path="board-setup/:sessionId" element={<SuspenseWrapper><BoardSetup /></SuspenseWrapper>} />
+          <Route path="students/transfer" element={
+            <RequireRole roles={['teacher', 'super_admin']}>
+              <SuspenseWrapper><TransferStudents /></SuspenseWrapper>
             </RequireRole>
-          </ProtectedRoute>
-        }
-      >
-        <Route path="approvals" element={<SuspenseWrapper><ApprovalPanel /></SuspenseWrapper>} />
-      </Route>
+          } />
+        </Route>
 
-      {/* ============================================ */}
-      {/* RUTAS DE JUEGO (pantalla completa, sin layout) */}
-      {/* ============================================ */}
-      <Route 
-        path="/game/:sessionId" 
-        element={
-          <ProtectedRoute>
-            <SuspenseWrapper><GameSession /></SuspenseWrapper>
-          </ProtectedRoute>
-        } 
-      />
+        {/* RUTAS DE ADMIN */}
+        <Route path="/admin" element={<ProtectedRoute><RequireRole roles="super_admin"><AppLayout /></RequireRole></ProtectedRoute>}>
+          <Route path="approvals" element={<SuspenseWrapper><ApprovalPanel /></SuspenseWrapper>} />
+        </Route>
 
-      {/* ============================================ */}
-      {/* FALLBACK - Redirigir a home */}
-      {/* ============================================ */}
-      <Route path="*" element={<Navigate to={ROUTES.HOME} replace />} />
-    </Routes>
+        {/* RUTAS DE JUEGO */}
+        <Route path="/game/:sessionId" element={<ProtectedRoute><SuspenseWrapper><GameSession /></SuspenseWrapper></ProtectedRoute>} />
+
+        {/* FALLBACK */}
+        <Route path="*" element={<Navigate to={ROUTES.HOME} replace />} />
+      </Routes>
+      
+      {/* T-010: Visualización global del modo RFID */}
+      <RFIDModeHandler currentMode={rfidMode} />
+    </>
   );
 }
 
@@ -181,9 +146,7 @@ export default function App() {
   return (
     <BrowserRouter>
       <AuthProvider>
-        <AppRoutes />
-        
-        {/* Sistema de notificaciones toast */}
+        <AppContent />
         <Toaster 
           position="top-right"
           expand={false}

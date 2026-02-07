@@ -253,7 +253,7 @@ const getSessionById = async (req, res, next) => {
  */
 const createSession = async (req, res, next) => {
   try {
-    const { mechanicId, contextId, deckId, config = {}, cardMappings } = req.body;
+    const { mechanicId, contextId, deckId, sensorId, config = {}, cardMappings } = req.body;
 
     // NUEVA REGLA: el mapping de la sesión SIEMPRE depende del mazo asignado.
     // Por tanto, no aceptamos cardMappings manuales al crear la sesión.
@@ -282,6 +282,7 @@ const createSession = async (req, res, next) => {
       deckId,
       // contextId / cardMappings / numberOfCards se rellenan al sincronizar
       contextId: contextId || undefined,
+      sensorId,
       config: {
         ...config
       },
@@ -327,6 +328,7 @@ const createSession = async (req, res, next) => {
       contextId: context.contextId,
       cardsCount: syncedMappings.length,
       deckId,
+      sensorId,
       createdBy: req.user._id
     });
 
@@ -355,7 +357,7 @@ const createSession = async (req, res, next) => {
 const updateSession = async (req, res, next) => {
   try {
     const { id } = req.params;
-    const { deckId, config } = req.body;
+    const { deckId, sensorId, config } = req.body;
 
     const session = await GameSession.findById(id);
 
@@ -376,6 +378,10 @@ const updateSession = async (req, res, next) => {
     // Si se proporciona deckId, se cambia el mazo. Si no, se mantiene.
     if (deckId !== undefined) {
       session.deckId = deckId;
+    }
+
+    if (sensorId !== undefined) {
+      session.sensorId = sensorId;
     }
 
     if (!session.deckId) {

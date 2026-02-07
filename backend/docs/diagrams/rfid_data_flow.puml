@@ -15,28 +15,31 @@ rectangle "Hardware" {
 }
 
 rectangle "Comunicación" {
-    [Serial/USB\n115200 baud] as Serial
-    [JSON\nEvents] as JSON
+  [Serial/USB\n115200 baud] as Serial
+  [JSON\nEvents] as JSON
 }
 
-rectangle "Backend Node.js" {
-    [RFIDService] as RFID
-    [GameEngine] as Engine
+rectangle "Frontend (PC Profesor)" {
+  [Web Serial API] as WebSerial
+  [Frontend\nReact] as FE
 }
 
 rectangle "Comunicación RT" {
-    [Socket.IO\nWebSocket] as WS
+  [Socket.IO\nWebSocket] as WS
 }
 
-rectangle "Cliente" {
-    [Frontend\nReact] as FE
+rectangle "Backend Node.js" {
+  [RFIDService] as RFID
+  [GameEngine] as Engine
 }
 
 Card --> Reader : NFC\n13.56MHz
 Reader --> MCU : SPI
 MCU --> Serial : USB
 Serial --> JSON
-JSON --> RFID
+JSON --> WebSerial
+WebSerial --> WS : rfid_scan_from_client
+WS --> RFID : rfid_event
 RFID --> Engine : rfid_event
 Engine --> WS : emit
 WS --> FE : real-time
