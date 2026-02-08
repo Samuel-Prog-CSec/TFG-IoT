@@ -8,12 +8,9 @@ on:
     branches: [ "main", "develop" ]
 
 jobs:
-  backend-quality:
-    name: Test de calidad y testing del backend
+  quality:
+    name: Calidad backend y frontend
     runs-on: ubuntu-latest
-    defaults:
-      run:
-        working-directory: ./backend
 
     strategy:
       matrix:
@@ -37,27 +34,36 @@ jobs:
       with:
         mongodb-version: ${{ matrix.mongodb-version }}
 
-    - name: Install Dependencies
+    - name: Install Backend Dependencies
       run: npm ci
+      working-directory: ./backend
 
-    - name: Run Linter
+    - name: Audit Backend Dependencies
+      run: npm audit --audit-level=high
+      working-directory: ./backend
+
+    - name: Run Backend Linter
       run: npm run lint --if-present
+      working-directory: ./backend
 
-    - name: Run Tests
+    - name: Run Backend Tests
       # Ejecuta los tests definidos en el package.json
       run: npm test
+      working-directory: ./backend
       env:
         JWT_SECRET: "test_secret"
         MONGODB_URI: "mongodb://localhost:27017/rfid_games_test"
 
-  sonarqube:
-    name: SonarQube
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v6
-        with:
-          fetch-depth: 0  # Shallow clones should be disabled for a better relevancy of analysis
-      - name: SonarQube Scan
-        uses: SonarSource/sonarqube-scan-action@v7
-        env:
-          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+    - name: Install Frontend Dependencies
+      run: npm ci
+      working-directory: ./frontend
+
+    - name: Run Frontend Linter
+      run: npm run lint --if-present
+      working-directory: ./frontend
+
+    - name: SonarCloud Scan
+      uses: SonarSource/sonarcloud-github-action@v4
+      env:
+        SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+        SONAR_HOST_URL: https://sonarcloud.io

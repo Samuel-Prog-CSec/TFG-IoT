@@ -4,18 +4,18 @@ updates:
   - package-ecosystem: "npm"
     directory: "/backend"
     schedule:
-      interval: "monthly"
+      interval: "weekly"
     open-pull-requests-limit: 15
 
   # Mantenimiento del Frontend
   - package-ecosystem: "npm"
     directory: "/frontend"
     schedule:
-      interval: "monthly"
+      interval: "weekly"
     open-pull-requests-limit: 15
 
   # Mantenimiento de GitHub Actions
   - package-ecosystem: "github-actions"
     directory: "/"
     schedule:
-      interval: "monthly"
+      interval: "weekly"

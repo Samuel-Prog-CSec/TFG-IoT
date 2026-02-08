@@ -10,6 +10,8 @@ import { socketService } from './socket';
 const SENSOR_ID_KEY = 'rfid_sensor_id';
 const DEFAULT_BAUD_RATE = 115200;
 const DEFAULT_DEDUPE_MS = 1200;
+const MAX_UID_CACHE_SIZE = 500;
+const UID_CACHE_TTL_MS = 5 * 60 * 1000;
 const MAX_RECONNECT_ATTEMPTS = 3;
 const RECONNECT_DELAY_BASE_MS = 1000;
 
@@ -302,6 +304,7 @@ class WebSerialService {
       return;
     }
     this.lastScanByUid.set(uid, now);
+    this.cleanupUidCache(now);
 
     const payload = {
       uid,
@@ -321,6 +324,18 @@ class WebSerialService {
           message: 'Error enviando evento RFID al servidor',
           details: error?.message
         });
+      }
+    }
+  }
+
+  cleanupUidCache(now) {
+    if (this.lastScanByUid.size <= MAX_UID_CACHE_SIZE) {
+      return;
+    }
+
+    for (const [cachedUid, timestamp] of this.lastScanByUid.entries()) {
+      if (now - timestamp > UID_CACHE_TTL_MS) {
+        this.lastScanByUid.delete(cachedUid);
       }
     }
   }

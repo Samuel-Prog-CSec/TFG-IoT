@@ -57,6 +57,9 @@ export default defineConfig([
       'no-console': ['warn', { allow: ['warn', 'error'] }],
       'prefer-const': 'error',
       'no-var': 'error',
+      'no-eval': 'error',
+      'no-implied-eval': 'error',
+      'no-new-func': 'error',
       
       // ==========================================
       // REACT
@@ -106,7 +109,9 @@ export default defineConfig([
       'jsx-a11y/mouse-events-have-key-events': 'warn',
       'jsx-a11y/no-autofocus': 'warn',
       'jsx-a11y/no-noninteractive-element-interactions': 'warn',
+      'jsx-a11y/no-noninteractive-element-to-interactive-role': 'warn',
       'jsx-a11y/no-redundant-roles': 'warn',
+      'jsx-a11y/no-static-element-interactions': 'warn',
       'jsx-a11y/role-has-required-aria-props': 'error',
       'jsx-a11y/role-supports-aria-props': 'error',
       'jsx-a11y/tabindex-no-positive': 'warn',

@@ -17,6 +17,7 @@ const {
 } = require('../controllers/authController');
 
 const { authenticate, logout } = require('../middlewares/auth');
+const { registerRateLimiter } = require('../config/security');
 const { validateBody, validateQuery } = require('../middlewares/validation');
 const { registerTeacherSchema, loginSchema } = require('../validators/userValidator');
 const {
@@ -43,6 +44,7 @@ const {
 
 router.post(
   '/register',
+  registerRateLimiter,
   validateQuery(emptyObjectSchema),
   validateBody(registerTeacherSchema),
   register

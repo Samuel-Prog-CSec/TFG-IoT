@@ -43,7 +43,6 @@ const api = axios.create({
 // ============================================
 
 let accessToken = null;
-let refreshToken = localStorage.getItem('refreshToken');
 let isRefreshing = false;
 let failedQueue = [];
 
@@ -66,14 +65,10 @@ const processQueue = (error, token = null) => {
 /**
  * Establece los tokens de autenticación
  * @param {string} access - Access token (se guarda en memoria)
- * @param {string} refresh - Refresh token (se guarda en localStorage)
+ * @param {string} access - Access token (se guarda en memoria)
  */
-export const setTokens = (access, refresh) => {
+export const setTokens = (access) => {
   accessToken = access;
-  refreshToken = refresh;
-  if (refresh) {
-    localStorage.setItem('refreshToken', refresh);
-  }
 };
 
 /**
@@ -86,22 +81,14 @@ export const getAccessToken = () => accessToken;
  * Obtiene el refresh token actual
  * @returns {string|null} Refresh token
  */
-export const getRefreshToken = () => refreshToken;
-
-/**
- * Limpia todos los tokens (logout)
- */
 export const clearTokens = () => {
   accessToken = null;
-  refreshToken = null;
-  localStorage.removeItem('refreshToken');
 };
 
-/**
- * Verifica si hay una sesión activa (tiene refresh token)
- * @returns {boolean}
- */
-export const hasSession = () => !!refreshToken;
+const getCookieValue = (name) => {
+  const match = document.cookie.match(new RegExp(`(?:^|; )${name}=([^;]*)`));
+  return match ? decodeURIComponent(match[1]) : null;
+};
 
 // ============================================
 // INTERCEPTOR DE REQUEST
@@ -112,6 +99,15 @@ api.interceptors.request.use(
     // Añadir access token a las peticiones si existe
     if (accessToken) {
       config.headers.Authorization = `Bearer ${accessToken}`;
+    }
+
+    const method = (config.method || 'get').toLowerCase();
+    const requiresCsrf = ['post', 'put', 'patch', 'delete'].includes(method);
+    if (requiresCsrf) {
+      const csrfToken = getCookieValue('csrfToken');
+      if (csrfToken) {
+        config.headers['X-CSRF-Token'] = csrfToken;
+      }
     }
     
     // Añadir timestamp para debugging
@@ -202,17 +198,19 @@ async function handleTokenRefresh(originalRequest) {
   isRefreshing = true;
 
   try {
-    if (!refreshToken) {
-      throw new Error('No refresh token available');
-    }
+    const csrfToken = getCookieValue('csrfToken');
+    const response = await axios.post(
+      `${API_BASE_URL}/auth/refresh`,
+      {},
+      {
+        withCredentials: true,
+        headers: csrfToken ? { 'X-CSRF-Token': csrfToken } : {}
+      }
+    );
 
-    const response = await axios.post(`${API_BASE_URL}/auth/refresh`, {
-      refreshToken,
-    });
-
-    const { accessToken: newAccessToken, refreshToken: newRefreshToken } = response.data.data;
+    const { accessToken: newAccessToken } = response.data.data;
     
-    setTokens(newAccessToken, newRefreshToken);
+    setTokens(newAccessToken);
     processQueue(null, newAccessToken);
 
     originalRequest.headers.Authorization = `Bearer ${newAccessToken}`;
@@ -339,7 +337,7 @@ export const authAPI = {
   /**
    * Iniciar sesión
    * @param {Object} credentials - { email, password }
-   * @returns {Promise} Respuesta con user, accessToken, refreshToken
+  * @returns {Promise} Respuesta con user y accessToken
    */
   login: (credentials) => api.post('/auth/login', credentials),
 
@@ -353,14 +351,14 @@ export const authAPI = {
    * Obtener perfil del usuario actual
    * @returns {Promise} Respuesta con datos del usuario
    */
-  getProfile: () => api.get('/auth/profile'),
+  getProfile: () => api.get('/auth/me'),
 
   /**
    * Actualizar perfil del usuario
    * @param {Object} data - Datos a actualizar
    * @returns {Promise} Respuesta con usuario actualizado
    */
-  updateProfile: (data) => api.put('/auth/profile', data),
+  updateProfile: (data) => api.put('/auth/me', data),
 
   /**
    * Cambiar contraseña
@@ -373,7 +371,7 @@ export const authAPI = {
    * Refrescar access token
    * @returns {Promise} Respuesta con nuevos tokens
    */
-  refreshToken: () => api.post('/auth/refresh', { refreshToken: getRefreshToken() }),
+  refreshToken: () => api.post('/auth/refresh'),
 };
 
 // ============================================

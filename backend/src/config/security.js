@@ -5,6 +5,7 @@
  */
 
 const rateLimit = require('express-rate-limit');
+const crypto = require('node:crypto');
 
 // Helper para crear rate limiters que se deshabilitan en tests
 const createRateLimiter = options => {
@@ -75,7 +76,37 @@ const corsOptions = {
  * @param {import('express').Response} res - Response de Express
  * @param {Function} next - Next middleware
  */
+const CSRF_COOKIE_NAME = 'csrfToken';
+const CSRF_HEADER_NAME = 'x-csrf-token';
+
+const buildCsrfCookieOptions = () => ({
+  httpOnly: false,
+  secure: process.env.NODE_ENV === 'production',
+  sameSite: 'strict',
+  path: '/',
+  maxAge: 7 * 24 * 60 * 60 * 1000
+});
+
+const ensureCsrfCookie = (req, res, next) => {
+  if (req.cookies?.[CSRF_COOKIE_NAME]) {
+    return next();
+  }
+
+  const token = crypto.randomUUID();
+  res.cookie(CSRF_COOKIE_NAME, token, buildCsrfCookieOptions());
+  next();
+};
+
 const csrfProtection = (req, res, next) => {
+  if (process.env.NODE_ENV === 'test' || typeof global.it === 'function') {
+    return next();
+  }
+
+  const skipPaths = new Set(['/api/auth/login', '/api/auth/register']);
+  if (skipPaths.has(req.path)) {
+    return next();
+  }
+
   // Solo aplicar a métodos que modifican datos
   if (['POST', 'PUT', 'DELETE', 'PATCH'].includes(req.method)) {
     const referer = req.get('Referer') || req.get('Origin');
@@ -107,6 +138,15 @@ const csrfProtection = (req, res, next) => {
           message: 'Referer no autorizado'
         });
       }
+    }
+
+    const csrfHeader = req.get(CSRF_HEADER_NAME) || '';
+    const csrfCookie = req.cookies?.[CSRF_COOKIE_NAME] || '';
+    if (!csrfHeader || !csrfCookie || csrfHeader !== csrfCookie) {
+      return res.status(403).json({
+        success: false,
+        message: 'CSRF token invalido o ausente'
+      });
     }
   }
 
@@ -193,6 +233,23 @@ const authRateLimiter = createRateLimiter({
 });
 
 /**
+ * Rate limiter específico para registro de profesores.
+ * Muy restrictivo para reducir bots.
+ *
+ * @type {import('express-rate-limit').RateLimitRequestHandler}
+ */
+const registerRateLimiter = createRateLimiter({
+  windowMs: 60 * 60 * 1000, // 1 hora
+  max: 3,
+  message: {
+    success: false,
+    message: 'Demasiados intentos de registro, intenta más tarde'
+  },
+  standardHeaders: true,
+  legacyHeaders: false
+});
+
+/**
  * Rate limiter para creación de recursos.
  * Previene spam de creación de sesiones, contextos, etc.
  *
@@ -245,12 +302,16 @@ const uploadRateLimiter = createRateLimiter({
 
 module.exports = {
   corsOptions,
+  ensureCsrfCookie,
   csrfProtection,
   helmetOptions,
   globalRateLimiter,
   authRateLimiter,
+  registerRateLimiter,
   createResourceRateLimiter,
   eventRateLimiter,
   uploadRateLimiter,
-  corsWhitelist
+  corsWhitelist,
+  CSRF_COOKIE_NAME,
+  CSRF_HEADER_NAME
 };

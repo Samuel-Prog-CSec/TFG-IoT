@@ -14,20 +14,6 @@ const { logSecurityEvent, getRequestContext } = require('../utils/securityLogger
 const redisService = require('../services/redisService');
 
 /**
- * Flag para bypass de autenticación en desarrollo.
- * NUNCA debe estar habilitado en producción.
- */
-const AUTH_BYPASS_ENABLED =
-  process.env.NODE_ENV === 'development' && process.env.AUTH_BYPASS_FOR_DEV === 'true';
-
-if (AUTH_BYPASS_ENABLED) {
-  logSecurityEvent('AUTH_BYPASS_ENABLED', {
-    source: 'system',
-    reason: 'AUTH_BYPASS_FOR_DEV'
-  });
-}
-
-/**
  * Constantes de seguridad para tokens.
  */
 const TOKEN_SECURITY = {
@@ -38,6 +24,24 @@ const TOKEN_SECURITY = {
   /** Duración del flag de seguridad en segundos (1 hora) */
   SECURITY_FLAG_TTL_SECONDS: 3600
 };
+
+const REFRESH_COOKIE_NAME = 'refreshToken';
+const CSRF_COOKIE_NAME = 'csrfToken';
+
+const buildRefreshCookieOptions = () => ({
+  httpOnly: true,
+  secure: process.env.NODE_ENV === 'production',
+  sameSite: 'strict',
+  path: '/api/auth'
+});
+
+const buildCsrfCookieOptions = () => ({
+  httpOnly: false,
+  secure: process.env.NODE_ENV === 'production',
+  sameSite: 'strict',
+  path: '/',
+  maxAge: 7 * 24 * 60 * 60 * 1000
+});
 
 /**
  * Revoca un token añadiéndolo a la blacklist en Redis.
@@ -505,83 +509,6 @@ const getAccountStatusMessage = accountStatus => {
 };
 
 /**
- * Intenta autenticar un usuario usando un bypass en desarrollo.
- *
- * @param {import('express').Request} req - Request de Express
- * @param {string} authHeader - Header Authorization
- * @returns {Promise<boolean>} True si la autenticación fue exitosa
- */
-const tryAuthenticateBypass = async (req, authHeader) => {
-  if (!AUTH_BYPASS_ENABLED) {
-    return false;
-  }
-
-  if (authHeader?.startsWith('Bearer ')) {
-    try {
-      const token = authHeader.split(' ')[1];
-      const decoded = jwt.verify(token, process.env.JWT_SECRET, {
-        issuer: 'rfid-games-platform',
-        audience: 'rfid-games-client'
-      });
-
-      const user = await User.findById(decoded.id).select('-password');
-      if (
-        user &&
-        user.status === 'active' &&
-        (!['teacher', 'super_admin'].includes(user.role) || user.accountStatus === 'approved')
-      ) {
-        req.user = user;
-        req.tokenJti = decoded.jti;
-        req.tokenExp = decoded.exp;
-        logger.debug('Usuario autenticado (dev mode con token)', {
-          userId: user._id,
-          email: user.email
-        });
-        return true;
-      }
-    } catch (tokenError) {
-      logger.debug('Token inválido en dev mode, usando mock user', {
-        error: tokenError.message
-      });
-    }
-  }
-
-  const mockUser = await User.findOne({
-    role: { $in: ['teacher', 'super_admin'] },
-    status: 'active',
-    accountStatus: 'approved'
-  }).select('-password');
-
-  if (mockUser) {
-    req.user = mockUser;
-    req.tokenJti = 'dev-bypass-jti';
-    req.tokenExp = Math.floor(Date.now() / 1000) + 3600;
-
-    logger.debug('Auth bypass activo - usando mock user', {
-      userId: mockUser._id,
-      email: mockUser.email,
-      path: req.path
-    });
-
-    return true;
-  }
-
-  req.user = {
-    _id: 'dev-mock-user-id',
-    name: 'Dev User',
-    email: 'dev@test.com',
-    role: 'teacher',
-    status: 'active',
-    accountStatus: 'approved'
-  };
-  req.tokenJti = 'dev-bypass-jti';
-  req.tokenExp = Math.floor(Date.now() / 1000) + 3600;
-
-  logger.debug('Auth bypass activo - usando usuario temporal', { path: req.path });
-  return true;
-};
-
-/**
  * Verifica y decodifica un refresh token.
  * También detecta reuso de tokens (posible robo).
  *
@@ -610,6 +537,19 @@ const verifyRefreshToken = async (token, req) => {
     const revoked = await isTokenRevoked(decoded.jti);
     if (revoked) {
       throw new UnauthorizedError('Refresh token revocado');
+    }
+
+    const securityCheck = await checkSecurityFlag(decoded.id, decoded.iat);
+    if (securityCheck.revoked) {
+      throw new UnauthorizedError(
+        'Tu sesión fue cerrada por motivos de seguridad. Por favor, inicia sesión de nuevo.',
+        securityCheck.reason
+      );
+    }
+
+    const refreshInfo = await getRefreshTokenInfo(decoded.jti);
+    if (!refreshInfo) {
+      throw new UnauthorizedError('Refresh token no reconocido');
     }
 
     // Verificar si el token ya fue usado (detección de robo)
@@ -677,9 +617,6 @@ const verifyRefreshToken = async (token, req) => {
  * Extrae y verifica el access token del header Authorization.
  * Adjunta el usuario completo a req.user y el JTI a req.tokenJti.
  *
- * En desarrollo con AUTH_BYPASS_FOR_DEV=true, permite acceso sin token
- * usando un usuario "mock" de profesor.
- *
  * Uso:
  * router.get('/profile', authenticate, getProfile);
  *
@@ -689,14 +626,7 @@ const verifyRefreshToken = async (token, req) => {
  */
 const authenticate = async (req, res, next) => {
   try {
-    // Bypass de autenticación para desarrollo
     const authHeader = req.headers.authorization;
-    const bypassed = await tryAuthenticateBypass(req, authHeader);
-    if (bypassed) {
-      return next();
-    }
-
-    // Flujo normal de autenticación (producción)
     const token = getBearerToken(authHeader);
     if (!token) {
       logSecurityEvent('AUTH_TOKEN_INVALID', {
@@ -916,7 +846,7 @@ const logout = async (req, res, next) => {
     });
 
     // Si se proporciona refresh token, también revocarlo
-    const refreshToken = req.body?.refreshToken;
+    const refreshToken = req.cookies?.[REFRESH_COOKIE_NAME] || req.body?.refreshToken;
     if (refreshToken) {
       try {
         const decoded = await verifyRefreshToken(refreshToken, req);
@@ -942,6 +872,9 @@ const logout = async (req, res, next) => {
       accessTokenJti: req.tokenJti,
       reason: 'logout'
     });
+
+    res.clearCookie(REFRESH_COOKIE_NAME, buildRefreshCookieOptions());
+    res.clearCookie(CSRF_COOKIE_NAME, buildCsrfCookieOptions());
 
     res.json({
       success: true,

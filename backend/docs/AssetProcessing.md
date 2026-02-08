@@ -185,12 +185,12 @@ https://{project}.supabase.co/storage/v1/object/public/{bucket}/contexts/{contex
 | Capa | Protección |
 |------|------------|
 | **Autenticación** | JWT requerido para todos los endpoints de upload |
-| **Rate Limiting** | 10 uploads/minuto por IP |
+| **Rate Limiting** | 20 uploads/hora por IP |
 | **Magic Bytes** | Validación del contenido real del archivo |
 | **Multer fileFilter** | Validación preliminar de MIME type |
 | **Tamaño** | Límites estrictos (8MB imágenes, 5MB audio) |
 | **Sanitización** | Nombres de archivo seguros |
-| **CSRF** | Token requerido en headers |
+| **CSRF** | Double-submit: cookie `csrfToken` + header `X-CSRF-Token` |
 
 ### Vulnerabilidades Prevenidas
 

@@ -613,8 +613,8 @@ const toPaginatedDTOV1 = (data, pageOrMeta, limitArg, totalArg) => {
 const toAuthResponseDTOV1 = (user, tokens) => ({
   user: toUserDTOV1(user),
   accessToken: tokens.accessToken,
-  refreshToken: tokens.refreshToken,
   accessTokenExpiresIn: tokens.accessTokenExpiresIn,
+  refreshToken: tokens.refreshToken,
   refreshTokenExpiresIn: tokens.refreshTokenExpiresIn,
   tokenType: tokens.tokenType
 });

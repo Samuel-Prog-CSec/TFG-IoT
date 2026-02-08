@@ -18,6 +18,7 @@ const http = require('node:http');
 const { randomUUID } = require('node:crypto');
 const helmet = require('helmet');
 const compression = require('compression');
+const cookieParser = require('cookie-parser');
 const pinoHttp = require('pino-http');
 const { Server } = require('socket.io');
 const { connectDB, disconnectDB } = require('./config/database');
@@ -26,6 +27,7 @@ const { initSentry, Sentry } = require('./config/sentry');
 const { socketPayloadLimits } = require('./config/socketRateLimits');
 const {
   corsOptions,
+  ensureCsrfCookie,
   csrfProtection, // Middleware CSRF
   helmetOptions,
   globalRateLimiter,
@@ -100,6 +102,24 @@ const getRfidModeState = userId => {
     return { mode: RFID_MODES.IDLE, sensorId: null, socketId: null };
   }
   return rfidModeByUserId.get(userId) || { mode: RFID_MODES.IDLE, sensorId: null, socketId: null };
+};
+
+const getRegistrationRoom = userId => `card_registration_${userId}`;
+const getAssignmentRoom = userId => `card_assignment_${userId}`;
+const getPlayRoom = playId => `play_${playId}`;
+
+const getUserIdBySensorId = sensorId => {
+  if (!sensorId) {
+    return null;
+  }
+
+  for (const [userId, state] of rfidModeByUserId.entries()) {
+    if (state?.sensorId === sensorId) {
+      return userId;
+    }
+  }
+
+  return null;
 };
 
 const setRfidModeState = (userId, mode, socketId, metadata = {}) => {
@@ -240,6 +260,8 @@ io.use(async (socket, next) => {
 
     socket.data.userId = user._id.toString();
     socket.data.userRole = user.role;
+    socket.data.accessToken = accessToken;
+    socket.data.tokenExp = decoded.exp;
     socketRateLimiter.setIdentity(socket, { id: user._id.toString(), role: user.role });
 
     // Unirse automáticamente a la room del usuario para notificaciones dirigidas
@@ -282,6 +304,60 @@ const requireSocketRole = (socket, allowedRoles, eventName) => {
   }
 
   return true;
+};
+
+const revalidateSocketAuth = async (socket, eventName) => {
+  const accessToken = socket.data.accessToken;
+  if (!accessToken) {
+    socket.emit('error', { code: 'AUTH_REQUIRED', message: 'Autenticación requerida' });
+    logSocketSecurityEvent('AUTHZ_ACCESS_DENIED', socket, {
+      eventName,
+      reason: 'TOKEN_MISSING'
+    });
+    return false;
+  }
+
+  try {
+    const decoded = await verifyAccessToken(accessToken, {
+      headers: socket.handshake.headers
+    });
+    const user = await User.findById(decoded.id).select(
+      '+currentSessionId role status accountStatus'
+    );
+
+    if (!user) {
+      throw new Error('Usuario no encontrado');
+    }
+
+    if (user.status !== 'active') {
+      throw new Error('Usuario inactivo');
+    }
+
+    if (
+      ['teacher', 'super_admin'].includes(user.role) &&
+      user.accountStatus &&
+      user.accountStatus !== 'approved'
+    ) {
+      throw new Error('Cuenta no aprobada');
+    }
+
+    if (decoded.sid && user.currentSessionId && decoded.sid !== user.currentSessionId) {
+      throw new Error('Sesión inválida');
+    }
+
+    socket.data.userId = user._id.toString();
+    socket.data.userRole = user.role;
+    socket.data.tokenExp = decoded.exp;
+    return true;
+  } catch (error) {
+    socket.emit('error', { code: 'AUTH_INVALID', message: 'Autenticación inválida' });
+    logSocketSecurityEvent('WS_AUTH_FAILED', socket, {
+      eventName,
+      reason: error.message
+    });
+    socket.disconnect(true);
+    return false;
+  }
 };
 
 /**
@@ -386,7 +462,10 @@ const getValidRfidModeState = socket => {
 };
 
 const validateRfidRoomForMode = (socket, modeState) => {
-  if (modeState.mode === RFID_MODES.CARD_REGISTRATION && !socket.rooms.has('card_registration')) {
+  if (
+    modeState.mode === RFID_MODES.CARD_REGISTRATION &&
+    !socket.rooms.has(getRegistrationRoom(socket.data.userId))
+  ) {
     socket.emit('error', {
       code: 'RFID_MODE_INVALID',
       message: 'Modo RFID invalido para registro'
@@ -399,7 +478,10 @@ const validateRfidRoomForMode = (socket, modeState) => {
     return false;
   }
 
-  if (modeState.mode === RFID_MODES.CARD_ASSIGNMENT && !socket.rooms.has('card_assignment')) {
+  if (
+    modeState.mode === RFID_MODES.CARD_ASSIGNMENT &&
+    !socket.rooms.has(getAssignmentRoom(socket.data.userId))
+  ) {
     socket.emit('error', {
       code: 'RFID_MODE_INVALID',
       message: 'Modo RFID invalido para asignacion'
@@ -545,6 +627,12 @@ app.use('/api/', globalRateLimiter);
 
 // CORS con whitelist dinámica
 app.use(cors(corsOptions));
+
+// Cookies (necesarias para CSRF/refresh cookies)
+app.use(cookieParser());
+
+// Asegurar cookie CSRF antes de validar
+app.use(ensureCsrfCookie);
 
 // CSRF Protection para métodos que modifican datos
 app.use(csrfProtection);
@@ -765,8 +853,35 @@ io.on('connection', socket => {
     role: socket.data.userRole
   });
 
+  const sensitiveEvents = new Set([
+    'join_play',
+    'leave_play',
+    'start_play',
+    'pause_play',
+    'resume_play',
+    'next_round',
+    'join_card_registration',
+    'leave_card_registration',
+    'join_card_assignment',
+    'leave_card_assignment',
+    'join_admin_room',
+    'leave_admin_room',
+    'rfid_scan_from_client'
+  ]);
+
   const onEvent = (eventName, handler) =>
-    socket.on(eventName, socketRateLimiter.wrap(socket, eventName, handler));
+    socket.on(
+      eventName,
+      socketRateLimiter.wrap(socket, eventName, async data => {
+        if (sensitiveEvents.has(eventName)) {
+          const ok = await revalidateSocketAuth(socket, eventName);
+          if (!ok) {
+            return;
+          }
+        }
+        await handler(data);
+      })
+    );
 
   /**
    * Evento: Cliente se une a una partida.
@@ -790,7 +905,7 @@ io.on('connection', socket => {
       return;
     }
 
-    socket.join(`play_${playId}`);
+    socket.join(getPlayRoom(playId));
     /* Note: Incluir información del jugador cuando el flujo esté completamente definido.
        Anteriormente había un recordatorio aquí. */
 
@@ -829,7 +944,7 @@ io.on('connection', socket => {
     if (!ownership) {
       return;
     }
-    socket.leave(`play_${playId}`);
+    socket.leave(getPlayRoom(playId));
     clearRfidModeState(socket.data.userId, socket.id);
     logger.info(`Socket ${socket.id} abandonó la partida ${playId}`, {
       userId: socket.data.userId
@@ -967,13 +1082,15 @@ io.on('connection', socket => {
     if (!requireSocketRole(socket, ['teacher', 'super_admin'], 'join_card_registration')) {
       return;
     }
-    socket.join('card_registration');
+    socket.join(getRegistrationRoom(socket.data.userId));
     setRfidModeState(socket.data.userId, RFID_MODES.CARD_REGISTRATION, socket.id);
-    logger.info(`Socket ${socket.id} se unió a card_registration`);
+    logger.info(`Socket ${socket.id} se unió a card_registration`, {
+      userId: socket.data.userId
+    });
   });
 
   onEvent('leave_card_registration', () => {
-    socket.leave('card_registration');
+    socket.leave(getRegistrationRoom(socket.data.userId));
     clearRfidModeState(socket.data.userId, socket.id);
   });
 
@@ -981,13 +1098,15 @@ io.on('connection', socket => {
     if (!requireSocketRole(socket, ['teacher', 'super_admin'], 'join_card_assignment')) {
       return;
     }
-    socket.join('card_assignment');
+    socket.join(getAssignmentRoom(socket.data.userId));
     setRfidModeState(socket.data.userId, RFID_MODES.CARD_ASSIGNMENT, socket.id);
-    logger.info(`Socket ${socket.id} se unió a card_assignment`);
+    logger.info(`Socket ${socket.id} se unió a card_assignment`, {
+      userId: socket.data.userId
+    });
   });
 
   onEvent('leave_card_assignment', () => {
-    socket.leave('card_assignment');
+    socket.leave(getAssignmentRoom(socket.data.userId));
     clearRfidModeState(socket.data.userId, socket.id);
   });
 
@@ -1042,14 +1161,20 @@ rfidService.on('rfid_event', event => {
 
   if (event.event === 'card_detected' && event.mode === RFID_MODES.GAMEPLAY && playId) {
     // En gameplay no exponemos UID
-    io.to(`play_${playId}`).emit('rfid_event', {
+    io.to(getPlayRoom(playId)).emit('rfid_event', {
       event: 'card_detected'
     });
   } else if (event.event === 'card_detected' && event.mode === RFID_MODES.CARD_ASSIGNMENT) {
-    io.to('card_assignment').emit('rfid_event', event);
+    const userId = getUserIdBySensorId(event.sensorId);
+    if (userId) {
+      io.to(getAssignmentRoom(userId)).emit('rfid_event', event);
+    }
   } else if (event.event === 'card_detected' || event.event === 'card_removed') {
     // Registro de tarjetas (solo a room dedicada)
-    io.to('card_registration').emit('rfid_event', event);
+    const userId = getUserIdBySensorId(event.sensorId);
+    if (userId) {
+      io.to(getRegistrationRoom(userId)).emit('rfid_event', event);
+    }
   } else {
     // Eventos de diagnóstico (init, status, error)
     io.to('admin_room').emit('rfid_event', event);

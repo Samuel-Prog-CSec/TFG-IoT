@@ -65,9 +65,9 @@ const getUsers = async (req, res, next) => {
       ];
     }
 
-    // Solo alumnos deben limitarse a su propio perfil
-    if (req.user.role === 'student') {
-      filter._id = req.user._id; // Solo puede ver su propio perfil
+    if (req.user.role === 'teacher') {
+      filter.role = 'student';
+      filter.createdBy = req.user._id;
     }
 
     // Paginación
@@ -124,8 +124,13 @@ const getUserById = async (req, res, next) => {
       throw new NotFoundError('Usuario');
     }
 
-    // Verificar permisos: solo el mismo usuario o un profesor
-    if (req.user.role !== 'teacher' && req.user._id.toString() !== id) {
+    const isSuperAdmin = req.user.role === 'super_admin';
+    if (user.role === 'student') {
+      const ownsStudent = user.createdBy?.toString() === req.user._id.toString();
+      if (!isSuperAdmin && !ownsStudent) {
+        throw new ForbiddenError('No tienes permiso para ver este alumno');
+      }
+    } else if (!isSuperAdmin && req.user._id.toString() !== id) {
       throw new ForbiddenError('No tienes permiso para ver este usuario');
     }
 
@@ -348,10 +353,19 @@ const updateUser = async (req, res, next) => {
       throw new NotFoundError('Usuario');
     }
 
-    // Verificar permisos: solo profesores pueden actualizar alumnos
-    // Los alumnos NO pueden actualizar su propio perfil (son menores de edad)
-    if (req.user.role !== 'teacher') {
-      throw new ForbiddenError('Solo los profesores pueden actualizar alumnos');
+    const isSuperAdmin = req.user.role === 'super_admin';
+    const isTeacher = req.user.role === 'teacher';
+    if (isTeacher) {
+      if (user.role !== 'student') {
+        throw new ForbiddenError('No tienes permiso para actualizar este usuario');
+      }
+      if (user.createdBy?.toString() !== req.user._id.toString()) {
+        throw new ForbiddenError('No tienes permiso para actualizar este alumno');
+      }
+    }
+
+    if (!isTeacher && !isSuperAdmin) {
+      throw new ForbiddenError('No tienes permiso para actualizar usuarios');
     }
 
     // ✅ VALIDAR DUPLICADOS si se cambia el nombre
@@ -458,8 +472,18 @@ const deleteUser = async (req, res, next) => {
       throw new NotFoundError('Usuario');
     }
 
-    // Solo profesores pueden eliminar usuarios
-    if (req.user.role !== 'teacher') {
+    const isSuperAdmin = req.user.role === 'super_admin';
+    const isTeacher = req.user.role === 'teacher';
+    if (isTeacher) {
+      if (user.role !== 'student') {
+        throw new ForbiddenError('No tienes permiso para eliminar este usuario');
+      }
+      if (user.createdBy?.toString() !== req.user._id.toString()) {
+        throw new ForbiddenError('No tienes permiso para eliminar este alumno');
+      }
+    }
+
+    if (!isTeacher && !isSuperAdmin) {
       throw new ForbiddenError('No tienes permiso para eliminar usuarios');
     }
 
@@ -511,8 +535,12 @@ const getUserStats = async (req, res, next) => {
       throw new NotFoundError('Usuario');
     }
 
-    // Verificar permisos
-    if (req.user.role !== 'teacher' && req.user._id.toString() !== id) {
+    const isSuperAdmin = req.user.role === 'super_admin';
+    if (req.user.role === 'teacher' && user.role === 'student') {
+      if (user.createdBy?.toString() !== req.user._id.toString()) {
+        throw new ForbiddenError('No tienes permiso para ver estas estadísticas');
+      }
+    } else if (!isSuperAdmin && req.user._id.toString() !== id) {
       throw new ForbiddenError('No tienes permiso para ver estas estadísticas');
     }
 

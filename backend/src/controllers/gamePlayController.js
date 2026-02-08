@@ -64,9 +64,16 @@ const getPlays = async (req, res, next) => {
       }
     }
 
-    // Profesores ven todas, alumnos solo las suyas
-    if (req.user.role === 'student') {
-      filter.playerId = req.user._id;
+    if (req.user.role === 'teacher') {
+      if (sessionId) {
+        const session = await GameSession.findById(sessionId).select('createdBy');
+        if (!session || session.createdBy.toString() !== req.user._id.toString()) {
+          throw new ForbiddenError('No tienes permiso para ver partidas de esta sesión');
+        }
+      } else {
+        const sessions = await GameSession.find({ createdBy: req.user._id }).select('_id');
+        filter.sessionId = { $in: sessions.map(s => s._id) };
+      }
     }
 
     // Paginación
@@ -131,12 +138,10 @@ const getPlayById = async (req, res, next) => {
       throw new NotFoundError('Partida');
     }
 
-    // Verificar permisos: el jugador, el creador de la sesión, o super admin
-    const session = await GameSession.findById(play.sessionId._id);
-    const isOwner = play.playerId._id.toString() === req.user._id.toString();
-    const isCreator = session.createdBy.toString() === req.user._id.toString();
+    const session = await GameSession.findById(play.sessionId._id).select('createdBy');
+    const isCreator = session?.createdBy?.toString() === req.user._id.toString();
 
-    if (!isOwner && !isCreator && req.user.role !== 'super_admin') {
+    if (!isCreator && req.user.role !== 'super_admin') {
       throw new ForbiddenError('No tienes permiso para ver esta partida');
     }
 
@@ -374,6 +379,14 @@ const addEvent = async (req, res, next) => {
       throw new ValidationError('La partida no está en progreso');
     }
 
+    const session = await GameSession.findById(play.sessionId).select('createdBy');
+    if (
+      req.user.role !== 'super_admin' &&
+      session?.createdBy?.toString() !== req.user._id.toString()
+    ) {
+      throw new ForbiddenError('No tienes permiso para registrar eventos en esta partida');
+    }
+
     // Usar el método del modelo para añadir evento
     await play.addEvent(eventData);
 
@@ -419,6 +432,13 @@ const completePlay = async (req, res, next) => {
 
     if (!play.isInProgress()) {
       throw new ValidationError('La partida ya no está en progreso');
+    }
+
+    if (
+      req.user.role !== 'super_admin' &&
+      play.sessionId.createdBy.toString() !== req.user._id.toString()
+    ) {
+      throw new ForbiddenError('No tienes permiso para completar esta partida');
     }
 
     // Usar el método del modelo para completar
@@ -477,6 +497,14 @@ const abandonPlay = async (req, res, next) => {
       throw new ValidationError('La partida ya no está en progreso');
     }
 
+    const session = await GameSession.findById(play.sessionId).select('createdBy');
+    if (
+      req.user.role !== 'super_admin' &&
+      session?.createdBy?.toString() !== req.user._id.toString()
+    ) {
+      throw new ForbiddenError('No tienes permiso para abandonar esta partida');
+    }
+
     // Cambiar status a abandoned
     play.status = 'abandoned';
     play.completedAt = new Date();
@@ -514,9 +542,11 @@ const getPlayerStats = async (req, res, next) => {
     const { playerId } = req.params;
     const { sessionId } = req.query;
 
-    // Verificar permisos
-    if (req.user.role === 'student' && req.user._id.toString() !== playerId) {
-      throw new ForbiddenError('No tienes permiso para ver estas estadísticas');
+    if (req.user.role === 'teacher') {
+      const player = await User.findById(playerId).select('createdBy');
+      if (!player || player.createdBy?.toString() !== req.user._id.toString()) {
+        throw new ForbiddenError('No tienes permiso para ver estas estadísticas');
+      }
     }
 
     const filter = { playerId, status: 'completed' };
