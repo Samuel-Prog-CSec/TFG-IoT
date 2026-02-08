@@ -1,0 +1,42 @@
+@startuml RFID_Service_States
+
+!theme plain
+skinparam backgroundColor #FEFEFE
+
+title Estados del Servicio RFIDService
+
+state "disabled" as DISABLED {
+    DISABLED : RFID_SOURCE = disabled
+    DISABLED : Servicio desactivado
+}
+
+state "misconfigured" as MISCONF {
+    MISCONF : RFID_SOURCE invalido
+    MISCONF : Requiere correccion
+}
+
+state "client_ready" as READY {
+    READY : Esperando eventos
+    READY : Web Serial cliente
+}
+
+state "stopped" as STOPPED {
+    STOPPED : Servicio detenido
+}
+
+[*] --> DISABLED : RFID_SOURCE = disabled
+
+[*] --> READY : RFID_SOURCE = client
+
+[*] --> MISCONF : RFID_SOURCE invalido
+
+READY --> STOPPED : shutdown
+
+STOPPED --> READY : start()
+
+note right of READY
+  emit('status', 'client_ready')
+  emit('rfid_event', {...})
+end note
+
+@enduml

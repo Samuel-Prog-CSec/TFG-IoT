@@ -11,6 +11,8 @@ const mockLogger = {
   debug: jest.fn()
 };
 
+mockLogger.child = jest.fn(() => mockLogger);
+
 const mockFromBuffer = jest.fn();
 
 // Registrar mocks ANTES de cualquier import
@@ -22,14 +24,14 @@ describe('audioValidationService', () => {
 
   beforeEach(() => {
     jest.clearAllMocks();
-    
+
     // Resetear el módulo para forzar re-import con mocks frescos
     jest.resetModules();
-    
+
     // Re-registrar los mocks después del reset
     jest.doMock('../src/utils/logger', () => mockLogger);
     jest.doMock('file-type', () => ({ fromBuffer: mockFromBuffer }));
-    
+
     // Importar el servicio con los mocks activos
     audioValidationService = require('../src/services/audioValidationService');
   });

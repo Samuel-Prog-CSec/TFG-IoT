@@ -7,7 +7,12 @@
 const GameContext = require('../models/GameContext');
 const { NotFoundError, ConflictError, ValidationError } = require('../utils/errors');
 const logger = require('../utils/logger');
-const { gameContextDTO, gameContextListDTO, paginationDTO } = require('../utils/dtos');
+const {
+  toGameContextDetailDTOV1,
+  toGameContextListDTOV1,
+  toPaginatedDTOV1
+} = require('../utils/dtos');
+const { escapeRegex } = require('../utils/escapeRegex');
 
 /**
  * Obtener lista de contextos con paginación y filtros.
@@ -28,9 +33,10 @@ const getContexts = async (req, res, next) => {
 
     // Búsqueda por contextId o nombre
     if (search) {
+      const safeSearch = escapeRegex(search);
       filter.$or = [
-        { contextId: { $regex: search, $options: 'i' } },
-        { name: { $regex: search, $options: 'i' } }
+        { contextId: { $regex: safeSearch, $options: 'i' } },
+        { name: { $regex: safeSearch, $options: 'i' } }
       ];
     }
 
@@ -52,7 +58,7 @@ const getContexts = async (req, res, next) => {
 
     res.json({
       success: true,
-      data: paginationDTO(gameContextListDTO(contexts), {
+      ...toPaginatedDTOV1(toGameContextListDTOV1(contexts), {
         page: parseInt(page),
         limit: parseInt(limit),
         total
@@ -93,7 +99,7 @@ const getContextById = async (req, res, next) => {
 
     res.json({
       success: true,
-      data: gameContextDTO(context)
+      data: toGameContextDetailDTOV1(context)
     });
   } catch (error) {
     next(error);
@@ -142,7 +148,7 @@ const createContext = async (req, res, next) => {
     res.status(201).json({
       success: true,
       message: 'Contexto creado exitosamente',
-      data: gameContextDTO(context)
+      data: toGameContextDetailDTOV1(context)
     });
   } catch (error) {
     next(error);
@@ -193,7 +199,7 @@ const updateContext = async (req, res, next) => {
     res.json({
       success: true,
       message: 'Contexto actualizado exitosamente',
-      data: gameContextDTO(context)
+      data: toGameContextDetailDTOV1(context)
     });
   } catch (error) {
     next(error);
@@ -290,7 +296,7 @@ const addAsset = async (req, res, next) => {
     res.status(201).json({
       success: true,
       message: 'Asset añadido exitosamente',
-      data: gameContextDTO(context)
+      data: toGameContextDetailDTOV1(context)
     });
   } catch (error) {
     next(error);
@@ -342,7 +348,7 @@ const removeAsset = async (req, res, next) => {
     res.json({
       success: true,
       message: 'Asset eliminado exitosamente',
-      data: gameContextDTO(context)
+      data: toGameContextDetailDTOV1(context)
     });
   } catch (error) {
     next(error);
@@ -376,13 +382,13 @@ const getContextAssets = async (req, res, next) => {
       throw new NotFoundError('Contexto de juego');
     }
 
+    const payload = toGameContextDetailDTOV1(context);
+
     res.json({
       success: true,
       data: {
-        contextId: context.contextId,
-        name: context.name,
-        assets: context.assets,
-        count: context.assets.length
+        ...payload,
+        count: payload.assetsCount
       }
     });
   } catch (error) {

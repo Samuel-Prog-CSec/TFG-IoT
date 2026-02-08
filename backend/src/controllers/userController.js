@@ -5,9 +5,19 @@
  */
 
 const User = require('../models/User');
-const { NotFoundError, ForbiddenError } = require('../utils/errors');
+const { NotFoundError, ForbiddenError, ValidationError } = require('../utils/errors');
 const logger = require('../utils/logger');
-const { userDTO, userListDTO, paginationDTO } = require('../utils/dtos');
+const {
+  toUserDTOV1,
+  toStudentDTOV1,
+  toUserListDTOV1,
+  toPaginatedDTOV1,
+  toUserStatsDTOV1
+} = require('../utils/dtos');
+const { escapeRegex } = require('../utils/escapeRegex');
+const { revokeAllUserTokens } = require('../middlewares/auth');
+const { disconnectUserSockets } = require('../utils/socketUtils');
+const { getRequestContext, logSecurityEvent } = require('../utils/securityLogger');
 
 /**
  * Obtener lista de usuarios con paginación y filtros.
@@ -48,15 +58,15 @@ const getUsers = async (req, res, next) => {
 
     // Búsqueda por nombre o email
     if (search) {
+      const safeSearch = escapeRegex(search);
       filter.$or = [
-        { name: { $regex: search, $options: 'i' } },
-        { email: { $regex: search, $options: 'i' } }
+        { name: { $regex: safeSearch, $options: 'i' } },
+        { email: { $regex: safeSearch, $options: 'i' } }
       ];
     }
 
-    // Solo profesores ven a todos - los alumnos no deberían llegar aquí
-    // pero por seguridad, filtramos por createdBy si no es teacher
-    if (req.user.role !== 'teacher') {
+    // Solo alumnos deben limitarse a su propio perfil
+    if (req.user.role === 'student') {
       filter._id = req.user._id; // Solo puede ver su propio perfil
     }
 
@@ -66,7 +76,11 @@ const getUsers = async (req, res, next) => {
 
     // Ejecutar query
     const [users, total] = await Promise.all([
-      User.find(filter).sort(sortOptions).limit(parseInt(limit)).skip(skip).select('-password'),
+      User.find(filter)
+        .sort(sortOptions)
+        .limit(Number.parseInt(limit, 10))
+        .skip(skip)
+        .select('-password'),
       User.countDocuments(filter)
     ]);
 
@@ -78,7 +92,12 @@ const getUsers = async (req, res, next) => {
 
     res.json({
       success: true,
-      ...paginationDTO(userListDTO(users), parseInt(page), parseInt(limit), total)
+      ...toPaginatedDTOV1(
+        toUserListDTOV1(users),
+        Number.parseInt(page, 10),
+        Number.parseInt(limit, 10),
+        total
+      )
     });
   } catch (error) {
     next(error);
@@ -110,9 +129,11 @@ const getUserById = async (req, res, next) => {
       throw new ForbiddenError('No tienes permiso para ver este usuario');
     }
 
+    const userPayload = user.role === 'student' ? toStudentDTOV1(user) : toUserDTOV1(user);
+
     res.json({
       success: true,
-      data: userDTO(user)
+      data: userPayload
     });
   } catch (error) {
     next(error);
@@ -153,7 +174,7 @@ const createUser = async (req, res, next) => {
     // ✅ VALIDAR DUPLICADOS: Verificar que no exista un alumno activo con el mismo nombre
     // creado por este profesor en la misma clase (si se especifica)
     const duplicateFilter = {
-      name: { $regex: new RegExp(`^${name.trim()}$`, 'i') }, // Case-insensitive
+      name: { $regex: `^${escapeRegex(name.trim())}$`, $options: 'i' }, // Case-insensitive
       role: 'student',
       createdBy: req.user._id,
       status: 'active'
@@ -182,7 +203,7 @@ const createUser = async (req, res, next) => {
         success: false,
         message: errorMsg,
         data: {
-          existingStudent: userDTO(existingStudent)
+          existingStudent: toStudentDTOV1(existingStudent)
         }
       });
     }
@@ -210,7 +231,7 @@ const createUser = async (req, res, next) => {
     res.status(201).json({
       success: true,
       message: 'Alumno creado exitosamente',
-      data: userDTO(student)
+      data: toStudentDTOV1(student)
     });
   } catch (error) {
     next(error);
@@ -240,6 +261,82 @@ const createUser = async (req, res, next) => {
  * @param {import('express').Response} res
  * @param {import('express').NextFunction} next
  */
+const buildDuplicateFilter = ({ user, name, profile, createdBy }) => {
+  const duplicateFilter = {
+    _id: { $ne: user._id },
+    name: { $regex: `^${escapeRegex(name.trim())}$`, $options: 'i' },
+    role: user.role,
+    status: 'active'
+  };
+
+  if (user.role !== 'student') {
+    return duplicateFilter;
+  }
+
+  const teacherToCheck = createdBy || user.createdBy;
+  duplicateFilter.createdBy = teacherToCheck;
+
+  const classroomToCheck = profile?.classroom || user.profile?.classroom;
+  if (classroomToCheck) {
+    duplicateFilter['profile.classroom'] = classroomToCheck;
+  }
+
+  return duplicateFilter;
+};
+
+const ensureNewTeacherExists = async createdBy => {
+  if (!createdBy) {
+    return null;
+  }
+
+  const newTeacher = await User.findOne({
+    _id: createdBy,
+    role: 'teacher',
+    status: 'active'
+  });
+
+  if (!newTeacher) {
+    const error = new ValidationError('El profesor especificado no existe o no está activo');
+    error.statusCode = 400;
+    throw error;
+  }
+
+  return newTeacher;
+};
+
+const validateDuplicateName = async ({ user, name, profile, createdBy, updatedBy }) => {
+  if (!name || name.trim() === user.name) {
+    return null;
+  }
+
+  const duplicateFilter = buildDuplicateFilter({ user, name, profile, createdBy });
+  const existingUser = await User.findOne(duplicateFilter);
+
+  if (!existingUser) {
+    return null;
+  }
+
+  const errorMsg =
+    user.role === 'student' && duplicateFilter['profile.classroom']
+      ? `Ya existe un alumno activo llamado "${name}" en la clase "${duplicateFilter['profile.classroom']}"`
+      : `Ya existe un usuario activo llamado "${name}"`;
+
+  logger.warn('Intento de actualizar con nombre duplicado', {
+    userId: user._id,
+    newName: name,
+    existingUserId: existingUser._id,
+    updatedBy
+  });
+
+  return {
+    message: errorMsg,
+    existingUser
+  };
+};
+
+const buildUserPayload = user =>
+  user.role === 'student' ? toStudentDTOV1(user) : toUserDTOV1(user);
+
 const updateUser = async (req, res, next) => {
   try {
     const { id } = req.params;
@@ -258,51 +355,25 @@ const updateUser = async (req, res, next) => {
     }
 
     // ✅ VALIDAR DUPLICADOS si se cambia el nombre
-    if (name && name.trim() !== user.name) {
-      const duplicateFilter = {
-        _id: { $ne: user._id }, // Excluir el usuario actual
-        name: { $regex: new RegExp(`^${name.trim()}$`, 'i') },
-        role: user.role,
-        status: 'active'
-      };
+    const duplicate = await validateDuplicateName({
+      user,
+      name,
+      profile,
+      createdBy,
+      updatedBy: req.user._id
+    });
 
-      // Si es alumno, verificar en el contexto del profesor
-      if (user.role === 'student') {
-        // Verificar en el profesor actual O en el nuevo profesor si se está cambiando
-        const teacherToCheck = createdBy || user.createdBy;
-        duplicateFilter.createdBy = teacherToCheck;
-
-        // Si tiene classroom, verificar en esa clase
-        const classroomToCheck = profile?.classroom || user.profile?.classroom;
-        if (classroomToCheck) {
-          duplicateFilter['profile.classroom'] = classroomToCheck;
+    if (duplicate) {
+      return res.status(409).json({
+        success: false,
+        message: duplicate.message,
+        data: {
+          existingUser: toUserDTOV1(duplicate.existingUser)
         }
-      }
+      });
+    }
 
-      const existingUser = await User.findOne(duplicateFilter);
-
-      if (existingUser) {
-        const errorMsg =
-          user.role === 'student' && duplicateFilter['profile.classroom']
-            ? `Ya existe un alumno activo llamado "${name}" en la clase "${duplicateFilter['profile.classroom']}"`
-            : `Ya existe un usuario activo llamado "${name}"`;
-
-        logger.warn('Intento de actualizar con nombre duplicado', {
-          userId: user._id,
-          newName: name,
-          existingUserId: existingUser._id,
-          updatedBy: req.user._id
-        });
-
-        return res.status(409).json({
-          success: false,
-          message: errorMsg,
-          data: {
-            existingUser: userDTO(existingUser)
-          }
-        });
-      }
-
+    if (name && name.trim() !== user.name) {
       user.name = name.trim();
     }
 
@@ -319,19 +390,7 @@ const updateUser = async (req, res, next) => {
     // ✅ NUEVO: Permitir cambiar el profesor asignado (createdBy)
     // Caso de uso: Un alumno cambia de profesor
     if (createdBy && user.role === 'student') {
-      // Verificar que el nuevo profesor existe
-      const newTeacher = await User.findOne({
-        _id: createdBy,
-        role: 'teacher',
-        status: 'active'
-      });
-
-      if (!newTeacher) {
-        return res.status(400).json({
-          success: false,
-          message: 'El profesor especificado no existe o no está activo'
-        });
-      }
+      await ensureNewTeacherExists(createdBy);
 
       logger.info('Reasignando alumno a nuevo profesor', {
         studentId: user._id,
@@ -346,6 +405,16 @@ const updateUser = async (req, res, next) => {
 
     await user.save();
 
+    if (status === 'inactive' && ['teacher', 'super_admin'].includes(user.role)) {
+      await revokeAllUserTokens(user._id.toString(), 'account_inactivated', {
+        ...getRequestContext(req),
+        userId: user._id,
+        updatedBy: req.user._id
+      });
+      const io = req.app.get('io');
+      disconnectUserSockets(io, user._id.toString(), 'ACCOUNT_INACTIVATED');
+    }
+
     logger.info('Usuario actualizado', {
       userId: user._id,
       updatedBy: req.user._id,
@@ -357,10 +426,12 @@ const updateUser = async (req, res, next) => {
       }
     });
 
+    const userPayload = buildUserPayload(user);
+
     res.json({
       success: true,
       message: 'Usuario actualizado exitosamente',
-      data: userDTO(user)
+      data: userPayload
     });
   } catch (error) {
     next(error);
@@ -395,6 +466,16 @@ const deleteUser = async (req, res, next) => {
     // Soft delete
     user.status = 'inactive';
     await user.save();
+
+    if (['teacher', 'super_admin'].includes(user.role)) {
+      await revokeAllUserTokens(user._id.toString(), 'account_deleted', {
+        ...getRequestContext(req),
+        userId: user._id,
+        deletedBy: req.user._id
+      });
+      const io = req.app.get('io');
+      disconnectUserSockets(io, user._id.toString(), 'ACCOUNT_INACTIVATED');
+    }
 
     logger.info('Usuario eliminado (soft delete)', {
       userId: user._id,
@@ -435,25 +516,8 @@ const getUserStats = async (req, res, next) => {
       throw new ForbiddenError('No tienes permiso para ver estas estadísticas');
     }
 
-    // Si es profesor, no tiene métricas de estudiante
-    if (user.role !== 'student') {
-      return res.json({
-        success: true,
-        message: 'Este usuario no es un alumno',
-        data: {
-          user: {
-            id: user._id,
-            name: user.name,
-            role: user.role
-          },
-          metrics: null
-        }
-      });
-    }
-
-    // Calcular estadísticas adicionales
     const accuracyRate =
-      user.studentMetrics.totalGamesPlayed > 0
+      user.studentMetrics && user.studentMetrics.totalGamesPlayed > 0
         ? (
             (user.studentMetrics.totalCorrectAnswers /
               (user.studentMetrics.totalCorrectAnswers + user.studentMetrics.totalErrors)) *
@@ -463,18 +527,11 @@ const getUserStats = async (req, res, next) => {
 
     res.json({
       success: true,
-      data: {
-        user: {
-          id: user._id,
-          name: user.name,
-          classroom: user.profile.classroom,
-          age: user.profile.age
-        },
-        metrics: {
-          ...user.studentMetrics.toObject(),
-          accuracyRate: parseFloat(accuracyRate)
-        }
-      }
+      data: toUserStatsDTOV1(
+        user,
+        user.studentMetrics?.toObject?.() || user.studentMetrics,
+        Number.parseFloat(accuracyRate)
+      )
     });
   } catch (error) {
     next(error);
@@ -519,8 +576,8 @@ const getStudentsByTeacher = async (req, res, next) => {
 
     res.json({
       success: true,
-      data: {
-        students: userListDTO(students),
+      data: toUserListDTOV1(students),
+      meta: {
         count: students.length
       }
     });
@@ -548,7 +605,7 @@ const getStudentsByTeacher = async (req, res, next) => {
 const transferStudent = async (req, res, next) => {
   try {
     const { id } = req.params;
-    const { newTeacherId, newClassroom } = req.body;
+    const { newTeacherId, newClassroom, reason } = req.body;
 
     if (!newTeacherId || !newClassroom) {
       return res.status(400).json({
@@ -592,13 +649,16 @@ const transferStudent = async (req, res, next) => {
       });
     }
 
+    const fromTeacherId = student.createdBy;
+
     // Registrar cambios para auditoría (log)
     logger.info('Iniciando transferencia de alumno', {
       studentId: student._id,
       studentName: student.name,
-      fromTeacher: student.createdBy,
+      fromTeacher: fromTeacherId,
       toTeacher: newTeacherId,
-      initiatedBy: req.user._id
+      initiatedBy: req.user._id,
+      reason
     });
 
     // Realizar transferencia
@@ -607,10 +667,21 @@ const transferStudent = async (req, res, next) => {
 
     await student.save();
 
+    logSecurityEvent('STUDENT_TRANSFER', {
+      ...getRequestContext(req),
+      studentId: student._id,
+      studentName: student.name,
+      fromTeacher: fromTeacherId,
+      toTeacher: newTeacherId,
+      initiatedBy: req.user._id,
+      newClassroom,
+      reason
+    });
+
     res.json({
       success: true,
       message: 'Alumno transferido exitosamente',
-      data: userDTO(student)
+      data: toStudentDTOV1(student)
     });
   } catch (error) {
     next(error);

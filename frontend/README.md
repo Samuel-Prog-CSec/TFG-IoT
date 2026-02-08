@@ -1,0 +1,40 @@
+# Frontend - EduPlay
+
+Una plataforma de juegos educativos con tecnología RFID para niños de 4-6 años.
+
+## Índice de Documentación
+
+| Documento | Descripción |
+|-----------|-------------|
+| [Patrones de Diseño](./docs/01-PATRONES-DISENO.md) | Patrones arquitectónicos y de código utilizados |
+| [Buenas Prácticas](./docs/02-BUENAS-PRACTICAS.md) | Convenciones y estándares del proyecto |
+| [UI/UX Guidelines](./docs/03-UI-UX-GUIDELINES.md) | Decisiones de diseño visual y experiencia de usuario |
+| [Estructura del Proyecto](./docs/04-ESTRUCTURA-PROYECTO.md) | Organización de carpetas y archivos |
+
+## Stack Tecnológico
+
+- **React 19.1** - Biblioteca de UI con Hooks
+- **Vite 6.3** - Build tool y dev server
+- **Tailwind CSS 4.1** - Estilos utility-first
+- **Framer Motion 12.27** - Animaciones declarativas
+- **React Router 7.9** - Navegación SPA
+
+## Inicio Rápido
+
+```bash
+# Instalar dependencias
+npm install
+
+# Desarrollo
+npm run dev
+
+# Build producción
+npm run build
+
+# Lint
+npm run lint
+```
+
+---
+
+*Última actualización: Enero 2026*

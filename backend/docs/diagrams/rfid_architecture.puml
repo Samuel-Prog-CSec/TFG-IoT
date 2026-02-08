@@ -1,0 +1,64 @@
+@startuml RFID_Architecture
+
+!theme plain
+skinparam backgroundColor #FEFEFE
+skinparam componentStyle rectangle
+
+title Arquitectura del Sistema RFID - Plataforma de Juegos Educativos
+
+package "Hardware RFID" {
+    [ESP8266\n(Wemos D1)] as ESP
+    [RC522\nRFID Reader] as RC522
+    [Tarjetas\nMIFARE] as Cards
+    
+    Cards -right-> RC522 : NFC 13.56MHz
+    RC522 -right-> ESP : SPI
+}
+
+package "Frontend (PC Profesor)" {
+  [Web Serial API] as WebSerial
+  [Pantalla\nAlumno] as Student
+  [Dashboard\nProfesor] as Teacher
+  [Panel\nConfiguración] as Config
+}
+
+package "Backend Node.js" {
+  [RFIDService] as RFID
+  [GameEngine] as Engine
+  [Socket.IO] as Socket
+  [MongoDB] as DB
+  [Redis] as Redis
+    
+  RFID -down-> Engine : rfid_event
+  Engine -right-> Socket : emit events
+  Engine -down-> DB : persist
+  Engine -down-> Redis : cache state
+}
+
+ESP -right-> WebSerial : USB\n115200 baud\nJSON Events
+WebSerial -right-> Socket : rfid_scan_from_client
+
+Socket -right-> Student : WebSocket
+Socket -right-> Teacher : WebSocket
+Socket -right-> Config : WebSocket
+
+note right of Cards
+  Tipos soportados:
+  - MIFARE Classic 1K/4K
+  - NTAG 213/215/216
+  - UID: 4 o 7 bytes
+end note
+
+note bottom of RFID
+  Ingesta de eventos
+  Buffer de eventos
+  Métricas de rendimiento
+end note
+
+note bottom of Engine
+  Maps en memoria:
+  - activePlays
+  - cardUidToPlayId
+end note
+
+@enduml

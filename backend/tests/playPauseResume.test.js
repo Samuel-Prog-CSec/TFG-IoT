@@ -195,7 +195,9 @@ describe('GamePlay pause/resume', () => {
     await wait(3500);
 
     const afterPause = await GamePlay.findById(playId);
-    const timeoutEventsWhilePaused = (afterPause.events || []).filter(e => e.eventType === 'timeout');
+    const timeoutEventsWhilePaused = (afterPause.events || []).filter(
+      e => e.eventType === 'timeout'
+    );
     expect(timeoutEventsWhilePaused.length).toBe(0);
 
     const stateWhilePaused = gameEngine.getPlayState(playId);

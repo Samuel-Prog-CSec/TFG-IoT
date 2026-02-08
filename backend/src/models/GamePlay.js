@@ -254,4 +254,9 @@ gamePlaySchema.index({ sessionId: 1, playerId: 1, status: 1 });
  */
 gamePlaySchema.index({ playerId: 1 });
 
+/**
+ * Índice para listar todas las partidas de una sesión (Dashboard del profesor).
+ */
+gamePlaySchema.index({ sessionId: 1 });
+
 module.exports = mongoose.model('GamePlay', gamePlaySchema);

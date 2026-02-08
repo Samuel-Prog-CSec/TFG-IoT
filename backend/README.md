@@ -1,6 +1,6 @@
 # Backend - Plataforma de Juegos Educativos con RFID
 
-Sistema backend profesional con Express.js, MongoDB, Socket.IO y comunicación serial RFID para una plataforma educativa interactiva.
+Sistema backend profesional con Express.js, MongoDB y Socket.IO con ingesta RFID via Web Serial desde el cliente.
 
 ## 📋 Índice
 
@@ -24,7 +24,7 @@ Sistema backend profesional con Express.js, MongoDB, Socket.IO y comunicación s
 
 - **API REST** completa con 48 endpoints CRUD
 - **WebSocket en tiempo real** con Socket.IO para gameplay
-- **Comunicación serial RFID** con ESP8266 + RC522
+- **Ingesta RFID Web Serial** desde el navegador
 - **Autenticación JWT** con refresh tokens y token rotation
 - **Single Session Policy** para seguridad de sesiones concurrentes
 - **Base de datos MongoDB** con Mongoose ODM
@@ -88,7 +88,7 @@ backend/
 │   ├── routes/                # Rutas Express (7 archivos)
 │   ├── services/              # Servicios core
 │   │   ├── gameEngine.js      # Motor de juego stateful
-│   │   └── rfidService.js     # Comunicación serial RFID
+│   │   └── rfidService.js     # Ingesta RFID (Web Serial)
 │   ├── middlewares/
 │   │   ├── auth.js            # JWT con refresh tokens
 │   │   ├── validation.js      # Validación con Zod
@@ -157,10 +157,8 @@ RATE_LIMIT_MAX_REQUESTS=100
 SENTRY_DSN=tu-sentry-dsn
 SENTRY_ENVIRONMENT=development
 
-# RFID
-SERIAL_PORT=COM3
-SERIAL_BAUD_RATE=115200
-RFID_MAX_RECONNECT_ATTEMPTS=10
+# RFID (Web Serial desde cliente)
+RFID_SOURCE=client
 
 # GameEngine
 ACTIVE_PLAYS_WARNING_THRESHOLD=1000  # Umbral para warnings (soft limit)
@@ -315,13 +313,17 @@ npm run drop-db               # Eliminar base de datos (solo desarrollo)
 | `pause_play`  | `{ playId, accessToken }` | Pausar partida (requiere profesor)   |
 | `resume_play` | `{ playId, accessToken }` | Reanudar partida (requiere profesor) |
 | `next_round`  | `{ playId }`              | Solicitar siguiente ronda            |
+| `join_card_registration`  | `{}`               | Unirse a room de registro            |
+| `leave_card_registration` | `{}`               | Salir de room de registro            |
+| `join_admin_room`         | `{}`               | Unirse a room admin                  |
+| `leave_admin_room`        | `{}`               | Salir de room admin                  |
 
 ### Servidor → Cliente
 
 | Evento              | Payload                                                 | Descripción               |
 | ------------------- | ------------------------------------------------------- | ------------------------- |
 | `rfid_event`        | `{ event, uid, type, ... }`                             | Evento del sensor RFID    |
-| `rfid_status`       | `{ status }`                                            | Estado del sensor         |
+| `rfid_status`       | `{ status }`                                            | Estado del sensor (admin) |
 | `play_state`        | `{ playId, currentRound, score, ... }`                  | Estado inicial de partida |
 | `new_round`         | `{ roundNumber, challenge, timeLimit, ... }`            | Nuevo desafío             |
 | `validation_result` | `{ isCorrect, pointsAwarded, newScore, ... }`           | Resultado de respuesta    |
@@ -360,6 +362,12 @@ npm run drop-db               # Eliminar base de datos (solo desarrollo)
 - **Autenticación**: 5 intentos/15 min en login/register
 - **Creación**: 10 operaciones/min en POST endpoints
 - **Uploads**: 20 archivos/hora
+- **WebSockets**: límites por evento con ventana deslizante, bloqueo temporal y payload máximo (16 KB global, 8 KB para `rfid_scan_from_client`)
+
+### WebSocket Auth
+
+- **Handshake requerido**: el cliente debe enviar `token` en `socket.handshake.auth.token` (o `Authorization: Bearer <token>`).
+- El servidor asigna `socket.data.userId` y `socket.data.userRole` y se une a `user_{id}` automáticamente.
 
 ## 📊 Monitoreo
 
@@ -442,41 +450,16 @@ npm run test:watch       # Modo watch
 npm run test:coverage    # Cobertura de código
 ```
 
-#### RFIDService: por qué no importamos SerialPort arriba
+#### RFIDService: arquitectura Web Serial
 
-En [src/services/rfidService.js](src/services/rfidService.js) **no** se hace `require('serialport')` en el top-level del módulo.
-En su lugar, el `require()` se hace **dentro de** `connect()` (lazy load) y además existe `setSerialImplementations()`.
+El servicio [src/services/rfidService.js](src/services/rfidService.js) no abre puertos serie en el backend.
+El sensor se conecta al PC del profesor y el navegador envía los eventos por Socket.IO.
 
 Motivos:
 
-- **Evitar acceso a hardware / bindings nativos en tests**: el simple import de `serialport` puede inicializar dependencias nativas o dejar handles abiertos.
-- **Hacer el mock fiable**: en Jest, si el módulo se importa antes del `jest.mock()`, queda cacheado y el mock no aplica.
-- **Mantener RFID opt-in**: si `RFID_ENABLED!==true` o falta `SERIAL_PORT`, no se carga SerialPort ni se intenta abrir puertos.
-
-Cómo se mockea en tests (inyección, sin depender de `jest.mock`):
-
-```js
-const rfidService = require('../src/services/rfidService');
-
-const parserInstance = { on: jest.fn() };
-const SerialPortMock = jest.fn(() => ({
-  pipe: jest.fn(() => parserInstance),
-  on: jest.fn(),
-  open: jest.fn(cb => cb && cb(null)),
-  close: jest.fn(cb => cb && cb(null)),
-  isOpen: true,
-  path: 'COM_TEST',
-  baudRate: 115200
-}));
-const ReadlineParserMock = jest.fn(() => ({}));
-
-rfidService.setSerialImplementations({
-  SerialPort: SerialPortMock,
-  ReadlineParser: ReadlineParserMock
-});
-```
-
-Ejemplo real: [tests/serial.test.js](tests/serial.test.js)
+- **Despliegue cloud**: el servidor no depende de hardware USB.
+- **Escalabilidad**: cada profesor usa su propio lector local.
+- **Seguridad**: el backend valida el contrato del evento antes de procesar.
 
 ## 🚢 Despliegue
 

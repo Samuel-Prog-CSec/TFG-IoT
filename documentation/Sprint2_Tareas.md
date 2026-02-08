@@ -6,6 +6,9 @@
 **Versión objetivo:** 0.2.0  
 **Última actualización:** 29-12-2025
 
+> **Nota de actualización (Sprint 3):** La arquitectura RFID se migró a Web Serial en el frontend.
+> Cualquier referencia a SerialPort en este documento debe considerarse histórica.
+
 ---
 
 ## Resumen del Sprint
@@ -24,8 +27,8 @@ Este sprint se centra en **estabilizar la base técnica**, corregir los problema
 
 ### Progreso Actual
 
-- **Tareas completadas:** 2/27 (7.4%)
-- **Tests pasando:** 56 (cobertura ~47%)
+- **Tareas completadas:** 27/27 (100%)
+- **Tests pasando:** 56 (cobertura > 50%)
 
 ---
 
@@ -263,7 +266,7 @@ Según Duda #44, solo se permiten formatos WebP para imágenes (SVG rechazado po
 9. ✅ Actualizar rutas con Multer configs y rate limiting
 10. ✅ Eliminar ruta duplicada `assets.js` sin autenticación (vulnerabilidad)
 11. ✅ Añadir tests para imageProcessingService y audioValidationService
-12. ✅ Documentar en `API_v0.1.0.md` y crear `AssetProcessing.md`
+12. ✅ Documentar en `API_v0.3.0.md` y crear `AssetProcessing.md`
 
 **Cambios de Decisión:**
 
@@ -280,7 +283,7 @@ Según Duda #44, solo se permiten formatos WebP para imágenes (SVG rechazado po
 - `backend/src/controllers/assetController.js` (reescrito)
 - `backend/src/routes/contexts.js` (actualizado)
 - `backend/src/models/GameContext.js` (añadido thumbnailUrl + límite)
-- `backend/docs/API_v0.1.0.md` (actualizado)
+- `backend/docs/API_v0.3.0.md` (actualizado)
 - `backend/docs/AssetProcessing.md` (nuevo)
 
 **Criterios de Aceptación:**
@@ -347,25 +350,24 @@ Según sprint2_corrections.md, el storageService usa placeholders inseguros si f
 
 ---
 
-### T-016: Configuración Robusta de Puerto Serie ✅
+### T-016: Configuración Robusta de RFID Source ✅
 
 **Prioridad:** P2 | **Tamaño:** S | **Dependencias:** Ninguna
 
 **Descripción:**  
-Según sprint2_corrections.md, el fallback hardcoded a COM3 falla en Linux/Mac.
+Actualizar la configuracion RFID para el modo Web Serial y eliminar dependencia del puerto serie en backend.
 
 **Sub-tareas:**
 
-1. Eliminar fallback hardcoded de puerto serie
-2. Hacer obligatoria la variable `SERIAL_PORT` si `RFID_ENABLED=true`
-3. Añadir detección automática de puertos disponibles (informativo)
-4. Añadir variable `RFID_ENABLED` para habilitar/deshabilitar RFID
-5. Fallar controladamente con mensaje descriptivo si no hay puerto configurado
+1. Eliminar dependencia de `SerialPort` en backend
+2. Introducir `RFID_SOURCE=client|disabled`
+3. Validar `RFID_SOURCE` en `envValidator`
+4. Documentar restricciones de Web Serial (HTTPS, Chrome/Edge)
 
 **Criterios de Aceptación:**
 
-- El servidor no intenta conectar a puerto serie si RFID está deshabilitado
-- Mensajes de error claros si falta configuración
+- El backend solo acepta eventos RFID cuando `RFID_SOURCE=client`
+- Mensajes de error claros si hay configuracion invalida
 
 ---
 
@@ -431,7 +433,7 @@ Según Duda #35, crear script para eliminar datos de seeders haciendo drop de la
 
 ---
 
-### T-025: Documentar Protocolo de Eventos RFID 📋
+### T-025: Documentar Protocolo de Eventos RFID ✅
 
 **Prioridad:** P3 | **Tamaño:** S | **Dependencias:** T-009, T-010
 
@@ -440,15 +442,36 @@ Documentar completamente el protocolo de comunicación RFID incluyendo múltiple
 
 **Sub-tareas:**
 
-1. Documentar formato JSON de eventos del sensor
-2. Documentar flujo de asociación sensor-partida
-3. Documentar modos de escaneo
-4. Crear diagramas de secuencia
+1. ✅ Documentar formato JSON de eventos del sensor (`init`, `card_detected`, `card_removed`, `status`, `error`)
+2. ✅ Documentar flujo de asociación sensor-partida (bloqueo de UIDs, validación de respuestas)
+3. ✅ Documentar modos de escaneo (idle, gameplay, card_registration, card_assignment)
+4. ✅ Crear diagramas de secuencia (inicialización, gameplay, registro de tarjetas)
+
+**Archivos Creados:**
+
+- `backend/docs/RFID_Protocol.md` - Documentación completa del protocolo (~600 líneas)
+- `backend/docs/diagrams/rfid_architecture.puml` - Diagrama de arquitectura (PlantUML)
+- `backend/docs/diagrams/rfid_scan_modes.puml` - Diagrama de estados de modos (PlantUML)
+- `backend/docs/diagrams/rfid_gameplay_sequence.puml` - Secuencia de gameplay (PlantUML)
+- `backend/docs/diagrams/rfid_init_sequence.puml` - Secuencia de inicialización (PlantUML)
+- `backend/docs/diagrams/rfid_card_registration.puml` - Secuencia de registro de tarjetas (PlantUML)
+
+**Documentación Incluida:**
+
+- Arquitectura del sistema RFID con diagrama
+- Especificaciones hardware del sensor RC522
+- Protocolo serial JSON con todos los eventos
+- Sistema de modos de escaneo con diagrama de estados
+- Flujos de asociación sensor-partida con estructuras de datos
+- Tabla completa de eventos WebSocket
+- Diagramas de secuencia (inicialización, gameplay, registro)
+- Guía de configuración y troubleshooting
+- Apéndices con tipos de tarjetas y códigos de error
 
 **Criterios de Aceptación:**
 
-- Existe documentación completa del protocolo RFID
-- Incluye diagramas de secuencia
+- ✅ Existe documentación completa del protocolo RFID
+- ✅ Incluye diagramas de secuencia
 
 ---
 
@@ -521,9 +544,9 @@ T-001 (Tests) ──────────────────────
 
 ## Checklist de Finalización del Sprint
 
-- [ ] Todos los tests pasan (cobertura > 50%)
-- [ ] Documentación actualizada
-- [ ] Sin errores críticos en Sentry
-- [ ] Changelog actualizado
-- [ ] Versión incrementada a 0.2.0
-- [ ] Review con tutor completada
+- [x] Todos los tests pasan (cobertura > 50%)
+- [x] Documentación actualizada
+- [x] Sin errores críticos en Sentry
+- [x] Changelog actualizado
+- [x] Versión incrementada a 0.2.0
+- [x] Review con tutor completada

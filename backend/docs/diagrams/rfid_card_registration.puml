@@ -1,0 +1,72 @@
+@startuml RFID_Card_Registration
+
+!theme plain
+skinparam backgroundColor #FEFEFE
+skinparam sequenceMessageAlign center
+
+title Flujo de Registro de Tarjeta RFID
+
+actor Profesor as User
+participant "Frontend" as FE
+participant "Socket.IO" as Socket
+participant "RFIDScanManager" as Manager
+participant "RFIDService" as RFID
+participant "Web Serial" as WebSerial
+participant "Sensor\nRC522" as Sensor
+database "MongoDB" as DB
+
+== Activar Modo Registro ==
+
+User -> FE : Clic "Nueva Tarjeta"
+FE -> Socket : start_card_registration
+
+Socket -> Manager : setMode('card_registration',\nnull, socketId, 30000)
+
+alt Modo disponible
+    Manager -> Manager : currentMode =\n'card_registration'
+    Manager -> Manager : modeOwner = socketId
+    Manager -> Manager : setTimeout(30s)
+    
+    Manager -> Socket : mode_changed
+    Socket -> FE : registration_mode_active\n{ timeout: 30 }
+    FE -> User : Modal: "Escanea la tarjeta\nque deseas registrar"
+else Modo bloqueado (partida activa)
+    Socket -> FE : error\n{ code: 'MODE_BLOCKED' }
+    FE -> User : "No disponible\nahora mismo"
+end
+
+== Escaneo de Tarjeta ==
+
+User -> Sensor : Escanea tarjeta física
+Sensor -> WebSerial : {"event":"card_detected",\n"uid":"32B8FA05",\n"type":"MIFARE 1KB"}
+WebSerial -> Socket : rfid_scan_from_client
+Socket -> RFID : ingestEvent
+
+RFID -> Manager : getMode()
+Manager --> RFID : { mode: 'card_registration',\nowner: socketId }
+
+RFID -> DB : Card.findOne({ uid })
+
+alt Tarjeta ya existe
+    RFID -> Socket : card_registration_error\n{ uid, existingCardId,\nmessage: "Ya registrada" }
+    Socket -> FE : card_registration_error
+    FE -> User : ⚠️ "Esta tarjeta ya\nestá registrada"
+else Tarjeta nueva
+    RFID -> Socket : card_registration_scan\n{ uid: "32B8FA05",\ntype: "MIFARE 1KB" }
+    Socket -> FE : card_registration_scan
+    FE -> FE : Rellenar campo UID\nautomáticamente
+    FE -> User : Formulario con UID\nprecompletado
+end
+
+Manager -> Manager : reset()\n[volver a idle]
+
+== Guardar Tarjeta ==
+
+User -> FE : Completa datos\ny confirma
+FE -> Socket : (HTTP) POST /api/cards\n{ uid, type, status }
+Socket -> DB : Card.create()
+DB --> Socket : 201 Created
+Socket -> FE : Tarjeta creada
+FE -> User : ✅ "Tarjeta registrada\ncorrectamente"
+
+@enduml

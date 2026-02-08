@@ -5,11 +5,7 @@
  */
 
 const { z } = require('zod');
-
-/**
- * Schema para ObjectId de MongoDB
- */
-const objectIdSchema = z.string().regex(/^[0-9a-fA-F]{24}$/, 'Formato de ObjectId inválido');
+const { objectIdSchema, paginationSchema } = require('./commonValidator');
 
 /**
  * Schema para un asset individual dentro del contexto.
@@ -26,34 +22,49 @@ const objectIdSchema = z.string().regex(/^[0-9a-fA-F]{24}$/, 'Formato de ObjectI
  *   imageUrl: 'https://storage.supabase.co/contexts/spain.jpg'
  * }
  */
-const assetSchema = z.object({
-  key: z
-    .string()
-    .min(1, 'La clave del asset es requerida')
-    .max(100, 'La clave no puede exceder 100 caracteres')
-    .trim()
-    .toLowerCase()
-    .regex(
-      /^[a-z0-9_-]+$/,
-      'La clave solo puede contener letras minúsculas, números, guiones y guiones bajos'
-    ),
+const assetSchema = z
+  .object({
+    key: z
+      .string()
+      .min(1, 'La clave del asset es requerida')
+      .max(100, 'La clave no puede exceder 100 caracteres')
+      .trim()
+      .toLowerCase()
+      .regex(
+        /^[a-z0-9_-]+$/,
+        'La clave solo puede contener letras minúsculas, números, guiones y guiones bajos'
+      ),
 
-  display: z
-    .string()
-    .min(1, 'El display del asset es requerido')
-    .max(200, 'El display no puede exceder 200 caracteres')
-    .trim(),
+    display: z
+      .string()
+      .min(1, 'El display del asset es requerido')
+      .max(200, 'El display no puede exceder 200 caracteres')
+      .trim(),
 
-  value: z
-    .string()
-    .min(1, 'El valor del asset es requerido')
-    .max(200, 'El valor no puede exceder 200 caracteres')
-    .trim(),
+    value: z
+      .string()
+      .min(1, 'El valor del asset es requerido')
+      .max(200, 'El valor no puede exceder 200 caracteres')
+      .trim(),
 
-  audioUrl: z.string().url('La URL del audio debe ser válida').trim().optional(),
+    audioUrl: z.string().url('La URL del audio debe ser válida').trim().optional(),
 
-  imageUrl: z.string().url('La URL de la imagen debe ser válida').trim().optional()
-});
+    imageUrl: z.string().url('La URL de la imagen debe ser válida').trim().optional()
+  })
+  .strict();
+
+/**
+ * Schema para metadatos de asset en uploads (multipart).
+ */
+const uploadAssetMetaSchema = assetSchema
+  .pick({
+    key: true,
+    value: true
+  })
+  .extend({
+    display: assetSchema.shape.display.optional()
+  })
+  .strict();
 
 /**
  * Schema para crear un nuevo contexto de juego.
@@ -77,18 +88,20 @@ const assetSchema = z.object({
  *   ]
  * }
  */
+const contextIdSchema = z
+  .string()
+  .min(2, 'El contextId debe tener al menos 2 caracteres')
+  .max(50, 'El contextId no puede exceder 50 caracteres')
+  .trim()
+  .toLowerCase()
+  .regex(
+    /^[a-z0-9_-]+$/,
+    'El contextId solo puede contener letras minúsculas, números, guiones y guiones bajos'
+  );
+
 const createGameContextSchema = z
   .object({
-    contextId: z
-      .string()
-      .min(2, 'El contextId debe tener al menos 2 caracteres')
-      .max(50, 'El contextId no puede exceder 50 caracteres')
-      .trim()
-      .toLowerCase()
-      .regex(
-        /^[a-z0-9_-]+$/,
-        'El contextId solo puede contener letras minúsculas, números, guiones y guiones bajos'
-      ),
+    contextId: contextIdSchema,
 
     name: z
       .string()
@@ -101,6 +114,7 @@ const createGameContextSchema = z
       .min(2, 'Debe haber al menos 2 assets en el contexto')
       .max(100, 'No se pueden tener más de 100 assets')
   })
+  .strict()
   .refine(
     data => {
       // Validar que las keys de los assets sean únicas
@@ -120,19 +134,13 @@ const createGameContextSchema = z
  */
 const updateGameContextSchema = z
   .object({
-    contextId: z
-      .string()
-      .min(2)
-      .max(50)
-      .trim()
-      .toLowerCase()
-      .regex(/^[a-z0-9_-]+$/)
-      .optional(),
+    contextId: contextIdSchema.optional(),
 
     name: z.string().min(2).max(100).trim().optional(),
 
     assets: z.array(assetSchema).min(2).max(100).optional()
   })
+  .strict()
   .refine(data => Object.keys(data).length > 0, {
     message: 'Debe proporcionar al menos un campo para actualizar'
   })
@@ -158,32 +166,34 @@ const updateGameContextSchema = z
  * @example
  * GET /contexts?page=1&limit=10&sortBy=name&order=asc&search=geo
  */
-const gameContextQuerySchema = z.object({
-  page: z
-    .string()
-    .optional()
-    .transform(val => (val ? parseInt(val, 10) : 1))
-    .pipe(z.number().int().min(1)),
-
-  limit: z
-    .string()
-    .optional()
-    .transform(val => (val ? parseInt(val, 10) : 20))
-    .pipe(z.number().int().min(1).max(100)),
-
-  sortBy: z.enum(['contextId', 'name', 'createdAt', 'updatedAt']).optional().default('createdAt'),
-
-  order: z.enum(['asc', 'desc']).optional().default('desc'),
-
-  search: z.string().trim().optional()
+const gameContextQuerySchema = paginationSchema.extend({
+  sortBy: z.enum(['contextId', 'name', 'createdAt', 'updatedAt']).optional().default('createdAt')
 });
 
 /**
  * Schema para validar parámetros de ruta (:id)
  */
-const gameContextParamsSchema = z.object({
-  id: objectIdSchema
-});
+const gameContextParamsSchema = z
+  .object({
+    id: z.union([objectIdSchema, contextIdSchema])
+  })
+  .strict();
+
+const gameContextIdParamsSchema = z
+  .object({
+    id: objectIdSchema
+  })
+  .strict();
+
+/**
+ * Schema para params con assetKey.
+ */
+const gameContextAssetParamsSchema = z
+  .object({
+    id: objectIdSchema,
+    assetKey: assetSchema.shape.key
+  })
+  .strict();
 
 /**
  * Schema para añadir un asset a un contexto existente.
@@ -199,6 +209,10 @@ module.exports = {
   updateGameContextSchema,
   gameContextQuerySchema,
   gameContextParamsSchema,
+  gameContextIdParamsSchema,
+  gameContextAssetParamsSchema,
   addAssetSchema,
+  uploadAssetMetaSchema,
+  contextIdSchema,
   assetSchema
 };

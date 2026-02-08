@@ -5,11 +5,7 @@
  */
 
 const { z } = require('zod');
-
-/**
- * Schema para ObjectId de MongoDB
- */
-const objectIdSchema = z.string().regex(/^[0-9a-fA-F]{24}$/, 'Formato de ObjectId inválido');
+const { objectIdSchema, paginationSchema, uidSchema } = require('./commonValidator');
 
 /**
  * Schema para un evento individual en la partida.
@@ -26,54 +22,53 @@ const objectIdSchema = z.string().regex(/^[0-9a-fA-F]{24}$/, 'Formato de ObjectI
  *   roundNumber: 2
  * }
  */
-const gameEventSchema = z.object({
-  timestamp: z.date().default(() => new Date()),
+const gameEventSchema = z
+  .object({
+    timestamp: z.date().default(() => new Date()),
 
-  eventType: z.enum(['card_scanned', 'correct', 'error', 'timeout', 'round_start', 'round_end']),
+    eventType: z.enum(['card_scanned', 'correct', 'error', 'timeout', 'round_start', 'round_end']),
 
-  cardUid: z
-    .string()
-    .trim()
-    .toUpperCase()
-    .regex(/^[0-9A-F]{8}$|^[0-9A-F]{14}$/)
-    .optional(),
+    cardUid: uidSchema.optional(),
 
-  expectedValue: z.string().trim().optional(),
+    expectedValue: z.string().trim().optional(),
 
-  actualValue: z.string().trim().optional(),
+    actualValue: z.string().trim().optional(),
 
-  pointsAwarded: z.number().int('pointsAwarded debe ser un número entero').optional(),
+    pointsAwarded: z.number().int('pointsAwarded debe ser un número entero').optional(),
 
-  timeElapsed: z
-    .number()
-    .int('timeElapsed debe ser un número entero (milisegundos)')
-    .min(0, 'El tiempo no puede ser negativo')
-    .optional(),
+    timeElapsed: z
+      .number()
+      .int('timeElapsed debe ser un número entero (milisegundos)')
+      .min(0, 'El tiempo no puede ser negativo')
+      .optional(),
 
-  roundNumber: z
-    .number()
-    .int('roundNumber debe ser un número entero')
-    .min(1, 'El número de ronda debe ser al menos 1')
-    .optional()
-});
+    roundNumber: z
+      .number()
+      .int('roundNumber debe ser un número entero')
+      .min(1, 'El número de ronda debe ser al menos 1')
+      .optional()
+  })
+  .strict();
 
 /**
  * Schema para las métricas acumuladas de la partida.
  * Se actualiza automáticamente con cada evento.
  */
-const gameMetricsSchema = z.object({
-  totalAttempts: z.number().int().min(0).default(0),
+const gameMetricsSchema = z
+  .object({
+    totalAttempts: z.number().int().min(0).default(0),
 
-  correctAttempts: z.number().int().min(0).default(0),
+    correctAttempts: z.number().int().min(0).default(0),
 
-  errorAttempts: z.number().int().min(0).default(0),
+    errorAttempts: z.number().int().min(0).default(0),
 
-  timeoutAttempts: z.number().int().min(0).default(0),
+    timeoutAttempts: z.number().int().min(0).default(0),
 
-  averageResponseTime: z.number().min(0).default(0),
+    averageResponseTime: z.number().min(0).default(0),
 
-  completionTime: z.number().int().min(0).default(0)
-});
+    completionTime: z.number().int().min(0).default(0)
+  })
+  .strict();
 
 /**
  * Schema para crear una nueva partida (GamePlay).
@@ -100,15 +95,7 @@ const createGamePlaySchema = z
 
     playerId: objectIdSchema
   })
-  .refine(
-    async data =>
-      // NOTA: Esta validación se hará en el Controller/Service
-      // Aquí solo validamos formato, no existencia en DB
-      true,
-    {
-      message: 'sessionId y playerId deben referenciar documentos existentes'
-    }
-  );
+  .strict();
 
 /**
  * Schema para actualizar una partida existente.
@@ -127,6 +114,7 @@ const updateGamePlaySchema = z
 
     completedAt: z.date().optional()
   })
+  .strict()
   .refine(data => Object.keys(data).length > 0, {
     message: 'Debe proporcionar al menos un campo para actualizar'
   });
@@ -147,7 +135,7 @@ const updateGamePlaySchema = z
  *   roundNumber: 2
  * }
  */
-const addEventSchema = gameEventSchema.omit({ timestamp: true });
+const addEventSchema = gameEventSchema.omit({ timestamp: true }).strict();
 
 /**
  * Schema para query params de búsqueda de partidas.
@@ -162,25 +150,11 @@ const addEventSchema = gameEventSchema.omit({ timestamp: true });
  * @example
  * GET /plays?playerId=507f...&status=completed&minScore=50&page=1
  */
-const gamePlayQuerySchema = z.object({
-  page: z
-    .string()
-    .optional()
-    .transform(val => (val ? parseInt(val, 10) : 1))
-    .pipe(z.number().int().min(1)),
-
-  limit: z
-    .string()
-    .optional()
-    .transform(val => (val ? parseInt(val, 10) : 20))
-    .pipe(z.number().int().min(1).max(100)),
-
+const gamePlayQuerySchema = paginationSchema.extend({
   sortBy: z
     .enum(['createdAt', 'startedAt', 'completedAt', 'score'])
     .optional()
     .default('createdAt'),
-
-  order: z.enum(['asc', 'desc']).optional().default('desc'),
 
   sessionId: objectIdSchema.optional(),
 
@@ -204,9 +178,11 @@ const gamePlayQuerySchema = z.object({
 /**
  * Schema para validar parámetros de ruta (:id)
  */
-const gamePlayParamsSchema = z.object({
-  id: objectIdSchema
-});
+const gamePlayParamsSchema = z
+  .object({
+    id: objectIdSchema
+  })
+  .strict();
 
 /**
  * Schema para obtener estadísticas de un jugador.
@@ -214,9 +190,20 @@ const gamePlayParamsSchema = z.object({
  * @example
  * GET /plays/stats/:playerId?sessionId=507f...
  */
-const playerStatsQuerySchema = z.object({
-  sessionId: objectIdSchema.optional()
-});
+const playerStatsQuerySchema = z
+  .object({
+    sessionId: objectIdSchema.optional()
+  })
+  .strict();
+
+/**
+ * Schema para params de stats por jugador.
+ */
+const playerStatsParamsSchema = z
+  .object({
+    playerId: objectIdSchema
+  })
+  .strict();
 
 module.exports = {
   createGamePlaySchema,
@@ -225,6 +212,7 @@ module.exports = {
   gamePlayQuerySchema,
   gamePlayParamsSchema,
   playerStatsQuerySchema,
+  playerStatsParamsSchema,
   gameEventSchema,
   gameMetricsSchema
 };

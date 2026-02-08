@@ -1,9 +1,9 @@
 const mongoose = require('mongoose');
+const logger = require('../src/utils/logger');
 
 // Mock de Redis ANTES de importar cualquier módulo que lo use
 // Usar prefijo 'mock' para que Jest permita la referencia
-const mockRedisMock = require('ioredis-mock');
-const mockRedisInstance = new mockRedisMock();
+require('ioredis-mock');
 
 jest.mock('ioredis', () => {
   const mockRedisMockInner = require('ioredis-mock');
@@ -12,18 +12,18 @@ jest.mock('ioredis', () => {
 });
 
 // Ahora importar los módulos que dependen de Redis
-const { app, server, gameEngine } = require('../src/server');
+const { server, gameEngine } = require('../src/server');
 const rfidService = require('../src/services/rfidService');
 const { disconnectRedis } = require('../src/config/redis');
 
 beforeAll(async () => {
   // Use a distinct database for testing to avoid data loss
   const TEST_MONGO_URI = process.env.TEST_MONGO_URI || 'mongodb://localhost:27017/rfid-games-test';
-  
+
   if (mongoose.connection.readyState !== 0) {
     await mongoose.disconnect();
   }
-  
+
   await mongoose.connect(TEST_MONGO_URI);
 });
 
@@ -34,16 +34,16 @@ afterAll(async () => {
       await gameEngine.shutdown();
     }
 
-    // Disconnect RFID service to clear reconnection timers
+    // Detener servicio RFID
     if (rfidService) {
-      await rfidService.disconnect();
+      rfidService.stop();
     }
 
     // Disconnect Redis (mock)
     try {
       await disconnectRedis();
-    } catch (_) {
-      // Mock may not support disconnect fully
+    } catch (error) {
+      logger.warn('Redis mock disconnect error', { error: error?.message });
     }
 
     // Close the server to avoid open handles
@@ -58,14 +58,14 @@ afterAll(async () => {
     }
   } catch (error) {
     // Best-effort teardown: don't block test completion
-    // eslint-disable-next-line no-console
+
     console.error('Error during Jest teardown:', error);
     try {
       if (mongoose.connection.readyState !== 0) {
         await mongoose.disconnect();
       }
-    } catch (_) {
-      // ignore
+    } catch (error) {
+      logger.warn('Error during fallback mongoose disconnect', { error: error?.message });
     }
   }
 });

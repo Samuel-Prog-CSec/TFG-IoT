@@ -7,7 +7,13 @@
 const Card = require('../models/Card');
 const { NotFoundError, ConflictError, ValidationError } = require('../utils/errors');
 const logger = require('../utils/logger');
-const { cardDTO, cardListDTO, paginationDTO } = require('../utils/dtos');
+const {
+  toCardDTOV1,
+  toCardListDTOV1,
+  toPaginatedDTOV1,
+  toCardStatsDTOV1
+} = require('../utils/dtos');
+const { escapeRegex } = require('../utils/escapeRegex');
 
 /**
  * Obtener lista de tarjetas con paginación y filtros.
@@ -43,7 +49,8 @@ const getCards = async (req, res, next) => {
 
     // Búsqueda por UID parcial
     if (search) {
-      filter.uid = { $regex: search.toUpperCase(), $options: 'i' };
+      const safeSearch = escapeRegex(search.toUpperCase());
+      filter.uid = { $regex: safeSearch, $options: 'i' };
     }
 
     // Paginación
@@ -52,7 +59,7 @@ const getCards = async (req, res, next) => {
 
     // Ejecutar query
     const [cards, total] = await Promise.all([
-      Card.find(filter).sort(sortOptions).limit(parseInt(limit)).skip(skip),
+      Card.find(filter).sort(sortOptions).limit(Number.parseInt(limit, 10)).skip(skip),
       Card.countDocuments(filter)
     ]);
 
@@ -64,9 +71,9 @@ const getCards = async (req, res, next) => {
 
     res.json({
       success: true,
-      data: paginationDTO(cardListDTO(cards), {
-        page: parseInt(page),
-        limit: parseInt(limit),
+      ...toPaginatedDTOV1(toCardListDTOV1(cards), {
+        page: Number.parseInt(page, 10),
+        limit: Number.parseInt(limit, 10),
         total
       })
     });
@@ -106,7 +113,7 @@ const getCardById = async (req, res, next) => {
 
     res.json({
       success: true,
-      data: cardDTO(card)
+      data: toCardDTOV1(card)
     });
   } catch (error) {
     next(error);
@@ -152,7 +159,7 @@ const createCard = async (req, res, next) => {
     res.status(201).json({
       success: true,
       message: 'Tarjeta registrada exitosamente',
-      data: cardDTO(card)
+      data: toCardDTOV1(card)
     });
   } catch (error) {
     next(error);
@@ -202,7 +209,7 @@ const updateCard = async (req, res, next) => {
     res.json({
       success: true,
       message: 'Tarjeta actualizada exitosamente',
-      data: cardDTO(card)
+      data: toCardDTOV1(card)
     });
   } catch (error) {
     next(error);
@@ -304,7 +311,7 @@ const createCardsBatch = async (req, res, next) => {
       success: true,
       message: `${createdCards.length} tarjetas registradas exitosamente`,
       data: {
-        cards: cardListDTO(createdCards),
+        cards: toCardListDTOV1(createdCards),
         count: createdCards.length
       }
     });
@@ -371,7 +378,7 @@ const getCardStats = async (req, res, next) => {
     res.json({
       success: true,
       data: {
-        stats: result
+        stats: toCardStatsDTOV1(result)
       }
     });
   } catch (error) {

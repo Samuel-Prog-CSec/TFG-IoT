@@ -5,6 +5,9 @@
 **Fecha de Revisión:** Diciembre 2025  
 **Versión:** 0.1.0
 
+> **Nota de actualización (Sprint 3):** La arquitectura RFID se migró a Web Serial en el frontend.
+> Las referencias a SerialPort y puertos serie en este documento son históricas.
+
 ---
 
 ## Resumen
@@ -26,14 +29,14 @@ Este documento recoge los **fallos críticos y graves** detectados al finalizar 
 ### FC-001: Suite de Tests Completamente Rota
 
 **Severidad:** 🔴 Crítico  
-**Archivo(s) Afectado(s):** `tests/serial.test.js`, `tests/gameFlow.test.js`  
+**Archivo(s) Afectado(s):** `tests/rfidService.test.js`, `tests/gameFlow.test.js`  
 **Detectado en:** Ejecución de `npm test`
 
 **Descripción:**  
 La ejecución de tests falla estrepitosamente, haciendo imposible validar cambios de código de forma automatizada.
 
 **Síntomas:**
-- `serial.test.js` intenta abrir conexión real al puerto serie (COM3) en lugar de usar mock
+- `rfidService.test.js` fallaba al depender de configuraciones RFID no aisladas
 - Error "File not found" cuando no hay hardware conectado
 - "Work process failed to exit gracefully" por Open Handles no cerrados
 - `gameFlow.test.js` falla en cadena por estados residuales entre tests
@@ -82,32 +85,23 @@ El archivo del servicio de almacenamiento tiene un typo en su nombre (`SErvice` 
 
 ---
 
-### FC-003: Configuración Hardcoded de Puerto Serie
+### FC-003: Dependencia de USB en el servidor
 
 **Severidad:** 🔴 Crítico  
 **Archivo Afectado:** `src/services/rfidService.js`  
 
 **Descripción:**  
-El servicio RFID usa `COM3` como fallback hardcoded cuando no se define `SERIAL_PORT`. Esto:
-- Falla en Linux/Mac donde los puertos son `/dev/ttyUSB0` o similar
-- Causa errores silenciosos si el puerto no existe
-- Puede intentar conectar a dispositivos incorrectos
+El backend dependía de un puerto serie físico para leer el sensor, lo que impide el despliegue en la nube.
 
 **Síntomas:**
-- Error "Port not found" en entornos no-Windows
-- Intentos de conexión a dispositivos incorrectos
-- El servicio falla silenciosamente en entornos sin hardware
-
-**Código Problemático:**
-```javascript
-const port = process.env.SERIAL_PORT || 'COM3'; // Fallback hardcoded
-```
+- Imposible desplegar en cloud (no hay USB)
+- Lecturas RFID atadas a un único servidor físico
 
 **Solución Requerida:**
-1. Eliminar fallback hardcoded
-2. Hacer `SERIAL_PORT` obligatorio solo si `RFID_ENABLED=true`
-3. Añadir variable `RFID_ENABLED` (default: false)
-4. Fallar con mensaje descriptivo si falta configuración en producción
+1. Migrar la lectura a Web Serial en el frontend
+2. Enviar eventos al backend via Socket.IO
+3. Definir `RFID_SOURCE=client|disabled`
+4. Validar contrato de evento en backend
 
 **Prioridad de Corrección:** Primeros 2 días del Sprint 2
 
@@ -263,7 +257,7 @@ Algunas variables críticas no se validan al iniciar el servidor, permitiendo qu
 **Variables Sin Validación Estricta:**
 - `SUPABASE_URL`
 - `SUPABASE_KEY`
-- `SERIAL_PORT` (cuando RFID está habilitado)
+- `RFID_SOURCE` (modo cliente/disabled)
 - `REDIS_URL` (futuro)
 
 **Solución Requerida:**
@@ -280,8 +274,8 @@ Algunas variables críticas no se validan al iniciar el servidor, permitiendo qu
 | # | Acción | Responsable | Tiempo Estimado |
 |---|--------|-------------|-----------------|
 | 1 | Renombrar `storageSErvice.js` → `storageService.js` | Dev | 15 min |
-| 2 | Crear mock funcional de SerialPort para tests | Dev | 2-4 horas |
-| 3 | Corregir `serial.test.js` | Dev | 2-3 horas |
+| 2 | Añadir test de `rfidService` (modo cliente) | Dev | 2-4 horas |
+| 3 | Corregir `rfidService.test.js` | Dev | 2-3 horas |
 | 4 | Corregir `gameFlow.test.js` | Dev | 2-3 horas |
 | 5 | Ejecutar suite completa y verificar verde | Dev | 30 min |
 

@@ -6,7 +6,7 @@
  */
 
 const fileType = require('file-type');
-const logger = require('../utils/logger');
+const logger = require('../utils/logger').child({ component: 'audioValidationService' });
 const { ValidationError } = require('../utils/errors');
 
 /**

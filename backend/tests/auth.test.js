@@ -9,8 +9,7 @@ describe('Authentication Endpoints', () => {
   const validTeacher = {
     name: 'Test Teacher',
     email: 'teacher@test.com',
-    password: 'password123',
-    role: 'teacher'
+    password: 'Password123'
   };
 
   const createAndLoginSuperAdmin = async () => {
@@ -39,14 +38,14 @@ describe('Authentication Endpoints', () => {
 
   describe('POST /api/auth/register', () => {
     it('should register a new teacher successfully', async () => {
-      const res = await request(app)
-        .post('/api/auth/register')
-        .send(validTeacher);
+      const res = await request(app).post('/api/auth/register').send(validTeacher);
 
       expect(res.statusCode).toEqual(201);
       expect(res.body.success).toBe(true);
       expect(res.body.data.user).toHaveProperty('email', validTeacher.email);
       expect(res.body.data.user).toHaveProperty('accountStatus', 'pending_approval');
+      expect(res.body.data.user).not.toHaveProperty('password');
+      expect(res.body.data.user).not.toHaveProperty('__v');
       expect(res.body.data).not.toHaveProperty('accessToken');
     });
 
@@ -55,9 +54,7 @@ describe('Authentication Endpoints', () => {
       await request(app).post('/api/auth/register').send(validTeacher);
 
       // Second registration (duplicate)
-      const res = await request(app)
-        .post('/api/auth/register')
-        .send(validTeacher);
+      const res = await request(app).post('/api/auth/register').send(validTeacher);
 
       expect(res.statusCode).toEqual(409); // Conflict
     });
@@ -71,12 +68,10 @@ describe('Authentication Endpoints', () => {
     });
 
     it('should block login for pending teacher', async () => {
-      const res = await request(app)
-        .post('/api/auth/login')
-        .send({
-          email: validTeacher.email,
-          password: validTeacher.password
-        });
+      const res = await request(app).post('/api/auth/login').send({
+        email: validTeacher.email,
+        password: validTeacher.password
+      });
 
       expect(res.statusCode).toEqual(403);
     });
@@ -87,16 +82,17 @@ describe('Authentication Endpoints', () => {
         .post(`/api/admin/users/${teacher._id}/approve`)
         .set('Authorization', `Bearer ${superAdminToken}`);
 
-      const res = await request(app)
-        .post('/api/auth/login')
-        .send({
-          email: validTeacher.email,
-          password: validTeacher.password
-        });
+      const res = await request(app).post('/api/auth/login').send({
+        email: validTeacher.email,
+        password: validTeacher.password
+      });
 
       expect(res.statusCode).toEqual(200);
       expect(res.body.success).toBe(true);
       expect(res.body.data).toHaveProperty('accessToken');
+      expect(res.body.data.user).toBeTruthy();
+      expect(res.body.data.user).not.toHaveProperty('password');
+      expect(res.body.data.user).not.toHaveProperty('__v');
     });
 
     it('should fail login with wrong password (approved account)', async () => {
@@ -105,12 +101,10 @@ describe('Authentication Endpoints', () => {
         .post(`/api/admin/users/${teacher._id}/approve`)
         .set('Authorization', `Bearer ${superAdminToken}`);
 
-      const res = await request(app)
-        .post('/api/auth/login')
-        .send({
-          email: validTeacher.email,
-          password: 'wrongpassword'
-        });
+      const res = await request(app).post('/api/auth/login').send({
+        email: validTeacher.email,
+        password: 'wrongpassword'
+      });
 
       expect(res.statusCode).toEqual(401);
     });
@@ -181,9 +175,7 @@ describe('Authentication Endpoints', () => {
     // Se salta en CI/tests con mock, pero funciona en integración con Redis real.
     it.skip('should invalidate token after logout', async () => {
       // 1. Logout
-      await request(app)
-        .post('/api/auth/logout')
-        .set('Authorization', `Bearer ${teacherToken}`);
+      await request(app).post('/api/auth/logout').set('Authorization', `Bearer ${teacherToken}`);
 
       // 2. Try to access protected route with same token
       const res = await request(app)

@@ -1,0 +1,61 @@
+@startuml RFID_Data_Flow
+
+!theme plain
+skinparam backgroundColor #FEFEFE
+skinparam componentStyle rectangle
+
+title Flujo de Datos del Sistema RFID
+
+left to right direction
+
+rectangle "Hardware" {
+    [Tarjeta\nRFID] as Card
+    [RC522] as Reader
+    [ESP8266] as MCU
+}
+
+rectangle "Comunicación" {
+  [Serial/USB\n115200 baud] as Serial
+  [JSON\nEvents] as JSON
+}
+
+rectangle "Frontend (PC Profesor)" {
+  [Web Serial API] as WebSerial
+  [Frontend\nReact] as FE
+}
+
+rectangle "Comunicación RT" {
+  [Socket.IO\nWebSocket] as WS
+}
+
+rectangle "Backend Node.js" {
+  [RFIDService] as RFID
+  [GameEngine] as Engine
+}
+
+Card --> Reader : NFC\n13.56MHz
+Reader --> MCU : SPI
+MCU --> Serial : USB
+Serial --> JSON
+JSON --> WebSerial
+WebSerial --> WS : rfid_scan_from_client
+WS --> RFID : rfid_event
+RFID --> Engine : rfid_event
+Engine --> WS : emit
+WS --> FE : real-time
+
+note bottom of Card
+  Física
+end note
+
+note bottom of MCU
+  Firmware
+  main.cpp
+end note
+
+note bottom of RFID
+  Parsing &
+  Métricas
+end note
+
+@enduml

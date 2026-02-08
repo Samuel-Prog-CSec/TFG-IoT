@@ -56,5 +56,6 @@ const cardSchema = new mongoose.Schema(
  * Útil para listar tarjetas activas/inactivas en el panel de administración.
  */
 cardSchema.index({ status: 1 });
+cardSchema.index({ type: 1, status: 1 });
 
 module.exports = mongoose.model('Card', cardSchema);

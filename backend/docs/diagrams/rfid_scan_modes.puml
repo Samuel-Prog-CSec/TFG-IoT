@@ -1,0 +1,55 @@
+@startuml RFID_Scan_Modes
+
+!theme plain
+skinparam backgroundColor #FEFEFE
+
+title Sistema de Modos de Escaneo RFID
+
+state "idle" as IDLE {
+    IDLE : Sin operación activa
+    IDLE : Broadcast informativo
+}
+
+state "gameplay" as GAMEPLAY {
+    GAMEPLAY : Partida en curso
+    GAMEPLAY : Validar en GameEngine
+    GAMEPLAY : [Coexiste con otros modos]
+}
+
+state "card_registration" as REGISTRATION {
+    REGISTRATION : Registrando tarjeta
+    REGISTRATION : Timeout: 30s
+    REGISTRATION : Owner: socketId
+}
+
+state "card_assignment" as ASSIGNMENT {
+    ASSIGNMENT : Asignando a asset
+    ASSIGNMENT : Timeout: 60s
+    ASSIGNMENT : Context: assetKey
+}
+
+[*] --> IDLE
+
+IDLE --> REGISTRATION : start_card_registration
+IDLE --> ASSIGNMENT : start_card_assignment
+IDLE --> GAMEPLAY : startPlay()
+
+REGISTRATION --> IDLE : scan / cancel / timeout
+ASSIGNMENT --> IDLE : scan / cancel / timeout
+
+GAMEPLAY --> IDLE : endPlay()
+
+note right of GAMEPLAY
+  Las partidas tienen prioridad.
+  No se puede cambiar de gameplay
+  a otros modos (excepto idle).
+end note
+
+note left of REGISTRATION
+  Solo el dueño (socketId)
+  puede cancelar el modo.
+  Auto-reset si cliente
+  se desconecta.
+end note
+
+@enduml

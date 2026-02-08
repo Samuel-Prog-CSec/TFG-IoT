@@ -6,8 +6,8 @@
  */
 
 const { createClient } = require('@supabase/supabase-js');
-const path = require('path');
-const logger = require('../utils/logger');
+const path = require('node:path');
+const logger = require('../utils/logger').child({ component: 'storageService' });
 
 // Variables de entorno
 const SUPABASE_URL = process.env.SUPABASE_URL;
@@ -116,9 +116,9 @@ class StorageService {
 
     // Sanitizar la base: solo alfanuméricos y guiones bajos
     const sanitizedBase = base
-      .replace(/[^a-zA-Z0-9]/g, '_')
-      .replace(/_+/g, '_') // Colapsar múltiples guiones bajos
-      .replace(/^_|_$/g, '') // Eliminar guiones al inicio/final
+      .replaceAll(/[^a-zA-Z0-9]/g, '_')
+      .replaceAll(/_+/g, '_') // Colapsar múltiples guiones bajos
+      .replaceAll(/(^_)|(_$)/g, '') // Eliminar guiones al inicio/final
       .substring(0, STORAGE_CONFIG.MAX_FILENAME_LENGTH);
 
     // Devolver con extensión si existe

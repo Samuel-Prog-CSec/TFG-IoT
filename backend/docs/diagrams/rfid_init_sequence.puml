@@ -1,0 +1,41 @@
+@startuml RFID_Init_Sequence
+
+!theme plain
+skinparam backgroundColor #FEFEFE
+skinparam sequenceMessageAlign center
+
+title Flujo de Inicialización del Sistema RFID
+
+participant "Server\n(Node.js)" as Server
+participant "RFIDService" as RFID
+participant "Frontend" as FE
+participant "Web Serial" as WebSerial
+participant "ESP8266" as ESP
+
+== Arranque del Servidor ==
+
+Server -> Server : startServer()
+Server -> Server : connectDB()
+Server -> Server : connectRedis()
+
+Server -> RFID : start()
+RFID -> Server : emit('status', 'client_ready')
+Server -> FE : rfid_status\n{ status: 'client_ready' }
+
+== Conexión del Profesor ==
+
+FE -> WebSerial : connect()
+WebSerial -> ESP : Conexión USB
+
+activate ESP
+ESP -> ESP : Inicializar RC522
+ESP -> WebSerial : {"event":"init",\n"status":"success",\n"version":"0xB2"}
+deactivate ESP
+
+== Desconexión Inesperada ==
+
+ESP -> WebSerial : Puerto desconectado
+WebSerial -> FE : Estado local: desconectado
+FE -> Server : (opcional) notificar estado
+
+@enduml

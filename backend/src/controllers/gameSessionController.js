@@ -11,7 +11,11 @@ const Card = require('../models/Card');
 const CardDeck = require('../models/CardDeck');
 const { NotFoundError, ValidationError, ForbiddenError } = require('../utils/errors');
 const logger = require('../utils/logger');
-const { gameSessionDTO, gameSessionListDTO, paginationDTO } = require('../utils/dtos');
+const {
+  toGameSessionDetailDTOV1,
+  toGameSessionListDTOV1,
+  toPaginatedDTOV1
+} = require('../utils/dtos');
 
 const MIN_DECK_CARDS = 2;
 
@@ -158,7 +162,7 @@ const getSessions = async (req, res, next) => {
         .populate('contextId', 'contextId name')
         .populate('createdBy', 'name email')
         .sort(sortOptions)
-        .limit(parseInt(limit))
+        .limit(Number.parseInt(limit, 10))
         .skip(skip),
       GameSession.countDocuments(filter)
     ]);
@@ -171,9 +175,9 @@ const getSessions = async (req, res, next) => {
 
     res.json({
       success: true,
-      data: paginationDTO(gameSessionListDTO(sessions), {
-        page: parseInt(page),
-        limit: parseInt(limit),
+      ...toPaginatedDTOV1(toGameSessionListDTOV1(sessions), {
+        page: Number.parseInt(page, 10),
+        limit: Number.parseInt(limit, 10),
         total
       })
     });
@@ -229,7 +233,7 @@ const getSessionById = async (req, res, next) => {
 
     res.json({
       success: true,
-      data: gameSessionDTO(session)
+      data: toGameSessionDetailDTOV1(session)
     });
   } catch (error) {
     next(error);
@@ -249,7 +253,7 @@ const getSessionById = async (req, res, next) => {
  */
 const createSession = async (req, res, next) => {
   try {
-    const { mechanicId, contextId, deckId, config = {}, cardMappings } = req.body;
+    const { mechanicId, contextId, deckId, sensorId, config = {}, cardMappings } = req.body;
 
     // NUEVA REGLA: el mapping de la sesión SIEMPRE depende del mazo asignado.
     // Por tanto, no aceptamos cardMappings manuales al crear la sesión.
@@ -278,6 +282,7 @@ const createSession = async (req, res, next) => {
       deckId,
       // contextId / cardMappings / numberOfCards se rellenan al sincronizar
       contextId: contextId || undefined,
+      sensorId,
       config: {
         ...config
       },
@@ -323,13 +328,14 @@ const createSession = async (req, res, next) => {
       contextId: context.contextId,
       cardsCount: syncedMappings.length,
       deckId,
+      sensorId,
       createdBy: req.user._id
     });
 
     res.status(201).json({
       success: true,
       message: 'Sesión creada exitosamente',
-      data: gameSessionDTO(session)
+      data: toGameSessionDetailDTOV1(session)
     });
   } catch (error) {
     next(error);
@@ -351,7 +357,7 @@ const createSession = async (req, res, next) => {
 const updateSession = async (req, res, next) => {
   try {
     const { id } = req.params;
-    const { deckId, config } = req.body;
+    const { deckId, sensorId, config } = req.body;
 
     const session = await GameSession.findById(id);
 
@@ -372,6 +378,10 @@ const updateSession = async (req, res, next) => {
     // Si se proporciona deckId, se cambia el mazo. Si no, se mantiene.
     if (deckId !== undefined) {
       session.deckId = deckId;
+    }
+
+    if (sensorId !== undefined) {
+      session.sensorId = sensorId;
     }
 
     if (!session.deckId) {
@@ -400,7 +410,7 @@ const updateSession = async (req, res, next) => {
     res.json({
       success: true,
       message: 'Sesión actualizada exitosamente',
-      data: gameSessionDTO(session)
+      data: toGameSessionDetailDTOV1(session)
     });
   } catch (error) {
     next(error);
@@ -509,50 +519,7 @@ const startSession = async (req, res, next) => {
     res.json({
       success: true,
       message: 'Sesión iniciada exitosamente',
-      data: gameSessionDTO(session)
-    });
-  } catch (error) {
-    next(error);
-  }
-};
-
-/**
- * Pausar una sesión activa.
- *
- * POST /api/sessions/:id/pause
- * Headers: Authorization: Bearer <token>
- *
- * @param {import('express').Request} req
- * @param {import('express').Response} res
- * @param {import('express').NextFunction} next
- */
-const pauseSession = async (req, res, next) => {
-  try {
-    const { id } = req.params;
-
-    const session = await GameSession.findById(id);
-
-    if (!session) {
-      throw new NotFoundError('Sesión de juego');
-    }
-
-    // Verificar permisos
-    if (session.createdBy.toString() !== req.user._id.toString()) {
-      throw new ForbiddenError('No tienes permiso para pausar esta sesión');
-    }
-
-    // Usar el método del modelo
-    await session.pause();
-
-    logger.info('Sesión pausada', {
-      sessionId: session._id,
-      pausedBy: req.user._id
-    });
-
-    res.json({
-      success: true,
-      message: 'Sesión pausada exitosamente',
-      data: gameSessionDTO(session)
+      data: toGameSessionDetailDTOV1(session)
     });
   } catch (error) {
     next(error);
@@ -595,7 +562,7 @@ const endSession = async (req, res, next) => {
     res.json({
       success: true,
       message: 'Sesión finalizada exitosamente',
-      data: gameSessionDTO(session)
+      data: toGameSessionDetailDTOV1(session)
     });
   } catch (error) {
     next(error);
@@ -609,6 +576,5 @@ module.exports = {
   updateSession,
   deleteSession,
   startSession,
-  pauseSession,
   endSession
 };

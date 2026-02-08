@@ -37,7 +37,7 @@ describe('Redis State Recovery - GameEngine.recoverActivePlays()', () => {
   beforeAll(async () => {
     // Conectar Redis (mock)
     await connectRedis();
-    
+
     // Crear mock de Socket.IO
     mockIo = {
       to: jest.fn().mockReturnThis(),
@@ -53,7 +53,7 @@ describe('Redis State Recovery - GameEngine.recoverActivePlays()', () => {
     if (gameEngine.cleanupInterval) {
       clearInterval(gameEngine.cleanupInterval);
     }
-    
+
     await disconnectRedis();
   });
 
@@ -84,7 +84,7 @@ describe('Redis State Recovery - GameEngine.recoverActivePlays()', () => {
     teacher = await User.create({
       name: 'Test Teacher',
       email: 'recovery-test@test.com',
-      password: 'password123',
+      password: 'Password123',
       role: 'teacher',
       status: 'active',
       accountStatus: 'approved'
@@ -236,10 +236,7 @@ describe('Redis State Recovery - GameEngine.recoverActivePlays()', () => {
 
       // Verificar que la partida está en Redis
       const playId = play._id.toString();
-      const redisStateBefore = await redisService.hgetall(
-        redisService.NAMESPACES.PLAY,
-        playId
-      );
+      const redisStateBefore = await redisService.hgetall(redisService.NAMESPACES.PLAY, playId);
       expect(redisStateBefore).toBeTruthy();
       expect(redisStateBefore.playDocId).toBe(playId);
 
@@ -260,10 +257,7 @@ describe('Redis State Recovery - GameEngine.recoverActivePlays()', () => {
       expect(restartEvent.roundNumber).toBe(play.currentRound);
 
       // Assert: Verificar que Redis fue limpiado
-      const redisStateAfter = await redisService.hgetall(
-        redisService.NAMESPACES.PLAY,
-        playId
-      );
+      const redisStateAfter = await redisService.hgetall(redisService.NAMESPACES.PLAY, playId);
       expect(redisStateAfter).toBeNull();
 
       // Assert: Verificar que las tarjetas fueron liberadas de Redis
@@ -284,12 +278,15 @@ describe('Redis State Recovery - GameEngine.recoverActivePlays()', () => {
 
       // Assert: Verificar que se emitió el evento
       expect(mockIo.to).toHaveBeenCalledWith(`play_${playId}`);
-      expect(mockIo.emit).toHaveBeenCalledWith('play_interrupted', expect.objectContaining({
-        playId,
-        reason: 'server_restart',
-        message: expect.any(String),
-        finalScore: play.score
-      }));
+      expect(mockIo.emit).toHaveBeenCalledWith(
+        'play_interrupted',
+        expect.objectContaining({
+          playId,
+          reason: 'server_restart',
+          message: expect.any(String),
+          finalScore: play.score
+        })
+      );
     });
 
     it('debería recuperar múltiples partidas huérfanas', async () => {
@@ -300,7 +297,7 @@ describe('Redis State Recovery - GameEngine.recoverActivePlays()', () => {
         // Crear nuevas tarjetas para cada partida (UIDs hexadecimales válidos de 8 chars)
         const uidA = `BB${i}00A0${i}`;
         const uidB = `BB${i}00B0${i}`;
-        
+
         const cardA = await Card.create({
           uid: uidA,
           type: 'NTAG',
@@ -422,10 +419,7 @@ describe('Redis State Recovery - GameEngine.recoverActivePlays()', () => {
       expect(recoveredCount).toBe(0);
 
       // Assert: Redis debería estar limpio
-      const redisStateAfter = await redisService.hgetall(
-        redisService.NAMESPACES.PLAY,
-        fakePlayId
-      );
+      const redisStateAfter = await redisService.hgetall(redisService.NAMESPACES.PLAY, fakePlayId);
       expect(redisStateAfter).toBeNull();
     });
 

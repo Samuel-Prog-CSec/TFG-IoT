@@ -1,16 +1,19 @@
 # 🐳 Docker - Plataforma de Juegos Educativos con RFID
 
-Este documento describe la configuración de Docker para el entorno de desarrollo del proyecto.
+Este documento describe la configuración de Docker para el entorno de desarrollo y producción del proyecto.
 
 ## Índice
 
 - [Requisitos](#requisitos)
 - [Inicio Rápido](#inicio-rápido)
-- [Servicios Disponibles](#servicios-disponibles)
+- [Arquitectura de Servicios](#arquitectura-de-servicios)
 - [Comandos Útiles](#comandos-útiles)
-- [Perfiles](#perfiles)
+- [Perfiles de Ejecución](#perfiles-de-ejecución)
 - [Configuración](#configuración)
+- [Desarrollo con Hot Reload](#desarrollo-con-hot-reload)
+- [Producción](#producción)
 - [Persistencia de Datos](#persistencia-de-datos)
+- [Health Checks](#health-checks)
 - [Troubleshooting](#troubleshooting)
 
 ---
@@ -22,7 +25,7 @@ Este documento describe la configuración de Docker para el entorno de desarroll
 
 ### Verificar instalación
 
-```powershell
+```bash
 docker --version
 # Docker version 24.0.0 o superior
 
@@ -34,124 +37,144 @@ docker compose version
 
 ## Inicio Rápido
 
-### 1. Iniciar Redis (mínimo necesario)
+### 1. Clonar y configurar variables de entorno
 
-```powershell
-# Desde la raíz del proyecto
-docker compose up -d redis
+```bash
+cp .env.example .env
+# Editar .env con tus valores
 ```
 
-### 2. Verificar que Redis está corriendo
+### 2. Levantar todo el stack
 
-```powershell
+```bash
+docker compose up -d
+```
+
+### 3. Verificar que todos los servicios están healthy
+
+```bash
 docker compose ps
-# Debería mostrar: rfid-games-redis ... healthy
-
-# Probar conexión
-docker exec rfid-games-redis redis-cli ping
-# Respuesta: PONG
+# Todos los servicios deberían mostrar "healthy"
 ```
 
-### 3. Iniciar el backend
+### 4. Acceder a la aplicación
 
-```powershell
-cd backend
-npm run dev
-```
+- **Frontend:** http://localhost
+- **API:** http://localhost/api
+- **Backend directo:** http://localhost:5000
 
 ---
 
-## Servicios Disponibles
+## Arquitectura de Servicios
 
-| Servicio | Puerto | Descripción | Perfil |
-|----------|--------|-------------|--------|
-| **redis** | 6379 | Caché, tokens, estado de partidas | default |
-| **redis-commander** | 8081 | UI web para inspeccionar Redis | debug |
+```
+┌─────────────────────────────────────────────────────────────────┐
+│                         Docker Network                          │
+│                      (rfid-games-network)                       │
+├─────────────────────────────────────────────────────────────────┤
+│                                                                 │
+│   ┌──────────────┐        ┌──────────────┐                      │
+│   │   Frontend   │───────▶│   Backend    │                      │
+│   │   (Nginx)    │        │  (Node.js)   │                      │
+│   │   :80        │        │   :5000      │                      │
+│   └──────────────┘        └──────┬───────┘                      │
+│                                  │                              │
+│              ┌───────────────────┼───────────────────┐          │
+│              ▼                   ▼                   ▼          │
+│   ┌──────────────┐     ┌──────────────┐    ┌──────────────┐     │
+│   │    Redis     │     │   MongoDB    │    │  [Debug]     │     │
+│   │   :6379      │     │   :27017     │    │  Tools       │     │
+│   └──────────────┘     └──────────────┘    └──────────────┘     │
+│                                                                 │
+└─────────────────────────────────────────────────────────────────┘
+```
 
-> **Nota sobre MongoDB**: Este proyecto utiliza **MongoDB Atlas** (cloud) o una instalación local de MongoDB, **no Docker**. Configura la conexión en la variable de entorno `MONGO_URI` del backend.
+### Servicios Disponibles
+
+| Servicio            | Puerto | Descripción                       | Perfil  |
+| ------------------- | ------ | --------------------------------- | ------- |
+| **frontend**        | 80     | React SPA con Nginx               | default |
+| **backend**         | 5000   | API REST Node.js/Express          | default |
+| **mongo**           | 27017  | Base de datos MongoDB             | default |
+| **redis**           | 6379   | Caché, tokens, estado de partidas | default |
+| **redis-commander** | 8081   | UI web para Redis                 | debug   |
+| **mongo-express**   | 8082   | UI web para MongoDB               | debug   |
 
 ---
 
 ## Comandos Útiles
 
-### Gestión de Servicios
+### Gestión del Stack
 
-```powershell
-# Iniciar solo Redis
-docker compose up -d redis
+```bash
+# Iniciar todos los servicios
+docker compose up -d
 
-# Iniciar Redis + UI de debugging
+# Iniciar con herramientas de debug
 docker compose --profile debug up -d
 
 # Detener todos los servicios
 docker compose down
 
-# Detener y eliminar volúmenes (⚠️ borra datos)
-docker compose down -v
+# Reiniciar un servicio específico
+docker compose restart backend
+
+# Reconstruir imágenes (después de cambios en Dockerfile)
+docker compose build --no-cache
+
+# Ver estado de todos los servicios
+docker compose ps
 ```
 
 ### Logs
 
-```powershell
-# Ver logs de Redis en tiempo real
-docker compose logs -f redis
-
-# Ver últimas 100 líneas de logs
-docker compose logs --tail 100 redis
-
+```bash
 # Ver logs de todos los servicios
 docker compose logs -f
+
+# Ver logs de un servicio específico
+docker compose logs -f backend
+
+# Ver últimas 100 líneas
+docker compose logs --tail 100 backend
 ```
 
-### Acceso a Redis CLI
+### Ejecución de Comandos
 
-```powershell
-# Abrir shell interactivo de Redis
-docker exec -it rfid-games-redis redis-cli
+```bash
+# Ejecutar seed de base de datos
+docker compose exec backend npm run seed
 
-# Comandos útiles dentro de redis-cli:
-> PING                          # Verificar conexión
-> KEYS *                        # Listar todas las keys
-> KEYS rfid-games:*             # Listar keys del proyecto
-> GET rfid-games:blacklist:xyz  # Obtener valor
-> TTL rfid-games:blacklist:xyz  # Ver tiempo restante
-> FLUSHDB                       # ⚠️ Borrar toda la DB
-> INFO                          # Estadísticas del servidor
-> MONITOR                       # Ver comandos en tiempo real
-```
+# Reset completo de base de datos
+docker compose exec backend npm run seed:reset
 
-### Inspeccionar Estado
+# Acceder a shell de MongoDB
+docker compose exec mongo mongosh rfid_games_db
 
-```powershell
-# Ver estado de contenedores
-docker compose ps
-
-# Ver uso de recursos
-docker stats rfid-games-redis
-
-# Ver información detallada
-docker inspect rfid-games-redis
+# Acceder a Redis CLI
+docker compose exec redis redis-cli
 ```
 
 ---
 
-## Perfiles
+## Perfiles de Ejecución
 
-Docker Compose soporta perfiles para iniciar diferentes conjuntos de servicios:
+### Perfil Default (Producción)
 
-### Perfil por defecto (solo Redis)
-
-```powershell
+```bash
 docker compose up -d
-# Inicia: redis
+# Inicia: frontend, backend, mongo, redis
 ```
 
-### Perfil `debug` (Redis + UI)
+### Perfil Debug (Desarrollo)
 
-```powershell
+```bash
 docker compose --profile debug up -d
-# Inicia: redis, redis-commander
-# Acceder a UI: http://localhost:8081
+# Inicia: todo + redis-commander + mongo-express
+
+# Acceder a herramientas:
+# Redis Commander: http://localhost:8081
+# Mongo Express:   http://localhost:8082
 ```
 
 ---
@@ -160,25 +183,78 @@ docker compose --profile debug up -d
 
 ### Variables de Entorno
 
-Puedes personalizar puertos y configuración creando un archivo `.env` en la raíz:
+El archivo `.env` en la raíz del proyecto configura todos los servicios:
 
 ```env
-# Puertos personalizados
+# Entorno
+NODE_ENV=development
+
+# Puertos personalizados (opcional)
 REDIS_PORT=6379
 REDIS_COMMANDER_PORT=8081
+MONGO_EXPRESS_PORT=8082
+
+# Credenciales (importante en producción)
+JWT_SECRET=tu_secret_seguro
+JWT_REFRESH_SECRET=otro_secret_seguro
 ```
 
 ### Configuración de Redis
 
-El contenedor Redis está configurado con:
-
-| Parámetro | Valor | Descripción |
-|-----------|-------|-------------|
-| `appendonly` | yes | Persistencia AOF activada |
-| `appendfsync` | everysec | Sync a disco cada segundo |
-| `maxmemory` | 256mb | Límite de memoria |
+| Parámetro          | Valor       | Descripción               |
+| ------------------ | ----------- | ------------------------- |
+| `appendonly`       | yes         | Persistencia AOF activada |
+| `appendfsync`      | everysec    | Sync a disco cada segundo |
+| `maxmemory`        | 256mb       | Límite de memoria         |
 | `maxmemory-policy` | allkeys-lru | Evicción LRU cuando lleno |
-| `tcp-keepalive` | 60 | Keepalive cada 60s |
+
+---
+
+## Desarrollo con Hot Reload
+
+Para desarrollo activo con hot-reload (cambios en código se reflejan inmediatamente):
+
+```bash
+docker compose -f docker-compose.yml -f docker-compose.dev.yml up -d
+```
+
+Esto monta los directorios `frontend/` y `backend/` como volúmenes, permitiendo:
+
+- **Frontend:** Vite dev server con HMR en puerto 5173
+- **Backend:** Nodemon con auto-restart
+- **Debug:** Puerto 9229 para debugger de Node.js
+
+---
+
+## Producción
+
+Para desplegar en producción:
+
+```bash
+docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d
+```
+
+Características del modo producción:
+
+- ✅ `restart: always` en todos los servicios
+- ✅ Límites de recursos (memoria y CPU)
+- ✅ Puertos internos no expuestos (MongoDB, Redis)
+- ✅ Logging con rotación de archivos
+- ✅ Sin seed automático de base de datos
+- ✅ Redis con configuración optimizada
+
+### Tamaño de Imágenes
+
+| Imagen              | Tamaño Esperado |
+| ------------------- | --------------- |
+| rfid-games-backend  | ~180MB          |
+| rfid-games-frontend | ~25MB           |
+
+Verificar tamaños:
+
+```bash
+docker images | grep rfid-games
+```
 
 ---
 
@@ -186,96 +262,126 @@ El contenedor Redis está configurado con:
 
 ### Volúmenes
 
-Los datos de Redis se persisten en volúmenes Docker:
-
-| Volumen | Servicio | Ubicación en contenedor |
-|---------|----------|-------------------------|
-| `rfid-games-redis-data` | redis | `/data` |
+| Volumen                 | Servicio | Datos                  |
+| ----------------------- | -------- | ---------------------- |
+| `rfid-games-mongo-data` | MongoDB  | Base de datos completa |
+| `rfid-games-redis-data` | Redis    | Caché y tokens         |
 
 ### Ver volúmenes
 
-```powershell
-docker volume ls | findstr rfid-games
+```bash
+docker volume ls | grep rfid-games
 ```
 
-### Backup de Redis
+### Backup
 
-```powershell
-# Forzar snapshot
-docker exec rfid-games-redis redis-cli BGSAVE
+```bash
+# Backup de MongoDB
+docker compose exec mongo mongodump --out /data/backup
+docker cp rfid-games-mongo:/data/backup ./backups/mongo-$(date +%Y%m%d)
 
-# Copiar archivo de backup
-docker cp rfid-games-redis:/data/dump.rdb ./backup/redis-dump.rdb
+# Backup de Redis
+docker compose exec redis redis-cli BGSAVE
+docker cp rfid-games-redis:/data/dump.rdb ./backups/redis-$(date +%Y%m%d).rdb
 ```
 
-### Restaurar Redis
+### Restaurar
 
-```powershell
-# Detener Redis
+```bash
+# Restaurar MongoDB
+docker cp ./backups/mongo-20240101 rfid-games-mongo:/data/backup
+docker compose exec mongo mongorestore /data/backup
+
+# Restaurar Redis
 docker compose stop redis
-
-# Copiar backup al volumen
-docker cp ./backup/redis-dump.rdb rfid-games-redis:/data/dump.rdb
-
-# Reiniciar
+docker cp ./backups/redis-20240101.rdb rfid-games-redis:/data/dump.rdb
 docker compose start redis
+```
+
+---
+
+## Health Checks
+
+Todos los servicios tienen health checks configurados:
+
+| Servicio | Endpoint/Comando | Intervalo |
+| -------- | ---------------- | --------- |
+| frontend | `GET /health`    | 30s       |
+| backend  | `GET /health`    | 30s       |
+| mongo    | `mongosh ping`   | 30s       |
+| redis    | `redis-cli ping` | 10s       |
+
+Verificar salud:
+
+```bash
+docker compose ps
+# Columna STATUS debe mostrar "healthy"
+
+# Health check manual del backend
+curl http://localhost:5000/health
 ```
 
 ---
 
 ## Troubleshooting
 
-### Redis no inicia
+### Servicio no inicia
 
-```powershell
-# Ver logs de error
-docker compose logs redis
+```bash
+# Ver logs del servicio
+docker compose logs backend
 
-# Verificar que el puerto no está ocupado
-netstat -an | findstr 6379
+# Verificar que los puertos no están ocupados
+lsof -i :5000
 
-# Reiniciar contenedor
-docker compose restart redis
+# Reintentar desde cero
+docker compose down
+docker compose up -d
 ```
 
-### Error de conexión desde Node.js
+### Error de conexión entre servicios
 
-1. Verificar que Redis está corriendo:
-   ```powershell
-   docker compose ps
-   ```
+```bash
+# Verificar que todos están en la misma red
+docker network inspect rfid-games-network
 
-2. Verificar variable de entorno en backend:
-   ```env
-   REDIS_URL=redis://localhost:6379
-   ```
-
-3. Probar conexión manual:
-   ```powershell
-   docker exec rfid-games-redis redis-cli ping
-   ```
+# Probar conectividad desde backend
+docker compose exec backend ping mongo
+docker compose exec backend ping redis
+```
 
 ### Limpiar todo y empezar de nuevo
 
-```powershell
+```bash
 # Detener y eliminar contenedores, redes y volúmenes
 docker compose down -v
 
-# Eliminar imágenes descargadas (opcional)
-docker rmi redis:7-alpine rediscommander/redis-commander:latest
+# Eliminar imágenes del proyecto
+docker rmi $(docker images 'rfid-games-*' -q)
 
 # Iniciar desde cero
-docker compose up -d redis
+docker compose build --no-cache
+docker compose up -d
 ```
 
-### Puerto ocupado
+### MongoDB no conecta
 
-```powershell
-# Encontrar proceso usando el puerto
-netstat -ano | findstr :6379
+```bash
+# Verificar estado
+docker compose logs mongo
 
-# Cambiar puerto en .env
-REDIS_PORT=6380
+# Acceder manualmente
+docker compose exec mongo mongosh --eval "db.adminCommand('ping')"
+```
+
+### Redis lleno
+
+```bash
+# Ver uso de memoria
+docker compose exec redis redis-cli INFO memory
+
+# Limpiar caché manualmente (⚠️ elimina tokens activos)
+docker compose exec redis redis-cli FLUSHDB
 ```
 
 ---
@@ -284,19 +390,20 @@ REDIS_PORT=6380
 
 El proyecto usa el prefijo `rfid-games:` para todas las keys:
 
-| Key Pattern | Tipo | TTL | Descripción |
-|-------------|------|-----|-------------|
-| `rfid-games:blacklist:{jti}` | String | Hasta exp token | Access tokens revocados |
-| `rfid-games:refresh:{jti}` | Hash | 7 días | Refresh tokens activos |
-| `rfid-games:used:{jti}` | String | 7 días | Refresh tokens rotados |
-| `rfid-games:play:{playId}` | Hash | - | Estado de partida activa |
-| `rfid-games:card:{uid}` | String | - | Mapeo UID → playId |
-| `rfid-games:security:{userId}` | String | 1 hora | Logout forzado |
+| Key Pattern                    | Tipo   | TTL             | Descripción              |
+| ------------------------------ | ------ | --------------- | ------------------------ |
+| `rfid-games:blacklist:{jti}`   | String | Hasta exp token | Access tokens revocados  |
+| `rfid-games:refresh:{jti}`     | Hash   | 7 días          | Refresh tokens activos   |
+| `rfid-games:used:{jti}`        | String | 7 días          | Refresh tokens rotados   |
+| `rfid-games:play:{playId}`     | Hash   | -               | Estado de partida activa |
+| `rfid-games:card:{uid}`        | String | -               | Mapeo UID → playId       |
+| `rfid-games:security:{userId}` | String | 1 hora          | Logout forzado           |
 
 ---
 
 ## Recursos
 
-- [Documentación oficial de Redis](https://redis.io/docs/)
-- [Docker Compose Reference](https://docs.docker.com/compose/compose-file/)
-- [Redis Commander GitHub](https://github.com/joeferner/redis-commander)
+- [Documentación oficial de Docker Compose](https://docs.docker.com/compose/)
+- [Redis Documentation](https://redis.io/docs/)
+- [MongoDB Docker Hub](https://hub.docker.com/_/mongo)
+- [Nginx Documentation](https://nginx.org/en/docs/)
