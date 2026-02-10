@@ -65,6 +65,10 @@ class SocketService {
         return;
       }
 
+      if (this.socket) {
+        this.disconnect();
+      }
+
       const token = getAccessToken();
       
       this.socket = io(SOCKET_URL, {

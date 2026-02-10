@@ -4,9 +4,10 @@
  * @module controllers/gamePlayController
  */
 
-const GamePlay = require('../models/GamePlay');
-const GameSession = require('../models/GameSession');
-const User = require('../models/User');
+const gamePlayRepository = require('../repositories/gamePlayRepository');
+const gameSessionRepository = require('../repositories/gameSessionRepository');
+const userRepository = require('../repositories/userRepository');
+const gamePlayService = require('../services/gamePlayService');
 const { NotFoundError, ValidationError, ForbiddenError } = require('../utils/errors');
 const logger = require('../utils/logger');
 const {
@@ -66,12 +67,17 @@ const getPlays = async (req, res, next) => {
 
     if (req.user.role === 'teacher') {
       if (sessionId) {
-        const session = await GameSession.findById(sessionId).select('createdBy');
+        const session = await gameSessionRepository.findById(sessionId, {
+          select: 'createdBy'
+        });
         if (!session || session.createdBy.toString() !== req.user._id.toString()) {
           throw new ForbiddenError('No tienes permiso para ver partidas de esta sesión');
         }
       } else {
-        const sessions = await GameSession.find({ createdBy: req.user._id }).select('_id');
+        const sessions = await gameSessionRepository.find(
+          { createdBy: req.user._id },
+          { select: '_id' }
+        );
         filter.sessionId = { $in: sessions.map(s => s._id) };
       }
     }
@@ -82,13 +88,16 @@ const getPlays = async (req, res, next) => {
 
     // Ejecutar query con populate
     const [plays, total] = await Promise.all([
-      GamePlay.find(filter)
-        .populate('sessionId', 'mechanicId contextId config difficulty')
-        .populate('playerId', 'name profile.age profile.classroom')
-        .sort(sortOptions)
-        .limit(Number.parseInt(limit, 10))
-        .skip(skip),
-      GamePlay.countDocuments(filter)
+      gamePlayRepository.find(filter, {
+        populate: [
+          { path: 'sessionId', select: 'mechanicId contextId config difficulty' },
+          { path: 'playerId', select: 'name profile.age profile.classroom' }
+        ],
+        sort: sortOptions,
+        limit: Number.parseInt(limit, 10),
+        skip
+      }),
+      gamePlayRepository.count(filter)
     ]);
 
     logger.info('Lista de partidas obtenida', {
@@ -124,21 +133,26 @@ const getPlayById = async (req, res, next) => {
   try {
     const { id } = req.params;
 
-    const play = await GamePlay.findById(id)
-      .populate({
-        path: 'sessionId',
-        populate: [
-          { path: 'mechanicId', select: 'name displayName icon' },
-          { path: 'contextId', select: 'contextId name assets' }
-        ]
-      })
-      .populate('playerId', 'name profile');
+    const play = await gamePlayRepository.findById(id, {
+      populate: [
+        {
+          path: 'sessionId',
+          populate: [
+            { path: 'mechanicId', select: 'name displayName icon' },
+            { path: 'contextId', select: 'contextId name assets' }
+          ]
+        },
+        { path: 'playerId', select: 'name profile' }
+      ]
+    });
 
     if (!play) {
       throw new NotFoundError('Partida');
     }
 
-    const session = await GameSession.findById(play.sessionId._id).select('createdBy');
+    const session = await gameSessionRepository.findById(play.sessionId._id, {
+      select: 'createdBy'
+    });
     const isCreator = session?.createdBy?.toString() === req.user._id.toString();
 
     if (!isCreator && req.user.role !== 'super_admin') {
@@ -170,62 +184,10 @@ const createPlay = async (req, res, next) => {
   try {
     const { sessionId, playerId } = req.body;
 
-    // Verificar que la sesión existe y está activa
-    const session = await GameSession.findById(sessionId);
-    if (!session) {
-      throw new NotFoundError('Sesión de juego');
-    }
-
-    if (!session.isActive()) {
-      throw new ValidationError('La sesión no está activa');
-    }
-
-    // Verificar permisos: solo el creador de la sesión puede crear partidas
-    if (session.createdBy.toString() !== req.user._id.toString()) {
-      throw new ForbiddenError('No tienes permiso para crear partidas en esta sesión');
-    }
-
-    // Verificar que el jugador existe y es un estudiante
-    const player = await User.findById(playerId);
-    if (!player) {
-      throw new NotFoundError('Jugador');
-    }
-
-    if (player.role !== 'student') {
-      throw new ValidationError('Solo los estudiantes pueden jugar partidas');
-    }
-
-    // Verificar que no existe ya una partida activa para este jugador en esta sesión
-    const existingPlay = await GamePlay.findOne({
+    const play = await gamePlayService.createPlay({
       sessionId,
       playerId,
-      status: { $in: ['in-progress', 'paused'] }
-    });
-
-    if (existingPlay) {
-      throw new ValidationError('El jugador ya tiene una partida activa en esta sesión');
-    }
-
-    // Crear la partida
-    const play = await GamePlay.create({
-      sessionId,
-      playerId,
-      status: 'in-progress',
-      score: 0,
-      currentRound: 1
-    });
-
-    // Populate para respuesta
-    await play.populate([
-      { path: 'sessionId', select: 'mechanicId contextId config difficulty' },
-      { path: 'playerId', select: 'name profile' }
-    ]);
-
-    logger.info('Partida creada', {
-      playId: play._id,
-      sessionId,
-      playerId,
-      createdBy: req.user._id
+      creatorId: req.user._id
     });
 
     res.status(201).json({
@@ -253,7 +215,7 @@ const pausePlay = async (req, res, next) => {
   try {
     const { id } = req.params;
 
-    const play = await GamePlay.findById(id).populate('sessionId');
+    const play = await gamePlayRepository.findById(id, { populate: 'sessionId' });
     if (!play) {
       throw new NotFoundError('Partida');
     }
@@ -284,7 +246,7 @@ const pausePlay = async (req, res, next) => {
       throw new ValidationError('La partida no está activa en el motor de juego');
     }
 
-    const updated = await GamePlay.findById(id);
+    const updated = await gamePlayRepository.findById(id);
 
     res.json({
       success: true,
@@ -311,7 +273,7 @@ const resumePlay = async (req, res, next) => {
   try {
     const { id } = req.params;
 
-    const play = await GamePlay.findById(id).populate('sessionId');
+    const play = await gamePlayRepository.findById(id, { populate: 'sessionId' });
     if (!play) {
       throw new NotFoundError('Partida');
     }
@@ -341,7 +303,7 @@ const resumePlay = async (req, res, next) => {
       throw new ValidationError('La partida no está activa en el motor de juego');
     }
 
-    const updated = await GamePlay.findById(id);
+    const updated = await gamePlayRepository.findById(id);
 
     res.json({
       success: true,
@@ -369,7 +331,7 @@ const addEvent = async (req, res, next) => {
     const { id } = req.params;
     const eventData = req.body;
 
-    const play = await GamePlay.findById(id);
+    const play = await gamePlayRepository.findById(id);
 
     if (!play) {
       throw new NotFoundError('Partida');
@@ -379,7 +341,9 @@ const addEvent = async (req, res, next) => {
       throw new ValidationError('La partida no está en progreso');
     }
 
-    const session = await GameSession.findById(play.sessionId).select('createdBy');
+    const session = await gameSessionRepository.findById(play.sessionId, {
+      select: 'createdBy'
+    });
     if (
       req.user.role !== 'super_admin' &&
       session?.createdBy?.toString() !== req.user._id.toString()
@@ -424,14 +388,12 @@ const completePlay = async (req, res, next) => {
   try {
     const { id } = req.params;
 
-    const play = await GamePlay.findById(id).populate('playerId').populate('sessionId');
+    const play = await gamePlayRepository.findById(id, {
+      populate: [{ path: 'sessionId', select: 'createdBy' }]
+    });
 
     if (!play) {
       throw new NotFoundError('Partida');
-    }
-
-    if (!play.isInProgress()) {
-      throw new ValidationError('La partida ya no está en progreso');
     }
 
     if (
@@ -441,31 +403,14 @@ const completePlay = async (req, res, next) => {
       throw new ForbiddenError('No tienes permiso para completar esta partida');
     }
 
-    // Usar el método del modelo para completar
-    await play.complete();
-
-    // Actualizar métricas del estudiante
-    const player = await User.findById(play.playerId._id);
-    await player.updateStudentMetrics({
-      score: play.score,
-      correctAttempts: play.metrics.correctAttempts,
-      errorAttempts: play.metrics.errorAttempts,
-      averageResponseTime: play.metrics.averageResponseTime
-    });
-
-    logger.info('Partida completada', {
-      playId: play._id,
-      playerId: play.playerId._id,
-      finalScore: play.score,
-      completedAt: play.completedAt
-    });
+    const result = await gamePlayService.completePlay(id);
 
     res.json({
       success: true,
       message: 'Partida completada exitosamente',
       data: {
-        ...toGamePlayDetailDTOV1(play),
-        rating: calculateRating(play.score, play.sessionId.config.pointsPerCorrect)
+        ...toGamePlayDetailDTOV1(result.play),
+        rating: result.rating
       }
     });
   } catch (error) {
@@ -487,7 +432,7 @@ const abandonPlay = async (req, res, next) => {
   try {
     const { id } = req.params;
 
-    const play = await GamePlay.findById(id);
+    const play = await gamePlayRepository.findById(id);
 
     if (!play) {
       throw new NotFoundError('Partida');
@@ -497,7 +442,9 @@ const abandonPlay = async (req, res, next) => {
       throw new ValidationError('La partida ya no está en progreso');
     }
 
-    const session = await GameSession.findById(play.sessionId).select('createdBy');
+    const session = await gameSessionRepository.findById(play.sessionId, {
+      select: 'createdBy'
+    });
     if (
       req.user.role !== 'super_admin' &&
       session?.createdBy?.toString() !== req.user._id.toString()
@@ -543,7 +490,7 @@ const getPlayerStats = async (req, res, next) => {
     const { sessionId } = req.query;
 
     if (req.user.role === 'teacher') {
-      const player = await User.findById(playerId).select('createdBy');
+      const player = await userRepository.findById(playerId, { select: 'createdBy' });
       if (!player || player.createdBy?.toString() !== req.user._id.toString()) {
         throw new ForbiddenError('No tienes permiso para ver estas estadísticas');
       }
@@ -555,7 +502,7 @@ const getPlayerStats = async (req, res, next) => {
     }
 
     // Calcular estadísticas agregadas
-    const stats = await GamePlay.aggregate([
+    const stats = await gamePlayRepository.aggregate([
       { $match: filter },
       {
         $group: {
@@ -606,32 +553,6 @@ const getPlayerStats = async (req, res, next) => {
     next(error);
   }
 };
-
-/**
- * Helper: Calcular rating basado en puntuación.
- *
- * @param {number} score - Puntuación final
- * @param {number} maxPointsPerRound - Puntos máximos por ronda
- * @param {number} rounds - Número total de rondas
- * @returns {string} Rating (⭐⭐⭐⭐⭐, ⭐⭐⭐⭐, etc.)
- */
-function calculateRating(score, maxPointsPerRound, rounds) {
-  const percentage = (score / (maxPointsPerRound * rounds)) * 100;
-
-  if (percentage >= 90) {
-    return '⭐⭐⭐⭐⭐';
-  }
-  if (percentage >= 75) {
-    return '⭐⭐⭐⭐';
-  }
-  if (percentage >= 60) {
-    return '⭐⭐⭐';
-  }
-  if (percentage >= 40) {
-    return '⭐⭐';
-  }
-  return '⭐';
-}
 
 module.exports = {
   getPlays,

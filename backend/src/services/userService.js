@@ -5,7 +5,7 @@
  * @module services/userService
  */
 
-const User = require('../models/User');
+const userRepository = require('../repositories/userRepository');
 const { NotFoundError, ValidationError, ConflictError } = require('../utils/errors');
 const logger = require('../utils/logger').child({ component: 'userService' });
 
@@ -24,7 +24,7 @@ async function validateEmailUniqueness(email, excludeUserId = null) {
     query._id = { $ne: excludeUserId };
   }
 
-  const existingUser = await User.findOne(query);
+  const existingUser = await userRepository.findOne(query);
 
   if (existingUser) {
     throw new ConflictError('El email ya está en uso');
@@ -41,7 +41,7 @@ async function validateEmailUniqueness(email, excludeUserId = null) {
  * @returns {Promise<void>}
  * @throws {ConflictError} Si el nombre ya existe para ese profesor
  */
-async function validateStudentNameUniqueness(name, teacherId, excludeUserId = null) {
+async function findDuplicateStudent({ name, teacherId, classroom, excludeUserId = null }) {
   const query = {
     role: 'student',
     name,
@@ -52,10 +52,26 @@ async function validateStudentNameUniqueness(name, teacherId, excludeUserId = nu
     query._id = { $ne: excludeUserId };
   }
 
-  const existingStudent = await User.findOne(query);
+  if (classroom) {
+    query['profile.classroom'] = classroom;
+  }
+
+  return userRepository.findOne(query);
+}
+
+async function validateStudentNameUniqueness(name, teacherId, classroom, excludeUserId = null) {
+  const existingStudent = await findDuplicateStudent({
+    name,
+    teacherId,
+    classroom,
+    excludeUserId
+  });
 
   if (existingStudent) {
-    throw new ConflictError(`Ya tienes un alumno llamado "${name}"`);
+    const message = classroom
+      ? `Ya tienes un alumno llamado "${name}" en la clase "${classroom}"`
+      : `Ya tienes un alumno llamado "${name}"`;
+    throw new ConflictError(message);
   }
 }
 
@@ -68,7 +84,7 @@ async function validateStudentNameUniqueness(name, teacherId, excludeUserId = nu
  * @throws {ValidationError} Si el usuario no es profesor
  */
 async function validateTeacher(teacherId) {
-  const teacher = await User.findById(teacherId);
+  const teacher = await userRepository.findById(teacherId);
 
   if (!teacher) {
     throw new NotFoundError('Profesor');
@@ -99,7 +115,7 @@ async function createStudent(studentData) {
   await validateTeacher(createdBy);
 
   // Validar que el nombre no esté duplicado para este profesor
-  await validateStudentNameUniqueness(name, createdBy);
+  await validateStudentNameUniqueness(name, createdBy, profile?.classroom);
 
   // Validar edad obligatoria para estudiantes
   if (!profile?.age) {
@@ -111,7 +127,7 @@ async function createStudent(studentData) {
   }
 
   // Crear estudiante (sin email ni password)
-  const student = await User.create({
+  const student = await userRepository.create({
     name,
     role: 'student',
     profile,
@@ -144,7 +160,7 @@ async function createStudent(studentData) {
  * @throws {ValidationError} Si intenta modificar el role o actualizar datos inválidos
  */
 async function updateUser(userId, updates, requestingUserId) {
-  const user = await User.findById(userId);
+  const user = await userRepository.findById(userId);
 
   if (!user) {
     throw new NotFoundError('Usuario');
@@ -165,7 +181,12 @@ async function updateUser(userId, updates, requestingUserId) {
 
   // Si actualiza nombre de estudiante, validar unicidad con el mismo profesor
   if (updates.name && updates.name !== user.name && user.role === 'student') {
-    await validateStudentNameUniqueness(updates.name, user.createdBy, userId);
+    await validateStudentNameUniqueness(
+      updates.name,
+      user.createdBy,
+      updates.profile?.classroom,
+      userId
+    );
   }
 
   // Actualizar campos
@@ -202,7 +223,7 @@ async function updateUser(userId, updates, requestingUserId) {
  * @throws {NotFoundError} Si el estudiante no existe
  */
 async function getStudentComparativeStats(studentId) {
-  const student = await User.findById(studentId);
+  const student = await userRepository.findById(studentId);
 
   if (!student) {
     throw new NotFoundError('Estudiante');
@@ -213,7 +234,7 @@ async function getStudentComparativeStats(studentId) {
   }
 
   // Obtener media de la clase (alumnos del mismo profesor)
-  const classStats = await User.aggregate([
+  const classStats = await userRepository.aggregate([
     {
       $match: {
         role: 'student',
@@ -291,13 +312,14 @@ async function getStudentComparativeStats(studentId) {
  * @returns {Promise<Array>} Lista de estudiantes con métricas
  */
 async function getTeacherStudents(teacherId) {
-  const students = await User.find({
-    role: 'student',
-    createdBy: teacherId,
-    status: 'active'
-  })
-    .select('name profile.age profile.classroom studentMetrics createdAt')
-    .sort({ name: 1 });
+  const students = await userRepository.find(
+    {
+      role: 'student',
+      createdBy: teacherId,
+      status: 'active'
+    },
+    { select: 'name profile.age profile.classroom studentMetrics createdAt', sort: { name: 1 } }
+  );
 
   logger.info('Estudiantes obtenidos via service', {
     teacherId,
@@ -317,7 +339,7 @@ async function getTeacherStudents(teacherId) {
  * @throws {ValidationError} Si el profesor tiene estudiantes activos
  */
 async function validateUserDeletion(userId) {
-  const user = await User.findById(userId);
+  const user = await userRepository.findById(userId);
 
   if (!user) {
     throw new NotFoundError('Usuario');
@@ -325,7 +347,7 @@ async function validateUserDeletion(userId) {
 
   // Si es profesor, verificar que no tenga estudiantes activos
   if (user.role === 'teacher') {
-    const activeStudents = await User.countDocuments({
+    const activeStudents = await userRepository.count({
       role: 'student',
       createdBy: userId,
       status: 'active'
@@ -349,5 +371,6 @@ module.exports = {
   validateUserDeletion,
   validateEmailUniqueness,
   validateStudentNameUniqueness,
+  findDuplicateStudent,
   validateTeacher
 };

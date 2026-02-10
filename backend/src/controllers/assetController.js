@@ -4,12 +4,13 @@
  * @module controllers/assetController
  */
 
-const GameContext = require('../models/GameContext');
+const gameContextRepository = require('../repositories/gameContextRepository');
 const storageService = require('../services/storageService.js');
 const imageProcessingService = require('../services/imageProcessingService');
 const audioValidationService = require('../services/audioValidationService');
 const logger = require('../utils/logger');
 const { NotFoundError, ValidationError, ConflictError } = require('../utils/errors');
+const { toAssetDTOV1 } = require('../utils/dtos');
 
 /**
  * Límite máximo de assets por contexto.
@@ -27,7 +28,7 @@ const MAX_ASSETS_PER_CONTEXT = 30;
  * @throws {ValidationError} Si se alcanzó el límite de assets
  */
 async function getContextAndValidateLimit(contextId) {
-  const context = await GameContext.findById(contextId);
+  const context = await gameContextRepository.findById(contextId);
 
   if (!context) {
     throw new NotFoundError('Contexto de juego');
@@ -139,7 +140,7 @@ const uploadImage = async (req, res, next) => {
       success: true,
       message: 'Imagen subida y procesada correctamente',
       data: {
-        asset: newAsset,
+        asset: toAssetDTOV1(newAsset),
         processing: {
           originalDimensions: `${metadata.originalWidth}x${metadata.originalHeight}`,
           format: metadata.format,
@@ -232,7 +233,7 @@ const uploadAudio = async (req, res, next) => {
       success: true,
       message: 'Audio subido y vinculado correctamente',
       data: {
-        asset: newAsset,
+        asset: toAssetDTOV1(newAsset),
         metadata: {
           format: metadata.formatName,
           size: `${(metadata.size / 1024).toFixed(1)} KB`
@@ -264,7 +265,7 @@ const deleteImage = async (req, res, next) => {
   try {
     const { id: contextId, assetKey } = req.params;
 
-    const context = await GameContext.findById(contextId);
+    const context = await gameContextRepository.findById(contextId);
 
     if (!context) {
       throw new NotFoundError('Contexto de juego');
@@ -328,7 +329,7 @@ const deleteAudio = async (req, res, next) => {
   try {
     const { id: contextId, assetKey } = req.params;
 
-    const context = await GameContext.findById(contextId);
+    const context = await gameContextRepository.findById(contextId);
 
     if (!context) {
       throw new NotFoundError('Contexto de juego');

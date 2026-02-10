@@ -841,7 +841,7 @@ function StepAssign({
                 Asignar asset a <span className="text-indigo-400">{activeCard.uid}</span>
               </h3>
               <p className="text-sm text-slate-400">
-                Selecciona un asset del contexto "{selectedContext?.name}"
+                Selecciona un asset del contexto &quot;{selectedContext?.name}&quot;
               </p>
             </div>
 

@@ -8,7 +8,7 @@
 const jwt = require('jsonwebtoken');
 const crypto = require('node:crypto');
 const { UnauthorizedError, ForbiddenError } = require('../utils/errors');
-const User = require('../models/User');
+const userRepository = require('../repositories/userRepository');
 const logger = require('../utils/logger').child({ component: 'auth' });
 const { logSecurityEvent, getRequestContext } = require('../utils/securityLogger');
 const redisService = require('../services/redisService');
@@ -640,7 +640,9 @@ const authenticate = async (req, res, next) => {
     const decoded = await verifyAccessToken(token, req);
 
     // Buscar usuario en la base de datos (y seleccionar currentSessionId para validación)
-    const user = await User.findById(decoded.id).select('-password +currentSessionId');
+    const user = await userRepository.findById(decoded.id, {
+      select: '-password +currentSessionId'
+    });
 
     if (!user) {
       logSecurityEvent('AUTH_TOKEN_INVALID', {
@@ -804,7 +806,7 @@ const optionalAuth = async (req, res, next) => {
       return next(); // Sin token, continuar sin error
     }
     const decoded = await verifyAccessToken(token, req);
-    const user = await User.findById(decoded.id).select('-password');
+    const user = await userRepository.findById(decoded.id, { select: '-password' });
 
     if (user && user.status === 'active') {
       req.user = user;

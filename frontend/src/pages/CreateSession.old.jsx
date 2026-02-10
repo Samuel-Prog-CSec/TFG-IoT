@@ -260,7 +260,10 @@ export default function CreateSession() {
               className="space-y-6"
             >
               <h2 className="text-2xl font-bold text-white">4. Asigna Valores a las Tarjetas</h2>
-              <p className="text-slate-400">Vincula cada tarjeta física seleccionada a un concepto del contexto "{selectedContext?.name}".</p>
+              <p className="text-slate-400">
+                Vincula cada tarjeta física seleccionada a un concepto del contexto
+                &quot;{selectedContext?.name}&quot;.
+              </p>
 
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 max-h-[400px] overflow-y-auto custom-scrollbar p-1">
                  {session.selectedCardIds.map(cardId => {

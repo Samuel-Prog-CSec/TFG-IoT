@@ -4,9 +4,9 @@
  * @module controllers/cardDeckController
  */
 
-const CardDeck = require('../models/CardDeck');
-const GameContext = require('../models/GameContext');
-const Card = require('../models/Card');
+const cardDeckRepository = require('../repositories/cardDeckRepository');
+const gameContextRepository = require('../repositories/gameContextRepository');
+const cardRepository = require('../repositories/cardRepository');
 const {
   NotFoundError,
   ConflictError,
@@ -73,7 +73,7 @@ function validateDeckMappingsStructure(cardMappings) {
 }
 
 async function validateContextAndAssignedValues(contextId, cardMappings) {
-  const context = await GameContext.findById(contextId);
+  const context = await gameContextRepository.findById(contextId);
   if (!context) {
     throw new NotFoundError('Contexto de juego');
   }
@@ -93,7 +93,7 @@ async function validateContextAndAssignedValues(contextId, cardMappings) {
 
 async function validateCardsExistAndActive(cardMappings) {
   const cardIds = cardMappings.map(m => m.cardId);
-  const cards = await Card.find({ _id: { $in: cardIds } });
+  const cards = await cardRepository.find({ _id: { $in: cardIds } });
 
   if (cards.length !== cardIds.length) {
     throw new ValidationError('Una o más tarjetas no existen');
@@ -159,12 +159,13 @@ const getDecks = async (req, res, next) => {
     const sortOptions = { [sortBy]: order === 'asc' ? 1 : -1 };
 
     const [decks, total] = await Promise.all([
-      CardDeck.find(filter)
-        .populate('contextId', 'contextId name')
-        .sort(sortOptions)
-        .limit(Number.parseInt(limit, 10))
-        .skip(skip),
-      CardDeck.countDocuments(filter)
+      cardDeckRepository.find(filter, {
+        populate: { path: 'contextId', select: 'contextId name' },
+        sort: sortOptions,
+        limit: Number.parseInt(limit, 10),
+        skip
+      }),
+      cardDeckRepository.count(filter)
     ]);
 
     logger.info('Lista de mazos obtenida', {
@@ -193,10 +194,13 @@ const getDeckById = async (req, res, next) => {
   try {
     const { id } = req.params;
 
-    const deck = await CardDeck.findById(id)
-      .populate('contextId', 'contextId name assets')
-      .populate('createdBy', 'name email')
-      .populate('cardMappings.cardId', 'uid type status metadata');
+    const deck = await cardDeckRepository.findById(id, {
+      populate: [
+        { path: 'contextId', select: 'contextId name assets' },
+        { path: 'createdBy', select: 'name email' },
+        { path: 'cardMappings.cardId', select: 'uid type status metadata' }
+      ]
+    });
 
     if (!deck) {
       throw new NotFoundError('Mazo');
@@ -231,7 +235,7 @@ const createDeck = async (req, res, next) => {
     }
 
     // Verificar límite de mazos activos por profesor
-    const activeDecksCount = await CardDeck.countDocuments({
+    const activeDecksCount = await cardDeckRepository.count({
       createdBy: req.user._id,
       status: 'active'
     });
@@ -251,7 +255,7 @@ const createDeck = async (req, res, next) => {
     // Validar tarjetas
     await validateCardsExistAndActive(normalizedMappings);
 
-    const deck = await CardDeck.create({
+    const deck = await cardDeckRepository.create({
       name: name.trim(),
       description: description ? description.trim() : undefined,
       contextId,
@@ -354,7 +358,7 @@ const updateDeck = async (req, res, next) => {
     const { id } = req.params;
     const { name, description, contextId, cardMappings, status } = req.body;
 
-    const deck = await CardDeck.findById(id);
+    const deck = await cardDeckRepository.findById(id);
 
     if (!deck) {
       throw new NotFoundError('Mazo');
@@ -396,7 +400,7 @@ const deleteDeck = async (req, res, next) => {
   try {
     const { id } = req.params;
 
-    const deck = await CardDeck.findById(id);
+    const deck = await cardDeckRepository.findById(id);
 
     if (!deck) {
       throw new NotFoundError('Mazo');

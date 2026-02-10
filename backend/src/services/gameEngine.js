@@ -6,9 +6,10 @@
  */
 
 const logger = require('../utils/logger').child({ component: 'gameEngine' });
-const GamePlay = require('../models/GamePlay');
-const GameSession = require('../models/GameSession');
+const gamePlayRepository = require('../repositories/gamePlayRepository');
+const gameSessionRepository = require('../repositories/gameSessionRepository');
 const redisService = require('./redisService');
+const { getMechanicStrategy } = require('../strategies/mechanics');
 
 // Constantes de configuración
 // Umbral de alerta (soft limit) - no bloquea, solo emite warnings
@@ -217,10 +218,20 @@ class GameEngine {
     const uidToMapping = new Map(sessionDoc.cardMappings.map(m => [m.uid, m]));
 
     // 3. Crear el estado en memoria
+    const mechanicName =
+      typeof sessionDoc.mechanicId === 'object' && sessionDoc.mechanicId?.name
+        ? sessionDoc.mechanicId.name
+        : sessionDoc.mechanicId?.toString?.();
+    const mechanicStrategy = getMechanicStrategy(mechanicName, logger);
+    const strategyState = mechanicStrategy.initialize({ sessionDoc, playDoc });
+
     const playState = {
       playDoc,
       sessionDoc,
       uidToMapping, // Índice O(1): uid → mapping completo
+      mechanicName: mechanicStrategy.getName(),
+      mechanicStrategy,
+      strategyState,
       currentChallenge: null,
       roundTimer: null,
       nextRoundTimer: null,
@@ -314,11 +325,14 @@ class GameEngine {
 
     // 4. Limpiar la memoria
     // Liberar las tarjetas
+    const cardUids = [];
     for (const mapping of playState.sessionDoc.cardMappings) {
       this.cardUidToPlayId.delete(mapping.uid);
-      // También limpiar de Redis
-      await redisService.del(redisService.NAMESPACES.CARD, mapping.uid);
+      cardUids.push(mapping.uid);
     }
+
+    // También limpiar de Redis
+    await redisService.delMany(redisService.NAMESPACES.CARD, cardUids);
 
     // Borrar la partida de la memoria activa
     this.activePlays.delete(playId);
@@ -377,10 +391,24 @@ class GameEngine {
       playState.nextRoundTimer = null;
     }
 
-    // 3. Generar el desafío (mecánica de asociación)
-    // Selección aleatoria simple; se puede extender para dificultad y anti-repetición.
-    const randomIndex = Math.floor(Math.random() * sessionDoc.cardMappings.length);
-    const challengeMapping = sessionDoc.cardMappings[randomIndex];
+    // 3. Generar el desafío según la mecánica activa
+    const challengeMapping = playState.mechanicStrategy.selectChallenge({
+      playDoc,
+      sessionDoc,
+      playState
+    });
+
+    if (!challengeMapping) {
+      logger.error('No se pudo generar desafio para la ronda', {
+        playId,
+        mechanicName: playState.mechanicName
+      });
+      this.io.to(`play_${playId}`).emit('error', {
+        message: 'No se pudo generar el desafio de la ronda'
+      });
+      await this.endPlay(playId);
+      return;
+    }
 
     playState.currentChallenge = {
       cardId: challengeMapping.cardId,
@@ -955,9 +983,11 @@ class GameEngine {
       await redisService.hset(redisService.NAMESPACES.PLAY, playId, redisState);
 
       // Almacenar mapeo de tarjetas para búsqueda O(1)
-      for (const mapping of playState.sessionDoc.cardMappings) {
-        await redisService.set(redisService.NAMESPACES.CARD, mapping.uid, playId);
-      }
+      const cardEntries = playState.sessionDoc.cardMappings.map(mapping => ({
+        id: mapping.uid,
+        value: playId
+      }));
+      await redisService.setMany(redisService.NAMESPACES.CARD, cardEntries);
 
       logger.debug(`Partida ${playId} sincronizada con Redis`);
     } catch (error) {
@@ -1010,7 +1040,7 @@ class GameEngine {
         return false;
       }
 
-      const playDoc = await GamePlay.findById(redisState.playDocId);
+      const playDoc = await gamePlayRepository.findById(redisState.playDocId);
       if (!playDoc) {
         logger.warn(`Partida ${playId} en Redis pero no en MongoDB, limpiando...`);
         await redisService.del(redisService.NAMESPACES.PLAY, playId);
@@ -1064,14 +1094,13 @@ class GameEngine {
       return;
     }
 
-    const sessionDoc = await GameSession.findById(sessionDocId);
+    const sessionDoc = await gameSessionRepository.findById(sessionDocId);
     if (!sessionDoc?.cardMappings) {
       return;
     }
 
-    for (const mapping of sessionDoc.cardMappings) {
-      await redisService.del(redisService.NAMESPACES.CARD, mapping.uid);
-    }
+    const cardUids = sessionDoc.cardMappings.map(mapping => mapping.uid);
+    await redisService.delMany(redisService.NAMESPACES.CARD, cardUids);
   }
 }
 

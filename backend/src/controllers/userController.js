@@ -4,9 +4,15 @@
  * @module controllers/userController
  */
 
-const User = require('../models/User');
-const { NotFoundError, ForbiddenError, ValidationError } = require('../utils/errors');
+const userRepository = require('../repositories/userRepository');
+const {
+  NotFoundError,
+  ForbiddenError,
+  ValidationError,
+  ConflictError
+} = require('../utils/errors');
 const logger = require('../utils/logger');
+const userService = require('../services/userService');
 const {
   toUserDTOV1,
   toStudentDTOV1,
@@ -76,12 +82,13 @@ const getUsers = async (req, res, next) => {
 
     // Ejecutar query
     const [users, total] = await Promise.all([
-      User.find(filter)
-        .sort(sortOptions)
-        .limit(Number.parseInt(limit, 10))
-        .skip(skip)
-        .select('-password'),
-      User.countDocuments(filter)
+      userRepository.find(filter, {
+        sort: sortOptions,
+        limit: Number.parseInt(limit, 10),
+        skip,
+        select: '-password'
+      }),
+      userRepository.count(filter)
     ]);
 
     logger.info('Lista de usuarios obtenida', {
@@ -118,7 +125,7 @@ const getUserById = async (req, res, next) => {
   try {
     const { id } = req.params;
 
-    const user = await User.findById(id).select('-password');
+    const user = await userRepository.findById(id, { select: '-password' });
 
     if (!user) {
       throw new NotFoundError('Usuario');
@@ -176,54 +183,11 @@ const createUser = async (req, res, next) => {
       throw new ForbiddenError('Solo los profesores pueden crear alumnos');
     }
 
-    // ✅ VALIDAR DUPLICADOS: Verificar que no exista un alumno activo con el mismo nombre
-    // creado por este profesor en la misma clase (si se especifica)
-    const duplicateFilter = {
-      name: { $regex: `^${escapeRegex(name.trim())}$`, $options: 'i' }, // Case-insensitive
-      role: 'student',
-      createdBy: req.user._id,
-      status: 'active'
-    };
-
-    // Si se especifica classroom, también verificar en esa clase
-    if (profile?.classroom) {
-      duplicateFilter['profile.classroom'] = profile.classroom;
-    }
-
-    const existingStudent = await User.findOne(duplicateFilter);
-
-    if (existingStudent) {
-      const errorMsg = profile?.classroom
-        ? `Ya existe un alumno activo llamado "${name}" en la clase "${profile.classroom}"`
-        : `Ya existe un alumno activo llamado "${name}" creado por ti`;
-
-      logger.warn('Intento de crear alumno duplicado', {
-        teacherId: req.user._id,
-        studentName: name,
-        classroom: profile?.classroom,
-        existingStudentId: existingStudent._id
-      });
-
-      return res.status(409).json({
-        success: false,
-        message: errorMsg,
-        data: {
-          existingStudent: toStudentDTOV1(existingStudent)
-        }
-      });
-    }
-
-    // ✅ Crear alumno SIN email ni password
-    const userData = {
+    const student = await userService.createStudent({
       name,
-      role: 'student', // ✅ FORZADO - Este endpoint solo crea alumnos
       profile: profile || {},
-      createdBy: req.user._id, // ✅ Asignar automáticamente al profesor autenticado
-      status: 'active'
-      // ⚠️ NO incluimos email ni password para alumnos
-    };
-
-    const student = await User.create(userData);
+      createdBy: req.user._id
+    });
 
     logger.info('Alumno creado por profesor', {
       studentId: student._id,
@@ -239,6 +203,31 @@ const createUser = async (req, res, next) => {
       data: toStudentDTOV1(student)
     });
   } catch (error) {
+    if (error instanceof ConflictError) {
+      const existingStudent = await userService.findDuplicateStudent({
+        name: req.body.name,
+        classroom: req.body.profile?.classroom,
+        teacherId: req.user._id
+      });
+
+      if (existingStudent) {
+        logger.warn('Intento de crear alumno duplicado', {
+          teacherId: req.user._id,
+          studentName: req.body.name,
+          classroom: req.body.profile?.classroom,
+          existingStudentId: existingStudent._id
+        });
+
+        return res.status(409).json({
+          success: false,
+          message: error.message,
+          data: {
+            existingStudent: toStudentDTOV1(existingStudent)
+          }
+        });
+      }
+    }
+
     next(error);
   }
 };
@@ -294,7 +283,7 @@ const ensureNewTeacherExists = async createdBy => {
     return null;
   }
 
-  const newTeacher = await User.findOne({
+  const newTeacher = await userRepository.findOne({
     _id: createdBy,
     role: 'teacher',
     status: 'active'
@@ -315,7 +304,7 @@ const validateDuplicateName = async ({ user, name, profile, createdBy, updatedBy
   }
 
   const duplicateFilter = buildDuplicateFilter({ user, name, profile, createdBy });
-  const existingUser = await User.findOne(duplicateFilter);
+  const existingUser = await userRepository.findOne(duplicateFilter);
 
   if (!existingUser) {
     return null;
@@ -347,7 +336,7 @@ const updateUser = async (req, res, next) => {
     const { id } = req.params;
     const { name, profile, status, createdBy } = req.body;
 
-    const user = await User.findById(id);
+    const user = await userRepository.findById(id);
 
     if (!user) {
       throw new NotFoundError('Usuario');
@@ -466,7 +455,7 @@ const deleteUser = async (req, res, next) => {
   try {
     const { id } = req.params;
 
-    const user = await User.findById(id);
+    const user = await userRepository.findById(id);
 
     if (!user) {
       throw new NotFoundError('Usuario');
@@ -529,7 +518,9 @@ const getUserStats = async (req, res, next) => {
   try {
     const { id } = req.params;
 
-    const user = await User.findById(id).select('name role studentMetrics profile');
+    const user = await userRepository.findById(id, {
+      select: 'name role studentMetrics profile createdBy'
+    });
 
     if (!user) {
       throw new NotFoundError('Usuario');
@@ -600,7 +591,10 @@ const getStudentsByTeacher = async (req, res, next) => {
 
     const sortOptions = { [sortBy]: order === 'asc' ? 1 : -1 };
 
-    const students = await User.find(filter).sort(sortOptions).select('-password');
+    const students = await userRepository.find(filter, {
+      sort: sortOptions,
+      select: '-password'
+    });
 
     res.json({
       success: true,
@@ -642,7 +636,7 @@ const transferStudent = async (req, res, next) => {
       });
     }
 
-    const student = await User.findById(id);
+    const student = await userRepository.findById(id);
 
     if (!student) {
       throw new NotFoundError('Alumno');
@@ -664,7 +658,7 @@ const transferStudent = async (req, res, next) => {
     }
 
     // Verificar que el nuevo profesor existe y es válido
-    const newTeacher = await User.findOne({
+    const newTeacher = await userRepository.findOne({
       _id: newTeacherId,
       role: 'teacher',
       status: 'active'

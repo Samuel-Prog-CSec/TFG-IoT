@@ -617,7 +617,7 @@ export default function DeckEditPage() {
                   {activeCardId ? (
                     <>
                       <h3 className="font-medium text-white mb-3">
-                        Assets de "{selectedContext?.name}"
+                        Assets de &quot;{selectedContext?.name}&quot;
                       </h3>
                       <AssetSelector
                         assets={selectedContext?.assets || []}
@@ -722,7 +722,7 @@ export default function DeckEditPage() {
         description={
           <>
             ¿Estás seguro de archivar{' '}
-            <strong className="text-white">"{deckName}"</strong>?
+            <strong className="text-white">&quot;{deckName}&quot;</strong>?
             El mazo dejará de aparecer en tu lista de mazos activos.
           </>
         }

@@ -525,7 +525,7 @@ export default function CardDecksPage() {
         description={
           <>
             ¿Estás seguro de que quieres archivar{' '}
-            <strong className="text-white">"{archivingDeck?.name}"</strong>?
+            <strong className="text-white">&quot;{archivingDeck?.name}&quot;</strong>?
             El mazo no se eliminará, pero no aparecerá en tus mazos activos.
           </>
         }

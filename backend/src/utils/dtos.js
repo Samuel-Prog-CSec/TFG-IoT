@@ -473,6 +473,29 @@ const toGameContextDTOV1 = context => {
 };
 
 /**
+ * DTO v1 para Asset (item dentro de GameContext).
+ *
+ * @param {Object} asset - Subdocumento asset
+ * @returns {Object|null} Asset transformado o null si no existe
+ */
+const toAssetDTOV1 = asset => {
+  if (!asset) {
+    return null;
+  }
+
+  const assetData = toPlainObject(asset);
+
+  return {
+    key: assetData.key,
+    display: assetData.display,
+    value: assetData.value,
+    audioUrl: assetData.audioUrl,
+    imageUrl: assetData.imageUrl,
+    thumbnailUrl: assetData.thumbnailUrl
+  };
+};
+
+/**
  * DTO v1 para GameContext (detalle con assets).
  *
  * @param {Object} context - Documento GameContext de Mongoose
@@ -488,16 +511,7 @@ const toGameContextDetailDTOV1 = context => {
 
   return {
     ...base,
-    assets: Array.isArray(contextData.assets)
-      ? contextData.assets.map(asset => ({
-          key: asset.key,
-          display: asset.display,
-          value: asset.value,
-          audioUrl: asset.audioUrl,
-          imageUrl: asset.imageUrl,
-          thumbnailUrl: asset.thumbnailUrl
-        }))
-      : []
+    assets: Array.isArray(contextData.assets) ? contextData.assets.map(toAssetDTOV1) : []
   };
 };
 
@@ -736,6 +750,7 @@ module.exports = {
   toGameContextDTOV1,
   toGameContextDetailDTOV1,
   toGameContextListDTOV1,
+  toAssetDTOV1,
 
   // Decks
   toCardDeckDTOV1,

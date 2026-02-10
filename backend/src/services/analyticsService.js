@@ -4,7 +4,7 @@
  */
 
 const mongoose = require('mongoose');
-const GamePlay = require('../models/GamePlay');
+const gamePlayRepository = require('../repositories/gamePlayRepository');
 // const User = require('../models/User'); // Podría ser necesario para enriquecer datos
 
 /**
@@ -66,7 +66,7 @@ async function getStudentProgress(studentId, timeRange = '30d') {
     }
   ];
 
-  return await GamePlay.aggregate(pipeline);
+  return await gamePlayRepository.aggregate(pipeline);
 }
 
 /**
@@ -145,7 +145,7 @@ async function getStudentDifficulties(studentId) {
     { $sort: { errorRate: -1 } } // Los más difíciles primero
   ];
 
-  return await GamePlay.aggregate(pipeline);
+  return await gamePlayRepository.aggregate(pipeline);
 }
 
 /**
@@ -217,7 +217,7 @@ async function getClassroomSummary(teacherId) {
     }
   ];
 
-  const results = await GamePlay.aggregate(pipeline);
+  const results = await gamePlayRepository.aggregate(pipeline);
   const data = results[0];
 
   return {
@@ -267,7 +267,7 @@ async function getClassroomComparison(teacherId) {
     { $sort: { _id: 1 } }
   ];
 
-  return await GamePlay.aggregate(pipeline);
+  return await gamePlayRepository.aggregate(pipeline);
 }
 
 /**
@@ -343,7 +343,7 @@ async function getClassroomDifficulties(teacherId) {
     { $sort: { errorRate: -1 } }
   ];
 
-  return await GamePlay.aggregate(pipeline);
+  return await gamePlayRepository.aggregate(pipeline);
 }
 
 module.exports = {

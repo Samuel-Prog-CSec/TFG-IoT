@@ -5,7 +5,7 @@
 
 const analyticsService = require('../services/analyticsService');
 const logger = require('../utils/logger');
-const User = require('../models/User');
+const userRepository = require('../repositories/userRepository');
 const { ForbiddenError, NotFoundError } = require('../utils/errors');
 
 /**
@@ -18,7 +18,7 @@ exports.getStudentProgress = async (req, res, next) => {
     const { timeRange } = req.query; // '7d', '30d'
 
     if (req.user.role === 'teacher') {
-      const student = await User.findById(id).select('createdBy');
+      const student = await userRepository.findById(id, { select: 'createdBy' });
       if (!student) {
         throw new NotFoundError('Alumno');
       }
@@ -48,7 +48,7 @@ exports.getStudentDifficulties = async (req, res, next) => {
     const { id } = req.params;
 
     if (req.user.role === 'teacher') {
-      const student = await User.findById(id).select('createdBy');
+      const student = await userRepository.findById(id, { select: 'createdBy' });
       if (!student) {
         throw new NotFoundError('Alumno');
       }
