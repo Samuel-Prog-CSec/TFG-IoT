@@ -67,7 +67,7 @@ services:
       mongo:
         condition: service_healthy
     command: >
-      sh -c "npm run seed:reset && npm run migrate:sessions && npm start"
+      sh -c "npm run seed:if-empty && npm run migrate:sessions && npm start"
     networks:
       - rfid-games-network
     labels:

@@ -43,7 +43,7 @@ services:
     environment:
       - NODE_ENV=production
     command: >
-      sh -c "npm run migrate:sessions && npm start"
+      sh -c "npm run seed:if-empty && npm run migrate:sessions && npm start"
     deploy:
       resources:
         limits:

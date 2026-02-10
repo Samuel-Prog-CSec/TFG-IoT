@@ -44,12 +44,16 @@ services:
   # BACKEND - Desarrollo con Nodemon
   # ============================================
   backend:
+    build:
+      context: ./backend
+      target: development
     volumes:
       - ./backend:/app
       - /app/node_modules  # Excluir node_modules del host
     environment:
       - NODE_ENV=development
-    command: npm run dev
+    command: >
+      sh -c "npm run seed:if-empty && npm run migrate:sessions && npm run dev"
     ports:
       - "5000:5000"
       - "9229:9229"  # Puerto de debug Node.js
