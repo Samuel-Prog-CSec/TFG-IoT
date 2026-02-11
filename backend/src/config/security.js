@@ -7,10 +7,12 @@
 const rateLimit = require('express-rate-limit');
 const crypto = require('node:crypto');
 
+const isTestEnv = () => process.env.NODE_ENV === 'test' || typeof globalThis.it === 'function';
+
 // Helper para crear rate limiters que se deshabilitan en tests
 const createRateLimiter = options => {
   // Check NODE_ENV or existence of Jest global 'it'
-  if (process.env.NODE_ENV === 'test' || typeof global.it === 'function') {
+  if (isTestEnv()) {
     return (req, res, next) => next();
   }
   return rateLimit(options);
@@ -24,7 +26,12 @@ const createRateLimiter = options => {
  */
 const corsWhitelist = process.env.CORS_WHITELIST
   ? process.env.CORS_WHITELIST.split(',').map(origin => origin.trim())
-  : ['http://localhost:3000', 'http://localhost:5173', 'http://127.0.0.1:3000'];
+  : [
+      'http://localhost:3000',
+      'http://localhost:5173',
+      'http://127.0.0.1:3000',
+      'http://127.0.0.1:5173'
+    ];
 
 /**
  * Opciones de configuración para CORS.
@@ -78,14 +85,25 @@ const corsOptions = {
  */
 const CSRF_COOKIE_NAME = 'csrfToken';
 const CSRF_HEADER_NAME = 'x-csrf-token';
+const skipPaths = new Set([
+  '/api/auth/login',
+  '/api/auth/register',
+  '/api/auth/refresh',
+  '/auth/refresh'
+]);
+const writeMethods = new Set(['POST', 'PUT', 'DELETE', 'PATCH']);
 
-const buildCsrfCookieOptions = () => ({
-  httpOnly: false,
-  secure: process.env.NODE_ENV === 'production',
-  sameSite: 'strict',
-  path: '/',
-  maxAge: 7 * 24 * 60 * 60 * 1000
-});
+const buildCsrfCookieOptions = () => {
+  const isProd = process.env.NODE_ENV === 'production';
+
+  return {
+    httpOnly: false,
+    secure: isProd,
+    sameSite: isProd ? 'strict' : 'lax',
+    path: '/',
+    maxAge: 7 * 24 * 60 * 60 * 1000
+  };
+};
 
 const ensureCsrfCookie = (req, res, next) => {
   if (req.cookies?.[CSRF_COOKIE_NAME]) {
@@ -97,57 +115,79 @@ const ensureCsrfCookie = (req, res, next) => {
   next();
 };
 
+const getRequestOrigin = req => req.get('Referer') || req.get('Origin');
+
+const parseOrigin = value => {
+  if (!value || !URL.canParse(value)) {
+    return null;
+  }
+
+  const refererUrl = new URL(value);
+  return `${refererUrl.protocol}//${refererUrl.host}`;
+};
+
+const hasValidCsrf = req => {
+  const csrfHeader = req.get(CSRF_HEADER_NAME) || '';
+  const csrfCookie = req.cookies?.[CSRF_COOKIE_NAME] || '';
+  return Boolean(csrfHeader && csrfCookie && csrfHeader === csrfCookie);
+};
+
+const shouldSkipCsrf = req => {
+  if (skipPaths.has(req.path)) {
+    return true;
+  }
+  if (typeof req.originalUrl === 'string' && req.originalUrl.endsWith('/auth/refresh')) {
+    return true;
+  }
+  return false;
+};
+
 const csrfProtection = (req, res, next) => {
-  if (process.env.NODE_ENV === 'test' || typeof global.it === 'function') {
+  if (isTestEnv()) {
     return next();
   }
 
-  const skipPaths = new Set(['/api/auth/login', '/api/auth/register']);
-  if (skipPaths.has(req.path)) {
+  if (shouldSkipCsrf(req)) {
     return next();
   }
 
   // Solo aplicar a métodos que modifican datos
-  if (['POST', 'PUT', 'DELETE', 'PATCH'].includes(req.method)) {
-    const referer = req.get('Referer') || req.get('Origin');
+  if (!writeMethods.has(req.method)) {
+    return next();
+  }
 
-    // En producción, SIEMPRE requerir referer
-    if (process.env.NODE_ENV === 'production' && !referer) {
+  const referer = getRequestOrigin(req);
+
+  // En producción, SIEMPRE requerir referer
+  if (process.env.NODE_ENV === 'production' && !referer) {
+    return res.status(403).json({
+      success: false,
+      message: 'Referer/Origin header requerido para operaciones de modificación'
+    });
+  }
+
+  if (referer) {
+    const refererOrigin = parseOrigin(referer);
+    if (!refererOrigin) {
       return res.status(403).json({
         success: false,
-        message: 'Referer/Origin header requerido para operaciones de modificación'
+        message: 'Referer header inválido'
       });
     }
 
-    // Si hay referer, verificar que esté en la whitelist
-    if (referer) {
-      let refererOrigin;
-      try {
-        const refererUrl = new URL(referer);
-        refererOrigin = `${refererUrl.protocol}//${refererUrl.host}`;
-      } catch (error) {
-        return res.status(403).json({
-          success: false,
-          message: 'Referer header inválido'
-        });
-      }
-
-      if (!corsWhitelist.includes(refererOrigin)) {
-        return res.status(403).json({
-          success: false,
-          message: 'Referer no autorizado'
-        });
-      }
-    }
-
-    const csrfHeader = req.get(CSRF_HEADER_NAME) || '';
-    const csrfCookie = req.cookies?.[CSRF_COOKIE_NAME] || '';
-    if (!csrfHeader || !csrfCookie || csrfHeader !== csrfCookie) {
+    if (!corsWhitelist.includes(refererOrigin)) {
       return res.status(403).json({
         success: false,
-        message: 'CSRF token invalido o ausente'
+        message: 'Referer no autorizado'
       });
     }
+  }
+
+  if (!hasValidCsrf(req)) {
+    return res.status(403).json({
+      success: false,
+      message: 'CSRF token invalido o ausente'
+    });
   }
 
   next();
@@ -199,9 +239,15 @@ const helmetOptions = {
  *
  * @type {import('express-rate-limit').RateLimitRequestHandler}
  */
+const isDev = process.env.NODE_ENV === 'development';
+const globalWindowMs = Number.parseInt(process.env.RATE_LIMIT_WINDOW_MS, 10) || 15 * 60 * 1000;
+const globalMax = isDev
+  ? Number.parseInt(process.env.RATE_LIMIT_MAX_REQUESTS_DEV, 10) || 2000
+  : Number.parseInt(process.env.RATE_LIMIT_MAX_REQUESTS, 10) || 100;
+
 const globalRateLimiter = createRateLimiter({
-  windowMs: parseInt(process.env.RATE_LIMIT_WINDOW_MS) || 15 * 60 * 1000, // 15 minutos
-  max: parseInt(process.env.RATE_LIMIT_MAX_REQUESTS) || 100, // 100 requests
+  windowMs: globalWindowMs,
+  max: globalMax,
   message: {
     success: false,
     message: 'Demasiadas peticiones desde esta IP, por favor intenta más tarde'
@@ -221,8 +267,10 @@ const globalRateLimiter = createRateLimiter({
  * @type {import('express-rate-limit').RateLimitRequestHandler}
  */
 const authRateLimiter = createRateLimiter({
-  windowMs: 15 * 60 * 1000, // 15 minutos
-  max: 5, // Solo 5 intentos
+  windowMs: Number.parseInt(process.env.RATE_LIMIT_AUTH_WINDOW_MS, 10) || 15 * 60 * 1000,
+  max: isDev
+    ? Number.parseInt(process.env.RATE_LIMIT_AUTH_MAX_REQUESTS_DEV, 10) || 400
+    : Number.parseInt(process.env.RATE_LIMIT_AUTH_MAX_REQUESTS, 10) || 5,
   message: {
     success: false,
     message: 'Demasiados intentos de autenticación, por favor intenta en 15 minutos'
@@ -239,8 +287,8 @@ const authRateLimiter = createRateLimiter({
  * @type {import('express-rate-limit').RateLimitRequestHandler}
  */
 const registerRateLimiter = createRateLimiter({
-  windowMs: 60 * 60 * 1000, // 1 hora
-  max: 3,
+  windowMs: Number.parseInt(process.env.RATE_LIMIT_REGISTER_WINDOW_MS, 10) || 60 * 60 * 1000,
+  max: Number.parseInt(process.env.RATE_LIMIT_REGISTER_MAX_REQUESTS, 10) || (isDev ? 50 : 3),
   message: {
     success: false,
     message: 'Demasiados intentos de registro, intenta más tarde'
@@ -256,8 +304,8 @@ const registerRateLimiter = createRateLimiter({
  * @type {import('express-rate-limit').RateLimitRequestHandler}
  */
 const createResourceRateLimiter = createRateLimiter({
-  windowMs: 60 * 1000, // 1 minuto
-  max: 10, // 10 creaciones por minuto
+  windowMs: Number.parseInt(process.env.RATE_LIMIT_CREATE_WINDOW_MS, 10) || 60 * 1000,
+  max: Number.parseInt(process.env.RATE_LIMIT_CREATE_MAX_REQUESTS, 10) || (isDev ? 200 : 10),
   message: {
     success: false,
     message: 'Demasiadas operaciones de creación, espera un momento'

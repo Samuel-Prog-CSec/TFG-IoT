@@ -141,9 +141,9 @@ export function AuthProvider({ children }) {
     refreshTimeoutRef.current = setTimeout(async () => {
       try {
         const response = await authAPI.refreshToken();
-        const { accessToken, accessTokenExpiresIn } = extractData(response);
+        const { accessToken, refreshToken, accessTokenExpiresIn } = extractData(response);
         if (accessToken) {
-          setTokens(accessToken);
+          setTokens(accessToken, refreshToken);
           socketService.updateAuth(accessToken);
         }
         scheduleTokenRefresh((accessTokenExpiresIn || 15 * 60) * 1000);
@@ -185,9 +185,9 @@ export function AuthProvider({ children }) {
     const checkExistingSession = async () => {
       try {
         const refreshResponse = await authAPI.refreshToken();
-        const { accessToken, accessTokenExpiresIn } = extractData(refreshResponse);
+        const { accessToken, refreshToken, accessTokenExpiresIn } = extractData(refreshResponse);
         if (accessToken) {
-          setTokens(accessToken);
+          setTokens(accessToken, refreshToken);
           socketService.updateAuth(accessToken);
         }
 
@@ -281,10 +281,10 @@ export function AuthProvider({ children }) {
 
     try {
       const response = await authAPI.login({ email, password });
-      const { user, accessToken, accessTokenExpiresIn } = extractData(response);
+      const { user, accessToken, refreshToken, accessTokenExpiresIn } = extractData(response);
 
       // Guardar tokens
-      setTokens(accessToken);
+      setTokens(accessToken, refreshToken);
       socketService.updateAuth(accessToken);
       
       // Actualizar estado

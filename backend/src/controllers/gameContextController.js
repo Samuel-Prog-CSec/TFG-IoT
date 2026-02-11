@@ -26,7 +26,14 @@ const { escapeRegex } = require('../utils/escapeRegex');
  */
 const getContexts = async (req, res, next) => {
   try {
-    const { page = 1, limit = 20, sortBy = 'createdAt', order = 'desc', search } = req.query;
+    const {
+      page = 1,
+      limit = 20,
+      sortBy = 'createdAt',
+      order = 'desc',
+      search,
+      isActive
+    } = req.query;
 
     // Construir filtro
     const filter = {};
@@ -38,6 +45,10 @@ const getContexts = async (req, res, next) => {
         { contextId: { $regex: safeSearch, $options: 'i' } },
         { name: { $regex: safeSearch, $options: 'i' } }
       ];
+    }
+
+    if (typeof isActive === 'boolean') {
+      filter.isActive = isActive;
     }
 
     // Paginación

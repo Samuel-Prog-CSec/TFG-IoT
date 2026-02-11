@@ -5,7 +5,7 @@
  * @module pages/SessionsPage
  */
 
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
@@ -19,8 +19,8 @@ import {
   Map
 } from 'lucide-react';
 import { toast } from 'sonner';
-import { sessionsAPI, mechanicsAPI, extractErrorMessage, extractData } from '../services/api';
-import { useContexts } from '../hooks';
+import { sessionsAPI, mechanicsAPI, extractErrorMessage, extractData, isAbortError } from '../services/api';
+import { useContexts, useRefetchOnFocus } from '../hooks';
 import { ROUTES } from '../constants/routes';
 import {
   ButtonPremium,
@@ -33,7 +33,7 @@ import {
   ConfirmationModal,
   useConfirmationModal
 } from '../components/ui';
-import { pageVariants, staggerContainer, staggerItem } from '../lib/utils';
+import { staggerContainer, staggerItem } from '../lib/utils';
 
 const STATUS_OPTIONS = [
   { value: '', label: 'Todas' },
@@ -80,6 +80,9 @@ export default function SessionsPage() {
   const [contextFilter, setContextFilter] = useState('');
 
   const [mechanics, setMechanics] = useState([]);
+  const sessionsAbortRef = useRef(null);
+  const mechanicsAbortRef = useRef(null);
+  const loadMoreAbortRef = useRef(null);
   const deleteModal = useConfirmationModal();
   const [selectedSession, setSelectedSession] = useState(null);
   const [deleteLoading, setDeleteLoading] = useState(false);
@@ -103,12 +106,15 @@ export default function SessionsPage() {
     }))
   ], [contexts]);
 
-  const loadMechanics = useCallback(async () => {
+  const loadMechanics = useCallback(async (signal) => {
     try {
-      const response = await mechanicsAPI.getMechanics({ isActive: true });
+      const response = await mechanicsAPI.getMechanics({ isActive: true }, signal ? { signal } : {});
       const data = extractData(response) || [];
       setMechanics(Array.isArray(data) ? data : []);
     } catch (err) {
+      if (isAbortError(err)) {
+        return;
+      }
       toast.error('No se pudieron cargar las mecánicas', {
         description: extractErrorMessage(err)
       });
@@ -131,7 +137,7 @@ export default function SessionsPage() {
     return params;
   }, [statusFilter, difficultyFilter, mechanicFilter, contextFilter]);
 
-  const loadSessions = useCallback(async (reset = true) => {
+  const loadSessions = useCallback(async (reset = true, signal, pageOverride) => {
     try {
       if (reset) {
         setLoading(true);
@@ -141,8 +147,9 @@ export default function SessionsPage() {
       }
       setError(null);
 
-      const params = buildParams(reset ? 1 : page);
-      const response = await sessionsAPI.getSessions(params);
+      const pageToUse = reset ? 1 : (pageOverride || page);
+      const params = buildParams(pageToUse);
+      const response = await sessionsAPI.getSessions(params, signal ? { signal } : {});
       const payload = response?.data || {};
       const extracted = extractData(response);
       const items = Array.isArray(payload.data)
@@ -162,28 +169,60 @@ export default function SessionsPage() {
 
       setHasMore(pagination.page < pagination.totalPages);
     } catch (err) {
+      if (isAbortError(err)) {
+        return;
+      }
       const message = extractErrorMessage(err);
       setError(message);
       toast.error('Error al cargar sesiones', { description: message });
     } finally {
-      setLoading(false);
-      setLoadingMore(false);
+      if (!signal?.aborted) {
+        setLoading(false);
+        setLoadingMore(false);
+      }
     }
   }, [buildParams, page]);
 
   useEffect(() => {
-    loadMechanics();
+    mechanicsAbortRef.current?.abort();
+    const controller = new AbortController();
+    mechanicsAbortRef.current = controller;
+    loadMechanics(controller.signal);
+
+    return () => controller.abort();
   }, [loadMechanics]);
 
   useEffect(() => {
-    loadSessions(true);
+    sessionsAbortRef.current?.abort();
+    const controller = new AbortController();
+    sessionsAbortRef.current = controller;
+    loadSessions(true, controller.signal);
+
+    return () => controller.abort();
   }, [loadSessions]);
+
+  const refetchSessions = useCallback(() => {
+    sessionsAbortRef.current?.abort();
+    const controller = new AbortController();
+    sessionsAbortRef.current = controller;
+    loadSessions(true, controller.signal);
+  }, [loadSessions]);
+
+  useRefetchOnFocus({
+    refetch: refetchSessions,
+    isLoading: loading,
+    hasData: sessions.length > 0,
+    hasError: Boolean(error)
+  });
 
   const handleLoadMore = () => {
     if (hasMore && !loadingMore) {
       const nextPage = page + 1;
       setPage(nextPage);
-      loadSessions(false);
+      loadMoreAbortRef.current?.abort();
+      const controller = new AbortController();
+      loadMoreAbortRef.current = controller;
+      loadSessions(false, controller.signal, nextPage);
     }
   };
 
@@ -223,7 +262,7 @@ export default function SessionsPage() {
   const hasActiveFilters = statusFilter || difficultyFilter || mechanicFilter || contextFilter;
 
   const sessionsContent = (() => {
-    if (loading) {
+    if (loading && sessions.length === 0) {
       return (
         <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-6">
           {skeletonKeys.map((key) => (
@@ -253,7 +292,7 @@ export default function SessionsPage() {
       <motion.div
         className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-6"
         variants={staggerContainer}
-        initial="hidden"
+        initial={false}
         animate="show"
       >
         {sessions.map((session) => {
@@ -353,12 +392,8 @@ export default function SessionsPage() {
   }
 
   return (
-    <motion.div
+    <div
       className="p-6 lg:p-8 max-w-7xl mx-auto"
-      variants={pageVariants}
-      initial="initial"
-      animate="animate"
-      exit="exit"
     >
       <div className="flex flex-col gap-6">
         <header className="flex flex-col gap-4">
@@ -473,6 +508,6 @@ export default function SessionsPage() {
         variant="danger"
         loading={deleteLoading}
       />
-    </motion.div>
+    </div>
   );
 }

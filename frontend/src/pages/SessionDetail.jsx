@@ -18,7 +18,7 @@ import {
   Award
 } from 'lucide-react';
 import { toast } from 'sonner';
-import { sessionsAPI, extractData, extractErrorMessage } from '../services/api';
+import { sessionsAPI, extractData, extractErrorMessage, isAbortError } from '../services/api';
 import { ROUTES } from '../constants/routes';
 import {
   ButtonPremium,
@@ -31,6 +31,7 @@ import {
   useConfirmationModal
 } from '../components/ui';
 import { cn, pageVariants } from '../lib/utils';
+import { useRefetchOnFocus } from '../hooks';
 
 const statusToBadge = (status) => {
   switch (status) {
@@ -54,26 +55,39 @@ export default function SessionDetail() {
   const [loading, setLoading] = useState(true);
   const [deleteLoading, setDeleteLoading] = useState(false);
 
-  const loadSession = useCallback(async () => {
+  const loadSession = useCallback(async (signal) => {
     if (!sessionId) return;
 
     try {
       setLoading(true);
-      const response = await sessionsAPI.getSessionById(sessionId);
+      const response = await sessionsAPI.getSessionById(sessionId, signal ? { signal } : {});
       const data = extractData(response);
       setSession(data);
     } catch (err) {
+      if (isAbortError(err)) {
+        return;
+      }
       toast.error('No se pudo cargar la sesión', {
         description: extractErrorMessage(err)
       });
     } finally {
-      setLoading(false);
+      if (!signal?.aborted) {
+        setLoading(false);
+      }
     }
   }, [sessionId]);
 
   useEffect(() => {
-    loadSession();
+    const controller = new AbortController();
+    loadSession(controller.signal);
+    return () => controller.abort();
   }, [loadSession]);
+
+  useRefetchOnFocus({
+    refetch: () => loadSession(),
+    isLoading: loading,
+    hasData: Boolean(session)
+  });
 
   const handleDelete = async () => {
     if (!session) return;
@@ -99,7 +113,7 @@ export default function SessionDetail() {
 
   const mappingCards = useMemo(() => session?.cardMappings || [], [session]);
 
-  if (loading) {
+  if (loading && !session) {
     return (
       <div className="p-6 lg:p-8 max-w-6xl mx-auto space-y-6">
         <SkeletonCard className="h-32" />

@@ -10,7 +10,7 @@ import { useNavigate, useParams } from 'react-router-dom';
 import { motion } from 'framer-motion';
 import { ArrowLeft, Save, Map, AlertTriangle } from 'lucide-react';
 import { toast } from 'sonner';
-import { sessionsAPI, decksAPI, extractData, extractErrorMessage } from '../services/api';
+import { sessionsAPI, decksAPI, extractData, extractErrorMessage, isAbortError } from '../services/api';
 import { ROUTES } from '../constants/routes';
 import {
   ButtonPremium,
@@ -20,6 +20,7 @@ import {
   StatusBadge
 } from '../components/ui';
 import { pageVariants } from '../lib/utils';
+import { useRefetchOnFocus } from '../hooks';
 
 const statusToBadge = (status) => {
   switch (status) {
@@ -49,12 +50,12 @@ export default function SessionEdit() {
   const [pointsPerCorrect, setPointsPerCorrect] = useState('');
   const [penaltyPerError, setPenaltyPerError] = useState('');
 
-  const loadSession = useCallback(async () => {
+  const loadSession = useCallback(async (signal) => {
     if (!sessionId) return;
 
     try {
       setLoading(true);
-      const response = await sessionsAPI.getSessionById(sessionId);
+      const response = await sessionsAPI.getSessionById(sessionId, signal ? { signal } : {});
       const data = extractData(response);
       setSession(data);
       setDeckId(data.deckId || data.deck?.id || '');
@@ -63,20 +64,28 @@ export default function SessionEdit() {
       setPointsPerCorrect(String(data.config?.pointsPerCorrect ?? ''));
       setPenaltyPerError(String(data.config?.penaltyPerError ?? ''));
     } catch (err) {
+      if (isAbortError(err)) {
+        return;
+      }
       toast.error('No se pudo cargar la sesión', {
         description: extractErrorMessage(err)
       });
     } finally {
-      setLoading(false);
+      if (!signal?.aborted) {
+        setLoading(false);
+      }
     }
   }, [sessionId]);
 
-  const loadDecks = useCallback(async () => {
+  const loadDecks = useCallback(async (signal) => {
     try {
-      const response = await decksAPI.getDecks({ status: 'active', limit: 100 });
+      const response = await decksAPI.getDecks({ status: 'active', limit: 100 }, signal ? { signal } : {});
       const data = response.data?.data || [];
       setDecks(Array.isArray(data) ? data : []);
     } catch (err) {
+      if (isAbortError(err)) {
+        return;
+      }
       toast.error('No se pudieron cargar los mazos', {
         description: extractErrorMessage(err)
       });
@@ -84,9 +93,36 @@ export default function SessionEdit() {
   }, []);
 
   useEffect(() => {
-    loadSession();
-    loadDecks();
+    const sessionController = new AbortController();
+    const decksController = new AbortController();
+
+    loadSession(sessionController.signal);
+    loadDecks(decksController.signal);
+
+    return () => {
+      sessionController.abort();
+      decksController.abort();
+    };
   }, [loadSession, loadDecks]);
+
+  const refetchAll = useCallback(() => {
+    const sessionController = new AbortController();
+    const decksController = new AbortController();
+
+    loadSession(sessionController.signal);
+    loadDecks(decksController.signal);
+
+    return () => {
+      sessionController.abort();
+      decksController.abort();
+    };
+  }, [loadSession, loadDecks]);
+
+  useRefetchOnFocus({
+    refetch: refetchAll,
+    isLoading: loading,
+    hasData: Boolean(session)
+  });
 
   const deckOptions = useMemo(() => decks.map((deck) => ({
     value: deck.id || deck._id,
@@ -130,7 +166,7 @@ export default function SessionEdit() {
     }
   };
 
-  if (loading) {
+  if (loading && !session) {
     return (
       <div className="p-8 text-slate-300">Cargando sesión...</div>
     );

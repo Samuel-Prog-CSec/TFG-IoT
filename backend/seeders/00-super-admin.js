@@ -23,9 +23,9 @@ async function seedSuperAdmin() {
         existing.accountStatus = 'approved';
         existing.status = 'active';
         await existing.save();
-        logger.info('♻️ Super Admin existente normalizado', { email: SUPER_ADMIN_EMAIL });
+        logger.info('Super Admin existente normalizado', { email: SUPER_ADMIN_EMAIL });
       } else {
-        logger.info('ℹ️ Super Admin ya existe', { email: SUPER_ADMIN_EMAIL });
+        logger.info('Super Admin ya existe', { email: SUPER_ADMIN_EMAIL });
       }
 
       return existing;
@@ -38,17 +38,17 @@ async function seedSuperAdmin() {
       role: 'super_admin',
       accountStatus: 'approved',
       profile: {
-        avatar: '👨‍💼',
+        avatar: null,
         birthdate: new Date('1980-01-01')
       },
       status: 'active'
     });
 
-    logger.info('✅ Super Admin seeded exitosamente', { email: SUPER_ADMIN_EMAIL });
+    logger.info('Super Admin seeded exitosamente', { email: SUPER_ADMIN_EMAIL });
 
     return superAdmin;
   } catch (error) {
-    logger.error('❌ Error en seedSuperAdmin:', error);
+    logger.error('Error en seedSuperAdmin:', error);
     throw error;
   }
 }

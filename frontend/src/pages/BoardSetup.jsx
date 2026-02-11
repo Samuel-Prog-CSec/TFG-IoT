@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { DndContext, DragOverlay, useSensor, useSensors, PointerSensor, defaultDropAnimationSideEffects, useDroppable } from '@dnd-kit/core';
 import { SortableContext, useSortable } from '@dnd-kit/sortable';
@@ -8,8 +8,9 @@ import { Layers, RotateCcw, Play, CheckCircle } from 'lucide-react';
 import clsx from 'clsx';
 import confetti from 'canvas-confetti';
 import { toast } from 'sonner';
-import { sessionsAPI, usersAPI, extractData, extractErrorMessage } from '../services/api';
+import { sessionsAPI, usersAPI, extractData, extractErrorMessage, isAbortError } from '../services/api';
 import { useAuth } from '../context/AuthContext';
+import { useRefetchOnFocus } from '../hooks';
 
 export default function BoardSetup() {
   const { sessionId } = useParams();
@@ -28,21 +29,21 @@ export default function BoardSetup() {
   const [activeId, setActiveId] = useState(null); // For DragOverlay
   const [selectedStudentId, setSelectedStudentId] = useState('');
 
-  useEffect(() => {
-    const init = async () => {
+    const init = useCallback((signal) => {
+        const run = async () => {
         try {
                         if (!sessionId) {
                             throw new Error('No se encontró la sesión para configurar el tablero');
                         }
 
-                        const sessionResponse = await sessionsAPI.getSessionById(sessionId);
+                                                const sessionResponse = await sessionsAPI.getSessionById(sessionId, signal ? { signal } : {});
                         const currentSession = extractData(sessionResponse);
 
                         setSession(currentSession);
 
                         const teacherId = user?.id || user?._id;
                         const studentsResponse = teacherId
-                            ? await usersAPI.getStudentsByTeacher(teacherId, { sortBy: 'name', order: 'asc' })
+                            ? await usersAPI.getStudentsByTeacher(teacherId, { sortBy: 'name', order: 'asc' }, signal ? { signal } : {})
                             : { data: { data: [] } };
 
                         const students = extractData(studentsResponse) || [];
@@ -70,14 +71,32 @@ export default function BoardSetup() {
                         setAvailableCards(enrichedCards);
                         setAvailableStudents(Array.isArray(students) ? students : []);
         } catch (e) {
+                        if (isAbortError(e)) {
+                            return;
+                        }
                         console.error(e);
                         toast.error(extractErrorMessage(e));
         } finally {
-            setLoading(false);
+            if (!signal?.aborted) {
+                setLoading(false);
+            }
         }
     };
-    init();
+
+    run();
     }, [sessionId, user]);
+
+    useEffect(() => {
+        const controller = new AbortController();
+        init(controller.signal);
+        return () => controller.abort();
+    }, [init]);
+
+    useRefetchOnFocus({
+        refetch: () => init(),
+        isLoading: loading,
+        hasData: Boolean(session)
+    });
 
   const cardsInLibrary = availableCards.filter(card => !Object.values(slots).some(c => c.id === card.id));
     const totalSlots = session?.config?.numberOfCards || availableCards.length || 0;

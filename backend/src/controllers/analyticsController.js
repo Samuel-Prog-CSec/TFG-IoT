@@ -97,8 +97,9 @@ exports.getClassroomSummary = async (req, res, next) => {
 exports.getClassroomComparison = async (req, res, next) => {
   try {
     const teacherId = req.user?._id?.toString();
+    const { timeRange } = req.query;
 
-    const comparison = await analyticsService.getClassroomComparison(teacherId);
+    const comparison = await analyticsService.getClassroomComparison(teacherId, timeRange);
 
     res.status(200).json({
       success: true,

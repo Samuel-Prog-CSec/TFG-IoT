@@ -60,6 +60,7 @@ const analyticsRoutes = require('./routes/analyticsRoutes');
 
 // Crear aplicación Express
 const app = express();
+app.set('etag', false);
 const server = http.createServer(app);
 
 // Inicializar Sentry
@@ -120,11 +121,11 @@ app.use(
   })
 );
 
-// Rate limiting global (todas las rutas /api/*)
-app.use('/api/', globalRateLimiter);
-
 // CORS con whitelist dinámica
 app.use(cors(corsOptions));
+
+// Rate limiting global (todas las rutas /api/*)
+app.use('/api/', globalRateLimiter);
 
 // Cookies (necesarias para CSRF/refresh cookies)
 app.use(cookieParser());
@@ -178,6 +179,12 @@ app.use((req, res, next) => {
   if (req.id) {
     res.setHeader('x-request-id', req.id);
   }
+  next();
+});
+
+// Evitar cache en respuestas de la API para prevenir 304 sin body
+app.use('/api', (req, res, next) => {
+  res.setHeader('Cache-Control', 'no-store');
   next();
 });
 

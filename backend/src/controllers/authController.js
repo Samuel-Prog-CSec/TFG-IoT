@@ -27,13 +27,17 @@ const crypto = require('node:crypto');
 
 const REFRESH_COOKIE_NAME = 'refreshToken';
 
-const buildRefreshCookieOptions = maxAgeMs => ({
-  httpOnly: true,
-  secure: process.env.NODE_ENV === 'production',
-  sameSite: 'strict',
-  path: '/api/auth',
-  maxAge: maxAgeMs
-});
+const buildRefreshCookieOptions = maxAgeMs => {
+  const isProd = process.env.NODE_ENV === 'production';
+
+  return {
+    httpOnly: true,
+    secure: isProd,
+    sameSite: isProd ? 'strict' : 'lax',
+    path: '/api/auth',
+    maxAge: maxAgeMs
+  };
+};
 
 /**
  * Registrar un nuevo PROFESOR (SOLO para profesores, endpoint público).

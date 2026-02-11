@@ -39,7 +39,7 @@ router.get(
 );
 router.get(
   '/classroom/comparison',
-  validateQuery(emptyObjectSchema),
+  validateQuery(analyticsTimeRangeQuerySchema),
   analyticsController.getClassroomComparison
 );
 router.get(

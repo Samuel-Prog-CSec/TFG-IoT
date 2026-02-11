@@ -10,7 +10,8 @@ import { motion } from 'framer-motion';
 import { ArrowRightLeft, User, Users, School, AlertTriangle } from 'lucide-react';
 import { toast } from 'sonner';
 import { useAuth } from '../context/AuthContext';
-import { usersAPI, extractData, extractErrorMessage } from '../services/api';
+import { useRefetchOnFocus } from '../hooks';
+import { usersAPI, extractData, extractErrorMessage, isAbortError } from '../services/api';
 import { ButtonPremium, GlassCard, InputPremium, SelectPremium, ConfirmationModal } from '../components/ui';
 import { cn, pageVariants } from '../lib/utils';
 
@@ -39,7 +40,7 @@ export default function TransferStudents() {
     [teachers, selectedTeacherId]
   );
 
-  const loadTeachers = useCallback(async () => {
+  const loadTeachers = useCallback(async (config = {}) => {
     try {
       const teachersRes = await usersAPI.getUsers({
         role: 'teacher',
@@ -47,26 +48,32 @@ export default function TransferStudents() {
         sortBy: 'name',
         order: 'asc',
         limit: 100
-      });
+      }, config);
 
       const teachersData = extractData(teachersRes) || [];
       setTeachers(Array.isArray(teachersData) ? teachersData : []);
     } catch (error) {
+      if (isAbortError(error)) {
+        return;
+      }
       toast.error(extractErrorMessage(error));
     }
   }, []);
 
-  const loadStudents = useCallback(async (teacherId) => {
+  const loadStudents = useCallback(async (teacherId, config = {}) => {
     if (!teacherId) {
       setStudents([]);
       return;
     }
 
     try {
-      const studentsRes = await usersAPI.getStudentsByTeacher(teacherId, { sortBy: 'name', order: 'asc' });
+      const studentsRes = await usersAPI.getStudentsByTeacher(teacherId, { sortBy: 'name', order: 'asc' }, config);
       const studentsData = extractData(studentsRes) || [];
       setStudents(Array.isArray(studentsData) ? studentsData : []);
     } catch (error) {
+      if (isAbortError(error)) {
+        return;
+      }
       toast.error(extractErrorMessage(error));
     }
   }, []);
@@ -77,12 +84,19 @@ export default function TransferStudents() {
       return;
     }
 
+    const controller = new AbortController();
+
     setLoading(true);
-    loadTeachers().finally(() => setLoading(false));
+    loadTeachers({ signal: controller.signal }).finally(() => {
+      if (!controller.signal.aborted) {
+        setLoading(false);
+      }
+    });
 
     if (!isSuperAdmin) {
       setSourceTeacherId(currentUserId);
     }
+    return () => controller.abort();
   }, [currentUserId, isSuperAdmin, loadTeachers]);
 
   useEffect(() => {
@@ -91,8 +105,32 @@ export default function TransferStudents() {
       setSourceTeacherId(currentUserId);
       return;
     }
-    loadStudents(sourceTeacherId);
+    const controller = new AbortController();
+
+    loadStudents(sourceTeacherId, { signal: controller.signal });
+    return () => controller.abort();
   }, [currentUserId, isSuperAdmin, sourceTeacherId, loadStudents]);
+
+  const refetchAll = useCallback(() => {
+    const teachersController = new AbortController();
+    const studentsController = new AbortController();
+
+    loadTeachers({ signal: teachersController.signal });
+    if (sourceTeacherId) {
+      loadStudents(sourceTeacherId, { signal: studentsController.signal });
+    }
+
+    return () => {
+      teachersController.abort();
+      studentsController.abort();
+    };
+  }, [loadTeachers, loadStudents, sourceTeacherId]);
+
+  useRefetchOnFocus({
+    refetch: refetchAll,
+    isLoading: loading,
+    hasData: teachers.length > 0 || students.length > 0
+  });
 
   const resetForm = () => {
     setSelectedStudentId('');

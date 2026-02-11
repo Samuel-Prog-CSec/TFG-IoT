@@ -110,7 +110,9 @@ export default function DeckCard({
 
   // Obtener preview de assets (primeros 4)
   const previewAssets = deck.cardMappings?.slice(0, 4) || [];
-  const remainingCount = (deck.cardMappings?.length || 0) - 4;
+  const cardsCount = deck.cardMappings?.length ?? deck.cardsCount ?? 0;
+  const remainingCount = Math.max(cardsCount - previewAssets.length, 0);
+  const showActions = !selectable;
 
   // Formatear fecha
   const formatDate = (dateString) => {
@@ -270,7 +272,7 @@ export default function DeckCard({
           <div className="flex items-center gap-4 text-xs text-slate-500">
             <div className="flex items-center gap-1.5">
               <CreditCard size={14} />
-              <span>{deck.cardMappings?.length || 0} tarjetas</span>
+              <span>{cardsCount} tarjetas</span>
             </div>
             <div className="flex items-center gap-1.5">
               <Calendar size={14} />
@@ -283,12 +285,12 @@ export default function DeckCard({
             <motion.div
               className={cn(
                 'absolute bottom-0 left-0 right-0 p-4 pt-8 bg-gradient-to-t from-slate-900 via-slate-900/95 to-transparent z-20',
-                isHovered ? 'pointer-events-auto' : 'pointer-events-none'
+                showActions ? 'pointer-events-auto' : 'pointer-events-none'
               )}
               initial={{ opacity: 0, y: 20 }}
               animate={{ 
-                opacity: isHovered ? 1 : 0, 
-                y: isHovered ? 0 : 20 
+                opacity: showActions ? 1 : 0, 
+                y: showActions ? 0 : 20 
               }}
               transition={{ duration: 0.2 }}
             >

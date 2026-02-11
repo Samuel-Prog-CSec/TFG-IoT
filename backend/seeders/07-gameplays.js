@@ -5,6 +5,7 @@
  */
 
 const GamePlay = require('../src/models/GamePlay');
+const User = require('../src/models/User');
 const logger = require('../src/utils/logger');
 
 /**
@@ -14,7 +15,7 @@ const logger = require('../src/utils/logger');
  * @param {string} studentProfile - Perfil del alumno ('high_performer', 'struggling', 'improving', 'average')
  * @returns {Object} Objeto con eventos y métricas
  */
-function generatePlayEvents(numberOfRounds, config, studentProfile = 'average') {
+function generatePlayEvents(numberOfRounds, config, cardMappings, studentProfile = 'average') {
   const events = [];
   let score = 0;
   let correctAttempts = 0;
@@ -22,7 +23,6 @@ function generatePlayEvents(numberOfRounds, config, studentProfile = 'average') 
   let timeoutAttempts = 0;
   const responseTimes = [];
 
-  // Aleatorizar un poco el inicio para que no sean todas iguales
   const jitter = Math.floor(Math.random() * 60000);
   const startTime = Date.now() - numberOfRounds * 20000 - jitter;
 
@@ -37,9 +37,9 @@ function generatePlayEvents(numberOfRounds, config, studentProfile = 'average') 
     });
 
     // Definir probabilidades según el perfil
-    let successProb = 0.7; // Default average
-    let timeoutProb = 0.05;
-    let avgSpeed = 4000; // ms
+    let successProb = 0.78;
+    let timeoutProb = 0.06;
+    let avgSpeed = 4000;
 
     if (studentProfile === 'high_performer') {
       successProb = 0.95;
@@ -65,6 +65,10 @@ function generatePlayEvents(numberOfRounds, config, studentProfile = 'average') 
     // Simular variabilidad en el tiempo de respuesta
     const speedJitter = Math.random() * 2000 - 1000;
     const finalSpeed = Math.max(1000, avgSpeed + speedJitter);
+
+    const mappingIndex = (round - 1) % cardMappings.length;
+    const expectedMapping = cardMappings[mappingIndex];
+    const errorMapping = cardMappings[(mappingIndex + 1) % cardMappings.length] || expectedMapping;
 
     if (random < successProb) {
       // Correcto
@@ -95,9 +99,15 @@ function generatePlayEvents(numberOfRounds, config, studentProfile = 'average') 
     events.push({
       timestamp: new Date(roundStartTime + timeElapsed),
       eventType,
-      cardUid: 'AA' + Math.floor(Math.random() * 10000),
-      expectedValue: 'Valor ' + round,
-      actualValue: eventType === 'correct' ? 'Valor ' + round : 'Error',
+      cardUid:
+        eventType === 'timeout'
+          ? undefined
+          : eventType === 'error'
+            ? errorMapping.uid
+            : expectedMapping.uid,
+      expectedValue: expectedMapping.assignedValue,
+      actualValue:
+        eventType === 'correct' ? expectedMapping.assignedValue : errorMapping.assignedValue,
       pointsAwarded,
       timeElapsed,
       roundNumber: round
@@ -126,7 +136,7 @@ function generatePlayEvents(numberOfRounds, config, studentProfile = 'average') 
       errorAttempts,
       timeoutAttempts,
       averageResponseTime,
-      completionTime: numberOfRounds * 15000 // Estimado
+      completionTime: numberOfRounds * 15000
     }
   };
 }
@@ -140,80 +150,97 @@ function generatePlayEvents(numberOfRounds, config, studentProfile = 'average') 
 function generateGamePlaysData(sessions, students) {
   const gamePlays = [];
 
-  // Filtrar sesiones activas o completadas
-  const playableSessions = sessions.filter(s => s.status === 'active' || s.status === 'completed');
+  const completedSessions = sessions.filter(s => s.status === 'completed');
+  const sessionsByTeacher = completedSessions.reduce((acc, session) => {
+    const teacherId = session.createdBy.toString();
+    if (!acc[teacherId]) {
+      acc[teacherId] = [];
+    }
+    acc[teacherId].push(session);
+    return acc;
+  }, {});
 
-  playableSessions.forEach((session, sessionIndex) => {
-    // Asignar 2-3 alumnos aleatorios a cada sesión
-    const numPlayers = Math.floor(Math.random() * 2) + 2;
-    const selectedStudents = students.sort(() => 0.5 - Math.random()).slice(0, numPlayers);
+  const profiles = ['high_performer', 'average', 'struggling', 'improving', 'average'];
 
-    selectedStudents.forEach((student, studentIndex) => {
+  students.forEach((student, index) => {
+    const teacherId = (student.assignedTeacher || student.createdBy || '').toString();
+    const teacherSessions = sessionsByTeacher[teacherId] || [];
+    if (teacherSessions.length === 0) {
+      return;
+    }
+
+    const playsCount = Math.floor(Math.random() * 4) + 2;
+    for (let i = 0; i < playsCount; i++) {
+      const session = teacherSessions[(index + i) % teacherSessions.length];
       const numberOfRounds = session.config.numberOfRounds;
+      const profile = profiles[(index + i) % profiles.length];
+      const playData = generatePlayEvents(
+        numberOfRounds,
+        session.config,
+        session.cardMappings,
+        profile
+      );
 
-      // Asignar perfil basado indirectamente en el ID para consistencia (o random simple)
-      const profiles = ['high_performer', 'average', 'struggling', 'improving', 'average'];
-      // Usar un hash simple del ID o índice
-      const profileIndex = (studentIndex + sessionIndex) % profiles.length;
-      const profile = profiles[profileIndex];
+      const sessionStart = session.startedAt || new Date();
+      const timeShift = sessionStart.getTime() - playData.events[0].timestamp.getTime();
+      playData.events.forEach(e => {
+        e.timestamp = new Date(e.timestamp.getTime() + timeShift);
+      });
 
-      const playData = generatePlayEvents(numberOfRounds, session.config, profile);
+      const completedAt = new Date(
+        playData.events[playData.events.length - 1].timestamp.getTime() + 1000
+      );
 
-      // Determinar estado de la partida
-      let status;
-      let completedAt = null;
-
-      if (session.status === 'completed') {
-        status = 'completed';
-        completedAt = session.endedAt;
-        // Ajustar timestamp de eventos para coincidir con la sesión histórica
-        if (session.startedAt) {
-          const timeShift = session.startedAt.getTime() - playData.events[0].timestamp.getTime();
-          playData.events.forEach(e => {
-            e.timestamp = new Date(e.timestamp.getTime() + timeShift);
-          });
-        }
-      } else if (session.status === 'active' && studentIndex === 0) {
-        // Primera partida: en progreso
-        status = 'in-progress';
-        playData.events = playData.events.slice(0, Math.floor(playData.events.length / 2));
-      } else if (session.status === 'active') {
-        // Otras en active: ya terminaron (simulando que terminaron hace poco)
-        status = 'completed';
-        completedAt = new Date();
-      } else {
-        // Paused/Created -> no deberían tener plays, pero por si acaso
-        status = 'abandoned';
-      }
-
-      if (status !== 'abandoned') {
-        gamePlays.push({
-          sessionId: session._id,
-          playerId: student._id,
-          score: status === 'in-progress' ? Math.floor(playData.score * 0.5) : playData.score,
-          currentRound:
-            status === 'in-progress' ? Math.ceil(numberOfRounds / 2) : numberOfRounds + 1,
-          events: playData.events,
-          metrics:
-            status === 'in-progress'
-              ? {
-                  totalAttempts: Math.floor(playData.metrics.totalAttempts / 2),
-                  correctAttempts: Math.floor(playData.metrics.correctAttempts / 2),
-                  errorAttempts: Math.floor(playData.metrics.errorAttempts / 2),
-                  timeoutAttempts: Math.floor(playData.metrics.timeoutAttempts / 2),
-                  averageResponseTime: playData.metrics.averageResponseTime,
-                  completionTime: 0
-                }
-              : playData.metrics,
-          status,
-          startedAt: playData.events[0].timestamp,
-          completedAt
-        });
-      }
-    });
+      gamePlays.push({
+        sessionId: session._id,
+        playerId: student._id,
+        score: playData.score,
+        currentRound: numberOfRounds + 1,
+        events: playData.events,
+        metrics: playData.metrics,
+        status: 'completed',
+        startedAt: playData.events[0].timestamp,
+        completedAt
+      });
+    }
   });
 
   return gamePlays;
+}
+
+function aggregateStudentMetrics(gamePlays) {
+  const metricsByStudent = new Map();
+
+  gamePlays.forEach(play => {
+    const studentId = play.playerId.toString();
+    const entry = metricsByStudent.get(studentId) || {
+      totalGamesPlayed: 0,
+      totalScore: 0,
+      bestScore: 0,
+      totalCorrectAnswers: 0,
+      totalErrors: 0,
+      totalResponseTime: 0,
+      totalResponses: 0,
+      lastPlayedAt: null
+    };
+
+    entry.totalGamesPlayed += 1;
+    entry.totalScore += play.score;
+    entry.bestScore = Math.max(entry.bestScore, play.score);
+    entry.totalCorrectAnswers += play.metrics.correctAttempts;
+    entry.totalErrors += play.metrics.errorAttempts;
+    const responses = play.metrics.correctAttempts + play.metrics.errorAttempts;
+    entry.totalResponses += responses;
+    entry.totalResponseTime += play.metrics.averageResponseTime * responses;
+
+    if (!entry.lastPlayedAt || play.completedAt > entry.lastPlayedAt) {
+      entry.lastPlayedAt = play.completedAt;
+    }
+
+    metricsByStudent.set(studentId, entry);
+  });
+
+  return metricsByStudent;
 }
 
 /**
@@ -227,21 +254,53 @@ async function seedGamePlays(sessions, students) {
     const gamePlaysData = generateGamePlaysData(sessions, students);
     const gamePlays = await GamePlay.insertMany(gamePlaysData);
 
+    const metricsByStudent = aggregateStudentMetrics(gamePlays);
+    const updatePromises = [];
+
+    metricsByStudent.forEach((metrics, studentId) => {
+      const averageScore = metrics.totalGamesPlayed
+        ? Math.round(metrics.totalScore / metrics.totalGamesPlayed)
+        : 0;
+      const averageResponseTime = metrics.totalResponses
+        ? Math.round(metrics.totalResponseTime / metrics.totalResponses)
+        : 0;
+
+      updatePromises.push(
+        User.updateOne(
+          { _id: studentId },
+          {
+            $set: {
+              'studentMetrics.totalGamesPlayed': metrics.totalGamesPlayed,
+              'studentMetrics.totalScore': metrics.totalScore,
+              'studentMetrics.averageScore': averageScore,
+              'studentMetrics.bestScore': metrics.bestScore,
+              'studentMetrics.totalCorrectAnswers': metrics.totalCorrectAnswers,
+              'studentMetrics.totalErrors': metrics.totalErrors,
+              'studentMetrics.averageResponseTime': averageResponseTime,
+              'studentMetrics.lastPlayedAt': metrics.lastPlayedAt
+            }
+          }
+        )
+      );
+    });
+
+    await Promise.all(updatePromises);
+
     // Contar por estado
     const byStatus = gamePlays.reduce((acc, gp) => {
       acc[gp.status] = (acc[gp.status] || 0) + 1;
       return acc;
     }, {});
 
-    logger.info('✅ Partidas (GamePlays) seeded exitosamente');
-    logger.info(`   - ${gamePlays.length} partidas totales`);
+    logger.info('Partidas (GamePlays) seeded exitosamente');
+    logger.info(`- ${gamePlays.length} partidas totales`);
     Object.entries(byStatus).forEach(([status, count]) => {
-      logger.info(`   - ${count} partidas en estado "${status}"`);
+      logger.info(`- ${count} partidas en estado "${status}"`);
     });
 
     return gamePlays;
   } catch (error) {
-    logger.error('❌ Error en seedGamePlays:', error);
+    logger.error('Error en seedGamePlays:', error);
     throw error;
   }
 }

@@ -6,7 +6,7 @@
  * @module pages/CardDecksPage
  */
 
-import { useState, useEffect, useCallback, useMemo } from 'react';
+import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import { 
@@ -20,9 +20,9 @@ import {
   X
 } from 'lucide-react';
 import { cn } from '../lib/utils';
-import { decksAPI, extractErrorMessage } from '../services/api';
+import { decksAPI, extractErrorMessage, isAbortError } from '../services/api';
 import { DeckCard, DeckCardSkeleton, ButtonPremium, GlassCard, ConfirmationModal, useConfirmationModal } from '../components/ui';
-import { useContexts } from '../hooks';
+import { useContexts, useRefetchOnFocus } from '../hooks';
 import { ROUTES } from '../constants/routes';
 import { toast } from 'sonner';
 
@@ -58,6 +58,8 @@ export default function CardDecksPage() {
   const archiveModal = useConfirmationModal();
   const [archivingDeck, setArchivingDeck] = useState(null);
   const [archiveLoading, setArchiveLoading] = useState(false);
+  const decksAbortRef = useRef(null);
+  const countAbortRef = useRef(null);
 
   // Hook de contextos (para filtro)
   const { contexts } = useContexts({ autoLoad: true, onlyActive: true });
@@ -66,7 +68,7 @@ export default function CardDecksPage() {
   const useReducedMotion = useMemo(() => decks.length > REDUCED_MOTION_THRESHOLD, [decks.length]);
 
   // Cargar mazos
-  const loadDecks = useCallback(async (resetPage = true, skipCount = false) => {
+  const loadDecks = useCallback(async (resetPage = true, skipCount = false, signal, pageOverride) => {
     try {
       if (resetPage) {
         setLoading(true);
@@ -76,8 +78,9 @@ export default function CardDecksPage() {
       }
       setError(null);
 
+      const pageToUse = resetPage ? 1 : (pageOverride || page);
       const params = {
-        page: resetPage ? 1 : page,
+        page: pageToUse,
         limit: 12,
         status: statusFilter,
         ...(searchQuery && { search: searchQuery }),
@@ -86,7 +89,7 @@ export default function CardDecksPage() {
         order: 'desc',
       };
 
-      const response = await decksAPI.getDecks(params);
+      const response = await decksAPI.getDecks(params, signal ? { signal } : {});
       const {data} = response;
       
       const newDecks = data.data || [];
@@ -108,32 +111,63 @@ export default function CardDecksPage() {
           setDeckCount(prev => ({ ...prev, active: pagination.total }));
         } else {
           // Necesitamos el conteo completo (incluye archived)
-          const countData = await decksAPI.getDecksCount();
+          const countData = await decksAPI.getDecksCount(signal ? { signal } : {});
           setDeckCount(countData);
         }
       }
 
     } catch (err) {
+      if (isAbortError(err)) {
+        return;
+      }
       setError(extractErrorMessage(err));
       toast.error('Error al cargar mazos', {
         description: extractErrorMessage(err),
       });
     } finally {
-      setLoading(false);
-      setLoadingMore(false);
+      if (!signal?.aborted) {
+        setLoading(false);
+        setLoadingMore(false);
+      }
     }
   }, [searchQuery, statusFilter, contextFilter, page]);
 
   // Cargar al montar y cuando cambian filtros
   useEffect(() => {
-    loadDecks(true);
+    decksAbortRef.current?.abort();
+    countAbortRef.current?.abort();
+    const controller = new AbortController();
+    decksAbortRef.current = controller;
+    countAbortRef.current = controller;
+    loadDecks(true, false, controller.signal);
+
+    return () => controller.abort();
   }, [searchQuery, statusFilter, contextFilter]);
+
+  const refetchDecks = useCallback(() => {
+    decksAbortRef.current?.abort();
+    countAbortRef.current?.abort();
+    const controller = new AbortController();
+    decksAbortRef.current = controller;
+    countAbortRef.current = controller;
+    loadDecks(true, false, controller.signal);
+  }, [loadDecks]);
+
+  useRefetchOnFocus({
+    refetch: refetchDecks,
+    isLoading: loading,
+    hasData: decks.length > 0,
+    hasError: Boolean(error)
+  });
 
   // Cargar más (paginación)
   const loadMore = () => {
     if (!loadingMore && hasMore) {
       setPage(prev => prev + 1);
-      loadDecks(false);
+      const nextPage = page + 1;
+      const controller = new AbortController();
+      decksAbortRef.current = controller;
+      loadDecks(false, true, controller.signal, nextPage);
     }
   };
 
@@ -369,6 +403,12 @@ export default function CardDecksPage() {
         </GlassCard>
       </motion.div>
 
+      {loading && decks.length > 0 && (
+        <div className="mb-4 bg-slate-800/50 border border-white/10 text-slate-300 px-4 py-2 rounded-xl text-sm">
+          Actualizando mazos...
+        </div>
+      )}
+
       {/* Contenido principal */}
       {error ? (
         /* Estado de error */
@@ -389,7 +429,7 @@ export default function CardDecksPage() {
             Reintentar
           </ButtonPremium>
         </motion.div>
-      ) : loading ? (
+      ) : loading && decks.length === 0 ? (
         /* Estado de carga */
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
           {[...Array(6)].map((_, i) => (

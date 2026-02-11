@@ -41,8 +41,8 @@ import {
   ConfirmationModal,
   useConfirmationModal
 } from '../components/ui';
-import { decksAPI, cardsAPI, extractData, extractErrorMessage } from '../services/api';
-import { useDeckWizardDraft, formatDraftDate, useContexts } from '../hooks';
+import { decksAPI, cardsAPI, extractData, extractErrorMessage, isAbortError } from '../services/api';
+import { useDeckWizardDraft, formatDraftDate, useContexts, useRefetchOnFocus } from '../hooks';
 import { ROUTES } from '../constants/routes';
 import { GAME_CONFIG } from '../constants/gameConfig';
 import { toast } from 'sonner';
@@ -101,7 +101,9 @@ export default function DeckCreationWizard() {
   // Hook centralizado de contextos
   const { 
     contexts, 
-    loading: loadingContexts 
+    loading: loadingContexts,
+    error: contextsError,
+    refetch: refetchContexts
   } = useContexts({ autoLoad: true, onlyActive: true });
   
   // Datos auxiliares de cartas
@@ -132,22 +134,46 @@ export default function DeckCreationWizard() {
   } = useDeckWizardDraft();
 
   // Cargar cartas disponibles
-  useEffect(() => {
-    const loadCards = async () => {
+  const loadCards = useCallback((signal) => {
+    const run = async () => {
       try {
-        const cardsRes = await cardsAPI.getCards({ limit: 100 });
+        const cardsRes = await cardsAPI.getCards({ limit: 100 }, signal ? { signal } : {});
         setAvailableCards(extractData(cardsRes)?.data || []);
       } catch (err) {
+        if (isAbortError(err)) {
+          return;
+        }
         toast.error('Error al cargar cartas', {
           description: extractErrorMessage(err)
         });
       } finally {
-        setLoadingCards(false);
+        if (!signal?.aborted) {
+          setLoadingCards(false);
+        }
       }
     };
-    
-    loadCards();
+
+    run();
   }, []);
+
+  useEffect(() => {
+    const controller = new AbortController();
+    loadCards(controller.signal);
+    return () => controller.abort();
+  }, [loadCards]);
+
+  useRefetchOnFocus({
+    refetch: () => loadCards(),
+    isLoading: loadingCards,
+    hasData: availableCards.length > 0
+  });
+
+  useRefetchOnFocus({
+    refetch: () => refetchContexts(),
+    isLoading: loadingContexts,
+    hasData: contexts.length > 0,
+    hasError: Boolean(contextsError)
+  });
 
   // Mostrar modal si hay borrador guardado
   useEffect(() => {

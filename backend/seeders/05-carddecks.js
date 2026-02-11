@@ -9,17 +9,6 @@ const CardDeck = require('../src/models/CardDeck');
 const logger = require('../src/utils/logger');
 
 /**
- * Selecciona N elementos aleatorios de un array.
- * @param {Array} array - Array fuente
- * @param {number} count - Número de elementos a seleccionar
- * @returns {Array} Elementos seleccionados
- */
-function randomSample(array, count) {
-  const shuffled = [...array].sort(() => 0.5 - Math.random());
-  return shuffled.slice(0, Math.min(count, shuffled.length));
-}
-
-/**
  * Genera cardMappings para un mazo.
  * @param {Array} cards - Tarjetas disponibles
  * @param {Array} contextAssets - Assets del contexto
@@ -27,8 +16,8 @@ function randomSample(array, count) {
  * @returns {Array} Array de cardMappings
  */
 function generateCardMappings(cards, contextAssets, count) {
-  const selectedCards = randomSample(cards, count);
-  const selectedAssets = randomSample(contextAssets, count);
+  const selectedCards = cards.slice(0, count);
+  const selectedAssets = contextAssets.slice(0, count);
 
   return selectedCards.map((card, index) => ({
     cardId: card._id,
@@ -39,7 +28,8 @@ function generateCardMappings(cards, contextAssets, count) {
       display: selectedAssets[index].display,
       value: selectedAssets[index].value,
       audioUrl: selectedAssets[index].audioUrl || null,
-      imageUrl: selectedAssets[index].imageUrl || null
+      imageUrl: selectedAssets[index].imageUrl || null,
+      thumbnailUrl: selectedAssets[index].thumbnailUrl || null
     }
   }));
 }
@@ -59,124 +49,35 @@ function findContext(contexts, contextId) {
  * Cada profesor tendrá mazos similares pero con tarjetas diferentes.
  */
 const deckTemplates = [
-  // =============================================
-  // MAZOS DE GEOGRAFÍA
-  // =============================================
   {
     name: 'Banderas de Europa',
-    description: 'Mazo para aprender las banderas de países europeos',
+    description: 'Mazo para aprender paises de Europa',
     contextKey: 'geography-europe',
-    cardCount: 6
+    cardCount: 15
   },
   {
-    name: 'Capitales Europeas',
-    description: 'Relaciona cada país con su capital',
-    contextKey: 'geography-europe',
-    cardCount: 5
-  },
-
-  // =============================================
-  // MAZOS DE ANIMALES
-  // =============================================
-  {
-    name: 'Animales de la Granja',
+    name: 'Animales de Granja',
     description: 'Mazo con animales domésticos de granja',
     contextKey: 'animals-farm',
-    cardCount: 8
+    cardCount: 15
   },
   {
-    name: 'Safari Salvaje',
-    description: 'Animales salvajes de la selva y sabana',
-    contextKey: 'animals-wild',
-    cardCount: 7
-  },
-  {
-    name: 'Mundo Marino',
-    description: 'Criaturas del océano y el mar',
-    contextKey: 'animals-sea',
-    cardCount: 6
-  },
-
-  // =============================================
-  // MAZOS EDUCATIVOS BÁSICOS
-  // =============================================
-  {
-    name: 'Colores del Arcoíris',
-    description: 'Aprende los colores básicos de forma divertida',
+    name: 'Colores Basicos',
+    description: 'Mazo para aprender colores basicos',
     contextKey: 'colors-basic',
-    cardCount: 6
+    cardCount: 15
   },
   {
-    name: 'Números Mágicos',
-    description: 'Mazo para aprender los números del 1 al 10',
-    contextKey: 'numbers-1-10',
-    cardCount: 5
+    name: 'Numeros del 1 al 15',
+    description: 'Mazo para practicar numeros del 1 al 15',
+    contextKey: 'numbers-1-15',
+    cardCount: 15
   },
   {
-    name: 'Las Vocales',
-    description: 'Mazo para aprender las vocales A, E, I, O, U',
-    contextKey: 'alphabet-vowels',
-    cardCount: 5
-  },
-  {
-    name: 'Primeras Letras',
-    description: 'Introducción al abecedario',
-    contextKey: 'alphabet-basic',
-    cardCount: 6
-  },
-
-  // =============================================
-  // MAZOS DE FRUTAS Y VERDURAS
-  // =============================================
-  {
-    name: 'Frutas Tropicales',
-    description: 'Descubre las frutas más deliciosas',
-    contextKey: 'fruits',
-    cardCount: 7
-  },
-  {
-    name: 'Verduras del Huerto',
-    description: 'Aprende sobre las verduras saludables',
-    contextKey: 'vegetables',
-    cardCount: 6
-  },
-
-  // =============================================
-  // MAZOS DE FORMAS Y CONCEPTOS
-  // =============================================
-  {
-    name: 'Formas Geométricas',
-    description: 'Círculos, cuadrados, triángulos y más',
-    contextKey: 'shapes',
-    cardCount: 6
-  },
-  {
-    name: 'Días de la Semana',
-    description: 'Aprende el orden de los días',
-    contextKey: 'weekdays',
-    cardCount: 7
-  },
-  {
-    name: 'Las Estaciones',
-    description: 'Primavera, Verano, Otoño e Invierno',
-    contextKey: 'seasons',
-    cardCount: 4
-  },
-
-  // =============================================
-  // MAZOS DE TRANSPORTES Y EMOCIONES
-  // =============================================
-  {
-    name: 'Medios de Transporte',
-    description: 'Coches, aviones, barcos y más',
-    contextKey: 'transport',
-    cardCount: 8
-  },
-  {
-    name: 'Mis Emociones',
-    description: 'Aprende a identificar las emociones',
-    contextKey: 'emotions',
-    cardCount: 6
+    name: 'Formas Basicas',
+    description: 'Mazo para aprender formas basicas',
+    contextKey: 'shapes-basic',
+    cardCount: 15
   }
 ];
 
@@ -190,9 +91,10 @@ const deckTemplates = [
  */
 function generateDecksForTeacher(teacher, contexts, cards, teacherIndex) {
   const decks = [];
-
-  // Offset de tarjetas para que cada profesor use tarjetas diferentes
-  const cardOffset = teacherIndex * 15;
+  const cardsPerDeck = 15;
+  const decksPerTeacher = deckTemplates.length;
+  const cardsPerTeacher = decksPerTeacher * cardsPerDeck;
+  const cardOffset = teacherIndex * cardsPerTeacher;
 
   deckTemplates.forEach((template, templateIndex) => {
     const context = findContext(contexts, template.contextKey);
@@ -204,27 +106,25 @@ function generateDecksForTeacher(teacher, contexts, cards, teacherIndex) {
       return;
     }
 
-    // Verificar que hay suficientes assets en el contexto
     if (context.assets.length < template.cardCount) {
       logger.warn(
-        `Contexto '${template.contextKey}' tiene ${context.assets.length} assets, pero el mazo necesita ${template.cardCount}. Ajustando.`
+        `Contexto '${template.contextKey}' tiene ${context.assets.length} assets, pero el mazo necesita ${template.cardCount}.`
       );
-      template.cardCount = Math.min(template.cardCount, context.assets.length);
+      return;
     }
 
-    // Seleccionar tarjetas con offset para variedad entre profesores
-    const startCardIndex =
-      (cardOffset + templateIndex * 8) % Math.max(1, cards.length - template.cardCount);
-    const availableCards = cards.slice(startCardIndex);
+    const startCardIndex = cardOffset + templateIndex * cardsPerDeck;
+    const endCardIndex = startCardIndex + template.cardCount;
+    const selectedCards = cards.slice(startCardIndex, endCardIndex);
 
-    if (availableCards.length < template.cardCount) {
+    if (selectedCards.length < template.cardCount) {
       logger.warn(
         `No hay suficientes tarjetas para el mazo '${template.name}' del profesor ${teacher.name}`
       );
       return;
     }
 
-    const cardMappings = generateCardMappings(availableCards, context.assets, template.cardCount);
+    const cardMappings = generateCardMappings(selectedCards, context.assets, template.cardCount);
 
     decks.push({
       name: template.name,
@@ -267,17 +167,17 @@ async function seedCardDecks(users, contexts, cards) {
       decksByTeacher[teacherId] = (decksByTeacher[teacherId] || 0) + 1;
     });
 
-    logger.info('✅ Mazos de tarjetas seeded exitosamente');
-    logger.info(`   - ${createdDecks.length} mazos totales`);
+    logger.info('Mazos de tarjetas seeded exitosamente');
+    logger.info(`- ${createdDecks.length} mazos totales`);
 
     const teacher = teachers.find(t => t._id.toString() === Object.keys(decksByTeacher)[0]);
     if (teacher) {
-      logger.info(`   - ${decksByTeacher[teacher._id.toString()]} mazos por profesor (aprox.)`);
+      logger.info(`- ${decksByTeacher[teacher._id.toString()]} mazos por profesor`);
     }
 
     return createdDecks;
   } catch (error) {
-    logger.error('❌ Error en seedCardDecks:', error);
+    logger.error('Error en seedCardDecks:', error);
     throw error;
   }
 }

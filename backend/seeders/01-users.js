@@ -18,7 +18,7 @@ const teachersData = [
     password: 'Test1234!',
     role: 'teacher',
     profile: {
-      avatar: '👩‍🏫',
+      avatar: null,
       birthdate: new Date('1985-05-15')
     },
     status: 'active'
@@ -29,50 +29,85 @@ const teachersData = [
     password: 'Test1234!',
     role: 'teacher',
     profile: {
-      avatar: '👨‍🏫',
+      avatar: null,
       birthdate: new Date('1982-09-22')
-    },
-    status: 'active'
-  },
-  {
-    name: 'Ana Martínez Sánchez',
-    email: 'ana@test.com',
-    password: 'Test1234!',
-    role: 'teacher',
-    accountStatus: 'approved',
-    profile: {
-      avatar: '👩‍🏫',
-      birthdate: new Date('1990-03-10')
     },
     status: 'active'
   }
 ];
 
-/**
- * Nombres de alumnos para generación.
- */
-const studentNames = [
-  'Sofía García',
-  'Lucas Martín',
-  'Valentina López',
-  'Mateo Fernández',
-  'Emma Rodríguez',
-  'Diego Sánchez',
-  'Isabella Pérez',
-  'Santiago Gómez',
-  'Camila Díaz',
-  'Sebastián Torres',
-  'Victoria Ruiz',
-  'Nicolás Moreno',
-  'Martina Jiménez',
-  'Benjamín Álvarez',
-  'Luciana Romero',
-  'Daniel Navarro',
-  'Emilia Domínguez',
-  'Joaquín Vázquez',
-  'Julieta Ramos',
-  'Gabriel Molina'
+const studentFirstNames = [
+  'Sofia',
+  'Lucas',
+  'Valentina',
+  'Mateo',
+  'Emma',
+  'Diego',
+  'Isabella',
+  'Santiago',
+  'Camila',
+  'Sebastian',
+  'Victoria',
+  'Nicolas',
+  'Martina',
+  'Benjamin',
+  'Luciana',
+  'Daniel',
+  'Emilia',
+  'Joaquin',
+  'Julieta',
+  'Gabriel',
+  'Paula',
+  'Hugo',
+  'Carla',
+  'Adrian',
+  'Elena',
+  'Leo',
+  'Claudia',
+  'Alvaro',
+  'Irene',
+  'Bruno'
 ];
+
+const studentLastNames = [
+  'Garcia',
+  'Martin',
+  'Lopez',
+  'Fernandez',
+  'Rodriguez',
+  'Sanchez',
+  'Perez',
+  'Gomez',
+  'Diaz',
+  'Torres',
+  'Ruiz',
+  'Moreno',
+  'Jimenez',
+  'Alvarez',
+  'Romero',
+  'Navarro',
+  'Dominguez',
+  'Vazquez',
+  'Ramos',
+  'Molina'
+];
+
+function buildStudentNames(count, offset) {
+  const names = [];
+  let index = 0;
+
+  while (names.length < count) {
+    const first = studentFirstNames[(offset + index) % studentFirstNames.length];
+    const last = studentLastNames[index % studentLastNames.length];
+    const fullName = `${first} ${last}`;
+    if (!names.includes(fullName)) {
+      names.push(fullName);
+    }
+    index += 1;
+  }
+
+  return names;
+}
 
 /**
  * Genera métricas coherentes para un alumno.
@@ -81,58 +116,16 @@ const studentNames = [
  * @param {number} gamesPlayed - Número de partidas jugadas
  * @returns {Object} Métricas del alumno
  */
-function generateCoherentMetrics(gamesPlayed) {
-  if (gamesPlayed === 0) {
-    return {
-      totalGamesPlayed: 0,
-      totalScore: 0,
-      averageScore: 0,
-      bestScore: 0,
-      totalCorrectAnswers: 0,
-      totalErrors: 0,
-      averageResponseTime: 0,
-      lastPlayedAt: null
-    };
-  }
-
-  // Configuración base por partida
-  const roundsPerGame = 5;
-  const pointsPerCorrect = 10;
-  const penaltyPerError = 2;
-
-  // Generar resultados coherentes
-  const totalRounds = gamesPlayed * roundsPerGame;
-  const accuracyRate = 0.5 + Math.random() * 0.4; // 50-90% de aciertos
-  const totalCorrect = Math.floor(totalRounds * accuracyRate);
-  const totalErrors = totalRounds - totalCorrect;
-
-  // Calcular puntuación
-  const totalScore = totalCorrect * pointsPerCorrect - totalErrors * penaltyPerError;
-  const averageScore = Math.round(totalScore / gamesPlayed);
-
-  // Mejor puntuación (una partida perfecta o casi)
-  const maxPossibleScore = roundsPerGame * pointsPerCorrect;
-  const bestScore = Math.min(
-    Math.round(averageScore * (1.2 + Math.random() * 0.3)),
-    maxPossibleScore
-  );
-
-  // Tiempo de respuesta promedio (2-6 segundos)
-  const averageResponseTime = Math.floor(2000 + Math.random() * 4000);
-
-  // Última partida en los últimos 7 días
-  const daysAgo = Math.floor(Math.random() * 7);
-  const lastPlayedAt = new Date(Date.now() - daysAgo * 24 * 60 * 60 * 1000);
-
+function getEmptyMetrics() {
   return {
-    totalGamesPlayed: gamesPlayed,
-    totalScore: Math.max(0, totalScore),
-    averageScore: Math.max(0, averageScore),
-    bestScore: Math.max(0, bestScore),
-    totalCorrectAnswers: totalCorrect,
-    totalErrors,
-    averageResponseTime,
-    lastPlayedAt
+    totalGamesPlayed: 0,
+    totalScore: 0,
+    averageScore: 0,
+    bestScore: 0,
+    totalCorrectAnswers: 0,
+    totalErrors: 0,
+    averageResponseTime: 0,
+    lastPlayedAt: null
   };
 }
 
@@ -144,14 +137,13 @@ function generateCoherentMetrics(gamesPlayed) {
  * @param {number} count - Número de alumnos a generar
  * @returns {Array} Array de datos de alumnos
  */
-function generateStudentsData(teacher, names, startIndex, count) {
+function generateStudentsData(teacher, names, count, indexOffset) {
   const classrooms = ['Infantil A', 'Infantil B', 'Infantil C'];
   const ages = [4, 5, 6];
 
   return Array.from({ length: count }, (_, i) => {
-    const nameIndex = (startIndex + i) % names.length;
+    const nameIndex = (indexOffset + i) % names.length;
     const age = ages[i % ages.length];
-    const gamesPlayed = Math.floor(Math.random() * 15); // 0-14 partidas
 
     // Calcular año de nacimiento basado en edad
     const currentYear = new Date().getFullYear();
@@ -165,12 +157,13 @@ function generateStudentsData(teacher, names, startIndex, count) {
       profile: {
         age,
         classroom: classrooms[i % classrooms.length],
-        avatar: i % 2 === 0 ? '👧' : '👦',
+        avatar: null,
         birthdate: new Date(birthYear, birthMonth, birthDay)
       },
       status: 'active',
       createdBy: teacher._id,
-      studentMetrics: generateCoherentMetrics(gamesPlayed)
+      assignedTeacher: teacher._id,
+      studentMetrics: getEmptyMetrics()
     };
   });
 }
@@ -194,28 +187,23 @@ async function seedUsers() {
       teachers.push(teacher);
     }
 
-    // Crear 5 alumnos por cada profesor
+    // Crear 15-20 alumnos por cada profesor
     const studentsArrays = [];
     for (const [index, teacher] of teachers.entries()) {
-      const studentsData = generateStudentsData(
-        teacher,
-        studentNames,
-        index * 5, // Offset para usar nombres diferentes
-        5
-      );
-
-      // Para alumnos, insertMany es seguro (no hay password) y acelera el seed
-      const createdStudents = await User.insertMany(studentsData);
+      const studentsCount = 18;
+      const studentNames = buildStudentNames(studentsCount, index * studentsCount);
+      const studentsData = generateStudentsData(teacher, studentNames, studentsCount, 0);
+      const createdStudents = await User.create(studentsData);
       studentsArrays.push(createdStudents);
     }
 
     const students = studentsArrays.flat();
 
-    logger.info('✅ Usuarios seeded exitosamente');
+    logger.info('Usuarios seeded exitosamente');
 
     return { teachers, students };
   } catch (error) {
-    logger.error('❌ Error en seedUsers:', error);
+    logger.error('Error en seedUsers:', error);
     throw error;
   }
 }
