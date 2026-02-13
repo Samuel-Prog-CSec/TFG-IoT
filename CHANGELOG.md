@@ -5,6 +5,48 @@ Todas las notas notables de cambios en este proyecto serán documentadas en este
 El formato está basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.0.0/),
 y este proyecto adhiere a [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.3.0] - 2026-02-13
+
+### Añadido
+
+- **RFID Web Serial (Frontend):** Migración del flujo de lectura RFID al cliente (navegador) con soporte para conexión/desconexión, estados y control por modo operativo.
+- **Integración Frontend-Backend completa:** Conexión real de la UI con API REST y Socket.IO para auth, usuarios, sesiones, mazos y métricas.
+- **Autenticación WebSocket obligatoria:** Handshake autenticado y control de acceso reforzado para eventos en tiempo real.
+- **Rate limiting en Socket.IO:** Límites por tipo de evento para reducir riesgo de abuso/DoS en canales de juego.
+- **Capa DTO de respuestas:** Estandarización de payloads para reducir exposición de datos y mejorar consistencia de API.
+- **Multi-sensor RFID (base):** Soporte de identificación de sensor en eventos para escenarios con más de un lector.
+- **Modos RFID de flujo:** Control explícito para procesar lecturas según contexto (juego, registro, asignación, idle).
+- **Frontend de operación docente:**
+  - Panel de aprobación de profesores.
+  - Flujo de sesión única por usuario.
+  - Gestión de mazos en UI.
+  - Wizard de sesión mejorado.
+  - Dashboard analytics ampliado.
+- **Infraestructura Docker:** Dockerfiles y compose para entorno local/dev/prod con documentación asociada.
+
+### Cambiado
+
+- **Arquitectura RFID:** Se desprioriza la dependencia de lectura serie en backend para favorecer despliegue cloud con lectura Web Serial desde frontend.
+- **Validación de API:** Hardening de esquemas y validadores con Zod en rutas críticas.
+- **Flujos en tiempo real:** Endurecimiento del pipeline Socket para mejorar estabilidad y trazabilidad en sesiones activas.
+
+### Seguridad
+
+- **Hardening de WebSocket:** autenticación obligatoria + control de frecuencia por evento.
+- **Security logging:** Mejoras de registro orientadas a auditoría y detección de eventos de riesgo.
+- **Validación estricta de entrada:** Reforzada en endpoints y eventos críticos para reducir superficie OWASP (input tampering / payloads malformados).
+
+### Corregido
+
+- Ajustes de integración frontend/backend para eliminar inconsistencias de contrato en flujos de sesión y datos de UI.
+- Mejoras de robustez en rutas y validaciones para reducir errores por datos incompletos o no normalizados.
+
+### Documentación
+
+- Actualización de documentación de arquitectura y uso extendido de WebSocket/Web Serial.
+- Actualización de tareas y cierre de Sprint 3 con trazabilidad técnica.
+- Consolidación de documentación operativa para despliegue con Docker.
+
 ## [0.2.0] - 2026-01-09
 
 ### Añadido

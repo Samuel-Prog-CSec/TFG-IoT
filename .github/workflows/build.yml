@@ -2,10 +2,10 @@ name: Build
 
 on:
   push:
-    branches: [ "main", "develop" ]
+    branches: [ "main", "develop", "Maintenance" ]
   pull_request:
     types: [ "opened", "synchronize", "reopened" ]
-    branches: [ "main", "develop" ]
+    branches: [ "main", "develop", "Maintenance" ]
 
 jobs:
   quality:
@@ -53,6 +53,10 @@ jobs:
       env:
         JWT_SECRET: "test_secret"
         MONGODB_URI: "mongodb://localhost:27017/rfid_games_test"
+
+    - name: Normalize backend LCOV paths for SonarCloud
+      run: |
+        sed -i 's#^SF:src/#SF:backend/src/#; s#^SF:src\\#SF:backend/src/#' backend/coverage/lcov.info
 
     - name: Install Frontend Dependencies
       run: npm ci
