@@ -7,6 +7,19 @@
 const { z } = require('zod');
 const { objectIdSchema, paginationSchema } = require('./commonValidator');
 
+const booleanQuerySchema = z.preprocess(val => {
+  if (typeof val === 'string') {
+    const normalized = val.trim().toLowerCase();
+    if (normalized === 'true') {
+      return true;
+    }
+    if (normalized === 'false') {
+      return false;
+    }
+  }
+  return val;
+}, z.boolean().optional());
+
 /**
  * Schema para un asset individual dentro del contexto.
  *
@@ -167,7 +180,8 @@ const updateGameContextSchema = z
  * GET /contexts?page=1&limit=10&sortBy=name&order=asc&search=geo
  */
 const gameContextQuerySchema = paginationSchema.extend({
-  sortBy: z.enum(['contextId', 'name', 'createdAt', 'updatedAt']).optional().default('createdAt')
+  sortBy: z.enum(['contextId', 'name', 'createdAt', 'updatedAt']).optional().default('createdAt'),
+  isActive: booleanQuerySchema
 });
 
 /**

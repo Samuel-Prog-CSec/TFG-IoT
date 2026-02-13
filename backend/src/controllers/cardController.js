@@ -4,7 +4,7 @@
  * @module controllers/cardController
  */
 
-const Card = require('../models/Card');
+const cardRepository = require('../repositories/cardRepository');
 const { NotFoundError, ConflictError, ValidationError } = require('../utils/errors');
 const logger = require('../utils/logger');
 const {
@@ -59,8 +59,12 @@ const getCards = async (req, res, next) => {
 
     // Ejecutar query
     const [cards, total] = await Promise.all([
-      Card.find(filter).sort(sortOptions).limit(Number.parseInt(limit, 10)).skip(skip),
-      Card.countDocuments(filter)
+      cardRepository.find(filter, {
+        sort: sortOptions,
+        limit: Number.parseInt(limit, 10),
+        skip
+      }),
+      cardRepository.count(filter)
     ]);
 
     logger.info('Lista de tarjetas obtenida', {
@@ -101,10 +105,10 @@ const getCardById = async (req, res, next) => {
 
     if (id.match(/^[0-9a-fA-F]{24}$/)) {
       // Es un ObjectId válido
-      card = await Card.findById(id);
+      card = await cardRepository.findById(id);
     } else {
       // Asumir que es un UID
-      card = await Card.findOne({ uid: id.toUpperCase() });
+      card = await cardRepository.findOne({ uid: id.toUpperCase() });
     }
 
     if (!card) {
@@ -136,14 +140,14 @@ const createCard = async (req, res, next) => {
     const { uid, type, status } = req.body;
 
     // Verificar si el UID ya existe
-    const existingCard = await Card.findOne({ uid: uid.toUpperCase() });
+    const existingCard = await cardRepository.findOne({ uid: uid.toUpperCase() });
 
     if (existingCard) {
       throw new ConflictError('Una tarjeta con este UID ya existe');
     }
 
     // Crear tarjeta
-    const card = await Card.create({
+    const card = await cardRepository.create({
       uid: uid.toUpperCase(),
       type: type || 'UNKNOWN',
       status: status || 'active'
@@ -184,7 +188,7 @@ const updateCard = async (req, res, next) => {
     const { id } = req.params;
     const { type, status } = req.body;
 
-    const card = await Card.findById(id);
+    const card = await cardRepository.findById(id);
 
     if (!card) {
       throw new NotFoundError('Tarjeta');
@@ -230,7 +234,7 @@ const deleteCard = async (req, res, next) => {
   try {
     const { id } = req.params;
 
-    const card = await Card.findById(id);
+    const card = await cardRepository.findById(id);
 
     if (!card) {
       throw new NotFoundError('Tarjeta');
@@ -292,7 +296,7 @@ const createCardsBatch = async (req, res, next) => {
     }
 
     // Verificar si algún UID ya existe en la BD
-    const existingCards = await Card.find({ uid: { $in: uniqueUids } });
+    const existingCards = await cardRepository.find({ uid: { $in: uniqueUids } });
 
     if (existingCards.length > 0) {
       const existingUids = existingCards.map(c => c.uid);
@@ -300,7 +304,7 @@ const createCardsBatch = async (req, res, next) => {
     }
 
     // Insertar todas las tarjetas
-    const createdCards = await Card.insertMany(normalizedCards);
+    const createdCards = await cardRepository.insertMany(normalizedCards);
 
     logger.info('Batch de tarjetas registradas', {
       count: createdCards.length,
@@ -332,7 +336,7 @@ const createCardsBatch = async (req, res, next) => {
  */
 const getCardStats = async (req, res, next) => {
   try {
-    const stats = await Card.aggregate([
+    const stats = await cardRepository.aggregate([
       {
         $group: {
           _id: null,

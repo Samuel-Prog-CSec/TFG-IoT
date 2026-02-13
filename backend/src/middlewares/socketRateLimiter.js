@@ -27,6 +27,7 @@ class SocketRateLimiter {
     this.logger = options.logger || logger;
     this.rateState = new Map();
     this.rfidDedupeState = new Map();
+    this.cleanupTimer = null;
   }
 
   /**
@@ -184,6 +185,52 @@ class SocketRateLimiter {
       if (now - state.timestamp > rfidDedupeConfig.cooldownMs * 5) {
         this.rfidDedupeState.delete(key);
       }
+    }
+  }
+
+  /**
+   * Limpia el estado asociado a un socket para evitar crecimiento de memoria.
+   * @param {import('socket.io').Socket} socket
+   */
+  cleanupForSocket(socket) {
+    if (!socket) {
+      return;
+    }
+
+    const rateKey = this.getKey(socket);
+
+    if (rateKey.startsWith('socket:')) {
+      this.rateState.delete(rateKey);
+    }
+
+    for (const key of this.rfidDedupeState.keys()) {
+      if (key.startsWith(`${rateKey}:`)) {
+        this.rfidDedupeState.delete(key);
+      }
+    }
+  }
+
+  /**
+   * Inicia el cleanup periodico para evitar fugas de memoria en estados inactivos.
+   */
+  startCleanupTimer() {
+    if (this.cleanupTimer) {
+      return;
+    }
+
+    const intervalMs = Math.max(socketStateCleanup.staleEntryTtlMs / 2, 60 * 1000);
+    this.cleanupTimer = setInterval(() => {
+      this.cleanupStaleEntries(this.nowProvider());
+    }, intervalMs);
+  }
+
+  /**
+   * Detiene el cleanup periodico.
+   */
+  stopCleanupTimer() {
+    if (this.cleanupTimer) {
+      clearInterval(this.cleanupTimer);
+      this.cleanupTimer = null;
     }
   }
 

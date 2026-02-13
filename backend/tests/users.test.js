@@ -44,7 +44,7 @@ describe('User Management Endpoints', () => {
   describe('POST /api/users (Create Student)', () => {
     const newStudent = {
       name: 'Student One',
-      profile: { classroom: '1A' }
+      profile: { classroom: '1A', age: 6 }
     };
 
     it('should create a student successfully as teacher', async () => {

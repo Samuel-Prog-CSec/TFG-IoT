@@ -26,8 +26,9 @@ import {
   Shield
 } from 'lucide-react';
 import { toast } from 'sonner';
-import { adminAPI, extractData, extractErrorMessage } from '../../services/api';
+import { adminAPI, extractData, extractErrorMessage, isAbortError } from '../../services/api';
 import { ButtonPremium, InputPremium, GlassCard, StatusBadge, SkeletonCard, EmptyState } from '../../components/ui';
+import { useRefetchOnFocus } from '../../hooks';
 import { cn } from '../../lib/utils';
 
 /**
@@ -351,6 +352,7 @@ export default function ApprovalPanel() {
     total: 0,
     totalPages: 0,
   });
+  const requestRef = useRef(null);
 
   // Modal state
   const [modalState, setModalState] = useState({
@@ -364,14 +366,23 @@ export default function ApprovalPanel() {
    * Cargar profesores pendientes
    */
   const fetchPendingTeachers = useCallback(async (page = 1) => {
-    setLoading(true);
+    if (requestRef.current) {
+      requestRef.current.abort();
+    }
+
+    const controller = new AbortController();
+    requestRef.current = controller;
+
+    if (teachers.length === 0) {
+      setLoading(true);
+    }
     setError(null);
 
     try {
       const response = await adminAPI.getPendingTeachers({
         page,
         limit: pagination.limit,
-      });
+      }, { signal: controller.signal });
 
       const data = extractData(response);
       
@@ -383,18 +394,31 @@ export default function ApprovalPanel() {
         totalPages: data.pagination?.totalPages || 1,
       }));
     } catch (err) {
+      if (isAbortError(err)) {
+        return;
+      }
       const message = extractErrorMessage(err);
       setError(message);
       toast.error('Error al cargar solicitudes');
     } finally {
-      setLoading(false);
+      if (!controller.signal.aborted) {
+        setLoading(false);
+      }
     }
-  }, [pagination.limit]);
+  }, [pagination.limit, teachers.length]);
 
   // Cargar al montar
   useEffect(() => {
     fetchPendingTeachers();
+    return () => requestRef.current?.abort();
   }, [fetchPendingTeachers]);
+
+  useRefetchOnFocus({
+    refetch: () => fetchPendingTeachers(pagination.page),
+    isLoading: loading,
+    hasData: teachers.length > 0,
+    hasError: Boolean(error)
+  });
 
   /**
    * Abrir modal de confirmación

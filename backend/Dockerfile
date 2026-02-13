@@ -18,6 +18,26 @@ COPY package*.json ./
 RUN npm ci && npm cache clean --force
 
 # ============================================
+# STAGE 1.5: Development
+# Imagen con dependencias de desarrollo
+# ============================================
+FROM node:24-alpine AS development
+
+ENV NODE_ENV=development
+WORKDIR /app
+
+COPY package*.json ./
+RUN npm ci && npm cache clean --force
+
+COPY src/ ./src/
+COPY seeders/ ./seeders/
+COPY scripts/ ./scripts/
+
+EXPOSE 5000
+
+CMD ["npm", "run", "dev"]
+
+# ============================================
 # STAGE 2: Production
 # Imagen final optimizada para producción
 # ============================================

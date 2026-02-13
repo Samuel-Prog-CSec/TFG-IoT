@@ -161,7 +161,10 @@ const registerTeacherSchema = z
       .object({
         avatar: z.string().url('URL de avatar inválida').optional()
       })
-      .optional()
+      .optional(),
+
+    // Honeypot anti-bot: debe quedar vacío
+    website: z.string().trim().max(0, 'Campo no permitido').optional()
     // ✅ NO incluye role, createdBy - se asignan automáticamente en el controller
   })
   .strict(); // Rechaza campos extra como role

@@ -10,7 +10,7 @@ Este documento detalla los endpoints de la API REST para el Backend de Juegos Ed
 ### Cabeceras (Headers)
 
 - **Authorization:** `Bearer <token>` (Requerido para rutas protegidas)
-- **X-CSRF-Token:** Requerido para métodos POST/PUT/DELETE.
+- **X-CSRF-Token:** Requerido para métodos POST/PUT/DELETE (double-submit con cookie `csrfToken`).
 - **Límites de Velocidad (Rate Limits):**
   - **Global:** 100 peticiones / 15 min
   - **Auth:** 5 peticiones / 15 min
@@ -82,7 +82,7 @@ Campos relevantes:
 
 | Método | Endpoint           | Descripción                    | Acceso  | Rate Limit |
 | :----- | :----------------- | :----------------------------- | :------ | :--------- |
-| `POST` | `/register`        | Registrar nuevo profesor       | Público | 5/15m      |
+| `POST` | `/register`        | Registrar nuevo profesor       | Público | 3/h        |
 | `POST` | `/login`           | Login (profesor o super admin) | Público | 5/15m      |
 | `POST` | `/refresh`         | Refrescar access token         | Público | -          |
 | `POST` | `/logout`          | Cerrar sesión y revocar tokens | Privado | -          |
@@ -105,6 +105,8 @@ Notas:
 - Al registrar un profesor, la cuenta queda en `accountStatus: pending_approval` y NO se emiten tokens.
 - Un `super_admin` debe aprobar/rechazar la cuenta antes de que el profesor pueda hacer login.
 - **Sesión Única**: Al iniciar sesión, cualquier sesión activa anterior de este usuario será invalidada (token refresh deja de funcionar) y se emitirá un evento `session_invalidated` vía WebSocket al dispositivo anterior.
+- **Refresh Token**: Se entrega como cookie `httpOnly` (`refreshToken`) y NO se devuelve en el body.
+- **CSRF**: Se usa double-submit. El cliente debe enviar el header `X-CSRF-Token` con el valor de la cookie `csrfToken` en métodos que modifican datos.
 
 ### 1.1 Administración (`/admin`)
 

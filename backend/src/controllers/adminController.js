@@ -9,7 +9,7 @@
  * @module controllers/adminController
  */
 
-const User = require('../models/User');
+const userRepository = require('../repositories/userRepository');
 const { ValidationError, NotFoundError } = require('../utils/errors');
 const logger = require('../utils/logger');
 const { toUserDTOV1, toUserListDTOV1, toPaginatedDTOV1 } = require('../utils/dtos');
@@ -52,12 +52,13 @@ const getPendingTeachers = async (req, res, next) => {
     const sortOptions = { [sortBy]: order === 'asc' ? 1 : -1 };
 
     const [teachers, total] = await Promise.all([
-      User.find(filter)
-        .sort(sortOptions)
-        .limit(Number.parseInt(limit, 10))
-        .skip(skip)
-        .select('-password'),
-      User.countDocuments(filter)
+      userRepository.find(filter, {
+        sort: sortOptions,
+        limit: Number.parseInt(limit, 10),
+        skip,
+        select: '-password'
+      }),
+      userRepository.count(filter)
     ]);
 
     res.json({
@@ -81,7 +82,7 @@ const approveTeacher = async (req, res, next) => {
   try {
     const { id } = req.params;
 
-    const target = await User.findById(id);
+    const target = await userRepository.findById(id);
     if (!target) {
       throw new NotFoundError('Usuario');
     }
@@ -116,7 +117,7 @@ const rejectTeacher = async (req, res, next) => {
   try {
     const { id } = req.params;
 
-    const target = await User.findById(id);
+    const target = await userRepository.findById(id);
     if (!target) {
       throw new NotFoundError('Usuario');
     }

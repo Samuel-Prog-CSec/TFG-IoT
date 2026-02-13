@@ -13,7 +13,6 @@ import {
   authAPI, 
   setTokens, 
   clearTokens,
-  hasSession,
   extractData, 
   extractErrorMessage,
   AUTH_EVENTS 
@@ -142,9 +141,12 @@ export function AuthProvider({ children }) {
     refreshTimeoutRef.current = setTimeout(async () => {
       try {
         const response = await authAPI.refreshToken();
-        const { accessToken, refreshToken, expiresIn: newExpiresIn } = extractData(response);
-        setTokens(accessToken, refreshToken);
-        scheduleTokenRefresh(newExpiresIn || 15 * 60 * 1000);
+        const { accessToken, refreshToken, accessTokenExpiresIn } = extractData(response);
+        if (accessToken) {
+          setTokens(accessToken, refreshToken);
+          socketService.updateAuth(accessToken);
+        }
+        scheduleTokenRefresh((accessTokenExpiresIn || 15 * 60) * 1000);
       } catch (error) {
         console.error('[Auth] Error al refrescar token:', error);
         // El interceptor de API manejará el logout si es necesario
@@ -181,18 +183,19 @@ export function AuthProvider({ children }) {
    */
   useEffect(() => {
     const checkExistingSession = async () => {
-      if (!hasSession()) {
-        dispatch({ type: AUTH_ACTIONS.SET_USER, payload: null });
-        return;
-      }
-
       try {
-        // Intentar obtener perfil con refresh token
+        const refreshResponse = await authAPI.refreshToken();
+        const { accessToken, refreshToken, accessTokenExpiresIn } = extractData(refreshResponse);
+        if (accessToken) {
+          setTokens(accessToken, refreshToken);
+          socketService.updateAuth(accessToken);
+        }
+
         const response = await authAPI.getProfile();
         const user = extractData(response);
         
         dispatch({ type: AUTH_ACTIONS.SET_USER, payload: user });
-        scheduleTokenRefresh();
+        scheduleTokenRefresh((accessTokenExpiresIn || 15 * 60) * 1000);
         
         // Conectar WebSocket
         try {
@@ -278,16 +281,17 @@ export function AuthProvider({ children }) {
 
     try {
       const response = await authAPI.login({ email, password });
-      const { user, accessToken, refreshToken, expiresIn } = extractData(response);
+      const { user, accessToken, refreshToken, accessTokenExpiresIn } = extractData(response);
 
       // Guardar tokens
       setTokens(accessToken, refreshToken);
+      socketService.updateAuth(accessToken);
       
       // Actualizar estado
       dispatch({ type: AUTH_ACTIONS.SET_USER, payload: user });
       
       // Programar refresh
-      scheduleTokenRefresh(expiresIn || 15 * 60 * 1000);
+      scheduleTokenRefresh((accessTokenExpiresIn || 15 * 60) * 1000);
 
       // Conectar WebSocket
       try {

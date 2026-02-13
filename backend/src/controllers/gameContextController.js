@@ -4,7 +4,7 @@
  * @module controllers/gameContextController
  */
 
-const GameContext = require('../models/GameContext');
+const gameContextRepository = require('../repositories/gameContextRepository');
 const { NotFoundError, ConflictError, ValidationError } = require('../utils/errors');
 const logger = require('../utils/logger');
 const {
@@ -26,7 +26,14 @@ const { escapeRegex } = require('../utils/escapeRegex');
  */
 const getContexts = async (req, res, next) => {
   try {
-    const { page = 1, limit = 20, sortBy = 'createdAt', order = 'desc', search } = req.query;
+    const {
+      page = 1,
+      limit = 20,
+      sortBy = 'createdAt',
+      order = 'desc',
+      search,
+      isActive
+    } = req.query;
 
     // Construir filtro
     const filter = {};
@@ -40,14 +47,22 @@ const getContexts = async (req, res, next) => {
       ];
     }
 
+    if (typeof isActive === 'boolean') {
+      filter.isActive = isActive;
+    }
+
     // Paginación
     const skip = (page - 1) * limit;
     const sortOptions = { [sortBy]: order === 'asc' ? 1 : -1 };
 
     // Ejecutar query
     const [contexts, total] = await Promise.all([
-      GameContext.find(filter).sort(sortOptions).limit(parseInt(limit)).skip(skip),
-      GameContext.countDocuments(filter)
+      gameContextRepository.find(filter, {
+        sort: sortOptions,
+        limit: parseInt(limit, 10),
+        skip
+      }),
+      gameContextRepository.count(filter)
     ]);
 
     logger.info('Lista de contextos obtenida', {
@@ -87,10 +102,10 @@ const getContextById = async (req, res, next) => {
     let context;
 
     if (id.match(/^[0-9a-fA-F]{24}$/)) {
-      context = await GameContext.findById(id);
+      context = await gameContextRepository.findById(id);
     } else {
       // Buscar por contextId (ej: 'geography', 'animals')
-      context = await GameContext.findOne({ contextId: id.toLowerCase() });
+      context = await gameContextRepository.findOne({ contextId: id.toLowerCase() });
     }
 
     if (!context) {
@@ -123,7 +138,7 @@ const createContext = async (req, res, next) => {
     const { contextId, name, assets } = req.body;
 
     // Verificar si el contextId ya existe
-    const existingContext = await GameContext.findOne({
+    const existingContext = await gameContextRepository.findOne({
       contextId: contextId.toLowerCase()
     });
 
@@ -132,7 +147,7 @@ const createContext = async (req, res, next) => {
     }
 
     // Crear contexto
-    const context = await GameContext.create({
+    const context = await gameContextRepository.create({
       contextId: contextId.toLowerCase(),
       name,
       assets
@@ -171,7 +186,7 @@ const updateContext = async (req, res, next) => {
     const { id } = req.params;
     const { contextId, name, assets } = req.body;
 
-    const context = await GameContext.findById(id);
+    const context = await gameContextRepository.findById(id);
 
     if (!context) {
       throw new NotFoundError('Contexto de juego');
@@ -221,7 +236,7 @@ const deleteContext = async (req, res, next) => {
   try {
     const { id } = req.params;
 
-    const context = await GameContext.findById(id);
+    const context = await gameContextRepository.findById(id);
 
     if (!context) {
       throw new NotFoundError('Contexto de juego');
@@ -263,7 +278,7 @@ const addAsset = async (req, res, next) => {
     const { id } = req.params;
     const { key, display, value, audioUrl, imageUrl } = req.body;
 
-    const context = await GameContext.findById(id);
+    const context = await gameContextRepository.findById(id);
 
     if (!context) {
       throw new NotFoundError('Contexto de juego');
@@ -317,7 +332,7 @@ const removeAsset = async (req, res, next) => {
   try {
     const { id, assetKey } = req.params;
 
-    const context = await GameContext.findById(id);
+    const context = await gameContextRepository.findById(id);
 
     if (!context) {
       throw new NotFoundError('Contexto de juego');
@@ -371,10 +386,13 @@ const getContextAssets = async (req, res, next) => {
     let context;
 
     if (id.match(/^[0-9a-fA-F]{24}$/)) {
-      context = await GameContext.findById(id).select('contextId name assets');
+      context = await gameContextRepository.findById(id, {
+        select: 'contextId name assets'
+      });
     } else {
-      context = await GameContext.findOne({ contextId: id.toLowerCase() }).select(
-        'contextId name assets'
+      context = await gameContextRepository.findOne(
+        { contextId: id.toLowerCase() },
+        { select: 'contextId name assets' }
       );
     }
 

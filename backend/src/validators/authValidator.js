@@ -42,7 +42,7 @@ const changePasswordSchema = z
  */
 const refreshTokenSchema = z
   .object({
-    refreshToken: z.string().min(1, 'Refresh token requerido')
+    refreshToken: z.string().min(1, 'Refresh token requerido').optional()
   })
   .strict();
 

@@ -12,6 +12,8 @@
 
 const mongoose = require('mongoose');
 
+const MAX_EVENTS_PER_PLAY = 500;
+
 /**
  * Esquema de Mongoose para partidas de juego.
  * Una partida representa una instancia de juego ejecutada por un estudiante.
@@ -182,6 +184,10 @@ const gamePlaySchema = new mongoose.Schema(
 gamePlaySchema.methods.addEvent = function (eventData) {
   // Añadir al log de eventos
   this.events.push(eventData);
+
+  if (this.events.length > MAX_EVENTS_PER_PLAY) {
+    this.events.splice(0, this.events.length - MAX_EVENTS_PER_PLAY);
+  }
 
   // Actualizar métricas básicas según el tipo de evento
   this.metrics.totalAttempts++;

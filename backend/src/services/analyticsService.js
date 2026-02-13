@@ -4,8 +4,7 @@
  */
 
 const mongoose = require('mongoose');
-const GamePlay = require('../models/GamePlay');
-// const User = require('../models/User'); // Podría ser necesario para enriquecer datos
+const gamePlayRepository = require('../repositories/gamePlayRepository');
 
 /**
  * Obtiene la evolución del rendimiento de un estudiante a lo largo del tiempo.
@@ -66,7 +65,7 @@ async function getStudentProgress(studentId, timeRange = '30d') {
     }
   ];
 
-  return await GamePlay.aggregate(pipeline);
+  return await gamePlayRepository.aggregate(pipeline);
 }
 
 /**
@@ -145,7 +144,7 @@ async function getStudentDifficulties(studentId) {
     { $sort: { errorRate: -1 } } // Los más difíciles primero
   ];
 
-  return await GamePlay.aggregate(pipeline);
+  return await gamePlayRepository.aggregate(pipeline);
 }
 
 /**
@@ -217,7 +216,7 @@ async function getClassroomSummary(teacherId) {
     }
   ];
 
-  const results = await GamePlay.aggregate(pipeline);
+  const results = await gamePlayRepository.aggregate(pipeline);
   const data = results[0];
 
   return {
@@ -233,12 +232,16 @@ async function getClassroomSummary(teacherId) {
  * para un periodo de tiempo.
  *
  * @param {string} teacherId - ID del profesor (para contexto de clase)
- * @param {string} timeRange - '7d'
+ * @param {string} timeRange - '7d' o '30d'
  */
-async function getClassroomComparison(teacherId) {
+async function getClassroomComparison(teacherId, timeRange = '7d') {
   const today = new Date();
-  const lastWeek = new Date(today);
-  lastWeek.setDate(today.getDate() - 7);
+  const startDate = new Date(today);
+  if (timeRange === '30d') {
+    startDate.setDate(today.getDate() - 30);
+  } else {
+    startDate.setDate(today.getDate() - 7);
+  }
 
   // Obtener promedio diario de TODOS los alumnos del profesor
   const pipeline = [
@@ -255,7 +258,7 @@ async function getClassroomComparison(teacherId) {
       $match: {
         'session.createdBy': new mongoose.Types.ObjectId(teacherId),
         status: 'completed',
-        completedAt: { $gte: lastWeek }
+        completedAt: { $gte: startDate }
       }
     },
     {
@@ -267,7 +270,7 @@ async function getClassroomComparison(teacherId) {
     { $sort: { _id: 1 } }
   ];
 
-  return await GamePlay.aggregate(pipeline);
+  return await gamePlayRepository.aggregate(pipeline);
 }
 
 /**
@@ -343,7 +346,7 @@ async function getClassroomDifficulties(teacherId) {
     { $sort: { errorRate: -1 } }
   ];
 
-  return await GamePlay.aggregate(pipeline);
+  return await gamePlayRepository.aggregate(pipeline);
 }
 
 module.exports = {

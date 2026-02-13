@@ -6,7 +6,7 @@
  */
 
 import { useState, useEffect, useCallback } from 'react';
-import { contextsAPI, extractData, extractErrorMessage } from '../services/api';
+import { contextsAPI, extractData, extractErrorMessage, isAbortError } from '../services/api';
 
 /**
  * Hook para cargar y gestionar contextos de juego
@@ -32,24 +32,30 @@ export function useContexts({ autoLoad = true, onlyActive = true } = {}) {
   /**
    * Carga los contextos desde la API
    */
-  const loadContexts = useCallback(async () => {
+  const loadContexts = useCallback(async (signal) => {
     try {
       setLoading(true);
       setError(null);
 
-      const params = {};
-      const response = await contextsAPI.getContexts(params);
+      const params = onlyActive ? { isActive: true } : {};
+      const response = await contextsAPI.getContexts(params, signal ? { signal } : {});
       const data = extractData(response) || [];
 
       setContexts(data);
       return data;
     } catch (err) {
+      if (isAbortError(err)) {
+        return [];
+      }
+
       const errorMsg = extractErrorMessage(err);
       setError(errorMsg);
       console.error('[useContexts] Error cargando contextos:', errorMsg);
       return [];
     } finally {
-      setLoading(false);
+      if (!signal?.aborted) {
+        setLoading(false);
+      }
     }
   }, [onlyActive]);
 
@@ -79,8 +85,11 @@ export function useContexts({ autoLoad = true, onlyActive = true } = {}) {
   // Carga automática al montar
   useEffect(() => {
     if (autoLoad) {
-      loadContexts();
+      const controller = new AbortController();
+      loadContexts(controller.signal);
+      return () => controller.abort();
     }
+    return undefined;
   }, [autoLoad, loadContexts]);
 
   return {

@@ -5,6 +5,8 @@
 
 const analyticsService = require('../services/analyticsService');
 const logger = require('../utils/logger');
+const userRepository = require('../repositories/userRepository');
+const { ForbiddenError, NotFoundError } = require('../utils/errors');
 
 /**
  * Obtiene el progreso temporal de un estudiante.
@@ -14,6 +16,16 @@ exports.getStudentProgress = async (req, res, next) => {
   try {
     const { id } = req.params;
     const { timeRange } = req.query; // '7d', '30d'
+
+    if (req.user.role === 'teacher') {
+      const student = await userRepository.findById(id, { select: 'createdBy' });
+      if (!student) {
+        throw new NotFoundError('Alumno');
+      }
+      if (student.createdBy?.toString() !== req.user._id.toString()) {
+        throw new ForbiddenError('No tienes permiso para ver este alumno');
+      }
+    }
 
     const progress = await analyticsService.getStudentProgress(id, timeRange);
 
@@ -35,6 +47,16 @@ exports.getStudentDifficulties = async (req, res, next) => {
   try {
     const { id } = req.params;
 
+    if (req.user.role === 'teacher') {
+      const student = await userRepository.findById(id, { select: 'createdBy' });
+      if (!student) {
+        throw new NotFoundError('Alumno');
+      }
+      if (student.createdBy?.toString() !== req.user._id.toString()) {
+        throw new ForbiddenError('No tienes permiso para ver este alumno');
+      }
+    }
+
     const difficulties = await analyticsService.getStudentDifficulties(id);
 
     res.status(200).json({
@@ -54,7 +76,7 @@ exports.getStudentDifficulties = async (req, res, next) => {
 exports.getClassroomSummary = async (req, res, next) => {
   try {
     // El ID del profesor viene del token (req.user)
-    const teacherId = req.user.id;
+    const teacherId = req.user?._id?.toString();
 
     const summary = await analyticsService.getClassroomSummary(teacherId);
 
@@ -74,9 +96,10 @@ exports.getClassroomSummary = async (req, res, next) => {
  */
 exports.getClassroomComparison = async (req, res, next) => {
   try {
-    const teacherId = req.user.id;
+    const teacherId = req.user?._id?.toString();
+    const { timeRange } = req.query;
 
-    const comparison = await analyticsService.getClassroomComparison(teacherId);
+    const comparison = await analyticsService.getClassroomComparison(teacherId, timeRange);
 
     res.status(200).json({
       success: true,
@@ -94,7 +117,7 @@ exports.getClassroomComparison = async (req, res, next) => {
  */
 exports.getClassroomDifficulties = async (req, res, next) => {
   try {
-    const teacherId = req.user.id;
+    const teacherId = req.user?._id?.toString();
     const difficulties = await analyticsService.getClassroomDifficulties(teacherId);
     res.status(200).json({
       success: true,

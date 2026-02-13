@@ -10,6 +10,8 @@ import { socketService } from './socket';
 const SENSOR_ID_KEY = 'rfid_sensor_id';
 const DEFAULT_BAUD_RATE = 115200;
 const DEFAULT_DEDUPE_MS = 1200;
+const MAX_UID_CACHE_SIZE = 500;
+const UID_CACHE_TTL_MS = 5 * 60 * 1000;
 const MAX_RECONNECT_ATTEMPTS = 3;
 const RECONNECT_DELAY_BASE_MS = 1000;
 
@@ -64,6 +66,8 @@ class WebSerialService {
     this.reconnectAttempts = 0;
     this.reconnecting = false;
     this.lastPort = null;
+    this.reconnectTimerId = null;
+    this.autoReconnectEnabled = true;
   }
 
   isSupported() {
@@ -111,6 +115,8 @@ class WebSerialService {
       return;
     }
 
+    this.autoReconnectEnabled = true;
+
     this.setStatus('connecting');
     this.port = await navigator.serial.requestPort();
     await this.port.open({ baudRate: DEFAULT_BAUD_RATE });
@@ -125,6 +131,10 @@ class WebSerialService {
   }
 
   handleDisconnect = () => {
+    if (!this.autoReconnectEnabled) {
+      return;
+    }
+
     this.stopReading();
     this.lastPort = this.port;
     this.port = null;
@@ -140,6 +150,10 @@ class WebSerialService {
   };
 
   async attemptReconnect() {
+    if (!this.autoReconnectEnabled) {
+      return;
+    }
+
     if (this.reconnecting || this.reconnectAttempts >= MAX_RECONNECT_ATTEMPTS) {
       if (this.reconnectAttempts >= MAX_RECONNECT_ATTEMPTS) {
         this.emit('error', {
@@ -155,8 +169,12 @@ class WebSerialService {
     this.setStatus('reconnecting', { attempt: this.reconnectAttempts });
 
     const delay = RECONNECT_DELAY_BASE_MS * Math.pow(2, this.reconnectAttempts - 1);
-    
-    setTimeout(async () => {
+
+    if (this.reconnectTimerId) {
+      clearTimeout(this.reconnectTimerId);
+    }
+
+    this.reconnectTimerId = setTimeout(async () => {
       try {
         // En Web Serial, no podemos "reabrir" el mismo objeto puerto fácilmente si se desconectó físicamente
         // Pero si fue un error lógico o temporal, intentamos.
@@ -184,6 +202,15 @@ class WebSerialService {
   }
 
   async disconnect() {
+    this.autoReconnectEnabled = false;
+    this.reconnecting = false;
+    this.reconnectAttempts = 0;
+
+    if (this.reconnectTimerId) {
+      clearTimeout(this.reconnectTimerId);
+      this.reconnectTimerId = null;
+    }
+
     await this.stopReading();
 
     if (this.port) {
@@ -301,7 +328,11 @@ class WebSerialService {
       this.emit('dedupe', { uid });
       return;
     }
+    if (this.lastScanByUid.has(uid)) {
+      this.lastScanByUid.delete(uid);
+    }
     this.lastScanByUid.set(uid, now);
+    this.cleanupUidCache(now);
 
     const payload = {
       uid,
@@ -322,6 +353,26 @@ class WebSerialService {
           details: error?.message
         });
       }
+    }
+  }
+
+  cleanupUidCache(now) {
+    if (this.lastScanByUid.size <= MAX_UID_CACHE_SIZE) {
+      return;
+    }
+
+    for (const [cachedUid, timestamp] of this.lastScanByUid.entries()) {
+      if (now - timestamp > UID_CACHE_TTL_MS) {
+        this.lastScanByUid.delete(cachedUid);
+      }
+    }
+
+    while (this.lastScanByUid.size > MAX_UID_CACHE_SIZE) {
+      const oldestKey = this.lastScanByUid.keys().next().value;
+      if (!oldestKey) {
+        break;
+      }
+      this.lastScanByUid.delete(oldestKey);
     }
   }
 }

@@ -4,7 +4,7 @@
  * @module controllers/gameMechanicController
  */
 
-const GameMechanic = require('../models/GameMechanic');
+const gameMechanicRepository = require('../repositories/gameMechanicRepository');
 const { NotFoundError, ConflictError } = require('../utils/errors');
 const logger = require('../utils/logger');
 const { toGameMechanicDTOV1, toGameMechanicListDTOV1, toPaginatedDTOV1 } = require('../utils/dtos');
@@ -53,8 +53,12 @@ const getMechanics = async (req, res, next) => {
 
     // Ejecutar query
     const [mechanics, total] = await Promise.all([
-      GameMechanic.find(filter).sort(sortOptions).limit(parseInt(limit)).skip(skip),
-      GameMechanic.countDocuments(filter)
+      gameMechanicRepository.find(filter, {
+        sort: sortOptions,
+        limit: parseInt(limit, 10),
+        skip
+      }),
+      gameMechanicRepository.count(filter)
     ]);
 
     logger.info('Lista de mecánicas obtenida', {
@@ -94,10 +98,10 @@ const getMechanicById = async (req, res, next) => {
     let mechanic;
 
     if (id.match(/^[0-9a-fA-F]{24}$/)) {
-      mechanic = await GameMechanic.findById(id);
+      mechanic = await gameMechanicRepository.findById(id);
     } else {
       // Buscar por nombre (ej: 'association', 'sequence')
-      mechanic = await GameMechanic.findOne({ name: id.toLowerCase() });
+      mechanic = await gameMechanicRepository.findOne({ name: id.toLowerCase() });
     }
 
     if (!mechanic) {
@@ -130,14 +134,14 @@ const createMechanic = async (req, res, next) => {
     const { name, displayName, description, icon, rules, isActive } = req.body;
 
     // Verificar si el nombre ya existe
-    const existingMechanic = await GameMechanic.findOne({ name: name.toLowerCase() });
+    const existingMechanic = await gameMechanicRepository.findOne({ name: name.toLowerCase() });
 
     if (existingMechanic) {
       throw new ConflictError('Una mecánica con este nombre ya existe');
     }
 
     // Crear mecánica
-    const mechanic = await GameMechanic.create({
+    const mechanic = await gameMechanicRepository.create({
       name: name.toLowerCase(),
       displayName,
       description,
@@ -180,7 +184,7 @@ const updateMechanic = async (req, res, next) => {
     const { id } = req.params;
     const { displayName, description, icon, rules, isActive } = req.body;
 
-    const mechanic = await GameMechanic.findById(id);
+    const mechanic = await gameMechanicRepository.findById(id);
 
     if (!mechanic) {
       throw new NotFoundError('Mecánica de juego');
@@ -236,7 +240,7 @@ const deleteMechanic = async (req, res, next) => {
   try {
     const { id } = req.params;
 
-    const mechanic = await GameMechanic.findById(id);
+    const mechanic = await gameMechanicRepository.findById(id);
 
     if (!mechanic) {
       throw new NotFoundError('Mecánica de juego');
@@ -273,7 +277,10 @@ const deleteMechanic = async (req, res, next) => {
  */
 const getActiveMechanics = async (req, res, next) => {
   try {
-    const mechanics = await GameMechanic.find({ isActive: true }).sort({ name: 1 }).select('-__v');
+    const mechanics = await gameMechanicRepository.find(
+      { isActive: true },
+      { sort: { name: 1 }, select: '-__v' }
+    );
 
     res.json({
       success: true,

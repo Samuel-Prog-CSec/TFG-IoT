@@ -55,23 +55,6 @@ export default function GameSession() {
     { display: '🇧🇷', value: 'Brasil' },
   ], []);
 
-  // Timer effect
-  useEffect(() => {
-    if (gameState !== 'playing') return;
-
-    const timer = setInterval(() => {
-      setTimeLeft((prev) => {
-        if (prev <= 1) {
-          handleTimeout();
-          return ROUND_TIME;
-        }
-        return prev - 1;
-      });
-    }, 1000);
-
-    return () => clearInterval(timer);
-  }, [gameState, currentRound, handleTimeout]);
-
   // Advance to next round or finish game
   const advanceRound = useCallback(() => {
     if (currentRound >= TOTAL_ROUNDS) {
@@ -98,6 +81,23 @@ export default function GameSession() {
       advanceRound();
     }, 1500);
   }, [advanceRound, POINTS_ERROR]);
+
+  // Timer effect
+  useEffect(() => {
+    if (gameState !== 'playing') return;
+
+    const timer = setInterval(() => {
+      setTimeLeft((prev) => {
+        if (prev <= 1) {
+          handleTimeout();
+          return ROUND_TIME;
+        }
+        return prev - 1;
+      });
+    }, 1000);
+
+    return () => clearInterval(timer);
+  }, [gameState, currentRound, handleTimeout]);
 
   // Simulacion de escaneo para fallback local
   const handleSimulatedScan = useCallback(() => {

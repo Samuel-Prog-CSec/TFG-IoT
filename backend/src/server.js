@@ -18,6 +18,7 @@ const http = require('node:http');
 const { randomUUID } = require('node:crypto');
 const helmet = require('helmet');
 const compression = require('compression');
+const cookieParser = require('cookie-parser');
 const pinoHttp = require('pino-http');
 const { Server } = require('socket.io');
 const { connectDB, disconnectDB } = require('./config/database');
@@ -26,6 +27,7 @@ const { initSentry, Sentry } = require('./config/sentry');
 const { socketPayloadLimits } = require('./config/socketRateLimits');
 const {
   corsOptions,
+  ensureCsrfCookie,
   csrfProtection, // Middleware CSRF
   helmetOptions,
   globalRateLimiter,
@@ -33,19 +35,16 @@ const {
 } = require('./config/security');
 const rfidService = require('./services/rfidService');
 const GameEngine = require('./services/gameEngine');
-const GamePlay = require('./models/GamePlay');
-const User = require('./models/User');
 const logger = require('./utils/logger');
-const { verifyAccessToken, authenticate, requireRole } = require('./middlewares/auth');
+const { authenticate, requireRole } = require('./middlewares/auth');
 const { errorHandler, notFoundHandler } = require('./middlewares/errorHandler');
 const { createSocketRateLimiter } = require('./middlewares/socketRateLimiter');
 const { getHealthStatus } = require('./utils/healthCheck');
 const runtimeMetrics = require('./utils/runtimeMetrics');
 const { toSystemMetricsDTOV1 } = require('./utils/dtos');
-const { logSecurityEvent, getSocketContext } = require('./utils/securityLogger');
 const { validateQuery } = require('./middlewares/validation');
 const { emptyObjectSchema } = require('./validators/commonValidator');
-const { rfidClientEventSchema } = require('./validators/rfidValidator');
+const { registerSocketHandlers, registerRfidHandlers } = require('./realtime');
 
 // Importar rutas
 const authRoutes = require('./routes/auth');
@@ -61,6 +60,7 @@ const analyticsRoutes = require('./routes/analyticsRoutes');
 
 // Crear aplicación Express
 const app = express();
+app.set('etag', false);
 const server = http.createServer(app);
 
 // Inicializar Sentry
@@ -85,428 +85,9 @@ const gameEngine = new GameEngine(io);
 
 // Rate limiting para WebSockets (instancia única compartida)
 const socketRateLimiter = createSocketRateLimiter({ logger });
-
-const RFID_MODES = Object.freeze({
-  IDLE: 'idle',
-  GAMEPLAY: 'gameplay',
-  CARD_REGISTRATION: 'card_registration',
-  CARD_ASSIGNMENT: 'card_assignment'
-});
-
-const rfidModeByUserId = new Map();
-
-const getRfidModeState = userId => {
-  if (!userId) {
-    return { mode: RFID_MODES.IDLE, sensorId: null, socketId: null };
-  }
-  return rfidModeByUserId.get(userId) || { mode: RFID_MODES.IDLE, sensorId: null, socketId: null };
-};
-
-const setRfidModeState = (userId, mode, socketId, metadata = {}) => {
-  if (!userId) {
-    return;
-  }
-
-  if (mode === RFID_MODES.IDLE) {
-    rfidModeByUserId.delete(userId);
-    return;
-  }
-
-  rfidModeByUserId.set(userId, {
-    mode,
-    socketId,
-    sensorId: null,
-    metadata,
-    updatedAt: Date.now()
-  });
-};
-
-const clearRfidModeState = (userId, socketId) => {
-  if (!userId) {
-    return;
-  }
-
-  const current = rfidModeByUserId.get(userId);
-  if (!current) {
-    return;
-  }
-
-  if (socketId && current.socketId !== socketId) {
-    return;
-  }
-
-  rfidModeByUserId.delete(userId);
-};
-
-/**
- * Construye metadata común de socket para logging.
- * @param {import('socket.io').Socket} socket
- * @returns {Object}
- */
-const buildSocketSecurityMeta = socket => ({
-  ...getSocketContext(socket),
-  userId: socket?.data?.userId,
-  userRole: socket?.data?.userRole
-});
-
-const logSocketSecurityEvent = (eventCode, socket, meta = {}) => {
-  logSecurityEvent(eventCode, {
-    ...buildSocketSecurityMeta(socket),
-    ...meta
-  });
-};
-
-/**
- * Middleware de autenticación obligatoria para Socket.IO.
- * Requiere token en handshake (auth.token o Authorization header).
- */
-io.use(async (socket, next) => {
-  try {
-    const tokenFromAuth = socket.handshake?.auth?.token;
-    const headerAuth = socket.handshake?.headers?.authorization || '';
-    const tokenFromHeader = headerAuth.startsWith('Bearer ') ? headerAuth.slice(7) : null;
-    const accessToken = tokenFromAuth || tokenFromHeader;
-    let tokenSource = 'missing';
-    if (tokenFromAuth) {
-      tokenSource = 'handshake_auth';
-    } else if (tokenFromHeader) {
-      tokenSource = 'authorization';
-    }
-
-    if (!accessToken) {
-      logSocketSecurityEvent('WS_AUTH_FAILED', socket, {
-        reason: 'TOKEN_MISSING',
-        tokenSource
-      });
-      return next(new Error('Token requerido')); // Bloquear conexión
-    }
-
-    const mockReq = { headers: socket.handshake.headers };
-    const decoded = await verifyAccessToken(accessToken, mockReq);
-
-    if (!decoded?.id) {
-      logSocketSecurityEvent('WS_AUTH_FAILED', socket, {
-        reason: 'TOKEN_INVALID',
-        tokenSource
-      });
-      return next(new Error('Token inválido'));
-    }
-
-    // Validar estado de cuenta y sesión (single-session) con datos frescos
-    const user = await User.findById(decoded.id).select(
-      '+currentSessionId role status accountStatus'
-    );
-    if (!user) {
-      logSocketSecurityEvent('WS_AUTH_FAILED', socket, {
-        reason: 'USER_NOT_FOUND',
-        tokenSource,
-        userId: decoded.id
-      });
-      return next(new Error('Usuario no encontrado'));
-    }
-
-    if (user.status !== 'active') {
-      logSocketSecurityEvent('WS_AUTH_FAILED', socket, {
-        reason: 'USER_INACTIVE',
-        tokenSource,
-        userId: user._id,
-        status: user.status
-      });
-      return next(new Error('Usuario inactivo'));
-    }
-
-    if (
-      ['teacher', 'super_admin'].includes(user.role) &&
-      user.accountStatus &&
-      user.accountStatus !== 'approved'
-    ) {
-      logSocketSecurityEvent('WS_AUTH_FAILED', socket, {
-        reason: 'ACCOUNT_NOT_APPROVED',
-        tokenSource,
-        userId: user._id,
-        accountStatus: user.accountStatus
-      });
-      return next(new Error('Cuenta no aprobada'));
-    }
-
-    if (decoded.sid && user.currentSessionId && decoded.sid !== user.currentSessionId) {
-      logSocketSecurityEvent('WS_AUTH_FAILED', socket, {
-        reason: 'SESSION_MISMATCH',
-        tokenSource,
-        userId: user._id
-      });
-      return next(new Error('Sesión inválida'));
-    }
-
-    socket.data.userId = user._id.toString();
-    socket.data.userRole = user.role;
-    socketRateLimiter.setIdentity(socket, { id: user._id.toString(), role: user.role });
-
-    // Unirse automáticamente a la room del usuario para notificaciones dirigidas
-    socket.join(`user_${decoded.id}`);
-
-    return next();
-  } catch (error) {
-    logSocketSecurityEvent('WS_AUTH_FAILED', socket, {
-      reason: error.message
-    });
-    return next(new Error('Autenticación inválida'));
-  }
-});
-
-/**
- * Verifica si el socket tiene uno de los roles permitidos.
- * @param {import('socket.io').Socket} socket
- * @param {string[]} allowedRoles
- * @param {string} eventName
- * @returns {boolean}
- */
-const requireSocketRole = (socket, allowedRoles, eventName) => {
-  if (!socket?.data?.userId) {
-    socket.emit('error', { code: 'AUTH_REQUIRED', message: 'Autenticación requerida' });
-    logSocketSecurityEvent('AUTHZ_ACCESS_DENIED', socket, {
-      eventName,
-      reason: 'AUTH_REQUIRED'
-    });
-    return false;
-  }
-
-  if (!allowedRoles.includes(socket.data.userRole)) {
-    socket.emit('error', { code: 'FORBIDDEN', message: 'No autorizado para este evento' });
-    logSocketSecurityEvent('AUTHZ_ACCESS_DENIED', socket, {
-      eventName,
-      allowedRoles,
-      reason: 'ROLE_NOT_ALLOWED'
-    });
-    return false;
-  }
-
-  return true;
-};
-
-/**
- * Verifica ownership de una partida para el socket actual.
- * @param {import('socket.io').Socket} socket
- * @param {string} playId
- * @returns {Promise<{play: Object, session: Object}|null>}
- */
-const requirePlayOwnership = async (socket, playId, eventName) => {
-  if (!socket?.data?.userId) {
-    socket.emit('error', { code: 'AUTH_REQUIRED', message: 'Autenticación requerida' });
-    logSocketSecurityEvent('AUTHZ_ACCESS_DENIED', socket, {
-      playId,
-      eventName,
-      reason: 'AUTH_REQUIRED'
-    });
-    return null;
-  }
-
-  const play = await GamePlay.findById(playId).populate('sessionId');
-  if (!play) {
-    socket.emit('error', { code: 'NOT_FOUND', message: 'Partida no encontrada' });
-    logSocketSecurityEvent('AUTHZ_ACCESS_DENIED', socket, {
-      playId,
-      eventName,
-      reason: 'PLAY_NOT_FOUND'
-    });
-    return null;
-  }
-
-  const session = play.sessionId;
-  const isSuperAdmin = socket.data.userRole === 'super_admin';
-  const ownsSession = session?.createdBy?.toString() === socket.data.userId;
-
-  if (!isSuperAdmin && !ownsSession) {
-    socket.emit('error', { code: 'FORBIDDEN', message: 'No tienes acceso a esta partida' });
-    logSocketSecurityEvent('AUTHZ_ACCESS_DENIED', socket, {
-      playId,
-      eventName,
-      sessionId: session?._id,
-      reason: 'OWNERSHIP_INVALID'
-    });
-    return null;
-  }
-
-  return { play, session };
-};
-
-const isRfidClientSourceEnabled = socket => {
-  if ((process.env.RFID_SOURCE || 'client').trim().toLowerCase() === 'client') {
-    return true;
-  }
-
-  socket.emit('error', {
-    code: 'RFID_DISABLED',
-    message: 'RFID en modo cliente deshabilitado'
-  });
-  return false;
-};
-
-const parseRfidClientPayload = (socket, data) => {
-  const parsed = rfidClientEventSchema.safeParse(data || {});
-  if (parsed.success) {
-    return parsed.data;
-  }
-
-  const firstError = parsed.error.issues?.[0];
-  socket.emit('error', {
-    code: 'VALIDATION_ERROR',
-    message: firstError?.message || 'Payload RFID inválido'
-  });
-  logSocketSecurityEvent('SECURITY_RFID_EVENT_INVALID', socket, {
-    eventName: 'rfid_scan_from_client',
-    reason: 'ZOD_VALIDATION_ERROR',
-    details: parsed.error.issues
-  });
-  return null;
-};
-
-const getValidRfidModeState = socket => {
-  const modeState = getRfidModeState(socket.data.userId);
-  const allowedModes = new Set([
-    RFID_MODES.CARD_REGISTRATION,
-    RFID_MODES.CARD_ASSIGNMENT,
-    RFID_MODES.GAMEPLAY
-  ]);
-
-  if (allowedModes.has(modeState.mode)) {
-    return modeState;
-  }
-
-  socket.emit('error', {
-    code: 'RFID_MODE_INVALID',
-    message: 'Modo RFID no permite lecturas'
-  });
-  logSocketSecurityEvent('SECURITY_RFID_EVENT_INVALID', socket, {
-    eventName: 'rfid_scan_from_client',
-    reason: 'RFID_MODE_INVALID',
-    mode: modeState.mode
-  });
-  return null;
-};
-
-const validateRfidRoomForMode = (socket, modeState) => {
-  if (modeState.mode === RFID_MODES.CARD_REGISTRATION && !socket.rooms.has('card_registration')) {
-    socket.emit('error', {
-      code: 'RFID_MODE_INVALID',
-      message: 'Modo RFID invalido para registro'
-    });
-    logSocketSecurityEvent('SECURITY_RFID_EVENT_INVALID', socket, {
-      eventName: 'rfid_scan_from_client',
-      reason: 'RFID_MODE_ROOM_MISMATCH',
-      mode: modeState.mode
-    });
-    return false;
-  }
-
-  if (modeState.mode === RFID_MODES.CARD_ASSIGNMENT && !socket.rooms.has('card_assignment')) {
-    socket.emit('error', {
-      code: 'RFID_MODE_INVALID',
-      message: 'Modo RFID invalido para asignacion'
-    });
-    logSocketSecurityEvent('SECURITY_RFID_EVENT_INVALID', socket, {
-      eventName: 'rfid_scan_from_client',
-      reason: 'RFID_MODE_ROOM_MISMATCH',
-      mode: modeState.mode
-    });
-    return false;
-  }
-
-  return true;
-};
-
-const validateRfidSensorAuthorization = (socket, modeState, payload) => {
-  if (modeState.mode !== RFID_MODES.GAMEPLAY || !modeState.metadata?.playId) {
-    return true;
-  }
-
-  const playState = gameEngine.getPlayState(modeState.metadata.playId);
-  const sessionSensorId = playState?.sessionDoc?.sensorId;
-
-  if (!sessionSensorId || sessionSensorId === payload.sensorId) {
-    return true;
-  }
-
-  socket.emit('error', {
-    code: 'RFID_SENSOR_UNAUTHORIZED',
-    message: 'Este sensor no está autorizado para esta sesión de juego'
-  });
-  logSocketSecurityEvent('SECURITY_RFID_EVENT_INVALID', socket, {
-    eventName: 'rfid_scan_from_client',
-    reason: 'RFID_SENSOR_UNAUTHORIZED',
-    sessionId: playState?.sessionDoc?._id,
-    expected: sessionSensorId,
-    received: payload.sensorId
-  });
-  return false;
-};
-
-const ensureRfidSensorConsistency = (socket, modeState, payload) => {
-  if (modeState.sensorId && modeState.sensorId !== payload.sensorId) {
-    socket.emit('error', {
-      code: 'RFID_SENSOR_MISMATCH',
-      message:
-        'Sensor RFID no coincide con el sensor activo de la sesión (o cambió inesperadamente)'
-    });
-    logSocketSecurityEvent('SECURITY_RFID_EVENT_INVALID', socket, {
-      eventName: 'rfid_scan_from_client',
-      reason: 'RFID_SENSOR_MISMATCH',
-      mode: modeState.mode,
-      expected: modeState.sensorId,
-      received: payload.sensorId
-    });
-    return false;
-  }
-
-  if (!modeState.sensorId) {
-    rfidModeByUserId.set(socket.data.userId, {
-      ...modeState,
-      sensorId: payload.sensorId,
-      socketId: socket.id,
-      updatedAt: Date.now()
-    });
-  }
-
-  return true;
-};
-
-const handleRfidScanFromClient = (socket, data) => {
-  if (!requireSocketRole(socket, ['teacher', 'super_admin'], 'rfid_scan_from_client')) {
-    return;
-  }
-
-  if (!isRfidClientSourceEnabled(socket)) {
-    return;
-  }
-
-  const payload = parseRfidClientPayload(socket, data);
-  if (!payload) {
-    return;
-  }
-
-  const modeState = getValidRfidModeState(socket);
-  if (!modeState) {
-    return;
-  }
-
-  if (!validateRfidRoomForMode(socket, modeState)) {
-    return;
-  }
-
-  if (!validateRfidSensorAuthorization(socket, modeState, payload)) {
-    return;
-  }
-
-  if (!ensureRfidSensorConsistency(socket, modeState, payload)) {
-    return;
-  }
-
-  rfidService.ingestEvent({
-    event: 'card_detected',
-    mode: modeState.mode,
-    ...payload
-  });
-};
+if (process.env.NODE_ENV !== 'test') {
+  socketRateLimiter.startCleanupTimer();
+}
 
 // Exponer el gameEngine a controllers (REST) sin imports circulares.
 app.set('gameEngine', gameEngine);
@@ -540,11 +121,17 @@ app.use(
   })
 );
 
+// CORS con whitelist dinámica
+app.use(cors(corsOptions));
+
 // Rate limiting global (todas las rutas /api/*)
 app.use('/api/', globalRateLimiter);
 
-// CORS con whitelist dinámica
-app.use(cors(corsOptions));
+// Cookies (necesarias para CSRF/refresh cookies)
+app.use(cookieParser());
+
+// Asegurar cookie CSRF antes de validar
+app.use(ensureCsrfCookie);
 
 // CSRF Protection para métodos que modifican datos
 app.use(csrfProtection);
@@ -592,6 +179,12 @@ app.use((req, res, next) => {
   if (req.id) {
     res.setHeader('x-request-id', req.id);
   }
+  next();
+});
+
+// Evitar cache en respuestas de la API para prevenir 304 sin body
+app.use('/api', (req, res, next) => {
+  res.setHeader('Cache-Control', 'no-store');
   next();
 });
 
@@ -755,338 +348,19 @@ app.use(errorHandler);
 // SOCKET.IO - EVENTOS EN TIEMPO REAL
 // ============================================================================
 
-/**
- * Manejador de conexiones Socket.IO.
- * Define todos los eventos WebSocket para comunicación en tiempo real.
- */
-io.on('connection', socket => {
-  logger.info(`Cliente conectado: ${socket.id}`, {
-    userId: socket.data.userId,
-    role: socket.data.userRole
-  });
-
-  const onEvent = (eventName, handler) =>
-    socket.on(eventName, socketRateLimiter.wrap(socket, eventName, handler));
-
-  /**
-   * Evento: Cliente se une a una partida.
-   * @event join_play
-   * @param {Object} data - Datos del evento
-   * @param {string} data.playId - ID de la partida a la que unirse
-   */
-  onEvent('join_play', async data => {
-    const { playId } = data || {};
-    if (!playId) {
-      socket.emit('error', { message: 'playId requerido' });
-      return;
-    }
-
-    if (!requireSocketRole(socket, ['teacher', 'super_admin'], 'join_play')) {
-      return;
-    }
-
-    const ownership = await requirePlayOwnership(socket, playId, 'join_play');
-    if (!ownership) {
-      return;
-    }
-
-    socket.join(`play_${playId}`);
-    /* Note: Incluir información del jugador cuando el flujo esté completamente definido.
-       Anteriormente había un recordatorio aquí. */
-
-    logger.info(`Socket ${socket.id} se unió a la partida ${playId}`, {
-      userId: socket.data.userId
-    });
-
-    // T-010: Activar modo GAMEPLAY automáticamente al unirse a una partida
-    setRfidModeState(socket.data.userId, RFID_MODES.GAMEPLAY, socket.id, { playId });
-    /* Note: Se asume que el profesor entra para supervisar/jugar.
-       Si el sensorId está vinculado a la sesión, se validará en 'rfid_scan_from_client'. */
-
-    // Enviar estado inicial de la partida
-    const playState = gameEngine.getPlayState(playId);
-    if (playState) {
-      socket.emit('play_state', playState);
-    }
-  });
-
-  /**
-   * Evento: Cliente abandona una partida.
-   * @event leave_play
-   * @param {Object} data - Datos del evento
-   * @param {string} data.playId - ID de la partida a abandonar
-   */
-  onEvent('leave_play', async data => {
-    const { playId } = data || {};
-    if (!playId) {
-      socket.emit('error', { message: 'playId requerido' });
-      return;
-    }
-    if (!requireSocketRole(socket, ['teacher', 'super_admin'], 'leave_play')) {
-      return;
-    }
-    const ownership = await requirePlayOwnership(socket, playId, 'leave_play');
-    if (!ownership) {
-      return;
-    }
-    socket.leave(`play_${playId}`);
-    clearRfidModeState(socket.data.userId, socket.id);
-    logger.info(`Socket ${socket.id} abandonó la partida ${playId}`, {
-      userId: socket.data.userId
-    });
-  });
-
-  /**
-   * Evento: Iniciar una partida.
-   * @event start_play
-   * @param {Object} data - Datos del evento
-   * @param {string} data.playId - ID de la partida a iniciar
-   */
-  onEvent('start_play', async data => {
-    try {
-      const { playId } = data || {};
-      if (!playId) {
-        socket.emit('error', { message: 'playId requerido' });
-        return;
-      }
-      if (!requireSocketRole(socket, ['teacher', 'super_admin'], 'start_play')) {
-        return;
-      }
-      const ownership = await requirePlayOwnership(socket, playId, 'start_play');
-      if (!ownership) {
-        return;
-      }
-
-      gameEngine.startPlay(ownership.play, ownership.session);
-
-      logger.info(`Partida comenzada: ${playId}`, {
-        userId: socket.data.userId
-      });
-    } catch (error) {
-      logger.error(`Error al iniciar la partida: ${error.message}`);
-      socket.emit('error', { message: 'Error al iniciar la partida' });
-    }
-  });
-
-  /**
-   * Evento: Pausar una partida en curso.
-   * @event pause_play
-   * @param {Object} data - Datos del evento
-   * @param {string} data.playId - ID de la partida a pausar
-   */
-  onEvent('pause_play', data => {
-    (async () => {
-      try {
-        const { playId } = data || {};
-
-        if (!playId) {
-          socket.emit('error', { message: 'playId requerido' });
-          return;
-        }
-
-        if (!requireSocketRole(socket, ['teacher', 'super_admin'], 'pause_play')) {
-          return;
-        }
-
-        const ownership = await requirePlayOwnership(socket, playId, 'pause_play');
-        if (!ownership) {
-          return;
-        }
-
-        await gameEngine.pausePlayInternal(playId, { requestedBy: socket.data.userId });
-
-        // T-010 Mejora: Poner el sensor en IDLE al pausar
-        setRfidModeState(socket.data.userId, RFID_MODES.IDLE, socket.id);
-      } catch (error) {
-        logger.error(`Error al pausar la partida: ${error.message}`);
-        socket.emit('error', { message: 'Error al pausar la partida' });
-      }
-    })();
-  });
-
-  /**
-   * Evento: Reanudar una partida pausada.
-   * @event resume_play
-   * @param {Object} data - Datos del evento
-   * @param {string} data.playId - ID de la partida a reanudar
-   */
-  onEvent('resume_play', data => {
-    (async () => {
-      try {
-        const { playId } = data || {};
-
-        if (!playId) {
-          socket.emit('error', { message: 'playId requerido' });
-          return;
-        }
-
-        if (!requireSocketRole(socket, ['teacher', 'super_admin'], 'resume_play')) {
-          return;
-        }
-
-        const ownership = await requirePlayOwnership(socket, playId, 'resume_play');
-        if (!ownership) {
-          return;
-        }
-
-        await gameEngine.resumePlayInternal(playId, { requestedBy: socket.data.userId });
-
-        // T-010 Mejora: Volver a GAMEPLAY al reanudar
-        setRfidModeState(socket.data.userId, RFID_MODES.GAMEPLAY, socket.id);
-      } catch (error) {
-        logger.error(`Error al reanudar la partida: ${error.message}`);
-        socket.emit('error', { message: 'Error al reanudar la partida' });
-      }
-    })();
-  });
-
-  /**
-   * Evento: Solicitud manual de la siguiente ronda.
-   * @event next_round
-   * @param {Object} data - Datos del evento
-   * @param {string} data.playId - ID de la partida
-   */
-  onEvent('next_round', data => {
-    const { playId } = data || {};
-    if (!playId) {
-      socket.emit('error', { message: 'playId requerido' });
-      return;
-    }
-    if (!requireSocketRole(socket, ['teacher', 'super_admin'], 'next_round')) {
-      return;
-    }
-    requirePlayOwnership(socket, playId, 'next_round').then(ownership => {
-      if (!ownership) {
-        return;
-      }
-      gameEngine.sendNextRound(playId);
-    });
-  });
-
-  onEvent('join_card_registration', () => {
-    if (!requireSocketRole(socket, ['teacher', 'super_admin'], 'join_card_registration')) {
-      return;
-    }
-    socket.join('card_registration');
-    setRfidModeState(socket.data.userId, RFID_MODES.CARD_REGISTRATION, socket.id);
-    logger.info(`Socket ${socket.id} se unió a card_registration`);
-  });
-
-  onEvent('leave_card_registration', () => {
-    socket.leave('card_registration');
-    clearRfidModeState(socket.data.userId, socket.id);
-  });
-
-  onEvent('join_card_assignment', () => {
-    if (!requireSocketRole(socket, ['teacher', 'super_admin'], 'join_card_assignment')) {
-      return;
-    }
-    socket.join('card_assignment');
-    setRfidModeState(socket.data.userId, RFID_MODES.CARD_ASSIGNMENT, socket.id);
-    logger.info(`Socket ${socket.id} se unió a card_assignment`);
-  });
-
-  onEvent('leave_card_assignment', () => {
-    socket.leave('card_assignment');
-    clearRfidModeState(socket.data.userId, socket.id);
-  });
-
-  onEvent('join_admin_room', () => {
-    if (!requireSocketRole(socket, ['super_admin'], 'join_admin_room')) {
-      return;
-    }
-    socket.join('admin_room');
-    logger.info(`Socket ${socket.id} se unió a admin_room`);
-  });
-
-  onEvent('leave_admin_room', () => {
-    socket.leave('admin_room');
-  });
-
-  /**
-   * Evento: RFID desde cliente (Web Serial).
-   * @event rfid_scan_from_client
-   * @param {Object} data - Datos del escaneo
-   */
-  onEvent('rfid_scan_from_client', data => {
-    handleRfidScanFromClient(socket, data);
-  });
-
-  /**
-   * Evento: Cliente se desconecta.
-   * @event disconnect
-   */
-  socket.on('disconnect', () => {
-    clearRfidModeState(socket.data.userId, socket.id);
-    logger.info(`Cliente desconectado: ${socket.id}`, {
-      userId: socket.data.userId,
-      role: socket.data.userRole
-    });
-  });
+registerSocketHandlers({
+  io,
+  gameEngine,
+  rfidService,
+  socketRateLimiter,
+  logger
 });
 
-// ============================================================================
-// INTEGRACIÓN CON EL SERVICIO RFID
-// ============================================================================
-
-/**
- * Manejador de eventos del servicio RFID.
- * Procesa eventos del sensor y los distribuye al sistema.
- */
-rfidService.on('rfid_event', event => {
-  // Métricas internas (observabilidad)
-  runtimeMetrics.recordRfidEvent(event);
-
-  // Emitir eventos RFID de forma dirigida
-  const playId = event?.uid ? gameEngine.getPlayIdByCardUid(event.uid) : null;
-
-  if (event.event === 'card_detected' && event.mode === RFID_MODES.GAMEPLAY && playId) {
-    // En gameplay no exponemos UID
-    io.to(`play_${playId}`).emit('rfid_event', {
-      event: 'card_detected'
-    });
-  } else if (event.event === 'card_detected' && event.mode === RFID_MODES.CARD_ASSIGNMENT) {
-    io.to('card_assignment').emit('rfid_event', event);
-  } else if (event.event === 'card_detected' || event.event === 'card_removed') {
-    // Registro de tarjetas (solo a room dedicada)
-    io.to('card_registration').emit('rfid_event', event);
-  } else {
-    // Eventos de diagnóstico (init, status, error)
-    io.to('admin_room').emit('rfid_event', event);
-  }
-
-  // Procesar eventos específicos según el tipo
-  switch (event.event) {
-    case 'init':
-      logger.info(`Sensor RFID inicializado: ${event.status} (v${event.version})`);
-      break;
-    case 'card_detected':
-      logger.info(`Tarjeta detectada: ${event.uid} (${event.type})`);
-      if (event.mode === RFID_MODES.GAMEPLAY) {
-        gameEngine.handleCardScan(event.uid, event.type);
-      }
-      break;
-    case 'card_removed':
-      logger.info(`Tarjeta retirada: ${event.uid}`);
-      break;
-    case 'error':
-      logger.error(`Error RFID: ${event.type} - ${event.message}`);
-      break;
-    case 'status':
-      logger.debug(`Estado RFID: uptime=${event.uptime}, cards=${event.cards_detected}`);
-      break;
-  }
-});
-
-/**
- * Manejador de cambios de estado del servicio RFID.
- * Notifica a los clientes sobre el estado de la conexión.
- */
-rfidService.on('status', status => {
-  logger.info(`Estado del servicio RFID: ${status}`); // 'connected', 'disconnected', 'reconnecting'
-
-  // Estado RFID solo para admin_room
-  io.to('admin_room').emit('rfid_status', { status });
+registerRfidHandlers({
+  io,
+  gameEngine,
+  rfidService,
+  logger
 });
 
 // ============================================================================
@@ -1160,6 +434,8 @@ const gracefulShutdown = async signal => {
     logger.info('Servidor HTTP cerrado');
 
     try {
+      socketRateLimiter.stopCleanupTimer();
+
       // 2. Detener el motor de juego y finalizar partidas activas
       await gameEngine.shutdown();
 

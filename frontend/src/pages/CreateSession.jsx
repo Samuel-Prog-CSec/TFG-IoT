@@ -11,7 +11,7 @@
  * @module pages/CreateSession
  */
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import confetti from 'canvas-confetti';
@@ -40,7 +40,8 @@ import {
   mechanicsAPI, 
   sessionsAPI, 
   extractData, 
-  extractErrorMessage 
+  extractErrorMessage,
+  isAbortError
 } from '../services/api';
 import { 
   WizardStepper,
@@ -51,6 +52,7 @@ import {
   SkeletonCard
 } from '../components/ui';
 import { ROUTES } from '../constants/routes';
+import { useRefetchOnFocus } from '../hooks';
 import { toast } from 'sonner';
 
 // Configuración del wizard
@@ -143,6 +145,43 @@ export default function CreateSession() {
   const [selectedMechanic, setSelectedMechanic] = useState(null);
   const [currentSensorId, setCurrentSensorId] = useState(null);
 
+  const dataAbortRef = useRef(null);
+
+  const loadData = useCallback(() => {
+    dataAbortRef.current?.abort();
+    const controller = new AbortController();
+    dataAbortRef.current = controller;
+
+    const run = async () => {
+      try {
+        const [decksRes, mechsRes] = await Promise.all([
+          decksAPI.getDecks({ limit: 50, status: 'active' }, { signal: controller.signal }),
+          mechanicsAPI.getMechanics(undefined, { signal: controller.signal })
+        ]);
+        
+        const decksData = extractData(decksRes) || [];
+        const mechsData = extractData(mechsRes) || [];
+        
+        setDecks(decksData);
+        setMechanics(mechsData);
+      } catch (err) {
+        if (isAbortError(err)) {
+          return;
+        }
+        toast.error('Error al cargar datos', {
+          description: extractErrorMessage(err)
+        });
+      } finally {
+        if (!controller.signal.aborted) {
+          setLoadingDecks(false);
+          setLoadingMechanics(false);
+        }
+      }
+    };
+
+    run();
+  }, []);
+
   // Cargar mazos y mecánicas
   useEffect(() => {
     // Escuchar el sensor ID actual
@@ -153,31 +192,16 @@ export default function CreateSession() {
       ...prev,
       linkSensor: !!webSerialService.sensorId // Set to true if sensorId exists, false otherwise
     }));
-    
-    const loadData = async () => {
-      try {
-        const [decksRes, mechsRes] = await Promise.all([
-          decksAPI.getDecks({ limit: 50, status: 'active' }),
-          mechanicsAPI.getMechanics()
-        ]);
-        
-        const decksData = extractData(decksRes) || [];
-        const mechsData = extractData(mechsRes) || [];
-        
-        setDecks(decksData);
-        setMechanics(mechsData);
-      } catch (err) {
-        toast.error('Error al cargar datos', {
-          description: extractErrorMessage(err)
-        });
-      } finally {
-        setLoadingDecks(false);
-        setLoadingMechanics(false);
-      }
-    };
-    
+
     loadData();
-  }, []);
+    return () => dataAbortRef.current?.abort();
+  }, [loadData]);
+
+  useRefetchOnFocus({
+    refetch: loadData,
+    isLoading: loadingDecks || loadingMechanics,
+    hasData: decks.length > 0 || mechanics.length > 0
+  });
 
   // Handlers
   const handleSelectDeck = (deck) => {

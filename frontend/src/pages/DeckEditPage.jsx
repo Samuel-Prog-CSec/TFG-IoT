@@ -33,8 +33,8 @@ import {
   ConfirmationModal,
   useConfirmationModal
 } from '../components/ui';
-import { useContexts } from '../hooks';
-import { decksAPI, cardsAPI, extractData, extractErrorMessage } from '../services/api';
+import { useContexts, useRefetchOnFocus } from '../hooks';
+import { decksAPI, cardsAPI, extractData, extractErrorMessage, isAbortError } from '../services/api';
 import { ROUTES } from '../constants/routes';
 import { GAME_CONFIG } from '../constants/gameConfig';
 import { toast } from 'sonner';
@@ -81,16 +81,16 @@ export default function DeckEditPage() {
   const [deleteLoading, setDeleteLoading] = useState(false);
 
   // Cargar datos iniciales
-  useEffect(() => {
-    const loadData = async () => {
+  const loadData = useCallback((signal) => {
+    const run = async () => {
       try {
         setLoading(true);
         setError(null);
 
         // Cargar mazo y cartas en paralelo (contextos ya se cargan con useContexts)
         const [deckRes, cardsRes] = await Promise.all([
-          decksAPI.getDeckById(deckId),
-          cardsAPI.getCards({ status: 'active', limit: 100 })
+          decksAPI.getDeckById(deckId, signal ? { signal } : {}),
+          cardsAPI.getCards({ status: 'active', limit: 100 }, signal ? { signal } : {})
         ]);
 
         const deckData = extractData(deckRes);
@@ -131,17 +131,35 @@ export default function DeckEditPage() {
         }
 
       } catch (err) {
+        if (isAbortError(err)) {
+          return;
+        }
         setError(extractErrorMessage(err));
         toast.error('Error al cargar mazo', {
           description: extractErrorMessage(err)
         });
       } finally {
-        setLoading(false);
+        if (!signal?.aborted) {
+          setLoading(false);
+        }
       }
     };
 
-    loadData();
+    run();
   }, [deckId]);
+
+  useEffect(() => {
+    const controller = new AbortController();
+    loadData(controller.signal);
+    return () => controller.abort();
+  }, [loadData]);
+
+  useRefetchOnFocus({
+    refetch: () => loadData(),
+    isLoading: loading,
+    hasData: Boolean(deck),
+    hasError: Boolean(error)
+  });
 
   // Establecer contexto seleccionado cuando los contextos se carguen
   useEffect(() => {
@@ -617,7 +635,7 @@ export default function DeckEditPage() {
                   {activeCardId ? (
                     <>
                       <h3 className="font-medium text-white mb-3">
-                        Assets de "{selectedContext?.name}"
+                        Assets de &quot;{selectedContext?.name}&quot;
                       </h3>
                       <AssetSelector
                         assets={selectedContext?.assets || []}
@@ -722,7 +740,7 @@ export default function DeckEditPage() {
         description={
           <>
             ¿Estás seguro de archivar{' '}
-            <strong className="text-white">"{deckName}"</strong>?
+            <strong className="text-white">&quot;{deckName}&quot;</strong>?
             El mazo dejará de aparecer en tu lista de mazos activos.
           </>
         }

@@ -25,6 +25,8 @@ export const AUTH_EVENTS = {
   UNAUTHORIZED: 'auth:unauthorized',
 };
 
+export const isAbortError = (error) => error?.code === 'ERR_CANCELED';
+
 // ============================================
 // INSTANCIA AXIOS
 // ============================================
@@ -43,7 +45,36 @@ const api = axios.create({
 // ============================================
 
 let accessToken = null;
-let refreshToken = localStorage.getItem('refreshToken');
+let refreshToken = null;
+
+const refreshStorageKey = 'rfid_refresh_token';
+const loadRefreshToken = () => {
+  try {
+    return sessionStorage.getItem(refreshStorageKey);
+  } catch {
+    return null;
+  }
+};
+
+const saveRefreshToken = (token) => {
+  try {
+    if (token) {
+      sessionStorage.setItem(refreshStorageKey, token);
+    }
+  } catch {
+    // No-op si storage no esta disponible
+  }
+};
+
+const clearRefreshToken = () => {
+  try {
+    sessionStorage.removeItem(refreshStorageKey);
+  } catch {
+    // No-op si storage no esta disponible
+  }
+};
+
+refreshToken = loadRefreshToken();
 let isRefreshing = false;
 let failedQueue = [];
 
@@ -66,15 +97,17 @@ const processQueue = (error, token = null) => {
 /**
  * Establece los tokens de autenticación
  * @param {string} access - Access token (se guarda en memoria)
- * @param {string} refresh - Refresh token (se guarda en localStorage)
+ * @param {string} access - Access token (se guarda en memoria)
  */
 export const setTokens = (access, refresh) => {
   accessToken = access;
-  refreshToken = refresh;
   if (refresh) {
-    localStorage.setItem('refreshToken', refresh);
+    refreshToken = refresh;
+    saveRefreshToken(refresh);
   }
 };
+
+export const getRefreshToken = () => refreshToken;
 
 /**
  * Obtiene el access token actual
@@ -86,22 +119,16 @@ export const getAccessToken = () => accessToken;
  * Obtiene el refresh token actual
  * @returns {string|null} Refresh token
  */
-export const getRefreshToken = () => refreshToken;
-
-/**
- * Limpia todos los tokens (logout)
- */
 export const clearTokens = () => {
   accessToken = null;
   refreshToken = null;
-  localStorage.removeItem('refreshToken');
+  clearRefreshToken();
 };
 
-/**
- * Verifica si hay una sesión activa (tiene refresh token)
- * @returns {boolean}
- */
-export const hasSession = () => !!refreshToken;
+const getCookieValue = (name) => {
+  const match = document.cookie.match(new RegExp(`(?:^|; )${name}=([^;]*)`));
+  return match ? decodeURIComponent(match[1]) : null;
+};
 
 // ============================================
 // INTERCEPTOR DE REQUEST
@@ -112,6 +139,15 @@ api.interceptors.request.use(
     // Añadir access token a las peticiones si existe
     if (accessToken) {
       config.headers.Authorization = `Bearer ${accessToken}`;
+    }
+
+    const method = (config.method || 'get').toLowerCase();
+    const requiresCsrf = ['post', 'put', 'patch', 'delete'].includes(method);
+    if (requiresCsrf) {
+      const csrfToken = getCookieValue('csrfToken');
+      if (csrfToken) {
+        config.headers['X-CSRF-Token'] = csrfToken;
+      }
     }
     
     // Añadir timestamp para debugging
@@ -202,13 +238,15 @@ async function handleTokenRefresh(originalRequest) {
   isRefreshing = true;
 
   try {
-    if (!refreshToken) {
-      throw new Error('No refresh token available');
-    }
-
-    const response = await axios.post(`${API_BASE_URL}/auth/refresh`, {
-      refreshToken,
-    });
+    const csrfToken = getCookieValue('csrfToken');
+    const response = await axios.post(
+      `${API_BASE_URL}/auth/refresh`,
+      refreshToken ? { refreshToken } : {},
+      {
+        withCredentials: true,
+        headers: csrfToken ? { 'X-CSRF-Token': csrfToken } : {}
+      }
+    );
 
     const { accessToken: newAccessToken, refreshToken: newRefreshToken } = response.data.data;
     
@@ -238,6 +276,10 @@ async function handleTokenRefresh(originalRequest) {
  * @returns {Promise} Promesa con retry o error
  */
 async function handleNetworkError(error, originalRequest) {
+  if (isAbortError(error)) {
+    return Promise.reject(error);
+  }
+
   const retryCount = originalRequest._retryCount || 0;
   
   // Inicializar tiempo de inicio en el primer intento
@@ -339,7 +381,7 @@ export const authAPI = {
   /**
    * Iniciar sesión
    * @param {Object} credentials - { email, password }
-   * @returns {Promise} Respuesta con user, accessToken, refreshToken
+  * @returns {Promise} Respuesta con user y accessToken
    */
   login: (credentials) => api.post('/auth/login', credentials),
 
@@ -353,14 +395,14 @@ export const authAPI = {
    * Obtener perfil del usuario actual
    * @returns {Promise} Respuesta con datos del usuario
    */
-  getProfile: () => api.get('/auth/profile'),
+  getProfile: () => api.get('/auth/me'),
 
   /**
    * Actualizar perfil del usuario
    * @param {Object} data - Datos a actualizar
    * @returns {Promise} Respuesta con usuario actualizado
    */
-  updateProfile: (data) => api.put('/auth/profile', data),
+  updateProfile: (data) => api.put('/auth/me', data),
 
   /**
    * Cambiar contraseña
@@ -373,7 +415,7 @@ export const authAPI = {
    * Refrescar access token
    * @returns {Promise} Respuesta con nuevos tokens
    */
-  refreshToken: () => api.post('/auth/refresh', { refreshToken: getRefreshToken() }),
+  refreshToken: () => api.post('/auth/refresh', refreshToken ? { refreshToken } : {}),
 };
 
 // ============================================
@@ -386,8 +428,8 @@ export const adminAPI = {
    * @param {Object} params - Parámetros de paginación { page, limit }
    * @returns {Promise} Respuesta con lista paginada
    */
-  getPendingTeachers: (params = {}) => 
-    api.get('/admin/pending', { params }),
+  getPendingTeachers: (params = {}, config = {}) => 
+    api.get('/admin/pending', { params, ...config }),
 
   /**
    * Aprobar profesor
@@ -417,16 +459,16 @@ export const usersAPI = {
    * @param {Object} params - Parámetros de búsqueda y paginación
    * @returns {Promise} Respuesta con lista paginada
    */
-  getUsers: (params = {}) => 
-    api.get('/users', { params }),
+  getUsers: (params = {}, config = {}) => 
+    api.get('/users', { params, ...config }),
 
   /**
    * Obtener usuario por ID
    * @param {string} userId - ID del usuario
    * @returns {Promise} Respuesta con datos del usuario
    */
-  getUser: (userId) => 
-    api.get(`/users/${userId}`),
+  getUser: (userId, config = {}) => 
+    api.get(`/users/${userId}`, config),
 
   /**
    * Crear nuevo usuario (estudiante)
@@ -459,8 +501,8 @@ export const usersAPI = {
    * @param {Object} params - Parámetros opcionales (classroom, sortBy, order)
    * @returns {Promise} Respuesta con lista de alumnos
    */
-  getStudentsByTeacher: (teacherId, params = {}) =>
-    api.get(`/users/teacher/${teacherId}/students`, { params }),
+  getStudentsByTeacher: (teacherId, params = {}, config = {}) =>
+    api.get(`/users/teacher/${teacherId}/students`, { params, ...config }),
 
   /**
    * Transferir un alumno a otro profesor
@@ -489,16 +531,16 @@ export const decksAPI = {
    * @param {string} [params.search] - Búsqueda por nombre/descripción
    * @returns {Promise} Respuesta con lista paginada de mazos
    */
-  getDecks: (params = {}) => 
-    api.get('/decks', { params }),
+  getDecks: (params = {}, config = {}) => 
+    api.get('/decks', { params, ...config }),
 
   /**
    * Obtener mazo por ID con detalles completos
    * @param {string} deckId - ID del mazo
    * @returns {Promise} Respuesta con datos del mazo
    */
-  getDeckById: (deckId) => 
-    api.get(`/decks/${deckId}`),
+  getDeckById: (deckId, config = {}) => 
+    api.get(`/decks/${deckId}`, config),
 
   /**
    * Crear nuevo mazo
@@ -534,10 +576,10 @@ export const decksAPI = {
    * Útil para mostrar "X/50 mazos" en la UI
    * @returns {Promise} Respuesta con { active, archived, total }
    */
-  getDecksCount: async () => {
+  getDecksCount: async (config = {}) => {
     const [activeRes, archivedRes] = await Promise.all([
-      api.get('/decks', { params: { status: 'active', limit: 1 } }),
-      api.get('/decks', { params: { status: 'archived', limit: 1 } }),
+      api.get('/decks', { params: { status: 'active', limit: 1 }, ...config }),
+      api.get('/decks', { params: { status: 'archived', limit: 1 }, ...config }),
     ]);
     return {
       active: activeRes.data?.pagination?.total || 0,
@@ -558,24 +600,24 @@ export const contextsAPI = {
    * @param {boolean} [params.isActive=true] - Filtrar solo activos
    * @returns {Promise} Respuesta con lista de contextos
    */
-  getContexts: (params = { isActive: true }) => 
-    api.get('/contexts', { params }),
+  getContexts: (params = { isActive: true }, config = {}) => 
+    api.get('/contexts', { params, ...config }),
 
   /**
    * Obtener contexto por ID con sus assets
    * @param {string} contextId - ID del contexto
    * @returns {Promise} Respuesta con datos del contexto y assets
    */
-  getContextById: (contextId) => 
-    api.get(`/contexts/${contextId}`),
+  getContextById: (contextId, config = {}) => 
+    api.get(`/contexts/${contextId}`, config),
 
   /**
    * Obtener solo los assets de un contexto
    * @param {string} contextId - ID del contexto
    * @returns {Promise} Respuesta con array de assets
    */
-  getContextAssets: (contextId) => 
-    api.get(`/contexts/${contextId}/assets`),
+  getContextAssets: (contextId, config = {}) => 
+    api.get(`/contexts/${contextId}/assets`, config),
 };
 
 // ============================================
@@ -589,31 +631,31 @@ export const cardsAPI = {
    * @param {string} [params.status='active'] - Filtrar por estado
    * @returns {Promise} Respuesta con lista paginada de tarjetas
    */
-  getCards: (params = {}) => 
-    api.get('/cards', { params }),
+  getCards: (params = {}, config = {}) => 
+    api.get('/cards', { params, ...config }),
 
   /**
    * Obtener tarjetas disponibles (activas) para crear mazos
    * @returns {Promise} Respuesta con lista de tarjetas activas
    */
-  getAvailableCards: () => 
-    api.get('/cards', { params: { status: 'active', limit: 100 } }),
+  getAvailableCards: (config = {}) => 
+    api.get('/cards', { params: { status: 'active', limit: 100 }, ...config }),
 
   /**
    * Obtener tarjeta por ID
    * @param {string} cardId - ID de la tarjeta
    * @returns {Promise} Respuesta con datos de la tarjeta
    */
-  getCardById: (cardId) => 
-    api.get(`/cards/${cardId}`),
+  getCardById: (cardId, config = {}) => 
+    api.get(`/cards/${cardId}`, config),
 
   /**
    * Buscar tarjeta por UID
    * @param {string} uid - UID de la tarjeta RFID
    * @returns {Promise} Respuesta con datos de la tarjeta
    */
-  getCardByUid: (uid) => 
-    api.get('/cards', { params: { uid: uid.toUpperCase(), limit: 1 } }),
+  getCardByUid: (uid, config = {}) => 
+    api.get('/cards', { params: { uid: uid.toUpperCase(), limit: 1 }, ...config }),
 
   /**
    * Crear nueva tarjeta
@@ -637,16 +679,16 @@ export const mechanicsAPI = {
    * @param {boolean} [params.isActive=true] - Filtrar solo activas
    * @returns {Promise} Respuesta con lista de mecánicas
    */
-  getMechanics: (params = { isActive: true }) => 
-    api.get('/mechanics', { params }),
+  getMechanics: (params = { isActive: true }, config = {}) => 
+    api.get('/mechanics', { params, ...config }),
 
   /**
    * Obtener mecánica por ID
    * @param {string} mechanicId - ID de la mecánica
    * @returns {Promise} Respuesta con datos de la mecánica
    */
-  getMechanicById: (mechanicId) => 
-    api.get(`/mechanics/${mechanicId}`),
+  getMechanicById: (mechanicId, config = {}) => 
+    api.get(`/mechanics/${mechanicId}`, config),
 };
 
 // ============================================
@@ -659,16 +701,16 @@ export const sessionsAPI = {
    * @param {Object} params - Parámetros de búsqueda y paginación
    * @returns {Promise} Respuesta con lista paginada de sesiones
    */
-  getSessions: (params = {}) => 
-    api.get('/sessions', { params }),
+  getSessions: (params = {}, config = {}) => 
+    api.get('/sessions', { params, ...config }),
 
   /**
    * Obtener sesión por ID
    * @param {string} sessionId - ID de la sesión
    * @returns {Promise} Respuesta con datos de la sesión
    */
-  getSessionById: (sessionId) => 
-    api.get(`/sessions/${sessionId}`),
+  getSessionById: (sessionId, config = {}) => 
+    api.get(`/sessions/${sessionId}`, config),
 
   /**
    * Crear nueva sesión de juego

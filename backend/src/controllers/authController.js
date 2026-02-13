@@ -4,7 +4,7 @@
  * @module controllers/authController
  */
 
-const User = require('../models/User');
+const userRepository = require('../repositories/userRepository');
 const {
   ValidationError,
   NotFoundError,
@@ -16,13 +16,28 @@ const {
   generateTokenPair,
   verifyRefreshToken,
   markRefreshTokenAsUsed,
-  deleteRefreshToken
+  deleteRefreshToken,
+  revokeAllUserTokens
 } = require('../middlewares/auth');
 const logger = require('../utils/logger');
 const { logSecurityEvent, getRequestContext } = require('../utils/securityLogger');
 const { toUserDTOV1, toAuthResponseDTOV1 } = require('../utils/dtos');
 const { disconnectUserSockets } = require('../utils/socketUtils');
 const crypto = require('node:crypto');
+
+const REFRESH_COOKIE_NAME = 'refreshToken';
+
+const buildRefreshCookieOptions = maxAgeMs => {
+  const isProd = process.env.NODE_ENV === 'production';
+
+  return {
+    httpOnly: true,
+    secure: isProd,
+    sameSite: isProd ? 'strict' : 'lax',
+    path: '/api/auth',
+    maxAge: maxAgeMs
+  };
+};
 
 /**
  * Registrar un nuevo PROFESOR (SOLO para profesores, endpoint público).
@@ -45,8 +60,18 @@ const crypto = require('node:crypto');
 const register = async (req, res, next) => {
   let securityLogged = false;
   try {
-    const { name, email, password, profile } = req.body;
+    const { name, email, password, profile, website } = req.body;
     const requestContext = getRequestContext(req);
+
+    if (website && website.trim()) {
+      logSecurityEvent('AUTH_REGISTER_FAILED', {
+        ...requestContext,
+        reason: 'HONEYPOT_TRIGGERED',
+        email
+      });
+      securityLogged = true;
+      throw new ForbiddenError('Registro no permitido');
+    }
 
     // Validar campos obligatorios para profesores
     if (!email) {
@@ -69,7 +94,7 @@ const register = async (req, res, next) => {
     }
 
     // Verificar si el email ya existe
-    const existingUser = await User.findOne({ email });
+    const existingUser = await userRepository.findOne({ email });
     if (existingUser) {
       logSecurityEvent('AUTH_REGISTER_FAILED', {
         ...requestContext,
@@ -81,7 +106,7 @@ const register = async (req, res, next) => {
     }
 
     // Crear profesor (role hardcodeado a 'teacher')
-    const teacher = await User.create({
+    const teacher = await userRepository.create({
       name,
       email,
       password, // Se encripta automáticamente en el pre-save hook
@@ -155,7 +180,7 @@ const login = async (req, res, next) => {
     const requestContext = getRequestContext(req);
 
     // Buscar usuario por email (incluir password para comparación)
-    user = await User.findOne({ email }).select('+password');
+    user = await userRepository.findOne({ email }, { select: '+password' });
 
     if (!user) {
       logSecurityEvent('AUTH_LOGIN_FAILED', {
@@ -246,6 +271,13 @@ const login = async (req, res, next) => {
     // Eliminar datos internos antes de enviar respuesta
     const { _internal, ...publicTokens } = tokens;
 
+    // Guardar refresh token en cookie httpOnly
+    res.cookie(
+      REFRESH_COOKIE_NAME,
+      tokens.refreshToken,
+      buildRefreshCookieOptions(tokens.refreshTokenExpiresIn * 1000)
+    );
+
     logSecurityEvent('AUTH_LOGIN_SUCCESS', {
       ...requestContext,
       userId: user._id,
@@ -287,7 +319,7 @@ const login = async (req, res, next) => {
 const getProfile = async (req, res, next) => {
   try {
     // req.user ya está disponible por el middleware authenticate
-    const user = await User.findById(req.user._id);
+    const user = await userRepository.findById(req.user._id);
 
     if (!user) {
       throw new NotFoundError('Usuario');
@@ -317,7 +349,7 @@ const updateProfile = async (req, res, next) => {
   try {
     const { name, profile } = req.body;
 
-    const user = await User.findById(req.user._id);
+    const user = await userRepository.findById(req.user._id);
 
     if (!user) {
       throw new NotFoundError('Usuario');
@@ -365,7 +397,7 @@ const changePassword = async (req, res, next) => {
     const { currentPassword, newPassword } = req.body;
     const requestContext = getRequestContext(req);
 
-    const user = await User.findById(req.user._id).select('+password');
+    const user = await userRepository.findById(req.user._id, { select: '+password' });
 
     if (!user) {
       throw new NotFoundError('Usuario');
@@ -386,7 +418,18 @@ const changePassword = async (req, res, next) => {
 
     // Actualizar contraseña (se encripta automáticamente)
     user.password = newPassword;
+    user.currentSessionId = crypto.randomUUID();
     await user.save();
+
+    await revokeAllUserTokens(user._id.toString(), 'password_changed', {
+      ...requestContext,
+      userId: user._id
+    });
+
+    const io = req.app.get('io');
+    if (io) {
+      disconnectUserSockets(io, user._id.toString(), 'PASSWORD_CHANGED');
+    }
 
     logSecurityEvent('AUTH_PASSWORD_CHANGED', {
       ...requestContext,
@@ -394,9 +437,11 @@ const changePassword = async (req, res, next) => {
       email: user.email
     });
 
+    res.clearCookie(REFRESH_COOKIE_NAME, buildRefreshCookieOptions(0));
+
     res.json({
       success: true,
-      message: 'Contraseña actualizada exitosamente'
+      message: 'Contraseña actualizada exitosamente. Inicia sesión nuevamente.'
     });
   } catch (error) {
     if (!securityLogged && error instanceof UnauthorizedError) {
@@ -424,7 +469,7 @@ const changePassword = async (req, res, next) => {
 const refreshAccessToken = async (req, res, next) => {
   let securityLogged = false;
   try {
-    const { refreshToken } = req.body;
+    const refreshToken = req.cookies?.[REFRESH_COOKIE_NAME] || req.body?.refreshToken;
     const requestContext = getRequestContext(req);
 
     if (!refreshToken) {
@@ -440,7 +485,7 @@ const refreshAccessToken = async (req, res, next) => {
     const decoded = await verifyRefreshToken(refreshToken, req);
 
     // Buscar usuario (incluyendo currentSessionId para validación)
-    const user = await User.findById(decoded.id).select('+currentSessionId');
+    const user = await userRepository.findById(decoded.id, { select: '+currentSessionId' });
 
     if (!user) {
       throw new UnauthorizedError('Usuario no encontrado');
@@ -483,6 +528,13 @@ const refreshAccessToken = async (req, res, next) => {
 
     // Eliminar datos internos antes de enviar
     const { _internal, ...publicTokens } = tokens;
+
+    // Rotar refresh token en cookie httpOnly
+    res.cookie(
+      REFRESH_COOKIE_NAME,
+      tokens.refreshToken,
+      buildRefreshCookieOptions(tokens.refreshTokenExpiresIn * 1000)
+    );
 
     logSecurityEvent('AUTH_REFRESH_SUCCESS', {
       ...requestContext,

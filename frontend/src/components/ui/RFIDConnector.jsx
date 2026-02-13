@@ -123,7 +123,11 @@ export default function RFIDConnector({
       )}
 
       {error && (
-        <div className="mt-3 rounded-lg border border-rose-500/30 bg-rose-500/10 px-3 py-2 text-xs text-rose-300">
+        <div
+          role="alert"
+          aria-live="polite"
+          className="mt-3 rounded-lg border border-rose-500/30 bg-rose-500/10 px-3 py-2 text-xs text-rose-300"
+        >
           {error}
         </div>
       )}

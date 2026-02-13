@@ -1,9 +1,10 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { motion } from 'framer-motion';
 import { Users, Gamepad2, Trophy, AlertTriangle, Calendar, TrendingUp } from 'lucide-react';
 import { staggerContainer, staggerItem } from '../lib/utils';
-import { useDocumentTitle } from '../hooks';
+import { useDocumentTitle, useRefetchOnFocus } from '../hooks';
 import analyticsService from '../services/analytics';
+import { isAbortError } from '../services/api';
 import StatCard from '../components/dashboard/StatCard';
 import StudentProgressChart from '../components/dashboard/StudentProgressChart';
 import ClassroomOverview from '../components/dashboard/ClassroomOverview';
@@ -21,16 +22,20 @@ export default function Dashboard() {
   const [difficulties, setDifficulties] = useState([]); // Esto podría ser global o de un alumno específico bajo demanda
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
+  const dataAbortRef = useRef(null);
 
-  useEffect(() => {
-    const fetchData = async () => {
+  const fetchData = useCallback(() => {
+    dataAbortRef.current?.abort();
+    const controller = new AbortController();
+    dataAbortRef.current = controller;
+
+    const run = async () => {
       try {
         setLoading(true);
-        // Cargar datos en paralelo
         const [summaryData, progress, difficultiesData] = await Promise.all([
-          analyticsService.getClassroomSummary(),
-          analyticsService.getClassroomComparison(timeRange), 
-          analyticsService.getClassroomDifficulties()
+          analyticsService.getClassroomSummary({ signal: controller.signal }),
+          analyticsService.getClassroomComparison(timeRange, { signal: controller.signal }),
+          analyticsService.getClassroomDifficulties({ signal: controller.signal })
         ]);
 
         setSummary(summaryData);
@@ -39,15 +44,32 @@ export default function Dashboard() {
 
         setError(null);
       } catch (err) {
-        console.error("Error loading dashboard data:", err);
-        setError("No se pudieron cargar los datos del dashboard.");
+        if (isAbortError(err)) {
+          return;
+        }
+        console.error('Error loading dashboard data:', err);
+        setError('No se pudieron cargar los datos del dashboard.');
       } finally {
-        setLoading(false);
+        if (!controller.signal.aborted) {
+          setLoading(false);
+        }
       }
     };
 
-    fetchData();
+    run();
   }, [timeRange]);
+
+  useEffect(() => {
+    fetchData();
+    return () => dataAbortRef.current?.abort();
+  }, [fetchData]);
+
+  useRefetchOnFocus({
+    refetch: fetchData,
+    isLoading: loading,
+    hasData: Boolean(summary),
+    hasError: Boolean(error)
+  });
 
   // Derivar alertas de los datos
   const alerts = [];
@@ -66,7 +88,7 @@ export default function Dashboard() {
       });
   }
 
-  if (loading) {
+  if (loading && !summary) {
       return (
         <main className="p-6 lg:p-8 max-w-7xl mx-auto space-y-8">
           <div className="flex flex-col sm:flex-row sm:items-end sm:justify-between gap-4">
@@ -98,6 +120,12 @@ export default function Dashboard() {
       aria-label="Panel principal del dashboard"
     >
       <Header timeRange={timeRange} setTimeRange={setTimeRange} />
+
+      {loading && summary && (
+        <div className="bg-slate-800/50 border border-white/10 text-slate-300 px-4 py-2 rounded-xl text-sm">
+          Actualizando datos del dashboard...
+        </div>
+      )}
       
       {error && (
           <div className="bg-rose-500/10 border border-rose-500/20 text-rose-400 p-4 rounded-xl">

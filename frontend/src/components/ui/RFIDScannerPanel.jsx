@@ -10,7 +10,7 @@
 
 import { useState, useEffect, useCallback, useRef } from 'react';
 import PropTypes from 'prop-types';
-import { motion, AnimatePresence, useSpring, useTransform } from 'framer-motion';
+import { motion, AnimatePresence, useSpring, useTransform, useReducedMotion } from 'framer-motion';
 import { CreditCard, Wifi, WifiOff, Plus, Trash2, AlertCircle, Zap } from 'lucide-react';
 import { cn } from '../../lib/utils';
 import confetti from 'canvas-confetti';
@@ -75,6 +75,7 @@ export default function RFIDScannerPanel({
   const [lastScanned, setLastScanned] = useState(null);
   const [error, setError] = useState(null);
   const containerRef = useRef(null);
+  const prefersReducedMotion = useReducedMotion();
 
   // Contador animado
   const countSpring = useSpring(scannedCards.length, { stiffness: 300, damping: 30 });
@@ -102,7 +103,7 @@ export default function RFIDScannerPanel({
     setLastScanned(newCard);
     onCardScanned(newCard);
 
-    if (containerRef.current) {
+    if (containerRef.current && !prefersReducedMotion) {
       const rect = containerRef.current.getBoundingClientRect();
       confetti({
         particleCount: 15,
@@ -118,7 +119,7 @@ export default function RFIDScannerPanel({
     }
 
     setTimeout(() => setLastScanned(null), 1500);
-  }, [onCardScanned]);
+  }, [onCardScanned, prefersReducedMotion]);
 
   const handleRealScan = useCallback((payload) => {
     if (!payload?.uid) {
@@ -230,7 +231,7 @@ export default function RFIDScannerPanel({
                 'w-10 h-10 rounded-xl flex items-center justify-center',
                 isConnected ? 'bg-emerald-500/20' : 'bg-slate-700/50'
               )}
-              animate={isScanning ? {
+              animate={isScanning && !prefersReducedMotion ? {
                 boxShadow: [
                   '0 0 0 0 rgba(16, 185, 129, 0)',
                   '0 0 0 8px rgba(16, 185, 129, 0.2)',
@@ -275,7 +276,7 @@ export default function RFIDScannerPanel({
         <div className="relative h-48 flex items-center justify-center overflow-hidden">
           {/* Ondas de radar */}
           <AnimatePresence>
-            {isScanning && (
+            {isScanning && !prefersReducedMotion && (
               <>
                 {[...Array(3)].map((_, i) => (
                   <motion.div
@@ -301,7 +302,7 @@ export default function RFIDScannerPanel({
           {/* Icono central de tarjeta */}
           <motion.div
             className="relative z-10 w-20 h-20 rounded-2xl bg-gradient-to-br from-indigo-500 to-purple-600 flex items-center justify-center shadow-2xl shadow-indigo-500/40"
-            animate={isScanning ? {
+            animate={isScanning && !prefersReducedMotion ? {
               scale: [1, 1.05, 1],
               rotate: [0, 2, -2, 0],
             } : {}}
@@ -314,17 +315,19 @@ export default function RFIDScannerPanel({
             <CreditCard className="text-white" size={36} />
             
             {/* Efecto de pulso */}
-            <motion.div
-              className="absolute inset-0 rounded-2xl bg-white/20"
-              animate={{
-                opacity: [0, 0.3, 0],
-                scale: [1, 1.2, 1],
-              }}
-              transition={{
-                duration: 1.5,
-                repeat: Infinity,
-              }}
-            />
+            {!prefersReducedMotion && (
+              <motion.div
+                className="absolute inset-0 rounded-2xl bg-white/20"
+                animate={{
+                  opacity: [0, 0.3, 0],
+                  scale: [1, 1.2, 1],
+                }}
+                transition={{
+                  duration: 1.5,
+                  repeat: Infinity,
+                }}
+              />
+            )}
           </motion.div>
 
           {/* Animación de tarjeta escaneada */}
@@ -348,8 +351,8 @@ export default function RFIDScannerPanel({
           {/* Mensaje de instrucción */}
           <motion.p
             className="absolute bottom-4 text-slate-500 text-sm"
-            animate={{ opacity: [0.5, 1, 0.5] }}
-            transition={{ duration: 2, repeat: Infinity }}
+            animate={!prefersReducedMotion ? { opacity: [0.5, 1, 0.5] } : {}}
+            transition={!prefersReducedMotion ? { duration: 2, repeat: Infinity } : undefined}
           >
             Acerca una tarjeta al lector
           </motion.p>

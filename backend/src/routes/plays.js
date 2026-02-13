@@ -32,15 +32,17 @@ const {
 } = require('../validators/gamePlayValidator');
 const { emptyObjectSchema } = require('../validators/commonValidator');
 
+// Todas las rutas requieren profesor o super_admin
+router.use(authenticate, requireRole('teacher', 'super_admin'));
+
 /**
  * @route   GET /api/plays/stats/:playerId
  * @desc    Obtener estadísticas de un jugador
- * @access  Private
+ * @access  Private (Teacher/Super Admin)
  * @validation params: playerStatsParamsSchema | query: playerStatsQuerySchema
  */
 router.get(
   '/stats/:playerId',
-  authenticate,
   validateParams(playerStatsParamsSchema),
   validateQuery(playerStatsQuerySchema),
   getPlayerStats
@@ -52,7 +54,7 @@ router.get(
  * @access  Private
  * @validation query: gamePlayQuerySchema
  */
-router.get('/', authenticate, validateQuery(gamePlayQuerySchema), getPlays);
+router.get('/', validateQuery(gamePlayQuerySchema), getPlays);
 
 /**
  * @route   GET /api/plays/:id
@@ -62,7 +64,6 @@ router.get('/', authenticate, validateQuery(gamePlayQuerySchema), getPlays);
  */
 router.get(
   '/:id',
-  authenticate,
   validateParams(gamePlayParamsSchema),
   validateQuery(emptyObjectSchema),
   getPlayById
@@ -77,8 +78,6 @@ router.get(
 router.post(
   '/',
   createResourceRateLimiter, // Rate limiting para prevenir spam
-  authenticate,
-  requireRole('teacher'),
   validateQuery(emptyObjectSchema),
   validateBody(createGamePlaySchema),
   createPlay
@@ -93,7 +92,6 @@ router.post(
 router.post(
   '/:id/events',
   eventRateLimiter, // Rate limiter permisivo para eventos de juego en tiempo real
-  authenticate,
   validateParams(gamePlayParamsSchema),
   validateQuery(emptyObjectSchema),
   validateBody(addEventSchema),
@@ -108,7 +106,6 @@ router.post(
  */
 router.post(
   '/:id/complete',
-  authenticate,
   validateParams(gamePlayParamsSchema),
   validateQuery(emptyObjectSchema),
   validateBody(emptyObjectSchema),
@@ -123,7 +120,6 @@ router.post(
  */
 router.post(
   '/:id/abandon',
-  authenticate,
   validateParams(gamePlayParamsSchema),
   validateQuery(emptyObjectSchema),
   validateBody(emptyObjectSchema),
@@ -138,8 +134,6 @@ router.post(
  */
 router.post(
   '/:id/pause',
-  authenticate,
-  requireRole('teacher'),
   validateParams(gamePlayParamsSchema),
   validateQuery(emptyObjectSchema),
   validateBody(emptyObjectSchema),
@@ -154,8 +148,6 @@ router.post(
  */
 router.post(
   '/:id/resume',
-  authenticate,
-  requireRole('teacher'),
   validateParams(gamePlayParamsSchema),
   validateQuery(emptyObjectSchema),
   validateBody(emptyObjectSchema),
