@@ -26,8 +26,15 @@ jobs:
       uses: actions/setup-node@v6
       with:
         node-version: ${{ matrix.node-version }}
-        cache: 'npm'
-        cache-dependency-path: backend/package-lock.json
+
+    - name: Cache npm dependencies
+      uses: actions/cache@v4
+      with:
+        path: |
+          ~/.npm
+        key: ${{ runner.os }}-node-${{ matrix.node-version }}-${{ hashFiles('backend/package-lock.json', 'frontend/package-lock.json') }}
+        restore-keys: |
+          ${{ runner.os }}-node-${{ matrix.node-version }}-
 
     - name: Start MongoDB
       uses: supercharge/mongodb-github-action@1.12.1
@@ -67,7 +74,7 @@ jobs:
       working-directory: ./frontend
 
     - name: SonarCloud Scan
-      uses: SonarSource/sonarcloud-github-action@v4
+      uses: SonarSource/sonarcloud-github-action@v5
       env:
         SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
         SONAR_HOST_URL: https://sonarcloud.io
