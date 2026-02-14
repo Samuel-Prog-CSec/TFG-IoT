@@ -2,38 +2,21 @@
 
 **Proyecto:** Plataforma de Juegos Educativos con RFID (TFG)  
 **Autor:** Samuel Blanchart Pérez  
-**Duración:** 3-4 semanas (Febrero - Marzo 2026)  
-**Versión objetivo:** 1.0.0  
+**Duración:** 2-3 semanas (Febrero - Marzo 2026)  
+**Versión objetivo:** 0.4.0  
 **Última actualización:** 13-02-2026
 
 ---
 
 ## Resumen del Sprint
 
-Este sprint se enfoca en **cerrar el núcleo funcional de la versión 1.0.0**:
+Este sprint se enfoca en **cerrar el núcleo funcional de la versión 0.4.0**:
 
 1. **Gameplay real en producción** para mecánicas de **Asociación** y **Memoria**.
 2. **GameEngine robusto y extensible** para múltiples configuraciones de sesión.
 3. **Cierre de seguridad, compliance y calidad mínima verificable** para release.
 
 Además, se revisan y ajustan tareas ya iniciadas para evitar falsos cierres por implementación parcial.
-
-### Objetivo de Cierre v1.0
-
-- Funcionalidad principal jugable end-to-end (crear sesión → jugar → resultados).
-- Seguridad crítica validada (auth con refresh cookie-only).
-- Cumplimiento base GDPR para anonimización de alumnos.
-- Calidad mínima con tests críticos y trazabilidad requisito → tarea → evidencia.
-
-### Métricas del Sprint (Objetivo)
-
-| Prioridad    | Cantidad | Esfuerzo Estimado |
-| ------------ | -------- | ----------------- |
-| P0 (Crítica) | 3        | ~7-9 días         |
-| P1 (Alta)    | 13       | ~17-22 días       |
-| P2 (Media)   | 8        | ~9-12 días        |
-| P3 (Baja)    | 1        | ~1-2 días         |
-| **Total**    | **25**   | **34-45 días**    |
 
 ---
 
@@ -42,7 +25,7 @@ Además, se revisan y ajustan tareas ya iniciadas para evitar falsos cierres por
 - **Prioridad:** P0 (Crítica/Bloqueante) > P1 (Alta) > P2 (Media) > P3 (Baja)
 - **Tamaño:** XS (< 2h), S (2-4h), M (4-8h), L (1-2 días), XL (> 2 días)
 - **Estado:** 📋 Pendiente | 🔄 En Progreso | ✅ Completada
-- **Origen:** Requisitos (RF/RNF) | Auditoría Arquitectura (ARCH-XX) | Auditoría Seguridad/Backend (SEC/BE-XX) | Auditoría Frontend UI/UX (FE-XX)
+- **Origen:** Requisitos (RF/RNF)
 - **Definición de 100% (DoD):** Código + tests + documentación requerida en la tarea
 
 ---
@@ -556,27 +539,6 @@ Configurar y ejecutar tests E2E para cubrir los flujos críticos de release 1.0.
 
 ---
 
-### T-063: Verificación y Cierre Documental de Requisitos ya implementados 📋
-
-**Prioridad:** P2 | **Tamaño:** S | **Dependencias:** T-061  
-**Origen:** RNF-CAL-020, RNF-REN-010
-
-**Descripción:**  
-Cerrar formalmente requisitos ya implementados (health/metrics y estado en Redis) con evidencia trazable.
-
-**Sub-tareas:**
-
-1. Añadir referencias de código/tests en documentación de sprint.
-2. Verificar que criterios de aceptación de requisitos están cubiertos.
-3. Marcar evidencia de regresión para futuras auditorías.
-
-**Criterios de Aceptación (medibles):**
-
-- [ ] Evidencia trazable requisito → archivo → test.
-- [ ] Requisitos marcados como completos con justificación técnica.
-
----
-
 ## P3 - Prioridad Baja
 
 ### T-023: Staging Environment (replicable) 📋
@@ -674,75 +636,6 @@ Mejorar accesibilidad de controles y anuncios dinámicos para reducir ruido en l
 
 ---
 
-## Cobertura Requisitos RF/RNF (Sprint 4)
-
-| Requisito | Cobertura Sprint 4 |
-| --------- | ------------------ |
-| RF-USR-019 / RNF-SEG-019 | T-007 |
-| RF-JGO-004 | T-054, T-055, T-056 |
-| RF-JGO-026 | T-055 |
-| RF-JGO-027 | T-054, T-053 |
-| RF-RFID-012 | T-057 |
-| RNF-CAL-018/019 | T-061, T-038 |
-| RNF-CAL-020 | T-063 |
-| RNF-REN-010 | T-063 |
-
----
-
-## Ajustes sobre tareas originales de Sprint 4
-
-- T-051 se mantiene, pero pasa a P0 con cierre de gaps de seguridad.
-- T-007 se mantiene y se alinea explícitamente con RF-USR-019/RNF-SEG-019.
-- T-050 se mantiene como **ruta de desarrollo** separada de producción.
-- T-052 y T-039 se mantienen y se amplían con criterios medibles.
-- T-034, T-037, T-053 se mantienen y se endurecen en DoD.
-- T-038 se mantiene como soporte de calidad de release.
-- Se añaden T-054, T-055, T-056, T-057, T-058, T-059, T-060, T-061, T-063, T-064, T-065, T-066, T-067, T-068, T-069.
-
----
-
-## Mapa de Dependencias (GitHub Project)
-
-### Dependencias duras (Hard Dependencies)
-
-| Tarea | Depende de | Motivo |
-| ----- | ---------- | ------ |
-| T-055 | T-054 | Hardening del motor sobre flujo real integrado |
-| T-053 | T-054 | Reglas de estado validables con gameplay real |
-| T-056 | T-054 | Wizard adaptativo alineado a flujo productivo |
-| T-037 | T-056 | Clonado debe respetar el nuevo contrato del wizard |
-| T-057 | T-054 | Contrato RFID alineado al flujo real operativo |
-| T-061 | T-054, T-051 | Calidad release depende de gameplay real y auth final |
-| T-058 | T-055 | Optimización de concurrencia y latencia sobre arquitectura final del motor |
-| T-059 | T-051, T-058 | Hardening de seguridad/validación tras cierre auth y optimización realtime |
-| T-064 | T-053 | Optimización de consultas y eliminación de write-on-read en sesiones |
-| T-065 | T-055, T-058 | Reducción de write amplification en persistencia de eventos |
-| T-066 | T-055 | Robustez de recuperación Redis y locks de tarjetas en concurrencia |
-| T-067 | T-059 | Integridad de dominio y cierre de bypass en usuarios/contextos |
-| T-052 | T-056 | Reduced-motion aplicado sobre wizard definitivo |
-| T-060 | T-056, T-052 | Mejoras UI/UX y rendimiento visual sobre base del wizard definitivo |
-| T-068 | T-056, T-060 | Estabilizar estados visuales eliminando clases dinámicas no seguras |
-| T-069 | T-060 | Accesibilidad de temporizador y controles en flujos críticos |
-| T-039 | T-061 | Observabilidad frontend tras estabilizar calidad base |
-| T-034 | T-061 | Publicar OpenAPI cuando contrato API esté estabilizado |
-| T-038 | T-054, T-051, T-056 | E2E sobre flujo real, auth final y wizard definitivo |
-| T-063 | T-061 | Cierre documental tras validación de calidad |
-| T-023 | T-061 | Staging documentado con baseline de release definido |
-
-### Dependencias blandas (Soft / orden recomendado)
-
-- T-007 puede iniciarse en paralelo con T-054/T-051, pero conviene cerrarla antes del RC por compliance.
-- T-050 puede avanzar en paralelo (dev-only), validando separación al cerrar T-054.
-- T-039 y T-034 pueden iniciarse antes, aunque su cierre final se recomienda tras T-061.
-
-### Nodos raíz sugeridos para arrancar Sprint
-
-- T-054 (gameplay real)
-- T-051 (auth cookie-only)
-- T-007 (GDPR anonimización)
-
----
-
 ## Fuera de alcance Sprint 4 (propuesto Sprint 5)
 
 1. API completa de gestión de sensores (`/api/sensors/*`) para RF-RFID-011.
@@ -762,7 +655,3 @@ Antes de cerrar el sprint, cada tarea deberá anexar en PR:
 - Tests ejecutados.
 - Evidencia documental actualizada.
 - Riesgo residual (si aplica).
-
----
-
-*Documento actualizado para cierre de Sprint 4 orientado a versión 1.0.0.*

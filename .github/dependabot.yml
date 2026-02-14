@@ -1,21 +1,70 @@
 version: 2
 updates:
-  # Mantenimiento del Backend
+  # -------------------------
+  # BACKEND (NPM)
+  # -------------------------
   - package-ecosystem: "npm"
     directory: "/backend"
     schedule:
-      interval: "weekly"
-    open-pull-requests-limit: 15
+      interval: "monthly"
+    open-pull-requests-limit: 5
+    # Prefijo para que el historial de git quede limpio: "[npm-back] bump react..."
+    commit-message:
+      prefix: "npm-back"
+      prefix-development: "npm-back-dev"
+    groups:
+      # Grupo 1: Actualizaciones seguras (Parches y actualizaciones menores)
+      # Ejemplo: v1.0.1 -> v1.1.0 (Todo en una sola rama)
+      safe-updates:
+        patterns:
+          - "*"
+        update-types:
+          - "minor"
+          - "patch"
+      # Grupo 2: Actualizaciones Mayores (Riesgo de ruptura)
+      # Ejemplo: v1.0.0 -> v2.0.0 (Todo en otra rama separada)
+      major-updates:
+        patterns:
+          - "*"
+        update-types:
+          - "major"
 
-  # Mantenimiento del Frontend
+  # -------------------------
+  # FRONTEND (NPM)
+  # -------------------------
   - package-ecosystem: "npm"
     directory: "/frontend"
     schedule:
-      interval: "weekly"
-    open-pull-requests-limit: 15
+      interval: "monthly"
+    open-pull-requests-limit: 5
+    commit-message:
+      prefix: "npm-front"
+      prefix-development: "npm-front-dev"
+    groups:
+      safe-updates:
+        patterns:
+          - "*"
+        update-types:
+          - "minor"
+          - "patch"
+      major-updates:
+        patterns:
+          - "*"
+        update-types:
+          - "major"
 
-  # Mantenimiento de GitHub Actions
+  # -------------------------
+  # GITHUB ACTIONS
+  # -------------------------
   - package-ecosystem: "github-actions"
     directory: "/"
     schedule:
-      interval: "weekly"
+      interval: "monthly"
+    open-pull-requests-limit: 5
+    commit-message:
+      prefix: "gh-actions"
+    groups:
+      # En Actions se puede agrupar todo porque suele ser más estable
+      all-actions:
+        patterns:
+          - "*"
