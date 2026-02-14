@@ -1,6 +1,6 @@
 {
   "name": "tfg-iot",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "",
   "main": "index.js",
   "scripts": {
@@ -20,8 +20,8 @@
   },
   "homepage": "https://github.com/Samuel-Prog-CSec/TFG-IoT#readme",
   "dependencies": {
-    "@commitlint/cli": "^20.3.0",
-    "@commitlint/config-conventional": "^20.3.0",
+    "@commitlint/cli": "^20.3.1",
+    "@commitlint/config-conventional": "^20.3.1",
     "husky": "^9.1.7",
     "lint-staged": "^16.2.7"
   },
@@ -31,7 +31,7 @@
       "npm --prefix backend test -- --findRelatedTests --passWithNoTests"
     ],
     "frontend/**/*.{js,jsx}": [
-      "npm --prefix frontend run lint --"
+      "npm --prefix frontend run lint:staged --"
     ]
   }
 }

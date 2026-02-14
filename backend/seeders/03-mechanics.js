@@ -22,7 +22,7 @@ const mechanicsData = [
     description:
       'El alumno debe asociar cada desafío con la tarjeta correcta. ' +
       'Por ejemplo: se muestra la bandera de España y el alumno debe escanear la tarjeta asignada a "España".',
-    icon: '🔗',
+    icon: 'association',
     rules: {
       // Configuración por defecto
       defaults: {
@@ -57,7 +57,7 @@ const mechanicsData = [
     description:
       'El alumno debe escanear las tarjetas en un orden específico. ' +
       'Por ejemplo: ordenar los números del 1 al 5, o los días de la semana.',
-    icon: '🔢',
+    icon: 'sequence',
     rules: {
       defaults: {
         numberOfCards: 5,
@@ -88,7 +88,7 @@ const mechanicsData = [
     displayName: 'Memoria',
     description:
       'Se muestra un patrón de elementos y el alumno debe reproducirlo escaneando las tarjetas en el mismo orden.',
-    icon: '🧠',
+    icon: 'memory',
     rules: {
       defaults: {
         numberOfCards: 4,
@@ -113,69 +113,6 @@ const mechanicsData = [
       }
     },
     isActive: true
-  },
-  {
-    name: 'classification',
-    displayName: 'Clasificación',
-    description:
-      'El alumno debe clasificar elementos en categorías. ' +
-      'Por ejemplo: separar frutas de verduras, o animales terrestres de acuáticos.',
-    icon: '📂',
-    rules: {
-      defaults: {
-        numberOfCards: 6,
-        numberOfRounds: 5,
-        timeLimit: 20,
-        pointsPerCorrect: 10,
-        penaltyPerError: -2
-      },
-      limits: {
-        minCards: 4,
-        maxCards: 12,
-        minRounds: 1,
-        maxRounds: 15,
-        minTimeLimit: 10,
-        maxTimeLimit: 45
-      },
-      behavior: {
-        maxCategories: 4, // Máximo de categorías permitidas
-        minCategories: 2, // Mínimo de categorías
-        showCategoryHints: true, // Mostrar pistas de categoría
-        allowMultipleCategories: false // Un elemento puede estar en varias categorías
-      }
-    },
-    isActive: true
-  },
-  {
-    name: 'speed',
-    displayName: 'Velocidad',
-    description:
-      'El alumno debe responder lo más rápido posible. Bonificación por tiempo de respuesta.',
-    icon: '⚡',
-    rules: {
-      defaults: {
-        numberOfCards: 5,
-        numberOfRounds: 10,
-        timeLimit: 10,
-        pointsPerCorrect: 10,
-        penaltyPerError: -5
-      },
-      limits: {
-        minCards: 3,
-        maxCards: 10,
-        minRounds: 5,
-        maxRounds: 20,
-        minTimeLimit: 3,
-        maxTimeLimit: 15
-      },
-      behavior: {
-        timeBonus: true, // Puntos extra por respuesta rápida
-        timeBonusThreshold: 3, // Segundos para obtener bonus
-        timeBonusPoints: 5, // Puntos de bonus
-        showLeaderboard: true // Mostrar ranking de tiempos
-      }
-    },
-    isActive: false // Deshabilitado por defecto (mecánica avanzada)
   }
 ];
 
@@ -190,13 +127,13 @@ async function seedMechanics() {
     const active = mechanics.filter(m => m.isActive).length;
     const inactive = mechanics.filter(m => !m.isActive).length;
 
-    logger.info('✅ Mecánicas de juego seeded exitosamente');
-    logger.info(`   - ${active} mecánicas activas`);
-    logger.info(`   - ${inactive} mecánicas inactivas (avanzadas)`);
+    logger.info('Mecánicas de juego seeded exitosamente');
+    logger.info(`- ${active} mecánicas activas`);
+    logger.info(`- ${inactive} mecánicas inactivas`);
 
     return mechanics;
   } catch (error) {
-    logger.error('❌ Error en seedMechanics:', error);
+    logger.error('Error en seedMechanics:', error);
     throw error;
   }
 }

@@ -7,6 +7,7 @@ skinparam sequenceMessageAlign center
 title Flujo de Procesamiento de Escaneo RFID
 
 participant "Sensor\nRC522" as Sensor
+participant "Web Serial" as WebSerial
 participant "RFIDService" as RFID
 participant "GameEngine" as Engine
 database "MongoDB" as DB
@@ -15,9 +16,8 @@ participant "Cliente" as Client
 
 == Detección de Tarjeta ==
 
-Sensor -> RFID : JSON:\n{"event":"card_detected",\n"uid":"32B8FA05"}
-
-RFID -> RFID : handleSerialData()\nParsear JSON
+Sensor -> WebSerial : JSON:\n{"event":"card_detected",\n"uid":"32B8FA05"}
+WebSerial -> RFID : ingestEvent
 
 RFID -> RFID : Actualizar métricas\n+ buffer circular
 

@@ -11,6 +11,7 @@ participant "Frontend" as FE
 participant "Socket.IO" as Socket
 participant "RFIDScanManager" as Manager
 participant "RFIDService" as RFID
+participant "Web Serial" as WebSerial
 participant "Sensor\nRC522" as Sensor
 database "MongoDB" as DB
 
@@ -37,7 +38,9 @@ end
 == Escaneo de Tarjeta ==
 
 User -> Sensor : Escanea tarjeta física
-Sensor -> RFID : {"event":"card_detected",\n"uid":"32B8FA05",\n"type":"MIFARE 1KB"}
+Sensor -> WebSerial : {"event":"card_detected",\n"uid":"32B8FA05",\n"type":"MIFARE 1KB"}
+WebSerial -> Socket : rfid_scan_from_client
+Socket -> RFID : ingestEvent
 
 RFID -> Manager : getMode()
 Manager --> RFID : { mode: 'card_registration',\nowner: socketId }

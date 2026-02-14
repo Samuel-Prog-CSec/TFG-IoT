@@ -1,16 +1,21 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { DndContext, DragOverlay, useSensor, useSensors, PointerSensor, defaultDropAnimationSideEffects } from '@dnd-kit/core';
+import { DndContext, DragOverlay, useSensor, useSensors, PointerSensor, defaultDropAnimationSideEffects, useDroppable } from '@dnd-kit/core';
 import { SortableContext, useSortable } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
-import { AnimatePresence } from 'framer-motion';
+import { motion, AnimatePresence } from 'framer-motion';
 import { Layers, RotateCcw, Play, CheckCircle } from 'lucide-react';
 import clsx from 'clsx';
-import { api } from '../services/mockApi';
+import confetti from 'canvas-confetti';
+import { toast } from 'sonner';
+import { sessionsAPI, usersAPI, extractData, extractErrorMessage, isAbortError } from '../services/api';
+import { useAuth } from '../context/AuthContext';
+import { useRefetchOnFocus } from '../hooks';
 
 export default function BoardSetup() {
   const { sessionId } = useParams();
   const navigate = useNavigate();
+    const { user } = useAuth();
   const [loading, setLoading] = useState(true);
   
   // Game Data
@@ -24,67 +29,77 @@ export default function BoardSetup() {
   const [activeId, setActiveId] = useState(null); // For DragOverlay
   const [selectedStudentId, setSelectedStudentId] = useState('');
 
-  useEffect(() => {
-    const init = async () => {
+    const init = useCallback((signal) => {
+        const run = async () => {
         try {
-            // 1. Fetch Session from Mock API using ID
-            let currentSession = null;
-            if (sessionId) {
-                currentSession = await api.getSessionById(sessionId);
-            }
+                        if (!sessionId) {
+                            throw new Error('No se encontró la sesión para configurar el tablero');
+                        }
 
-            // Fallback for demo/direct access (dev only)
-            if (!currentSession) {
-                // If no session found, we might want to alert or redirect. 
-                // For now, we mock a basic fallback or stay null
-                 console.warn("Session not found, loading demo");
-                 const cards = await api.getAvailableCards();
-                 currentSession = { 
-                     id: 'demo', 
-                     config: { numberOfCards: 5 }, 
-                     cardMappings: {}, 
-                     selectedCardIds: cards.slice(0, 5).map(c => c.id) 
-                };
-            }
-            
-            setSession(currentSession);
+                                                const sessionResponse = await sessionsAPI.getSessionById(sessionId, signal ? { signal } : {});
+                        const currentSession = extractData(sessionResponse);
 
-            // 2. Fetch all necessary data to hydrate the view
-            const [allCards, context, students] = await Promise.all([
-                 api.getAvailableCards(),
-                 currentSession.contextId ? api.getContextById(currentSession.contextId) : null,
-                 api.getStudents()
-            ]);
+                        setSession(currentSession);
 
-            // 3. Enrich Cards with Asset Data (Icon/Value)
-            // Filter only the cards selected for this session
-            const sessionCards = allCards.filter(c => currentSession.selectedCardIds.includes(c.id));
-            
-            const enrichedCards = sessionCards.map(card => {
-                const assetKey = currentSession.cardMappings[card.id];
-                const asset = context?.assets?.find(a => a.key === assetKey);
-                
-                return {
-                    ...card,
-                    label: asset ? asset.value : card.label, // "España" vs "Tarjeta 1"
-                    icon: asset ? asset.display : null,     // "🇪🇸"
-                    subLabel: asset ? `Asset: ${asset.key}` : card.uid // extra info
-                };
-            });
+                        const teacherId = user?.id || user?._id;
+                        const studentsResponse = teacherId
+                            ? await usersAPI.getStudentsByTeacher(teacherId, { sortBy: 'name', order: 'asc' }, signal ? { signal } : {})
+                            : { data: { data: [] } };
 
-            setAvailableCards(enrichedCards);
-            setAvailableStudents(students);
+                        const students = extractData(studentsResponse) || [];
+
+                        const mappings = Array.isArray(currentSession?.cardMappings)
+                            ? currentSession.cardMappings
+                            : [];
+
+                        const enrichedCards = mappings.map(mapping => {
+                            const displayValue = mapping.displayData?.value || mapping.assignedValue;
+                            const displayIcon = mapping.displayData?.display || null;
+                            const assetKey = mapping.displayData?.key;
+
+                            return {
+                                id: mapping.cardId || mapping.id || mapping.uid,
+                                uid: mapping.uid,
+                                label: displayValue || `Tarjeta ${mapping.uid}`,
+                                icon: displayIcon,
+                                subLabel: assetKey ? `Asset: ${assetKey}` : mapping.uid,
+                                assignedValue: mapping.assignedValue,
+                                displayData: mapping.displayData
+                            };
+                        });
+
+                        setAvailableCards(enrichedCards);
+                        setAvailableStudents(Array.isArray(students) ? students : []);
         } catch (e) {
-            console.error(e);
+                        if (isAbortError(e)) {
+                            return;
+                        }
+                        console.error(e);
+                        toast.error(extractErrorMessage(e));
         } finally {
-            setLoading(false);
+            if (!signal?.aborted) {
+                setLoading(false);
+            }
         }
     };
-    init();
-  }, [sessionId]);
+
+    run();
+    }, [sessionId, user]);
+
+    useEffect(() => {
+        const controller = new AbortController();
+        init(controller.signal);
+        return () => controller.abort();
+    }, [init]);
+
+    useRefetchOnFocus({
+        refetch: () => init(),
+        isLoading: loading,
+        hasData: Boolean(session)
+    });
 
   const cardsInLibrary = availableCards.filter(card => !Object.values(slots).some(c => c.id === card.id));
-  const totalSlots = session?.config?.numberOfCards || session?.selectedCardIds?.length || 0;
+    const totalSlots = session?.config?.numberOfCards || availableCards.length || 0;
   const isBoardComplete = totalSlots > 0 && Object.keys(slots).length === totalSlots;
   const canStart = isBoardComplete && selectedStudentId;
 
@@ -141,6 +156,15 @@ export default function BoardSetup() {
         // Place active card in target
         newSlots[targetSlotId] = activeCard;
         setSlots(newSlots);
+
+        // 🎉 Confetti effect for feedback
+        confetti({
+            particleCount: 30,
+            spread: 50,
+            origin: { y: 0.7 },
+            colors: ['#6366f1', '#8b5cf6', '#a855f7'],
+            disableForReducedMotion: true
+        });
     }
   };
 
@@ -162,7 +186,7 @@ export default function BoardSetup() {
                     >
                         <option value="">-- Asignar Estudiante --</option>
                         {availableStudents.map(student => (
-                            <option key={student.id} value={student.id}>{student.name}</option>
+                            <option key={student.id || student._id} value={student.id || student._id}>{student.name}</option>
                         ))}
                     </select>
 
@@ -176,7 +200,7 @@ export default function BoardSetup() {
                     <button 
                         onClick={() => {
                             // navigate(`/game/${sessionId}`); // Disabled as per request
-                            alert(`¡Partida configurada para ${availableStudents.find(s=>s.id === selectedStudentId)?.name}!\n(La pantalla de juego está deshabilitada temporalmente)`);
+                            alert(`¡Partida configurada para ${availableStudents.find(s => (s.id || s._id) === selectedStudentId)?.name}!\n(La pantalla de juego está deshabilitada temporalmente)`);
                             navigate('/dashboard');
                         }}
                         disabled={!canStart}
@@ -330,7 +354,6 @@ function CardView({ card, isOverlay, variant = 'default' }) {
 }
 
 // Helper hook to simplify droppable usage with dnd-kit
-import { useDroppable } from '@dnd-kit/core';
 function useDroppableCompat(props) {
     const { setNodeRef, isOver } = useDroppable(props);
     return { setNodeRef, isOver };

@@ -14,7 +14,15 @@
  */
 
 const { getRedis, isRedisConnected, getKeyPrefix } = require('../config/redis');
-const logger = require('../utils/logger');
+const logger = require('../utils/logger').child({ component: 'redisService' });
+const { CircuitBreaker } = require('../utils/circuitBreaker');
+
+const redisBreaker = new CircuitBreaker({
+  name: 'redis',
+  failureThreshold: Number.parseInt(process.env.REDIS_BREAKER_THRESHOLD, 10) || 5,
+  successThreshold: Number.parseInt(process.env.REDIS_BREAKER_SUCCESS_THRESHOLD, 10) || 2,
+  resetTimeoutMs: Number.parseInt(process.env.REDIS_BREAKER_TIMEOUT_MS, 10) || 15000
+});
 
 /**
  * Namespaces para organizar keys en Redis.
@@ -62,6 +70,11 @@ const buildKey = (namespace, id) => `${namespace}:${id}`;
  * @returns {boolean} True si Redis está disponible.
  */
 const checkRedisAvailable = () => {
+  if (!redisBreaker.canRequest()) {
+    logger.warn('Redis: Circuito abierto, operacion omitida');
+    return false;
+  }
+
   if (!isRedisConnected()) {
     logger.warn('Redis: Operación ignorada - Redis no está conectado');
     return false;
@@ -92,9 +105,11 @@ const setWithTTL = async (namespace, id, value, ttlSeconds) => {
     const key = buildKey(namespace, id);
     await redis.setex(key, ttlSeconds, String(value));
     logger.debug(`Redis SET: ${key} (TTL: ${ttlSeconds}s)`);
+    redisBreaker.recordSuccess();
     return true;
   } catch (error) {
     logger.error('Redis setWithTTL error:', { namespace, id, error: error.message });
+    redisBreaker.recordFailure();
     return false;
   }
 };
@@ -117,9 +132,57 @@ const set = async (namespace, id, value) => {
     const key = buildKey(namespace, id);
     await redis.set(key, String(value));
     logger.debug(`Redis SET: ${key}`);
+    redisBreaker.recordSuccess();
     return true;
   } catch (error) {
     logger.error('Redis set error:', { namespace, id, error: error.message });
+    redisBreaker.recordFailure();
+    return false;
+  }
+};
+
+/**
+ * Guarda multiples valores en batch.
+ *
+ * @param {string} namespace - Namespace de la key.
+ * @param {{id:string, value:string|number}[]} entries - Entradas a guardar.
+ * @returns {Promise<boolean>} True si el batch fue exitoso.
+ */
+const setMany = async (namespace, entries = []) => {
+  if (!checkRedisAvailable()) {
+    return false;
+  }
+
+  if (!Array.isArray(entries) || entries.length === 0) {
+    return true;
+  }
+
+  try {
+    const redis = getRedis();
+    const pipeline = redis.pipeline();
+
+    for (const entry of entries) {
+      if (!entry || !entry.id) {
+        continue;
+      }
+      const key = buildKey(namespace, entry.id);
+      pipeline.set(key, String(entry.value));
+    }
+
+    const results = await pipeline.exec();
+    const hasError = results?.some(([error]) => error);
+    if (hasError) {
+      logger.error('Redis setMany error: fallos en pipeline', { namespace });
+    }
+    if (hasError) {
+      redisBreaker.recordFailure();
+    } else {
+      redisBreaker.recordSuccess();
+    }
+    return !hasError;
+  } catch (error) {
+    logger.error('Redis setMany error:', { namespace, error: error.message });
+    redisBreaker.recordFailure();
     return false;
   }
 };
@@ -140,9 +203,11 @@ const get = async (namespace, id) => {
     const redis = getRedis();
     const key = buildKey(namespace, id);
     const value = await redis.get(key);
+    redisBreaker.recordSuccess();
     return value;
   } catch (error) {
     logger.error('Redis get error:', { namespace, id, error: error.message });
+    redisBreaker.recordFailure();
     return null;
   }
 };
@@ -163,9 +228,11 @@ const exists = async (namespace, id) => {
     const redis = getRedis();
     const key = buildKey(namespace, id);
     const result = await redis.exists(key);
+    redisBreaker.recordSuccess();
     return result === 1;
   } catch (error) {
     logger.error('Redis exists error:', { namespace, id, error: error.message });
+    redisBreaker.recordFailure();
     return false;
   }
 };
@@ -187,9 +254,57 @@ const del = async (namespace, id) => {
     const key = buildKey(namespace, id);
     await redis.del(key);
     logger.debug(`Redis DEL: ${key}`);
+    redisBreaker.recordSuccess();
     return true;
   } catch (error) {
     logger.error('Redis del error:', { namespace, id, error: error.message });
+    redisBreaker.recordFailure();
+    return false;
+  }
+};
+
+/**
+ * Elimina multiples keys en batch.
+ *
+ * @param {string} namespace - Namespace de la key.
+ * @param {string[]} ids - Identificadores a eliminar.
+ * @returns {Promise<boolean>} True si el batch fue exitoso.
+ */
+const delMany = async (namespace, ids = []) => {
+  if (!checkRedisAvailable()) {
+    return false;
+  }
+
+  if (!Array.isArray(ids) || ids.length === 0) {
+    return true;
+  }
+
+  try {
+    const redis = getRedis();
+    const pipeline = redis.pipeline();
+
+    for (const id of ids) {
+      if (!id) {
+        continue;
+      }
+      const key = buildKey(namespace, id);
+      pipeline.del(key);
+    }
+
+    const results = await pipeline.exec();
+    const hasError = results?.some(([error]) => error);
+    if (hasError) {
+      logger.error('Redis delMany error: fallos en pipeline', { namespace });
+    }
+    if (hasError) {
+      redisBreaker.recordFailure();
+    } else {
+      redisBreaker.recordSuccess();
+    }
+    return !hasError;
+  } catch (error) {
+    logger.error('Redis delMany error:', { namespace, error: error.message });
+    redisBreaker.recordFailure();
     return false;
   }
 };
@@ -209,9 +324,12 @@ const ttl = async (namespace, id) => {
   try {
     const redis = getRedis();
     const key = buildKey(namespace, id);
-    return await redis.ttl(key);
+    const value = await redis.ttl(key);
+    redisBreaker.recordSuccess();
+    return value;
   } catch (error) {
     logger.error('Redis ttl error:', { namespace, id, error: error.message });
+    redisBreaker.recordFailure();
     return -2;
   }
 };
@@ -251,9 +369,11 @@ const hset = async (namespace, id, data, ttlSeconds = null) => {
     }
 
     logger.debug(`Redis HSET: ${key} (${Object.keys(data).length} fields)`);
+    redisBreaker.recordSuccess();
     return true;
   } catch (error) {
     logger.error('Redis hset error:', { namespace, id, error: error.message });
+    redisBreaker.recordFailure();
     return false;
   }
 };
@@ -290,9 +410,11 @@ const hgetall = async (namespace, id) => {
       }
     }
 
+    redisBreaker.recordSuccess();
     return parsed;
   } catch (error) {
     logger.error('Redis hgetall error:', { namespace, id, error: error.message });
+    redisBreaker.recordFailure();
     return null;
   }
 };
@@ -313,9 +435,12 @@ const hget = async (namespace, id, field) => {
   try {
     const redis = getRedis();
     const key = buildKey(namespace, id);
-    return await redis.hget(key, field);
+    const value = await redis.hget(key, field);
+    redisBreaker.recordSuccess();
+    return value;
   } catch (error) {
     logger.error('Redis hget error:', { namespace, id, field, error: error.message });
+    redisBreaker.recordFailure();
     return null;
   }
 };
@@ -337,9 +462,11 @@ const hdel = async (namespace, id, field) => {
     const redis = getRedis();
     const key = buildKey(namespace, id);
     await redis.hdel(key, field);
+    redisBreaker.recordSuccess();
     return true;
   } catch (error) {
     logger.error('Redis hdel error:', { namespace, id, field, error: error.message });
+    redisBreaker.recordFailure();
     return false;
   }
 };
@@ -365,9 +492,11 @@ const sadd = async (namespace, id, member) => {
     const redis = getRedis();
     const key = buildKey(namespace, id);
     await redis.sadd(key, member);
+    redisBreaker.recordSuccess();
     return true;
   } catch (error) {
     logger.error('Redis sadd error:', { namespace, id, error: error.message });
+    redisBreaker.recordFailure();
     return false;
   }
 };
@@ -387,9 +516,12 @@ const smembers = async (namespace, id) => {
   try {
     const redis = getRedis();
     const key = buildKey(namespace, id);
-    return await redis.smembers(key);
+    const value = await redis.smembers(key);
+    redisBreaker.recordSuccess();
+    return value;
   } catch (error) {
     logger.error('Redis smembers error:', { namespace, id, error: error.message });
+    redisBreaker.recordFailure();
     return [];
   }
 };
@@ -411,9 +543,11 @@ const sismember = async (namespace, id, member) => {
     const redis = getRedis();
     const key = buildKey(namespace, id);
     const result = await redis.sismember(key, member);
+    redisBreaker.recordSuccess();
     return result === 1;
   } catch (error) {
     logger.error('Redis sismember error:', { namespace, id, error: error.message });
+    redisBreaker.recordFailure();
     return false;
   }
 };
@@ -435,9 +569,11 @@ const srem = async (namespace, id, member) => {
     const redis = getRedis();
     const key = buildKey(namespace, id);
     await redis.srem(key, member);
+    redisBreaker.recordSuccess();
     return true;
   } catch (error) {
     logger.error('Redis srem error:', { namespace, id, error: error.message });
+    redisBreaker.recordFailure();
     return false;
   }
 };
@@ -468,6 +604,7 @@ const scanByNamespace = async (namespace, pattern = '*') => {
     // En entorno de test, usar KEYS en lugar de SCAN por limitaciones de ioredis-mock
     if (process.env.NODE_ENV === 'test') {
       const keys = await redis.keys(fullPattern);
+      redisBreaker.recordSuccess();
       return keys.map(k => k.replace(keyPrefix, ''));
     }
 
@@ -487,15 +624,18 @@ const scanByNamespace = async (namespace, pattern = '*') => {
       });
 
       stream.on('end', () => {
+        redisBreaker.recordSuccess();
         resolve(keys);
       });
 
       stream.on('error', error => {
+        redisBreaker.recordFailure();
         reject(error);
       });
     });
   } catch (error) {
     logger.error('Redis scanByNamespace error:', { namespace, pattern, error: error.message });
+    redisBreaker.recordFailure();
     return [];
   }
 };
@@ -524,9 +664,11 @@ const flushNamespace = async namespace => {
     await redis.del(...keys);
 
     logger.info(`Redis FLUSH: ${namespace} (${keys.length} keys eliminadas)`);
+    redisBreaker.recordSuccess();
     return keys.length;
   } catch (error) {
     logger.error('Redis flushNamespace error:', { namespace, error: error.message });
+    redisBreaker.recordFailure();
     return 0;
   }
 };
@@ -551,6 +693,7 @@ const getStats = async () => {
     stats.namespaces[namespace] = keys.length;
   }
 
+  redisBreaker.recordSuccess();
   return stats;
 };
 
@@ -564,10 +707,12 @@ module.exports = {
 
   // Strings
   set,
+  setMany,
   setWithTTL,
   get,
   exists,
   del,
+  delMany,
   ttl,
 
   // Hashes

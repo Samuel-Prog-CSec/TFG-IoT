@@ -5,12 +5,94 @@
  * @module services/gameSessionService
  */
 
-const GameSession = require('../models/GameSession');
-const GameMechanic = require('../models/GameMechanic');
-const GameContext = require('../models/GameContext');
-const Card = require('../models/Card');
-const { NotFoundError, ValidationError } = require('../utils/errors');
-const logger = require('../utils/logger');
+const gameSessionRepository = require('../repositories/gameSessionRepository');
+const gameMechanicRepository = require('../repositories/gameMechanicRepository');
+const gameContextRepository = require('../repositories/gameContextRepository');
+const cardRepository = require('../repositories/cardRepository');
+const cardDeckRepository = require('../repositories/cardDeckRepository');
+const gamePlayRepository = require('../repositories/gamePlayRepository');
+const { NotFoundError, ValidationError, ForbiddenError } = require('../utils/errors');
+const logger = require('../utils/logger').child({ component: 'gameSessionService' });
+
+const MIN_DECK_CARDS = 2;
+
+function normalizeSessionMappingsFromDeck(deck) {
+  const mappings = Array.isArray(deck.cardMappings) ? deck.cardMappings : [];
+
+  return mappings.map(m => ({
+    cardId: m.cardId,
+    uid: (m.uid || '').toString().trim().toUpperCase(),
+    assignedValue: (m.assignedValue || '').toString().trim(),
+    displayData: m.displayData
+  }));
+}
+
+async function syncSessionFromDeck(session, { deckId, userId }) {
+  const deck = await cardDeckRepository.findById(deckId);
+  if (!deck) {
+    throw new NotFoundError('Mazo');
+  }
+
+  if (deck.createdBy.toString() !== userId.toString()) {
+    throw new ForbiddenError('No tienes permiso para usar este mazo');
+  }
+
+  if (deck.status && deck.status !== 'active') {
+    throw new ValidationError('El mazo seleccionado no está activo');
+  }
+
+  const cardMappings = normalizeSessionMappingsFromDeck(deck);
+  if (cardMappings.length < MIN_DECK_CARDS) {
+    throw new ValidationError(`El mazo debe tener al menos ${MIN_DECK_CARDS} cardMappings`);
+  }
+
+  const context = await gameContextRepository.findById(deck.contextId);
+  if (!context) {
+    throw new NotFoundError('Contexto de juego');
+  }
+
+  const allowedValues = new Set((context.assets || []).map(a => a.value));
+  const invalidValues = cardMappings.map(m => m.assignedValue).filter(v => !allowedValues.has(v));
+  if (invalidValues.length > 0) {
+    throw new ValidationError(
+      `assignedValue no existe en los assets del contexto: ${[...new Set(invalidValues)].join(', ')}`
+    );
+  }
+
+  const cardIds = cardMappings.map(m => m.cardId);
+  const cards = await cardRepository.find({ _id: { $in: cardIds } });
+  if (cards.length !== cardIds.length) {
+    throw new ValidationError('Una o más tarjetas no existen');
+  }
+
+  const inactiveCards = cards.filter(card => card.status !== 'active');
+  if (inactiveCards.length > 0) {
+    throw new ValidationError(
+      `Las siguientes tarjetas no están activas: ${inactiveCards.map(c => c.uid).join(', ')}`
+    );
+  }
+
+  const cardById = new Map(cards.map(c => [c._id.toString(), c]));
+  const mismatch = cardMappings.filter(m => {
+    const card = cardById.get(m.cardId.toString());
+    return !card || card.uid !== m.uid;
+  });
+  if (mismatch.length > 0) {
+    throw new ValidationError(
+      `UID no coincide con la tarjeta para: ${mismatch.map(m => m.uid).join(', ')}`
+    );
+  }
+
+  session.deckId = deck._id;
+  session.contextId = deck.contextId;
+  session.cardMappings = cardMappings;
+  session.config = {
+    ...session.config,
+    numberOfCards: cardMappings.length
+  };
+
+  return { deck, context, cardMappings };
+}
 
 /**
  * Valida que una mecánica exista y esté activa.
@@ -21,7 +103,7 @@ const logger = require('../utils/logger');
  * @throws {ValidationError} Si la mecánica no está activa
  */
 async function validateMechanic(mechanicId) {
-  const mechanic = await GameMechanic.findById(mechanicId);
+  const mechanic = await gameMechanicRepository.findById(mechanicId);
 
   if (!mechanic) {
     throw new NotFoundError('Mecánica de juego');
@@ -44,7 +126,7 @@ async function validateMechanic(mechanicId) {
  * @throws {ValidationError} Si no hay suficientes assets
  */
 async function validateContext(contextId, requiredAssets) {
-  const context = await GameContext.findById(contextId);
+  const context = await gameContextRepository.findById(contextId);
 
   if (!context) {
     throw new NotFoundError('Contexto de juego');
@@ -67,7 +149,7 @@ async function validateContext(contextId, requiredAssets) {
  * @throws {ValidationError} Si alguna tarjeta no existe o no está activa
  */
 async function validateCards(cardIds) {
-  const cards = await Card.find({ _id: { $in: cardIds } });
+  const cards = await cardRepository.find({ _id: { $in: cardIds } });
 
   if (cards.length !== cardIds.length) {
     throw new ValidationError('Una o más tarjetas no existen');
@@ -150,7 +232,7 @@ async function createSession({
   await validateCards(cardIds);
 
   // Crear sesión
-  const session = await GameSession.create({
+  const session = await gameSessionRepository.create({
     mechanicId,
     contextId,
     config,
@@ -191,7 +273,7 @@ async function createSession({
  * @throws {ValidationError} Si la sesión ya inició
  */
 async function updateSession(sessionId, updates, userId) {
-  const session = await GameSession.findById(sessionId);
+  const session = await gameSessionRepository.findById(sessionId);
 
   if (!session) {
     throw new NotFoundError('Sesión de juego');
@@ -230,7 +312,7 @@ async function updateSession(sessionId, updates, userId) {
  * @throws {ValidationError} Si la sesión ya inició o tiene partidas
  */
 async function validateSessionDeletion(sessionId) {
-  const session = await GameSession.findById(sessionId);
+  const session = await gameSessionRepository.findById(sessionId);
 
   if (!session) {
     throw new NotFoundError('Sesión de juego');
@@ -240,11 +322,10 @@ async function validateSessionDeletion(sessionId) {
     throw new ValidationError('Solo se pueden eliminar sesiones que no han iniciado');
   }
 
-  // TODO: Verificar si hay GamePlays asociadas
-  // const plays = await GamePlay.countDocuments({ sessionId });
-  // if (plays > 0) {
-  //   throw new ValidationError('No se puede eliminar una sesión con partidas asociadas');
-  // }
+  const plays = await gamePlayRepository.count({ sessionId });
+  if (plays > 0) {
+    throw new ValidationError('No se puede eliminar una sesión con partidas asociadas');
+  }
 
   return session;
 }
@@ -257,9 +338,9 @@ async function validateSessionDeletion(sessionId) {
  * @returns {Promise<Object>} Estadísticas de la sesión
  */
 async function getSessionStats(sessionId) {
-  const GamePlay = require('../models/GamePlay'); // Import dinámico para evitar dependencia circular
+  // Import eliminado: usamos repositorio para evitar dependencias circulares.
 
-  const stats = await GamePlay.aggregate([
+  const stats = await gamePlayRepository.aggregate([
     { $match: { sessionId, status: 'completed' } },
     {
       $group: {
@@ -285,6 +366,7 @@ async function getSessionStats(sessionId) {
 }
 
 module.exports = {
+  syncSessionFromDeck,
   createSession,
   updateSession,
   validateSessionDeletion,

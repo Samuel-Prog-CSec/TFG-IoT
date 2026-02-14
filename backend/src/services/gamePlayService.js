@@ -5,11 +5,11 @@
  * @module services/gamePlayService
  */
 
-const GamePlay = require('../models/GamePlay');
-const GameSession = require('../models/GameSession');
-const User = require('../models/User');
+const gamePlayRepository = require('../repositories/gamePlayRepository');
+const gameSessionRepository = require('../repositories/gameSessionRepository');
+const userRepository = require('../repositories/userRepository');
 const { NotFoundError, ValidationError, ForbiddenError } = require('../utils/errors');
-const logger = require('../utils/logger');
+const logger = require('../utils/logger').child({ component: 'gamePlayService' });
 
 /**
  * Valida que una sesión de juego esté disponible para crear partidas.
@@ -20,7 +20,7 @@ const logger = require('../utils/logger');
  * @throws {ValidationError} Si la sesión no está activa
  */
 async function validateGameSession(sessionId) {
-  const session = await GameSession.findById(sessionId);
+  const session = await gameSessionRepository.findById(sessionId);
 
   if (!session) {
     throw new NotFoundError('Sesión de juego');
@@ -43,7 +43,7 @@ async function validateGameSession(sessionId) {
  * @throws {ValidationError} Si el jugador no es estudiante o ya tiene partida activa
  */
 async function validatePlayer(playerId, sessionId) {
-  const player = await User.findById(playerId);
+  const player = await userRepository.findById(playerId);
 
   if (!player) {
     throw new NotFoundError('Jugador');
@@ -54,10 +54,10 @@ async function validatePlayer(playerId, sessionId) {
   }
 
   // Verificar partida activa existente
-  const existingPlay = await GamePlay.findOne({
+  const existingPlay = await gamePlayRepository.findOne({
     sessionId,
     playerId,
-    status: { $in: ['in-progress'] }
+    status: { $in: ['in-progress', 'paused'] }
   });
 
   if (existingPlay) {
@@ -91,7 +91,7 @@ async function createPlay({ sessionId, playerId, creatorId }) {
   await validatePlayer(playerId, sessionId);
 
   // Crear partida
-  const play = await GamePlay.create({
+  const play = await gamePlayRepository.create({
     sessionId,
     playerId,
     status: 'in-progress',
@@ -133,7 +133,7 @@ async function createPlay({ sessionId, playerId, creatorId }) {
  * @throws {ValidationError} Si la partida no está en progreso
  */
 async function addEventToPlay(playId, eventData) {
-  const play = await GamePlay.findById(playId);
+  const play = await gamePlayRepository.findById(playId);
 
   if (!play) {
     throw new NotFoundError('Partida');
@@ -165,7 +165,9 @@ async function addEventToPlay(playId, eventData) {
  * @throws {ValidationError} Si la partida ya no está en progreso
  */
 async function completePlay(playId) {
-  const play = await GamePlay.findById(playId).populate('playerId').populate('sessionId');
+  const play = await gamePlayRepository.findById(playId, {
+    populate: [{ path: 'playerId' }, { path: 'sessionId' }]
+  });
 
   if (!play) {
     throw new NotFoundError('Partida');
@@ -179,7 +181,7 @@ async function completePlay(playId) {
   await play.complete();
 
   // Actualizar métricas del estudiante
-  const player = await User.findById(play.playerId._id);
+  const player = await userRepository.findById(play.playerId._id);
   await player.updateStudentMetrics({
     score: play.score,
     correctAttempts: play.metrics.correctAttempts,
@@ -188,7 +190,11 @@ async function completePlay(playId) {
   });
 
   // Calcular rating
-  const rating = calculateRating(play.score, play.sessionId.config.pointsPerCorrect);
+  const rating = calculateRating(
+    play.score,
+    play.sessionId.config.pointsPerCorrect,
+    play.sessionId.config.numberOfRounds
+  );
 
   logger.info('Partida completada via service', {
     playId: play._id,
@@ -207,8 +213,9 @@ async function completePlay(playId) {
  * @param {number} maxPointsPerRound - Puntos máximos por ronda
  * @returns {string} Rating en estrellas (⭐⭐⭐⭐⭐ a ⭐)
  */
-function calculateRating(score, maxPointsPerRound) {
-  const percentage = (score / (maxPointsPerRound * 5)) * 100; // Asumiendo 5 rondas
+function calculateRating(score, maxPointsPerRound, rounds) {
+  const safeRounds = Number.isInteger(rounds) && rounds > 0 ? rounds : 1;
+  const percentage = (score / (maxPointsPerRound * safeRounds)) * 100;
 
   if (percentage >= 90) {
     return '⭐⭐⭐⭐⭐';
@@ -239,7 +246,7 @@ async function getPlayerStats(playerId, sessionId = null) {
     filter.sessionId = sessionId;
   }
 
-  const stats = await GamePlay.aggregate([
+  const stats = await gamePlayRepository.aggregate([
     { $match: filter },
     {
       $group: {
@@ -274,7 +281,7 @@ async function getPlayerStats(playerId, sessionId = null) {
   // Calcular tasa de acierto
   const accuracyRate =
     result.totalCorrect + result.totalErrors > 0
-      ? parseFloat(
+      ? Number.parseFloat(
           ((result.totalCorrect / (result.totalCorrect + result.totalErrors)) * 100).toFixed(2)
         )
       : 0;

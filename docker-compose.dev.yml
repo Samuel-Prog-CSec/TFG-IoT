@@ -1,0 +1,59 @@
+# ============================================================================
+# Docker Compose - DESARROLLO con Hot Reload
+# ============================================================================
+# Override file para desarrollo local con hot-reload
+#
+# Uso:
+#   docker compose -f docker-compose.yml -f docker-compose.dev.yml up -d
+#
+# Características:
+#   - Volúmenes montados para código fuente
+#   - Hot-reload en backend (nodemon) y frontend (Vite)
+#   - Sin seed automático (manual cuando sea necesario)
+#   - Puertos de debug expuestos
+#
+# Autor: Samuel Blanchart Pérez
+# Versión: 1.0.0
+# ============================================================================
+
+services:
+  # ============================================
+  # FRONTEND - Desarrollo con Vite dev server
+  # ============================================
+  frontend:
+    build:
+      context: ./frontend
+      target: builder  # Usar stage de desarrollo
+    ports:
+      - "5173:5173"    # Puerto de Vite dev server
+      - "80:80"        # Nginx (si usas build)
+    volumes:
+      - ./frontend:/app
+      - /app/node_modules  # Excluir node_modules del host
+    environment:
+      - VITE_API_URL=http://localhost:5000/api
+    command: npm run dev -- --host 0.0.0.0
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:5173"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+
+  # ============================================
+  # BACKEND - Desarrollo con Nodemon
+  # ============================================
+  backend:
+    build:
+      context: ./backend
+      target: development
+    volumes:
+      - ./backend:/app
+      - /app/node_modules  # Excluir node_modules del host
+    environment:
+      - NODE_ENV=development
+    command: >
+      sh -c "npm run seed:if-empty && npm run migrate:sessions && npm run dev"
+    ports:
+      - "5000:5000"
+      - "9229:9229"  # Puerto de debug Node.js

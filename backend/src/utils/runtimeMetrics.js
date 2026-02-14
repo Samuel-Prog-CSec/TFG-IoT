@@ -25,6 +25,15 @@ const state = {
     totalEventsProcessed: 0,
     byEvent: {},
     lastEventAt: null
+  },
+  websocket: {
+    totalEvents: 0,
+    rateLimited: 0,
+    blocked: 0,
+    payloadRejected: 0,
+    deduped: 0,
+    byEvent: {},
+    lastEventAt: null
   }
 };
 
@@ -72,6 +81,29 @@ function recordRfidEvent(event) {
 }
 
 /**
+ * Registra un evento WebSocket procesado.
+ * @param {Object} data
+ * @param {string} data.eventName
+ * @param {'allowed'|'rate_limited'|'blocked'|'payload_rejected'|'deduped'} data.outcome
+ */
+function recordWebsocketEvent({ eventName, outcome }) {
+  state.websocket.totalEvents += 1;
+  state.websocket.lastEventAt = Date.now();
+
+  state.websocket.byEvent[eventName] = (state.websocket.byEvent[eventName] || 0) + 1;
+
+  if (outcome === 'rate_limited') {
+    state.websocket.rateLimited += 1;
+  } else if (outcome === 'blocked') {
+    state.websocket.blocked += 1;
+  } else if (outcome === 'payload_rejected') {
+    state.websocket.payloadRejected += 1;
+  } else if (outcome === 'deduped') {
+    state.websocket.deduped += 1;
+  }
+}
+
+/**
  * Snapshot de métricas runtime.
  * @returns {Object}
  */
@@ -87,6 +119,9 @@ function getSnapshot() {
     },
     rfid: {
       ...state.rfid
+    },
+    websocket: {
+      ...state.websocket
     }
   };
 }
@@ -108,11 +143,20 @@ function reset() {
   state.rfid.totalEventsProcessed = 0;
   state.rfid.byEvent = {};
   state.rfid.lastEventAt = null;
+
+  state.websocket.totalEvents = 0;
+  state.websocket.rateLimited = 0;
+  state.websocket.blocked = 0;
+  state.websocket.payloadRejected = 0;
+  state.websocket.deduped = 0;
+  state.websocket.byEvent = {};
+  state.websocket.lastEventAt = null;
 }
 
 module.exports = {
   recordHttpRequest,
   recordRfidEvent,
+  recordWebsocketEvent,
   getSnapshot,
   reset
 };

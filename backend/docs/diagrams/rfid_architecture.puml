@@ -15,26 +15,28 @@ package "Hardware RFID" {
     RC522 -right-> ESP : SPI
 }
 
+package "Frontend (PC Profesor)" {
+  [Web Serial API] as WebSerial
+  [Pantalla\nAlumno] as Student
+  [Dashboard\nProfesor] as Teacher
+  [Panel\nConfiguración] as Config
+}
+
 package "Backend Node.js" {
-    [RFIDService] as RFID
-    [GameEngine] as Engine
-    [Socket.IO] as Socket
-    [MongoDB] as DB
-    [Redis] as Redis
+  [RFIDService] as RFID
+  [GameEngine] as Engine
+  [Socket.IO] as Socket
+  [MongoDB] as DB
+  [Redis] as Redis
     
-    RFID -down-> Engine : rfid_event
-    Engine -right-> Socket : emit events
-    Engine -down-> DB : persist
-    Engine -down-> Redis : cache state
+  RFID -down-> Engine : rfid_event
+  Engine -right-> Socket : emit events
+  Engine -down-> DB : persist
+  Engine -down-> Redis : cache state
 }
 
-package "Frontend" {
-    [Pantalla\nAlumno] as Student
-    [Dashboard\nProfesor] as Teacher
-    [Panel\nConfiguración] as Config
-}
-
-ESP -right-> RFID : Serial USB\n115200 baud\nJSON Events
+ESP -right-> WebSerial : USB\n115200 baud\nJSON Events
+WebSerial -right-> Socket : rfid_scan_from_client
 
 Socket -right-> Student : WebSocket
 Socket -right-> Teacher : WebSocket
@@ -48,7 +50,7 @@ note right of Cards
 end note
 
 note bottom of RFID
-  Reconexión automática
+  Ingesta de eventos
   Buffer de eventos
   Métricas de rendimiento
 end note

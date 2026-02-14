@@ -5,6 +5,8 @@ const mockLogger = {
   debug: jest.fn()
 };
 
+mockLogger.child = jest.fn(() => mockLogger);
+
 jest.mock('../src/utils/logger', () => mockLogger);
 
 describe('envValidator.validateEnv', () => {
@@ -21,8 +23,7 @@ describe('envValidator.validateEnv', () => {
     delete process.env.CORS_WHITELIST;
     delete process.env.SENTRY_ENABLED;
     delete process.env.SENTRY_DSN;
-    delete process.env.RFID_ENABLED;
-    delete process.env.SERIAL_PORT;
+    delete process.env.RFID_SOURCE;
     delete process.env.SUPABASE_URL;
     delete process.env.SUPABASE_SERVICE_KEY;
 
@@ -59,6 +60,7 @@ describe('envValidator.validateEnv', () => {
     process.env.JWT_SECRET = 'x'.repeat(40);
     process.env.JWT_REFRESH_SECRET = 'y'.repeat(48);
     process.env.MONGO_URI = 'mongodb://127.0.0.1:27017/rfid-games';
+    process.env.RFID_SOURCE = 'client';
 
     const { validateEnv } = require('../src/utils/envValidator');
 
@@ -70,6 +72,7 @@ describe('envValidator.validateEnv', () => {
     process.env.JWT_SECRET = 'x'.repeat(40);
     process.env.JWT_REFRESH_SECRET = 'y'.repeat(48);
     process.env.MONGO_URI = 'mongodb://127.0.0.1:27017/rfid-games';
+    process.env.RFID_SOURCE = 'client';
 
     const { validateEnv } = require('../src/utils/envValidator');
 
@@ -84,6 +87,7 @@ describe('envValidator.validateEnv', () => {
     process.env.MONGO_URI = 'mongodb://127.0.0.1:27017/rfid-games';
     process.env.SUPABASE_URL = 'https://supabase.local';
     process.env.SUPABASE_SERVICE_KEY = 'service-key';
+    process.env.RFID_SOURCE = 'client';
 
     const { validateEnv } = require('../src/utils/envValidator');
 
@@ -94,9 +98,10 @@ describe('envValidator.validateEnv', () => {
     process.env.NODE_ENV = 'development';
     process.env.JWT_SECRET = 'x'.repeat(40);
     process.env.JWT_REFRESH_SECRET = 'y'.repeat(48);
-    process.env.MONGO_URI = 'http://not-mongo';
+    process.env.MONGO_URI = 'mongo://not-mongo';
     process.env.SUPABASE_URL = 'https://supabase.local';
     process.env.SUPABASE_SERVICE_KEY = 'service-key';
+    process.env.RFID_SOURCE = 'client';
 
     const { validateEnv } = require('../src/utils/envValidator');
 

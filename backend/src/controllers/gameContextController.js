@@ -4,10 +4,15 @@
  * @module controllers/gameContextController
  */
 
-const GameContext = require('../models/GameContext');
+const gameContextRepository = require('../repositories/gameContextRepository');
 const { NotFoundError, ConflictError, ValidationError } = require('../utils/errors');
 const logger = require('../utils/logger');
-const { gameContextDTO, gameContextListDTO, paginationDTO } = require('../utils/dtos');
+const {
+  toGameContextDetailDTOV1,
+  toGameContextListDTOV1,
+  toPaginatedDTOV1
+} = require('../utils/dtos');
+const { escapeRegex } = require('../utils/escapeRegex');
 
 /**
  * Obtener lista de contextos con paginación y filtros.
@@ -21,17 +26,29 @@ const { gameContextDTO, gameContextListDTO, paginationDTO } = require('../utils/
  */
 const getContexts = async (req, res, next) => {
   try {
-    const { page = 1, limit = 20, sortBy = 'createdAt', order = 'desc', search } = req.query;
+    const {
+      page = 1,
+      limit = 20,
+      sortBy = 'createdAt',
+      order = 'desc',
+      search,
+      isActive
+    } = req.query;
 
     // Construir filtro
     const filter = {};
 
     // Búsqueda por contextId o nombre
     if (search) {
+      const safeSearch = escapeRegex(search);
       filter.$or = [
-        { contextId: { $regex: search, $options: 'i' } },
-        { name: { $regex: search, $options: 'i' } }
+        { contextId: { $regex: safeSearch, $options: 'i' } },
+        { name: { $regex: safeSearch, $options: 'i' } }
       ];
+    }
+
+    if (typeof isActive === 'boolean') {
+      filter.isActive = isActive;
     }
 
     // Paginación
@@ -40,8 +57,12 @@ const getContexts = async (req, res, next) => {
 
     // Ejecutar query
     const [contexts, total] = await Promise.all([
-      GameContext.find(filter).sort(sortOptions).limit(parseInt(limit)).skip(skip),
-      GameContext.countDocuments(filter)
+      gameContextRepository.find(filter, {
+        sort: sortOptions,
+        limit: parseInt(limit, 10),
+        skip
+      }),
+      gameContextRepository.count(filter)
     ]);
 
     logger.info('Lista de contextos obtenida', {
@@ -52,7 +73,7 @@ const getContexts = async (req, res, next) => {
 
     res.json({
       success: true,
-      data: paginationDTO(gameContextListDTO(contexts), {
+      ...toPaginatedDTOV1(toGameContextListDTOV1(contexts), {
         page: parseInt(page),
         limit: parseInt(limit),
         total
@@ -81,10 +102,10 @@ const getContextById = async (req, res, next) => {
     let context;
 
     if (id.match(/^[0-9a-fA-F]{24}$/)) {
-      context = await GameContext.findById(id);
+      context = await gameContextRepository.findById(id);
     } else {
       // Buscar por contextId (ej: 'geography', 'animals')
-      context = await GameContext.findOne({ contextId: id.toLowerCase() });
+      context = await gameContextRepository.findOne({ contextId: id.toLowerCase() });
     }
 
     if (!context) {
@@ -93,7 +114,7 @@ const getContextById = async (req, res, next) => {
 
     res.json({
       success: true,
-      data: gameContextDTO(context)
+      data: toGameContextDetailDTOV1(context)
     });
   } catch (error) {
     next(error);
@@ -117,7 +138,7 @@ const createContext = async (req, res, next) => {
     const { contextId, name, assets } = req.body;
 
     // Verificar si el contextId ya existe
-    const existingContext = await GameContext.findOne({
+    const existingContext = await gameContextRepository.findOne({
       contextId: contextId.toLowerCase()
     });
 
@@ -126,7 +147,7 @@ const createContext = async (req, res, next) => {
     }
 
     // Crear contexto
-    const context = await GameContext.create({
+    const context = await gameContextRepository.create({
       contextId: contextId.toLowerCase(),
       name,
       assets
@@ -142,7 +163,7 @@ const createContext = async (req, res, next) => {
     res.status(201).json({
       success: true,
       message: 'Contexto creado exitosamente',
-      data: gameContextDTO(context)
+      data: toGameContextDetailDTOV1(context)
     });
   } catch (error) {
     next(error);
@@ -165,7 +186,7 @@ const updateContext = async (req, res, next) => {
     const { id } = req.params;
     const { contextId, name, assets } = req.body;
 
-    const context = await GameContext.findById(id);
+    const context = await gameContextRepository.findById(id);
 
     if (!context) {
       throw new NotFoundError('Contexto de juego');
@@ -193,7 +214,7 @@ const updateContext = async (req, res, next) => {
     res.json({
       success: true,
       message: 'Contexto actualizado exitosamente',
-      data: gameContextDTO(context)
+      data: toGameContextDetailDTOV1(context)
     });
   } catch (error) {
     next(error);
@@ -215,7 +236,7 @@ const deleteContext = async (req, res, next) => {
   try {
     const { id } = req.params;
 
-    const context = await GameContext.findById(id);
+    const context = await gameContextRepository.findById(id);
 
     if (!context) {
       throw new NotFoundError('Contexto de juego');
@@ -257,7 +278,7 @@ const addAsset = async (req, res, next) => {
     const { id } = req.params;
     const { key, display, value, audioUrl, imageUrl } = req.body;
 
-    const context = await GameContext.findById(id);
+    const context = await gameContextRepository.findById(id);
 
     if (!context) {
       throw new NotFoundError('Contexto de juego');
@@ -290,7 +311,7 @@ const addAsset = async (req, res, next) => {
     res.status(201).json({
       success: true,
       message: 'Asset añadido exitosamente',
-      data: gameContextDTO(context)
+      data: toGameContextDetailDTOV1(context)
     });
   } catch (error) {
     next(error);
@@ -311,7 +332,7 @@ const removeAsset = async (req, res, next) => {
   try {
     const { id, assetKey } = req.params;
 
-    const context = await GameContext.findById(id);
+    const context = await gameContextRepository.findById(id);
 
     if (!context) {
       throw new NotFoundError('Contexto de juego');
@@ -342,7 +363,7 @@ const removeAsset = async (req, res, next) => {
     res.json({
       success: true,
       message: 'Asset eliminado exitosamente',
-      data: gameContextDTO(context)
+      data: toGameContextDetailDTOV1(context)
     });
   } catch (error) {
     next(error);
@@ -365,10 +386,13 @@ const getContextAssets = async (req, res, next) => {
     let context;
 
     if (id.match(/^[0-9a-fA-F]{24}$/)) {
-      context = await GameContext.findById(id).select('contextId name assets');
+      context = await gameContextRepository.findById(id, {
+        select: 'contextId name assets'
+      });
     } else {
-      context = await GameContext.findOne({ contextId: id.toLowerCase() }).select(
-        'contextId name assets'
+      context = await gameContextRepository.findOne(
+        { contextId: id.toLowerCase() },
+        { select: 'contextId name assets' }
       );
     }
 
@@ -376,13 +400,13 @@ const getContextAssets = async (req, res, next) => {
       throw new NotFoundError('Contexto de juego');
     }
 
+    const payload = toGameContextDetailDTOV1(context);
+
     res.json({
       success: true,
       data: {
-        contextId: context.contextId,
-        name: context.name,
-        assets: context.assets,
-        count: context.assets.length
+        ...payload,
+        count: payload.assetsCount
       }
     });
   } catch (error) {

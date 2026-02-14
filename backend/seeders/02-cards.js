@@ -37,82 +37,22 @@ function generateCardsData(count) {
 }
 
 /**
- * Tarjetas especiales con UIDs específicos para testing manual.
- * Estas tienen UIDs más fáciles de recordar.
- */
-const specialCards = [
-  {
-    uid: 'AAAAAAAA',
-    type: 'NTAG',
-    status: 'active'
-  },
-  {
-    uid: 'BBBBBBBB',
-    type: 'NTAG',
-    status: 'active'
-  },
-  {
-    uid: 'CCCCCCCC',
-    type: 'NTAG',
-    status: 'active'
-  },
-  {
-    uid: 'DDDDDDDD',
-    type: 'NTAG',
-    status: 'active'
-  },
-  {
-    uid: 'EEEEEEEE',
-    type: 'NTAG',
-    status: 'active'
-  },
-  {
-    uid: 'FFFFFFFF',
-    type: 'NTAG',
-    status: 'active'
-  },
-  {
-    uid: '12345678',
-    type: 'MIFARE_1KB',
-    status: 'active'
-  },
-  {
-    uid: '87654321',
-    type: 'MIFARE_1KB',
-    status: 'active'
-  },
-  // Tarjetas de 14 caracteres (NTAG)
-  {
-    uid: '04AABBCCDD1234',
-    type: 'NTAG',
-    status: 'active'
-  },
-  {
-    uid: '04112233445566',
-    type: 'NTAG',
-    status: 'active'
-  }
-];
-
-/**
  * Ejecuta el seeder de tarjetas.
  * @returns {Promise<Array>} Array de tarjetas creadas
  */
 async function seedCards() {
   try {
-    // Generar 40 tarjetas secuenciales + 10 especiales = 50 total
-    const sequentialCards = generateCardsData(40);
-    const allCardsData = [...sequentialCards, ...specialCards];
+    const totalCards = 150;
+    const sequentialCards = generateCardsData(totalCards);
 
-    const cards = await Card.insertMany(allCardsData);
+    const cards = await Card.insertMany(sequentialCards);
 
-    logger.info('✅ Tarjetas RFID seeded exitosamente');
-    logger.info(`   - ${sequentialCards.length} tarjetas secuenciales (AA000001-AA000028)`);
-    logger.info(`   - ${specialCards.length} tarjetas especiales (AAAAAAAA, BBBBBBBB, etc.)`);
+    logger.info('Tarjetas RFID seeded exitosamente');
+    logger.info(`- ${sequentialCards.length} tarjetas secuenciales`);
 
     return cards;
   } catch (error) {
-    logger.error('❌ Error en seedCards:', error);
+    logger.error('Error en seedCards:', error);
     throw error;
   }
 }

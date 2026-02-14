@@ -6,6 +6,9 @@
 **Versión objetivo:** 0.2.0  
 **Última actualización:** 29-12-2025
 
+> **Nota de actualización (Sprint 3):** La arquitectura RFID se migró a Web Serial en el frontend.
+> Cualquier referencia a SerialPort en este documento debe considerarse histórica.
+
 ---
 
 ## Resumen del Sprint
@@ -263,7 +266,7 @@ Según Duda #44, solo se permiten formatos WebP para imágenes (SVG rechazado po
 9. ✅ Actualizar rutas con Multer configs y rate limiting
 10. ✅ Eliminar ruta duplicada `assets.js` sin autenticación (vulnerabilidad)
 11. ✅ Añadir tests para imageProcessingService y audioValidationService
-12. ✅ Documentar en `API_v0.1.0.md` y crear `AssetProcessing.md`
+12. ✅ Documentar en `API_v0.3.0.md` y crear `AssetProcessing.md`
 
 **Cambios de Decisión:**
 
@@ -280,7 +283,7 @@ Según Duda #44, solo se permiten formatos WebP para imágenes (SVG rechazado po
 - `backend/src/controllers/assetController.js` (reescrito)
 - `backend/src/routes/contexts.js` (actualizado)
 - `backend/src/models/GameContext.js` (añadido thumbnailUrl + límite)
-- `backend/docs/API_v0.1.0.md` (actualizado)
+- `backend/docs/API_v0.3.0.md` (actualizado)
 - `backend/docs/AssetProcessing.md` (nuevo)
 
 **Criterios de Aceptación:**
@@ -347,25 +350,24 @@ Según sprint2_corrections.md, el storageService usa placeholders inseguros si f
 
 ---
 
-### T-016: Configuración Robusta de Puerto Serie ✅
+### T-016: Configuración Robusta de RFID Source ✅
 
 **Prioridad:** P2 | **Tamaño:** S | **Dependencias:** Ninguna
 
 **Descripción:**  
-Según sprint2_corrections.md, el fallback hardcoded a COM3 falla en Linux/Mac.
+Actualizar la configuracion RFID para el modo Web Serial y eliminar dependencia del puerto serie en backend.
 
 **Sub-tareas:**
 
-1. Eliminar fallback hardcoded de puerto serie
-2. Hacer obligatoria la variable `SERIAL_PORT` si `RFID_ENABLED=true`
-3. Añadir detección automática de puertos disponibles (informativo)
-4. Añadir variable `RFID_ENABLED` para habilitar/deshabilitar RFID
-5. Fallar controladamente con mensaje descriptivo si no hay puerto configurado
+1. Eliminar dependencia de `SerialPort` en backend
+2. Introducir `RFID_SOURCE=client|disabled`
+3. Validar `RFID_SOURCE` en `envValidator`
+4. Documentar restricciones de Web Serial (HTTPS, Chrome/Edge)
 
 **Criterios de Aceptación:**
 
-- El servidor no intenta conectar a puerto serie si RFID está deshabilitado
-- Mensajes de error claros si falta configuración
+- El backend solo acepta eventos RFID cuando `RFID_SOURCE=client`
+- Mensajes de error claros si hay configuracion invalida
 
 ---
 

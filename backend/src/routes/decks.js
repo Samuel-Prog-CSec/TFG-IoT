@@ -24,11 +24,13 @@ const {
   cardDeckQuerySchema,
   cardDeckParamsSchema
 } = require('../validators/cardDeckValidator');
+const { emptyObjectSchema } = require('../validators/commonValidator');
 
 /**
  * @route   GET /api/decks
  * @desc    Listar mazos del profesor (con filtros)
  * @access  Private (Teacher)
+ * @validation query: cardDeckQuerySchema
  */
 router.get('/', authenticate, requireRole('teacher'), validateQuery(cardDeckQuerySchema), getDecks);
 
@@ -36,12 +38,14 @@ router.get('/', authenticate, requireRole('teacher'), validateQuery(cardDeckQuer
  * @route   GET /api/decks/:id
  * @desc    Obtener mazo por ID
  * @access  Private (Teacher)
+ * @validation params: cardDeckParamsSchema | query: emptyObjectSchema
  */
 router.get(
   '/:id',
   authenticate,
   requireRole('teacher'),
   validateParams(cardDeckParamsSchema),
+  validateQuery(emptyObjectSchema),
   getDeckById
 );
 
@@ -49,12 +53,14 @@ router.get(
  * @route   POST /api/decks
  * @desc    Crear nuevo mazo
  * @access  Private (Teacher)
+ * @validation body: createCardDeckSchema | query: emptyObjectSchema
  */
 router.post(
   '/',
   createResourceRateLimiter,
   authenticate,
   requireRole('teacher'),
+  validateQuery(emptyObjectSchema),
   validateBody(createCardDeckSchema),
   createDeck
 );
@@ -63,6 +69,7 @@ router.post(
  * @route   PUT /api/decks/:id
  * @desc    Actualizar mazo
  * @access  Private (Teacher)
+ * @validation params: cardDeckParamsSchema | body: updateCardDeckSchema | query: emptyObjectSchema
  */
 router.put(
   '/:id',
@@ -70,6 +77,7 @@ router.put(
   authenticate,
   requireRole('teacher'),
   validateParams(cardDeckParamsSchema),
+  validateQuery(emptyObjectSchema),
   validateBody(updateCardDeckSchema),
   updateDeck
 );
@@ -78,6 +86,7 @@ router.put(
  * @route   DELETE /api/decks/:id
  * @desc    Eliminar (archivar) mazo
  * @access  Private (Teacher)
+ * @validation params: cardDeckParamsSchema | query: emptyObjectSchema
  */
 router.delete(
   '/:id',
@@ -85,6 +94,7 @@ router.delete(
   authenticate,
   requireRole('teacher'),
   validateParams(cardDeckParamsSchema),
+  validateQuery(emptyObjectSchema),
   deleteDeck
 );
 

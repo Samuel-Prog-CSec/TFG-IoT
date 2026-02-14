@@ -6,12 +6,11 @@ const { generateTokenPair } = require('../src/middlewares/auth');
 describe('User Management Endpoints', () => {
   let teacherToken;
   let teacherUser;
-  let studentUser;
 
   const validTeacher = {
     name: 'Teacher User',
     email: 'teacher.crud@test.com',
-    password: 'password123',
+    password: 'Password123',
     role: 'teacher',
     status: 'active'
   };
@@ -45,7 +44,7 @@ describe('User Management Endpoints', () => {
   describe('POST /api/users (Create Student)', () => {
     const newStudent = {
       name: 'Student One',
-      profile: { classroom: '1A' }
+      profile: { classroom: '1A', age: 6 }
     };
 
     it('should create a student successfully as teacher', async () => {
@@ -112,7 +111,36 @@ describe('User Management Endpoints', () => {
         .set('Accept-Encoding', 'gzip');
 
       expect(res.statusCode).toEqual(200);
+      expect(Array.isArray(res.body.data)).toBe(true);
       expect(res.body.data).toHaveLength(2);
+      expect(res.body).toHaveProperty('pagination');
+      expect(res.body.pagination).toHaveProperty('page');
+      expect(res.body.pagination).toHaveProperty('hasNext');
+      expect(res.body.pagination).toHaveProperty('hasPrev');
+      expect(res.body.data[0]).not.toHaveProperty('password');
+      expect(res.body.data[0]).not.toHaveProperty('__v');
+    });
+  });
+
+  describe('GET /api/users/:id', () => {
+    it('should not expose password or __v', async () => {
+      const student = await User.create({
+        name: 'Student Safe',
+        role: 'student',
+        createdBy: teacherUser._id,
+        status: 'active'
+      });
+
+      const res = await request(app)
+        .get(`/api/users/${student._id}`)
+        .set('Authorization', `Bearer ${teacherToken}`)
+        .set('User-Agent', 'jest-test')
+        .set('Accept-Language', 'en')
+        .set('Accept-Encoding', 'gzip');
+
+      expect(res.statusCode).toEqual(200);
+      expect(res.body.data).not.toHaveProperty('password');
+      expect(res.body.data).not.toHaveProperty('__v');
     });
   });
 

@@ -8,7 +8,7 @@
 
 const sharp = require('sharp');
 const fileType = require('file-type');
-const logger = require('../utils/logger');
+const logger = require('../utils/logger').child({ component: 'imageProcessingService' });
 const { ValidationError } = require('../utils/errors');
 
 /**

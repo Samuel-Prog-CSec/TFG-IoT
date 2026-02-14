@@ -9,8 +9,7 @@ describe('Authentication Endpoints', () => {
   const validTeacher = {
     name: 'Test Teacher',
     email: 'teacher@test.com',
-    password: 'password123',
-    role: 'teacher'
+    password: 'Password123'
   };
 
   const createAndLoginSuperAdmin = async () => {
@@ -45,6 +44,8 @@ describe('Authentication Endpoints', () => {
       expect(res.body.success).toBe(true);
       expect(res.body.data.user).toHaveProperty('email', validTeacher.email);
       expect(res.body.data.user).toHaveProperty('accountStatus', 'pending_approval');
+      expect(res.body.data.user).not.toHaveProperty('password');
+      expect(res.body.data.user).not.toHaveProperty('__v');
       expect(res.body.data).not.toHaveProperty('accessToken');
     });
 
@@ -89,6 +90,9 @@ describe('Authentication Endpoints', () => {
       expect(res.statusCode).toEqual(200);
       expect(res.body.success).toBe(true);
       expect(res.body.data).toHaveProperty('accessToken');
+      expect(res.body.data.user).toBeTruthy();
+      expect(res.body.data.user).not.toHaveProperty('password');
+      expect(res.body.data.user).not.toHaveProperty('__v');
     });
 
     it('should fail login with wrong password (approved account)', async () => {

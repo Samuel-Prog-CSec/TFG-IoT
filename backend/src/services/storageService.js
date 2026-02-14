@@ -6,8 +6,9 @@
  */
 
 const { createClient } = require('@supabase/supabase-js');
-const path = require('path');
-const logger = require('../utils/logger');
+const path = require('node:path');
+const logger = require('../utils/logger').child({ component: 'storageService' });
+const { CircuitBreaker } = require('../utils/circuitBreaker');
 
 // Variables de entorno
 const SUPABASE_URL = process.env.SUPABASE_URL;
@@ -22,6 +23,13 @@ const STORAGE_CONFIG = {
   // Longitud máxima para nombres de archivo sanitizados
   MAX_FILENAME_LENGTH: 50
 };
+
+const storageBreaker = new CircuitBreaker({
+  name: 'supabase-storage',
+  failureThreshold: Number.parseInt(process.env.STORAGE_BREAKER_THRESHOLD, 10) || 4,
+  successThreshold: Number.parseInt(process.env.STORAGE_BREAKER_SUCCESS_THRESHOLD, 10) || 2,
+  resetTimeoutMs: Number.parseInt(process.env.STORAGE_BREAKER_TIMEOUT_MS, 10) || 20000
+});
 
 /**
  * Clase Singleton para interactuar con el bucket de almacenamiento de Supabase.
@@ -70,6 +78,11 @@ class StorageService {
    */
   async uploadFile(buffer, contextId, type, originalFilename, mimeType) {
     try {
+      if (!storageBreaker.canRequest()) {
+        logger.warn('Storage: Circuito abierto, subida omitida', { type, contextId });
+        throw new Error('Storage temporalmente no disponible');
+      }
+
       if (!this.enabled || !this.supabase) {
         throw new Error('Storage deshabilitado: faltan credenciales de Supabase');
       }
@@ -96,8 +109,10 @@ class StorageService {
         .getPublicUrl(filePath);
 
       logger.info('Archivo subido exitosamente', { filePath, type, size: buffer.length });
+      storageBreaker.recordSuccess();
       return publicUrlData.publicUrl;
     } catch (error) {
+      storageBreaker.recordFailure();
       logger.error('Error subiendo a Supabase', { error: error.message, type, contextId });
       throw new Error('Fallo en la subida del archivo');
     }
@@ -116,9 +131,9 @@ class StorageService {
 
     // Sanitizar la base: solo alfanuméricos y guiones bajos
     const sanitizedBase = base
-      .replace(/[^a-zA-Z0-9]/g, '_')
-      .replace(/_+/g, '_') // Colapsar múltiples guiones bajos
-      .replace(/^_|_$/g, '') // Eliminar guiones al inicio/final
+      .replaceAll(/[^a-zA-Z0-9]/g, '_')
+      .replaceAll(/_+/g, '_') // Colapsar múltiples guiones bajos
+      .replaceAll(/(^_)|(_$)/g, '') // Eliminar guiones al inicio/final
       .substring(0, STORAGE_CONFIG.MAX_FILENAME_LENGTH);
 
     // Devolver con extensión si existe
@@ -135,6 +150,11 @@ class StorageService {
    */
   async deleteFile(publicUrl) {
     try {
+      if (!storageBreaker.canRequest()) {
+        logger.warn('Storage: Circuito abierto, borrado omitido');
+        return;
+      }
+
       if (!this.enabled || !this.supabase) {
         // En dev/test, si Storage está deshabilitado, ignorar borrados de rollback.
         return;
@@ -157,7 +177,9 @@ class StorageService {
       }
 
       logger.info('Archivo eliminado exitosamente', { filePath });
+      storageBreaker.recordSuccess();
     } catch (error) {
+      storageBreaker.recordFailure();
       logger.error('Error eliminando de Supabase', { error: error.message, publicUrl });
       // No lanzamos error para no romper flujos principales si falla la limpieza,
       // pero logueamos el error.

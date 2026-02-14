@@ -1,0 +1,99 @@
+# ============================================================================
+# Docker Compose - PRODUCCIÓN
+# ============================================================================
+# Override file para entorno de producción
+#
+# Uso:
+#   docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d
+#
+# Características:
+#   - Sin herramientas de debug
+#   - Restart always
+#   - Límites de recursos
+#   - Sin puertos internos expuestos
+#   - Logging estructurado
+#
+# Autor: Samuel Blanchart Pérez
+# Versión: 1.0.0
+# ============================================================================
+
+services:
+  # ============================================
+  # FRONTEND - Producción
+  # ============================================
+  frontend:
+    restart: always
+    deploy:
+      resources:
+        limits:
+          memory: 128M
+          cpus: '0.5'
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  # ============================================
+  # BACKEND - Producción
+  # ============================================
+  backend:
+    restart: always
+    ports: []  # No exponer puerto del backend
+    environment:
+      - NODE_ENV=production
+    command: >
+      sh -c "npm run seed:if-empty && npm run migrate:sessions && npm start"
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+          cpus: '1'
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "50m"
+        max-file: "5"
+
+  # ============================================
+  # MONGODB - Producción
+  # ============================================
+  mongo:
+    restart: always
+    ports: []  # No exponer puerto de MongoDB
+    deploy:
+      resources:
+        limits:
+          memory: 1G
+          cpus: '1'
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "50m"
+        max-file: "5"
+
+  # ============================================
+  # REDIS - Producción
+  # ============================================
+  redis:
+    restart: always
+    ports: []  # No exponer puerto de Redis
+    command: >
+      redis-server
+      --appendonly yes
+      --appendfsync everysec
+      --maxmemory 512mb
+      --maxmemory-policy allkeys-lru
+      --tcp-keepalive 60
+      --timeout 300
+      --loglevel warning
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+          cpus: '0.5'
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "20m"
+        max-file: "3"

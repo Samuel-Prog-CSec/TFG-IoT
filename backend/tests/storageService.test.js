@@ -7,6 +7,8 @@ const mockLogger = {
   debug: jest.fn()
 };
 
+mockLogger.child = jest.fn(() => mockLogger);
+
 jest.mock('../src/utils/logger', () => mockLogger);
 
 describe('storageService', () => {

@@ -22,7 +22,7 @@ module.exports = [
       'docs/',
       'reports/',
       'logs/',
-      '*.md',
+      '**/*.md',
       '**/README*.md',
       '**/*.json'
     ]
@@ -68,6 +68,7 @@ module.exports = [
       'sonarjs/no-dead-store': 'warn',
       'sonarjs/anchor-precedence': 'warn',
       'sonarjs/concise-regex': 'warn',
+      'sonarjs/no-inverted-boolean-check': 'warn',
       // Enable prettier formatting as a rule
       'prettier/prettier': 'error',
 
@@ -83,6 +84,10 @@ module.exports = [
       'no-throw-literal': 'error',
       'prefer-promise-reject-errors': 'error',
       'no-async-promise-executor': 'error',
+      'no-eval': 'error',
+      'no-implied-eval': 'error',
+      'no-new-func': 'error',
+      'security/detect-non-literal-regexp': 'warn',
 
       // Modern JS Improvements
       'object-shorthand': ['error', 'always'],

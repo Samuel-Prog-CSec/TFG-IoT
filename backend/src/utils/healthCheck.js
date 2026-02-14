@@ -5,7 +5,7 @@
  */
 
 const mongoose = require('mongoose');
-const logger = require('./logger');
+const logger = require('./logger').child({ component: 'healthCheck' });
 const { isRedisConnected, ping: pingRedis } = require('../config/redis');
 
 /**
@@ -97,12 +97,13 @@ function checkRFIDHealth(rfidService) {
       };
     }
 
-    const isConnected = rfidService.isConnected ? rfidService.isConnected() : false;
+    const serviceStatus = rfidService.getStatus ? rfidService.getStatus() : null;
+    const state = serviceStatus?.status || 'unknown';
+    const isHealthy = state === 'client_ready' || state === 'disabled';
 
     return {
-      status: isConnected ? 'healthy' : 'disconnected',
-      port: rfidService.port || 'unknown',
-      baudRate: rfidService.baudRate || 115200
+      status: isHealthy ? 'healthy' : state,
+      source: serviceStatus?.source || 'unknown'
     };
   } catch (error) {
     logger.error('Error en RFID health check:', error);

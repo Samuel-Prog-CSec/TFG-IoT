@@ -4,9 +4,9 @@
  * @module controllers/cardDeckController
  */
 
-const CardDeck = require('../models/CardDeck');
-const GameContext = require('../models/GameContext');
-const Card = require('../models/Card');
+const cardDeckRepository = require('../repositories/cardDeckRepository');
+const gameContextRepository = require('../repositories/gameContextRepository');
+const cardRepository = require('../repositories/cardRepository');
 const {
   NotFoundError,
   ConflictError,
@@ -14,10 +14,21 @@ const {
   ForbiddenError
 } = require('../utils/errors');
 const logger = require('../utils/logger');
-const { cardDeckDTO, cardDeckListDTO, paginationDTO } = require('../utils/dtos');
+const { toCardDeckDetailDTOV1, toCardDeckListDTOV1, toPaginatedDTOV1 } = require('../utils/dtos');
+const { escapeRegex } = require('../utils/escapeRegex');
 
+/**
+ * Límites de configuración para mazos de cartas.
+ * @constant {number} MAX_DECK_CARDS - Máximo de tarjetas por mazo (coherente con configuración de sesión)
+ * @constant {number} MIN_DECK_CARDS - Mínimo de tarjetas por mazo (necesario para juego básico)
+ * @constant {number} MAX_DECKS_PER_TEACHER - Máximo de mazos activos por profesor.
+ *   Decisión de diseño: 50 mazos permite flexibilidad suficiente para múltiples cursos/temáticas
+ *   sin comprometer rendimiento de queries ni UX (listas muy largas son difíciles de gestionar).
+ *   Los mazos archivados NO cuentan hacia este límite.
+ */
 const MAX_DECK_CARDS = 20;
 const MIN_DECK_CARDS = 2;
+const MAX_DECKS_PER_TEACHER = 50;
 
 function validateDeckMappingsStructure(cardMappings) {
   if (!Array.isArray(cardMappings)) {
@@ -62,7 +73,7 @@ function validateDeckMappingsStructure(cardMappings) {
 }
 
 async function validateContextAndAssignedValues(contextId, cardMappings) {
-  const context = await GameContext.findById(contextId);
+  const context = await gameContextRepository.findById(contextId);
   if (!context) {
     throw new NotFoundError('Contexto de juego');
   }
@@ -82,7 +93,7 @@ async function validateContextAndAssignedValues(contextId, cardMappings) {
 
 async function validateCardsExistAndActive(cardMappings) {
   const cardIds = cardMappings.map(m => m.cardId);
-  const cards = await Card.find({ _id: { $in: cardIds } });
+  const cards = await cardRepository.find({ _id: { $in: cardIds } });
 
   if (cards.length !== cardIds.length) {
     throw new ValidationError('Una o más tarjetas no existen');
@@ -137,9 +148,10 @@ const getDecks = async (req, res, next) => {
     }
 
     if (search) {
+      const safeSearch = escapeRegex(search);
       filter.$or = [
-        { name: { $regex: search, $options: 'i' } },
-        { description: { $regex: search, $options: 'i' } }
+        { name: { $regex: safeSearch, $options: 'i' } },
+        { description: { $regex: safeSearch, $options: 'i' } }
       ];
     }
 
@@ -147,12 +159,13 @@ const getDecks = async (req, res, next) => {
     const sortOptions = { [sortBy]: order === 'asc' ? 1 : -1 };
 
     const [decks, total] = await Promise.all([
-      CardDeck.find(filter)
-        .populate('contextId', 'contextId name')
-        .sort(sortOptions)
-        .limit(parseInt(limit))
-        .skip(skip),
-      CardDeck.countDocuments(filter)
+      cardDeckRepository.find(filter, {
+        populate: { path: 'contextId', select: 'contextId name' },
+        sort: sortOptions,
+        limit: Number.parseInt(limit, 10),
+        skip
+      }),
+      cardDeckRepository.count(filter)
     ]);
 
     logger.info('Lista de mazos obtenida', {
@@ -163,9 +176,9 @@ const getDecks = async (req, res, next) => {
 
     res.json({
       success: true,
-      data: paginationDTO(cardDeckListDTO(decks), {
-        page: parseInt(page),
-        limit: parseInt(limit),
+      ...toPaginatedDTOV1(toCardDeckListDTOV1(decks), {
+        page: Number.parseInt(page, 10),
+        limit: Number.parseInt(limit, 10),
         total
       })
     });
@@ -181,10 +194,13 @@ const getDeckById = async (req, res, next) => {
   try {
     const { id } = req.params;
 
-    const deck = await CardDeck.findById(id)
-      .populate('contextId', 'contextId name assets')
-      .populate('createdBy', 'name email')
-      .populate('cardMappings.cardId', 'uid type status metadata');
+    const deck = await cardDeckRepository.findById(id, {
+      populate: [
+        { path: 'contextId', select: 'contextId name assets' },
+        { path: 'createdBy', select: 'name email' },
+        { path: 'cardMappings.cardId', select: 'uid type status metadata' }
+      ]
+    });
 
     if (!deck) {
       throw new NotFoundError('Mazo');
@@ -196,7 +212,7 @@ const getDeckById = async (req, res, next) => {
 
     res.json({
       success: true,
-      data: cardDeckDTO(deck)
+      data: toCardDeckDetailDTOV1(deck)
     });
   } catch (error) {
     next(error);
@@ -218,6 +234,19 @@ const createDeck = async (req, res, next) => {
       throw new ValidationError('contextId es requerido');
     }
 
+    // Verificar límite de mazos activos por profesor
+    const activeDecksCount = await cardDeckRepository.count({
+      createdBy: req.user._id,
+      status: 'active'
+    });
+
+    if (activeDecksCount >= MAX_DECKS_PER_TEACHER) {
+      throw new ValidationError(
+        `Has alcanzado el límite de ${MAX_DECKS_PER_TEACHER} mazos activos. ` +
+          'Archiva alguno existente para poder crear más.'
+      );
+    }
+
     const normalizedMappings = validateDeckMappingsStructure(cardMappings);
 
     // Validar contexto y que assignedValue pertenece al contexto
@@ -226,7 +255,7 @@ const createDeck = async (req, res, next) => {
     // Validar tarjetas
     await validateCardsExistAndActive(normalizedMappings);
 
-    const deck = await CardDeck.create({
+    const deck = await cardDeckRepository.create({
       name: name.trim(),
       description: description ? description.trim() : undefined,
       contextId,
@@ -248,11 +277,11 @@ const createDeck = async (req, res, next) => {
     res.status(201).json({
       success: true,
       message: 'Mazo creado exitosamente',
-      data: cardDeckDTO(deck)
+      data: toCardDeckDetailDTOV1(deck)
     });
   } catch (error) {
     // Duplicado por índice único (createdBy + name)
-    if (error && error.code === 11000) {
+    if (error?.code === 11000) {
       return next(new ConflictError('Ya existe un mazo con ese nombre'));
     }
     next(error);
@@ -262,12 +291,74 @@ const createDeck = async (req, res, next) => {
 /**
  * PUT /api/decks/:id
  */
+const parseDeckName = name => {
+  if (name === undefined) {
+    return undefined;
+  }
+  if (typeof name !== 'string' || name.trim().length < 2) {
+    throw new ValidationError('name debe tener al menos 2 caracteres');
+  }
+  return name.trim();
+};
+
+const parseDeckDescription = description =>
+  description === undefined ? undefined : description ? description.trim() : undefined;
+
+const parseDeckStatus = status => {
+  if (status === undefined) {
+    return undefined;
+  }
+  if (!['active', 'archived'].includes(status)) {
+    throw new ValidationError('status inválido');
+  }
+  return status;
+};
+
+const applyDeckFieldUpdates = (deck, { name, description, status }) => {
+  const parsedName = parseDeckName(name);
+  if (parsedName !== undefined) {
+    deck.name = parsedName;
+  }
+
+  const parsedDescription = parseDeckDescription(description);
+  if (parsedDescription !== undefined) {
+    deck.description = parsedDescription;
+  }
+
+  const parsedStatus = parseDeckStatus(status);
+  if (parsedStatus !== undefined) {
+    deck.status = parsedStatus;
+  }
+};
+
+const applyDeckMappingUpdates = async (deck, { contextId, cardMappings }) => {
+  const hasContextUpdate = contextId !== undefined;
+  const hasCardMappingsUpdate = cardMappings !== undefined;
+  const finalContextId = hasContextUpdate ? contextId : deck.contextId;
+
+  if (hasContextUpdate) {
+    deck.contextId = contextId;
+  }
+
+  if (hasCardMappingsUpdate) {
+    const normalizedMappings = validateDeckMappingsStructure(cardMappings);
+    await validateContextAndAssignedValues(finalContextId, normalizedMappings);
+    await validateCardsExistAndActive(normalizedMappings);
+    deck.cardMappings = normalizedMappings;
+    return;
+  }
+
+  if (hasContextUpdate) {
+    await validateContextAndAssignedValues(finalContextId, deck.cardMappings);
+  }
+};
+
 const updateDeck = async (req, res, next) => {
   try {
     const { id } = req.params;
     const { name, description, contextId, cardMappings, status } = req.body;
 
-    const deck = await CardDeck.findById(id);
+    const deck = await cardDeckRepository.findById(id);
 
     if (!deck) {
       throw new NotFoundError('Mazo');
@@ -277,42 +368,8 @@ const updateDeck = async (req, res, next) => {
       throw new ForbiddenError('No tienes permiso para actualizar este mazo');
     }
 
-    if (name !== undefined) {
-      if (typeof name !== 'string' || name.trim().length < 2) {
-        throw new ValidationError('name debe tener al menos 2 caracteres');
-      }
-      deck.name = name.trim();
-    }
-
-    if (description !== undefined) {
-      deck.description = description ? description.trim() : undefined;
-    }
-
-    if (status !== undefined) {
-      if (!['active', 'archived'].includes(status)) {
-        throw new ValidationError('status inválido');
-      }
-      deck.status = status;
-    }
-
-    // Si cambia el contexto o los mapeos, revalidar todo contra el contexto final
-    const finalContextId = contextId || deck.contextId;
-
-    if (contextId !== undefined) {
-      deck.contextId = contextId;
-    }
-
-    if (cardMappings !== undefined) {
-      const normalizedMappings = validateDeckMappingsStructure(cardMappings);
-      await validateContextAndAssignedValues(finalContextId, normalizedMappings);
-      await validateCardsExistAndActive(normalizedMappings);
-      deck.cardMappings = normalizedMappings;
-    } else {
-      // Si no cambian mapeos pero sí el contexto, validar assignedValue contra el nuevo contexto
-      if (contextId !== undefined) {
-        await validateContextAndAssignedValues(finalContextId, deck.cardMappings);
-      }
-    }
+    applyDeckFieldUpdates(deck, { name, description, status });
+    await applyDeckMappingUpdates(deck, { contextId, cardMappings });
 
     await deck.save();
     await deck.populate([{ path: 'contextId', select: 'contextId name' }]);
@@ -325,10 +382,10 @@ const updateDeck = async (req, res, next) => {
     res.json({
       success: true,
       message: 'Mazo actualizado exitosamente',
-      data: cardDeckDTO(deck)
+      data: toCardDeckDetailDTOV1(deck)
     });
   } catch (error) {
-    if (error && error.code === 11000) {
+    if (error?.code === 11000) {
       return next(new ConflictError('Ya existe un mazo con ese nombre'));
     }
     next(error);
@@ -343,7 +400,7 @@ const deleteDeck = async (req, res, next) => {
   try {
     const { id } = req.params;
 
-    const deck = await CardDeck.findById(id);
+    const deck = await cardDeckRepository.findById(id);
 
     if (!deck) {
       throw new NotFoundError('Mazo');

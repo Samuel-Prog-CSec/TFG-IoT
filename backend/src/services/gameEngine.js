@@ -5,15 +5,17 @@
  * @module services/gameEngine
  */
 
-const logger = require('../utils/logger');
-const GamePlay = require('../models/GamePlay');
-const GameSession = require('../models/GameSession');
+const logger = require('../utils/logger').child({ component: 'gameEngine' });
+const gamePlayRepository = require('../repositories/gamePlayRepository');
+const gameSessionRepository = require('../repositories/gameSessionRepository');
 const redisService = require('./redisService');
+const { getMechanicStrategy } = require('../strategies/mechanics');
 
 // Constantes de configuración
 // Umbral de alerta (soft limit) - no bloquea, solo emite warnings
-const ACTIVE_PLAYS_WARNING_THRESHOLD = parseInt(process.env.ACTIVE_PLAYS_WARNING_THRESHOLD) || 1000;
-const PLAY_TIMEOUT_MS = parseInt(process.env.PLAY_TIMEOUT_MS) || 3600000; // 1 hora
+const ACTIVE_PLAYS_WARNING_THRESHOLD =
+  Number.parseInt(process.env.ACTIVE_PLAYS_WARNING_THRESHOLD, 10) || 1000;
+const PLAY_TIMEOUT_MS = Number.parseInt(process.env.PLAY_TIMEOUT_MS, 10) || 3600000; // 1 hora
 const CLEANUP_INTERVAL_MS = 300000; // 5 minutos
 
 /**
@@ -216,10 +218,20 @@ class GameEngine {
     const uidToMapping = new Map(sessionDoc.cardMappings.map(m => [m.uid, m]));
 
     // 3. Crear el estado en memoria
+    const mechanicName =
+      typeof sessionDoc.mechanicId === 'object' && sessionDoc.mechanicId?.name
+        ? sessionDoc.mechanicId.name
+        : sessionDoc.mechanicId?.toString?.();
+    const mechanicStrategy = getMechanicStrategy(mechanicName, logger);
+    const strategyState = mechanicStrategy.initialize({ sessionDoc, playDoc });
+
     const playState = {
       playDoc,
       sessionDoc,
       uidToMapping, // Índice O(1): uid → mapping completo
+      mechanicName: mechanicStrategy.getName(),
+      mechanicStrategy,
+      strategyState,
       currentChallenge: null,
       roundTimer: null,
       nextRoundTimer: null,
@@ -313,11 +325,14 @@ class GameEngine {
 
     // 4. Limpiar la memoria
     // Liberar las tarjetas
+    const cardUids = [];
     for (const mapping of playState.sessionDoc.cardMappings) {
       this.cardUidToPlayId.delete(mapping.uid);
-      // También limpiar de Redis
-      await redisService.del(redisService.NAMESPACES.CARD, mapping.uid);
+      cardUids.push(mapping.uid);
     }
+
+    // También limpiar de Redis
+    await redisService.delMany(redisService.NAMESPACES.CARD, cardUids);
 
     // Borrar la partida de la memoria activa
     this.activePlays.delete(playId);
@@ -376,11 +391,24 @@ class GameEngine {
       playState.nextRoundTimer = null;
     }
 
-    // 3. Generar el desafío (mecánica de asociación)
-    // TODO: Tener en cuenta la dificultad, evitar repeticiones, etc.
-    // TODO: Esto debe abstraerse cuando haya más mecánicas (memoria, secuencias, etc.)
-    const randomIndex = Math.floor(Math.random() * sessionDoc.cardMappings.length);
-    const challengeMapping = sessionDoc.cardMappings[randomIndex];
+    // 3. Generar el desafío según la mecánica activa
+    const challengeMapping = playState.mechanicStrategy.selectChallenge({
+      playDoc,
+      sessionDoc,
+      playState
+    });
+
+    if (!challengeMapping) {
+      logger.error('No se pudo generar desafio para la ronda', {
+        playId,
+        mechanicName: playState.mechanicName
+      });
+      this.io.to(`play_${playId}`).emit('error', {
+        message: 'No se pudo generar el desafio de la ronda'
+      });
+      await this.endPlay(playId);
+      return;
+    }
 
     playState.currentChallenge = {
       cardId: challengeMapping.cardId,
@@ -457,7 +485,7 @@ class GameEngine {
       return;
     }
 
-    if (!playState || !playState.awaitingResponse) {
+    if (!playState?.awaitingResponse) {
       // El juego existe, pero no está esperando una respuesta
       // (ej. escaneo demasiado rápido, o entre rondas)
       logger.debug(`Tarjeta ${uid} escaneada para ${playId}, pero no se esperaba respuesta.`);
@@ -479,6 +507,15 @@ class GameEngine {
 
     // 5. Procesar la respuesta
     await this.processResponse(playId, playState, scannedCardMapping);
+  }
+
+  /**
+   * Obtiene el playId asociado a un UID de tarjeta si está en una partida activa.
+   * @param {string} uid
+   * @returns {string|null}
+   */
+  getPlayIdByCardUid(uid) {
+    return this.cardUidToPlayId.get(uid) || null;
   }
 
   /**
@@ -507,16 +544,14 @@ class GameEngine {
 
     let pointsAwarded = 0;
     let eventType;
-    let symbol = isCorrect ? '+' : '-';
+    const symbol = isCorrect ? '+' : '-';
 
     if (isCorrect) {
       pointsAwarded = sessionDoc.config.pointsPerCorrect;
       eventType = 'correct';
-      symbol = '+'; // Indica puntos añadidos
     } else {
       pointsAwarded = sessionDoc.config.penaltyPerError;
       eventType = 'error';
-      symbol = '-'; // Indica penalización de puntos
     }
 
     // 2. Crear el evento para la BD
@@ -573,7 +608,7 @@ class GameEngine {
    */
   async handleTimeout(playId) {
     const playState = this.activePlays.get(playId);
-    if (!playState || !playState.awaitingResponse) {
+    if (!playState?.awaitingResponse) {
       // La respuesta llegó justo a tiempo, el timer ya fue limpiado
       return;
     }
@@ -649,10 +684,7 @@ class GameEngine {
   /**
    * Pausa una partida en curso.
    *
-   * TODO: Implementar lógica completa de pausa
-   * - Limpiar timer actual
-   * - Guardar estado en BD
-   * - Emitir evento de pausa al cliente
+   * Congela el timer, persiste el estado y notifica al cliente.
    *
    * @param {string} playId - ID de la partida a pausar
    */
@@ -748,13 +780,56 @@ class GameEngine {
     return { remainingTimeMs };
   }
 
+  isPlayOwner(playState, requestedBy) {
+    if (!requestedBy) {
+      return true;
+    }
+
+    const ownerId =
+      playState.sessionDoc?.createdBy?.toString?.() || playState.sessionDoc?.createdBy;
+    if (!ownerId) {
+      return true;
+    }
+
+    return ownerId.toString() === requestedBy.toString();
+  }
+
+  clearPlayTimers(playState) {
+    if (playState.roundTimer) {
+      clearTimeout(playState.roundTimer);
+      playState.roundTimer = null;
+    }
+    if (playState.nextRoundTimer) {
+      clearTimeout(playState.nextRoundTimer);
+      playState.nextRoundTimer = null;
+    }
+  }
+
+  getPlayRemainingTimeMs(playState) {
+    return playState.remainingTimeMs ?? playState.playDoc.remainingTime ?? null;
+  }
+
+  restoreRoundStartTime(playState) {
+    if (playState.currentChallenge && typeof playState.roundElapsedBeforePauseMs === 'number') {
+      playState.roundStartTime = Date.now() - playState.roundElapsedBeforePauseMs;
+    }
+  }
+
+  async persistPlayResumed(playId, playState) {
+    try {
+      playState.playDoc.status = 'in-progress';
+      playState.playDoc.pausedAt = null;
+      playState.playDoc.remainingTime = null;
+      await playState.playDoc.save();
+    } catch (err) {
+      logger.error(`Error persistiendo reanudación para ${playId}: ${err.message}`);
+    }
+  }
+
   /**
    * Reanuda una partida pausada.
    *
-   * TODO: Implementar lógica completa de reanudación
-   * - Restaurar estado desde BD si es necesario
-   * - Reenviar el desafío actual
-   * - Reiniciar el timer
+   * Reanuda el desafío actual y rearma el timer con el tiempo restante.
    *
    * @param {string} playId - ID de la partida a reanudar
    */
@@ -779,15 +854,11 @@ class GameEngine {
     }
 
     // Control de permisos (si nos pasan el profesor)
-    if (options.requestedBy) {
-      const ownerId =
-        playState.sessionDoc?.createdBy?.toString?.() || playState.sessionDoc?.createdBy;
-      if (ownerId && ownerId.toString() !== options.requestedBy.toString()) {
-        this.io
-          .to(`play_${playId}`)
-          .emit('error', { message: 'No autorizado para reanudar esta partida' });
-        return { remainingTimeMs: null };
-      }
+    if (!this.isPlayOwner(playState, options.requestedBy)) {
+      this.io
+        .to(`play_${playId}`)
+        .emit('error', { message: 'No autorizado para reanudar esta partida' });
+      return { remainingTimeMs: null };
     }
 
     if (!playState.paused && playState.playDoc.status !== 'paused') {
@@ -795,21 +866,12 @@ class GameEngine {
     }
 
     // Cancelar timers residuales
-    if (playState.roundTimer) {
-      clearTimeout(playState.roundTimer);
-      playState.roundTimer = null;
-    }
-    if (playState.nextRoundTimer) {
-      clearTimeout(playState.nextRoundTimer);
-      playState.nextRoundTimer = null;
-    }
+    this.clearPlayTimers(playState);
 
-    const remainingTimeMs = playState.remainingTimeMs ?? playState.playDoc.remainingTime ?? null;
+    const remainingTimeMs = this.getPlayRemainingTimeMs(playState);
 
     // Restaurar el roundStartTime para que el cálculo timeElapsed NO incluya la pausa
-    if (playState.currentChallenge && typeof playState.roundElapsedBeforePauseMs === 'number') {
-      playState.roundStartTime = Date.now() - playState.roundElapsedBeforePauseMs;
-    }
+    this.restoreRoundStartTime(playState);
 
     // Marcar como reanudada
     playState.paused = false;
@@ -818,14 +880,7 @@ class GameEngine {
     playState.awaitingResponse = true;
 
     // Persistir en BD
-    try {
-      playState.playDoc.status = 'in-progress';
-      playState.playDoc.pausedAt = null;
-      playState.playDoc.remainingTime = null;
-      await playState.playDoc.save();
-    } catch (err) {
-      logger.error(`Error persistiendo reanudación para ${playId}: ${err.message}`);
-    }
+    await this.persistPlayResumed(playId, playState);
 
     // Reenviar desafío actual (útil si el cliente recargó)
     if (playState.currentChallenge) {
@@ -928,9 +983,11 @@ class GameEngine {
       await redisService.hset(redisService.NAMESPACES.PLAY, playId, redisState);
 
       // Almacenar mapeo de tarjetas para búsqueda O(1)
-      for (const mapping of playState.sessionDoc.cardMappings) {
-        await redisService.set(redisService.NAMESPACES.CARD, mapping.uid, playId);
-      }
+      const cardEntries = playState.sessionDoc.cardMappings.map(mapping => ({
+        id: mapping.uid,
+        value: playId
+      }));
+      await redisService.setMany(redisService.NAMESPACES.CARD, cardEntries);
 
       logger.debug(`Partida ${playId} sincronizada con Redis`);
     } catch (error) {
@@ -962,68 +1019,9 @@ class GameEngine {
       for (const key of playKeys) {
         // Extraer playId de la key (formato: play:playId)
         const playId = key.replace(`${redisService.NAMESPACES.PLAY}:`, '');
-
-        try {
-          // Obtener estado de Redis
-          const redisState = await redisService.hgetall(redisService.NAMESPACES.PLAY, playId);
-
-          if (!redisState) {
-            continue;
-          }
-
-          // Buscar el documento en MongoDB
-          const playDoc = await GamePlay.findById(redisState.playDocId);
-
-          if (!playDoc) {
-            logger.warn(`Partida ${playId} en Redis pero no en MongoDB, limpiando...`);
-            await redisService.del(redisService.NAMESPACES.PLAY, playId);
-            continue;
-          }
-
-          // Marcar como abandonada si estaba en progreso
-          if (playDoc.status === 'in-progress' || playDoc.status === 'paused') {
-            playDoc.status = 'abandoned';
-            playDoc.completedAt = new Date();
-
-            // Añadir evento de interrupción
-            playDoc.events.push({
-              timestamp: new Date(),
-              eventType: 'server_restart',
-              roundNumber: playDoc.currentRound,
-              pointsAwarded: 0
-            });
-
-            await playDoc.save();
-
-            logger.info(`Partida ${playId} marcada como abandonada (reinicio del servidor)`);
-
-            // Emitir evento si hay clientes conectados
-            if (this.io) {
-              this.io.to(`play_${playId}`).emit('play_interrupted', {
-                playId,
-                reason: 'server_restart',
-                message: 'La partida fue interrumpida por un reinicio del servidor.',
-                finalScore: playDoc.score
-              });
-            }
-
-            recoveredCount++;
-          }
-
-          // Limpiar de Redis
-          await redisService.del(redisService.NAMESPACES.PLAY, playId);
-
-          // Limpiar tarjetas asociadas
-          if (redisState.sessionDocId) {
-            const sessionDoc = await GameSession.findById(redisState.sessionDocId);
-            if (sessionDoc?.cardMappings) {
-              for (const mapping of sessionDoc.cardMappings) {
-                await redisService.del(redisService.NAMESPACES.CARD, mapping.uid);
-              }
-            }
-          }
-        } catch (err) {
-          logger.error(`Error al recuperar partida ${playId}:`, { error: err.message });
+        const recovered = await this.recoverPlayFromRedis(playId);
+        if (recovered) {
+          recoveredCount++;
         }
       }
 
@@ -1033,6 +1031,76 @@ class GameEngine {
       logger.error('Error durante la recuperación de partidas:', { error: error.message });
       return 0;
     }
+  }
+
+  async recoverPlayFromRedis(playId) {
+    try {
+      const redisState = await redisService.hgetall(redisService.NAMESPACES.PLAY, playId);
+      if (!redisState) {
+        return false;
+      }
+
+      const playDoc = await gamePlayRepository.findById(redisState.playDocId);
+      if (!playDoc) {
+        logger.warn(`Partida ${playId} en Redis pero no en MongoDB, limpiando...`);
+        await redisService.del(redisService.NAMESPACES.PLAY, playId);
+        return false;
+      }
+
+      const wasRecovered = await this.markPlayAbandonedIfNeeded(playId, playDoc);
+
+      await redisService.del(redisService.NAMESPACES.PLAY, playId);
+      await this.cleanupSessionCardMappings(redisState.sessionDocId);
+
+      return wasRecovered;
+    } catch (err) {
+      logger.error(`Error al recuperar partida ${playId}:`, { error: err.message });
+      return false;
+    }
+  }
+
+  async markPlayAbandonedIfNeeded(playId, playDoc) {
+    if (playDoc.status !== 'in-progress' && playDoc.status !== 'paused') {
+      return false;
+    }
+
+    playDoc.status = 'abandoned';
+    playDoc.completedAt = new Date();
+    playDoc.events.push({
+      timestamp: new Date(),
+      eventType: 'server_restart',
+      roundNumber: playDoc.currentRound,
+      pointsAwarded: 0
+    });
+
+    await playDoc.save();
+
+    logger.info(`Partida ${playId} marcada como abandonada (reinicio del servidor)`);
+
+    if (this.io) {
+      this.io.to(`play_${playId}`).emit('play_interrupted', {
+        playId,
+        reason: 'server_restart',
+        message: 'La partida fue interrumpida por un reinicio del servidor.',
+        finalScore: playDoc.score
+      });
+    }
+
+    return true;
+  }
+
+  async cleanupSessionCardMappings(sessionDocId) {
+    if (!sessionDocId) {
+      return;
+    }
+
+    const sessionDoc = await gameSessionRepository.findById(sessionDocId);
+    if (!sessionDoc?.cardMappings) {
+      return;
+    }
+
+    const cardUids = sessionDoc.cardMappings.map(mapping => mapping.uid);
+    await redisService.delMany(redisService.NAMESPACES.CARD, cardUids);
   }
 }
 

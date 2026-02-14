@@ -45,7 +45,7 @@ describe('CardDeck Management Endpoints', () => {
     teacherUser = await User.create({
       name: 'Deck Teacher',
       email: 'deck.teacher@test.com',
-      password: 'password123',
+      password: 'Password123',
       role: 'teacher',
       accountStatus: 'approved',
       status: 'active'
@@ -227,7 +227,7 @@ describe('CardDeck Management Endpoints', () => {
       expect(res.body.success).toBe(true);
 
       // Verificar paginación
-      const items = Array.isArray(res.body.data) ? res.body.data : res.body.data?.data;
+      const items = res.body.data;
       expect(Array.isArray(items)).toBe(true);
       expect(items.length).toBe(2);
     });
@@ -242,7 +242,7 @@ describe('CardDeck Management Endpoints', () => {
         .set(fingerprintHeaders);
 
       expect(res.statusCode).toEqual(200);
-      const items = Array.isArray(res.body.data) ? res.body.data : res.body.data?.data;
+      const items = res.body.data;
       expect(items.length).toBe(1);
       expect(items[0].name).toBe('Mazo A');
     });
@@ -254,7 +254,7 @@ describe('CardDeck Management Endpoints', () => {
         .set(fingerprintHeaders);
 
       expect(res.statusCode).toEqual(200);
-      const items = Array.isArray(res.body.data) ? res.body.data : res.body.data?.data;
+      const items = res.body.data;
       expect(items.length).toBe(1);
       expect(items[0].name).toBe('Mazo B');
     });
@@ -305,7 +305,7 @@ describe('CardDeck Management Endpoints', () => {
       const otherTeacher = await User.create({
         name: 'Other Teacher',
         email: 'other.teacher@test.com',
-        password: 'password123',
+        password: 'Password123',
         role: 'teacher',
         accountStatus: 'approved',
         status: 'active'

@@ -6,22 +6,12 @@
  */
 
 const jwt = require('jsonwebtoken');
-const crypto = require('crypto');
+const crypto = require('node:crypto');
 const { UnauthorizedError, ForbiddenError } = require('../utils/errors');
-const User = require('../models/User');
-const logger = require('../utils/logger');
+const userRepository = require('../repositories/userRepository');
+const logger = require('../utils/logger').child({ component: 'auth' });
+const { logSecurityEvent, getRequestContext } = require('../utils/securityLogger');
 const redisService = require('../services/redisService');
-
-/**
- * Flag para bypass de autenticación en desarrollo.
- * NUNCA debe estar habilitado en producción.
- */
-const AUTH_BYPASS_ENABLED =
-  process.env.NODE_ENV === 'development' && process.env.AUTH_BYPASS_FOR_DEV === 'true';
-
-if (AUTH_BYPASS_ENABLED) {
-  logger.warn('AUTH_BYPASS_FOR_DEV está habilitado. NO usar en producción.');
-}
 
 /**
  * Constantes de seguridad para tokens.
@@ -35,6 +25,24 @@ const TOKEN_SECURITY = {
   SECURITY_FLAG_TTL_SECONDS: 3600
 };
 
+const REFRESH_COOKIE_NAME = 'refreshToken';
+const CSRF_COOKIE_NAME = 'csrfToken';
+
+const buildRefreshCookieOptions = () => ({
+  httpOnly: true,
+  secure: process.env.NODE_ENV === 'production',
+  sameSite: 'strict',
+  path: '/api/auth'
+});
+
+const buildCsrfCookieOptions = () => ({
+  httpOnly: false,
+  secure: process.env.NODE_ENV === 'production',
+  sameSite: 'strict',
+  path: '/',
+  maxAge: 7 * 24 * 60 * 60 * 1000
+});
+
 /**
  * Revoca un token añadiéndolo a la blacklist en Redis.
  * El token no podrá ser usado hasta su expiración natural.
@@ -43,7 +51,7 @@ const TOKEN_SECURITY = {
  * @param {number} expiresAt - Timestamp de expiración del token (en ms)
  * @returns {Promise<boolean>} True si se revocó correctamente.
  */
-const revokeToken = async (jti, expiresAt) => {
+const revokeToken = async (jti, expiresAt, meta = {}) => {
   const ttlSeconds = Math.ceil((expiresAt - Date.now()) / 1000);
 
   if (ttlSeconds <= 0) {
@@ -59,7 +67,12 @@ const revokeToken = async (jti, expiresAt) => {
   );
 
   if (success) {
-    logger.info('Token revocado', { jti, expiresAt: new Date(expiresAt), ttlSeconds });
+    logSecurityEvent('AUTH_TOKEN_REVOKED', {
+      ...meta,
+      jti,
+      expiresAt: new Date(expiresAt).toISOString(),
+      ttlSeconds
+    });
   }
 
   return success;
@@ -82,7 +95,7 @@ const isTokenRevoked = async jti =>
  * @param {string} reason - Razón de la revocación (para logging)
  * @returns {Promise<boolean>} True si se estableció el flag.
  */
-const revokeAllUserTokens = async (userId, reason = 'security') => {
+const revokeAllUserTokens = async (userId, reason = 'security', meta = {}) => {
   const success = await redisService.setWithTTL(
     redisService.NAMESPACES.SECURITY,
     userId,
@@ -91,7 +104,11 @@ const revokeAllUserTokens = async (userId, reason = 'security') => {
   );
 
   if (success) {
-    logger.warn('Todos los tokens de usuario revocados', { userId, reason });
+    logSecurityEvent('AUTH_TOKENS_REVOKED_ALL', {
+      ...meta,
+      userId,
+      reason
+    });
   }
 
   return success;
@@ -112,7 +129,7 @@ const checkSecurityFlag = async (userId, tokenIssuedAt) => {
     return { revoked: false, reason: null };
   }
 
-  const flagTime = parseInt(flagTimestamp, 10);
+  const flagTime = Number.parseInt(flagTimestamp, 10);
   const tokenTimeMs = tokenIssuedAt * 1000; // iat está en segundos
 
   if (tokenTimeMs < flagTime) {
@@ -216,12 +233,12 @@ const deleteRefreshToken = async jti =>
  * @returns {number} Segundos
  */
 const parseExpiration = expiration => {
-  const match = expiration.match(/^(\d+)([smhd])$/);
+  const match = /^(\d+)([smhd])$/.exec(expiration);
   if (!match) {
     return 900; // Default 15 minutos
   }
 
-  const value = parseInt(match[1]);
+  const value = Number.parseInt(match[1], 10);
   const unit = match[2];
 
   const multipliers = {
@@ -395,18 +412,34 @@ const verifyAccessToken = async (token, req) => {
 
     // Verificar que es un access token
     if (decoded.type !== 'access') {
+      logSecurityEvent('AUTH_TOKEN_INVALID', {
+        ...getRequestContext(req),
+        userId: decoded.id,
+        reason: 'ACCESS_TOKEN_WRONG_TYPE'
+      });
       throw new UnauthorizedError('Token type inválido');
     }
 
     // Verificar blacklist en Redis
     const revoked = await isTokenRevoked(decoded.jti);
     if (revoked) {
+      logSecurityEvent('AUTH_TOKEN_INVALID', {
+        ...getRequestContext(req),
+        userId: decoded.id,
+        jti: decoded.jti,
+        reason: 'ACCESS_TOKEN_REVOKED'
+      });
       throw new UnauthorizedError('Token revocado');
     }
 
     // Verificar flag de seguridad (logout forzado)
     const securityCheck = await checkSecurityFlag(decoded.id, decoded.iat);
     if (securityCheck.revoked) {
+      logSecurityEvent('AUTH_TOKEN_INVALID', {
+        ...getRequestContext(req),
+        userId: decoded.id,
+        reason: securityCheck.reason || 'SESSION_REVOKED_SECURITY'
+      });
       throw new UnauthorizedError(
         'Tu sesión fue cerrada por motivos de seguridad. Por favor, inicia sesión de nuevo.',
         securityCheck.reason
@@ -416,10 +449,10 @@ const verifyAccessToken = async (token, req) => {
     // Verificar fingerprint del dispositivo
     const currentFingerprint = generateDeviceFingerprint(req);
     if (decoded.fp !== currentFingerprint) {
-      logger.warn('Fingerprint mismatch detectado', {
+      logSecurityEvent('AUTH_TOKEN_FINGERPRINT_MISMATCH', {
+        ...getRequestContext(req),
         userId: decoded.id,
-        expectedFp: decoded.fp,
-        actualFp: currentFingerprint
+        fingerprintMismatch: true
       });
       throw new UnauthorizedError('Token fingerprint inválido');
     }
@@ -427,9 +460,17 @@ const verifyAccessToken = async (token, req) => {
     return decoded;
   } catch (error) {
     if (error.name === 'TokenExpiredError') {
+      logSecurityEvent('AUTH_TOKEN_INVALID', {
+        ...getRequestContext(req),
+        reason: 'ACCESS_TOKEN_EXPIRED'
+      });
       throw new UnauthorizedError('Access token expirado');
     }
     if (error.name === 'JsonWebTokenError') {
+      logSecurityEvent('AUTH_TOKEN_INVALID', {
+        ...getRequestContext(req),
+        reason: 'ACCESS_TOKEN_INVALID'
+      });
       throw new UnauthorizedError('Access token inválido');
     }
     if (error instanceof UnauthorizedError) {
@@ -437,6 +478,34 @@ const verifyAccessToken = async (token, req) => {
     }
     throw new UnauthorizedError('Error al verificar access token');
   }
+};
+
+/**
+ * Helper para obtener el token Bearer del header Authorization.
+ *
+ * @param {string} authHeader - Header Authorization
+ * @returns {string|null} Token Bearer o null si no está presente
+ */
+const getBearerToken = authHeader =>
+  authHeader?.startsWith('Bearer ') ? authHeader.split(' ')[1] : null;
+
+/**
+ * Helper para obtener un mensaje de estado de cuenta.
+ *
+ * @param {string} accountStatus - Estado de la cuenta
+ * @returns {string|null} Mensaje de estado o null si no aplica
+ */
+const getAccountStatusMessage = accountStatus => {
+  if (accountStatus === 'pending_approval') {
+    return 'Cuenta pendiente de aprobación';
+  }
+  if (accountStatus === 'rejected') {
+    return 'Cuenta rechazada';
+  }
+  if (accountStatus) {
+    return 'Cuenta no aprobada';
+  }
+  return null;
 };
 
 /**
@@ -470,6 +539,19 @@ const verifyRefreshToken = async (token, req) => {
       throw new UnauthorizedError('Refresh token revocado');
     }
 
+    const securityCheck = await checkSecurityFlag(decoded.id, decoded.iat);
+    if (securityCheck.revoked) {
+      throw new UnauthorizedError(
+        'Tu sesión fue cerrada por motivos de seguridad. Por favor, inicia sesión de nuevo.',
+        securityCheck.reason
+      );
+    }
+
+    const refreshInfo = await getRefreshTokenInfo(decoded.jti);
+    if (!refreshInfo) {
+      throw new UnauthorizedError('Refresh token no reconocido');
+    }
+
     // Verificar si el token ya fue usado (detección de robo)
     const usedCheck = await isRefreshTokenUsed(decoded.jti);
     if (usedCheck.used) {
@@ -478,15 +560,16 @@ const verifyRefreshToken = async (token, req) => {
 
       if (Date.now() > gracePeriodEnd) {
         // Token reusado después del grace period = posible robo
-        logger.error('ALERTA DE SEGURIDAD: Reuso de refresh token detectado', {
+        logSecurityEvent('AUTH_TOKEN_THEFT_DETECTED', {
+          ...getRequestContext(req),
           jti: decoded.jti,
           userId: decoded.id,
-          usedAt: new Date(usedCheck.usedAt),
+          usedAt: new Date(usedCheck.usedAt).toISOString(),
           familyId: usedCheck.familyId
         });
 
         // Invalidar TODOS los tokens del usuario
-        await revokeAllUserTokens(decoded.id, 'token_reuse_detected');
+        await revokeAllUserTokens(decoded.id, 'token_reuse_detected', getRequestContext(req));
 
         throw new UnauthorizedError(
           'Tu sesión fue cerrada por motivos de seguridad. Por favor, inicia sesión de nuevo.',
@@ -495,7 +578,8 @@ const verifyRefreshToken = async (token, req) => {
       }
 
       // Dentro del grace period: permitir pero con warning
-      logger.debug('Refresh token reusado dentro del grace period', {
+      logSecurityEvent('AUTH_REFRESH_TOKEN_REUSED', {
+        ...getRequestContext(req),
         jti: decoded.jti,
         userId: decoded.id
       });
@@ -504,10 +588,10 @@ const verifyRefreshToken = async (token, req) => {
     // Verificar fingerprint
     const currentFingerprint = generateDeviceFingerprint(req);
     if (decoded.fp !== currentFingerprint) {
-      logger.warn('Fingerprint mismatch en refresh token', {
+      logSecurityEvent('AUTH_TOKEN_FINGERPRINT_MISMATCH', {
+        ...getRequestContext(req),
         userId: decoded.id,
-        expectedFp: decoded.fp,
-        actualFp: currentFingerprint
+        fingerprintMismatch: true
       });
       throw new UnauthorizedError('Refresh token fingerprint inválido');
     }
@@ -533,9 +617,6 @@ const verifyRefreshToken = async (token, req) => {
  * Extrae y verifica el access token del header Authorization.
  * Adjunta el usuario completo a req.user y el JTI a req.tokenJti.
  *
- * En desarrollo con AUTH_BYPASS_FOR_DEV=true, permite acceso sin token
- * usando un usuario "mock" de profesor.
- *
  * Uso:
  * router.get('/profile', authenticate, getProfile);
  *
@@ -545,99 +626,40 @@ const verifyRefreshToken = async (token, req) => {
  */
 const authenticate = async (req, res, next) => {
   try {
-    // Bypass de autenticación para desarrollo
-    if (AUTH_BYPASS_ENABLED) {
-      const authHeader = req.headers.authorization;
-
-      // Si hay token, intentar usarlo normalmente
-      if (authHeader && authHeader.startsWith('Bearer ')) {
-        // Intentar autenticación normal (sin validar fingerprint estrictamente)
-        try {
-          const token = authHeader.split(' ')[1];
-          const decoded = jwt.verify(token, process.env.JWT_SECRET, {
-            issuer: 'rfid-games-platform',
-            audience: 'rfid-games-client'
-          });
-
-          const user = await User.findById(decoded.id).select('-password');
-          if (
-            user &&
-            user.status === 'active' &&
-            (!['teacher', 'super_admin'].includes(user.role) || user.accountStatus === 'approved')
-          ) {
-            req.user = user;
-            req.tokenJti = decoded.jti;
-            req.tokenExp = decoded.exp;
-            logger.debug('Usuario autenticado (dev mode con token)', {
-              userId: user._id,
-              email: user.email
-            });
-            return next();
-          }
-        } catch (tokenError) {
-          logger.debug('Token inválido en dev mode, usando mock user', {
-            error: tokenError.message
-          });
-        }
-      }
-
-      // Sin token válido: usar mock user (primer profesor disponible)
-      const mockUser = await User.findOne({
-        role: { $in: ['teacher', 'super_admin'] },
-        status: 'active',
-        accountStatus: 'approved'
-      }).select('-password');
-
-      if (mockUser) {
-        req.user = mockUser;
-        req.tokenJti = 'dev-bypass-jti';
-        req.tokenExp = Math.floor(Date.now() / 1000) + 3600;
-
-        logger.debug('Auth bypass activo - usando mock user', {
-          userId: mockUser._id,
-          email: mockUser.email,
-          path: req.path
-        });
-
-        return next();
-      }
-
-      // Si no hay usuarios en la BD, crear uno temporal en memoria
-      req.user = {
-        _id: 'dev-mock-user-id',
-        name: 'Dev User',
-        email: 'dev@test.com',
-        role: 'teacher',
-        status: 'active',
-        accountStatus: 'approved'
-      };
-      req.tokenJti = 'dev-bypass-jti';
-      req.tokenExp = Math.floor(Date.now() / 1000) + 3600;
-
-      logger.debug('Auth bypass activo - usando usuario temporal', { path: req.path });
-      return next();
-    }
-
-    // Flujo normal de autenticación (producción)
     const authHeader = req.headers.authorization;
-
-    if (!authHeader || !authHeader.startsWith('Bearer ')) {
+    const token = getBearerToken(authHeader);
+    if (!token) {
+      logSecurityEvent('AUTH_TOKEN_INVALID', {
+        ...getRequestContext(req),
+        reason: 'MISSING_ACCESS_TOKEN'
+      });
       throw new UnauthorizedError('Access token no proporcionado');
     }
-
-    const token = authHeader.split(' ')[1];
 
     // Verificar access token (incluye validación de fingerprint)
     const decoded = await verifyAccessToken(token, req);
 
     // Buscar usuario en la base de datos (y seleccionar currentSessionId para validación)
-    const user = await User.findById(decoded.id).select('-password +currentSessionId');
+    const user = await userRepository.findById(decoded.id, {
+      select: '-password +currentSessionId'
+    });
 
     if (!user) {
+      logSecurityEvent('AUTH_TOKEN_INVALID', {
+        ...getRequestContext(req),
+        reason: 'USER_NOT_FOUND',
+        userId: decoded.id
+      });
       throw new UnauthorizedError('Usuario no encontrado');
     }
 
     if (user.status !== 'active') {
+      logSecurityEvent('AUTH_TOKEN_INVALID', {
+        ...getRequestContext(req),
+        reason: 'USER_INACTIVE',
+        userId: user._id,
+        status: user.status
+      });
       throw new UnauthorizedError('Usuario inactivo');
     }
 
@@ -646,18 +668,24 @@ const authenticate = async (req, res, next) => {
       user.accountStatus &&
       user.accountStatus !== 'approved'
     ) {
-      const message =
-        user.accountStatus === 'pending_approval'
-          ? 'Cuenta pendiente de aprobación'
-          : user.accountStatus === 'rejected'
-            ? 'Cuenta rechazada'
-            : 'Cuenta no aprobada';
+      const message = getAccountStatusMessage(user.accountStatus);
+      logSecurityEvent('AUTHZ_ACCESS_DENIED', {
+        ...getRequestContext(req),
+        userId: user._id,
+        reason: message,
+        accountStatus: user.accountStatus
+      });
       throw new ForbiddenError(message);
     }
 
     // SINGLE SESSION ENFORCEMENT
     // Verificar que la sesión del token coincide con la sesión actual del usuario
     if (decoded.sid && user.currentSessionId && decoded.sid !== user.currentSessionId) {
+      logSecurityEvent('AUTH_TOKEN_INVALID', {
+        ...getRequestContext(req),
+        userId: user._id,
+        reason: 'SESSION_MISMATCH'
+      });
       throw new UnauthorizedError(
         'Tu sesión ha expirado porque se ha iniciado sesión en otro dispositivo.'
       );
@@ -701,11 +729,11 @@ const requireRole =
       }
 
       if (!allowedRoles.includes(req.user.role)) {
-        logger.warn('Acceso denegado por rol', {
+        logSecurityEvent('AUTHZ_ACCESS_DENIED', {
+          ...getRequestContext(req),
           userId: req.user._id,
           userRole: req.user.role,
-          requiredRoles: allowedRoles,
-          path: req.path
+          requiredRoles: allowedRoles
         });
 
         throw new ForbiddenError(`Acceso denegado. Roles permitidos: ${allowedRoles.join(', ')}`);
@@ -745,10 +773,10 @@ const requireOwnership =
       // Comparar el ID del recurso con el ID del usuario
       // NOTA: Esta lógica puede necesitar ajustes según el recurso
       if (resourceId && resourceId.toString() !== req.user._id.toString()) {
-        logger.warn('Acceso denegado por ownership', {
+        logSecurityEvent('AUTHZ_ACCESS_DENIED', {
+          ...getRequestContext(req),
           userId: req.user._id,
-          resourceId,
-          path: req.path
+          resourceId
         });
 
         throw new ForbiddenError('No tienes permiso para acceder a este recurso');
@@ -773,14 +801,12 @@ const requireOwnership =
 const optionalAuth = async (req, res, next) => {
   try {
     const authHeader = req.headers.authorization;
-
-    if (!authHeader || !authHeader.startsWith('Bearer ')) {
+    const token = getBearerToken(authHeader);
+    if (!token) {
       return next(); // Sin token, continuar sin error
     }
-
-    const token = authHeader.split(' ')[1];
     const decoded = await verifyAccessToken(token, req);
-    const user = await User.findById(decoded.id).select('-password');
+    const user = await userRepository.findById(decoded.id, { select: '-password' });
 
     if (user && user.status === 'active') {
       req.user = user;
@@ -814,15 +840,25 @@ const logout = async (req, res, next) => {
   try {
     // Revocar el access token actual
     const accessTokenExp = req.tokenExp * 1000; // Convertir a milisegundos
-    await revokeToken(req.tokenJti, accessTokenExp);
+    await revokeToken(req.tokenJti, accessTokenExp, {
+      ...getRequestContext(req),
+      userId: req.user._id,
+      tokenType: 'access',
+      reason: 'logout'
+    });
 
     // Si se proporciona refresh token, también revocarlo
-    const refreshToken = req.body?.refreshToken;
+    const refreshToken = req.cookies?.[REFRESH_COOKIE_NAME] || req.body?.refreshToken;
     if (refreshToken) {
       try {
         const decoded = await verifyRefreshToken(refreshToken, req);
         const refreshTokenExp = decoded.exp * 1000;
-        await revokeToken(decoded.jti, refreshTokenExp);
+        await revokeToken(decoded.jti, refreshTokenExp, {
+          ...getRequestContext(req),
+          userId: req.user._id,
+          tokenType: 'refresh',
+          reason: 'logout'
+        });
       } catch (error) {
         // Si el refresh token ya expiró o es inválido, no importa
         logger.debug('Refresh token inválido en logout, ignorando', {
@@ -831,11 +867,16 @@ const logout = async (req, res, next) => {
       }
     }
 
-    logger.info('Usuario deslogueado y tokens revocados', {
+    logSecurityEvent('AUTH_TOKEN_REVOKED', {
+      ...getRequestContext(req),
       userId: req.user._id,
       email: req.user.email,
-      accessTokenJti: req.tokenJti
+      accessTokenJti: req.tokenJti,
+      reason: 'logout'
     });
+
+    res.clearCookie(REFRESH_COOKIE_NAME, buildRefreshCookieOptions());
+    res.clearCookie(CSRF_COOKIE_NAME, buildCsrfCookieOptions());
 
     res.json({
       success: true,

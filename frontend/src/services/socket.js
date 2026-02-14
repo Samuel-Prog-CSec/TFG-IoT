@@ -1,0 +1,283 @@
+/**
+ * @fileoverview Servicio de WebSocket para comunicación en tiempo real
+ * Maneja conexión Socket.IO, autenticación y eventos de sesión
+ * 
+ * @module services/socket
+ */
+
+import { io } from 'socket.io-client';
+import { getAccessToken, AUTH_EVENTS } from './api';
+
+// ============================================
+// CONFIGURACIÓN
+// ============================================
+
+const SOCKET_URL = import.meta.env.VITE_SOCKET_URL || 'http://localhost:5000';
+const RECONNECTION_ATTEMPTS = 5;
+const RECONNECTION_DELAY = 1000;
+const CONNECTION_TIMEOUT = 10000; // 10 segundos timeout para conexión inicial
+
+// ============================================
+// EVENTOS SOCKET
+// ============================================
+
+export const SOCKET_EVENTS = {
+  // Conexión
+  CONNECT: 'connect',
+  DISCONNECT: 'disconnect',
+  CONNECT_ERROR: 'connect_error',
+  
+  // Sesión
+  SESSION_INVALIDATED: 'session_invalidated',
+  
+  // RFID (para futuro uso)
+  RFID_EVENT: 'rfid_event',
+  RFID_STATUS: 'rfid_status',
+  
+  // Gameplay (para futuro uso)
+  JOIN_PLAY: 'join_play',
+  LEAVE_PLAY: 'leave_play',
+  PLAY_STATE: 'play_state',
+  NEW_ROUND: 'new_round',
+  VALIDATION_RESULT: 'validation_result',
+  GAME_OVER: 'game_over',
+};
+
+// ============================================
+// CLASE SOCKET SERVICE
+// ============================================
+
+class SocketService {
+  constructor() {
+    this.socket = null;
+    this.isConnected = false;
+    this.listeners = new Map();
+  }
+
+  /**
+   * Conectar al servidor WebSocket
+   * @returns {Promise<void>}
+   */
+  connect() {
+    return new Promise((resolve, reject) => {
+      if (this.socket?.connected) {
+        resolve();
+        return;
+      }
+
+      if (this.socket) {
+        this.disconnect();
+      }
+
+      const token = getAccessToken();
+      
+      this.socket = io(SOCKET_URL, {
+        auth: { token },
+        reconnection: true,
+        reconnectionAttempts: RECONNECTION_ATTEMPTS,
+        reconnectionDelay: RECONNECTION_DELAY,
+        reconnectionDelayMax: 5000,
+        transports: ['websocket', 'polling'],
+      });
+
+      // Timeout para conexión inicial
+      let timeoutId = null;
+      let isResolved = false;
+
+      const cleanup = () => {
+        if (timeoutId) {
+          clearTimeout(timeoutId);
+          timeoutId = null;
+        }
+      };
+
+      timeoutId = setTimeout(() => {
+        if (!isResolved) {
+          isResolved = true;
+          cleanup();
+          this.socket?.disconnect();
+          this.socket = null;
+          reject(new Error('Timeout de conexión WebSocket'));
+        }
+      }, CONNECTION_TIMEOUT);
+
+      // Manejar conexión exitosa
+      this.socket.on(SOCKET_EVENTS.CONNECT, () => {
+        if (!isResolved) {
+          isResolved = true;
+          cleanup();
+          console.warn('[Socket] Conectado:', this.socket.id);
+          this.isConnected = true;
+          resolve();
+        }
+      });
+
+      // Manejar errores de conexión
+      this.socket.on(SOCKET_EVENTS.CONNECT_ERROR, (error) => {
+        console.error('[Socket] Error de conexión:', error.message);
+        this.isConnected = false;
+        
+        // Si es error de auth, emitir evento
+        if (error.message?.includes('auth') || error.message?.includes('token')) {
+          window.dispatchEvent(new CustomEvent(AUTH_EVENTS.UNAUTHORIZED));
+        }
+        
+        if (!isResolved) {
+          isResolved = true;
+          cleanup();
+          reject(error);
+        }
+      });
+
+      // Manejar desconexión
+      this.socket.on(SOCKET_EVENTS.DISCONNECT, (reason) => {
+        console.warn('[Socket] Desconectado:', reason);
+        this.isConnected = false;
+        
+        // Si el servidor forzó la desconexión, intentar reconectar
+        if (reason === 'io server disconnect') {
+          this.socket.connect();
+        }
+      });
+
+      // Escuchar evento de sesión invalidada (login desde otro dispositivo)
+      this.socket.on(SOCKET_EVENTS.SESSION_INVALIDATED, (data) => {
+        console.warn('[Socket] Sesión invalidada:', data);
+        window.dispatchEvent(new CustomEvent(AUTH_EVENTS.SESSION_INVALIDATED, { 
+          detail: data 
+        }));
+      });
+    });
+  }
+
+  /**
+   * Desconectar del servidor WebSocket
+   */
+  disconnect() {
+    if (this.socket) {
+      // Limpiar todos los listeners registrados antes de desconectar
+      this.listeners.forEach((callbacks, event) => {
+        callbacks.forEach((cb) => this.socket.off(event, cb));
+      });
+      this.listeners.clear();
+      
+      // Remover listeners de sistema
+      this.socket.off(SOCKET_EVENTS.CONNECT);
+      this.socket.off(SOCKET_EVENTS.CONNECT_ERROR);
+      this.socket.off(SOCKET_EVENTS.DISCONNECT);
+      this.socket.off(SOCKET_EVENTS.SESSION_INVALIDATED);
+      
+      this.socket.disconnect();
+      this.socket = null;
+      this.isConnected = false;
+    }
+  }
+
+  /**
+   * Actualizar token de autenticación
+   * @param {string} token - Nuevo access token
+   */
+  updateAuth(token) {
+    if (this.socket) {
+      this.socket.auth = { token };
+      // Reconectar con nuevo token
+      if (this.isConnected) {
+        this.socket.disconnect();
+        this.socket.connect();
+      }
+    }
+  }
+
+  /**
+   * Suscribirse a un evento
+   * @param {string} event - Nombre del evento
+   * @param {Function} callback - Callback a ejecutar
+   */
+  on(event, callback) {
+    if (!this.socket) {
+      console.warn('[Socket] No hay conexión activa');
+      return;
+    }
+    
+    this.socket.on(event, callback);
+    
+    // Guardar referencia para limpieza
+    if (!this.listeners.has(event)) {
+      this.listeners.set(event, []);
+    }
+    this.listeners.get(event).push(callback);
+  }
+
+  /**
+   * Desuscribirse de un evento
+   * @param {string} event - Nombre del evento
+   * @param {Function} callback - Callback a remover (opcional, si no se pasa, remueve todos)
+   */
+  off(event, callback) {
+    if (!this.socket) return;
+    
+    if (callback) {
+      this.socket.off(event, callback);
+      const callbacks = this.listeners.get(event) || [];
+      this.listeners.set(event, callbacks.filter((cb) => cb !== callback));
+    } else {
+      this.socket.off(event);
+      this.listeners.delete(event);
+    }
+  }
+
+  /**
+   * Emitir un evento
+   * @param {string} event - Nombre del evento
+   * @param {*} data - Datos a enviar
+   * @returns {Promise<*>} Respuesta del servidor (si aplica)
+   */
+  emit(event, data) {
+    return new Promise((resolve, reject) => {
+      if (!this.socket?.connected) {
+        reject(new Error('Socket no conectado'));
+        return;
+      }
+
+      this.socket.emit(event, data, (response) => {
+        if (response?.error) {
+          reject(new Error(response.error));
+        } else {
+          resolve(response);
+        }
+      });
+    });
+  }
+
+  /**
+   * Emitir un evento sin esperar ACK del servidor.
+   * @param {string} event - Nombre del evento
+   * @param {*} data - Datos a enviar
+   */
+  emitFireAndForget(event, data) {
+    if (!this.socket?.connected) {
+      throw new Error('Socket no conectado');
+    }
+    this.socket.emit(event, data);
+  }
+
+  /**
+   * Verificar si está conectado
+   * @returns {boolean}
+   */
+  isSocketConnected() {
+    return this.socket?.connected || false;
+  }
+
+  /**
+   * Obtener ID del socket
+   * @returns {string|null}
+   */
+  getSocketId() {
+    return this.socket?.id || null;
+  }
+}
+
+// Exportar instancia singleton
+export const socketService = new SocketService();
+export default socketService;

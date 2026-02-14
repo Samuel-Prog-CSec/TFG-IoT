@@ -1,0 +1,57 @@
+# ===================================================
+# .dockerignore - Frontend RFID Games
+# Excluye archivos innecesarios del contexto de build
+# ===================================================
+
+# Dependencias (se instalan en el contenedor)
+node_modules/
+
+# Build output (se genera en el contenedor)
+dist/
+build/
+
+# Variables de entorno
+.env
+.env.*
+*.env
+
+# Archivos de desarrollo
+.git/
+.gitignore
+.vscode/
+.idea/
+*.md
+!README.md
+
+# Tests y cobertura
+tests/
+__tests__/
+*.test.js
+*.test.jsx
+*.spec.js
+*.spec.jsx
+coverage/
+
+# Logs
+*.log
+npm-debug.log*
+
+# Archivos de configuración de desarrollo
+.eslintrc*
+.prettierrc*
+eslint.config.js
+
+# Documentación
+docs/
+
+# Archivos temporales
+*.tmp
+*.temp
+*.swp
+*~
+.DS_Store
+Thumbs.db
+
+# Storybook (si existe)
+.storybook/
+storybook-static/

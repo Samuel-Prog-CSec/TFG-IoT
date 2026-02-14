@@ -5,12 +5,7 @@
  */
 
 const { z } = require('zod');
-
-/**
- * Schema para validar ObjectId de MongoDB.
- * @type {import('zod').ZodString}
- */
-const objectIdSchema = z.string().regex(/^[0-9a-fA-F]{24}$/, 'ID de MongoDB inválido');
+const { objectIdSchema, userFiltersSchema } = require('./commonValidator');
 
 /**
  * Schema para validar email.
@@ -103,7 +98,8 @@ const createUserSchema = z
       message: 'Los alumnos no deben tener email ni contraseña',
       path: ['email']
     }
-  );
+  )
+  .strict();
 
 /**
  * Schema específico para crear ALUMNOS desde POST /api/users.
@@ -165,7 +161,10 @@ const registerTeacherSchema = z
       .object({
         avatar: z.string().url('URL de avatar inválida').optional()
       })
-      .optional()
+      .optional(),
+
+    // Honeypot anti-bot: debe quedar vacío
+    website: z.string().trim().max(0, 'Campo no permitido').optional()
     // ✅ NO incluye role, createdBy - se asignan automáticamente en el controller
   })
   .strict(); // Rechaza campos extra como role
@@ -176,63 +175,93 @@ const registerTeacherSchema = z
  *
  * NUEVO: Incluye createdBy para permitir reasignar alumnos a otro profesor.
  */
-const updateUserSchema = z.object({
-  name: z
-    .string()
-    .trim()
-    .min(2, 'El nombre debe tener al menos 2 caracteres')
-    .max(100, 'El nombre no puede exceder 100 caracteres')
-    .optional(),
+const updateUserSchema = z
+  .object({
+    name: z
+      .string()
+      .trim()
+      .min(2, 'El nombre debe tener al menos 2 caracteres')
+      .max(100, 'El nombre no puede exceder 100 caracteres')
+      .optional(),
 
-  email: emailSchema.optional(),
+    email: emailSchema.optional(),
 
-  password: passwordSchema.optional(),
+    password: passwordSchema.optional(),
 
-  profile: z
-    .object({
-      avatar: z.string().url('URL de avatar inválida').optional(),
-      age: z.number().int().min(3).max(99).optional(),
-      classroom: z.string().trim().max(50).optional(),
-      birthdate: z.string().datetime().or(z.date()).optional()
-    })
-    .optional(),
+    profile: z
+      .object({
+        avatar: z.string().url('URL de avatar inválida').optional(),
+        age: z.number().int().min(3).max(99).optional(),
+        classroom: z.string().trim().max(50).optional(),
+        birthdate: z.string().datetime().or(z.date()).optional()
+      })
+      .optional(),
 
-  status: z.enum(['active', 'inactive']).optional(),
+    status: z.enum(['active', 'inactive']).optional(),
 
-  // ✅ NUEVO: Permitir cambiar el profesor asignado
-  // Caso de uso: Alumno cambia de profesor o de responsable
-  createdBy: objectIdSchema.optional()
-});
+    // ✅ NUEVO: Permitir cambiar el profesor asignado
+    // Caso de uso: Alumno cambia de profesor o de responsable
+    createdBy: objectIdSchema.optional()
+  })
+  .strict();
 
 /**
  * Schema para login de profesores.
  */
-const loginSchema = z.object({
-  email: emailSchema,
-  password: z.string().min(1, 'La contraseña es requerida')
-});
+const loginSchema = z
+  .object({
+    email: emailSchema,
+    password: z.string().min(1, 'La contraseña es requerida')
+  })
+  .strict();
 
 /**
  * Schema para query de búsqueda de usuarios.
  */
-const userQuerySchema = z.object({
-  role: z.enum(['super_admin', 'teacher', 'student']).optional(),
-  status: z.enum(['active', 'inactive']).optional(),
-  classroom: z.string().trim().optional(),
-  createdBy: objectIdSchema.optional(),
-  page: z
-    .string()
-    .transform(val => parseInt(val, 10))
-    .pipe(z.number().int().min(1).default(1))
-    .optional(),
-  limit: z
-    .string()
-    .transform(val => parseInt(val, 10))
-    .pipe(z.number().int().min(1).max(100).default(20))
-    .optional(),
-  sortBy: z.enum(['createdAt', 'name', 'lastLoginAt']).default('createdAt').optional(),
-  order: z.enum(['asc', 'desc']).default('desc').optional()
+const userQuerySchema = userFiltersSchema.extend({
+  sortBy: z.enum(['createdAt', 'name', 'lastLoginAt']).default('createdAt').optional()
 });
+
+/**
+ * Schema para transferir alumno a otro profesor.
+ */
+const transferStudentSchema = z
+  .object({
+    newTeacherId: objectIdSchema,
+    newClassroom: z
+      .string()
+      .trim()
+      .min(1, 'newClassroom es requerido')
+      .max(50, 'newClassroom no puede exceder 50 caracteres'),
+    reason: z.string().trim().max(200, 'reason no puede exceder 200 caracteres').optional()
+  })
+  .strict();
+
+/**
+ * Schemas para params de rutas de usuarios.
+ */
+const userIdParamsSchema = z
+  .object({
+    id: objectIdSchema
+  })
+  .strict();
+
+const teacherIdParamsSchema = z
+  .object({
+    teacherId: objectIdSchema
+  })
+  .strict();
+
+/**
+ * Schema para query de alumnos por profesor.
+ */
+const teacherStudentsQuerySchema = z
+  .object({
+    classroom: z.string().trim().max(50).optional(),
+    sortBy: z.enum(['name', 'createdAt']).optional().default('name'),
+    order: z.enum(['asc', 'desc']).optional().default('asc')
+  })
+  .strict();
 
 module.exports = {
   createUserSchema,
@@ -240,5 +269,12 @@ module.exports = {
   registerTeacherSchema,
   updateUserSchema,
   loginSchema,
-  userQuerySchema
+  userQuerySchema,
+  transferStudentSchema,
+  userIdParamsSchema,
+  teacherIdParamsSchema,
+  teacherStudentsQuerySchema,
+  emailSchema,
+  passwordSchema,
+  objectIdSchema
 };
