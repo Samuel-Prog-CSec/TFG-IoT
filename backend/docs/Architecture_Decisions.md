@@ -211,3 +211,45 @@ Campos obligatorios en `pagination`:
 - **Consistencia**: el frontend no necesita manejar variantes de paginación.
 - **Rendimiento**: listas más ligeras (sin eventos/mappings completos).
 - **Mantenibilidad**: DTOs v1 centralizados y testeados.
+
+---
+
+## ADR-004: Locks distribuidos de UIDs con lease TTL + heartbeat
+
+### Contexto (ADR-004)
+
+El `gameEngine` mantiene estado en memoria (`activePlays`, `cardUidToPlayId`) pero el despliegue puede ejecutarse en más de una instancia del backend. Sin un lock distribuido, dos instancias podrían reservar el mismo UID de tarjeta para partidas distintas.
+
+### Decisión (ADR-004)
+
+1. Reservar UIDs en Redis usando claim atómico `SET NX`.
+2. Asignar TTL a claves activas (`GAME_ENGINE_LOCK_TTL_SECONDS`, default 90s).
+3. Renovar leases con heartbeat periódico (`GAME_ENGINE_LOCK_HEARTBEAT_MS`, default 30000ms).
+4. Liberar/renovar claves de tarjeta solo si el owner coincide (`value === playId`) para evitar sobrescrituras entre instancias.
+
+### Consecuencias (ADR-004)
+
+- **Consistencia multi-instancia**: evita colisiones simultáneas de tarjetas.
+- **Autorecuperación**: locks huérfanos expiran si una instancia cae.
+- **Complejidad controlada**: se mantiene el core stateful local con coordinación ligera en Redis.
+
+---
+
+## ADR-005: Persistencia atómica de eventos de partida
+
+### Contexto (ADR-005)
+
+El flujo de ronda realizaba múltiples escrituras por iteración (`round_start`, resultado, avance de ronda), incrementando write amplification y superficie de inconsistencias bajo carga.
+
+### Decisión (ADR-005)
+
+1. Introducir `GamePlay.addEventAtomic` con update único (`$push + $inc + $slice`).
+2. Persistir resultado de ronda y avance de `currentRound` en la misma operación.
+3. Desactivar por defecto la persistencia de `round_start` para priorizar throughput (`PERSIST_ROUND_START_EVENTS=false`).
+4. Contabilizar `metrics.totalAttempts` solo para eventos de respuesta (`correct`, `error`, `timeout`).
+
+### Consecuencias (ADR-005)
+
+- **Menos escrituras por ronda** en flujos normales.
+- **Mejor coherencia** entre score/métricas/ronda por operación atómica.
+- **Trazabilidad configurable**: se puede reactivar `round_start` cuando se requiera auditoría más granular.

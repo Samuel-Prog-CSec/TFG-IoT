@@ -19,6 +19,11 @@ const ACTIVE_PLAYS_WARNING_THRESHOLD =
 const PLAY_TIMEOUT_MS = Number.parseInt(process.env.PLAY_TIMEOUT_MS, 10) || 3600000; // 1 hora
 const CLEANUP_INTERVAL_MS = 300000; // 5 minutos
 const PROCESS_BATCH_SIZE = Number.parseInt(process.env.GAME_ENGINE_BATCH_SIZE, 10) || 20;
+const PERSIST_ROUND_START_EVENTS = process.env.PERSIST_ROUND_START_EVENTS === 'true';
+const DISTRIBUTED_LOCK_TTL_SECONDS =
+  Number.parseInt(process.env.GAME_ENGINE_LOCK_TTL_SECONDS, 10) || 90;
+const LOCK_HEARTBEAT_INTERVAL_MS =
+  Number.parseInt(process.env.GAME_ENGINE_LOCK_HEARTBEAT_MS, 10) || 30000;
 
 /**
  * GameEngine - Servicio con estado para gestión de partidas en tiempo real.
@@ -103,6 +108,8 @@ class GameEngine {
       averageRoundResponseTimeMs: 0,
       totalRoundResponses: 0,
       lockContention: 0,
+      distributedLockLeaseRenewed: 0,
+      distributedLockLeaseFailed: 0,
       averagePlayDuration: 0
     };
 
@@ -110,12 +117,15 @@ class GameEngine {
     // En tests lo deshabilitamos para evitar open handles en Jest.
     if (process.env.NODE_ENV !== 'test') {
       this.startCleanupTimer();
+      this.startLockHeartbeatTimer();
     }
 
     logger.info('GameEngine inicializado', {
       activePlaysWarningThreshold: ACTIVE_PLAYS_WARNING_THRESHOLD,
       playTimeoutMs: PLAY_TIMEOUT_MS,
-      cleanupIntervalMs: CLEANUP_INTERVAL_MS
+      cleanupIntervalMs: CLEANUP_INTERVAL_MS,
+      distributedLockTtlSeconds: DISTRIBUTED_LOCK_TTL_SECONDS,
+      lockHeartbeatIntervalMs: LOCK_HEARTBEAT_INTERVAL_MS
     });
   }
 
@@ -178,6 +188,65 @@ class GameEngine {
     }
   }
 
+  startLockHeartbeatTimer() {
+    this.lockHeartbeatInterval = setInterval(() => {
+      this.refreshActivePlayLeases();
+    }, LOCK_HEARTBEAT_INTERVAL_MS);
+  }
+
+  stopLockHeartbeatTimer() {
+    if (this.lockHeartbeatInterval) {
+      clearInterval(this.lockHeartbeatInterval);
+      logger.info('Lock heartbeat timer detenido');
+    }
+  }
+
+  async refreshActivePlayLeases() {
+    const activeEntries = Array.from(this.activePlays.entries());
+    if (activeEntries.length === 0) {
+      return;
+    }
+
+    await this.processInBatches(activeEntries, async ([playId, playState]) => {
+      await this.refreshPlayLease(playId, playState);
+    });
+  }
+
+  async refreshPlayLease(playId, playState) {
+    try {
+      const renewedPlayKey = await redisService.expire(
+        redisService.NAMESPACES.PLAY,
+        playId,
+        DISTRIBUTED_LOCK_TTL_SECONDS
+      );
+
+      const cardEntries = (playState?.sessionDoc?.cardMappings || []).map(mapping => ({
+        id: mapping.uid,
+        expectedValue: playId
+      }));
+
+      const renewedCards = await redisService.expireManyIfValueMatches(
+        redisService.NAMESPACES.CARD,
+        cardEntries,
+        DISTRIBUTED_LOCK_TTL_SECONDS
+      );
+
+      const allCardsRenewed = cardEntries.length === 0 || renewedCards.skippedIds.length === 0;
+
+      if (renewedPlayKey && allCardsRenewed) {
+        this.metrics.distributedLockLeaseRenewed++;
+      } else {
+        this.metrics.distributedLockLeaseFailed++;
+      }
+    } catch (error) {
+      this.metrics.distributedLockLeaseFailed++;
+      logger.warn('No se pudo renovar lease distribuido de partida', {
+        playId,
+        error: error.message
+      });
+    }
+  }
+
   /**
    * Ejecuta una operación de forma exclusiva por playId.
    * @private
@@ -188,11 +257,13 @@ class GameEngine {
    */
   async executeWithPlayLock(playId, operationName, operation) {
     const previousOperation = this.playLocks.get(playId);
-    if (previousOperation !== undefined) {
+
+    if (this.playLocks.has(playId) === true) {
       this.metrics.lockContention++;
     }
 
-    const operationQueue = previousOperation !== undefined ? previousOperation : Promise.resolve();
+    const operationQueue =
+      previousOperation instanceof Promise ? previousOperation : Promise.resolve();
 
     const currentOperation = operationQueue
       .catch(() => undefined)
@@ -235,6 +306,48 @@ class GameEngine {
       const batch = items.slice(index, index + PROCESS_BATCH_SIZE);
       await Promise.all(batch.map(item => processor(item)));
     }
+  }
+
+  /**
+   * Reserva los UIDs de una sesión en Redis con semántica NX para evitar colisiones multi-instancia.
+   *
+   * @private
+   * @param {string} playId
+   * @param {Object} sessionDoc
+   * @returns {Promise<{ok:boolean, conflicts:string[]}>}
+   */
+  async reserveDistributedCardMappings(playId, sessionDoc) {
+    const cardEntries = (sessionDoc?.cardMappings || []).map(mapping => ({
+      id: mapping.uid,
+      value: playId
+    }));
+
+    const result = await redisService.setManyIfNotExists(
+      redisService.NAMESPACES.CARD,
+      cardEntries,
+      DISTRIBUTED_LOCK_TTL_SECONDS
+    );
+    return {
+      ok: Boolean(result?.ok),
+      conflicts: result?.conflicts || []
+    };
+  }
+
+  /**
+   * Libera UIDs reservados por una partida solo si Redis sigue apuntando a ese playId.
+   *
+   * @private
+   * @param {string} playId
+   * @param {string[]} cardUids
+   * @returns {Promise<void>}
+   */
+  async releaseDistributedCardMappings(playId, cardUids = []) {
+    const releaseEntries = (cardUids || []).map(uid => ({
+      id: uid,
+      expectedValue: playId
+    }));
+
+    await redisService.delManyIfValueMatches(redisService.NAMESPACES.CARD, releaseEntries);
   }
 
   // ============================================================================
@@ -286,6 +399,25 @@ class GameEngine {
         });
         return;
       }
+    }
+
+    const distributedReservation = await this.reserveDistributedCardMappings(playId, sessionDoc);
+    if (!distributedReservation.ok) {
+      const conflictedUid = distributedReservation.conflicts?.[0] || null;
+      const conflictedMapping = sessionDoc.cardMappings.find(
+        mapping => mapping.uid === conflictedUid
+      );
+
+      logger.error(`Error al iniciar ${playId}: conflicto distribuido de tarjeta`, {
+        playId,
+        conflictedUid,
+        conflicts: distributedReservation.conflicts
+      });
+
+      this.io.to(`play_${playId}`).emit('error', {
+        message: `La tarjeta ${conflictedMapping?.assignedValue || conflictedUid || 'desconocida'} ya está en uso en otra partida`
+      });
+      return;
     }
 
     // Si todas las tarjetas están libres, las reservamos
@@ -411,8 +543,8 @@ class GameEngine {
       cardUids.push(mapping.uid);
     }
 
-    // También limpiar de Redis
-    await redisService.delMany(redisService.NAMESPACES.CARD, cardUids);
+    // También limpiar de Redis (solo si seguimos siendo owner del lock)
+    await this.releaseDistributedCardMappings(playId, cardUids);
 
     // Borrar la partida de la memoria activa
     this.activePlays.delete(playId);
@@ -501,11 +633,14 @@ class GameEngine {
     playState.remainingTimeMs = null;
     playState.roundElapsedBeforePauseMs = 0;
 
-    // 4. Guardar el inicio de la ronda en la BD (evento 'round_start')
-    await playDoc.addEvent({
-      eventType: 'round_start',
-      roundNumber: playDoc.currentRound
-    });
+    // 4. Persistir inicio de ronda solo si está habilitado explícitamente.
+    // Por defecto se prioriza una sola escritura por ronda (resultado/timeout).
+    if (PERSIST_ROUND_START_EVENTS) {
+      await playDoc.addEvent({
+        eventType: 'round_start',
+        roundNumber: playDoc.currentRound
+      });
+    }
 
     // 5. Emitir al cliente
     this.io.to(`play_${playId}`).emit('new_round', {
@@ -681,10 +816,9 @@ class GameEngine {
       roundNumber: playDoc.currentRound
     };
 
-    // 3. Guardar el evento en la BD
-    // .addEvent() actualiza el score y las métricas automáticamente
+    // 3. Guardar el evento y avanzar ronda en una sola operación atómica
     try {
-      await playDoc.addEvent(eventData);
+      await playDoc.addEventAtomic(eventData, { advanceRound: true });
     } catch (err) {
       logger.error(`Error guardando evento en la BD para ${playId}: ${err.message}`);
     }
@@ -711,7 +845,6 @@ class GameEngine {
       this.metrics.totalRoundResponses;
 
     // 5. Pasar a la siguiente ronda (tras un breve delay para feedback)
-    playDoc.currentRound++;
     playState.nextRoundTimer = setTimeout(() => {
       this.advanceToNextRound(playId);
     }, 4000); // Delay de 4s para que el jugador vea el resultado
@@ -757,8 +890,8 @@ class GameEngine {
         roundNumber: playDoc.currentRound
       };
 
-      // 3. Guardar en BD
-      await playDoc.addEvent(eventData);
+      // 3. Guardar en BD y avanzar ronda en una sola operación atómica
+      await playDoc.addEventAtomic(eventData, { advanceRound: true });
 
       // 4. Emitir al cliente
       this.io.to(`play_${playId}`).emit('validation_result', {
@@ -770,7 +903,6 @@ class GameEngine {
       });
 
       // 5. Pasar a la siguiente ronda
-      playDoc.currentRound++;
       playState.nextRoundTimer = setTimeout(() => {
         this.advanceToNextRound(playId);
       }, 2000); // Delay reducido para timeouts
@@ -1077,6 +1209,7 @@ class GameEngine {
 
     // Detener el cleanup timer
     this.stopCleanupTimer();
+    this.stopLockHeartbeatTimer();
 
     // Finalizar todas las partidas activas
     const activePlayIds = Array.from(this.activePlays.keys());
@@ -1136,14 +1269,12 @@ class GameEngine {
         currentChallenge: playState.currentChallenge || null
       };
 
-      await redisService.hset(redisService.NAMESPACES.PLAY, playId, redisState);
-
-      // Almacenar mapeo de tarjetas para búsqueda O(1)
-      const cardEntries = playState.sessionDoc.cardMappings.map(mapping => ({
-        id: mapping.uid,
-        value: playId
-      }));
-      await redisService.setMany(redisService.NAMESPACES.CARD, cardEntries);
+      await redisService.hset(
+        redisService.NAMESPACES.PLAY,
+        playId,
+        redisState,
+        DISTRIBUTED_LOCK_TTL_SECONDS
+      );
 
       logger.debug(`Partida ${playId} sincronizada con Redis`);
     } catch (error) {
@@ -1198,13 +1329,14 @@ class GameEngine {
       if (!playDoc) {
         logger.warn(`Partida ${playId} en Redis pero no en MongoDB, limpiando...`);
         await redisService.del(redisService.NAMESPACES.PLAY, playId);
+        await this.cleanupSessionCardMappings(redisState.sessionDocId, playId);
         return false;
       }
 
       const wasRecovered = await this.markPlayAbandonedIfNeeded(playId, playDoc);
 
       await redisService.del(redisService.NAMESPACES.PLAY, playId);
-      await this.cleanupSessionCardMappings(redisState.sessionDocId);
+      await this.cleanupSessionCardMappings(redisState.sessionDocId, playId);
 
       return wasRecovered;
     } catch (err) {
@@ -1244,7 +1376,7 @@ class GameEngine {
     return true;
   }
 
-  async cleanupSessionCardMappings(sessionDocId) {
+  async cleanupSessionCardMappings(sessionDocId, playId = null) {
     if (!sessionDocId) {
       return;
     }
@@ -1255,6 +1387,12 @@ class GameEngine {
     }
 
     const cardUids = sessionDoc.cardMappings.map(mapping => mapping.uid);
+
+    if (playId) {
+      await this.releaseDistributedCardMappings(playId, cardUids);
+      return;
+    }
+
     await redisService.delMany(redisService.NAMESPACES.CARD, cardUids);
   }
 }

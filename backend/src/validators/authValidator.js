@@ -40,11 +40,7 @@ const changePasswordSchema = z
 /**
  * Schema para refresh token.
  */
-const refreshTokenSchema = z
-  .object({
-    refreshToken: z.string().min(1, 'Refresh token requerido').optional()
-  })
-  .strict();
+const refreshTokenSchema = emptyObjectSchema;
 
 module.exports = {
   updateProfileSchema,

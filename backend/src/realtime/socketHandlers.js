@@ -24,10 +24,13 @@ const RFID_MODES = Object.freeze({
 
 const AUTH_REVALIDATION_CACHE_TTL_MS =
   Number.parseInt(process.env.AUTH_REVALIDATION_CACHE_TTL_MS, 10) || 30000;
+const PLAY_OWNERSHIP_CACHE_TTL_MS =
+  Number.parseInt(process.env.PLAY_OWNERSHIP_CACHE_TTL_MS, 10) || 5000;
 
 const rfidModeByUserId = new Map();
 const sensorIdToUserId = new Map();
 const authRevalidationCache = new Map();
+const playOwnershipCache = new Map();
 
 const getAuthCacheEntry = accessToken => {
   if (!accessToken) {
@@ -55,6 +58,30 @@ const setAuthCacheEntry = (accessToken, value) => {
   authRevalidationCache.set(accessToken, {
     ...value,
     expiresAt: Date.now() + AUTH_REVALIDATION_CACHE_TTL_MS
+  });
+};
+
+const buildOwnershipCacheKey = ({ userId, userRole, playId, includeSessionRuntime }) =>
+  `${userRole || 'unknown'}:${userId || 'unknown'}:${playId}:${includeSessionRuntime ? 'full' : 'light'}`;
+
+const getOwnershipCacheEntry = cacheKey => {
+  const cached = playOwnershipCache.get(cacheKey);
+  if (!cached) {
+    return null;
+  }
+
+  if (cached.expiresAt <= Date.now()) {
+    playOwnershipCache.delete(cacheKey);
+    return null;
+  }
+
+  return cached.value;
+};
+
+const setOwnershipCacheEntry = (cacheKey, value) => {
+  playOwnershipCache.set(cacheKey, {
+    value,
+    expiresAt: Date.now() + PLAY_OWNERSHIP_CACHE_TTL_MS
   });
 };
 
@@ -267,7 +294,9 @@ const revalidateSocketAuth = async (socket, eventName) => {
   }
 };
 
-const requirePlayOwnership = async (socket, playId, eventName) => {
+const requirePlayOwnership = async (socket, playId, eventName, options = {}) => {
+  const includeSessionRuntime = options.includeSessionRuntime === true;
+
   if (!socket?.data?.userId) {
     socket.emit('error', { code: 'AUTH_REQUIRED', message: 'Autenticacion requerida' });
     logSocketSecurityEvent('AUTHZ_ACCESS_DENIED', socket, {
@@ -278,12 +307,35 @@ const requirePlayOwnership = async (socket, playId, eventName) => {
     return null;
   }
 
-  const play = await gamePlayRepository.findById(playId, {
-    populate: {
-      path: 'sessionId',
-      populate: { path: 'mechanicId', select: 'name rules' }
-    }
+  const ownershipCacheKey = buildOwnershipCacheKey({
+    userId: socket.data.userId,
+    userRole: socket.data.userRole,
+    playId,
+    includeSessionRuntime
   });
+
+  if (!includeSessionRuntime) {
+    const cachedOwnership = getOwnershipCacheEntry(ownershipCacheKey);
+    if (cachedOwnership) {
+      return cachedOwnership;
+    }
+  }
+
+  const play = includeSessionRuntime
+    ? await gamePlayRepository.findById(playId, {
+        populate: {
+          path: 'sessionId',
+          populate: { path: 'mechanicId', select: 'name rules' }
+        }
+      })
+    : await gamePlayRepository.findById(playId, {
+        select: '_id sessionId status',
+        populate: {
+          path: 'sessionId',
+          select: '_id createdBy'
+        }
+      });
+
   if (!play) {
     socket.emit('error', { code: 'NOT_FOUND', message: 'Partida no encontrada' });
     logSocketSecurityEvent('AUTHZ_ACCESS_DENIED', socket, {
@@ -309,7 +361,12 @@ const requirePlayOwnership = async (socket, playId, eventName) => {
     return null;
   }
 
-  return { play, session };
+  const ownership = { play, session };
+  if (!includeSessionRuntime) {
+    setOwnershipCacheEntry(ownershipCacheKey, ownership);
+  }
+
+  return ownership;
 };
 
 const isRfidClientSourceEnabled = socket => {

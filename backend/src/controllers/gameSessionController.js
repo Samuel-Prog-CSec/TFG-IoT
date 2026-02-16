@@ -63,8 +63,9 @@ const getSessions = async (req, res, next) => {
       throw new ForbiddenError('Los alumnos no pueden acceder a sesiones directamente');
     }
 
-    // Filtrar por sesiones del profesor actual (super_admin puede ver todas)
-    if (req.user.role === 'teacher' && !createdBy) {
+    // Filtrar SIEMPRE por sesiones del profesor actual.
+    // Evita que un teacher fuerce createdBy en query para consultar sesiones ajenas.
+    if (req.user.role === 'teacher') {
       filter.createdBy = req.user._id;
     }
 
@@ -136,17 +137,7 @@ const getSessionById = async (req, res, next) => {
       throw new ForbiddenError('No tienes permiso para ver esta sesión');
     }
 
-    // 2) Al "seleccionar" una sesión (ver detalle), sincronizar SIEMPRE desde el mazo
-    // para evitar que se quede con mapeos antiguos.
-    if (session.deckId) {
-      await gameSessionService.syncSessionFromDeck(session, {
-        deckId: session.deckId,
-        userId: session.createdBy
-      });
-      await session.save();
-    }
-
-    // 3) Populate final para respuesta completa
+    // 2) Populate final para respuesta completa
     await session.populate([
       { path: 'mechanicId', select: 'name displayName icon rules' },
       { path: 'deckId', select: 'name status contextId' },

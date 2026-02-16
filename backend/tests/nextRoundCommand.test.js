@@ -36,6 +36,7 @@ describe('NextRoundCommand', () => {
 
     expect(gameEngine.advanceToNextRound).toHaveBeenCalledTimes(1);
     expect(socket.emit).toHaveBeenCalledWith('error', {
+      code: 'ROUND_BLOCKED',
       message: 'No se puede avanzar de ronda mientras se espera una respuesta'
     });
   });

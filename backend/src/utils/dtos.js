@@ -628,8 +628,6 @@ const toAuthResponseDTOV1 = (user, tokens) => ({
   user: toUserDTOV1(user),
   accessToken: tokens.accessToken,
   accessTokenExpiresIn: tokens.accessTokenExpiresIn,
-  refreshToken: tokens.refreshToken,
-  refreshTokenExpiresIn: tokens.refreshTokenExpiresIn,
   tokenType: tokens.tokenType
 });
 

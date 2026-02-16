@@ -460,7 +460,7 @@ const changePassword = async (req, res, next) => {
  * Implementa token rotation: revoca el viejo refresh token y genera uno nuevo.
  *
  * POST /api/auth/refresh
- * Body: { refreshToken }
+ * Cookie: refreshToken (httpOnly)
  *
  * @param {import('express').Request} req
  * @param {import('express').Response} res
@@ -469,7 +469,7 @@ const changePassword = async (req, res, next) => {
 const refreshAccessToken = async (req, res, next) => {
   let securityLogged = false;
   try {
-    const refreshToken = req.cookies?.[REFRESH_COOKIE_NAME] || req.body?.refreshToken;
+    const refreshToken = req.cookies?.[REFRESH_COOKIE_NAME];
     const requestContext = getRequestContext(req);
 
     if (!refreshToken) {

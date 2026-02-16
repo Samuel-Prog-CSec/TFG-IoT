@@ -68,3 +68,56 @@ En la iteración del 16-02-2026 se incorporaron mejoras operativas en `gameEngin
      - limpieza de partidas abandonadas por timeout global
      - recuperación de partidas huérfanas desde Redis
    - Tamaño configurable por `GAME_ENGINE_BATCH_SIZE` (default 20).
+
+## Avance Sprint 4 (T-064)
+
+En la iteración del 16-02-2026 se aplicaron optimizaciones de lectura/consultas:
+
+1. **Lectura de sesión sin mutación**
+   - `GET /api/sessions/:id` dejó de sincronizar y persistir (`save`) durante la lectura.
+   - El endpoint queda sin side-effects de escritura (read-only real).
+
+2. **Recalculo de estado de sesión en una sola consulta agregada**
+   - `sessionStatusService` pasó de dos `countDocuments` a una agregación con conteo total + conteo condicional de plays activas/pausadas.
+   - Reduce roundtrips Mongo por recálculo de estado.
+
+3. **Optimización de ownership en comandos socket**
+   - Se añadió ruta ligera de consulta para ownership en comandos `join/leave/pause/resume/next`.
+   - Se añadió caché TTL por `userId + playId` (`PLAY_OWNERSHIP_CACHE_TTL_MS`, default 5s).
+   - `start_play` mantiene ruta completa con sesión/mecánica para preservar funcionalidad de arranque.
+
+## Avance Sprint 4 (T-065)
+
+En la iteración del 16-02-2026 se aplicó reducción de escrituras por ronda en `GamePlay`:
+
+1. **Persistencia atómica de eventos**
+   - Se añadió `addEventAtomic` en el modelo `GamePlay`.
+   - Cada evento persiste con un único update usando `$push` (con `$slice`) y `$inc` para score/métricas.
+
+2. **Evento + avance de ronda en una sola escritura**
+   - En `gameEngine`, los eventos de resultado (`correct/error/timeout`) incrementan `currentRound` en la misma operación atómica.
+   - Se elimina la necesidad de una escritura separada para persistir avance de ronda.
+
+3. **Política de checkpoints por defecto**
+   - Se desactiva por defecto la persistencia de `round_start` para evitar doble escritura por ronda.
+   - Puede habilitarse explícitamente con `PERSIST_ROUND_START_EVENTS=true`.
+
+4. **Consistencia de métricas de intentos**
+   - `metrics.totalAttempts` ahora contabiliza solo eventos de respuesta (`correct`, `error`, `timeout`), no eventos de control.
+
+## Avance Sprint 4 (T-066)
+
+En la iteración del 16-02-2026 se fortaleció la coordinación distribuida del runtime:
+
+1. **Locks de tarjetas con lease TTL**
+   - Las reservas de UIDs en Redis usan claim atómico (`SET NX`) con TTL (`GAME_ENGINE_LOCK_TTL_SECONDS`, default 90s).
+
+2. **Heartbeat de renovación de leases**
+   - El engine renueva periódicamente claves activas de `PLAY` y `CARD` (`GAME_ENGINE_LOCK_HEARTBEAT_MS`, default 30000ms).
+   - Métricas nuevas: `distributedLockLeaseRenewed` y `distributedLockLeaseFailed`.
+
+3. **Release owner-aware**
+   - La liberación de tarjetas valida ownership (`value === playId`) para evitar borrado accidental de locks de otra instancia.
+
+4. **Cobertura de regresión**
+   - Tests añadidos para colisión de UIDs, presencia de TTL y renovación de lease.

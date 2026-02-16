@@ -7,6 +7,7 @@
 const gameSessionRepository = require('../repositories/gameSessionRepository');
 const gamePlayRepository = require('../repositories/gamePlayRepository');
 const logger = require('../utils/logger').child({ component: 'sessionStatusService' });
+const mongoose = require('mongoose');
 
 /**
  * Obtiene el siguiente estado de sesión según recuento de partidas.
@@ -38,12 +39,38 @@ function resolveSessionStatus(counters) {
  * @returns {Promise<{ totalPlays: number, activeOrPausedPlays: number }>}
  */
 async function getPlayCountersBySession(sessionId) {
-  const [totalPlays, activeOrPausedPlays] = await Promise.all([
-    gamePlayRepository.count({ sessionId }),
-    gamePlayRepository.count({ sessionId, status: { $in: ['in-progress', 'paused'] } })
+  const normalizedSessionId =
+    typeof sessionId === 'string' && mongoose.Types.ObjectId.isValid(sessionId)
+      ? new mongoose.Types.ObjectId(sessionId)
+      : sessionId;
+
+  const [result] = await gamePlayRepository.aggregate([
+    {
+      $match: {
+        sessionId: normalizedSessionId
+      }
+    },
+    {
+      $group: {
+        _id: null,
+        totalPlays: { $sum: 1 },
+        activeOrPausedPlays: {
+          $sum: {
+            $cond: [{ $in: ['$status', ['in-progress', 'paused']] }, 1, 0]
+          }
+        }
+      }
+    }
   ]);
 
-  return { totalPlays, activeOrPausedPlays };
+  if (!result) {
+    return { totalPlays: 0, activeOrPausedPlays: 0 };
+  }
+
+  return {
+    totalPlays: result.totalPlays,
+    activeOrPausedPlays: result.activeOrPausedPlays
+  };
 }
 
 /**
