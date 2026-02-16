@@ -32,6 +32,8 @@ const state = {
     blocked: 0,
     payloadRejected: 0,
     deduped: 0,
+    authCacheHits: 0,
+    authCacheMisses: 0,
     byEvent: {},
     lastEventAt: null
   }
@@ -76,7 +78,7 @@ function recordRfidEvent(event) {
   state.rfid.totalEventsProcessed += 1;
   state.rfid.lastEventAt = Date.now();
 
-  const eventType = (event && event.event) || 'unknown';
+  const eventType = event?.event || 'unknown';
   state.rfid.byEvent[eventType] = (state.rfid.byEvent[eventType] || 0) + 1;
 }
 
@@ -100,6 +102,21 @@ function recordWebsocketEvent({ eventName, outcome }) {
     state.websocket.payloadRejected += 1;
   } else if (outcome === 'deduped') {
     state.websocket.deduped += 1;
+  }
+}
+
+/**
+ * Registra uso de caché de revalidación auth en WebSocket.
+ * @param {'hit'|'miss'} outcome
+ */
+function recordSocketAuthCache(outcome) {
+  if (outcome === 'hit') {
+    state.websocket.authCacheHits += 1;
+    return;
+  }
+
+  if (outcome === 'miss') {
+    state.websocket.authCacheMisses += 1;
   }
 }
 
@@ -149,6 +166,8 @@ function reset() {
   state.websocket.blocked = 0;
   state.websocket.payloadRejected = 0;
   state.websocket.deduped = 0;
+  state.websocket.authCacheHits = 0;
+  state.websocket.authCacheMisses = 0;
   state.websocket.byEvent = {};
   state.websocket.lastEventAt = null;
 }
@@ -157,6 +176,7 @@ module.exports = {
   recordHttpRequest,
   recordRfidEvent,
   recordWebsocketEvent,
+  recordSocketAuthCache,
   getSnapshot,
   reset
 };

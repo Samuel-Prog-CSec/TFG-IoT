@@ -8,6 +8,7 @@
 const gamePlayRepository = require('../repositories/gamePlayRepository');
 const gameSessionRepository = require('../repositories/gameSessionRepository');
 const userRepository = require('../repositories/userRepository');
+const { recalculateSessionStatusFromPlays } = require('./sessionStatusService');
 const { NotFoundError, ValidationError, ForbiddenError } = require('../utils/errors');
 const logger = require('../utils/logger').child({ component: 'gamePlayService' });
 
@@ -112,6 +113,8 @@ async function createPlay({ sessionId, playerId, creatorId }) {
     createdBy: creatorId
   });
 
+  await recalculateSessionStatusFromPlays(sessionId);
+
   return play;
 }
 
@@ -202,6 +205,8 @@ async function completePlay(playId) {
     finalScore: play.score,
     rating
   });
+
+  await recalculateSessionStatusFromPlays(play.sessionId._id);
 
   return { play, rating };
 }

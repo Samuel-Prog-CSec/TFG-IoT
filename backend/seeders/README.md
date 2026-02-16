@@ -77,16 +77,13 @@ Los seeders se ejecutan en orden numérico para respetar las dependencias:
 
 ### Sesiones de Juego (~30)
 - ~10 sesiones por profesor
-- **Estados variados**: 
-  - `active` (en progreso)
-  - `created` (pendientes)
-  - `completed` (históricas)
-  - `paused` (pausadas)
+- **Estado principal**: `completed` (históricas con partidas generadas)
+- El seeder de GamePlays recalcula automáticamente el estado de sesión para mantener consistencia de dominio
 - **Dificultades**: easy, medium, hard
 
 ### Partidas GamePlays (~35)
 - Partidas individuales de alumnos
-- Estados: `in-progress` y `completed`
+- Estado principal: `completed`
 - Eventos de juego simulados (escaneos, aciertos, errores)
 - Métricas calculadas (puntuación, tiempo, intentos)
 

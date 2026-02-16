@@ -29,7 +29,17 @@ class NextRoundCommand extends BaseSocketCommand {
       return;
     }
 
-    gameEngine.sendNextRound(playId);
+    const result = await gameEngine.advanceToNextRound(playId);
+    if (!result.ok) {
+      if (result.reason === 'awaiting_response') {
+        socket.emit('error', {
+          message: 'No se puede avanzar de ronda mientras se espera una respuesta'
+        });
+        return;
+      }
+
+      socket.emit('error', { message: 'La partida no está activa en el motor de juego' });
+    }
   }
 }
 

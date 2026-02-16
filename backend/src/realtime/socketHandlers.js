@@ -22,8 +22,41 @@ const RFID_MODES = Object.freeze({
   CARD_ASSIGNMENT: 'card_assignment'
 });
 
+const AUTH_REVALIDATION_CACHE_TTL_MS =
+  Number.parseInt(process.env.AUTH_REVALIDATION_CACHE_TTL_MS, 10) || 30000;
+
 const rfidModeByUserId = new Map();
 const sensorIdToUserId = new Map();
+const authRevalidationCache = new Map();
+
+const getAuthCacheEntry = accessToken => {
+  if (!accessToken) {
+    return null;
+  }
+
+  const cached = authRevalidationCache.get(accessToken);
+  if (!cached) {
+    return null;
+  }
+
+  if (cached.expiresAt <= Date.now()) {
+    authRevalidationCache.delete(accessToken);
+    return null;
+  }
+
+  return cached;
+};
+
+const setAuthCacheEntry = (accessToken, value) => {
+  if (!accessToken) {
+    return;
+  }
+
+  authRevalidationCache.set(accessToken, {
+    ...value,
+    expiresAt: Date.now() + AUTH_REVALIDATION_CACHE_TTL_MS
+  });
+};
 
 const getRfidModeState = userId => {
   if (!userId) {
@@ -174,6 +207,17 @@ const revalidateSocketAuth = async (socket, eventName) => {
   }
 
   try {
+    const cached = getAuthCacheEntry(accessToken);
+    if (cached) {
+      runtimeMetrics.recordSocketAuthCache('hit');
+      socket.data.userId = cached.userId;
+      socket.data.userRole = cached.userRole;
+      socket.data.tokenExp = cached.tokenExp;
+      return true;
+    }
+
+    runtimeMetrics.recordSocketAuthCache('miss');
+
     const decoded = await verifyAccessToken(accessToken, {
       headers: socket.handshake.headers
     });
@@ -204,6 +248,13 @@ const revalidateSocketAuth = async (socket, eventName) => {
     socket.data.userId = user._id.toString();
     socket.data.userRole = user.role;
     socket.data.tokenExp = decoded.exp;
+
+    setAuthCacheEntry(accessToken, {
+      userId: user._id.toString(),
+      userRole: user.role,
+      tokenExp: decoded.exp
+    });
+
     return true;
   } catch (error) {
     socket.emit('error', { code: 'AUTH_INVALID', message: 'Autenticacion invalida' });
@@ -339,8 +390,37 @@ const validateRfidSensorAuthorization = (socket, modeState, payload, gameEngine)
     return true;
   }
 
-  const playState = gameEngine.getPlayState(modeState.metadata.playId);
-  const sessionSensorId = playState?.sessionDoc?.sensorId;
+  const playContext = gameEngine.getPlayRuntimeContext(modeState.metadata.playId);
+  if (!playContext) {
+    socket.emit('error', {
+      code: 'PLAY_NOT_ACTIVE',
+      message: 'La partida no está activa en el motor de juego'
+    });
+    logSocketSecurityEvent('SECURITY_RFID_EVENT_INVALID', socket, {
+      eventName: 'rfid_scan_from_client',
+      reason: 'PLAY_NOT_ACTIVE',
+      playId: modeState.metadata.playId
+    });
+    return false;
+  }
+
+  const isSuperAdmin = socket.data.userRole === 'super_admin';
+  const ownsPlay = playContext.ownerId && playContext.ownerId === socket.data.userId;
+  if (!isSuperAdmin && !ownsPlay) {
+    socket.emit('error', {
+      code: 'FORBIDDEN',
+      message: 'No tienes acceso a esta partida'
+    });
+    logSocketSecurityEvent('AUTHZ_ACCESS_DENIED', socket, {
+      eventName: 'rfid_scan_from_client',
+      reason: 'OWNERSHIP_INVALID',
+      playId: playContext.playId,
+      sessionId: playContext.sessionId
+    });
+    return false;
+  }
+
+  const sessionSensorId = playContext.sensorId;
 
   if (!sessionSensorId || sessionSensorId === payload.sensorId) {
     return true;
@@ -353,7 +433,7 @@ const validateRfidSensorAuthorization = (socket, modeState, payload, gameEngine)
   logSocketSecurityEvent('SECURITY_RFID_EVENT_INVALID', socket, {
     eventName: 'rfid_scan_from_client',
     reason: 'RFID_SENSOR_UNAUTHORIZED',
-    sessionId: playState?.sessionDoc?._id,
+    sessionId: playContext.sessionId,
     expected: sessionSensorId,
     received: payload.sensorId
   });
@@ -384,7 +464,7 @@ const ensureRfidSensorConsistency = (socket, modeState, payload) => {
   return true;
 };
 
-const handleRfidScanFromClient = (socket, data, gameEngine, rfidService, logger) => {
+const handleRfidScanFromClient = async (socket, data, gameEngine, rfidService, logger) => {
   if (!requireSocketRole(socket, ['teacher', 'super_admin'], 'rfid_scan_from_client')) {
     return;
   }

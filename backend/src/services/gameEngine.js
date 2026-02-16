@@ -9,6 +9,7 @@ const logger = require('../utils/logger').child({ component: 'gameEngine' });
 const gamePlayRepository = require('../repositories/gamePlayRepository');
 const gameSessionRepository = require('../repositories/gameSessionRepository');
 const redisService = require('./redisService');
+const { recalculateSessionStatusFromPlays } = require('./sessionStatusService');
 const { getMechanicStrategy } = require('../strategies/mechanics');
 
 // Constantes de configuración
@@ -17,6 +18,7 @@ const ACTIVE_PLAYS_WARNING_THRESHOLD =
   Number.parseInt(process.env.ACTIVE_PLAYS_WARNING_THRESHOLD, 10) || 1000;
 const PLAY_TIMEOUT_MS = Number.parseInt(process.env.PLAY_TIMEOUT_MS, 10) || 3600000; // 1 hora
 const CLEANUP_INTERVAL_MS = 300000; // 5 minutos
+const PROCESS_BATCH_SIZE = Number.parseInt(process.env.GAME_ENGINE_BATCH_SIZE, 10) || 20;
 
 /**
  * GameEngine - Servicio con estado para gestión de partidas en tiempo real.
@@ -80,6 +82,13 @@ class GameEngine {
     this.cardUidToPlayId = new Map();
 
     /**
+     * Cola de exclusión mutua por partida para serializar operaciones críticas
+     * (scan/timeout/pause/resume/next_round manual).
+     * @type {Map<string, Promise<any>>}
+     */
+    this.playLocks = new Map();
+
+    /**
      * Métricas del motor de juego para monitoreo.
      * @type {Object}
      */
@@ -88,6 +97,12 @@ class GameEngine {
       totalPlaysCompleted: 0,
       totalPlaysCancelled: 0,
       totalCardScans: 0,
+      ignoredCardScans: 0,
+      blockedManualNextRound: 0,
+      totalTimeouts: 0,
+      averageRoundResponseTimeMs: 0,
+      totalRoundResponses: 0,
+      lockContention: 0,
       averagePlayDuration: 0
     };
 
@@ -139,10 +154,10 @@ class GameEngine {
         playIds: abandonedPlays
       });
 
-      for (const playId of abandonedPlays) {
+      await this.processInBatches(abandonedPlays, async playId => {
         await this.endPlay(playId);
         this.metrics.totalPlaysCancelled++;
-      }
+      });
     }
 
     logger.debug('Cleanup ejecutado', {
@@ -160,6 +175,65 @@ class GameEngine {
     if (this.cleanupInterval) {
       clearInterval(this.cleanupInterval);
       logger.info('Cleanup timer detenido');
+    }
+  }
+
+  /**
+   * Ejecuta una operación de forma exclusiva por playId.
+   * @private
+   * @param {string} playId
+   * @param {string} operationName
+   * @param {() => Promise<any>} operation
+   * @returns {Promise<any>}
+   */
+  async executeWithPlayLock(playId, operationName, operation) {
+    const previousOperation = this.playLocks.get(playId);
+    if (previousOperation !== undefined) {
+      this.metrics.lockContention++;
+    }
+
+    const operationQueue = previousOperation !== undefined ? previousOperation : Promise.resolve();
+
+    const currentOperation = operationQueue
+      .catch(() => undefined)
+      .then(async () => {
+        try {
+          return await operation();
+        } catch (error) {
+          logger.error(`Error en operación serializada '${operationName}' para ${playId}`, {
+            playId,
+            operationName,
+            error: error.message
+          });
+          throw error;
+        }
+      });
+
+    this.playLocks.set(playId, currentOperation);
+
+    return currentOperation.finally(() => {
+      if (this.playLocks.get(playId) === currentOperation) {
+        this.playLocks.delete(playId);
+      }
+    });
+  }
+
+  /**
+   * Procesa elementos en lotes para reducir latencia de bucles secuenciales.
+   * @private
+   * @template T
+   * @param {T[]} items
+   * @param {(item: T) => Promise<any>} processor
+   * @returns {Promise<void>}
+   */
+  async processInBatches(items, processor) {
+    if (!Array.isArray(items) || items.length === 0) {
+      return;
+    }
+
+    for (let index = 0; index < items.length; index += PROCESS_BATCH_SIZE) {
+      const batch = items.slice(index, index + PROCESS_BATCH_SIZE);
+      await Promise.all(batch.map(item => processor(item)));
     }
   }
 
@@ -187,6 +261,11 @@ class GameEngine {
    */
   async startPlay(playDoc, sessionDoc) {
     const playId = playDoc._id.toString();
+
+    if (this.activePlays.has(playId)) {
+      logger.warn(`Partida ${playId} ya estaba iniciada en memoria (idempotencia start_play)`);
+      return;
+    }
 
     // 0. Verificar umbral de partidas activas (Monitorización - solo warning)
     if (this.activePlays.size >= ACTIVE_PLAYS_WARNING_THRESHOLD) {
@@ -301,6 +380,7 @@ class GameEngine {
       const playDuration = Date.now() - playState.createdAt;
 
       await playState.playDoc.complete(); // Llama al método .complete() del modelo
+      await recalculateSessionStatusFromPlays(playState.playDoc.sessionId);
 
       logger.info(`Partida ${playId} guardada en BD`, {
         playId,
@@ -448,6 +528,32 @@ class GameEngine {
     }, sessionDoc.config.timeLimit * 1000);
   }
 
+  /**
+   * Solicita avanzar manualmente a la siguiente ronda.
+   *
+   * Se bloquea si la ronda actual está esperando respuesta para evitar saltos
+   * y condiciones de carrera con timeout/escaneo.
+   *
+   * @param {string} playId
+   * @returns {Promise<{ ok: boolean, reason: string|null }>}
+   */
+  async advanceToNextRound(playId) {
+    return this.executeWithPlayLock(playId, 'advance_to_next_round', async () => {
+      const playState = this.activePlays.get(playId);
+      if (!playState) {
+        return { ok: false, reason: 'play_not_active' };
+      }
+
+      if (playState.awaitingResponse) {
+        this.metrics.blockedManualNextRound++;
+        return { ok: false, reason: 'awaiting_response' };
+      }
+
+      await this.sendNextRound(playId);
+      return { ok: true, reason: null };
+    });
+  }
+
   // ============================================================================
   // MANEJO DE ENTRADAS (ESCANEOS RFID)
   // ============================================================================
@@ -469,44 +575,54 @@ class GameEngine {
    * @returns {Promise<void>}
    */
   async handleCardScan(uid) {
+    this.metrics.totalCardScans++;
+
     // 1. Búsqueda O(1) para encontrar la partida
     const playId = this.cardUidToPlayId.get(uid);
     if (!playId) {
+      this.metrics.ignoredCardScans++;
       logger.debug(`Tarjeta ${uid} escaneada, pero no pertenece a ningún juego activo.`);
       return;
     }
 
-    // 2. Obtener el estado del juego
-    const playState = this.activePlays.get(playId);
+    await this.executeWithPlayLock(playId, 'handle_card_scan', async () => {
+      // 2. Obtener el estado del juego
+      const playState = this.activePlays.get(playId);
 
-    // Ignorar escaneos si la partida está pausada
-    if (playState?.paused || playState?.playDoc?.status === 'paused') {
-      logger.debug(`Tarjeta ${uid} ignorada: partida ${playId} en pausa.`);
-      return;
-    }
+      // Ignorar escaneos si la partida está pausada
+      if (playState?.paused || playState?.playDoc?.status === 'paused') {
+        this.metrics.ignoredCardScans++;
+        logger.debug(`Tarjeta ${uid} ignorada: partida ${playId} en pausa.`);
+        return;
+      }
 
-    if (!playState?.awaitingResponse) {
-      // El juego existe, pero no está esperando una respuesta
-      // (ej. escaneo demasiado rápido, o entre rondas)
-      logger.debug(`Tarjeta ${uid} escaneada para ${playId}, pero no se esperaba respuesta.`);
-      return;
-    }
+      if (!playState?.awaitingResponse) {
+        this.metrics.ignoredCardScans++;
+        // El juego existe, pero no está esperando una respuesta
+        // (ej. escaneo demasiado rápido, o entre rondas)
+        logger.debug(`Tarjeta ${uid} escaneada para ${playId}, pero no se esperaba respuesta.`);
+        return;
+      }
 
-    // 3. Búsqueda O(1) del mapping de la tarjeta escaneada
-    const scannedCardMapping = playState.uidToMapping.get(uid);
-    if (!scannedCardMapping) {
-      // Esto NO debería ocurrir si el índice está sincronizado correctamente
-      logger.error(`Error CRÍTICO: ${uid} mapeado a ${playId} pero no encontrado en uidToMapping.`);
-      return;
-    }
+      // 3. Búsqueda O(1) del mapping de la tarjeta escaneada
+      const scannedCardMapping = playState.uidToMapping.get(uid);
+      if (!scannedCardMapping) {
+        this.metrics.ignoredCardScans++;
+        // Esto NO debería ocurrir si el índice está sincronizado correctamente
+        logger.error(
+          `Error CRÍTICO: ${uid} mapeado a ${playId} pero no encontrado en uidToMapping.`
+        );
+        return;
+      }
 
-    // 4. Respuesta recibida → limpiar el timer
-    clearTimeout(playState.roundTimer);
-    playState.roundTimer = null;
-    playState.awaitingResponse = false;
+      // 4. Respuesta recibida → limpiar el timer
+      clearTimeout(playState.roundTimer);
+      playState.roundTimer = null;
+      playState.awaitingResponse = false;
 
-    // 5. Procesar la respuesta
-    await this.processResponse(playId, playState, scannedCardMapping);
+      // 5. Procesar la respuesta
+      await this.processResponse(playId, playState, scannedCardMapping);
+    });
   }
 
   /**
@@ -588,10 +704,16 @@ class GameEngine {
       `Partida: ${playId} | Ronda: ${playDoc.currentRound} | ${eventType} (${symbol}${pointsAwarded} pts)`
     );
 
+    this.metrics.totalRoundResponses++;
+    this.metrics.averageRoundResponseTimeMs =
+      (this.metrics.averageRoundResponseTimeMs * (this.metrics.totalRoundResponses - 1) +
+        timeElapsed) /
+      this.metrics.totalRoundResponses;
+
     // 5. Pasar a la siguiente ronda (tras un breve delay para feedback)
     playDoc.currentRound++;
     playState.nextRoundTimer = setTimeout(() => {
-      this.sendNextRound(playId);
+      this.advanceToNextRound(playId);
     }, 4000); // Delay de 4s para que el jugador vea el resultado
   }
 
@@ -607,49 +729,52 @@ class GameEngine {
    * @emits validation_result - Indicando timeout sin puntuación
    */
   async handleTimeout(playId) {
-    const playState = this.activePlays.get(playId);
-    if (!playState?.awaitingResponse) {
-      // La respuesta llegó justo a tiempo, el timer ya fue limpiado
-      return;
-    }
+    await this.executeWithPlayLock(playId, 'handle_timeout', async () => {
+      const playState = this.activePlays.get(playId);
+      if (!playState?.awaitingResponse) {
+        // La respuesta llegó justo a tiempo, el timer ya fue limpiado
+        return;
+      }
 
-    // Si está pausada, ignorar (race conditions)
-    if (playState.paused || playState.playDoc.status === 'paused') {
-      return;
-    }
+      // Si está pausada, ignorar (race conditions)
+      if (playState.paused || playState.playDoc.status === 'paused') {
+        return;
+      }
 
-    logger.info(`Partida: ${playId} | Ronda: ${playState.playDoc.currentRound} | TIMEOUT`);
+      logger.info(`Partida: ${playId} | Ronda: ${playState.playDoc.currentRound} | TIMEOUT`);
+      this.metrics.totalTimeouts++;
 
-    // 1. Limpiar estado
-    playState.awaitingResponse = false;
-    playState.roundTimer = null; // El timer ya se disparó
-    const { playDoc, sessionDoc, currentChallenge } = playState;
+      // 1. Limpiar estado
+      playState.awaitingResponse = false;
+      playState.roundTimer = null; // El timer ya se disparó
+      const { playDoc, sessionDoc, currentChallenge } = playState;
 
-    // 2. Crear el evento 'timeout' (sin puntos)
-    const eventData = {
-      eventType: 'timeout',
-      expectedValue: currentChallenge.assignedValue,
-      timeElapsed: sessionDoc.config.timeLimit * 1000,
-      roundNumber: playDoc.currentRound
-    };
+      // 2. Crear el evento 'timeout' (sin puntos)
+      const eventData = {
+        eventType: 'timeout',
+        expectedValue: currentChallenge.assignedValue,
+        timeElapsed: sessionDoc.config.timeLimit * 1000,
+        roundNumber: playDoc.currentRound
+      };
 
-    // 3. Guardar en BD
-    await playDoc.addEvent(eventData);
+      // 3. Guardar en BD
+      await playDoc.addEvent(eventData);
 
-    // 4. Emitir al cliente
-    this.io.to(`play_${playId}`).emit('validation_result', {
-      isCorrect: false,
-      timeout: true,
-      expected: currentChallenge.displayData,
-      pointsAwarded: 0,
-      newScore: playDoc.score
+      // 4. Emitir al cliente
+      this.io.to(`play_${playId}`).emit('validation_result', {
+        isCorrect: false,
+        timeout: true,
+        expected: currentChallenge.displayData,
+        pointsAwarded: 0,
+        newScore: playDoc.score
+      });
+
+      // 5. Pasar a la siguiente ronda
+      playDoc.currentRound++;
+      playState.nextRoundTimer = setTimeout(() => {
+        this.advanceToNextRound(playId);
+      }, 2000); // Delay reducido para timeouts
     });
-
-    // 5. Pasar a la siguiente ronda
-    playDoc.currentRound++;
-    playState.nextRoundTimer = setTimeout(() => {
-      this.sendNextRound(playId);
-    }, 2000); // Delay reducido para timeouts
   }
 
   // ============================================================================
@@ -682,6 +807,27 @@ class GameEngine {
   }
 
   /**
+   * Obtiene contexto runtime ampliado para validaciones de seguridad socket.
+   * @param {string} playId
+   * @returns {{ playId: string, sessionId: string, ownerId: string|null, sensorId: string|null, isPaused: boolean, awaitingResponse: boolean }|null}
+   */
+  getPlayRuntimeContext(playId) {
+    const playState = this.activePlays.get(playId);
+    if (!playState) {
+      return null;
+    }
+
+    return {
+      playId: playState.playDoc._id.toString(),
+      sessionId: playState.sessionDoc?._id?.toString?.() || null,
+      ownerId: playState.sessionDoc?.createdBy?.toString?.() || null,
+      sensorId: playState.sessionDoc?.sensorId || null,
+      isPaused: Boolean(playState.paused || playState.playDoc?.status === 'paused'),
+      awaitingResponse: Boolean(playState.awaitingResponse)
+    };
+  }
+
+  /**
    * Pausa una partida en curso.
    *
    * Congela el timer, persiste el estado y notifica al cliente.
@@ -703,81 +849,84 @@ class GameEngine {
    * @returns {Promise<{ remainingTimeMs: number | null }>} tiempo restante en ms
    */
   async pausePlayInternal(playId, options = {}) {
-    const playState = this.activePlays.get(playId);
-    if (!playState) {
-      return { remainingTimeMs: null };
-    }
-
-    // Control de permisos (si nos pasan el profesor)
-    if (options.requestedBy) {
-      const ownerId =
-        playState.sessionDoc?.createdBy?.toString?.() || playState.sessionDoc?.createdBy;
-      if (ownerId && ownerId.toString() !== options.requestedBy.toString()) {
-        this.io
-          .to(`play_${playId}`)
-          .emit('error', { message: 'No autorizado para pausar esta partida' });
+    return this.executeWithPlayLock(playId, 'pause_play', async () => {
+      const playState = this.activePlays.get(playId);
+      if (!playState) {
         return { remainingTimeMs: null };
       }
-    }
 
-    if (playState.paused || playState.playDoc.status === 'paused') {
-      return {
-        remainingTimeMs: playState.remainingTimeMs ?? playState.playDoc.remainingTime ?? null
-      };
-    }
-
-    // Cancelar timers activos
-    if (playState.roundTimer) {
-      clearTimeout(playState.roundTimer);
-      playState.roundTimer = null;
-    }
-    if (playState.nextRoundTimer) {
-      clearTimeout(playState.nextRoundTimer);
-      playState.nextRoundTimer = null;
-    }
-
-    // Calcular tiempo restante de la ronda actual
-    let remainingTimeMs = null;
-    if (
-      playState.currentChallenge &&
-      playState.roundStartTime &&
-      playState.sessionDoc?.config?.timeLimit
-    ) {
-      const totalMs = playState.sessionDoc.config.timeLimit * 1000;
-      const elapsedMs = Math.max(0, Date.now() - playState.roundStartTime);
-      playState.roundElapsedBeforePauseMs = Math.min(totalMs, elapsedMs);
-
-      // Solo congelamos la ronda si estábamos esperando respuesta
-      if (playState.awaitingResponse) {
-        remainingTimeMs = Math.max(0, totalMs - playState.roundElapsedBeforePauseMs);
+      // Control de permisos (si nos pasan el profesor)
+      if (options.requestedBy) {
+        const ownerId =
+          playState.sessionDoc?.createdBy?.toString?.() || playState.sessionDoc?.createdBy;
+        if (ownerId && ownerId.toString() !== options.requestedBy.toString()) {
+          this.io
+            .to(`play_${playId}`)
+            .emit('error', { message: 'No autorizado para pausar esta partida' });
+          return { remainingTimeMs: null };
+        }
       }
-    }
 
-    // Marcar como pausada y bloquear escaneos
-    playState.paused = true;
-    playState.pausedAt = Date.now();
-    playState.remainingTimeMs = remainingTimeMs;
-    playState.awaitingResponse = false;
+      if (playState.paused || playState.playDoc.status === 'paused') {
+        return {
+          remainingTimeMs: playState.remainingTimeMs ?? playState.playDoc.remainingTime ?? null
+        };
+      }
 
-    // Persistir en BD
-    try {
-      playState.playDoc.status = 'paused';
-      playState.playDoc.pausedAt = new Date(playState.pausedAt);
-      playState.playDoc.remainingTime = remainingTimeMs;
-      await playState.playDoc.save();
-    } catch (err) {
-      logger.error(`Error persistiendo pausa para ${playId}: ${err.message}`);
-    }
+      // Cancelar timers activos
+      if (playState.roundTimer) {
+        clearTimeout(playState.roundTimer);
+        playState.roundTimer = null;
+      }
+      if (playState.nextRoundTimer) {
+        clearTimeout(playState.nextRoundTimer);
+        playState.nextRoundTimer = null;
+      }
 
-    // Notificar al cliente
-    this.io.to(`play_${playId}`).emit('play_paused', {
-      playId,
-      currentRound: playState.playDoc.currentRound,
-      remainingTimeMs
+      // Calcular tiempo restante de la ronda actual
+      let remainingTimeMs = null;
+      if (
+        playState.currentChallenge &&
+        playState.roundStartTime &&
+        playState.sessionDoc?.config?.timeLimit
+      ) {
+        const totalMs = playState.sessionDoc.config.timeLimit * 1000;
+        const elapsedMs = Math.max(0, Date.now() - playState.roundStartTime);
+        playState.roundElapsedBeforePauseMs = Math.min(totalMs, elapsedMs);
+
+        // Solo congelamos la ronda si estábamos esperando respuesta
+        if (playState.awaitingResponse) {
+          remainingTimeMs = Math.max(0, totalMs - playState.roundElapsedBeforePauseMs);
+        }
+      }
+
+      // Marcar como pausada y bloquear escaneos
+      playState.paused = true;
+      playState.pausedAt = Date.now();
+      playState.remainingTimeMs = remainingTimeMs;
+      playState.awaitingResponse = false;
+
+      // Persistir en BD
+      try {
+        playState.playDoc.status = 'paused';
+        playState.playDoc.pausedAt = new Date(playState.pausedAt);
+        playState.playDoc.remainingTime = remainingTimeMs;
+        await playState.playDoc.save();
+        await recalculateSessionStatusFromPlays(playState.playDoc.sessionId);
+      } catch (err) {
+        logger.error(`Error persistiendo pausa para ${playId}: ${err.message}`);
+      }
+
+      // Notificar al cliente
+      this.io.to(`play_${playId}`).emit('play_paused', {
+        playId,
+        currentRound: playState.playDoc.currentRound,
+        remainingTimeMs
+      });
+
+      logger.info(`Partida ${playId} pausada`, { playId, remainingTimeMs });
+      return { remainingTimeMs };
     });
-
-    logger.info(`Partida ${playId} pausada`, { playId, remainingTimeMs });
-    return { remainingTimeMs };
   }
 
   isPlayOwner(playState, requestedBy) {
@@ -821,6 +970,7 @@ class GameEngine {
       playState.playDoc.pausedAt = null;
       playState.playDoc.remainingTime = null;
       await playState.playDoc.save();
+      await recalculateSessionStatusFromPlays(playState.playDoc.sessionId);
     } catch (err) {
       logger.error(`Error persistiendo reanudación para ${playId}: ${err.message}`);
     }
@@ -848,65 +998,71 @@ class GameEngine {
    * @returns {Promise<{ remainingTimeMs: number | null }>} tiempo restante rearmado en ms
    */
   async resumePlayInternal(playId, options = {}) {
-    const playState = this.activePlays.get(playId);
-    if (!playState) {
-      return { remainingTimeMs: null };
-    }
+    return this.executeWithPlayLock(playId, 'resume_play', async () => {
+      const playState = this.activePlays.get(playId);
+      if (!playState) {
+        return { remainingTimeMs: null };
+      }
 
-    // Control de permisos (si nos pasan el profesor)
-    if (!this.isPlayOwner(playState, options.requestedBy)) {
-      this.io
-        .to(`play_${playId}`)
-        .emit('error', { message: 'No autorizado para reanudar esta partida' });
-      return { remainingTimeMs: null };
-    }
+      // Control de permisos (si nos pasan el profesor)
+      if (!this.isPlayOwner(playState, options.requestedBy)) {
+        this.io
+          .to(`play_${playId}`)
+          .emit('error', { message: 'No autorizado para reanudar esta partida' });
+        return { remainingTimeMs: null };
+      }
 
-    if (!playState.paused && playState.playDoc.status !== 'paused') {
-      return { remainingTimeMs: null };
-    }
+      if (!playState.paused && playState.playDoc.status !== 'paused') {
+        return { remainingTimeMs: null };
+      }
 
-    // Cancelar timers residuales
-    this.clearPlayTimers(playState);
+      // Cancelar timers residuales
+      this.clearPlayTimers(playState);
 
-    const remainingTimeMs = this.getPlayRemainingTimeMs(playState);
+      const remainingTimeMs = this.getPlayRemainingTimeMs(playState);
 
-    // Restaurar el roundStartTime para que el cálculo timeElapsed NO incluya la pausa
-    this.restoreRoundStartTime(playState);
+      // Restaurar el roundStartTime para que el cálculo timeElapsed NO incluya la pausa
+      this.restoreRoundStartTime(playState);
 
-    // Marcar como reanudada
-    playState.paused = false;
-    playState.pausedAt = null;
-    playState.remainingTimeMs = null;
-    playState.awaitingResponse = true;
+      // Marcar como reanudada
+      playState.paused = false;
+      playState.pausedAt = null;
+      playState.remainingTimeMs = null;
+      playState.awaitingResponse = true;
 
-    // Persistir en BD
-    await this.persistPlayResumed(playId, playState);
+      // Persistir en BD
+      await this.persistPlayResumed(playId, playState);
 
-    // Reenviar desafío actual (útil si el cliente recargó)
-    if (playState.currentChallenge) {
-      this.io.to(`play_${playId}`).emit('play_resumed', {
-        playId,
-        currentRound: playState.playDoc.currentRound,
-        remainingTimeMs,
-        challenge: { displayData: playState.currentChallenge.displayData }
-      });
-    } else {
-      this.io.to(`play_${playId}`).emit('play_resumed', {
-        playId,
-        currentRound: playState.playDoc.currentRound,
-        remainingTimeMs
-      });
-    }
+      // Reenviar desafío actual (útil si el cliente recargó)
+      if (playState.currentChallenge) {
+        this.io.to(`play_${playId}`).emit('play_resumed', {
+          playId,
+          currentRound: playState.playDoc.currentRound,
+          remainingTimeMs,
+          challenge: { displayData: playState.currentChallenge.displayData }
+        });
+      } else {
+        this.io.to(`play_${playId}`).emit('play_resumed', {
+          playId,
+          currentRound: playState.playDoc.currentRound,
+          remainingTimeMs
+        });
+      }
 
-    // Rearmar timer con el tiempo restante (si aplica)
-    if (playState.currentChallenge && typeof remainingTimeMs === 'number' && remainingTimeMs > 0) {
-      playState.roundTimer = setTimeout(() => {
-        this.handleTimeout(playId);
-      }, remainingTimeMs);
-    }
+      // Rearmar timer con el tiempo restante (si aplica)
+      if (
+        playState.currentChallenge &&
+        typeof remainingTimeMs === 'number' &&
+        remainingTimeMs > 0
+      ) {
+        playState.roundTimer = setTimeout(() => {
+          this.handleTimeout(playId);
+        }, remainingTimeMs);
+      }
 
-    logger.info(`Partida ${playId} reanudada`, { playId, remainingTimeMs });
-    return { remainingTimeMs };
+      logger.info(`Partida ${playId} reanudada`, { playId, remainingTimeMs });
+      return { remainingTimeMs };
+    });
   }
 
   /**
@@ -1014,16 +1170,14 @@ class GameEngine {
 
       logger.info(`Recuperando ${playKeys.length} partidas de Redis...`);
 
-      let recoveredCount = 0;
-
-      for (const key of playKeys) {
-        // Extraer playId de la key (formato: play:playId)
+      const recoveredResults = [];
+      await this.processInBatches(playKeys, async key => {
         const playId = key.replace(`${redisService.NAMESPACES.PLAY}:`, '');
         const recovered = await this.recoverPlayFromRedis(playId);
-        if (recovered) {
-          recoveredCount++;
-        }
-      }
+        recoveredResults.push(recovered);
+      });
+
+      const recoveredCount = recoveredResults.filter(Boolean).length;
 
       logger.info(`Recuperación completada: ${recoveredCount} partidas marcadas como abandonadas`);
       return recoveredCount;
@@ -1074,6 +1228,7 @@ class GameEngine {
     });
 
     await playDoc.save();
+    await recalculateSessionStatusFromPlays(playDoc.sessionId);
 
     logger.info(`Partida ${playId} marcada como abandonada (reinicio del servidor)`);
 

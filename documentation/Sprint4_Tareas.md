@@ -69,7 +69,7 @@ Conectar la pantalla de partida real del frontend con el backend vía Socket.IO 
 
 ---
 
-### T-055: Hardening GameEngine (extensibilidad + rendimiento) 📋
+### T-055: Hardening GameEngine (extensibilidad + rendimiento) 🔄
 
 **Prioridad:** P0 | **Tamaño:** XL | **Dependencias:** T-054  
 **Origen:** RNF-REN-001, RNF-REN-010, ARCH-01, ARCH-02
@@ -92,6 +92,17 @@ Evolucionar `gameEngine` para soportar de forma estable múltiples mecánicas, d
 - [ ] Métricas de motor exponen al menos 3 indicadores nuevos de ejecución.
 - [ ] No quedan warnings críticos de race conditions detectados en revisión técnica.
 - [ ] Documentación técnica del motor actualizada.
+
+**Avance (16-02-2026):**
+
+- Se añadió guard de idempotencia en `start_play` dentro de `gameEngine`.
+- Se bloqueó `next_round` manual cuando la ronda está en `awaitingResponse`.
+- Se añadieron métricas nuevas de engine (`ignoredCardScans`, `blockedManualNextRound`, `totalTimeouts`, `averageRoundResponseTimeMs`).
+- Se añadió test específico de comando socket para `next_round`.
+- Se añadió serialización por `playId` para operaciones críticas (`handleCardScan`, `handleTimeout`, `pause`, `resume`, `advanceToNextRound`) para reducir condiciones de carrera.
+- Se endureció validación de `rfid_scan_from_client` en modo gameplay validando contexto runtime activo, ownership y sensor autorizado.
+- Se añadió caché TTL de revalidación auth para eventos socket sensibles con métricas `authCacheHits/authCacheMisses`.
+- Se optimizaron bucles secuenciales de cleanup/recovery del motor con procesamiento por lotes configurable (`GAME_ENGINE_BATCH_SIZE`).
 
 ---
 
@@ -149,7 +160,7 @@ Implementar anonimización de alumnos cumpliendo GDPR/LOPD, preservando métrica
 
 ---
 
-### T-053: Reglas de Estado de GameSession consistentes 📋
+### T-053: Reglas de Estado de GameSession consistentes 🔄
 
 **Prioridad:** P1 | **Tamaño:** M | **Dependencias:** T-054  
 **Origen:** RF-JGO-016, RF-JGO-019
@@ -170,6 +181,12 @@ Aplicar y automatizar reglas de transición de estado de `GameSession` según es
 - [ ] `completed` cuando no quedan plays activos/pausados.
 - [ ] Transiciones no dependen de cambios manuales fuera del flujo.
 - [ ] Tests de transición pasan para creación/inicio/finalización/abandono.
+
+**Avance (16-02-2026):**
+
+- Se creó `sessionStatusService` para centralizar el recálculo de estado de `GameSession` desde `GamePlay`.
+- Se integró recálculo en flujos clave: `createPlay`, `completePlay`, `abandonPlay`, `pause/resume` y recuperación por reinicio (`server_restart`).
+- Se ampliaron tests de regresión (`gameFlow`, `playPauseResume`, `redisStateRecovery`) con aserciones de estado de sesión.
 
 ---
 
