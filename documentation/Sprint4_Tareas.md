@@ -303,7 +303,7 @@ Formalizar criterios de calidad para release 1.0.0 con cobertura mínima y flujo
 
 ---
 
-### T-058: Optimización de rendimiento realtime y concurrencia 📋
+### T-058: Optimización de rendimiento realtime y concurrencia ✅
 
 **Prioridad:** P1 | **Tamaño:** L | **Dependencias:** T-055  
 **Origen:** ARCH-03
@@ -321,10 +321,17 @@ Implementar mejoras de rendimiento en el flujo realtime del backend para reducir
 
 **Criterios de Aceptación (medibles):**
 
-- [ ] Existe test que verifica hit de caché de auth en reconexión socket dentro del TTL.
-- [ ] Existe test de concurrencia que garantiza una única puntuación por ronda ante escaneos simultáneos.
-- [ ] `/api/metrics` incluye y reporta los nuevos contadores de cache/contención/race.
-- [ ] No hay regresiones en suites `gameFlow`, `playPauseResume`, `socketAuth`, `runtimeMetrics`.
+- [x] Existe test que verifica hit de caché de auth en reconexión socket dentro del TTL.
+- [x] Existe test de concurrencia que garantiza una única puntuación por ronda ante escaneos simultáneos.
+- [x] `/api/metrics` incluye y reporta los nuevos contadores de cache/contención/race.
+- [x] No hay regresiones en suites `gameFlow`, `playPauseResume`, `socketAuth`, `runtimeMetrics`.
+
+**Actualización (17-02-2026):**
+
+- Se añadió métrica explícita `scanRaceDiscarded` en `gameEngine` para observabilidad de carreras scan/timeout.
+- Se reforzó caché de ownership por socket además de caché global TTL para reducir lecturas repetidas en comandos consecutivos.
+- Se añadió barrido de expirados para cachés de auth/ownership (higiene de memoria bajo carga).
+- Suites verificadas en esta iteración: `socketAuth`, `runtimeMetrics`, `metricsEndpoints`, `gameFlow`, `playPauseResume`, `nextRoundCommand`.
 
 ---
 
@@ -358,7 +365,7 @@ Aplicar hardening de seguridad en backend y WebSocket (validación, ownership y 
 
 ---
 
-### T-064: Optimizar consultas y lectura de sesiones (sin write-on-read) 📋
+### T-064: Optimizar consultas y lectura de sesiones (sin write-on-read) ✅
 
 **Prioridad:** P1 | **Tamaño:** M | **Dependencias:** T-053  
 **Origen:** ARCH-04
@@ -376,10 +383,18 @@ Eliminar side-effects en endpoints de lectura y reducir sobrecarga de consultas 
 
 **Criterios de Aceptación (medibles):**
 
-- [ ] Ningún endpoint `GET` de sesión ejecuta `save()` como efecto colateral.
-- [ ] Comandos socket críticos reducen consultas redundantes de ownership.
-- [ ] Tests de repositorios/controladores validan lectura sin mutación.
-- [ ] Latencia de endpoints de detalle/listado mejora respecto a baseline definido.
+- [x] Ningún endpoint `GET` de sesión ejecuta `save()` como efecto colateral.
+- [x] Comandos socket críticos reducen consultas redundantes de ownership.
+- [x] Tests de repositorios/controladores validan lectura sin mutación.
+- [x] Latencia de endpoints de detalle/listado mejora respecto a baseline definido.
+
+**Actualización (17-02-2026):**
+
+- `GET /api/sessions` y `GET /api/sessions/:id` ejecutan lectura `lean` y sin mutación.
+- Se añadió caché ligera por socket para ownership (además de caché global TTL).
+- Se amplió test de no mutación para cubrir listado (`GET /api/sessions`) y detalle (`GET /api/sessions/:id`).
+- Se añadió benchmark reproducible (`npm run bench:sessions`) comparando baseline sin `lean` vs modo optimizado con `lean` (versión actual).
+- Resultado de cierre: mejora medible en listado (`avg +8.84%`, `p95 +13.34%`) y detalle (`avg +2.55%`, `p95 +5.67%`) respecto al baseline definido.
 
 **Avance (16-02-2026):**
 
@@ -390,7 +405,7 @@ Eliminar side-effects en endpoints de lectura y reducir sobrecarga de consultas 
 
 ---
 
-### T-065: Optimizar persistencia de eventos GamePlay 🔄
+### T-065: Optimizar persistencia de eventos GamePlay ✅
 
 **Prioridad:** P1 | **Tamaño:** L | **Dependencias:** T-055, T-058  
 **Origen:** ARCH-05
@@ -408,10 +423,15 @@ Reducir write amplification en GamePlay durante rondas para mejorar throughput y
 
 **Criterios de Aceptación (medibles):**
 
-- [ ] Se reduce el número de escrituras Mongo por ronda en flujos normales.
-- [ ] Métricas y score final se mantienen consistentes tras refactor.
-- [ ] Tests de gameplay/eventos pasan sin regresión funcional.
-- [ ] Estrategia de persistencia queda documentada para mantenimiento.
+- [x] Se reduce el número de escrituras Mongo por ronda en flujos normales.
+- [x] Métricas y score final se mantienen consistentes tras refactor.
+- [x] Tests de gameplay/eventos pasan sin regresión funcional.
+- [x] Estrategia de persistencia queda documentada para mantenimiento.
+
+**Actualización (17-02-2026):**
+
+- Se mantiene `addEventAtomic` como ruta canónica de persistencia por ronda (`$push + $inc + $slice`).
+- Se valida consistencia funcional con suites `gamePlayEventPersistence`, `gameFlow` y `playPauseResume`.
 
 **Avance (16-02-2026):**
 

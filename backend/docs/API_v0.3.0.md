@@ -75,7 +75,11 @@ Campos relevantes:
 
 - `http.avgLatencyMs`: latencia media (ms) desde arranque.
 - `websocket.connectedClients`: conexiones activas.
+- `websocket.events.authCacheHits`: aciertos de caché de revalidación auth en eventos sensibles.
+- `websocket.events.authCacheMisses`: fallos de caché de revalidación auth.
 - `gameEngine.activePlays`: partidas activas.
+- `gameEngine.lockContention`: contención detectada por lock serializado por `playId`.
+- `gameEngine.scanRaceDiscarded`: descartes por carrera (`scan/timeout`) durante ronda.
 - `rfid.processed.totalEventsProcessed`: eventos RFID procesados por el servidor.
 
 ### 1. Autenticación (`/auth`)

@@ -120,4 +120,20 @@ describe('Session read without mutation', () => {
     const after = await GameSession.findById(sessionId).select('updatedAt');
     expect(after.updatedAt.getTime()).toBe(before.updatedAt.getTime());
   });
+
+  it('GET /api/sessions no debe mutar updatedAt', async () => {
+    const before = await GameSession.findById(sessionId).select('updatedAt');
+
+    await new Promise(resolve => setTimeout(resolve, 30));
+
+    const res = await request(app)
+      .get('/api/sessions?page=1&limit=10')
+      .set('Authorization', `Bearer ${teacherToken}`)
+      .set(fingerprintHeaders);
+
+    expect(res.statusCode).toBe(200);
+
+    const after = await GameSession.findById(sessionId).select('updatedAt');
+    expect(after.updatedAt.getTime()).toBe(before.updatedAt.getTime());
+  });
 });

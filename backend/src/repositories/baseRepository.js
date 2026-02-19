@@ -4,7 +4,7 @@
  */
 
 const applyQueryOptions = (query, options = {}) => {
-  const { select, populate, sort, limit, skip } = options;
+  const { select, populate, sort, limit, skip, lean } = options;
 
   if (select) {
     query = query.select(select);
@@ -20,6 +20,10 @@ const applyQueryOptions = (query, options = {}) => {
   }
   if (Number.isInteger(skip)) {
     query = query.skip(skip);
+  }
+  if (lean) {
+    const leanOptions = typeof lean === 'object' ? lean : undefined;
+    query = query.lean(leanOptions);
   }
 
   return query;

@@ -10,6 +10,7 @@
 6. [Eventos WebSocket](#6-eventos-websocket)
 7. [Consideraciones de Seguridad](#7-consideraciones-de-seguridad)
 8. [Casos Límite y Errores](#8-casos-límite-y-errores)
+9. [Optimización Runtime (Sprint 4)](#9-optimización-runtime-sprint-4)
 
 ---
 
@@ -795,6 +796,38 @@ async function handleCardAssignmentScan(uid, context, ownerSocket) {
   // ... continuar con asignación
 }
 ```
+
+## 9. Optimización Runtime (Sprint 4)
+
+### 9.1 Caché de revalidación auth en eventos sensibles
+
+Para eventos socket sensibles (join/start/pause/resume/next y modos RFID), se aplica revalidación de token con caché TTL corta:
+
+- Variable: `AUTH_REVALIDATION_CACHE_TTL_MS` (default `30000`).
+- Métricas: `websocket.events.authCacheHits` y `websocket.events.authCacheMisses`.
+
+Objetivo: reducir lecturas repetidas de usuario durante secuencias rápidas de eventos sin perder control de sesión.
+
+### 9.2 Caché de ownership en dos niveles
+
+La validación de ownership de `playId` usa dos capas:
+
+1. **Caché global TTL** por clave compuesta (`role:userId:playId:mode`).
+2. **Caché local por socket** para comandos consecutivos del mismo cliente.
+
+Configuración principal:
+
+- `PLAY_OWNERSHIP_CACHE_TTL_MS` (default `5000`).
+
+La ruta `start_play` mantiene carga full-runtime para no degradar la inicialización del `gameEngine`.
+
+### 9.3 Higiene de memoria en cachés TTL
+
+Se incorporó barrido de entradas expiradas cuando el tamaño de caché supera umbral:
+
+- `SOCKET_CACHE_SWEEP_THRESHOLD` (default `2000`).
+
+Esto evita acumulación de entradas expiradas en picos de reconexiones o rotación alta de tokens/sockets.
 
 ---
 

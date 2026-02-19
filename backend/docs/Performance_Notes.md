@@ -86,6 +86,10 @@ En la iteración del 16-02-2026 se aplicaron optimizaciones de lectura/consultas
    - Se añadió caché TTL por `userId + playId` (`PLAY_OWNERSHIP_CACHE_TTL_MS`, default 5s).
    - `start_play` mantiene ruta completa con sesión/mecánica para preservar funcionalidad de arranque.
 
+4. **Lecturas `lean` en endpoints de sesión**
+   - `GET /api/sessions` y `GET /api/sessions/:id` operan con consultas `lean` para reducir overhead de hidratación Mongoose en rutas read-heavy.
+   - Se mantiene contrato read-only sin side-effects de escritura.
+
 ## Avance Sprint 4 (T-065)
 
 En la iteración del 16-02-2026 se aplicó reducción de escrituras por ronda en `GamePlay`:
@@ -104,6 +108,49 @@ En la iteración del 16-02-2026 se aplicó reducción de escrituras por ronda en
 
 4. **Consistencia de métricas de intentos**
    - `metrics.totalAttempts` ahora contabiliza solo eventos de respuesta (`correct`, `error`, `timeout`), no eventos de control.
+
+## Avance Sprint 4 (T-058) - iteración 17-02-2026
+
+1. **Métrica explícita de descarte por carrera**
+   - Se añadió `scanRaceDiscarded` en `gameEngine` para distinguir descartes por carrera (`scan`/`timeout`) de descartes generales (`ignoredCardScans`).
+
+2. **Higiene de cachés TTL de Socket.IO**
+   - Se incorporó barrido de expirados para cachés en memoria de auth/ownership con umbral configurable (`SOCKET_CACHE_SWEEP_THRESHOLD`, default 2000).
+   - Objetivo: evitar crecimiento sostenido de entradas expiradas en escenarios de alta rotación de sockets/tokens.
+
+3. **Caché de ownership por socket**
+   - Se añadió caché local por socket para ownership (`userId+playId`) complementaria a la caché global TTL.
+   - Reduce accesos repetidos al mapa global y consultas en comandos consecutivos del mismo socket.
+
+## Estado de medición cuantitativa
+
+- Se verificó no regresión funcional en suites críticas (`socketAuth`, `runtimeMetrics`, `metricsEndpoints`, `gameFlow`, `playPauseResume`, `nextRoundCommand`).
+
+### Benchmark reproducible de lectura de sesiones (17-02-2026)
+
+- Script: `npm run bench:sessions`.
+- Implementación: `backend/scripts/benchmark-session-reads.js`.
+- Entorno de ejecución: `NODE_ENV=test` y `MONGO_URI=mongodb://localhost:27017/rfid-games-test`.
+- Metodología:
+   - **Baseline sin `lean`**: `SESSION_READ_LEAN_ENABLED=false`.
+   - **Optimizado con `lean`**: `SESSION_READ_LEAN_ENABLED=true`.
+   - 20 iteraciones warmup + 120 iteraciones medidas.
+
+Resultados (JSON capturado en ejecución):
+
+- `GET /api/sessions` (listado):
+   - baseline `avg=6.90ms`, `p95=8.32ms`
+   - optimizado `avg=6.29ms`, `p95=7.21ms`
+   - mejora `avg=8.84%`, `p95=13.34%`
+- `GET /api/sessions/:id` (detalle):
+   - baseline `avg=3.92ms`, `p95=4.41ms`
+   - optimizado `avg=3.82ms`, `p95=4.16ms`
+   - mejora `avg=2.55%`, `p95=5.67%`
+
+Conclusión de cierre T-064:
+
+- Se confirma mejora de latencia en endpoints de listado y detalle respecto al baseline definido sin `lean`.
+- La ganancia principal se concentra en listado; en detalle la mejora es moderada por tratarse de una ruta de micro-latencia con menor margen.
 
 ## Avance Sprint 4 (T-066)
 

@@ -188,4 +188,42 @@ describe('GamePlay atomic event persistence', () => {
     await engine.endPlay(play._id.toString());
     await engine.shutdown();
   });
+
+  it('awards score only once for concurrent scans in the same round', async () => {
+    const ioMock = {
+      to: jest.fn().mockReturnThis(),
+      emit: jest.fn()
+    };
+
+    const engine = new GameEngine(ioMock);
+
+    const playDoc = await GamePlay.findById(play._id);
+    const sessionDoc = await GameSession.findById(session._id).populate('mechanicId');
+
+    await engine.startPlay(playDoc, sessionDoc);
+
+    const activePlayState = engine.activePlays.get(play._id.toString());
+    expect(activePlayState).toBeTruthy();
+    expect(activePlayState.awaitingResponse).toBe(true);
+
+    const correctUid = activePlayState.currentChallenge.uid;
+
+    await Promise.all([engine.handleCardScan(correctUid), engine.handleCardScan(correctUid)]);
+
+    const persisted = await GamePlay.findById(play._id);
+    const responseEvents = persisted.events.filter(event =>
+      ['correct', 'error'].includes(event.eventType)
+    );
+
+    expect(responseEvents).toHaveLength(1);
+    expect(responseEvents[0].eventType).toBe('correct');
+    expect(persisted.score).toBe(sessionDoc.config.pointsPerCorrect);
+    expect(persisted.currentRound).toBe(2);
+    expect(persisted.metrics.totalAttempts).toBe(1);
+    expect(engine.metrics.scanRaceDiscarded).toBe(1);
+    expect(engine.metrics.ignoredCardScans).toBeGreaterThanOrEqual(1);
+
+    await engine.endPlay(play._id.toString());
+    await engine.shutdown();
+  });
 });

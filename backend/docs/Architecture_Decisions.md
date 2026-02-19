@@ -253,3 +253,29 @@ El flujo de ronda realizaba múltiples escrituras por iteración (`round_start`,
 - **Menos escrituras por ronda** en flujos normales.
 - **Mejor coherencia** entre score/métricas/ronda por operación atómica.
 - **Trazabilidad configurable**: se puede reactivar `round_start` cuando se requiera auditoría más granular.
+
+---
+
+## ADR-006: Lectura de sesiones sin mutación + caché de ownership por capas
+
+### Contexto (ADR-006)
+
+Los endpoints de consulta de sesiones y comandos socket de control mostraban sobrecoste evitable en lectura:
+
+1. Hidratación Mongoose completa en rutas read-heavy donde no se requiere mutación.
+2. Revalidaciones de ownership repetidas en comandos consecutivos del mismo socket/play.
+
+### Decisión (ADR-006)
+
+1. Estandarizar consultas de lectura de sesión con `lean` en endpoints `GET /api/sessions` y `GET /api/sessions/:id`.
+2. Mantener contrato estricto read-only: ningún endpoint `GET` de sesión ejecuta persistencia (`save`) como side-effect.
+3. Implementar caché de ownership en dos niveles para comandos socket:
+  - Nivel global TTL (`userId + role + playId + mode`) para reutilización transversal.
+  - Nivel local por socket para comandos consecutivos del mismo cliente.
+4. Mantener `start_play` con ruta full-runtime (`includeSessionRuntime=true`) para preservar inicialización completa del motor de juego.
+
+### Consecuencias (ADR-006)
+
+- **Menor overhead de lectura** en consultas de sesiones al evitar hidratación innecesaria.
+- **Menos consultas redundantes** de ownership en secuencias de comandos socket.
+- **Mayor mantenibilidad** al separar claramente rutas de lectura ligera y rutas que requieren contexto runtime completo.

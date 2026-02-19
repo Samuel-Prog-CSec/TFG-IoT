@@ -103,6 +103,7 @@ class GameEngine {
       totalPlaysCancelled: 0,
       totalCardScans: 0,
       ignoredCardScans: 0,
+      scanRaceDiscarded: 0,
       blockedManualNextRound: 0,
       totalTimeouts: 0,
       averageRoundResponseTimeMs: 0,
@@ -732,6 +733,7 @@ class GameEngine {
       }
 
       if (!playState?.awaitingResponse) {
+        this.metrics.scanRaceDiscarded++;
         this.metrics.ignoredCardScans++;
         // El juego existe, pero no está esperando una respuesta
         // (ej. escaneo demasiado rápido, o entre rondas)
@@ -866,6 +868,7 @@ class GameEngine {
       const playState = this.activePlays.get(playId);
       if (!playState?.awaitingResponse) {
         // La respuesta llegó justo a tiempo, el timer ya fue limpiado
+        this.metrics.scanRaceDiscarded++;
         return;
       }
 

@@ -26,11 +26,25 @@ const AUTH_REVALIDATION_CACHE_TTL_MS =
   Number.parseInt(process.env.AUTH_REVALIDATION_CACHE_TTL_MS, 10) || 30000;
 const PLAY_OWNERSHIP_CACHE_TTL_MS =
   Number.parseInt(process.env.PLAY_OWNERSHIP_CACHE_TTL_MS, 10) || 5000;
+const CACHE_SWEEP_THRESHOLD = Number.parseInt(process.env.SOCKET_CACHE_SWEEP_THRESHOLD, 10) || 2000;
 
 const rfidModeByUserId = new Map();
 const sensorIdToUserId = new Map();
 const authRevalidationCache = new Map();
 const playOwnershipCache = new Map();
+
+const sweepExpiredEntries = cacheMap => {
+  if (!cacheMap || cacheMap.size < CACHE_SWEEP_THRESHOLD) {
+    return;
+  }
+
+  const now = Date.now();
+  for (const [key, cached] of cacheMap.entries()) {
+    if (!cached || cached.expiresAt <= now) {
+      cacheMap.delete(key);
+    }
+  }
+};
 
 const getAuthCacheEntry = accessToken => {
   if (!accessToken) {
@@ -54,6 +68,8 @@ const setAuthCacheEntry = (accessToken, value) => {
   if (!accessToken) {
     return;
   }
+
+  sweepExpiredEntries(authRevalidationCache);
 
   authRevalidationCache.set(accessToken, {
     ...value,
@@ -79,10 +95,38 @@ const getOwnershipCacheEntry = cacheKey => {
 };
 
 const setOwnershipCacheEntry = (cacheKey, value) => {
+  sweepExpiredEntries(playOwnershipCache);
+
   playOwnershipCache.set(cacheKey, {
     value,
     expiresAt: Date.now() + PLAY_OWNERSHIP_CACHE_TTL_MS
   });
+};
+
+const getSocketOwnershipCacheEntry = (socket, cacheKey) => {
+  const socketCache = socket?.data?.playOwnershipCache;
+  if (!socketCache || socketCache.cacheKey !== cacheKey) {
+    return null;
+  }
+
+  if (socketCache.expiresAt <= Date.now()) {
+    socket.data.playOwnershipCache = null;
+    return null;
+  }
+
+  return socketCache.value;
+};
+
+const setSocketOwnershipCacheEntry = (socket, cacheKey, value) => {
+  if (!socket?.data) {
+    return;
+  }
+
+  socket.data.playOwnershipCache = {
+    cacheKey,
+    value,
+    expiresAt: Date.now() + PLAY_OWNERSHIP_CACHE_TTL_MS
+  };
 };
 
 const getRfidModeState = userId => {
@@ -315,8 +359,14 @@ const requirePlayOwnership = async (socket, playId, eventName, options = {}) => 
   });
 
   if (!includeSessionRuntime) {
+    const socketCachedOwnership = getSocketOwnershipCacheEntry(socket, ownershipCacheKey);
+    if (socketCachedOwnership) {
+      return socketCachedOwnership;
+    }
+
     const cachedOwnership = getOwnershipCacheEntry(ownershipCacheKey);
     if (cachedOwnership) {
+      setSocketOwnershipCacheEntry(socket, ownershipCacheKey, cachedOwnership);
       return cachedOwnership;
     }
   }
@@ -364,6 +414,7 @@ const requirePlayOwnership = async (socket, playId, eventName, options = {}) => 
   const ownership = { play, session };
   if (!includeSessionRuntime) {
     setOwnershipCacheEntry(ownershipCacheKey, ownership);
+    setSocketOwnershipCacheEntry(socket, ownershipCacheKey, ownership);
   }
 
   return ownership;
@@ -731,6 +782,7 @@ const registerSocketHandlers = ({ io, gameEngine, rfidService, socketRateLimiter
     });
 
     socket.on('disconnect', () => {
+      socket.data.playOwnershipCache = null;
       clearRfidModeState(socket.data.userId, socket.id);
       socketRateLimiter.cleanupForSocket(socket);
       logger.info(`Cliente desconectado: ${socket.id}`, {
