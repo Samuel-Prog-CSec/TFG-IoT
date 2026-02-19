@@ -25,6 +25,7 @@ Socket -> Engine : startPlay(playDoc, sessionDoc)
 == Bloqueo de Tarjetas ==
 
 Engine -> Engine : Verificar UIDs\nno en uso
+Engine -> Redis : Claim UIDs (SET NX + TTL)
 
 alt Alguna tarjeta en uso
     Engine -> Socket : emit('error')\n"Tarjeta X en uso"
@@ -49,7 +50,9 @@ Engine -> Redis : Mapear tarjetas\nuid: playId
 
 == Primera Ronda ==
 
-Engine -> DB : addEvent('round_start')
+opt PERSIST_ROUND_START_EVENTS=true
+    Engine -> DB : addEvent('round_start')
+end
 
 Engine -> Socket : emit('new_round')\n{ challenge, timeLimit }
 

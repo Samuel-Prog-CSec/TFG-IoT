@@ -80,7 +80,10 @@ describe('Single Session Enforcement', () => {
       email: teacherCreds.email,
       password: teacherCreds.password
     });
-    const refreshToken1 = login1.body.data.refreshToken;
+    const refreshCookie1 = login1.headers['set-cookie']?.find(cookie =>
+      cookie.startsWith('refreshToken=')
+    );
+    expect(refreshCookie1).toBeTruthy();
 
     // 2. Second Login
     await request(app).post('/api/auth/login').send({
@@ -88,10 +91,8 @@ describe('Single Session Enforcement', () => {
       password: teacherCreds.password
     });
 
-    // 3. Try access token refresh with refreshToken1
-    const refreshRes = await request(app).post('/api/auth/refresh').send({
-      refreshToken: refreshToken1
-    });
+    // 3. Try access token refresh with cookie from first session
+    const refreshRes = await request(app).post('/api/auth/refresh').set('Cookie', refreshCookie1);
 
     // Should fail because session ID in refreshToken1 mismatch user.currentSessionId
     expect(refreshRes.statusCode).toBe(401);

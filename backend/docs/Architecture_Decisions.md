@@ -211,3 +211,71 @@ Campos obligatorios en `pagination`:
 - **Consistencia**: el frontend no necesita manejar variantes de paginación.
 - **Rendimiento**: listas más ligeras (sin eventos/mappings completos).
 - **Mantenibilidad**: DTOs v1 centralizados y testeados.
+
+---
+
+## ADR-004: Locks distribuidos de UIDs con lease TTL + heartbeat
+
+### Contexto (ADR-004)
+
+El `gameEngine` mantiene estado en memoria (`activePlays`, `cardUidToPlayId`) pero el despliegue puede ejecutarse en más de una instancia del backend. Sin un lock distribuido, dos instancias podrían reservar el mismo UID de tarjeta para partidas distintas.
+
+### Decisión (ADR-004)
+
+1. Reservar UIDs en Redis usando claim atómico `SET NX`.
+2. Asignar TTL a claves activas (`GAME_ENGINE_LOCK_TTL_SECONDS`, default 90s).
+3. Renovar leases con heartbeat periódico (`GAME_ENGINE_LOCK_HEARTBEAT_MS`, default 30000ms).
+4. Liberar/renovar claves de tarjeta solo si el owner coincide (`value === playId`) para evitar sobrescrituras entre instancias.
+
+### Consecuencias (ADR-004)
+
+- **Consistencia multi-instancia**: evita colisiones simultáneas de tarjetas.
+- **Autorecuperación**: locks huérfanos expiran si una instancia cae.
+- **Complejidad controlada**: se mantiene el core stateful local con coordinación ligera en Redis.
+
+---
+
+## ADR-005: Persistencia atómica de eventos de partida
+
+### Contexto (ADR-005)
+
+El flujo de ronda realizaba múltiples escrituras por iteración (`round_start`, resultado, avance de ronda), incrementando write amplification y superficie de inconsistencias bajo carga.
+
+### Decisión (ADR-005)
+
+1. Introducir `GamePlay.addEventAtomic` con update único (`$push + $inc + $slice`).
+2. Persistir resultado de ronda y avance de `currentRound` en la misma operación.
+3. Desactivar por defecto la persistencia de `round_start` para priorizar throughput (`PERSIST_ROUND_START_EVENTS=false`).
+4. Contabilizar `metrics.totalAttempts` solo para eventos de respuesta (`correct`, `error`, `timeout`).
+
+### Consecuencias (ADR-005)
+
+- **Menos escrituras por ronda** en flujos normales.
+- **Mejor coherencia** entre score/métricas/ronda por operación atómica.
+- **Trazabilidad configurable**: se puede reactivar `round_start` cuando se requiera auditoría más granular.
+
+---
+
+## ADR-006: Lectura de sesiones sin mutación + caché de ownership por capas
+
+### Contexto (ADR-006)
+
+Los endpoints de consulta de sesiones y comandos socket de control mostraban sobrecoste evitable en lectura:
+
+1. Hidratación Mongoose completa en rutas read-heavy donde no se requiere mutación.
+2. Revalidaciones de ownership repetidas en comandos consecutivos del mismo socket/play.
+
+### Decisión (ADR-006)
+
+1. Estandarizar consultas de lectura de sesión con `lean` en endpoints `GET /api/sessions` y `GET /api/sessions/:id`.
+2. Mantener contrato estricto read-only: ningún endpoint `GET` de sesión ejecuta persistencia (`save`) como side-effect.
+3. Implementar caché de ownership en dos niveles para comandos socket:
+  - Nivel global TTL (`userId + role + playId + mode`) para reutilización transversal.
+  - Nivel local por socket para comandos consecutivos del mismo cliente.
+4. Mantener `start_play` con ruta full-runtime (`includeSessionRuntime=true`) para preservar inicialización completa del motor de juego.
+
+### Consecuencias (ADR-006)
+
+- **Menor overhead de lectura** en consultas de sesiones al evitar hidratación innecesaria.
+- **Menos consultas redundantes** de ownership en secuencias de comandos socket.
+- **Mayor mantenibilidad** al separar claramente rutas de lectura ligera y rutas que requieren contexto runtime completo.

@@ -189,6 +189,9 @@ describe('GamePlay pause/resume', () => {
     expect(typeof pauseRes.body.data.remainingTime).toBe('number');
     expect(pauseRes.body.data.remainingTime).toBeGreaterThan(0);
 
+    const pausedSession = await GameSession.findById(sessionId);
+    expect(pausedSession.status).toBe('active');
+
     const remainingTimeMs = pauseRes.body.data.remainingTime;
 
     // Aunque avance el tiempo más allá del límite original, no debe disparar timeout mientras está pausada
@@ -211,6 +214,9 @@ describe('GamePlay pause/resume', () => {
 
     expect(resumeRes.statusCode).toBe(200);
     expect(resumeRes.body.data.status).toBe('in-progress');
+
+    const resumedSession = await GameSession.findById(sessionId);
+    expect(resumedSession.status).toBe('active');
 
     // Avanzar justo hasta el tiempo restante para provocar timeout de la ronda 1
     await wait(Math.max(0, remainingTimeMs) + 200);

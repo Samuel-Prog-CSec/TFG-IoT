@@ -15,6 +15,8 @@ const {
   toPaginatedDTOV1
 } = require('../utils/dtos');
 
+const isSessionReadLeanEnabled = () => process.env.SESSION_READ_LEAN_ENABLED !== 'false';
+
 /**
  * Obtener lista de sesiones con paginación y filtros.
  *
@@ -63,8 +65,9 @@ const getSessions = async (req, res, next) => {
       throw new ForbiddenError('Los alumnos no pueden acceder a sesiones directamente');
     }
 
-    // Filtrar por sesiones del profesor actual (super_admin puede ver todas)
-    if (req.user.role === 'teacher' && !createdBy) {
+    // Filtrar SIEMPRE por sesiones del profesor actual.
+    // Evita que un teacher fuerce createdBy en query para consultar sesiones ajenas.
+    if (req.user.role === 'teacher') {
       filter.createdBy = req.user._id;
     }
 
@@ -75,6 +78,8 @@ const getSessions = async (req, res, next) => {
     // Ejecutar query con populate
     const [sessions, total] = await Promise.all([
       gameSessionRepository.find(filter, {
+        select:
+          'mechanicId deckId contextId createdBy config status difficulty startedAt endedAt createdAt updatedAt',
         populate: [
           { path: 'mechanicId', select: 'name displayName icon' },
           { path: 'deckId', select: 'name status contextId' },
@@ -83,7 +88,8 @@ const getSessions = async (req, res, next) => {
         ],
         sort: sortOptions,
         limit: Number.parseInt(limit, 10),
-        skip
+        skip,
+        lean: isSessionReadLeanEnabled()
       }),
       gameSessionRepository.count(filter)
     ]);
@@ -121,39 +127,29 @@ const getSessionById = async (req, res, next) => {
   try {
     const { id } = req.params;
 
-    // 1) Cargar sesión sin populate para poder sincronizar si aplica
-    const session = await gameSessionRepository.findById(id);
+    const session = await gameSessionRepository.findById(id, {
+      select:
+        'mechanicId deckId contextId createdBy config cardMappings status difficulty startedAt endedAt createdAt updatedAt',
+      populate: [
+        { path: 'mechanicId', select: 'name displayName icon' },
+        { path: 'deckId', select: 'name status contextId' },
+        { path: 'contextId', select: 'contextId name' },
+        { path: 'createdBy', select: 'name email' },
+        { path: 'cardMappings.cardId', select: 'uid type status' }
+      ],
+      lean: isSessionReadLeanEnabled()
+    });
 
     if (!session) {
       throw new NotFoundError('Sesión de juego');
     }
 
+    const ownerId = session?.createdBy?._id || session?.createdBy;
+
     // Verificar permisos: solo el creador o super admin
-    if (
-      session.createdBy.toString() !== req.user._id.toString() &&
-      req.user.role !== 'super_admin'
-    ) {
+    if (ownerId?.toString() !== req.user._id.toString() && req.user.role !== 'super_admin') {
       throw new ForbiddenError('No tienes permiso para ver esta sesión');
     }
-
-    // 2) Al "seleccionar" una sesión (ver detalle), sincronizar SIEMPRE desde el mazo
-    // para evitar que se quede con mapeos antiguos.
-    if (session.deckId) {
-      await gameSessionService.syncSessionFromDeck(session, {
-        deckId: session.deckId,
-        userId: session.createdBy
-      });
-      await session.save();
-    }
-
-    // 3) Populate final para respuesta completa
-    await session.populate([
-      { path: 'mechanicId', select: 'name displayName icon rules' },
-      { path: 'deckId', select: 'name status contextId' },
-      { path: 'contextId', select: 'contextId name assets' },
-      { path: 'createdBy', select: 'name email' },
-      { path: 'cardMappings.cardId', select: 'uid type status' }
-    ]);
 
     res.json({
       success: true,

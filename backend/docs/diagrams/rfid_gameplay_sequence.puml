@@ -25,7 +25,9 @@ Engine -> Engine : Verificar tarjetas\nno en uso
 
 Engine -> Engine : Bloquear UIDs en\ncardUidToPlayId Map
 
-Engine -> DB : Registrar evento\n'round_start'
+opt PERSIST_ROUND_START_EVENTS=true
+    Engine -> DB : Registrar evento\n'round_start'
+end
 
 Engine -> Socket : new_round\n{ challenge, timeLimit }
 Socket -> FE : new_round
@@ -50,14 +52,12 @@ Engine -> Engine : 4. uidToMapping.get(uid)\n→ cardMapping
 Engine -> Engine : 5. Comparar con\ncurrentChallenge
 
 alt Respuesta Correcta
-    Engine -> Engine : score += pointsPerCorrect
-    Engine -> DB : addEvent('correct')
+    Engine -> DB : addEventAtomic('correct',\nadvanceRound=true)
     Engine -> Socket : validation_result\n{ isCorrect: true, +10 pts }
     Socket -> FE : validation_result
     FE -> User : ✅ ¡Correcto! +10 puntos
 else Respuesta Incorrecta
-    Engine -> Engine : score += penaltyPerError
-    Engine -> DB : addEvent('error')
+    Engine -> DB : addEventAtomic('error',\nadvanceRound=true)
     Engine -> Socket : validation_result\n{ isCorrect: false, -2 pts }
     Socket -> FE : validation_result
     FE -> User : ❌ Incorrecto -2 puntos
@@ -65,8 +65,9 @@ end
 
 == Siguiente Ronda (tras 4s delay) ==
 
-Engine -> Engine : currentRound++
-Engine -> DB : Registrar evento\n'round_start'
+opt PERSIST_ROUND_START_EVENTS=true
+    Engine -> DB : Registrar evento\n'round_start'
+end
 Engine -> Socket : new_round\n{ nextChallenge }
 Socket -> FE : new_round
 FE -> User : "Busca: Francia 🇫🇷"

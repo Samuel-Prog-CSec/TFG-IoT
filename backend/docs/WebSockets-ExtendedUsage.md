@@ -10,6 +10,7 @@
 6. [Eventos WebSocket](#6-eventos-websocket)
 7. [Consideraciones de Seguridad](#7-consideraciones-de-seguridad)
 8. [Casos Límite y Errores](#8-casos-límite-y-errores)
+9. [Optimización Runtime (Sprint 4)](#9-optimización-runtime-sprint-4)
 
 ---
 
@@ -44,7 +45,7 @@ Esto impide usar el mismo sensor físico para otras operaciones como:
 
 ### 2.1 Registro de Tarjetas RFID
 
-#### Problema Actual
+#### Problema Actual (Registro RFID)
 
 Para registrar una nueva tarjeta RFID, el profesor debe:
 
@@ -59,7 +60,7 @@ Para registrar una nueva tarjeta RFID, el profesor debe:
 - Requiere herramientas externas
 - Experiencia de usuario deficiente
 
-#### Solución con WebSockets
+#### Solución con WebSockets (Registro RFID)
 
 1. Profesor abre modal "Registrar tarjeta"
 2. Sistema activa **modo registro**
@@ -73,7 +74,7 @@ Para registrar una nueva tarjeta RFID, el profesor debe:
 - No requiere herramientas externas
 - Flujo intuitivo y rápido
 
-#### Justificación Técnica
+#### Justificación Técnica (Registro RFID)
 
 - El escaneo es un **evento asíncrono e impredecible**: no sabemos cuándo el profesor escaneará
 - HTTP Request/Response no es adecuado (¿polling cada 100ms? Ineficiente)
@@ -83,7 +84,7 @@ Para registrar una nueva tarjeta RFID, el profesor debe:
 
 ### 2.2 Asignación de Tarjetas a Assets
 
-#### Problema Actual
+#### Problema Actual (Asignación)
 
 Al crear una GameSession, el profesor debe:
 
@@ -97,7 +98,7 @@ Al crear una GameSession, el profesor debe:
 - Requiere etiquetar físicamente las tarjetas
 - Proceso tedioso si hay muchas tarjetas
 
-#### Solución con WebSockets
+#### Solución con WebSockets (Asignación)
 
 1. Profesor crea sesión: selecciona mecánica + contexto
 2. Sistema muestra assets del contexto (España 🇪🇸, Francia 🇫🇷...)
@@ -113,7 +114,7 @@ Al crear una GameSession, el profesor debe:
 - No necesita recordar UIDs
 - Las tarjetas pueden no tener etiquetas (el sistema las identifica)
 
-#### Justificación Técnica
+#### Justificación Técnica (Asignación)
 
 - Mismo razonamiento que el caso anterior: evento asíncrono
 - Además, hay **contexto asociado**: qué asset estamos asignando
@@ -169,7 +170,7 @@ Si múltiples profesores ven el mismo dashboard y queremos consistencia inmediat
 
 El sensor RFID es un recurso compartido único. Para soportar múltiples casos de uso, implementamos un **sistema de modos**:
 
-```
+```text
 ┌─────────────────────────────────────────────────────────────┐
 │                    SENSOR RFID (RC522)                      │
 └─────────────────────────┬───────────────────────────────────┘
@@ -206,7 +207,7 @@ El sensor RFID es un recurso compartido único. Para soportar múltiples casos d
 
 Solo puede haber **un modo activo a la vez** (excepto gameplay que puede coexistir con idle):
 
-```
+```text
 Reglas de transición:
 - idle → cualquier modo: ✅ Permitido
 - card_registration → idle: ✅ Permitido (tras escaneo o cancelación)
@@ -472,7 +473,7 @@ io.on('connection', socket => {
 
 ### 5.1 Flujo: Registrar Nueva Tarjeta
 
-```
+```text
 ┌─────────────────┐     ┌─────────────────┐     ┌─────────────────┐
 │    PROFESOR     │     │     FRONTEND    │     │     BACKEND     │
 └────────┬────────┘     └────────┬────────┘     └────────┬────────┘
@@ -518,7 +519,7 @@ io.on('connection', socket => {
 
 ### 5.2 Flujo: Crear Sesión con Asignación de Tarjetas
 
-```
+```text
 ┌─────────────────┐     ┌─────────────────┐     ┌─────────────────┐
 │    PROFESOR     │     │     FRONTEND    │     │     BACKEND     │
 └────────┬────────┘     └────────┬────────┘     └────────┬────────┘
@@ -588,59 +589,60 @@ io.on('connection', socket => {
 
 #### Cliente → Servidor
 
-| Evento                     | Payload                                     | Descripción                      |
-| -------------------------- | ------------------------------------------- | -------------------------------- |
-| `start_card_registration`  | `{}`                                        | Activar modo registro            |
-| `cancel_card_registration` | `{}`                                        | Cancelar modo registro           |
-| `start_card_assignment`    | `{ assetKey, assetDisplay, sessionDraft? }` | Activar modo asignación          |
-| `cancel_card_assignment`   | `{}`                                        | Cancelar modo asignación         |
-| `join_play`                | `{ playId }`                                | Unirse a partida (existente)     |
-| `start_play`               | `{ playId }`                                | Iniciar partida (existente)      |
-| `pause_play`               | `{ playId }`                                | Pausar partida (solo profesor)   |
-| `resume_play`              | `{ playId }`                                | Reanudar partida (solo profesor) |
-| `next_round`               | `{ playId }`                                | Solicitar siguiente ronda        |
-| `leave_play`               | `{ playId }`                                | Abandonar partida (existente)    |
-| `join_card_registration`   | `{}`                                        | Unirse al room de registro       |
-| `leave_card_registration`  | `{}`                                        | Salir del room de registro       |
-| `join_admin_room`          | `{}`                                        | Unirse al room de admin          |
-| `leave_admin_room`         | `{}`                                        | Salir del room de admin          |
-| `rfid_scan_from_client`    | `{ uid, type, sensorId, timestamp, source }` | Escaneo RFID desde cliente       |
+| Evento | Payload | Descripción |
+| --- | --- | --- |
+| `start_card_registration` | `{}` | Activar modo registro |
+| `cancel_card_registration` | `{}` | Cancelar modo registro |
+| `start_card_assignment` | `{ assetKey, assetDisplay, sessionDraft? }` | Activar modo asignación |
+| `cancel_card_assignment` | `{}` | Cancelar modo asignación |
+| `join_play` | `{ playId }` | Unirse a partida (existente) |
+| `start_play` | `{ playId }` | Iniciar partida (existente) |
+| `pause_play` | `{ playId }` | Pausar partida (solo profesor) |
+| `resume_play` | `{ playId }` | Reanudar partida (solo profesor) |
+| `next_round` | `{ playId }` | Solicitar siguiente ronda |
+| `leave_play` | `{ playId }` | Abandonar partida (existente) |
+| `join_card_registration` | `{}` | Unirse al room de registro |
+| `leave_card_registration` | `{}` | Salir del room de registro |
+| `join_admin_room` | `{}` | Unirse al room de admin |
+| `leave_admin_room` | `{}` | Salir del room de admin |
+| `rfid_scan_from_client` | `{ uid, type, sensorId, timestamp, source }` | Escaneo RFID desde cliente |
 
 #### Servidor → Cliente
 
-| Evento                        | Payload                                                 | Descripción                                        |
-| ----------------------------- | ------------------------------------------------------- | -------------------------------------------------- |
-| `registration_mode_active`    | `{ message, timeout }`                                  | Modo registro activado                             |
-| `registration_mode_cancelled` | `{}`                                                    | Modo registro cancelado                            |
-| `card_registration_scan`      | `{ uid, type, message }`                                | Tarjeta escaneada (registro)                       |
-| `card_registration_error`     | `{ message, uid, existingCardId? }`                     | Error en registro                                  |
-| `assignment_mode_active`      | `{ message, assetKey, timeout }`                        | Modo asignación activado                           |
-| `assignment_mode_cancelled`   | `{}`                                                    | Modo asignación cancelado                          |
-| `card_assignment_scan`        | `{ uid, cardId, cardMetadata, assetKey, assetDisplay }` | Tarjeta asignada                                   |
-| `card_assignment_error`       | `{ message, uid, assetKey }`                            | Error en asignación                                |
-| `mode_timeout`                | `{ mode, context }`                                     | Timeout del modo activo                            |
-| `rfid_event`                  | `{ event, uid?, type?, ... }`                           | Evento RFID dirigido por room                      |
-| `rfid_status`                 | `{ status }`                                            | Estado de conexión sensor (admin_room)             |
-| `play_paused`                 | `{ playId, currentRound, remainingTimeMs }`             | Partida pausada                                    |
-| `play_resumed`                | `{ playId, currentRound, remainingTimeMs, challenge? }` | Partida reanudada                                  |
-| `session_invalidated`         | `{ reason, timestamp }`                                 | Sesión cerrada por nuevo login en otro dispositivo |
+| Evento | Payload | Descripción |
+| --- | --- | --- |
+| `registration_mode_active` | `{ message, timeout }` | Modo registro activado |
+| `registration_mode_cancelled` | `{}` | Modo registro cancelado |
+| `card_registration_scan` | `{ uid, type, message }` | Tarjeta escaneada (registro) |
+| `card_registration_error` | `{ message, uid, existingCardId? }` | Error en registro |
+| `assignment_mode_active` | `{ message, assetKey, timeout }` | Modo asignación activado |
+| `assignment_mode_cancelled` | `{}` | Modo asignación cancelado |
+| `card_assignment_scan` | `{ uid, cardId, cardMetadata, assetKey, assetDisplay }` | Tarjeta asignada |
+| `card_assignment_error` | `{ message, uid, assetKey }` | Error en asignación |
+| `mode_timeout` | `{ mode, context }` | Timeout del modo activo |
+| `rfid_event` | `{ event, uid?, type?, ... }` | Evento RFID dirigido por room |
+| `rfid_status` | `{ status }` | Estado de conexión sensor (admin_room) |
+| `play_paused` | `{ playId, currentRound, remainingTimeMs }` | Partida pausada |
+| `play_resumed` | `{ playId, currentRound, remainingTimeMs, challenge? }` | Partida reanudada |
+| `session_invalidated` | `{ reason, timestamp }` | Sesión cerrada por nuevo login en otro dispositivo |
 
 ### 6.2 Códigos de Error
 
-| Código           | Descripción                               | Acción Recomendada               |
-| ---------------- | ----------------------------------------- | -------------------------------- |
-| `MODE_BLOCKED`   | No se puede activar modo (partida activa) | Esperar a que termine la partida |
-| `INVALID_DATA`   | Faltan datos requeridos                   | Revisar payload del evento       |
-| `NOT_OWNER`      | No eres el dueño del modo                 | No puedes cancelar modo ajeno    |
-| `CARD_EXISTS`    | Tarjeta ya registrada                     | Usar tarjeta existente           |
-| `CARD_NOT_FOUND` | Tarjeta no en BD                          | Registrar tarjeta primero        |
-| `CARD_INACTIVE`  | Tarjeta desactivada                       | Activar tarjeta o usar otra      |
-| `RATE_LIMITED`   | Exceso de eventos en ventana corta        | Reducir frecuencia de envío      |
-| `TEMP_BLOCKED`   | Bloqueo temporal por abuso repetido       | Esperar y reintentar             |
-| `PAYLOAD_TOO_LARGE` | Payload supera el tamaño permitido     | Reducir tamaño de payload        |
-| `DUPLICATE_RFID_EVENT` | Evento RFID duplicado              | Evitar emitir UID repetido       |
-| `AUTH_REQUIRED`  | Token requerido en handshake              | Enviar token al conectar         |
-| `FORBIDDEN`      | No tienes permisos                        | Revisar rol/ownership            |
+| Código | Descripción | Acción recomendada |
+| --- | --- | --- |
+| `MODE_BLOCKED` | No se puede activar modo (partida activa) | Esperar a que termine la partida |
+| `INVALID_DATA` | Faltan datos requeridos | Revisar payload del evento |
+| `NOT_OWNER` | No eres el dueño del modo | No puedes cancelar modo ajeno |
+| `CARD_EXISTS` | Tarjeta ya registrada | Usar tarjeta existente |
+| `CARD_NOT_FOUND` | Tarjeta no en BD | Registrar tarjeta primero |
+| `CARD_INACTIVE` | Tarjeta desactivada | Activar tarjeta o usar otra |
+| `RATE_LIMITED` | Exceso de eventos en ventana corta | Reducir frecuencia de envío |
+| `TEMP_BLOCKED` | Bloqueo temporal por abuso repetido | Esperar y reintentar |
+| `PAYLOAD_TOO_LARGE` | Payload supera el tamaño permitido | Reducir tamaño de payload |
+| `DUPLICATE_RFID_EVENT` | Evento RFID duplicado | Evitar emitir UID repetido |
+| `AUTH_REQUIRED` | Token requerido en handshake | Enviar token al conectar |
+| `FORBIDDEN` | No tienes permisos | Revisar rol/ownership |
+| `ROUND_BLOCKED` | Ronda bloqueada por `awaitingResponse` | Esperar `validation_result` o timeout |
 
 ---
 
@@ -715,6 +717,14 @@ El backend aplica **rate limiting por evento** con ventana deslizante, bloqueo t
 - Si un usuario inicia sesión en otro dispositivo, se emite `session_invalidated` al socket anterior y se **desconecta** automáticamente.
 - Si la cuenta se inactiva o se rechaza, el servidor revoca tokens y **cierra sockets activos** para evitar eventos en tiempo real no autorizados.
 
+### 7.5 Locks distribuidos y leases runtime
+
+- El arranque de partida (`start_play`) reserva UIDs de tarjetas en Redis con semántica atómica de claim (`SET NX`), evitando colisiones multi-instancia.
+- Las claves activas de partida/tarjetas se crean con TTL (`GAME_ENGINE_LOCK_TTL_SECONDS`, default `90s`).
+- El motor renueva leases de forma periódica con heartbeat (`GAME_ENGINE_LOCK_HEARTBEAT_MS`, default `30000ms`).
+- La liberación de tarjetas en fin de partida/recovery se hace con verificación de owner (`delIfValueMatches`) para no borrar locks ajenos.
+- En `next_round`, si la ronda está esperando respuesta, el servidor responde con `ROUND_BLOCKED` para evitar saltos de estado.
+
 ---
 
 ## 8. Casos Límite y Errores
@@ -786,6 +796,38 @@ async function handleCardAssignmentScan(uid, context, ownerSocket) {
   // ... continuar con asignación
 }
 ```
+
+## 9. Optimización Runtime (Sprint 4)
+
+### 9.1 Caché de revalidación auth en eventos sensibles
+
+Para eventos socket sensibles (join/start/pause/resume/next y modos RFID), se aplica revalidación de token con caché TTL corta:
+
+- Variable: `AUTH_REVALIDATION_CACHE_TTL_MS` (default `30000`).
+- Métricas: `websocket.events.authCacheHits` y `websocket.events.authCacheMisses`.
+
+Objetivo: reducir lecturas repetidas de usuario durante secuencias rápidas de eventos sin perder control de sesión.
+
+### 9.2 Caché de ownership en dos niveles
+
+La validación de ownership de `playId` usa dos capas:
+
+1. **Caché global TTL** por clave compuesta (`role:userId:playId:mode`).
+2. **Caché local por socket** para comandos consecutivos del mismo cliente.
+
+Configuración principal:
+
+- `PLAY_OWNERSHIP_CACHE_TTL_MS` (default `5000`).
+
+La ruta `start_play` mantiene carga full-runtime para no degradar la inicialización del `gameEngine`.
+
+### 9.3 Higiene de memoria en cachés TTL
+
+Se incorporó barrido de entradas expiradas cuando el tamaño de caché supera umbral:
+
+- `SOCKET_CACHE_SWEEP_THRESHOLD` (default `2000`).
+
+Esto evita acumulación de entradas expiradas en picos de reconexiones o rotación alta de tokens/sockets.
 
 ---
 

@@ -5,8 +5,124 @@
  */
 
 const GamePlay = require('../src/models/GamePlay');
+const GameSession = require('../src/models/GameSession');
 const User = require('../src/models/User');
 const logger = require('../src/utils/logger');
+
+function getProfileConfig(studentProfile, round, numberOfRounds) {
+  if (studentProfile === 'high_performer') {
+    return {
+      successProb: 0.95,
+      timeoutProb: 0.01,
+      avgSpeed: 2500
+    };
+  }
+
+  if (studentProfile === 'struggling') {
+    return {
+      successProb: 0.4,
+      timeoutProb: 0.15,
+      avgSpeed: 8000
+    };
+  }
+
+  if (studentProfile === 'improving') {
+    const progress = round / numberOfRounds;
+    return {
+      successProb: 0.3 + progress * 0.6,
+      timeoutProb: 0.2 - progress * 0.15,
+      avgSpeed: 8000 - progress * 4000
+    };
+  }
+
+  return {
+    successProb: 0.78,
+    timeoutProb: 0.06,
+    avgSpeed: 4000
+  };
+}
+
+function resolveRoundResult({ random, successProb, timeoutProb, finalSpeed, config }) {
+  if (random < successProb) {
+    return {
+      eventType: 'correct',
+      pointsAwarded: config.pointsPerCorrect,
+      timeElapsed: Math.min(finalSpeed, config.timeLimit * 1000),
+      counters: { correctAttempts: 1, errorAttempts: 0, timeoutAttempts: 0 }
+    };
+  }
+
+  if (random < 1 - timeoutProb) {
+    return {
+      eventType: 'error',
+      pointsAwarded: config.penaltyPerError,
+      timeElapsed: Math.min(finalSpeed + 1000, config.timeLimit * 1000),
+      counters: { correctAttempts: 0, errorAttempts: 1, timeoutAttempts: 0 }
+    };
+  }
+
+  return {
+    eventType: 'timeout',
+    pointsAwarded: 0,
+    timeElapsed: config.timeLimit * 1000,
+    counters: { correctAttempts: 0, errorAttempts: 0, timeoutAttempts: 1 }
+  };
+}
+
+function resolveCardUid(eventType, expectedMapping, errorMapping) {
+  if (eventType === 'error') {
+    return errorMapping.uid;
+  }
+
+  if (eventType === 'correct') {
+    return expectedMapping.uid;
+  }
+
+  return undefined;
+}
+
+function resolveActualValue(eventType, expectedMapping, errorMapping) {
+  if (eventType === 'correct') {
+    return expectedMapping.assignedValue;
+  }
+
+  return errorMapping.assignedValue;
+}
+
+function buildRoundEvents({
+  roundStartTime,
+  round,
+  eventType,
+  expectedMapping,
+  errorMapping,
+  pointsAwarded,
+  timeElapsed
+}) {
+  const roundStartEvent = {
+    timestamp: new Date(roundStartTime),
+    eventType: 'round_start',
+    roundNumber: round
+  };
+
+  const resultEvent = {
+    timestamp: new Date(roundStartTime + timeElapsed),
+    eventType,
+    cardUid: resolveCardUid(eventType, expectedMapping, errorMapping),
+    expectedValue: expectedMapping.assignedValue,
+    actualValue: resolveActualValue(eventType, expectedMapping, errorMapping),
+    pointsAwarded,
+    timeElapsed,
+    roundNumber: round
+  };
+
+  const roundEndEvent = {
+    timestamp: new Date(roundStartTime + timeElapsed + 500),
+    eventType: 'round_end',
+    roundNumber: round
+  };
+
+  return [roundStartEvent, resultEvent, roundEndEvent];
+}
 
 /**
  * Genera eventos coherentes para una partida simulando diferentes perfiles de estudiante.
@@ -29,38 +145,13 @@ function generatePlayEvents(numberOfRounds, config, cardMappings, studentProfile
   for (let round = 1; round <= numberOfRounds; round++) {
     const roundStartTime = startTime + (round - 1) * 15000;
 
-    // Evento: round_start
-    events.push({
-      timestamp: new Date(roundStartTime),
-      eventType: 'round_start',
-      roundNumber: round
-    });
-
-    // Definir probabilidades según el perfil
-    let successProb = 0.78;
-    let timeoutProb = 0.06;
-    let avgSpeed = 4000;
-
-    if (studentProfile === 'high_performer') {
-      successProb = 0.95;
-      timeoutProb = 0.01;
-      avgSpeed = 2500;
-    } else if (studentProfile === 'struggling') {
-      successProb = 0.4;
-      timeoutProb = 0.15;
-      avgSpeed = 8000;
-    } else if (studentProfile === 'improving') {
-      // Empieza flojo, acaba fuerte
-      const progress = round / numberOfRounds;
-      successProb = 0.3 + progress * 0.6; // 0.3 -> 0.9
-      timeoutProb = 0.2 - progress * 0.15; // 0.2 -> 0.05
-      avgSpeed = 8000 - progress * 4000; // 8s -> 4s
-    }
+    const { successProb, timeoutProb, avgSpeed } = getProfileConfig(
+      studentProfile,
+      round,
+      numberOfRounds
+    );
 
     const random = Math.random();
-    let eventType;
-    let pointsAwarded = 0;
-    let timeElapsed;
 
     // Simular variabilidad en el tiempo de respuesta
     const speedJitter = Math.random() * 2000 - 1000;
@@ -70,55 +161,35 @@ function generatePlayEvents(numberOfRounds, config, cardMappings, studentProfile
     const expectedMapping = cardMappings[mappingIndex];
     const errorMapping = cardMappings[(mappingIndex + 1) % cardMappings.length] || expectedMapping;
 
-    if (random < successProb) {
-      // Correcto
-      eventType = 'correct';
-      pointsAwarded = config.pointsPerCorrect;
-      timeElapsed = Math.min(finalSpeed, config.timeLimit * 1000);
-      correctAttempts++;
-    } else if (random < 1 - timeoutProb) {
-      // Error
-      eventType = 'error';
-      pointsAwarded = config.penaltyPerError;
-      timeElapsed = Math.min(finalSpeed + 1000, config.timeLimit * 1000);
-      errorAttempts++;
-    } else {
-      // Timeout
-      eventType = 'timeout';
-      pointsAwarded = 0;
-      timeElapsed = config.timeLimit * 1000;
-      timeoutAttempts++;
-    }
+    const roundResult = resolveRoundResult({
+      random,
+      successProb,
+      timeoutProb,
+      finalSpeed,
+      config
+    });
+
+    const { eventType, pointsAwarded, timeElapsed } = roundResult;
+    correctAttempts += roundResult.counters.correctAttempts;
+    errorAttempts += roundResult.counters.errorAttempts;
+    timeoutAttempts += roundResult.counters.timeoutAttempts;
 
     score += pointsAwarded;
     if (eventType !== 'timeout') {
       responseTimes.push(timeElapsed);
     }
 
-    // Evento: resultado de la ronda
-    events.push({
-      timestamp: new Date(roundStartTime + timeElapsed),
+    const roundEvents = buildRoundEvents({
+      roundStartTime,
+      round,
       eventType,
-      cardUid:
-        eventType === 'timeout'
-          ? undefined
-          : eventType === 'error'
-            ? errorMapping.uid
-            : expectedMapping.uid,
-      expectedValue: expectedMapping.assignedValue,
-      actualValue:
-        eventType === 'correct' ? expectedMapping.assignedValue : errorMapping.assignedValue,
+      expectedMapping,
+      errorMapping,
       pointsAwarded,
-      timeElapsed,
-      roundNumber: round
+      timeElapsed
     });
 
-    // Evento: round_end
-    events.push({
-      timestamp: new Date(roundStartTime + timeElapsed + 500),
-      eventType: 'round_end',
-      roundNumber: round
-    });
+    events.push(...roundEvents);
   }
 
   // Calcular métricas
@@ -243,6 +314,64 @@ function aggregateStudentMetrics(gamePlays) {
   return metricsByStudent;
 }
 
+async function recalculateSessionStatusesFromSeededPlays() {
+  const resolveSessionStatus = counters => {
+    if (counters.activeOrPausedPlays > 0) {
+      return 'active';
+    }
+
+    if (counters.totalPlays > 0) {
+      return 'completed';
+    }
+
+    return 'created';
+  };
+
+  const applySessionStatus = (session, nextStatus) => {
+    session.status = nextStatus;
+
+    if (nextStatus === 'active') {
+      if (!session.startedAt) {
+        session.startedAt = new Date();
+      }
+      session.endedAt = undefined;
+      return;
+    }
+
+    if (nextStatus === 'completed') {
+      if (!session.endedAt) {
+        session.endedAt = new Date();
+      }
+      return;
+    }
+
+    session.startedAt = undefined;
+    session.endedAt = undefined;
+  };
+
+  const sessions = await GameSession.find({}, { _id: 1, status: 1, startedAt: 1, endedAt: 1 });
+
+  for (const session of sessions) {
+    const [totalPlays, activeOrPausedPlays] = await Promise.all([
+      GamePlay.countDocuments({ sessionId: session._id }),
+      GamePlay.countDocuments({
+        sessionId: session._id,
+        status: { $in: ['in-progress', 'paused'] }
+      })
+    ]);
+
+    const nextStatus = resolveSessionStatus({ totalPlays, activeOrPausedPlays });
+
+    if (session.status === nextStatus) {
+      continue;
+    }
+
+    applySessionStatus(session, nextStatus);
+
+    await session.save();
+  }
+}
+
 /**
  * Ejecuta el seeder de partidas.
  * @param {Array} sessions - Sesiones creadas
@@ -285,6 +414,7 @@ async function seedGamePlays(sessions, students) {
     });
 
     await Promise.all(updatePromises);
+    await recalculateSessionStatusesFromSeededPlays();
 
     // Contar por estado
     const byStatus = gamePlays.reduce((acc, gp) => {

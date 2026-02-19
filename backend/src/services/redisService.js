@@ -142,6 +142,40 @@ const set = async (namespace, id, value) => {
 };
 
 /**
+ * Guarda un valor solo si la key no existe (SET NX).
+ *
+ * @param {string} namespace - Namespace de la key.
+ * @param {string} id - Identificador único.
+ * @param {string|number} value - Valor a guardar.
+ * @param {number|null} [ttlSeconds=null] - TTL opcional en segundos.
+ * @returns {Promise<boolean>} True si se adquirió/escribió, false si ya existía.
+ */
+const setIfNotExists = async (namespace, id, value, ttlSeconds = null) => {
+  if (!checkRedisAvailable()) {
+    return true;
+  }
+
+  try {
+    const redis = getRedis();
+    const key = buildKey(namespace, id);
+
+    let result;
+    if (ttlSeconds && Number.isInteger(ttlSeconds) && ttlSeconds > 0) {
+      result = await redis.set(key, String(value), 'EX', ttlSeconds, 'NX');
+    } else {
+      result = await redis.set(key, String(value), 'NX');
+    }
+
+    redisBreaker.recordSuccess();
+    return result === 'OK';
+  } catch (error) {
+    logger.error('Redis setIfNotExists error:', { namespace, id, error: error.message });
+    redisBreaker.recordFailure();
+    return false;
+  }
+};
+
+/**
  * Guarda multiples valores en batch.
  *
  * @param {string} namespace - Namespace de la key.
@@ -162,7 +196,7 @@ const setMany = async (namespace, entries = []) => {
     const pipeline = redis.pipeline();
 
     for (const entry of entries) {
-      if (!entry || !entry.id) {
+      if (!entry?.id) {
         continue;
       }
       const key = buildKey(namespace, entry.id);
@@ -184,6 +218,177 @@ const setMany = async (namespace, entries = []) => {
     logger.error('Redis setMany error:', { namespace, error: error.message });
     redisBreaker.recordFailure();
     return false;
+  }
+};
+
+/**
+ * Guarda múltiples valores solo si no existen (SET NX por entrada).
+ * Si alguna entrada falla por colisión, revierte las entradas adquiridas en esta operación.
+ *
+ * @param {string} namespace - Namespace de la key.
+ * @param {{id:string, value:string|number}[]} entries - Entradas a guardar.
+ * @returns {Promise<{ok:boolean, conflicts:string[], acquiredIds:string[]}>}
+ */
+const setManyIfNotExists = async (namespace, entries = [], ttlSeconds = null) => {
+  if (!checkRedisAvailable()) {
+    return { ok: true, conflicts: [], acquiredIds: [] };
+  }
+
+  if (!Array.isArray(entries) || entries.length === 0) {
+    return { ok: true, conflicts: [], acquiredIds: [] };
+  }
+
+  const acquiredIds = [];
+  const conflicts = [];
+
+  try {
+    for (const entry of entries) {
+      if (!entry?.id) {
+        continue;
+      }
+
+      const acquired = await setIfNotExists(namespace, entry.id, entry.value, ttlSeconds);
+      if (acquired) {
+        acquiredIds.push(entry.id);
+      } else {
+        conflicts.push(entry.id);
+      }
+    }
+
+    if (conflicts.length > 0) {
+      await delMany(namespace, acquiredIds);
+      return { ok: false, conflicts, acquiredIds };
+    }
+
+    return { ok: true, conflicts: [], acquiredIds };
+  } catch (error) {
+    logger.error('Redis setManyIfNotExists error:', { namespace, error: error.message });
+    redisBreaker.recordFailure();
+
+    if (acquiredIds.length > 0) {
+      await delMany(namespace, acquiredIds);
+    }
+    return { ok: false, conflicts, acquiredIds };
+  }
+};
+
+/**
+ * Renueva TTL de una key existente.
+ *
+ * @param {string} namespace - Namespace de la key.
+ * @param {string} id - Identificador único.
+ * @param {number} ttlSeconds - TTL en segundos.
+ * @returns {Promise<boolean>} True si se renovó.
+ */
+const expire = async (namespace, id, ttlSeconds) => {
+  if (!checkRedisAvailable()) {
+    return true;
+  }
+
+  if (!Number.isInteger(ttlSeconds) || ttlSeconds <= 0) {
+    return false;
+  }
+
+  try {
+    const redis = getRedis();
+    const key = buildKey(namespace, id);
+    const result = await redis.expire(key, ttlSeconds);
+    redisBreaker.recordSuccess();
+    return result === 1;
+  } catch (error) {
+    logger.error('Redis expire error:', { namespace, id, error: error.message });
+    redisBreaker.recordFailure();
+    return false;
+  }
+};
+
+/**
+ * Renueva TTL de una key solo si el valor coincide con el esperado.
+ *
+ * @param {string} namespace - Namespace de la key.
+ * @param {string} id - Identificador único.
+ * @param {string|number} expectedValue - Valor esperado.
+ * @param {number} ttlSeconds - TTL en segundos.
+ * @returns {Promise<boolean>} True si se renovó.
+ */
+const expireIfValueMatches = async (namespace, id, expectedValue, ttlSeconds) => {
+  if (!checkRedisAvailable()) {
+    return true;
+  }
+
+  if (!Number.isInteger(ttlSeconds) || ttlSeconds <= 0) {
+    return false;
+  }
+
+  try {
+    const currentValue = await get(namespace, id);
+    if (currentValue === null || currentValue !== String(expectedValue)) {
+      return false;
+    }
+    return await expire(namespace, id, ttlSeconds);
+  } catch (error) {
+    logger.error('Redis expireIfValueMatches error:', {
+      namespace,
+      id,
+      error: error.message
+    });
+    redisBreaker.recordFailure();
+    return false;
+  }
+};
+
+/**
+ * Renueva TTL de múltiples keys solo si su valor coincide con el esperado.
+ *
+ * @param {string} namespace - Namespace de la key.
+ * @param {{id:string, expectedValue:string|number}[]} entries - Entradas a renovar.
+ * @param {number} ttlSeconds - TTL en segundos.
+ * @returns {Promise<{ok:boolean, renewedIds:string[], skippedIds:string[]}>}
+ */
+const expireManyIfValueMatches = async (namespace, entries = [], ttlSeconds) => {
+  if (!checkRedisAvailable()) {
+    return { ok: true, renewedIds: [], skippedIds: [] };
+  }
+
+  if (!Array.isArray(entries) || entries.length === 0) {
+    return { ok: true, renewedIds: [], skippedIds: [] };
+  }
+
+  if (!Number.isInteger(ttlSeconds) || ttlSeconds <= 0) {
+    return {
+      ok: false,
+      renewedIds: [],
+      skippedIds: entries.filter(entry => entry?.id).map(e => e.id)
+    };
+  }
+
+  const renewedIds = [];
+  const skippedIds = [];
+
+  try {
+    for (const entry of entries) {
+      if (!entry?.id) {
+        continue;
+      }
+
+      const renewed = await expireIfValueMatches(
+        namespace,
+        entry.id,
+        entry.expectedValue,
+        ttlSeconds
+      );
+      if (renewed) {
+        renewedIds.push(entry.id);
+      } else {
+        skippedIds.push(entry.id);
+      }
+    }
+
+    return { ok: true, renewedIds, skippedIds };
+  } catch (error) {
+    logger.error('Redis expireManyIfValueMatches error:', { namespace, error: error.message });
+    redisBreaker.recordFailure();
+    return { ok: false, renewedIds, skippedIds };
   }
 };
 
@@ -306,6 +511,77 @@ const delMany = async (namespace, ids = []) => {
     logger.error('Redis delMany error:', { namespace, error: error.message });
     redisBreaker.recordFailure();
     return false;
+  }
+};
+
+/**
+ * Elimina una key solo si su valor coincide con el esperado.
+ *
+ * @param {string} namespace - Namespace de la key.
+ * @param {string} id - Identificador único.
+ * @param {string|number} expectedValue - Valor esperado.
+ * @returns {Promise<boolean>} True si se eliminó.
+ */
+const delIfValueMatches = async (namespace, id, expectedValue) => {
+  if (!checkRedisAvailable()) {
+    return true;
+  }
+
+  try {
+    const currentValue = await get(namespace, id);
+    if (currentValue === null || currentValue !== String(expectedValue)) {
+      return false;
+    }
+    return await del(namespace, id);
+  } catch (error) {
+    logger.error('Redis delIfValueMatches error:', {
+      namespace,
+      id,
+      error: error.message
+    });
+    redisBreaker.recordFailure();
+    return false;
+  }
+};
+
+/**
+ * Elimina múltiples keys solo si su valor coincide con el esperado.
+ *
+ * @param {string} namespace - Namespace de la key.
+ * @param {{id:string, expectedValue:string|number}[]} entries - Entradas a eliminar.
+ * @returns {Promise<{ok:boolean, deletedIds:string[], skippedIds:string[]}>}
+ */
+const delManyIfValueMatches = async (namespace, entries = []) => {
+  if (!checkRedisAvailable()) {
+    return { ok: true, deletedIds: [], skippedIds: [] };
+  }
+
+  if (!Array.isArray(entries) || entries.length === 0) {
+    return { ok: true, deletedIds: [], skippedIds: [] };
+  }
+
+  const deletedIds = [];
+  const skippedIds = [];
+
+  try {
+    for (const entry of entries) {
+      if (!entry?.id) {
+        continue;
+      }
+
+      const deleted = await delIfValueMatches(namespace, entry.id, entry.expectedValue);
+      if (deleted) {
+        deletedIds.push(entry.id);
+      } else {
+        skippedIds.push(entry.id);
+      }
+    }
+
+    return { ok: true, deletedIds, skippedIds };
+  } catch (error) {
+    logger.error('Redis delManyIfValueMatches error:', { namespace, error: error.message });
+    redisBreaker.recordFailure();
+    return { ok: false, deletedIds, skippedIds };
   }
 };
 
@@ -707,12 +983,19 @@ module.exports = {
 
   // Strings
   set,
+  setIfNotExists,
   setMany,
+  setManyIfNotExists,
   setWithTTL,
   get,
   exists,
   del,
+  delIfValueMatches,
   delMany,
+  delManyIfValueMatches,
+  expire,
+  expireIfValueMatches,
+  expireManyIfValueMatches,
   ttl,
 
   // Hashes

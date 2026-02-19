@@ -13,7 +13,7 @@ class ResumePlayCommand extends BaseSocketCommand {
     try {
       const { playId } = data || {};
       if (!playId) {
-        socket.emit('error', { message: 'playId requerido' });
+        socket.emit('error', { code: 'VALIDATION_ERROR', message: 'playId requerido' });
         return;
       }
 
@@ -34,7 +34,7 @@ class ResumePlayCommand extends BaseSocketCommand {
       helpers.setRfidModeState(socket.data.userId, helpers.RFID_MODES.GAMEPLAY, socket.id);
     } catch (error) {
       logger.error(`Error al reanudar la partida: ${error.message}`);
-      socket.emit('error', { message: 'Error al reanudar la partida' });
+      socket.emit('error', { code: 'ENGINE_ERROR', message: 'Error al reanudar la partida' });
     }
   }
 }

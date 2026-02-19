@@ -10,6 +10,7 @@
     "seed:reset": "node seeders/index.js --reset",
     "seed:if-empty": "node scripts/seed-if-empty.js",
     "migrate:sessions": "node scripts/migrate-session-status.js",
+    "bench:sessions": "node scripts/benchmark-session-reads.js",
     "drop-db": "node scripts/drop-db.js",
     "lint": "eslint .",
     "lint:test": "eslint ./tests/**/*.js",

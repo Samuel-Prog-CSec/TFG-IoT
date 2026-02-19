@@ -251,6 +251,9 @@ describe('Redis State Recovery - GameEngine.recoverActivePlays()', () => {
       expect(updatedPlay.status).toBe('abandoned');
       expect(updatedPlay.completedAt).toBeTruthy();
 
+      const updatedSession = await GameSession.findById(session._id);
+      expect(updatedSession.status).toBe('completed');
+
       // Assert: Verificar que se añadió evento de server_restart
       const restartEvent = updatedPlay.events.find(e => e.eventType === 'server_restart');
       expect(restartEvent).toBeTruthy();

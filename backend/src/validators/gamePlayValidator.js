@@ -135,7 +135,10 @@ const updateGamePlaySchema = z
  *   roundNumber: 2
  * }
  */
-const addEventSchema = gameEventSchema.omit({ timestamp: true }).strict();
+const addEventSchema = gameEventSchema
+  .omit({ timestamp: true })
+  .required({ roundNumber: true })
+  .strict();
 
 /**
  * Schema para query params de búsqueda de partidas.
