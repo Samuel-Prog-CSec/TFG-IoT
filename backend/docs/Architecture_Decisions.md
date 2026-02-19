@@ -279,3 +279,39 @@ Los endpoints de consulta de sesiones y comandos socket de control mostraban sob
 - **Menor overhead de lectura** en consultas de sesiones al evitar hidratación innecesaria.
 - **Menos consultas redundantes** de ownership en secuencias de comandos socket.
 - **Mayor mantenibilidad** al separar claramente rutas de lectura ligera y rutas que requieren contexto runtime completo.
+
+---
+
+## ADR-007: Security Gate de dependencias en CI (runtime bloqueante)
+
+### Contexto (ADR-007)
+
+Tras la actualización masiva de dependencias, `npm audit` completo empezó a reportar vulnerabilidades en cadenas de tooling (lint/test/build) cuya mitigación forzada mediante overrides globales podía romper `eslint` o `jest` por incompatibilidades de API.
+
+Se necesitaba una política que equilibrara seguridad efectiva en producción y estabilidad del ciclo de desarrollo.
+
+### Decisión (ADR-007)
+
+1. Definir un **gate bloqueante** en CI para dependencias de runtime:
+  - Comando: `npm run audit:prod`
+  - Alcance: backend + frontend con `--omit=dev`.
+2. Mantener un **reporte completo no bloqueante** para deuda de tooling:
+  - Comando: `npm run audit:all`
+  - Configuración CI: `continue-on-error: true`.
+3. Documentar explícitamente que las vulnerabilidades de dev tooling se tratan por roadmap de compatibilidad, no por overrides agresivos que comprometan estabilidad.
+4. Establecer una revisión operativa **mensual** de dependencias y PRs de Dependabot.
+5. No usar registro formal de excepciones; el control de deuda se realiza mediante revisión mensual + evidencia en CI.
+
+### Consecuencias (ADR-007)
+
+- **Seguridad de producción priorizada**: el merge queda condicionado a 0 vulnerabilidades runtime.
+- **Estabilidad de desarrollo preservada**: lint/tests no se rompen por forzar resoluciones transitorias incompatibles.
+- **Trazabilidad operativa**: la deuda de tooling sigue visible en CI y documentación para su remediación gradual.
+- **Disciplina de mantenimiento**: la cadencia mensual reduce carga operativa sin bloquear flujo diario.
+
+### Referencias (ADR-007)
+
+- Workflow CI: `.github/workflows/build.yml`
+- Scripts root: `package.json` (`audit:prod`, `audit:all`)
+- Política arquitectónica: `documentation/02-Patrones_Diseno.md`
+- Plan operativo: `documentation/03-Gestion_Dependencias.md`

@@ -32,7 +32,7 @@ jobs:
       with:
         path: |
           ~/.npm
-        key: ${{ runner.os }}-node-${{ matrix.node-version }}-${{ hashFiles('backend/package-lock.json', 'frontend/package-lock.json') }}
+        key: ${{ runner.os }}-node-${{ matrix.node-version }}-${{ hashFiles('package-lock.json', 'backend/package-lock.json', 'frontend/package-lock.json') }}
         restore-keys: |
           ${{ runner.os }}-node-${{ matrix.node-version }}-
 
@@ -41,13 +41,23 @@ jobs:
       with:
         mongodb-version: ${{ matrix.mongodb-version }}
 
+    - name: Install Root Dependencies
+      run: npm ci
+
     - name: Install Backend Dependencies
       run: npm ci
       working-directory: ./backend
 
-    - name: Audit Backend Dependencies
-      run: npm audit --audit-level=high
-      working-directory: ./backend
+    - name: Install Frontend Dependencies
+      run: npm ci
+      working-directory: ./frontend
+
+    - name: Security Gate (Production Dependencies)
+      run: npm run audit:prod
+
+    - name: Security Report (Full Dependencies)
+      run: npm run audit:all
+      continue-on-error: true
 
     - name: Run Backend Linter
       run: npm run lint --if-present
@@ -64,10 +74,6 @@ jobs:
     - name: Normalize backend LCOV paths for SonarCloud
       run: |
         sed -i 's#^SF:src/#SF:backend/src/#; s#^SF:src\\#SF:backend/src/#' backend/coverage/lcov.info
-
-    - name: Install Frontend Dependencies
-      run: npm ci
-      working-directory: ./frontend
 
     - name: Run Frontend Linter
       run: npm run lint --if-present

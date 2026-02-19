@@ -20,8 +20,11 @@
     "format:check": "prettier --check \"src/**/*.js\" \"seeders/**/*.js\"",
     "test": "cross-env NODE_ENV=test jest",
     "security:check-&-fix": "npm audit && npm audit fix",
+    "audit:full": "npm audit",
+    "audit:prod": "npm audit --omit=dev",
+    "audit:full:json": "npm audit --json",
+    "audit:prod:json": "npm audit --omit=dev --json",
     "deps:update-minor": "npx npm-check-updates -t minor -u && npm install",
-    "deps:update-major": "npx npm-check-updates -t major -u && npm install",
     "deps:analyze": "npx npm-check-updates && npx depcheck && npm outdated"
   },
   "keywords": [
@@ -39,45 +42,53 @@
   ],
   "author": "Samuel Blanchart Pérez",
   "dependencies": {
-    "@sentry/node": "^10.38.0",
-    "@sentry/profiling-node": "^10.38.0",
-    "@supabase/supabase-js": "^2.95.3",
+    "@sentry/node": "9.47.1",
+    "@sentry/profiling-node": "9.47.1",
+    "@supabase/supabase-js": "^2.97.0",
     "bcrypt": "^6.0.0",
     "compression": "^1.8.1",
     "cookie-parser": "^1.4.7",
     "cors": "^2.8.6",
-    "dotenv": "^17.2.4",
+    "dotenv": "^17.3.1",
     "express": "^5.2.1",
     "express-rate-limit": "^8.2.1",
     "file-type": "16.5.4",
     "helmet": "^8.1.0",
-    "ioredis": "^5.9.2",
+    "ioredis": "^5.9.3",
     "jsonwebtoken": "^9.0.3",
-    "mongoose": "^9.1.6",
+    "mongoose": "^9.2.1",
     "multer": "^2.0.2",
-    "pino": "^10.3.0",
+    "pino": "^10.3.1",
     "pino-http": "^11.0.0",
     "sharp": "^0.34.5",
     "socket.io": "^4.8.3",
     "zod": "^4.3.6"
   },
   "devDependencies": {
-    "@eslint/js": "^9.19.0",
+    "@eslint/js": "^9.39.2",
     "cross-env": "^10.1.0",
-    "eslint": "^9.19.0",
-    "eslint-config-prettier": "^9.1.0",
-    "eslint-plugin-prettier": "^5.2.3",
+    "eslint": "^9.39.2",
+    "eslint-config-prettier": "^10.1.8",
+    "eslint-plugin-prettier": "^5.5.5",
     "eslint-plugin-security": "^3.0.1",
-    "eslint-plugin-sonarjs": "^3.0.6",
-    "globals": "^15.14.0",
+    "eslint-plugin-sonarjs": "^4.0.0",
+    "globals": "^17.3.0",
     "ioredis-mock": "^8.13.1",
-    "jest": "^29.7.0",
-    "nodemon": "^3.1.9",
-    "pino-pretty": "^13.0.0",
-    "prettier": "^3.4.2",
-    "socket.io-client": "^4.8.1",
-    "supertest": "^7.0.0",
-    "ts-api-utils": "^2.0.1"
+    "jest": "^30.2.0",
+    "nodemon": "^3.1.11",
+    "pino-pretty": "^13.1.3",
+    "prettier": "^3.8.1",
+    "socket.io-client": "^4.8.3",
+    "supertest": "^7.2.2",
+    "ts-api-utils": "^2.4.0"
+  },
+  "overrides": {
+    "@sentry/node": {
+      "minimatch": "^10.2.1"
+    },
+    "@sentry/profiling-node": {
+      "minimatch": "^10.2.1"
+    }
   },
   "engines": {
     "node": ">=24.12.0"

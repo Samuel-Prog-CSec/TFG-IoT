@@ -13,11 +13,11 @@ Una plataforma de juegos educativos con tecnología RFID para niños de 4-6 año
 
 ## Stack Tecnológico
 
-- **React 19.1** - Biblioteca de UI con Hooks
-- **Vite 6.3** - Build tool y dev server
-- **Tailwind CSS 4.1** - Estilos utility-first
-- **Framer Motion 12.27** - Animaciones declarativas
-- **React Router 7.9** - Navegación SPA
+- **React 19.2** - Biblioteca de UI con Hooks
+- **Vite 7.3** - Build tool y dev server
+- **Tailwind CSS 4.2** - Estilos utility-first
+- **Framer Motion 12.34** - Animaciones declarativas
+- **React Router 7.13** - Navegación SPA
 
 ## Inicio Rápido
 
@@ -33,6 +33,12 @@ npm run build
 
 # Lint
 npm run lint
+
+# Auditoría runtime/prod
+npm run audit:prod
+
+# Auditoría completa (incluye devDependencies)
+npm run audit:full
 ```
 
 ---
