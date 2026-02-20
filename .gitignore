@@ -1,6 +1,7 @@
 .git/
 .vscode/
 .agent/
+.agents/
 node_modules/
 .github/*.md
 development/
