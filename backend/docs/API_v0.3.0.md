@@ -110,7 +110,8 @@ Notas:
 - Un `super_admin` debe aprobar/rechazar la cuenta antes de que el profesor pueda hacer login.
 - **Sesión Única**: Al iniciar sesión, cualquier sesión activa anterior de este usuario será invalidada (token refresh deja de funcionar) y se emitirá un evento `session_invalidated` vía WebSocket al dispositivo anterior.
 - **Refresh Token**: Se entrega como cookie `httpOnly` (`refreshToken`) y NO se devuelve en el body.
-- **CSRF**: Se usa double-submit. El cliente debe enviar el header `X-CSRF-Token` con el valor de la cookie `csrfToken` en métodos que modifican datos.
+- **Refresh endpoint**: `POST /api/auth/refresh` usa body vacío (`{}`) y obtiene el refresh token exclusivamente de cookie.
+- **CSRF**: Se usa double-submit. El cliente debe enviar el header `X-CSRF-Token` con el valor de la cookie `csrfToken` en métodos que modifican datos, incluido `POST /api/auth/refresh`.
 
 ### 1.1 Administración (`/admin`)
 

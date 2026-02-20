@@ -85,12 +85,7 @@ const corsOptions = {
  */
 const CSRF_COOKIE_NAME = 'csrfToken';
 const CSRF_HEADER_NAME = 'x-csrf-token';
-const skipPaths = new Set([
-  '/api/auth/login',
-  '/api/auth/register',
-  '/api/auth/refresh',
-  '/auth/refresh'
-]);
+const skipPaths = new Set(['/api/auth/login', '/api/auth/register', '/auth/refresh']);
 const writeMethods = new Set(['POST', 'PUT', 'DELETE', 'PATCH']);
 
 const buildCsrfCookieOptions = () => {
@@ -132,15 +127,7 @@ const hasValidCsrf = req => {
   return Boolean(csrfHeader && csrfCookie && csrfHeader === csrfCookie);
 };
 
-const shouldSkipCsrf = req => {
-  if (skipPaths.has(req.path)) {
-    return true;
-  }
-  if (typeof req.originalUrl === 'string' && req.originalUrl.endsWith('/auth/refresh')) {
-    return true;
-  }
-  return false;
-};
+const shouldSkipCsrf = req => skipPaths.has(req.path);
 
 const csrfProtection = (req, res, next) => {
   if (isTestEnv()) {

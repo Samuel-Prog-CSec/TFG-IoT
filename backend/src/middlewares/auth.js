@@ -830,8 +830,6 @@ const optionalAuth = async (req, res, next) => {
  * Uso:
  * router.post('/logout', authenticate, logout);
  *
- * Body: { refreshToken: string } (opcional, para revocar ambos)
- *
  * @param {import('express').Request} req
  * @param {import('express').Response} res
  * @param {import('express').NextFunction} next
@@ -847,8 +845,8 @@ const logout = async (req, res, next) => {
       reason: 'logout'
     });
 
-    // Si se proporciona refresh token, también revocarlo
-    const refreshToken = req.cookies?.[REFRESH_COOKIE_NAME] || req.body?.refreshToken;
+    // Revocar refresh token actual desde cookie httpOnly (si existe)
+    const refreshToken = req.cookies?.[REFRESH_COOKIE_NAME];
     if (refreshToken) {
       try {
         const decoded = await verifyRefreshToken(refreshToken, req);

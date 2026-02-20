@@ -16,11 +16,12 @@ Este documento resume el hardening de seguridad aplicado en la rama `Maintenance
 
 1. **Refresh token en cookie `httpOnly`**
    - Se elimina el uso de `localStorage` para `refreshToken`.
-   - El refresh se realiza solo con cookie `httpOnly` (`refreshToken`).
+   - El refresh se realiza solo con cookie `httpOnly` (`refreshToken`) y body vacío.
+   - El backend no devuelve `refreshToken` en body ni acepta `refreshToken` en request body.
 
 2. **CSRF Double-Submit**
    - Cookie `csrfToken` (no `httpOnly`) + header `X-CSRF-Token`.
-   - Requerido en POST/PUT/PATCH/DELETE.
+   - Requerido en POST/PUT/PATCH/DELETE, incluyendo `POST /api/auth/refresh`.
 
 3. **Eliminacion total de `AUTH_BYPASS_FOR_DEV`**
    - Toda ruta protegida requiere autenticacion real.

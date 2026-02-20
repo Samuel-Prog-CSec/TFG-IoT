@@ -90,9 +90,13 @@ describe('Authentication Endpoints', () => {
       expect(res.statusCode).toEqual(200);
       expect(res.body.success).toBe(true);
       expect(res.body.data).toHaveProperty('accessToken');
+      expect(res.body.data).not.toHaveProperty('refreshToken');
+      expect(res.body.data).not.toHaveProperty('refreshTokenExpiresIn');
       expect(res.body.data.user).toBeTruthy();
       expect(res.body.data.user).not.toHaveProperty('password');
       expect(res.body.data.user).not.toHaveProperty('__v');
+      const setCookie = res.headers['set-cookie'] || [];
+      expect(setCookie.some(cookie => cookie.startsWith('refreshToken='))).toBe(true);
     });
 
     it('should fail login with wrong password (approved account)', async () => {
@@ -168,6 +172,8 @@ describe('Authentication Endpoints', () => {
 
       expect(res.statusCode).toEqual(200);
       expect(res.body.success).toBe(true);
+      const setCookie = res.headers['set-cookie'] || [];
+      expect(setCookie.some(cookie => cookie.startsWith('refreshToken=;'))).toBe(true);
     });
 
     // NOTA: Este test requiere Redis real para funcionar correctamente.
@@ -183,6 +189,44 @@ describe('Authentication Endpoints', () => {
         .set('Authorization', `Bearer ${teacherToken}`);
 
       expect(res.statusCode).toEqual(401);
+    });
+  });
+
+  describe('POST /api/auth/refresh', () => {
+    it('should accept empty body contract and never require refreshToken in request body', async () => {
+      await request(app).post('/api/auth/register').send(validTeacher);
+      const adminToken = await createAndLoginSuperAdmin();
+
+      const teacher = await User.findOne({ email: validTeacher.email });
+      await request(app)
+        .post(`/api/admin/users/${teacher._id}/approve`)
+        .set('Authorization', `Bearer ${adminToken}`);
+
+      const loginRes = await request(app).post('/api/auth/login').send({
+        email: validTeacher.email,
+        password: validTeacher.password
+      });
+
+      expect(loginRes.statusCode).toBe(200);
+      const refreshCookie = loginRes.headers['set-cookie']?.find(cookie =>
+        cookie.startsWith('refreshToken=')
+      );
+      expect(refreshCookie).toBeTruthy();
+
+      const refreshRes = await request(app)
+        .post('/api/auth/refresh')
+        .set('Cookie', refreshCookie)
+        .send({});
+
+      expect(refreshRes.statusCode).not.toBe(400);
+
+      if (refreshRes.statusCode === 200) {
+        expect(refreshRes.body.data).toHaveProperty('accessToken');
+        expect(refreshRes.body.data).toHaveProperty('accessTokenExpiresIn');
+        expect(refreshRes.body.data).toHaveProperty('tokenType', 'Bearer');
+        expect(refreshRes.body.data).not.toHaveProperty('refreshToken');
+        expect(refreshRes.body.data).not.toHaveProperty('refreshTokenExpiresIn');
+      }
     });
   });
 });

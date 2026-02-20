@@ -45,36 +45,6 @@ const api = axios.create({
 // ============================================
 
 let accessToken = null;
-let refreshToken = null;
-
-const refreshStorageKey = 'rfid_refresh_token';
-const loadRefreshToken = () => {
-  try {
-    return sessionStorage.getItem(refreshStorageKey);
-  } catch {
-    return null;
-  }
-};
-
-const saveRefreshToken = (token) => {
-  try {
-    if (token) {
-      sessionStorage.setItem(refreshStorageKey, token);
-    }
-  } catch {
-    // No-op si storage no esta disponible
-  }
-};
-
-const clearRefreshToken = () => {
-  try {
-    sessionStorage.removeItem(refreshStorageKey);
-  } catch {
-    // No-op si storage no esta disponible
-  }
-};
-
-refreshToken = loadRefreshToken();
 let isRefreshing = false;
 let failedQueue = [];
 
@@ -97,17 +67,10 @@ const processQueue = (error, token = null) => {
 /**
  * Establece los tokens de autenticación
  * @param {string} access - Access token (se guarda en memoria)
- * @param {string} access - Access token (se guarda en memoria)
  */
-export const setTokens = (access, refresh) => {
+export const setTokens = (access) => {
   accessToken = access;
-  if (refresh) {
-    refreshToken = refresh;
-    saveRefreshToken(refresh);
-  }
 };
-
-export const getRefreshToken = () => refreshToken;
 
 /**
  * Obtiene el access token actual
@@ -121,8 +84,6 @@ export const getAccessToken = () => accessToken;
  */
 export const clearTokens = () => {
   accessToken = null;
-  refreshToken = null;
-  clearRefreshToken();
 };
 
 const getCookieValue = (name) => {
@@ -241,16 +202,16 @@ async function handleTokenRefresh(originalRequest) {
     const csrfToken = getCookieValue('csrfToken');
     const response = await axios.post(
       `${API_BASE_URL}/auth/refresh`,
-      refreshToken ? { refreshToken } : {},
+      {},
       {
         withCredentials: true,
         headers: csrfToken ? { 'X-CSRF-Token': csrfToken } : {}
       }
     );
 
-    const { accessToken: newAccessToken, refreshToken: newRefreshToken } = response.data.data;
+    const { accessToken: newAccessToken } = response.data.data;
     
-    setTokens(newAccessToken, newRefreshToken);
+    setTokens(newAccessToken);
     processQueue(null, newAccessToken);
 
     originalRequest.headers.Authorization = `Bearer ${newAccessToken}`;
@@ -415,7 +376,7 @@ export const authAPI = {
    * Refrescar access token
    * @returns {Promise} Respuesta con nuevos tokens
    */
-  refreshToken: () => api.post('/auth/refresh', refreshToken ? { refreshToken } : {}),
+  refreshToken: () => api.post('/auth/refresh', {}),
 };
 
 // ============================================

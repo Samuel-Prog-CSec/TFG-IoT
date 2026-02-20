@@ -95,8 +95,11 @@ describe('Validation (Zod) - All API endpoints', () => {
       expect(res.statusCode).toBe(400);
     });
 
-    it('POST /api/auth/refresh - invalid body', async () => {
-      const res = await request(app).post('/api/auth/refresh').set(fingerprintHeaders).send({});
+    it('POST /api/auth/refresh - rejects refreshToken in body', async () => {
+      const res = await request(app)
+        .post('/api/auth/refresh')
+        .set(fingerprintHeaders)
+        .send({ refreshToken: 'legacy-token' });
 
       expect(res.statusCode).toBe(400);
     });

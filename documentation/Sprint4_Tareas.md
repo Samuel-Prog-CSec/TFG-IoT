@@ -111,7 +111,7 @@ Evolucionar `gameEngine` para soportar de forma estable múltiples mecánicas, d
 
 ---
 
-### T-051: Refresh Token Cookie-Only (cierre completo) 📋
+### T-051: Refresh Token Cookie-Only (cierre completo) ✅
 
 **Prioridad:** P0 | **Tamaño:** L | **Dependencias:** Ninguna  
 **Origen:** RNF-SEG-001, RNF-SEG-002, SEC-01
@@ -129,17 +129,27 @@ Cerrar al 100% la migración de refresh token a cookie `httpOnly`, eliminando re
 
 **Criterios de Aceptación (medibles):**
 
-- [ ] `refreshToken` no aparece en `localStorage` ni en response body.
-- [ ] `POST /api/auth/refresh` funciona sin body de token.
-- [ ] `logout` elimina cookie de refresh correctamente.
-- [ ] Suite de auth/validación pasa con el nuevo contrato.
-- [ ] Documentación API refleja únicamente flujo cookie-only.
+- [x] `refreshToken` no aparece en `localStorage` ni en response body.
+- [x] `POST /api/auth/refresh` funciona sin body de token.
+- [x] `logout` elimina cookie de refresh correctamente.
+- [x] Suite de auth/validación pasa con el nuevo contrato.
+- [x] Documentación API refleja únicamente flujo cookie-only.
+- [x] `POST /api/auth/refresh` requiere CSRF (`X-CSRF-Token`) en entornos no test.
+- [x] El backend rechaza payload legado con `refreshToken` en body (400).
 
 **Avance (16-02-2026):**
 
 - Backend refresh token en modo cookie-only: `POST /api/auth/refresh` ya no acepta `refreshToken` en body.
 - Se eliminó `refreshToken` y `refreshTokenExpiresIn` del DTO de respuesta de autenticación.
 - Se ajustaron validadores/rutas de auth para body vacío en refresh y se actualizaron tests de integración de sesión única.
+
+**Cierre (20-02-2026):**
+
+- `POST /api/auth/refresh` dejó de exponer `refreshToken`/`refreshTokenExpiresIn` en body de respuesta.
+- `logout` quedó en modo cookie-only estricto, eliminando fallback de `refreshToken` en body.
+- Frontend eliminado de persistencia/envío de refresh token (sin `sessionStorage`, sin body legado en refresh).
+- CSRF double-submit activado también para refresh (no exento en middleware de seguridad).
+- Se añadieron/actualizaron pruebas de contrato (`auth.test`, `validationEndpoints.test`) y documentación técnica asociada.
 
 ---
 
