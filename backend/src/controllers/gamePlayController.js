@@ -8,6 +8,7 @@ const gamePlayRepository = require('../repositories/gamePlayRepository');
 const gameSessionRepository = require('../repositories/gameSessionRepository');
 const userRepository = require('../repositories/userRepository');
 const gamePlayService = require('../services/gamePlayService');
+const { recalculateSessionStatusFromPlays } = require('../services/sessionStatusService');
 const { NotFoundError, ValidationError, ForbiddenError } = require('../utils/errors');
 const logger = require('../utils/logger');
 const {
@@ -456,6 +457,7 @@ const abandonPlay = async (req, res, next) => {
     play.status = 'abandoned';
     play.completedAt = new Date();
     await play.save();
+    await recalculateSessionStatusFromPlays(play.sessionId);
 
     logger.info('Partida abandonada', {
       playId: play._id,

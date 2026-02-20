@@ -6,6 +6,8 @@ const GameMechanic = require('../src/models/GameMechanic');
 const GameContext = require('../src/models/GameContext');
 const Card = require('../src/models/Card');
 const CardDeck = require('../src/models/CardDeck');
+const userRepository = require('../src/repositories/userRepository');
+const gamePlayRepository = require('../src/repositories/gamePlayRepository');
 const { generateTokenPair } = require('../src/middlewares/auth');
 const { disconnectUserSockets } = require('../src/utils/socketUtils');
 const { server, io } = require('../src/server');
@@ -319,6 +321,53 @@ describe('Socket.IO auth & ownership', () => {
 
     expect(errorPayload).toEqual(expect.objectContaining({ code: 'FORBIDDEN' }));
 
+    socket.disconnect();
+  });
+
+  test('usa caché TTL para revalidación auth en eventos sensibles consecutivos', async () => {
+    const cacheTeacher = await User.create({
+      name: 'Socket Cache Teacher',
+      email: `socket-cache-${Date.now()}@test.com`,
+      password: 'password',
+      role: 'teacher',
+      status: 'active',
+      accountStatus: 'approved'
+    });
+    const cacheTeacherToken = (await generateTokenPair(cacheTeacher, mockReq)).accessToken;
+
+    const socket = await connectSocket(port, cacheTeacherToken);
+
+    const findByIdSpy = jest.spyOn(userRepository, 'findById');
+    findByIdSpy.mockClear();
+
+    socket.emit('join_card_registration');
+    await new Promise(resolve => setTimeout(resolve, 80));
+
+    socket.emit('leave_card_registration');
+    await new Promise(resolve => setTimeout(resolve, 80));
+
+    // Primer evento => miss (consulta DB), segundo => hit cache (sin consulta extra)
+    expect(findByIdSpy).toHaveBeenCalledTimes(1);
+
+    findByIdSpy.mockRestore();
+    socket.disconnect();
+  });
+
+  test('usa caché TTL para ownership en comandos consecutivos del mismo play', async () => {
+    const socket = await connectSocket(port, teacherOwnerToken);
+
+    const findByIdSpy = jest.spyOn(gamePlayRepository, 'findById');
+    findByIdSpy.mockClear();
+
+    socket.emit('join_play', { playId });
+    await new Promise(resolve => setTimeout(resolve, 80));
+
+    socket.emit('leave_play', { playId });
+    await new Promise(resolve => setTimeout(resolve, 80));
+
+    expect(findByIdSpy).toHaveBeenCalledTimes(1);
+
+    findByIdSpy.mockRestore();
     socket.disconnect();
   });
 });

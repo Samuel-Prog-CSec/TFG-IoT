@@ -1,7 +1,7 @@
 {
   "name": "frontend",
   "private": true,
-  "version": "0.2.0",
+  "version": "0.3.0",
   "type": "module",
   "scripts": {
     "dev": "vite",
@@ -10,6 +10,10 @@
     "lint:fix": "eslint . --fix",
     "lint:staged": "eslint",
     "preview": "vite preview",
+    "audit:full": "npm audit",
+    "audit:prod": "npm audit --omit=dev",
+    "audit:full:json": "npm audit --json",
+    "audit:prod:json": "npm audit --omit=dev --json",
     "deps:analyze": "npx npm-check-updates && npx depcheck && npm outdated"
   },
   "dependencies": {
@@ -17,12 +21,12 @@
     "@dnd-kit/sortable": "^10.0.0",
     "@dnd-kit/utilities": "^3.2.2",
     "@react-spring/web": "^10.0.3",
-    "@tailwindcss/vite": "^4.1.18",
-    "axios": "^1.13.4",
+    "@tailwindcss/vite": "^4.2.0",
+    "axios": "^1.13.5",
     "canvas-confetti": "^1.9.4",
     "clsx": "^2.1.1",
-    "framer-motion": "^12.33.0",
-    "lucide-react": "^0.563.0",
+    "framer-motion": "^12.34.2",
+    "lucide-react": "^0.575.0",
     "prop-types": "^15.8.1",
     "react": "^19.2.4",
     "react-dom": "^19.2.4",
@@ -31,18 +35,18 @@
     "recharts": "^3.7.0",
     "socket.io-client": "^4.8.3",
     "sonner": "^2.0.7",
-    "tailwind-merge": "^3.4.0",
-    "tailwindcss": "^4.1.18"
+    "tailwind-merge": "^3.5.0",
+    "tailwindcss": "^4.2.0"
   },
   "devDependencies": {
-    "@eslint/js": "^9.19.0",
+    "@eslint/js": "^9.39.2",
     "@vitejs/plugin-react-swc": "^4.2.3",
-    "eslint": "^9.19.0",
+    "eslint": "^9.39.2",
     "eslint-plugin-jsx-a11y": "^6.10.2",
-    "eslint-plugin-react": "^7.37.4",
-    "eslint-plugin-react-hooks": "^5.1.0",
-    "eslint-plugin-react-refresh": "^0.4.18",
-    "globals": "^15.14.0",
-    "vite": "^6.1.0"
+    "eslint-plugin-react": "^7.37.5",
+    "eslint-plugin-react-hooks": "^7.0.1",
+    "eslint-plugin-react-refresh": "^0.5.0",
+    "globals": "^17.3.0",
+    "vite": "^7.3.1"
   }
 }

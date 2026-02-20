@@ -187,12 +187,19 @@ npm start                     # Producción
 npm run seed                  # Ejecutar seeders (próximamente)
 npm test                      # Tests
 npm run security:check-&-fix  # Auditoría de seguridad
+npm run audit:prod                # Auditoría runtime/prod (sin devDependencies)
+npm run audit:full                # Auditoría completa (incluye tooling)
 npm run deps:update-minor     # Actualizar dependencias menores
 npm run deps:update-major     # Actualizar dependencias mayores
 npm run deps:analyze          # Analizar dependencias
 npm run drop-db               # Eliminar base de datos (solo desarrollo)
 ```
 
+### Política de seguridad en CI (dependencias)
+
+- **Bloqueante:** `npm run audit:prod` desde raíz (backend + frontend con `--omit=dev`).
+- **Informativo (no bloqueante):** `npm run audit:all` para seguimiento de deuda en tooling (`eslint`, `jest`, etc.).
+- **Objetivo operativo:** mantener **0 vulnerabilidades en runtime** sin romper lint/tests por overrides incompatibles de devDependencies.
 ## 📡 API Endpoints
 
 ### Autenticación (`/api/auth`)

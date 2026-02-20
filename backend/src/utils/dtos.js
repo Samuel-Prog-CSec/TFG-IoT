@@ -341,7 +341,7 @@ const toGameSessionDTOV1 = session => {
       : undefined,
     cardMappingsCount: Array.isArray(sessionData.cardMappings)
       ? sessionData.cardMappings.length
-      : 0,
+      : sessionData.config?.numberOfCards || 0,
     status: sessionData.status,
     difficulty: sessionData.difficulty,
     startedAt: sessionData.startedAt,
@@ -628,8 +628,6 @@ const toAuthResponseDTOV1 = (user, tokens) => ({
   user: toUserDTOV1(user),
   accessToken: tokens.accessToken,
   accessTokenExpiresIn: tokens.accessTokenExpiresIn,
-  refreshToken: tokens.refreshToken,
-  refreshTokenExpiresIn: tokens.refreshTokenExpiresIn,
   tokenType: tokens.tokenType
 });
 

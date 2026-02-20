@@ -1,3 +1,5 @@
+<!-- markdownlint-disable MD025 MD031 MD032 MD036 MD058 MD060 -->
+
 # Documento de Requisitos del Sistema
 
 ## Plataforma de Juegos Educativos con RFID
@@ -950,7 +952,7 @@ El sistema es una **plataforma de juegos educativos interactivos** que utiliza *
 
 **Criterios de Aceptación:**
 - Selección aleatoria de cardMapping (Duda #28)
-- Registrar evento `round_start` en BD
+- Registrar checkpoint de ronda según política de persistencia (`round_start` opcional por configuración)
 - Emitir desafío al cliente con displayData
 - Iniciar timer de timeout
 

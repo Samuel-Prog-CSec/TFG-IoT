@@ -1,3 +1,5 @@
+<!-- markdownlint-disable MD007 MD022 MD029 MD032 -->
+
 # Mantenimiento de Seguridad - Febrero 2026
 
 ## Resumen Ejecutivo
@@ -40,7 +42,17 @@ Este documento resume el hardening de seguridad aplicado en la rama `Maintenance
    - Rate limit especifico y honeypot en `/auth/register`.
 
 9. **Higiene de dependencias**
-   - Dependabot semanal y `npm audit` en CI.
+   - Dependabot mensual y `npm audit` en CI.
+
+10. **Locks distribuidos de tarjetas (multi-instancia)**
+   - Reserva atómica de UIDs en Redis con `SET NX`.
+   - Leases con TTL + heartbeat para evitar locks huérfanos.
+   - Liberación con verificación de owner (`playId`) para prevenir borrado cruzado.
+
+11. **Persistencia atómica de eventos de partida**
+   - `addEventAtomic` reduce write amplification por ronda.
+   - Score, métricas y avance de ronda se actualizan en una sola operación.
+   - Política configurable para checkpoint `round_start`.
 
 ## Vulnerabilidades y Mitigaciones
 
@@ -88,14 +100,51 @@ Este documento resume el hardening de seguridad aplicado en la rama `Maintenance
 ### 8) Dependencias vulnerables
 **Riesgo:** Exploits conocidos en librerias.
 **Mitigacion:**
-- Dependabot semanal.
+- Dependabot mensual.
 - `npm audit` en CI.
+
+### 9) Colisión de tarjetas entre instancias backend
+**Riesgo:** Dos instancias podrían reservar el mismo UID simultáneamente.
+**Mitigacion:**
+- Claim atómico en Redis (`SET NX`).
+- TTL + heartbeat de leases.
+- Liberación condicionada por owner.
+
+### 10) Inconsistencias por escrituras múltiples por ronda
+**Riesgo:** Divergencia de score/métricas/ronda por updates separados bajo carga.
+**Mitigacion:**
+- Persistencia atómica de evento+score+métricas+avance de ronda.
+- Reducción de checkpoints redundantes (`round_start` opcional).
 
 ## Pendientes Recomendados (Mejora Futura)
 
 - **MFA (TOTP)** para `teacher` y `super_admin`.
 - **Alertas proactivas** ante multiples intentos fallidos o reutilizacion de refresh tokens.
 - **Device binding avanzado** para sensores RFID (firma o token por sensor).
+
+## Politica de auditoria en CI (Febrero 2026)
+
+Se establece una politica dual para dependencias:
+
+1. **Gate bloqueante (runtime):** `npm run audit:prod`
+   - Ejecuta auditoria de backend y frontend con `--omit=dev`.
+   - Este check **debe pasar** para permitir merge.
+
+2. **Reporte no bloqueante (tooling):** `npm run audit:all`
+   - Incluye auditoria completa (root + backend + frontend con devDependencies).
+   - Se usa para seguimiento de deuda tecnica en lint/test/build tooling.
+
+### Rationale
+
+- Forzar `overrides` globales (por ejemplo `minimatch`) para eliminar todo warning de dev tooling puede romper `eslint` o `jest` por incompatibilidades de API.
+- El enfoque adoptado prioriza **seguridad efectiva en produccion** sin degradar estabilidad de desarrollo.
+
+## Gobernanza de dependencias (operativa)
+
+- **Automatizacion mensual:** Dependabot genera PRs cada mes para backend, frontend y GitHub Actions.
+- **Revision mensual:** se realiza triage y mantenimiento planificado de vulnerabilidades de tooling.
+- **Sin registro formal de excepciones:** la gestion de deuda se controla por la revision mensual y por estado en PR/CI.
+- **Playbook oficial:** ver `documentation/03-Gestion_Dependencias.md`.
 
 ## Referencias de Implementacion
 
@@ -108,3 +157,4 @@ Este documento resume el hardening de seguridad aplicado en la rama `Maintenance
 - Cap de eventos: [backend/src/models/GamePlay.js](backend/src/models/GamePlay.js)
 - CI: [.github/workflows/build.yml](.github/workflows/build.yml)
 - Dependabot: [.github/dependabot.yml](.github/dependabot.yml)
+- Plan de gestion: [documentation/03-Gestion_Dependencias.md](documentation/03-Gestion_Dependencias.md)

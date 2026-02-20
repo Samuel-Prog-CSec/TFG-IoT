@@ -3,8 +3,8 @@
 Proyecto: Plataforma de Juegos Educativos con RFID (TFG)
 
 Estado: Activo
-Version: 1.0
-Ultima actualizacion: 2026-02-09
+Version: 1.1
+Ultima actualizacion: 2026-02-19
 
 ## Proposito
 
@@ -29,6 +29,31 @@ Este documento describe de forma profesional y detallada los patrones de diseno 
 - Consistencia de contratos de datos
 - Observabilidad y seguridad por defecto
 - Escalabilidad operativa
+
+## Estado de Seguridad en CI (dependencias)
+
+**Estado actual:** ✅ Security Gate (prod) activo en pipeline.
+
+**Definicion operativa:**
+- El gate bloqueante valida solo dependencias de runtime (`--omit=dev`).
+- El reporte completo (incluyendo tooling de desarrollo) se mantiene como informativo no bloqueante.
+
+**Ejecucion en CI:**
+- Workflow: [.github/workflows/build.yml](.github/workflows/build.yml)
+- Paso bloqueante: `npm run audit:prod`
+- Paso informativo: `npm run audit:all` (con `continue-on-error: true`)
+- Actualizaciones automaticas: Dependabot mensual (`.github/dependabot.yml`)
+
+**Verificacion local recomendada:**
+- `npm run audit:prod` → debe pasar para cambios que vayan a merge.
+- `npm run audit:all` → seguimiento de deuda tecnica en `eslint`, `jest` y tooling asociado.
+- Revision operativa mensual del estado de dependencias y PRs automáticas.
+
+**Rationale arquitectonico:**
+- Priorizar seguridad efectiva en produccion sin introducir inestabilidad en lint/tests por overrides agresivos de dependencias de desarrollo.
+
+**Proceso formal:**
+- Ver `documentation/03-Gestion_Dependencias.md`.
 
 ## Mapa rapido de patrones
 

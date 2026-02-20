@@ -202,5 +202,8 @@ describe('Game Full Flow', () => {
     const student = await User.findById(studentId);
     expect(student.studentMetrics.totalGamesPlayed).toBe(1);
     expect(student.studentMetrics.totalScore).toBe(50);
+
+    const session = await GameSession.findById(sessionId);
+    expect(session.status).toBe('completed');
   });
 });

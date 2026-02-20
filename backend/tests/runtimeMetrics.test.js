@@ -25,4 +25,14 @@ describe('runtimeMetrics', () => {
     expect(snap.rfid.byEvent.card_detected).toBe(2);
     expect(snap.rfid.byEvent.error).toBe(1);
   });
+
+  it('tracks websocket auth cache hits and misses', () => {
+    runtimeMetrics.recordSocketAuthCache('miss');
+    runtimeMetrics.recordSocketAuthCache('hit');
+    runtimeMetrics.recordSocketAuthCache('hit');
+
+    const snap = runtimeMetrics.getSnapshot();
+    expect(snap.websocket.authCacheMisses).toBe(1);
+    expect(snap.websocket.authCacheHits).toBe(2);
+  });
 });

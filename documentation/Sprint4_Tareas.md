@@ -2,38 +2,21 @@
 
 **Proyecto:** Plataforma de Juegos Educativos con RFID (TFG)  
 **Autor:** Samuel Blanchart Pérez  
-**Duración:** 3-4 semanas (Febrero - Marzo 2026)  
-**Versión objetivo:** 1.0.0  
+**Duración:** 2-3 semanas (Febrero - Marzo 2026)  
+**Versión objetivo:** 0.4.0  
 **Última actualización:** 13-02-2026
 
 ---
 
 ## Resumen del Sprint
 
-Este sprint se enfoca en **cerrar el núcleo funcional de la versión 1.0.0**:
+Este sprint se enfoca en **cerrar el núcleo funcional de la versión 0.4.0**:
 
 1. **Gameplay real en producción** para mecánicas de **Asociación** y **Memoria**.
 2. **GameEngine robusto y extensible** para múltiples configuraciones de sesión.
 3. **Cierre de seguridad, compliance y calidad mínima verificable** para release.
 
 Además, se revisan y ajustan tareas ya iniciadas para evitar falsos cierres por implementación parcial.
-
-### Objetivo de Cierre v1.0
-
-- Funcionalidad principal jugable end-to-end (crear sesión → jugar → resultados).
-- Seguridad crítica validada (auth con refresh cookie-only).
-- Cumplimiento base GDPR para anonimización de alumnos.
-- Calidad mínima con tests críticos y trazabilidad requisito → tarea → evidencia.
-
-### Métricas del Sprint (Objetivo)
-
-| Prioridad    | Cantidad | Esfuerzo Estimado |
-| ------------ | -------- | ----------------- |
-| P0 (Crítica) | 3        | ~7-9 días         |
-| P1 (Alta)    | 13       | ~17-22 días       |
-| P2 (Media)   | 8        | ~9-12 días        |
-| P3 (Baja)    | 1        | ~1-2 días         |
-| **Total**    | **25**   | **34-45 días**    |
 
 ---
 
@@ -42,7 +25,7 @@ Además, se revisan y ajustan tareas ya iniciadas para evitar falsos cierres por
 - **Prioridad:** P0 (Crítica/Bloqueante) > P1 (Alta) > P2 (Media) > P3 (Baja)
 - **Tamaño:** XS (< 2h), S (2-4h), M (4-8h), L (1-2 días), XL (> 2 días)
 - **Estado:** 📋 Pendiente | 🔄 En Progreso | ✅ Completada
-- **Origen:** Requisitos (RF/RNF) | Auditoría Arquitectura (ARCH-XX) | Auditoría Seguridad/Backend (SEC/BE-XX) | Auditoría Frontend UI/UX (FE-XX)
+- **Origen:** Requisitos (RF/RNF)
 - **Definición de 100% (DoD):** Código + tests + documentación requerida en la tarea
 
 ---
@@ -86,7 +69,7 @@ Conectar la pantalla de partida real del frontend con el backend vía Socket.IO 
 
 ---
 
-### T-055: Hardening GameEngine (extensibilidad + rendimiento) 📋
+### T-055: Hardening GameEngine (extensibilidad + rendimiento) ✅
 
 **Prioridad:** P0 | **Tamaño:** XL | **Dependencias:** T-054  
 **Origen:** RNF-REN-001, RNF-REN-010, ARCH-01, ARCH-02
@@ -104,11 +87,27 @@ Evolucionar `gameEngine` para soportar de forma estable múltiples mecánicas, d
 
 **Criterios de Aceptación (medibles):**
 
-- [ ] El motor soporta asociación y memoria sin condicionales ad-hoc repetitivos.
-- [ ] No aparecen regresiones en tests de `gameFlow`, `playPauseResume`, `redisStateRecovery`.
-- [ ] Métricas de motor exponen al menos 3 indicadores nuevos de ejecución.
-- [ ] No quedan warnings críticos de race conditions detectados en revisión técnica.
-- [ ] Documentación técnica del motor actualizada.
+- [x] El motor soporta asociación y memoria sin condicionales ad-hoc repetitivos.
+- [x] No aparecen regresiones en tests de `gameFlow`, `playPauseResume`, `redisStateRecovery`.
+- [x] Métricas de motor exponen al menos 3 indicadores nuevos de ejecución.
+- [x] No quedan warnings críticos de race conditions detectados en revisión técnica.
+- [x] Documentación técnica del motor actualizada.
+
+**Avance (16-02-2026):**
+
+- Se añadió guard de idempotencia en `start_play` dentro de `gameEngine`.
+- Se bloqueó `next_round` manual cuando la ronda está en `awaitingResponse`.
+- Se añadieron métricas nuevas de engine (`ignoredCardScans`, `blockedManualNextRound`, `totalTimeouts`, `averageRoundResponseTimeMs`).
+- Se añadió test específico de comando socket para `next_round`.
+- Se añadió serialización por `playId` para operaciones críticas (`handleCardScan`, `handleTimeout`, `pause`, `resume`, `advanceToNextRound`) para reducir condiciones de carrera.
+- Se endureció validación de `rfid_scan_from_client` en modo gameplay validando contexto runtime activo, ownership y sensor autorizado.
+- Se añadió caché TTL de revalidación auth para eventos socket sensibles con métricas `authCacheHits/authCacheMisses`.
+- Se optimizaron bucles secuenciales de cleanup/recovery del motor con procesamiento por lotes configurable (`GAME_ENGINE_BATCH_SIZE`).
+
+**Cierre (16-02-2026):**
+
+- Suites de validación ejecutadas y en verde: `gameFlow`, `playPauseResume`, `redisStateRecovery`, `runtimeMetrics`, `socketAuth`, `nextRoundCommand`.
+- Hardening distribuido adicional completado: locks Redis con lease TTL + heartbeat + release owner-aware.
 
 ---
 
@@ -135,6 +134,12 @@ Cerrar al 100% la migración de refresh token a cookie `httpOnly`, eliminando re
 - [ ] `logout` elimina cookie de refresh correctamente.
 - [ ] Suite de auth/validación pasa con el nuevo contrato.
 - [ ] Documentación API refleja únicamente flujo cookie-only.
+
+**Avance (16-02-2026):**
+
+- Backend refresh token en modo cookie-only: `POST /api/auth/refresh` ya no acepta `refreshToken` en body.
+- Se eliminó `refreshToken` y `refreshTokenExpiresIn` del DTO de respuesta de autenticación.
+- Se ajustaron validadores/rutas de auth para body vacío en refresh y se actualizaron tests de integración de sesión única.
 
 ---
 
@@ -166,7 +171,7 @@ Implementar anonimización de alumnos cumpliendo GDPR/LOPD, preservando métrica
 
 ---
 
-### T-053: Reglas de Estado de GameSession consistentes 📋
+### T-053: Reglas de Estado de GameSession consistentes ✅
 
 **Prioridad:** P1 | **Tamaño:** M | **Dependencias:** T-054  
 **Origen:** RF-JGO-016, RF-JGO-019
@@ -183,10 +188,21 @@ Aplicar y automatizar reglas de transición de estado de `GameSession` según es
 
 **Criterios de Aceptación (medibles):**
 
-- [ ] `active` cuando existe al menos un play `in-progress` o `paused`.
-- [ ] `completed` cuando no quedan plays activos/pausados.
-- [ ] Transiciones no dependen de cambios manuales fuera del flujo.
-- [ ] Tests de transición pasan para creación/inicio/finalización/abandono.
+- [x] `active` cuando existe al menos un play `in-progress` o `paused`.
+- [x] `completed` cuando no quedan plays activos/pausados.
+- [x] Transiciones no dependen de cambios manuales fuera del flujo.
+- [x] Tests de transición pasan para creación/inicio/finalización/abandono.
+
+**Avance (16-02-2026):**
+
+- Se creó `sessionStatusService` para centralizar el recálculo de estado de `GameSession` desde `GamePlay`.
+- Se integró recálculo en flujos clave: `createPlay`, `completePlay`, `abandonPlay`, `pause/resume` y recuperación por reinicio (`server_restart`).
+- Se ampliaron tests de regresión (`gameFlow`, `playPauseResume`, `redisStateRecovery`) con aserciones de estado de sesión.
+
+**Cierre (16-02-2026):**
+
+- Reglas de transición centralizadas y aplicadas en runtime/service sin actualización manual ad-hoc.
+- Evidencia de regresión en verde en suites de flujo y recuperación vinculadas al estado de sesión.
 
 ---
 
@@ -287,7 +303,7 @@ Formalizar criterios de calidad para release 1.0.0 con cobertura mínima y flujo
 
 ---
 
-### T-058: Optimización de rendimiento realtime y concurrencia 📋
+### T-058: Optimización de rendimiento realtime y concurrencia ✅
 
 **Prioridad:** P1 | **Tamaño:** L | **Dependencias:** T-055  
 **Origen:** ARCH-03
@@ -305,10 +321,17 @@ Implementar mejoras de rendimiento en el flujo realtime del backend para reducir
 
 **Criterios de Aceptación (medibles):**
 
-- [ ] Existe test que verifica hit de caché de auth en reconexión socket dentro del TTL.
-- [ ] Existe test de concurrencia que garantiza una única puntuación por ronda ante escaneos simultáneos.
-- [ ] `/api/metrics` incluye y reporta los nuevos contadores de cache/contención/race.
-- [ ] No hay regresiones en suites `gameFlow`, `playPauseResume`, `socketAuth`, `runtimeMetrics`.
+- [x] Existe test que verifica hit de caché de auth en reconexión socket dentro del TTL.
+- [x] Existe test de concurrencia que garantiza una única puntuación por ronda ante escaneos simultáneos.
+- [x] `/api/metrics` incluye y reporta los nuevos contadores de cache/contención/race.
+- [x] No hay regresiones en suites `gameFlow`, `playPauseResume`, `socketAuth`, `runtimeMetrics`.
+
+**Actualización (17-02-2026):**
+
+- Se añadió métrica explícita `scanRaceDiscarded` en `gameEngine` para observabilidad de carreras scan/timeout.
+- Se reforzó caché de ownership por socket además de caché global TTL para reducir lecturas repetidas en comandos consecutivos.
+- Se añadió barrido de expirados para cachés de auth/ownership (higiene de memoria bajo carga).
+- Suites verificadas en esta iteración: `socketAuth`, `runtimeMetrics`, `metricsEndpoints`, `gameFlow`, `playPauseResume`, `nextRoundCommand`.
 
 ---
 
@@ -335,9 +358,14 @@ Aplicar hardening de seguridad en backend y WebSocket (validación, ownership y 
 - [ ] Eventos RFID fuera de ventana temporal o con `source` inválido se rechazan por validador.
 - [ ] Tests de `socketAuth`, `validationEndpoints`, `metricsEndpoints` y auth pasan sin regresiones.
 
+**Avance (16-02-2026):**
+
+- Se endureció el filtrado de `GET /api/sessions` para que un `teacher` no pueda forzar `createdBy` en query (mitigación IDOR horizontal).
+- Se normalizó parcialmente el contrato de error en comandos socket críticos (`code` + `message`).
+
 ---
 
-### T-064: Optimizar consultas y lectura de sesiones (sin write-on-read) 📋
+### T-064: Optimizar consultas y lectura de sesiones (sin write-on-read) ✅
 
 **Prioridad:** P1 | **Tamaño:** M | **Dependencias:** T-053  
 **Origen:** ARCH-04
@@ -355,14 +383,29 @@ Eliminar side-effects en endpoints de lectura y reducir sobrecarga de consultas 
 
 **Criterios de Aceptación (medibles):**
 
-- [ ] Ningún endpoint `GET` de sesión ejecuta `save()` como efecto colateral.
-- [ ] Comandos socket críticos reducen consultas redundantes de ownership.
-- [ ] Tests de repositorios/controladores validan lectura sin mutación.
-- [ ] Latencia de endpoints de detalle/listado mejora respecto a baseline definido.
+- [x] Ningún endpoint `GET` de sesión ejecuta `save()` como efecto colateral.
+- [x] Comandos socket críticos reducen consultas redundantes de ownership.
+- [x] Tests de repositorios/controladores validan lectura sin mutación.
+- [x] Latencia de endpoints de detalle/listado mejora respecto a baseline definido.
+
+**Actualización (17-02-2026):**
+
+- `GET /api/sessions` y `GET /api/sessions/:id` ejecutan lectura `lean` y sin mutación.
+- Se añadió caché ligera por socket para ownership (además de caché global TTL).
+- Se amplió test de no mutación para cubrir listado (`GET /api/sessions`) y detalle (`GET /api/sessions/:id`).
+- Se añadió benchmark reproducible (`npm run bench:sessions`) comparando baseline sin `lean` vs modo optimizado con `lean` (versión actual).
+- Resultado de cierre: mejora medible en listado (`avg +8.84%`, `p95 +13.34%`) y detalle (`avg +2.55%`, `p95 +5.67%`) respecto al baseline definido.
+
+**Avance (16-02-2026):**
+
+- `GET /api/sessions/:id` dejó de ejecutar sincronización con `save()` en lectura (sin write-on-read).
+- Se añadió ruta ligera de ownership para comandos socket no críticos de runtime, con caché TTL por `userId+playId` para reducir consultas repetidas.
+- `start_play` mantiene carga completa de sesión (mecánica/reglas) para no afectar el arranque de partida.
+- Se añadió test de no mutación en lectura de sesión y test de caché de ownership en comandos socket consecutivos.
 
 ---
 
-### T-065: Optimizar persistencia de eventos GamePlay 📋
+### T-065: Optimizar persistencia de eventos GamePlay ✅
 
 **Prioridad:** P1 | **Tamaño:** L | **Dependencias:** T-055, T-058  
 **Origen:** ARCH-05
@@ -380,10 +423,23 @@ Reducir write amplification en GamePlay durante rondas para mejorar throughput y
 
 **Criterios de Aceptación (medibles):**
 
-- [ ] Se reduce el número de escrituras Mongo por ronda en flujos normales.
-- [ ] Métricas y score final se mantienen consistentes tras refactor.
-- [ ] Tests de gameplay/eventos pasan sin regresión funcional.
-- [ ] Estrategia de persistencia queda documentada para mantenimiento.
+- [x] Se reduce el número de escrituras Mongo por ronda en flujos normales.
+- [x] Métricas y score final se mantienen consistentes tras refactor.
+- [x] Tests de gameplay/eventos pasan sin regresión funcional.
+- [x] Estrategia de persistencia queda documentada para mantenimiento.
+
+**Actualización (17-02-2026):**
+
+- Se mantiene `addEventAtomic` como ruta canónica de persistencia por ronda (`$push + $inc + $slice`).
+- Se valida consistencia funcional con suites `gamePlayEventPersistence`, `gameFlow` y `playPauseResume`.
+
+**Avance (16-02-2026):**
+
+- Se añadió persistencia atómica de eventos en `GamePlay` con operadores `$push` + `$inc` y truncado por `$slice` (`addEventAtomic`).
+- `gameEngine` ahora persiste resultado de ronda (`correct/error/timeout`) y avance de `currentRound` en una sola operación atómica.
+- Se redujo write amplification en flujo normal al desactivar por defecto la persistencia de `round_start` (configurable por `PERSIST_ROUND_START_EVENTS=true`).
+- Se corrigió el cómputo de `metrics.totalAttempts` para contar únicamente eventos de respuesta (`correct`, `error`, `timeout`).
+- Se añadieron tests específicos de persistencia atómica y política de eventos de ronda.
 
 ---
 
@@ -556,27 +612,6 @@ Configurar y ejecutar tests E2E para cubrir los flujos críticos de release 1.0.
 
 ---
 
-### T-063: Verificación y Cierre Documental de Requisitos ya implementados 📋
-
-**Prioridad:** P2 | **Tamaño:** S | **Dependencias:** T-061  
-**Origen:** RNF-CAL-020, RNF-REN-010
-
-**Descripción:**  
-Cerrar formalmente requisitos ya implementados (health/metrics y estado en Redis) con evidencia trazable.
-
-**Sub-tareas:**
-
-1. Añadir referencias de código/tests en documentación de sprint.
-2. Verificar que criterios de aceptación de requisitos están cubiertos.
-3. Marcar evidencia de regresión para futuras auditorías.
-
-**Criterios de Aceptación (medibles):**
-
-- [ ] Evidencia trazable requisito → archivo → test.
-- [ ] Requisitos marcados como completos con justificación técnica.
-
----
-
 ## P3 - Prioridad Baja
 
 ### T-023: Staging Environment (replicable) 📋
@@ -674,75 +709,6 @@ Mejorar accesibilidad de controles y anuncios dinámicos para reducir ruido en l
 
 ---
 
-## Cobertura Requisitos RF/RNF (Sprint 4)
-
-| Requisito | Cobertura Sprint 4 |
-| --------- | ------------------ |
-| RF-USR-019 / RNF-SEG-019 | T-007 |
-| RF-JGO-004 | T-054, T-055, T-056 |
-| RF-JGO-026 | T-055 |
-| RF-JGO-027 | T-054, T-053 |
-| RF-RFID-012 | T-057 |
-| RNF-CAL-018/019 | T-061, T-038 |
-| RNF-CAL-020 | T-063 |
-| RNF-REN-010 | T-063 |
-
----
-
-## Ajustes sobre tareas originales de Sprint 4
-
-- T-051 se mantiene, pero pasa a P0 con cierre de gaps de seguridad.
-- T-007 se mantiene y se alinea explícitamente con RF-USR-019/RNF-SEG-019.
-- T-050 se mantiene como **ruta de desarrollo** separada de producción.
-- T-052 y T-039 se mantienen y se amplían con criterios medibles.
-- T-034, T-037, T-053 se mantienen y se endurecen en DoD.
-- T-038 se mantiene como soporte de calidad de release.
-- Se añaden T-054, T-055, T-056, T-057, T-058, T-059, T-060, T-061, T-063, T-064, T-065, T-066, T-067, T-068, T-069.
-
----
-
-## Mapa de Dependencias (GitHub Project)
-
-### Dependencias duras (Hard Dependencies)
-
-| Tarea | Depende de | Motivo |
-| ----- | ---------- | ------ |
-| T-055 | T-054 | Hardening del motor sobre flujo real integrado |
-| T-053 | T-054 | Reglas de estado validables con gameplay real |
-| T-056 | T-054 | Wizard adaptativo alineado a flujo productivo |
-| T-037 | T-056 | Clonado debe respetar el nuevo contrato del wizard |
-| T-057 | T-054 | Contrato RFID alineado al flujo real operativo |
-| T-061 | T-054, T-051 | Calidad release depende de gameplay real y auth final |
-| T-058 | T-055 | Optimización de concurrencia y latencia sobre arquitectura final del motor |
-| T-059 | T-051, T-058 | Hardening de seguridad/validación tras cierre auth y optimización realtime |
-| T-064 | T-053 | Optimización de consultas y eliminación de write-on-read en sesiones |
-| T-065 | T-055, T-058 | Reducción de write amplification en persistencia de eventos |
-| T-066 | T-055 | Robustez de recuperación Redis y locks de tarjetas en concurrencia |
-| T-067 | T-059 | Integridad de dominio y cierre de bypass en usuarios/contextos |
-| T-052 | T-056 | Reduced-motion aplicado sobre wizard definitivo |
-| T-060 | T-056, T-052 | Mejoras UI/UX y rendimiento visual sobre base del wizard definitivo |
-| T-068 | T-056, T-060 | Estabilizar estados visuales eliminando clases dinámicas no seguras |
-| T-069 | T-060 | Accesibilidad de temporizador y controles en flujos críticos |
-| T-039 | T-061 | Observabilidad frontend tras estabilizar calidad base |
-| T-034 | T-061 | Publicar OpenAPI cuando contrato API esté estabilizado |
-| T-038 | T-054, T-051, T-056 | E2E sobre flujo real, auth final y wizard definitivo |
-| T-063 | T-061 | Cierre documental tras validación de calidad |
-| T-023 | T-061 | Staging documentado con baseline de release definido |
-
-### Dependencias blandas (Soft / orden recomendado)
-
-- T-007 puede iniciarse en paralelo con T-054/T-051, pero conviene cerrarla antes del RC por compliance.
-- T-050 puede avanzar en paralelo (dev-only), validando separación al cerrar T-054.
-- T-039 y T-034 pueden iniciarse antes, aunque su cierre final se recomienda tras T-061.
-
-### Nodos raíz sugeridos para arrancar Sprint
-
-- T-054 (gameplay real)
-- T-051 (auth cookie-only)
-- T-007 (GDPR anonimización)
-
----
-
 ## Fuera de alcance Sprint 4 (propuesto Sprint 5)
 
 1. API completa de gestión de sensores (`/api/sensors/*`) para RF-RFID-011.
@@ -762,7 +728,3 @@ Antes de cerrar el sprint, cada tarea deberá anexar en PR:
 - Tests ejecutados.
 - Evidencia documental actualizada.
 - Riesgo residual (si aplica).
-
----
-
-*Documento actualizado para cierre de Sprint 4 orientado a versión 1.0.0.*

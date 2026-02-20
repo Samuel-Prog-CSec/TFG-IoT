@@ -5,7 +5,7 @@
 El sistema contempla **tres roles** con interacción distinta:
 
 | Aspecto | Super Admin (`super_admin`) | Profesores (`teacher`) | Alumnos (`student`) |
-|---------|------------------------------|------------------------|---------------------|
+| --- | --- | --- | --- |
 | **Acceso a la app** | ✅ Sí (email/password) | ✅ Sí (email/password) | ❌ No |
 | **Registro** | Seeder / alta inicial | Auto-registro en `/api/auth/register` (queda pendiente) | Creados por profesores en `/api/users` |
 | **Login** | ✅ Sí (`/api/auth/login`) | ✅ Sí (`/api/auth/login`) **solo si aprobado** | ❌ No |
@@ -13,6 +13,7 @@ El sistema contempla **tres roles** con interacción distinta:
 | **Responsabilidad** | Aprobar/rechazar profesores | Gestionar juego (sesiones, mazos, alumnos, partidas) | Jugar con RFID |
 
 Clave del flujo actual:
+
 - El registro de profesor crea una cuenta con `accountStatus: 'pending_approval'`.
 - El profesor **no puede iniciar sesión** hasta que un Super Admin lo apruebe.
 
@@ -25,6 +26,7 @@ Clave del flujo actual:
 **Endpoint**: `POST /api/auth/login`
 
 **Body**:
+
 ```json
 {
   "email": "admin@test.com",
@@ -33,6 +35,7 @@ Clave del flujo actual:
 ```
 
 **Validación (alto nivel)**:
+
 - ✅ Usuario existe
 - ✅ `role` es `super_admin`
 - ✅ `status` es `active`
@@ -40,6 +43,7 @@ Clave del flujo actual:
 - ✅ Password correcta
 
 **Respuesta** (200):
+
 ```json
 {
   "success": true,
@@ -54,25 +58,28 @@ Clave del flujo actual:
       "accountStatus": "approved"
     },
     "accessToken": "...",
-    "refreshToken": "...",
-    "accessTokenExpiry": "...",
-    "refreshTokenExpiry": "..."
+    "accessTokenExpiry": "..."
   }
 }
 ```
 
+**Nota:** el `refreshToken` se entrega únicamente vía cookie `httpOnly` y no se expone en el body.
+
 ### 2. Aprobar / Rechazar profesores
 
 **Endpoints (solo Super Admin)**:
+
 - `POST /api/admin/users/:id/approve`
 - `POST /api/admin/users/:id/reject`
 
 **Headers**:
-```
+
+```text
 Authorization: Bearer <accessToken>
 ```
 
 **Reglas**:
+
 - ✅ Solo se pueden aprobar/rechazar usuarios con `role: 'teacher'`.
 - ✅ Cambia `accountStatus` a `approved` o `rejected`.
 
@@ -85,6 +92,7 @@ Authorization: Bearer <accessToken>
 **Endpoint**: `POST /api/auth/register`
 
 **Body**:
+
 ```json
 {
   "name": "María García",
@@ -97,11 +105,13 @@ Authorization: Bearer <accessToken>
 ```
 
 **Resultado**:
+
 - ✅ Se crea `role: 'teacher'`, `status: 'active'`.
 - ✅ Se crea `accountStatus: 'pending_approval'`.
 - ❌ NO se emiten tokens en el registro.
 
 **Respuesta** (201):
+
 ```json
 {
   "success": true,
@@ -124,6 +134,7 @@ Authorization: Bearer <accessToken>
 **Endpoint**: `POST /api/auth/login`
 
 **Body**:
+
 ```json
 {
   "email": "maria.garcia@colegio.es",
@@ -132,15 +143,18 @@ Authorization: Bearer <accessToken>
 ```
 
 **Reglas de autenticación**:
+
 - ✅ Solo pueden iniciar sesión `teacher` y `super_admin`.
 - ✅ `status` debe ser `active`.
 - ✅ Para roles con login: `accountStatus` debe ser `approved`.
 
 **Errores canónicos usados en el proyecto**:
+
 - `401 Unauthorized`: credenciales inválidas o usuario inactivo.
 - `403 Forbidden`: credenciales correctas pero cuenta `pending_approval` o `rejected`.
 
 **Ejemplo de cuenta pendiente** (403):
+
 ```json
 {
   "success": false,
@@ -151,6 +165,7 @@ Authorization: Bearer <accessToken>
 ### 3. Gestión de la aplicación (tras login)
 
 Con `Authorization: Bearer <accessToken>`, un profesor puede:
+
 - ✅ Crear alumnos (`POST /api/users`)
 - ✅ Crear/gestionar mazos (`/api/decks`)
 - ✅ Crear sesiones (`POST /api/sessions`) y asignar partidas (`POST /api/plays`)
@@ -165,11 +180,13 @@ Con `Authorization: Bearer <accessToken>`, un profesor puede:
 **Endpoint**: `POST /api/users` (requiere autenticación como profesor)
 
 **Headers**:
-```
+
+```text
 Authorization: Bearer <accessToken>
 ```
 
 **Body**:
+
 ```json
 {
   "name": "Lucas Martínez",
@@ -182,6 +199,7 @@ Authorization: Bearer <accessToken>
 ```
 
 **Reglas**:
+
 - ✅ Se fuerza `role: 'student'`.
 - ✅ Se asigna `createdBy` al profesor autenticado.
 - ❌ Un alumno NO puede tener `email` ni `password`.
@@ -189,6 +207,7 @@ Authorization: Bearer <accessToken>
 ### 2. Juego del alumno
 
 El alumno NO usa la app web. El flujo es:
+
 1. Profesor prepara sesión y partida.
 2. Alumno escanea RFID.
 3. Backend valida y emite eventos por WebSocket.
@@ -199,15 +218,18 @@ El alumno NO usa la app web. El flujo es:
 ## 🔒 Validaciones Implementadas (resumen)
 
 ### Nivel 1: Validación de entrada (Zod)
+
 - `registerTeacherSchema`: permite `name/email/password/profile` y rechaza campos extra.
 - `createStudentSchema`: permite `name/profile` y rechaza `email/password/role`.
 
 ### Nivel 2: Controllers (lógica)
+
 - `authController.register`: crea `teacher` con `accountStatus: 'pending_approval'`.
 - `authController.login`: solo `teacher/super_admin` y exige `accountStatus: 'approved'`.
 - `adminController`: solo `super_admin` puede aprobar/rechazar `teacher`.
 
 ### Nivel 3: Modelo (Mongoose)
+
 - `teacher/super_admin`: requieren `email/password` (password hasheada por hook).
 - `student`: prohíbe `email/password` y exige `createdBy` al crear.
 
@@ -215,7 +237,7 @@ El alumno NO usa la app web. El flujo es:
 
 ## 📊 Diagrama de Flujo (alto nivel)
 
-```
+```text
 ┌─────────────────────────────────────────────────────────────────┐
 │                        REGISTRO PROFESOR                         │
 ├─────────────────────────────────────────────────────────────────┤

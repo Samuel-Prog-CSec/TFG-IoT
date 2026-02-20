@@ -12,7 +12,7 @@ class NextRoundCommand extends BaseSocketCommand {
   async execute({ socket, data, helpers, gameEngine }) {
     const { playId } = data || {};
     if (!playId) {
-      socket.emit('error', { message: 'playId requerido' });
+      socket.emit('error', { code: 'VALIDATION_ERROR', message: 'playId requerido' });
       return;
     }
 
@@ -29,7 +29,21 @@ class NextRoundCommand extends BaseSocketCommand {
       return;
     }
 
-    gameEngine.sendNextRound(playId);
+    const result = await gameEngine.advanceToNextRound(playId);
+    if (!result.ok) {
+      if (result.reason === 'awaiting_response') {
+        socket.emit('error', {
+          code: 'ROUND_BLOCKED',
+          message: 'No se puede avanzar de ronda mientras se espera una respuesta'
+        });
+        return;
+      }
+
+      socket.emit('error', {
+        code: 'PLAY_NOT_ACTIVE',
+        message: 'La partida no está activa en el motor de juego'
+      });
+    }
   }
 }
 
