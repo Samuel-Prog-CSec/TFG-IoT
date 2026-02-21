@@ -146,6 +146,34 @@ describe('Validation (Zod) - All API endpoints', () => {
 
       expect(res.statusCode).toBe(400);
     });
+
+    it('POST /api/users - rejects NoSQL operator payload', async () => {
+      const res = await request(app)
+        .post('/api/users')
+        .set(makeAuthHeaders(teacherToken))
+        .send({
+          name: 'Alumno Seguro',
+          profile: { classroom: '1A' },
+          $where: 'this.role === "teacher"'
+        });
+
+      expect(res.statusCode).toBe(400);
+      expect(res.body.message).toMatch(/política de seguridad/i);
+    });
+
+    it('POST /api/users - rejects constructor.prototype payload', async () => {
+      const maliciousPayload = JSON.parse(
+        '{"name":"Alumno Seguro","profile":{"classroom":"1A"},"constructor":{"prototype":{"polluted":true}}}'
+      );
+
+      const res = await request(app)
+        .post('/api/users')
+        .set(makeAuthHeaders(teacherToken))
+        .send(maliciousPayload);
+
+      expect(res.statusCode).toBe(400);
+      expect(res.body.message).toMatch(/política de seguridad/i);
+    });
   });
 
   describe('Cards routes', () => {

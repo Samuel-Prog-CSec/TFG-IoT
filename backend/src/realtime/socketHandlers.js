@@ -8,12 +8,14 @@
 const gamePlayRepository = require('../repositories/gamePlayRepository');
 const userRepository = require('../repositories/userRepository');
 const { verifyAccessToken } = require('../middlewares/auth');
+const { corsWhitelist } = require('../config/security');
 const runtimeMetrics = require('../utils/runtimeMetrics');
 const { logSecurityEvent, getSocketContext } = require('../utils/securityLogger');
 const { rfidClientEventSchema } = require('../validators/rfidValidator');
 const { objectIdSchema } = require('../validators/commonValidator');
 const { getRfidState } = require('../states/rfid');
 const { getSocketCommand, getCommandNames } = require('../commands/socket');
+const { findDangerousPayloadPath } = require('../utils/payloadSecurity');
 
 const RFID_MODES = Object.freeze({
   IDLE: 'idle',
@@ -222,6 +224,44 @@ const logSocketSecurityEvent = (eventCode, socket, meta = {}) => {
   logSecurityEvent(eventCode, {
     ...buildSocketSecurityMeta(socket),
     ...meta
+  });
+};
+
+const validateSocketOrigin = socket => {
+  const origin = socket.handshake?.headers?.origin;
+  const isProduction = process.env.NODE_ENV === 'production';
+
+  if (!origin) {
+    if (isProduction) {
+      return {
+        valid: false,
+        reason: 'ORIGIN_REQUIRED'
+      };
+    }
+
+    return { valid: true };
+  }
+
+  if (corsWhitelist.includes(origin)) {
+    return { valid: true };
+  }
+
+  return {
+    valid: false,
+    reason: 'ORIGIN_NOT_ALLOWED',
+    origin
+  };
+};
+
+const rejectDangerousSocketPayload = (socket, eventName, payloadPath) => {
+  socket.emit('error', {
+    code: 'VALIDATION_ERROR',
+    message: 'Payload no permitido por política de seguridad'
+  });
+  logSocketSecurityEvent('SECURITY_PAYLOAD_BLOCKED', socket, {
+    eventName,
+    source: 'socket',
+    path: payloadPath
   });
 };
 
@@ -629,6 +669,16 @@ const registerSocketHandlers = ({ io, gameEngine, rfidService, socketRateLimiter
         return next(new Error('Token requerido'));
       }
 
+      const originValidation = validateSocketOrigin(socket);
+      if (!originValidation.valid) {
+        logSocketSecurityEvent('WS_AUTH_FAILED', socket, {
+          reason: originValidation.reason,
+          origin: originValidation.origin,
+          tokenSource
+        });
+        return next(new Error('Origin no autorizado'));
+      }
+
       const mockReq = { headers: socket.handshake.headers };
       const decoded = await verifyAccessToken(accessToken, mockReq);
 
@@ -767,6 +817,12 @@ const registerSocketHandlers = ({ io, gameEngine, rfidService, socketRateLimiter
       socket.on(
         eventName,
         socketRateLimiter.wrap(socket, eventName, async data => {
+          const dangerousPath = findDangerousPayloadPath(data);
+          if (dangerousPath) {
+            rejectDangerousSocketPayload(socket, eventName, dangerousPath);
+            return;
+          }
+
           if (sensitiveEvents.has(eventName)) {
             const ok = await revalidateSocketAuth(socket, eventName);
             if (!ok) {

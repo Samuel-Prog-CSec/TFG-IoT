@@ -39,6 +39,7 @@ const logger = require('./utils/logger');
 const { authenticate, requireRole } = require('./middlewares/auth');
 const { errorHandler, notFoundHandler } = require('./middlewares/errorHandler');
 const { createSocketRateLimiter } = require('./middlewares/socketRateLimiter');
+const { securityPayloadGuard } = require('./middlewares/securityPayloadGuard');
 const { getHealthStatus } = require('./utils/healthCheck');
 const runtimeMetrics = require('./utils/runtimeMetrics');
 const { toSystemMetricsDTOV1 } = require('./utils/dtos');
@@ -138,6 +139,9 @@ app.use(csrfProtection);
 
 app.use(express.json()); // Parsear application/json
 app.use(express.urlencoded({ extended: true })); // Parsear application/x-www-form-urlencoded
+
+// Hardening anti prototype-pollution / NoSQL operators antes de validadores de rutas
+app.use(securityPayloadGuard);
 
 const httpLogSampleRate = Math.min(
   Math.max(Number.parseFloat(process.env.LOG_SAMPLE_RATE || '1'), 0),

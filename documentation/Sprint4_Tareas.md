@@ -345,7 +345,7 @@ Implementar mejoras de rendimiento en el flujo realtime del backend para reducir
 
 ---
 
-### T-059: Hardening backend de seguridad y validación 📋
+### T-059: Hardening backend de seguridad y validación ✅
 
 **Prioridad:** P1 | **Tamaño:** M | **Dependencias:** T-051, T-058  
 **Origen:** BE-01, SEC-02
@@ -367,6 +367,20 @@ Aplicar hardening de seguridad en backend y WebSocket (validación, ownership y 
 - [ ] Payloads de riesgo (prototype pollution / NoSQL operators) se rechazan con `400` antes de tocar repositorios.
 - [ ] Eventos RFID fuera de ventana temporal o con `source` inválido se rechazan por validador.
 - [ ] Tests de `socketAuth`, `validationEndpoints`, `metricsEndpoints` y auth pasan sin regresiones.
+
+**Actualización (20-02-2026):**
+
+- Se añadió validación explícita de `Origin` en handshake de WebSocket (doble capa junto con CORS base) con error controlado.
+- Se implementó guard global anti payload peligroso para HTTP + Socket (`__proto__`, `constructor`, `prototype`, claves con prefijo `$`).
+- Se endureció validación de `rfid_scan_from_client` con ventana temporal configurable (`RFID_CLIENT_MAX_TIMESTAMP_SKEW_MS`, default ±30s) y formato estricto de `sensorId`.
+- Se añadieron tests de regresión para `Origin` no permitido, `timestamp skew` RFID y payloads peligrosos.
+
+**Cierre (20-02-2026):**
+
+- [x] Conexiones socket desde `Origin` no permitido fallan con error controlado.
+- [x] Payloads de riesgo (prototype pollution / NoSQL operators) se rechazan con `400` antes de tocar repositorios.
+- [x] Eventos RFID fuera de ventana temporal o con `source` inválido se rechazan por validador.
+- [x] Suites objetivo actualizadas con cobertura de regresión de hardening.
 
 **Avance (16-02-2026):**
 
@@ -478,7 +492,7 @@ Mejorar recuperación post-reinicio y bloqueo de tarjetas para escenarios concur
 
 ---
 
-### T-067: Integridad de dominio en usuarios y contextos 📋
+### T-067: Integridad de dominio en usuarios y contextos ✅
 
 **Prioridad:** P1 | **Tamaño:** M | **Dependencias:** T-059  
 **Origen:** BE-02, SEC-03
@@ -500,6 +514,20 @@ Corregir rutas con riesgo de bypass funcional (transferencias y borrados con dep
 - [ ] Transferencias solo posibles por endpoint específico con permisos.
 - [ ] No se elimina contexto con dependencias activas sin política explícita.
 - [ ] Tests de seguridad/negocio cubren escenarios de bypass.
+
+**Actualización (20-02-2026):**
+
+- Se restringió `PUT /api/users/:id` para impedir modificación de `createdBy` y forzar transferencias por `POST /api/users/:id/transfer`.
+- Se añadió protección de integridad en `DELETE /api/contexts/:id` para bloquear borrado cuando hay dependencias activas (`sessions/decks/plays`).
+- Política aplicada: permitir borrado únicamente cuando las dependencias existentes no están activas.
+- Se añadieron pruebas de regresión para bypass de ownership y borrado de contexto con dependencias.
+
+**Cierre (20-02-2026):**
+
+- [x] `createdBy` no se modifica por ruta genérica de update de usuario.
+- [x] Transferencias solo posibles por endpoint específico con permisos.
+- [x] No se elimina contexto con dependencias activas sin política explícita.
+- [x] Tests de seguridad/negocio cubren escenarios de bypass.
 
 ---
 

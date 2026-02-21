@@ -38,19 +38,23 @@ const waitForEvent = (socket, eventName, timeoutMs = 2000) =>
     });
   });
 
-const connectSocket = (port, token) =>
+const connectSocket = (port, token, options = {}) =>
   new Promise((resolve, reject) => {
+    const origin = options.origin;
+    const extraHeaders = origin ? { ...fingerprintHeaders, origin } : { ...fingerprintHeaders };
+    const transports = options.transports || ['websocket'];
+
     const socket = ioClient(`http://localhost:${port}`, {
       auth: token ? { token } : {},
-      transports: ['websocket'],
+      transports,
       forceNew: true,
       reconnection: false,
       transportOptions: {
         websocket: {
-          extraHeaders: fingerprintHeaders
+          extraHeaders
         },
         polling: {
-          extraHeaders: fingerprintHeaders
+          extraHeaders
         }
       }
     });
@@ -198,6 +202,15 @@ describe('Socket.IO auth & ownership', () => {
     await expect(connectSocket(port, null)).rejects.toThrow('Token requerido');
   });
 
+  test('rechaza conexión WebSocket con Origin no permitido', async () => {
+    await expect(
+      connectSocket(port, teacherOwnerToken, {
+        origin: 'http://evil.example.com',
+        transports: ['polling']
+      })
+    ).rejects.toThrow();
+  });
+
   test('bloquea join_play si no es owner de la sesión', async () => {
     const socket = await connectSocket(port, teacherOtherToken);
 
@@ -253,6 +266,35 @@ describe('Socket.IO auth & ownership', () => {
 
     const errorPayload = await waitForEvent(socket, 'error');
     expect(errorPayload).toEqual(expect.objectContaining({ code: 'RFID_MODE_INVALID' }));
+
+    socket.disconnect();
+  });
+
+  test('rechaza RFID client event con timestamp fuera de ventana permitida', async () => {
+    const tempTeacher = await User.create({
+      name: 'Socket Timestamp Teacher',
+      email: `socket-timestamp-${Date.now()}@test.com`,
+      password: 'password',
+      role: 'teacher',
+      status: 'active',
+      accountStatus: 'approved'
+    });
+    const tempToken = (await generateTokenPair(tempTeacher, mockReq)).accessToken;
+
+    const socket = await connectSocket(port, tempToken);
+
+    socket.emit('join_card_registration');
+
+    socket.emit('rfid_scan_from_client', {
+      uid: 'CC0000AD',
+      type: 'NTAG',
+      sensorId: 'sensor-1',
+      timestamp: Date.now() - 31000,
+      source: 'web_serial'
+    });
+
+    const errorPayload = await waitForEvent(socket, 'error');
+    expect(errorPayload).toEqual(expect.objectContaining({ code: 'VALIDATION_ERROR' }));
 
     socket.disconnect();
   });

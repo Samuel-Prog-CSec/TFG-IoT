@@ -223,19 +223,21 @@ npm run drop-db               # Eliminar base de datos (solo desarrollo)
 | GET    | `/`                            | Listar usuarios                              | Teacher       |
 | GET    | `/:id`                         | Obtener usuario                              | Teacher       |
 | POST   | `/`                            | Crear **ALUMNO** (sin email/password)        | Teacher       |
-| PUT    | `/:id`                         | Actualizar usuario (nombre, clase, profesor) | Teacher       |
+| PUT    | `/:id`                         | Actualizar usuario (nombre, clase, estado)   | Teacher       |
 | DELETE | `/:id`                         | Desactivar usuario                           | Teacher       |
 | GET    | `/:id/stats`                   | Estadísticas del usuario                     | Teacher/Owner |
 | GET    | `/teacher/:teacherId/students` | Alumnos de un profesor                       | Teacher       |
+| POST   | `/:id/transfer`                | Transferir alumno de profesor (ownership)    | Teacher/Admin |
 
 **⚠️ IMPORTANTE**:
 
 - `POST /api/users` solo crea alumnos (sin credenciales). Los profesores se registran en `/api/auth/register`.
 - **Validación de duplicados**: No se pueden crear dos alumnos activos con el mismo nombre (nombre = Nombre + Apellidos) en la misma clase del mismo profesor.
-- **Actualización de alumnos**: Se puede cambiar nombre, clase (`profile.classroom`), profesor asignado (`createdBy`), edad, etc.
+- **Actualización de alumnos (`PUT /api/users/:id`)**: Permite nombre, clase y estado, pero **no** permite cambiar `createdBy`.
+- **Transferencia de ownership**: Solo por `POST /api/users/:id/transfer` con controles de permisos (profesor propietario actual o `super_admin`).
 - **Casos de uso comunes**:
   - Alumno cambia de clase: `PUT /api/users/:id` con `{ "profile": { "classroom": "B" } }`
-  - Alumno cambia de profesor: `PUT /api/users/:id` con `{ "createdBy": "<nuevoProfesorId>" }`
+  - Alumno cambia de profesor: `POST /api/users/:id/transfer` con `{ "newTeacherId": "<nuevoProfesorId>", "newClassroom": "B" }`
   - Corrección de nombre: `PUT /api/users/:id` con `{ "name": "Nombre Correcto" }` (valida duplicados)
 
 ### Tarjetas RFID (`/api/cards`)

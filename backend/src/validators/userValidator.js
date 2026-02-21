@@ -172,8 +172,6 @@ const registerTeacherSchema = z
 /**
  * Schema para actualizar un usuario existente.
  * Todos los campos son opcionales.
- *
- * NUEVO: Incluye createdBy para permitir reasignar alumnos a otro profesor.
  */
 const updateUserSchema = z
   .object({
@@ -197,11 +195,7 @@ const updateUserSchema = z
       })
       .optional(),
 
-    status: z.enum(['active', 'inactive']).optional(),
-
-    // ✅ NUEVO: Permitir cambiar el profesor asignado
-    // Caso de uso: Alumno cambia de profesor o de responsable
-    createdBy: objectIdSchema.optional()
+    status: z.enum(['active', 'inactive']).optional()
   })
   .strict();
 

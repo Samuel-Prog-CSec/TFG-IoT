@@ -5,12 +5,7 @@
  */
 
 const userRepository = require('../repositories/userRepository');
-const {
-  NotFoundError,
-  ForbiddenError,
-  ValidationError,
-  ConflictError
-} = require('../utils/errors');
+const { NotFoundError, ForbiddenError, ConflictError } = require('../utils/errors');
 const logger = require('../utils/logger');
 const userService = require('../services/userService');
 const {
@@ -237,17 +232,17 @@ const createUser = async (req, res, next) => {
  *
  * PUT /api/users/:id
  * Headers: Authorization: Bearer <token>
- * Body: { name?, profile?, status?, createdBy? }
+ * Body: { name?, profile?, status? }
  *
  * IMPORTANTE:
  * - Profesores pueden actualizar cualquier campo de sus alumnos
  * - Alumnos NO pueden actualizar su propio perfil (deben ser menores de edad)
- * - Se puede cambiar el profesor asignado (createdBy) para transferir alumnos
+ * - Transferencia de ownership (createdBy) NO permitida en esta ruta
+ * - Transferencias solo por POST /api/users/:id/transfer
  * - Se valida duplicidad si se cambia el nombre
  *
  * CASOS DE USO:
  * - Cambio de clase: profile.classroom
- * - Cambio de profesor: createdBy (solo profesores)
  * - Corrección de nombre: name (valida duplicados)
  * - Actualización de edad/cumpleaños: profile.age, profile.birthdate
  *
@@ -276,26 +271,6 @@ const buildDuplicateFilter = ({ user, name, profile, createdBy }) => {
   }
 
   return duplicateFilter;
-};
-
-const ensureNewTeacherExists = async createdBy => {
-  if (!createdBy) {
-    return null;
-  }
-
-  const newTeacher = await userRepository.findOne({
-    _id: createdBy,
-    role: 'teacher',
-    status: 'active'
-  });
-
-  if (!newTeacher) {
-    const error = new ValidationError('El profesor especificado no existe o no está activo');
-    error.statusCode = 400;
-    throw error;
-  }
-
-  return newTeacher;
 };
 
 const validateDuplicateName = async ({ user, name, profile, createdBy, updatedBy }) => {
@@ -334,7 +309,7 @@ const buildUserPayload = user =>
 const updateUser = async (req, res, next) => {
   try {
     const { id } = req.params;
-    const { name, profile, status, createdBy } = req.body;
+    const { name, profile, status } = req.body;
 
     const user = await userRepository.findById(id);
 
@@ -362,7 +337,7 @@ const updateUser = async (req, res, next) => {
       user,
       name,
       profile,
-      createdBy,
+      createdBy: user.createdBy,
       updatedBy: req.user._id
     });
 
@@ -390,22 +365,6 @@ const updateUser = async (req, res, next) => {
       user.status = status;
     }
 
-    // ✅ NUEVO: Permitir cambiar el profesor asignado (createdBy)
-    // Caso de uso: Un alumno cambia de profesor
-    if (createdBy && user.role === 'student') {
-      await ensureNewTeacherExists(createdBy);
-
-      logger.info('Reasignando alumno a nuevo profesor', {
-        studentId: user._id,
-        studentName: user.name,
-        oldTeacherId: user.createdBy,
-        newTeacherId: createdBy,
-        updatedBy: req.user._id
-      });
-
-      user.createdBy = createdBy;
-    }
-
     await user.save();
 
     if (status === 'inactive' && ['teacher', 'super_admin'].includes(user.role)) {
@@ -424,8 +383,7 @@ const updateUser = async (req, res, next) => {
       changes: {
         name: name ? 'updated' : 'unchanged',
         profile: profile ? 'updated' : 'unchanged',
-        status: status ? 'updated' : 'unchanged',
-        createdBy: createdBy ? 'updated' : 'unchanged'
+        status: status ? 'updated' : 'unchanged'
       }
     });
 

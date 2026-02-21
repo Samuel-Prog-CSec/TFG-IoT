@@ -144,6 +144,28 @@ describe('User Management Endpoints', () => {
     });
   });
 
+  describe('PUT /api/users/:id', () => {
+    it('should reject createdBy update in generic endpoint', async () => {
+      const student = await User.create({
+        name: 'Student Ownership',
+        role: 'student',
+        createdBy: teacherUser._id,
+        status: 'active',
+        profile: { classroom: 'A1' }
+      });
+
+      const res = await request(app)
+        .put(`/api/users/${student._id}`)
+        .set('Authorization', `Bearer ${teacherToken}`)
+        .set('User-Agent', 'jest-test')
+        .set('Accept-Language', 'en')
+        .set('Accept-Encoding', 'gzip')
+        .send({ createdBy: new User()._id.toString() });
+
+      expect(res.statusCode).toBe(400);
+    });
+  });
+
   describe('DELETE /api/users/:id', () => {
     let studentId;
     beforeEach(async () => {

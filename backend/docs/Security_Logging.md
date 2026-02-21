@@ -67,8 +67,22 @@ Para HTTP se exige `requestId`; para WebSocket, `socketId`. Si faltan, se degrad
 | WS_AUTH_FAILED | warn | 10 / 60s | Auth WebSocket fallida |
 | SECURITY_RATE_LIMITED | warn | 10 / 60s | Rate limit excedido |
 | SECURITY_PAYLOAD_TOO_LARGE | warn | 5 / 60s | Payload excesivo |
+| SECURITY_PAYLOAD_BLOCKED | warn | 10 / 60s | Payload bloqueado por clave peligrosa |
 | SECURITY_RFID_DEDUPE | info | - | Dedupe RFID |
 | SECURITY_RFID_EVENT_INVALID | warn | 10 / 60s | Evento RFID inválido |
+
+## Hardening backend y WebSocket (T-059)
+
+Se añadieron controles explícitos adicionales para endurecer validación de entrada y autenticación en realtime:
+
+- **Handshake WebSocket**: validación explícita de `Origin` contra `corsWhitelist` en capa de autenticación de Socket.IO (además de CORS base).
+- **Payload guard HTTP**: middleware global que bloquea claves peligrosas antes de validadores y repositorios (`__proto__`, `constructor`, `prototype`, operadores con prefijo `$`).
+- **Payload guard Socket**: rechazo de eventos con payload sospechoso antes de ejecutar comandos.
+- **RFID client event**: validación de ventana temporal por `timestamp` (skew configurable, por defecto ±30s) y endurecimiento de formato de `sensorId`.
+
+Variable de entorno relevante:
+
+- `RFID_CLIENT_MAX_TIMESTAMP_SKEW_MS` (default: `30000`).
 
 ## Sanitización de datos
 

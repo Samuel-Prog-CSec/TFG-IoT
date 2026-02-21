@@ -5,6 +5,9 @@
  */
 
 const gameContextRepository = require('../repositories/gameContextRepository');
+const gameSessionRepository = require('../repositories/gameSessionRepository');
+const gamePlayRepository = require('../repositories/gamePlayRepository');
+const cardDeckRepository = require('../repositories/cardDeckRepository');
 const { NotFoundError, ConflictError, ValidationError } = require('../utils/errors');
 const logger = require('../utils/logger');
 const {
@@ -13,6 +16,39 @@ const {
   toPaginatedDTOV1
 } = require('../utils/dtos');
 const { escapeRegex } = require('../utils/escapeRegex');
+
+const ACTIVE_SESSION_STATUSES = ['created', 'active'];
+const ACTIVE_PLAY_STATUSES = ['in-progress', 'paused'];
+
+const getActiveContextDependencies = async contextId => {
+  const [activeDecks, activeSessions] = await Promise.all([
+    cardDeckRepository.count({ contextId, status: 'active' }),
+    gameSessionRepository.find(
+      {
+        contextId,
+        status: { $in: ACTIVE_SESSION_STATUSES }
+      },
+      {
+        select: '_id',
+        lean: true
+      }
+    )
+  ]);
+
+  let activePlays = 0;
+  if (activeSessions.length > 0) {
+    activePlays = await gamePlayRepository.count({
+      sessionId: { $in: activeSessions.map(session => session._id) },
+      status: { $in: ACTIVE_PLAY_STATUSES }
+    });
+  }
+
+  return {
+    activeDecks,
+    activeSessions: activeSessions.length,
+    activePlays
+  };
+};
 
 /**
  * Obtener lista de contextos con paginación y filtros.
@@ -242,8 +278,17 @@ const deleteContext = async (req, res, next) => {
       throw new NotFoundError('Contexto de juego');
     }
 
-    // TODO: Verificar si hay sesiones usando este contexto
-    // Si hay sesiones activas, no permitir eliminar
+    const dependencies = await getActiveContextDependencies(context._id);
+    const hasActiveDependencies =
+      dependencies.activeDecks > 0 ||
+      dependencies.activeSessions > 0 ||
+      dependencies.activePlays > 0;
+
+    if (hasActiveDependencies) {
+      throw new ConflictError(
+        'No se puede eliminar el contexto porque tiene dependencias activas (sessions/decks/plays)'
+      );
+    }
 
     await context.deleteOne();
 
