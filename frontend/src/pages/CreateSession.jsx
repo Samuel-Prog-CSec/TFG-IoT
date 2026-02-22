@@ -52,7 +52,7 @@ import {
   SkeletonCard
 } from '../components/ui';
 import { ROUTES } from '../constants/routes';
-import { useRefetchOnFocus } from '../hooks';
+import { useRefetchOnFocus, useReducedMotion } from '../hooks';
 import { toast } from 'sonner';
 
 // Configuración del wizard
@@ -114,6 +114,7 @@ const DIFFICULTY_PRESETS = {
  */
 export default function CreateSession() {
   const navigate = useNavigate();
+  const { shouldReduceMotion } = useReducedMotion();
   
   // Estado del wizard
   const [currentStep, setCurrentStep] = useState(0);
@@ -297,7 +298,8 @@ export default function CreateSession() {
         particleCount: 150,
         spread: 80,
         origin: { y: 0.6 },
-        colors: ['#8b5cf6', '#6366f1', '#10b981', '#22c55e']
+        colors: ['#8b5cf6', '#6366f1', '#10b981', '#22c55e'],
+        disableForReducedMotion: shouldReduceMotion,
       });
       
       toast.success('¡Sesión creada!', {
@@ -307,7 +309,7 @@ export default function CreateSession() {
       // Redirigir a Board Setup
       setTimeout(() => {
         navigate(ROUTES.BOARD_SETUP_WITH_ID(newSession._id || newSession.id));
-      }, 1500);
+      }, shouldReduceMotion ? 400 : 1500);
       
     } catch (err) {
       toast.error('Error al crear sesión', {
@@ -368,7 +370,7 @@ export default function CreateSession() {
     <div className="min-h-screen bg-slate-950 p-4 lg:p-8">
       {/* Header */}
       <motion.div
-        initial={{ opacity: 0, y: -20 }}
+        initial={shouldReduceMotion ? false : { opacity: 0, y: -20 }}
         animate={{ opacity: 1, y: 0 }}
         className="max-w-5xl mx-auto mb-8"
       >
@@ -385,6 +387,7 @@ export default function CreateSession() {
         <WizardStepper
           steps={WIZARD_STEPS}
           currentStep={currentStep}
+          reducedMotion={shouldReduceMotion}
           onStepClick={(index) => {
             if (index < currentStep) {
               setCurrentStep(index);
@@ -398,10 +401,10 @@ export default function CreateSession() {
         <AnimatePresence mode="wait">
           <motion.div
             key={currentStep}
-            initial={{ opacity: 0, x: 20 }}
+            initial={shouldReduceMotion ? false : { opacity: 0, x: 20 }}
             animate={{ opacity: 1, x: 0 }}
-            exit={{ opacity: 0, x: -20 }}
-            transition={{ duration: 0.3 }}
+            exit={shouldReduceMotion ? { opacity: 0 } : { opacity: 0, x: -20 }}
+            transition={{ duration: shouldReduceMotion ? 0.15 : 0.3 }}
           >
             {renderStep()}
           </motion.div>
@@ -410,9 +413,9 @@ export default function CreateSession() {
 
       {/* Footer navegación */}
       <motion.div
-        initial={{ opacity: 0, y: 20 }}
+        initial={shouldReduceMotion ? false : { opacity: 0, y: 20 }}
         animate={{ opacity: 1, y: 0 }}
-        transition={{ delay: 0.3 }}
+        transition={{ delay: shouldReduceMotion ? 0 : 0.3 }}
         className="max-w-5xl mx-auto"
       >
         <GlassCard className="p-4">

@@ -6,7 +6,7 @@
  * @module pages/CardDecksPage
  */
 
-import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import { 
@@ -22,20 +22,18 @@ import {
 import { cn } from '../lib/utils';
 import { decksAPI, extractErrorMessage, isAbortError } from '../services/api';
 import { DeckCard, DeckCardSkeleton, ButtonPremium, GlassCard, ConfirmationModal, useConfirmationModal } from '../components/ui';
-import { useContexts, useRefetchOnFocus } from '../hooks';
+import { useContexts, useRefetchOnFocus, useReducedMotion } from '../hooks';
 import { ROUTES } from '../constants/routes';
 import { toast } from 'sonner';
 
 // Límite de mazos por profesor (sincronizado con backend)
 const MAX_DECKS = 50;
-// Umbral para reducir animaciones por rendimiento
-const REDUCED_MOTION_THRESHOLD = 15;
-
 /**
  * Página principal de gestión de mazos
  */
 export default function CardDecksPage() {
   const navigate = useNavigate();
+  const { shouldReduceMotion } = useReducedMotion();
   
   // Estados
   const [decks, setDecks] = useState([]);
@@ -63,9 +61,6 @@ export default function CardDecksPage() {
 
   // Hook de contextos (para filtro)
   const { contexts } = useContexts({ autoLoad: true, onlyActive: true });
-
-  // Calcular si usar animaciones reducidas
-  const useReducedMotion = useMemo(() => decks.length > REDUCED_MOTION_THRESHOLD, [decks.length]);
 
   // Cargar mazos
   const loadDecks = useCallback(async (resetPage = true, skipCount = false, signal, pageOverride) => {
@@ -183,10 +178,9 @@ export default function CardDecksPage() {
   };
 
   const handleViewDeck = (deck) => {
-    // TODO: Abrir modal de detalle
     const deckId = deck.id || deck._id;
     if (deckId) {
-      navigate(ROUTES.CARD_DECKS_EDIT(deckId));
+      navigate(ROUTES.CARD_DECKS_DETAIL(deckId));
     }
   };
 
@@ -512,7 +506,7 @@ export default function CardDecksPage() {
             animate="visible"
             variants={{
               visible: {
-                transition: { staggerChildren: useReducedMotion ? 0.02 : 0.05 },
+                transition: { staggerChildren: shouldReduceMotion ? 0.02 : 0.05 },
               },
             }}
           >
@@ -531,7 +525,7 @@ export default function CardDecksPage() {
                   onView={handleViewDeck}
                   onEdit={handleEditDeck}
                   onDelete={handleArchiveDeck}
-                  reducedMotion={useReducedMotion}
+                  reducedMotion={shouldReduceMotion}
                 />
               </motion.div>
               );

@@ -27,6 +27,7 @@ export const ROUTES = {
   // Gestión de Mazos de Cartas (CardDecks)
   CARD_DECKS: '/decks',
   CARD_DECKS_NEW: '/decks/new',
+  CARD_DECKS_DETAIL: (deckId) => `/decks/${deckId}`,
   CARD_DECKS_EDIT: (deckId) => `/decks/${deckId}/edit`,
   
   // Admin (solo super_admin)

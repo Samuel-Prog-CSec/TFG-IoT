@@ -11,6 +11,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 import confetti from 'canvas-confetti';
 import { 
   ArrowLeft,
+  Eye,
   Save,
   Layers,
   CreditCard,
@@ -361,6 +362,7 @@ export default function DeckEditPage() {
 
   const assignedCount = Object.keys(cardAssignments).length;
   const assignedAssetKeys = Object.values(cardAssignments).map(a => a?.key);
+  const currentDeckId = deck?.id || deck?._id || deckId;
 
   return (
     <div className="min-h-screen bg-slate-950 p-4 lg:p-8">
@@ -392,6 +394,14 @@ export default function DeckEditPage() {
           </div>
 
           <div className="flex items-center gap-3">
+            <ButtonPremium
+              variant="secondary"
+              onClick={() => currentDeckId && navigate(ROUTES.CARD_DECKS_DETAIL(currentDeckId))}
+              disabled={!currentDeckId}
+              icon={<Eye size={16} />}
+            >
+              Ver detalle
+            </ButtonPremium>
             <ButtonPremium
               variant="ghost"
               onClick={() => deleteModal.open()}

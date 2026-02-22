@@ -1,10 +1,15 @@
 import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
 import ChartSection from './ChartSection';
 
-export default function StudentProgressChart({ data }) {
+const PERIOD_OPTIONS = [
+  { value: '7d', label: 'Últimos 7 días' },
+  { value: '30d', label: 'Últimos 30 días' },
+];
+
+export default function StudentProgressChart({ data, period = '7d', onPeriodChange }) {
   if (!data || data.length === 0) {
     return (
-      <ChartSection title="Rendimiento de Clase (Tendencia)">
+      <ChartSection title="Rendimiento de Clase (Tendencia)" period={period} onPeriodChange={onPeriodChange} periodOptions={PERIOD_OPTIONS}>
         <div className="h-[300px] w-full flex items-center justify-center text-slate-500">
           No hay datos disponibles
         </div>
@@ -13,7 +18,7 @@ export default function StudentProgressChart({ data }) {
   }
 
   return (
-    <ChartSection title="Rendimiento de Clase (Tendencia)">
+    <ChartSection title="Rendimiento de Clase (Tendencia)" period={period} onPeriodChange={onPeriodChange} periodOptions={PERIOD_OPTIONS}>
       <div className="h-[300px] w-full">
         <ResponsiveContainer width="100%" height="100%">
           <AreaChart data={data} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>

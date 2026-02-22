@@ -42,7 +42,7 @@ import {
   useConfirmationModal
 } from '../components/ui';
 import { decksAPI, cardsAPI, extractData, extractErrorMessage, isAbortError } from '../services/api';
-import { useDeckWizardDraft, formatDraftDate, useContexts, useRefetchOnFocus } from '../hooks';
+import { useDeckWizardDraft, formatDraftDate, useContexts, useRefetchOnFocus, useReducedMotion } from '../hooks';
 import { ROUTES } from '../constants/routes';
 import { GAME_CONFIG } from '../constants/gameConfig';
 import { toast } from 'sonner';
@@ -87,6 +87,7 @@ const {MAX_CARDS} = GAME_CONFIG;
  */
 export default function DeckCreationWizard() {
   const navigate = useNavigate();
+  const { shouldReduceMotion } = useReducedMotion();
   
   // Estado del wizard
   const [currentStep, setCurrentStep] = useState(0);
@@ -335,7 +336,8 @@ export default function DeckCreationWizard() {
         particleCount: 150,
         spread: 80,
         origin: { y: 0.6 },
-        colors: ['#8b5cf6', '#6366f1', '#a855f7', '#ec4899']
+        colors: ['#8b5cf6', '#6366f1', '#a855f7', '#ec4899'],
+        disableForReducedMotion: shouldReduceMotion,
       });
       
       toast.success('¡Mazo creado!', {
@@ -345,7 +347,7 @@ export default function DeckCreationWizard() {
       // Redirigir después de un momento para que se vea el confetti
       setTimeout(() => {
         navigate(ROUTES.CARD_DECKS);
-      }, 1500);
+      }, shouldReduceMotion ? 400 : 1500);
       
     } catch (err) {
       toast.error('Error al crear mazo', {
@@ -410,7 +412,7 @@ export default function DeckCreationWizard() {
     <div className="min-h-screen bg-slate-950 p-4 lg:p-8">
       {/* Header */}
       <motion.div
-        initial={{ opacity: 0, y: -20 }}
+        initial={shouldReduceMotion ? false : { opacity: 0, y: -20 }}
         animate={{ opacity: 1, y: 0 }}
         className="max-w-5xl mx-auto mb-8"
       >
@@ -440,6 +442,7 @@ export default function DeckCreationWizard() {
         <WizardStepper
           steps={WIZARD_STEPS}
           currentStep={currentStep}
+          reducedMotion={shouldReduceMotion}
           onStepClick={(index) => {
             // Solo permitir ir a pasos anteriores
             if (index < currentStep) {
@@ -454,10 +457,10 @@ export default function DeckCreationWizard() {
         <AnimatePresence mode="wait">
           <motion.div
             key={currentStep}
-            initial={{ opacity: 0, x: 20 }}
+            initial={shouldReduceMotion ? false : { opacity: 0, x: 20 }}
             animate={{ opacity: 1, x: 0 }}
-            exit={{ opacity: 0, x: -20 }}
-            transition={{ duration: 0.3 }}
+            exit={shouldReduceMotion ? { opacity: 0 } : { opacity: 0, x: -20 }}
+            transition={{ duration: shouldReduceMotion ? 0.15 : 0.3 }}
           >
             {renderStep()}
           </motion.div>
@@ -466,9 +469,9 @@ export default function DeckCreationWizard() {
 
       {/* Footer con navegación */}
       <motion.div
-        initial={{ opacity: 0, y: 20 }}
+        initial={shouldReduceMotion ? false : { opacity: 0, y: 20 }}
         animate={{ opacity: 1, y: 0 }}
-        transition={{ delay: 0.3 }}
+        transition={{ delay: shouldReduceMotion ? 0 : 0.3 }}
         className="max-w-5xl mx-auto"
       >
         <GlassCard className="p-4">

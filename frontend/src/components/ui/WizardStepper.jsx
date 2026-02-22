@@ -50,6 +50,7 @@ export default function WizardStepper({
   currentStep,
   onStepClick,
   allowNavigation = false,
+  reducedMotion = false,
   className,
 }) {
   const isLastStep = currentStep >= steps.length - 1;
@@ -57,7 +58,7 @@ export default function WizardStepper({
 
   // Efecto de confetti al llegar al último paso
   useEffect(() => {
-    if (isLastStep && !wasLastStep.current) {
+    if (!reducedMotion && isLastStep && !wasLastStep.current) {
       // Mini confetti celebration
       confetti({
         particleCount: 50,
@@ -72,7 +73,7 @@ export default function WizardStepper({
     if (!isLastStep) {
       wasLastStep.current = false;
     }
-  }, [isLastStep]);
+  }, [isLastStep, reducedMotion]);
 
   // Calcular progreso
   const totalSteps = Math.max(steps.length - 1, 1);
@@ -94,7 +95,7 @@ export default function WizardStepper({
           initial={false}
           animate={{ width: `${progress}%` }}
           transition={{ 
-            duration: 0.25, 
+            duration: reducedMotion ? 0.15 : 0.25,
             ease: [0.32, 0.72, 0, 1],
           }}
           style={{
@@ -102,20 +103,22 @@ export default function WizardStepper({
           }}
         >
           {/* Efecto de brillo que se mueve */}
-          <motion.div
-            className="absolute inset-0 opacity-60"
-            animate={{
-              background: [
-                'linear-gradient(90deg, transparent 0%, rgba(255,255,255,0.4) 50%, transparent 100%)',
-                'linear-gradient(90deg, transparent 100%, rgba(255,255,255,0.4) 150%, transparent 200%)',
-              ],
-            }}
-            transition={{
-              duration: 1.5,
-              repeat: Infinity,
-              ease: 'linear',
-            }}
-          />
+          {!reducedMotion && (
+            <motion.div
+              className="absolute inset-0 opacity-60"
+              animate={{
+                background: [
+                  'linear-gradient(90deg, transparent 0%, rgba(255,255,255,0.4) 50%, transparent 100%)',
+                  'linear-gradient(90deg, transparent 100%, rgba(255,255,255,0.4) 150%, transparent 200%)',
+                ],
+              }}
+              transition={{
+                duration: 1.5,
+                repeat: Infinity,
+                ease: 'linear',
+              }}
+            />
+          )}
         </motion.div>
       </div>
 
@@ -130,9 +133,9 @@ export default function WizardStepper({
             <motion.div
               key={step.id}
               className="flex flex-col items-center gap-2 relative"
-              initial={{ opacity: 0, y: 10 }}
+              initial={reducedMotion ? false : { opacity: 0, y: 10 }}
               animate={{ opacity: 1, y: 0 }}
-              transition={{ delay: index * 0.1 }}
+              transition={{ delay: reducedMotion ? 0 : index * 0.1 }}
             >
               {/* Botón del paso */}
               <motion.button
@@ -150,7 +153,7 @@ export default function WizardStepper({
                 )}
                 whileHover={isClickable ? { scale: 1.1 } : {}}
                 whileTap={isClickable ? { scale: 0.95 } : {}}
-                animate={isActive ? {
+                animate={!reducedMotion && isActive ? {
                   scale: [1, 1.05, 1],
                   boxShadow: [
                     '0 0 0 0 rgba(99, 102, 241, 0)',
@@ -158,7 +161,7 @@ export default function WizardStepper({
                     '0 0 0 0 rgba(99, 102, 241, 0)',
                   ],
                 } : {}}
-                transition={isActive ? {
+                transition={!reducedMotion && isActive ? {
                   duration: 2,
                   repeat: Infinity,
                   ease: 'easeInOut',
@@ -189,7 +192,7 @@ export default function WizardStepper({
                 </AnimatePresence>
 
                 {/* Efecto de partículas al activarse */}
-                {isActive && (
+                {isActive && !reducedMotion && (
                   <motion.div
                     className="absolute inset-0 rounded-full"
                     initial={{ opacity: 0 }}
@@ -229,8 +232,8 @@ export default function WizardStepper({
                   isCompleted && 'text-emerald-400',
                   !isActive && !isCompleted && 'text-slate-500'
                 )}
-                animate={isActive ? { scale: [1, 1.05, 1] } : {}}
-                transition={isActive ? { duration: 2, repeat: Infinity } : {}}
+                animate={!reducedMotion && isActive ? { scale: [1, 1.05, 1] } : {}}
+                transition={!reducedMotion && isActive ? { duration: 2, repeat: Infinity } : {}}
               >
                 {step.title}
               </motion.span>

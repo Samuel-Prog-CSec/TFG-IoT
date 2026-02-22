@@ -1,10 +1,12 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { motion } from 'framer-motion';
 import { Users, Gamepad2, Trophy, AlertTriangle, Calendar, TrendingUp } from 'lucide-react';
 import { staggerContainer, staggerItem } from '../lib/utils';
-import { useDocumentTitle, useRefetchOnFocus } from '../hooks';
+import { useDocumentTitle, useRefetchOnFocus, useReducedMotion } from '../hooks';
 import analyticsService from '../services/analytics';
 import { isAbortError } from '../services/api';
+import { ROUTES } from '../constants/routes';
 import StatCard from '../components/dashboard/StatCard';
 import StudentProgressChart from '../components/dashboard/StudentProgressChart';
 import ClassroomOverview from '../components/dashboard/ClassroomOverview';
@@ -14,6 +16,7 @@ import { SkeletonCard, SkeletonStatCard } from '../components/ui';
 
 export default function Dashboard() {
   useDocumentTitle('Dashboard');
+  const { shouldReduceMotion } = useReducedMotion();
   const [timeRange, setTimeRange] = useState('7d'); // '7d' or '30d'
   
   // State for data
@@ -119,7 +122,7 @@ export default function Dashboard() {
       className="p-6 lg:p-8 max-w-7xl mx-auto space-y-8"
       aria-label="Panel principal del dashboard"
     >
-      <Header timeRange={timeRange} setTimeRange={setTimeRange} />
+      <Header timeRange={timeRange} setTimeRange={setTimeRange} reducedMotion={shouldReduceMotion} />
 
       {loading && summary && (
         <div className="bg-slate-800/50 border border-white/10 text-slate-300 px-4 py-2 rounded-xl text-sm">
@@ -196,7 +199,11 @@ export default function Dashboard() {
         <div className="xl:col-span-2 space-y-6">
           
           {/* Gráfico 1: Tendencia Temporal */}
-          <StudentProgressChart data={progressData} />
+          <StudentProgressChart
+            data={progressData}
+            period={timeRange}
+            onPeriodChange={setTimeRange}
+          />
 
           {/* Gráfico 2: Mapa de Calor de Dificultad (sustituye a distribución simple) */}
           <DifficultyHeatmap data={difficulties} />
@@ -213,7 +220,8 @@ export default function Dashboard() {
   );
 }
 
-function Header({ timeRange, setTimeRange }) {
+function Header({ timeRange, setTimeRange, reducedMotion = false }) {
+  const navigate = useNavigate();
   const today = new Date().toLocaleDateString('es-ES', { 
     weekday: 'long', 
     year: 'numeric', 
@@ -223,24 +231,24 @@ function Header({ timeRange, setTimeRange }) {
 
   return (
     <motion.header 
-      initial={{ opacity: 0, y: -20 }}
+      initial={reducedMotion ? false : { opacity: 0, y: -20 }}
       animate={{ opacity: 1, y: 0 }}
       className="flex flex-col sm:flex-row sm:justify-between sm:items-end gap-4 pt-4 lg:pt-0"
     >
       <div>
         <motion.h1 
-          initial={{ opacity: 0, x: -20 }}
+          initial={reducedMotion ? false : { opacity: 0, x: -20 }}
           animate={{ opacity: 1, x: 0 }}
-          transition={{ delay: 0.1 }}
+          transition={{ delay: reducedMotion ? 0 : 0.1 }}
           className="text-2xl sm:text-3xl font-bold text-white mb-2 font-display"
         >
           <span aria-hidden="true">¡Bienvenido de nuevo! 👋</span>
           <span className="sr-only">¡Bienvenido de nuevo!</span>
         </motion.h1>
         <motion.p 
-          initial={{ opacity: 0 }}
+          initial={reducedMotion ? false : { opacity: 0 }}
           animate={{ opacity: 1 }}
-          transition={{ delay: 0.2 }}
+          transition={{ delay: reducedMotion ? 0 : 0.2 }}
           className="text-slate-400"
         >
           Resumen de actividad y análisis de rendimiento
@@ -248,6 +256,21 @@ function Header({ timeRange, setTimeRange }) {
       </div>
 
       <div className="flex items-center gap-4">
+        <div className="hidden xl:flex items-center gap-2">
+          <button
+            onClick={() => navigate(ROUTES.CREATE_SESSION)}
+            className="px-3 py-2 rounded-xl border border-indigo-500/30 bg-indigo-500/10 text-indigo-300 hover:bg-indigo-500/20 transition-colors text-sm"
+          >
+            Nueva sesión
+          </button>
+          <button
+            onClick={() => navigate(ROUTES.CARD_DECKS_NEW)}
+            className="px-3 py-2 rounded-xl border border-purple-500/30 bg-purple-500/10 text-purple-300 hover:bg-purple-500/20 transition-colors text-sm"
+          >
+            Nuevo mazo
+          </button>
+        </div>
+
         {/* Global Filter */}
         <div className="relative">
             <select 
@@ -263,9 +286,9 @@ function Header({ timeRange, setTimeRange }) {
 
         <motion.time 
           dateTime={new Date().toISOString().split('T')[0]}
-          initial={{ opacity: 0, scale: 0.9 }}
+          initial={reducedMotion ? false : { opacity: 0, scale: 0.9 }}
           animate={{ opacity: 1, scale: 1 }}
-          transition={{ delay: 0.2 }}
+          transition={{ delay: reducedMotion ? 0 : 0.2 }}
           className="hidden sm:flex items-center gap-2 text-sm text-slate-400 bg-slate-800/50 backdrop-blur-sm px-4 py-2 rounded-xl border border-white/5"
         >
           <Calendar size={16} className="text-purple-400" aria-hidden="true" />

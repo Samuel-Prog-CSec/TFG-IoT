@@ -1,7 +1,9 @@
-import { useState, useEffect, useCallback, useMemo } from 'react';
+import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Wifi, WifiOff, Pause, Play, Volume2, VolumeX } from 'lucide-react';
 import { cn } from '../lib/utils';
+import { useReducedMotion } from '../hooks';
 import RFIDConnector from '../components/ui/RFIDConnector';
 import webSerialService from '../services/webSerialService';
 import { 
@@ -18,6 +20,10 @@ import {
  * Diseño colorido, amigable y sin texto complejo
  */
 export default function GameSession() {
+  const navigate = useNavigate();
+  const { shouldReduceMotion } = useReducedMotion();
+  const pendingTimeoutRef = useRef([]);
+
   // Game configuration
   const ROUND_TIME = 15; // segundos por ronda
   const TOTAL_ROUNDS = 5;
@@ -76,10 +82,11 @@ export default function GameSession() {
     setScore(s => Math.max(0, s + POINTS_ERROR));
     setMascotMood('encouraging');
 
-    setTimeout(() => {
+    const timeoutId = globalThis.setTimeout(() => {
       setFeedback(null);
       advanceRound();
     }, 1500);
+    pendingTimeoutRef.current.push(timeoutId);
   }, [advanceRound, POINTS_ERROR]);
 
   // Timer effect
@@ -117,11 +124,19 @@ export default function GameSession() {
       setMascotMood('encouraging');
     }
 
-    setTimeout(() => {
+    const timeoutId = globalThis.setTimeout(() => {
       setFeedback(null);
       advanceRound();
     }, 1500);
+    pendingTimeoutRef.current.push(timeoutId);
   }, [gameState, POINTS_CORRECT, POINTS_ERROR, advanceRound]);
+
+  useEffect(() => {
+    return () => {
+      pendingTimeoutRef.current.forEach((timeoutId) => globalThis.clearTimeout(timeoutId));
+      pendingTimeoutRef.current = [];
+    };
+  }, []);
 
   useEffect(() => {
     const handleStatus = (payload) => {
@@ -172,16 +187,15 @@ export default function GameSession() {
 
   // Go home
   const goHome = () => {
-    // Will navigate to dashboard
-    globalThis.location.href = '/';
+    navigate('/dashboard');
   };
 
   return (
     <div className="game-bg min-h-screen flex flex-col relative overflow-hidden">
       {/* Animated background elements */}
       <div className="absolute inset-0 overflow-hidden pointer-events-none">
-        <div className="absolute top-20 left-10 w-64 h-64 bg-purple-500/10 rounded-full blur-[100px] animate-float" />
-        <div className="absolute bottom-20 right-10 w-80 h-80 bg-cyan-500/10 rounded-full blur-[100px] animate-float" style={{ animationDelay: '1s' }} />
+        <div className={cn('absolute top-20 left-10 w-64 h-64 bg-purple-500/10 rounded-full blur-[100px]', !shouldReduceMotion && 'animate-float')} />
+        <div className={cn('absolute bottom-20 right-10 w-80 h-80 bg-cyan-500/10 rounded-full blur-[100px]', !shouldReduceMotion && 'animate-float')} style={{ animationDelay: shouldReduceMotion ? '0s' : '1s' }} />
         <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[600px] h-[600px] bg-pink-500/5 rounded-full blur-[120px]" />
       </div>
 
@@ -192,7 +206,7 @@ export default function GameSession() {
           <div className="flex items-center gap-3">
             <motion.div
               key={currentRound}
-              initial={{ scale: 0 }}
+              initial={shouldReduceMotion ? false : { scale: 0 }}
               animate={{ scale: 1 }}
               className="w-12 h-12 rounded-xl bg-gradient-to-br from-purple-500 to-indigo-600 flex items-center justify-center shadow-lg shadow-purple-500/30"
             >
@@ -261,14 +275,14 @@ export default function GameSession() {
           {gameState === 'waiting' && (
             <motion.div
               key="waiting"
-              initial={{ opacity: 0, scale: 0.9 }}
+              initial={shouldReduceMotion ? false : { opacity: 0, scale: 0.9 }}
               animate={{ opacity: 1, scale: 1 }}
-              exit={{ opacity: 0, scale: 0.9 }}
+              exit={shouldReduceMotion ? { opacity: 0 } : { opacity: 0, scale: 0.9 }}
               className="text-center"
             >
               <motion.div
-                animate={{ scale: [1, 1.1, 1] }}
-                transition={{ duration: 2, repeat: Infinity }}
+                animate={shouldReduceMotion ? { scale: 1 } : { scale: [1, 1.1, 1] }}
+                transition={shouldReduceMotion ? { duration: 0 } : { duration: 2, repeat: Infinity }}
                 className="text-8xl mb-6"
               >
                 🎮
@@ -280,8 +294,8 @@ export default function GameSession() {
                 Encuentra la tarjeta correcta
               </p>
               <motion.button
-                whileHover={{ scale: 1.05 }}
-                whileTap={{ scale: 0.95 }}
+                whileHover={shouldReduceMotion ? {} : { scale: 1.05 }}
+                whileTap={shouldReduceMotion ? {} : { scale: 0.95 }}
                 onClick={startGame}
                 className="btn-game text-2xl px-12 py-5"
               >
@@ -310,9 +324,9 @@ export default function GameSession() {
 
               {/* Instruction text */}
               <motion.p
-                initial={{ opacity: 0, y: 20 }}
+                initial={shouldReduceMotion ? false : { opacity: 0, y: 20 }}
                 animate={{ opacity: 1, y: 0 }}
-                transition={{ delay: 0.3 }}
+                transition={{ delay: shouldReduceMotion ? 0 : 0.3 }}
                 className="mt-8 text-center text-slate-400 text-lg"
               >
                 ¡Busca la tarjeta de <span className="text-white font-bold">{challenge.value}</span>!

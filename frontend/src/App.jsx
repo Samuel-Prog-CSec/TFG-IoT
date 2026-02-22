@@ -28,6 +28,7 @@ const SessionEdit = lazy(() => import('./pages/SessionEdit'));
 // Card Decks pages
 const CardDecksPage = lazy(() => import('./pages/CardDecksPage'));
 const DeckCreationWizard = lazy(() => import('./pages/DeckCreationWizard'));
+const CardDeckDetailPage = lazy(() => import('./pages/CardDeckDetailPage'));
 const DeckEditPage = lazy(() => import('./pages/DeckEditPage'));
 
 // Auth pages
@@ -107,6 +108,7 @@ function AppContent() {
           <Route path="dashboard" element={<SuspenseWrapper><Dashboard /></SuspenseWrapper>} />
           <Route path="decks" element={<SuspenseWrapper><CardDecksPage /></SuspenseWrapper>} />
           <Route path="decks/new" element={<SuspenseWrapper><DeckCreationWizard /></SuspenseWrapper>} />
+          <Route path="decks/:deckId" element={<SuspenseWrapper><CardDeckDetailPage /></SuspenseWrapper>} />
           <Route path="decks/:deckId/edit" element={<SuspenseWrapper><DeckEditPage /></SuspenseWrapper>} />
           <Route path="sessions" element={<SuspenseWrapper><SessionsPage /></SuspenseWrapper>} />
           <Route path="sessions/:sessionId" element={<SuspenseWrapper><SessionDetail /></SuspenseWrapper>} />

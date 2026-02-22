@@ -11,6 +11,7 @@ import { toast } from 'sonner';
 import { sessionsAPI, usersAPI, extractData, extractErrorMessage, isAbortError } from '../services/api';
 import { useAuth } from '../context/AuthContext';
 import { useRefetchOnFocus } from '../hooks';
+import { ROUTES } from '../constants/routes';
 
 export default function BoardSetup() {
   const { sessionId } = useParams();
@@ -199,9 +200,7 @@ export default function BoardSetup() {
                     </button>
                     <button 
                         onClick={() => {
-                            // navigate(`/game/${sessionId}`); // Disabled as per request
-                            alert(`¡Partida configurada para ${availableStudents.find(s => (s.id || s._id) === selectedStudentId)?.name}!\n(La pantalla de juego está deshabilitada temporalmente)`);
-                            navigate('/dashboard');
+                            navigate(ROUTES.GAME(sessionId));
                         }}
                         disabled={!canStart}
                         className="px-6 py-3 rounded-xl bg-emerald-500 text-white font-bold disabled:opacity-50 disabled:grayscale hover:bg-emerald-400 transition-all flex items-center gap-2 shadow-lg shadow-emerald-500/20"

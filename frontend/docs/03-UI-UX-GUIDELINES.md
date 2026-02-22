@@ -281,4 +281,26 @@ Cada estado debe ser distinguible no solo por color:
 
 ---
 
+## Contrato Motion (T-060)
+
+### Regla principal
+- **Por defecto:** animaciones y microinteracciones activas.
+- **Reduced motion:** solo cuando existe preferencia explícita del usuario:
+  - Preferencia del sistema (`prefers-reduced-motion`), o
+  - Preferencia guardada en app.
+
+### Implementación
+- Hook compartido: `useReducedMotion`.
+- Integrado en vistas críticas: `CreateSession`, `DeckCreationWizard`, `CardDecksPage`, `GameSession` y cabecera de `Dashboard`.
+- Efectos costosos (confetti, loops infinitos, stagger agresivo) se degradan de forma progresiva cuando reduced motion está activo.
+
+### QA visual/performance
+- [ ] Animaciones activas en flujo normal (sin reduced motion).
+- [ ] Con reduced motion activo, se desactivan efectos complejos sin romper navegación/feedback.
+- [ ] No hay saltos de layout ni pantallas en blanco al navegar entre rutas.
+- [ ] No hay listeners duplicados tras reconexión/pause-resume en pantalla de juego.
+- [ ] Las acciones principales siguen respondiendo con feedback visual claro.
+
+---
+
 *Inspiración: [Refactoring UI](https://www.refactoringui.com/), [Apple HIG](https://developer.apple.com/design/human-interface-guidelines/)*

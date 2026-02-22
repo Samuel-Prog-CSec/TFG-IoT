@@ -4,7 +4,7 @@
  * @module components/ui/RFIDConnector
  */
 
-import { useEffect, useState, useCallback } from 'react';
+import { useEffect, useState, useCallback, useRef } from 'react';
 import PropTypes from 'prop-types';
 import { Wifi, WifiOff, Usb, AlertTriangle } from 'lucide-react';
 import { cn } from '../../lib/utils';
@@ -19,6 +19,7 @@ export default function RFIDConnector({
   const [status, setStatus] = useState('disconnected');
   const [error, setError] = useState(null);
   const [isSupported, setIsSupported] = useState(webSerialService.isSupported());
+  const errorTimeoutRef = useRef(null);
 
   const handleStatus = useCallback((payload) => {
     setStatus(payload?.status || 'disconnected');
@@ -31,8 +32,14 @@ export default function RFIDConnector({
   }, [onScan]);
 
   const handleError = useCallback((payload) => {
+    if (errorTimeoutRef.current) {
+      globalThis.clearTimeout(errorTimeoutRef.current);
+    }
     setError(payload?.message || 'Error desconocido');
-    setTimeout(() => setError(null), 4000);
+    errorTimeoutRef.current = globalThis.setTimeout(() => {
+      setError(null);
+      errorTimeoutRef.current = null;
+    }, 4000);
   }, []);
 
   useEffect(() => {
@@ -45,7 +52,9 @@ export default function RFIDConnector({
       webSerialService.off('status', handleStatus);
       webSerialService.off('scan', handleScan);
       webSerialService.off('error', handleError);
-      webSerialService.stopReading();
+      if (errorTimeoutRef.current) {
+        globalThis.clearTimeout(errorTimeoutRef.current);
+      }
     };
   }, [handleStatus, handleScan, handleError]);
 
