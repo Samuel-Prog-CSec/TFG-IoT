@@ -130,9 +130,13 @@ Similar a las imágenes, se verifica el contenido real del archivo para prevenir
 | Parámetro | Valor |
 |-----------|-------|
 | Tamaño máximo | 5 MB |
+| Duración mínima | 0.3 segundos |
+| Duración máxima | 45 segundos |
 | Duración recomendada | ≤ 30 segundos |
 
-> La duración no se valida server-side, pero se recomienda mantener clips cortos para mejor experiencia educativa.
+La duración **sí se valida server-side** mediante metadata real del audio (`music-metadata`).
+
+Si no se puede leer la duración (archivo corrupto o metadata inválida), el backend rechaza el upload.
 
 ---
 
@@ -189,6 +193,7 @@ https://{project}.supabase.co/storage/v1/object/public/{bucket}/contexts/{contex
 | **Magic Bytes** | Validación del contenido real del archivo |
 | **Multer fileFilter** | Validación preliminar de MIME type |
 | **Tamaño** | Límites estrictos (8MB imágenes, 5MB audio) |
+| **Duración audio** | Validación real de duración (0.3s-45s) |
 | **Sanitización** | Nombres de archivo seguros |
 | **CSRF** | Double-submit: cookie `csrfToken` + header `X-CSRF-Token` |
 
@@ -245,9 +250,27 @@ SUPABASE_BUCKET=rfid-games-assets
   ALLOWED_MIMES: ['audio/mpeg', 'audio/ogg', 'audio/mp3'],
   ALLOWED_EXTENSIONS: ['.mp3', '.ogg'],
   MAX_SIZE: 5 * 1024 * 1024,  // 5MB
+  MIN_DURATION_SECONDS: 0.3,
+  MAX_DURATION_SECONDS: 45,
   RECOMMENDED_MAX_DURATION_SECONDS: 30
 }
 ```
+
+### Endpoint de configuración para frontend
+
+El backend expone `GET /api/contexts/upload-config` para alinear reglas de UI con validación real server-side.
+
+Incluye:
+
+- `image.allowedFormats`
+- `image.maxInputSizeMB`
+- `audio.allowedFormats`
+- `audio.maxSizeMB`
+- `audio.minDurationSeconds`
+- `audio.maxDurationSeconds`
+- `audio.recommendedMaxDurationSeconds`
+
+Esto evita discrepancias entre mensajes de frontend y restricciones efectivas del backend.
 
 ---
 

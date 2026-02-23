@@ -30,11 +30,13 @@ import {
   Sparkles
 } from 'lucide-react';
 import { cn } from '../lib/utils';
+import { buildCardMappingsPayload } from '../lib/cardMapping';
 import { 
   WizardStepper, 
   RFIDScannerPanel, 
   CardSelector,
   AssetSelector,
+  CardAssetPreview,
   ButtonPremium,
   GlassCard,
   InputPremium,
@@ -320,10 +322,7 @@ export default function DeckCreationWizard() {
       const deckData = {
         name: deckName.trim(),
         contextId: selectedContext._id,
-        cards: selectedCards.map(card => ({
-          cardId: card._id,
-          assignedAsset: cardAssignments[card._id]
-        }))
+        cardMappings: buildCardMappingsPayload(selectedCards, cardAssignments)
       };
       
       await decksAPI.createDeck(deckData);
@@ -832,10 +831,14 @@ function StepAssign({
                     ? 'bg-green-500/20 text-green-400'
                     : 'bg-slate-700 text-slate-400'
                 )}>
-                  {isAssigned && (cardAssignments[card._id]?.thumbnailUrl || cardAssignments[card._id]?.imageUrl) ? (
-                    <img src={cardAssignments[card._id].thumbnailUrl || cardAssignments[card._id].imageUrl} alt="preview" className="w-full h-full object-cover" />
-                  ) : isAssigned ? (
-                    cardAssignments[card._id]?.display || <Check size={16} />
+                  {isAssigned ? (
+                    <CardAssetPreview
+                      asset={cardAssignments[card._id]}
+                      alt={`Asset asignado a ${card.uid}`}
+                      className="w-full h-full rounded-lg"
+                      fit="cover"
+                      fallbackIcon={<Check size={16} className="text-green-400" />}
+                    />
                   ) : (
                     <CreditCard size={16} />
                   )}
@@ -950,9 +953,14 @@ function StepConfirm({
                 key={card._id}
                 className="flex items-center gap-3 p-3 rounded-xl bg-slate-800/50 border border-white/5"
               >
-                <div className="w-10 h-10 rounded-lg bg-gradient-to-br from-indigo-500/20 to-purple-500/20 flex items-center justify-center text-xl">
-                  {assignment?.display || '❓'}
-                </div>
+                <CardAssetPreview
+                  asset={assignment}
+                  alt={`Asset de carta ${card.uid}`}
+                  className="w-10 h-10 rounded-lg"
+                  fit="cover"
+                  fallbackClassName="bg-gradient-to-br from-indigo-500/20 to-purple-500/20 text-xl"
+                  fallbackLabel="❓"
+                />
                 <div className="flex-1 min-w-0">
                   <p className="text-sm font-medium text-white truncate">
                     {assignment?.value || 'Sin asignar'}

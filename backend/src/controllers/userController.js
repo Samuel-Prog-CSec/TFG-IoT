@@ -191,7 +191,7 @@ const createUser = async (req, res, next) => {
       createdBy: teacherId
     });
 
-    logger.info('Alumno creado por profesor', {
+    logger.info('Alumno creado por super admin', {
       studentId: student._id,
       studentName: student.name,
       classroom: student.profile?.classroom,

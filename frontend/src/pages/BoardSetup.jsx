@@ -12,6 +12,7 @@ import { sessionsAPI, usersAPI, extractData, extractErrorMessage, isAbortError }
 import { useAuth } from '../context/AuthContext';
 import { useRefetchOnFocus } from '../hooks';
 import { ROUTES } from '../constants/routes';
+import { CardAssetPreview } from '../components/ui';
 
 export default function BoardSetup() {
   const { sessionId } = useParams();
@@ -65,7 +66,8 @@ export default function BoardSetup() {
                                 icon: displayIcon,
                                 subLabel: assetKey ? `Asset: ${assetKey}` : mapping.uid,
                                 assignedValue: mapping.assignedValue,
-                                displayData: mapping.displayData
+                                displayData: mapping.displayData,
+                                asset: mapping.displayData || null
                             };
                         });
 
@@ -330,7 +332,14 @@ function CardView({ card, isOverlay, variant = 'default' }) {
                  "w-full h-full flex flex-col items-center justify-center p-2 cursor-grab active:cursor-grabbing rounded-xl",
                  isOverlay && "bg-slate-800/90 border border-indigo-400 shadow-xl" // Overlay needs bg
              )}>
-                  <div className="text-5xl mb-2 filter drop-shadow-lg">{card.icon}</div>
+                  <CardAssetPreview
+                    asset={card.asset}
+                    alt={`Carta ${card.uid}`}
+                    className="w-16 h-16 rounded-xl mb-2"
+                    fit="cover"
+                    fallbackClassName="text-4xl"
+                    fallbackLabel={card.icon || '🎴'}
+                  />
                   <div className="text-white font-bold text-xs text-center leading-tight bg-slate-900/50 px-2 py-1 rounded-full">{card.label}</div>
              </div>
         )
@@ -341,9 +350,14 @@ function CardView({ card, isOverlay, variant = 'default' }) {
             "p-3 rounded-xl border bg-slate-800 flex items-center gap-3 cursor-grab active:cursor-grabbing",
             isOverlay ? "border-indigo-400 shadow-2xl scale-105" : "border-white/10 hover:border-white/30 shadow-sm"
         )}>
-            <div className="w-10 h-10 rounded bg-indigo-500/20 flex items-center justify-center text-xl font-bold border border-indigo-500/30">
-                {card.icon || '#'}
-            </div>
+            <CardAssetPreview
+              asset={card.asset}
+              alt={`Carta ${card.uid}`}
+              className="w-10 h-10 rounded border border-indigo-500/30"
+              fit="cover"
+              fallbackClassName="bg-indigo-500/20 text-xl font-bold"
+              fallbackLabel={card.icon || '#'}
+            />
             <div>
                 <div className="text-white font-bold text-sm leading-tight">{card.label}</div>
                 <div className="text-slate-500 text-xs font-mono">{card.uid}</div>

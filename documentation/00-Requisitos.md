@@ -157,13 +157,13 @@ El sistema es una **plataforma de juegos educativos interactivos** que utiliza *
 
 ### RF-USR-008: Creación de Alumnos ✅
 
-**Descripción:** Un profesor debe poder crear usuarios alumnos SIN credenciales de acceso.
+**Descripción:** Un `super_admin` debe poder crear usuarios alumnos SIN credenciales de acceso.
 
 **Criterios de Aceptación:**
 - Los alumnos NO tienen email ni contraseña
-- Campo `createdBy` se asigna automáticamente al profesor que crea
+- Campo `createdBy` se asigna según el `teacherId` enviado por `super_admin`
 - Validar que no exista alumno activo con mismo nombre en la misma clase del mismo profesor
-- Campos requeridos: nombre
+- Campos requeridos: nombre, edad (3-99), `teacherId`
 - Campos opcionales: edad (3-99), aula, fecha de nacimiento
 
 **Endpoint:** `POST /api/users`
@@ -172,12 +172,13 @@ El sistema es una **plataforma de juegos educativos interactivos** que utiliza *
 
 ### RF-USR-009: Listado de Usuarios ✅
 
-**Descripción:** Un profesor debe poder listar usuarios del sistema.
+**Descripción:** Usuarios con rol `teacher` y `super_admin` deben poder listar usuarios del sistema.
 
 **Criterios de Aceptación:**
 - Soportar filtros por rol, estado, aula
 - Implementar paginación
-- Solo accesible por profesores
+- `teacher`: solo puede listar sus alumnos
+- `super_admin`: puede listar usuarios según filtros
 
 **Endpoint:** `GET /api/users`
 
@@ -301,9 +302,9 @@ El sistema es una **plataforma de juegos educativos interactivos** que utiliza *
 **Criterios de Aceptación:**
 - Solo se modifica `createdBy` (profesor asignado) y `profile.classroom`
 - Las métricas del alumno se mantienen íntegramente
-- Solo profesores pueden realizar transferencias
+- Solo `super_admin` puede realizar transferencias
 
-**Endpoint:** `POST /api/users/:studentId/transfer`
+**Endpoint:** `POST /api/users/:id/transfer`
 
 ---
 

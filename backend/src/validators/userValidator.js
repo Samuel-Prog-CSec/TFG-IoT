@@ -116,27 +116,24 @@ const createStudentSchema = z
       .min(2, 'El nombre debe tener al menos 2 caracteres')
       .max(100, 'El nombre no puede exceder 100 caracteres'),
 
-    profile: z
-      .object({
-        avatar: z.string().url('URL de avatar inválida').optional(),
-        age: z
-          .number()
-          .int('La edad debe ser un número entero')
-          .min(3, 'La edad mínima es 3 años')
-          .max(99, 'La edad máxima es 99 años')
-          .optional(),
-        classroom: z
-          .string()
-          .trim()
-          .max(50, 'El nombre de la clase no puede exceder 50 caracteres')
-          .optional(),
-        birthdate: z
-          .string()
-          .datetime({ message: 'Fecha de nacimiento inválida' })
-          .or(z.date())
-          .optional()
-      })
-      .optional(),
+    profile: z.object({
+      avatar: z.string().url('URL de avatar inválida').optional(),
+      age: z
+        .number()
+        .int('La edad debe ser un número entero')
+        .min(3, 'La edad mínima es 3 años')
+        .max(99, 'La edad máxima es 99 años'),
+      classroom: z
+        .string()
+        .trim()
+        .max(50, 'El nombre de la clase no puede exceder 50 caracteres')
+        .optional(),
+      birthdate: z
+        .string()
+        .datetime({ message: 'Fecha de nacimiento inválida' })
+        .or(z.date())
+        .optional()
+    }),
 
     teacherId: objectIdSchema
   })

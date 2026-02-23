@@ -77,7 +77,7 @@ const audioUpload = multer({
   fileFilter: (req, file, cb) => {
     // Validación preliminar por MIME type declarado
     // La validación real por magic bytes se hace en audioValidationService
-    const allowedMimes = ['audio/mpeg', 'audio/mp3', 'audio/ogg', 'audio/vorbis'];
+    const allowedMimes = ['audio/mpeg', 'audio/mp3', 'audio/ogg'];
     if (!allowedMimes.includes(file.mimetype)) {
       return cb(new Error('Formato de audio no permitido. Usa MP3 u OGG.'));
     }

@@ -280,10 +280,57 @@ function UploadAssetModal({ context, onClose, onSuccess }) {
   });
   
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [uploadConfig, setUploadConfig] = useState({
+    image: { maxInputSizeMB: 8, allowedFormats: ['PNG', 'JPG', 'JPEG', 'GIF', 'WebP'] },
+    audio: {
+      maxSizeMB: 5,
+      allowedFormats: ['MP3', 'OGG'],
+      minDurationSeconds: 0.3,
+      maxDurationSeconds: 45
+    }
+  });
+
+  useEffect(() => {
+    let isMounted = true;
+
+    const loadUploadConfig = async () => {
+      try {
+        const response = await contextsAPI.getUploadConfig();
+        const configData = extractData(response);
+        if (isMounted && configData) {
+          setUploadConfig(configData);
+        }
+      } catch {
+        // Se mantienen defaults locales si falla la carga
+      }
+    };
+
+    loadUploadConfig();
+
+    return () => {
+      isMounted = false;
+    };
+  }, []);
 
   const handleFileChange = (e) => {
     const selected = e.target.files[0];
     if (!selected) return;
+
+    const maxSizeMB = type === 'image' ? uploadConfig?.image?.maxInputSizeMB : uploadConfig?.audio?.maxSizeMB;
+    if (maxSizeMB && selected.size > maxSizeMB * 1024 * 1024) {
+      toast.error(`El archivo excede el máximo permitido de ${maxSizeMB}MB`);
+      return;
+    }
+
+    if (type === 'image' && !selected.type.startsWith('image/')) {
+      toast.error('Formato inválido: selecciona una imagen válida');
+      return;
+    }
+
+    if (type === 'audio' && !['audio/mpeg', 'audio/mp3', 'audio/ogg'].includes(selected.type)) {
+      toast.error('Formato inválido: usa MP3 u OGG');
+      return;
+    }
 
     setFile(selected);
 
@@ -405,7 +452,7 @@ function UploadAssetModal({ context, onClose, onSuccess }) {
                 type="file"
                 ref={fileInputRef}
                 onChange={handleFileChange}
-                accept={type === 'image' ? "image/*" : "audio/*"}
+                accept={type === 'image' ? '.png,.jpg,.jpeg,.gif,.webp,image/*' : '.mp3,.ogg,audio/mpeg,audio/ogg'}
                 className="hidden"
               />
               
@@ -433,7 +480,9 @@ function UploadAssetModal({ context, onClose, onSuccess }) {
                   {type === 'image' ? <ImageIcon size={32} className="mx-auto text-slate-500 mb-3" /> : <Music size={32} className="mx-auto text-slate-500 mb-3" />}
                   <p className="text-sm font-medium text-white mb-1">Click para seleccionar archivo</p>
                   <p className="text-xs text-slate-500">
-                    {type === 'image' ? 'PNG, JPG, WEBP (Max 5MB)' : 'MP3, OGG, WAV (Max 10MB)'}
+                    {type === 'image'
+                      ? `${uploadConfig?.image?.allowedFormats?.join(', ')} (Max ${uploadConfig?.image?.maxInputSizeMB}MB)`
+                      : `${uploadConfig?.audio?.allowedFormats?.join(', ')} (Max ${uploadConfig?.audio?.maxSizeMB}MB · ${uploadConfig?.audio?.minDurationSeconds}s-${uploadConfig?.audio?.maxDurationSeconds}s)`}
                   </p>
                 </div>
               )}

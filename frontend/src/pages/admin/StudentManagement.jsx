@@ -25,7 +25,7 @@ import {
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { toast } from 'sonner';
-import { usersAPI, extractData, extractErrorMessage, isAbortError } from '../../services/api';
+import { usersAPI, extractErrorMessage, isAbortError } from '../../services/api';
 import { 
   ButtonPremium, 
   InputPremium, 
@@ -45,28 +45,33 @@ import { cn, pageVariants, staggerContainer, staggerItem } from '../../lib/utils
 /**
  * Modal para editar un alumno existente
  */
-function EditStudentModal({ isOpen, onClose, onUpdated, student, teachers }) {
+function EditStudentModal({ isOpen, onClose, onUpdated, student }) {
   const [loading, setLoading] = useState(false);
   const [formData, setFormData] = useState({
     name: '',
-    classroom: '',
-    teacherId: ''
+    age: '',
+    classroom: ''
   });
 
   useEffect(() => {
     if (isOpen && student) {
       setFormData({
         name: student.name || '',
-        classroom: student.profile?.classroom || '',
-        teacherId: student.teacher?._id || student.teacher?.id || student.teacher || ''
+        age: student.profile?.age ? String(student.profile.age) : '',
+        classroom: student.profile?.classroom || ''
       });
     }
   }, [isOpen, student]);
 
   const handleSubmit = async (e) => {
     e.preventDefault();
-    if (!formData.name.trim() || !formData.teacherId) {
-      toast.error('Nombre y profesor son obligatorios');
+    const parsedAge = Number.parseInt(formData.age, 10);
+    if (!formData.name.trim() || Number.isNaN(parsedAge)) {
+      toast.error('Nombre y edad son obligatorios');
+      return;
+    }
+    if (parsedAge < 3 || parsedAge > 99) {
+      toast.error('La edad debe estar entre 3 y 99 años');
       return;
     }
 
@@ -75,9 +80,9 @@ function EditStudentModal({ isOpen, onClose, onUpdated, student, teachers }) {
       const payload = {
         name: formData.name.trim(),
         profile: {
+          age: parsedAge,
           classroom: formData.classroom.trim() || undefined
-        },
-        teacherId: formData.teacherId
+        }
       };
 
       await usersAPI.updateUser(student.id || student._id, payload);
@@ -129,24 +134,23 @@ function EditStudentModal({ isOpen, onClose, onUpdated, student, teachers }) {
               />
 
               <InputPremium
+                label="Edad"
+                type="number"
+                min="3"
+                max="99"
+                placeholder="Ej: 6"
+                value={formData.age}
+                onChange={(e) => setFormData(prev => ({ ...prev, age: e.target.value }))}
+                icon={<IdCard size={18} />}
+                required
+              />
+
+              <InputPremium
                 label="Clase (Opcional)"
                 placeholder="Ej: Aula 3B"
                 value={formData.classroom}
                 onChange={(e) => setFormData(prev => ({ ...prev, classroom: e.target.value }))}
                 icon={<School size={18} />}
-              />
-
-              <SelectPremium
-                label="Profesor Responsable"
-                placeholder="Selecciona un profesor"
-                options={teachers.map(t => ({
-                  value: t.id || t._id,
-                  label: t.name || t.email,
-                  icon: <Users size={16} />
-                }))}
-                value={formData.teacherId}
-                onChange={(val) => setFormData(prev => ({ ...prev, teacherId: val }))}
-                required
               />
 
               <div className="flex gap-3 pt-4">
@@ -183,20 +187,26 @@ function CreateStudentModal({ isOpen, onClose, onCreated, teachers }) {
   const [loading, setLoading] = useState(false);
   const [formData, setFormData] = useState({
     name: '',
+    age: '',
     classroom: '',
     teacherId: ''
   });
 
   useEffect(() => {
     if (!isOpen) {
-      setFormData({ name: '', classroom: '', teacherId: '' });
+      setFormData({ name: '', age: '', classroom: '', teacherId: '' });
     }
   }, [isOpen]);
 
   const handleSubmit = async (e) => {
     e.preventDefault();
-    if (!formData.name.trim() || !formData.teacherId) {
-      toast.error('Nombre y profesor son obligatorios');
+    const parsedAge = Number.parseInt(formData.age, 10);
+    if (!formData.name.trim() || !formData.teacherId || Number.isNaN(parsedAge)) {
+      toast.error('Nombre, edad y profesor son obligatorios');
+      return;
+    }
+    if (parsedAge < 3 || parsedAge > 99) {
+      toast.error('La edad debe estar entre 3 y 99 años');
       return;
     }
 
@@ -205,6 +215,7 @@ function CreateStudentModal({ isOpen, onClose, onCreated, teachers }) {
       const payload = {
         name: formData.name.trim(),
         profile: {
+          age: parsedAge,
           classroom: formData.classroom.trim() || undefined
         },
         teacherId: formData.teacherId
@@ -255,6 +266,18 @@ function CreateStudentModal({ isOpen, onClose, onCreated, teachers }) {
                 value={formData.name}
                 onChange={(e) => setFormData(prev => ({ ...prev, name: e.target.value }))}
                 icon={<User size={18} />}
+                required
+              />
+
+              <InputPremium
+                label="Edad"
+                type="number"
+                min="3"
+                max="99"
+                placeholder="Ej: 6"
+                value={formData.age}
+                onChange={(e) => setFormData(prev => ({ ...prev, age: e.target.value }))}
+                icon={<IdCard size={18} />}
                 required
               />
 
@@ -342,11 +365,11 @@ export default function StudentManagement() {
         usersAPI.getUsers({ role: 'teacher', status: 'active', limit: 100 })
       ]);
 
-      const studentsData = extractData(studentsRes);
-      const teachersData = extractData(teachersRes);
+      const studentsData = studentsRes.data;
+      const teachersData = teachersRes.data;
 
-      setStudents(studentsData.users || studentsData.data || []);
-      setTeachers(teachersData.users || teachersData.data || []);
+      setStudents(Array.isArray(studentsData.data) ? studentsData.data : []);
+      setTeachers(Array.isArray(teachersData.data) ? teachersData.data : []);
       
       setPagination(prev => ({
         ...prev,
@@ -602,7 +625,6 @@ export default function StudentManagement() {
         }}
         onUpdated={() => fetchInitialData(pagination.page)}
         student={selectedStudent}
-        teachers={teachers}
       />
 
       <ConfirmationModal

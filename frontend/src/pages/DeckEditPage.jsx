@@ -23,11 +23,16 @@ import {
   X
 } from 'lucide-react';
 import { cn } from '../lib/utils';
+import {
+  buildCardMappingsPayload,
+  normalizeCardMappingsFromDeck
+} from '../lib/cardMapping';
 import { 
   ButtonPremium,
   GlassCard,
   InputPremium,
   AssetSelector,
+  CardAssetPreview,
   CardSelector,
   RFIDScannerPanel,
   SkeletonCard,
@@ -105,22 +110,21 @@ export default function DeckEditPage() {
         setDeckName(deckData.name);
         setAvailableCards(cardsData);
 
+        const normalizedMappings = normalizeCardMappingsFromDeck(deckData, cardsData);
+
         // Establecer cartas y asignaciones
-        if (deckData.cards && Array.isArray(deckData.cards)) {
-          const cards = deckData.cards.map(dc => {
-            // La carta puede venir poblada o solo como ID
-            const cardData = dc.cardId?._id ? dc.cardId : cardsData.find(c => c._id === dc.cardId);
-            return cardData;
-          }).filter(Boolean);
+        if (normalizedMappings.length > 0) {
+          const cards = normalizedMappings
+            .map((mapping) => cardsData.find(c => c._id === mapping.cardId))
+            .filter(Boolean);
           
           setSelectedCards(cards);
           
           // Mapear asignaciones
           const assignments = {};
-          deckData.cards.forEach(dc => {
-            const cardId = dc.cardId?._id || dc.cardId;
-            if (dc.assignedAsset) {
-              assignments[cardId] = dc.assignedAsset;
+          normalizedMappings.forEach((mapping) => {
+            if (mapping.displayData) {
+              assignments[mapping.cardId] = mapping.displayData;
             }
           });
           setCardAssignments(assignments);
@@ -179,7 +183,7 @@ export default function DeckEditPage() {
     
     const originalName = deck.name;
     const originalContext = deck.contextId?._id || deck.contextId;
-    const originalCardIds = (deck.cards || []).map(c => c.cardId?._id || c.cardId).sort();
+    const originalCardIds = (deck.cardMappings || []).map(c => c.cardId?._id || c.cardId).sort();
     const currentCardIds = selectedCards.map(c => c._id).sort();
     
     const nameChanged = deckName !== originalName;
@@ -276,10 +280,7 @@ export default function DeckEditPage() {
       const updateData = {
         name: deckName.trim(),
         contextId: selectedContext._id,
-        cards: selectedCards.map(card => ({
-          cardId: card._id,
-          assignedAsset: cardAssignments[card._id]
-        }))
+        cardMappings: buildCardMappingsPayload(selectedCards, cardAssignments)
       };
       
       await decksAPI.updateDeck(deckId, updateData);
@@ -299,9 +300,9 @@ export default function DeckEditPage() {
         ...prev,
         name: deckName.trim(),
         contextId: selectedContext._id,
-        cards: selectedCards.map(card => ({
-          cardId: card,
-          assignedAsset: cardAssignments[card._id]
+        cardMappings: buildCardMappingsPayload(selectedCards, cardAssignments).map((mapping) => ({
+          ...mapping,
+          cardId: selectedCards.find((card) => card._id === mapping.cardId) || mapping.cardId
         }))
       }));
       
@@ -623,10 +624,14 @@ export default function DeckEditPage() {
                             'w-8 h-8 rounded-lg flex items-center justify-center text-lg overflow-hidden',
                             isAssigned ? 'bg-green-500/20' : 'bg-slate-700'
                           )}>
-                            {isAssigned && (cardAssignments[card._id]?.thumbnailUrl || cardAssignments[card._id]?.imageUrl) ? (
-                              <img src={cardAssignments[card._id].thumbnailUrl || cardAssignments[card._id].imageUrl} alt="preview" className="w-full h-full object-cover" />
-                            ) : isAssigned ? (
-                              cardAssignments[card._id]?.display || <span className="text-xs">📎</span>
+                            {isAssigned ? (
+                              <CardAssetPreview
+                                asset={cardAssignments[card._id]}
+                                alt={`Asset asignado a ${card.uid}`}
+                                className="w-full h-full rounded-lg"
+                                fit="cover"
+                                fallbackLabel="📎"
+                              />
                             ) : (
                               <CreditCard size={16} className="text-slate-400" />
                             )}

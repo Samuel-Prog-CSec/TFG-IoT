@@ -26,7 +26,7 @@ import {
   Shield
 } from 'lucide-react';
 import { toast } from 'sonner';
-import { adminAPI, extractData, extractErrorMessage, isAbortError } from '../../services/api';
+import { adminAPI, extractErrorMessage, isAbortError } from '../../services/api';
 import { ButtonPremium, InputPremium, GlassCard, StatusBadge, SkeletonCard, EmptyState } from '../../components/ui';
 import { useRefetchOnFocus } from '../../hooks';
 import { cn } from '../../lib/utils';
@@ -382,11 +382,12 @@ export default function ApprovalPanel() {
       const response = await adminAPI.getPendingTeachers({
         page,
         limit: pagination.limit,
+        search: deferredSearchQuery.trim() || undefined,
       }, { signal: controller.signal });
 
-      const data = extractData(response);
+      const {data} = response;
       
-      setTeachers(data.users || data.data || []);
+      setTeachers(Array.isArray(data.data) ? data.data : []);
       setPagination((prev) => ({
         ...prev,
         page: data.pagination?.page || page,
@@ -405,7 +406,7 @@ export default function ApprovalPanel() {
         setLoading(false);
       }
     }
-  }, [pagination.limit, teachers.length]);
+  }, [deferredSearchQuery, pagination.limit, teachers.length]);
 
   // Cargar al montar
   useEffect(() => {
@@ -477,17 +478,7 @@ export default function ApprovalPanel() {
     }
   };
 
-  /**
-   * Filtrar profesores por búsqueda (usa valor diferido para debounce)
-   */
-  const filteredTeachers = teachers.filter((teacher) => {
-    if (!deferredSearchQuery.trim()) return true;
-    const query = deferredSearchQuery.toLowerCase();
-    return (
-      teacher.name?.toLowerCase().includes(query) ||
-      teacher.email?.toLowerCase().includes(query)
-    );
-  });
+  const filteredTeachers = teachers;
   
   // Indicador visual de que la búsqueda está pendiente
   const isSearchPending = searchQuery !== deferredSearchQuery;

@@ -22,6 +22,15 @@ Documentacion tecnica del backend. Incluye decisiones de arquitectura, seguridad
 
 Consulta el archivo relevante segun el area del sistema que estes modificando. Mantener la documentacion actualizada es requisito de calidad.
 
+## Ruta recomendada para TFG (gobierno de usuarios)
+
+Para revisar el modelo vigente de permisos y sus decisiones de diseno:
+
+1. `API_v0.3.0.md` (contratos y permisos efectivos por endpoint).
+2. `Flujos_Accion/Admin_user.md` (flujo de aprobacion de docentes).
+3. `Flujos_Accion/FLUJO_USUARIOS.md` (gobierno de identidades y responsabilidades por rol).
+4. `Architecture_Decisions.md` (ADR-008: centralizacion en `super_admin` y contrato paginado FE/BE).
+
 ## Decisiones de Diseno
 
 Se mantiene un enfoque modular: cada documento describe un dominio especifico para facilitar mantenimiento y revision.

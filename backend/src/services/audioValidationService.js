@@ -21,6 +21,10 @@ const AUDIO_CONFIG = {
   // Tamaño máximo de archivo (5MB - suficiente para clips educativos cortos)
   MAX_SIZE: 5 * 1024 * 1024,
 
+  // Duración permitida para clips educativos
+  MIN_DURATION_SECONDS: 0.3,
+  MAX_DURATION_SECONDS: 45,
+
   // Duración máxima recomendada (informativo, no validado server-side)
   RECOMMENDED_MAX_DURATION_SECONDS: 30
 };
@@ -53,16 +57,22 @@ class AudioValidationService {
    * @throws {ValidationError} Si el archivo no cumple los requisitos
    */
   async validateAudio(file) {
+    this.validateFilePresence(file);
+
     // 1. Validar tamaño
     this.validateSize(file);
 
     // 2. Validar tipo real por magic bytes
     const detectedType = await this.validateMagicBytes(file.buffer);
 
+    // 3. Validar duración real del archivo
+    const durationSeconds = await this.validateDuration(file.buffer, detectedType.mime);
+
     logger.info('Audio validado exitosamente', {
       originalName: file.originalname,
       size: file.size,
-      detectedFormat: MIME_TO_NAME[detectedType.mime] || detectedType.mime
+      detectedFormat: MIME_TO_NAME[detectedType.mime] || detectedType.mime,
+      durationSeconds
     });
 
     return {
@@ -72,9 +82,16 @@ class AudioValidationService {
         size: file.size,
         format: detectedType.ext,
         mime: detectedType.mime,
-        formatName: MIME_TO_NAME[detectedType.mime] || detectedType.ext.toUpperCase()
+        formatName: MIME_TO_NAME[detectedType.mime] || detectedType.ext.toUpperCase(),
+        durationSeconds
       }
     };
+  }
+
+  validateFilePresence(file) {
+    if (!file || !Buffer.isBuffer(file.buffer) || file.buffer.length === 0) {
+      throw new ValidationError('No se recibió un archivo de audio válido');
+    }
   }
 
   /**
@@ -127,6 +144,56 @@ class AudioValidationService {
     return detectedType;
   }
 
+  async validateDuration(buffer, mimeType) {
+    try {
+      const durationSeconds = await this.readDurationSeconds(buffer, mimeType);
+
+      if (!Number.isFinite(durationSeconds) || durationSeconds <= 0) {
+        throw new ValidationError(
+          'No se pudo determinar la duración del audio. Usa un archivo MP3 u OGG válido.'
+        );
+      }
+
+      if (durationSeconds < AUDIO_CONFIG.MIN_DURATION_SECONDS) {
+        throw new ValidationError(
+          `El audio es demasiado corto (${durationSeconds.toFixed(2)}s). ` +
+            `Duración mínima: ${AUDIO_CONFIG.MIN_DURATION_SECONDS}s.`
+        );
+      }
+
+      if (durationSeconds > AUDIO_CONFIG.MAX_DURATION_SECONDS) {
+        throw new ValidationError(
+          `El audio excede la duración máxima permitida (${durationSeconds.toFixed(2)}s). ` +
+            `Duración máxima: ${AUDIO_CONFIG.MAX_DURATION_SECONDS}s.`
+        );
+      }
+
+      return Number(durationSeconds.toFixed(2));
+    } catch (error) {
+      if (error instanceof ValidationError) {
+        throw error;
+      }
+
+      logger.warn('No se pudo validar la duración del audio', {
+        reason: error.message
+      });
+
+      throw new ValidationError(
+        'No se pudo leer la duración del audio. Verifica que el archivo no esté corrupto.'
+      );
+    }
+  }
+
+  async readDurationSeconds(buffer, mimeType) {
+    const { parseBuffer } = await import('music-metadata');
+    const metadata = await parseBuffer(buffer, mimeType, {
+      duration: true,
+      skipPostHeaders: true
+    });
+
+    return Number(metadata?.format?.duration);
+  }
+
   /**
    * Obtiene la configuración actual del servicio.
    * Útil para exponer límites al frontend.
@@ -137,6 +204,8 @@ class AudioValidationService {
     return {
       allowedFormats: ['MP3', 'OGG'],
       maxSizeMB: AUDIO_CONFIG.MAX_SIZE / (1024 * 1024),
+      minDurationSeconds: AUDIO_CONFIG.MIN_DURATION_SECONDS,
+      maxDurationSeconds: AUDIO_CONFIG.MAX_DURATION_SECONDS,
       recommendedMaxDurationSeconds: AUDIO_CONFIG.RECOMMENDED_MAX_DURATION_SECONDS
     };
   }

@@ -226,7 +226,8 @@ const uploadAudio = async (req, res, next) => {
       assetKey: key,
       uploadedBy: req.user._id,
       format: metadata.formatName,
-      size: metadata.size
+      size: metadata.size,
+      durationSeconds: metadata.durationSeconds
     });
 
     res.status(201).json({
@@ -236,7 +237,8 @@ const uploadAudio = async (req, res, next) => {
         asset: toAssetDTOV1(newAsset),
         metadata: {
           format: metadata.formatName,
-          size: `${(metadata.size / 1024).toFixed(1)} KB`
+          size: `${(metadata.size / 1024).toFixed(1)} KB`,
+          durationSeconds: metadata.durationSeconds
         }
       }
     });

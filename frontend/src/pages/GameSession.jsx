@@ -1,11 +1,13 @@
-import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useState, useEffect, useCallback, useRef } from 'react';
+import { useNavigate, useParams } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Wifi, WifiOff, Pause, Play, Volume2, VolumeX } from 'lucide-react';
 import { cn } from '../lib/utils';
 import { useReducedMotion } from '../hooks';
 import RFIDConnector from '../components/ui/RFIDConnector';
 import webSerialService from '../services/webSerialService';
+import { sessionsAPI, extractData, extractErrorMessage, isAbortError } from '../services/api';
+import { ROUTES } from '../constants/routes';
 import { 
   ChallengeDisplay, 
   TimerBar, 
@@ -20,13 +22,13 @@ import {
  * Diseño colorido, amigable y sin texto complejo
  */
 export default function GameSession() {
+  const { sessionId } = useParams();
   const navigate = useNavigate();
   const { shouldReduceMotion } = useReducedMotion();
   const pendingTimeoutRef = useRef([]);
 
   // Game configuration
   const ROUND_TIME = 15; // segundos por ronda
-  const TOTAL_ROUNDS = 5;
   const POINTS_CORRECT = 10;
   const POINTS_ERROR = -2;
 
@@ -40,41 +42,93 @@ export default function GameSession() {
   const [mascotMood, setMascotMood] = useState('idle');
   const [soundEnabled, setSoundEnabled] = useState(true);
   const [rfidConnected, setRfidConnected] = useState(false);
+  const [loadingSession, setLoadingSession] = useState(true);
+  const [sessionError, setSessionError] = useState(null);
+  const [session, setSession] = useState(null);
+  const [challengePool, setChallengePool] = useState([]);
+  const [totalRounds, setTotalRounds] = useState(5);
+  const [roundTime, setRoundTime] = useState(ROUND_TIME);
 
-  // Mock challenge data - will come from backend
-  const [challenge, setChallenge] = useState({
-    display: '🇪🇸',
-    value: 'España',
-    audioUrl: null,
-    imageUrl: null,
-  });
+  const [challenge, setChallenge] = useState(null);
 
-  // Assets pool for demo
-  const assetsPool = useMemo(() => [
-    { display: '🇪🇸', value: 'España' },
-    { display: '🇫🇷', value: 'Francia' },
-    { display: '🇮🇹', value: 'Italia' },
-    { display: '🇩🇪', value: 'Alemania' },
-    { display: '🇬🇧', value: 'Reino Unido' },
-    { display: '🇵🇹', value: 'Portugal' },
-    { display: '🇯🇵', value: 'Japón' },
-    { display: '🇧🇷', value: 'Brasil' },
-  ], []);
+  const pickRandomChallenge = useCallback((pool) => {
+    if (!Array.isArray(pool) || pool.length === 0) {
+      return null;
+    }
+
+    return pool[Math.floor(Math.random() * pool.length)];
+  }, []);
+
+  useEffect(() => {
+    const controller = new AbortController();
+
+    const loadSession = async () => {
+      try {
+        if (!sessionId) {
+          throw new Error('No se ha indicado una sesión válida.');
+        }
+
+        setLoadingSession(true);
+        setSessionError(null);
+
+        const response = await sessionsAPI.getSessionById(sessionId, {
+          signal: controller.signal
+        });
+        const sessionData = extractData(response);
+        const mappings = Array.isArray(sessionData?.cardMappings) ? sessionData.cardMappings : [];
+
+        const normalizedChallenges = mappings.map((mapping) => ({
+          id: mapping.id || mapping.cardId,
+          uid: mapping.uid,
+          key: mapping.displayData?.key || '',
+          value: mapping.assignedValue || mapping.displayData?.value || mapping.uid,
+          display: mapping.displayData?.display || '🎴',
+          imageUrl: mapping.displayData?.imageUrl || null,
+          thumbnailUrl: mapping.displayData?.thumbnailUrl || null,
+          audioUrl: mapping.displayData?.audioUrl || null
+        }));
+
+        setSession(sessionData);
+        setChallengePool(normalizedChallenges);
+
+        const configuredRounds = Number(sessionData?.config?.numberOfRounds);
+        const fallbackRounds = normalizedChallenges.length > 0 ? normalizedChallenges.length : 5;
+        setTotalRounds(Number.isFinite(configuredRounds) && configuredRounds > 0 ? configuredRounds : fallbackRounds);
+
+        const configuredTime = Number(sessionData?.config?.timeLimit);
+        setRoundTime(Number.isFinite(configuredTime) && configuredTime > 0 ? configuredTime : ROUND_TIME);
+
+        setChallenge(pickRandomChallenge(normalizedChallenges));
+      } catch (error) {
+        if (isAbortError(error)) {
+          return;
+        }
+
+        setSessionError(extractErrorMessage(error));
+      } finally {
+        if (!controller.signal.aborted) {
+          setLoadingSession(false);
+        }
+      }
+    };
+
+    loadSession();
+
+    return () => controller.abort();
+  }, [sessionId, pickRandomChallenge]);
 
   // Advance to next round or finish game
   const advanceRound = useCallback(() => {
-    if (currentRound >= TOTAL_ROUNDS) {
+    if (currentRound >= totalRounds) {
       setGameState('finished');
       setMascotMood('celebrating');
     } else {
       setCurrentRound(r => r + 1);
-      setTimeLeft(ROUND_TIME);
-      // Pick random challenge
-      const randomAsset = assetsPool[Math.floor(Math.random() * assetsPool.length)];
-      setChallenge(randomAsset);
+      setTimeLeft(roundTime);
+      setChallenge(pickRandomChallenge(challengePool));
       setMascotMood('idle');
     }
-  }, [currentRound, TOTAL_ROUNDS, assetsPool]);
+  }, [currentRound, totalRounds, roundTime, challengePool, pickRandomChallenge]);
 
   // Handle timeout (no response in time)
   const handleTimeout = useCallback(() => {
@@ -97,14 +151,14 @@ export default function GameSession() {
       setTimeLeft((prev) => {
         if (prev <= 1) {
           handleTimeout();
-          return ROUND_TIME;
+          return roundTime;
         }
         return prev - 1;
       });
     }, 1000);
 
     return () => clearInterval(timer);
-  }, [gameState, currentRound, handleTimeout]);
+  }, [gameState, currentRound, handleTimeout, roundTime]);
 
   // Simulacion de escaneo para fallback local
   const handleSimulatedScan = useCallback(() => {
@@ -158,14 +212,17 @@ export default function GameSession() {
 
   // Start game
   const startGame = () => {
+    if (challengePool.length === 0) {
+      return;
+    }
+
     setGameState('playing');
     setCurrentRound(1);
     setScore(0);
     setCorrectAnswers(0);
-    setTimeLeft(ROUND_TIME);
+    setTimeLeft(roundTime);
     setMascotMood('happy');
-    const randomAsset = assetsPool[Math.floor(Math.random() * assetsPool.length)];
-    setChallenge(randomAsset);
+    setChallenge(pickRandomChallenge(challengePool));
   };
 
   // Toggle pause
@@ -186,8 +243,27 @@ export default function GameSession() {
 
   // Go home
   const goHome = () => {
-    navigate('/dashboard');
+    navigate(ROUTES.DASHBOARD);
   };
+
+  if (loadingSession) {
+    return <div className="min-h-screen bg-slate-950 text-white p-8">Cargando sesión...</div>;
+  }
+
+  if (sessionError) {
+    return (
+      <div className="min-h-screen bg-slate-950 text-white p-8 flex flex-col items-center justify-center gap-4 text-center">
+        <h1 className="text-2xl font-bold">No se pudo cargar la sesión</h1>
+        <p className="text-slate-400 max-w-md">{sessionError}</p>
+        <button
+          onClick={goHome}
+          className="px-5 py-3 rounded-xl bg-indigo-500 hover:bg-indigo-400 transition-colors"
+        >
+          Volver al Dashboard
+        </button>
+      </div>
+    );
+  }
 
   return (
     <div className="game-bg min-h-screen flex flex-col relative overflow-hidden">
@@ -213,7 +289,7 @@ export default function GameSession() {
             </motion.div>
             <div className="hidden sm:block">
               <div className="text-xs text-slate-500 uppercase tracking-wider">Ronda</div>
-              <div className="text-sm text-white font-medium">{currentRound} de {TOTAL_ROUNDS}</div>
+              <div className="text-sm text-white font-medium">{currentRound} de {totalRounds}</div>
             </div>
           </div>
 
@@ -263,7 +339,7 @@ export default function GameSession() {
       {/* Timer Bar */}
       {(gameState === 'playing' || gameState === 'paused') && (
         <div className="relative z-10 px-4 sm:px-6 mb-4">
-          <TimerBar timeLeft={timeLeft} timeLimit={ROUND_TIME} />
+          <TimerBar timeLeft={timeLeft} timeLimit={roundTime} />
         </div>
       )}
 
@@ -290,16 +366,19 @@ export default function GameSession() {
                 ¡Hora de Jugar!
               </h1>
               <p className="text-slate-400 mb-8 text-lg">
-                Encuentra la tarjeta correcta
+                {session?.deck?.name
+                  ? `Encuentra la tarjeta correcta de ${session.deck.name}`
+                  : 'Encuentra la tarjeta correcta'}
               </p>
               <motion.button
                 whileHover={shouldReduceMotion ? {} : { scale: 1.05 }}
                 whileTap={shouldReduceMotion ? {} : { scale: 0.95 }}
                 onClick={startGame}
+                disabled={challengePool.length === 0}
                 className="btn-game text-2xl px-12 py-5"
               >
                 <Play size={28} />
-                EMPEZAR
+                {challengePool.length > 0 ? 'EMPEZAR' : 'SIN CARTAS DISPONIBLES'}
               </motion.button>
             </motion.div>
           )}
@@ -328,7 +407,7 @@ export default function GameSession() {
                 transition={{ delay: shouldReduceMotion ? 0 : 0.3 }}
                 className="mt-8 text-center text-slate-400 text-lg"
               >
-                ¡Busca la tarjeta de <span className="text-white font-bold">{challenge.value}</span>!
+                ¡Busca la tarjeta de <span className="text-white font-bold">{challenge?.value || '---'}</span>!
               </motion.p>
 
               {!rfidConnected && (
@@ -386,7 +465,7 @@ export default function GameSession() {
       {(gameState === 'playing' || gameState === 'paused') && (
         <footer className="relative z-10 p-4 sm:p-6">
           <div className="flex justify-center items-center gap-2">
-            {Array.from({ length: TOTAL_ROUNDS }).map((_, i) => (
+            {Array.from({ length: totalRounds }).map((_, i) => (
               <motion.div
                 key={`round-${i}`}
                 initial={{ scale: 0 }}
@@ -420,7 +499,7 @@ export default function GameSession() {
         <GameOverScreen
           score={score}
           correctAnswers={correctAnswers}
-          totalRounds={TOTAL_ROUNDS}
+          totalRounds={totalRounds}
           bestScore={0}
           onPlayAgain={playAgain}
           onGoHome={goHome}

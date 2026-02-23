@@ -1,277 +1,181 @@
-# Flujo de Usuarios: Super Admin vs Profesores vs Alumnos
+# Flujo de Usuarios y Gobierno de Identidades (2026)
 
-## 📋 Resumen Ejecutivo
+## 1) Objetivo funcional y decisión de gobierno
 
-El sistema contempla **tres roles** con interacción distinta:
+Este módulo define cómo se gobierna la identidad en el sistema RFID para evitar escalada de privilegios y mantener trazabilidad administrativa.
 
-| Aspecto | Super Admin (`super_admin`) | Profesores (`teacher`) | Alumnos (`student`) |
+### Decisión vigente
+
+- El **super_admin** concentra las acciones críticas de identidad.
+- El **teacher** opera el dominio pedagógico (mazos, sesiones, juego), pero no administra identidades críticas.
+- El **student** no tiene login.
+
+### ¿Por qué esta decisión?
+
+1. **Separación de responsabilidades**: reduce riesgo operativo en colegios (quién enseña ≠ quién administra identidad global).
+2. **Seguridad por diseño**: limita superficie de abuso en endpoints de usuarios.
+3. **Auditoría del TFG**: las decisiones de alta/aprobación/transferencia quedan concentradas en un rol explícito y revisable.
+
+---
+
+## 2) Matriz de responsabilidades por rol
+
+| Capacidad | super_admin | teacher | student |
 | --- | --- | --- | --- |
-| **Acceso a la app** | ✅ Sí (email/password) | ✅ Sí (email/password) | ❌ No |
-| **Registro** | Seeder / alta inicial | Auto-registro en `/api/auth/register` (queda pendiente) | Creados por profesores en `/api/users` |
-| **Login** | ✅ Sí (`/api/auth/login`) | ✅ Sí (`/api/auth/login`) **solo si aprobado** | ❌ No |
-| **Estado adicional** | `accountStatus` (normalmente `approved`) | `accountStatus`: `pending_approval` → `approved`/`rejected` | No aplica |
-| **Responsabilidad** | Aprobar/rechazar profesores | Gestionar juego (sesiones, mazos, alumnos, partidas) | Jugar con RFID |
+| Login web | ✅ | ✅ (si aprobado) | ❌ |
+| Aprobar/rechazar docentes | ✅ | ❌ | ❌ |
+| Crear/editar/eliminar alumnos | ✅ | ❌ | ❌ |
+| Transferir alumnos entre docentes | ✅ | ❌ | ❌ |
+| Crear/gestionar mazos y sesiones | ✅ | ✅ | ❌ |
+| Participar en juego RFID | ❌ | Supervisa | ✅ |
 
-Clave del flujo actual:
-
-- El registro de profesor crea una cuenta con `accountStatus: 'pending_approval'`.
-- El profesor **no puede iniciar sesión** hasta que un Super Admin lo apruebe.
+> Nota: `super_admin` puede operar endpoints de dominio cuando su rol está permitido en rutas (`requireRole('teacher', 'super_admin')`).
 
 ---
 
-## 🧑‍⚖️ Flujo de Super Admin
+## 3) Flujo de alta docente (teacher)
 
-### 1. Login de Super Admin
+1. Registro público por `POST /api/auth/register`.
+2. Se crea usuario `teacher` con `accountStatus: pending_approval`.
+3. No se emiten tokens en el registro.
+4. `super_admin` revisa pendientes en `GET /api/admin/pending`.
+5. `super_admin` aprueba o rechaza:
+   - `POST /api/admin/users/:id/approve`
+   - `POST /api/admin/users/:id/reject`
+6. Solo tras `approved` el docente puede hacer login.
 
-**Endpoint**: `POST /api/auth/login`
+### Regla de hardening
 
-**Body**:
+- Solo se acepta transición desde `pending_approval`.
+- Se bloquean transiciones redundantes/ambiguas (`approved→approved`, `rejected→rejected`, etc.).
 
-```json
-{
-  "email": "admin@test.com",
-  "password": "Admin1234!"
-}
-```
+### ¿Por qué?
 
-**Validación (alto nivel)**:
-
-- ✅ Usuario existe
-- ✅ `role` es `super_admin`
-- ✅ `status` es `active`
-- ✅ `accountStatus` es `approved`
-- ✅ Password correcta
-
-**Respuesta** (200):
-
-```json
-{
-  "success": true,
-  "message": "Login exitoso",
-  "data": {
-    "user": {
-      "id": "...",
-      "name": "...",
-      "email": "admin@test.com",
-      "role": "super_admin",
-      "status": "active",
-      "accountStatus": "approved"
-    },
-    "accessToken": "...",
-    "accessTokenExpiry": "..."
-  }
-}
-```
-
-**Nota:** el `refreshToken` se entrega únicamente vía cookie `httpOnly` y no se expone en el body.
-
-### 2. Aprobar / Rechazar profesores
-
-**Endpoints (solo Super Admin)**:
-
-- `POST /api/admin/users/:id/approve`
-- `POST /api/admin/users/:id/reject`
-
-**Headers**:
-
-```text
-Authorization: Bearer <accessToken>
-```
-
-**Reglas**:
-
-- ✅ Solo se pueden aprobar/rechazar usuarios con `role: 'teacher'`.
-- ✅ Cambia `accountStatus` a `approved` o `rejected`.
+Porque forzar transición explícita desde pendiente mejora consistencia del proceso administrativo y evita estados “tocados” sin significado de negocio.
 
 ---
 
-## 🎓 Flujo de Profesores
+## 4) Flujo de gestión de alumnos
 
-### 1. Registro de Profesor (público, queda pendiente)
+### 4.1 Alta de alumno
 
-**Endpoint**: `POST /api/auth/register`
+**Endpoint**: `POST /api/users` (solo `super_admin`)
 
-**Body**:
+Contrato relevante:
 
-```json
-{
-  "name": "María García",
-  "email": "maria.garcia@colegio.es",
-  "password": "Secure123",
-  "profile": {
-    "avatar": "https://example.com/avatar.jpg"
-  }
-}
-```
+- `teacherId` obligatorio.
+- `profile.age` obligatorio (3-99).
+- `email/password/role` no permitidos.
 
-**Resultado**:
+El backend fuerza `role='student'` y valida que `teacherId` apunte a un usuario con rol `teacher`.
 
-- ✅ Se crea `role: 'teacher'`, `status: 'active'`.
-- ✅ Se crea `accountStatus: 'pending_approval'`.
-- ❌ NO se emiten tokens en el registro.
+### 4.2 Edición/Borrado de alumno
 
-**Respuesta** (201):
+- `PUT /api/users/:id` y `DELETE /api/users/:id` son solo `super_admin`.
+- `PUT` no permite reasignar ownership (`createdBy`).
 
-```json
-{
-  "success": true,
-  "message": "Profesor registrado. Cuenta pendiente de aprobación por Super Admin.",
-  "data": {
-    "user": {
-      "id": "...",
-      "name": "María García",
-      "email": "maria.garcia@colegio.es",
-      "role": "teacher",
-      "status": "active",
-      "accountStatus": "pending_approval"
-    }
-  }
-}
-```
+### 4.3 Transferencia entre docentes
 
-### 2. Login de Profesor (solo si aprobado)
+**Endpoint**: `POST /api/users/:id/transfer` (solo `super_admin`)
 
-**Endpoint**: `POST /api/auth/login`
+Requisitos:
 
-**Body**:
+- Alumno válido (`role='student'`).
+- `newTeacherId` debe existir, ser `teacher` y `active`.
+- `newClassroom` obligatorio.
 
-```json
-{
-  "email": "maria.garcia@colegio.es",
-  "password": "Secure123"
-}
-```
+### ¿Por qué separar update vs transfer?
 
-**Reglas de autenticación**:
-
-- ✅ Solo pueden iniciar sesión `teacher` y `super_admin`.
-- ✅ `status` debe ser `active`.
-- ✅ Para roles con login: `accountStatus` debe ser `approved`.
-
-**Errores canónicos usados en el proyecto**:
-
-- `401 Unauthorized`: credenciales inválidas o usuario inactivo.
-- `403 Forbidden`: credenciales correctas pero cuenta `pending_approval` o `rejected`.
-
-**Ejemplo de cuenta pendiente** (403):
-
-```json
-{
-  "success": false,
-  "message": "Cuenta pendiente de aprobación"
-}
-```
-
-### 3. Gestión de la aplicación (tras login)
-
-Con `Authorization: Bearer <accessToken>`, un profesor puede:
-
-- ✅ Crear alumnos (`POST /api/users`)
-- ✅ Crear/gestionar mazos (`/api/decks`)
-- ✅ Crear sesiones (`POST /api/sessions`) y asignar partidas (`POST /api/plays`)
-- ✅ Ver estadísticas de alumnos (`GET /api/users/:id/stats`)
+Porque **cambio de datos** y **cambio de custodio pedagógico** son operaciones distintas con impacto distinto en auditoría. Mantener endpoint dedicado de transferencia evita modificaciones laterales de ownership por rutas genéricas.
 
 ---
 
-## 👶 Flujo de Alumnos (sin login)
+## 5) Login y estado de cuenta
 
-### 1. Creación de Alumno por Profesor
+Para roles con login (`teacher`, `super_admin`):
 
-**Endpoint**: `POST /api/users` (requiere autenticación como profesor)
+- `status` debe estar activo.
+- `accountStatus` debe estar aprobado para entrar en la plataforma.
 
-**Headers**:
+Errores esperados:
 
-```text
-Authorization: Bearer <accessToken>
-```
-
-**Body**:
-
-```json
-{
-  "name": "Lucas Martínez",
-  "profile": {
-    "age": 5,
-    "classroom": "Aula A",
-    "birthdate": "2020-03-15"
-  }
-}
-```
-
-**Reglas**:
-
-- ✅ Se fuerza `role: 'student'`.
-- ✅ Se asigna `createdBy` al profesor autenticado.
-- ❌ Un alumno NO puede tener `email` ni `password`.
-
-### 2. Juego del alumno
-
-El alumno NO usa la app web. El flujo es:
-
-1. Profesor prepara sesión y partida.
-2. Alumno escanea RFID.
-3. Backend valida y emite eventos por WebSocket.
-4. Se registran eventos/métricas y se actualiza `studentMetrics`.
+- `401` para credenciales inválidas/estado no válido.
+- `403` para cuenta pendiente o rechazada.
 
 ---
 
-## 🔒 Validaciones Implementadas (resumen)
+## 6) Validaciones por capas (resumen de arquitectura)
 
-### Nivel 1: Validación de entrada (Zod)
+### Capa 1: Ruta + RBAC
 
-- `registerTeacherSchema`: permite `name/email/password/profile` y rechaza campos extra.
-- `createStudentSchema`: permite `name/profile` y rechaza `email/password/role`.
+- `requireRole(...)` restringe quién puede alcanzar cada operación.
 
-### Nivel 2: Controllers (lógica)
+### Capa 2: Esquemas Zod
 
-- `authController.register`: crea `teacher` con `accountStatus: 'pending_approval'`.
-- `authController.login`: solo `teacher/super_admin` y exige `accountStatus: 'approved'`.
-- `adminController`: solo `super_admin` puede aprobar/rechazar `teacher`.
+- `createStudentSchema` exige contrato estricto de alta.
+- `transferStudentSchema` exige body mínimo y consistente.
 
-### Nivel 3: Modelo (Mongoose)
+### Capa 3: Lógica de negocio (controllers/services)
 
-- `teacher/super_admin`: requieren `email/password` (password hasheada por hook).
-- `student`: prohíbe `email/password` y exige `createdBy` al crear.
+- Verificación de rol objetivo (`teacher` en aprobación).
+- Verificación de estado fuente (`pending_approval`).
+- Verificación de existencia y estado del profesor destino.
+
+### ¿Por qué defensa en profundidad?
+
+Porque cada capa captura errores distintos: autorización temprana, contrato de entrada y reglas de negocio contextual. En conjunto disminuyen bypasses y regresiones.
 
 ---
 
-## 📊 Diagrama de Flujo (alto nivel)
+## 7) Contrato de respuesta para frontend (evitar regresiones)
+
+Los listados paginados responden con:
+
+- `data`: array de recursos DTO.
+- `pagination`: metadatos de página.
+
+Este contrato se usa en:
+
+- `GET /api/admin/pending`
+- `GET /api/users`
+
+### ¿Por qué se explicita aquí?
+
+Porque la capa FE depende de esta estructura para tabla, contadores y navegación de página. Documentarlo evita errores típicos de parseo (ej. consumir `response.data.data` cuando se requiere también `pagination`).
+
+---
+
+## 8) Diagrama de flujo (alto nivel)
 
 ```text
 ┌─────────────────────────────────────────────────────────────────┐
-│                        REGISTRO PROFESOR                         │
-├─────────────────────────────────────────────────────────────────┤
-│ POST /api/auth/register                                          │
-│ { name, email, password, profile? }                              │
-│   ↓                                                              │
-│ ✅ teacher creado con accountStatus='pending_approval'            │
-│ ❌ sin tokens                                                     │
+│ REGISTRO DOCENTE                                                │
+│ POST /api/auth/register                                         │
+│ → teacher + accountStatus='pending_approval'                    │
 └─────────────────────────────────────────────────────────────────┘
-
+                              │
+                              ▼
 ┌─────────────────────────────────────────────────────────────────┐
-│                          APROBACIÓN                              │
-├─────────────────────────────────────────────────────────────────┤
-│ Super Admin: POST /api/admin/users/:id/approve|reject            │
-│   ↓                                                              │
-│ ✅ teacher pasa a 'approved' o 'rejected'                         │
+│ REVISIÓN ADMIN                                                  │
+│ GET /api/admin/pending                                          │
+│ POST /api/admin/users/:id/approve|reject                        │
+│ (solo transición desde pending_approval)                        │
 └─────────────────────────────────────────────────────────────────┘
-
+                              │
+                              ▼
 ┌─────────────────────────────────────────────────────────────────┐
-│                           LOGIN                                  │
-├─────────────────────────────────────────────────────────────────┤
-│ POST /api/auth/login                                             │
-│ { email, password }                                              │
-│   ↓                                                              │
-│ ✅ tokens si accountStatus='approved'                             │
-│ ❌ 403 si pending/rejected                                        │
+│ OPERACIÓN ACADÉMICA                                             │
+│ teacher: mazos/sesiones/juego                                   │
+│ super_admin: gestión de identidad de alumnos                    │
+│  - POST/PUT/DELETE /api/users                                   │
+│  - POST /api/users/:id/transfer                                 │
 └─────────────────────────────────────────────────────────────────┘
 ```
 
 ---
 
-## 🎯 Conclusión
+## 9) Conclusión
 
-- ✅ No existe login para alumnos.
-- ✅ Los profesores no pueden acceder hasta ser aprobados.
-- ✅ El Super Admin es el único que puede aprobar/rechazar profesores.
-<!-- (línea residual eliminada) -->
+- ✅ El gobierno de identidad está centralizado en `super_admin`.
+- ✅ Se mantiene capacidad docente en dominio pedagógico sin privilegios críticos sobre usuarios.
+- ✅ Las decisiones quedan justificadas por seguridad, trazabilidad y mantenibilidad del sistema para contexto TFG.

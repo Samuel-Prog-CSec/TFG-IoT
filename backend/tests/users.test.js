@@ -107,6 +107,22 @@ describe('User Management Endpoints', () => {
 
       expect(res.statusCode).toEqual(409);
     });
+
+    it('should fail if creating student without age', async () => {
+      const res = await request(app)
+        .post('/api/users')
+        .set('Authorization', `Bearer ${adminToken}`)
+        .set('User-Agent', 'jest-test')
+        .set('Accept-Language', 'en')
+        .set('Accept-Encoding', 'gzip')
+        .send({
+          name: 'Student Without Age',
+          profile: { classroom: '1A' },
+          teacherId: teacherUser._id
+        });
+
+      expect(res.statusCode).toEqual(400);
+    });
   });
 
   describe('GET /api/users', () => {
@@ -165,6 +181,77 @@ describe('User Management Endpoints', () => {
       expect(res.statusCode).toEqual(200);
       expect(res.body.data).not.toHaveProperty('password');
       expect(res.body.data).not.toHaveProperty('__v');
+    });
+  });
+
+  describe('GET /api/users/teacher/:teacherId/students', () => {
+    let studentOne;
+
+    beforeEach(async () => {
+      studentOne = await User.create({
+        name: 'Student T1',
+        role: 'student',
+        createdBy: teacherUser._id,
+        status: 'active',
+        profile: { classroom: 'A1', age: 6 }
+      });
+
+      await User.create({
+        name: 'Student T2',
+        role: 'student',
+        createdBy: teacherUser._id,
+        status: 'active',
+        profile: { classroom: 'B1', age: 7 }
+      });
+    });
+
+    it('should allow teacher to list own students', async () => {
+      const res = await request(app)
+        .get(`/api/users/teacher/${teacherUser._id}/students`)
+        .set('Authorization', `Bearer ${teacherToken}`)
+        .set('User-Agent', 'jest-test')
+        .set('Accept-Language', 'en')
+        .set('Accept-Encoding', 'gzip');
+
+      expect(res.statusCode).toEqual(200);
+      expect(res.body.success).toBe(true);
+      expect(Array.isArray(res.body.data)).toBe(true);
+      expect(res.body.data).toHaveLength(2);
+      expect(res.body.data[0]).not.toHaveProperty('password');
+    });
+
+    it('should allow super_admin to list students of any teacher', async () => {
+      const res = await request(app)
+        .get(`/api/users/teacher/${teacherUser._id}/students?classroom=A1`)
+        .set('Authorization', `Bearer ${adminToken}`)
+        .set('User-Agent', 'jest-test')
+        .set('Accept-Language', 'en')
+        .set('Accept-Encoding', 'gzip');
+
+      expect(res.statusCode).toEqual(200);
+      expect(res.body.success).toBe(true);
+      expect(Array.isArray(res.body.data)).toBe(true);
+      expect(res.body.data).toHaveLength(1);
+      expect(res.body.data[0]).toHaveProperty('id', studentOne._id.toString());
+    });
+
+    it('should deny teacher trying to list students from another teacher', async () => {
+      const anotherTeacher = await User.create({
+        name: 'Another Teacher',
+        email: 'another-teacher@test.com',
+        password: 'Password123',
+        role: 'teacher',
+        status: 'active'
+      });
+
+      const res = await request(app)
+        .get(`/api/users/teacher/${anotherTeacher._id}/students`)
+        .set('Authorization', `Bearer ${teacherToken}`)
+        .set('User-Agent', 'jest-test')
+        .set('Accept-Language', 'en')
+        .set('Accept-Encoding', 'gzip');
+
+      expect(res.statusCode).toEqual(403);
     });
   });
 

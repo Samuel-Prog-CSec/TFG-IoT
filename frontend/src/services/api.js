@@ -581,6 +581,13 @@ export const contextsAPI = {
     api.get(`/contexts/${contextId}/assets`, config),
 
   /**
+   * Obtener límites y formatos permitidos para subida de assets
+   * @returns {Promise} Configuración de upload del backend
+   */
+  getUploadConfig: (config = {}) =>
+    api.get('/contexts/upload-config', config),
+
+  /**
    * Subir imagen para asset
    * @param {string} contextId - ID del contexto
    * @param {FormData} formData - Datos con archivo (file, key, value, display)

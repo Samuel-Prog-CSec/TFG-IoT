@@ -117,30 +117,33 @@ Notas:
 
 Endpoints protegidos para el flujo de aprobación de profesores.
 
-| Método | Endpoint             | Descripción       | Acceso        |
-| :----- | :------------------- | :---------------- | :------------ |
-| `POST` | `/users/:id/approve` | Aprobar profesor  | `super_admin` |
-| `POST` | `/users/:id/reject`  | Rechazar profesor | `super_admin` |
+| Método | Endpoint             | Descripción                              | Acceso        |
+| :----- | :------------------- | :--------------------------------------- | :------------ |
+| `GET`  | `/pending`           | Listar profesores pendientes (paginado)  | `super_admin` |
+| `POST` | `/users/:id/approve` | Aprobar profesor pendiente               | `super_admin` |
+| `POST` | `/users/:id/reject`  | Rechazar profesor pendiente              | `super_admin` |
 
 Notas:
 
 - Solo se puede aprobar/rechazar usuarios con `role: teacher`.
+- Solo se permiten transiciones desde `accountStatus: pending_approval`.
 - El rechazo/aprobación se aplica mediante el campo `accountStatus` (`approved` / `rejected`).
+- `GET /admin/pending` permite `page`, `limit`, `sortBy`, `order`, `search` y responde con `data` + `pagination`.
 
 ---
 
 ### 2. Usuarios (`/users`)
 
-| Método   | Endpoint                | Descripción                                    | Acceso   |
-| :------- | :---------------------- | :--------------------------------------------- | :------- |
-| `GET`    | `/`                     | Obtener lista de usuarios                      | Profesor |
-| `GET`    | `/:id`                  | Obtener usuario por ID                         | Privado  |
-| `POST`   | `/`                     | Crear usuario ALUMNO                           | Profesor |
-| `PUT`    | `/:id`                  | Actualizar usuario                             | Privado  |
-| `DELETE` | `/:id`                  | Eliminar usuario (soft delete, borrado lógico) | Profesor |
-| `GET`    | `/:id/stats`            | Obtener estadísticas del alumno                | Privado  |
-| `GET`    | `/teacher/:id/students` | Obtener alumnos de un profesor                 | Profesor |
-| `POST`   | `/:id/transfer`         | Transferir alumno a otro profesor              | Profesor |
+| Método   | Endpoint                       | Descripción                                    | Acceso                         |
+| :------- | :----------------------------- | :--------------------------------------------- | :----------------------------- |
+| `GET`    | `/`                            | Obtener lista de usuarios                      | `teacher`, `super_admin`       |
+| `GET`    | `/:id`                         | Obtener usuario por ID                         | Privado (con reglas de ownership/rol) |
+| `POST`   | `/`                            | Crear ALUMNO                                   | `super_admin`                  |
+| `PUT`    | `/:id`                         | Actualizar usuario                             | `super_admin`                  |
+| `DELETE` | `/:id`                         | Eliminar usuario (soft delete, borrado lógico) | `super_admin`                  |
+| `GET`    | `/:id/stats`                   | Obtener estadísticas del alumno                | Privado (con reglas de ownership/rol) |
+| `GET`    | `/teacher/:teacherId/students` | Obtener alumnos de un profesor                 | `teacher`, `super_admin`       |
+| `POST`   | `/:id/transfer`                | Transferir alumno a otro profesor              | `super_admin`                  |
 
 **Cuerpo de la Petición (Transferir Alumno):**
 
@@ -151,16 +154,32 @@ Notas:
 }
 ```
 
-> **Nota de Seguridad:** Solo el profesor creador del alumno (`createdBy`) o un `super_admin` pueden iniciar la transferencia.
+> **Nota de Seguridad:** La transferencia está restringida a `super_admin`. Se valida además que el destino exista, sea `teacher` y esté `active`.
 
 **Cuerpo de la Petición (Crear Alumno):**
 
 ```json
 {
   "name": "Nombre Alumno",
-  "role": "student"
+  "teacherId": "<ObjectId>",
+  "profile": {
+    "age": 6,
+    "classroom": "Aula A"
+  }
 }
 ```
+
+Notas de contrato de `POST /api/users`:
+
+- Crea exclusivamente usuarios `student`.
+- `teacherId` es obligatorio.
+- `profile.age` es obligatorio (rango 3-99).
+- Se rechazan campos no permitidos (`email`, `password`, `role`, etc.).
+
+Notas de contrato de `PUT /api/users/:id`:
+
+- No se permite reasignar ownership (`createdBy`) por este endpoint.
+- La transferencia de alumno solo se realiza mediante `POST /api/users/:id/transfer`.
 
 ---
 
@@ -238,6 +257,8 @@ Obtiene la configuración actual de subida de assets.
     "audio": {
       "allowedFormats": ["MP3", "OGG"],
       "maxSizeMB": 5,
+      "minDurationSeconds": 0.3,
+      "maxDurationSeconds": 45,
       "recommendedMaxDurationSeconds": 30
     },
     "maxAssetsPerContext": 30,
@@ -263,7 +284,7 @@ Sube una imagen a un asset del contexto. La imagen se procesa automáticamente:
 
 **Form Data:**
 
-- `image`: Archivo de imagen (PNG, JPG, GIF, WebP)
+- `file`: Archivo de imagen (PNG, JPG, GIF, WebP)
 - `key`: Identificador único del asset (ej: "espana")
 - `value`: Valor textual del asset (ej: "España")
 - `display`: Representación visual (emoji/texto) - opcional
@@ -275,11 +296,18 @@ Sube una imagen a un asset del contexto. La imagen se procesa automáticamente:
   "success": true,
   "message": "Imagen subida y procesada correctamente",
   "data": {
-    "key": "espana",
-    "value": "España",
-    "display": "🇪🇸",
-    "imageUrl": "https://storage.supabase.co/.../espana_main.webp",
-    "thumbnailUrl": "https://storage.supabase.co/.../espana_thumb.webp"
+    "asset": {
+      "key": "espana",
+      "value": "España",
+      "display": "🇪🇸",
+      "imageUrl": "https://storage.supabase.co/.../espana.webp",
+      "thumbnailUrl": "https://storage.supabase.co/.../espana_thumb.webp"
+    },
+    "processing": {
+      "originalDimensions": "1200x900",
+      "format": "webp",
+      "quality": 85
+    }
   }
 }
 ```
@@ -304,18 +332,29 @@ Sube un archivo de audio a un asset existente del contexto.
 
 **Form Data:**
 
-- `audio`: Archivo de audio (MP3, OGG)
-- `key`: Identificador del asset al que asociar el audio
+- `file`: Archivo de audio (MP3, OGG)
+- `key`: Identificador único del asset
+- `value`: Valor textual del asset
+- `display`: Representación visual (emoji/texto) - opcional
 
-**Respuesta (200):**
+**Respuesta (201):**
 
 ```json
 {
   "success": true,
-  "message": "Audio subido correctamente",
+  "message": "Audio subido y vinculado correctamente",
   "data": {
-    "key": "espana",
-    "audioUrl": "https://storage.supabase.co/.../espana.mp3"
+    "asset": {
+      "key": "espana",
+      "value": "España",
+      "display": "🇪🇸",
+      "audioUrl": "https://storage.supabase.co/.../espana.mp3"
+    },
+    "metadata": {
+      "format": "MP3",
+      "size": "132.4 KB",
+      "durationSeconds": 3.2
+    }
   }
 }
 ```
@@ -323,6 +362,7 @@ Sube un archivo de audio a un asset existente del contexto.
 **Errores comunes:**
 
 - `400` - Archivo no proporcionado o formato inválido
+- `400` - Duración inválida (< 0.3s o > 45s)
 - `404` - Contexto o asset no encontrado
 - `413` - Archivo demasiado grande (> 5MB)
 

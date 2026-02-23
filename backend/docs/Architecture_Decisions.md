@@ -315,3 +315,66 @@ Se necesitaba una política que equilibrara seguridad efectiva en producción y 
 - Scripts root: `package.json` (`audit:prod`, `audit:all`)
 - Política arquitectónica: `documentation/02-Patrones_Diseno.md`
 - Plan operativo: `documentation/03-Gestion_Dependencias.md`
+
+---
+
+## ADR-008: Gobierno de identidades centrado en Super Admin + contrato paginado explícito FE/BE
+
+### Contexto (ADR-008)
+
+Durante la revisión de seguridad y calidad se detectó una tensión clásica entre usabilidad operativa y control de privilegios:
+
+1. Parte de la documentación histórica asumía que `teacher` podía gestionar identidad de alumnos.
+2. El código actual evolucionó a un modelo más estricto donde `super_admin` concentra acciones críticas.
+3. Existía riesgo de regresión en frontend al consumir respuestas paginadas (`data + pagination`) de forma inconsistente.
+
+En términos de TFG, esto impacta directamente en trazabilidad de decisiones, evidencia de diseño seguro y coherencia entre especificación y ejecución.
+
+### Decisión (ADR-008)
+
+Se formaliza el modelo de gobierno vigente con dos líneas de decisión:
+
+1. **Identidad crítica centralizada en `super_admin`**
+  - Crear/editar/eliminar alumnos: `super_admin`.
+  - Transferir alumnos entre docentes: `super_admin`.
+  - Aprobar/rechazar docentes: `super_admin` y solo desde `pending_approval`.
+
+2. **Contrato paginado FE/BE explícito en docs y consumo frontend**
+  - Endpoints paginados responden con `data` y `pagination` al mismo nivel.
+  - Frontend consume el envelope completo para no perder metadatos de paginación.
+
+### Alternativas consideradas
+
+#### A) Permitir gestión de alumnos por `teacher`
+
+- **Ventaja**: menor dependencia del rol administrativo.
+- **Desventaja**: mayor superficie de abuso y difuminación de responsabilidades.
+- **Motivo de descarte**: no encaja con el objetivo de control administrativo fuerte del dominio educativo.
+
+#### B) Unificar transferencia de alumno dentro de `PUT /users/:id`
+
+- **Ventaja**: menos endpoints.
+- **Desventaja**: mezcla semántica entre actualización de perfil y cambio de custodia pedagógica.
+- **Motivo de descarte**: pérdida de claridad auditiva y mayor riesgo de cambios laterales de ownership.
+
+### Consecuencias positivas
+
+1. **Seguridad**: minimiza escalada horizontal de privilegios en operaciones sensibles.
+2. **Auditoría**: decisiones críticas quedan concentradas y rastreables.
+3. **Mantenibilidad**: separa operaciones de “perfil” y “custodia” en contratos distintos.
+4. **Robustez frontend**: evita bugs por parseo parcial de respuestas paginadas.
+
+### Trade-offs asumidos
+
+1. **Mayor carga operativa para `super_admin`** en centros con alta rotación de alumnado.
+2. **Más pasos administrativos** frente a un modelo delegado al docente.
+
+Se acepta este trade-off por priorizar control, seguridad y trazabilidad institucional.
+
+### Evidencia técnica asociada
+
+- Rutas: `backend/src/routes/admin.js`, `backend/src/routes/users.js`.
+- Controladores: `backend/src/controllers/adminController.js`, `backend/src/controllers/userController.js`.
+- Validación: `backend/src/validators/userValidator.js`.
+- Frontend admin: `frontend/src/pages/admin/ApprovalPanel.jsx`, `frontend/src/pages/admin/StudentManagement.jsx`.
+- Tests de contrato y permisos: `backend/tests/superAdminApproval.test.js`, `backend/tests/users.test.js`.

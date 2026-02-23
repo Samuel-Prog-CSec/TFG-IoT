@@ -8,8 +8,9 @@
 
 import { useState, useMemo } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Search, Check, Image, Volume2 } from 'lucide-react';
+import { Search, Check, Volume2 } from 'lucide-react';
 import { cn } from '../../lib/utils';
+import CardAssetPreview from './CardAssetPreview';
 
 /**
  * @typedef {Object} Asset
@@ -190,19 +191,14 @@ export default function AssetSelector({
               >
                 {/* Asset visual */}
                 <div className="relative">
-                  {asset.imageUrl || asset.thumbnailUrl ? (
-                    <div className="w-14 h-14 rounded-lg overflow-hidden bg-slate-900">
-                      <img
-                        src={asset.thumbnailUrl || asset.imageUrl}
-                        alt={asset.value}
-                        className="w-full h-full object-cover"
-                      />
-                    </div>
-                  ) : (
-                    <div className="w-14 h-14 rounded-lg bg-slate-900/80 flex items-center justify-center text-3xl">
-                      {asset.display || '📎'}
-                    </div>
-                  )}
+                  <CardAssetPreview
+                    asset={asset}
+                    alt={asset.value}
+                    className="w-14 h-14 rounded-lg"
+                    fit="cover"
+                    fallbackClassName="bg-slate-900/80 text-3xl"
+                    fallbackLabel={asset.display || '📎'}
+                  />
 
                   {/* Indicador de audio */}
                   {asset.audioUrl && (
