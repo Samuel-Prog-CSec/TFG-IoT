@@ -1,20 +1,14 @@
-import React, { useState } from 'react';
-import { motion, AnimatePresence } from 'framer-motion';
+import React from 'react';
 import { cn } from '../../lib/utils';
 
 /**
- * Input premium con efecto de glow en focus
- * 
- * @param {Object} props
- * @param {string} props.label - Label del input
- * @param {string} props.error - Mensaje de error
- * @param {string} props.hint - Texto de ayuda
- * @param {React.ReactNode} props.icon - Icono a mostrar
- * @param {'left' | 'right'} props.iconPosition - Posición del icono
- * @param {string} props.className - Clases adicionales para el contenedor
- * @param {string} props.inputClassName - Clases adicionales para el input
+ * @fileoverview Componente InputPremium
+ * Campos de texto principales del diseño, utilizando tokens OKLCH del @theme central.
+ * Se elimina la dependencia excesiva de framer-motion para los anillos de enfoque,
+ * priorizando las utilidades de pseudoclases CSS nativas (focus-within) para el máximo rendimiento.
  */
-export default function InputPremium({ 
+
+const InputPremium = React.forwardRef(({ 
   label,
   error,
   hint,
@@ -23,93 +17,75 @@ export default function InputPremium({
   className,
   inputClassName,
   id,
+  type = "text",
   ...props 
-}) {
-  const [isFocused, setIsFocused] = useState(false);
+}, ref) => {
   const generatedId = React.useId();
   const inputId = id || generatedId;
+  const hasError = Boolean(error);
 
   return (
-    <div className={cn('relative', className)}>
-      {/* Label */}
+    <div className={cn('relative w-full text-left flex flex-col', className)}>
       {label && (
         <label 
           htmlFor={inputId}
-          className="block text-sm font-medium text-slate-300 mb-2"
+          className="block text-sm font-medium text-text-secondary mb-1.5"
         >
           {label}
         </label>
       )}
       
-      {/* Input container */}
-      <div className="relative">
-        {/* Glow border on focus */}
-        <AnimatePresence>
-          {isFocused && (
-            <motion.div
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              exit={{ opacity: 0 }}
-              transition={{ duration: 0.2 }}
-              className="absolute -inset-0.5 rounded-xl bg-gradient-to-r from-indigo-500 via-purple-500 to-pink-500 opacity-50 blur-sm"
-            />
-          )}
-        </AnimatePresence>
-        
-        {/* Icon left */}
+      <div className="relative group flex items-center">
         {icon && iconPosition === 'left' && (
-          <div className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 z-10">
+          <div className="absolute left-4 text-text-muted transition-colors group-focus-within:text-brand-base z-10 pointer-events-none">
             {icon}
           </div>
         )}
         
-        {/* Input */}
         <input
+          ref={ref}
           id={inputId}
-          onFocus={() => setIsFocused(true)}
-          onBlur={() => setIsFocused(false)}
+          type={type}
+          aria-invalid={hasError}
+          aria-describedby={hasError ? `${inputId}-error` : hint ? `${inputId}-hint` : undefined}
           className={cn(
-            'relative w-full',
-            'bg-slate-800/80 backdrop-blur-sm',
-            'border border-white/10',
-            'rounded-xl px-4 py-3',
-            'text-white placeholder:text-slate-500',
-            'transition-all duration-300',
-            'focus:outline-none focus:border-transparent',
-            icon && iconPosition === 'left' && 'pl-10',
-            icon && iconPosition === 'right' && 'pr-10',
-            error && 'border-rose-500/50',
+            'w-full bg-background-elevated border rounded-xl px-4 py-3',
+            'text-text-primary placeholder:text-text-muted',
+            'transition-all duration-200 ease-in-out',
+            'focus:outline-none focus:ring-4 focus:ring-brand-glow focus:border-brand-base',
+            // Estados normales vs Errores
+            hasError 
+              ? 'border-error-base text-error-base focus:ring-error-glow focus:border-error-base' 
+              : 'border-border-default hover:border-border-strong',
+            // Espaciado dinámico basado incrustado de iconos
+            icon && iconPosition === 'left' ? 'pl-11' : '',
+            icon && iconPosition === 'right' ? 'pr-11' : '',
             inputClassName
           )}
           {...props}
         />
         
-        {/* Icon right */}
         {icon && iconPosition === 'right' && (
-          <div className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 z-10">
+          <div className="absolute right-4 text-text-muted transition-colors group-focus-within:text-brand-base z-10 pointer-events-none">
             {icon}
           </div>
         )}
       </div>
       
-      {/* Error message */}
-      <AnimatePresence>
-        {error && (
-          <motion.p
-            initial={{ opacity: 0, y: -10 }}
-            animate={{ opacity: 1, y: 0 }}
-            exit={{ opacity: 0, y: -10 }}
-            className="mt-2 text-sm text-rose-400"
-          >
-            {error}
-          </motion.p>
-        )}
-      </AnimatePresence>
-      
-      {/* Hint text */}
-      {hint && !error && (
-        <p className="mt-2 text-sm text-slate-500">{hint}</p>
-      )}
+      {/* Hint o Error contextualizado */}
+      {hasError ? (
+        <p id={`${inputId}-error`} className="mt-1.5 text-sm text-error-base animate-fade-in-up">
+          {error}
+        </p>
+      ) : hint ? (
+        <p id={`${inputId}-hint`} className="mt-1.5 text-sm text-text-muted">
+          {hint}
+        </p>
+      ) : null}
     </div>
   );
-}
+});
+
+InputPremium.displayName = "InputPremium";
+
+export default InputPremium;

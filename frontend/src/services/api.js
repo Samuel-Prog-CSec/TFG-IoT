@@ -579,6 +579,28 @@ export const contextsAPI = {
    */
   getContextAssets: (contextId, config = {}) => 
     api.get(`/contexts/${contextId}/assets`, config),
+
+  /**
+   * Subir imagen para asset
+   * @param {string} contextId - ID del contexto
+   * @param {FormData} formData - Datos con archivo (file, key, value, display)
+   * @returns {Promise} Respuesta de Supabase
+   */
+  uploadImage: (contextId, formData) => 
+    api.post(`/contexts/${contextId}/images`, formData, {
+      headers: { 'Content-Type': 'multipart/form-data' }
+    }),
+
+  /**
+   * Subir audio para asset
+   * @param {string} contextId - ID del contexto
+   * @param {FormData} formData - Datos con archivo (file, key, value, display)
+   * @returns {Promise} Respuesta de Supabase
+   */
+  uploadAudio: (contextId, formData) => 
+    api.post(`/contexts/${contextId}/audio`, formData, {
+      headers: { 'Content-Type': 'multipart/form-data' }
+    }),
 };
 
 // ============================================

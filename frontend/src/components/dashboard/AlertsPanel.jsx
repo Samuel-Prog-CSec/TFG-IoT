@@ -8,25 +8,25 @@ export default function AlertsPanel({ alerts }) {
 
   const getIcon = (type) => {
       switch(type) {
-          case 'risk': return <AlertTriangle className="text-rose-400" size={20} />;
-          case 'improvement': return <TrendingUp className="text-emerald-400" size={20} />;
-          case 'milestone': return <CheckCircle className="text-purple-400" size={20} />;
-          default: return <AlertTriangle className="text-slate-400" size={20} />;
+          case 'risk': return <AlertTriangle className="text-error-base" size={20} />;
+          case 'improvement': return <TrendingUp className="text-success-base" size={20} />;
+          case 'milestone': return <CheckCircle className="text-brand-base" size={20} />;
+          default: return <AlertTriangle className="text-text-muted" size={20} />;
       }
   };
 
   const getBgColor = (type) => {
       switch(type) {
-          case 'risk': return 'bg-rose-500/10 border-rose-500/20';
-          case 'improvement': return 'bg-emerald-500/10 border-emerald-500/20';
-          case 'milestone': return 'bg-purple-500/10 border-purple-500/20';
-          default: return 'bg-slate-800 border-white/5';
+          case 'risk': return 'bg-error-base/10 border-error-base/20';
+          case 'improvement': return 'bg-success-base/10 border-success-base/20';
+          case 'milestone': return 'bg-brand-base/10 border-brand-base/20';
+          default: return 'bg-background-elevated border-border-default';
       }
   };
 
   return (
     <div className="space-y-4">
-      <h3 className="text-lg font-bold text-white mb-4 px-1">Alertas y Avisos</h3>
+      <h3 className="text-lg font-bold text-text-primary mb-4 px-1 font-display">Alertas y Avisos</h3>
       <div className="space-y-3">
         {alerts.map((alert, index) => (
           <motion.div
@@ -40,8 +40,8 @@ export default function AlertsPanel({ alerts }) {
                 {getIcon(alert.type)}
             </div>
             <div>
-                <h4 className="text-sm font-semibold text-white">{alert.title}</h4>
-                <p className="text-xs text-slate-400 mt-1 leading-relaxed">
+                <h4 className="text-sm font-semibold text-text-primary">{alert.title}</h4>
+                <p className="text-xs text-text-muted mt-1 leading-relaxed font-medium">
                     {alert.message}
                 </p>
             </div>

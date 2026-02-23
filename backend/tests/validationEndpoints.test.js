@@ -132,7 +132,7 @@ describe('Validation (Zod) - All API endpoints', () => {
     it('POST /api/users - invalid body (student schema)', async () => {
       const res = await request(app)
         .post('/api/users')
-        .set(makeAuthHeaders(teacherToken))
+        .set(makeAuthHeaders(superAdminToken))
         .send({ name: 'Student', email: 'not-allowed@test.com' });
 
       expect(res.statusCode).toBe(400);
@@ -141,7 +141,7 @@ describe('Validation (Zod) - All API endpoints', () => {
     it('POST /api/users/:id/transfer - invalid body', async () => {
       const res = await request(app)
         .post('/api/users/507f1f77bcf86cd799439011/transfer')
-        .set(makeAuthHeaders(teacherToken))
+        .set(makeAuthHeaders(superAdminToken))
         .send({ newTeacherId: 'bad' });
 
       expect(res.statusCode).toBe(400);
@@ -150,7 +150,7 @@ describe('Validation (Zod) - All API endpoints', () => {
     it('POST /api/users - rejects NoSQL operator payload', async () => {
       const res = await request(app)
         .post('/api/users')
-        .set(makeAuthHeaders(teacherToken))
+        .set(makeAuthHeaders(superAdminToken))
         .send({
           name: 'Alumno Seguro',
           profile: { classroom: '1A' },
@@ -168,7 +168,7 @@ describe('Validation (Zod) - All API endpoints', () => {
 
       const res = await request(app)
         .post('/api/users')
-        .set(makeAuthHeaders(teacherToken))
+        .set(makeAuthHeaders(superAdminToken))
         .send(maliciousPayload);
 
       expect(res.statusCode).toBe(400);

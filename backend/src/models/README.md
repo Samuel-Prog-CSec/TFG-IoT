@@ -151,10 +151,20 @@ Define reglas/estructura de una mecánica (asociación, secuencia, memoria, etc.
 
 **Colección:** `game_contexts`
 
-Define assets (`key/value/display` + multimedia opcional) reutilizables por cualquier mecánica.
+Define colecciones de assets reutilizables por cualquier mecánica. Un contexto agrupa elementos multimedia bajo una misma temática (ej. "Animales", "Geografía").
 
-**Validaciones:**
-- `assets` no puede estar vacío y tiene un máximo de 30.
+**Estructura del Asset:**
+Cada asset en el array `assets` contiene:
+- `key`: Identificador único en minúsculas (ej. "dog").
+- `value`: Nombre visible o valor textual (ej. "Perro").
+- `display`: Representación visual rápida, típicamente un emoji (ej. "🐶").
+- `imageUrl` / `thumbnailUrl`: URLs apuntando a **Supabase Storage** (archivos `.webp` optimizados).
+- `audioUrl`: URL apuntando a **Supabase Storage** (archivos de audio validados).
+
+**Validaciones y Estrategia:**
+- `assets` no puede estar vacío y tiene un máximo de `MAX_ASSETS_PER_CONTEXT` (por defecto 30).
+- Cada `key` debe ser único dentro del mismo contexto para evitar colisiones en las lógicas de juego.
+- Los archivos multimedia no se guardan en base de datos. El servidor procesa la subida (`ImageProcessingService` / `AudioValidationService`), envía el binario a Supabase, y solo almacena las URLs públicas.
 
 ---
 

@@ -1,128 +1,133 @@
+import React from 'react';
 import { motion } from 'framer-motion';
+import { cva } from 'class-variance-authority';
 import { cn } from '../../lib/utils';
 
 /**
- * Botón premium con efectos de glow y animaciones
+ * @fileoverview Componente ButtonPremium
+ * Implementación basada en CVA (Class Variance Authority) para estandarización de diseño.
+ * Se utilizan tokens cromáticos OKLCH definidos en Tailwind v4 para garantizar consistencia.
+ * Enfoque de "profundidad sutil" en lugar de sombras pesadas continuas.
+ */
+
+const buttonVariants = cva(
+  [
+    'relative inline-flex items-center justify-center whitespace-nowrap',
+    'transition-all duration-300',
+    'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-base/50 focus-visible:ring-offset-2 focus-visible:ring-offset-background-base',
+    'disabled:opacity-50 disabled:pointer-events-none'
+  ],
+  {
+    variants: {
+      variant: {
+        primary: [
+          'bg-gradient-to-r from-brand-base to-accent-indigo',
+          'text-white font-semibold',
+          'border border-white/10',
+          'shadow-[0_4px_16px_var(--color-brand-glow)]',
+          'hover:shadow-[0_4px_24px_var(--color-brand-glow),_inset_0_1px_0_rgba(255,255,255,0.2)]'
+        ],
+        secondary: [
+          'bg-background-elevated/80 backdrop-blur-sm',
+          'text-text-primary font-medium',
+          'border border-border-default',
+          'hover:bg-background-surface/80 hover:border-border-strong'
+        ],
+        ghost: [
+          'bg-transparent',
+          'text-text-secondary font-medium',
+          'hover:bg-glass-bg hover:text-text-primary'
+        ],
+        success: [
+          'bg-gradient-to-r from-success-dark to-accent-cyan',
+          'text-white font-semibold',
+          'border border-white/10',
+          'shadow-[0_4px_16px_var(--color-success-glow)]',
+          'hover:shadow-[0_4px_24px_var(--color-success-glow)]'
+        ],
+        danger: [
+          'bg-gradient-to-r from-error-dark to-accent-pink',
+          'text-white font-semibold',
+          'border border-white/10',
+          'shadow-[0_4px_16px_var(--color-error-glow)]',
+          'hover:shadow-[0_4px_24px_var(--color-error-glow)]'
+        ]
+      },
+      size: {
+        sm: 'h-9 px-4 text-sm rounded-lg gap-1.5',
+        md: 'h-11 px-6 text-base rounded-xl gap-2',
+        lg: 'h-14 px-8 text-lg rounded-2xl gap-2.5',
+        icon: 'size-11 rounded-xl',
+      },
+    },
+    defaultVariants: {
+      variant: 'primary',
+      size: 'md',
+    },
+  }
+);
+
+/**
+ * Componente principal de Botón.
  * 
  * @param {Object} props
- * @param {React.ReactNode} props.children - Contenido del botón
- * @param {string} props.className - Clases adicionales
- * @param {'primary' | 'secondary' | 'ghost' | 'success' | 'danger'} props.variant - Variante de estilo
- * @param {'sm' | 'md' | 'lg'} props.size - Tamaño del botón
- * @param {boolean} props.loading - Estado de carga
- * @param {boolean} props.disabled - Estado deshabilitado
- * @param {React.ReactNode} props.icon - Icono a mostrar
- * @param {'left' | 'right'} props.iconPosition - Posición del icono
+ * @param {React.ReactNode} props.children - Texto o contenido del botón
+ * @param {string} props.className - Clases de Tailwind adicionales de sobrescritura
+ * @param {'primary'|'secondary'|'ghost'|'success'|'danger'} props.variant 
+ * @param {'sm'|'md'|'lg'|'icon'} props.size 
+ * @param {boolean} props.loading - Estado visual de carga (muestra spinner)
+ * @param {React.ReactNode} props.icon - Componente de ícono (ej. <LucideIcon />)
+ * @param {'left'|'right'} props.iconPosition - Posición del icono
  */
-export default function ButtonPremium({ 
+const ButtonPremium = React.forwardRef(({ 
   children, 
   className,
-  variant = 'primary',
-  size = 'md',
+  variant,
+  size,
   loading = false,
   disabled = false,
   icon,
   iconPosition = 'left',
-  onClick,
   ...props 
-}) {
-  const variants = {
-    primary: cn(
-      'bg-gradient-to-r from-indigo-500 via-purple-500 to-purple-600',
-      'text-white font-semibold',
-      'shadow-lg shadow-indigo-500/30',
-      'hover:shadow-[0_0_30px_rgba(139,92,246,0.4),0_8px_25px_rgba(99,102,241,0.3)]',
-      'border border-white/10'
-    ),
-    secondary: cn(
-      'bg-slate-800/80 backdrop-blur-sm',
-      'text-slate-200 font-medium',
-      'border border-white/10',
-      'hover:bg-slate-700/80 hover:border-white/20'
-    ),
-    ghost: cn(
-      'bg-transparent',
-      'text-slate-300 font-medium',
-      'hover:bg-white/5 hover:text-white'
-    ),
-    success: cn(
-      'bg-gradient-to-r from-emerald-500 to-cyan-500',
-      'text-white font-semibold',
-      'shadow-lg shadow-emerald-500/30',
-      'hover:shadow-[0_0_30px_rgba(74,222,128,0.4)]',
-      'border border-white/10'
-    ),
-    danger: cn(
-      'bg-gradient-to-r from-rose-500 to-pink-500',
-      'text-white font-semibold',
-      'shadow-lg shadow-rose-500/30',
-      'hover:shadow-[0_0_30px_rgba(251,113,133,0.4)]',
-      'border border-white/10'
-    ),
-  };
-
-  const sizes = {
-    sm: 'px-4 py-2 text-sm rounded-xl gap-1.5',
-    md: 'px-6 py-3 text-base rounded-xl gap-2',
-    lg: 'px-8 py-4 text-lg rounded-2xl gap-2.5',
-  };
-
+}, ref) => {
   const isDisabled = disabled || loading;
 
   return (
     <motion.button
+      ref={ref}
       whileHover={!isDisabled ? { scale: 1.02, y: -2 } : {}}
       whileTap={!isDisabled ? { scale: 0.98 } : {}}
       transition={{ type: 'spring', stiffness: 400, damping: 25 }}
-      onClick={onClick}
       disabled={isDisabled}
-      className={cn(
-        'relative inline-flex items-center justify-center',
-        'transition-all duration-300',
-        'focus:outline-none focus:ring-2 focus:ring-purple-500/50 focus:ring-offset-2 focus:ring-offset-slate-900',
-        variants[variant],
-        sizes[size],
-        isDisabled && 'opacity-50 cursor-not-allowed pointer-events-none',
-        className
-      )}
+      className={cn(buttonVariants({ variant, size, className }))}
       {...props}
     >
-      {/* Loading spinner */}
       {loading && (
         <svg 
           className="animate-spin h-5 w-5 mr-2" 
           xmlns="http://www.w3.org/2000/svg" 
           fill="none" 
           viewBox="0 0 24 24"
+          aria-hidden="true"
         >
-          <circle 
-            className="opacity-25" 
-            cx="12" 
-            cy="12" 
-            r="10" 
-            stroke="currentColor" 
-            strokeWidth="4"
-          />
-          <path 
-            className="opacity-75" 
-            fill="currentColor" 
-            d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"
-          />
+          <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+          <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
         </svg>
       )}
       
-      {/* Icon left */}
       {icon && iconPosition === 'left' && !loading && (
         <span className="flex-shrink-0">{icon}</span>
       )}
       
-      {/* Content */}
-      <span>{children}</span>
+      {children && <span>{children}</span>}
       
-      {/* Icon right */}
       {icon && iconPosition === 'right' && !loading && (
         <span className="flex-shrink-0">{icon}</span>
       )}
     </motion.button>
   );
-}
+});
+
+ButtonPremium.displayName = "ButtonPremium";
+
+export default ButtonPremium;

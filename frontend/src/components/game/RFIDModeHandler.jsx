@@ -14,7 +14,8 @@ import {
   Gamepad2, 
   UserPlus, 
   CreditCard,
-  AlertCircle
+  AlertCircle,
+  Activity
 } from 'lucide-react';
 import { cn } from '../../lib/utils';
 import { webSerialService } from '../../services/webSerialService';
@@ -49,16 +50,28 @@ const MODES_CONFIG = {
 
 export default function RFIDModeHandler({ currentMode = 'idle', className }) {
   const [status, setStatus] = useState(webSerialService.status);
+  const [deviceState, setDeviceState] = useState(webSerialService.deviceState || 'unknown');
+  const [deviceHealth, setDeviceHealth] = useState(null);
   const modeInfo = MODES_CONFIG[currentMode] || MODES_CONFIG.idle;
   const Icon = modeInfo.icon;
 
   useEffect(() => {
     const handleStatus = ({ status }) => setStatus(status);
+    const handleDeviceStateChange = (payload) => setDeviceState(payload?.state || 'unknown');
+    const handleDeviceStatus = (payload) => setDeviceHealth(payload);
+
     webSerialService.on('status', handleStatus);
-    return () => webSerialService.off('status', handleStatus);
+    webSerialService.on('device_state_change', handleDeviceStateChange);
+    webSerialService.on('device_status', handleDeviceStatus);
+
+    return () => {
+      webSerialService.off('status', handleStatus);
+      webSerialService.off('device_state_change', handleDeviceStateChange);
+      webSerialService.off('device_status', handleDeviceStatus);
+    };
   }, []);
 
-  const isConnected = status !== 'disconnected' && status !== 'unsupported';
+  const isConnected = deviceState === 'ready';
 
   return (
     <div className={cn("fixed bottom-6 right-6 z-50", className)}>
@@ -109,6 +122,19 @@ export default function RFIDModeHandler({ currentMode = 'idle', className }) {
               >
                 <AlertCircle size={12} />
                 <span>Requiere conexión manual</span>
+              </motion.div>
+            )}
+
+            {isConnected && deviceHealth && (
+              <motion.div
+                initial={{ opacity: 0, height: 0 }}
+                animate={{ opacity: 1, height: 'auto' }}
+                className="mt-3 pt-3 border-t border-white/5 flex items-center gap-3 text-[10px] text-slate-500"
+              >
+                <Activity size={10} className="text-emerald-500" />
+                <span>Uptime: {Math.floor((deviceHealth.uptime || 0) / 1000)}s</span>
+                <span>·</span>
+                <span>Heap: {((deviceHealth.freeHeap || 0) / 1024).toFixed(1)}KB</span>
               </motion.div>
             )}
           </GlassCard>

@@ -139,20 +139,19 @@ export default function GameSession() {
   }, []);
 
   useEffect(() => {
-    const handleStatus = (payload) => {
-      const nextStatus = payload?.status;
-      setRfidConnected(nextStatus === 'connected' || nextStatus === 'reading');
+    const handleDeviceStateChange = (payload) => {
+      setRfidConnected(payload?.state === 'ready');
     };
 
     const handleScan = () => {
       handleSimulatedScan();
     };
 
-    webSerialService.on('status', handleStatus);
+    webSerialService.on('device_state_change', handleDeviceStateChange);
     webSerialService.on('scan', handleScan);
 
     return () => {
-      webSerialService.off('status', handleStatus);
+      webSerialService.off('device_state_change', handleDeviceStateChange);
       webSerialService.off('scan', handleScan);
     };
   }, [handleSimulatedScan]);

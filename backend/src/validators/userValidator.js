@@ -104,7 +104,7 @@ const createUserSchema = z
 /**
  * Schema específico para crear ALUMNOS desde POST /api/users.
  * Los alumnos NO tienen email ni password.
- * Solo profesores autenticados pueden crear alumnos.
+ * Solo super administradores pueden crear alumnos asignándolos a un teacherId.
  *
  * ⚠️ IMPORTANTE: Este es el schema que se usa en userController.createUser()
  */
@@ -136,8 +136,9 @@ const createStudentSchema = z
           .or(z.date())
           .optional()
       })
-      .optional()
-    // ✅ NO incluye email, password, role, createdBy - se asignan automáticamente en el controller
+      .optional(),
+
+    teacherId: objectIdSchema
   })
   .strict(); // Rechaza campos extra como email/password
 

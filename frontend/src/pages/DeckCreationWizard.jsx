@@ -827,15 +827,18 @@ function StepAssign({
                 whileHover={{ x: 4 }}
               >
                 <div className={cn(
-                  'w-8 h-8 rounded-lg flex items-center justify-center text-sm',
+                  'w-8 h-8 rounded-lg flex items-center justify-center text-sm overflow-hidden',
                   isAssigned
                     ? 'bg-green-500/20 text-green-400'
                     : 'bg-slate-700 text-slate-400'
                 )}>
-                  {isAssigned 
-                    ? cardAssignments[card._id]?.display || <Check size={16} />
-                    : <CreditCard size={16} />
-                  }
+                  {isAssigned && (cardAssignments[card._id]?.thumbnailUrl || cardAssignments[card._id]?.imageUrl) ? (
+                    <img src={cardAssignments[card._id].thumbnailUrl || cardAssignments[card._id].imageUrl} alt="preview" className="w-full h-full object-cover" />
+                  ) : isAssigned ? (
+                    cardAssignments[card._id]?.display || <Check size={16} />
+                  ) : (
+                    <CreditCard size={16} />
+                  )}
                 </div>
                 <div className="flex-1 min-w-0">
                   <p className="text-sm font-medium text-white truncate">
@@ -876,8 +879,8 @@ function StepAssign({
 
             <AssetSelector
               assets={selectedContext?.assets || []}
-              selectedAsset={currentAssignment}
-              assignedAssetKeys={assignedAssetKeys}
+              selectedAssetKey={currentAssignment?.key}
+              assignedAssets={assignedAssetKeys}
               onSelect={(asset) => onAssignAsset(activeCardId, asset)}
             />
           </>

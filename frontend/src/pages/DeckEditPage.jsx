@@ -620,13 +620,16 @@ export default function DeckEditPage() {
                           )}
                         >
                           <div className={cn(
-                            'w-8 h-8 rounded-lg flex items-center justify-center text-lg',
+                            'w-8 h-8 rounded-lg flex items-center justify-center text-lg overflow-hidden',
                             isAssigned ? 'bg-green-500/20' : 'bg-slate-700'
                           )}>
-                            {isAssigned 
-                              ? cardAssignments[card._id]?.display 
-                              : <CreditCard size={16} className="text-slate-400" />
-                            }
+                            {isAssigned && (cardAssignments[card._id]?.thumbnailUrl || cardAssignments[card._id]?.imageUrl) ? (
+                              <img src={cardAssignments[card._id].thumbnailUrl || cardAssignments[card._id].imageUrl} alt="preview" className="w-full h-full object-cover" />
+                            ) : isAssigned ? (
+                              cardAssignments[card._id]?.display || <span className="text-xs">📎</span>
+                            ) : (
+                              <CreditCard size={16} className="text-slate-400" />
+                            )}
                           </div>
                           <div className="flex-1 min-w-0">
                             <p className="text-sm font-medium text-white truncate">{card.uid}</p>
@@ -649,8 +652,8 @@ export default function DeckEditPage() {
                       </h3>
                       <AssetSelector
                         assets={selectedContext?.assets || []}
-                        selectedAsset={cardAssignments[activeCardId]}
-                        assignedAssetKeys={assignedAssetKeys}
+                        selectedAssetKey={cardAssignments[activeCardId]?.key}
+                        assignedAssets={assignedAssetKeys}
                         onSelect={(asset) => handleAssignAsset(activeCardId, asset)}
                       />
                     </>

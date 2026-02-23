@@ -1,51 +1,56 @@
+import { useMemo } from 'react';
 import { ScatterChart, Scatter, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Cell } from 'recharts';
 import ChartSection from './ChartSection';
 
 export default function DifficultyHeatmap({ data }) {
+  const { mechanics, contexts, processedData } = useMemo(() => {
+    if (!data || data.length === 0) {
+      return { mechanics: [], contexts: [], processedData: [] };
+    }
+    
+    // Obtener ejes únicos
+    const mechanicsSet = [...new Set(data.map(d => d.mechanic))];
+    const contextsSet = [...new Set(data.map(d => d.context))];
+
+    // Mapear strings a índices numéricos para Recharts
+    const processed = data.map(d => ({
+      ...d,
+      x: mechanicsSet.indexOf(d.mechanic),
+      y: contextsSet.indexOf(d.context),
+      z: d.errorRate // Tamaño del punto
+    }));
+
+    return { mechanics: mechanicsSet, contexts: contextsSet, processedData: processed };
+  }, [data]);
+
   if (!data || data.length === 0) {
     return (
         <ChartSection title="Mapa de Calor de Dificultad (Errores)">
-          <div className="h-[300px] w-full flex items-center justify-center text-slate-500">
+          <div className="h-[300px] w-full flex items-center justify-center text-text-muted font-medium">
             No hay datos de errores suficientes
           </div>
         </ChartSection>
     );
   }
-
-  // Transformar datos para ScatterPlot simulando un Heatmap
-  // Eje X: Mecánica, Eje Y: Contexto, Tamaño/Color: Tasa de Error
-  
-  // Obtener ejes únicos
-  const mechanics = [...new Set(data.map(d => d.mechanic))];
-  const contexts = [...new Set(data.map(d => d.context))];
-
-  // Mapear strings a índices numéricos para Recharts
-  const processedData = data.map(d => ({
-    ...d,
-    x: mechanics.indexOf(d.mechanic),
-    y: contexts.indexOf(d.context),
-    z: d.errorRate // Tamaño del punto
-  }));
-
   const getColor = (errorRate) => {
-      if (errorRate > 50) return '#ef4444'; // Rojo (Muro)
-      if (errorRate > 25) return '#f59e0b'; // Ámbar (Precaución)
-      return '#10b981'; // Verde (Bien)
+      if (errorRate > 50) return 'var(--color-error-base)'; // Muro
+      if (errorRate > 25) return 'var(--color-warning-base)'; // Precaución
+      return 'var(--color-success-base)'; // Bien
   };
 
   return (
     <ChartSection title="Mapa de Calor de Dificultad">
-      <div className="h-[300px] w-full">
+      <div className="h-[300px] w-full -ml-4 sm:ml-0">
         <ResponsiveContainer width="100%" height="100%">
           <ScatterChart margin={{ top: 20, right: 20, bottom: 20, left: 20 }}>
-            <CartesianGrid strokeDasharray="3 3" stroke="#ffffff08" />
+            <CartesianGrid strokeDasharray="3 3" stroke="var(--color-border-subtle)" />
             <XAxis 
                 type="number" 
                 dataKey="x" 
                 name="Mecánica" 
                 ticks={mechanics.map((_, i) => i)} 
                 tickFormatter={(i) => mechanics[i]} 
-                tick={{ fill: '#64748b', fontSize: 10 }}
+                tick={{ fill: 'var(--color-text-muted)', fontSize: 11, fontWeight: 500 }}
                 interval={0}
             />
             <YAxis 
@@ -54,20 +59,20 @@ export default function DifficultyHeatmap({ data }) {
                 name="Contexto" 
                 ticks={contexts.map((_, i) => i)} 
                 tickFormatter={(i) => contexts[i]} 
-                tick={{ fill: '#64748b', fontSize: 10 }}
+                tick={{ fill: 'var(--color-text-muted)', fontSize: 11, fontWeight: 500 }}
                 width={80}
                 interval={0}
             />
             <Tooltip 
-                cursor={{ strokeDasharray: '3 3' }} 
+                cursor={{ strokeDasharray: '3 3', stroke: 'var(--color-border-default)' }} 
                 content={({ active, payload }) => {
                     if (active && payload && payload.length) {
                         const d = payload[0].payload;
                         return (
-                            <div className="bg-slate-900 border border-white/10 p-3 rounded-lg shadow-xl backdrop-blur-md">
-                                <p className="font-bold text-white mb-1">{d.context} + {d.mechanic}</p>
-                                <p className="text-rose-400 text-sm">Tasa de Error: {Math.round(d.errorRate)}%</p>
-                                <p className="text-slate-400 text-xs">Intentos Totales: {d.totalAttempts}</p>
+                            <div className="bg-background-elevated border border-border-default p-3 rounded-lg shadow-xl backdrop-blur-md">
+                                <p className="font-bold text-text-primary mb-1">{d.context} + {d.mechanic}</p>
+                                <p className="text-error-base text-sm font-medium">Tasa de Error: {Math.round(d.errorRate)}%</p>
+                                <p className="text-text-muted text-xs mt-1">Intentos Totales: {d.totalAttempts}</p>
                             </div>
                         );
                     }
@@ -82,7 +87,7 @@ export default function DifficultyHeatmap({ data }) {
           </ScatterChart>
         </ResponsiveContainer>
       </div>
-      <p className="text-xs text-slate-500 mt-4 text-center">
+      <p className="text-xs text-text-muted mt-6 text-center font-medium">
         Identifica qué combinaciones de <strong>Contexto + Mecánica</strong> generan más errores.
       </p>
     </ChartSection>

@@ -173,15 +173,22 @@ const createUser = async (req, res, next) => {
   try {
     const { name, profile } = req.body;
 
-    // Validar que el usuario autenticado sea profesor
-    if (req.user.role !== 'teacher') {
-      throw new ForbiddenError('Solo los profesores pueden crear alumnos');
+    // Validar que el usuario autenticado sea super admin (el validador de rutas ya lo hace pero por seguridad)
+    if (req.user.role !== 'super_admin') {
+      throw new ForbiddenError('Solo los administradores pueden crear alumnos');
+    }
+
+    // Como lo crea un super_admin, requiere un `teacherId` explícito en el body
+    // (Aseguraremos esto en el validation schema más adelante)
+    const { teacherId } = req.body;
+    if (!teacherId) {
+      throw new ForbiddenError('Se debe especificar a qué profesor pertenece el alumno');
     }
 
     const student = await userService.createStudent({
       name,
       profile: profile || {},
-      createdBy: req.user._id
+      createdBy: teacherId
     });
 
     logger.info('Alumno creado por profesor', {
@@ -202,14 +209,15 @@ const createUser = async (req, res, next) => {
       const existingStudent = await userService.findDuplicateStudent({
         name: req.body.name,
         classroom: req.body.profile?.classroom,
-        teacherId: req.user._id
+        teacherId: req.body.teacherId
       });
 
       if (existingStudent) {
-        logger.warn('Intento de crear alumno duplicado', {
-          teacherId: req.user._id,
+        logger.warn('Intento de crear alumno duplicado por admin', {
+          adminId: req.user._id,
           studentName: req.body.name,
           classroom: req.body.profile?.classroom,
+          teacherId: req.body.teacherId,
           existingStudentId: existingStudent._id
         });
 
@@ -318,17 +326,7 @@ const updateUser = async (req, res, next) => {
     }
 
     const isSuperAdmin = req.user.role === 'super_admin';
-    const isTeacher = req.user.role === 'teacher';
-    if (isTeacher) {
-      if (user.role !== 'student') {
-        throw new ForbiddenError('No tienes permiso para actualizar este usuario');
-      }
-      if (user.createdBy?.toString() !== req.user._id.toString()) {
-        throw new ForbiddenError('No tienes permiso para actualizar este alumno');
-      }
-    }
-
-    if (!isTeacher && !isSuperAdmin) {
+    if (!isSuperAdmin) {
       throw new ForbiddenError('No tienes permiso para actualizar usuarios');
     }
 
@@ -420,17 +418,7 @@ const deleteUser = async (req, res, next) => {
     }
 
     const isSuperAdmin = req.user.role === 'super_admin';
-    const isTeacher = req.user.role === 'teacher';
-    if (isTeacher) {
-      if (user.role !== 'student') {
-        throw new ForbiddenError('No tienes permiso para eliminar este usuario');
-      }
-      if (user.createdBy?.toString() !== req.user._id.toString()) {
-        throw new ForbiddenError('No tienes permiso para eliminar este alumno');
-      }
-    }
-
-    if (!isTeacher && !isSuperAdmin) {
+    if (!isSuperAdmin) {
       throw new ForbiddenError('No tienes permiso para eliminar usuarios');
     }
 
@@ -607,12 +595,11 @@ const transferStudent = async (req, res, next) => {
       });
     }
 
-    // VERIFICACIÓN DE SEGURIDAD: Solo el dueño actual o super admin puede transferir
-    const isOwner = student.createdBy.toString() === req.user._id.toString();
+    // VERIFICACIÓN DE SEGURIDAD: Solo el super admin puede transferir
     const isSuperAdmin = req.user.role === 'super_admin';
 
-    if (!isOwner && !isSuperAdmin) {
-      throw new ForbiddenError('Solo el profesor actual puede transferir a este alumno');
+    if (!isSuperAdmin) {
+      throw new ForbiddenError('Solo los administradores pueden transferir alumnos');
     }
 
     // Verificar que el nuevo profesor existe y es válido

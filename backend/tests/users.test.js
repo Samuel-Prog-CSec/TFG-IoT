@@ -6,6 +6,16 @@ const { generateTokenPair } = require('../src/middlewares/auth');
 describe('User Management Endpoints', () => {
   let teacherToken;
   let teacherUser;
+  let adminToken;
+  let adminUser;
+
+  const validAdmin = {
+    name: 'Admin User',
+    email: 'admin.crud@test.com',
+    password: 'Password123',
+    role: 'super_admin',
+    status: 'active'
+  };
 
   const validTeacher = {
     name: 'Teacher User',
@@ -26,11 +36,11 @@ describe('User Management Endpoints', () => {
   beforeEach(async () => {
     await User.deleteMany({});
 
-    // Create teacher manually to bypass auth middleware restrictions for registration if any
+    // Create users
     teacherUser = await User.create(validTeacher);
+    adminUser = await User.create(validAdmin);
 
-    // Generate token - generateTokenPair es async, necesita await
-    // Mock request object con headers para fingerprint
+    // Common request for fingerprint
     const mockReq = {
       headers: {
         'user-agent': 'jest-test',
@@ -38,7 +48,9 @@ describe('User Management Endpoints', () => {
         'accept-encoding': 'gzip'
       }
     };
+
     teacherToken = (await generateTokenPair(teacherUser, mockReq)).accessToken;
+    adminToken = (await generateTokenPair(adminUser, mockReq)).accessToken;
   });
 
   describe('POST /api/users (Create Student)', () => {
@@ -47,14 +59,14 @@ describe('User Management Endpoints', () => {
       profile: { classroom: '1A', age: 6 }
     };
 
-    it('should create a student successfully as teacher', async () => {
+    it('should create a student successfully as admin', async () => {
       const res = await request(app)
         .post('/api/users')
-        .set('Authorization', `Bearer ${teacherToken}`)
-        .set('User-Agent', 'jest-test') // Must match fingerprint
+        .set('Authorization', `Bearer ${adminToken}`)
+        .set('User-Agent', 'jest-test')
         .set('Accept-Language', 'en')
         .set('Accept-Encoding', 'gzip')
-        .send(newStudent);
+        .send({ ...newStudent, teacherId: teacherUser._id });
 
       expect(res.statusCode).toEqual(201);
       expect(res.body.success).toBe(true);
@@ -62,17 +74,7 @@ describe('User Management Endpoints', () => {
       expect(res.body.data.role).toBe('student');
     });
 
-    it('should fail if creating student with same name and classroom', async () => {
-      // Create first
-      await request(app)
-        .post('/api/users')
-        .set('Authorization', `Bearer ${teacherToken}`)
-        .set('User-Agent', 'jest-test')
-        .set('Accept-Language', 'en')
-        .set('Accept-Encoding', 'gzip')
-        .send(newStudent);
-
-      // Create second
+    it('should fail to create a student as teacher (Forbidden)', async () => {
       const res = await request(app)
         .post('/api/users')
         .set('Authorization', `Bearer ${teacherToken}`)
@@ -80,6 +82,28 @@ describe('User Management Endpoints', () => {
         .set('Accept-Language', 'en')
         .set('Accept-Encoding', 'gzip')
         .send(newStudent);
+
+      expect(res.statusCode).toEqual(403);
+    });
+
+    it('should fail if creating student with same name and classroom', async () => {
+      // Create first
+      await request(app)
+        .post('/api/users')
+        .set('Authorization', `Bearer ${adminToken}`)
+        .set('User-Agent', 'jest-test')
+        .set('Accept-Language', 'en')
+        .set('Accept-Encoding', 'gzip')
+        .send({ ...newStudent, teacherId: teacherUser._id });
+
+      // Create second
+      const res = await request(app)
+        .post('/api/users')
+        .set('Authorization', `Bearer ${adminToken}`)
+        .set('User-Agent', 'jest-test')
+        .set('Accept-Language', 'en')
+        .set('Accept-Encoding', 'gzip')
+        .send({ ...newStudent, teacherId: teacherUser._id });
 
       expect(res.statusCode).toEqual(409);
     });
@@ -145,7 +169,7 @@ describe('User Management Endpoints', () => {
   });
 
   describe('PUT /api/users/:id', () => {
-    it('should reject createdBy update in generic endpoint', async () => {
+    it('should reject createdBy update in generic endpoint as admin', async () => {
       const student = await User.create({
         name: 'Student Ownership',
         role: 'student',
@@ -156,13 +180,32 @@ describe('User Management Endpoints', () => {
 
       const res = await request(app)
         .put(`/api/users/${student._id}`)
-        .set('Authorization', `Bearer ${teacherToken}`)
+        .set('Authorization', `Bearer ${adminToken}`)
         .set('User-Agent', 'jest-test')
         .set('Accept-Language', 'en')
         .set('Accept-Encoding', 'gzip')
         .send({ createdBy: new User()._id.toString() });
 
       expect(res.statusCode).toBe(400);
+    });
+
+    it('should fail to update student as teacher (Forbidden)', async () => {
+      const student = await User.create({
+        name: 'Student Forbidden Update',
+        role: 'student',
+        createdBy: teacherUser._id,
+        status: 'active'
+      });
+
+      const res = await request(app)
+        .put(`/api/users/${student._id}`)
+        .set('Authorization', `Bearer ${teacherToken}`)
+        .set('User-Agent', 'jest-test')
+        .set('Accept-Language', 'en')
+        .set('Accept-Encoding', 'gzip')
+        .send({ name: 'New Name' });
+
+      expect(res.statusCode).toBe(403);
     });
   });
 
@@ -178,10 +221,10 @@ describe('User Management Endpoints', () => {
       studentId = s._id;
     });
 
-    it('should soft delete a student', async () => {
+    it('should soft delete a student as admin', async () => {
       const res = await request(app)
         .delete(`/api/users/${studentId}`)
-        .set('Authorization', `Bearer ${teacherToken}`)
+        .set('Authorization', `Bearer ${adminToken}`)
         .set('User-Agent', 'jest-test')
         .set('Accept-Language', 'en')
         .set('Accept-Encoding', 'gzip');
@@ -191,6 +234,17 @@ describe('User Management Endpoints', () => {
       // Verify in DB
       const deletedUser = await User.findById(studentId);
       expect(deletedUser.status).toBe('inactive');
+    });
+
+    it('should fail to delete student as teacher (Forbidden)', async () => {
+      const res = await request(app)
+        .delete(`/api/users/${studentId}`)
+        .set('Authorization', `Bearer ${teacherToken}`)
+        .set('User-Agent', 'jest-test')
+        .set('Accept-Language', 'en')
+        .set('Accept-Encoding', 'gzip');
+
+      expect(res.statusCode).toEqual(403);
     });
   });
 });

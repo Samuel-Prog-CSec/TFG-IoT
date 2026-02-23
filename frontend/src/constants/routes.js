@@ -24,6 +24,10 @@ export const ROUTES = {
   SESSION_DETAIL: (sessionId) => `/sessions/${sessionId}`,
   SESSION_EDIT: (sessionId) => `/sessions/${sessionId}/edit`,
   
+  // Contextos
+  CONTEXTS: '/contexts',
+  CONTEXT_DETAIL: (contextId) => `/contexts/${contextId}`,
+  
   // Gestión de Mazos de Cartas (CardDecks)
   CARD_DECKS: '/decks',
   CARD_DECKS_NEW: '/decks/new',
@@ -32,6 +36,7 @@ export const ROUTES = {
   
   // Admin (solo super_admin)
   ADMIN_APPROVALS: '/admin/approvals',
+  STUDENT_MANAGEMENT: '/admin/students',
 };
 
 /**
@@ -49,9 +54,9 @@ export const NAV_ROUTES = [
     icon: 'CalendarClock',
   },
   {
-    path: ROUTES.STUDENT_TRANSFER,
-    label: 'Transferencias',
-    icon: 'ArrowRightLeft',
+    path: ROUTES.CONTEXTS,
+    label: 'Contextos',
+    icon: 'Palette',
   },
   {
     path: ROUTES.CARD_DECKS,
@@ -75,9 +80,19 @@ export const ADMIN_NAV_ROUTES = [
     icon: 'UserCheck',
   },
   {
+    path: ROUTES.STUDENT_TRANSFER,
+    label: 'Transferencias',
+    icon: 'ArrowRightLeft',
+  },
+  {
     path: ROUTES.DASHBOARD,
     label: 'Dashboard',
     icon: 'LayoutDashboard',
+  },
+  {
+    path: ROUTES.STUDENT_MANAGEMENT,
+    label: 'Alumnos',
+    icon: 'Users',
   },
 ];
 

@@ -4,5 +4,7 @@
 .agents/
 node_modules/
 .github/*.md
+.github/skills
 development/
 .env
+skills-lock.json

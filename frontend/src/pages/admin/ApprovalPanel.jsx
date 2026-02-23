@@ -142,8 +142,8 @@ function ConfirmationModal({
               <div className={cn(
                 'w-16 h-16 rounded-2xl flex items-center justify-center mx-auto mb-4',
                 isApprove 
-                  ? 'bg-emerald-500/10 text-emerald-400' 
-                  : 'bg-rose-500/10 text-rose-400'
+                  ? 'bg-success-base/10 text-success-base' 
+                  : 'bg-error-base/10 text-error-base'
               )}>
                 {isApprove ? (
                   <UserCheck className="w-8 h-8" />
@@ -155,13 +155,13 @@ function ConfirmationModal({
               {/* Título */}
               <h3 
                 id="modal-title"
-                className="text-xl font-semibold text-white text-center mb-2"
+                className="text-xl font-semibold text-text-primary text-center mb-2"
               >
                 {isApprove ? 'Aprobar Profesor' : 'Rechazar Profesor'}
               </h3>
 
               {/* Descripción */}
-              <p className="text-slate-400 text-center mb-4">
+              <p className="text-text-muted text-center mb-4">
                 {isApprove 
                   ? `¿Estás seguro de aprobar a ${user?.name}? Podrá acceder a la plataforma.`
                   : `¿Estás seguro de rechazar a ${user?.name}? No podrá acceder a la plataforma.`
@@ -169,14 +169,14 @@ function ConfirmationModal({
               </p>
 
               {/* Info del usuario */}
-              <div className="bg-slate-800/50 rounded-xl p-4 mb-4">
+              <div className="bg-background-elevated rounded-xl p-4 mb-4 border border-border-subtle">
                 <div className="flex items-center gap-3">
-                  <div className="w-10 h-10 rounded-full bg-gradient-to-br from-indigo-500 to-purple-500 flex items-center justify-center text-white font-semibold">
+                  <div className="w-10 h-10 rounded-full bg-gradient-to-br from-brand-base to-brand-dark flex items-center justify-center text-white font-semibold">
                     {user?.name?.charAt(0)?.toUpperCase() || '?'}
                   </div>
                   <div>
-                    <p className="text-white font-medium">{user?.name}</p>
-                    <p className="text-slate-400 text-sm">{user?.email}</p>
+                    <p className="text-text-primary font-medium">{user?.name}</p>
+                    <p className="text-text-muted text-sm">{user?.email}</p>
                   </div>
                 </div>
               </div>
@@ -254,23 +254,23 @@ function PendingTeacherCard({ teacher, onApprove, onReject }) {
       exit={{ opacity: 0, y: -20 }}
       layout
     >
-      <GlassCard className="p-5 hover:border-white/20 transition-all">
-        <div className="flex flex-col sm:flex-row sm:items-center gap-4">
+      <GlassCard className="p-5 hover:border-brand-base/40 hover:shadow-lg hover:shadow-brand-base/10 transition-all duration-300">
+        <div className="flex flex-col lg:flex-row lg:items-center gap-4">
           {/* Avatar y nombre */}
           <div className="flex items-center gap-4 flex-1 min-w-0">
-            <div className="w-14 h-14 rounded-xl bg-gradient-to-br from-indigo-500 via-purple-500 to-pink-500 flex items-center justify-center text-white text-xl font-bold shadow-lg shadow-purple-500/20 flex-shrink-0">
+            <div className="w-14 h-14 rounded-xl bg-gradient-to-br from-brand-base via-brand-base/80 to-brand-dark flex items-center justify-center text-white text-xl font-bold shadow-lg shadow-brand-base/20 flex-shrink-0">
               {teacher.name?.charAt(0)?.toUpperCase() || '?'}
             </div>
             
             <div className="min-w-0 flex-1">
-              <h3 className="text-white font-semibold truncate">
+              <h3 className="text-text-primary font-bold truncate text-lg">
                 {teacher.name}
               </h3>
-              <div className="flex items-center gap-2 text-slate-400 text-sm">
+              <div className="flex items-center gap-2 text-text-muted text-sm">
                 <Mail className="w-4 h-4 flex-shrink-0" />
                 <span className="truncate">{teacher.email}</span>
               </div>
-              <div className="flex items-center gap-2 text-slate-500 text-xs mt-1">
+              <div className="flex items-center gap-2 text-text-muted/70 text-xs mt-1">
                 <Calendar className="w-3.5 h-3.5" />
                 <span>Registrado el {createdAt}</span>
               </div>
@@ -512,14 +512,14 @@ export default function ApprovalPanel() {
           className="mb-8"
         >
           <div className="flex items-center gap-4 mb-2">
-            <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-amber-500 to-orange-500 flex items-center justify-center shadow-lg shadow-amber-500/20">
+            <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-warning-base to-warning-dark flex items-center justify-center shadow-lg shadow-warning-base/20">
               <Shield className="w-6 h-6 text-white" />
             </div>
             <div>
-              <h1 className="text-2xl sm:text-3xl font-bold font-display text-white">
+              <h1 className="text-2xl sm:text-3xl font-bold font-display text-text-primary">
                 Panel de Administración
               </h1>
-              <p className="text-slate-400">
+              <p className="text-text-muted">
                 Gestiona las solicitudes de nuevos profesores
               </p>
             </div>
@@ -536,12 +536,12 @@ export default function ApprovalPanel() {
           <GlassCard className="p-4">
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-3">
-                <div className="w-10 h-10 rounded-lg bg-amber-500/10 flex items-center justify-center">
-                  <Users className="w-5 h-5 text-amber-400" />
+                <div className="w-10 h-10 rounded-lg bg-warning-base/10 flex items-center justify-center">
+                  <Users className="w-5 h-5 text-warning-base" />
                 </div>
                 <div>
-                  <p className="text-sm text-slate-400">Solicitudes pendientes</p>
-                  <p className="text-2xl font-bold text-white">{pagination.total}</p>
+                  <p className="text-sm text-text-muted">Solicitudes pendientes</p>
+                  <p className="text-2xl font-bold text-text-primary">{pagination.total}</p>
                 </div>
               </div>
               
@@ -573,7 +573,7 @@ export default function ApprovalPanel() {
           />
           {isSearchPending && (
             <div className="absolute right-3 top-1/2 -translate-y-1/2">
-              <div className="w-4 h-4 border-2 border-purple-500/30 border-t-purple-500 rounded-full animate-spin" />
+              <div className="w-4 h-4 border-2 border-brand-base/30 border-t-brand-base rounded-full animate-spin" />
             </div>
           )}
         </motion.div>
@@ -587,11 +587,11 @@ export default function ApprovalPanel() {
               exit={{ opacity: 0, y: -10 }}
               className="mb-6"
             >
-              <div className="flex items-start gap-3 p-4 rounded-xl bg-rose-500/10 border border-rose-500/20">
-                <AlertCircle className="w-5 h-5 text-rose-400 flex-shrink-0 mt-0.5" />
+              <div className="flex items-start gap-3 p-4 rounded-xl bg-error-base/10 border border-error-base/20">
+                <AlertCircle className="w-5 h-5 text-error-base flex-shrink-0 mt-0.5" />
                 <div>
-                  <p className="text-rose-300 font-medium">Error al cargar datos</p>
-                  <p className="text-rose-400/80 text-sm mt-1">{error}</p>
+                  <p className="text-error-base font-bold">Error al cargar datos</p>
+                  <p className="text-error-base/80 text-sm mt-1">{error}</p>
                 </div>
               </div>
             </motion.div>
@@ -647,7 +647,7 @@ export default function ApprovalPanel() {
               Anterior
             </ButtonPremium>
             
-            <span className="text-slate-400 text-sm">
+            <span className="text-text-muted text-sm font-medium">
               Página {pagination.page} de {pagination.totalPages}
             </span>
             
