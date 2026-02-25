@@ -3,6 +3,7 @@
 .agent/
 .agents/
 node_modules/
+.sonarlint/
 .github/*.md
 .github/skills
 development/

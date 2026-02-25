@@ -583,9 +583,15 @@ Aplicar accesibilidad de movimiento reducido de forma consistente en wizard, gam
 
 **Criterios de Aceptación (medibles):**
 
-- [ ] Con preferencia activa, animaciones pesadas quedan desactivadas o simplificadas.
-- [ ] UI mantiene usabilidad completa sin motion compleja.
-- [ ] Documentación UI/UX actualizada.
+- [x] Con preferencia activa, animaciones pesadas quedan desactivadas o simplificadas.
+- [x] UI mantiene usabilidad completa sin motion compleja.
+- [x] Documentación UI/UX actualizada.
+
+**Cierre (25-02-2026):**
+
+- Se completó degradación de motion en `GameSession` y `CardDecksPage` para overlays/estados vacíos/indicadores con `useReducedMotion`.
+- Se validó build de producción y preview local del frontend tras hardening de motion (`npm run build`, `npm run preview`).
+- Se consolidó evidencia y checklist de validación en documentación UI/UX y reporte técnico de cierre.
 
 ---
 
@@ -704,10 +710,17 @@ Aplicar mejoras concretas de rendimiento visual y UX en frontend (motion, render
 
 **Criterios de Aceptación (medibles):**
 
-- [ ] `useReducedMotion` está integrado en al menos 4 vistas críticas.
-- [ ] Con preferencia activa, animaciones complejas quedan desactivadas sin romper flujo.
-- [ ] No hay listeners duplicados tras reconexión/pause-resume en gameplay.
-- [ ] Guía frontend y checklist de verificación visual quedan actualizados.
+- [x] `useReducedMotion` está integrado en al menos 4 vistas críticas.
+- [x] Con preferencia activa, animaciones complejas quedan desactivadas sin romper flujo.
+- [x] No hay listeners duplicados tras reconexión/pause-resume en gameplay.
+- [x] Guía frontend y checklist de verificación visual quedan actualizados.
+
+**Cierre (25-02-2026):**
+
+- Se estabilizó bootstrap realtime en `GameSession` evitando re-suscripciones por dependencias volátiles de ronda.
+- Se reforzó reduced-motion en elementos de alta frecuencia visual y se mantuvo degradación progresiva en componentes críticos.
+- Se optimizó `WizardStepper` con memoización (`memo` + `useMemo`) para reducir renders evitables.
+- Validación ejecutada en frontend: lint sin errores y build en verde.
 
 ---
 
@@ -728,9 +741,15 @@ Eliminar riesgos de estilos perdidos en build por clases Tailwind dinámicas y u
 
 **Criterios de Aceptación (medibles):**
 
-- [ ] No existen interpolaciones de clases Tailwind en componentes críticos del wizard/RFID.
-- [ ] Build de producción mantiene estados visuales de dificultad y modo RFID.
-- [ ] Checklist visual de regresión queda documentado.
+- [x] No existen interpolaciones de clases Tailwind en componentes críticos del wizard/RFID.
+- [x] Build de producción mantiene estados visuales de dificultad y modo RFID.
+- [x] Checklist visual de regresión queda documentado.
+
+**Cierre (25-02-2026):**
+
+- Se verificó contrato estático de variantes en `CreateSession` y `RFIDModeHandler` sin interpolaciones dinámicas críticas.
+- Se confirmó build productivo correcto con los estados visuales de dificultad/modo RFID incluidos en bundle.
+- Se mantuvo matriz y checklist de verificación en guías frontend para QA de regresión.
 
 ---
 

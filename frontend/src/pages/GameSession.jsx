@@ -36,11 +36,12 @@ export default function GameSession() {
   const [searchParams] = useSearchParams();
   const navigate = useNavigate();
   const { user } = useAuth();
+  const ROUND_TIME = 15;
   const { shouldReduceMotion } = useReducedMotion();
   const pendingTimeoutRef = useRef([]);
   const playIdRef = useRef(null);
-
-  const ROUND_TIME = 15;
+  const roundTimeRef = useRef(ROUND_TIME);
+  const totalRoundsRef = useRef(5);
 
   // Game state
   const [gameState, setGameState] = useState('waiting'); // waiting, playing, paused, finished
@@ -71,6 +72,14 @@ export default function GameSession() {
   useEffect(() => {
     playIdRef.current = playId;
   }, [playId]);
+
+  useEffect(() => {
+    roundTimeRef.current = roundTime;
+  }, [roundTime]);
+
+  useEffect(() => {
+    totalRoundsRef.current = totalRounds;
+  }, [totalRounds]);
 
   const normalizeChallenge = useCallback(rawChallenge => {
     const displayData = rawChallenge?.displayData || rawChallenge || {};
@@ -129,8 +138,15 @@ export default function GameSession() {
       setGameState('playing');
       setCurrentRound(Number(payload?.roundNumber || 1));
 
-      const nextTotalRounds = Number(payload?.totalRounds || totalRounds || 5);
-      const nextTimeLimit = Number(payload?.timeLimit || roundTime || ROUND_TIME);
+      const payloadTotalRounds = Number(payload?.totalRounds);
+      const nextTotalRounds = Number.isFinite(payloadTotalRounds) && payloadTotalRounds > 0
+        ? payloadTotalRounds
+        : totalRoundsRef.current || 5;
+
+      const payloadTimeLimit = Number(payload?.timeLimit);
+      const nextTimeLimit = Number.isFinite(payloadTimeLimit) && payloadTimeLimit > 0
+        ? payloadTimeLimit
+        : roundTimeRef.current || ROUND_TIME;
 
       setTotalRounds(nextTotalRounds);
       setRoundTime(nextTimeLimit);
@@ -140,7 +156,7 @@ export default function GameSession() {
       setMascotMood('idle');
       setIsAwaitingResponse(true);
     },
-    [clearPendingTimeouts, normalizeChallenge, roundTime, totalRounds]
+    [clearPendingTimeouts, normalizeChallenge]
   );
 
   const handlePlayPaused = useCallback(payload => {
@@ -620,7 +636,7 @@ export default function GameSession() {
           {(gameState === 'playing' || gameState === 'paused') && (
             <motion.div
               key="playing"
-              initial={{ opacity: 0 }}
+              initial={shouldReduceMotion ? false : { opacity: 0 }}
               animate={{ opacity: 1 }}
               exit={{ opacity: 0 }}
               className="w-full max-w-2xl flex flex-col items-center"
@@ -656,21 +672,21 @@ export default function GameSession() {
         <AnimatePresence>
           {gameState === 'paused' && (
             <motion.div
-              initial={{ opacity: 0 }}
+              initial={shouldReduceMotion ? false : { opacity: 0 }}
               animate={{ opacity: 1 }}
               exit={{ opacity: 0 }}
               className="absolute inset-0 bg-slate-900/80 backdrop-blur-md flex items-center justify-center z-20"
             >
               <motion.div
-                initial={{ scale: 0.9 }}
+                initial={shouldReduceMotion ? false : { scale: 0.9 }}
                 animate={{ scale: 1 }}
                 className="text-center"
               >
                 <div className="text-6xl mb-4">⏸️</div>
                 <h2 className="text-3xl font-bold text-white mb-4">Juego Pausado</h2>
                 <motion.button
-                  whileHover={{ scale: 1.05 }}
-                  whileTap={{ scale: 0.95 }}
+                  whileHover={shouldReduceMotion ? {} : { scale: 1.05 }}
+                  whileTap={shouldReduceMotion ? {} : { scale: 0.95 }}
                   onClick={togglePause}
                   className="btn-game"
                 >
@@ -695,9 +711,9 @@ export default function GameSession() {
             {roundIndicators.map(roundNumber => (
               <motion.div
                 key={`round-${roundNumber}`}
-                initial={{ scale: 0 }}
+                initial={shouldReduceMotion ? false : { scale: 0 }}
                 animate={{ scale: 1 }}
-                transition={{ delay: (roundNumber - 1) * 0.05 }}
+                transition={{ delay: shouldReduceMotion ? 0 : (roundNumber - 1) * 0.05 }}
                 className={cn(
                   "w-3 h-3 rounded-full transition-all duration-300",
                   roundNumber < currentRound && "bg-emerald-500 shadow-lg shadow-emerald-500/50",

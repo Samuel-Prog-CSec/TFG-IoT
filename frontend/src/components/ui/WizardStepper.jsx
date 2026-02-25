@@ -7,10 +7,10 @@
  */
 
 import { motion, AnimatePresence } from 'framer-motion';
-import { Check, Sparkles } from 'lucide-react';
+import { Check } from 'lucide-react';
 import { cn } from '../../lib/utils';
 import confetti from 'canvas-confetti';
-import { useEffect, useRef } from 'react';
+import { memo, useEffect, useMemo, useRef } from 'react';
 
 /**
  * @typedef {Object} Step
@@ -45,7 +45,7 @@ import { useEffect, useRef } from 'react';
  * />
  * ```
  */
-export default function WizardStepper({
+const WizardStepper = memo(function WizardStepper({
   steps,
   currentStep,
   onStepClick,
@@ -76,8 +76,8 @@ export default function WizardStepper({
   }, [isLastStep, reducedMotion]);
 
   // Calcular progreso
-  const totalSteps = Math.max(steps.length - 1, 1);
-  const progress = (currentStep / totalSteps) * 100;
+  const totalSteps = useMemo(() => Math.max(steps.length - 1, 1), [steps.length]);
+  const progress = useMemo(() => (currentStep / totalSteps) * 100, [currentStep, totalSteps]);
 
   const handleStepClick = (stepIndex) => {
     if (allowNavigation && stepIndex < currentStep && onStepClick) {
@@ -250,7 +250,9 @@ export default function WizardStepper({
       </div>
     </div>
   );
-}
+});
+
+export default WizardStepper;
 
 /**
  * Variante compacta del WizardStepper para espacios reducidos

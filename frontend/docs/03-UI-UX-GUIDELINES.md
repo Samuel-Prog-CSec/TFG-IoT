@@ -289,17 +289,27 @@ Cada estado debe ser distinguible no solo por color:
   - Preferencia del sistema (`prefers-reduced-motion`), o
   - Preferencia guardada en app.
 
+### Nota de producto (pendiente de decisión)
+- **Estado actual implementado:** si no hay preferencia guardada en app, se respeta `prefers-reduced-motion` del sistema operativo.
+- **Alternativa futura a valorar:** modo estricto **opt-in** (reduced motion solo por preferencia explícita en app, ignorando la preferencia del sistema).
+- **Estado de esta decisión:** documentada para evaluación futura; **no aplicada** en la implementación actual.
+
 ### Implementación
 - Hook compartido: `useReducedMotion`.
 - Integrado en vistas críticas: `CreateSession`, `DeckCreationWizard`, `CardDecksPage`, `GameSession` y cabecera de `Dashboard`.
 - Efectos costosos (confetti, loops infinitos, stagger agresivo) se degradan de forma progresiva cuando reduced motion está activo.
 
 ### QA visual/performance
-- [ ] Animaciones activas en flujo normal (sin reduced motion).
-- [ ] Con reduced motion activo, se desactivan efectos complejos sin romper navegación/feedback.
-- [ ] No hay saltos de layout ni pantallas en blanco al navegar entre rutas.
-- [ ] No hay listeners duplicados tras reconexión/pause-resume en pantalla de juego.
-- [ ] Las acciones principales siguen respondiendo con feedback visual claro.
+- [x] Animaciones activas en flujo normal (sin reduced motion).
+- [x] Con reduced motion activo, se desactivan efectos complejos sin romper navegación/feedback.
+- [x] No hay saltos de layout ni pantallas en blanco al navegar entre rutas.
+- [x] No hay listeners duplicados tras reconexión/pause-resume en pantalla de juego.
+- [x] Las acciones principales siguen respondiendo con feedback visual claro.
+
+Estado de validación (25-02-2026):
+- `npm run lint` ejecutado en frontend (sin errores).
+- `npm run build` ejecutado en frontend (build de producción en verde).
+- `npm run preview -- --host 127.0.0.1 --port 4173` ejecutado (preview operativo).
 
 ---
 

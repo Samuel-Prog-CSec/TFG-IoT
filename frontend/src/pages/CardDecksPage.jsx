@@ -233,7 +233,7 @@ export default function CardDecksPage() {
     <div className="p-6 lg:p-8 max-w-7xl mx-auto">
       {/* Header */}
       <motion.div
-        initial={{ opacity: 0, y: -20 }}
+        initial={shouldReduceMotion ? false : { opacity: 0, y: -20 }}
         animate={{ opacity: 1, y: 0 }}
         className="mb-8"
       >
@@ -259,9 +259,9 @@ export default function CardDecksPage() {
                 'bg-slate-800/50 border border-white/10',
                 deckCount.active >= MAX_DECKS && 'border-amber-500/50 bg-amber-500/10'
               )}
-              initial={{ scale: 0.9, opacity: 0 }}
+              initial={shouldReduceMotion ? false : { scale: 0.9, opacity: 0 }}
               animate={{ scale: 1, opacity: 1 }}
-              transition={{ delay: 0.2 }}
+              transition={{ delay: shouldReduceMotion ? 0 : 0.2 }}
             >
               <span className={cn(
                 deckCount.active >= MAX_DECKS ? 'text-amber-400' : 'text-indigo-400'
@@ -284,9 +284,9 @@ export default function CardDecksPage() {
 
       {/* Barra de búsqueda y filtros */}
       <motion.div
-        initial={{ opacity: 0, y: 10 }}
+        initial={shouldReduceMotion ? false : { opacity: 0, y: 10 }}
         animate={{ opacity: 1, y: 0 }}
-        transition={{ delay: 0.1 }}
+        transition={{ delay: shouldReduceMotion ? 0 : 0.1 }}
         className="mb-6"
       >
         <GlassCard className="p-4">
@@ -334,7 +334,7 @@ export default function CardDecksPage() {
           <AnimatePresence>
             {showFilters && (
               <motion.div
-                initial={{ opacity: 0, height: 0 }}
+                initial={shouldReduceMotion ? false : { opacity: 0, height: 0 }}
                 animate={{ opacity: 1, height: 'auto' }}
                 exit={{ opacity: 0, height: 0 }}
                 className="mt-4 pt-4 border-t border-white/5 overflow-hidden"
@@ -407,7 +407,7 @@ export default function CardDecksPage() {
       {error ? (
         /* Estado de error */
         <motion.div
-          initial={{ opacity: 0 }}
+          initial={shouldReduceMotion ? false : { opacity: 0 }}
           animate={{ opacity: 1 }}
           className="flex flex-col items-center justify-center py-16"
         >
@@ -429,9 +429,9 @@ export default function CardDecksPage() {
           {[...Array(6)].map((_, i) => (
             <motion.div
               key={i}
-              initial={{ opacity: 0, y: 20 }}
+              initial={shouldReduceMotion ? false : { opacity: 0, y: 20 }}
               animate={{ opacity: 1, y: 0 }}
-              transition={{ delay: i * 0.1 }}
+              transition={{ delay: shouldReduceMotion ? 0 : i * 0.1 }}
             >
               <DeckCardSkeleton />
             </motion.div>
@@ -440,14 +440,14 @@ export default function CardDecksPage() {
       ) : decks.length === 0 ? (
         /* Empty state */
         <motion.div
-          initial={{ opacity: 0, y: 20 }}
+          initial={shouldReduceMotion ? false : { opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
           className="flex flex-col items-center justify-center py-16"
         >
           <motion.div
             className="w-32 h-32 mb-6 relative"
-            animate={{ y: [0, -10, 0] }}
-            transition={{ duration: 3, repeat: Infinity, ease: 'easeInOut' }}
+            animate={shouldReduceMotion ? { y: 0 } : { y: [0, -10, 0] }}
+            transition={shouldReduceMotion ? { duration: 0 } : { duration: 3, repeat: Infinity, ease: 'easeInOut' }}
           >
             {/* SVG animado de cartas */}
             <svg viewBox="0 0 100 100" className="w-full h-full">
@@ -455,24 +455,24 @@ export default function CardDecksPage() {
                 x="15" y="25" width="35" height="50" rx="4"
                 fill="none" stroke="#6366f1" strokeWidth="2"
                 initial={{ rotate: -15, opacity: 0.5 }}
-                animate={{ rotate: [-15, -10, -15], opacity: [0.5, 0.8, 0.5] }}
-                transition={{ duration: 2, repeat: Infinity }}
+                animate={shouldReduceMotion ? { rotate: -15, opacity: 0.7 } : { rotate: [-15, -10, -15], opacity: [0.5, 0.8, 0.5] }}
+                transition={shouldReduceMotion ? { duration: 0 } : { duration: 2, repeat: Infinity }}
                 style={{ transformOrigin: '32px 50px' }}
               />
               <motion.rect
                 x="32" y="20" width="35" height="50" rx="4"
                 fill="none" stroke="#8b5cf6" strokeWidth="2"
                 initial={{ rotate: 0 }}
-                animate={{ rotate: [0, 5, 0] }}
-                transition={{ duration: 2, repeat: Infinity, delay: 0.3 }}
+                animate={shouldReduceMotion ? { rotate: 0 } : { rotate: [0, 5, 0] }}
+                transition={shouldReduceMotion ? { duration: 0 } : { duration: 2, repeat: Infinity, delay: 0.3 }}
                 style={{ transformOrigin: '50px 45px' }}
               />
               <motion.rect
                 x="50" y="25" width="35" height="50" rx="4"
                 fill="none" stroke="#a855f7" strokeWidth="2"
                 initial={{ rotate: 15, opacity: 0.5 }}
-                animate={{ rotate: [15, 10, 15], opacity: [0.5, 0.8, 0.5] }}
-                transition={{ duration: 2, repeat: Infinity, delay: 0.6 }}
+                animate={shouldReduceMotion ? { rotate: 15, opacity: 0.7 } : { rotate: [15, 10, 15], opacity: [0.5, 0.8, 0.5] }}
+                transition={shouldReduceMotion ? { duration: 0 } : { duration: 2, repeat: Infinity, delay: 0.6 }}
                 style={{ transformOrigin: '68px 50px' }}
               />
             </svg>
@@ -516,7 +516,7 @@ export default function CardDecksPage() {
               <motion.div
                 key={deckId}
                 variants={{
-                  hidden: { opacity: 0, y: 20 },
+                  hidden: shouldReduceMotion ? { opacity: 1, y: 0 } : { opacity: 0, y: 20 },
                   visible: { opacity: 1, y: 0 },
                 }}
               >
