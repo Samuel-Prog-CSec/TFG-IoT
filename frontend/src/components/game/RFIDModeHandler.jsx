@@ -20,39 +20,42 @@ import {
 import { cn } from '../../lib/utils';
 import { webSerialService } from '../../services/webSerialService';
 import { GlassCard } from '../ui';
+import { useRfidMode } from '../../context';
 
 const MODES_CONFIG = {
   idle: {
     label: 'Inactivo',
     icon: WifiOff,
-    color: 'slate',
+    iconContainerClass: 'bg-slate-500/20 text-slate-400',
     description: 'El sensor no está procesando tarjetas'
   },
   gameplay: {
     label: 'Modo Juego',
     icon: Gamepad2,
-    color: 'emerald',
+    iconContainerClass: 'bg-emerald-500/20 text-emerald-400',
     description: 'Escaneando respuestas de los estudiantes'
   },
   card_registration: {
     label: 'Registro',
     icon: UserPlus,
-    color: 'blue',
+    iconContainerClass: 'bg-blue-500/20 text-blue-400',
     description: 'Registrando nuevas tarjetas en el sistema'
   },
   card_assignment: {
     label: 'Asignación',
     icon: CreditCard,
-    color: 'purple',
+    iconContainerClass: 'bg-purple-500/20 text-purple-400',
     description: 'Vinculando tarjetas a estudiantes'
   }
 };
 
 export default function RFIDModeHandler({ currentMode = 'idle', className }) {
+  const { mode } = useRfidMode();
   const [status, setStatus] = useState(webSerialService.status);
   const [deviceState, setDeviceState] = useState(webSerialService.deviceState || 'unknown');
   const [deviceHealth, setDeviceHealth] = useState(null);
-  const modeInfo = MODES_CONFIG[currentMode] || MODES_CONFIG.idle;
+  const effectiveMode = mode || currentMode;
+  const modeInfo = MODES_CONFIG[effectiveMode] || MODES_CONFIG.idle;
   const Icon = modeInfo.icon;
 
   useEffect(() => {
@@ -100,7 +103,7 @@ export default function RFIDModeHandler({ currentMode = 'idle', className }) {
             <div className="flex items-start gap-3">
               <div className={cn(
                 "p-2 rounded-lg",
-                `bg-${modeInfo.color}-500/20 text-${modeInfo.color}-400`
+                modeInfo.iconContainerClass
               )}>
                 <Icon size={20} />
               </div>

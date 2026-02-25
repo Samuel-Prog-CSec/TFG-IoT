@@ -266,7 +266,7 @@ Permitir clonar una sesión existente para reutilizar configuración de forma se
 
 ---
 
-### T-057: Alineación Contrato RFID Mode Frontend-Backend 📋
+### T-057: Alineación Contrato RFID Mode Frontend-Backend ✅
 
 **Prioridad:** P1 | **Tamaño:** M | **Dependencias:** T-054  
 **Origen:** RF-RFID-012, RF-RFID-014
@@ -284,9 +284,19 @@ Unificar contrato de control de modos RFID entre frontend y backend para evitar 
 
 **Criterios de Aceptación (medibles):**
 
-- [ ] Existe un único contrato oficial documentado para modos RFID.
-- [ ] Backend ignora scans fuera de modo permitido.
+- [x] Existe un único contrato oficial documentado para modos RFID.
+- [x] Backend ignora scans fuera de modo permitido.
 - [ ] Tests socket cubren al menos `idle`, `gameplay`, `card_registration`, `card_assignment`.
+
+**Avance (25-02-2026):**
+
+- Contrato canónico consolidado en backend con comandos `join/leave_*` y evento servidor `rfid_mode_changed`.
+- Política multi-socket endurecida a **single-owner por usuario** (socket activo autoritativo para lecturas RFID).
+- `resume_play` corregido para preservar metadata `playId` en estado `gameplay` y mantener validaciones de ownership/sensor.
+- Frontend migrado a modo RFID **backend-authoritative** (sin derivación por ruta en `App`).
+- `GameSession` migrada a flujo realtime con `join_play`, `start_play`, `new_round`, `validation_result`, `play_paused`, `play_resumed`, `game_over` y eliminación de simulación local.
+- Documentación técnica actualizada en `backend/docs/RFID_Protocol.md` y `backend/docs/WebSockets-ExtendedUsage.md` eliminando comandos legacy.
+- Se añadieron pruebas socket de regresión para `card_assignment`, política single-owner y validación de sensor tras `pause/resume` (pendiente ejecución completa en entorno con Mongo activo).
 
 ---
 
@@ -556,7 +566,7 @@ Mantener un mockup visual interactivo para validación UX infantil, separado de 
 
 ---
 
-### T-052: Soporte `prefers-reduced-motion` transversal 📋
+### T-052: Soporte `prefers-reduced-motion` transversal ✅
 
 **Prioridad:** P2 | **Tamaño:** M | **Dependencias:** T-056  
 **Origen:** FE-03
@@ -676,7 +686,7 @@ Documentar y definir proceso replicable de despliegue en staging sin pasos ocult
 
 ## Tarea Transversal Frontend (acciones de mejora)
 
-### T-060: Optimización frontend de UX, motion y render 📋
+### T-060: Optimización frontend de UX, motion y render ✅
 
 **Prioridad:** P1 | **Tamaño:** L | **Dependencias:** T-056, T-052  
 **Origen:** FE-04
@@ -701,7 +711,7 @@ Aplicar mejoras concretas de rendimiento visual y UX en frontend (motion, render
 
 ---
 
-### T-068: Hardening de clases dinámicas y consistencia visual 📋
+### T-068: Hardening de clases dinámicas y consistencia visual ✅
 
 **Prioridad:** P2 | **Tamaño:** M | **Dependencias:** T-056, T-060  
 **Origen:** FE-05

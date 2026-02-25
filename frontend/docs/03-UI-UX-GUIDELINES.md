@@ -303,4 +303,69 @@ Cada estado debe ser distinguible no solo por color:
 
 ---
 
+## Contrato de Variantes Estáticas (T-068)
+
+### Objetivo
+
+Establecer una regla de implementación para que los estados visuales críticos del frontend usen **clases Tailwind detectables en análisis estático**. El objetivo no es cambiar la estética, sino garantizar que en builds de producción no desaparezcan estilos por no haber sido detectados durante el escaneo de clases. Este contrato aplica especialmente a flujos de creación de sesión y señalización de modo RFID, donde una regresión visual afecta directamente a la ejecución docente en aula.
+
+### Riesgo técnico: purga y clases no detectadas en build
+
+Tailwind genera CSS en función de clases encontradas en el código fuente. Cuando se construyen clases mediante interpolación dinámica (por ejemplo combinando segmentos de color o variantes en runtime), el analizador puede no reconocer todas las combinaciones posibles y omitirlas del bundle final.
+
+Consecuencias típicas:
+- Estados visuales que funcionan en desarrollo pero fallan en producción.
+- Inconsistencias entre rutas o modos al reutilizar componentes.
+- Pérdida de semántica visual (dificultad, modo activo, alerta) en contextos críticos de uso.
+
+### Política de implementación
+
+1. **Mapa estático o CVA para variantes:** los componentes críticos deben declarar variantes en objetos constantes o en utilidades equivalentes (ej. CVA), con strings completas y literales.
+2. **Prohibición de interpolación dinámica en clases críticas:** no se permite concatenar segmentos de clase Tailwind en runtime para color, borde, fondo o tipografía de estados semánticos.
+3. **Composición vía `cn(...)`:** la selección de estado se hace con claves semánticas (`active`, `inactive`, `withFile`, `gameplay`, etc.) y no con construcción dinámica de tokens.
+4. **Fallback explícito:** cuando aplique, usar variante `default` para estados desconocidos y evitar render inconsistente.
+
+### Matriz mínima de estados críticos
+
+La verificación mínima de T-068 debe cubrir, como base, los siguientes estados:
+
+| Área | Estado | Clase esperada | Resultado visual esperado |
+|------|--------|----------------|---------------------------|
+| CreateSession (selector dificultad) | dificultad activa | variante activa estática definida en mapa | Contraste alto, estado seleccionado inequívoco |
+| CreateSession (selector dificultad) | dificultad inactiva | variante inactiva estática definida en mapa | Estado no seleccionado visible y consistente |
+| RFIDModeHandler en rutas activas (`/game/session/:id`, vistas con control RFID) | `idle` | `bg-slate-500/20 text-slate-400` | Indicador neutro de espera |
+| RFIDModeHandler en rutas activas (`/game/session/:id`, vistas con control RFID) | `gameplay` | `bg-emerald-500/20 text-emerald-400` | Indicador de ejecución de juego |
+| RFIDModeHandler en rutas activas (`/game/session/:id`, vistas con control RFID) | `card_registration` | `bg-blue-500/20 text-blue-400` | Indicador de alta de tarjetas |
+| RFIDModeHandler en rutas activas (`/game/session/:id`, vistas con control RFID) | `card_assignment` | `bg-purple-500/20 text-purple-400` | Indicador de vinculación tarjeta-estudiante |
+
+> Nota: esta matriz es mínima; cualquier componente con semántica de estado equivalente debe adoptar el mismo contrato de variantes estáticas.
+
+### Protocolo de verificación
+
+1. **Lint:** ejecutar validación estática para detectar inconsistencias de implementación.
+2. **Build de producción:** generar bundle y comprobar ausencia de regresiones de estilos en componentes críticos.
+3. **Preview manual:** levantar entorno de preview local y recorrer estados de la matriz mínima.
+4. **QA manual dirigido:** validar en navegación real (no aislada) que los estados conservan color, contraste y jerarquía visual.
+
+Checklist operativo sugerido para PR:
+- Ejecutar `npm run lint` en frontend.
+- Ejecutar `npm run build` en frontend.
+- Adjuntar capturas de estados críticos en CreateSession y RFIDModeHandler.
+
+### Criterio de aceptación y evidencia a adjuntar en PR
+
+Para considerar T-068 cerrada en frontend:
+
+- No existen interpolaciones dinámicas de clases Tailwind en componentes críticos definidos por la tarea.
+- Los estados críticos mantienen apariencia esperada tras build de producción.
+- La documentación de contrato y verificación está actualizada y enlazada en la PR.
+
+Evidencia mínima requerida en la PR:
+- Salida de `lint` y `build`.
+- Capturas o clip corto mostrando estados activos/inactivos de dificultad en CreateSession.
+- Capturas o clip mostrando los 4 modos de RFID (`idle`, `gameplay`, `card_registration`, `card_assignment`) en rutas activas.
+- Riesgo residual declarado (si existe) y plan de seguimiento.
+
+---
+
 *Inspiración: [Refactoring UI](https://www.refactoringui.com/), [Apple HIG](https://developer.apple.com/design/human-interface-guidelines/)*

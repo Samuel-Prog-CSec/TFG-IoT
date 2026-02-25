@@ -22,8 +22,19 @@ import {
   InputPremium,
   SkeletonCard 
 } from '../components/ui';
+import { cn } from '../lib/utils';
 import { contextsAPI, extractData, extractErrorMessage } from '../services/api';
 import { ROUTES } from '../constants/routes';
+
+const TAB_BUTTON_VARIANTS = {
+  active: 'bg-indigo-500 text-white shadow-md',
+  inactive: 'text-slate-400 hover:text-white'
+};
+
+const DROPZONE_VARIANTS = {
+  withFile: 'border-indigo-500 bg-indigo-500/5',
+  empty: 'border-slate-700 bg-slate-800/30 hover:border-slate-500 hover:bg-slate-800'
+};
 
 export default function ContextDetailPage() {
   const { contextId } = useParams();
@@ -423,18 +434,20 @@ function UploadAssetModal({ context, onClose, onSuccess }) {
             <button
               type="button"
               onClick={() => { setType('image'); setFile(null); setPreview(null); }}
-              className={`flex-1 flex items-center justify-center gap-2 py-2.5 rounded-lg text-sm font-medium transition-all ${
-                type === 'image' ? 'bg-indigo-500 text-white shadow-md' : 'text-slate-400 hover:text-white'
-              }`}
+              className={cn(
+                'flex-1 flex items-center justify-center gap-2 py-2.5 rounded-lg text-sm font-medium transition-all',
+                type === 'image' ? TAB_BUTTON_VARIANTS.active : TAB_BUTTON_VARIANTS.inactive
+              )}
             >
               <ImageIcon size={16} /> Imagen
             </button>
             <button
               type="button"
               onClick={() => { setType('audio'); setFile(null); setPreview(null); }}
-              className={`flex-1 flex items-center justify-center gap-2 py-2.5 rounded-lg text-sm font-medium transition-all ${
-                type === 'audio' ? 'bg-indigo-500 text-white shadow-md' : 'text-slate-400 hover:text-white'
-              }`}
+              className={cn(
+                'flex-1 flex items-center justify-center gap-2 py-2.5 rounded-lg text-sm font-medium transition-all',
+                type === 'audio' ? TAB_BUTTON_VARIANTS.active : TAB_BUTTON_VARIANTS.inactive
+              )}
             >
               <Music size={16} /> Audio
             </button>
@@ -444,9 +457,10 @@ function UploadAssetModal({ context, onClose, onSuccess }) {
             {/* File Dropzone */}
             <div 
               onClick={() => fileInputRef.current?.click()}
-              className={`w-full h-40 rounded-xl border-2 border-dashed flex flex-col items-center justify-center cursor-pointer transition-colors relative overflow-hidden ${
-                file ? 'border-indigo-500 bg-indigo-500/5' : 'border-slate-700 bg-slate-800/30 hover:border-slate-500 hover:bg-slate-800'
-              }`}
+              className={cn(
+                'w-full h-40 rounded-xl border-2 border-dashed flex flex-col items-center justify-center cursor-pointer transition-colors relative overflow-hidden',
+                file ? DROPZONE_VARIANTS.withFile : DROPZONE_VARIANTS.empty
+              )}
             >
               <input 
                 type="file"

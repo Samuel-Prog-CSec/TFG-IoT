@@ -32,6 +32,8 @@
 
 > [!NOTE]
 > Para la arquitectura Web Serial completa, ver [WebSerial_Architecture.md](WebSerial_Architecture.md).
+>
+> Para entender la operativa runtime (quién inicia, quién decide, secuencias por modo y errores esperados), ver [RFID_Runtime_Flows.md](RFID_Runtime_Flows.md).
 
 ---
 
@@ -532,10 +534,10 @@ Cuando un alumno escanea una tarjeta durante una partida:
 | `resume_play` | `{ playId }` | Reanudar partida (solo profesor) |
 | `leave_play` | `{ playId }` | Abandonar la sala de una partida |
 | `next_round` | `{ playId }` | Solicitar siguiente ronda manualmente |
-| `start_card_registration` | `{}` | Activar modo registro de tarjetas |
-| `cancel_card_registration` | `{}` | Cancelar modo registro |
-| `start_card_assignment` | `{ assetKey, assetDisplay }` | Activar modo asignación |
-| `cancel_card_assignment` | `{}` | Cancelar modo asignación |
+| `join_card_registration` | `{}` | Activar modo registro de tarjetas (room por usuario) |
+| `leave_card_registration` | `{}` | Salir de modo registro |
+| `join_card_assignment` | `{}` | Activar modo asignación (room por usuario) |
+| `leave_card_assignment` | `{}` | Salir de modo asignación |
 | `rfid_scan_from_client` | `{ uid, type, sensorId, ... }` | Evento RFID desde Web Serial |
 
 ### 8.2 Eventos Servidor → Cliente
@@ -546,6 +548,7 @@ Cuando un alumno escanea una tarjeta durante una partida:
 | --- | --- | --- |
 | `rfid_event` | `{ event, uid?, type?, ... }` | Evento directo del sensor (modo idle) |
 | `rfid_status` | `{ status }` | Estado del servicio RFID (client_ready/disabled) |
+| `rfid_mode_changed` | `{ mode, sensorId, metadata, socketId, updatedAt }` | Estado canónico del modo RFID por usuario |
 
 #### Eventos de Partida
 
@@ -563,14 +566,10 @@ Cuando un alumno escanea una tarjeta durante una partida:
 
 #### Eventos de Registro/Asignación
 
-| Evento                     | Payload                                                 | Descripción                     |
-| -------------------------- | ------------------------------------------------------- | ------------------------------- |
-| `registration_mode_active` | `{ message, timeout }`                                  | Modo registro activado          |
-| `card_registration_scan`   | `{ uid, type, message }`                                | Tarjeta detectada para registro |
-| `card_registration_error`  | `{ message, uid, existingCardId? }`                     | Error en registro               |
-| `assignment_mode_active`   | `{ message, assetKey, timeout }`                        | Modo asignación activado        |
-| `card_assignment_scan`     | `{ uid, cardId, cardMetadata, assetKey, assetDisplay }` | Tarjeta asignada a asset        |
-| `card_assignment_error`    | `{ message, uid, assetKey }`                            | Error en asignación             |
+| Evento | Payload | Descripción |
+| --- | --- | --- |
+| `rfid_event` (room `card_registration_<userId>`) | `{ event, uid, type, sensorId, ... }` | Evento RFID en modo registro |
+| `rfid_event` (room `card_assignment_<userId>`) | `{ event, uid, type, sensorId, ... }` | Evento RFID en modo asignación |
 
 ---
 

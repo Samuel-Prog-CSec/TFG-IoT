@@ -38,6 +38,26 @@ const waitForEvent = (socket, eventName, timeoutMs = 2000) =>
     });
   });
 
+const waitForMode = (socket, expectedMode, timeoutMs = 2000) =>
+  new Promise((resolve, reject) => {
+    const timer = setTimeout(() => {
+      socket.off('rfid_mode_changed', onModeChanged);
+      reject(new Error(`Timeout esperando modo RFID: ${expectedMode}`));
+    }, timeoutMs);
+
+    const onModeChanged = payload => {
+      if (payload?.mode !== expectedMode) {
+        return;
+      }
+
+      clearTimeout(timer);
+      socket.off('rfid_mode_changed', onModeChanged);
+      resolve(payload);
+    };
+
+    socket.on('rfid_mode_changed', onModeChanged);
+  });
+
 const connectSocket = (port, token, options = {}) =>
   new Promise((resolve, reject) => {
     const origin = options.origin;
@@ -159,6 +179,7 @@ describe('Socket.IO auth & ownership', () => {
       mechanicId: mechanic._id,
       deckId: deck._id,
       contextId: context._id,
+      sensorId: 'sensor-allowed',
       config: {
         numberOfCards: 2,
         numberOfRounds: 1,
@@ -266,6 +287,48 @@ describe('Socket.IO auth & ownership', () => {
 
     const errorPayload = await waitForEvent(socket, 'error');
     expect(errorPayload).toEqual(expect.objectContaining({ code: 'RFID_MODE_INVALID' }));
+
+    socket.disconnect();
+  });
+
+  test('acepta y enruta RFID client event en modo card_assignment', async () => {
+    const tempTeacher = await User.create({
+      name: 'Socket Assignment Teacher',
+      email: `socket-assignment-${Date.now()}@test.com`,
+      password: 'password',
+      role: 'teacher',
+      status: 'active',
+      accountStatus: 'approved'
+    });
+
+    const tempTeacherToken = (await generateTokenPair(tempTeacher, mockReq)).accessToken;
+    const socket = await connectSocket(port, tempTeacherToken);
+
+    const modeReady = waitForMode(socket, 'card_assignment');
+    socket.emit('join_card_assignment');
+    await modeReady;
+
+    const eventPromise = Promise.race([
+      waitForEvent(socket, 'rfid_event', 3000),
+      waitForEvent(socket, 'error', 3000).then(errorPayload => {
+        throw new Error(`Error socket inesperado: ${errorPayload?.code || 'UNKNOWN'}`);
+      })
+    ]);
+    socket.emit('rfid_scan_from_client', {
+      uid: 'CC0000AE',
+      type: 'NTAG',
+      sensorId: 'sensor-assign',
+      timestamp: Date.now(),
+      source: 'web_serial'
+    });
+
+    const routedEvent = await eventPromise;
+    expect(routedEvent).toEqual(
+      expect.objectContaining({
+        event: 'card_detected',
+        uid: 'CC0000AE'
+      })
+    );
 
     socket.disconnect();
   });
@@ -410,6 +473,62 @@ describe('Socket.IO auth & ownership', () => {
     expect(findByIdSpy).toHaveBeenCalledTimes(1);
 
     findByIdSpy.mockRestore();
+    socket.disconnect();
+  });
+
+  test('aplica política single-owner por usuario en modo RFID', async () => {
+    const firstSocket = await connectSocket(port, teacherOwnerToken);
+    const secondSocket = await connectSocket(port, teacherOwnerToken);
+
+    firstSocket.emit('join_card_registration');
+    await new Promise(resolve => setTimeout(resolve, 80));
+
+    secondSocket.emit('join_card_registration');
+    await new Promise(resolve => setTimeout(resolve, 80));
+
+    const errorPromise = waitForEvent(firstSocket, 'error');
+    firstSocket.emit('rfid_scan_from_client', {
+      uid: 'CC0000EF',
+      type: 'NTAG',
+      sensorId: 'sensor-allowed',
+      timestamp: Date.now(),
+      source: 'web_serial'
+    });
+
+    const errorPayload = await errorPromise;
+    expect(errorPayload).toEqual(expect.objectContaining({ code: 'RFID_SOCKET_NOT_ACTIVE' }));
+
+    firstSocket.disconnect();
+    secondSocket.disconnect();
+  });
+
+  test('mantiene validación de sensor en gameplay tras pause/resume', async () => {
+    const socket = await connectSocket(port, teacherOwnerToken);
+
+    socket.emit('join_play', { playId });
+    await new Promise(resolve => setTimeout(resolve, 80));
+
+    socket.emit('start_play', { playId });
+    await new Promise(resolve => setTimeout(resolve, 120));
+
+    socket.emit('pause_play', { playId });
+    await new Promise(resolve => setTimeout(resolve, 120));
+
+    socket.emit('resume_play', { playId });
+    await new Promise(resolve => setTimeout(resolve, 120));
+
+    const errorPromise = waitForEvent(socket, 'error');
+    socket.emit('rfid_scan_from_client', {
+      uid: 'CC000001',
+      type: 'NTAG',
+      sensorId: 'sensor-not-allowed',
+      timestamp: Date.now(),
+      source: 'web_serial'
+    });
+
+    const errorPayload = await errorPromise;
+    expect(errorPayload).toEqual(expect.objectContaining({ code: 'RFID_SENSOR_UNAUTHORIZED' }));
+
     socket.disconnect();
   });
 });

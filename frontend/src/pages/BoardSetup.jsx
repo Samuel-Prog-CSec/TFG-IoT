@@ -202,7 +202,10 @@ export default function BoardSetup() {
                     </button>
                     <button 
                         onClick={() => {
-                            navigate(ROUTES.GAME(sessionId));
+                                                        const playerQuery = selectedStudentId
+                                                            ? `?playerId=${encodeURIComponent(selectedStudentId)}`
+                                                            : '';
+                                                        navigate(`${ROUTES.GAME(sessionId)}${playerQuery}`);
                         }}
                         disabled={!canStart}
                         className="px-6 py-3 rounded-xl bg-emerald-500 text-white font-bold disabled:opacity-50 disabled:grayscale hover:bg-emerald-400 transition-all flex items-center gap-2 shadow-lg shadow-emerald-500/20"

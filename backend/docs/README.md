@@ -12,6 +12,7 @@ Documentacion tecnica del backend. Incluye decisiones de arquitectura, seguridad
 - Logging_Strategy.md: estrategia de logging con Pino.
 - Performance_Notes.md: notas de rendimiento y optimizaciones.
 - RFID_Protocol.md: contrato y eventos RFID.
+- RFID_Runtime_Flows.md: flujos runtime RFID (autoridad, secuencias y errores esperados).
 - Security_Logging.md: eventos y estrategia de logging de seguridad.
 - WebSerial_Architecture.md: arquitectura Web Serial.
 - WebSockets-ExtendedUsage.md: eventos y patrones de WebSocket.

@@ -109,6 +109,24 @@ const DIFFICULTY_PRESETS = {
   }
 };
 
+const DIFFICULTY_VARIANT_STYLES = {
+  easy: {
+    selectedCard: 'border-emerald-500 bg-emerald-500/10',
+    selectedText: 'text-emerald-400',
+    selectedIndicator: 'bg-emerald-500'
+  },
+  medium: {
+    selectedCard: 'border-amber-500 bg-amber-500/10',
+    selectedText: 'text-amber-400',
+    selectedIndicator: 'bg-amber-500'
+  },
+  hard: {
+    selectedCard: 'border-rose-500 bg-rose-500/10',
+    selectedText: 'text-rose-400',
+    selectedIndicator: 'bg-rose-500'
+  }
+};
+
 /**
  * Página de creación de sesiones
  */
@@ -673,9 +691,9 @@ function StepRules({
   currentSensorId
 }) {
   const difficulties = [
-    { id: 'easy', label: 'Fácil', color: 'emerald', description: 'Más tiempo, sin penalización' },
-    { id: 'medium', label: 'Normal', color: 'amber', description: 'Configuración equilibrada' },
-    { id: 'hard', label: 'Difícil', color: 'rose', description: 'Menos tiempo, más penalización' }
+    { id: 'easy', label: 'Fácil', description: 'Más tiempo, sin penalización' },
+    { id: 'medium', label: 'Normal', description: 'Configuración equilibrada' },
+    { id: 'hard', label: 'Difícil', description: 'Menos tiempo, más penalización' }
   ];
 
   return (
@@ -687,14 +705,18 @@ function StepRules({
         </h2>
         
         <div className="space-y-3">
-          {difficulties.map((d) => (
+          {difficulties.map((d) => {
+            const style = DIFFICULTY_VARIANT_STYLES[d.id] || DIFFICULTY_VARIANT_STYLES.medium;
+            const isSelected = difficulty === d.id;
+
+            return (
             <motion.button
               key={d.id}
               onClick={() => onDifficultyChange(d.id)}
               className={cn(
                 'w-full p-4 rounded-xl border-2 text-left transition-all',
-                difficulty === d.id
-                  ? `border-${d.color}-500 bg-${d.color}-500/10`
+                isSelected
+                  ? style.selectedCard
                   : 'border-white/10 bg-slate-800/30 hover:border-white/20'
               )}
               whileHover={{ x: 4 }}
@@ -703,24 +725,28 @@ function StepRules({
                 <div>
                   <h3 className={cn(
                     'font-medium',
-                    difficulty === d.id ? `text-${d.color}-400` : 'text-white'
+                    isSelected ? style.selectedText : 'text-white'
                   )}>
                     {d.label}
                   </h3>
                   <p className="text-xs text-slate-400">{d.description}</p>
                 </div>
-                {difficulty === d.id && (
+                {isSelected && (
                   <motion.div
                     initial={{ scale: 0 }}
                     animate={{ scale: 1 }}
-                    className={`w-6 h-6 rounded-full bg-${d.color}-500 flex items-center justify-center`}
+                    className={cn(
+                      'w-6 h-6 rounded-full flex items-center justify-center',
+                      style.selectedIndicator
+                    )}
                   >
                     <Check size={14} className="text-white" />
                   </motion.div>
                 )}
               </div>
             </motion.button>
-          ))}
+            );
+          })}
         </div>
       </GlassCard>
 

@@ -715,6 +715,22 @@ export const sessionsAPI = {
     api.post('/sessions', data),
 
   /**
+   * Iniciar sesión de juego
+   * @param {string} sessionId
+   * @returns {Promise}
+   */
+  startSession: (sessionId) =>
+    api.post(`/sessions/${sessionId}/start`, {}),
+
+  /**
+   * Finalizar sesión de juego
+   * @param {string} sessionId
+   * @returns {Promise}
+   */
+  endSession: (sessionId) =>
+    api.post(`/sessions/${sessionId}/end`, {}),
+
+  /**
    * Actualizar sesión existente
    * @param {string} sessionId - ID de la sesión
    * @param {Object} data - Datos a actualizar
@@ -730,6 +746,48 @@ export const sessionsAPI = {
    */
   deleteSession: (sessionId) => 
     api.delete(`/sessions/${sessionId}`),
+};
+
+export const playsAPI = {
+  /**
+   * Obtener partidas con filtros.
+   * @param {Object} params
+   * @returns {Promise}
+   */
+  getPlays: (params = {}, config = {}) =>
+    api.get('/plays', { params, ...config }),
+
+  /**
+   * Crear una nueva partida.
+   * @param {{sessionId: string, playerId: string}} data
+   * @returns {Promise}
+   */
+  createPlay: (data) =>
+    api.post('/plays', data),
+
+  /**
+   * Pausar partida.
+   * @param {string} playId
+   * @returns {Promise}
+   */
+  pausePlay: (playId) =>
+    api.post(`/plays/${playId}/pause`, {}),
+
+  /**
+   * Reanudar partida.
+   * @param {string} playId
+   * @returns {Promise}
+   */
+  resumePlay: (playId) =>
+    api.post(`/plays/${playId}/resume`, {}),
+
+  /**
+   * Abandonar partida.
+   * @param {string} playId
+   * @returns {Promise}
+   */
+  abandonPlay: (playId) =>
+    api.post(`/plays/${playId}/abandon`, {})
 };
 
 export default api;

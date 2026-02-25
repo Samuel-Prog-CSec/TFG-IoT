@@ -31,7 +31,9 @@ class ResumePlayCommand extends BaseSocketCommand {
       }
 
       await gameEngine.resumePlayInternal(playId, { requestedBy: socket.data.userId });
-      helpers.setRfidModeState(socket.data.userId, helpers.RFID_MODES.GAMEPLAY, socket.id);
+      helpers.setRfidModeState(socket.data.userId, helpers.RFID_MODES.GAMEPLAY, socket.id, {
+        playId
+      });
     } catch (error) {
       logger.error(`Error al reanudar la partida: ${error.message}`);
       socket.emit('error', { code: 'ENGINE_ERROR', message: 'Error al reanudar la partida' });

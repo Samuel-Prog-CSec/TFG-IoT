@@ -1,5 +1,8 @@
 # Extensión del Uso de WebSockets en la Plataforma RFID
 
+> [!NOTE]
+> Para una explicación operacional end-to-end de actores, ownership, modos y errores esperados en runtime RFID, ver [RFID_Runtime_Flows.md](RFID_Runtime_Flows.md).
+
 ## Índice
 
 1. [Estado Actual](#1-estado-actual)
@@ -591,10 +594,6 @@ io.on('connection', socket => {
 
 | Evento | Payload | Descripción |
 | --- | --- | --- |
-| `start_card_registration` | `{}` | Activar modo registro |
-| `cancel_card_registration` | `{}` | Cancelar modo registro |
-| `start_card_assignment` | `{ assetKey, assetDisplay, sessionDraft? }` | Activar modo asignación |
-| `cancel_card_assignment` | `{}` | Cancelar modo asignación |
 | `join_play` | `{ playId }` | Unirse a partida (existente) |
 | `start_play` | `{ playId }` | Iniciar partida (existente) |
 | `pause_play` | `{ playId }` | Pausar partida (solo profesor) |
@@ -603,6 +602,8 @@ io.on('connection', socket => {
 | `leave_play` | `{ playId }` | Abandonar partida (existente) |
 | `join_card_registration` | `{}` | Unirse al room de registro |
 | `leave_card_registration` | `{}` | Salir del room de registro |
+| `join_card_assignment` | `{}` | Unirse al room de asignación |
+| `leave_card_assignment` | `{}` | Salir del room de asignación |
 | `join_admin_room` | `{}` | Unirse al room de admin |
 | `leave_admin_room` | `{}` | Salir del room de admin |
 | `rfid_scan_from_client` | `{ uid, type, sensorId, timestamp, source }` | Escaneo RFID desde cliente |
@@ -611,17 +612,9 @@ io.on('connection', socket => {
 
 | Evento | Payload | Descripción |
 | --- | --- | --- |
-| `registration_mode_active` | `{ message, timeout }` | Modo registro activado |
-| `registration_mode_cancelled` | `{}` | Modo registro cancelado |
-| `card_registration_scan` | `{ uid, type, message }` | Tarjeta escaneada (registro) |
-| `card_registration_error` | `{ message, uid, existingCardId? }` | Error en registro |
-| `assignment_mode_active` | `{ message, assetKey, timeout }` | Modo asignación activado |
-| `assignment_mode_cancelled` | `{}` | Modo asignación cancelado |
-| `card_assignment_scan` | `{ uid, cardId, cardMetadata, assetKey, assetDisplay }` | Tarjeta asignada |
-| `card_assignment_error` | `{ message, uid, assetKey }` | Error en asignación |
-| `mode_timeout` | `{ mode, context }` | Timeout del modo activo |
 | `rfid_event` | `{ event, uid?, type?, ... }` | Evento RFID dirigido por room |
 | `rfid_status` | `{ status }` | Estado de conexión sensor (admin_room) |
+| `rfid_mode_changed` | `{ mode, sensorId, metadata, socketId, updatedAt }` | Estado canónico del modo RFID por usuario |
 | `play_paused` | `{ playId, currentRound, remainingTimeMs }` | Partida pausada |
 | `play_resumed` | `{ playId, currentRound, remainingTimeMs, challenge? }` | Partida reanudada |
 | `session_invalidated` | `{ reason, timestamp }` | Sesión cerrada por nuevo login en otro dispositivo |

@@ -34,6 +34,15 @@ const rfidModeByUserId = new Map();
 const sensorIdToUserId = new Map();
 const authRevalidationCache = new Map();
 const playOwnershipCache = new Map();
+let socketServerRef = null;
+
+const emitRfidModeChanged = (userId, payload) => {
+  if (!socketServerRef || !userId) {
+    return;
+  }
+
+  socketServerRef.to(`user_${userId}`).emit('rfid_mode_changed', payload);
+};
 
 const sweepExpiredEntries = cacheMap => {
   if (!cacheMap || cacheMap.size < CACHE_SWEEP_THRESHOLD) {
@@ -156,12 +165,28 @@ const setRfidModeState = (userId, mode, socketId, metadata = {}) => {
   }
 
   const current = rfidModeByUserId.get(userId);
+  const modeChangedAt = Date.now();
+
+  if (current?.socketId && current.socketId !== socketId) {
+    socketServerRef?.to(current.socketId).emit('error', {
+      code: 'RFID_MODE_TAKEN_OVER',
+      message: 'Otro cliente tomó el control del modo RFID para este usuario'
+    });
+  }
+
   if (current?.sensorId) {
     sensorIdToUserId.delete(current.sensorId);
   }
 
   if (mode === RFID_MODES.IDLE) {
     rfidModeByUserId.delete(userId);
+    emitRfidModeChanged(userId, {
+      mode: RFID_MODES.IDLE,
+      sensorId: null,
+      metadata: {},
+      socketId: null,
+      updatedAt: modeChangedAt
+    });
     return;
   }
 
@@ -170,7 +195,15 @@ const setRfidModeState = (userId, mode, socketId, metadata = {}) => {
     socketId,
     sensorId: null,
     metadata,
-    updatedAt: Date.now()
+    updatedAt: modeChangedAt
+  });
+
+  emitRfidModeChanged(userId, {
+    mode,
+    sensorId: null,
+    metadata,
+    socketId,
+    updatedAt: modeChangedAt
   });
 };
 
@@ -185,12 +218,24 @@ const setRfidSensorBinding = (userId, sensorId, socketId) => {
   }
 
   sensorIdToUserId.set(sensorId, userId);
+  const nextUpdatedAt = Date.now();
   rfidModeByUserId.set(userId, {
     ...current,
     sensorId,
     socketId,
-    updatedAt: Date.now()
+    updatedAt: nextUpdatedAt
   });
+
+  const nextState = rfidModeByUserId.get(userId);
+  if (nextState) {
+    emitRfidModeChanged(userId, {
+      mode: nextState.mode,
+      sensorId: nextState.sensorId,
+      metadata: nextState.metadata || {},
+      socketId: nextState.socketId || null,
+      updatedAt: nextUpdatedAt
+    });
+  }
 };
 
 const clearRfidModeState = (userId, socketId) => {
@@ -212,6 +257,13 @@ const clearRfidModeState = (userId, socketId) => {
   }
 
   rfidModeByUserId.delete(userId);
+  emitRfidModeChanged(userId, {
+    mode: RFID_MODES.IDLE,
+    sensorId: null,
+    metadata: {},
+    socketId: null,
+    updatedAt: Date.now()
+  });
 };
 
 const buildSocketSecurityMeta = socket => ({
@@ -498,6 +550,20 @@ const getRfidStateForSocket = (socket, logger) => {
 };
 
 const validateRfidStateForRead = (socket, modeState, state) => {
+  if (modeState?.socketId && modeState.socketId !== socket.id) {
+    socket.emit('error', {
+      code: 'RFID_SOCKET_NOT_ACTIVE',
+      message: 'Este socket no es el owner activo del modo RFID'
+    });
+    logSocketSecurityEvent('SECURITY_RFID_EVENT_INVALID', socket, {
+      eventName: 'rfid_scan_from_client',
+      reason: 'RFID_SOCKET_NOT_ACTIVE',
+      mode: modeState.mode,
+      activeSocketId: modeState.socketId
+    });
+    return false;
+  }
+
   if (!state.allowsReads()) {
     socket.emit('error', {
       code: 'RFID_MODE_INVALID',
@@ -647,6 +713,8 @@ const handleRfidScanFromClient = async (socket, data, gameEngine, rfidService, l
 };
 
 const registerSocketHandlers = ({ io, gameEngine, rfidService, socketRateLimiter, logger }) => {
+  socketServerRef = io;
+
   // Middleware de autenticacion obligatoria.
   io.use(async (socket, next) => {
     try {
@@ -756,6 +824,15 @@ const registerSocketHandlers = ({ io, gameEngine, rfidService, socketRateLimiter
     logger.info(`Cliente conectado: ${socket.id}`, {
       userId: socket.data.userId,
       role: socket.data.userRole
+    });
+
+    const currentMode = getRfidModeState(socket.data.userId);
+    socket.emit('rfid_mode_changed', {
+      mode: currentMode.mode,
+      sensorId: currentMode.sensorId || null,
+      metadata: currentMode.metadata || {},
+      socketId: currentMode.socketId || null,
+      updatedAt: currentMode.updatedAt || Date.now()
     });
 
     const sensitiveEvents = new Set([

@@ -5,8 +5,8 @@
  * @module App
  */
 
-import { BrowserRouter, Routes, Route, Navigate, useLocation } from 'react-router-dom';
-import { lazy, Suspense, useMemo } from 'react';
+import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
+import { lazy, Suspense } from 'react';
 import { Toaster } from 'sonner';
 import { AuthProvider } from './context/AuthContext';
 import { ProtectedRoute, GuestRoute, RequireRole } from './components/auth';
@@ -14,6 +14,7 @@ import AppLayout from './components/layout/AppLayout';
 import { ErrorBoundary } from './components/common';
 import { ROUTES } from './constants/routes';
 import RFIDModeHandler from './components/game/RFIDModeHandler';
+import { RfidModeProvider } from './context';
 
 // Lazy loaded pages for better performance
 const Dashboard = lazy(() => import('./pages/Dashboard'));
@@ -89,17 +90,6 @@ function SuspenseWrapper({ children }) {
  * Componente que envuelve el contenido de la aplicación para poder usar useLocation
  */
 function AppContent() {
-  const location = useLocation();
-  
-  // T-010: Determinar el modo RFID basado en la ruta
-  const rfidMode = useMemo(() => {
-    const path = location.pathname;
-    if (path.startsWith('/game/')) return 'gameplay';
-    if (path.includes('/register-cards')) return 'card_registration';
-    if (path.includes('/assign-cards')) return 'card_assignment';
-    return 'idle';
-  }, [location.pathname]);
-
   return (
     <>
       <Routes>
@@ -143,8 +133,7 @@ function AppContent() {
         <Route path="*" element={<Navigate to={ROUTES.HOME} replace />} />
       </Routes>
       
-      {/* T-010: Visualización global del modo RFID */}
-      <RFIDModeHandler currentMode={rfidMode} />
+      <RFIDModeHandler />
     </>
   );
 }
@@ -156,22 +145,24 @@ export default function App() {
   return (
     <BrowserRouter>
       <AuthProvider>
-        <AppContent />
-        <Toaster 
-          position="top-right"
-          expand={false}
-          richColors
-          closeButton
-          theme="dark"
-          toastOptions={{
-            duration: 4000,
-            style: {
-              background: 'rgba(30, 41, 59, 0.95)',
-              border: '1px solid rgba(255, 255, 255, 0.1)',
-              backdropFilter: 'blur(8px)',
-            },
-          }}
-        />
+        <RfidModeProvider>
+          <AppContent />
+          <Toaster 
+            position="top-right"
+            expand={false}
+            richColors
+            closeButton
+            theme="dark"
+            toastOptions={{
+              duration: 4000,
+              style: {
+                background: 'rgba(30, 41, 59, 0.95)',
+                border: '1px solid rgba(255, 255, 255, 0.1)',
+                backdropFilter: 'blur(8px)',
+              },
+            }}
+          />
+        </RfidModeProvider>
       </AuthProvider>
     </BrowserRouter>
   );
