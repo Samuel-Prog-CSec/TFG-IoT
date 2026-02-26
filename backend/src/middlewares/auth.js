@@ -865,6 +865,13 @@ const logout = async (req, res, next) => {
       }
     }
 
+    // SINGLE SESSION: invalidar inmediatamente el access token actual
+    // incluso si Redis no está disponible para blacklist.
+    if (req.user?.currentSessionId) {
+      req.user.currentSessionId = crypto.randomUUID();
+      await req.user.save();
+    }
+
     logSecurityEvent('AUTH_TOKEN_REVOKED', {
       ...getRequestContext(req),
       userId: req.user._id,

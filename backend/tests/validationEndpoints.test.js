@@ -294,10 +294,10 @@ describe('Validation (Zod) - All API endpoints', () => {
       expect(res.statusCode).toBe(400);
     });
 
-    it('POST /api/contexts - invalid body', async () => {
+    it('POST /api/contexts - invalid body (solo super_admin puede crear)', async () => {
       const res = await request(app)
         .post('/api/contexts')
-        .set(makeAuthHeaders(teacherToken))
+        .set(makeAuthHeaders(superAdminToken))
         .send({ contextId: 'geo' });
 
       expect(res.statusCode).toBe(400);

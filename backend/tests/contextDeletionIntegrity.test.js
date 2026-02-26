@@ -8,7 +8,8 @@ const { generateTokenPair } = require('../src/middlewares/auth');
 
 describe('Context deletion integrity', () => {
   let teacher;
-  let teacherToken;
+  let superAdmin;
+  let superAdminToken;
 
   const mockReq = {
     headers: {
@@ -32,7 +33,17 @@ describe('Context deletion integrity', () => {
       accountStatus: 'approved'
     });
 
-    teacherToken = (await generateTokenPair(teacher, mockReq)).accessToken;
+    // Solo super_admin puede borrar contextos
+    superAdmin = await User.create({
+      name: 'Super Admin Context Integrity',
+      email: 'superadmin.context.integrity@test.com',
+      password: 'Password123',
+      role: 'super_admin',
+      status: 'active',
+      accountStatus: 'approved'
+    });
+
+    superAdminToken = (await generateTokenPair(superAdmin, mockReq)).accessToken;
   });
 
   it('blocks context deletion when active deck dependencies exist', async () => {
@@ -65,7 +76,7 @@ describe('Context deletion integrity', () => {
 
     const res = await request(app)
       .delete(`/api/contexts/${context._id}`)
-      .set('Authorization', `Bearer ${teacherToken}`)
+      .set('Authorization', `Bearer ${superAdminToken}`)
       .set('User-Agent', 'jest-context-integrity')
       .set('Accept-Language', 'en')
       .set('Accept-Encoding', 'gzip');
@@ -106,7 +117,7 @@ describe('Context deletion integrity', () => {
 
     const res = await request(app)
       .delete(`/api/contexts/${context._id}`)
-      .set('Authorization', `Bearer ${teacherToken}`)
+      .set('Authorization', `Bearer ${superAdminToken}`)
       .set('User-Agent', 'jest-context-integrity')
       .set('Accept-Language', 'en')
       .set('Accept-Encoding', 'gzip');
@@ -115,5 +126,27 @@ describe('Context deletion integrity', () => {
 
     const deletedContext = await GameContext.findById(context._id);
     expect(deletedContext).toBeNull();
+  });
+
+  it('denies context deletion to teacher (only super_admin allowed)', async () => {
+    const teacherToken = (await generateTokenPair(teacher, mockReq)).accessToken;
+    const context = await GameContext.create({
+      contextId: `ctx-teacher-deny-${Date.now()}`,
+      name: 'Context Teacher Deny',
+      assets: []
+    });
+
+    const res = await request(app)
+      .delete(`/api/contexts/${context._id}`)
+      .set('Authorization', `Bearer ${teacherToken}`)
+      .set('User-Agent', 'jest-context-integrity')
+      .set('Accept-Language', 'en')
+      .set('Accept-Encoding', 'gzip');
+
+    expect(res.statusCode).toBe(403);
+
+    // El contexto debe seguir existiendo
+    const stillExists = await GameContext.findById(context._id);
+    expect(stillExists).toBeTruthy();
   });
 });

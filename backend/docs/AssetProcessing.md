@@ -8,9 +8,10 @@ Este documento describe el sistema de procesamiento y validación de archivos mu
 2. [Procesamiento de Imágenes](#procesamiento-de-imágenes)
 3. [Validación de Audio](#validación-de-audio)
 4. [Almacenamiento](#almacenamiento)
-5. [Seguridad](#seguridad)
-6. [Configuración](#configuración)
-7. [Ejemplos de Uso](#ejemplos-de-uso)
+5. [Permisos por Rol](#permisos-por-rol)
+6. [Seguridad](#seguridad)
+7. [Configuración](#configuración)
+8. [Ejemplos de Uso](#ejemplos-de-uso)
 
 ---
 
@@ -149,15 +150,18 @@ Los archivos se almacenan en **Supabase Storage**. El servicio proporciona:
 #### Estructura de Rutas
 
 ```
-bucket/
-├── contexts/
-│   └── {contextId}/
-│       ├── images/
-│       │   ├── {assetKey}_main.webp
-│       │   └── {assetKey}_thumb.webp
-│       └── audio/
-│           └── {assetKey}.mp3
+bucket: game-assets
+├── ctx-{MongoDB_ObjectId}/
+│   ├── image/
+│   │   └── {timestamp}-{sanitizedKey}.webp        ← imagen principal (768×768)
+│   ├── thumbnail/
+│   │   └── {timestamp}-{sanitizedKey}.webp        ← thumbnail (256×256)
+│   └── audio/
+│       └── {timestamp}-{sanitizedKey}.mp3         ← audio MP3/OGG
 ```
+
+> **Importante**: La ruta usa el `_id` de MongoDB del documento `GameContext`, no el campo
+> `contextId` (slug). Esto garantiza rutas inmutables aunque el slug del contexto cambie.
 
 #### Sanitización de Nombres
 
@@ -177,8 +181,46 @@ Los nombres de archivo se sanitizan para prevenir:
 Los archivos son accesibles mediante URLs públicas de Supabase:
 
 ```
-https://{project}.supabase.co/storage/v1/object/public/{bucket}/contexts/{contextId}/images/{key}_main.webp
+https://{project}.supabase.co/storage/v1/object/public/game-assets/ctx-{ObjectId}/image/{timestamp}-{key}.webp
 ```
+
+El bucket `game-assets` tiene política SELECT para los roles `anon` y `authenticated`.
+Las escrituras y borrados se realizan exclusivamente mediante la `SUPABASE_SERVICE_KEY`.
+
+#### Eliminación de Carpeta de Contexto (`deleteFolder`)
+
+Cuando un `super_admin` elimina un contexto, el método `storageService.deleteFolder(contextObjectId)`
+realiza la limpieza completa de Supabase Storage:
+
+1. Lista los archivos en `ctx-{id}/image`, `ctx-{id}/thumbnail` y `ctx-{id}/audio` en paralelo.
+2. Consolida todos los paths y los pasa a `supabase.storage.from(bucket).remove([...paths])`.
+3. **Hard-fail**: si Supabase devuelve error o el circuit breaker está abierto, se lanza una
+   excepción y el documento en MongoDB **no se elimina** — el cliente recibe un error 500.
+   Esto garantiza consistencia: nunca puede quedar un contexto borrado de la BD con archivos
+   huérfanos en Storage, ni viceversa.
+4. **Única excepción**: si `SUPABASE_SERVICE_KEY` no está configurada (entorno local de desarrollo
+   sin Supabase), se omite en silencio con un `warn` en los logs.
+
+```javascript
+// Comportamiento en controller
+await storageService.deleteFolder(context._id.toString()); // lanza si Supabase falla
+await context.deleteOne();                                   // solo ejecuta si Storage tuvo éxito
+```
+
+---
+
+## Permisos por Rol
+
+| Acción | `teacher` | `super_admin` |
+|---|:---:|:---:|
+| Listar contextos | ✅ | ✅ |
+| Ver detalle de contexto | ✅ | ✅ |
+| Subir imagen/thumbnail | ✅ | ✅ |
+| Subir audio | ✅ | ✅ |
+| Eliminar imagen/audio individual | ✅ | ✅ |
+| **Crear contexto** | ❌ | ✅ |
+| **Editar metadatos de contexto** | ❌ | ✅ |
+| **Eliminar contexto (+ Storage)** | ❌ | ✅ |
 
 ---
 
@@ -219,7 +261,7 @@ Si ocurre un error después de subir archivos (ej: fallo al guardar en BD), el s
 # Supabase Storage
 SUPABASE_URL=https://xxx.supabase.co
 SUPABASE_SERVICE_KEY=eyJ...
-SUPABASE_BUCKET=rfid-games-assets
+SUPABASE_BUCKET=game-assets
 ```
 
 ### Constantes de Configuración
@@ -282,12 +324,14 @@ Esto evita discrepancias entre mensajes de frontend y restricciones efectivas de
 curl -X POST \
   -H "Authorization: Bearer {token}" \
   -H "X-CSRF-Token: {csrf}" \
-  -F "image=@bandera_espana.png" \
+  -F "file=@bandera_espana.png" \
   -F "key=espana" \
   -F "value=España" \
   -F "display=🇪🇸" \
-  http://localhost:5000/api/contexts/{contextId}/images
+  http://localhost:5000/api/contexts/{contextMongoId}/images
 ```
+
+> **Campo multipart**: siempre `file` (no `image` ni `audio`).
 
 **Respuesta:**
 ```json
@@ -310,9 +354,9 @@ curl -X POST \
 curl -X POST \
   -H "Authorization: Bearer {token}" \
   -H "X-CSRF-Token: {csrf}" \
-  -F "audio=@espana_pronunciacion.mp3" \
+  -F "file=@espana_pronunciacion.mp3" \
   -F "key=espana" \
-  http://localhost:5000/api/contexts/{contextId}/audio
+  http://localhost:5000/api/contexts/{contextMongoId}/audio
 ```
 
 **Respuesta:**
@@ -341,8 +385,19 @@ curl -X GET \
 curl -X DELETE \
   -H "Authorization: Bearer {token}" \
   -H "X-CSRF-Token: {csrf}" \
-  http://localhost:5000/api/contexts/{contextId}/images/espana
+  http://localhost:5000/api/contexts/{contextMongoId}/images/espana
 ```
+
+### Eliminar Contexto completo (super_admin)
+
+```bash
+curl -X DELETE \
+  -H "Authorization: Bearer {token}" \
+  -H "X-CSRF-Token: {csrf}" \
+  http://localhost:5000/api/contexts/{contextMongoId}
+```
+
+> Elimina el documento en MongoDB **y** todos los archivos en `ctx-{ObjectId}/` de Supabase Storage.
 
 ---
 
@@ -376,4 +431,4 @@ sequenceDiagram
 
 ---
 
-*Última actualización: 29-12-2025*
+*Última actualización: 26-02-2026*

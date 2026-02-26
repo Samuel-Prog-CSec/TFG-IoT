@@ -12,7 +12,11 @@ import {
   Check,
   Play,
   Pause,
-  AlertTriangle
+  AlertTriangle,
+  Trash2,
+  Pencil,
+  Loader2,
+  ShieldCheck
 } from 'lucide-react';
 import { toast } from 'sonner';
 
@@ -23,6 +27,7 @@ import {
   SkeletonCard 
 } from '../components/ui';
 import { cn } from '../lib/utils';
+import { useAuth } from '../context/AuthContext';
 import { contextsAPI, extractData, extractErrorMessage } from '../services/api';
 import { ROUTES } from '../constants/routes';
 
@@ -39,12 +44,16 @@ const DROPZONE_VARIANTS = {
 export default function ContextDetailPage() {
   const { contextId } = useParams();
   const navigate = useNavigate();
+  const { isSuperAdmin } = useAuth();
   
   const [context, setContext] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   
   const [showUploadModal, setShowUploadModal] = useState(false);
+  const [showEditModal, setShowEditModal] = useState(false);
+  const [showDeleteModal, setShowDeleteModal] = useState(false);
+  const [isDeletingAsset, setIsDeletingAsset] = useState(null); // key del asset en borrado
   
   const fetchContext = async () => {
     try {
@@ -57,6 +66,32 @@ export default function ContextDetailPage() {
       setError(extractErrorMessage(err));
     } finally {
       setLoading(false);
+    }
+  };
+
+  const handleDeleteAsset = async (asset) => {
+    const contextDocId = context._id || context.id;
+    const assetKey = asset.key;
+
+    setIsDeletingAsset(assetKey);
+    try {
+      if (asset.imageUrl || asset.thumbnailUrl) {
+        await contextsAPI.deleteImage(contextDocId, assetKey);
+      } else if (asset.audioUrl) {
+        await contextsAPI.deleteAudio(contextDocId, assetKey);
+      }
+      toast.success(`Asset "${asset.value}" eliminado`);
+      await fetchContext();
+    } catch (err) {
+      const msg = extractErrorMessage(err);
+      // 409 = asset en uso por algún mazo activo
+      if (err?.response?.status === 409) {
+        toast.error('No se puede eliminar: el asset está en uso por un mazo activo', { description: msg });
+      } else {
+        toast.error('Error al eliminar el asset', { description: msg });
+      }
+    } finally {
+      setIsDeletingAsset(null);
     }
   };
 
@@ -130,13 +165,35 @@ export default function ContextDetailPage() {
               </div>
             </div>
             
-            <ButtonPremium 
-              onClick={() => setShowUploadModal(true)}
-              icon={<Plus size={18} />}
-              className="w-full md:w-auto"
-            >
-              Añadir Asset
-            </ButtonPremium>
+            <div className="flex items-center gap-3 w-full md:w-auto flex-wrap">
+              {isSuperAdmin && (
+                <>
+                  <ButtonPremium
+                    variant="ghost"
+                    onClick={() => setShowEditModal(true)}
+                    icon={<Pencil size={16} />}
+                    className="flex-1 md:flex-none"
+                  >
+                    Editar
+                  </ButtonPremium>
+                  <ButtonPremium
+                    variant="danger"
+                    onClick={() => setShowDeleteModal(true)}
+                    icon={<Trash2 size={16} />}
+                    className="flex-1 md:flex-none"
+                  >
+                    Eliminar contexto
+                  </ButtonPremium>
+                </>
+              )}
+              <ButtonPremium 
+                onClick={() => setShowUploadModal(true)}
+                icon={<Plus size={18} />}
+                className="flex-1 md:flex-none"
+              >
+                Añadir Asset
+              </ButtonPremium>
+            </div>
           </div>
         </GlassCard>
       </motion.div>
@@ -158,14 +215,20 @@ export default function ContextDetailPage() {
           <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-4">
             <AnimatePresence>
               {assets.map((asset, i) => (
-                <AssetCard key={asset.key} asset={asset} index={i} />
+                <AssetCard
+                  key={asset.key}
+                  asset={asset}
+                  index={i}
+                  onDelete={handleDeleteAsset}
+                  isDeleting={isDeletingAsset === asset.key}
+                />
               ))}
             </AnimatePresence>
           </div>
         )}
       </div>
 
-      {/* Modal Subida */}
+      {/* Modales */}
       <AnimatePresence>
         {showUploadModal && (
           <UploadAssetModal 
@@ -177,6 +240,23 @@ export default function ContextDetailPage() {
             }}
           />
         )}
+        {showEditModal && (
+          <EditContextModal
+            context={context}
+            onClose={() => setShowEditModal(false)}
+            onSuccess={() => {
+              setShowEditModal(false);
+              fetchContext();
+            }}
+          />
+        )}
+        {showDeleteModal && (
+          <DeleteContextModal
+            context={context}
+            onClose={() => setShowDeleteModal(false)}
+            onSuccess={() => navigate(ROUTES.CONTEXTS)}
+          />
+        )}
       </AnimatePresence>
     </div>
   );
@@ -186,7 +266,7 @@ export default function ContextDetailPage() {
 // COMPONENTES AUXILIARES
 // ============================================
 
-function AssetCard({ asset, index }) {
+function AssetCard({ asset, index, onDelete, isDeleting = false }) {
   const [isPlaying, setIsPlaying] = useState(false);
   const audioRef = useRef(null);
 
@@ -254,12 +334,28 @@ function AssetCard({ asset, index }) {
 
         {/* Detalles */}
         <div className="p-3 bg-slate-900/40 border-t border-white/5 flex-1 flex flex-col">
-          <h4 className="font-medium text-white truncate" title={asset.value}>
-            {asset.value}
-          </h4>
-          <p className="text-xs text-slate-500 font-mono mt-1 truncate" title={asset.key}>
-            {asset.key}
-          </p>
+          <div className="flex items-start justify-between gap-1">
+            <div className="min-w-0 flex-1">
+              <h4 className="font-medium text-white truncate" title={asset.value}>
+                {asset.value}
+              </h4>
+              <p className="text-xs text-slate-500 font-mono mt-1 truncate" title={asset.key}>
+                {asset.key}
+              </p>
+            </div>
+            {onDelete && (
+              <button
+                onClick={(e) => { e.stopPropagation(); onDelete(asset); }}
+                disabled={isDeleting}
+                className="flex-shrink-0 p-1.5 rounded-lg text-slate-500 hover:text-rose-400 hover:bg-rose-500/10 transition-colors disabled:opacity-50"
+                title="Eliminar asset"
+              >
+                {isDeleting
+                  ? <Loader2 size={14} className="animate-spin" />
+                  : <Trash2 size={14} />}
+              </button>
+            )}
+          </div>
         </div>
 
         {/* Audio helper */}
@@ -548,6 +644,188 @@ function UploadAssetModal({ context, onClose, onSuccess }) {
               </ButtonPremium>
             </div>
           </form>
+        </div>
+      </motion.div>
+    </div>
+  );
+}
+
+// ============================================
+// EditContextModal — solo super_admin
+// ============================================
+
+function EditContextModal({ context, onClose, onSuccess }) {
+  const [formData, setFormData] = useState({
+    name: context.name || '',
+    contextId: context.contextId || ''
+  });
+  const [isSubmitting, setIsSubmitting] = useState(false);
+
+  const handleSubmit = async (e) => {
+    e.preventDefault();
+    if (!formData.name.trim() || !formData.contextId.trim()) {
+      toast.error('El nombre y el identificador son requeridos');
+      return;
+    }
+
+    setIsSubmitting(true);
+    try {
+      const docId = context._id || context.id;
+      await contextsAPI.updateContext(docId, {
+        name: formData.name.trim(),
+        contextId: formData.contextId.trim().toLowerCase().replace(/[^a-z0-9_-]/g, '-')
+      });
+      toast.success('Contexto actualizado');
+      onSuccess();
+    } catch (err) {
+      toast.error('Error al actualizar el contexto', { description: extractErrorMessage(err) });
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm">
+      <motion.div
+        initial={{ scale: 0.9, opacity: 0 }}
+        animate={{ scale: 1, opacity: 1 }}
+        exit={{ scale: 0.9, opacity: 0 }}
+        className="bg-slate-900 border border-white/10 rounded-2xl w-full max-w-md shadow-2xl"
+      >
+        <div className="flex items-center justify-between p-6 border-b border-white/5">
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 rounded-xl bg-indigo-500/20 flex items-center justify-center">
+              <Pencil size={20} className="text-indigo-400" />
+            </div>
+            <h3 className="text-lg font-semibold text-white">Editar Contexto</h3>
+          </div>
+          <button
+            onClick={onClose}
+            className="p-2 rounded-lg hover:bg-white/10 transition-colors text-slate-400"
+          >
+            <X size={20} />
+          </button>
+        </div>
+
+        <form onSubmit={handleSubmit} className="p-6 space-y-4">
+          <div className="flex items-center gap-2 text-amber-400 bg-amber-500/10 border border-amber-500/20 rounded-xl px-4 py-3 text-sm">
+            <ShieldCheck size={16} className="flex-shrink-0" />
+            <span>Solo los super_admin pueden editar los metadatos del contexto.</span>
+          </div>
+
+          <InputPremium
+            label="Nombre del contexto"
+            placeholder="Ej: Animales de la Granja"
+            value={formData.name}
+            onChange={e => setFormData(prev => ({ ...prev, name: e.target.value }))}
+            required
+          />
+
+          <InputPremium
+            label="Identificador único (contextId)"
+            placeholder="Ej: animales-granja"
+            value={formData.contextId}
+            onChange={e => setFormData(prev => ({
+              ...prev,
+              contextId: e.target.value.toLowerCase().replace(/[^a-z0-9_-]/g, '-')
+            }))}
+            required
+            info="Solo letras minúsculas, números y guiones"
+          />
+
+          <div className="flex justify-end gap-3 pt-2 border-t border-white/5">
+            <ButtonPremium type="button" variant="ghost" onClick={onClose} disabled={isSubmitting}>
+              Cancelar
+            </ButtonPremium>
+            <ButtonPremium type="submit" loading={isSubmitting} icon={<Check size={16} />}>
+              Guardar cambios
+            </ButtonPremium>
+          </div>
+        </form>
+      </motion.div>
+    </div>
+  );
+}
+
+// ============================================
+// DeleteContextModal — solo super_admin
+// ============================================
+
+function DeleteContextModal({ context, onClose, onSuccess }) {
+  const [isDeleting, setIsDeleting] = useState(false);
+
+  const handleDelete = async () => {
+    setIsDeleting(true);
+    try {
+      const docId = context._id || context.id;
+      await contextsAPI.deleteContext(docId);
+      toast.success(`Contexto "${context.name}" eliminado correctamente`);
+      onSuccess();
+    } catch (err) {
+      const status = err?.response?.status;
+      const msg = extractErrorMessage(err);
+      if (status === 409) {
+        toast.error('No se puede eliminar: el contexto tiene mazos activos asociados', { description: msg });
+      } else {
+        toast.error('Error al eliminar el contexto', { description: msg });
+      }
+    } finally {
+      setIsDeleting(false);
+      onClose();
+    }
+  };
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm">
+      <motion.div
+        initial={{ scale: 0.9, opacity: 0 }}
+        animate={{ scale: 1, opacity: 1 }}
+        exit={{ scale: 0.9, opacity: 0 }}
+        className="bg-slate-900 border border-rose-500/20 rounded-2xl w-full max-w-md shadow-2xl"
+      >
+        <div className="flex items-center justify-between p-6 border-b border-white/5">
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 rounded-xl bg-rose-500/20 flex items-center justify-center">
+              <Trash2 size={20} className="text-rose-400" />
+            </div>
+            <h3 className="text-lg font-semibold text-white">Eliminar Contexto</h3>
+          </div>
+          <button
+            onClick={onClose}
+            className="p-2 rounded-lg hover:bg-white/10 transition-colors text-slate-400"
+          >
+            <X size={20} />
+          </button>
+        </div>
+
+        <div className="p-6 space-y-5">
+          <div className="space-y-3">
+            <p className="text-white">
+              ¿Estás seguro de que quieres eliminar el contexto <strong>&quot;{context.name}&quot;</strong>?
+            </p>
+            <div className="flex items-start gap-2 text-rose-400 bg-rose-500/10 border border-rose-500/20 rounded-xl px-4 py-3 text-sm">
+              <AlertTriangle size={16} className="flex-shrink-0 mt-0.5" />
+              <span>
+                Esta acción eliminará permanentemente todos los archivos de Supabase Storage asociados
+                a este contexto (<strong>{context.assets?.length || 0} assets</strong>).
+                Esta operación no se puede deshacer.
+              </span>
+            </div>
+          </div>
+
+          <div className="flex justify-end gap-3 pt-2 border-t border-white/5">
+            <ButtonPremium type="button" variant="ghost" onClick={onClose} disabled={isDeleting}>
+              Cancelar
+            </ButtonPremium>
+            <ButtonPremium
+              variant="danger"
+              onClick={handleDelete}
+              loading={isDeleting}
+              icon={<Trash2 size={16} />}
+            >
+              Sí, eliminar contexto
+            </ButtonPremium>
+          </div>
         </div>
       </motion.div>
     </div>

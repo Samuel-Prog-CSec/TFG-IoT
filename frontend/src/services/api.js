@@ -608,6 +608,50 @@ export const contextsAPI = {
     api.post(`/contexts/${contextId}/audio`, formData, {
       headers: { 'Content-Type': 'multipart/form-data' }
     }),
+
+  /**
+   * Crear un nuevo contexto de juego (solo super_admin)
+   * El contexto se crea vacío; los assets se añaden después mediante upload.
+   * @param {Object} data - { contextId: string, name: string }
+   * @returns {Promise} Respuesta con el contexto creado
+   */
+  createContext: (data) =>
+    api.post('/contexts', data),
+
+  /**
+   * Actualizar metadatos de un contexto (solo super_admin)
+   * @param {string} contextMongoId - MongoDB _id del contexto
+   * @param {Object} data - Campos a actualizar: { name?, contextId? }
+   * @returns {Promise} Respuesta con el contexto actualizado
+   */
+  updateContext: (contextMongoId, data) =>
+    api.put(`/contexts/${contextMongoId}`, data),
+
+  /**
+   * Eliminar un contexto completo y sus archivos de Storage (solo super_admin)
+   * @param {string} contextMongoId - MongoDB _id del contexto
+   * @returns {Promise} Confirmación de eliminación
+   */
+  deleteContext: (contextMongoId) =>
+    api.delete(`/contexts/${contextMongoId}`),
+
+  /**
+   * Eliminar la imagen de un asset (y el registro del asset completo)
+   * @param {string} contextMongoId - MongoDB _id del contexto
+   * @param {string} assetKey - Key del asset a eliminar
+   * @returns {Promise} Confirmación de eliminación
+   */
+  deleteImage: (contextMongoId, assetKey) =>
+    api.delete(`/contexts/${contextMongoId}/images/${assetKey}`),
+
+  /**
+   * Eliminar el audio de un asset (y el registro del asset completo)
+   * @param {string} contextMongoId - MongoDB _id del contexto
+   * @param {string} assetKey - Key del asset a eliminar
+   * @returns {Promise} Confirmación de eliminación
+   */
+  deleteAudio: (contextMongoId, assetKey) =>
+    api.delete(`/contexts/${contextMongoId}/audio/${assetKey}`),
 };
 
 // ============================================

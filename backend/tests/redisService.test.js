@@ -168,7 +168,7 @@ describe('RedisService', () => {
 
   describe('Scan y estadísticas', () => {
     // NOTA: ioredis-mock no soporta bien SCAN, estos tests se saltan
-    it.skip('scanByNamespace debería encontrar keys del namespace', async () => {
+    it('scanByNamespace debería encontrar keys del namespace', async () => {
       await redisService.set(redisService.NAMESPACES.BLACKLIST, 'scan-1', 'v1');
       await redisService.set(redisService.NAMESPACES.BLACKLIST, 'scan-2', 'v2');
       await redisService.set(redisService.NAMESPACES.SECURITY, 'other', 'v3');
@@ -180,7 +180,7 @@ describe('RedisService', () => {
     });
 
     // NOTA: flushNamespace usa scanByNamespace internamente
-    it.skip('flushNamespace debería limpiar solo el namespace especificado', async () => {
+    it('flushNamespace debería limpiar solo el namespace especificado', async () => {
       await redisService.set(redisService.NAMESPACES.BLACKLIST, 'flush-1', 'v1');
       await redisService.set(redisService.NAMESPACES.SECURITY, 'keep-1', 'v2');
 

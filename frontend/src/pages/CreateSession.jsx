@@ -46,6 +46,7 @@ import {
 import { 
   WizardStepper,
   ButtonPremium,
+  CardAssetPreview,
   GlassCard,
   DeckCard,
   InputPremium,
@@ -563,11 +564,14 @@ function StepDeck({ decks, loading, selectedDeckId, onSelect }) {
             )}
 
             {/* Preview de assets */}
-            <div className="flex flex-wrap gap-1 mb-3 h-8 overflow-hidden">
+            <div className="flex gap-1 mb-3 h-8 overflow-hidden">
               {cardsPreview.slice(0, 6).map((mapping) => (
-                <span key={mapping.id || mapping.uid} className="text-xl">
-                  {mapping.displayData?.display || mapping.displayData?.emoji || '🃏'}
-                </span>
+                <CardAssetPreview
+                  key={mapping.id || mapping.uid || mapping.cardId || mapping._id}
+                  asset={mapping.displayData}
+                  className="w-8 h-8 rounded-md flex-shrink-0"
+                  fallbackLabel={mapping.displayData?.display || mapping.displayData?.emoji || '\uD83C\uDFB3'}
+                />
               ))}
             </div>
 
@@ -924,12 +928,30 @@ function StepReview({ sessionConfig, setSessionConfig, selectedDeck, selectedMec
             <div className="w-10 h-10 rounded-lg bg-indigo-500/20 flex items-center justify-center flex-shrink-0">
               <CreditCard size={18} className="text-indigo-400" />
             </div>
-            <div>
+            <div className="flex-1 min-w-0">
               <p className="text-xs text-slate-400">Mazo</p>
               <p className="text-white font-medium">{selectedDeck?.name || 'No seleccionado'}</p>
               <p className="text-xs text-slate-500">
-                {selectedDeck?.cards?.length || 0} cartas • {selectedDeck?.contextId?.name}
+                {selectedDeck?.cards?.length || selectedDeck?.cardMappings?.length || 0} cartas \u2022 {selectedDeck?.contextId?.name}
               </p>
+              {/* Mini-galería de assets del mazo */}
+              {selectedDeck?.cardMappings?.length > 0 && (
+                <div className="flex gap-1 mt-2 overflow-x-auto pb-1 max-w-full">
+                  {selectedDeck.cardMappings.slice(0, 8).map((m) => (
+                    <CardAssetPreview
+                      key={m.id || m.uid || m.cardId || m._id}
+                      asset={m.displayData}
+                      className="w-9 h-9 rounded-lg flex-shrink-0"
+                      fallbackLabel={m.displayData?.display || m.displayData?.emoji || '\uD83C\uDFB3'}
+                    />
+                  ))}
+                  {selectedDeck.cardMappings.length > 8 && (
+                    <div className="w-9 h-9 rounded-lg flex-shrink-0 bg-slate-700/60 flex items-center justify-center text-xs text-slate-400">
+                      +{selectedDeck.cardMappings.length - 8}
+                    </div>
+                  )}
+                </div>
+              )}
             </div>
           </div>
 

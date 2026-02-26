@@ -88,13 +88,13 @@ const audioUpload = multer({
 /**
  * @route   GET /api/contexts
  * @desc    Obtener lista de contextos con filtros
- * @access  Private (Teacher)
+ * @access  Private (Teacher / Super_Admin)
  * @validation query: gameContextQuerySchema
  */
 router.get(
   '/',
   authenticate,
-  requireRole('teacher'),
+  requireRole('teacher', 'super_admin'),
   validateQuery(gameContextQuerySchema),
   getContexts
 );
@@ -102,13 +102,13 @@ router.get(
 /**
  * @route   GET /api/contexts/upload-config
  * @desc    Obtener configuración de límites para uploads
- * @access  Private (Teacher)
+ * @access  Private (Teacher / Super_Admin)
  * @validation query: emptyObjectSchema
  */
 router.get(
   '/upload-config',
   authenticate,
-  requireRole('teacher'),
+  requireRole('teacher', 'super_admin'),
   validateQuery(emptyObjectSchema),
   getUploadConfig
 );
@@ -116,13 +116,13 @@ router.get(
 /**
  * @route   GET /api/contexts/:id
  * @desc    Obtener contexto por ID o contextId
- * @access  Private (Teacher)
+ * @access  Private (Teacher / Super_Admin)
  * @validation params: gameContextParamsSchema | query: emptyObjectSchema
  */
 router.get(
   '/:id',
   authenticate,
-  requireRole('teacher'),
+  requireRole('teacher', 'super_admin'),
   validateParams(gameContextParamsSchema),
   validateQuery(emptyObjectSchema),
   getContextById
@@ -131,13 +131,13 @@ router.get(
 /**
  * @route   GET /api/contexts/:id/assets
  * @desc    Obtener assets de un contexto
- * @access  Private (Teacher)
+ * @access  Private (Teacher / Super_Admin)
  * @validation params: gameContextParamsSchema | query: emptyObjectSchema
  */
 router.get(
   '/:id/assets',
   authenticate,
-  requireRole('teacher'),
+  requireRole('teacher', 'super_admin'),
   validateParams(gameContextParamsSchema),
   validateQuery(emptyObjectSchema),
   getContextAssets
@@ -145,15 +145,15 @@ router.get(
 
 /**
  * @route   POST /api/contexts
- * @desc    Crear nuevo contexto
- * @access  Private (Teacher)
+ * @desc    Crear nuevo contexto (vacío; los assets se añaden después por los profesores)
+ * @access  Private (Super_Admin únicamente)
  * @validation body: createGameContextSchema | query: emptyObjectSchema
  */
 router.post(
   '/',
   createResourceRateLimiter, // Rate limiting para prevenir spam
   authenticate,
-  requireRole('teacher'),
+  requireRole('super_admin'),
   validateQuery(emptyObjectSchema),
   validateBody(createGameContextSchema),
   createContext
@@ -162,14 +162,14 @@ router.post(
 /**
  * @route   POST /api/contexts/:id/assets
  * @desc    Añadir asset a un contexto (sin archivo, solo metadatos)
- * @access  Private (Teacher)
+ * @access  Private (Teacher / Super_Admin)
  * @deprecated Usa POST /api/contexts/:id/images o /audio para subir con archivo
  * @validation params: gameContextIdParamsSchema | body: addAssetSchema | query: emptyObjectSchema
  */
 router.post(
   '/:id/assets',
   authenticate,
-  requireRole('teacher'),
+  requireRole('teacher', 'super_admin'),
   validateParams(gameContextIdParamsSchema),
   validateQuery(emptyObjectSchema),
   validateBody(addAssetSchema),
@@ -179,7 +179,7 @@ router.post(
 /**
  * @route   POST /api/contexts/:id/images
  * @desc    Subir imagen a un contexto (convierte a WebP, genera thumbnail)
- * @access  Private (Teacher)
+ * @access  Private (Teacher / Super_Admin)
  * @body    multipart/form-data { file, key, value, display? }
  * @validation params: gameContextIdParamsSchema | body: uploadAssetMetaSchema | query: emptyObjectSchema
  */
@@ -187,7 +187,7 @@ router.post(
   '/:id/images',
   uploadRateLimiter,
   authenticate,
-  requireRole('teacher'),
+  requireRole('teacher', 'super_admin'),
   validateParams(gameContextIdParamsSchema),
   validateQuery(emptyObjectSchema),
   imageUpload.single('file'),
@@ -198,7 +198,7 @@ router.post(
 /**
  * @route   POST /api/contexts/:id/audio
  * @desc    Subir audio a un contexto (valida MP3/OGG)
- * @access  Private (Teacher)
+ * @access  Private (Teacher / Super_Admin)
  * @body    multipart/form-data { file, key, value, display? }
  * @validation params: gameContextIdParamsSchema | body: uploadAssetMetaSchema | query: emptyObjectSchema
  */
@@ -206,7 +206,7 @@ router.post(
   '/:id/audio',
   uploadRateLimiter,
   authenticate,
-  requireRole('teacher'),
+  requireRole('teacher', 'super_admin'),
   validateParams(gameContextIdParamsSchema),
   validateQuery(emptyObjectSchema),
   audioUpload.single('file'),
@@ -216,14 +216,14 @@ router.post(
 
 /**
  * @route   PUT /api/contexts/:id
- * @desc    Actualizar contexto
- * @access  Private (Teacher)
+ * @desc    Actualizar metadatos del contexto (nombre, contextId)
+ * @access  Private (Super_Admin únicamente)
  * @validation params: gameContextIdParamsSchema | body: updateGameContextSchema | query: emptyObjectSchema
  */
 router.put(
   '/:id',
   authenticate,
-  requireRole('teacher'),
+  requireRole('super_admin'),
   validateParams(gameContextIdParamsSchema),
   validateQuery(emptyObjectSchema),
   validateBody(updateGameContextSchema),
@@ -232,14 +232,14 @@ router.put(
 
 /**
  * @route   DELETE /api/contexts/:id
- * @desc    Eliminar contexto
- * @access  Private (Teacher)
+ * @desc    Eliminar contexto con limpieza de Supabase Storage
+ * @access  Private (Super_Admin únicamente)
  * @validation params: gameContextIdParamsSchema | query: emptyObjectSchema
  */
 router.delete(
   '/:id',
   authenticate,
-  requireRole('teacher'),
+  requireRole('super_admin'),
   validateParams(gameContextIdParamsSchema),
   validateQuery(emptyObjectSchema),
   deleteContext
@@ -248,14 +248,14 @@ router.delete(
 /**
  * @route   DELETE /api/contexts/:id/assets/:assetKey
  * @desc    Eliminar asset de un contexto (genérico, legacy)
- * @access  Private (Teacher)
+ * @access  Private (Teacher / Super_Admin)
  * @deprecated Usa DELETE /api/contexts/:id/images/:assetKey o /audio/:assetKey
  * @validation params: gameContextAssetParamsSchema | query: emptyObjectSchema
  */
 router.delete(
   '/:id/assets/:assetKey',
   authenticate,
-  requireRole('teacher'),
+  requireRole('teacher', 'super_admin'),
   validateParams(gameContextAssetParamsSchema),
   validateQuery(emptyObjectSchema),
   removeAsset
@@ -264,13 +264,13 @@ router.delete(
 /**
  * @route   DELETE /api/contexts/:id/images/:assetKey
  * @desc    Eliminar imagen de un contexto
- * @access  Private (Teacher)
+ * @access  Private (Teacher / Super_Admin)
  * @validation params: gameContextAssetParamsSchema | query: emptyObjectSchema
  */
 router.delete(
   '/:id/images/:assetKey',
   authenticate,
-  requireRole('teacher'),
+  requireRole('teacher', 'super_admin'),
   validateParams(gameContextAssetParamsSchema),
   validateQuery(emptyObjectSchema),
   deleteImage
@@ -279,13 +279,13 @@ router.delete(
 /**
  * @route   DELETE /api/contexts/:id/audio/:assetKey
  * @desc    Eliminar audio de un contexto
- * @access  Private (Teacher)
+ * @access  Private (Teacher / Super_Admin)
  * @validation params: gameContextAssetParamsSchema | query: emptyObjectSchema
  */
 router.delete(
   '/:id/audio/:assetKey',
   authenticate,
-  requireRole('teacher'),
+  requireRole('teacher', 'super_admin'),
   validateParams(gameContextAssetParamsSchema),
   validateQuery(emptyObjectSchema),
   deleteAudio

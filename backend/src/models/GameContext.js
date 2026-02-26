@@ -95,20 +95,18 @@ const gameContextSchema = new mongoose.Schema(
 
 /**
  * Validación personalizada para el array de assets.
- * Asegura que cada contexto tenga al menos un asset y no exceda el máximo.
+ * Permite contextos vacíos (super_admin puede crear contextos sin assets;
+ * los profesores los añaden progresivamente). Solo comprueba el límite máximo.
  *
  * @param {Array<Asset>} value - El array de assets a validar
- * @returns {boolean} true si el array cumple las restricciones
+ * @returns {boolean} true si el array no supera el máximo
  */
-gameContextSchema.path('assets').validate(value => {
-  if (value.length === 0) {
-    return false;
-  }
-  if (value.length > MAX_ASSETS_PER_CONTEXT) {
-    return false;
-  }
-  return true;
-}, `El array de assets debe tener entre 1 y ${MAX_ASSETS_PER_CONTEXT} elementos.`);
+gameContextSchema
+  .path('assets')
+  .validate(
+    value => value.length <= MAX_ASSETS_PER_CONTEXT,
+    `El array de assets no puede superar ${MAX_ASSETS_PER_CONTEXT} elementos.`
+  );
 
 module.exports = mongoose.model('GameContext', gameContextSchema);
 module.exports.MAX_ASSETS_PER_CONTEXT = MAX_ASSETS_PER_CONTEXT;

@@ -12,7 +12,7 @@ import { ArrowLeft, Pencil, Layers, CreditCard, Calendar, Archive } from 'lucide
 import { toast } from 'sonner';
 import { decksAPI, extractData, extractErrorMessage, isAbortError } from '../services/api';
 import { ROUTES } from '../constants/routes';
-import { ButtonPremium, EmptyState, GlassCard, SkeletonCard, StatusBadge } from '../components/ui';
+import { ButtonPremium, CardAssetPreview, EmptyState, GlassCard, SkeletonCard, StatusBadge } from '../components/ui';
 import { pageVariants } from '../lib/utils';
 import { useRefetchOnFocus } from '../hooks';
 
@@ -40,22 +40,32 @@ function getContextName(deck) {
 }
 
 function getDeckCards(deck) {
-  if (!deck || !Array.isArray(deck.cards)) return [];
-  return deck.cards;
+  if (!deck) return [];
+  // Preferir cardMappings (estructura moderna) sobre cards
+  if (Array.isArray(deck.cardMappings) && deck.cardMappings.length > 0) return deck.cardMappings;
+  if (Array.isArray(deck.cards)) return deck.cards;
+  return [];
 }
 
 function getCardInfo(deckCard, index) {
   const card = deckCard?.cardId && typeof deckCard.cardId === 'object' ? deckCard.cardId : null;
   const uid = card?.uid || 'Sin UID';
   const label = card?.displayName || card?.name || `Tarjeta ${index + 1}`;
+
+  // Estructura moderna: displayData en deckCard.displayData o deckCard.assignedAsset?.displayData
+  const displayData = deckCard?.displayData || deckCard?.assignedAsset?.displayData || null;
   const asset = deckCard?.assignedAsset;
 
-  if (!asset) {
-    return { uid, label, assetLabel: 'Sin asset asignado' };
+  if (!asset && !displayData) {
+    return { uid, label, assetLabel: 'Sin asset asignado', displayData: null };
+  }
+
+  if (displayData) {
+    return { uid, label, assetLabel: displayData.value || displayData.display || 'Asset', displayData };
   }
 
   if (typeof asset === 'string') {
-    return { uid, label, assetLabel: asset };
+    return { uid, label, assetLabel: asset, displayData: null };
   }
 
   const displayAsset =
@@ -67,7 +77,7 @@ function getCardInfo(deckCard, index) {
     asset._id ||
     'Asset asignado';
 
-  return { uid, label, assetLabel: displayAsset };
+  return { uid, label, assetLabel: displayAsset, displayData: asset.displayData || null };
 }
 
 export default function CardDeckDetailPage() {
@@ -249,7 +259,7 @@ export default function CardDeckDetailPage() {
           ) : (
             <div className="space-y-3">
               {cards.map((deckCard, index) => {
-                const { uid, label, assetLabel } = getCardInfo(deckCard, index);
+                const { uid, label, assetLabel, displayData } = getCardInfo(deckCard, index);
                 const key = deckCard?._id || `${uid}-${index}`;
 
                 return (
@@ -261,7 +271,15 @@ export default function CardDeckDetailPage() {
                       <p className="text-white font-medium">{label}</p>
                       <p className="text-xs text-slate-400">UID: {uid}</p>
                     </div>
-                    <p className="text-sm text-indigo-300">{assetLabel}</p>
+                    <div className="flex items-center gap-3">
+                      {displayData ? (
+                        <CardAssetPreview
+                          asset={displayData}
+                          className="w-10 h-10 rounded-lg flex-shrink-0"
+                        />
+                      ) : null}
+                      <p className="text-sm text-indigo-300">{assetLabel}</p>
+                    </div>
                   </div>
                 );
               })}

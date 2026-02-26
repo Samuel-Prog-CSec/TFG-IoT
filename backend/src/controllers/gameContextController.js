@@ -8,6 +8,7 @@ const gameContextRepository = require('../repositories/gameContextRepository');
 const gameSessionRepository = require('../repositories/gameSessionRepository');
 const gamePlayRepository = require('../repositories/gamePlayRepository');
 const cardDeckRepository = require('../repositories/cardDeckRepository');
+const storageService = require('../services/storageService');
 const { NotFoundError, ConflictError, ValidationError } = require('../utils/errors');
 const logger = require('../utils/logger');
 const {
@@ -159,7 +160,7 @@ const getContextById = async (req, res, next) => {
 
 /**
  * Crear un nuevo contexto de juego.
- * Solo profesores pueden crear contextos.
+ * Solo super_admin puede crear contextos.
  *
  * POST /api/contexts
  * Headers: Authorization: Bearer <token>
@@ -182,18 +183,19 @@ const createContext = async (req, res, next) => {
       throw new ConflictError('Un contexto con este ID ya existe');
     }
 
-    // Crear contexto
+    // Crear contexto (assets puede ser [] — los profesores los añaden después via upload)
     const context = await gameContextRepository.create({
       contextId: contextId.toLowerCase(),
       name,
-      assets
+      assets: assets || []
     });
 
     logger.info('Contexto creado', {
       contextId: context.contextId,
       name: context.name,
       assetsCount: context.assets.length,
-      createdBy: req.user._id
+      createdBy: req.user._id,
+      role: req.user.role
     });
 
     res.status(201).json({
@@ -258,11 +260,12 @@ const updateContext = async (req, res, next) => {
 };
 
 /**
- * Eliminar un contexto.
- * Hard delete ya que no se usa si no hay sesiones asociadas.
+ * Eliminar un contexto (solo super_admin).
+ * Hard delete con limpieza de archivos en Supabase Storage.
+ * Bloqueado si existen decks/sesiones/plays activos que referencian el contexto.
  *
  * DELETE /api/contexts/:id
- * Headers: Authorization: Bearer <token>
+ * Headers: Authorization: Bearer <token> (super_admin)
  *
  * @param {import('express').Request} req
  * @param {import('express').Response} res
@@ -290,9 +293,15 @@ const deleteContext = async (req, res, next) => {
       );
     }
 
+    // Limpiar archivos del contexto en Supabase Storage.
+    // Hard-fail: si Supabase falla, se lanza excepción y el contexto NO se elimina de MongoDB.
+    // Única excepción: si Storage está deshabilitado intencionalmente (SUPABASE_SERVICE_KEY no configurada),
+    // se omite en silencio para compatibilidad con entornos de desarrollo locales sin Supabase.
+    await storageService.deleteFolder(context._id.toString());
+
     await context.deleteOne();
 
-    logger.info('Contexto eliminado', {
+    logger.info('Contexto eliminado con limpieza de Storage', {
       contextId: context.contextId,
       name: context.name,
       deletedBy: req.user._id
