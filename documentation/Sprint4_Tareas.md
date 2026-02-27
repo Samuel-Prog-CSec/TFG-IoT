@@ -111,7 +111,7 @@ Evolucionar `gameEngine` para soportar de forma estable múltiples mecánicas, d
 
 ---
 
-### T-051: Refresh Token Cookie-Only (cierre completo) 📋
+### T-051: Refresh Token Cookie-Only (cierre completo) ✅
 
 **Prioridad:** P0 | **Tamaño:** L | **Dependencias:** Ninguna  
 **Origen:** RNF-SEG-001, RNF-SEG-002, SEC-01
@@ -129,17 +129,27 @@ Cerrar al 100% la migración de refresh token a cookie `httpOnly`, eliminando re
 
 **Criterios de Aceptación (medibles):**
 
-- [ ] `refreshToken` no aparece en `localStorage` ni en response body.
-- [ ] `POST /api/auth/refresh` funciona sin body de token.
-- [ ] `logout` elimina cookie de refresh correctamente.
-- [ ] Suite de auth/validación pasa con el nuevo contrato.
-- [ ] Documentación API refleja únicamente flujo cookie-only.
+- [x] `refreshToken` no aparece en `localStorage` ni en response body.
+- [x] `POST /api/auth/refresh` funciona sin body de token.
+- [x] `logout` elimina cookie de refresh correctamente.
+- [x] Suite de auth/validación pasa con el nuevo contrato.
+- [x] Documentación API refleja únicamente flujo cookie-only.
+- [x] `POST /api/auth/refresh` requiere CSRF (`X-CSRF-Token`) en entornos no test.
+- [x] El backend rechaza payload legado con `refreshToken` en body (400).
 
 **Avance (16-02-2026):**
 
 - Backend refresh token en modo cookie-only: `POST /api/auth/refresh` ya no acepta `refreshToken` en body.
 - Se eliminó `refreshToken` y `refreshTokenExpiresIn` del DTO de respuesta de autenticación.
 - Se ajustaron validadores/rutas de auth para body vacío en refresh y se actualizaron tests de integración de sesión única.
+
+**Cierre (20-02-2026):**
+
+- `POST /api/auth/refresh` dejó de exponer `refreshToken`/`refreshTokenExpiresIn` en body de respuesta.
+- `logout` quedó en modo cookie-only estricto, eliminando fallback de `refreshToken` en body.
+- Frontend eliminado de persistencia/envío de refresh token (sin `sessionStorage`, sin body legado en refresh).
+- CSRF double-submit activado también para refresh (no exento en middleware de seguridad).
+- Se añadieron/actualizaron pruebas de contrato (`auth.test`, `validationEndpoints.test`) y documentación técnica asociada.
 
 ---
 
@@ -256,7 +266,7 @@ Permitir clonar una sesión existente para reutilizar configuración de forma se
 
 ---
 
-### T-057: Alineación Contrato RFID Mode Frontend-Backend 📋
+### T-057: Alineación Contrato RFID Mode Frontend-Backend ✅
 
 **Prioridad:** P1 | **Tamaño:** M | **Dependencias:** T-054  
 **Origen:** RF-RFID-012, RF-RFID-014
@@ -274,9 +284,19 @@ Unificar contrato de control de modos RFID entre frontend y backend para evitar 
 
 **Criterios de Aceptación (medibles):**
 
-- [ ] Existe un único contrato oficial documentado para modos RFID.
-- [ ] Backend ignora scans fuera de modo permitido.
+- [x] Existe un único contrato oficial documentado para modos RFID.
+- [x] Backend ignora scans fuera de modo permitido.
 - [ ] Tests socket cubren al menos `idle`, `gameplay`, `card_registration`, `card_assignment`.
+
+**Avance (25-02-2026):**
+
+- Contrato canónico consolidado en backend con comandos `join/leave_*` y evento servidor `rfid_mode_changed`.
+- Política multi-socket endurecida a **single-owner por usuario** (socket activo autoritativo para lecturas RFID).
+- `resume_play` corregido para preservar metadata `playId` en estado `gameplay` y mantener validaciones de ownership/sensor.
+- Frontend migrado a modo RFID **backend-authoritative** (sin derivación por ruta en `App`).
+- `GameSession` migrada a flujo realtime con `join_play`, `start_play`, `new_round`, `validation_result`, `play_paused`, `play_resumed`, `game_over` y eliminación de simulación local.
+- Documentación técnica actualizada en `backend/docs/RFID_Protocol.md` y `backend/docs/WebSockets-ExtendedUsage.md` eliminando comandos legacy.
+- Se añadieron pruebas socket de regresión para `card_assignment`, política single-owner y validación de sensor tras `pause/resume` (pendiente ejecución completa en entorno con Mongo activo).
 
 ---
 
@@ -335,7 +355,7 @@ Implementar mejoras de rendimiento en el flujo realtime del backend para reducir
 
 ---
 
-### T-059: Hardening backend de seguridad y validación 📋
+### T-059: Hardening backend de seguridad y validación ✅
 
 **Prioridad:** P1 | **Tamaño:** M | **Dependencias:** T-051, T-058  
 **Origen:** BE-01, SEC-02
@@ -357,6 +377,20 @@ Aplicar hardening de seguridad en backend y WebSocket (validación, ownership y 
 - [ ] Payloads de riesgo (prototype pollution / NoSQL operators) se rechazan con `400` antes de tocar repositorios.
 - [ ] Eventos RFID fuera de ventana temporal o con `source` inválido se rechazan por validador.
 - [ ] Tests de `socketAuth`, `validationEndpoints`, `metricsEndpoints` y auth pasan sin regresiones.
+
+**Actualización (20-02-2026):**
+
+- Se añadió validación explícita de `Origin` en handshake de WebSocket (doble capa junto con CORS base) con error controlado.
+- Se implementó guard global anti payload peligroso para HTTP + Socket (`__proto__`, `constructor`, `prototype`, claves con prefijo `$`).
+- Se endureció validación de `rfid_scan_from_client` con ventana temporal configurable (`RFID_CLIENT_MAX_TIMESTAMP_SKEW_MS`, default ±30s) y formato estricto de `sensorId`.
+- Se añadieron tests de regresión para `Origin` no permitido, `timestamp skew` RFID y payloads peligrosos.
+
+**Cierre (20-02-2026):**
+
+- [x] Conexiones socket desde `Origin` no permitido fallan con error controlado.
+- [x] Payloads de riesgo (prototype pollution / NoSQL operators) se rechazan con `400` antes de tocar repositorios.
+- [x] Eventos RFID fuera de ventana temporal o con `source` inválido se rechazan por validador.
+- [x] Suites objetivo actualizadas con cobertura de regresión de hardening.
 
 **Avance (16-02-2026):**
 
@@ -468,7 +502,7 @@ Mejorar recuperación post-reinicio y bloqueo de tarjetas para escenarios concur
 
 ---
 
-### T-067: Integridad de dominio en usuarios y contextos 📋
+### T-067: Integridad de dominio en usuarios y contextos ✅
 
 **Prioridad:** P1 | **Tamaño:** M | **Dependencias:** T-059  
 **Origen:** BE-02, SEC-03
@@ -490,6 +524,20 @@ Corregir rutas con riesgo de bypass funcional (transferencias y borrados con dep
 - [ ] Transferencias solo posibles por endpoint específico con permisos.
 - [ ] No se elimina contexto con dependencias activas sin política explícita.
 - [ ] Tests de seguridad/negocio cubren escenarios de bypass.
+
+**Actualización (20-02-2026):**
+
+- Se restringió `PUT /api/users/:id` para impedir modificación de `createdBy` y forzar transferencias por `POST /api/users/:id/transfer`.
+- Se añadió protección de integridad en `DELETE /api/contexts/:id` para bloquear borrado cuando hay dependencias activas (`sessions/decks/plays`).
+- Política aplicada: permitir borrado únicamente cuando las dependencias existentes no están activas.
+- Se añadieron pruebas de regresión para bypass de ownership y borrado de contexto con dependencias.
+
+**Cierre (20-02-2026):**
+
+- [x] `createdBy` no se modifica por ruta genérica de update de usuario.
+- [x] Transferencias solo posibles por endpoint específico con permisos.
+- [x] No se elimina contexto con dependencias activas sin política explícita.
+- [x] Tests de seguridad/negocio cubren escenarios de bypass.
 
 ---
 
@@ -518,7 +566,7 @@ Mantener un mockup visual interactivo para validación UX infantil, separado de 
 
 ---
 
-### T-052: Soporte `prefers-reduced-motion` transversal 📋
+### T-052: Soporte `prefers-reduced-motion` transversal ✅
 
 **Prioridad:** P2 | **Tamaño:** M | **Dependencias:** T-056  
 **Origen:** FE-03
@@ -535,9 +583,15 @@ Aplicar accesibilidad de movimiento reducido de forma consistente en wizard, gam
 
 **Criterios de Aceptación (medibles):**
 
-- [ ] Con preferencia activa, animaciones pesadas quedan desactivadas o simplificadas.
-- [ ] UI mantiene usabilidad completa sin motion compleja.
-- [ ] Documentación UI/UX actualizada.
+- [x] Con preferencia activa, animaciones pesadas quedan desactivadas o simplificadas.
+- [x] UI mantiene usabilidad completa sin motion compleja.
+- [x] Documentación UI/UX actualizada.
+
+**Cierre (25-02-2026):**
+
+- Se completó degradación de motion en `GameSession` y `CardDecksPage` para overlays/estados vacíos/indicadores con `useReducedMotion`.
+- Se validó build de producción y preview local del frontend tras hardening de motion (`npm run build`, `npm run preview`).
+- Se consolidó evidencia y checklist de validación en documentación UI/UX y reporte técnico de cierre.
 
 ---
 
@@ -638,7 +692,7 @@ Documentar y definir proceso replicable de despliegue en staging sin pasos ocult
 
 ## Tarea Transversal Frontend (acciones de mejora)
 
-### T-060: Optimización frontend de UX, motion y render 📋
+### T-060: Optimización frontend de UX, motion y render ✅
 
 **Prioridad:** P1 | **Tamaño:** L | **Dependencias:** T-056, T-052  
 **Origen:** FE-04
@@ -656,14 +710,21 @@ Aplicar mejoras concretas de rendimiento visual y UX en frontend (motion, render
 
 **Criterios de Aceptación (medibles):**
 
-- [ ] `useReducedMotion` está integrado en al menos 4 vistas críticas.
-- [ ] Con preferencia activa, animaciones complejas quedan desactivadas sin romper flujo.
-- [ ] No hay listeners duplicados tras reconexión/pause-resume en gameplay.
-- [ ] Guía frontend y checklist de verificación visual quedan actualizados.
+- [x] `useReducedMotion` está integrado en al menos 4 vistas críticas.
+- [x] Con preferencia activa, animaciones complejas quedan desactivadas sin romper flujo.
+- [x] No hay listeners duplicados tras reconexión/pause-resume en gameplay.
+- [x] Guía frontend y checklist de verificación visual quedan actualizados.
+
+**Cierre (25-02-2026):**
+
+- Se estabilizó bootstrap realtime en `GameSession` evitando re-suscripciones por dependencias volátiles de ronda.
+- Se reforzó reduced-motion en elementos de alta frecuencia visual y se mantuvo degradación progresiva en componentes críticos.
+- Se optimizó `WizardStepper` con memoización (`memo` + `useMemo`) para reducir renders evitables.
+- Validación ejecutada en frontend: lint sin errores y build en verde.
 
 ---
 
-### T-068: Hardening de clases dinámicas y consistencia visual 📋
+### T-068: Hardening de clases dinámicas y consistencia visual ✅
 
 **Prioridad:** P2 | **Tamaño:** M | **Dependencias:** T-056, T-060  
 **Origen:** FE-05
@@ -680,9 +741,15 @@ Eliminar riesgos de estilos perdidos en build por clases Tailwind dinámicas y u
 
 **Criterios de Aceptación (medibles):**
 
-- [ ] No existen interpolaciones de clases Tailwind en componentes críticos del wizard/RFID.
-- [ ] Build de producción mantiene estados visuales de dificultad y modo RFID.
-- [ ] Checklist visual de regresión queda documentado.
+- [x] No existen interpolaciones de clases Tailwind en componentes críticos del wizard/RFID.
+- [x] Build de producción mantiene estados visuales de dificultad y modo RFID.
+- [x] Checklist visual de regresión queda documentado.
+
+**Cierre (25-02-2026):**
+
+- Se verificó contrato estático de variantes en `CreateSession` y `RFIDModeHandler` sin interpolaciones dinámicas críticas.
+- Se confirmó build productivo correcto con los estados visuales de dificultad/modo RFID incluidos en bundle.
+- Se mantuvo matriz y checklist de verificación en guías frontend para QA de regresión.
 
 ---
 

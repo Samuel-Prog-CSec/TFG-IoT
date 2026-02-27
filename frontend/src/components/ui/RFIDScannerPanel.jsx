@@ -11,7 +11,7 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import PropTypes from 'prop-types';
 import { motion, AnimatePresence, useSpring, useTransform, useReducedMotion } from 'framer-motion';
-import { CreditCard, Wifi, WifiOff, Plus, Trash2, AlertCircle, Zap } from 'lucide-react';
+import { CreditCard, Wifi, WifiOff, Plus, Trash2, AlertCircle, Zap, LogOut } from 'lucide-react';
 import { cn } from '../../lib/utils';
 import confetti from 'canvas-confetti';
 import RFIDConnector from './RFIDConnector';
@@ -72,7 +72,9 @@ export default function RFIDScannerPanel({
 }) {
   const [isScanning, setIsScanning] = useState(false);
   const [rfidStatus, setRfidStatus] = useState('disconnected');
+  const [deviceState, setDeviceState] = useState('unknown');
   const [lastScanned, setLastScanned] = useState(null);
+  const [cardRemovedUid, setCardRemovedUid] = useState(null);
   const [error, setError] = useState(null);
   const containerRef = useRef(null);
   const prefersReducedMotion = useReducedMotion();
@@ -92,10 +94,25 @@ export default function RFIDScannerPanel({
       setIsScanning(nextStatus === 'reading');
     };
 
+    const handleDeviceStateChange = (payload) => {
+      setDeviceState(payload?.state || 'unknown');
+    };
+
+    const handleCardRemoved = (payload) => {
+      if (payload?.uid) {
+        setCardRemovedUid(payload.uid);
+        setTimeout(() => setCardRemovedUid(null), 2000);
+      }
+    };
+
     webSerialService.on('status', handleStatus);
+    webSerialService.on('device_state_change', handleDeviceStateChange);
+    webSerialService.on('card_removed', handleCardRemoved);
 
     return () => {
       webSerialService.off('status', handleStatus);
+      webSerialService.off('device_state_change', handleDeviceStateChange);
+      webSerialService.off('card_removed', handleCardRemoved);
     };
   }, []);
 
@@ -216,7 +233,7 @@ export default function RFIDScannerPanel({
   };
 
   const isValid = scannedCards.length >= minCards && scannedCards.length <= maxCards;
-  const isConnected = rfidStatus === 'connected' || rfidStatus === 'reading';
+  const isConnected = deviceState === 'ready';
   const progress = Math.min((scannedCards.length / minCards) * 100, 100);
 
   return (
@@ -249,7 +266,7 @@ export default function RFIDScannerPanel({
             <div>
               <h3 className="font-semibold text-white">Escáner RFID</h3>
               <p className="text-xs text-slate-500">
-                {isConnected ? 'Esperando tarjetas...' : 'Escáner desconectado'}
+                {isConnected ? 'Esperando tarjetas...' : deviceState === 'initializing' ? 'Conectando sensor...' : 'Escáner desconectado'}
               </p>
             </div>
           </div>
@@ -356,6 +373,23 @@ export default function RFIDScannerPanel({
           >
             Acerca una tarjeta al lector
           </motion.p>
+
+          {/* Notificación de tarjeta retirada */}
+          <AnimatePresence>
+            {cardRemovedUid && (
+              <motion.div
+                className="absolute z-20 bottom-12 px-3 py-1.5 rounded-lg bg-amber-500/20 border border-amber-500/30 text-amber-400 text-xs font-medium"
+                initial={{ opacity: 0, y: 10 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, y: -10 }}
+              >
+                <div className="flex items-center gap-1.5">
+                  <LogOut size={12} />
+                  <span>Tarjeta retirada: {cardRemovedUid}</span>
+                </div>
+              </motion.div>
+            )}
+          </AnimatePresence>
         </div>
 
         {/* Barra de progreso */}

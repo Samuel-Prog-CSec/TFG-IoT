@@ -1,16 +1,12 @@
-import { clsx } from 'clsx';
-import { twMerge } from 'tailwind-merge';
+import { clsx } from "clsx";
+import { twMerge } from "tailwind-merge";
 
 /**
- * Combina clases de Tailwind de forma inteligente
- * - Usa clsx para condicionales
- * - Usa tailwind-merge para resolver conflictos
+ * Utility function to merge tailwind classes effectively.
+ * Combines standard conditional classnames (clsx) con Tailwind class deduplicator (tailwind-merge).
  * 
- * @example
- * cn('px-4 py-2', condition && 'bg-blue-500', 'px-6') // => 'py-2 px-6 bg-blue-500'
- * 
- * @param {...(string | undefined | null | false | Record<string, boolean>)} inputs
- * @returns {string}
+ * @param {...(string|undefined|null|false|Record<string, boolean>)} inputs
+ * @returns {string} Fully resolved and unique tailwind utility string.
  */
 export function cn(...inputs) {
   return twMerge(clsx(inputs));

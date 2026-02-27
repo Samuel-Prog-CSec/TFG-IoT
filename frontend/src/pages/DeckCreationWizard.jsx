@@ -30,11 +30,13 @@ import {
   Sparkles
 } from 'lucide-react';
 import { cn } from '../lib/utils';
+import { buildCardMappingsPayload } from '../lib/cardMapping';
 import { 
   WizardStepper, 
   RFIDScannerPanel, 
   CardSelector,
   AssetSelector,
+  CardAssetPreview,
   ButtonPremium,
   GlassCard,
   InputPremium,
@@ -42,7 +44,7 @@ import {
   useConfirmationModal
 } from '../components/ui';
 import { decksAPI, cardsAPI, extractData, extractErrorMessage, isAbortError } from '../services/api';
-import { useDeckWizardDraft, formatDraftDate, useContexts, useRefetchOnFocus } from '../hooks';
+import { useDeckWizardDraft, formatDraftDate, useContexts, useRefetchOnFocus, useReducedMotion } from '../hooks';
 import { ROUTES } from '../constants/routes';
 import { GAME_CONFIG } from '../constants/gameConfig';
 import { toast } from 'sonner';
@@ -87,6 +89,7 @@ const {MAX_CARDS} = GAME_CONFIG;
  */
 export default function DeckCreationWizard() {
   const navigate = useNavigate();
+  const { shouldReduceMotion } = useReducedMotion();
   
   // Estado del wizard
   const [currentStep, setCurrentStep] = useState(0);
@@ -319,10 +322,7 @@ export default function DeckCreationWizard() {
       const deckData = {
         name: deckName.trim(),
         contextId: selectedContext._id,
-        cards: selectedCards.map(card => ({
-          cardId: card._id,
-          assignedAsset: cardAssignments[card._id]
-        }))
+        cardMappings: buildCardMappingsPayload(selectedCards, cardAssignments)
       };
       
       await decksAPI.createDeck(deckData);
@@ -335,7 +335,8 @@ export default function DeckCreationWizard() {
         particleCount: 150,
         spread: 80,
         origin: { y: 0.6 },
-        colors: ['#8b5cf6', '#6366f1', '#a855f7', '#ec4899']
+        colors: ['#8b5cf6', '#6366f1', '#a855f7', '#ec4899'],
+        disableForReducedMotion: shouldReduceMotion,
       });
       
       toast.success('¡Mazo creado!', {
@@ -345,7 +346,7 @@ export default function DeckCreationWizard() {
       // Redirigir después de un momento para que se vea el confetti
       setTimeout(() => {
         navigate(ROUTES.CARD_DECKS);
-      }, 1500);
+      }, shouldReduceMotion ? 400 : 1500);
       
     } catch (err) {
       toast.error('Error al crear mazo', {
@@ -410,7 +411,7 @@ export default function DeckCreationWizard() {
     <div className="min-h-screen bg-slate-950 p-4 lg:p-8">
       {/* Header */}
       <motion.div
-        initial={{ opacity: 0, y: -20 }}
+        initial={shouldReduceMotion ? false : { opacity: 0, y: -20 }}
         animate={{ opacity: 1, y: 0 }}
         className="max-w-5xl mx-auto mb-8"
       >
@@ -440,6 +441,7 @@ export default function DeckCreationWizard() {
         <WizardStepper
           steps={WIZARD_STEPS}
           currentStep={currentStep}
+          reducedMotion={shouldReduceMotion}
           onStepClick={(index) => {
             // Solo permitir ir a pasos anteriores
             if (index < currentStep) {
@@ -454,10 +456,10 @@ export default function DeckCreationWizard() {
         <AnimatePresence mode="wait">
           <motion.div
             key={currentStep}
-            initial={{ opacity: 0, x: 20 }}
+            initial={shouldReduceMotion ? false : { opacity: 0, x: 20 }}
             animate={{ opacity: 1, x: 0 }}
-            exit={{ opacity: 0, x: -20 }}
-            transition={{ duration: 0.3 }}
+            exit={shouldReduceMotion ? { opacity: 0 } : { opacity: 0, x: -20 }}
+            transition={{ duration: shouldReduceMotion ? 0.15 : 0.3 }}
           >
             {renderStep()}
           </motion.div>
@@ -466,9 +468,9 @@ export default function DeckCreationWizard() {
 
       {/* Footer con navegación */}
       <motion.div
-        initial={{ opacity: 0, y: 20 }}
+        initial={shouldReduceMotion ? false : { opacity: 0, y: 20 }}
         animate={{ opacity: 1, y: 0 }}
-        transition={{ delay: 0.3 }}
+        transition={{ delay: shouldReduceMotion ? 0 : 0.3 }}
         className="max-w-5xl mx-auto"
       >
         <GlassCard className="p-4">
@@ -824,15 +826,22 @@ function StepAssign({
                 whileHover={{ x: 4 }}
               >
                 <div className={cn(
-                  'w-8 h-8 rounded-lg flex items-center justify-center text-sm',
+                  'w-8 h-8 rounded-lg flex items-center justify-center text-sm overflow-hidden',
                   isAssigned
                     ? 'bg-green-500/20 text-green-400'
                     : 'bg-slate-700 text-slate-400'
                 )}>
-                  {isAssigned 
-                    ? cardAssignments[card._id]?.display || <Check size={16} />
-                    : <CreditCard size={16} />
-                  }
+                  {isAssigned ? (
+                    <CardAssetPreview
+                      asset={cardAssignments[card._id]}
+                      alt={`Asset asignado a ${card.uid}`}
+                      className="w-full h-full rounded-lg"
+                      fit="cover"
+                      fallbackIcon={<Check size={16} className="text-green-400" />}
+                    />
+                  ) : (
+                    <CreditCard size={16} />
+                  )}
                 </div>
                 <div className="flex-1 min-w-0">
                   <p className="text-sm font-medium text-white truncate">
@@ -873,8 +882,8 @@ function StepAssign({
 
             <AssetSelector
               assets={selectedContext?.assets || []}
-              selectedAsset={currentAssignment}
-              assignedAssetKeys={assignedAssetKeys}
+              selectedAssetKey={currentAssignment?.key}
+              assignedAssets={assignedAssetKeys}
               onSelect={(asset) => onAssignAsset(activeCardId, asset)}
             />
           </>
@@ -944,9 +953,14 @@ function StepConfirm({
                 key={card._id}
                 className="flex items-center gap-3 p-3 rounded-xl bg-slate-800/50 border border-white/5"
               >
-                <div className="w-10 h-10 rounded-lg bg-gradient-to-br from-indigo-500/20 to-purple-500/20 flex items-center justify-center text-xl">
-                  {assignment?.display || '❓'}
-                </div>
+                <CardAssetPreview
+                  asset={assignment}
+                  alt={`Asset de carta ${card.uid}`}
+                  className="w-10 h-10 rounded-lg"
+                  fit="cover"
+                  fallbackClassName="bg-gradient-to-br from-indigo-500/20 to-purple-500/20 text-xl"
+                  fallbackLabel="❓"
+                />
                 <div className="flex-1 min-w-0">
                   <p className="text-sm font-medium text-white truncate">
                     {assignment?.value || 'Sin asignar'}

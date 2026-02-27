@@ -45,36 +45,6 @@ const api = axios.create({
 // ============================================
 
 let accessToken = null;
-let refreshToken = null;
-
-const refreshStorageKey = 'rfid_refresh_token';
-const loadRefreshToken = () => {
-  try {
-    return sessionStorage.getItem(refreshStorageKey);
-  } catch {
-    return null;
-  }
-};
-
-const saveRefreshToken = (token) => {
-  try {
-    if (token) {
-      sessionStorage.setItem(refreshStorageKey, token);
-    }
-  } catch {
-    // No-op si storage no esta disponible
-  }
-};
-
-const clearRefreshToken = () => {
-  try {
-    sessionStorage.removeItem(refreshStorageKey);
-  } catch {
-    // No-op si storage no esta disponible
-  }
-};
-
-refreshToken = loadRefreshToken();
 let isRefreshing = false;
 let failedQueue = [];
 
@@ -97,17 +67,10 @@ const processQueue = (error, token = null) => {
 /**
  * Establece los tokens de autenticación
  * @param {string} access - Access token (se guarda en memoria)
- * @param {string} access - Access token (se guarda en memoria)
  */
-export const setTokens = (access, refresh) => {
+export const setTokens = (access) => {
   accessToken = access;
-  if (refresh) {
-    refreshToken = refresh;
-    saveRefreshToken(refresh);
-  }
 };
-
-export const getRefreshToken = () => refreshToken;
 
 /**
  * Obtiene el access token actual
@@ -121,8 +84,6 @@ export const getAccessToken = () => accessToken;
  */
 export const clearTokens = () => {
   accessToken = null;
-  refreshToken = null;
-  clearRefreshToken();
 };
 
 const getCookieValue = (name) => {
@@ -241,16 +202,16 @@ async function handleTokenRefresh(originalRequest) {
     const csrfToken = getCookieValue('csrfToken');
     const response = await axios.post(
       `${API_BASE_URL}/auth/refresh`,
-      refreshToken ? { refreshToken } : {},
+      {},
       {
         withCredentials: true,
         headers: csrfToken ? { 'X-CSRF-Token': csrfToken } : {}
       }
     );
 
-    const { accessToken: newAccessToken, refreshToken: newRefreshToken } = response.data.data;
+    const { accessToken: newAccessToken } = response.data.data;
     
-    setTokens(newAccessToken, newRefreshToken);
+    setTokens(newAccessToken);
     processQueue(null, newAccessToken);
 
     originalRequest.headers.Authorization = `Bearer ${newAccessToken}`;
@@ -415,7 +376,7 @@ export const authAPI = {
    * Refrescar access token
    * @returns {Promise} Respuesta con nuevos tokens
    */
-  refreshToken: () => api.post('/auth/refresh', refreshToken ? { refreshToken } : {}),
+  refreshToken: () => api.post('/auth/refresh', {}),
 };
 
 // ============================================
@@ -618,6 +579,79 @@ export const contextsAPI = {
    */
   getContextAssets: (contextId, config = {}) => 
     api.get(`/contexts/${contextId}/assets`, config),
+
+  /**
+   * Obtener límites y formatos permitidos para subida de assets
+   * @returns {Promise} Configuración de upload del backend
+   */
+  getUploadConfig: (config = {}) =>
+    api.get('/contexts/upload-config', config),
+
+  /**
+   * Subir imagen para asset
+   * @param {string} contextId - ID del contexto
+   * @param {FormData} formData - Datos con archivo (file, key, value, display)
+   * @returns {Promise} Respuesta de Supabase
+   */
+  uploadImage: (contextId, formData) => 
+    api.post(`/contexts/${contextId}/images`, formData, {
+      headers: { 'Content-Type': 'multipart/form-data' }
+    }),
+
+  /**
+   * Subir audio para asset
+   * @param {string} contextId - ID del contexto
+   * @param {FormData} formData - Datos con archivo (file, key, value, display)
+   * @returns {Promise} Respuesta de Supabase
+   */
+  uploadAudio: (contextId, formData) => 
+    api.post(`/contexts/${contextId}/audio`, formData, {
+      headers: { 'Content-Type': 'multipart/form-data' }
+    }),
+
+  /**
+   * Crear un nuevo contexto de juego (solo super_admin)
+   * El contexto se crea vacío; los assets se añaden después mediante upload.
+   * @param {Object} data - { contextId: string, name: string }
+   * @returns {Promise} Respuesta con el contexto creado
+   */
+  createContext: (data) =>
+    api.post('/contexts', data),
+
+  /**
+   * Actualizar metadatos de un contexto (solo super_admin)
+   * @param {string} contextMongoId - MongoDB _id del contexto
+   * @param {Object} data - Campos a actualizar: { name?, contextId? }
+   * @returns {Promise} Respuesta con el contexto actualizado
+   */
+  updateContext: (contextMongoId, data) =>
+    api.put(`/contexts/${contextMongoId}`, data),
+
+  /**
+   * Eliminar un contexto completo y sus archivos de Storage (solo super_admin)
+   * @param {string} contextMongoId - MongoDB _id del contexto
+   * @returns {Promise} Confirmación de eliminación
+   */
+  deleteContext: (contextMongoId) =>
+    api.delete(`/contexts/${contextMongoId}`),
+
+  /**
+   * Eliminar la imagen de un asset (y el registro del asset completo)
+   * @param {string} contextMongoId - MongoDB _id del contexto
+   * @param {string} assetKey - Key del asset a eliminar
+   * @returns {Promise} Confirmación de eliminación
+   */
+  deleteImage: (contextMongoId, assetKey) =>
+    api.delete(`/contexts/${contextMongoId}/images/${assetKey}`),
+
+  /**
+   * Eliminar el audio de un asset (y el registro del asset completo)
+   * @param {string} contextMongoId - MongoDB _id del contexto
+   * @param {string} assetKey - Key del asset a eliminar
+   * @returns {Promise} Confirmación de eliminación
+   */
+  deleteAudio: (contextMongoId, assetKey) =>
+    api.delete(`/contexts/${contextMongoId}/audio/${assetKey}`),
 };
 
 // ============================================
@@ -725,6 +759,22 @@ export const sessionsAPI = {
     api.post('/sessions', data),
 
   /**
+   * Iniciar sesión de juego
+   * @param {string} sessionId
+   * @returns {Promise}
+   */
+  startSession: (sessionId) =>
+    api.post(`/sessions/${sessionId}/start`, {}),
+
+  /**
+   * Finalizar sesión de juego
+   * @param {string} sessionId
+   * @returns {Promise}
+   */
+  endSession: (sessionId) =>
+    api.post(`/sessions/${sessionId}/end`, {}),
+
+  /**
    * Actualizar sesión existente
    * @param {string} sessionId - ID de la sesión
    * @param {Object} data - Datos a actualizar
@@ -740,6 +790,48 @@ export const sessionsAPI = {
    */
   deleteSession: (sessionId) => 
     api.delete(`/sessions/${sessionId}`),
+};
+
+export const playsAPI = {
+  /**
+   * Obtener partidas con filtros.
+   * @param {Object} params
+   * @returns {Promise}
+   */
+  getPlays: (params = {}, config = {}) =>
+    api.get('/plays', { params, ...config }),
+
+  /**
+   * Crear una nueva partida.
+   * @param {{sessionId: string, playerId: string}} data
+   * @returns {Promise}
+   */
+  createPlay: (data) =>
+    api.post('/plays', data),
+
+  /**
+   * Pausar partida.
+   * @param {string} playId
+   * @returns {Promise}
+   */
+  pausePlay: (playId) =>
+    api.post(`/plays/${playId}/pause`, {}),
+
+  /**
+   * Reanudar partida.
+   * @param {string} playId
+   * @returns {Promise}
+   */
+  resumePlay: (playId) =>
+    api.post(`/plays/${playId}/resume`, {}),
+
+  /**
+   * Abandonar partida.
+   * @param {string} playId
+   * @returns {Promise}
+   */
+  abandonPlay: (playId) =>
+    api.post(`/plays/${playId}/abandon`, {})
 };
 
 export default api;

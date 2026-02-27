@@ -1,12 +1,18 @@
 import { cn } from '../../lib/utils';
+import GlassCard from './GlassCard';
 
 /**
- * Skeleton con efecto shimmer para estados de carga
- * 
+ * @fileoverview Elementos de Skeleton Shimmer
+ * Provee componentes de carga reactivos que imitan con exactitud milimétrica 
+ * la geometría y volumen de los componentes finales, previniendo el Layout Shift.
+ */
+
+/**
+ * Esqueleto base animado (bloques, círculos o texto)
  * @param {Object} props
- * @param {string} props.className - Clases adicionales (incluir width/height)
- * @param {'rectangle' | 'circle' | 'text'} props.variant - Forma del skeleton
- * @param {number} props.lines - Número de líneas para variante 'text'
+ * @param {string} props.className
+ * @param {'rectangle' | 'circle' | 'text'} props.variant
+ * @param {number} props.lines
  */
 export default function SkeletonShimmer({ 
   className,
@@ -16,10 +22,10 @@ export default function SkeletonShimmer({
 }) {
   const baseClasses = cn(
     'relative overflow-hidden',
-    'bg-slate-800/60',
+    'bg-background-elevated/50',
     'before:absolute before:inset-0',
-    'before:bg-gradient-to-r before:from-transparent before:via-white/5 before:to-transparent',
-    'before:animate-shimmer'
+    'before:-translate-x-full before:animate-[shimmer_2s_infinite]',
+    'before:bg-gradient-to-r before:from-transparent before:via-text-primary/5 before:to-transparent'
   );
 
   if (variant === 'circle') {
@@ -33,14 +39,15 @@ export default function SkeletonShimmer({
 
   if (variant === 'text') {
     return (
-      <div className={cn('space-y-2', className)} {...props}>
+      <div className={cn('space-y-2.5', className)} {...props}>
         {Array.from({ length: lines }).map((_, i) => (
           <div 
             key={i}
             className={cn(
               baseClasses, 
-              'h-4 rounded-lg',
-              i === lines - 1 && lines > 1 ? 'w-3/4' : 'w-full'
+              'h-4 rounded-md',
+              // Simular anchos variables para líneas de texto
+              i === lines - 1 && lines > 1 ? 'w-2/3' : 'w-full'
             )}
           />
         ))}
@@ -57,35 +64,35 @@ export default function SkeletonShimmer({
 }
 
 /**
- * Skeleton para cards completas
+ * Skeleton estandarizado para reemplazar una GlassCard llena de contenido.
  */
 export function SkeletonCard({ className }) {
   return (
-    <div className={cn('glass-card p-6 space-y-4', className)}>
+    <GlassCard variant="default" className={cn('space-y-5', className)}>
       <div className="flex items-center gap-4">
-        <SkeletonShimmer variant="circle" className="w-12 h-12" />
-        <div className="flex-1 space-y-2">
+        <SkeletonShimmer variant="circle" className="w-12 h-12 shrink-0" />
+        <div className="flex-1 space-y-3">
           <SkeletonShimmer className="h-4 w-3/4" />
           <SkeletonShimmer className="h-3 w-1/2" />
         </div>
       </div>
-      <SkeletonShimmer variant="text" lines={3} />
-    </div>
+      <SkeletonShimmer variant="text" lines={3} className="pt-2" />
+    </GlassCard>
   );
 }
 
 /**
- * Skeleton para stat cards
+ * Skeleton optimizado numéricamente para tarjetas de KPIs/Estadísticas superiores.
  */
 export function SkeletonStatCard({ className }) {
   return (
-    <div className={cn('glass-card p-6', className)}>
+    <GlassCard variant="default" padding="sm" className={className}>
       <div className="flex justify-between items-start mb-4">
         <SkeletonShimmer className="h-4 w-24" />
         <SkeletonShimmer variant="circle" className="w-10 h-10" />
       </div>
-      <SkeletonShimmer className="h-8 w-20 mb-2" />
+      <SkeletonShimmer className="h-8 w-20 mb-3" />
       <SkeletonShimmer className="h-3 w-32" />
-    </div>
+    </GlassCard>
   );
 }

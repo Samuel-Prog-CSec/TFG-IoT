@@ -2,58 +2,55 @@ import { memo, useId } from 'react';
 import { motion } from 'framer-motion';
 import PropTypes from 'prop-types';
 import { cn } from '../../lib/utils';
+import GlassCard from '../ui/GlassCard';
 
-/**
- * Sección contenedora para gráficos del dashboard
- * @param {Object} props - Propiedades del componente
- * @param {string} props.title - Título de la sección
- * @param {React.ReactNode} props.children - Contenido del gráfico
- * @param {string} [props.className] - Clases adicionales
- */
-function ChartSection({ title, children, className }) {
+function ChartSection({ title, children, className, period = '7d', onPeriodChange, periodOptions = null }) {
   const titleId = useId();
+  const resolvedPeriodOptions = periodOptions?.length ? periodOptions : [
+    { value: '7d', label: 'Últimos 7 días' },
+    { value: '30d', label: 'Últimos 30 días' },
+  ];
 
   return (
-    <motion.section 
+    <motion.div 
       initial={{ opacity: 0, y: 20 }}
       animate={{ opacity: 1, y: 0 }}
       transition={{ delay: 0.2 }}
-      aria-labelledby={titleId}
-      className={cn(
-        "relative overflow-hidden",
-        "bg-slate-800/40 backdrop-blur-xl",
-        "p-6 rounded-2xl",
-        "border border-white/5",
-        "h-full",
-        className
-      )}
+      className="h-full"
     >
-      {/* Top highlight */}
-      <div 
-        className="absolute inset-x-0 top-0 h-px bg-gradient-to-r from-transparent via-white/10 to-transparent" 
-        aria-hidden="true" 
-      />
-      
-      {/* Header */}
-      <header className="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-4 mb-6">
-        <h3 id={titleId} className="text-xl font-bold text-white font-display">{title}</h3>
-        <label className="sr-only" htmlFor={`${titleId}-period`}>Seleccionar período de tiempo</label>
-        <select 
-          id={`${titleId}-period`}
-          aria-label="Filtro de período de tiempo"
-          className="bg-slate-900/80 border border-white/10 text-slate-300 text-sm rounded-xl px-4 py-2 outline-none focus:border-purple-500/50 focus:ring-2 focus:ring-purple-500/20 transition-all cursor-pointer hover:bg-slate-800/80"
-        >
-          <option value="7d">Últimos 7 días</option>
-          <option value="30d">Últimos 30 días</option>
-          <option value="month">Este mes</option>
-        </select>
-      </header>
-      
-      {/* Chart Content */}
-      <figure aria-label={`Gráfico de ${title}`}>
-        {children}
-      </figure>
-    </motion.section>
+      <GlassCard 
+        variant="default"
+        padding="lg"
+        className={cn("flex flex-col h-full", className)}
+      >
+        {/* Header */}
+        <header className="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-4 mb-6 relative z-10">
+          <h3 id={titleId} className="text-xl font-bold text-text-primary font-display">{title}</h3>
+          
+          {onPeriodChange && (
+            <>
+              <label className="sr-only" htmlFor={`${titleId}-period`}>Seleccionar período de tiempo</label>
+              <select 
+                id={`${titleId}-period`}
+                aria-label="Filtro de período de tiempo"
+                value={period}
+                onChange={(event) => onPeriodChange(event.target.value)}
+                className="bg-background-surface/80 border border-border-default text-text-secondary text-sm font-medium rounded-xl px-4 py-2 outline-none focus:border-brand-base focus:ring-2 focus:ring-brand-base/20 transition-all cursor-pointer hover:bg-background-elevated"
+              >
+                {resolvedPeriodOptions.map((option) => (
+                  <option key={option.value} value={option.value}>{option.label}</option>
+                ))}
+              </select>
+            </>
+          )}
+        </header>
+        
+        {/* Chart Content */}
+        <figure aria-label={`Gráfico de ${title}`} className="flex-1 relative z-10">
+          {children}
+        </figure>
+      </GlassCard>
+    </motion.div>
   );
 }
 
@@ -61,6 +58,12 @@ ChartSection.propTypes = {
   title: PropTypes.string.isRequired,
   children: PropTypes.node.isRequired,
   className: PropTypes.string,
+  period: PropTypes.string,
+  onPeriodChange: PropTypes.func,
+  periodOptions: PropTypes.arrayOf(PropTypes.shape({
+    value: PropTypes.string.isRequired,
+    label: PropTypes.string.isRequired,
+  })),
 };
 
 export default memo(ChartSection);

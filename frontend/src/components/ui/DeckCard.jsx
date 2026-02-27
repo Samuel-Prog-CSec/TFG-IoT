@@ -11,9 +11,10 @@
  * @module components/ui/DeckCard
  */
 
-import { useState, useRef, useMemo } from 'react';
+import { useState, useRef, useMemo, useEffect } from 'react';
 import { motion, useMotionValue, useSpring, useTransform } from 'framer-motion';
 import { Layers, Edit2, Trash2, Eye, MoreVertical, Calendar, CreditCard } from 'lucide-react';
+import PropTypes from 'prop-types';
 import { cn } from '../../lib/utils';
 import Tooltip from './Tooltip';
 
@@ -50,7 +51,23 @@ export default function DeckCard({
   className,
 }) {
   const [isHovered, setIsHovered] = useState(false);
+  const [isMenuOpen, setIsMenuOpen] = useState(false);
   const cardRef = useRef(null);
+  const menuRef = useRef(null);
+
+  useEffect(() => {
+    if (!isMenuOpen) return undefined;
+
+    const handleOutsideClick = (event) => {
+      if (menuRef.current?.contains(event.target)) {
+        return;
+      }
+      setIsMenuOpen(false);
+    };
+
+    globalThis.addEventListener('mousedown', handleOutsideClick);
+    return () => globalThis.removeEventListener('mousedown', handleOutsideClick);
+  }, [isMenuOpen]);
 
   // Detectar preferencia de movimiento reducido del sistema
   const prefersReducedMotion = useMemo(() => {
@@ -207,7 +224,7 @@ export default function DeckCard({
 
             {/* Menú de acciones (solo si no es selectable) */}
             {!selectable && (
-              <div className="relative z-20">
+              <div className="relative z-20" ref={menuRef}>
                 <Tooltip content="Opciones">
                   <motion.button
                     className="p-2 rounded-lg text-slate-400 hover:text-white hover:bg-white/10 transition-colors"
@@ -215,14 +232,34 @@ export default function DeckCard({
                     whileTap={{ scale: 0.95 }}
                     onClick={(e) => {
                       e.stopPropagation();
-                      // Implement menu logic if needed, or keep as visual
+                      setIsMenuOpen((currentValue) => !currentValue);
                     }}
                     aria-label={`Opciones para mazo ${deck.name}`}
                     aria-haspopup="true"
+                    aria-expanded={isMenuOpen}
                   >
                     <MoreVertical size={18} aria-hidden="true" />
                   </motion.button>
                 </Tooltip>
+
+                <AnimateMenu
+                  isOpen={isMenuOpen}
+                  onView={(event) => {
+                    event.stopPropagation();
+                    setIsMenuOpen(false);
+                    onView?.(deck);
+                  }}
+                  onEdit={(event) => {
+                    event.stopPropagation();
+                    setIsMenuOpen(false);
+                    onEdit?.(deck);
+                  }}
+                  onDelete={(event) => {
+                    event.stopPropagation();
+                    setIsMenuOpen(false);
+                    onDelete?.(deck);
+                  }}
+                />
               </div>
             )}
           </div>
@@ -354,6 +391,23 @@ export default function DeckCard({
   );
 }
 
+function AnimateMenu({ isOpen, onView, onEdit, onDelete }) {
+  if (!isOpen) return null;
+
+  return (
+    <motion.div
+      initial={{ opacity: 0, y: -6, scale: 0.98 }}
+      animate={{ opacity: 1, y: 0, scale: 1 }}
+      exit={{ opacity: 0, y: -6, scale: 0.98 }}
+      className="absolute right-0 mt-2 w-36 rounded-xl border border-white/10 bg-slate-900/95 backdrop-blur-xl p-1.5 shadow-xl"
+    >
+      <button onClick={onView} className="w-full text-left px-2.5 py-2 rounded-lg text-sm text-slate-200 hover:bg-white/10 transition-colors">Ver</button>
+      <button onClick={onEdit} className="w-full text-left px-2.5 py-2 rounded-lg text-sm text-slate-200 hover:bg-white/10 transition-colors">Editar</button>
+      <button onClick={onDelete} className="w-full text-left px-2.5 py-2 rounded-lg text-sm text-rose-300 hover:bg-rose-500/20 transition-colors">Archivar</button>
+    </motion.div>
+  );
+}
+
 /**
  * ActionButton - Botón de acción para las cards
  */
@@ -375,6 +429,13 @@ function ActionButton({ icon: Icon, label, onClick, variant = 'default' }) {
     </motion.button>
   );
 }
+
+AnimateMenu.propTypes = {
+  isOpen: PropTypes.bool.isRequired,
+  onView: PropTypes.func.isRequired,
+  onEdit: PropTypes.func.isRequired,
+  onDelete: PropTypes.func.isRequired,
+};
 
 /**
  * DeckCardSkeleton - Skeleton loading para DeckCard

@@ -14,6 +14,8 @@ const MAX_UID_CACHE_SIZE = 500;
 const UID_CACHE_TTL_MS = 5 * 60 * 1000;
 const MAX_RECONNECT_ATTEMPTS = 3;
 const RECONNECT_DELAY_BASE_MS = 1000;
+const HEARTBEAT_TIMEOUT_MS = 20000;
+const INIT_TIMEOUT_MS = 8000;
 
 const CARD_TYPES = new Set(['MIFARE_1KB', 'MIFARE_4KB', 'NTAG', 'UNKNOWN']);
 
@@ -58,6 +60,8 @@ class WebSerialService {
     this.buffer = '';
     this.listeners = new Map();
     this.status = 'disconnected';
+    this.deviceState = 'unknown';
+    this.firmwareVersion = null;
     this.sensorId = getOrCreateSensorId();
     this.dedupeCooldownMs = DEFAULT_DEDUPE_MS;
     this.lastScanByUid = new Map();
@@ -68,6 +72,8 @@ class WebSerialService {
     this.lastPort = null;
     this.reconnectTimerId = null;
     this.autoReconnectEnabled = true;
+    this.heartbeatTimerId = null;
+    this.initTimeoutId = null;
   }
 
   isSupported() {
@@ -105,6 +111,48 @@ class WebSerialService {
     this.emit('status', { status: nextStatus, details });
   }
 
+  setDeviceState(nextState) {
+    if (this.deviceState === nextState) return;
+    this.deviceState = nextState;
+    this.emit('device_state_change', {
+      state: nextState,
+      firmwareVersion: this.firmwareVersion
+    });
+  }
+
+  _clearDeviceTimers() {
+    if (this.heartbeatTimerId) {
+      clearTimeout(this.heartbeatTimerId);
+      this.heartbeatTimerId = null;
+    }
+    if (this.initTimeoutId) {
+      clearTimeout(this.initTimeoutId);
+      this.initTimeoutId = null;
+    }
+  }
+
+  _armHeartbeatWatchdog() {
+    if (this.heartbeatTimerId) {
+      clearTimeout(this.heartbeatTimerId);
+    }
+    this.heartbeatTimerId = setTimeout(() => {
+      if (this.deviceState === 'ready') {
+        this.setDeviceState('stale');
+      }
+    }, HEARTBEAT_TIMEOUT_MS);
+  }
+
+  _armInitTimeout() {
+    if (this.initTimeoutId) {
+      clearTimeout(this.initTimeoutId);
+    }
+    this.initTimeoutId = setTimeout(() => {
+      if (this.deviceState === 'initializing') {
+        this.setDeviceState('stale');
+      }
+    }, INIT_TIMEOUT_MS);
+  }
+
   async connect() {
     if (!this.isSupported()) {
       this.setStatus('unsupported');
@@ -136,6 +184,9 @@ class WebSerialService {
     }
 
     this.stopReading();
+    this._clearDeviceTimers();
+    this.firmwareVersion = null;
+    this.setDeviceState('unknown');
     this.lastPort = this.port;
     this.port = null;
     this.setStatus('disconnected', 'device_disconnected');
@@ -212,6 +263,9 @@ class WebSerialService {
     }
 
     await this.stopReading();
+    this._clearDeviceTimers();
+    this.firmwareVersion = null;
+    this.setDeviceState('unknown');
 
     if (this.port) {
       try {
@@ -244,6 +298,8 @@ class WebSerialService {
 
     this.keepReading = true;
     this.setStatus('reading');
+    this.setDeviceState('initializing');
+    this._armInitTimeout();
 
     const textDecoder = new TextDecoderStream();
     const readableStreamClosed = this.port.readable.pipeTo(textDecoder.writable);
@@ -313,10 +369,62 @@ class WebSerialService {
   }
 
   handleRawEvent(event) {
-    if (!event || event.event !== 'card_detected') {
+    if (!event || !event.event) {
       return;
     }
 
+    switch (event.event) {
+      case 'card_detected':
+        this._handleCardDetected(event);
+        break;
+      case 'card_removed':
+        this.emit('card_removed', {
+          uid: String(event.uid || '').trim().toUpperCase()
+        });
+        break;
+      case 'init':
+        this.emit('device_init', {
+          status: event.status,
+          version: event.version
+        });
+        if (this.initTimeoutId) {
+          clearTimeout(this.initTimeoutId);
+          this.initTimeoutId = null;
+        }
+        if (event.status === 'success') {
+          this.firmwareVersion = event.version || null;
+          this.setDeviceState('ready');
+          this._armHeartbeatWatchdog();
+        } else {
+          this.setDeviceState('error');
+        }
+        break;
+      case 'error':
+        this.emit('device_error', {
+          type: event.type,
+          message: event.message
+        });
+        if (event.type === 'init_failure') {
+          this.setDeviceState('error');
+        }
+        break;
+      case 'status':
+        this.emit('device_status', {
+          uptime: event.uptime,
+          cardsDetected: event.cards_detected,
+          freeHeap: event.free_heap
+        });
+        if (this.deviceState === 'ready' || this.deviceState === 'stale') {
+          this.setDeviceState('ready');
+          this._armHeartbeatWatchdog();
+        }
+        break;
+      default:
+        break;
+    }
+  }
+
+  _handleCardDetected(event) {
     const uid = String(event.uid || '').trim().toUpperCase();
     if (!uid) {
       return;

@@ -146,17 +146,26 @@ class StorageService {
    *
    * @async
    * @param {string} publicUrl - URL pública completa del activo a eliminar.
+   * @param {{ strict?: boolean }} [options] - Si strict=true, lanza error ante cualquier fallo.
    * @returns {Promise<void>}
    */
-  async deleteFile(publicUrl) {
+  async deleteFile(publicUrl, options = {}) {
+    const { strict = false } = options;
+
     try {
       if (!storageBreaker.canRequest()) {
         logger.warn('Storage: Circuito abierto, borrado omitido');
+        if (strict) {
+          throw new Error('Storage no disponible (circuit breaker abierto)');
+        }
         return;
       }
 
       if (!this.enabled || !this.supabase) {
         // En dev/test, si Storage está deshabilitado, ignorar borrados de rollback.
+        if (strict) {
+          throw new Error('Storage deshabilitado: no se puede eliminar el archivo');
+        }
         return;
       }
       // Extraer el path relativo desde la URL
@@ -165,6 +174,9 @@ class StorageService {
       const splitUrl = publicUrl.split(`${BUCKET_NAME}/`);
       if (splitUrl.length < 2) {
         logger.warn(`No se pudo extraer path de la URL: ${publicUrl}`);
+        if (strict) {
+          throw new Error('URL de Storage inválida: no se pudo extraer el path');
+        }
         return;
       }
 
@@ -181,8 +193,125 @@ class StorageService {
     } catch (error) {
       storageBreaker.recordFailure();
       logger.error('Error eliminando de Supabase', { error: error.message, publicUrl });
-      // No lanzamos error para no romper flujos principales si falla la limpieza,
-      // pero logueamos el error.
+      if (strict) {
+        throw new Error(`Error eliminando archivo en Storage: ${error.message}`);
+      }
+      // En modo no estricto no lanzamos error para no romper flujos de rollback.
+    }
+  }
+
+  /**
+   * Lista todos los archivos bajo un prefijo de carpeta en el bucket.
+   * Usado internamente para operaciones de borrado masivo de contextos.
+   *
+   * Nota: `supabase.storage.list()` no es recursivo, por lo que se llama
+   * explícitamente para cada subcarpeta conocida (image, thumbnail, audio).
+   *
+   * @async
+   * @param {string} prefix - Prefijo de la carpeta (ej: 'ctx-686a1b/image')
+   * @returns {Promise<string[]>} Array de paths relativos de los archivos encontrados
+   */
+  async listFiles(prefix) {
+    if (!this.enabled || !this.supabase) {
+      return [];
+    }
+
+    try {
+      const { data, error } = await this.supabase.storage
+        .from(BUCKET_NAME)
+        .list(prefix, { limit: 1000, offset: 0 });
+
+      if (error) {
+        logger.error('Error listando archivos en Storage', { prefix, error: error.message });
+        throw new Error(`Error listando archivos en Storage (${prefix}): ${error.message}`);
+      }
+
+      // Filtrar solo objetos reales (Supabase devuelve items con id null para carpetas virtuales)
+      return (data || []).filter(item => item.id !== null).map(item => `${prefix}/${item.name}`);
+    } catch (err) {
+      logger.error('Excepción listando archivos en Storage', { prefix, error: err.message });
+      throw new Error(`Excepción listando archivos en Storage (${prefix}): ${err.message}`);
+    }
+  }
+
+  /**
+   * Elimina todos los archivos de un contexto en Supabase Storage.
+   *
+   * Borra las subcarpetas: image/, thumbnail/ y audio/ bajo ctx-{contextObjectId}/.
+   * Se llama justo antes de eliminar el documento GameContext de MongoDB.
+   *
+   * Política de fallos: hard-fail — si Supabase falla, se lanza excepción y
+   * NO se permite eliminar el documento en MongoDB para preservar consistencia
+   * fuerte entre BD y Storage.
+   *
+   * @async
+   * @param {string} contextObjectId - El MongoDB ObjectId del contexto (como string)
+   * @returns {Promise<void>}
+   */
+  async deleteFolder(contextObjectId) {
+    // Si Storage está deshabilitado intencionalmente (entorno sin credenciales), omitir en silencio.
+    // En producción las credenciales son obligatorias; en development local puede faltar SUPABASE_SERVICE_KEY.
+    if (!this.enabled || !this.supabase) {
+      logger.warn('Storage deshabilitado: omitiendo limpieza de carpeta del contexto', {
+        contextObjectId
+      });
+      return;
+    }
+
+    // Circuit breaker abierto → Supabase no está disponible en este momento.
+    // Lanzar error para que el controller revierta la operación y devuelva error al cliente.
+    if (!storageBreaker.canRequest()) {
+      const err = new Error(
+        'Storage no disponible (circuit breaker abierto): no se puede garantizar la limpieza de archivos'
+      );
+      logger.error('Storage: Circuito abierto, deleteFolder bloqueado', { contextObjectId });
+      throw err;
+    }
+
+    const folderPrefix = `ctx-${contextObjectId}`;
+    const subfolders = ['image', 'thumbnail', 'audio'];
+
+    try {
+      // Listar todos los archivos de cada subcarpeta en paralelo
+      const fileLists = await Promise.all(
+        subfolders.map(sub => this.listFiles(`${folderPrefix}/${sub}`))
+      );
+
+      const allPaths = fileLists.flat();
+
+      if (allPaths.length === 0) {
+        logger.info('Carpeta de contexto vacía o inexistente en Storage, nada que eliminar', {
+          folderPrefix
+        });
+        return;
+      }
+
+      // Borrado masivo con la API de Supabase (permite hasta 1000 paths por llamada)
+      const { error } = await this.supabase.storage.from(BUCKET_NAME).remove(allPaths);
+
+      if (error) {
+        storageBreaker.recordFailure();
+        logger.error('Error en borrado masivo de carpeta de contexto', {
+          folderPrefix,
+          error: error.message,
+          filesAttempted: allPaths.length
+        });
+        throw new Error(`Error al eliminar archivos de Storage: ${error.message}`);
+      }
+
+      storageBreaker.recordSuccess();
+      logger.info('Carpeta de contexto eliminada de Storage', {
+        folderPrefix,
+        filesDeleted: allPaths.length
+      });
+    } catch (err) {
+      // Si el error ya fue lanzado por nosotros, re-lanzarlo directamente
+      if (err.message?.startsWith('Error al eliminar archivos')) {
+        throw err;
+      }
+      storageBreaker.recordFailure();
+      logger.error('Excepción en deleteFolder', { folderPrefix, error: err.message });
+      throw new Error(`Fallo inesperado al limpiar Storage del contexto: ${err.message}`);
     }
   }
 

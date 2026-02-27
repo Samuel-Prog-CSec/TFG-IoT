@@ -81,6 +81,65 @@ describe('Super Admin Approval Flow', () => {
     expect(loginRes.statusCode).toBe(403);
   });
 
+  it('should return paginated pending teachers list for super_admin', async () => {
+    await request(app).post('/api/auth/register').send({
+      name: 'Pending Teacher One',
+      email: 'pending-one@test.com',
+      password: 'Password123'
+    });
+
+    await request(app).post('/api/auth/register').send({
+      name: 'Pending Teacher Two',
+      email: 'pending-two@test.com',
+      password: 'Password123'
+    });
+
+    const res = await request(app)
+      .get('/api/admin/pending?page=1&limit=10&search=pending')
+      .set('Authorization', `Bearer ${superAdminToken}`);
+
+    expect(res.statusCode).toBe(200);
+    expect(res.body.success).toBe(true);
+    expect(Array.isArray(res.body.data)).toBe(true);
+    expect(res.body.data.length).toBeGreaterThanOrEqual(2);
+    expect(res.body).toHaveProperty('pagination');
+    expect(res.body.pagination).toHaveProperty('page', 1);
+  });
+
+  it('should reject approving a teacher that is not pending', async () => {
+    const approvedTeacher = await User.create({
+      name: 'Approved Teacher',
+      email: 'approved-teacher@test.com',
+      password: 'Password123',
+      role: 'teacher',
+      accountStatus: 'approved',
+      status: 'active'
+    });
+
+    const res = await request(app)
+      .post(`/api/admin/users/${approvedTeacher._id}/approve`)
+      .set('Authorization', `Bearer ${superAdminToken}`);
+
+    expect(res.statusCode).toBe(400);
+  });
+
+  it('should reject rejecting a teacher that is not pending', async () => {
+    const rejectedTeacher = await User.create({
+      name: 'Already Rejected',
+      email: 'already-rejected@test.com',
+      password: 'Password123',
+      role: 'teacher',
+      accountStatus: 'rejected',
+      status: 'active'
+    });
+
+    const res = await request(app)
+      .post(`/api/admin/users/${rejectedTeacher._id}/reject`)
+      .set('Authorization', `Bearer ${superAdminToken}`);
+
+    expect(res.statusCode).toBe(400);
+  });
+
   it('should forbid teacher from approving/rejecting users', async () => {
     const approvedTeacher = await User.create({
       name: 'Teacher',

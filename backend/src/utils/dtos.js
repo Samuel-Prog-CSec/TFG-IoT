@@ -466,6 +466,7 @@ const toGameContextDTOV1 = context => {
     id: toId(contextData),
     contextId: contextData.contextId,
     name: contextData.name,
+    isActive: contextData.isActive,
     assetsCount: Array.isArray(contextData.assets) ? contextData.assets.length : 0,
     createdAt: contextData.createdAt,
     updatedAt: contextData.updatedAt

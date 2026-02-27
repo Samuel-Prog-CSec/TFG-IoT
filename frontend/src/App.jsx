@@ -5,8 +5,8 @@
  * @module App
  */
 
-import { BrowserRouter, Routes, Route, Navigate, useLocation } from 'react-router-dom';
-import { lazy, Suspense, useMemo } from 'react';
+import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
+import { lazy, Suspense } from 'react';
 import { Toaster } from 'sonner';
 import { AuthProvider } from './context/AuthContext';
 import { ProtectedRoute, GuestRoute, RequireRole } from './components/auth';
@@ -14,6 +14,7 @@ import AppLayout from './components/layout/AppLayout';
 import { ErrorBoundary } from './components/common';
 import { ROUTES } from './constants/routes';
 import RFIDModeHandler from './components/game/RFIDModeHandler';
+import { RfidModeProvider } from './context';
 
 // Lazy loaded pages for better performance
 const Dashboard = lazy(() => import('./pages/Dashboard'));
@@ -28,7 +29,12 @@ const SessionEdit = lazy(() => import('./pages/SessionEdit'));
 // Card Decks pages
 const CardDecksPage = lazy(() => import('./pages/CardDecksPage'));
 const DeckCreationWizard = lazy(() => import('./pages/DeckCreationWizard'));
+const CardDeckDetailPage = lazy(() => import('./pages/CardDeckDetailPage'));
 const DeckEditPage = lazy(() => import('./pages/DeckEditPage'));
+
+// Contexts pages
+const ContextsPage = lazy(() => import('./pages/ContextsPage'));
+const ContextDetailPage = lazy(() => import('./pages/ContextDetailPage'));
 
 // Auth pages
 const Login = lazy(() => import('./pages/Login'));
@@ -36,6 +42,7 @@ const Register = lazy(() => import('./pages/Register'));
 
 // Admin pages
 const ApprovalPanel = lazy(() => import('./pages/admin/ApprovalPanel'));
+const StudentManagement = lazy(() => import('./pages/admin/StudentManagement'));
 
 /**
  * Loading fallback component con spinner animado
@@ -43,24 +50,24 @@ const ApprovalPanel = lazy(() => import('./pages/admin/ApprovalPanel'));
 function PageLoader() {
   return (
     <div 
-      className="min-h-screen flex items-center justify-center bg-slate-950"
+      className="min-h-screen flex items-center justify-center bg-background-base transition-colors duration-500"
       role="status"
       aria-label="Cargando página"
     >
       <div className="flex flex-col items-center gap-4">
         <div className="relative">
           <div 
-            className="w-16 h-16 rounded-full border-4 border-purple-500/20 animate-spin" 
-            style={{ borderTopColor: '#8b5cf6' }}
+            className="w-16 h-16 rounded-full border-4 border-brand-base/20 animate-spin" 
+            style={{ borderTopColor: 'var(--color-brand-base)' }}
             aria-hidden="true"
           />
           <div 
             className="absolute inset-0 w-16 h-16 rounded-full border-4 border-transparent animate-ping"
-            style={{ borderTopColor: 'rgba(139, 92, 246, 0.3)' }}
+            style={{ borderTopColor: 'var(--color-brand-base)', opacity: 0.3 }}
             aria-hidden="true"
           />
         </div>
-        <p className="text-slate-400 text-sm animate-pulse">Cargando...</p>
+        <p className="text-text-muted text-sm font-medium animate-pulse">Cargando plataforma...</p>
       </div>
     </div>
   );
@@ -83,17 +90,6 @@ function SuspenseWrapper({ children }) {
  * Componente que envuelve el contenido de la aplicación para poder usar useLocation
  */
 function AppContent() {
-  const location = useLocation();
-  
-  // T-010: Determinar el modo RFID basado en la ruta
-  const rfidMode = useMemo(() => {
-    const path = location.pathname;
-    if (path.startsWith('/game/')) return 'gameplay';
-    if (path.includes('/register-cards')) return 'card_registration';
-    if (path.includes('/assign-cards')) return 'card_assignment';
-    return 'idle';
-  }, [location.pathname]);
-
   return (
     <>
       <Routes>
@@ -107,7 +103,10 @@ function AppContent() {
           <Route path="dashboard" element={<SuspenseWrapper><Dashboard /></SuspenseWrapper>} />
           <Route path="decks" element={<SuspenseWrapper><CardDecksPage /></SuspenseWrapper>} />
           <Route path="decks/new" element={<SuspenseWrapper><DeckCreationWizard /></SuspenseWrapper>} />
+          <Route path="decks/:deckId" element={<SuspenseWrapper><CardDeckDetailPage /></SuspenseWrapper>} />
           <Route path="decks/:deckId/edit" element={<SuspenseWrapper><DeckEditPage /></SuspenseWrapper>} />
+          <Route path="contexts" element={<SuspenseWrapper><ContextsPage /></SuspenseWrapper>} />
+          <Route path="contexts/:contextId" element={<SuspenseWrapper><ContextDetailPage /></SuspenseWrapper>} />
           <Route path="sessions" element={<SuspenseWrapper><SessionsPage /></SuspenseWrapper>} />
           <Route path="sessions/:sessionId" element={<SuspenseWrapper><SessionDetail /></SuspenseWrapper>} />
           <Route path="sessions/:sessionId/edit" element={<SuspenseWrapper><SessionEdit /></SuspenseWrapper>} />
@@ -115,7 +114,7 @@ function AppContent() {
           <Route path="board-setup" element={<SuspenseWrapper><BoardSetup /></SuspenseWrapper>} />
           <Route path="board-setup/:sessionId" element={<SuspenseWrapper><BoardSetup /></SuspenseWrapper>} />
           <Route path="students/transfer" element={
-            <RequireRole roles={['teacher', 'super_admin']}>
+            <RequireRole roles="super_admin">
               <SuspenseWrapper><TransferStudents /></SuspenseWrapper>
             </RequireRole>
           } />
@@ -124,6 +123,7 @@ function AppContent() {
         {/* RUTAS DE ADMIN */}
         <Route path="/admin" element={<ProtectedRoute><RequireRole roles="super_admin"><AppLayout /></RequireRole></ProtectedRoute>}>
           <Route path="approvals" element={<SuspenseWrapper><ApprovalPanel /></SuspenseWrapper>} />
+          <Route path="students" element={<SuspenseWrapper><StudentManagement /></SuspenseWrapper>} />
         </Route>
 
         {/* RUTAS DE JUEGO */}
@@ -133,8 +133,7 @@ function AppContent() {
         <Route path="*" element={<Navigate to={ROUTES.HOME} replace />} />
       </Routes>
       
-      {/* T-010: Visualización global del modo RFID */}
-      <RFIDModeHandler currentMode={rfidMode} />
+      <RFIDModeHandler />
     </>
   );
 }
@@ -146,22 +145,24 @@ export default function App() {
   return (
     <BrowserRouter>
       <AuthProvider>
-        <AppContent />
-        <Toaster 
-          position="top-right"
-          expand={false}
-          richColors
-          closeButton
-          theme="dark"
-          toastOptions={{
-            duration: 4000,
-            style: {
-              background: 'rgba(30, 41, 59, 0.95)',
-              border: '1px solid rgba(255, 255, 255, 0.1)',
-              backdropFilter: 'blur(8px)',
-            },
-          }}
-        />
+        <RfidModeProvider>
+          <AppContent />
+          <Toaster 
+            position="top-right"
+            expand={false}
+            richColors
+            closeButton
+            theme="dark"
+            toastOptions={{
+              duration: 4000,
+              style: {
+                background: 'rgba(30, 41, 59, 0.95)',
+                border: '1px solid rgba(255, 255, 255, 0.1)',
+                backdropFilter: 'blur(8px)',
+              },
+            }}
+          />
+        </RfidModeProvider>
       </AuthProvider>
     </BrowserRouter>
   );

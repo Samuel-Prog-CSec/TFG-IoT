@@ -3,6 +3,9 @@
 .agent/
 .agents/
 node_modules/
+.sonarlint/
 .github/*.md
+.github/skills
 development/
 .env
+skills-lock.json

@@ -95,8 +95,11 @@ describe('Validation (Zod) - All API endpoints', () => {
       expect(res.statusCode).toBe(400);
     });
 
-    it('POST /api/auth/refresh - invalid body', async () => {
-      const res = await request(app).post('/api/auth/refresh').set(fingerprintHeaders).send({});
+    it('POST /api/auth/refresh - rejects refreshToken in body', async () => {
+      const res = await request(app)
+        .post('/api/auth/refresh')
+        .set(fingerprintHeaders)
+        .send({ refreshToken: 'legacy-token' });
 
       expect(res.statusCode).toBe(400);
     });
@@ -129,7 +132,7 @@ describe('Validation (Zod) - All API endpoints', () => {
     it('POST /api/users - invalid body (student schema)', async () => {
       const res = await request(app)
         .post('/api/users')
-        .set(makeAuthHeaders(teacherToken))
+        .set(makeAuthHeaders(superAdminToken))
         .send({ name: 'Student', email: 'not-allowed@test.com' });
 
       expect(res.statusCode).toBe(400);
@@ -138,10 +141,38 @@ describe('Validation (Zod) - All API endpoints', () => {
     it('POST /api/users/:id/transfer - invalid body', async () => {
       const res = await request(app)
         .post('/api/users/507f1f77bcf86cd799439011/transfer')
-        .set(makeAuthHeaders(teacherToken))
+        .set(makeAuthHeaders(superAdminToken))
         .send({ newTeacherId: 'bad' });
 
       expect(res.statusCode).toBe(400);
+    });
+
+    it('POST /api/users - rejects NoSQL operator payload', async () => {
+      const res = await request(app)
+        .post('/api/users')
+        .set(makeAuthHeaders(superAdminToken))
+        .send({
+          name: 'Alumno Seguro',
+          profile: { classroom: '1A' },
+          $where: 'this.role === "teacher"'
+        });
+
+      expect(res.statusCode).toBe(400);
+      expect(res.body.message).toMatch(/política de seguridad/i);
+    });
+
+    it('POST /api/users - rejects constructor.prototype payload', async () => {
+      const maliciousPayload = JSON.parse(
+        '{"name":"Alumno Seguro","profile":{"classroom":"1A"},"constructor":{"prototype":{"polluted":true}}}'
+      );
+
+      const res = await request(app)
+        .post('/api/users')
+        .set(makeAuthHeaders(superAdminToken))
+        .send(maliciousPayload);
+
+      expect(res.statusCode).toBe(400);
+      expect(res.body.message).toMatch(/política de seguridad/i);
     });
   });
 
@@ -263,10 +294,10 @@ describe('Validation (Zod) - All API endpoints', () => {
       expect(res.statusCode).toBe(400);
     });
 
-    it('POST /api/contexts - invalid body', async () => {
+    it('POST /api/contexts - invalid body (solo super_admin puede crear)', async () => {
       const res = await request(app)
         .post('/api/contexts')
-        .set(makeAuthHeaders(teacherToken))
+        .set(makeAuthHeaders(superAdminToken))
         .send({ contextId: 'geo' });
 
       expect(res.statusCode).toBe(400);

@@ -1,6 +1,6 @@
 import { motion } from 'framer-motion';
 import { Volume2, VolumeX } from 'lucide-react';
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { cn } from '../../lib/utils';
 
 /**
@@ -19,6 +19,11 @@ export default function ChallengeDisplay({
   className 
 }) {
   const [audioPlaying, setAudioPlaying] = useState(false);
+  const [imageError, setImageError] = useState(false);
+
+  useEffect(() => {
+    setImageError(false);
+  }, [asset?.imageUrl, asset?.thumbnailUrl]);
 
   // Colores según el tema del contexto
   const themeColors = {
@@ -98,13 +103,14 @@ export default function ChallengeDisplay({
         className="relative z-10 text-center"
       >
         {/* Emoji/Image */}
-        {asset?.imageUrl ? (
+        {(asset?.thumbnailUrl || asset?.imageUrl) && !imageError ? (
           <motion.img
-            src={asset.imageUrl}
+            src={asset.thumbnailUrl || asset.imageUrl}
             alt={asset.value}
             className="w-32 h-32 sm:w-40 sm:h-40 object-contain mx-auto mb-4 drop-shadow-2xl"
             animate={{ scale: [1, 1.05, 1] }}
             transition={{ duration: 2, repeat: Infinity, ease: "easeInOut" }}
+            onError={() => setImageError(true)}
           />
         ) : (
           <motion.div

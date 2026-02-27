@@ -4,8 +4,8 @@ const User = require('../src/models/User');
 const { generateTokenPair } = require('../src/middlewares/auth');
 
 describe('Student Transfer', () => {
-  let teacherA, teacherB, teacherC, student;
-  let tokenA, tokenB, tokenC;
+  let teacherA, teacherB, teacherC, admin, student;
+  let tokenA, tokenB, tokenC, adminToken;
 
   const mockTeacher = (name, email) => ({
     name,
@@ -22,6 +22,13 @@ describe('Student Transfer', () => {
     teacherA = await User.create(mockTeacher('Teacher A', 'a@test.com'));
     teacherB = await User.create(mockTeacher('Teacher B', 'b@test.com'));
     teacherC = await User.create(mockTeacher('Teacher C', 'c@test.com'));
+    admin = await User.create({
+      name: 'Admin',
+      email: 'admin.transfer@test.com',
+      password: 'Password123',
+      role: 'super_admin',
+      status: 'active'
+    });
 
     // Create student owned by A
     student = await User.create({
@@ -43,12 +50,13 @@ describe('Student Transfer', () => {
     tokenA = (await generateTokenPair(teacherA, mockReq)).accessToken;
     tokenB = (await generateTokenPair(teacherB, mockReq)).accessToken;
     tokenC = (await generateTokenPair(teacherC, mockReq)).accessToken;
+    adminToken = (await generateTokenPair(admin, mockReq)).accessToken;
   });
 
-  it('should allow Owner (Teacher A) to transfer access to Teacher B', async () => {
+  it('should allow Super Admin to transfer student from Teacher A to Teacher B', async () => {
     const res = await request(app)
       .post(`/api/users/${student._id}/transfer`)
-      .set('Authorization', `Bearer ${tokenA}`)
+      .set('Authorization', `Bearer ${adminToken}`)
       .set('User-Agent', 'test')
       .set('Accept-Language', 'en')
       .set('Accept-Encoding', 'gzip')
@@ -65,6 +73,21 @@ describe('Student Transfer', () => {
     const updatedStudent = await User.findById(student._id);
     expect(updatedStudent.createdBy.toString()).toBe(teacherB._id.toString());
     expect(updatedStudent.profile.classroom).toBe('Class B');
+  });
+
+  it('should NOT allow Teacher A (former owner) to transfer access anymore (403)', async () => {
+    const res = await request(app)
+      .post(`/api/users/${student._id}/transfer`)
+      .set('Authorization', `Bearer ${tokenA}`)
+      .set('User-Agent', 'test')
+      .set('Accept-Language', 'en')
+      .set('Accept-Encoding', 'gzip')
+      .send({
+        newTeacherId: teacherB._id,
+        newClassroom: 'Class B'
+      });
+
+    expect(res.statusCode).toBe(403);
   });
 
   it('should NOT allow Teacher C to steal Student (403 Forbidden)', async () => {
@@ -100,7 +123,7 @@ describe('Student Transfer', () => {
   it('should fail if new teacher does not exist', async () => {
     const res = await request(app)
       .post(`/api/users/${student._id}/transfer`)
-      .set('Authorization', `Bearer ${tokenA}`)
+      .set('Authorization', `Bearer ${adminToken}`)
       .set('User-Agent', 'test')
       .set('Accept-Language', 'en')
       .set('Accept-Encoding', 'gzip')
@@ -115,7 +138,7 @@ describe('Student Transfer', () => {
   it('should fail if payload is missing', async () => {
     const res = await request(app)
       .post(`/api/users/${student._id}/transfer`)
-      .set('Authorization', `Bearer ${tokenA}`)
+      .set('Authorization', `Bearer ${adminToken}`)
       .set('User-Agent', 'test')
       .set('Accept-Language', 'en')
       .set('Accept-Encoding', 'gzip')

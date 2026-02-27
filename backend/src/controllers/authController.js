@@ -63,7 +63,7 @@ const register = async (req, res, next) => {
     const { name, email, password, profile, website } = req.body;
     const requestContext = getRequestContext(req);
 
-    if (website && website.trim()) {
+    if (website?.trim()) {
       logSecurityEvent('AUTH_REGISTER_FAILED', {
         ...requestContext,
         reason: 'HONEYPOT_TRIGGERED',
@@ -549,7 +549,9 @@ const refreshAccessToken = async (req, res, next) => {
       success: true,
       message: 'Tokens refrescados exitosamente',
       data: {
-        ...publicTokens
+        accessToken: publicTokens.accessToken,
+        accessTokenExpiresIn: publicTokens.accessTokenExpiresIn,
+        tokenType: publicTokens.tokenType
       }
     });
   } catch (error) {

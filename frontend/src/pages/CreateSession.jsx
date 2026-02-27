@@ -46,13 +46,14 @@ import {
 import { 
   WizardStepper,
   ButtonPremium,
+  CardAssetPreview,
   GlassCard,
   DeckCard,
   InputPremium,
   SkeletonCard
 } from '../components/ui';
 import { ROUTES } from '../constants/routes';
-import { useRefetchOnFocus } from '../hooks';
+import { useRefetchOnFocus, useReducedMotion } from '../hooks';
 import { toast } from 'sonner';
 
 // Configuración del wizard
@@ -109,11 +110,30 @@ const DIFFICULTY_PRESETS = {
   }
 };
 
+const DIFFICULTY_VARIANT_STYLES = {
+  easy: {
+    selectedCard: 'border-emerald-500 bg-emerald-500/10',
+    selectedText: 'text-emerald-400',
+    selectedIndicator: 'bg-emerald-500'
+  },
+  medium: {
+    selectedCard: 'border-amber-500 bg-amber-500/10',
+    selectedText: 'text-amber-400',
+    selectedIndicator: 'bg-amber-500'
+  },
+  hard: {
+    selectedCard: 'border-rose-500 bg-rose-500/10',
+    selectedText: 'text-rose-400',
+    selectedIndicator: 'bg-rose-500'
+  }
+};
+
 /**
  * Página de creación de sesiones
  */
 export default function CreateSession() {
   const navigate = useNavigate();
+  const { shouldReduceMotion } = useReducedMotion();
   
   // Estado del wizard
   const [currentStep, setCurrentStep] = useState(0);
@@ -297,7 +317,8 @@ export default function CreateSession() {
         particleCount: 150,
         spread: 80,
         origin: { y: 0.6 },
-        colors: ['#8b5cf6', '#6366f1', '#10b981', '#22c55e']
+        colors: ['#8b5cf6', '#6366f1', '#10b981', '#22c55e'],
+        disableForReducedMotion: shouldReduceMotion,
       });
       
       toast.success('¡Sesión creada!', {
@@ -307,7 +328,7 @@ export default function CreateSession() {
       // Redirigir a Board Setup
       setTimeout(() => {
         navigate(ROUTES.BOARD_SETUP_WITH_ID(newSession._id || newSession.id));
-      }, 1500);
+      }, shouldReduceMotion ? 400 : 1500);
       
     } catch (err) {
       toast.error('Error al crear sesión', {
@@ -368,7 +389,7 @@ export default function CreateSession() {
     <div className="min-h-screen bg-slate-950 p-4 lg:p-8">
       {/* Header */}
       <motion.div
-        initial={{ opacity: 0, y: -20 }}
+        initial={shouldReduceMotion ? false : { opacity: 0, y: -20 }}
         animate={{ opacity: 1, y: 0 }}
         className="max-w-5xl mx-auto mb-8"
       >
@@ -385,6 +406,7 @@ export default function CreateSession() {
         <WizardStepper
           steps={WIZARD_STEPS}
           currentStep={currentStep}
+          reducedMotion={shouldReduceMotion}
           onStepClick={(index) => {
             if (index < currentStep) {
               setCurrentStep(index);
@@ -398,10 +420,10 @@ export default function CreateSession() {
         <AnimatePresence mode="wait">
           <motion.div
             key={currentStep}
-            initial={{ opacity: 0, x: 20 }}
+            initial={shouldReduceMotion ? false : { opacity: 0, x: 20 }}
             animate={{ opacity: 1, x: 0 }}
-            exit={{ opacity: 0, x: -20 }}
-            transition={{ duration: 0.3 }}
+            exit={shouldReduceMotion ? { opacity: 0 } : { opacity: 0, x: -20 }}
+            transition={{ duration: shouldReduceMotion ? 0.15 : 0.3 }}
           >
             {renderStep()}
           </motion.div>
@@ -410,9 +432,9 @@ export default function CreateSession() {
 
       {/* Footer navegación */}
       <motion.div
-        initial={{ opacity: 0, y: 20 }}
+        initial={shouldReduceMotion ? false : { opacity: 0, y: 20 }}
         animate={{ opacity: 1, y: 0 }}
-        transition={{ delay: 0.3 }}
+        transition={{ delay: shouldReduceMotion ? 0 : 0.3 }}
         className="max-w-5xl mx-auto"
       >
         <GlassCard className="p-4">
@@ -542,11 +564,14 @@ function StepDeck({ decks, loading, selectedDeckId, onSelect }) {
             )}
 
             {/* Preview de assets */}
-            <div className="flex flex-wrap gap-1 mb-3 h-8 overflow-hidden">
+            <div className="flex gap-1 mb-3 h-8 overflow-hidden">
               {cardsPreview.slice(0, 6).map((mapping) => (
-                <span key={mapping.id || mapping.uid} className="text-xl">
-                  {mapping.displayData?.display || mapping.displayData?.emoji || '🃏'}
-                </span>
+                <CardAssetPreview
+                  key={mapping.id || mapping.uid || mapping.cardId || mapping._id}
+                  asset={mapping.displayData}
+                  className="w-8 h-8 rounded-md flex-shrink-0"
+                  fallbackLabel={mapping.displayData?.display || mapping.displayData?.emoji || '\uD83C\uDFB3'}
+                />
               ))}
             </div>
 
@@ -670,9 +695,9 @@ function StepRules({
   currentSensorId
 }) {
   const difficulties = [
-    { id: 'easy', label: 'Fácil', color: 'emerald', description: 'Más tiempo, sin penalización' },
-    { id: 'medium', label: 'Normal', color: 'amber', description: 'Configuración equilibrada' },
-    { id: 'hard', label: 'Difícil', color: 'rose', description: 'Menos tiempo, más penalización' }
+    { id: 'easy', label: 'Fácil', description: 'Más tiempo, sin penalización' },
+    { id: 'medium', label: 'Normal', description: 'Configuración equilibrada' },
+    { id: 'hard', label: 'Difícil', description: 'Menos tiempo, más penalización' }
   ];
 
   return (
@@ -684,14 +709,18 @@ function StepRules({
         </h2>
         
         <div className="space-y-3">
-          {difficulties.map((d) => (
+          {difficulties.map((d) => {
+            const style = DIFFICULTY_VARIANT_STYLES[d.id] || DIFFICULTY_VARIANT_STYLES.medium;
+            const isSelected = difficulty === d.id;
+
+            return (
             <motion.button
               key={d.id}
               onClick={() => onDifficultyChange(d.id)}
               className={cn(
                 'w-full p-4 rounded-xl border-2 text-left transition-all',
-                difficulty === d.id
-                  ? `border-${d.color}-500 bg-${d.color}-500/10`
+                isSelected
+                  ? style.selectedCard
                   : 'border-white/10 bg-slate-800/30 hover:border-white/20'
               )}
               whileHover={{ x: 4 }}
@@ -700,24 +729,28 @@ function StepRules({
                 <div>
                   <h3 className={cn(
                     'font-medium',
-                    difficulty === d.id ? `text-${d.color}-400` : 'text-white'
+                    isSelected ? style.selectedText : 'text-white'
                   )}>
                     {d.label}
                   </h3>
                   <p className="text-xs text-slate-400">{d.description}</p>
                 </div>
-                {difficulty === d.id && (
+                {isSelected && (
                   <motion.div
                     initial={{ scale: 0 }}
                     animate={{ scale: 1 }}
-                    className={`w-6 h-6 rounded-full bg-${d.color}-500 flex items-center justify-center`}
+                    className={cn(
+                      'w-6 h-6 rounded-full flex items-center justify-center',
+                      style.selectedIndicator
+                    )}
                   >
                     <Check size={14} className="text-white" />
                   </motion.div>
                 )}
               </div>
             </motion.button>
-          ))}
+            );
+          })}
         </div>
       </GlassCard>
 
@@ -895,12 +928,30 @@ function StepReview({ sessionConfig, setSessionConfig, selectedDeck, selectedMec
             <div className="w-10 h-10 rounded-lg bg-indigo-500/20 flex items-center justify-center flex-shrink-0">
               <CreditCard size={18} className="text-indigo-400" />
             </div>
-            <div>
+            <div className="flex-1 min-w-0">
               <p className="text-xs text-slate-400">Mazo</p>
               <p className="text-white font-medium">{selectedDeck?.name || 'No seleccionado'}</p>
               <p className="text-xs text-slate-500">
-                {selectedDeck?.cards?.length || 0} cartas • {selectedDeck?.contextId?.name}
+                {selectedDeck?.cards?.length || selectedDeck?.cardMappings?.length || 0} cartas \u2022 {selectedDeck?.contextId?.name}
               </p>
+              {/* Mini-galería de assets del mazo */}
+              {selectedDeck?.cardMappings?.length > 0 && (
+                <div className="flex gap-1 mt-2 overflow-x-auto pb-1 max-w-full">
+                  {selectedDeck.cardMappings.slice(0, 8).map((m) => (
+                    <CardAssetPreview
+                      key={m.id || m.uid || m.cardId || m._id}
+                      asset={m.displayData}
+                      className="w-9 h-9 rounded-lg flex-shrink-0"
+                      fallbackLabel={m.displayData?.display || m.displayData?.emoji || '\uD83C\uDFB3'}
+                    />
+                  ))}
+                  {selectedDeck.cardMappings.length > 8 && (
+                    <div className="w-9 h-9 rounded-lg flex-shrink-0 bg-slate-700/60 flex items-center justify-center text-xs text-slate-400">
+                      +{selectedDeck.cardMappings.length - 8}
+                    </div>
+                  )}
+                </div>
+              )}
             </div>
           </div>
 

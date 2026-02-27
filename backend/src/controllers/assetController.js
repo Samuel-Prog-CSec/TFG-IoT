@@ -4,10 +4,10 @@
  * @module controllers/assetController
  */
 
-const gameContextRepository = require('../repositories/gameContextRepository');
+const gameContextRepository = require('../repositories/gameContextRepository.js');
 const storageService = require('../services/storageService.js');
-const imageProcessingService = require('../services/imageProcessingService');
-const audioValidationService = require('../services/audioValidationService');
+const imageProcessingService = require('../services/imageProcessingService.js');
+const audioValidationService = require('../services/audioValidationService.js');
 const logger = require('../utils/logger');
 const { NotFoundError, ValidationError, ConflictError } = require('../utils/errors');
 const { toAssetDTOV1 } = require('../utils/dtos');
@@ -226,7 +226,8 @@ const uploadAudio = async (req, res, next) => {
       assetKey: key,
       uploadedBy: req.user._id,
       format: metadata.formatName,
-      size: metadata.size
+      size: metadata.size,
+      durationSeconds: metadata.durationSeconds
     });
 
     res.status(201).json({
@@ -236,7 +237,8 @@ const uploadAudio = async (req, res, next) => {
         asset: toAssetDTOV1(newAsset),
         metadata: {
           format: metadata.formatName,
-          size: `${(metadata.size / 1024).toFixed(1)} KB`
+          size: `${(metadata.size / 1024).toFixed(1)} KB`,
+          durationSeconds: metadata.durationSeconds
         }
       }
     });
@@ -282,17 +284,12 @@ const deleteImage = async (req, res, next) => {
 
     const asset = context.assets[assetIndex];
 
-    // Verificar que queden al menos 2 assets después de eliminar
-    if (context.assets.length <= 2) {
-      throw new ValidationError('El contexto debe tener al menos 2 assets');
-    }
-
     // Eliminar archivos de Supabase
     if (asset.imageUrl) {
-      await storageService.deleteFile(asset.imageUrl);
+      await storageService.deleteFile(asset.imageUrl, { strict: true });
     }
     if (asset.thumbnailUrl) {
-      await storageService.deleteFile(asset.thumbnailUrl);
+      await storageService.deleteFile(asset.thumbnailUrl, { strict: true });
     }
 
     // Eliminar asset del array
@@ -346,14 +343,9 @@ const deleteAudio = async (req, res, next) => {
 
     const asset = context.assets[assetIndex];
 
-    // Verificar que queden al menos 2 assets después de eliminar
-    if (context.assets.length <= 2) {
-      throw new ValidationError('El contexto debe tener al menos 2 assets');
-    }
-
     // Eliminar archivo de Supabase
     if (asset.audioUrl) {
-      await storageService.deleteFile(asset.audioUrl);
+      await storageService.deleteFile(asset.audioUrl, { strict: true });
     }
 
     // Eliminar asset del array

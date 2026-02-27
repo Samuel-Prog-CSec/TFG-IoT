@@ -33,14 +33,26 @@ export const SOCKET_EVENTS = {
   // RFID (para futuro uso)
   RFID_EVENT: 'rfid_event',
   RFID_STATUS: 'rfid_status',
+  RFID_MODE_CHANGED: 'rfid_mode_changed',
   
   // Gameplay (para futuro uso)
   JOIN_PLAY: 'join_play',
   LEAVE_PLAY: 'leave_play',
+  START_PLAY: 'start_play',
+  PAUSE_PLAY: 'pause_play',
+  RESUME_PLAY: 'resume_play',
+  NEXT_ROUND: 'next_round',
+  JOIN_CARD_REGISTRATION: 'join_card_registration',
+  LEAVE_CARD_REGISTRATION: 'leave_card_registration',
+  JOIN_CARD_ASSIGNMENT: 'join_card_assignment',
+  LEAVE_CARD_ASSIGNMENT: 'leave_card_assignment',
   PLAY_STATE: 'play_state',
   NEW_ROUND: 'new_round',
   VALIDATION_RESULT: 'validation_result',
   GAME_OVER: 'game_over',
+  PLAY_PAUSED: 'play_paused',
+  PLAY_RESUMED: 'play_resumed',
+  ERROR: 'error'
 };
 
 // ============================================
@@ -259,6 +271,21 @@ class SocketService {
       throw new Error('Socket no conectado');
     }
     this.socket.emit(event, data);
+  }
+
+  /**
+   * Envía un comando socket sin ACK obligatorio y retorna booleano de envío.
+   * @param {string} event
+   * @param {*} data
+   * @returns {boolean}
+   */
+  sendCommand(event, data) {
+    if (!this.socket?.connected) {
+      return false;
+    }
+
+    this.socket.emit(event, data);
+    return true;
   }
 
   /**

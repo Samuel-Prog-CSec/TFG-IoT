@@ -104,7 +104,7 @@ const createUserSchema = z
 /**
  * Schema específico para crear ALUMNOS desde POST /api/users.
  * Los alumnos NO tienen email ni password.
- * Solo profesores autenticados pueden crear alumnos.
+ * Solo super administradores pueden crear alumnos asignándolos a un teacherId.
  *
  * ⚠️ IMPORTANTE: Este es el schema que se usa en userController.createUser()
  */
@@ -116,28 +116,26 @@ const createStudentSchema = z
       .min(2, 'El nombre debe tener al menos 2 caracteres')
       .max(100, 'El nombre no puede exceder 100 caracteres'),
 
-    profile: z
-      .object({
-        avatar: z.string().url('URL de avatar inválida').optional(),
-        age: z
-          .number()
-          .int('La edad debe ser un número entero')
-          .min(3, 'La edad mínima es 3 años')
-          .max(99, 'La edad máxima es 99 años')
-          .optional(),
-        classroom: z
-          .string()
-          .trim()
-          .max(50, 'El nombre de la clase no puede exceder 50 caracteres')
-          .optional(),
-        birthdate: z
-          .string()
-          .datetime({ message: 'Fecha de nacimiento inválida' })
-          .or(z.date())
-          .optional()
-      })
-      .optional()
-    // ✅ NO incluye email, password, role, createdBy - se asignan automáticamente en el controller
+    profile: z.object({
+      avatar: z.string().url('URL de avatar inválida').optional(),
+      age: z
+        .number()
+        .int('La edad debe ser un número entero')
+        .min(3, 'La edad mínima es 3 años')
+        .max(99, 'La edad máxima es 99 años'),
+      classroom: z
+        .string()
+        .trim()
+        .max(50, 'El nombre de la clase no puede exceder 50 caracteres')
+        .optional(),
+      birthdate: z
+        .string()
+        .datetime({ message: 'Fecha de nacimiento inválida' })
+        .or(z.date())
+        .optional()
+    }),
+
+    teacherId: objectIdSchema
   })
   .strict(); // Rechaza campos extra como email/password
 
@@ -172,8 +170,6 @@ const registerTeacherSchema = z
 /**
  * Schema para actualizar un usuario existente.
  * Todos los campos son opcionales.
- *
- * NUEVO: Incluye createdBy para permitir reasignar alumnos a otro profesor.
  */
 const updateUserSchema = z
   .object({
@@ -197,11 +193,7 @@ const updateUserSchema = z
       })
       .optional(),
 
-    status: z.enum(['active', 'inactive']).optional(),
-
-    // ✅ NUEVO: Permitir cambiar el profesor asignado
-    // Caso de uso: Alumno cambia de profesor o de responsable
-    createdBy: objectIdSchema.optional()
+    status: z.enum(['active', 'inactive']).optional()
   })
   .strict();
 

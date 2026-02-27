@@ -9,41 +9,41 @@ import PropTypes from 'prop-types';
  */
 function DistributionChart({ data }) {
   return (
-    <ResponsiveContainer width="100%" height={300}>
-      <BarChart data={data} barSize={40}>
-        <CartesianGrid strokeDasharray="3 3" stroke="#ffffff08" vertical={false} />
+    <ResponsiveContainer width="100%" height="100%">
+      <BarChart data={data} barSize={40} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
+        <CartesianGrid strokeDasharray="3 3" stroke="var(--color-border-subtle)" vertical={false} />
         <XAxis 
           dataKey="range" 
           axisLine={false} 
           tickLine={false} 
-          tick={{ fill: '#64748b', fontSize: 12 }} 
+          tick={{ fill: 'var(--color-text-muted)', fontSize: 12, fontWeight: 500 }} 
           dy={10} 
         />
         <YAxis 
           axisLine={false} 
           tickLine={false} 
-          tick={{ fill: '#64748b', fontSize: 12 }}
+          tick={{ fill: 'var(--color-text-muted)', fontSize: 12, fontWeight: 500 }}
           allowDecimals={false}
         />
         <Tooltip 
-          cursor={{ fill: '#ffffff05' }}
+          cursor={{ fill: 'var(--color-background-surface)', opacity: 0.5 }}
           contentStyle={{ 
-            backgroundColor: 'rgba(30, 41, 59, 0.95)', 
-            border: '1px solid rgba(255,255,255,0.1)', 
+            backgroundColor: 'var(--color-background-elevated)', 
+            border: '1px solid var(--color-border-default)', 
             borderRadius: '12px',
-            boxShadow: '0 4px 20px rgba(0,0,0,0.3)',
-            backdropFilter: 'blur(10px)'
+            boxShadow: '0 8px 32px rgba(0,0,0,0.4)',
+            backdropFilter: 'blur(16px)'
           }}
-          itemStyle={{ color: '#fff' }}
-          labelStyle={{ color: '#94a3b8', fontWeight: 500 }}
+          itemStyle={{ color: 'var(--color-text-primary)', fontWeight: 600 }}
+          labelStyle={{ color: 'var(--color-text-muted)', fontWeight: 500, marginBottom: '8px' }}
           formatter={(value) => [`${value} Estudiantes`, 'Cantidad']}
         />
-        <Bar dataKey="count" radius={[8, 8, 8, 8]}>
+        <Bar dataKey="count" radius={[6, 6, 0, 0]}>
           {data.map((entry, index) => (
             <Cell 
               key={`cell-${index}`} 
-              fill={entry.range === '0-49' ? '#fb7185' : entry.range === '90-100' ? '#4ade80' : '#8b5cf6'} 
-              fillOpacity={0.8}
+              fill={entry.range === '0-49' ? 'var(--color-error-base)' : entry.range === '90-100' ? 'var(--color-success-base)' : 'var(--color-brand-base)'} 
+              fillOpacity={0.9}
             />
           ))}
         </Bar>
