@@ -24,6 +24,7 @@ const DISTRIBUTED_LOCK_TTL_SECONDS =
   Number.parseInt(process.env.GAME_ENGINE_LOCK_TTL_SECONDS, 10) || 90;
 const LOCK_HEARTBEAT_INTERVAL_MS =
   Number.parseInt(process.env.GAME_ENGINE_LOCK_HEARTBEAT_MS, 10) || 30000;
+const MEMORY_DEFAULT_HIDE_DELAY_MS = Number.parseInt(process.env.MEMORY_HIDE_DELAY_MS, 10) || 1200;
 
 /**
  * GameEngine - Servicio con estado para gestión de partidas en tiempo real.
@@ -106,6 +107,8 @@ class GameEngine {
       scanRaceDiscarded: 0,
       blockedManualNextRound: 0,
       totalTimeouts: 0,
+      totalMemoryAttempts: 0,
+      totalMemoryMatches: 0,
       averageRoundResponseTimeMs: 0,
       totalRoundResponses: 0,
       lockContention: 0,
@@ -447,13 +450,24 @@ class GameEngine {
       currentChallenge: null,
       roundTimer: null,
       nextRoundTimer: null,
+      playTimer: null,
       awaitingResponse: false,
       paused: false,
       pausedAt: null,
       remainingTimeMs: null,
       roundElapsedBeforePauseMs: 0,
+      playDurationMs: null,
+      playEndsAt: null,
       createdAt: Date.now() // Para detectar abandonos
     };
+
+    if (playState.mechanicName === 'memory') {
+      const playDurationMs =
+        Number(playState.mechanicStrategy.getPlayDurationMs(sessionDoc)) ||
+        (sessionDoc.config?.timeLimit || 15) * 1000;
+      playState.playDurationMs = playDurationMs;
+      playState.playEndsAt = Date.now() + playDurationMs;
+    }
 
     // 4. Almacenar el estado en memoria
     this.activePlays.set(playId, playState);
@@ -506,6 +520,9 @@ class GameEngine {
     }
     if (playState.nextRoundTimer) {
       clearTimeout(playState.nextRoundTimer);
+    }
+    if (playState.playTimer) {
+      clearTimeout(playState.playTimer);
     }
 
     // 2. Guardar el estado final en la BD
@@ -562,6 +579,184 @@ class GameEngine {
   // LÓGICA DEL JUEGO
   // ============================================================================
 
+  isMemoryPlay(playState) {
+    return playState?.mechanicName === 'memory';
+  }
+
+  getMemoryRemainingTimeMs(playState) {
+    if (!playState?.playEndsAt) {
+      return null;
+    }
+
+    return Math.max(0, playState.playEndsAt - Date.now());
+  }
+
+  emitMemoryTurnState(playId, playState, extra = {}) {
+    const board = playState.mechanicStrategy.buildBoardForClient(playState.strategyState);
+    const matchedCount = Number(playState.strategyState?.matchedUids?.length || 0);
+    const totalCards = Number(playState.strategyState?.totalCards || board.length || 0);
+
+    this.io.to(`play_${playId}`).emit('memory_turn_state', {
+      playId,
+      board,
+      matchedCount,
+      totalCards,
+      attempts: Number(playState.strategyState?.attempts || 0),
+      remainingTimeMs: this.getMemoryRemainingTimeMs(playState),
+      score: playState.playDoc.score,
+      ...extra
+    });
+  }
+
+  scheduleMemoryPlayTimeout(playId, playState, remainingTimeMs) {
+    if (!Number.isFinite(remainingTimeMs) || remainingTimeMs <= 0) {
+      this.handleMemoryTimeout(playId);
+      return;
+    }
+
+    if (playState.playTimer) {
+      clearTimeout(playState.playTimer);
+      playState.playTimer = null;
+    }
+
+    playState.playTimer = setTimeout(() => {
+      this.handleMemoryTimeout(playId);
+    }, remainingTimeMs);
+  }
+
+  async handleMemoryTimeout(playId) {
+    await this.executeWithPlayLock(playId, 'handle_memory_timeout', async () => {
+      const playState = this.activePlays.get(playId);
+      if (!playState || !this.isMemoryPlay(playState)) {
+        return;
+      }
+
+      if (playState.paused || playState.playDoc.status === 'paused') {
+        return;
+      }
+
+      this.metrics.totalTimeouts++;
+      playState.awaitingResponse = false;
+      if (playState.playTimer) {
+        clearTimeout(playState.playTimer);
+        playState.playTimer = null;
+      }
+
+      this.io.to(`play_${playId}`).emit('validation_result', {
+        isCorrect: false,
+        timeout: true,
+        pointsAwarded: 0,
+        newScore: playState.playDoc.score
+      });
+
+      await this.endPlay(playId);
+    });
+  }
+
+  async processMemoryScan(playId, playState, scannedCard) {
+    const timeElapsed = playState.roundStartTime ? Date.now() - playState.roundStartTime : 0;
+    const outcome = playState.mechanicStrategy.processScan({
+      scannedCard,
+      sessionDoc: playState.sessionDoc,
+      strategyState: playState.strategyState,
+      playDoc: playState.playDoc,
+      playState
+    });
+
+    if (!outcome || outcome.type === 'ignored') {
+      this.metrics.ignoredCardScans++;
+      if (outcome?.board) {
+        this.emitMemoryTurnState(playId, playState, { phase: 'ignored' });
+      }
+      return;
+    }
+
+    if (outcome.type === 'first_pick') {
+      playState.roundStartTime = Date.now();
+
+      await playState.playDoc.addEvent({
+        eventType: 'card_scanned',
+        cardUid: scannedCard.uid,
+        expectedValue: scannedCard.assignedValue,
+        actualValue: scannedCard.assignedValue,
+        pointsAwarded: 0,
+        timeElapsed,
+        roundNumber: playState.playDoc.currentRound
+      });
+
+      this.emitMemoryTurnState(playId, playState, { phase: 'first_pick' });
+      return;
+    }
+
+    if (outcome.type !== 'resolved') {
+      return;
+    }
+
+    this.metrics.totalMemoryAttempts++;
+
+    const eventType = outcome.isCorrect ? 'correct' : 'error';
+    const selectedUids = outcome.selectedUids || [];
+    const firstUid = selectedUids[0] || null;
+    const secondUid = selectedUids[1] || null;
+
+    const boardByUid = new Map(
+      (playState.strategyState?.boardLayout || []).map(slot => [slot.uid, slot])
+    );
+    const firstCard = boardByUid.get(firstUid);
+    const secondCard = boardByUid.get(secondUid);
+
+    await playState.playDoc.addEventAtomic(
+      {
+        eventType,
+        cardUid: secondUid || scannedCard.uid,
+        expectedValue: firstCard?.assignedValue,
+        actualValue: secondCard?.assignedValue,
+        pointsAwarded: Number(outcome.pointsAwarded || 0),
+        timeElapsed,
+        roundNumber: playState.playDoc.currentRound
+      },
+      { advanceRound: true }
+    );
+
+    if (outcome.isCorrect) {
+      this.metrics.totalMemoryMatches++;
+    }
+
+    this.io.to(`play_${playId}`).emit('validation_result', {
+      isCorrect: outcome.isCorrect,
+      expected: firstCard?.displayData || null,
+      actual: {
+        value: secondCard?.assignedValue || scannedCard.assignedValue
+      },
+      pointsAwarded: Number(outcome.pointsAwarded || 0),
+      newScore: playState.playDoc.score,
+      remainingTimeMs: this.getMemoryRemainingTimeMs(playState)
+    });
+
+    this.emitMemoryTurnState(playId, playState, {
+      phase: outcome.isCorrect ? 'match' : 'mismatch'
+    });
+
+    if (outcome.isCorrect && playState.mechanicStrategy.isCompleted(playState.strategyState)) {
+      await this.endPlay(playId);
+      return;
+    }
+
+    if (!outcome.isCorrect) {
+      const hideDelay = Number(outcome.hideAfterMs) || MEMORY_DEFAULT_HIDE_DELAY_MS;
+      setTimeout(() => {
+        const currentState = this.activePlays.get(playId);
+        if (!currentState || !this.isMemoryPlay(currentState)) {
+          return;
+        }
+        currentState.mechanicStrategy.concealSelected(currentState.strategyState, selectedUids);
+        this.emitMemoryTurnState(playId, currentState, { phase: 'concealed' });
+      }, hideDelay);
+    }
+
+    playState.roundStartTime = null;
+  }
+
   /**
    * Genera y envía el siguiente desafío al jugador, o finaliza la partida.
    *
@@ -585,6 +780,31 @@ class GameEngine {
 
     // Si está pausada, NO avanzar rondas ni rearmar timers.
     if (playState.paused || playState.playDoc.status === 'paused') {
+      return;
+    }
+
+    if (this.isMemoryPlay(playState)) {
+      if (playState.playDoc.currentRound === 1 && !playState.roundStartTime) {
+        playState.roundStartTime = Date.now();
+      }
+
+      const remainingTimeMs = this.getMemoryRemainingTimeMs(playState);
+      playState.awaitingResponse = true;
+
+      this.io.to(`play_${playId}`).emit('new_round', {
+        roundNumber: playState.playDoc.currentRound,
+        totalRounds: Number(playState.strategyState?.totalGroups || 0),
+        challenge: {
+          displayData: {
+            mode: 'memory_board'
+          }
+        },
+        timeLimit: Math.max(1, Math.ceil((remainingTimeMs || 0) / 1000)),
+        score: playState.playDoc.score
+      });
+
+      this.emitMemoryTurnState(playId, playState, { phase: 'round_start' });
+      this.scheduleMemoryPlayTimeout(playId, playState, remainingTimeMs);
       return;
     }
 
@@ -753,12 +973,18 @@ class GameEngine {
       }
 
       // 4. Respuesta recibida → limpiar el timer
-      clearTimeout(playState.roundTimer);
-      playState.roundTimer = null;
-      playState.awaitingResponse = false;
+      if (!this.isMemoryPlay(playState)) {
+        clearTimeout(playState.roundTimer);
+        playState.roundTimer = null;
+        playState.awaitingResponse = false;
+      }
 
       // 5. Procesar la respuesta
-      await this.processResponse(playId, playState, scannedCardMapping);
+      if (this.isMemoryPlay(playState)) {
+        await this.processMemoryScan(playId, playState, scannedCardMapping);
+      } else {
+        await this.processResponse(playId, playState, scannedCardMapping);
+      }
     });
   }
 
@@ -877,6 +1103,11 @@ class GameEngine {
         return;
       }
 
+      if (this.isMemoryPlay(playState)) {
+        await this.handleMemoryTimeout(playId);
+        return;
+      }
+
       logger.info(`Partida: ${playId} | Ronda: ${playState.playDoc.currentRound} | TIMEOUT`);
       this.metrics.totalTimeouts++;
 
@@ -937,7 +1168,9 @@ class GameEngine {
       playId: playState.playDoc._id.toString(),
       currentRound: playState.playDoc.currentRound,
       score: playState.playDoc.score,
-      maxRounds: playState.sessionDoc.config.numberOfRounds
+      maxRounds: this.isMemoryPlay(playState)
+        ? Number(playState.strategyState?.totalGroups || 0)
+        : playState.sessionDoc.config.numberOfRounds
     };
   }
 
@@ -1020,7 +1253,9 @@ class GameEngine {
 
       // Calcular tiempo restante de la ronda actual
       let remainingTimeMs = null;
-      if (
+      if (this.isMemoryPlay(playState)) {
+        remainingTimeMs = this.getMemoryRemainingTimeMs(playState);
+      } else if (
         playState.currentChallenge &&
         playState.roundStartTime &&
         playState.sessionDoc?.config?.timeLimit
@@ -1040,6 +1275,9 @@ class GameEngine {
       playState.pausedAt = Date.now();
       playState.remainingTimeMs = remainingTimeMs;
       playState.awaitingResponse = false;
+      if (this.isMemoryPlay(playState)) {
+        playState.playEndsAt = null;
+      }
 
       // Persistir en BD
       try {
@@ -1086,6 +1324,10 @@ class GameEngine {
     if (playState.nextRoundTimer) {
       clearTimeout(playState.nextRoundTimer);
       playState.nextRoundTimer = null;
+    }
+    if (playState.playTimer) {
+      clearTimeout(playState.playTimer);
+      playState.playTimer = null;
     }
   }
 
@@ -1165,6 +1407,13 @@ class GameEngine {
       playState.remainingTimeMs = null;
       playState.awaitingResponse = true;
 
+      if (this.isMemoryPlay(playState)) {
+        if (typeof remainingTimeMs === 'number' && remainingTimeMs > 0) {
+          playState.playEndsAt = Date.now() + remainingTimeMs;
+          this.scheduleMemoryPlayTimeout(playId, playState, remainingTimeMs);
+        }
+      }
+
       // Persistir en BD
       await this.persistPlayResumed(playId, playState);
 
@@ -1184,8 +1433,13 @@ class GameEngine {
         });
       }
 
+      if (this.isMemoryPlay(playState)) {
+        this.emitMemoryTurnState(playId, playState, { phase: 'resumed' });
+      }
+
       // Rearmar timer con el tiempo restante (si aplica)
       if (
+        !this.isMemoryPlay(playState) &&
         playState.currentChallenge &&
         typeof remainingTimeMs === 'number' &&
         remainingTimeMs > 0

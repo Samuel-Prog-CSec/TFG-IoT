@@ -48,6 +48,7 @@ export const SOCKET_EVENTS = {
   LEAVE_CARD_ASSIGNMENT: 'leave_card_assignment',
   PLAY_STATE: 'play_state',
   NEW_ROUND: 'new_round',
+  MEMORY_TURN_STATE: 'memory_turn_state',
   VALIDATION_RESULT: 'validation_result',
   GAME_OVER: 'game_over',
   PLAY_PAUSED: 'play_paused',

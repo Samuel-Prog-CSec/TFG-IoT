@@ -91,6 +91,13 @@ async function syncSessionFromDeck(session, { deckId, userId }) {
     numberOfCards: cardMappings.length
   };
 
+  if (Array.isArray(session.boardLayout) && session.boardLayout.length > 0) {
+    const mappingCardIds = new Set(cardMappings.map(mapping => mapping.cardId?.toString?.()));
+    session.boardLayout = session.boardLayout.filter(slot =>
+      mappingCardIds.has(slot.cardId?.toString?.())
+    );
+  }
+
   return { deck, context, cardMappings };
 }
 

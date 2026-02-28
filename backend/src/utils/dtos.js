@@ -307,6 +307,18 @@ const mapCardMappingDTOV1 = mapping => {
   };
 };
 
+const mapBoardLayoutItemDTOV1 = layoutItem => {
+  const itemData = toPlainObject(layoutItem);
+
+  return {
+    slotIndex: itemData.slotIndex,
+    cardId: toId(itemData.cardId),
+    uid: itemData.uid,
+    assignedValue: itemData.assignedValue,
+    displayData: itemData.displayData
+  };
+};
+
 /**
  * DTO v1 para GameSession (resumen sin cardMappings).
  *
@@ -342,6 +354,9 @@ const toGameSessionDTOV1 = session => {
     cardMappingsCount: Array.isArray(sessionData.cardMappings)
       ? sessionData.cardMappings.length
       : sessionData.config?.numberOfCards || 0,
+    boardLayout: Array.isArray(sessionData.boardLayout)
+      ? sessionData.boardLayout.map(mapBoardLayoutItemDTOV1)
+      : [],
     status: sessionData.status,
     difficulty: sessionData.difficulty,
     startedAt: sessionData.startedAt,

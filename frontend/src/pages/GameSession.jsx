@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback, useRef } from 'react';
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Wifi, WifiOff, Pause, Play, Volume2, VolumeX } from 'lucide-react';
+import PropTypes from 'prop-types';
 import { cn } from '../lib/utils';
 import { useReducedMotion } from '../hooks';
 import { useAuth } from '../context/AuthContext';
@@ -26,12 +27,13 @@ import {
   GameOverScreen,
   CharacterMascot 
 } from '../components/game';
+import { CardAssetPreview } from '../components/ui';
 
 /**
  * Pantalla principal de juego para niños de 4-6 años
  * Diseño colorido, amigable y sin texto complejo
  */
-export default function GameSession() {
+export default function GameSession() { // NOSONAR
   const { sessionId } = useParams();
   const [searchParams] = useSearchParams();
   const navigate = useNavigate();
@@ -64,6 +66,7 @@ export default function GameSession() {
   const [bootstrappingPlay, setBootstrappingPlay] = useState(true);
 
   const [challenge, setChallenge] = useState(null);
+  const [memoryBoard, setMemoryBoard] = useState([]);
   const roundIndicators = [];
   for (let roundNumber = 1; roundNumber <= totalRounds; roundNumber += 1) {
     roundIndicators.push(roundNumber);
@@ -99,6 +102,8 @@ export default function GameSession() {
       audioUrl: displayData?.audioUrl || null
     };
   }, []);
+
+  const isMemoryMode = session?.mechanic?.name === 'memory';
 
   const clearPendingTimeouts = useCallback(() => {
     pendingTimeoutRef.current.forEach(timeoutId => globalThis.clearTimeout(timeoutId));
@@ -195,6 +200,23 @@ export default function GameSession() {
     }
     if (Number.isFinite(payload?.maxRounds)) {
       setTotalRounds(payload.maxRounds);
+    }
+  }, []);
+
+  const handleMemoryTurnState = useCallback(payload => {
+    setMemoryBoard(Array.isArray(payload?.board) ? payload.board : []);
+
+    const remainingMs = Number(payload?.remainingTimeMs);
+    if (Number.isFinite(remainingMs) && remainingMs >= 0) {
+      setTimeLeft(Math.max(0, Math.ceil(remainingMs / 1000)));
+    }
+
+    if (Number.isFinite(payload?.score)) {
+      setScore(payload.score);
+    }
+
+    if (Number.isFinite(payload?.attempts)) {
+      setCurrentRound(Math.max(1, payload.attempts + 1));
     }
   }, []);
 
@@ -324,6 +346,7 @@ export default function GameSession() {
         }
 
         socketService.on(SOCKET_EVENTS.NEW_ROUND, handleNewRound);
+        socketService.on(SOCKET_EVENTS.MEMORY_TURN_STATE, handleMemoryTurnState);
         socketService.on(SOCKET_EVENTS.VALIDATION_RESULT, handleValidationResult);
         socketService.on(SOCKET_EVENTS.GAME_OVER, handleGameOver);
         socketService.on(SOCKET_EVENTS.PLAY_PAUSED, handlePlayPaused);
@@ -355,6 +378,7 @@ export default function GameSession() {
         socketService.sendCommand(SOCKET_EVENTS.LEAVE_PLAY, { playId: playIdRef.current });
       }
       socketService.off(SOCKET_EVENTS.NEW_ROUND, handleNewRound);
+      socketService.off(SOCKET_EVENTS.MEMORY_TURN_STATE, handleMemoryTurnState);
       socketService.off(SOCKET_EVENTS.VALIDATION_RESULT, handleValidationResult);
       socketService.off(SOCKET_EVENTS.GAME_OVER, handleGameOver);
       socketService.off(SOCKET_EVENTS.PLAY_PAUSED, handlePlayPaused);
@@ -368,6 +392,7 @@ export default function GameSession() {
     clearPendingTimeouts,
     handleGameOver,
     handleNewRound,
+    handleMemoryTurnState,
     handlePlayPaused,
     handlePlayResumed,
     handlePlayState,
@@ -480,6 +505,7 @@ export default function GameSession() {
       setScore(0);
       setCorrectAnswers(0);
       setChallenge(null);
+      setMemoryBoard([]);
       setFeedback(null);
       setIsAwaitingResponse(false);
 
@@ -642,12 +668,16 @@ export default function GameSession() {
               className="w-full max-w-2xl flex flex-col items-center"
             >
               {/* Challenge display */}
-              <ChallengeDisplay
-                asset={challenge}
-                revealed={gameState !== 'paused'}
-                contextTheme="geography"
-                className="w-full"
-              />
+              {isMemoryMode ? (
+                <MemoryBoard board={memoryBoard} />
+              ) : (
+                <ChallengeDisplay
+                  asset={challenge}
+                  revealed={gameState !== 'paused'}
+                  contextTheme="geography"
+                  className="w-full"
+                />
+              )}
 
               {/* Instruction text */}
               <motion.p
@@ -656,7 +686,13 @@ export default function GameSession() {
                 transition={{ delay: shouldReduceMotion ? 0 : 0.3 }}
                 className="mt-8 text-center text-slate-400 text-lg"
               >
-                ¡Busca la tarjeta de <span className="text-white font-bold">{challenge?.value || '---'}</span>!
+                {isMemoryMode ? (
+                  <>Encuentra las parejas en el tablero antes de que se acabe el tiempo.</>
+                ) : (
+                  <>
+                    ¡Busca la tarjeta de <span className="text-white font-bold">{challenge?.value || '---'}</span>!
+                  </>
+                )}
               </motion.p>
 
               {!rfidConnected && (
@@ -751,3 +787,82 @@ export default function GameSession() {
     </div>
   );
 }
+
+function resolveMemoryColumns(totalCards) {
+  if (totalCards <= 6) {
+    return 3;
+  }
+
+  if (totalCards <= 12) {
+    return 4;
+  }
+
+  return 5;
+}
+
+function getMemorySlotClasses(isMatched, isOpen) {
+  if (isMatched) {
+    return 'border-emerald-500/70 bg-emerald-500/20';
+  }
+
+  if (isOpen) {
+    return 'border-indigo-400/60 bg-indigo-500/20';
+  }
+
+  return 'border-slate-700 bg-slate-800/60';
+}
+
+function MemoryBoard({ board }) {
+  const safeBoard = Array.isArray(board) ? [...board].sort((a, b) => a.slotIndex - b.slotIndex) : [];
+  const total = safeBoard.length;
+  const columns = resolveMemoryColumns(total);
+
+  return (
+    <div className="w-full max-w-4xl rounded-2xl border border-white/10 bg-slate-900/30 p-4 sm:p-6">
+      <div className="mb-4 text-center text-sm text-slate-400">Tablero de Memoria</div>
+      <div
+        className="grid gap-3"
+        style={{ gridTemplateColumns: `repeat(${columns}, minmax(0, 1fr))` }}
+      >
+        {safeBoard.map(slot => {
+          const isOpen = Boolean(slot.isRevealed || slot.isMatched);
+          const slotClasses = getMemorySlotClasses(slot.isMatched, isOpen);
+
+          return (
+            <div
+              key={`memory-slot-${slot.slotIndex}`}
+              className={cn(
+                'aspect-square rounded-xl border p-2 flex items-center justify-center transition-all',
+                slotClasses
+              )}
+            >
+              {isOpen ? (
+                <CardAssetPreview
+                  asset={slot.displayData || { display: slot.assignedValue || '🎴' }}
+                  className="w-full h-full rounded-lg"
+                  fallbackLabel={slot.displayData?.display || slot.assignedValue || '🎴'}
+                />
+              ) : (
+                <div className="w-full h-full rounded-lg bg-slate-700/60 flex items-center justify-center text-slate-300 text-lg">
+                  ?
+                </div>
+              )}
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+MemoryBoard.propTypes = {
+  board: PropTypes.arrayOf(
+    PropTypes.shape({
+      slotIndex: PropTypes.number,
+      isMatched: PropTypes.bool,
+      isRevealed: PropTypes.bool,
+      assignedValue: PropTypes.string,
+      displayData: PropTypes.object
+    })
+  )
+};

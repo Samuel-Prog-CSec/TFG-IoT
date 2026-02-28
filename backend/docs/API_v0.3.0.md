@@ -457,6 +457,71 @@ Elimina el audio de un asset específico.
 - Al crear/consultar/actualizar/iniciar una sesión, el backend **sincroniza** el mapping con el mazo actual, para que si el mazo cambia (nuevas tarjetas, cambios de valores), la sesión use siempre el mapping vigente.
 - `config.numberOfCards` depende del número de `cardMappings` del mazo y se ajusta automáticamente.
 
+**Reglas Sprint 4 (T-056):**
+
+- En creación de sesión, la disponibilidad de mecánicas se controla por feature flag (`SESSION_ENABLED_MECHANICS`) y por reglas de mecánica (`rules.behavior.availability`).
+- Una mecánica marcada como `coming_soon` se rechaza aunque exista en catálogo.
+- Si `SESSION_ENABLED_MECHANICS` no está definido, se aceptan mecánicas activas no marcadas como `coming_soon`.
+
+#### Body recomendado para `POST /sessions`
+
+```json
+{
+  "mechanicId": "<ObjectId>",
+  "deckId": "<ObjectId>",
+  "config": {
+    "numberOfRounds": 5,
+    "timeLimit": 30,
+    "pointsPerCorrect": 10,
+    "penaltyPerError": -2
+  },
+  "boardLayout": [
+    {
+      "slotIndex": 0,
+      "cardId": "<ObjectId>",
+      "uid": "AA000001",
+      "assignedValue": "España",
+      "displayData": { "key": "spain", "display": "🇪🇸", "value": "España" }
+    }
+  ],
+  "sensorId": "sensor-001"
+}
+```
+
+#### Reglas de `boardLayout`
+
+- `boardLayout` es opcional para asociación y obligatorio para memoria.
+- No permite `slotIndex` duplicados.
+- No permite tarjetas duplicadas (`cardId`).
+- Cada tarjeta de `boardLayout` debe pertenecer al `deckId` de la sesión.
+- `uid` y `assignedValue` de cada slot deben coincidir con el mapping sincronizado del mazo.
+- En memoria, `boardLayout` debe cubrir todas las tarjetas del mazo y respetar el tamaño de grupo de matching configurado por mecánica.
+- Si el mazo se resincroniza y cambia, el backend poda automáticamente entradas inválidas de `boardLayout`.
+
+#### Límites de tiempo por mecánica
+
+- Asociación: `timeLimit` según límites de la mecánica (seed por defecto: `5-60`).
+- Memoria: `timeLimit` global de partida (seed por defecto: `10-300`).
+- El backend valida `config` contra `rules.limits` de la mecánica seleccionada en create/update.
+
+#### Respuesta de sesión (`GET /sessions/:id`, `POST /sessions`, `PUT /sessions/:id`)
+
+Además de `cardMappings`, la sesión incluye:
+
+```json
+{
+  "boardLayout": [
+    {
+      "slotIndex": 0,
+      "cardId": "<ObjectId>",
+      "uid": "AA000001",
+      "assignedValue": "España",
+      "displayData": { "key": "spain", "display": "🇪🇸", "value": "España" }
+    }
+  ]
+}
+```
+
 ---
 
 ### 6.1. Mazos Reutilizables (`/decks`)

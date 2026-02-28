@@ -15,6 +15,7 @@ import { useState, useEffect, useCallback, useRef } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import confetti from 'canvas-confetti';
+import PropTypes from 'prop-types';
 import { webSerialService } from '../services/webSerialService';
 import { 
   Layers, 
@@ -31,7 +32,6 @@ import {
   Plus,
   AlertTriangle,
   Sparkles,
-  Eye,
   Wifi
 } from 'lucide-react';
 import { cn } from '../lib/utils';
@@ -48,7 +48,6 @@ import {
   ButtonPremium,
   CardAssetPreview,
   GlassCard,
-  DeckCard,
   InputPremium,
   SkeletonCard
 } from '../components/ui';
@@ -128,6 +127,48 @@ const DIFFICULTY_VARIANT_STYLES = {
   }
 };
 
+const DEFAULT_ENABLED_MECHANICS = ['association', 'memory'];
+
+const parseEnabledMechanics = () => {
+  const raw = import.meta.env.VITE_ENABLED_SESSION_MECHANICS;
+  if (!raw || typeof raw !== 'string') {
+    return new Set(DEFAULT_ENABLED_MECHANICS);
+  }
+
+  const parsed = raw
+    .split(',')
+    .map(item => item.trim().toLowerCase())
+    .filter(Boolean);
+
+  return new Set(parsed.length > 0 ? parsed : DEFAULT_ENABLED_MECHANICS);
+};
+
+const ENABLED_SESSION_MECHANICS = parseEnabledMechanics();
+
+const normalizeMechanicName = mechanic => (mechanic?.name || '').toString().toLowerCase();
+
+const isMechanicSelectable = mechanic => {
+  const normalizedName = normalizeMechanicName(mechanic);
+  const availability = mechanic?.rules?.behavior?.availability;
+
+  if (availability === 'coming_soon') {
+    return false;
+  }
+
+  return ENABLED_SESSION_MECHANICS.has(normalizedName);
+};
+
+const resolveMechanicId = mechanic => mechanic?.id || mechanic?._id;
+const resolveMechanicName = mechanic => normalizeMechanicName(mechanic);
+
+const findMechanicById = (mechanics, mechanicId) => {
+  if (!mechanicId) {
+    return null;
+  }
+
+  return mechanics.find(mechanic => resolveMechanicId(mechanic) === mechanicId) || null;
+};
+
 /**
  * Página de creación de sesiones
  */
@@ -164,6 +205,8 @@ export default function CreateSession() {
   const [selectedDeck, setSelectedDeck] = useState(null);
   const [selectedMechanic, setSelectedMechanic] = useState(null);
   const [currentSensorId, setCurrentSensorId] = useState(null);
+  const [memoryBoardSlots, setMemoryBoardSlots] = useState([]);
+  const [selectedMemoryCardUid, setSelectedMemoryCardUid] = useState(null);
 
   const dataAbortRef = useRef(null);
 
@@ -181,9 +224,38 @@ export default function CreateSession() {
         
         const decksData = extractData(decksRes) || [];
         const mechsData = extractData(mechsRes) || [];
+        const orderedMechanics = [...mechsData].sort((a, b) => {
+          const aSelectable = isMechanicSelectable(a) ? 1 : 0;
+          const bSelectable = isMechanicSelectable(b) ? 1 : 0;
+          return bSelectable - aSelectable;
+        });
         
         setDecks(decksData);
-        setMechanics(mechsData);
+        setMechanics(orderedMechanics);
+
+        setSelectedMechanic(prev => {
+          if (prev && !isMechanicSelectable(prev)) {
+            return null;
+          }
+          return prev;
+        });
+
+        setSessionConfig(prev => {
+          if (!prev.mechanicId) {
+            return prev;
+          }
+
+          const currentMechanic = findMechanicById(orderedMechanics, prev.mechanicId);
+
+          if (currentMechanic && isMechanicSelectable(currentMechanic)) {
+            return prev;
+          }
+
+          return {
+            ...prev,
+            mechanicId: null
+          };
+        });
       } catch (err) {
         if (isAbortError(err)) {
           return;
@@ -201,6 +273,18 @@ export default function CreateSession() {
 
     run();
   }, []);
+
+  const selectedMechanicName = resolveMechanicName(selectedMechanic);
+  const isMemorySelected = selectedMechanicName === 'memory';
+
+  const memoryDeckCards = Array.isArray(selectedDeck?.cardMappings)
+    ? selectedDeck.cardMappings.map(mapping => ({
+        cardId: mapping.cardId || mapping.id,
+        uid: mapping.uid,
+        assignedValue: mapping.assignedValue,
+        displayData: mapping.displayData || {}
+      }))
+    : [];
 
   // Cargar mazos y mecánicas
   useEffect(() => {
@@ -236,6 +320,13 @@ export default function CreateSession() {
   };
 
   const handleSelectMechanic = (mechanic) => {
+    if (!isMechanicSelectable(mechanic)) {
+      toast.info('Mecánica no habilitada', {
+        description: 'Esta mecánica no está disponible para creación de sesiones en el entorno actual.'
+      });
+      return;
+    }
+
     const mechanicId = mechanic.id || mechanic._id;
     setSelectedMechanic(mechanic);
     setSessionConfig(prev => ({
@@ -243,6 +334,29 @@ export default function CreateSession() {
       mechanicId
     }));
   };
+
+  useEffect(() => {
+    if (!isMemorySelected) {
+      setMemoryBoardSlots([]);
+      setSelectedMemoryCardUid(null);
+      return;
+    }
+
+    const cards = Array.isArray(selectedDeck?.cardMappings) ? selectedDeck.cardMappings : [];
+    if (cards.length === 0) {
+      setMemoryBoardSlots([]);
+      setSelectedMemoryCardUid(null);
+      return;
+    }
+
+    setMemoryBoardSlots(prev => {
+      if (Array.isArray(prev) && prev.length === cards.length && prev.every(Boolean)) {
+        return prev;
+      }
+
+      return new Array(cards.length).fill(null);
+    });
+  }, [isMemorySelected, selectedDeck]);
 
   const handleDifficultyChange = (difficulty) => {
     setSessionConfig(prev => ({
@@ -267,7 +381,15 @@ export default function CreateSession() {
     switch (currentStep) {
       case 0: return sessionConfig.deckId !== null;
       case 1: return sessionConfig.mechanicId !== null;
-      case 2: return true; // Rules siempre válido con defaults
+      case 2:
+        if (isMemorySelected) {
+          return (
+            Array.isArray(memoryBoardSlots) &&
+            memoryBoardSlots.length > 0 &&
+            memoryBoardSlots.every(Boolean)
+          );
+        }
+        return true;
       case 3: return sessionConfig.name.trim().length >= 3;
       default: return false;
     }
@@ -294,10 +416,8 @@ export default function CreateSession() {
     
     try {
       const payload = {
-        name: sessionConfig.name.trim(),
         deckId: sessionConfig.deckId,
         mechanicId: sessionConfig.mechanicId,
-        difficulty: sessionConfig.difficulty,
         config: {
           ...sessionConfig.config,
           numberOfCards:
@@ -306,6 +426,23 @@ export default function CreateSession() {
             selectedDeck?.cards?.length ||
             0
         },
+        boardLayout: isMemorySelected
+          ? memoryBoardSlots
+              .map((slotCard, slotIndex) => {
+                if (!slotCard) {
+                  return null;
+                }
+
+                return {
+                  slotIndex,
+                  cardId: slotCard.cardId || slotCard.id,
+                  uid: slotCard.uid,
+                  assignedValue: slotCard.assignedValue,
+                  displayData: slotCard.displayData || {}
+                };
+              })
+              .filter(Boolean)
+          : undefined,
         sensorId: sessionConfig.linkSensor ? currentSensorId : undefined
       };
       
@@ -360,7 +497,20 @@ export default function CreateSession() {
           />
         );
       case 2:
-        return (
+        return isMemorySelected ? (
+          <StepMemoryRules
+            config={sessionConfig.config}
+            onConfigChange={handleConfigChange}
+            linkSensor={sessionConfig.linkSensor}
+            onLinkSensorChange={(val) => setSessionConfig(prev => ({ ...prev, linkSensor: val }))}
+            currentSensorId={currentSensorId}
+            cards={memoryDeckCards}
+            slots={memoryBoardSlots}
+            onSlotsChange={setMemoryBoardSlots}
+            selectedCardUid={selectedMemoryCardUid}
+            onSelectedCardUidChange={setSelectedMemoryCardUid}
+          />
+        ) : (
           <StepRules
             config={sessionConfig.config}
             difficulty={sessionConfig.difficulty}
@@ -491,8 +641,8 @@ function StepDeck({ decks, loading, selectedDeckId, onSelect }) {
     return (
       <GlassCard className="p-6">
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-          {[...Array(6)].map((_, i) => (
-            <SkeletonCard key={i} className="h-48" />
+          {['deck-skeleton-1', 'deck-skeleton-2', 'deck-skeleton-3', 'deck-skeleton-4', 'deck-skeleton-5', 'deck-skeleton-6'].map((skeletonKey) => (
+            <SkeletonCard key={skeletonKey} className="h-48" />
           ))}
         </div>
       </GlassCard>
@@ -618,8 +768,8 @@ function StepMechanic({ mechanics, loading, selectedMechanicId, onSelect }) {
     return (
       <GlassCard className="p-6">
         <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-          {[...Array(3)].map((_, i) => (
-            <SkeletonCard key={i} className="h-48" />
+          {['mechanic-skeleton-1', 'mechanic-skeleton-2', 'mechanic-skeleton-3'].map((skeletonKey) => (
+            <SkeletonCard key={skeletonKey} className="h-48" />
           ))}
         </div>
       </GlassCard>
@@ -641,23 +791,34 @@ function StepMechanic({ mechanics, loading, selectedMechanicId, onSelect }) {
         {mechanics.map((mechanic) => {
           const icon = mechanicIcons[mechanic.name?.toLowerCase()] || mechanicIcons.default;
           const mechanicId = mechanic.id || mechanic._id;
+          const selectable = isMechanicSelectable(mechanic);
+          const selected = selectable && selectedMechanicId === mechanicId;
           
           return (
             <motion.button
               key={mechanicId}
               onClick={() => onSelect(mechanic)}
+              disabled={!selectable}
               className={cn(
                 'relative p-6 rounded-xl border-2 text-left transition-all',
-                'hover:border-purple-500/50 hover:bg-purple-500/5',
-                selectedMechanicId === mechanicId
+                selectable
+                  ? 'hover:border-purple-500/50 hover:bg-purple-500/5'
+                  : 'opacity-70 cursor-not-allowed border-white/10 bg-slate-900/40',
+                selected
                   ? 'border-purple-500 bg-purple-500/10'
                   : 'border-white/10 bg-slate-800/30'
               )}
-              aria-pressed={selectedMechanicId === mechanicId}
-              whileHover={{ scale: 1.03, y: -4 }}
-              whileTap={{ scale: 0.98 }}
+              aria-pressed={selected}
+              whileHover={selectable ? { scale: 1.03, y: -4 } : undefined}
+              whileTap={selectable ? { scale: 0.98 } : undefined}
             >
-              {selectedMechanicId === mechanicId && (
+              {!selectable && (
+                <span className="absolute top-3 right-3 rounded-full border border-amber-400/40 bg-amber-500/10 px-2 py-0.5 text-[11px] font-medium text-amber-300">
+                  Próximamente
+                </span>
+              )}
+
+              {selected && (
                 <motion.div
                   initial={{ scale: 0 }}
                   animate={{ scale: 1 }}
@@ -674,11 +835,271 @@ function StepMechanic({ mechanics, loading, selectedMechanicId, onSelect }) {
               <p className="text-sm text-slate-400 line-clamp-3">
                 {mechanic.description || 'Mecánica de juego interactiva'}
               </p>
+
+              {!selectable && (
+                <p className="mt-3 text-xs text-amber-300/90">
+                  Esta mecánica no está habilitada para creación de sesiones en este entorno.
+                </p>
+              )}
             </motion.button>
           );
         })}
       </div>
     </GlassCard>
+  );
+}
+
+function StepMemoryRules({
+  config,
+  onConfigChange,
+  linkSensor,
+  onLinkSensorChange,
+  currentSensorId,
+  cards,
+  slots,
+  onSlotsChange,
+  selectedCardUid,
+  onSelectedCardUidChange
+}) {
+  const safeCards = Array.isArray(cards) ? cards : [];
+  const safeSlots = Array.isArray(slots) ? slots : [];
+  const cardsInBoard = new Set((slots || []).filter(Boolean).map(slot => slot.uid));
+  const selectedCard = safeCards.find(card => card.uid === selectedCardUid) || null;
+  const slotEntries = safeSlots.map((slotCard, slotIndex) => ({
+    slotCard,
+    slotIndex,
+    slotKey: slotCard?.uid || `slot-${slotIndex + 1}`
+  }));
+
+  const handleAssignToSlot = slotIndex => {
+    if (!selectedCard) {
+      return;
+    }
+
+    onSlotsChange(prev => {
+      const next = Array.isArray(prev) ? [...prev] : new Array(safeCards.length).fill(null);
+
+      const previousIndex = next.findIndex(slot => slot?.uid === selectedCard.uid);
+      if (previousIndex >= 0) {
+        next[previousIndex] = null;
+      }
+
+      next[slotIndex] = selectedCard;
+      return next;
+    });
+  };
+
+  const handleClearSlot = slotIndex => {
+    onSlotsChange(prev => {
+      const next = Array.isArray(prev) ? [...prev] : [];
+      next[slotIndex] = null;
+      return next;
+    });
+  };
+
+  const boardComplete = safeSlots.length > 0 && safeSlots.every(Boolean);
+
+  return (
+    <div className="space-y-6">
+      <GlassCard className="p-6">
+        <h2 className="text-xl font-semibold text-white mb-2">Tablero de Memoria</h2>
+        <p className="text-slate-400 text-sm mb-4">
+          Selecciona una carta y colócala en una posición para que la mesa real coincida con el tablero.
+        </p>
+
+        <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3 mb-6">
+          {safeCards.map(card => {
+            const isSelected = selectedCardUid === card.uid;
+            const alreadyPlaced = cardsInBoard.has(card.uid);
+
+            return (
+              <button
+                key={`memory-card-${card.uid}`}
+                type="button"
+                onClick={() => onSelectedCardUidChange(card.uid)}
+                className={cn(
+                  'rounded-xl border p-2 text-left transition-all',
+                  isSelected
+                    ? 'border-indigo-500 bg-indigo-500/20'
+                    : 'border-white/10 bg-slate-800/40 hover:border-white/30',
+                  alreadyPlaced && !isSelected ? 'opacity-70' : ''
+                )}
+              >
+                <div className="h-16 mb-2">
+                  <CardAssetPreview
+                    asset={card.displayData}
+                    className="w-full h-full rounded-lg"
+                    fallbackLabel={card.displayData?.display || card.assignedValue || '🎴'}
+                  />
+                </div>
+                <p className="text-xs text-slate-300 truncate">{card.assignedValue || card.uid}</p>
+              </button>
+            );
+          })}
+        </div>
+
+        <div className="grid gap-3" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(110px, 1fr))' }}>
+          {slotEntries.map(({ slotCard, slotIndex, slotKey }) => (
+            <button
+              key={`memory-slot-${slotKey}`}
+              type="button"
+              onClick={() => handleAssignToSlot(slotIndex)}
+              className={cn(
+                'aspect-square rounded-xl border-2 border-dashed p-2 transition-all',
+                slotCard ? 'border-emerald-500/50 bg-emerald-500/10' : 'border-slate-700 bg-slate-900/40',
+                selectedCard ? 'hover:border-indigo-400' : ''
+              )}
+            >
+              {slotCard ? (
+                <div className="h-full w-full relative">
+                  <CardAssetPreview
+                    asset={slotCard.displayData}
+                    className="w-full h-full rounded-lg"
+                    fallbackLabel={slotCard.displayData?.display || slotCard.assignedValue || '🎴'}
+                  />
+                  <span className="absolute top-1 left-1 text-[10px] px-1.5 py-0.5 rounded-full bg-slate-950/70 text-slate-200">
+                    #{slotIndex + 1}
+                  </span>
+                  <button
+                    type="button"
+                    onClick={(e) => {
+                      e.preventDefault();
+                      e.stopPropagation();
+                      handleClearSlot(slotIndex);
+                    }}
+                    className="absolute top-1 right-1 text-[10px] px-1.5 py-0.5 rounded-full bg-rose-500/80 text-white"
+                  >
+                    Quitar
+                  </button>
+                </div>
+              ) : (
+                <div className="h-full w-full flex items-center justify-center text-slate-500 text-sm">
+                  Slot #{slotIndex + 1}
+                </div>
+              )}
+            </button>
+          ))}
+        </div>
+
+        <p className={cn('mt-4 text-sm', boardComplete ? 'text-emerald-400' : 'text-amber-400')}>
+          {boardComplete
+            ? 'Tablero completo. Puedes continuar.'
+            : 'Debes colocar todas las cartas en el tablero para continuar.'}
+        </p>
+      </GlassCard>
+
+      <GlassCard className="p-6">
+        <h2 className="text-lg font-semibold text-white mb-4">Reglas de Memoria</h2>
+
+        <div className="space-y-5">
+          <div>
+            <label className="flex items-center gap-2 text-sm text-slate-300 mb-2">
+              <Clock size={14} className="text-purple-400" />
+              Tiempo total de partida (segundos)
+            </label>
+            <div className="flex items-center gap-4">
+              <input
+                type="range"
+                min={10}
+                max={300}
+                step={10}
+                value={config.timeLimit}
+                onChange={(e) => onConfigChange('timeLimit', Number.parseInt(e.target.value, 10))}
+                className="flex-1 accent-purple-500"
+              />
+              <span className="w-16 text-center text-white font-medium bg-slate-800 rounded-lg py-1">
+                {config.timeLimit}s
+              </span>
+            </div>
+          </div>
+
+          <div>
+            <label className="flex items-center gap-2 text-sm text-slate-300 mb-2">
+              <Zap size={14} className="text-emerald-400" />
+              Puntos por pareja correcta
+            </label>
+            <div className="flex items-center gap-4">
+              <input
+                type="range"
+                min={5}
+                max={30}
+                step={5}
+                value={config.pointsPerCorrect}
+                onChange={(e) => onConfigChange('pointsPerCorrect', Number.parseInt(e.target.value, 10))}
+                className="flex-1 accent-emerald-500"
+              />
+              <span className="w-16 text-center text-white font-medium bg-slate-800 rounded-lg py-1">
+                +{config.pointsPerCorrect}
+              </span>
+            </div>
+          </div>
+
+          <div>
+            <label className="flex items-center gap-2 text-sm text-slate-300 mb-2">
+              <AlertTriangle size={14} className="text-rose-400" />
+              Penalización por pareja incorrecta
+            </label>
+            <div className="flex items-center gap-4">
+              <input
+                type="range"
+                min={-15}
+                max={0}
+                step={1}
+                value={config.penaltyPerError}
+                onChange={(e) => onConfigChange('penaltyPerError', Number.parseInt(e.target.value, 10))}
+                className="flex-1 accent-rose-500"
+              />
+              <span className="w-16 text-center text-white font-medium bg-slate-800 rounded-lg py-1">
+                {config.penaltyPerError}
+              </span>
+            </div>
+          </div>
+        </div>
+      </GlassCard>
+
+      <GlassCard className="p-6">
+        <div className="flex flex-col md:flex-row md:items-center justify-between gap-6">
+          <div className="flex-1">
+            <h2 className="text-lg font-semibold text-white mb-2 flex items-center gap-2">
+              <Wifi size={20} className="text-indigo-400" />
+              Vincular Sensor RFID
+            </h2>
+            <p className="text-sm text-slate-400">
+              Solo se aceptarán lecturas del sensor activo cuando la sesión lo requiera.
+            </p>
+          </div>
+
+          <div className="flex items-center gap-4">
+            {currentSensorId ? (
+              <div className="flex items-center gap-3 p-3 rounded-xl bg-slate-800/50 border border-white/10">
+                <span className="text-xs font-mono text-slate-500 max-w-[150px] truncate">
+                  ID: {currentSensorId}
+                </span>
+                <button
+                  type="button"
+                  onClick={() => onLinkSensorChange(!linkSensor)}
+                  className="flex items-center h-6 w-12 rounded-full bg-slate-700 relative p-1"
+                >
+                  <motion.div
+                    className={cn(
+                      'h-4 w-4 rounded-full shadow-sm',
+                      linkSensor ? 'bg-indigo-500' : 'bg-slate-500'
+                    )}
+                    transition={{ type: 'spring', stiffness: 500, damping: 30 }}
+                    animate={{ x: linkSensor ? 24 : 0 }}
+                  />
+                </button>
+              </div>
+            ) : (
+              <div className="flex items-center gap-2 text-amber-500 bg-amber-500/10 p-3 rounded-xl border border-amber-500/20">
+                <AlertTriangle size={16} />
+                <span className="text-sm">Sensor no detectado</span>
+              </div>
+            )}
+          </div>
+        </div>
+      </GlassCard>
+    </div>
   );
 }
 
@@ -773,7 +1194,7 @@ function StepRules({
                 min={1}
                 max={15}
                 value={config.numberOfRounds}
-                onChange={(e) => onConfigChange('numberOfRounds', parseInt(e.target.value))}
+                onChange={(e) => onConfigChange('numberOfRounds', Number.parseInt(e.target.value, 10))}
                 className="flex-1 accent-indigo-500"
               />
               <span className="w-12 text-center text-white font-medium bg-slate-800 rounded-lg py-1">
@@ -795,7 +1216,7 @@ function StepRules({
                 max={60}
                 step={5}
                 value={config.timeLimit}
-                onChange={(e) => onConfigChange('timeLimit', parseInt(e.target.value))}
+                onChange={(e) => onConfigChange('timeLimit', Number.parseInt(e.target.value, 10))}
                 className="flex-1 accent-purple-500"
               />
               <span className="w-12 text-center text-white font-medium bg-slate-800 rounded-lg py-1">
@@ -817,7 +1238,7 @@ function StepRules({
                 max={25}
                 step={5}
                 value={config.pointsPerCorrect}
-                onChange={(e) => onConfigChange('pointsPerCorrect', parseInt(e.target.value))}
+                onChange={(e) => onConfigChange('pointsPerCorrect', Number.parseInt(e.target.value, 10))}
                 className="flex-1 accent-emerald-500"
               />
               <span className="w-12 text-center text-white font-medium bg-slate-800 rounded-lg py-1">
@@ -838,7 +1259,7 @@ function StepRules({
                 min={-10}
                 max={0}
                 value={config.penaltyPerError}
-                onChange={(e) => onConfigChange('penaltyPerError', parseInt(e.target.value))}
+                onChange={(e) => onConfigChange('penaltyPerError', Number.parseInt(e.target.value, 10))}
                 className="flex-1 accent-rose-500"
               />
               <span className="w-12 text-center text-white font-medium bg-slate-800 rounded-lg py-1">
@@ -870,14 +1291,17 @@ function StepRules({
                   <span className="text-xs font-mono text-slate-500 max-w-[150px] truncate">
                     ID: {currentSensorId}
                   </span>
-                  <div className="flex items-center h-6 w-12 rounded-full bg-slate-700 relative p-1 cursor-pointer"
-                       onClick={() => onLinkSensorChange(!linkSensor)}>
+                  <button
+                    type="button"
+                    className="flex items-center h-6 w-12 rounded-full bg-slate-700 relative p-1"
+                    onClick={() => onLinkSensorChange(!linkSensor)}
+                  >
                     <motion.div 
                       className={cn("h-4 w-4 rounded-full shadow-sm", linkSensor ? "bg-indigo-500" : "bg-slate-500")}
                       transition={{ type: "spring", stiffness: 500, damping: 30 }}
                       animate={{ x: linkSensor ? 24 : 0 }}
                     />
-                  </div>
+                  </button>
                 </div>
                 <span className={cn("text-xs font-medium", linkSensor ? "text-indigo-400" : "text-slate-500")}>
                   {linkSensor ? "Sensor vinculado" : "Sin vincular"}
@@ -998,3 +1422,86 @@ function StepReview({ sessionConfig, setSessionConfig, selectedDeck, selectedMec
     </div>
   );
 }
+
+const cardMappingShape = PropTypes.shape({
+  id: PropTypes.oneOfType([PropTypes.string, PropTypes.number]),
+  _id: PropTypes.oneOfType([PropTypes.string, PropTypes.number]),
+  cardId: PropTypes.oneOfType([PropTypes.string, PropTypes.number]),
+  uid: PropTypes.string,
+  assignedValue: PropTypes.string,
+  displayData: PropTypes.object
+});
+
+const deckShape = PropTypes.shape({
+  id: PropTypes.oneOfType([PropTypes.string, PropTypes.number]),
+  _id: PropTypes.oneOfType([PropTypes.string, PropTypes.number]),
+  name: PropTypes.string,
+  cardsCount: PropTypes.number,
+  cards: PropTypes.array,
+  cardMappings: PropTypes.arrayOf(cardMappingShape),
+  context: PropTypes.shape({ name: PropTypes.string }),
+  contextId: PropTypes.shape({ name: PropTypes.string })
+});
+
+const mechanicShape = PropTypes.shape({
+  id: PropTypes.oneOfType([PropTypes.string, PropTypes.number]),
+  _id: PropTypes.oneOfType([PropTypes.string, PropTypes.number]),
+  name: PropTypes.string,
+  displayName: PropTypes.string,
+  description: PropTypes.string,
+  icon: PropTypes.string
+});
+
+const configShape = PropTypes.shape({
+  numberOfRounds: PropTypes.number,
+  timeLimit: PropTypes.number,
+  pointsPerCorrect: PropTypes.number,
+  penaltyPerError: PropTypes.number
+});
+
+StepDeck.propTypes = {
+  decks: PropTypes.arrayOf(deckShape).isRequired,
+  loading: PropTypes.bool.isRequired,
+  selectedDeckId: PropTypes.oneOfType([PropTypes.string, PropTypes.number]),
+  onSelect: PropTypes.func.isRequired
+};
+
+StepMechanic.propTypes = {
+  mechanics: PropTypes.arrayOf(mechanicShape).isRequired,
+  loading: PropTypes.bool.isRequired,
+  selectedMechanicId: PropTypes.oneOfType([PropTypes.string, PropTypes.number]),
+  onSelect: PropTypes.func.isRequired
+};
+
+StepMemoryRules.propTypes = {
+  config: configShape.isRequired,
+  onConfigChange: PropTypes.func.isRequired,
+  linkSensor: PropTypes.bool.isRequired,
+  onLinkSensorChange: PropTypes.func.isRequired,
+  currentSensorId: PropTypes.string,
+  cards: PropTypes.arrayOf(cardMappingShape).isRequired,
+  slots: PropTypes.arrayOf(PropTypes.oneOfType([cardMappingShape, PropTypes.oneOf([null])])).isRequired,
+  onSlotsChange: PropTypes.func.isRequired,
+  selectedCardUid: PropTypes.string,
+  onSelectedCardUidChange: PropTypes.func.isRequired
+};
+
+StepRules.propTypes = {
+  config: configShape.isRequired,
+  difficulty: PropTypes.oneOf(['easy', 'medium', 'hard']).isRequired,
+  onDifficultyChange: PropTypes.func.isRequired,
+  onConfigChange: PropTypes.func.isRequired,
+  linkSensor: PropTypes.bool.isRequired,
+  onLinkSensorChange: PropTypes.func.isRequired,
+  currentSensorId: PropTypes.string
+};
+
+StepReview.propTypes = {
+  sessionConfig: PropTypes.shape({
+    name: PropTypes.string,
+    config: configShape
+  }).isRequired,
+  setSessionConfig: PropTypes.func.isRequired,
+  selectedDeck: deckShape,
+  selectedMechanic: mechanicShape
+};

@@ -216,7 +216,7 @@ Aplicar y automatizar reglas de transición de estado de `GameSession` según es
 
 ---
 
-### T-056: Wizard Adaptativo por Mecánica (Asociación vs Memoria) 📋
+### T-056: Wizard Adaptativo por Mecánica (Asociación vs Memoria) ✅
 
 **Prioridad:** P1 | **Tamaño:** L | **Dependencias:** T-054  
 **Origen:** RF-JGO-013, RF-JGO-014, FE-01
@@ -234,10 +234,34 @@ Modificar el wizard de creación de sesión para que las fases y validaciones ca
 
 **Criterios de Aceptación (medibles):**
 
-- [ ] Asociación no muestra pasos exclusivos de Memoria.
-- [ ] Memoria mantiene paso de layout/tablero con validación.
-- [ ] No se puede finalizar wizard con configuración inconsistente.
-- [ ] Tests de validación de payload por mecánica pasan.
+- [x] Asociación no muestra pasos exclusivos de Memoria.
+- [x] Memoria mantiene paso de layout/tablero con validación.
+- [x] No se puede finalizar wizard con configuración inconsistente.
+- [x] Tests de validación de payload por mecánica pasan.
+
+**Avance (27-02-2026):**
+
+- Wizard de creación de sesión actualizado para permitir selección solo de `association` y `memory`.
+- Mecánicas fuera de alcance (ej. `sequence`) se muestran como **"Próximamente"** y quedan deshabilitadas en UI.
+- Backend endurecido para validar disponibilidad de mecánicas por feature flag (`SESSION_ENABLED_MECHANICS`) y bloquear `coming_soon` (evita bypass vía API).
+- Payload del wizard alineado con el contrato backend actual (sin campos extra fuera del schema).
+- Seeder de mecánicas y estrategia de memoria actualizados para reflejar contrato funcional de Sprint 4.
+
+**Cierre (27-02-2026):**
+
+- Se implementó `boardLayout` persistente en `GameSession` con validación backend (schema + validator + controller + DTO).
+- El wizard de creación adapta el paso de reglas según mecánica: Asociación usa flujo general y Memoria exige tablero completo antes de continuar.
+- En memoria, `timeLimit` quedó como tiempo global de partida configurable por docente en rango `10-300`.
+- `BoardSetup` persiste y recupera layout para evitar desalineación entre configuración inicial y ejecución real.
+- El runtime de Memoria en `gameEngine` usa temporizador global de partida y emite estado intermedio `memory_turn_state` para primera carta, match/mismatch y ocultación posterior.
+- `GameSession` (frontend) consume `memory_turn_state` y renderiza tablero de memoria en tiempo real.
+- Evidencia de regresión en verde:
+	- `memoryStrategy.test.js`
+	- `sessionMechanicAvailability.test.js`
+	- `gameFlow.test.js`
+	- `playPauseResume.test.js`
+	- `redisStateRecovery.test.js`
+	- `nextRoundCommand.test.js`
 
 ---
 

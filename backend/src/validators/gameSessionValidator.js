@@ -29,7 +29,7 @@ const sessionConfigSchema = z.object({
     .number()
     .int('timeLimit debe ser un número entero')
     .min(3, 'El límite de tiempo debe ser al menos 3 segundos')
-    .max(60, 'El límite de tiempo no puede exceder 60 segundos')
+    .max(300, 'El límite de tiempo no puede exceder 300 segundos')
     .default(15),
 
   pointsPerCorrect: z
@@ -69,7 +69,7 @@ const cardMappingSchema = z
       .max(200, 'El valor asignado no puede exceder 200 caracteres')
       .trim(),
 
-    displayData: z.record(z.any()).optional().default({})
+    displayData: z.record(z.string(), z.any()).optional().default({})
   })
   .strict();
 
@@ -111,6 +111,43 @@ const cardMappingSchema = z
  */
 const sessionConfigInputSchema = sessionConfigSchema.partial();
 
+const boardLayoutItemSchema = z
+  .object({
+    slotIndex: z
+      .number()
+      .int('slotIndex debe ser un número entero')
+      .min(0, 'slotIndex no puede ser negativo'),
+    cardId: objectIdSchema,
+    uid: uidSchema,
+    assignedValue: z
+      .string()
+      .min(1, 'assignedValue es requerido en boardLayout')
+      .max(200, 'assignedValue en boardLayout no puede exceder 200 caracteres')
+      .trim(),
+    displayData: z.record(z.string(), z.any()).optional().default({})
+  })
+  .strict();
+
+const boardLayoutSchema = z
+  .array(boardLayoutItemSchema)
+  .optional()
+  .refine(layout => {
+    if (!Array.isArray(layout) || layout.length === 0) {
+      return true;
+    }
+
+    const slotSet = new Set(layout.map(item => item.slotIndex));
+    return slotSet.size === layout.length;
+  }, 'No puede haber slots duplicados en boardLayout')
+  .refine(layout => {
+    if (!Array.isArray(layout) || layout.length === 0) {
+      return true;
+    }
+
+    const cardSet = new Set(layout.map(item => item.cardId.toString()));
+    return cardSet.size === layout.length;
+  }, 'No puede haber tarjetas duplicadas en boardLayout');
+
 const createGameSessionSchema = z
   .object({
     mechanicId: objectIdSchema,
@@ -121,7 +158,9 @@ const createGameSessionSchema = z
 
     sensorId: z.string().max(100, 'sensorId no puede exceder 100 caracteres').trim().optional(),
 
-    config: sessionConfigInputSchema.optional()
+    config: sessionConfigInputSchema.optional(),
+
+    boardLayout: boardLayoutSchema
   })
   .strict()
   .refine(data => Object.keys(data).length > 0, {
@@ -142,6 +181,8 @@ const updateGameSessionSchema = z
     sensorId: z.string().max(100, 'sensorId no puede exceder 100 caracteres').trim().optional(),
 
     config: sessionConfigInputSchema.optional(),
+
+    boardLayout: boardLayoutSchema,
 
     difficulty: z.enum(['easy', 'medium', 'hard']).optional()
   })

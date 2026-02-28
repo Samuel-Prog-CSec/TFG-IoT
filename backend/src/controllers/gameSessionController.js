@@ -16,6 +16,170 @@ const {
 } = require('../utils/dtos');
 
 const isSessionReadLeanEnabled = () => process.env.SESSION_READ_LEAN_ENABLED !== 'false';
+const DEFAULT_MEMORY_MATCHING_GROUP_SIZE = 2;
+
+const normalizeObjectId = value => value?.toString?.() || value;
+const normalizeMechanicName = value => (value || '').toString().trim().toLowerCase();
+
+const getEnabledSessionMechanics = () => {
+  const raw = process.env.SESSION_ENABLED_MECHANICS;
+  if (!raw || typeof raw !== 'string') {
+    return null;
+  }
+
+  const parsed = raw
+    .split(',')
+    .map(item => normalizeMechanicName(item))
+    .filter(Boolean);
+
+  return new Set(parsed);
+};
+
+const isMechanicEnabledForSessionCreation = mechanic => {
+  const mechanicName = normalizeMechanicName(mechanic?.name);
+  const availability = normalizeMechanicName(mechanic?.rules?.behavior?.availability);
+
+  if (availability === 'coming_soon') {
+    return false;
+  }
+
+  const enabledMechanics = getEnabledSessionMechanics();
+  if (!enabledMechanics) {
+    return Boolean(mechanicName);
+  }
+
+  return mechanicName && enabledMechanics.has(mechanicName);
+};
+
+const validateConfigAgainstMechanicRules = ({ mechanic, config = {} }) => {
+  const limits = mechanic?.rules?.limits || {};
+  const validations = [
+    {
+      key: 'numberOfRounds',
+      min: Number(limits.minRounds),
+      max: Number(limits.maxRounds),
+      label: 'numberOfRounds'
+    },
+    {
+      key: 'timeLimit',
+      min: Number(limits.minTimeLimit),
+      max: Number(limits.maxTimeLimit),
+      label: 'timeLimit'
+    },
+    {
+      key: 'numberOfCards',
+      min: Number(limits.minCards),
+      max: Number(limits.maxCards),
+      label: 'numberOfCards'
+    }
+  ];
+
+  for (const rule of validations) {
+    if (config?.[rule.key] === undefined) {
+      continue;
+    }
+
+    const value = Number(config[rule.key]);
+    if (!Number.isFinite(value)) {
+      throw new ValidationError(`${rule.label} debe ser numérico`);
+    }
+
+    if (Number.isFinite(rule.min) && value < rule.min) {
+      throw new ValidationError(
+        `${rule.label} debe ser >= ${rule.min} para la mecánica ${mechanic.name}`
+      );
+    }
+
+    if (Number.isFinite(rule.max) && value > rule.max) {
+      throw new ValidationError(
+        `${rule.label} debe ser <= ${rule.max} para la mecánica ${mechanic.name}`
+      );
+    }
+  }
+};
+
+const ensureMemoryBoardLayoutIsComplete = ({ mechanic, boardLayout, cardMappings }) => {
+  const mechanicName = normalizeMechanicName(mechanic?.name);
+  if (mechanicName !== 'memory') {
+    return;
+  }
+
+  if (!Array.isArray(boardLayout) || boardLayout.length === 0) {
+    throw new ValidationError('boardLayout es obligatorio para sesiones de memoria');
+  }
+
+  const normalizedMappings = Array.isArray(cardMappings) ? cardMappings : [];
+  if (boardLayout.length !== normalizedMappings.length) {
+    throw new ValidationError(
+      `boardLayout debe incluir exactamente ${normalizedMappings.length} tarjetas para memoria`
+    );
+  }
+
+  const groupSize = Math.max(
+    DEFAULT_MEMORY_MATCHING_GROUP_SIZE,
+    Number(mechanic?.rules?.behavior?.matchingGroupSize) || DEFAULT_MEMORY_MATCHING_GROUP_SIZE
+  );
+  const valuesCount = boardLayout.reduce((acc, slot) => {
+    const value = (slot?.assignedValue || '').toString();
+    if (!value) {
+      return acc;
+    }
+    acc.set(value, (acc.get(value) || 0) + 1);
+    return acc;
+  }, new Map());
+
+  for (const [value, count] of valuesCount.entries()) {
+    if (count !== groupSize) {
+      throw new ValidationError(
+        `boardLayout inválido para memoria: el valor "${value}" debe aparecer ${groupSize} veces`
+      );
+    }
+  }
+};
+
+const normalizeBoardLayout = (layout = []) => {
+  if (!Array.isArray(layout)) {
+    return [];
+  }
+
+  return layout.map(item => ({
+    slotIndex: item.slotIndex,
+    cardId: item.cardId,
+    uid: item.uid,
+    assignedValue: item.assignedValue,
+    displayData: item.displayData || {}
+  }));
+};
+
+const validateBoardLayoutAgainstMappings = (boardLayout, cardMappings) => {
+  if (!Array.isArray(boardLayout) || boardLayout.length === 0) {
+    return;
+  }
+
+  const normalizedLayout = normalizeBoardLayout(boardLayout);
+  const mappingByCardId = new Map(
+    (cardMappings || []).map(mapping => [normalizeObjectId(mapping.cardId), mapping])
+  );
+
+  for (const slot of normalizedLayout) {
+    const mapping = mappingByCardId.get(normalizeObjectId(slot.cardId));
+    if (!mapping) {
+      throw new ValidationError(
+        'boardLayout contiene una tarjeta que no pertenece al mazo de la sesión'
+      );
+    }
+
+    if (slot.uid !== mapping.uid) {
+      throw new ValidationError('boardLayout tiene uid inconsistente para una tarjeta del mazo');
+    }
+
+    if (slot.assignedValue !== mapping.assignedValue) {
+      throw new ValidationError(
+        'boardLayout tiene assignedValue inconsistente para una tarjeta del mazo'
+      );
+    }
+  }
+};
 
 /**
  * Obtener lista de sesiones con paginación y filtros.
@@ -129,7 +293,7 @@ const getSessionById = async (req, res, next) => {
 
     const session = await gameSessionRepository.findById(id, {
       select:
-        'mechanicId deckId contextId createdBy config cardMappings status difficulty startedAt endedAt createdAt updatedAt',
+        'mechanicId deckId contextId createdBy config cardMappings boardLayout status difficulty startedAt endedAt createdAt updatedAt',
       populate: [
         { path: 'mechanicId', select: 'name displayName icon' },
         { path: 'deckId', select: 'name status contextId' },
@@ -173,7 +337,15 @@ const getSessionById = async (req, res, next) => {
  */
 const createSession = async (req, res, next) => {
   try {
-    const { mechanicId, contextId, deckId, sensorId, config = {}, cardMappings } = req.body;
+    const {
+      mechanicId,
+      contextId,
+      deckId,
+      sensorId,
+      config = {},
+      cardMappings,
+      boardLayout
+    } = req.body;
 
     // NUEVA REGLA: el mapping de la sesión SIEMPRE depende del mazo asignado.
     // Por tanto, no aceptamos cardMappings manuales al crear la sesión.
@@ -196,6 +368,15 @@ const createSession = async (req, res, next) => {
       throw new ValidationError('La mecánica seleccionada no está activa');
     }
 
+    const mechanicName = normalizeMechanicName(mechanic.name);
+    if (!isMechanicEnabledForSessionCreation(mechanic)) {
+      throw new ValidationError(
+        'La mecánica seleccionada no está habilitada para creación de sesiones en el entorno actual.'
+      );
+    }
+
+    validateConfigAgainstMechanicRules({ mechanic, config });
+
     // La sesión se construye a partir del mazo
     const session = gameSessionRepository.build({
       mechanicId,
@@ -217,6 +398,17 @@ const createSession = async (req, res, next) => {
     } = await gameSessionService.syncSessionFromDeck(session, {
       deckId,
       userId: req.user._id
+    });
+
+    if (boardLayout !== undefined) {
+      validateBoardLayoutAgainstMappings(boardLayout, syncedMappings);
+      session.boardLayout = normalizeBoardLayout(boardLayout);
+    }
+
+    ensureMemoryBoardLayoutIsComplete({
+      mechanic,
+      boardLayout: session.boardLayout,
+      cardMappings: syncedMappings
     });
 
     // Si el cliente envía contextId explícito, debe coincidir con el del mazo
@@ -244,7 +436,7 @@ const createSession = async (req, res, next) => {
 
     logger.info('Sesión creada', {
       sessionId: session._id,
-      mechanicId: mechanic.name,
+      mechanicId: mechanicName,
       contextId: context.contextId,
       cardsCount: syncedMappings.length,
       deckId,
@@ -277,7 +469,7 @@ const createSession = async (req, res, next) => {
 const updateSession = async (req, res, next) => {
   try {
     const { id } = req.params;
-    const { deckId, sensorId, config } = req.body;
+    const { deckId, sensorId, config, boardLayout } = req.body;
 
     const session = await gameSessionRepository.findById(id);
 
@@ -314,14 +506,33 @@ const updateSession = async (req, res, next) => {
       userId: req.user._id
     });
 
+    const mechanic = await gameMechanicRepository.findById(session.mechanicId);
+    if (!mechanic) {
+      throw new NotFoundError('Mecánica de juego');
+    }
+
     // Actualizar campos (excepto numberOfCards, que depende del mazo)
     if (config) {
       if (config.numberOfCards !== undefined) {
         throw new ValidationError('config.numberOfCards no se puede modificar: depende del mazo');
       }
 
+      const nextConfig = { ...session.config, ...config };
+      validateConfigAgainstMechanicRules({ mechanic, config: nextConfig });
+
       session.config = { ...session.config, ...config };
     }
+
+    if (boardLayout !== undefined) {
+      validateBoardLayoutAgainstMappings(boardLayout, session.cardMappings);
+      session.boardLayout = normalizeBoardLayout(boardLayout);
+    }
+
+    ensureMemoryBoardLayoutIsComplete({
+      mechanic,
+      boardLayout: session.boardLayout,
+      cardMappings: session.cardMappings
+    });
 
     await session.save();
 
@@ -426,6 +637,17 @@ const startSession = async (req, res, next) => {
     await gameSessionService.syncSessionFromDeck(session, {
       deckId: session.deckId,
       userId: req.user._id
+    });
+
+    const mechanic = await gameMechanicRepository.findById(session.mechanicId);
+    if (!mechanic) {
+      throw new NotFoundError('Mecánica de juego');
+    }
+
+    ensureMemoryBoardLayoutIsComplete({
+      mechanic,
+      boardLayout: session.boardLayout,
+      cardMappings: session.cardMappings
     });
 
     // Si era una sesión completada, limpiar endedAt al reiniciar
