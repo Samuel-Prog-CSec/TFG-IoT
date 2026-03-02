@@ -10,6 +10,7 @@ Documentar el comportamiento funcional de la pantalla de partida (`GameSession`)
 2. **Sin fallback REST en runtime de juego**: pausa/reanudación requiere canal socket activo.
 3. **UI por mecánica**: Association y Memory comparten layout general, pero renderizan bloques de juego distintos.
 4. **Métricas visibles + persistencia backend**: se muestran métricas de partida actual y resumen final, manteniendo el registro completo para dashboards.
+5. **Reconexión exacta por snapshot**: al reingresar en `join_play`, la UI rehidrata ronda, marcador, challenge/tablero y tiempo restante desde `play_state`.
 
 ## Eventos de juego consumidos
 
@@ -21,11 +22,16 @@ Documentar el comportamiento funcional de la pantalla de partida (`GameSession`)
 - `play_resumed`
 - `game_over`
 - `play_state`
+- `play_interrupted`
 - `error`
 
 ### Específico de Memory
 
 - `memory_turn_state`
+
+### Cliente → servidor para contingencia táctil
+
+- `rfid_scan_from_client` (modo touch fallback cuando no hay sensor)
 
 ## Estados UI de runtime
 
@@ -54,6 +60,30 @@ Estado adicional de conectividad realtime:
 - Muestra tablero dinámico (`MemoryBoard`) y progreso de parejas.
 - Actualiza intentos/parejas mediante `memory_turn_state`.
 - Mantiene feedback por `validation_result` en matchs/mismatch.
+- Pausa visualmente el cronómetro durante feedback de match/mismatch (`feedbackDelayMs`) para mejorar comprensión infantil.
+
+## Reconexión y recuperación de sesión
+
+- `play_state` incluye snapshot de estado jugable para rehidratación:
+  - estado de partida (`status`, `isPaused`, `awaitingResponse`)
+  - progreso (`currentRound`, `score`, `maxRounds`)
+  - tiempo (`remainingTimeMs`, `timeLimitSeconds`)
+  - reto/tablero (`currentChallenge`, `memoryState`)
+- `play_interrupted` fuerza cierre controlado de UX en cliente cuando el motor marca la partida interrumpida (ej. reinicio servidor).
+
+## Contingencia sin RFID
+
+- Si el lector RFID no está disponible, la pantalla habilita **modo táctil temporal** con selección de cartas.
+- Cada tap emite `rfid_scan_from_client` con payload validado (`uid`, `type`, `sensorId`, `timestamp`, `source`).
+- Se muestra aviso docente y CTA para pausar/revisar sensor sin perder control de sesión.
+
+## Refinado visual infantil (Sprint gameplay core)
+
+- Copy de estado realtime simplificado para niños (`Juego listo`, `Conectando`, `Sin conexión`).
+- Mensajes de objetivo más directos y menos técnicos (`tarjeta amiga`).
+- HUD simplificado con métricas prioritarias (puntos, aciertos, progreso) para reducir carga cognitiva.
+- Animaciones de celebración estabilizadas (partículas deterministas) para mejor fluidez y menor jank en equipos modestos.
+- Carga visual de assets críticos con estado de loading y prioridad alta en desafío principal.
 
 ## UX de errores realtime
 
@@ -113,6 +143,9 @@ Escenarios cubiertos:
 8. Umbrales de anuncio SR del temporizador sin spam por tick.
 9. Controles de sonido/pausa con estado ARIA correcto.
 10. Gestión de foco en diálogo de pausa y reanudación por teclado.
+11. Rehidratación de snapshot realtime (`play_state`) en modo Memory.
+12. Gestión de evento `play_interrupted` con cierre UX seguro.
+13. Emisión de `rfid_scan_from_client` en modo touch fallback.
 
 ## Verificación local
 

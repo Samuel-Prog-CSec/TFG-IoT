@@ -44,6 +44,7 @@ export const SOCKET_EVENTS = {
   RFID_EVENT: 'rfid_event',
   RFID_STATUS: 'rfid_status',
   RFID_MODE_CHANGED: 'rfid_mode_changed',
+  RFID_SCAN_FROM_CLIENT: 'rfid_scan_from_client',
   
   // Gameplay (para futuro uso)
   JOIN_PLAY: 'join_play',
@@ -61,6 +62,7 @@ export const SOCKET_EVENTS = {
   MEMORY_TURN_STATE: 'memory_turn_state',
   VALIDATION_RESULT: 'validation_result',
   GAME_OVER: 'game_over',
+  PLAY_INTERRUPTED: 'play_interrupted',
   PLAY_PAUSED: 'play_paused',
   PLAY_RESUMED: 'play_resumed',
   ERROR: 'error'

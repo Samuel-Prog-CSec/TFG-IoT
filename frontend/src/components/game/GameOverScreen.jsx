@@ -1,4 +1,4 @@
-import { memo } from 'react';
+import { memo, useMemo } from 'react';
 import { motion } from 'framer-motion';
 import PropTypes from 'prop-types';
 import { Star, Trophy, RotateCcw, Home } from 'lucide-react';
@@ -29,6 +29,17 @@ function GameOverScreen({
   const percentage = totalRounds > 0 ? (correctAnswers / totalRounds) * 100 : 0;
   const stars = calculateStars(percentage);
   const isNewBest = score > bestScore;
+  const floatingStars = useMemo(
+    () =>
+      Array.from({ length: 16 }, (_, index) => ({
+        id: index,
+        x: 6 + (index % 8) * 11,
+        delay: (index % 6) * 0.35,
+        duration: 3 + (index % 4) * 0.45,
+        symbol: ['⭐', '✨', '🌟'][index % 3]
+      })),
+    []
+  );
 
   // Mensajes según rendimiento
   const getMessage = () => {
@@ -185,11 +196,11 @@ function GameOverScreen({
       {/* Floating stars decoration */}
           {stars >= 2 && !shouldReduceMotion && (
         <div className="absolute inset-0 pointer-events-none overflow-hidden" aria-hidden="true">
-          {[...Array(20)].map((_, i) => (
+          {floatingStars.map(piece => (
             <motion.div
-              key={i}
+              key={`floating-star-${piece.id}`}
               initial={{ 
-                x: `${Math.random() * 100  }%`,
+                x: `${piece.x}%`,
                 y: '100%',
                 opacity: 0
               }}
@@ -198,13 +209,13 @@ function GameOverScreen({
                 opacity: [0, 1, 0]
               }}
               transition={{
-                duration: 3 + Math.random() * 2,
+                duration: piece.duration,
                 repeat: Infinity,
-                delay: Math.random() * 3,
+                delay: piece.delay,
               }}
               className="absolute text-2xl"
             >
-              {['⭐', '✨', '🌟'][Math.floor(Math.random() * 3)]}
+              {piece.symbol}
             </motion.div>
           ))}
         </div>

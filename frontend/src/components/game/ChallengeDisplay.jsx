@@ -1,6 +1,6 @@
 import { motion } from 'framer-motion';
 import { Volume2, VolumeX } from 'lucide-react';
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import PropTypes from 'prop-types';
 import { cn } from '../../lib/utils';
 
@@ -22,10 +22,22 @@ export default function ChallengeDisplay({
 }) {
   const [audioPlaying, setAudioPlaying] = useState(false);
   const [imageError, setImageError] = useState(false);
+  const [imageLoading, setImageLoading] = useState(false);
+  const audioRef = useRef(null);
 
   useEffect(() => {
     setImageError(false);
+    setImageLoading(Boolean(asset?.thumbnailUrl || asset?.imageUrl));
   }, [asset?.imageUrl, asset?.thumbnailUrl]);
+
+  useEffect(() => {
+    return () => {
+      if (audioRef.current) {
+        audioRef.current.pause();
+        audioRef.current = null;
+      }
+    };
+  }, []);
 
   // Colores según el tema del contexto
   const themeColors = {
@@ -65,9 +77,19 @@ export default function ChallengeDisplay({
 
   const playAudio = () => {
     if (!asset?.audioUrl) return;
+
+    if (audioRef.current) {
+      audioRef.current.pause();
+      audioRef.current.currentTime = 0;
+    }
+
     setAudioPlaying(true);
     const audio = new Audio(asset.audioUrl);
-    audio.play();
+    audio.preload = 'auto';
+    audioRef.current = audio;
+    audio.play().catch(() => {
+      setAudioPlaying(false);
+    });
     audio.onended = () => setAudioPlaying(false);
   };
 
@@ -106,14 +128,26 @@ export default function ChallengeDisplay({
       >
         {/* Emoji/Image */}
         {(asset?.thumbnailUrl || asset?.imageUrl) && !imageError ? (
-          <motion.img
-            src={asset.thumbnailUrl || asset.imageUrl}
-            alt={asset.value}
-            className="w-32 h-32 sm:w-40 sm:h-40 object-contain mx-auto mb-4 drop-shadow-2xl"
-            animate={shouldReduceMotion ? { scale: 1 } : { scale: [1, 1.05, 1] }}
-            transition={shouldReduceMotion ? { duration: 0 } : { duration: 2, repeat: Infinity, ease: "easeInOut" }}
-            onError={() => setImageError(true)}
-          />
+          <div className="relative w-32 h-32 sm:w-40 sm:h-40 mx-auto mb-4">
+            {imageLoading && (
+              <div className="absolute inset-0 rounded-2xl border border-white/10 bg-white/5 animate-pulse" />
+            )}
+            <motion.img
+              src={asset.thumbnailUrl || asset.imageUrl}
+              alt={asset.value}
+              className="w-32 h-32 sm:w-40 sm:h-40 object-contain mx-auto mb-4 drop-shadow-2xl"
+              animate={shouldReduceMotion ? { scale: 1 } : { scale: [1, 1.05, 1] }}
+              transition={shouldReduceMotion ? { duration: 0 } : { duration: 2, repeat: Infinity, ease: "easeInOut" }}
+              onLoad={() => setImageLoading(false)}
+              onError={() => {
+                setImageError(true);
+                setImageLoading(false);
+              }}
+              loading="eager"
+              fetchPriority="high"
+              decoding="sync"
+            />
+          </div>
         ) : (
           <motion.div
             className="text-8xl sm:text-9xl mb-4 select-none filter drop-shadow-lg"
@@ -164,6 +198,7 @@ export default function ChallengeDisplay({
             audioPlaying && "animate-pulse"
           )}
           aria-label="Reproducir audio"
+          title="Escuchar pista"
         >
           {audioPlaying ? (
             <Volume2 className="w-8 h-8 text-white animate-bounce" />

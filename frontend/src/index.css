@@ -75,6 +75,7 @@
   --animate-dialog-out: dialog-fade-out 0.15s ease-in;
   --animate-spin-slow: spin-slow 10s linear infinite;
   --animate-pulse-glow: pulse-glow 3s ease-in-out infinite;
+  --animate-float: float 6s ease-in-out infinite;
 
   @keyframes fade-in-up {
     from {
@@ -123,6 +124,38 @@
       box-shadow:
         0 0 30px var(--color-brand-glow),
         0 0 50px oklch(65% 0.18 300 / 0.2);
+    }
+  }
+
+  @keyframes float {
+    0%,
+    100% {
+      transform: translateY(0px);
+    }
+    50% {
+      transform: translateY(-16px);
+    }
+  }
+
+  @keyframes shimmer {
+    0% {
+      transform: translateX(-100%);
+    }
+    100% {
+      transform: translateX(200%);
+    }
+  }
+
+  @keyframes shake {
+    0%,
+    100% {
+      transform: translateX(0);
+    }
+    25% {
+      transform: translateX(-2px);
+    }
+    75% {
+      transform: translateX(2px);
     }
   }
 }

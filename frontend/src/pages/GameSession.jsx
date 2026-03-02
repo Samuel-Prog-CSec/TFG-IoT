@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Wifi, WifiOff, Pause, Play, Volume2, VolumeX } from 'lucide-react';
+import { Wifi, WifiOff, Pause, Play, Volume2, VolumeX, AlertTriangle } from 'lucide-react';
 import PropTypes from 'prop-types';
 import { cn } from '../lib/utils';
 import { useReducedMotion } from '../hooks';
@@ -43,13 +43,13 @@ const SOCKET_ERROR_MESSAGES = {
 };
 
 const REALTIME_STATUS_COPY = {
-  connected: { label: 'Realtime OK', announcement: 'Conexión en tiempo real activa.' },
-  reconnecting: { label: 'Reconectando', announcement: 'Reconectando en tiempo real.' },
-  disconnected: { label: 'Sin conexión', announcement: 'Conexión en tiempo real perdida.' },
-  connecting: { label: 'Conectando', announcement: 'Conectando con el servidor en tiempo real.' }
+  connected: { label: 'Juego listo', announcement: 'El juego está conectado.' },
+  reconnecting: { label: 'Reconectando', announcement: 'Reconectando el juego.' },
+  disconnected: { label: 'Sin conexión', announcement: 'Se perdió la conexión del juego.' },
+  connecting: { label: 'Conectando', announcement: 'Conectando el juego.' }
 };
 
-const TIMER_ANNOUNCEMENT_THRESHOLDS = [10, 5, 3, 2, 1, 0];
+const TIMER_ANNOUNCEMENT_THRESHOLDS = new Set([10, 5, 3, 2, 1, 0]);
 
 function resolveSocketError(payload) {
   const code = payload?.code;
@@ -122,11 +122,13 @@ export default function GameSession() { // NOSONAR
   const [realtimeError, setRealtimeError] = useState(null);
   const [playSummary, setPlaySummary] = useState(null);
   const [memoryStats, setMemoryStats] = useState({ attempts: 0, matchedCount: 0, totalCards: 0 });
+  const [memoryFeedbackActive, setMemoryFeedbackActive] = useState(false);
   const [srAnnouncement, setSrAnnouncement] = useState('');
   const gameStateRef = useRef('waiting');
 
   const [challenge, setChallenge] = useState(null);
   const [memoryBoard, setMemoryBoard] = useState([]);
+  const fallbackCards = Array.isArray(session?.cardMappings) ? session.cardMappings : [];
   const roundIndicators = [];
   for (let roundNumber = 1; roundNumber <= totalRounds; roundNumber += 1) {
     roundIndicators.push(roundNumber);
@@ -183,6 +185,7 @@ export default function GameSession() { // NOSONAR
 
   const handleValidationResult = useCallback(
     payload => {
+      const feedbackDelayMs = Number(payload?.feedbackDelayMs || 1400);
       const pointsAwarded = Number(payload?.pointsAwarded || 0);
       const isCorrect = Boolean(payload?.isCorrect && !payload?.timeout);
 
@@ -190,15 +193,20 @@ export default function GameSession() { // NOSONAR
       setScore(Number.isFinite(payload?.newScore) ? payload.newScore : 0);
       setMascotMood(isCorrect ? 'celebrating' : 'encouraging');
       setIsAwaitingResponse(false);
+      if (isMemoryMode) {
+        setMemoryFeedbackActive(true);
+      }
       announcedThresholdsRef.current.clear();
 
       if (isCorrect) {
         setCorrectAnswers(prev => prev + 1);
       }
 
-      scheduleFeedbackClear();
+      scheduleFeedbackClear(
+        Number.isFinite(feedbackDelayMs) && feedbackDelayMs > 0 ? feedbackDelayMs : 1400
+      );
     },
-    [scheduleFeedbackClear]
+    [isMemoryMode, scheduleFeedbackClear]
   );
 
   const handleNewRound = useCallback(
@@ -262,6 +270,16 @@ export default function GameSession() { // NOSONAR
   );
 
   const handlePlayState = useCallback(payload => {
+    if (!payload || typeof payload !== 'object') {
+      return;
+    }
+
+    if (payload?.status === 'paused' || payload?.isPaused) {
+      setGameState('paused');
+    } else if (payload?.status === 'in-progress') {
+      setGameState('playing');
+    }
+
     if (Number.isFinite(payload?.currentRound)) {
       setCurrentRound(payload.currentRound);
     }
@@ -271,9 +289,32 @@ export default function GameSession() { // NOSONAR
     if (Number.isFinite(payload?.maxRounds)) {
       setTotalRounds(payload.maxRounds);
     }
-  }, []);
+
+    if (Number.isFinite(payload?.remainingTimeMs) && payload.remainingTimeMs >= 0) {
+      setTimeLeft(Math.max(0, Math.ceil(payload.remainingTimeMs / 1000)));
+    }
+
+    if (typeof payload?.awaitingResponse === 'boolean') {
+      setIsAwaitingResponse(payload.awaitingResponse);
+    }
+
+    if (payload?.currentChallenge) {
+      setChallenge(normalizeChallenge(payload.currentChallenge));
+    }
+
+    if (payload?.memoryState && typeof payload.memoryState === 'object') {
+      setMemoryBoard(Array.isArray(payload.memoryState.board) ? payload.memoryState.board : []);
+      setMemoryStats({
+        attempts: Number(payload.memoryState.attempts || 0),
+        matchedCount: Number(payload.memoryState.matchedCount || 0),
+        totalCards: Number(payload.memoryState.totalCards || 0)
+      });
+    }
+  }, [normalizeChallenge]);
 
   const handleMemoryTurnState = useCallback(payload => {
+    const phase = payload?.phase;
+
     setMemoryBoard(Array.isArray(payload?.board) ? payload.board : []);
     setMemoryStats({
       attempts: Number(payload?.attempts || 0),
@@ -290,6 +331,24 @@ export default function GameSession() { // NOSONAR
       setScore(payload.score);
     }
 
+    if (typeof payload?.awaitingResponse === 'boolean') {
+      setIsAwaitingResponse(payload.awaitingResponse);
+    }
+
+    if (phase === 'match' || phase === 'mismatch') {
+      setMemoryFeedbackActive(true);
+    }
+
+    if (
+      phase === 'round_start' ||
+      phase === 'first_pick' ||
+      phase === 'concealed' ||
+      phase === 'resumed' ||
+      phase === 'ignored'
+    ) {
+      setMemoryFeedbackActive(false);
+    }
+
     if (Number.isFinite(payload?.attempts)) {
       setCurrentRound(Math.max(1, payload.attempts + 1));
     }
@@ -299,6 +358,7 @@ export default function GameSession() { // NOSONAR
     clearPendingTimeouts();
     setIsAwaitingResponse(false);
     setGameState('finished');
+    setMemoryFeedbackActive(false);
     setMascotMood('celebrating');
     setRealtimeError(null);
 
@@ -309,6 +369,28 @@ export default function GameSession() { // NOSONAR
       normalizeFinalSummary(payload?.metrics, finalScore, correctAnswers, isMemoryMode)
     );
   }, [clearPendingTimeouts, correctAnswers, isMemoryMode]);
+
+  const handlePlayInterrupted = useCallback(payload => {
+    clearPendingTimeouts();
+    setFeedback(null);
+    setMemoryFeedbackActive(false);
+    setIsAwaitingResponse(false);
+    setGameState('finished');
+
+    const finalScore = Number.isFinite(payload?.finalScore) ? payload.finalScore : score;
+    setScore(finalScore);
+
+    const interruptionMessage =
+      payload?.message ||
+      'La partida se interrumpió por un reinicio o problema del servidor. Consulta al docente.';
+
+    setRealtimeError({
+      code: 'PLAY_INTERRUPTED',
+      message: interruptionMessage
+    });
+    setSrAnnouncement('La partida fue interrumpida.');
+    toast.warning(interruptionMessage);
+  }, [clearPendingTimeouts, score]);
 
   const resolvePlayerId = useCallback(async () => {
     const explicitPlayerId = searchParams.get('playerId');
@@ -458,6 +540,7 @@ export default function GameSession() { // NOSONAR
         socketService.on(SOCKET_EVENTS.PLAY_PAUSED, handlePlayPaused);
         socketService.on(SOCKET_EVENTS.PLAY_RESUMED, handlePlayResumed);
         socketService.on(SOCKET_EVENTS.PLAY_STATE, handlePlayState);
+        socketService.on(SOCKET_EVENTS.PLAY_INTERRUPTED, handlePlayInterrupted);
         socketService.on(SOCKET_EVENTS.ERROR, onSocketError);
         socketService.on(SOCKET_EVENTS.DISCONNECT, onSocketDisconnect);
         socketService.on(SOCKET_EVENTS.CONNECT, onSocketConnect);
@@ -492,6 +575,7 @@ export default function GameSession() { // NOSONAR
       socketService.off(SOCKET_EVENTS.PLAY_PAUSED, handlePlayPaused);
       socketService.off(SOCKET_EVENTS.PLAY_RESUMED, handlePlayResumed);
       socketService.off(SOCKET_EVENTS.PLAY_STATE, handlePlayState);
+      socketService.off(SOCKET_EVENTS.PLAY_INTERRUPTED, handlePlayInterrupted);
       socketService.off(SOCKET_EVENTS.ERROR, onSocketError);
       socketService.off(SOCKET_EVENTS.DISCONNECT, onSocketDisconnect);
       socketService.off(SOCKET_EVENTS.CONNECT, onSocketConnect);
@@ -506,27 +590,42 @@ export default function GameSession() { // NOSONAR
     handlePlayPaused,
     handlePlayResumed,
     handlePlayState,
+    handlePlayInterrupted,
     handleValidationResult,
     sessionId
   ]);
 
+  useEffect(() => {
+    if (!feedback) {
+      setMemoryFeedbackActive(false);
+    }
+  }, [feedback]);
+
   // Timer effect
   useEffect(() => {
-    if (gameState !== 'playing' || !isAwaitingResponse) return;
+    const shouldRunVisualTimer =
+      gameState === 'playing' && (isMemoryMode ? !memoryFeedbackActive : isAwaitingResponse);
+
+    if (!shouldRunVisualTimer) {
+      return;
+    }
 
     const timer = setInterval(() => {
       setTimeLeft(prev => Math.max(0, prev - 1));
     }, 1000);
 
     return () => clearInterval(timer);
-  }, [gameState, isAwaitingResponse]);
+  }, [gameState, isAwaitingResponse, isMemoryMode, memoryFeedbackActive]);
 
   useEffect(() => {
-    if (gameState !== 'playing' || !isAwaitingResponse) {
+    const shouldRunVisualTimer =
+      gameState === 'playing' && (isMemoryMode ? !memoryFeedbackActive : isAwaitingResponse);
+
+    if (!shouldRunVisualTimer) {
       return;
     }
 
-    if (!TIMER_ANNOUNCEMENT_THRESHOLDS.includes(timeLeft)) {
+    if (!TIMER_ANNOUNCEMENT_THRESHOLDS.has(timeLeft)) {
       return;
     }
 
@@ -542,7 +641,7 @@ export default function GameSession() { // NOSONAR
     }
 
     setSrAnnouncement(`Quedan ${timeLeft} segundos.`);
-  }, [gameState, isAwaitingResponse, timeLeft]);
+  }, [gameState, isAwaitingResponse, isMemoryMode, memoryFeedbackActive, timeLeft]);
 
   useEffect(() => {
     if (realtimeStatus === previousRealtimeStatusRef.current) {
@@ -617,7 +716,7 @@ export default function GameSession() { // NOSONAR
 
     if (gameState === 'playing') {
       const sent = socketService.sendCommand(SOCKET_EVENTS.PAUSE_PLAY, { playId });
-      if (!sent) {
+      if (sent === false) {
         setRealtimeStatus('disconnected');
         setRealtimeError({
           code: 'SOCKET_REQUIRED',
@@ -629,7 +728,7 @@ export default function GameSession() { // NOSONAR
       }
     } else if (gameState === 'paused') {
       const sent = socketService.sendCommand(SOCKET_EVENTS.RESUME_PLAY, { playId });
-      if (!sent) {
+      if (sent === false) {
         setRealtimeStatus('disconnected');
         setRealtimeError({
           code: 'SOCKET_REQUIRED',
@@ -646,8 +745,39 @@ export default function GameSession() { // NOSONAR
     if (event.key === 'Escape') {
       event.preventDefault();
       togglePause();
+      return;
+    }
+
+    if (event.key === 'Tab') {
+      event.preventDefault();
+      continueButtonRef.current?.focus();
     }
   };
+
+  const emitFallbackCardScan = useCallback(
+    card => {
+      if (!playId || !card?.uid || gameState !== 'playing') {
+        return;
+      }
+
+      const sensorId = session?.sensorId || 'touch_fallback_sensor';
+      const sent = socketService.sendCommand(SOCKET_EVENTS.RFID_SCAN_FROM_CLIENT, {
+        uid: card.uid,
+        type: 'UNKNOWN',
+        sensorId,
+        timestamp: Date.now(),
+        source: 'web_serial'
+      });
+
+      if (sent === false) {
+        toast.error('Sin conexión en tiempo real para enviar la respuesta táctil.');
+        return;
+      }
+
+      setSrAnnouncement(`Carta ${card?.assignedValue || card?.uid} seleccionada.`);
+    },
+    [gameState, playId, session?.sensorId]
+  );
 
   // Play again
   const playAgain = async () => {
@@ -718,9 +848,9 @@ export default function GameSession() { // NOSONAR
 
   return (
     <div className="game-bg min-h-screen flex flex-col relative overflow-hidden">
-      <div className="sr-only" role="status" aria-live="polite" aria-atomic="true">
+      <output className="sr-only" aria-live="polite" aria-atomic="true">
         {srAnnouncement}
-      </div>
+      </output>
       {/* Animated background elements */}
       <div className="absolute inset-0 overflow-hidden pointer-events-none">
         <div className={cn('absolute top-20 left-10 w-64 h-64 bg-purple-500/10 rounded-full blur-[100px]', !shouldReduceMotion && 'animate-float')} />
@@ -784,7 +914,10 @@ export default function GameSession() { // NOSONAR
             <div className={cn(
               "p-2 rounded-lg",
               rfidConnected ? "bg-emerald-500/20 text-emerald-400" : "bg-rose-500/20 text-rose-400"
-            )} role="status" aria-live="polite" aria-label={rfidConnected ? 'Sensor RFID conectado' : 'Sensor RFID desconectado'}>
+            )}>
+              <output className="sr-only" aria-live="polite">
+                {rfidConnected ? 'Sensor RFID conectado' : 'Sensor RFID desconectado'}
+              </output>
               {rfidConnected ? <Wifi size={20} /> : <WifiOff size={20} />}
             </div>
 
@@ -794,7 +927,10 @@ export default function GameSession() { // NOSONAR
               realtimeStatus === 'reconnecting' && 'bg-amber-500/20 text-amber-300',
               realtimeStatus === 'disconnected' && 'bg-rose-500/20 text-rose-300',
               realtimeStatus === 'connecting' && 'bg-slate-700/70 text-slate-200'
-            )} role="status" aria-live="polite" aria-atomic="true">
+            )}>
+              <output className="sr-only" aria-live="polite" aria-atomic="true">
+                {REALTIME_STATUS_COPY[realtimeStatus]?.announcement || 'Conectando el juego.'}
+              </output>
               {REALTIME_STATUS_COPY[realtimeStatus]?.label || 'Conectando'}
             </div>
           </div>
@@ -844,8 +980,8 @@ export default function GameSession() { // NOSONAR
               </h1>
               <p className="text-slate-400 mb-8 text-lg">
                 {session?.deck?.name
-                  ? `Busca la tarjeta correcta en ${session.deck.name}`
-                  : 'Encuentra la tarjeta correcta'}
+                  ? `Busca la tarjeta amiga en ${session.deck.name}`
+                  : 'Encuentra la tarjeta amiga'}
               </p>
               <motion.button
                 whileHover={shouldReduceMotion ? {} : { scale: 1.05 }}
@@ -902,9 +1038,12 @@ export default function GameSession() { // NOSONAR
               </motion.p>
 
               {!rfidConnected && (
-                <p className="mt-8 px-6 py-3 bg-white/5 border border-white/10 rounded-xl text-slate-400 text-sm text-center">
-                  Conecta el sensor RFID para responder las rondas en tiempo real.
-                </p>
+                <FallbackTouchPanel
+                  cards={fallbackCards}
+                  onSelectCard={emitFallbackCardScan}
+                  onPauseRequest={togglePause}
+                  canPause={gameState === 'playing'}
+                />
               )}
             </motion.div>
           )}
@@ -1014,11 +1153,32 @@ export default function GameSession() { // NOSONAR
 }
 
 function AssociationGameplayPanel({ challenge, paused, shouldReduceMotion }) {
+  const resolveAssociationTheme = challengeValue => {
+    const challengeKey = (challengeValue || '').toLowerCase();
+
+    if (challengeKey.includes('animal')) {
+      return 'animals';
+    }
+
+    if (challengeKey.includes('color')) {
+      return 'colors';
+    }
+
+    if (challengeKey.includes('número') || challengeKey.includes('numero')) {
+      return 'numbers';
+    }
+
+    return 'default';
+  };
+
+  const challengeKey = (challenge?.key || challenge?.value || '').toLowerCase();
+  const contextTheme = resolveAssociationTheme(challengeKey);
+
   return (
     <ChallengeDisplay
       asset={challenge}
       revealed={!paused}
-      contextTheme="geography"
+      contextTheme={contextTheme}
       className="w-full"
       shouldReduceMotion={shouldReduceMotion}
     />
@@ -1054,13 +1214,17 @@ MemoryGameplayPanel.propTypes = {
 };
 
 function CurrentPlayMetrics({ mode, score, correctAnswers, errors, attempts }) {
+  const safeAttempts = Math.max(1, attempts || 0);
+
   return (
     <div className="mb-4 max-w-4xl mx-auto rounded-xl border border-white/10 bg-slate-900/30 px-4 py-3">
-      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-sm">
-        <MetricPill label="Mecánica" value={mode === 'memory' ? 'Memoria' : 'Asociación'} />
-        <MetricPill label="Puntos" value={score} />
-        <MetricPill label="Aciertos" value={correctAnswers} />
-        <MetricPill label="Errores" value={`${errors}/${attempts}`} />
+      <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 text-sm">
+        <MetricPill label="⭐ Puntos" value={score} />
+        <MetricPill label="✅ Aciertos" value={correctAnswers} />
+        <MetricPill
+          label={mode === 'memory' ? '🧠 Parejas' : '🎯 Intentos'}
+          value={mode === 'memory' ? `${correctAnswers}` : `${safeAttempts - errors}/${safeAttempts}`}
+        />
       </div>
     </div>
   );
@@ -1077,7 +1241,7 @@ CurrentPlayMetrics.propTypes = {
 function MetricPill({ label, value }) {
   return (
     <div className="rounded-lg bg-slate-800/60 border border-white/5 px-3 py-2">
-      <div className="text-[11px] uppercase tracking-wide text-slate-400">{label}</div>
+      <div className="text-[11px] tracking-wide text-slate-300">{label}</div>
       <div className="text-white font-semibold">{value}</div>
     </div>
   );
@@ -1181,6 +1345,7 @@ function MemoryBoard({ board }) {
                 <CardAssetPreview
                   asset={slot.displayData || { display: slot.assignedValue || '🎴' }}
                   className="w-full h-full rounded-lg"
+                  loading="eager"
                   fallbackLabel={slot.displayData?.display || slot.assignedValue || '🎴'}
                 />
               ) : (
@@ -1206,4 +1371,63 @@ MemoryBoard.propTypes = {
       displayData: PropTypes.object
     })
   )
+};
+
+function FallbackTouchPanel({ cards, onSelectCard, onPauseRequest, canPause }) {
+  const visibleCards = Array.isArray(cards) ? cards.slice(0, 12) : [];
+
+  return (
+    <div className="mt-6 w-full max-w-3xl rounded-2xl border border-amber-400/30 bg-amber-500/10 p-4">
+      <div className="flex items-start gap-3 text-amber-100">
+        <AlertTriangle size={18} className="mt-0.5 shrink-0" />
+        <div>
+          <p className="text-sm font-semibold">Modo táctil temporal activado</p>
+          <p className="text-xs text-amber-100/90">
+            El lector RFID está desconectado. Toca una carta para seguir y avisa al docente.
+          </p>
+        </div>
+      </div>
+
+      {visibleCards.length > 0 && (
+        <div className="mt-4 grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-2">
+          {visibleCards.map(card => (
+            <button
+              key={`fallback-card-${card.uid}`}
+              type="button"
+              onClick={() => onSelectCard(card)}
+              className="rounded-xl border border-white/10 bg-slate-900/40 p-2 text-left hover:bg-slate-900/60 transition-colors"
+            >
+              <CardAssetPreview
+                asset={card.displayData || { display: card.assignedValue || card.uid }}
+                className="h-16 w-full rounded-lg"
+                fit="contain"
+                loading="eager"
+                fallbackLabel={card.assignedValue || card.uid}
+              />
+              <div className="mt-1 text-[11px] text-slate-200 truncate">
+                {card.assignedValue || card.uid}
+              </div>
+            </button>
+          ))}
+        </div>
+      )}
+
+      {canPause && (
+        <button
+          type="button"
+          onClick={onPauseRequest}
+          className="mt-4 text-xs px-3 py-2 rounded-lg bg-slate-900/60 text-slate-200 border border-white/10 hover:bg-slate-900/80 transition-colors"
+        >
+          Pausar para revisar el sensor
+        </button>
+      )}
+    </div>
+  );
+}
+
+FallbackTouchPanel.propTypes = {
+  cards: PropTypes.array,
+  onSelectCard: PropTypes.func.isRequired,
+  onPauseRequest: PropTypes.func.isRequired,
+  canPause: PropTypes.bool
 };

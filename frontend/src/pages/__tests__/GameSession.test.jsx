@@ -81,6 +81,7 @@ vi.mock('../../services/socket', () => {
     RFID_EVENT: 'rfid_event',
     RFID_STATUS: 'rfid_status',
     RFID_MODE_CHANGED: 'rfid_mode_changed',
+    RFID_SCAN_FROM_CLIENT: 'rfid_scan_from_client',
     JOIN_PLAY: 'join_play',
     LEAVE_PLAY: 'leave_play',
     START_PLAY: 'start_play',
@@ -96,6 +97,7 @@ vi.mock('../../services/socket', () => {
     MEMORY_TURN_STATE: 'memory_turn_state',
     VALIDATION_RESULT: 'validation_result',
     GAME_OVER: 'game_over',
+    PLAY_INTERRUPTED: 'play_interrupted',
     PLAY_PAUSED: 'play_paused',
     PLAY_RESUMED: 'play_resumed',
     ERROR: 'error'
@@ -228,7 +230,7 @@ describe('GameSession realtime gameplay', () => {
     });
 
     expect(await screen.findByText(/^Busca$/i)).toBeInTheDocument();
-    expect(screen.getByText('Asociación')).toBeInTheDocument();
+    expect(screen.getByText(/Puntos/i)).toBeInTheDocument();
   });
 
   it('renders memory-specific panel and pair progress from memory_turn_state', async () => {
@@ -273,7 +275,7 @@ describe('GameSession realtime gameplay', () => {
 
     expect(await screen.findByText(/Parejas encontradas/i)).toBeInTheDocument();
     expect(screen.getByText(/1\s*\/\s*2/)).toBeInTheDocument();
-    expect(screen.getByText('Memoria')).toBeInTheDocument();
+    expect(screen.getByText(/🧠\s*Parejas/i)).toBeInTheDocument();
   });
 
   it('maps realtime backend error codes to specific UX messages', async () => {
@@ -345,6 +347,58 @@ describe('GameSession realtime gameplay', () => {
     expect(screen.getByText('3.2s')).toBeInTheDocument();
   });
 
+  it('rehydrates memory snapshot from play_state after reconnect/join', async () => {
+    currentSessionData = {
+      ...currentSessionData,
+      mechanic: { name: 'memory' }
+    };
+
+    renderGameSession();
+    await screen.findByRole('button', { name: /empezar/i });
+
+    act(() => {
+      socketService.__emit(SOCKET_EVENTS.PLAY_STATE, {
+        status: 'in-progress',
+        currentRound: 2,
+        score: 30,
+        maxRounds: 4,
+        awaitingResponse: true,
+        remainingTimeMs: 8000,
+        memoryState: {
+          attempts: 3,
+          matchedCount: 2,
+          totalCards: 4,
+          board: [
+            { slotIndex: 0, isMatched: true, isRevealed: true, assignedValue: 'A', displayData: { display: 'A' } },
+            { slotIndex: 1, isMatched: true, isRevealed: true, assignedValue: 'A', displayData: { display: 'A' } }
+          ]
+        }
+      });
+    });
+
+    expect(await screen.findByText(/Parejas encontradas/i)).toBeInTheDocument();
+    expect(screen.getByText(/1\s*\/\s*2/)).toBeInTheDocument();
+  });
+
+  it('handles play_interrupted event with warning feedback', async () => {
+    renderGameSession();
+    await screen.findByRole('button', { name: /empezar/i });
+
+    act(() => {
+      socketService.__emit(SOCKET_EVENTS.PLAY_INTERRUPTED, {
+        reason: 'server_restart',
+        message: 'La partida fue interrumpida por reinicio.',
+        finalScore: 12
+      });
+    });
+
+    await waitFor(() => {
+      expect(toast.warning).toHaveBeenCalled();
+    });
+
+    expect(await screen.findByTestId('game-over')).toBeInTheDocument();
+  });
+
   it('updates RFID connection indicator from web serial runtime events', async () => {
     renderGameSession();
     await screen.findByRole('button', { name: /empezar/i });
@@ -355,6 +409,50 @@ describe('GameSession realtime gameplay', () => {
 
     await waitFor(() => {
       expect(screen.queryByText(/Conecta el sensor RFID/i)).not.toBeInTheDocument();
+    });
+  });
+
+  it('sends touch fallback scans when RFID is disconnected', async () => {
+    const user = userEvent.setup();
+    currentSessionData = {
+      ...currentSessionData,
+      sensorId: 'sensor-class-1',
+      cardMappings: [
+        {
+          uid: 'AA11',
+          assignedValue: 'Perro',
+          displayData: { display: '🐶', value: 'Perro' }
+        }
+      ]
+    };
+
+    renderGameSession();
+    await screen.findByRole('button', { name: /empezar/i });
+
+    act(() => {
+      socketService.__emit(SOCKET_EVENTS.NEW_ROUND, {
+        roundNumber: 1,
+        totalRounds: 5,
+        timeLimit: 15,
+        score: 0,
+        challenge: {
+          displayData: {
+            value: 'Perro',
+            display: '🐶'
+          }
+        }
+      });
+    });
+
+    const cardButton = await screen.findByRole('button', { name: /perro/i });
+    await user.click(cardButton);
+
+    expect(socketService.sendCommand).toHaveBeenCalledWith(SOCKET_EVENTS.RFID_SCAN_FROM_CLIENT, {
+      uid: 'AA11',
+      type: 'UNKNOWN',
+      sensorId: 'sensor-class-1',
+      timestamp: expect.any(Number),
+      source: 'web_serial'
     });
   });
 

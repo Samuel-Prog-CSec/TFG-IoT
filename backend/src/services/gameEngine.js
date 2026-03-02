@@ -25,6 +25,7 @@ const DISTRIBUTED_LOCK_TTL_SECONDS =
 const LOCK_HEARTBEAT_INTERVAL_MS =
   Number.parseInt(process.env.GAME_ENGINE_LOCK_HEARTBEAT_MS, 10) || 30000;
 const MEMORY_DEFAULT_HIDE_DELAY_MS = Number.parseInt(process.env.MEMORY_HIDE_DELAY_MS, 10) || 1200;
+const MEMORY_FEEDBACK_PAUSE_MS = Number.parseInt(process.env.MEMORY_FEEDBACK_PAUSE_MS, 10) || 1400;
 
 /**
  * GameEngine - Servicio con estado para gestión de partidas en tiempo real.
@@ -603,6 +604,7 @@ class GameEngine {
       totalCards,
       attempts: Number(playState.strategyState?.attempts || 0),
       remainingTimeMs: this.getMemoryRemainingTimeMs(playState),
+      awaitingResponse: Boolean(playState.awaitingResponse),
       score: playState.playDoc.score,
       ...extra
     });
@@ -722,6 +724,17 @@ class GameEngine {
       this.metrics.totalMemoryMatches++;
     }
 
+    const mismatchHideDelay = Number(outcome.hideAfterMs) || MEMORY_DEFAULT_HIDE_DELAY_MS;
+    const feedbackDelayMs = Math.max(
+      MEMORY_FEEDBACK_PAUSE_MS,
+      outcome.isCorrect ? 0 : mismatchHideDelay
+    );
+
+    if (feedbackDelayMs > 0 && Number.isFinite(playState.playEndsAt)) {
+      playState.playEndsAt += feedbackDelayMs;
+      this.scheduleMemoryPlayTimeout(playId, playState, this.getMemoryRemainingTimeMs(playState));
+    }
+
     this.io.to(`play_${playId}`).emit('validation_result', {
       isCorrect: outcome.isCorrect,
       expected: firstCard?.displayData || null,
@@ -730,6 +743,7 @@ class GameEngine {
       },
       pointsAwarded: Number(outcome.pointsAwarded || 0),
       newScore: playState.playDoc.score,
+      feedbackDelayMs,
       remainingTimeMs: this.getMemoryRemainingTimeMs(playState)
     });
 
@@ -743,7 +757,7 @@ class GameEngine {
     }
 
     if (!outcome.isCorrect) {
-      const hideDelay = Number(outcome.hideAfterMs) || MEMORY_DEFAULT_HIDE_DELAY_MS;
+      const hideDelay = mismatchHideDelay;
       setTimeout(() => {
         const currentState = this.activePlays.get(playId);
         if (!currentState || !this.isMemoryPlay(currentState)) {
@@ -1164,14 +1178,70 @@ class GameEngine {
       return null;
     }
 
-    return {
+    const isMemoryMode = this.isMemoryPlay(playState);
+    const remainingTimeMs = this.getRealtimeRemainingTimeMs(playState);
+
+    const snapshot = {
       playId: playState.playDoc._id.toString(),
+      status: playState.playDoc.status,
+      isPaused: Boolean(playState.paused || playState.playDoc?.status === 'paused'),
+      mechanicName: playState.mechanicName,
       currentRound: playState.playDoc.currentRound,
       score: playState.playDoc.score,
-      maxRounds: this.isMemoryPlay(playState)
+      maxRounds: isMemoryMode
         ? Number(playState.strategyState?.totalGroups || 0)
-        : playState.sessionDoc.config.numberOfRounds
+        : playState.sessionDoc.config.numberOfRounds,
+      awaitingResponse: Boolean(playState.awaitingResponse),
+      remainingTimeMs,
+      timeLimitSeconds: isMemoryMode
+        ? Number(playState.playDurationMs || 0) / 1000
+        : Number(playState.sessionDoc?.config?.timeLimit || 0),
+      currentChallenge: playState.currentChallenge
+        ? {
+            uid: playState.currentChallenge.uid || null,
+            assignedValue: playState.currentChallenge.assignedValue || null,
+            displayData: playState.currentChallenge.displayData || null
+          }
+        : null
     };
+
+    if (isMemoryMode) {
+      const board = playState.mechanicStrategy.buildBoardForClient(playState.strategyState);
+      snapshot.memoryState = {
+        board,
+        attempts: Number(playState.strategyState?.attempts || 0),
+        matchedCount: Number(playState.strategyState?.matchedUids?.length || 0),
+        totalCards: Number(playState.strategyState?.totalCards || board.length || 0)
+      };
+    }
+
+    return snapshot;
+  }
+
+  getRealtimeRemainingTimeMs(playState) {
+    if (!playState) {
+      return null;
+    }
+
+    if (this.isMemoryPlay(playState)) {
+      return this.getMemoryRemainingTimeMs(playState);
+    }
+
+    if (playState.paused || playState.playDoc?.status === 'paused') {
+      return this.getPlayRemainingTimeMs(playState);
+    }
+
+    if (
+      !playState.awaitingResponse ||
+      !playState.roundStartTime ||
+      !playState.sessionDoc?.config?.timeLimit
+    ) {
+      return null;
+    }
+
+    const totalMs = Number(playState.sessionDoc.config.timeLimit) * 1000;
+    const elapsedMs = Math.max(0, Date.now() - playState.roundStartTime);
+    return Math.max(0, totalMs - elapsedMs);
   }
 
   /**
