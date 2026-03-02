@@ -16,6 +16,16 @@ const SOCKET_URL = import.meta.env.VITE_SOCKET_URL || 'http://localhost:5000';
 const RECONNECTION_ATTEMPTS = 5;
 const RECONNECTION_DELAY = 1000;
 const CONNECTION_TIMEOUT = 10000; // 10 segundos timeout para conexión inicial
+const IS_DEV = import.meta.env.DEV;
+
+const socketLog = (level, ...args) => {
+  if (!IS_DEV || typeof console === 'undefined') {
+    return;
+  }
+
+  const logger = console[level] || console.log;
+  logger(...args);
+};
 
 // ============================================
 // EVENTOS SOCKET
@@ -119,7 +129,7 @@ class SocketService {
         if (!isResolved) {
           isResolved = true;
           cleanup();
-          console.warn('[Socket] Conectado:', this.socket.id);
+          socketLog('warn', '[Socket] Conectado:', this.socket.id);
           this.isConnected = true;
           resolve();
         }
@@ -127,7 +137,7 @@ class SocketService {
 
       // Manejar errores de conexión
       this.socket.on(SOCKET_EVENTS.CONNECT_ERROR, (error) => {
-        console.error('[Socket] Error de conexión:', error.message);
+        socketLog('error', '[Socket] Error de conexión:', error.message);
         this.isConnected = false;
         
         // Si es error de auth, emitir evento
@@ -144,7 +154,7 @@ class SocketService {
 
       // Manejar desconexión
       this.socket.on(SOCKET_EVENTS.DISCONNECT, (reason) => {
-        console.warn('[Socket] Desconectado:', reason);
+        socketLog('warn', '[Socket] Desconectado:', reason);
         this.isConnected = false;
         
         // Si el servidor forzó la desconexión, intentar reconectar
@@ -155,7 +165,7 @@ class SocketService {
 
       // Escuchar evento de sesión invalidada (login desde otro dispositivo)
       this.socket.on(SOCKET_EVENTS.SESSION_INVALIDATED, (data) => {
-        console.warn('[Socket] Sesión invalidada:', data);
+        socketLog('warn', '[Socket] Sesión invalidada:', data);
         window.dispatchEvent(new CustomEvent(AUTH_EVENTS.SESSION_INVALIDATED, { 
           detail: data 
         }));
@@ -208,7 +218,6 @@ class SocketService {
    */
   on(event, callback) {
     if (!this.socket) {
-      console.warn('[Socket] No hay conexión activa');
       return;
     }
     
@@ -216,9 +225,9 @@ class SocketService {
     
     // Guardar referencia para limpieza
     if (!this.listeners.has(event)) {
-      this.listeners.set(event, []);
+      this.listeners.set(event, new Set());
     }
-    this.listeners.get(event).push(callback);
+    this.listeners.get(event).add(callback);
   }
 
   /**
@@ -231,8 +240,15 @@ class SocketService {
     
     if (callback) {
       this.socket.off(event, callback);
-      const callbacks = this.listeners.get(event) || [];
-      this.listeners.set(event, callbacks.filter((cb) => cb !== callback));
+      const callbacks = this.listeners.get(event);
+      if (!callbacks) {
+        return;
+      }
+
+      callbacks.delete(callback);
+      if (callbacks.size === 0) {
+        this.listeners.delete(event);
+      }
     } else {
       this.socket.off(event);
       this.listeners.delete(event);

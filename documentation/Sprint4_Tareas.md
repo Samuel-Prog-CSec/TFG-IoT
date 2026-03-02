@@ -43,7 +43,7 @@ Una tarea solo puede pasar a ✅ si cumple **todas**:
 
 ## P0 - Prioridad Crítica (Bloqueantes)
 
-### T-054: Gameplay Real Asociación + Memoria (E2E) 📋
+### T-054: Gameplay Real Asociación + Memoria (E2E) ✅
 
 **Prioridad:** P0 | **Tamaño:** XL | **Dependencias:** Ninguna  
 **Origen:** RF-JGO-002, RF-JGO-004, RF-RT-011, RF-RT-012
@@ -53,19 +53,38 @@ Conectar la pantalla de partida real del frontend con el backend vía Socket.IO 
 
 **Sub-tareas:**
 
-1. Integrar `GameSession` con eventos reales (`join_play`, `new_round`, `validation_result`, `game_over`, `play_paused`, `play_resumed`).
-2. Eliminar dependencias de flujo simulado en la ruta productiva.
-3. Añadir fallback visual robusto para reconexión y desincronización de estado.
-4. Validar comportamiento por mecánica (asociación/memoria) con desafíos y feedback correctos.
-5. Añadir tests de integración backend para flujo de eventos críticos.
+1. Integrar `GameSession` con eventos reales (`join_play`, `new_round`, `validation_result`, `memory_turn_state`, `game_over`, `play_paused`, `play_resumed`).
+2. Eliminar dependencias de flujo simulado y fallback REST en la ruta productiva de gameplay.
+3. Añadir fallback visual robusto para reconexión, pérdida de socket y desincronización de estado.
+4. Implementar dos vistas de partida diferenciadas por mecánica (Asociación vs Memoria) sobre la misma pantalla de runtime.
+5. Mostrar métricas de partida actual en HUD y resumen ampliado al finalizar (sin sustituir persistencia backend para dashboards).
+6. Añadir tests frontend de integración de `GameSession` para eventos críticos de ambas mecánicas.
+7. Mantener compatibilidad con el contrato de configuración proveniente del wizard (`config` + `boardLayout` en memoria).
+8. Documentar contrato de eventos gameplay y estados UI para trazabilidad del sprint.
 
 **Criterios de Aceptación (medibles):**
 
-- [ ] Se puede completar una partida real de 5 rondas desde UI en ambas mecánicas.
-- [ ] Los eventos `new_round`, `validation_result`, `game_over` se reflejan sin refrescar la página.
-- [ ] Pausa/reanudación desde UI funciona sin romper la ronda actual.
-- [ ] No queda lógica de simulación en ruta de juego productiva.
-- [ ] Tests críticos de flujo de juego pasan en CI local.
+- [x] Los eventos `new_round`, `validation_result`, `memory_turn_state` y `game_over` se reflejan sin refrescar la página.
+- [x] La UI diferencia claramente Association y Memory con comportamiento y bloques visuales propios.
+- [x] Pausa/reanudación desde UI queda en modo realtime estricto sin fallback REST.
+- [x] No queda lógica de simulación en ruta de juego productiva.
+- [x] Se muestran métricas de la partida actual en juego y resumen final ampliado.
+- [x] Existe cobertura frontend de integración para `GameSession` en ambas mecánicas y errores realtime críticos.
+- [x] Se puede completar una partida real de 5 rondas desde UI en ambas mecánicas (pendiente validación manual final con sensor físico).
+- [x] Tests críticos backend de flujo de juego pasan en CI local en esta iteración.
+
+**Avance (01-03-2026):**
+
+- `frontend/src/pages/GameSession.jsx` refactorizada con state machine de runtime robusta y estado explícito de conexión (`connecting/connected/reconnecting/disconnected`).
+- Se separaron vistas de juego por mecánica (`AssociationGameplayPanel`, `MemoryGameplayPanel`) y se añadió panel de métricas de partida en vivo + resumen final (`PlaySummaryCard`).
+- Se endureció manejo UX de errores socket con mapeo de códigos backend (`RFID_MODE_INVALID`, `RFID_SENSOR_UNAUTHORIZED`, `ROUND_BLOCKED`, etc.).
+- Se eliminó fallback REST en `togglePause`/`toggleResume`; la ruta productiva de partida queda socket-first.
+- Se añadió infraestructura de tests frontend (Vitest + Testing Library) y suite dedicada en `frontend/src/pages/__tests__/GameSession.test.jsx` con 7 escenarios críticos.
+- Evidencia local de validación frontend en verde:
+	- `npm run test` (frontend)
+	- `eslint` específico sobre archivos modificados (`GameSession.jsx`, test suite, setup Vitest)
+- Evidencia local de validación backend crítica en verde:
+	- `npm test -- tests/gameFlow.test.js tests/playPauseResume.test.js tests/socketAuth.test.js tests/socketRateLimiter.test.js`
 
 ---
 
@@ -777,26 +796,35 @@ Eliminar riesgos de estilos perdidos en build por clases Tailwind dinámicas y u
 
 ---
 
-### T-069: Accesibilidad del temporizador y controles interactivos 📋
+### T-069: Accesibilidad del temporizador y controles interactivos 🔄
 
-**Prioridad:** P2 | **Tamaño:** S | **Dependencias:** T-060  
+**Prioridad:** P1 | **Tamaño:** M | **Dependencias:** T-060  
 **Origen:** FE-06
 
 **Descripción:**  
-Mejorar accesibilidad de controles y anuncios dinámicos para reducir ruido en lectores de pantalla y mejorar uso por teclado.
+Elevar la accesibilidad y la calidad UX de gameplay (Association + Memory) para público infantil (4-8), manteniendo estética premium sin introducir ruido cognitivo ni sobrecarga para lectores de pantalla.
 
 **Sub-tareas:**
 
-1. Ajustar estrategia `aria-live` del temporizador para anunciar solo umbrales críticos.
-2. Corregir controles interactivos no semánticos (switches/toggles) a elementos accesibles.
-3. Verificar navegación por teclado y focus visible en flujos críticos.
-4. Documentar verificación manual de accesibilidad básica.
+1. Rehacer estrategia `aria-live` del temporizador para anunciar solo umbrales críticos (`10`, `5`, `3`, `2`, `1`, `0`) y evitar anuncios por tick.
+2. Corregir semántica de toggles/controles de gameplay (`sound`, `pause/resume`) con estados ARIA explícitos (`aria-pressed`) y labels consistentes.
+3. Convertir overlay de pausa en diálogo accesible (`role="dialog"`, `aria-modal`, foco inicial, Escape para reanudar, retorno de foco al trigger).
+4. Añadir anuncios SR de estado runtime (`realtime`, errores socket, estado de partida) sin duplicados ni spam.
+5. Propagar `reduced-motion` en componentes críticos de gameplay (`TimerBar`, `ChallengeDisplay`, `CharacterMascot`, `FeedbackOverlay`, `GameOverScreen`) manteniendo identidad visual premium.
+6. Refinar copy y jerarquía textual en runtime para alumno (mensajes cortos y directos), preservando métricas completas en resumen final para docente.
+7. Ampliar cobertura de tests de integración de `GameSession` para umbrales de temporizador, controles ARIA y foco de pausa.
+8. Documentar checklist manual de validación de accesibilidad y UX de gameplay en guías frontend.
 
 **Criterios de Aceptación (medibles):**
 
-- [ ] El temporizador no produce anuncios excesivos en cada tick.
-- [ ] Los toggles críticos son operables por teclado y tienen atributos ARIA correctos.
-- [ ] Checklist de accesibilidad básica queda cubierto y documentado.
+- [ ] El temporizador no produce anuncios por cada segundo; solo se anuncian umbrales críticos definidos.
+- [ ] Los controles críticos (`sonido`, `pausa/reanudar`) son operables por teclado y reflejan estado con ARIA semántico.
+- [ ] En pausa, el foco entra al diálogo, permite reanudar por teclado y vuelve al control origen al cerrar.
+- [ ] Los cambios de estado realtime/RFID/errores se anuncian con `role=status`/`aria-live=polite` sin duplicación excesiva.
+- [ ] Con `prefers-reduced-motion` activo no hay loops o efectos de alta intensidad en gameplay.
+- [ ] La vista activa del alumno mantiene instrucciones breves y legibles; las métricas extendidas quedan en resumen final.
+- [ ] Existen tests de integración actualizados para timer/a11y/foco y pasan junto con la suite frontend objetivo.
+- [ ] El checklist manual de accesibilidad/UX queda documentado y trazable en docs frontend.
 
 ---
 

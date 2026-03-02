@@ -1,6 +1,7 @@
 import { motion } from 'framer-motion';
 import { Volume2, VolumeX } from 'lucide-react';
 import { useEffect, useState } from 'react';
+import PropTypes from 'prop-types';
 import { cn } from '../../lib/utils';
 
 /**
@@ -16,6 +17,7 @@ export default function ChallengeDisplay({
   asset, 
   revealed = true,
   contextTheme = 'default',
+  shouldReduceMotion = false,
   className 
 }) {
   const [audioPlaying, setAudioPlaying] = useState(false);
@@ -71,9 +73,9 @@ export default function ChallengeDisplay({
 
   return (
     <motion.div
-      initial={{ scale: 0.8, opacity: 0 }}
+      initial={shouldReduceMotion ? false : { scale: 0.8, opacity: 0 }}
       animate={{ scale: 1, opacity: 1 }}
-      transition={{ type: 'spring', stiffness: 300, damping: 20 }}
+      transition={shouldReduceMotion ? { duration: 0 } : { type: 'spring', stiffness: 300, damping: 20 }}
       className={cn(
         "relative flex flex-col items-center justify-center",
         "p-8 sm:p-12",
@@ -92,14 +94,14 @@ export default function ChallengeDisplay({
       </div>
 
       {/* Pulsing glow effect */}
-      <div className="absolute inset-0 rounded-3xl animate-pulse-glow opacity-30" />
+      <div className={cn('absolute inset-0 rounded-3xl opacity-30', !shouldReduceMotion && 'animate-pulse-glow')} />
 
       {/* Main display area */}
       <motion.div
         key={asset?.value}
-        initial={{ y: 20, opacity: 0, rotateX: -20 }}
+        initial={shouldReduceMotion ? false : { y: 20, opacity: 0, rotateX: -20 }}
         animate={{ y: 0, opacity: 1, rotateX: 0 }}
-        transition={{ type: 'spring', stiffness: 400, damping: 25 }}
+        transition={shouldReduceMotion ? { duration: 0 } : { type: 'spring', stiffness: 400, damping: 25 }}
         className="relative z-10 text-center"
       >
         {/* Emoji/Image */}
@@ -108,18 +110,18 @@ export default function ChallengeDisplay({
             src={asset.thumbnailUrl || asset.imageUrl}
             alt={asset.value}
             className="w-32 h-32 sm:w-40 sm:h-40 object-contain mx-auto mb-4 drop-shadow-2xl"
-            animate={{ scale: [1, 1.05, 1] }}
-            transition={{ duration: 2, repeat: Infinity, ease: "easeInOut" }}
+            animate={shouldReduceMotion ? { scale: 1 } : { scale: [1, 1.05, 1] }}
+            transition={shouldReduceMotion ? { duration: 0 } : { duration: 2, repeat: Infinity, ease: "easeInOut" }}
             onError={() => setImageError(true)}
           />
         ) : (
           <motion.div
             className="text-8xl sm:text-9xl mb-4 select-none filter drop-shadow-lg"
-            animate={{ 
+            animate={shouldReduceMotion ? { scale: 1, rotate: 0 } : {
               scale: [1, 1.1, 1],
               rotate: [0, 3, -3, 0]
             }}
-            transition={{ 
+            transition={shouldReduceMotion ? { duration: 0 } : {
               duration: 2, 
               repeat: Infinity, 
               ease: "easeInOut" 
@@ -132,9 +134,9 @@ export default function ChallengeDisplay({
         {/* Text value */}
         {revealed && asset?.value && (
           <motion.h2
-            initial={{ opacity: 0, y: 10 }}
+            initial={shouldReduceMotion ? false : { opacity: 0, y: 10 }}
             animate={{ opacity: 1, y: 0 }}
-            transition={{ delay: 0.2 }}
+            transition={shouldReduceMotion ? { duration: 0 } : { delay: 0.2 }}
             className={cn(
               "text-2xl sm:text-3xl font-bold font-display",
               theme.text
@@ -148,9 +150,9 @@ export default function ChallengeDisplay({
       {/* Audio button */}
       {asset?.audioUrl && (
         <motion.button
-          initial={{ opacity: 0, scale: 0 }}
+          initial={shouldReduceMotion ? false : { opacity: 0, scale: 0 }}
           animate={{ opacity: 1, scale: 1 }}
-          transition={{ delay: 0.3 }}
+          transition={shouldReduceMotion ? { duration: 0 } : { delay: 0.3 }}
           onClick={playAudio}
           disabled={audioPlaying}
           className={cn(
@@ -158,7 +160,7 @@ export default function ChallengeDisplay({
             "bg-white/10 hover:bg-white/20",
             "border border-white/20",
             "transition-all duration-300",
-            "hover:scale-110",
+            !shouldReduceMotion && "hover:scale-110",
             audioPlaying && "animate-pulse"
           )}
           aria-label="Reproducir audio"
@@ -172,10 +174,14 @@ export default function ChallengeDisplay({
       )}
 
       {/* Sparkles decoration */}
-      <Sparkle className="absolute top-4 left-4" delay={0} />
-      <Sparkle className="absolute top-8 right-8" delay={0.5} />
-      <Sparkle className="absolute bottom-8 left-8" delay={1} />
-      <Sparkle className="absolute bottom-4 right-4" delay={1.5} />
+      {!shouldReduceMotion && (
+        <>
+          <Sparkle className="absolute top-4 left-4" delay={0} />
+          <Sparkle className="absolute top-8 right-8" delay={0.5} />
+          <Sparkle className="absolute bottom-8 left-8" delay={1} />
+          <Sparkle className="absolute bottom-4 right-4" delay={1.5} />
+        </>
+      )}
     </motion.div>
   );
 }
@@ -202,3 +208,22 @@ function Sparkle({ className, delay = 0 }) {
     </motion.div>
   );
 }
+
+ChallengeDisplay.propTypes = {
+  asset: PropTypes.shape({
+    display: PropTypes.string,
+    value: PropTypes.string,
+    audioUrl: PropTypes.string,
+    imageUrl: PropTypes.string,
+    thumbnailUrl: PropTypes.string
+  }),
+  revealed: PropTypes.bool,
+  contextTheme: PropTypes.string,
+  shouldReduceMotion: PropTypes.bool,
+  className: PropTypes.string
+};
+
+Sparkle.propTypes = {
+  className: PropTypes.string,
+  delay: PropTypes.number
+};

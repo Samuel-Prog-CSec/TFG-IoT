@@ -24,6 +24,7 @@ function GameOverScreen({
   bestScore = 0,
   onPlayAgain,
   onGoHome,
+  shouldReduceMotion = false,
 }) {
   const percentage = totalRounds > 0 ? (correctAnswers / totalRounds) * 100 : 0;
   const stars = calculateStars(percentage);
@@ -45,31 +46,31 @@ function GameOverScreen({
       aria-modal="true"
       aria-labelledby="game-over-title"
       aria-describedby="game-over-description"
-      initial={{ opacity: 0 }}
+      initial={shouldReduceMotion ? false : { opacity: 0 }}
       animate={{ opacity: 1 }}
       className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/95 backdrop-blur-xl"
     >
       {/* Animated background */}
       <div className="absolute inset-0 overflow-hidden" aria-hidden="true">
-        <div className="absolute top-1/4 left-1/4 w-96 h-96 bg-purple-500/20 rounded-full blur-[128px] animate-pulse" />
-        <div className="absolute bottom-1/4 right-1/4 w-96 h-96 bg-cyan-500/20 rounded-full blur-[128px] animate-pulse" style={{ animationDelay: '1s' }} />
+        <div className={cn('absolute top-1/4 left-1/4 w-96 h-96 bg-purple-500/20 rounded-full blur-[128px]', !shouldReduceMotion && 'animate-pulse')} />
+        <div className={cn('absolute bottom-1/4 right-1/4 w-96 h-96 bg-cyan-500/20 rounded-full blur-[128px]', !shouldReduceMotion && 'animate-pulse')} style={{ animationDelay: '1s' }} />
       </div>
 
       <motion.article
-        initial={{ scale: 0.8, y: 50 }}
+        initial={shouldReduceMotion ? false : { scale: 0.8, y: 50 }}
         animate={{ scale: 1, y: 0 }}
-        transition={{ type: 'spring', stiffness: 300, damping: 25 }}
+        transition={shouldReduceMotion ? { duration: 0 } : { type: 'spring', stiffness: 300, damping: 25 }}
         className="relative max-w-md w-full"
       >
         {/* Main card */}
         <div className="glass-card-gradient p-8 text-center">
           {/* Celebration emoji */}
           <motion.div
-            animate={{ 
+            animate={shouldReduceMotion ? { scale: 1, rotate: 0 } : {
               scale: [1, 1.2, 1],
               rotate: [0, 5, -5, 0]
             }}
-            transition={{ duration: 1, repeat: Infinity }}
+            transition={shouldReduceMotion ? { duration: 0 } : { duration: 1, repeat: Infinity }}
             className="text-7xl mb-4"
             aria-hidden="true"
           >
@@ -182,7 +183,7 @@ function GameOverScreen({
       </motion.article>
 
       {/* Floating stars decoration */}
-      {stars >= 2 && (
+          {stars >= 2 && !shouldReduceMotion && (
         <div className="absolute inset-0 pointer-events-none overflow-hidden" aria-hidden="true">
           {[...Array(20)].map((_, i) => (
             <motion.div
@@ -219,6 +220,7 @@ GameOverScreen.propTypes = {
   bestScore: PropTypes.number,
   onPlayAgain: PropTypes.func.isRequired,
   onGoHome: PropTypes.func.isRequired,
+  shouldReduceMotion: PropTypes.bool,
 };
 
 export default memo(GameOverScreen);

@@ -4,13 +4,13 @@
 
 ### Perfil de Usuario Principal
 - **Profesores:** Usuarios principales que interactúan con el dashboard y configuración
-- **Niños (4-6 años):** Solo interactúan con la pantalla de juego mediante tarjetas RFID
+- **Niños (4-8 años):** Interactúan con la pantalla de juego mediante tarjetas RFID
 
 ### Implicaciones de Diseño
 | Usuario | Necesidad | Solución |
 |---------|-----------|----------|
 | Profesores | Eficiencia y datos claros | Dashboard con métricas, tablas, filtros |
-| Niños | Diversión y simplicidad | Colores vivos, animaciones, sin texto |
+| Niños | Diversión, claridad y feedback inmediato | Colores vivos, animaciones controladas y copy breve |
 
 ---
 
@@ -181,9 +181,9 @@ const container = {
 
 ## Diseño de la Pantalla de Juego
 
-### Principios para Niños (4-6 años)
+### Principios para Niños (4-8 años)
 
-1. **Sin texto necesario** → Solo iconos y colores
+1. **Texto mínimo y directo** → Frases cortas con verbo de acción
 2. **Feedback inmediato** → Animaciones de éxito/error
 3. **Colores semánticos** → Verde = bien, Rojo = mal
 4. **Elementos grandes** → Touch-friendly
@@ -274,10 +274,49 @@ Cada estado debe ser distinguible no solo por color:
 | Fondo oscuro | Reduce fatiga, destaca contenido colorido |
 | Glassmorphism | Premium feel, permite efectos de fondo |
 | Framer Motion | API declarativa, mejor DX que CSS puro |
-| Sin texto en juego | Público objetivo no lee (4-6 años) |
+| Copy breve en juego | Público objetivo infantil (4-8) con distintos niveles de lectura |
 | Mascota animada | Conexión emocional, guía visual |
 | Feedback instantáneo | Refuerzo positivo del aprendizaje |
 | Estrellas como puntuación | Universalmente entendido por niños |
+
+---
+
+## Accesibilidad Gameplay (T-069)
+
+### Contrato de anuncios dinámicos
+
+- El temporizador **no** anuncia cada tick.
+- Los anuncios SR del tiempo se limitan a umbrales críticos: `10`, `5`, `3`, `2`, `1`, `0`.
+- Estados de runtime (`connecting`, `connected`, `reconnecting`, `disconnected`) se anuncian con región `status` en modo `polite`.
+- Los errores realtime se anuncian una sola vez por evento para evitar ruido.
+
+### Controles interactivos
+
+- Toggles de gameplay (`sonido`, `pausa/reanudar`) deben usar `button` nativo con `aria-pressed`.
+- Todos los controles críticos deben funcionar con `Enter` y `Space` sin handlers personalizados extra.
+- Focus visible obligatorio en toda interacción.
+
+### Diálogo de pausa
+
+- Overlay de pausa tratado como diálogo accesible (`role="dialog"`, `aria-modal="true"`).
+- Al abrir pausa: foco inicial en botón principal de continuar.
+- Al cerrar pausa: retorno de foco al trigger original.
+- `Escape` debe reanudar/cerrar pausa de forma consistente.
+
+### Motion y confort visual
+
+- En reduced-motion, desactivar loops infinitos, confeti y shake agresivo.
+- Mantener feedback visual claro sin depender de animaciones complejas.
+- Priorizar transición corta y estable frente a efectos continuos.
+
+### Checklist QA manual (T-069)
+
+- [ ] Navegación completa de gameplay solo con teclado.
+- [ ] Temporizador anuncia solo umbrales críticos.
+- [ ] Toggles de sonido/pausa exponen estado ARIA correcto.
+- [ ] Al pausar, el foco cae en “Continuar” y vuelve al botón origen al reanudar.
+- [ ] Estados realtime y errores se anuncian sin duplicados en lector.
+- [ ] Con reduced-motion activo no hay efectos intensos ni loops infinitos en runtime.
 
 ---
 

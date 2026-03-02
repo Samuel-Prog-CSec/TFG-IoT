@@ -1228,9 +1228,10 @@ class GameEngine {
         const ownerId =
           playState.sessionDoc?.createdBy?.toString?.() || playState.sessionDoc?.createdBy;
         if (ownerId && ownerId.toString() !== options.requestedBy.toString()) {
-          this.io
-            .to(`play_${playId}`)
-            .emit('error', { message: 'No autorizado para pausar esta partida' });
+          this.io.to(`play_${playId}`).emit('error', {
+            code: 'FORBIDDEN',
+            message: 'No autorizado para pausar esta partida'
+          });
           return { remainingTimeMs: null };
         }
       }
@@ -1383,9 +1384,10 @@ class GameEngine {
 
       // Control de permisos (si nos pasan el profesor)
       if (!this.isPlayOwner(playState, options.requestedBy)) {
-        this.io
-          .to(`play_${playId}`)
-          .emit('error', { message: 'No autorizado para reanudar esta partida' });
+        this.io.to(`play_${playId}`).emit('error', {
+          code: 'FORBIDDEN',
+          message: 'No autorizado para reanudar esta partida'
+        });
         return { remainingTimeMs: null };
       }
 

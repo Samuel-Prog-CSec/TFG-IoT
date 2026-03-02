@@ -12,7 +12,7 @@ import { cn } from '../../lib/utils';
  * @param {number} props.points - Puntos ganados/perdidos
  * @param {Function} props.onComplete - Callback cuando termina la animación
  */
-function FeedbackOverlay({ type, points = 0, onComplete }) {
+function FeedbackOverlay({ type, points = 0, onComplete, shouldReduceMotion = false }) {
   if (!type) return null;
 
   const isSuccess = type === 'success';
@@ -28,7 +28,7 @@ function FeedbackOverlay({ type, points = 0, onComplete }) {
         initial={{ opacity: 0 }}
         animate={{ opacity: 1 }}
         exit={{ opacity: 0 }}
-        transition={{ duration: 0.2 }}
+        transition={{ duration: shouldReduceMotion ? 0 : 0.2 }}
         className="fixed inset-0 z-50 flex items-center justify-center pointer-events-none"
       >
         {/* Background overlay */}
@@ -47,19 +47,19 @@ function FeedbackOverlay({ type, points = 0, onComplete }) {
 
         {/* Central feedback */}
         <motion.div
-          initial={{ scale: 0, rotate: -10 }}
+          initial={shouldReduceMotion ? false : { scale: 0, rotate: -10 }}
           animate={{ scale: 1, rotate: 0 }}
           exit={{ scale: 0, opacity: 0 }}
-          transition={{ type: 'spring', stiffness: 400, damping: 20 }}
+          transition={shouldReduceMotion ? { duration: 0 } : { type: 'spring', stiffness: 400, damping: 20 }}
           className="relative z-10 text-center"
         >
           {/* Emoji */}
           <motion.div
-            animate={{ 
+            animate={shouldReduceMotion ? { scale: 1, rotate: 0 } : {
               scale: [1, 1.2, 1],
               rotate: [0, 10, -10, 0]
             }}
-            transition={{ duration: 0.5 }}
+            transition={shouldReduceMotion ? { duration: 0 } : { duration: 0.5 }}
             className="text-8xl sm:text-9xl mb-4"
             aria-hidden="true"
           >
@@ -68,9 +68,9 @@ function FeedbackOverlay({ type, points = 0, onComplete }) {
 
           {/* Message */}
           <motion.h2
-            initial={{ opacity: 0, y: 20 }}
+            initial={shouldReduceMotion ? false : { opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
-            transition={{ delay: 0.1 }}
+            transition={shouldReduceMotion ? { duration: 0 } : { delay: 0.1 }}
             className={cn(
               "text-3xl sm:text-4xl font-bold font-display mb-2",
               isSuccess ? "text-emerald-400" : "text-rose-300"
@@ -81,9 +81,9 @@ function FeedbackOverlay({ type, points = 0, onComplete }) {
 
           {/* Points */}
           <motion.div
-            initial={{ opacity: 0, scale: 0.5 }}
+            initial={shouldReduceMotion ? false : { opacity: 0, scale: 0.5 }}
             animate={{ opacity: 1, scale: 1 }}
-            transition={{ delay: 0.2 }}
+            transition={shouldReduceMotion ? { duration: 0 } : { delay: 0.2 }}
             className={cn(
               "text-2xl font-bold px-6 py-2 rounded-full inline-block",
               isSuccess 
@@ -97,10 +97,10 @@ function FeedbackOverlay({ type, points = 0, onComplete }) {
         </motion.div>
 
         {/* Confetti for success */}
-        {isSuccess && <Confetti />}
+        {isSuccess && !shouldReduceMotion && <Confetti />}
 
         {/* Floating emojis */}
-        {isSuccess && (
+        {isSuccess && !shouldReduceMotion && (
           <div className="absolute inset-0 overflow-hidden pointer-events-none" aria-hidden="true">
             {['⭐', '🌟', '✨', '💫', '🎊'].map((emoji, i) => (
               <motion.div
@@ -174,6 +174,7 @@ FeedbackOverlay.propTypes = {
   type: PropTypes.oneOf(['success', 'error']),
   points: PropTypes.number,
   onComplete: PropTypes.func,
+  shouldReduceMotion: PropTypes.bool,
 };
 
 Confetti.propTypes = {};
