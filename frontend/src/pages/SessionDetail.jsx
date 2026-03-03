@@ -15,7 +15,8 @@ import {
   Trash2,
   Layers,
   Timer,
-  Award
+  Award,
+  AlertTriangle
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { sessionsAPI, extractData, extractErrorMessage, isAbortError } from '../services/api';
@@ -50,10 +51,12 @@ export default function SessionDetail() {
   const { sessionId } = useParams();
   const navigate = useNavigate();
   const deleteModal = useConfirmationModal();
+  const cloneModal = useConfirmationModal();
 
   const [session, setSession] = useState(null);
   const [loading, setLoading] = useState(true);
   const [deleteLoading, setDeleteLoading] = useState(false);
+  const [cloneLoading, setCloneLoading] = useState(false);
 
   const loadSession = useCallback(async (signal) => {
     if (!sessionId) return;
@@ -107,9 +110,43 @@ export default function SessionDetail() {
     }
   };
 
+  const handleClone = async () => {
+    if (!session) return;
+
+    setCloneLoading(true);
+    try {
+      const response = await sessionsAPI.cloneSession(session.id || session._id);
+      const clonedSession = extractData(response);
+      const clonedSessionId = clonedSession?.id || clonedSession?._id;
+      const clonedMechanicName = (clonedSession?.mechanic?.name || '').toString().toLowerCase();
+
+      toast.success('Sesión clonada', {
+        description: 'Se creó una nueva sesión en borrador para volver a jugar.'
+      });
+      cloneModal.close();
+
+      if (clonedSessionId) {
+        if (clonedMechanicName === 'memory') {
+          navigate(ROUTES.BOARD_SETUP_WITH_ID(clonedSessionId));
+        } else {
+          navigate(ROUTES.SESSION_DETAIL(clonedSessionId));
+        }
+      }
+    } catch (err) {
+      toast.error('No se pudo clonar la sesión', {
+        description: extractErrorMessage(err)
+      });
+    } finally {
+      setCloneLoading(false);
+    }
+  };
+
   const statusInfo = statusToBadge(session?.status);
   const canEdit = session?.status === 'created';
   const canDelete = session?.status === 'created';
+  const isAssociationSession = (session?.mechanic?.name || '').toString().toLowerCase() === 'association';
+  const isMemorySession = (session?.mechanic?.name || '').toString().toLowerCase() === 'memory';
+  const hasMemoryBoardConfigured = Array.isArray(session?.boardLayout) && session.boardLayout.length > 0;
 
   const mappingCards = useMemo(() => session?.cardMappings || [], [session]);
 
@@ -178,6 +215,14 @@ export default function SessionDetail() {
               Ver mapping
             </ButtonPremium>
             <ButtonPremium
+              variant="secondary"
+              onClick={cloneModal.open}
+              disabled={cloneLoading}
+            >
+              <Timer size={16} />
+              Volver a jugar
+            </ButtonPremium>
+            <ButtonPremium
               variant="ghost"
               onClick={() => navigate(ROUTES.SESSION_EDIT(session.id || session._id))}
               disabled={!canEdit}
@@ -196,6 +241,29 @@ export default function SessionDetail() {
             </Tooltip>
           </div>
         </header>
+
+        {canEdit && isAssociationSession && session.requiresAssociationPlanConfiguration && (
+          <GlassCard className="p-4 border border-amber-500/30 text-amber-300 flex items-center gap-3">
+            <AlertTriangle size={18} />
+            Esta sesión es un clon con borrador de retos precargado. Revísalo y guarda la configuración antes de iniciar.
+          </GlassCard>
+        )}
+
+        {canEdit && isMemorySession && !hasMemoryBoardConfigured && (
+          <GlassCard className="p-4 border border-amber-500/30 text-amber-300 flex flex-wrap items-center justify-between gap-3">
+            <div className="flex items-center gap-3">
+              <AlertTriangle size={18} />
+              Esta sesión de memoria requiere configurar el tablero antes de iniciar.
+            </div>
+            <ButtonPremium
+              variant="secondary"
+              onClick={() => navigate(ROUTES.BOARD_SETUP_WITH_ID(session.id || session._id))}
+            >
+              <Map size={16} />
+              Configurar tablero
+            </ButtonPremium>
+          </GlassCard>
+        )}
 
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
           <GlassCard className="p-6 lg:col-span-2 space-y-5">
@@ -301,6 +369,18 @@ export default function SessionDetail() {
           )}
         </GlassCard>
       </div>
+
+      <ConfirmationModal
+        open={cloneModal.isOpen}
+        onClose={cloneModal.close}
+        onConfirm={handleClone}
+        title="Volver a jugar"
+        description="Se creará una sesión nueva en borrador con datos resincronizados del mazo actual. La sesión original no se modifica."
+        confirmText="Clonar sesión"
+        cancelText="Cancelar"
+        variant="info"
+        loading={cloneLoading}
+      />
 
       <ConfirmationModal
         open={deleteModal.isOpen}

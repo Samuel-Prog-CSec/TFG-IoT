@@ -49,6 +49,7 @@ import {
   CardAssetPreview,
   GlassCard,
   InputPremium,
+  SelectPremium,
   SkeletonCard
 } from '../components/ui';
 import { ROUTES } from '../constants/routes';
@@ -169,6 +170,46 @@ const findMechanicById = (mechanics, mechanicId) => {
   return mechanics.find(mechanic => resolveMechanicId(mechanic) === mechanicId) || null;
 };
 
+const toDeckCardMappings = deck =>
+  Array.isArray(deck?.cardMappings)
+    ? deck.cardMappings.map(mapping => ({
+        cardId: mapping.cardId || mapping.id,
+        uid: mapping.uid,
+        assignedValue: mapping.assignedValue,
+        displayData: mapping.displayData || {}
+      }))
+    : [];
+
+const buildAssociationPlanByRounds = ({ currentPlan, cards, numberOfRounds }) => {
+  const safeCards = Array.isArray(cards) ? cards : [];
+  const rounds = Number(numberOfRounds);
+
+  if (safeCards.length === 0 || !Number.isFinite(rounds) || rounds < 1) {
+    return [];
+  }
+
+  const cardByUid = new Map(safeCards.map(card => [card.uid, card]));
+  const previousByRound = new Map(
+    (Array.isArray(currentPlan) ? currentPlan : []).map(item => [Number(item.roundNumber), item])
+  );
+
+  return Array.from({ length: rounds }, (_, index) => {
+    const roundNumber = index + 1;
+    const previousItem = previousByRound.get(roundNumber);
+    const preservedCard = previousItem?.uid ? cardByUid.get(previousItem.uid) : null;
+    const card = preservedCard || safeCards[index % safeCards.length];
+
+    return {
+      roundNumber,
+      cardId: card.cardId,
+      uid: card.uid,
+      assignedValue: card.assignedValue,
+      displayData: card.displayData || {},
+      promptText: previousItem?.promptText || ''
+    };
+  });
+};
+
 /**
  * Página de creación de sesiones
  */
@@ -207,6 +248,7 @@ export default function CreateSession() {
   const [currentSensorId, setCurrentSensorId] = useState(null);
   const [memoryBoardSlots, setMemoryBoardSlots] = useState([]);
   const [selectedMemoryCardUid, setSelectedMemoryCardUid] = useState(null);
+  const [associationChallengePlan, setAssociationChallengePlan] = useState([]);
 
   const dataAbortRef = useRef(null);
 
@@ -276,15 +318,10 @@ export default function CreateSession() {
 
   const selectedMechanicName = resolveMechanicName(selectedMechanic);
   const isMemorySelected = selectedMechanicName === 'memory';
+  const isAssociationSelected = selectedMechanicName === 'association';
 
-  const memoryDeckCards = Array.isArray(selectedDeck?.cardMappings)
-    ? selectedDeck.cardMappings.map(mapping => ({
-        cardId: mapping.cardId || mapping.id,
-        uid: mapping.uid,
-        assignedValue: mapping.assignedValue,
-        displayData: mapping.displayData || {}
-      }))
-    : [];
+  const deckCards = toDeckCardMappings(selectedDeck);
+  const memoryDeckCards = deckCards;
 
   // Cargar mazos y mecánicas
   useEffect(() => {
@@ -358,6 +395,21 @@ export default function CreateSession() {
     });
   }, [isMemorySelected, selectedDeck]);
 
+  useEffect(() => {
+    if (!isAssociationSelected) {
+      setAssociationChallengePlan([]);
+      return;
+    }
+
+    setAssociationChallengePlan(prev =>
+      buildAssociationPlanByRounds({
+        currentPlan: prev,
+        cards: deckCards,
+        numberOfRounds: sessionConfig.config.numberOfRounds
+      })
+    );
+  }, [isAssociationSelected, deckCards, sessionConfig.config.numberOfRounds]);
+
   const handleDifficultyChange = (difficulty) => {
     setSessionConfig(prev => ({
       ...prev,
@@ -389,6 +441,20 @@ export default function CreateSession() {
             memoryBoardSlots.every(Boolean)
           );
         }
+
+        if (isAssociationSelected) {
+          const rounds = Number(sessionConfig.config.numberOfRounds);
+          if (!Number.isFinite(rounds) || rounds < 1) {
+            return false;
+          }
+
+          return (
+            Array.isArray(associationChallengePlan) &&
+            associationChallengePlan.length === rounds &&
+            associationChallengePlan.every(item => item?.uid && item?.assignedValue)
+          );
+        }
+
         return true;
       case 3: return sessionConfig.name.trim().length >= 3;
       default: return false;
@@ -442,6 +508,16 @@ export default function CreateSession() {
                 };
               })
               .filter(Boolean)
+          : undefined,
+        associationChallengePlan: isAssociationSelected
+          ? associationChallengePlan.map(item => ({
+              roundNumber: item.roundNumber,
+              cardId: item.cardId,
+              uid: item.uid,
+              assignedValue: item.assignedValue,
+              displayData: item.displayData || {},
+              promptText: item.promptText || undefined
+            }))
           : undefined,
         sensorId: sessionConfig.linkSensor ? currentSensorId : undefined
       };
@@ -519,6 +595,10 @@ export default function CreateSession() {
             linkSensor={sessionConfig.linkSensor}
             onLinkSensorChange={(val) => setSessionConfig(prev => ({ ...prev, linkSensor: val }))}
             currentSensorId={currentSensorId}
+            isAssociationSelected={isAssociationSelected}
+            associationCards={deckCards}
+            associationChallengePlan={associationChallengePlan}
+            onAssociationChallengePlanChange={setAssociationChallengePlan}
           />
         );
       case 3:
@@ -1113,7 +1193,11 @@ function StepRules({
   onConfigChange,
   linkSensor,
   onLinkSensorChange,
-  currentSensorId
+  currentSensorId,
+  isAssociationSelected,
+  associationCards,
+  associationChallengePlan,
+  onAssociationChallengePlanChange
 }) {
   const difficulties = [
     { id: 'easy', label: 'Fácil', description: 'Más tiempo, sin penalización' },
@@ -1316,7 +1400,114 @@ function StepRules({
           </div>
         </div>
       </GlassCard>
+
+      {isAssociationSelected && (
+        <AssociationChallengeComposer
+          cards={associationCards}
+          challengePlan={associationChallengePlan}
+          onPlanChange={onAssociationChallengePlanChange}
+        />
+      )}
     </div>
+  );
+}
+
+function AssociationChallengeComposer({ cards, challengePlan, onPlanChange, disabled = false }) {
+  const safeCards = Array.isArray(cards) ? cards : [];
+  const safePlan = Array.isArray(challengePlan) ? challengePlan : [];
+
+  const cardOptions = safeCards.map(card => ({
+    value: card.uid,
+    label: `${card.assignedValue || card.uid} · ${card.uid}`
+  }));
+
+  const cardByUid = new Map(safeCards.map(card => [card.uid, card]));
+
+  const handleCardChange = (roundNumber, selectedUid) => {
+    const selectedCard = cardByUid.get(selectedUid);
+    if (!selectedCard) {
+      return;
+    }
+
+    onPlanChange(prev =>
+      (Array.isArray(prev) ? prev : []).map(item =>
+        item.roundNumber === roundNumber
+          ? {
+              ...item,
+              cardId: selectedCard.cardId,
+              uid: selectedCard.uid,
+              assignedValue: selectedCard.assignedValue,
+              displayData: selectedCard.displayData || {}
+            }
+          : item
+      )
+    );
+  };
+
+  const handlePromptChange = (roundNumber, promptText) => {
+    onPlanChange(prev =>
+      (Array.isArray(prev) ? prev : []).map(item =>
+        item.roundNumber === roundNumber
+          ? {
+              ...item,
+              promptText
+            }
+          : item
+      )
+    );
+  };
+
+  if (safePlan.length === 0) {
+    return (
+      <GlassCard className="p-6 lg:col-span-2 border border-amber-500/30">
+        <h2 className="text-lg font-semibold text-white mb-2">Retos de Association</h2>
+        <p className="text-sm text-amber-300">
+          Selecciona un mazo con tarjetas y define el número de rondas para configurar los retos.
+        </p>
+      </GlassCard>
+    );
+  }
+
+  return (
+    <GlassCard className="p-6 lg:col-span-2">
+      <h2 className="text-lg font-semibold text-white mb-1">Plan de retos (Association)</h2>
+      <p className="text-sm text-slate-400 mb-4">
+        Define para cada ronda qué tarjeta será el reto principal y, si quieres, añade una consigna breve.
+      </p>
+
+      <div className="space-y-4">
+        {safePlan.map(item => (
+          <div
+            key={`association-round-${item.roundNumber}`}
+            className="rounded-xl border border-white/10 bg-slate-900/40 p-4 grid grid-cols-1 lg:grid-cols-3 gap-4"
+          >
+            <div className="lg:col-span-1">
+              <p className="text-sm font-medium text-white mb-2">Ronda {item.roundNumber}</p>
+              <SelectPremium
+                label="Tarjeta objetivo"
+                value={item.uid || ''}
+                onChange={value => handleCardChange(item.roundNumber, value)}
+                options={cardOptions}
+                disabled={disabled}
+                placeholder="Selecciona una tarjeta"
+              />
+            </div>
+
+            <div className="lg:col-span-2">
+              <InputPremium
+                label="Consigna opcional"
+                value={item.promptText || ''}
+                onChange={e => handlePromptChange(item.roundNumber, e.target.value)}
+                maxLength={180}
+                disabled={disabled}
+                placeholder="Ej: Encuentra la tarjeta que representa un mamífero"
+                hint="Se muestra en la ronda como guía del reto."
+              />
+            </div>
+          </div>
+        ))}
+      </div>
+    </GlassCard>
   );
 }
 
@@ -1493,7 +1684,36 @@ StepRules.propTypes = {
   onConfigChange: PropTypes.func.isRequired,
   linkSensor: PropTypes.bool.isRequired,
   onLinkSensorChange: PropTypes.func.isRequired,
-  currentSensorId: PropTypes.string
+  currentSensorId: PropTypes.string,
+  isAssociationSelected: PropTypes.bool,
+  associationCards: PropTypes.arrayOf(cardMappingShape),
+  associationChallengePlan: PropTypes.arrayOf(
+    PropTypes.shape({
+      roundNumber: PropTypes.number,
+      cardId: PropTypes.oneOfType([PropTypes.string, PropTypes.number]),
+      uid: PropTypes.string,
+      assignedValue: PropTypes.string,
+      displayData: PropTypes.object,
+      promptText: PropTypes.string
+    })
+  ),
+  onAssociationChallengePlanChange: PropTypes.func
+};
+
+AssociationChallengeComposer.propTypes = {
+  cards: PropTypes.arrayOf(cardMappingShape),
+  challengePlan: PropTypes.arrayOf(
+    PropTypes.shape({
+      roundNumber: PropTypes.number,
+      cardId: PropTypes.oneOfType([PropTypes.string, PropTypes.number]),
+      uid: PropTypes.string,
+      assignedValue: PropTypes.string,
+      displayData: PropTypes.object,
+      promptText: PropTypes.string
+    })
+  ),
+  onPlanChange: PropTypes.func.isRequired,
+  disabled: PropTypes.bool
 };
 
 StepReview.propTypes = {

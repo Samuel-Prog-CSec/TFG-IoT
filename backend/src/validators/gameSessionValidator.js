@@ -148,6 +148,36 @@ const boardLayoutSchema = z
     return cardSet.size === layout.length;
   }, 'No puede haber tarjetas duplicadas en boardLayout');
 
+const associationChallengeItemSchema = z
+  .object({
+    roundNumber: z
+      .number()
+      .int('roundNumber debe ser un número entero')
+      .min(1, 'roundNumber debe ser >= 1'),
+    cardId: objectIdSchema,
+    uid: uidSchema,
+    assignedValue: z
+      .string()
+      .min(1, 'assignedValue es requerido en associationChallengePlan')
+      .max(200, 'assignedValue en associationChallengePlan no puede exceder 200 caracteres')
+      .trim(),
+    displayData: z.record(z.string(), z.any()).optional().default({}),
+    promptText: z.string().max(180, 'promptText no puede exceder 180 caracteres').trim().optional()
+  })
+  .strict();
+
+const associationChallengePlanSchema = z
+  .array(associationChallengeItemSchema)
+  .optional()
+  .refine(plan => {
+    if (!Array.isArray(plan) || plan.length === 0) {
+      return true;
+    }
+
+    const roundSet = new Set(plan.map(item => item.roundNumber));
+    return roundSet.size === plan.length;
+  }, 'No puede haber rondas duplicadas en associationChallengePlan');
+
 const createGameSessionSchema = z
   .object({
     mechanicId: objectIdSchema,
@@ -160,7 +190,9 @@ const createGameSessionSchema = z
 
     config: sessionConfigInputSchema.optional(),
 
-    boardLayout: boardLayoutSchema
+    boardLayout: boardLayoutSchema,
+
+    associationChallengePlan: associationChallengePlanSchema
   })
   .strict()
   .refine(data => Object.keys(data).length > 0, {
@@ -183,6 +215,8 @@ const updateGameSessionSchema = z
     config: sessionConfigInputSchema.optional(),
 
     boardLayout: boardLayoutSchema,
+
+    associationChallengePlan: associationChallengePlanSchema,
 
     difficulty: z.enum(['easy', 'medium', 'hard']).optional()
   })
@@ -240,12 +274,19 @@ const sessionActionSchema = z
   })
   .strict();
 
+const cloneSessionParamsSchema = z
+  .object({
+    id: objectIdSchema
+  })
+  .strict();
+
 module.exports = {
   createGameSessionSchema,
   updateGameSessionSchema,
   gameSessionQuerySchema,
   gameSessionParamsSchema,
   sessionActionSchema,
+  cloneSessionParamsSchema,
   sessionConfigSchema,
   sessionConfigInputSchema,
   cardMappingSchema

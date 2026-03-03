@@ -151,6 +151,20 @@ const normalizeBoardLayout = (layout = []) => {
   }));
 };
 
+const buildBoardLayoutFromMappings = cardMappings => {
+  if (!Array.isArray(cardMappings)) {
+    return [];
+  }
+
+  return cardMappings.map((mapping, slotIndex) => ({
+    slotIndex,
+    cardId: mapping.cardId,
+    uid: mapping.uid,
+    assignedValue: mapping.assignedValue,
+    displayData: mapping.displayData || {}
+  }));
+};
+
 const validateBoardLayoutAgainstMappings = (boardLayout, cardMappings) => {
   if (!Array.isArray(boardLayout) || boardLayout.length === 0) {
     return;
@@ -179,6 +193,311 @@ const validateBoardLayoutAgainstMappings = (boardLayout, cardMappings) => {
       );
     }
   }
+};
+
+const normalizeAssociationChallengePlan = (plan = []) => {
+  if (!Array.isArray(plan)) {
+    return [];
+  }
+
+  return [...plan]
+    .map(item => ({
+      roundNumber: Number(item.roundNumber),
+      cardId: item.cardId,
+      uid: item.uid,
+      assignedValue: item.assignedValue,
+      displayData: item.displayData || {},
+      promptText: item.promptText
+    }))
+    .filter(item => Number.isFinite(item.roundNumber) && item.roundNumber > 0)
+    .sort((a, b) => a.roundNumber - b.roundNumber);
+};
+
+const buildAssociationFallbackPlan = ({ cardMappings, numberOfRounds }) => {
+  const mappings = Array.isArray(cardMappings) ? cardMappings : [];
+  if (mappings.length === 0 || !Number.isFinite(numberOfRounds) || numberOfRounds < 1) {
+    return [];
+  }
+
+  return Array.from({ length: numberOfRounds }, (_, index) => {
+    const mapping = mappings[index % mappings.length];
+    return {
+      roundNumber: index + 1,
+      cardId: mapping.cardId,
+      uid: mapping.uid,
+      assignedValue: mapping.assignedValue,
+      displayData: mapping.displayData || {}
+    };
+  });
+};
+
+const validateAssociationChallengePlanAgainstMappings = ({
+  associationChallengePlan,
+  cardMappings,
+  numberOfRounds
+}) => {
+  const normalizedPlan = normalizeAssociationChallengePlan(associationChallengePlan);
+  if (!Array.isArray(cardMappings) || cardMappings.length === 0) {
+    throw new ValidationError('No hay tarjetas disponibles para generar retos de asociación');
+  }
+
+  if (!Number.isFinite(numberOfRounds) || numberOfRounds < 1) {
+    throw new ValidationError('numberOfRounds debe ser un número válido para asociación');
+  }
+
+  if (normalizedPlan.length === 0) {
+    throw new ValidationError(
+      'associationChallengePlan es obligatorio para asociación y debe cubrir todas las rondas'
+    );
+  }
+
+  if (normalizedPlan.length !== numberOfRounds) {
+    throw new ValidationError(
+      `associationChallengePlan debe incluir exactamente ${numberOfRounds} retos`
+    );
+  }
+
+  const mappingByUid = new Map((cardMappings || []).map(mapping => [mapping.uid, mapping]));
+  const mappingByCardId = new Map(
+    (cardMappings || []).map(mapping => [normalizeObjectId(mapping.cardId), mapping])
+  );
+
+  normalizedPlan.forEach((item, index) => {
+    const expectedRound = index + 1;
+    if (item.roundNumber !== expectedRound) {
+      throw new ValidationError(
+        `associationChallengePlan debe estar ordenado por rondas consecutivas (esperada ${expectedRound})`
+      );
+    }
+
+    const mappingByUidMatch = mappingByUid.get(item.uid);
+    const mappingByCardIdMatch = mappingByCardId.get(normalizeObjectId(item.cardId));
+    const resolved = mappingByUidMatch || mappingByCardIdMatch;
+
+    if (!resolved) {
+      throw new ValidationError(
+        `El reto de ronda ${item.roundNumber} referencia una tarjeta no disponible en el mazo`
+      );
+    }
+
+    if (item.assignedValue !== resolved.assignedValue) {
+      throw new ValidationError(
+        `El reto de ronda ${item.roundNumber} tiene assignedValue inconsistente con el mazo actual`
+      );
+    }
+  });
+
+  return normalizedPlan;
+};
+
+const repairAssociationChallengePlanAgainstMappings = ({
+  associationChallengePlan,
+  cardMappings,
+  numberOfRounds
+}) => {
+  const mappings = Array.isArray(cardMappings) ? cardMappings : [];
+  const existingPlan = normalizeAssociationChallengePlan(associationChallengePlan);
+
+  const mappingByUid = new Map(mappings.map(mapping => [mapping.uid, mapping]));
+  const mappingByCardId = new Map(
+    mappings.map(mapping => [normalizeObjectId(mapping.cardId), mapping])
+  );
+  const mappingByAssignedValue = new Map(mappings.map(mapping => [mapping.assignedValue, mapping]));
+
+  const repairedPlan = [];
+  const unresolvedRounds = [];
+
+  for (let round = 1; round <= numberOfRounds; round += 1) {
+    const existing = existingPlan.find(item => item.roundNumber === round);
+
+    let resolved = null;
+    if (existing) {
+      resolved =
+        mappingByUid.get(existing.uid) ||
+        mappingByCardId.get(normalizeObjectId(existing.cardId)) ||
+        mappingByAssignedValue.get(existing.assignedValue) ||
+        null;
+    }
+
+    if (!resolved) {
+      unresolvedRounds.push(round);
+      continue;
+    }
+
+    repairedPlan.push({
+      roundNumber: round,
+      cardId: resolved.cardId,
+      uid: resolved.uid,
+      assignedValue: resolved.assignedValue,
+      displayData:
+        existing?.displayData && Object.keys(existing.displayData).length > 0
+          ? existing.displayData
+          : resolved.displayData || {},
+      promptText: existing?.promptText
+    });
+  }
+
+  return {
+    repairedPlan,
+    unresolvedRounds,
+    changed: JSON.stringify(repairedPlan) !== JSON.stringify(existingPlan)
+  };
+};
+
+const applyAssociationPlanOnUpdate = ({ session, associationChallengePlan, mechanicName }) => {
+  if (mechanicName === 'association') {
+    if (associationChallengePlan !== undefined) {
+      const normalizedPlan = validateAssociationChallengePlanAgainstMappings({
+        associationChallengePlan,
+        cardMappings: session.cardMappings,
+        numberOfRounds: Number(session.config?.numberOfRounds)
+      });
+      session.associationChallengePlan = normalizedPlan;
+      session.requiresAssociationPlanConfiguration = false;
+    }
+    return;
+  }
+
+  session.associationChallengePlan = [];
+  session.requiresAssociationPlanConfiguration = false;
+};
+
+const ensureAssociationPlanReadyForStart = async session => {
+  if (session.requiresAssociationPlanConfiguration) {
+    throw new ValidationError(
+      'Debes configurar los retos de asociación antes de iniciar la sesión clonada.'
+    );
+  }
+
+  let planForValidation = normalizeAssociationChallengePlan(session.associationChallengePlan || []);
+  const rounds = Number(session.config?.numberOfRounds || 0);
+
+  if (planForValidation.length === 0) {
+    planForValidation = buildAssociationFallbackPlan({
+      cardMappings: session.cardMappings,
+      numberOfRounds: rounds
+    });
+  }
+
+  const repaired = repairAssociationChallengePlanAgainstMappings({
+    associationChallengePlan: planForValidation,
+    cardMappings: session.cardMappings,
+    numberOfRounds: rounds
+  });
+
+  if (repaired.unresolvedRounds.length > 0) {
+    throw new ValidationError(
+      `No se pudo auto-reparar la planificación de retos de asociación. Revisa las rondas: ${repaired.unresolvedRounds.join(', ')}`
+    );
+  }
+
+  validateAssociationChallengePlanAgainstMappings({
+    associationChallengePlan: repaired.repairedPlan,
+    cardMappings: session.cardMappings,
+    numberOfRounds: rounds
+  });
+
+  if (
+    repaired.changed ||
+    !Array.isArray(session.associationChallengePlan) ||
+    session.associationChallengePlan.length === 0
+  ) {
+    session.associationChallengePlan = repaired.repairedPlan;
+    session.requiresAssociationPlanConfiguration = false;
+    await session.save();
+  }
+};
+
+const buildAssociationCloneDraftPlan = ({ sourceSession, cardMappings, numberOfRounds }) => {
+  let basePlan = normalizeAssociationChallengePlan(sourceSession?.associationChallengePlan || []);
+
+  if (basePlan.length === 0) {
+    basePlan = buildAssociationFallbackPlan({
+      cardMappings,
+      numberOfRounds
+    });
+  }
+
+  const repaired = repairAssociationChallengePlanAgainstMappings({
+    associationChallengePlan: basePlan,
+    cardMappings,
+    numberOfRounds
+  });
+
+  if (repaired.unresolvedRounds.length === 0) {
+    return repaired.repairedPlan;
+  }
+
+  const fallbackPlan = buildAssociationFallbackPlan({
+    cardMappings,
+    numberOfRounds
+  });
+
+  const repairedByRound = new Map(
+    repaired.repairedPlan.map(item => [Number(item.roundNumber), item])
+  );
+
+  return fallbackPlan.map(item => repairedByRound.get(Number(item.roundNumber)) || item);
+};
+
+const applyCloneMechanicState = ({
+  clonedSession,
+  sourceSession,
+  cardMappings,
+  userId,
+  mechanicName
+}) => {
+  if (mechanicName === 'memory') {
+    clonedSession.boardLayout = [];
+    clonedSession.associationChallengePlan = [];
+    clonedSession.requiresAssociationPlanConfiguration = false;
+    return;
+  }
+
+  if (mechanicName === 'association') {
+    clonedSession.boardLayout = [];
+    clonedSession.associationChallengePlan = buildAssociationCloneDraftPlan({
+      sourceSession,
+      cardMappings,
+      numberOfRounds: Number(clonedSession.config?.numberOfRounds || 0)
+    });
+    clonedSession.requiresAssociationPlanConfiguration = true;
+    return;
+  }
+
+  const sourceLayout = normalizeBoardLayout(sourceSession.boardLayout || []);
+
+  if (sourceLayout.length > 0) {
+    try {
+      validateBoardLayoutAgainstMappings(sourceLayout, cardMappings);
+      clonedSession.boardLayout = sourceLayout;
+    } catch (error) {
+      logger.warn(
+        'boardLayout original no compatible tras resincronizar mazo; se reconstruye layout',
+        {
+          sessionId: sourceSession._id,
+          clonedBy: userId,
+          reason: error.message
+        }
+      );
+      clonedSession.boardLayout = buildBoardLayoutFromMappings(cardMappings);
+    }
+    return;
+  }
+
+  clonedSession.boardLayout = buildBoardLayoutFromMappings(cardMappings);
+};
+
+const buildCloneSuccessMessage = mechanicName => {
+  if (mechanicName === 'memory') {
+    return 'Sesión clonada exitosamente. Debes configurar de nuevo el tablero para memoria.';
+  }
+
+  if (mechanicName === 'association') {
+    return 'Sesión clonada exitosamente. Se precargaron los retos de asociación como borrador; revísalos y confirma antes de iniciar.';
+  }
+
+  return 'Sesión clonada exitosamente';
 };
 
 /**
@@ -293,7 +612,7 @@ const getSessionById = async (req, res, next) => {
 
     const session = await gameSessionRepository.findById(id, {
       select:
-        'mechanicId deckId contextId createdBy config cardMappings boardLayout status difficulty startedAt endedAt createdAt updatedAt',
+        'mechanicId deckId contextId createdBy config cardMappings boardLayout associationChallengePlan requiresAssociationPlanConfiguration status difficulty startedAt endedAt createdAt updatedAt',
       populate: [
         { path: 'mechanicId', select: 'name displayName icon' },
         { path: 'deckId', select: 'name status contextId' },
@@ -344,7 +663,8 @@ const createSession = async (req, res, next) => {
       sensorId,
       config = {},
       cardMappings,
-      boardLayout
+      boardLayout,
+      associationChallengePlan
     } = req.body;
 
     // NUEVA REGLA: el mapping de la sesión SIEMPRE depende del mazo asignado.
@@ -403,6 +723,19 @@ const createSession = async (req, res, next) => {
     if (boardLayout !== undefined) {
       validateBoardLayoutAgainstMappings(boardLayout, syncedMappings);
       session.boardLayout = normalizeBoardLayout(boardLayout);
+    }
+
+    if (mechanicName === 'association') {
+      const normalizedPlan = validateAssociationChallengePlanAgainstMappings({
+        associationChallengePlan,
+        cardMappings: syncedMappings,
+        numberOfRounds: Number(session.config?.numberOfRounds)
+      });
+      session.associationChallengePlan = normalizedPlan;
+      session.requiresAssociationPlanConfiguration = false;
+    } else {
+      session.associationChallengePlan = [];
+      session.requiresAssociationPlanConfiguration = false;
     }
 
     ensureMemoryBoardLayoutIsComplete({
@@ -469,7 +802,7 @@ const createSession = async (req, res, next) => {
 const updateSession = async (req, res, next) => {
   try {
     const { id } = req.params;
-    const { deckId, sensorId, config, boardLayout } = req.body;
+    const { deckId, sensorId, config, boardLayout, associationChallengePlan } = req.body;
 
     const session = await gameSessionRepository.findById(id);
 
@@ -527,6 +860,13 @@ const updateSession = async (req, res, next) => {
       validateBoardLayoutAgainstMappings(boardLayout, session.cardMappings);
       session.boardLayout = normalizeBoardLayout(boardLayout);
     }
+
+    const mechanicName = normalizeMechanicName(mechanic?.name);
+    applyAssociationPlanOnUpdate({
+      session,
+      associationChallengePlan,
+      mechanicName
+    });
 
     ensureMemoryBoardLayoutIsComplete({
       mechanic,
@@ -644,6 +984,12 @@ const startSession = async (req, res, next) => {
       throw new NotFoundError('Mecánica de juego');
     }
 
+    const mechanicName = normalizeMechanicName(mechanic?.name);
+
+    if (mechanicName === 'association') {
+      await ensureAssociationPlanReadyForStart(session);
+    }
+
     ensureMemoryBoardLayoutIsComplete({
       mechanic,
       boardLayout: session.boardLayout,
@@ -717,6 +1063,89 @@ const endSession = async (req, res, next) => {
   }
 };
 
+/**
+ * Clonar una sesión existente resincronizando contra el mazo actual.
+ *
+ * POST /api/sessions/:id/clone
+ * Headers: Authorization: Bearer <token>
+ * Body: {}
+ *
+ * @param {import('express').Request} req
+ * @param {import('express').Response} res
+ * @param {import('express').NextFunction} next
+ */
+const cloneSession = async (req, res, next) => {
+  try {
+    const { id } = req.params;
+
+    const sourceSession = await gameSessionRepository.findById(id);
+    if (!sourceSession) {
+      throw new NotFoundError('Sesión de juego');
+    }
+
+    if (sourceSession.createdBy.toString() !== req.user._id.toString()) {
+      throw new ForbiddenError('No tienes permiso para clonar esta sesión');
+    }
+
+    const { clonedSession, mechanic, cardMappings } =
+      await gameSessionService.cloneSessionFromExisting({
+        sourceSession,
+        userId: req.user._id
+      });
+
+    if (!isMechanicEnabledForSessionCreation(mechanic)) {
+      throw new ValidationError(
+        'La mecánica de la sesión original no está habilitada para creación de sesiones en el entorno actual.'
+      );
+    }
+
+    validateConfigAgainstMechanicRules({
+      mechanic,
+      config: clonedSession.config
+    });
+
+    const mechanicName = normalizeMechanicName(mechanic?.name);
+
+    applyCloneMechanicState({
+      clonedSession,
+      sourceSession,
+      cardMappings,
+      userId: req.user._id,
+      mechanicName
+    });
+
+    clonedSession.status = 'created';
+    clonedSession.startedAt = undefined;
+    clonedSession.endedAt = undefined;
+
+    await clonedSession.save();
+
+    await clonedSession.populate([
+      { path: 'mechanicId', select: 'name displayName icon' },
+      { path: 'deckId', select: 'name status contextId' },
+      { path: 'contextId', select: 'contextId name' },
+      { path: 'createdBy', select: 'name email' },
+      { path: 'cardMappings.cardId', select: 'uid type status' }
+    ]);
+
+    logger.info('Sesión clonada', {
+      sourceSessionId: sourceSession._id,
+      clonedSessionId: clonedSession._id,
+      mechanic: mechanic.name,
+      cardMappingsCount: cardMappings.length,
+      clonedBy: req.user._id
+    });
+
+    res.status(201).json({
+      success: true,
+      message: buildCloneSuccessMessage(mechanicName),
+      data: toGameSessionDetailDTOV1(clonedSession)
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
 module.exports = {
   getSessions,
   getSessionById,
@@ -724,5 +1153,6 @@ module.exports = {
   updateSession,
   deleteSession,
   startSession,
-  endSession
+  endSession,
+  cloneSession
 };

@@ -767,6 +767,14 @@ export const sessionsAPI = {
     api.post(`/sessions/${sessionId}/start`, {}),
 
   /**
+   * Clonar sesión existente (resincroniza mapping con el mazo actual)
+   * @param {string} sessionId
+   * @returns {Promise}
+   */
+  cloneSession: (sessionId) =>
+    api.post(`/sessions/${sessionId}/clone`, {}),
+
+  /**
    * Finalizar sesión de juego
    * @param {string} sessionId
    * @returns {Promise}

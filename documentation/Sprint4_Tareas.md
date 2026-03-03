@@ -284,7 +284,7 @@ Modificar el wizard de creación de sesión para que las fases y validaciones ca
 
 ---
 
-### T-037: Replicar Sesión (clone) 📋
+### T-037: Replicar Sesión (clone) ✅
 
 **Prioridad:** P1 | **Tamaño:** M | **Dependencias:** T-056  
 **Origen:** RF-JGO-018
@@ -295,17 +295,44 @@ Permitir clonar una sesión existente para reutilizar configuración de forma se
 **Sub-tareas:**
 
 1. Backend: `POST /api/sessions/:id/clone` con control de ownership.
-2. Copiar configuración funcional (`mechanicId`, `contextId`, `config`, `cardMappings`).
+2. Clonar configuración funcional resincronizando con mazo actual (`mechanicId`, `deckId`, `contextId`, `config`, `cardMappings`).
 3. Resetear estado temporal (`status`, timestamps de ejecución).
 4. Frontend: acción “Volver a jugar” con confirmación.
 5. Añadir tests backend y UI para independencia de clon.
+6. Garantizar compatibilidad de `boardLayout` en mecánica memoria tras resincronización.
+7. Redirigir al detalle del clon para revisión/edición previa al juego.
 
 **Criterios de Aceptación (medibles):**
 
-- [ ] Clon crea nueva sesión con ID distinto.
-- [ ] Configuración se copia sin compartir estado mutable.
-- [ ] Estado inicial del clon es `created`.
-- [ ] Solo propietario autorizado puede clonar.
+- [x] Clon crea nueva sesión con ID distinto.
+- [x] Configuración se copia sin compartir estado mutable.
+- [x] Estado inicial del clon es `created`.
+- [x] Solo propietario autorizado puede clonar.
+- [x] El clon resincroniza `cardMappings` y `contextId` con el estado actual del mazo.
+- [x] En sesiones `memory`, el `boardLayout` resultante queda completo y consistente con mappings resincronizados.
+- [x] UI expone “Volver a jugar” en listado y detalle con confirmación explícita.
+- [x] Tras clonar, la navegación aterriza en el detalle del nuevo clon.
+
+**Avance (03-03-2026):**
+
+- Backend implementado en `POST /api/sessions/:id/clone` con validación estricta (`params` + body vacío), ownership por docente creador y respuesta DTO.
+- El clon nace en estado `created` y limpia `startedAt`/`endedAt` sin copiar estado runtime del origen.
+- Estrategia aplicada: resincronización contra `deckId` actual (no snapshot estático); si el `boardLayout` original queda desalineado, se reconstruye automáticamente desde mappings vigentes.
+- Regla específica para `memory`: el clon se crea con `boardLayout` vacío y exige recolocación manual del tablero virtual antes de iniciar gameplay.
+- Regla específica para `association`: el clon precarga `associationChallengePlan` como borrador editable (reparado contra el mazo actual cuando aplica) y mantiene `requiresAssociationPlanConfiguration=true`, bloqueando `start` hasta confirmación docente.
+- Wizard/edición reforzados para Association con compositor avanzado por ronda (`roundNumber`, tarjeta objetivo y `promptText` opcional), alineado con el contrato backend.
+- Frontend integrado en `SessionsPage` y `SessionDetail` con acción “Volver a jugar”, modal de confirmación y redirección al detalle del clon.
+- Cobertura añadida:
+	- Backend: `sessionClone.test.js`, validaciones de contrato en `validationEndpoints.test.js`.
+	- Frontend: `SessionsPage.clone.test.jsx`, `SessionDetail.clone.test.jsx`.
+
+**Cierre (03-03-2026):**
+
+- Evidencia backend en verde:
+	- `npm test -- tests/sessionClone.test.js tests/validationEndpoints.test.js`
+- Evidencia frontend en verde:
+	- `npm run test -- --run src/pages/__tests__/SessionsPage.clone.test.jsx src/pages/__tests__/SessionDetail.clone.test.jsx`
+- Documentación técnica actualizada en `backend/docs/API_v0.3.0.md` con contrato de clonación y reglas de resincronización.
 
 ---
 
@@ -796,7 +823,7 @@ Eliminar riesgos de estilos perdidos en build por clases Tailwind dinámicas y u
 
 ---
 
-### T-069: Accesibilidad del temporizador y controles interactivos 🔄
+### T-069: Accesibilidad del temporizador y controles interactivos ✅
 
 **Prioridad:** P1 | **Tamaño:** M | **Dependencias:** T-060  
 **Origen:** FE-06

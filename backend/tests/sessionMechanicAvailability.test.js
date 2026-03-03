@@ -199,6 +199,20 @@ describe('Session mechanic availability (Sprint 4)', () => {
   });
 
   it('allows association sessions', async () => {
+    const deck = await CardDeck.findById(deckId).lean();
+    const cardMappings = deck?.cardMappings || [];
+    const associationChallengePlan = Array.from({ length: 3 }, (_, index) => {
+      const mapping = cardMappings[index % cardMappings.length];
+      return {
+        roundNumber: index + 1,
+        cardId: mapping.cardId,
+        uid: mapping.uid,
+        assignedValue: mapping.assignedValue,
+        displayData: mapping.displayData,
+        promptText: `Reto ${index + 1}`
+      };
+    });
+
     const res = await request(app)
       .post('/api/sessions')
       .set({ Authorization: `Bearer ${teacherToken}`, ...fingerprintHeaders })
@@ -210,7 +224,8 @@ describe('Session mechanic availability (Sprint 4)', () => {
           timeLimit: 15,
           pointsPerCorrect: 10,
           penaltyPerError: -2
-        }
+        },
+        associationChallengePlan
       });
 
     expect(res.statusCode).toBe(201);

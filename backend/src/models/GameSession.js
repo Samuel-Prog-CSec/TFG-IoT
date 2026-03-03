@@ -180,6 +180,40 @@ const gameSessionSchema = new mongoose.Schema(
         displayData: mongoose.Schema.Types.Mixed
       }
     ],
+    associationChallengePlan: [
+      {
+        roundNumber: {
+          type: Number,
+          required: true,
+          min: 1
+        },
+        cardId: {
+          type: mongoose.Schema.Types.ObjectId,
+          ref: 'Card',
+          required: true
+        },
+        uid: {
+          type: String,
+          required: true,
+          uppercase: true,
+          trim: true
+        },
+        assignedValue: {
+          type: String,
+          required: true
+        },
+        displayData: mongoose.Schema.Types.Mixed,
+        promptText: {
+          type: String,
+          trim: true,
+          maxlength: 180
+        }
+      }
+    ],
+    requiresAssociationPlanConfiguration: {
+      type: Boolean,
+      default: false
+    },
     status: {
       type: String,
       lowercase: true,

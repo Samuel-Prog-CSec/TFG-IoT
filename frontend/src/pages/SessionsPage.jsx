@@ -84,8 +84,10 @@ export default function SessionsPage() {
   const mechanicsAbortRef = useRef(null);
   const loadMoreAbortRef = useRef(null);
   const deleteModal = useConfirmationModal();
+  const cloneModal = useConfirmationModal();
   const [selectedSession, setSelectedSession] = useState(null);
   const [deleteLoading, setDeleteLoading] = useState(false);
+  const [cloneLoading, setCloneLoading] = useState(false);
   const skeletonKeys = useMemo(() => (
     ['session-skeleton-1', 'session-skeleton-2', 'session-skeleton-3', 'session-skeleton-4', 'session-skeleton-5', 'session-skeleton-6']
   ), []);
@@ -231,6 +233,11 @@ export default function SessionsPage() {
     deleteModal.open();
   };
 
+  const handleClone = (session) => {
+    setSelectedSession(session);
+    cloneModal.open();
+  };
+
   const confirmDelete = async () => {
     if (!selectedSession) return;
 
@@ -249,6 +256,41 @@ export default function SessionsPage() {
       });
     } finally {
       setDeleteLoading(false);
+    }
+  };
+
+  const confirmClone = async () => {
+    if (!selectedSession) return;
+
+    setCloneLoading(true);
+    try {
+      const response = await sessionsAPI.cloneSession(selectedSession.id || selectedSession._id);
+      const clonedSession = extractData(response);
+      const clonedSessionId = clonedSession?.id || clonedSession?._id;
+      const clonedMechanicName = (clonedSession?.mechanic?.name || '').toString().toLowerCase();
+
+      toast.success('Sesión clonada', {
+        description: 'La nueva sesión se creó en borrador y está lista para revisar.'
+      });
+
+      cloneModal.close();
+      setSelectedSession(null);
+
+      if (clonedSessionId) {
+        if (clonedMechanicName === 'memory') {
+          navigate(ROUTES.BOARD_SETUP_WITH_ID(clonedSessionId));
+        } else {
+          navigate(ROUTES.SESSION_DETAIL(clonedSessionId));
+        }
+      } else {
+        loadSessions(true);
+      }
+    } catch (err) {
+      toast.error('No se pudo clonar la sesión', {
+        description: extractErrorMessage(err)
+      });
+    } finally {
+      setCloneLoading(false);
     }
   };
 
@@ -342,6 +384,15 @@ export default function SessionsPage() {
                   >
                     <Eye size={16} />
                     Ver detalle
+                  </ButtonPremium>
+                  <ButtonPremium
+                    variant="secondary"
+                    onClick={() => handleClone(session)}
+                    disabled={cloneLoading}
+                    className="flex-1"
+                  >
+                    <RefreshCw size={16} />
+                    Volver a jugar
                   </ButtonPremium>
                   <Tooltip content="Ver mapping">
                     <ButtonPremium
@@ -491,6 +542,23 @@ export default function SessionsPage() {
           </div>
         )}
       </div>
+
+      <ConfirmationModal
+        open={cloneModal.isOpen}
+        onClose={cloneModal.close}
+        onConfirm={confirmClone}
+        title="Volver a jugar"
+        description={
+          <div className="space-y-2">
+            <p>Se creará una nueva sesión en borrador con la configuración resincronizada desde el mazo actual.</p>
+            <p className="text-slate-400 text-sm">No se modifica la sesión original ni sus partidas.</p>
+          </div>
+        }
+        confirmText="Clonar sesión"
+        cancelText="Cancelar"
+        variant="info"
+        loading={cloneLoading}
+      />
 
       <ConfirmationModal
         open={deleteModal.isOpen}

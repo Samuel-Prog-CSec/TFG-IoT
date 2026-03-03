@@ -101,6 +101,50 @@ async function syncSessionFromDeck(session, { deckId, userId }) {
   return { deck, context, cardMappings };
 }
 
+const normalizeSessionConfig = config => {
+  if (!config) {
+    return {};
+  }
+
+  if (typeof config.toObject === 'function') {
+    return config.toObject();
+  }
+
+  return { ...config };
+};
+
+async function cloneSessionFromExisting({ sourceSession, userId }) {
+  if (!sourceSession) {
+    throw new NotFoundError('Sesión de juego');
+  }
+
+  if (!sourceSession.deckId) {
+    throw new ValidationError('La sesión original no tiene mazo asignado (deckId)');
+  }
+
+  const mechanic = await validateMechanic(sourceSession.mechanicId);
+
+  const clonedSession = gameSessionRepository.build({
+    mechanicId: sourceSession.mechanicId,
+    deckId: sourceSession.deckId,
+    sensorId: sourceSession.sensorId,
+    config: normalizeSessionConfig(sourceSession.config),
+    status: 'created',
+    createdBy: userId
+  });
+
+  const { cardMappings } = await syncSessionFromDeck(clonedSession, {
+    deckId: sourceSession.deckId,
+    userId
+  });
+
+  return {
+    clonedSession,
+    mechanic,
+    cardMappings
+  };
+}
+
 /**
  * Valida que una mecánica exista y esté activa.
  *
@@ -374,6 +418,7 @@ async function getSessionStats(sessionId) {
 
 module.exports = {
   syncSessionFromDeck,
+  cloneSessionFromExisting,
   createSession,
   updateSession,
   validateSessionDeletion,
