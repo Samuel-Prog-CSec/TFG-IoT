@@ -12,6 +12,7 @@ const userRepository = require('../repositories/userRepository');
 const logger = require('../utils/logger').child({ component: 'auth' });
 const { logSecurityEvent, getRequestContext } = require('../utils/securityLogger');
 const redisService = require('../services/redisService');
+const { Sentry } = require('../config/sentry');
 
 /**
  * Constantes de seguridad para tokens.
@@ -693,6 +694,7 @@ const authenticate = async (req, res, next) => {
 
     // Adjuntar usuario y metadata del token a la request
     req.user = user;
+    Sentry.setUser({ id: user._id.toString(), role: user.role });
     req.tokenJti = decoded.jti; // Para revocación si es necesario
     req.tokenExp = decoded.exp; // Para logging
 
@@ -811,6 +813,7 @@ const optionalAuth = async (req, res, next) => {
     if (user && user.status === 'active') {
       req.user = user;
       req.tokenJti = decoded.jti;
+      Sentry.setUser({ id: user._id.toString(), role: user.role });
     }
 
     next();

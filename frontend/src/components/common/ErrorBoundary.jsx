@@ -2,11 +2,12 @@ import { Component } from 'react';
 import PropTypes from 'prop-types';
 import { AlertTriangle, RefreshCw, Home } from 'lucide-react';
 import ButtonPremium from '../ui/ButtonPremium';
+import { captureException } from '../../lib/sentry';
 
 /**
  * Error Boundary Component
  * Captura errores en componentes hijos y muestra una UI de fallback
- * 
+ *
  * @example
  * <ErrorBoundary fallback={<CustomError />}>
  *   <MyComponent />
@@ -24,11 +25,10 @@ class ErrorBoundary extends Component {
   }
 
   componentDidCatch(error, errorInfo) {
-    // Registrar error (aquí se podría enviar a Sentry u otro servicio)
-    console.error('ErrorBoundary caught an error:', error, errorInfo);
-    this.setState({ errorInfo });
-
-    // Callback opcional para reportar errores
+    // Enviar error a Sentry
+    captureException(error, { react: { componentStack: errorInfo.componentStack } });
+    
+    // Registrar error local de forma segura
     if (this.props.onError) {
       this.props.onError(error, errorInfo);
     }

@@ -24,6 +24,7 @@
     "@dnd-kit/sortable": "^10.0.0",
     "@dnd-kit/utilities": "^3.2.2",
     "@react-spring/web": "^10.0.3",
+    "@sentry/react": "^10.42.0",
     "@tailwindcss/vite": "^4.2.0",
     "axios": "^1.13.5",
     "canvas-confetti": "^1.9.4",
@@ -43,10 +44,11 @@
     "tailwindcss": "^4.2.0"
   },
   "devDependencies": {
+    "@eslint/js": "^9.39.2",
+    "@sentry/vite-plugin": "^5.1.1",
     "@testing-library/jest-dom": "^6.9.1",
     "@testing-library/react": "^16.3.0",
     "@testing-library/user-event": "^14.6.1",
-    "@eslint/js": "^9.39.2",
     "@vitejs/plugin-react-swc": "^4.2.3",
     "eslint": "^9.39.2",
     "eslint-plugin-jsx-a11y": "^6.10.2",
@@ -55,7 +57,7 @@
     "eslint-plugin-react-refresh": "^0.5.0",
     "globals": "^17.3.0",
     "jsdom": "^27.0.1",
-    "vitest": "^3.2.4",
-    "vite": "^7.3.1"
+    "vite": "^7.3.1",
+    "vitest": "^3.2.4"
   }
 }

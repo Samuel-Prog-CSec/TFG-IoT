@@ -442,3 +442,30 @@ Este documento describe de forma profesional y detallada los patrones de diseno 
 ## Patrones recomendados para incorporar
 
 Actualmente no hay patrones pendientes. Nuevas propuestas se documentaran aqui.
+
+## Patrones de Observabilidad y Telemetría
+
+### Observabilidad Full-Stack Respetuosa con GDPR (Sentry)
+
+**El Problema:**
+El despliegue de una plataforma educativa implica responsabilidad sobre el seguimiento de errores. Cuando el frontend sufre un error (React Crash) o el sistema Realtime (Socket.IO) entra en un estado corrupto, el fallo normalmente muere silenciosamente en el navegador del cliente o queda aislado en el stdout del backend. Al mismo tiempo, al tratarse de centros educativos y menores de edad, no es viable grabar video de la sesión (Session Replay) ni exponer Datos Personales Identificables (PII).
+
+**El Patrón de Diseño:**
+Se ha estructurado la telemetría en **tres capas concéntricas conectadas a Sentry** garantizando la Pseudonimización (Separación de Identidad vs Sesión).
+
+1. **Frontera de Captura Pasiva (Frontend):**
+   - El uso de ErrorBoundary (patrón de React) intercepta crasheos del DOM Virtual. Al atraparlo, delega el StackTrace a Sentry antes de mostrar una pantalla de caída (¡Ups! Algo salió mal).
+   - Sentry es inyectado desde el _entry-point_ principal (main.jsx). Durante la build en producción, **Vite** genera automáticamente los *Source Maps* y los sube privadamente a Sentry bajo un SENTRY_AUTH_TOKEN. Esto significa que los errores se leen en claro por el equipo de desarrollo, pero el código fuente no se filtra públicamente en el navegador.
+   - **Limitación intencionada:** Se desactiva deliberadamente 
+eplaysSessionSampleRate (Replay Recorder) y se filtran tokens mediante hooks en la red (interceptores de _breadcrumbs_) para evitar comprometer PII.
+
+2. **Contexto de Autenticación Universal (Full-Stack):**
+   - Aplicamos un patrón de Inyección de Contexto (_Context Injection_) sobre el Tracker global. En Frontend (AuthContext.jsx), tras un login exitoso, se llama a Sentry.setUser() usando los datos mínimos del Payload (id y 
+ole). El email y password quedan censurados.
+   - Si el usuario cierra sesión o caduca su JWT, la identity explícita se limpia mediante Sentry.setUser(null) asegurando que los fallos subsecuentes al estado del anonimato no contaminen identificadores anteriores.
+   - Lo mismo ocurre en Backend: el middleware en auth.js ancla el usuario (ya verificado del JWT) al alcance global del servidor, dando contexto instantáneo a por qué un escaneo RFID en particular ha fallado.
+
+3. **Malla de Seguridad Realtime (Backend Sockets):**
+   - En plataformas de tiempo real (Socket.io), los fallos no transaccionan en HTTP (no hay Request/Response tradicional con un StatusCode). Por ello, el controlador general que captura todos los comandos RFID (socketHandlers.js) se ha envuelto en un *Decorator Pattern* con un bloque global _Try-Catch_.
+   - Si el gameEngine experimenta un bug lógico no controlado, o falla un acceso rápido a Redis, el catch general interceptará la excepciòn, añadirá el metadato (ventName / socketId) y despachará a Sentry, antes de omitir cordialmente al cliente un socket.emit('error').
+

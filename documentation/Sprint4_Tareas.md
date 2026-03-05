@@ -665,26 +665,28 @@ Aplicar accesibilidad de movimiento reducido de forma consistente en wizard, gam
 
 ---
 
-### T-039: Sentry Frontend Completo 📋
+### T-039: Sentry Frontend Completo ✅
 
-**Prioridad:** P2 | **Tamaño:** M | **Dependencias:** T-061  
+**Prioridad:** P2 | **Tamaño:** M | **Dependencias:** T-061
 **Origen:** RNF-CAL-008
 
-**Descripción:**  
-Completar integración real de Sentry en frontend con boundary, tracing de navegación y source maps.
+**Descripción:**
+Completar integración real de Sentry en frontend con boundary, tracing de navegación y source maps, extendiendo también observabilidad hacia el backend.
 
 **Sub-tareas:**
 
 1. Integrar SDK Sentry en inicialización de app.
 2. Configurar boundary con fallback de error de UI.
-3. Habilitar tracing de navegación.
+3. Habilitar tracing de navegación y de identity de usuarios.
 4. Configurar subida de source maps en build/release.
+5. (Extra Backend) Incorporar scopes de identidad de usuario y tracking de errores inmanejados en endpoints Sockets.
 
 **Criterios de Aceptación (medibles):**
 
-- [ ] Error en componente React aparece en Sentry con stack útil.
-- [ ] Navegación genera trazas visibles.
-- [ ] Source maps permiten ubicar líneas originales.
+- [x] Error en componente React aparece en Sentry con stack útil y identity asociado.
+- [x] Navegación genera trazas sin filtración de PII.
+- [x] Source maps permiten ubicar líneas originales vía `@sentry/vite-plugin` dinámico.
+- [x] Errores websocket del backend caen ahora directamente en observabilidad.
 
 ---
 

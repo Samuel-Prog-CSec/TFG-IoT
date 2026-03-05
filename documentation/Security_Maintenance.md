@@ -117,6 +117,13 @@ Este documento resume el hardening de seguridad aplicado en la rama `Maintenance
 - Persistencia atómica de evento+score+métricas+avance de ronda.
 - Reducción de checkpoints redundantes (`round_start` opcional).
 
+### 11) Observabilidad Limitada y Evasión de Retenciones (Agujeros Negros)
+**Riesgo:** Un atacante provoca fallos silenciosos no registrados, o el frontend client-side experimenta excepciones (ej. manipulación manual de estado, inyección) que el servidor ignora, facilitando la exploración encubierta. Las trazas de errores y fallos de la base de código proporcionan mapas tácticos para futuros ataques.
+**Mitigacion (Sentry Telemetry Integrada):**
+- Monitorización determinista full-stack: Las caídas de UI, transiciones HTTP fallidas y desbordamientos en WebSockets son interceptadas e indexadas.
+- Saneamiento y Anonimización: Integración rigurosa de `beforeSend` para purgar tokens de sesión, IPs y cabeceras PII, cumpliendo normativas (GDPR) sin sacrificar fidelidad forense.
+- Trazabilidad Inmutable: Fallos intencionados activan Sentry Alerting de inmediato antes de que el actor malicioso recupere control, logueando su pseudo-ID de AuthContext.
+
 ## Pendientes Recomendados (Mejora Futura)
 
 - **MFA (TOTP)** para `teacher` y `super_admin`.

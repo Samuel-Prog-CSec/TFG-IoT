@@ -1448,9 +1448,13 @@ El sistema es una **plataforma de juegos educativos interactivos** que utiliza *
 
 ---
 
-### RNF-CAL-008: Integración con Sentry ✅
+### RNF-CAL-008: Integración con Sentry Integral (Full-Stack) ✅
 
-**Descripción:** Los errores deben reportarse a Sentry para monitoreo.
+**Descripción:** Los errores deben reportarse a Sentry para monitoreo preventivo y reactivo.
+
+**Cumplimiento:** 
+- Se ha implementado un patrón de observabilidad en el frontend atrapando errores en la capa visual (Error Boundary) y a nivel de rutas, sin registrar replays de sesión para cumplir de forma estricta con normativas GDPR ante usuarios menores de edad.
+- El backend registra la procedencia técnica y el ID anonimizado del causante tanto para fallos HTTP (API REST) como fallos en el bus de WebSocket (GameEngine realtime) para evitar agujeros negros de observabilidad.
 
 ---
 

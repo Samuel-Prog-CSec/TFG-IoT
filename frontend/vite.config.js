@@ -1,6 +1,7 @@
-import { defineConfig } from 'vite'
+import { defineConfig, loadEnv } from 'vite'
 import react from '@vitejs/plugin-react-swc'
 import tailwindcss from '@tailwindcss/vite'
+import { sentryVitePlugin } from "@sentry/vite-plugin"
 
 const getChunkName = (id) => {
   if (!id.includes('node_modules')) {
@@ -48,23 +49,34 @@ const getChunkName = (id) => {
 }
 
 // https://vite.dev/config/
-export default defineConfig({
-  plugins: [
-    react(),
-    tailwindcss(),
-  ],
-  server: {
-    host: true, // Necesario para que Docker pueda mapear el puerto
-    port: 5173,
-    watch: {
-      usePolling: true, // Recomendado al desarrollar en Windows con Docker
-    }
-  },
-  build: {
-    rollupOptions: {
-      output: {
-        manualChunks: getChunkName
+export default defineConfig(({ mode }) => {
+  const env = loadEnv(mode, process.cwd(), '');
+  return {
+    plugins: [
+      react(),
+      tailwindcss(),
+      env.SENTRY_AUTH_TOKEN
+        ? sentryVitePlugin({
+            org: env.SENTRY_ORG || 'tfg-iot',
+            project: env.SENTRY_PROJECT || 'frontend',
+            authToken: env.SENTRY_AUTH_TOKEN,
+          })
+        : null,
+    ],
+    server: {
+      host: true, // Necesario para que Docker pueda mapear el puerto
+      port: 5173,
+      watch: {
+        usePolling: true, // Recomendado al desarrollar en Windows con Docker     
+      }
+    },
+    build: {
+      sourcemap: true, // Fundamental para trazar source maps en Sentry
+      rollupOptions: {
+        output: {
+          manualChunks: getChunkName
+        }
       }
     }
-  }
+  };
 })
