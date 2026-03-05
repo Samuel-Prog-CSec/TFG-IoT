@@ -535,12 +535,18 @@ export default function CreateSession() {
       });
       
       toast.success('¡Sesión creada!', {
-        description: 'Redirigiendo a la configuración del tablero...'
+        description: isMemorySelected
+          ? 'Redirigiendo a la configuración del tablero...'
+          : 'Redirigiendo al detalle de la sesión...'
       });
       
-      // Redirigir a Board Setup
+      // Memoria → BoardSetup para configurar tablero, Asociación → Detalle de sesión
+      const targetRoute = isMemorySelected
+        ? ROUTES.BOARD_SETUP_WITH_ID(newSession._id || newSession.id)
+        : ROUTES.SESSION_DETAIL(newSession._id || newSession.id);
+
       setTimeout(() => {
-        navigate(ROUTES.BOARD_SETUP_WITH_ID(newSession._id || newSession.id));
+        navigate(targetRoute);
       }, shouldReduceMotion ? 400 : 1500);
       
     } catch (err) {

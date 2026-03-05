@@ -137,6 +137,7 @@ class MemoryStrategy extends BaseMechanicStrategy {
     const selected = Array.isArray(strategyState.selectedUids)
       ? [...strategyState.selectedUids]
       : [];
+    const groupSize = Number(strategyState.matchingGroupSize) || 2;
 
     if (matched.has(scannedCard.uid)) {
       return {
@@ -145,20 +146,8 @@ class MemoryStrategy extends BaseMechanicStrategy {
       };
     }
 
-    if (selected.length === 0) {
-      selected.push(scannedCard.uid);
-      revealed.add(scannedCard.uid);
-      strategyState.selectedUids = selected;
-      strategyState.revealedUids = [...revealed];
-      strategyState.lastRevealedUid = scannedCard.uid;
-
-      return {
-        type: 'first_pick',
-        board: this.buildBoardForClient(strategyState)
-      };
-    }
-
-    if (selected[0] === scannedCard.uid) {
+    // Ignorar si ya está seleccionado
+    if (selected.includes(scannedCard.uid)) {
       return {
         type: 'ignored',
         board: this.buildBoardForClient(strategyState)
@@ -167,30 +156,38 @@ class MemoryStrategy extends BaseMechanicStrategy {
 
     selected.push(scannedCard.uid);
     revealed.add(scannedCard.uid);
+    strategyState.lastRevealedUid = scannedCard.uid;
 
-    const firstUid = selected[0];
-    const secondUid = selected[1];
+    // Aún no se alcanzó el groupSize => selección intermedia
+    if (selected.length < groupSize) {
+      strategyState.selectedUids = selected;
+      strategyState.revealedUids = [...revealed];
 
+      return {
+        type: selected.length === 1 ? 'first_pick' : 'intermediate_pick',
+        board: this.buildBoardForClient(strategyState)
+      };
+    }
+
+    // Se alcanzó el groupSize => evaluar
     const boardByUid = new Map((strategyState.boardLayout || []).map(slot => [slot.uid, slot]));
-    const firstCard = boardByUid.get(firstUid);
-    const secondCard = boardByUid.get(secondUid);
-    const isCorrect = Boolean(
-      firstCard &&
-      secondCard &&
-      firstCard.assignedValue === secondCard.assignedValue &&
-      firstUid !== secondUid
-    );
+    const selectedCards = selected.map(uid => boardByUid.get(uid)).filter(Boolean);
+    const allSameValue =
+      selectedCards.length === groupSize &&
+      selectedCards.every(card => card.assignedValue === selectedCards[0].assignedValue);
+    const allDistinctUids = new Set(selected).size === selected.length;
+    const isCorrect = allSameValue && allDistinctUids;
 
     strategyState.attempts = Number(strategyState.attempts || 0) + 1;
-    strategyState.lastRevealedUid = secondUid;
 
     const pointsAwarded = isCorrect
       ? Number(sessionDoc?.config?.pointsPerCorrect || 0)
       : Number(sessionDoc?.config?.penaltyPerError || 0);
 
     if (isCorrect) {
-      matched.add(firstUid);
-      matched.add(secondUid);
+      for (const uid of selected) {
+        matched.add(uid);
+      }
       strategyState.matchedUids = [...matched];
       strategyState.revealedUids = [...revealed];
       strategyState.selectedUids = [];
@@ -199,19 +196,19 @@ class MemoryStrategy extends BaseMechanicStrategy {
         type: 'resolved',
         isCorrect: true,
         pointsAwarded,
-        selectedUids: [firstUid, secondUid],
+        selectedUids: [...selected],
         board: this.buildBoardForClient(strategyState)
       };
     }
 
-    strategyState.selectedUids = [firstUid, secondUid];
+    strategyState.selectedUids = [...selected];
     strategyState.revealedUids = [...revealed];
 
     return {
       type: 'resolved',
       isCorrect: false,
       pointsAwarded,
-      selectedUids: [firstUid, secondUid],
+      selectedUids: [...selected],
       hideAfterMs:
         Number(sessionDoc?.mechanicId?.rules?.behavior?.hideUnmatchedAfterDelayMs) || 1200,
       board: this.buildBoardForClient(strategyState)

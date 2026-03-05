@@ -839,7 +839,16 @@ export const playsAPI = {
    * @returns {Promise}
    */
   abandonPlay: (playId) =>
-    api.post(`/plays/${playId}/abandon`, {})
+    api.post(`/plays/${playId}/abandon`, {}),
+
+  /**
+   * Obtener estadísticas de un jugador (opcionalmente filtradas por sesión).
+   * @param {string} playerId
+   * @param {Object} [params] - Ej: { sessionId }
+   * @returns {Promise}
+   */
+  getPlayerStats: (playerId, params = {}) =>
+    api.get(`/plays/stats/${playerId}`, { params })
 };
 
 export default api;

@@ -31,7 +31,18 @@ vi.mock('../../components/game', () => ({
   TimerBar: () => <div data-testid="timer">timer</div>,
   ScoreDisplayCompact: () => <div data-testid="score">score</div>,
   FeedbackOverlay: () => <div data-testid="feedback">feedback</div>,
-  GameOverScreen: () => <div data-testid="game-over">game-over</div>,
+  GameOverScreen: ({ score, summary }) => (
+    <div data-testid="game-over">
+      <span>{score}</span>
+      {summary && (
+        <>
+          <span>Errores</span>
+          <span>{summary.errors}</span>
+          <span>{summary.averageResponseTimeMs > 0 ? `${(summary.averageResponseTimeMs / 1000).toFixed(1)}s` : '—'}</span>
+        </>
+      )}
+    </div>
+  ),
   CharacterMascot: () => <div data-testid="mascot">mascot</div>
 }));
 
@@ -171,7 +182,8 @@ vi.mock('../../services/api', () => ({
   },
   playsAPI: {
     getPlays: vi.fn(async () => ({ data: [] })),
-    createPlay: vi.fn(async () => ({ data: { id: 'play-1', playerId: 'student-1' } }))
+    createPlay: vi.fn(async () => ({ data: { id: 'play-1', playerId: 'student-1' } })),
+    getPlayerStats: vi.fn(async () => ({ data: { stats: { bestScore: 0 } } }))
   },
   extractData: (response) => response?.data,
   extractErrorMessage: (error) => error?.message || 'error',
@@ -342,7 +354,7 @@ describe('GameSession realtime gameplay', () => {
       });
     });
 
-    expect(await screen.findByText('Resumen de la partida')).toBeInTheDocument();
+    expect(await screen.findByText('Errores')).toBeInTheDocument();
     expect(screen.getByText('80')).toBeInTheDocument();
     expect(screen.getByText('3.2s')).toBeInTheDocument();
   });

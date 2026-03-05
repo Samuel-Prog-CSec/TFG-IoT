@@ -249,6 +249,66 @@
   @apply bg-gradient-to-br from-brand-light via-brand-base to-accent-indigo bg-clip-text text-transparent;
 }
 
+/* Gameplay: Fondo inmersivo de juego con gradientes animados */
+@utility game-bg {
+  background: linear-gradient(
+    135deg,
+    var(--color-background-deep) 0%,
+    oklch(20% 0.04 280) 40%,
+    oklch(18% 0.03 240) 70%,
+    var(--color-background-deep) 100%
+  );
+}
+
+/* Gameplay: Botón principal de juego */
+@utility btn-game {
+  @apply inline-flex items-center justify-center gap-3 px-8 py-4 rounded-2xl font-bold font-display text-white tracking-wide;
+  @apply bg-gradient-to-br from-brand-base to-accent-indigo;
+  @apply shadow-[0_0_20px_var(--color-brand-glow),0_4px_16px_rgba(0,0,0,0.3)];
+  @apply transition-all duration-200;
+  @apply hover:shadow-[0_0_30px_var(--color-brand-glow),0_6px_24px_rgba(0,0,0,0.4)];
+  @apply active:scale-95;
+  @apply disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:shadow-none;
+
+  &:focus-visible {
+    outline: 2px solid var(--color-brand-light);
+    outline-offset: 3px;
+  }
+}
+
+/* Gameplay: Tarjeta glass con gradiente para pantallas de resultado */
+@utility glass-card-gradient {
+  @apply bg-background-elevated/60 border border-border-subtle backdrop-blur-xl rounded-3xl;
+  @apply shadow-[0_8px_40px_rgba(0,0,0,0.4),inset_0_1px_0_rgba(255,255,255,0.08)];
+}
+
+/* Gameplay: Card flip animation para tablero de memoria */
+@utility memory-card-flip {
+  perspective: 600px;
+}
+
+@utility memory-card-inner {
+  transform-style: preserve-3d;
+  transition: transform 0.5s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+@utility memory-card-flipped {
+  transform: rotateY(180deg);
+}
+
+@utility memory-card-face {
+  backface-visibility: hidden;
+  position: absolute;
+  inset: 0;
+}
+
+@utility memory-card-back {
+  backface-visibility: hidden;
+  transform: rotateY(180deg);
+  position: absolute;
+  inset: 0;
+}
+
 /* ============================================
    ⚡ TRANSICIONES DE INTERFAZ (Nativo)
    ============================================ */

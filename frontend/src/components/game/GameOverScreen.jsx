@@ -22,6 +22,7 @@ function GameOverScreen({
   correctAnswers = 0,
   totalRounds = 5,
   bestScore = 0,
+  summary = null,
   onPlayAgain,
   onGoHome,
   shouldReduceMotion = false,
@@ -158,7 +159,7 @@ function GameOverScreen({
           </motion.div>
 
           {/* Stats */}
-          <dl className="grid grid-cols-2 gap-4 mb-8">
+          <dl className="grid grid-cols-2 gap-4 mb-6">
             <div className="bg-emerald-500/10 rounded-xl p-4 border border-emerald-500/20">
               <dt className="text-xs text-slate-400 order-2">Correctas</dt>
               <dd className="text-2xl font-bold text-emerald-400">{correctAnswers}</dd>
@@ -168,6 +169,34 @@ function GameOverScreen({
               <dd className="text-2xl font-bold text-slate-300">{totalRounds}</dd>
             </div>
           </dl>
+
+          {/* Resumen detallado */}
+          {summary && (
+            <div className="grid grid-cols-3 gap-2 mb-8 text-xs">
+              <div className="rounded-lg bg-slate-800/60 border border-white/5 px-3 py-2 text-center">
+                <div className="text-slate-400">Errores</div>
+                <div className="text-white font-semibold">{summary.errors ?? 0}</div>
+              </div>
+              <div className="rounded-lg bg-slate-800/60 border border-white/5 px-3 py-2 text-center">
+                <div className="text-slate-400">Resp. media</div>
+                <div className="text-white font-semibold">
+                  {summary.averageResponseTimeMs > 0
+                    ? `${(summary.averageResponseTimeMs / 1000).toFixed(1)}s`
+                    : '—'}
+                </div>
+              </div>
+              <div className="rounded-lg bg-slate-800/60 border border-white/5 px-3 py-2 text-center">
+                <div className="text-slate-400">Tiempo</div>
+                <div className="text-white font-semibold">
+                  {summary.totalTimePlayed > 0
+                    ? `${(summary.totalTimePlayed / (1000 * 60)).toFixed(1)} min`
+                    : '—'}
+                </div>
+              </div>
+            </div>
+          )}
+
+          {!summary && <div className="mb-8" />}
 
           {/* Actions */}
           <nav className="flex flex-col sm:flex-row gap-3" aria-label="Acciones de fin de juego">
@@ -229,6 +258,11 @@ GameOverScreen.propTypes = {
   correctAnswers: PropTypes.number,
   totalRounds: PropTypes.number,
   bestScore: PropTypes.number,
+  summary: PropTypes.shape({
+    errors: PropTypes.number,
+    averageResponseTimeMs: PropTypes.number,
+    totalTimePlayed: PropTypes.number,
+  }),
   onPlayAgain: PropTypes.func.isRequired,
   onGoHome: PropTypes.func.isRequired,
   shouldReduceMotion: PropTypes.bool,

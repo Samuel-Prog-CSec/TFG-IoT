@@ -11,6 +11,7 @@ const gameContextRepository = require('../repositories/gameContextRepository');
 const cardRepository = require('../repositories/cardRepository');
 const cardDeckRepository = require('../repositories/cardDeckRepository');
 const gamePlayRepository = require('../repositories/gamePlayRepository');
+const mongoose = require('mongoose');
 const { NotFoundError, ValidationError, ForbiddenError } = require('../utils/errors');
 const logger = require('../utils/logger').child({ component: 'gameSessionService' });
 
@@ -391,8 +392,9 @@ async function validateSessionDeletion(sessionId) {
 async function getSessionStats(sessionId) {
   // Import eliminado: usamos repositorio para evitar dependencias circulares.
 
+  const objectId = new mongoose.Types.ObjectId(sessionId);
   const stats = await gamePlayRepository.aggregate([
-    { $match: { sessionId, status: 'completed' } },
+    { $match: { sessionId: objectId, status: 'completed' } },
     {
       $group: {
         _id: null,

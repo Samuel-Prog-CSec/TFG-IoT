@@ -6,8 +6,14 @@
 
 const gameSessionRepository = require('../repositories/gameSessionRepository');
 const gameMechanicRepository = require('../repositories/gameMechanicRepository');
+const gamePlayRepository = require('../repositories/gamePlayRepository');
 const gameSessionService = require('../services/gameSessionService');
-const { NotFoundError, ValidationError, ForbiddenError } = require('../utils/errors');
+const {
+  NotFoundError,
+  ValidationError,
+  ForbiddenError,
+  ConflictError
+} = require('../utils/errors');
 const logger = require('../utils/logger');
 const {
   toGameSessionDetailDTOV1,
@@ -1043,6 +1049,18 @@ const endSession = async (req, res, next) => {
     // Verificar permisos
     if (session.createdBy.toString() !== req.user._id.toString()) {
       throw new ForbiddenError('No tienes permiso para finalizar esta sesión');
+    }
+
+    // Verificar que no haya partidas activas
+    const activePlays = await gamePlayRepository.count({
+      sessionId: session._id,
+      status: { $in: ['in-progress', 'paused'] }
+    });
+
+    if (activePlays > 0) {
+      throw new ConflictError(
+        `No se puede finalizar la sesión: hay ${activePlays} partida(s) activa(s)`
+      );
     }
 
     // Usar el método del modelo

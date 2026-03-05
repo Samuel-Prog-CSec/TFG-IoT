@@ -41,7 +41,7 @@ const sessionConfigSchema = z.object({
   penaltyPerError: z
     .number()
     .int('penaltyPerError debe ser un número entero')
-    .negative('La penalización debe ser un número negativo')
+    .nonpositive('La penalización debe ser cero o un número negativo')
     .default(-2)
 });
 

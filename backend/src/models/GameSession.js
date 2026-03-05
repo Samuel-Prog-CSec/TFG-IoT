@@ -102,7 +102,7 @@ const gameSessionSchema = new mongoose.Schema(
         type: Number,
         required: true,
         min: 2,
-        max: 30
+        max: 20
       },
       numberOfRounds: {
         type: Number,
@@ -127,7 +127,7 @@ const gameSessionSchema = new mongoose.Schema(
       },
       penaltyPerError: {
         type: Number,
-        max: [-1, 'Los puntos por error deben ser menores que 0'],
+        max: [0, 'Los puntos por error deben ser cero o negativos'],
         default: -2,
         validate: {
           validator: Number.isInteger,

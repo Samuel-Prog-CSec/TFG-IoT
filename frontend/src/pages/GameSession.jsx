@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useRef } from 'react';
+import { useState, useEffect, useCallback, useRef, memo } from 'react';
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Wifi, WifiOff, Pause, Play, Volume2, VolumeX, AlertTriangle } from 'lucide-react';
@@ -19,6 +19,7 @@ import {
 } from '../services/api';
 import { ROUTES } from '../constants/routes';
 import { toast } from 'sonner';
+import ErrorBoundary from '../components/common/ErrorBoundary';
 import { 
   ChallengeDisplay, 
   TimerBar, 
@@ -123,6 +124,7 @@ export default function GameSession() { // NOSONAR
   const [playSummary, setPlaySummary] = useState(null);
   const [memoryStats, setMemoryStats] = useState({ attempts: 0, matchedCount: 0, totalCards: 0 });
   const [memoryFeedbackActive, setMemoryFeedbackActive] = useState(false);
+  const [bestScore, setBestScore] = useState(0);
   const [srAnnouncement, setSrAnnouncement] = useState('');
   const gameStateRef = useRef('waiting');
 
@@ -505,7 +507,7 @@ export default function GameSession() { // NOSONAR
         });
 
         let sessionData = extractData(response);
-        if (sessionData?.status === 'created' || sessionData?.status === 'completed') {
+        if (sessionData?.status === 'created') {
           const startSessionRes = await sessionsAPI.startSession(sessionId);
           sessionData = extractData(startSessionRes) || sessionData;
         }
@@ -525,6 +527,18 @@ export default function GameSession() { // NOSONAR
 
         setPlayId(resolvedPlay.playId);
         setSelectedPlayerId(resolvedPlay.playerId || null);
+
+        // Obtener mejor puntuación histórica del jugador en esta sesión
+        if (resolvedPlay.playerId) {
+          playsAPI.getPlayerStats(resolvedPlay.playerId, { sessionId })
+            .then(statsRes => {
+              const stats = extractData(statsRes);
+              if (Number.isFinite(stats?.stats?.bestScore)) {
+                setBestScore(stats.stats.bestScore);
+              }
+            })
+            .catch(() => { /* No bloquear gameplay si las stats fallan */ });
+        }
 
         if (!socketService.isSocketConnected()) {
           await socketService.connect();
@@ -825,7 +839,16 @@ export default function GameSession() { // NOSONAR
   };
 
   if (loadingSession) {
-    return <div className="min-h-screen bg-slate-950 text-white p-8">Cargando sesión...</div>;
+    return (
+      <div className="game-bg min-h-screen flex flex-col items-center justify-center gap-6 p-8">
+        <div className="w-20 h-20 rounded-2xl bg-purple-500/20 animate-pulse" />
+        <div className="space-y-3 w-full max-w-xs">
+          <div className="h-4 rounded-full bg-white/10 animate-pulse" />
+          <div className="h-4 rounded-full bg-white/10 animate-pulse w-3/4 mx-auto" />
+        </div>
+        <p className="text-slate-400 text-sm">Preparando la sesión de juego…</p>
+      </div>
+    );
   }
 
   if (sessionError) {
@@ -847,6 +870,21 @@ export default function GameSession() { // NOSONAR
   const playErrors = Math.max(0, playAttempts - correctAnswers);
 
   return (
+    <ErrorBoundary
+      fallback={
+        <div className="game-bg min-h-screen flex flex-col items-center justify-center gap-4 p-8 text-center">
+          <div className="text-6xl">😵</div>
+          <h1 className="text-2xl font-bold text-white">Algo salió mal en el juego</h1>
+          <p className="text-slate-400 max-w-md">Ocurrió un error inesperado durante la partida.</p>
+          <button
+            onClick={goHome}
+            className="px-5 py-3 rounded-xl bg-indigo-500 hover:bg-indigo-400 transition-colors text-white"
+          >
+            Volver al Dashboard
+          </button>
+        </div>
+      }
+    >
     <div className="game-bg min-h-screen flex flex-col relative overflow-hidden">
       <output className="sr-only" aria-live="polite" aria-atomic="true">
         {srAnnouncement}
@@ -1102,7 +1140,10 @@ export default function GameSession() { // NOSONAR
             errors={playErrors}
             attempts={playAttempts}
           />
-          <div className="flex justify-center items-center gap-2">
+          <div
+            className="flex justify-center items-center gap-2"
+            aria-label={`Progreso: ronda ${currentRound} de ${totalRounds}`}
+          >
             {roundIndicators.map(roundNumber => (
               <motion.div
                 key={`round-${roundNumber}`}
@@ -1135,24 +1176,23 @@ export default function GameSession() { // NOSONAR
 
       {/* Game Over Screen */}
       {gameState === 'finished' && (
-        <>
-          <GameOverScreen
-            score={score}
-            correctAnswers={correctAnswers}
-            totalRounds={totalRounds}
-            bestScore={0}
-            onPlayAgain={playAgain}
-            onGoHome={goHome}
-            shouldReduceMotion={shouldReduceMotion}
-          />
-          <PlaySummaryCard summary={playSummary} />
-        </>
+        <GameOverScreen
+          score={score}
+          correctAnswers={correctAnswers}
+          totalRounds={totalRounds}
+          bestScore={bestScore}
+          summary={playSummary}
+          onPlayAgain={playAgain}
+          onGoHome={goHome}
+          shouldReduceMotion={shouldReduceMotion}
+        />
       )}
     </div>
+    </ErrorBoundary>
   );
 }
 
-function AssociationGameplayPanel({ challenge, paused, shouldReduceMotion }) {
+const AssociationGameplayPanel = memo(function AssociationGameplayPanel({ challenge, paused, shouldReduceMotion }) {
   const resolveAssociationTheme = challengeValue => {
     const challengeKey = (challengeValue || '').toLowerCase();
 
@@ -1183,7 +1223,7 @@ function AssociationGameplayPanel({ challenge, paused, shouldReduceMotion }) {
       shouldReduceMotion={shouldReduceMotion}
     />
   );
-}
+});
 
 AssociationGameplayPanel.propTypes = {
   challenge: PropTypes.object,
@@ -1191,7 +1231,7 @@ AssociationGameplayPanel.propTypes = {
   shouldReduceMotion: PropTypes.bool
 };
 
-function MemoryGameplayPanel({ board, attempts, matchedCount, totalCards }) {
+const MemoryGameplayPanel = memo(function MemoryGameplayPanel({ board, attempts, matchedCount, totalCards }) {
   const totalPairs = Math.max(1, Math.ceil(Number(totalCards || 0) / 2));
   const matchedPairs = Math.max(0, Math.floor(Number(matchedCount || 0) / 2));
 
@@ -1204,7 +1244,7 @@ function MemoryGameplayPanel({ board, attempts, matchedCount, totalCards }) {
       <MemoryBoard board={board} />
     </div>
   );
-}
+});
 
 MemoryGameplayPanel.propTypes = {
   board: PropTypes.array,
@@ -1213,7 +1253,7 @@ MemoryGameplayPanel.propTypes = {
   totalCards: PropTypes.number
 };
 
-function CurrentPlayMetrics({ mode, score, correctAnswers, errors, attempts }) {
+const CurrentPlayMetrics = memo(function CurrentPlayMetrics({ mode, score, correctAnswers, errors, attempts }) {
   const safeAttempts = Math.max(1, attempts || 0);
 
   return (
@@ -1228,7 +1268,7 @@ function CurrentPlayMetrics({ mode, score, correctAnswers, errors, attempts }) {
       </div>
     </div>
   );
-}
+});
 
 CurrentPlayMetrics.propTypes = {
   mode: PropTypes.string,
@@ -1250,47 +1290,6 @@ function MetricPill({ label, value }) {
 MetricPill.propTypes = {
   label: PropTypes.string,
   value: PropTypes.oneOfType([PropTypes.string, PropTypes.number])
-};
-
-function PlaySummaryCard({ summary }) {
-  if (!summary) {
-    return null;
-  }
-
-  const avgSeconds = summary.averageResponseTimeMs > 0
-    ? (summary.averageResponseTimeMs / 1000).toFixed(1)
-    : '0.0';
-
-  const totalMinutes = summary.totalTimePlayed > 0
-    ? (summary.totalTimePlayed / (1000 * 60)).toFixed(1)
-    : '0.0';
-
-  return (
-    <div className="fixed left-1/2 -translate-x-1/2 bottom-4 z-[60] w-[min(92vw,640px)] rounded-2xl border border-white/10 bg-slate-900/90 backdrop-blur-xl p-4">
-      <h3 className="text-sm font-semibold text-white mb-3">Resumen de la partida</h3>
-      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-xs">
-        <MetricPill label="Modo" value={summary.mode === 'memory' ? 'Memoria' : 'Asociación'} />
-        <MetricPill label="Aciertos" value={summary.correctAnswers} />
-        <MetricPill label="Errores" value={summary.errors} />
-        <MetricPill label="Intentos" value={summary.attempts} />
-        <MetricPill label="Puntos" value={summary.score} />
-        <MetricPill label="Respuesta media" value={`${avgSeconds}s`} />
-        <MetricPill label="Tiempo total" value={`${totalMinutes} min`} />
-      </div>
-    </div>
-  );
-}
-
-PlaySummaryCard.propTypes = {
-  summary: PropTypes.shape({
-    score: PropTypes.number,
-    correctAnswers: PropTypes.number,
-    errors: PropTypes.number,
-    attempts: PropTypes.number,
-    averageResponseTimeMs: PropTypes.number,
-    totalTimePlayed: PropTypes.number,
-    mode: PropTypes.string
-  })
 };
 
 function resolveMemoryColumns(totalCards) {
@@ -1328,31 +1327,45 @@ function MemoryBoard({ board }) {
       <div
         className="grid gap-3"
         style={{ gridTemplateColumns: `repeat(${columns}, minmax(0, 1fr))` }}
+        role="grid"
+        aria-label="Tablero de memoria"
       >
         {safeBoard.map(slot => {
           const isOpen = Boolean(slot.isRevealed || slot.isMatched);
           const slotClasses = getMemorySlotClasses(slot.isMatched, isOpen);
+          const matchedSuffix = slot.isMatched ? ' — emparejada' : '';
+          const slotLabel = isOpen
+            ? `Carta ${slot.assignedValue || ''}${matchedSuffix}`.trim()
+            : 'Carta oculta';
 
           return (
             <div
               key={`memory-slot-${slot.slotIndex}`}
               className={cn(
-                'aspect-square rounded-xl border p-2 flex items-center justify-center transition-all',
+                'aspect-square rounded-xl border transition-all memory-card-flip',
                 slotClasses
               )}
+              role="gridcell"
+              aria-label={slotLabel}
             >
-              {isOpen ? (
-                <CardAssetPreview
-                  asset={slot.displayData || { display: slot.assignedValue || '🎴' }}
-                  className="w-full h-full rounded-lg"
-                  loading="eager"
-                  fallbackLabel={slot.displayData?.display || slot.assignedValue || '🎴'}
-                />
-              ) : (
-                <div className="w-full h-full rounded-lg bg-slate-700/60 flex items-center justify-center text-slate-300 text-lg">
+              <div className={cn(
+                'relative w-full h-full memory-card-inner',
+                isOpen && 'memory-card-flipped'
+              )}>
+                {/* Cara trasera (oculta) */}
+                <div className="memory-card-face w-full h-full rounded-lg bg-slate-700/60 flex items-center justify-center text-slate-300 text-lg">
                   ?
                 </div>
-              )}
+                {/* Cara frontal (contenido) */}
+                <div className="memory-card-back w-full h-full rounded-lg p-2 flex items-center justify-center">
+                  <CardAssetPreview
+                    asset={slot.displayData || { display: slot.assignedValue || '🎴' }}
+                    className="w-full h-full rounded-lg"
+                    loading="eager"
+                    fallbackLabel={slot.displayData?.display || slot.assignedValue || '🎴'}
+                  />
+                </div>
+              </div>
             </div>
           );
         })}
@@ -1389,13 +1402,17 @@ function FallbackTouchPanel({ cards, onSelectCard, onPauseRequest, canPause }) {
       </div>
 
       {visibleCards.length > 0 && (
-        <div className="mt-4 grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-2">
+        <fieldset
+          className="mt-4 grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-2 border-0 p-0 m-0"
+          aria-label="Cartas disponibles para selección táctil"
+        >
           {visibleCards.map(card => (
             <button
               key={`fallback-card-${card.uid}`}
               type="button"
               onClick={() => onSelectCard(card)}
-              className="rounded-xl border border-white/10 bg-slate-900/40 p-2 text-left hover:bg-slate-900/60 transition-colors"
+              aria-label={`Seleccionar carta: ${card.assignedValue || card.uid}`}
+              className="rounded-xl border border-white/10 bg-slate-900/40 p-2 text-left hover:bg-slate-900/60 transition-colors focus-visible:ring-2 focus-visible:ring-indigo-400 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-900"
             >
               <CardAssetPreview
                 asset={card.displayData || { display: card.assignedValue || card.uid }}
@@ -1409,7 +1426,7 @@ function FallbackTouchPanel({ cards, onSelectCard, onPauseRequest, canPause }) {
               </div>
             </button>
           ))}
-        </div>
+        </fieldset>
       )}
 
       {canPause && (
