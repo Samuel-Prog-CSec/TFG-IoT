@@ -615,6 +615,12 @@ io.on('connection', socket => {
 | `rfid_event` | `{ event, uid?, type?, ... }` | Evento RFID dirigido por room |
 | `rfid_status` | `{ status }` | Estado de conexión sensor (admin_room) |
 | `rfid_mode_changed` | `{ mode, sensorId, metadata, socketId, updatedAt }` | Estado canónico del modo RFID por usuario |
+| `play_state` | `{ playId, status, isPaused, mechanicName, currentRound, score, maxRounds, awaitingResponse, remainingTimeMs, timeLimitSeconds, currentChallenge?, memoryState? }` | Snapshot exacto de partida para rehidratación tras `join_play` / reconexión |
+| `new_round` | `{ roundNumber, totalRounds, challenge, timeLimit, score }` | Inicio de ronda o modo activo |
+| `validation_result` | `{ isCorrect, timeout?, pointsAwarded, newScore, feedbackDelayMs?, ... }` | Resultado de escaneo/validación |
+| `memory_turn_state` | `{ playId, board, matchedCount, totalCards, attempts, remainingTimeMs, score, phase }` | Estado intermedio de memoria (primera carta, match, mismatch, conceal) |
+| `game_over` | `{ playId, finalScore, metrics, ... }` | Cierre de partida con métricas |
+| `play_interrupted` | `{ playId, reason, message, finalScore }` | Interrupción forzada de partida (ej. reinicio de servidor) |
 | `play_paused` | `{ playId, currentRound, remainingTimeMs }` | Partida pausada |
 | `play_resumed` | `{ playId, currentRound, remainingTimeMs, challenge? }` | Partida reanudada |
 | `session_invalidated` | `{ reason, timestamp }` | Sesión cerrada por nuevo login en otro dispositivo |
@@ -636,6 +642,69 @@ io.on('connection', socket => {
 | `AUTH_REQUIRED` | Token requerido en handshake | Enviar token al conectar |
 | `FORBIDDEN` | No tienes permisos | Revisar rol/ownership |
 | `ROUND_BLOCKED` | Ronda bloqueada por `awaitingResponse` | Esperar `validation_result` o timeout |
+
+### 6.3 Flujo realtime específico para Memoria (Sprint 4)
+
+1. Cliente envía `join_play` y `start_play`.
+2. Servidor emite `new_round` con `challenge.displayData.mode = "memory_board"`.
+3. Al primer escaneo válido, servidor emite `memory_turn_state` con `phase = "first_pick"`.
+4. Al segundo escaneo:
+   - Si hay pareja correcta: `validation_result` + `memory_turn_state` (`phase = "match"`).
+   - Si hay pareja incorrecta: `validation_result` + `memory_turn_state` (`phase = "mismatch"`) y, tras delay, `memory_turn_state` (`phase = "concealed"`).
+5. La partida termina por tiempo global agotado o por tablero completado (todas las parejas encontradas).
+
+### 6.4 Payload mínimo de `memory_turn_state`
+
+```json
+{
+  "playId": "<ObjectId>",
+  "phase": "first_pick",
+  "attempts": 3,
+  "matchedCount": 4,
+  "totalCards": 10,
+  "remainingTimeMs": 27450,
+  "score": 20,
+  "board": [
+    {
+      "slotIndex": 0,
+      "uid": "AA000001",
+      "assignedValue": "España",
+      "isMatched": false,
+      "isSelected": true,
+      "isRevealed": true,
+      "displayData": { "key": "spain", "display": "🇪🇸", "value": "España" }
+    }
+  ]
+}
+```
+
+### 6.5 Payload mínimo de `play_state` (snapshot de reconexión)
+
+```json
+{
+  "playId": "<ObjectId>",
+  "status": "in-progress",
+  "isPaused": false,
+  "mechanicName": "memory",
+  "currentRound": 2,
+  "score": 30,
+  "maxRounds": 5,
+  "awaitingResponse": true,
+  "remainingTimeMs": 8200,
+  "timeLimitSeconds": 15,
+  "currentChallenge": {
+    "uid": "AA000001",
+    "assignedValue": "España",
+    "displayData": { "key": "spain", "display": "🇪🇸", "value": "España" }
+  },
+  "memoryState": {
+    "attempts": 3,
+    "matchedCount": 4,
+    "totalCards": 10,
+    "board": []
+  }
+}
+```
 
 ---
 

@@ -439,10 +439,10 @@ Elimina el audio de un asset específico.
 | `GET`    | `/`          | Listar sesiones            | Profesor |
 | `GET`    | `/:id`       | Obtener detalles de sesión | Profesor |
 | `POST`   | `/`          | Crear sesión               | Profesor |
+| `POST`   | `/:id/clone` | Clonar sesión              | Profesor |
 | `PUT`    | `/:id`       | Actualizar sesión          | Profesor |
 | `DELETE` | `/:id`       | Eliminar sesión            | Profesor |
 | `POST`   | `/:id/start` | Iniciar sesión             | Profesor |
-| `POST`   | `/:id/pause` | Pausar sesión              | Profesor |
 | `POST`   | `/:id/end`   | Finalizar sesión           | Profesor |
 
 **Ciclo de Vida de la Sesión:**
@@ -456,6 +456,131 @@ Elimina el audio de un asset específico.
 - El mapeo de tarjetas (`cardMappings`) de una sesión **se deriva del mazo** (`deckId`).
 - Al crear/consultar/actualizar/iniciar una sesión, el backend **sincroniza** el mapping con el mazo actual, para que si el mazo cambia (nuevas tarjetas, cambios de valores), la sesión use siempre el mapping vigente.
 - `config.numberOfCards` depende del número de `cardMappings` del mazo y se ajusta automáticamente.
+
+#### `POST /sessions/:id/clone` (T-037)
+
+Clona una sesión existente con estas reglas:
+
+- Requiere ownership estricto del profesor creador de la sesión origen.
+- La sesión clonada siempre nace en estado `created` y sin `startedAt` / `endedAt`.
+- El clon **resincroniza `cardMappings` y `contextId`** con el `deckId` actual (no snapshot estático).
+- Para mecánica `memory`, el clon **reinicia `boardLayout` vacío** para forzar recolocación manual de tarjetas en el tablero virtual antes de iniciar.
+- Para mecánica `association`, el clon **precarga `associationChallengePlan` como borrador** (intentando conservar/reparar el plan previo) y marca `requiresAssociationPlanConfiguration=true` para forzar confirmación docente antes de iniciar.
+- Para mecánicas no memory, si el `boardLayout` original queda desalineado tras resincronizar, el backend lo reconstruye desde el mapping actual.
+
+Body requerido:
+
+```json
+{}
+```
+
+Respuesta exitosa:
+
+```json
+{
+  "success": true,
+  "message": "Sesión clonada exitosamente",
+  "data": {
+    "id": "<newSessionId>",
+    "status": "created"
+  }
+}
+```
+
+**Reglas Sprint 4 (T-056):**
+
+- En creación de sesión, la disponibilidad de mecánicas se controla por feature flag (`SESSION_ENABLED_MECHANICS`) y por reglas de mecánica (`rules.behavior.availability`).
+- Una mecánica marcada como `coming_soon` se rechaza aunque exista en catálogo.
+- Si `SESSION_ENABLED_MECHANICS` no está definido, se aceptan mecánicas activas no marcadas como `coming_soon`.
+
+#### Body recomendado para `POST /sessions`
+
+```json
+{
+  "mechanicId": "<ObjectId>",
+  "deckId": "<ObjectId>",
+  "config": {
+    "numberOfRounds": 5,
+    "timeLimit": 30,
+    "pointsPerCorrect": 10,
+    "penaltyPerError": -2
+  },
+  "boardLayout": [
+    {
+      "slotIndex": 0,
+      "cardId": "<ObjectId>",
+      "uid": "AA000001",
+      "assignedValue": "España",
+      "displayData": { "key": "spain", "display": "🇪🇸", "value": "España" }
+    }
+  ],
+  "associationChallengePlan": [
+    {
+      "roundNumber": 1,
+      "cardId": "<ObjectId>",
+      "uid": "AA000001",
+      "assignedValue": "España",
+      "displayData": { "key": "spain", "display": "🇪🇸", "value": "España" },
+      "promptText": "Encuentra el país con capital Madrid"
+    }
+  ],
+  "sensorId": "sensor-001"
+}
+```
+
+#### Reglas de `boardLayout`
+
+- `boardLayout` es opcional para asociación y obligatorio para memoria.
+- No permite `slotIndex` duplicados.
+- No permite tarjetas duplicadas (`cardId`).
+- Cada tarjeta de `boardLayout` debe pertenecer al `deckId` de la sesión.
+- `uid` y `assignedValue` de cada slot deben coincidir con el mapping sincronizado del mazo.
+- En memoria, `boardLayout` debe cubrir todas las tarjetas del mazo y respetar el tamaño de grupo de matching configurado por mecánica.
+- Si el mazo se resincroniza y cambia, el backend poda automáticamente entradas inválidas de `boardLayout`.
+
+#### Reglas de `associationChallengePlan`
+
+- Es obligatorio en creación para sesiones de `association`.
+- Debe incluir exactamente `config.numberOfRounds` retos.
+- Cada reto debe mapear a una tarjeta válida del mazo sincronizado (`cardId`/`uid`/`assignedValue` coherentes).
+- `roundNumber` debe ser consecutivo y sin duplicados (1..N).
+- `promptText` es opcional (máximo 180 caracteres).
+- En `start`, si el plan quedó inválido por cambios del mazo, el backend intenta auto-repararlo; si no puede resolver todas las rondas, bloquea el inicio hasta corrección manual.
+
+#### Límites de tiempo por mecánica
+
+- Asociación: `timeLimit` según límites de la mecánica (seed por defecto: `5-60`).
+- Memoria: `timeLimit` global de partida (seed por defecto: `10-300`).
+- El backend valida `config` contra `rules.limits` de la mecánica seleccionada en create/update.
+
+#### Respuesta de sesión (`GET /sessions/:id`, `POST /sessions`, `PUT /sessions/:id`)
+
+Además de `cardMappings`, la sesión incluye:
+
+```json
+{
+  "boardLayout": [
+    {
+      "slotIndex": 0,
+      "cardId": "<ObjectId>",
+      "uid": "AA000001",
+      "assignedValue": "España",
+      "displayData": { "key": "spain", "display": "🇪🇸", "value": "España" }
+    }
+  ],
+  "associationChallengePlan": [
+    {
+      "roundNumber": 1,
+      "cardId": "<ObjectId>",
+      "uid": "AA000001",
+      "assignedValue": "España",
+      "displayData": { "key": "spain", "display": "🇪🇸", "value": "España" },
+      "promptText": "Encuentra el país con capital Madrid"
+    }
+  ],
+  "requiresAssociationPlanConfiguration": false
+}
+```
 
 ---
 

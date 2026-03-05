@@ -459,6 +459,19 @@ const abandonPlay = async (req, res, next) => {
     await play.save();
     await recalculateSessionStatusFromPlays(play.sessionId);
 
+    // Limpiar estado del motor si la partida está activa (timers, Redis, cards)
+    const gameEngine = req.app.get('gameEngine');
+    if (gameEngine) {
+      try {
+        await gameEngine.endPlay(id);
+      } catch (engineErr) {
+        logger.warn('No se pudo limpiar la partida del motor al abandonar', {
+          playId: id,
+          error: engineErr.message
+        });
+      }
+    }
+
     logger.info('Partida abandonada', {
       playId: play._id,
       playerId: play.playerId,

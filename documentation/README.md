@@ -7,6 +7,8 @@ Este directorio reúne la documentación técnica, de seguridad y de planificaci
 - [00-Requisitos](00-Requisitos.md)
 - [02-Patrones de Diseño](02-Patrones_Diseno.md)
 - [03-Gestión de Dependencias](03-Gestion_Dependencias.md)
+- [Flujo Mazo-Sesión-Mecánicas](Flujo_Mazos_Sesiones_Mecanicas.md)
+- [Optimización Chunks Frontend (Vite)](Frontend_Chunking_Vite_Optimization_2026-03-01.md)
 - [Mantenimiento de Seguridad](Security_Maintenance.md)
 - [Vulnerabilidades avanzadas](advanced_vulnerabilities.md)
 - [Dashboard](Dashboard.md)

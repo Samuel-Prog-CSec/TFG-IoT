@@ -1,4 +1,5 @@
 import { motion } from 'framer-motion';
+import PropTypes from 'prop-types';
 import { cn } from '../../lib/utils';
 
 /**
@@ -14,6 +15,7 @@ export default function CharacterMascot({
   mood = 'idle', 
   message,
   position = 'left',
+  shouldReduceMotion = false,
   className 
 }) {
   const mascotEmojis = {
@@ -85,7 +87,7 @@ export default function CharacterMascot({
       {/* Speech bubble */}
       {displayMessage && (
         <motion.div
-          initial={{ opacity: 0, scale: 0, y: 10 }}
+          initial={shouldReduceMotion ? false : { opacity: 0, scale: 0, y: 10 }}
           animate={{ opacity: 1, scale: 1, y: 0 }}
           key={displayMessage}
           className={cn(
@@ -110,7 +112,7 @@ export default function CharacterMascot({
 
       {/* Mascot container */}
       <motion.div
-        animate={bodyAnimation[expr.bodyAnim]}
+        animate={shouldReduceMotion ? { x: 0, y: 0, scale: 1, rotate: 0 } : bodyAnimation[expr.bodyAnim]}
         className="relative"
       >
         {/* Glow effect */}
@@ -125,16 +127,16 @@ export default function CharacterMascot({
         {/* Mascot emoji */}
         <motion.div
           className="relative text-6xl select-none filter drop-shadow-lg"
-          animate={mood === 'happy' || mood === 'celebrating' ? {
+          animate={!shouldReduceMotion && (mood === 'happy' || mood === 'celebrating') ? {
             scale: [1, 1.1, 1],
-          } : {}}
-          transition={{ duration: 0.5, repeat: Infinity }}
+          } : { scale: 1 }}
+          transition={{ duration: 0.5, repeat: !shouldReduceMotion && (mood === 'happy' || mood === 'celebrating') ? Infinity : 0 }}
         >
           {mascotEmojis[mood]}
         </motion.div>
 
         {/* Extra decorations for celebrating */}
-        {mood === 'celebrating' && (
+        {mood === 'celebrating' && !shouldReduceMotion && (
           <>
             <motion.span
               className="absolute -top-2 -right-2 text-xl"
@@ -161,3 +163,11 @@ export default function CharacterMascot({
     </div>
   );
 }
+
+CharacterMascot.propTypes = {
+  mood: PropTypes.oneOf(['idle', 'happy', 'encouraging', 'celebrating', 'thinking', 'sad']),
+  message: PropTypes.string,
+  position: PropTypes.oneOf(['left', 'right']),
+  shouldReduceMotion: PropTypes.bool,
+  className: PropTypes.string
+};

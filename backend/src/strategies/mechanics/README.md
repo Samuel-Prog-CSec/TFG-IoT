@@ -14,3 +14,9 @@ Cada estrategia debe exponer:
 
 - La instancia de estrategia es stateless.
 - El estado por partida se guarda en `playState.strategyState`.
+
+## Cobertura Sprint 4
+
+- `association`: mecánica productiva principal (consigna en pantalla + escaneo de respuesta).
+- `memory`: mecánica productiva principal con estado de soporte para tablero de memoria (grupos, cursor de ronda y última carta revelada).
+- `sequence`: visible en catálogo pero marcada como `coming_soon` para creación de sesiones en este sprint.

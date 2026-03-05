@@ -389,6 +389,24 @@ describe('Validation (Zod) - All API endpoints', () => {
       expect(res.statusCode).toBe(400);
     });
 
+    it('POST /api/sessions/:id/clone - invalid params', async () => {
+      const res = await request(app)
+        .post('/api/sessions/invalid/clone')
+        .set(makeAuthHeaders(teacherToken))
+        .send({});
+
+      expect(res.statusCode).toBe(400);
+    });
+
+    it('POST /api/sessions/:id/clone - invalid body', async () => {
+      const res = await request(app)
+        .post('/api/sessions/507f1f77bcf86cd799439011/clone')
+        .set(makeAuthHeaders(teacherToken))
+        .send({ force: true });
+
+      expect(res.statusCode).toBe(400);
+    });
+
     it('PUT /api/sessions/:id - invalid body', async () => {
       const res = await request(app)
         .put('/api/sessions/507f1f77bcf86cd799439011')

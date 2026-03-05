@@ -10,6 +10,9 @@
     "lint:fix": "eslint . --fix",
     "lint:staged": "eslint",
     "preview": "vite preview",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:coverage": "vitest run --coverage",
     "audit:full": "npm audit",
     "audit:prod": "npm audit --omit=dev",
     "audit:full:json": "npm audit --json",
@@ -40,6 +43,9 @@
     "tailwindcss": "^4.2.0"
   },
   "devDependencies": {
+    "@testing-library/jest-dom": "^6.9.1",
+    "@testing-library/react": "^16.3.0",
+    "@testing-library/user-event": "^14.6.1",
     "@eslint/js": "^9.39.2",
     "@vitejs/plugin-react-swc": "^4.2.3",
     "eslint": "^9.39.2",
@@ -48,6 +54,8 @@
     "eslint-plugin-react-hooks": "^7.0.1",
     "eslint-plugin-react-refresh": "^0.5.0",
     "globals": "^17.3.0",
+    "jsdom": "^27.0.1",
+    "vitest": "^3.2.4",
     "vite": "^7.3.1"
   }
 }

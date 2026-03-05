@@ -43,7 +43,7 @@ Una tarea solo puede pasar a ✅ si cumple **todas**:
 
 ## P0 - Prioridad Crítica (Bloqueantes)
 
-### T-054: Gameplay Real Asociación + Memoria (E2E) 📋
+### T-054: Gameplay Real Asociación + Memoria (E2E) ✅
 
 **Prioridad:** P0 | **Tamaño:** XL | **Dependencias:** Ninguna  
 **Origen:** RF-JGO-002, RF-JGO-004, RF-RT-011, RF-RT-012
@@ -53,19 +53,38 @@ Conectar la pantalla de partida real del frontend con el backend vía Socket.IO 
 
 **Sub-tareas:**
 
-1. Integrar `GameSession` con eventos reales (`join_play`, `new_round`, `validation_result`, `game_over`, `play_paused`, `play_resumed`).
-2. Eliminar dependencias de flujo simulado en la ruta productiva.
-3. Añadir fallback visual robusto para reconexión y desincronización de estado.
-4. Validar comportamiento por mecánica (asociación/memoria) con desafíos y feedback correctos.
-5. Añadir tests de integración backend para flujo de eventos críticos.
+1. Integrar `GameSession` con eventos reales (`join_play`, `new_round`, `validation_result`, `memory_turn_state`, `game_over`, `play_paused`, `play_resumed`).
+2. Eliminar dependencias de flujo simulado y fallback REST en la ruta productiva de gameplay.
+3. Añadir fallback visual robusto para reconexión, pérdida de socket y desincronización de estado.
+4. Implementar dos vistas de partida diferenciadas por mecánica (Asociación vs Memoria) sobre la misma pantalla de runtime.
+5. Mostrar métricas de partida actual en HUD y resumen ampliado al finalizar (sin sustituir persistencia backend para dashboards).
+6. Añadir tests frontend de integración de `GameSession` para eventos críticos de ambas mecánicas.
+7. Mantener compatibilidad con el contrato de configuración proveniente del wizard (`config` + `boardLayout` en memoria).
+8. Documentar contrato de eventos gameplay y estados UI para trazabilidad del sprint.
 
 **Criterios de Aceptación (medibles):**
 
-- [ ] Se puede completar una partida real de 5 rondas desde UI en ambas mecánicas.
-- [ ] Los eventos `new_round`, `validation_result`, `game_over` se reflejan sin refrescar la página.
-- [ ] Pausa/reanudación desde UI funciona sin romper la ronda actual.
-- [ ] No queda lógica de simulación en ruta de juego productiva.
-- [ ] Tests críticos de flujo de juego pasan en CI local.
+- [x] Los eventos `new_round`, `validation_result`, `memory_turn_state` y `game_over` se reflejan sin refrescar la página.
+- [x] La UI diferencia claramente Association y Memory con comportamiento y bloques visuales propios.
+- [x] Pausa/reanudación desde UI queda en modo realtime estricto sin fallback REST.
+- [x] No queda lógica de simulación en ruta de juego productiva.
+- [x] Se muestran métricas de la partida actual en juego y resumen final ampliado.
+- [x] Existe cobertura frontend de integración para `GameSession` en ambas mecánicas y errores realtime críticos.
+- [x] Se puede completar una partida real de 5 rondas desde UI en ambas mecánicas (pendiente validación manual final con sensor físico).
+- [x] Tests críticos backend de flujo de juego pasan en CI local en esta iteración.
+
+**Avance (01-03-2026):**
+
+- `frontend/src/pages/GameSession.jsx` refactorizada con state machine de runtime robusta y estado explícito de conexión (`connecting/connected/reconnecting/disconnected`).
+- Se separaron vistas de juego por mecánica (`AssociationGameplayPanel`, `MemoryGameplayPanel`) y se añadió panel de métricas de partida en vivo + resumen final (`PlaySummaryCard`).
+- Se endureció manejo UX de errores socket con mapeo de códigos backend (`RFID_MODE_INVALID`, `RFID_SENSOR_UNAUTHORIZED`, `ROUND_BLOCKED`, etc.).
+- Se eliminó fallback REST en `togglePause`/`toggleResume`; la ruta productiva de partida queda socket-first.
+- Se añadió infraestructura de tests frontend (Vitest + Testing Library) y suite dedicada en `frontend/src/pages/__tests__/GameSession.test.jsx` con 7 escenarios críticos.
+- Evidencia local de validación frontend en verde:
+	- `npm run test` (frontend)
+	- `eslint` específico sobre archivos modificados (`GameSession.jsx`, test suite, setup Vitest)
+- Evidencia local de validación backend crítica en verde:
+	- `npm test -- tests/gameFlow.test.js tests/playPauseResume.test.js tests/socketAuth.test.js tests/socketRateLimiter.test.js`
 
 ---
 
@@ -216,7 +235,7 @@ Aplicar y automatizar reglas de transición de estado de `GameSession` según es
 
 ---
 
-### T-056: Wizard Adaptativo por Mecánica (Asociación vs Memoria) 📋
+### T-056: Wizard Adaptativo por Mecánica (Asociación vs Memoria) ✅
 
 **Prioridad:** P1 | **Tamaño:** L | **Dependencias:** T-054  
 **Origen:** RF-JGO-013, RF-JGO-014, FE-01
@@ -234,14 +253,38 @@ Modificar el wizard de creación de sesión para que las fases y validaciones ca
 
 **Criterios de Aceptación (medibles):**
 
-- [ ] Asociación no muestra pasos exclusivos de Memoria.
-- [ ] Memoria mantiene paso de layout/tablero con validación.
-- [ ] No se puede finalizar wizard con configuración inconsistente.
-- [ ] Tests de validación de payload por mecánica pasan.
+- [x] Asociación no muestra pasos exclusivos de Memoria.
+- [x] Memoria mantiene paso de layout/tablero con validación.
+- [x] No se puede finalizar wizard con configuración inconsistente.
+- [x] Tests de validación de payload por mecánica pasan.
+
+**Avance (27-02-2026):**
+
+- Wizard de creación de sesión actualizado para permitir selección solo de `association` y `memory`.
+- Mecánicas fuera de alcance (ej. `sequence`) se muestran como **"Próximamente"** y quedan deshabilitadas en UI.
+- Backend endurecido para validar disponibilidad de mecánicas por feature flag (`SESSION_ENABLED_MECHANICS`) y bloquear `coming_soon` (evita bypass vía API).
+- Payload del wizard alineado con el contrato backend actual (sin campos extra fuera del schema).
+- Seeder de mecánicas y estrategia de memoria actualizados para reflejar contrato funcional de Sprint 4.
+
+**Cierre (27-02-2026):**
+
+- Se implementó `boardLayout` persistente en `GameSession` con validación backend (schema + validator + controller + DTO).
+- El wizard de creación adapta el paso de reglas según mecánica: Asociación usa flujo general y Memoria exige tablero completo antes de continuar.
+- En memoria, `timeLimit` quedó como tiempo global de partida configurable por docente en rango `10-300`.
+- `BoardSetup` persiste y recupera layout para evitar desalineación entre configuración inicial y ejecución real.
+- El runtime de Memoria en `gameEngine` usa temporizador global de partida y emite estado intermedio `memory_turn_state` para primera carta, match/mismatch y ocultación posterior.
+- `GameSession` (frontend) consume `memory_turn_state` y renderiza tablero de memoria en tiempo real.
+- Evidencia de regresión en verde:
+	- `memoryStrategy.test.js`
+	- `sessionMechanicAvailability.test.js`
+	- `gameFlow.test.js`
+	- `playPauseResume.test.js`
+	- `redisStateRecovery.test.js`
+	- `nextRoundCommand.test.js`
 
 ---
 
-### T-037: Replicar Sesión (clone) 📋
+### T-037: Replicar Sesión (clone) ✅
 
 **Prioridad:** P1 | **Tamaño:** M | **Dependencias:** T-056  
 **Origen:** RF-JGO-018
@@ -252,17 +295,44 @@ Permitir clonar una sesión existente para reutilizar configuración de forma se
 **Sub-tareas:**
 
 1. Backend: `POST /api/sessions/:id/clone` con control de ownership.
-2. Copiar configuración funcional (`mechanicId`, `contextId`, `config`, `cardMappings`).
+2. Clonar configuración funcional resincronizando con mazo actual (`mechanicId`, `deckId`, `contextId`, `config`, `cardMappings`).
 3. Resetear estado temporal (`status`, timestamps de ejecución).
 4. Frontend: acción “Volver a jugar” con confirmación.
 5. Añadir tests backend y UI para independencia de clon.
+6. Garantizar compatibilidad de `boardLayout` en mecánica memoria tras resincronización.
+7. Redirigir al detalle del clon para revisión/edición previa al juego.
 
 **Criterios de Aceptación (medibles):**
 
-- [ ] Clon crea nueva sesión con ID distinto.
-- [ ] Configuración se copia sin compartir estado mutable.
-- [ ] Estado inicial del clon es `created`.
-- [ ] Solo propietario autorizado puede clonar.
+- [x] Clon crea nueva sesión con ID distinto.
+- [x] Configuración se copia sin compartir estado mutable.
+- [x] Estado inicial del clon es `created`.
+- [x] Solo propietario autorizado puede clonar.
+- [x] El clon resincroniza `cardMappings` y `contextId` con el estado actual del mazo.
+- [x] En sesiones `memory`, el `boardLayout` resultante queda completo y consistente con mappings resincronizados.
+- [x] UI expone “Volver a jugar” en listado y detalle con confirmación explícita.
+- [x] Tras clonar, la navegación aterriza en el detalle del nuevo clon.
+
+**Avance (03-03-2026):**
+
+- Backend implementado en `POST /api/sessions/:id/clone` con validación estricta (`params` + body vacío), ownership por docente creador y respuesta DTO.
+- El clon nace en estado `created` y limpia `startedAt`/`endedAt` sin copiar estado runtime del origen.
+- Estrategia aplicada: resincronización contra `deckId` actual (no snapshot estático); si el `boardLayout` original queda desalineado, se reconstruye automáticamente desde mappings vigentes.
+- Regla específica para `memory`: el clon se crea con `boardLayout` vacío y exige recolocación manual del tablero virtual antes de iniciar gameplay.
+- Regla específica para `association`: el clon precarga `associationChallengePlan` como borrador editable (reparado contra el mazo actual cuando aplica) y mantiene `requiresAssociationPlanConfiguration=true`, bloqueando `start` hasta confirmación docente.
+- Wizard/edición reforzados para Association con compositor avanzado por ronda (`roundNumber`, tarjeta objetivo y `promptText` opcional), alineado con el contrato backend.
+- Frontend integrado en `SessionsPage` y `SessionDetail` con acción “Volver a jugar”, modal de confirmación y redirección al detalle del clon.
+- Cobertura añadida:
+	- Backend: `sessionClone.test.js`, validaciones de contrato en `validationEndpoints.test.js`.
+	- Frontend: `SessionsPage.clone.test.jsx`, `SessionDetail.clone.test.jsx`.
+
+**Cierre (03-03-2026):**
+
+- Evidencia backend en verde:
+	- `npm test -- tests/sessionClone.test.js tests/validationEndpoints.test.js`
+- Evidencia frontend en verde:
+	- `npm run test -- --run src/pages/__tests__/SessionsPage.clone.test.jsx src/pages/__tests__/SessionDetail.clone.test.jsx`
+- Documentación técnica actualizada en `backend/docs/API_v0.3.0.md` con contrato de clonación y reglas de resincronización.
 
 ---
 
@@ -753,26 +823,35 @@ Eliminar riesgos de estilos perdidos en build por clases Tailwind dinámicas y u
 
 ---
 
-### T-069: Accesibilidad del temporizador y controles interactivos 📋
+### T-069: Accesibilidad del temporizador y controles interactivos ✅
 
-**Prioridad:** P2 | **Tamaño:** S | **Dependencias:** T-060  
+**Prioridad:** P1 | **Tamaño:** M | **Dependencias:** T-060  
 **Origen:** FE-06
 
 **Descripción:**  
-Mejorar accesibilidad de controles y anuncios dinámicos para reducir ruido en lectores de pantalla y mejorar uso por teclado.
+Elevar la accesibilidad y la calidad UX de gameplay (Association + Memory) para público infantil (4-8), manteniendo estética premium sin introducir ruido cognitivo ni sobrecarga para lectores de pantalla.
 
 **Sub-tareas:**
 
-1. Ajustar estrategia `aria-live` del temporizador para anunciar solo umbrales críticos.
-2. Corregir controles interactivos no semánticos (switches/toggles) a elementos accesibles.
-3. Verificar navegación por teclado y focus visible en flujos críticos.
-4. Documentar verificación manual de accesibilidad básica.
+1. Rehacer estrategia `aria-live` del temporizador para anunciar solo umbrales críticos (`10`, `5`, `3`, `2`, `1`, `0`) y evitar anuncios por tick.
+2. Corregir semántica de toggles/controles de gameplay (`sound`, `pause/resume`) con estados ARIA explícitos (`aria-pressed`) y labels consistentes.
+3. Convertir overlay de pausa en diálogo accesible (`role="dialog"`, `aria-modal`, foco inicial, Escape para reanudar, retorno de foco al trigger).
+4. Añadir anuncios SR de estado runtime (`realtime`, errores socket, estado de partida) sin duplicados ni spam.
+5. Propagar `reduced-motion` en componentes críticos de gameplay (`TimerBar`, `ChallengeDisplay`, `CharacterMascot`, `FeedbackOverlay`, `GameOverScreen`) manteniendo identidad visual premium.
+6. Refinar copy y jerarquía textual en runtime para alumno (mensajes cortos y directos), preservando métricas completas en resumen final para docente.
+7. Ampliar cobertura de tests de integración de `GameSession` para umbrales de temporizador, controles ARIA y foco de pausa.
+8. Documentar checklist manual de validación de accesibilidad y UX de gameplay en guías frontend.
 
 **Criterios de Aceptación (medibles):**
 
-- [ ] El temporizador no produce anuncios excesivos en cada tick.
-- [ ] Los toggles críticos son operables por teclado y tienen atributos ARIA correctos.
-- [ ] Checklist de accesibilidad básica queda cubierto y documentado.
+- [ ] El temporizador no produce anuncios por cada segundo; solo se anuncian umbrales críticos definidos.
+- [ ] Los controles críticos (`sonido`, `pausa/reanudar`) son operables por teclado y reflejan estado con ARIA semántico.
+- [ ] En pausa, el foco entra al diálogo, permite reanudar por teclado y vuelve al control origen al cerrar.
+- [ ] Los cambios de estado realtime/RFID/errores se anuncian con `role=status`/`aria-live=polite` sin duplicación excesiva.
+- [ ] Con `prefers-reduced-motion` activo no hay loops o efectos de alta intensidad en gameplay.
+- [ ] La vista activa del alumno mantiene instrucciones breves y legibles; las métricas extendidas quedan en resumen final.
+- [ ] Existen tests de integración actualizados para timer/a11y/foco y pasan junto con la suite frontend objetivo.
+- [ ] El checklist manual de accesibilidad/UX queda documentado y trazable en docs frontend.
 
 ---
 

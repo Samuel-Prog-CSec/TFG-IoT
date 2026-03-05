@@ -29,7 +29,7 @@ const sessionConfigSchema = z.object({
     .number()
     .int('timeLimit debe ser un número entero')
     .min(3, 'El límite de tiempo debe ser al menos 3 segundos')
-    .max(60, 'El límite de tiempo no puede exceder 60 segundos')
+    .max(300, 'El límite de tiempo no puede exceder 300 segundos')
     .default(15),
 
   pointsPerCorrect: z
@@ -41,7 +41,7 @@ const sessionConfigSchema = z.object({
   penaltyPerError: z
     .number()
     .int('penaltyPerError debe ser un número entero')
-    .negative('La penalización debe ser un número negativo')
+    .nonpositive('La penalización debe ser cero o un número negativo')
     .default(-2)
 });
 
@@ -69,7 +69,7 @@ const cardMappingSchema = z
       .max(200, 'El valor asignado no puede exceder 200 caracteres')
       .trim(),
 
-    displayData: z.record(z.any()).optional().default({})
+    displayData: z.record(z.string(), z.any()).optional().default({})
   })
   .strict();
 
@@ -111,6 +111,73 @@ const cardMappingSchema = z
  */
 const sessionConfigInputSchema = sessionConfigSchema.partial();
 
+const boardLayoutItemSchema = z
+  .object({
+    slotIndex: z
+      .number()
+      .int('slotIndex debe ser un número entero')
+      .min(0, 'slotIndex no puede ser negativo'),
+    cardId: objectIdSchema,
+    uid: uidSchema,
+    assignedValue: z
+      .string()
+      .min(1, 'assignedValue es requerido en boardLayout')
+      .max(200, 'assignedValue en boardLayout no puede exceder 200 caracteres')
+      .trim(),
+    displayData: z.record(z.string(), z.any()).optional().default({})
+  })
+  .strict();
+
+const boardLayoutSchema = z
+  .array(boardLayoutItemSchema)
+  .optional()
+  .refine(layout => {
+    if (!Array.isArray(layout) || layout.length === 0) {
+      return true;
+    }
+
+    const slotSet = new Set(layout.map(item => item.slotIndex));
+    return slotSet.size === layout.length;
+  }, 'No puede haber slots duplicados en boardLayout')
+  .refine(layout => {
+    if (!Array.isArray(layout) || layout.length === 0) {
+      return true;
+    }
+
+    const cardSet = new Set(layout.map(item => item.cardId.toString()));
+    return cardSet.size === layout.length;
+  }, 'No puede haber tarjetas duplicadas en boardLayout');
+
+const associationChallengeItemSchema = z
+  .object({
+    roundNumber: z
+      .number()
+      .int('roundNumber debe ser un número entero')
+      .min(1, 'roundNumber debe ser >= 1'),
+    cardId: objectIdSchema,
+    uid: uidSchema,
+    assignedValue: z
+      .string()
+      .min(1, 'assignedValue es requerido en associationChallengePlan')
+      .max(200, 'assignedValue en associationChallengePlan no puede exceder 200 caracteres')
+      .trim(),
+    displayData: z.record(z.string(), z.any()).optional().default({}),
+    promptText: z.string().max(180, 'promptText no puede exceder 180 caracteres').trim().optional()
+  })
+  .strict();
+
+const associationChallengePlanSchema = z
+  .array(associationChallengeItemSchema)
+  .optional()
+  .refine(plan => {
+    if (!Array.isArray(plan) || plan.length === 0) {
+      return true;
+    }
+
+    const roundSet = new Set(plan.map(item => item.roundNumber));
+    return roundSet.size === plan.length;
+  }, 'No puede haber rondas duplicadas en associationChallengePlan');
+
 const createGameSessionSchema = z
   .object({
     mechanicId: objectIdSchema,
@@ -121,7 +188,11 @@ const createGameSessionSchema = z
 
     sensorId: z.string().max(100, 'sensorId no puede exceder 100 caracteres').trim().optional(),
 
-    config: sessionConfigInputSchema.optional()
+    config: sessionConfigInputSchema.optional(),
+
+    boardLayout: boardLayoutSchema,
+
+    associationChallengePlan: associationChallengePlanSchema
   })
   .strict()
   .refine(data => Object.keys(data).length > 0, {
@@ -142,6 +213,10 @@ const updateGameSessionSchema = z
     sensorId: z.string().max(100, 'sensorId no puede exceder 100 caracteres').trim().optional(),
 
     config: sessionConfigInputSchema.optional(),
+
+    boardLayout: boardLayoutSchema,
+
+    associationChallengePlan: associationChallengePlanSchema,
 
     difficulty: z.enum(['easy', 'medium', 'hard']).optional()
   })
@@ -199,12 +274,19 @@ const sessionActionSchema = z
   })
   .strict();
 
+const cloneSessionParamsSchema = z
+  .object({
+    id: objectIdSchema
+  })
+  .strict();
+
 module.exports = {
   createGameSessionSchema,
   updateGameSessionSchema,
   gameSessionQuerySchema,
   gameSessionParamsSchema,
   sessionActionSchema,
+  cloneSessionParamsSchema,
   sessionConfigSchema,
   sessionConfigInputSchema,
   cardMappingSchema

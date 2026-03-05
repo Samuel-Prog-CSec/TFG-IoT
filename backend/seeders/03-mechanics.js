@@ -20,8 +20,7 @@ const mechanicsData = [
     name: 'association',
     displayName: 'Asociación',
     description:
-      'El alumno debe asociar cada desafío con la tarjeta correcta. ' +
-      'Por ejemplo: se muestra la bandera de España y el alumno debe escanear la tarjeta asignada a "España".',
+      'Se muestra en pantalla una consigna o elemento visual y el alumno debe escanear la tarjeta física correcta en el sensor.',
     icon: 'association',
     rules: {
       // Configuración por defecto
@@ -43,10 +42,12 @@ const mechanicsData = [
       },
       // Comportamiento
       behavior: {
-        allowRepetition: true, // Un mismo desafío puede repetirse
-        showFeedback: true, // Mostrar si es correcto/incorrecto
-        soundEffects: true, // Reproducir sonidos
-        showTimer: true // Mostrar cuenta regresiva
+        challengeMode: 'single_prompt_single_scan',
+        allowRepetition: true,
+        avoidImmediateRepeat: true,
+        showFeedback: true,
+        soundEffects: true,
+        showTimer: true
       }
     },
     isActive: true
@@ -75,6 +76,7 @@ const mechanicsData = [
         maxTimeLimit: 120
       },
       behavior: {
+        availability: 'coming_soon',
         strictOrder: true, // Debe ser en orden exacto
         allowSkip: false, // No puede saltarse elementos
         showProgress: true, // Mostrar progreso (ej: "3 de 5")
@@ -87,29 +89,32 @@ const mechanicsData = [
     name: 'memory',
     displayName: 'Memoria',
     description:
-      'Se muestra un patrón de elementos y el alumno debe reproducirlo escaneando las tarjetas en el mismo orden.',
+      'Las cartas se muestran en tablero boca abajo. Al escanear, se revela su contenido; al formar parejas iguales se mantienen visibles y al fallar se vuelven a ocultar.',
     icon: 'memory',
     rules: {
       defaults: {
-        numberOfCards: 4,
+        numberOfCards: 6,
         numberOfRounds: 5,
         timeLimit: 20,
         pointsPerCorrect: 20,
         penaltyPerError: -3
       },
       limits: {
-        minCards: 3,
-        maxCards: 8,
+        minCards: 4,
+        maxCards: 20,
         minRounds: 1,
         maxRounds: 10,
         minTimeLimit: 10,
-        maxTimeLimit: 60
+        maxTimeLimit: 300
       },
       behavior: {
-        showPattern: true, // Mostrar el patrón al inicio
-        patternDisplayTime: 5, // Segundos que se muestra el patrón
-        incrementDifficulty: true, // Aumentar longitud del patrón
-        allowRetry: false // Permitir reintentar el patrón
+        boardMode: 'fixed_layout_from_wizard',
+        cardVisibilityStart: 'face_down',
+        matchingGroupSize: 2,
+        revealOnScan: true,
+        keepMatchedVisible: true,
+        hideUnmatchedAfterDelayMs: 1200,
+        completeWhenAllGroupsMatched: true
       }
     },
     isActive: true

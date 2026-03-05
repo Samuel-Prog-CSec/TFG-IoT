@@ -767,6 +767,14 @@ export const sessionsAPI = {
     api.post(`/sessions/${sessionId}/start`, {}),
 
   /**
+   * Clonar sesión existente (resincroniza mapping con el mazo actual)
+   * @param {string} sessionId
+   * @returns {Promise}
+   */
+  cloneSession: (sessionId) =>
+    api.post(`/sessions/${sessionId}/clone`, {}),
+
+  /**
    * Finalizar sesión de juego
    * @param {string} sessionId
    * @returns {Promise}
@@ -831,7 +839,16 @@ export const playsAPI = {
    * @returns {Promise}
    */
   abandonPlay: (playId) =>
-    api.post(`/plays/${playId}/abandon`, {})
+    api.post(`/plays/${playId}/abandon`, {}),
+
+  /**
+   * Obtener estadísticas de un jugador (opcionalmente filtradas por sesión).
+   * @param {string} playerId
+   * @param {Object} [params] - Ej: { sessionId }
+   * @returns {Promise}
+   */
+  getPlayerStats: (playerId, params = {}) =>
+    api.get(`/plays/stats/${playerId}`, { params })
 };
 
 export default api;
