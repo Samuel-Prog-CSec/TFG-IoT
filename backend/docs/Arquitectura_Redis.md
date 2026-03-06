@@ -10,10 +10,11 @@
 	- [Estado de Partidas Activas](#5-estado-de-partidas-activas)
 5. [Estructura de Keys y Namespaces](#estructura-de-keys-y-namespaces)
 6. [Servicio de Abstracción (redisService)](#servicio-de-abstracción-redisservice)
-7. [Desarrollo Local con Docker](#desarrollo-local-con-docker)
-8. [Producción con Upstash](#producción-con-upstash)
-9. [Monitoreo y Debug](#monitoreo-y-debug)
-10. [Decisiones de Diseño](#decisiones-de-diseño)
+7. [Operaciones Atómicas y Pipelines (T-066)](#operaciones-atómicas-y-pipelines-t-066)
+8. [Desarrollo Local con Docker](#desarrollo-local-con-docker)
+9. [Producción con Upstash](#producción-con-upstash)
+10. [Monitoreo y Debug](#monitoreo-y-debug)
+11. [Decisiones de Diseño](#decisiones-de-diseño)
 
 ---
 
@@ -472,17 +473,20 @@ prefijo     tipo      identificador
 
 ## Namespaces Disponibles
 
-| Namespace     | Propósito                    | Tipo Redis         | TTL                       | Ejemplo de Key           |
-| ------------- | ---------------------------- | ------------------ | ------------------------- | ------------------------ |
-| `blacklist`   | Access tokens revocados      | String             | Tiempo restante del token | `blacklist:jti-abc123`   |
-| `refresh`     | Refresh tokens activos       | Hash               | 7 días                    | `refresh:jti-xyz789`     |
-| `used`        | Refresh tokens ya rotados    | String (JSON)      | 7 días                    | `used:jti-abc123`        |
-| `security`    | Flags de invalidación masiva | String (timestamp) | 1 hora                    | `security:user-id-123`   |
-| `play`        | Estado de partidas activas   | Hash               | Sin TTL*                  | `play:play-id-456`       |
-| `card`        | Mapeo UID tarjeta → playId   | String             | Sin TTL*                  | `card:32B8FA05`          |
-| `tokenfamily` | Familias de tokens           | Set                | 7 días                    | `tokenfamily:family-abc` |
+| Namespace     | Propósito                    | Tipo Redis         | TTL                                    | Ejemplo de Key           |
+| ------------- | ---------------------------- | ------------------ | -------------------------------------- | ------------------------ |
+| `blacklist`   | Access tokens revocados      | String             | Tiempo restante del token              | `blacklist:jti-abc123`   |
+| `refresh`     | Refresh tokens activos       | Hash               | 7 días                                 | `refresh:jti-xyz789`     |
+| `used`        | Refresh tokens ya rotados    | String (JSON)      | 7 días                                 | `used:jti-abc123`        |
+| `security`    | Flags de invalidación masiva | String (timestamp) | 1 hora                                 | `security:user-id-123`   |
+| `play`        | Estado de partidas activas   | Hash               | 90s (renovado por heartbeat cada 30s)  | `play:play-id-456`       |
+| `card`        | Mapeo UID tarjeta → playId   | String             | 90s (renovado por heartbeat cada 30s)  | `card:32B8FA05`          |
+| `tokenfamily` | Familias de tokens           | Set                | 7 días                                 | `tokenfamily:family-abc` |
 
-*Se limpian manualmente al finalizar/abandonar la partida
+> **Nota sobre TTL de play/card (T-066):** Aunque antes este documento indicaba "Sin TTL*", el código
+> real aplica un TTL de 90s (`DISTRIBUTED_LOCK_TTL_SECONDS`) con un heartbeat de 30s
+> (`LOCK_HEARTBEAT_INTERVAL_MS`) que lo renueva periódicamente. Si el servidor se cae, las keys expiran
+> automáticamente en ≤90s, garantizando liberación de recursos sin intervención manual.
 
 ## ¿Por qué Tipos de Datos Diferentes?
 
@@ -617,6 +621,79 @@ const get = async (namespace, id) => {
 | Refresh tokens  | ❌ Refresh fallará (sin almacenamiento)                                  |
 | Partidas        | ❌ No se pueden iniciar (pero las en memoria continúan)                  |
 | Health check    | ✅ Reportará `redis: unhealthy`                                          |
+
+---
+
+# Operaciones Atómicas y Pipelines (T-066)
+
+## Contexto del problema
+Las operaciones originales de card locks usaban patrones secuenciales que presentaban
+race conditions en escenarios multi-instancia y generaban overhead de red excesivo:
+
+| Operación | Patrón anterior | Round-trips (20 cards) | Problema |
+|-----------|----------------|----------------------|----------|
+| Reserva | SET NX secuencial + rollback | N+rollback | Race window entre adquisiciones parciales |
+| Liberación | GET+compare+DEL por card | 3N = 60 | Keys huérfanas si crash entre GET y DEL |
+| Heartbeat | EXPIRE play + (GET+compare+EXPIRE)×N | 1+3N ≈ 61 | Latencia y carga excesiva cada 30s |
+| Recovery | HGETALL individual por play | N | N+1 al verificar estado de plays huérfanas |
+
+## Solución: Lua scripts + ioredis pipelines
+
+### Lua scripts (atomicidad)
+Tres scripts Lua en `backend/src/scripts/lua/`:
+
+1. **`reserveCards.lua`**: Verifica que TODAS las cards estén libres; si alguna está ocupada,
+   no escribe nada (all-or-nothing). Elimina la race window de adquisición parcial.
+
+2. **`releaseCards.lua`**: Para cada card, verifica que el playId coincida antes de borrar
+   (owner-aware). Elimina la ventana entre GET y DEL.
+
+3. **`renewLease.lua`**: Renueva play key + todas las card keys en una sola ejecución.
+   Con 20 cards, reduce de ~61 round-trips a 1.
+
+### ioredis pipelines (batch reads)
+Dos funciones pipeline en `redisService.js`:
+
+1. **`existsMany(namespace, ids)`**: Verifica existencia de N keys en 1 pipeline.
+2. **`hgetallMany(namespace, ids)`**: Lee N hashes en 1 pipeline.
+
+Usadas en `recoverOrphanedPlaysFromDB()` para eliminar el patrón N+1.
+
+## Wrappers en redisService.js
+Las funciones Lua se exponen como wrappers con **fallback automático** al patrón secuencial:
+
+```javascript
+// En producción: EVALSHA (1 round-trip atómico)
+// En tests (ioredis-mock): fallback a setManyIfNotExists secuencial
+const result = await redisService.reserveCardsAtomic(NAMESPACES.CARD, entries, 90);
+// → { ok: true/false, conflicts: [...] }
+
+const result = await redisService.releaseCardsAtomic(NAMESPACES.CARD, entries);
+// → { ok: true, deletedCount: N }
+
+const result = await redisService.renewLeaseAtomic(
+  NAMESPACES.PLAY, playId, NAMESPACES.CARD, cardUids, 90
+);
+// → { ok: true, playRenewed: true, cardsRenewed: N, cardsSkipped: 0 }
+```
+
+## Métricas de monitoreo (gameEngine.metrics)
+Nuevas métricas para observabilidad de las operaciones atómicas:
+
+| Métrica | Descripción |
+|---------|-------------|
+| `luaReserveCardExecutions` | Reservas atómicas ejecutadas con éxito |
+| `luaReserveCardConflicts` | Reservas rechazadas por conflicto |
+| `luaReleaseCardExecutions` | Liberaciones atómicas ejecutadas |
+| `luaRenewLeaseExecutions` | Renovaciones de lease ejecutadas |
+| `luaRenewLeasePartialFailures` | Renovaciones parciales (cards con owner distinto) |
+| `pipelineRecoveryBatchSize` | Tamaño del batch en recovery pipeline |
+
+## Benchmark
+El script `backend/scripts/benchmark-redis-ops.js` mide la mejora real:
+```bash
+node scripts/benchmark-redis-ops.js --cards=20 --iterations=100
+```
 
 ---
 
@@ -832,24 +909,48 @@ await redis.setex(key, ttlSeconds, value);
 
 **Decisión:** Hash es más eficiente para actualizaciones parciales frecuentes (cada ronda de juego).
 
-## 4. ¿Por qué no TTL en partidas activas?
-Las partidas **NO** tienen TTL porque:
-1. **Duración variable**: Una partida puede durar 2 minutos o 30 minutos
-2. **Pausa indefinida**: Un profesor puede pausar y continuar horas después
-3. **Limpieza controlada**: Solo se limpia explícitamente al `completar`, `abandonar` o `recuperar`
+## 4. TTL con heartbeat en partidas activas (actualizado T-066)
+Las partidas **SÍ** tienen TTL (90 segundos), renovado periódicamente por un heartbeat cada 30 segundos. Este diseño resuelve el problema de keys huérfanas si el servidor se cae:
+
+**Mecanismo:**
+1. Al iniciar una partida, las keys `play:{id}` y `card:{uid}` se crean con TTL de 90s
+2. Un heartbeat cada 30s renueva el TTL atómicamente (via Lua script `renewLease`)
+3. Si el servidor se cae, las keys expiran automáticamente en ≤90s
+4. Al finalizar, las keys se eliminan explícitamente (no esperamos expiración)
+
 ```javascript
-// Limpieza explícita, no por TTL:
-async completePlay(playId) {
-  await playDoc.save();  // MongoDB
-  await redisService.del(NAMESPACES.PLAY, playId);
-  
-  for (const mapping of cardMappings) {
-    await redisService.del(NAMESPACES.CARD, mapping.uid);
-  }
-}
+// Constantes configurables por entorno:
+DISTRIBUTED_LOCK_TTL_SECONDS = 90   // TTL de cada key
+LOCK_HEARTBEAT_INTERVAL_MS = 30000  // Renovación cada 30s
 ```
 
-## 5. ¿Por qué prefijos en las keys?
+**¿Por qué 90s y no menos?**
+- Margen de seguridad: 3× el intervalo de heartbeat
+- Tolera picos de latencia sin falsos abandonos
+- Suficientemente corto para liberar recursos rápidamente tras crash
+
+## 5. Operaciones atómicas Lua (T-066)
+Para garantizar consistencia en escenarios multi-instancia, las operaciones críticas
+sobre card locks se ejecutan como **Lua scripts** en el servidor Redis:
+
+| Script | Propósito | Round-trips |
+|--------|-----------|-------------|
+| `reserveCards.lua` | Reserva all-or-nothing de UIDs | 1 (antes: N+rollback) |
+| `releaseCards.lua` | Liberación owner-aware de UIDs | 1 (antes: 3N) |
+| `renewLease.lua` | Renovación de play + cards en heartbeat | 1 (antes: 1+3N) |
+
+**¿Por qué Lua y no pipelines para estas operaciones?**
+- Las pipelines ejecutan comandos en lote pero **no son atómicas**: otro cliente puede intercalar comandos entre ellos
+- Lua scripts se ejecutan de forma **indivisible** en el servidor Redis (single-threaded)
+- Para la reserva, necesitamos semántica all-or-nothing: si una card ya está tomada, no escribir nada
+- Para la liberación, necesitamos verificar el owner antes de borrar, sin ventana de carrera
+
+**Carga de scripts:**
+Los scripts se cargan en Redis al conectar via `SCRIPT LOAD` y se invocan por SHA (`EVALSHA`)
+para minimizar overhead de red. Si el SHA se pierde (ej. `SCRIPT FLUSH`), se cae
+automáticamente a `EVAL` con el source completo.
+
+## 6. ¿Por qué prefijos en las keys?
 ```
 rfid-games:blacklist:abc123
 ↑
@@ -862,7 +963,7 @@ prefijo configurable
 3. **Limpieza selectiva**: `KEYS rfid-games:*` solo nuestras keys
 4. **Evitar colisiones**: Otros proyectos no pisarán nuestras keys
 
-## 6. ¿Por qué "abandonar" partidas al reiniciar en lugar de continuarlas?
+## 7. ¿Por qué "abandonar" partidas al reiniciar en lugar de continuarlas?
 Al recuperar partidas tras un reinicio, las marcamos como **abandonadas** en lugar de intentar continuarlas:
 1. **Timers no serializables**: Los `setTimeout` de rondas se pierden
 2. **Estado de cliente desconocido**: No sabemos si el jugador sigue ahí

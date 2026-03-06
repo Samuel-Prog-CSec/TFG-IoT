@@ -115,7 +115,14 @@ class GameEngine {
       lockContention: 0,
       distributedLockLeaseRenewed: 0,
       distributedLockLeaseFailed: 0,
-      averagePlayDuration: 0
+      averagePlayDuration: 0,
+      // Métricas Lua (T-066)
+      luaReserveCardExecutions: 0,
+      luaReserveCardConflicts: 0,
+      luaReleaseCardExecutions: 0,
+      luaRenewLeaseExecutions: 0,
+      luaRenewLeasePartialFailures: 0,
+      pipelineRecoveryBatchSize: 0
     };
 
     // Iniciar cleanup automático de partidas abandonadas
@@ -219,29 +226,32 @@ class GameEngine {
 
   async refreshPlayLease(playId, playState) {
     try {
-      const renewedPlayKey = await redisService.expire(
+      const cardUids = (playState?.sessionDoc?.cardMappings || []).map(m => m.uid);
+
+      // Usar operación atómica Lua que renueva play key + todas las card keys en 1 EVALSHA.
+      // Con 20 tarjetas, pasa de ~61 round-trips a 1 solo comando.
+      const result = await redisService.renewLeaseAtomic(
         redisService.NAMESPACES.PLAY,
         playId,
-        DISTRIBUTED_LOCK_TTL_SECONDS
-      );
-
-      const cardEntries = (playState?.sessionDoc?.cardMappings || []).map(mapping => ({
-        id: mapping.uid,
-        expectedValue: playId
-      }));
-
-      const renewedCards = await redisService.expireManyIfValueMatches(
         redisService.NAMESPACES.CARD,
-        cardEntries,
+        cardUids,
         DISTRIBUTED_LOCK_TTL_SECONDS
       );
 
-      const allCardsRenewed = cardEntries.length === 0 || renewedCards.skippedIds.length === 0;
+      this.metrics.luaRenewLeaseExecutions++;
 
-      if (renewedPlayKey && allCardsRenewed) {
+      if (result.playRenewed && result.cardsSkipped === 0) {
         this.metrics.distributedLockLeaseRenewed++;
       } else {
         this.metrics.distributedLockLeaseFailed++;
+        if (result.cardsSkipped > 0) {
+          this.metrics.luaRenewLeasePartialFailures++;
+          logger.warn('Renovación parcial de lease: cards con owner distinto', {
+            playId,
+            cardsRenewed: result.cardsRenewed,
+            cardsSkipped: result.cardsSkipped
+          });
+        }
       }
     } catch (error) {
       this.metrics.distributedLockLeaseFailed++;
@@ -327,11 +337,20 @@ class GameEngine {
       value: playId
     }));
 
-    const result = await redisService.setManyIfNotExists(
+    // Usar operación atómica Lua (all-or-nothing) en vez de SET NX secuencial.
+    // Elimina la race window donde dos instancias podían adquirir tarjetas solapadas.
+    const result = await redisService.reserveCardsAtomic(
       redisService.NAMESPACES.CARD,
       cardEntries,
       DISTRIBUTED_LOCK_TTL_SECONDS
     );
+
+    if (result.ok) {
+      this.metrics.luaReserveCardExecutions++;
+    } else {
+      this.metrics.luaReserveCardConflicts++;
+    }
+
     return {
       ok: Boolean(result?.ok),
       conflicts: result?.conflicts || []
@@ -352,7 +371,14 @@ class GameEngine {
       expectedValue: playId
     }));
 
-    await redisService.delManyIfValueMatches(redisService.NAMESPACES.CARD, releaseEntries);
+    // Usar operación atómica Lua (owner-aware) en vez de GET+compare+DEL secuencial.
+    // Elimina la race window entre lectura y borrado.
+    const result = await redisService.releaseCardsAtomic(
+      redisService.NAMESPACES.CARD,
+      releaseEntries
+    );
+    this.metrics.luaReleaseCardExecutions++;
+    return result;
   }
 
   // ============================================================================
@@ -1681,7 +1707,7 @@ class GameEngine {
    */
   async recoverOrphanedPlaysFromDB() {
     try {
-      const orphanedPlays = await gamePlayRepository.findMany({
+      const orphanedPlays = await gamePlayRepository.find({
         status: { $in: ['in-progress', 'paused'] }
       });
 
@@ -1689,15 +1715,19 @@ class GameEngine {
         return 0;
       }
 
+      // Pipeline batch: verificar todas las plays en Redis en 1 round-trip
+      // en vez del patrón N+1 anterior (hgetall individual por partida).
+      const playIds = orphanedPlays.map(p => p._id.toString());
+      const redisStates = await redisService.hgetallMany(redisService.NAMESPACES.PLAY, playIds);
+      this.metrics.pipelineRecoveryBatchSize = playIds.length;
+
       let count = 0;
       for (const play of orphanedPlays) {
-        const redisState = await redisService.hgetall(
-          redisService.NAMESPACES.PLAY,
-          play._id.toString()
-        );
+        const playId = play._id.toString();
+        const redisState = redisStates.get(playId);
         // Solo marcar como abandonada si realmente no está en Redis (huérfana)
         if (!redisState) {
-          await this.markPlayAbandonedIfNeeded(play._id.toString(), play);
+          await this.markPlayAbandonedIfNeeded(playId, play);
           count++;
         }
       }
@@ -1783,10 +1813,12 @@ class GameEngine {
     const cardUids = sessionDoc.cardMappings.map(mapping => mapping.uid);
 
     if (playId) {
+      // Usar liberación atómica Lua (owner-aware) para consistencia
       await this.releaseDistributedCardMappings(playId, cardUids);
       return;
     }
 
+    // Sin playId conocido: borrar todas las keys de card sin verificación de owner
     await redisService.delMany(redisService.NAMESPACES.CARD, cardUids);
   }
 }

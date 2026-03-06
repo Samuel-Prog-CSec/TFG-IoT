@@ -1,86 +1,217 @@
-name: Build
+name: CI
 
 on:
   push:
-    branches: [ "main", "develop", "Maintenance" ]
+    branches: [main, develop, Maintenance]
+    paths-ignore:
+      - "**.md"
+      - "docs/**"
+      - "documentation/**"
+      - "development/**"
+      - "rfid_scanner/**"
+      - ".github/skills/**"
+      - "LICENSE"
   pull_request:
-    types: [ "opened", "synchronize", "reopened" ]
-    branches: [ "main", "develop", "Maintenance" ]
+    types: [opened, synchronize, reopened]
+    branches: [main, develop, Maintenance]
+    paths-ignore:
+      - "**.md"
+      - "docs/**"
+      - "documentation/**"
+      - "development/**"
+      - "rfid_scanner/**"
+      - ".github/skills/**"
+      - "LICENSE"
+
+# Cancela runs anteriores del mismo PR/branch para no desperdiciar resources
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  NODE_VERSION: "24.14"
 
 jobs:
-  quality:
-    name: Calidad backend y frontend
+  # ──────────────────────────────────────────────
+  # Job 1: Lint (backend + frontend en paralelo)
+  # ──────────────────────────────────────────────
+  lint:
+    name: Lint
     runs-on: ubuntu-latest
-
-    strategy:
-      matrix:
-        node-version: ['24.x']
-        mongodb-version: ['8.0']
+    timeout-minutes: 10
 
     steps:
-    - uses: actions/checkout@v6
-      with:
-        fetch-depth: 0  # Importante para SonarCloud
+      - uses: actions/checkout@v6
 
-    - name: Use Node.js ${{ matrix.node-version }}
-      uses: actions/setup-node@v6
-      with:
-        node-version: ${{ matrix.node-version }}
+      - uses: actions/setup-node@v6
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+          cache-dependency-path: |
+            package-lock.json
+            backend/package-lock.json
+            frontend/package-lock.json
 
-    - name: Cache npm dependencies
-      uses: actions/cache@v4
-      with:
-        path: |
-          ~/.npm
-        key: ${{ runner.os }}-node-${{ matrix.node-version }}-${{ hashFiles('package-lock.json', 'backend/package-lock.json', 'frontend/package-lock.json') }}
-        restore-keys: |
-          ${{ runner.os }}-node-${{ matrix.node-version }}-
+      - name: Instalar dependencias (root + backend + frontend)
+        run: |
+          npm ci
+          npm ci --prefix backend
+          npm ci --prefix frontend
 
-    - name: Start MongoDB
-      uses: supercharge/mongodb-github-action@1.12.1
-      with:
-        mongodb-version: ${{ matrix.mongodb-version }}
+      - name: Lint backend
+        run: npm run lint
+        working-directory: ./backend
 
-    - name: Install Root Dependencies
-      run: npm ci
+      - name: Lint frontend
+        run: npm run lint
+        working-directory: ./frontend
 
-    - name: Install Backend Dependencies
-      run: npm ci
-      working-directory: ./backend
+  # ──────────────────────────────────────────────
+  # Job 2: Security audit
+  # ──────────────────────────────────────────────
+  security:
+    name: Security Audit
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
 
-    - name: Install Frontend Dependencies
-      run: npm ci
-      working-directory: ./frontend
+    steps:
+      - uses: actions/checkout@v6
 
-    - name: Security Gate (Production Dependencies)
-      run: npm run audit:prod
+      - uses: actions/setup-node@v6
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+          cache-dependency-path: |
+            package-lock.json
+            backend/package-lock.json
+            frontend/package-lock.json
 
-    - name: Security Report (Full Dependencies)
-      run: npm run audit:all
-      continue-on-error: true
+      - name: Instalar dependencias
+        run: |
+          npm ci
+          npm ci --prefix backend
+          npm ci --prefix frontend
 
-    - name: Run Backend Linter
-      run: npm run lint --if-present
-      working-directory: ./backend
+      - name: Security gate (producción)
+        run: npm run audit:prod
 
-    - name: Run Backend Tests
-      # Ejecuta los tests definidos en el package.json
-      run: npm test
-      working-directory: ./backend
-      env:
-        JWT_SECRET: "test_secret"
-        MONGODB_URI: "mongodb://localhost:27017/rfid_games_test"
+      - name: Security report (completo)
+        run: npm run audit:all
+        continue-on-error: true
 
-    - name: Normalize backend LCOV paths for SonarCloud
-      run: |
-        sed -i 's#^SF:src/#SF:backend/src/#; s#^SF:src\\#SF:backend/src/#' backend/coverage/lcov.info
+  # ──────────────────────────────────────────────
+  # Job 3: Tests backend (requiere MongoDB)
+  # ──────────────────────────────────────────────
+  backend-tests:
+    name: Backend Tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
 
-    - name: Run Frontend Linter
-      run: npm run lint --if-present
-      working-directory: ./frontend
+    services:
+      mongodb:
+        image: mongo:8.0
+        ports:
+          - 27017:27017
+        options: >-
+          --health-cmd "mongosh --eval 'db.runCommand({ping:1})'"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
 
-    - name: SonarCloud Scan
-      uses: SonarSource/sonarcloud-github-action@v5
-      env:
-        SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
-        SONAR_HOST_URL: https://sonarcloud.io
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+          cache-dependency-path: backend/package-lock.json
+
+      - name: Instalar dependencias backend
+        run: npm ci
+        working-directory: ./backend
+
+      - name: Ejecutar tests
+        run: npm test
+        working-directory: ./backend
+        env:
+          JWT_SECRET: "test_secret"
+          MONGODB_URI: "mongodb://localhost:27017/rfid_games_test"
+
+      - name: Normalizar rutas LCOV para SonarCloud
+        if: always()
+        run: |
+          if [ -f backend/coverage/lcov.info ]; then
+            sed -i 's#^SF:src/#SF:backend/src/#' backend/coverage/lcov.info
+          fi
+
+      - name: Subir cobertura como artefacto
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: backend-coverage
+          path: backend/coverage/lcov.info
+          retention-days: 7
+          if-no-files-found: warn
+
+  # ──────────────────────────────────────────────
+  # Job 4: Tests + build frontend
+  # ──────────────────────────────────────────────
+  frontend-checks:
+    name: Frontend Tests & Build
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Instalar dependencias frontend
+        run: npm ci
+        working-directory: ./frontend
+
+      - name: Ejecutar tests
+        run: npm test
+        working-directory: ./frontend
+
+      - name: Verificar build de producción
+        run: npm run build
+        working-directory: ./frontend
+        env:
+          NODE_ENV: production
+
+  # ──────────────────────────────────────────────
+  # Job 5: SonarCloud (depende de backend-tests)
+  # ──────────────────────────────────────────────
+  sonar:
+    name: SonarCloud Analysis
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    needs: [backend-tests]
+    # Solo ejecutar en push (no en PRs de forks por seguridad del token)
+    if: github.event_name == 'push' || github.event.pull_request.head.repo.full_name == github.repository
+
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Descargar cobertura backend
+        uses: actions/download-artifact@v4
+        with:
+          name: backend-coverage
+          path: backend/coverage
+
+      - name: SonarCloud Scan
+        uses: SonarSource/sonarcloud-github-action@v5
+        env:
+          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+          SONAR_HOST_URL: https://sonarcloud.io

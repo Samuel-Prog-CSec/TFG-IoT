@@ -547,7 +547,7 @@ Reducir write amplification en GamePlay durante rondas para mejorar throughput y
 
 ---
 
-### T-066: Recuperación Redis y locks distribuidos de tarjetas 📋
+### T-066: Recuperación Redis y locks distribuidos de tarjetas ✅
 
 **Prioridad:** P1 | **Tamaño:** M | **Dependencias:** T-055  
 **Origen:** ARCH-06
@@ -557,18 +557,51 @@ Mejorar recuperación post-reinicio y bloqueo de tarjetas para escenarios concur
 
 **Sub-tareas:**
 
-1. Refactorizar recovery para procesamiento por lotes (evitar N+1 secuencial en arranque).
-2. Implementar bloqueo atómico de UIDs en Redis (`SET NX EX` o script Lua) para reservar tarjetas.
-3. Añadir TTL/heartbeat a claves activas de plays/tarjetas para evitar residuos.
-4. Añadir tests de recuperación y colisión de reservas entre partidas simultáneas.
-5. Documentar semántica de lock y expiración.
+1. ~~Refactorizar recovery para procesamiento por lotes (evitar N+1 secuencial en arranque).~~
+2. ~~Implementar bloqueo atómico de UIDs en Redis (`SET NX EX` o script Lua) para reservar tarjetas.~~
+3. ~~Añadir TTL/heartbeat a claves activas de plays/tarjetas para evitar residuos.~~
+4. ~~Añadir tests de recuperación y colisión de reservas entre partidas simultáneas.~~
+5. ~~Documentar semántica de lock y expiración.~~
+6. ~~Crear Lua scripts atómicos para reserva, liberación y renovación de lease.~~
+7. ~~Implementar wrappers EVALSHA/EVAL con fallback, carga de scripts al conectar.~~
+8. ~~Implementar pipeline batch reads (existsMany, hgetallMany) para recovery.~~
+9. ~~Añadir métricas de Lua y pipeline al motor de juego.~~
+10. ~~Corregir documentación incorrecta sobre TTL en Arquitectura_Redis.md.~~
+11. ~~Crear script de benchmark comparativo (secuencial vs atómico vs pipeline).~~
+12. ~~Crear documento de análisis de optimización Redis (Redis_Optimization_Analysis.md).~~
 
 **Criterios de Aceptación (medibles):**
 
-- [ ] Recovery procesa claves en lotes sin bucles secuenciales de alto coste.
-- [ ] No se puede reservar el mismo UID simultáneamente en dos partidas activas.
-- [ ] Claves de estado activo expiran/renuevan según política definida.
-- [ ] Tests de `redisStateRecovery` y colisión de locks pasan.
+- [x] Recovery procesa claves en lotes sin bucles secuenciales de alto coste.
+- [x] No se puede reservar el mismo UID simultáneamente en dos partidas activas.
+- [x] Claves de estado activo expiran/renuevan según política definida.
+- [x] Tests de `redisStateRecovery` y colisión de locks pasan.
+- [x] Operaciones de reserva/liberación/renewal son atómicas vía Lua scripts.
+- [x] Wrappers incluyen fallback secuencial para entornos sin soporte Lua (tests).
+- [x] Métricas de ejecución Lua y pipeline disponibles en `gameEngine.getMetrics()`.
+- [x] Documentación técnica actualizada (Arquitectura_Redis.md + Redis_Optimization_Analysis.md).
+
+**Actualización (Enero 2026):**
+
+- Se identificaron 5 problemas (P1-P5): race conditions en reserva/liberación de tarjetas, heartbeat costoso O(N×3), N+1 en recovery, documentación incorrecta sobre TTL.
+- Se crearon 3 Lua scripts (`reserveCards.lua`, `releaseCards.lua`, `renewLease.lua`) con carga via `SCRIPT LOAD` al conectar y ejecución via `EVALSHA` con fallback a `EVAL`.
+- Se añadieron funciones pipeline (`existsMany`, `hgetallMany`) para lecturas batch.
+- Se adaptó `gameEngine.js` para usar operaciones atómicas en vez de secuenciales.
+- Se añadieron 6 métricas: `luaReserveCardExecutions`, `luaReserveCardConflicts`, `luaReleaseCardExecutions`, `luaRenewLeaseExecutions`, `luaRenewLeasePartialFailures`, `pipelineRecoveryBatchSize`.
+- Se creó test suite `redisCardLocks.test.js` (14 tests) y se extendió `redisStateRecovery.test.js` (2 tests pipeline).
+- Se creó `benchmark-redis-ops.js` para medición comparativa.
+- Docs: Arquitectura_Redis.md corregido y ampliado. Nuevo Redis_Optimization_Analysis.md con análisis completo antes/después.
+
+**Cierre (Enero 2026):**
+
+- [x] Recovery procesa claves en lotes sin bucles secuenciales de alto coste.
+- [x] No se puede reservar el mismo UID simultáneamente en dos partidas activas.
+- [x] Claves de estado activo expiran/renuevan según política definida.
+- [x] Tests de `redisStateRecovery` y colisión de locks pasan.
+- [x] Operaciones de reserva/liberación/renewal son atómicas vía Lua scripts.
+- [x] Wrappers incluyen fallback secuencial para entornos sin soporte Lua (tests).
+- [x] Métricas de ejecución Lua y pipeline disponibles en `gameEngine.getMetrics()`.
+- [x] Documentación técnica actualizada (Arquitectura_Redis.md + Redis_Optimization_Analysis.md).
 
 ---
 

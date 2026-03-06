@@ -13,7 +13,13 @@
  * @version 1.0.0
  */
 
-const { getRedis, isRedisConnected, getKeyPrefix } = require('../config/redis');
+const {
+  getRedis,
+  isRedisConnected,
+  getKeyPrefix,
+  getLuaScriptSHA,
+  getLuaScriptSource
+} = require('../config/redis');
 const logger = require('../utils/logger').child({ component: 'redisService' });
 const { CircuitBreaker } = require('../utils/circuitBreaker');
 
@@ -973,6 +979,362 @@ const getStats = async () => {
   return stats;
 };
 
+// =============================================================================
+// OPERACIONES ATÓMICAS LUA (Distributed Card Locks)
+// =============================================================================
+
+/**
+ * Ejecuta un Lua script por SHA (EVALSHA) con fallback a EVAL directo.
+ * Si el SHA no está cargado (p.ej. tras SCRIPT FLUSH o ioredis-mock en tests),
+ * cae al fallback secuencial proporcionado.
+ *
+ * @param {string} scriptName - Nombre del script (sin .lua).
+ * @param {number} numKeys - Número de KEYS.
+ * @param {...(string|number)} args - KEYS seguido de ARGV.
+ * @returns {Promise<*>} Resultado del script.
+ * @throws {Error} Si no se puede ejecutar el script.
+ */
+const evalLuaScript = async (scriptName, numKeys, ...args) => {
+  const redis = getRedis();
+  if (!redis) {
+    throw new Error('Redis no disponible para ejecutar Lua script');
+  }
+
+  // En test, ioredis-mock no soporta EVAL/EVALSHA (fengari crash) — forzar fallback
+  if (process.env.NODE_ENV === 'test') {
+    throw new Error(`Lua no disponible en entorno test (script: ${scriptName})`);
+  }
+
+  // Intentar EVALSHA primero (SHA cacheado por loadLuaScripts)
+  const sha = getLuaScriptSHA(scriptName);
+  if (sha) {
+    try {
+      return await redis.evalsha(sha, numKeys, ...args);
+    } catch (error) {
+      // NOSCRIPT = el SHA no está en caché del servidor (p.ej. tras restart Redis)
+      if (error.message && error.message.includes('NOSCRIPT')) {
+        logger.warn(`Redis: EVALSHA NOSCRIPT para '${scriptName}', reintentando con EVAL`);
+      } else {
+        throw error;
+      }
+    }
+  }
+
+  // Fallback: EVAL con el source completo
+  const source = getLuaScriptSource(scriptName);
+  if (source) {
+    return await redis.eval(source, numKeys, ...args);
+  }
+
+  throw new Error(`Lua script '${scriptName}' no disponible (ni SHA ni source)`);
+};
+
+/**
+ * Reserva atómica all-or-nothing de tarjetas RFID usando Lua.
+ * Si alguna tarjeta ya está reservada, no escribe nada y retorna conflictos.
+ *
+ * Resuelve P1 (race condition en reserva secuencial): dos instancias no pueden
+ * adquirir parcialmente tarjetas solapadas porque EVAL es atómico en Redis.
+ *
+ * @param {string} namespace - Namespace (normalmente NAMESPACES.CARD).
+ * @param {{id:string, value:string}[]} entries - Entradas {id: cardUid, value: playId}.
+ * @param {number} [ttlSeconds=0] - TTL en segundos (0 = sin TTL).
+ * @returns {Promise<{ok:boolean, conflicts:string[]}>}
+ */
+const reserveCardsAtomic = async (namespace, entries = [], ttlSeconds = 0) => {
+  if (!checkRedisAvailable()) {
+    return { ok: true, conflicts: [] };
+  }
+
+  if (!Array.isArray(entries) || entries.length === 0) {
+    return { ok: true, conflicts: [] };
+  }
+
+  const prefix = getKeyPrefix();
+  const playId = entries[0].value;
+
+  try {
+    // Construir KEYS con prefijo (Lua recibe keys completas, sin keyPrefix de ioredis)
+    const keys = entries.map(e => `${prefix}${buildKey(namespace, e.id)}`);
+
+    const rawResult = await evalLuaScript(
+      'reserveCards',
+      keys.length,
+      ...keys,
+      playId,
+      String(ttlSeconds)
+    );
+
+    const result = JSON.parse(rawResult);
+    redisBreaker.recordSuccess();
+
+    if (!result.ok) {
+      // Extraer UIDs de los conflictos (quitar prefijo+namespace para consistencia)
+      const conflictPrefix = `${prefix}${namespace}:`;
+      result.conflicts = result.conflicts.map(k =>
+        k.startsWith(conflictPrefix) ? k.slice(conflictPrefix.length) : k
+      );
+    }
+
+    return result;
+  } catch (error) {
+    logger.warn('Redis reserveCardsAtomic: Lua no disponible, usando fallback secuencial', {
+      error: error.message
+    });
+    // Fallback: operación secuencial original
+    return await setManyIfNotExists(namespace, entries, ttlSeconds);
+  }
+};
+
+/**
+ * Liberación condicional atómica de tarjetas RFID usando Lua.
+ * Solo elimina keys cuyo valor coincide con el playId esperado (owner-aware).
+ *
+ * Resuelve P2 (race condition en liberación secuencial): GET+compare+DEL
+ * se ejecutan como una sola operación atómica, sin ventana de carrera.
+ *
+ * @param {string} namespace - Namespace (normalmente NAMESPACES.CARD).
+ * @param {{id:string, expectedValue:string}[]} entries - Entradas con id y playId esperado.
+ * @returns {Promise<{ok:boolean, deletedCount:number}>}
+ */
+const releaseCardsAtomic = async (namespace, entries = []) => {
+  if (!checkRedisAvailable()) {
+    return { ok: true, deletedCount: 0 };
+  }
+
+  if (!Array.isArray(entries) || entries.length === 0) {
+    return { ok: true, deletedCount: 0 };
+  }
+
+  const prefix = getKeyPrefix();
+  const expectedPlayId = entries[0].expectedValue;
+
+  try {
+    const keys = entries.map(e => `${prefix}${buildKey(namespace, e.id)}`);
+
+    const deletedCount = await evalLuaScript('releaseCards', keys.length, ...keys, expectedPlayId);
+
+    redisBreaker.recordSuccess();
+    return { ok: true, deletedCount: Number(deletedCount) };
+  } catch (error) {
+    logger.warn('Redis releaseCardsAtomic: Lua no disponible, usando fallback secuencial', {
+      error: error.message
+    });
+    // Fallback secuencial
+    const result = await delManyIfValueMatches(namespace, entries);
+    return { ok: result.ok, deletedCount: result.deletedIds.length };
+  }
+};
+
+/**
+ * Renovación atómica de lease (play key + card keys) usando Lua.
+ * Consolida N×3 round-trips en 1 sola ejecución atómica.
+ *
+ * Resuelve P3 (heartbeat costoso): con 20 tarjetas, pasa de ~61 round-trips
+ * a 1 solo EVALSHA. Reduce latencia y carga en Redis significativamente.
+ *
+ * @param {string} playNamespace - Namespace de plays (normalmente NAMESPACES.PLAY).
+ * @param {string} playId - ID de la partida.
+ * @param {string} cardNamespace - Namespace de cards (normalmente NAMESPACES.CARD).
+ * @param {string[]} cardUids - UIDs de tarjetas asociadas a la partida.
+ * @param {number} ttlSeconds - TTL en segundos.
+ * @returns {Promise<{ok:boolean, playRenewed:boolean, cardsRenewed:number, cardsSkipped:number}>}
+ */
+const renewLeaseAtomic = async (
+  playNamespace,
+  playId,
+  cardNamespace,
+  cardUids = [],
+  ttlSeconds
+) => {
+  if (!checkRedisAvailable()) {
+    return { ok: true, playRenewed: true, cardsRenewed: 0, cardsSkipped: 0 };
+  }
+
+  const prefix = getKeyPrefix();
+
+  try {
+    // KEYS = [playKey, cardKey1, cardKey2, ...]
+    const playKey = `${prefix}${buildKey(playNamespace, playId)}`;
+    const cardKeys = cardUids.map(uid => `${prefix}${buildKey(cardNamespace, uid)}`);
+    const allKeys = [playKey, ...cardKeys];
+
+    const rawResult = await evalLuaScript(
+      'renewLease',
+      allKeys.length,
+      ...allKeys,
+      playId,
+      String(ttlSeconds)
+    );
+
+    const result = JSON.parse(rawResult);
+    redisBreaker.recordSuccess();
+    return { ok: true, ...result };
+  } catch (error) {
+    logger.warn('Redis renewLeaseAtomic: Lua no disponible, usando fallback secuencial', {
+      error: error.message
+    });
+    // Fallback secuencial
+    const playRenewed = await expire(playNamespace, playId, ttlSeconds);
+    const cardResult = await expireManyIfValueMatches(
+      cardNamespace,
+      cardUids.map(uid => ({ id: uid, expectedValue: playId })),
+      ttlSeconds
+    );
+    return {
+      ok: cardResult.ok,
+      playRenewed,
+      cardsRenewed: cardResult.renewedIds.length,
+      cardsSkipped: cardResult.skippedIds.length
+    };
+  }
+};
+
+// =============================================================================
+// OPERACIONES PIPELINE (Batch Reads)
+// =============================================================================
+
+/**
+ * Verifica existencia de múltiples keys en batch usando pipeline.
+ * Reduce N round-trips a 1 pipeline.
+ *
+ * Resuelve P4 (N+1 en recovery): las verificaciones individuales de keys
+ * durante recoverOrphanedPlaysFromDB se consolidan en 1 pipeline.
+ *
+ * @param {string} namespace - Namespace.
+ * @param {string[]} ids - Identificadores a verificar.
+ * @returns {Promise<Map<string, boolean>>} Map de id → exists.
+ */
+const existsMany = async (namespace, ids = []) => {
+  const resultMap = new Map();
+
+  if (!checkRedisAvailable()) {
+    return resultMap;
+  }
+
+  if (!Array.isArray(ids) || ids.length === 0) {
+    return resultMap;
+  }
+
+  try {
+    const redis = getRedis();
+    const pipeline = redis.pipeline();
+
+    for (const id of ids) {
+      if (!id) {
+        continue;
+      }
+      const key = buildKey(namespace, id);
+      pipeline.exists(key);
+    }
+
+    const results = await pipeline.exec();
+
+    const validIds = ids.filter(id => id);
+    for (let i = 0; i < validIds.length; i++) {
+      const [error, result] = results[i] || [];
+      resultMap.set(validIds[i], !error && result === 1);
+    }
+
+    redisBreaker.recordSuccess();
+    return resultMap;
+  } catch (error) {
+    // Fallback secuencial (ioredis-mock puede no soportar pipeline correctamente)
+    logger.warn('Redis existsMany pipeline error, usando fallback secuencial', {
+      namespace,
+      error: error.message
+    });
+    try {
+      for (const id of ids) {
+        if (!id) {
+          continue;
+        }
+        const found = await exists(namespace, id);
+        resultMap.set(id, found);
+      }
+      return resultMap;
+    } catch (fallbackError) {
+      logger.error('Redis existsMany fallback error:', { namespace, error: fallbackError.message });
+      redisBreaker.recordFailure();
+      return resultMap;
+    }
+  }
+};
+
+/**
+ * Obtiene HGETALL de múltiples keys en batch usando pipeline.
+ * Reduce N round-trips a 1 pipeline.
+ *
+ * Usado en recovery para leer el estado completo de múltiples plays
+ * en una sola operación de red.
+ *
+ * @param {string} namespace - Namespace.
+ * @param {string[]} ids - Identificadores a leer.
+ * @returns {Promise<Map<string, Object|null>>} Map de id → hash object o null.
+ */
+const hgetallMany = async (namespace, ids = []) => {
+  const resultMap = new Map();
+
+  if (!checkRedisAvailable()) {
+    return resultMap;
+  }
+
+  if (!Array.isArray(ids) || ids.length === 0) {
+    return resultMap;
+  }
+
+  try {
+    const redis = getRedis();
+    const pipeline = redis.pipeline();
+
+    for (const id of ids) {
+      if (!id) {
+        continue;
+      }
+      const key = buildKey(namespace, id);
+      pipeline.hgetall(key);
+    }
+
+    const results = await pipeline.exec();
+
+    const validIds = ids.filter(id => id);
+    for (let i = 0; i < validIds.length; i++) {
+      const [error, result] = results[i] || [];
+      if (error || !result || Object.keys(result).length === 0) {
+        resultMap.set(validIds[i], null);
+      } else {
+        resultMap.set(validIds[i], result);
+      }
+    }
+
+    redisBreaker.recordSuccess();
+    return resultMap;
+  } catch (error) {
+    // Fallback secuencial (ioredis-mock puede no soportar pipeline correctamente)
+    logger.warn('Redis hgetallMany pipeline error, usando fallback secuencial', {
+      namespace,
+      error: error.message
+    });
+    try {
+      for (const id of ids) {
+        if (!id) {
+          continue;
+        }
+        const data = await hgetall(namespace, id);
+        resultMap.set(id, data && Object.keys(data).length > 0 ? data : null);
+      }
+      return resultMap;
+    } catch (fallbackError) {
+      logger.error('Redis hgetallMany fallback error:', {
+        namespace,
+        error: fallbackError.message
+      });
+      redisBreaker.recordFailure();
+      return resultMap;
+    }
+  }
+};
+
 module.exports = {
   // Namespaces
   NAMESPACES,
@@ -1013,5 +1375,14 @@ module.exports = {
   // Búsqueda y limpieza
   scanByNamespace,
   flushNamespace,
-  getStats
+  getStats,
+
+  // Operaciones atómicas Lua (distributed card locks)
+  reserveCardsAtomic,
+  releaseCardsAtomic,
+  renewLeaseAtomic,
+
+  // Pipeline batch operations
+  existsMany,
+  hgetallMany
 };

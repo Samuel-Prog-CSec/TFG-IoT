@@ -488,4 +488,36 @@ describe('Redis State Recovery - GameEngine.recoverActivePlays()', () => {
       expect(card2After).toBeNull();
     });
   });
+
+  describe('Recuperación de huérfanas con pipeline (hgetallMany)', () => {
+    it('debería detectar partidas huérfanas sin estado en Redis usando pipeline batch', async () => {
+      // Arrange: Crear partida in-progress en MongoDB SIN estado en Redis
+      const { play } = await createInProgressPlay();
+
+      // Act: recoverOrphanedPlaysFromDB usa hgetallMany pipeline internamente
+      const orphanedCount = await gameEngine.recoverOrphanedPlaysFromDB();
+
+      // Assert
+      expect(orphanedCount).toBe(1);
+      expect(gameEngine.metrics.pipelineRecoveryBatchSize).toBeGreaterThanOrEqual(1);
+
+      const updatedPlay = await GamePlay.findById(play._id);
+      expect(updatedPlay.status).toBe('abandoned');
+    });
+
+    it('debería NO marcar como huérfana una partida que sí existe en Redis', async () => {
+      // Arrange: Crear partida in-progress con estado en Redis
+      const { play, session } = await createInProgressPlay();
+      await simulateOrphanedRedisState(play, session);
+
+      // Act
+      const orphanedCount = await gameEngine.recoverOrphanedPlaysFromDB();
+
+      // Assert: No debería marcarse como abandonada (tiene estado en Redis)
+      expect(orphanedCount).toBe(0);
+
+      const updatedPlay = await GamePlay.findById(play._id);
+      expect(updatedPlay.status).toBe('in-progress');
+    });
+  });
 });
