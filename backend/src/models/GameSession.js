@@ -58,7 +58,7 @@ const calculateDifficulty = numberOfCards => {
  * @property {Object} config - Configuración de las reglas del juego
  * @property {number} config.numberOfCards - Cantidad de tarjetas RFID usadas en el juego (2-30)
  * @property {number} config.numberOfRounds - Número de rondas/desafíos del juego
- * @property {number} config.timeLimit - Tiempo límite por ronda en segundos (3-60)
+ * @property {number} config.timeLimit - Tiempo límite en segundos (3-300, según mecánica)
  * @property {number} config.pointsPerCorrect - Puntos otorgados por respuesta correcta
  * @property {number} config.penaltyPerError - Puntos restados por respuesta incorrecta (número negativo)
  * @property {Array<CardMapping>} cardMappings - Mapeo de tarjetas RFID a valores del juego
@@ -102,7 +102,7 @@ const gameSessionSchema = new mongoose.Schema(
         type: Number,
         required: true,
         min: 2,
-        max: 30
+        max: 20
       },
       numberOfRounds: {
         type: Number,
@@ -113,7 +113,7 @@ const gameSessionSchema = new mongoose.Schema(
       timeLimit: {
         type: Number,
         min: 3,
-        max: 60,
+        max: 300,
         default: 15
       },
       pointsPerCorrect: {
@@ -127,7 +127,7 @@ const gameSessionSchema = new mongoose.Schema(
       },
       penaltyPerError: {
         type: Number,
-        max: [-1, 'Los puntos por error deben ser menores que 0'],
+        max: [0, 'Los puntos por error deben ser cero o negativos'],
         default: -2,
         validate: {
           validator: Number.isInteger,
@@ -155,6 +155,65 @@ const gameSessionSchema = new mongoose.Schema(
         displayData: mongoose.Schema.Types.Mixed
       }
     ],
+    boardLayout: [
+      {
+        slotIndex: {
+          type: Number,
+          required: true,
+          min: 0
+        },
+        cardId: {
+          type: mongoose.Schema.Types.ObjectId,
+          ref: 'Card',
+          required: true
+        },
+        uid: {
+          type: String,
+          required: true,
+          uppercase: true,
+          trim: true
+        },
+        assignedValue: {
+          type: String,
+          required: true
+        },
+        displayData: mongoose.Schema.Types.Mixed
+      }
+    ],
+    associationChallengePlan: [
+      {
+        roundNumber: {
+          type: Number,
+          required: true,
+          min: 1
+        },
+        cardId: {
+          type: mongoose.Schema.Types.ObjectId,
+          ref: 'Card',
+          required: true
+        },
+        uid: {
+          type: String,
+          required: true,
+          uppercase: true,
+          trim: true
+        },
+        assignedValue: {
+          type: String,
+          required: true
+        },
+        displayData: mongoose.Schema.Types.Mixed,
+        promptText: {
+          type: String,
+          trim: true,
+          maxlength: 180
+        }
+      }
+    ],
+    requiresAssociationPlanConfiguration: {
+      type: Boolean,
+      default: false
+    },
     status: {
       type: String,
       lowercase: true,
@@ -256,6 +315,35 @@ gameSessionSchema.path('cardMappings').validate(function (value) {
 
   return true;
 }, 'El número de cardMappings no es válido o está vacío.');
+
+gameSessionSchema.path('boardLayout').validate(function (value) {
+  if (!Array.isArray(value) || value.length === 0) {
+    return true;
+  }
+
+  const slotIndexes = value.map(item => item.slotIndex);
+  const uniqueSlotIndexes = new Set(slotIndexes);
+  if (uniqueSlotIndexes.size !== slotIndexes.length) {
+    return false;
+  }
+
+  const cardIds = value.map(item => item.cardId?.toString?.()).filter(Boolean);
+  const uniqueCardIds = new Set(cardIds);
+  if (uniqueCardIds.size !== cardIds.length) {
+    return false;
+  }
+
+  const mappingCardIds = new Set(
+    (this.cardMappings || []).map(mapping => mapping.cardId?.toString?.())
+  );
+  const hasUnknownCard = cardIds.some(cardId => !mappingCardIds.has(cardId));
+
+  if (hasUnknownCard) {
+    return false;
+  }
+
+  return true;
+}, 'boardLayout no es válido: revisa slots duplicados o tarjetas fuera del mazo.');
 
 /**
  * Índice para búsqueda de sesiones por estado.

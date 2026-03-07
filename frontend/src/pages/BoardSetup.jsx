@@ -30,6 +30,7 @@ export default function BoardSetup() {
   const [slots, setSlots] = useState({}); 
   const [activeId, setActiveId] = useState(null); // For DragOverlay
   const [selectedStudentId, setSelectedStudentId] = useState('');
+    const [savingBoard, setSavingBoard] = useState(false);
 
     const init = useCallback((signal) => {
         const run = async () => {
@@ -72,6 +73,23 @@ export default function BoardSetup() {
                         });
 
                         setAvailableCards(enrichedCards);
+
+                        if (Array.isArray(currentSession?.boardLayout) && currentSession.boardLayout.length > 0) {
+                            const cardsByUid = new Map(enrichedCards.map(card => [card.uid, card]));
+                            const preloadedSlots = {};
+
+                            currentSession.boardLayout.forEach(slot => {
+                                const slotCard = cardsByUid.get(slot.uid);
+                                if (!slotCard) {
+                                    return;
+                                }
+
+                                preloadedSlots[`slot_${slot.slotIndex}`] = slotCard;
+                            });
+
+                            setSlots(preloadedSlots);
+                        }
+
                         setAvailableStudents(Array.isArray(students) ? students : []);
         } catch (e) {
                         if (isAbortError(e)) {
@@ -105,6 +123,49 @@ export default function BoardSetup() {
     const totalSlots = session?.config?.numberOfCards || availableCards.length || 0;
   const isBoardComplete = totalSlots > 0 && Object.keys(slots).length === totalSlots;
   const canStart = isBoardComplete && selectedStudentId;
+
+    const buildBoardLayoutPayload = useCallback(() => {
+        return Object.entries(slots)
+            .map(([slotId, card]) => {
+                const slotIndex = Number.parseInt(slotId.replace('slot_', ''), 10);
+                if (!Number.isInteger(slotIndex) || !card) {
+                    return null;
+                }
+
+                return {
+                    slotIndex,
+                    cardId: card.id,
+                    uid: card.uid,
+                    assignedValue: card.assignedValue || card.label || card.uid,
+                    displayData: card.displayData || card.asset || {}
+                };
+            })
+            .filter(Boolean)
+            .sort((a, b) => a.slotIndex - b.slotIndex);
+    }, [slots]);
+
+    const handleStartPlay = useCallback(async () => {
+        if (!canStart || savingBoard) {
+            return;
+        }
+
+        try {
+            setSavingBoard(true);
+            const boardLayout = buildBoardLayoutPayload();
+            await sessionsAPI.updateSession(sessionId, { boardLayout });
+
+            const playerQuery = selectedStudentId
+                ? `?playerId=${encodeURIComponent(selectedStudentId)}`
+                : '';
+            navigate(`${ROUTES.GAME(sessionId)}${playerQuery}`);
+        } catch (error) {
+            toast.error('No se pudo guardar el tablero', {
+                description: extractErrorMessage(error)
+            });
+        } finally {
+            setSavingBoard(false);
+        }
+    }, [buildBoardLayoutPayload, canStart, navigate, savingBoard, selectedStudentId, sessionId]);
 
   // DnD Sensors
   const sensors = useSensors(
@@ -201,16 +262,11 @@ export default function BoardSetup() {
                         <RotateCcw size={20} />
                     </button>
                     <button 
-                        onClick={() => {
-                                                        const playerQuery = selectedStudentId
-                                                            ? `?playerId=${encodeURIComponent(selectedStudentId)}`
-                                                            : '';
-                                                        navigate(`${ROUTES.GAME(sessionId)}${playerQuery}`);
-                        }}
-                        disabled={!canStart}
+                        onClick={handleStartPlay}
+                        disabled={!canStart || savingBoard}
                         className="px-6 py-3 rounded-xl bg-emerald-500 text-white font-bold disabled:opacity-50 disabled:grayscale hover:bg-emerald-400 transition-all flex items-center gap-2 shadow-lg shadow-emerald-500/20"
                     >
-                        <Play size={20} /> Iniciar Partida
+                        <Play size={20} /> {savingBoard ? 'Guardando tablero...' : 'Iniciar Partida'}
                     </button>
                 </div>
             </header>

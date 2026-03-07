@@ -1,31 +1,80 @@
 version: 2
 updates:
   # -------------------------
-  # BACKEND (NPM)
+  # ROOT (NPM) — husky, commitlint, lint-staged
   # -------------------------
   - package-ecosystem: "npm"
-    directory: "/backend"
+    directory: "/"
+    target-branch: "develop"
     schedule:
       interval: "monthly"
       day: "monday"
-      time: "07:00"
+      time: "06:45"
       timezone: "Europe/Madrid"
-    open-pull-requests-limit: 5
-    # Prefijo para que el historial de git quede limpio: "[npm-back] bump react..."
+    open-pull-requests-limit: 3
+    labels:
+      - "dependencies"
+      - "root"
     commit-message:
-      prefix: "npm-back"
-      prefix-development: "npm-back-dev"
+      prefix: "npm-root"
+      prefix-development: "npm-root-dev"
     groups:
-      # Grupo 1: Actualizaciones seguras (Parches y actualizaciones menores)
-      # Ejemplo: v1.0.1 -> v1.1.0 (Todo en una sola rama)
       safe-updates:
         patterns:
           - "*"
         update-types:
           - "minor"
           - "patch"
-      # Grupo 2: Actualizaciones Mayores (Riesgo de ruptura)
-      # Ejemplo: v1.0.0 -> v2.0.0 (Todo en otra rama separada)
+      major-updates:
+        patterns:
+          - "*"
+        update-types:
+          - "major"
+
+  # -------------------------
+  # BACKEND (NPM)
+  # -------------------------
+  - package-ecosystem: "npm"
+    directory: "/backend"
+    target-branch: "develop"
+    schedule:
+      interval: "monthly"
+      day: "monday"
+      time: "07:00"
+      timezone: "Europe/Madrid"
+    open-pull-requests-limit: 5
+    labels:
+      - "dependencies"
+      - "backend"
+    commit-message:
+      prefix: "npm-back"
+      prefix-development: "npm-back-dev"
+    groups:
+      # Seguridad crítica: separar para merge rápido
+      security-patches:
+        patterns:
+          - "helmet"
+          - "jsonwebtoken"
+          - "bcrypt"
+          - "cors"
+          - "@sentry/*"
+        update-types:
+          - "minor"
+          - "patch"
+      # Actualizaciones seguras (minor + patch del resto)
+      safe-updates:
+        patterns:
+          - "*"
+        exclude-patterns:
+          - "helmet"
+          - "jsonwebtoken"
+          - "bcrypt"
+          - "cors"
+          - "@sentry/*"
+        update-types:
+          - "minor"
+          - "patch"
+      # Mayores: riesgo de ruptura, revisar con cuidado
       major-updates:
         patterns:
           - "*"
@@ -37,12 +86,16 @@ updates:
   # -------------------------
   - package-ecosystem: "npm"
     directory: "/frontend"
+    target-branch: "develop"
     schedule:
       interval: "monthly"
       day: "monday"
       time: "07:15"
       timezone: "Europe/Madrid"
     open-pull-requests-limit: 5
+    labels:
+      - "dependencies"
+      - "frontend"
     commit-message:
       prefix: "npm-front"
       prefix-development: "npm-front-dev"
@@ -60,20 +113,56 @@ updates:
           - "major"
 
   # -------------------------
-  # GITHUB ACTIONS
+  # DOCKER (imágenes base: node, nginx)
   # -------------------------
-  - package-ecosystem: "github-actions"
-    directory: "/"
+  - package-ecosystem: "docker"
+    directory: "/backend"
+    target-branch: "develop"
     schedule:
       interval: "monthly"
       day: "monday"
       time: "07:30"
       timezone: "Europe/Madrid"
+    open-pull-requests-limit: 3
+    labels:
+      - "dependencies"
+      - "docker"
+    commit-message:
+      prefix: "docker-back"
+
+  - package-ecosystem: "docker"
+    directory: "/frontend"
+    target-branch: "develop"
+    schedule:
+      interval: "monthly"
+      day: "monday"
+      time: "07:30"
+      timezone: "Europe/Madrid"
+    open-pull-requests-limit: 3
+    labels:
+      - "dependencies"
+      - "docker"
+    commit-message:
+      prefix: "docker-front"
+
+  # -------------------------
+  # GITHUB ACTIONS
+  # -------------------------
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    target-branch: "develop"
+    schedule:
+      interval: "monthly"
+      day: "monday"
+      time: "07:45"
+      timezone: "Europe/Madrid"
     open-pull-requests-limit: 5
+    labels:
+      - "dependencies"
+      - "ci"
     commit-message:
       prefix: "gh-actions"
     groups:
-      # En Actions se puede agrupar todo porque suele ser más estable
       all-actions:
         patterns:
           - "*"

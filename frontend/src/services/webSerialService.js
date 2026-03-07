@@ -12,6 +12,8 @@ const DEFAULT_BAUD_RATE = 115200;
 const DEFAULT_DEDUPE_MS = 1200;
 const MAX_UID_CACHE_SIZE = 500;
 const UID_CACHE_TTL_MS = 5 * 60 * 1000;
+const MAX_PENDING_SCANS = 200;
+const PENDING_SCAN_TTL_MS = 30 * 1000;
 const MAX_RECONNECT_ATTEMPTS = 3;
 const RECONNECT_DELAY_BASE_MS = 1000;
 const HEARTBEAT_TIMEOUT_MS = 20000;
@@ -65,6 +67,7 @@ class WebSerialService {
     this.sensorId = getOrCreateSensorId();
     this.dedupeCooldownMs = DEFAULT_DEDUPE_MS;
     this.lastScanByUid = new Map();
+    this.pendingScans = [];
     this.forwardToServer = true;
     this.hasSerialDisconnectListener = false;
     this.reconnectAttempts = 0;
@@ -452,16 +455,79 @@ class WebSerialService {
 
     this.emit('scan', payload);
 
-    if (this.forwardToServer && socketService.isSocketConnected()) {
+    if (!this.forwardToServer) {
+      return;
+    }
+
+    if (socketService.isSocketConnected()) {
+      this.flushPendingScans();
+
       try {
         socketService.emitFireAndForget('rfid_scan_from_client', payload);
       } catch (error) {
+        this.enqueuePendingScan(payload);
         this.emit('error', {
           message: 'Error enviando evento RFID al servidor',
           details: error?.message
         });
       }
+      return;
     }
+
+    this.enqueuePendingScan(payload);
+  }
+
+  enqueuePendingScan(payload) {
+    const now = Date.now();
+    this.prunePendingScans(now);
+
+    this.pendingScans.push({ payload, queuedAt: now });
+
+    while (this.pendingScans.length > MAX_PENDING_SCANS) {
+      this.pendingScans.shift();
+    }
+
+    this.emit('queue_status', {
+      pending: this.pendingScans.length
+    });
+  }
+
+  prunePendingScans(now = Date.now()) {
+    if (this.pendingScans.length === 0) {
+      return;
+    }
+
+    this.pendingScans = this.pendingScans.filter(
+      item => now - item.queuedAt <= PENDING_SCAN_TTL_MS
+    );
+  }
+
+  flushPendingScans() {
+    if (!socketService.isSocketConnected()) {
+      return { sent: 0, pending: this.pendingScans.length };
+    }
+
+    this.prunePendingScans();
+
+    let sent = 0;
+    while (this.pendingScans.length > 0 && socketService.isSocketConnected()) {
+      const next = this.pendingScans[0];
+
+      try {
+        socketService.emitFireAndForget('rfid_scan_from_client', next.payload);
+        this.pendingScans.shift();
+        sent += 1;
+      } catch {
+        break;
+      }
+    }
+
+    this.emit('queue_flush', {
+      sent,
+      pending: this.pendingScans.length
+    });
+
+    return { sent, pending: this.pendingScans.length };
   }
 
   cleanupUidCache(now) {

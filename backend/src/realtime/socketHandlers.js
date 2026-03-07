@@ -16,6 +16,7 @@ const { objectIdSchema } = require('../validators/commonValidator');
 const { getRfidState } = require('../states/rfid');
 const { getSocketCommand, getCommandNames } = require('../commands/socket');
 const { findDangerousPayloadPath } = require('../utils/payloadSecurity');
+const Sentry = require('@sentry/node');
 
 const RFID_MODES = Object.freeze({
   IDLE: 'idle',
@@ -882,6 +883,13 @@ const registerSocketHandlers = ({ io, gameEngine, rfidService, socketRateLimiter
           helpers: commandHelpers
         });
       } catch (error) {
+        Sentry.captureException(error, {
+          tags: {
+            eventName,
+            socketId: socket.id
+          },
+          user: socket.user ? { id: socket.user._id, role: socket.user.role } : null
+        });
         logger.error('Error ejecutando comando Socket', {
           eventName,
           message: error.message

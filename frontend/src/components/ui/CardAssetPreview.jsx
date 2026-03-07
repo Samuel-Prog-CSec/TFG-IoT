@@ -8,6 +8,7 @@ export default function CardAssetPreview({
   asset,
   alt,
   fit = 'cover',
+  loading = 'lazy',
   className,
   imageClassName,
   fallbackClassName,
@@ -37,7 +38,7 @@ export default function CardAssetPreview({
             imageClassName
           )}
           onError={() => setImageError(true)}
-          loading="lazy"
+          loading={loading}
           decoding="async"
         />
       ) : (
@@ -67,6 +68,7 @@ CardAssetPreview.propTypes = {
   }),
   alt: PropTypes.string,
   fit: PropTypes.oneOf(['cover', 'contain']),
+  loading: PropTypes.oneOf(['lazy', 'eager']),
   className: PropTypes.string,
   imageClassName: PropTypes.string,
   fallbackClassName: PropTypes.string,

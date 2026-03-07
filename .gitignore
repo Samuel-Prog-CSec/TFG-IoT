@@ -6,6 +6,7 @@ node_modules/
 .sonarlint/
 .github/*.md
 .github/skills
+.github/instructions
 development/
 .env
 skills-lock.json

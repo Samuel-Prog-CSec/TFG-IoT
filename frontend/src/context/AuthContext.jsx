@@ -19,6 +19,7 @@ import {
 } from '../services/api';
 import { socketService } from '../services/socket';
 import { ROUTES } from '../constants/routes';
+import { setUserContext } from '../lib/sentry';
 
 // ============================================
 // TIPOS Y CONSTANTES
@@ -206,6 +207,7 @@ export function AuthProvider({ children }) {
       } catch (error) {
         console.error('[Auth] Sesión expirada o inválida:', error);
         clearTokens();
+        setUserContext(null);
         dispatch({ type: AUTH_ACTIONS.SET_USER, payload: null });
       }
     };
@@ -226,6 +228,7 @@ export function AuthProvider({ children }) {
   useEffect(() => {
     const handleSessionExpired = () => {
       toast.error('Tu sesión ha expirado. Por favor, inicia sesión nuevamente.');
+      setUserContext(null);
       dispatch({ type: AUTH_ACTIONS.LOGOUT });
       clearTokens();
       socketService.disconnect();
@@ -238,6 +241,7 @@ export function AuthProvider({ children }) {
         detail.message || 'Tu sesión ha sido cerrada porque iniciaste sesión en otro dispositivo.',
         { duration: 6000 }
       );
+      setUserContext(null);
       dispatch({ type: AUTH_ACTIONS.LOGOUT });
       clearTokens();
       socketService.disconnect();
@@ -248,6 +252,7 @@ export function AuthProvider({ children }) {
     };
 
     const handleUnauthorized = () => {
+      setUserContext(null);
       dispatch({ type: AUTH_ACTIONS.LOGOUT });
       clearTokens();
       socketService.disconnect();

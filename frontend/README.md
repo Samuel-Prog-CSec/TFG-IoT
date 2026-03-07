@@ -1,6 +1,6 @@
 # Frontend - EduPlay
 
-Una plataforma de juegos educativos con tecnología RFID para niños de 4-6 años.
+Una plataforma de juegos educativos con tecnología RFID para niños de 4-8 años.
 
 ## Índice de Documentación
 
@@ -10,6 +10,7 @@ Una plataforma de juegos educativos con tecnología RFID para niños de 4-6 año
 | [Buenas Prácticas](./docs/02-BUENAS-PRACTICAS.md) | Convenciones y estándares del proyecto |
 | [UI/UX Guidelines](./docs/03-UI-UX-GUIDELINES.md) | Decisiones de diseño visual y experiencia de usuario |
 | [Estructura del Proyecto](./docs/04-ESTRUCTURA-PROYECTO.md) | Organización de carpetas y archivos |
+| [Gameplay Realtime](./docs/05-GAMEPLAY-REALTIME.md) | Contrato funcional de partida Association/Memory y estados UI |
 
 ## Stack Tecnológico
 
@@ -33,6 +34,15 @@ npm run build
 
 # Lint
 npm run lint
+
+# Tests
+npm run test
+
+# Tests en modo watch
+npm run test:watch
+
+# Tests con cobertura
+npm run test:coverage
 
 # Auditoría runtime/prod
 npm run audit:prod
