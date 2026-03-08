@@ -15,7 +15,6 @@ import {
   Filter, 
   Layers, 
   AlertCircle,
-  Archive,
   RefreshCw,
   X
 } from 'lucide-react';
@@ -28,6 +27,198 @@ import { toast } from 'sonner';
 
 // Límite de mazos por profesor (sincronizado con backend)
 const MAX_DECKS = 50;
+
+const buildDeckQueryParams = ({ page, statusFilter, searchQuery, contextFilter }) => ({
+  page,
+  limit: 12,
+  status: statusFilter,
+  ...(searchQuery && { search: searchQuery }),
+  ...(contextFilter && { contextId: contextFilter }),
+  sortBy: 'createdAt',
+  order: 'desc',
+});
+
+const shouldUsePaginationCount = ({ statusFilter, searchQuery, contextFilter, pagination }) =>
+  statusFilter === 'active' && !searchQuery && !contextFilter && pagination.total !== undefined;
+
+const mergeDecks = ({ previousDecks, newDecks, resetPage }) =>
+  resetPage ? newDecks : [...previousDecks, ...newDecks];
+
+const resolveDeckCount = async ({
+  skipCount,
+  statusFilter,
+  searchQuery,
+  contextFilter,
+  pagination,
+  signal
+}) => {
+  if (skipCount) {
+    return null;
+  }
+
+  if (shouldUsePaginationCount({ statusFilter, searchQuery, contextFilter, pagination })) {
+    return { active: pagination.total };
+  }
+
+  return decksAPI.getDecksCount(signal ? { signal } : {});
+};
+
+const renderDecksGrid = ({ decks, shouldReduceMotion, handleViewDeck, handleEditDeck, handleArchiveDeck }) => (
+  <motion.div
+    className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6"
+    initial="hidden"
+    animate="visible"
+    variants={{
+      visible: {
+        transition: { staggerChildren: shouldReduceMotion ? 0.02 : 0.05 },
+      },
+    }}
+  >
+    {decks.map((deck) => {
+      const deckId = deck.id || deck._id;
+      return (
+        <motion.div
+          key={deckId}
+          variants={{
+            hidden: shouldReduceMotion ? { opacity: 1, y: 0 } : { opacity: 0, y: 20 },
+            visible: { opacity: 1, y: 0 },
+          }}
+        >
+          <DeckCard
+            deck={deck}
+            onView={handleViewDeck}
+            onEdit={handleEditDeck}
+            onDelete={handleArchiveDeck}
+            reducedMotion={shouldReduceMotion}
+          />
+        </motion.div>
+      );
+    })}
+  </motion.div>
+);
+
+const renderDecksErrorState = ({ error, shouldReduceMotion, loadDecks }) => (
+  <motion.div
+    initial={shouldReduceMotion ? false : { opacity: 0 }}
+    animate={{ opacity: 1 }}
+    className="flex flex-col items-center justify-center py-16"
+  >
+    <div className="w-16 h-16 rounded-full bg-rose-500/20 flex items-center justify-center mb-4">
+      <AlertCircle className="text-rose-400" size={32} />
+    </div>
+    <p className="text-slate-400 mb-4">{error}</p>
+    <ButtonPremium
+      variant="secondary"
+      onClick={() => loadDecks({ resetPage: true })}
+      icon={<RefreshCw size={16} />}
+    >
+      Reintentar
+    </ButtonPremium>
+  </motion.div>
+);
+
+const renderDecksLoadingState = ({ shouldReduceMotion }) => (
+  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
+    {[1, 2, 3, 4, 5, 6].map((slot) => (
+      <motion.div
+        key={`deck-skeleton-${slot}`}
+        initial={shouldReduceMotion ? false : { opacity: 0, y: 20 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ delay: shouldReduceMotion ? 0 : slot * 0.1 }}
+      >
+        <DeckCardSkeleton />
+      </motion.div>
+    ))}
+  </div>
+);
+
+const renderDecksEmptyState = ({ shouldReduceMotion, hasActiveFilters, clearFilters, handleCreateDeck }) => (
+  <motion.div
+    initial={shouldReduceMotion ? false : { opacity: 0, y: 20 }}
+    animate={{ opacity: 1, y: 0 }}
+    className="flex flex-col items-center justify-center py-16"
+  >
+    <motion.div
+      className="w-32 h-32 mb-6 relative"
+      animate={shouldReduceMotion ? { y: 0 } : { y: [0, -10, 0] }}
+      transition={shouldReduceMotion ? { duration: 0 } : { duration: 3, repeat: Infinity, ease: 'easeInOut' }}
+    >
+      <svg viewBox="0 0 100 100" className="w-full h-full">
+        <motion.rect
+          x="15" y="25" width="35" height="50" rx="4"
+          fill="none" stroke="#6366f1" strokeWidth="2"
+          initial={{ rotate: -15, opacity: 0.5 }}
+          animate={shouldReduceMotion ? { rotate: -15, opacity: 0.7 } : { rotate: [-15, -10, -15], opacity: [0.5, 0.8, 0.5] }}
+          transition={shouldReduceMotion ? { duration: 0 } : { duration: 2, repeat: Infinity }}
+          style={{ transformOrigin: '32px 50px' }}
+        />
+        <motion.rect
+          x="32" y="20" width="35" height="50" rx="4"
+          fill="none" stroke="#8b5cf6" strokeWidth="2"
+          initial={{ rotate: 0 }}
+          animate={shouldReduceMotion ? { rotate: 0 } : { rotate: [0, 5, 0] }}
+          transition={shouldReduceMotion ? { duration: 0 } : { duration: 2, repeat: Infinity, delay: 0.3 }}
+          style={{ transformOrigin: '50px 45px' }}
+        />
+        <motion.rect
+          x="50" y="25" width="35" height="50" rx="4"
+          fill="none" stroke="#a855f7" strokeWidth="2"
+          initial={{ rotate: 15, opacity: 0.5 }}
+          animate={shouldReduceMotion ? { rotate: 15, opacity: 0.7 } : { rotate: [15, 10, 15], opacity: [0.5, 0.8, 0.5] }}
+          transition={shouldReduceMotion ? { duration: 0 } : { duration: 2, repeat: Infinity, delay: 0.6 }}
+          style={{ transformOrigin: '68px 50px' }}
+        />
+      </svg>
+    </motion.div>
+
+    <h3 className="text-xl font-semibold text-white mb-2">
+      {hasActiveFilters ? 'No hay resultados' : 'Crea tu primer mazo'}
+    </h3>
+    <p className="text-slate-400 text-center max-w-md mb-6">
+      {hasActiveFilters
+        ? 'Intenta con otros filtros o términos de búsqueda'
+        : 'Los mazos te permiten reutilizar configuraciones de tarjetas en múltiples sesiones de juego'}
+    </p>
+
+    {hasActiveFilters ? (
+      <ButtonPremium variant="secondary" onClick={clearFilters}>
+        Limpiar filtros
+      </ButtonPremium>
+    ) : (
+      <ButtonPremium onClick={handleCreateDeck} icon={<Plus size={18} />}>
+        Crear mi primer mazo
+      </ButtonPremium>
+    )}
+  </motion.div>
+);
+
+const renderDecksState = ({
+  error,
+  loading,
+  decks,
+  shouldReduceMotion,
+  hasActiveFilters,
+  clearFilters,
+  handleCreateDeck,
+  loadDecks,
+  handleViewDeck,
+  handleEditDeck,
+  handleArchiveDeck,
+}) => {
+  if (error) {
+    return renderDecksErrorState({ error, shouldReduceMotion, loadDecks });
+  }
+
+  if (loading && decks.length === 0) {
+    return renderDecksLoadingState({ shouldReduceMotion });
+  }
+
+  if (decks.length === 0) {
+    return renderDecksEmptyState({ shouldReduceMotion, hasActiveFilters, clearFilters, handleCreateDeck });
+  }
+
+  return renderDecksGrid({ decks, shouldReduceMotion, handleViewDeck, handleEditDeck, handleArchiveDeck });
+};
 /**
  * Página principal de gestión de mazos
  */
@@ -63,7 +254,7 @@ export default function CardDecksPage() {
   const { contexts } = useContexts({ autoLoad: true, onlyActive: true });
 
   // Cargar mazos
-  const loadDecks = useCallback(async (resetPage = true, skipCount = false, signal, pageOverride) => {
+  const loadDecks = useCallback(async ({ resetPage = true, skipCount = false, signal, pageOverride } = {}) => {
     try {
       if (resetPage) {
         setLoading(true);
@@ -74,41 +265,35 @@ export default function CardDecksPage() {
       setError(null);
 
       const pageToUse = resetPage ? 1 : (pageOverride || page);
-      const params = {
+      const params = buildDeckQueryParams({
         page: pageToUse,
-        limit: 12,
-        status: statusFilter,
-        ...(searchQuery && { search: searchQuery }),
-        ...(contextFilter && { contextId: contextFilter }),
-        sortBy: 'createdAt',
-        order: 'desc',
-      };
+        statusFilter,
+        searchQuery,
+        contextFilter
+      });
 
       const response = await decksAPI.getDecks(params, signal ? { signal } : {});
-      const {data} = response;
+      const { data } = response;
       
       const newDecks = data.data || [];
       const pagination = data.pagination || {};
 
-      if (resetPage) {
-        setDecks(newDecks);
-      } else {
-        setDecks(prev => [...prev, ...newDecks]);
-      }
+      setDecks(prev => mergeDecks({ previousDecks: prev, newDecks, resetPage }));
 
       setHasMore(pagination.page < pagination.totalPages);
-      
-      // Optimización: Usar total de paginación cuando está disponible
-      // Solo llamar al endpoint de conteo cuando es necesario
-      if (!skipCount) {
-        // Si estamos en estado 'active' sin filtros, usamos pagination.total
-        if (statusFilter === 'active' && !searchQuery && !contextFilter && pagination.total !== undefined) {
-          setDeckCount(prev => ({ ...prev, active: pagination.total }));
-        } else {
-          // Necesitamos el conteo completo (incluye archived)
-          const countData = await decksAPI.getDecksCount(signal ? { signal } : {});
-          setDeckCount(countData);
-        }
+
+      const countData = await resolveDeckCount({
+        skipCount,
+        statusFilter,
+        searchQuery,
+        contextFilter,
+        pagination,
+        signal
+      });
+      if (countData?.active !== undefined && countData?.total === undefined) {
+        setDeckCount(prev => ({ ...prev, active: countData.active }));
+      } else if (countData) {
+        setDeckCount(countData);
       }
 
     } catch (err) {
@@ -134,7 +319,7 @@ export default function CardDecksPage() {
     const controller = new AbortController();
     decksAbortRef.current = controller;
     countAbortRef.current = controller;
-    loadDecks(true, false, controller.signal);
+    loadDecks({ resetPage: true, skipCount: false, signal: controller.signal });
 
     return () => controller.abort();
   }, [searchQuery, statusFilter, contextFilter]);
@@ -145,7 +330,7 @@ export default function CardDecksPage() {
     const controller = new AbortController();
     decksAbortRef.current = controller;
     countAbortRef.current = controller;
-    loadDecks(true, false, controller.signal);
+    loadDecks({ resetPage: true, skipCount: false, signal: controller.signal });
   }, [loadDecks]);
 
   useRefetchOnFocus({
@@ -162,7 +347,7 @@ export default function CardDecksPage() {
       const nextPage = page + 1;
       const controller = new AbortController();
       decksAbortRef.current = controller;
-      loadDecks(false, true, controller.signal, nextPage);
+      loadDecks({ resetPage: false, skipCount: true, signal: controller.signal, pageOverride: nextPage });
     }
   };
 
@@ -211,7 +396,7 @@ export default function CardDecksPage() {
       });
       archiveModal.close();
       setArchivingDeck(null);
-      loadDecks(true);
+      loadDecks({ resetPage: true });
     } catch (err) {
       toast.error('Error al archivar', {
         description: extractErrorMessage(err),
@@ -228,6 +413,20 @@ export default function CardDecksPage() {
   };
 
   const hasActiveFilters = searchQuery || statusFilter !== 'active' || contextFilter;
+
+  const decksStateContent = renderDecksState({
+    error,
+    loading,
+    decks,
+    shouldReduceMotion,
+    hasActiveFilters,
+    clearFilters,
+    handleCreateDeck,
+    loadDecks,
+    handleViewDeck,
+    handleEditDeck,
+    handleArchiveDeck,
+  });
 
   return (
     <div className="p-6 lg:p-8 max-w-7xl mx-auto">
@@ -342,8 +541,9 @@ export default function CardDecksPage() {
                 <div className="flex flex-wrap gap-4">
                   {/* Filtro por estado */}
                   <div className="flex-1 min-w-[150px]">
-                    <label className="block text-xs text-slate-500 mb-1.5">Estado</label>
+                    <label htmlFor="deck-status-filter" className="block text-xs text-slate-500 mb-1.5">Estado</label>
                     <select
+                      id="deck-status-filter"
                       value={statusFilter}
                       onChange={(e) => setStatusFilter(e.target.value)}
                       className={cn(
@@ -360,8 +560,9 @@ export default function CardDecksPage() {
 
                   {/* Filtro por contexto */}
                   <div className="flex-1 min-w-[150px]">
-                    <label className="block text-xs text-slate-500 mb-1.5">Contexto</label>
+                    <label htmlFor="deck-context-filter" className="block text-xs text-slate-500 mb-1.5">Contexto</label>
                     <select
+                      id="deck-context-filter"
                       value={contextFilter}
                       onChange={(e) => setContextFilter(e.target.value)}
                       className={cn(
@@ -404,147 +605,19 @@ export default function CardDecksPage() {
       )}
 
       {/* Contenido principal */}
-      {error ? (
-        /* Estado de error */
-        <motion.div
-          initial={shouldReduceMotion ? false : { opacity: 0 }}
-          animate={{ opacity: 1 }}
-          className="flex flex-col items-center justify-center py-16"
-        >
-          <div className="w-16 h-16 rounded-full bg-rose-500/20 flex items-center justify-center mb-4">
-            <AlertCircle className="text-rose-400" size={32} />
-          </div>
-          <p className="text-slate-400 mb-4">{error}</p>
+      {decksStateContent}
+
+      {/* Cargar más */}
+      {!error && decks.length > 0 && hasMore && (
+        <div className="flex justify-center mt-8">
           <ButtonPremium
             variant="secondary"
-            onClick={() => loadDecks(true)}
-            icon={<RefreshCw size={16} />}
+            onClick={loadMore}
+            loading={loadingMore}
           >
-            Reintentar
+            Cargar más mazos
           </ButtonPremium>
-        </motion.div>
-      ) : loading && decks.length === 0 ? (
-        /* Estado de carga */
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
-          {[...Array(6)].map((_, i) => (
-            <motion.div
-              key={i}
-              initial={shouldReduceMotion ? false : { opacity: 0, y: 20 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ delay: shouldReduceMotion ? 0 : i * 0.1 }}
-            >
-              <DeckCardSkeleton />
-            </motion.div>
-          ))}
         </div>
-      ) : decks.length === 0 ? (
-        /* Empty state */
-        <motion.div
-          initial={shouldReduceMotion ? false : { opacity: 0, y: 20 }}
-          animate={{ opacity: 1, y: 0 }}
-          className="flex flex-col items-center justify-center py-16"
-        >
-          <motion.div
-            className="w-32 h-32 mb-6 relative"
-            animate={shouldReduceMotion ? { y: 0 } : { y: [0, -10, 0] }}
-            transition={shouldReduceMotion ? { duration: 0 } : { duration: 3, repeat: Infinity, ease: 'easeInOut' }}
-          >
-            {/* SVG animado de cartas */}
-            <svg viewBox="0 0 100 100" className="w-full h-full">
-              <motion.rect
-                x="15" y="25" width="35" height="50" rx="4"
-                fill="none" stroke="#6366f1" strokeWidth="2"
-                initial={{ rotate: -15, opacity: 0.5 }}
-                animate={shouldReduceMotion ? { rotate: -15, opacity: 0.7 } : { rotate: [-15, -10, -15], opacity: [0.5, 0.8, 0.5] }}
-                transition={shouldReduceMotion ? { duration: 0 } : { duration: 2, repeat: Infinity }}
-                style={{ transformOrigin: '32px 50px' }}
-              />
-              <motion.rect
-                x="32" y="20" width="35" height="50" rx="4"
-                fill="none" stroke="#8b5cf6" strokeWidth="2"
-                initial={{ rotate: 0 }}
-                animate={shouldReduceMotion ? { rotate: 0 } : { rotate: [0, 5, 0] }}
-                transition={shouldReduceMotion ? { duration: 0 } : { duration: 2, repeat: Infinity, delay: 0.3 }}
-                style={{ transformOrigin: '50px 45px' }}
-              />
-              <motion.rect
-                x="50" y="25" width="35" height="50" rx="4"
-                fill="none" stroke="#a855f7" strokeWidth="2"
-                initial={{ rotate: 15, opacity: 0.5 }}
-                animate={shouldReduceMotion ? { rotate: 15, opacity: 0.7 } : { rotate: [15, 10, 15], opacity: [0.5, 0.8, 0.5] }}
-                transition={shouldReduceMotion ? { duration: 0 } : { duration: 2, repeat: Infinity, delay: 0.6 }}
-                style={{ transformOrigin: '68px 50px' }}
-              />
-            </svg>
-          </motion.div>
-          
-          <h3 className="text-xl font-semibold text-white mb-2">
-            {hasActiveFilters ? 'No hay resultados' : 'Crea tu primer mazo'}
-          </h3>
-          <p className="text-slate-400 text-center max-w-md mb-6">
-            {hasActiveFilters 
-              ? 'Intenta con otros filtros o términos de búsqueda'
-              : 'Los mazos te permiten reutilizar configuraciones de tarjetas en múltiples sesiones de juego'}
-          </p>
-          
-          {hasActiveFilters ? (
-            <ButtonPremium variant="secondary" onClick={clearFilters}>
-              Limpiar filtros
-            </ButtonPremium>
-          ) : (
-            <ButtonPremium onClick={handleCreateDeck} icon={<Plus size={18} />}>
-              Crear mi primer mazo
-            </ButtonPremium>
-          )}
-        </motion.div>
-      ) : (
-        /* Grid de mazos */
-        <>
-          <motion.div
-            className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6"
-            initial="hidden"
-            animate="visible"
-            variants={{
-              visible: {
-                transition: { staggerChildren: shouldReduceMotion ? 0.02 : 0.05 },
-              },
-            }}
-          >
-            {decks.map((deck, index) => {
-              const deckId = deck.id || deck._id;
-              return (
-              <motion.div
-                key={deckId}
-                variants={{
-                  hidden: shouldReduceMotion ? { opacity: 1, y: 0 } : { opacity: 0, y: 20 },
-                  visible: { opacity: 1, y: 0 },
-                }}
-              >
-                <DeckCard
-                  deck={deck}
-                  onView={handleViewDeck}
-                  onEdit={handleEditDeck}
-                  onDelete={handleArchiveDeck}
-                  reducedMotion={shouldReduceMotion}
-                />
-              </motion.div>
-              );
-            })}
-          </motion.div>
-
-          {/* Cargar más */}
-          {hasMore && (
-            <div className="flex justify-center mt-8">
-              <ButtonPremium
-                variant="secondary"
-                onClick={loadMore}
-                loading={loadingMore}
-              >
-                Cargar más mazos
-              </ButtonPremium>
-            </div>
-          )}
-        </>
       )}
 
       {/* Modal de confirmación para archivar */}

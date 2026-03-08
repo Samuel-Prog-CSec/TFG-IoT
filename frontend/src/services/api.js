@@ -17,6 +17,7 @@ const TIMEOUT = 10000; // 10 segundos
 const MAX_RETRIES = 3;
 const RETRY_DELAY = 1000; // 1 segundo base para exponential backoff
 const MAX_TOTAL_TIME = 30000; // 30 segundos máximo para todos los reintentos
+const ACTIVE_ONLY_PARAMS = Object.freeze({ isActive: true });
 
 // Eventos personalizados para comunicación con AuthContext
 export const AUTH_EVENTS = {
@@ -87,8 +88,13 @@ export const clearTokens = () => {
 };
 
 const getCookieValue = (name) => {
-  const match = document.cookie.match(new RegExp(`(?:^|; )${name}=([^;]*)`));
-  return match ? decodeURIComponent(match[1]) : null;
+  const targetCookie = `${name}=`;
+  const cookieValue = document.cookie
+    .split('; ')
+    .find((entry) => entry.startsWith(targetCookie))
+    ?.slice(targetCookie.length);
+
+  return cookieValue ? decodeURIComponent(cookieValue) : null;
 };
 
 // ============================================
@@ -117,7 +123,7 @@ api.interceptors.request.use(
     return config;
   },
   (error) => {
-    return Promise.reject(error);
+    throw error;
   }
 );
 
@@ -152,9 +158,9 @@ api.interceptors.response.use(
       }
 
       // Si no hay refresh token o el refresh falló, emitir evento
-      window.dispatchEvent(new CustomEvent(AUTH_EVENTS.UNAUTHORIZED));
+      globalThis.dispatchEvent(new CustomEvent(AUTH_EVENTS.UNAUTHORIZED));
       clearTokens();
-      return Promise.reject(error);
+      throw error;
     }
 
     // 403 - Cuenta no aprobada o rechazada
@@ -162,14 +168,14 @@ api.interceptors.response.use(
       const errorCode = data?.code;
       if (errorCode === 'ACCOUNT_PENDING' || errorCode === 'ACCOUNT_REJECTED') {
         // No limpiar tokens, solo propagar el error con info
-        return Promise.reject({
-          ...error,
-          accountStatus: errorCode === 'ACCOUNT_PENDING' ? 'pending_approval' : 'rejected',
-        });
+        const accountStatusError = new Error(error?.message || 'Estado de cuenta no permitido');
+        accountStatusError.accountStatus = errorCode === 'ACCOUNT_PENDING' ? 'pending_approval' : 'rejected';
+        accountStatusError.cause = error;
+        throw accountStatusError;
       }
     }
 
-    return Promise.reject(error);
+    throw error;
   }
 );
 
@@ -192,7 +198,9 @@ async function handleTokenRefresh(originalRequest) {
         originalRequest.headers.Authorization = `Bearer ${token}`;
         return api(originalRequest);
       })
-      .catch((err) => Promise.reject(err));
+      .catch((err) => {
+        throw err;
+      });
   }
 
   originalRequest._retry = true;
@@ -219,8 +227,8 @@ async function handleTokenRefresh(originalRequest) {
   } catch (refreshError) {
     processQueue(refreshError, null);
     clearTokens();
-    window.dispatchEvent(new CustomEvent(AUTH_EVENTS.SESSION_EXPIRED));
-    return Promise.reject(refreshError);
+    globalThis.dispatchEvent(new CustomEvent(AUTH_EVENTS.SESSION_EXPIRED));
+    throw refreshError;
   } finally {
     isRefreshing = false;
   }
@@ -238,7 +246,7 @@ async function handleTokenRefresh(originalRequest) {
  */
 async function handleNetworkError(error, originalRequest) {
   if (isAbortError(error)) {
-    return Promise.reject(error);
+    throw error;
   }
 
   const retryCount = originalRequest._retryCount || 0;
@@ -252,20 +260,18 @@ async function handleNetworkError(error, originalRequest) {
   const elapsedTime = Date.now() - originalRequest._retryStartTime;
   if (elapsedTime >= MAX_TOTAL_TIME) {
     console.error(`[API] Max total time (${MAX_TOTAL_TIME}ms) exceeded for ${originalRequest.url}`);
-    return Promise.reject({
-      ...error,
-      isNetworkError: true,
-      message: 'Tiempo de espera agotado. Por favor, verifica tu conexión a internet.',
-    });
+    const timeoutError = new Error('Tiempo de espera agotado. Por favor, verifica tu conexion a internet.');
+    timeoutError.isNetworkError = true;
+    timeoutError.cause = error;
+    throw timeoutError;
   }
 
   if (retryCount >= MAX_RETRIES) {
     console.error(`[API] Max retries (${MAX_RETRIES}) exceeded for ${originalRequest.url}`);
-    return Promise.reject({
-      ...error,
-      isNetworkError: true,
-      message: 'Error de conexión. Por favor, verifica tu conexión a internet.',
-    });
+    const networkError = new Error('Error de conexion. Por favor, verifica tu conexion a internet.');
+    networkError.isNetworkError = true;
+    networkError.cause = error;
+    throw networkError;
   }
 
   originalRequest._retryCount = retryCount + 1;
@@ -561,8 +567,8 @@ export const contextsAPI = {
    * @param {boolean} [params.isActive=true] - Filtrar solo activos
    * @returns {Promise} Respuesta con lista de contextos
    */
-  getContexts: (params = { isActive: true }, config = {}) => 
-    api.get('/contexts', { params, ...config }),
+  getContexts: (params, config = {}) => 
+    api.get('/contexts', { params: params ?? ACTIVE_ONLY_PARAMS, ...config }),
 
   /**
    * Obtener contexto por ID con sus assets
@@ -713,8 +719,8 @@ export const mechanicsAPI = {
    * @param {boolean} [params.isActive=true] - Filtrar solo activas
    * @returns {Promise} Respuesta con lista de mecánicas
    */
-  getMechanics: (params = { isActive: true }, config = {}) => 
-    api.get('/mechanics', { params, ...config }),
+  getMechanics: (params, config = {}) => 
+    api.get('/mechanics', { params: params ?? ACTIVE_ONLY_PARAMS, ...config }),
 
   /**
    * Obtener mecánica por ID

@@ -33,6 +33,42 @@
 const mongoose = require('mongoose');
 const bcrypt = require('bcrypt');
 
+const hasLoginRole = role => role === 'teacher' || role === 'super_admin';
+
+const validateLoginRoleRequirements = user => {
+  if (!user.email) {
+    throw new Error('Los profesores deben tener un email');
+  }
+  if (!user.password && user.isNew) {
+    throw new Error('Los profesores deben tener una contraseña');
+  }
+};
+
+const validateStudentRequirements = user => {
+  if (user.email) {
+    throw new Error(
+      'Los alumnos NO deben tener email. Son creados por profesores y no inician sesión.'
+    );
+  }
+  if (user.password) {
+    throw new Error(
+      'Los alumnos NO deben tener contraseña. Son creados por profesores y no inician sesión.'
+    );
+  }
+  if (!user.createdBy && user.isNew) {
+    throw new Error('Los alumnos deben ser creados por un profesor (campo createdBy requerido)');
+  }
+};
+
+const hashPasswordIfNeeded = async user => {
+  if (!user.isModified('password') || !user.password) {
+    return;
+  }
+
+  const salt = await bcrypt.genSalt(10);
+  user.password = await bcrypt.hash(user.password, salt);
+};
+
 /**
  * Esquema de Mongoose para usuarios del sistema.
  * Soporta tres roles: 'super_admin' (valida profesores), 'teacher' (profesor con login) y
@@ -189,44 +225,13 @@ const userSchema = new mongoose.Schema(
  * - Los alumnos NO deben tener email ni password (validación estricta)
  */
 userSchema.pre('save', async function () {
-  // ========================================
-  // VALIDACIÓN PARA ROLES CON LOGIN (teacher/super_admin)
-  // ========================================
-  if (this.role === 'teacher' || this.role === 'super_admin') {
-    if (!this.email) {
-      throw new Error('Los profesores deben tener un email');
-    }
-    if (!this.password && this.isNew) {
-      throw new Error('Los profesores deben tener una contraseña');
-    }
-
-    // Encriptar contraseña solo si fue modificada
-    if (this.isModified('password') && this.password) {
-      const salt = await bcrypt.genSalt(10);
-      this.password = await bcrypt.hash(this.password, salt);
-    }
+  if (hasLoginRole(this.role)) {
+    validateLoginRoleRequirements(this);
+    await hashPasswordIfNeeded(this);
   }
 
-  // ========================================
-  // VALIDACIÓN PARA ALUMNOS (role: 'student')
-  // ========================================
   if (this.role === 'student') {
-    // VALIDACIÓN ESTRICTA: Los alumnos NO deben tener email ni password
-    if (this.email) {
-      throw new Error(
-        'Los alumnos NO deben tener email. Son creados por profesores y no inician sesión.'
-      );
-    }
-    if (this.password) {
-      throw new Error(
-        'Los alumnos NO deben tener contraseña. Son creados por profesores y no inician sesión.'
-      );
-    }
-
-    // VALIDAR que tenga un creador (profesor)
-    if (!this.createdBy && this.isNew) {
-      throw new Error('Los alumnos deben ser creados por un profesor (campo createdBy requerido)');
-    }
+    validateStudentRequirements(this);
   }
 
   // En hooks async no se usa callback next(); la promesa resuelta continúa el save.

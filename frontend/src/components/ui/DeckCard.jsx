@@ -18,6 +18,153 @@ import PropTypes from 'prop-types';
 import { cn } from '../../lib/utils';
 import Tooltip from './Tooltip';
 
+const formatDeckDate = (dateString) => {
+  const date = new Date(dateString);
+  return date.toLocaleDateString('es-ES', {
+    day: 'numeric',
+    month: 'short',
+    year: 'numeric'
+  });
+};
+
+const deckContextShape = PropTypes.shape({
+  name: PropTypes.string,
+});
+
+const displayDataShape = PropTypes.shape({
+  display: PropTypes.string,
+  emoji: PropTypes.string,
+});
+
+const cardMappingShape = PropTypes.shape({
+  _id: PropTypes.oneOfType([PropTypes.string, PropTypes.number]),
+  displayData: displayDataShape,
+});
+
+const deckShape = PropTypes.shape({
+  id: PropTypes.oneOfType([PropTypes.string, PropTypes.number]),
+  _id: PropTypes.oneOfType([PropTypes.string, PropTypes.number]),
+  name: PropTypes.string.isRequired,
+  description: PropTypes.string,
+  context: deckContextShape,
+  contextId: deckContextShape,
+  createdAt: PropTypes.string,
+  cardsCount: PropTypes.number,
+  cardMappings: PropTypes.arrayOf(cardMappingShape),
+});
+
+const useDeckCardMenu = ({ menuRef, isMenuOpen, setIsMenuOpen }) => {
+  useEffect(() => {
+    if (!isMenuOpen) return undefined;
+
+    const handleOutsideClick = (event) => {
+      if (menuRef.current?.contains(event.target)) {
+        return;
+      }
+      setIsMenuOpen(false);
+    };
+
+    globalThis.addEventListener('mousedown', handleOutsideClick);
+    return () => globalThis.removeEventListener('mousedown', handleOutsideClick);
+  }, [isMenuOpen, menuRef, setIsMenuOpen]);
+};
+
+const useDeckCardMotion = ({ reducedMotion }) => {
+  const prefersReducedMotion = useMemo(() => {
+    if (!globalThis.window?.matchMedia) {
+      return false;
+    }
+
+    return globalThis.window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+  }, []);
+
+  const useFullAnimations = !reducedMotion && !prefersReducedMotion;
+  const x = useMotionValue(0);
+  const y = useMotionValue(0);
+  const springConfig = useFullAnimations
+    ? { stiffness: 400, damping: 90 }
+    : { stiffness: 200, damping: 50 };
+  const mouseXSpring = useSpring(x, springConfig);
+  const mouseYSpring = useSpring(y, springConfig);
+  const rotationAmount = useFullAnimations ? 10 : 5;
+  const rotateX = useTransform(mouseYSpring, [-0.5, 0.5], [`${rotationAmount}deg`, `-${rotationAmount}deg`]);
+  const rotateY = useTransform(mouseXSpring, [-0.5, 0.5], [`-${rotationAmount}deg`, `${rotationAmount}deg`]);
+  const parallaxAmount = useFullAnimations ? 10 : 4;
+  const assetX = useTransform(mouseXSpring, [-0.5, 0.5], [parallaxAmount, -parallaxAmount]);
+  const assetY = useTransform(mouseYSpring, [-0.5, 0.5], [parallaxAmount, -parallaxAmount]);
+
+  return {
+    x,
+    y,
+    useFullAnimations,
+    rotateX,
+    rotateY,
+    assetX,
+    assetY
+  };
+};
+
+const useDeckCardInteraction = ({ reducedMotion, selectable, onSelect, deck }) => {
+  const [isHovered, setIsHovered] = useState(false);
+  const [isMenuOpen, setIsMenuOpen] = useState(false);
+  const cardRef = useRef(null);
+  const menuRef = useRef(null);
+  const { x, y, useFullAnimations, rotateX, rotateY, assetX, assetY } = useDeckCardMotion({
+    reducedMotion
+  });
+
+  useDeckCardMenu({ menuRef, isMenuOpen, setIsMenuOpen });
+
+  const handlePointerMove = (event) => {
+    if (!cardRef.current) return;
+
+    const rect = cardRef.current.getBoundingClientRect();
+    const xPos = (event.clientX - rect.left) / rect.width - 0.5;
+    const yPos = (event.clientY - rect.top) / rect.height - 0.5;
+    x.set(xPos);
+    y.set(yPos);
+    cardRef.current.style.setProperty('--mouse-x', `${event.clientX - rect.left}px`);
+    cardRef.current.style.setProperty('--mouse-y', `${event.clientY - rect.top}px`);
+  };
+
+  const handlePointerLeave = () => {
+    setIsHovered(false);
+    x.set(0);
+    y.set(0);
+  };
+
+  const handleClick = () => {
+    if (selectable && onSelect) {
+      onSelect(deck);
+    }
+  };
+
+  const handleSelectableKeyDown = (event) => {
+    if (event.key === 'Enter' || event.key === ' ') {
+      event.preventDefault();
+      handleClick();
+    }
+  };
+
+  return {
+    isHovered,
+    setIsHovered,
+    isMenuOpen,
+    setIsMenuOpen,
+    cardRef,
+    menuRef,
+    useFullAnimations,
+    rotateX,
+    rotateY,
+    assetX,
+    assetY,
+    handlePointerMove,
+    handlePointerLeave,
+    handleClick,
+    handleSelectableKeyDown
+  };
+};
+
 /**
  * DeckCard - Card visual premium para mazos
  * 
@@ -50,80 +197,28 @@ export default function DeckCard({
   reducedMotion = false,
   className,
 }) {
-  const [isHovered, setIsHovered] = useState(false);
-  const [isMenuOpen, setIsMenuOpen] = useState(false);
-  const cardRef = useRef(null);
-  const menuRef = useRef(null);
-
-  useEffect(() => {
-    if (!isMenuOpen) return undefined;
-
-    const handleOutsideClick = (event) => {
-      if (menuRef.current?.contains(event.target)) {
-        return;
-      }
-      setIsMenuOpen(false);
-    };
-
-    globalThis.addEventListener('mousedown', handleOutsideClick);
-    return () => globalThis.removeEventListener('mousedown', handleOutsideClick);
-  }, [isMenuOpen]);
-
-  // Detectar preferencia de movimiento reducido del sistema
-  const prefersReducedMotion = useMemo(() => {
-    if (typeof window === 'undefined') return false;
-    return window.matchMedia('(prefers-reduced-motion: reduce)').matches;
-  }, []);
-
-  // Determinar si usar animaciones completas
-  const useFullAnimations = !reducedMotion && !prefersReducedMotion;
-
-  // Valores para efecto 3D tilt
-  const x = useMotionValue(0);
-  const y = useMotionValue(0);
-
-  // Springs más suaves cuando hay animaciones reducidas
-  const springConfig = useFullAnimations 
-    ? { stiffness: 400, damping: 90 }
-    : { stiffness: 200, damping: 50 };
-
-  const mouseXSpring = useSpring(x, springConfig);
-  const mouseYSpring = useSpring(y, springConfig);
-
-  // Ángulo de rotación (reducido si necesario)
-  const rotationAmount = useFullAnimations ? 10 : 5;
-  const rotateX = useTransform(mouseYSpring, [-0.5, 0.5], [`${rotationAmount}deg`, `-${rotationAmount}deg`]);
-  const rotateY = useTransform(mouseXSpring, [-0.5, 0.5], [`-${rotationAmount}deg`, `${rotationAmount}deg`]);
-
-  // Efecto parallax para los assets preview (reducido si necesario)
-  const parallaxAmount = useFullAnimations ? 10 : 4;
-  const assetX = useTransform(mouseXSpring, [-0.5, 0.5], [parallaxAmount, -parallaxAmount]);
-  const assetY = useTransform(mouseYSpring, [-0.5, 0.5], [parallaxAmount, -parallaxAmount]);
-
-  const handlePointerMove = (e) => {
-    if (!cardRef.current) return;
-    const rect = cardRef.current.getBoundingClientRect();
-    const xPos = (e.clientX - rect.left) / rect.width - 0.5;
-    const yPos = (e.clientY - rect.top) / rect.height - 0.5;
-    x.set(xPos);
-    y.set(yPos);
-    
-    // Set CSS variables for holographic effect
-    cardRef.current.style.setProperty('--mouse-x', `${e.clientX - rect.left}px`);
-    cardRef.current.style.setProperty('--mouse-y', `${e.clientY - rect.top}px`);
-  };
-
-  const handlePointerLeave = () => {
-    setIsHovered(false);
-    x.set(0);
-    y.set(0);
-  };
-
-  const handleClick = () => {
-    if (selectable && onSelect) {
-      onSelect(deck);
-    }
-  };
+  const {
+    isHovered,
+    setIsHovered,
+    isMenuOpen,
+    setIsMenuOpen,
+    cardRef,
+    menuRef,
+    useFullAnimations,
+    rotateX,
+    rotateY,
+    assetX,
+    assetY,
+    handlePointerMove,
+    handlePointerLeave,
+    handleClick,
+    handleSelectableKeyDown
+  } = useDeckCardInteraction({
+    reducedMotion,
+    selectable,
+    onSelect,
+    deck
+  });
 
   // Obtener preview de assets (primeros 4)
   const previewAssets = deck.cardMappings?.slice(0, 4) || [];
@@ -131,16 +226,66 @@ export default function DeckCard({
   const remainingCount = Math.max(cardsCount - previewAssets.length, 0);
   const showActions = !selectable;
 
-  // Formatear fecha
-  const formatDate = (dateString) => {
-    const date = new Date(dateString);
-    return date.toLocaleDateString('es-ES', { 
-      day: 'numeric',
-      month: 'short',
-      year: 'numeric'
-    });
-  };
+  return (
+    <DeckCardView
+      cardRef={cardRef}
+      className={className}
+      handlePointerMove={handlePointerMove}
+      onPointerEnter={() => setIsHovered(true)}
+      handlePointerLeave={handlePointerLeave}
+      handleClick={handleClick}
+      selectable={selectable}
+      deck={deck}
+      selected={selected}
+      handleSelectableKeyDown={handleSelectableKeyDown}
+      isHovered={isHovered}
+      useFullAnimations={useFullAnimations}
+      rotateX={rotateX}
+      rotateY={rotateY}
+      menuRef={menuRef}
+      isMenuOpen={isMenuOpen}
+      setIsMenuOpen={setIsMenuOpen}
+      onView={onView}
+      onEdit={onEdit}
+      onDelete={onDelete}
+      previewAssets={previewAssets}
+      remainingCount={remainingCount}
+      assetX={assetX}
+      assetY={assetY}
+      cardsCount={cardsCount}
+      showActions={showActions}
+    />
+  );
+}
 
+function DeckCardView({
+  cardRef,
+  className,
+  handlePointerMove,
+  onPointerEnter,
+  handlePointerLeave,
+  handleClick,
+  selectable,
+  deck,
+  selected,
+  handleSelectableKeyDown,
+  isHovered,
+  useFullAnimations,
+  rotateX,
+  rotateY,
+  menuRef,
+  isMenuOpen,
+  setIsMenuOpen,
+  onView,
+  onEdit,
+  onDelete,
+  previewAssets,
+  remainingCount,
+  assetX,
+  assetY,
+  cardsCount,
+  showActions
+}) {
   return (
     <motion.div
       ref={cardRef}
@@ -149,7 +294,7 @@ export default function DeckCard({
         className
       )}
       onPointerMove={handlePointerMove}
-      onPointerEnter={() => setIsHovered(true)}
+      onPointerEnter={onPointerEnter}
       onPointerLeave={handlePointerLeave}
       onClick={handleClick}
       style={{
@@ -163,12 +308,7 @@ export default function DeckCard({
       aria-label={selectable ? `Seleccionar mazo ${deck.name}` : `Mazo ${deck.name}`}
       aria-selected={selectable ? selected : undefined}
       tabIndex={selectable ? 0 : undefined}
-      onKeyDown={selectable ? (e) => {
-        if (e.key === 'Enter' || e.key === ' ') {
-          e.preventDefault();
-          handleClick();
-        }
-      } : undefined}
+      onKeyDown={selectable ? handleSelectableKeyDown : undefined}
     >
       <motion.div
         className={cn(
@@ -188,9 +328,8 @@ export default function DeckCard({
           willChange: isHovered ? 'transform' : 'auto',
         }}
       >
-        {/* Gradiente animado en el borde */}
         <div className="absolute inset-0 rounded-2xl opacity-0 group-hover:opacity-100 transition-opacity duration-500">
-          <div 
+          <div
             className="absolute inset-0 rounded-2xl"
             style={{
               background: 'linear-gradient(90deg, #6366f1, #8b5cf6, #a855f7, #6366f1)',
@@ -204,170 +343,47 @@ export default function DeckCard({
           />
         </div>
 
-        {/* Contenido de la card */}
         <div className="relative p-5 z-10">
-          {/* Header con icono y contexto */}
-          <div className="flex items-start justify-between mb-4">
-            <div className="flex items-center gap-3">
-              <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-indigo-500 to-purple-600 flex items-center justify-center shadow-lg shadow-indigo-500/30">
-                <Layers className="text-white" size={24} />
-              </div>
-              <div>
-                <h3 className="font-bold text-white text-lg leading-tight line-clamp-1">
-                  {deck.name}
-                </h3>
-                <span className="text-xs text-purple-400 font-medium">
-                  {deck.context?.name || deck.contextId?.name || 'Sin contexto'}
-                </span>
-              </div>
-            </div>
+          <DeckCardHeader
+            deck={deck}
+            selectable={selectable}
+            menuRef={menuRef}
+            isMenuOpen={isMenuOpen}
+            setIsMenuOpen={setIsMenuOpen}
+            onView={onView}
+            onEdit={onEdit}
+            onDelete={onDelete}
+          />
 
-            {/* Menú de acciones (solo si no es selectable) */}
-            {!selectable && (
-              <div className="relative z-20" ref={menuRef}>
-                <Tooltip content="Opciones">
-                  <motion.button
-                    className="p-2 rounded-lg text-slate-400 hover:text-white hover:bg-white/10 transition-colors"
-                    whileHover={{ scale: 1.1 }}
-                    whileTap={{ scale: 0.95 }}
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      setIsMenuOpen((currentValue) => !currentValue);
-                    }}
-                    aria-label={`Opciones para mazo ${deck.name}`}
-                    aria-haspopup="true"
-                    aria-expanded={isMenuOpen}
-                  >
-                    <MoreVertical size={18} aria-hidden="true" />
-                  </motion.button>
-                </Tooltip>
-
-                <AnimateMenu
-                  isOpen={isMenuOpen}
-                  onView={(event) => {
-                    event.stopPropagation();
-                    setIsMenuOpen(false);
-                    onView?.(deck);
-                  }}
-                  onEdit={(event) => {
-                    event.stopPropagation();
-                    setIsMenuOpen(false);
-                    onEdit?.(deck);
-                  }}
-                  onDelete={(event) => {
-                    event.stopPropagation();
-                    setIsMenuOpen(false);
-                    onDelete?.(deck);
-                  }}
-                />
-              </div>
-            )}
-          </div>
-
-          {/* Descripción */}
           {deck.description && (
             <p className="text-slate-400 text-sm mb-4 line-clamp-2">
               {deck.description}
             </p>
           )}
 
-          {/* Preview de assets con parallax */}
-          <motion.div 
-            className="flex items-center gap-2 mb-4"
-            style={{
-              x: useFullAnimations && isHovered ? assetX : 0,
-              y: useFullAnimations && isHovered ? assetY : 0,
-            }}
-          >
-            {previewAssets.map((mapping, index) => (
-              <motion.div
-                key={mapping._id || index}
-                className="w-10 h-10 rounded-lg bg-slate-800/80 border border-white/10 flex items-center justify-center text-lg overflow-hidden"
-                initial={{ opacity: 0, scale: 0.8 }}
-                animate={{ opacity: 1, scale: 1 }}
-                transition={{ delay: index * 0.1 }}
-                style={{
-                  transform: `translateZ(${(index + 1) * 10}px)`,
-                }}
-              >
-                {mapping.displayData?.display || mapping.displayData?.emoji || '🎴'}
-              </motion.div>
-            ))}
-            {remainingCount > 0 && (
-              <motion.div
-                className="w-10 h-10 rounded-lg bg-slate-800/80 border border-white/10 flex items-center justify-center text-xs font-bold text-slate-400"
-                initial={{ opacity: 0, scale: 0.8 }}
-                animate={{ opacity: 1, scale: 1 }}
-                transition={{ delay: 0.4 }}
-              >
-                +{remainingCount}
-              </motion.div>
-            )}
-          </motion.div>
+          <DeckPreviewAssets
+            previewAssets={previewAssets}
+            remainingCount={remainingCount}
+            useFullAnimations={useFullAnimations}
+            isHovered={isHovered}
+            assetX={assetX}
+            assetY={assetY}
+          />
 
-          {/* Estadísticas */}
-          <div className="flex items-center gap-4 text-xs text-slate-500">
-            <div className="flex items-center gap-1.5">
-              <CreditCard size={14} />
-              <span>{cardsCount} tarjetas</span>
-            </div>
-            <div className="flex items-center gap-1.5">
-              <Calendar size={14} />
-              <span>{formatDate(deck.createdAt)}</span>
-            </div>
-          </div>
+          <DeckStats cardsCount={cardsCount} createdAt={deck.createdAt} />
 
-          {/* Acciones hover (slide-up) */}
-          {!selectable && (
-            <motion.div
-              className={cn(
-                'absolute bottom-0 left-0 right-0 p-4 pt-8 bg-gradient-to-t from-slate-900 via-slate-900/95 to-transparent z-20',
-                showActions ? 'pointer-events-auto' : 'pointer-events-none'
-              )}
-              initial={{ opacity: 0, y: 20 }}
-              animate={{ 
-                opacity: showActions ? 1 : 0, 
-                y: showActions ? 0 : 20 
-              }}
-              transition={{ duration: 0.2 }}
-            >
-              <div className="flex items-center justify-center gap-2">
-                <ActionButton 
-                  icon={Eye} 
-                  label="Ver" 
-                  onClick={(e) => { e.stopPropagation(); onView?.(deck); }}
-                />
-                <ActionButton 
-                  icon={Edit2} 
-                  label="Editar" 
-                  onClick={(e) => { e.stopPropagation(); onEdit?.(deck); }}
-                />
-                <ActionButton 
-                  icon={Trash2} 
-                  label="Archivar" 
-                  variant="danger"
-                  onClick={(e) => { e.stopPropagation(); onDelete?.(deck); }}
-                />
-              </div>
-            </motion.div>
-          )}
+          <DeckHoverActions
+            selectable={selectable}
+            showActions={showActions}
+            deck={deck}
+            onView={onView}
+            onEdit={onEdit}
+            onDelete={onDelete}
+          />
 
-          {/* Indicador de selección */}
-          {selectable && selected && (
-            <motion.div
-              className="absolute top-3 right-3 w-6 h-6 rounded-full bg-indigo-500 flex items-center justify-center"
-              initial={{ scale: 0 }}
-              animate={{ scale: 1 }}
-              transition={{ type: 'spring', stiffness: 500 }}
-            >
-              <svg className="w-4 h-4 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7" />
-              </svg>
-            </motion.div>
-          )}
+          <DeckSelectionBadge selectable={selectable} selected={selected} />
         </div>
 
-        {/* Efecto de brillo en hover */}
         <motion.div
           className="absolute inset-0 opacity-0 group-hover:opacity-100 pointer-events-none"
           style={{
@@ -376,7 +392,6 @@ export default function DeckCard({
         />
       </motion.div>
 
-      {/* CSS para animación del gradiente */}
       <style>{`
         @keyframes gradient-shift {
           0% { background-position: 0% 50%; }
@@ -390,6 +405,270 @@ export default function DeckCard({
     </motion.div>
   );
 }
+
+DeckCardView.propTypes = {
+  cardRef: PropTypes.shape({ current: PropTypes.any }).isRequired,
+  className: PropTypes.string,
+  handlePointerMove: PropTypes.func.isRequired,
+  onPointerEnter: PropTypes.func.isRequired,
+  handlePointerLeave: PropTypes.func.isRequired,
+  handleClick: PropTypes.func.isRequired,
+  selectable: PropTypes.bool.isRequired,
+  deck: deckShape.isRequired,
+  selected: PropTypes.bool.isRequired,
+  handleSelectableKeyDown: PropTypes.func.isRequired,
+  isHovered: PropTypes.bool.isRequired,
+  useFullAnimations: PropTypes.bool.isRequired,
+  rotateX: PropTypes.oneOfType([PropTypes.number, PropTypes.object]).isRequired,
+  rotateY: PropTypes.oneOfType([PropTypes.number, PropTypes.object]).isRequired,
+  menuRef: PropTypes.shape({ current: PropTypes.any }).isRequired,
+  isMenuOpen: PropTypes.bool.isRequired,
+  setIsMenuOpen: PropTypes.func.isRequired,
+  onView: PropTypes.func,
+  onEdit: PropTypes.func,
+  onDelete: PropTypes.func,
+  previewAssets: PropTypes.arrayOf(cardMappingShape).isRequired,
+  remainingCount: PropTypes.number.isRequired,
+  assetX: PropTypes.oneOfType([PropTypes.number, PropTypes.object]).isRequired,
+  assetY: PropTypes.oneOfType([PropTypes.number, PropTypes.object]).isRequired,
+  cardsCount: PropTypes.number.isRequired,
+  showActions: PropTypes.bool.isRequired,
+};
+
+function DeckCardHeader({
+  deck,
+  selectable,
+  menuRef,
+  isMenuOpen,
+  setIsMenuOpen,
+  onView,
+  onEdit,
+  onDelete
+}) {
+  return (
+    <div className="flex items-start justify-between mb-4">
+      <div className="flex items-center gap-3">
+        <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-indigo-500 to-purple-600 flex items-center justify-center shadow-lg shadow-indigo-500/30">
+          <Layers className="text-white" size={24} />
+        </div>
+        <div>
+          <h3 className="font-bold text-white text-lg leading-tight line-clamp-1">
+            {deck.name}
+          </h3>
+          <span className="text-xs text-purple-400 font-medium">
+            {deck.context?.name || deck.contextId?.name || 'Sin contexto'}
+          </span>
+        </div>
+      </div>
+
+      {!selectable && (
+        <div className="relative z-20" ref={menuRef}>
+          <Tooltip content="Opciones">
+            <motion.button
+              className="p-2 rounded-lg text-slate-400 hover:text-white hover:bg-white/10 transition-colors"
+              whileHover={{ scale: 1.1 }}
+              whileTap={{ scale: 0.95 }}
+              onClick={(event) => {
+                event.stopPropagation();
+                setIsMenuOpen((currentValue) => !currentValue);
+              }}
+              aria-label={`Opciones para mazo ${deck.name}`}
+              aria-haspopup="true"
+              aria-expanded={isMenuOpen}
+            >
+              <MoreVertical size={18} aria-hidden="true" />
+            </motion.button>
+          </Tooltip>
+
+          <AnimateMenu
+            isOpen={isMenuOpen}
+            onView={(event) => {
+              event.stopPropagation();
+              setIsMenuOpen(false);
+              onView?.(deck);
+            }}
+            onEdit={(event) => {
+              event.stopPropagation();
+              setIsMenuOpen(false);
+              onEdit?.(deck);
+            }}
+            onDelete={(event) => {
+              event.stopPropagation();
+              setIsMenuOpen(false);
+              onDelete?.(deck);
+            }}
+          />
+        </div>
+      )}
+    </div>
+  );
+}
+
+DeckCardHeader.propTypes = {
+  deck: deckShape.isRequired,
+  selectable: PropTypes.bool.isRequired,
+  menuRef: PropTypes.shape({ current: PropTypes.any }).isRequired,
+  isMenuOpen: PropTypes.bool.isRequired,
+  setIsMenuOpen: PropTypes.func.isRequired,
+  onView: PropTypes.func,
+  onEdit: PropTypes.func,
+  onDelete: PropTypes.func,
+};
+
+function DeckPreviewAssets({
+  previewAssets,
+  remainingCount,
+  useFullAnimations,
+  isHovered,
+  assetX,
+  assetY
+}) {
+  return (
+    <motion.div
+      className="flex items-center gap-2 mb-4"
+      style={{
+        x: useFullAnimations && isHovered ? assetX : 0,
+        y: useFullAnimations && isHovered ? assetY : 0,
+      }}
+    >
+      {previewAssets.map((mapping, index) => (
+        <motion.div
+          key={mapping._id || index}
+          className="w-10 h-10 rounded-lg bg-slate-800/80 border border-white/10 flex items-center justify-center text-lg overflow-hidden"
+          initial={{ opacity: 0, scale: 0.8 }}
+          animate={{ opacity: 1, scale: 1 }}
+          transition={{ delay: index * 0.1 }}
+          style={{
+            transform: `translateZ(${(index + 1) * 10}px)`,
+          }}
+        >
+          {mapping.displayData?.display || mapping.displayData?.emoji || '🎴'}
+        </motion.div>
+      ))}
+      {remainingCount > 0 && (
+        <motion.div
+          className="w-10 h-10 rounded-lg bg-slate-800/80 border border-white/10 flex items-center justify-center text-xs font-bold text-slate-400"
+          initial={{ opacity: 0, scale: 0.8 }}
+          animate={{ opacity: 1, scale: 1 }}
+          transition={{ delay: 0.4 }}
+        >
+          +{remainingCount}
+        </motion.div>
+      )}
+    </motion.div>
+  );
+}
+
+DeckPreviewAssets.propTypes = {
+  previewAssets: PropTypes.arrayOf(cardMappingShape).isRequired,
+  remainingCount: PropTypes.number.isRequired,
+  useFullAnimations: PropTypes.bool.isRequired,
+  isHovered: PropTypes.bool.isRequired,
+  assetX: PropTypes.oneOfType([PropTypes.number, PropTypes.object]).isRequired,
+  assetY: PropTypes.oneOfType([PropTypes.number, PropTypes.object]).isRequired,
+};
+
+function DeckStats({ cardsCount, createdAt }) {
+  return (
+    <div className="flex items-center gap-4 text-xs text-slate-500">
+      <div className="flex items-center gap-1.5">
+        <CreditCard size={14} />
+        <span>{cardsCount} tarjetas</span>
+      </div>
+      <div className="flex items-center gap-1.5">
+        <Calendar size={14} />
+        <span>{formatDeckDate(createdAt)}</span>
+      </div>
+    </div>
+  );
+}
+
+DeckStats.propTypes = {
+  cardsCount: PropTypes.number.isRequired,
+  createdAt: PropTypes.string,
+};
+
+function DeckHoverActions({ selectable, showActions, deck, onView, onEdit, onDelete }) {
+  if (selectable) {
+    return null;
+  }
+
+  return (
+    <motion.div
+      className={cn(
+        'absolute bottom-0 left-0 right-0 p-4 pt-8 bg-gradient-to-t from-slate-900 via-slate-900/95 to-transparent z-20',
+        showActions ? 'pointer-events-auto' : 'pointer-events-none'
+      )}
+      initial={{ opacity: 0, y: 20 }}
+      animate={{
+        opacity: showActions ? 1 : 0,
+        y: showActions ? 0 : 20
+      }}
+      transition={{ duration: 0.2 }}
+    >
+      <div className="flex items-center justify-center gap-2">
+        <ActionButton
+          icon={Eye}
+          label="Ver"
+          onClick={(event) => {
+            event.stopPropagation();
+            onView?.(deck);
+          }}
+        />
+        <ActionButton
+          icon={Edit2}
+          label="Editar"
+          onClick={(event) => {
+            event.stopPropagation();
+            onEdit?.(deck);
+          }}
+        />
+        <ActionButton
+          icon={Trash2}
+          label="Archivar"
+          variant="danger"
+          onClick={(event) => {
+            event.stopPropagation();
+            onDelete?.(deck);
+          }}
+        />
+      </div>
+    </motion.div>
+  );
+}
+
+DeckHoverActions.propTypes = {
+  selectable: PropTypes.bool.isRequired,
+  showActions: PropTypes.bool.isRequired,
+  deck: deckShape.isRequired,
+  onView: PropTypes.func,
+  onEdit: PropTypes.func,
+  onDelete: PropTypes.func,
+};
+
+function DeckSelectionBadge({ selectable, selected }) {
+  if (!selectable || !selected) {
+    return null;
+  }
+
+  return (
+    <motion.div
+      className="absolute top-3 right-3 w-6 h-6 rounded-full bg-indigo-500 flex items-center justify-center"
+      initial={{ scale: 0 }}
+      animate={{ scale: 1 }}
+      transition={{ type: 'spring', stiffness: 500 }}
+    >
+      <svg className="w-4 h-4 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7" />
+      </svg>
+    </motion.div>
+  );
+}
+
+DeckSelectionBadge.propTypes = {
+  selectable: PropTypes.bool.isRequired,
+  selected: PropTypes.bool.isRequired,
+};
 
 function AnimateMenu({ isOpen, onView, onEdit, onDelete }) {
   if (!isOpen) return null;
@@ -430,6 +709,25 @@ function ActionButton({ icon: Icon, label, onClick, variant = 'default' }) {
   );
 }
 
+ActionButton.propTypes = {
+  icon: PropTypes.elementType.isRequired,
+  label: PropTypes.string.isRequired,
+  onClick: PropTypes.func.isRequired,
+  variant: PropTypes.oneOf(['default', 'danger']),
+};
+
+DeckCard.propTypes = {
+  deck: deckShape.isRequired,
+  onView: PropTypes.func,
+  onEdit: PropTypes.func,
+  onDelete: PropTypes.func,
+  onSelect: PropTypes.func,
+  selectable: PropTypes.bool,
+  selected: PropTypes.bool,
+  reducedMotion: PropTypes.bool,
+  className: PropTypes.string,
+};
+
 AnimateMenu.propTypes = {
   isOpen: PropTypes.bool.isRequired,
   onView: PropTypes.func.isRequired,
@@ -454,8 +752,8 @@ export function DeckCardSkeleton() {
       </div>
       <div className="w-full h-4 bg-slate-800 rounded mb-4" />
       <div className="flex gap-2 mb-4">
-        {[...Array(4)].map((_, i) => (
-          <div key={i} className="w-10 h-10 rounded-lg bg-slate-800" />
+        {[1, 2, 3, 4].map((slot) => (
+          <div key={`deck-card-skeleton-${slot}`} className="w-10 h-10 rounded-lg bg-slate-800" />
         ))}
       </div>
       <div className="flex gap-4">

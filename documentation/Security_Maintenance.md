@@ -130,6 +130,32 @@ Este documento resume el hardening de seguridad aplicado en la rama `Maintenance
 - **Alertas proactivas** ante multiples intentos fallidos o reutilizacion de refresh tokens.
 - **Device binding avanzado** para sensores RFID (firma o token por sensor).
 
+## Decisiones SonarCloud (Marzo 2026)
+
+### `jssecurity:S5147` en repositorios de acceso a datos
+
+Se revisaron los 23 hallazgos `BLOCKER` de la regla `jssecurity:S5147` detectados en:
+- `backend/src/repositories/cardDeckRepository.js`
+- `backend/src/repositories/cardRepository.js`
+- `backend/src/repositories/gameContextRepository.js`
+- `backend/src/repositories/gameMechanicRepository.js`
+- `backend/src/repositories/gamePlayRepository.js`
+- `backend/src/repositories/gameSessionRepository.js`
+- `backend/src/repositories/userRepository.js`
+
+Resultado de la evaluacion: **false positive** en todos los casos.
+
+Razon tecnica (trazable):
+- Los filtros/sorts dinamicos se construyen en controladores, pero las entradas llegan previamente validadas por `validateQuery(...)`.
+- Los `sortBy` permitidos se restringen con `z.enum(...)` por endpoint.
+- IDs sensibles (`sessionId`, `playerId`, etc.) pasan por `objectIdSchema`.
+- Campos de busqueda usan `escapeRegex(...)` antes de generar `$regex`.
+- En casos con `$in`, los valores se derivan de resultados de BD autorizados por ownership, no de input crudo del cliente.
+
+Implicacion:
+- No existe ruta de inyeccion NoSQL directa desde datos controlados por usuario hacia el repositorio en estos hallazgos.
+- Se marco cada issue afectado como `falsepositive` en Sonar para reducir ruido y mantener foco en vulnerabilidades reales.
+
 ## Politica de auditoria en CI (Febrero 2026)
 
 Se establece una politica dual para dependencias:

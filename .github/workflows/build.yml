@@ -1,6 +1,7 @@
 name: CI
 
 on:
+  workflow_dispatch:
   push:
     branches: [main, develop, Maintenance]
     paths-ignore:
@@ -25,14 +26,11 @@ on:
 
 # Cancela runs anteriores del mismo PR/branch para no desperdiciar resources
 concurrency:
-  group: ci-${{ github.ref }}
+  group: ci-${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
-permissions:
-  contents: read
-
 env:
-  NODE_VERSION: "24.14"
+  NODE_VERSION: "24.14.0"
 
 jobs:
   # ──────────────────────────────────────────────
@@ -42,9 +40,13 @@ jobs:
     name: Lint
     runs-on: ubuntu-latest
     timeout-minutes: 10
+    permissions:
+      contents: read
 
     steps:
       - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
 
       - uses: actions/setup-node@v6
         with:
@@ -76,9 +78,13 @@ jobs:
     name: Security Audit
     runs-on: ubuntu-latest
     timeout-minutes: 10
+    permissions:
+      contents: read
 
     steps:
       - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
 
       - uses: actions/setup-node@v6
         with:
@@ -109,6 +115,8 @@ jobs:
     name: Backend Tests
     runs-on: ubuntu-latest
     timeout-minutes: 15
+    permissions:
+      contents: read
 
     services:
       mongodb:
@@ -123,6 +131,8 @@ jobs:
 
     steps:
       - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
 
       - uses: actions/setup-node@v6
         with:
@@ -164,9 +174,13 @@ jobs:
     name: Frontend Tests & Build
     runs-on: ubuntu-latest
     timeout-minutes: 10
+    permissions:
+      contents: read
 
     steps:
       - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
 
       - uses: actions/setup-node@v6
         with:
@@ -196,13 +210,19 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     needs: [backend-tests]
-    # Solo ejecutar en push (no en PRs de forks por seguridad del token)
-    if: github.event_name == 'push' || github.event.pull_request.head.repo.full_name == github.repository
+    permissions:
+      contents: read
+    # Ejecutar en push y en PRs internos; excluir bots.
+    if: github.event_name == 'push' || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && github.actor != 'dependabot[bot]')
+    env:
+      SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+      SONAR_HOST_URL: https://sonarcloud.io
 
     steps:
       - uses: actions/checkout@v6
         with:
           fetch-depth: 0
+          persist-credentials: false
 
       - name: Descargar cobertura backend
         uses: actions/download-artifact@v4
@@ -210,8 +230,12 @@ jobs:
           name: backend-coverage
           path: backend/coverage
 
+      - name: Validar disponibilidad de SONAR_TOKEN
+        if: env.SONAR_TOKEN == ''
+        run: |
+          echo "SONAR_TOKEN no esta configurado para este contexto de ejecucion." >&2
+          echo "Configura el secret SONAR_TOKEN (token de SonarCloud con Execute Analysis)." >&2
+          exit 1
+
       - name: SonarCloud Scan
-        uses: SonarSource/sonarcloud-github-action@v5
-        env:
-          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
-          SONAR_HOST_URL: https://sonarcloud.io
+        uses: SonarSource/sonarqube-scan-action@2f77a1ec69fb1d595b06f35ab27e97605bdef703 # v5

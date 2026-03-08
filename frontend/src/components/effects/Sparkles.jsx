@@ -1,6 +1,50 @@
 import { motion } from 'framer-motion';
 import { useEffect, useState } from 'react';
+import PropTypes from 'prop-types';
 import { cn } from '../../lib/utils';
+
+const COLOR_CLASSES = {
+  amber: 'text-amber-400',
+  purple: 'text-purple-400',
+  cyan: 'text-cyan-400',
+  pink: 'text-pink-400',
+  white: 'text-white',
+};
+
+const SPARKLE_AURAS = {
+  amber: 'text-amber-400 drop-shadow-[0_0_6px_rgba(251,191,36,0.8)]',
+  purple: 'text-purple-400 drop-shadow-[0_0_6px_rgba(192,132,252,0.8)]',
+  cyan: 'text-cyan-400 drop-shadow-[0_0_6px_rgba(34,211,238,0.8)]',
+  pink: 'text-pink-400 drop-shadow-[0_0_6px_rgba(244,114,182,0.8)]',
+  white: 'text-white drop-shadow-[0_0_6px_rgba(255,255,255,0.8)]',
+};
+
+const getSecureRandomUnit = () => {
+  const randomBuffer = new Uint32Array(1);
+  globalThis.crypto.getRandomValues(randomBuffer);
+  return randomBuffer[0] / 4294967296;
+};
+
+const getSecureRandomInRange = (min, max) => min + getSecureRandomUnit() * (max - min);
+
+const createSparkle = ({ id, minSize, maxSize }) => ({
+  id,
+  x: getSecureRandomInRange(0, 100),
+  y: getSecureRandomInRange(0, 100),
+  size: getSecureRandomInRange(minSize, maxSize),
+  delay: getSecureRandomInRange(0, 2),
+  duration: getSecureRandomInRange(1, 3),
+});
+
+const createSparkleBatch = ({ count, minSize, maxSize }) =>
+  Array.from({ length: count }, (_, index) =>
+    createSparkle({ id: index, minSize, maxSize })
+  );
+
+const regenerateSparkles = ({ prevSparkles, minSize, maxSize }) =>
+  prevSparkles.map((sparkle, index) =>
+    getSecureRandomUnit() > 0.7 ? createSparkle({ id: index, minSize, maxSize }) : sparkle
+  );
 
 /**
  * Efecto de sparkles/estrellas flotantes
@@ -21,32 +65,13 @@ export default function Sparkles({
 }) {
   const [sparkles, setSparkles] = useState([]);
 
-  const colorClasses = {
-    amber: 'text-amber-400',
-    purple: 'text-purple-400',
-    cyan: 'text-cyan-400',
-    pink: 'text-pink-400',
-    white: 'text-white',
-  };
-
   useEffect(() => {
-    const generateSparkle = (id) => ({
-      id,
-      x: Math.random() * 100,
-      y: Math.random() * 100,
-      size: minSize + Math.random() * (maxSize - minSize),
-      delay: Math.random() * 2,
-      duration: 1 + Math.random() * 2,
-    });
-
-    setSparkles(Array.from({ length: count }, (_, i) => generateSparkle(i)));
+    setSparkles(createSparkleBatch({ count, minSize, maxSize }));
 
     // Regenerate sparkles periodically
     const interval = setInterval(() => {
-      setSparkles(prev => 
-        prev.map((sparkle, i) => 
-          Math.random() > 0.7 ? generateSparkle(i) : sparkle
-        )
+      setSparkles(prevSparkles =>
+        regenerateSparkles({ prevSparkles, minSize, maxSize })
       );
     }, 3000);
 
@@ -58,7 +83,7 @@ export default function Sparkles({
       {sparkles.map((sparkle) => (
         <motion.div
           key={sparkle.id}
-          className={cn("absolute", colorClasses[color])}
+          className={cn("absolute", COLOR_CLASSES[color])}
           style={{
             left: `${sparkle.x}%`,
             top: `${sparkle.y}%`,
@@ -74,7 +99,7 @@ export default function Sparkles({
             duration: sparkle.duration,
             delay: sparkle.delay,
             repeat: Infinity,
-            repeatDelay: Math.random() * 3,
+            repeatDelay: getSecureRandomInRange(0, 3),
           }}
         >
           ✦
@@ -83,6 +108,14 @@ export default function Sparkles({
     </div>
   );
 }
+
+Sparkles.propTypes = {
+  color: PropTypes.oneOf(['amber', 'purple', 'cyan', 'pink', 'white']),
+  count: PropTypes.number,
+  minSize: PropTypes.number,
+  maxSize: PropTypes.number,
+  className: PropTypes.string,
+};
 
 /**
  * Sparkle individual animado
@@ -93,17 +126,9 @@ export function Sparkle({
   style,
   className 
 }) {
-  const colorClasses = {
-    amber: 'text-amber-400 drop-shadow-[0_0_6px_rgba(251,191,36,0.8)]',
-    purple: 'text-purple-400 drop-shadow-[0_0_6px_rgba(192,132,252,0.8)]',
-    cyan: 'text-cyan-400 drop-shadow-[0_0_6px_rgba(34,211,238,0.8)]',
-    pink: 'text-pink-400 drop-shadow-[0_0_6px_rgba(244,114,182,0.8)]',
-    white: 'text-white drop-shadow-[0_0_6px_rgba(255,255,255,0.8)]',
-  };
-
   return (
     <motion.span
-      className={cn("inline-block select-none", colorClasses[color], className)}
+      className={cn("inline-block select-none", SPARKLE_AURAS[color], className)}
       style={{ fontSize: size, ...style }}
       animate={{
         scale: [1, 1.2, 1],
@@ -120,6 +145,13 @@ export function Sparkle({
     </motion.span>
   );
 }
+
+Sparkle.propTypes = {
+  size: PropTypes.number,
+  color: PropTypes.oneOf(['amber', 'purple', 'cyan', 'pink', 'white']),
+  style: PropTypes.object,
+  className: PropTypes.string,
+};
 
 /**
  * Versión emoji de estrellas
@@ -139,11 +171,12 @@ export function StarBurst({
       {Array.from({ length: count }).map((_, i) => {
         const angle = (i / count) * 360;
         const rad = (angle * Math.PI) / 180;
-        const distance = 80 + Math.random() * 60;
+        const distance = getSecureRandomInRange(80, 140);
+        const starId = `star-burst-${angle}-${x}-${y}`;
 
         return (
           <motion.div
-            key={i}
+            key={starId}
             className="absolute text-2xl"
             style={{ left: x, top: y }}
             initial={{
@@ -157,17 +190,24 @@ export function StarBurst({
               y: Math.sin(rad) * distance,
               scale: [0, 1.5, 0],
               opacity: [1, 1, 0],
-              rotate: Math.random() * 360,
+              rotate: getSecureRandomInRange(0, 360),
             }}
             transition={{
               duration: 0.8,
               ease: 'easeOut',
             }}
           >
-            {stars[Math.floor(Math.random() * stars.length)]}
+            {stars[Math.floor(getSecureRandomInRange(0, stars.length))]}
           </motion.div>
         );
       })}
     </div>
   );
 }
+
+StarBurst.propTypes = {
+  active: PropTypes.bool,
+  x: PropTypes.oneOfType([PropTypes.string, PropTypes.number]),
+  y: PropTypes.oneOfType([PropTypes.string, PropTypes.number]),
+  count: PropTypes.number,
+};

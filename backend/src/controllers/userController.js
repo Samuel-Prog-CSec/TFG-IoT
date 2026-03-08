@@ -20,6 +20,58 @@ const { revokeAllUserTokens } = require('../middlewares/auth');
 const { disconnectUserSockets } = require('../utils/socketUtils');
 const { getRequestContext, logSecurityEvent } = require('../utils/securityLogger');
 
+const buildUsersFilter = ({ role, classroom, status, search, requester }) => {
+  const filter = {};
+
+  if (role) {
+    filter.role = role;
+  }
+  if (classroom) {
+    filter['profile.classroom'] = classroom;
+  }
+  if (status) {
+    filter.status = status;
+  }
+
+  if (search) {
+    const safeSearch = escapeRegex(search);
+    filter.$or = [
+      { name: { $regex: safeSearch, $options: 'i' } },
+      { email: { $regex: safeSearch, $options: 'i' } }
+    ];
+  }
+
+  if (requester.role === 'teacher') {
+    filter.role = 'student';
+    filter.createdBy = requester._id;
+  }
+
+  return filter;
+};
+
+const ensureSuperAdmin = user => {
+  if (user.role !== 'super_admin') {
+    throw new ForbiddenError('No tienes permiso para actualizar usuarios');
+  }
+};
+
+const updateMutableUserFields = ({ user, name, profile, status }) => {
+  if (name && name.trim() !== user.name) {
+    user.name = name.trim();
+  }
+
+  if (profile) {
+    user.profile = { ...user.profile.toObject(), ...profile };
+  }
+
+  if (status) {
+    user.status = status;
+  }
+};
+
+const shouldDisconnectByStatus = ({ status, role }) =>
+  status === 'inactive' && ['teacher', 'super_admin'].includes(role);
+
 /**
  * Obtener lista de usuarios con paginación y filtros.
  * Solo profesores pueden acceder.
@@ -44,32 +96,13 @@ const getUsers = async (req, res, next) => {
       search
     } = req.query;
 
-    // Construir filtro
-    const filter = {};
-
-    if (role) {
-      filter.role = role;
-    }
-    if (classroom) {
-      filter['profile.classroom'] = classroom;
-    }
-    if (status) {
-      filter.status = status;
-    }
-
-    // Búsqueda por nombre o email
-    if (search) {
-      const safeSearch = escapeRegex(search);
-      filter.$or = [
-        { name: { $regex: safeSearch, $options: 'i' } },
-        { email: { $regex: safeSearch, $options: 'i' } }
-      ];
-    }
-
-    if (req.user.role === 'teacher') {
-      filter.role = 'student';
-      filter.createdBy = req.user._id;
-    }
+    const filter = buildUsersFilter({
+      role,
+      classroom,
+      status,
+      search,
+      requester: req.user
+    });
 
     // Paginación
     const skip = (page - 1) * limit;
@@ -325,10 +358,7 @@ const updateUser = async (req, res, next) => {
       throw new NotFoundError('Usuario');
     }
 
-    const isSuperAdmin = req.user.role === 'super_admin';
-    if (!isSuperAdmin) {
-      throw new ForbiddenError('No tienes permiso para actualizar usuarios');
-    }
+    ensureSuperAdmin(req.user);
 
     // ✅ VALIDAR DUPLICADOS si se cambia el nombre
     const duplicate = await validateDuplicateName({
@@ -349,23 +379,11 @@ const updateUser = async (req, res, next) => {
       });
     }
 
-    if (name && name.trim() !== user.name) {
-      user.name = name.trim();
-    }
-
-    // Actualizar profile (merge con existente)
-    if (profile) {
-      user.profile = { ...user.profile.toObject(), ...profile };
-    }
-
-    // Solo profesores pueden cambiar status
-    if (status) {
-      user.status = status;
-    }
+    updateMutableUserFields({ user, name, profile, status });
 
     await user.save();
 
-    if (status === 'inactive' && ['teacher', 'super_admin'].includes(user.role)) {
+    if (shouldDisconnectByStatus({ status, role: user.role })) {
       await revokeAllUserTokens(user._id.toString(), 'account_inactivated', {
         ...getRequestContext(req),
         userId: user._id,

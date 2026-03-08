@@ -18,6 +18,66 @@ const {
   toPlayerStatsDTOV1
 } = require('../utils/dtos');
 
+const buildScoreRangeFilter = (minScore, maxScore) => {
+  if (minScore === undefined && maxScore === undefined) {
+    return null;
+  }
+
+  const scoreFilter = {};
+  if (minScore !== undefined) {
+    scoreFilter.$gte = Number.parseInt(minScore, 10);
+  }
+  if (maxScore !== undefined) {
+    scoreFilter.$lte = Number.parseInt(maxScore, 10);
+  }
+
+  return scoreFilter;
+};
+
+const buildPlaysFilter = ({ sessionId, playerId, status, minScore, maxScore }) => {
+  const filter = {};
+
+  if (sessionId) {
+    filter.sessionId = sessionId;
+  }
+  if (playerId) {
+    filter.playerId = playerId;
+  }
+  if (status) {
+    filter.status = status;
+  }
+
+  const scoreFilter = buildScoreRangeFilter(minScore, maxScore);
+  if (scoreFilter) {
+    filter.score = scoreFilter;
+  }
+
+  return filter;
+};
+
+const applyTeacherScopeToPlayFilter = async ({ user, sessionId, filter }) => {
+  if (user.role !== 'teacher') {
+    return;
+  }
+
+  if (sessionId) {
+    const session = await gameSessionRepository.findById(sessionId, {
+      select: 'createdBy'
+    });
+    if (!session || session.createdBy.toString() !== user._id.toString()) {
+      throw new ForbiddenError('No tienes permiso para ver partidas de esta sesión');
+    }
+    return;
+  }
+
+  const sessions = await gameSessionRepository.find({ createdBy: user._id }, { select: '_id' });
+  filter.sessionId = { $in: sessions.map(s => s._id) };
+};
+
+const buildSortOptions = (sortBy, order) => ({
+  [sortBy]: order === 'asc' ? 1 : -1
+});
+
 /**
  * Obtener lista de partidas con paginación y filtros.
  *
@@ -42,50 +102,23 @@ const getPlays = async (req, res, next) => {
       maxScore
     } = req.query;
 
-    // Construir filtro
-    const filter = {};
+    const filter = buildPlaysFilter({
+      sessionId,
+      playerId,
+      status,
+      minScore,
+      maxScore
+    });
 
-    if (sessionId) {
-      filter.sessionId = sessionId;
-    }
-    if (playerId) {
-      filter.playerId = playerId;
-    }
-    if (status) {
-      filter.status = status;
-    }
-
-    // Filtro de score range
-    if (minScore !== undefined || maxScore !== undefined) {
-      filter.score = {};
-      if (minScore !== undefined) {
-        filter.score.$gte = Number.parseInt(minScore, 10);
-      }
-      if (maxScore !== undefined) {
-        filter.score.$lte = Number.parseInt(maxScore, 10);
-      }
-    }
-
-    if (req.user.role === 'teacher') {
-      if (sessionId) {
-        const session = await gameSessionRepository.findById(sessionId, {
-          select: 'createdBy'
-        });
-        if (!session || session.createdBy.toString() !== req.user._id.toString()) {
-          throw new ForbiddenError('No tienes permiso para ver partidas de esta sesión');
-        }
-      } else {
-        const sessions = await gameSessionRepository.find(
-          { createdBy: req.user._id },
-          { select: '_id' }
-        );
-        filter.sessionId = { $in: sessions.map(s => s._id) };
-      }
-    }
+    await applyTeacherScopeToPlayFilter({
+      user: req.user,
+      sessionId,
+      filter
+    });
 
     // Paginación
     const skip = (page - 1) * limit;
-    const sortOptions = { [sortBy]: order === 'asc' ? 1 : -1 };
+    const sortOptions = buildSortOptions(sortBy, order);
 
     // Ejecutar query con populate
     const [plays, total] = await Promise.all([

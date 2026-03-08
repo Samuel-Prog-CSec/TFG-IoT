@@ -47,6 +47,16 @@ import { toast } from 'sonner';
 
 const { MIN_CARDS, MAX_CARDS } = GAME_CONFIG;
 
+const buildUpdatedCardMappings = (cards, assignments) => {
+  const mappings = buildCardMappingsPayload(cards, assignments);
+  const cardsById = new Map(cards.map((card) => [card._id, card]));
+
+  return mappings.map((mapping) => ({
+    ...mapping,
+    cardId: cardsById.get(mapping.cardId) || mapping.cardId,
+  }));
+};
+
 /**
  * Página de edición de mazo
  */
@@ -87,70 +97,62 @@ export default function DeckEditPage() {
   const [deleteLoading, setDeleteLoading] = useState(false);
 
   // Cargar datos iniciales
-  const loadData = useCallback((signal) => {
-    const run = async () => {
-      try {
-        setLoading(true);
-        setError(null);
+  const loadData = useCallback(async (signal) => {
+    try {
+      setLoading(true);
+      setError(null);
 
-        // Cargar mazo y cartas en paralelo (contextos ya se cargan con useContexts)
-        const [deckRes, cardsRes] = await Promise.all([
-          decksAPI.getDeckById(deckId, signal ? { signal } : {}),
-          cardsAPI.getCards({ status: 'active', limit: 100 }, signal ? { signal } : {})
-        ]);
+      // Cargar mazo y cartas en paralelo (contextos ya se cargan con useContexts)
+      const [deckRes, cardsRes] = await Promise.all([
+        decksAPI.getDeckById(deckId, signal ? { signal } : {}),
+        cardsAPI.getCards({ status: 'active', limit: 100 }, signal ? { signal } : {})
+      ]);
 
-        const deckData = extractData(deckRes);
-        const cardsData = extractData(cardsRes)?.data || [];
+      const deckData = extractData(deckRes);
+      const cardsData = extractData(cardsRes)?.data || [];
 
-        if (!deckData) {
-          throw new Error('Mazo no encontrado');
-        }
+      if (!deckData) {
+        throw new Error('Mazo no encontrado');
+      }
 
-        setDeck(deckData);
-        setDeckName(deckData.name);
-        setAvailableCards(cardsData);
+      setDeck(deckData);
+      setDeckName(deckData.name);
+      setAvailableCards(cardsData);
 
-        const normalizedMappings = normalizeCardMappingsFromDeck(deckData, cardsData);
+      const normalizedMappings = normalizeCardMappingsFromDeck(deckData, cardsData);
 
-        // Establecer cartas y asignaciones
-        if (normalizedMappings.length > 0) {
-          const cards = normalizedMappings
-            .map((mapping) => cardsData.find(c => c._id === mapping.cardId))
-            .filter(Boolean);
-          
-          setSelectedCards(cards);
-          
-          // Mapear asignaciones
-          const assignments = {};
-          normalizedMappings.forEach((mapping) => {
-            if (mapping.displayData) {
-              assignments[mapping.cardId] = mapping.displayData;
-            }
-          });
-          setCardAssignments(assignments);
-          
-          // Establecer primera carta como activa
-          if (cards.length > 0) {
-            setActiveCardId(cards[0]._id);
+      if (normalizedMappings.length > 0) {
+        const cards = normalizedMappings
+          .map((mapping) => cardsData.find(c => c._id === mapping.cardId))
+          .filter(Boolean);
+
+        setSelectedCards(cards);
+
+        const assignments = {};
+        normalizedMappings.forEach((mapping) => {
+          if (mapping.displayData) {
+            assignments[mapping.cardId] = mapping.displayData;
           }
-        }
-
-      } catch (err) {
-        if (isAbortError(err)) {
-          return;
-        }
-        setError(extractErrorMessage(err));
-        toast.error('Error al cargar mazo', {
-          description: extractErrorMessage(err)
         });
-      } finally {
-        if (!signal?.aborted) {
-          setLoading(false);
+        setCardAssignments(assignments);
+
+        if (cards.length > 0) {
+          setActiveCardId(cards[0]._id);
         }
       }
-    };
-
-    run();
+    } catch (err) {
+      if (isAbortError(err)) {
+        return;
+      }
+      setError(extractErrorMessage(err));
+      toast.error('Error al cargar mazo', {
+        description: extractErrorMessage(err)
+      });
+    } finally {
+      if (!signal?.aborted) {
+        setLoading(false);
+      }
+    }
   }, [deckId]);
 
   useEffect(() => {
@@ -202,7 +204,7 @@ export default function DeckEditPage() {
       return;
     }
     
-    if (selectedCards.find(c => c._id === card._id)) {
+    if (selectedCards.some((c) => c._id === card._id)) {
       toast.info('Esta carta ya está en el mazo');
       return;
     }
@@ -227,8 +229,8 @@ export default function DeckEditPage() {
     
     // Si era la carta activa, seleccionar otra
     if (activeCardId === cardId) {
-      const remaining = selectedCards.filter(c => c._id !== cardId);
-      setActiveCardId(remaining[0]?._id || null);
+      const nextActiveCard = selectedCards.find((c) => c._id !== cardId);
+      setActiveCardId(nextActiveCard?._id || null);
     }
   }, [selectedCards, activeCardId]);
 
@@ -294,16 +296,15 @@ export default function DeckEditPage() {
       
       toast.success('Mazo actualizado');
       setHasChanges(false);
+
+      const updatedCardMappings = buildUpdatedCardMappings(selectedCards, cardAssignments);
       
       // Actualizar datos locales
       setDeck(prev => ({
         ...prev,
         name: deckName.trim(),
         contextId: selectedContext._id,
-        cardMappings: buildCardMappingsPayload(selectedCards, cardAssignments).map((mapping) => ({
-          ...mapping,
-          cardId: selectedCards.find((card) => card._id === mapping.cardId) || mapping.cardId
-        }))
+        cardMappings: updatedCardMappings
       }));
       
     } catch (err) {
@@ -546,14 +547,14 @@ export default function DeckEditPage() {
 
                 {contextsLoading ? (
                   <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
-                    {[...Array(6)].map((_, i) => (
+                    {[1, 2, 3, 4, 5, 6].map((slot) => (
                       <div 
-                        key={i} 
+                        key={`context-skeleton-${slot}`} 
                         className="p-4 rounded-xl border-2 border-white/5 bg-slate-800/30 animate-pulse"
                       >
                         <div className="flex gap-1 mb-3 h-10">
-                          {[...Array(4)].map((_, j) => (
-                            <div key={j} className="w-8 h-8 rounded bg-slate-700" />
+                          {[1, 2, 3, 4].map((assetSlot) => (
+                            <div key={`asset-skeleton-${slot}-${assetSlot}`} className="w-8 h-8 rounded bg-slate-700" />
                           ))}
                         </div>
                         <div className="h-5 w-24 bg-slate-700 rounded mb-2" />
@@ -577,8 +578,13 @@ export default function DeckEditPage() {
                         whileTap={{ scale: 0.98 }}
                       >
                         <div className="flex flex-wrap gap-1 mb-3 h-10 overflow-hidden">
-                          {context.assets?.slice(0, 6).map((asset, i) => (
-                            <span key={i} className="text-2xl">{asset.display || '📦'}</span>
+                          {context.assets?.slice(0, 6).map((asset) => (
+                            <span
+                              key={asset?.key || asset?.value || asset?.id || asset?.display || `${context._id}-asset`}
+                              className="text-2xl"
+                            >
+                              {asset.display || '📦'}
+                            </span>
                           ))}
                         </div>
                         <h3 className="font-medium text-white mb-1">{context.name}</h3>
@@ -729,7 +735,7 @@ export default function DeckEditPage() {
 
               {captureMode === 'manual' ? (
                 <CardSelector
-                  cards={availableCards.filter(c => !selectedCards.find(sc => sc._id === c._id))}
+                  cards={availableCards.filter((c) => !selectedCards.some((sc) => sc._id === c._id))}
                   selectedCards={[]}
                   onChange={(cards) => {
                     cards.forEach(handleAddCard);
