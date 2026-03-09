@@ -10,9 +10,13 @@ import { motion } from 'framer-motion';
 import { ArrowRightLeft, User, Users, School, AlertTriangle } from 'lucide-react';
 import { toast } from 'sonner';
 import { useAuth } from '../context/AuthContext';
-import { useRefetchOnFocus } from '../hooks';
+import { useRefetchOnFocus } from '../hooks/useRefetchOnFocus';
 import { usersAPI, extractData, extractErrorMessage, isAbortError } from '../services/api';
-import { ButtonPremium, GlassCard, InputPremium, SelectPremium, ConfirmationModal } from '../components/ui';
+import ButtonPremium from '../components/ui/ButtonPremium';
+import GlassCard from '../components/ui/GlassCard';
+import InputPremium from '../components/ui/InputPremium';
+import SelectPremium from '../components/ui/SelectPremium';
+import ConfirmationModal from '../components/ui/ConfirmationModal';
 import { cn, pageVariants } from '../lib/utils';
 
 export default function TransferStudents() {
@@ -200,7 +204,7 @@ export default function TransferStudents() {
       <div className="max-w-6xl mx-auto space-y-8">
         <header className="flex flex-col gap-3">
           <div className="flex items-center gap-4">
-            <div className="w-14 h-14 rounded-2xl bg-brand-base/10 shadow-lg shadow-brand-base/5 flex items-center justify-center text-brand-base">
+            <div className="size-14 rounded-2xl bg-brand-base/10 shadow-lg shadow-brand-base/5 flex items-center justify-center text-brand-base">
               <ArrowRightLeft size={30} />
             </div>
             <div>

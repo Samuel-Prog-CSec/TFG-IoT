@@ -22,7 +22,9 @@ import {
   Shield
 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
-import { ButtonPremium, InputPremium, GlassCard } from '../components/ui';
+import ButtonPremium from '../components/ui/ButtonPremium';
+import InputPremium from '../components/ui/InputPremium';
+import GlassCard from '../components/ui/GlassCard';
 import { ROUTES } from '../constants/routes';
 import { cn } from '../lib/utils';
 
@@ -55,13 +57,13 @@ function PasswordRequirement({ met, label }) {
       animate={{ opacity: 1, x: 0 }}
       className={cn(
         'flex items-center gap-2 text-sm transition-colors',
-        met ? 'text-emerald-400' : 'text-slate-500'
+        met ? 'text-success-base' : 'text-text-disabled'
       )}
     >
       {met ? (
-        <Check className="w-4 h-4" />
+        <Check className="size-4" />
       ) : (
-        <X className="w-4 h-4" />
+        <X className="size-4" />
       )}
       <span>{label}</span>
     </motion.div>
@@ -81,11 +83,11 @@ function PasswordStrengthMeter({ password }) {
   }, [password]);
 
   const getColor = () => {
-    if (strength === 0) return 'bg-slate-700';
-    if (strength === 1) return 'bg-rose-500';
-    if (strength === 2) return 'bg-amber-500';
-    if (strength === 3) return 'bg-yellow-500';
-    return 'bg-emerald-500';
+    if (strength === 0) return 'bg-background-surface';
+    if (strength === 1) return 'bg-error-base';
+    if (strength === 2) return 'bg-warning-base';
+    if (strength === 3) return 'bg-warning-base';
+    return 'bg-success-base';
   };
 
   const getLabel = () => {
@@ -106,14 +108,14 @@ function PasswordStrengthMeter({ password }) {
             key={level}
             className={cn(
               'h-1 flex-1 rounded-full transition-all duration-300',
-              level <= strength ? getColor() : 'bg-slate-700'
+              level <= strength ? getColor() : 'bg-background-surface'
             )}
           />
         ))}
       </div>
       <p className={cn(
         'text-xs transition-colors',
-        strength <= 2 ? 'text-slate-500' : 'text-emerald-400'
+        strength <= 2 ? 'text-text-disabled' : 'text-success-base'
       )}>
         {getLabel()}
       </p>
@@ -237,7 +239,7 @@ export default function Register() {
   };
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-slate-950 p-4 relative overflow-hidden">
+    <div className="min-h-screen flex items-center justify-center bg-background-deep p-4 relative overflow-hidden">
       {/* Fondo con efectos */}
       <div className="absolute inset-0 overflow-hidden pointer-events-none">
         {/* Gradiente radial principal */}
@@ -293,9 +295,9 @@ export default function Register() {
         >
           <Link 
             to={ROUTES.LOGIN}
-            className="inline-flex items-center gap-2 text-slate-400 hover:text-white transition-colors text-sm group"
+            className="inline-flex items-center gap-2 text-text-muted hover:text-text-primary transition-colors text-sm group"
           >
-            <ArrowLeft className="w-4 h-4 transition-transform group-hover:-translate-x-1" />
+            <ArrowLeft className="size-4 transition-transform group-hover:-translate-x-1" />
             Volver al inicio de sesión
           </Link>
         </motion.div>
@@ -306,9 +308,9 @@ export default function Register() {
             initial={{ scale: 0.8, opacity: 0 }}
             animate={{ scale: 1, opacity: 1 }}
             transition={{ delay: 0.1, duration: 0.4 }}
-            className="inline-flex items-center justify-center w-20 h-20 rounded-2xl bg-gradient-to-br from-cyan-500 via-indigo-500 to-purple-500 mb-4 shadow-lg shadow-indigo-500/30"
+            className="inline-flex items-center justify-center size-20 rounded-2xl bg-gradient-to-br from-cyan-500 via-indigo-500 to-purple-500 mb-4 shadow-lg shadow-indigo-500/30"
           >
-            <UserPlus className="w-10 h-10 text-white" />
+            <UserPlus className="size-10 text-white" />
           </motion.div>
           
           <motion.h1 
@@ -320,11 +322,11 @@ export default function Register() {
             Crear Cuenta
           </motion.h1>
           
-          <motion.p 
+          <motion.p
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             transition={{ delay: 0.3 }}
-            className="text-slate-400 mt-2"
+            className="text-text-muted mt-2"
           >
             Regístrate como profesor en EduPlay
           </motion.p>
@@ -342,7 +344,7 @@ export default function Register() {
                   exit={{ opacity: 0, y: -10, height: 0 }}
                   className="flex items-start gap-3 p-4 rounded-xl bg-rose-500/10 border border-rose-500/20"
                 >
-                  <AlertCircle className="w-5 h-5 text-rose-400 flex-shrink-0 mt-0.5" />
+                  <AlertCircle className="size-5 text-rose-400 flex-shrink-0 mt-0.5" />
                   <p className="text-rose-300 text-sm">{error}</p>
                 </motion.div>
               )}
@@ -357,7 +359,7 @@ export default function Register() {
               value={formData.name}
               onChange={handleChange}
               error={validationErrors.name}
-              icon={<User className="w-5 h-5" />}
+              icon={<User className="size-5" />}
               autoComplete="name"
               autoFocus
             />
@@ -371,7 +373,7 @@ export default function Register() {
               value={formData.email}
               onChange={handleChange}
               error={validationErrors.email}
-              icon={<Mail className="w-5 h-5" />}
+              icon={<Mail className="size-5" />}
               autoComplete="email"
             />
 
@@ -387,19 +389,19 @@ export default function Register() {
                   onChange={handleChange}
                   onFocus={() => setShowRequirements(true)}
                   error={validationErrors.password}
-                  icon={<Lock className="w-5 h-5" />}
+                  icon={<Lock className="size-5" />}
                   autoComplete="new-password"
                 />
                 <button
                   type="button"
                   onClick={() => setShowPassword(!showPassword)}
-                  className="absolute right-3 top-[38px] text-slate-400 hover:text-white transition-colors p-1"
+                  className="absolute right-3 top-[38px] text-text-muted hover:text-text-primary transition-colors p-1"
                   tabIndex={-1}
                 >
                   {showPassword ? (
-                    <EyeOff className="w-5 h-5" />
+                    <EyeOff className="size-5" />
                   ) : (
-                    <Eye className="w-5 h-5" />
+                    <Eye className="size-5" />
                   )}
                 </button>
               </div>
@@ -441,19 +443,19 @@ export default function Register() {
                 value={formData.confirmPassword}
                 onChange={handleChange}
                 error={validationErrors.confirmPassword}
-                icon={<Shield className="w-5 h-5" />}
+                icon={<Shield className="size-5" />}
                 autoComplete="new-password"
               />
               <button
                 type="button"
                 onClick={() => setShowConfirmPassword(!showConfirmPassword)}
-                className="absolute right-3 top-[38px] text-slate-400 hover:text-white transition-colors p-1"
+                className="absolute right-3 top-[38px] text-text-muted hover:text-text-primary transition-colors p-1"
                 tabIndex={-1}
               >
                 {showConfirmPassword ? (
-                  <EyeOff className="w-5 h-5" />
+                  <EyeOff className="size-5" />
                 ) : (
-                  <Eye className="w-5 h-5" />
+                  <Eye className="size-5" />
                 )}
               </button>
             </div>
@@ -468,18 +470,18 @@ export default function Register() {
                   className={cn(
                     'flex items-center gap-2 text-sm',
                     formData.password === formData.confirmPassword
-                      ? 'text-emerald-400'
-                      : 'text-rose-400'
+                      ? 'text-success-base'
+                      : 'text-error-base'
                   )}
                 >
                   {formData.password === formData.confirmPassword ? (
                     <>
-                      <Check className="w-4 h-4" />
+                      <Check className="size-4" />
                       Las contraseñas coinciden
                     </>
                   ) : (
                     <>
-                      <X className="w-4 h-4" />
+                      <X className="size-4" />
                       Las contraseñas no coinciden
                     </>
                   )}
@@ -489,7 +491,7 @@ export default function Register() {
 
             {/* Aviso de aprobación */}
             <div className="flex items-start gap-3 p-4 rounded-xl bg-indigo-500/10 border border-indigo-500/20">
-              <Shield className="w-5 h-5 text-indigo-400 flex-shrink-0 mt-0.5" />
+              <Shield className="size-5 text-indigo-400 flex-shrink-0 mt-0.5" />
               <p className="text-indigo-300/90 text-sm">
                 Tu cuenta requerirá <strong>aprobación de un administrador</strong> antes de poder acceder a la plataforma.
               </p>
@@ -503,14 +505,14 @@ export default function Register() {
               className="w-full"
               loading={isSubmitting || isLoading}
               disabled={isSubmitting || isLoading}
-              icon={<UserPlus className="w-5 h-5" />}
+              icon={<UserPlus className="size-5" />}
             >
               {isSubmitting ? 'Registrando...' : 'Crear cuenta'}
             </ButtonPremium>
           </form>
 
           {/* Link a login */}
-          <p className="text-center text-slate-400 text-sm mt-6">
+          <p className="text-center text-text-muted text-sm mt-6">
             ¿Ya tienes cuenta?{' '}
             <Link 
               to={ROUTES.LOGIN}
@@ -526,7 +528,7 @@ export default function Register() {
           initial={{ opacity: 0 }}
           animate={{ opacity: 1 }}
           transition={{ delay: 0.5 }}
-          className="text-center text-slate-500 text-sm mt-6"
+          className="text-center text-text-disabled text-sm mt-6"
         >
           © {new Date().getFullYear()} EduPlay RFID · Proyecto TFG
         </motion.p>

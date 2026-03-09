@@ -60,12 +60,12 @@ function GameOverScreen({
       aria-describedby="game-over-description"
       initial={shouldReduceMotion ? false : { opacity: 0 }}
       animate={{ opacity: 1 }}
-      className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/95 backdrop-blur-xl"
+      className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-background-base/95 backdrop-blur-xl"
     >
       {/* Animated background */}
       <div className="absolute inset-0 overflow-hidden" aria-hidden="true">
-        <div className={cn('absolute top-1/4 left-1/4 w-96 h-96 bg-purple-500/20 rounded-full blur-[128px]', !shouldReduceMotion && 'animate-pulse')} />
-        <div className={cn('absolute bottom-1/4 right-1/4 w-96 h-96 bg-cyan-500/20 rounded-full blur-[128px]', !shouldReduceMotion && 'animate-pulse')} style={{ animationDelay: '1s' }} />
+        <div className={cn('absolute top-1/4 left-1/4 w-96 h-96 bg-brand-base/20 rounded-full blur-[128px]', !shouldReduceMotion && 'animate-pulse')} />
+        <div className={cn('absolute bottom-1/4 right-1/4 w-96 h-96 bg-accent-cyan/20 rounded-full blur-[128px]', !shouldReduceMotion && 'animate-pulse')} style={{ animationDelay: '1s' }} />
       </div>
 
       <motion.article
@@ -99,7 +99,7 @@ function GameOverScreen({
           >
             {message.text}
           </motion.h1>
-          <p id="game-over-description" className="text-slate-400 mb-6">{message.sub}</p>
+          <p id="game-over-description" className="text-text-muted mb-6">{message.sub}</p>
 
           {/* Stars */}
           <div 
@@ -120,8 +120,8 @@ function GameOverScreen({
                   className={cn(
                     "transition-all duration-300",
                     i < stars
-                      ? "fill-amber-400 text-amber-400 drop-shadow-[0_0_15px_rgba(251,191,36,0.8)]"
-                      : "fill-slate-700 text-slate-600"
+                      ? "fill-warning-base text-warning-base drop-shadow-[0_0_15px_var(--color-warning-glow)]"
+                      : "fill-background-surface text-text-disabled"
                   )}
                 />
               </motion.div>
@@ -133,7 +133,7 @@ function GameOverScreen({
             initial={{ opacity: 0, scale: 0.5 }}
             animate={{ opacity: 1, scale: 1 }}
             transition={{ delay: 0.5 }}
-            className="bg-slate-800/50 rounded-2xl p-6 mb-6"
+            className="bg-background-elevated/50 rounded-2xl p-6 mb-6"
           >
             <div 
               className="text-5xl font-bold font-display text-white mb-2 tabular-nums"
@@ -141,7 +141,7 @@ function GameOverScreen({
             >
               {score}
             </div>
-            <div className="text-slate-400">puntos</div>
+            <div className="text-text-muted">puntos</div>
 
             {/* New best badge */}
             {isNewBest && (
@@ -149,7 +149,7 @@ function GameOverScreen({
                 initial={{ scale: 0 }}
                 animate={{ scale: 1 }}
                 transition={{ delay: 0.7, type: 'spring' }}
-                className="inline-flex items-center gap-2 mt-4 px-4 py-2 bg-amber-500/20 text-amber-400 rounded-full text-sm font-bold"
+                className="inline-flex items-center gap-2 mt-4 px-4 py-2 bg-warning-base/20 text-warning-base rounded-full text-sm font-bold"
                 role="status"
               >
                 <Trophy size={16} aria-hidden="true" />
@@ -160,33 +160,33 @@ function GameOverScreen({
 
           {/* Stats */}
           <dl className="grid grid-cols-2 gap-4 mb-6">
-            <div className="bg-emerald-500/10 rounded-xl p-4 border border-emerald-500/20">
-              <dt className="text-xs text-slate-400 order-2">Correctas</dt>
-              <dd className="text-2xl font-bold text-emerald-400">{correctAnswers}</dd>
+            <div className="bg-success-base/10 rounded-xl p-4 border border-success-base/20">
+              <dt className="text-xs text-text-muted order-2">Correctas</dt>
+              <dd className="text-2xl font-bold text-success-base">{correctAnswers}</dd>
             </div>
-            <div className="bg-slate-700/30 rounded-xl p-4 border border-white/5">
-              <dt className="text-xs text-slate-400 order-2">Total</dt>
-              <dd className="text-2xl font-bold text-slate-300">{totalRounds}</dd>
+            <div className="bg-background-surface/30 rounded-xl p-4 border border-border-subtle">
+              <dt className="text-xs text-text-muted order-2">Total</dt>
+              <dd className="text-2xl font-bold text-text-secondary">{totalRounds}</dd>
             </div>
           </dl>
 
           {/* Resumen detallado */}
           {summary && (
             <div className="grid grid-cols-3 gap-2 mb-8 text-xs">
-              <div className="rounded-lg bg-slate-800/60 border border-white/5 px-3 py-2 text-center">
-                <div className="text-slate-400">Errores</div>
+              <div className="rounded-lg bg-background-elevated/60 border border-border-subtle px-3 py-2 text-center">
+                <div className="text-text-muted">Errores</div>
                 <div className="text-white font-semibold">{summary.errors ?? 0}</div>
               </div>
-              <div className="rounded-lg bg-slate-800/60 border border-white/5 px-3 py-2 text-center">
-                <div className="text-slate-400">Resp. media</div>
+              <div className="rounded-lg bg-background-elevated/60 border border-border-subtle px-3 py-2 text-center">
+                <div className="text-text-muted">Resp. media</div>
                 <div className="text-white font-semibold">
                   {summary.averageResponseTimeMs > 0
                     ? `${(summary.averageResponseTimeMs / 1000).toFixed(1)}s`
                     : '—'}
                 </div>
               </div>
-              <div className="rounded-lg bg-slate-800/60 border border-white/5 px-3 py-2 text-center">
-                <div className="text-slate-400">Tiempo</div>
+              <div className="rounded-lg bg-background-elevated/60 border border-border-subtle px-3 py-2 text-center">
+                <div className="text-text-muted">Tiempo</div>
                 <div className="text-white font-semibold">
                   {summary.totalTimePlayed > 0
                     ? `${(summary.totalTimePlayed / (1000 * 60)).toFixed(1)} min`

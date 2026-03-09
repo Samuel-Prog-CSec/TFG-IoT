@@ -20,12 +20,10 @@ import {
 } from 'lucide-react';
 import { toast } from 'sonner';
 
-import { 
-  GlassCard, 
-  ButtonPremium, 
-  InputPremium,
-  SkeletonCard 
-} from '../components/ui';
+import GlassCard from '../components/ui/GlassCard';
+import ButtonPremium from '../components/ui/ButtonPremium';
+import InputPremium from '../components/ui/InputPremium';
+import { SkeletonCard } from '../components/ui/SkeletonShimmer';
 import { cn } from '../lib/utils';
 import { useAuth } from '../context/AuthContext';
 import { contextsAPI, extractData, extractErrorMessage } from '../services/api';
@@ -149,7 +147,7 @@ export default function ContextDetailPage() {
         <GlassCard className="p-6 md:p-8 border-indigo-500/20">
           <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-6">
             <div className="flex items-center gap-5">
-              <div className="w-16 h-16 rounded-2xl bg-gradient-to-br from-indigo-500 to-purple-600 flex items-center justify-center shadow-lg shadow-indigo-500/20">
+              <div className="size-16 rounded-2xl bg-gradient-to-br from-indigo-500 to-purple-600 flex items-center justify-center shadow-lg shadow-indigo-500/20">
                 <Palette size={32} className="text-white" />
               </div>
               <div>
@@ -308,12 +306,12 @@ function AssetCard({ asset, index, onDelete, isDeleting = false }) {
           {/* Type Badge */}
           <div className="absolute top-2 right-2 flex gap-1">
             {(asset.imageUrl || asset.thumbnailUrl) && (
-              <div className="w-6 h-6 rounded-full bg-black/60 backdrop-blur-md flex items-center justify-center">
+              <div className="size-6 rounded-full bg-backdrop backdrop-blur-md flex items-center justify-center">
                 <ImageIcon size={12} className="text-emerald-400" />
               </div>
             )}
             {asset.audioUrl && (
-              <div className="w-6 h-6 rounded-full bg-black/60 backdrop-blur-md flex items-center justify-center">
+              <div className="size-6 rounded-full bg-backdrop backdrop-blur-md flex items-center justify-center">
                 <Music size={12} className="text-amber-400" />
               </div>
             )}
@@ -324,7 +322,7 @@ function AssetCard({ asset, index, onDelete, isDeleting = false }) {
             <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
               <button 
                 onClick={toggleAudio}
-                className="w-12 h-12 rounded-full bg-indigo-500 text-white flex items-center justify-center hover:scale-110 transition-transform shadow-xl"
+                className="size-12 rounded-full bg-indigo-500 text-white flex items-center justify-center hover:scale-110 transition-transform shadow-xl"
               >
                 {isPlaying ? <Pause size={24} /> : <Play size={24} className="ml-1" />}
               </button>
@@ -502,7 +500,7 @@ function UploadAssetModal({ context, onClose, onSuccess }) {
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm">
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-backdrop backdrop-blur-sm">
       <motion.div
         initial={{ scale: 0.9, opacity: 0 }}
         animate={{ scale: 1, opacity: 1 }}
@@ -511,7 +509,7 @@ function UploadAssetModal({ context, onClose, onSuccess }) {
       >
         <div className="flex items-center justify-between p-6 border-b border-white/5">
           <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-xl bg-indigo-500/20 flex items-center justify-center">
+            <div className="size-10 rounded-xl bg-indigo-500/20 flex items-center justify-center">
               <Upload size={20} className="text-indigo-400" />
             </div>
             <h3 className="text-lg font-semibold text-white">Añadir Asset</h3>
@@ -579,7 +577,7 @@ function UploadAssetModal({ context, onClose, onSuccess }) {
                 </>
               ) : file ? (
                 <div className="text-center z-10 px-4">
-                  <div className="w-12 h-12 rounded-full bg-emerald-500/20 text-emerald-400 flex items-center justify-center mx-auto mb-3">
+                  <div className="size-12 rounded-full bg-emerald-500/20 text-emerald-400 flex items-center justify-center mx-auto mb-3">
                     <Check size={24} />
                   </div>
                   <p className="text-sm font-medium text-white truncate mb-1">{file.name}</p>
@@ -685,7 +683,7 @@ function EditContextModal({ context, onClose, onSuccess }) {
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm">
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-backdrop backdrop-blur-sm">
       <motion.div
         initial={{ scale: 0.9, opacity: 0 }}
         animate={{ scale: 1, opacity: 1 }}
@@ -694,7 +692,7 @@ function EditContextModal({ context, onClose, onSuccess }) {
       >
         <div className="flex items-center justify-between p-6 border-b border-white/5">
           <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-xl bg-indigo-500/20 flex items-center justify-center">
+            <div className="size-10 rounded-xl bg-indigo-500/20 flex items-center justify-center">
               <Pencil size={20} className="text-indigo-400" />
             </div>
             <h3 className="text-lg font-semibold text-white">Editar Contexto</h3>
@@ -776,7 +774,7 @@ function DeleteContextModal({ context, onClose, onSuccess }) {
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm">
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-backdrop backdrop-blur-sm">
       <motion.div
         initial={{ scale: 0.9, opacity: 0 }}
         animate={{ scale: 1, opacity: 1 }}
@@ -785,7 +783,7 @@ function DeleteContextModal({ context, onClose, onSuccess }) {
       >
         <div className="flex items-center justify-between p-6 border-b border-white/5">
           <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-xl bg-rose-500/20 flex items-center justify-center">
+            <div className="size-10 rounded-xl bg-rose-500/20 flex items-center justify-center">
               <Trash2 size={20} className="text-rose-400" />
             </div>
             <h3 className="text-lg font-semibold text-white">Eliminar Contexto</h3>

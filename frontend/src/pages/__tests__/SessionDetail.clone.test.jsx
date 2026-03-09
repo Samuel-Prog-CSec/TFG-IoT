@@ -44,7 +44,7 @@ vi.mock('framer-motion', () => ({
   )
 }));
 
-vi.mock('../../hooks', () => ({
+vi.mock('../../hooks/useRefetchOnFocus', () => ({
   useRefetchOnFocus: () => {}
 }));
 
@@ -55,7 +55,35 @@ vi.mock('sonner', () => ({
   }
 }));
 
-vi.mock('../../components/ui', async () => {
+vi.mock('../../components/ui/ButtonPremium', () => ({
+  default: ({ children, onClick, disabled, ...props }) => (
+    <button type="button" onClick={onClick} disabled={disabled} {...props}>
+      {children}
+    </button>
+  )
+}));
+
+vi.mock('../../components/ui/GlassCard', () => ({
+  default: ({ children }) => <div>{children}</div>
+}));
+
+vi.mock('../../components/ui/StatusBadge', () => ({
+  default: ({ children }) => <span>{children}</span>
+}));
+
+vi.mock('../../components/ui/SkeletonShimmer', () => ({
+  SkeletonCard: () => <div>loading</div>
+}));
+
+vi.mock('../../components/ui/EmptyState', () => ({
+  default: ({ title }) => <div>{title}</div>
+}));
+
+vi.mock('../../components/ui/Tooltip', () => ({
+  default: ({ children }) => <>{children}</>
+}));
+
+vi.mock('../../components/ui/ConfirmationModal', async () => {
   const ReactModule = await vi.importActual('react');
   const { useState } = ReactModule;
 
@@ -69,17 +97,7 @@ vi.mock('../../components/ui', async () => {
   };
 
   return {
-    ButtonPremium: ({ children, onClick, disabled, ...props }) => (
-      <button type="button" onClick={onClick} disabled={disabled} {...props}>
-        {children}
-      </button>
-    ),
-    GlassCard: ({ children }) => <div>{children}</div>,
-    StatusBadge: ({ children }) => <span>{children}</span>,
-    SkeletonCard: () => <div>loading</div>,
-    EmptyState: ({ title }) => <div>{title}</div>,
-    Tooltip: ({ children }) => <>{children}</>,
-    ConfirmationModal: ({ open, title, confirmText, onConfirm }) =>
+    default: ({ open, title, confirmText, onConfirm }) =>
       open ? (
         <div>
           <p>{title}</p>

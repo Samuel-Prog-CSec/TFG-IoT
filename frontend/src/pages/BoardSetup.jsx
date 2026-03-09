@@ -10,9 +10,9 @@ import confetti from 'canvas-confetti';
 import { toast } from 'sonner';
 import { sessionsAPI, usersAPI, extractData, extractErrorMessage, isAbortError } from '../services/api';
 import { useAuth } from '../context/AuthContext';
-import { useRefetchOnFocus } from '../hooks';
+import { useRefetchOnFocus } from '../hooks/useRefetchOnFocus';
 import { ROUTES } from '../constants/routes';
-import { CardAssetPreview } from '../components/ui';
+import CardAssetPreview from '../components/ui/CardAssetPreview';
 
 export default function BoardSetup() {
   const { sessionId } = useParams();
@@ -357,7 +357,7 @@ function Slot({ id, card, index }) {
         <div 
             ref={setNodeRef}
             className={clsx(
-                "w-32 h-32 rounded-xl border-2 border-dashed transition-all flex items-center justify-center relative",
+                "size-32 rounded-xl border-2 border-dashed transition-all flex items-center justify-center relative",
                 isOver ? "border-indigo-400 bg-indigo-400/10 scale-105" : 
                 card ? "border-indigo-500/30 bg-indigo-500/5 shadow-inner" : "border-slate-700 bg-slate-900/20"
             )}
@@ -394,7 +394,7 @@ function CardView({ card, isOverlay, variant = 'default' }) {
                   <CardAssetPreview
                     asset={card.asset}
                     alt={`Carta ${card.uid}`}
-                    className="w-16 h-16 rounded-xl mb-2"
+                    className="size-16 rounded-xl mb-2"
                     fit="cover"
                     fallbackClassName="text-4xl"
                     fallbackLabel={card.icon || '🎴'}
@@ -412,7 +412,7 @@ function CardView({ card, isOverlay, variant = 'default' }) {
             <CardAssetPreview
               asset={card.asset}
               alt={`Carta ${card.uid}`}
-              className="w-10 h-10 rounded border border-indigo-500/30"
+              className="size-10 rounded border border-indigo-500/30"
               fit="cover"
               fallbackClassName="bg-indigo-500/20 text-xl font-bold"
               fallbackLabel={card.icon || '#'}

@@ -27,8 +27,13 @@ import {
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { adminAPI, extractErrorMessage, isAbortError } from '../../services/api';
-import { ButtonPremium, InputPremium, GlassCard, StatusBadge, SkeletonCard, EmptyState } from '../../components/ui';
-import { useRefetchOnFocus } from '../../hooks';
+import ButtonPremium from '../../components/ui/ButtonPremium';
+import InputPremium from '../../components/ui/InputPremium';
+import GlassCard from '../../components/ui/GlassCard';
+import StatusBadge from '../../components/ui/StatusBadge';
+import { SkeletonCard } from '../../components/ui/SkeletonShimmer';
+import EmptyState from '../../components/ui/EmptyState';
+import { useRefetchOnFocus } from '../../hooks/useRefetchOnFocus';
 import { cn } from '../../lib/utils';
 
 /**
@@ -121,7 +126,7 @@ function ConfirmationModal({
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
-            className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50"
+            className="fixed inset-0 bg-backdrop backdrop-blur-sm z-50"
             onClick={onClose}
             aria-hidden="true"
           />
@@ -140,15 +145,15 @@ function ConfirmationModal({
             <GlassCard className="p-6" variant="solid">
               {/* Icono */}
               <div className={cn(
-                'w-16 h-16 rounded-2xl flex items-center justify-center mx-auto mb-4',
+                'size-16 rounded-2xl flex items-center justify-center mx-auto mb-4',
                 isApprove 
                   ? 'bg-success-base/10 text-success-base' 
                   : 'bg-error-base/10 text-error-base'
               )}>
                 {isApprove ? (
-                  <UserCheck className="w-8 h-8" />
+                  <UserCheck className="size-8" />
                 ) : (
-                  <UserX className="w-8 h-8" />
+                  <UserX className="size-8" />
                 )}
               </div>
 
@@ -171,7 +176,7 @@ function ConfirmationModal({
               {/* Info del usuario */}
               <div className="bg-background-elevated rounded-xl p-4 mb-4 border border-border-subtle">
                 <div className="flex items-center gap-3">
-                  <div className="w-10 h-10 rounded-full bg-gradient-to-br from-brand-base to-brand-dark flex items-center justify-center text-white font-semibold">
+                  <div className="size-10 rounded-full bg-gradient-to-br from-brand-base to-brand-dark flex items-center justify-center text-white font-semibold">
                     {user?.name?.charAt(0)?.toUpperCase() || '?'}
                   </div>
                   <div>
@@ -258,7 +263,7 @@ function PendingTeacherCard({ teacher, onApprove, onReject }) {
         <div className="flex flex-col lg:flex-row lg:items-center gap-4">
           {/* Avatar y nombre */}
           <div className="flex items-center gap-4 flex-1 min-w-0">
-            <div className="w-14 h-14 rounded-xl bg-gradient-to-br from-brand-base via-brand-base/80 to-brand-dark flex items-center justify-center text-white text-xl font-bold shadow-lg shadow-brand-base/20 flex-shrink-0">
+            <div className="size-14 rounded-xl bg-gradient-to-br from-brand-base via-brand-base/80 to-brand-dark flex items-center justify-center text-white text-xl font-bold shadow-lg shadow-brand-base/20 flex-shrink-0">
               {teacher.name?.charAt(0)?.toUpperCase() || '?'}
             </div>
             
@@ -267,11 +272,11 @@ function PendingTeacherCard({ teacher, onApprove, onReject }) {
                 {teacher.name}
               </h3>
               <div className="flex items-center gap-2 text-text-muted text-sm">
-                <Mail className="w-4 h-4 flex-shrink-0" />
+                <Mail className="size-4 flex-shrink-0" />
                 <span className="truncate">{teacher.email}</span>
               </div>
               <div className="flex items-center gap-2 text-text-muted/70 text-xs mt-1">
-                <Calendar className="w-3.5 h-3.5" />
+                <Calendar className="size-3.5" />
                 <span>Registrado el {createdAt}</span>
               </div>
             </div>
@@ -280,7 +285,7 @@ function PendingTeacherCard({ teacher, onApprove, onReject }) {
           {/* Badge de estado */}
           <div className="flex items-center gap-3 sm:flex-shrink-0">
             <StatusBadge status="warning">
-              <Clock className="w-3.5 h-3.5" />
+              <Clock className="size-3.5" />
               Pendiente
             </StatusBadge>
           </div>
@@ -291,7 +296,7 @@ function PendingTeacherCard({ teacher, onApprove, onReject }) {
               variant="success"
               size="sm"
               onClick={() => onApprove(teacher)}
-              icon={<UserCheck className="w-4 h-4" />}
+              icon={<UserCheck className="size-4" />}
             >
               Aprobar
             </ButtonPremium>
@@ -299,7 +304,7 @@ function PendingTeacherCard({ teacher, onApprove, onReject }) {
               variant="danger"
               size="sm"
               onClick={() => onReject(teacher)}
-              icon={<UserX className="w-4 h-4" />}
+              icon={<UserX className="size-4" />}
             >
               Rechazar
             </ButtonPremium>
@@ -457,12 +462,12 @@ export default function ApprovalPanel() {
       if (type === 'approve') {
         await adminAPI.approveTeacher(user._id || user.id);
         toast.success(`${user.name} ha sido aprobado correctamente`, {
-          icon: <CheckCircle className="w-5 h-5 text-emerald-400" />,
+          icon: <CheckCircle className="size-5 text-emerald-400" />,
         });
       } else {
         await adminAPI.rejectTeacher(user._id || user.id, reason);
         toast.success(`${user.name} ha sido rechazado`, {
-          icon: <XCircle className="w-5 h-5 text-rose-400" />,
+          icon: <XCircle className="size-5 text-rose-400" />,
         });
       }
 
@@ -503,8 +508,8 @@ export default function ApprovalPanel() {
           className="mb-8"
         >
           <div className="flex items-center gap-4 mb-2">
-            <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-warning-base to-warning-dark flex items-center justify-center shadow-lg shadow-warning-base/20">
-              <Shield className="w-6 h-6 text-white" />
+            <div className="size-12 rounded-xl bg-gradient-to-br from-warning-base to-warning-dark flex items-center justify-center shadow-lg shadow-warning-base/20">
+              <Shield className="size-6 text-white" />
             </div>
             <div>
               <h1 className="text-2xl sm:text-3xl font-bold font-display text-text-primary">
@@ -527,8 +532,8 @@ export default function ApprovalPanel() {
           <GlassCard className="p-4">
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-3">
-                <div className="w-10 h-10 rounded-lg bg-warning-base/10 flex items-center justify-center">
-                  <Users className="w-5 h-5 text-warning-base" />
+                <div className="size-10 rounded-lg bg-warning-base/10 flex items-center justify-center">
+                  <Users className="size-5 text-warning-base" />
                 </div>
                 <div>
                   <p className="text-sm text-text-muted">Solicitudes pendientes</p>
@@ -541,7 +546,7 @@ export default function ApprovalPanel() {
                 size="sm"
                 onClick={() => fetchPendingTeachers(pagination.page)}
                 disabled={loading}
-                icon={<RefreshCw className={cn('w-4 h-4', loading && 'animate-spin')} />}
+                icon={<RefreshCw className={cn('size-4', loading && 'animate-spin')} />}
               >
                 Actualizar
               </ButtonPremium>
@@ -560,11 +565,11 @@ export default function ApprovalPanel() {
             placeholder="Buscar por nombre o email..."
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
-            icon={<Search className={cn('w-5 h-5', isSearchPending && 'animate-pulse')} />}
+            icon={<Search className={cn('size-5', isSearchPending && 'animate-pulse')} />}
           />
           {isSearchPending && (
             <div className="absolute right-3 top-1/2 -translate-y-1/2">
-              <div className="w-4 h-4 border-2 border-brand-base/30 border-t-brand-base rounded-full animate-spin" />
+              <div className="size-4 border-2 border-brand-base/30 border-t-brand-base rounded-full animate-spin" />
             </div>
           )}
         </motion.div>
@@ -579,7 +584,7 @@ export default function ApprovalPanel() {
               className="mb-6"
             >
               <div className="flex items-start gap-3 p-4 rounded-xl bg-error-base/10 border border-error-base/20">
-                <AlertCircle className="w-5 h-5 text-error-base flex-shrink-0 mt-0.5" />
+                <AlertCircle className="size-5 text-error-base flex-shrink-0 mt-0.5" />
                 <div>
                   <p className="text-error-base font-bold">Error al cargar datos</p>
                   <p className="text-error-base/80 text-sm mt-1">{error}</p>
@@ -601,7 +606,7 @@ export default function ApprovalPanel() {
             <EmptyState
               title="No hay solicitudes pendientes"
               description="Todas las solicitudes de profesores han sido procesadas. Vuelve mas tarde para revisar nuevas solicitudes."
-              icon={<Inbox className="w-10 h-10" />}
+              icon={<Inbox className="size-10" />}
               className="bg-transparent"
             />
           ) : (
@@ -633,7 +638,7 @@ export default function ApprovalPanel() {
               size="sm"
               onClick={() => fetchPendingTeachers(pagination.page - 1)}
               disabled={pagination.page <= 1}
-              icon={<ChevronLeft className="w-4 h-4" />}
+              icon={<ChevronLeft className="size-4" />}
             >
               Anterior
             </ButtonPremium>
@@ -647,7 +652,7 @@ export default function ApprovalPanel() {
               size="sm"
               onClick={() => fetchPendingTeachers(pagination.page + 1)}
               disabled={pagination.page >= pagination.totalPages}
-              icon={<ChevronRight className="w-4 h-4" />}
+              icon={<ChevronRight className="size-4" />}
               iconPosition="right"
             >
               Siguiente

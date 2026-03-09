@@ -14,7 +14,7 @@ const buttonVariants = cva(
   [
     'relative inline-flex items-center justify-center whitespace-nowrap',
     'transition-all duration-300',
-    'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-base/50 focus-visible:ring-offset-2 focus-visible:ring-offset-background-base',
+    'focus-ring',
     'disabled:opacity-50 disabled:pointer-events-none'
   ],
   {

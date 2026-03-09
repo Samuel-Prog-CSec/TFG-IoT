@@ -15,13 +15,12 @@ import {
 } from 'lucide-react';
 import { toast } from 'sonner';
 
-import {
-  GlassCard,
-  ButtonPremium,
-  InputPremium,
-  SkeletonCard
-} from '../components/ui';
-import { useContexts, useReducedMotion } from '../hooks';
+import GlassCard from '../components/ui/GlassCard';
+import ButtonPremium from '../components/ui/ButtonPremium';
+import InputPremium from '../components/ui/InputPremium';
+import { SkeletonCard } from '../components/ui/SkeletonShimmer';
+import { useContexts } from '../hooks/useContexts';
+import { useReducedMotion } from '../hooks/useReducedMotion';
 import { useAuth } from '../context/AuthContext';
 import { contextsAPI, extractData, extractErrorMessage } from '../services/api';
 import { ROUTES } from '../constants/routes';
@@ -81,7 +80,7 @@ export default function ContextsPage() {
       >
         <div className="flex flex-col md:flex-row md:items-end justify-between gap-6 mb-8">
           <div className="flex items-center gap-4">
-            <div className="w-14 h-14 rounded-2xl bg-gradient-to-br from-indigo-500 to-purple-600 flex items-center justify-center shadow-lg shadow-indigo-500/20">
+            <div className="size-14 rounded-2xl bg-gradient-to-br from-indigo-500 to-purple-600 flex items-center justify-center shadow-lg shadow-indigo-500/20">
               <Palette size={28} className="text-white" />
             </div>
             <div>
@@ -107,7 +106,7 @@ export default function ContextsPage() {
         {/* Stats globales */}
         <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-8">
           <GlassCard className="p-4 flex items-center gap-4">
-            <div className="w-10 h-10 rounded-xl bg-slate-800/50 flex items-center justify-center">
+            <div className="size-10 rounded-xl bg-slate-800/50 flex items-center justify-center">
               <Palette size={20} className="text-indigo-400" />
             </div>
             <div>
@@ -117,7 +116,7 @@ export default function ContextsPage() {
           </GlassCard>
 
           <GlassCard className="p-4 flex items-center gap-4">
-            <div className="w-10 h-10 rounded-xl bg-slate-800/50 flex items-center justify-center">
+            <div className="size-10 rounded-xl bg-slate-800/50 flex items-center justify-center">
               <ImageIcon size={20} className="text-emerald-400" />
             </div>
             <div>
@@ -127,7 +126,7 @@ export default function ContextsPage() {
           </GlassCard>
 
           <GlassCard className="p-4 flex items-center gap-4">
-            <div className="w-10 h-10 rounded-xl bg-slate-800/50 flex items-center justify-center">
+            <div className="size-10 rounded-xl bg-slate-800/50 flex items-center justify-center">
               <Music size={20} className="text-amber-400" />
             </div>
             <div>
@@ -137,7 +136,7 @@ export default function ContextsPage() {
           </GlassCard>
 
           <GlassCard className="p-4 flex items-center gap-4">
-            <div className="w-10 h-10 rounded-xl bg-slate-800/50 flex items-center justify-center">
+            <div className="size-10 rounded-xl bg-slate-800/50 flex items-center justify-center">
               <ImageIcon size={20} className="text-purple-400" />
             </div>
             <div>
@@ -243,7 +242,7 @@ function ContextCard({ context, onClick, index, reducedMotion }) {
     >
       <GlassCard className="h-full p-6 transition-colors hover:bg-slate-800/40 hover:border-indigo-500/30">
         <div className="flex justify-between items-start mb-6">
-          <div className="w-12 h-12 rounded-xl bg-indigo-500/10 flex items-center justify-center border border-indigo-500/20 group-hover:bg-indigo-500/20 transition-colors">
+          <div className="size-12 rounded-xl bg-indigo-500/10 flex items-center justify-center border border-indigo-500/20 group-hover:bg-indigo-500/20 transition-colors">
             <Palette size={24} className="text-indigo-400" />
           </div>
           <div className="flex items-center gap-1 text-slate-500 group-hover:text-indigo-400 transition-colors">
@@ -276,7 +275,7 @@ function ContextCard({ context, onClick, index, reducedMotion }) {
             <div className="flex items-center gap-1.5" title="Total Assets">
               <span className="font-medium text-slate-300">{assetCount}</span> total
             </div>
-            <div className="w-1 h-1 rounded-full bg-slate-700" />
+            <div className="size-1 rounded-full bg-slate-700" />
             <div className="flex items-center gap-1.5" title="Imágenes">
               <ImageIcon size={14} className="text-slate-500" />
               <span>{imagesCount}</span>
@@ -296,7 +295,7 @@ function ContextCard({ context, onClick, index, reducedMotion }) {
               </span>
             ))}
             {assetCount > 5 && (
-              <div className="flex items-center justify-center w-8 h-8 rounded-full bg-slate-800/50 text-xs text-slate-400 ml-1">
+              <div className="flex items-center justify-center size-8 rounded-full bg-slate-800/50 text-xs text-slate-400 ml-1">
                 +{assetCount - 5}
               </div>
             )}
@@ -384,7 +383,7 @@ function CreateContextModal({ onClose, onSuccess }) {
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm">
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-backdrop backdrop-blur-sm">
       <motion.div
         initial={{ scale: 0.9, opacity: 0 }}
         animate={{ scale: 1, opacity: 1 }}
@@ -394,7 +393,7 @@ function CreateContextModal({ onClose, onSuccess }) {
         {/* Header */}
         <div className="flex items-center justify-between p-6 border-b border-white/5">
           <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-xl bg-indigo-500/20 flex items-center justify-center">
+            <div className="size-10 rounded-xl bg-indigo-500/20 flex items-center justify-center">
               <ShieldCheck size={20} className="text-indigo-400" />
             </div>
             <div>

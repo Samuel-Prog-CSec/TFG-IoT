@@ -318,8 +318,8 @@ function DeckCardView({
           'backdrop-blur-xl',
           'transition-shadow duration-300',
           isHovered && 'shadow-2xl shadow-indigo-500/20',
-          selected && 'ring-2 ring-indigo-500 ring-offset-2 ring-offset-slate-950',
-          selectable && 'hover:ring-2 hover:ring-indigo-400/50'
+          selected && 'ring-2 ring-brand-base ring-offset-2 ring-offset-background-deep',
+          selectable && 'hover:ring-2 hover:ring-brand-base/50 focus-ring'
         )}
         style={{
           rotateX: useFullAnimations && isHovered ? rotateX : 0,
@@ -356,7 +356,7 @@ function DeckCardView({
           />
 
           {deck.description && (
-            <p className="text-slate-400 text-sm mb-4 line-clamp-2">
+            <p className="text-slate-400 text-sm mb-4 line-clamp-2" title={deck.description}>
               {deck.description}
             </p>
           )}
@@ -392,16 +392,6 @@ function DeckCardView({
         />
       </motion.div>
 
-      <style>{`
-        @keyframes gradient-shift {
-          0% { background-position: 0% 50%; }
-          50% { background-position: 100% 50%; }
-          100% { background-position: 0% 50%; }
-        }
-        .perspective-1000 {
-          perspective: 1000px;
-        }
-      `}</style>
     </motion.div>
   );
 }
@@ -448,11 +438,11 @@ function DeckCardHeader({
   return (
     <div className="flex items-start justify-between mb-4">
       <div className="flex items-center gap-3">
-        <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-indigo-500 to-purple-600 flex items-center justify-center shadow-lg shadow-indigo-500/30">
+        <div className="size-12 rounded-xl bg-gradient-to-br from-indigo-500 to-purple-600 flex items-center justify-center shadow-lg shadow-indigo-500/30">
           <Layers className="text-white" size={24} />
         </div>
         <div>
-          <h3 className="font-bold text-white text-lg leading-tight line-clamp-1">
+          <h3 className="font-bold text-white text-lg leading-tight line-clamp-1" title={deck.name}>
             {deck.name}
           </h3>
           <span className="text-xs text-purple-400 font-medium">
@@ -534,7 +524,7 @@ function DeckPreviewAssets({
       {previewAssets.map((mapping, index) => (
         <motion.div
           key={mapping._id || index}
-          className="w-10 h-10 rounded-lg bg-slate-800/80 border border-white/10 flex items-center justify-center text-lg overflow-hidden"
+          className="size-10 rounded-lg bg-slate-800/80 border border-white/10 flex items-center justify-center text-lg overflow-hidden"
           initial={{ opacity: 0, scale: 0.8 }}
           animate={{ opacity: 1, scale: 1 }}
           transition={{ delay: index * 0.1 }}
@@ -547,7 +537,7 @@ function DeckPreviewAssets({
       ))}
       {remainingCount > 0 && (
         <motion.div
-          className="w-10 h-10 rounded-lg bg-slate-800/80 border border-white/10 flex items-center justify-center text-xs font-bold text-slate-400"
+          className="size-10 rounded-lg bg-slate-800/80 border border-white/10 flex items-center justify-center text-xs font-bold text-slate-400"
           initial={{ opacity: 0, scale: 0.8 }}
           animate={{ opacity: 1, scale: 1 }}
           transition={{ delay: 0.4 }}
@@ -653,12 +643,12 @@ function DeckSelectionBadge({ selectable, selected }) {
 
   return (
     <motion.div
-      className="absolute top-3 right-3 w-6 h-6 rounded-full bg-indigo-500 flex items-center justify-center"
+      className="absolute top-3 right-3 size-6 rounded-full bg-indigo-500 flex items-center justify-center"
       initial={{ scale: 0 }}
       animate={{ scale: 1 }}
       transition={{ type: 'spring', stiffness: 500 }}
     >
-      <svg className="w-4 h-4 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+      <svg className="size-4 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor">
         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7" />
       </svg>
     </motion.div>
@@ -743,7 +733,7 @@ export function DeckCardSkeleton() {
     <div className="relative rounded-2xl overflow-hidden bg-slate-900/50 border border-white/5 p-5 animate-pulse">
       <div className="flex items-start justify-between mb-4">
         <div className="flex items-center gap-3">
-          <div className="w-12 h-12 rounded-xl bg-slate-800" />
+          <div className="size-12 rounded-xl bg-slate-800" />
           <div className="space-y-2">
             <div className="w-32 h-5 bg-slate-800 rounded" />
             <div className="w-20 h-3 bg-slate-800 rounded" />
@@ -753,7 +743,7 @@ export function DeckCardSkeleton() {
       <div className="w-full h-4 bg-slate-800 rounded mb-4" />
       <div className="flex gap-2 mb-4">
         {[1, 2, 3, 4].map((slot) => (
-          <div key={`deck-card-skeleton-${slot}`} className="w-10 h-10 rounded-lg bg-slate-800" />
+          <div key={`deck-card-skeleton-${slot}`} className="size-10 rounded-lg bg-slate-800" />
         ))}
       </div>
       <div className="flex gap-4">

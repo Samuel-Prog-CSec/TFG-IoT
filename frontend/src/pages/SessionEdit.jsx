@@ -12,15 +12,13 @@ import { ArrowLeft, Save, Map, AlertTriangle } from 'lucide-react';
 import { toast } from 'sonner';
 import { sessionsAPI, decksAPI, extractData, extractErrorMessage, isAbortError } from '../services/api';
 import { ROUTES } from '../constants/routes';
-import {
-  ButtonPremium,
-  GlassCard,
-  InputPremium,
-  SelectPremium,
-  StatusBadge
-} from '../components/ui';
+import ButtonPremium from '../components/ui/ButtonPremium';
+import GlassCard from '../components/ui/GlassCard';
+import InputPremium from '../components/ui/InputPremium';
+import SelectPremium from '../components/ui/SelectPremium';
+import StatusBadge from '../components/ui/StatusBadge';
 import { pageVariants } from '../lib/utils';
-import { useRefetchOnFocus } from '../hooks';
+import { useRefetchOnFocus } from '../hooks/useRefetchOnFocus';
 
 const statusToBadge = (status) => {
   switch (status) {

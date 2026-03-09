@@ -11,7 +11,9 @@ import { Link, useLocation } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import { LogIn, Mail, Lock, Eye, EyeOff, AlertCircle, CheckCircle, Info, Clock } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
-import { ButtonPremium, InputPremium, GlassCard } from '../components/ui';
+import ButtonPremium from '../components/ui/ButtonPremium';
+import InputPremium from '../components/ui/InputPremium';
+import GlassCard from '../components/ui/GlassCard';
 import { ROUTES } from '../constants/routes';
 
 // ============================================
@@ -291,7 +293,7 @@ export default function Login() {
             initial={{ scale: 0.8, opacity: 0 }}
             animate={{ scale: 1, opacity: 1 }}
             transition={{ delay: 0.1, duration: 0.4 }}
-            className="inline-flex items-center justify-center w-20 h-20 rounded-2xl bg-gradient-to-br from-indigo-500 via-purple-500 to-pink-500 mb-4 shadow-lg shadow-purple-500/30"
+            className="inline-flex items-center justify-center size-20 rounded-2xl bg-gradient-to-br from-indigo-500 via-purple-500 to-pink-500 mb-4 shadow-lg shadow-purple-500/30"
           >
             <span className="text-4xl">🎮</span>
           </motion.div>
@@ -325,7 +327,7 @@ export default function Login() {
               className="mb-4"
             >
               <div className="flex items-start gap-3 p-4 rounded-xl bg-emerald-500/10 border border-emerald-500/20">
-                <CheckCircle className="w-5 h-5 text-emerald-400 flex-shrink-0 mt-0.5" />
+                <CheckCircle className="size-5 text-emerald-400 flex-shrink-0 mt-0.5" />
                 <div>
                   <p className="text-emerald-300 font-medium text-sm">
                     ¡Registro exitoso!
@@ -346,7 +348,7 @@ export default function Login() {
               className="mb-4"
             >
               <div className="flex items-start gap-3 p-4 rounded-xl bg-amber-500/10 border border-amber-500/20">
-                <Info className="w-5 h-5 text-amber-400 flex-shrink-0 mt-0.5" />
+                <Info className="size-5 text-amber-400 flex-shrink-0 mt-0.5" />
                 <div>
                   <p className="text-amber-300 font-medium text-sm">
                     Sesión cerrada
@@ -368,7 +370,7 @@ export default function Login() {
               className="mb-4"
             >
               <div className="flex items-start gap-3 p-4 rounded-xl bg-rose-500/10 border border-rose-500/20">
-                <Clock className="w-5 h-5 text-rose-400 flex-shrink-0 mt-0.5" />
+                <Clock className="size-5 text-rose-400 flex-shrink-0 mt-0.5" />
                 <div>
                   <p className="text-rose-300 font-medium text-sm">
                     Demasiados intentos fallidos
@@ -402,7 +404,7 @@ export default function Login() {
                   exit={{ opacity: 0, y: -10, height: 0 }}
                   className="flex items-start gap-3 p-4 rounded-xl bg-rose-500/10 border border-rose-500/20"
                 >
-                  <AlertCircle className="w-5 h-5 text-rose-400 flex-shrink-0 mt-0.5" />
+                  <AlertCircle className="size-5 text-rose-400 flex-shrink-0 mt-0.5" />
                   <p className="text-rose-300 text-sm">{error}</p>
                 </motion.div>
               )}
@@ -417,7 +419,7 @@ export default function Login() {
               value={formData.email}
               onChange={handleChange}
               error={validationErrors.email}
-              icon={<Mail className="w-5 h-5" />}
+              icon={<Mail className="size-5" />}
               autoComplete="email"
               autoFocus
             />
@@ -432,7 +434,7 @@ export default function Login() {
                 value={formData.password}
                 onChange={handleChange}
                 error={validationErrors.password}
-                icon={<Lock className="w-5 h-5" />}
+                icon={<Lock className="size-5" />}
                 autoComplete="current-password"
               />
               <button
@@ -442,9 +444,9 @@ export default function Login() {
                 tabIndex={-1}
               >
                 {showPassword ? (
-                  <EyeOff className="w-5 h-5" />
+                  <EyeOff className="size-5" />
                 ) : (
-                  <Eye className="w-5 h-5" />
+                  <Eye className="size-5" />
                 )}
               </button>
             </div>
@@ -457,7 +459,7 @@ export default function Login() {
               className="w-full"
               loading={isSubmitting || isLoading}
               disabled={isSubmitting || isLoading || isLocked}
-              icon={<LogIn className="w-5 h-5" />}
+              icon={<LogIn className="size-5" />}
             >
               {isSubmitting ? 'Iniciando sesión...' : 'Iniciar Sesión'}
             </ButtonPremium>

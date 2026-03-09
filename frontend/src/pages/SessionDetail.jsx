@@ -21,18 +21,15 @@ import {
 import { toast } from 'sonner';
 import { sessionsAPI, extractData, extractErrorMessage, isAbortError } from '../services/api';
 import { ROUTES } from '../constants/routes';
-import {
-  ButtonPremium,
-  GlassCard,
-  StatusBadge,
-  SkeletonCard,
-  EmptyState,
-  Tooltip,
-  ConfirmationModal,
-  useConfirmationModal
-} from '../components/ui';
+import ButtonPremium from '../components/ui/ButtonPremium';
+import GlassCard from '../components/ui/GlassCard';
+import StatusBadge from '../components/ui/StatusBadge';
+import { SkeletonCard } from '../components/ui/SkeletonShimmer';
+import EmptyState from '../components/ui/EmptyState';
+import Tooltip from '../components/ui/Tooltip';
+import ConfirmationModal, { useConfirmationModal } from '../components/ui/ConfirmationModal';
 import { cn, pageVariants } from '../lib/utils';
-import { useRefetchOnFocus } from '../hooks';
+import { useRefetchOnFocus } from '../hooks/useRefetchOnFocus';
 
 const statusToBadge = (status) => {
   switch (status) {

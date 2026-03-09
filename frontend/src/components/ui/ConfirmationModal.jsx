@@ -28,28 +28,28 @@ const VARIANT_ICONS = {
  */
 const VARIANT_COLORS = {
   danger: {
-    bg: 'bg-rose-500/20',
-    text: 'text-rose-400',
+    bg: 'bg-error-base/20',
+    text: 'text-error-base',
     button: 'danger',
   },
   warning: {
-    bg: 'bg-amber-500/20',
-    text: 'text-amber-400',
+    bg: 'bg-warning-base/20',
+    text: 'text-warning-base',
     button: 'warning',
   },
   archive: {
-    bg: 'bg-amber-500/20',
-    text: 'text-amber-400',
+    bg: 'bg-warning-base/20',
+    text: 'text-warning-base',
     button: 'warning',
   },
   info: {
-    bg: 'bg-blue-500/20',
-    text: 'text-blue-400',
+    bg: 'bg-info-base/20',
+    text: 'text-info-base',
     button: 'primary',
   },
   success: {
-    bg: 'bg-emerald-500/20',
-    text: 'text-emerald-400',
+    bg: 'bg-success-base/20',
+    text: 'text-success-base',
     button: 'success',
   },
 };
@@ -156,7 +156,7 @@ export default function ConfirmationModal({
           animate={{ opacity: 1 }}
           exit={{ opacity: 0 }}
           transition={{ duration: 0.2 }}
-          className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm"
+          className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-backdrop backdrop-blur-sm"
           onClick={handleOverlayClick}
           role="dialog"
           aria-modal="true"
@@ -170,25 +170,25 @@ export default function ConfirmationModal({
             exit={{ scale: 0.9, opacity: 0, y: 20 }}
             transition={{ type: 'spring', damping: 25, stiffness: 300 }}
             onClick={(e) => e.stopPropagation()}
-            className="bg-slate-900 border border-white/10 rounded-2xl p-6 max-w-md w-full shadow-2xl"
+            className="bg-background-base border border-border-default rounded-2xl p-6 max-w-md w-full shadow-2xl"
           >
             {/* Header con icono */}
             <div className="flex items-start gap-4 mb-4">
               <div className={cn(
-                'w-12 h-12 rounded-xl flex items-center justify-center flex-shrink-0',
+                'size-12 rounded-xl flex items-center justify-center flex-shrink-0',
                 variantConfig.bg
               )}>
                 <Icon className={variantConfig.text} size={24} />
               </div>
               <div className="flex-1 min-w-0">
-                <h3 
+                <h3
                   id="modal-title"
-                  className="text-lg font-semibold text-white"
+                  className="text-lg font-semibold text-text-primary"
                 >
                   {title}
                 </h3>
                 {subtitle && (
-                  <p className="text-sm text-slate-400">{subtitle}</p>
+                  <p className="text-sm text-text-muted">{subtitle}</p>
                 )}
               </div>
               
@@ -199,7 +199,7 @@ export default function ConfirmationModal({
                 disabled={loading}
                 className={cn(
                   'p-2 rounded-lg transition-colors',
-                  'hover:bg-white/10 text-slate-400 hover:text-white',
+                  'hover:bg-white/10 text-text-muted hover:text-text-primary',
                   'disabled:opacity-50 disabled:cursor-not-allowed'
                 )}
                 aria-label="Cerrar modal"
@@ -209,9 +209,9 @@ export default function ConfirmationModal({
             </div>
 
             {/* Descripción */}
-            <div 
+            <div
               id="modal-description"
-              className="text-slate-300 mb-6"
+              className="text-text-secondary mb-6"
             >
               {typeof description === 'string' ? (
                 <p>{description}</p>

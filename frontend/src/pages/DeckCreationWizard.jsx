@@ -31,20 +31,20 @@ import {
 } from 'lucide-react';
 import { cn } from '../lib/utils';
 import { buildCardMappingsPayload } from '../lib/cardMapping';
-import { 
-  WizardStepper, 
-  RFIDScannerPanel, 
-  CardSelector,
-  AssetSelector,
-  CardAssetPreview,
-  ButtonPremium,
-  GlassCard,
-  InputPremium,
-  ConfirmationModal,
-  useConfirmationModal
-} from '../components/ui';
+import WizardStepper from '../components/ui/WizardStepper';
+import RFIDScannerPanel from '../components/ui/RFIDScannerPanel';
+import CardSelector from '../components/ui/CardSelector';
+import AssetSelector from '../components/ui/AssetSelector';
+import CardAssetPreview from '../components/ui/CardAssetPreview';
+import ButtonPremium from '../components/ui/ButtonPremium';
+import GlassCard from '../components/ui/GlassCard';
+import InputPremium from '../components/ui/InputPremium';
+import ConfirmationModal, { useConfirmationModal } from '../components/ui/ConfirmationModal';
 import { decksAPI, cardsAPI, extractData, extractErrorMessage, isAbortError } from '../services/api';
-import { useDeckWizardDraft, formatDraftDate, useContexts, useRefetchOnFocus, useReducedMotion } from '../hooks';
+import useDeckWizardDraft, { formatDraftDate } from '../hooks/useDeckWizardDraft';
+import { useContexts } from '../hooks/useContexts';
+import { useRefetchOnFocus } from '../hooks/useRefetchOnFocus';
+import { useReducedMotion } from '../hooks/useReducedMotion';
 import { ROUTES } from '../constants/routes';
 import { GAME_CONFIG } from '../constants/gameConfig';
 import { toast } from 'sonner';
@@ -424,7 +424,7 @@ export default function DeckCreationWizard() {
         </button>
         
         <div className="flex items-center gap-4">
-          <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-indigo-500 to-purple-600 flex items-center justify-center">
+          <div className="size-12 rounded-xl bg-gradient-to-br from-indigo-500 to-purple-600 flex items-center justify-center">
             <Layers size={24} className="text-white" />
           </div>
           <div>
@@ -518,7 +518,7 @@ export default function DeckCreationWizard() {
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
-            className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm"
+            className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-backdrop backdrop-blur-sm"
           >
             <motion.div
               initial={{ scale: 0.9, opacity: 0 }}
@@ -527,7 +527,7 @@ export default function DeckCreationWizard() {
               className="bg-slate-900 border border-white/10 rounded-2xl p-6 max-w-md w-full shadow-2xl"
             >
               <div className="flex items-center gap-4 mb-4">
-                <div className="w-12 h-12 rounded-xl bg-indigo-500/20 flex items-center justify-center">
+                <div className="size-12 rounded-xl bg-indigo-500/20 flex items-center justify-center">
                   <Save className="text-indigo-400" size={24} />
                 </div>
                 <div>
@@ -733,7 +733,7 @@ function StepContext({
               <motion.div
                 initial={{ scale: 0 }}
                 animate={{ scale: 1 }}
-                className="absolute top-2 right-2 w-6 h-6 rounded-full bg-indigo-500 flex items-center justify-center"
+                className="absolute top-2 right-2 size-6 rounded-full bg-indigo-500 flex items-center justify-center"
               >
                 <Check size={14} className="text-white" />
               </motion.div>
@@ -826,7 +826,7 @@ function StepAssign({
                 whileHover={{ x: 4 }}
               >
                 <div className={cn(
-                  'w-8 h-8 rounded-lg flex items-center justify-center text-sm overflow-hidden',
+                  'size-8 rounded-lg flex items-center justify-center text-sm overflow-hidden',
                   isAssigned
                     ? 'bg-green-500/20 text-green-400'
                     : 'bg-slate-700 text-slate-400'
@@ -858,7 +858,7 @@ function StepAssign({
                   <motion.div
                     initial={{ scale: 0 }}
                     animate={{ scale: 1 }}
-                    className="w-2 h-2 rounded-full bg-indigo-500"
+                    className="size-2 rounded-full bg-indigo-500"
                   />
                 )}
               </motion.button>
@@ -956,7 +956,7 @@ function StepConfirm({
                 <CardAssetPreview
                   asset={assignment}
                   alt={`Asset de carta ${card.uid}`}
-                  className="w-10 h-10 rounded-lg"
+                  className="size-10 rounded-lg"
                   fit="cover"
                   fallbackClassName="bg-gradient-to-br from-indigo-500/20 to-purple-500/20 text-xl"
                   fallbackLabel="❓"

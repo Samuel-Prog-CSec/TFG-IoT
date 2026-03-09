@@ -102,7 +102,7 @@ export default function CharacterMascot({
           {displayMessage}
           {/* Bubble tail */}
           <div className={cn(
-            "absolute -bottom-2 w-4 h-4",
+            "absolute -bottom-2 size-4",
             "bg-white/10 border-l border-b border-white/20",
             "rotate-[-45deg]",
             position === 'left' ? 'left-4' : 'right-4'

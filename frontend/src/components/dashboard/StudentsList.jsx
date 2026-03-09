@@ -67,7 +67,7 @@ function StudentsList({ students = studentProgressData }) {
               {/* Rank Badge */}
               <span 
                 className={cn(
-                  "w-6 h-6 rounded-lg flex items-center justify-center text-xs font-bold",
+                  "size-6 rounded-lg flex items-center justify-center text-xs font-bold",
                   index === 0 && "bg-warning-base/20 text-warning-base",
                   index === 1 && "bg-text-muted/10 text-text-muted",
                   index === 2 && "bg-error-base/20 text-error-base",
@@ -80,7 +80,7 @@ function StudentsList({ students = studentProgressData }) {
               
               {/* Avatar */}
               <div 
-                className="w-10 h-10 rounded-full bg-gradient-to-br from-indigo-500 to-purple-500 flex items-center justify-center text-lg shadow-lg group-hover:scale-105 transition-transform"
+                className="size-10 rounded-full bg-gradient-to-br from-indigo-500 to-purple-500 flex items-center justify-center text-lg shadow-lg group-hover:scale-105 transition-transform"
                 aria-label={`Avatar de ${student.name}`}
               >
                 <span aria-hidden="true">{student.avatar}</span>
@@ -91,7 +91,7 @@ function StudentsList({ students = studentProgressData }) {
                 <div className="flex items-center gap-2">
                   <span 
                     className={cn(
-                      "w-1.5 h-1.5 rounded-full",
+                      "size-1.5 rounded-full",
                       student.status === 'Activo' ? "bg-success-base" : "bg-text-muted"
                     )} 
                     aria-hidden="true"

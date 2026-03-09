@@ -1,11 +1,12 @@
-import { useState, useRef, useEffect } from 'react';
+import { useState, useRef, useEffect, useId, useCallback } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { ChevronDown, Check } from 'lucide-react';
 import { cn } from '../../lib/utils';
 
 /**
- * Select/Dropdown premium con animaciones
- * 
+ * Select/Dropdown premium con animaciones y navegación por teclado.
+ * Implementa patrón ARIA combobox/listbox.
+ *
  * @param {Object} props
  * @param {Array<{value: string, label: string, icon?: React.ReactNode}>} props.options - Opciones del select
  * @param {string} props.value - Valor seleccionado
@@ -26,8 +27,13 @@ export default function SelectPremium({
   ...props
 }) {
   const [isOpen, setIsOpen] = useState(false);
+  const [highlightedIndex, setHighlightedIndex] = useState(-1);
   const containerRef = useRef(null);
-  
+  const listboxRef = useRef(null);
+  const id = useId();
+  const labelId = `${id}-label`;
+  const listboxId = `${id}-listbox`;
+
   const selected = options.find(o => o.value === value);
 
   // Cerrar al hacer clic fuera
@@ -42,26 +48,98 @@ export default function SelectPremium({
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, []);
 
-  // Cerrar con Escape
-  useEffect(() => {
-    const handleEscape = (event) => {
-      if (event.key === 'Escape') setIsOpen(false);
-    };
-
-    document.addEventListener('keydown', handleEscape);
-    return () => document.removeEventListener('keydown', handleEscape);
-  }, []);
-
-  const handleSelect = (option) => {
+  const handleSelect = useCallback((option) => {
     onChange?.(option.value);
     setIsOpen(false);
-  };
+    setHighlightedIndex(-1);
+  }, [onChange]);
+
+  const openDropdown = useCallback(() => {
+    if (disabled) return;
+    setIsOpen(true);
+    // Poner el foco en el elemento seleccionado o el primero
+    const currentIndex = options.findIndex(o => o.value === value);
+    setHighlightedIndex(currentIndex >= 0 ? currentIndex : 0);
+  }, [disabled, options, value]);
+
+  const handleKeyDown = useCallback((event) => {
+    switch (event.key) {
+      case 'ArrowDown': {
+        event.preventDefault();
+        if (!isOpen) {
+          openDropdown();
+        } else {
+          setHighlightedIndex(prev =>
+            prev < options.length - 1 ? prev + 1 : 0
+          );
+        }
+        break;
+      }
+      case 'ArrowUp': {
+        event.preventDefault();
+        if (!isOpen) {
+          openDropdown();
+        } else {
+          setHighlightedIndex(prev =>
+            prev > 0 ? prev - 1 : options.length - 1
+          );
+        }
+        break;
+      }
+      case 'Enter':
+      case ' ': {
+        event.preventDefault();
+        if (isOpen && highlightedIndex >= 0 && options[highlightedIndex]) {
+          handleSelect(options[highlightedIndex]);
+        } else if (!isOpen) {
+          openDropdown();
+        }
+        break;
+      }
+      case 'Home': {
+        if (isOpen) {
+          event.preventDefault();
+          setHighlightedIndex(0);
+        }
+        break;
+      }
+      case 'End': {
+        if (isOpen) {
+          event.preventDefault();
+          setHighlightedIndex(options.length - 1);
+        }
+        break;
+      }
+      case 'Escape': {
+        if (isOpen) {
+          event.preventDefault();
+          setIsOpen(false);
+          setHighlightedIndex(-1);
+        }
+        break;
+      }
+      default:
+        break;
+    }
+  }, [isOpen, highlightedIndex, options, handleSelect, openDropdown]);
+
+  // Scroll al elemento highlighted
+  useEffect(() => {
+    if (isOpen && highlightedIndex >= 0 && listboxRef.current) {
+      const highlighted = listboxRef.current.querySelector(`[data-index="${highlightedIndex}"]`);
+      highlighted?.scrollIntoView({ block: 'nearest' });
+    }
+  }, [isOpen, highlightedIndex]);
+
+  const activeDescendantId = highlightedIndex >= 0 && options[highlightedIndex]
+    ? `${id}-option-${highlightedIndex}`
+    : undefined;
 
   return (
     <div className={cn('relative', className)} ref={containerRef} {...props}>
       {/* Label */}
       {label && (
-        <label className="block text-sm font-medium text-slate-300 mb-2">
+        <label id={labelId} className="block text-sm font-medium text-text-secondary mb-2">
           {label}
         </label>
       )}
@@ -69,26 +147,33 @@ export default function SelectPremium({
       {/* Trigger button */}
       <button
         type="button"
-        onClick={() => !disabled && setIsOpen(!isOpen)}
+        role="combobox"
+        aria-expanded={isOpen}
+        aria-haspopup="listbox"
+        aria-controls={listboxId}
+        aria-labelledby={label ? labelId : undefined}
+        aria-activedescendant={isOpen ? activeDescendantId : undefined}
+        onClick={() => isOpen ? setIsOpen(false) : openDropdown()}
+        onKeyDown={handleKeyDown}
         disabled={disabled}
         className={cn(
           'relative w-full',
           'flex items-center justify-between gap-2',
-          'bg-slate-800/80 backdrop-blur-sm',
-          'border border-white/10 rounded-xl',
+          'bg-background-elevated/80 backdrop-blur-sm',
+          'border border-border-default rounded-xl',
           'px-4 py-3',
           'text-left',
           'transition-all duration-300',
-          'focus:outline-none focus:border-purple-500/50 focus:ring-2 focus:ring-purple-500/20',
-          isOpen && 'border-purple-500/50 ring-2 ring-purple-500/20',
+          'focus-ring',
+          isOpen && 'border-brand-base/50 ring-2 ring-brand-base/20',
           disabled && 'opacity-50 cursor-not-allowed',
-          !disabled && 'hover:border-white/20'
+          !disabled && 'hover:border-border-strong'
         )}
       >
         {/* Selected value or placeholder */}
         <span className={cn(
           'flex items-center gap-2 truncate',
-          selected ? 'text-white' : 'text-slate-500'
+          selected ? 'text-text-primary' : 'text-text-muted'
         )}>
           {selected?.icon && (
             <span className="flex-shrink-0">{selected.icon}</span>
@@ -100,7 +185,8 @@ export default function SelectPremium({
         <motion.span
           animate={{ rotate: isOpen ? 180 : 0 }}
           transition={{ duration: 0.2 }}
-          className="text-slate-400 flex-shrink-0"
+          className="text-text-muted flex-shrink-0"
+          aria-hidden="true"
         >
           <ChevronDown size={20} />
         </motion.span>
@@ -110,14 +196,18 @@ export default function SelectPremium({
       <AnimatePresence>
         {isOpen && (
           <motion.div
+            ref={listboxRef}
+            id={listboxId}
+            role="listbox"
+            aria-labelledby={label ? labelId : undefined}
             initial={{ opacity: 0, y: -10, scale: 0.95 }}
             animate={{ opacity: 1, y: 0, scale: 1 }}
             exit={{ opacity: 0, y: -10, scale: 0.95 }}
             transition={{ duration: 0.15 }}
             className={cn(
               'absolute z-50 w-full mt-2',
-              'bg-slate-800/95 backdrop-blur-xl',
-              'border border-white/10 rounded-xl',
+              'bg-background-elevated/95 backdrop-blur-xl',
+              'border border-border-default rounded-xl',
               'shadow-xl shadow-black/30',
               'overflow-hidden',
               'max-h-60 overflow-y-auto custom-scrollbar'
@@ -125,42 +215,47 @@ export default function SelectPremium({
           >
             {options.map((option, index) => {
               const isSelected = option.value === value;
-              
+              const isHighlighted = index === highlightedIndex;
+
               return (
-                <motion.button
+                <button
                   key={option.value}
+                  id={`${id}-option-${index}`}
                   type="button"
-                  initial={{ opacity: 0, x: -10 }}
-                  animate={{ opacity: 1, x: 0 }}
-                  transition={{ delay: index * 0.03 }}
+                  role="option"
+                  aria-selected={isSelected}
+                  data-index={index}
                   onClick={() => handleSelect(option)}
+                  onMouseEnter={() => setHighlightedIndex(index)}
                   className={cn(
                     'w-full flex items-center gap-3 px-4 py-3',
                     'text-left',
                     'transition-colors duration-150',
-                    isSelected 
-                      ? 'bg-purple-500/20 text-white' 
-                      : 'text-slate-300 hover:bg-white/5 hover:text-white'
+                    isSelected
+                      ? 'bg-brand-base/20 text-text-primary'
+                      : isHighlighted
+                        ? 'bg-white/5 text-text-primary'
+                        : 'text-text-secondary hover:bg-white/5 hover:text-text-primary'
                   )}
                 >
                   {/* Icon */}
                   {option.icon && (
                     <span className="flex-shrink-0">{option.icon}</span>
                   )}
-                  
+
                   {/* Label */}
                   <span className="flex-1 truncate">{option.label}</span>
-                  
+
                   {/* Check mark */}
                   {isSelected && (
-                    <Check size={18} className="text-purple-400 flex-shrink-0" />
+                    <Check size={18} className="text-brand-base flex-shrink-0" />
                   )}
-                </motion.button>
+                </button>
               );
             })}
 
             {options.length === 0 && (
-              <div className="px-4 py-3 text-slate-500 text-center">
+              <div className="px-4 py-3 text-text-muted text-center">
                 No hay opciones disponibles
               </div>
             )}

@@ -70,7 +70,7 @@ export function SkeletonCard({ className }) {
   return (
     <GlassCard variant="default" className={cn('space-y-5', className)}>
       <div className="flex items-center gap-4">
-        <SkeletonShimmer variant="circle" className="w-12 h-12 shrink-0" />
+        <SkeletonShimmer variant="circle" className="size-12 shrink-0" />
         <div className="flex-1 space-y-3">
           <SkeletonShimmer className="h-4 w-3/4" />
           <SkeletonShimmer className="h-3 w-1/2" />
@@ -89,7 +89,7 @@ export function SkeletonStatCard({ className }) {
     <GlassCard variant="default" padding="sm" className={className}>
       <div className="flex justify-between items-start mb-4">
         <SkeletonShimmer className="h-4 w-24" />
-        <SkeletonShimmer variant="circle" className="w-10 h-10" />
+        <SkeletonShimmer variant="circle" className="size-10" />
       </div>
       <SkeletonShimmer className="h-8 w-20 mb-3" />
       <SkeletonShimmer className="h-3 w-32" />

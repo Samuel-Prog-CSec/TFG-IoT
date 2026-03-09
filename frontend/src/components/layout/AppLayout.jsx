@@ -58,7 +58,7 @@ export default function AppLayout() {
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
             onClick={() => setSidebarOpen(false)}
-            className="lg:hidden fixed inset-0 bg-black/60 backdrop-blur-sm z-40"
+            className="lg:hidden fixed inset-0 bg-backdrop backdrop-blur-sm z-40"
           />
         )}
       </AnimatePresence>
@@ -91,7 +91,7 @@ export default function AppLayout() {
         {/* Logo */}
         <div className="p-6 border-b border-border-subtle">
           <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-brand-base to-accent-indigo flex items-center justify-center shadow-[0_4px_16px_var(--color-brand-glow)]">
+            <div className="size-10 rounded-xl bg-gradient-to-br from-brand-base to-accent-indigo flex items-center justify-center shadow-[0_4px_16px_var(--color-brand-glow)]">
               <Sparkles size={20} className="text-white" />
             </div>
             <div>
@@ -107,7 +107,7 @@ export default function AppLayout() {
         <div className="p-4 mx-4 mt-4 rounded-xl bg-background-elevated border border-border-default shadow-sm">
           <div className="flex items-center gap-3">
             <div className={cn(
-              "w-10 h-10 rounded-full flex items-center justify-center text-white font-bold shadow-md",
+              "size-10 rounded-full flex items-center justify-center text-white font-bold shadow-md",
               isSuperAdmin 
                 ? "bg-gradient-to-br from-warning-base to-accent-orange" 
                 : "bg-gradient-to-br from-brand-base to-accent-pink"
@@ -115,15 +115,15 @@ export default function AppLayout() {
               {user?.name?.charAt(0)?.toUpperCase() || 'U'}
             </div>
             <div className="flex-1 min-w-0">
-              <p className="text-sm font-medium text-text-primary truncate">
+              <p className="text-sm font-medium text-text-primary truncate" title={user?.name || 'Usuario'}>
                 {user?.name || 'Usuario'}
               </p>
-              <p className="text-xs text-text-muted truncate">
+              <p className="text-xs text-text-muted truncate" title={user?.email || 'Sin email'}>
                 {user?.email || 'Sin email'}
               </p>
             </div>
             {isSuperAdmin && (
-              <div className="flex items-center justify-center w-6 h-6 rounded-full bg-warning-base/20">
+              <div className="flex items-center justify-center size-6 rounded-full bg-warning-base/20">
                 <Shield size={12} className="text-warning-base" />
               </div>
             )}

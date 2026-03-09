@@ -19,8 +19,8 @@ import {
 } from 'lucide-react';
 import { cn } from '../../lib/utils';
 import { webSerialService } from '../../services/webSerialService';
-import { GlassCard } from '../ui';
-import { useRfidMode } from '../../context';
+import GlassCard from '../ui/GlassCard';
+import { useRfidMode } from '../../context/RfidModeContext';
 
 const MODES_CONFIG = {
   idle: {
@@ -89,7 +89,7 @@ export default function RFIDModeHandler({ currentMode = 'idle', className }) {
             <div className="flex items-center justify-between mb-4">
               <div className="flex items-center gap-2">
                 <div className={cn(
-                  "w-2 h-2 rounded-full",
+                  "size-2 rounded-full",
                   isConnected ? "bg-emerald-500 animate-pulse" : "bg-rose-500"
                 )} />
                 <span className="text-[10px] uppercase tracking-wider font-bold text-slate-400">

@@ -27,8 +27,11 @@ vi.mock('framer-motion', () => ({
   AnimatePresence: ({ children }) => <>{children}</>
 }));
 
-vi.mock('../../hooks', () => ({
-  useContexts: () => ({ contexts: [] }),
+vi.mock('../../hooks/useContexts', () => ({
+  useContexts: () => ({ contexts: [] })
+}));
+
+vi.mock('../../hooks/useRefetchOnFocus', () => ({
   useRefetchOnFocus: () => {}
 }));
 
@@ -39,9 +42,41 @@ vi.mock('sonner', () => ({
   }
 }));
 
-vi.mock('../../components/ui', async () => {
+vi.mock('../../components/ui/ButtonPremium', () => ({
+  default: ({ children, onClick, disabled, ...props }) => (
+    <button type="button" onClick={onClick} disabled={disabled} {...props}>
+      {children}
+    </button>
+  )
+}));
+
+vi.mock('../../components/ui/GlassCard', () => ({
+  default: ({ children }) => <div>{children}</div>
+}));
+
+vi.mock('../../components/ui/SelectPremium', () => ({
+  default: ({ label }) => <div>{label}</div>
+}));
+
+vi.mock('../../components/ui/StatusBadge', () => ({
+  default: ({ children }) => <span>{children}</span>
+}));
+
+vi.mock('../../components/ui/SkeletonShimmer', () => ({
+  SkeletonCard: () => <div>loading</div>
+}));
+
+vi.mock('../../components/ui/Tooltip', () => ({
+  default: ({ children }) => <>{children}</>
+}));
+
+vi.mock('../../components/ui/EmptyState', () => ({
+  default: ({ title }) => <div>{title}</div>
+}));
+
+vi.mock('../../components/ui/ConfirmationModal', async () => {
   const ReactModule = await vi.importActual('react');
-  const {useState} = ReactModule;
+  const { useState } = ReactModule;
 
   const useConfirmationModal = () => {
     const [isOpen, setIsOpen] = useState(false);
@@ -53,18 +88,7 @@ vi.mock('../../components/ui', async () => {
   };
 
   return {
-    ButtonPremium: ({ children, onClick, disabled, ...props }) => (
-      <button type="button" onClick={onClick} disabled={disabled} {...props}>
-        {children}
-      </button>
-    ),
-    GlassCard: ({ children }) => <div>{children}</div>,
-    SelectPremium: ({ label }) => <div>{label}</div>,
-    StatusBadge: ({ children }) => <span>{children}</span>,
-    SkeletonCard: () => <div>loading</div>,
-    Tooltip: ({ children }) => <>{children}</>,
-    EmptyState: ({ title }) => <div>{title}</div>,
-    ConfirmationModal: ({ open, title, confirmText, onConfirm }) =>
+    default: ({ open, title, confirmText, onConfirm }) =>
       open ? (
         <div>
           <p>{title}</p>

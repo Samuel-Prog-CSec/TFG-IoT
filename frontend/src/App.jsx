@@ -9,12 +9,14 @@ import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { lazy, Suspense } from 'react';
 import { Toaster } from 'sonner';
 import { AuthProvider } from './context/AuthContext';
-import { ProtectedRoute, GuestRoute, RequireRole } from './components/auth';
+import ProtectedRoute from './components/auth/ProtectedRoute';
+import GuestRoute from './components/auth/GuestRoute';
+import RequireRole from './components/auth/RequireRole';
 import AppLayout from './components/layout/AppLayout';
-import { ErrorBoundary } from './components/common';
+import ErrorBoundary from './components/common/ErrorBoundary';
 import { ROUTES } from './constants/routes';
 import RFIDModeHandler from './components/game/RFIDModeHandler';
-import { RfidModeProvider } from './context';
+import { RfidModeProvider } from './context/RfidModeContext';
 
 // Lazy loaded pages for better performance
 const Dashboard = lazy(() => import('./pages/Dashboard'));
@@ -57,12 +59,12 @@ function PageLoader() {
       <div className="flex flex-col items-center gap-4">
         <div className="relative">
           <div 
-            className="w-16 h-16 rounded-full border-4 border-brand-base/20 animate-spin" 
+            className="size-16 rounded-full border-4 border-brand-base/20 animate-spin" 
             style={{ borderTopColor: 'var(--color-brand-base)' }}
             aria-hidden="true"
           />
           <div 
-            className="absolute inset-0 w-16 h-16 rounded-full border-4 border-transparent animate-ping"
+            className="absolute inset-0 size-16 rounded-full border-4 border-transparent animate-ping"
             style={{ borderTopColor: 'var(--color-brand-base)', opacity: 0.3 }}
             aria-hidden="true"
           />

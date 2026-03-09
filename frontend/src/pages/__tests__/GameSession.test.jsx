@@ -14,7 +14,7 @@ vi.mock('../../context/AuthContext', () => ({
   useAuth: () => ({ user: { id: 'teacher-1', role: 'teacher' } })
 }));
 
-vi.mock('../../hooks', () => ({
+vi.mock('../../hooks/useReducedMotion', () => ({
   useReducedMotion: () => ({ shouldReduceMotion: true })
 }));
 
@@ -22,16 +22,32 @@ vi.mock('../../components/ui/RFIDConnector', () => ({
   default: () => <div data-testid="rfid-connector">RFID connector</div>
 }));
 
-vi.mock('../../components/ui', () => ({
-  CardAssetPreview: () => <div>asset</div>
+vi.mock('../../components/ui/CardAssetPreview', () => ({
+  default: () => <div>asset</div>
 }));
 
-vi.mock('../../components/game', () => ({
-  ChallengeDisplay: () => <div data-testid="challenge-display">challenge</div>,
-  TimerBar: () => <div data-testid="timer">timer</div>,
-  ScoreDisplayCompact: () => <div data-testid="score">score</div>,
-  FeedbackOverlay: () => <div data-testid="feedback">feedback</div>,
-  GameOverScreen: ({ score, summary }) => (
+vi.mock('../../components/common/ErrorBoundary', () => ({
+  default: ({ children }) => <>{children}</>
+}));
+
+vi.mock('../../components/game/ChallengeDisplay', () => ({
+  default: () => <div data-testid="challenge-display">challenge</div>
+}));
+
+vi.mock('../../components/game/TimerBar', () => ({
+  default: () => <div data-testid="timer">timer</div>
+}));
+
+vi.mock('../../components/game/ScoreDisplay', () => ({
+  ScoreDisplayCompactMemo: () => <div data-testid="score">score</div>
+}));
+
+vi.mock('../../components/game/FeedbackOverlay', () => ({
+  default: () => <div data-testid="feedback">feedback</div>
+}));
+
+vi.mock('../../components/game/GameOverScreen', () => ({
+  default: ({ score, summary }) => (
     <div data-testid="game-over">
       <span>{score}</span>
       {summary && (
@@ -42,8 +58,11 @@ vi.mock('../../components/game', () => ({
         </>
       )}
     </div>
-  ),
-  CharacterMascot: () => <div data-testid="mascot">mascot</div>
+  )
+}));
+
+vi.mock('../../components/game/CharacterMascot', () => ({
+  default: () => <div data-testid="mascot">mascot</div>
 }));
 
 vi.mock('sonner', () => ({

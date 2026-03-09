@@ -5,7 +5,7 @@
  * @module pages/SessionsPage
  */
 
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
@@ -20,19 +20,17 @@ import {
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { sessionsAPI, mechanicsAPI, extractErrorMessage, extractData, isAbortError } from '../services/api';
-import { useContexts, useRefetchOnFocus } from '../hooks';
+import { useContexts } from '../hooks/useContexts';
+import { useRefetchOnFocus } from '../hooks/useRefetchOnFocus';
 import { ROUTES } from '../constants/routes';
-import {
-  ButtonPremium,
-  GlassCard,
-  SelectPremium,
-  StatusBadge,
-  SkeletonCard,
-  Tooltip,
-  EmptyState,
-  ConfirmationModal,
-  useConfirmationModal
-} from '../components/ui';
+import ButtonPremium from '../components/ui/ButtonPremium';
+import GlassCard from '../components/ui/GlassCard';
+import SelectPremium from '../components/ui/SelectPremium';
+import StatusBadge from '../components/ui/StatusBadge';
+import { SkeletonCard } from '../components/ui/SkeletonShimmer';
+import Tooltip from '../components/ui/Tooltip';
+import EmptyState from '../components/ui/EmptyState';
+import ConfirmationModal, { useConfirmationModal } from '../components/ui/ConfirmationModal';
 import { staggerContainer, staggerItem } from '../lib/utils';
 
 const STATUS_OPTIONS = [
@@ -215,6 +213,30 @@ const renderSessionsContent = ({
   );
 };
 
+const filtersInitialState = {
+  statusFilter: '',
+  difficultyFilter: '',
+  mechanicFilter: '',
+  contextFilter: '',
+};
+
+function filtersReducer(state, action) {
+  switch (action.type) {
+    case 'SET_STATUS':
+      return { ...state, statusFilter: action.payload };
+    case 'SET_DIFFICULTY':
+      return { ...state, difficultyFilter: action.payload };
+    case 'SET_MECHANIC':
+      return { ...state, mechanicFilter: action.payload };
+    case 'SET_CONTEXT':
+      return { ...state, contextFilter: action.payload };
+    case 'RESET_FILTERS':
+      return filtersInitialState;
+    default:
+      return state;
+  }
+}
+
 export default function SessionsPage() {
   const navigate = useNavigate();
   const { contexts } = useContexts({ autoLoad: true, onlyActive: true });
@@ -227,10 +249,7 @@ export default function SessionsPage() {
   const [hasMore, setHasMore] = useState(true);
   const [showFilters, setShowFilters] = useState(false);
 
-  const [statusFilter, setStatusFilter] = useState('');
-  const [difficultyFilter, setDifficultyFilter] = useState('');
-  const [mechanicFilter, setMechanicFilter] = useState('');
-  const [contextFilter, setContextFilter] = useState('');
+  const [filters, dispatchFilters] = useReducer(filtersReducer, filtersInitialState);
 
   const [mechanics, setMechanics] = useState([]);
   const sessionsAbortRef = useRef(null);
@@ -284,13 +303,13 @@ export default function SessionsPage() {
       order: 'desc'
     };
 
-    if (statusFilter) params.status = statusFilter;
-    if (difficultyFilter) params.difficulty = difficultyFilter;
-    if (mechanicFilter) params.mechanicId = mechanicFilter;
-    if (contextFilter) params.contextId = contextFilter;
+    if (filters.statusFilter) params.status = filters.statusFilter;
+    if (filters.difficultyFilter) params.difficulty = filters.difficultyFilter;
+    if (filters.mechanicFilter) params.mechanicId = filters.mechanicFilter;
+    if (filters.contextFilter) params.contextId = filters.contextFilter;
 
     return params;
-  }, [statusFilter, difficultyFilter, mechanicFilter, contextFilter]);
+  }, [filters]);
 
   const loadSessions = useCallback(async ({ reset = true, signal, pageOverride } = {}) => {
     try {
@@ -442,13 +461,10 @@ export default function SessionsPage() {
   };
 
   const clearFilters = () => {
-    setStatusFilter('');
-    setDifficultyFilter('');
-    setMechanicFilter('');
-    setContextFilter('');
+    dispatchFilters({ type: 'RESET_FILTERS' });
   };
 
-  const hasActiveFilters = statusFilter || difficultyFilter || mechanicFilter || contextFilter;
+  const hasActiveFilters = filters.statusFilter || filters.difficultyFilter || filters.mechanicFilter || filters.contextFilter;
 
   const sessionsContent = renderSessionsContent({
     loading,
@@ -475,7 +491,7 @@ export default function SessionsPage() {
         <header className="flex flex-col gap-4">
           <div className="flex flex-wrap items-center justify-between gap-4">
             <div className="flex items-center gap-3">
-              <div className="w-12 h-12 rounded-2xl bg-indigo-500/20 flex items-center justify-center text-indigo-300">
+              <div className="size-12 rounded-2xl bg-indigo-500/20 flex items-center justify-center text-indigo-300">
                 <CalendarClock size={24} />
               </div>
               <div>
@@ -509,29 +525,29 @@ export default function SessionsPage() {
                 <SelectPremium
                   label="Estado"
                   options={STATUS_OPTIONS}
-                  value={statusFilter}
-                  onChange={setStatusFilter}
+                  value={filters.statusFilter}
+                  onChange={(val) => dispatchFilters({ type: 'SET_STATUS', payload: val })}
                   placeholder="Todos"
                 />
                 <SelectPremium
                   label="Dificultad"
                   options={DIFFICULTY_OPTIONS}
-                  value={difficultyFilter}
-                  onChange={setDifficultyFilter}
+                  value={filters.difficultyFilter}
+                  onChange={(val) => dispatchFilters({ type: 'SET_DIFFICULTY', payload: val })}
                   placeholder="Todas"
                 />
                 <SelectPremium
                   label="Mecánica"
                   options={mechanicOptions}
-                  value={mechanicFilter}
-                  onChange={setMechanicFilter}
+                  value={filters.mechanicFilter}
+                  onChange={(val) => dispatchFilters({ type: 'SET_MECHANIC', payload: val })}
                   placeholder="Todas"
                 />
                 <SelectPremium
                   label="Contexto"
                   options={contextOptions}
-                  value={contextFilter}
-                  onChange={setContextFilter}
+                  value={filters.contextFilter}
+                  onChange={(val) => dispatchFilters({ type: 'SET_CONTEXT', payload: val })}
                   placeholder="Todos"
                 />
                 {hasActiveFilters && (

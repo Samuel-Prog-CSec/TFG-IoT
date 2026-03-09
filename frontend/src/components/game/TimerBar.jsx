@@ -20,20 +20,20 @@ function TimerBar({ timeLeft, timeLimit, className, shouldReduceMotion = false }
   const safeTimeLeft = Math.max(0, Number(timeLeft || 0));
   const percentage = (safeTimeLeft / safeTimeLimit) * 100;
   
-  // Determinar color y estado según el porcentaje
-  let colorClass = 'from-emerald-400 to-cyan-400';
-  let glowColor = 'rgba(74, 222, 128, 0.4)';
+  // Determinar color y estado según el porcentaje (tokens semánticos)
+  let colorClass = 'from-timer-safe to-timer-safe-alt';
+  let glowColor = 'var(--color-timer-safe-glow)';
   let isUrgent = false;
   let isCritical = false;
 
   if (percentage <= 20) {
-    colorClass = 'from-rose-500 to-red-500';
-    glowColor = 'rgba(251, 113, 133, 0.5)';
+    colorClass = 'from-timer-critical to-timer-critical-alt';
+    glowColor = 'var(--color-timer-critical-glow)';
     isUrgent = true;
     isCritical = true;
   } else if (percentage <= 40) {
-    colorClass = 'from-amber-400 to-orange-400';
-    glowColor = 'rgba(251, 191, 36, 0.4)';
+    colorClass = 'from-timer-warning to-timer-warning-alt';
+    glowColor = 'var(--color-timer-warning-glow)';
     isUrgent = true;
   }
 
@@ -68,9 +68,9 @@ function TimerBar({ timeLeft, timeLimit, className, shouldReduceMotion = false }
             animate={{ opacity: 1, scale: 1 }}
             className={cn(
               "text-sm font-bold px-3 py-1 rounded-full",
-              isCritical 
-                ? cn("bg-rose-500/20 text-rose-400", !shouldReduceMotion && "animate-pulse")
-                : "bg-amber-500/20 text-amber-400"
+              isCritical
+                ? cn("bg-timer-critical/20 text-timer-critical", !shouldReduceMotion && "animate-pulse")
+                : "bg-timer-warning/20 text-timer-warning"
             )}
             role="status"
             aria-live="polite"
@@ -88,7 +88,7 @@ function TimerBar({ timeLeft, timeLimit, className, shouldReduceMotion = false }
       <div
         className={cn(
           "relative h-6 rounded-full overflow-hidden",
-          "bg-slate-800/80 backdrop-blur-sm",
+          "bg-background-elevated/80 backdrop-blur-sm",
           "border-2 border-white/10",
           isCritical && !shouldReduceMotion && "animate-[shake_0.5s_ease-in-out_infinite]"
         )}
@@ -123,7 +123,7 @@ function TimerBar({ timeLeft, timeLimit, className, shouldReduceMotion = false }
             <div 
               key={`timer-marker-${marker}`}
               className={cn(
-                "w-1.5 h-1.5 rounded-full transition-colors duration-300",
+                "size-1.5 rounded-full transition-colors duration-300",
                 percentage > marker ? "bg-white/30" : "bg-white/10"
               )}
             />

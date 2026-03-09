@@ -38,7 +38,7 @@ function StatCard({ title, value, trend, icon, color }) {
         {/* Icon Badge */}
         <div className={cn(
           "absolute top-5 right-5",
-          "w-12 h-12 rounded-xl",
+          "size-12 rounded-xl",
           "flex items-center justify-center",
           "transition-transform duration-300 group-hover:scale-110 group-hover:rotate-3",
           color,

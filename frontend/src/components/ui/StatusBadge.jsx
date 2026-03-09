@@ -66,7 +66,7 @@ export default function StatusBadge({
 }) {
   const shouldPulse = pulse && (status === 'active' || status === 'warning');
   const dotColor = dotColors[status];
-  const dotSize = size === 'sm' ? 'w-1.5 h-1.5' : 'w-2 h-2';
+  const dotSize = size === 'sm' ? 'size-1.5' : 'size-2';
 
   return (
     <div

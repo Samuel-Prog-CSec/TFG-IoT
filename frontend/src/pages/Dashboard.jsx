@@ -3,7 +3,9 @@ import { useNavigate } from 'react-router-dom';
 import { motion } from 'framer-motion';
 import { Users, Gamepad2, Trophy, AlertTriangle, Calendar, TrendingUp } from 'lucide-react';
 import { staggerContainer, staggerItem } from '../lib/utils';
-import { useDocumentTitle, useRefetchOnFocus, useReducedMotion } from '../hooks';
+import { useDocumentTitle } from '../hooks/useDocumentTitle';
+import { useRefetchOnFocus } from '../hooks/useRefetchOnFocus';
+import { useReducedMotion } from '../hooks/useReducedMotion';
 import analyticsService from '../services/analytics';
 import { isAbortError } from '../services/api';
 import { ROUTES } from '../constants/routes';
@@ -12,7 +14,7 @@ import StudentProgressChart from '../components/dashboard/StudentProgressChart';
 import ClassroomOverview from '../components/dashboard/ClassroomOverview';
 import AlertsPanel from '../components/dashboard/AlertsPanel';
 import DifficultyHeatmap from '../components/dashboard/DifficultyHeatmap';
-import { SkeletonCard, SkeletonStatCard, SkeletonShimmer } from '../components/ui';
+import SkeletonShimmer, { SkeletonCard, SkeletonStatCard } from '../components/ui/SkeletonShimmer';
 
 export default function Dashboard() {
   useDocumentTitle('Dashboard');

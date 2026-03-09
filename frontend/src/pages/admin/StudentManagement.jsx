@@ -26,17 +26,15 @@ import {
 import { motion, AnimatePresence } from 'framer-motion';
 import { toast } from 'sonner';
 import { usersAPI, extractErrorMessage, isAbortError } from '../../services/api';
-import { 
-  ButtonPremium, 
-  InputPremium, 
-  SelectPremium, 
-  GlassCard, 
-  SkeletonCard, 
-  EmptyState,
-  StatusBadge,
-  ConfirmationModal
-} from '../../components/ui';
-import { useRefetchOnFocus } from '../../hooks';
+import ButtonPremium from '../../components/ui/ButtonPremium';
+import InputPremium from '../../components/ui/InputPremium';
+import SelectPremium from '../../components/ui/SelectPremium';
+import GlassCard from '../../components/ui/GlassCard';
+import { SkeletonCard } from '../../components/ui/SkeletonShimmer';
+import EmptyState from '../../components/ui/EmptyState';
+import StatusBadge from '../../components/ui/StatusBadge';
+import ConfirmationModal from '../../components/ui/ConfirmationModal';
+import { useRefetchOnFocus } from '../../hooks/useRefetchOnFocus';
 import { cn, pageVariants, staggerContainer, staggerItem } from '../../lib/utils';
 
 /**
@@ -104,7 +102,7 @@ function EditStudentModal({ isOpen, onClose, onUpdated, student }) {
         initial={{ opacity: 0 }}
         animate={{ opacity: 1 }}
         exit={{ opacity: 0 }}
-        className="fixed inset-0 bg-black/60 backdrop-blur-sm z-[100] flex items-center justify-center p-4"
+        className="fixed inset-0 bg-backdrop backdrop-blur-sm z-[100] flex items-center justify-center p-4"
         onClick={onClose}
       >
         <motion.div
@@ -116,7 +114,7 @@ function EditStudentModal({ isOpen, onClose, onUpdated, student }) {
         >
           <GlassCard className="p-8" variant="solid">
             <header className="mb-6">
-              <div className="w-12 h-12 rounded-xl bg-brand-base/20 flex items-center justify-center text-brand-base mb-4">
+              <div className="size-12 rounded-xl bg-brand-base/20 flex items-center justify-center text-brand-base mb-4">
                 <Edit size={24} />
               </div>
               <h2 className="text-2xl font-bold text-text-primary">Editar Alumno</h2>
@@ -240,7 +238,7 @@ function CreateStudentModal({ isOpen, onClose, onCreated, teachers }) {
         initial={{ opacity: 0 }}
         animate={{ opacity: 1 }}
         exit={{ opacity: 0 }}
-        className="fixed inset-0 bg-black/60 backdrop-blur-sm z-[100] flex items-center justify-center p-4"
+        className="fixed inset-0 bg-backdrop backdrop-blur-sm z-[100] flex items-center justify-center p-4"
         onClick={onClose}
       >
         <motion.div
@@ -252,7 +250,7 @@ function CreateStudentModal({ isOpen, onClose, onCreated, teachers }) {
         >
           <GlassCard className="p-8" variant="solid">
             <header className="mb-6">
-              <div className="w-12 h-12 rounded-xl bg-brand-base/20 flex items-center justify-center text-brand-base mb-4">
+              <div className="size-12 rounded-xl bg-brand-base/20 flex items-center justify-center text-brand-base mb-4">
                 <UserPlus size={24} />
               </div>
               <h2 className="text-2xl font-bold text-text-primary">Crear Nuevo Alumno</h2>
@@ -436,7 +434,7 @@ export default function StudentManagement() {
     >
       <header className="flex flex-col md:flex-row md:items-center justify-between gap-6 mb-10">
         <div className="flex items-center gap-4">
-          <div className="w-14 h-14 rounded-2xl bg-gradient-to-br from-brand-base to-brand-dark flex items-center justify-center text-white shadow-lg shadow-brand-base/20">
+          <div className="size-14 rounded-2xl bg-gradient-to-br from-brand-base to-brand-dark flex items-center justify-center text-white shadow-lg shadow-brand-base/20">
             <GraduationCap size={30} />
           </div>
           <div>
@@ -456,7 +454,7 @@ export default function StudentManagement() {
 
       <section className="grid grid-cols-1 md:grid-cols-4 gap-6 mb-8">
         <GlassCard className="p-4 flex items-center gap-4">
-          <div className="w-12 h-12 rounded-xl bg-success-base/10 text-success-base flex items-center justify-center">
+          <div className="size-12 rounded-xl bg-success-base/10 text-success-base flex items-center justify-center">
             <Users size={24} />
           </div>
           <div>
@@ -553,7 +551,7 @@ export default function StudentManagement() {
                   </div>
 
                   <div className="flex items-center gap-4 mb-4">
-                    <div className="w-12 h-12 rounded-full bg-background-base border border-border-subtle flex items-center justify-center text-xl shadow-inner">
+                    <div className="size-12 rounded-full bg-background-base border border-border-subtle flex items-center justify-center text-xl shadow-inner">
                       {student.profile?.avatar ? (
                         <img src={student.profile.avatar} alt="" className="w-full h-full rounded-full object-cover" />
                       ) : (

@@ -12,9 +12,14 @@ import { ArrowLeft, Pencil, Layers, CreditCard, Calendar, Archive } from 'lucide
 import { toast } from 'sonner';
 import { decksAPI, extractData, extractErrorMessage, isAbortError } from '../services/api';
 import { ROUTES } from '../constants/routes';
-import { ButtonPremium, CardAssetPreview, EmptyState, GlassCard, SkeletonCard, StatusBadge } from '../components/ui';
+import ButtonPremium from '../components/ui/ButtonPremium';
+import CardAssetPreview from '../components/ui/CardAssetPreview';
+import EmptyState from '../components/ui/EmptyState';
+import GlassCard from '../components/ui/GlassCard';
+import { SkeletonCard } from '../components/ui/SkeletonShimmer';
+import StatusBadge from '../components/ui/StatusBadge';
 import { pageVariants } from '../lib/utils';
-import { useRefetchOnFocus } from '../hooks';
+import { useRefetchOnFocus } from '../hooks/useRefetchOnFocus';
 
 function isDeckArchived(deck) {
   if (!deck) return false;
@@ -275,7 +280,7 @@ export default function CardDeckDetailPage() {
                       {displayData ? (
                         <CardAssetPreview
                           asset={displayData}
-                          className="w-10 h-10 rounded-lg flex-shrink-0"
+                          className="size-10 rounded-lg flex-shrink-0"
                         />
                       ) : null}
                       <p className="text-sm text-indigo-300">{assetLabel}</p>

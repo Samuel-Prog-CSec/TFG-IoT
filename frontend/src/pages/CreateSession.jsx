@@ -43,17 +43,16 @@ import {
   extractErrorMessage,
   isAbortError
 } from '../services/api';
-import { 
-  WizardStepper,
-  ButtonPremium,
-  CardAssetPreview,
-  GlassCard,
-  InputPremium,
-  SelectPremium,
-  SkeletonCard
-} from '../components/ui';
+import WizardStepper from '../components/ui/WizardStepper';
+import ButtonPremium from '../components/ui/ButtonPremium';
+import CardAssetPreview from '../components/ui/CardAssetPreview';
+import GlassCard from '../components/ui/GlassCard';
+import InputPremium from '../components/ui/InputPremium';
+import SelectPremium from '../components/ui/SelectPremium';
+import { SkeletonCard } from '../components/ui/SkeletonShimmer';
 import { ROUTES } from '../constants/routes';
-import { useRefetchOnFocus, useReducedMotion } from '../hooks';
+import { useRefetchOnFocus } from '../hooks/useRefetchOnFocus';
+import { useReducedMotion } from '../hooks/useReducedMotion';
 import { toast } from 'sonner';
 
 // Configuración del wizard
@@ -738,7 +737,7 @@ function StepDeck({ decks, loading, selectedDeckId, onSelect }) {
   if (decks.length === 0) {
     return (
       <GlassCard className="p-8 text-center">
-        <div className="w-16 h-16 mx-auto mb-4 rounded-full bg-amber-500/20 flex items-center justify-center">
+        <div className="size-16 mx-auto mb-4 rounded-full bg-amber-500/20 flex items-center justify-center">
           <AlertTriangle className="text-amber-400" size={32} />
         </div>
         <h3 className="text-xl font-semibold text-white mb-2">
@@ -793,7 +792,7 @@ function StepDeck({ decks, loading, selectedDeckId, onSelect }) {
               <motion.div
                 initial={{ scale: 0 }}
                 animate={{ scale: 1 }}
-                className="absolute top-2 right-2 w-7 h-7 rounded-full bg-indigo-500 flex items-center justify-center shadow-lg shadow-indigo-500/40"
+                className="absolute top-2 right-2 size-7 rounded-full bg-indigo-500 flex items-center justify-center shadow-lg shadow-indigo-500/40"
               >
                 <Check size={14} className="text-white" />
               </motion.div>
@@ -805,7 +804,7 @@ function StepDeck({ decks, loading, selectedDeckId, onSelect }) {
                 <CardAssetPreview
                   key={mapping.id || mapping.uid || mapping.cardId || mapping._id}
                   asset={mapping.displayData}
-                  className="w-8 h-8 rounded-md flex-shrink-0"
+                  className="size-8 rounded-md flex-shrink-0"
                   fallbackLabel={mapping.displayData?.display || mapping.displayData?.emoji || '\uD83C\uDFB3'}
                 />
               ))}
@@ -908,7 +907,7 @@ function StepMechanic({ mechanics, loading, selectedMechanicId, onSelect }) {
                 <motion.div
                   initial={{ scale: 0 }}
                   animate={{ scale: 1 }}
-                  className="absolute top-3 right-3 w-7 h-7 rounded-full bg-purple-500 flex items-center justify-center shadow-lg shadow-purple-500/40"
+                  className="absolute top-3 right-3 size-7 rounded-full bg-purple-500 flex items-center justify-center shadow-lg shadow-purple-500/40"
                 >
                   <Check size={14} className="text-white" />
                 </motion.div>
@@ -1251,7 +1250,7 @@ function StepRules({
                     initial={{ scale: 0 }}
                     animate={{ scale: 1 }}
                     className={cn(
-                      'w-6 h-6 rounded-full flex items-center justify-center',
+                      'size-6 rounded-full flex items-center justify-center',
                       style.selectedIndicator
                     )}
                   >
@@ -1546,7 +1545,7 @@ function StepReview({ sessionConfig, setSessionConfig, selectedDeck, selectedMec
         <div className="space-y-4">
           {/* Mazo */}
           <div className="flex items-start gap-3 p-3 rounded-xl bg-slate-800/50">
-            <div className="w-10 h-10 rounded-lg bg-indigo-500/20 flex items-center justify-center flex-shrink-0">
+            <div className="size-10 rounded-lg bg-indigo-500/20 flex items-center justify-center flex-shrink-0">
               <CreditCard size={18} className="text-indigo-400" />
             </div>
             <div className="flex-1 min-w-0">
@@ -1562,12 +1561,12 @@ function StepReview({ sessionConfig, setSessionConfig, selectedDeck, selectedMec
                     <CardAssetPreview
                       key={m.id || m.uid || m.cardId || m._id}
                       asset={m.displayData}
-                      className="w-9 h-9 rounded-lg flex-shrink-0"
+                      className="size-9 rounded-lg flex-shrink-0"
                       fallbackLabel={m.displayData?.display || m.displayData?.emoji || '\uD83C\uDFB3'}
                     />
                   ))}
                   {selectedDeck.cardMappings.length > 8 && (
-                    <div className="w-9 h-9 rounded-lg flex-shrink-0 bg-slate-700/60 flex items-center justify-center text-xs text-slate-400">
+                    <div className="size-9 rounded-lg flex-shrink-0 bg-slate-700/60 flex items-center justify-center text-xs text-slate-400">
                       +{selectedDeck.cardMappings.length - 8}
                     </div>
                   )}
@@ -1578,7 +1577,7 @@ function StepReview({ sessionConfig, setSessionConfig, selectedDeck, selectedMec
 
           {/* Mecánica */}
           <div className="flex items-start gap-3 p-3 rounded-xl bg-slate-800/50">
-            <div className="w-10 h-10 rounded-lg bg-purple-500/20 flex items-center justify-center flex-shrink-0">
+            <div className="size-10 rounded-lg bg-purple-500/20 flex items-center justify-center flex-shrink-0">
               <Layers size={18} className="text-purple-400" />
             </div>
             <div>
@@ -1591,7 +1590,7 @@ function StepReview({ sessionConfig, setSessionConfig, selectedDeck, selectedMec
 
           {/* Reglas */}
           <div className="flex items-start gap-3 p-3 rounded-xl bg-slate-800/50">
-            <div className="w-10 h-10 rounded-lg bg-emerald-500/20 flex items-center justify-center flex-shrink-0">
+            <div className="size-10 rounded-lg bg-emerald-500/20 flex items-center justify-center flex-shrink-0">
               <Settings size={18} className="text-emerald-400" />
             </div>
             <div className="flex-1">

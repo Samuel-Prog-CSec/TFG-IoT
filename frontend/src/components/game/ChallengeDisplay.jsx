@@ -39,37 +39,37 @@ export default function ChallengeDisplay({
     };
   }, []);
 
-  // Colores según el tema del contexto
+  // Colores según el tema del contexto (tokens semánticos de index.css)
   const themeColors = {
     default: {
-      bg: 'from-purple-500/20 to-indigo-500/20',
-      border: 'border-purple-500/30',
-      glow: 'shadow-purple-500/30',
-      text: 'text-purple-300',
+      bg: 'from-theme-default/20 to-theme-default-alt/20',
+      border: 'border-theme-default/30',
+      glow: 'shadow-theme-default/30',
+      text: 'text-theme-default-text',
     },
     geography: {
-      bg: 'from-blue-500/20 to-cyan-500/20',
-      border: 'border-blue-500/30',
-      glow: 'shadow-blue-500/30',
-      text: 'text-blue-300',
+      bg: 'from-theme-geography/20 to-theme-geography-alt/20',
+      border: 'border-theme-geography/30',
+      glow: 'shadow-theme-geography/30',
+      text: 'text-theme-geography-text',
     },
     animals: {
-      bg: 'from-amber-500/20 to-orange-500/20',
-      border: 'border-amber-500/30',
-      glow: 'shadow-amber-500/30',
-      text: 'text-amber-300',
+      bg: 'from-theme-animals/20 to-theme-animals-alt/20',
+      border: 'border-theme-animals/30',
+      glow: 'shadow-theme-animals/30',
+      text: 'text-theme-animals-text',
     },
     colors: {
-      bg: 'from-pink-500/20 to-rose-500/20',
-      border: 'border-pink-500/30',
-      glow: 'shadow-pink-500/30',
-      text: 'text-pink-300',
+      bg: 'from-theme-colors/20 to-theme-colors-alt/20',
+      border: 'border-theme-colors/30',
+      glow: 'shadow-theme-colors/30',
+      text: 'text-theme-colors-text',
     },
     numbers: {
-      bg: 'from-emerald-500/20 to-teal-500/20',
-      border: 'border-emerald-500/30',
-      glow: 'shadow-emerald-500/30',
-      text: 'text-emerald-300',
+      bg: 'from-theme-numbers/20 to-theme-numbers-alt/20',
+      border: 'border-theme-numbers/30',
+      glow: 'shadow-theme-numbers/30',
+      text: 'text-theme-numbers-text',
     },
   };
 
@@ -128,14 +128,14 @@ export default function ChallengeDisplay({
       >
         {/* Emoji/Image */}
         {(asset?.thumbnailUrl || asset?.imageUrl) && !imageError ? (
-          <div className="relative w-32 h-32 sm:w-40 sm:h-40 mx-auto mb-4">
+          <div className="relative size-32 sm:size-40 mx-auto mb-4">
             {imageLoading && (
               <div className="absolute inset-0 rounded-2xl border border-white/10 bg-white/5 animate-pulse" />
             )}
             <motion.img
               src={asset.thumbnailUrl || asset.imageUrl}
               alt={asset.value}
-              className="w-32 h-32 sm:w-40 sm:h-40 object-contain mx-auto mb-4 drop-shadow-2xl"
+              className="size-32 sm:size-40 object-contain mx-auto mb-4 drop-shadow-2xl"
               animate={shouldReduceMotion ? { scale: 1 } : { scale: [1, 1.05, 1] }}
               transition={shouldReduceMotion ? { duration: 0 } : { duration: 2, repeat: Infinity, ease: "easeInOut" }}
               onLoad={() => setImageLoading(false)}
@@ -201,9 +201,9 @@ export default function ChallengeDisplay({
           title="Escuchar pista"
         >
           {audioPlaying ? (
-            <Volume2 className="w-8 h-8 text-white animate-bounce" />
+            <Volume2 className="size-8 text-white animate-bounce" />
           ) : (
-            <VolumeX className="w-8 h-8 text-white/60" />
+            <VolumeX className="size-8 text-white/60" />
           )}
         </motion.button>
       )}

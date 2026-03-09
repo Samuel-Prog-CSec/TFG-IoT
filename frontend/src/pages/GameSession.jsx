@@ -4,7 +4,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { Wifi, WifiOff, Pause, Play, Volume2, VolumeX, AlertTriangle } from 'lucide-react';
 import PropTypes from 'prop-types';
 import { cn } from '../lib/utils';
-import { useReducedMotion } from '../hooks';
+import { useReducedMotion } from '../hooks/useReducedMotion';
 import { useAuth } from '../context/AuthContext';
 import RFIDConnector from '../components/ui/RFIDConnector';
 import webSerialService from '../services/webSerialService';
@@ -20,15 +20,13 @@ import {
 import { ROUTES } from '../constants/routes';
 import { toast } from 'sonner';
 import ErrorBoundary from '../components/common/ErrorBoundary';
-import { 
-  ChallengeDisplay, 
-  TimerBar, 
-  ScoreDisplayCompact, 
-  FeedbackOverlay,
-  GameOverScreen,
-  CharacterMascot 
-} from '../components/game';
-import { CardAssetPreview } from '../components/ui';
+import ChallengeDisplay from '../components/game/ChallengeDisplay';
+import TimerBar from '../components/game/TimerBar';
+import { ScoreDisplayCompactMemo as ScoreDisplayCompact } from '../components/game/ScoreDisplay';
+import FeedbackOverlay from '../components/game/FeedbackOverlay';
+import GameOverScreen from '../components/game/GameOverScreen';
+import CharacterMascot from '../components/game/CharacterMascot';
+import CardAssetPreview from '../components/ui/CardAssetPreview';
 
 const SOCKET_ERROR_MESSAGES = {
   RFID_MODE_INVALID: 'El lector RFID no está en modo de juego.',
@@ -841,7 +839,7 @@ export default function GameSession() { // NOSONAR
   if (loadingSession) {
     return (
       <div className="game-bg min-h-screen flex flex-col items-center justify-center gap-6 p-8">
-        <div className="w-20 h-20 rounded-2xl bg-purple-500/20 animate-pulse" />
+        <div className="size-20 rounded-2xl bg-purple-500/20 animate-pulse" />
         <div className="space-y-3 w-full max-w-xs">
           <div className="h-4 rounded-full bg-white/10 animate-pulse" />
           <div className="h-4 rounded-full bg-white/10 animate-pulse w-3/4 mx-auto" />
@@ -905,7 +903,7 @@ export default function GameSession() { // NOSONAR
               key={currentRound}
               initial={shouldReduceMotion ? false : { scale: 0 }}
               animate={{ scale: 1 }}
-              className="w-12 h-12 rounded-xl bg-gradient-to-br from-purple-500 to-indigo-600 flex items-center justify-center shadow-lg shadow-purple-500/30"
+              className="size-12 rounded-xl bg-gradient-to-br from-purple-500 to-indigo-600 flex items-center justify-center shadow-lg shadow-purple-500/30"
             >
               <span className="text-2xl font-bold text-white">{currentRound}</span>
             </motion.div>
@@ -1151,7 +1149,7 @@ export default function GameSession() { // NOSONAR
                 animate={{ scale: 1 }}
                 transition={{ delay: shouldReduceMotion ? 0 : (roundNumber - 1) * 0.05 }}
                 className={cn(
-                  "w-3 h-3 rounded-full transition-all duration-300",
+                  "size-3 rounded-full transition-all duration-300",
                   roundNumber < currentRound && "bg-emerald-500 shadow-lg shadow-emerald-500/50",
                   roundNumber === currentRound && "bg-purple-500 shadow-lg shadow-purple-500/50 scale-125",
                   roundNumber > currentRound && "bg-slate-700"

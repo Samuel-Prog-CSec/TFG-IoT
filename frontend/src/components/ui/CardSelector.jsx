@@ -260,7 +260,7 @@ export default function CardSelector({
               >
                 {/* Checkbox animado */}
                 <div className={cn(
-                  'w-5 h-5 rounded-md border-2 flex items-center justify-center transition-all',
+                  'size-5 rounded-md border-2 flex items-center justify-center transition-all',
                   isSelected 
                     ? 'bg-indigo-500 border-indigo-500' 
                     : 'border-slate-600'
@@ -281,7 +281,7 @@ export default function CardSelector({
 
                 {/* Icono de tarjeta */}
                 <div className={cn(
-                  'w-8 h-8 rounded-lg flex items-center justify-center',
+                  'size-8 rounded-lg flex items-center justify-center',
                   isSelected ? 'bg-indigo-500/20' : 'bg-slate-800'
                 )}>
                   <CreditCard size={16} className={isSelected ? 'text-indigo-400' : 'text-slate-500'} />

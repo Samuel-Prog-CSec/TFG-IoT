@@ -6,7 +6,7 @@
  * @module pages/CardDecksPage
  */
 
-import { useState, useEffect, useCallback, useRef } from 'react';
+import { useState, useEffect, useCallback, useReducer, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import { 
@@ -20,8 +20,13 @@ import {
 } from 'lucide-react';
 import { cn } from '../lib/utils';
 import { decksAPI, extractErrorMessage, isAbortError } from '../services/api';
-import { DeckCard, DeckCardSkeleton, ButtonPremium, GlassCard, ConfirmationModal, useConfirmationModal } from '../components/ui';
-import { useContexts, useRefetchOnFocus, useReducedMotion } from '../hooks';
+import DeckCard, { DeckCardSkeleton } from '../components/ui/DeckCard';
+import ButtonPremium from '../components/ui/ButtonPremium';
+import GlassCard from '../components/ui/GlassCard';
+import ConfirmationModal, { useConfirmationModal } from '../components/ui/ConfirmationModal';
+import { useContexts } from '../hooks/useContexts';
+import { useRefetchOnFocus } from '../hooks/useRefetchOnFocus';
+import { useReducedMotion } from '../hooks/useReducedMotion';
 import { ROUTES } from '../constants/routes';
 import { toast } from 'sonner';
 
@@ -103,7 +108,7 @@ const renderDecksErrorState = ({ error, shouldReduceMotion, loadDecks }) => (
     animate={{ opacity: 1 }}
     className="flex flex-col items-center justify-center py-16"
   >
-    <div className="w-16 h-16 rounded-full bg-rose-500/20 flex items-center justify-center mb-4">
+    <div className="size-16 rounded-full bg-rose-500/20 flex items-center justify-center mb-4">
       <AlertCircle className="text-rose-400" size={32} />
     </div>
     <p className="text-slate-400 mb-4">{error}</p>
@@ -139,7 +144,7 @@ const renderDecksEmptyState = ({ shouldReduceMotion, hasActiveFilters, clearFilt
     className="flex flex-col items-center justify-center py-16"
   >
     <motion.div
-      className="w-32 h-32 mb-6 relative"
+      className="size-32 mb-6 relative"
       animate={shouldReduceMotion ? { y: 0 } : { y: [0, -10, 0] }}
       transition={shouldReduceMotion ? { duration: 0 } : { duration: 3, repeat: Infinity, ease: 'easeInOut' }}
     >
@@ -219,6 +224,27 @@ const renderDecksState = ({
 
   return renderDecksGrid({ decks, shouldReduceMotion, handleViewDeck, handleEditDeck, handleArchiveDeck });
 };
+const filtersInitialState = {
+  searchQuery: '',
+  statusFilter: 'active',
+  contextFilter: '',
+};
+
+function filtersReducer(state, action) {
+  switch (action.type) {
+    case 'SET_SEARCH':
+      return { ...state, searchQuery: action.payload };
+    case 'SET_STATUS':
+      return { ...state, statusFilter: action.payload };
+    case 'SET_CONTEXT':
+      return { ...state, contextFilter: action.payload };
+    case 'RESET_FILTERS':
+      return filtersInitialState;
+    default:
+      return state;
+  }
+}
+
 /**
  * Página principal de gestión de mazos
  */
@@ -232,10 +258,8 @@ export default function CardDecksPage() {
   const [error, setError] = useState(null);
   const [deckCount, setDeckCount] = useState({ active: 0, archived: 0, total: 0 });
   
-  // Filtros y búsqueda
-  const [searchQuery, setSearchQuery] = useState('');
-  const [statusFilter, setStatusFilter] = useState('active');
-  const [contextFilter, setContextFilter] = useState('');
+  // Filtros y búsqueda (agrupados con useReducer)
+  const [filters, dispatchFilters] = useReducer(filtersReducer, filtersInitialState);
   const [showFilters, setShowFilters] = useState(false);
   
   // Paginación
@@ -267,14 +291,14 @@ export default function CardDecksPage() {
       const pageToUse = resetPage ? 1 : (pageOverride || page);
       const params = buildDeckQueryParams({
         page: pageToUse,
-        statusFilter,
-        searchQuery,
-        contextFilter
+        statusFilter: filters.statusFilter,
+        searchQuery: filters.searchQuery,
+        contextFilter: filters.contextFilter
       });
 
       const response = await decksAPI.getDecks(params, signal ? { signal } : {});
       const { data } = response;
-      
+
       const newDecks = data.data || [];
       const pagination = data.pagination || {};
 
@@ -284,9 +308,9 @@ export default function CardDecksPage() {
 
       const countData = await resolveDeckCount({
         skipCount,
-        statusFilter,
-        searchQuery,
-        contextFilter,
+        statusFilter: filters.statusFilter,
+        searchQuery: filters.searchQuery,
+        contextFilter: filters.contextFilter,
         pagination,
         signal
       });
@@ -310,7 +334,7 @@ export default function CardDecksPage() {
         setLoadingMore(false);
       }
     }
-  }, [searchQuery, statusFilter, contextFilter, page]);
+  }, [filters, page]);
 
   // Cargar al montar y cuando cambian filtros
   useEffect(() => {
@@ -322,7 +346,7 @@ export default function CardDecksPage() {
     loadDecks({ resetPage: true, skipCount: false, signal: controller.signal });
 
     return () => controller.abort();
-  }, [searchQuery, statusFilter, contextFilter]);
+  }, [filters]);
 
   const refetchDecks = useCallback(() => {
     decksAbortRef.current?.abort();
@@ -407,12 +431,10 @@ export default function CardDecksPage() {
   };
 
   const clearFilters = () => {
-    setSearchQuery('');
-    setStatusFilter('active');
-    setContextFilter('');
+    dispatchFilters({ type: 'RESET_FILTERS' });
   };
 
-  const hasActiveFilters = searchQuery || statusFilter !== 'active' || contextFilter;
+  const hasActiveFilters = filters.searchQuery || filters.statusFilter !== 'active' || filters.contextFilter;
 
   const decksStateContent = renderDecksState({
     error,
@@ -439,7 +461,7 @@ export default function CardDecksPage() {
         <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
           <div>
             <h1 className="text-3xl font-bold text-white font-display flex items-center gap-3">
-              <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-indigo-500 to-purple-600 flex items-center justify-center">
+              <div className="size-10 rounded-xl bg-gradient-to-br from-indigo-500 to-purple-600 flex items-center justify-center">
                 <Layers size={20} className="text-white" />
               </div>
               Mis Mazos
@@ -498,8 +520,8 @@ export default function CardDecksPage() {
               />
               <input
                 type="text"
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
+                value={filters.searchQuery}
+                onChange={(e) => dispatchFilters({ type: 'SET_SEARCH', payload: e.target.value })}
                 placeholder="Buscar mazos..."
                 className={cn(
                   'w-full pl-10 pr-4 py-2.5 rounded-xl',
@@ -524,7 +546,7 @@ export default function CardDecksPage() {
               <Filter size={18} />
               Filtros
               {hasActiveFilters && (
-                <span className="w-2 h-2 rounded-full bg-indigo-500" />
+                <span className="size-2 rounded-full bg-indigo-500" />
               )}
             </button>
           </div>
@@ -544,8 +566,8 @@ export default function CardDecksPage() {
                     <label htmlFor="deck-status-filter" className="block text-xs text-slate-500 mb-1.5">Estado</label>
                     <select
                       id="deck-status-filter"
-                      value={statusFilter}
-                      onChange={(e) => setStatusFilter(e.target.value)}
+                      value={filters.statusFilter}
+                      onChange={(e) => dispatchFilters({ type: 'SET_STATUS', payload: e.target.value })}
                       className={cn(
                         'w-full px-3 py-2 rounded-lg',
                         'bg-slate-800/50 border border-white/10',
@@ -563,8 +585,8 @@ export default function CardDecksPage() {
                     <label htmlFor="deck-context-filter" className="block text-xs text-slate-500 mb-1.5">Contexto</label>
                     <select
                       id="deck-context-filter"
-                      value={contextFilter}
-                      onChange={(e) => setContextFilter(e.target.value)}
+                      value={filters.contextFilter}
+                      onChange={(e) => dispatchFilters({ type: 'SET_CONTEXT', payload: e.target.value })}
                       className={cn(
                         'w-full px-3 py-2 rounded-lg',
                         'bg-slate-800/50 border border-white/10',

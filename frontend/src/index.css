@@ -52,10 +52,47 @@
   --color-accent-pink: oklch(75% 0.16 340);
   --color-accent-orange: oklch(75% 0.16 50);
 
+  /* Gameplay Context Themes */
+  --color-theme-default: oklch(55% 0.24 297);
+  --color-theme-default-alt: oklch(56% 0.20 277);
+  --color-theme-default-text: oklch(74% 0.15 301);
+
+  --color-theme-geography: oklch(58% 0.18 255);
+  --color-theme-geography-alt: oklch(71% 0.13 210);
+  --color-theme-geography-text: oklch(74% 0.12 256);
+
+  --color-theme-animals: oklch(77% 0.17 76);
+  --color-theme-animals-alt: oklch(70% 0.17 48);
+  --color-theme-animals-text: oklch(88% 0.16 85);
+
+  --color-theme-colors: oklch(66% 0.20 343);
+  --color-theme-colors-alt: oklch(65% 0.19 18);
+  --color-theme-colors-text: oklch(77% 0.14 343);
+
+  --color-theme-numbers: oklch(70% 0.15 162);
+  --color-theme-numbers-alt: oklch(70% 0.12 183);
+  --color-theme-numbers-text: oklch(82% 0.14 158);
+
+  /* Timer States */
+  --color-timer-safe: oklch(77% 0.16 156);
+  --color-timer-safe-alt: oklch(79% 0.11 215);
+  --color-timer-safe-glow: oklch(77% 0.16 156 / 0.4);
+
+  --color-timer-warning: oklch(83% 0.17 82);
+  --color-timer-warning-alt: oklch(77% 0.16 55);
+  --color-timer-warning-glow: oklch(83% 0.17 82 / 0.4);
+
+  --color-timer-critical: oklch(65% 0.19 18);
+  --color-timer-critical-alt: oklch(64% 0.22 25);
+  --color-timer-critical-glow: oklch(65% 0.19 18 / 0.5);
+
   /* Bordes & Separaciones (Sistema "Squint Test" invisible) */
   --color-border-subtle: oklch(100% 0 0 / 0.06); /* Muy sutil */
   --color-border-default: oklch(100% 0 0 / 0.1); /* Bordes por defecto */
   --color-border-strong: oklch(100% 0 0 / 0.15); /* Focus o activo */
+
+  /* Backdrop overlay */
+  --color-backdrop: oklch(0% 0 0 / 0.6);
 
   /* Glassmorphism primitives */
   --color-glass-bg: oklch(100% 0 0 / 0.03);
@@ -137,6 +174,12 @@
     }
   }
 
+  @keyframes gradient-shift {
+    0% { background-position: 0% 50%; }
+    50% { background-position: 100% 50%; }
+    100% { background-position: 0% 50%; }
+  }
+
   @keyframes shimmer {
     0% {
       transform: translateX(-100%);
@@ -215,6 +258,16 @@
   @apply bg-background-elevated/40 border border-border-subtle backdrop-blur-md rounded-2xl shadow-[0_4px_24px_rgba(0,0,0,0.2),inset_0_1px_0_rgba(255,255,255,0.05)];
 }
 
+/* Focus Ring — Estandarización de foco accesible */
+@utility focus-ring {
+  &:focus-visible {
+    outline: none;
+    box-shadow:
+      0 0 0 2px var(--color-background-base),
+      0 0 0 4px var(--color-brand-base);
+  }
+}
+
 /* Scrollbar Customization */
 @utility custom-scrollbar {
   scrollbar-width: thin;
@@ -242,6 +295,52 @@
   &::-webkit-scrollbar {
     display: none;
   }
+}
+
+@utility perspective-1000 {
+  perspective: 1000px;
+}
+
+/* ============================================
+   💬 TOOLTIP SYSTEM
+   ============================================ */
+@utility tooltip-anchor {
+  @apply relative inline-flex;
+
+  & .tooltip-content {
+    @apply invisible opacity-0 absolute z-50 px-2.5 py-1.5 rounded-lg text-xs font-medium whitespace-nowrap pointer-events-none;
+    @apply bg-background-elevated text-text-primary border border-border-default shadow-lg;
+    transition: opacity 0.15s ease, visibility 0.15s ease;
+  }
+
+  &:hover .tooltip-content,
+  &:focus-within .tooltip-content {
+    @apply visible opacity-100;
+  }
+}
+
+@utility tooltip-top {
+  bottom: calc(100% + 6px);
+  left: 50%;
+  transform: translateX(-50%);
+}
+
+@utility tooltip-bottom {
+  top: calc(100% + 6px);
+  left: 50%;
+  transform: translateX(-50%);
+}
+
+@utility tooltip-left {
+  right: calc(100% + 6px);
+  top: 50%;
+  transform: translateY(-50%);
+}
+
+@utility tooltip-right {
+  left: calc(100% + 6px);
+  top: 50%;
+  transform: translateY(-50%);
 }
 
 /* Gradientes Textuales Reutilizables */

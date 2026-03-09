@@ -19,32 +19,32 @@ import { socketService } from '../../services/socket';
 const DEVICE_STATE_CONFIG = {
   unknown: {
     icon: WifiOff,
-    iconClass: 'bg-slate-800 text-slate-500',
-    dotClass: 'bg-slate-500',
+    iconClass: 'bg-background-surface text-text-disabled',
+    dotClass: 'bg-text-disabled',
     text: 'Desconectado',
   },
   initializing: {
     icon: Loader2,
-    iconClass: 'bg-amber-500/20 text-amber-400',
-    dotClass: 'bg-amber-400 animate-pulse',
+    iconClass: 'bg-warning-base/20 text-warning-base',
+    dotClass: 'bg-warning-base animate-pulse',
     text: 'Esperando sensor RC522...',
   },
   ready: {
     icon: Wifi,
-    iconClass: 'bg-emerald-500/20 text-emerald-400',
-    dotClass: 'bg-emerald-500',
+    iconClass: 'bg-success-base/20 text-success-base',
+    dotClass: 'bg-success-base',
     text: 'Sensor activo',
   },
   error: {
     icon: XCircle,
-    iconClass: 'bg-rose-500/20 text-rose-400',
-    dotClass: 'bg-rose-500',
+    iconClass: 'bg-error-base/20 text-error-base',
+    dotClass: 'bg-error-base',
     text: 'Error: sensor no responde',
   },
   stale: {
     icon: AlertTriangle,
-    iconClass: 'bg-amber-500/20 text-amber-400',
-    dotClass: 'bg-amber-400',
+    iconClass: 'bg-warning-base/20 text-warning-base',
+    dotClass: 'bg-warning-base',
     text: 'Sin señal del sensor',
   },
 };
@@ -162,11 +162,11 @@ export default function RFIDConnector({
   }
 
   return (
-    <div className={cn('rounded-xl border bg-slate-900/50 p-4 transition-colors', {
-      'border-emerald-500/20': visualState === 'ready',
-      'border-amber-500/20': visualState === 'initializing' || visualState === 'stale',
-      'border-rose-500/20': visualState === 'error',
-      'border-white/10': visualState === 'unknown',
+    <div className={cn('rounded-xl border bg-background-elevated/50 p-4 transition-colors', {
+      'border-success-base/20': visualState === 'ready',
+      'border-warning-base/20': visualState === 'initializing' || visualState === 'stale',
+      'border-error-base/20': visualState === 'error',
+      'border-border-default': visualState === 'unknown',
     }, className)}>
       <div className="flex items-center justify-between gap-4">
         <div className="flex items-center gap-3">
@@ -175,10 +175,10 @@ export default function RFIDConnector({
           </div>
           <div>
             <div className="flex items-center gap-2">
-              <p className="text-sm font-semibold text-white">Sensor RFID</p>
-              <span className={cn('w-2 h-2 rounded-full', config.dotClass)} />
+              <p className="text-sm font-semibold text-text-primary">Sensor RFID</p>
+              <span className={cn('size-2 rounded-full', config.dotClass)} />
             </div>
-            <p className="text-xs text-slate-400">{displayText}</p>
+            <p className="text-xs text-text-muted">{displayText}</p>
           </div>
         </div>
 
@@ -190,16 +190,16 @@ export default function RFIDConnector({
             className={cn(
               'px-4 py-2 rounded-lg text-sm font-semibold transition-all',
               isPortOpen
-                ? 'bg-rose-500/20 text-rose-300 hover:bg-rose-500/30'
+                ? 'bg-error-base/20 text-error-base hover:bg-error-base/30'
                 : isReconnecting
-                  ? 'bg-slate-700 text-slate-500 cursor-not-allowed'
-                  : 'bg-indigo-500/20 text-indigo-300 hover:bg-indigo-500/30'
+                  ? 'bg-background-surface text-text-disabled cursor-not-allowed'
+                  : 'bg-accent-indigo/20 text-accent-indigo hover:bg-accent-indigo/30'
             )}
           >
             {isPortOpen ? 'Desconectar' : isReconnecting ? 'Reconectando...' : 'Conectar'}
           </button>
         ) : (
-          <div className="flex items-center gap-2 text-xs text-amber-400">
+          <div className="flex items-center gap-2 text-xs text-warning-base">
             <AlertTriangle size={14} />
             Usa Chrome o Edge
           </div>
@@ -207,11 +207,11 @@ export default function RFIDConnector({
       </div>
 
       {showSensorId && (
-        <div className="mt-3 flex items-center gap-2 text-xs text-slate-500">
+        <div className="mt-3 flex items-center gap-2 text-xs text-text-muted">
           <Usb size={14} />
           <span>SensorId: {webSerialService.sensorId}</span>
           {visualState === 'ready' && (
-            <Activity size={12} className="ml-1 text-emerald-500" />
+            <Activity size={12} className="ml-1 text-success-base" />
           )}
         </div>
       )}
@@ -220,7 +220,7 @@ export default function RFIDConnector({
         <div
           role="alert"
           aria-live="polite"
-          className="mt-3 rounded-lg border border-rose-500/30 bg-rose-500/10 px-3 py-2 text-xs text-rose-300"
+          className="mt-3 rounded-lg border border-error-base/30 bg-error-base/10 px-3 py-2 text-xs text-error-base"
         >
           {error}
         </div>

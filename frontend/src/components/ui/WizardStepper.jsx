@@ -39,7 +39,7 @@ const getStepState = ({ index, currentStep, allowNavigation }) => {
 
 const getStepButtonClassName = ({ isActive, isCompleted, isClickable }) =>
   cn(
-    'w-10 h-10 rounded-full flex items-center justify-center',
+    'size-10 rounded-full flex items-center justify-center',
     'transition-all duration-300 border-2 relative z-10',
     'focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-900',
     isActive && 'bg-indigo-600 border-indigo-400 text-white shadow-lg shadow-indigo-500/40',
@@ -154,7 +154,7 @@ function WizardStepItem({
             {PARTICLE_VECTORS.map((vector, particleIndex) => (
               <motion.div
                 key={`${step.id}-${particleIndex}`}
-                className="absolute w-1.5 h-1.5 bg-indigo-400 rounded-full"
+                className="absolute size-1.5 bg-indigo-400 rounded-full"
                 style={{ top: '50%', left: '50%' }}
                 animate={{
                   x: [0, vector.x * 20],
@@ -351,7 +351,7 @@ export function WizardStepperCompact({ steps, currentStep, className }) {
           <div key={step.id} className="flex items-center">
             <motion.div
               className={cn(
-                'w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold',
+                'size-8 rounded-full flex items-center justify-center text-xs font-bold',
                 'transition-all duration-300',
                 isActive && 'bg-indigo-600 text-white',
                 isCompleted && 'bg-emerald-500 text-white',

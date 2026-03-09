@@ -16,17 +16,17 @@ export default function EmptyState({
   return (
     <GlassCard className={cn('p-10 text-center', className)}>
       {icon && (
-        <div className="mx-auto mb-5 flex h-16 w-16 items-center justify-center rounded-2xl bg-white/5 text-slate-400">
+        <div className="mx-auto mb-5 flex size-16 items-center justify-center rounded-2xl bg-glass-bg text-text-muted">
           {icon}
         </div>
       )}
       {title && (
-        <p className="text-slate-100 text-lg font-semibold">
+        <p className="text-text-primary text-lg font-semibold">
           {title}
         </p>
       )}
       {description && (
-        <p className="text-slate-500 mt-2 max-w-md mx-auto">
+        <p className="text-text-disabled mt-2 max-w-md mx-auto">
           {description}
         </p>
       )}

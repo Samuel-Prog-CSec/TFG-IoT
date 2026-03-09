@@ -5,11 +5,11 @@
  * @module pages/DeckEditPage
  */
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useMemo, useReducer } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import confetti from 'canvas-confetti';
-import { 
+import {
   ArrowLeft,
   Eye,
   Save,
@@ -20,32 +20,57 @@ import {
   AlertTriangle,
   Trash2,
   Plus,
-  X
+  X,
+  RefreshCw
 } from 'lucide-react';
 import { cn } from '../lib/utils';
 import {
   buildCardMappingsPayload,
   normalizeCardMappingsFromDeck
 } from '../lib/cardMapping';
-import { 
-  ButtonPremium,
-  GlassCard,
-  InputPremium,
-  AssetSelector,
-  CardAssetPreview,
-  CardSelector,
-  RFIDScannerPanel,
-  SkeletonCard,
-  ConfirmationModal,
-  useConfirmationModal
-} from '../components/ui';
-import { useContexts, useRefetchOnFocus } from '../hooks';
+import ButtonPremium from '../components/ui/ButtonPremium';
+import GlassCard from '../components/ui/GlassCard';
+import InputPremium from '../components/ui/InputPremium';
+import AssetSelector from '../components/ui/AssetSelector';
+import CardAssetPreview from '../components/ui/CardAssetPreview';
+import CardSelector from '../components/ui/CardSelector';
+import RFIDScannerPanel from '../components/ui/RFIDScannerPanel';
+import { SkeletonCard } from '../components/ui/SkeletonShimmer';
+import ConfirmationModal, { useConfirmationModal } from '../components/ui/ConfirmationModal';
+import { useContexts } from '../hooks/useContexts';
+import { useRefetchOnFocus } from '../hooks/useRefetchOnFocus';
 import { decksAPI, cardsAPI, extractData, extractErrorMessage, isAbortError } from '../services/api';
 import { ROUTES } from '../constants/routes';
 import { GAME_CONFIG } from '../constants/gameConfig';
 import { toast } from 'sonner';
 
 const { MIN_CARDS, MAX_CARDS } = GAME_CONFIG;
+
+const uiInitialState = {
+  activeTab: 'cards',
+  showAddCards: false,
+  captureMode: 'manual',
+  activeCardId: null,
+};
+
+function uiReducer(state, action) {
+  switch (action.type) {
+    case 'SET_ACTIVE_TAB':
+      return { ...state, activeTab: action.payload };
+    case 'TOGGLE_ADD_CARDS':
+      return { ...state, showAddCards: !state.showAddCards };
+    case 'SHOW_ADD_CARDS':
+      return { ...state, showAddCards: true };
+    case 'HIDE_ADD_CARDS':
+      return { ...state, showAddCards: false };
+    case 'SET_CAPTURE_MODE':
+      return { ...state, captureMode: action.payload };
+    case 'SET_ACTIVE_CARD':
+      return { ...state, activeCardId: action.payload };
+    default:
+      return state;
+  }
+}
 
 const buildUpdatedCardMappings = (cards, assignments) => {
   const mappings = buildCardMappingsPayload(cards, assignments);
@@ -85,12 +110,14 @@ export default function DeckEditPage() {
   // Datos auxiliares
   const [availableCards, setAvailableCards] = useState([]);
   
-  // UI states
-  const [activeTab, setActiveTab] = useState('cards'); // 'cards' | 'context' | 'assign'
-  const [showAddCards, setShowAddCards] = useState(false);
-  const [captureMode, setCaptureMode] = useState('manual');
-  const [activeCardId, setActiveCardId] = useState(null);
-  const [hasChanges, setHasChanges] = useState(false);
+  // UI states (agrupados con useReducer)
+  const [ui, dispatchUI] = useReducer(uiReducer, uiInitialState);
+  // effectiveContext: usa la selección del usuario, o calcula desde el mazo original
+  const effectiveContext = selectedContext ?? (
+    deck && contexts.length
+      ? findContextById(deck.contextId?._id || deck.contextId) ?? null
+      : null
+  );
   
   // Modal de confirmación para eliminar
   const deleteModal = useConfirmationModal();
@@ -137,7 +164,7 @@ export default function DeckEditPage() {
         setCardAssignments(assignments);
 
         if (cards.length > 0) {
-          setActiveCardId(cards[0]._id);
+          dispatchUI({ type: 'SET_ACTIVE_CARD', payload: cards[0]._id });
         }
       }
     } catch (err) {
@@ -168,34 +195,23 @@ export default function DeckEditPage() {
     hasError: Boolean(error)
   });
 
-  // Establecer contexto seleccionado cuando los contextos se carguen
-  useEffect(() => {
-    if (!deck || !contexts.length) return;
-    
-    const contextId = deck.contextId?._id || deck.contextId;
-    const ctx = findContextById(contextId);
-    if (ctx && !selectedContext) {
-      setSelectedContext(ctx);
-    }
-  }, [deck, contexts, findContextById, selectedContext]);
+  // Derivar si hay cambios (calculado, no estado)
+  const hasChanges = useMemo(() => {
+    if (!deck) return false;
 
-  // Detectar cambios
-  useEffect(() => {
-    if (!deck) return;
-    
     const originalName = deck.name;
     const originalContext = deck.contextId?._id || deck.contextId;
     const originalCardIds = (deck.cardMappings || []).map(c => c.cardId?._id || c.cardId).sort();
     const currentCardIds = selectedCards.map(c => c._id).sort();
-    
+
     const nameChanged = deckName !== originalName;
-    const contextChanged = selectedContext?._id !== originalContext;
+    const contextChanged = effectiveContext?._id !== originalContext;
     const cardsChanged = JSON.stringify(originalCardIds) !== JSON.stringify(currentCardIds);
     // Simplificado: cualquier cambio en asignaciones
     const assignmentsChanged = Object.keys(cardAssignments).length > 0;
-    
-    setHasChanges(nameChanged || contextChanged || cardsChanged || assignmentsChanged);
-  }, [deck, deckName, selectedContext, selectedCards, cardAssignments]);
+
+    return nameChanged || contextChanged || cardsChanged || assignmentsChanged;
+  }, [deck, deckName, effectiveContext, selectedCards, cardAssignments]);
 
   // Handlers
   const handleAddCard = useCallback((card) => {
@@ -210,7 +226,7 @@ export default function DeckEditPage() {
     }
     
     setSelectedCards(prev => [...prev, card]);
-    setActiveCardId(card._id);
+    dispatchUI({ type: 'SET_ACTIVE_CARD', payload: card._id });
     toast.success(`Carta ${card.uid} añadida`);
   }, [selectedCards]);
 
@@ -228,20 +244,20 @@ export default function DeckEditPage() {
     });
     
     // Si era la carta activa, seleccionar otra
-    if (activeCardId === cardId) {
+    if (ui.activeCardId === cardId) {
       const nextActiveCard = selectedCards.find((c) => c._id !== cardId);
-      setActiveCardId(nextActiveCard?._id || null);
+      dispatchUI({ type: 'SET_ACTIVE_CARD', payload: nextActiveCard?._id || null });
     }
-  }, [selectedCards, activeCardId]);
+  }, [selectedCards, ui.activeCardId]);
 
   const handleContextChange = useCallback((context) => {
-    if (selectedContext?._id === context._id) return;
+    if (effectiveContext?._id === context._id) return;
     
     setSelectedContext(context);
     // Limpiar asignaciones al cambiar contexto
     setCardAssignments({});
     toast.info('Contexto cambiado. Reasigna los assets.');
-  }, [selectedContext]);
+  }, [effectiveContext]);
 
   const handleAssignAsset = useCallback((cardId, asset) => {
     setCardAssignments(prev => ({
@@ -263,7 +279,7 @@ export default function DeckEditPage() {
       return;
     }
     
-    if (!selectedContext) {
+    if (!effectiveContext) {
       toast.error('Selecciona un contexto');
       return;
     }
@@ -272,7 +288,7 @@ export default function DeckEditPage() {
     const unassigned = selectedCards.filter(c => !cardAssignments[c._id]);
     if (unassigned.length > 0) {
       toast.error(`Hay ${unassigned.length} carta(s) sin asignar`);
-      setActiveTab('assign');
+      dispatchUI({ type: 'SET_ACTIVE_TAB', payload: 'assign' });
       return;
     }
 
@@ -281,7 +297,7 @@ export default function DeckEditPage() {
     try {
       const updateData = {
         name: deckName.trim(),
-        contextId: selectedContext._id,
+        contextId: effectiveContext._id,
         cardMappings: buildCardMappingsPayload(selectedCards, cardAssignments)
       };
       
@@ -295,7 +311,6 @@ export default function DeckEditPage() {
       });
       
       toast.success('Mazo actualizado');
-      setHasChanges(false);
 
       const updatedCardMappings = buildUpdatedCardMappings(selectedCards, cardAssignments);
       
@@ -303,7 +318,7 @@ export default function DeckEditPage() {
       setDeck(prev => ({
         ...prev,
         name: deckName.trim(),
-        contextId: selectedContext._id,
+        contextId: effectiveContext._id,
         cardMappings: updatedCardMappings
       }));
       
@@ -354,9 +369,21 @@ export default function DeckEditPage() {
           <AlertTriangle size={48} className="text-rose-400 mx-auto mb-4" />
           <h2 className="text-xl font-semibold text-white mb-2">Error</h2>
           <p className="text-slate-400 mb-6">{error}</p>
-          <ButtonPremium onClick={() => navigate(ROUTES.CARD_DECKS)}>
-            Volver a Mis Mazos
-          </ButtonPremium>
+          <div className="flex flex-col sm:flex-row gap-3 justify-center">
+            <ButtonPremium
+              variant="primary"
+              onClick={() => loadData()}
+              icon={<RefreshCw size={18} />}
+            >
+              Reintentar
+            </ButtonPremium>
+            <ButtonPremium
+              variant="secondary"
+              onClick={() => navigate(ROUTES.CARD_DECKS)}
+            >
+              Volver a Mis Mazos
+            </ButtonPremium>
+          </div>
         </GlassCard>
       </div>
     );
@@ -384,7 +411,7 @@ export default function DeckEditPage() {
         
         <div className="flex items-start justify-between gap-4">
           <div className="flex items-center gap-4">
-            <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-indigo-500 to-purple-600 flex items-center justify-center">
+            <div className="size-12 rounded-xl bg-gradient-to-br from-indigo-500 to-purple-600 flex items-center justify-center">
               <Layers size={24} className="text-white" />
             </div>
             <div>
@@ -447,10 +474,10 @@ export default function DeckEditPage() {
           ].map(tab => (
             <button
               key={tab.id}
-              onClick={() => setActiveTab(tab.id)}
+              onClick={() => dispatchUI({ type: 'SET_ACTIVE_TAB', payload: tab.id })}
               className={cn(
                 'flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-all',
-                activeTab === tab.id
+                ui.activeTab === tab.id
                   ? 'bg-indigo-500 text-white'
                   : 'text-slate-400 hover:text-white'
               )}
@@ -460,7 +487,7 @@ export default function DeckEditPage() {
               {tab.count && (
                 <span className={cn(
                   'text-xs px-1.5 py-0.5 rounded-full',
-                  activeTab === tab.id ? 'bg-white/20' : 'bg-slate-700'
+                  ui.activeTab === tab.id ? 'bg-white/20' : 'bg-slate-700'
                 )}>
                   {tab.count}
                 </span>
@@ -473,7 +500,7 @@ export default function DeckEditPage() {
       {/* Contenido del tab activo */}
       <div className="max-w-5xl mx-auto">
         <AnimatePresence mode="wait">
-          {activeTab === 'cards' && (
+          {ui.activeTab === 'cards' && (
             <motion.div
               key="cards"
               initial={{ opacity: 0, y: 10 }}
@@ -490,7 +517,7 @@ export default function DeckEditPage() {
                   </div>
                   <ButtonPremium
                     variant="secondary"
-                    onClick={() => setShowAddCards(true)}
+                    onClick={() => dispatchUI({ type: 'SHOW_ADD_CARDS' })}
                     disabled={selectedCards.length >= MAX_CARDS}
                     icon={<Plus size={16} />}
                   >
@@ -509,7 +536,7 @@ export default function DeckEditPage() {
                         onClick={() => handleRemoveCard(card._id)}
                         disabled={selectedCards.length <= MIN_CARDS}
                         className={cn(
-                          'absolute -top-2 -right-2 w-6 h-6 rounded-full',
+                          'absolute -top-2 -right-2 size-6 rounded-full',
                           'bg-rose-500 text-white flex items-center justify-center',
                           'opacity-0 group-hover:opacity-100 transition-opacity',
                           'hover:bg-rose-400 disabled:opacity-50 disabled:cursor-not-allowed'
@@ -518,7 +545,7 @@ export default function DeckEditPage() {
                         <X size={12} />
                       </button>
                       
-                      <div className="w-10 h-10 rounded-lg bg-gradient-to-br from-indigo-500/20 to-purple-500/20 flex items-center justify-center mb-2">
+                      <div className="size-10 rounded-lg bg-gradient-to-br from-indigo-500/20 to-purple-500/20 flex items-center justify-center mb-2">
                         <CreditCard size={18} className="text-indigo-400" />
                       </div>
                       <p className="text-sm font-mono text-white">{card.uid}</p>
@@ -530,7 +557,7 @@ export default function DeckEditPage() {
             </motion.div>
           )}
 
-          {activeTab === 'context' && (
+          {ui.activeTab === 'context' && (
             <motion.div
               key="context"
               initial={{ opacity: 0, y: 10 }}
@@ -554,7 +581,7 @@ export default function DeckEditPage() {
                       >
                         <div className="flex gap-1 mb-3 h-10">
                           {[1, 2, 3, 4].map((assetSlot) => (
-                            <div key={`asset-skeleton-${slot}-${assetSlot}`} className="w-8 h-8 rounded bg-slate-700" />
+                            <div key={`asset-skeleton-${slot}-${assetSlot}`} className="size-8 rounded bg-slate-700" />
                           ))}
                         </div>
                         <div className="h-5 w-24 bg-slate-700 rounded mb-2" />
@@ -570,7 +597,7 @@ export default function DeckEditPage() {
                         onClick={() => handleContextChange(context)}
                         className={cn(
                           'relative p-4 rounded-xl border-2 transition-all text-left',
-                          selectedContext?._id === context._id
+                          effectiveContext?._id === context._id
                             ? 'border-indigo-500 bg-indigo-500/10'
                             : 'border-white/10 bg-slate-800/30 hover:border-white/20'
                         )}
@@ -599,7 +626,7 @@ export default function DeckEditPage() {
             </motion.div>
           )}
 
-          {activeTab === 'assign' && (
+          {ui.activeTab === 'assign' && (
             <motion.div
               key="assign"
               initial={{ opacity: 0, y: 10 }}
@@ -613,12 +640,12 @@ export default function DeckEditPage() {
                   <div className="space-y-2 max-h-[400px] overflow-y-auto">
                     {selectedCards.map((card) => {
                       const isAssigned = !!cardAssignments[card._id];
-                      const isActive = activeCardId === card._id;
+                      const isActive = ui.activeCardId === card._id;
                       
                       return (
                         <button
                           key={card._id}
-                          onClick={() => setActiveCardId(card._id)}
+                          onClick={() => dispatchUI({ type: 'SET_ACTIVE_CARD', payload: card._id })}
                           className={cn(
                             'w-full flex items-center gap-3 p-3 rounded-xl border transition-all text-left',
                             isActive
@@ -627,7 +654,7 @@ export default function DeckEditPage() {
                           )}
                         >
                           <div className={cn(
-                            'w-8 h-8 rounded-lg flex items-center justify-center text-lg overflow-hidden',
+                            'size-8 rounded-lg flex items-center justify-center text-lg overflow-hidden',
                             isAssigned ? 'bg-green-500/20' : 'bg-slate-700'
                           )}>
                             {isAssigned ? (
@@ -656,16 +683,16 @@ export default function DeckEditPage() {
 
                 {/* Selector de assets */}
                 <GlassCard className="p-4 lg:col-span-2">
-                  {activeCardId ? (
+                  {ui.activeCardId ? (
                     <>
                       <h3 className="font-medium text-white mb-3">
-                        Assets de &quot;{selectedContext?.name}&quot;
+                        Assets de &quot;{effectiveContext?.name}&quot;
                       </h3>
                       <AssetSelector
-                        assets={selectedContext?.assets || []}
-                        selectedAssetKey={cardAssignments[activeCardId]?.key}
+                        assets={effectiveContext?.assets || []}
+                        selectedAssetKey={cardAssignments[ui.activeCardId]?.key}
                         assignedAssets={assignedAssetKeys}
-                        onSelect={(asset) => handleAssignAsset(activeCardId, asset)}
+                        onSelect={(asset) => handleAssignAsset(ui.activeCardId, asset)}
                       />
                     </>
                   ) : (
@@ -682,13 +709,13 @@ export default function DeckEditPage() {
 
       {/* Modal añadir cartas */}
       <AnimatePresence>
-        {showAddCards && (
+        {ui.showAddCards && (
           <motion.div
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
-            className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm"
-            onClick={() => setShowAddCards(false)}
+            className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-backdrop backdrop-blur-sm"
+            onClick={() => dispatchUI({ type: 'HIDE_ADD_CARDS' })}
           >
             <motion.div
               initial={{ scale: 0.9, opacity: 0 }}
@@ -700,7 +727,7 @@ export default function DeckEditPage() {
               <div className="flex items-center justify-between mb-4">
                 <h3 className="text-lg font-semibold text-white">Añadir cartas</h3>
                 <button
-                  onClick={() => setShowAddCards(false)}
+                  onClick={() => dispatchUI({ type: 'HIDE_ADD_CARDS' })}
                   className="p-2 rounded-lg hover:bg-white/10 transition-colors"
                 >
                   <X size={20} className="text-slate-400" />
@@ -710,10 +737,10 @@ export default function DeckEditPage() {
               {/* Toggle modo */}
               <div className="flex bg-slate-800/50 rounded-xl p-1 mb-4 w-fit">
                 <button
-                  onClick={() => setCaptureMode('manual')}
+                  onClick={() => dispatchUI({ type: 'SET_CAPTURE_MODE', payload: 'manual' })}
                   className={cn(
                     'px-4 py-2 rounded-lg text-sm font-medium transition-all',
-                    captureMode === 'manual'
+                    ui.captureMode === 'manual'
                       ? 'bg-indigo-500 text-white'
                       : 'text-slate-400 hover:text-white'
                   )}
@@ -721,10 +748,10 @@ export default function DeckEditPage() {
                   Selección Manual
                 </button>
                 <button
-                  onClick={() => setCaptureMode('rfid')}
+                  onClick={() => dispatchUI({ type: 'SET_CAPTURE_MODE', payload: 'rfid' })}
                   className={cn(
                     'px-4 py-2 rounded-lg text-sm font-medium transition-all',
-                    captureMode === 'rfid'
+                    ui.captureMode === 'rfid'
                       ? 'bg-indigo-500 text-white'
                       : 'text-slate-400 hover:text-white'
                   )}
@@ -733,7 +760,7 @@ export default function DeckEditPage() {
                 </button>
               </div>
 
-              {captureMode === 'manual' ? (
+              {ui.captureMode === 'manual' ? (
                 <CardSelector
                   cards={availableCards.filter((c) => !selectedCards.some((sc) => sc._id === c._id))}
                   selectedCards={[]}

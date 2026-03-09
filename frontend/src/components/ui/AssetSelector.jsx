@@ -194,7 +194,7 @@ export default function AssetSelector({
                   <CardAssetPreview
                     asset={asset}
                     alt={asset.value}
-                    className="w-14 h-14 rounded-lg"
+                    className="size-14 rounded-lg"
                     fit="cover"
                     fallbackClassName="bg-slate-900/80 text-3xl"
                     fallbackLabel={asset.display || '📎'}
@@ -202,7 +202,7 @@ export default function AssetSelector({
 
                   {/* Indicador de audio */}
                   {asset.audioUrl && (
-                    <div className="absolute -top-1 -right-1 w-5 h-5 rounded-full bg-purple-500 flex items-center justify-center">
+                    <div className="absolute -top-1 -right-1 size-5 rounded-full bg-purple-500 flex items-center justify-center">
                       <Volume2 size={10} className="text-white" />
                     </div>
                   )}
@@ -223,7 +223,7 @@ export default function AssetSelector({
                       initial={{ scale: 0, rotate: -180 }}
                       animate={{ scale: 1, rotate: 0 }}
                       exit={{ scale: 0, rotate: 180 }}
-                      className="absolute top-2 right-2 w-5 h-5 rounded-full bg-indigo-500 flex items-center justify-center"
+                      className="absolute top-2 right-2 size-5 rounded-full bg-indigo-500 flex items-center justify-center"
                     >
                       <Check size={12} className="text-white" strokeWidth={3} />
                     </motion.div>
