@@ -145,11 +145,11 @@ function generateStudentsData(teacher, names, count, indexOffset) {
     const nameIndex = (indexOffset + i) % names.length;
     const age = ages[i % ages.length];
 
-    // Calcular año de nacimiento basado en edad
+    // Calcular fecha de nacimiento determinista basada en indice
     const currentYear = new Date().getFullYear();
     const birthYear = currentYear - age;
-    const birthMonth = Math.floor(Math.random() * 12);
-    const birthDay = Math.floor(Math.random() * 28) + 1;
+    const birthMonth = (i * 3 + indexOffset) % 12;
+    const birthDay = ((i * 7) % 28) + 1;
 
     return {
       name: names[nameIndex],

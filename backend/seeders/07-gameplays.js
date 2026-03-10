@@ -1,7 +1,7 @@
 /**
  * @fileoverview Seeder de partidas individuales (GamePlay).
  * Crea partidas de ejemplo con eventos y métricas para testing.
- * @module seeders/06-gameplays
+ * @module seeders/07-gameplays
  */
 
 const GamePlay = require('../src/models/GamePlay');
@@ -139,7 +139,8 @@ function generatePlayEvents(numberOfRounds, config, cardMappings, studentProfile
   let timeoutAttempts = 0;
   const responseTimes = [];
 
-  const jitter = Math.floor(Math.random() * 60000);
+  // Jitter determinista basado en el numero de rondas
+  const jitter = (numberOfRounds * 7919) % 60000;
   const startTime = Date.now() - numberOfRounds * 20000 - jitter;
 
   for (let round = 1; round <= numberOfRounds; round++) {
@@ -240,7 +241,8 @@ function generateGamePlaysData(sessions, students) {
       return;
     }
 
-    const playsCount = Math.floor(Math.random() * 4) + 2;
+    // Determinista: 2-5 partidas por alumno segun su indice
+    const playsCount = (index % 4) + 2;
     for (let i = 0; i < playsCount; i++) {
       const session = teacherSessions[(index + i) % teacherSessions.length];
       const numberOfRounds = session.config.numberOfRounds;

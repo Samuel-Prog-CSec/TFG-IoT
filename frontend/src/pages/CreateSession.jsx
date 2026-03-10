@@ -11,7 +11,7 @@
  * @module pages/CreateSession
  */
 
-import { useState, useEffect, useCallback, useRef } from 'react';
+import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import confetti from 'canvas-confetti';
@@ -319,7 +319,7 @@ export default function CreateSession() {
   const isMemorySelected = selectedMechanicName === 'memory';
   const isAssociationSelected = selectedMechanicName === 'association';
 
-  const deckCards = toDeckCardMappings(selectedDeck);
+  const deckCards = useMemo(() => toDeckCardMappings(selectedDeck), [selectedDeck]);
   const memoryDeckCards = deckCards;
 
   // Cargar mazos y mecánicas
@@ -344,16 +344,24 @@ export default function CreateSession() {
   });
 
   // Handlers
-  const handleSelectDeck = (deck) => {
+  const handleSelectDeck = useCallback(async (deck) => {
     const deckId = deck.id || deck._id;
+    // Actualización inmediata con datos de lista para feedback visual
     setSelectedDeck(deck);
     setSessionConfig(prev => ({
       ...prev,
       deckId,
-      // Auto-generar nombre basado en el mazo
       name: prev.name || `Sesión - ${deck.name}`
     }));
-  };
+    // Cargar detalle completo para obtener cardMappings
+    try {
+      const deckRes = await decksAPI.getDeckById(deckId);
+      const fullDeck = extractData(deckRes);
+      if (fullDeck) setSelectedDeck(fullDeck);
+    } catch {
+      // Continuar con datos de lista si falla el detalle
+    }
+  }, []);
 
   const handleSelectMechanic = (mechanic) => {
     if (!isMechanicSelectable(mechanic)) {

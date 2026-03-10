@@ -8,7 +8,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { motion } from 'framer-motion';
-import { ArrowLeft, Save, Map, AlertTriangle } from 'lucide-react';
+import { ArrowLeft, Save, Map as MapIcon, AlertTriangle } from 'lucide-react';
 import { toast } from 'sonner';
 import { sessionsAPI, decksAPI, extractData, extractErrorMessage, isAbortError } from '../services/api';
 import { ROUTES } from '../constants/routes';
@@ -327,7 +327,7 @@ export default function SessionEdit() {
               variant="secondary"
               onClick={() => navigate(ROUTES.BOARD_SETUP_WITH_ID(sessionId))}
             >
-              <Map size={16} />
+              <MapIcon size={16} />
               Ver mapping
             </ButtonPremium>
           </div>
@@ -357,7 +357,7 @@ export default function SessionEdit() {
               variant="secondary"
               onClick={() => navigate(ROUTES.BOARD_SETUP_WITH_ID(sessionId))}
             >
-              <Map size={16} />
+              <MapIcon size={16} />
               Configurar tablero
             </ButtonPremium>
           </GlassCard>

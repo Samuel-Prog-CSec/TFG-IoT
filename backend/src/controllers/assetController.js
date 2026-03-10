@@ -76,7 +76,7 @@ const uploadImage = async (req, res, next) => {
   let thumbnailUrl = null;
 
   try {
-    const { id: contextId } = req.params;
+    const { id } = req.params;
     const { key, value, display } = req.body;
     const file = req.file;
 
@@ -90,7 +90,7 @@ const uploadImage = async (req, res, next) => {
     }
 
     // Obtener contexto y validar límite
-    const context = await getContextAndValidateLimit(contextId);
+    const context = await getContextAndValidateLimit(id);
 
     // Validar key única
     validateUniqueKey(context, key);
@@ -98,10 +98,10 @@ const uploadImage = async (req, res, next) => {
     // Procesar imagen (validación, conversión a WebP, thumbnail)
     const { mainImage, thumbnail, metadata } = await imageProcessingService.processImage(file);
 
-    // Subir imagen principal a Supabase
+    // Subir imagen principal a Supabase (usa context.contextId para path estable)
     imageUrl = await storageService.uploadFile(
       mainImage,
-      contextId,
+      context.contextId,
       'image',
       `${key}.webp`,
       'image/webp'
@@ -110,7 +110,7 @@ const uploadImage = async (req, res, next) => {
     // Subir thumbnail
     thumbnailUrl = await storageService.uploadFile(
       thumbnail,
-      contextId,
+      context.contextId,
       'thumbnail',
       `${key}_thumb.webp`,
       'image/webp'
@@ -178,7 +178,7 @@ const uploadAudio = async (req, res, next) => {
   let audioUrl = null;
 
   try {
-    const { id: contextId } = req.params;
+    const { id } = req.params;
     const { key, value, display } = req.body;
     const file = req.file;
 
@@ -192,7 +192,7 @@ const uploadAudio = async (req, res, next) => {
     }
 
     // Obtener contexto y validar límite
-    const context = await getContextAndValidateLimit(contextId);
+    const context = await getContextAndValidateLimit(id);
 
     // Validar key única
     validateUniqueKey(context, key);
@@ -200,10 +200,10 @@ const uploadAudio = async (req, res, next) => {
     // Validar audio (magic bytes, tamaño)
     const { buffer, metadata } = await audioValidationService.validateAudio(file);
 
-    // Subir a Supabase
+    // Subir a Supabase (usa context.contextId para path estable)
     audioUrl = await storageService.uploadFile(
       buffer,
-      contextId,
+      context.contextId,
       'audio',
       `${key}.${metadata.format}`,
       metadata.mime

@@ -200,11 +200,6 @@ const renderSessionsContent = ({
                 </Tooltip>
               </div>
 
-              {!canEdit && (
-                <p className="text-xs text-slate-500">
-                  Solo sesiones en borrador se pueden editar o eliminar.
-                </p>
-              )}
             </GlassCard>
           </motion.div>
         );

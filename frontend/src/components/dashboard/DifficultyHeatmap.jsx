@@ -40,7 +40,7 @@ export default function DifficultyHeatmap({ data }) {
 
   return (
     <ChartSection title="Mapa de Calor de Dificultad">
-      <div className="h-[300px] w-full -ml-4 sm:ml-0">
+      <div className="h-[300px] w-full">
         <ResponsiveContainer width="100%" height="100%">
           <ScatterChart margin={{ top: 20, right: 20, bottom: 20, left: 20 }}>
             <CartesianGrid strokeDasharray="3 3" stroke="var(--color-border-subtle)" />
@@ -60,7 +60,7 @@ export default function DifficultyHeatmap({ data }) {
                 ticks={contexts.map((_, i) => i)} 
                 tickFormatter={(i) => contexts[i]} 
                 tick={{ fill: 'var(--color-text-muted)', fontSize: 11, fontWeight: 500 }}
-                width={80}
+                width={150}
                 interval={0}
             />
             <Tooltip 

@@ -230,6 +230,16 @@ const updateContext = async (req, res, next) => {
       throw new NotFoundError('Contexto de juego');
     }
 
+    // Validar que no se renombra contextId si hay assets con archivos en Storage
+    if (contextId && contextId.toLowerCase() !== context.contextId) {
+      const hasStorageAssets = context.assets.some(a => a.imageUrl || a.audioUrl || a.thumbnailUrl);
+      if (hasStorageAssets) {
+        throw new ValidationError(
+          'No se puede cambiar el contextId de un contexto con assets almacenados en Storage'
+        );
+      }
+    }
+
     // Actualizar campos
     if (contextId) {
       context.contextId = contextId.toLowerCase();
@@ -297,7 +307,7 @@ const deleteContext = async (req, res, next) => {
     // Hard-fail: si Supabase falla, se lanza excepción y el contexto NO se elimina de MongoDB.
     // Única excepción: si Storage está deshabilitado intencionalmente (SUPABASE_SERVICE_KEY no configurada),
     // se omite en silencio para compatibilidad con entornos de desarrollo locales sin Supabase.
-    await storageService.deleteFolder(context._id.toString());
+    await storageService.deleteFolder(context.contextId);
 
     await context.deleteOne();
 

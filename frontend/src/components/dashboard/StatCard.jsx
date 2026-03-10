@@ -59,14 +59,14 @@ function StatCard({ title, value, trend, icon, color }) {
             {value}
           </motion.div>
           <div className={cn(
-            "inline-flex items-center gap-1 text-sm font-semibold px-2.5 py-1 rounded-lg",
-            isPositive 
-              ? "text-success-base bg-success-base/10" 
+            "inline-flex items-center gap-1 text-sm font-semibold px-2.5 py-1 rounded-lg whitespace-nowrap",
+            isPositive
+              ? "text-success-base bg-success-base/10"
               : "text-error-base bg-error-base/10"
           )}>
             <TrendIcon size={14} strokeWidth={3} />
             <span>{trend}</span>
-            <span className="text-text-muted font-medium ml-1">vs semana pasada</span>
+            <span className="text-text-muted font-medium ml-1 text-xs">vs semana pasada</span>
           </div>
         </div>
         

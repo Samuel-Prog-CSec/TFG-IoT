@@ -9,6 +9,7 @@
     "seed": "node seeders/index.js",
     "seed:reset": "node seeders/index.js --reset",
     "seed:if-empty": "node scripts/seed-if-empty.js",
+    "seed:storage": "node scripts/seed-storage-assets.js",
     "migrate:sessions": "node scripts/migrate-session-status.js",
     "bench:sessions": "node scripts/benchmark-session-reads.js",
     "drop-db": "node scripts/drop-db.js",

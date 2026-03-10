@@ -310,8 +310,8 @@ export default function SessionDetail() {
               </div>
               <div className="bg-white/5 rounded-xl p-4">
                 <p className="text-slate-400">Dificultad</p>
-                <p className="text-white text-xl font-semibold mt-2 capitalize">
-                  {session.difficulty}
+                <p className="text-white text-xl font-semibold mt-2">
+                  {{ easy: 'Fácil', medium: 'Media', hard: 'Difícil' }[session.difficulty] || session.difficulty}
                 </p>
               </div>
             </div>
@@ -346,6 +346,7 @@ export default function SessionDetail() {
           ) : (
             <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
               {mappingCards.map((mapping) => {
+                const imageUrl = mapping.displayData?.thumbnailUrl || mapping.displayData?.imageUrl;
                 const display = mapping.displayData?.display || mapping.displayData?.emoji || '🪪';
                 const label = mapping.displayData?.value || mapping.assignedValue || mapping.uid;
                 return (
@@ -356,7 +357,16 @@ export default function SessionDetail() {
                       'flex flex-col items-center justify-center gap-2 text-center'
                     )}
                   >
-                    <div className="text-3xl">{display}</div>
+                    {imageUrl ? (
+                      <img
+                        src={imageUrl}
+                        alt={label}
+                        className="w-12 h-12 object-contain rounded-lg"
+                        onError={(e) => { e.currentTarget.style.display = 'none'; }}
+                      />
+                    ) : (
+                      <div className="text-3xl">{display}</div>
+                    )}
                     <p className="text-sm text-white font-semibold">{label}</p>
                     <p className="text-xs text-slate-400">{mapping.uid}</p>
                   </div>

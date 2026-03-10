@@ -77,12 +77,13 @@ export default function RFIDModeHandler({ currentMode = 'idle', className }) {
   const isConnected = deviceState === 'ready';
 
   return (
-    <div className={cn("fixed bottom-6 right-6 z-50", className)}>
+    <div className={cn("fixed bottom-6 right-6 z-50 pointer-events-none", className)}>
       <AnimatePresence>
         <motion.div
           initial={{ opacity: 0, y: 20, scale: 0.95 }}
           animate={{ opacity: 1, y: 0, scale: 1 }}
           exit={{ opacity: 0, y: 20, scale: 0.95 }}
+          className="pointer-events-auto"
         >
           <GlassCard className="p-4 shadow-2xl border-white/10 overflow-hidden w-64">
             {/* Indicador de Conexión */}

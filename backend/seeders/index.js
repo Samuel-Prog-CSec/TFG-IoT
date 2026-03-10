@@ -127,7 +127,6 @@ async function runSeeders() {
     logger.info('   │  admin@test.com     │  Admin1234!          │');
     logger.info('   │  maria@test.com     │  Test1234!           │');
     logger.info('   │  carlos@test.com    │  Test1234!           │');
-    logger.info('   │  ana@test.com       │  Test1234!           │');
     logger.info('   └────────────────────────────────────────────┘');
     logger.info('');
   } catch (error) {

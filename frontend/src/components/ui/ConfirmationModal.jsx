@@ -262,57 +262,34 @@ export default function ConfirmationModal({
  * };
  */
 export function useConfirmationModal() {
-  const [modalState, setModalState] = useState({
-    open: false,
-    title: '',
-    description: '',
-    confirmText: 'Confirmar',
-    cancelText: 'Cancelar',
-    variant: 'warning',
-    onConfirm: () => {},
-    loading: false,
-  });
+  const [isOpen, setIsOpen] = useState(false);
+  const [config, setConfig] = useState({});
 
-  const openModal = useCallback((config) => {
-    setModalState({
-      open: true,
-      title: config.title || '',
-      description: config.description || '',
-      confirmText: config.confirmText || 'Confirmar',
-      cancelText: config.cancelText || 'Cancelar',
-      variant: config.variant || 'warning',
-      subtitle: config.subtitle,
-      icon: config.icon,
-      onConfirm: config.onConfirm || (() => {}),
-      loading: false,
-    });
+  const open = useCallback(() => setIsOpen(true), []);
+  const close = useCallback(() => setIsOpen(false), []);
+
+  const openModal = useCallback((modalConfig = {}) => {
+    setConfig(modalConfig);
+    setIsOpen(true);
   }, []);
 
-  const closeModal = useCallback(() => {
-    setModalState(prev => ({ ...prev, open: false }));
-  }, []);
-
-  const setLoading = useCallback((loading) => {
-    setModalState(prev => ({ ...prev, loading }));
-  }, []);
-
-  const confirmAction = useCallback(async () => {
-    setLoading(true);
-    try {
-      await modalState.onConfirm();
-      closeModal();
-    } catch (error) {
-      console.error('[ConfirmationModal] Error en confirmación:', error);
-    } finally {
-      setLoading(false);
-    }
-  }, [modalState.onConfirm, closeModal, setLoading]);
+  const modalProps = {
+    open: isOpen,
+    onClose: close,
+    title: config.title,
+    description: config.description || config.message,
+    confirmText: config.confirmText,
+    cancelText: config.cancelText,
+    variant: config.variant,
+    onConfirm: config.onConfirm,
+  };
 
   return {
-    modalState,
+    isOpen,
+    open,
+    close,
     openModal,
-    closeModal,
-    confirmAction,
-    setLoading,
+    closeModal: close,
+    modalProps,
   };
 }

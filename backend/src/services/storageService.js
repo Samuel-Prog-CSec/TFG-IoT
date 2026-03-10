@@ -237,7 +237,7 @@ class StorageService {
   /**
    * Elimina todos los archivos de un contexto en Supabase Storage.
    *
-   * Borra las subcarpetas: image/, thumbnail/ y audio/ bajo ctx-{contextObjectId}/.
+   * Borra las subcarpetas: image/, thumbnail/ y audio/ bajo ctx-{contextId}/.
    * Se llama justo antes de eliminar el documento GameContext de MongoDB.
    *
    * Política de fallos: hard-fail — si Supabase falla, se lanza excepción y
@@ -245,15 +245,15 @@ class StorageService {
    * fuerte entre BD y Storage.
    *
    * @async
-   * @param {string} contextObjectId - El MongoDB ObjectId del contexto (como string)
+   * @param {string} contextId - El contextId estable del contexto (ej: 'geography-europe')
    * @returns {Promise<void>}
    */
-  async deleteFolder(contextObjectId) {
+  async deleteFolder(contextId) {
     // Si Storage está deshabilitado intencionalmente (entorno sin credenciales), omitir en silencio.
     // En producción las credenciales son obligatorias; en development local puede faltar SUPABASE_SERVICE_KEY.
     if (!this.enabled || !this.supabase) {
       logger.warn('Storage deshabilitado: omitiendo limpieza de carpeta del contexto', {
-        contextObjectId
+        contextId
       });
       return;
     }
@@ -264,11 +264,11 @@ class StorageService {
       const err = new Error(
         'Storage no disponible (circuit breaker abierto): no se puede garantizar la limpieza de archivos'
       );
-      logger.error('Storage: Circuito abierto, deleteFolder bloqueado', { contextObjectId });
+      logger.error('Storage: Circuito abierto, deleteFolder bloqueado', { contextId });
       throw err;
     }
 
-    const folderPrefix = `ctx-${contextObjectId}`;
+    const folderPrefix = `ctx-${contextId}`;
     const subfolders = ['image', 'thumbnail', 'audio'];
 
     try {

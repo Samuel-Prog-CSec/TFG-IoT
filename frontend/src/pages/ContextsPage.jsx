@@ -49,11 +49,11 @@ export default function ContextsPage() {
   // Stats globales
   const totalAssets = contexts.reduce((acc, ctx) => acc + (ctx.assetsCount || ctx.assets?.length || 0), 0);
   const totalAudio = contexts.reduce(
-    (acc, ctx) => acc + (ctx.assets?.filter(a => a.audioUrl)?.length || 0),
+    (acc, ctx) => acc + (ctx.audioCount ?? ctx.assets?.filter(a => a.audioUrl)?.length ?? 0),
     0
   );
   const totalImages = contexts.reduce(
-    (acc, ctx) => acc + (ctx.assets?.filter(a => a.imageUrl)?.length || 0),
+    (acc, ctx) => acc + (ctx.imageCount ?? ctx.assets?.filter(a => a.imageUrl)?.length ?? 0),
     0
   );
 
@@ -226,8 +226,8 @@ export default function ContextsPage() {
 
 function ContextCard({ context, onClick, index, reducedMotion }) {
   const assetCount = context.assetsCount ?? context.assets?.length ?? 0;
-  const imagesCount = context.assets?.filter(a => a.imageUrl)?.length ?? 0;
-  const audioCount = context.assets?.filter(a => a.audioUrl)?.length ?? 0;
+  const imagesCount = context.imageCount ?? context.assets?.filter(a => a.imageUrl)?.length ?? 0;
+  const audioCount = context.audioCount ?? context.assets?.filter(a => a.audioUrl)?.length ?? 0;
   const previews = context.assets?.filter(a => a.display)?.slice(0, 5).map(a => a.display) || [];
 
   return (

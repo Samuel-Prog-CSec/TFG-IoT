@@ -2,11 +2,12 @@ import { useState, useEffect } from 'react';
 import PropTypes from 'prop-types';
 import { Outlet, NavLink, useLocation } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
+import { toast } from 'sonner';
 import { ROUTES, NAV_ROUTES, ADMIN_NAV_ROUTES } from '../../constants/routes';
 import * as LucideIcons from 'lucide-react';
 import { Shield, Layers, X, Menu, Sparkles, Settings, LogOut } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
-import { cn, pageVariants } from '../../lib/utils';
+import { cn } from '../../lib/utils';
 
 export default function AppLayout() {
   const [sidebarOpen, setSidebarOpen] = useState(false);
@@ -172,7 +173,10 @@ export default function AppLayout() {
 
         {/* Footer Actions */}
         <div className="p-4 border-t border-border-subtle space-y-1">
-          <button className="flex items-center gap-3 w-full px-4 py-3 text-text-muted hover:text-text-primary hover:bg-background-elevated rounded-xl transition-all duration-200 group">
+          <button
+            onClick={() => toast.info('Configuración', { description: 'Próximamente disponible.' })}
+            className="flex items-center gap-3 w-full px-4 py-3 text-text-muted hover:text-text-primary hover:bg-background-elevated rounded-xl transition-all duration-200 group"
+          >
             <Settings size={20} className="group-hover:rotate-90 transition-transform duration-300" />
             <span className="font-medium text-sm">Configuración</span>
           </button>
@@ -187,23 +191,14 @@ export default function AppLayout() {
       </motion.aside>
 
       {/* Main Content */}
-      <main className="flex-1 overflow-auto relative custom-scrollbar">
+      <main className="flex-1 overflow-auto relative custom-scrollbar pb-44">
         {/* Subtle Grid Pattern for Depth */}
         <div className="absolute inset-0 bg-grid opacity-20 pointer-events-none" />
-        
-        {/* Page Content with Animation */}
-        <AnimatePresence mode="wait">
-          <motion.div
-            key={location.pathname}
-            variants={pageVariants}
-            initial="initial"
-            animate="animate"
-            exit="exit"
-            className="relative z-10 w-full h-full"
-          >
-            <Outlet />
-          </motion.div>
-        </AnimatePresence>
+
+        {/* Page Content */}
+        <div className="relative z-10 w-full h-full">
+          <Outlet />
+        </div>
       </main>
     </div>
   );

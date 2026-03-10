@@ -78,9 +78,9 @@ describeSupabase('Asset Controller - Image Upload', () => {
       assets: [],
       save: jest.fn().mockResolvedValue(true)
     };
-    const mockImageUrl = 'https://fake-supabase.com/storage/ctx-context-123/image/lion.webp';
+    const mockImageUrl = 'https://fake-supabase.com/storage/ctx-test-context/image/lion.webp';
     const mockThumbnailUrl =
-      'https://fake-supabase.com/storage/ctx-context-123/thumbnail/lion_thumb.webp';
+      'https://fake-supabase.com/storage/ctx-test-context/thumbnail/lion_thumb.webp';
     const mockFileBuffer = Buffer.from('fake-image-content');
 
     gameContextRepository.findById.mockResolvedValue(mockContext);
@@ -105,6 +105,14 @@ describeSupabase('Asset Controller - Image Upload', () => {
     expect(response.body.data.asset.thumbnailUrl).toBe(mockThumbnailUrl);
     expect(imageProcessingService.processImage).toHaveBeenCalledTimes(1);
     expect(storageService.uploadFile).toHaveBeenCalledTimes(2);
+    // Verify uploadFile is called with context.contextId, not the ObjectId route param
+    expect(storageService.uploadFile).toHaveBeenCalledWith(
+      expect.any(Buffer),
+      'test-context',
+      'image',
+      'lion.webp',
+      'image/webp'
+    );
     expect(mockContext.assets).toHaveLength(1);
     expect(mockContext.save).toHaveBeenCalled();
   });
@@ -221,6 +229,14 @@ describeSupabase('Asset Controller - Audio Upload', () => {
     expect(response.body.data.asset.audioUrl).toBe(mockAudioUrl);
     expect(audioValidationService.validateAudio).toHaveBeenCalledTimes(1);
     expect(storageService.uploadFile).toHaveBeenCalledTimes(1);
+    // Verify uploadFile is called with context.contextId, not the ObjectId route param
+    expect(storageService.uploadFile).toHaveBeenCalledWith(
+      expect.any(Buffer),
+      'test-context',
+      'audio',
+      'lion.mp3',
+      'audio/mpeg'
+    );
     expect(mockContext.assets).toHaveLength(1);
     expect(mockContext.save).toHaveBeenCalled();
   });

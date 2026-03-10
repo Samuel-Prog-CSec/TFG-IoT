@@ -493,13 +493,16 @@ const toGameContextDTOV1 = context => {
   }
 
   const contextData = toPlainObject(context);
+  const assets = Array.isArray(contextData.assets) ? contextData.assets : [];
 
   return {
     id: toId(contextData),
     contextId: contextData.contextId,
     name: contextData.name,
     isActive: contextData.isActive,
-    assetsCount: Array.isArray(contextData.assets) ? contextData.assets.length : 0,
+    assetsCount: assets.length,
+    imageCount: assets.filter(a => a.imageUrl).length,
+    audioCount: assets.filter(a => a.audioUrl).length,
     createdAt: contextData.createdAt,
     updatedAt: contextData.updatedAt
   };

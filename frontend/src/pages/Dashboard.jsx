@@ -247,14 +247,14 @@ function Header({ timeRange, setTimeRange, reducedMotion = false }) {
     <motion.header 
       initial={reducedMotion ? false : { opacity: 0, y: -20 }}
       animate={{ opacity: 1, y: 0 }}
-      className="flex flex-col sm:flex-row sm:justify-between sm:items-end gap-4 pt-4 lg:pt-0"
+      className="flex flex-col sm:flex-row sm:justify-between sm:items-end gap-4 pt-14 lg:pt-0"
     >
       <div>
         <motion.h1 
           initial={reducedMotion ? false : { opacity: 0, x: -20 }}
           animate={{ opacity: 1, x: 0 }}
           transition={{ delay: reducedMotion ? 0 : 0.1 }}
-          className="text-2xl sm:text-3xl font-bold text-text-primary mb-2 font-display"
+          className="text-2xl sm:text-3xl font-bold text-text-primary mb-2 font-display whitespace-nowrap"
         >
           <span aria-hidden="true">¡Bienvenido de nuevo! 👋</span>
           <span className="sr-only">¡Bienvenido de nuevo!</span>

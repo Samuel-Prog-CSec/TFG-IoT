@@ -53,31 +53,31 @@ const deckTemplates = [
     name: 'Banderas de Europa',
     description: 'Mazo para aprender paises de Europa',
     contextKey: 'geography-europe',
-    cardCount: 15
+    cardCount: 6
   },
   {
     name: 'Animales de Granja',
     description: 'Mazo con animales domésticos de granja',
     contextKey: 'animals-farm',
-    cardCount: 15
+    cardCount: 6
   },
   {
     name: 'Colores Basicos',
     description: 'Mazo para aprender colores basicos',
     contextKey: 'colors-basic',
-    cardCount: 15
+    cardCount: 6
   },
   {
-    name: 'Numeros del 1 al 15',
-    description: 'Mazo para practicar numeros del 1 al 15',
+    name: 'Numeros del 1 al 6',
+    description: 'Mazo para practicar numeros del 1 al 6',
     contextKey: 'numbers-1-15',
-    cardCount: 15
+    cardCount: 6
   },
   {
     name: 'Formas Basicas',
     description: 'Mazo para aprender formas basicas',
     contextKey: 'shapes-basic',
-    cardCount: 15
+    cardCount: 6
   }
 ];
 
@@ -91,7 +91,7 @@ const deckTemplates = [
  */
 function generateDecksForTeacher(teacher, contexts, cards, teacherIndex) {
   const decks = [];
-  const cardsPerDeck = 15;
+  const cardsPerDeck = 6;
   const decksPerTeacher = deckTemplates.length;
   const cardsPerTeacher = decksPerTeacher * cardsPerDeck;
   const cardOffset = teacherIndex * cardsPerTeacher;
