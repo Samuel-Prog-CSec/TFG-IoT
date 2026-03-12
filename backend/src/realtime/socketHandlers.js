@@ -37,6 +37,15 @@ const authRevalidationCache = new Map();
 const playOwnershipCache = new Map();
 let socketServerRef = null;
 
+/**
+ * Referencia al intervalo de limpieza periódica de caches.
+ * @type {NodeJS.Timeout|null}
+ */
+let cacheCleanupIntervalRef = null;
+
+/** Intervalo de limpieza periódica de caches (5 minutos). */
+const CACHE_CLEANUP_INTERVAL_MS = 5 * 60 * 1000;
+
 const emitRfidModeChanged = (userId, payload) => {
   if (!socketServerRef || !userId) {
     return;
@@ -56,6 +65,29 @@ const sweepExpiredEntries = cacheMap => {
       cacheMap.delete(key);
     }
   }
+};
+
+/**
+ * Barre entradas expiradas de un cache sin importar su tamaño.
+ * Utilizado por el intervalo periódico de limpieza.
+ *
+ * @param {Map} cacheMap - Cache a limpiar
+ * @returns {number} Cantidad de entradas eliminadas
+ */
+const sweepAllExpiredEntries = cacheMap => {
+  if (!cacheMap || cacheMap.size === 0) {
+    return 0;
+  }
+
+  const now = Date.now();
+  let removed = 0;
+  for (const [key, cached] of cacheMap.entries()) {
+    if (!cached || cached.expiresAt <= now) {
+      cacheMap.delete(key);
+      removed++;
+    }
+  }
+  return removed;
 };
 
 const getAuthCacheEntry = accessToken => {
@@ -716,6 +748,28 @@ const handleRfidScanFromClient = async (socket, data, gameEngine, rfidService, l
 const registerSocketHandlers = ({ io, gameEngine, rfidService, socketRateLimiter, logger }) => {
   socketServerRef = io;
 
+  // Iniciar limpieza periódica de caches (cada 5 minutos)
+  if (cacheCleanupIntervalRef) {
+    clearInterval(cacheCleanupIntervalRef);
+  }
+  cacheCleanupIntervalRef = setInterval(() => {
+    const authRemoved = sweepAllExpiredEntries(authRevalidationCache);
+    const ownershipRemoved = sweepAllExpiredEntries(playOwnershipCache);
+    if (authRemoved > 0 || ownershipRemoved > 0) {
+      logger.debug('Limpieza periódica de caches Socket.IO completada', {
+        authRemoved,
+        ownershipRemoved,
+        authCacheSize: authRevalidationCache.size,
+        ownershipCacheSize: playOwnershipCache.size
+      });
+    }
+  }, CACHE_CLEANUP_INTERVAL_MS);
+
+  // Evitar que el intervalo impida el cierre del proceso
+  if (cacheCleanupIntervalRef.unref) {
+    cacheCleanupIntervalRef.unref();
+  }
+
   // Middleware de autenticacion obligatoria.
   io.use(async (socket, next) => {
     try {
@@ -849,7 +903,8 @@ const registerSocketHandlers = ({ io, gameEngine, rfidService, socketRateLimiter
       'leave_card_assignment',
       'join_admin_room',
       'leave_admin_room',
-      'rfid_scan_from_client'
+      'rfid_scan_from_client',
+      'play_state_sync'
     ]);
 
     const commandHelpers = {
@@ -986,8 +1041,20 @@ const registerRfidHandlers = ({ io, gameEngine, rfidService, logger }) => {
   });
 };
 
+/**
+ * Detiene el intervalo de limpieza periódica de caches.
+ * Debe llamarse durante el shutdown del servidor.
+ */
+const stopCacheCleanup = () => {
+  if (cacheCleanupIntervalRef) {
+    clearInterval(cacheCleanupIntervalRef);
+    cacheCleanupIntervalRef = null;
+  }
+};
+
 module.exports = {
   RFID_MODES,
   registerSocketHandlers,
-  registerRfidHandlers
+  registerRfidHandlers,
+  stopCacheCleanup
 };

@@ -17,6 +17,7 @@ import { Layers, Edit2, Trash2, Eye, MoreVertical, Calendar, CreditCard } from '
 import PropTypes from 'prop-types';
 import { cn } from '../../lib/utils';
 import Tooltip from './Tooltip';
+import CardAssetPreview from './CardAssetPreview';
 
 const formatDeckDate = (dateString) => {
   const date = new Date(dateString);
@@ -532,7 +533,12 @@ function DeckPreviewAssets({
             transform: `translateZ(${(index + 1) * 10}px)`,
           }}
         >
-          {mapping.displayData?.display || mapping.displayData?.emoji || '🎴'}
+          <CardAssetPreview
+            asset={mapping.displayData}
+            className="w-full h-full rounded-lg"
+            showSkeleton={false}
+            fallbackLabel={mapping.displayData?.display || mapping.displayData?.emoji || '🎴'}
+          />
         </motion.div>
       ))}
       {remainingCount > 0 && (

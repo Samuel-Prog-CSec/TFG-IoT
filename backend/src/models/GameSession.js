@@ -102,7 +102,7 @@ const gameSessionSchema = new mongoose.Schema(
         type: Number,
         required: true,
         min: 2,
-        max: 20
+        max: 30
       },
       numberOfRounds: {
         type: Number,
@@ -365,6 +365,18 @@ gameSessionSchema.index({ contextId: 1 });
  * Índice para buscar sesiones por sensor asignado.
  */
 gameSessionSchema.index({ sensorId: 1 });
+
+/**
+ * Índice compuesto para listar sesiones de un profesor ordenadas por fecha.
+ * Cubre el patrón de consulta más frecuente: GET /api/sessions?createdBy=X&sort=createdAt
+ */
+gameSessionSchema.index({ createdBy: 1, createdAt: -1 });
+
+/**
+ * Índice compuesto para filtrar sesiones de un profesor por estado.
+ * Cubre consultas como: sesiones activas de un profesor específico.
+ */
+gameSessionSchema.index({ createdBy: 1, status: 1 });
 
 const GameSession = mongoose.model('GameSession', gameSessionSchema);
 

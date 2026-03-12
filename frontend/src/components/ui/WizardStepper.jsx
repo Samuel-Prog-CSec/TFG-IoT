@@ -272,7 +272,7 @@ const WizardStepper = memo(function WizardStepper({
   return (
     <div className={cn('relative', className)}>
       {/* Línea de fondo */}
-      <div className="absolute top-5 left-0 w-full h-1 bg-slate-800/60 rounded-full overflow-hidden">
+      <div className="absolute top-5 left-5 right-5 h-1 bg-slate-800/60 rounded-full overflow-hidden">
         {/* Línea de progreso con efecto de fluido */}
         <motion.div
           className="h-full rounded-full relative"

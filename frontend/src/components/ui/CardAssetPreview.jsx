@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import PropTypes from 'prop-types';
 import { CreditCard } from 'lucide-react';
 import { cn } from '../../lib/utils';
@@ -13,10 +13,18 @@ export default function CardAssetPreview({
   imageClassName,
   fallbackClassName,
   fallbackIcon = <CreditCard size={16} className="text-slate-400" />,
-  fallbackLabel
+  fallbackLabel,
+  showSkeleton = true
 }) {
-  const [imageError, setImageError] = useState(false);
   const imageUrl = getBestAssetImageUrl(asset);
+  const [imageError, setImageError] = useState(false);
+  const [imageLoading, setImageLoading] = useState(Boolean(imageUrl));
+
+  // Reset state when asset image URL changes
+  useEffect(() => {
+    setImageError(false);
+    setImageLoading(Boolean(imageUrl));
+  }, [imageUrl]);
 
   const shouldShowImage = Boolean(imageUrl) && !imageError;
   const fallbackText = asset?.display || fallbackLabel;
@@ -29,18 +37,28 @@ export default function CardAssetPreview({
       )}
     >
       {shouldShowImage ? (
-        <img
-          src={imageUrl}
-          alt={alt || asset?.value || 'Asset'}
-          className={cn(
-            'w-full h-full',
-            fit === 'contain' ? 'object-contain' : 'object-cover',
-            imageClassName
+        <>
+          {/* Shimmer skeleton while loading */}
+          {showSkeleton && imageLoading && (
+            <div
+              className="absolute inset-0 bg-slate-800/80 before:absolute before:inset-0 before:-translate-x-full before:animate-[shimmer_2s_infinite] before:bg-gradient-to-r before:from-transparent before:via-text-primary/5 before:to-transparent"
+            />
           )}
-          onError={() => setImageError(true)}
-          loading={loading}
-          decoding="async"
-        />
+          <img
+            src={imageUrl}
+            alt={alt || asset?.value || 'Asset'}
+            className={cn(
+              'w-full h-full transition-opacity duration-300',
+              fit === 'contain' ? 'object-contain' : 'object-cover',
+              imageLoading ? 'opacity-0' : 'opacity-100',
+              imageClassName
+            )}
+            onLoad={() => setImageLoading(false)}
+            onError={() => { setImageError(true); setImageLoading(false); }}
+            loading={loading}
+            decoding="async"
+          />
+        </>
       ) : (
         <div
           className={cn(
@@ -73,5 +91,6 @@ CardAssetPreview.propTypes = {
   imageClassName: PropTypes.string,
   fallbackClassName: PropTypes.string,
   fallbackIcon: PropTypes.node,
-  fallbackLabel: PropTypes.string
+  fallbackLabel: PropTypes.string,
+  showSkeleton: PropTypes.bool
 };

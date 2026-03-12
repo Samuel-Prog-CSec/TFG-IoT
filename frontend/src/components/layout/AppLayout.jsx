@@ -172,7 +172,7 @@ export default function AppLayout() {
         </nav>
 
         {/* Footer Actions */}
-        <div className="p-4 border-t border-border-subtle space-y-1">
+        <div className="p-4 border-t border-transparent bg-gradient-to-r from-transparent via-border-default/50 to-transparent space-y-1">
           <button
             onClick={() => toast.info('Configuración', { description: 'Próximamente disponible.' })}
             className="flex items-center gap-3 w-full px-4 py-3 text-text-muted hover:text-text-primary hover:bg-background-elevated rounded-xl transition-all duration-200 group"

@@ -16,7 +16,10 @@ import {
   Layers,
   Timer,
   Award,
-  AlertTriangle
+  AlertTriangle,
+  RotateCcw,
+  Minus,
+  Gauge
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { sessionsAPI, extractData, extractErrorMessage, isAbortError } from '../services/api';
@@ -24,6 +27,7 @@ import { ROUTES } from '../constants/routes';
 import ButtonPremium from '../components/ui/ButtonPremium';
 import GlassCard from '../components/ui/GlassCard';
 import StatusBadge from '../components/ui/StatusBadge';
+import CardAssetPreview from '../components/ui/CardAssetPreview';
 import { SkeletonCard } from '../components/ui/SkeletonShimmer';
 import EmptyState from '../components/ui/EmptyState';
 import Tooltip from '../components/ui/Tooltip';
@@ -271,7 +275,7 @@ export default function SessionDetail() {
                   <Layers size={16} />
                   Tarjetas
                 </div>
-                <p className="text-white text-xl font-semibold mt-2">
+                <p className="text-white text-xl font-semibold font-display mt-2">
                   {session.config?.numberOfCards}
                 </p>
               </div>
@@ -280,7 +284,7 @@ export default function SessionDetail() {
                   <Timer size={16} />
                   Tiempo por ronda
                 </div>
-                <p className="text-white text-xl font-semibold mt-2">
+                <p className="text-white text-xl font-semibold font-display mt-2">
                   {session.config?.timeLimit}s
                 </p>
               </div>
@@ -289,7 +293,7 @@ export default function SessionDetail() {
                   <Award size={16} />
                   Puntos por acierto
                 </div>
-                <p className="text-white text-xl font-semibold mt-2">
+                <p className="text-white text-xl font-semibold font-display mt-2">
                   +{session.config?.pointsPerCorrect}
                 </p>
               </div>
@@ -297,20 +301,29 @@ export default function SessionDetail() {
 
             <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
               <div className="bg-white/5 rounded-xl p-4">
-                <p className="text-slate-400">Rondas</p>
-                <p className="text-white text-xl font-semibold mt-2">
+                <div className="flex items-center gap-2 text-slate-400">
+                  <RotateCcw size={16} />
+                  Rondas
+                </div>
+                <p className="text-white text-xl font-semibold font-display mt-2">
                   {session.config?.numberOfRounds}
                 </p>
               </div>
               <div className="bg-white/5 rounded-xl p-4">
-                <p className="text-slate-400">Penalización</p>
-                <p className="text-white text-xl font-semibold mt-2">
+                <div className="flex items-center gap-2 text-slate-400">
+                  <Minus size={16} />
+                  Penalización
+                </div>
+                <p className="text-white text-xl font-semibold font-display mt-2">
                   {session.config?.penaltyPerError}
                 </p>
               </div>
               <div className="bg-white/5 rounded-xl p-4">
-                <p className="text-slate-400">Dificultad</p>
-                <p className="text-white text-xl font-semibold mt-2">
+                <div className="flex items-center gap-2 text-slate-400">
+                  <Gauge size={16} />
+                  Dificultad
+                </div>
+                <p className="text-white text-xl font-semibold font-display mt-2">
                   {{ easy: 'Fácil', medium: 'Media', hard: 'Difícil' }[session.difficulty] || session.difficulty}
                 </p>
               </div>
@@ -346,30 +359,28 @@ export default function SessionDetail() {
           ) : (
             <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
               {mappingCards.map((mapping) => {
-                const imageUrl = mapping.displayData?.thumbnailUrl || mapping.displayData?.imageUrl;
                 const display = mapping.displayData?.display || mapping.displayData?.emoji || '🪪';
                 const label = mapping.displayData?.value || mapping.assignedValue || mapping.uid;
                 return (
-                  <div
+                  <motion.div
                     key={mapping.id || mapping.uid}
                     className={cn(
                       'rounded-2xl border border-white/10 p-4 bg-white/5',
                       'flex flex-col items-center justify-center gap-2 text-center'
                     )}
+                    whileHover={{ scale: 1.04, y: -2 }}
+                    transition={{ type: 'spring', stiffness: 400, damping: 25 }}
                   >
-                    {imageUrl ? (
-                      <img
-                        src={imageUrl}
-                        alt={label}
-                        className="w-12 h-12 object-contain rounded-lg"
-                        onError={(e) => { e.currentTarget.style.display = 'none'; }}
-                      />
-                    ) : (
-                      <div className="text-3xl">{display}</div>
-                    )}
+                    <CardAssetPreview
+                      asset={mapping.displayData}
+                      alt={label}
+                      className="w-14 h-14 rounded-xl"
+                      fit="cover"
+                      fallbackLabel={display}
+                    />
                     <p className="text-sm text-white font-semibold">{label}</p>
                     <p className="text-xs text-slate-400">{mapping.uid}</p>
-                  </div>
+                  </motion.div>
                 );
               })}
             </div>

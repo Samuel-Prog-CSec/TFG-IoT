@@ -1,39 +1,32 @@
 import { motion } from 'framer-motion';
 import PropTypes from 'prop-types';
 import { cn } from '../../lib/utils';
+import MascotAccessory from './MascotAccessory';
 
 /**
- * Mascota animada que acompaña al niño durante el juego
- * Usa emojis y CSS animations para crear expresiones
- * 
+ * Mascota animada híbrida (emoji 🦉 + accesorios SVG) que acompaña al niño durante el juego.
+ * El emoji base es siempre 🦉 para consistencia de identidad.
+ * La expresividad se logra con accesorios SVG superpuestos y animaciones corporales.
+ *
  * @param {Object} props
- * @param {'idle' | 'happy' | 'encouraging' | 'celebrating' | 'thinking' | 'sad'} props.mood - Estado de ánimo
- * @param {string} props.message - Mensaje en burbuja de diálogo
- * @param {'left' | 'right'} props.position - Posición en pantalla
+ * @param {'idle' | 'happy' | 'encouraging' | 'celebrating' | 'thinking' | 'sad'} props.mood
+ * @param {string} props.message - Mensaje contextual en burbuja de diálogo
+ * @param {'left' | 'right'} props.position
  */
-export default function CharacterMascot({ 
-  mood = 'idle', 
+export default function CharacterMascot({
+  mood = 'idle',
   message,
   position = 'left',
   shouldReduceMotion = false,
-  className 
+  className
 }) {
-  const mascotEmojis = {
-    idle: '🦉',
-    happy: '🦉',
-    encouraging: '🦉',
-    celebrating: '🥳',
-    thinking: '🤔',
-    sad: '🦉',
-  };
-
   const expressions = {
-    idle: { eyeAnim: 'blink', bodyAnim: 'float' },
-    happy: { eyeAnim: 'sparkle', bodyAnim: 'bounce' },
-    encouraging: { eyeAnim: 'wink', bodyAnim: 'nod' },
-    celebrating: { eyeAnim: 'sparkle', bodyAnim: 'jump' },
-    thinking: { eyeAnim: 'look', bodyAnim: 'tilt' },
-    sad: { eyeAnim: 'droop', bodyAnim: 'sway' },
+    idle: { bodyAnim: 'float' },
+    happy: { bodyAnim: 'bounce' },
+    encouraging: { bodyAnim: 'nod' },
+    celebrating: { bodyAnim: 'jump' },
+    thinking: { bodyAnim: 'tilt' },
+    sad: { bodyAnim: 'sway' },
   };
 
   const defaultMessages = {
@@ -124,7 +117,7 @@ export default function CharacterMascot({
           (mood === 'idle' || mood === 'thinking') && "bg-slate-400/10"
         )} />
 
-        {/* Mascot emoji */}
+        {/* Mascot emoji — always 🦉 for identity consistency */}
         <motion.div
           className="relative text-6xl select-none filter drop-shadow-lg"
           animate={!shouldReduceMotion && (mood === 'happy' || mood === 'celebrating') ? {
@@ -132,7 +125,9 @@ export default function CharacterMascot({
           } : { scale: 1 }}
           transition={{ duration: 0.5, repeat: !shouldReduceMotion && (mood === 'happy' || mood === 'celebrating') ? Infinity : 0 }}
         >
-          {mascotEmojis[mood]}
+          🦉
+          {/* SVG accessory overlay */}
+          <MascotAccessory mood={mood} shouldReduceMotion={shouldReduceMotion} />
         </motion.div>
 
         {/* Extra decorations for celebrating */}
@@ -140,7 +135,7 @@ export default function CharacterMascot({
           <>
             <motion.span
               className="absolute -top-2 -right-2 text-xl"
-              animate={{ 
+              animate={{
                 scale: [0, 1, 0],
                 rotate: [0, 180, 360]
               }}
@@ -150,7 +145,7 @@ export default function CharacterMascot({
             </motion.span>
             <motion.span
               className="absolute -top-1 -left-2 text-lg"
-              animate={{ 
+              animate={{
                 scale: [0, 1, 0],
               }}
               transition={{ duration: 1, repeat: Infinity, delay: 0.3 }}

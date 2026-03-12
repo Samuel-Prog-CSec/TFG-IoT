@@ -5,7 +5,12 @@
  */
 
 const userRepository = require('../repositories/userRepository');
-const { NotFoundError, ForbiddenError, ConflictError } = require('../utils/errors');
+const {
+  NotFoundError,
+  ForbiddenError,
+  ConflictError,
+  ValidationError
+} = require('../utils/errors');
 const logger = require('../utils/logger');
 const userService = require('../services/userService');
 const {
@@ -254,12 +259,8 @@ const createUser = async (req, res, next) => {
           existingStudentId: existingStudent._id
         });
 
-        return res.status(409).json({
-          success: false,
-          message: error.message,
-          data: {
-            existingStudent: toStudentDTOV1(existingStudent)
-          }
+        throw new ConflictError(error.message, {
+          existingStudent: toStudentDTOV1(existingStudent)
         });
       }
     }
@@ -370,12 +371,8 @@ const updateUser = async (req, res, next) => {
     });
 
     if (duplicate) {
-      return res.status(409).json({
-        success: false,
-        message: duplicate.message,
-        data: {
-          existingUser: toUserDTOV1(duplicate.existingUser)
-        }
+      throw new ConflictError(duplicate.message, {
+        existingUser: toUserDTOV1(duplicate.existingUser)
       });
     }
 
@@ -594,10 +591,7 @@ const transferStudent = async (req, res, next) => {
     const { newTeacherId, newClassroom, reason } = req.body;
 
     if (!newTeacherId || !newClassroom) {
-      return res.status(400).json({
-        success: false,
-        message: 'Se requiere newTeacherId y newClassroom'
-      });
+      throw new ValidationError('Se requiere newTeacherId y newClassroom');
     }
 
     const student = await userRepository.findById(id);
@@ -607,10 +601,7 @@ const transferStudent = async (req, res, next) => {
     }
 
     if (student.role !== 'student') {
-      return res.status(400).json({
-        success: false,
-        message: 'Solo se pueden transferir usuarios con rol de alumno'
-      });
+      throw new ValidationError('Solo se pueden transferir usuarios con rol de alumno');
     }
 
     // VERIFICACIÓN DE SEGURIDAD: Solo el super admin puede transferir
@@ -628,10 +619,7 @@ const transferStudent = async (req, res, next) => {
     });
 
     if (!newTeacher) {
-      return res.status(400).json({
-        success: false,
-        message: 'El nuevo profesor no existe o no está activo'
-      });
+      throw new NotFoundError('Profesor destino');
     }
 
     const fromTeacherId = student.createdBy;

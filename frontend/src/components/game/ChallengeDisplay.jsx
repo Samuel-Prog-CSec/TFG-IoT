@@ -1,25 +1,54 @@
-import { motion } from 'framer-motion';
+/**
+ * @fileoverview Componente ChallengeDisplay — feedback-aware.
+ * Muestra el desafío del juego (emoji/imagen) y reacciona visualmente
+ * a aciertos/fallos con glow, shake, y badge flotante de puntos.
+ *
+ * @module components/game/ChallengeDisplay
+ */
+
+import { motion, AnimatePresence } from 'framer-motion';
 import { Volume2, VolumeX } from 'lucide-react';
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState, forwardRef } from 'react';
 import PropTypes from 'prop-types';
 import { cn } from '../../lib/utils';
+import FloatingPointsBadge from './FloatingPointsBadge';
+
+const FEEDBACK_BORDER = {
+  idle: '',
+  success: 'border-emerald-500 shadow-[0_0_40px] shadow-emerald-500/30',
+  error: 'border-rose-500/70 shadow-[0_0_20px] shadow-rose-500/20',
+};
+
+const SHAKE_ANIMATION = {
+  x: [-6, 6, -4, 4, -2, 2, 0],
+  transition: { duration: 0.5 },
+};
+
+const SUCCESS_BOUNCE = {
+  scale: [1, 1.08, 1.02],
+  transition: { type: 'spring', stiffness: 400, damping: 15, duration: 0.6 },
+};
 
 /**
- * Componente para mostrar el desafío del juego
- * Muestra emoji/imagen grande con animaciones y botón de audio
- * 
  * @param {Object} props
- * @param {Object} props.asset - Asset del desafío { display: emoji, value: texto, audioUrl?, imageUrl? }
+ * @param {Object} props.asset - Asset del desafío { display, value, audioUrl?, imageUrl?, thumbnailUrl? }
  * @param {boolean} props.revealed - Si el desafío está revelado
- * @param {string} props.contextTheme - Tema del contexto para colores (geography, animals, etc.)
+ * @param {string} props.contextTheme - Tema del contexto para colores
+ * @param {'idle'|'success'|'error'} props.feedbackState - Estado de feedback actual
+ * @param {number} props.feedbackPoints - Puntos del feedback
+ * @param {string} props.feedbackMessage - Mensaje del feedback
+ * @param {boolean} props.shouldReduceMotion - Respetar prefers-reduced-motion
  */
-export default function ChallengeDisplay({ 
-  asset, 
+const ChallengeDisplay = forwardRef(function ChallengeDisplay({
+  asset,
   revealed = true,
   contextTheme = 'default',
+  feedbackState = 'idle',
+  feedbackPoints = 0,
+  feedbackMessage = '',
   shouldReduceMotion = false,
-  className 
-}) {
+  className
+}, ref) {
   const [audioPlaying, setAudioPlaying] = useState(false);
   const [imageError, setImageError] = useState(false);
   const [imageLoading, setImageLoading] = useState(false);
@@ -39,7 +68,6 @@ export default function ChallengeDisplay({
     };
   }, []);
 
-  // Colores según el tema del contexto (tokens semánticos de index.css)
   const themeColors = {
     default: {
       bg: 'from-theme-default/20 to-theme-default-alt/20',
@@ -74,6 +102,9 @@ export default function ChallengeDisplay({
   };
 
   const theme = themeColors[contextTheme] || themeColors.default;
+  const isIdle = feedbackState === 'idle';
+  const isSuccess = feedbackState === 'success';
+  const isError = feedbackState === 'error';
 
   const playAudio = () => {
     if (!asset?.audioUrl) return;
@@ -93,22 +124,52 @@ export default function ChallengeDisplay({
     audio.onended = () => setAudioPlaying(false);
   };
 
+  // Determine card-level animation based on feedback
+  const cardAnimate = (() => {
+    if (shouldReduceMotion || isIdle) return { scale: 1, opacity: 1, x: 0 };
+    if (isSuccess) return SUCCESS_BOUNCE;
+    if (isError) return { ...SHAKE_ANIMATION, scale: 1, opacity: 1 };
+    return { scale: 1, opacity: 1, x: 0 };
+  })();
+
+  // Determine asset animation based on feedback
+  const assetFeedbackAnimate = (() => {
+    if (shouldReduceMotion || isIdle) return undefined;
+    if (isSuccess) return { y: [0, -20, 0], rotate: [0, 5, -5, 0], transition: { duration: 0.6 } };
+    return undefined;
+  })();
+
   return (
     <motion.div
+      ref={ref}
       initial={shouldReduceMotion ? false : { scale: 0.8, opacity: 0 }}
-      animate={{ scale: 1, opacity: 1 }}
+      animate={cardAnimate}
       transition={shouldReduceMotion ? { duration: 0 } : { type: 'spring', stiffness: 300, damping: 20 }}
       className={cn(
         "relative flex flex-col items-center justify-center",
         "p-8 sm:p-12",
         "rounded-3xl",
         `bg-gradient-to-br ${theme.bg}`,
-        `border-2 ${theme.border}`,
+        "border-2 transition-[border-color,box-shadow] duration-300",
+        isIdle ? `${theme.border} shadow-2xl ${theme.glow}` : FEEDBACK_BORDER[feedbackState],
         "backdrop-blur-xl",
-        `shadow-2xl ${theme.glow}`,
         className
       )}
     >
+      {/* Floating Points Badge */}
+      <div className="absolute -top-5 left-1/2 -translate-x-1/2 z-30">
+        <AnimatePresence>
+          {!isIdle && (
+            <FloatingPointsBadge
+              type={feedbackState}
+              points={feedbackPoints}
+              message={feedbackMessage}
+              shouldReduceMotion={shouldReduceMotion}
+            />
+          )}
+        </AnimatePresence>
+      </div>
+
       {/* Decorative rings */}
       <div className="absolute inset-0 rounded-3xl overflow-hidden pointer-events-none">
         <div className="absolute inset-4 rounded-2xl border border-white/5" />
@@ -122,7 +183,7 @@ export default function ChallengeDisplay({
       <motion.div
         key={asset?.value}
         initial={shouldReduceMotion ? false : { y: 20, opacity: 0, rotateX: -20 }}
-        animate={{ y: 0, opacity: 1, rotateX: 0 }}
+        animate={assetFeedbackAnimate || { y: 0, opacity: 1, rotateX: 0 }}
         transition={shouldReduceMotion ? { duration: 0 } : { type: 'spring', stiffness: 400, damping: 25 }}
         className="relative z-10 text-center"
       >
@@ -156,9 +217,9 @@ export default function ChallengeDisplay({
               rotate: [0, 3, -3, 0]
             }}
             transition={shouldReduceMotion ? { duration: 0 } : {
-              duration: 2, 
-              repeat: Infinity, 
-              ease: "easeInOut" 
+              duration: 2,
+              repeat: Infinity,
+              ease: "easeInOut"
             }}
           >
             {revealed ? asset?.display : '❓'}
@@ -211,23 +272,22 @@ export default function ChallengeDisplay({
       {/* Sparkles decoration */}
       {!shouldReduceMotion && (
         <>
-          <Sparkle className="absolute top-4 left-4" delay={0} />
-          <Sparkle className="absolute top-8 right-8" delay={0.5} />
-          <Sparkle className="absolute bottom-8 left-8" delay={1} />
-          <Sparkle className="absolute bottom-4 right-4" delay={1.5} />
+          <ChallengeSparkle className="absolute top-4 left-4" delay={0} />
+          <ChallengeSparkle className="absolute top-8 right-8" delay={0.5} />
+          <ChallengeSparkle className="absolute bottom-8 left-8" delay={1} />
+          <ChallengeSparkle className="absolute bottom-4 right-4" delay={1.5} />
         </>
       )}
     </motion.div>
   );
-}
+});
 
-// Mini component for sparkle decoration
-function Sparkle({ className, delay = 0 }) {
+function ChallengeSparkle({ className, delay = 0 }) {
   return (
     <motion.div
       className={cn("text-2xl pointer-events-none select-none", className)}
       initial={{ opacity: 0, scale: 0 }}
-      animate={{ 
+      animate={{
         opacity: [0, 1, 0],
         scale: [0, 1, 0],
         rotate: [0, 180, 360]
@@ -244,6 +304,8 @@ function Sparkle({ className, delay = 0 }) {
   );
 }
 
+ChallengeDisplay.displayName = 'ChallengeDisplay';
+
 ChallengeDisplay.propTypes = {
   asset: PropTypes.shape({
     display: PropTypes.string,
@@ -254,11 +316,16 @@ ChallengeDisplay.propTypes = {
   }),
   revealed: PropTypes.bool,
   contextTheme: PropTypes.string,
+  feedbackState: PropTypes.oneOf(['idle', 'success', 'error']),
+  feedbackPoints: PropTypes.number,
+  feedbackMessage: PropTypes.string,
   shouldReduceMotion: PropTypes.bool,
   className: PropTypes.string
 };
 
-Sparkle.propTypes = {
+ChallengeSparkle.propTypes = {
   className: PropTypes.string,
   delay: PropTypes.number
 };
+
+export default ChallengeDisplay;

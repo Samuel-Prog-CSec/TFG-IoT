@@ -40,12 +40,12 @@ const { authenticate, requireRole } = require('./middlewares/auth');
 const { errorHandler, notFoundHandler } = require('./middlewares/errorHandler');
 const { createSocketRateLimiter } = require('./middlewares/socketRateLimiter');
 const { securityPayloadGuard } = require('./middlewares/securityPayloadGuard');
-const { getHealthStatus } = require('./utils/healthCheck');
+const { getHealthStatus, getMemoryUsage } = require('./utils/healthCheck');
 const runtimeMetrics = require('./utils/runtimeMetrics');
 const { toSystemMetricsDTOV1 } = require('./utils/dtos');
 const { validateQuery } = require('./middlewares/validation');
 const { emptyObjectSchema } = require('./validators/commonValidator');
-const { registerSocketHandlers, registerRfidHandlers } = require('./realtime');
+const { registerSocketHandlers, registerRfidHandlers, stopCacheCleanup } = require('./realtime');
 
 // Importar rutas
 const authRoutes = require('./routes/auth');
@@ -305,7 +305,8 @@ app.get(
         rfid: {
           processed: snapshot.rfid,
           service: rfidService.getStatus()
-        }
+        },
+        memory: getMemoryUsage()
       })
     );
   }
@@ -391,6 +392,26 @@ const startServer = async () => {
       await connectRedis();
       logger.info('Redis conectado');
 
+      // Configurar Socket.IO Redis adapter para escalabilidad horizontal
+      try {
+        const { isRedisConnected, getRedis } = require('./config/redis');
+        if (isRedisConnected()) {
+          const { createAdapter } = require('@socket.io/redis-adapter');
+          const redisClient = getRedis();
+          const pubClient = redisClient.duplicate();
+          const subClient = redisClient.duplicate();
+          io.adapter(createAdapter(pubClient, subClient));
+          logger.info('Socket.IO Redis adapter configurado para escalabilidad horizontal');
+        }
+      } catch (adapterError) {
+        logger.warn(
+          'No se pudo configurar Socket.IO Redis adapter (continuando con adapter in-memory):',
+          {
+            error: adapterError.message
+          }
+        );
+      }
+
       // Recuperar partidas huérfanas de un reinicio anterior
       const recoveredCount = await gameEngine.recoverActivePlays();
       if (recoveredCount > 0) {
@@ -439,6 +460,7 @@ const gracefulShutdown = async signal => {
 
     try {
       socketRateLimiter.stopCleanupTimer();
+      stopCacheCleanup();
 
       // 2. Detener el motor de juego y finalizar partidas activas
       await gameEngine.shutdown();

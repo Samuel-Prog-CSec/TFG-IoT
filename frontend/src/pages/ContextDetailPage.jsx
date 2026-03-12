@@ -23,6 +23,7 @@ import { toast } from 'sonner';
 import GlassCard from '../components/ui/GlassCard';
 import ButtonPremium from '../components/ui/ButtonPremium';
 import InputPremium from '../components/ui/InputPremium';
+import CardAssetPreview from '../components/ui/CardAssetPreview';
 import { SkeletonCard } from '../components/ui/SkeletonShimmer';
 import { cn } from '../lib/utils';
 import { useAuth } from '../context/AuthContext';
@@ -290,18 +291,14 @@ function AssetCard({ asset, index, onDelete, isDeleting = false }) {
       <GlassCard className="h-full overflow-hidden flex flex-col relative border-white/5 hover:border-indigo-500/30 transition-colors">
         {/* Preview Container */}
         <div className="aspect-square w-full bg-slate-800/50 relative overflow-hidden flex items-center justify-center">
-          {asset.imageUrl || asset.thumbnailUrl ? (
-            <img 
-              src={asset.thumbnailUrl || asset.imageUrl} 
-              alt={asset.value} 
-              className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-500"
-              loading="lazy"
-            />
-          ) : asset.display ? (
-            <span className="text-6xl filter drop-shadow-md">{asset.display}</span>
-          ) : (
-            <Palette size={40} className="text-slate-600" />
-          )}
+          <CardAssetPreview
+            asset={asset}
+            alt={asset.value}
+            className="w-full h-full"
+            imageClassName="group-hover:scale-110 transition-transform duration-500"
+            fit="cover"
+            fallbackIcon={<Palette size={40} className="text-slate-600" />}
+          />
 
           {/* Type Badge */}
           <div className="absolute top-2 right-2 flex gap-1">

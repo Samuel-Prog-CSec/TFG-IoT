@@ -1,9 +1,9 @@
-# Documentación de la API ("RFID Games Backend") - v0.3.0
+# Documentación de la API ("RFID Games Backend") - v0.4.0
 
 Este documento detalla los endpoints de la API REST para el Backend de Juegos Educativos RFID.
 
 **URL Base:** `/api`
-**Versión:** 0.3.0
+**Versión:** 0.4.0
 
 ## Autenticación y Seguridad
 
@@ -14,7 +14,25 @@ Este documento detalla los endpoints de la API REST para el Backend de Juegos Ed
 - **Límites de Velocidad (Rate Limits):**
   - **Global:** 100 peticiones / 15 min
   - **Auth:** 5 peticiones / 15 min
-  - **Creación:** 10 creaciones / 1 min (Sesiones, Contextos, etc.)
+  - **Registro:** 3 peticiones / 1 hora
+  - **Creación:** 10 creaciones / 1 min (Sesiones, Contextos, Mazos, etc.)
+  - **Upload:** 20 subidas / 1 hora (imágenes y audio)
+
+### Formato de Respuestas de Error
+
+Todas las respuestas de error siguen el formato:
+
+```json
+{
+  "success": false,
+  "message": "Descripción del error",
+  "data": { ... }
+}
+```
+
+- `message`: siempre presente, describe el error.
+- `data`: opcional, presente cuando el error incluye contexto adicional (ej: entidad existente en un conflicto 409).
+- `stack`: solo en entorno `development`.
 
 ---
 
@@ -228,7 +246,7 @@ Notas de contrato de `PUT /api/users/:id`:
 
 #### Rate Limits Especiales
 
-- **Upload:** 10 subidas / minuto por IP
+- **Upload:** 20 subidas / hora por IP
 
 #### Límites de Assets
 
@@ -598,7 +616,7 @@ Los **mazos** (CardDeck) permiten al profesor **reutilizar** la configuración d
 
 #### Reglas de Validación (negocio)
 
-- `cardMappings` debe tener entre **2 y 20** elementos.
+- `cardMappings` debe tener entre **2 y 30** elementos.
 - Dentro del mazo no se permiten duplicados de: `uid`, `cardId`, `assignedValue`.
 - Cada `assignedValue` debe existir en `GameContext.assets[].value` del `contextId` del mazo.
 - Todas las `Card` referenciadas deben existir y estar en `status=active`.
@@ -803,5 +821,5 @@ No borra el documento: cambia `status` a `archived`.
 
 ---
 
-_Última actualización: 16-02-2026_
-_Versión: 0.3.0 (runtime actualizado)_
+_Última actualización: 12-03-2026_
+_Versión: 0.4.0_

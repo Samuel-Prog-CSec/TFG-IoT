@@ -108,5 +108,10 @@ gameContextSchema
     `El array de assets no puede superar ${MAX_ASSETS_PER_CONTEXT} elementos.`
   );
 
+/**
+ * Índice para filtrar contextos por estado activo/inactivo.
+ */
+gameContextSchema.index({ isActive: 1 });
+
 module.exports = mongoose.model('GameContext', gameContextSchema);
 module.exports.MAX_ASSETS_PER_CONTEXT = MAX_ASSETS_PER_CONTEXT;

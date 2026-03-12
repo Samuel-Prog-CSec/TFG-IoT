@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useRef, memo } from 'react';
+import { useState, useEffect, useCallback, useRef, memo, forwardRef } from 'react';
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Wifi, WifiOff, Pause, Play, Volume2, VolumeX, AlertTriangle } from 'lucide-react';
@@ -23,10 +23,11 @@ import ErrorBoundary from '../components/common/ErrorBoundary';
 import ChallengeDisplay from '../components/game/ChallengeDisplay';
 import TimerBar from '../components/game/TimerBar';
 import { ScoreDisplayCompactMemo as ScoreDisplayCompact } from '../components/game/ScoreDisplay';
-import FeedbackOverlay from '../components/game/FeedbackOverlay';
+import FloatingPointsBadge from '../components/game/FloatingPointsBadge';
 import GameOverScreen from '../components/game/GameOverScreen';
 import CharacterMascot from '../components/game/CharacterMascot';
 import CardAssetPreview from '../components/ui/CardAssetPreview';
+import { useGameFeedback } from '../hooks/useGameFeedback';
 
 const SOCKET_ERROR_MESSAGES = {
   RFID_MODE_INVALID: 'El lector RFID no está en modo de juego.',
@@ -104,8 +105,7 @@ export default function GameSession() { // NOSONAR
   const [timeLeft, setTimeLeft] = useState(ROUND_TIME);
   const [score, setScore] = useState(0);
   const [correctAnswers, setCorrectAnswers] = useState(0);
-  const [feedback, setFeedback] = useState(null);
-  const [mascotMood, setMascotMood] = useState('idle');
+  // feedback and mascotMood are now managed by useGameFeedback hook
   const [soundEnabled, setSoundEnabled] = useState(true);
   const [rfidConnected, setRfidConnected] = useState(false);
   const [loadingSession, setLoadingSession] = useState(true);
@@ -171,6 +171,8 @@ export default function GameSession() { // NOSONAR
 
   const isMemoryMode = session?.mechanic?.name === 'memory';
 
+  const gameFeedback = useGameFeedback({ isMemoryMode, shouldReduceMotion });
+
   const clearPendingTimeouts = useCallback(() => {
     pendingTimeoutRef.current.forEach(timeoutId => globalThis.clearTimeout(timeoutId));
     pendingTimeoutRef.current = [];
@@ -178,20 +180,25 @@ export default function GameSession() { // NOSONAR
 
   const scheduleFeedbackClear = useCallback((delayMs = 1400) => {
     const timeoutId = globalThis.setTimeout(() => {
-      setFeedback(null);
+      gameFeedback.clearFeedback();
     }, delayMs);
     pendingTimeoutRef.current.push(timeoutId);
-  }, []);
+  }, [gameFeedback]);
 
   const handleValidationResult = useCallback(
     payload => {
       const feedbackDelayMs = Number(payload?.feedbackDelayMs || 1400);
-      const pointsAwarded = Number(payload?.pointsAwarded || 0);
-      const isCorrect = Boolean(payload?.isCorrect && !payload?.timeout);
 
-      setFeedback({ type: isCorrect ? 'success' : 'error', points: pointsAwarded });
+      const gameContext = {
+        currentRound, totalRounds, timeLeft, timeLimit: roundTime,
+        matchedCount: memoryStats.matchedCount,
+        totalCards: memoryStats.totalCards,
+        attempts: memoryStats.attempts,
+      };
+
+      const { isCorrect } = gameFeedback.processValidationResult(payload, gameContext);
+
       setScore(Number.isFinite(payload?.newScore) ? payload.newScore : 0);
-      setMascotMood(isCorrect ? 'celebrating' : 'encouraging');
       setIsAwaitingResponse(false);
       if (isMemoryMode) {
         setMemoryFeedbackActive(true);
@@ -206,14 +213,14 @@ export default function GameSession() { // NOSONAR
         Number.isFinite(feedbackDelayMs) && feedbackDelayMs > 0 ? feedbackDelayMs : 1400
       );
     },
-    [isMemoryMode, scheduleFeedbackClear]
+    [isMemoryMode, scheduleFeedbackClear, gameFeedback, currentRound, totalRounds, timeLeft, roundTime, memoryStats]
   );
 
   const handleNewRound = useCallback(
     payload => {
       announcedThresholdsRef.current.clear();
       clearPendingTimeouts();
-      setFeedback(null);
+      gameFeedback.clearFeedback();
       setGameState('playing');
       setCurrentRound(Number(payload?.roundNumber || 1));
 
@@ -232,17 +239,16 @@ export default function GameSession() { // NOSONAR
       setTimeLeft(nextTimeLimit);
       setScore(Number.isFinite(payload?.score) ? payload.score : 0);
       setChallenge(normalizeChallenge(payload?.challenge));
-      setMascotMood('idle');
       setIsAwaitingResponse(true);
       setSrAnnouncement(`Ronda ${Number(payload?.roundNumber || 1)} iniciada.`);
     },
-    [clearPendingTimeouts, normalizeChallenge]
+    [clearPendingTimeouts, normalizeChallenge, gameFeedback]
   );
 
   const handlePlayPaused = useCallback(payload => {
     const remaining = Number(payload?.remainingTimeMs);
     setGameState('paused');
-    setMascotMood('thinking');
+    gameFeedback.clearFeedback();  // reset to idle includes thinking-like state for pause
     setIsAwaitingResponse(false);
     setSrAnnouncement('Partida en pausa.');
 
@@ -255,7 +261,7 @@ export default function GameSession() { // NOSONAR
     payload => {
       const remaining = Number(payload?.remainingTimeMs);
       setGameState('playing');
-      setMascotMood('idle');
+      gameFeedback.clearFeedback();
       if (payload?.challenge) {
         setChallenge(normalizeChallenge(payload.challenge));
       }
@@ -359,7 +365,7 @@ export default function GameSession() { // NOSONAR
     setIsAwaitingResponse(false);
     setGameState('finished');
     setMemoryFeedbackActive(false);
-    setMascotMood('celebrating');
+    gameFeedback.clearFeedback();
     setRealtimeError(null);
 
     const finalScore = Number.isFinite(payload?.finalScore) ? payload.finalScore : 0;
@@ -372,7 +378,7 @@ export default function GameSession() { // NOSONAR
 
   const handlePlayInterrupted = useCallback(payload => {
     clearPendingTimeouts();
-    setFeedback(null);
+    gameFeedback.clearFeedback();
     setMemoryFeedbackActive(false);
     setIsAwaitingResponse(false);
     setGameState('finished');
@@ -608,10 +614,10 @@ export default function GameSession() { // NOSONAR
   ]);
 
   useEffect(() => {
-    if (!feedback) {
+    if (gameFeedback.feedbackState === 'idle') {
       setMemoryFeedbackActive(false);
     }
-  }, [feedback]);
+  }, [gameFeedback.feedbackState]);
 
   // Timer effect
   useEffect(() => {
@@ -690,6 +696,30 @@ export default function GameSession() { // NOSONAR
     };
   }, [clearPendingTimeouts]);
 
+  // Recuperar estado del juego tras reconexión del socket.
+  // Envía play_state_sync (fire-and-forget); el listener de play_state (línea ~560)
+  // maneja la respuesta del servidor y actualiza el estado local automáticamente.
+  useEffect(() => {
+    const handleSocketReconnected = () => {
+      const currentPlayId = playIdRef.current;
+      if (!currentPlayId || gameStateRef.current === 'finished') {
+        return;
+      }
+
+      const sent = socketService.requestPlayStateSync(currentPlayId);
+      if (sent) {
+        toast.success('Reconectado', {
+          description: 'Sincronizando estado del juego...'
+        });
+      }
+    };
+
+    window.addEventListener('socket_reconnected', handleSocketReconnected);
+    return () => {
+      window.removeEventListener('socket_reconnected', handleSocketReconnected);
+    };
+  }, []);
+
   useEffect(() => {
     const handleDeviceStateChange = (payload) => {
       setRfidConnected(payload?.state === 'ready');
@@ -715,7 +745,7 @@ export default function GameSession() { // NOSONAR
     }
 
     setGameState('playing');
-    setMascotMood('happy');
+    gameFeedback.clearFeedback();
     setRealtimeError(null);
     setSrAnnouncement('Partida iniciada.');
   };
@@ -818,7 +848,7 @@ export default function GameSession() { // NOSONAR
       setCorrectAnswers(0);
       setChallenge(null);
       setMemoryBoard([]);
-      setFeedback(null);
+      gameFeedback.resetForNewPlay();
       setIsAwaitingResponse(false);
       setPlaySummary(null);
       setMemoryStats({ attempts: 0, matchedCount: 0, totalCards: 0 });
@@ -1048,11 +1078,19 @@ export default function GameSession() { // NOSONAR
                   attempts={memoryStats.attempts}
                   matchedCount={memoryStats.matchedCount}
                   totalCards={memoryStats.totalCards}
+                  feedbackState={gameFeedback.feedbackState}
+                  feedbackPoints={gameFeedback.feedbackPoints}
+                  feedbackMessage={gameFeedback.feedbackMessage}
+                  shouldReduceMotion={shouldReduceMotion}
                 />
               ) : (
                 <AssociationGameplayPanel
+                  ref={gameFeedback.challengeRef}
                   challenge={challenge}
                   paused={gameState === 'paused'}
+                  feedbackState={gameFeedback.feedbackState}
+                  feedbackPoints={gameFeedback.feedbackPoints}
+                  feedbackMessage={gameFeedback.feedbackMessage}
                   shouldReduceMotion={shouldReduceMotion}
                 />
               )}
@@ -1125,7 +1163,12 @@ export default function GameSession() { // NOSONAR
 
       {/* Character Mascot */}
       <div className="fixed bottom-24 left-4 sm:left-8 z-20">
-        <CharacterMascot mood={mascotMood} position="left" shouldReduceMotion={shouldReduceMotion} />
+        <CharacterMascot
+          mood={gameFeedback.mascotMood}
+          message={gameFeedback.mascotMessage || undefined}
+          position="left"
+          shouldReduceMotion={shouldReduceMotion}
+        />
       </div>
 
       {/* Round progress dots */}
@@ -1160,17 +1203,7 @@ export default function GameSession() { // NOSONAR
         </footer>
       )}
 
-      {/* Feedback Overlay */}
-      <AnimatePresence>
-        {feedback && (
-          <FeedbackOverlay
-            type={feedback.type}
-            points={feedback.points}
-            onComplete={() => setFeedback(null)}
-            shouldReduceMotion={shouldReduceMotion}
-          />
-        )}
-      </AnimatePresence>
+      {/* Feedback is now rendered inline in ChallengeDisplay / MemoryBoard */}
 
       {/* Game Over Screen */}
       {gameState === 'finished' && (
@@ -1190,7 +1223,9 @@ export default function GameSession() { // NOSONAR
   );
 }
 
-const AssociationGameplayPanel = memo(function AssociationGameplayPanel({ challenge, paused, shouldReduceMotion }) {
+const AssociationGameplayPanel = memo(forwardRef(function AssociationGameplayPanel({
+  challenge, paused, feedbackState, feedbackPoints, feedbackMessage, shouldReduceMotion
+}, ref) {
   const resolveAssociationTheme = challengeValue => {
     const challengeKey = (challengeValue || '').toLowerCase();
 
@@ -1214,32 +1249,63 @@ const AssociationGameplayPanel = memo(function AssociationGameplayPanel({ challe
 
   return (
     <ChallengeDisplay
+      ref={ref}
       asset={challenge}
       revealed={!paused}
       contextTheme={contextTheme}
+      feedbackState={feedbackState}
+      feedbackPoints={feedbackPoints}
+      feedbackMessage={feedbackMessage}
       className="w-full"
       shouldReduceMotion={shouldReduceMotion}
     />
   );
-});
+}));
+
+AssociationGameplayPanel.displayName = 'AssociationGameplayPanel';
 
 AssociationGameplayPanel.propTypes = {
   challenge: PropTypes.object,
   paused: PropTypes.bool,
+  feedbackState: PropTypes.oneOf(['idle', 'success', 'error']),
+  feedbackPoints: PropTypes.number,
+  feedbackMessage: PropTypes.string,
   shouldReduceMotion: PropTypes.bool
 };
 
-const MemoryGameplayPanel = memo(function MemoryGameplayPanel({ board, attempts, matchedCount, totalCards }) {
+const MemoryGameplayPanel = memo(function MemoryGameplayPanel({
+  board, attempts, matchedCount, totalCards,
+  feedbackState, feedbackPoints, feedbackMessage, shouldReduceMotion
+}) {
   const totalPairs = Math.max(1, Math.ceil(Number(totalCards || 0) / 2));
   const matchedPairs = Math.max(0, Math.floor(Number(matchedCount || 0) / 2));
+  const isSuccess = feedbackState === 'success';
+  const isError = feedbackState === 'error';
 
   return (
-    <div className="w-full space-y-4">
+    <div className="w-full space-y-4 relative">
+      {/* Stats bar with reactive feedback */}
       <div className="mx-auto max-w-4xl rounded-xl border border-white/10 bg-slate-900/40 px-4 py-3 text-sm text-slate-200 flex flex-wrap items-center justify-between gap-3">
-        <span>Intentos: <strong>{attempts}</strong></span>
-        <span>Parejas encontradas: <strong>{matchedPairs}/{totalPairs}</strong></span>
+        <motion.span
+          animate={isError ? { color: ['#e2e8f0', '#fb7185', '#e2e8f0'] } : {}}
+          transition={{ duration: 0.6 }}
+        >
+          Intentos: <strong>{attempts}</strong>
+        </motion.span>
+        <motion.span
+          animate={isSuccess ? { color: ['#e2e8f0', '#34d399', '#e2e8f0'] } : {}}
+          transition={{ duration: 0.6 }}
+        >
+          Parejas encontradas: <strong>{matchedPairs}/{totalPairs}</strong>
+        </motion.span>
       </div>
-      <MemoryBoard board={board} />
+      <MemoryBoard
+        board={board}
+        feedbackState={feedbackState}
+        feedbackPoints={feedbackPoints}
+        feedbackMessage={feedbackMessage}
+        shouldReduceMotion={shouldReduceMotion}
+      />
     </div>
   );
 });
@@ -1248,7 +1314,11 @@ MemoryGameplayPanel.propTypes = {
   board: PropTypes.array,
   attempts: PropTypes.number,
   matchedCount: PropTypes.number,
-  totalCards: PropTypes.number
+  totalCards: PropTypes.number,
+  feedbackState: PropTypes.oneOf(['idle', 'success', 'error']),
+  feedbackPoints: PropTypes.number,
+  feedbackMessage: PropTypes.string,
+  shouldReduceMotion: PropTypes.bool
 };
 
 const CurrentPlayMetrics = memo(function CurrentPlayMetrics({ mode, score, correctAnswers, errors, attempts }) {
@@ -1314,14 +1384,52 @@ function getMemorySlotClasses(isMatched, isOpen) {
   return 'border-slate-700 bg-slate-800/60';
 }
 
-function MemoryBoard({ board }) {
+function MemoryBoard({ board, feedbackState, feedbackPoints, feedbackMessage, shouldReduceMotion }) {
   const safeBoard = Array.isArray(board) ? [...board].sort((a, b) => a.slotIndex - b.slotIndex) : [];
   const total = safeBoard.length;
   const columns = resolveMemoryColumns(total);
+  const [prevBoard, setPrevBoard] = useState([]);
+
+  // Detect which slots just changed (newly matched or revealed for feedback)
+  const feedbackSlots = new Set();
+  if (feedbackState !== 'idle') {
+    for (const slot of safeBoard) {
+      const prev = prevBoard.find(p => p.slotIndex === slot.slotIndex);
+      if (!prev) continue;
+      // Newly matched
+      if (slot.isMatched && !prev.isMatched) {
+        feedbackSlots.add(slot.slotIndex);
+      }
+      // Newly revealed (for mismatch shake)
+      if (feedbackState === 'error' && slot.isRevealed && !slot.isMatched) {
+        feedbackSlots.add(slot.slotIndex);
+      }
+    }
+  }
+
+  // Actualizar snapshot del board anterior tras cada cambio de board
+  useEffect(() => {
+    setPrevBoard(safeBoard.map(s => ({ slotIndex: s.slotIndex, isMatched: s.isMatched, isRevealed: s.isRevealed })));
+  }, [board]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const isSuccess = feedbackState === 'success';
 
   return (
-    <div className="w-full max-w-4xl rounded-2xl border border-white/10 bg-slate-900/30 p-4 sm:p-6">
+    <div className="w-full max-w-4xl rounded-2xl border border-white/10 bg-slate-900/30 p-4 sm:p-6 relative">
       <div className="mb-4 text-center text-sm text-slate-400">Tablero de Memoria</div>
+
+      {/* Floating badge for match */}
+      {isSuccess && (
+        <div className="absolute -top-5 left-1/2 -translate-x-1/2 z-30">
+          <FloatingPointsBadge
+            type="success"
+            points={feedbackPoints}
+            message={feedbackMessage}
+            shouldReduceMotion={shouldReduceMotion}
+          />
+        </div>
+      )}
+
       <div
         className="grid gap-3"
         style={{ gridTemplateColumns: `repeat(${columns}, minmax(0, 1fr))` }}
@@ -1335,14 +1443,25 @@ function MemoryBoard({ board }) {
           const slotLabel = isOpen
             ? `Carta ${slot.assignedValue || ''}${matchedSuffix}`.trim()
             : 'Carta oculta';
+          const isInFeedback = feedbackSlots.has(slot.slotIndex);
+          const isMatchFeedback = isInFeedback && feedbackState === 'success';
+          const isMismatchFeedback = isInFeedback && feedbackState === 'error';
 
           return (
-            <div
+            <motion.div
               key={`memory-slot-${slot.slotIndex}`}
               className={cn(
                 'aspect-square rounded-xl border transition-all memory-card-flip',
-                slotClasses
+                slotClasses,
+                isMatchFeedback && 'shadow-[0_0_20px] shadow-emerald-500/40',
+                isMismatchFeedback && 'border-rose-400/60'
               )}
+              animate={
+                shouldReduceMotion ? {} :
+                isMatchFeedback ? { scale: [1, 1.1, 1], transition: { duration: 0.4 } } :
+                isMismatchFeedback ? { x: [-3, 3, -2, 2, 0], transition: { duration: 0.4 } } :
+                {}
+              }
               role="gridcell"
               aria-label={slotLabel}
             >
@@ -1364,7 +1483,7 @@ function MemoryBoard({ board }) {
                   />
                 </div>
               </div>
-            </div>
+            </motion.div>
           );
         })}
       </div>
@@ -1381,7 +1500,11 @@ MemoryBoard.propTypes = {
       assignedValue: PropTypes.string,
       displayData: PropTypes.object
     })
-  )
+  ),
+  feedbackState: PropTypes.oneOf(['idle', 'success', 'error']),
+  feedbackPoints: PropTypes.number,
+  feedbackMessage: PropTypes.string,
+  shouldReduceMotion: PropTypes.bool
 };
 
 function FallbackTouchPanel({ cards, onSelectCard, onPauseRequest, canPause }) {

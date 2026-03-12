@@ -168,3 +168,95 @@ En la iteración del 16-02-2026 se fortaleció la coordinación distribuida del 
 
 4. **Cobertura de regresión**
    - Tests añadidos para colisión de UIDs, presencia de TTL y renovación de lease.
+
+## Avance Sprint 5 - Resiliencia y gestión de memoria
+
+En la iteración del 12-03-2026 se aplicaron mejoras de resiliencia ante crashes, gestión de memoria y optimización del ciclo de vida de recursos.
+
+### 1. Checkpoints periódicos de partida en MongoDB
+
+**Motivación**: entre `startPlay()` y `endPlay()`, el estado completo de la partida (score, métricas, eventos) vivía exclusivamente en memoria. Redis almacenaba un snapshot parcial (ronda, score, status) pero no el historial de eventos ni las métricas detalladas. Un crash del servidor significaba pérdida total de progreso.
+
+**Implementación**: se añade `checkpointPlayIfNeeded()` en `gameEngine.js`, invocado automáticamente tras cada `addEventAtomic()`. Persiste el documento `GamePlay` completo en MongoDB cuando se cumple cualquier umbral:
+
+- **Temporal**: `CHECKPOINT_INTERVAL_MS` (default `120000` = 2 minutos)
+- **Por eventos**: `CHECKPOINT_EVENT_THRESHOLD` (default `5` eventos de respuesta)
+
+Cada checkpoint también ejecuta `syncPlayToRedis()` para mantener coherencia.
+
+**Campos de tracking en playState**:
+- `lastCheckpointAt` — timestamp del último checkpoint
+- `lastCheckpointEventCount` — valor de `metrics.totalAttempts` en ese momento
+
+**Impacto en write amplification**: ~1 escritura adicional cada 2 minutos por partida activa. Con 20 partidas simultáneas: ~10 writes/min extra, negligible para MongoDB.
+
+**Ventana de pérdida máxima**: 2 minutos o 5 eventos (lo que ocurra primero), frente a "toda la partida" previamente.
+
+Para más contexto sobre la decisión, ver **ADR-010** en `Architecture_Decisions.md`.
+
+### 2. Tracking y limpieza de timers transitorios
+
+**Motivación**: el modo memory usaba `setTimeout` anónimos para delays de ocultación de cartas. Si `endPlay()` o `pausePlay()` se ejecutaba mientras un timer estaba pendiente, el callback se disparaba sobre estado ya eliminado.
+
+**Implementación**:
+- Nuevo campo `transientTimers: new Set()` en `playState`.
+- Helper `scheduleTransientTimer(playState, callback, delayMs)` que registra el timer en el Set y lo auto-elimina al dispararse.
+- `clearPlayTimers()` ahora también itera y limpia `transientTimers`.
+
+**Impacto**: elimina una categoría de errores silenciosos por callbacks sobre estado stale en partidas de memoria.
+
+### 3. Shutdown paralelo de partidas activas
+
+**Motivación**: durante el graceful shutdown, `finalizeAllPlays()` iteraba secuencialmente con un `for` loop sobre todas las partidas activas, invocando `endPlay()` para cada una. Con muchas partidas activas, esto podía alargar el shutdown significativamente.
+
+**Implementación**: se reemplaza el loop secuencial por `processInBatches()`, que ejecuta los `endPlay()` en paralelo con control de concurrencia por lotes (`GAME_ENGINE_BATCH_SIZE`, default 20).
+
+**Impacto**: el tiempo de shutdown se reduce proporcionalmente al número de partidas activas, de O(n) secuencial a O(n/batchSize) paralelo.
+
+### 4. Exposición de métricas de memoria del proceso
+
+**Motivación**: la observabilidad de uso de memoria del proceso Node.js era limitada a logs puntuales. Para detectar fugas de memoria o presión de heap en producción, se necesita exposición continua.
+
+**Implementación**: el endpoint `GET /api/metrics` (ya existente) ahora incluye `process.memoryUsage()` en la respuesta a través de la función `getMemoryUsage()` en `healthCheck.js`.
+
+**Campos expuestos**:
+- `rss` — Resident Set Size (memoria total asignada al proceso)
+- `heapTotal` — Heap total reservado por V8
+- `heapUsed` — Heap efectivamente en uso
+- `external` — Memoria de objetos C++ enlazados
+- `heapUsedPercentage` — Porcentaje de uso del heap
+
+Estos datos se devuelven en formato legible (MB) a través de `toSystemMetricsDTOV1`.
+
+### 5. Limpieza periódica de caches Socket.IO
+
+**Motivación**: las caches en memoria de `authRevalidationCache` y `playOwnershipCache` (Maps con TTL) solo se limpiaban al superar el umbral `SOCKET_CACHE_SWEEP_THRESHOLD` (default 2000 entradas). En despliegues de larga ejecución con rotación constante de sockets/tokens, las entradas expiradas podían acumularse significativamente por debajo del umbral sin limpiarse nunca.
+
+**Implementación**: se añade un `setInterval` de 5 minutos (`CACHE_CLEANUP_INTERVAL_MS`) que invoca `sweepAllExpiredEntries()` sobre ambas caches, independientemente del tamaño.
+
+**Características**:
+- Se configura `.unref()` para no impedir el cierre del proceso.
+- Se detiene explícitamente durante el graceful shutdown via `stopCacheCleanup()`.
+- Coexiste con el barrido por umbral existente (que actúa como protección para picos súbitos).
+- Métricas de limpieza se registran en logs a nivel `debug`.
+
+**Impacto**: previene crecimiento sostenido de memoria en despliegues de larga ejecución sin afectar la latencia de los event handlers.
+
+### 6. Mejoras de reconexión WebSocket
+
+**Motivación**: la configuración de reconexión por defecto (5 intentos, max 5s delay) era demasiado agresiva para redes inestables comunes en entornos educativos (WiFi de aula, conexiones móviles).
+
+**Cambios en `frontend/src/services/socket.js`**:
+
+| Parámetro | Antes | Después | Motivo |
+|---|---|---|---|
+| `reconnectionAttempts` | 5 | 15 | Tolerar desconexiones más prolongadas |
+| `reconnectionDelayMax` | 5000ms | 15000ms | Evitar saturación con reintentos rápidos |
+
+**Nuevo flujo de recuperación**:
+1. Al reconectar, el socket service emite `CustomEvent('socket_reconnected')` en `window`.
+2. `GameSession.jsx` escucha este evento e invoca `requestPlayStateSync(playId)`.
+3. El servidor responde con el snapshot completo via `play_state` (ver ADR-010).
+4. El componente rehidrata su estado con `handlePlayState()`.
+
+**Impacto**: reconexión más robusta y recuperación automática del estado de juego sin intervención del usuario. Para más detalles sobre el comando `play_state_sync`, ver `WebSockets-ExtendedUsage.md`.

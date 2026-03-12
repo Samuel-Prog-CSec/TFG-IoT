@@ -94,7 +94,7 @@ const CardDeckSchema = new mongoose.Schema(
   }
 );
 
-// Validación: el mazo debe tener al menos 2 mapeos y como máximo 20
+// Validación: el mazo debe tener al menos 2 mapeos y como máximo 30
 CardDeckSchema.path('cardMappings').validate(value => {
   if (!Array.isArray(value)) {
     return false;

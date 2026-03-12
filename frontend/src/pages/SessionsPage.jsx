@@ -16,7 +16,11 @@ import {
   Eye,
   Pencil,
   Trash2,
-  Map
+  Map,
+  Layers,
+  Timer,
+  Award,
+  RotateCcw
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { sessionsAPI, mechanicsAPI, extractErrorMessage, extractData, isAbortError } from '../services/api';
@@ -126,7 +130,11 @@ const renderSessionsContent = ({
 
         return (
           <motion.div key={sessionId} variants={staggerItem}>
-            <GlassCard className="p-5 flex flex-col gap-4 hover:border-white/20 transition-all">
+            <GlassCard className={`p-6 flex flex-col gap-5 hover:border-white/20 transition-all border-l-4 ${{
+              created: 'border-l-amber-500/70',
+              active: 'border-l-emerald-500/70',
+              completed: 'border-l-slate-500/50',
+            }[session.status] || 'border-l-slate-500/50'}`}>
               <div className="flex items-start justify-between gap-3">
                 <div>
                   <h3 className="text-lg font-semibold text-white">{title}</h3>
@@ -135,26 +143,46 @@ const renderSessionsContent = ({
                 <StatusBadge status={statusInfo.tone}>{statusInfo.label}</StatusBadge>
               </div>
 
-              <div className="grid grid-cols-2 gap-3 text-xs text-slate-300">
-                <div className="bg-white/5 rounded-lg p-2">
-                  <p className="text-slate-400">Tarjetas</p>
-                  <p className="text-white font-semibold">{session.config?.numberOfCards || session.cardMappingsCount}</p>
+              <div className="grid grid-cols-2 gap-4 text-xs text-slate-300">
+                <div className="bg-white/5 rounded-lg p-3 flex items-center gap-3">
+                  <div className="size-8 rounded-lg bg-indigo-500/15 flex items-center justify-center flex-shrink-0">
+                    <Layers size={14} className="text-indigo-400" />
+                  </div>
+                  <div>
+                    <p className="text-slate-400">Tarjetas</p>
+                    <p className="text-white font-semibold font-display">{session.config?.numberOfCards || session.cardMappingsCount}</p>
+                  </div>
                 </div>
-                <div className="bg-white/5 rounded-lg p-2">
-                  <p className="text-slate-400">Rondas</p>
-                  <p className="text-white font-semibold">{session.config?.numberOfRounds}</p>
+                <div className="bg-white/5 rounded-lg p-3 flex items-center gap-3">
+                  <div className="size-8 rounded-lg bg-cyan-500/15 flex items-center justify-center flex-shrink-0">
+                    <RotateCcw size={14} className="text-cyan-400" />
+                  </div>
+                  <div>
+                    <p className="text-slate-400">Rondas</p>
+                    <p className="text-white font-semibold font-display">{session.config?.numberOfRounds}</p>
+                  </div>
                 </div>
-                <div className="bg-white/5 rounded-lg p-2">
-                  <p className="text-slate-400">Tiempo</p>
-                  <p className="text-white font-semibold">{session.config?.timeLimit}s</p>
+                <div className="bg-white/5 rounded-lg p-3 flex items-center gap-3">
+                  <div className="size-8 rounded-lg bg-amber-500/15 flex items-center justify-center flex-shrink-0">
+                    <Timer size={14} className="text-amber-400" />
+                  </div>
+                  <div>
+                    <p className="text-slate-400">Tiempo</p>
+                    <p className="text-white font-semibold font-display">{session.config?.timeLimit}s</p>
+                  </div>
                 </div>
-                <div className="bg-white/5 rounded-lg p-2">
-                  <p className="text-slate-400">Puntos</p>
-                  <p className="text-white font-semibold">+{session.config?.pointsPerCorrect}</p>
+                <div className="bg-white/5 rounded-lg p-3 flex items-center gap-3">
+                  <div className="size-8 rounded-lg bg-emerald-500/15 flex items-center justify-center flex-shrink-0">
+                    <Award size={14} className="text-emerald-400" />
+                  </div>
+                  <div>
+                    <p className="text-slate-400">Puntos</p>
+                    <p className="text-white font-semibold font-display">+{session.config?.pointsPerCorrect}</p>
+                  </div>
                 </div>
               </div>
 
-              <div className="flex flex-wrap gap-2 mt-auto">
+              <div className="flex flex-wrap gap-3 mt-auto pt-4 border-t border-white/5">
                 <ButtonPremium
                   variant="secondary"
                   onClick={() => navigate(ROUTES.SESSION_DETAIL(sessionId))}

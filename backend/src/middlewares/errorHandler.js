@@ -108,6 +108,8 @@ const errorHandler = (err, req, res, next) => {
   res.status(error.statusCode).json({
     success: false,
     message: error.message,
+    // Incluir datos adicionales de contexto si el error los proporciona
+    ...(err.data && { data: err.data }),
     // Solo incluir stack trace en desarrollo
     ...(process.env.NODE_ENV === 'development' && { stack: err.stack })
   });

@@ -13,8 +13,9 @@ import { getAccessToken, AUTH_EVENTS } from './api';
 // ============================================
 
 const SOCKET_URL = import.meta.env.VITE_SOCKET_URL || 'http://localhost:5000';
-const RECONNECTION_ATTEMPTS = 5;
+const RECONNECTION_ATTEMPTS = 15;
 const RECONNECTION_DELAY = 1000;
+const RECONNECTION_DELAY_MAX = 15000;
 const CONNECTION_TIMEOUT = 10000; // 10 segundos timeout para conexión inicial
 const IS_DEV = import.meta.env.DEV;
 
@@ -53,6 +54,7 @@ export const SOCKET_EVENTS = {
   PAUSE_PLAY: 'pause_play',
   RESUME_PLAY: 'resume_play',
   NEXT_ROUND: 'next_round',
+  PLAY_STATE_SYNC: 'play_state_sync',
   JOIN_CARD_REGISTRATION: 'join_card_registration',
   LEAVE_CARD_REGISTRATION: 'leave_card_registration',
   JOIN_CARD_ASSIGNMENT: 'join_card_assignment',
@@ -77,6 +79,7 @@ class SocketService {
     this.socket = null;
     this.isConnected = false;
     this.listeners = new Map();
+    this._wasConnected = false;
   }
 
   /**
@@ -101,7 +104,7 @@ class SocketService {
         reconnection: true,
         reconnectionAttempts: RECONNECTION_ATTEMPTS,
         reconnectionDelay: RECONNECTION_DELAY,
-        reconnectionDelayMax: 5000,
+        reconnectionDelayMax: RECONNECTION_DELAY_MAX,
         transports: ['websocket', 'polling'],
       });
 
@@ -135,6 +138,13 @@ class SocketService {
           this.isConnected = true;
           resolve();
         }
+
+        // Detectar reconexión tras desconexión previa
+        if (this._wasConnected) {
+          socketLog('warn', '[Socket] Reconectado tras desconexión');
+          window.dispatchEvent(new CustomEvent('socket_reconnected'));
+        }
+        this._wasConnected = true;
       });
 
       // Manejar errores de conexión
@@ -195,6 +205,7 @@ class SocketService {
       this.socket.disconnect();
       this.socket = null;
       this.isConnected = false;
+      this._wasConnected = false;
     }
   }
 
@@ -305,6 +316,17 @@ class SocketService {
 
     this.socket.emit(event, data);
     return true;
+  }
+
+  /**
+   * Solicita al servidor el estado actual de una partida para sincronización tras reconexión.
+   * Usa fire-and-forget porque el rate limiter no reenvía callbacks de ACK a los comandos.
+   * La respuesta llega como evento `play_state` separado, que el listener existente maneja.
+   * @param {string} playId - ID de la partida
+   * @returns {boolean} true si se envió el evento
+   */
+  requestPlayStateSync(playId) {
+    return this.sendCommand(SOCKET_EVENTS.PLAY_STATE_SYNC, { playId });
   }
 
   /**

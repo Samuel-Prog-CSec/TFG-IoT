@@ -740,7 +740,7 @@ function StepContext({
             )}
 
             {/* Preview de assets */}
-            <div className="flex flex-wrap gap-1 mb-3 h-10 overflow-hidden">
+            <div className="flex flex-wrap gap-1.5 mb-3 h-10 overflow-hidden">
               {context.assets?.slice(0, 6).map((asset, i) => (
                 <span key={i} className="text-2xl">
                   {asset.display || '📦'}

@@ -752,7 +752,8 @@ const toSystemMetricsDTOV1 = payload => ({
   http: payload.http,
   websocket: payload.websocket,
   gameEngine: payload.gameEngine,
-  rfid: payload.rfid
+  rfid: payload.rfid,
+  memory: payload.memory
 });
 
 module.exports = {

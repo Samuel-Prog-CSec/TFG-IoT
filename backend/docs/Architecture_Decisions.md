@@ -378,3 +378,222 @@ Se acepta este trade-off por priorizar control, seguridad y trazabilidad institu
 - Validación: `backend/src/validators/userValidator.js`.
 - Frontend admin: `frontend/src/pages/admin/ApprovalPanel.jsx`, `frontend/src/pages/admin/StudentManagement.jsx`.
 - Tests de contrato y permisos: `backend/tests/superAdminApproval.test.js`, `backend/tests/users.test.js`.
+
+---
+
+## ADR-009: Campo `data` en errores operacionales (AppError)
+
+### Contexto (ADR-009)
+
+Algunos controllers (`userController.js`) necesitaban incluir datos adicionales en respuestas de error (por ejemplo, la entidad existente en un conflicto 409 para que el frontend pueda mostrarla al usuario). Al no existir un mecanismo en `AppError` para transportar datos extra, estos controllers devolvían respuestas inline (`res.status(409).json(...)`) que bypasseaban el error handler centralizado, creando inconsistencias en el formato de respuestas de error y dificultando la observabilidad (logs, Sentry).
+
+### Decisión (ADR-009)
+
+Se extiende `AppError` con un campo opcional `data`:
+
+1. `AppError.constructor(message, statusCode, data = null)` acepta un tercer parámetro opcional.
+2. Las subclases `ConflictError` y `ValidationError` propagan `data` como segundo argumento.
+3. El `errorHandler` middleware incluye `data` en la respuesta JSON cuando está presente.
+4. Los controllers que antes devolvían respuestas inline ahora lanzan errores tipados con `data`.
+
+### Consecuencias (ADR-009)
+
+- **Consistencia**: todas las respuestas de error pasan por el error handler centralizado.
+- **Observabilidad mejorada**: todos los errores se loguean y reportan a Sentry uniformemente.
+- **Compatibilidad**: el campo `data` es opcional; los errores existentes sin datos extra no se ven afectados.
+- **Contrato de API extendido**: las respuestas de error pueden incluir un campo `data` opcional con contexto adicional.
+
+### Evidencia técnica asociada (ADR-009)
+
+- `backend/src/utils/errors.js` — campo `data` en `AppError`, `ConflictError`, `ValidationError`
+- `backend/src/middlewares/errorHandler.js` — propagación de `data` en respuesta
+- `backend/src/controllers/userController.js` — 5 respuestas inline migradas a errores tipados
+
+---
+
+## ADR-010: Checkpoints periódicos de partida y resiliencia ante crash
+
+### Contexto (ADR-010)
+
+El `gameEngine` mantiene el estado completo de cada partida activa en memoria: score, ronda actual, challenge, timers, y la referencia al documento Mongoose de `GamePlay`. Durante el ciclo de vida de una partida (entre `startPlay()` y `endPlay()`), los eventos de juego se persisten individualmente en MongoDB mediante `addEventAtomic()`, pero el **estado global de la partida** (score acumulado, métricas, arrays de eventos consolidados) solo se escribía en MongoDB al finalizar la partida.
+
+Redis almacenaba un snapshot básico del estado (ronda, score, status, flags de pausa) que se sincronizaba tras cada evento, pero **no incluía** el array de eventos ni las métricas detalladas del documento `GamePlay`.
+
+#### Análisis de riesgo
+
+Si el servidor se reiniciaba o crasheaba durante una partida activa:
+
+1. **Pérdida total de progreso**: todos los eventos acumulados, el score, y las métricas de la partida se perdían porque el documento Mongoose solo existía en memoria. La única información recuperable era el snapshot parcial de Redis (ronda y score numérico) que no incluía el historial de eventos.
+2. **Experiencia del estudiante**: el alumno perdía todo el trabajo realizado sin posibilidad de recuperación, generando frustración y desconfianza en la plataforma.
+3. **Percepción del docente**: el profesor veía desaparecer los datos de progreso de sus alumnos, afectando la credibilidad del sistema como herramienta de evaluación.
+4. **Timers huérfanos**: existía un problema adicional con timers transitorios (como el delay de ocultación de cartas en modo memory). Si `endPlay()` o `pausePlay()` se ejecutaban mientras un `setTimeout` anónimo estaba pendiente, el callback podía dispararse sobre estado ya eliminado, causando errores silenciosos o comportamiento errático.
+5. **Reconexión del cliente**: si el cliente perdía la conexión WebSocket y se reconectaba, no tenía un mecanismo explícito para solicitar y rehidratar el estado actual de la partida desde el servidor.
+
+### Decisión (ADR-010)
+
+Se implementa una estrategia de resiliencia en tres capas complementarias:
+
+#### Capa 1: Checkpoints periódicos en MongoDB
+
+Se introduce el método `checkpointPlayIfNeeded()` que se invoca automáticamente después de cada `addEventAtomic()`. Este método persiste el documento `GamePlay` completo (incluyendo `events`, `metrics`, `score`) en MongoDB cuando se cumple **cualquiera** de dos umbrales:
+
+- **Umbral temporal**: han transcurrido `CHECKPOINT_INTERVAL_MS` (default 120000ms = 2 minutos) desde el último checkpoint.
+- **Umbral por eventos**: se han acumulado `CHECKPOINT_EVENT_THRESHOLD` (default 5) nuevos eventos de respuesta (`totalAttempts`) desde el último checkpoint.
+
+Cada checkpoint también sincroniza el estado con Redis (`syncPlayToRedis`).
+
+El estado de checkpoint se rastrea en el `playState`:
+
+- `lastCheckpointAt`: timestamp del último checkpoint exitoso.
+- `lastCheckpointEventCount`: valor de `metrics.totalAttempts` en el último checkpoint.
+
+#### Capa 2: Tracking de timers transitorios
+
+Se añade un `Set` llamado `transientTimers` al `playState` de cada partida. El helper `scheduleTransientTimer(playState, callback, delayMs)` registra cada timer en el Set y lo auto-elimina al dispararse. `clearPlayTimers()` ahora también itera y limpia todos los timers transitorios registrados.
+
+Esto resuelve el problema de callbacks anónimos que se disparaban sobre estado ya eliminado en `endPlay()`, `pausePlay()` o `resumePlay()`.
+
+#### Capa 3: Sincronización de estado tras reconexión del cliente
+
+Se implementa un nuevo comando Socket.IO `play_state_sync` (archivo `PlayStateSyncCommand.js`) que permite al cliente solicitar un snapshot completo del estado de la partida tras reconexión. El servidor utiliza `gameEngine.getPlayState(playId)` para devolver el estado actual.
+
+En el frontend:
+
+- El servicio de socket (`socket.js`) aumenta `reconnectionAttempts` de 5 a 15 y `reconnectionDelayMax` de 5s a 15s para tolerar mejor las desconexiones transitorias.
+- Se añade el método `requestPlayStateSync(playId)`.
+- Se emite un `CustomEvent('socket_reconnected')` en `window` al detectar reconexión.
+- `GameSession.jsx` escucha este evento y solicita automáticamente el estado actualizado de la partida.
+
+### Consecuencias (ADR-010)
+
+#### Positivas
+
+- **Ventana de pérdida de datos reducida**: de "toda la partida" a un máximo de 2 minutos o 5 eventos.
+- **Limpieza de timers garantizada**: `endPlay()` y `pausePlay()` cancelan todos los timers pendientes, incluyendo los transitorios, eliminando callbacks sobre estado stale.
+- **Reconexión transparente**: el alumno puede perder la conexión WebSocket y recuperar el estado de la partida automáticamente al reconectarse, sin intervención manual.
+- **Compatibilidad con infraestructura existente**: los checkpoints usan el mismo `playDoc.save()` y `syncPlayToRedis()` que ya existían; no requieren nuevos modelos ni esquemas.
+
+#### Negativas
+
+- **Write amplification leve**: se añade ~1 escritura adicional a MongoDB cada 2 minutos por partida activa. En un escenario típico de 20 partidas simultáneas, esto equivale a ~10 writes/minuto adicionales, un overhead negligible para MongoDB.
+- **Complejidad de estado**: se añaden 4 nuevos campos al `playState` (`lastCheckpointAt`, `lastCheckpointEventCount`, `transientTimers`, y el tracking de reconexión en frontend).
+
+### Configuración (ADR-010)
+
+| Variable de entorno | Default | Descripción |
+|---|---|---|
+| `CHECKPOINT_INTERVAL_MS` | `120000` (2 min) | Intervalo mínimo entre checkpoints |
+| `CHECKPOINT_EVENT_THRESHOLD` | `5` | Eventos de respuesta acumulados antes de forzar checkpoint |
+
+Ambos valores se pueden ajustar por entorno. Para entornos de producción de alta fiabilidad se pueden reducir (e.g., 60000ms y 3 eventos). Para entornos de desarrollo se pueden aumentar o desactivar elevando los umbrales.
+
+### Evidencia técnica asociada (ADR-010)
+
+- `backend/src/services/gameEngine.js` — `checkpointPlayIfNeeded()`, `scheduleTransientTimer()`, `clearPlayTimers()`, constantes `CHECKPOINT_INTERVAL_MS` y `CHECKPOINT_EVENT_THRESHOLD`
+- `backend/src/commands/socket/PlayStateSyncCommand.js` — comando `play_state_sync`
+- `backend/src/config/socketRateLimits.js` — rate limit de `play_state_sync` (1s, max 2)
+- `frontend/src/services/socket.js` — `requestPlayStateSync()`, `CustomEvent('socket_reconnected')`
+- `frontend/src/pages/GameSession.jsx` — listener de reconexión y rehidratación de estado
+
+### Relación con otros ADRs
+
+- **ADR-005** (Persistencia atómica de eventos): los checkpoints se invocan después de cada `addEventAtomic()`, complementando la persistencia por-evento con persistencia del estado global.
+- **ADR-004** (Locks distribuidos): los checkpoints también sincronizan con Redis, manteniendo coherencia con el snapshot de estado distribuido.
+
+---
+
+## ADR-011: Socket.IO Redis Adapter para escalabilidad horizontal
+
+### Contexto (ADR-011)
+
+Socket.IO utiliza por defecto un adapter **in-memory** para gestionar rooms y broadcasts. Esto significa que cuando el servidor emite un evento a una room (e.g., `io.to('play_123').emit('new_round', ...)`), solo los sockets conectados a **esa misma instancia** del proceso Node.js reciben el evento.
+
+En un despliegue con una única instancia del backend, esto no presenta problemas. Sin embargo, cuando se despliegan múltiples instancias detrás de un load balancer (escalamiento horizontal), dos clientes conectados a instancias diferentes no comparten rooms ni broadcasts, rompiendo toda la funcionalidad en tiempo real: los eventos de juego, las notificaciones RFID y la invalidación de sesiones dejan de funcionar correctamente.
+
+Este problema ya se anticipaba en el **ADR-001** (sección "Estado Futuro"):
+
+> *"Si el sistema escala a producción masiva [...] escalar horizontalmente el backend (lo cual requeriría migrar el estado en memoria de `gameEngine` totalmente a Redis)."*
+
+Si bien la migración completa del `gameEngine` a Redis sigue pendiente, el problema más inmediato — rooms y broadcasts particionados por instancia — se resuelve con el Redis adapter para Socket.IO.
+
+### Decisión (ADR-011)
+
+Se instala `@socket.io/redis-adapter` y se configura **condicionalmente** durante la inicialización del servidor:
+
+1. **Si Redis está disponible**: se crean dos conexiones Redis duplicadas (`pubClient` y `subClient`) a partir de la conexión existente (`getRedis().duplicate()`) y se configura el adapter con `createAdapter(pubClient, subClient)`.
+2. **Si Redis no está disponible** (e.g., desarrollo local sin Redis, tests): se mantiene el adapter in-memory por defecto, sin error ni degradación funcional para escenarios de una sola instancia.
+
+La configuración se realiza en `server.js` dentro de un bloque `try/catch` para garantizar que un fallo en la inicialización del adapter no impida el arranque del servidor.
+
+### Funcionamiento técnico
+
+El adapter funciona mediante **pub/sub de Redis**:
+
+- Cuando una instancia emite a una room, el adapter **publica** el evento en un canal Redis.
+- Todas las instancias que tienen sockets en esa room **reciben** la publicación y la reenvían a sus sockets locales.
+- Este mecanismo es transparente para el código aplicativo: no se requiere ningún cambio en los event handlers, commands, ni en la lógica del `gameEngine`.
+
+```
+┌──────────────────────────────────────────────────────────────┐
+│                     Load Balancer                            │
+└──────────────┬───────────────────────────┬───────────────────┘
+               │                           │
+     ┌─────────▼─────────┐       ┌─────────▼─────────┐
+     │   Instancia A     │       │   Instancia B     │
+     │ Socket.IO Server  │       │ Socket.IO Server  │
+     │ (adapter Redis)   │       │ (adapter Redis)   │
+     └─────────┬─────────┘       └─────────┬─────────┘
+               │                           │
+               │   ┌───────────────────┐   │
+               └──►│   Redis (pub/sub) │◄──┘
+                   │  Canal: socket.io │
+                   └───────────────────┘
+```
+
+Cuando la instancia A ejecuta `io.to('play_123').emit('new_round', data)`:
+
+1. El adapter publica `{ room: 'play_123', event: 'new_round', data }` en Redis.
+2. La instancia B recibe la publicación y reenvía el evento a todos los sockets locales que estén en la room `play_123`.
+
+### Diferencia con el uso existente de Redis
+
+Es importante distinguir dos usos completamente independientes de Redis en la plataforma:
+
+| Aspecto | Redis para datos (gameEngine) | Redis adapter (Socket.IO) |
+|---|---|---|
+| **Propósito** | Persistir estado de partidas, locks de UIDs, token blacklist | Coordinar rooms y broadcasts entre instancias |
+| **Patrón** | `GET`/`SET`/`HSET`/`EVALSHA` (data store) | `PUBLISH`/`SUBSCRIBE` (mensajería) |
+| **Conexiones** | 1 conexión principal (gestionada por `redisService`) | 2 conexiones adicionales (`pubClient` + `subClient`) |
+| **Datos almacenados** | Sí (TTL/persistentes) | No (mensajes efímeros) |
+| **Fallback si Redis cae** | Degradación controlada (ver `Arquitectura_Redis.md`) | Adapter in-memory (solo funciona single-instance) |
+
+El adapter **no** lee ni escribe en las mismas keys que el `gameEngine`, `redisService` o el sistema de autenticación. Opera exclusivamente en canales pub/sub de Redis con prefijo propio de `@socket.io/redis-adapter`.
+
+### Consecuencias (ADR-011)
+
+#### Positivas
+
+- **Escalabilidad horizontal habilitada**: múltiples instancias del backend pueden compartir rooms y broadcasts sin cambios en el código aplicativo.
+- **Fallback seguro**: en entornos sin Redis (desarrollo, tests), el sistema funciona idénticamente con el adapter in-memory.
+- **Preparación para producción**: resuelve el requisito anticipado en ADR-001 para el canal de comunicación en tiempo real.
+- **Cero cambios en lógica de negocio**: los commands, handlers y el `gameEngine` no necesitan modificaciones.
+- **Compatibilidad con arquitectura existente**: reutiliza la conexión Redis existente sin configuración adicional.
+
+#### Negativas
+
+- **2 conexiones Redis adicionales**: cada instancia del backend mantiene 2 conexiones extra (pub + sub). Con Upstash (tier gratuito: 1000 conexiones), esto es asumible para despliegues moderados.
+- **Latencia marginal en broadcasts**: los eventos pasan por Redis antes de llegar al socket destino, añadiendo ~1-2ms de latencia. Imperceptible para la UX.
+- **Dependencia parcial en Redis para multi-instancia**: si Redis cae en un despliegue multi-instancia, las rooms se particionan por instancia. Esto se mitiga con las capacidades de reconexión automática de ioredis.
+- **No resuelve la migración completa del gameEngine**: el estado in-memory del motor de juego (`activePlays`, timers, locks) sigue siendo per-instancia. Para escalamiento horizontal completo del `gameEngine`, se necesitaría una arquitectura de sticky sessions o migración completa del estado a Redis (fuera del scope de este ADR).
+
+### Evidencia técnica asociada (ADR-011)
+
+- `backend/src/server.js` — configuración condicional del adapter en el bloque de inicialización de Socket.IO
+- `backend/package.json` — dependencia `@socket.io/redis-adapter`
+- `backend/src/config/redis.js` — `getRedis()` y `isRedisConnected()` usados para la inicialización
+
+### Relación con otros ADRs
+
+- **ADR-001** (Eliminación del límite duro): este ADR cumple parcialmente el "Estado Futuro" anticipado, habilitando la comunicación entre instancias sin migrar el `gameEngine` completo.
+- **ADR-004** (Locks distribuidos): los locks de UIDs en Redis ya proporcionan coordinación de datos entre instancias; el adapter complementa con coordinación de eventos en tiempo real.
+- **ADR-010** (Checkpoints periódicos): los checkpoints reducen la pérdida de datos si una instancia cae, complementando la resiliencia que el adapter aporta a la comunicación.

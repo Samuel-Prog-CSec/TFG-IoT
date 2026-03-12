@@ -15,6 +15,7 @@
 9. [Producción con Upstash](#producción-con-upstash)
 10. [Monitoreo y Debug](#monitoreo-y-debug)
 11. [Decisiones de Diseño](#decisiones-de-diseño)
+12. [Socket.IO Redis Adapter](#socketio-redis-adapter)
 
 ---
 
@@ -971,6 +972,149 @@ Al recuperar partidas tras un reinicio, las marcamos como **abandonadas** en lug
 4. **Transparencia**: Mensaje claro de "servidor reiniciado" para el usuario
 
 **Trade-off aceptado:** Perdemos partidas en curso, pero ganamos consistencia y claridad.
+
+---
+
+# Socket.IO Redis Adapter
+
+## Contexto
+
+Socket.IO gestiona rooms y broadcasts de forma local dentro de cada proceso Node.js. En un despliegue con una sola instancia esto funciona correctamente, pero si se escala horizontalmente (múltiples instancias detrás de un load balancer), los sockets conectados a instancias diferentes no comparten rooms: un `io.to('play_123').emit(...)` solo alcanza a los sockets del proceso local.
+
+Para resolver esto sin modificar la lógica aplicativa se utiliza `@socket.io/redis-adapter`, que coordina rooms y broadcasts entre instancias a través de **pub/sub de Redis**.
+
+## Funcionamiento
+
+El adapter utiliza dos conexiones Redis dedicadas:
+
+- **pubClient**: publica eventos cuando una instancia emite a una room.
+- **subClient**: recibe publicaciones de otras instancias y reenvía los eventos a los sockets locales.
+
+```
+┌──────────────────────────────────────────────────────────────────┐
+│                        Load Balancer                             │
+└────────────┬─────────────────────────────────┬───────────────────┘
+             │                                 │
+   ┌─────────▼──────────┐           ┌──────────▼─────────┐
+   │  Instancia A       │           │  Instancia B       │
+   │  io.to('play_123') │           │  sockets en        │
+   │  .emit('new_round')│           │  room 'play_123'   │
+   └─────────┬──────────┘           └──────────▲─────────┘
+             │ PUBLISH                         │ mensaje recibido
+             │                                 │ → emit local
+             │     ┌─────────────────────┐     │
+             └────►│   Redis (pub/sub)   ├─────┘
+                   │   canal: socket.io  │
+                   └─────────────────────┘
+```
+
+El proceso es transparente para el código aplicativo: los commands, handlers del `gameEngine`, y toda la lógica de negocio siguen usando `io.to().emit()` exactamente igual.
+
+## Configuración
+
+La activación del adapter es **condicional** y se realiza en `server.js`:
+
+```javascript
+// server.js — tras la inicialización de Socket.IO
+if (isRedisConnected()) {
+  const { createAdapter } = require('@socket.io/redis-adapter');
+  const pubClient = getRedis().duplicate();
+  const subClient = getRedis().duplicate();
+  io.adapter(createAdapter(pubClient, subClient));
+}
+```
+
+- Si Redis está conectado: se configura el adapter para escalabilidad horizontal.
+- Si Redis no está disponible (desarrollo local, tests): se mantiene el adapter in-memory por defecto.
+- Si la inicialización falla: se captura el error y se continúa con adapter in-memory, registrando un warning en logs.
+
+## Diferencia con el uso de Redis en el gameEngine
+
+Es fundamental distinguir los dos usos independientes de Redis en la plataforma:
+
+| Aspecto | Redis para datos (redisService / gameEngine) | Redis adapter (Socket.IO) |
+|---|---|---|
+| **Propósito** | Persistir estado de partidas, locks de UIDs, tokens, security flags | Coordinar rooms y broadcasts entre instancias |
+| **Patrón de uso** | `GET`, `SET`, `HSET`, `EVALSHA` (data store) | `PUBLISH`, `SUBSCRIBE` (mensajería efímera) |
+| **Conexiones** | 1 conexión principal (gestionada por `redisService.js`) | 2 conexiones adicionales (`pubClient` + `subClient`) |
+| **Datos almacenados** | Sí (con TTL o persistentes) | No (mensajes efímeros, no se almacenan) |
+| **Namespaces/Keys** | `rfid-games:play:*`, `rfid-games:card:*`, etc. | Canales internos de `@socket.io/redis-adapter` |
+| **Fallback sin Redis** | Degradación controlada (ver sección anterior) | Adapter in-memory (solo funciona single-instance) |
+
+Los canales pub/sub del adapter **no** interfieren con las keys de datos del gameEngine, la blacklist de tokens ni los locks distribuidos. Son mecanismos completamente ortogonales que comparten la misma instancia Redis pero operan en espacios separados.
+
+## Impacto en recursos
+
+- **2 conexiones Redis adicionales por instancia**: cada instancia del backend mantiene 2 conexiones extra. Con Upstash (tier gratuito: 1000 conexiones), esto es asumible.
+- **Tráfico pub/sub**: proporcional al volumen de eventos emitidos a rooms. En partidas típicas (~1-2 eventos/segundo por partida), el overhead es mínimo.
+- **Latencia**: los eventos pasan por Redis antes de llegar al socket destino, añadiendo ~1-2ms. Imperceptible para la experiencia de usuario.
+
+## Limitaciones actuales
+
+El adapter resuelve la coordinación de **rooms y broadcasts** pero no la coordinación del **estado en memoria del gameEngine** (`activePlays`, timers, locks). Para un escalamiento horizontal completo del motor de juego se necesitaría:
+
+- **Sticky sessions** (afinidad de cliente a instancia) para que todas las interacciones de una partida lleguen a la misma instancia, o
+- **Migración completa del gameEngine a Redis** (fuera del scope actual).
+
+Los locks distribuidos de UIDs (ADR-004) ya proporcionan coordinación de datos entre instancias. El adapter complementa con coordinación de comunicación en tiempo real.
+
+Para más contexto sobre la decisión y alternativas, ver **ADR-011** en `Architecture_Decisions.md`.
+
+---
+
+## Diagrama actualizado de Redis en la arquitectura
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│                   CLIENTE (React)                            │
+│  • Socket.IO client (reconexión automática, 15 intentos)    │
+│  • Web Serial API → escaneo RFID                            │
+└──────────────────────────────┬──────────────────────────────┘
+                               │
+                               ▼
+┌─────────────────────────────────────────────────────────────┐
+│              BACKEND (Node.js + Express + Socket.IO)        │
+│                                                             │
+│  ┌───────────────────────────────────────────────────────┐  │
+│  │                   redisService.js                      │  │
+│  │  • Abstracción sobre ioredis                          │  │
+│  │  • Namespaces: blacklist, refresh, play, card, ...    │  │
+│  │  • Lua scripts: reserve, release, renewLease          │  │
+│  │  • Fallback graceful si Redis caído                   │  │
+│  └───────────────────────────────────────────────────────┘  │
+│                                                             │
+│  ┌───────────────────────────────────────────────────────┐  │
+│  │             Socket.IO Redis Adapter                    │  │
+│  │  • pub/sub para rooms/broadcasts entre instancias     │  │
+│  │  • Activación condicional (fallback a in-memory)      │  │
+│  │  • 2 conexiones dedicadas (pub + sub)                 │  │
+│  └───────────────────────────────────────────────────────┘  │
+│                                                             │
+│  ┌───────────────────────────────────────────────────────┐  │
+│  │                  gameEngine.js                         │  │
+│  │  • Sincroniza estado con Redis (play/card hashes)     │  │
+│  │  • Locks distribuidos con lease TTL + heartbeat        │  │
+│  │  • Checkpoints periódicos a MongoDB (ADR-010)         │  │
+│  └───────────────────────────────────────────────────────┘  │
+└─────────────────────────────────────────────────────────────┘
+                               │
+               ┌───────────────┴───────────────┐
+               ▼                               ▼
+  ┌─────────────────────────┐     ┌─────────────────────────────┐
+  │        MongoDB          │     │            Redis            │
+  │                         │     │                             │
+  │  • Users                │     │  Datos (redisService):      │
+  │  • GameSessions         │     │    • Token blacklist        │
+  │  • GamePlays            │     │    • Refresh tokens         │
+  │  • Cards                │     │    • Active plays (hash)    │
+  │  • GameMechanics        │     │    • Card → Play (string)   │
+  │  • GameContexts         │     │    • Security flags         │
+  │                         │     │                             │
+  │  Fuente de verdad       │     │  Comunicación (adapter):    │
+  │  (datos permanentes)    │     │    • Pub/sub Socket.IO      │
+  │                         │     │    • Rooms entre instancias │
+  └─────────────────────────┘     └─────────────────────────────┘
+```
 
 ---
 

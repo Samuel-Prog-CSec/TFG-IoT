@@ -453,7 +453,7 @@ export default function DeckEditPage() {
 
       {/* Nombre del mazo */}
       <div className="max-w-5xl mx-auto mb-6">
-        <GlassCard className="p-4">
+        <GlassCard className="p-5">
           <InputPremium
             label="Nombre del mazo"
             value={deckName}
@@ -579,7 +579,7 @@ export default function DeckEditPage() {
                         key={`context-skeleton-${slot}`} 
                         className="p-4 rounded-xl border-2 border-white/5 bg-slate-800/30 animate-pulse"
                       >
-                        <div className="flex gap-1 mb-3 h-10">
+                        <div className="flex gap-1.5 mb-3 h-10">
                           {[1, 2, 3, 4].map((assetSlot) => (
                             <div key={`asset-skeleton-${slot}-${assetSlot}`} className="size-8 rounded bg-slate-700" />
                           ))}
@@ -604,7 +604,7 @@ export default function DeckEditPage() {
                         whileHover={{ scale: 1.02 }}
                         whileTap={{ scale: 0.98 }}
                       >
-                        <div className="flex flex-wrap gap-1 mb-3 h-10 overflow-hidden">
+                        <div className="flex flex-wrap gap-1.5 mb-3 h-10 overflow-hidden">
                           {context.assets?.slice(0, 6).map((asset) => (
                             <span
                               key={asset?.key || asset?.value || asset?.id || asset?.display || `${context._id}-asset`}

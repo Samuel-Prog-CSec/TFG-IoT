@@ -607,6 +607,7 @@ io.on('connection', socket => {
 | `join_admin_room` | `{}` | Unirse al room de admin |
 | `leave_admin_room` | `{}` | Salir del room de admin |
 | `rfid_scan_from_client` | `{ uid, type, sensorId, timestamp, source }` | Escaneo RFID desde cliente |
+| `play_state_sync` | `{ playId }` | Solicitar snapshot de estado de partida tras reconexión |
 
 #### Servidor → Cliente
 
@@ -615,7 +616,7 @@ io.on('connection', socket => {
 | `rfid_event` | `{ event, uid?, type?, ... }` | Evento RFID dirigido por room |
 | `rfid_status` | `{ status }` | Estado de conexión sensor (admin_room) |
 | `rfid_mode_changed` | `{ mode, sensorId, metadata, socketId, updatedAt }` | Estado canónico del modo RFID por usuario |
-| `play_state` | `{ playId, status, isPaused, mechanicName, currentRound, score, maxRounds, awaitingResponse, remainingTimeMs, timeLimitSeconds, currentChallenge?, memoryState? }` | Snapshot exacto de partida para rehidratación tras `join_play` / reconexión |
+| `play_state` | `{ playId, status, isPaused, mechanicName, currentRound, score, maxRounds, awaitingResponse, remainingTimeMs, timeLimitSeconds, currentChallenge?, memoryState? }` | Snapshot exacto de partida para rehidratación tras `join_play`, `play_state_sync` o reconexión |
 | `new_round` | `{ roundNumber, totalRounds, challenge, timeLimit, score }` | Inicio de ronda o modo activo |
 | `validation_result` | `{ isCorrect, timeout?, pointsAwarded, newScore, feedbackDelayMs?, ... }` | Resultado de escaneo/validación |
 | `memory_turn_state` | `{ playId, board, matchedCount, totalCards, attempts, remainingTimeMs, score, phase }` | Estado intermedio de memoria (primera carta, match, mismatch, conceal) |
@@ -769,6 +770,7 @@ El backend aplica **rate limiting por evento** con ventana deslizante, bloqueo t
 | `resume_play` | 1s | 2 | Control moderado |
 | `next_round` | 1s | 5 | Tolerante para UI |
 | `rfid_scan_from_client` | 3s | 2 | ~1 evento cada 1.5s |
+| `play_state_sync` | 1s | 2 | Limitado para evitar abuso en reconexiones rápidas |
 
 **Bloqueo temporal:** 3 violaciones consecutivas → 60s de bloqueo.
 
@@ -890,6 +892,107 @@ Se incorporó barrido de entradas expiradas cuando el tamaño de caché supera u
 - `SOCKET_CACHE_SWEEP_THRESHOLD` (default `2000`).
 
 Esto evita acumulación de entradas expiradas en picos de reconexiones o rotación alta de tokens/sockets.
+
+Adicionalmente, se incorporó una limpieza periódica cada 5 minutos (`CACHE_CLEANUP_INTERVAL_MS`) que ejecuta `sweepAllExpiredEntries()` sobre ambas caches de forma proactiva, independientemente del umbral. Este intervalo:
+- Se configura con `.unref()` para no impedir el cierre del proceso.
+- Se detiene explícitamente durante el graceful shutdown via `stopCacheCleanup()`.
+- Coexiste con el barrido por umbral como protección complementaria.
+
+### 9.4 Reconexión y recuperación de estado de partida
+
+#### Problema
+
+En entornos educativos (WiFi de aula, conexiones inestables), las desconexiones transitorias del WebSocket son frecuentes. Con la configuración anterior (5 intentos, max delay 5s), el cliente abandonaba demasiado pronto los reintentos. Además, tras reconectar no existía un mecanismo para que el cliente recuperara el estado actual de la partida, resultando en una interfaz desincronizada.
+
+#### Mejoras en la configuración de reconexión
+
+Se actualizan los parámetros del cliente Socket.IO en `frontend/src/services/socket.js`:
+
+| Parámetro | Antes | Después | Motivo |
+|---|---|---|---|
+| `RECONNECTION_ATTEMPTS` | 5 | 15 | Tolerar desconexiones de hasta ~2 minutos con backoff |
+| `RECONNECTION_DELAY_MAX` | 5000ms | 15000ms | Evitar saturar el servidor con reintentos rápidos |
+| `RECONNECTION_DELAY` | 1000ms | 1000ms | Sin cambio (delay inicial) |
+
+#### Comando `play_state_sync`
+
+Nuevo comando Socket.IO que permite al cliente solicitar el estado completo de una partida activa. Implementado en `PlayStateSyncCommand.js`:
+
+**Flujo**:
+1. El cliente emite `play_state_sync` con `{ playId }`.
+2. El servidor valida formato, rol y existencia de la partida en el motor de juego.
+3. Si la partida existe en memoria, responde con `play_state` (mismo evento que usa `join_play`).
+4. Si no existe, responde con `play_state: null`.
+
+**Roles permitidos**: `teacher`, `student`, `super_admin`.
+
+**Rate limit**: 2 eventos/segundo (ventana de 1s, max 2).
+
+**Revalidación auth**: incluido en la lista de eventos sensibles que requieren revalidación de token.
+
+#### Evento `socket_reconnected` en el navegador
+
+Al detectar una reconexión exitosa tras una desconexión previa, el servicio de socket emite un `CustomEvent` estándar en `window`:
+
+```javascript
+// frontend/src/services/socket.js
+if (this._wasConnected) {
+  window.dispatchEvent(new CustomEvent('socket_reconnected'));
+}
+this._wasConnected = true;
+```
+
+Este evento es un `CustomEvent` estándar del DOM, no un evento Socket.IO. Cualquier componente React puede escucharlo con `window.addEventListener('socket_reconnected', handler)`.
+
+#### Flujo completo de recuperación
+
+```text
+┌─────────────────┐     ┌─────────────────┐     ┌─────────────────┐
+│    CLIENTE      │     │   SOCKET.IO     │     │    BACKEND      │
+│  (GameSession)  │     │   (socket.js)   │     │  (gameEngine)   │
+└────────┬────────┘     └────────┬────────┘     └────────┬────────┘
+         │                       │                       │
+         │                       │ ──── desconexión ──── │
+         │                       │                       │
+         │                       │ reconexión automática  │
+         │                       │ (hasta 15 intentos)    │
+         │                       │──────────────────────>│
+         │                       │                       │
+         │                       │ conexión establecida   │
+         │                       │<──────────────────────│
+         │                       │                       │
+         │  CustomEvent          │                       │
+         │  'socket_reconnected' │                       │
+         │<──────────────────────│                       │
+         │                       │                       │
+         │ requestPlayStateSync  │                       │
+         │──────────────────────>│                       │
+         │                       │ play_state_sync       │
+         │                       │ { playId }            │
+         │                       │──────────────────────>│
+         │                       │                       │
+         │                       │                       │ getPlayState()
+         │                       │                       │
+         │                       │ play_state            │
+         │                       │ { score, round, ... } │
+         │                       │<──────────────────────│
+         │                       │                       │
+         │ handlePlayState()     │                       │
+         │ (rehidrata UI)        │                       │
+         │                       │                       │
+         │ toast.success(        │                       │
+         │   'Reconectado')      │                       │
+         │                       │                       │
+```
+
+**Comportamiento en caso de fallo**: si `requestPlayStateSync()` falla (e.g., la partida ya finalizó o fue marcada como abandonada durante la desconexión), el error se captura silenciosamente. El usuario ya fue notificado de la reconexión por el banner de estado en tiempo real, y la UI se mantiene en el último estado conocido.
+
+#### Evidencia técnica
+
+- `backend/src/commands/socket/PlayStateSyncCommand.js` — implementación del comando
+- `backend/src/config/socketRateLimits.js` — rate limit configurado
+- `frontend/src/services/socket.js` — `requestPlayStateSync()`, constantes de reconexión, `CustomEvent`
+- `frontend/src/pages/GameSession.jsx` — listener `socket_reconnected` y rehidratación
 
 ---
 

@@ -132,7 +132,7 @@ describe('Student Transfer', () => {
         newClassroom: 'Class X'
       });
 
-    expect(res.statusCode).toBe(400);
+    expect(res.statusCode).toBe(404);
   });
 
   it('should fail if payload is missing', async () => {

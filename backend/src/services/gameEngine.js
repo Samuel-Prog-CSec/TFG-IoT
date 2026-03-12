@@ -26,6 +26,8 @@ const LOCK_HEARTBEAT_INTERVAL_MS =
   Number.parseInt(process.env.GAME_ENGINE_LOCK_HEARTBEAT_MS, 10) || 30000;
 const MEMORY_DEFAULT_HIDE_DELAY_MS = Number.parseInt(process.env.MEMORY_HIDE_DELAY_MS, 10) || 1200;
 const MEMORY_FEEDBACK_PAUSE_MS = Number.parseInt(process.env.MEMORY_FEEDBACK_PAUSE_MS, 10) || 1400;
+const CHECKPOINT_INTERVAL_MS = Number.parseInt(process.env.CHECKPOINT_INTERVAL_MS, 10) || 120000; // 2 min
+const CHECKPOINT_EVENT_THRESHOLD = Number.parseInt(process.env.CHECKPOINT_EVENT_THRESHOLD, 10) || 5;
 
 /**
  * GameEngine - Servicio con estado para gestión de partidas en tiempo real.
@@ -122,7 +124,8 @@ class GameEngine {
       luaReleaseCardExecutions: 0,
       luaRenewLeaseExecutions: 0,
       luaRenewLeasePartialFailures: 0,
-      pipelineRecoveryBatchSize: 0
+      pipelineRecoveryBatchSize: 0,
+      checkpointExecuted: 0
     };
 
     // Iniciar cleanup automático de partidas abandonadas
@@ -137,7 +140,9 @@ class GameEngine {
       playTimeoutMs: PLAY_TIMEOUT_MS,
       cleanupIntervalMs: CLEANUP_INTERVAL_MS,
       distributedLockTtlSeconds: DISTRIBUTED_LOCK_TTL_SECONDS,
-      lockHeartbeatIntervalMs: LOCK_HEARTBEAT_INTERVAL_MS
+      lockHeartbeatIntervalMs: LOCK_HEARTBEAT_INTERVAL_MS,
+      checkpointIntervalMs: CHECKPOINT_INTERVAL_MS,
+      checkpointEventThreshold: CHECKPOINT_EVENT_THRESHOLD
     });
   }
 
@@ -486,7 +491,10 @@ class GameEngine {
         roundElapsedBeforePauseMs: 0,
         playDurationMs: null,
         playEndsAt: null,
-        createdAt: Date.now() // Para detectar abandonos
+        createdAt: Date.now(), // Para detectar abandonos
+        lastCheckpointEventCount: 0,
+        lastCheckpointAt: Date.now(),
+        transientTimers: new Set()
       };
 
       if (playState.mechanicName === 'memory') {
@@ -748,6 +756,8 @@ class GameEngine {
       { advanceRound: true }
     );
 
+    await this.checkpointPlayIfNeeded(playId, playState);
+
     if (outcome.isCorrect) {
       this.metrics.totalMemoryMatches++;
     }
@@ -786,14 +796,18 @@ class GameEngine {
 
     if (!outcome.isCorrect) {
       const hideDelay = mismatchHideDelay;
-      setTimeout(() => {
-        const currentState = this.activePlays.get(playId);
-        if (!currentState || !this.isMemoryPlay(currentState)) {
-          return;
-        }
-        currentState.mechanicStrategy.concealSelected(currentState.strategyState, selectedUids);
-        this.emitMemoryTurnState(playId, currentState, { phase: 'concealed' });
-      }, hideDelay);
+      this.scheduleTransientTimer(
+        playState,
+        () => {
+          const currentState = this.activePlays.get(playId);
+          if (!currentState || !this.isMemoryPlay(currentState)) {
+            return;
+          }
+          currentState.mechanicStrategy.concealSelected(currentState.strategyState, selectedUids);
+          this.emitMemoryTurnState(playId, currentState, { phase: 'concealed' });
+        },
+        hideDelay
+      );
     }
 
     playState.roundStartTime = null;
@@ -1093,6 +1107,8 @@ class GameEngine {
       logger.error(`Error guardando evento en la BD para ${playId}: ${err.message}`);
     }
 
+    await this.checkpointPlayIfNeeded(playId, playState);
+
     // 4. Emitir el resultado al cliente
     this.io.to(`play_${playId}`).emit('validation_result', {
       isCorrect,
@@ -1168,6 +1184,8 @@ class GameEngine {
 
       // 3. Guardar en BD y avanzar ronda en una sola operación atómica
       await playDoc.addEventAtomic(eventData, { advanceRound: true });
+
+      await this.checkpointPlayIfNeeded(playId, playState);
 
       // 4. Emitir al cliente
       this.io.to(`play_${playId}`).emit('validation_result', {
@@ -1423,6 +1441,26 @@ class GameEngine {
     return ownerId.toString() === requestedBy.toString();
   }
 
+  /**
+   * Programa un timer transitorio asociado al estado de una partida.
+   * Se auto-elimina del Set al dispararse y se limpia con clearPlayTimers().
+   * Uso principal: delays de ocultación de cartas en modo memory.
+   *
+   * @private
+   * @param {Object} playState - Estado de la partida
+   * @param {Function} callback - Función a ejecutar tras el delay
+   * @param {number} delayMs - Milisegundos de espera
+   * @returns {NodeJS.Timeout} Referencia al timer
+   */
+  scheduleTransientTimer(playState, callback, delayMs) {
+    const timer = setTimeout(() => {
+      playState.transientTimers.delete(timer);
+      callback();
+    }, delayMs);
+    playState.transientTimers.add(timer);
+    return timer;
+  }
+
   clearPlayTimers(playState) {
     if (playState.roundTimer) {
       clearTimeout(playState.roundTimer);
@@ -1435,6 +1473,12 @@ class GameEngine {
     if (playState.playTimer) {
       clearTimeout(playState.playTimer);
       playState.playTimer = null;
+    }
+    if (playState.transientTimers) {
+      for (const timer of playState.transientTimers) {
+        clearTimeout(timer);
+      }
+      playState.transientTimers.clear();
     }
   }
 
@@ -1589,9 +1633,9 @@ class GameEngine {
 
     logger.info(`Finalizando ${activePlayIds.length} partidas activas...`);
 
-    for (const playId of activePlayIds) {
+    await this.processInBatches(activePlayIds, async playId => {
       await this.endPlay(playId);
-    }
+    });
 
     logger.info('GameEngine detenido correctamente', {
       metrics: this.metrics
@@ -1652,6 +1696,51 @@ class GameEngine {
       logger.debug(`Partida ${playId} sincronizada con Redis`);
     } catch (error) {
       logger.error(`Error al sincronizar partida ${playId} con Redis:`, { error: error.message });
+    }
+  }
+
+  /**
+   * Persiste el estado de la partida en MongoDB si se cumplen los umbrales de checkpoint.
+   * Los checkpoints reducen la ventana de pérdida de datos ante un crash del servidor:
+   * sin ellos, todo el progreso entre startPlay() y endPlay() vive solo en memoria.
+   *
+   * @private
+   * @async
+   * @param {string} playId - ID de la partida
+   * @param {Object} playState - Estado de la partida
+   * @returns {Promise<void>}
+   */
+  async checkpointPlayIfNeeded(playId, playState) {
+    try {
+      const now = Date.now();
+      const eventCount = playState.playDoc.metrics?.totalAttempts || 0;
+      const eventsDelta = eventCount - playState.lastCheckpointEventCount;
+      const timeDelta = now - playState.lastCheckpointAt;
+
+      if (eventsDelta < CHECKPOINT_EVENT_THRESHOLD && timeDelta < CHECKPOINT_INTERVAL_MS) {
+        return;
+      }
+
+      await playState.playDoc.save();
+      await this.syncPlayToRedis(playId, playState);
+
+      playState.lastCheckpointEventCount = eventCount;
+      playState.lastCheckpointAt = now;
+
+      this.metrics.checkpointExecuted++;
+
+      logger.debug(`Checkpoint de partida ${playId}`, {
+        playId,
+        eventsDelta,
+        timeDelta: `${(timeDelta / 1000).toFixed(1)}s`,
+        score: playState.playDoc.score,
+        currentRound: playState.playDoc.currentRound
+      });
+    } catch (error) {
+      logger.warn(`Error en checkpoint de partida ${playId} (no crítico):`, {
+        playId,
+        error: error.message
+      });
     }
   }
 

@@ -807,7 +807,7 @@ function StepDeck({ decks, loading, selectedDeckId, onSelect }) {
             )}
 
             {/* Preview de assets */}
-            <div className="flex gap-1 mb-3 h-8 overflow-hidden">
+            <div className="flex gap-1.5 mb-3 h-8 overflow-hidden">
               {cardsPreview.slice(0, 6).map((mapping) => (
                 <CardAssetPreview
                   key={mapping.id || mapping.uid || mapping.cardId || mapping._id}
@@ -1011,7 +1011,7 @@ function StepMemoryRules({
                 type="button"
                 onClick={() => onSelectedCardUidChange(card.uid)}
                 className={cn(
-                  'rounded-xl border p-2 text-left transition-all',
+                  'rounded-xl border p-3 text-left transition-all',
                   isSelected
                     ? 'border-indigo-500 bg-indigo-500/20'
                     : 'border-white/10 bg-slate-800/40 hover:border-white/30',
@@ -1031,14 +1031,14 @@ function StepMemoryRules({
           })}
         </div>
 
-        <div className="grid gap-3" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(110px, 1fr))' }}>
+        <div className="grid gap-4" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(110px, 1fr))' }}>
           {slotEntries.map(({ slotCard, slotIndex, slotKey }) => (
             <button
               key={`memory-slot-${slotKey}`}
               type="button"
               onClick={() => handleAssignToSlot(slotIndex)}
               className={cn(
-                'aspect-square rounded-xl border-2 border-dashed p-2 transition-all',
+                'aspect-square rounded-xl border-2 border-dashed p-3 transition-all',
                 slotCard ? 'border-emerald-500/50 bg-emerald-500/10' : 'border-slate-700 bg-slate-900/40',
                 selectedCard ? 'hover:border-indigo-400' : ''
               )}
@@ -1564,7 +1564,7 @@ function StepReview({ sessionConfig, setSessionConfig, selectedDeck, selectedMec
               </p>
               {/* Mini-galería de assets del mazo */}
               {selectedDeck?.cardMappings?.length > 0 && (
-                <div className="flex gap-1 mt-2 overflow-x-auto pb-1 max-w-full">
+                <div className="flex gap-1.5 mt-2 overflow-x-auto pb-1 max-w-full">
                   {selectedDeck.cardMappings.slice(0, 8).map((m) => (
                     <CardAssetPreview
                       key={m.id || m.uid || m.cardId || m._id}
