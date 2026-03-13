@@ -43,7 +43,7 @@ const paginationSchema = z
       .transform(val => (val ? parseInt(val, 10) : 20))
       .pipe(z.number().int().min(1).max(100)),
 
-    sortBy: z.string().optional(),
+    sortBy: z.enum(['createdAt', 'updatedAt']).optional().default('createdAt'),
 
     order: z.enum(['asc', 'desc']).optional().default('desc'),
 

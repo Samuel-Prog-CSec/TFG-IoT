@@ -298,7 +298,12 @@ const createResourceRateLimiter = createRateLimiter({
     message: 'Demasiadas operaciones de creación, espera un momento'
   },
   standardHeaders: true,
-  legacyHeaders: false
+  legacyHeaders: false,
+  // Key compuesta: userId (post-auth) o IP. Evita que NAT compartido (escuelas) agote el límite.
+  keyGenerator: req => {
+    const userId = req.user?._id?.toString();
+    return userId ? `user:${userId}` : `ip:${req.ip}`;
+  }
 });
 
 /**
@@ -315,7 +320,12 @@ const eventRateLimiter = createRateLimiter({
     message: 'Demasiados eventos de juego, espera un momento'
   },
   standardHeaders: true,
-  legacyHeaders: false
+  legacyHeaders: false,
+  // Key compuesta: userId (post-auth) o IP. Evita que NAT compartido (escuelas) agote el límite.
+  keyGenerator: req => {
+    const userId = req.user?._id?.toString();
+    return userId ? `user:${userId}` : `ip:${req.ip}`;
+  }
 });
 
 /**
@@ -332,7 +342,12 @@ const uploadRateLimiter = createRateLimiter({
     message: 'Límite de uploads alcanzado, intenta más tarde'
   },
   standardHeaders: true,
-  legacyHeaders: false
+  legacyHeaders: false,
+  // Key compuesta: userId (post-auth) o IP. Evita que NAT compartido (escuelas) agote el límite.
+  keyGenerator: req => {
+    const userId = req.user?._id?.toString();
+    return userId ? `user:${userId}` : `ip:${req.ip}`;
+  }
 });
 
 module.exports = {

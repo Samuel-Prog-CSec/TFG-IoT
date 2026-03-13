@@ -19,6 +19,7 @@ const { randomUUID } = require('node:crypto');
 const helmet = require('helmet');
 const compression = require('compression');
 const cookieParser = require('cookie-parser');
+const hpp = require('hpp');
 const pinoHttp = require('pino-http');
 const { Server } = require('socket.io');
 const { connectDB, disconnectDB } = require('./config/database');
@@ -137,8 +138,20 @@ app.use(ensureCsrfCookie);
 // CSRF Protection para métodos que modifican datos
 app.use(csrfProtection);
 
-app.use(express.json()); // Parsear application/json
-app.use(express.urlencoded({ extended: true })); // Parsear application/x-www-form-urlencoded
+app.use(express.json({ limit: '100kb' })); // Parsear application/json (límite explícito)
+app.use(express.urlencoded({ extended: true, limit: '100kb' })); // Parsear application/x-www-form-urlencoded
+
+// HPP: prevenir HTTP Parameter Pollution (arrays inesperados en query params)
+app.use(hpp());
+
+// Permissions-Policy: restringir APIs del navegador innecesarias
+app.use((req, res, next) => {
+  res.setHeader(
+    'Permissions-Policy',
+    'camera=(), microphone=(), geolocation=(), payment=(), usb=(self)'
+  );
+  next();
+});
 
 // Hardening anti prototype-pollution / NoSQL operators antes de validadores de rutas
 app.use(securityPayloadGuard);

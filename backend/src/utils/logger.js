@@ -62,7 +62,16 @@ const logger = pino(
     serializers: {
       err: pino.stdSerializers.err,
       req: pino.stdSerializers.req,
-      res: pino.stdSerializers.res
+      res: pino.stdSerializers.res,
+      // Sanitiza control characters (newlines, tabs, etc.) en inputs de usuario
+      // para prevenir log injection/forgery. Usar: logger.info({ userInput: name }, 'msg')
+      userInput: value => {
+        if (typeof value !== 'string') {
+          return value;
+        }
+        // eslint-disable-next-line no-control-regex -- Intencional: eliminar chars de control (U+0000-U+001F, U+007F)
+        return value.replace(/[\u0000-\u001f\u007f]/g, '');
+      }
     },
     hooks: {
       logMethod(args, method) {
