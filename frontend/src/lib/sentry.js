@@ -18,7 +18,9 @@ export function initSentry() {
   }
 
   if (!import.meta.env.VITE_SENTRY_DSN) {
-    console.warn('[Sentry] VITE_SENTRY_DSN not configured. Sentry disabled.');
+    if (import.meta.env.DEV) {
+      console.warn('[Sentry] VITE_SENTRY_DSN not configured. Sentry disabled.');
+    }
     return;
   }
 
@@ -59,7 +61,9 @@ export function initSentry() {
   });
 
   isSentryEnabled = true;
-  console.warn(`[Sentry] Initialized in mode: ${import.meta.env.MODE}`);
+  if (import.meta.env.DEV) {
+    console.warn(`[Sentry] Initialized in mode: ${import.meta.env.MODE}`);
+  }
 }
 
 /**

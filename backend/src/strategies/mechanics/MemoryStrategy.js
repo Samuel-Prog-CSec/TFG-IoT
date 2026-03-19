@@ -7,6 +7,7 @@ const BaseMechanicStrategy = require('./BaseMechanicStrategy');
 const shuffle = list => {
   const copy = [...list];
   for (let i = copy.length - 1; i > 0; i -= 1) {
+    // eslint-disable-next-line sonarjs/pseudo-random -- safe: Fisher-Yates shuffle for game mechanics
     const j = Math.floor(Math.random() * (i + 1));
     [copy[i], copy[j]] = [copy[j], copy[i]];
   }

@@ -71,7 +71,7 @@ export default function RFIDScannerPanel({
   className,
 }) {
   const [isScanning, setIsScanning] = useState(false);
-  const [rfidStatus, setRfidStatus] = useState('disconnected');
+  const [, setRfidStatus] = useState('disconnected');
   const [deviceState, setDeviceState] = useState('unknown');
   const [lastScanned, setLastScanned] = useState(null);
   const [cardRemovedUid, setCardRemovedUid] = useState(null);

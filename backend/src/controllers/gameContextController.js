@@ -96,7 +96,7 @@ const getContexts = async (req, res, next) => {
     const [contexts, total] = await Promise.all([
       gameContextRepository.find(filter, {
         sort: sortOptions,
-        limit: parseInt(limit, 10),
+        limit: Number.parseInt(limit, 10),
         skip
       }),
       gameContextRepository.count(filter)
@@ -111,8 +111,8 @@ const getContexts = async (req, res, next) => {
     res.json({
       success: true,
       ...toPaginatedDTOV1(toGameContextListDTOV1(contexts), {
-        page: parseInt(page),
-        limit: parseInt(limit),
+        page: Number.parseInt(page, 10),
+        limit: Number.parseInt(limit, 10),
         total
       })
     });

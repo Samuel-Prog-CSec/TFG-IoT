@@ -178,7 +178,7 @@ function GameOverScreen({
                 <div className="text-white font-semibold">{summary.errors ?? 0}</div>
               </div>
               <div className="rounded-lg bg-background-elevated/60 border border-border-subtle px-3 py-2 text-center">
-                <div className="text-text-muted">Resp. media</div>
+                <div className="text-text-muted">T. medio</div>
                 <div className="text-white font-semibold">
                   {summary.averageResponseTimeMs > 0
                     ? `${(summary.averageResponseTimeMs / 1000).toFixed(1)}s`

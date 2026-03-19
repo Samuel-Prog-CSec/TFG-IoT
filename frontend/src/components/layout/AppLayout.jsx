@@ -7,21 +7,16 @@ import { ROUTES, NAV_ROUTES, ADMIN_NAV_ROUTES } from '../../constants/routes';
 import * as LucideIcons from 'lucide-react';
 import { Shield, Layers, X, Menu, Sparkles, Settings, LogOut } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
-import { cn } from '../../lib/utils';
+import { cn, routeTransition } from '../../lib/utils';
+import { useIsMobile } from '../../hooks/useIsMobile';
+import { useReducedMotion } from '../../hooks/useReducedMotion';
 
 export default function AppLayout() {
   const [sidebarOpen, setSidebarOpen] = useState(false);
-  const [isMobile, setIsMobile] = useState(false);
+  const isMobile = useIsMobile(1024);
   const location = useLocation();
   const { user, logout, isSuperAdmin } = useAuth();
-
-  // Check for mobile viewport
-  useEffect(() => {
-    const checkMobile = () => setIsMobile(globalThis.innerWidth < 1024);
-    checkMobile();
-    globalThis.addEventListener('resize', checkMobile);
-    return () => globalThis.removeEventListener('resize', checkMobile);
-  }, []);
+  const { shouldReduceMotion } = useReducedMotion();
 
   // Close sidebar on route change (mobile)
   useEffect(() => {
@@ -174,7 +169,7 @@ export default function AppLayout() {
         {/* Footer Actions */}
         <div className="p-4 border-t border-transparent bg-gradient-to-r from-transparent via-border-default/50 to-transparent space-y-1">
           <button
-            onClick={() => toast.info('Configuración', { description: 'Próximamente disponible.' })}
+            onClick={() => toast.info('Configuración en desarrollo', { description: 'Esta función estará disponible próximamente.' })}
             className="flex items-center gap-3 w-full px-4 py-3 text-text-muted hover:text-text-primary hover:bg-background-elevated rounded-xl transition-all duration-200 group"
           >
             <Settings size={20} className="group-hover:rotate-90 transition-transform duration-300" />
@@ -197,7 +192,17 @@ export default function AppLayout() {
 
         {/* Page Content */}
         <div className="relative z-10 w-full h-full">
-          <Outlet />
+          <AnimatePresence>
+            <motion.div
+              key={location.pathname}
+              initial={shouldReduceMotion ? false : routeTransition.initial}
+              animate={routeTransition.animate}
+              exit={routeTransition.exit}
+              className="w-full h-full"
+            >
+              <Outlet />
+            </motion.div>
+          </AnimatePresence>
         </div>
       </main>
     </div>

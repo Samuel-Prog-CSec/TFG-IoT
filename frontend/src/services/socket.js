@@ -24,7 +24,8 @@ const socketLog = (level, ...args) => {
     return;
   }
 
-  const logger = console[level] || console.log;
+  // eslint-disable-next-line no-console -- dev-only dynamic log level
+  const logger = console[level] || console.warn;
   logger(...args);
 };
 

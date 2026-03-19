@@ -115,7 +115,7 @@ const userSchema = new mongoose.Schema(
       lowercase: true,
       unique: true,
       sparse: true, // Permite múltiples documentos con email undefined (para alumnos)
-      match: [/^\w+([.-]?\w+)*@\w+([.-]?\w+)*(\.\w{2,3})+$/, 'El email no es válido']
+      match: [/^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$/, 'El email no es válido']
     },
     password: {
       type: String,
@@ -385,7 +385,7 @@ userSchema.methods.isStudent = function () {
  * Esto mejora la seguridad evitando exponer contraseñas accidentalmente.
  */
 userSchema.set('toJSON', {
-  transform(doc, ret, options) {
+  transform(doc, ret, _options) {
     delete ret.password;
     return ret;
   }

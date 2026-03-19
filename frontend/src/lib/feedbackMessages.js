@@ -19,11 +19,11 @@ const SUCCESS_STREAK_3 = [
 
 const SUCCESS_STREAK_5 = [
   '¡Racha de 5!', '¡Eres una estrella!', '¡Nadie te para!',
-  '¡Modo campeón!', '¡Qué crack!'
+  '¡Eres genial!', '¡Lo haces súper!'
 ];
 
 const SUCCESS_STREAK_10 = [
-  '¡LEGENDARIO!', '¡Imbatible!', '¡Nivel experto!'
+  '¡ERES INCREÍBLE!', '¡Imbatible!', '¡No paras!'
 ];
 
 const SUCCESS_LAST_ROUND = [
@@ -43,7 +43,7 @@ const ERROR_DEFAULT = [
 
 const ERROR_STREAK_BROKEN = [
   '¡Ups! No pasa nada', '¡Tranqui, sigue así!',
-  'Un tropezón no es caída', '¡Ánimo, ibas genial!'
+  '¡No pasa nada, sigue!', '¡Ánimo, ibas genial!'
 ];
 
 const ERROR_MULTIPLE_FAILS = [
@@ -58,7 +58,7 @@ const ERROR_TIMEOUT = [
 
 // --- MEMORY-SPECIFIC ---
 const MEMORY_MATCH = [
-  '¡Pareja encontrada!', '¡Buena memoria!', '¡Match!',
+  '¡Pareja encontrada!', '¡Buena memoria!', '¡Son iguales!',
   '¡Las encontraste!', '¡Ojo de lince!'
 ];
 

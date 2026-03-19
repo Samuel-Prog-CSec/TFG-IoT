@@ -18,7 +18,7 @@ import {
   RefreshCw,
   X
 } from 'lucide-react';
-import { cn } from '../lib/utils';
+import { cn, listContainerVariants, listItemVariants } from '../lib/utils';
 import { decksAPI, extractErrorMessage, isAbortError } from '../services/api';
 import DeckCard, { DeckCardSkeleton } from '../components/ui/DeckCard';
 import ButtonPremium from '../components/ui/ButtonPremium';
@@ -71,23 +71,16 @@ const resolveDeckCount = async ({
 const renderDecksGrid = ({ decks, shouldReduceMotion, handleViewDeck, handleEditDeck, handleArchiveDeck }) => (
   <motion.div
     className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6"
-    initial="hidden"
+    initial={shouldReduceMotion ? false : "hidden"}
     animate="visible"
-    variants={{
-      visible: {
-        transition: { staggerChildren: shouldReduceMotion ? 0.02 : 0.05 },
-      },
-    }}
+    variants={listContainerVariants(0.05)}
   >
     {decks.map((deck) => {
       const deckId = deck.id || deck._id;
       return (
         <motion.div
           key={deckId}
-          variants={{
-            hidden: shouldReduceMotion ? { opacity: 1, y: 0 } : { opacity: 0, y: 20 },
-            visible: { opacity: 1, y: 0 },
-          }}
+          variants={shouldReduceMotion ? {} : listItemVariants}
         >
           <DeckCard
             deck={deck}
@@ -346,6 +339,7 @@ export default function CardDecksPage() {
     loadDecks({ resetPage: true, skipCount: false, signal: controller.signal });
 
     return () => controller.abort();
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- loadDecks includes page in its deps; we only want to re-run on filter changes
   }, [filters]);
 
   const refetchDecks = useCallback(() => {

@@ -8,7 +8,7 @@
 
 import { motion, AnimatePresence } from 'framer-motion';
 import { Volume2, VolumeX } from 'lucide-react';
-import { useEffect, useRef, useState, forwardRef } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import PropTypes from 'prop-types';
 import { cn } from '../../lib/utils';
 import FloatingPointsBadge from './FloatingPointsBadge';
@@ -17,6 +17,7 @@ const FEEDBACK_BORDER = {
   idle: '',
   success: 'border-emerald-500 shadow-[0_0_40px] shadow-emerald-500/30',
   error: 'border-rose-500/70 shadow-[0_0_20px] shadow-rose-500/20',
+  timeout: 'border-amber-500/70 shadow-[0_0_20px] shadow-amber-500/20',
 };
 
 const SHAKE_ANIMATION = {
@@ -29,6 +30,45 @@ const SUCCESS_BOUNCE = {
   transition: { type: 'spring', stiffness: 400, damping: 15, duration: 0.6 },
 };
 
+const TIMEOUT_ANIMATION = {
+  opacity: [1, 0.4, 0.8],
+  scale: [1, 0.96, 1],
+  transition: { duration: 0.6 },
+};
+
+const themeColors = {
+  default: {
+    bg: 'from-theme-default/20 to-theme-default-alt/20',
+    border: 'border-theme-default/30',
+    glow: 'shadow-theme-default/30',
+    text: 'text-theme-default-text',
+  },
+  geography: {
+    bg: 'from-theme-geography/20 to-theme-geography-alt/20',
+    border: 'border-theme-geography/30',
+    glow: 'shadow-theme-geography/30',
+    text: 'text-theme-geography-text',
+  },
+  animals: {
+    bg: 'from-theme-animals/20 to-theme-animals-alt/20',
+    border: 'border-theme-animals/30',
+    glow: 'shadow-theme-animals/30',
+    text: 'text-theme-animals-text',
+  },
+  colors: {
+    bg: 'from-theme-colors/20 to-theme-colors-alt/20',
+    border: 'border-theme-colors/30',
+    glow: 'shadow-theme-colors/30',
+    text: 'text-theme-colors-text',
+  },
+  numbers: {
+    bg: 'from-theme-numbers/20 to-theme-numbers-alt/20',
+    border: 'border-theme-numbers/30',
+    glow: 'shadow-theme-numbers/30',
+    text: 'text-theme-numbers-text',
+  },
+};
+
 /**
  * @param {Object} props
  * @param {Object} props.asset - Asset del desafío { display, value, audioUrl?, imageUrl?, thumbnailUrl? }
@@ -39,16 +79,18 @@ const SUCCESS_BOUNCE = {
  * @param {string} props.feedbackMessage - Mensaje del feedback
  * @param {boolean} props.shouldReduceMotion - Respetar prefers-reduced-motion
  */
-const ChallengeDisplay = forwardRef(function ChallengeDisplay({
+const ChallengeDisplay = function ChallengeDisplay({
+  ref,
   asset,
   revealed = true,
   contextTheme = 'default',
   feedbackState = 'idle',
   feedbackPoints = 0,
   feedbackMessage = '',
+  isTimeout = false,
   shouldReduceMotion = false,
   className
-}, ref) {
+}) {
   const [audioPlaying, setAudioPlaying] = useState(false);
   const [imageError, setImageError] = useState(false);
   const [imageLoading, setImageLoading] = useState(false);
@@ -67,39 +109,6 @@ const ChallengeDisplay = forwardRef(function ChallengeDisplay({
       }
     };
   }, []);
-
-  const themeColors = {
-    default: {
-      bg: 'from-theme-default/20 to-theme-default-alt/20',
-      border: 'border-theme-default/30',
-      glow: 'shadow-theme-default/30',
-      text: 'text-theme-default-text',
-    },
-    geography: {
-      bg: 'from-theme-geography/20 to-theme-geography-alt/20',
-      border: 'border-theme-geography/30',
-      glow: 'shadow-theme-geography/30',
-      text: 'text-theme-geography-text',
-    },
-    animals: {
-      bg: 'from-theme-animals/20 to-theme-animals-alt/20',
-      border: 'border-theme-animals/30',
-      glow: 'shadow-theme-animals/30',
-      text: 'text-theme-animals-text',
-    },
-    colors: {
-      bg: 'from-theme-colors/20 to-theme-colors-alt/20',
-      border: 'border-theme-colors/30',
-      glow: 'shadow-theme-colors/30',
-      text: 'text-theme-colors-text',
-    },
-    numbers: {
-      bg: 'from-theme-numbers/20 to-theme-numbers-alt/20',
-      border: 'border-theme-numbers/30',
-      glow: 'shadow-theme-numbers/30',
-      text: 'text-theme-numbers-text',
-    },
-  };
 
   const theme = themeColors[contextTheme] || themeColors.default;
   const isIdle = feedbackState === 'idle';
@@ -128,7 +137,7 @@ const ChallengeDisplay = forwardRef(function ChallengeDisplay({
   const cardAnimate = (() => {
     if (shouldReduceMotion || isIdle) return { scale: 1, opacity: 1, x: 0 };
     if (isSuccess) return SUCCESS_BOUNCE;
-    if (isError) return { ...SHAKE_ANIMATION, scale: 1, opacity: 1 };
+    if (isError) return isTimeout ? TIMEOUT_ANIMATION : { ...SHAKE_ANIMATION, scale: 1, opacity: 1 };
     return { scale: 1, opacity: 1, x: 0 };
   })();
 
@@ -151,7 +160,7 @@ const ChallengeDisplay = forwardRef(function ChallengeDisplay({
         "rounded-3xl",
         `bg-gradient-to-br ${theme.bg}`,
         "border-2 transition-[border-color,box-shadow] duration-300",
-        isIdle ? `${theme.border} shadow-2xl ${theme.glow}` : FEEDBACK_BORDER[feedbackState],
+        isIdle ? `${theme.border} shadow-2xl ${theme.glow}` : isTimeout ? FEEDBACK_BORDER.timeout : FEEDBACK_BORDER[feedbackState],
         "backdrop-blur-xl",
         className
       )}
@@ -180,13 +189,15 @@ const ChallengeDisplay = forwardRef(function ChallengeDisplay({
       <div className={cn('absolute inset-0 rounded-3xl opacity-30', !shouldReduceMotion && 'animate-pulse-glow')} />
 
       {/* Main display area */}
-      <motion.div
-        key={asset?.value}
-        initial={shouldReduceMotion ? false : { y: 20, opacity: 0, rotateX: -20 }}
-        animate={assetFeedbackAnimate || { y: 0, opacity: 1, rotateX: 0 }}
-        transition={shouldReduceMotion ? { duration: 0 } : { type: 'spring', stiffness: 400, damping: 25 }}
-        className="relative z-10 text-center"
-      >
+      <AnimatePresence mode="wait">
+        <motion.div
+          key={asset?.value}
+          initial={shouldReduceMotion ? false : { y: 20, opacity: 0, scale: 0.95 }}
+          animate={assetFeedbackAnimate || { y: 0, opacity: 1, scale: 1 }}
+          exit={shouldReduceMotion ? { opacity: 0 } : { y: -12, opacity: 0, scale: 0.95, transition: { duration: 0.2 } }}
+          transition={shouldReduceMotion ? { duration: 0 } : { type: 'spring', stiffness: 400, damping: 25 }}
+          className="relative z-10 text-center"
+        >
         {/* Emoji/Image */}
         {(asset?.thumbnailUrl || asset?.imageUrl) && !imageError ? (
           <div className="relative size-32 sm:size-40 mx-auto mb-4">
@@ -196,7 +207,10 @@ const ChallengeDisplay = forwardRef(function ChallengeDisplay({
             <motion.img
               src={asset.thumbnailUrl || asset.imageUrl}
               alt={asset.value}
-              className="size-32 sm:size-40 object-contain mx-auto mb-4 drop-shadow-2xl"
+              className={cn(
+                "size-32 sm:size-40 object-contain mx-auto mb-4 drop-shadow-2xl transition-opacity duration-500",
+                imageLoading ? "opacity-0" : "opacity-100"
+              )}
               animate={shouldReduceMotion ? { scale: 1 } : { scale: [1, 1.05, 1] }}
               transition={shouldReduceMotion ? { duration: 0 } : { duration: 2, repeat: Infinity, ease: "easeInOut" }}
               onLoad={() => setImageLoading(false)}
@@ -240,7 +254,8 @@ const ChallengeDisplay = forwardRef(function ChallengeDisplay({
             {asset.value}
           </motion.h2>
         )}
-      </motion.div>
+        </motion.div>
+      </AnimatePresence>
 
       {/* Audio button */}
       {asset?.audioUrl && (
@@ -280,7 +295,7 @@ const ChallengeDisplay = forwardRef(function ChallengeDisplay({
       )}
     </motion.div>
   );
-});
+};
 
 function ChallengeSparkle({ className, delay = 0 }) {
   return (
@@ -304,8 +319,6 @@ function ChallengeSparkle({ className, delay = 0 }) {
   );
 }
 
-ChallengeDisplay.displayName = 'ChallengeDisplay';
-
 ChallengeDisplay.propTypes = {
   asset: PropTypes.shape({
     display: PropTypes.string,
@@ -319,6 +332,7 @@ ChallengeDisplay.propTypes = {
   feedbackState: PropTypes.oneOf(['idle', 'success', 'error']),
   feedbackPoints: PropTypes.number,
   feedbackMessage: PropTypes.string,
+  isTimeout: PropTypes.bool,
   shouldReduceMotion: PropTypes.bool,
   className: PropTypes.string
 };

@@ -1086,12 +1086,13 @@ function StepMemoryRules({
 
         <div className="space-y-5">
           <div>
-            <label className="flex items-center gap-2 text-sm text-slate-300 mb-2">
+            <label htmlFor="memory-time-limit" className="flex items-center gap-2 text-sm text-slate-300 mb-2">
               <Clock size={14} className="text-purple-400" />
               Tiempo total de partida (segundos)
             </label>
             <div className="flex items-center gap-4">
               <input
+                id="memory-time-limit"
                 type="range"
                 min={10}
                 max={300}
@@ -1107,12 +1108,13 @@ function StepMemoryRules({
           </div>
 
           <div>
-            <label className="flex items-center gap-2 text-sm text-slate-300 mb-2">
+            <label htmlFor="memory-points-correct" className="flex items-center gap-2 text-sm text-slate-300 mb-2">
               <Zap size={14} className="text-emerald-400" />
               Puntos por pareja correcta
             </label>
             <div className="flex items-center gap-4">
               <input
+                id="memory-points-correct"
                 type="range"
                 min={5}
                 max={30}
@@ -1128,12 +1130,13 @@ function StepMemoryRules({
           </div>
 
           <div>
-            <label className="flex items-center gap-2 text-sm text-slate-300 mb-2">
+            <label htmlFor="memory-penalty-error" className="flex items-center gap-2 text-sm text-slate-300 mb-2">
               <AlertTriangle size={14} className="text-rose-400" />
               Penalización por pareja incorrecta
             </label>
             <div className="flex items-center gap-4">
               <input
+                id="memory-penalty-error"
                 type="range"
                 min={-15}
                 max={0}
@@ -1281,12 +1284,13 @@ function StepRules({
         <div className="space-y-5">
           {/* Número de rondas */}
           <div>
-            <label className="flex items-center gap-2 text-sm text-slate-300 mb-2">
+            <label htmlFor="assoc-num-rounds" className="flex items-center gap-2 text-sm text-slate-300 mb-2">
               <Target size={14} className="text-indigo-400" />
               Número de rondas
             </label>
             <div className="flex items-center gap-4">
               <input
+                id="assoc-num-rounds"
                 type="range"
                 min={1}
                 max={15}
@@ -1302,12 +1306,13 @@ function StepRules({
 
           {/* Tiempo por ronda */}
           <div>
-            <label className="flex items-center gap-2 text-sm text-slate-300 mb-2">
+            <label htmlFor="assoc-time-limit" className="flex items-center gap-2 text-sm text-slate-300 mb-2">
               <Clock size={14} className="text-purple-400" />
               Tiempo por ronda (segundos)
             </label>
             <div className="flex items-center gap-4">
               <input
+                id="assoc-time-limit"
                 type="range"
                 min={5}
                 max={60}
@@ -1324,12 +1329,13 @@ function StepRules({
 
           {/* Puntos por acierto */}
           <div>
-            <label className="flex items-center gap-2 text-sm text-slate-300 mb-2">
+            <label htmlFor="assoc-points-correct" className="flex items-center gap-2 text-sm text-slate-300 mb-2">
               <Zap size={14} className="text-emerald-400" />
               Puntos por acierto
             </label>
             <div className="flex items-center gap-4">
               <input
+                id="assoc-points-correct"
                 type="range"
                 min={5}
                 max={25}
@@ -1346,12 +1352,13 @@ function StepRules({
 
           {/* Penalización por error */}
           <div>
-            <label className="flex items-center gap-2 text-sm text-slate-300 mb-2">
+            <label htmlFor="assoc-penalty-error" className="flex items-center gap-2 text-sm text-slate-300 mb-2">
               <AlertTriangle size={14} className="text-rose-400" />
               Penalización por error
             </label>
             <div className="flex items-center gap-4">
               <input
+                id="assoc-penalty-error"
                 type="range"
                 min={-10}
                 max={0}

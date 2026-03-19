@@ -89,7 +89,7 @@ function TimerBar({ timeLeft, timeLimit, className, shouldReduceMotion = false }
         className={cn(
           "relative h-6 rounded-full overflow-hidden",
           "bg-background-elevated/80 backdrop-blur-sm",
-          "border-2 border-white/10",
+          "border-2 border-border-default",
           isCritical && !shouldReduceMotion && "animate-[shake_0.5s_ease-in-out_infinite]"
         )}
         aria-hidden="true"
@@ -110,7 +110,7 @@ function TimerBar({ timeLeft, timeLimit, className, shouldReduceMotion = false }
 
         {/* Shimmer effect */}
         <div 
-          className="absolute inset-0 bg-gradient-to-r from-transparent via-white/20 to-transparent"
+          className="absolute inset-0 bg-gradient-to-r from-transparent via-border-strong to-transparent"
           style={{
             animation: shouldReduceMotion ? 'none' : 'shimmer 2s infinite',
             width: '50%',
@@ -124,7 +124,7 @@ function TimerBar({ timeLeft, timeLimit, className, shouldReduceMotion = false }
               key={`timer-marker-${marker}`}
               className={cn(
                 "size-1.5 rounded-full transition-colors duration-300",
-                percentage > marker ? "bg-white/30" : "bg-white/10"
+                percentage > marker ? "bg-border-strong" : "bg-border-default"
               )}
             />
           ))}

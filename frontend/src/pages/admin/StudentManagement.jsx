@@ -5,7 +5,7 @@
  * @module pages/admin/StudentManagement
  */
 
-import { useState, useEffect, useCallback, useMemo, useDeferredValue } from 'react';
+import { useState, useEffect, useCallback, useDeferredValue } from 'react';
 import { 
   Users, 
   UserPlus, 
@@ -65,7 +65,7 @@ function EditStudentModal({ isOpen, onClose, onUpdated, student }) {
     e.preventDefault();
     const parsedAge = Number.parseInt(formData.age, 10);
     if (!formData.name.trim() || Number.isNaN(parsedAge)) {
-      toast.error('Nombre y edad son obligatorios');
+      toast.error('Introduce el nombre y la edad del alumno');
       return;
     }
     if (parsedAge < 3 || parsedAge > 99) {
@@ -84,7 +84,7 @@ function EditStudentModal({ isOpen, onClose, onUpdated, student }) {
       };
 
       await usersAPI.updateUser(student.id || student._id, payload);
-      toast.success('Alumno actualizado exitosamente');
+      toast.success('Alumno actualizado correctamente');
       onUpdated();
       onClose();
     } catch (error) {
@@ -200,7 +200,7 @@ function CreateStudentModal({ isOpen, onClose, onCreated, teachers }) {
     e.preventDefault();
     const parsedAge = Number.parseInt(formData.age, 10);
     if (!formData.name.trim() || !formData.teacherId || Number.isNaN(parsedAge)) {
-      toast.error('Nombre, edad y profesor son obligatorios');
+      toast.error('Introduce nombre, edad y selecciona un profesor');
       return;
     }
     if (parsedAge < 3 || parsedAge > 99) {
@@ -220,7 +220,7 @@ function CreateStudentModal({ isOpen, onClose, onCreated, teachers }) {
       };
 
       await usersAPI.createUser(payload);
-      toast.success('Alumno creado exitosamente');
+      toast.success('Alumno creado correctamente');
       onCreated();
       onClose();
     } catch (error) {
@@ -332,10 +332,10 @@ function CreateStudentModal({ isOpen, onClose, onCreated, teachers }) {
  */
 export default function StudentManagement() {
   const [students, setStudents] = useState([]);
-  const [teachers, setTeachers] = useState([]);
+  const [_teachers, setTeachers] = useState([]);
   const [loading, setLoading] = useState(true);
-  const [error, setError] = useState(null);
-  const [isModalOpen, setIsModalOpen] = useState(false);
+  const [_error, setError] = useState(null);
+  const [_isModalOpen, setIsModalOpen] = useState(false);
   const [isEditModalOpen, setIsEditModalOpen] = useState(false);
   const [isDeleteModalOpen, setIsDeleteModalOpen] = useState(false);
   const [selectedStudent, setSelectedStudent] = useState(null);
@@ -521,9 +521,13 @@ export default function StudentManagement() {
                       <AnimatePresence>
                         {activeMenuId === (student.id || student._id) && (
                           <>
-                            <div 
-                              className="fixed inset-0 z-10" 
-                              onClick={() => setActiveMenuId(null)} 
+                            <div
+                              role="button"
+                              tabIndex={0}
+                              aria-label="Cerrar menú"
+                              className="fixed inset-0 z-10"
+                              onClick={() => setActiveMenuId(null)}
+                              onKeyDown={(e) => { if (e.key === 'Escape' || e.key === 'Enter') setActiveMenuId(null); }}
                             />
                             <motion.div
                               initial={{ opacity: 0, scale: 0.95, y: -10 }}

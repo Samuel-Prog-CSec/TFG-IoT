@@ -1,4 +1,3 @@
-import React from 'react';
 import { motion } from 'framer-motion';
 import { cva } from 'class-variance-authority';
 import { cn } from '../../lib/utils';
@@ -79,8 +78,9 @@ const buttonVariants = cva(
  * @param {React.ReactNode} props.icon - Componente de ícono (ej. <LucideIcon />)
  * @param {'left'|'right'} props.iconPosition - Posición del icono
  */
-const ButtonPremium = React.forwardRef(({ 
-  children, 
+const ButtonPremium = ({
+  ref,
+  children,
   className,
   variant,
   size,
@@ -88,8 +88,8 @@ const ButtonPremium = React.forwardRef(({
   disabled = false,
   icon,
   iconPosition = 'left',
-  ...props 
-}, ref) => {
+  ...props
+}) => {
   const isDisabled = disabled || loading;
 
   return (
@@ -126,8 +126,6 @@ const ButtonPremium = React.forwardRef(({
       )}
     </motion.button>
   );
-});
-
-ButtonPremium.displayName = "ButtonPremium";
+};
 
 export default ButtonPremium;

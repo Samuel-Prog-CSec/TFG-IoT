@@ -9,7 +9,7 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { X, AlertTriangle, Archive, Trash2, Info, CheckCircle } from 'lucide-react';
-import { cn } from '../../lib/utils';
+import { cn, DURATION, EASING } from '../../lib/utils';
 import ButtonPremium from './ButtonPremium';
 
 /**
@@ -173,7 +173,12 @@ export default function ConfirmationModal({
             className="bg-background-base border border-border-default rounded-2xl p-6 max-w-md w-full shadow-2xl"
           >
             {/* Header con icono */}
-            <div className="flex items-start gap-4 mb-4">
+            <motion.div
+              className="flex items-start gap-4 mb-4"
+              initial={{ opacity: 0, y: 8 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ delay: 0.15, duration: DURATION.stateChange, ease: EASING.outQuart }}
+            >
               <div className={cn(
                 'size-12 rounded-xl flex items-center justify-center flex-shrink-0',
                 variantConfig.bg
@@ -191,7 +196,7 @@ export default function ConfirmationModal({
                   <p className="text-sm text-text-muted">{subtitle}</p>
                 )}
               </div>
-              
+
               {/* Botón cerrar */}
               <button
                 ref={firstFocusableRef}
@@ -206,22 +211,30 @@ export default function ConfirmationModal({
               >
                 <X size={18} />
               </button>
-            </div>
+            </motion.div>
 
             {/* Descripción */}
-            <div
+            <motion.div
               id="modal-description"
               className="text-text-secondary mb-6"
+              initial={{ opacity: 0, y: 8 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ delay: 0.2, duration: DURATION.stateChange, ease: EASING.outQuart }}
             >
               {typeof description === 'string' ? (
                 <p>{description}</p>
               ) : (
                 description
               )}
-            </div>
+            </motion.div>
 
             {/* Acciones */}
-            <div className="flex gap-3 justify-end">
+            <motion.div
+              className="flex gap-3 justify-end"
+              initial={{ opacity: 0, y: 8 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ delay: 0.25, duration: DURATION.stateChange, ease: EASING.outQuart }}
+            >
               <ButtonPremium
                 variant="ghost"
                 onClick={onClose}
@@ -237,7 +250,7 @@ export default function ConfirmationModal({
               >
                 {confirmText}
               </ButtonPremium>
-            </div>
+            </motion.div>
           </motion.div>
         </motion.div>
       )}
@@ -261,6 +274,7 @@ export default function ConfirmationModal({
  *   });
  * };
  */
+// eslint-disable-next-line react-refresh/only-export-components -- co-located hook for convenience
 export function useConfirmationModal() {
   const [isOpen, setIsOpen] = useState(false);
   const [config, setConfig] = useState({});

@@ -248,7 +248,7 @@ class WebSerialService {
         } else {
           throw new Error('No se encontró el puerto para reconectar');
         }
-      } catch (error) {
+      } catch {
         this.reconnecting = false;
         this.attemptReconnect(); // Reintentar
       }

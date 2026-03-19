@@ -279,7 +279,7 @@ const contextsData = [
  */
 async function seedContexts() {
   try {
-    const contexts = await GameContext.insertMany(contextsData);
+    const contexts = await GameContext.create(contextsData);
 
     const totalAssets = contextsData.reduce((sum, ctx) => sum + ctx.assets.length, 0);
 

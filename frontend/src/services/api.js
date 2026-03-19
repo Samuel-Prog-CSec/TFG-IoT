@@ -7,6 +7,7 @@
  */
 
 import axios from 'axios';
+import { captureException } from '../lib/sentry';
 
 // ============================================
 // CONFIGURACIÓN
@@ -136,6 +137,7 @@ api.interceptors.response.use(
     // Log de tiempo de respuesta en desarrollo
     if (import.meta.env.DEV && response.config.metadata) {
       const duration = Date.now() - response.config.metadata.startTime;
+      // eslint-disable-next-line no-console -- dev-only debug logging
       console.debug(`[API] ${response.config.method?.toUpperCase()} ${response.config.url} - ${duration}ms`);
     }
     return response;
@@ -259,7 +261,7 @@ async function handleNetworkError(error, originalRequest) {
   // Verificar si hemos excedido el tiempo total máximo
   const elapsedTime = Date.now() - originalRequest._retryStartTime;
   if (elapsedTime >= MAX_TOTAL_TIME) {
-    console.error(`[API] Max total time (${MAX_TOTAL_TIME}ms) exceeded for ${originalRequest.url}`);
+    captureException(new Error(`[API] Max total time (${MAX_TOTAL_TIME}ms) exceeded for ${originalRequest.url}`));
     const timeoutError = new Error('Tiempo de espera agotado. Por favor, verifica tu conexion a internet.');
     timeoutError.isNetworkError = true;
     timeoutError.cause = error;
@@ -267,7 +269,7 @@ async function handleNetworkError(error, originalRequest) {
   }
 
   if (retryCount >= MAX_RETRIES) {
-    console.error(`[API] Max retries (${MAX_RETRIES}) exceeded for ${originalRequest.url}`);
+    captureException(new Error(`[API] Max retries (${MAX_RETRIES}) exceeded for ${originalRequest.url}`));
     const networkError = new Error('Error de conexion. Por favor, verifica tu conexion a internet.');
     networkError.isNetworkError = true;
     networkError.cause = error;
@@ -277,7 +279,9 @@ async function handleNetworkError(error, originalRequest) {
   originalRequest._retryCount = retryCount + 1;
   const delay = RETRY_DELAY * Math.pow(2, retryCount); // Exponential backoff
 
-  console.warn(`[API] Network error, retrying (${retryCount + 1}/${MAX_RETRIES}) in ${delay}ms...`);
+  if (import.meta.env.DEV) {
+    console.warn(`[API] Network error, retrying (${retryCount + 1}/${MAX_RETRIES}) in ${delay}ms...`);
+  }
 
   await new Promise((resolve) => setTimeout(resolve, delay));
   return api(originalRequest);

@@ -96,6 +96,7 @@ export default function ContextDetailPage() {
 
   useEffect(() => {
     fetchContext();
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- fetchContext is not memoized; only re-run when contextId changes
   }, [contextId]);
 
   if (loading) {
@@ -546,8 +547,11 @@ function UploadAssetModal({ context, onClose, onSuccess }) {
 
           <form onSubmit={handleSubmit} className="space-y-5">
             {/* File Dropzone */}
-            <div 
+            <div
+              role="button"
+              tabIndex={0}
               onClick={() => fileInputRef.current?.click()}
+              onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') fileInputRef.current?.click(); }}
               className={cn(
                 'w-full h-40 rounded-xl border-2 border-dashed flex flex-col items-center justify-center cursor-pointer transition-colors relative overflow-hidden',
                 file ? DROPZONE_VARIANTS.withFile : DROPZONE_VARIANTS.empty

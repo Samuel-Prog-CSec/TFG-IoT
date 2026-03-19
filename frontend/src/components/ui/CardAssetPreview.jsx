@@ -44,6 +44,7 @@ export default function CardAssetPreview({
               className="absolute inset-0 bg-slate-800/80 before:absolute before:inset-0 before:-translate-x-full before:animate-[shimmer_2s_infinite] before:bg-gradient-to-r before:from-transparent before:via-text-primary/5 before:to-transparent"
             />
           )}
+          {/* eslint-disable-next-line jsx-a11y/no-noninteractive-element-interactions -- onLoad/onError are lifecycle events, not user interactions */}
           <img
             src={imageUrl}
             alt={alt || asset?.value || 'Asset'}

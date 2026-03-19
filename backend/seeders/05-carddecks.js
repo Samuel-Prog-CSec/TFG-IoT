@@ -158,7 +158,7 @@ async function seedCardDecks(users, contexts, cards) {
     }
 
     // Insertar todos los mazos
-    const createdDecks = await CardDeck.insertMany(allDecks);
+    const createdDecks = await CardDeck.create(allDecks);
 
     // Estadísticas
     const decksByTeacher = {};

@@ -71,6 +71,7 @@ class AssociationStrategy extends BaseMechanicStrategy {
     let attempts = 0;
 
     do {
+      // eslint-disable-next-line sonarjs/pseudo-random -- safe: game shuffling does not require CSPRNG
       const randomIndex = Math.floor(Math.random() * mappings.length);
       candidate = mappings[randomIndex];
       attempts += 1;

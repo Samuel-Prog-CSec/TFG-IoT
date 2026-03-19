@@ -1702,7 +1702,7 @@ class GameEngine {
   /**
    * Persiste el estado de la partida en MongoDB si se cumplen los umbrales de checkpoint.
    * Los checkpoints reducen la ventana de pérdida de datos ante un crash del servidor:
-   * sin ellos, todo el progreso entre startPlay() y endPlay() vive solo en memoria.
+   * sin ellos, el progreso completo entre startPlay() y endPlay() vive solo en memoria.
    *
    * @private
    * @async

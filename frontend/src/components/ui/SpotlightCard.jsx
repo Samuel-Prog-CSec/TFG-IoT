@@ -15,7 +15,7 @@ import { cn } from '../../lib/utils';
 export default function SpotlightCard({ 
   children, 
   className,
-  spotlightColor = 'rgba(139, 92, 246, 0.15)',
+  spotlightColor = 'oklch(65% 0.18 300 / 0.15)',
   disabled = false,
   ...props 
 }) {
@@ -42,6 +42,7 @@ export default function SpotlightCard({
   };
 
   return (
+    // eslint-disable-next-line jsx-a11y/no-noninteractive-element-interactions -- mouse events are for decorative spotlight effect only
     <article
       ref={divRef}
       onMouseMove={handleMouseMove}
@@ -49,10 +50,10 @@ export default function SpotlightCard({
       onMouseLeave={handleMouseLeave}
       className={cn(
         'relative overflow-hidden rounded-2xl',
-        'bg-slate-800/40 backdrop-blur-md',
-        'border border-white/5',
+        'bg-background-elevated/40 backdrop-blur-md',
+        'border border-border-subtle',
         'transition-all duration-300',
-        'hover:border-white/10',
+        'hover:border-border-default',
         className
       )}
       {...props}

@@ -1,13 +1,14 @@
 import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { motion } from 'framer-motion';
+import { motion, AnimatePresence } from 'framer-motion';
 import { Users, Gamepad2, Trophy, AlertTriangle, Calendar, TrendingUp } from 'lucide-react';
-import { staggerContainer, staggerItem } from '../lib/utils';
+import { listContainerVariants, listItemVariants, crossfadeVariants } from '../lib/utils';
 import { useDocumentTitle } from '../hooks/useDocumentTitle';
 import { useRefetchOnFocus } from '../hooks/useRefetchOnFocus';
 import { useReducedMotion } from '../hooks/useReducedMotion';
 import analyticsService from '../services/analytics';
 import { isAbortError } from '../services/api';
+import { captureException } from '../lib/sentry';
 import { ROUTES } from '../constants/routes';
 import StatCard from '../components/dashboard/StatCard';
 import StudentProgressChart from '../components/dashboard/StudentProgressChart';
@@ -49,7 +50,7 @@ export default function Dashboard() {
         setError(null);
       } catch (err) {
         if (isAbortError(err)) return;
-        console.error('Error loading dashboard data:', err);
+        captureException(err);
         setError('No se pudieron cargar los datos del dashboard.');
       } finally {
         if (!controller.signal.aborted) {
@@ -79,8 +80,8 @@ export default function Dashboard() {
     if (summary?.studentsInRisk > 0) {
         arr.push({
             type: 'risk',
-            title: 'Estudiantes en Riesgo',
-            message: `${summary.studentsInRisk} estudiantes tienen un promedio bajo (<50) en sus últimas partidas.`
+            title: 'Alumnos en Riesgo',
+            message: `${summary.studentsInRisk} alumnos tienen un promedio bajo (<50) en sus últimas partidas.`
         });
     }
     if (summary?.gamesToday > 5) {
@@ -94,9 +95,16 @@ export default function Dashboard() {
   }, [summary]);
 
   // Prevenir Layout Shifts (CLS) renderizando una estructura idéntica durante la carga
-  if (loading && !summary) {
-      return (
-        <main className="p-6 lg:p-8 max-w-7xl mx-auto space-y-8 animate-fade-in-up">
+  const skeletonContent = loading && !summary;
+
+  return (
+    <AnimatePresence mode="wait">
+      {skeletonContent ? (
+        <motion.main
+          key="skeleton"
+          {...(shouldReduceMotion ? {} : crossfadeVariants)}
+          className="p-6 lg:p-8 max-w-7xl mx-auto space-y-8"
+        >
           {/* Header Skeleton Mimic */}
           <div className="flex flex-col sm:flex-row sm:items-end sm:justify-between gap-4 pt-4 lg:pt-0">
             <div className="space-y-3">
@@ -127,110 +135,120 @@ export default function Dashboard() {
               <SkeletonCard className="h-64" />
             </aside>
           </div>
-        </main>
-      );
-  }
+        </motion.main>
+      ) : (
+        <motion.main
+          key="content"
+          {...(shouldReduceMotion ? {} : crossfadeVariants)}
+          className="p-6 lg:p-8 max-w-7xl mx-auto space-y-8 flex flex-col"
+          aria-label="Panel principal del dashboard"
+        >
+          <Header timeRange={timeRange} setTimeRange={setTimeRange} reducedMotion={shouldReduceMotion} />
 
-  return (
-    <main 
-      className="p-6 lg:p-8 max-w-7xl mx-auto space-y-8 flex flex-col"
-      aria-label="Panel principal del dashboard"
-    >
-      <Header timeRange={timeRange} setTimeRange={setTimeRange} reducedMotion={shouldReduceMotion} />
+          <div className="flex flex-col gap-8 flex-1">
+            {loading && summary ? (
+              <div className="bg-background-elevated/50 border border-border-default text-text-muted px-4 py-2 rounded-xl text-sm font-medium animate-pulse">
+                Actualizando métricas...
+              </div>
+            ) : null}
 
-      <motion.div
-        variants={staggerContainer}
-        initial={shouldReduceMotion ? false : "hidden"}
-        animate="show"
-        className="flex flex-col gap-8 flex-1"
-      >
-        {loading && summary ? (
-          <motion.div variants={staggerItem} className="bg-background-elevated/50 border border-border-default text-text-muted px-4 py-2 rounded-xl text-sm font-medium animate-pulse">
-            Actualizando métricas...
-          </motion.div>
-        ) : null}
-        
-        {error ? (
-          <motion.div variants={staggerItem} className="bg-error-base/10 border border-error-base/20 text-error-base p-4 rounded-xl flex items-center gap-3">
-              <AlertTriangle className="shrink-0" size={20} />
-              <p className="font-medium">{error}</p>
-          </motion.div>
-        ) : null}
+            {error ? (
+              <div className="bg-error-base/10 border border-error-base/20 text-error-base p-4 rounded-xl flex items-center gap-3">
+                  <AlertTriangle className="shrink-0" size={20} />
+                  <p className="font-medium">{error}</p>
+              </div>
+            ) : null}
 
-        {/* BI Principle: Jerarquía Visual - KPIs Arriba */}
-        <motion.section variants={staggerItem} aria-labelledby="stats-heading">
-          <h2 id="stats-heading" className="sr-only">KPIs Principales</h2>
-          <div 
-            className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 lg:gap-6"
-            role="list"
-          >
-            {/* KPI 1: Alerta / Atención Requerida */}
-            <div role="listitem">
-              <StatCard 
-                title="Estudiantes en Riesgo" 
-                value={summary?.studentsInRisk || 0}
-                trend={summary?.studentsInRisk > 0 ? "+1" : "0"} 
-                icon={<AlertTriangle className="text-white drop-shadow-sm" size={24} aria-hidden="true" />} 
-                color="bg-gradient-to-br from-error-base to-error-dark" 
-              />
-            </div>
+            {/* BI Principle: Jerarquía Visual - KPIs Arriba */}
+            <motion.section
+              variants={listContainerVariants(0.08)}
+              initial={shouldReduceMotion ? false : "hidden"}
+              animate="visible"
+              aria-labelledby="stats-heading"
+            >
+              <h2 id="stats-heading" className="sr-only">KPIs Principales</h2>
+              <div
+                className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 lg:gap-6"
+                role="list"
+              >
+                <motion.div variants={shouldReduceMotion ? {} : listItemVariants} role="listitem">
+                  <StatCard
+                    title="Alumnos en Riesgo"
+                    value={summary?.studentsInRisk || 0}
+                    trend={summary?.studentsInRisk > 0 ? "+1" : "0"}
+                    icon={<AlertTriangle className="text-white drop-shadow-sm" size={24} aria-hidden="true" />}
+                    color="bg-gradient-to-br from-error-base to-error-dark"
+                  />
+                </motion.div>
 
-            {/* KPI 2: Rendimiento General */}
-            <div role="listitem">
-              <StatCard 
-                title="Puntaje Promedio" 
-                value={`${summary?.averageScore || 0}%`}
-                trend="+2.4%"
-                icon={<Trophy className="text-white drop-shadow-sm" size={24} aria-hidden="true" />} 
-                color="bg-gradient-to-br from-success-base to-success-dark" 
-              />
-            </div>
+                <motion.div variants={shouldReduceMotion ? {} : listItemVariants} role="listitem">
+                  <StatCard
+                    title="Puntuación Media"
+                    value={`${summary?.averageScore || 0}%`}
+                    trend="+2.4%"
+                    icon={<Trophy className="text-white drop-shadow-sm" size={24} aria-hidden="true" />}
+                    color="bg-gradient-to-br from-success-base to-success-dark"
+                  />
+                </motion.div>
 
-            {/* KPI 3: Actividad */}
-            <div role="listitem">
-              <StatCard 
-                title="Partidas Hoy" 
-                value={summary?.gamesToday || 0}
-                trend="+5%" 
-                icon={<Gamepad2 className="text-white drop-shadow-sm" size={24} aria-hidden="true" />} 
-                color="bg-gradient-to-br from-brand-base to-accent-indigo" 
-              />
-            </div>
+                <motion.div variants={shouldReduceMotion ? {} : listItemVariants} role="listitem">
+                  <StatCard
+                    title="Partidas Hoy"
+                    value={summary?.gamesToday || 0}
+                    trend="+5%"
+                    icon={<Gamepad2 className="text-white drop-shadow-sm" size={24} aria-hidden="true" />}
+                    color="bg-gradient-to-br from-brand-base to-accent-indigo"
+                  />
+                </motion.div>
 
-            {/* KPI 4: Volumen */}
-            <div role="listitem">
-              <StatCard 
-                title="Total Jugadas" 
-                value={summary?.totalGames || 0}
-                trend="+12%" 
-                icon={<Users className="text-white drop-shadow-sm" size={24} aria-hidden="true" />} 
-                color="bg-gradient-to-br from-info-base to-accent-cyan" 
-              />
-            </div>
+                <motion.div variants={shouldReduceMotion ? {} : listItemVariants} role="listitem">
+                  <StatCard
+                    title="Partidas Totales"
+                    value={summary?.totalGames || 0}
+                    trend="+12%"
+                    icon={<Users className="text-white drop-shadow-sm" size={24} aria-hidden="true" />}
+                    color="bg-gradient-to-br from-info-base to-accent-cyan"
+                  />
+                </motion.div>
+              </div>
+            </motion.section>
+
+            {/* Grid Principal: Gráficos y Listas */}
+            <motion.section
+              variants={listContainerVariants(0.12)}
+              initial={shouldReduceMotion ? false : "hidden"}
+              animate="visible"
+              className="grid grid-cols-1 xl:grid-cols-3 gap-6 lg:gap-8 flex-1"
+              aria-label="Análisis detallado"
+            >
+              {/* Columna Principal (2/3 de ancho) */}
+              <div className="xl:col-span-2 space-y-6 lg:space-y-8 flex flex-col h-full">
+                <motion.div variants={shouldReduceMotion ? {} : listItemVariants}>
+                  <StudentProgressChart
+                    data={progressData}
+                    period={timeRange}
+                    onPeriodChange={setTimeRange}
+                  />
+                </motion.div>
+                <motion.div variants={shouldReduceMotion ? {} : listItemVariants}>
+                  <DifficultyHeatmap data={difficulties} />
+                </motion.div>
+              </div>
+
+              {/* Columna Lateral (1/3 de ancho) */}
+              <aside className="space-y-6 lg:space-y-8 h-full flex flex-col">
+                <motion.div variants={shouldReduceMotion ? {} : listItemVariants}>
+                  <ClassroomOverview summary={summary} distribution={null} />
+                </motion.div>
+                <motion.div variants={shouldReduceMotion ? {} : listItemVariants}>
+                  <AlertsPanel alerts={alerts} />
+                </motion.div>
+              </aside>
+            </motion.section>
           </div>
-        </motion.section>
-
-        {/* Grid Principal: Gráficos y Listas */}
-        <motion.section variants={staggerItem} className="grid grid-cols-1 xl:grid-cols-3 gap-6 lg:gap-8 flex-1" aria-label="Análisis detallado">
-          
-          {/* Columna Principal (2/3 de ancho) */}
-          <div className="xl:col-span-2 space-y-6 lg:space-y-8 flex flex-col h-full">
-            <StudentProgressChart
-              data={progressData}
-              period={timeRange}
-              onPeriodChange={setTimeRange}
-            />
-            <DifficultyHeatmap data={difficulties} />
-          </div>
-
-          {/* Columna Lateral (1/3 de ancho) */}
-          <aside className="space-y-6 lg:space-y-8 h-full flex flex-col">
-             <ClassroomOverview summary={summary} distribution={null} />
-             <AlertsPanel alerts={alerts} />
-          </aside>
-        </motion.section>
-      </motion.div>
-    </main>
+        </motion.main>
+      )}
+    </AnimatePresence>
   );
 }
 

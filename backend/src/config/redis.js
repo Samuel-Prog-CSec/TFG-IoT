@@ -73,6 +73,7 @@ const loadLuaScripts = async () => {
 
     for (const file of luaFiles) {
       const scriptName = path.basename(file, '.lua');
+      // eslint-disable-next-line security/detect-non-literal-fs-filename -- safe: reading from internal scripts dir
       const scriptContent = fs.readFileSync(path.join(luaDir, file), 'utf8');
       const sha = await redisClient.script('LOAD', scriptContent);
       luaScriptSHAs.set(scriptName, sha);
@@ -104,7 +105,9 @@ const getLuaScriptSource = scriptName => {
   try {
     const luaDir = path.resolve(__dirname, '../scripts/lua');
     const filePath = path.join(luaDir, `${scriptName}.lua`);
+    // eslint-disable-next-line security/detect-non-literal-fs-filename -- safe: path built from internal constant dir
     if (fs.existsSync(filePath)) {
+      // eslint-disable-next-line security/detect-non-literal-fs-filename -- safe: path built from internal constant dir
       return fs.readFileSync(filePath, 'utf8');
     }
     return null;
@@ -125,9 +128,9 @@ const getRedisConfig = () => {
 
   return {
     host: url.hostname || 'localhost',
-    port: parseInt(url.port) || 6379,
+    port: Number.parseInt(url.port, 10) || 6379,
     password: url.password || process.env.REDIS_PASSWORD || undefined,
-    db: parseInt(process.env.REDIS_DB) || 0,
+    db: Number.parseInt(process.env.REDIS_DB, 10) || 0,
     keyPrefix: KEY_PREFIX,
 
     // Configuración de reconexión

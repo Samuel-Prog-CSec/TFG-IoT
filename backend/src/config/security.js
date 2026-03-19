@@ -6,6 +6,7 @@
 
 const rateLimit = require('express-rate-limit');
 const crypto = require('node:crypto');
+const logger = require('../utils/logger');
 
 const isTestEnv = () => process.env.NODE_ENV === 'test' || typeof globalThis.it === 'function';
 
@@ -25,13 +26,25 @@ const createRateLimiter = options => {
  * @type {string[]}
  */
 const corsWhitelist = process.env.CORS_WHITELIST
-  ? process.env.CORS_WHITELIST.split(',').map(origin => origin.trim())
+  ? process.env.CORS_WHITELIST.split(',')
+      .map(origin => origin.trim())
+      .filter(Boolean)
   : [
       'http://localhost:3000',
       'http://localhost:5173',
       'http://127.0.0.1:3000',
       'http://127.0.0.1:5173'
     ];
+
+if (process.env.NODE_ENV === 'production') {
+  const hasOnlyLocalhost = corsWhitelist.every(origin => /localhost|127\.0\.0\.1/.test(origin));
+  if (hasOnlyLocalhost) {
+    logger.fatal(
+      { corsWhitelist },
+      'CORS whitelist solo contiene origenes localhost en produccion — configurar CORS_WHITELIST con dominios de produccion'
+    );
+  }
+}
 
 /**
  * Opciones de configuración para CORS.
@@ -85,7 +98,7 @@ const corsOptions = {
  */
 const CSRF_COOKIE_NAME = 'csrfToken';
 const CSRF_HEADER_NAME = 'x-csrf-token';
-const skipPaths = new Set(['/api/auth/login', '/api/auth/register', '/auth/refresh']);
+const skipPaths = new Set(['/api/auth/login', '/api/auth/register', '/api/auth/refresh']);
 const writeMethods = new Set(['POST', 'PUT', 'DELETE', 'PATCH']);
 
 const buildCsrfCookieOptions = () => {

@@ -5,8 +5,9 @@
  * @module pages/SessionsPage
  */
 
-import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from 'react';
+import { memo, useCallback, useEffect, useMemo, useReducer, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
+import PropTypes from 'prop-types';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
   CalendarClock,
@@ -35,7 +36,7 @@ import { SkeletonCard } from '../components/ui/SkeletonShimmer';
 import Tooltip from '../components/ui/Tooltip';
 import EmptyState from '../components/ui/EmptyState';
 import ConfirmationModal, { useConfirmationModal } from '../components/ui/ConfirmationModal';
-import { staggerContainer, staggerItem } from '../lib/utils';
+import { listContainerVariants, listItemVariants } from '../lib/utils';
 
 const STATUS_OPTIONS = [
   { value: '', label: 'Todas' },
@@ -77,6 +78,158 @@ const extractSessionItems = ({ payload, extracted }) => {
   return [];
 };
 
+const BORDER_CLASSES = {
+  created: 'border-l-amber-500/70',
+  active: 'border-l-emerald-500/70',
+  completed: 'border-l-slate-500/50',
+};
+
+const SessionCard = memo(function SessionCard({
+  session,
+  cloneLoading,
+  onClone,
+  onDelete,
+  onNavigate
+}) {
+  const statusInfo = statusToBadge(session.status);
+  const title = session.deck?.name || 'Sesión sin mazo asignado';
+  const mechanicLabel = session.mechanic?.displayName || session.mechanic?.name || 'Mecánica';
+  const contextLabel = session.context?.name || 'Contexto';
+  const sessionId = session.id || session._id;
+  const canEdit = session.status === 'created';
+  const canDelete = session.status === 'created';
+  const borderClass = BORDER_CLASSES[session.status] || 'border-l-slate-500/50';
+
+  return (
+    <motion.div variants={listItemVariants}>
+      <GlassCard className={`p-6 flex flex-col gap-5 hover:border-white/20 transition-all border-l-4 ${borderClass}`}>
+        <div className="flex items-start justify-between gap-3">
+          <div>
+            <h3 className="text-lg font-semibold text-white">{title}</h3>
+            <p className="text-sm text-slate-400">{mechanicLabel} · {contextLabel}</p>
+          </div>
+          <StatusBadge status={statusInfo.tone}>{statusInfo.label}</StatusBadge>
+        </div>
+
+        <div className="grid grid-cols-2 gap-4 text-xs text-slate-300">
+          <div className="bg-white/5 rounded-lg p-3 flex items-center gap-3">
+            <div className="size-8 rounded-lg bg-indigo-500/15 flex items-center justify-center flex-shrink-0">
+              <Layers size={14} className="text-indigo-400" />
+            </div>
+            <div>
+              <p className="text-slate-400">Tarjetas</p>
+              <p className="text-white font-semibold font-display">{session.config?.numberOfCards || session.cardMappingsCount}</p>
+            </div>
+          </div>
+          <div className="bg-white/5 rounded-lg p-3 flex items-center gap-3">
+            <div className="size-8 rounded-lg bg-cyan-500/15 flex items-center justify-center flex-shrink-0">
+              <RotateCcw size={14} className="text-cyan-400" />
+            </div>
+            <div>
+              <p className="text-slate-400">Rondas</p>
+              <p className="text-white font-semibold font-display">{session.config?.numberOfRounds}</p>
+            </div>
+          </div>
+          <div className="bg-white/5 rounded-lg p-3 flex items-center gap-3">
+            <div className="size-8 rounded-lg bg-amber-500/15 flex items-center justify-center flex-shrink-0">
+              <Timer size={14} className="text-amber-400" />
+            </div>
+            <div>
+              <p className="text-slate-400">Tiempo</p>
+              <p className="text-white font-semibold font-display">{session.config?.timeLimit}s</p>
+            </div>
+          </div>
+          <div className="bg-white/5 rounded-lg p-3 flex items-center gap-3">
+            <div className="size-8 rounded-lg bg-emerald-500/15 flex items-center justify-center flex-shrink-0">
+              <Award size={14} className="text-emerald-400" />
+            </div>
+            <div>
+              <p className="text-slate-400">Puntos</p>
+              <p className="text-white font-semibold font-display">+{session.config?.pointsPerCorrect}</p>
+            </div>
+          </div>
+        </div>
+
+        <div className="flex flex-wrap gap-3 mt-auto pt-4 border-t border-white/5">
+          <ButtonPremium
+            variant="secondary"
+            onClick={() => onNavigate(ROUTES.SESSION_DETAIL(sessionId))}
+            className="flex-1"
+          >
+            <Eye size={16} />
+            Ver detalle
+          </ButtonPremium>
+          <ButtonPremium
+            variant="secondary"
+            onClick={() => onClone(session)}
+            disabled={cloneLoading}
+            className="flex-1"
+          >
+            <RefreshCw size={16} />
+            Volver a jugar
+          </ButtonPremium>
+          <Tooltip content="Ver mapping">
+            <ButtonPremium
+              variant="ghost"
+              onClick={() => onNavigate(ROUTES.BOARD_SETUP_WITH_ID(sessionId))}
+            >
+              <Map size={16} />
+            </ButtonPremium>
+          </Tooltip>
+          <Tooltip content="Editar sesión">
+            <ButtonPremium
+              variant="ghost"
+              onClick={() => onNavigate(ROUTES.SESSION_EDIT(sessionId))}
+              disabled={!canEdit}
+            >
+              <Pencil size={16} />
+            </ButtonPremium>
+          </Tooltip>
+          <Tooltip content="Eliminar sesión">
+            <ButtonPremium
+              variant="ghost"
+              onClick={() => onDelete(session)}
+              disabled={!canDelete}
+            >
+              <Trash2 size={16} />
+            </ButtonPremium>
+          </Tooltip>
+        </div>
+
+      </GlassCard>
+    </motion.div>
+  );
+});
+
+SessionCard.propTypes = {
+  session: PropTypes.shape({
+    id: PropTypes.string,
+    _id: PropTypes.string,
+    status: PropTypes.string,
+    deck: PropTypes.shape({
+      name: PropTypes.string,
+    }),
+    mechanic: PropTypes.shape({
+      name: PropTypes.string,
+      displayName: PropTypes.string,
+    }),
+    context: PropTypes.shape({
+      name: PropTypes.string,
+    }),
+    config: PropTypes.shape({
+      numberOfCards: PropTypes.number,
+      numberOfRounds: PropTypes.number,
+      timeLimit: PropTypes.number,
+      pointsPerCorrect: PropTypes.number,
+    }),
+    cardMappingsCount: PropTypes.number,
+  }).isRequired,
+  cloneLoading: PropTypes.bool.isRequired,
+  onClone: PropTypes.func.isRequired,
+  onDelete: PropTypes.func.isRequired,
+  onNavigate: PropTypes.func.isRequired,
+};
+
 const renderSessionsContent = ({
   loading,
   sessions,
@@ -99,13 +252,13 @@ const renderSessionsContent = ({
   if (sessions.length === 0) {
     return (
       <EmptyState
-        title="No hay sesiones todavia"
-        description="Crea una nueva sesion para preparar tu proxima experiencia de juego."
+        title="Aún no tienes sesiones"
+        description="Crea tu primera sesión de juego para que tus alumnos empiecen a aprender."
         icon={<CalendarClock size={28} />}
         action={(
           <ButtonPremium variant="primary" onClick={() => navigate(ROUTES.CREATE_SESSION)}>
             <PlusCircle size={18} />
-            Crear sesion
+            Crear sesión
           </ButtonPremium>
         )}
       />
@@ -115,123 +268,20 @@ const renderSessionsContent = ({
   return (
     <motion.div
       className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-6"
-      variants={staggerContainer}
-      initial={false}
-      animate="show"
+      variants={listContainerVariants()}
+      initial="hidden"
+      animate="visible"
     >
-      {sessions.map((session) => {
-        const statusInfo = statusToBadge(session.status);
-        const title = session.deck?.name || 'Sesión sin mazo';
-        const mechanicLabel = session.mechanic?.displayName || session.mechanic?.name || 'Mecánica';
-        const contextLabel = session.context?.name || 'Contexto';
-        const sessionId = session.id || session._id;
-        const canEdit = session.status === 'created';
-        const canDelete = session.status === 'created';
-
-        return (
-          <motion.div key={sessionId} variants={staggerItem}>
-            <GlassCard className={`p-6 flex flex-col gap-5 hover:border-white/20 transition-all border-l-4 ${{
-              created: 'border-l-amber-500/70',
-              active: 'border-l-emerald-500/70',
-              completed: 'border-l-slate-500/50',
-            }[session.status] || 'border-l-slate-500/50'}`}>
-              <div className="flex items-start justify-between gap-3">
-                <div>
-                  <h3 className="text-lg font-semibold text-white">{title}</h3>
-                  <p className="text-sm text-slate-400">{mechanicLabel} · {contextLabel}</p>
-                </div>
-                <StatusBadge status={statusInfo.tone}>{statusInfo.label}</StatusBadge>
-              </div>
-
-              <div className="grid grid-cols-2 gap-4 text-xs text-slate-300">
-                <div className="bg-white/5 rounded-lg p-3 flex items-center gap-3">
-                  <div className="size-8 rounded-lg bg-indigo-500/15 flex items-center justify-center flex-shrink-0">
-                    <Layers size={14} className="text-indigo-400" />
-                  </div>
-                  <div>
-                    <p className="text-slate-400">Tarjetas</p>
-                    <p className="text-white font-semibold font-display">{session.config?.numberOfCards || session.cardMappingsCount}</p>
-                  </div>
-                </div>
-                <div className="bg-white/5 rounded-lg p-3 flex items-center gap-3">
-                  <div className="size-8 rounded-lg bg-cyan-500/15 flex items-center justify-center flex-shrink-0">
-                    <RotateCcw size={14} className="text-cyan-400" />
-                  </div>
-                  <div>
-                    <p className="text-slate-400">Rondas</p>
-                    <p className="text-white font-semibold font-display">{session.config?.numberOfRounds}</p>
-                  </div>
-                </div>
-                <div className="bg-white/5 rounded-lg p-3 flex items-center gap-3">
-                  <div className="size-8 rounded-lg bg-amber-500/15 flex items-center justify-center flex-shrink-0">
-                    <Timer size={14} className="text-amber-400" />
-                  </div>
-                  <div>
-                    <p className="text-slate-400">Tiempo</p>
-                    <p className="text-white font-semibold font-display">{session.config?.timeLimit}s</p>
-                  </div>
-                </div>
-                <div className="bg-white/5 rounded-lg p-3 flex items-center gap-3">
-                  <div className="size-8 rounded-lg bg-emerald-500/15 flex items-center justify-center flex-shrink-0">
-                    <Award size={14} className="text-emerald-400" />
-                  </div>
-                  <div>
-                    <p className="text-slate-400">Puntos</p>
-                    <p className="text-white font-semibold font-display">+{session.config?.pointsPerCorrect}</p>
-                  </div>
-                </div>
-              </div>
-
-              <div className="flex flex-wrap gap-3 mt-auto pt-4 border-t border-white/5">
-                <ButtonPremium
-                  variant="secondary"
-                  onClick={() => navigate(ROUTES.SESSION_DETAIL(sessionId))}
-                  className="flex-1"
-                >
-                  <Eye size={16} />
-                  Ver detalle
-                </ButtonPremium>
-                <ButtonPremium
-                  variant="secondary"
-                  onClick={() => handleClone(session)}
-                  disabled={cloneLoading}
-                  className="flex-1"
-                >
-                  <RefreshCw size={16} />
-                  Volver a jugar
-                </ButtonPremium>
-                <Tooltip content="Ver mapping">
-                  <ButtonPremium
-                    variant="ghost"
-                    onClick={() => navigate(ROUTES.BOARD_SETUP_WITH_ID(sessionId))}
-                  >
-                    <Map size={16} />
-                  </ButtonPremium>
-                </Tooltip>
-                <Tooltip content="Editar sesion">
-                  <ButtonPremium
-                    variant="ghost"
-                    onClick={() => navigate(ROUTES.SESSION_EDIT(sessionId))}
-                    disabled={!canEdit}
-                  >
-                    <Pencil size={16} />
-                  </ButtonPremium>
-                </Tooltip>
-                <Tooltip content="Eliminar sesion">
-                  <ButtonPremium
-                    variant="ghost"
-                    onClick={() => handleDelete(session)}
-                    disabled={!canDelete}
-                  >
-                    <Trash2 size={16} />
-                  </ButtonPremium>
-                </Tooltip>
-              </div>
-
-            </GlassCard>
-          </motion.div>
-        );
-      })}
+      {sessions.map((session) => (
+        <SessionCard
+          key={session.id || session._id}
+          session={session}
+          cloneLoading={cloneLoading}
+          onClone={handleClone}
+          onDelete={handleDelete}
+          onNavigate={navigate}
+        />
+      ))}
     </motion.div>
   );
 };
@@ -417,15 +467,15 @@ export default function SessionsPage() {
     }
   };
 
-  const handleDelete = (session) => {
+  const handleDelete = useCallback((session) => {
     setSelectedSession(session);
     deleteModal.open();
-  };
+  }, [deleteModal]);
 
-  const handleClone = (session) => {
+  const handleClone = useCallback((session) => {
     setSelectedSession(session);
     cloneModal.open();
-  };
+  }, [cloneModal]);
 
   const confirmDelete = async () => {
     if (!selectedSession) return;

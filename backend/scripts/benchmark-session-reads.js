@@ -227,9 +227,11 @@ const cleanupFixture = async ({ benchmarkId, teacherId }) => {
 
   await GameSession.deleteMany({ createdBy: teacherId });
 
+  // eslint-disable-next-line security/detect-non-literal-regexp -- safe: benchmarkId is internally generated
   await CardDeck.deleteMany({ name: new RegExp(`^Bench Deck ${benchmarkId}$`) });
   await GameContext.deleteMany({ contextId: `bench-context-${benchmarkId}` });
   await GameMechanic.deleteMany({ name: `bench-mechanic-${benchmarkId}` });
+  // eslint-disable-next-line security/detect-non-literal-regexp -- safe: uidPrefix is internally generated
   await Card.deleteMany({ uid: new RegExp(`^${uidPrefix}`) });
   await User.deleteMany({ email: `bench-session-${benchmarkId}@test.com` });
 };

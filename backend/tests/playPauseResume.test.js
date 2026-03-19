@@ -154,8 +154,8 @@ describe('GamePlay pause/resume', () => {
       if (playId) {
         await gameEngine.endPlay(playId);
       }
-    } catch (_) {
-      // ignore
+    } catch {
+      // Cleanup is best-effort; errors are expected if play already ended
     }
   });
 

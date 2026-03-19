@@ -11,6 +11,8 @@ import { Link, useLocation } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import { LogIn, Mail, Lock, Eye, EyeOff, AlertCircle, CheckCircle, Info, Clock } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
+import { useReducedMotion } from '../hooks/useReducedMotion';
+import { formFieldVariants } from '../lib/utils';
 import ButtonPremium from '../components/ui/ButtonPremium';
 import InputPremium from '../components/ui/InputPremium';
 import GlassCard from '../components/ui/GlassCard';
@@ -99,6 +101,7 @@ const resetRateLimit = () => {
 export default function Login() {
   const { login, error, clearError, isLoading } = useAuth();
   const location = useLocation();
+  const { shouldReduceMotion } = useReducedMotion();
 
   // Estado del formulario
   const [formData, setFormData] = useState({
@@ -173,13 +176,13 @@ export default function Login() {
     const errors = {};
 
     if (!formData.email.trim()) {
-      errors.email = 'El email es requerido';
+      errors.email = 'Introduce tu email';
     } else if (!isValidEmail(formData.email)) {
       errors.email = 'Introduce un email válido';
     }
 
     if (!formData.password) {
-      errors.password = 'La contraseña es requerida';
+      errors.password = 'Introduce tu contraseña';
     }
 
     setValidationErrors(errors);
@@ -386,14 +389,19 @@ export default function Login() {
 
         {/* Card del formulario */}
         <GlassCard className="p-8" variant="solid">
-          <form onSubmit={handleSubmit} className="space-y-6">
+          <motion.form
+            onSubmit={handleSubmit}
+            className="space-y-6"
+            initial={shouldReduceMotion ? false : "hidden"}
+            animate="visible"
+          >
             {/* Título del formulario */}
-            <div className="text-center mb-6">
+            <motion.div variants={shouldReduceMotion ? {} : formFieldVariants(0)} className="text-center mb-6">
               <h2 className="text-xl font-semibold text-white">Iniciar Sesión</h2>
               <p className="text-slate-400 text-sm mt-1">
                 Accede a tu cuenta de profesor
               </p>
-            </div>
+            </motion.div>
 
             {/* Error general */}
             <AnimatePresence>
@@ -411,21 +419,22 @@ export default function Login() {
             </AnimatePresence>
 
             {/* Campo Email */}
-            <InputPremium
-              label="Email"
-              name="email"
-              type="email"
-              placeholder="tu@email.com"
-              value={formData.email}
-              onChange={handleChange}
-              error={validationErrors.email}
-              icon={<Mail className="size-5" />}
-              autoComplete="email"
-              autoFocus
-            />
+            <motion.div variants={shouldReduceMotion ? {} : formFieldVariants(1)}>
+              <InputPremium
+                label="Email"
+                name="email"
+                type="email"
+                placeholder="tu@email.com"
+                value={formData.email}
+                onChange={handleChange}
+                error={validationErrors.email}
+                icon={<Mail className="size-5" />}
+                autoComplete="email"
+              />
+            </motion.div>
 
             {/* Campo Contraseña */}
-            <div className="relative">
+            <motion.div variants={shouldReduceMotion ? {} : formFieldVariants(2)} className="relative">
               <InputPremium
                 label="Contraseña"
                 name="password"
@@ -449,21 +458,23 @@ export default function Login() {
                   <Eye className="size-5" />
                 )}
               </button>
-            </div>
+            </motion.div>
 
             {/* Botón de submit */}
-            <ButtonPremium
-              type="submit"
-              variant="primary"
-              size="lg"
-              className="w-full"
-              loading={isSubmitting || isLoading}
-              disabled={isSubmitting || isLoading || isLocked}
-              icon={<LogIn className="size-5" />}
-            >
-              {isSubmitting ? 'Iniciando sesión...' : 'Iniciar Sesión'}
-            </ButtonPremium>
-          </form>
+            <motion.div variants={shouldReduceMotion ? {} : formFieldVariants(3)}>
+              <ButtonPremium
+                type="submit"
+                variant="primary"
+                size="lg"
+                className="w-full"
+                loading={isSubmitting || isLoading}
+                disabled={isSubmitting || isLoading || isLocked}
+                icon={<LogIn className="size-5" />}
+              >
+                {isSubmitting ? 'Iniciando sesión...' : 'Iniciar Sesión'}
+              </ButtonPremium>
+            </motion.div>
+          </motion.form>
 
           {/* Separador */}
           <div className="relative my-8">

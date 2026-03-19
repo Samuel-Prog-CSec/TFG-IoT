@@ -11,6 +11,7 @@ const initialModeState = {
 
 const RfidModeContext = createContext(null);
 
+// eslint-disable-next-line react-refresh/only-export-components -- standard context+hook pattern
 export function useRfidMode() {
   const context = useContext(RfidModeContext);
   if (!context) {

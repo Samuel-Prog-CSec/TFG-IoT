@@ -18,6 +18,7 @@ import { toast } from 'sonner';
 import GlassCard from '../components/ui/GlassCard';
 import ButtonPremium from '../components/ui/ButtonPremium';
 import InputPremium from '../components/ui/InputPremium';
+import EmptyState from '../components/ui/EmptyState';
 import { SkeletonCard } from '../components/ui/SkeletonShimmer';
 import { useContexts } from '../hooks/useContexts';
 import { useReducedMotion } from '../hooks/useReducedMotion';
@@ -176,20 +177,22 @@ export default function ContextsPage() {
             </ButtonPremium>
           </GlassCard>
         ) : filteredContexts.length === 0 ? (
-          <GlassCard className="p-12 text-center mt-8 border-dashed border-2 bg-slate-900/50">
-            <Palette size={48} className="mx-auto text-slate-600 mb-4" />
-            <h3 className="text-xl font-medium text-white mb-2">No se encontraron contextos</h3>
-            <p className="text-slate-400 mb-6">
-              {searchTerm
+          <EmptyState
+            title="No se encontraron contextos"
+            description={
+              searchTerm
                 ? 'Intenta usar otros términos de búsqueda.'
-                : 'Aún no hay contextos temáticos disponibles.'}
-            </p>
-            {isSuperAdmin && !searchTerm && (
-              <ButtonPremium onClick={() => setShowCreateModal(true)} icon={<Plus size={16} />}>
-                Crear el primer contexto
-              </ButtonPremium>
-            )}
-          </GlassCard>
+                : 'Aún no hay contextos temáticos disponibles.'
+            }
+            icon={<Palette size={28} />}
+            action={
+              isSuperAdmin && !searchTerm ? (
+                <ButtonPremium onClick={() => setShowCreateModal(true)} icon={<Plus size={16} />}>
+                  Crear el primer contexto
+                </ButtonPremium>
+              ) : undefined
+            }
+          />
         ) : (
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
             <AnimatePresence>
@@ -232,10 +235,10 @@ function ContextCard({ context, onClick, index, reducedMotion }) {
 
   return (
     <motion.div
-      initial={reducedMotion ? false : { opacity: 0, y: 20 }}
+      initial={reducedMotion ? false : { opacity: 0, y: 16 }}
       animate={{ opacity: 1, y: 0 }}
       exit={reducedMotion ? false : { opacity: 0, scale: 0.95 }}
-      transition={{ delay: reducedMotion ? 0 : index * 0.05 }}
+      transition={{ delay: reducedMotion ? 0 : index * 0.06, duration: 0.6, ease: [0.16, 1, 0.3, 1] }}
       whileHover={reducedMotion ? {} : { y: -4 }}
       onClick={onClick}
       className="group cursor-pointer"

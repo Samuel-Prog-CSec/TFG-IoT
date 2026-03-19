@@ -14,7 +14,7 @@ jest.mock('ioredis', () => {
 
 const mongoose = require('mongoose');
 const redisService = require('../src/services/redisService');
-const { connectRedis, disconnectRedis, isRedisConnected } = require('../src/config/redis');
+const { connectRedis, disconnectRedis } = require('../src/config/redis');
 const GameEngine = require('../src/services/gameEngine');
 const GamePlay = require('../src/models/GamePlay');
 const GameSession = require('../src/models/GameSession');
@@ -455,7 +455,6 @@ describe('Redis State Recovery - GameEngine.recoverActivePlays()', () => {
       await simulateOrphanedRedisState(play, session);
 
       // Forzar un estado corrupto en Redis
-      const playId = play._id.toString();
       await redisService.set(redisService.NAMESPACES.PLAY, 'corrupted-key', 'not-valid-json');
 
       // Act: No debería lanzar error

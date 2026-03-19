@@ -405,7 +405,7 @@ export default function ApprovalPanel() {
       }
       const message = extractErrorMessage(err);
       setError(message);
-      toast.error('Error al cargar solicitudes');
+      toast.error('Error al cargar las solicitudes');
     } finally {
       if (!controller.signal.aborted) {
         setLoading(false);
@@ -605,7 +605,7 @@ export default function ApprovalPanel() {
           ) : filteredTeachers.length === 0 ? (
             <EmptyState
               title="No hay solicitudes pendientes"
-              description="Todas las solicitudes de profesores han sido procesadas. Vuelve mas tarde para revisar nuevas solicitudes."
+              description="Todas las solicitudes de profesores han sido procesadas. Vuelve más tarde para revisar nuevas solicitudes."
               icon={<Inbox className="size-10" />}
               className="bg-transparent"
             />

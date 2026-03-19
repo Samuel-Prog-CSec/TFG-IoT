@@ -30,12 +30,12 @@ export default function CharacterMascot({
   };
 
   const defaultMessages = {
-    idle: '¡Hola!',
-    happy: '¡Muy bien!',
-    encouraging: '¡Tú puedes!',
-    celebrating: '¡GENIAL!',
-    thinking: 'Hmm...',
-    sad: '¡Inténtalo!',
+    idle: '¡Hola, amigo!',
+    happy: '¡Muy bien hecho!',
+    encouraging: '¡Venga, tú puedes!',
+    celebrating: '¡GENIAL, CAMPEÓN!',
+    thinking: 'Piensa bien...',
+    sad: '¡Otra vez, tú puedes!',
   };
 
   const expr = expressions[mood];

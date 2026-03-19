@@ -19,7 +19,7 @@ import {
 } from '../services/api';
 import { socketService } from '../services/socket';
 import { ROUTES } from '../constants/routes';
-import { setUserContext } from '../lib/sentry';
+import { setUserContext, captureException } from '../lib/sentry';
 
 // ============================================
 // TIPOS Y CONSTANTES
@@ -99,6 +99,7 @@ const AuthContext = createContext(null);
  * Hook para usar el contexto de autenticación
  * @returns {Object} Estado y funciones de autenticación
  */
+// eslint-disable-next-line react-refresh/only-export-components -- standard context+hook pattern
 export function useAuth() {
   const context = useContext(AuthContext);
   if (!context) {
@@ -149,7 +150,7 @@ export function AuthProvider({ children }) {
         }
         scheduleTokenRefresh((accessTokenExpiresIn || 15 * 60) * 1000);
       } catch (error) {
-        console.error('[Auth] Error al refrescar token:', error);
+        captureException(error);
         // El interceptor de API manejará el logout si es necesario
       }
     }, refreshTime);
@@ -202,10 +203,10 @@ export function AuthProvider({ children }) {
         try {
           await socketService.connect();
         } catch (socketError) {
-          console.warn('[Auth] No se pudo conectar WebSocket:', socketError);
+          captureException(socketError);
         }
       } catch (error) {
-        console.error('[Auth] Sesión expirada o inválida:', error);
+        captureException(error);
         clearTokens();
         setUserContext(null);
         dispatch({ type: AUTH_ACTIONS.SET_USER, payload: null });
@@ -227,7 +228,7 @@ export function AuthProvider({ children }) {
    */
   useEffect(() => {
     const handleSessionExpired = () => {
-      toast.error('Tu sesión ha expirado. Por favor, inicia sesión nuevamente.');
+      toast.error('Tu sesión ha expirado. Inicia sesión de nuevo para continuar.');
       setUserContext(null);
       dispatch({ type: AUTH_ACTIONS.LOGOUT });
       clearTokens();
@@ -302,7 +303,7 @@ export function AuthProvider({ children }) {
       try {
         await socketService.connect();
       } catch (socketError) {
-        console.warn('[Auth] No se pudo conectar WebSocket:', socketError);
+        captureException(socketError);
       }
 
       // Mensaje de bienvenida
@@ -354,7 +355,7 @@ export function AuthProvider({ children }) {
       dispatch({ type: AUTH_ACTIONS.SET_LOADING, payload: false });
       
       toast.success(
-        'Registro exitoso. Tu cuenta está pendiente de aprobación por un administrador.',
+        '¡Registro completado! Tu cuenta está pendiente de aprobación por un administrador.',
         { duration: 6000 }
       );
 
@@ -381,7 +382,7 @@ export function AuthProvider({ children }) {
       await authAPI.logout();
     } catch (error) {
       // Continuar con logout local aunque falle en servidor
-      console.warn('[Auth] Error en logout del servidor:', error);
+      captureException(error);
     }
 
     // Limpiar estado local

@@ -1,9 +1,48 @@
-import { memo } from 'react';
-import { motion } from 'framer-motion';
+import { memo, useEffect, useRef } from 'react';
+import { motion, animate } from 'framer-motion';
 import { ArrowUpRight, ArrowDownRight } from 'lucide-react';
 import PropTypes from 'prop-types';
-import { cn } from '../../lib/utils';
+import { cn, EASING } from '../../lib/utils';
+import { useReducedMotion } from '../../hooks/useReducedMotion';
 import GlassCard from '../ui/GlassCard';
+
+/**
+ * Componente interno para animar un numero de 0 al valor final.
+ * Soporta sufijos (ej: "45%").
+ * Si el valor no es numerico, lo renderiza directamente.
+ */
+function AnimatedNumber({ value }) {
+  const { shouldReduceMotion } = useReducedMotion();
+  const ref = useRef(null);
+
+  // Parse numeric part and suffix
+  const strValue = String(value);
+  const match = strValue.match(/^(\d+(?:\.\d+)?)(.*)/);
+  const numericPart = match ? parseFloat(match[1]) : null;
+  const suffix = match ? match[2] : '';
+
+  useEffect(() => {
+    if (numericPart === null || shouldReduceMotion || !ref.current) return;
+
+    const controls = animate(0, numericPart, {
+      duration: 1.2,
+      ease: EASING.outExpo,
+      onUpdate(latest) {
+        if (ref.current) {
+          ref.current.textContent = `${Math.round(latest)}${suffix}`;
+        }
+      },
+    });
+
+    return () => controls.stop();
+  }, [numericPart, suffix, shouldReduceMotion]);
+
+  if (numericPart === null || shouldReduceMotion) {
+    return <span>{value}</span>;
+  }
+
+  return <span ref={ref}>0{suffix}</span>;
+}
 
 /**
  * Tarjeta de estadísticas del dashboard
@@ -27,9 +66,9 @@ function StatCard({ title, value, trend, icon, color }) {
       aria-label={`${title}: ${value}`}
       className="group cursor-pointer relative block h-full"
     >
-      <GlassCard 
-        variant="default" 
-        padding="none" 
+      <GlassCard
+        variant="default"
+        padding="none"
         className={cn(
           "h-full p-6 transition-all duration-300",
           "hover:shadow-[0_8px_32px_rgba(0,0,0,0.3)] hover:border-border-strong"
@@ -50,14 +89,9 @@ function StatCard({ title, value, trend, icon, color }) {
         {/* Content */}
         <div className="relative z-10 pr-14">
           <h3 className="text-text-muted text-sm font-semibold tracking-wide uppercase mb-2">{title}</h3>
-          <motion.div 
-            key={value}
-            initial={{ opacity: 0, y: 10 }}
-            animate={{ opacity: 1, y: 0 }}
-            className="text-3xl font-bold text-text-primary mb-3 font-display tracking-tight"
-          >
-            {value}
-          </motion.div>
+          <div className="text-3xl font-bold text-text-primary mb-3 font-display tracking-tight">
+            <AnimatedNumber value={value} />
+          </div>
           <div className={cn(
             "inline-flex items-center gap-1 text-sm font-semibold px-2.5 py-1 rounded-lg whitespace-nowrap",
             isPositive
@@ -69,14 +103,14 @@ function StatCard({ title, value, trend, icon, color }) {
             <span className="text-text-muted font-medium ml-1 text-xs">vs semana pasada</span>
           </div>
         </div>
-        
+
         {/* Glow effect fallback for visual flair */}
-        <div 
+        <div
           className={cn(
             "absolute -bottom-16 -right-16 w-40 h-40 rounded-full blur-3xl",
             "opacity-20 transition-all duration-500 group-hover:opacity-40 group-hover:scale-110 pointer-events-none",
             color
-          )} 
+          )}
           aria-hidden="true"
         />
       </GlassCard>

@@ -34,13 +34,13 @@ const paginationSchema = z
     page: z
       .string()
       .optional()
-      .transform(val => (val ? parseInt(val, 10) : 1))
+      .transform(val => (val ? Number.parseInt(val, 10) : 1))
       .pipe(z.number().int().min(1)),
 
     limit: z
       .string()
       .optional()
-      .transform(val => (val ? parseInt(val, 10) : 20))
+      .transform(val => (val ? Number.parseInt(val, 10) : 20))
       .pipe(z.number().int().min(1).max(100)),
 
     sortBy: z.enum(['createdAt', 'updatedAt']).optional().default('createdAt'),

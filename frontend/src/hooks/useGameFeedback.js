@@ -43,6 +43,7 @@ export function useGameFeedback({ isMemoryMode = false, shouldReduceMotion = fal
   const [feedbackState, setFeedbackState] = useState('idle');
   const [feedbackPoints, setFeedbackPoints] = useState(0);
   const [feedbackMessage, setFeedbackMessage] = useState('');
+  const [isTimeout, setIsTimeout] = useState(false);
   const [mascotMood, setMascotMood] = useState('idle');
   const [mascotMessage, setMascotMessage] = useState('');
   const [streak, setStreak] = useState(0);
@@ -62,6 +63,7 @@ export function useGameFeedback({ isMemoryMode = false, shouldReduceMotion = fal
   const processValidationResult = useCallback((payload, gameContext = {}) => {
     const isCorrect = Boolean(payload?.isCorrect && !payload?.timeout);
     const points = Number(payload?.pointsAwarded || 0);
+    const isTimeoutResult = Boolean(payload?.timeout);
     const previousStreak = streakRef.current;
 
     // Update streak
@@ -97,6 +99,7 @@ export function useGameFeedback({ isMemoryMode = false, shouldReduceMotion = fal
     setFeedbackState(isCorrect ? 'success' : 'error');
     setFeedbackPoints(points);
     setFeedbackMessage(message);
+    setIsTimeout(isTimeoutResult);
     setMascotMood(isCorrect ? 'celebrating' : 'encouraging');
     setMascotMessage(message);
 
@@ -112,6 +115,7 @@ export function useGameFeedback({ isMemoryMode = false, shouldReduceMotion = fal
     setFeedbackState('idle');
     setFeedbackPoints(0);
     setFeedbackMessage('');
+    setIsTimeout(false);
     setMascotMood('idle');
     setMascotMessage('');
   }, []);
@@ -129,6 +133,7 @@ export function useGameFeedback({ isMemoryMode = false, shouldReduceMotion = fal
     feedbackState,
     feedbackPoints,
     feedbackMessage,
+    isTimeout,
     mascotMood,
     mascotMessage,
     streak,

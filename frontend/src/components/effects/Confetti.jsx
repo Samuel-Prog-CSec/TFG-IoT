@@ -1,32 +1,32 @@
 import { motion } from 'framer-motion';
 import { useEffect, useState } from 'react';
 
+const CONFETTI_COLORS = [
+  '#8b5cf6', // Purple
+  '#22d3ee', // Cyan
+  '#f472b6', // Pink
+  '#facc15', // Yellow
+  '#4ade80', // Green
+  '#fb923c', // Orange
+];
+
 /**
  * Efecto de confetti para celebraciones
  * Partículas animadas que caen desde arriba
- * 
+ *
  * @param {Object} props
  * @param {boolean} props.active - Si el confetti está activo
  * @param {number} props.duration - Duración en ms (default: 3000)
  * @param {number} props.particleCount - Número de partículas (default: 50)
  */
-export default function Confetti({ 
-  active = true, 
-  duration = 3000, 
+export default function Confetti({
+  active = true,
+  duration = 3000,
   particleCount = 50,
-  onComplete 
+  onComplete
 }) {
   const [particles, setParticles] = useState([]);
   const [isActive, setIsActive] = useState(active);
-
-  const colors = [
-    '#8b5cf6', // Purple
-    '#22d3ee', // Cyan
-    '#f472b6', // Pink
-    '#facc15', // Yellow
-    '#4ade80', // Green
-    '#fb923c', // Orange
-  ];
 
   useEffect(() => {
     if (!active) {
@@ -40,7 +40,7 @@ export default function Confetti({
     const newParticles = Array.from({ length: particleCount }, (_, i) => ({
       id: i,
       x: Math.random() * 100, // Random x position (%)
-      color: colors[Math.floor(Math.random() * colors.length)],
+      color: CONFETTI_COLORS[Math.floor(Math.random() * CONFETTI_COLORS.length)],
       size: 6 + Math.random() * 8, // 6-14px
       delay: Math.random() * 0.5, // 0-0.5s delay
       duration: 1.5 + Math.random() * 1.5, // 1.5-3s fall duration
@@ -108,8 +108,6 @@ export function ConfettiBurst({
   const [particles, setParticles] = useState([]);
   const [isActive, setIsActive] = useState(active);
 
-  const colors = ['#8b5cf6', '#22d3ee', '#f472b6', '#facc15', '#4ade80'];
-
   useEffect(() => {
     if (!active) {
       setIsActive(false);
@@ -125,7 +123,7 @@ export function ConfettiBurst({
         id: i,
         angle,
         velocity,
-        color: colors[Math.floor(Math.random() * colors.length)],
+        color: CONFETTI_COLORS[Math.floor(Math.random() * CONFETTI_COLORS.length)],
         size: 4 + Math.random() * 6,
       };
     });

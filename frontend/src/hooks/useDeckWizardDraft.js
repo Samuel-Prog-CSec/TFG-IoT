@@ -6,6 +6,7 @@
  */
 
 import { useState, useEffect, useCallback, useRef } from 'react';
+import { captureException } from '../lib/sentry';
 
 const STORAGE_KEY = 'deck_wizard_draft';
 const DEBOUNCE_MS = 500;
@@ -121,7 +122,7 @@ export default function useDeckWizardDraft() {
         setHasDraft(true);
       } catch {
         // Error al guardar, ignorar (localStorage lleno, etc.)
-        console.warn('[DeckWizardDraft] Error al guardar borrador');
+        captureException(new Error('[DeckWizardDraft] Error al guardar borrador'));
       }
     }, DEBOUNCE_MS);
   }, []);
@@ -161,7 +162,7 @@ export default function useDeckWizardDraft() {
         return true;
       }
     } catch {
-      console.warn('[DeckWizardDraft] Error al restaurar borrador');
+      captureException(new Error('[DeckWizardDraft] Error al restaurar borrador'));
     }
     return false;
   }, []);

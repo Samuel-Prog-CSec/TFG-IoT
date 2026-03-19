@@ -168,8 +168,8 @@ export default function SessionDetail() {
     return (
       <div className="p-6 lg:p-8 max-w-6xl mx-auto">
         <EmptyState
-          title="Sesion no encontrada"
-          description="La sesion solicitada no existe o no esta disponible."
+          title="Sesión no encontrada"
+          description="La sesión solicitada no existe o no está disponible."
           icon={<Layers size={28} />}
           action={(
             <ButtonPremium variant="secondary" onClick={() => navigate(ROUTES.SESSIONS)}>
@@ -231,7 +231,7 @@ export default function SessionDetail() {
               <Pencil size={16} />
               Editar
             </ButtonPremium>
-            <Tooltip content="Eliminar sesion">
+            <Tooltip content="Eliminar sesión">
               <ButtonPremium
                 variant="ghost"
                 onClick={deleteModal.open}
@@ -352,7 +352,7 @@ export default function SessionDetail() {
           {mappingCards.length === 0 ? (
             <EmptyState
               title="Sin tarjetas asignadas"
-              description="Aun no hay tarjetas vinculadas a esta sesion."
+              description="Aún no hay tarjetas vinculadas a esta sesión."
               icon={<Layers size={26} />}
               className="bg-transparent border border-white/5"
             />

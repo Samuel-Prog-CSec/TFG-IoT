@@ -17,7 +17,7 @@
  * @version 1.0.0
  */
 
-const { connectRedis, disconnectRedis, getRedis, getKeyPrefix } = require('../src/config/redis');
+const { connectRedis, disconnectRedis } = require('../src/config/redis');
 const redisService = require('../src/services/redisService');
 const logger = require('../src/utils/logger');
 

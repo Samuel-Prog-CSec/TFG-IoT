@@ -127,7 +127,7 @@ const mechanicsData = [
  */
 async function seedMechanics() {
   try {
-    const mechanics = await GameMechanic.insertMany(mechanicsData);
+    const mechanics = await GameMechanic.create(mechanicsData);
 
     const active = mechanics.filter(m => m.isActive).length;
     const inactive = mechanics.filter(m => !m.isActive).length;

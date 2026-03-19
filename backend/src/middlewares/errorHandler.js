@@ -5,7 +5,6 @@
  */
 
 const { Sentry } = require('../config/sentry');
-const { AppError } = require('../utils/errors');
 const logger = require('../utils/logger');
 
 /**
@@ -22,7 +21,7 @@ const logger = require('../utils/logger');
  * @param {import('express').Response} res - Objeto de respuesta
  * @param {import('express').NextFunction} next - Función next
  */
-const errorHandler = (err, req, res, next) => {
+const errorHandler = (err, req, res, _next) => {
   let error = { ...err };
   error.message = err.message;
   error.statusCode = err.statusCode || 500;
@@ -123,7 +122,7 @@ const errorHandler = (err, req, res, next) => {
  * @param {import('express').Response} res
  * @param {import('express').NextFunction} next
  */
-const notFoundHandler = (req, res, next) => {
+const notFoundHandler = (req, res, _next) => {
   res.status(404).json({
     success: false,
     message: `Ruta no encontrada: ${req.method} ${req.path}`

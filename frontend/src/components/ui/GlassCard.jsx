@@ -1,7 +1,8 @@
-import React from 'react';
 import PropTypes from 'prop-types';
 import { cva } from 'class-variance-authority';
-import { cn } from '../../lib/utils';
+import { motion } from 'framer-motion';
+import { cn, DURATION, EASING } from '../../lib/utils';
+import { useReducedMotion } from '../../hooks/useReducedMotion';
 
 /**
  * @fileoverview Componente GlassCard
@@ -46,7 +47,11 @@ const cardVariants = cva(
         lg: 'p-8 lg:p-10'
       },
       interactive: {
-        true: 'cursor-pointer hover:border-border-strong hover:-translate-y-1 hover:shadow-lg',
+        true: 'cursor-pointer hover:border-border-strong hover:shadow-lg',
+        false: ''
+      },
+      animated: {
+        true: '',
         false: ''
       },
       glow: {
@@ -55,10 +60,18 @@ const cardVariants = cva(
         false: ''
       }
     },
+    compoundVariants: [
+      {
+        interactive: true,
+        animated: false,
+        className: 'hover:-translate-y-1',
+      },
+    ],
     defaultVariants: {
       variant: 'default',
       padding: 'md',
       interactive: false,
+      animated: false,
       glow: false
     },
   }
@@ -66,44 +79,60 @@ const cardVariants = cva(
 
 /**
  * Contenedor Card con efecto glassmorphism premium refactorizado.
- * 
+ *
  * @param {Object} props
  * @param {React.ReactNode} props.children - Contenido de la card
  * @param {string} props.className - Clases adicionales tailwind
  * @param {'default'|'solid'|'subtle'|'gradient'} props.variant - Variante visual
  * @param {'none'|'sm'|'md'|'lg'} props.padding - Padding interno
  * @param {boolean} props.interactive - Activa efectos de hover (elevación y border)
+ * @param {boolean} props.animated - Usa Framer Motion para entrada animada (opt-in)
  * @param {boolean} props.glow - Añade un resplandor OKLCH en hover (útil para cards clickables)
+ * @param {Object} props.motionProps - Props adicionales de Framer Motion (variants, custom, etc.)
  */
-const GlassCard = React.forwardRef(({ 
-  children, 
+const GlassCard = ({
+  ref,
+  children,
   className,
   variant,
   padding,
   interactive,
+  animated = false,
   glow,
-  ...props 
-}, ref) => {
+  motionProps: extraMotionProps,
+  ...props
+}) => {
+  const { shouldReduceMotion } = useReducedMotion();
+  const useMotion = animated && !shouldReduceMotion;
+  const Component = useMotion ? motion.article : 'article';
+
+  const motionAttrs = useMotion ? {
+    initial: { opacity: 0, y: 16 },
+    animate: { opacity: 1, y: 0 },
+    transition: { duration: DURATION.entrance, ease: EASING.outExpo },
+    ...(interactive ? { whileHover: { y: -4 }, whileTap: { scale: 0.99 } } : {}),
+    ...extraMotionProps,
+  } : {};
+
   return (
-    <article
+    <Component
       ref={ref}
-      className={cn(cardVariants({ variant, padding, interactive, glow, className }))}
+      className={cn(cardVariants({ variant, padding, interactive, animated, glow, className }))}
+      {...motionAttrs}
       {...props}
     >
       {/* Efecto pseudo-borde dinámico de acento en variantes 'gradient' */}
       {variant === 'gradient' && (
         <div className="absolute inset-0 bg-gradient-to-br from-brand-base/20 to-transparent opacity-50 pointer-events-none" />
       )}
-      
+
       {/* Contenido principal posicionado jerárquicamente por encima de los decoradores */}
       <div className="relative z-10 h-full w-full">
         {children}
       </div>
-    </article>
+    </Component>
   );
-});
-
-GlassCard.displayName = "GlassCard";
+};
 
 GlassCard.propTypes = {
   children: PropTypes.node.isRequired,
@@ -111,7 +140,9 @@ GlassCard.propTypes = {
   variant: PropTypes.oneOf(['default', 'solid', 'subtle', 'gradient']),
   padding: PropTypes.oneOf(['none', 'sm', 'md', 'lg']),
   interactive: PropTypes.bool,
+  animated: PropTypes.bool,
   glow: PropTypes.bool,
+  motionProps: PropTypes.object,
 };
 
 export default GlassCard;

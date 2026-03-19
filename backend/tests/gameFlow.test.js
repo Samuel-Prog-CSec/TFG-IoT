@@ -11,7 +11,7 @@ const { generateTokenPair } = require('../src/middlewares/auth');
 
 describe('Game Full Flow', () => {
   let teacherUser, teacherToken;
-  let studentUser, studentId;
+  let studentId;
   let mechanicId, contextId, cardId1, cardId2, deckId;
   let sessionId, playId;
 

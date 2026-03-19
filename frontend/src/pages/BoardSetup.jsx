@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useRef } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { DndContext, DragOverlay, useSensor, useSensors, PointerSensor, defaultDropAnimationSideEffects, useDroppable } from '@dnd-kit/core';
 import { SortableContext, useSortable } from '@dnd-kit/sortable';
@@ -9,6 +9,7 @@ import clsx from 'clsx';
 import confetti from 'canvas-confetti';
 import { toast } from 'sonner';
 import { sessionsAPI, usersAPI, extractData, extractErrorMessage, isAbortError } from '../services/api';
+import { captureException } from '../lib/sentry';
 import { useAuth } from '../context/AuthContext';
 import { useRefetchOnFocus } from '../hooks/useRefetchOnFocus';
 import { ROUTES } from '../constants/routes';
@@ -95,7 +96,7 @@ export default function BoardSetup() {
                         if (isAbortError(e)) {
                             return;
                         }
-                        console.error(e);
+                        captureException(e);
                         toast.error(extractErrorMessage(e));
         } finally {
             if (!signal?.aborted) {

@@ -55,7 +55,7 @@ const getMechanics = async (req, res, next) => {
     const [mechanics, total] = await Promise.all([
       gameMechanicRepository.find(filter, {
         sort: sortOptions,
-        limit: parseInt(limit, 10),
+        limit: Number.parseInt(limit, 10),
         skip
       }),
       gameMechanicRepository.count(filter)
@@ -70,8 +70,8 @@ const getMechanics = async (req, res, next) => {
     res.json({
       success: true,
       ...toPaginatedDTOV1(toGameMechanicListDTOV1(mechanics), {
-        page: parseInt(page),
-        limit: parseInt(limit),
+        page: Number.parseInt(page, 10),
+        limit: Number.parseInt(limit, 10),
         total
       })
     });

@@ -168,13 +168,13 @@ const gamePlayQuerySchema = paginationSchema.extend({
   minScore: z
     .string()
     .optional()
-    .transform(val => (val ? parseInt(val, 10) : undefined))
+    .transform(val => (val ? Number.parseInt(val, 10) : undefined))
     .pipe(z.number().int().optional()),
 
   maxScore: z
     .string()
     .optional()
-    .transform(val => (val ? parseInt(val, 10) : undefined))
+    .transform(val => (val ? Number.parseInt(val, 10) : undefined))
     .pipe(z.number().int().optional())
 });
 

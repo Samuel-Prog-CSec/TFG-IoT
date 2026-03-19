@@ -207,3 +207,79 @@ export function calculateStars(correctPercentage) {
 export function delay(ms) {
   return new Promise(resolve => setTimeout(resolve, ms));
 }
+
+// --- Easing (GPU-friendly, sin bounce/elastic) ---
+export const EASING = {
+  outQuart: [0.25, 1, 0.5, 1],
+  outExpo: [0.16, 1, 0.3, 1],
+  inOutCubic: [0.65, 0, 0.35, 1],
+};
+
+// --- Duraciones (segundos) ---
+export const DURATION = {
+  feedback: 0.12,
+  stateChange: 0.25,
+  layout: 0.4,
+  entrance: 0.6,
+  exit: 0.45,
+};
+
+// --- List stagger factory ---
+export const listContainerVariants = (staggerDelay = 0.06) => ({
+  hidden: { opacity: 0 },
+  visible: {
+    opacity: 1,
+    transition: { staggerChildren: staggerDelay, delayChildren: 0.1 },
+  },
+});
+
+export const listItemVariants = {
+  hidden: { opacity: 0, y: 16 },
+  visible: {
+    opacity: 1,
+    y: 0,
+    transition: { duration: DURATION.entrance, ease: EASING.outExpo },
+  },
+};
+
+// --- Form field entrance (delay secuencial por indice) ---
+export const formFieldVariants = (index) => ({
+  hidden: { opacity: 0, y: 12 },
+  visible: {
+    opacity: 1,
+    y: 0,
+    transition: {
+      duration: DURATION.stateChange,
+      ease: EASING.outQuart,
+      delay: 0.05 * index,
+    },
+  },
+});
+
+// --- Crossfade (skeleton → contenido) ---
+export const crossfadeVariants = {
+  initial: { opacity: 0 },
+  animate: { opacity: 1, transition: { duration: DURATION.stateChange, ease: EASING.outQuart } },
+  exit: { opacity: 0, transition: { duration: DURATION.stateChange * 0.75, ease: EASING.outQuart } },
+};
+
+// --- Page transition (para AppLayout Outlet) ---
+export const routeTransition = {
+  initial: { opacity: 0, y: 12 },
+  animate: {
+    opacity: 1,
+    y: 0,
+    transition: { duration: DURATION.entrance, ease: EASING.outExpo },
+  },
+  exit: {
+    opacity: 0,
+    y: -8,
+    transition: { duration: DURATION.exit, ease: EASING.outQuart },
+  },
+};
+
+// --- Shake para validacion ---
+export const shakeAnimation = {
+  x: [-4, 4, -3, 3, -1, 1, 0],
+  transition: { duration: 0.4 },
+};

@@ -58,12 +58,14 @@ const sessionRoutes = require('./routes/sessions');
 const playRoutes = require('./routes/plays');
 const deckRoutes = require('./routes/decks');
 const adminRoutes = require('./routes/admin');
-const analyticsRoutes = require('./routes/analyticsRoutes');
+const analyticsRoutes = require('./routes/analytics');
 
 // Crear aplicación Express
 const app = express();
 app.set('etag', false);
 const server = http.createServer(app);
+server.keepAliveTimeout = Number.parseInt(process.env.KEEP_ALIVE_TIMEOUT_MS, 10) || 65000;
+server.headersTimeout = Number.parseInt(process.env.HEADERS_TIMEOUT_MS, 10) || 66000;
 
 // Inicializar Sentry
 initSentry();
@@ -161,6 +163,7 @@ const httpLogSampleRate = Math.min(
   1
 );
 
+// eslint-disable-next-line sonarjs/pseudo-random -- safe: log sampling does not require CSPRNG
 const shouldSampleHttpLog = () => httpLogSampleRate >= 1 || Math.random() < httpLogSampleRate;
 
 // Middleware de logging HTTP (Pino)
@@ -333,7 +336,7 @@ app.get(
 app.get('/', validateQuery(emptyObjectSchema), (req, res) => {
   res.json({
     message: 'API REST de Juegos RFID',
-    version: '0.2.0',
+    version: require('../package.json').version,
     endpoints: {
       auth: '/api/auth',
       users: '/api/users',
@@ -496,11 +499,11 @@ const gracefulShutdown = async signal => {
     }
   });
 
-  // Si no se cierra en 30 segundos, forzar salida
+  const shutdownTimeoutMs = Number.parseInt(process.env.SHUTDOWN_TIMEOUT_MS, 10) || 30000;
   setTimeout(() => {
-    logger.error('Forzando shutdown tras timeout de 30s');
+    logger.error(`Forzando shutdown tras timeout de ${shutdownTimeoutMs}ms`);
     process.exit(1);
-  }, 30000);
+  }, shutdownTimeoutMs);
 };
 
 process.on('SIGTERM', () => gracefulShutdown('SIGTERM'));

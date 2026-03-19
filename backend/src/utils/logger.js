@@ -13,9 +13,15 @@ const isProduction = process.env.NODE_ENV === 'production';
 // En tests, por defecto se silencia. Permite override explícito:
 //   LOG_LEVEL=debug npm test
 const isSilentInTest = isTest && !process.env.LOG_LEVEL;
-const logLevel = isSilentInTest
-  ? 'silent'
-  : process.env.LOG_LEVEL || (isProduction ? 'info' : 'debug');
+
+let logLevel;
+if (isSilentInTest) {
+  logLevel = 'silent';
+} else if (process.env.LOG_LEVEL) {
+  logLevel = process.env.LOG_LEVEL;
+} else {
+  logLevel = isProduction ? 'info' : 'debug';
+}
 
 const transport =
   !isProduction && !isTest

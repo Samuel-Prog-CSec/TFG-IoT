@@ -51,7 +51,7 @@ const MODES_CONFIG = {
 
 export default function RFIDModeHandler({ currentMode = 'idle', className }) {
   const { mode } = useRfidMode();
-  const [status, setStatus] = useState(webSerialService.status);
+  const [, setStatus] = useState(webSerialService.status);
   const [deviceState, setDeviceState] = useState(webSerialService.deviceState || 'unknown');
   const [deviceHealth, setDeviceHealth] = useState(null);
   const effectiveMode = mode || currentMode;

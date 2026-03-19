@@ -22,11 +22,12 @@ import {
   Shield
 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
+import { useReducedMotion } from '../hooks/useReducedMotion';
 import ButtonPremium from '../components/ui/ButtonPremium';
 import InputPremium from '../components/ui/InputPremium';
 import GlassCard from '../components/ui/GlassCard';
 import { ROUTES } from '../constants/routes';
-import { cn } from '../lib/utils';
+import { cn, formFieldVariants } from '../lib/utils';
 
 /**
  * Requisitos de contraseña
@@ -128,6 +129,7 @@ function PasswordStrengthMeter({ password }) {
  */
 export default function Register() {
   const { register, error, clearError, isLoading } = useAuth();
+  const { shouldReduceMotion } = useReducedMotion();
 
   // Estado del formulario
   const [formData, setFormData] = useState({
@@ -169,7 +171,7 @@ export default function Register() {
 
     // Nombre
     if (!formData.name.trim()) {
-      errors.name = 'El nombre es requerido';
+      errors.name = 'Introduce tu nombre';
     } else if (formData.name.trim().length < 2) {
       errors.name = 'El nombre debe tener al menos 2 caracteres';
     } else if (formData.name.trim().length > 100) {
@@ -178,16 +180,16 @@ export default function Register() {
 
     // Email
     if (!formData.email.trim()) {
-      errors.email = 'El email es requerido';
+      errors.email = 'Introduce tu email';
     } else if (!isValidEmail(formData.email)) {
       errors.email = 'Introduce un email válido';
     }
 
     // Contraseña
     if (!formData.password) {
-      errors.password = 'La contraseña es requerida';
+      errors.password = 'Introduce tu contraseña';
     } else if (!allRequirementsMet) {
-      errors.password = 'La contraseña no cumple todos los requisitos';
+      errors.password = 'La contraseña debe cumplir todos los requisitos de seguridad';
     }
 
     // Confirmar contraseña
@@ -334,7 +336,12 @@ export default function Register() {
 
         {/* Card del formulario */}
         <GlassCard className="p-8" variant="solid">
-          <form onSubmit={handleSubmit} className="space-y-5">
+          <motion.form
+            onSubmit={handleSubmit}
+            className="space-y-5"
+            initial={shouldReduceMotion ? false : "hidden"}
+            animate="visible"
+          >
             {/* Error general */}
             <AnimatePresence>
               {error && (
@@ -351,34 +358,37 @@ export default function Register() {
             </AnimatePresence>
 
             {/* Campo Nombre */}
-            <InputPremium
-              label="Nombre completo"
-              name="name"
-              type="text"
-              placeholder="Tu nombre"
-              value={formData.name}
-              onChange={handleChange}
-              error={validationErrors.name}
-              icon={<User className="size-5" />}
-              autoComplete="name"
-              autoFocus
-            />
+            <motion.div variants={shouldReduceMotion ? {} : formFieldVariants(0)}>
+              <InputPremium
+                label="Nombre completo"
+                name="name"
+                type="text"
+                placeholder="Tu nombre"
+                value={formData.name}
+                onChange={handleChange}
+                error={validationErrors.name}
+                icon={<User className="size-5" />}
+                autoComplete="name"
+              />
+            </motion.div>
 
             {/* Campo Email */}
-            <InputPremium
-              label="Email"
-              name="email"
-              type="email"
-              placeholder="tu@email.com"
-              value={formData.email}
-              onChange={handleChange}
-              error={validationErrors.email}
-              icon={<Mail className="size-5" />}
-              autoComplete="email"
-            />
+            <motion.div variants={shouldReduceMotion ? {} : formFieldVariants(1)}>
+              <InputPremium
+                label="Email"
+                name="email"
+                type="email"
+                placeholder="tu@email.com"
+                value={formData.email}
+                onChange={handleChange}
+                error={validationErrors.email}
+                icon={<Mail className="size-5" />}
+                autoComplete="email"
+              />
+            </motion.div>
 
             {/* Campo Contraseña */}
-            <div className="space-y-2">
+            <motion.div variants={shouldReduceMotion ? {} : formFieldVariants(2)} className="space-y-2">
               <div className="relative">
                 <InputPremium
                   label="Contraseña"
@@ -431,10 +441,10 @@ export default function Register() {
                   </motion.div>
                 )}
               </AnimatePresence>
-            </div>
+            </motion.div>
 
             {/* Campo Confirmar Contraseña */}
-            <div className="relative">
+            <motion.div variants={shouldReduceMotion ? {} : formFieldVariants(3)} className="relative">
               <InputPremium
                 label="Confirmar contraseña"
                 name="confirmPassword"
@@ -458,7 +468,7 @@ export default function Register() {
                   <Eye className="size-5" />
                 )}
               </button>
-            </div>
+            </motion.div>
 
             {/* Indicador de coincidencia */}
             <AnimatePresence>
@@ -490,26 +500,28 @@ export default function Register() {
             </AnimatePresence>
 
             {/* Aviso de aprobación */}
-            <div className="flex items-start gap-3 p-4 rounded-xl bg-indigo-500/10 border border-indigo-500/20">
+            <motion.div variants={shouldReduceMotion ? {} : formFieldVariants(4)} className="flex items-start gap-3 p-4 rounded-xl bg-indigo-500/10 border border-indigo-500/20">
               <Shield className="size-5 text-indigo-400 flex-shrink-0 mt-0.5" />
               <p className="text-indigo-300/90 text-sm">
                 Tu cuenta requerirá <strong>aprobación de un administrador</strong> antes de poder acceder a la plataforma.
               </p>
-            </div>
+            </motion.div>
 
             {/* Botón de submit */}
-            <ButtonPremium
-              type="submit"
-              variant="primary"
-              size="lg"
-              className="w-full"
-              loading={isSubmitting || isLoading}
-              disabled={isSubmitting || isLoading}
-              icon={<UserPlus className="size-5" />}
-            >
-              {isSubmitting ? 'Registrando...' : 'Crear cuenta'}
-            </ButtonPremium>
-          </form>
+            <motion.div variants={shouldReduceMotion ? {} : formFieldVariants(5)}>
+              <ButtonPremium
+                type="submit"
+                variant="primary"
+                size="lg"
+                className="w-full"
+                loading={isSubmitting || isLoading}
+                disabled={isSubmitting || isLoading}
+                icon={<UserPlus className="size-5" />}
+              >
+                {isSubmitting ? 'Registrando...' : 'Crear cuenta'}
+              </ButtonPremium>
+            </motion.div>
+          </motion.form>
 
           {/* Link a login */}
           <p className="text-center text-text-muted text-sm mt-6">

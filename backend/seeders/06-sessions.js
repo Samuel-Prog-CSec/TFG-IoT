@@ -55,22 +55,6 @@ function findDeckByContext(teacherDecks, contexts, contextKey) {
 }
 
 /**
- * Calcula la dificultad basandose en el numero de tarjetas.
- * Replica la logica del modelo GameSession (pre-save hook no se ejecuta con insertMany).
- * @param {number} numberOfCards - Numero de tarjetas
- * @returns {string} 'easy' | 'medium' | 'hard'
- */
-function calculateDifficulty(numberOfCards) {
-  if (numberOfCards <= 5) {
-    return 'easy';
-  }
-  if (numberOfCards <= 12) {
-    return 'medium';
-  }
-  return 'hard';
-}
-
-/**
  * Genera un associationChallengePlan para sesiones de mecanica 'association'.
  * Selecciona tarjetas del mazo de forma determinista con repeticion controlada.
  * @param {Array} cardMappings - Mapeos de tarjetas de la sesion
@@ -274,8 +258,7 @@ function generateSessionsForTeacher(teacher, teacherDecks, mechanics, contexts) 
       },
       cardMappings,
       status: template.status,
-      // Calcular dificultad manualmente (insertMany no dispara pre-save hooks)
-      difficulty: calculateDifficulty(numberOfCards),
+      // difficulty se calcula automaticamente por el pre-save hook del modelo
       createdBy: teacher._id,
       startedAt,
       endedAt
@@ -328,7 +311,7 @@ async function seedSessions(users, mechanics, contexts, cards, decks) {
     }
 
     // Insertar todas las sesiones
-    const sessions = await GameSession.insertMany(allSessions);
+    const sessions = await GameSession.create(allSessions);
 
     // Estadisticas por estado
     const byStatus = sessions.reduce((acc, s) => {

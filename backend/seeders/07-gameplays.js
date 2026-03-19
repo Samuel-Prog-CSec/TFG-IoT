@@ -383,7 +383,7 @@ async function recalculateSessionStatusesFromSeededPlays() {
 async function seedGamePlays(sessions, students) {
   try {
     const gamePlaysData = generateGamePlaysData(sessions, students);
-    const gamePlays = await GamePlay.insertMany(gamePlaysData);
+    const gamePlays = await GamePlay.create(gamePlaysData);
 
     const metricsByStudent = aggregateStudentMetrics(gamePlays);
     const updatePromises = [];

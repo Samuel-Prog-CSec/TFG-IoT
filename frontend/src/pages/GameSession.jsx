@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useRef, memo, forwardRef } from 'react';
+import { useState, useEffect, useCallback, useRef, memo } from 'react';
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Wifi, WifiOff, Pause, Play, Volume2, VolumeX, AlertTriangle } from 'lucide-react';
@@ -30,16 +30,16 @@ import CardAssetPreview from '../components/ui/CardAssetPreview';
 import { useGameFeedback } from '../hooks/useGameFeedback';
 
 const SOCKET_ERROR_MESSAGES = {
-  RFID_MODE_INVALID: 'El lector RFID no está en modo de juego.',
-  RFID_SENSOR_UNAUTHORIZED: 'Este sensor no está autorizado para esta sesión.',
-  RFID_SENSOR_MISMATCH: 'El sensor activo cambió durante la partida.',
-  PLAY_NOT_ACTIVE: 'La partida ya no está activa en el motor de juego.',
-  ROUND_BLOCKED: 'No puedes avanzar ronda mientras se espera una respuesta.',
-  RFID_SOCKET_NOT_ACTIVE: 'Otra pestaña tomó el control del sensor RFID.',
-  RFID_MODE_TAKEN_OVER: 'Se tomó control del modo RFID desde otro socket.',
+  RFID_MODE_INVALID: 'El lector de tarjetas no está listo. Avisa al profesor.',
+  RFID_SENSOR_UNAUTHORIZED: 'Este lector no está configurado para esta sesión. Avisa al profesor.',
+  RFID_SENSOR_MISMATCH: 'Se detectó un cambio en el lector durante la partida.',
+  PLAY_NOT_ACTIVE: 'La partida ha terminado o fue interrumpida.',
+  ROUND_BLOCKED: 'Espera un momento antes de pasar la siguiente tarjeta.',
+  RFID_SOCKET_NOT_ACTIVE: 'El juego se abrió en otra ventana. Cierra las demás para continuar.',
+  RFID_MODE_TAKEN_OVER: 'Otra ventana tomó el control del lector. Usa solo esta ventana.',
   FORBIDDEN: 'No tienes permisos para ejecutar esta acción.',
   AUTH_REQUIRED: 'Tu sesión expiró. Inicia sesión de nuevo.',
-  ENGINE_ERROR: 'Error del motor de juego. Inténtalo de nuevo.'
+  ENGINE_ERROR: 'Algo salió mal. Inténtalo de nuevo o avisa al profesor.'
 };
 
 const REALTIME_STATUS_COPY = {
@@ -124,6 +124,7 @@ export default function GameSession() { // NOSONAR
   const [memoryFeedbackActive, setMemoryFeedbackActive] = useState(false);
   const [bestScore, setBestScore] = useState(0);
   const [srAnnouncement, setSrAnnouncement] = useState('');
+  const [showPreCelebration, setShowPreCelebration] = useState(false);
   const gameStateRef = useRef('waiting');
 
   const [challenge, setChallenge] = useState(null);
@@ -136,19 +137,10 @@ export default function GameSession() { // NOSONAR
 
   useEffect(() => {
     playIdRef.current = playId;
-  }, [playId]);
-
-  useEffect(() => {
     roundTimeRef.current = roundTime;
-  }, [roundTime]);
-
-  useEffect(() => {
     totalRoundsRef.current = totalRounds;
-  }, [totalRounds]);
-
-  useEffect(() => {
     gameStateRef.current = gameState;
-  }, [gameState]);
+  }, [playId, roundTime, totalRounds, gameState]);
 
   const normalizeChallenge = useCallback(rawChallenge => {
     const displayData = rawChallenge?.displayData || rawChallenge || {};
@@ -255,6 +247,7 @@ export default function GameSession() { // NOSONAR
     if (Number.isFinite(remaining) && remaining >= 0) {
       setTimeLeft(Math.max(0, Math.ceil(remaining / 1000)));
     }
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- gameFeedback is not referentially stable
   }, []);
 
   const handlePlayResumed = useCallback(
@@ -272,6 +265,7 @@ export default function GameSession() { // NOSONAR
       announcedThresholdsRef.current.clear();
       setSrAnnouncement('Partida reanudada.');
     },
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- gameFeedback is not referentially stable
     [normalizeChallenge]
   );
 
@@ -363,7 +357,6 @@ export default function GameSession() { // NOSONAR
   const handleGameOver = useCallback(payload => {
     clearPendingTimeouts();
     setIsAwaitingResponse(false);
-    setGameState('finished');
     setMemoryFeedbackActive(false);
     gameFeedback.clearFeedback();
     setRealtimeError(null);
@@ -374,7 +367,20 @@ export default function GameSession() { // NOSONAR
     setPlaySummary(
       normalizeFinalSummary(payload?.metrics, finalScore, correctAnswers, isMemoryMode)
     );
-  }, [clearPendingTimeouts, correctAnswers, isMemoryMode]);
+
+    // Brief celebration before showing game over screen (skip if reduced motion)
+    if (shouldReduceMotion) {
+      setGameState('finished');
+    } else {
+      setShowPreCelebration(true);
+      const celebrationTimeout = globalThis.setTimeout(() => {
+        setShowPreCelebration(false);
+        setGameState('finished');
+      }, 1200);
+      pendingTimeoutRef.current.push(celebrationTimeout);
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- gameFeedback is not referentially stable
+  }, [clearPendingTimeouts, correctAnswers, isMemoryMode, shouldReduceMotion]);
 
   const handlePlayInterrupted = useCallback(payload => {
     clearPendingTimeouts();
@@ -396,6 +402,7 @@ export default function GameSession() { // NOSONAR
     });
     setSrAnnouncement('La partida fue interrumpida.');
     toast.warning(interruptionMessage);
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- gameFeedback is not referentially stable
   }, [clearPendingTimeouts, score]);
 
   const resolvePlayerId = useCallback(async () => {
@@ -735,12 +742,12 @@ export default function GameSession() { // NOSONAR
   // Start game
   const startGame = () => {
     if (!playId) {
-      toast.error('La partida todavía no está lista.');
+      toast.error('La partida aún no está lista. Espera un momento.');
       return;
     }
 
     if (!socketService.sendCommand(SOCKET_EVENTS.START_PLAY, { playId })) {
-      toast.error('No hay conexión en tiempo real para iniciar la partida.');
+      toast.error('No se puede iniciar: se perdió la conexión.');
       return;
     }
 
@@ -764,7 +771,7 @@ export default function GameSession() { // NOSONAR
           code: 'SOCKET_REQUIRED',
           message: 'Se requiere conexión en tiempo real para pausar/reanudar.'
         });
-        toast.error('Sin conexión en tiempo real para pausar la partida.');
+        toast.error('No se puede pausar: se perdió la conexión. Inténtalo de nuevo.');
       } else {
         setSrAnnouncement('Solicitando pausa de la partida.');
       }
@@ -776,7 +783,7 @@ export default function GameSession() { // NOSONAR
           code: 'SOCKET_REQUIRED',
           message: 'Se requiere conexión en tiempo real para pausar/reanudar.'
         });
-        toast.error('Sin conexión en tiempo real para reanudar la partida.');
+        toast.error('No se puede reanudar: se perdió la conexión. Inténtalo de nuevo.');
       } else {
         setSrAnnouncement('Solicitando reanudación de la partida.');
       }
@@ -812,7 +819,7 @@ export default function GameSession() { // NOSONAR
       });
 
       if (sent === false) {
-        toast.error('Sin conexión en tiempo real para enviar la respuesta táctil.');
+        toast.error('No se pudo enviar la respuesta. Comprueba la conexión.');
         return;
       }
 
@@ -843,6 +850,7 @@ export default function GameSession() { // NOSONAR
 
       setPlayId(nextPlayId);
       setGameState('waiting');
+      setShowPreCelebration(false);
       setCurrentRound(1);
       setScore(0);
       setCorrectAnswers(0);
@@ -1091,6 +1099,7 @@ export default function GameSession() { // NOSONAR
                   feedbackState={gameFeedback.feedbackState}
                   feedbackPoints={gameFeedback.feedbackPoints}
                   feedbackMessage={gameFeedback.feedbackMessage}
+                  isTimeout={gameFeedback.isTimeout}
                   shouldReduceMotion={shouldReduceMotion}
                 />
               )}
@@ -1205,6 +1214,41 @@ export default function GameSession() { // NOSONAR
 
       {/* Feedback is now rendered inline in ChallengeDisplay / MemoryBoard */}
 
+      {/* Pre-GameOver celebration */}
+      <AnimatePresence>
+        {showPreCelebration && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 z-40 flex items-center justify-center bg-slate-900/60 backdrop-blur-sm"
+          >
+            <motion.div
+              initial={{ scale: 0.5, opacity: 0 }}
+              animate={{ scale: [0.5, 1.2, 1], opacity: 1 }}
+              transition={{ duration: 0.6, ease: [0.16, 1, 0.3, 1] }}
+              className="text-center"
+            >
+              <motion.div
+                animate={{ scale: [1, 1.3, 1], rotate: [0, 10, -10, 0] }}
+                transition={{ duration: 0.8, repeat: Infinity }}
+                className="text-8xl mb-4"
+              >
+                🎉
+              </motion.div>
+              <motion.p
+                initial={{ opacity: 0, y: 20 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ delay: 0.3 }}
+                className="text-3xl font-bold text-white font-display"
+              >
+                ¡Partida completada!
+              </motion.p>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
       {/* Game Over Screen */}
       {gameState === 'finished' && (
         <GameOverScreen
@@ -1223,9 +1267,9 @@ export default function GameSession() { // NOSONAR
   );
 }
 
-const AssociationGameplayPanel = memo(forwardRef(function AssociationGameplayPanel({
-  challenge, paused, feedbackState, feedbackPoints, feedbackMessage, shouldReduceMotion
-}, ref) {
+const AssociationGameplayPanel = memo(function AssociationGameplayPanel({
+  ref, challenge, paused, feedbackState, feedbackPoints, feedbackMessage, isTimeout, shouldReduceMotion
+}) {
   const resolveAssociationTheme = challengeValue => {
     const challengeKey = (challengeValue || '').toLowerCase();
 
@@ -1256,13 +1300,12 @@ const AssociationGameplayPanel = memo(forwardRef(function AssociationGameplayPan
       feedbackState={feedbackState}
       feedbackPoints={feedbackPoints}
       feedbackMessage={feedbackMessage}
+      isTimeout={isTimeout}
       className="w-full"
       shouldReduceMotion={shouldReduceMotion}
     />
   );
-}));
-
-AssociationGameplayPanel.displayName = 'AssociationGameplayPanel';
+});
 
 AssociationGameplayPanel.propTypes = {
   challenge: PropTypes.object,
@@ -1270,6 +1313,7 @@ AssociationGameplayPanel.propTypes = {
   feedbackState: PropTypes.oneOf(['idle', 'success', 'error']),
   feedbackPoints: PropTypes.number,
   feedbackMessage: PropTypes.string,
+  isTimeout: PropTypes.bool,
   shouldReduceMotion: PropTypes.bool
 };
 
@@ -1470,11 +1514,11 @@ function MemoryBoard({ board, feedbackState, feedbackPoints, feedbackMessage, sh
                 isOpen && 'memory-card-flipped'
               )}>
                 {/* Cara trasera (oculta) */}
-                <div className="memory-card-face w-full h-full rounded-lg bg-slate-700/60 flex items-center justify-center text-slate-300 text-lg">
+                <div className="memory-card-face w-full h-full rounded-lg bg-slate-700/60 flex items-center justify-center text-slate-300 text-2xl font-bold select-none">
                   ?
                 </div>
                 {/* Cara frontal (contenido) */}
-                <div className="memory-card-back w-full h-full rounded-lg p-2 flex items-center justify-center">
+                <div className="memory-card-back w-full h-full rounded-lg p-2 flex items-center justify-center bg-slate-800/40">
                   <CardAssetPreview
                     asset={slot.displayData || { display: slot.assignedValue || '🎴' }}
                     className="w-full h-full rounded-lg"
@@ -1528,10 +1572,12 @@ function FallbackTouchPanel({ cards, onSelectCard, onPauseRequest, canPause }) {
           aria-label="Cartas disponibles para selección táctil"
         >
           {visibleCards.map(card => (
-            <button
+            <motion.button
               key={`fallback-card-${card.uid}`}
               type="button"
               onClick={() => onSelectCard(card)}
+              whileHover={{ scale: 1.04, borderColor: 'rgba(129, 140, 248, 0.5)' }}
+              whileTap={{ scale: 0.95, backgroundColor: 'rgba(99, 102, 241, 0.2)' }}
               aria-label={`Seleccionar carta: ${card.assignedValue || card.uid}`}
               className="rounded-xl border border-white/10 bg-slate-900/40 p-2 text-left hover:bg-slate-900/60 transition-colors focus-visible:ring-2 focus-visible:ring-indigo-400 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-900"
             >
@@ -1545,7 +1591,7 @@ function FallbackTouchPanel({ cards, onSelectCard, onPauseRequest, canPause }) {
               <div className="mt-1 text-[11px] text-slate-200 truncate">
                 {card.assignedValue || card.uid}
               </div>
-            </button>
+            </motion.button>
           ))}
         </fieldset>
       )}
