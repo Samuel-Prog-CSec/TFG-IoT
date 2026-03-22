@@ -107,41 +107,41 @@ export default function ContextsPage() {
         {/* Stats globales */}
         <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-8">
           <GlassCard className="p-4 flex items-center gap-4">
-            <div className="size-10 rounded-xl bg-slate-800/50 flex items-center justify-center">
-              <Palette size={20} className="text-indigo-400" />
+            <div className="size-12 rounded-xl bg-indigo-500/10 flex items-center justify-center">
+              <Palette size={22} className="text-indigo-400" />
             </div>
             <div>
-              <p className="text-2xl font-semibold text-white">{contexts.length}</p>
+              <p className="text-2xl font-semibold text-white font-display">{contexts.length}</p>
               <p className="text-xs text-slate-400 font-medium uppercase tracking-wider">Contextos</p>
             </div>
           </GlassCard>
 
           <GlassCard className="p-4 flex items-center gap-4">
-            <div className="size-10 rounded-xl bg-slate-800/50 flex items-center justify-center">
-              <ImageIcon size={20} className="text-emerald-400" />
+            <div className="size-12 rounded-xl bg-emerald-500/10 flex items-center justify-center">
+              <ImageIcon size={22} className="text-emerald-400" />
             </div>
             <div>
-              <p className="text-2xl font-semibold text-white">{totalImages}</p>
+              <p className="text-2xl font-semibold text-white font-display">{totalImages}</p>
               <p className="text-xs text-slate-400 font-medium uppercase tracking-wider">Imágenes</p>
             </div>
           </GlassCard>
 
           <GlassCard className="p-4 flex items-center gap-4">
-            <div className="size-10 rounded-xl bg-slate-800/50 flex items-center justify-center">
-              <Music size={20} className="text-amber-400" />
+            <div className="size-12 rounded-xl bg-amber-500/10 flex items-center justify-center">
+              <Music size={22} className="text-amber-400" />
             </div>
             <div>
-              <p className="text-2xl font-semibold text-white">{totalAudio}</p>
+              <p className="text-2xl font-semibold text-white font-display">{totalAudio}</p>
               <p className="text-xs text-slate-400 font-medium uppercase tracking-wider">Audios</p>
             </div>
           </GlassCard>
 
           <GlassCard className="p-4 flex items-center gap-4">
-            <div className="size-10 rounded-xl bg-slate-800/50 flex items-center justify-center">
-              <ImageIcon size={20} className="text-purple-400" />
+            <div className="size-12 rounded-xl bg-purple-500/10 flex items-center justify-center">
+              <ImageIcon size={22} className="text-purple-400" />
             </div>
             <div>
-              <p className="text-2xl font-semibold text-white">{totalAssets}</p>
+              <p className="text-2xl font-semibold text-white font-display">{totalAssets}</p>
               <p className="text-xs text-slate-400 font-medium uppercase tracking-wider">Assets totales</p>
             </div>
           </GlassCard>

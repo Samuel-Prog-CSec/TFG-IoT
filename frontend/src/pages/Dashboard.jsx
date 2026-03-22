@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Users, Gamepad2, Trophy, AlertTriangle, Calendar, TrendingUp } from 'lucide-react';
+import { Users, Gamepad2, Trophy, AlertTriangle, Calendar } from 'lucide-react';
 import { listContainerVariants, listItemVariants, crossfadeVariants } from '../lib/utils';
 import { useDocumentTitle } from '../hooks/useDocumentTitle';
 import { useRefetchOnFocus } from '../hooks/useRefetchOnFocus';
@@ -16,6 +16,8 @@ import ClassroomOverview from '../components/dashboard/ClassroomOverview';
 import AlertsPanel from '../components/dashboard/AlertsPanel';
 import DifficultyHeatmap from '../components/dashboard/DifficultyHeatmap';
 import SkeletonShimmer, { SkeletonCard, SkeletonStatCard } from '../components/ui/SkeletonShimmer';
+import SelectPremium from '../components/ui/SelectPremium';
+import ButtonPremium from '../components/ui/ButtonPremium';
 
 export default function Dashboard() {
   useDocumentTitle('Dashboard');
@@ -254,12 +256,14 @@ export default function Dashboard() {
 
 function Header({ timeRange, setTimeRange, reducedMotion = false }) {
   const navigate = useNavigate();
-  const today = new Date().toLocaleDateString('es-ES', { 
-    weekday: 'long', 
-    year: 'numeric', 
-    month: 'long', 
-    day: 'numeric' 
+  const todayRaw = new Date().toLocaleDateString('es-ES', {
+    weekday: 'long',
+    year: 'numeric',
+    month: 'long',
+    day: 'numeric'
   });
+  // Spanish dates should only capitalize the first letter (e.g. "Jueves, 19 de marzo de 2026")
+  const today = todayRaw.charAt(0).toUpperCase() + todayRaw.slice(1).toLowerCase();
 
   return (
     <motion.header 
@@ -289,32 +293,32 @@ function Header({ timeRange, setTimeRange, reducedMotion = false }) {
 
       <div className="flex items-center gap-4">
         <div className="hidden xl:flex items-center gap-2">
-          <button
+          <ButtonPremium
+            variant="secondary"
+            size="sm"
             onClick={() => navigate(ROUTES.CREATE_SESSION)}
-            className="px-3 py-2 rounded-xl border border-brand-base/30 bg-brand-base/10 text-brand-light hover:bg-brand-base/20 transition-colors text-sm font-medium"
           >
             Nueva sesión
-          </button>
-          <button
+          </ButtonPremium>
+          <ButtonPremium
+            variant="secondary"
+            size="sm"
             onClick={() => navigate(ROUTES.CARD_DECKS_NEW)}
-            className="px-3 py-2 rounded-xl border border-accent-indigo/30 bg-accent-indigo/10 text-accent-indigo hover:bg-accent-indigo/20 transition-colors text-sm font-medium"
           >
             Nuevo mazo
-          </button>
+          </ButtonPremium>
         </div>
 
         {/* Global Filter */}
-        <div className="relative">
-            <select 
-              value={timeRange}
-              onChange={(e) => setTimeRange(e.target.value)}
-              className="appearance-none bg-background-elevated/80 backdrop-blur-sm pl-4 pr-10 py-2.5 rounded-xl border border-border-default text-text-primary text-sm font-medium outline-none focus:border-brand-base transition-colors cursor-pointer hover:bg-background-surface ring-0 shadow-sm"
-            >
-              <option value="7d">Últimos 7 días</option>
-              <option value="30d">Últimos 30 días</option>
-            </select>
-            <TrendingUp size={16} className="absolute right-3.5 top-1/2 -translate-y-1/2 text-text-muted pointer-events-none" />
-        </div>
+        <SelectPremium
+          value={timeRange}
+          onChange={(val) => setTimeRange(val)}
+          options={[
+            { value: '7d', label: 'Últimos 7 días' },
+            { value: '30d', label: 'Últimos 30 días' },
+          ]}
+          className="w-48"
+        />
 
         <motion.time 
           dateTime={new Date().toISOString().split('T')[0]}

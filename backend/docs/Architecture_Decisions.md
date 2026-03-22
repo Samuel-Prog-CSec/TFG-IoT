@@ -145,14 +145,9 @@ Campos obligatorios en `pagination`:
 - `GET /api/users/:id/stats` → `toUserStatsDTOV1`
 - `GET /api/users/teacher/:teacherId/students` → `toUserListDTOV1` + `meta.count`
 
-#### Cards
+#### Cards (eliminado — ver ADR-012)
 
-- `GET /api/cards` → `toCardListDTOV1` + `toPaginatedDTOV1`
-- `GET /api/cards/:id` → `toCardDTOV1`
-- `POST /api/cards` → `toCardDTOV1`
-- `PUT /api/cards/:id` → `toCardDTOV1`
-- `POST /api/cards/batch` → `toCardListDTOV1`
-- `GET /api/cards/stats` → `toCardStatsDTOV1`
+Los endpoints `/api/cards` fueron eliminados. Las tarjetas RFID se tratan como tokens fungibles sin registro en BD. Se eliminaron los DTOs: `toCardDTOV1`, `toCardListDTOV1`, `toCardStatsDTOV1`.
 
 #### Mechanics
 
@@ -597,3 +592,138 @@ El adapter **no** lee ni escribe en las mismas keys que el `gameEngine`, `redisS
 - **ADR-001** (Eliminación del límite duro): este ADR cumple parcialmente el "Estado Futuro" anticipado, habilitando la comunicación entre instancias sin migrar el `gameEngine` completo.
 - **ADR-004** (Locks distribuidos): los locks de UIDs en Redis ya proporcionan coordinación de datos entre instancias; el adapter complementa con coordinación de eventos en tiempo real.
 - **ADR-010** (Checkpoints periódicos): los checkpoints reducen la pérdida de datos si una instancia cae, complementando la resiliencia que el adapter aporta a la comunicación.
+
+---
+
+## ADR-012: Eliminación del modelo Card — Tarjetas RFID como tokens fungibles
+
+### Contexto (ADR-012)
+
+#### Situación actual
+
+El sistema gestionaba las tarjetas RFID mediante un modelo `Card` en MongoDB que actuaba como registro centralizado. El flujo operativo requería tres pasos secuenciales:
+
+1. **Registro por super_admin**: un administrador escaneaba cada tarjeta física y la registraba en la colección `Card` (uid, tipo MIFARE, estado).
+2. **Creación de mazos por profesor**: el docente seleccionaba tarjetas *ya registradas* para construir un mazo (`CardDeck`), asociando cada UID a un valor semántico del contexto educativo.
+3. **Gameplay por estudiantes**: durante el juego, el motor usaba Maps en memoria (`uid → mapping`) sin consultar la colección `Card`.
+
+La validación crítica ocurría en el paso 2: `validateCardsExistAndActive()` exigía que cada tarjeta existiera en la colección `Card` con status `active`. Esto convertía al super_admin en cuello de botella obligatorio.
+
+#### Limitaciones identificadas
+
+El tutor del TFG identificó las siguientes limitaciones con este modelo durante la revisión del proyecto:
+
+1. **Cuello de botella administrativo**: el super_admin debía escanear y registrar físicamente cada tarjeta antes de que cualquier profesor pudiera usarla. En un centro educativo con múltiples aulas y profesores, esto generaba dependencia innecesaria de un único rol administrativo.
+
+2. **Fragilidad de los tokens físicos**: las tarjetas RFID son objetos físicos que se pierden, rompen, desgastan o desmagnetizan con frecuencia. Mantener un registro centralizado de ítems tan volátiles creaba gestión innecesaria: cada tarjeta perdida requería intervención del admin (marcar como `lost`, registrar el reemplazo).
+
+3. **Fungibilidad inherente de las tarjetas**: una tarjeta RFID no tiene significado propio — su UID es un identificador opaco de 8 o 14 caracteres hexadecimales. El significado semántico (ej: "España", "5", "Rojo") lo asigna el profesor en el contexto del mazo. Dos tarjetas con UIDs distintos son funcionalmente intercambiables.
+
+4. **Barrera de entrada para profesores**: un profesor nuevo que quisiera usar la plataforma no podía crear su primer mazo sin que el admin le proporcionara tarjetas pre-registradas. Esto ralentizaba la adopción y contradecía el objetivo de la plataforma: facilitar la integración de tecnología RFID en el aula.
+
+5. **Redundancia del modelo**: el campo `uid` ya existía desnormalizado en `CardDeck.cardMappings` y `GameSession.cardMappings`. El modelo `Card` aportaba únicamente el campo `type` (tipo MIFARE) y `status`, ninguno de los cuales se utilizaba durante el gameplay ni en la lógica educativa.
+
+#### Perspectiva pedagógica
+
+Desde el punto de vista del uso educativo real de la plataforma:
+
+- Los profesores necesitan **autonomía** para preparar actividades sin depender de personal técnico.
+- Las tarjetas RFID son **material fungible de aula**, equivalentes a fichas, dados o tarjetas de cartulina — no activos de inventario que requieran control centralizado.
+- La barrera entre "tengo las tarjetas físicas" y "puedo usarlas en clase" debe ser **mínima**: escanear y asignar, sin pasos previos de registro.
+- En un entorno escolar real, las tarjetas se comparten entre clases, se mezclan entre kits, y se reemplazan con frecuencia. Un sistema rígido de registro no se adapta a esta realidad operativa.
+
+### Decisión (ADR-012)
+
+Se elimina completamente el modelo `Card` y todas sus dependencias. Las tarjetas RFID pasan a tratarse como **tokens fungibles**: cualquier tarjeta física compatible puede usarse directamente en la creación de mazos sin registro previo.
+
+Cambios principales:
+
+1. **Eliminar modelo Card**: colección, repositorio, controlador, rutas, validador y seeder.
+2. **UID como único identificador**: el campo `cardId` (ObjectId, referencia a Card) se elimina de `CardDeck.cardMappings`, `GameSession.cardMappings`, `boardLayout` y `associationChallengePlan`. El `uid` (String, ya existente) pasa a ser el identificador primario.
+3. **Validación simplificada**: se mantiene validación de formato de UID (8/14 hex, Zod schema) y unicidad dentro del mazo. Se elimina toda validación contra la colección Card.
+4. **Asignación por escaneo en vivo**: el profesor entra en modo RFID de asignación (`CardAssignmentState`), selecciona un valor del contexto, y escanea la tarjeta física. El UID se captura automáticamente vía Web Serial.
+5. **Eliminar gestión de cartas del panel admin**: se eliminan las páginas de CRUD de tarjetas del super_admin.
+
+### Alternativas consideradas
+
+#### A) Deprecación gradual
+
+Hacer `cardId` opcional en los esquemas, eliminar la validación de existencia, y borrar Card en un sprint posterior.
+
+- **Ventaja**: diffs más pequeños por iteración.
+- **Desventaja**: código muerto, referencias fantasma, confusión para desarrolladores ("¿se usa cardId o no?"), dos pases de trabajo.
+- **Motivo de descarte**: estamos en fase pre-1.0.0. La complejidad incremental no se justifica cuando podemos hacer el cambio limpio de una vez.
+
+#### B) Auto-descubrimiento (Card como log automático)
+
+Cada UID escaneado se registra automáticamente en una colección Card ligera, sin intervención del admin. Mantiene la referencia ObjectId de forma transparente.
+
+- **Ventaja**: mantiene integridad referencial, permite tracking de uso.
+- **Desventaja**: complejidad innecesaria, escrituras a BD en cada escaneo, no cumple con la directriz del tutor de "sin tracking".
+- **Motivo de descarte**: el tutor determinó explícitamente que la gestión de tarjetas es innecesaria. Añadir una colección auto-poblada contradice esta decisión.
+
+### Análisis de impacto
+
+#### Lo que CAMBIA
+
+| Capa | Archivos afectados | Cambio |
+|------|-------------------|--------|
+| Modelos | CardDeck.js, GameSession.js | Eliminar campo `cardId` de subdocumentos |
+| Validadores | cardDeckValidator.js, gameSessionValidator.js | Eliminar `cardId` de schemas Zod |
+| Controllers | cardDeckController.js, gameSessionController.js | Eliminar validación contra Card collection |
+| Servicios | gameSessionService.js, sessionValidationHelpers.js | Cambiar lookups de cardId a uid |
+| DTOs | dtos.js | Eliminar DTOs de Card, strip cardId de mappings |
+| RFID States | states/rfid/index.js | Eliminar CardRegistrationState |
+| Seeders | 02-cards.js (eliminar), 05-carddecks.js, 06-sessions.js | UIDs inline |
+| API | server.js, routes/cards.js | Eliminar endpoint /api/cards |
+| Frontend | api.js, DeckCreationWizard, DeckEditPage, admin pages | Eliminar cardsAPI, card management |
+| Tests | ~12 archivos | Eliminar Card.create(), usar uid directo |
+
+#### Lo que NO cambia
+
+| Componente | Razón |
+|-----------|-------|
+| `gameEngine.js` | Ya usa Maps en memoria por uid, sin DB lookups durante gameplay |
+| Redis distributed locking | Ya usa UIDs como keys, no cardIds |
+| Web Serial service (frontend) | Ya lee UIDs del hardware RFID |
+| `CardAssignmentState` | Se mantiene: necesario para escaneo durante creación de mazos |
+| `uidSchema` (commonValidator) | Validación de formato (8/14 hex) sigue siendo necesaria |
+| GamePlay model | No almacena cardId, usa uid en eventos |
+
+### Consecuencias (ADR-012)
+
+#### Positivas
+
+1. **Autonomía del profesor**: puede crear mazos escaneando cualquier tarjeta física, sin esperar al admin.
+2. **Eliminación del cuello de botella**: el super_admin ya no es requisito previo para la preparación de actividades.
+3. **Resiliencia ante pérdida/rotura**: si una tarjeta se pierde, el profesor simplemente escanea otra para reemplazarla. Sin gestión administrativa.
+4. **Simplificación del modelo de datos**: se elimina una entidad completa (Card) y su referencia en 4 sub-schemas, reduciendo complejidad y superficie de errores.
+5. **Menor superficie de API**: se eliminan 6 endpoints (`/api/cards/*`), reduciendo mantenimiento y superficie de ataque.
+6. **Coherencia arquitectónica**: el sistema deja de mantener una colección que no se consulta durante el gameplay (uso principal de la plataforma).
+
+#### Negativas (trade-offs aceptados)
+
+1. **Sin inventario de tarjetas**: el centro educativo pierde la capacidad de consultar cuántas tarjetas RFID tiene registradas. Se acepta porque: (a) las tarjetas son material fungible de bajo coste, y (b) un inventario físico fuera del sistema es más práctico.
+2. **Sin detección de tipo MIFARE**: se pierde el tracking del tipo de tarjeta (MIFARE_1KB, 4KB, NTAG). Se acepta porque: (a) el tipo nunca se utilizó en la lógica del juego ni en la UI del profesor, y (b) Web Serial sigue detectando el tipo en el frontend si fuera necesario en el futuro.
+3. **UIDs no validados contra registro central**: dos profesores podrían asignar la misma tarjeta física en mazos distintos sin advertencia. Se acepta porque: (a) es equivalente a compartir un dado entre dos juegos de mesa, (b) el Redis distributed locking ya previene conflictos en sesiones simultáneas (ADR-004).
+
+### Evidencia técnica asociada (ADR-012)
+
+**Archivos eliminados:**
+- `backend/src/models/Card.js`, `backend/src/repositories/cardRepository.js`
+- `backend/src/controllers/cardController.js`, `backend/src/routes/cards.js`
+- `backend/src/validators/cardValidator.js`, `backend/seeders/02-cards.js`
+- `backend/src/states/rfid/CardRegistrationState.js`
+- `backend/src/commands/socket/JoinCardRegistrationCommand.js`, `LeaveCardRegistrationCommand.js`
+
+**Archivos modificados (core):**
+- `backend/src/models/CardDeck.js`, `backend/src/models/GameSession.js`
+- `backend/src/controllers/cardDeckController.js`, `backend/src/services/gameSessionService.js`
+- `backend/src/controllers/helpers/sessionValidationHelpers.js`
+- `backend/src/utils/dtos.js`
+
+### Relación con otros ADRs
+
+- **ADR-003** (DTOs): se eliminan `toCardDTOV1`, `toCardListDTOV1`, `toCardStatsDTOV1`. Se actualizan `mapCardMappingDTOV1` y DTOs de boardLayout/associationPlan. Se eliminan los endpoints de Cards del mapeo Endpoint → DTO.
+- **ADR-004** (Locks distribuidos de UIDs): los locks ya usan UIDs como keys, no cardIds. Esta decisión valida retroactivamente la elección de ADR-004 de usar UIDs directamente.
+- **ADR-008** (Gobierno de identidades): el super_admin pierde la responsabilidad de gestionar tarjetas, lo que simplifica su carga operativa y refuerza el foco en gestión de identidades.

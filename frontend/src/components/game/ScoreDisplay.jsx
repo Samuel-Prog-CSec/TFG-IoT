@@ -120,7 +120,7 @@ function ScoreDisplayCompact({ score = 0, className }) {
       aria-label={`Puntuación: ${score} puntos`}
     >
       <Star size={20} className="fill-amber-400 text-amber-400" aria-hidden="true" />
-      <span className="text-2xl font-bold text-white tabular-nums">{score}</span>
+      <span className="text-2xl font-bold font-display text-white tabular-nums">{score}</span>
       <AnimatePresence>
         {scoreDelta !== null && (
           <motion.span
@@ -129,7 +129,7 @@ function ScoreDisplayCompact({ score = 0, className }) {
             animate={{ opacity: 0, y: -24 }}
             exit={{ opacity: 0 }}
             transition={{ duration: 1, ease: 'easeOut' }}
-            className="absolute -top-1 -right-6 text-sm font-bold text-emerald-400 pointer-events-none"
+            className="absolute -top-1 -right-6 text-sm font-bold font-display text-emerald-400 pointer-events-none"
           >
             +{scoreDelta}
           </motion.span>

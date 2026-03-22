@@ -131,7 +131,7 @@ export default function AppLayout() {
           {/* Admin Section */}
           {isSuperAdmin && (
             <>
-              <p className="px-4 py-2 mt-2 text-[10px] font-semibold text-warning-base uppercase tracking-widest flex items-center gap-2">
+              <p className="px-4 py-2 mt-2 text-[11px] font-semibold text-warning-base uppercase tracking-widest flex items-center gap-2">
                 <Shield size={10} /> Administración
               </p>
               {ADMIN_NAV_ROUTES.map((route) => {
@@ -150,7 +150,7 @@ export default function AppLayout() {
             </>
           )}
           
-          <p className="px-4 py-2 mt-2 text-[10px] font-semibold text-text-muted uppercase tracking-widest">
+          <p className="px-4 py-2 mt-2 text-[11px] font-semibold text-text-muted uppercase tracking-widest">
             Menú Principal
           </p>
           {NAV_ROUTES.map((route) => {
@@ -190,15 +190,15 @@ export default function AppLayout() {
         {/* Subtle Grid Pattern for Depth */}
         <div className="absolute inset-0 bg-grid opacity-20 pointer-events-none" />
 
-        {/* Page Content */}
-        <div className="relative z-10 w-full h-full">
-          <AnimatePresence>
+        {/* Page Content — popLayout removes exiting elements from document flow */}
+        <div className="relative z-10 w-full min-h-full">
+          <AnimatePresence mode="popLayout" initial={false}>
             <motion.div
               key={location.pathname}
               initial={shouldReduceMotion ? false : routeTransition.initial}
               animate={routeTransition.animate}
               exit={routeTransition.exit}
-              className="w-full h-full"
+              className="w-full"
             >
               <Outlet />
             </motion.div>

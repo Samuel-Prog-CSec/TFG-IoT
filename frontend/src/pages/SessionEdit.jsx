@@ -334,21 +334,21 @@ export default function SessionEdit() {
         </header>
 
         {!canEdit && (
-          <GlassCard className="p-4 border border-amber-500/30 text-amber-300 flex items-center gap-3">
+          <GlassCard className="p-4 border border-amber-500/40 text-amber-300 flex items-center gap-3">
             <AlertTriangle size={18} />
             Esta sesión ya no está en borrador y no se puede editar.
           </GlassCard>
         )}
 
         {canEdit && isAssociationSession && session.requiresAssociationPlanConfiguration && (
-          <GlassCard className="p-4 border border-amber-500/30 text-amber-300 flex items-center gap-3">
+          <GlassCard className="p-4 border border-amber-500/40 text-amber-300 flex items-center gap-3">
             <AlertTriangle size={18} />
             Esta sesión clonada tiene un borrador de retos precargado. Revísalo y guarda para confirmar antes de iniciar.
           </GlassCard>
         )}
 
         {canEdit && isMemorySession && !hasMemoryBoardConfigured && (
-          <GlassCard className="p-4 border border-amber-500/30 text-amber-300 flex flex-wrap items-center justify-between gap-3">
+          <GlassCard className="p-4 border border-amber-500/40 text-amber-300 flex flex-wrap items-center justify-between gap-3">
             <div className="flex items-center gap-3">
               <AlertTriangle size={18} />
               Esta sesión de memoria requiere configurar el tablero antes de iniciar.

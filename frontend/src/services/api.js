@@ -18,6 +18,8 @@ const TIMEOUT = 10000; // 10 segundos
 const MAX_RETRIES = 3;
 const RETRY_DELAY = 1000; // 1 segundo base para exponential backoff
 const MAX_TOTAL_TIME = 30000; // 30 segundos máximo para todos los reintentos
+const RATE_LIMIT_MAX_RETRIES = 2;
+const QUEUE_STAGGER_MS = 150; // Milisegundos entre peticiones encoladas tras refresh
 const ACTIVE_ONLY_PARAMS = Object.freeze({ isActive: true });
 
 // Eventos personalizados para comunicación con AuthContext
@@ -56,14 +58,17 @@ let failedQueue = [];
  * @param {string|null} token - Nuevo token si el refresh fue exitoso
  */
 const processQueue = (error, token = null) => {
-  failedQueue.forEach((prom) => {
+  const queue = [...failedQueue];
+  failedQueue = [];
+
+  queue.forEach((prom, index) => {
     if (error) {
       prom.reject(error);
     } else {
-      prom.resolve(token);
+      // Escalonar resolución para evitar ráfagas que disparen 429
+      setTimeout(() => prom.resolve(token), index * QUEUE_STAGGER_MS);
     }
   });
-  failedQueue = [];
 };
 
 /**
@@ -177,6 +182,11 @@ api.interceptors.response.use(
       }
     }
 
+    // 429 - Rate limit excedido
+    if (status === 429 && !originalRequest._rateLimitRetry) {
+      return handleRateLimitError(error, originalRequest);
+    }
+
     throw error;
   }
 );
@@ -288,6 +298,75 @@ async function handleNetworkError(error, originalRequest) {
 }
 
 // ============================================
+// MANEJO DE RATE LIMIT (429)
+// ============================================
+
+/**
+ * Extrae el tiempo de espera en segundos del header Retry-After.
+ * express-rate-limit v8 con standardHeaders: true envía Retry-After
+ * como segundos enteros en respuestas 429.
+ * @param {Object} response - Respuesta de axios
+ * @returns {number} Segundos a esperar (0 si no se puede determinar)
+ */
+function parseRetryAfter(response) {
+  const retryAfter = response?.headers?.['retry-after'];
+  if (!retryAfter) {
+    return 0;
+  }
+
+  const seconds = Number(retryAfter);
+  return Number.isFinite(seconds) && seconds > 0 ? seconds : 0;
+}
+
+/**
+ * Maneja errores de rate limit (429) con respeto al header Retry-After.
+ * Reintenta hasta RATE_LIMIT_MAX_RETRIES veces esperando el tiempo
+ * indicado por el servidor.
+ * @param {Error} error - Error original de axios
+ * @param {Object} originalRequest - Configuración de la petición original
+ * @returns {Promise} Promesa con la petición reintentada o error enriquecido
+ */
+async function handleRateLimitError(error, originalRequest) {
+  if (isAbortError(error)) {
+    throw error;
+  }
+
+  const retryCount = originalRequest._rateLimitRetryCount || 0;
+
+  if (retryCount >= RATE_LIMIT_MAX_RETRIES) {
+    const rateLimitError = new Error(
+      error.response?.data?.message || 'Demasiadas peticiones. Por favor, espera un momento.'
+    );
+    rateLimitError.isRateLimited = true;
+    rateLimitError.retryAfterSeconds = parseRetryAfter(error.response);
+    rateLimitError.cause = error;
+    throw rateLimitError;
+  }
+
+  const retryAfterSeconds = parseRetryAfter(error.response);
+  // Mínimo 2s, máximo 60s para no bloquear la UI indefinidamente
+  const waitMs = Math.min(
+    Math.max((retryAfterSeconds || 2) * 1000, 2000),
+    60000
+  );
+
+  if (import.meta.env.DEV) {
+    console.warn(
+      `[API] Rate limited (429), retrying (${retryCount + 1}/${RATE_LIMIT_MAX_RETRIES}) in ${waitMs}ms...`
+    );
+  }
+
+  originalRequest._rateLimitRetry = true;
+  originalRequest._rateLimitRetryCount = retryCount + 1;
+
+  await new Promise((resolve) => setTimeout(resolve, waitMs));
+
+  // Permitir que el siguiente intento también sea interceptado si recibe 429
+  originalRequest._rateLimitRetry = false;
+  return api(originalRequest);
+}
+
+// ============================================
 // HELPERS DE RESPUESTA
 // ============================================
 
@@ -307,7 +386,11 @@ export const extractErrorMessage = (error) => {
   if (error.isNetworkError) {
     return error.message;
   }
-  
+
+  if (error.isRateLimited) {
+    return error.message;
+  }
+
   if (error.response?.data?.message) {
     return error.response.data.message;
   }

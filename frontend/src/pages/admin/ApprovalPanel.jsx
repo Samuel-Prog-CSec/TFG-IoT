@@ -537,7 +537,7 @@ export default function ApprovalPanel() {
                 </div>
                 <div>
                   <p className="text-sm text-text-muted">Solicitudes pendientes</p>
-                  <p className="text-2xl font-bold text-text-primary">{pagination.total}</p>
+                  <p className="text-2xl font-bold text-text-primary font-display">{pagination.total}</p>
                 </div>
               </div>
               

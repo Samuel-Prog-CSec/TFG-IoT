@@ -107,25 +107,40 @@ function GameOverScreen({
             role="img" 
             aria-label={`Puntuación: ${stars} de 3 estrellas`}
           >
-            {[0, 1, 2].map((i) => (
-              <motion.div
-                key={i}
-                initial={{ scale: 0, rotate: -180 }}
-                animate={{ scale: 1, rotate: 0 }}
-                transition={{ delay: 0.3 + i * 0.15, type: 'spring' }}
-              >
-                <Star
-                  size={48}
-                  aria-hidden="true"
-                  className={cn(
-                    "transition-all duration-300",
-                    i < stars
-                      ? "fill-warning-base text-warning-base drop-shadow-[0_0_15px_var(--color-warning-glow)]"
-                      : "fill-background-surface text-text-disabled"
-                  )}
-                />
-              </motion.div>
-            ))}
+            {[0, 1, 2].map((i) => {
+              const isEarned = i < stars;
+              return (
+                <motion.div
+                  key={i}
+                  initial={shouldReduceMotion ? false : { scale: 0, rotate: -180 }}
+                  animate={shouldReduceMotion ? { scale: 1, rotate: 0 } : { scale: 1, rotate: 0 }}
+                  transition={shouldReduceMotion ? { duration: 0 } : { delay: 0.3 + i * 0.2, type: 'spring' }}
+                >
+                  <motion.div
+                    initial={false}
+                    animate={isEarned ? {
+                      scale: shouldReduceMotion ? 1 : [1, 1.4, 1],
+                    } : { scale: 1 }}
+                    transition={shouldReduceMotion ? { duration: 0 } : { delay: 0.8 + i * 0.3, duration: 0.4 }}
+                  >
+                    <Star
+                      size={48}
+                      aria-hidden="true"
+                      className={cn(
+                        "transition-all",
+                        isEarned
+                          ? "fill-warning-base text-warning-base drop-shadow-[0_0_15px_var(--color-warning-glow)]"
+                          : "fill-background-surface text-text-disabled"
+                      )}
+                      style={isEarned ? {
+                        transitionDelay: `${0.8 + i * 0.3}s`,
+                        transitionDuration: '0.3s'
+                      } : undefined}
+                    />
+                  </motion.div>
+                </motion.div>
+              );
+            })}
           </div>
 
           {/* Score display */}
@@ -162,11 +177,11 @@ function GameOverScreen({
           <dl className="grid grid-cols-2 gap-4 mb-6">
             <div className="bg-success-base/10 rounded-xl p-4 border border-success-base/20">
               <dt className="text-xs text-text-muted order-2">Correctas</dt>
-              <dd className="text-2xl font-bold text-success-base">{correctAnswers}</dd>
+              <dd className="text-2xl font-bold font-display text-success-base">{correctAnswers}</dd>
             </div>
             <div className="bg-background-surface/30 rounded-xl p-4 border border-border-subtle">
               <dt className="text-xs text-text-muted order-2">Total</dt>
-              <dd className="text-2xl font-bold text-text-secondary">{totalRounds}</dd>
+              <dd className="text-2xl font-bold font-display text-text-secondary">{totalRounds}</dd>
             </div>
           </dl>
 
@@ -175,11 +190,11 @@ function GameOverScreen({
             <div className="grid grid-cols-3 gap-2 mb-8 text-xs">
               <div className="rounded-lg bg-background-elevated/60 border border-border-subtle px-3 py-2 text-center">
                 <div className="text-text-muted">Errores</div>
-                <div className="text-white font-semibold">{summary.errors ?? 0}</div>
+                <div className="text-white font-display font-semibold">{summary.errors ?? 0}</div>
               </div>
               <div className="rounded-lg bg-background-elevated/60 border border-border-subtle px-3 py-2 text-center">
                 <div className="text-text-muted">T. medio</div>
-                <div className="text-white font-semibold">
+                <div className="text-white font-display font-semibold">
                   {summary.averageResponseTimeMs > 0
                     ? `${(summary.averageResponseTimeMs / 1000).toFixed(1)}s`
                     : '—'}
@@ -187,7 +202,7 @@ function GameOverScreen({
               </div>
               <div className="rounded-lg bg-background-elevated/60 border border-border-subtle px-3 py-2 text-center">
                 <div className="text-text-muted">Tiempo</div>
-                <div className="text-white font-semibold">
+                <div className="text-white font-display font-semibold">
                   {summary.totalTimePlayed > 0
                     ? `${(summary.totalTimePlayed / (1000 * 60)).toFixed(1)} min`
                     : '—'}
@@ -223,7 +238,7 @@ function GameOverScreen({
       </motion.article>
 
       {/* Floating stars decoration */}
-          {stars >= 2 && !shouldReduceMotion && (
+          {!shouldReduceMotion && (
         <div className="absolute inset-0 pointer-events-none overflow-hidden" aria-hidden="true">
           {floatingStars.map(piece => (
             <motion.div

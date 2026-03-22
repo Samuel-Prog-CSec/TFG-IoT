@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import PropTypes from 'prop-types';
 import { CreditCard } from 'lucide-react';
 import { cn } from '../../lib/utils';
@@ -26,6 +26,14 @@ export default function CardAssetPreview({
     setImageLoading(Boolean(imageUrl));
   }, [imageUrl]);
 
+  // Callback ref: detecta imágenes que ya se cargaron desde cache
+  // antes de que React adjunte el handler onLoad
+  const imgRef = useCallback((node) => {
+    if (node?.complete && node.naturalWidth > 0) {
+      setImageLoading(false);
+    }
+  }, []);
+
   const shouldShowImage = Boolean(imageUrl) && !imageError;
   const fallbackText = asset?.display || fallbackLabel;
 
@@ -46,6 +54,7 @@ export default function CardAssetPreview({
           )}
           {/* eslint-disable-next-line jsx-a11y/no-noninteractive-element-interactions -- onLoad/onError are lifecycle events, not user interactions */}
           <img
+            ref={imgRef}
             src={imageUrl}
             alt={alt || asset?.value || 'Asset'}
             className={cn(

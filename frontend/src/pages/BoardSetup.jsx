@@ -14,6 +14,9 @@ import { useAuth } from '../context/AuthContext';
 import { useRefetchOnFocus } from '../hooks/useRefetchOnFocus';
 import { ROUTES } from '../constants/routes';
 import CardAssetPreview from '../components/ui/CardAssetPreview';
+import SelectPremium from '../components/ui/SelectPremium';
+import ButtonPremium from '../components/ui/ButtonPremium';
+import Tooltip from '../components/ui/Tooltip';
 
 export default function BoardSetup() {
   const { sessionId } = useParams();
@@ -244,31 +247,33 @@ export default function BoardSetup() {
                     <p className="text-slate-400">Arrastra las tarjetas a los huecos para configurar la partida.</p>
                 </div>
                 <div className="flex gap-3 items-center">
-                    <select 
+                    <SelectPremium
                         value={selectedStudentId}
-                        onChange={(e) => setSelectedStudentId(e.target.value)}
-                        className="bg-slate-800 text-white p-3 rounded-xl border border-white/10 outline-none focus:border-indigo-500"
-                    >
-                        <option value="">-- Asignar Estudiante --</option>
-                        {availableStudents.map(student => (
-                            <option key={student.id || student._id} value={student.id || student._id}>{student.name}</option>
-                        ))}
-                    </select>
+                        onChange={(val) => setSelectedStudentId(val)}
+                        placeholder="Asignar Estudiante"
+                        options={availableStudents.map(student => ({
+                            value: student.id || student._id,
+                            label: student.name
+                        }))}
+                        className="w-64"
+                    />
 
-                    <button 
-                        onClick={() => setSlots({})}
-                        className="p-3 rounded-xl bg-slate-800 text-slate-300 hover:bg-slate-700 transition-colors"
-                        title="Resetear Tablero"
-                    >
-                        <RotateCcw size={20} />
-                    </button>
-                    <button 
+                    <Tooltip content="Resetear Tablero">
+                        <ButtonPremium
+                            variant="ghost"
+                            onClick={() => setSlots({})}
+                        >
+                            <RotateCcw size={20} />
+                        </ButtonPremium>
+                    </Tooltip>
+                    <ButtonPremium
+                        variant="success"
                         onClick={handleStartPlay}
                         disabled={!canStart || savingBoard}
-                        className="px-6 py-3 rounded-xl bg-emerald-500 text-white font-bold disabled:opacity-50 disabled:grayscale hover:bg-emerald-400 transition-all flex items-center gap-2 shadow-lg shadow-emerald-500/20"
+                        className="shadow-lg shadow-emerald-500/20"
                     >
                         <Play size={20} /> {savingBoard ? 'Guardando tablero...' : 'Iniciar Partida'}
-                    </button>
+                    </ButtonPremium>
                 </div>
             </header>
 

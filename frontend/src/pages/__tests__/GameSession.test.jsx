@@ -146,6 +146,7 @@ vi.mock('../../services/socket', () => {
       on: vi.fn(addListener),
       off: vi.fn(removeListener),
       sendCommand: vi.fn(() => true),
+      requestPlayStateSync: vi.fn(() => true),
       __emit: emitEvent,
       __setConnected: (value) => {
         connected = value;

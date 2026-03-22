@@ -98,6 +98,10 @@ export default function GameSession() { // NOSONAR
   const previousFocusRef = useRef(null);
   const pauseButtonRef = useRef(null);
   const continueButtonRef = useRef(null);
+  const initCalledRef = useRef(false);
+  const lastSocketErrorToastRef = useRef(0);
+  const lastRetryAtRef = useRef(0);
+  const RETRY_COOLDOWN_MS = 5000;
 
   // Game state
   const [gameState, setGameState] = useState('waiting'); // waiting, playing, paused, finished
@@ -125,6 +129,7 @@ export default function GameSession() { // NOSONAR
   const [bestScore, setBestScore] = useState(0);
   const [srAnnouncement, setSrAnnouncement] = useState('');
   const [showPreCelebration, setShowPreCelebration] = useState(false);
+  const [retryKey, setRetryKey] = useState(0);
   const gameStateRef = useRef('waiting');
 
   const [challenge, setChallenge] = useState(null);
@@ -431,8 +436,8 @@ export default function GameSession() { // NOSONAR
     return firstStudentId;
   }, [searchParams, user]);
 
-  const bootstrapPlay = useCallback(async () => {
-    const inProgressRes = await playsAPI.getPlays({ sessionId, status: 'in-progress', limit: 1 });
+  const bootstrapPlay = useCallback(async (signal) => {
+    const inProgressRes = await playsAPI.getPlays({ sessionId, status: 'in-progress', limit: 1 }, { signal });
     const inProgressPlays = extractData(inProgressRes) || [];
     const foundInProgress = inProgressPlays?.[0];
     if (foundInProgress?.id || foundInProgress?._id) {
@@ -442,7 +447,7 @@ export default function GameSession() { // NOSONAR
       };
     }
 
-    const pausedRes = await playsAPI.getPlays({ sessionId, status: 'paused', limit: 1 });
+    const pausedRes = await playsAPI.getPlays({ sessionId, status: 'paused', limit: 1 }, { signal });
     const pausedPlays = extractData(pausedRes) || [];
     const foundPaused = pausedPlays?.[0];
     if (foundPaused?.id || foundPaused?._id) {
@@ -469,7 +474,13 @@ export default function GameSession() { // NOSONAR
       const normalized = resolveSocketError(payload);
       setRealtimeError(normalized);
       setSrAnnouncement(normalized.message);
-      toast.warning(normalized.message);
+
+      // Deduplicate socket error toasts — max 1 every 5 seconds
+      const now = Date.now();
+      if (now - lastSocketErrorToastRef.current > 5000) {
+        lastSocketErrorToastRef.current = now;
+        toast.warning(normalized.message, { id: 'socket-error' });
+      }
     };
 
     const onSocketDisconnect = reason => {
@@ -504,6 +515,12 @@ export default function GameSession() { // NOSONAR
     };
 
     const initRealtimePlay = async () => {
+      // Prevent re-initialization when useEffect re-runs due to dependency changes
+      if (initCalledRef.current) {
+        return;
+      }
+      initCalledRef.current = true;
+
       try {
         if (!sessionId) {
           throw new Error('No se ha indicado una sesión válida.');
@@ -513,51 +530,13 @@ export default function GameSession() { // NOSONAR
         setBootstrappingPlay(true);
         setSessionError(null);
 
-        const response = await sessionsAPI.getSessionById(sessionId, {
-          signal: controller.signal
-        });
-
-        let sessionData = extractData(response);
-        if (sessionData?.status === 'created') {
-          const startSessionRes = await sessionsAPI.startSession(sessionId);
-          sessionData = extractData(startSessionRes) || sessionData;
-        }
-
-        setSession(sessionData);
-
-        const configuredRounds = Number(sessionData?.config?.numberOfRounds);
-        setTotalRounds(Number.isFinite(configuredRounds) && configuredRounds > 0 ? configuredRounds : 5);
-
-        const configuredTime = Number(sessionData?.config?.timeLimit);
-        setRoundTime(Number.isFinite(configuredTime) && configuredTime > 0 ? configuredTime : ROUND_TIME);
-
-        const resolvedPlay = await bootstrapPlay();
-        if (!resolvedPlay?.playId) {
-          throw new Error('No se pudo inicializar una partida de juego.');
-        }
-
-        setPlayId(resolvedPlay.playId);
-        setSelectedPlayerId(resolvedPlay.playerId || null);
-
-        // Obtener mejor puntuación histórica del jugador en esta sesión
-        if (resolvedPlay.playerId) {
-          playsAPI.getPlayerStats(resolvedPlay.playerId, { sessionId })
-            .then(statsRes => {
-              const stats = extractData(statsRes);
-              if (Number.isFinite(stats?.stats?.bestScore)) {
-                setBestScore(stats.stats.bestScore);
-              }
-            })
-            .catch(() => { /* No bloquear gameplay si las stats fallan */ });
-        }
-
+        // 1. Conectar socket primero (crea this.socket si no existe)
         if (!socketService.isSocketConnected()) {
           await socketService.connect();
         }
+        if (controller.signal.aborted) return;
 
-        setRealtimeStatus(socketService.isSocketConnected() ? 'connected' : 'connecting');
-        setRealtimeError(null);
-
+        // 2. Registrar listeners (this.socket ya existe)
         socketService.on(SOCKET_EVENTS.NEW_ROUND, handleNewRound);
         socketService.on(SOCKET_EVENTS.MEMORY_TURN_STATE, handleMemoryTurnState);
         socketService.on(SOCKET_EVENTS.VALIDATION_RESULT, handleValidationResult);
@@ -570,8 +549,58 @@ export default function GameSession() { // NOSONAR
         socketService.on(SOCKET_EVENTS.DISCONNECT, onSocketDisconnect);
         socketService.on(SOCKET_EVENTS.CONNECT, onSocketConnect);
 
+        setRealtimeStatus(socketService.isSocketConnected() ? 'connected' : 'connecting');
+        setRealtimeError(null);
+
+        // 3. API calls después de que socket y listeners estén listos
+        const response = await sessionsAPI.getSessionById(sessionId, {
+          signal: controller.signal
+        });
+
+        let sessionData = extractData(response);
+        if (controller.signal.aborted) return;
+
+        if (sessionData?.status === 'created') {
+          const startSessionRes = await sessionsAPI.startSession(sessionId);
+          sessionData = extractData(startSessionRes) || sessionData;
+        }
+        if (controller.signal.aborted) return;
+
+        setSession(sessionData);
+
+        const configuredRounds = Number(sessionData?.config?.numberOfRounds);
+        setTotalRounds(Number.isFinite(configuredRounds) && configuredRounds > 0 ? configuredRounds : 5);
+
+        const configuredTime = Number(sessionData?.config?.timeLimit);
+        setRoundTime(Number.isFinite(configuredTime) && configuredTime > 0 ? configuredTime : ROUND_TIME);
+
+        const resolvedPlay = await bootstrapPlay(controller.signal);
+        if (controller.signal.aborted) return;
+        if (!resolvedPlay?.playId) {
+          throw new Error('No se pudo inicializar una partida de juego.');
+        }
+
+        setPlayId(resolvedPlay.playId);
+        setSelectedPlayerId(resolvedPlay.playerId || null);
+
+        // Obtener mejor puntuación histórica del jugador en esta sesión
+        if (resolvedPlay.playerId) {
+          playsAPI.getPlayerStats(resolvedPlay.playerId, { sessionId })
+            .then(statsRes => {
+              if (controller.signal.aborted) return;
+              const stats = extractData(statsRes);
+              if (Number.isFinite(stats?.stats?.bestScore)) {
+                setBestScore(stats.stats.bestScore);
+              }
+            })
+            .catch(() => { /* No bloquear gameplay si las stats fallan */ });
+        }
+
+        if (controller.signal.aborted) return;
         socketService.sendCommand(SOCKET_EVENTS.JOIN_PLAY, { playId: resolvedPlay.playId });
         socketService.sendCommand(SOCKET_EVENTS.START_PLAY, { playId: resolvedPlay.playId });
+        // Sincronizar estado en caso de que rondas avanzaran durante la inicialización
+        socketService.requestPlayStateSync(resolvedPlay.playId);
       } catch (error) {
         if (isAbortError(error)) {
           return;
@@ -589,6 +618,7 @@ export default function GameSession() { // NOSONAR
     initRealtimePlay();
 
     return () => {
+      initCalledRef.current = false;
       controller.abort();
       if (playIdRef.current) {
         socketService.sendCommand(SOCKET_EVENTS.LEAVE_PLAY, { playId: playIdRef.current });
@@ -606,19 +636,8 @@ export default function GameSession() { // NOSONAR
       socketService.off(SOCKET_EVENTS.CONNECT, onSocketConnect);
       clearPendingTimeouts();
     };
-  }, [
-    bootstrapPlay,
-    clearPendingTimeouts,
-    handleGameOver,
-    handleNewRound,
-    handleMemoryTurnState,
-    handlePlayPaused,
-    handlePlayResumed,
-    handlePlayState,
-    handlePlayInterrupted,
-    handleValidationResult,
-    sessionId
-  ]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- init effect must run once per sessionId/retry; handlers use refs for current state
+  }, [sessionId, retryKey]);
 
   useEffect(() => {
     if (gameFeedback.feedbackState === 'idle') {
@@ -889,15 +908,38 @@ export default function GameSession() { // NOSONAR
 
   if (sessionError) {
     return (
-      <div className="min-h-screen bg-slate-950 text-white p-8 flex flex-col items-center justify-center gap-4 text-center">
+      <div className="min-h-screen bg-slate-950 text-white p-8 flex flex-col items-center justify-center gap-6 text-center">
+        <div className="size-16 rounded-full bg-rose-500/20 flex items-center justify-center">
+          <AlertTriangle size={32} className="text-rose-400" />
+        </div>
         <h1 className="text-2xl font-bold">No se pudo cargar la sesión</h1>
         <p className="text-slate-400 max-w-md">{sessionError}</p>
-        <button
-          onClick={goHome}
-          className="px-5 py-3 rounded-xl bg-indigo-500 hover:bg-indigo-400 transition-colors"
-        >
-          Volver al Dashboard
-        </button>
+        <div className="flex gap-3">
+          <button
+            onClick={() => {
+              const now = Date.now();
+              const elapsed = now - lastRetryAtRef.current;
+              if (elapsed < RETRY_COOLDOWN_MS) {
+                const remaining = Math.ceil((RETRY_COOLDOWN_MS - elapsed) / 1000);
+                toast.info(`Espera ${remaining}s antes de reintentar.`, { id: 'retry-cooldown' });
+                return;
+              }
+              lastRetryAtRef.current = now;
+              initCalledRef.current = false;
+              setSessionError(null);
+              setRetryKey(prev => prev + 1);
+            }}
+            className="px-5 py-3 rounded-xl bg-purple-500 hover:bg-purple-400 transition-colors"
+          >
+            Reintentar
+          </button>
+          <button
+            onClick={goHome}
+            className="px-5 py-3 rounded-xl bg-slate-700 hover:bg-slate-600 transition-colors"
+          >
+            Volver al Dashboard
+          </button>
+        </div>
       </div>
     );
   }
@@ -921,7 +963,7 @@ export default function GameSession() { // NOSONAR
         </div>
       }
     >
-    <div className="game-bg min-h-screen flex flex-col relative overflow-hidden">
+    <div className="game-bg h-dvh flex flex-col relative overflow-hidden">
       <output className="sr-only" aria-live="polite" aria-atomic="true">
         {srAnnouncement}
       </output>
@@ -933,8 +975,8 @@ export default function GameSession() { // NOSONAR
       </div>
 
       {/* Top HUD */}
-      <header className="relative z-10 p-4 sm:p-6">
-        <div className="glass rounded-2xl p-4 flex items-center justify-between gap-4">
+      <header className="relative z-10 p-2 sm:p-3 shrink-0">
+        <div className="glass rounded-2xl p-2.5 sm:p-3 flex items-center justify-between gap-3">
           {/* Round indicator */}
           <div className="flex items-center gap-3">
             <motion.div
@@ -943,7 +985,7 @@ export default function GameSession() { // NOSONAR
               animate={{ scale: 1 }}
               className="size-12 rounded-xl bg-gradient-to-br from-purple-500 to-indigo-600 flex items-center justify-center shadow-lg shadow-purple-500/30"
             >
-              <span className="text-2xl font-bold text-white">{currentRound}</span>
+              <span className="text-2xl font-bold font-display text-white">{currentRound}</span>
             </motion.div>
             <div className="hidden sm:block">
               <div className="text-xs text-slate-500 uppercase tracking-wider">Ronda</div>
@@ -960,7 +1002,7 @@ export default function GameSession() { // NOSONAR
             <button
               onClick={() => setSoundEnabled(!soundEnabled)}
               className={cn(
-                "p-2 rounded-lg transition-all",
+                "p-2.5 min-w-10 min-h-10 rounded-lg transition-all active:scale-95",
                 soundEnabled ? "bg-white/10 text-white" : "bg-white/5 text-slate-500"
               )}
               aria-pressed={soundEnabled}
@@ -975,7 +1017,7 @@ export default function GameSession() { // NOSONAR
               <button
                 onClick={togglePause}
                 ref={pauseButtonRef}
-                className="p-2 rounded-lg bg-white/10 text-white hover:bg-white/20 transition-all"
+                className="p-2.5 min-w-10 min-h-10 rounded-lg bg-white/10 text-white hover:bg-white/20 active:scale-95 active:bg-white/25 transition-all"
                 aria-pressed={gameState === 'paused'}
                 aria-label={gameState === 'paused' ? 'Reanudar' : 'Pausar'}
                 title={gameState === 'paused' ? 'Reanudar' : 'Pausar'}
@@ -1005,19 +1047,25 @@ export default function GameSession() { // NOSONAR
               <output className="sr-only" aria-live="polite" aria-atomic="true">
                 {REALTIME_STATUS_COPY[realtimeStatus]?.announcement || 'Conectando el juego.'}
               </output>
+              {realtimeStatus === 'connected' && '✅ '}
+              {realtimeStatus === 'reconnecting' && '⏳ '}
+              {realtimeStatus === 'disconnected' && '❌ '}
+              {realtimeStatus === 'connecting' && '⏳ '}
               {REALTIME_STATUS_COPY[realtimeStatus]?.label || 'Conectando'}
             </div>
           </div>
         </div>
       </header>
 
-      <div className="relative z-10 px-4 sm:px-6">
-        <RFIDConnector className="max-w-md" showSensorId={false} />
-      </div>
+      {gameState === 'waiting' && (
+        <div className="relative z-10 px-3 sm:px-4 shrink-0">
+          <RFIDConnector className="max-w-md" showSensorId={false} />
+        </div>
+      )}
 
       {realtimeError && (
-        <div className="relative z-10 px-4 sm:px-6 mt-3">
-          <div className="max-w-4xl mx-auto rounded-xl border border-amber-400/30 bg-amber-500/10 px-4 py-3 text-sm text-amber-100">
+        <div className="relative z-10 px-3 sm:px-4 mt-1 shrink-0">
+          <div className="max-w-4xl mx-auto rounded-lg border border-amber-400/30 bg-amber-500/10 px-3 py-2 text-xs text-amber-100">
             {realtimeError.message}
           </div>
         </div>
@@ -1025,13 +1073,13 @@ export default function GameSession() { // NOSONAR
 
       {/* Timer Bar */}
       {(gameState === 'playing' || gameState === 'paused') && (
-        <div className="relative z-10 px-4 sm:px-6 mb-4">
+        <div className="relative z-10 px-3 sm:px-4 mb-1 shrink-0">
           <TimerBar timeLeft={timeLeft} timeLimit={roundTime} shouldReduceMotion={shouldReduceMotion} />
         </div>
       )}
 
       {/* Main Game Area */}
-      <main className="flex-1 relative z-10 flex items-center justify-center p-4 sm:p-8">
+      <main className="flex-1 min-h-0 relative z-10 flex items-center justify-center p-2 sm:p-4 overflow-y-auto">
         <AnimatePresence mode="wait">
           {/* Waiting screen */}
           {gameState === 'waiting' && (
@@ -1109,7 +1157,7 @@ export default function GameSession() { // NOSONAR
                 initial={shouldReduceMotion ? false : { opacity: 0, y: 20 }}
                 animate={{ opacity: 1, y: 0 }}
                 transition={{ delay: shouldReduceMotion ? 0 : 0.3 }}
-                className="mt-8 text-center text-slate-200 text-lg font-semibold"
+                className="mt-3 text-center text-slate-200 text-base font-semibold"
               >
                 {isMemoryMode ? (
                   <>Encuentra las parejas antes de que se termine el tiempo.</>
@@ -1171,7 +1219,7 @@ export default function GameSession() { // NOSONAR
       </main>
 
       {/* Character Mascot */}
-      <div className="fixed bottom-24 left-4 sm:left-8 z-20">
+      <div className="fixed bottom-4 left-3 sm:left-6 z-20 scale-90 origin-bottom-left">
         <CharacterMascot
           mood={gameFeedback.mascotMood}
           message={gameFeedback.mascotMessage || undefined}
@@ -1182,7 +1230,7 @@ export default function GameSession() { // NOSONAR
 
       {/* Round progress dots */}
       {(gameState === 'playing' || gameState === 'paused') && (
-        <footer className="relative z-10 p-4 sm:p-6">
+        <footer className="relative z-10 px-3 py-2 sm:px-4 sm:py-2 shrink-0">
           <CurrentPlayMetrics
             mode={isMemoryMode ? 'memory' : 'association'}
             score={score}
@@ -1201,7 +1249,7 @@ export default function GameSession() { // NOSONAR
                 animate={{ scale: 1 }}
                 transition={{ delay: shouldReduceMotion ? 0 : (roundNumber - 1) * 0.05 }}
                 className={cn(
-                  "size-3 rounded-full transition-all duration-300",
+                  "size-3.5 rounded-full transition-all duration-300",
                   roundNumber < currentRound && "bg-emerald-500 shadow-lg shadow-emerald-500/50",
                   roundNumber === currentRound && "bg-purple-500 shadow-lg shadow-purple-500/50 scale-125",
                   roundNumber > currentRound && "bg-slate-700"
@@ -1369,8 +1417,8 @@ const CurrentPlayMetrics = memo(function CurrentPlayMetrics({ mode, score, corre
   const safeAttempts = Math.max(1, attempts || 0);
 
   return (
-    <div className="mb-4 max-w-4xl mx-auto rounded-xl border border-white/10 bg-slate-900/30 px-4 py-3">
-      <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 text-sm">
+    <div className="mb-1.5 max-w-4xl mx-auto rounded-lg border border-white/10 bg-slate-900/30 px-3 py-1.5">
+      <div className="grid grid-cols-3 gap-2 text-xs">
         <MetricPill label="⭐ Puntos" value={score} />
         <MetricPill label="✅ Aciertos" value={correctAnswers} />
         <MetricPill
@@ -1392,9 +1440,9 @@ CurrentPlayMetrics.propTypes = {
 
 function MetricPill({ label, value }) {
   return (
-    <div className="rounded-lg bg-slate-800/60 border border-white/5 px-3 py-2">
+    <div className="rounded-md bg-slate-800/60 border border-white/5 px-2 py-1">
       <div className="text-[11px] tracking-wide text-slate-300">{label}</div>
-      <div className="text-white font-semibold">{value}</div>
+      <div className="text-white text-sm font-semibold">{value}</div>
     </div>
   );
 }
@@ -1555,20 +1603,15 @@ function FallbackTouchPanel({ cards, onSelectCard, onPauseRequest, canPause }) {
   const visibleCards = Array.isArray(cards) ? cards.slice(0, 12) : [];
 
   return (
-    <div className="mt-6 w-full max-w-3xl rounded-2xl border border-amber-400/30 bg-amber-500/10 p-4">
-      <div className="flex items-start gap-3 text-amber-100">
-        <AlertTriangle size={18} className="mt-0.5 shrink-0" />
-        <div>
-          <p className="text-sm font-semibold">Modo táctil temporal activado</p>
-          <p className="text-xs text-amber-100/90">
-            El lector RFID está desconectado. Toca una carta para seguir y avisa al docente.
-          </p>
-        </div>
+    <div className="mt-3 w-full max-w-3xl rounded-xl border border-amber-400/30 bg-amber-500/10 p-2.5">
+      <div className="flex items-center gap-2 text-amber-100">
+        <AlertTriangle size={14} className="shrink-0" />
+        <p className="text-xs font-semibold">Sin sensor RFID — toca una carta para responder</p>
       </div>
 
       {visibleCards.length > 0 && (
         <fieldset
-          className="mt-4 grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-2 border-0 p-0 m-0"
+          className="mt-2 grid grid-cols-3 sm:grid-cols-6 gap-1.5 border-0 p-0 m-0"
           aria-label="Cartas disponibles para selección táctil"
         >
           {visibleCards.map(card => (
@@ -1576,21 +1619,17 @@ function FallbackTouchPanel({ cards, onSelectCard, onPauseRequest, canPause }) {
               key={`fallback-card-${card.uid}`}
               type="button"
               onClick={() => onSelectCard(card)}
-              whileHover={{ scale: 1.04, borderColor: 'rgba(129, 140, 248, 0.5)' }}
-              whileTap={{ scale: 0.95, backgroundColor: 'rgba(99, 102, 241, 0.2)' }}
+              whileTap={{ scale: 0.92, backgroundColor: 'rgba(99, 102, 241, 0.2)' }}
               aria-label={`Seleccionar carta: ${card.assignedValue || card.uid}`}
-              className="rounded-xl border border-white/10 bg-slate-900/40 p-2 text-left hover:bg-slate-900/60 transition-colors focus-visible:ring-2 focus-visible:ring-indigo-400 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-900"
+              className="rounded-lg border border-white/10 bg-slate-900/40 p-1.5 text-center hover:bg-slate-900/60 transition-colors focus-visible:ring-2 focus-visible:ring-indigo-400"
             >
               <CardAssetPreview
                 asset={card.displayData || { display: card.assignedValue || card.uid }}
-                className="h-16 w-full rounded-lg"
+                className="h-14 w-full rounded"
                 fit="contain"
                 loading="eager"
                 fallbackLabel={card.assignedValue || card.uid}
               />
-              <div className="mt-1 text-[11px] text-slate-200 truncate">
-                {card.assignedValue || card.uid}
-              </div>
             </motion.button>
           ))}
         </fieldset>
@@ -1600,9 +1639,9 @@ function FallbackTouchPanel({ cards, onSelectCard, onPauseRequest, canPause }) {
         <button
           type="button"
           onClick={onPauseRequest}
-          className="mt-4 text-xs px-3 py-2 rounded-lg bg-slate-900/60 text-slate-200 border border-white/10 hover:bg-slate-900/80 transition-colors"
+          className="mt-2 text-[10px] px-2 py-1 rounded bg-slate-900/60 text-slate-300 border border-white/5 hover:bg-slate-900/80 transition-colors"
         >
-          Pausar para revisar el sensor
+          Pausar para revisar sensor
         </button>
       )}
     </div>

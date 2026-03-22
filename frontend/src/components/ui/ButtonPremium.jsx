@@ -119,7 +119,7 @@ const ButtonPremium = ({
         <span className="flex-shrink-0">{icon}</span>
       )}
       
-      {children && <span>{children}</span>}
+      {children && <span className="inline-flex items-center gap-1.5">{children}</span>}
       
       {icon && iconPosition === 'right' && !loading && (
         <span className="flex-shrink-0">{icon}</span>

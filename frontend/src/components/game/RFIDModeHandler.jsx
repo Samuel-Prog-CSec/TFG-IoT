@@ -77,7 +77,7 @@ export default function RFIDModeHandler({ currentMode = 'idle', className }) {
   const isConnected = deviceState === 'ready';
 
   return (
-    <div className={cn("fixed bottom-6 right-6 z-50 pointer-events-none", className)}>
+    <div className={cn("fixed bottom-6 right-6 z-40 pointer-events-none", className)}>
       <AnimatePresence>
         <motion.div
           initial={{ opacity: 0, y: 20, scale: 0.95 }}

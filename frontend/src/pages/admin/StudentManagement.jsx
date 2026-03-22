@@ -452,14 +452,14 @@ export default function StudentManagement() {
         </ButtonPremium>
       </header>
 
-      <section className="grid grid-cols-1 md:grid-cols-4 gap-6 mb-8">
+      <section className="grid grid-cols-1 md:grid-cols-4 gap-6 mb-8 items-stretch">
         <GlassCard className="p-4 flex items-center gap-4">
-          <div className="size-12 rounded-xl bg-success-base/10 text-success-base flex items-center justify-center">
+          <div className="size-12 rounded-xl bg-brand-base/10 text-brand-base flex items-center justify-center">
             <Users size={24} />
           </div>
           <div>
+            <p className="text-2xl font-bold text-text-primary font-display">{pagination.total}</p>
             <p className="text-xs text-text-muted uppercase tracking-wider font-bold">Total Alumnos</p>
-            <p className="text-2xl font-bold text-text-primary">{pagination.total}</p>
           </div>
         </GlassCard>
 
@@ -562,7 +562,7 @@ export default function StudentManagement() {
                         student.name.charAt(0).toUpperCase()
                       )}
                     </div>
-                    <div className="min-w-0">
+                    <div className="min-w-0 flex-1">
                       <h3 className="font-bold text-text-primary truncate">{student.name}</h3>
                       <div className="flex items-center gap-1.5 text-text-muted text-xs">
                         <School size={12} />
@@ -573,13 +573,13 @@ export default function StudentManagement() {
 
                   <div className="mt-auto pt-4 border-t border-border-subtle space-y-3">
                     <div className="flex items-center justify-between">
-                      <span className="text-[10px] uppercase tracking-tighter text-text-muted font-bold">Profesor</span>
-                      <span className="text-xs text-text-primary font-medium truncate max-w-[120px]">
+                      <span className="text-xs uppercase tracking-wider text-text-muted font-bold">Profesor</span>
+                      <span className="text-xs text-text-primary font-medium truncate max-w-[160px]">
                         {student.createdBy?.name || 'Sistema'}
                       </span>
                     </div>
                     <div className="flex items-center justify-between">
-                      <span className="text-[10px] uppercase tracking-tighter text-text-muted font-bold">Estado</span>
+                      <span className="text-xs uppercase tracking-wider text-text-muted font-bold">Estado</span>
                       <StatusBadge status={student.status === 'active' ? 'success' : 'neutral'} size="sm">
                         {student.status === 'active' ? 'Activo' : 'Inactivo'}
                       </StatusBadge>

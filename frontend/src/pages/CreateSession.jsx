@@ -1479,7 +1479,7 @@ function AssociationChallengeComposer({ cards, challengePlan, onPlanChange, disa
 
   if (safePlan.length === 0) {
     return (
-      <GlassCard className="p-6 lg:col-span-2 border border-amber-500/30">
+      <GlassCard className="p-6 lg:col-span-2 border border-amber-500/40">
         <h2 className="text-lg font-semibold text-white mb-2">Retos de Association</h2>
         <p className="text-sm text-amber-300">
           Selecciona un mazo con tarjetas y define el número de rondas para configurar los retos.
@@ -1567,7 +1567,7 @@ function StepReview({ sessionConfig, setSessionConfig, selectedDeck, selectedMec
               <p className="text-xs text-slate-400">Mazo</p>
               <p className="text-white font-medium">{selectedDeck?.name || 'No seleccionado'}</p>
               <p className="text-xs text-slate-500">
-                {selectedDeck?.cards?.length || selectedDeck?.cardMappings?.length || 0} cartas \u2022 {selectedDeck?.contextId?.name}
+                {selectedDeck?.cards?.length || selectedDeck?.cardMappings?.length || 0} cartas {'\u2022'} {selectedDeck?.contextId?.name}
               </p>
               {/* Mini-galería de assets del mazo */}
               {selectedDeck?.cardMappings?.length > 0 && (
@@ -1576,12 +1576,12 @@ function StepReview({ sessionConfig, setSessionConfig, selectedDeck, selectedMec
                     <CardAssetPreview
                       key={m.id || m.uid || m.cardId || m._id}
                       asset={m.displayData}
-                      className="size-9 rounded-lg flex-shrink-0"
+                      className="size-10 rounded-lg flex-shrink-0"
                       fallbackLabel={m.displayData?.display || m.displayData?.emoji || '\uD83C\uDFB3'}
                     />
                   ))}
                   {selectedDeck.cardMappings.length > 8 && (
-                    <div className="size-9 rounded-lg flex-shrink-0 bg-slate-700/60 flex items-center justify-center text-xs text-slate-400">
+                    <div className="size-10 rounded-lg flex-shrink-0 bg-slate-700/60 flex items-center justify-center text-xs text-slate-400">
                       +{selectedDeck.cardMappings.length - 8}
                     </div>
                   )}

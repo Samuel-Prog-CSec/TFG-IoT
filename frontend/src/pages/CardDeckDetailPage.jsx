@@ -208,32 +208,32 @@ export default function CardDeckDetailPage() {
             <h2 className="text-lg font-semibold text-white">Información general</h2>
 
             <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-              <div className="bg-white/5 rounded-xl p-4">
+              <div className="bg-indigo-500/10 rounded-xl p-4">
                 <div className="flex items-center gap-2 text-slate-400">
-                  <CreditCard size={16} />
+                  <CreditCard size={16} className="text-indigo-400" />
                   Tarjetas
                 </div>
-                <p className="text-white text-xl font-semibold mt-2">{cards.length}</p>
+                <p className="text-white text-xl font-semibold font-display mt-2">{cards.length}</p>
               </div>
-              <div className="bg-white/5 rounded-xl p-4">
+              <div className="bg-amber-500/10 rounded-xl p-4">
                 <div className="flex items-center gap-2 text-slate-400">
-                  <Calendar size={16} />
+                  <Calendar size={16} className="text-amber-400" />
                   Creado
                 </div>
-                <p className="text-white text-xl font-semibold mt-2">{formatDate(deck.createdAt)}</p>
+                <p className="text-white text-xl font-semibold font-display mt-2">{formatDate(deck.createdAt)}</p>
               </div>
-              <div className="bg-white/5 rounded-xl p-4">
+              <div className="bg-emerald-500/10 rounded-xl p-4">
                 <div className="flex items-center gap-2 text-slate-400">
-                  <Archive size={16} />
+                  <Archive size={16} className="text-emerald-400" />
                   Estado
                 </div>
-                <p className="text-white text-xl font-semibold mt-2">{statusLabel}</p>
+                <p className="text-white text-xl font-semibold font-display mt-2">{statusLabel}</p>
               </div>
             </div>
 
             <div className="space-y-2">
               <h3 className="text-sm font-medium text-slate-300">Descripción</h3>
-              <div className="rounded-xl border border-white/10 bg-white/5 px-4 py-3 text-sm text-slate-300">
+              <div className="rounded-xl border border-white/10 bg-slate-800/30 px-4 py-3 text-sm text-slate-300">
                 {deck.description?.trim() || 'Sin descripción'}
               </div>
             </div>
@@ -241,12 +241,27 @@ export default function CardDeckDetailPage() {
 
           <GlassCard className="p-6 space-y-4">
             <h2 className="text-lg font-semibold text-white">Resumen</h2>
-            <div className="text-sm text-slate-400 space-y-2">
-              <p>Nombre: <span className="text-white">{deck.name || '—'}</span></p>
-              <p>Contexto: <span className="text-white">{contextName}</span></p>
-              <p>Estado: <span className="text-white">{statusLabel}</span></p>
-              <p>Creado: <span className="text-white">{formatDate(deck.createdAt)}</span></p>
-              <p>Actualizado: <span className="text-white">{formatDate(deck.updatedAt)}</span></p>
+            <div className="divide-y divide-white/5">
+              <div className="flex items-center justify-between py-3">
+                <span className="text-sm text-slate-400">Nombre</span>
+                <span className="text-sm text-white font-medium">{deck.name || '—'}</span>
+              </div>
+              <div className="flex items-center justify-between py-3">
+                <span className="text-sm text-slate-400">Contexto</span>
+                <span className="text-sm text-white font-medium">{contextName}</span>
+              </div>
+              <div className="flex items-center justify-between py-3">
+                <span className="text-sm text-slate-400">Estado</span>
+                <span className="text-sm text-white font-medium">{statusLabel}</span>
+              </div>
+              <div className="flex items-center justify-between py-3">
+                <span className="text-sm text-slate-400">Creado</span>
+                <span className="text-sm text-white font-medium">{formatDate(deck.createdAt)}</span>
+              </div>
+              <div className="flex items-center justify-between py-3">
+                <span className="text-sm text-slate-400">Actualizado</span>
+                <span className="text-sm text-white font-medium">{formatDate(deck.updatedAt)}</span>
+              </div>
             </div>
           </GlassCard>
         </div>
@@ -270,7 +285,7 @@ export default function CardDeckDetailPage() {
                 return (
                   <div
                     key={key}
-                    className="rounded-xl border border-white/10 bg-white/5 px-4 py-3 flex flex-col md:flex-row md:items-center md:justify-between gap-2"
+                    className="rounded-xl border border-white/10 bg-slate-800/30 px-4 py-3 flex flex-col md:flex-row md:items-center md:justify-between gap-2"
                   >
                     <div>
                       <p className="text-white font-medium">{label}</p>

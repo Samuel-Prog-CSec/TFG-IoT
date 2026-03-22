@@ -23,6 +23,7 @@ import { decksAPI, extractErrorMessage, isAbortError } from '../services/api';
 import DeckCard, { DeckCardSkeleton } from '../components/ui/DeckCard';
 import ButtonPremium from '../components/ui/ButtonPremium';
 import GlassCard from '../components/ui/GlassCard';
+import SelectPremium from '../components/ui/SelectPremium';
 import ConfirmationModal, { useConfirmationModal } from '../components/ui/ConfirmationModal';
 import { useContexts } from '../hooks/useContexts';
 import { useRefetchOnFocus } from '../hooks/useRefetchOnFocus';
@@ -557,44 +558,31 @@ export default function CardDecksPage() {
                 <div className="flex flex-wrap gap-4">
                   {/* Filtro por estado */}
                   <div className="flex-1 min-w-[150px]">
-                    <label htmlFor="deck-status-filter" className="block text-xs text-slate-500 mb-1.5">Estado</label>
-                    <select
-                      id="deck-status-filter"
+                    <SelectPremium
+                      label="Estado"
                       value={filters.statusFilter}
-                      onChange={(e) => dispatchFilters({ type: 'SET_STATUS', payload: e.target.value })}
-                      className={cn(
-                        'w-full px-3 py-2 rounded-lg',
-                        'bg-slate-800/50 border border-white/10',
-                        'text-white text-sm',
-                        'focus:outline-none focus:border-indigo-500/50'
-                      )}
-                    >
-                      <option value="active">Activos</option>
-                      <option value="archived">Archivados</option>
-                    </select>
+                      onChange={(val) => dispatchFilters({ type: 'SET_STATUS', payload: val })}
+                      options={[
+                        { value: 'active', label: 'Activos' },
+                        { value: 'archived', label: 'Archivados' },
+                      ]}
+                    />
                   </div>
 
                   {/* Filtro por contexto */}
                   <div className="flex-1 min-w-[150px]">
-                    <label htmlFor="deck-context-filter" className="block text-xs text-slate-500 mb-1.5">Contexto</label>
-                    <select
-                      id="deck-context-filter"
+                    <SelectPremium
+                      label="Contexto"
                       value={filters.contextFilter}
-                      onChange={(e) => dispatchFilters({ type: 'SET_CONTEXT', payload: e.target.value })}
-                      className={cn(
-                        'w-full px-3 py-2 rounded-lg',
-                        'bg-slate-800/50 border border-white/10',
-                        'text-white text-sm',
-                        'focus:outline-none focus:border-indigo-500/50'
-                      )}
-                    >
-                      <option value="">Todos los contextos</option>
-                      {contexts.map((ctx) => (
-                        <option key={ctx._id} value={ctx._id}>
-                          {ctx.name}
-                        </option>
-                      ))}
-                    </select>
+                      onChange={(val) => dispatchFilters({ type: 'SET_CONTEXT', payload: val })}
+                      options={[
+                        { value: '', label: 'Todos los contextos' },
+                        ...contexts.map((ctx) => ({
+                          value: ctx._id,
+                          label: ctx.name,
+                        })),
+                      ]}
+                    />
                   </div>
 
                   {/* Limpiar filtros */}

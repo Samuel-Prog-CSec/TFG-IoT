@@ -38,12 +38,14 @@ class AssociationStrategy extends BaseMechanicStrategy {
       return null;
     }
 
+    const plainMapping =
+      typeof mapping.toObject === 'function' ? mapping.toObject() : { ...mapping };
     return {
-      ...mapping,
+      ...plainMapping,
       displayData:
         plannedItem.displayData && Object.keys(plannedItem.displayData).length > 0
           ? plannedItem.displayData
-          : mapping.displayData || {},
+          : plainMapping.displayData || {},
       promptText: plannedItem.promptText
     };
   }

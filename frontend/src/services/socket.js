@@ -94,20 +94,23 @@ class SocketService {
         return;
       }
 
+      // Si existe un socket desconectado, reconectar en vez de destruir
+      // para preservar los listeners ya registrados
       if (this.socket) {
-        this.disconnect();
+        const token = getAccessToken();
+        this.socket.auth = { token };
+        this.socket.connect();
+      } else {
+        const token = getAccessToken();
+        this.socket = io(SOCKET_URL, {
+          auth: { token },
+          reconnection: true,
+          reconnectionAttempts: RECONNECTION_ATTEMPTS,
+          reconnectionDelay: RECONNECTION_DELAY,
+          reconnectionDelayMax: RECONNECTION_DELAY_MAX,
+          transports: ['websocket', 'polling'],
+        });
       }
-
-      const token = getAccessToken();
-      
-      this.socket = io(SOCKET_URL, {
-        auth: { token },
-        reconnection: true,
-        reconnectionAttempts: RECONNECTION_ATTEMPTS,
-        reconnectionDelay: RECONNECTION_DELAY,
-        reconnectionDelayMax: RECONNECTION_DELAY_MAX,
-        transports: ['websocket', 'polling'],
-      });
 
       // Timeout para conexión inicial
       let timeoutId = null;

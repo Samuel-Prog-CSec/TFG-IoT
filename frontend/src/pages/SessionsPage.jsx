@@ -112,7 +112,7 @@ const SessionCard = memo(function SessionCard({
         </div>
 
         <div className="grid grid-cols-2 gap-4 text-xs text-slate-300">
-          <div className="bg-white/5 rounded-lg p-3 flex items-center gap-3">
+          <div className="bg-indigo-500/5 rounded-lg p-3 flex items-center gap-3">
             <div className="size-8 rounded-lg bg-indigo-500/15 flex items-center justify-center flex-shrink-0">
               <Layers size={14} className="text-indigo-400" />
             </div>
@@ -121,7 +121,7 @@ const SessionCard = memo(function SessionCard({
               <p className="text-white font-semibold font-display">{session.config?.numberOfCards || session.cardMappingsCount}</p>
             </div>
           </div>
-          <div className="bg-white/5 rounded-lg p-3 flex items-center gap-3">
+          <div className="bg-cyan-500/5 rounded-lg p-3 flex items-center gap-3">
             <div className="size-8 rounded-lg bg-cyan-500/15 flex items-center justify-center flex-shrink-0">
               <RotateCcw size={14} className="text-cyan-400" />
             </div>
@@ -130,7 +130,7 @@ const SessionCard = memo(function SessionCard({
               <p className="text-white font-semibold font-display">{session.config?.numberOfRounds}</p>
             </div>
           </div>
-          <div className="bg-white/5 rounded-lg p-3 flex items-center gap-3">
+          <div className="bg-amber-500/5 rounded-lg p-3 flex items-center gap-3">
             <div className="size-8 rounded-lg bg-amber-500/15 flex items-center justify-center flex-shrink-0">
               <Timer size={14} className="text-amber-400" />
             </div>
@@ -139,7 +139,7 @@ const SessionCard = memo(function SessionCard({
               <p className="text-white font-semibold font-display">{session.config?.timeLimit}s</p>
             </div>
           </div>
-          <div className="bg-white/5 rounded-lg p-3 flex items-center gap-3">
+          <div className="bg-emerald-500/5 rounded-lg p-3 flex items-center gap-3">
             <div className="size-8 rounded-lg bg-emerald-500/15 flex items-center justify-center flex-shrink-0">
               <Award size={14} className="text-emerald-400" />
             </div>
@@ -150,50 +150,59 @@ const SessionCard = memo(function SessionCard({
           </div>
         </div>
 
-        <div className="flex flex-wrap gap-3 mt-auto pt-4 border-t border-white/5">
-          <ButtonPremium
-            variant="secondary"
-            onClick={() => onNavigate(ROUTES.SESSION_DETAIL(sessionId))}
-            className="flex-1"
-          >
-            <Eye size={16} />
-            Ver detalle
-          </ButtonPremium>
-          <ButtonPremium
-            variant="secondary"
-            onClick={() => onClone(session)}
-            disabled={cloneLoading}
-            className="flex-1"
-          >
-            <RefreshCw size={16} />
-            Volver a jugar
-          </ButtonPremium>
-          <Tooltip content="Ver mapping">
+        <div className="mt-auto pt-4 border-t border-white/5 space-y-3">
+          <div className="flex gap-3">
             <ButtonPremium
-              variant="ghost"
-              onClick={() => onNavigate(ROUTES.BOARD_SETUP_WITH_ID(sessionId))}
+              variant="secondary"
+              onClick={() => onNavigate(ROUTES.SESSION_DETAIL(sessionId))}
+              className="flex-1"
             >
-              <Map size={16} />
+              <Eye size={16} />
+              Ver detalle
             </ButtonPremium>
-          </Tooltip>
-          <Tooltip content="Editar sesión">
             <ButtonPremium
-              variant="ghost"
-              onClick={() => onNavigate(ROUTES.SESSION_EDIT(sessionId))}
-              disabled={!canEdit}
+              variant="primary"
+              onClick={() => onClone(session)}
+              disabled={cloneLoading}
+              className="flex-1"
             >
-              <Pencil size={16} />
+              <RefreshCw size={16} />
+              Volver a jugar
             </ButtonPremium>
-          </Tooltip>
-          <Tooltip content="Eliminar sesión">
-            <ButtonPremium
-              variant="ghost"
-              onClick={() => onDelete(session)}
-              disabled={!canDelete}
-            >
-              <Trash2 size={16} />
-            </ButtonPremium>
-          </Tooltip>
+          </div>
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-1 bg-white/5 rounded-lg p-1">
+              <Tooltip content="Ver mapping">
+                <ButtonPremium
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => onNavigate(ROUTES.BOARD_SETUP_WITH_ID(sessionId))}
+                >
+                  <Map size={14} />
+                </ButtonPremium>
+              </Tooltip>
+              <Tooltip content="Editar sesión">
+                <ButtonPremium
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => onNavigate(ROUTES.SESSION_EDIT(sessionId))}
+                  disabled={!canEdit}
+                >
+                  <Pencil size={14} />
+                </ButtonPremium>
+              </Tooltip>
+              <Tooltip content="Eliminar sesión">
+                <ButtonPremium
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => onDelete(session)}
+                  disabled={!canDelete}
+                >
+                  <Trash2 size={14} />
+                </ButtonPremium>
+              </Tooltip>
+            </div>
+          </div>
         </div>
 
       </GlassCard>

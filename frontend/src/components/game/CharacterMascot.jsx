@@ -84,9 +84,9 @@ export default function CharacterMascot({
           animate={{ opacity: 1, scale: 1, y: 0 }}
           key={displayMessage}
           className={cn(
-            "absolute -top-16 whitespace-nowrap",
+            "absolute -top-16 max-w-48",
             "bg-white/10 backdrop-blur-sm",
-            "px-4 py-2 rounded-2xl",
+            "px-3 py-1.5 rounded-2xl",
             "border border-white/20",
             "text-white text-sm font-medium",
             position === 'left' ? 'left-0' : 'right-0'

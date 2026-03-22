@@ -116,12 +116,12 @@ export function useGameFeedback({ isMemoryMode = false, shouldReduceMotion = fal
     setFeedbackPoints(0);
     setFeedbackMessage('');
     setIsTimeout(false);
-    setMascotMood('idle');
-    setMascotMessage('');
   }, []);
 
   const resetForNewPlay = useCallback(() => {
     clearFeedback();
+    setMascotMood('idle');
+    setMascotMessage('');
     streakRef.current = 0;
     totalErrorsRef.current = 0;
     setStreak(0);
