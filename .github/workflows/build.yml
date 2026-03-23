@@ -162,7 +162,7 @@ jobs:
 
       - name: Subir cobertura como artefacto
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: backend-coverage
           path: backend/coverage/lcov.info
@@ -209,7 +209,7 @@ jobs:
 
       - name: Subir cobertura como artefacto
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: frontend-coverage
           path: frontend/coverage/lcov.info
@@ -245,13 +245,13 @@ jobs:
           persist-credentials: false
 
       - name: Descargar cobertura backend
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           name: backend-coverage
           path: backend/coverage
 
       - name: Descargar cobertura frontend
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           name: frontend-coverage
           path: frontend/coverage
@@ -264,7 +264,7 @@ jobs:
           exit 1
 
       - name: SonarCloud Scan
-        uses: sonarsource/sonarqube-scan-action@v6
+        uses: sonarsource/sonarqube-scan-action@v7
         with:
           args: >-
             -Dsonar.token=${{ secrets.SONAR_TOKEN }}
