@@ -5,6 +5,58 @@ Todas las notas notables de cambios en este proyecto serán documentadas en este
 El formato está basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.0.0/),
 y este proyecto adhiere a [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.4.0] - 2026-03-22
+
+### Añadido
+
+- **Gameplay completo Asociación y Memoria (E2E):** Pantalla de partida real integrada con backend vía Socket.IO para ejecutar partidas completas de ambas mecánicas sin simulación local, con vistas diferenciadas por mecánica, métricas en vivo (HUD) y resumen final ampliado. (#135)
+- **Wizard de sesión adaptativo:** El wizard de creación adapta fases y validaciones según la mecánica seleccionada; mecánicas no disponibles (ej. `sequence`) se muestran como "Próximamente" y quedan bloqueadas tanto en UI como en backend (`SESSION_ENABLED_MECHANICS`). (#140)
+- **Clonación de sesiones:** Función "Volver a jugar" que clona sesiones existentes resincronizando `cardMappings` y `contextId` con el estado actual del mazo; reglas específicas por mecánica para `boardLayout` (Memory) y `associationChallengePlan` (Association). (#141)
+- **Contrato RFID backend-authoritative:** Contrato unificado de control de modos RFID entre frontend y backend con política single-owner por usuario, validación estricta de sensor y eliminación de derivación por ruta en frontend. (#142)
+- **Gestión de contextos educativos (Frontend):** Nuevas páginas de listado y detalle de contextos con soporte para subida de assets a Supabase Storage.
+- **Bloqueo distribuido de tarjetas (Redis):** Scripts Lua atómicos (`reserveCards`, `releaseCards`, `renewLease`) con ejecución vía `EVALSHA` + fallback `EVAL`, lectura batch por pipeline (`existsMany`, `hgetallMany`) y métricas de ejecución. (#147)
+- **Integración Sentry completa:** Monitorización de errores en frontend (ErrorBoundary, tracing de navegación, source maps vía `@sentry/vite-plugin`) y backend (scopes de identidad de usuario, captura de errores WebSocket). (#149)
+- **Reconexión de juego:** Experiencia de juego mejorada con reconexión automática, recuperación de estado y manejo robusto de desconexiones y desincronización.
+- **Feedback de partida:** Sistema de retroalimentación mejorado con mensajes contextuales para aciertos, fallos, combos y timeouts durante gameplay.
+- **Accesibilidad `prefers-reduced-motion`:** Hook `useReducedMotion` transversal aplicado en wizard, gameplay, modales y componentes animados con degradación progresiva que mantiene usabilidad completa. (#151, #153)
+- **Tests:** Nuevas suites para `GameSession` (frontend), clonación de sesiones, bloqueo Redis, mecánica Memory, persistencia atómica de eventos, disponibilidad de mecánicas y borrado de contextos con dependencias.
+- **Benchmarks:** Scripts de benchmarking para operaciones Redis (`benchmark-redis-ops.js`) y lectura de sesiones (`benchmark-session-reads.js`).
+
+### Cambiado
+
+- **Refresh token cookie-only:** Migración completa a cookie `httpOnly` exclusiva; eliminados envío y recepción de refresh token en body y localStorage. CSRF double-submit obligatorio también en refresh. Backend rechaza payload legado con `refreshToken` en body (400). (#137)
+- **Estado de GameSession centralizado:** Transiciones de estado (`created` → `active` → `completed`) centralizadas en `sessionStatusService` basadas en el estado real de partidas (`GamePlay`), integradas en flujos de inicio, pausa, reanudación, finalización y abandono. (#139)
+- **Lecturas sin write-on-read:** Endpoints `GET` de sesiones ejecutan lectura `lean` sin side-effects de escritura; caché de ownership por socket para reducir consultas redundantes; contadores de juego optimizados por agregación. (#145)
+- **Persistencia atómica de eventos:** `GamePlay` usa operadores `$push` + `$inc` + `$slice` para persistencia por ronda (`addEventAtomic`), reduciendo write amplification y desactivando por defecto la persistencia de `round_start`. (#146)
+- **GameEngine robusto:** Serialización por `playId` para operaciones críticas, hooks por mecánica sin condicionales ad-hoc, caché TTL de auth en socket, procesamiento batch configurable en cleanup/recovery y métricas operativas ampliadas. (#136, #143)
+- **UI/UX general:** Reorganización de imports y componentes, nuevos iconos, animaciones mejoradas en login/registro, unificación de estilos; clases Tailwind dinámicas reemplazadas por mapas estáticos de variantes. (#152)
+- **Dependencias:** Actualizadas dependencias en backend y frontend; proceso de CI mejorado con Dependabot mensual.
+
+### Seguridad
+
+- **Payload guard global:** Middleware `securityPayloadGuard` para detección y bloqueo de payloads con `__proto__`, `constructor.prototype` y operadores NoSQL (`$`), aplicado en HTTP y WebSocket. (#144)
+- **Validación Origin en WebSocket:** Validación explícita de `Origin` en handshake con whitelist de seguridad, como doble capa junto con CORS base. (#144)
+- **RFID hardening:** Ventana temporal configurable (`RFID_CLIENT_MAX_TIMESTAMP_SKEW_MS`), formato estricto de `sensorId` y validación de `source` en eventos RFID de cliente. (#144)
+- **Integridad de dominio:** Restricción de modificación de `createdBy` en `PUT /api/users/:id`; transferencias solo por endpoint dedicado; guardas de borrado de contextos con dependencias activas. (#148)
+- **Cookie httpOnly exclusiva:** Refresh token solo vía cookie segura; eliminada exposición en body de respuesta y fallback legado en logout. (#137)
+
+### Corregido
+
+- Incoherencias de validación entre Zod y Mongoose en campos de sesión (`penaltyPerError` rechazaba valor 0, `numberOfCards` con límites divergentes).
+- Bugs visuales en múltiples páginas del frontend.
+- Manejo de datos mejorado en `DeckEditPage` y `SessionsPage`.
+- Pantalla de fin de partida (`GameOverScreen`) rediseñada con estadísticas de resumen detalladas.
+- Soporte de `reduced-motion` añadido en animaciones que carecían de ello.
+
+### Documentación
+
+- Documentación técnica de seguridad de tokens JWT (`backend/docs/Seguridad_tokens_JWT.md`).
+- Arquitectura Redis ampliada y corregida (`backend/docs/Arquitectura_Redis.md`).
+- Análisis de optimización Redis con comparativa antes/después (`backend/docs/Redis_Optimization_Analysis.md`).
+- Notas de rendimiento (`backend/docs/Performance_Notes.md`) y flujos RFID en runtime (`backend/docs/RFID_Runtime_Flows.md`).
+- API actualizada a v0.4.0 (`backend/docs/API_v0.4.0.md`).
+- Auditoría integral de gameplay Sprint 4 (`documentation/Sprint4_Gameplay_Mejoras_Mantenimiento.md`).
+
 ## [0.3.0] - 2026-02-13
 
 ### Añadido

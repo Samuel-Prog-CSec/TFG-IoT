@@ -7,7 +7,7 @@
  */
 
 const sharp = require('sharp');
-const fileType = require('file-type');
+const { getFileType } = require('../utils/fileTypeHelper');
 const logger = require('../utils/logger').child({ component: 'imageProcessingService' });
 const { ValidationError } = require('../utils/errors');
 
@@ -120,7 +120,7 @@ class ImageProcessingService {
    * @throws {ValidationError} Si el contenido no corresponde a un formato permitido
    */
   async validateMagicBytes(buffer) {
-    const detectedType = await fileType.fromBuffer(buffer);
+    const detectedType = await getFileType(buffer);
 
     if (!detectedType) {
       throw new ValidationError(

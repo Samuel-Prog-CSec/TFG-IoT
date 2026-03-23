@@ -6,7 +6,7 @@ module.exports = {
   collectCoverage: true,
   coverageDirectory: 'coverage',
   coverageReporters: ['text', 'lcov', 'clover'], // 'lcov' es el que lee SonarCloud
-  coveragePathIgnorePatterns: ['/node_modules/'],
+  coveragePathIgnorePatterns: ['/node_modules/', '/scripts/', '/seeders/', '/docs/'],
   testTimeout: 30000,
   // IMPORTANT: these tests share a single DB + server instance (see tests/setup.js).
   // Running in parallel causes flaky 401/500 due to cross-worker DB drops and shared ports.

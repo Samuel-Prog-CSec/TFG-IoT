@@ -5,7 +5,7 @@
  * @requires file-type
  */
 
-const fileType = require('file-type');
+const { getFileType } = require('../utils/fileTypeHelper');
 const logger = require('../utils/logger').child({ component: 'audioValidationService' });
 const { ValidationError } = require('../utils/errors');
 
@@ -119,7 +119,7 @@ class AudioValidationService {
    * @throws {ValidationError} Si el contenido no corresponde a un formato permitido
    */
   async validateMagicBytes(buffer) {
-    const detectedType = await fileType.fromBuffer(buffer);
+    const detectedType = await getFileType(buffer);
 
     if (!detectedType) {
       throw new ValidationError(

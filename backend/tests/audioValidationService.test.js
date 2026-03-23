@@ -13,11 +13,11 @@ const mockLogger = {
 
 mockLogger.child = jest.fn(() => mockLogger);
 
-const mockFromBuffer = jest.fn();
+const mockGetFileType = jest.fn();
 
 // Registrar mocks ANTES de cualquier import
 jest.mock('../src/utils/logger', () => mockLogger);
-jest.mock('file-type', () => ({ fromBuffer: mockFromBuffer }));
+jest.mock('../src/utils/fileTypeHelper', () => ({ getFileType: mockGetFileType }));
 
 describe('audioValidationService', () => {
   let audioValidationService;
@@ -30,7 +30,7 @@ describe('audioValidationService', () => {
 
     // Re-registrar los mocks después del reset
     jest.doMock('../src/utils/logger', () => mockLogger);
-    jest.doMock('file-type', () => ({ fromBuffer: mockFromBuffer }));
+    jest.doMock('../src/utils/fileTypeHelper', () => ({ getFileType: mockGetFileType }));
 
     // Importar el servicio con los mocks activos
     audioValidationService = require('../src/services/audioValidationService');
@@ -45,7 +45,7 @@ describe('audioValidationService', () => {
         size: 1024 * 100 // 100KB
       };
 
-      mockFromBuffer.mockResolvedValue({ mime: 'audio/mpeg', ext: 'mp3' });
+      mockGetFileType.mockResolvedValue({ mime: 'audio/mpeg', ext: 'mp3' });
       jest.spyOn(audioValidationService, 'readDurationSeconds').mockResolvedValue(2.35);
 
       const result = await audioValidationService.validateAudio(mockFile);
@@ -67,7 +67,7 @@ describe('audioValidationService', () => {
         size: 1024 * 50 // 50KB
       };
 
-      mockFromBuffer.mockResolvedValue({ mime: 'audio/ogg', ext: 'ogg' });
+      mockGetFileType.mockResolvedValue({ mime: 'audio/ogg', ext: 'ogg' });
       jest.spyOn(audioValidationService, 'readDurationSeconds').mockResolvedValue(12.5);
 
       const result = await audioValidationService.validateAudio(mockFile);
@@ -98,7 +98,7 @@ describe('audioValidationService', () => {
         size: 1024
       };
 
-      mockFromBuffer.mockResolvedValue(null);
+      mockGetFileType.mockResolvedValue(null);
 
       await expect(audioValidationService.validateAudio(mockFile)).rejects.toThrow(
         /no se pudo determinar el tipo/i
@@ -113,7 +113,7 @@ describe('audioValidationService', () => {
         size: 1024
       };
 
-      mockFromBuffer.mockResolvedValue({ mime: 'audio/wav', ext: 'wav' });
+      mockGetFileType.mockResolvedValue({ mime: 'audio/wav', ext: 'wav' });
 
       await expect(audioValidationService.validateAudio(mockFile)).rejects.toThrow(
         /formato de audio no permitido/i
@@ -129,7 +129,7 @@ describe('audioValidationService', () => {
       };
 
       // Some systems report audio/mp3 instead of audio/mpeg
-      mockFromBuffer.mockResolvedValue({ mime: 'audio/mp3', ext: 'mp3' });
+      mockGetFileType.mockResolvedValue({ mime: 'audio/mp3', ext: 'mp3' });
       jest.spyOn(audioValidationService, 'readDurationSeconds').mockResolvedValue(8);
 
       const result = await audioValidationService.validateAudio(mockFile);
@@ -145,7 +145,7 @@ describe('audioValidationService', () => {
         size: 1024 * 200
       };
 
-      mockFromBuffer.mockResolvedValue({ mime: 'audio/mpeg', ext: 'mp3' });
+      mockGetFileType.mockResolvedValue({ mime: 'audio/mpeg', ext: 'mp3' });
       jest.spyOn(audioValidationService, 'readDurationSeconds').mockResolvedValue(80);
 
       await expect(audioValidationService.validateAudio(mockFile)).rejects.toThrow(
@@ -161,7 +161,7 @@ describe('audioValidationService', () => {
         size: 1024 * 20
       };
 
-      mockFromBuffer.mockResolvedValue({ mime: 'audio/mpeg', ext: 'mp3' });
+      mockGetFileType.mockResolvedValue({ mime: 'audio/mpeg', ext: 'mp3' });
       jest
         .spyOn(audioValidationService, 'readDurationSeconds')
         .mockRejectedValue(new Error('metadata parse failed'));

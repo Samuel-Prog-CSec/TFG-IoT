@@ -11,7 +11,17 @@ export default defineConfig({
     css: true,
     coverage: {
       provider: 'v8',
-      reporter: ['text', 'lcov']
+      reporter: ['text', 'lcov'],
+      reportsDirectory: './coverage',
+      exclude: [
+        'node_modules/',
+        'src/test/**',
+        '**/*.test.{js,jsx}',
+        '**/__tests__/**',
+        '*.config.{js,mjs,cjs}',
+        'eslint.config.js',
+        'vite.config.js'
+      ]
     }
   }
 });

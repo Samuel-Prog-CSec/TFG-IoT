@@ -156,6 +156,8 @@ jobs:
         run: |
           if [ -f backend/coverage/lcov.info ]; then
             sed -i 's#^SF:src/#SF:backend/src/#' backend/coverage/lcov.info
+            echo "--- Backend LCOV path samples ---"
+            grep '^SF:' backend/coverage/lcov.info | head -3 || true
           fi
 
       - name: Subir cobertura como artefacto
@@ -192,9 +194,27 @@ jobs:
         run: npm ci
         working-directory: ./frontend
 
-      - name: Ejecutar tests
-        run: npm test
+      - name: Ejecutar tests con cobertura
+        run: npm run test:coverage
         working-directory: ./frontend
+
+      - name: Normalizar rutas LCOV para SonarCloud
+        if: always()
+        run: |
+          if [ -f frontend/coverage/lcov.info ]; then
+            sed -i 's#^SF:src/#SF:frontend/src/#' frontend/coverage/lcov.info
+            echo "--- Frontend LCOV path samples ---"
+            grep '^SF:' frontend/coverage/lcov.info | head -3 || true
+          fi
+
+      - name: Subir cobertura como artefacto
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: frontend-coverage
+          path: frontend/coverage/lcov.info
+          retention-days: 7
+          if-no-files-found: warn
 
       - name: Verificar build de producción
         run: npm run build
@@ -203,13 +223,13 @@ jobs:
           NODE_ENV: production
 
   # ──────────────────────────────────────────────
-  # Job 5: SonarCloud (depende de backend-tests)
+  # Job 5: SonarCloud (depende de tests backend + frontend)
   # ──────────────────────────────────────────────
   sonar:
     name: SonarCloud Analysis
     runs-on: ubuntu-latest
     timeout-minutes: 10
-    needs: [backend-tests]
+    needs: [backend-tests, frontend-checks]
     permissions:
       contents: read
     # Ejecutar en push y en PRs internos; excluir bots.
@@ -229,6 +249,12 @@ jobs:
         with:
           name: backend-coverage
           path: backend/coverage
+
+      - name: Descargar cobertura frontend
+        uses: actions/download-artifact@v4
+        with:
+          name: frontend-coverage
+          path: frontend/coverage
 
       - name: Validar disponibilidad de SONAR_TOKEN
         if: env.SONAR_TOKEN == ''
