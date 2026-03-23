@@ -90,9 +90,9 @@ router.put(
 
 /**
  * @route   POST /api/auth/refresh
- * @desc    Refrescar access token con refresh token (implementa token rotation)
- * @access  Public (pero requiere refresh token válido)
- * @validation body: refreshTokenSchema | query: emptyObjectSchema
+ * @desc    Refrescar access token con cookie refreshToken (implementa token rotation)
+ * @access  Public (pero requiere cookie refresh token válida)
+ * @validation body: refreshTokenSchema (vacío) | query: emptyObjectSchema
  */
 router.post(
   '/refresh',

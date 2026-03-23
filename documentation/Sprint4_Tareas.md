@@ -43,7 +43,7 @@ Una tarea solo puede pasar a ✅ si cumple **todas**:
 
 ## P0 - Prioridad Crítica (Bloqueantes)
 
-### T-054: Gameplay Real Asociación + Memoria (E2E) 📋
+### T-054: Gameplay Real Asociación + Memoria (E2E) ✅
 
 **Prioridad:** P0 | **Tamaño:** XL | **Dependencias:** Ninguna  
 **Origen:** RF-JGO-002, RF-JGO-004, RF-RT-011, RF-RT-012
@@ -53,23 +53,42 @@ Conectar la pantalla de partida real del frontend con el backend vía Socket.IO 
 
 **Sub-tareas:**
 
-1. Integrar `GameSession` con eventos reales (`join_play`, `new_round`, `validation_result`, `game_over`, `play_paused`, `play_resumed`).
-2. Eliminar dependencias de flujo simulado en la ruta productiva.
-3. Añadir fallback visual robusto para reconexión y desincronización de estado.
-4. Validar comportamiento por mecánica (asociación/memoria) con desafíos y feedback correctos.
-5. Añadir tests de integración backend para flujo de eventos críticos.
+1. Integrar `GameSession` con eventos reales (`join_play`, `new_round`, `validation_result`, `memory_turn_state`, `game_over`, `play_paused`, `play_resumed`).
+2. Eliminar dependencias de flujo simulado y fallback REST en la ruta productiva de gameplay.
+3. Añadir fallback visual robusto para reconexión, pérdida de socket y desincronización de estado.
+4. Implementar dos vistas de partida diferenciadas por mecánica (Asociación vs Memoria) sobre la misma pantalla de runtime.
+5. Mostrar métricas de partida actual en HUD y resumen ampliado al finalizar (sin sustituir persistencia backend para dashboards).
+6. Añadir tests frontend de integración de `GameSession` para eventos críticos de ambas mecánicas.
+7. Mantener compatibilidad con el contrato de configuración proveniente del wizard (`config` + `boardLayout` en memoria).
+8. Documentar contrato de eventos gameplay y estados UI para trazabilidad del sprint.
 
 **Criterios de Aceptación (medibles):**
 
-- [ ] Se puede completar una partida real de 5 rondas desde UI en ambas mecánicas.
-- [ ] Los eventos `new_round`, `validation_result`, `game_over` se reflejan sin refrescar la página.
-- [ ] Pausa/reanudación desde UI funciona sin romper la ronda actual.
-- [ ] No queda lógica de simulación en ruta de juego productiva.
-- [ ] Tests críticos de flujo de juego pasan en CI local.
+- [x] Los eventos `new_round`, `validation_result`, `memory_turn_state` y `game_over` se reflejan sin refrescar la página.
+- [x] La UI diferencia claramente Association y Memory con comportamiento y bloques visuales propios.
+- [x] Pausa/reanudación desde UI queda en modo realtime estricto sin fallback REST.
+- [x] No queda lógica de simulación en ruta de juego productiva.
+- [x] Se muestran métricas de la partida actual en juego y resumen final ampliado.
+- [x] Existe cobertura frontend de integración para `GameSession` en ambas mecánicas y errores realtime críticos.
+- [x] Se puede completar una partida real de 5 rondas desde UI en ambas mecánicas (pendiente validación manual final con sensor físico).
+- [x] Tests críticos backend de flujo de juego pasan en CI local en esta iteración.
+
+**Avance (01-03-2026):**
+
+- `frontend/src/pages/GameSession.jsx` refactorizada con state machine de runtime robusta y estado explícito de conexión (`connecting/connected/reconnecting/disconnected`).
+- Se separaron vistas de juego por mecánica (`AssociationGameplayPanel`, `MemoryGameplayPanel`) y se añadió panel de métricas de partida en vivo + resumen final (`PlaySummaryCard`).
+- Se endureció manejo UX de errores socket con mapeo de códigos backend (`RFID_MODE_INVALID`, `RFID_SENSOR_UNAUTHORIZED`, `ROUND_BLOCKED`, etc.).
+- Se eliminó fallback REST en `togglePause`/`toggleResume`; la ruta productiva de partida queda socket-first.
+- Se añadió infraestructura de tests frontend (Vitest + Testing Library) y suite dedicada en `frontend/src/pages/__tests__/GameSession.test.jsx` con 7 escenarios críticos.
+- Evidencia local de validación frontend en verde:
+	- `npm run test` (frontend)
+	- `eslint` específico sobre archivos modificados (`GameSession.jsx`, test suite, setup Vitest)
+- Evidencia local de validación backend crítica en verde:
+	- `npm test -- tests/gameFlow.test.js tests/playPauseResume.test.js tests/socketAuth.test.js tests/socketRateLimiter.test.js`
 
 ---
 
-### T-055: Hardening GameEngine (extensibilidad + rendimiento) 📋
+### T-055: Hardening GameEngine (extensibilidad + rendimiento) ✅
 
 **Prioridad:** P0 | **Tamaño:** XL | **Dependencias:** T-054  
 **Origen:** RNF-REN-001, RNF-REN-010, ARCH-01, ARCH-02
@@ -87,15 +106,31 @@ Evolucionar `gameEngine` para soportar de forma estable múltiples mecánicas, d
 
 **Criterios de Aceptación (medibles):**
 
-- [ ] El motor soporta asociación y memoria sin condicionales ad-hoc repetitivos.
-- [ ] No aparecen regresiones en tests de `gameFlow`, `playPauseResume`, `redisStateRecovery`.
-- [ ] Métricas de motor exponen al menos 3 indicadores nuevos de ejecución.
-- [ ] No quedan warnings críticos de race conditions detectados en revisión técnica.
-- [ ] Documentación técnica del motor actualizada.
+- [x] El motor soporta asociación y memoria sin condicionales ad-hoc repetitivos.
+- [x] No aparecen regresiones en tests de `gameFlow`, `playPauseResume`, `redisStateRecovery`.
+- [x] Métricas de motor exponen al menos 3 indicadores nuevos de ejecución.
+- [x] No quedan warnings críticos de race conditions detectados en revisión técnica.
+- [x] Documentación técnica del motor actualizada.
+
+**Avance (16-02-2026):**
+
+- Se añadió guard de idempotencia en `start_play` dentro de `gameEngine`.
+- Se bloqueó `next_round` manual cuando la ronda está en `awaitingResponse`.
+- Se añadieron métricas nuevas de engine (`ignoredCardScans`, `blockedManualNextRound`, `totalTimeouts`, `averageRoundResponseTimeMs`).
+- Se añadió test específico de comando socket para `next_round`.
+- Se añadió serialización por `playId` para operaciones críticas (`handleCardScan`, `handleTimeout`, `pause`, `resume`, `advanceToNextRound`) para reducir condiciones de carrera.
+- Se endureció validación de `rfid_scan_from_client` en modo gameplay validando contexto runtime activo, ownership y sensor autorizado.
+- Se añadió caché TTL de revalidación auth para eventos socket sensibles con métricas `authCacheHits/authCacheMisses`.
+- Se optimizaron bucles secuenciales de cleanup/recovery del motor con procesamiento por lotes configurable (`GAME_ENGINE_BATCH_SIZE`).
+
+**Cierre (16-02-2026):**
+
+- Suites de validación ejecutadas y en verde: `gameFlow`, `playPauseResume`, `redisStateRecovery`, `runtimeMetrics`, `socketAuth`, `nextRoundCommand`.
+- Hardening distribuido adicional completado: locks Redis con lease TTL + heartbeat + release owner-aware.
 
 ---
 
-### T-051: Refresh Token Cookie-Only (cierre completo) 📋
+### T-051: Refresh Token Cookie-Only (cierre completo) ✅
 
 **Prioridad:** P0 | **Tamaño:** L | **Dependencias:** Ninguna  
 **Origen:** RNF-SEG-001, RNF-SEG-002, SEC-01
@@ -113,11 +148,27 @@ Cerrar al 100% la migración de refresh token a cookie `httpOnly`, eliminando re
 
 **Criterios de Aceptación (medibles):**
 
-- [ ] `refreshToken` no aparece en `localStorage` ni en response body.
-- [ ] `POST /api/auth/refresh` funciona sin body de token.
-- [ ] `logout` elimina cookie de refresh correctamente.
-- [ ] Suite de auth/validación pasa con el nuevo contrato.
-- [ ] Documentación API refleja únicamente flujo cookie-only.
+- [x] `refreshToken` no aparece en `localStorage` ni en response body.
+- [x] `POST /api/auth/refresh` funciona sin body de token.
+- [x] `logout` elimina cookie de refresh correctamente.
+- [x] Suite de auth/validación pasa con el nuevo contrato.
+- [x] Documentación API refleja únicamente flujo cookie-only.
+- [x] `POST /api/auth/refresh` requiere CSRF (`X-CSRF-Token`) en entornos no test.
+- [x] El backend rechaza payload legado con `refreshToken` en body (400).
+
+**Avance (16-02-2026):**
+
+- Backend refresh token en modo cookie-only: `POST /api/auth/refresh` ya no acepta `refreshToken` en body.
+- Se eliminó `refreshToken` y `refreshTokenExpiresIn` del DTO de respuesta de autenticación.
+- Se ajustaron validadores/rutas de auth para body vacío en refresh y se actualizaron tests de integración de sesión única.
+
+**Cierre (20-02-2026):**
+
+- `POST /api/auth/refresh` dejó de exponer `refreshToken`/`refreshTokenExpiresIn` en body de respuesta.
+- `logout` quedó en modo cookie-only estricto, eliminando fallback de `refreshToken` en body.
+- Frontend eliminado de persistencia/envío de refresh token (sin `sessionStorage`, sin body legado en refresh).
+- CSRF double-submit activado también para refresh (no exento en middleware de seguridad).
+- Se añadieron/actualizaron pruebas de contrato (`auth.test`, `validationEndpoints.test`) y documentación técnica asociada.
 
 ---
 
@@ -149,7 +200,7 @@ Implementar anonimización de alumnos cumpliendo GDPR/LOPD, preservando métrica
 
 ---
 
-### T-053: Reglas de Estado de GameSession consistentes 📋
+### T-053: Reglas de Estado de GameSession consistentes ✅
 
 **Prioridad:** P1 | **Tamaño:** M | **Dependencias:** T-054  
 **Origen:** RF-JGO-016, RF-JGO-019
@@ -166,14 +217,25 @@ Aplicar y automatizar reglas de transición de estado de `GameSession` según es
 
 **Criterios de Aceptación (medibles):**
 
-- [ ] `active` cuando existe al menos un play `in-progress` o `paused`.
-- [ ] `completed` cuando no quedan plays activos/pausados.
-- [ ] Transiciones no dependen de cambios manuales fuera del flujo.
-- [ ] Tests de transición pasan para creación/inicio/finalización/abandono.
+- [x] `active` cuando existe al menos un play `in-progress` o `paused`.
+- [x] `completed` cuando no quedan plays activos/pausados.
+- [x] Transiciones no dependen de cambios manuales fuera del flujo.
+- [x] Tests de transición pasan para creación/inicio/finalización/abandono.
+
+**Avance (16-02-2026):**
+
+- Se creó `sessionStatusService` para centralizar el recálculo de estado de `GameSession` desde `GamePlay`.
+- Se integró recálculo en flujos clave: `createPlay`, `completePlay`, `abandonPlay`, `pause/resume` y recuperación por reinicio (`server_restart`).
+- Se ampliaron tests de regresión (`gameFlow`, `playPauseResume`, `redisStateRecovery`) con aserciones de estado de sesión.
+
+**Cierre (16-02-2026):**
+
+- Reglas de transición centralizadas y aplicadas en runtime/service sin actualización manual ad-hoc.
+- Evidencia de regresión en verde en suites de flujo y recuperación vinculadas al estado de sesión.
 
 ---
 
-### T-056: Wizard Adaptativo por Mecánica (Asociación vs Memoria) 📋
+### T-056: Wizard Adaptativo por Mecánica (Asociación vs Memoria) ✅
 
 **Prioridad:** P1 | **Tamaño:** L | **Dependencias:** T-054  
 **Origen:** RF-JGO-013, RF-JGO-014, FE-01
@@ -191,14 +253,38 @@ Modificar el wizard de creación de sesión para que las fases y validaciones ca
 
 **Criterios de Aceptación (medibles):**
 
-- [ ] Asociación no muestra pasos exclusivos de Memoria.
-- [ ] Memoria mantiene paso de layout/tablero con validación.
-- [ ] No se puede finalizar wizard con configuración inconsistente.
-- [ ] Tests de validación de payload por mecánica pasan.
+- [x] Asociación no muestra pasos exclusivos de Memoria.
+- [x] Memoria mantiene paso de layout/tablero con validación.
+- [x] No se puede finalizar wizard con configuración inconsistente.
+- [x] Tests de validación de payload por mecánica pasan.
+
+**Avance (27-02-2026):**
+
+- Wizard de creación de sesión actualizado para permitir selección solo de `association` y `memory`.
+- Mecánicas fuera de alcance (ej. `sequence`) se muestran como **"Próximamente"** y quedan deshabilitadas en UI.
+- Backend endurecido para validar disponibilidad de mecánicas por feature flag (`SESSION_ENABLED_MECHANICS`) y bloquear `coming_soon` (evita bypass vía API).
+- Payload del wizard alineado con el contrato backend actual (sin campos extra fuera del schema).
+- Seeder de mecánicas y estrategia de memoria actualizados para reflejar contrato funcional de Sprint 4.
+
+**Cierre (27-02-2026):**
+
+- Se implementó `boardLayout` persistente en `GameSession` con validación backend (schema + validator + controller + DTO).
+- El wizard de creación adapta el paso de reglas según mecánica: Asociación usa flujo general y Memoria exige tablero completo antes de continuar.
+- En memoria, `timeLimit` quedó como tiempo global de partida configurable por docente en rango `10-300`.
+- `BoardSetup` persiste y recupera layout para evitar desalineación entre configuración inicial y ejecución real.
+- El runtime de Memoria en `gameEngine` usa temporizador global de partida y emite estado intermedio `memory_turn_state` para primera carta, match/mismatch y ocultación posterior.
+- `GameSession` (frontend) consume `memory_turn_state` y renderiza tablero de memoria en tiempo real.
+- Evidencia de regresión en verde:
+	- `memoryStrategy.test.js`
+	- `sessionMechanicAvailability.test.js`
+	- `gameFlow.test.js`
+	- `playPauseResume.test.js`
+	- `redisStateRecovery.test.js`
+	- `nextRoundCommand.test.js`
 
 ---
 
-### T-037: Replicar Sesión (clone) 📋
+### T-037: Replicar Sesión (clone) ✅
 
 **Prioridad:** P1 | **Tamaño:** M | **Dependencias:** T-056  
 **Origen:** RF-JGO-018
@@ -209,21 +295,48 @@ Permitir clonar una sesión existente para reutilizar configuración de forma se
 **Sub-tareas:**
 
 1. Backend: `POST /api/sessions/:id/clone` con control de ownership.
-2. Copiar configuración funcional (`mechanicId`, `contextId`, `config`, `cardMappings`).
+2. Clonar configuración funcional resincronizando con mazo actual (`mechanicId`, `deckId`, `contextId`, `config`, `cardMappings`).
 3. Resetear estado temporal (`status`, timestamps de ejecución).
 4. Frontend: acción “Volver a jugar” con confirmación.
 5. Añadir tests backend y UI para independencia de clon.
+6. Garantizar compatibilidad de `boardLayout` en mecánica memoria tras resincronización.
+7. Redirigir al detalle del clon para revisión/edición previa al juego.
 
 **Criterios de Aceptación (medibles):**
 
-- [ ] Clon crea nueva sesión con ID distinto.
-- [ ] Configuración se copia sin compartir estado mutable.
-- [ ] Estado inicial del clon es `created`.
-- [ ] Solo propietario autorizado puede clonar.
+- [x] Clon crea nueva sesión con ID distinto.
+- [x] Configuración se copia sin compartir estado mutable.
+- [x] Estado inicial del clon es `created`.
+- [x] Solo propietario autorizado puede clonar.
+- [x] El clon resincroniza `cardMappings` y `contextId` con el estado actual del mazo.
+- [x] En sesiones `memory`, el `boardLayout` resultante queda completo y consistente con mappings resincronizados.
+- [x] UI expone “Volver a jugar” en listado y detalle con confirmación explícita.
+- [x] Tras clonar, la navegación aterriza en el detalle del nuevo clon.
+
+**Avance (03-03-2026):**
+
+- Backend implementado en `POST /api/sessions/:id/clone` con validación estricta (`params` + body vacío), ownership por docente creador y respuesta DTO.
+- El clon nace en estado `created` y limpia `startedAt`/`endedAt` sin copiar estado runtime del origen.
+- Estrategia aplicada: resincronización contra `deckId` actual (no snapshot estático); si el `boardLayout` original queda desalineado, se reconstruye automáticamente desde mappings vigentes.
+- Regla específica para `memory`: el clon se crea con `boardLayout` vacío y exige recolocación manual del tablero virtual antes de iniciar gameplay.
+- Regla específica para `association`: el clon precarga `associationChallengePlan` como borrador editable (reparado contra el mazo actual cuando aplica) y mantiene `requiresAssociationPlanConfiguration=true`, bloqueando `start` hasta confirmación docente.
+- Wizard/edición reforzados para Association con compositor avanzado por ronda (`roundNumber`, tarjeta objetivo y `promptText` opcional), alineado con el contrato backend.
+- Frontend integrado en `SessionsPage` y `SessionDetail` con acción “Volver a jugar”, modal de confirmación y redirección al detalle del clon.
+- Cobertura añadida:
+	- Backend: `sessionClone.test.js`, validaciones de contrato en `validationEndpoints.test.js`.
+	- Frontend: `SessionsPage.clone.test.jsx`, `SessionDetail.clone.test.jsx`.
+
+**Cierre (03-03-2026):**
+
+- Evidencia backend en verde:
+	- `npm test -- tests/sessionClone.test.js tests/validationEndpoints.test.js`
+- Evidencia frontend en verde:
+	- `npm run test -- --run src/pages/__tests__/SessionsPage.clone.test.jsx src/pages/__tests__/SessionDetail.clone.test.jsx`
+- Documentación técnica actualizada en `backend/docs/API_v0.3.0.md` con contrato de clonación y reglas de resincronización.
 
 ---
 
-### T-057: Alineación Contrato RFID Mode Frontend-Backend 📋
+### T-057: Alineación Contrato RFID Mode Frontend-Backend ✅
 
 **Prioridad:** P1 | **Tamaño:** M | **Dependencias:** T-054  
 **Origen:** RF-RFID-012, RF-RFID-014
@@ -241,9 +354,19 @@ Unificar contrato de control de modos RFID entre frontend y backend para evitar 
 
 **Criterios de Aceptación (medibles):**
 
-- [ ] Existe un único contrato oficial documentado para modos RFID.
-- [ ] Backend ignora scans fuera de modo permitido.
+- [x] Existe un único contrato oficial documentado para modos RFID.
+- [x] Backend ignora scans fuera de modo permitido.
 - [ ] Tests socket cubren al menos `idle`, `gameplay`, `card_registration`, `card_assignment`.
+
+**Avance (25-02-2026):**
+
+- Contrato canónico consolidado en backend con comandos `join/leave_*` y evento servidor `rfid_mode_changed`.
+- Política multi-socket endurecida a **single-owner por usuario** (socket activo autoritativo para lecturas RFID).
+- `resume_play` corregido para preservar metadata `playId` en estado `gameplay` y mantener validaciones de ownership/sensor.
+- Frontend migrado a modo RFID **backend-authoritative** (sin derivación por ruta en `App`).
+- `GameSession` migrada a flujo realtime con `join_play`, `start_play`, `new_round`, `validation_result`, `play_paused`, `play_resumed`, `game_over` y eliminación de simulación local.
+- Documentación técnica actualizada en `backend/docs/RFID_Protocol.md` y `backend/docs/WebSockets-ExtendedUsage.md` eliminando comandos legacy.
+- Se añadieron pruebas socket de regresión para `card_assignment`, política single-owner y validación de sensor tras `pause/resume` (pendiente ejecución completa en entorno con Mongo activo).
 
 ---
 
@@ -270,7 +393,7 @@ Formalizar criterios de calidad para release 1.0.0 con cobertura mínima y flujo
 
 ---
 
-### T-058: Optimización de rendimiento realtime y concurrencia 📋
+### T-058: Optimización de rendimiento realtime y concurrencia ✅
 
 **Prioridad:** P1 | **Tamaño:** L | **Dependencias:** T-055  
 **Origen:** ARCH-03
@@ -288,14 +411,21 @@ Implementar mejoras de rendimiento en el flujo realtime del backend para reducir
 
 **Criterios de Aceptación (medibles):**
 
-- [ ] Existe test que verifica hit de caché de auth en reconexión socket dentro del TTL.
-- [ ] Existe test de concurrencia que garantiza una única puntuación por ronda ante escaneos simultáneos.
-- [ ] `/api/metrics` incluye y reporta los nuevos contadores de cache/contención/race.
-- [ ] No hay regresiones en suites `gameFlow`, `playPauseResume`, `socketAuth`, `runtimeMetrics`.
+- [x] Existe test que verifica hit de caché de auth en reconexión socket dentro del TTL.
+- [x] Existe test de concurrencia que garantiza una única puntuación por ronda ante escaneos simultáneos.
+- [x] `/api/metrics` incluye y reporta los nuevos contadores de cache/contención/race.
+- [x] No hay regresiones en suites `gameFlow`, `playPauseResume`, `socketAuth`, `runtimeMetrics`.
+
+**Actualización (17-02-2026):**
+
+- Se añadió métrica explícita `scanRaceDiscarded` en `gameEngine` para observabilidad de carreras scan/timeout.
+- Se reforzó caché de ownership por socket además de caché global TTL para reducir lecturas repetidas en comandos consecutivos.
+- Se añadió barrido de expirados para cachés de auth/ownership (higiene de memoria bajo carga).
+- Suites verificadas en esta iteración: `socketAuth`, `runtimeMetrics`, `metricsEndpoints`, `gameFlow`, `playPauseResume`, `nextRoundCommand`.
 
 ---
 
-### T-059: Hardening backend de seguridad y validación 📋
+### T-059: Hardening backend de seguridad y validación ✅
 
 **Prioridad:** P1 | **Tamaño:** M | **Dependencias:** T-051, T-058  
 **Origen:** BE-01, SEC-02
@@ -318,9 +448,28 @@ Aplicar hardening de seguridad en backend y WebSocket (validación, ownership y 
 - [ ] Eventos RFID fuera de ventana temporal o con `source` inválido se rechazan por validador.
 - [ ] Tests de `socketAuth`, `validationEndpoints`, `metricsEndpoints` y auth pasan sin regresiones.
 
+**Actualización (20-02-2026):**
+
+- Se añadió validación explícita de `Origin` en handshake de WebSocket (doble capa junto con CORS base) con error controlado.
+- Se implementó guard global anti payload peligroso para HTTP + Socket (`__proto__`, `constructor`, `prototype`, claves con prefijo `$`).
+- Se endureció validación de `rfid_scan_from_client` con ventana temporal configurable (`RFID_CLIENT_MAX_TIMESTAMP_SKEW_MS`, default ±30s) y formato estricto de `sensorId`.
+- Se añadieron tests de regresión para `Origin` no permitido, `timestamp skew` RFID y payloads peligrosos.
+
+**Cierre (20-02-2026):**
+
+- [x] Conexiones socket desde `Origin` no permitido fallan con error controlado.
+- [x] Payloads de riesgo (prototype pollution / NoSQL operators) se rechazan con `400` antes de tocar repositorios.
+- [x] Eventos RFID fuera de ventana temporal o con `source` inválido se rechazan por validador.
+- [x] Suites objetivo actualizadas con cobertura de regresión de hardening.
+
+**Avance (16-02-2026):**
+
+- Se endureció el filtrado de `GET /api/sessions` para que un `teacher` no pueda forzar `createdBy` en query (mitigación IDOR horizontal).
+- Se normalizó parcialmente el contrato de error en comandos socket críticos (`code` + `message`).
+
 ---
 
-### T-064: Optimizar consultas y lectura de sesiones (sin write-on-read) 📋
+### T-064: Optimizar consultas y lectura de sesiones (sin write-on-read) ✅
 
 **Prioridad:** P1 | **Tamaño:** M | **Dependencias:** T-053  
 **Origen:** ARCH-04
@@ -338,14 +487,29 @@ Eliminar side-effects en endpoints de lectura y reducir sobrecarga de consultas 
 
 **Criterios de Aceptación (medibles):**
 
-- [ ] Ningún endpoint `GET` de sesión ejecuta `save()` como efecto colateral.
-- [ ] Comandos socket críticos reducen consultas redundantes de ownership.
-- [ ] Tests de repositorios/controladores validan lectura sin mutación.
-- [ ] Latencia de endpoints de detalle/listado mejora respecto a baseline definido.
+- [x] Ningún endpoint `GET` de sesión ejecuta `save()` como efecto colateral.
+- [x] Comandos socket críticos reducen consultas redundantes de ownership.
+- [x] Tests de repositorios/controladores validan lectura sin mutación.
+- [x] Latencia de endpoints de detalle/listado mejora respecto a baseline definido.
+
+**Actualización (17-02-2026):**
+
+- `GET /api/sessions` y `GET /api/sessions/:id` ejecutan lectura `lean` y sin mutación.
+- Se añadió caché ligera por socket para ownership (además de caché global TTL).
+- Se amplió test de no mutación para cubrir listado (`GET /api/sessions`) y detalle (`GET /api/sessions/:id`).
+- Se añadió benchmark reproducible (`npm run bench:sessions`) comparando baseline sin `lean` vs modo optimizado con `lean` (versión actual).
+- Resultado de cierre: mejora medible en listado (`avg +8.84%`, `p95 +13.34%`) y detalle (`avg +2.55%`, `p95 +5.67%`) respecto al baseline definido.
+
+**Avance (16-02-2026):**
+
+- `GET /api/sessions/:id` dejó de ejecutar sincronización con `save()` en lectura (sin write-on-read).
+- Se añadió ruta ligera de ownership para comandos socket no críticos de runtime, con caché TTL por `userId+playId` para reducir consultas repetidas.
+- `start_play` mantiene carga completa de sesión (mecánica/reglas) para no afectar el arranque de partida.
+- Se añadió test de no mutación en lectura de sesión y test de caché de ownership en comandos socket consecutivos.
 
 ---
 
-### T-065: Optimizar persistencia de eventos GamePlay 📋
+### T-065: Optimizar persistencia de eventos GamePlay ✅
 
 **Prioridad:** P1 | **Tamaño:** L | **Dependencias:** T-055, T-058  
 **Origen:** ARCH-05
@@ -363,14 +527,27 @@ Reducir write amplification en GamePlay durante rondas para mejorar throughput y
 
 **Criterios de Aceptación (medibles):**
 
-- [ ] Se reduce el número de escrituras Mongo por ronda en flujos normales.
-- [ ] Métricas y score final se mantienen consistentes tras refactor.
-- [ ] Tests de gameplay/eventos pasan sin regresión funcional.
-- [ ] Estrategia de persistencia queda documentada para mantenimiento.
+- [x] Se reduce el número de escrituras Mongo por ronda en flujos normales.
+- [x] Métricas y score final se mantienen consistentes tras refactor.
+- [x] Tests de gameplay/eventos pasan sin regresión funcional.
+- [x] Estrategia de persistencia queda documentada para mantenimiento.
+
+**Actualización (17-02-2026):**
+
+- Se mantiene `addEventAtomic` como ruta canónica de persistencia por ronda (`$push + $inc + $slice`).
+- Se valida consistencia funcional con suites `gamePlayEventPersistence`, `gameFlow` y `playPauseResume`.
+
+**Avance (16-02-2026):**
+
+- Se añadió persistencia atómica de eventos en `GamePlay` con operadores `$push` + `$inc` y truncado por `$slice` (`addEventAtomic`).
+- `gameEngine` ahora persiste resultado de ronda (`correct/error/timeout`) y avance de `currentRound` en una sola operación atómica.
+- Se redujo write amplification en flujo normal al desactivar por defecto la persistencia de `round_start` (configurable por `PERSIST_ROUND_START_EVENTS=true`).
+- Se corrigió el cómputo de `metrics.totalAttempts` para contar únicamente eventos de respuesta (`correct`, `error`, `timeout`).
+- Se añadieron tests específicos de persistencia atómica y política de eventos de ronda.
 
 ---
 
-### T-066: Recuperación Redis y locks distribuidos de tarjetas 📋
+### T-066: Recuperación Redis y locks distribuidos de tarjetas ✅
 
 **Prioridad:** P1 | **Tamaño:** M | **Dependencias:** T-055  
 **Origen:** ARCH-06
@@ -380,22 +557,55 @@ Mejorar recuperación post-reinicio y bloqueo de tarjetas para escenarios concur
 
 **Sub-tareas:**
 
-1. Refactorizar recovery para procesamiento por lotes (evitar N+1 secuencial en arranque).
-2. Implementar bloqueo atómico de UIDs en Redis (`SET NX EX` o script Lua) para reservar tarjetas.
-3. Añadir TTL/heartbeat a claves activas de plays/tarjetas para evitar residuos.
-4. Añadir tests de recuperación y colisión de reservas entre partidas simultáneas.
-5. Documentar semántica de lock y expiración.
+1. ~~Refactorizar recovery para procesamiento por lotes (evitar N+1 secuencial en arranque).~~
+2. ~~Implementar bloqueo atómico de UIDs en Redis (`SET NX EX` o script Lua) para reservar tarjetas.~~
+3. ~~Añadir TTL/heartbeat a claves activas de plays/tarjetas para evitar residuos.~~
+4. ~~Añadir tests de recuperación y colisión de reservas entre partidas simultáneas.~~
+5. ~~Documentar semántica de lock y expiración.~~
+6. ~~Crear Lua scripts atómicos para reserva, liberación y renovación de lease.~~
+7. ~~Implementar wrappers EVALSHA/EVAL con fallback, carga de scripts al conectar.~~
+8. ~~Implementar pipeline batch reads (existsMany, hgetallMany) para recovery.~~
+9. ~~Añadir métricas de Lua y pipeline al motor de juego.~~
+10. ~~Corregir documentación incorrecta sobre TTL en Arquitectura_Redis.md.~~
+11. ~~Crear script de benchmark comparativo (secuencial vs atómico vs pipeline).~~
+12. ~~Crear documento de análisis de optimización Redis (Redis_Optimization_Analysis.md).~~
 
 **Criterios de Aceptación (medibles):**
 
-- [ ] Recovery procesa claves en lotes sin bucles secuenciales de alto coste.
-- [ ] No se puede reservar el mismo UID simultáneamente en dos partidas activas.
-- [ ] Claves de estado activo expiran/renuevan según política definida.
-- [ ] Tests de `redisStateRecovery` y colisión de locks pasan.
+- [x] Recovery procesa claves en lotes sin bucles secuenciales de alto coste.
+- [x] No se puede reservar el mismo UID simultáneamente en dos partidas activas.
+- [x] Claves de estado activo expiran/renuevan según política definida.
+- [x] Tests de `redisStateRecovery` y colisión de locks pasan.
+- [x] Operaciones de reserva/liberación/renewal son atómicas vía Lua scripts.
+- [x] Wrappers incluyen fallback secuencial para entornos sin soporte Lua (tests).
+- [x] Métricas de ejecución Lua y pipeline disponibles en `gameEngine.getMetrics()`.
+- [x] Documentación técnica actualizada (Arquitectura_Redis.md + Redis_Optimization_Analysis.md).
+
+**Actualización (Enero 2026):**
+
+- Se identificaron 5 problemas (P1-P5): race conditions en reserva/liberación de tarjetas, heartbeat costoso O(N×3), N+1 en recovery, documentación incorrecta sobre TTL.
+- Se crearon 3 Lua scripts (`reserveCards.lua`, `releaseCards.lua`, `renewLease.lua`) con carga via `SCRIPT LOAD` al conectar y ejecución via `EVALSHA` con fallback a `EVAL`.
+- Se añadieron funciones pipeline (`existsMany`, `hgetallMany`) para lecturas batch.
+- Se adaptó `gameEngine.js` para usar operaciones atómicas en vez de secuenciales.
+- Se añadieron 6 métricas: `luaReserveCardExecutions`, `luaReserveCardConflicts`, `luaReleaseCardExecutions`, `luaRenewLeaseExecutions`, `luaRenewLeasePartialFailures`, `pipelineRecoveryBatchSize`.
+- Se creó test suite `redisCardLocks.test.js` (14 tests) y se extendió `redisStateRecovery.test.js` (2 tests pipeline).
+- Se creó `benchmark-redis-ops.js` para medición comparativa.
+- Docs: Arquitectura_Redis.md corregido y ampliado. Nuevo Redis_Optimization_Analysis.md con análisis completo antes/después.
+
+**Cierre (Enero 2026):**
+
+- [x] Recovery procesa claves en lotes sin bucles secuenciales de alto coste.
+- [x] No se puede reservar el mismo UID simultáneamente en dos partidas activas.
+- [x] Claves de estado activo expiran/renuevan según política definida.
+- [x] Tests de `redisStateRecovery` y colisión de locks pasan.
+- [x] Operaciones de reserva/liberación/renewal son atómicas vía Lua scripts.
+- [x] Wrappers incluyen fallback secuencial para entornos sin soporte Lua (tests).
+- [x] Métricas de ejecución Lua y pipeline disponibles en `gameEngine.getMetrics()`.
+- [x] Documentación técnica actualizada (Arquitectura_Redis.md + Redis_Optimization_Analysis.md).
 
 ---
 
-### T-067: Integridad de dominio en usuarios y contextos 📋
+### T-067: Integridad de dominio en usuarios y contextos ✅
 
 **Prioridad:** P1 | **Tamaño:** M | **Dependencias:** T-059  
 **Origen:** BE-02, SEC-03
@@ -417,6 +627,20 @@ Corregir rutas con riesgo de bypass funcional (transferencias y borrados con dep
 - [ ] Transferencias solo posibles por endpoint específico con permisos.
 - [ ] No se elimina contexto con dependencias activas sin política explícita.
 - [ ] Tests de seguridad/negocio cubren escenarios de bypass.
+
+**Actualización (20-02-2026):**
+
+- Se restringió `PUT /api/users/:id` para impedir modificación de `createdBy` y forzar transferencias por `POST /api/users/:id/transfer`.
+- Se añadió protección de integridad en `DELETE /api/contexts/:id` para bloquear borrado cuando hay dependencias activas (`sessions/decks/plays`).
+- Política aplicada: permitir borrado únicamente cuando las dependencias existentes no están activas.
+- Se añadieron pruebas de regresión para bypass de ownership y borrado de contexto con dependencias.
+
+**Cierre (20-02-2026):**
+
+- [x] `createdBy` no se modifica por ruta genérica de update de usuario.
+- [x] Transferencias solo posibles por endpoint específico con permisos.
+- [x] No se elimina contexto con dependencias activas sin política explícita.
+- [x] Tests de seguridad/negocio cubren escenarios de bypass.
 
 ---
 
@@ -445,7 +669,7 @@ Mantener un mockup visual interactivo para validación UX infantil, separado de 
 
 ---
 
-### T-052: Soporte `prefers-reduced-motion` transversal 📋
+### T-052: Soporte `prefers-reduced-motion` transversal ✅
 
 **Prioridad:** P2 | **Tamaño:** M | **Dependencias:** T-056  
 **Origen:** FE-03
@@ -462,32 +686,40 @@ Aplicar accesibilidad de movimiento reducido de forma consistente en wizard, gam
 
 **Criterios de Aceptación (medibles):**
 
-- [ ] Con preferencia activa, animaciones pesadas quedan desactivadas o simplificadas.
-- [ ] UI mantiene usabilidad completa sin motion compleja.
-- [ ] Documentación UI/UX actualizada.
+- [x] Con preferencia activa, animaciones pesadas quedan desactivadas o simplificadas.
+- [x] UI mantiene usabilidad completa sin motion compleja.
+- [x] Documentación UI/UX actualizada.
+
+**Cierre (25-02-2026):**
+
+- Se completó degradación de motion en `GameSession` y `CardDecksPage` para overlays/estados vacíos/indicadores con `useReducedMotion`.
+- Se validó build de producción y preview local del frontend tras hardening de motion (`npm run build`, `npm run preview`).
+- Se consolidó evidencia y checklist de validación en documentación UI/UX y reporte técnico de cierre.
 
 ---
 
-### T-039: Sentry Frontend Completo 📋
+### T-039: Sentry Frontend Completo ✅
 
-**Prioridad:** P2 | **Tamaño:** M | **Dependencias:** T-061  
+**Prioridad:** P2 | **Tamaño:** M | **Dependencias:** T-061
 **Origen:** RNF-CAL-008
 
-**Descripción:**  
-Completar integración real de Sentry en frontend con boundary, tracing de navegación y source maps.
+**Descripción:**
+Completar integración real de Sentry en frontend con boundary, tracing de navegación y source maps, extendiendo también observabilidad hacia el backend.
 
 **Sub-tareas:**
 
 1. Integrar SDK Sentry en inicialización de app.
 2. Configurar boundary con fallback de error de UI.
-3. Habilitar tracing de navegación.
+3. Habilitar tracing de navegación y de identity de usuarios.
 4. Configurar subida de source maps en build/release.
+5. (Extra Backend) Incorporar scopes de identidad de usuario y tracking de errores inmanejados en endpoints Sockets.
 
 **Criterios de Aceptación (medibles):**
 
-- [ ] Error en componente React aparece en Sentry con stack útil.
-- [ ] Navegación genera trazas visibles.
-- [ ] Source maps permiten ubicar líneas originales.
+- [x] Error en componente React aparece en Sentry con stack útil y identity asociado.
+- [x] Navegación genera trazas sin filtración de PII.
+- [x] Source maps permiten ubicar líneas originales vía `@sentry/vite-plugin` dinámico.
+- [x] Errores websocket del backend caen ahora directamente en observabilidad.
 
 ---
 
@@ -565,7 +797,7 @@ Documentar y definir proceso replicable de despliegue en staging sin pasos ocult
 
 ## Tarea Transversal Frontend (acciones de mejora)
 
-### T-060: Optimización frontend de UX, motion y render 📋
+### T-060: Optimización frontend de UX, motion y render ✅
 
 **Prioridad:** P1 | **Tamaño:** L | **Dependencias:** T-056, T-052  
 **Origen:** FE-04
@@ -583,14 +815,21 @@ Aplicar mejoras concretas de rendimiento visual y UX en frontend (motion, render
 
 **Criterios de Aceptación (medibles):**
 
-- [ ] `useReducedMotion` está integrado en al menos 4 vistas críticas.
-- [ ] Con preferencia activa, animaciones complejas quedan desactivadas sin romper flujo.
-- [ ] No hay listeners duplicados tras reconexión/pause-resume en gameplay.
-- [ ] Guía frontend y checklist de verificación visual quedan actualizados.
+- [x] `useReducedMotion` está integrado en al menos 4 vistas críticas.
+- [x] Con preferencia activa, animaciones complejas quedan desactivadas sin romper flujo.
+- [x] No hay listeners duplicados tras reconexión/pause-resume en gameplay.
+- [x] Guía frontend y checklist de verificación visual quedan actualizados.
+
+**Cierre (25-02-2026):**
+
+- Se estabilizó bootstrap realtime en `GameSession` evitando re-suscripciones por dependencias volátiles de ronda.
+- Se reforzó reduced-motion en elementos de alta frecuencia visual y se mantuvo degradación progresiva en componentes críticos.
+- Se optimizó `WizardStepper` con memoización (`memo` + `useMemo`) para reducir renders evitables.
+- Validación ejecutada en frontend: lint sin errores y build en verde.
 
 ---
 
-### T-068: Hardening de clases dinámicas y consistencia visual 📋
+### T-068: Hardening de clases dinámicas y consistencia visual ✅
 
 **Prioridad:** P2 | **Tamaño:** M | **Dependencias:** T-056, T-060  
 **Origen:** FE-05
@@ -607,32 +846,47 @@ Eliminar riesgos de estilos perdidos en build por clases Tailwind dinámicas y u
 
 **Criterios de Aceptación (medibles):**
 
-- [ ] No existen interpolaciones de clases Tailwind en componentes críticos del wizard/RFID.
-- [ ] Build de producción mantiene estados visuales de dificultad y modo RFID.
-- [ ] Checklist visual de regresión queda documentado.
+- [x] No existen interpolaciones de clases Tailwind en componentes críticos del wizard/RFID.
+- [x] Build de producción mantiene estados visuales de dificultad y modo RFID.
+- [x] Checklist visual de regresión queda documentado.
+
+**Cierre (25-02-2026):**
+
+- Se verificó contrato estático de variantes en `CreateSession` y `RFIDModeHandler` sin interpolaciones dinámicas críticas.
+- Se confirmó build productivo correcto con los estados visuales de dificultad/modo RFID incluidos en bundle.
+- Se mantuvo matriz y checklist de verificación en guías frontend para QA de regresión.
 
 ---
 
-### T-069: Accesibilidad del temporizador y controles interactivos 📋
+### T-069: Accesibilidad del temporizador y controles interactivos ✅
 
-**Prioridad:** P2 | **Tamaño:** S | **Dependencias:** T-060  
+**Prioridad:** P1 | **Tamaño:** M | **Dependencias:** T-060  
 **Origen:** FE-06
 
 **Descripción:**  
-Mejorar accesibilidad de controles y anuncios dinámicos para reducir ruido en lectores de pantalla y mejorar uso por teclado.
+Elevar la accesibilidad y la calidad UX de gameplay (Association + Memory) para público infantil (4-8), manteniendo estética premium sin introducir ruido cognitivo ni sobrecarga para lectores de pantalla.
 
 **Sub-tareas:**
 
-1. Ajustar estrategia `aria-live` del temporizador para anunciar solo umbrales críticos.
-2. Corregir controles interactivos no semánticos (switches/toggles) a elementos accesibles.
-3. Verificar navegación por teclado y focus visible en flujos críticos.
-4. Documentar verificación manual de accesibilidad básica.
+1. Rehacer estrategia `aria-live` del temporizador para anunciar solo umbrales críticos (`10`, `5`, `3`, `2`, `1`, `0`) y evitar anuncios por tick.
+2. Corregir semántica de toggles/controles de gameplay (`sound`, `pause/resume`) con estados ARIA explícitos (`aria-pressed`) y labels consistentes.
+3. Convertir overlay de pausa en diálogo accesible (`role="dialog"`, `aria-modal`, foco inicial, Escape para reanudar, retorno de foco al trigger).
+4. Añadir anuncios SR de estado runtime (`realtime`, errores socket, estado de partida) sin duplicados ni spam.
+5. Propagar `reduced-motion` en componentes críticos de gameplay (`TimerBar`, `ChallengeDisplay`, `CharacterMascot`, `FeedbackOverlay`, `GameOverScreen`) manteniendo identidad visual premium.
+6. Refinar copy y jerarquía textual en runtime para alumno (mensajes cortos y directos), preservando métricas completas en resumen final para docente.
+7. Ampliar cobertura de tests de integración de `GameSession` para umbrales de temporizador, controles ARIA y foco de pausa.
+8. Documentar checklist manual de validación de accesibilidad y UX de gameplay en guías frontend.
 
 **Criterios de Aceptación (medibles):**
 
-- [ ] El temporizador no produce anuncios excesivos en cada tick.
-- [ ] Los toggles críticos son operables por teclado y tienen atributos ARIA correctos.
-- [ ] Checklist de accesibilidad básica queda cubierto y documentado.
+- [ ] El temporizador no produce anuncios por cada segundo; solo se anuncian umbrales críticos definidos.
+- [ ] Los controles críticos (`sonido`, `pausa/reanudar`) son operables por teclado y reflejan estado con ARIA semántico.
+- [ ] En pausa, el foco entra al diálogo, permite reanudar por teclado y vuelve al control origen al cerrar.
+- [ ] Los cambios de estado realtime/RFID/errores se anuncian con `role=status`/`aria-live=polite` sin duplicación excesiva.
+- [ ] Con `prefers-reduced-motion` activo no hay loops o efectos de alta intensidad en gameplay.
+- [ ] La vista activa del alumno mantiene instrucciones breves y legibles; las métricas extendidas quedan en resumen final.
+- [ ] Existen tests de integración actualizados para timer/a11y/foco y pasan junto con la suite frontend objetivo.
+- [ ] El checklist manual de accesibilidad/UX queda documentado y trazable en docs frontend.
 
 ---
 

@@ -1,85 +1,184 @@
-import { motion } from 'framer-motion';
+/**
+ * @fileoverview Componente ChallengeDisplay — feedback-aware.
+ * Muestra el desafío del juego (emoji/imagen) y reacciona visualmente
+ * a aciertos/fallos con glow, shake, y badge flotante de puntos.
+ *
+ * @module components/game/ChallengeDisplay
+ */
+
+import { motion, AnimatePresence } from 'framer-motion';
 import { Volume2, VolumeX } from 'lucide-react';
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
+import PropTypes from 'prop-types';
 import { cn } from '../../lib/utils';
+import FloatingPointsBadge from './FloatingPointsBadge';
+
+const FEEDBACK_BORDER = {
+  idle: '',
+  success: 'border-emerald-500 shadow-[0_0_40px] shadow-emerald-500/30',
+  error: 'border-rose-500/70 shadow-[0_0_20px] shadow-rose-500/20',
+  timeout: 'border-amber-500/70 shadow-[0_0_20px] shadow-amber-500/20',
+};
+
+const SHAKE_ANIMATION = {
+  x: [-6, 6, -4, 4, -2, 2, 0],
+  transition: { duration: 0.5 },
+};
+
+const SUCCESS_BOUNCE = {
+  scale: [1, 1.08, 1.02],
+  transition: { type: 'spring', stiffness: 400, damping: 15, duration: 0.6 },
+};
+
+const TIMEOUT_ANIMATION = {
+  opacity: [1, 0.4, 0.8],
+  scale: [1, 0.96, 1],
+  transition: { duration: 0.6 },
+};
+
+const themeColors = {
+  default: {
+    bg: 'from-theme-default/20 to-theme-default-alt/20',
+    border: 'border-theme-default/30',
+    glow: 'shadow-theme-default/30',
+    text: 'text-theme-default-text',
+  },
+  geography: {
+    bg: 'from-theme-geography/20 to-theme-geography-alt/20',
+    border: 'border-theme-geography/30',
+    glow: 'shadow-theme-geography/30',
+    text: 'text-theme-geography-text',
+  },
+  animals: {
+    bg: 'from-theme-animals/20 to-theme-animals-alt/20',
+    border: 'border-theme-animals/30',
+    glow: 'shadow-theme-animals/30',
+    text: 'text-theme-animals-text',
+  },
+  colors: {
+    bg: 'from-theme-colors/20 to-theme-colors-alt/20',
+    border: 'border-theme-colors/30',
+    glow: 'shadow-theme-colors/30',
+    text: 'text-theme-colors-text',
+  },
+  numbers: {
+    bg: 'from-theme-numbers/20 to-theme-numbers-alt/20',
+    border: 'border-theme-numbers/30',
+    glow: 'shadow-theme-numbers/30',
+    text: 'text-theme-numbers-text',
+  },
+};
 
 /**
- * Componente para mostrar el desafío del juego
- * Muestra emoji/imagen grande con animaciones y botón de audio
- * 
  * @param {Object} props
- * @param {Object} props.asset - Asset del desafío { display: emoji, value: texto, audioUrl?, imageUrl? }
+ * @param {Object} props.asset - Asset del desafío { display, value, audioUrl?, imageUrl?, thumbnailUrl? }
  * @param {boolean} props.revealed - Si el desafío está revelado
- * @param {string} props.contextTheme - Tema del contexto para colores (geography, animals, etc.)
+ * @param {string} props.contextTheme - Tema del contexto para colores
+ * @param {'idle'|'success'|'error'} props.feedbackState - Estado de feedback actual
+ * @param {number} props.feedbackPoints - Puntos del feedback
+ * @param {string} props.feedbackMessage - Mensaje del feedback
+ * @param {boolean} props.shouldReduceMotion - Respetar prefers-reduced-motion
  */
-export default function ChallengeDisplay({ 
-  asset, 
+const ChallengeDisplay = function ChallengeDisplay({
+  ref,
+  asset,
   revealed = true,
   contextTheme = 'default',
-  className 
+  feedbackState = 'idle',
+  feedbackPoints = 0,
+  feedbackMessage = '',
+  isTimeout = false,
+  shouldReduceMotion = false,
+  className
 }) {
   const [audioPlaying, setAudioPlaying] = useState(false);
+  const [imageError, setImageError] = useState(false);
+  const [imageLoading, setImageLoading] = useState(false);
+  const audioRef = useRef(null);
 
-  // Colores según el tema del contexto
-  const themeColors = {
-    default: {
-      bg: 'from-purple-500/20 to-indigo-500/20',
-      border: 'border-purple-500/30',
-      glow: 'shadow-purple-500/30',
-      text: 'text-purple-300',
-    },
-    geography: {
-      bg: 'from-blue-500/20 to-cyan-500/20',
-      border: 'border-blue-500/30',
-      glow: 'shadow-blue-500/30',
-      text: 'text-blue-300',
-    },
-    animals: {
-      bg: 'from-amber-500/20 to-orange-500/20',
-      border: 'border-amber-500/30',
-      glow: 'shadow-amber-500/30',
-      text: 'text-amber-300',
-    },
-    colors: {
-      bg: 'from-pink-500/20 to-rose-500/20',
-      border: 'border-pink-500/30',
-      glow: 'shadow-pink-500/30',
-      text: 'text-pink-300',
-    },
-    numbers: {
-      bg: 'from-emerald-500/20 to-teal-500/20',
-      border: 'border-emerald-500/30',
-      glow: 'shadow-emerald-500/30',
-      text: 'text-emerald-300',
-    },
-  };
+  useEffect(() => {
+    setImageError(false);
+    setImageLoading(Boolean(asset?.thumbnailUrl || asset?.imageUrl));
+  }, [asset?.imageUrl, asset?.thumbnailUrl]);
+
+  useEffect(() => {
+    return () => {
+      if (audioRef.current) {
+        audioRef.current.pause();
+        audioRef.current = null;
+      }
+    };
+  }, []);
 
   const theme = themeColors[contextTheme] || themeColors.default;
+  const isIdle = feedbackState === 'idle';
+  const isSuccess = feedbackState === 'success';
+  const isError = feedbackState === 'error';
 
   const playAudio = () => {
     if (!asset?.audioUrl) return;
+
+    if (audioRef.current) {
+      audioRef.current.pause();
+      audioRef.current.currentTime = 0;
+    }
+
     setAudioPlaying(true);
     const audio = new Audio(asset.audioUrl);
-    audio.play();
+    audio.preload = 'auto';
+    audioRef.current = audio;
+    audio.play().catch(() => {
+      setAudioPlaying(false);
+    });
     audio.onended = () => setAudioPlaying(false);
   };
 
+  // Determine card-level animation based on feedback
+  const cardAnimate = (() => {
+    if (shouldReduceMotion || isIdle) return { scale: 1, opacity: 1, x: 0 };
+    if (isSuccess) return SUCCESS_BOUNCE;
+    if (isError) return isTimeout ? TIMEOUT_ANIMATION : { ...SHAKE_ANIMATION, scale: 1, opacity: 1 };
+    return { scale: 1, opacity: 1, x: 0 };
+  })();
+
+  // Determine asset animation based on feedback
+  const assetFeedbackAnimate = (() => {
+    if (shouldReduceMotion || isIdle) return undefined;
+    if (isSuccess) return { y: [0, -20, 0], rotate: [0, 5, -5, 0], transition: { duration: 0.6 } };
+    return undefined;
+  })();
+
   return (
     <motion.div
-      initial={{ scale: 0.8, opacity: 0 }}
-      animate={{ scale: 1, opacity: 1 }}
-      transition={{ type: 'spring', stiffness: 300, damping: 20 }}
+      ref={ref}
+      initial={shouldReduceMotion ? false : { scale: 0.8, opacity: 0 }}
+      animate={cardAnimate}
+      transition={shouldReduceMotion ? { duration: 0 } : { type: 'spring', stiffness: 300, damping: 20 }}
       className={cn(
         "relative flex flex-col items-center justify-center",
         "p-8 sm:p-12",
         "rounded-3xl",
         `bg-gradient-to-br ${theme.bg}`,
-        `border-2 ${theme.border}`,
+        "border-2 transition-[border-color,box-shadow] duration-300",
+        isIdle ? `${theme.border} shadow-2xl ${theme.glow}` : isTimeout ? FEEDBACK_BORDER.timeout : FEEDBACK_BORDER[feedbackState],
         "backdrop-blur-xl",
-        `shadow-2xl ${theme.glow}`,
         className
       )}
     >
+      {/* Floating Points Badge */}
+      <div className="absolute -top-5 left-1/2 -translate-x-1/2 z-30">
+        <AnimatePresence>
+          {!isIdle && (
+            <FloatingPointsBadge
+              type={feedbackState}
+              points={feedbackPoints}
+              message={feedbackMessage}
+              shouldReduceMotion={shouldReduceMotion}
+            />
+          )}
+        </AnimatePresence>
+      </div>
+
       {/* Decorative rings */}
       <div className="absolute inset-0 rounded-3xl overflow-hidden pointer-events-none">
         <div className="absolute inset-4 rounded-2xl border border-white/5" />
@@ -87,36 +186,54 @@ export default function ChallengeDisplay({
       </div>
 
       {/* Pulsing glow effect */}
-      <div className="absolute inset-0 rounded-3xl animate-pulse-glow opacity-30" />
+      <div className={cn('absolute inset-0 rounded-3xl opacity-30', !shouldReduceMotion && 'animate-pulse-glow')} />
 
       {/* Main display area */}
-      <motion.div
-        key={asset?.value}
-        initial={{ y: 20, opacity: 0, rotateX: -20 }}
-        animate={{ y: 0, opacity: 1, rotateX: 0 }}
-        transition={{ type: 'spring', stiffness: 400, damping: 25 }}
-        className="relative z-10 text-center"
-      >
+      <AnimatePresence mode="wait">
+        <motion.div
+          key={asset?.value}
+          initial={shouldReduceMotion ? false : { y: 20, opacity: 0, scale: 0.95 }}
+          animate={assetFeedbackAnimate || { y: 0, opacity: 1, scale: 1 }}
+          exit={shouldReduceMotion ? { opacity: 0 } : { y: -12, opacity: 0, scale: 0.95, transition: { duration: 0.2 } }}
+          transition={shouldReduceMotion ? { duration: 0 } : { type: 'spring', stiffness: 400, damping: 25 }}
+          className="relative z-10 text-center"
+        >
         {/* Emoji/Image */}
-        {asset?.imageUrl ? (
-          <motion.img
-            src={asset.imageUrl}
-            alt={asset.value}
-            className="w-32 h-32 sm:w-40 sm:h-40 object-contain mx-auto mb-4 drop-shadow-2xl"
-            animate={{ scale: [1, 1.05, 1] }}
-            transition={{ duration: 2, repeat: Infinity, ease: "easeInOut" }}
-          />
+        {(asset?.thumbnailUrl || asset?.imageUrl) && !imageError ? (
+          <div className="relative size-32 sm:size-40 mx-auto mb-4">
+            {imageLoading && (
+              <div className="absolute inset-0 rounded-2xl border border-white/10 bg-white/5 animate-pulse" />
+            )}
+            <motion.img
+              src={asset.thumbnailUrl || asset.imageUrl}
+              alt={asset.value}
+              className={cn(
+                "size-32 sm:size-40 object-contain mx-auto mb-4 drop-shadow-2xl transition-opacity duration-500",
+                imageLoading ? "opacity-0" : "opacity-100"
+              )}
+              animate={shouldReduceMotion ? { scale: 1 } : { scale: [1, 1.05, 1] }}
+              transition={shouldReduceMotion ? { duration: 0 } : { duration: 2, repeat: Infinity, ease: "easeInOut" }}
+              onLoad={() => setImageLoading(false)}
+              onError={() => {
+                setImageError(true);
+                setImageLoading(false);
+              }}
+              loading="eager"
+              fetchPriority="high"
+              decoding="sync"
+            />
+          </div>
         ) : (
           <motion.div
             className="text-8xl sm:text-9xl mb-4 select-none filter drop-shadow-lg"
-            animate={{ 
+            animate={shouldReduceMotion ? { scale: 1, rotate: 0 } : {
               scale: [1, 1.1, 1],
               rotate: [0, 3, -3, 0]
             }}
-            transition={{ 
-              duration: 2, 
-              repeat: Infinity, 
-              ease: "easeInOut" 
+            transition={shouldReduceMotion ? { duration: 0 } : {
+              duration: 2,
+              repeat: Infinity,
+              ease: "easeInOut"
             }}
           >
             {revealed ? asset?.display : '❓'}
@@ -126,9 +243,9 @@ export default function ChallengeDisplay({
         {/* Text value */}
         {revealed && asset?.value && (
           <motion.h2
-            initial={{ opacity: 0, y: 10 }}
+            initial={shouldReduceMotion ? false : { opacity: 0, y: 10 }}
             animate={{ opacity: 1, y: 0 }}
-            transition={{ delay: 0.2 }}
+            transition={shouldReduceMotion ? { duration: 0 } : { delay: 0.2 }}
             className={cn(
               "text-2xl sm:text-3xl font-bold font-display",
               theme.text
@@ -137,14 +254,15 @@ export default function ChallengeDisplay({
             {asset.value}
           </motion.h2>
         )}
-      </motion.div>
+        </motion.div>
+      </AnimatePresence>
 
       {/* Audio button */}
       {asset?.audioUrl && (
         <motion.button
-          initial={{ opacity: 0, scale: 0 }}
+          initial={shouldReduceMotion ? false : { opacity: 0, scale: 0 }}
           animate={{ opacity: 1, scale: 1 }}
-          transition={{ delay: 0.3 }}
+          transition={shouldReduceMotion ? { duration: 0 } : { delay: 0.3 }}
           onClick={playAudio}
           disabled={audioPlaying}
           className={cn(
@@ -152,35 +270,39 @@ export default function ChallengeDisplay({
             "bg-white/10 hover:bg-white/20",
             "border border-white/20",
             "transition-all duration-300",
-            "hover:scale-110",
+            !shouldReduceMotion && "hover:scale-110",
             audioPlaying && "animate-pulse"
           )}
           aria-label="Reproducir audio"
+          title="Escuchar pista"
         >
           {audioPlaying ? (
-            <Volume2 className="w-8 h-8 text-white animate-bounce" />
+            <Volume2 className="size-8 text-white animate-bounce" />
           ) : (
-            <VolumeX className="w-8 h-8 text-white/60" />
+            <VolumeX className="size-8 text-white/60" />
           )}
         </motion.button>
       )}
 
       {/* Sparkles decoration */}
-      <Sparkle className="absolute top-4 left-4" delay={0} />
-      <Sparkle className="absolute top-8 right-8" delay={0.5} />
-      <Sparkle className="absolute bottom-8 left-8" delay={1} />
-      <Sparkle className="absolute bottom-4 right-4" delay={1.5} />
+      {!shouldReduceMotion && (
+        <>
+          <ChallengeSparkle className="absolute top-4 left-4" delay={0} />
+          <ChallengeSparkle className="absolute top-8 right-8" delay={0.5} />
+          <ChallengeSparkle className="absolute bottom-8 left-8" delay={1} />
+          <ChallengeSparkle className="absolute bottom-4 right-4" delay={1.5} />
+        </>
+      )}
     </motion.div>
   );
-}
+};
 
-// Mini component for sparkle decoration
-function Sparkle({ className, delay = 0 }) {
+function ChallengeSparkle({ className, delay = 0 }) {
   return (
     <motion.div
       className={cn("text-2xl pointer-events-none select-none", className)}
       initial={{ opacity: 0, scale: 0 }}
-      animate={{ 
+      animate={{
         opacity: [0, 1, 0],
         scale: [0, 1, 0],
         rotate: [0, 180, 360]
@@ -196,3 +318,28 @@ function Sparkle({ className, delay = 0 }) {
     </motion.div>
   );
 }
+
+ChallengeDisplay.propTypes = {
+  asset: PropTypes.shape({
+    display: PropTypes.string,
+    value: PropTypes.string,
+    audioUrl: PropTypes.string,
+    imageUrl: PropTypes.string,
+    thumbnailUrl: PropTypes.string
+  }),
+  revealed: PropTypes.bool,
+  contextTheme: PropTypes.string,
+  feedbackState: PropTypes.oneOf(['idle', 'success', 'error']),
+  feedbackPoints: PropTypes.number,
+  feedbackMessage: PropTypes.string,
+  isTimeout: PropTypes.bool,
+  shouldReduceMotion: PropTypes.bool,
+  className: PropTypes.string
+};
+
+ChallengeSparkle.propTypes = {
+  className: PropTypes.string,
+  delay: PropTypes.number
+};
+
+export default ChallengeDisplay;

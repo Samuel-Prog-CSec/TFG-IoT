@@ -63,7 +63,7 @@ const register = async (req, res, next) => {
     const { name, email, password, profile, website } = req.body;
     const requestContext = getRequestContext(req);
 
-    if (website && website.trim()) {
+    if (website?.trim()) {
       logSecurityEvent('AUTH_REGISTER_FAILED', {
         ...requestContext,
         reason: 'HONEYPOT_TRIGGERED',
@@ -460,7 +460,7 @@ const changePassword = async (req, res, next) => {
  * Implementa token rotation: revoca el viejo refresh token y genera uno nuevo.
  *
  * POST /api/auth/refresh
- * Body: { refreshToken }
+ * Cookie: refreshToken (httpOnly)
  *
  * @param {import('express').Request} req
  * @param {import('express').Response} res
@@ -469,7 +469,7 @@ const changePassword = async (req, res, next) => {
 const refreshAccessToken = async (req, res, next) => {
   let securityLogged = false;
   try {
-    const refreshToken = req.cookies?.[REFRESH_COOKIE_NAME] || req.body?.refreshToken;
+    const refreshToken = req.cookies?.[REFRESH_COOKIE_NAME];
     const requestContext = getRequestContext(req);
 
     if (!refreshToken) {
@@ -549,7 +549,9 @@ const refreshAccessToken = async (req, res, next) => {
       success: true,
       message: 'Tokens refrescados exitosamente',
       data: {
-        ...publicTokens
+        accessToken: publicTokens.accessToken,
+        accessTokenExpiresIn: publicTokens.accessTokenExpiresIn,
+        tokenType: publicTokens.tokenType
       }
     });
   } catch (error) {

@@ -8,8 +8,8 @@ const userRepository = require('../repositories/userRepository');
 const {
   NotFoundError,
   ForbiddenError,
-  ValidationError,
-  ConflictError
+  ConflictError,
+  ValidationError
 } = require('../utils/errors');
 const logger = require('../utils/logger');
 const userService = require('../services/userService');
@@ -24,6 +24,58 @@ const { escapeRegex } = require('../utils/escapeRegex');
 const { revokeAllUserTokens } = require('../middlewares/auth');
 const { disconnectUserSockets } = require('../utils/socketUtils');
 const { getRequestContext, logSecurityEvent } = require('../utils/securityLogger');
+
+const buildUsersFilter = ({ role, classroom, status, search, requester }) => {
+  const filter = {};
+
+  if (role) {
+    filter.role = role;
+  }
+  if (classroom) {
+    filter['profile.classroom'] = classroom;
+  }
+  if (status) {
+    filter.status = status;
+  }
+
+  if (search) {
+    const safeSearch = escapeRegex(search);
+    filter.$or = [
+      { name: { $regex: safeSearch, $options: 'i' } },
+      { email: { $regex: safeSearch, $options: 'i' } }
+    ];
+  }
+
+  if (requester.role === 'teacher') {
+    filter.role = 'student';
+    filter.createdBy = requester._id;
+  }
+
+  return filter;
+};
+
+const ensureSuperAdmin = user => {
+  if (user.role !== 'super_admin') {
+    throw new ForbiddenError('No tienes permiso para actualizar usuarios');
+  }
+};
+
+const updateMutableUserFields = ({ user, name, profile, status }) => {
+  if (name && name.trim() !== user.name) {
+    user.name = name.trim();
+  }
+
+  if (profile) {
+    user.profile = { ...user.profile.toObject(), ...profile };
+  }
+
+  if (status) {
+    user.status = status;
+  }
+};
+
+const shouldDisconnectByStatus = ({ status, role }) =>
+  status === 'inactive' && ['teacher', 'super_admin'].includes(role);
 
 /**
  * Obtener lista de usuarios con paginación y filtros.
@@ -49,32 +101,13 @@ const getUsers = async (req, res, next) => {
       search
     } = req.query;
 
-    // Construir filtro
-    const filter = {};
-
-    if (role) {
-      filter.role = role;
-    }
-    if (classroom) {
-      filter['profile.classroom'] = classroom;
-    }
-    if (status) {
-      filter.status = status;
-    }
-
-    // Búsqueda por nombre o email
-    if (search) {
-      const safeSearch = escapeRegex(search);
-      filter.$or = [
-        { name: { $regex: safeSearch, $options: 'i' } },
-        { email: { $regex: safeSearch, $options: 'i' } }
-      ];
-    }
-
-    if (req.user.role === 'teacher') {
-      filter.role = 'student';
-      filter.createdBy = req.user._id;
-    }
+    const filter = buildUsersFilter({
+      role,
+      classroom,
+      status,
+      search,
+      requester: req.user
+    });
 
     // Paginación
     const skip = (page - 1) * limit;
@@ -178,18 +211,25 @@ const createUser = async (req, res, next) => {
   try {
     const { name, profile } = req.body;
 
-    // Validar que el usuario autenticado sea profesor
-    if (req.user.role !== 'teacher') {
-      throw new ForbiddenError('Solo los profesores pueden crear alumnos');
+    // Validar que el usuario autenticado sea super admin (el validador de rutas ya lo hace pero por seguridad)
+    if (req.user.role !== 'super_admin') {
+      throw new ForbiddenError('Solo los administradores pueden crear alumnos');
+    }
+
+    // Como lo crea un super_admin, requiere un `teacherId` explícito en el body
+    // (Aseguraremos esto en el validation schema más adelante)
+    const { teacherId } = req.body;
+    if (!teacherId) {
+      throw new ForbiddenError('Se debe especificar a qué profesor pertenece el alumno');
     }
 
     const student = await userService.createStudent({
       name,
       profile: profile || {},
-      createdBy: req.user._id
+      createdBy: teacherId
     });
 
-    logger.info('Alumno creado por profesor', {
+    logger.info('Alumno creado por super admin', {
       studentId: student._id,
       studentName: student.name,
       classroom: student.profile?.classroom,
@@ -207,23 +247,20 @@ const createUser = async (req, res, next) => {
       const existingStudent = await userService.findDuplicateStudent({
         name: req.body.name,
         classroom: req.body.profile?.classroom,
-        teacherId: req.user._id
+        teacherId: req.body.teacherId
       });
 
       if (existingStudent) {
-        logger.warn('Intento de crear alumno duplicado', {
-          teacherId: req.user._id,
+        logger.warn('Intento de crear alumno duplicado por admin', {
+          adminId: req.user._id,
           studentName: req.body.name,
           classroom: req.body.profile?.classroom,
+          teacherId: req.body.teacherId,
           existingStudentId: existingStudent._id
         });
 
-        return res.status(409).json({
-          success: false,
-          message: error.message,
-          data: {
-            existingStudent: toStudentDTOV1(existingStudent)
-          }
+        throw new ConflictError(error.message, {
+          existingStudent: toStudentDTOV1(existingStudent)
         });
       }
     }
@@ -237,17 +274,17 @@ const createUser = async (req, res, next) => {
  *
  * PUT /api/users/:id
  * Headers: Authorization: Bearer <token>
- * Body: { name?, profile?, status?, createdBy? }
+ * Body: { name?, profile?, status? }
  *
  * IMPORTANTE:
  * - Profesores pueden actualizar cualquier campo de sus alumnos
  * - Alumnos NO pueden actualizar su propio perfil (deben ser menores de edad)
- * - Se puede cambiar el profesor asignado (createdBy) para transferir alumnos
+ * - Transferencia de ownership (createdBy) NO permitida en esta ruta
+ * - Transferencias solo por POST /api/users/:id/transfer
  * - Se valida duplicidad si se cambia el nombre
  *
  * CASOS DE USO:
  * - Cambio de clase: profile.classroom
- * - Cambio de profesor: createdBy (solo profesores)
  * - Corrección de nombre: name (valida duplicados)
  * - Actualización de edad/cumpleaños: profile.age, profile.birthdate
  *
@@ -276,26 +313,6 @@ const buildDuplicateFilter = ({ user, name, profile, createdBy }) => {
   }
 
   return duplicateFilter;
-};
-
-const ensureNewTeacherExists = async createdBy => {
-  if (!createdBy) {
-    return null;
-  }
-
-  const newTeacher = await userRepository.findOne({
-    _id: createdBy,
-    role: 'teacher',
-    status: 'active'
-  });
-
-  if (!newTeacher) {
-    const error = new ValidationError('El profesor especificado no existe o no está activo');
-    error.statusCode = 400;
-    throw error;
-  }
-
-  return newTeacher;
 };
 
 const validateDuplicateName = async ({ user, name, profile, createdBy, updatedBy }) => {
@@ -334,7 +351,7 @@ const buildUserPayload = user =>
 const updateUser = async (req, res, next) => {
   try {
     const { id } = req.params;
-    const { name, profile, status, createdBy } = req.body;
+    const { name, profile, status } = req.body;
 
     const user = await userRepository.findById(id);
 
@@ -342,73 +359,28 @@ const updateUser = async (req, res, next) => {
       throw new NotFoundError('Usuario');
     }
 
-    const isSuperAdmin = req.user.role === 'super_admin';
-    const isTeacher = req.user.role === 'teacher';
-    if (isTeacher) {
-      if (user.role !== 'student') {
-        throw new ForbiddenError('No tienes permiso para actualizar este usuario');
-      }
-      if (user.createdBy?.toString() !== req.user._id.toString()) {
-        throw new ForbiddenError('No tienes permiso para actualizar este alumno');
-      }
-    }
-
-    if (!isTeacher && !isSuperAdmin) {
-      throw new ForbiddenError('No tienes permiso para actualizar usuarios');
-    }
+    ensureSuperAdmin(req.user);
 
     // ✅ VALIDAR DUPLICADOS si se cambia el nombre
     const duplicate = await validateDuplicateName({
       user,
       name,
       profile,
-      createdBy,
+      createdBy: user.createdBy,
       updatedBy: req.user._id
     });
 
     if (duplicate) {
-      return res.status(409).json({
-        success: false,
-        message: duplicate.message,
-        data: {
-          existingUser: toUserDTOV1(duplicate.existingUser)
-        }
+      throw new ConflictError(duplicate.message, {
+        existingUser: toUserDTOV1(duplicate.existingUser)
       });
     }
 
-    if (name && name.trim() !== user.name) {
-      user.name = name.trim();
-    }
-
-    // Actualizar profile (merge con existente)
-    if (profile) {
-      user.profile = { ...user.profile.toObject(), ...profile };
-    }
-
-    // Solo profesores pueden cambiar status
-    if (status) {
-      user.status = status;
-    }
-
-    // ✅ NUEVO: Permitir cambiar el profesor asignado (createdBy)
-    // Caso de uso: Un alumno cambia de profesor
-    if (createdBy && user.role === 'student') {
-      await ensureNewTeacherExists(createdBy);
-
-      logger.info('Reasignando alumno a nuevo profesor', {
-        studentId: user._id,
-        studentName: user.name,
-        oldTeacherId: user.createdBy,
-        newTeacherId: createdBy,
-        updatedBy: req.user._id
-      });
-
-      user.createdBy = createdBy;
-    }
+    updateMutableUserFields({ user, name, profile, status });
 
     await user.save();
 
-    if (status === 'inactive' && ['teacher', 'super_admin'].includes(user.role)) {
+    if (shouldDisconnectByStatus({ status, role: user.role })) {
       await revokeAllUserTokens(user._id.toString(), 'account_inactivated', {
         ...getRequestContext(req),
         userId: user._id,
@@ -424,8 +396,7 @@ const updateUser = async (req, res, next) => {
       changes: {
         name: name ? 'updated' : 'unchanged',
         profile: profile ? 'updated' : 'unchanged',
-        status: status ? 'updated' : 'unchanged',
-        createdBy: createdBy ? 'updated' : 'unchanged'
+        status: status ? 'updated' : 'unchanged'
       }
     });
 
@@ -462,17 +433,7 @@ const deleteUser = async (req, res, next) => {
     }
 
     const isSuperAdmin = req.user.role === 'super_admin';
-    const isTeacher = req.user.role === 'teacher';
-    if (isTeacher) {
-      if (user.role !== 'student') {
-        throw new ForbiddenError('No tienes permiso para eliminar este usuario');
-      }
-      if (user.createdBy?.toString() !== req.user._id.toString()) {
-        throw new ForbiddenError('No tienes permiso para eliminar este alumno');
-      }
-    }
-
-    if (!isTeacher && !isSuperAdmin) {
+    if (!isSuperAdmin) {
       throw new ForbiddenError('No tienes permiso para eliminar usuarios');
     }
 
@@ -630,10 +591,7 @@ const transferStudent = async (req, res, next) => {
     const { newTeacherId, newClassroom, reason } = req.body;
 
     if (!newTeacherId || !newClassroom) {
-      return res.status(400).json({
-        success: false,
-        message: 'Se requiere newTeacherId y newClassroom'
-      });
+      throw new ValidationError('Se requiere newTeacherId y newClassroom');
     }
 
     const student = await userRepository.findById(id);
@@ -643,18 +601,14 @@ const transferStudent = async (req, res, next) => {
     }
 
     if (student.role !== 'student') {
-      return res.status(400).json({
-        success: false,
-        message: 'Solo se pueden transferir usuarios con rol de alumno'
-      });
+      throw new ValidationError('Solo se pueden transferir usuarios con rol de alumno');
     }
 
-    // VERIFICACIÓN DE SEGURIDAD: Solo el dueño actual o super admin puede transferir
-    const isOwner = student.createdBy.toString() === req.user._id.toString();
+    // VERIFICACIÓN DE SEGURIDAD: Solo el super admin puede transferir
     const isSuperAdmin = req.user.role === 'super_admin';
 
-    if (!isOwner && !isSuperAdmin) {
-      throw new ForbiddenError('Solo el profesor actual puede transferir a este alumno');
+    if (!isSuperAdmin) {
+      throw new ForbiddenError('Solo los administradores pueden transferir alumnos');
     }
 
     // Verificar que el nuevo profesor existe y es válido
@@ -665,10 +619,7 @@ const transferStudent = async (req, res, next) => {
     });
 
     if (!newTeacher) {
-      return res.status(400).json({
-        success: false,
-        message: 'El nuevo profesor no existe o no está activo'
-      });
+      throw new NotFoundError('Profesor destino');
     }
 
     const fromTeacherId = student.createdBy;

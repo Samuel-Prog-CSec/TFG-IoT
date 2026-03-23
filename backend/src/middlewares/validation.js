@@ -5,7 +5,6 @@
  */
 
 const { z } = require('zod');
-const { ValidationError } = require('../utils/errors');
 const logger = require('../utils/logger');
 
 /**

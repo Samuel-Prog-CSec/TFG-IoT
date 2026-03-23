@@ -13,7 +13,7 @@ const mockLogger = {
 
 mockLogger.child = jest.fn(() => mockLogger);
 
-const mockFromBuffer = jest.fn();
+const mockGetFileType = jest.fn();
 
 const mockSharpInstance = {
   metadata: jest.fn(),
@@ -26,7 +26,7 @@ const mockSharp = jest.fn(() => mockSharpInstance);
 
 // Registrar mocks ANTES de cualquier import
 jest.mock('../src/utils/logger', () => mockLogger);
-jest.mock('file-type', () => ({ fromBuffer: mockFromBuffer }));
+jest.mock('../src/utils/fileTypeHelper', () => ({ getFileType: mockGetFileType }));
 jest.mock('sharp', () => mockSharp);
 
 describe('imageProcessingService', () => {
@@ -40,7 +40,7 @@ describe('imageProcessingService', () => {
 
     // Re-registrar los mocks después del reset
     jest.doMock('../src/utils/logger', () => mockLogger);
-    jest.doMock('file-type', () => ({ fromBuffer: mockFromBuffer }));
+    jest.doMock('../src/utils/fileTypeHelper', () => ({ getFileType: mockGetFileType }));
     jest.doMock('sharp', () => mockSharp);
 
     // Importar el servicio con los mocks activos
@@ -66,7 +66,7 @@ describe('imageProcessingService', () => {
         size: 1024 * 100 // 100KB
       };
 
-      mockFromBuffer.mockResolvedValue({ mime: 'image/png', ext: 'png' });
+      mockGetFileType.mockResolvedValue({ mime: 'image/png', ext: 'png' });
 
       const result = await imageProcessingService.processImage(mockFile);
 
@@ -100,7 +100,7 @@ describe('imageProcessingService', () => {
         size: 1024
       };
 
-      mockFromBuffer.mockResolvedValue(null);
+      mockGetFileType.mockResolvedValue(null);
 
       await expect(imageProcessingService.processImage(mockFile)).rejects.toThrow(
         /no se pudo determinar el tipo/i
@@ -115,7 +115,7 @@ describe('imageProcessingService', () => {
         size: 1024
       };
 
-      mockFromBuffer.mockResolvedValue({ mime: 'application/x-msdownload', ext: 'exe' });
+      mockGetFileType.mockResolvedValue({ mime: 'application/x-msdownload', ext: 'exe' });
 
       await expect(imageProcessingService.processImage(mockFile)).rejects.toThrow(
         /formato de imagen no permitido/i
@@ -130,7 +130,7 @@ describe('imageProcessingService', () => {
         size: 500
       };
 
-      mockFromBuffer.mockResolvedValue({ mime: 'image/png', ext: 'png' });
+      mockGetFileType.mockResolvedValue({ mime: 'image/png', ext: 'png' });
 
       // Override metadata para retornar dimensiones pequeñas
       mockSharpInstance.metadata.mockResolvedValue({

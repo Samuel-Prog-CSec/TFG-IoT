@@ -167,7 +167,7 @@ export default function CardSelector({
             exit={{ opacity: 0, height: 0 }}
             className="flex flex-wrap gap-2 p-3 rounded-xl bg-slate-800/30 border border-white/5"
           >
-            {selectedCardIds.map((cardId, index) => {
+            {selectedCardIds.map((cardId) => {
               const card = cards.find(c => c._id === cardId);
               if (!card) return null;
 
@@ -260,7 +260,7 @@ export default function CardSelector({
               >
                 {/* Checkbox animado */}
                 <div className={cn(
-                  'w-5 h-5 rounded-md border-2 flex items-center justify-center transition-all',
+                  'size-5 rounded-md border-2 flex items-center justify-center transition-all',
                   isSelected 
                     ? 'bg-indigo-500 border-indigo-500' 
                     : 'border-slate-600'
@@ -281,7 +281,7 @@ export default function CardSelector({
 
                 {/* Icono de tarjeta */}
                 <div className={cn(
-                  'w-8 h-8 rounded-lg flex items-center justify-center',
+                  'size-8 rounded-lg flex items-center justify-center',
                   isSelected ? 'bg-indigo-500/20' : 'bg-slate-800'
                 )}>
                   <CreditCard size={16} className={isSelected ? 'text-indigo-400' : 'text-slate-500'} />
@@ -345,6 +345,7 @@ export default function CardSelector({
  * @param {string[]} selectedIds - IDs seleccionados
  * @returns {Card[]} Tarjetas seleccionadas con datos completos
  */
+// eslint-disable-next-line react-refresh/only-export-components -- utility function co-located with component
 export function getSelectedCards(cards, selectedIds) {
   const idSet = new Set(selectedIds);
   return cards.filter(card => idSet.has(card._id));

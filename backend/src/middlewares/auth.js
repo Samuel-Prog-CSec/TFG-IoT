@@ -12,6 +12,7 @@ const userRepository = require('../repositories/userRepository');
 const logger = require('../utils/logger').child({ component: 'auth' });
 const { logSecurityEvent, getRequestContext } = require('../utils/securityLogger');
 const redisService = require('../services/redisService');
+const { Sentry } = require('../config/sentry');
 
 /**
  * Constantes de seguridad para tokens.
@@ -693,6 +694,7 @@ const authenticate = async (req, res, next) => {
 
     // Adjuntar usuario y metadata del token a la request
     req.user = user;
+    Sentry.setUser({ id: user._id.toString(), role: user.role });
     req.tokenJti = decoded.jti; // Para revocación si es necesario
     req.tokenExp = decoded.exp; // Para logging
 
@@ -811,6 +813,7 @@ const optionalAuth = async (req, res, next) => {
     if (user && user.status === 'active') {
       req.user = user;
       req.tokenJti = decoded.jti;
+      Sentry.setUser({ id: user._id.toString(), role: user.role });
     }
 
     next();
@@ -830,8 +833,6 @@ const optionalAuth = async (req, res, next) => {
  * Uso:
  * router.post('/logout', authenticate, logout);
  *
- * Body: { refreshToken: string } (opcional, para revocar ambos)
- *
  * @param {import('express').Request} req
  * @param {import('express').Response} res
  * @param {import('express').NextFunction} next
@@ -847,8 +848,8 @@ const logout = async (req, res, next) => {
       reason: 'logout'
     });
 
-    // Si se proporciona refresh token, también revocarlo
-    const refreshToken = req.cookies?.[REFRESH_COOKIE_NAME] || req.body?.refreshToken;
+    // Revocar refresh token actual desde cookie httpOnly (si existe)
+    const refreshToken = req.cookies?.[REFRESH_COOKIE_NAME];
     if (refreshToken) {
       try {
         const decoded = await verifyRefreshToken(refreshToken, req);
@@ -865,6 +866,13 @@ const logout = async (req, res, next) => {
           error: error.message
         });
       }
+    }
+
+    // SINGLE SESSION: invalidar inmediatamente el access token actual
+    // incluso si Redis no está disponible para blacklist.
+    if (req.user?.currentSessionId) {
+      req.user.currentSessionId = crypto.randomUUID();
+      await req.user.save();
     }
 
     logSecurityEvent('AUTH_TOKEN_REVOKED', {

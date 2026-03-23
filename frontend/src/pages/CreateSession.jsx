@@ -11,10 +11,11 @@
  * @module pages/CreateSession
  */
 
-import { useState, useEffect, useCallback, useRef } from 'react';
+import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import confetti from 'canvas-confetti';
+import PropTypes from 'prop-types';
 import { webSerialService } from '../services/webSerialService';
 import { 
   Layers, 
@@ -31,7 +32,6 @@ import {
   Plus,
   AlertTriangle,
   Sparkles,
-  Eye,
   Wifi
 } from 'lucide-react';
 import { cn } from '../lib/utils';
@@ -43,16 +43,16 @@ import {
   extractErrorMessage,
   isAbortError
 } from '../services/api';
-import { 
-  WizardStepper,
-  ButtonPremium,
-  GlassCard,
-  DeckCard,
-  InputPremium,
-  SkeletonCard
-} from '../components/ui';
+import WizardStepper from '../components/ui/WizardStepper';
+import ButtonPremium from '../components/ui/ButtonPremium';
+import CardAssetPreview from '../components/ui/CardAssetPreview';
+import GlassCard from '../components/ui/GlassCard';
+import InputPremium from '../components/ui/InputPremium';
+import SelectPremium from '../components/ui/SelectPremium';
+import { SkeletonCard } from '../components/ui/SkeletonShimmer';
 import { ROUTES } from '../constants/routes';
-import { useRefetchOnFocus } from '../hooks';
+import { useRefetchOnFocus } from '../hooks/useRefetchOnFocus';
+import { useReducedMotion } from '../hooks/useReducedMotion';
 import { toast } from 'sonner';
 
 // Configuración del wizard
@@ -109,11 +109,112 @@ const DIFFICULTY_PRESETS = {
   }
 };
 
+const DIFFICULTY_VARIANT_STYLES = {
+  easy: {
+    selectedCard: 'border-emerald-500 bg-emerald-500/10',
+    selectedText: 'text-emerald-400',
+    selectedIndicator: 'bg-emerald-500'
+  },
+  medium: {
+    selectedCard: 'border-amber-500 bg-amber-500/10',
+    selectedText: 'text-amber-400',
+    selectedIndicator: 'bg-amber-500'
+  },
+  hard: {
+    selectedCard: 'border-rose-500 bg-rose-500/10',
+    selectedText: 'text-rose-400',
+    selectedIndicator: 'bg-rose-500'
+  }
+};
+
+const DEFAULT_ENABLED_MECHANICS = ['association', 'memory'];
+
+const parseEnabledMechanics = () => {
+  const raw = import.meta.env.VITE_ENABLED_SESSION_MECHANICS;
+  if (!raw || typeof raw !== 'string') {
+    return new Set(DEFAULT_ENABLED_MECHANICS);
+  }
+
+  const parsed = raw
+    .split(',')
+    .map(item => item.trim().toLowerCase())
+    .filter(Boolean);
+
+  return new Set(parsed.length > 0 ? parsed : DEFAULT_ENABLED_MECHANICS);
+};
+
+const ENABLED_SESSION_MECHANICS = parseEnabledMechanics();
+
+const normalizeMechanicName = mechanic => (mechanic?.name || '').toString().toLowerCase();
+
+const isMechanicSelectable = mechanic => {
+  const normalizedName = normalizeMechanicName(mechanic);
+  const availability = mechanic?.rules?.behavior?.availability;
+
+  if (availability === 'coming_soon') {
+    return false;
+  }
+
+  return ENABLED_SESSION_MECHANICS.has(normalizedName);
+};
+
+const resolveMechanicId = mechanic => mechanic?.id || mechanic?._id;
+const resolveMechanicName = mechanic => normalizeMechanicName(mechanic);
+
+const findMechanicById = (mechanics, mechanicId) => {
+  if (!mechanicId) {
+    return null;
+  }
+
+  return mechanics.find(mechanic => resolveMechanicId(mechanic) === mechanicId) || null;
+};
+
+const toDeckCardMappings = deck =>
+  Array.isArray(deck?.cardMappings)
+    ? deck.cardMappings.map(mapping => ({
+        cardId: mapping.cardId || mapping.id,
+        uid: mapping.uid,
+        assignedValue: mapping.assignedValue,
+        displayData: mapping.displayData || {}
+      }))
+    : [];
+
+const buildAssociationPlanByRounds = ({ currentPlan, cards, numberOfRounds }) => {
+  const safeCards = Array.isArray(cards) ? cards : [];
+  const rounds = Number(numberOfRounds);
+
+  if (safeCards.length === 0 || !Number.isFinite(rounds) || rounds < 1) {
+    return [];
+  }
+
+  const cardByUid = new Map(safeCards.map(card => [card.uid, card]));
+  const previousByRound = new Map(
+    (Array.isArray(currentPlan) ? currentPlan : []).map(item => [Number(item.roundNumber), item])
+  );
+
+  return Array.from({ length: rounds }, (_, index) => {
+    const roundNumber = index + 1;
+    const previousItem = previousByRound.get(roundNumber);
+    const preservedCard = previousItem?.uid ? cardByUid.get(previousItem.uid) : null;
+    const card = preservedCard || safeCards[index % safeCards.length];
+
+    return {
+      roundNumber,
+      cardId: card.cardId,
+      uid: card.uid,
+      assignedValue: card.assignedValue,
+      displayData: card.displayData || {},
+      promptText: previousItem?.promptText || ''
+    };
+  });
+};
+
 /**
  * Página de creación de sesiones
  */
 export default function CreateSession() {
   const navigate = useNavigate();
+  const { shouldReduceMotion } = useReducedMotion();
   
   // Estado del wizard
   const [currentStep, setCurrentStep] = useState(0);
@@ -144,6 +245,9 @@ export default function CreateSession() {
   const [selectedDeck, setSelectedDeck] = useState(null);
   const [selectedMechanic, setSelectedMechanic] = useState(null);
   const [currentSensorId, setCurrentSensorId] = useState(null);
+  const [memoryBoardSlots, setMemoryBoardSlots] = useState([]);
+  const [selectedMemoryCardUid, setSelectedMemoryCardUid] = useState(null);
+  const [associationChallengePlan, setAssociationChallengePlan] = useState([]);
 
   const dataAbortRef = useRef(null);
 
@@ -161,9 +265,38 @@ export default function CreateSession() {
         
         const decksData = extractData(decksRes) || [];
         const mechsData = extractData(mechsRes) || [];
+        const orderedMechanics = [...mechsData].sort((a, b) => {
+          const aSelectable = isMechanicSelectable(a) ? 1 : 0;
+          const bSelectable = isMechanicSelectable(b) ? 1 : 0;
+          return bSelectable - aSelectable;
+        });
         
         setDecks(decksData);
-        setMechanics(mechsData);
+        setMechanics(orderedMechanics);
+
+        setSelectedMechanic(prev => {
+          if (prev && !isMechanicSelectable(prev)) {
+            return null;
+          }
+          return prev;
+        });
+
+        setSessionConfig(prev => {
+          if (!prev.mechanicId) {
+            return prev;
+          }
+
+          const currentMechanic = findMechanicById(orderedMechanics, prev.mechanicId);
+
+          if (currentMechanic && isMechanicSelectable(currentMechanic)) {
+            return prev;
+          }
+
+          return {
+            ...prev,
+            mechanicId: null
+          };
+        });
       } catch (err) {
         if (isAbortError(err)) {
           return;
@@ -181,6 +314,13 @@ export default function CreateSession() {
 
     run();
   }, []);
+
+  const selectedMechanicName = resolveMechanicName(selectedMechanic);
+  const isMemorySelected = selectedMechanicName === 'memory';
+  const isAssociationSelected = selectedMechanicName === 'association';
+
+  const deckCards = useMemo(() => toDeckCardMappings(selectedDeck), [selectedDeck]);
+  const memoryDeckCards = deckCards;
 
   // Cargar mazos y mecánicas
   useEffect(() => {
@@ -204,18 +344,33 @@ export default function CreateSession() {
   });
 
   // Handlers
-  const handleSelectDeck = (deck) => {
+  const handleSelectDeck = useCallback(async (deck) => {
     const deckId = deck.id || deck._id;
+    // Actualización inmediata con datos de lista para feedback visual
     setSelectedDeck(deck);
     setSessionConfig(prev => ({
       ...prev,
       deckId,
-      // Auto-generar nombre basado en el mazo
       name: prev.name || `Sesión - ${deck.name}`
     }));
-  };
+    // Cargar detalle completo para obtener cardMappings
+    try {
+      const deckRes = await decksAPI.getDeckById(deckId);
+      const fullDeck = extractData(deckRes);
+      if (fullDeck) setSelectedDeck(fullDeck);
+    } catch {
+      // Continuar con datos de lista si falla el detalle
+    }
+  }, []);
 
   const handleSelectMechanic = (mechanic) => {
+    if (!isMechanicSelectable(mechanic)) {
+      toast.info('Mecánica no habilitada', {
+        description: 'Esta mecánica no está disponible para creación de sesiones en el entorno actual.'
+      });
+      return;
+    }
+
     const mechanicId = mechanic.id || mechanic._id;
     setSelectedMechanic(mechanic);
     setSessionConfig(prev => ({
@@ -223,6 +378,44 @@ export default function CreateSession() {
       mechanicId
     }));
   };
+
+  useEffect(() => {
+    if (!isMemorySelected) {
+      setMemoryBoardSlots([]);
+      setSelectedMemoryCardUid(null);
+      return;
+    }
+
+    const cards = Array.isArray(selectedDeck?.cardMappings) ? selectedDeck.cardMappings : [];
+    if (cards.length === 0) {
+      setMemoryBoardSlots([]);
+      setSelectedMemoryCardUid(null);
+      return;
+    }
+
+    setMemoryBoardSlots(prev => {
+      if (Array.isArray(prev) && prev.length === cards.length && prev.every(Boolean)) {
+        return prev;
+      }
+
+      return new Array(cards.length).fill(null);
+    });
+  }, [isMemorySelected, selectedDeck]);
+
+  useEffect(() => {
+    if (!isAssociationSelected) {
+      setAssociationChallengePlan([]);
+      return;
+    }
+
+    setAssociationChallengePlan(prev =>
+      buildAssociationPlanByRounds({
+        currentPlan: prev,
+        cards: deckCards,
+        numberOfRounds: sessionConfig.config.numberOfRounds
+      })
+    );
+  }, [isAssociationSelected, deckCards, sessionConfig.config.numberOfRounds]);
 
   const handleDifficultyChange = (difficulty) => {
     setSessionConfig(prev => ({
@@ -247,7 +440,29 @@ export default function CreateSession() {
     switch (currentStep) {
       case 0: return sessionConfig.deckId !== null;
       case 1: return sessionConfig.mechanicId !== null;
-      case 2: return true; // Rules siempre válido con defaults
+      case 2:
+        if (isMemorySelected) {
+          return (
+            Array.isArray(memoryBoardSlots) &&
+            memoryBoardSlots.length > 0 &&
+            memoryBoardSlots.every(Boolean)
+          );
+        }
+
+        if (isAssociationSelected) {
+          const rounds = Number(sessionConfig.config.numberOfRounds);
+          if (!Number.isFinite(rounds) || rounds < 1) {
+            return false;
+          }
+
+          return (
+            Array.isArray(associationChallengePlan) &&
+            associationChallengePlan.length === rounds &&
+            associationChallengePlan.every(item => item?.uid && item?.assignedValue)
+          );
+        }
+
+        return true;
       case 3: return sessionConfig.name.trim().length >= 3;
       default: return false;
     }
@@ -274,10 +489,8 @@ export default function CreateSession() {
     
     try {
       const payload = {
-        name: sessionConfig.name.trim(),
         deckId: sessionConfig.deckId,
         mechanicId: sessionConfig.mechanicId,
-        difficulty: sessionConfig.difficulty,
         config: {
           ...sessionConfig.config,
           numberOfCards:
@@ -286,6 +499,33 @@ export default function CreateSession() {
             selectedDeck?.cards?.length ||
             0
         },
+        boardLayout: isMemorySelected
+          ? memoryBoardSlots
+              .map((slotCard, slotIndex) => {
+                if (!slotCard) {
+                  return null;
+                }
+
+                return {
+                  slotIndex,
+                  cardId: slotCard.cardId || slotCard.id,
+                  uid: slotCard.uid,
+                  assignedValue: slotCard.assignedValue,
+                  displayData: slotCard.displayData || {}
+                };
+              })
+              .filter(Boolean)
+          : undefined,
+        associationChallengePlan: isAssociationSelected
+          ? associationChallengePlan.map(item => ({
+              roundNumber: item.roundNumber,
+              cardId: item.cardId,
+              uid: item.uid,
+              assignedValue: item.assignedValue,
+              displayData: item.displayData || {},
+              promptText: item.promptText || undefined
+            }))
+          : undefined,
         sensorId: sessionConfig.linkSensor ? currentSensorId : undefined
       };
       
@@ -297,17 +537,24 @@ export default function CreateSession() {
         particleCount: 150,
         spread: 80,
         origin: { y: 0.6 },
-        colors: ['#8b5cf6', '#6366f1', '#10b981', '#22c55e']
+        colors: ['#8b5cf6', '#6366f1', '#10b981', '#22c55e'],
+        disableForReducedMotion: shouldReduceMotion,
       });
       
       toast.success('¡Sesión creada!', {
-        description: 'Redirigiendo a la configuración del tablero...'
+        description: isMemorySelected
+          ? 'Redirigiendo a la configuración del tablero...'
+          : 'Redirigiendo al detalle de la sesión...'
       });
       
-      // Redirigir a Board Setup
+      // Memoria → BoardSetup para configurar tablero, Asociación → Detalle de sesión
+      const targetRoute = isMemorySelected
+        ? ROUTES.BOARD_SETUP_WITH_ID(newSession._id || newSession.id)
+        : ROUTES.SESSION_DETAIL(newSession._id || newSession.id);
+
       setTimeout(() => {
-        navigate(ROUTES.BOARD_SETUP_WITH_ID(newSession._id || newSession.id));
-      }, 1500);
+        navigate(targetRoute);
+      }, shouldReduceMotion ? 400 : 1500);
       
     } catch (err) {
       toast.error('Error al crear sesión', {
@@ -339,7 +586,20 @@ export default function CreateSession() {
           />
         );
       case 2:
-        return (
+        return isMemorySelected ? (
+          <StepMemoryRules
+            config={sessionConfig.config}
+            onConfigChange={handleConfigChange}
+            linkSensor={sessionConfig.linkSensor}
+            onLinkSensorChange={(val) => setSessionConfig(prev => ({ ...prev, linkSensor: val }))}
+            currentSensorId={currentSensorId}
+            cards={memoryDeckCards}
+            slots={memoryBoardSlots}
+            onSlotsChange={setMemoryBoardSlots}
+            selectedCardUid={selectedMemoryCardUid}
+            onSelectedCardUidChange={setSelectedMemoryCardUid}
+          />
+        ) : (
           <StepRules
             config={sessionConfig.config}
             difficulty={sessionConfig.difficulty}
@@ -348,6 +608,10 @@ export default function CreateSession() {
             linkSensor={sessionConfig.linkSensor}
             onLinkSensorChange={(val) => setSessionConfig(prev => ({ ...prev, linkSensor: val }))}
             currentSensorId={currentSensorId}
+            isAssociationSelected={isAssociationSelected}
+            associationCards={deckCards}
+            associationChallengePlan={associationChallengePlan}
+            onAssociationChallengePlanChange={setAssociationChallengePlan}
           />
         );
       case 3:
@@ -368,7 +632,7 @@ export default function CreateSession() {
     <div className="min-h-screen bg-slate-950 p-4 lg:p-8">
       {/* Header */}
       <motion.div
-        initial={{ opacity: 0, y: -20 }}
+        initial={shouldReduceMotion ? false : { opacity: 0, y: -20 }}
         animate={{ opacity: 1, y: 0 }}
         className="max-w-5xl mx-auto mb-8"
       >
@@ -385,6 +649,7 @@ export default function CreateSession() {
         <WizardStepper
           steps={WIZARD_STEPS}
           currentStep={currentStep}
+          reducedMotion={shouldReduceMotion}
           onStepClick={(index) => {
             if (index < currentStep) {
               setCurrentStep(index);
@@ -398,10 +663,10 @@ export default function CreateSession() {
         <AnimatePresence mode="wait">
           <motion.div
             key={currentStep}
-            initial={{ opacity: 0, x: 20 }}
+            initial={shouldReduceMotion ? false : { opacity: 0, x: 20 }}
             animate={{ opacity: 1, x: 0 }}
-            exit={{ opacity: 0, x: -20 }}
-            transition={{ duration: 0.3 }}
+            exit={shouldReduceMotion ? { opacity: 0 } : { opacity: 0, x: -20 }}
+            transition={{ duration: shouldReduceMotion ? 0.15 : 0.3 }}
           >
             {renderStep()}
           </motion.div>
@@ -410,9 +675,9 @@ export default function CreateSession() {
 
       {/* Footer navegación */}
       <motion.div
-        initial={{ opacity: 0, y: 20 }}
+        initial={shouldReduceMotion ? false : { opacity: 0, y: 20 }}
         animate={{ opacity: 1, y: 0 }}
-        transition={{ delay: 0.3 }}
+        transition={{ delay: shouldReduceMotion ? 0 : 0.3 }}
         className="max-w-5xl mx-auto"
       >
         <GlassCard className="p-4">
@@ -469,8 +734,8 @@ function StepDeck({ decks, loading, selectedDeckId, onSelect }) {
     return (
       <GlassCard className="p-6">
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-          {[...Array(6)].map((_, i) => (
-            <SkeletonCard key={i} className="h-48" />
+          {['deck-skeleton-1', 'deck-skeleton-2', 'deck-skeleton-3', 'deck-skeleton-4', 'deck-skeleton-5', 'deck-skeleton-6'].map((skeletonKey) => (
+            <SkeletonCard key={skeletonKey} className="h-48" />
           ))}
         </div>
       </GlassCard>
@@ -480,7 +745,7 @@ function StepDeck({ decks, loading, selectedDeckId, onSelect }) {
   if (decks.length === 0) {
     return (
       <GlassCard className="p-8 text-center">
-        <div className="w-16 h-16 mx-auto mb-4 rounded-full bg-amber-500/20 flex items-center justify-center">
+        <div className="size-16 mx-auto mb-4 rounded-full bg-amber-500/20 flex items-center justify-center">
           <AlertTriangle className="text-amber-400" size={32} />
         </div>
         <h3 className="text-xl font-semibold text-white mb-2">
@@ -535,18 +800,21 @@ function StepDeck({ decks, loading, selectedDeckId, onSelect }) {
               <motion.div
                 initial={{ scale: 0 }}
                 animate={{ scale: 1 }}
-                className="absolute top-2 right-2 w-7 h-7 rounded-full bg-indigo-500 flex items-center justify-center shadow-lg shadow-indigo-500/40"
+                className="absolute top-2 right-2 size-7 rounded-full bg-indigo-500 flex items-center justify-center shadow-lg shadow-indigo-500/40"
               >
                 <Check size={14} className="text-white" />
               </motion.div>
             )}
 
             {/* Preview de assets */}
-            <div className="flex flex-wrap gap-1 mb-3 h-8 overflow-hidden">
+            <div className="flex gap-1.5 mb-3 h-8 overflow-hidden">
               {cardsPreview.slice(0, 6).map((mapping) => (
-                <span key={mapping.id || mapping.uid} className="text-xl">
-                  {mapping.displayData?.display || mapping.displayData?.emoji || '🃏'}
-                </span>
+                <CardAssetPreview
+                  key={mapping.id || mapping.uid || mapping.cardId || mapping._id}
+                  asset={mapping.displayData}
+                  className="size-8 rounded-md flex-shrink-0"
+                  fallbackLabel={mapping.displayData?.display || mapping.displayData?.emoji || '\uD83C\uDFB3'}
+                />
               ))}
             </div>
 
@@ -593,8 +861,8 @@ function StepMechanic({ mechanics, loading, selectedMechanicId, onSelect }) {
     return (
       <GlassCard className="p-6">
         <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-          {[...Array(3)].map((_, i) => (
-            <SkeletonCard key={i} className="h-48" />
+          {['mechanic-skeleton-1', 'mechanic-skeleton-2', 'mechanic-skeleton-3'].map((skeletonKey) => (
+            <SkeletonCard key={skeletonKey} className="h-48" />
           ))}
         </div>
       </GlassCard>
@@ -616,27 +884,38 @@ function StepMechanic({ mechanics, loading, selectedMechanicId, onSelect }) {
         {mechanics.map((mechanic) => {
           const icon = mechanicIcons[mechanic.name?.toLowerCase()] || mechanicIcons.default;
           const mechanicId = mechanic.id || mechanic._id;
+          const selectable = isMechanicSelectable(mechanic);
+          const selected = selectable && selectedMechanicId === mechanicId;
           
           return (
             <motion.button
               key={mechanicId}
               onClick={() => onSelect(mechanic)}
+              disabled={!selectable}
               className={cn(
                 'relative p-6 rounded-xl border-2 text-left transition-all',
-                'hover:border-purple-500/50 hover:bg-purple-500/5',
-                selectedMechanicId === mechanicId
+                selectable
+                  ? 'hover:border-purple-500/50 hover:bg-purple-500/5'
+                  : 'opacity-70 cursor-not-allowed border-white/10 bg-slate-900/40',
+                selected
                   ? 'border-purple-500 bg-purple-500/10'
                   : 'border-white/10 bg-slate-800/30'
               )}
-              aria-pressed={selectedMechanicId === mechanicId}
-              whileHover={{ scale: 1.03, y: -4 }}
-              whileTap={{ scale: 0.98 }}
+              aria-pressed={selected}
+              whileHover={selectable ? { scale: 1.03, y: -4 } : undefined}
+              whileTap={selectable ? { scale: 0.98 } : undefined}
             >
-              {selectedMechanicId === mechanicId && (
+              {!selectable && (
+                <span className="absolute top-3 right-3 rounded-full border border-amber-400/40 bg-amber-500/10 px-2 py-0.5 text-[11px] font-medium text-amber-300">
+                  Próximamente
+                </span>
+              )}
+
+              {selected && (
                 <motion.div
                   initial={{ scale: 0 }}
                   animate={{ scale: 1 }}
-                  className="absolute top-3 right-3 w-7 h-7 rounded-full bg-purple-500 flex items-center justify-center shadow-lg shadow-purple-500/40"
+                  className="absolute top-3 right-3 size-7 rounded-full bg-purple-500 flex items-center justify-center shadow-lg shadow-purple-500/40"
                 >
                   <Check size={14} className="text-white" />
                 </motion.div>
@@ -649,11 +928,274 @@ function StepMechanic({ mechanics, loading, selectedMechanicId, onSelect }) {
               <p className="text-sm text-slate-400 line-clamp-3">
                 {mechanic.description || 'Mecánica de juego interactiva'}
               </p>
+
+              {!selectable && (
+                <p className="mt-3 text-xs text-amber-300/90">
+                  Esta mecánica no está habilitada para creación de sesiones en este entorno.
+                </p>
+              )}
             </motion.button>
           );
         })}
       </div>
     </GlassCard>
+  );
+}
+
+function StepMemoryRules({
+  config,
+  onConfigChange,
+  linkSensor,
+  onLinkSensorChange,
+  currentSensorId,
+  cards,
+  slots,
+  onSlotsChange,
+  selectedCardUid,
+  onSelectedCardUidChange
+}) {
+  const safeCards = Array.isArray(cards) ? cards : [];
+  const safeSlots = Array.isArray(slots) ? slots : [];
+  const cardsInBoard = new Set((slots || []).filter(Boolean).map(slot => slot.uid));
+  const selectedCard = safeCards.find(card => card.uid === selectedCardUid) || null;
+  const slotEntries = safeSlots.map((slotCard, slotIndex) => ({
+    slotCard,
+    slotIndex,
+    slotKey: slotCard?.uid || `slot-${slotIndex + 1}`
+  }));
+
+  const handleAssignToSlot = slotIndex => {
+    if (!selectedCard) {
+      return;
+    }
+
+    onSlotsChange(prev => {
+      const next = Array.isArray(prev) ? [...prev] : new Array(safeCards.length).fill(null);
+
+      const previousIndex = next.findIndex(slot => slot?.uid === selectedCard.uid);
+      if (previousIndex >= 0) {
+        next[previousIndex] = null;
+      }
+
+      next[slotIndex] = selectedCard;
+      return next;
+    });
+  };
+
+  const handleClearSlot = slotIndex => {
+    onSlotsChange(prev => {
+      const next = Array.isArray(prev) ? [...prev] : [];
+      next[slotIndex] = null;
+      return next;
+    });
+  };
+
+  const boardComplete = safeSlots.length > 0 && safeSlots.every(Boolean);
+
+  return (
+    <div className="space-y-6">
+      <GlassCard className="p-6">
+        <h2 className="text-xl font-semibold text-white mb-2">Tablero de Memoria</h2>
+        <p className="text-slate-400 text-sm mb-4">
+          Selecciona una carta y colócala en una posición para que la mesa real coincida con el tablero.
+        </p>
+
+        <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3 mb-6">
+          {safeCards.map(card => {
+            const isSelected = selectedCardUid === card.uid;
+            const alreadyPlaced = cardsInBoard.has(card.uid);
+
+            return (
+              <button
+                key={`memory-card-${card.uid}`}
+                type="button"
+                onClick={() => onSelectedCardUidChange(card.uid)}
+                className={cn(
+                  'rounded-xl border p-3 text-left transition-all',
+                  isSelected
+                    ? 'border-indigo-500 bg-indigo-500/20'
+                    : 'border-white/10 bg-slate-800/40 hover:border-white/30',
+                  alreadyPlaced && !isSelected ? 'opacity-70' : ''
+                )}
+              >
+                <div className="h-16 mb-2">
+                  <CardAssetPreview
+                    asset={card.displayData}
+                    className="w-full h-full rounded-lg"
+                    fallbackLabel={card.displayData?.display || card.assignedValue || '🎴'}
+                  />
+                </div>
+                <p className="text-xs text-slate-300 truncate">{card.assignedValue || card.uid}</p>
+              </button>
+            );
+          })}
+        </div>
+
+        <div className="grid gap-4" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(110px, 1fr))' }}>
+          {slotEntries.map(({ slotCard, slotIndex, slotKey }) => (
+            <button
+              key={`memory-slot-${slotKey}`}
+              type="button"
+              onClick={() => handleAssignToSlot(slotIndex)}
+              className={cn(
+                'aspect-square rounded-xl border-2 border-dashed p-3 transition-all',
+                slotCard ? 'border-emerald-500/50 bg-emerald-500/10' : 'border-slate-700 bg-slate-900/40',
+                selectedCard ? 'hover:border-indigo-400' : ''
+              )}
+            >
+              {slotCard ? (
+                <div className="h-full w-full relative">
+                  <CardAssetPreview
+                    asset={slotCard.displayData}
+                    className="w-full h-full rounded-lg"
+                    fallbackLabel={slotCard.displayData?.display || slotCard.assignedValue || '🎴'}
+                  />
+                  <span className="absolute top-1 left-1 text-[10px] px-1.5 py-0.5 rounded-full bg-slate-950/70 text-slate-200">
+                    #{slotIndex + 1}
+                  </span>
+                  <button
+                    type="button"
+                    onClick={(e) => {
+                      e.preventDefault();
+                      e.stopPropagation();
+                      handleClearSlot(slotIndex);
+                    }}
+                    className="absolute top-1 right-1 text-[10px] px-1.5 py-0.5 rounded-full bg-rose-500/80 text-white"
+                  >
+                    Quitar
+                  </button>
+                </div>
+              ) : (
+                <div className="h-full w-full flex items-center justify-center text-slate-500 text-sm">
+                  Slot #{slotIndex + 1}
+                </div>
+              )}
+            </button>
+          ))}
+        </div>
+
+        <p className={cn('mt-4 text-sm', boardComplete ? 'text-emerald-400' : 'text-amber-400')}>
+          {boardComplete
+            ? 'Tablero completo. Puedes continuar.'
+            : 'Debes colocar todas las cartas en el tablero para continuar.'}
+        </p>
+      </GlassCard>
+
+      <GlassCard className="p-6">
+        <h2 className="text-lg font-semibold text-white mb-4">Reglas de Memoria</h2>
+
+        <div className="space-y-5">
+          <div>
+            <label htmlFor="memory-time-limit" className="flex items-center gap-2 text-sm text-slate-300 mb-2">
+              <Clock size={14} className="text-purple-400" />
+              Tiempo total de partida (segundos)
+            </label>
+            <div className="flex items-center gap-4">
+              <input
+                id="memory-time-limit"
+                type="range"
+                min={10}
+                max={300}
+                step={10}
+                value={config.timeLimit}
+                onChange={(e) => onConfigChange('timeLimit', Number.parseInt(e.target.value, 10))}
+                className="flex-1 accent-purple-500"
+              />
+              <span className="w-16 text-center text-white font-medium bg-slate-800 rounded-lg py-1">
+                {config.timeLimit}s
+              </span>
+            </div>
+          </div>
+
+          <div>
+            <label htmlFor="memory-points-correct" className="flex items-center gap-2 text-sm text-slate-300 mb-2">
+              <Zap size={14} className="text-emerald-400" />
+              Puntos por pareja correcta
+            </label>
+            <div className="flex items-center gap-4">
+              <input
+                id="memory-points-correct"
+                type="range"
+                min={5}
+                max={30}
+                step={5}
+                value={config.pointsPerCorrect}
+                onChange={(e) => onConfigChange('pointsPerCorrect', Number.parseInt(e.target.value, 10))}
+                className="flex-1 accent-emerald-500"
+              />
+              <span className="w-16 text-center text-white font-medium bg-slate-800 rounded-lg py-1">
+                +{config.pointsPerCorrect}
+              </span>
+            </div>
+          </div>
+
+          <div>
+            <label htmlFor="memory-penalty-error" className="flex items-center gap-2 text-sm text-slate-300 mb-2">
+              <AlertTriangle size={14} className="text-rose-400" />
+              Penalización por pareja incorrecta
+            </label>
+            <div className="flex items-center gap-4">
+              <input
+                id="memory-penalty-error"
+                type="range"
+                min={-15}
+                max={0}
+                step={1}
+                value={config.penaltyPerError}
+                onChange={(e) => onConfigChange('penaltyPerError', Number.parseInt(e.target.value, 10))}
+                className="flex-1 accent-rose-500"
+              />
+              <span className="w-16 text-center text-white font-medium bg-slate-800 rounded-lg py-1">
+                {config.penaltyPerError}
+              </span>
+            </div>
+          </div>
+        </div>
+      </GlassCard>
+
+      <GlassCard className="p-6">
+        <div className="flex flex-col md:flex-row md:items-center justify-between gap-6">
+          <div className="flex-1">
+            <h2 className="text-lg font-semibold text-white mb-2 flex items-center gap-2">
+              <Wifi size={20} className="text-indigo-400" />
+              Vincular Sensor RFID
+            </h2>
+            <p className="text-sm text-slate-400">
+              Solo se aceptarán lecturas del sensor activo cuando la sesión lo requiera.
+            </p>
+          </div>
+
+          <div className="flex items-center gap-4">
+            {currentSensorId ? (
+              <div className="flex items-center gap-3 p-3 rounded-xl bg-slate-800/50 border border-white/10">
+                <span className="text-xs font-mono text-slate-500 max-w-[150px] truncate">
+                  ID: {currentSensorId}
+                </span>
+                <button
+                  type="button"
+                  onClick={() => onLinkSensorChange(!linkSensor)}
+                  className="flex items-center h-6 w-12 rounded-full bg-slate-700 relative p-1"
+                >
+                  <motion.div
+                    className={cn(
+                      'h-4 w-4 rounded-full shadow-sm',
+                      linkSensor ? 'bg-indigo-500' : 'bg-slate-500'
+                    )}
+                    transition={{ type: 'spring', stiffness: 500, damping: 30 }}
+                    animate={{ x: linkSensor ? 24 : 0 }}
+                  />
+                </button>
+              </div>
+            ) : (
+              <div className="flex items-center gap-2 text-amber-500 bg-amber-500/10 p-3 rounded-xl border border-amber-500/20">
+                <AlertTriangle size={16} />
+                <span className="text-sm">Sensor no detectado</span>
+              </div>
+            )}
+          </div>
+        </div>
+      </GlassCard>
+    </div>
   );
 }
 
@@ -667,12 +1209,16 @@ function StepRules({
   onConfigChange,
   linkSensor,
   onLinkSensorChange,
-  currentSensorId
+  currentSensorId,
+  isAssociationSelected,
+  associationCards,
+  associationChallengePlan,
+  onAssociationChallengePlanChange
 }) {
   const difficulties = [
-    { id: 'easy', label: 'Fácil', color: 'emerald', description: 'Más tiempo, sin penalización' },
-    { id: 'medium', label: 'Normal', color: 'amber', description: 'Configuración equilibrada' },
-    { id: 'hard', label: 'Difícil', color: 'rose', description: 'Menos tiempo, más penalización' }
+    { id: 'easy', label: 'Fácil', description: 'Más tiempo, sin penalización' },
+    { id: 'medium', label: 'Normal', description: 'Configuración equilibrada' },
+    { id: 'hard', label: 'Difícil', description: 'Menos tiempo, más penalización' }
   ];
 
   return (
@@ -684,14 +1230,18 @@ function StepRules({
         </h2>
         
         <div className="space-y-3">
-          {difficulties.map((d) => (
+          {difficulties.map((d) => {
+            const style = DIFFICULTY_VARIANT_STYLES[d.id] || DIFFICULTY_VARIANT_STYLES.medium;
+            const isSelected = difficulty === d.id;
+
+            return (
             <motion.button
               key={d.id}
               onClick={() => onDifficultyChange(d.id)}
               className={cn(
                 'w-full p-4 rounded-xl border-2 text-left transition-all',
-                difficulty === d.id
-                  ? `border-${d.color}-500 bg-${d.color}-500/10`
+                isSelected
+                  ? style.selectedCard
                   : 'border-white/10 bg-slate-800/30 hover:border-white/20'
               )}
               whileHover={{ x: 4 }}
@@ -700,24 +1250,28 @@ function StepRules({
                 <div>
                   <h3 className={cn(
                     'font-medium',
-                    difficulty === d.id ? `text-${d.color}-400` : 'text-white'
+                    isSelected ? style.selectedText : 'text-white'
                   )}>
                     {d.label}
                   </h3>
                   <p className="text-xs text-slate-400">{d.description}</p>
                 </div>
-                {difficulty === d.id && (
+                {isSelected && (
                   <motion.div
                     initial={{ scale: 0 }}
                     animate={{ scale: 1 }}
-                    className={`w-6 h-6 rounded-full bg-${d.color}-500 flex items-center justify-center`}
+                    className={cn(
+                      'size-6 rounded-full flex items-center justify-center',
+                      style.selectedIndicator
+                    )}
                   >
                     <Check size={14} className="text-white" />
                   </motion.div>
                 )}
               </div>
             </motion.button>
-          ))}
+            );
+          })}
         </div>
       </GlassCard>
 
@@ -730,17 +1284,18 @@ function StepRules({
         <div className="space-y-5">
           {/* Número de rondas */}
           <div>
-            <label className="flex items-center gap-2 text-sm text-slate-300 mb-2">
+            <label htmlFor="assoc-num-rounds" className="flex items-center gap-2 text-sm text-slate-300 mb-2">
               <Target size={14} className="text-indigo-400" />
               Número de rondas
             </label>
             <div className="flex items-center gap-4">
               <input
+                id="assoc-num-rounds"
                 type="range"
                 min={1}
                 max={15}
                 value={config.numberOfRounds}
-                onChange={(e) => onConfigChange('numberOfRounds', parseInt(e.target.value))}
+                onChange={(e) => onConfigChange('numberOfRounds', Number.parseInt(e.target.value, 10))}
                 className="flex-1 accent-indigo-500"
               />
               <span className="w-12 text-center text-white font-medium bg-slate-800 rounded-lg py-1">
@@ -751,18 +1306,19 @@ function StepRules({
 
           {/* Tiempo por ronda */}
           <div>
-            <label className="flex items-center gap-2 text-sm text-slate-300 mb-2">
+            <label htmlFor="assoc-time-limit" className="flex items-center gap-2 text-sm text-slate-300 mb-2">
               <Clock size={14} className="text-purple-400" />
               Tiempo por ronda (segundos)
             </label>
             <div className="flex items-center gap-4">
               <input
+                id="assoc-time-limit"
                 type="range"
                 min={5}
                 max={60}
                 step={5}
                 value={config.timeLimit}
-                onChange={(e) => onConfigChange('timeLimit', parseInt(e.target.value))}
+                onChange={(e) => onConfigChange('timeLimit', Number.parseInt(e.target.value, 10))}
                 className="flex-1 accent-purple-500"
               />
               <span className="w-12 text-center text-white font-medium bg-slate-800 rounded-lg py-1">
@@ -773,18 +1329,19 @@ function StepRules({
 
           {/* Puntos por acierto */}
           <div>
-            <label className="flex items-center gap-2 text-sm text-slate-300 mb-2">
+            <label htmlFor="assoc-points-correct" className="flex items-center gap-2 text-sm text-slate-300 mb-2">
               <Zap size={14} className="text-emerald-400" />
               Puntos por acierto
             </label>
             <div className="flex items-center gap-4">
               <input
+                id="assoc-points-correct"
                 type="range"
                 min={5}
                 max={25}
                 step={5}
                 value={config.pointsPerCorrect}
-                onChange={(e) => onConfigChange('pointsPerCorrect', parseInt(e.target.value))}
+                onChange={(e) => onConfigChange('pointsPerCorrect', Number.parseInt(e.target.value, 10))}
                 className="flex-1 accent-emerald-500"
               />
               <span className="w-12 text-center text-white font-medium bg-slate-800 rounded-lg py-1">
@@ -795,17 +1352,18 @@ function StepRules({
 
           {/* Penalización por error */}
           <div>
-            <label className="flex items-center gap-2 text-sm text-slate-300 mb-2">
+            <label htmlFor="assoc-penalty-error" className="flex items-center gap-2 text-sm text-slate-300 mb-2">
               <AlertTriangle size={14} className="text-rose-400" />
               Penalización por error
             </label>
             <div className="flex items-center gap-4">
               <input
+                id="assoc-penalty-error"
                 type="range"
                 min={-10}
                 max={0}
                 value={config.penaltyPerError}
-                onChange={(e) => onConfigChange('penaltyPerError', parseInt(e.target.value))}
+                onChange={(e) => onConfigChange('penaltyPerError', Number.parseInt(e.target.value, 10))}
                 className="flex-1 accent-rose-500"
               />
               <span className="w-12 text-center text-white font-medium bg-slate-800 rounded-lg py-1">
@@ -837,14 +1395,17 @@ function StepRules({
                   <span className="text-xs font-mono text-slate-500 max-w-[150px] truncate">
                     ID: {currentSensorId}
                   </span>
-                  <div className="flex items-center h-6 w-12 rounded-full bg-slate-700 relative p-1 cursor-pointer"
-                       onClick={() => onLinkSensorChange(!linkSensor)}>
+                  <button
+                    type="button"
+                    className="flex items-center h-6 w-12 rounded-full bg-slate-700 relative p-1"
+                    onClick={() => onLinkSensorChange(!linkSensor)}
+                  >
                     <motion.div 
                       className={cn("h-4 w-4 rounded-full shadow-sm", linkSensor ? "bg-indigo-500" : "bg-slate-500")}
                       transition={{ type: "spring", stiffness: 500, damping: 30 }}
                       animate={{ x: linkSensor ? 24 : 0 }}
                     />
-                  </div>
+                  </button>
                 </div>
                 <span className={cn("text-xs font-medium", linkSensor ? "text-indigo-400" : "text-slate-500")}>
                   {linkSensor ? "Sensor vinculado" : "Sin vincular"}
@@ -859,7 +1420,114 @@ function StepRules({
           </div>
         </div>
       </GlassCard>
+
+      {isAssociationSelected && (
+        <AssociationChallengeComposer
+          cards={associationCards}
+          challengePlan={associationChallengePlan}
+          onPlanChange={onAssociationChallengePlanChange}
+        />
+      )}
     </div>
+  );
+}
+
+function AssociationChallengeComposer({ cards, challengePlan, onPlanChange, disabled = false }) {
+  const safeCards = Array.isArray(cards) ? cards : [];
+  const safePlan = Array.isArray(challengePlan) ? challengePlan : [];
+
+  const cardOptions = safeCards.map(card => ({
+    value: card.uid,
+    label: `${card.assignedValue || card.uid} · ${card.uid}`
+  }));
+
+  const cardByUid = new Map(safeCards.map(card => [card.uid, card]));
+
+  const handleCardChange = (roundNumber, selectedUid) => {
+    const selectedCard = cardByUid.get(selectedUid);
+    if (!selectedCard) {
+      return;
+    }
+
+    onPlanChange(prev =>
+      (Array.isArray(prev) ? prev : []).map(item =>
+        item.roundNumber === roundNumber
+          ? {
+              ...item,
+              cardId: selectedCard.cardId,
+              uid: selectedCard.uid,
+              assignedValue: selectedCard.assignedValue,
+              displayData: selectedCard.displayData || {}
+            }
+          : item
+      )
+    );
+  };
+
+  const handlePromptChange = (roundNumber, promptText) => {
+    onPlanChange(prev =>
+      (Array.isArray(prev) ? prev : []).map(item =>
+        item.roundNumber === roundNumber
+          ? {
+              ...item,
+              promptText
+            }
+          : item
+      )
+    );
+  };
+
+  if (safePlan.length === 0) {
+    return (
+      <GlassCard className="p-6 lg:col-span-2 border border-amber-500/40">
+        <h2 className="text-lg font-semibold text-white mb-2">Retos de Association</h2>
+        <p className="text-sm text-amber-300">
+          Selecciona un mazo con tarjetas y define el número de rondas para configurar los retos.
+        </p>
+      </GlassCard>
+    );
+  }
+
+  return (
+    <GlassCard className="p-6 lg:col-span-2">
+      <h2 className="text-lg font-semibold text-white mb-1">Plan de retos (Association)</h2>
+      <p className="text-sm text-slate-400 mb-4">
+        Define para cada ronda qué tarjeta será el reto principal y, si quieres, añade una consigna breve.
+      </p>
+
+      <div className="space-y-4">
+        {safePlan.map(item => (
+          <div
+            key={`association-round-${item.roundNumber}`}
+            className="rounded-xl border border-white/10 bg-slate-900/40 p-4 grid grid-cols-1 lg:grid-cols-3 gap-4"
+          >
+            <div className="lg:col-span-1">
+              <p className="text-sm font-medium text-white mb-2">Ronda {item.roundNumber}</p>
+              <SelectPremium
+                label="Tarjeta objetivo"
+                value={item.uid || ''}
+                onChange={value => handleCardChange(item.roundNumber, value)}
+                options={cardOptions}
+                disabled={disabled}
+                placeholder="Selecciona una tarjeta"
+              />
+            </div>
+
+            <div className="lg:col-span-2">
+              <InputPremium
+                label="Consigna opcional"
+                value={item.promptText || ''}
+                onChange={e => handlePromptChange(item.roundNumber, e.target.value)}
+                maxLength={180}
+                disabled={disabled}
+                placeholder="Ej: Encuentra la tarjeta que representa un mamífero"
+                hint="Se muestra en la ronda como guía del reto."
+              />
+            </div>
+          </div>
+        ))}
+      </div>
+    </GlassCard>
   );
 }
 
@@ -892,21 +1560,39 @@ function StepReview({ sessionConfig, setSessionConfig, selectedDeck, selectedMec
         <div className="space-y-4">
           {/* Mazo */}
           <div className="flex items-start gap-3 p-3 rounded-xl bg-slate-800/50">
-            <div className="w-10 h-10 rounded-lg bg-indigo-500/20 flex items-center justify-center flex-shrink-0">
+            <div className="size-10 rounded-lg bg-indigo-500/20 flex items-center justify-center flex-shrink-0">
               <CreditCard size={18} className="text-indigo-400" />
             </div>
-            <div>
+            <div className="flex-1 min-w-0">
               <p className="text-xs text-slate-400">Mazo</p>
               <p className="text-white font-medium">{selectedDeck?.name || 'No seleccionado'}</p>
               <p className="text-xs text-slate-500">
-                {selectedDeck?.cards?.length || 0} cartas • {selectedDeck?.contextId?.name}
+                {selectedDeck?.cards?.length || selectedDeck?.cardMappings?.length || 0} cartas {'\u2022'} {selectedDeck?.contextId?.name}
               </p>
+              {/* Mini-galería de assets del mazo */}
+              {selectedDeck?.cardMappings?.length > 0 && (
+                <div className="flex gap-1.5 mt-2 overflow-x-auto pb-1 max-w-full">
+                  {selectedDeck.cardMappings.slice(0, 8).map((m) => (
+                    <CardAssetPreview
+                      key={m.id || m.uid || m.cardId || m._id}
+                      asset={m.displayData}
+                      className="size-10 rounded-lg flex-shrink-0"
+                      fallbackLabel={m.displayData?.display || m.displayData?.emoji || '\uD83C\uDFB3'}
+                    />
+                  ))}
+                  {selectedDeck.cardMappings.length > 8 && (
+                    <div className="size-10 rounded-lg flex-shrink-0 bg-slate-700/60 flex items-center justify-center text-xs text-slate-400">
+                      +{selectedDeck.cardMappings.length - 8}
+                    </div>
+                  )}
+                </div>
+              )}
             </div>
           </div>
 
           {/* Mecánica */}
           <div className="flex items-start gap-3 p-3 rounded-xl bg-slate-800/50">
-            <div className="w-10 h-10 rounded-lg bg-purple-500/20 flex items-center justify-center flex-shrink-0">
+            <div className="size-10 rounded-lg bg-purple-500/20 flex items-center justify-center flex-shrink-0">
               <Layers size={18} className="text-purple-400" />
             </div>
             <div>
@@ -919,7 +1605,7 @@ function StepReview({ sessionConfig, setSessionConfig, selectedDeck, selectedMec
 
           {/* Reglas */}
           <div className="flex items-start gap-3 p-3 rounded-xl bg-slate-800/50">
-            <div className="w-10 h-10 rounded-lg bg-emerald-500/20 flex items-center justify-center flex-shrink-0">
+            <div className="size-10 rounded-lg bg-emerald-500/20 flex items-center justify-center flex-shrink-0">
               <Settings size={18} className="text-emerald-400" />
             </div>
             <div className="flex-1">
@@ -947,3 +1633,115 @@ function StepReview({ sessionConfig, setSessionConfig, selectedDeck, selectedMec
     </div>
   );
 }
+
+const cardMappingShape = PropTypes.shape({
+  id: PropTypes.oneOfType([PropTypes.string, PropTypes.number]),
+  _id: PropTypes.oneOfType([PropTypes.string, PropTypes.number]),
+  cardId: PropTypes.oneOfType([PropTypes.string, PropTypes.number]),
+  uid: PropTypes.string,
+  assignedValue: PropTypes.string,
+  displayData: PropTypes.object
+});
+
+const deckShape = PropTypes.shape({
+  id: PropTypes.oneOfType([PropTypes.string, PropTypes.number]),
+  _id: PropTypes.oneOfType([PropTypes.string, PropTypes.number]),
+  name: PropTypes.string,
+  cardsCount: PropTypes.number,
+  cards: PropTypes.array,
+  cardMappings: PropTypes.arrayOf(cardMappingShape),
+  context: PropTypes.shape({ name: PropTypes.string }),
+  contextId: PropTypes.shape({ name: PropTypes.string })
+});
+
+const mechanicShape = PropTypes.shape({
+  id: PropTypes.oneOfType([PropTypes.string, PropTypes.number]),
+  _id: PropTypes.oneOfType([PropTypes.string, PropTypes.number]),
+  name: PropTypes.string,
+  displayName: PropTypes.string,
+  description: PropTypes.string,
+  icon: PropTypes.string
+});
+
+const configShape = PropTypes.shape({
+  numberOfRounds: PropTypes.number,
+  timeLimit: PropTypes.number,
+  pointsPerCorrect: PropTypes.number,
+  penaltyPerError: PropTypes.number
+});
+
+StepDeck.propTypes = {
+  decks: PropTypes.arrayOf(deckShape).isRequired,
+  loading: PropTypes.bool.isRequired,
+  selectedDeckId: PropTypes.oneOfType([PropTypes.string, PropTypes.number]),
+  onSelect: PropTypes.func.isRequired
+};
+
+StepMechanic.propTypes = {
+  mechanics: PropTypes.arrayOf(mechanicShape).isRequired,
+  loading: PropTypes.bool.isRequired,
+  selectedMechanicId: PropTypes.oneOfType([PropTypes.string, PropTypes.number]),
+  onSelect: PropTypes.func.isRequired
+};
+
+StepMemoryRules.propTypes = {
+  config: configShape.isRequired,
+  onConfigChange: PropTypes.func.isRequired,
+  linkSensor: PropTypes.bool.isRequired,
+  onLinkSensorChange: PropTypes.func.isRequired,
+  currentSensorId: PropTypes.string,
+  cards: PropTypes.arrayOf(cardMappingShape).isRequired,
+  slots: PropTypes.arrayOf(PropTypes.oneOfType([cardMappingShape, PropTypes.oneOf([null])])).isRequired,
+  onSlotsChange: PropTypes.func.isRequired,
+  selectedCardUid: PropTypes.string,
+  onSelectedCardUidChange: PropTypes.func.isRequired
+};
+
+StepRules.propTypes = {
+  config: configShape.isRequired,
+  difficulty: PropTypes.oneOf(['easy', 'medium', 'hard']).isRequired,
+  onDifficultyChange: PropTypes.func.isRequired,
+  onConfigChange: PropTypes.func.isRequired,
+  linkSensor: PropTypes.bool.isRequired,
+  onLinkSensorChange: PropTypes.func.isRequired,
+  currentSensorId: PropTypes.string,
+  isAssociationSelected: PropTypes.bool,
+  associationCards: PropTypes.arrayOf(cardMappingShape),
+  associationChallengePlan: PropTypes.arrayOf(
+    PropTypes.shape({
+      roundNumber: PropTypes.number,
+      cardId: PropTypes.oneOfType([PropTypes.string, PropTypes.number]),
+      uid: PropTypes.string,
+      assignedValue: PropTypes.string,
+      displayData: PropTypes.object,
+      promptText: PropTypes.string
+    })
+  ),
+  onAssociationChallengePlanChange: PropTypes.func
+};
+
+AssociationChallengeComposer.propTypes = {
+  cards: PropTypes.arrayOf(cardMappingShape),
+  challengePlan: PropTypes.arrayOf(
+    PropTypes.shape({
+      roundNumber: PropTypes.number,
+      cardId: PropTypes.oneOfType([PropTypes.string, PropTypes.number]),
+      uid: PropTypes.string,
+      assignedValue: PropTypes.string,
+      displayData: PropTypes.object,
+      promptText: PropTypes.string
+    })
+  ),
+  onPlanChange: PropTypes.func.isRequired,
+  disabled: PropTypes.bool
+};
+
+StepReview.propTypes = {
+  sessionConfig: PropTypes.shape({
+    name: PropTypes.string,
+    config: configShape
+  }).isRequired,
+  setSessionConfig: PropTypes.func.isRequired,
+  selectedDeck: deckShape,
+  selectedMechanic: mechanicShape
+};

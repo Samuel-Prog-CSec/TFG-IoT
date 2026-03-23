@@ -15,9 +15,10 @@ export function useDocumentTitle(title, restoreOnUnmount = true) {
   }, [title]);
 
   useEffect(() => {
+    const savedTitle = originalTitle.current;
     return () => {
       if (restoreOnUnmount) {
-        document.title = originalTitle.current;
+        document.title = savedTitle;
       }
     };
   }, [restoreOnUnmount]);

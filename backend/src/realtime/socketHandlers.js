@@ -8,12 +8,15 @@
 const gamePlayRepository = require('../repositories/gamePlayRepository');
 const userRepository = require('../repositories/userRepository');
 const { verifyAccessToken } = require('../middlewares/auth');
+const { corsWhitelist } = require('../config/security');
 const runtimeMetrics = require('../utils/runtimeMetrics');
 const { logSecurityEvent, getSocketContext } = require('../utils/securityLogger');
 const { rfidClientEventSchema } = require('../validators/rfidValidator');
 const { objectIdSchema } = require('../validators/commonValidator');
 const { getRfidState } = require('../states/rfid');
 const { getSocketCommand, getCommandNames } = require('../commands/socket');
+const { findDangerousPayloadPath } = require('../utils/payloadSecurity');
+const Sentry = require('@sentry/node');
 
 const RFID_MODES = Object.freeze({
   IDLE: 'idle',
@@ -22,8 +25,153 @@ const RFID_MODES = Object.freeze({
   CARD_ASSIGNMENT: 'card_assignment'
 });
 
+const AUTH_REVALIDATION_CACHE_TTL_MS =
+  Number.parseInt(process.env.AUTH_REVALIDATION_CACHE_TTL_MS, 10) || 30000;
+const PLAY_OWNERSHIP_CACHE_TTL_MS =
+  Number.parseInt(process.env.PLAY_OWNERSHIP_CACHE_TTL_MS, 10) || 5000;
+const CACHE_SWEEP_THRESHOLD = Number.parseInt(process.env.SOCKET_CACHE_SWEEP_THRESHOLD, 10) || 2000;
+
 const rfidModeByUserId = new Map();
 const sensorIdToUserId = new Map();
+const authRevalidationCache = new Map();
+const playOwnershipCache = new Map();
+let socketServerRef = null;
+
+/**
+ * Referencia al intervalo de limpieza periódica de caches.
+ * @type {NodeJS.Timeout|null}
+ */
+let cacheCleanupIntervalRef = null;
+
+/** Intervalo de limpieza periódica de caches (5 minutos). */
+const CACHE_CLEANUP_INTERVAL_MS = 5 * 60 * 1000;
+
+const emitRfidModeChanged = (userId, payload) => {
+  if (!socketServerRef || !userId) {
+    return;
+  }
+
+  socketServerRef.to(`user_${userId}`).emit('rfid_mode_changed', payload);
+};
+
+const sweepExpiredEntries = cacheMap => {
+  if (!cacheMap || cacheMap.size < CACHE_SWEEP_THRESHOLD) {
+    return;
+  }
+
+  const now = Date.now();
+  for (const [key, cached] of cacheMap.entries()) {
+    if (!cached || cached.expiresAt <= now) {
+      cacheMap.delete(key);
+    }
+  }
+};
+
+/**
+ * Barre entradas expiradas de un cache sin importar su tamaño.
+ * Utilizado por el intervalo periódico de limpieza.
+ *
+ * @param {Map} cacheMap - Cache a limpiar
+ * @returns {number} Cantidad de entradas eliminadas
+ */
+const sweepAllExpiredEntries = cacheMap => {
+  if (!cacheMap || cacheMap.size === 0) {
+    return 0;
+  }
+
+  const now = Date.now();
+  let removed = 0;
+  for (const [key, cached] of cacheMap.entries()) {
+    if (!cached || cached.expiresAt <= now) {
+      cacheMap.delete(key);
+      removed++;
+    }
+  }
+  return removed;
+};
+
+const getAuthCacheEntry = accessToken => {
+  if (!accessToken) {
+    return null;
+  }
+
+  const cached = authRevalidationCache.get(accessToken);
+  if (!cached) {
+    return null;
+  }
+
+  if (cached.expiresAt <= Date.now()) {
+    authRevalidationCache.delete(accessToken);
+    return null;
+  }
+
+  return cached;
+};
+
+const setAuthCacheEntry = (accessToken, value) => {
+  if (!accessToken) {
+    return;
+  }
+
+  sweepExpiredEntries(authRevalidationCache);
+
+  authRevalidationCache.set(accessToken, {
+    ...value,
+    expiresAt: Date.now() + AUTH_REVALIDATION_CACHE_TTL_MS
+  });
+};
+
+const buildOwnershipCacheKey = ({ userId, userRole, playId, includeSessionRuntime }) =>
+  `${userRole || 'unknown'}:${userId || 'unknown'}:${playId}:${includeSessionRuntime ? 'full' : 'light'}`;
+
+const getOwnershipCacheEntry = cacheKey => {
+  const cached = playOwnershipCache.get(cacheKey);
+  if (!cached) {
+    return null;
+  }
+
+  if (cached.expiresAt <= Date.now()) {
+    playOwnershipCache.delete(cacheKey);
+    return null;
+  }
+
+  return cached.value;
+};
+
+const setOwnershipCacheEntry = (cacheKey, value) => {
+  sweepExpiredEntries(playOwnershipCache);
+
+  playOwnershipCache.set(cacheKey, {
+    value,
+    expiresAt: Date.now() + PLAY_OWNERSHIP_CACHE_TTL_MS
+  });
+};
+
+const getSocketOwnershipCacheEntry = (socket, cacheKey) => {
+  const socketCache = socket?.data?.playOwnershipCache;
+  if (!socketCache || socketCache.cacheKey !== cacheKey) {
+    return null;
+  }
+
+  if (socketCache.expiresAt <= Date.now()) {
+    socket.data.playOwnershipCache = null;
+    return null;
+  }
+
+  return socketCache.value;
+};
+
+const setSocketOwnershipCacheEntry = (socket, cacheKey, value) => {
+  if (!socket?.data) {
+    return;
+  }
+
+  socket.data.playOwnershipCache = {
+    cacheKey,
+    value,
+    expiresAt: Date.now() + PLAY_OWNERSHIP_CACHE_TTL_MS
+  };
+};
 
 const getRfidModeState = userId => {
   if (!userId) {
@@ -50,12 +198,28 @@ const setRfidModeState = (userId, mode, socketId, metadata = {}) => {
   }
 
   const current = rfidModeByUserId.get(userId);
+  const modeChangedAt = Date.now();
+
+  if (current?.socketId && current.socketId !== socketId) {
+    socketServerRef?.to(current.socketId).emit('error', {
+      code: 'RFID_MODE_TAKEN_OVER',
+      message: 'Otro cliente tomó el control del modo RFID para este usuario'
+    });
+  }
+
   if (current?.sensorId) {
     sensorIdToUserId.delete(current.sensorId);
   }
 
   if (mode === RFID_MODES.IDLE) {
     rfidModeByUserId.delete(userId);
+    emitRfidModeChanged(userId, {
+      mode: RFID_MODES.IDLE,
+      sensorId: null,
+      metadata: {},
+      socketId: null,
+      updatedAt: modeChangedAt
+    });
     return;
   }
 
@@ -64,7 +228,15 @@ const setRfidModeState = (userId, mode, socketId, metadata = {}) => {
     socketId,
     sensorId: null,
     metadata,
-    updatedAt: Date.now()
+    updatedAt: modeChangedAt
+  });
+
+  emitRfidModeChanged(userId, {
+    mode,
+    sensorId: null,
+    metadata,
+    socketId,
+    updatedAt: modeChangedAt
   });
 };
 
@@ -79,12 +251,24 @@ const setRfidSensorBinding = (userId, sensorId, socketId) => {
   }
 
   sensorIdToUserId.set(sensorId, userId);
+  const nextUpdatedAt = Date.now();
   rfidModeByUserId.set(userId, {
     ...current,
     sensorId,
     socketId,
-    updatedAt: Date.now()
+    updatedAt: nextUpdatedAt
   });
+
+  const nextState = rfidModeByUserId.get(userId);
+  if (nextState) {
+    emitRfidModeChanged(userId, {
+      mode: nextState.mode,
+      sensorId: nextState.sensorId,
+      metadata: nextState.metadata || {},
+      socketId: nextState.socketId || null,
+      updatedAt: nextUpdatedAt
+    });
+  }
 };
 
 const clearRfidModeState = (userId, socketId) => {
@@ -106,6 +290,13 @@ const clearRfidModeState = (userId, socketId) => {
   }
 
   rfidModeByUserId.delete(userId);
+  emitRfidModeChanged(userId, {
+    mode: RFID_MODES.IDLE,
+    sensorId: null,
+    metadata: {},
+    socketId: null,
+    updatedAt: Date.now()
+  });
 };
 
 const buildSocketSecurityMeta = socket => ({
@@ -118,6 +309,44 @@ const logSocketSecurityEvent = (eventCode, socket, meta = {}) => {
   logSecurityEvent(eventCode, {
     ...buildSocketSecurityMeta(socket),
     ...meta
+  });
+};
+
+const validateSocketOrigin = socket => {
+  const origin = socket.handshake?.headers?.origin;
+  const isProduction = process.env.NODE_ENV === 'production';
+
+  if (!origin) {
+    if (isProduction) {
+      return {
+        valid: false,
+        reason: 'ORIGIN_REQUIRED'
+      };
+    }
+
+    return { valid: true };
+  }
+
+  if (corsWhitelist.includes(origin)) {
+    return { valid: true };
+  }
+
+  return {
+    valid: false,
+    reason: 'ORIGIN_NOT_ALLOWED',
+    origin
+  };
+};
+
+const rejectDangerousSocketPayload = (socket, eventName, payloadPath) => {
+  socket.emit('error', {
+    code: 'VALIDATION_ERROR',
+    message: 'Payload no permitido por política de seguridad'
+  });
+  logSocketSecurityEvent('SECURITY_PAYLOAD_BLOCKED', socket, {
+    eventName,
+    source: 'socket',
+    path: payloadPath
   });
 };
 
@@ -174,6 +403,17 @@ const revalidateSocketAuth = async (socket, eventName) => {
   }
 
   try {
+    const cached = getAuthCacheEntry(accessToken);
+    if (cached) {
+      runtimeMetrics.recordSocketAuthCache('hit');
+      socket.data.userId = cached.userId;
+      socket.data.userRole = cached.userRole;
+      socket.data.tokenExp = cached.tokenExp;
+      return true;
+    }
+
+    runtimeMetrics.recordSocketAuthCache('miss');
+
     const decoded = await verifyAccessToken(accessToken, {
       headers: socket.handshake.headers
     });
@@ -204,6 +444,13 @@ const revalidateSocketAuth = async (socket, eventName) => {
     socket.data.userId = user._id.toString();
     socket.data.userRole = user.role;
     socket.data.tokenExp = decoded.exp;
+
+    setAuthCacheEntry(accessToken, {
+      userId: user._id.toString(),
+      userRole: user.role,
+      tokenExp: decoded.exp
+    });
+
     return true;
   } catch (error) {
     socket.emit('error', { code: 'AUTH_INVALID', message: 'Autenticacion invalida' });
@@ -216,7 +463,9 @@ const revalidateSocketAuth = async (socket, eventName) => {
   }
 };
 
-const requirePlayOwnership = async (socket, playId, eventName) => {
+const requirePlayOwnership = async (socket, playId, eventName, options = {}) => {
+  const includeSessionRuntime = options.includeSessionRuntime === true;
+
   if (!socket?.data?.userId) {
     socket.emit('error', { code: 'AUTH_REQUIRED', message: 'Autenticacion requerida' });
     logSocketSecurityEvent('AUTHZ_ACCESS_DENIED', socket, {
@@ -227,12 +476,41 @@ const requirePlayOwnership = async (socket, playId, eventName) => {
     return null;
   }
 
-  const play = await gamePlayRepository.findById(playId, {
-    populate: {
-      path: 'sessionId',
-      populate: { path: 'mechanicId', select: 'name rules' }
-    }
+  const ownershipCacheKey = buildOwnershipCacheKey({
+    userId: socket.data.userId,
+    userRole: socket.data.userRole,
+    playId,
+    includeSessionRuntime
   });
+
+  if (!includeSessionRuntime) {
+    const socketCachedOwnership = getSocketOwnershipCacheEntry(socket, ownershipCacheKey);
+    if (socketCachedOwnership) {
+      return socketCachedOwnership;
+    }
+
+    const cachedOwnership = getOwnershipCacheEntry(ownershipCacheKey);
+    if (cachedOwnership) {
+      setSocketOwnershipCacheEntry(socket, ownershipCacheKey, cachedOwnership);
+      return cachedOwnership;
+    }
+  }
+
+  const play = includeSessionRuntime
+    ? await gamePlayRepository.findById(playId, {
+        populate: {
+          path: 'sessionId',
+          populate: { path: 'mechanicId', select: 'name rules' }
+        }
+      })
+    : await gamePlayRepository.findById(playId, {
+        select: '_id sessionId status',
+        populate: {
+          path: 'sessionId',
+          select: '_id createdBy'
+        }
+      });
+
   if (!play) {
     socket.emit('error', { code: 'NOT_FOUND', message: 'Partida no encontrada' });
     logSocketSecurityEvent('AUTHZ_ACCESS_DENIED', socket, {
@@ -258,7 +536,13 @@ const requirePlayOwnership = async (socket, playId, eventName) => {
     return null;
   }
 
-  return { play, session };
+  const ownership = { play, session };
+  if (!includeSessionRuntime) {
+    setOwnershipCacheEntry(ownershipCacheKey, ownership);
+    setSocketOwnershipCacheEntry(socket, ownershipCacheKey, ownership);
+  }
+
+  return ownership;
 };
 
 const isRfidClientSourceEnabled = socket => {
@@ -299,6 +583,20 @@ const getRfidStateForSocket = (socket, logger) => {
 };
 
 const validateRfidStateForRead = (socket, modeState, state) => {
+  if (modeState?.socketId && modeState.socketId !== socket.id) {
+    socket.emit('error', {
+      code: 'RFID_SOCKET_NOT_ACTIVE',
+      message: 'Este socket no es el owner activo del modo RFID'
+    });
+    logSocketSecurityEvent('SECURITY_RFID_EVENT_INVALID', socket, {
+      eventName: 'rfid_scan_from_client',
+      reason: 'RFID_SOCKET_NOT_ACTIVE',
+      mode: modeState.mode,
+      activeSocketId: modeState.socketId
+    });
+    return false;
+  }
+
   if (!state.allowsReads()) {
     socket.emit('error', {
       code: 'RFID_MODE_INVALID',
@@ -339,8 +637,37 @@ const validateRfidSensorAuthorization = (socket, modeState, payload, gameEngine)
     return true;
   }
 
-  const playState = gameEngine.getPlayState(modeState.metadata.playId);
-  const sessionSensorId = playState?.sessionDoc?.sensorId;
+  const playContext = gameEngine.getPlayRuntimeContext(modeState.metadata.playId);
+  if (!playContext) {
+    socket.emit('error', {
+      code: 'PLAY_NOT_ACTIVE',
+      message: 'La partida no está activa en el motor de juego'
+    });
+    logSocketSecurityEvent('SECURITY_RFID_EVENT_INVALID', socket, {
+      eventName: 'rfid_scan_from_client',
+      reason: 'PLAY_NOT_ACTIVE',
+      playId: modeState.metadata.playId
+    });
+    return false;
+  }
+
+  const isSuperAdmin = socket.data.userRole === 'super_admin';
+  const ownsPlay = playContext.ownerId && playContext.ownerId === socket.data.userId;
+  if (!isSuperAdmin && !ownsPlay) {
+    socket.emit('error', {
+      code: 'FORBIDDEN',
+      message: 'No tienes acceso a esta partida'
+    });
+    logSocketSecurityEvent('AUTHZ_ACCESS_DENIED', socket, {
+      eventName: 'rfid_scan_from_client',
+      reason: 'OWNERSHIP_INVALID',
+      playId: playContext.playId,
+      sessionId: playContext.sessionId
+    });
+    return false;
+  }
+
+  const sessionSensorId = playContext.sensorId;
 
   if (!sessionSensorId || sessionSensorId === payload.sensorId) {
     return true;
@@ -353,7 +680,7 @@ const validateRfidSensorAuthorization = (socket, modeState, payload, gameEngine)
   logSocketSecurityEvent('SECURITY_RFID_EVENT_INVALID', socket, {
     eventName: 'rfid_scan_from_client',
     reason: 'RFID_SENSOR_UNAUTHORIZED',
-    sessionId: playState?.sessionDoc?._id,
+    sessionId: playContext.sessionId,
     expected: sessionSensorId,
     received: payload.sensorId
   });
@@ -384,7 +711,7 @@ const ensureRfidSensorConsistency = (socket, modeState, payload) => {
   return true;
 };
 
-const handleRfidScanFromClient = (socket, data, gameEngine, rfidService, logger) => {
+const handleRfidScanFromClient = async (socket, data, gameEngine, rfidService, logger) => {
   if (!requireSocketRole(socket, ['teacher', 'super_admin'], 'rfid_scan_from_client')) {
     return;
   }
@@ -419,6 +746,30 @@ const handleRfidScanFromClient = (socket, data, gameEngine, rfidService, logger)
 };
 
 const registerSocketHandlers = ({ io, gameEngine, rfidService, socketRateLimiter, logger }) => {
+  socketServerRef = io;
+
+  // Iniciar limpieza periódica de caches (cada 5 minutos)
+  if (cacheCleanupIntervalRef) {
+    clearInterval(cacheCleanupIntervalRef);
+  }
+  cacheCleanupIntervalRef = setInterval(() => {
+    const authRemoved = sweepAllExpiredEntries(authRevalidationCache);
+    const ownershipRemoved = sweepAllExpiredEntries(playOwnershipCache);
+    if (authRemoved > 0 || ownershipRemoved > 0) {
+      logger.debug('Limpieza periódica de caches Socket.IO completada', {
+        authRemoved,
+        ownershipRemoved,
+        authCacheSize: authRevalidationCache.size,
+        ownershipCacheSize: playOwnershipCache.size
+      });
+    }
+  }, CACHE_CLEANUP_INTERVAL_MS);
+
+  // Evitar que el intervalo impida el cierre del proceso
+  if (cacheCleanupIntervalRef.unref) {
+    cacheCleanupIntervalRef.unref();
+  }
+
   // Middleware de autenticacion obligatoria.
   io.use(async (socket, next) => {
     try {
@@ -439,6 +790,16 @@ const registerSocketHandlers = ({ io, gameEngine, rfidService, socketRateLimiter
           tokenSource
         });
         return next(new Error('Token requerido'));
+      }
+
+      const originValidation = validateSocketOrigin(socket);
+      if (!originValidation.valid) {
+        logSocketSecurityEvent('WS_AUTH_FAILED', socket, {
+          reason: originValidation.reason,
+          origin: originValidation.origin,
+          tokenSource
+        });
+        return next(new Error('Origin no autorizado'));
       }
 
       const mockReq = { headers: socket.handshake.headers };
@@ -520,6 +881,15 @@ const registerSocketHandlers = ({ io, gameEngine, rfidService, socketRateLimiter
       role: socket.data.userRole
     });
 
+    const currentMode = getRfidModeState(socket.data.userId);
+    socket.emit('rfid_mode_changed', {
+      mode: currentMode.mode,
+      sensorId: currentMode.sensorId || null,
+      metadata: currentMode.metadata || {},
+      socketId: currentMode.socketId || null,
+      updatedAt: currentMode.updatedAt || Date.now()
+    });
+
     const sensitiveEvents = new Set([
       'join_play',
       'leave_play',
@@ -533,7 +903,8 @@ const registerSocketHandlers = ({ io, gameEngine, rfidService, socketRateLimiter
       'leave_card_assignment',
       'join_admin_room',
       'leave_admin_room',
-      'rfid_scan_from_client'
+      'rfid_scan_from_client',
+      'play_state_sync'
     ]);
 
     const commandHelpers = {
@@ -567,6 +938,13 @@ const registerSocketHandlers = ({ io, gameEngine, rfidService, socketRateLimiter
           helpers: commandHelpers
         });
       } catch (error) {
+        Sentry.captureException(error, {
+          tags: {
+            eventName,
+            socketId: socket.id
+          },
+          user: socket.user ? { id: socket.user._id, role: socket.user.role } : null
+        });
         logger.error('Error ejecutando comando Socket', {
           eventName,
           message: error.message
@@ -579,6 +957,12 @@ const registerSocketHandlers = ({ io, gameEngine, rfidService, socketRateLimiter
       socket.on(
         eventName,
         socketRateLimiter.wrap(socket, eventName, async data => {
+          const dangerousPath = findDangerousPayloadPath(data);
+          if (dangerousPath) {
+            rejectDangerousSocketPayload(socket, eventName, dangerousPath);
+            return;
+          }
+
           if (sensitiveEvents.has(eventName)) {
             const ok = await revalidateSocketAuth(socket, eventName);
             if (!ok) {
@@ -594,6 +978,7 @@ const registerSocketHandlers = ({ io, gameEngine, rfidService, socketRateLimiter
     });
 
     socket.on('disconnect', () => {
+      socket.data.playOwnershipCache = null;
       clearRfidModeState(socket.data.userId, socket.id);
       socketRateLimiter.cleanupForSocket(socket);
       logger.info(`Cliente desconectado: ${socket.id}`, {
@@ -656,8 +1041,20 @@ const registerRfidHandlers = ({ io, gameEngine, rfidService, logger }) => {
   });
 };
 
+/**
+ * Detiene el intervalo de limpieza periódica de caches.
+ * Debe llamarse durante el shutdown del servidor.
+ */
+const stopCacheCleanup = () => {
+  if (cacheCleanupIntervalRef) {
+    clearInterval(cacheCleanupIntervalRef);
+    cacheCleanupIntervalRef = null;
+  }
+};
+
 module.exports = {
   RFID_MODES,
   registerSocketHandlers,
-  registerRfidHandlers
+  registerRfidHandlers,
+  stopCacheCleanup
 };

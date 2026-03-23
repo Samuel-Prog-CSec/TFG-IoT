@@ -21,7 +21,7 @@ export default function AuthLoader({
   className = '' 
 }) {
   const containerClasses = fullScreen 
-    ? 'min-h-screen flex items-center justify-center bg-slate-950'
+    ? 'min-h-screen flex items-center justify-center bg-background-deep'
     : 'flex items-center justify-center p-8';
 
   return (
@@ -35,8 +35,8 @@ export default function AuthLoader({
         {/* Spinner principal */}
         <div className="relative">
           <motion.div 
-            className="w-16 h-16 rounded-full border-4 border-purple-500/20"
-            style={{ borderTopColor: '#8b5cf6' }}
+            className="size-16 rounded-full border-4 border-brand-base/20"
+            style={{ borderTopColor: 'var(--color-brand-base)' }}
             animate={{ rotate: 360 }}
             transition={{ 
               duration: 1, 
@@ -47,8 +47,8 @@ export default function AuthLoader({
           />
           {/* Efecto de ping */}
           <motion.div 
-            className="absolute inset-0 w-16 h-16 rounded-full border-4 border-transparent"
-            style={{ borderTopColor: 'rgba(139, 92, 246, 0.3)' }}
+            className="absolute inset-0 size-16 rounded-full border-4 border-transparent"
+            style={{ borderTopColor: 'var(--color-brand-glow)' }}
             animate={{ 
               scale: [1, 1.2, 1],
               opacity: [0.5, 0, 0.5]
@@ -64,7 +64,7 @@ export default function AuthLoader({
         
         {/* Mensaje con animación de pulso */}
         <motion.p 
-          className="text-slate-400 text-sm"
+          className="text-text-muted text-sm"
           animate={{ opacity: [0.5, 1, 0.5] }}
           transition={{ 
             duration: 2, 

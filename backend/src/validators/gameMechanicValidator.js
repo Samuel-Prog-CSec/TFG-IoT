@@ -86,7 +86,15 @@ const gameMechanicQuerySchema = paginationSchema.extend({
   isActive: z
     .string()
     .optional()
-    .transform(val => (val === 'true' ? true : val === 'false' ? false : undefined))
+    .transform(val => {
+      if (val === 'true') {
+        return true;
+      }
+      if (val === 'false') {
+        return false;
+      }
+      return undefined;
+    })
     .pipe(z.boolean().optional())
 });
 

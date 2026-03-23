@@ -66,7 +66,7 @@ export default defineConfig([
       // ==========================================
       'react/jsx-uses-react': 'off', // React 19 no necesita import React
       'react/react-in-jsx-scope': 'off',
-      'react/prop-types': 'warn', // Fomentar PropTypes hasta migrar a TS
+      'react/prop-types': 'off', // Desactivado: el proyecto usa JSDoc para documentar props
       'react/jsx-no-target-blank': 'error',
       'react/jsx-curly-brace-presence': ['warn', { 
         props: 'never', 

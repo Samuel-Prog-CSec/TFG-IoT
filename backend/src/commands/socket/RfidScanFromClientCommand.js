@@ -10,7 +10,7 @@ class RfidScanFromClientCommand extends BaseSocketCommand {
   }
 
   async execute({ socket, data, helpers, gameEngine, rfidService, logger }) {
-    helpers.handleRfidScanFromClient(socket, data, gameEngine, rfidService, logger);
+    await helpers.handleRfidScanFromClient(socket, data, gameEngine, rfidService, logger);
   }
 }
 

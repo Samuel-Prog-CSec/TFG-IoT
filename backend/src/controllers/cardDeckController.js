@@ -301,8 +301,12 @@ const parseDeckName = name => {
   return name.trim();
 };
 
-const parseDeckDescription = description =>
-  description === undefined ? undefined : description ? description.trim() : undefined;
+const parseDeckDescription = description => {
+  if (description === undefined) {
+    return undefined;
+  }
+  return description ? description.trim() : undefined;
+};
 
 const parseDeckStatus = status => {
   if (status === undefined) {

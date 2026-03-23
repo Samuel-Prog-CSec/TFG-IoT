@@ -15,6 +15,7 @@ const LeaveCardAssignmentCommand = require('./LeaveCardAssignmentCommand');
 const JoinAdminRoomCommand = require('./JoinAdminRoomCommand');
 const LeaveAdminRoomCommand = require('./LeaveAdminRoomCommand');
 const RfidScanFromClientCommand = require('./RfidScanFromClientCommand');
+const PlayStateSyncCommand = require('./PlayStateSyncCommand');
 
 const commands = {
   join_play: new JoinPlayCommand(),
@@ -29,7 +30,8 @@ const commands = {
   leave_card_assignment: new LeaveCardAssignmentCommand(),
   join_admin_room: new JoinAdminRoomCommand(),
   leave_admin_room: new LeaveAdminRoomCommand(),
-  rfid_scan_from_client: new RfidScanFromClientCommand()
+  rfid_scan_from_client: new RfidScanFromClientCommand(),
+  play_state_sync: new PlayStateSyncCommand()
 };
 
 const getSocketCommand = eventName => commands[eventName] || null;

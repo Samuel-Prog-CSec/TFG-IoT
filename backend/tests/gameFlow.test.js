@@ -11,7 +11,7 @@ const { generateTokenPair } = require('../src/middlewares/auth');
 
 describe('Game Full Flow', () => {
   let teacherUser, teacherToken;
-  let studentUser, studentId;
+  let studentId;
   let mechanicId, contextId, cardId1, cardId2, deckId;
   let sessionId, playId;
 
@@ -202,5 +202,8 @@ describe('Game Full Flow', () => {
     const student = await User.findById(studentId);
     expect(student.studentMetrics.totalGamesPlayed).toBe(1);
     expect(student.studentMetrics.totalScore).toBe(50);
+
+    const session = await GameSession.findById(sessionId);
+    expect(session.status).toBe('completed');
   });
 });

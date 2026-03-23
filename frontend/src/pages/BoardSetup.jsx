@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useRef } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { DndContext, DragOverlay, useSensor, useSensors, PointerSensor, defaultDropAnimationSideEffects, useDroppable } from '@dnd-kit/core';
 import { SortableContext, useSortable } from '@dnd-kit/sortable';
@@ -9,8 +9,14 @@ import clsx from 'clsx';
 import confetti from 'canvas-confetti';
 import { toast } from 'sonner';
 import { sessionsAPI, usersAPI, extractData, extractErrorMessage, isAbortError } from '../services/api';
+import { captureException } from '../lib/sentry';
 import { useAuth } from '../context/AuthContext';
-import { useRefetchOnFocus } from '../hooks';
+import { useRefetchOnFocus } from '../hooks/useRefetchOnFocus';
+import { ROUTES } from '../constants/routes';
+import CardAssetPreview from '../components/ui/CardAssetPreview';
+import SelectPremium from '../components/ui/SelectPremium';
+import ButtonPremium from '../components/ui/ButtonPremium';
+import Tooltip from '../components/ui/Tooltip';
 
 export default function BoardSetup() {
   const { sessionId } = useParams();
@@ -28,6 +34,7 @@ export default function BoardSetup() {
   const [slots, setSlots] = useState({}); 
   const [activeId, setActiveId] = useState(null); // For DragOverlay
   const [selectedStudentId, setSelectedStudentId] = useState('');
+    const [savingBoard, setSavingBoard] = useState(false);
 
     const init = useCallback((signal) => {
         const run = async () => {
@@ -64,17 +71,35 @@ export default function BoardSetup() {
                                 icon: displayIcon,
                                 subLabel: assetKey ? `Asset: ${assetKey}` : mapping.uid,
                                 assignedValue: mapping.assignedValue,
-                                displayData: mapping.displayData
+                                displayData: mapping.displayData,
+                                asset: mapping.displayData || null
                             };
                         });
 
                         setAvailableCards(enrichedCards);
+
+                        if (Array.isArray(currentSession?.boardLayout) && currentSession.boardLayout.length > 0) {
+                            const cardsByUid = new Map(enrichedCards.map(card => [card.uid, card]));
+                            const preloadedSlots = {};
+
+                            currentSession.boardLayout.forEach(slot => {
+                                const slotCard = cardsByUid.get(slot.uid);
+                                if (!slotCard) {
+                                    return;
+                                }
+
+                                preloadedSlots[`slot_${slot.slotIndex}`] = slotCard;
+                            });
+
+                            setSlots(preloadedSlots);
+                        }
+
                         setAvailableStudents(Array.isArray(students) ? students : []);
         } catch (e) {
                         if (isAbortError(e)) {
                             return;
                         }
-                        console.error(e);
+                        captureException(e);
                         toast.error(extractErrorMessage(e));
         } finally {
             if (!signal?.aborted) {
@@ -102,6 +127,49 @@ export default function BoardSetup() {
     const totalSlots = session?.config?.numberOfCards || availableCards.length || 0;
   const isBoardComplete = totalSlots > 0 && Object.keys(slots).length === totalSlots;
   const canStart = isBoardComplete && selectedStudentId;
+
+    const buildBoardLayoutPayload = useCallback(() => {
+        return Object.entries(slots)
+            .map(([slotId, card]) => {
+                const slotIndex = Number.parseInt(slotId.replace('slot_', ''), 10);
+                if (!Number.isInteger(slotIndex) || !card) {
+                    return null;
+                }
+
+                return {
+                    slotIndex,
+                    cardId: card.id,
+                    uid: card.uid,
+                    assignedValue: card.assignedValue || card.label || card.uid,
+                    displayData: card.displayData || card.asset || {}
+                };
+            })
+            .filter(Boolean)
+            .sort((a, b) => a.slotIndex - b.slotIndex);
+    }, [slots]);
+
+    const handleStartPlay = useCallback(async () => {
+        if (!canStart || savingBoard) {
+            return;
+        }
+
+        try {
+            setSavingBoard(true);
+            const boardLayout = buildBoardLayoutPayload();
+            await sessionsAPI.updateSession(sessionId, { boardLayout });
+
+            const playerQuery = selectedStudentId
+                ? `?playerId=${encodeURIComponent(selectedStudentId)}`
+                : '';
+            navigate(`${ROUTES.GAME(sessionId)}${playerQuery}`);
+        } catch (error) {
+            toast.error('No se pudo guardar el tablero', {
+                description: extractErrorMessage(error)
+            });
+        } finally {
+            setSavingBoard(false);
+        }
+    }, [buildBoardLayoutPayload, canStart, navigate, savingBoard, selectedStudentId, sessionId]);
 
   // DnD Sensors
   const sensors = useSensors(
@@ -179,35 +247,33 @@ export default function BoardSetup() {
                     <p className="text-slate-400">Arrastra las tarjetas a los huecos para configurar la partida.</p>
                 </div>
                 <div className="flex gap-3 items-center">
-                    <select 
+                    <SelectPremium
                         value={selectedStudentId}
-                        onChange={(e) => setSelectedStudentId(e.target.value)}
-                        className="bg-slate-800 text-white p-3 rounded-xl border border-white/10 outline-none focus:border-indigo-500"
-                    >
-                        <option value="">-- Asignar Estudiante --</option>
-                        {availableStudents.map(student => (
-                            <option key={student.id || student._id} value={student.id || student._id}>{student.name}</option>
-                        ))}
-                    </select>
+                        onChange={(val) => setSelectedStudentId(val)}
+                        placeholder="Asignar Estudiante"
+                        options={availableStudents.map(student => ({
+                            value: student.id || student._id,
+                            label: student.name
+                        }))}
+                        className="w-64"
+                    />
 
-                    <button 
-                        onClick={() => setSlots({})}
-                        className="p-3 rounded-xl bg-slate-800 text-slate-300 hover:bg-slate-700 transition-colors"
-                        title="Resetear Tablero"
+                    <Tooltip content="Resetear Tablero">
+                        <ButtonPremium
+                            variant="ghost"
+                            onClick={() => setSlots({})}
+                        >
+                            <RotateCcw size={20} />
+                        </ButtonPremium>
+                    </Tooltip>
+                    <ButtonPremium
+                        variant="success"
+                        onClick={handleStartPlay}
+                        disabled={!canStart || savingBoard}
+                        className="shadow-lg shadow-emerald-500/20"
                     >
-                        <RotateCcw size={20} />
-                    </button>
-                    <button 
-                        onClick={() => {
-                            // navigate(`/game/${sessionId}`); // Disabled as per request
-                            alert(`¡Partida configurada para ${availableStudents.find(s => (s.id || s._id) === selectedStudentId)?.name}!\n(La pantalla de juego está deshabilitada temporalmente)`);
-                            navigate('/dashboard');
-                        }}
-                        disabled={!canStart}
-                        className="px-6 py-3 rounded-xl bg-emerald-500 text-white font-bold disabled:opacity-50 disabled:grayscale hover:bg-emerald-400 transition-all flex items-center gap-2 shadow-lg shadow-emerald-500/20"
-                    >
-                        <Play size={20} /> Iniciar Partida
-                    </button>
+                        <Play size={20} /> {savingBoard ? 'Guardando tablero...' : 'Iniciar Partida'}
+                    </ButtonPremium>
                 </div>
             </header>
 
@@ -297,7 +363,7 @@ function Slot({ id, card, index }) {
         <div 
             ref={setNodeRef}
             className={clsx(
-                "w-32 h-32 rounded-xl border-2 border-dashed transition-all flex items-center justify-center relative",
+                "size-32 rounded-xl border-2 border-dashed transition-all flex items-center justify-center relative",
                 isOver ? "border-indigo-400 bg-indigo-400/10 scale-105" : 
                 card ? "border-indigo-500/30 bg-indigo-500/5 shadow-inner" : "border-slate-700 bg-slate-900/20"
             )}
@@ -331,7 +397,14 @@ function CardView({ card, isOverlay, variant = 'default' }) {
                  "w-full h-full flex flex-col items-center justify-center p-2 cursor-grab active:cursor-grabbing rounded-xl",
                  isOverlay && "bg-slate-800/90 border border-indigo-400 shadow-xl" // Overlay needs bg
              )}>
-                  <div className="text-5xl mb-2 filter drop-shadow-lg">{card.icon}</div>
+                  <CardAssetPreview
+                    asset={card.asset}
+                    alt={`Carta ${card.uid}`}
+                    className="size-16 rounded-xl mb-2"
+                    fit="cover"
+                    fallbackClassName="text-4xl"
+                    fallbackLabel={card.icon || '🎴'}
+                  />
                   <div className="text-white font-bold text-xs text-center leading-tight bg-slate-900/50 px-2 py-1 rounded-full">{card.label}</div>
              </div>
         )
@@ -342,9 +415,14 @@ function CardView({ card, isOverlay, variant = 'default' }) {
             "p-3 rounded-xl border bg-slate-800 flex items-center gap-3 cursor-grab active:cursor-grabbing",
             isOverlay ? "border-indigo-400 shadow-2xl scale-105" : "border-white/10 hover:border-white/30 shadow-sm"
         )}>
-            <div className="w-10 h-10 rounded bg-indigo-500/20 flex items-center justify-center text-xl font-bold border border-indigo-500/30">
-                {card.icon || '#'}
-            </div>
+            <CardAssetPreview
+              asset={card.asset}
+              alt={`Carta ${card.uid}`}
+              className="size-10 rounded border border-indigo-500/30"
+              fit="cover"
+              fallbackClassName="bg-indigo-500/20 text-xl font-bold"
+              fallbackLabel={card.icon || '#'}
+            />
             <div>
                 <div className="text-white font-bold text-sm leading-tight">{card.label}</div>
                 <div className="text-slate-500 text-xs font-mono">{card.uid}</div>

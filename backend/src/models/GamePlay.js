@@ -14,6 +14,78 @@ const mongoose = require('mongoose');
 
 const MAX_EVENTS_PER_PLAY = 500;
 
+const ANSWER_EVENT_TYPES = new Set(['correct', 'error', 'timeout']);
+
+const buildEventUpdateOperators = (eventData, options = {}) => {
+  const normalizedEventData = {
+    ...eventData,
+    eventType: eventData.eventType?.toLowerCase?.() || eventData.eventType
+  };
+
+  const update = {
+    $push: {
+      events: {
+        $each: [normalizedEventData],
+        $slice: -MAX_EVENTS_PER_PLAY
+      }
+    }
+  };
+
+  const increments = {};
+  if (ANSWER_EVENT_TYPES.has(normalizedEventData.eventType)) {
+    increments['metrics.totalAttempts'] = 1;
+
+    if (normalizedEventData.eventType === 'correct') {
+      increments['metrics.correctAttempts'] = 1;
+    } else if (normalizedEventData.eventType === 'error') {
+      increments['metrics.errorAttempts'] = 1;
+    } else if (normalizedEventData.eventType === 'timeout') {
+      increments['metrics.timeoutAttempts'] = 1;
+    }
+  }
+
+  if (typeof normalizedEventData.pointsAwarded === 'number') {
+    increments.score = normalizedEventData.pointsAwarded;
+  }
+
+  if (options.advanceRound) {
+    increments.currentRound = 1;
+  }
+
+  if (Object.keys(increments).length > 0) {
+    update.$inc = increments;
+  }
+
+  return { update, normalizedEventData };
+};
+
+const applyEventToDocState = (doc, eventData, options = {}) => {
+  doc.events.push(eventData);
+  if (doc.events.length > MAX_EVENTS_PER_PLAY) {
+    doc.events.splice(0, doc.events.length - MAX_EVENTS_PER_PLAY);
+  }
+
+  if (ANSWER_EVENT_TYPES.has(eventData.eventType)) {
+    doc.metrics.totalAttempts += 1;
+
+    if (eventData.eventType === 'correct') {
+      doc.metrics.correctAttempts += 1;
+    } else if (eventData.eventType === 'error') {
+      doc.metrics.errorAttempts += 1;
+    } else if (eventData.eventType === 'timeout') {
+      doc.metrics.timeoutAttempts += 1;
+    }
+  }
+
+  if (typeof eventData.pointsAwarded === 'number') {
+    doc.score += eventData.pointsAwarded;
+  }
+
+  if (options.advanceRound) {
+    doc.currentRound += 1;
+  }
+};
+
 /**
  * Esquema de Mongoose para partidas de juego.
  * Una partida representa una instancia de juego ejecutada por un estudiante.
@@ -181,32 +253,17 @@ const gamePlaySchema = new mongoose.Schema(
  *   roundNumber: 1
  * });
  */
+gamePlaySchema.methods.addEventAtomic = async function (eventData, options = {}) {
+  const { update, normalizedEventData } = buildEventUpdateOperators(eventData, options);
+
+  await this.constructor.updateOne({ _id: this._id }, update);
+  applyEventToDocState(this, normalizedEventData, options);
+
+  return this;
+};
+
 gamePlaySchema.methods.addEvent = function (eventData) {
-  // Añadir al log de eventos
-  this.events.push(eventData);
-
-  if (this.events.length > MAX_EVENTS_PER_PLAY) {
-    this.events.splice(0, this.events.length - MAX_EVENTS_PER_PLAY);
-  }
-
-  // Actualizar métricas básicas según el tipo de evento
-  this.metrics.totalAttempts++;
-
-  if (eventData.eventType === 'correct') {
-    this.metrics.correctAttempts++;
-  } else if (eventData.eventType === 'error') {
-    this.metrics.errorAttempts++;
-  } else if (eventData.eventType === 'timeout') {
-    this.metrics.timeoutAttempts++;
-  }
-
-  // Actualizar puntuación si se proporcionaron puntos
-  if (eventData.pointsAwarded && typeof eventData.pointsAwarded === 'number') {
-    this.score += eventData.pointsAwarded;
-  }
-
-  // Guardar cambios en una operación atómica
-  return this.save();
+  return this.addEventAtomic(eventData, { advanceRound: false });
 };
 
 /**

@@ -28,6 +28,14 @@ const assertTargetIsTeacher = user => {
   }
 };
 
+const assertTargetIsPendingTeacher = user => {
+  assertTargetIsTeacher(user);
+
+  if (user.accountStatus !== 'pending_approval') {
+    throw new ValidationError('Solo se pueden aprobar o rechazar profesores en estado pendiente');
+  }
+};
+
 /**
  * Obtener lista paginada de profesores pendientes de aprobación.
  */
@@ -87,7 +95,7 @@ const approveTeacher = async (req, res, next) => {
       throw new NotFoundError('Usuario');
     }
 
-    assertTargetIsTeacher(target);
+    assertTargetIsPendingTeacher(target);
 
     target.accountStatus = 'approved';
     await target.save();
@@ -122,7 +130,7 @@ const rejectTeacher = async (req, res, next) => {
       throw new NotFoundError('Usuario');
     }
 
-    assertTargetIsTeacher(target);
+    assertTargetIsPendingTeacher(target);
 
     target.accountStatus = 'rejected';
     await target.save();

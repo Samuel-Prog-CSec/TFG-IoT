@@ -42,8 +42,16 @@ describe('System Endpoints (/health, /api/metrics)', () => {
       expect(res.body.http).toHaveProperty('avgLatencyMs');
       expect(res.body).toHaveProperty('websocket');
       expect(res.body.websocket).toHaveProperty('connectedClients');
+      expect(res.body.websocket).toHaveProperty('events');
+      expect(res.body.websocket.events).toHaveProperty('authCacheHits');
+      expect(res.body.websocket.events).toHaveProperty('authCacheMisses');
       expect(res.body).toHaveProperty('gameEngine');
       expect(res.body.gameEngine).toHaveProperty('activePlays');
+      expect(res.body.gameEngine).toHaveProperty('ignoredCardScans');
+      expect(res.body.gameEngine).toHaveProperty('scanRaceDiscarded');
+      expect(res.body.gameEngine).toHaveProperty('blockedManualNextRound');
+      expect(res.body.gameEngine).toHaveProperty('totalTimeouts');
+      expect(res.body.gameEngine).toHaveProperty('lockContention');
       expect(res.body).toHaveProperty('rfid');
       expect(res.body.rfid).toHaveProperty('processed');
       expect(res.body.rfid.processed).toHaveProperty('totalEventsProcessed');

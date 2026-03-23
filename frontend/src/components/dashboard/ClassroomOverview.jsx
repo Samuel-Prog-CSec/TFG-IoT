@@ -20,21 +20,21 @@ export default function ClassroomOverview({ summary, distribution }) {
 
     return (
         <ChartSection title="Distribución de Rendimiento Global">
-            <div className="h-[300px] w-full">
+            <div className="h-[200px] sm:h-[240px] w-full mt-2 -ml-4 sm:ml-0">
                <DistributionChart data={safeDistribution} />
             </div>
-            <div className="grid grid-cols-3 gap-4 mt-6 pt-4 border-t border-white/5">
+            <div className="grid grid-cols-3 gap-4 mt-8 pt-6 border-t border-border-default">
                 <div className="text-center">
-                    <p className="text-2xl font-bold text-white">{summary?.averageScore || 0}%</p>
-                    <p className="text-xs text-slate-500 uppercase tracking-wider mt-1">Promedio</p>
+                    <p className="text-2xl font-bold text-text-primary">{summary?.averageScore || 0}%</p>
+                    <p className="text-xs text-text-muted font-medium uppercase tracking-wider mt-1">Promedio</p>
                 </div>
                 <div className="text-center">
-                    <p className="text-2xl font-bold text-white">{summary?.totalGames || 0}</p>
-                    <p className="text-xs text-slate-500 uppercase tracking-wider mt-1">Partidas</p>
+                    <p className="text-2xl font-bold text-text-primary">{summary?.totalGames || 0}</p>
+                    <p className="text-xs text-text-muted font-medium uppercase tracking-wider mt-1">Partidas</p>
                 </div>
                 <div className="text-center">
-                    <p className="text-2xl font-bold text-white">{summary?.gamesToday || 0}</p>
-                    <p className="text-xs text-slate-500 uppercase tracking-wider mt-1">Hoy</p>
+                    <p className="text-2xl font-bold text-text-primary">{summary?.gamesToday || 0}</p>
+                    <p className="text-xs text-text-muted font-medium uppercase tracking-wider mt-1">Hoy</p>
                 </div>
             </div>
         </ChartSection>

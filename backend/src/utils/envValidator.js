@@ -186,6 +186,29 @@ function validateEnv() {
     validateRedisURL();
   }
 
+  // Validar formato de JWT_EXPIRES_IN y JWT_REFRESH_EXPIRES_IN
+  if (process.env.JWT_EXPIRES_IN) {
+    validateJWTExpiresIn('JWT_EXPIRES_IN', process.env.JWT_EXPIRES_IN);
+  }
+  if (process.env.JWT_REFRESH_EXPIRES_IN) {
+    validateJWTExpiresIn('JWT_REFRESH_EXPIRES_IN', process.env.JWT_REFRESH_EXPIRES_IN);
+  }
+
+  // Validar rango de PORT
+  if (process.env.PORT) {
+    validatePort();
+  }
+
+  // Validar rango de LOG_SAMPLE_RATE
+  if (process.env.LOG_SAMPLE_RATE) {
+    validateLogSampleRate();
+  }
+
+  // Validar formato de SHUTDOWN_TIMEOUT_MS
+  if (process.env.SHUTDOWN_TIMEOUT_MS) {
+    validateShutdownTimeout();
+  }
+
   // Warnings para recomendadas
   if (warnings.length > 0) {
     logger.warn('Variables de entorno recomendadas no configuradas (usando defaults):', warnings);
@@ -301,6 +324,69 @@ function validateRedisURL() {
       `REDIS_URL no es una URL válida.\n` +
         `Error: ${error.message}\n` +
         `Ejemplo correcto: redis://localhost:6379`
+    );
+  }
+}
+
+/**
+ * Valida que JWT_EXPIRES_IN o JWT_REFRESH_EXPIRES_IN tengan formato correcto.
+ * Formato esperado: número seguido de unidad (s, m, h, d). Ej: "15m", "30d".
+ * @param {string} varName - Nombre de la variable de entorno
+ * @param {string} value - Valor a validar
+ * @throws {Error} Si el formato es inválido
+ */
+function validateJWTExpiresIn(varName, value) {
+  const pattern = /^\d+[smhd]$/;
+  if (!pattern.test(value)) {
+    throw new Error(
+      `${varName} tiene formato inválido: "${value}".\n` +
+        `Debe ser un número seguido de una unidad de tiempo (s, m, h, d).\n` +
+        `Ejemplo: "15m", "30d", "1h", "3600s"`
+    );
+  }
+}
+
+/**
+ * Valida que PORT sea un número entre 1024 y 65535.
+ * @throws {Error} Si el valor está fuera de rango o no es numérico
+ */
+function validatePort() {
+  const port = Number(process.env.PORT);
+  if (isNaN(port) || !Number.isInteger(port) || port < 1024 || port > 65535) {
+    throw new Error(
+      `PORT tiene un valor inválido: "${process.env.PORT}".\n` +
+        `Debe ser un número entero entre 1024 y 65535.\n` +
+        `Ejemplo: 5000`
+    );
+  }
+}
+
+/**
+ * Valida que LOG_SAMPLE_RATE sea un número entre 0 y 1 (inclusivo).
+ * @throws {Error} Si el valor está fuera de rango o no es numérico
+ */
+function validateLogSampleRate() {
+  const rate = Number(process.env.LOG_SAMPLE_RATE);
+  if (isNaN(rate) || rate < 0 || rate > 1) {
+    throw new Error(
+      `LOG_SAMPLE_RATE tiene un valor inválido: "${process.env.LOG_SAMPLE_RATE}".\n` +
+        `Debe ser un número entre 0 y 1 (inclusivo).\n` +
+        `Ejemplo: 0.5`
+    );
+  }
+}
+
+/**
+ * Valida que SHUTDOWN_TIMEOUT_MS sea un entero positivo.
+ * @throws {Error} Si el valor no es un entero positivo
+ */
+function validateShutdownTimeout() {
+  const timeout = Number(process.env.SHUTDOWN_TIMEOUT_MS);
+  if (isNaN(timeout) || !Number.isInteger(timeout) || timeout <= 0) {
+    throw new Error(
+      `SHUTDOWN_TIMEOUT_MS tiene un valor inválido: "${process.env.SHUTDOWN_TIMEOUT_MS}".\n` +
+        `Debe ser un número entero positivo.\n` +
+        `Ejemplo: 10000`
     );
   }
 }

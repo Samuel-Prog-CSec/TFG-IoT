@@ -12,6 +12,7 @@ Documentacion tecnica del backend. Incluye decisiones de arquitectura, seguridad
 - Logging_Strategy.md: estrategia de logging con Pino.
 - Performance_Notes.md: notas de rendimiento y optimizaciones.
 - RFID_Protocol.md: contrato y eventos RFID.
+- RFID_Runtime_Flows.md: flujos runtime RFID (autoridad, secuencias y errores esperados).
 - Security_Logging.md: eventos y estrategia de logging de seguridad.
 - WebSerial_Architecture.md: arquitectura Web Serial.
 - WebSockets-ExtendedUsage.md: eventos y patrones de WebSocket.
@@ -21,6 +22,15 @@ Documentacion tecnica del backend. Incluye decisiones de arquitectura, seguridad
 ## Uso
 
 Consulta el archivo relevante segun el area del sistema que estes modificando. Mantener la documentacion actualizada es requisito de calidad.
+
+## Ruta recomendada para TFG (gobierno de usuarios)
+
+Para revisar el modelo vigente de permisos y sus decisiones de diseno:
+
+1. `API_v0.3.0.md` (contratos y permisos efectivos por endpoint).
+2. `Flujos_Accion/Admin_user.md` (flujo de aprobacion de docentes).
+3. `Flujos_Accion/FLUJO_USUARIOS.md` (gobierno de identidades y responsabilidades por rol).
+4. `Architecture_Decisions.md` (ADR-008: centralizacion en `super_admin` y contrato paginado FE/BE).
 
 ## Decisiones de Diseno
 

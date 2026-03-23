@@ -32,6 +32,8 @@
 
 > [!NOTE]
 > Para la arquitectura Web Serial completa, ver [WebSerial_Architecture.md](WebSerial_Architecture.md).
+>
+> Para entender la operativa runtime (quién inicia, quién decide, secuencias por modo y errores esperados), ver [RFID_Runtime_Flows.md](RFID_Runtime_Flows.md).
 
 ---
 
@@ -297,7 +299,7 @@ Emitido cuando ocurre un error en el sensor.
 
 ### 4.3 Ejemplo de Sesión Típica
 
-```
+```text
 // Encendido del dispositivo
 {"event":"init","status":"success","version":"0xB2"}
 
@@ -358,12 +360,12 @@ El servicio `rfidService.js` es un **singleton** que ingiere eventos RFID enviad
 
 El servicio puede estar en uno de los siguientes estados:
 
-| Estado          | Descripción                                                             |
-| --------------- | ----------------------------------------------------------------------- |
-| `disabled`      | `RFID_SOURCE=disabled`. El backend ignora eventos RFID.                 |
-| `misconfigured` | `RFID_SOURCE` inválido. Requiere corrección en entorno.                 |
-| `client_ready`  | Servicio activo esperando eventos del cliente (Web Serial).            |
-| `stopped`       | Servicio detenido (shutdown o no inicializado aún).                    |
+| Estado | Descripción |
+| --- | --- |
+| `disabled` | `RFID_SOURCE=disabled`. El backend ignora eventos RFID. |
+| `misconfigured` | `RFID_SOURCE` inválido. Requiere corrección en entorno. |
+| `client_ready` | Servicio activo esperando eventos del cliente (Web Serial). |
+| `stopped` | Servicio detenido (shutdown o no inicializado aún). |
 
 **Decisión de diseño**: El backend mantiene autoridad validando el contrato del evento y delegando la lectura física al navegador del profesor.
 
@@ -499,11 +501,11 @@ interface PlayState {
 1. El sensor detecta una tarjeta y el navegador envía `rfid_scan_from_client`.
 2. `RFIDService` ingiere el evento y lo reemite internamente.
 3. `GameEngine` recibe el evento con el UID.
-3. **Búsqueda O(1)**: Usa `cardUidToPlayId` para identificar a qué partida pertenece el UID.
-4. Si encuentra una partida activa, obtiene su estado de `activePlays`.
-5. Verifica si la partida está esperando respuesta (`awaitingResponse`).
-6. Valida si la tarjeta corresponde al desafío actual.
-7. Actualiza la puntuación y emite `validation_result` al cliente.
+4. **Búsqueda O(1)**: Usa `cardUidToPlayId` para identificar a qué partida pertenece el UID.
+5. Si encuentra una partida activa, obtiene su estado de `activePlays`.
+6. Verifica si la partida está esperando respuesta (`awaitingResponse`).
+7. Valida si la tarjeta corresponde al desafío actual.
+8. Actualiza la puntuación y emite `validation_result` al cliente.
 
 ### 7.4 Validación de Respuestas
 
@@ -524,28 +526,29 @@ Cuando un alumno escanea una tarjeta durante una partida:
 
 ### 8.1 Eventos Cliente → Servidor
 
-| Evento                     | Payload                      | Descripción                           |
-| -------------------------- | ---------------------------- | ------------------------------------- |
-| `join_play`                | `{ playId }`                 | Unirse a la sala de una partida       |
-| `start_play`               | `{ playId }`                 | Iniciar una partida configurada       |
-| `pause_play`               | `{ playId, accessToken }`    | Pausar partida (solo profesor)        |
-| `resume_play`              | `{ playId, accessToken }`    | Reanudar partida (solo profesor)      |
-| `leave_play`               | `{ playId }`                 | Abandonar la sala de una partida      |
-| `next_round`               | `{ playId }`                 | Solicitar siguiente ronda manualmente |
-| `start_card_registration`  | `{}`                         | Activar modo registro de tarjetas     |
-| `cancel_card_registration` | `{}`                         | Cancelar modo registro                |
-| `start_card_assignment`    | `{ assetKey, assetDisplay }` | Activar modo asignación               |
-| `cancel_card_assignment`   | `{}`                         | Cancelar modo asignación              |
-| `rfid_scan_from_client`     | `{ uid, type, sensorId, ... }` | Evento RFID desde Web Serial        |
+| Evento | Payload | Descripción |
+| --- | --- | --- |
+| `join_play` | `{ playId }` | Unirse a la sala de una partida |
+| `start_play` | `{ playId }` | Iniciar una partida configurada |
+| `pause_play` | `{ playId }` | Pausar partida (solo profesor) |
+| `resume_play` | `{ playId }` | Reanudar partida (solo profesor) |
+| `leave_play` | `{ playId }` | Abandonar la sala de una partida |
+| `next_round` | `{ playId }` | Solicitar siguiente ronda manualmente |
+| `join_card_registration` | `{}` | Activar modo registro de tarjetas (room por usuario) |
+| `leave_card_registration` | `{}` | Salir de modo registro |
+| `join_card_assignment` | `{}` | Activar modo asignación (room por usuario) |
+| `leave_card_assignment` | `{}` | Salir de modo asignación |
+| `rfid_scan_from_client` | `{ uid, type, sensorId, ... }` | Evento RFID desde Web Serial |
 
 ### 8.2 Eventos Servidor → Cliente
 
 #### Eventos de Estado del Sensor
 
-| Evento        | Payload                       | Descripción                             |
-| ------------- | ----------------------------- | --------------------------------------- |
-| `rfid_event`  | `{ event, uid?, type?, ... }` | Evento directo del sensor (modo idle)   |
-| `rfid_status` | `{ status }`                  | Estado del servicio RFID (client_ready/disabled) |
+| Evento | Payload | Descripción |
+| --- | --- | --- |
+| `rfid_event` | `{ event, uid?, type?, ... }` | Evento directo del sensor (modo idle) |
+| `rfid_status` | `{ status }` | Estado del servicio RFID (client_ready/disabled) |
+| `rfid_mode_changed` | `{ mode, sensorId, metadata, socketId, updatedAt }` | Estado canónico del modo RFID por usuario |
 
 #### Eventos de Partida
 
@@ -559,16 +562,14 @@ Cuando un alumno escanea una tarjeta durante una partida:
 | `play_resumed`      | `{ playId, currentRound, remainingTimeMs, challenge? }`              | Partida reanudada                            |
 | `play_interrupted`  | `{ playId, reason, message, finalScore }`                            | Partida interrumpida (ej. reinicio servidor) |
 
+**Nota runtime:** `next_round` puede devolver `error` con `code: 'ROUND_BLOCKED'` si la ronda sigue en `awaitingResponse`.
+
 #### Eventos de Registro/Asignación
 
-| Evento                     | Payload                                                 | Descripción                     |
-| -------------------------- | ------------------------------------------------------- | ------------------------------- |
-| `registration_mode_active` | `{ message, timeout }`                                  | Modo registro activado          |
-| `card_registration_scan`   | `{ uid, type, message }`                                | Tarjeta detectada para registro |
-| `card_registration_error`  | `{ message, uid, existingCardId? }`                     | Error en registro               |
-| `assignment_mode_active`   | `{ message, assetKey, timeout }`                        | Modo asignación activado        |
-| `card_assignment_scan`     | `{ uid, cardId, cardMetadata, assetKey, assetDisplay }` | Tarjeta asignada a asset        |
-| `card_assignment_error`    | `{ message, uid, assetKey }`                            | Error en asignación             |
+| Evento | Payload | Descripción |
+| --- | --- | --- |
+| `rfid_event` (room `card_registration_<userId>`) | `{ event, uid, type, sensorId, ... }` | Evento RFID en modo registro |
+| `rfid_event` (room `card_assignment_<userId>`) | `{ event, uid, type, sensorId, ... }` | Evento RFID en modo asignación |
 
 ---
 
@@ -576,12 +577,12 @@ Cuando un alumno escanea una tarjeta durante una partida:
 
 ### 9.1 Requisitos de Sistema
 
-| Componente | Requisito                                           |
-| ---------- | --------------------------------------------------- |
-| Node.js    | v18+                                                |
-| Navegador  | Chrome/Edge con Web Serial habilitado              |
-| HTTPS      | Obligatorio en produccion (localhost exento)       |
-| USB local  | Sensor conectado al PC del profesor                |
+| Componente | Requisito |
+| --- | --- |
+| Node.js | v18+ |
+| Navegador | Chrome/Edge con Web Serial habilitado |
+| HTTPS | Obligatorio en produccion (localhost exento) |
+| USB local | Sensor conectado al PC del profesor |
 
 ### 9.2 Configuración de Variables de Entorno
 
@@ -605,13 +606,13 @@ RFID_SOURCE=client
 
 ### 10.1 Problemas Comunes
 
-| Síntoma                   | Causa Probable                       | Solución                                 |
-| ------------------------- | ------------------------------------ | ---------------------------------------- |
-| No detecta tarjetas       | Alimentación insuficiente            | Usar fuente 3.3V estable, no 5V          |
-| UID inconsistentes        | Módulo clon con firmware no estándar | El firmware incluye fallback para clones |
-| `init_failure`            | Cable suelto o módulo dañado         | Verificar conexiones SPI                 |
-| Permiso denegado          | Usuario rechazo el permiso serial     | Reconectar y aceptar permiso             |
-| Web Serial no disponible  | Navegador no soportado o sin HTTPS   | Usar Chrome/Edge y HTTPS                 |
+| Síntoma | Causa probable | Solución |
+| --- | --- | --- |
+| No detecta tarjetas | Alimentación insuficiente | Usar fuente 3.3V estable, no 5V |
+| UID inconsistentes | Módulo clon con firmware no estándar | El firmware incluye fallback para clones |
+| `init_failure` | Cable suelto o módulo dañado | Verificar conexiones SPI |
+| Permiso denegado | Usuario rechazo el permiso serial | Reconectar y aceptar permiso |
+| Web Serial no disponible | Navegador no soportado o sin HTTPS | Usar Chrome/Edge y HTTPS |
 
 ### 10.2 Verificación de Funcionamiento
 

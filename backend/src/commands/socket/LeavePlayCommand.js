@@ -12,7 +12,7 @@ class LeavePlayCommand extends BaseSocketCommand {
   async execute({ socket, data, helpers, logger }) {
     const { playId } = data || {};
     if (!playId) {
-      socket.emit('error', { message: 'playId requerido' });
+      socket.emit('error', { code: 'VALIDATION_ERROR', message: 'playId requerido' });
       return;
     }
 

@@ -1,3 +1,5 @@
+<!-- markdownlint-disable MD025 MD031 MD032 MD036 MD058 MD060 -->
+
 # Documento de Requisitos del Sistema
 
 ## Plataforma de Juegos Educativos con RFID
@@ -155,13 +157,13 @@ El sistema es una **plataforma de juegos educativos interactivos** que utiliza *
 
 ### RF-USR-008: Creación de Alumnos ✅
 
-**Descripción:** Un profesor debe poder crear usuarios alumnos SIN credenciales de acceso.
+**Descripción:** Un `super_admin` debe poder crear usuarios alumnos SIN credenciales de acceso.
 
 **Criterios de Aceptación:**
 - Los alumnos NO tienen email ni contraseña
-- Campo `createdBy` se asigna automáticamente al profesor que crea
+- Campo `createdBy` se asigna según el `teacherId` enviado por `super_admin`
 - Validar que no exista alumno activo con mismo nombre en la misma clase del mismo profesor
-- Campos requeridos: nombre
+- Campos requeridos: nombre, edad (3-99), `teacherId`
 - Campos opcionales: edad (3-99), aula, fecha de nacimiento
 
 **Endpoint:** `POST /api/users`
@@ -170,12 +172,13 @@ El sistema es una **plataforma de juegos educativos interactivos** que utiliza *
 
 ### RF-USR-009: Listado de Usuarios ✅
 
-**Descripción:** Un profesor debe poder listar usuarios del sistema.
+**Descripción:** Usuarios con rol `teacher` y `super_admin` deben poder listar usuarios del sistema.
 
 **Criterios de Aceptación:**
 - Soportar filtros por rol, estado, aula
 - Implementar paginación
-- Solo accesible por profesores
+- `teacher`: solo puede listar sus alumnos
+- `super_admin`: puede listar usuarios según filtros
 
 **Endpoint:** `GET /api/users`
 
@@ -299,9 +302,9 @@ El sistema es una **plataforma de juegos educativos interactivos** que utiliza *
 **Criterios de Aceptación:**
 - Solo se modifica `createdBy` (profesor asignado) y `profile.classroom`
 - Las métricas del alumno se mantienen íntegramente
-- Solo profesores pueden realizar transferencias
+- Solo `super_admin` puede realizar transferencias
 
-**Endpoint:** `POST /api/users/:studentId/transfer`
+**Endpoint:** `POST /api/users/:id/transfer`
 
 ---
 
@@ -950,7 +953,7 @@ El sistema es una **plataforma de juegos educativos interactivos** que utiliza *
 
 **Criterios de Aceptación:**
 - Selección aleatoria de cardMapping (Duda #28)
-- Registrar evento `round_start` en BD
+- Registrar checkpoint de ronda según política de persistencia (`round_start` opcional por configuración)
 - Emitir desafío al cliente con displayData
 - Iniciar timer de timeout
 
@@ -1445,9 +1448,13 @@ El sistema es una **plataforma de juegos educativos interactivos** que utiliza *
 
 ---
 
-### RNF-CAL-008: Integración con Sentry ✅
+### RNF-CAL-008: Integración con Sentry Integral (Full-Stack) ✅
 
-**Descripción:** Los errores deben reportarse a Sentry para monitoreo.
+**Descripción:** Los errores deben reportarse a Sentry para monitoreo preventivo y reactivo.
+
+**Cumplimiento:** 
+- Se ha implementado un patrón de observabilidad en el frontend atrapando errores en la capa visual (Error Boundary) y a nivel de rutas, sin registrar replays de sesión para cumplir de forma estricta con normativas GDPR ante usuarios menores de edad.
+- El backend registra la procedencia técnica y el ID anonimizado del causante tanto para fallos HTTP (API REST) como fallos en el bus de WebSocket (GameEngine realtime) para evitar agujeros negros de observabilidad.
 
 ---
 

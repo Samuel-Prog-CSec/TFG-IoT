@@ -307,6 +307,31 @@ const mapCardMappingDTOV1 = mapping => {
   };
 };
 
+const mapBoardLayoutItemDTOV1 = layoutItem => {
+  const itemData = toPlainObject(layoutItem);
+
+  return {
+    slotIndex: itemData.slotIndex,
+    cardId: toId(itemData.cardId),
+    uid: itemData.uid,
+    assignedValue: itemData.assignedValue,
+    displayData: itemData.displayData
+  };
+};
+
+const mapAssociationChallengeItemDTOV1 = challengeItem => {
+  const itemData = toPlainObject(challengeItem);
+
+  return {
+    roundNumber: itemData.roundNumber,
+    cardId: toId(itemData.cardId),
+    uid: itemData.uid,
+    assignedValue: itemData.assignedValue,
+    displayData: itemData.displayData,
+    promptText: itemData.promptText
+  };
+};
+
 /**
  * DTO v1 para GameSession (resumen sin cardMappings).
  *
@@ -341,7 +366,14 @@ const toGameSessionDTOV1 = session => {
       : undefined,
     cardMappingsCount: Array.isArray(sessionData.cardMappings)
       ? sessionData.cardMappings.length
-      : 0,
+      : sessionData.config?.numberOfCards || 0,
+    boardLayout: Array.isArray(sessionData.boardLayout)
+      ? sessionData.boardLayout.map(mapBoardLayoutItemDTOV1)
+      : [],
+    associationChallengePlan: Array.isArray(sessionData.associationChallengePlan)
+      ? sessionData.associationChallengePlan.map(mapAssociationChallengeItemDTOV1)
+      : [],
+    requiresAssociationPlanConfiguration: Boolean(sessionData.requiresAssociationPlanConfiguration),
     status: sessionData.status,
     difficulty: sessionData.difficulty,
     startedAt: sessionData.startedAt,
@@ -461,12 +493,16 @@ const toGameContextDTOV1 = context => {
   }
 
   const contextData = toPlainObject(context);
+  const assets = Array.isArray(contextData.assets) ? contextData.assets : [];
 
   return {
     id: toId(contextData),
     contextId: contextData.contextId,
     name: contextData.name,
-    assetsCount: Array.isArray(contextData.assets) ? contextData.assets.length : 0,
+    isActive: contextData.isActive,
+    assetsCount: assets.length,
+    imageCount: assets.filter(a => a.imageUrl).length,
+    audioCount: assets.filter(a => a.audioUrl).length,
     createdAt: contextData.createdAt,
     updatedAt: contextData.updatedAt
   };
@@ -628,8 +664,6 @@ const toAuthResponseDTOV1 = (user, tokens) => ({
   user: toUserDTOV1(user),
   accessToken: tokens.accessToken,
   accessTokenExpiresIn: tokens.accessTokenExpiresIn,
-  refreshToken: tokens.refreshToken,
-  refreshTokenExpiresIn: tokens.refreshTokenExpiresIn,
   tokenType: tokens.tokenType
 });
 
@@ -718,7 +752,8 @@ const toSystemMetricsDTOV1 = payload => ({
   http: payload.http,
   websocket: payload.websocket,
   gameEngine: payload.gameEngine,
-  rfid: payload.rfid
+  rfid: payload.rfid,
+  memory: payload.memory
 });
 
 module.exports = {

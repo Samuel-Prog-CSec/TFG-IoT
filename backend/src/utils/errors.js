@@ -17,10 +17,12 @@ class AppError extends Error {
    *
    * @param {string} message - Mensaje de error descriptivo
    * @param {number} statusCode - Código de estado HTTP
+   * @param {Object|null} [data=null] - Datos adicionales de contexto para la respuesta (ej: entidad en conflicto)
    */
-  constructor(message, statusCode) {
+  constructor(message, statusCode, data = null) {
     super(message);
     this.statusCode = statusCode;
+    this.data = data;
     this.isOperational = true; // Indica que es un error esperado/manejable
     this.name = this.constructor.name;
     Error.captureStackTrace(this, this.constructor);
@@ -40,9 +42,10 @@ class AppError extends Error {
 class ApiValidationError extends AppError {
   /**
    * @param {string} message - Descripción de la validación fallida
+   * @param {Object|null} [data=null] - Datos adicionales de contexto
    */
-  constructor(message) {
-    super(message, 400);
+  constructor(message, data = null) {
+    super(message, 400, data);
   }
 }
 
@@ -117,9 +120,10 @@ class ForbiddenError extends AppError {
 class ConflictError extends AppError {
   /**
    * @param {string} message - Descripción del conflicto
+   * @param {Object|null} [data=null] - Datos adicionales de contexto (ej: entidad existente en conflicto)
    */
-  constructor(message) {
-    super(message, 409);
+  constructor(message, data = null) {
+    super(message, 409, data);
   }
 }
 

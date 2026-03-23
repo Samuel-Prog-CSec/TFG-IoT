@@ -69,42 +69,66 @@ async function runSeeders() {
     // 1. Super Admin inicial
     logger.info('1️⃣  Seeding super admin...');
     const superAdmin = await seedSuperAdmin();
+    if (!superAdmin) {
+      throw new Error('Seeder falló: no se creó el super admin');
+    }
     logger.info(`  ✓ Super admin listo: ${superAdmin.email}\n`);
 
     // 2. Usuarios (profesores y alumnos)
     logger.info('2️⃣  Seeding usuarios...');
     const users = await seedUsers();
+    if (!users?.teachers?.length || !users?.students?.length) {
+      throw new Error('Seeder falló: no se crearon teachers o students');
+    }
     logger.info(`  ✓ ${users.teachers.length} profesores creados`);
     logger.info(`  ✓ ${users.students.length} alumnos creados\n`);
 
     // 3. Tarjetas RFID
     logger.info('3️⃣  Seeding tarjetas RFID...');
     const cards = await seedCards();
+    if (!cards?.length) {
+      throw new Error('Seeder falló: no se crearon tarjetas');
+    }
     logger.info(`  ✓ ${cards.length} tarjetas creadas\n`);
 
     // 4. Mecánicas de juego
     logger.info('4️⃣  Seeding mecánicas de juego...');
     const mechanics = await seedMechanics();
+    if (!mechanics?.length) {
+      throw new Error('Seeder falló: no se crearon mecánicas');
+    }
     logger.info(`  ✓ ${mechanics.length} mecánicas creadas\n`);
 
     // 5. Contextos de juego
     logger.info('5️⃣  Seeding contextos de juego...');
     const contexts = await seedContexts();
+    if (!contexts?.length) {
+      throw new Error('Seeder falló: no se crearon contextos');
+    }
     logger.info(`  ✓ ${contexts.length} contextos creados\n`);
 
     // 6. Mazos de tarjetas (CardDecks)
     logger.info('6️⃣  Seeding mazos de tarjetas...');
     const decks = await seedCardDecks(users, contexts, cards);
+    if (!decks?.length) {
+      throw new Error('Seeder falló: no se crearon mazos');
+    }
     logger.info(`  ✓ ${decks.length} mazos creados\n`);
 
     // 7. Sesiones de juego
     logger.info('7️⃣  Seeding sesiones de juego...');
     const sessions = await seedSessions(users, mechanics, contexts, cards, decks);
+    if (!sessions?.length) {
+      throw new Error('Seeder falló: no se crearon sesiones');
+    }
     logger.info(`  ✓ ${sessions.length} sesiones creadas\n`);
 
     // 8. Partidas individuales (GamePlays)
     logger.info('8️⃣  Seeding partidas (GamePlays)...');
     const gamePlays = await seedGamePlays(sessions, users.students);
+    if (!gamePlays?.length) {
+      throw new Error('Seeder falló: no se crearon partidas');
+    }
     logger.info(`  ✓ ${gamePlays.length} partidas creadas\n`);
 
     logger.info('✅ Seeders completados exitosamente!');
@@ -127,7 +151,6 @@ async function runSeeders() {
     logger.info('   │  admin@test.com     │  Admin1234!          │');
     logger.info('   │  maria@test.com     │  Test1234!           │');
     logger.info('   │  carlos@test.com    │  Test1234!           │');
-    logger.info('   │  ana@test.com       │  Test1234!           │');
     logger.info('   └────────────────────────────────────────────┘');
     logger.info('');
   } catch (error) {

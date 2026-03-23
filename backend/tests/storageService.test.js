@@ -1,5 +1,3 @@
-const path = require('path');
-
 const mockLogger = {
   info: jest.fn(),
   warn: jest.fn(),

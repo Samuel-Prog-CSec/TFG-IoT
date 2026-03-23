@@ -5,6 +5,10 @@
  */
 
 const gameContextRepository = require('../repositories/gameContextRepository');
+const gameSessionRepository = require('../repositories/gameSessionRepository');
+const gamePlayRepository = require('../repositories/gamePlayRepository');
+const cardDeckRepository = require('../repositories/cardDeckRepository');
+const storageService = require('../services/storageService');
 const { NotFoundError, ConflictError, ValidationError } = require('../utils/errors');
 const logger = require('../utils/logger');
 const {
@@ -13,6 +17,39 @@ const {
   toPaginatedDTOV1
 } = require('../utils/dtos');
 const { escapeRegex } = require('../utils/escapeRegex');
+
+const ACTIVE_SESSION_STATUSES = ['created', 'active'];
+const ACTIVE_PLAY_STATUSES = ['in-progress', 'paused'];
+
+const getActiveContextDependencies = async contextId => {
+  const [activeDecks, activeSessions] = await Promise.all([
+    cardDeckRepository.count({ contextId, status: 'active' }),
+    gameSessionRepository.find(
+      {
+        contextId,
+        status: { $in: ACTIVE_SESSION_STATUSES }
+      },
+      {
+        select: '_id',
+        lean: true
+      }
+    )
+  ]);
+
+  let activePlays = 0;
+  if (activeSessions.length > 0) {
+    activePlays = await gamePlayRepository.count({
+      sessionId: { $in: activeSessions.map(session => session._id) },
+      status: { $in: ACTIVE_PLAY_STATUSES }
+    });
+  }
+
+  return {
+    activeDecks,
+    activeSessions: activeSessions.length,
+    activePlays
+  };
+};
 
 /**
  * Obtener lista de contextos con paginación y filtros.
@@ -59,7 +96,7 @@ const getContexts = async (req, res, next) => {
     const [contexts, total] = await Promise.all([
       gameContextRepository.find(filter, {
         sort: sortOptions,
-        limit: parseInt(limit, 10),
+        limit: Number.parseInt(limit, 10),
         skip
       }),
       gameContextRepository.count(filter)
@@ -74,8 +111,8 @@ const getContexts = async (req, res, next) => {
     res.json({
       success: true,
       ...toPaginatedDTOV1(toGameContextListDTOV1(contexts), {
-        page: parseInt(page),
-        limit: parseInt(limit),
+        page: Number.parseInt(page, 10),
+        limit: Number.parseInt(limit, 10),
         total
       })
     });
@@ -123,7 +160,7 @@ const getContextById = async (req, res, next) => {
 
 /**
  * Crear un nuevo contexto de juego.
- * Solo profesores pueden crear contextos.
+ * Solo super_admin puede crear contextos.
  *
  * POST /api/contexts
  * Headers: Authorization: Bearer <token>
@@ -146,18 +183,19 @@ const createContext = async (req, res, next) => {
       throw new ConflictError('Un contexto con este ID ya existe');
     }
 
-    // Crear contexto
+    // Crear contexto (assets puede ser [] — los profesores los añaden después via upload)
     const context = await gameContextRepository.create({
       contextId: contextId.toLowerCase(),
       name,
-      assets
+      assets: assets || []
     });
 
     logger.info('Contexto creado', {
       contextId: context.contextId,
       name: context.name,
       assetsCount: context.assets.length,
-      createdBy: req.user._id
+      createdBy: req.user._id,
+      role: req.user.role
     });
 
     res.status(201).json({
@@ -192,6 +230,16 @@ const updateContext = async (req, res, next) => {
       throw new NotFoundError('Contexto de juego');
     }
 
+    // Validar que no se renombra contextId si hay assets con archivos en Storage
+    if (contextId && contextId.toLowerCase() !== context.contextId) {
+      const hasStorageAssets = context.assets.some(a => a.imageUrl || a.audioUrl || a.thumbnailUrl);
+      if (hasStorageAssets) {
+        throw new ValidationError(
+          'No se puede cambiar el contextId de un contexto con assets almacenados en Storage'
+        );
+      }
+    }
+
     // Actualizar campos
     if (contextId) {
       context.contextId = contextId.toLowerCase();
@@ -222,11 +270,12 @@ const updateContext = async (req, res, next) => {
 };
 
 /**
- * Eliminar un contexto.
- * Hard delete ya que no se usa si no hay sesiones asociadas.
+ * Eliminar un contexto (solo super_admin).
+ * Hard delete con limpieza de archivos en Supabase Storage.
+ * Bloqueado si existen decks/sesiones/plays activos que referencian el contexto.
  *
  * DELETE /api/contexts/:id
- * Headers: Authorization: Bearer <token>
+ * Headers: Authorization: Bearer <token> (super_admin)
  *
  * @param {import('express').Request} req
  * @param {import('express').Response} res
@@ -242,12 +291,27 @@ const deleteContext = async (req, res, next) => {
       throw new NotFoundError('Contexto de juego');
     }
 
-    // TODO: Verificar si hay sesiones usando este contexto
-    // Si hay sesiones activas, no permitir eliminar
+    const dependencies = await getActiveContextDependencies(context._id);
+    const hasActiveDependencies =
+      dependencies.activeDecks > 0 ||
+      dependencies.activeSessions > 0 ||
+      dependencies.activePlays > 0;
+
+    if (hasActiveDependencies) {
+      throw new ConflictError(
+        'No se puede eliminar el contexto porque tiene dependencias activas (sessions/decks/plays)'
+      );
+    }
+
+    // Limpiar archivos del contexto en Supabase Storage.
+    // Hard-fail: si Supabase falla, se lanza excepción y el contexto NO se elimina de MongoDB.
+    // Única excepción: si Storage está deshabilitado intencionalmente (SUPABASE_SERVICE_KEY no configurada),
+    // se omite en silencio para compatibilidad con entornos de desarrollo locales sin Supabase.
+    await storageService.deleteFolder(context.contextId);
 
     await context.deleteOne();
 
-    logger.info('Contexto eliminado', {
+    logger.info('Contexto eliminado con limpieza de Storage', {
       contextId: context.contextId,
       name: context.name,
       deletedBy: req.user._id

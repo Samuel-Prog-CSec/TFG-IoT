@@ -13,7 +13,7 @@ class StartPlayCommand extends BaseSocketCommand {
     try {
       const { playId } = data || {};
       if (!playId) {
-        socket.emit('error', { message: 'playId requerido' });
+        socket.emit('error', { code: 'VALIDATION_ERROR', message: 'playId requerido' });
         return;
       }
 
@@ -25,7 +25,9 @@ class StartPlayCommand extends BaseSocketCommand {
         return;
       }
 
-      const ownership = await helpers.requirePlayOwnership(socket, playId, 'start_play');
+      const ownership = await helpers.requirePlayOwnership(socket, playId, 'start_play', {
+        includeSessionRuntime: true
+      });
       if (!ownership) {
         return;
       }
@@ -37,7 +39,7 @@ class StartPlayCommand extends BaseSocketCommand {
       });
     } catch (error) {
       logger.error(`Error al iniciar la partida: ${error.message}`);
-      socket.emit('error', { message: 'Error al iniciar la partida' });
+      socket.emit('error', { code: 'ENGINE_ERROR', message: 'Error al iniciar la partida' });
     }
   }
 }

@@ -1,7 +1,7 @@
 {
   "name": "frontend",
   "private": true,
-  "version": "0.3.0",
+  "version": "0.4.0",
   "type": "module",
   "scripts": {
     "dev": "vite",
@@ -10,6 +10,13 @@
     "lint:fix": "eslint . --fix",
     "lint:staged": "eslint",
     "preview": "vite preview",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:coverage": "vitest run --coverage",
+    "audit:full": "npm audit",
+    "audit:prod": "npm audit --omit=dev",
+    "audit:full:json": "npm audit --json",
+    "audit:prod:json": "npm audit --omit=dev --json",
     "deps:analyze": "npx npm-check-updates && npx depcheck && npm outdated"
   },
   "dependencies": {
@@ -17,32 +24,44 @@
     "@dnd-kit/sortable": "^10.0.0",
     "@dnd-kit/utilities": "^3.2.2",
     "@react-spring/web": "^10.0.3",
-    "@tailwindcss/vite": "^4.1.18",
-    "axios": "^1.13.4",
+    "@sentry/react": "^10.42.0",
+    "@tailwindcss/vite": "^4.2.1",
+    "axios": "^1.13.6",
     "canvas-confetti": "^1.9.4",
+    "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
-    "framer-motion": "^12.33.0",
-    "lucide-react": "^0.563.0",
+    "framer-motion": "^12.35.0",
+    "lucide-react": "^0.577.0",
     "prop-types": "^15.8.1",
     "react": "^19.2.4",
     "react-dom": "^19.2.4",
     "react-is": "^19.2.4",
-    "react-router-dom": "^7.13.0",
-    "recharts": "^3.7.0",
+    "react-router-dom": "^7.13.1",
+    "recharts": "^3.8.0",
     "socket.io-client": "^4.8.3",
     "sonner": "^2.0.7",
-    "tailwind-merge": "^3.4.0",
-    "tailwindcss": "^4.1.18"
+    "tailwind-merge": "^3.5.0",
+    "tailwindcss": "^4.2.1"
+  },
+  "overrides": {
+    "socket.io-parser": "^4.2.6"
   },
   "devDependencies": {
-    "@eslint/js": "^9.19.0",
+    "@eslint/js": "^9.39.4",
+    "@sentry/vite-plugin": "^5.1.1",
+    "@testing-library/jest-dom": "^6.9.1",
+    "@testing-library/react": "^16.3.2",
+    "@testing-library/user-event": "^14.6.1",
     "@vitejs/plugin-react-swc": "^4.2.3",
-    "eslint": "^9.19.0",
+    "@vitest/coverage-v8": "^3.2.4",
+    "eslint": "^9.39.4",
     "eslint-plugin-jsx-a11y": "^6.10.2",
-    "eslint-plugin-react": "^7.37.4",
-    "eslint-plugin-react-hooks": "^5.1.0",
-    "eslint-plugin-react-refresh": "^0.4.18",
-    "globals": "^15.14.0",
-    "vite": "^6.1.0"
+    "eslint-plugin-react": "^7.37.5",
+    "eslint-plugin-react-hooks": "^7.0.1",
+    "eslint-plugin-react-refresh": "^0.5.2",
+    "globals": "^17.4.0",
+    "jsdom": "^27.4.0",
+    "vite": "^7.3.1",
+    "vitest": "^3.2.4"
   }
 }

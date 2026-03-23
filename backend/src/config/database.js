@@ -38,13 +38,6 @@ const connectDB = async () => {
       logger.warn('MongoDB disconnected');
     });
 
-    // Cierre controlado de la aplicación (Ctrl+C)
-    process.on('SIGINT', async () => {
-      await mongoose.connection.close();
-      logger.info('MongoDB connection closed through app termination');
-      process.exit(0);
-    });
-
     return conn;
   } catch (error) {
     logger.error(`Error connecting to MongoDB: ${error.message}`);

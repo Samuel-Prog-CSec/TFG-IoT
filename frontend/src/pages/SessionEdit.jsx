@@ -8,19 +8,17 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { motion } from 'framer-motion';
-import { ArrowLeft, Save, Map, AlertTriangle } from 'lucide-react';
+import { ArrowLeft, Save, Map as MapIcon, AlertTriangle } from 'lucide-react';
 import { toast } from 'sonner';
 import { sessionsAPI, decksAPI, extractData, extractErrorMessage, isAbortError } from '../services/api';
 import { ROUTES } from '../constants/routes';
-import {
-  ButtonPremium,
-  GlassCard,
-  InputPremium,
-  SelectPremium,
-  StatusBadge
-} from '../components/ui';
+import ButtonPremium from '../components/ui/ButtonPremium';
+import GlassCard from '../components/ui/GlassCard';
+import InputPremium from '../components/ui/InputPremium';
+import SelectPremium from '../components/ui/SelectPremium';
+import StatusBadge from '../components/ui/StatusBadge';
 import { pageVariants } from '../lib/utils';
-import { useRefetchOnFocus } from '../hooks';
+import { useRefetchOnFocus } from '../hooks/useRefetchOnFocus';
 
 const statusToBadge = (status) => {
   switch (status) {
@@ -33,6 +31,48 @@ const statusToBadge = (status) => {
     default:
       return { tone: 'info', label: 'Sin estado' };
   }
+};
+
+const normalizeMechanicName = value => (value || '').toString().trim().toLowerCase();
+
+const toDeckCards = mappings =>
+  Array.isArray(mappings)
+    ? mappings.map(mapping => ({
+        cardId: mapping.cardId,
+        uid: mapping.uid,
+        assignedValue: mapping.assignedValue,
+        displayData: mapping.displayData || {}
+      }))
+    : [];
+
+const buildAssociationPlanByRounds = ({ currentPlan, cards, numberOfRounds }) => {
+  const safeCards = Array.isArray(cards) ? cards : [];
+  const rounds = Number(numberOfRounds);
+
+  if (safeCards.length === 0 || !Number.isFinite(rounds) || rounds < 1) {
+    return [];
+  }
+
+  const cardByUid = new Map(safeCards.map(card => [card.uid, card]));
+  const previousByRound = new Map(
+    (Array.isArray(currentPlan) ? currentPlan : []).map(item => [Number(item.roundNumber), item])
+  );
+
+  return Array.from({ length: rounds }, (_, index) => {
+    const roundNumber = index + 1;
+    const previousItem = previousByRound.get(roundNumber);
+    const preservedCard = previousItem?.uid ? cardByUid.get(previousItem.uid) : null;
+    const card = preservedCard || safeCards[index % safeCards.length];
+
+    return {
+      roundNumber,
+      cardId: card.cardId,
+      uid: card.uid,
+      assignedValue: card.assignedValue,
+      displayData: card.displayData || {},
+      promptText: previousItem?.promptText || ''
+    };
+  });
 };
 
 export default function SessionEdit() {
@@ -49,6 +89,7 @@ export default function SessionEdit() {
   const [timeLimit, setTimeLimit] = useState('');
   const [pointsPerCorrect, setPointsPerCorrect] = useState('');
   const [penaltyPerError, setPenaltyPerError] = useState('');
+  const [associationChallengePlan, setAssociationChallengePlan] = useState([]);
 
   const loadSession = useCallback(async (signal) => {
     if (!sessionId) return;
@@ -63,6 +104,7 @@ export default function SessionEdit() {
       setTimeLimit(String(data.config?.timeLimit ?? ''));
       setPointsPerCorrect(String(data.config?.pointsPerCorrect ?? ''));
       setPenaltyPerError(String(data.config?.penaltyPerError ?? ''));
+      setAssociationChallengePlan(Array.isArray(data.associationChallengePlan) ? data.associationChallengePlan : []);
     } catch (err) {
       if (isAbortError(err)) {
         return;
@@ -129,8 +171,40 @@ export default function SessionEdit() {
     label: deck.name
   })), [decks]);
 
+  const selectedDeckFromCatalog = useMemo(
+    () => decks.find(deck => (deck.id || deck._id) === deckId) || null,
+    [decks, deckId]
+  );
+
+  const associationCards = useMemo(() => {
+    const cardsFromSelectedDeck = toDeckCards(selectedDeckFromCatalog?.cardMappings);
+    if (cardsFromSelectedDeck.length > 0) {
+      return cardsFromSelectedDeck;
+    }
+
+    return toDeckCards(session?.cardMappings);
+  }, [selectedDeckFromCatalog, session]);
+
   const statusInfo = statusToBadge(session?.status);
   const canEdit = session?.status === 'created';
+  const isAssociationSession = normalizeMechanicName(session?.mechanic?.name) === 'association';
+  const isMemorySession = normalizeMechanicName(session?.mechanic?.name) === 'memory';
+  const hasMemoryBoardConfigured = Array.isArray(session?.boardLayout) && session.boardLayout.length > 0;
+
+  useEffect(() => {
+    if (!isAssociationSession) {
+      setAssociationChallengePlan([]);
+      return;
+    }
+
+    setAssociationChallengePlan(prev =>
+      buildAssociationPlanByRounds({
+        currentPlan: prev,
+        cards: associationCards,
+        numberOfRounds: Number.parseInt(numberOfRounds, 10)
+      })
+    );
+  }, [isAssociationSession, associationCards, numberOfRounds]);
 
   const handleSave = async () => {
     if (!session || !canEdit) return;
@@ -152,6 +226,22 @@ export default function SessionEdit() {
       config: parsedConfig
     };
 
+    if (isAssociationSession) {
+      if (associationChallengePlan.length !== parsedConfig.numberOfRounds) {
+        toast.error('Configura todos los retos de Association antes de guardar');
+        return;
+      }
+
+      payload.associationChallengePlan = associationChallengePlan.map(item => ({
+        roundNumber: item.roundNumber,
+        cardId: item.cardId,
+        uid: item.uid,
+        assignedValue: item.assignedValue,
+        displayData: item.displayData || {},
+        promptText: item.promptText || undefined
+      }));
+    }
+
     try {
       setSaving(true);
       await sessionsAPI.updateSession(sessionId, payload);
@@ -164,6 +254,37 @@ export default function SessionEdit() {
     } finally {
       setSaving(false);
     }
+  };
+
+  const updateAssociationRoundCard = (roundNumber, cardUid) => {
+    const selectedCard = associationCards.find(card => card.uid === cardUid);
+    if (!selectedCard) {
+      return;
+    }
+
+    setAssociationChallengePlan(prev =>
+      prev.map(candidate =>
+        candidate.roundNumber === roundNumber
+          ? {
+              ...candidate,
+              cardId: selectedCard.cardId,
+              uid: selectedCard.uid,
+              assignedValue: selectedCard.assignedValue,
+              displayData: selectedCard.displayData || {}
+            }
+          : candidate
+      )
+    );
+  };
+
+  const updateAssociationRoundPrompt = (roundNumber, promptText) => {
+    setAssociationChallengePlan(prev =>
+      prev.map(candidate =>
+        candidate.roundNumber === roundNumber
+          ? { ...candidate, promptText }
+          : candidate
+      )
+    );
   };
 
   if (loading && !session) {
@@ -206,16 +327,39 @@ export default function SessionEdit() {
               variant="secondary"
               onClick={() => navigate(ROUTES.BOARD_SETUP_WITH_ID(sessionId))}
             >
-              <Map size={16} />
+              <MapIcon size={16} />
               Ver mapping
             </ButtonPremium>
           </div>
         </header>
 
         {!canEdit && (
-          <GlassCard className="p-4 border border-amber-500/30 text-amber-300 flex items-center gap-3">
+          <GlassCard className="p-4 border border-amber-500/40 text-amber-300 flex items-center gap-3">
             <AlertTriangle size={18} />
             Esta sesión ya no está en borrador y no se puede editar.
+          </GlassCard>
+        )}
+
+        {canEdit && isAssociationSession && session.requiresAssociationPlanConfiguration && (
+          <GlassCard className="p-4 border border-amber-500/40 text-amber-300 flex items-center gap-3">
+            <AlertTriangle size={18} />
+            Esta sesión clonada tiene un borrador de retos precargado. Revísalo y guarda para confirmar antes de iniciar.
+          </GlassCard>
+        )}
+
+        {canEdit && isMemorySession && !hasMemoryBoardConfigured && (
+          <GlassCard className="p-4 border border-amber-500/40 text-amber-300 flex flex-wrap items-center justify-between gap-3">
+            <div className="flex items-center gap-3">
+              <AlertTriangle size={18} />
+              Esta sesión de memoria requiere configurar el tablero antes de iniciar.
+            </div>
+            <ButtonPremium
+              variant="secondary"
+              onClick={() => navigate(ROUTES.BOARD_SETUP_WITH_ID(sessionId))}
+            >
+              <MapIcon size={16} />
+              Configurar tablero
+            </ButtonPremium>
           </GlassCard>
         )}
 
@@ -236,6 +380,45 @@ export default function SessionEdit() {
               hint="El número de tarjetas depende del mazo"
             />
           </div>
+
+          {isAssociationSession && (
+            <div className="space-y-4">
+              <h2 className="text-lg font-semibold text-white">Retos de Association por ronda</h2>
+              {associationChallengePlan.length === 0 ? (
+                <p className="text-sm text-amber-300">
+                  No hay retos configurables. Revisa el mazo o el número de rondas.
+                </p>
+              ) : (
+                associationChallengePlan.map(item => (
+                  <div
+                    key={`edit-association-round-${item.roundNumber}`}
+                    className="rounded-xl border border-white/10 bg-slate-900/40 p-4 grid grid-cols-1 md:grid-cols-2 gap-4"
+                  >
+                    <SelectPremium
+                      label={`Ronda ${item.roundNumber}: tarjeta objetivo`}
+                      options={associationCards.map(card => ({
+                        value: card.uid,
+                        label: `${card.assignedValue || card.uid} · ${card.uid}`
+                      }))}
+                      value={item.uid || ''}
+                      onChange={value => updateAssociationRoundCard(item.roundNumber, value)}
+                      disabled={!canEdit}
+                    />
+                    <InputPremium
+                      label="Consigna opcional"
+                      value={item.promptText || ''}
+                      onChange={event =>
+                        updateAssociationRoundPrompt(item.roundNumber, event.target.value)
+                      }
+                      maxLength={180}
+                      disabled={!canEdit}
+                      placeholder="Ej: Encuentra la tarjeta que representa un río"
+                    />
+                  </div>
+                ))
+              )}
+            </div>
+          )}
 
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
             <InputPremium

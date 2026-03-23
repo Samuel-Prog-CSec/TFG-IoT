@@ -19,6 +19,7 @@ const { randomUUID } = require('node:crypto');
 const helmet = require('helmet');
 const compression = require('compression');
 const cookieParser = require('cookie-parser');
+const hpp = require('hpp');
 const pinoHttp = require('pino-http');
 const { Server } = require('socket.io');
 const { connectDB, disconnectDB } = require('./config/database');
@@ -39,12 +40,13 @@ const logger = require('./utils/logger');
 const { authenticate, requireRole } = require('./middlewares/auth');
 const { errorHandler, notFoundHandler } = require('./middlewares/errorHandler');
 const { createSocketRateLimiter } = require('./middlewares/socketRateLimiter');
-const { getHealthStatus } = require('./utils/healthCheck');
+const { securityPayloadGuard } = require('./middlewares/securityPayloadGuard');
+const { getHealthStatus, getMemoryUsage } = require('./utils/healthCheck');
 const runtimeMetrics = require('./utils/runtimeMetrics');
 const { toSystemMetricsDTOV1 } = require('./utils/dtos');
 const { validateQuery } = require('./middlewares/validation');
 const { emptyObjectSchema } = require('./validators/commonValidator');
-const { registerSocketHandlers, registerRfidHandlers } = require('./realtime');
+const { registerSocketHandlers, registerRfidHandlers, stopCacheCleanup } = require('./realtime');
 
 // Importar rutas
 const authRoutes = require('./routes/auth');
@@ -56,12 +58,14 @@ const sessionRoutes = require('./routes/sessions');
 const playRoutes = require('./routes/plays');
 const deckRoutes = require('./routes/decks');
 const adminRoutes = require('./routes/admin');
-const analyticsRoutes = require('./routes/analyticsRoutes');
+const analyticsRoutes = require('./routes/analytics');
 
 // Crear aplicación Express
 const app = express();
 app.set('etag', false);
 const server = http.createServer(app);
+server.keepAliveTimeout = Number.parseInt(process.env.KEEP_ALIVE_TIMEOUT_MS, 10) || 65000;
+server.headersTimeout = Number.parseInt(process.env.HEADERS_TIMEOUT_MS, 10) || 66000;
 
 // Inicializar Sentry
 initSentry();
@@ -136,14 +140,30 @@ app.use(ensureCsrfCookie);
 // CSRF Protection para métodos que modifican datos
 app.use(csrfProtection);
 
-app.use(express.json()); // Parsear application/json
-app.use(express.urlencoded({ extended: true })); // Parsear application/x-www-form-urlencoded
+app.use(express.json({ limit: '100kb' })); // Parsear application/json (límite explícito)
+app.use(express.urlencoded({ extended: true, limit: '100kb' })); // Parsear application/x-www-form-urlencoded
+
+// HPP: prevenir HTTP Parameter Pollution (arrays inesperados en query params)
+app.use(hpp());
+
+// Permissions-Policy: restringir APIs del navegador innecesarias
+app.use((req, res, next) => {
+  res.setHeader(
+    'Permissions-Policy',
+    'camera=(), microphone=(), geolocation=(), payment=(), usb=(self)'
+  );
+  next();
+});
+
+// Hardening anti prototype-pollution / NoSQL operators antes de validadores de rutas
+app.use(securityPayloadGuard);
 
 const httpLogSampleRate = Math.min(
   Math.max(Number.parseFloat(process.env.LOG_SAMPLE_RATE || '1'), 0),
   1
 );
 
+// eslint-disable-next-line sonarjs/pseudo-random -- safe: log sampling does not require CSPRNG
 const shouldSampleHttpLog = () => httpLogSampleRate >= 1 || Math.random() < httpLogSampleRate;
 
 // Middleware de logging HTTP (Pino)
@@ -301,7 +321,8 @@ app.get(
         rfid: {
           processed: snapshot.rfid,
           service: rfidService.getStatus()
-        }
+        },
+        memory: getMemoryUsage()
       })
     );
   }
@@ -315,7 +336,7 @@ app.get(
 app.get('/', validateQuery(emptyObjectSchema), (req, res) => {
   res.json({
     message: 'API REST de Juegos RFID',
-    version: '0.2.0',
+    version: require('../package.json').version,
     endpoints: {
       auth: '/api/auth',
       users: '/api/users',
@@ -387,6 +408,26 @@ const startServer = async () => {
       await connectRedis();
       logger.info('Redis conectado');
 
+      // Configurar Socket.IO Redis adapter para escalabilidad horizontal
+      try {
+        const { isRedisConnected, getRedis } = require('./config/redis');
+        if (isRedisConnected()) {
+          const { createAdapter } = require('@socket.io/redis-adapter');
+          const redisClient = getRedis();
+          const pubClient = redisClient.duplicate();
+          const subClient = redisClient.duplicate();
+          io.adapter(createAdapter(pubClient, subClient));
+          logger.info('Socket.IO Redis adapter configurado para escalabilidad horizontal');
+        }
+      } catch (adapterError) {
+        logger.warn(
+          'No se pudo configurar Socket.IO Redis adapter (continuando con adapter in-memory):',
+          {
+            error: adapterError.message
+          }
+        );
+      }
+
       // Recuperar partidas huérfanas de un reinicio anterior
       const recoveredCount = await gameEngine.recoverActivePlays();
       if (recoveredCount > 0) {
@@ -435,6 +476,7 @@ const gracefulShutdown = async signal => {
 
     try {
       socketRateLimiter.stopCleanupTimer();
+      stopCacheCleanup();
 
       // 2. Detener el motor de juego y finalizar partidas activas
       await gameEngine.shutdown();
@@ -457,11 +499,11 @@ const gracefulShutdown = async signal => {
     }
   });
 
-  // Si no se cierra en 30 segundos, forzar salida
+  const shutdownTimeoutMs = Number.parseInt(process.env.SHUTDOWN_TIMEOUT_MS, 10) || 30000;
   setTimeout(() => {
-    logger.error('Forzando shutdown tras timeout de 30s');
+    logger.error(`Forzando shutdown tras timeout de ${shutdownTimeoutMs}ms`);
     process.exit(1);
-  }, 30000);
+  }, shutdownTimeoutMs);
 };
 
 process.on('SIGTERM', () => gracefulShutdown('SIGTERM'));

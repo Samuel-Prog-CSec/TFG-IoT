@@ -9,7 +9,7 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { X, AlertTriangle, Archive, Trash2, Info, CheckCircle } from 'lucide-react';
-import { cn } from '../../lib/utils';
+import { cn, DURATION, EASING } from '../../lib/utils';
 import ButtonPremium from './ButtonPremium';
 
 /**
@@ -28,28 +28,28 @@ const VARIANT_ICONS = {
  */
 const VARIANT_COLORS = {
   danger: {
-    bg: 'bg-rose-500/20',
-    text: 'text-rose-400',
+    bg: 'bg-error-base/20',
+    text: 'text-error-base',
     button: 'danger',
   },
   warning: {
-    bg: 'bg-amber-500/20',
-    text: 'text-amber-400',
+    bg: 'bg-warning-base/20',
+    text: 'text-warning-base',
     button: 'warning',
   },
   archive: {
-    bg: 'bg-amber-500/20',
-    text: 'text-amber-400',
+    bg: 'bg-warning-base/20',
+    text: 'text-warning-base',
     button: 'warning',
   },
   info: {
-    bg: 'bg-blue-500/20',
-    text: 'text-blue-400',
+    bg: 'bg-info-base/20',
+    text: 'text-info-base',
     button: 'primary',
   },
   success: {
-    bg: 'bg-emerald-500/20',
-    text: 'text-emerald-400',
+    bg: 'bg-success-base/20',
+    text: 'text-success-base',
     button: 'success',
   },
 };
@@ -156,7 +156,7 @@ export default function ConfirmationModal({
           animate={{ opacity: 1 }}
           exit={{ opacity: 0 }}
           transition={{ duration: 0.2 }}
-          className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm"
+          className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-backdrop backdrop-blur-sm"
           onClick={handleOverlayClick}
           role="dialog"
           aria-modal="true"
@@ -170,28 +170,33 @@ export default function ConfirmationModal({
             exit={{ scale: 0.9, opacity: 0, y: 20 }}
             transition={{ type: 'spring', damping: 25, stiffness: 300 }}
             onClick={(e) => e.stopPropagation()}
-            className="bg-slate-900 border border-white/10 rounded-2xl p-6 max-w-md w-full shadow-2xl"
+            className="bg-background-base border border-border-default rounded-2xl p-6 max-w-md w-full shadow-2xl"
           >
             {/* Header con icono */}
-            <div className="flex items-start gap-4 mb-4">
+            <motion.div
+              className="flex items-start gap-4 mb-4"
+              initial={{ opacity: 0, y: 8 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ delay: 0.15, duration: DURATION.stateChange, ease: EASING.outQuart }}
+            >
               <div className={cn(
-                'w-12 h-12 rounded-xl flex items-center justify-center flex-shrink-0',
+                'size-12 rounded-xl flex items-center justify-center flex-shrink-0',
                 variantConfig.bg
               )}>
                 <Icon className={variantConfig.text} size={24} />
               </div>
               <div className="flex-1 min-w-0">
-                <h3 
+                <h3
                   id="modal-title"
-                  className="text-lg font-semibold text-white"
+                  className="text-lg font-semibold text-text-primary"
                 >
                   {title}
                 </h3>
                 {subtitle && (
-                  <p className="text-sm text-slate-400">{subtitle}</p>
+                  <p className="text-sm text-text-muted">{subtitle}</p>
                 )}
               </div>
-              
+
               {/* Botón cerrar */}
               <button
                 ref={firstFocusableRef}
@@ -199,29 +204,37 @@ export default function ConfirmationModal({
                 disabled={loading}
                 className={cn(
                   'p-2 rounded-lg transition-colors',
-                  'hover:bg-white/10 text-slate-400 hover:text-white',
+                  'hover:bg-white/10 text-text-muted hover:text-text-primary',
                   'disabled:opacity-50 disabled:cursor-not-allowed'
                 )}
                 aria-label="Cerrar modal"
               >
                 <X size={18} />
               </button>
-            </div>
+            </motion.div>
 
             {/* Descripción */}
-            <div 
+            <motion.div
               id="modal-description"
-              className="text-slate-300 mb-6"
+              className="text-text-secondary mb-6"
+              initial={{ opacity: 0, y: 8 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ delay: 0.2, duration: DURATION.stateChange, ease: EASING.outQuart }}
             >
               {typeof description === 'string' ? (
                 <p>{description}</p>
               ) : (
                 description
               )}
-            </div>
+            </motion.div>
 
             {/* Acciones */}
-            <div className="flex gap-3 justify-end">
+            <motion.div
+              className="flex gap-3 justify-end"
+              initial={{ opacity: 0, y: 8 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ delay: 0.25, duration: DURATION.stateChange, ease: EASING.outQuart }}
+            >
               <ButtonPremium
                 variant="ghost"
                 onClick={onClose}
@@ -237,7 +250,7 @@ export default function ConfirmationModal({
               >
                 {confirmText}
               </ButtonPremium>
-            </div>
+            </motion.div>
           </motion.div>
         </motion.div>
       )}
@@ -261,58 +274,36 @@ export default function ConfirmationModal({
  *   });
  * };
  */
+// eslint-disable-next-line react-refresh/only-export-components -- co-located hook for convenience
 export function useConfirmationModal() {
-  const [modalState, setModalState] = useState({
-    open: false,
-    title: '',
-    description: '',
-    confirmText: 'Confirmar',
-    cancelText: 'Cancelar',
-    variant: 'warning',
-    onConfirm: () => {},
-    loading: false,
-  });
+  const [isOpen, setIsOpen] = useState(false);
+  const [config, setConfig] = useState({});
 
-  const openModal = useCallback((config) => {
-    setModalState({
-      open: true,
-      title: config.title || '',
-      description: config.description || '',
-      confirmText: config.confirmText || 'Confirmar',
-      cancelText: config.cancelText || 'Cancelar',
-      variant: config.variant || 'warning',
-      subtitle: config.subtitle,
-      icon: config.icon,
-      onConfirm: config.onConfirm || (() => {}),
-      loading: false,
-    });
+  const open = useCallback(() => setIsOpen(true), []);
+  const close = useCallback(() => setIsOpen(false), []);
+
+  const openModal = useCallback((modalConfig = {}) => {
+    setConfig(modalConfig);
+    setIsOpen(true);
   }, []);
 
-  const closeModal = useCallback(() => {
-    setModalState(prev => ({ ...prev, open: false }));
-  }, []);
-
-  const setLoading = useCallback((loading) => {
-    setModalState(prev => ({ ...prev, loading }));
-  }, []);
-
-  const confirmAction = useCallback(async () => {
-    setLoading(true);
-    try {
-      await modalState.onConfirm();
-      closeModal();
-    } catch (error) {
-      console.error('[ConfirmationModal] Error en confirmación:', error);
-    } finally {
-      setLoading(false);
-    }
-  }, [modalState.onConfirm, closeModal, setLoading]);
+  const modalProps = {
+    open: isOpen,
+    onClose: close,
+    title: config.title,
+    description: config.description || config.message,
+    confirmText: config.confirmText,
+    cancelText: config.cancelText,
+    variant: config.variant,
+    onConfirm: config.onConfirm,
+  };
 
   return {
-    modalState,
+    isOpen,
+    open,
+    close,
     openModal,
-    closeModal,
-    confirmAction,
-    setLoading,
+    closeModal: close,
+    modalProps,
   };
 }

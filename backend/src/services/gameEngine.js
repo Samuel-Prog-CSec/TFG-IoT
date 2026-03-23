@@ -9,6 +9,7 @@ const logger = require('../utils/logger').child({ component: 'gameEngine' });
 const gamePlayRepository = require('../repositories/gamePlayRepository');
 const gameSessionRepository = require('../repositories/gameSessionRepository');
 const redisService = require('./redisService');
+const { recalculateSessionStatusFromPlays } = require('./sessionStatusService');
 const { getMechanicStrategy } = require('../strategies/mechanics');
 
 // Constantes de configuración
@@ -17,6 +18,16 @@ const ACTIVE_PLAYS_WARNING_THRESHOLD =
   Number.parseInt(process.env.ACTIVE_PLAYS_WARNING_THRESHOLD, 10) || 1000;
 const PLAY_TIMEOUT_MS = Number.parseInt(process.env.PLAY_TIMEOUT_MS, 10) || 3600000; // 1 hora
 const CLEANUP_INTERVAL_MS = 300000; // 5 minutos
+const PROCESS_BATCH_SIZE = Number.parseInt(process.env.GAME_ENGINE_BATCH_SIZE, 10) || 20;
+const PERSIST_ROUND_START_EVENTS = process.env.PERSIST_ROUND_START_EVENTS === 'true';
+const DISTRIBUTED_LOCK_TTL_SECONDS =
+  Number.parseInt(process.env.GAME_ENGINE_LOCK_TTL_SECONDS, 10) || 90;
+const LOCK_HEARTBEAT_INTERVAL_MS =
+  Number.parseInt(process.env.GAME_ENGINE_LOCK_HEARTBEAT_MS, 10) || 30000;
+const MEMORY_DEFAULT_HIDE_DELAY_MS = Number.parseInt(process.env.MEMORY_HIDE_DELAY_MS, 10) || 1200;
+const MEMORY_FEEDBACK_PAUSE_MS = Number.parseInt(process.env.MEMORY_FEEDBACK_PAUSE_MS, 10) || 1400;
+const CHECKPOINT_INTERVAL_MS = Number.parseInt(process.env.CHECKPOINT_INTERVAL_MS, 10) || 120000; // 2 min
+const CHECKPOINT_EVENT_THRESHOLD = Number.parseInt(process.env.CHECKPOINT_EVENT_THRESHOLD, 10) || 5;
 
 /**
  * GameEngine - Servicio con estado para gestión de partidas en tiempo real.
@@ -80,6 +91,13 @@ class GameEngine {
     this.cardUidToPlayId = new Map();
 
     /**
+     * Cola de exclusión mutua por partida para serializar operaciones críticas
+     * (scan/timeout/pause/resume/next_round manual).
+     * @type {Map<string, Promise<any>>}
+     */
+    this.playLocks = new Map();
+
+    /**
      * Métricas del motor de juego para monitoreo.
      * @type {Object}
      */
@@ -88,19 +106,43 @@ class GameEngine {
       totalPlaysCompleted: 0,
       totalPlaysCancelled: 0,
       totalCardScans: 0,
-      averagePlayDuration: 0
+      ignoredCardScans: 0,
+      scanRaceDiscarded: 0,
+      blockedManualNextRound: 0,
+      totalTimeouts: 0,
+      totalMemoryAttempts: 0,
+      totalMemoryMatches: 0,
+      averageRoundResponseTimeMs: 0,
+      totalRoundResponses: 0,
+      lockContention: 0,
+      distributedLockLeaseRenewed: 0,
+      distributedLockLeaseFailed: 0,
+      averagePlayDuration: 0,
+      // Métricas Lua (T-066)
+      luaReserveCardExecutions: 0,
+      luaReserveCardConflicts: 0,
+      luaReleaseCardExecutions: 0,
+      luaRenewLeaseExecutions: 0,
+      luaRenewLeasePartialFailures: 0,
+      pipelineRecoveryBatchSize: 0,
+      checkpointExecuted: 0
     };
 
     // Iniciar cleanup automático de partidas abandonadas
     // En tests lo deshabilitamos para evitar open handles en Jest.
     if (process.env.NODE_ENV !== 'test') {
       this.startCleanupTimer();
+      this.startLockHeartbeatTimer();
     }
 
     logger.info('GameEngine inicializado', {
       activePlaysWarningThreshold: ACTIVE_PLAYS_WARNING_THRESHOLD,
       playTimeoutMs: PLAY_TIMEOUT_MS,
-      cleanupIntervalMs: CLEANUP_INTERVAL_MS
+      cleanupIntervalMs: CLEANUP_INTERVAL_MS,
+      distributedLockTtlSeconds: DISTRIBUTED_LOCK_TTL_SECONDS,
+      lockHeartbeatIntervalMs: LOCK_HEARTBEAT_INTERVAL_MS,
+      checkpointIntervalMs: CHECKPOINT_INTERVAL_MS,
+      checkpointEventThreshold: CHECKPOINT_EVENT_THRESHOLD
     });
   }
 
@@ -139,10 +181,10 @@ class GameEngine {
         playIds: abandonedPlays
       });
 
-      for (const playId of abandonedPlays) {
+      await this.processInBatches(abandonedPlays, async playId => {
         await this.endPlay(playId);
         this.metrics.totalPlaysCancelled++;
-      }
+      });
     }
 
     logger.debug('Cleanup ejecutado', {
@@ -161,6 +203,187 @@ class GameEngine {
       clearInterval(this.cleanupInterval);
       logger.info('Cleanup timer detenido');
     }
+  }
+
+  startLockHeartbeatTimer() {
+    this.lockHeartbeatInterval = setInterval(() => {
+      this.refreshActivePlayLeases();
+    }, LOCK_HEARTBEAT_INTERVAL_MS);
+  }
+
+  stopLockHeartbeatTimer() {
+    if (this.lockHeartbeatInterval) {
+      clearInterval(this.lockHeartbeatInterval);
+      logger.info('Lock heartbeat timer detenido');
+    }
+  }
+
+  async refreshActivePlayLeases() {
+    const activeEntries = Array.from(this.activePlays.entries());
+    if (activeEntries.length === 0) {
+      return;
+    }
+
+    await this.processInBatches(activeEntries, async ([playId, playState]) => {
+      await this.refreshPlayLease(playId, playState);
+    });
+  }
+
+  async refreshPlayLease(playId, playState) {
+    try {
+      const cardUids = (playState?.sessionDoc?.cardMappings || []).map(m => m.uid);
+
+      // Usar operación atómica Lua que renueva play key + todas las card keys en 1 EVALSHA.
+      // Con 20 tarjetas, pasa de ~61 round-trips a 1 solo comando.
+      const result = await redisService.renewLeaseAtomic(
+        redisService.NAMESPACES.PLAY,
+        playId,
+        redisService.NAMESPACES.CARD,
+        cardUids,
+        DISTRIBUTED_LOCK_TTL_SECONDS
+      );
+
+      this.metrics.luaRenewLeaseExecutions++;
+
+      if (result.playRenewed && result.cardsSkipped === 0) {
+        this.metrics.distributedLockLeaseRenewed++;
+      } else {
+        this.metrics.distributedLockLeaseFailed++;
+        if (result.cardsSkipped > 0) {
+          this.metrics.luaRenewLeasePartialFailures++;
+          logger.warn('Renovación parcial de lease: cards con owner distinto', {
+            playId,
+            cardsRenewed: result.cardsRenewed,
+            cardsSkipped: result.cardsSkipped
+          });
+        }
+      }
+    } catch (error) {
+      this.metrics.distributedLockLeaseFailed++;
+      logger.warn('No se pudo renovar lease distribuido de partida', {
+        playId,
+        error: error.message
+      });
+    }
+  }
+
+  /**
+   * Ejecuta una operación de forma exclusiva por playId.
+   * @private
+   * @param {string} playId
+   * @param {string} operationName
+   * @param {() => Promise<any>} operation
+   * @returns {Promise<any>}
+   */
+  async executeWithPlayLock(playId, operationName, operation) {
+    const previousOperation = this.playLocks.get(playId);
+
+    if (this.playLocks.has(playId) === true) {
+      this.metrics.lockContention++;
+    }
+
+    const operationQueue =
+      previousOperation instanceof Promise ? previousOperation : Promise.resolve();
+
+    const currentOperation = operationQueue
+      .catch(() => undefined)
+      .then(async () => {
+        try {
+          return await operation();
+        } catch (error) {
+          logger.error(`Error en operación serializada '${operationName}' para ${playId}`, {
+            playId,
+            operationName,
+            error: error.message
+          });
+          throw error;
+        }
+      });
+
+    this.playLocks.set(playId, currentOperation);
+
+    return currentOperation.finally(() => {
+      if (this.playLocks.get(playId) === currentOperation) {
+        this.playLocks.delete(playId);
+      }
+    });
+  }
+
+  /**
+   * Procesa elementos en lotes para reducir latencia de bucles secuenciales.
+   * @private
+   * @template T
+   * @param {T[]} items
+   * @param {(item: T) => Promise<any>} processor
+   * @returns {Promise<void>}
+   */
+  async processInBatches(items, processor) {
+    if (!Array.isArray(items) || items.length === 0) {
+      return;
+    }
+
+    for (let index = 0; index < items.length; index += PROCESS_BATCH_SIZE) {
+      const batch = items.slice(index, index + PROCESS_BATCH_SIZE);
+      await Promise.all(batch.map(item => processor(item)));
+    }
+  }
+
+  /**
+   * Reserva los UIDs de una sesión en Redis con semántica NX para evitar colisiones multi-instancia.
+   *
+   * @private
+   * @param {string} playId
+   * @param {Object} sessionDoc
+   * @returns {Promise<{ok:boolean, conflicts:string[]}>}
+   */
+  async reserveDistributedCardMappings(playId, sessionDoc) {
+    const cardEntries = (sessionDoc?.cardMappings || []).map(mapping => ({
+      id: mapping.uid,
+      value: playId
+    }));
+
+    // Usar operación atómica Lua (all-or-nothing) en vez de SET NX secuencial.
+    // Elimina la race window donde dos instancias podían adquirir tarjetas solapadas.
+    const result = await redisService.reserveCardsAtomic(
+      redisService.NAMESPACES.CARD,
+      cardEntries,
+      DISTRIBUTED_LOCK_TTL_SECONDS
+    );
+
+    if (result.ok) {
+      this.metrics.luaReserveCardExecutions++;
+    } else {
+      this.metrics.luaReserveCardConflicts++;
+    }
+
+    return {
+      ok: Boolean(result?.ok),
+      conflicts: result?.conflicts || []
+    };
+  }
+
+  /**
+   * Libera UIDs reservados por una partida solo si Redis sigue apuntando a ese playId.
+   *
+   * @private
+   * @param {string} playId
+   * @param {string[]} cardUids
+   * @returns {Promise<void>}
+   */
+  async releaseDistributedCardMappings(playId, cardUids = []) {
+    const releaseEntries = (cardUids || []).map(uid => ({
+      id: uid,
+      expectedValue: playId
+    }));
+
+    // Usar operación atómica Lua (owner-aware) en vez de GET+compare+DEL secuencial.
+    // Elimina la race window entre lectura y borrado.
+    const result = await redisService.releaseCardsAtomic(
+      redisService.NAMESPACES.CARD,
+      releaseEntries
+    );
+    this.metrics.luaReleaseCardExecutions++;
+    return result;
   }
 
   // ============================================================================
@@ -188,80 +411,120 @@ class GameEngine {
   async startPlay(playDoc, sessionDoc) {
     const playId = playDoc._id.toString();
 
-    // 0. Verificar umbral de partidas activas (Monitorización - solo warning)
-    if (this.activePlays.size >= ACTIVE_PLAYS_WARNING_THRESHOLD) {
-      logger.warn(
-        `Umbral de partidas activas alcanzado o superado: ${this.activePlays.size}/${ACTIVE_PLAYS_WARNING_THRESHOLD}`
-      );
-      // Duda #21: No bloqueamos, solo alertamos
-    }
+    return this.executeWithPlayLock(playId, 'startPlay', async () => {
+      if (this.activePlays.has(playId)) {
+        logger.warn(`Partida ${playId} ya estaba iniciada en memoria (idempotencia start_play)`);
+        return;
+      }
 
-    // 1. Bloquear las tarjetas para este juego
-    // Esto previene que la misma tarjeta se use en dos juegos a la vez
-    for (const mapping of sessionDoc.cardMappings) {
-      if (this.cardUidToPlayId.has(mapping.uid)) {
-        // La tarjeta ya está en otro juego activo
-        logger.error(`Error al iniciar ${playId}: Tarjeta ${mapping.uid} ya en uso.`);
+      // 0. Verificar umbral de partidas activas (Monitorización - solo warning)
+      if (this.activePlays.size >= ACTIVE_PLAYS_WARNING_THRESHOLD) {
+        logger.warn(
+          `Umbral de partidas activas alcanzado o superado: ${this.activePlays.size}/${ACTIVE_PLAYS_WARNING_THRESHOLD}`
+        );
+        // Duda #21: No bloqueamos, solo alertamos
+      }
+
+      // 1. Bloquear las tarjetas para este juego
+      // Esto previene que la misma tarjeta se use en dos juegos a la vez
+      for (const mapping of sessionDoc.cardMappings) {
+        if (this.cardUidToPlayId.has(mapping.uid)) {
+          // La tarjeta ya está en otro juego activo
+          logger.error(`Error al iniciar ${playId}: Tarjeta ${mapping.uid} ya en uso.`);
+          this.io.to(`play_${playId}`).emit('error', {
+            message: `La tarjeta ${mapping.assignedValue || mapping.uid} ya está en uso en otra partida`
+          });
+          return;
+        }
+      }
+
+      const distributedReservation = await this.reserveDistributedCardMappings(playId, sessionDoc);
+      if (!distributedReservation.ok) {
+        const conflictedUid = distributedReservation.conflicts?.[0] || null;
+        const conflictedMapping = sessionDoc.cardMappings.find(
+          mapping => mapping.uid === conflictedUid
+        );
+
+        logger.error(`Error al iniciar ${playId}: conflicto distribuido de tarjeta`, {
+          playId,
+          conflictedUid,
+          conflicts: distributedReservation.conflicts
+        });
+
         this.io.to(`play_${playId}`).emit('error', {
-          message: `La tarjeta ${mapping.assignedValue || mapping.uid} ya está en uso en otra partida`
+          message: `La tarjeta ${conflictedMapping?.assignedValue || conflictedUid || 'desconocida'} ya está en uso en otra partida`
         });
         return;
       }
-    }
 
-    // Si todas las tarjetas están libres, las reservamos
-    for (const mapping of sessionDoc.cardMappings) {
-      this.cardUidToPlayId.set(mapping.uid, playId);
-    }
-
-    // 2. Construir índice O(1) para búsqueda rápida de mappings por UID
-    const uidToMapping = new Map(sessionDoc.cardMappings.map(m => [m.uid, m]));
-
-    // 3. Crear el estado en memoria
-    const mechanicName =
-      typeof sessionDoc.mechanicId === 'object' && sessionDoc.mechanicId?.name
-        ? sessionDoc.mechanicId.name
-        : sessionDoc.mechanicId?.toString?.();
-    const mechanicStrategy = getMechanicStrategy(mechanicName, logger);
-    const strategyState = mechanicStrategy.initialize({ sessionDoc, playDoc });
-
-    const playState = {
-      playDoc,
-      sessionDoc,
-      uidToMapping, // Índice O(1): uid → mapping completo
-      mechanicName: mechanicStrategy.getName(),
-      mechanicStrategy,
-      strategyState,
-      currentChallenge: null,
-      roundTimer: null,
-      nextRoundTimer: null,
-      awaitingResponse: false,
-      paused: false,
-      pausedAt: null,
-      remainingTimeMs: null,
-      roundElapsedBeforePauseMs: 0,
-      createdAt: Date.now() // Para detectar abandonos
-    };
-
-    // 4. Almacenar el estado en memoria
-    this.activePlays.set(playId, playState);
-    this.metrics.totalPlaysStarted++;
-
-    // 5. Sincronizar con Redis para persistencia
-    await this.syncPlayToRedis(playId, playState);
-
-    logger.info(
-      `Partida ${playId} iniciada. ${sessionDoc.cardMappings.length} tarjetas bloqueadas.`,
-      {
-        playId,
-        playerId: playDoc.playerId,
-        sessionId: sessionDoc._id,
-        activePlaysCount: this.activePlays.size
+      // Si todas las tarjetas están libres, las reservamos
+      for (const mapping of sessionDoc.cardMappings) {
+        this.cardUidToPlayId.set(mapping.uid, playId);
       }
-    );
 
-    // 6. Enviar la primera ronda
-    await this.sendNextRound(playId);
+      // 2. Construir índice O(1) para búsqueda rápida de mappings por UID
+      const uidToMapping = new Map(sessionDoc.cardMappings.map(m => [m.uid, m]));
+
+      // 3. Crear el estado en memoria
+      const mechanicName =
+        typeof sessionDoc.mechanicId === 'object' && sessionDoc.mechanicId?.name
+          ? sessionDoc.mechanicId.name
+          : sessionDoc.mechanicId?.toString?.();
+      const mechanicStrategy = getMechanicStrategy(mechanicName, logger);
+      const strategyState = mechanicStrategy.initialize({ sessionDoc, playDoc });
+
+      const playState = {
+        playDoc,
+        sessionDoc,
+        uidToMapping, // Índice O(1): uid → mapping completo
+        mechanicName: mechanicStrategy.getName(),
+        mechanicStrategy,
+        strategyState,
+        currentChallenge: null,
+        roundTimer: null,
+        nextRoundTimer: null,
+        playTimer: null,
+        awaitingResponse: false,
+        paused: false,
+        pausedAt: null,
+        remainingTimeMs: null,
+        roundElapsedBeforePauseMs: 0,
+        playDurationMs: null,
+        playEndsAt: null,
+        createdAt: Date.now(), // Para detectar abandonos
+        lastCheckpointEventCount: 0,
+        lastCheckpointAt: Date.now(),
+        transientTimers: new Set()
+      };
+
+      if (playState.mechanicName === 'memory') {
+        const playDurationMs =
+          Number(playState.mechanicStrategy.getPlayDurationMs(sessionDoc)) ||
+          (sessionDoc.config?.timeLimit || 15) * 1000;
+        playState.playDurationMs = playDurationMs;
+        playState.playEndsAt = Date.now() + playDurationMs;
+      }
+
+      // 4. Almacenar el estado en memoria
+      this.activePlays.set(playId, playState);
+      this.metrics.totalPlaysStarted++;
+
+      // 5. Sincronizar con Redis para persistencia
+      await this.syncPlayToRedis(playId, playState);
+
+      logger.info(
+        `Partida ${playId} iniciada. ${sessionDoc.cardMappings.length} tarjetas bloqueadas.`,
+        {
+          playId,
+          playerId: playDoc.playerId,
+          sessionId: sessionDoc._id,
+          activePlaysCount: this.activePlays.size
+        }
+      );
+
+      // 6. Enviar la primera ronda
+      await this.sendNextRound(playId);
+    }); // fin executeWithPlayLock
   }
 
   /**
@@ -295,12 +558,16 @@ class GameEngine {
     if (playState.nextRoundTimer) {
       clearTimeout(playState.nextRoundTimer);
     }
+    if (playState.playTimer) {
+      clearTimeout(playState.playTimer);
+    }
 
     // 2. Guardar el estado final en la BD
     try {
       const playDuration = Date.now() - playState.createdAt;
 
       await playState.playDoc.complete(); // Llama al método .complete() del modelo
+      await recalculateSessionStatusFromPlays(playState.playDoc.sessionId);
 
       logger.info(`Partida ${playId} guardada en BD`, {
         playId,
@@ -331,8 +598,8 @@ class GameEngine {
       cardUids.push(mapping.uid);
     }
 
-    // También limpiar de Redis
-    await redisService.delMany(redisService.NAMESPACES.CARD, cardUids);
+    // También limpiar de Redis (solo si seguimos siendo owner del lock)
+    await this.releaseDistributedCardMappings(playId, cardUids);
 
     // Borrar la partida de la memoria activa
     this.activePlays.delete(playId);
@@ -348,6 +615,203 @@ class GameEngine {
   // ============================================================================
   // LÓGICA DEL JUEGO
   // ============================================================================
+
+  isMemoryPlay(playState) {
+    return playState?.mechanicName === 'memory';
+  }
+
+  getMemoryRemainingTimeMs(playState) {
+    if (!playState?.playEndsAt) {
+      return null;
+    }
+
+    return Math.max(0, playState.playEndsAt - Date.now());
+  }
+
+  emitMemoryTurnState(playId, playState, extra = {}) {
+    const board = playState.mechanicStrategy.buildBoardForClient(playState.strategyState);
+    const matchedCount = Number(playState.strategyState?.matchedUids?.length || 0);
+    const totalCards = Number(playState.strategyState?.totalCards || board.length || 0);
+
+    this.io.to(`play_${playId}`).emit('memory_turn_state', {
+      playId,
+      board,
+      matchedCount,
+      totalCards,
+      attempts: Number(playState.strategyState?.attempts || 0),
+      remainingTimeMs: this.getMemoryRemainingTimeMs(playState),
+      awaitingResponse: Boolean(playState.awaitingResponse),
+      score: playState.playDoc.score,
+      ...extra
+    });
+  }
+
+  scheduleMemoryPlayTimeout(playId, playState, remainingTimeMs) {
+    if (!Number.isFinite(remainingTimeMs) || remainingTimeMs <= 0) {
+      this.handleMemoryTimeout(playId);
+      return;
+    }
+
+    if (playState.playTimer) {
+      clearTimeout(playState.playTimer);
+      playState.playTimer = null;
+    }
+
+    playState.playTimer = setTimeout(() => {
+      this.handleMemoryTimeout(playId);
+    }, remainingTimeMs);
+  }
+
+  async handleMemoryTimeout(playId) {
+    await this.executeWithPlayLock(playId, 'handle_memory_timeout', async () => {
+      const playState = this.activePlays.get(playId);
+      if (!playState || !this.isMemoryPlay(playState)) {
+        return;
+      }
+
+      if (playState.paused || playState.playDoc.status === 'paused') {
+        return;
+      }
+
+      this.metrics.totalTimeouts++;
+      playState.awaitingResponse = false;
+      if (playState.playTimer) {
+        clearTimeout(playState.playTimer);
+        playState.playTimer = null;
+      }
+
+      this.io.to(`play_${playId}`).emit('validation_result', {
+        isCorrect: false,
+        timeout: true,
+        pointsAwarded: 0,
+        newScore: playState.playDoc.score
+      });
+
+      await this.endPlay(playId);
+    });
+  }
+
+  async processMemoryScan(playId, playState, scannedCard) {
+    const timeElapsed = playState.roundStartTime ? Date.now() - playState.roundStartTime : 0;
+    const outcome = playState.mechanicStrategy.processScan({
+      scannedCard,
+      sessionDoc: playState.sessionDoc,
+      strategyState: playState.strategyState,
+      playDoc: playState.playDoc,
+      playState
+    });
+
+    if (!outcome || outcome.type === 'ignored') {
+      this.metrics.ignoredCardScans++;
+      if (outcome?.board) {
+        this.emitMemoryTurnState(playId, playState, { phase: 'ignored' });
+      }
+      return;
+    }
+
+    if (outcome.type === 'first_pick') {
+      playState.roundStartTime = Date.now();
+
+      await playState.playDoc.addEvent({
+        eventType: 'card_scanned',
+        cardUid: scannedCard.uid,
+        expectedValue: scannedCard.assignedValue,
+        actualValue: scannedCard.assignedValue,
+        pointsAwarded: 0,
+        timeElapsed,
+        roundNumber: playState.playDoc.currentRound
+      });
+
+      this.emitMemoryTurnState(playId, playState, { phase: 'first_pick' });
+      return;
+    }
+
+    if (outcome.type !== 'resolved') {
+      return;
+    }
+
+    this.metrics.totalMemoryAttempts++;
+
+    const eventType = outcome.isCorrect ? 'correct' : 'error';
+    const selectedUids = outcome.selectedUids || [];
+    const firstUid = selectedUids[0] || null;
+    const secondUid = selectedUids[1] || null;
+
+    const boardByUid = new Map(
+      (playState.strategyState?.boardLayout || []).map(slot => [slot.uid, slot])
+    );
+    const firstCard = boardByUid.get(firstUid);
+    const secondCard = boardByUid.get(secondUid);
+
+    await playState.playDoc.addEventAtomic(
+      {
+        eventType,
+        cardUid: secondUid || scannedCard.uid,
+        expectedValue: firstCard?.assignedValue,
+        actualValue: secondCard?.assignedValue,
+        pointsAwarded: Number(outcome.pointsAwarded || 0),
+        timeElapsed,
+        roundNumber: playState.playDoc.currentRound
+      },
+      { advanceRound: true }
+    );
+
+    await this.checkpointPlayIfNeeded(playId, playState);
+
+    if (outcome.isCorrect) {
+      this.metrics.totalMemoryMatches++;
+    }
+
+    const mismatchHideDelay = Number(outcome.hideAfterMs) || MEMORY_DEFAULT_HIDE_DELAY_MS;
+    const feedbackDelayMs = Math.max(
+      MEMORY_FEEDBACK_PAUSE_MS,
+      outcome.isCorrect ? 0 : mismatchHideDelay
+    );
+
+    if (feedbackDelayMs > 0 && Number.isFinite(playState.playEndsAt)) {
+      playState.playEndsAt += feedbackDelayMs;
+      this.scheduleMemoryPlayTimeout(playId, playState, this.getMemoryRemainingTimeMs(playState));
+    }
+
+    this.io.to(`play_${playId}`).emit('validation_result', {
+      isCorrect: outcome.isCorrect,
+      expected: firstCard?.displayData || null,
+      actual: {
+        value: secondCard?.assignedValue || scannedCard.assignedValue
+      },
+      pointsAwarded: Number(outcome.pointsAwarded || 0),
+      newScore: playState.playDoc.score,
+      feedbackDelayMs,
+      remainingTimeMs: this.getMemoryRemainingTimeMs(playState)
+    });
+
+    this.emitMemoryTurnState(playId, playState, {
+      phase: outcome.isCorrect ? 'match' : 'mismatch'
+    });
+
+    if (outcome.isCorrect && playState.mechanicStrategy.isCompleted(playState.strategyState)) {
+      await this.endPlay(playId);
+      return;
+    }
+
+    if (!outcome.isCorrect) {
+      const hideDelay = mismatchHideDelay;
+      this.scheduleTransientTimer(
+        playState,
+        () => {
+          const currentState = this.activePlays.get(playId);
+          if (!currentState || !this.isMemoryPlay(currentState)) {
+            return;
+          }
+          currentState.mechanicStrategy.concealSelected(currentState.strategyState, selectedUids);
+          this.emitMemoryTurnState(playId, currentState, { phase: 'concealed' });
+        },
+        hideDelay
+      );
+    }
+
+    playState.roundStartTime = null;
+  }
 
   /**
    * Genera y envía el siguiente desafío al jugador, o finaliza la partida.
@@ -372,6 +836,31 @@ class GameEngine {
 
     // Si está pausada, NO avanzar rondas ni rearmar timers.
     if (playState.paused || playState.playDoc.status === 'paused') {
+      return;
+    }
+
+    if (this.isMemoryPlay(playState)) {
+      if (playState.playDoc.currentRound === 1 && !playState.roundStartTime) {
+        playState.roundStartTime = Date.now();
+      }
+
+      const remainingTimeMs = this.getMemoryRemainingTimeMs(playState);
+      playState.awaitingResponse = true;
+
+      this.io.to(`play_${playId}`).emit('new_round', {
+        roundNumber: playState.playDoc.currentRound,
+        totalRounds: Number(playState.strategyState?.totalGroups || 0),
+        challenge: {
+          displayData: {
+            mode: 'memory_board'
+          }
+        },
+        timeLimit: Math.max(1, Math.ceil((remainingTimeMs || 0) / 1000)),
+        score: playState.playDoc.score
+      });
+
+      this.emitMemoryTurnState(playId, playState, { phase: 'round_start' });
+      this.scheduleMemoryPlayTimeout(playId, playState, remainingTimeMs);
       return;
     }
 
@@ -421,11 +910,14 @@ class GameEngine {
     playState.remainingTimeMs = null;
     playState.roundElapsedBeforePauseMs = 0;
 
-    // 4. Guardar el inicio de la ronda en la BD (evento 'round_start')
-    await playDoc.addEvent({
-      eventType: 'round_start',
-      roundNumber: playDoc.currentRound
-    });
+    // 4. Persistir inicio de ronda solo si está habilitado explícitamente.
+    // Por defecto se prioriza una sola escritura por ronda (resultado/timeout).
+    if (PERSIST_ROUND_START_EVENTS) {
+      await playDoc.addEvent({
+        eventType: 'round_start',
+        roundNumber: playDoc.currentRound
+      });
+    }
 
     // 5. Emitir al cliente
     this.io.to(`play_${playId}`).emit('new_round', {
@@ -446,6 +938,32 @@ class GameEngine {
     playState.roundTimer = setTimeout(() => {
       this.handleTimeout(playId);
     }, sessionDoc.config.timeLimit * 1000);
+  }
+
+  /**
+   * Solicita avanzar manualmente a la siguiente ronda.
+   *
+   * Se bloquea si la ronda actual está esperando respuesta para evitar saltos
+   * y condiciones de carrera con timeout/escaneo.
+   *
+   * @param {string} playId
+   * @returns {Promise<{ ok: boolean, reason: string|null }>}
+   */
+  async advanceToNextRound(playId) {
+    return this.executeWithPlayLock(playId, 'advance_to_next_round', async () => {
+      const playState = this.activePlays.get(playId);
+      if (!playState) {
+        return { ok: false, reason: 'play_not_active' };
+      }
+
+      if (playState.awaitingResponse) {
+        this.metrics.blockedManualNextRound++;
+        return { ok: false, reason: 'awaiting_response' };
+      }
+
+      await this.sendNextRound(playId);
+      return { ok: true, reason: null };
+    });
   }
 
   // ============================================================================
@@ -469,44 +987,61 @@ class GameEngine {
    * @returns {Promise<void>}
    */
   async handleCardScan(uid) {
+    this.metrics.totalCardScans++;
+
     // 1. Búsqueda O(1) para encontrar la partida
     const playId = this.cardUidToPlayId.get(uid);
     if (!playId) {
+      this.metrics.ignoredCardScans++;
       logger.debug(`Tarjeta ${uid} escaneada, pero no pertenece a ningún juego activo.`);
       return;
     }
 
-    // 2. Obtener el estado del juego
-    const playState = this.activePlays.get(playId);
+    await this.executeWithPlayLock(playId, 'handle_card_scan', async () => {
+      // 2. Obtener el estado del juego
+      const playState = this.activePlays.get(playId);
 
-    // Ignorar escaneos si la partida está pausada
-    if (playState?.paused || playState?.playDoc?.status === 'paused') {
-      logger.debug(`Tarjeta ${uid} ignorada: partida ${playId} en pausa.`);
-      return;
-    }
+      // Ignorar escaneos si la partida está pausada
+      if (playState?.paused || playState?.playDoc?.status === 'paused') {
+        this.metrics.ignoredCardScans++;
+        logger.debug(`Tarjeta ${uid} ignorada: partida ${playId} en pausa.`);
+        return;
+      }
 
-    if (!playState?.awaitingResponse) {
-      // El juego existe, pero no está esperando una respuesta
-      // (ej. escaneo demasiado rápido, o entre rondas)
-      logger.debug(`Tarjeta ${uid} escaneada para ${playId}, pero no se esperaba respuesta.`);
-      return;
-    }
+      if (!playState?.awaitingResponse) {
+        this.metrics.scanRaceDiscarded++;
+        this.metrics.ignoredCardScans++;
+        // El juego existe, pero no está esperando una respuesta
+        // (ej. escaneo demasiado rápido, o entre rondas)
+        logger.debug(`Tarjeta ${uid} escaneada para ${playId}, pero no se esperaba respuesta.`);
+        return;
+      }
 
-    // 3. Búsqueda O(1) del mapping de la tarjeta escaneada
-    const scannedCardMapping = playState.uidToMapping.get(uid);
-    if (!scannedCardMapping) {
-      // Esto NO debería ocurrir si el índice está sincronizado correctamente
-      logger.error(`Error CRÍTICO: ${uid} mapeado a ${playId} pero no encontrado en uidToMapping.`);
-      return;
-    }
+      // 3. Búsqueda O(1) del mapping de la tarjeta escaneada
+      const scannedCardMapping = playState.uidToMapping.get(uid);
+      if (!scannedCardMapping) {
+        this.metrics.ignoredCardScans++;
+        // Esto NO debería ocurrir si el índice está sincronizado correctamente
+        logger.error(
+          `Error CRÍTICO: ${uid} mapeado a ${playId} pero no encontrado en uidToMapping.`
+        );
+        return;
+      }
 
-    // 4. Respuesta recibida → limpiar el timer
-    clearTimeout(playState.roundTimer);
-    playState.roundTimer = null;
-    playState.awaitingResponse = false;
+      // 4. Respuesta recibida → limpiar el timer
+      if (!this.isMemoryPlay(playState)) {
+        clearTimeout(playState.roundTimer);
+        playState.roundTimer = null;
+        playState.awaitingResponse = false;
+      }
 
-    // 5. Procesar la respuesta
-    await this.processResponse(playId, playState, scannedCardMapping);
+      // 5. Procesar la respuesta
+      if (this.isMemoryPlay(playState)) {
+        await this.processMemoryScan(playId, playState, scannedCardMapping);
+      } else {
+        await this.processResponse(playId, playState, scannedCardMapping);
+      }
+    });
   }
 
   /**
@@ -565,13 +1100,14 @@ class GameEngine {
       roundNumber: playDoc.currentRound
     };
 
-    // 3. Guardar el evento en la BD
-    // .addEvent() actualiza el score y las métricas automáticamente
+    // 3. Guardar el evento y avanzar ronda en una sola operación atómica
     try {
-      await playDoc.addEvent(eventData);
+      await playDoc.addEventAtomic(eventData, { advanceRound: true });
     } catch (err) {
       logger.error(`Error guardando evento en la BD para ${playId}: ${err.message}`);
     }
+
+    await this.checkpointPlayIfNeeded(playId, playState);
 
     // 4. Emitir el resultado al cliente
     this.io.to(`play_${playId}`).emit('validation_result', {
@@ -588,10 +1124,15 @@ class GameEngine {
       `Partida: ${playId} | Ronda: ${playDoc.currentRound} | ${eventType} (${symbol}${pointsAwarded} pts)`
     );
 
+    this.metrics.totalRoundResponses++;
+    this.metrics.averageRoundResponseTimeMs =
+      (this.metrics.averageRoundResponseTimeMs * (this.metrics.totalRoundResponses - 1) +
+        timeElapsed) /
+      this.metrics.totalRoundResponses;
+
     // 5. Pasar a la siguiente ronda (tras un breve delay para feedback)
-    playDoc.currentRound++;
     playState.nextRoundTimer = setTimeout(() => {
-      this.sendNextRound(playId);
+      this.advanceToNextRound(playId);
     }, 4000); // Delay de 4s para que el jugador vea el resultado
   }
 
@@ -607,49 +1148,59 @@ class GameEngine {
    * @emits validation_result - Indicando timeout sin puntuación
    */
   async handleTimeout(playId) {
-    const playState = this.activePlays.get(playId);
-    if (!playState?.awaitingResponse) {
-      // La respuesta llegó justo a tiempo, el timer ya fue limpiado
-      return;
-    }
+    await this.executeWithPlayLock(playId, 'handle_timeout', async () => {
+      const playState = this.activePlays.get(playId);
+      if (!playState?.awaitingResponse) {
+        // La respuesta llegó justo a tiempo, el timer ya fue limpiado
+        this.metrics.scanRaceDiscarded++;
+        return;
+      }
 
-    // Si está pausada, ignorar (race conditions)
-    if (playState.paused || playState.playDoc.status === 'paused') {
-      return;
-    }
+      // Si está pausada, ignorar (race conditions)
+      if (playState.paused || playState.playDoc.status === 'paused') {
+        return;
+      }
 
-    logger.info(`Partida: ${playId} | Ronda: ${playState.playDoc.currentRound} | TIMEOUT`);
+      if (this.isMemoryPlay(playState)) {
+        await this.handleMemoryTimeout(playId);
+        return;
+      }
 
-    // 1. Limpiar estado
-    playState.awaitingResponse = false;
-    playState.roundTimer = null; // El timer ya se disparó
-    const { playDoc, sessionDoc, currentChallenge } = playState;
+      logger.info(`Partida: ${playId} | Ronda: ${playState.playDoc.currentRound} | TIMEOUT`);
+      this.metrics.totalTimeouts++;
 
-    // 2. Crear el evento 'timeout' (sin puntos)
-    const eventData = {
-      eventType: 'timeout',
-      expectedValue: currentChallenge.assignedValue,
-      timeElapsed: sessionDoc.config.timeLimit * 1000,
-      roundNumber: playDoc.currentRound
-    };
+      // 1. Limpiar estado
+      playState.awaitingResponse = false;
+      playState.roundTimer = null; // El timer ya se disparó
+      const { playDoc, sessionDoc, currentChallenge } = playState;
 
-    // 3. Guardar en BD
-    await playDoc.addEvent(eventData);
+      // 2. Crear el evento 'timeout' (sin puntos)
+      const eventData = {
+        eventType: 'timeout',
+        expectedValue: currentChallenge.assignedValue,
+        timeElapsed: sessionDoc.config.timeLimit * 1000,
+        roundNumber: playDoc.currentRound
+      };
 
-    // 4. Emitir al cliente
-    this.io.to(`play_${playId}`).emit('validation_result', {
-      isCorrect: false,
-      timeout: true,
-      expected: currentChallenge.displayData,
-      pointsAwarded: 0,
-      newScore: playDoc.score
+      // 3. Guardar en BD y avanzar ronda en una sola operación atómica
+      await playDoc.addEventAtomic(eventData, { advanceRound: true });
+
+      await this.checkpointPlayIfNeeded(playId, playState);
+
+      // 4. Emitir al cliente
+      this.io.to(`play_${playId}`).emit('validation_result', {
+        isCorrect: false,
+        timeout: true,
+        expected: currentChallenge.displayData,
+        pointsAwarded: 0,
+        newScore: playDoc.score
+      });
+
+      // 5. Pasar a la siguiente ronda
+      playState.nextRoundTimer = setTimeout(() => {
+        this.advanceToNextRound(playId);
+      }, 2000); // Delay reducido para timeouts
     });
-
-    // 5. Pasar a la siguiente ronda
-    playDoc.currentRound++;
-    playState.nextRoundTimer = setTimeout(() => {
-      this.sendNextRound(playId);
-    }, 2000); // Delay reducido para timeouts
   }
 
   // ============================================================================
@@ -673,11 +1224,90 @@ class GameEngine {
       return null;
     }
 
-    return {
+    const isMemoryMode = this.isMemoryPlay(playState);
+    const remainingTimeMs = this.getRealtimeRemainingTimeMs(playState);
+
+    const snapshot = {
       playId: playState.playDoc._id.toString(),
+      status: playState.playDoc.status,
+      isPaused: Boolean(playState.paused || playState.playDoc?.status === 'paused'),
+      mechanicName: playState.mechanicName,
       currentRound: playState.playDoc.currentRound,
       score: playState.playDoc.score,
-      maxRounds: playState.sessionDoc.config.numberOfRounds
+      maxRounds: isMemoryMode
+        ? Number(playState.strategyState?.totalGroups || 0)
+        : playState.sessionDoc.config.numberOfRounds,
+      awaitingResponse: Boolean(playState.awaitingResponse),
+      remainingTimeMs,
+      timeLimitSeconds: isMemoryMode
+        ? Number(playState.playDurationMs || 0) / 1000
+        : Number(playState.sessionDoc?.config?.timeLimit || 0),
+      currentChallenge: playState.currentChallenge
+        ? {
+            uid: playState.currentChallenge.uid || null,
+            assignedValue: playState.currentChallenge.assignedValue || null,
+            displayData: playState.currentChallenge.displayData || null
+          }
+        : null
+    };
+
+    if (isMemoryMode) {
+      const board = playState.mechanicStrategy.buildBoardForClient(playState.strategyState);
+      snapshot.memoryState = {
+        board,
+        attempts: Number(playState.strategyState?.attempts || 0),
+        matchedCount: Number(playState.strategyState?.matchedUids?.length || 0),
+        totalCards: Number(playState.strategyState?.totalCards || board.length || 0)
+      };
+    }
+
+    return snapshot;
+  }
+
+  getRealtimeRemainingTimeMs(playState) {
+    if (!playState) {
+      return null;
+    }
+
+    if (this.isMemoryPlay(playState)) {
+      return this.getMemoryRemainingTimeMs(playState);
+    }
+
+    if (playState.paused || playState.playDoc?.status === 'paused') {
+      return this.getPlayRemainingTimeMs(playState);
+    }
+
+    if (
+      !playState.awaitingResponse ||
+      !playState.roundStartTime ||
+      !playState.sessionDoc?.config?.timeLimit
+    ) {
+      return null;
+    }
+
+    const totalMs = Number(playState.sessionDoc.config.timeLimit) * 1000;
+    const elapsedMs = Math.max(0, Date.now() - playState.roundStartTime);
+    return Math.max(0, totalMs - elapsedMs);
+  }
+
+  /**
+   * Obtiene contexto runtime ampliado para validaciones de seguridad socket.
+   * @param {string} playId
+   * @returns {{ playId: string, sessionId: string, ownerId: string|null, sensorId: string|null, isPaused: boolean, awaitingResponse: boolean }|null}
+   */
+  getPlayRuntimeContext(playId) {
+    const playState = this.activePlays.get(playId);
+    if (!playState) {
+      return null;
+    }
+
+    return {
+      playId: playState.playDoc._id.toString(),
+      sessionId: playState.sessionDoc?._id?.toString?.() || null,
+      ownerId: playState.sessionDoc?.createdBy?.toString?.() || null,
+      sensorId: playState.sessionDoc?.sensorId || null,
+      isPaused: Boolean(playState.paused || playState.playDoc?.status === 'paused'),
+      awaitingResponse: Boolean(playState.awaitingResponse)
     };
   }
 
@@ -703,73 +1333,52 @@ class GameEngine {
    * @returns {Promise<{ remainingTimeMs: number | null }>} tiempo restante en ms
    */
   async pausePlayInternal(playId, options = {}) {
-    const playState = this.activePlays.get(playId);
-    if (!playState) {
-      return { remainingTimeMs: null };
-    }
-
-    // Control de permisos (si nos pasan el profesor)
-    if (options.requestedBy) {
-      const ownerId =
-        playState.sessionDoc?.createdBy?.toString?.() || playState.sessionDoc?.createdBy;
-      if (ownerId && ownerId.toString() !== options.requestedBy.toString()) {
-        this.io
-          .to(`play_${playId}`)
-          .emit('error', { message: 'No autorizado para pausar esta partida' });
+    return this.executeWithPlayLock(playId, 'pause_play', async () => {
+      const playState = this.activePlays.get(playId);
+      if (!playState) {
         return { remainingTimeMs: null };
       }
-    }
 
-    if (playState.paused || playState.playDoc.status === 'paused') {
-      return {
-        remainingTimeMs: playState.remainingTimeMs ?? playState.playDoc.remainingTime ?? null
-      };
-    }
-
-    // Cancelar timers activos
-    if (playState.roundTimer) {
-      clearTimeout(playState.roundTimer);
-      playState.roundTimer = null;
-    }
-    if (playState.nextRoundTimer) {
-      clearTimeout(playState.nextRoundTimer);
-      playState.nextRoundTimer = null;
-    }
-
-    // Calcular tiempo restante de la ronda actual
-    let remainingTimeMs = null;
-    if (
-      playState.currentChallenge &&
-      playState.roundStartTime &&
-      playState.sessionDoc?.config?.timeLimit
-    ) {
-      const totalMs = playState.sessionDoc.config.timeLimit * 1000;
-      const elapsedMs = Math.max(0, Date.now() - playState.roundStartTime);
-      playState.roundElapsedBeforePauseMs = Math.min(totalMs, elapsedMs);
-
-      // Solo congelamos la ronda si estábamos esperando respuesta
-      if (playState.awaitingResponse) {
-        remainingTimeMs = Math.max(0, totalMs - playState.roundElapsedBeforePauseMs);
+      // Control de permisos
+      if (!this.isPlayOwner(playState, options.requestedBy)) {
+        this.io.to(`play_${playId}`).emit('error', {
+          code: 'FORBIDDEN',
+          message: 'No autorizado para pausar esta partida'
+        });
+        return { remainingTimeMs: null };
       }
-    }
 
-    // Marcar como pausada y bloquear escaneos
+      if (playState.paused || playState.playDoc.status === 'paused') {
+        return {
+          remainingTimeMs: playState.remainingTimeMs ?? playState.playDoc.remainingTime ?? null
+        };
+      }
+
+      return this.executePause(playId, playState);
+    });
+  }
+
+  /**
+   * Ejecuta la lógica de pausa una vez validados permisos y estado.
+   */
+  async executePause(playId, playState) {
+    this.clearPlayTimers(playState);
+
+    const remainingTimeMs = this.calculatePauseRemainingTime(playState);
+    const pausedDuringFeedback =
+      !this.isMemoryPlay(playState) && !playState.awaitingResponse && remainingTimeMs === null;
+
     playState.paused = true;
     playState.pausedAt = Date.now();
     playState.remainingTimeMs = remainingTimeMs;
+    playState.pausedDuringFeedback = pausedDuringFeedback;
     playState.awaitingResponse = false;
-
-    // Persistir en BD
-    try {
-      playState.playDoc.status = 'paused';
-      playState.playDoc.pausedAt = new Date(playState.pausedAt);
-      playState.playDoc.remainingTime = remainingTimeMs;
-      await playState.playDoc.save();
-    } catch (err) {
-      logger.error(`Error persistiendo pausa para ${playId}: ${err.message}`);
+    if (this.isMemoryPlay(playState)) {
+      playState.playEndsAt = null;
     }
 
-    // Notificar al cliente
+    await this.persistPauseState(playId, playState, remainingTimeMs);
+
     this.io.to(`play_${playId}`).emit('play_paused', {
       playId,
       currentRound: playState.playDoc.currentRound,
@@ -778,6 +1387,44 @@ class GameEngine {
 
     logger.info(`Partida ${playId} pausada`, { playId, remainingTimeMs });
     return { remainingTimeMs };
+  }
+
+  /**
+   * Calcula el tiempo restante al momento de pausar.
+   */
+  calculatePauseRemainingTime(playState) {
+    if (this.isMemoryPlay(playState)) {
+      return this.getMemoryRemainingTimeMs(playState);
+    }
+
+    if (
+      playState.currentChallenge &&
+      playState.roundStartTime &&
+      playState.sessionDoc?.config?.timeLimit &&
+      playState.awaitingResponse
+    ) {
+      const totalMs = playState.sessionDoc.config.timeLimit * 1000;
+      const elapsedMs = Math.max(0, Date.now() - playState.roundStartTime);
+      playState.roundElapsedBeforePauseMs = Math.min(totalMs, elapsedMs);
+      return Math.max(0, totalMs - playState.roundElapsedBeforePauseMs);
+    }
+
+    return null;
+  }
+
+  /**
+   * Persiste el estado de pausa en BD.
+   */
+  async persistPauseState(playId, playState, remainingTimeMs) {
+    try {
+      playState.playDoc.status = 'paused';
+      playState.playDoc.pausedAt = new Date(playState.pausedAt);
+      playState.playDoc.remainingTime = remainingTimeMs;
+      await playState.playDoc.save();
+      await recalculateSessionStatusFromPlays(playState.playDoc.sessionId);
+    } catch (err) {
+      logger.error(`Error persistiendo pausa para ${playId}: ${err.message}`);
+    }
   }
 
   isPlayOwner(playState, requestedBy) {
@@ -794,6 +1441,26 @@ class GameEngine {
     return ownerId.toString() === requestedBy.toString();
   }
 
+  /**
+   * Programa un timer transitorio asociado al estado de una partida.
+   * Se auto-elimina del Set al dispararse y se limpia con clearPlayTimers().
+   * Uso principal: delays de ocultación de cartas en modo memory.
+   *
+   * @private
+   * @param {Object} playState - Estado de la partida
+   * @param {Function} callback - Función a ejecutar tras el delay
+   * @param {number} delayMs - Milisegundos de espera
+   * @returns {NodeJS.Timeout} Referencia al timer
+   */
+  scheduleTransientTimer(playState, callback, delayMs) {
+    const timer = setTimeout(() => {
+      playState.transientTimers.delete(timer);
+      callback();
+    }, delayMs);
+    playState.transientTimers.add(timer);
+    return timer;
+  }
+
   clearPlayTimers(playState) {
     if (playState.roundTimer) {
       clearTimeout(playState.roundTimer);
@@ -802,6 +1469,16 @@ class GameEngine {
     if (playState.nextRoundTimer) {
       clearTimeout(playState.nextRoundTimer);
       playState.nextRoundTimer = null;
+    }
+    if (playState.playTimer) {
+      clearTimeout(playState.playTimer);
+      playState.playTimer = null;
+    }
+    if (playState.transientTimers) {
+      for (const timer of playState.transientTimers) {
+        clearTimeout(timer);
+      }
+      playState.transientTimers.clear();
     }
   }
 
@@ -821,6 +1498,7 @@ class GameEngine {
       playState.playDoc.pausedAt = null;
       playState.playDoc.remainingTime = null;
       await playState.playDoc.save();
+      await recalculateSessionStatusFromPlays(playState.playDoc.sessionId);
     } catch (err) {
       logger.error(`Error persistiendo reanudación para ${playId}: ${err.message}`);
     }
@@ -848,65 +1526,92 @@ class GameEngine {
    * @returns {Promise<{ remainingTimeMs: number | null }>} tiempo restante rearmado en ms
    */
   async resumePlayInternal(playId, options = {}) {
-    const playState = this.activePlays.get(playId);
-    if (!playState) {
-      return { remainingTimeMs: null };
-    }
+    return this.executeWithPlayLock(playId, 'resume_play', async () => {
+      const playState = this.activePlays.get(playId);
+      if (!playState) {
+        return { remainingTimeMs: null };
+      }
 
-    // Control de permisos (si nos pasan el profesor)
-    if (!this.isPlayOwner(playState, options.requestedBy)) {
-      this.io
-        .to(`play_${playId}`)
-        .emit('error', { message: 'No autorizado para reanudar esta partida' });
-      return { remainingTimeMs: null };
-    }
+      // Control de permisos (si nos pasan el profesor)
+      if (!this.isPlayOwner(playState, options.requestedBy)) {
+        this.io.to(`play_${playId}`).emit('error', {
+          code: 'FORBIDDEN',
+          message: 'No autorizado para reanudar esta partida'
+        });
+        return { remainingTimeMs: null };
+      }
 
-    if (!playState.paused && playState.playDoc.status !== 'paused') {
-      return { remainingTimeMs: null };
-    }
+      if (!playState.paused && playState.playDoc.status !== 'paused') {
+        return { remainingTimeMs: null };
+      }
 
-    // Cancelar timers residuales
-    this.clearPlayTimers(playState);
+      // Cancelar timers residuales
+      this.clearPlayTimers(playState);
 
-    const remainingTimeMs = this.getPlayRemainingTimeMs(playState);
+      const remainingTimeMs = this.getPlayRemainingTimeMs(playState);
 
-    // Restaurar el roundStartTime para que el cálculo timeElapsed NO incluya la pausa
-    this.restoreRoundStartTime(playState);
+      // Restaurar el roundStartTime para que el cálculo timeElapsed NO incluya la pausa
+      this.restoreRoundStartTime(playState);
 
-    // Marcar como reanudada
-    playState.paused = false;
-    playState.pausedAt = null;
-    playState.remainingTimeMs = null;
-    playState.awaitingResponse = true;
+      // Marcar como reanudada
+      playState.paused = false;
+      playState.pausedAt = null;
+      playState.remainingTimeMs = null;
+      const wasPausedDuringFeedback = playState.pausedDuringFeedback || false;
+      playState.pausedDuringFeedback = false;
+      playState.awaitingResponse = !wasPausedDuringFeedback;
 
-    // Persistir en BD
-    await this.persistPlayResumed(playId, playState);
+      if (this.isMemoryPlay(playState)) {
+        if (typeof remainingTimeMs === 'number' && remainingTimeMs > 0) {
+          playState.playEndsAt = Date.now() + remainingTimeMs;
+          this.scheduleMemoryPlayTimeout(playId, playState, remainingTimeMs);
+        }
+      }
 
-    // Reenviar desafío actual (útil si el cliente recargó)
-    if (playState.currentChallenge) {
-      this.io.to(`play_${playId}`).emit('play_resumed', {
-        playId,
-        currentRound: playState.playDoc.currentRound,
-        remainingTimeMs,
-        challenge: { displayData: playState.currentChallenge.displayData }
-      });
-    } else {
-      this.io.to(`play_${playId}`).emit('play_resumed', {
-        playId,
-        currentRound: playState.playDoc.currentRound,
-        remainingTimeMs
-      });
-    }
+      // Persistir en BD
+      await this.persistPlayResumed(playId, playState);
 
-    // Rearmar timer con el tiempo restante (si aplica)
-    if (playState.currentChallenge && typeof remainingTimeMs === 'number' && remainingTimeMs > 0) {
-      playState.roundTimer = setTimeout(() => {
-        this.handleTimeout(playId);
-      }, remainingTimeMs);
-    }
+      // Reenviar desafío actual (útil si el cliente recargó)
+      if (playState.currentChallenge) {
+        this.io.to(`play_${playId}`).emit('play_resumed', {
+          playId,
+          currentRound: playState.playDoc.currentRound,
+          remainingTimeMs,
+          challenge: { displayData: playState.currentChallenge.displayData }
+        });
+      } else {
+        this.io.to(`play_${playId}`).emit('play_resumed', {
+          playId,
+          currentRound: playState.playDoc.currentRound,
+          remainingTimeMs
+        });
+      }
 
-    logger.info(`Partida ${playId} reanudada`, { playId, remainingTimeMs });
-    return { remainingTimeMs };
+      if (this.isMemoryPlay(playState)) {
+        this.emitMemoryTurnState(playId, playState, { phase: 'resumed' });
+      }
+
+      // Rearmar timer con el tiempo restante (si aplica)
+      if (
+        !this.isMemoryPlay(playState) &&
+        !wasPausedDuringFeedback &&
+        playState.currentChallenge &&
+        typeof remainingTimeMs === 'number' &&
+        remainingTimeMs > 0
+      ) {
+        playState.roundTimer = setTimeout(() => {
+          this.handleTimeout(playId);
+        }, remainingTimeMs);
+      }
+
+      // Si la pausa ocurrió durante el delay entre rondas, avanzar a la siguiente
+      if (wasPausedDuringFeedback && !this.isMemoryPlay(playState)) {
+        await this.sendNextRound(playId);
+      }
+
+      logger.info(`Partida ${playId} reanudada`, { playId, remainingTimeMs });
+      return { remainingTimeMs };
+    });
   }
 
   /**
@@ -921,15 +1626,16 @@ class GameEngine {
 
     // Detener el cleanup timer
     this.stopCleanupTimer();
+    this.stopLockHeartbeatTimer();
 
     // Finalizar todas las partidas activas
     const activePlayIds = Array.from(this.activePlays.keys());
 
     logger.info(`Finalizando ${activePlayIds.length} partidas activas...`);
 
-    for (const playId of activePlayIds) {
+    await this.processInBatches(activePlayIds, async playId => {
       await this.endPlay(playId);
-    }
+    });
 
     logger.info('GameEngine detenido correctamente', {
       metrics: this.metrics
@@ -980,18 +1686,61 @@ class GameEngine {
         currentChallenge: playState.currentChallenge || null
       };
 
-      await redisService.hset(redisService.NAMESPACES.PLAY, playId, redisState);
-
-      // Almacenar mapeo de tarjetas para búsqueda O(1)
-      const cardEntries = playState.sessionDoc.cardMappings.map(mapping => ({
-        id: mapping.uid,
-        value: playId
-      }));
-      await redisService.setMany(redisService.NAMESPACES.CARD, cardEntries);
+      await redisService.hset(
+        redisService.NAMESPACES.PLAY,
+        playId,
+        redisState,
+        DISTRIBUTED_LOCK_TTL_SECONDS
+      );
 
       logger.debug(`Partida ${playId} sincronizada con Redis`);
     } catch (error) {
       logger.error(`Error al sincronizar partida ${playId} con Redis:`, { error: error.message });
+    }
+  }
+
+  /**
+   * Persiste el estado de la partida en MongoDB si se cumplen los umbrales de checkpoint.
+   * Los checkpoints reducen la ventana de pérdida de datos ante un crash del servidor:
+   * sin ellos, el progreso completo entre startPlay() y endPlay() vive solo en memoria.
+   *
+   * @private
+   * @async
+   * @param {string} playId - ID de la partida
+   * @param {Object} playState - Estado de la partida
+   * @returns {Promise<void>}
+   */
+  async checkpointPlayIfNeeded(playId, playState) {
+    try {
+      const now = Date.now();
+      const eventCount = playState.playDoc.metrics?.totalAttempts || 0;
+      const eventsDelta = eventCount - playState.lastCheckpointEventCount;
+      const timeDelta = now - playState.lastCheckpointAt;
+
+      if (eventsDelta < CHECKPOINT_EVENT_THRESHOLD && timeDelta < CHECKPOINT_INTERVAL_MS) {
+        return;
+      }
+
+      await playState.playDoc.save();
+      await this.syncPlayToRedis(playId, playState);
+
+      playState.lastCheckpointEventCount = eventCount;
+      playState.lastCheckpointAt = now;
+
+      this.metrics.checkpointExecuted++;
+
+      logger.debug(`Checkpoint de partida ${playId}`, {
+        playId,
+        eventsDelta,
+        timeDelta: `${(timeDelta / 1000).toFixed(1)}s`,
+        score: playState.playDoc.score,
+        currentRound: playState.playDoc.currentRound
+      });
+    } catch (error) {
+      logger.warn(`Error en checkpoint de partida ${playId} (no crítico):`, {
+        playId,
+        error: error.message
+      });
     }
   }
 
@@ -1006,29 +1755,78 @@ class GameEngine {
   async recoverActivePlays() {
     try {
       const playKeys = await redisService.scanByNamespace(redisService.NAMESPACES.PLAY);
-
-      if (playKeys.length === 0) {
-        logger.info('No hay partidas activas en Redis para recuperar');
-        return 0;
-      }
-
-      logger.info(`Recuperando ${playKeys.length} partidas de Redis...`);
-
       let recoveredCount = 0;
 
-      for (const key of playKeys) {
-        // Extraer playId de la key (formato: play:playId)
-        const playId = key.replace(`${redisService.NAMESPACES.PLAY}:`, '');
-        const recovered = await this.recoverPlayFromRedis(playId);
-        if (recovered) {
-          recoveredCount++;
-        }
+      // 1) Recuperar partidas con estado en Redis
+      if (playKeys.length > 0) {
+        logger.info(`Recuperando ${playKeys.length} partidas de Redis...`);
+
+        const recoveredResults = [];
+        await this.processInBatches(playKeys, async key => {
+          const playId = key.replace(`${redisService.NAMESPACES.PLAY}:`, '');
+          const recovered = await this.recoverPlayFromRedis(playId);
+          recoveredResults.push(recovered);
+        });
+
+        recoveredCount = recoveredResults.filter(Boolean).length;
       }
 
-      logger.info(`Recuperación completada: ${recoveredCount} partidas marcadas como abandonadas`);
+      // 2) Recuperar partidas huérfanas en DB sin estado en Redis
+      const orphanedCount = await this.recoverOrphanedPlaysFromDB();
+      recoveredCount += orphanedCount;
+
+      if (recoveredCount > 0) {
+        logger.info(
+          `Recuperación completada: ${recoveredCount} partidas marcadas como abandonadas`
+        );
+      } else {
+        logger.info('No hay partidas activas para recuperar');
+      }
+
       return recoveredCount;
     } catch (error) {
       logger.error('Error durante la recuperación de partidas:', { error: error.message });
+      return 0;
+    }
+  }
+
+  /**
+   * Recupera partidas atascadas en estado in-progress/paused en DB
+   * que no tienen entrada correspondiente en Redis (p.ej. tras reinicio de Redis).
+   */
+  async recoverOrphanedPlaysFromDB() {
+    try {
+      const orphanedPlays = await gamePlayRepository.find({
+        status: { $in: ['in-progress', 'paused'] }
+      });
+
+      if (orphanedPlays.length === 0) {
+        return 0;
+      }
+
+      // Pipeline batch: verificar todas las plays en Redis en 1 round-trip
+      // en vez del patrón N+1 anterior (hgetall individual por partida).
+      const playIds = orphanedPlays.map(p => p._id.toString());
+      const redisStates = await redisService.hgetallMany(redisService.NAMESPACES.PLAY, playIds);
+      this.metrics.pipelineRecoveryBatchSize = playIds.length;
+
+      let count = 0;
+      for (const play of orphanedPlays) {
+        const playId = play._id.toString();
+        const redisState = redisStates.get(playId);
+        // Solo marcar como abandonada si realmente no está en Redis (huérfana)
+        if (!redisState) {
+          await this.markPlayAbandonedIfNeeded(playId, play);
+          count++;
+        }
+      }
+
+      if (count > 0) {
+        logger.info(`${count} partidas huérfanas en DB marcadas como abandonadas`);
+      }
+      return count;
+    } catch (err) {
+      logger.error('Error al recuperar partidas huérfanas de DB:', { error: err.message });
       return 0;
     }
   }
@@ -1044,13 +1842,14 @@ class GameEngine {
       if (!playDoc) {
         logger.warn(`Partida ${playId} en Redis pero no en MongoDB, limpiando...`);
         await redisService.del(redisService.NAMESPACES.PLAY, playId);
+        await this.cleanupSessionCardMappings(redisState.sessionDocId, playId);
         return false;
       }
 
       const wasRecovered = await this.markPlayAbandonedIfNeeded(playId, playDoc);
 
       await redisService.del(redisService.NAMESPACES.PLAY, playId);
-      await this.cleanupSessionCardMappings(redisState.sessionDocId);
+      await this.cleanupSessionCardMappings(redisState.sessionDocId, playId);
 
       return wasRecovered;
     } catch (err) {
@@ -1074,6 +1873,7 @@ class GameEngine {
     });
 
     await playDoc.save();
+    await recalculateSessionStatusFromPlays(playDoc.sessionId);
 
     logger.info(`Partida ${playId} marcada como abandonada (reinicio del servidor)`);
 
@@ -1089,7 +1889,7 @@ class GameEngine {
     return true;
   }
 
-  async cleanupSessionCardMappings(sessionDocId) {
+  async cleanupSessionCardMappings(sessionDocId, playId = null) {
     if (!sessionDocId) {
       return;
     }
@@ -1100,6 +1900,14 @@ class GameEngine {
     }
 
     const cardUids = sessionDoc.cardMappings.map(mapping => mapping.uid);
+
+    if (playId) {
+      // Usar liberación atómica Lua (owner-aware) para consistencia
+      await this.releaseDistributedCardMappings(playId, cardUids);
+      return;
+    }
+
+    // Sin playId conocido: borrar todas las keys de card sin verificación de owner
     await redisService.delMany(redisService.NAMESPACES.CARD, cardUids);
   }
 }

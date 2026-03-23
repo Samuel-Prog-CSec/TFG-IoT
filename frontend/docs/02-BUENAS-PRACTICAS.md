@@ -284,4 +284,15 @@ chore: actualizar dependencias
 
 ---
 
+## 11. Checklist UX Funcional (T-060)
+
+- [ ] ¿Los botones visibles tienen acción real o están deshabilitados explícitamente?
+- [ ] ¿Se evita affordance engañosa (cursor/hover de click) en elementos sin navegación?
+- [ ] ¿Los selectores/filtros del dashboard están conectados a estado real?
+- [ ] ¿`useReducedMotion` está aplicado en vistas críticas sin desactivar motion por defecto?
+- [ ] ¿Los `setTimeout`/listeners tienen cleanup en `useEffect`?
+- [ ] ¿Las acciones rápidas navegan con React Router y no con recarga completa?
+
+---
+
 *Referencia: [React Best Practices](https://github.com/goldbergyoni/nodebestpractices)*

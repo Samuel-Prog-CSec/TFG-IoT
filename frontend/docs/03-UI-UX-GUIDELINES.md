@@ -4,13 +4,13 @@
 
 ### Perfil de Usuario Principal
 - **Profesores:** Usuarios principales que interactúan con el dashboard y configuración
-- **Niños (4-6 años):** Solo interactúan con la pantalla de juego mediante tarjetas RFID
+- **Niños (4-8 años):** Interactúan con la pantalla de juego mediante tarjetas RFID
 
 ### Implicaciones de Diseño
 | Usuario | Necesidad | Solución |
 |---------|-----------|----------|
 | Profesores | Eficiencia y datos claros | Dashboard con métricas, tablas, filtros |
-| Niños | Diversión y simplicidad | Colores vivos, animaciones, sin texto |
+| Niños | Diversión, claridad y feedback inmediato | Colores vivos, animaciones controladas y copy breve |
 
 ---
 
@@ -181,9 +181,9 @@ const container = {
 
 ## Diseño de la Pantalla de Juego
 
-### Principios para Niños (4-6 años)
+### Principios para Niños (4-8 años)
 
-1. **Sin texto necesario** → Solo iconos y colores
+1. **Texto mínimo y directo** → Frases cortas con verbo de acción
 2. **Feedback inmediato** → Animaciones de éxito/error
 3. **Colores semánticos** → Verde = bien, Rojo = mal
 4. **Elementos grandes** → Touch-friendly
@@ -274,10 +274,146 @@ Cada estado debe ser distinguible no solo por color:
 | Fondo oscuro | Reduce fatiga, destaca contenido colorido |
 | Glassmorphism | Premium feel, permite efectos de fondo |
 | Framer Motion | API declarativa, mejor DX que CSS puro |
-| Sin texto en juego | Público objetivo no lee (4-6 años) |
+| Copy breve en juego | Público objetivo infantil (4-8) con distintos niveles de lectura |
 | Mascota animada | Conexión emocional, guía visual |
 | Feedback instantáneo | Refuerzo positivo del aprendizaje |
 | Estrellas como puntuación | Universalmente entendido por niños |
+
+---
+
+## Accesibilidad Gameplay (T-069)
+
+### Contrato de anuncios dinámicos
+
+- El temporizador **no** anuncia cada tick.
+- Los anuncios SR del tiempo se limitan a umbrales críticos: `10`, `5`, `3`, `2`, `1`, `0`.
+- Estados de runtime (`connecting`, `connected`, `reconnecting`, `disconnected`) se anuncian con región `status` en modo `polite`.
+- Los errores realtime se anuncian una sola vez por evento para evitar ruido.
+
+### Controles interactivos
+
+- Toggles de gameplay (`sonido`, `pausa/reanudar`) deben usar `button` nativo con `aria-pressed`.
+- Todos los controles críticos deben funcionar con `Enter` y `Space` sin handlers personalizados extra.
+- Focus visible obligatorio en toda interacción.
+
+### Diálogo de pausa
+
+- Overlay de pausa tratado como diálogo accesible (`role="dialog"`, `aria-modal="true"`).
+- Al abrir pausa: foco inicial en botón principal de continuar.
+- Al cerrar pausa: retorno de foco al trigger original.
+- `Escape` debe reanudar/cerrar pausa de forma consistente.
+
+### Motion y confort visual
+
+- En reduced-motion, desactivar loops infinitos, confeti y shake agresivo.
+- Mantener feedback visual claro sin depender de animaciones complejas.
+- Priorizar transición corta y estable frente a efectos continuos.
+
+### Checklist QA manual (T-069)
+
+- [ ] Navegación completa de gameplay solo con teclado.
+- [ ] Temporizador anuncia solo umbrales críticos.
+- [ ] Toggles de sonido/pausa exponen estado ARIA correcto.
+- [ ] Al pausar, el foco cae en “Continuar” y vuelve al botón origen al reanudar.
+- [ ] Estados realtime y errores se anuncian sin duplicados en lector.
+- [ ] Con reduced-motion activo no hay efectos intensos ni loops infinitos en runtime.
+
+---
+
+## Contrato Motion (T-060)
+
+### Regla principal
+- **Por defecto:** animaciones y microinteracciones activas.
+- **Reduced motion:** solo cuando existe preferencia explícita del usuario:
+  - Preferencia del sistema (`prefers-reduced-motion`), o
+  - Preferencia guardada en app.
+
+### Nota de producto (pendiente de decisión)
+- **Estado actual implementado:** si no hay preferencia guardada en app, se respeta `prefers-reduced-motion` del sistema operativo.
+- **Alternativa futura a valorar:** modo estricto **opt-in** (reduced motion solo por preferencia explícita en app, ignorando la preferencia del sistema).
+- **Estado de esta decisión:** documentada para evaluación futura; **no aplicada** en la implementación actual.
+
+### Implementación
+- Hook compartido: `useReducedMotion`.
+- Integrado en vistas críticas: `CreateSession`, `DeckCreationWizard`, `CardDecksPage`, `GameSession` y cabecera de `Dashboard`.
+- Efectos costosos (confetti, loops infinitos, stagger agresivo) se degradan de forma progresiva cuando reduced motion está activo.
+
+### QA visual/performance
+- [x] Animaciones activas en flujo normal (sin reduced motion).
+- [x] Con reduced motion activo, se desactivan efectos complejos sin romper navegación/feedback.
+- [x] No hay saltos de layout ni pantallas en blanco al navegar entre rutas.
+- [x] No hay listeners duplicados tras reconexión/pause-resume en pantalla de juego.
+- [x] Las acciones principales siguen respondiendo con feedback visual claro.
+
+Estado de validación (25-02-2026):
+- `npm run lint` ejecutado en frontend (sin errores).
+- `npm run build` ejecutado en frontend (build de producción en verde).
+- `npm run preview -- --host 127.0.0.1 --port 4173` ejecutado (preview operativo).
+
+---
+
+## Contrato de Variantes Estáticas (T-068)
+
+### Objetivo
+
+Establecer una regla de implementación para que los estados visuales críticos del frontend usen **clases Tailwind detectables en análisis estático**. El objetivo no es cambiar la estética, sino garantizar que en builds de producción no desaparezcan estilos por no haber sido detectados durante el escaneo de clases. Este contrato aplica especialmente a flujos de creación de sesión y señalización de modo RFID, donde una regresión visual afecta directamente a la ejecución docente en aula.
+
+### Riesgo técnico: purga y clases no detectadas en build
+
+Tailwind genera CSS en función de clases encontradas en el código fuente. Cuando se construyen clases mediante interpolación dinámica (por ejemplo combinando segmentos de color o variantes en runtime), el analizador puede no reconocer todas las combinaciones posibles y omitirlas del bundle final.
+
+Consecuencias típicas:
+- Estados visuales que funcionan en desarrollo pero fallan en producción.
+- Inconsistencias entre rutas o modos al reutilizar componentes.
+- Pérdida de semántica visual (dificultad, modo activo, alerta) en contextos críticos de uso.
+
+### Política de implementación
+
+1. **Mapa estático o CVA para variantes:** los componentes críticos deben declarar variantes en objetos constantes o en utilidades equivalentes (ej. CVA), con strings completas y literales.
+2. **Prohibición de interpolación dinámica en clases críticas:** no se permite concatenar segmentos de clase Tailwind en runtime para color, borde, fondo o tipografía de estados semánticos.
+3. **Composición vía `cn(...)`:** la selección de estado se hace con claves semánticas (`active`, `inactive`, `withFile`, `gameplay`, etc.) y no con construcción dinámica de tokens.
+4. **Fallback explícito:** cuando aplique, usar variante `default` para estados desconocidos y evitar render inconsistente.
+
+### Matriz mínima de estados críticos
+
+La verificación mínima de T-068 debe cubrir, como base, los siguientes estados:
+
+| Área | Estado | Clase esperada | Resultado visual esperado |
+|------|--------|----------------|---------------------------|
+| CreateSession (selector dificultad) | dificultad activa | variante activa estática definida en mapa | Contraste alto, estado seleccionado inequívoco |
+| CreateSession (selector dificultad) | dificultad inactiva | variante inactiva estática definida en mapa | Estado no seleccionado visible y consistente |
+| RFIDModeHandler en rutas activas (`/game/session/:id`, vistas con control RFID) | `idle` | `bg-slate-500/20 text-slate-400` | Indicador neutro de espera |
+| RFIDModeHandler en rutas activas (`/game/session/:id`, vistas con control RFID) | `gameplay` | `bg-emerald-500/20 text-emerald-400` | Indicador de ejecución de juego |
+| RFIDModeHandler en rutas activas (`/game/session/:id`, vistas con control RFID) | `card_registration` | `bg-blue-500/20 text-blue-400` | Indicador de alta de tarjetas |
+| RFIDModeHandler en rutas activas (`/game/session/:id`, vistas con control RFID) | `card_assignment` | `bg-purple-500/20 text-purple-400` | Indicador de vinculación tarjeta-estudiante |
+
+> Nota: esta matriz es mínima; cualquier componente con semántica de estado equivalente debe adoptar el mismo contrato de variantes estáticas.
+
+### Protocolo de verificación
+
+1. **Lint:** ejecutar validación estática para detectar inconsistencias de implementación.
+2. **Build de producción:** generar bundle y comprobar ausencia de regresiones de estilos en componentes críticos.
+3. **Preview manual:** levantar entorno de preview local y recorrer estados de la matriz mínima.
+4. **QA manual dirigido:** validar en navegación real (no aislada) que los estados conservan color, contraste y jerarquía visual.
+
+Checklist operativo sugerido para PR:
+- Ejecutar `npm run lint` en frontend.
+- Ejecutar `npm run build` en frontend.
+- Adjuntar capturas de estados críticos en CreateSession y RFIDModeHandler.
+
+### Criterio de aceptación y evidencia a adjuntar en PR
+
+Para considerar T-068 cerrada en frontend:
+
+- No existen interpolaciones dinámicas de clases Tailwind en componentes críticos definidos por la tarea.
+- Los estados críticos mantienen apariencia esperada tras build de producción.
+- La documentación de contrato y verificación está actualizada y enlazada en la PR.
+
+Evidencia mínima requerida en la PR:
+- Salida de `lint` y `build`.
+- Capturas o clip corto mostrando estados activos/inactivos de dificultad en CreateSession.
+- Capturas o clip mostrando los 4 modos de RFID (`idle`, `gameplay`, `card_registration`, `card_assignment`) en rutas activas.
+- Riesgo residual declarado (si existe) y plan de seguimiento.
 
 ---
 

@@ -7,7 +7,7 @@ import { useState, useEffect, useCallback, useRef } from 'react';
 
 /**
  * Hook genérico para fetch de datos
- * 
+ *
  * @template T
  * @param {Function} fetchFn - Función que retorna una Promise con los datos
  * @param {Object} options
@@ -17,26 +17,32 @@ import { useState, useEffect, useCallback, useRef } from 'react';
  * @param {Function} options.onError - Callback en error
  */
 export function useFetch(fetchFn, options = {}) {
-  const { 
-    immediate = true, 
+  const {
+    immediate = true,
     dependencies = [],
     onSuccess,
-    onError 
+    onError
   } = options;
 
   const [data, setData] = useState(null);
   const [error, setError] = useState(null);
   const [status, setStatus] = useState('idle');
-  
+
   const mountedRef = useRef(true);
   const fetchFnRef = useRef(fetchFn);
+  const abortControllerRef = useRef(null);
 
-  // Mantener ref actualizada
+  const onSuccessRef = useRef(onSuccess);
+  const onErrorRef = useRef(onError);
+  useEffect(() => {
+    onSuccessRef.current = onSuccess;
+    onErrorRef.current = onError;
+  });
+
   useEffect(() => {
     fetchFnRef.current = fetchFn;
   }, [fetchFn]);
 
-  // Marcar como desmontado al unmount
   useEffect(() => {
     mountedRef.current = true;
     return () => {
@@ -45,36 +51,46 @@ export function useFetch(fetchFn, options = {}) {
   }, []);
 
   const execute = useCallback(async (...args) => {
+    abortControllerRef.current?.abort();
+    const controller = new AbortController();
+    abortControllerRef.current = controller;
+    const { signal } = controller;
+
     setStatus('loading');
     setError(null);
 
     try {
-      const result = await fetchFnRef.current(...args);
-      
-      if (mountedRef.current) {
+      const result = await fetchFnRef.current(...args, { signal });
+
+      if (!signal.aborted && mountedRef.current) {
         setData(result);
         setStatus('success');
-        onSuccess?.(result);
+        onSuccessRef.current?.(result);
       }
-      
+
       return result;
     } catch (err) {
+      if (signal.aborted) return;
       if (mountedRef.current) {
         setError(err);
         setStatus('error');
-        onError?.(err);
+        onErrorRef.current?.(err);
       }
       throw err;
     }
-  }, [onSuccess, onError]);
+  }, []);
 
-  // Fetch inicial si immediate es true
+  const dependenciesKey = JSON.stringify(dependencies);
+
   useEffect(() => {
     if (immediate) {
       execute();
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [immediate, ...dependencies]);
+
+    return () => {
+      abortControllerRef.current?.abort();
+    };
+  }, [immediate, dependenciesKey, execute]);
 
   const refetch = useCallback(() => execute(), [execute]);
 

@@ -14,7 +14,8 @@ const {
   updateSession,
   deleteSession,
   startSession,
-  endSession
+  endSession,
+  cloneSession
 } = require('../controllers/gameSessionController');
 
 const { authenticate, requireRole } = require('../middlewares/auth');
@@ -25,7 +26,8 @@ const {
   updateGameSessionSchema,
   gameSessionQuerySchema,
   gameSessionParamsSchema,
-  sessionActionSchema
+  sessionActionSchema,
+  cloneSessionParamsSchema
 } = require('../validators/gameSessionValidator');
 const { emptyObjectSchema } = require('../validators/commonValidator');
 
@@ -104,6 +106,23 @@ router.post(
   validateQuery(emptyObjectSchema),
   validateBody(emptyObjectSchema),
   endSession
+);
+
+/**
+ * @route   POST /api/sessions/:id/clone
+ * @desc    Clonar sesión resincronizando mappings con el mazo actual
+ * @access  Private (Teacher propietario)
+ * @validation params: cloneSessionParamsSchema | body: emptyObjectSchema | query: emptyObjectSchema
+ */
+router.post(
+  '/:id/clone',
+  createResourceRateLimiter,
+  authenticate,
+  requireRole('teacher'),
+  validateParams(cloneSessionParamsSchema),
+  validateQuery(emptyObjectSchema),
+  validateBody(emptyObjectSchema),
+  cloneSession
 );
 
 /**

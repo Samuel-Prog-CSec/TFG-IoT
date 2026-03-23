@@ -90,9 +90,9 @@ router.get(
 );
 
 /**
- * @route   POST /api/users
- * @desc    Crear nuevo ALUMNO (profesor autenticado crea alumnos sin credenciales)
- * @access  Private (Teacher)
+ * POST /api/users
+ * @desc    Crear nuevo ALUMNO (super admin)
+ * @access  Private (Super Admin)
  * Este endpoint solo crea alumnos (role='student', sin email/password)
  * @validation body: createStudentSchema | query: emptyObjectSchema
  */
@@ -100,7 +100,7 @@ router.post(
   '/',
   createResourceRateLimiter, // Rate limiting para prevenir spam
   authenticate,
-  requireRole('teacher'),
+  requireRole('super_admin'),
   validateQuery(emptyObjectSchema),
   validateBody(createStudentSchema),
   createUser
@@ -109,12 +109,13 @@ router.post(
 /**
  * @route   PUT /api/users/:id
  * @desc    Actualizar usuario
- * @access  Private
+ * @access  Private (Super Admin)
  * @validation params: userIdParamsSchema | body: updateUserSchema | query: emptyObjectSchema
  */
 router.put(
   '/:id',
   authenticate,
+  requireRole('super_admin'),
   validateParams(userIdParamsSchema),
   validateQuery(emptyObjectSchema),
   validateBody(updateUserSchema),
@@ -124,13 +125,13 @@ router.put(
 /**
  * @route   DELETE /api/users/:id
  * @desc    Eliminar usuario (soft delete)
- * @access  Private (Teacher)
+ * @access  Private (Super Admin)
  * @validation params: userIdParamsSchema | query: emptyObjectSchema
  */
 router.delete(
   '/:id',
   authenticate,
-  requireRole('teacher'),
+  requireRole('super_admin'),
   validateParams(userIdParamsSchema),
   validateQuery(emptyObjectSchema),
   deleteUser
@@ -139,13 +140,13 @@ router.delete(
 /**
  * @route   POST /api/users/:id/transfer
  * @desc    Transferir alumno a otro profesor
- * @access  Private (Teacher)
+ * @access  Private (Super Admin)
  * @validation params: userIdParamsSchema | body: transferStudentSchema | query: emptyObjectSchema
  */
 router.post(
   '/:id/transfer',
   authenticate,
-  requireRole('teacher', 'super_admin'),
+  requireRole('super_admin'),
   validateParams(userIdParamsSchema),
   validateQuery(emptyObjectSchema),
   validateBody(transferStudentSchema),

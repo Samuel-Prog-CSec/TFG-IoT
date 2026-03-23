@@ -60,9 +60,9 @@ const assetSchema = z
       .max(200, 'El valor no puede exceder 200 caracteres')
       .trim(),
 
-    audioUrl: z.string().url('La URL del audio debe ser válida').trim().optional(),
+    audioUrl: z.string().url({ message: 'La URL del audio debe ser válida' }).trim().optional(),
 
-    imageUrl: z.string().url('La URL de la imagen debe ser válida').trim().optional()
+    imageUrl: z.string().url({ message: 'La URL de la imagen debe ser válida' }).trim().optional()
   })
   .strict();
 
@@ -124,14 +124,16 @@ const createGameContextSchema = z
 
     assets: z
       .array(assetSchema)
-      .min(2, 'Debe haber al menos 2 assets en el contexto')
-      .max(100, 'No se pueden tener más de 100 assets')
+      .min(0)
+      .max(30, 'No se pueden tener más de 30 assets')
+      .optional()
+      .default([])
   })
   .strict()
   .refine(
     data => {
-      // Validar que las keys de los assets sean únicas
-      const keys = data.assets.map(asset => asset.key);
+      // Validar que las keys de los assets sean únicas (si hay alguno)
+      const keys = (data.assets || []).map(asset => asset.key);
       const uniqueKeys = new Set(keys);
       return keys.length === uniqueKeys.size;
     },
@@ -151,7 +153,7 @@ const updateGameContextSchema = z
 
     name: z.string().min(2).max(100).trim().optional(),
 
-    assets: z.array(assetSchema).min(2).max(100).optional()
+    assets: z.array(assetSchema).min(0).max(30).optional()
   })
   .strict()
   .refine(data => Object.keys(data).length > 0, {

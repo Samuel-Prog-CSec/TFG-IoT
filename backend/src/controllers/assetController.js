@@ -4,10 +4,10 @@
  * @module controllers/assetController
  */
 
-const gameContextRepository = require('../repositories/gameContextRepository');
+const gameContextRepository = require('../repositories/gameContextRepository.js');
 const storageService = require('../services/storageService.js');
-const imageProcessingService = require('../services/imageProcessingService');
-const audioValidationService = require('../services/audioValidationService');
+const imageProcessingService = require('../services/imageProcessingService.js');
+const audioValidationService = require('../services/audioValidationService.js');
 const logger = require('../utils/logger');
 const { NotFoundError, ValidationError, ConflictError } = require('../utils/errors');
 const { toAssetDTOV1 } = require('../utils/dtos');
@@ -76,7 +76,7 @@ const uploadImage = async (req, res, next) => {
   let thumbnailUrl = null;
 
   try {
-    const { id: contextId } = req.params;
+    const { id } = req.params;
     const { key, value, display } = req.body;
     const file = req.file;
 
@@ -90,7 +90,7 @@ const uploadImage = async (req, res, next) => {
     }
 
     // Obtener contexto y validar límite
-    const context = await getContextAndValidateLimit(contextId);
+    const context = await getContextAndValidateLimit(id);
 
     // Validar key única
     validateUniqueKey(context, key);
@@ -98,10 +98,10 @@ const uploadImage = async (req, res, next) => {
     // Procesar imagen (validación, conversión a WebP, thumbnail)
     const { mainImage, thumbnail, metadata } = await imageProcessingService.processImage(file);
 
-    // Subir imagen principal a Supabase
+    // Subir imagen principal a Supabase (usa context.contextId para path estable)
     imageUrl = await storageService.uploadFile(
       mainImage,
-      contextId,
+      context.contextId,
       'image',
       `${key}.webp`,
       'image/webp'
@@ -110,7 +110,7 @@ const uploadImage = async (req, res, next) => {
     // Subir thumbnail
     thumbnailUrl = await storageService.uploadFile(
       thumbnail,
-      contextId,
+      context.contextId,
       'thumbnail',
       `${key}_thumb.webp`,
       'image/webp'
@@ -178,7 +178,7 @@ const uploadAudio = async (req, res, next) => {
   let audioUrl = null;
 
   try {
-    const { id: contextId } = req.params;
+    const { id } = req.params;
     const { key, value, display } = req.body;
     const file = req.file;
 
@@ -192,7 +192,7 @@ const uploadAudio = async (req, res, next) => {
     }
 
     // Obtener contexto y validar límite
-    const context = await getContextAndValidateLimit(contextId);
+    const context = await getContextAndValidateLimit(id);
 
     // Validar key única
     validateUniqueKey(context, key);
@@ -200,10 +200,10 @@ const uploadAudio = async (req, res, next) => {
     // Validar audio (magic bytes, tamaño)
     const { buffer, metadata } = await audioValidationService.validateAudio(file);
 
-    // Subir a Supabase
+    // Subir a Supabase (usa context.contextId para path estable)
     audioUrl = await storageService.uploadFile(
       buffer,
-      contextId,
+      context.contextId,
       'audio',
       `${key}.${metadata.format}`,
       metadata.mime
@@ -226,7 +226,8 @@ const uploadAudio = async (req, res, next) => {
       assetKey: key,
       uploadedBy: req.user._id,
       format: metadata.formatName,
-      size: metadata.size
+      size: metadata.size,
+      durationSeconds: metadata.durationSeconds
     });
 
     res.status(201).json({
@@ -236,7 +237,8 @@ const uploadAudio = async (req, res, next) => {
         asset: toAssetDTOV1(newAsset),
         metadata: {
           format: metadata.formatName,
-          size: `${(metadata.size / 1024).toFixed(1)} KB`
+          size: `${(metadata.size / 1024).toFixed(1)} KB`,
+          durationSeconds: metadata.durationSeconds
         }
       }
     });
@@ -282,17 +284,12 @@ const deleteImage = async (req, res, next) => {
 
     const asset = context.assets[assetIndex];
 
-    // Verificar que queden al menos 2 assets después de eliminar
-    if (context.assets.length <= 2) {
-      throw new ValidationError('El contexto debe tener al menos 2 assets');
-    }
-
     // Eliminar archivos de Supabase
     if (asset.imageUrl) {
-      await storageService.deleteFile(asset.imageUrl);
+      await storageService.deleteFile(asset.imageUrl, { strict: true });
     }
     if (asset.thumbnailUrl) {
-      await storageService.deleteFile(asset.thumbnailUrl);
+      await storageService.deleteFile(asset.thumbnailUrl, { strict: true });
     }
 
     // Eliminar asset del array
@@ -346,14 +343,9 @@ const deleteAudio = async (req, res, next) => {
 
     const asset = context.assets[assetIndex];
 
-    // Verificar que queden al menos 2 assets después de eliminar
-    if (context.assets.length <= 2) {
-      throw new ValidationError('El contexto debe tener al menos 2 assets');
-    }
-
     // Eliminar archivo de Supabase
     if (asset.audioUrl) {
-      await storageService.deleteFile(asset.audioUrl);
+      await storageService.deleteFile(asset.audioUrl, { strict: true });
     }
 
     // Eliminar asset del array

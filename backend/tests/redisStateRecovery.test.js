@@ -14,7 +14,7 @@ jest.mock('ioredis', () => {
 
 const mongoose = require('mongoose');
 const redisService = require('../src/services/redisService');
-const { connectRedis, disconnectRedis, isRedisConnected } = require('../src/config/redis');
+const { connectRedis, disconnectRedis } = require('../src/config/redis');
 const GameEngine = require('../src/services/gameEngine');
 const GamePlay = require('../src/models/GamePlay');
 const GameSession = require('../src/models/GameSession');
@@ -251,6 +251,9 @@ describe('Redis State Recovery - GameEngine.recoverActivePlays()', () => {
       expect(updatedPlay.status).toBe('abandoned');
       expect(updatedPlay.completedAt).toBeTruthy();
 
+      const updatedSession = await GameSession.findById(session._id);
+      expect(updatedSession.status).toBe('completed');
+
       // Assert: Verificar que se añadió evento de server_restart
       const restartEvent = updatedPlay.events.find(e => e.eventType === 'server_restart');
       expect(restartEvent).toBeTruthy();
@@ -452,7 +455,6 @@ describe('Redis State Recovery - GameEngine.recoverActivePlays()', () => {
       await simulateOrphanedRedisState(play, session);
 
       // Forzar un estado corrupto en Redis
-      const playId = play._id.toString();
       await redisService.set(redisService.NAMESPACES.PLAY, 'corrupted-key', 'not-valid-json');
 
       // Act: No debería lanzar error
@@ -483,6 +485,38 @@ describe('Redis State Recovery - GameEngine.recoverActivePlays()', () => {
       const card2After = await redisService.get(redisService.NAMESPACES.CARD, 'AA110002');
       expect(card1After).toBeNull();
       expect(card2After).toBeNull();
+    });
+  });
+
+  describe('Recuperación de huérfanas con pipeline (hgetallMany)', () => {
+    it('debería detectar partidas huérfanas sin estado en Redis usando pipeline batch', async () => {
+      // Arrange: Crear partida in-progress en MongoDB SIN estado en Redis
+      const { play } = await createInProgressPlay();
+
+      // Act: recoverOrphanedPlaysFromDB usa hgetallMany pipeline internamente
+      const orphanedCount = await gameEngine.recoverOrphanedPlaysFromDB();
+
+      // Assert
+      expect(orphanedCount).toBe(1);
+      expect(gameEngine.metrics.pipelineRecoveryBatchSize).toBeGreaterThanOrEqual(1);
+
+      const updatedPlay = await GamePlay.findById(play._id);
+      expect(updatedPlay.status).toBe('abandoned');
+    });
+
+    it('debería NO marcar como huérfana una partida que sí existe en Redis', async () => {
+      // Arrange: Crear partida in-progress con estado en Redis
+      const { play, session } = await createInProgressPlay();
+      await simulateOrphanedRedisState(play, session);
+
+      // Act
+      const orphanedCount = await gameEngine.recoverOrphanedPlaysFromDB();
+
+      // Assert: No debería marcarse como abandonada (tiene estado en Redis)
+      expect(orphanedCount).toBe(0);
+
+      const updatedPlay = await GamePlay.findById(play._id);
+      expect(updatedPlay.status).toBe('in-progress');
     });
   });
 });

@@ -187,12 +187,19 @@ npm start                     # Producción
 npm run seed                  # Ejecutar seeders (próximamente)
 npm test                      # Tests
 npm run security:check-&-fix  # Auditoría de seguridad
+npm run audit:prod                # Auditoría runtime/prod (sin devDependencies)
+npm run audit:full                # Auditoría completa (incluye tooling)
 npm run deps:update-minor     # Actualizar dependencias menores
 npm run deps:update-major     # Actualizar dependencias mayores
 npm run deps:analyze          # Analizar dependencias
 npm run drop-db               # Eliminar base de datos (solo desarrollo)
 ```
 
+### Política de seguridad en CI (dependencias)
+
+- **Bloqueante:** `npm run audit:prod` desde raíz (backend + frontend con `--omit=dev`).
+- **Informativo (no bloqueante):** `npm run audit:all` para seguimiento de deuda en tooling (`eslint`, `jest`, etc.).
+- **Objetivo operativo:** mantener **0 vulnerabilidades en runtime** sin romper lint/tests por overrides incompatibles de devDependencies.
 ## 📡 API Endpoints
 
 ### Autenticación (`/api/auth`)
@@ -216,19 +223,21 @@ npm run drop-db               # Eliminar base de datos (solo desarrollo)
 | GET    | `/`                            | Listar usuarios                              | Teacher       |
 | GET    | `/:id`                         | Obtener usuario                              | Teacher       |
 | POST   | `/`                            | Crear **ALUMNO** (sin email/password)        | Teacher       |
-| PUT    | `/:id`                         | Actualizar usuario (nombre, clase, profesor) | Teacher       |
+| PUT    | `/:id`                         | Actualizar usuario (nombre, clase, estado)   | Teacher       |
 | DELETE | `/:id`                         | Desactivar usuario                           | Teacher       |
 | GET    | `/:id/stats`                   | Estadísticas del usuario                     | Teacher/Owner |
 | GET    | `/teacher/:teacherId/students` | Alumnos de un profesor                       | Teacher       |
+| POST   | `/:id/transfer`                | Transferir alumno de profesor (ownership)    | Teacher/Admin |
 
 **⚠️ IMPORTANTE**:
 
 - `POST /api/users` solo crea alumnos (sin credenciales). Los profesores se registran en `/api/auth/register`.
 - **Validación de duplicados**: No se pueden crear dos alumnos activos con el mismo nombre (nombre = Nombre + Apellidos) en la misma clase del mismo profesor.
-- **Actualización de alumnos**: Se puede cambiar nombre, clase (`profile.classroom`), profesor asignado (`createdBy`), edad, etc.
+- **Actualización de alumnos (`PUT /api/users/:id`)**: Permite nombre, clase y estado, pero **no** permite cambiar `createdBy`.
+- **Transferencia de ownership**: Solo por `POST /api/users/:id/transfer` con controles de permisos (profesor propietario actual o `super_admin`).
 - **Casos de uso comunes**:
   - Alumno cambia de clase: `PUT /api/users/:id` con `{ "profile": { "classroom": "B" } }`
-  - Alumno cambia de profesor: `PUT /api/users/:id` con `{ "createdBy": "<nuevoProfesorId>" }`
+  - Alumno cambia de profesor: `POST /api/users/:id/transfer` con `{ "newTeacherId": "<nuevoProfesorId>", "newClassroom": "B" }`
   - Corrección de nombre: `PUT /api/users/:id` con `{ "name": "Nombre Correcto" }` (valida duplicados)
 
 ### Tarjetas RFID (`/api/cards`)

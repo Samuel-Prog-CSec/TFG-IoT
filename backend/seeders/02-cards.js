@@ -42,10 +42,10 @@ function generateCardsData(count) {
  */
 async function seedCards() {
   try {
-    const totalCards = 150;
+    const totalCards = 60;
     const sequentialCards = generateCardsData(totalCards);
 
-    const cards = await Card.insertMany(sequentialCards);
+    const cards = await Card.create(sequentialCards);
 
     logger.info('Tarjetas RFID seeded exitosamente');
     logger.info(`- ${sequentialCards.length} tarjetas secuenciales`);

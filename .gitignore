@@ -1,7 +1,16 @@
 .git/
 .vscode/
 .agent/
+.agents/
 node_modules/
+coverage/
+.sonarlint/
 .github/*.md
+.github/skills
+.github/instructions
 development/
 .env
+skills-lock.json
+memoria/
+CLAUDE.md
+.claude/

@@ -1,8 +1,48 @@
-import { memo } from 'react';
-import { motion } from 'framer-motion';
+import { memo, useEffect, useRef } from 'react';
+import { motion, animate } from 'framer-motion';
 import { ArrowUpRight, ArrowDownRight } from 'lucide-react';
 import PropTypes from 'prop-types';
-import { cn } from '../../lib/utils';
+import { cn, EASING } from '../../lib/utils';
+import { useReducedMotion } from '../../hooks/useReducedMotion';
+import GlassCard from '../ui/GlassCard';
+
+/**
+ * Componente interno para animar un numero de 0 al valor final.
+ * Soporta sufijos (ej: "45%").
+ * Si el valor no es numerico, lo renderiza directamente.
+ */
+function AnimatedNumber({ value }) {
+  const { shouldReduceMotion } = useReducedMotion();
+  const ref = useRef(null);
+
+  // Parse numeric part and suffix
+  const strValue = String(value);
+  const match = strValue.match(/^(\d+(?:\.\d+)?)(.*)/);
+  const numericPart = match ? parseFloat(match[1]) : null;
+  const suffix = match ? match[2] : '';
+
+  useEffect(() => {
+    if (numericPart === null || shouldReduceMotion || !ref.current) return;
+
+    const controls = animate(0, numericPart, {
+      duration: 1.2,
+      ease: EASING.outExpo,
+      onUpdate(latest) {
+        if (ref.current) {
+          ref.current.textContent = `${Math.round(latest)}${suffix}`;
+        }
+      },
+    });
+
+    return () => controls.stop();
+  }, [numericPart, suffix, shouldReduceMotion]);
+
+  if (numericPart === null || shouldReduceMotion) {
+    return <span>{value}</span>;
+  }
+
+  return <span ref={ref}>0{suffix}</span>;
+}
 
 /**
  * Tarjeta de estadísticas del dashboard
@@ -24,62 +64,56 @@ function StatCard({ title, value, trend, icon, color }) {
       whileTap={{ scale: 0.99 }}
       transition={{ type: 'spring', stiffness: 400, damping: 25 }}
       aria-label={`${title}: ${value}`}
-      className={cn(
-        "relative overflow-hidden",
-        "bg-slate-800/40 backdrop-blur-xl",
-        "p-6 rounded-2xl",
-        "border border-white/5",
-        "group cursor-pointer",
-        "hover:border-white/10 hover:shadow-lg hover:shadow-black/20"
-      )}
+      className="group cursor-pointer relative block h-full"
     >
-      {/* Icon Badge */}
-      <div className={cn(
-        "absolute top-4 right-4",
-        "w-12 h-12 rounded-xl",
-        "flex items-center justify-center",
-        "transition-transform duration-300 group-hover:scale-110 group-hover:rotate-3",
-        color,
-        "shadow-lg"
-      )}>
-        {icon}
-      </div>
-
-      {/* Content */}
-      <div className="relative z-10 pr-14">
-        <h3 className="text-slate-400 text-sm font-medium mb-2">{title}</h3>
-        <motion.div 
-          key={value}
-          initial={{ opacity: 0, y: 10 }}
-          animate={{ opacity: 1, y: 0 }}
-          className="text-3xl font-bold text-white mb-3 font-display"
-        >
-          {value}
-        </motion.div>
-        <div className={cn(
-          "inline-flex items-center gap-1 text-sm font-medium px-2 py-1 rounded-lg",
-          isPositive 
-            ? "text-emerald-400 bg-emerald-400/10" 
-            : "text-rose-400 bg-rose-400/10"
-        )}>
-          <TrendIcon size={14} />
-          <span>{trend}</span>
-          <span className="text-slate-500 font-normal ml-1">vs semana pasada</span>
-        </div>
-      </div>
-      
-      {/* Glow effect */}
-      <div 
+      <GlassCard
+        variant="default"
+        padding="none"
         className={cn(
-          "absolute -bottom-16 -right-16 w-40 h-40 rounded-full blur-3xl",
-          "opacity-20 transition-all duration-500 group-hover:opacity-40 group-hover:scale-110",
-          color
-        )} 
-        aria-hidden="true"
-      />
+          "h-full p-6 transition-all duration-300",
+          "hover:shadow-[0_8px_32px_rgba(0,0,0,0.3)] hover:border-border-strong"
+        )}
+      >
+        {/* Icon Badge */}
+        <div className={cn(
+          "absolute top-5 right-5",
+          "size-12 rounded-xl",
+          "flex items-center justify-center",
+          "transition-transform duration-300 group-hover:scale-110 group-hover:rotate-3",
+          color,
+          "shadow-lg"
+        )}>
+          {icon}
+        </div>
 
-      {/* Subtle top highlight */}
-      <div className="absolute inset-x-0 top-0 h-px bg-gradient-to-r from-transparent via-white/10 to-transparent" aria-hidden="true" />
+        {/* Content */}
+        <div className="relative z-10 pr-14">
+          <h3 className="text-text-muted text-sm font-semibold tracking-wide uppercase mb-2">{title}</h3>
+          <div className="text-3xl font-bold text-text-primary mb-3 font-display tracking-tight">
+            <AnimatedNumber value={value} />
+          </div>
+          <div className={cn(
+            "inline-flex items-center gap-1 text-sm font-semibold px-2.5 py-1 rounded-lg whitespace-nowrap",
+            isPositive
+              ? "text-success-base bg-success-base/10"
+              : "text-error-base bg-error-base/10"
+          )}>
+            <TrendIcon size={14} strokeWidth={3} />
+            <span>{trend}</span>
+            <span className="text-text-muted font-medium ml-1 text-xs">vs semana pasada</span>
+          </div>
+        </div>
+
+        {/* Glow effect fallback for visual flair */}
+        <div
+          className={cn(
+            "absolute -bottom-16 -right-16 w-40 h-40 rounded-full blur-3xl",
+            "opacity-20 transition-all duration-500 group-hover:opacity-40 group-hover:scale-110 pointer-events-none",
+            color
+          )}
+          aria-hidden="true"
+        />
+      </GlassCard>
     </motion.article>
   );
 }

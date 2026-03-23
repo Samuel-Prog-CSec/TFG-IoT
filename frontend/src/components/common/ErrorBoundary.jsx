@@ -2,11 +2,12 @@ import { Component } from 'react';
 import PropTypes from 'prop-types';
 import { AlertTriangle, RefreshCw, Home } from 'lucide-react';
 import ButtonPremium from '../ui/ButtonPremium';
+import { captureException } from '../../lib/sentry';
 
 /**
  * Error Boundary Component
  * Captura errores en componentes hijos y muestra una UI de fallback
- * 
+ *
  * @example
  * <ErrorBoundary fallback={<CustomError />}>
  *   <MyComponent />
@@ -24,11 +25,10 @@ class ErrorBoundary extends Component {
   }
 
   componentDidCatch(error, errorInfo) {
-    // Registrar error (aquí se podría enviar a Sentry u otro servicio)
-    console.error('ErrorBoundary caught an error:', error, errorInfo);
-    this.setState({ errorInfo });
-
-    // Callback opcional para reportar errores
+    // Enviar error a Sentry
+    captureException(error, { react: { componentStack: errorInfo.componentStack } });
+    
+    // Registrar error local de forma segura
     if (this.props.onError) {
       this.props.onError(error, errorInfo);
     }
@@ -57,35 +57,38 @@ class ErrorBoundary extends Component {
         <div 
           role="alert"
           aria-live="assertive"
-          className="min-h-screen flex items-center justify-center p-4 bg-slate-900"
+          className="min-h-screen flex items-center justify-center p-4 bg-background-base"
         >
           <div className="max-w-md w-full text-center">
             {/* Icono de error */}
             <div className="mb-6">
-              <div className="w-20 h-20 mx-auto rounded-full bg-rose-500/20 flex items-center justify-center">
-                <AlertTriangle 
-                  size={40} 
-                  className="text-rose-400" 
+              <div className="size-20 mx-auto rounded-full bg-error-base/20 flex items-center justify-center">
+                <AlertTriangle
+                  size={40}
+                  className="text-error-base"
                   aria-hidden="true"
                 />
               </div>
             </div>
 
             {/* Mensaje principal */}
-            <h1 className="text-2xl font-bold text-white mb-2 font-display">
+            <h1 className="text-2xl font-bold text-text-primary mb-2 font-display">
               ¡Ups! Algo salió mal
             </h1>
-            <p className="text-slate-400 mb-6">
+            <p className="text-text-muted mb-2">
               Ha ocurrido un error inesperado. Por favor, intenta de nuevo.
+            </p>
+            <p className="text-text-disabled text-sm mb-6">
+              Si el problema persiste, recarga la página o contacta al soporte.
             </p>
 
             {/* Detalles del error (solo en desarrollo) */}
             {import.meta.env.DEV && this.state.error && (
               <details className="mb-6 text-left">
-                <summary className="text-sm text-slate-500 cursor-pointer hover:text-slate-400">
+                <summary className="text-sm text-text-disabled cursor-pointer hover:text-text-muted">
                   Ver detalles del error
                 </summary>
-                <pre className="mt-2 p-4 bg-slate-800/50 rounded-lg text-xs text-rose-400 overflow-auto max-h-40">
+                <pre className="mt-2 p-4 bg-background-elevated/50 rounded-lg text-xs text-error-base overflow-auto max-h-40">
                   {this.state.error.toString()}
                   {this.state.errorInfo?.componentStack}
                 </pre>

@@ -1,5 +1,5 @@
-import { memo } from 'react';
-import { motion } from 'framer-motion';
+import { memo, useState, useEffect, useRef } from 'react';
+import { motion, AnimatePresence } from 'framer-motion';
 import PropTypes from 'prop-types';
 import { Star } from 'lucide-react';
 import { cn } from '../../lib/utils';
@@ -97,16 +97,44 @@ ScoreDisplay.propTypes = {
  * Versión compacta del ScoreDisplay para el HUD
  */
 function ScoreDisplayCompact({ score = 0, className }) {
+  const prevScoreRef = useRef(score);
+  const [scoreDelta, setScoreDelta] = useState(null);
+
+  useEffect(() => {
+    const delta = score - prevScoreRef.current;
+    if (delta > 0) {
+      setScoreDelta(delta);
+      const timer = setTimeout(() => setScoreDelta(null), 1200);
+      prevScoreRef.current = score;
+      return () => clearTimeout(timer);
+    }
+    prevScoreRef.current = score;
+  }, [score]);
+
   return (
-    <motion.div 
+    <motion.div
       key={score}
       initial={{ scale: 1.2 }}
       animate={{ scale: 1 }}
-      className={cn("flex items-center gap-2", className)}
+      className={cn("flex items-center gap-2 relative", className)}
       aria-label={`Puntuación: ${score} puntos`}
     >
       <Star size={20} className="fill-amber-400 text-amber-400" aria-hidden="true" />
-      <span className="text-2xl font-bold text-white tabular-nums">{score}</span>
+      <span className="text-2xl font-bold font-display text-white tabular-nums">{score}</span>
+      <AnimatePresence>
+        {scoreDelta !== null && (
+          <motion.span
+            key={`delta-${score}`}
+            initial={{ opacity: 1, y: 0 }}
+            animate={{ opacity: 0, y: -24 }}
+            exit={{ opacity: 0 }}
+            transition={{ duration: 1, ease: 'easeOut' }}
+            className="absolute -top-1 -right-6 text-sm font-bold font-display text-emerald-400 pointer-events-none"
+          >
+            +{scoreDelta}
+          </motion.span>
+        )}
+      </AnimatePresence>
     </motion.div>
   );
 }

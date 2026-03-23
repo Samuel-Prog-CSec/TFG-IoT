@@ -1,9 +1,11 @@
 /**
- * @fileoverview Estado vacio reutilizable con layout consistente.
+ * @fileoverview Estado vacio reutilizable con layout consistente y animaciones.
  * @module components/ui/EmptyState
  */
 
-import { cn } from '../../lib/utils';
+import { motion } from 'framer-motion';
+import { cn, DURATION, EASING } from '../../lib/utils';
+import { useReducedMotion } from '../../hooks/useReducedMotion';
 import GlassCard from './GlassCard';
 
 export default function EmptyState({
@@ -13,27 +15,49 @@ export default function EmptyState({
   action,
   className
 }) {
+  const { shouldReduceMotion } = useReducedMotion();
+
   return (
     <GlassCard className={cn('p-10 text-center', className)}>
       {icon && (
-        <div className="mx-auto mb-5 flex h-16 w-16 items-center justify-center rounded-2xl bg-white/5 text-slate-400">
+        <motion.div
+          initial={shouldReduceMotion ? false : { opacity: 0, scale: 0.8 }}
+          animate={{ opacity: 1, scale: 1 }}
+          transition={{ duration: DURATION.entrance, ease: EASING.outExpo }}
+          className="mx-auto mb-5 flex size-16 items-center justify-center rounded-2xl bg-glass-bg text-text-muted"
+        >
           {icon}
-        </div>
+        </motion.div>
       )}
       {title && (
-        <p className="text-slate-100 text-lg font-semibold">
+        <motion.p
+          initial={shouldReduceMotion ? false : { opacity: 0, y: 8 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: DURATION.stateChange, ease: EASING.outQuart, delay: 0.1 }}
+          className="text-text-primary text-lg font-semibold"
+        >
           {title}
-        </p>
+        </motion.p>
       )}
       {description && (
-        <p className="text-slate-500 mt-2 max-w-md mx-auto">
+        <motion.p
+          initial={shouldReduceMotion ? false : { opacity: 0, y: 8 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: DURATION.stateChange, ease: EASING.outQuart, delay: 0.15 }}
+          className="text-text-disabled mt-2 max-w-md mx-auto"
+        >
           {description}
-        </p>
+        </motion.p>
       )}
       {action && (
-        <div className="mt-6 flex justify-center">
+        <motion.div
+          initial={shouldReduceMotion ? false : { opacity: 0, y: 8 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: DURATION.stateChange, ease: EASING.outQuart, delay: 0.25 }}
+          className="mt-6 flex justify-center"
+        >
           {action}
-        </div>
+        </motion.div>
       )}
     </GlassCard>
   );

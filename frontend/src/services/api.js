@@ -7,6 +7,7 @@
  */
 
 import axios from 'axios';
+import { captureException } from '../lib/sentry';
 
 // ============================================
 // CONFIGURACIÓN
@@ -17,6 +18,9 @@ const TIMEOUT = 10000; // 10 segundos
 const MAX_RETRIES = 3;
 const RETRY_DELAY = 1000; // 1 segundo base para exponential backoff
 const MAX_TOTAL_TIME = 30000; // 30 segundos máximo para todos los reintentos
+const RATE_LIMIT_MAX_RETRIES = 2;
+const QUEUE_STAGGER_MS = 150; // Milisegundos entre peticiones encoladas tras refresh
+const ACTIVE_ONLY_PARAMS = Object.freeze({ isActive: true });
 
 // Eventos personalizados para comunicación con AuthContext
 export const AUTH_EVENTS = {
@@ -45,36 +49,6 @@ const api = axios.create({
 // ============================================
 
 let accessToken = null;
-let refreshToken = null;
-
-const refreshStorageKey = 'rfid_refresh_token';
-const loadRefreshToken = () => {
-  try {
-    return sessionStorage.getItem(refreshStorageKey);
-  } catch {
-    return null;
-  }
-};
-
-const saveRefreshToken = (token) => {
-  try {
-    if (token) {
-      sessionStorage.setItem(refreshStorageKey, token);
-    }
-  } catch {
-    // No-op si storage no esta disponible
-  }
-};
-
-const clearRefreshToken = () => {
-  try {
-    sessionStorage.removeItem(refreshStorageKey);
-  } catch {
-    // No-op si storage no esta disponible
-  }
-};
-
-refreshToken = loadRefreshToken();
 let isRefreshing = false;
 let failedQueue = [];
 
@@ -84,30 +58,26 @@ let failedQueue = [];
  * @param {string|null} token - Nuevo token si el refresh fue exitoso
  */
 const processQueue = (error, token = null) => {
-  failedQueue.forEach((prom) => {
+  const queue = [...failedQueue];
+  failedQueue = [];
+
+  queue.forEach((prom, index) => {
     if (error) {
       prom.reject(error);
     } else {
-      prom.resolve(token);
+      // Escalonar resolución para evitar ráfagas que disparen 429
+      setTimeout(() => prom.resolve(token), index * QUEUE_STAGGER_MS);
     }
   });
-  failedQueue = [];
 };
 
 /**
  * Establece los tokens de autenticación
  * @param {string} access - Access token (se guarda en memoria)
- * @param {string} access - Access token (se guarda en memoria)
  */
-export const setTokens = (access, refresh) => {
+export const setTokens = (access) => {
   accessToken = access;
-  if (refresh) {
-    refreshToken = refresh;
-    saveRefreshToken(refresh);
-  }
 };
-
-export const getRefreshToken = () => refreshToken;
 
 /**
  * Obtiene el access token actual
@@ -121,13 +91,16 @@ export const getAccessToken = () => accessToken;
  */
 export const clearTokens = () => {
   accessToken = null;
-  refreshToken = null;
-  clearRefreshToken();
 };
 
 const getCookieValue = (name) => {
-  const match = document.cookie.match(new RegExp(`(?:^|; )${name}=([^;]*)`));
-  return match ? decodeURIComponent(match[1]) : null;
+  const targetCookie = `${name}=`;
+  const cookieValue = document.cookie
+    .split('; ')
+    .find((entry) => entry.startsWith(targetCookie))
+    ?.slice(targetCookie.length);
+
+  return cookieValue ? decodeURIComponent(cookieValue) : null;
 };
 
 // ============================================
@@ -156,7 +129,7 @@ api.interceptors.request.use(
     return config;
   },
   (error) => {
-    return Promise.reject(error);
+    throw error;
   }
 );
 
@@ -169,6 +142,7 @@ api.interceptors.response.use(
     // Log de tiempo de respuesta en desarrollo
     if (import.meta.env.DEV && response.config.metadata) {
       const duration = Date.now() - response.config.metadata.startTime;
+      // eslint-disable-next-line no-console -- dev-only debug logging
       console.debug(`[API] ${response.config.method?.toUpperCase()} ${response.config.url} - ${duration}ms`);
     }
     return response;
@@ -191,9 +165,9 @@ api.interceptors.response.use(
       }
 
       // Si no hay refresh token o el refresh falló, emitir evento
-      window.dispatchEvent(new CustomEvent(AUTH_EVENTS.UNAUTHORIZED));
+      globalThis.dispatchEvent(new CustomEvent(AUTH_EVENTS.UNAUTHORIZED));
       clearTokens();
-      return Promise.reject(error);
+      throw error;
     }
 
     // 403 - Cuenta no aprobada o rechazada
@@ -201,14 +175,19 @@ api.interceptors.response.use(
       const errorCode = data?.code;
       if (errorCode === 'ACCOUNT_PENDING' || errorCode === 'ACCOUNT_REJECTED') {
         // No limpiar tokens, solo propagar el error con info
-        return Promise.reject({
-          ...error,
-          accountStatus: errorCode === 'ACCOUNT_PENDING' ? 'pending_approval' : 'rejected',
-        });
+        const accountStatusError = new Error(error?.message || 'Estado de cuenta no permitido');
+        accountStatusError.accountStatus = errorCode === 'ACCOUNT_PENDING' ? 'pending_approval' : 'rejected';
+        accountStatusError.cause = error;
+        throw accountStatusError;
       }
     }
 
-    return Promise.reject(error);
+    // 429 - Rate limit excedido
+    if (status === 429 && !originalRequest._rateLimitRetry) {
+      return handleRateLimitError(error, originalRequest);
+    }
+
+    throw error;
   }
 );
 
@@ -231,7 +210,9 @@ async function handleTokenRefresh(originalRequest) {
         originalRequest.headers.Authorization = `Bearer ${token}`;
         return api(originalRequest);
       })
-      .catch((err) => Promise.reject(err));
+      .catch((err) => {
+        throw err;
+      });
   }
 
   originalRequest._retry = true;
@@ -241,16 +222,16 @@ async function handleTokenRefresh(originalRequest) {
     const csrfToken = getCookieValue('csrfToken');
     const response = await axios.post(
       `${API_BASE_URL}/auth/refresh`,
-      refreshToken ? { refreshToken } : {},
+      {},
       {
         withCredentials: true,
         headers: csrfToken ? { 'X-CSRF-Token': csrfToken } : {}
       }
     );
 
-    const { accessToken: newAccessToken, refreshToken: newRefreshToken } = response.data.data;
+    const { accessToken: newAccessToken } = response.data.data;
     
-    setTokens(newAccessToken, newRefreshToken);
+    setTokens(newAccessToken);
     processQueue(null, newAccessToken);
 
     originalRequest.headers.Authorization = `Bearer ${newAccessToken}`;
@@ -258,8 +239,8 @@ async function handleTokenRefresh(originalRequest) {
   } catch (refreshError) {
     processQueue(refreshError, null);
     clearTokens();
-    window.dispatchEvent(new CustomEvent(AUTH_EVENTS.SESSION_EXPIRED));
-    return Promise.reject(refreshError);
+    globalThis.dispatchEvent(new CustomEvent(AUTH_EVENTS.SESSION_EXPIRED));
+    throw refreshError;
   } finally {
     isRefreshing = false;
   }
@@ -277,7 +258,7 @@ async function handleTokenRefresh(originalRequest) {
  */
 async function handleNetworkError(error, originalRequest) {
   if (isAbortError(error)) {
-    return Promise.reject(error);
+    throw error;
   }
 
   const retryCount = originalRequest._retryCount || 0;
@@ -290,29 +271,98 @@ async function handleNetworkError(error, originalRequest) {
   // Verificar si hemos excedido el tiempo total máximo
   const elapsedTime = Date.now() - originalRequest._retryStartTime;
   if (elapsedTime >= MAX_TOTAL_TIME) {
-    console.error(`[API] Max total time (${MAX_TOTAL_TIME}ms) exceeded for ${originalRequest.url}`);
-    return Promise.reject({
-      ...error,
-      isNetworkError: true,
-      message: 'Tiempo de espera agotado. Por favor, verifica tu conexión a internet.',
-    });
+    captureException(new Error(`[API] Max total time (${MAX_TOTAL_TIME}ms) exceeded for ${originalRequest.url}`));
+    const timeoutError = new Error('Tiempo de espera agotado. Por favor, verifica tu conexion a internet.');
+    timeoutError.isNetworkError = true;
+    timeoutError.cause = error;
+    throw timeoutError;
   }
 
   if (retryCount >= MAX_RETRIES) {
-    console.error(`[API] Max retries (${MAX_RETRIES}) exceeded for ${originalRequest.url}`);
-    return Promise.reject({
-      ...error,
-      isNetworkError: true,
-      message: 'Error de conexión. Por favor, verifica tu conexión a internet.',
-    });
+    captureException(new Error(`[API] Max retries (${MAX_RETRIES}) exceeded for ${originalRequest.url}`));
+    const networkError = new Error('Error de conexion. Por favor, verifica tu conexion a internet.');
+    networkError.isNetworkError = true;
+    networkError.cause = error;
+    throw networkError;
   }
 
   originalRequest._retryCount = retryCount + 1;
   const delay = RETRY_DELAY * Math.pow(2, retryCount); // Exponential backoff
 
-  console.warn(`[API] Network error, retrying (${retryCount + 1}/${MAX_RETRIES}) in ${delay}ms...`);
+  if (import.meta.env.DEV) {
+    console.warn(`[API] Network error, retrying (${retryCount + 1}/${MAX_RETRIES}) in ${delay}ms...`);
+  }
 
   await new Promise((resolve) => setTimeout(resolve, delay));
+  return api(originalRequest);
+}
+
+// ============================================
+// MANEJO DE RATE LIMIT (429)
+// ============================================
+
+/**
+ * Extrae el tiempo de espera en segundos del header Retry-After.
+ * express-rate-limit v8 con standardHeaders: true envía Retry-After
+ * como segundos enteros en respuestas 429.
+ * @param {Object} response - Respuesta de axios
+ * @returns {number} Segundos a esperar (0 si no se puede determinar)
+ */
+function parseRetryAfter(response) {
+  const retryAfter = response?.headers?.['retry-after'];
+  if (!retryAfter) {
+    return 0;
+  }
+
+  const seconds = Number(retryAfter);
+  return Number.isFinite(seconds) && seconds > 0 ? seconds : 0;
+}
+
+/**
+ * Maneja errores de rate limit (429) con respeto al header Retry-After.
+ * Reintenta hasta RATE_LIMIT_MAX_RETRIES veces esperando el tiempo
+ * indicado por el servidor.
+ * @param {Error} error - Error original de axios
+ * @param {Object} originalRequest - Configuración de la petición original
+ * @returns {Promise} Promesa con la petición reintentada o error enriquecido
+ */
+async function handleRateLimitError(error, originalRequest) {
+  if (isAbortError(error)) {
+    throw error;
+  }
+
+  const retryCount = originalRequest._rateLimitRetryCount || 0;
+
+  if (retryCount >= RATE_LIMIT_MAX_RETRIES) {
+    const rateLimitError = new Error(
+      error.response?.data?.message || 'Demasiadas peticiones. Por favor, espera un momento.'
+    );
+    rateLimitError.isRateLimited = true;
+    rateLimitError.retryAfterSeconds = parseRetryAfter(error.response);
+    rateLimitError.cause = error;
+    throw rateLimitError;
+  }
+
+  const retryAfterSeconds = parseRetryAfter(error.response);
+  // Mínimo 2s, máximo 60s para no bloquear la UI indefinidamente
+  const waitMs = Math.min(
+    Math.max((retryAfterSeconds || 2) * 1000, 2000),
+    60000
+  );
+
+  if (import.meta.env.DEV) {
+    console.warn(
+      `[API] Rate limited (429), retrying (${retryCount + 1}/${RATE_LIMIT_MAX_RETRIES}) in ${waitMs}ms...`
+    );
+  }
+
+  originalRequest._rateLimitRetry = true;
+  originalRequest._rateLimitRetryCount = retryCount + 1;
+
+  await new Promise((resolve) => setTimeout(resolve, waitMs));
+
+  // Permitir que el siguiente intento también sea interceptado si recibe 429
+  originalRequest._rateLimitRetry = false;
   return api(originalRequest);
 }
 
@@ -336,7 +386,11 @@ export const extractErrorMessage = (error) => {
   if (error.isNetworkError) {
     return error.message;
   }
-  
+
+  if (error.isRateLimited) {
+    return error.message;
+  }
+
   if (error.response?.data?.message) {
     return error.response.data.message;
   }
@@ -415,7 +469,7 @@ export const authAPI = {
    * Refrescar access token
    * @returns {Promise} Respuesta con nuevos tokens
    */
-  refreshToken: () => api.post('/auth/refresh', refreshToken ? { refreshToken } : {}),
+  refreshToken: () => api.post('/auth/refresh', {}),
 };
 
 // ============================================
@@ -600,8 +654,8 @@ export const contextsAPI = {
    * @param {boolean} [params.isActive=true] - Filtrar solo activos
    * @returns {Promise} Respuesta con lista de contextos
    */
-  getContexts: (params = { isActive: true }, config = {}) => 
-    api.get('/contexts', { params, ...config }),
+  getContexts: (params, config = {}) => 
+    api.get('/contexts', { params: params ?? ACTIVE_ONLY_PARAMS, ...config }),
 
   /**
    * Obtener contexto por ID con sus assets
@@ -618,6 +672,79 @@ export const contextsAPI = {
    */
   getContextAssets: (contextId, config = {}) => 
     api.get(`/contexts/${contextId}/assets`, config),
+
+  /**
+   * Obtener límites y formatos permitidos para subida de assets
+   * @returns {Promise} Configuración de upload del backend
+   */
+  getUploadConfig: (config = {}) =>
+    api.get('/contexts/upload-config', config),
+
+  /**
+   * Subir imagen para asset
+   * @param {string} contextId - ID del contexto
+   * @param {FormData} formData - Datos con archivo (file, key, value, display)
+   * @returns {Promise} Respuesta de Supabase
+   */
+  uploadImage: (contextId, formData) => 
+    api.post(`/contexts/${contextId}/images`, formData, {
+      headers: { 'Content-Type': 'multipart/form-data' }
+    }),
+
+  /**
+   * Subir audio para asset
+   * @param {string} contextId - ID del contexto
+   * @param {FormData} formData - Datos con archivo (file, key, value, display)
+   * @returns {Promise} Respuesta de Supabase
+   */
+  uploadAudio: (contextId, formData) => 
+    api.post(`/contexts/${contextId}/audio`, formData, {
+      headers: { 'Content-Type': 'multipart/form-data' }
+    }),
+
+  /**
+   * Crear un nuevo contexto de juego (solo super_admin)
+   * El contexto se crea vacío; los assets se añaden después mediante upload.
+   * @param {Object} data - { contextId: string, name: string }
+   * @returns {Promise} Respuesta con el contexto creado
+   */
+  createContext: (data) =>
+    api.post('/contexts', data),
+
+  /**
+   * Actualizar metadatos de un contexto (solo super_admin)
+   * @param {string} contextMongoId - MongoDB _id del contexto
+   * @param {Object} data - Campos a actualizar: { name?, contextId? }
+   * @returns {Promise} Respuesta con el contexto actualizado
+   */
+  updateContext: (contextMongoId, data) =>
+    api.put(`/contexts/${contextMongoId}`, data),
+
+  /**
+   * Eliminar un contexto completo y sus archivos de Storage (solo super_admin)
+   * @param {string} contextMongoId - MongoDB _id del contexto
+   * @returns {Promise} Confirmación de eliminación
+   */
+  deleteContext: (contextMongoId) =>
+    api.delete(`/contexts/${contextMongoId}`),
+
+  /**
+   * Eliminar la imagen de un asset (y el registro del asset completo)
+   * @param {string} contextMongoId - MongoDB _id del contexto
+   * @param {string} assetKey - Key del asset a eliminar
+   * @returns {Promise} Confirmación de eliminación
+   */
+  deleteImage: (contextMongoId, assetKey) =>
+    api.delete(`/contexts/${contextMongoId}/images/${assetKey}`),
+
+  /**
+   * Eliminar el audio de un asset (y el registro del asset completo)
+   * @param {string} contextMongoId - MongoDB _id del contexto
+   * @param {string} assetKey - Key del asset a eliminar
+   * @returns {Promise} Confirmación de eliminación
+   */
+  deleteAudio: (contextMongoId, assetKey) =>
+    api.delete(`/contexts/${contextMongoId}/audio/${assetKey}`),
 };
 
 // ============================================
@@ -679,8 +806,8 @@ export const mechanicsAPI = {
    * @param {boolean} [params.isActive=true] - Filtrar solo activas
    * @returns {Promise} Respuesta con lista de mecánicas
    */
-  getMechanics: (params = { isActive: true }, config = {}) => 
-    api.get('/mechanics', { params, ...config }),
+  getMechanics: (params, config = {}) => 
+    api.get('/mechanics', { params: params ?? ACTIVE_ONLY_PARAMS, ...config }),
 
   /**
    * Obtener mecánica por ID
@@ -725,6 +852,30 @@ export const sessionsAPI = {
     api.post('/sessions', data),
 
   /**
+   * Iniciar sesión de juego
+   * @param {string} sessionId
+   * @returns {Promise}
+   */
+  startSession: (sessionId) =>
+    api.post(`/sessions/${sessionId}/start`, {}),
+
+  /**
+   * Clonar sesión existente (resincroniza mapping con el mazo actual)
+   * @param {string} sessionId
+   * @returns {Promise}
+   */
+  cloneSession: (sessionId) =>
+    api.post(`/sessions/${sessionId}/clone`, {}),
+
+  /**
+   * Finalizar sesión de juego
+   * @param {string} sessionId
+   * @returns {Promise}
+   */
+  endSession: (sessionId) =>
+    api.post(`/sessions/${sessionId}/end`, {}),
+
+  /**
    * Actualizar sesión existente
    * @param {string} sessionId - ID de la sesión
    * @param {Object} data - Datos a actualizar
@@ -740,6 +891,57 @@ export const sessionsAPI = {
    */
   deleteSession: (sessionId) => 
     api.delete(`/sessions/${sessionId}`),
+};
+
+export const playsAPI = {
+  /**
+   * Obtener partidas con filtros.
+   * @param {Object} params
+   * @returns {Promise}
+   */
+  getPlays: (params = {}, config = {}) =>
+    api.get('/plays', { params, ...config }),
+
+  /**
+   * Crear una nueva partida.
+   * @param {{sessionId: string, playerId: string}} data
+   * @returns {Promise}
+   */
+  createPlay: (data) =>
+    api.post('/plays', data),
+
+  /**
+   * Pausar partida.
+   * @param {string} playId
+   * @returns {Promise}
+   */
+  pausePlay: (playId) =>
+    api.post(`/plays/${playId}/pause`, {}),
+
+  /**
+   * Reanudar partida.
+   * @param {string} playId
+   * @returns {Promise}
+   */
+  resumePlay: (playId) =>
+    api.post(`/plays/${playId}/resume`, {}),
+
+  /**
+   * Abandonar partida.
+   * @param {string} playId
+   * @returns {Promise}
+   */
+  abandonPlay: (playId) =>
+    api.post(`/plays/${playId}/abandon`, {}),
+
+  /**
+   * Obtener estadísticas de un jugador (opcionalmente filtradas por sesión).
+   * @param {string} playerId
+   * @param {Object} [params] - Ej: { sessionId }
+   * @returns {Promise}
+   */
+  getPlayerStats: (playerId, params = {}) =>
+    api.get(`/plays/stats/${playerId}`, { params })
 };
 
 export default api;

@@ -1,9 +1,9 @@
-# Documentación de la API ("RFID Games Backend") - v0.3.0
+# Documentación de la API ("RFID Games Backend") - v0.4.0
 
 Este documento detalla los endpoints de la API REST para el Backend de Juegos Educativos RFID.
 
 **URL Base:** `/api`
-**Versión:** 0.3.0
+**Versión:** 0.4.0
 
 ## Autenticación y Seguridad
 
@@ -14,7 +14,25 @@ Este documento detalla los endpoints de la API REST para el Backend de Juegos Ed
 - **Límites de Velocidad (Rate Limits):**
   - **Global:** 100 peticiones / 15 min
   - **Auth:** 5 peticiones / 15 min
-  - **Creación:** 10 creaciones / 1 min (Sesiones, Contextos, etc.)
+  - **Registro:** 3 peticiones / 1 hora
+  - **Creación:** 10 creaciones / 1 min (Sesiones, Contextos, Mazos, etc.)
+  - **Upload:** 20 subidas / 1 hora (imágenes y audio)
+
+### Formato de Respuestas de Error
+
+Todas las respuestas de error siguen el formato:
+
+```json
+{
+  "success": false,
+  "message": "Descripción del error",
+  "data": { ... }
+}
+```
+
+- `message`: siempre presente, describe el error.
+- `data`: opcional, presente cuando el error incluye contexto adicional (ej: entidad existente en un conflicto 409).
+- `stack`: solo en entorno `development`.
 
 ---
 
@@ -75,7 +93,11 @@ Campos relevantes:
 
 - `http.avgLatencyMs`: latencia media (ms) desde arranque.
 - `websocket.connectedClients`: conexiones activas.
+- `websocket.events.authCacheHits`: aciertos de caché de revalidación auth en eventos sensibles.
+- `websocket.events.authCacheMisses`: fallos de caché de revalidación auth.
 - `gameEngine.activePlays`: partidas activas.
+- `gameEngine.lockContention`: contención detectada por lock serializado por `playId`.
+- `gameEngine.scanRaceDiscarded`: descartes por carrera (`scan/timeout`) durante ronda.
 - `rfid.processed.totalEventsProcessed`: eventos RFID procesados por el servidor.
 
 ### 1. Autenticación (`/auth`)
@@ -106,36 +128,40 @@ Notas:
 - Un `super_admin` debe aprobar/rechazar la cuenta antes de que el profesor pueda hacer login.
 - **Sesión Única**: Al iniciar sesión, cualquier sesión activa anterior de este usuario será invalidada (token refresh deja de funcionar) y se emitirá un evento `session_invalidated` vía WebSocket al dispositivo anterior.
 - **Refresh Token**: Se entrega como cookie `httpOnly` (`refreshToken`) y NO se devuelve en el body.
-- **CSRF**: Se usa double-submit. El cliente debe enviar el header `X-CSRF-Token` con el valor de la cookie `csrfToken` en métodos que modifican datos.
+- **Refresh endpoint**: `POST /api/auth/refresh` usa body vacío (`{}`) y obtiene el refresh token exclusivamente de cookie.
+- **CSRF**: Se usa double-submit. El cliente debe enviar el header `X-CSRF-Token` con el valor de la cookie `csrfToken` en métodos que modifican datos, incluido `POST /api/auth/refresh`.
 
 ### 1.1 Administración (`/admin`)
 
 Endpoints protegidos para el flujo de aprobación de profesores.
 
-| Método | Endpoint             | Descripción       | Acceso        |
-| :----- | :------------------- | :---------------- | :------------ |
-| `POST` | `/users/:id/approve` | Aprobar profesor  | `super_admin` |
-| `POST` | `/users/:id/reject`  | Rechazar profesor | `super_admin` |
+| Método | Endpoint             | Descripción                              | Acceso        |
+| :----- | :------------------- | :--------------------------------------- | :------------ |
+| `GET`  | `/pending`           | Listar profesores pendientes (paginado)  | `super_admin` |
+| `POST` | `/users/:id/approve` | Aprobar profesor pendiente               | `super_admin` |
+| `POST` | `/users/:id/reject`  | Rechazar profesor pendiente              | `super_admin` |
 
 Notas:
 
 - Solo se puede aprobar/rechazar usuarios con `role: teacher`.
+- Solo se permiten transiciones desde `accountStatus: pending_approval`.
 - El rechazo/aprobación se aplica mediante el campo `accountStatus` (`approved` / `rejected`).
+- `GET /admin/pending` permite `page`, `limit`, `sortBy`, `order`, `search` y responde con `data` + `pagination`.
 
 ---
 
 ### 2. Usuarios (`/users`)
 
-| Método   | Endpoint                | Descripción                                    | Acceso   |
-| :------- | :---------------------- | :--------------------------------------------- | :------- |
-| `GET`    | `/`                     | Obtener lista de usuarios                      | Profesor |
-| `GET`    | `/:id`                  | Obtener usuario por ID                         | Privado  |
-| `POST`   | `/`                     | Crear usuario ALUMNO                           | Profesor |
-| `PUT`    | `/:id`                  | Actualizar usuario                             | Privado  |
-| `DELETE` | `/:id`                  | Eliminar usuario (soft delete, borrado lógico) | Profesor |
-| `GET`    | `/:id/stats`            | Obtener estadísticas del alumno                | Privado  |
-| `GET`    | `/teacher/:id/students` | Obtener alumnos de un profesor                 | Profesor |
-| `POST`   | `/:id/transfer`         | Transferir alumno a otro profesor              | Profesor |
+| Método   | Endpoint                       | Descripción                                    | Acceso                         |
+| :------- | :----------------------------- | :--------------------------------------------- | :----------------------------- |
+| `GET`    | `/`                            | Obtener lista de usuarios                      | `teacher`, `super_admin`       |
+| `GET`    | `/:id`                         | Obtener usuario por ID                         | Privado (con reglas de ownership/rol) |
+| `POST`   | `/`                            | Crear ALUMNO                                   | `super_admin`                  |
+| `PUT`    | `/:id`                         | Actualizar usuario                             | `super_admin`                  |
+| `DELETE` | `/:id`                         | Eliminar usuario (soft delete, borrado lógico) | `super_admin`                  |
+| `GET`    | `/:id/stats`                   | Obtener estadísticas del alumno                | Privado (con reglas de ownership/rol) |
+| `GET`    | `/teacher/:teacherId/students` | Obtener alumnos de un profesor                 | `teacher`, `super_admin`       |
+| `POST`   | `/:id/transfer`                | Transferir alumno a otro profesor              | `super_admin`                  |
 
 **Cuerpo de la Petición (Transferir Alumno):**
 
@@ -146,16 +172,32 @@ Notas:
 }
 ```
 
-> **Nota de Seguridad:** Solo el profesor creador del alumno (`createdBy`) o un `super_admin` pueden iniciar la transferencia.
+> **Nota de Seguridad:** La transferencia está restringida a `super_admin`. Se valida además que el destino exista, sea `teacher` y esté `active`.
 
 **Cuerpo de la Petición (Crear Alumno):**
 
 ```json
 {
   "name": "Nombre Alumno",
-  "role": "student"
+  "teacherId": "<ObjectId>",
+  "profile": {
+    "age": 6,
+    "classroom": "Aula A"
+  }
 }
 ```
+
+Notas de contrato de `POST /api/users`:
+
+- Crea exclusivamente usuarios `student`.
+- `teacherId` es obligatorio.
+- `profile.age` es obligatorio (rango 3-99).
+- Se rechazan campos no permitidos (`email`, `password`, `role`, etc.).
+
+Notas de contrato de `PUT /api/users/:id`:
+
+- No se permite reasignar ownership (`createdBy`) por este endpoint.
+- La transferencia de alumno solo se realiza mediante `POST /api/users/:id/transfer`.
 
 ---
 
@@ -204,7 +246,7 @@ Notas:
 
 #### Rate Limits Especiales
 
-- **Upload:** 10 subidas / minuto por IP
+- **Upload:** 20 subidas / hora por IP
 
 #### Límites de Assets
 
@@ -233,6 +275,8 @@ Obtiene la configuración actual de subida de assets.
     "audio": {
       "allowedFormats": ["MP3", "OGG"],
       "maxSizeMB": 5,
+      "minDurationSeconds": 0.3,
+      "maxDurationSeconds": 45,
       "recommendedMaxDurationSeconds": 30
     },
     "maxAssetsPerContext": 30,
@@ -258,7 +302,7 @@ Sube una imagen a un asset del contexto. La imagen se procesa automáticamente:
 
 **Form Data:**
 
-- `image`: Archivo de imagen (PNG, JPG, GIF, WebP)
+- `file`: Archivo de imagen (PNG, JPG, GIF, WebP)
 - `key`: Identificador único del asset (ej: "espana")
 - `value`: Valor textual del asset (ej: "España")
 - `display`: Representación visual (emoji/texto) - opcional
@@ -270,11 +314,18 @@ Sube una imagen a un asset del contexto. La imagen se procesa automáticamente:
   "success": true,
   "message": "Imagen subida y procesada correctamente",
   "data": {
-    "key": "espana",
-    "value": "España",
-    "display": "🇪🇸",
-    "imageUrl": "https://storage.supabase.co/.../espana_main.webp",
-    "thumbnailUrl": "https://storage.supabase.co/.../espana_thumb.webp"
+    "asset": {
+      "key": "espana",
+      "value": "España",
+      "display": "🇪🇸",
+      "imageUrl": "https://storage.supabase.co/.../espana.webp",
+      "thumbnailUrl": "https://storage.supabase.co/.../espana_thumb.webp"
+    },
+    "processing": {
+      "originalDimensions": "1200x900",
+      "format": "webp",
+      "quality": 85
+    }
   }
 }
 ```
@@ -299,18 +350,29 @@ Sube un archivo de audio a un asset existente del contexto.
 
 **Form Data:**
 
-- `audio`: Archivo de audio (MP3, OGG)
-- `key`: Identificador del asset al que asociar el audio
+- `file`: Archivo de audio (MP3, OGG)
+- `key`: Identificador único del asset
+- `value`: Valor textual del asset
+- `display`: Representación visual (emoji/texto) - opcional
 
-**Respuesta (200):**
+**Respuesta (201):**
 
 ```json
 {
   "success": true,
-  "message": "Audio subido correctamente",
+  "message": "Audio subido y vinculado correctamente",
   "data": {
-    "key": "espana",
-    "audioUrl": "https://storage.supabase.co/.../espana.mp3"
+    "asset": {
+      "key": "espana",
+      "value": "España",
+      "display": "🇪🇸",
+      "audioUrl": "https://storage.supabase.co/.../espana.mp3"
+    },
+    "metadata": {
+      "format": "MP3",
+      "size": "132.4 KB",
+      "durationSeconds": 3.2
+    }
   }
 }
 ```
@@ -318,6 +380,7 @@ Sube un archivo de audio a un asset existente del contexto.
 **Errores comunes:**
 
 - `400` - Archivo no proporcionado o formato inválido
+- `400` - Duración inválida (< 0.3s o > 45s)
 - `404` - Contexto o asset no encontrado
 - `413` - Archivo demasiado grande (> 5MB)
 
@@ -394,10 +457,10 @@ Elimina el audio de un asset específico.
 | `GET`    | `/`          | Listar sesiones            | Profesor |
 | `GET`    | `/:id`       | Obtener detalles de sesión | Profesor |
 | `POST`   | `/`          | Crear sesión               | Profesor |
+| `POST`   | `/:id/clone` | Clonar sesión              | Profesor |
 | `PUT`    | `/:id`       | Actualizar sesión          | Profesor |
 | `DELETE` | `/:id`       | Eliminar sesión            | Profesor |
 | `POST`   | `/:id/start` | Iniciar sesión             | Profesor |
-| `POST`   | `/:id/pause` | Pausar sesión              | Profesor |
 | `POST`   | `/:id/end`   | Finalizar sesión           | Profesor |
 
 **Ciclo de Vida de la Sesión:**
@@ -411,6 +474,131 @@ Elimina el audio de un asset específico.
 - El mapeo de tarjetas (`cardMappings`) de una sesión **se deriva del mazo** (`deckId`).
 - Al crear/consultar/actualizar/iniciar una sesión, el backend **sincroniza** el mapping con el mazo actual, para que si el mazo cambia (nuevas tarjetas, cambios de valores), la sesión use siempre el mapping vigente.
 - `config.numberOfCards` depende del número de `cardMappings` del mazo y se ajusta automáticamente.
+
+#### `POST /sessions/:id/clone` (T-037)
+
+Clona una sesión existente con estas reglas:
+
+- Requiere ownership estricto del profesor creador de la sesión origen.
+- La sesión clonada siempre nace en estado `created` y sin `startedAt` / `endedAt`.
+- El clon **resincroniza `cardMappings` y `contextId`** con el `deckId` actual (no snapshot estático).
+- Para mecánica `memory`, el clon **reinicia `boardLayout` vacío** para forzar recolocación manual de tarjetas en el tablero virtual antes de iniciar.
+- Para mecánica `association`, el clon **precarga `associationChallengePlan` como borrador** (intentando conservar/reparar el plan previo) y marca `requiresAssociationPlanConfiguration=true` para forzar confirmación docente antes de iniciar.
+- Para mecánicas no memory, si el `boardLayout` original queda desalineado tras resincronizar, el backend lo reconstruye desde el mapping actual.
+
+Body requerido:
+
+```json
+{}
+```
+
+Respuesta exitosa:
+
+```json
+{
+  "success": true,
+  "message": "Sesión clonada exitosamente",
+  "data": {
+    "id": "<newSessionId>",
+    "status": "created"
+  }
+}
+```
+
+**Reglas Sprint 4 (T-056):**
+
+- En creación de sesión, la disponibilidad de mecánicas se controla por feature flag (`SESSION_ENABLED_MECHANICS`) y por reglas de mecánica (`rules.behavior.availability`).
+- Una mecánica marcada como `coming_soon` se rechaza aunque exista en catálogo.
+- Si `SESSION_ENABLED_MECHANICS` no está definido, se aceptan mecánicas activas no marcadas como `coming_soon`.
+
+#### Body recomendado para `POST /sessions`
+
+```json
+{
+  "mechanicId": "<ObjectId>",
+  "deckId": "<ObjectId>",
+  "config": {
+    "numberOfRounds": 5,
+    "timeLimit": 30,
+    "pointsPerCorrect": 10,
+    "penaltyPerError": -2
+  },
+  "boardLayout": [
+    {
+      "slotIndex": 0,
+      "cardId": "<ObjectId>",
+      "uid": "AA000001",
+      "assignedValue": "España",
+      "displayData": { "key": "spain", "display": "🇪🇸", "value": "España" }
+    }
+  ],
+  "associationChallengePlan": [
+    {
+      "roundNumber": 1,
+      "cardId": "<ObjectId>",
+      "uid": "AA000001",
+      "assignedValue": "España",
+      "displayData": { "key": "spain", "display": "🇪🇸", "value": "España" },
+      "promptText": "Encuentra el país con capital Madrid"
+    }
+  ],
+  "sensorId": "sensor-001"
+}
+```
+
+#### Reglas de `boardLayout`
+
+- `boardLayout` es opcional para asociación y obligatorio para memoria.
+- No permite `slotIndex` duplicados.
+- No permite tarjetas duplicadas (`cardId`).
+- Cada tarjeta de `boardLayout` debe pertenecer al `deckId` de la sesión.
+- `uid` y `assignedValue` de cada slot deben coincidir con el mapping sincronizado del mazo.
+- En memoria, `boardLayout` debe cubrir todas las tarjetas del mazo y respetar el tamaño de grupo de matching configurado por mecánica.
+- Si el mazo se resincroniza y cambia, el backend poda automáticamente entradas inválidas de `boardLayout`.
+
+#### Reglas de `associationChallengePlan`
+
+- Es obligatorio en creación para sesiones de `association`.
+- Debe incluir exactamente `config.numberOfRounds` retos.
+- Cada reto debe mapear a una tarjeta válida del mazo sincronizado (`cardId`/`uid`/`assignedValue` coherentes).
+- `roundNumber` debe ser consecutivo y sin duplicados (1..N).
+- `promptText` es opcional (máximo 180 caracteres).
+- En `start`, si el plan quedó inválido por cambios del mazo, el backend intenta auto-repararlo; si no puede resolver todas las rondas, bloquea el inicio hasta corrección manual.
+
+#### Límites de tiempo por mecánica
+
+- Asociación: `timeLimit` según límites de la mecánica (seed por defecto: `5-60`).
+- Memoria: `timeLimit` global de partida (seed por defecto: `10-300`).
+- El backend valida `config` contra `rules.limits` de la mecánica seleccionada en create/update.
+
+#### Respuesta de sesión (`GET /sessions/:id`, `POST /sessions`, `PUT /sessions/:id`)
+
+Además de `cardMappings`, la sesión incluye:
+
+```json
+{
+  "boardLayout": [
+    {
+      "slotIndex": 0,
+      "cardId": "<ObjectId>",
+      "uid": "AA000001",
+      "assignedValue": "España",
+      "displayData": { "key": "spain", "display": "🇪🇸", "value": "España" }
+    }
+  ],
+  "associationChallengePlan": [
+    {
+      "roundNumber": 1,
+      "cardId": "<ObjectId>",
+      "uid": "AA000001",
+      "assignedValue": "España",
+      "displayData": { "key": "spain", "display": "🇪🇸", "value": "España" },
+      "promptText": "Encuentra el país con capital Madrid"
+    }
+  ],
+  "requiresAssociationPlanConfiguration": false
+}
+```
 
 ---
 
@@ -428,7 +616,7 @@ Los **mazos** (CardDeck) permiten al profesor **reutilizar** la configuración d
 
 #### Reglas de Validación (negocio)
 
-- `cardMappings` debe tener entre **2 y 20** elementos.
+- `cardMappings` debe tener entre **2 y 30** elementos.
 - Dentro del mazo no se permiten duplicados de: `uid`, `cardId`, `assignedValue`.
 - Cada `assignedValue` debe existir en `GameContext.assets[].value` del `contextId` del mazo.
 - Todas las `Card` referenciadas deben existir y estar en `status=active`.
@@ -593,32 +781,35 @@ No borra el documento: cambia `status` a `archived`.
 
 **Namespace:** `/`
 
-| Evento              | Dirección           | Descripción               | Datos                                                   |
-| :------------------ | :------------------ | :------------------------ | :------------------------------------------------------ |
-| `join_play`         | Cliente -> Servidor | Unirse a la sala de juego | `{ playId }`                                            |
-| `leave_play`        | Cliente -> Servidor | Salir de la sala de juego | `{ playId }`                                            |
-| `start_play`        | Cliente -> Servidor | Comenzar partida          | `{ playId }`                                            |
-| `pause_play`        | Cliente -> Servidor | Pausar partida            | `{ playId }`                                            |
-| `resume_play`       | Cliente -> Servidor | Reanudar partida          | `{ playId }`                                            |
-| `next_round`        | Cliente -> Servidor | Siguiente ronda manual    | `{ playId }`                                            |
-| `join_card_registration` | Cliente -> Servidor | Unirse a sala de registro | `{}`                                               |
-| `leave_card_registration`| Cliente -> Servidor | Salir de sala de registro | `{}`                                               |
-| `join_admin_room`   | Cliente -> Servidor | Unirse a sala admin       | `{}`                                                    |
-| `leave_admin_room`  | Cliente -> Servidor | Salir de sala admin       | `{}`                                                    |
-| `rfid_scan_from_client` | Cliente -> Servidor | Escaneo RFID desde cliente | `{ uid, type, sensorId, timestamp, source }`          |
-| `play_state`        | Servidor -> Cliente | Estado inicial            | `{ currentRound, score }`                               |
-| `new_round`         | Servidor -> Cliente | Nuevo desafío             | `{ challenge, timeLimit }`                              |
-| `validation_result` | Servidor -> Cliente | Resultado respuesta       | `{ isCorrect, points, newScore }`                       |
-| `play_paused`       | Servidor -> Cliente | Partida pausada           | `{ playId, currentRound, remainingTimeMs }`             |
-| `play_resumed`      | Servidor -> Cliente | Partida reanudada         | `{ playId, currentRound, remainingTimeMs, challenge? }` |
-| `rfid_event`        | Servidor -> Cliente | Tarjeta escaneada         | `{ uid, type }`                                         |
-| `session_invalidated` | Servidor -> Cliente | Sesión invalidada         | `{ reason, timestamp }`                                 |
+| Evento | Dirección | Descripción | Datos |
+| --- | --- | --- | --- |
+| `join_play` | Cliente -> Servidor | Unirse a la sala de juego | `{ playId }` |
+| `leave_play` | Cliente -> Servidor | Salir de la sala de juego | `{ playId }` |
+| `start_play` | Cliente -> Servidor | Comenzar partida | `{ playId }` |
+| `pause_play` | Cliente -> Servidor | Pausar partida | `{ playId }` |
+| `resume_play` | Cliente -> Servidor | Reanudar partida | `{ playId }` |
+| `next_round` | Cliente -> Servidor | Siguiente ronda manual | `{ playId }` |
+| `join_card_registration` | Cliente -> Servidor | Unirse a sala de registro | `{}` |
+| `leave_card_registration` | Cliente -> Servidor | Salir de sala de registro | `{}` |
+| `join_admin_room` | Cliente -> Servidor | Unirse a sala admin | `{}` |
+| `leave_admin_room` | Cliente -> Servidor | Salir de sala admin | `{}` |
+| `rfid_scan_from_client` | Cliente -> Servidor | Escaneo RFID desde cliente | `{ uid, type, sensorId, timestamp, source }` |
+| `play_state` | Servidor -> Cliente | Estado inicial | `{ playId, currentRound, score, maxRounds }` |
+| `new_round` | Servidor -> Cliente | Nuevo desafío | `{ roundNumber, totalRounds, challenge, timeLimit, score }` |
+| `validation_result` | Servidor -> Cliente | Resultado respuesta | `{ isCorrect, expected, actual, pointsAwarded, newScore, timeout? }` |
+| `game_over` | Servidor -> Cliente | Fin de partida | `{ finalScore, metrics }` |
+| `play_interrupted` | Servidor -> Cliente | Partida interrumpida | `{ playId, reason, message, finalScore }` |
+| `play_paused` | Servidor -> Cliente | Partida pausada | `{ playId, currentRound, remainingTimeMs }` |
+| `play_resumed` | Servidor -> Cliente | Partida reanudada | `{ playId, currentRound, remainingTimeMs, challenge? }` |
+| `rfid_event` | Servidor -> Cliente | Tarjeta escaneada | `{ uid, type }` |
+| `session_invalidated` | Servidor -> Cliente | Sesión invalidada | `{ reason, timestamp }` |
 
 **Seguridad (WebSocket):**
 
 - La conexión WebSocket **requiere token** en el handshake (`auth.token` o `Authorization: Bearer <token>`).
 - El backend valida **rol**, **estado de cuenta** y **single-session** antes de aceptar eventos.
 - Eventos de control (`join_play`, `start_play`, `pause_play`, `resume_play`, `next_round`) solo están permitidos a `teacher`/`super_admin`.
+- `next_round` devuelve error tipado `ROUND_BLOCKED` cuando la partida sigue en `awaitingResponse`.
 - Los sockets se desconectan automáticamente si la sesión es invalidada (por login en otro dispositivo o cambios de seguridad).
 
 ---
@@ -630,5 +821,5 @@ No borra el documento: cambia `status` a `archived`.
 
 ---
 
-_Última actualización: 26-01-2026_
-_Versión: 0.3.0_
+_Última actualización: 12-03-2026_
+_Versión: 0.4.0_

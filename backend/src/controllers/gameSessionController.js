@@ -1,19 +1,41 @@
 /**
  * @fileoverview Controller para gestión CRUD de sesiones de juego.
  * Maneja la configuración de sesiones con mecánicas, contextos y mapeo de tarjetas.
+ * Los helpers de validación y normalización se encuentran en helpers/sessionValidationHelpers.js.
  * @module controllers/gameSessionController
  */
 
 const gameSessionRepository = require('../repositories/gameSessionRepository');
 const gameMechanicRepository = require('../repositories/gameMechanicRepository');
+const gamePlayRepository = require('../repositories/gamePlayRepository');
 const gameSessionService = require('../services/gameSessionService');
-const { NotFoundError, ValidationError, ForbiddenError } = require('../utils/errors');
+const {
+  NotFoundError,
+  ValidationError,
+  ForbiddenError,
+  ConflictError
+} = require('../utils/errors');
 const logger = require('../utils/logger');
 const {
   toGameSessionDetailDTOV1,
   toGameSessionListDTOV1,
   toPaginatedDTOV1
 } = require('../utils/dtos');
+const {
+  normalizeMechanicName,
+  isMechanicEnabledForSessionCreation,
+  validateConfigAgainstMechanicRules,
+  ensureMemoryBoardLayoutIsComplete,
+  normalizeBoardLayout,
+  validateBoardLayoutAgainstMappings,
+  validateAssociationChallengePlanAgainstMappings,
+  applyAssociationPlanOnUpdate,
+  ensureAssociationPlanReadyForStart,
+  applyCloneMechanicState,
+  buildCloneSuccessMessage
+} = require('./helpers/sessionValidationHelpers');
+
+const isSessionReadLeanEnabled = () => process.env.SESSION_READ_LEAN_ENABLED !== 'false';
 
 /**
  * Obtener lista de sesiones con paginación y filtros.
@@ -63,8 +85,9 @@ const getSessions = async (req, res, next) => {
       throw new ForbiddenError('Los alumnos no pueden acceder a sesiones directamente');
     }
 
-    // Filtrar por sesiones del profesor actual (super_admin puede ver todas)
-    if (req.user.role === 'teacher' && !createdBy) {
+    // Filtrar SIEMPRE por sesiones del profesor actual.
+    // Evita que un teacher fuerce createdBy en query para consultar sesiones ajenas.
+    if (req.user.role === 'teacher') {
       filter.createdBy = req.user._id;
     }
 
@@ -75,6 +98,8 @@ const getSessions = async (req, res, next) => {
     // Ejecutar query con populate
     const [sessions, total] = await Promise.all([
       gameSessionRepository.find(filter, {
+        select:
+          'mechanicId deckId contextId createdBy config status difficulty startedAt endedAt createdAt updatedAt',
         populate: [
           { path: 'mechanicId', select: 'name displayName icon' },
           { path: 'deckId', select: 'name status contextId' },
@@ -83,7 +108,8 @@ const getSessions = async (req, res, next) => {
         ],
         sort: sortOptions,
         limit: Number.parseInt(limit, 10),
-        skip
+        skip,
+        lean: isSessionReadLeanEnabled()
       }),
       gameSessionRepository.count(filter)
     ]);
@@ -121,39 +147,29 @@ const getSessionById = async (req, res, next) => {
   try {
     const { id } = req.params;
 
-    // 1) Cargar sesión sin populate para poder sincronizar si aplica
-    const session = await gameSessionRepository.findById(id);
+    const session = await gameSessionRepository.findById(id, {
+      select:
+        'mechanicId deckId contextId createdBy config cardMappings boardLayout associationChallengePlan requiresAssociationPlanConfiguration status difficulty startedAt endedAt createdAt updatedAt',
+      populate: [
+        { path: 'mechanicId', select: 'name displayName icon' },
+        { path: 'deckId', select: 'name status contextId' },
+        { path: 'contextId', select: 'contextId name' },
+        { path: 'createdBy', select: 'name email' },
+        { path: 'cardMappings.cardId', select: 'uid type status' }
+      ],
+      lean: isSessionReadLeanEnabled()
+    });
 
     if (!session) {
       throw new NotFoundError('Sesión de juego');
     }
 
+    const ownerId = session?.createdBy?._id || session?.createdBy;
+
     // Verificar permisos: solo el creador o super admin
-    if (
-      session.createdBy.toString() !== req.user._id.toString() &&
-      req.user.role !== 'super_admin'
-    ) {
+    if (ownerId?.toString() !== req.user._id.toString() && req.user.role !== 'super_admin') {
       throw new ForbiddenError('No tienes permiso para ver esta sesión');
     }
-
-    // 2) Al "seleccionar" una sesión (ver detalle), sincronizar SIEMPRE desde el mazo
-    // para evitar que se quede con mapeos antiguos.
-    if (session.deckId) {
-      await gameSessionService.syncSessionFromDeck(session, {
-        deckId: session.deckId,
-        userId: session.createdBy
-      });
-      await session.save();
-    }
-
-    // 3) Populate final para respuesta completa
-    await session.populate([
-      { path: 'mechanicId', select: 'name displayName icon rules' },
-      { path: 'deckId', select: 'name status contextId' },
-      { path: 'contextId', select: 'contextId name assets' },
-      { path: 'createdBy', select: 'name email' },
-      { path: 'cardMappings.cardId', select: 'uid type status' }
-    ]);
 
     res.json({
       success: true,
@@ -177,7 +193,16 @@ const getSessionById = async (req, res, next) => {
  */
 const createSession = async (req, res, next) => {
   try {
-    const { mechanicId, contextId, deckId, sensorId, config = {}, cardMappings } = req.body;
+    const {
+      mechanicId,
+      contextId,
+      deckId,
+      sensorId,
+      config = {},
+      cardMappings,
+      boardLayout,
+      associationChallengePlan
+    } = req.body;
 
     // NUEVA REGLA: el mapping de la sesión SIEMPRE depende del mazo asignado.
     // Por tanto, no aceptamos cardMappings manuales al crear la sesión.
@@ -200,6 +225,15 @@ const createSession = async (req, res, next) => {
       throw new ValidationError('La mecánica seleccionada no está activa');
     }
 
+    const mechanicName = normalizeMechanicName(mechanic.name);
+    if (!isMechanicEnabledForSessionCreation(mechanic)) {
+      throw new ValidationError(
+        'La mecánica seleccionada no está habilitada para creación de sesiones en el entorno actual.'
+      );
+    }
+
+    validateConfigAgainstMechanicRules({ mechanic, config });
+
     // La sesión se construye a partir del mazo
     const session = gameSessionRepository.build({
       mechanicId,
@@ -221,6 +255,30 @@ const createSession = async (req, res, next) => {
     } = await gameSessionService.syncSessionFromDeck(session, {
       deckId,
       userId: req.user._id
+    });
+
+    if (boardLayout !== undefined) {
+      validateBoardLayoutAgainstMappings(boardLayout, syncedMappings);
+      session.boardLayout = normalizeBoardLayout(boardLayout);
+    }
+
+    if (mechanicName === 'association') {
+      const normalizedPlan = validateAssociationChallengePlanAgainstMappings({
+        associationChallengePlan,
+        cardMappings: syncedMappings,
+        numberOfRounds: Number(session.config?.numberOfRounds)
+      });
+      session.associationChallengePlan = normalizedPlan;
+      session.requiresAssociationPlanConfiguration = false;
+    } else {
+      session.associationChallengePlan = [];
+      session.requiresAssociationPlanConfiguration = false;
+    }
+
+    ensureMemoryBoardLayoutIsComplete({
+      mechanic,
+      boardLayout: session.boardLayout,
+      cardMappings: syncedMappings
     });
 
     // Si el cliente envía contextId explícito, debe coincidir con el del mazo
@@ -248,7 +306,7 @@ const createSession = async (req, res, next) => {
 
     logger.info('Sesión creada', {
       sessionId: session._id,
-      mechanicId: mechanic.name,
+      mechanicId: mechanicName,
       contextId: context.contextId,
       cardsCount: syncedMappings.length,
       deckId,
@@ -281,7 +339,7 @@ const createSession = async (req, res, next) => {
 const updateSession = async (req, res, next) => {
   try {
     const { id } = req.params;
-    const { deckId, sensorId, config } = req.body;
+    const { deckId, sensorId, config, boardLayout, associationChallengePlan } = req.body;
 
     const session = await gameSessionRepository.findById(id);
 
@@ -318,14 +376,40 @@ const updateSession = async (req, res, next) => {
       userId: req.user._id
     });
 
+    const mechanic = await gameMechanicRepository.findById(session.mechanicId);
+    if (!mechanic) {
+      throw new NotFoundError('Mecánica de juego');
+    }
+
     // Actualizar campos (excepto numberOfCards, que depende del mazo)
     if (config) {
       if (config.numberOfCards !== undefined) {
         throw new ValidationError('config.numberOfCards no se puede modificar: depende del mazo');
       }
 
+      const nextConfig = { ...session.config, ...config };
+      validateConfigAgainstMechanicRules({ mechanic, config: nextConfig });
+
       session.config = { ...session.config, ...config };
     }
+
+    if (boardLayout !== undefined) {
+      validateBoardLayoutAgainstMappings(boardLayout, session.cardMappings);
+      session.boardLayout = normalizeBoardLayout(boardLayout);
+    }
+
+    const mechanicName = normalizeMechanicName(mechanic?.name);
+    applyAssociationPlanOnUpdate({
+      session,
+      associationChallengePlan,
+      mechanicName
+    });
+
+    ensureMemoryBoardLayoutIsComplete({
+      mechanic,
+      boardLayout: session.boardLayout,
+      cardMappings: session.cardMappings
+    });
 
     await session.save();
 
@@ -432,6 +516,23 @@ const startSession = async (req, res, next) => {
       userId: req.user._id
     });
 
+    const mechanic = await gameMechanicRepository.findById(session.mechanicId);
+    if (!mechanic) {
+      throw new NotFoundError('Mecánica de juego');
+    }
+
+    const mechanicName = normalizeMechanicName(mechanic?.name);
+
+    if (mechanicName === 'association') {
+      await ensureAssociationPlanReadyForStart(session);
+    }
+
+    ensureMemoryBoardLayoutIsComplete({
+      mechanic,
+      boardLayout: session.boardLayout,
+      cardMappings: session.cardMappings
+    });
+
     // Si era una sesión completada, limpiar endedAt al reiniciar
     if (session.status === 'completed') {
       session.endedAt = undefined;
@@ -481,6 +582,18 @@ const endSession = async (req, res, next) => {
       throw new ForbiddenError('No tienes permiso para finalizar esta sesión');
     }
 
+    // Verificar que no haya partidas activas
+    const activePlays = await gamePlayRepository.count({
+      sessionId: session._id,
+      status: { $in: ['in-progress', 'paused'] }
+    });
+
+    if (activePlays > 0) {
+      throw new ConflictError(
+        `No se puede finalizar la sesión: hay ${activePlays} partida(s) activa(s)`
+      );
+    }
+
     // Usar el método del modelo
     await session.end();
 
@@ -499,6 +612,89 @@ const endSession = async (req, res, next) => {
   }
 };
 
+/**
+ * Clonar una sesión existente resincronizando contra el mazo actual.
+ *
+ * POST /api/sessions/:id/clone
+ * Headers: Authorization: Bearer <token>
+ * Body: {}
+ *
+ * @param {import('express').Request} req
+ * @param {import('express').Response} res
+ * @param {import('express').NextFunction} next
+ */
+const cloneSession = async (req, res, next) => {
+  try {
+    const { id } = req.params;
+
+    const sourceSession = await gameSessionRepository.findById(id);
+    if (!sourceSession) {
+      throw new NotFoundError('Sesión de juego');
+    }
+
+    if (sourceSession.createdBy.toString() !== req.user._id.toString()) {
+      throw new ForbiddenError('No tienes permiso para clonar esta sesión');
+    }
+
+    const { clonedSession, mechanic, cardMappings } =
+      await gameSessionService.cloneSessionFromExisting({
+        sourceSession,
+        userId: req.user._id
+      });
+
+    if (!isMechanicEnabledForSessionCreation(mechanic)) {
+      throw new ValidationError(
+        'La mecánica de la sesión original no está habilitada para creación de sesiones en el entorno actual.'
+      );
+    }
+
+    validateConfigAgainstMechanicRules({
+      mechanic,
+      config: clonedSession.config
+    });
+
+    const mechanicName = normalizeMechanicName(mechanic?.name);
+
+    applyCloneMechanicState({
+      clonedSession,
+      sourceSession,
+      cardMappings,
+      userId: req.user._id,
+      mechanicName
+    });
+
+    clonedSession.status = 'created';
+    clonedSession.startedAt = undefined;
+    clonedSession.endedAt = undefined;
+
+    await clonedSession.save();
+
+    await clonedSession.populate([
+      { path: 'mechanicId', select: 'name displayName icon' },
+      { path: 'deckId', select: 'name status contextId' },
+      { path: 'contextId', select: 'contextId name' },
+      { path: 'createdBy', select: 'name email' },
+      { path: 'cardMappings.cardId', select: 'uid type status' }
+    ]);
+
+    logger.info('Sesión clonada', {
+      sourceSessionId: sourceSession._id,
+      clonedSessionId: clonedSession._id,
+      mechanic: mechanic.name,
+      cardMappingsCount: cardMappings.length,
+      clonedBy: req.user._id
+    });
+
+    res.status(201).json({
+      success: true,
+      message: buildCloneSuccessMessage(mechanicName),
+      data: toGameSessionDetailDTOV1(clonedSession)
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
 module.exports = {
   getSessions,
   getSessionById,
@@ -506,5 +702,6 @@ module.exports = {
   updateSession,
   deleteSession,
   startSession,
-  endSession
+  endSession,
+  cloneSession
 };

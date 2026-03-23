@@ -47,7 +47,7 @@ function initSentry() {
     profilesSampleRate: process.env.NODE_ENV === 'production' ? 0.1 : 1.0,
 
     // Filtrar datos sensibles antes de enviar a Sentry
-    beforeSend(event, hint) {
+    beforeSend(event, _hint) {
       // Remover cookies
       if (event.request) {
         delete event.request.cookies;

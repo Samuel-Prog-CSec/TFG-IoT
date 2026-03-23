@@ -1,5 +1,6 @@
 import { motion } from 'framer-motion';
 import { cn } from '../../lib/utils';
+import { useReducedMotion } from '../../hooks/useReducedMotion';
 
 /**
  * Progress bar premium con gradiente y animaciones
@@ -25,6 +26,7 @@ export default function ProgressBarPremium({
   className,
   ...props
 }) {
+  const { shouldReduceMotion } = useReducedMotion();
   const percentage = Math.min(100, Math.max(0, (value / max) * 100));
 
   const sizes = {
@@ -34,18 +36,11 @@ export default function ProgressBarPremium({
   };
 
   const variants = {
-    default: 'bg-gradient-to-r from-indigo-500 to-purple-500',
-    success: 'bg-gradient-to-r from-emerald-400 to-cyan-400',
-    warning: 'bg-gradient-to-r from-amber-400 to-orange-400',
-    danger: 'bg-gradient-to-r from-rose-400 to-pink-400',
-    gradient: 'bg-gradient-to-r from-indigo-500 via-purple-500 to-pink-500',
-  };
-
-  // Auto-select color based on percentage
-  const getAutoVariant = () => {
-    if (percentage >= 70) return variants.success;
-    if (percentage >= 40) return variants.warning;
-    return variants.danger;
+    default: 'bg-gradient-to-r from-accent-indigo to-brand-base',
+    success: 'bg-gradient-to-r from-success-base to-accent-cyan',
+    warning: 'bg-gradient-to-r from-warning-base to-accent-orange',
+    danger: 'bg-gradient-to-r from-error-base to-accent-pink',
+    gradient: 'bg-gradient-to-r from-accent-indigo via-brand-base to-accent-pink',
   };
 
   const barColor = variant === 'gradient' ? variants.gradient : variants[variant];
@@ -56,14 +51,14 @@ export default function ProgressBarPremium({
       {(label || showValue) && (
         <div className="flex justify-between items-center mb-2">
           {label && (
-            <span className="text-sm font-medium text-slate-300">{label}</span>
+            <span className="text-sm font-medium text-text-secondary">{label}</span>
           )}
           {showValue && (
             <motion.span
               key={value}
               initial={animated ? { opacity: 0, y: -10 } : false}
               animate={{ opacity: 1, y: 0 }}
-              className="text-sm font-bold text-white tabular-nums"
+              className="text-sm font-bold text-text-primary tabular-nums"
             >
               {Math.round(percentage)}%
             </motion.span>
@@ -75,8 +70,8 @@ export default function ProgressBarPremium({
       <div
         className={cn(
           'w-full rounded-full overflow-hidden',
-          'bg-slate-800/60 backdrop-blur-sm',
-          'border border-white/5',
+          'bg-background-surface/60 backdrop-blur-sm',
+          'border border-border-subtle',
           sizes[size]
         )}
       >
@@ -84,20 +79,27 @@ export default function ProgressBarPremium({
         <motion.div
           initial={animated ? { width: 0 } : false}
           animate={{ width: `${percentage}%` }}
-          transition={{ 
-            duration: 0.8, 
+          transition={{
+            duration: 0.8,
             ease: [0.4, 0, 0.2, 1],
-            delay: 0.1 
+            delay: 0.1
           }}
           className={cn(
-            'h-full rounded-full',
+            'h-full rounded-full relative',
             'shadow-lg',
             barColor
           )}
           style={{
-            boxShadow: percentage > 0 ? '0 0 20px rgba(139, 92, 246, 0.4)' : 'none',
+            boxShadow: percentage > 0 ? '0 0 20px var(--color-brand-glow)' : 'none',
           }}
-        />
+        >
+          {percentage > 0 && !shouldReduceMotion && (
+            <div
+              className="absolute inset-0 bg-gradient-to-r from-transparent via-white/20 to-transparent animate-[shimmer_2.5s_infinite]"
+              aria-hidden="true"
+            />
+          )}
+        </motion.div>
       </div>
     </div>
   );
@@ -137,7 +139,7 @@ export function GameTimerBar({
       />
       {/* Glow effect when low */}
       {percentage <= 20 && (
-        <div className="absolute inset-0 rounded-full bg-rose-500/20 blur-md -z-10" />
+        <div className="absolute inset-0 rounded-full bg-error-base/20 blur-md -z-10" />
       )}
     </div>
   );

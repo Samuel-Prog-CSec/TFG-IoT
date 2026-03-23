@@ -12,8 +12,12 @@ const DEFAULT_BAUD_RATE = 115200;
 const DEFAULT_DEDUPE_MS = 1200;
 const MAX_UID_CACHE_SIZE = 500;
 const UID_CACHE_TTL_MS = 5 * 60 * 1000;
+const MAX_PENDING_SCANS = 200;
+const PENDING_SCAN_TTL_MS = 30 * 1000;
 const MAX_RECONNECT_ATTEMPTS = 3;
 const RECONNECT_DELAY_BASE_MS = 1000;
+const HEARTBEAT_TIMEOUT_MS = 20000;
+const INIT_TIMEOUT_MS = 8000;
 
 const CARD_TYPES = new Set(['MIFARE_1KB', 'MIFARE_4KB', 'NTAG', 'UNKNOWN']);
 
@@ -58,9 +62,12 @@ class WebSerialService {
     this.buffer = '';
     this.listeners = new Map();
     this.status = 'disconnected';
+    this.deviceState = 'unknown';
+    this.firmwareVersion = null;
     this.sensorId = getOrCreateSensorId();
     this.dedupeCooldownMs = DEFAULT_DEDUPE_MS;
     this.lastScanByUid = new Map();
+    this.pendingScans = [];
     this.forwardToServer = true;
     this.hasSerialDisconnectListener = false;
     this.reconnectAttempts = 0;
@@ -68,6 +75,8 @@ class WebSerialService {
     this.lastPort = null;
     this.reconnectTimerId = null;
     this.autoReconnectEnabled = true;
+    this.heartbeatTimerId = null;
+    this.initTimeoutId = null;
   }
 
   isSupported() {
@@ -105,6 +114,48 @@ class WebSerialService {
     this.emit('status', { status: nextStatus, details });
   }
 
+  setDeviceState(nextState) {
+    if (this.deviceState === nextState) return;
+    this.deviceState = nextState;
+    this.emit('device_state_change', {
+      state: nextState,
+      firmwareVersion: this.firmwareVersion
+    });
+  }
+
+  _clearDeviceTimers() {
+    if (this.heartbeatTimerId) {
+      clearTimeout(this.heartbeatTimerId);
+      this.heartbeatTimerId = null;
+    }
+    if (this.initTimeoutId) {
+      clearTimeout(this.initTimeoutId);
+      this.initTimeoutId = null;
+    }
+  }
+
+  _armHeartbeatWatchdog() {
+    if (this.heartbeatTimerId) {
+      clearTimeout(this.heartbeatTimerId);
+    }
+    this.heartbeatTimerId = setTimeout(() => {
+      if (this.deviceState === 'ready') {
+        this.setDeviceState('stale');
+      }
+    }, HEARTBEAT_TIMEOUT_MS);
+  }
+
+  _armInitTimeout() {
+    if (this.initTimeoutId) {
+      clearTimeout(this.initTimeoutId);
+    }
+    this.initTimeoutId = setTimeout(() => {
+      if (this.deviceState === 'initializing') {
+        this.setDeviceState('stale');
+      }
+    }, INIT_TIMEOUT_MS);
+  }
+
   async connect() {
     if (!this.isSupported()) {
       this.setStatus('unsupported');
@@ -136,6 +187,9 @@ class WebSerialService {
     }
 
     this.stopReading();
+    this._clearDeviceTimers();
+    this.firmwareVersion = null;
+    this.setDeviceState('unknown');
     this.lastPort = this.port;
     this.port = null;
     this.setStatus('disconnected', 'device_disconnected');
@@ -194,7 +248,7 @@ class WebSerialService {
         } else {
           throw new Error('No se encontró el puerto para reconectar');
         }
-      } catch (error) {
+      } catch {
         this.reconnecting = false;
         this.attemptReconnect(); // Reintentar
       }
@@ -212,6 +266,9 @@ class WebSerialService {
     }
 
     await this.stopReading();
+    this._clearDeviceTimers();
+    this.firmwareVersion = null;
+    this.setDeviceState('unknown');
 
     if (this.port) {
       try {
@@ -244,6 +301,8 @@ class WebSerialService {
 
     this.keepReading = true;
     this.setStatus('reading');
+    this.setDeviceState('initializing');
+    this._armInitTimeout();
 
     const textDecoder = new TextDecoderStream();
     const readableStreamClosed = this.port.readable.pipeTo(textDecoder.writable);
@@ -313,10 +372,62 @@ class WebSerialService {
   }
 
   handleRawEvent(event) {
-    if (!event || event.event !== 'card_detected') {
+    if (!event || !event.event) {
       return;
     }
 
+    switch (event.event) {
+      case 'card_detected':
+        this._handleCardDetected(event);
+        break;
+      case 'card_removed':
+        this.emit('card_removed', {
+          uid: String(event.uid || '').trim().toUpperCase()
+        });
+        break;
+      case 'init':
+        this.emit('device_init', {
+          status: event.status,
+          version: event.version
+        });
+        if (this.initTimeoutId) {
+          clearTimeout(this.initTimeoutId);
+          this.initTimeoutId = null;
+        }
+        if (event.status === 'success') {
+          this.firmwareVersion = event.version || null;
+          this.setDeviceState('ready');
+          this._armHeartbeatWatchdog();
+        } else {
+          this.setDeviceState('error');
+        }
+        break;
+      case 'error':
+        this.emit('device_error', {
+          type: event.type,
+          message: event.message
+        });
+        if (event.type === 'init_failure') {
+          this.setDeviceState('error');
+        }
+        break;
+      case 'status':
+        this.emit('device_status', {
+          uptime: event.uptime,
+          cardsDetected: event.cards_detected,
+          freeHeap: event.free_heap
+        });
+        if (this.deviceState === 'ready' || this.deviceState === 'stale') {
+          this.setDeviceState('ready');
+          this._armHeartbeatWatchdog();
+        }
+        break;
+      default:
+        break;
+    }
+  }
+
+  _handleCardDetected(event) {
     const uid = String(event.uid || '').trim().toUpperCase();
     if (!uid) {
       return;
@@ -344,16 +455,79 @@ class WebSerialService {
 
     this.emit('scan', payload);
 
-    if (this.forwardToServer && socketService.isSocketConnected()) {
+    if (!this.forwardToServer) {
+      return;
+    }
+
+    if (socketService.isSocketConnected()) {
+      this.flushPendingScans();
+
       try {
         socketService.emitFireAndForget('rfid_scan_from_client', payload);
       } catch (error) {
+        this.enqueuePendingScan(payload);
         this.emit('error', {
           message: 'Error enviando evento RFID al servidor',
           details: error?.message
         });
       }
+      return;
     }
+
+    this.enqueuePendingScan(payload);
+  }
+
+  enqueuePendingScan(payload) {
+    const now = Date.now();
+    this.prunePendingScans(now);
+
+    this.pendingScans.push({ payload, queuedAt: now });
+
+    while (this.pendingScans.length > MAX_PENDING_SCANS) {
+      this.pendingScans.shift();
+    }
+
+    this.emit('queue_status', {
+      pending: this.pendingScans.length
+    });
+  }
+
+  prunePendingScans(now = Date.now()) {
+    if (this.pendingScans.length === 0) {
+      return;
+    }
+
+    this.pendingScans = this.pendingScans.filter(
+      item => now - item.queuedAt <= PENDING_SCAN_TTL_MS
+    );
+  }
+
+  flushPendingScans() {
+    if (!socketService.isSocketConnected()) {
+      return { sent: 0, pending: this.pendingScans.length };
+    }
+
+    this.prunePendingScans();
+
+    let sent = 0;
+    while (this.pendingScans.length > 0 && socketService.isSocketConnected()) {
+      const next = this.pendingScans[0];
+
+      try {
+        socketService.emitFireAndForget('rfid_scan_from_client', next.payload);
+        this.pendingScans.shift();
+        sent += 1;
+      } catch {
+        break;
+      }
+    }
+
+    this.emit('queue_flush', {
+      sent,
+      pending: this.pendingScans.length
+    });
+
+    return { sent, pending: this.pendingScans.length };
   }
 
   cleanupUidCache(now) {

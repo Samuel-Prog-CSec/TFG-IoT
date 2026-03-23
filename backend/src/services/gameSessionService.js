@@ -11,6 +11,7 @@ const gameContextRepository = require('../repositories/gameContextRepository');
 const cardRepository = require('../repositories/cardRepository');
 const cardDeckRepository = require('../repositories/cardDeckRepository');
 const gamePlayRepository = require('../repositories/gamePlayRepository');
+const mongoose = require('mongoose');
 const { NotFoundError, ValidationError, ForbiddenError } = require('../utils/errors');
 const logger = require('../utils/logger').child({ component: 'gameSessionService' });
 
@@ -91,7 +92,58 @@ async function syncSessionFromDeck(session, { deckId, userId }) {
     numberOfCards: cardMappings.length
   };
 
+  if (Array.isArray(session.boardLayout) && session.boardLayout.length > 0) {
+    const mappingCardIds = new Set(cardMappings.map(mapping => mapping.cardId?.toString?.()));
+    session.boardLayout = session.boardLayout.filter(slot =>
+      mappingCardIds.has(slot.cardId?.toString?.())
+    );
+  }
+
   return { deck, context, cardMappings };
+}
+
+const normalizeSessionConfig = config => {
+  if (!config) {
+    return {};
+  }
+
+  if (typeof config.toObject === 'function') {
+    return config.toObject();
+  }
+
+  return { ...config };
+};
+
+async function cloneSessionFromExisting({ sourceSession, userId }) {
+  if (!sourceSession) {
+    throw new NotFoundError('Sesión de juego');
+  }
+
+  if (!sourceSession.deckId) {
+    throw new ValidationError('La sesión original no tiene mazo asignado (deckId)');
+  }
+
+  const mechanic = await validateMechanic(sourceSession.mechanicId);
+
+  const clonedSession = gameSessionRepository.build({
+    mechanicId: sourceSession.mechanicId,
+    deckId: sourceSession.deckId,
+    sensorId: sourceSession.sensorId,
+    config: normalizeSessionConfig(sourceSession.config),
+    status: 'created',
+    createdBy: userId
+  });
+
+  const { cardMappings } = await syncSessionFromDeck(clonedSession, {
+    deckId: sourceSession.deckId,
+    userId
+  });
+
+  return {
+    clonedSession,
+    mechanic,
+    cardMappings
+  };
 }
 
 /**
@@ -340,8 +392,9 @@ async function validateSessionDeletion(sessionId) {
 async function getSessionStats(sessionId) {
   // Import eliminado: usamos repositorio para evitar dependencias circulares.
 
+  const objectId = new mongoose.Types.ObjectId(sessionId);
   const stats = await gamePlayRepository.aggregate([
-    { $match: { sessionId, status: 'completed' } },
+    { $match: { sessionId: objectId, status: 'completed' } },
     {
       $group: {
         _id: null,
@@ -367,6 +420,7 @@ async function getSessionStats(sessionId) {
 
 module.exports = {
   syncSessionFromDeck,
+  cloneSessionFromExisting,
   createSession,
   updateSession,
   validateSessionDeletion,

@@ -132,3 +132,10 @@ webp y svg solo -> priorizaqr ancho de banda y alamacenamiento / fACILITAR COINV
 
 59. **Migración de MongoDB a Supabase**: ¿Es recomendable migrar la base de datos de MongoDB a Supabase? ¿Ventajas y desventajas? ¿Seguridad y ventajas de usar Supabase en producción?
   - 59.1. En el caso de quedarnos en MongoDB, ¿sería recomendable mover la parte de autenticación a Supabase con SQL? ----> De momento no es necesario migrar a Supabase. MongoDB es suficiente para nuestras necesidades actuales y futuras a corto-medio plazo. La autenticación puede seguir gestionándose con MongoDB y JWT sin problemas.
+
+---
+
+# Dudas Marzo
+
+60. ¿Se podría entender que hay 1 `super_admin` por centro educativo (mínimo)? 
+	- 60.1. Si es así, entonces, ¿quién y cómo crea los `super_admin`?

@@ -22,7 +22,8 @@ const socketRateLimits = {
   pause_play: { windowMs: 1000, max: 2 },
   resume_play: { windowMs: 1000, max: 2 },
   next_round: { windowMs: 1000, max: 5 },
-  rfid_scan_from_client: { windowMs: 3000, max: 2 }
+  rfid_scan_from_client: { windowMs: 3000, max: 2 },
+  play_state_sync: { windowMs: 1000, max: 2 }
 };
 
 /**

@@ -26,9 +26,14 @@ import {
   Shield
 } from 'lucide-react';
 import { toast } from 'sonner';
-import { adminAPI, extractData, extractErrorMessage, isAbortError } from '../../services/api';
-import { ButtonPremium, InputPremium, GlassCard, StatusBadge, SkeletonCard, EmptyState } from '../../components/ui';
-import { useRefetchOnFocus } from '../../hooks';
+import { adminAPI, extractErrorMessage, isAbortError } from '../../services/api';
+import ButtonPremium from '../../components/ui/ButtonPremium';
+import InputPremium from '../../components/ui/InputPremium';
+import GlassCard from '../../components/ui/GlassCard';
+import StatusBadge from '../../components/ui/StatusBadge';
+import { SkeletonCard } from '../../components/ui/SkeletonShimmer';
+import EmptyState from '../../components/ui/EmptyState';
+import { useRefetchOnFocus } from '../../hooks/useRefetchOnFocus';
 import { cn } from '../../lib/utils';
 
 /**
@@ -121,7 +126,7 @@ function ConfirmationModal({
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
-            className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50"
+            className="fixed inset-0 bg-backdrop backdrop-blur-sm z-50"
             onClick={onClose}
             aria-hidden="true"
           />
@@ -140,28 +145,28 @@ function ConfirmationModal({
             <GlassCard className="p-6" variant="solid">
               {/* Icono */}
               <div className={cn(
-                'w-16 h-16 rounded-2xl flex items-center justify-center mx-auto mb-4',
+                'size-16 rounded-2xl flex items-center justify-center mx-auto mb-4',
                 isApprove 
-                  ? 'bg-emerald-500/10 text-emerald-400' 
-                  : 'bg-rose-500/10 text-rose-400'
+                  ? 'bg-success-base/10 text-success-base' 
+                  : 'bg-error-base/10 text-error-base'
               )}>
                 {isApprove ? (
-                  <UserCheck className="w-8 h-8" />
+                  <UserCheck className="size-8" />
                 ) : (
-                  <UserX className="w-8 h-8" />
+                  <UserX className="size-8" />
                 )}
               </div>
 
               {/* Título */}
               <h3 
                 id="modal-title"
-                className="text-xl font-semibold text-white text-center mb-2"
+                className="text-xl font-semibold text-text-primary text-center mb-2"
               >
                 {isApprove ? 'Aprobar Profesor' : 'Rechazar Profesor'}
               </h3>
 
               {/* Descripción */}
-              <p className="text-slate-400 text-center mb-4">
+              <p className="text-text-muted text-center mb-4">
                 {isApprove 
                   ? `¿Estás seguro de aprobar a ${user?.name}? Podrá acceder a la plataforma.`
                   : `¿Estás seguro de rechazar a ${user?.name}? No podrá acceder a la plataforma.`
@@ -169,14 +174,14 @@ function ConfirmationModal({
               </p>
 
               {/* Info del usuario */}
-              <div className="bg-slate-800/50 rounded-xl p-4 mb-4">
+              <div className="bg-background-elevated rounded-xl p-4 mb-4 border border-border-subtle">
                 <div className="flex items-center gap-3">
-                  <div className="w-10 h-10 rounded-full bg-gradient-to-br from-indigo-500 to-purple-500 flex items-center justify-center text-white font-semibold">
+                  <div className="size-10 rounded-full bg-gradient-to-br from-brand-base to-brand-dark flex items-center justify-center text-white font-semibold">
                     {user?.name?.charAt(0)?.toUpperCase() || '?'}
                   </div>
                   <div>
-                    <p className="text-white font-medium">{user?.name}</p>
-                    <p className="text-slate-400 text-sm">{user?.email}</p>
+                    <p className="text-text-primary font-medium">{user?.name}</p>
+                    <p className="text-text-muted text-sm">{user?.email}</p>
                   </div>
                 </div>
               </div>
@@ -254,24 +259,24 @@ function PendingTeacherCard({ teacher, onApprove, onReject }) {
       exit={{ opacity: 0, y: -20 }}
       layout
     >
-      <GlassCard className="p-5 hover:border-white/20 transition-all">
-        <div className="flex flex-col sm:flex-row sm:items-center gap-4">
+      <GlassCard className="p-5 hover:border-brand-base/40 hover:shadow-lg hover:shadow-brand-base/10 transition-all duration-300">
+        <div className="flex flex-col lg:flex-row lg:items-center gap-4">
           {/* Avatar y nombre */}
           <div className="flex items-center gap-4 flex-1 min-w-0">
-            <div className="w-14 h-14 rounded-xl bg-gradient-to-br from-indigo-500 via-purple-500 to-pink-500 flex items-center justify-center text-white text-xl font-bold shadow-lg shadow-purple-500/20 flex-shrink-0">
+            <div className="size-14 rounded-xl bg-gradient-to-br from-brand-base via-brand-base/80 to-brand-dark flex items-center justify-center text-white text-xl font-bold shadow-lg shadow-brand-base/20 flex-shrink-0">
               {teacher.name?.charAt(0)?.toUpperCase() || '?'}
             </div>
             
             <div className="min-w-0 flex-1">
-              <h3 className="text-white font-semibold truncate">
+              <h3 className="text-text-primary font-bold truncate text-lg">
                 {teacher.name}
               </h3>
-              <div className="flex items-center gap-2 text-slate-400 text-sm">
-                <Mail className="w-4 h-4 flex-shrink-0" />
+              <div className="flex items-center gap-2 text-text-muted text-sm">
+                <Mail className="size-4 flex-shrink-0" />
                 <span className="truncate">{teacher.email}</span>
               </div>
-              <div className="flex items-center gap-2 text-slate-500 text-xs mt-1">
-                <Calendar className="w-3.5 h-3.5" />
+              <div className="flex items-center gap-2 text-text-muted/70 text-xs mt-1">
+                <Calendar className="size-3.5" />
                 <span>Registrado el {createdAt}</span>
               </div>
             </div>
@@ -280,7 +285,7 @@ function PendingTeacherCard({ teacher, onApprove, onReject }) {
           {/* Badge de estado */}
           <div className="flex items-center gap-3 sm:flex-shrink-0">
             <StatusBadge status="warning">
-              <Clock className="w-3.5 h-3.5" />
+              <Clock className="size-3.5" />
               Pendiente
             </StatusBadge>
           </div>
@@ -291,7 +296,7 @@ function PendingTeacherCard({ teacher, onApprove, onReject }) {
               variant="success"
               size="sm"
               onClick={() => onApprove(teacher)}
-              icon={<UserCheck className="w-4 h-4" />}
+              icon={<UserCheck className="size-4" />}
             >
               Aprobar
             </ButtonPremium>
@@ -299,7 +304,7 @@ function PendingTeacherCard({ teacher, onApprove, onReject }) {
               variant="danger"
               size="sm"
               onClick={() => onReject(teacher)}
-              icon={<UserX className="w-4 h-4" />}
+              icon={<UserX className="size-4" />}
             >
               Rechazar
             </ButtonPremium>
@@ -382,11 +387,12 @@ export default function ApprovalPanel() {
       const response = await adminAPI.getPendingTeachers({
         page,
         limit: pagination.limit,
+        search: deferredSearchQuery.trim() || undefined,
       }, { signal: controller.signal });
 
-      const data = extractData(response);
+      const {data} = response;
       
-      setTeachers(data.users || data.data || []);
+      setTeachers(Array.isArray(data.data) ? data.data : []);
       setPagination((prev) => ({
         ...prev,
         page: data.pagination?.page || page,
@@ -399,13 +405,13 @@ export default function ApprovalPanel() {
       }
       const message = extractErrorMessage(err);
       setError(message);
-      toast.error('Error al cargar solicitudes');
+      toast.error('Error al cargar las solicitudes');
     } finally {
       if (!controller.signal.aborted) {
         setLoading(false);
       }
     }
-  }, [pagination.limit, teachers.length]);
+  }, [deferredSearchQuery, pagination.limit, teachers.length]);
 
   // Cargar al montar
   useEffect(() => {
@@ -456,12 +462,12 @@ export default function ApprovalPanel() {
       if (type === 'approve') {
         await adminAPI.approveTeacher(user._id || user.id);
         toast.success(`${user.name} ha sido aprobado correctamente`, {
-          icon: <CheckCircle className="w-5 h-5 text-emerald-400" />,
+          icon: <CheckCircle className="size-5 text-emerald-400" />,
         });
       } else {
         await adminAPI.rejectTeacher(user._id || user.id, reason);
         toast.success(`${user.name} ha sido rechazado`, {
-          icon: <XCircle className="w-5 h-5 text-rose-400" />,
+          icon: <XCircle className="size-5 text-rose-400" />,
         });
       }
 
@@ -477,17 +483,7 @@ export default function ApprovalPanel() {
     }
   };
 
-  /**
-   * Filtrar profesores por búsqueda (usa valor diferido para debounce)
-   */
-  const filteredTeachers = teachers.filter((teacher) => {
-    if (!deferredSearchQuery.trim()) return true;
-    const query = deferredSearchQuery.toLowerCase();
-    return (
-      teacher.name?.toLowerCase().includes(query) ||
-      teacher.email?.toLowerCase().includes(query)
-    );
-  });
+  const filteredTeachers = teachers;
   
   // Indicador visual de que la búsqueda está pendiente
   const isSearchPending = searchQuery !== deferredSearchQuery;
@@ -512,14 +508,14 @@ export default function ApprovalPanel() {
           className="mb-8"
         >
           <div className="flex items-center gap-4 mb-2">
-            <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-amber-500 to-orange-500 flex items-center justify-center shadow-lg shadow-amber-500/20">
-              <Shield className="w-6 h-6 text-white" />
+            <div className="size-12 rounded-xl bg-gradient-to-br from-warning-base to-warning-dark flex items-center justify-center shadow-lg shadow-warning-base/20">
+              <Shield className="size-6 text-white" />
             </div>
             <div>
-              <h1 className="text-2xl sm:text-3xl font-bold font-display text-white">
+              <h1 className="text-2xl sm:text-3xl font-bold font-display text-text-primary">
                 Panel de Administración
               </h1>
-              <p className="text-slate-400">
+              <p className="text-text-muted">
                 Gestiona las solicitudes de nuevos profesores
               </p>
             </div>
@@ -536,12 +532,12 @@ export default function ApprovalPanel() {
           <GlassCard className="p-4">
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-3">
-                <div className="w-10 h-10 rounded-lg bg-amber-500/10 flex items-center justify-center">
-                  <Users className="w-5 h-5 text-amber-400" />
+                <div className="size-10 rounded-lg bg-warning-base/10 flex items-center justify-center">
+                  <Users className="size-5 text-warning-base" />
                 </div>
                 <div>
-                  <p className="text-sm text-slate-400">Solicitudes pendientes</p>
-                  <p className="text-2xl font-bold text-white">{pagination.total}</p>
+                  <p className="text-sm text-text-muted">Solicitudes pendientes</p>
+                  <p className="text-2xl font-bold text-text-primary font-display">{pagination.total}</p>
                 </div>
               </div>
               
@@ -550,7 +546,7 @@ export default function ApprovalPanel() {
                 size="sm"
                 onClick={() => fetchPendingTeachers(pagination.page)}
                 disabled={loading}
-                icon={<RefreshCw className={cn('w-4 h-4', loading && 'animate-spin')} />}
+                icon={<RefreshCw className={cn('size-4', loading && 'animate-spin')} />}
               >
                 Actualizar
               </ButtonPremium>
@@ -569,11 +565,11 @@ export default function ApprovalPanel() {
             placeholder="Buscar por nombre o email..."
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
-            icon={<Search className={cn('w-5 h-5', isSearchPending && 'animate-pulse')} />}
+            icon={<Search className={cn('size-5', isSearchPending && 'animate-pulse')} />}
           />
           {isSearchPending && (
             <div className="absolute right-3 top-1/2 -translate-y-1/2">
-              <div className="w-4 h-4 border-2 border-purple-500/30 border-t-purple-500 rounded-full animate-spin" />
+              <div className="size-4 border-2 border-brand-base/30 border-t-brand-base rounded-full animate-spin" />
             </div>
           )}
         </motion.div>
@@ -587,11 +583,11 @@ export default function ApprovalPanel() {
               exit={{ opacity: 0, y: -10 }}
               className="mb-6"
             >
-              <div className="flex items-start gap-3 p-4 rounded-xl bg-rose-500/10 border border-rose-500/20">
-                <AlertCircle className="w-5 h-5 text-rose-400 flex-shrink-0 mt-0.5" />
+              <div className="flex items-start gap-3 p-4 rounded-xl bg-error-base/10 border border-error-base/20">
+                <AlertCircle className="size-5 text-error-base flex-shrink-0 mt-0.5" />
                 <div>
-                  <p className="text-rose-300 font-medium">Error al cargar datos</p>
-                  <p className="text-rose-400/80 text-sm mt-1">{error}</p>
+                  <p className="text-error-base font-bold">Error al cargar datos</p>
+                  <p className="text-error-base/80 text-sm mt-1">{error}</p>
                 </div>
               </div>
             </motion.div>
@@ -609,8 +605,8 @@ export default function ApprovalPanel() {
           ) : filteredTeachers.length === 0 ? (
             <EmptyState
               title="No hay solicitudes pendientes"
-              description="Todas las solicitudes de profesores han sido procesadas. Vuelve mas tarde para revisar nuevas solicitudes."
-              icon={<Inbox className="w-10 h-10" />}
+              description="Todas las solicitudes de profesores han sido procesadas. Vuelve más tarde para revisar nuevas solicitudes."
+              icon={<Inbox className="size-10" />}
               className="bg-transparent"
             />
           ) : (
@@ -642,12 +638,12 @@ export default function ApprovalPanel() {
               size="sm"
               onClick={() => fetchPendingTeachers(pagination.page - 1)}
               disabled={pagination.page <= 1}
-              icon={<ChevronLeft className="w-4 h-4" />}
+              icon={<ChevronLeft className="size-4" />}
             >
               Anterior
             </ButtonPremium>
             
-            <span className="text-slate-400 text-sm">
+            <span className="text-text-muted text-sm font-medium">
               Página {pagination.page} de {pagination.totalPages}
             </span>
             
@@ -656,7 +652,7 @@ export default function ApprovalPanel() {
               size="sm"
               onClick={() => fetchPendingTeachers(pagination.page + 1)}
               disabled={pagination.page >= pagination.totalPages}
-              icon={<ChevronRight className="w-4 h-4" />}
+              icon={<ChevronRight className="size-4" />}
               iconPosition="right"
             >
               Siguiente

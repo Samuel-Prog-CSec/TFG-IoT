@@ -13,9 +13,21 @@ import { getAccessToken, AUTH_EVENTS } from './api';
 // ============================================
 
 const SOCKET_URL = import.meta.env.VITE_SOCKET_URL || 'http://localhost:5000';
-const RECONNECTION_ATTEMPTS = 5;
+const RECONNECTION_ATTEMPTS = 15;
 const RECONNECTION_DELAY = 1000;
+const RECONNECTION_DELAY_MAX = 15000;
 const CONNECTION_TIMEOUT = 10000; // 10 segundos timeout para conexión inicial
+const IS_DEV = import.meta.env.DEV;
+
+const socketLog = (level, ...args) => {
+  if (!IS_DEV || typeof console === 'undefined') {
+    return;
+  }
+
+  // eslint-disable-next-line no-console -- dev-only dynamic log level
+  const logger = console[level] || console.warn;
+  logger(...args);
+};
 
 // ============================================
 // EVENTOS SOCKET
@@ -33,14 +45,30 @@ export const SOCKET_EVENTS = {
   // RFID (para futuro uso)
   RFID_EVENT: 'rfid_event',
   RFID_STATUS: 'rfid_status',
+  RFID_MODE_CHANGED: 'rfid_mode_changed',
+  RFID_SCAN_FROM_CLIENT: 'rfid_scan_from_client',
   
   // Gameplay (para futuro uso)
   JOIN_PLAY: 'join_play',
   LEAVE_PLAY: 'leave_play',
+  START_PLAY: 'start_play',
+  PAUSE_PLAY: 'pause_play',
+  RESUME_PLAY: 'resume_play',
+  NEXT_ROUND: 'next_round',
+  PLAY_STATE_SYNC: 'play_state_sync',
+  JOIN_CARD_REGISTRATION: 'join_card_registration',
+  LEAVE_CARD_REGISTRATION: 'leave_card_registration',
+  JOIN_CARD_ASSIGNMENT: 'join_card_assignment',
+  LEAVE_CARD_ASSIGNMENT: 'leave_card_assignment',
   PLAY_STATE: 'play_state',
   NEW_ROUND: 'new_round',
+  MEMORY_TURN_STATE: 'memory_turn_state',
   VALIDATION_RESULT: 'validation_result',
   GAME_OVER: 'game_over',
+  PLAY_INTERRUPTED: 'play_interrupted',
+  PLAY_PAUSED: 'play_paused',
+  PLAY_RESUMED: 'play_resumed',
+  ERROR: 'error'
 };
 
 // ============================================
@@ -52,6 +80,7 @@ class SocketService {
     this.socket = null;
     this.isConnected = false;
     this.listeners = new Map();
+    this._wasConnected = false;
   }
 
   /**
@@ -65,20 +94,23 @@ class SocketService {
         return;
       }
 
+      // Si existe un socket desconectado, reconectar en vez de destruir
+      // para preservar los listeners ya registrados
       if (this.socket) {
-        this.disconnect();
+        const token = getAccessToken();
+        this.socket.auth = { token };
+        this.socket.connect();
+      } else {
+        const token = getAccessToken();
+        this.socket = io(SOCKET_URL, {
+          auth: { token },
+          reconnection: true,
+          reconnectionAttempts: RECONNECTION_ATTEMPTS,
+          reconnectionDelay: RECONNECTION_DELAY,
+          reconnectionDelayMax: RECONNECTION_DELAY_MAX,
+          transports: ['websocket', 'polling'],
+        });
       }
-
-      const token = getAccessToken();
-      
-      this.socket = io(SOCKET_URL, {
-        auth: { token },
-        reconnection: true,
-        reconnectionAttempts: RECONNECTION_ATTEMPTS,
-        reconnectionDelay: RECONNECTION_DELAY,
-        reconnectionDelayMax: 5000,
-        transports: ['websocket', 'polling'],
-      });
 
       // Timeout para conexión inicial
       let timeoutId = null;
@@ -106,15 +138,22 @@ class SocketService {
         if (!isResolved) {
           isResolved = true;
           cleanup();
-          console.warn('[Socket] Conectado:', this.socket.id);
+          socketLog('warn', '[Socket] Conectado:', this.socket.id);
           this.isConnected = true;
           resolve();
         }
+
+        // Detectar reconexión tras desconexión previa
+        if (this._wasConnected) {
+          socketLog('warn', '[Socket] Reconectado tras desconexión');
+          window.dispatchEvent(new CustomEvent('socket_reconnected'));
+        }
+        this._wasConnected = true;
       });
 
       // Manejar errores de conexión
       this.socket.on(SOCKET_EVENTS.CONNECT_ERROR, (error) => {
-        console.error('[Socket] Error de conexión:', error.message);
+        socketLog('error', '[Socket] Error de conexión:', error.message);
         this.isConnected = false;
         
         // Si es error de auth, emitir evento
@@ -131,7 +170,7 @@ class SocketService {
 
       // Manejar desconexión
       this.socket.on(SOCKET_EVENTS.DISCONNECT, (reason) => {
-        console.warn('[Socket] Desconectado:', reason);
+        socketLog('warn', '[Socket] Desconectado:', reason);
         this.isConnected = false;
         
         // Si el servidor forzó la desconexión, intentar reconectar
@@ -142,7 +181,7 @@ class SocketService {
 
       // Escuchar evento de sesión invalidada (login desde otro dispositivo)
       this.socket.on(SOCKET_EVENTS.SESSION_INVALIDATED, (data) => {
-        console.warn('[Socket] Sesión invalidada:', data);
+        socketLog('warn', '[Socket] Sesión invalidada:', data);
         window.dispatchEvent(new CustomEvent(AUTH_EVENTS.SESSION_INVALIDATED, { 
           detail: data 
         }));
@@ -170,6 +209,7 @@ class SocketService {
       this.socket.disconnect();
       this.socket = null;
       this.isConnected = false;
+      this._wasConnected = false;
     }
   }
 
@@ -195,7 +235,6 @@ class SocketService {
    */
   on(event, callback) {
     if (!this.socket) {
-      console.warn('[Socket] No hay conexión activa');
       return;
     }
     
@@ -203,9 +242,9 @@ class SocketService {
     
     // Guardar referencia para limpieza
     if (!this.listeners.has(event)) {
-      this.listeners.set(event, []);
+      this.listeners.set(event, new Set());
     }
-    this.listeners.get(event).push(callback);
+    this.listeners.get(event).add(callback);
   }
 
   /**
@@ -218,8 +257,15 @@ class SocketService {
     
     if (callback) {
       this.socket.off(event, callback);
-      const callbacks = this.listeners.get(event) || [];
-      this.listeners.set(event, callbacks.filter((cb) => cb !== callback));
+      const callbacks = this.listeners.get(event);
+      if (!callbacks) {
+        return;
+      }
+
+      callbacks.delete(callback);
+      if (callbacks.size === 0) {
+        this.listeners.delete(event);
+      }
     } else {
       this.socket.off(event);
       this.listeners.delete(event);
@@ -259,6 +305,32 @@ class SocketService {
       throw new Error('Socket no conectado');
     }
     this.socket.emit(event, data);
+  }
+
+  /**
+   * Envía un comando socket sin ACK obligatorio y retorna booleano de envío.
+   * @param {string} event
+   * @param {*} data
+   * @returns {boolean}
+   */
+  sendCommand(event, data) {
+    if (!this.socket?.connected) {
+      return false;
+    }
+
+    this.socket.emit(event, data);
+    return true;
+  }
+
+  /**
+   * Solicita al servidor el estado actual de una partida para sincronización tras reconexión.
+   * Usa fire-and-forget porque el rate limiter no reenvía callbacks de ACK a los comandos.
+   * La respuesta llega como evento `play_state` separado, que el listener existente maneja.
+   * @param {string} playId - ID de la partida
+   * @returns {boolean} true si se envió el evento
+   */
+  requestPlayStateSync(playId) {
+    return this.sendCommand(SOCKET_EVENTS.PLAY_STATE_SYNC, { playId });
   }
 
   /**
