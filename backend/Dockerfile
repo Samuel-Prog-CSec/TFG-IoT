@@ -7,7 +7,7 @@
 # STAGE 1: Dependencies
 # Instala todas las dependencias
 # ============================================
-FROM node:24-alpine AS deps
+FROM node:25-alpine AS deps
 
 WORKDIR /app
 
@@ -21,7 +21,7 @@ RUN npm ci && npm cache clean --force
 # STAGE 1.5: Development
 # Imagen con dependencias de desarrollo
 # ============================================
-FROM node:24-alpine AS development
+FROM node:25-alpine AS development
 
 ENV NODE_ENV=development
 WORKDIR /app
@@ -41,7 +41,7 @@ CMD ["npm", "run", "dev"]
 # STAGE 2: Production
 # Imagen final optimizada para producción
 # ============================================
-FROM node:24-alpine AS production
+FROM node:25-alpine AS production
 
 # Metadatos OCI
 LABEL org.opencontainers.image.title="RFID Games Backend"
