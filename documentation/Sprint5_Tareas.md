@@ -1,10 +1,10 @@
-# Sprint 5 - Plan de Tareas
+# Sprint 5 - Plan de Tareas (Consolidado)
 
 **Proyecto:** Plataforma de Juegos Educativos con RFID (TFG)
 **Autor:** Samuel Blanchart Pérez
 **Duración:** 4-6 semanas (Marzo - Abril 2026)
 **Versión objetivo:** 1.0.0
-**Última actualización:** 18-03-2026
+**Última actualización:** 24-03-2026
 
 ---
 
@@ -23,6 +23,10 @@ Tras auditorías exhaustivas del backend y frontend se identificaron:
 - **Backend**: Flujo de errores inconsistente (validación Zod bypasea errorHandler), 72 try/catch manuales, repositorios sin write ops, ~70 respuestas construidas a mano, rate limiting incompleto, health check duplicado, y `gameEngine.js` con 1915 líneas.
 - **Frontend**: 197 colores Tailwind crudos en 21 archivos (parcialmente corregido), y `useFetch` con `eslint-disable` (ya corregido).
 - **Dashboards**: `StudentsList` con datos mock hardcodeados, `DistributionChart` recibiendo `null`, trends de StatCard hardcodeados, sin página de perfil de estudiante, sin vista comparativa, solo 2 tipos de alerta, y sin filtros interactivos.
+
+### Nota sobre consolidación
+
+Este documento consolida las 57 tareas originales en **31 tareas** (46% menos) agrupando tareas pequeñas (XS/S) con sus dependencias directas y fusionando tareas con alto solapamiento. Cada tarea consolidada indica las tareas originales que absorbe. **Todas las sub-tareas y criterios de aceptación originales se han preservado íntegramente.**
 
 ---
 
@@ -53,21 +57,41 @@ Una tarea solo puede pasar a ✅ si cumple **todas**:
 
 ## P0 — Prioridad Crítica (Bloqueantes)
 
-### T-516: 🔧 Unificar validación Zod con el errorHandler centralizado 📋
+### T-516: 🔧 Unificar flujo de errores centralizado (validación, notFound, asyncHandler) 📋
 
-**Prioridad:** P0 | **Tamaño:** M (4-8h) | **Dependencias:** Ninguna
-**Origen:** Auditoría — `middlewares/validation.js` responde directamente, saltándose errorHandler, Sentry y logging
+**Consolida:** T-516 + T-517 + T-518
+**Prioridad:** P0 | **Tamaño:** L (1-2 días) | **Dependencias:** Ninguna
+**Origen:** Auditoría — `middlewares/validation.js` responde directamente, saltándose errorHandler, Sentry y logging; `notFoundHandler` no usa flujo centralizado; 72 bloques try/catch manuales en 12 controllers
 
 **Descripción:**
-Los tres middlewares de validación (`validateBody`, `validateQuery`, `validateParams`) capturan `ZodError` y responden directamente con `res.status(400).json(...)`, bypaseando el errorHandler centralizado. Deben usar `next(new ValidationError(...))` con los errores Zod formateados.
+Tres problemas relacionados con el flujo de errores:
+1. Los tres middlewares de validación (`validateBody`, `validateQuery`, `validateParams`) capturan `ZodError` y responden directamente con `res.status(400).json(...)`, bypaseando el errorHandler centralizado. Deben usar `next(new ValidationError(...))` con los errores Zod formateados.
+2. `notFoundHandler` responde directamente con `res.status(404).json(...)` en lugar de pasar por el error handler, lo que significa que las rutas no encontradas no se registran en el logging de errores estructurado.
+3. Todos los controllers usan `async (req, res, next) => { try { ... } catch (error) { next(error); } }` manualmente. Un wrapper `asyncHandler` eliminará este boilerplate. Express 5.x tiene soporte nativo para errores async en route handlers, pero NO en todos los casos de middlewares, por lo que el wrapper sigue siendo valioso.
 
 **Sub-tareas:**
+
+**Fase A — Validación Zod (ex T-516):**
 
 1. Modificar los tres middlewares en `middlewares/validation.js` para construir `ValidationError` y llamar `next(error)`.
 2. Actualizar `errorHandler.js` para detectar `ValidationError`/`ApiValidationError` y formatear la respuesta preservando `{ success: false, message, errors: [{field, message}] }`.
 3. Revisar que `let error = { ...err }` en `errorHandler.js` no pierda propiedades de la cadena de prototipos.
 4. Actualizar tests existentes para verificar el flujo centralizado.
 5. Ejecutar suite completa de tests.
+
+**Fase B — notFoundHandler (ex T-517):**
+
+6. Modificar `notFoundHandler` para pasar por el flujo centralizado (construir `AppError` con 404 y llamar `next()`).
+7. Agregar test de que ruta inexistente retorna 404 con formato estándar.
+8. Verificar que las rutas 404 se registran en el logging estructurado de Pino.
+
+**Fase C — asyncHandler (ex T-518):**
+
+9. Crear `utils/asyncHandler.js` con función que capture errores sync y async y los pase a `next()`.
+10. Agregar test unitario para `asyncHandler`.
+11. Migrar UN controller como piloto (sugerido: `gameMechanicController.js`, 6 handlers).
+12. Si el piloto es exitoso, migrar progresivamente el resto.
+13. Documentar relación con Express 5 async error handling.
 
 **Criterios de Aceptación:**
 
@@ -76,69 +100,25 @@ Los tres middlewares de validación (`validateBody`, `validateQuery`, `validateP
 - [ ] La respuesta HTTP sigue siendo 400 con el mismo formato JSON
 - [ ] Los errores de validación aparecen en los logs de Pino como `warn`
 - [ ] Todos los tests existentes pasan sin modificaciones al contrato de respuesta
-
-**Archivos afectados:** `backend/src/middlewares/validation.js`, `backend/src/middlewares/errorHandler.js`, `backend/src/utils/errors.js`
-
----
-
-### T-517: 🔧 Unificar notFoundHandler con el flujo centralizado 📋
-
-**Prioridad:** P0 | **Tamaño:** XS (< 2h) | **Dependencias:** T-516
-**Origen:** Auditoría — `notFoundHandler` no usa flujo centralizado
-
-**Descripción:**
-`notFoundHandler` responde directamente con `res.status(404).json(...)` en lugar de pasar por el error handler, lo que significa que las rutas no encontradas no se registran en el logging de errores estructurado. El bug de CSRF skipPaths fue corregido durante el Sprint 4 de mantenimiento.
-
-**Sub-tareas:**
-
-1. Modificar `notFoundHandler` para pasar por el flujo centralizado (construir `AppError` con 404 y llamar `next()`).
-2. Agregar test de que ruta inexistente retorna 404 con formato estándar.
-3. Verificar que las rutas 404 se registran en el logging estructurado de Pino.
-
-**Criterios de Aceptación:**
-
 - [ ] Las rutas 404 se registran en el logging estructurado de Pino
 - [ ] Test de integración cubre el caso de ruta inexistente
-
-**Archivos afectados:** `backend/src/middlewares/errorHandler.js`
-
----
-
-### T-518: 🔧 Implementar wrapper asyncHandler para controllers 📋
-
-**Prioridad:** P0 | **Tamaño:** S (2-4h) | **Dependencias:** T-516
-**Origen:** Auditoría — 72 bloques try/catch manuales en 12 controllers
-
-**Descripción:**
-Todos los controllers usan `async (req, res, next) => { try { ... } catch (error) { next(error); } }` manualmente. Un wrapper `asyncHandler` eliminará este boilerplate. Express 5.x tiene soporte nativo para errores async en route handlers, pero NO en todos los casos de middlewares, por lo que el wrapper sigue siendo valioso.
-
-**Sub-tareas:**
-
-1. Crear `utils/asyncHandler.js` con función que capture errores sync y async y los pase a `next()`.
-2. Agregar test unitario para `asyncHandler`.
-3. Migrar UN controller como piloto (sugerido: `gameMechanicController.js`, 6 handlers).
-4. Si el piloto es exitoso, migrar progresivamente el resto.
-5. Documentar relación con Express 5 async error handling.
-
-**Criterios de Aceptación:**
-
 - [ ] `utils/asyncHandler.js` creado y exportado
 - [ ] El wrapper captura errores síncronos y asíncronos
 - [ ] Al menos un controller migrado y funcionando
 - [ ] Tests existentes del controller piloto pasan sin cambios
 - [ ] Documentación inline explicando el patrón
 
-**Archivos afectados:** `backend/src/utils/asyncHandler.js` (nuevo), `backend/src/controllers/gameMechanicController.js` (piloto)
+**Archivos afectados:** `backend/src/middlewares/validation.js`, `backend/src/middlewares/errorHandler.js`, `backend/src/utils/errors.js`, `backend/src/utils/asyncHandler.js` (nuevo), `backend/src/controllers/gameMechanicController.js` (piloto)
 
 ---
 
 ### T-601: 📊 Backend — Nuevos endpoints de analytics para dashboards 📋
 
-**Prioridad:** P0 | **Tamaño:** L (1-2 días) | **Dependencias:** T-516, T-518 (recomendado: usar asyncHandler y errorHandler unificado)
+**Prioridad:** P0 | **Tamaño:** L (1-2 días) | **Dependencias:** T-516 (recomendado: usar asyncHandler y errorHandler unificado)
 **Origen:** Dashboard frontend necesita datos que actualmente no existen en la API
 
 **Descripción:**
-El dashboard actual depende de 3 endpoints (`/classroom/summary`, `/classroom/comparison`, `/classroom/difficulties`). Para las mejoras planificadas se necesitan **5 nuevos endpoints** que aprovechen los datos ricos ya almacenados en `GamePlay.events[]`, `GamePlay.metrics` y `User.studentMetrics`. Sin estos endpoints, las tareas T-602 a T-606 están bloqueadas.
+El dashboard actual depende de 3 endpoints (`/classroom/summary`, `/classroom/comparison`, `/classroom/difficulties`). Para las mejoras planificadas se necesitan **5 nuevos endpoints** que aprovechen los datos ricos ya almacenados en `GamePlay.events[]`, `GamePlay.metrics` y `User.studentMetrics`. Sin estos endpoints, las tareas T-602, T-603, T-604 y T-606 están bloqueadas.
 
 **Sub-tareas:**
 
@@ -241,13 +221,14 @@ Tres componentes del dashboard muestran datos ficticios en producción, invalida
 
 ---
 
-### T-603: 📊 Nueva página — Perfil Individual de Estudiante 📋
+### T-603: 📊 Nueva página — Perfil Individual de Estudiante (con comparativa de clase) 📋
 
+**Consolida:** T-603 + T-620
 **Prioridad:** P0 | **Tamaño:** XL (> 2 días) | **Dependencias:** T-601
 **Origen:** No existe forma de que el profesor vea el detalle de un alumno individual
 
 **Descripción:**
-Crear la página `/students/:studentId` que permita al profesor consultar el progreso detallado de un estudiante individual. Pieza fundamental del TFG: los profesores deben poder entender las fortalezas, debilidades y evolución de cada alumno de forma visual e intuitiva, incluso sin conocimientos técnicos.
+Crear la página `/students/:studentId` que permita al profesor consultar el progreso detallado de un estudiante individual. Pieza fundamental del TFG: los profesores deben poder entender las fortalezas, debilidades y evolución de cada alumno de forma visual e intuitiva, incluso sin conocimientos técnicos. Incluye overlay de promedio de clase en el gráfico de progreso temporal para dar contexto comparativo.
 
 **Sub-tareas:**
 
@@ -265,9 +246,11 @@ Crear la página `/students/:studentId` que permita al profesor consultar el pro
    - Puntuación promedio, mejor puntuación, tasa de acierto, tiempo medio de respuesta, total de partidas
    - Comparativa con clase: "vs promedio de clase: X%"
 
-4. **Gráfico: Progreso temporal (LineChart/AreaChart):**
+4. **Gráfico: Progreso temporal (LineChart/AreaChart) con overlay de promedio de clase (ex T-620):**
    - Datos individuales con selector 7d/30d
    - Línea punteada con promedio de clase para comparar
+   - Leyenda clara diferenciando alumno vs clase
+   - Tooltip muestra ambos valores (alumno y promedio de clase)
 
 5. **Gráfico: Rendimiento por Contexto Temático (BarChart horizontal):**
    - Datos de `performanceByContext`, barra coloreada por rendimiento
@@ -291,6 +274,7 @@ Crear la página `/students/:studentId` que permita al profesor consultar el pro
 - `frontend/src/constants/routes.js` — Añadir STUDENT_PROFILE route
 - `frontend/src/App.jsx` — Registrar nueva ruta lazy
 - `frontend/src/services/analytics.js` — Usar `getStudentSummary`
+- `frontend/src/components/dashboard/StudentProgressChart.jsx` — Overlay de promedio de clase
 
 **Criterios de Aceptación:**
 
@@ -298,6 +282,8 @@ Crear la página `/students/:studentId` que permita al profesor consultar el pro
 - [ ] Header muestra nombre, avatar, aula, badge de rendimiento, última actividad
 - [ ] 4-6 KPIs individuales con valores reales y comparativa con clase
 - [ ] Gráfico de progreso temporal funcional con selector 7d/30d
+- [ ] Línea punteada de promedio de clase visible en el gráfico de progreso
+- [ ] Leyenda clara diferenciando alumno vs clase, tooltip muestra ambos valores
 - [ ] Gráfico de rendimiento por contexto con barras coloreadas
 - [ ] Gráfico de rendimiento por mecánica funcional
 - [ ] Historial de partidas recientes con al menos 10 entradas
@@ -309,15 +295,18 @@ Crear la página `/students/:studentId` que permita al profesor consultar el pro
 
 ---
 
-### T-701: 🛡️ Auditoría de datos personales y Registro de Actividades de Tratamiento (RAT) 📋
+### T-701: 🛡️ Auditoría de datos personales, RAT y Evaluación de Impacto (EIPD) 📋
 
-**Prioridad:** P0 | **Tamaño:** M (4-8h) | **Dependencias:** Ninguna
-**Origen:** Auditoría de protección de datos — Obligación del Art. 30 RGPD y requisito base para EIPD (Art. 35)
+**Consolida:** T-701 + T-707
+**Prioridad:** P0 | **Tamaño:** L (1-2 días) | **Dependencias:** Ninguna
+**Origen:** Auditoría de protección de datos — Obligación del Art. 30 RGPD (RAT) y Art. 35 RGPD (EIPD)
 
 **Descripción:**
-La plataforma trata datos personales de menores de 4-8 años (colectivo especialmente protegido) sin disponer de un inventario formal de tratamientos ni un Registro de Actividades de Tratamiento (RAT). El Art. 30 RGPD obliga a todo responsable a mantener este registro. Además, el RAT es el input fundamental para la Evaluación de Impacto (EIPD) y para todas las medidas técnicas posteriores: no se puede proteger lo que no se ha inventariado.
+La plataforma trata datos personales de menores de 4-8 años (colectivo especialmente protegido) sin disponer de un inventario formal de tratamientos ni un Registro de Actividades de Tratamiento (RAT). El Art. 30 RGPD obliga a todo responsable a mantener este registro. Además, el RAT es el input fundamental para la Evaluación de Impacto (EIPD): la AEPD incluye el tratamiento de datos de **menores de 14 años** entre los criterios que obligan a realizar una EIPD. La plataforma cumple al menos dos criterios: (1) datos de sujetos vulnerables (menores de 4-8 años) y (2) evaluación sistemática de aspectos personales (rendimiento educativo, patrones de respuesta, tiempos). Esta tarea cubre tanto el inventario como la evaluación de impacto.
 
 **Sub-tareas:**
+
+**Fase A — Auditoría y RAT (ex T-701):**
 
 1. Catalogar cada actividad de tratamiento de datos personales en la plataforma:
    - Creación y gestión de cuentas de estudiantes
@@ -329,6 +318,17 @@ La plataforma trata datos personales de menores de 4-8 años (colectivo especial
 3. Crear documento formal `backend/docs/RAT_Registro_Actividades_Tratamiento.md`.
 4. Generar script de inventario automático (`npm run data:audit`) que recorra los modelos Mongoose y liste los campos que contienen datos personales, comparándolos con el RAT.
 
+**Fase B — EIPD (ex T-707):**
+
+5. Crear documento `documentation/EIPD_Evaluacion_Impacto.md` con las secciones requeridas por el Art. 35.7 RGPD:
+   - Descripción sistemática de las operaciones de tratamiento y sus fines
+   - Evaluación de la necesidad y proporcionalidad del tratamiento
+   - Evaluación de los riesgos para los derechos y libertades de los interesados
+   - Medidas previstas para afrontar los riesgos (enlazar con tareas T-702 a T-710)
+6. Incluir matriz de riesgos con probabilidad e impacto para cada riesgo identificado.
+7. Documentar las medidas de mitigación implementadas y su eficacia esperada.
+8. Referenciar el RAT como base del análisis.
+
 **Criterios de Aceptación:**
 
 - [ ] Documento RAT creado con formato conforme al Art. 30 RGPD
@@ -336,27 +336,55 @@ La plataforma trata datos personales de menores de 4-8 años (colectivo especial
 - [ ] Cada actividad tiene base legal identificada y justificada
 - [ ] Script `data:audit` ejecutable y genera informe legible
 - [ ] Plazos de conservación definidos para cada categoría de datos
+- [ ] Documento EIPD creado con las 4 secciones requeridas por Art. 35.7
+- [ ] Mínimo 8 riesgos identificados y evaluados con probabilidad e impacto
+- [ ] Cada riesgo tiene al menos una medida de mitigación asociada
+- [ ] Referencias a normativa aplicable (RGPD, LOPDGDD, directrices AEPD)
+- [ ] Enlace con el RAT y las medidas técnicas implementadas en el Sprint
 
-**Archivos afectados:** `backend/docs/RAT_Registro_Actividades_Tratamiento.md` (nuevo), `backend/scripts/dataAudit.js` (nuevo), `backend/package.json` (nuevo script)
+**Archivos afectados:** `backend/docs/RAT_Registro_Actividades_Tratamiento.md` (nuevo), `backend/scripts/dataAudit.js` (nuevo), `backend/package.json` (nuevo script), `documentation/EIPD_Evaluacion_Impacto.md` (nuevo)
 
 ---
 
-### T-702: 🛡️ Minimización de datos personales de estudiantes 📋
+### T-702: 🛡️ Minimización de datos y consentimiento parental para estudiantes 📋
 
-**Prioridad:** P0 | **Tamaño:** S (2-4h) | **Dependencias:** T-701
-**Origen:** Auditoría de protección de datos — Art. 5.1.c RGPD (principio de minimización)
+**Consolida:** T-702 + T-708
+**Prioridad:** P0 | **Tamaño:** M (4-8h) | **Dependencias:** T-701
+**Origen:** Auditoría de protección de datos — Art. 5.1.c RGPD (minimización), Art. 8 RGPD + Art. 7 LOPDGDD (consentimiento)
 
 **Descripción:**
-El modelo `User` almacena `profile.birthdate` (fecha de nacimiento completa) de los estudiantes cuando solo se necesita `profile.age` para la funcionalidad educativa. Una fecha de nacimiento completa combinada con aula y nombre tiene alto potencial identificativo. Además, el campo `lastLoginAt` se mantiene para estudiantes aunque estos nunca hacen login (interactúan vía RFID). Cada campo de datos personales debe estar justificado por una necesidad funcional concreta.
+Dos cambios necesarios en el modelo de datos de estudiantes:
+1. **Minimización:** El modelo `User` almacena `profile.birthdate` (fecha de nacimiento completa) cuando solo se necesita `profile.age`. Una fecha de nacimiento completa combinada con aula y nombre tiene alto potencial identificativo. Además, `lastLoginAt` se mantiene para estudiantes aunque nunca hacen login.
+2. **Consentimiento:** El Art. 7 LOPDGDD fija en 14 años la edad mínima para consentir en España. Para los alumnos de 4-8 años, el consentimiento debe proceder del titular de la patria potestad. Actualmente no se registra este consentimiento.
 
 **Sub-tareas:**
+
+**Fase A — Minimización de datos (ex T-702):**
 
 1. Crear script de migración que convierta `profile.birthdate` existentes a `profile.age` (si `age` no está ya asignado) y luego elimine el campo `birthdate` para usuarios con role `student`.
 2. Modificar el modelo `User.js`: eliminar `profile.birthdate` del schema para role `student` (mantenerlo como opcional para `teacher`).
 3. Actualizar validadores Zod en `userValidator.js` o `commonValidator.js`: `birthdate` no debe aceptarse al crear/actualizar estudiantes.
 4. Actualizar DTOs: eliminar `birthdate` del DTO de estudiante.
 5. Revisar seeders: eliminar `birthdate` de los datos de seed de estudiantes.
-6. Ejecutar tests para verificar que no hay regresiones.
+
+**Fase B — Consentimiento parental (ex T-708):**
+
+6. Añadir campo `consent` al schema de `User` para role `student`:
+   ```
+   consent: {
+     granted: Boolean (required for students),
+     grantedBy: String (nombre del tutor legal),
+     grantedAt: Date,
+     purposes: [String] (e.g., ['educational_tracking', 'performance_analytics']),
+     policyVersion: String
+   }
+   ```
+7. Modificar validador de creación de estudiantes: requerir `consent.granted = true` y `consent.grantedBy` obligatorio.
+8. Actualizar DTO de estudiante para incluir estado del consentimiento (sin exponer `grantedBy` en endpoints públicos).
+9. Crear endpoint `PATCH /api/users/:id/consent` para actualizar/revocar el consentimiento.
+10. Si el consentimiento se revoca: el estudiante pasa a `status: 'inactive'` y no puede participar en partidas.
+11. Frontend: añadir sección de consentimiento en el formulario de creación de estudiante con checkbox explícito y campo de nombre del tutor.
+12. Ejecutar tests para verificar que no hay regresiones.
 
 **Criterios de Aceptación:**
 
@@ -364,9 +392,15 @@ El modelo `User` almacena `profile.birthdate` (fecha de nacimiento completa) de 
 - [ ] La API rechaza `birthdate` al crear/actualizar estudiantes (400 Bad Request)
 - [ ] El DTO de estudiante no expone `birthdate`
 - [ ] Los seeders no incluyen `birthdate` para estudiantes
+- [ ] No se puede crear un estudiante sin `consent.granted = true` y `consent.grantedBy`
+- [ ] Endpoint `PATCH /api/users/:id/consent` permite actualizar/revocar
+- [ ] La revocación desactiva al estudiante automáticamente
+- [ ] El DTO incluye estado del consentimiento
+- [ ] Frontend muestra campos de consentimiento al crear estudiante
 - [ ] `npm test` pasa en backend sin regresiones
+- [ ] `npm run build` pasa en frontend
 
-**Archivos afectados:** `backend/src/models/User.js`, `backend/src/utils/dtos.js`, `backend/src/validators/`, `backend/src/seeders/`, `backend/scripts/migrateBirthdate.js` (nuevo)
+**Archivos afectados:** `backend/src/models/User.js`, `backend/src/utils/dtos.js`, `backend/src/validators/userValidator.js`, `backend/src/seeders/`, `backend/scripts/migrateBirthdate.js` (nuevo), `backend/src/controllers/userController.js`, `backend/src/routes/users.js`, `frontend/src/pages/` (formulario de creación de estudiante)
 
 ---
 
@@ -479,15 +513,18 @@ Eliminar toda la lógica que valida existencia de tarjetas contra la colección 
 
 ## P1 — Prioridad Alta
 
-### T-503: ⚛️ Migrar tokens de color en `WizardStepper.jsx` 📋
+### T-503: ⚛️ Migrar tokens de color en WizardStepper y SessionsPage 📋
 
-**Prioridad:** P1 | **Tamaño:** S (2-4h) | **Dependencias:** Ninguna
-**Origen:** 13+ colores hardcodeados incluyendo inline `rgba()` en WizardStepper
+**Consolida:** T-503 + T-506
+**Prioridad:** P1 | **Tamaño:** M (4-8h) | **Dependencias:** Ninguna
+**Origen:** 13+ colores hardcodeados en WizardStepper; 31 ocurrencias en SessionsPage
 
 **Descripción:**
-`WizardStepper.jsx` y su variante compacta contienen 13+ usos de colores Tailwind crudos y valores `rgba()` inline que deben usar los tokens semánticos de `index.css`.
+`WizardStepper.jsx` y su variante compacta contienen 13+ usos de colores Tailwind crudos y valores `rgba()` inline. `SessionsPage.jsx` tiene 31 usos de colores raw en cards de sesión, iconos, textos y bordes. Ambos deben usar los tokens semánticos de `index.css`.
 
 **Sub-tareas:**
+
+**Fase A — WizardStepper (ex T-503):**
 
 1. Reemplazar en `getStepButtonClassName`: `bg-indigo-600` → `bg-accent-indigo`, `bg-emerald-500` → `bg-success-base`, `bg-slate-900` → `bg-background-deep`, etc.
 2. Reemplazar `rgba(99, 102, 241, ...)` de animación pulse por `var(--color-accent-indigo)` con opacidades.
@@ -495,36 +532,21 @@ Eliminar toda la lógica que valida existencia de tarjetas contra la colección 
 4. Reemplazar partículas y barra de progreso inline.
 5. Aplicar mismos reemplazos en `WizardStepperCompact`.
 
+**Fase B — SessionsPage (ex T-506):**
+
+6. **Header:** `bg-indigo-500/20 text-indigo-300` → `bg-accent-indigo/20 text-accent-indigo`
+7. **Textos:** `text-white` → `text-text-primary`; `text-slate-400` → `text-text-muted`
+8. **Bordes por estado:** `border-l-amber-500/70` → `border-l-warning-base/70`; `border-l-emerald-500/70` → `border-l-success-base/70`
+9. **Stats icon backgrounds:** mapear a tokens `accent-indigo`, `accent-cyan`, `warning-base`, `success-base`
+10. **Fondos y error card:** `bg-white/5` → `bg-glass-bg`; `border-rose-500/30` → `border-error-base/30`
+
 **Criterios de Aceptación:**
 
 - [ ] Cero usos de `indigo-*`, `emerald-*`, `slate-*` raw en WizardStepper.jsx (excepto confetti)
-- [ ] Cero valores `rgba(...)` inline
-- [ ] Aspecto visual idéntico
-- [ ] `npm test` y `npm run build` pasan
-
----
-
-### T-506: ⚛️ Migrar tokens de color en `SessionsPage.jsx` 📋
-
-**Prioridad:** P1 | **Tamaño:** S (2-4h) | **Dependencias:** Ninguna
-**Origen:** 31 ocurrencias de colores hardcodeados en SessionsPage
-
-**Descripción:**
-`SessionsPage.jsx` tiene 31 usos de colores raw en cards de sesión (iconos stats, texto, bordes laterales por estado) y header.
-
-**Sub-tareas:**
-
-1. **Header:** `bg-indigo-500/20 text-indigo-300` → `bg-accent-indigo/20 text-accent-indigo`
-2. **Textos:** `text-white` → `text-text-primary`; `text-slate-400` → `text-text-muted`
-3. **Bordes por estado:** `border-l-amber-500/70` → `border-l-warning-base/70`; `border-l-emerald-500/70` → `border-l-success-base/70`
-4. **Stats icon backgrounds:** mapear a tokens `accent-indigo`, `accent-cyan`, `warning-base`, `success-base`
-5. **Fondos y error card:** `bg-white/5` → `bg-glass-bg`; `border-rose-500/30` → `border-error-base/30`
-
-**Criterios de Aceptación:**
-
+- [ ] Cero valores `rgba(...)` inline en WizardStepper
 - [ ] Cero colores Tailwind crudos en SessionsPage.jsx
-- [ ] Aspecto visual idéntico al actual
-- [ ] `npm test` pasa
+- [ ] Aspecto visual idéntico en ambos componentes
+- [ ] `npm test` y `npm run build` pasan
 
 ---
 
@@ -554,15 +576,20 @@ Aplicar tabla de mapeo estándar de tokens semánticos en cada caso.
 
 ---
 
-### T-519: 🔧 Crear utilidad centralizada de respuestas API 📋
+### T-519: 🔧 Utilidades backend reutilizables (responseHelper, filterBuilder) 📋
 
-**Prioridad:** P1 | **Tamaño:** M (4-8h) | **Dependencias:** T-516
-**Origen:** Auditoría — ~70 instancias de `{ success: true }` construidas manualmente
+**Consolida:** T-519 + T-530
+**Prioridad:** P1 | **Tamaño:** L (1-2 días) | **Dependencias:** T-516
+**Origen:** Auditoría — ~70 instancias de `{ success: true }` construidas manualmente; `buildUsersFilter`, `buildPlaysFilter` replican lógica
 
 **Descripción:**
-Los controllers construyen manualmente `{ success: true, data, message, pagination }` en cada respuesta. Se necesita una utilidad centralizada con funciones: `sendSuccess`, `sendCreated`, `sendPaginated`, `sendNoContent`.
+Dos utilidades para reducir boilerplate en controllers:
+1. **responseHelper**: Funciones centralizadas para respuestas API (`sendSuccess`, `sendCreated`, `sendPaginated`, `sendNoContent`).
+2. **filterBuilder**: Factory genérica `buildFilter(queryParams, fieldMappings, options)` con soporte para `exact`, `regex`, `range`, `in`, `computed`.
 
 **Sub-tareas:**
+
+**Fase A — responseHelper (ex T-519):**
 
 1. Crear `utils/responseHelper.js` con funciones documentadas.
 2. Integrar `toPaginatedDTOV1` dentro de `sendPaginated`.
@@ -570,33 +597,58 @@ Los controllers construyen manualmente `{ success: true, data, message, paginati
 4. Migrar controller piloto (`cardController.js`).
 5. Tests unitarios para cada función.
 
+**Fase B — filterBuilder (ex T-530):**
+
+6. Crear `utils/filterBuilder.js`.
+7. Migrar `buildUsersFilter` como piloto.
+8. Tests unitarios para cada tipo de mapping.
+
 **Criterios de Aceptación:**
 
 - [ ] `utils/responseHelper.js` creado con funciones documentadas
 - [ ] Al menos un controller migrado y usando el helper
 - [ ] Respuestas mantienen el mismo formato JSON (retrocompatibilidad)
-- [ ] Tests unitarios
 - [ ] El frontend no necesita cambios
+- [ ] `utils/filterBuilder.js` creado con soporte para los 5 tipos
+- [ ] Al menos un controller migrado al filterBuilder
+- [ ] Builder escapa valores regex automáticamente
+- [ ] Tests unitarios para ambas utilidades
 
-**Archivos afectados:** `backend/src/utils/responseHelper.js` (nuevo), `backend/src/utils/dtos.js`, `backend/src/controllers/cardController.js` (piloto)
+**Archivos afectados:** `backend/src/utils/responseHelper.js` (nuevo), `backend/src/utils/filterBuilder.js` (nuevo), `backend/src/utils/dtos.js`, `backend/src/controllers/cardController.js` (piloto responseHelper), `backend/src/controllers/userController.js` (piloto filterBuilder)
 
 ---
 
-### T-520: 🔧 Completar el patrón Repository con operaciones de escritura 📋
+### T-520: 🔧 Completar el patrón Repository (write ops, transacciones, batch) 📋
 
-**Prioridad:** P1 | **Tamaño:** L (1-2 días) | **Dependencias:** Ninguna
-**Origen:** Auditoría — repositorios sin update/delete; ~25 llamadas directas a `.save()` en controllers/services
+**Consolida:** T-520 + T-533 + T-534
+**Prioridad:** P1 | **Tamaño:** XL (> 2 días) | **Dependencias:** Ninguna
+**Origen:** Auditoría — repositorios sin update/delete; ~25 llamadas directas a `.save()` en controllers/services; sin soporte de transacciones ni batch
 
 **Descripción:**
-Los repositorios carecen de métodos de actualización y eliminación. Los controllers y services llaman `.save()` directamente sobre documentos Mongoose, rompiendo la abstracción.
+Los repositorios carecen de métodos de actualización y eliminación. Esta tarea completa el patrón Repository con tres capas: operaciones de escritura base, soporte de transacciones, y operaciones batch.
 
 **Sub-tareas:**
+
+**Fase A — Operaciones de escritura (ex T-520):**
 
 1. Ampliar `baseRepository.js` con funciones genéricas: `applyUpdateOptions(Model, id, update, options)`.
 2. Agregar a cada repositorio (7 total): `updateById`, `updateOne`, `deleteById`, `deleteMany`.
 3. Agregar `findByIdAndUpdate` como wrapper con `{ new: true, runValidators: true }`.
 4. En `gameSessionRepository` agregar `save(doc)` que encapsule `doc.save()`.
 5. Tests unitarios. NO migrar controllers/services en esta tarea.
+
+**Fase B — Transacciones (ex T-533):**
+
+6. Crear `utils/withTransaction.js` con función `withTransaction(callback)`.
+7. Agregar soporte de `session` en métodos de `baseRepository.js`.
+8. Test demuestra commit y rollback.
+9. Documentación sobre requisitos de replica set.
+
+**Fase C — Operaciones batch (ex T-534):**
+
+10. Agregar `insertMany` y `bulkWrite` a `baseRepository.js`.
+11. Exponer en repositorios relevantes (cardDeck, gamePlay, user).
+12. Tests unitarios.
 
 **Criterios de Aceptación:**
 
@@ -605,8 +657,14 @@ Los repositorios carecen de métodos de actualización y eliminación. Los contr
 - [ ] Métodos de update soportan mismas opciones que lectura
 - [ ] Tests unitarios cubren CRUD completo
 - [ ] Tests existentes pasan sin regresiones
+- [ ] `utils/withTransaction.js` creado y documentado
+- [ ] Métodos del repository aceptan `session` como opción
+- [ ] Test demuestra commit y rollback
+- [ ] Documentación sobre requisitos de replica set
+- [ ] `insertMany` y `bulkWrite` disponibles en repository base
+- [ ] Al menos 3 repositorios concretos los exponen
 
-**Archivos afectados:** `backend/src/repositories/baseRepository.js`, `backend/src/repositories/*.js`
+**Archivos afectados:** `backend/src/repositories/baseRepository.js`, `backend/src/repositories/*.js`, `backend/src/utils/withTransaction.js` (nuevo)
 
 ---
 
@@ -638,24 +696,48 @@ Las acciones de pause/resume carecen de rate limiting. Todos los rate limiters u
 
 ---
 
-### T-604: 📊 Dashboard — KPIs expandidos y filtros interactivos 📋
+### T-604: 📊 Dashboard — KPIs expandidos, filtros interactivos, alertas inteligentes y heatmap mejorado 📋
 
-**Prioridad:** P1 | **Tamaño:** L (1-2 días) | **Dependencias:** T-601, T-602
-**Origen:** Dashboard actual solo tiene 4 KPIs básicos sin filtros
+**Consolida:** T-604 + T-605 + T-607 + T-615
+**Prioridad:** P1 | **Tamaño:** XL (> 2 días) | **Dependencias:** T-601, T-602
+**Origen:** Dashboard actual solo tiene 4 KPIs básicos sin filtros; AlertsPanel solo tiene 2 tipos de alerta; Heatmap no es accionable; select nativo del navegador
 
 **Descripción:**
-Ampliar el dashboard con KPIs adicionales y filtros interactivos para segmentar por contexto temático, mecánica de juego y rango de fechas ampliado.
+Mejora integral del dashboard con: KPIs adicionales, filtros interactivos, sistema de alertas inteligentes, heatmap mejorado y reemplazo del select nativo por `SelectPremium`.
 
 **Sub-tareas:**
+
+**Fase A — KPIs expandidos y filtros (ex T-604):**
 
 1. **Nuevos KPIs (8 total):** Tasa de Acierto Global, Tiempo Medio de Respuesta, Estudiantes Activos, Tasa de Completado.
 2. **Filtros interactivos:** Selector de Contexto Temático, Mecánica de Juego, Rango de fechas (7d, 30d, 90d, Todo). Filtros afectan todos los componentes.
 3. **Sección de Actividad Reciente (timeline):** Últimas 5-8 partidas por cualquier alumno.
 
+**Fase B — Alertas inteligentes (ex T-605):**
+
+4. **Nuevos tipos de alerta:** `inactive` (>7 días sin jugar), `declining` (bajada >15%), `improving` (subida >15%), `streak` (5+ partidas >80%), `difficulty_spike` (>60% error rate).
+5. **Acciones directas:** Cada alerta con botón contextual que navega al perfil o filtra.
+6. **Estado vacío positivo:** Card con CheckCircle verde y "¡Todo marcha bien!" en vez de `return null`.
+7. **Mejoras visuales:** Iconos diferenciados, animación escalonada, timestamps relativos, máximo 5 visibles.
+
+**Fase C — DifficultyHeatmap mejorado (ex T-607):**
+
+8. **Leyenda visual descriptiva:** 3 niveles (Verde "Dominado", Ámbar "Necesita práctica", Rojo "Dificultad alta").
+9. **Tooltips enriquecidos:** Número de estudiantes, sugerencia textual, evolución.
+10. **Mejorar visualización:** Evaluar grid/tabla visual (cuadrícula con celdas coloreadas) en vez de ScatterChart.
+11. **Responsividad:** Nombres abreviados o rotados en viewport pequeño.
+
+**Fase D — Reemplazar select nativo (ex T-615):**
+
+12. Reemplazar `<select>` nativo en Dashboard Header y `ChartSection.jsx` por `SelectPremium` del design system.
+
 **Archivos a Modificar:**
 
 - `frontend/src/pages/Dashboard.jsx`
 - `frontend/src/components/dashboard/StatCard.jsx`
+- `frontend/src/components/dashboard/AlertsPanel.jsx`
+- `frontend/src/components/dashboard/DifficultyHeatmap.jsx`
+- `frontend/src/components/dashboard/ChartSection.jsx`
 - `frontend/src/services/analytics.js`
 
 **Criterios de Aceptación:**
@@ -664,50 +746,32 @@ Ampliar el dashboard con KPIs adicionales y filtros interactivos para segmentar 
 - [ ] Filtros de contexto, mecánica y rango de fechas funcionales
 - [ ] Filtros afectan todos los componentes del dashboard
 - [ ] Sección de actividad reciente con partidas reales
+- [ ] Al menos 5 tipos de alerta diferentes derivados de datos
+- [ ] Cada alerta tiene acción directa que navega a contenido relevante
+- [ ] Estado vacío muestra mensaje positivo en vez de `null`
+- [ ] Alertas se generan automáticamente de los datos
+- [ ] Leyenda clara con 3 niveles de dificultad en heatmap
+- [ ] Tooltips con información accionable en heatmap
+- [ ] Visualización intuitiva para personas no técnicas
+- [ ] Cero `<select>` nativos en Dashboard y ChartSection
+- [ ] Accesibilidad mantenida en SelectPremium
 - [ ] Layout responsivo en ≥768px
 - [ ] `npm test` y `npm run build` pasan
 
 ---
 
-### T-605: 📊 Dashboard — Sistema de insights y alertas inteligentes 📋
+### T-606: 📊 Nueva página — Vista Comparativa de Estudiantes (con exportación CSV y navegación) 📋
 
-**Prioridad:** P1 | **Tamaño:** M (4-8h) | **Dependencias:** T-601, T-602
-**Origen:** AlertsPanel solo tiene 2 tipos de alerta y sin estado vacío
-
-**Descripción:**
-Transformar el `AlertsPanel` en un sistema de insights accionables con acciones directas para el profesor.
-
-**Sub-tareas:**
-
-1. **Nuevos tipos de alerta:** `inactive` (>7 días sin jugar), `declining` (bajada >15%), `improving` (subida >15%), `streak` (5+ partidas >80%), `difficulty_spike` (>60% error rate).
-2. **Acciones directas:** Cada alerta con botón contextual que navega al perfil o filtra.
-3. **Estado vacío positivo:** Card con CheckCircle verde y "¡Todo marcha bien!" en vez de `return null`.
-4. **Mejoras visuales:** Iconos diferenciados, animación escalonada, timestamps relativos, máximo 5 visibles.
-
-**Archivos a Modificar:**
-
-- `frontend/src/components/dashboard/AlertsPanel.jsx`
-- `frontend/src/pages/Dashboard.jsx`
-
-**Criterios de Aceptación:**
-
-- [ ] Al menos 5 tipos de alerta diferentes derivados de datos
-- [ ] Cada alerta tiene acción directa que navega a contenido relevante
-- [ ] Estado vacío muestra mensaje positivo en vez de `null`
-- [ ] Alertas se generan automáticamente de los datos
-- [ ] `npm test` y `npm run build` pasan
-
----
-
-### T-606: 📊 Nueva página — Vista Comparativa de Estudiantes 📋
-
+**Consolida:** T-606 + T-617 + T-618
 **Prioridad:** P1 | **Tamaño:** XL (> 2 días) | **Dependencias:** T-601, T-603
-**Origen:** No existe forma de comparar rendimiento entre estudiantes
+**Origen:** No existe forma de comparar rendimiento entre estudiantes; profesores necesitan exportar datos; sidebar sin enlace a nueva página
 
 **Descripción:**
-Crear la página `/analytics/students` con tabla interactiva de **todos los estudiantes** del profesor con métricas, ordenación, filtros y comparación.
+Crear la página `/analytics/students` con tabla interactiva de todos los estudiantes, exportación CSV y navegación desde sidebar.
 
 **Sub-tareas:**
+
+**Fase A — Tabla interactiva y página (ex T-606):**
 
 1. **Ruta y página base:** `/analytics/students` (protegida, lazy loading).
 2. **Tabla interactiva:** Columnas (Avatar+Nombre, Aula, Partidas, Score, Tasa Acierto, Tiempo, Última Actividad, Estado). Ordenable, filtrable por tier, búsqueda por nombre. Click → `/students/:studentId`.
@@ -715,12 +779,23 @@ Crear la página `/analytics/students` con tabla interactiva de **todos los estu
 4. **Indicador última actividad:** Coloreado (verde <3d, ámbar 3-7d, rojo >7d).
 5. **Empty state** con CTA hacia gestión de estudiantes.
 
+**Fase B — Exportación CSV (ex T-617):**
+
+6. Crear función `exportToCSV` en `frontend/src/lib/utils.js`. Generación client-side con `Blob` + `URL.createObjectURL`, sin dependencias externas.
+7. Botón "Exportar CSV" en StudentsAnalytics (y opcionalmente en Dashboard).
+
+**Fase C — Navegación sidebar (ex T-618):**
+
+8. Enlace "Mis Alumnos" en sidebar para la nueva página.
+9. Badge de notificación en "Dashboard" si hay alertas activas.
+
 **Archivos a Crear/Modificar:**
 
 - `frontend/src/pages/StudentsAnalytics.jsx` — **NUEVO**
 - `frontend/src/constants/routes.js` — Añadir ruta
 - `frontend/src/App.jsx` — Registrar ruta
-- Sidebar NAV_ROUTES — Añadir enlace "Mis Alumnos"
+- `frontend/src/lib/utils.js` — Función `exportToCSV`
+- `frontend/src/components/layout/AppLayout.jsx` — Sidebar enlaces y badge
 
 **Criterios de Aceptación:**
 
@@ -732,117 +807,130 @@ Crear la página `/analytics/students` con tabla interactiva de **todos los estu
 - [ ] Resumen visual de distribución de clase
 - [ ] Skeleton loader durante carga
 - [ ] Responsive en ≥768px
+- [ ] Botón "Exportar CSV" visible en vista de estudiantes
+- [ ] CSV generado correctamente con datos reales
+- [ ] Descarga automática del archivo
+- [ ] Sin dependencias externas para CSV
+- [ ] Badge de notificación visible cuando hay alertas
+- [ ] Enlace "Mis Alumnos" funcional en sidebar
 - [ ] `npm test` y `npm run build` pasan
 
 ---
 
-### T-607: 📊 Dashboard — Mejorar DifficultyHeatmap con interactividad 📋
+### T-608: ⚛️ Migrar tokens de color en Login, Register y ContextsPage 📋
 
-**Prioridad:** P1 | **Tamaño:** M (4-8h) | **Dependencias:** Ninguna
-**Origen:** Heatmap actual no es accionable ni intuitivo para profesores no técnicos
+**Consolida:** T-608 + T-610
+**Prioridad:** P1 | **Tamaño:** L (1-2 días) | **Dependencias:** Ninguna
+**Origen:** Login.jsx tiene ~20 colores hardcodeados; Register.jsx patrón similar; ContextsPage tiene ~30 colores hardcodeados
 
 **Descripción:**
-Mejorar el `DifficultyHeatmap` con leyenda clara, tooltips informativos y visualización más intuitiva para profesores.
+Login y Register son la primera impresión del profesor con la plataforma. ContextsPage muestra los contextos temáticos. Todas usan extensivamente colores Tailwind crudos en vez de design tokens OKLCH.
 
 **Sub-tareas:**
 
-1. **Leyenda visual descriptiva:** 3 niveles (Verde "Dominado", Ámbar "Necesita práctica", Rojo "Dificultad alta").
-2. **Tooltips enriquecidos:** Número de estudiantes, sugerencia textual, evolución.
-3. **Mejorar visualización:** Evaluar grid/tabla visual (cuadrícula con celdas coloreadas) en vez de ScatterChart.
-4. **Responsividad:** Nombres abreviados o rotados en viewport pequeño.
-
-**Archivos a Modificar:**
-
-- `frontend/src/components/dashboard/DifficultyHeatmap.jsx`
-
-**Criterios de Aceptación:**
-
-- [ ] Leyenda clara con 3 niveles de dificultad
-- [ ] Tooltips con información accionable
-- [ ] Visualización intuitiva para personas no técnicas
-- [ ] Responsivo en ≥768px
-- [ ] `npm run build` pasa
-
----
-
-### T-608: 📊 Consistencia Visual — Login y Register con design tokens 📋
-
-**Prioridad:** P1 | **Tamaño:** M (4-8h) | **Dependencias:** Ninguna
-**Origen:** Login.jsx tiene ~20 colores hardcodeados, Register.jsx patrón similar
-
-**Descripción:**
-Login y Register son la primera impresión del profesor con la plataforma, pero usan extensivamente colores Tailwind crudos en vez de design tokens OKLCH.
-
-**Sub-tareas:**
+**Fase A — Login y Register (ex T-608):**
 
 1. **Login.jsx — Migración de colores (~20 ocurrencias):** `bg-slate-950` → `bg-background-deep`, gradientes → tokens `accent-indigo`, `brand-base`, `accent-pink`, etc.
 2. **Register.jsx — Mismo patrón de migración.**
 3. **Verificación visual** antes/después en mobile y desktop.
 
+**Fase B — ContextsPage (ex T-610):**
+
+4. Migrar `ContextsPage.jsx` y sub-componentes inline (ContextCard, CreateContextModal) a design tokens siguiendo la tabla de mapeo estándar.
+
 **Archivos a Modificar:**
 
 - `frontend/src/pages/Login.jsx`
 - `frontend/src/pages/Register.jsx`
+- `frontend/src/pages/ContextsPage.jsx`
 
 **Criterios de Aceptación:**
 
 - [ ] Cero colores Tailwind crudos en Login.jsx y Register.jsx (excepto confetti/canvas)
+- [ ] Cero colores Tailwind crudos en ContextsPage.jsx
 - [ ] Cero valores `rgba()` inline
-- [ ] Aspecto visual idéntico al actual
-- [ ] `npm run build` pasa
+- [ ] Aspecto visual idéntico al actual en los tres archivos
 - [ ] Verificación visual en mobile y desktop
+- [ ] `npm run build` pasa
 
 ---
 
-### T-609: 📊 Mejoras visuales en la experiencia de partida 📋
+### T-609: 📊 Mejoras visuales completas en la experiencia de partida 📋
 
-**Prioridad:** P1 | **Tamaño:** L (1-2 días) | **Dependencias:** Ninguna
-**Origen:** La pantalla de juego puede mejorar en feedback visual e inmersión para niños de 4-6 años
+**Consolida:** T-609 + T-613 + T-619
+**Prioridad:** P1 | **Tamaño:** XL (> 2 días) | **Dependencias:** Ninguna
+**Origen:** La pantalla de juego puede mejorar en feedback visual e inmersión para niños de 4-6 años; GameOverScreen básico; CharacterMascot sin personalidad
 
 **Descripción:**
-Mejorar la experiencia visual de las partidas (GameOverScreen, ChallengeDisplay, CharacterMascot, HUD) para mayor inmersión y mejor feedback.
+Mejora integral de la experiencia visual de las partidas: GameOverScreen con resumen expandido, ChallengeDisplay con feedback visual, CharacterMascot con micro-animaciones y personalidad, y HUD mejorado.
 
 **Sub-tareas:**
 
-1. **GameOverScreen — Resumen expandido:** Comparativa con mejor partida anterior, ampliar mensajes de feedback a 6-8 niveles, animación "progreso desbloqueado".
-2. **ChallengeDisplay — Feedback visual:** Glow verde + partículas en acierto, shake + flash rojo en error, transiciones suaves.
-3. **CharacterMascot — Más personalidad:** Micro-animaciones (parpadeo, salto, brazos arriba), burbujas de diálogo con mensajes rotativos.
-4. **HUD — Legibilidad:** Indicador de progreso de rondas más visible, barra de completado.
+**Fase A — GameOverScreen expandido (ex T-609 sub-tarea 1 + T-613):**
+
+1. **Resumen expandido:** Comparativa con mejor partida anterior, ampliar mensajes de feedback a 6-8 niveles, animación "progreso desbloqueado".
+2. **Desglose por ronda:** Expandible, con detalle de cada ronda.
+
+**Fase B — ChallengeDisplay — Feedback visual (ex T-609 sub-tarea 2):**
+
+3. Glow verde + partículas en acierto, shake + flash rojo en error, transiciones suaves.
+
+**Fase C — CharacterMascot — Personalidad y micro-animaciones (ex T-609 sub-tarea 3 + T-619):**
+
+4. **Micro-animaciones por estado:** Parpadeo idle, salto happy, wave encouraging, cabeceo sad, brazos arriba en acierto.
+5. **Burbujas de diálogo** con mensajes rotativos motivacionales.
+
+**Fase D — HUD — Legibilidad (ex T-609 sub-tarea 4):**
+
+6. Indicador de progreso de rondas más visible, barra de completado.
 
 **Archivos a Modificar:**
 
 - `frontend/src/components/game/GameOverScreen.jsx`
 - `frontend/src/components/game/ChallengeDisplay.jsx`
 - `frontend/src/components/game/CharacterMascot.jsx`
+- `frontend/src/components/game/MascotAccessory.jsx`
 - `frontend/src/pages/GameSession.jsx`
 
 **Criterios de Aceptación:**
 
 - [ ] GameOverScreen muestra comparativa con mejor partida anterior
 - [ ] GameOverScreen tiene al menos 6 niveles de mensaje de feedback
+- [ ] Desglose por ronda visible al expandir
 - [ ] ChallengeDisplay tiene feedback visual claro de acierto y error
 - [ ] CharacterMascot tiene micro-animaciones en al menos 3 estados
+- [ ] Burbujas de diálogo con mensajes rotativos
 - [ ] HUD muestra indicador de progreso de rondas claramente visible
 - [ ] Animaciones respetan `prefers-reduced-motion`
 - [ ] `npm test` y `npm run build` pasan
 
 ---
 
-### T-703: 🛡️ Seudonimización de datos de estudiantes en logs y analytics 📋
+### T-703: 🛡️ Seudonimización y separación de datos identificativos en analytics 📋
 
-**Prioridad:** P1 | **Tamaño:** M (4-8h) | **Dependencias:** T-701
-**Origen:** Auditoría de protección de datos — Art. 25 RGPD (protección desde el diseño), Directrices EDPB 01/2025 sobre seudonimización
+**Consolida:** T-703 + T-709
+**Prioridad:** P1 | **Tamaño:** L (1-2 días) | **Dependencias:** T-701
+**Origen:** Auditoría de protección de datos — Art. 25 RGPD (protección desde el diseño), Directrices EDPB 01/2025
 
 **Descripción:**
-Los logs de Pino y el security logger pueden registrar datos identificativos de estudiantes (nombre, classroom) cuando se loguean eventos relacionados con partidas o gestión de alumnos. Además, los endpoints de analytics retornan `playerId` (ObjectId directo al User) que enlaza sin intermediación con los datos identificativos del menor. Se debe implementar seudonimización: en logs nunca aparecerá PII de estudiantes, y en analytics se usará un identificador seudonimizado.
+Los logs de Pino pueden registrar datos identificativos de estudiantes, y los endpoints de analytics retornan `playerId` (ObjectId directo al User) que enlaza sin intermediación con los datos identificativos del menor. Se debe implementar seudonimización en logs y separar la resolución de identidad de los datos de rendimiento en los DTOs de analytics.
 
 **Sub-tareas:**
+
+**Fase A — Seudonimización en logs (ex T-703):**
 
 1. Crear utilidad `utils/pseudonymize.js` con función `pseudonymize(id)` que genere un hash SHA-256 truncado a 8 caracteres del ObjectId, con sal configurable por entorno.
 2. Extender la configuración de redacción del logger Pino (`utils/logger.js`) para incluir campos de estudiante: `studentName`, `playerName`, `classroom`, `birthdate`.
 3. Revisar el security logger (`utils/securityLogger.js`): asegurar que eventos como `STUDENT_TRANSFER` no logueen el nombre del estudiante (usar pseudoId).
-4. Crear middleware o decorator para endpoints de analytics que transforme `playerId` → `pseudoId` en las respuestas antes de enviarlas al cliente.
-5. Tests unitarios para la utilidad `pseudonymize` y tests de integración que verifiquen que los logs no contienen PII de estudiantes.
+4. Tests unitarios para la utilidad `pseudonymize` y tests de integración que verifiquen que los logs no contienen PII de estudiantes.
+
+**Fase B — Separación PII/analytics en DTOs (ex T-709):**
+
+5. Crear DTO `StudentAnalyticsDTO` que retorne `pseudoId` (hash) en lugar de `playerId`/`_id` directo.
+6. Crear DTO `StudentIdentityDTO` que solo contenga: `pseudoId`, `name`, `avatar`, `classroom`.
+7. Los endpoints de analytics retornarán datos con `pseudoId`; el frontend resolverá la identidad con una tabla de correspondencia obtenida de un endpoint separado (el de listado de estudiantes del profesor).
+8. Actualizar los DTOs en `utils/dtos.js`.
+9. Tests que verifiquen que los endpoints de analytics no exponen `name`, `email`, ni `classroom`.
 
 **Criterios de Aceptación:**
 
@@ -850,21 +938,30 @@ Los logs de Pino y el security logger pueden registrar datos identificativos de 
 - [ ] Los logs de Pino nunca contienen `studentName`, `playerName` ni `classroom` de estudiantes
 - [ ] El security logger usa pseudoIds para eventos relacionados con estudiantes
 - [ ] La función es determinista (mismo input → mismo output) para permitir correlación de logs
+- [ ] Los endpoints de analytics no retornan `name`, `email` ni `classroom` directamente
+- [ ] Usan `pseudoId` como identificador de estudiante
+- [ ] La resolución identidad ↔ pseudoId se realiza en el frontend
+- [ ] DTO `StudentAnalyticsDTO` creado y aplicado
 - [ ] `npm test` pasa en backend
 
-**Archivos afectados:** `backend/src/utils/pseudonymize.js` (nuevo), `backend/src/utils/logger.js`, `backend/src/utils/securityLogger.js`
+**Archivos afectados:** `backend/src/utils/pseudonymize.js` (nuevo), `backend/src/utils/logger.js`, `backend/src/utils/securityLogger.js`, `backend/src/utils/dtos.js`, `backend/src/controllers/analyticsController.js`, `backend/src/services/analyticsService.js`
 
 ---
 
-### T-704: 🛡️ Implementar borrado efectivo de datos de estudiantes (Derecho de supresión) 📋
+### T-704: 🛡️ Borrado efectivo y política de retención de datos de estudiantes 📋
 
-**Prioridad:** P1 | **Tamaño:** M (4-8h) | **Dependencias:** T-702
-**Origen:** Auditoría de protección de datos — Art. 17 RGPD, Considerandos 65 y 38
+**Consolida:** T-704 + T-705
+**Prioridad:** P1 | **Tamaño:** XL (> 2 días) | **Dependencias:** T-702
+**Origen:** Auditoría de protección de datos — Art. 17 RGPD (derecho de supresión), Art. 5.1.e RGPD (limitación del plazo de conservación)
 
 **Descripción:**
-El sistema solo implementa soft delete (cambiar `status` a `'inactive'`), lo cual **no satisface** el derecho de supresión del Art. 17 RGPD: los datos del menor permanecen íntegros en la base de datos. Se necesita un endpoint de borrado efectivo (hard delete) que elimine todos los datos personales del estudiante con cascada completa. El Considerando 65 establece que este derecho es *«pertinente en particular cuando el interesado dio su consentimiento siendo niño»*.
+Dos capacidades complementarias para el ciclo de vida de datos:
+1. **Borrado efectivo (hard delete):** El sistema solo implementa soft delete, lo cual no satisface el Art. 17 RGPD. Se necesita un endpoint que elimine todos los datos personales con cascada completa.
+2. **Retención automática:** Los datos se acumulan indefinidamente. Se necesita un script de retención configurable que aplique los plazos definidos en el RAT (T-701), reutilizando la lógica de borrado.
 
 **Sub-tareas:**
+
+**Fase A — Borrado efectivo (ex T-704):**
 
 1. Crear endpoint `DELETE /api/users/:id/data` (hard delete) en `userController.js`.
 2. Implementar cascada de eliminación:
@@ -878,6 +975,20 @@ El sistema solo implementa soft delete (cambiar `status` a `'inactive'`), lo cua
 5. Validador Zod: requerir campo `confirmDeletion: true` en el body como confirmación explícita.
 6. Tests de integración que verifiquen la cascada completa.
 
+**Fase B — Política de retención automática (ex T-705):**
+
+7. Definir constantes de retención en `config/dataRetention.js`:
+   - `GAMEPLAY_EVENTS_RETENTION_MONTHS`: 12 (eventos detallados)
+   - `INACTIVE_STUDENT_RETENTION_MONTHS`: 24
+   - `SECURITY_LOGS_RETENTION_MONTHS`: 12
+8. Crear script `scripts/dataRetention.js` ejecutable con `npm run data:retention`:
+   - **GamePlay events > 12 meses:** Anonimizar eliminando `playerId`, `events[].cardUid`, y reemplazando `events[].timestamp` con solo la fecha (sin hora/minuto). Conservar métricas agregadas.
+   - **Estudiantes inactivos > 24 meses:** Ejecutar borrado efectivo (reutilizar lógica de Fase A).
+   - **Generar informe:** Número de gameplays anonimizados, estudiantes eliminados, espacio liberado estimado.
+9. Añadir flag `--dry-run` que muestre qué se haría sin ejecutar cambios.
+10. Añadir scripts npm `data:retention` y `data:retention:dry-run` en `package.json`.
+11. Tests unitarios para la lógica de cálculo de fechas y selección de registros.
+
 **Criterios de Aceptación:**
 
 - [ ] Endpoint `DELETE /api/users/:id/data` elimina todos los datos del estudiante
@@ -886,36 +997,6 @@ El sistema solo implementa soft delete (cambiar `status` a `'inactive'`), lo cua
 - [ ] Requiere `confirmDeletion: true` en el body
 - [ ] Log de auditoría registrado (sin PII del estudiante)
 - [ ] Respuesta 200 con resumen de datos eliminados (conteos, no datos)
-- [ ] `npm test` pasa en backend
-
-**Archivos afectados:** `backend/src/controllers/userController.js`, `backend/src/routes/users.js`, `backend/src/validators/userValidator.js`
-
----
-
-### T-705: 🛡️ Política de retención de datos con limpieza automática 📋
-
-**Prioridad:** P1 | **Tamaño:** L (1-2 días) | **Dependencias:** T-704
-**Origen:** Auditoría de protección de datos — Art. 5.1.e RGPD (limitación del plazo de conservación)
-
-**Descripción:**
-Los datos se acumulan indefinidamente sin política de retención: los GamePlay.events[] (hasta 500 eventos por partida con timestamps exactos y UIDs de tarjeta) persisten para siempre, y las cuentas de estudiantes inactivas nunca se eliminan. Se necesita un script de retención configurable que aplique los plazos definidos en el RAT (T-701).
-
-**Sub-tareas:**
-
-1. Definir constantes de retención en `config/dataRetention.js`:
-   - `GAMEPLAY_EVENTS_RETENTION_MONTHS`: 12 (eventos detallados)
-   - `INACTIVE_STUDENT_RETENTION_MONTHS`: 24
-   - `SECURITY_LOGS_RETENTION_MONTHS`: 12
-2. Crear script `scripts/dataRetention.js` ejecutable con `npm run data:retention`:
-   - **GamePlay events > 12 meses:** Anonimizar eliminando `playerId`, `events[].cardUid`, y reemplazando `events[].timestamp` con solo la fecha (sin hora/minuto). Conservar métricas agregadas.
-   - **Estudiantes inactivos > 24 meses:** Ejecutar borrado efectivo (reutilizar lógica de T-704).
-   - **Generar informe:** Número de gameplays anonimizados, estudiantes eliminados, espacio liberado estimado.
-3. Añadir flag `--dry-run` que muestre qué se haría sin ejecutar cambios.
-4. Añadir script npm `data:retention` y `data:retention:dry-run` en `package.json`.
-5. Tests unitarios para la lógica de cálculo de fechas y selección de registros.
-
-**Criterios de Aceptación:**
-
 - [ ] Script de retención ejecutable con `npm run data:retention`
 - [ ] GamePlays > 12 meses: eventos anonimizados, métricas conservadas
 - [ ] Estudiantes inactivos > 24 meses: borrado efectivo con cascada
@@ -924,7 +1005,7 @@ Los datos se acumulan indefinidamente sin política de retención: los GamePlay.
 - [ ] Tests unitarios para la lógica de selección temporal
 - [ ] `npm test` pasa en backend
 
-**Archivos afectados:** `backend/src/config/dataRetention.js` (nuevo), `backend/scripts/dataRetention.js` (nuevo), `backend/package.json`
+**Archivos afectados:** `backend/src/controllers/userController.js`, `backend/src/routes/users.js`, `backend/src/validators/userValidator.js`, `backend/src/config/dataRetention.js` (nuevo), `backend/scripts/dataRetention.js` (nuevo), `backend/package.json`
 
 ---
 
@@ -934,14 +1015,14 @@ Los datos se acumulan indefinidamente sin política de retención: los GamePlay.
 **Origen:** Auditoría de protección de datos — Art. 20 RGPD (derecho a la portabilidad de datos)
 
 **Descripción:**
-No existe forma de exportar los datos personales de un estudiante en formato estructurado. El Art. 20 RGPD establece el derecho a recibir los datos *«en un formato estructurado, de uso común y lectura mecánica»*. Se necesita un endpoint que retorne todos los datos personales del estudiante en JSON descargable. Este endpoint complementa la exportación CSV de analytics (T-617) con un alcance más amplio: todos los datos del estudiante, no solo métricas.
+No existe forma de exportar los datos personales de un estudiante en formato estructurado. El Art. 20 RGPD establece el derecho a recibir los datos *«en un formato estructurado, de uso común y lectura mecánica»*. Se necesita un endpoint que retorne todos los datos personales del estudiante en JSON descargable.
 
 **Sub-tareas:**
 
 1. Crear endpoint `GET /api/users/:id/export-data` en `userController.js`.
 2. Recopilar datos de todas las fuentes:
    - Datos del perfil (User: name, age, classroom, avatar, status, fechas)
-   - Consentimiento registrado (si T-708 está implementado)
+   - Consentimiento registrado (si T-702 está implementado)
    - Métricas agregadas (studentMetrics)
    - Historial de partidas (GamePlays: score, métricas, fechas, estado)
    - Eventos detallados de partidas (si están dentro del período de retención)
@@ -965,15 +1046,18 @@ No existe forma de exportar los datos personales de un estudiante en formato est
 
 ---
 
-### T-804: 🃏 Backend — Eliminar infraestructura de Card (modelo, repo, controller, rutas, RFID states) 📋
+### T-804: 🃏 Backend — Eliminar infraestructura de Card y actualizar seeders 📋
 
-**Prioridad:** P1 | **Tamaño:** M (4-8h) | **Dependencias:** T-803
-**Origen:** ADR-012 — Fase 5 del plan de implementación
+**Consolida:** T-804 + T-805
+**Prioridad:** P1 | **Tamaño:** L (1-2 días) | **Dependencias:** T-803
+**Origen:** ADR-012 — Fases 5 y 6 del plan de implementación
 
 **Descripción:**
-Eliminar completamente los 9 archivos de la capa Card y limpiar las referencias en server.js, la máquina de estados RFID y los comandos socket. Mantener `CardAssignmentState` (necesario para escaneo en creación de mazos).
+Eliminar completamente los 9 archivos de la capa Card y limpiar las referencias en server.js, la máquina de estados RFID y los comandos socket. Mantener `CardAssignmentState` (necesario para escaneo en creación de mazos). Actualizar los seeders para que funcionen sin la colección Card.
 
 **Sub-tareas:**
+
+**Fase A — Eliminar infraestructura Card (ex T-804):**
 
 1. **Eliminar archivos** (9 archivos):
    - `backend/src/models/Card.js`
@@ -994,7 +1078,13 @@ Eliminar completamente los 9 archivos de la capa Card y limpiar las referencias 
 
 5. **realtime/socketHandlers.js** — Eliminar `CARD_REGISTRATION` de `RFID_MODES`, eliminar helpers y eventos de registro.
 
-6. Ejecutar lint y verificar que no hay imports rotos.
+**Fase B — Actualizar seeders (ex T-805):**
+
+6. **seeders/index.js** — Eliminar import de `02-cards`, eliminar paso de seeding de cards del pipeline, actualizar firmas de funciones que recibían `cards`, actualizar log de resumen.
+7. **seeders/05-carddecks.js** — Eliminar parámetro `cards`. Generar UIDs sintéticos inline con `generateCardMappings(contextAssets, count, uidOffset)`. Eliminar `cardId` de los mappings generados.
+8. **seeders/06-sessions.js** — Eliminar parámetro `cards`. Eliminar `cardId` de mappings, boardLayout y associationChallengePlan generados.
+9. Verificar: `npm run seed:reset` ejecuta sin errores y los datos son coherentes.
+10. Ejecutar lint y verificar que no hay imports rotos.
 
 **Criterios de Aceptación:**
 
@@ -1003,39 +1093,16 @@ Eliminar completamente los 9 archivos de la capa Card y limpiar las referencias 
 - [ ] Máquina de estados RFID no tiene modo `CARD_REGISTRATION`
 - [ ] Modo `CARD_ASSIGNMENT` sigue funcionando (no se elimina)
 - [ ] `GET /api/cards` devuelve 404 (ruta no encontrada)
-- [ ] `npm run lint` pasa en backend
 - [ ] El servidor arranca sin errores
-
-**Archivos eliminados:** (ver Sub-tarea 1)
-**Archivos modificados:** `backend/src/server.js`, `backend/src/states/rfid/index.js`, `backend/src/commands/socket/index.js`, `backend/src/realtime/socketHandlers.js`
-
----
-
-### T-805: 🃏 Backend — Actualizar seeders sin modelo Card 📋
-
-**Prioridad:** P1 | **Tamaño:** S (2-4h) | **Dependencias:** T-804
-**Origen:** ADR-012 — Fase 6 del plan de implementación
-
-**Descripción:**
-Actualizar los seeders para que funcionen sin la colección Card. Los mazos y sesiones generan UIDs sintéticos directamente (formato `AA00XXXX` hexadecimal) sin necesidad de crear documentos Card.
-
-**Sub-tareas:**
-
-1. **seeders/index.js** — Eliminar import de `02-cards`, eliminar paso de seeding de cards del pipeline, actualizar firmas de funciones que recibían `cards`, actualizar log de resumen.
-2. **seeders/05-carddecks.js** — Eliminar parámetro `cards`. Generar UIDs sintéticos inline con `generateCardMappings(contextAssets, count, uidOffset)`. Eliminar `cardId` de los mappings generados.
-3. **seeders/06-sessions.js** — Eliminar parámetro `cards`. Eliminar `cardId` de mappings, boardLayout y associationChallengePlan generados.
-4. Verificar: `npm run seed:reset` ejecuta sin errores y los datos son coherentes.
-
-**Criterios de Aceptación:**
-
 - [ ] `npm run seed:reset` ejecuta exitosamente sin modelo Card
 - [ ] Los mazos generados tienen UIDs sintéticos válidos (formato `AA00XXXX`)
 - [ ] Las sesiones generadas no contienen campo `cardId` en mappings
 - [ ] El pipeline de seeding no referencia la colección `cards`
+- [ ] `npm run lint` pasa en backend
 - [ ] `npm test` pasa en backend
 
-**Archivos eliminados:** `backend/seeders/02-cards.js`
-**Archivos modificados:** `backend/seeders/index.js`, `backend/seeders/05-carddecks.js`, `backend/seeders/06-sessions.js`
+**Archivos eliminados:** (ver Sub-tarea 1 Fase A)
+**Archivos modificados:** `backend/src/server.js`, `backend/src/states/rfid/index.js`, `backend/src/commands/socket/index.js`, `backend/src/realtime/socketHandlers.js`, `backend/seeders/index.js`, `backend/seeders/05-carddecks.js`, `backend/seeders/06-sessions.js`
 
 ---
 
@@ -1076,105 +1143,77 @@ Eliminar el test de CRUD de Card y actualizar ~12 archivos de test que importan 
 
 ---
 
-### T-807: 🃏 Frontend — Eliminar capa de datos de Card y actualizar cardMapping 📋
+### T-807: 🃏 Frontend — Eliminar capa Card y actualizar páginas de mazos, sesiones y admin 📋
 
-**Prioridad:** P1 | **Tamaño:** S (2-4h) | **Dependencias:** T-803
-**Origen:** ADR-012 — Fase 8.1 y 8.2 del plan de implementación
+**Consolida:** T-807 + T-808 + T-809
+**Prioridad:** P1 | **Tamaño:** L (1-2 días) | **Dependencias:** T-803
+**Origen:** ADR-012 — Fases 8.1 a 8.6 del plan de implementación
 
 **Descripción:**
-Eliminar el servicio `cardsAPI` del frontend y actualizar la utilidad `cardMapping.js` para usar `uid` como identificador primario en lugar de `cardId`/`card._id`.
+Eliminar el servicio `cardsAPI` del frontend, actualizar `cardMapping.js` para usar `uid` como identificador primario, actualizar las páginas de mazos y sesiones, y eliminar las páginas de gestión de cartas del panel de administración.
 
 **Sub-tareas:**
+
+**Fase A — Capa de datos (ex T-807):**
 
 1. **api.js** — Eliminar todas las funciones de `cardsAPI` (getCards, getCardById, createCard, updateCard, deleteCard, createCardsBatch, getCardStats) y su export.
 2. **cardMapping.js** — Eliminar lógica de `cardId`. Usar `uid` como key en `normalizeCardMappingsFromDeck()` y `buildCardMappingsPayload()`.
 3. Buscar y eliminar cualquier otro import de `cardsAPI` en el codebase frontend.
-4. `npm run lint` y `npm run build` pasan.
+
+**Fase B — Páginas de mazos (ex T-808):**
+
+4. **DeckCreationWizard.jsx** — Eliminar import de `cardsAPI`, eliminar `cardsAPI.getCards()`, cambiar keys de `card._id` a `card.uid` o `uid`. El escaneo en vivo vía `CardAssignmentState` ya existe y es el método principal.
+5. **DeckEditPage.jsx** — Mismo patrón: eliminar referencias a `cardsAPI` y `cardId`.
+6. **CardDeckDetailPage.jsx** — Eliminar referencias a `cardId` en `getCardInfo()` y displays de mapping. Usar `uid` directamente.
+7. **CardSelector.jsx** — Evaluar: si solo servía para seleccionar cartas pre-registradas de BD → eliminar. Si tiene lógica de UI reutilizable para escaneo → refactorizar.
+
+**Fase C — Sesiones y admin (ex T-809):**
+
+8. **SessionDetail.jsx** — Eliminar referencias a `cardId` en displays de card mapping.
+9. **SessionEdit.jsx** — Eliminar referencias a `cardId` en la lógica de edición de mappings.
+10. **Admin pages** — Identificar y eliminar páginas de gestión de cartas del panel de super_admin (listado, registro, batch import).
+11. **Router** — Eliminar rutas de admin de cartas en el router de la aplicación.
+12. **Sidebar/Navigation** — Eliminar enlace a gestión de cartas del menú de admin.
+13. `npm run build` y `npm test` pasan.
 
 **Criterios de Aceptación:**
 
 - [ ] `cardsAPI` no existe en `api.js`
 - [ ] `cardMapping.js` usa `uid` como identificador primario
 - [ ] No existen imports de `cardsAPI` en ningún componente frontend
-- [ ] `npm run build` pasa sin errores
-
-**Archivos afectados:** `frontend/src/services/api.js`, `frontend/src/lib/cardMapping.js`
-
----
-
-### T-808: 🃏 Frontend — Actualizar páginas de mazos sin cardId 📋
-
-**Prioridad:** P1 | **Tamaño:** M (4-8h) | **Dependencias:** T-807
-**Origen:** ADR-012 — Fase 8.3 y 8.5 del plan de implementación
-
-**Descripción:**
-Actualizar las páginas de creación, edición y detalle de mazos para funcionar sin `cardId`. Los componentes usarán `uid` como key y no consultarán `cardsAPI`. Evaluar si `CardSelector.jsx` debe eliminarse o repurpose.
-
-**Sub-tareas:**
-
-1. **DeckCreationWizard.jsx** — Eliminar import de `cardsAPI`, eliminar `cardsAPI.getCards()`, cambiar keys de `card._id` a `card.uid` o `uid`. El escaneo en vivo vía `CardAssignmentState` ya existe y es el método principal.
-2. **DeckEditPage.jsx** — Mismo patrón: eliminar referencias a `cardsAPI` y `cardId`.
-3. **CardDeckDetailPage.jsx** — Eliminar referencias a `cardId` en `getCardInfo()` y displays de mapping. Usar `uid` directamente.
-4. **CardSelector.jsx** — Evaluar: si solo servía para seleccionar cartas pre-registradas de BD → eliminar. Si tiene lógica de UI reutilizable para escaneo → refactorizar.
-5. `npm run build` y `npm test` pasan.
-
-**Criterios de Aceptación:**
-
 - [ ] `DeckCreationWizard` no importa ni llama a `cardsAPI`
 - [ ] `DeckEditPage` no usa `cardId` ni `cardsAPI`
 - [ ] `CardDeckDetailPage` muestra UIDs directamente sin buscar `cardId`
 - [ ] `CardSelector.jsx` eliminado o refactorizado (justificado en commit)
 - [ ] Crear/editar mazo funciona con UIDs capturados por escaneo en vivo
-- [ ] `npm run build` y `npm test` pasan
-
-**Archivos afectados:** `frontend/src/pages/DeckCreationWizard.jsx`, `frontend/src/pages/DeckEditPage.jsx`, `frontend/src/pages/CardDeckDetailPage.jsx`, `frontend/src/components/ui/CardSelector.jsx`
-
----
-
-### T-809: 🃏 Frontend — Actualizar páginas de sesiones y eliminar admin de cartas 📋
-
-**Prioridad:** P1 | **Tamaño:** S (2-4h) | **Dependencias:** T-807
-**Origen:** ADR-012 — Fases 8.4 y 8.6 del plan de implementación
-
-**Descripción:**
-Limpiar referencias a `cardId` en las páginas de sesiones y eliminar las páginas de gestión de cartas del panel de administración del super_admin.
-
-**Sub-tareas:**
-
-1. **SessionDetail.jsx** — Eliminar referencias a `cardId` en displays de card mapping.
-2. **SessionEdit.jsx** — Eliminar referencias a `cardId` en la lógica de edición de mappings.
-3. **Admin pages** — Identificar y eliminar páginas de gestión de cartas del panel de super_admin (listado, registro, batch import).
-4. **Router** — Eliminar rutas de admin de cartas en el router de la aplicación.
-5. **Sidebar/Navigation** — Eliminar enlace a gestión de cartas del menú de admin.
-6. `npm run build` y `npm test` pasan.
-
-**Criterios de Aceptación:**
-
 - [ ] `SessionDetail` y `SessionEdit` no referencian `cardId`
 - [ ] No existen páginas de gestión de cartas en el panel admin
 - [ ] No existe enlace a "Gestión de tarjetas" en la navegación
 - [ ] Rutas de admin de cartas eliminadas del router
-- [ ] `npm run build` pasa sin errores
+- [ ] `npm run build` y `npm test` pasan
 
-**Archivos afectados:** `frontend/src/pages/SessionDetail.jsx`, `frontend/src/pages/SessionEdit.jsx`, páginas admin de cartas (por identificar), `frontend/src/App.jsx` o router
+**Archivos afectados:** `frontend/src/services/api.js`, `frontend/src/lib/cardMapping.js`, `frontend/src/pages/DeckCreationWizard.jsx`, `frontend/src/pages/DeckEditPage.jsx`, `frontend/src/pages/CardDeckDetailPage.jsx`, `frontend/src/components/ui/CardSelector.jsx`, `frontend/src/pages/SessionDetail.jsx`, `frontend/src/pages/SessionEdit.jsx`, `frontend/src/App.jsx` (router), páginas admin de cartas (por identificar)
 
 ---
 
 ## P2 — Prioridad Media
 
-### T-512: ⚛️ Migrar colores hardcodeados en componentes restantes (batch) 📋
+### T-512: ⚛️ Migrar colores hardcodeados en componentes restantes (batch + tokens faltantes) 📋
 
-**Prioridad:** P2 | **Tamaño:** L (1-2 días) | **Dependencias:** T-503, T-506, T-507
-**Origen:** ~80 ocurrencias restantes distribuidas en ~15 archivos
+**Consolida:** T-512 + T-515
+**Prioridad:** P2 | **Tamaño:** L (1-2 días) | **Dependencias:** T-503, T-507
+**Origen:** ~80 ocurrencias restantes distribuidas en ~15 archivos; evaluación post-migración de cobertura
 
 **Descripción:**
 Después de los archivos priorizados individualmente, quedan: `RFIDScannerPanel.jsx` (~31), `CardSelector.jsx` (~25), `DeckCard.jsx` (~25), `AssetSelector.jsx` (~23), `RFIDModeHandler.jsx` (~12), `CharacterMascot.jsx` (~8), `ChallengeDisplay.jsx` (~7), `Sparkles.jsx` (~8), `FloatingPointsBadge.jsx` (~6), `FeedbackOverlay.jsx` (~5), `ScoreDisplay.jsx` (~5), `GameOverScreen.jsx` (~4), `CardAssetPreview.jsx` (~3), `SelectPremium.jsx` (~2), `ConfirmationModal.jsx` (~1).
 
-Aplicar tabla de mapeo estándar de tokens semánticos a cada archivo.
+Aplicar tabla de mapeo estándar de tokens semánticos a cada archivo. Tras completar la migración, revisar si algún color no pudo mapearse y crear tokens adicionales si patrones recurrentes lo justifican.
 
 **Criterios de Aceptación:**
 
 - [ ] Colores hardcodeados reducidos a < 10% del total original (~20 max., justificados)
+- [ ] Nuevos tokens (si los hay) siguen convención `--color-{categoría}-{variante}` en OKLCH
+- [ ] Nuevos tokens documentados con comentario en `index.css`
 - [ ] `npm run build` y `npm test` pasan
 
 ---
@@ -1206,89 +1245,79 @@ Las rutas legacy de assets tienen `@deprecated` en JSDoc pero no emiten headers 
 
 ---
 
-### T-525: 🔧 Unificar health checks 📋
+### T-525: 🔧 Unificar health checks y extraer handlers inline de server.js 📋
 
-**Prioridad:** P2 | **Tamaño:** S (2-4h) | **Dependencias:** Ninguna
-**Origen:** Auditoría — health check duplicado en `/health` y `/api/health`
+**Consolida:** T-525 + T-532
+**Prioridad:** P2 | **Tamaño:** M (4-8h) | **Dependencias:** Ninguna
+**Origen:** Auditoría — health check duplicado en `/health` y `/api/health`; server.js tiene handlers inline para `GET /`, health, metrics
 
 **Descripción:**
-Los handlers de `/health` y `/api/health` son idénticos (código copiado). Se debe compartir el handler de health e incluir la versión del backend (que ahora se lee dinámicamente de `package.json` tras la corrección del Sprint 4).
+Los handlers de `/health` y `/api/health` son idénticos (código copiado). Se debe compartir el handler de health e incluir la versión del backend. Además, server.js tiene handlers inline que deben extraerse a controllers/routes dedicados para que `server.js` sea solo configuración y montaje.
 
 **Sub-tareas:**
+
+**Fase A — Health check unificado (ex T-525):**
 
 1. Extraer handler de health check a función reutilizable.
 2. Registrar `/health` y `/api/health` apuntando al mismo handler.
 3. Incluir versión en health check response.
 4. Test que verifique que health check incluye versión correcta.
 
+**Fase B — Extraer handlers inline (ex T-532):**
+
+5. Extraer handlers inline a `controllers/healthController.js` y `routes/health.js`.
+6. `server.js` debe ser solo configuración y montaje.
+7. Tests existentes pasan.
+
 **Criterios de Aceptación:**
 
 - [ ] `/health` y `/api/health` comparten handler
 - [ ] Health check incluye versión
 - [ ] Test verifica que versión es correcta
+- [ ] Handlers inline extraídos a controllers/routes
+- [ ] `server.js` solo contiene configuración y montaje
+- [ ] Endpoints funcionan idénticamente
+- [ ] Tests existentes pasan
 
-**Archivos afectados:** `backend/src/server.js`
+**Archivos afectados:** `backend/src/server.js`, `backend/src/controllers/healthController.js` (nuevo), `backend/src/routes/health.js` (nuevo)
 
 ---
 
-### T-530: 🔧 Crear factory de filtros reutilizable para controllers 📋
+### T-611: 📊 Componentes UI reutilizables (Breadcrumb, PageHeader, ErrorState) 📋
 
-**Prioridad:** P2 | **Tamaño:** M (4-8h) | **Dependencias:** Ninguna
-**Origen:** `buildUsersFilter`, `buildPlaysFilter`, etc. replican lógica
+**Consolida:** T-611 + T-612 + T-614
+**Prioridad:** P2 | **Tamaño:** L (1-2 días) | **Dependencias:** Ninguna
+**Origen:** Sin breadcrumbs en ninguna página; inconsistencia en headers entre páginas; inconsistencia en estados vacíos y de error
 
 **Descripción:**
-Abstraer en utilidad genérica `buildFilter(queryParams, fieldMappings, options)` con soporte para `exact`, `regex`, `range`, `in`, `computed`.
+Crear tres componentes UI reutilizables para mejorar la consistencia visual y de navegación en toda la aplicación.
 
 **Sub-tareas:**
 
-1. Crear `utils/filterBuilder.js`.
-2. Migrar `buildUsersFilter` como piloto.
-3. Tests unitarios para cada tipo de mapping.
-
-**Criterios de Aceptación:**
-
-- [ ] `utils/filterBuilder.js` creado con soporte para los 5 tipos
-- [ ] Al menos un controller migrado
-- [ ] Builder escapa valores regex automáticamente
-- [ ] Tests unitarios
-
-**Archivos afectados:** `backend/src/utils/filterBuilder.js` (nuevo), `backend/src/controllers/userController.js` (piloto)
-
----
-
-### T-610: 📊 Consistencia Visual — ContextsPage con design tokens 📋
-
-**Prioridad:** P2 | **Tamaño:** S (2-4h) | **Dependencias:** Ninguna
-**Origen:** ContextsPage tiene ~30 colores hardcodeados
-
-**Descripción:**
-Migrar `ContextsPage.jsx` y sub-componentes inline (ContextCard, CreateContextModal) a design tokens siguiendo la tabla de mapeo estándar.
-
-**Criterios de Aceptación:**
-
-- [ ] Cero colores Tailwind crudos en ContextsPage.jsx
-- [ ] Aspecto visual idéntico
-- [ ] `npm run build` pasa
-
----
-
-### T-611: 📊 Navegación — Breadcrumbs en páginas de detalle 📋
-
-**Prioridad:** P2 | **Tamaño:** M (4-8h) | **Dependencias:** Ninguna
-**Origen:** Sin breadcrumbs en ninguna página
-
-**Descripción:**
-Crear componente `Breadcrumb` reutilizable e integrarlo en páginas de detalle (SessionDetail, SessionEdit, CardDeckDetailPage, DeckEditPage, ContextDetailPage, StudentProfile).
-
-**Sub-tareas:**
+**Fase A — Breadcrumb (ex T-611):**
 
 1. **Crear componente `Breadcrumb`:** Props `items: [{ label, to? }]`, separador ChevronRight, responsive (mobile: solo "← Volver").
-2. **Integrar en 6+ páginas de detalle.**
+2. **Integrar en 6+ páginas de detalle:** SessionDetail, SessionEdit, CardDeckDetailPage, DeckEditPage, ContextDetailPage, StudentProfile.
+
+**Fase B — PageHeader (ex T-612):**
+
+3. Crear `PageHeader` reutilizable (props: `icon`, `title`, `subtitle`, `actions`, `badge`).
+4. Integrar en ContextsPage, SessionsPage, CardDecksPage.
+
+**Fase C — ErrorState (ex T-614):**
+
+5. Crear componente `ErrorState` reutilizable (props: `title`, `message`, `onRetry`, `icon`).
+6. Unificar estados vacíos en AlertsPanel, DifficultyHeatmap, StudentProgressChart.
+7. Al menos 4 componentes migrados a estados unificados.
 
 **Archivos a Crear/Modificar:**
 
 - `frontend/src/components/ui/Breadcrumb.jsx` — **NUEVO**
+- `frontend/src/components/ui/PageHeader.jsx` — **NUEVO**
+- `frontend/src/components/ui/ErrorState.jsx` — **NUEVO**
 - Páginas de detalle (SessionDetail, SessionEdit, CardDeckDetailPage, DeckEditPage, ContextDetailPage, StudentProfile)
+- Páginas de listado (ContextsPage, SessionsPage, CardDecksPage)
+- Componentes dashboard (AlertsPanel, DifficultyHeatmap, StudentProgressChart)
 
 **Criterios de Aceptación:**
 
@@ -1296,264 +1325,18 @@ Crear componente `Breadcrumb` reutilizable e integrarlo en páginas de detalle (
 - [ ] Breadcrumbs en al menos 5 páginas de detalle
 - [ ] Navegación funcional
 - [ ] Responsive: mobile muestra "← Volver" simplificado
+- [ ] Componente `PageHeader` creado con props flexibles
+- [ ] Al menos 3 páginas usan PageHeader
+- [ ] Componente `ErrorState` creado y reutilizable
+- [ ] AlertsPanel muestra estado positivo cuando no hay alertas
+- [ ] Al menos 4 componentes migrados a estados unificados
+- [ ] Aspecto visual consistente
 - [ ] Tokens semánticos usados
 - [ ] `npm run build` pasa
 
 ---
 
-### T-612: 📊 Headers de página — Componente PageHeader unificado 📋
-
-**Prioridad:** P2 | **Tamaño:** S (2-4h) | **Dependencias:** Ninguna
-**Origen:** Inconsistencia en headers entre páginas
-
-**Descripción:**
-Crear `PageHeader` reutilizable (props: `icon`, `title`, `subtitle`, `actions`, `badge`). Integrar en ContextsPage, SessionsPage, CardDecksPage.
-
-**Archivos a Crear/Modificar:**
-
-- `frontend/src/components/ui/PageHeader.jsx` — **NUEVO**
-- Páginas existentes: ContextsPage, SessionsPage, CardDecksPage
-
-**Criterios de Aceptación:**
-
-- [ ] Componente `PageHeader` creado con props flexibles
-- [ ] Al menos 3 páginas usan el componente
-- [ ] Aspecto visual consistente
-- [ ] Responsive funcional
-- [ ] `npm run build` pasa
-
----
-
-### T-613: 📊 GameOverScreen — Resumen visual expandido 📋
-
-**Prioridad:** P2 | **Tamaño:** M (4-8h) | **Dependencias:** Ninguna
-**Origen:** El resumen final de partida es básico
-
-**Descripción:**
-Expandir `GameOverScreen` con desglose por ronda (expandible), comparativa con mejor partida anterior, y 6+ niveles de mensajes de feedback rotativos.
-
-**Criterios de Aceptación:**
-
-- [ ] Desglose por ronda visible al expandir
-- [ ] Comparativa con mejor partida anterior
-- [ ] Al menos 6 niveles de mensajes de feedback
-- [ ] Animaciones respetan `prefers-reduced-motion`
-- [ ] `npm run build` pasa
-
----
-
-### T-614: 📊 Estados vacíos y de error unificados 📋
-
-**Prioridad:** P2 | **Tamaño:** S (2-4h) | **Dependencias:** Ninguna
-**Origen:** Inconsistencia en estados vacíos y de error entre páginas
-
-**Descripción:**
-Crear componente `ErrorState` reutilizable (props: `title`, `message`, `onRetry`, `icon`). Unificar estados vacíos en AlertsPanel, DifficultyHeatmap, StudentProgressChart.
-
-**Archivos a Crear/Modificar:**
-
-- `frontend/src/components/ui/ErrorState.jsx` — **NUEVO**
-- Componentes existentes a integrar
-
-**Criterios de Aceptación:**
-
-- [ ] Componente `ErrorState` creado y reutilizable
-- [ ] AlertsPanel muestra estado positivo cuando no hay alertas
-- [ ] Al menos 4 componentes migrados a estados unificados
-- [ ] `npm run build` pasa
-
----
-
-### T-615: 📊 Dashboard — Reemplazar select nativo por SelectPremium 📋
-
-**Prioridad:** P2 | **Tamaño:** XS (< 2h) | **Dependencias:** Ninguna
-**Origen:** Select de timeRange usa `<select>` nativo del navegador
-
-**Descripción:**
-Reemplazar `<select>` nativo en Dashboard Header y `ChartSection.jsx` por `SelectPremium` del design system.
-
-**Criterios de Aceptación:**
-
-- [ ] Cero `<select>` nativos en Dashboard y ChartSection
-- [ ] Funcionalidad idéntica
-- [ ] Accesibilidad mantenida
-- [ ] `npm run build` pasa
-
----
-
-### T-707: 🛡️ Evaluación de Impacto en Protección de Datos (EIPD/DPIA) 📋
-
-**Prioridad:** P2 | **Tamaño:** M (4-8h) | **Dependencias:** T-701
-**Origen:** Auditoría de protección de datos — Art. 35 RGPD, lista AEPD de tratamientos que requieren EIPD
-
-**Descripción:**
-La AEPD incluye el tratamiento de datos de **menores de 14 años** entre los criterios que obligan a realizar una EIPD. La plataforma cumple al menos dos criterios de la lista: (1) datos de sujetos vulnerables (menores de 4-8 años) y (2) evaluación sistemática de aspectos personales (rendimiento educativo, patrones de respuesta, tiempos). Esta tarea es puramente documental pero tiene alta relevancia normativa y académica para el TFG.
-
-**Sub-tareas:**
-
-1. Crear documento `documentation/EIPD_Evaluacion_Impacto.md` con las secciones requeridas por el Art. 35.7 RGPD:
-   - Descripción sistemática de las operaciones de tratamiento y sus fines
-   - Evaluación de la necesidad y proporcionalidad del tratamiento
-   - Evaluación de los riesgos para los derechos y libertades de los interesados
-   - Medidas previstas para afrontar los riesgos (enlazar con tareas T-702 a T-711)
-2. Incluir matriz de riesgos con probabilidad e impacto para cada riesgo identificado.
-3. Documentar las medidas de mitigación implementadas y su eficacia esperada.
-4. Referenciar el RAT (T-701) como base del análisis.
-
-**Criterios de Aceptación:**
-
-- [ ] Documento EIPD creado con las 4 secciones requeridas por Art. 35.7
-- [ ] Mínimo 8 riesgos identificados y evaluados con probabilidad e impacto
-- [ ] Cada riesgo tiene al menos una medida de mitigación asociada
-- [ ] Referencias a normativa aplicable (RGPD, LOPDGDD, directrices AEPD)
-- [ ] Enlace con el RAT y las medidas técnicas implementadas en el Sprint
-
-**Archivos afectados:** `documentation/EIPD_Evaluacion_Impacto.md` (nuevo)
-
----
-
-### T-708: 🛡️ Registro de consentimiento parental para tratamiento de datos 📋
-
-**Prioridad:** P2 | **Tamaño:** M (4-8h) | **Dependencias:** T-701
-**Origen:** Auditoría de protección de datos — Art. 8 RGPD, Art. 7 LOPDGDD
-
-**Descripción:**
-El Art. 7 LOPDGDD fija en 14 años la edad mínima para consentir el tratamiento de datos en España. Para los alumnos de 4-8 años, el consentimiento debe proceder del titular de la patria potestad o tutela. Actualmente no se registra este consentimiento. Se necesita un sistema que permita al profesor registrar que ha obtenido el consentimiento parental antes de crear un estudiante, con trazabilidad de quién, cuándo y para qué.
-
-**Sub-tareas:**
-
-1. Añadir campo `consent` al schema de `User` para role `student`:
-   ```
-   consent: {
-     granted: Boolean (required for students),
-     grantedBy: String (nombre del tutor legal),
-     grantedAt: Date,
-     purposes: [String] (e.g., ['educational_tracking', 'performance_analytics']),
-     policyVersion: String
-   }
-   ```
-2. Modificar validador de creación de estudiantes: requerir `consent.granted = true` y `consent.grantedBy` obligatorio.
-3. Actualizar DTO de estudiante para incluir estado del consentimiento (sin exponer `grantedBy` en endpoints públicos).
-4. Crear endpoint `PATCH /api/users/:id/consent` para actualizar/revocar el consentimiento.
-5. Si el consentimiento se revoca: el estudiante pasa a `status: 'inactive'` y no puede participar en partidas.
-6. Frontend: añadir sección de consentimiento en el formulario de creación de estudiante con checkbox explícito y campo de nombre del tutor.
-7. Tests de integración para validar que no se puede crear un estudiante sin consentimiento.
-
-**Criterios de Aceptación:**
-
-- [ ] No se puede crear un estudiante sin `consent.granted = true` y `consent.grantedBy`
-- [ ] Endpoint `PATCH /api/users/:id/consent` permite actualizar/revocar
-- [ ] La revocación desactiva al estudiante automáticamente
-- [ ] El DTO incluye estado del consentimiento
-- [ ] Frontend muestra campos de consentimiento al crear estudiante
-- [ ] `npm test` pasa en backend
-- [ ] `npm run build` pasa en frontend
-
-**Archivos afectados:** `backend/src/models/User.js`, `backend/src/controllers/userController.js`, `backend/src/routes/users.js`, `backend/src/validators/userValidator.js`, `backend/src/utils/dtos.js`, `frontend/src/pages/` (formulario de creación de estudiante)
-
----
-
-### T-709: 🛡️ Separación de datos identificativos y de rendimiento en DTOs de analytics 📋
-
-**Prioridad:** P2 | **Tamaño:** S (2-4h) | **Dependencias:** T-703
-**Origen:** Auditoría de protección de datos — Art. 25 RGPD (protección desde el diseño)
-
-**Descripción:**
-Los endpoints de analytics retornan datos de rendimiento directamente vinculados a datos identificativos (nombre, avatar, classroom) en la misma respuesta JSON. Si un atacante compromete la capa de analytics, obtiene PII + datos de rendimiento juntos. Se debe separar lógicamente la resolución de identidad de los datos de rendimiento en los DTOs de analytics, de forma que los datos analíticos puedan procesarse sin necesidad de acceder a PII.
-
-**Sub-tareas:**
-
-1. Crear DTO `StudentAnalyticsDTO` que retorne `pseudoId` (hash) en lugar de `playerId`/`_id` directo.
-2. Crear DTO `StudentIdentityDTO` que solo contenga: `pseudoId`, `name`, `avatar`, `classroom`.
-3. Los endpoints de analytics retornarán datos con `pseudoId`; el frontend resolverá la identidad con una tabla de correspondencia obtenida de un endpoint separado (el de listado de estudiantes del profesor).
-4. Actualizar los DTOs en `utils/dtos.js`.
-5. Tests que verifiquen que los endpoints de analytics no exponen `name`, `email`, ni `classroom`.
-
-**Criterios de Aceptación:**
-
-- [ ] Los endpoints de analytics no retornan `name`, `email` ni `classroom` directamente
-- [ ] Usan `pseudoId` como identificador de estudiante
-- [ ] La resolución identidad ↔ pseudoId se realiza en el frontend
-- [ ] DTO `StudentAnalyticsDTO` creado y aplicado
-- [ ] `npm test` pasa en backend
-
-**Archivos afectados:** `backend/src/utils/dtos.js`, `backend/src/controllers/analyticsController.js` (si existe), `backend/src/services/analyticsService.js` (si existe)
-
----
-
 ## P3 — Prioridad Baja
-
-### T-515: ⚛️ Añadir tokens semánticos faltantes en `index.css` si es necesario 📋
-
-**Prioridad:** P3 | **Tamaño:** XS (< 2h) | **Dependencias:** T-503 a T-512
-**Origen:** Evaluación post-migración de cobertura de tokens
-
-**Descripción:**
-Revisar colores que no pudieron mapearse durante T-503 a T-512. Crear tokens adicionales si patrones recurrentes lo justifican.
-
-**Criterios de Aceptación:**
-
-- [ ] Nuevos tokens (si los hay) siguen convención `--color-{categoría}-{variante}` en OKLCH
-- [ ] Documentados con comentario en `index.css`
-- [ ] `npm run build` pasa
-
----
-
-### T-532: 🔧 Extraer endpoints inline de server.js a controllers dedicados 📋
-
-**Prioridad:** P3 | **Tamaño:** S (2-4h) | **Dependencias:** T-525
-**Origen:** server.js tiene handlers inline para `GET /`, health, metrics
-
-**Descripción:**
-Extraer handlers inline a `controllers/healthController.js` y `routes/health.js`. `server.js` debe ser solo configuración y montaje.
-
-**Criterios de Aceptación:**
-
-- [ ] Handlers inline extraídos a controllers/routes
-- [ ] `server.js` solo contiene configuración y montaje
-- [ ] Tests existentes pasan
-- [ ] Endpoints funcionan idénticamente
-
-**Archivos afectados:** `backend/src/controllers/healthController.js` (nuevo), `backend/src/routes/health.js` (nuevo), `backend/src/server.js`
-
----
-
-### T-533: 🔧 Agregar soporte de transacciones en repository base 📋
-
-**Prioridad:** P3 | **Tamaño:** M (4-8h) | **Dependencias:** T-520
-**Origen:** Sin soporte para transacciones de Mongoose
-
-**Descripción:**
-Crear `utils/withTransaction.js` con función `withTransaction(callback)`. Agregar soporte de `session` en métodos de `baseRepository.js`. NO migrar operaciones existentes.
-
-**Criterios de Aceptación:**
-
-- [ ] `utils/withTransaction.js` creado y documentado
-- [ ] Métodos del repository aceptan `session` como opción
-- [ ] Test demuestra commit y rollback
-- [ ] Documentación sobre requisitos de replica set
-
-**Archivos afectados:** `backend/src/utils/withTransaction.js` (nuevo), `backend/src/repositories/baseRepository.js`
-
----
-
-### T-534: 🔧 Agregar operaciones batch al repository base 📋
-
-**Prioridad:** P3 | **Tamaño:** S (2-4h) | **Dependencias:** T-520
-**Origen:** Sin `bulkWrite()` ni `insertMany()` en repositorios
-
-**Descripción:**
-Agregar `insertMany` y `bulkWrite` a `baseRepository.js` y exponer en repositorios relevantes (card, cardDeck, gamePlay).
-
-**Criterios de Aceptación:**
-
-- [ ] `insertMany` y `bulkWrite` disponibles en repository base
-- [ ] Al menos 3 repositorios concretos los exponen
-- [ ] Tests unitarios
-
-**Archivos afectados:** `backend/src/repositories/baseRepository.js`, repositorios concretos
-
----
 
 ### T-535: 🔧 Plan de descomposición modular de gameEngine.js 📋
 
@@ -1598,109 +1381,25 @@ Dashboard vacío con card de bienvenida con pasos visuales (crear alumnos, explo
 
 ---
 
-### T-617: 📊 Exportar datos de analytics a CSV 📋
+### T-710: 🛡️ Información de privacidad y audit trail de acceso a datos 📋
 
-**Prioridad:** P3 | **Tamaño:** M (4-8h) | **Dependencias:** T-601, T-606
-**Origen:** Profesores pueden necesitar compartir datos con dirección del centro
-
-**Descripción:**
-Botón "Exportar CSV" en StudentsAnalytics y opcionalmente en Dashboard. Generación client-side con `Blob` + `URL.createObjectURL`, sin dependencias externas.
-
-**Archivos a Crear/Modificar:**
-
-- `frontend/src/lib/utils.js` — Función `exportToCSV`
-- `frontend/src/pages/StudentsAnalytics.jsx` — Botón exportar
-- `frontend/src/pages/Dashboard.jsx` — Botón exportar (opcional)
-
-**Criterios de Aceptación:**
-
-- [ ] Botón "Exportar CSV" visible en vista de estudiantes
-- [ ] CSV generado correctamente con datos reales
-- [ ] Descarga automática del archivo
-- [ ] Sin dependencias externas
-- [ ] `npm run build` pasa
-
----
-
-### T-618: 📊 Sidebar — Mejoras de navegación y notificaciones 📋
-
-**Prioridad:** P3 | **Tamaño:** S (2-4h) | **Dependencias:** T-605, T-606
-**Origen:** El sidebar podría indicar mejor el estado del sistema
+**Consolida:** T-710 + T-711
+**Prioridad:** P3 | **Tamaño:** M (4-8h) | **Dependencias:** T-704, T-703
+**Origen:** Auditoría de protección de datos — Arts. 13, 14 y 5.2 RGPD (derecho a la información y responsabilidad proactiva)
 
 **Descripción:**
-Badge de notificación en "Dashboard" si hay alertas activas. Enlace "Mis Alumnos" para la nueva página T-606.
-
-**Archivos a Modificar:**
-
-- `frontend/src/components/layout/AppLayout.jsx`
-- `frontend/src/constants/routes.js`
-
-**Criterios de Aceptación:**
-
-- [ ] Badge de notificación visible cuando hay alertas
-- [ ] Enlace "Mis Alumnos" funcional en sidebar
-- [ ] `npm run build` pasa
-
----
-
-### T-619: 📊 Mejoras de micro-interacciones en CharacterMascot 📋
-
-**Prioridad:** P3 | **Tamaño:** S (2-4h) | **Dependencias:** Ninguna
-**Origen:** La mascota puede aportar más personalidad y motivación
-
-**Descripción:**
-Micro-animaciones por estado (parpadeo idle, salto happy, wave encouraging, cabeceo sad) y burbujas de diálogo con mensajes rotativos.
-
-**Archivos a Modificar:**
-
-- `frontend/src/components/game/CharacterMascot.jsx`
-- `frontend/src/components/game/MascotAccessory.jsx`
-
-**Criterios de Aceptación:**
-
-- [ ] Al menos 3 estados con micro-animaciones únicas
-- [ ] Burbujas de diálogo con mensajes rotativos
-- [ ] Animaciones respetan `prefers-reduced-motion`
-- [ ] `npm run build` pasa
-
----
-
-### T-620: 📊 StudentProgressChart — Overlay de promedio de clase 📋
-
-**Prioridad:** P3 | **Tamaño:** S (2-4h) | **Dependencias:** T-603
-**Origen:** Gráfico de progreso sin contexto comparativo
-
-**Descripción:**
-Añadir línea punteada en `StudentProgressChart` (en perfil de estudiante) con promedio de clase para el mismo período.
-
-**Archivos a Modificar:**
-
-- `frontend/src/components/dashboard/StudentProgressChart.jsx`
-- `frontend/src/pages/StudentProfile.jsx`
-
-**Criterios de Aceptación:**
-
-- [ ] Línea punteada de promedio de clase visible
-- [ ] Leyenda clara diferenciando alumno vs clase
-- [ ] Tooltip muestra ambos valores
-- [ ] `npm run build` pasa
-
----
-
-### T-710: 🛡️ Información de privacidad accesible al usuario (profesores/tutores) 📋
-
-**Prioridad:** P3 | **Tamaño:** S (2-4h) | **Dependencias:** T-709
-**Origen:** Auditoría de protección de datos — Arts. 13 y 14 RGPD (derecho a la información)
-
-**Descripción:**
-Los Arts. 13 y 14 RGPD exigen proporcionar información sobre el tratamiento de datos *«de forma concisa, transparente, inteligible y de fácil acceso, con un lenguaje claro y sencillo»*. Actualmente no existe ninguna página o sección en la plataforma que informe a profesores o tutores sobre qué datos se recogen, con qué finalidad, durante cuánto tiempo, quién tiene acceso, y cómo ejercer los derechos. Se necesita una página o modal accesible desde el frontend.
+Dos piezas de cumplimiento RGPD:
+1. **Información de privacidad:** Los Arts. 13 y 14 RGPD exigen proporcionar información sobre el tratamiento de datos de forma concisa, transparente e inteligible. Actualmente no existe ninguna página que informe a profesores o tutores.
+2. **Audit trail:** El principio de accountability del Art. 5.2 RGPD exige poder demostrar el cumplimiento. Actualmente no se registra quién accede a los datos de qué estudiante ni cuándo se exportan o eliminan.
 
 **Sub-tareas:**
+
+**Fase A — Página de privacidad (ex T-710):**
 
 1. Crear componente `frontend/src/pages/PrivacyInfo.jsx` con la información de privacidad:
    - Qué datos se recogen de los estudiantes (y cuáles no, ej: no se recoge email de alumnos)
    - Finalidad del tratamiento (seguimiento pedagógico, analytics de rendimiento)
-   - Plazos de conservación (según T-705)
+   - Plazos de conservación (según T-704)
    - Quién tiene acceso (solo el profesor asignado y super_admin)
    - Cómo ejercer derechos (supresión, portabilidad, revocación de consentimiento)
    - Base legal del tratamiento (consentimiento parental, Art. 8 RGPD + Art. 7 LOPDGDD)
@@ -1708,47 +1407,32 @@ Los Arts. 13 y 14 RGPD exigen proporcionar información sobre el tratamiento de 
 3. Añadir enlace a la página de privacidad en el footer o sidebar del layout.
 4. Redactar el contenido en español, con lenguaje accesible para padres y profesores no técnicos.
 
+**Fase B — Audit trail de acceso a datos (ex T-711):**
+
+5. Crear utilidad `utils/dataAccessLogger.js` que registre eventos de acceso a datos de estudiantes.
+6. Definir eventos a registrar:
+   - `DATA_ACCESS`: Cuando un profesor consulta el perfil/analytics de un estudiante
+   - `DATA_EXPORT`: Cuando se ejecuta el endpoint de exportación (T-706)
+   - `DATA_DELETE`: Cuando se ejecuta el borrado efectivo (T-704) — ya parcialmente cubierto
+   - `DATA_CONSENT_CHANGE`: Cuando se modifica el consentimiento (T-702)
+7. Formato del log: `{ event, teacherId, studentPseudoId, timestamp, action, ipAddress }`.
+8. Integrar en los controllers relevantes: `userController` (perfil, export, delete), `analyticsController` (student summary).
+9. Tests unitarios.
+
 **Criterios de Aceptación:**
 
 - [ ] Página de privacidad accesible en `/privacy`
 - [ ] Contenido cubre los 6 puntos mínimos del Art. 13 RGPD
 - [ ] Lenguaje claro y accesible (no jurídico)
 - [ ] Enlace visible desde el layout principal
-- [ ] `npm run build` pasa
-
-**Archivos afectados:** `frontend/src/pages/PrivacyInfo.jsx` (nuevo), `frontend/src/App.jsx` (ruta), `frontend/src/components/layout/AppLayout.jsx` (enlace)
-
----
-
-### T-711: 🛡️ Logging de acceso a datos de estudiantes (audit trail) 📋
-
-**Prioridad:** P3 | **Tamaño:** S (2-4h) | **Dependencias:** T-704
-**Origen:** Auditoría de protección de datos — Art. 5.2 RGPD (responsabilidad proactiva)
-
-**Descripción:**
-El principio de responsabilidad proactiva (accountability) del Art. 5.2 RGPD exige poder demostrar el cumplimiento. Actualmente se registran eventos de seguridad (login, transferencia de estudiantes), pero no se registra **quién accede a los datos de qué estudiante** ni cuándo se exportan o eliminan datos. Un audit trail de acceso a datos permite: (1) detectar accesos indebidos, (2) responder ante solicitudes de la AEPD, (3) demostrar que solo personal autorizado accedió a los datos.
-
-**Sub-tareas:**
-
-1. Crear utilidad `utils/dataAccessLogger.js` que registre eventos de acceso a datos de estudiantes.
-2. Definir eventos a registrar:
-   - `DATA_ACCESS`: Cuando un profesor consulta el perfil/analytics de un estudiante
-   - `DATA_EXPORT`: Cuando se ejecuta el endpoint de exportación (T-706)
-   - `DATA_DELETE`: Cuando se ejecuta el borrado efectivo (T-704) — ya parcialmente cubierto
-   - `DATA_CONSENT_CHANGE`: Cuando se modifica el consentimiento (T-708)
-3. Formato del log: `{ event, teacherId, studentPseudoId, timestamp, action, ipAddress }`.
-4. Integrar en los controllers relevantes: `userController` (perfil, export, delete), `analyticsController` (student summary).
-5. Tests unitarios.
-
-**Criterios de Aceptación:**
-
 - [ ] Utilidad `dataAccessLogger` creada con eventos definidos
 - [ ] Se registra log al acceder al perfil de un estudiante
 - [ ] Se registra log al exportar o eliminar datos de un estudiante
 - [ ] Logs usan `pseudoId` del estudiante, nunca el nombre
 - [ ] `npm test` pasa en backend
+- [ ] `npm run build` pasa en frontend
 
-**Archivos afectados:** `backend/src/utils/dataAccessLogger.js` (nuevo), `backend/src/controllers/userController.js`, `backend/src/controllers/analyticsController.js`
+**Archivos afectados:** `frontend/src/pages/PrivacyInfo.jsx` (nuevo), `frontend/src/App.jsx` (ruta), `frontend/src/components/layout/AppLayout.jsx` (enlace), `backend/src/utils/dataAccessLogger.js` (nuevo), `backend/src/controllers/userController.js`, `backend/src/controllers/analyticsController.js`
 
 ---
 
@@ -1759,63 +1443,52 @@ El principio de responsabilidad proactiva (accountability) del Art. 5.2 RGPD exi
                     🔧 BACKEND
 ═══════════════════════════════════════════════════════════════
 
-T-516 (errorHandler unificado)
-  ├──► T-517 (notFound)
-  ├──► T-518 (asyncHandler)
-  └──► T-519 (responseHelper)
+T-516 (errorHandler + notFound + asyncHandler)
+  └──► T-519 (responseHelper + filterBuilder)
 
-T-516 + T-518 ──► T-601 (nuevos endpoints analytics) ─────────┐
+T-516 ──► T-601 (nuevos endpoints analytics) ─────────────────┐
                                                                 │
-T-520 (repositories write)                                      │
-  ├──► T-533 (transacciones)                                    │
-  └──► T-534 (batch ops)                                        │
+T-520 (repositories write + transacciones + batch)              │
                                                                 │
-T-525 (health unificado)                                        │
-  └──► T-532 (extraer inline handlers)                          │
+T-525 (health unificado + handlers inline)                      │
                                                                 │
-Independientes: T-521, T-523, T-530, T-535                     │
+Independientes: T-521, T-523, T-535                             │
                                                                 │
 ═══════════════════════════════════════════════════════════════  │
                     ⚛️ REACT / TAILWIND                         │
 ═══════════════════════════════════════════════════════════════  │
                                                                 │
-T-503 ──┐
-T-506 ──┼──► T-512 (batch restante) ──► T-515 (tokens faltantes)
-T-507 ──┘
+T-503 ──┐                                                       │
+        ├──► T-512 (batch restante + tokens faltantes)          │
+T-507 ──┘                                                       │
+                                                                │
+T-608 (Login/Register + ContextsPage) — independiente           │
+                                                                │
+═══════════════════════════════════════════════════════════════  │
+                    📊 UI/UX & DASHBOARDS                       │
+═══════════════════════════════════════════════════════════════  │
+                                                                │
+T-601 (Backend endpoints) ──┬──► T-602 (Datos reales dashboard) │
+                            ├──► T-603 (Perfil estudiante)      │
+                            ├──► T-604 (KPIs + alertas +        │
+                            │         heatmap) ◄── T-602        │
+                            └──► T-606 (Vista comparativa +     │
+                                      CSV + sidebar) ◄── T-603  │
+                                                                │
+T-602 ──► T-616 (Onboarding)                                   │
 
-═══════════════════════════════════════════════════════════════
-                    📊 UI/UX & DASHBOARDS
-═══════════════════════════════════════════════════════════════
-
-T-601 (Backend endpoints) ──┬──► T-602 (Datos reales dashboard)
-                            ├──► T-603 (Perfil estudiante)
-                            ├──► T-604 (KPIs expandidos) ◄── T-602
-                            ├──► T-605 (Alertas inteligentes) ◄── T-602
-                            ├──► T-606 (Vista comparativa) ◄── T-603
-                            └──► T-617 (Exportar CSV) ◄── T-606
-
-T-602 ──► T-616 (Onboarding)
-T-603 ──► T-620 (Overlay promedio clase)
-T-605 + T-606 ──► T-618 (Sidebar badges/enlaces)
-
-Independientes: T-607, T-608, T-609, T-610, T-611, T-612,
-                T-613, T-614, T-615, T-619
+Independientes: T-609 (mejoras partida), T-611 (UI components)
 
 ═══════════════════════════════════════════════════════════════
               🛡️ PROTECCIÓN DE DATOS DE MENORES
 ═══════════════════════════════════════════════════════════════
 
-T-701 (Auditoría + RAT) ──────┬──► T-702 (Minimización datos)
-                               ├──► T-703 (Seudonimización)
-                               ├──► T-706 (Exportación datos)
-                               ├──► T-707 (EIPD)
-                               └──► T-708 (Consentimiento parental)
+T-701 (Auditoría + RAT + EIPD) ──┬──► T-702 (Minimización + consentimiento)
+                                   ├──► T-703 (Seudonimización + separación PII)
+                                   └──► T-706 (Exportación datos)
 
-T-702 (Minimización) ──► T-704 (Borrado efectivo)
-T-704 (Borrado efectivo) ──► T-705 (Retención automática)
-T-704 (Borrado efectivo) ──► T-711 (Audit trail)
-T-703 (Seudonimización) ──► T-709 (Separación PII/analytics)
-T-709 (Separación PII) ──► T-710 (Información privacidad)
+T-702 (Minimización + consentimiento) ──► T-704 (Borrado + retención)
+T-703 + T-704 ──► T-710 (Privacidad info + audit trail)
 
 ═══════════════════════════════════════════════════════════════
               🃏 REFACTOR RFID CARDS (Tokens Fungibles)
@@ -1824,12 +1497,9 @@ T-709 (Separación PII) ──► T-710 (Información privacidad)
 T-801 (ADR-012 documentación) ✅
   └──► T-802 (Esquemas Mongoose + Zod)
         └──► T-803 (Lógica negocio + DTOs)
-              ├──► T-804 (Eliminar infra Card)
-              │      ├──► T-805 (Seeders)
+              ├──► T-804 (Eliminar infra Card + seeders)
               │      └──► T-806 (Tests backend)
-              ├──► T-807 (Frontend data layer)
-              │      ├──► T-808 (Páginas mazos)
-              │      └──► T-809 (Sesiones + admin)
+              ├──► T-807 (Frontend: data layer + páginas + admin)
               └──► T-806 (Tests backend)
 
 ═══════════════════════════════════════════════════════════════
@@ -1837,22 +1507,20 @@ T-801 (ADR-012 documentación) ✅
 ═══════════════════════════════════════════════════════════════
 
 T-516 (Backend errorHandler) ──► T-601 (Backend analytics)
-T-518 (Backend asyncHandler) ──► T-601 (Backend analytics)
 T-519 (Backend responseHelper) ──► T-601 (usar helpers en nuevos endpoints)
-T-608 (Login/Register tokens) ║ T-503, T-506, T-507 (misma técnica de migración)
-T-610 (ContextsPage tokens)   ║ T-512 (batch de tokens, misma técnica)
-T-703 (Seudonimización) ──► T-601/T-709 (analytics usan pseudoIds)
-T-708 (Consentimiento) ──► T-603 (perfil estudiante muestra estado consentimiento)
+T-608 (Login/Register/Contexts tokens) ║ T-503, T-507 (misma técnica de migración)
+T-703 (Seudonimización) ──► T-601/T-703 (analytics usan pseudoIds)
+T-702 (Consentimiento) ──► T-603 (perfil estudiante muestra estado consentimiento)
 T-803 (Card refactor DTOs) ║ T-601 (Analytics — ambos modifican dtos.js, coordinar)
 ```
 
 ### Rutas Críticas
 
 ```
-Dashboards:   T-516 (M) → T-518 (S) → T-601 (L) → T-602 (M) → T-603/T-604/T-606 (XL)
-Protección:   T-701 (M) → T-702 (S) → T-704 (M) → T-705 (L)
-RFID Cards:   T-801 ✅ → T-802 (M) → T-803 (L) → T-804 (M) → T-805/T-806 (S/L)
-                                         └──► T-807 (S) → T-808/T-809 (M/S)
+Dashboards:   T-516 (L) → T-601 (L) → T-602 (M) → T-603/T-604/T-606 (XL)
+Protección:   T-701 (L) → T-702 (M) → T-704 (XL)
+RFID Cards:   T-801 ✅ → T-802 (M) → T-803 (L) → T-804 (L) → T-806 (L)
+                                         └──► T-807 (L)
 ```
 
 La cadena de dashboards determina cuándo el dashboard estará completamente funcional con datos reales. La cadena de protección de datos es independiente y puede ejecutarse en paralelo. La cadena de RFID Cards es independiente de las otras dos y puede ejecutarse en paralelo, excepto en `dtos.js` (compartido con T-601).
@@ -1865,36 +1533,46 @@ La cadena de dashboards determina cuándo el dashboard estará completamente fun
 
 | Prioridad | Tareas | Esfuerzo estimado |
 |---|---|---|
-| **P0 (Crítica)** | 10 tareas (T-516~T-518, T-601~T-603, T-701, T-702, T-801~T-803) | ~10-15 días |
-| **P1 (Alta)** | 21 tareas (T-503, T-506, T-507, T-519~T-521, T-604~T-609, T-703~T-706, T-804~T-809) | ~18-27 días |
-| **P2 (Media)** | 14 tareas (T-512, T-523, T-525, T-530, T-610~T-615, T-707~T-709) | ~7-11 días |
-| **P3 (Baja)** | 12 tareas (T-515, T-532~T-535, T-616~T-620, T-710, T-711) | ~6-8 días |
-| **Total** | **57 tareas** (1 completada) | **~41-61 días** |
+| **P0 (Crítica)** | 9 tareas (T-516, T-601~T-603, T-701, T-702, T-801~T-803) | ~12-18 días |
+| **P1 (Alta)** | 15 tareas (T-503, T-507, T-519~T-521, T-604, T-606, T-608, T-609, T-703, T-704, T-706, T-804, T-806, T-807) | ~20-30 días |
+| **P2 (Media)** | 4 tareas (T-512, T-523, T-525, T-611) | ~4-6 días |
+| **P3 (Baja)** | 3 tareas (T-535, T-616, T-710) | ~2-3 días |
+| **Total** | **31 tareas** (1 completada) | **~38-57 días** |
 
 ### Por Área
 
 | Área | Tareas | % esfuerzo |
 |---|---|---|
-| 🔧 Backend (Node.js, API, Express) | T-516~T-521, T-523, T-525, T-530, T-532~T-535 (13 tareas) | ~18% |
-| ⚛️ React & Tailwind CSS v4 | T-503, T-506, T-507, T-512, T-515 (5 tareas) | ~10% |
-| 📊 UI/UX, Dashboards y Analytics | T-601 a T-620 (20 tareas) | ~42% |
-| 🛡️ Protección de Datos de Menores | T-701~T-711 (11 tareas) | ~18% |
-| 🃏 Refactor RFID Cards (Tokens Fungibles) | T-801~T-809 (9 tareas, 1 completada) | ~12% |
+| 🔧 Backend (Node.js, API, Express) | T-516, T-519~T-521, T-523, T-525, T-535 (7 tareas) | ~18% |
+| ⚛️ React & Tailwind CSS v4 | T-503, T-507, T-512 (3 tareas) | ~10% |
+| 📊 UI/UX, Dashboards y Analytics | T-601~T-604, T-606, T-608, T-609, T-611, T-616 (9 tareas) | ~42% |
+| 🛡️ Protección de Datos de Menores | T-701~T-704, T-706, T-710 (6 tareas) | ~18% |
+| 🃏 Refactor RFID Cards (Tokens Fungibles) | T-801~T-804, T-806, T-807 (6 tareas, 1 completada) | ~12% |
 
-### Por Tipo de Cambio
+### Tabla de Consolidación (Trazabilidad)
 
-| Tipo de cambio | Tareas | % esfuerzo |
-|---|---|---|
-| Dashboards y analytics (endpoints + UI) | T-601~T-607, T-615, T-617, T-620 | ~28% |
-| Nuevas páginas (StudentProfile, StudentsAnalytics) | T-603, T-606 | ~12% |
-| Migración de tokens de color | T-503, T-506, T-507, T-512, T-515, T-608, T-610 | ~12% |
-| Robustecimiento backend (errores, repos, seguridad) | T-516~T-521, T-530 | ~12% |
-| **Protección de datos y privacidad (RGPD/LOPDGDD)** | **T-701~T-711** | **~20%** |
-| Componentes UI reutilizables | T-611, T-612, T-614 | ~4% |
-| Experiencia de juego | T-609, T-613, T-619 | ~4% |
-| Mejora de hooks y rendimiento React | — (completado) | ~0% |
-| Infraestructura backend (health, deprecation, planning) | T-523, T-525, T-532~T-535 | ~4% |
-| **Refactor RFID Cards — Tokens fungibles (ADR-012)** | **T-801~T-809** | **~12%** |
+| Tarea consolidada | Tareas originales absorbidas |
+|---|---|
+| T-516 | T-516 + T-517 + T-518 |
+| T-519 | T-519 + T-530 |
+| T-520 | T-520 + T-533 + T-534 |
+| T-525 | T-525 + T-532 |
+| T-503 | T-503 + T-506 |
+| T-507 | — (sin cambios) |
+| T-512 | T-512 + T-515 |
+| T-603 | T-603 + T-620 |
+| T-604 | T-604 + T-605 + T-607 + T-615 |
+| T-606 | T-606 + T-617 + T-618 |
+| T-608 | T-608 + T-610 |
+| T-609 | T-609 + T-613 + T-619 |
+| T-611 | T-611 + T-612 + T-614 |
+| T-701 | T-701 + T-707 |
+| T-702 | T-702 + T-708 |
+| T-703 | T-703 + T-709 |
+| T-704 | T-704 + T-705 |
+| T-710 | T-710 + T-711 |
+| T-804 | T-804 + T-805 |
+| T-807 | T-807 + T-808 + T-809 |
 
 ---
 
@@ -1902,58 +1580,51 @@ La cadena de dashboards determina cuándo el dashboard estará completamente fun
 
 ### Fase 1 — Fundamentos Backend (Semana 1)
 
-1. **T-516** (M, prerequisito de todo el flujo de errores)
-2. **T-517** + **T-518** (XS y S, dependen de T-516, pueden ser paralelas)
-3. **T-519** + **T-521** (M cada una, en paralelo)
-4. **T-520** (L, independiente, puede iniciar en paralelo)
+1. **T-516** (L, prerequisito de todo el flujo de errores — incluye validación, notFound, asyncHandler)
+2. **T-519** (L, responseHelper + filterBuilder — tras T-516)
+3. **T-520** (XL, repository completo — independiente, puede iniciar en paralelo con T-516)
+4. **T-521** (M, rate limiting — independiente)
 
 ### Fase 2 — Tokens Frontend + Analytics Backend (Semanas 1-2)
 
-5. **T-601** (L, endpoints analytics — tras T-516 y T-518)
-6. **T-503**, **T-506**, **T-507** (migraciones de tokens, paralelas entre sí)
+5. **T-601** (L, endpoints analytics — tras T-516)
+6. **T-503**, **T-507** (migraciones de tokens, paralelas entre sí)
 
 ### Fase 3 — Dashboards con Datos Reales (Semanas 2-3)
 
 7. **T-602** (M, conectar datos reales al dashboard — tras T-601)
-8. **T-603** (XL, perfil estudiante — tras T-601)
-9. **T-604** + **T-605** (KPIs + alertas — tras T-602)
-10. **T-608** + **T-610** (tokens Login/Register + ContextsPage, paralelas)
+8. **T-603** (XL, perfil estudiante con overlay — tras T-601)
+9. **T-604** (XL, KPIs + alertas + heatmap — tras T-602)
+10. **T-608** (L, tokens Login/Register + ContextsPage — paralelo)
 
 ### Fase 4 — Páginas Nuevas + Componentes (Semanas 3-4)
 
-11. **T-606** (XL, vista comparativa — tras T-601 y T-603)
-12. **T-607** + **T-609** (heatmap + gameplay, paralelas)
-13. **T-611** + **T-612** + **T-614** (breadcrumbs + PageHeader + ErrorState)
+11. **T-606** (XL, vista comparativa + CSV + sidebar — tras T-601 y T-603)
+12. **T-609** (XL, mejoras visuales partida — independiente)
+13. **T-611** (L, Breadcrumb + PageHeader + ErrorState — independiente)
 
-### Fase 5 — Protección de Datos: Fundamentos (Semanas 3-4)
+### Fase 5 — Protección de Datos (Semanas 3-5, paralela con Fases 3-4)
 
-14. **T-701** (M, auditoría + RAT — sin dependencias, se puede iniciar antes)
-15. **T-702** (S, minimización datos — tras T-701)
-16. **T-703** (M, seudonimización — tras T-701, paralela con T-702)
+14. **T-701** (L, auditoría + RAT + EIPD — sin dependencias, se puede iniciar antes)
+15. **T-702** (M, minimización + consentimiento — tras T-701)
+16. **T-703** (L, seudonimización + separación PII — tras T-701, paralela con T-702)
+17. **T-704** (XL, borrado + retención — tras T-702)
+18. **T-706** (M, exportación datos — tras T-701)
 
-### Fase 6 — Protección de Datos: Derechos del Interesado (Semanas 4-5)
+### Fase 6 — Refactor RFID Cards (Semanas 4-5, paralela con Fase 5)
 
-17. **T-704** (M, borrado efectivo — tras T-702)
-18. **T-705** + **T-706** (retención + exportación — tras T-704 y T-701 respectivamente, paralelas)
-19. **T-707** + **T-708** (EIPD + consentimiento — tras T-701, paralelas)
-20. **T-709** (S, separación PII/analytics — tras T-703)
+19. **T-802** (M, esquemas Mongoose + Zod — sin dependencias externas)
+20. **T-803** (L, lógica de negocio + DTOs — coordinar con T-601 en dtos.js)
+21. **T-804** (L, eliminar infraestructura Card + seeders — tras T-803)
+22. **T-806** (L, tests — tras T-804)
+23. **T-807** (L, frontend data layer + páginas + admin — tras T-803)
 
-### Fase 7 — Refactor RFID Cards (Semanas 4-5, paralela con Fase 5-6)
+### Fase 7 — Pulido y Opcionales (Semanas 5-6)
 
-21. **T-802** (M, esquemas Mongoose + Zod — sin dependencias externas)
-22. **T-803** (L, lógica de negocio + DTOs — coordinar con T-601 en dtos.js)
-23. **T-804** (M, eliminar infraestructura Card — tras T-803)
-24. **T-805** + **T-806** (seeders + tests — tras T-804, paralelas entre sí)
-25. **T-807** (S, frontend data layer — tras T-803)
-26. **T-808** + **T-809** (páginas mazos + sesiones/admin — tras T-807, paralelas)
-
-### Fase 8 — Pulido y Opcionales (Semanas 5-6)
-
-27. **T-512** (batch tokens restantes — tras T-503, T-506, T-507)
-28. **T-613** + **T-615** (GameOverScreen + SelectPremium)
-29. Tareas P2 backend restantes (T-523, T-525, T-530)
-30. **T-710** + **T-711** (privacidad frontend + audit trail)
-31. Tareas P3 según capacidad (T-515, T-532~T-535, T-616~T-620)
+24. **T-512** (L, batch tokens restantes + faltantes — tras T-503, T-507)
+25. Tareas P2 backend restantes: **T-523**, **T-525**
+26. **T-710** (M, privacidad frontend + audit trail)
+27. **T-535**, **T-616** (P3, según capacidad)
 
 ---
 
@@ -2057,7 +1728,7 @@ La cadena de dashboards determina cuándo el dashboard estará completamente fun
    - Filtros interactivos funcionando
 8. **Perfil Estudiante** → Click en alumno del StudentsList:
    - KPIs individuales visibles
-   - Gráfico de progreso temporal
+   - Gráfico de progreso temporal con overlay de promedio de clase
    - Rendimiento por contexto y mecánica
    - Historial de partidas
    - Fortalezas y debilidades
@@ -2065,10 +1736,11 @@ La cadena de dashboards determina cuándo el dashboard estará completamente fun
    - Tabla con todos los estudiantes
    - Ordenación y filtros funcionando
    - Click en estudiante navega al perfil
+   - Exportar CSV funcional
 10. **Sesiones y Mazos** → Verificar breadcrumbs en páginas de detalle
 11. **Partida** → Iniciar una partida y verificar:
-    - GameOverScreen con resumen expandido
-    - CharacterMascot con micro-animaciones
+    - GameOverScreen con resumen expandido y desglose por ronda
+    - CharacterMascot con micro-animaciones y burbujas de diálogo
     - ChallengeDisplay con feedback mejorado
 12. **Responsive** → Verificar en viewport de 768px y 1024px
 13. **Protección de datos** → Verificar:
