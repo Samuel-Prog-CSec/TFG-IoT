@@ -147,8 +147,7 @@ const getSessionById = async (req, res) => {
       { path: 'mechanicId', select: 'name displayName icon' },
       { path: 'deckId', select: 'name status contextId' },
       { path: 'contextId', select: 'contextId name' },
-      { path: 'createdBy', select: 'name email' },
-      { path: 'cardMappings.cardId', select: 'uid type status' }
+      { path: 'createdBy', select: 'name email' }
     ],
     lean: isSessionReadLeanEnabled()
   });
@@ -636,8 +635,7 @@ const cloneSession = async (req, res) => {
     { path: 'mechanicId', select: 'name displayName icon' },
     { path: 'deckId', select: 'name status contextId' },
     { path: 'contextId', select: 'contextId name' },
-    { path: 'createdBy', select: 'name email' },
-    { path: 'cardMappings.cardId', select: 'uid type status' }
+    { path: 'createdBy', select: 'name email' }
   ]);
 
   logger.info('Sesión clonada', {

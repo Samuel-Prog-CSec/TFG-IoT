@@ -10,26 +10,24 @@ const logger = require('../src/utils/logger');
 
 /**
  * Genera cardMappings para un mazo.
- * @param {Array} cards - Tarjetas disponibles
  * @param {Array} contextAssets - Assets del contexto
  * @param {number} count - Número de mapeos a crear
+ * @param {number} baseOffset - Offset base para generar UIDs sintéticos
  * @returns {Array} Array de cardMappings
  */
-function generateCardMappings(cards, contextAssets, count) {
-  const selectedCards = cards.slice(0, count);
+function generateCardMappings(contextAssets, count, baseOffset) {
   const selectedAssets = contextAssets.slice(0, count);
 
-  return selectedCards.map((card, index) => ({
-    cardId: card._id,
-    uid: card.uid,
-    assignedValue: selectedAssets[index].value,
+  return selectedAssets.map((asset, index) => ({
+    uid: (baseOffset + index).toString(16).toUpperCase().padStart(8, '0'),
+    assignedValue: asset.value,
     displayData: {
-      key: selectedAssets[index].key,
-      display: selectedAssets[index].display,
-      value: selectedAssets[index].value,
-      audioUrl: selectedAssets[index].audioUrl || null,
-      imageUrl: selectedAssets[index].imageUrl || null,
-      thumbnailUrl: selectedAssets[index].thumbnailUrl || null
+      key: asset.key,
+      display: asset.display,
+      value: asset.value,
+      audioUrl: asset.audioUrl || null,
+      imageUrl: asset.imageUrl || null,
+      thumbnailUrl: asset.thumbnailUrl || null
     }
   }));
 }
@@ -85,16 +83,15 @@ const deckTemplates = [
  * Genera mazos para un profesor específico.
  * @param {Object} teacher - Documento del profesor
  * @param {Array} contexts - Contextos disponibles
- * @param {Array} cards - Tarjetas disponibles
- * @param {number} teacherIndex - Índice del profesor (para variar las tarjetas)
+ * @param {number} teacherIndex - Índice del profesor (para variar los UIDs)
  * @returns {Array} Array de datos de mazos
  */
-function generateDecksForTeacher(teacher, contexts, cards, teacherIndex) {
+function generateDecksForTeacher(teacher, contexts, teacherIndex) {
   const decks = [];
   const cardsPerDeck = 6;
   const decksPerTeacher = deckTemplates.length;
   const cardsPerTeacher = decksPerTeacher * cardsPerDeck;
-  const cardOffset = teacherIndex * cardsPerTeacher;
+  const uidBaseOffset = teacherIndex * cardsPerTeacher;
 
   deckTemplates.forEach((template, templateIndex) => {
     const context = findContext(contexts, template.contextKey);
@@ -113,18 +110,8 @@ function generateDecksForTeacher(teacher, contexts, cards, teacherIndex) {
       return;
     }
 
-    const startCardIndex = cardOffset + templateIndex * cardsPerDeck;
-    const endCardIndex = startCardIndex + template.cardCount;
-    const selectedCards = cards.slice(startCardIndex, endCardIndex);
-
-    if (selectedCards.length < template.cardCount) {
-      logger.warn(
-        `No hay suficientes tarjetas para el mazo '${template.name}' del profesor ${teacher.name}`
-      );
-      return;
-    }
-
-    const cardMappings = generateCardMappings(selectedCards, context.assets, template.cardCount);
+    const baseOffset = uidBaseOffset + templateIndex * cardsPerDeck;
+    const cardMappings = generateCardMappings(context.assets, template.cardCount, baseOffset);
 
     decks.push({
       name: template.name,
@@ -143,17 +130,16 @@ function generateDecksForTeacher(teacher, contexts, cards, teacherIndex) {
  * Ejecuta el seeder de mazos de tarjetas.
  * @param {Object} users - Usuarios creados { teachers, students }
  * @param {Array} contexts - Contextos creados
- * @param {Array} cards - Tarjetas creadas
  * @returns {Promise<Array>} Array de mazos creados
  */
-async function seedCardDecks(users, contexts, cards) {
+async function seedCardDecks(users, contexts) {
   try {
     const { teachers } = users;
     const allDecks = [];
 
     // Generar mazos para cada profesor
     for (const [index, teacher] of teachers.entries()) {
-      const teacherDecks = generateDecksForTeacher(teacher, contexts, cards, index);
+      const teacherDecks = generateDecksForTeacher(teacher, contexts, index);
       allDecks.push(...teacherDecks);
     }
 

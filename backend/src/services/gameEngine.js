@@ -900,7 +900,6 @@ class GameEngine {
     }
 
     playState.currentChallenge = {
-      cardId: challengeMapping.cardId,
       uid: challengeMapping.uid,
       assignedValue: challengeMapping.assignedValue,
       displayData: challengeMapping.displayData

@@ -11,8 +11,7 @@ Esta carpeta contiene los **modelos Mongoose** que definen la estructura de Mong
 
 ```
 models/
-├── Card.js            # Tarjetas RFID físicas del sistema
-├── CardDeck.js        # Mazos reutilizables (con mapeos tarjeta→valor)
+├── CardDeck.js        # Mazos de tokens RFID fungibles (con mapeos uid→valor)
 ├── GameMechanic.js    # Mecánicas de juego disponibles
 ├── GameContext.js     # Contextos temáticos + assets (compatibles con todas las mecánicas)
 ├── GameSession.js     # Configuración de sesiones (usa un mazo + reglas)
@@ -20,6 +19,9 @@ models/
 ├── User.js            # Usuarios (super_admin, teacher, student)
 └── README.md          # Este archivo
 ```
+
+> **Nota (ADR-012):** El modelo `Card` fue eliminado en la refactorización de tokens fungibles.
+> Las tarjetas RFID se identifican únicamente por su UID físico, sin registro previo en BD.
 
 ---
 
@@ -61,7 +63,7 @@ models/
   │ - mechanicId ──────────┼───────►└───────────────────────┘
   │ - contextId  ──────────┼───────► GameContext
   │ - config               │
-  │ - cardMappings[]       │  (cardId + uid + assignedValue)
+  │ - cardMappings[]       │  (uid + assignedValue + displayData)
   │ - createdBy ──────────► User (teacher)
   └───────────┬───────────┘
               │ sessionId (1:N)
@@ -107,34 +109,27 @@ LEYENDA:
 
 ---
 
-### 2. **Card** (Tarjeta RFID)
-
-**Colección:** `cards`
-
-Representa una tarjeta física identificada por `uid` (8 o 14 hex, uppercase). El significado contextual no vive en `Card`, sino en los mapeos (`assignedValue`) dentro de mazos/sesiones.
-
----
-
-### 3. **CardDeck** (Mazo de tarjetas)
+### 2. **CardDeck** (Mazo de tokens RFID)
 
 **Colección:** `card_decks`
 
-Un mazo es una plantilla reutilizable para preparar sesiones rápidamente.
+Un mazo agrupa tarjetas RFID fungibles (identificadas por UID) asignándoles un valor semántico dentro de un contexto educativo. Es una plantilla reutilizable para preparar sesiones rápidamente. Las tarjetas no requieren registro previo — cualquier tarjeta RFID compatible puede escanearse y asignarse directamente (ADR-012).
 
 **Campos principales:**
 - `name`: único por profesor (`createdBy` + `name` unique).
 - `contextId`: el contexto del que provienen los valores (`GameContext`).
-- `cardMappings[]`: subdocumentos con `{ cardId, uid, assignedValue, displayData }`.
+- `cardMappings[]`: subdocumentos con `{ uid, assignedValue, displayData }`. El UID es el identificador físico de la tarjeta (8 o 14 hex, validado por regex match).
 - `status`: `active` | `archived`.
 - `createdBy`: profesor propietario.
 
 **Validaciones:**
 - `cardMappings` debe tener entre 2 y 30 elementos.
+- UIDs deben ser únicos dentro del mazo (validador Mongoose + refine Zod).
+- Formato de UID: `/^[0-9A-F]{8}$|^[0-9A-F]{14}$/` (defensa en profundidad).
 
 **Relaciones:**
 - `createdBy` → `User (teacher)`.
 - `contextId` → `GameContext`.
-- `cardMappings.cardId` → `Card`.
 - Es referenciado desde `GameSession.deckId`.
 
 ---
@@ -207,8 +202,8 @@ const deck = await CardDeck.create({
   name: 'Banderas - Aula A',
   contextId,
   cardMappings: [
-    { cardId, uid: '32B8FA05', assignedValue: 'España', displayData: { display: '🇪🇸' } },
-    { cardId, uid: 'A1B2C3D4', assignedValue: 'Francia', displayData: { display: '🇫🇷' } }
+    { uid: '32B8FA05', assignedValue: 'España', displayData: { display: '🇪🇸' } },
+    { uid: 'A1B2C3D4', assignedValue: 'Francia', displayData: { display: '🇫🇷' } }
   ],
   createdBy: teacherId
 });
@@ -232,8 +227,7 @@ await GamePlay.create({ sessionId: session._id, playerId: studentId });
 ## 🛡️ Validaciones y rangos (resumen)
 
 - **User**: roles con login requieren `email/password`; `student` no puede tener credenciales.
-- **Card**: `uid` debe ser 8 o 14 hex (uppercase).
-- **CardDeck**: `cardMappings` entre 2 y 30.
+- **CardDeck**: `cardMappings` entre 2 y 30; UIDs validados por regex hex y unicidad.
 - **GameContext**: `assets` entre 1 y 30.
 - **GameSession**: `config.numberOfCards` entre 2 y 30 y `cardMappings.length` debe coincidir.
 
@@ -241,11 +235,10 @@ await GamePlay.create({ sessionId: session._id, playerId: studentId });
 
 ## 📊 Índices y rendimiento (puntos clave)
 
-- `Card.uid` unique (lookup O(1) al escanear RFID).
 - `GamePlay` índice compuesto `{ sessionId, playerId, status }` para localizar partidas activas rápido.
 - `CardDeck` índices por `createdBy`, `contextId`, `status` y unique `{ createdBy, name }`.
 
 ---
 
-**Última Actualización:** Enero 04, 2026
-**Estado:** Alineado con el código actual ✅
+**Última Actualización:** Marzo 25, 2026
+**Estado:** Alineado con el código actual (post ADR-012: tokens fungibles) ✅

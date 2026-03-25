@@ -51,7 +51,6 @@ const { registerSocketHandlers, registerRfidHandlers, stopCacheCleanup } = requi
 // Importar rutas
 const authRoutes = require('./routes/auth');
 const userRoutes = require('./routes/users');
-const cardRoutes = require('./routes/cards');
 const mechanicRoutes = require('./routes/mechanics');
 const contextRoutes = require('./routes/contexts');
 const sessionRoutes = require('./routes/sessions');
@@ -233,9 +232,6 @@ app.use('/api/auth', authRateLimiter, authRoutes);
 // Rutas de gestión de usuarios
 app.use('/api/users', userRoutes);
 
-// Rutas de gestión de tarjetas RFID
-app.use('/api/cards', cardRoutes);
-
 // Rutas de mecánicas de juego
 app.use('/api/mechanics', mechanicRoutes);
 
@@ -340,7 +336,6 @@ app.get('/', validateQuery(emptyObjectSchema), (req, res) => {
     endpoints: {
       auth: '/api/auth',
       users: '/api/users',
-      cards: '/api/cards',
       mechanics: '/api/mechanics',
       contexts: '/api/contexts',
       sessions: '/api/sessions',

@@ -54,9 +54,8 @@ function getDeckCards(deck) {
 }
 
 function getCardInfo(deckCard, index) {
-  const card = deckCard?.cardId && typeof deckCard.cardId === 'object' ? deckCard.cardId : null;
-  const uid = deckCard?.uid || card?.uid || 'Sin UID';
-  const label = deckCard?.assignedValue || card?.displayName || card?.name || `Tarjeta ${index + 1}`;
+  const uid = deckCard?.uid || 'Sin UID';
+  const label = deckCard?.assignedValue || `Tarjeta ${index + 1}`;
 
   // Estructura moderna: displayData en deckCard.displayData o deckCard.assignedAsset?.displayData
   const displayData = deckCard?.displayData || deckCard?.assignedAsset?.displayData || null;

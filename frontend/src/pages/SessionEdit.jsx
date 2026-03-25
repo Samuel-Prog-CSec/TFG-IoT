@@ -39,7 +39,6 @@ const normalizeMechanicName = value => (value || '').toString().trim().toLowerCa
 const toDeckCards = mappings =>
   Array.isArray(mappings)
     ? mappings.map(mapping => ({
-        cardId: mapping.cardId,
         uid: mapping.uid,
         assignedValue: mapping.assignedValue,
         displayData: mapping.displayData || {}
@@ -67,7 +66,6 @@ const buildAssociationPlanByRounds = ({ currentPlan, cards, numberOfRounds }) =>
 
     return {
       roundNumber,
-      cardId: card.cardId,
       uid: card.uid,
       assignedValue: card.assignedValue,
       displayData: card.displayData || {},
@@ -235,7 +233,6 @@ export default function SessionEdit() {
 
       payload.associationChallengePlan = associationChallengePlan.map(item => ({
         roundNumber: item.roundNumber,
-        cardId: item.cardId,
         uid: item.uid,
         assignedValue: item.assignedValue,
         displayData: item.displayData || {},
@@ -268,7 +265,6 @@ export default function SessionEdit() {
         candidate.roundNumber === roundNumber
           ? {
               ...candidate,
-              cardId: selectedCard.cardId,
               uid: selectedCard.uid,
               assignedValue: selectedCard.assignedValue,
               displayData: selectedCard.displayData || {}

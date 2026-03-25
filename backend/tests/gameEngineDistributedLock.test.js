@@ -12,7 +12,6 @@ const GameSession = require('../src/models/GameSession');
 const GamePlay = require('../src/models/GamePlay');
 const GameMechanic = require('../src/models/GameMechanic');
 const GameContext = require('../src/models/GameContext');
-const Card = require('../src/models/Card');
 const CardDeck = require('../src/models/CardDeck');
 
 describe('GameEngine distributed UID lock', () => {
@@ -53,7 +52,6 @@ describe('GameEngine distributed UID lock', () => {
     await GamePlay.deleteMany({});
     await GameMechanic.deleteMany({});
     await GameContext.deleteMany({});
-    await Card.deleteMany({});
     await CardDeck.deleteMany({});
 
     for (const namespace of Object.values(redisService.NAMESPACES)) {
@@ -113,9 +111,6 @@ describe('GameEngine distributed UID lock', () => {
       ]
     });
 
-    const card1 = await Card.create({ uid: 'CC110001', type: 'NTAG', status: 'active' });
-    const card2 = await Card.create({ uid: 'CC110002', type: 'NTAG', status: 'active' });
-
     const deck = await CardDeck.create({
       name: 'Lock Deck',
       contextId: context._id,
@@ -123,13 +118,11 @@ describe('GameEngine distributed UID lock', () => {
       status: 'active',
       cardMappings: [
         {
-          cardId: card1._id,
           uid: 'CC110001',
           assignedValue: 'One',
           displayData: { key: 'one', display: 'One', value: 'One' }
         },
         {
-          cardId: card2._id,
           uid: 'CC110002',
           assignedValue: 'Two',
           displayData: { key: 'two', display: 'Two', value: 'Two' }

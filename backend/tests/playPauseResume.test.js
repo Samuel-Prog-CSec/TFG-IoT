@@ -4,7 +4,6 @@ const GameSession = require('../src/models/GameSession');
 const GamePlay = require('../src/models/GamePlay');
 const GameMechanic = require('../src/models/GameMechanic');
 const GameContext = require('../src/models/GameContext');
-const Card = require('../src/models/Card');
 const CardDeck = require('../src/models/CardDeck');
 const { generateTokenPair } = require('../src/middlewares/auth');
 const { app, gameEngine } = require('../src/server');
@@ -40,7 +39,6 @@ describe('GamePlay pause/resume', () => {
     await GamePlay.deleteMany({});
     await GameMechanic.deleteMany({});
     await GameContext.deleteMany({});
-    await Card.deleteMany({});
     await CardDeck.deleteMany({});
 
     teacherUser = await User.create({
@@ -68,9 +66,6 @@ describe('GamePlay pause/resume', () => {
     });
     mechanicId = mechanic._id;
 
-    const card1 = await Card.create({ uid: 'BB000001', type: 'NTAG', status: 'active' });
-    const card2 = await Card.create({ uid: 'BB000002', type: 'NTAG', status: 'active' });
-
     const context = await GameContext.create({
       contextId: 'pause-context',
       name: 'Pause Context',
@@ -91,13 +86,11 @@ describe('GamePlay pause/resume', () => {
       status: 'active',
       cardMappings: [
         {
-          cardId: card1._id,
           uid: 'BB000001',
           assignedValue: 'A',
           displayData: { key: 'asset1', display: 'A1', value: 'A' }
         },
         {
-          cardId: card2._id,
           uid: 'BB000002',
           assignedValue: 'B',
           displayData: { key: 'asset2', display: 'A2', value: 'B' }

@@ -65,7 +65,7 @@ export default function BoardSetup() {
                             const assetKey = mapping.displayData?.key;
 
                             return {
-                                id: mapping.cardId || mapping.id || mapping.uid,
+                                id: mapping.uid,
                                 uid: mapping.uid,
                                 label: displayValue || `Tarjeta ${mapping.uid}`,
                                 icon: displayIcon,
@@ -138,7 +138,6 @@ export default function BoardSetup() {
 
                 return {
                     slotIndex,
-                    cardId: card.id,
                     uid: card.uid,
                     assignedValue: card.assignedValue || card.label || card.uid,
                     displayData: card.displayData || card.asset || {}

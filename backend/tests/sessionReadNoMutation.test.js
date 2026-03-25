@@ -4,7 +4,6 @@ const User = require('../src/models/User');
 const GameSession = require('../src/models/GameSession');
 const GameMechanic = require('../src/models/GameMechanic');
 const GameContext = require('../src/models/GameContext');
-const Card = require('../src/models/Card');
 const CardDeck = require('../src/models/CardDeck');
 const { generateTokenPair } = require('../src/middlewares/auth');
 
@@ -31,7 +30,6 @@ describe('Session read without mutation', () => {
     await GameSession.deleteMany({});
     await GameMechanic.deleteMany({});
     await GameContext.deleteMany({});
-    await Card.deleteMany({});
     await CardDeck.deleteMany({});
 
     const teacherUser = await User.create({
@@ -49,9 +47,6 @@ describe('Session read without mutation', () => {
       isActive: true,
       rules: {}
     });
-
-    const card1 = await Card.create({ uid: 'DD000001', type: 'NTAG', status: 'active' });
-    const card2 = await Card.create({ uid: 'DD000002', type: 'NTAG', status: 'active' });
 
     const context = await GameContext.create({
       contextId: 'read-session-context',
@@ -72,13 +67,11 @@ describe('Session read without mutation', () => {
       status: 'active',
       cardMappings: [
         {
-          cardId: card1._id,
           uid: 'DD000001',
           assignedValue: 'A',
           displayData: { key: 'asset1', display: 'A1', value: 'A' }
         },
         {
-          cardId: card2._id,
           uid: 'DD000002',
           assignedValue: 'B',
           displayData: { key: 'asset2', display: 'A2', value: 'B' }

@@ -56,8 +56,6 @@ export const SOCKET_EVENTS = {
   RESUME_PLAY: 'resume_play',
   NEXT_ROUND: 'next_round',
   PLAY_STATE_SYNC: 'play_state_sync',
-  JOIN_CARD_REGISTRATION: 'join_card_registration',
-  LEAVE_CARD_REGISTRATION: 'leave_card_registration',
   JOIN_CARD_ASSIGNMENT: 'join_card_assignment',
   LEAVE_CARD_ASSIGNMENT: 'leave_card_assignment',
   PLAY_STATE: 'play_state',

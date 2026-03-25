@@ -748,54 +748,6 @@ export const contextsAPI = {
 };
 
 // ============================================
-// API ENDPOINTS - CARDS (Tarjetas RFID)
-// ============================================
-
-export const cardsAPI = {
-  /**
-   * Obtener lista de tarjetas del profesor
-   * @param {Object} params - Parámetros de búsqueda y paginación
-   * @param {string} [params.status='active'] - Filtrar por estado
-   * @returns {Promise} Respuesta con lista paginada de tarjetas
-   */
-  getCards: (params = {}, config = {}) => 
-    api.get('/cards', { params, ...config }),
-
-  /**
-   * Obtener tarjetas disponibles (activas) para crear mazos
-   * @returns {Promise} Respuesta con lista de tarjetas activas
-   */
-  getAvailableCards: (config = {}) => 
-    api.get('/cards', { params: { status: 'active', limit: 100 }, ...config }),
-
-  /**
-   * Obtener tarjeta por ID
-   * @param {string} cardId - ID de la tarjeta
-   * @returns {Promise} Respuesta con datos de la tarjeta
-   */
-  getCardById: (cardId, config = {}) => 
-    api.get(`/cards/${cardId}`, config),
-
-  /**
-   * Buscar tarjeta por UID
-   * @param {string} uid - UID de la tarjeta RFID
-   * @returns {Promise} Respuesta con datos de la tarjeta
-   */
-  getCardByUid: (uid, config = {}) => 
-    api.get('/cards', { params: { uid: uid.toUpperCase(), limit: 1 }, ...config }),
-
-  /**
-   * Crear nueva tarjeta
-   * @param {Object} data - Datos de la tarjeta
-   * @param {string} data.uid - UID de la tarjeta (8 o 14 hex)
-   * @param {string} [data.type] - Tipo de tarjeta
-   * @returns {Promise} Respuesta con tarjeta creada
-   */
-  createCard: (data) => 
-    api.post('/cards', data),
-};
-
-// ============================================
 // API ENDPOINTS - MECHANICS (Mecánicas de Juego)
 // ============================================
 

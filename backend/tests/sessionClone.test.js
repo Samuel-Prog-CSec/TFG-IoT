@@ -3,7 +3,6 @@ const { app } = require('../src/server');
 const User = require('../src/models/User');
 const GameMechanic = require('../src/models/GameMechanic');
 const GameContext = require('../src/models/GameContext');
-const Card = require('../src/models/Card');
 const CardDeck = require('../src/models/CardDeck');
 const GameSession = require('../src/models/GameSession');
 
@@ -27,7 +26,6 @@ describe('Session clone endpoint (T-037)', () => {
   const buildBoardLayout = cardMappings =>
     cardMappings.map((mapping, slotIndex) => ({
       slotIndex,
-      cardId: mapping.cardId,
       uid: mapping.uid,
       assignedValue: mapping.assignedValue,
       displayData: mapping.displayData
@@ -39,7 +37,6 @@ describe('Session clone endpoint (T-037)', () => {
     await Promise.all([
       GameSession.deleteMany({}),
       CardDeck.deleteMany({}),
-      Card.deleteMany({}),
       GameContext.deleteMany({}),
       GameMechanic.deleteMany({}),
       User.deleteMany({})
@@ -132,35 +129,24 @@ describe('Session clone endpoint (T-037)', () => {
 
     contextId = context._id;
 
-    const [cardOne, cardTwo, cardThree, cardFour] = await Promise.all([
-      Card.create({ uid: 'AA11BB22', type: 'NTAG', status: 'active' }),
-      Card.create({ uid: 'CC33DD44', type: 'NTAG', status: 'active' }),
-      Card.create({ uid: 'EE55FF66', type: 'NTAG', status: 'active' }),
-      Card.create({ uid: '1122AABB', type: 'NTAG', status: 'active' })
-    ]);
-
     baseMappings = [
       {
-        cardId: cardOne._id,
-        uid: cardOne.uid,
+        uid: 'AA11BB22',
         assignedValue: 'A',
         displayData: { value: 'A', display: 'A' }
       },
       {
-        cardId: cardTwo._id,
-        uid: cardTwo.uid,
+        uid: 'CC33DD44',
         assignedValue: 'A',
         displayData: { value: 'A', display: 'A' }
       },
       {
-        cardId: cardThree._id,
-        uid: cardThree.uid,
+        uid: 'EE55FF66',
         assignedValue: 'B',
         displayData: { value: 'B', display: 'B' }
       },
       {
-        cardId: cardFour._id,
-        uid: cardFour.uid,
+        uid: '1122AABB',
         assignedValue: 'B',
         displayData: { value: 'B', display: 'B' }
       }
@@ -351,7 +337,6 @@ describe('Session clone endpoint (T-037)', () => {
       associationChallengePlan: [
         {
           roundNumber: 1,
-          cardId: baseMappings[0].cardId,
           uid: baseMappings[0].uid,
           assignedValue: baseMappings[0].assignedValue,
           displayData: baseMappings[0].displayData,
@@ -388,7 +373,6 @@ describe('Session clone endpoint (T-037)', () => {
       const mapping = clonedMappings[index % clonedMappings.length];
       return {
         roundNumber: index + 1,
-        cardId: mapping.cardId,
         uid: mapping.uid,
         assignedValue: mapping.assignedValue,
         displayData: mapping.displayData,
