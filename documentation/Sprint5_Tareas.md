@@ -57,7 +57,7 @@ Una tarea solo puede pasar a ✅ si cumple **todas**:
 
 ## P0 — Prioridad Crítica (Bloqueantes)
 
-### T-516: 🔧 Unificar flujo de errores centralizado (validación, notFound, asyncHandler) 📋
+### T-516: 🔧 Unificar flujo de errores centralizado (validación, notFound, asyncHandler) ✅
 
 **Consolida:** T-516 + T-517 + T-518
 **Prioridad:** P0 | **Tamaño:** L (1-2 días) | **Dependencias:** Ninguna
@@ -95,18 +95,18 @@ Tres problemas relacionados con el flujo de errores:
 
 **Criterios de Aceptación:**
 
-- [ ] Los tres middlewares usan `next(new ValidationError(...))` en lugar de `res.status(400).json()`
-- [ ] El `errorHandler` formatea los errores de validación con el array `errors` preservado
-- [ ] La respuesta HTTP sigue siendo 400 con el mismo formato JSON
-- [ ] Los errores de validación aparecen en los logs de Pino como `warn`
-- [ ] Todos los tests existentes pasan sin modificaciones al contrato de respuesta
-- [ ] Las rutas 404 se registran en el logging estructurado de Pino
-- [ ] Test de integración cubre el caso de ruta inexistente
-- [ ] `utils/asyncHandler.js` creado y exportado
-- [ ] El wrapper captura errores síncronos y asíncronos
-- [ ] Al menos un controller migrado y funcionando
-- [ ] Tests existentes del controller piloto pasan sin cambios
-- [ ] Documentación inline explicando el patrón
+- [x] Los tres middlewares usan `next(new ValidationError(...))` en lugar de `res.status(400).json()`
+- [x] El `errorHandler` formatea los errores de validación con el array `errors` preservado
+- [x] La respuesta HTTP sigue siendo 400 con el mismo formato JSON
+- [x] Los errores de validación aparecen en los logs de Pino como `warn`
+- [x] Todos los tests existentes pasan sin modificaciones al contrato de respuesta
+- [x] Las rutas 404 se registran en el logging estructurado de Pino
+- [x] Test de integración cubre el caso de ruta inexistente
+- [x] `utils/asyncHandler.js` creado y exportado
+- [x] El wrapper captura errores síncronos y asíncronos
+- [x] Al menos un controller migrado y funcionando
+- [x] Tests existentes del controller piloto pasan sin cambios
+- [x] Documentación inline explicando el patrón
 
 **Archivos afectados:** `backend/src/middlewares/validation.js`, `backend/src/middlewares/errorHandler.js`, `backend/src/utils/errors.js`, `backend/src/utils/asyncHandler.js` (nuevo), `backend/src/controllers/gameMechanicController.js` (piloto)
 
