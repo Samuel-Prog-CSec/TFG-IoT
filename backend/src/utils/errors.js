@@ -42,10 +42,12 @@ class AppError extends Error {
 class ApiValidationError extends AppError {
   /**
    * @param {string} message - Descripción de la validación fallida
+   * @param {Array<{field: string, message: string}>} [errors=[]] - Errores detallados por campo
    * @param {Object|null} [data=null] - Datos adicionales de contexto
    */
-  constructor(message, data = null) {
+  constructor(message, errors = [], data = null) {
     super(message, 400, data);
+    this.errors = errors;
   }
 }
 

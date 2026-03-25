@@ -1,10 +1,12 @@
 /**
  * @fileoverview Middleware centralizado de manejo de errores.
- * Procesa todos los errores de la aplicación y los formatea apropiadamente.
+ * TODOS los errores HTTP de la aplicación fluyen por aquí para garantizar
+ * logging estructurado (Pino), formato de respuesta unificado y captura
+ * selectiva en Sentry (delegada a shouldHandleError en config/sentry.js).
  * @module middlewares/errorHandler
  */
 
-const { Sentry } = require('../config/sentry');
+const { AppError } = require('../utils/errors');
 const logger = require('../utils/logger');
 
 /**
@@ -12,121 +14,108 @@ const logger = require('../utils/logger');
  * Debe ser el ÚLTIMO middleware en server.js.
  *
  * Maneja:
- * - Errores operacionales (AppError y subclases)
+ * - Errores operacionales (AppError y subclases, incluidos ValidationError con array errors)
  * - Errores de Mongoose (validación, cast, duplicados)
+ * - Errores de JWT (token inválido, token expirado)
  * - Errores inesperados (500)
  *
  * @param {Error} err - Error capturado
  * @param {import('express').Request} req - Objeto de petición
  * @param {import('express').Response} res - Objeto de respuesta
- * @param {import('express').NextFunction} next - Función next
+ * @param {import('express').NextFunction} _next - Función next (requerida por Express para identificar error middleware)
  */
 const errorHandler = (err, req, res, _next) => {
-  let error = { ...err };
-  error.message = err.message;
-  error.statusCode = err.statusCode || 500;
+  // Variables para construir la respuesta — se rellenan según el tipo de error.
+  // No usar spread ({ ...err }) porque pierde la cadena de prototipos
+  // (name, isOperational, data, errors) de las clases de error personalizadas.
+  let statusCode = err.statusCode || 500;
+  let message = err.message || 'Error interno del servidor';
+  let errors = null;
+  let data = null;
 
-  // Log del error
-  if (error.statusCode === 500) {
+  // 1. Errores operacionales (AppError y subclases) — prioridad máxima
+  if (err.isOperational) {
+    statusCode = err.statusCode;
+    message = err.message;
+    errors = err.errors || null;
+    data = err.data || null;
+  }
+
+  // 2. Mongoose ValidationError (tiene err.name === 'ValidationError' pero NO isOperational)
+  else if (err.name === 'ValidationError' && err.errors && !err.isOperational) {
+    statusCode = 400;
+    message = `Error de validación: ${Object.values(err.errors)
+      .map(e => e.message)
+      .join(', ')}`;
+  }
+
+  // 3. Mongoose CastError (ID inválido)
+  else if (err.name === 'CastError') {
+    statusCode = 400;
+    message = `Formato de ID inválido: ${err.value}`;
+  }
+
+  // 4. MongoDB duplicate key (código 11000)
+  else if (err.code === 11000) {
+    statusCode = 409;
+    const field = Object.keys(err.keyPattern)[0];
+    message = `El valor para ${field} ya existe`;
+  }
+
+  // 5. Errores de JWT
+  else if (err.name === 'JsonWebTokenError') {
+    statusCode = 401;
+    message = 'Token inválido';
+  } else if (err.name === 'TokenExpiredError') {
+    statusCode = 401;
+    message = 'Token expirado';
+  }
+
+  // --- Logging estructurado con Pino ---
+  if (statusCode >= 500) {
     logger.error('Error interno del servidor', {
-      message: error.message,
+      message,
       stack: err.stack,
       path: req.path,
       method: req.method
     });
   } else {
     logger.warn('Error operacional', {
-      message: error.message,
-      statusCode: error.statusCode,
+      message,
+      statusCode,
       path: req.path,
-      method: req.method
+      method: req.method,
+      ...(errors && { errors })
     });
   }
 
-  // Errores de Mongoose - ValidationError
-  if (err.name === 'ValidationError') {
-    const message = Object.values(err.errors)
-      .map(e => e.message)
-      .join(', ');
-    error = {
-      message: `Error de validación: ${message}`,
-      statusCode: 400
-    };
-  }
+  // Sentry: la captura se delega a Sentry.Handlers.errorHandler({ shouldHandleError })
+  // configurado en config/sentry.js. No se llama Sentry.captureException() aquí
+  // para evitar doble-captura.
 
-  // Errores de Mongoose - CastError (ID inválido)
-  if (err.name === 'CastError') {
-    error = {
-      message: `Formato de ID inválido: ${err.value}`,
-      statusCode: 400
-    };
-  }
-
-  // Errores de Mongoose - Duplicado (código 11000)
-  if (err.code === 11000) {
-    const field = Object.keys(err.keyPattern)[0];
-    error = {
-      message: `El valor para ${field} ya existe`,
-      statusCode: 409
-    };
-  }
-
-  // Errores de JWT
-  if (err.name === 'JsonWebTokenError') {
-    error = {
-      message: 'Token inválido',
-      statusCode: 401
-    };
-  }
-
-  if (err.name === 'TokenExpiredError') {
-    error = {
-      message: 'Token expirado',
-      statusCode: 401
-    };
-  }
-
-  // Solo capturar en Sentry si es un error NO operacional (500)
-  if (error.statusCode === 500 || !err.isOperational) {
-    Sentry.captureException(err, {
-      tags: {
-        path: req.path,
-        method: req.method,
-        statusCode: error.statusCode
-      },
-      user: req.user
-        ? {
-            id: req.user._id,
-            email: req.user.email
-          }
-        : undefined
-    });
-  }
-
-  // Respuesta al cliente
-  res.status(error.statusCode).json({
+  // --- Respuesta al cliente ---
+  res.status(statusCode).json({
     success: false,
-    message: error.message,
-    // Incluir datos adicionales de contexto si el error los proporciona
-    ...(err.data && { data: err.data }),
-    // Solo incluir stack trace en desarrollo
+    message,
+    ...(errors && errors.length > 0 && { errors }),
+    ...(data && { data }),
     ...(process.env.NODE_ENV === 'development' && { stack: err.stack })
   });
 };
 
 /**
  * Middleware para manejar rutas no encontradas (404).
- * Debe ir ANTES del errorHandler pero DESPUÉS de todas las rutas.
+ * Construye un AppError y lo delega al errorHandler centralizado
+ * para que se registre en Pino y tenga formato de respuesta unificado.
+ *
+ * Debe ir ANTES del errorHandler pero DESPUÉS de todas las rutas en server.js.
  *
  * @param {import('express').Request} req
  * @param {import('express').Response} res
  * @param {import('express').NextFunction} next
  */
-const notFoundHandler = (req, res, _next) => {
-  res.status(404).json({
-    success: false,
-    message: `Ruta no encontrada: ${req.method} ${req.path}`
-  });
+const notFoundHandler = (req, res, next) => {
+  next(new AppError(`Ruta no encontrada: ${req.method} ${req.path}`, 404));
 };
 
 module.exports = {

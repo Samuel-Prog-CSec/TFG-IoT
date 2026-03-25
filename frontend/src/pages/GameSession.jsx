@@ -896,24 +896,24 @@ export default function GameSession() { // NOSONAR
   if (loadingSession) {
     return (
       <div className="game-bg min-h-screen flex flex-col items-center justify-center gap-6 p-8">
-        <div className="size-20 rounded-2xl bg-purple-500/20 animate-pulse" />
+        <div className="size-20 rounded-2xl bg-brand-base/20 animate-pulse" />
         <div className="space-y-3 w-full max-w-xs">
-          <div className="h-4 rounded-full bg-white/10 animate-pulse" />
-          <div className="h-4 rounded-full bg-white/10 animate-pulse w-3/4 mx-auto" />
+          <div className="h-4 rounded-full bg-border-default animate-pulse" />
+          <div className="h-4 rounded-full bg-border-default animate-pulse w-3/4 mx-auto" />
         </div>
-        <p className="text-slate-400 text-sm">Preparando la sesión de juego…</p>
+        <p className="text-text-muted text-sm">Preparando la sesión de juego…</p>
       </div>
     );
   }
 
   if (sessionError) {
     return (
-      <div className="min-h-screen bg-slate-950 text-white p-8 flex flex-col items-center justify-center gap-6 text-center">
-        <div className="size-16 rounded-full bg-rose-500/20 flex items-center justify-center">
-          <AlertTriangle size={32} className="text-rose-400" />
+      <div className="min-h-screen bg-background-deep text-text-primary p-8 flex flex-col items-center justify-center gap-6 text-center">
+        <div className="size-16 rounded-full bg-error-base/20 flex items-center justify-center">
+          <AlertTriangle size={32} className="text-error-base" />
         </div>
         <h1 className="text-2xl font-bold">No se pudo cargar la sesión</h1>
-        <p className="text-slate-400 max-w-md">{sessionError}</p>
+        <p className="text-text-muted max-w-md">{sessionError}</p>
         <div className="flex gap-3">
           <button
             onClick={() => {
@@ -929,13 +929,13 @@ export default function GameSession() { // NOSONAR
               setSessionError(null);
               setRetryKey(prev => prev + 1);
             }}
-            className="px-5 py-3 rounded-xl bg-purple-500 hover:bg-purple-400 transition-colors"
+            className="px-5 py-3 rounded-xl bg-brand-base hover:bg-brand-light transition-colors"
           >
             Reintentar
           </button>
           <button
             onClick={goHome}
-            className="px-5 py-3 rounded-xl bg-slate-700 hover:bg-slate-600 transition-colors"
+            className="px-5 py-3 rounded-xl bg-background-surface hover:bg-background-elevated transition-colors"
           >
             Volver al Dashboard
           </button>
@@ -952,11 +952,11 @@ export default function GameSession() { // NOSONAR
       fallback={
         <div className="game-bg min-h-screen flex flex-col items-center justify-center gap-4 p-8 text-center">
           <div className="text-6xl">😵</div>
-          <h1 className="text-2xl font-bold text-white">Algo salió mal en el juego</h1>
-          <p className="text-slate-400 max-w-md">Ocurrió un error inesperado durante la partida.</p>
+          <h1 className="text-2xl font-bold text-text-primary">Algo salió mal en el juego</h1>
+          <p className="text-text-muted max-w-md">Ocurrió un error inesperado durante la partida.</p>
           <button
             onClick={goHome}
-            className="px-5 py-3 rounded-xl bg-indigo-500 hover:bg-indigo-400 transition-colors text-white"
+            className="px-5 py-3 rounded-xl bg-accent-indigo hover:bg-accent-indigo/80 transition-colors text-text-primary"
           >
             Volver al Dashboard
           </button>
@@ -969,9 +969,9 @@ export default function GameSession() { // NOSONAR
       </output>
       {/* Animated background elements */}
       <div className="absolute inset-0 overflow-hidden pointer-events-none">
-        <div className={cn('absolute top-20 left-10 w-64 h-64 bg-purple-500/10 rounded-full blur-[100px]', !shouldReduceMotion && 'animate-float')} />
-        <div className={cn('absolute bottom-20 right-10 w-80 h-80 bg-cyan-500/10 rounded-full blur-[100px]', !shouldReduceMotion && 'animate-float')} style={{ animationDelay: shouldReduceMotion ? '0s' : '1s' }} />
-        <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[600px] h-[600px] bg-pink-500/5 rounded-full blur-[120px]" />
+        <div className={cn('absolute top-20 left-10 w-64 h-64 bg-brand-base/10 rounded-full blur-[100px]', !shouldReduceMotion && 'animate-float')} />
+        <div className={cn('absolute bottom-20 right-10 w-80 h-80 bg-accent-cyan/10 rounded-full blur-[100px]', !shouldReduceMotion && 'animate-float')} style={{ animationDelay: shouldReduceMotion ? '0s' : '1s' }} />
+        <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[600px] h-[600px] bg-accent-pink/5 rounded-full blur-[120px]" />
       </div>
 
       {/* Top HUD */}
@@ -983,13 +983,13 @@ export default function GameSession() { // NOSONAR
               key={currentRound}
               initial={shouldReduceMotion ? false : { scale: 0 }}
               animate={{ scale: 1 }}
-              className="size-12 rounded-xl bg-gradient-to-br from-purple-500 to-indigo-600 flex items-center justify-center shadow-lg shadow-purple-500/30"
+              className="size-12 rounded-xl bg-gradient-to-br from-brand-base to-accent-indigo flex items-center justify-center shadow-lg shadow-brand-glow"
             >
-              <span className="text-2xl font-bold font-display text-white">{currentRound}</span>
+              <span className="text-2xl font-bold font-display text-text-primary">{currentRound}</span>
             </motion.div>
             <div className="hidden sm:block">
-              <div className="text-xs text-slate-500 uppercase tracking-wider">Ronda</div>
-              <div className="text-sm text-white font-medium">{currentRound} de {totalRounds}</div>
+              <div className="text-xs text-text-disabled uppercase tracking-wider">Ronda</div>
+              <div className="text-sm text-text-primary font-medium">{currentRound} de {totalRounds}</div>
             </div>
           </div>
 
@@ -1003,7 +1003,7 @@ export default function GameSession() { // NOSONAR
               onClick={() => setSoundEnabled(!soundEnabled)}
               className={cn(
                 "p-2.5 min-w-10 min-h-10 rounded-lg transition-all active:scale-95",
-                soundEnabled ? "bg-white/10 text-white" : "bg-white/5 text-slate-500"
+                soundEnabled ? "bg-border-default text-text-primary" : "bg-border-subtle text-text-disabled"
               )}
               aria-pressed={soundEnabled}
               aria-label={soundEnabled ? 'Silenciar' : 'Activar sonido'}
@@ -1017,7 +1017,7 @@ export default function GameSession() { // NOSONAR
               <button
                 onClick={togglePause}
                 ref={pauseButtonRef}
-                className="p-2.5 min-w-10 min-h-10 rounded-lg bg-white/10 text-white hover:bg-white/20 active:scale-95 active:bg-white/25 transition-all"
+                className="p-2.5 min-w-10 min-h-10 rounded-lg bg-border-default text-text-primary hover:bg-border-strong active:scale-95 active:bg-border-strong transition-all"
                 aria-pressed={gameState === 'paused'}
                 aria-label={gameState === 'paused' ? 'Reanudar' : 'Pausar'}
                 title={gameState === 'paused' ? 'Reanudar' : 'Pausar'}
@@ -1029,7 +1029,7 @@ export default function GameSession() { // NOSONAR
             {/* RFID status */}
             <div className={cn(
               "p-2 rounded-lg",
-              rfidConnected ? "bg-emerald-500/20 text-emerald-400" : "bg-rose-500/20 text-rose-400"
+              rfidConnected ? "bg-success-base/20 text-success-base" : "bg-error-base/20 text-error-base"
             )}>
               <output className="sr-only" aria-live="polite">
                 {rfidConnected ? 'Sensor RFID conectado' : 'Sensor RFID desconectado'}
@@ -1039,10 +1039,10 @@ export default function GameSession() { // NOSONAR
 
             <div className={cn(
               'px-3 py-1.5 rounded-lg text-xs font-semibold uppercase tracking-wide',
-              realtimeStatus === 'connected' && 'bg-emerald-500/20 text-emerald-300',
-              realtimeStatus === 'reconnecting' && 'bg-amber-500/20 text-amber-300',
-              realtimeStatus === 'disconnected' && 'bg-rose-500/20 text-rose-300',
-              realtimeStatus === 'connecting' && 'bg-slate-700/70 text-slate-200'
+              realtimeStatus === 'connected' && 'bg-success-base/20 text-success-base',
+              realtimeStatus === 'reconnecting' && 'bg-warning-base/20 text-warning-base',
+              realtimeStatus === 'disconnected' && 'bg-error-base/20 text-error-base',
+              realtimeStatus === 'connecting' && 'bg-background-surface/70 text-text-secondary'
             )}>
               <output className="sr-only" aria-live="polite" aria-atomic="true">
                 {REALTIME_STATUS_COPY[realtimeStatus]?.announcement || 'Conectando el juego.'}
@@ -1065,7 +1065,7 @@ export default function GameSession() { // NOSONAR
 
       {realtimeError && (
         <div className="relative z-10 px-3 sm:px-4 mt-1 shrink-0">
-          <div className="max-w-4xl mx-auto rounded-lg border border-amber-400/30 bg-amber-500/10 px-3 py-2 text-xs text-amber-100">
+          <div className="max-w-4xl mx-auto rounded-lg border border-warning-base/30 bg-warning-base/10 px-3 py-2 text-xs text-warning-base">
             {realtimeError.message}
           </div>
         </div>
@@ -1100,7 +1100,7 @@ export default function GameSession() { // NOSONAR
               <h1 className="text-4xl sm:text-5xl font-bold font-display gradient-text-brand mb-4">
                 ¡Hora de Jugar!
               </h1>
-              <p className="text-slate-400 mb-8 text-lg">
+              <p className="text-text-muted mb-8 text-lg">
                 {session?.deck?.name
                   ? `Busca la tarjeta amiga en ${session.deck.name}`
                   : 'Encuentra la tarjeta amiga'}
@@ -1157,13 +1157,13 @@ export default function GameSession() { // NOSONAR
                 initial={shouldReduceMotion ? false : { opacity: 0, y: 20 }}
                 animate={{ opacity: 1, y: 0 }}
                 transition={{ delay: shouldReduceMotion ? 0 : 0.3 }}
-                className="mt-3 text-center text-slate-200 text-base font-semibold"
+                className="mt-3 text-center text-text-secondary text-base font-semibold"
               >
                 {isMemoryMode ? (
                   <>Encuentra las parejas antes de que se termine el tiempo.</>
                 ) : (
                   <>
-                    Busca <span className="text-white font-bold">{challenge?.value || 'la tarjeta correcta'}</span>
+                    Busca <span className="text-text-primary font-bold">{challenge?.value || 'la tarjeta correcta'}</span>
                   </>
                 )}
               </motion.p>
@@ -1187,7 +1187,7 @@ export default function GameSession() { // NOSONAR
               initial={shouldReduceMotion ? false : { opacity: 0 }}
               animate={{ opacity: 1 }}
               exit={{ opacity: 0 }}
-              className="absolute inset-0 bg-slate-900/80 backdrop-blur-md flex items-center justify-center z-20"
+              className="absolute inset-0 bg-background-base/80 backdrop-blur-md flex items-center justify-center z-20"
               role="dialog"
               aria-modal="true"
               aria-labelledby="pause-title"
@@ -1200,8 +1200,8 @@ export default function GameSession() { // NOSONAR
                 className="text-center"
               >
                 <div className="text-6xl mb-4">⏸️</div>
-                <h2 id="pause-title" className="text-3xl font-bold text-white mb-2">Juego pausado</h2>
-                <p id="pause-description" className="text-slate-300 mb-4">Pulsa continuar para volver al juego.</p>
+                <h2 id="pause-title" className="text-3xl font-bold text-text-primary mb-2">Juego pausado</h2>
+                <p id="pause-description" className="text-text-secondary mb-4">Pulsa continuar para volver al juego.</p>
                 <motion.button
                   whileHover={shouldReduceMotion ? {} : { scale: 1.05 }}
                   whileTap={shouldReduceMotion ? {} : { scale: 0.95 }}
@@ -1242,7 +1242,7 @@ export default function GameSession() { // NOSONAR
             className="flex justify-center items-center gap-2"
             aria-label={`Progreso: ronda ${currentRound} de ${totalRounds}`}
           >
-            {roundIndicators.map(roundNumber => (
+            {totalRounds <= 8 && roundIndicators.map(roundNumber => (
               <motion.div
                 key={`round-${roundNumber}`}
                 initial={shouldReduceMotion ? false : { scale: 0 }}
@@ -1250,12 +1250,21 @@ export default function GameSession() { // NOSONAR
                 transition={{ delay: shouldReduceMotion ? 0 : (roundNumber - 1) * 0.05 }}
                 className={cn(
                   "size-3.5 rounded-full transition-all duration-300",
-                  roundNumber < currentRound && "bg-emerald-500 shadow-lg shadow-emerald-500/50",
-                  roundNumber === currentRound && "bg-purple-500 shadow-lg shadow-purple-500/50 scale-125",
-                  roundNumber > currentRound && "bg-slate-700"
+                  roundNumber < currentRound && "bg-success-base shadow-lg shadow-success-glow",
+                  roundNumber === currentRound && "bg-brand-base shadow-lg shadow-brand-glow scale-125",
+                  roundNumber > currentRound && "bg-background-surface"
                 )}
               />
             ))}
+          </div>
+          {/* Barra de progreso de rondas */}
+          <div className="w-full max-w-md mx-auto mt-2 h-1.5 bg-background-elevated/60 rounded-full overflow-hidden">
+            <motion.div
+              className="h-full rounded-full bg-gradient-to-r from-brand-base to-success-base"
+              initial={{ width: 0 }}
+              animate={{ width: `${totalRounds > 0 ? ((currentRound - 1) / totalRounds) * 100 : 0}%` }}
+              transition={{ duration: 0.3, ease: 'easeOut' }}
+            />
           </div>
         </footer>
       )}
@@ -1269,7 +1278,7 @@ export default function GameSession() { // NOSONAR
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
-            className="fixed inset-0 z-40 flex items-center justify-center bg-slate-900/60 backdrop-blur-sm"
+            className="fixed inset-0 z-40 flex items-center justify-center bg-background-base/60 backdrop-blur-sm"
           >
             <motion.div
               initial={{ scale: 0.5, opacity: 0 }}
@@ -1288,7 +1297,7 @@ export default function GameSession() { // NOSONAR
                 initial={{ opacity: 0, y: 20 }}
                 animate={{ opacity: 1, y: 0 }}
                 transition={{ delay: 0.3 }}
-                className="text-3xl font-bold text-white font-display"
+                className="text-3xl font-bold text-text-primary font-display"
               >
                 ¡Partida completada!
               </motion.p>
@@ -1377,14 +1386,16 @@ const MemoryGameplayPanel = memo(function MemoryGameplayPanel({
   return (
     <div className="w-full space-y-4 relative">
       {/* Stats bar with reactive feedback */}
-      <div className="mx-auto max-w-4xl rounded-xl border border-white/10 bg-slate-900/40 px-4 py-3 text-sm text-slate-200 flex flex-wrap items-center justify-between gap-3">
+      <div className="mx-auto max-w-4xl rounded-xl border border-border-default bg-background-base/40 px-4 py-3 text-sm text-text-secondary flex flex-wrap items-center justify-between gap-3">
         <motion.span
+          // TOKEN-EXCEPTION: Framer Motion color interpolation requires direct color values
           animate={isError ? { color: ['#e2e8f0', '#fb7185', '#e2e8f0'] } : {}}
           transition={{ duration: 0.6 }}
         >
           Intentos: <strong>{attempts}</strong>
         </motion.span>
         <motion.span
+          // TOKEN-EXCEPTION: Framer Motion color interpolation requires direct color values
           animate={isSuccess ? { color: ['#e2e8f0', '#34d399', '#e2e8f0'] } : {}}
           transition={{ duration: 0.6 }}
         >
@@ -1417,7 +1428,7 @@ const CurrentPlayMetrics = memo(function CurrentPlayMetrics({ mode, score, corre
   const safeAttempts = Math.max(1, attempts || 0);
 
   return (
-    <div className="mb-1.5 max-w-4xl mx-auto rounded-lg border border-white/10 bg-slate-900/30 px-3 py-1.5">
+    <div className="mb-1.5 max-w-4xl mx-auto rounded-lg border border-border-default bg-background-base/30 px-3 py-1.5">
       <div className="grid grid-cols-3 gap-2 text-xs">
         <MetricPill label="⭐ Puntos" value={score} />
         <MetricPill label="✅ Aciertos" value={correctAnswers} />
@@ -1440,9 +1451,9 @@ CurrentPlayMetrics.propTypes = {
 
 function MetricPill({ label, value }) {
   return (
-    <div className="rounded-md bg-slate-800/60 border border-white/5 px-2 py-1">
-      <div className="text-[11px] tracking-wide text-slate-300">{label}</div>
-      <div className="text-white text-sm font-semibold">{value}</div>
+    <div className="rounded-md bg-background-elevated/60 border border-border-subtle px-2 py-1">
+      <div className="text-[11px] tracking-wide text-text-secondary">{label}</div>
+      <div className="text-text-primary text-sm font-semibold">{value}</div>
     </div>
   );
 }
@@ -1466,14 +1477,14 @@ function resolveMemoryColumns(totalCards) {
 
 function getMemorySlotClasses(isMatched, isOpen) {
   if (isMatched) {
-    return 'border-emerald-500/70 bg-emerald-500/20';
+    return 'border-success-base/70 bg-success-base/20';
   }
 
   if (isOpen) {
-    return 'border-indigo-400/60 bg-indigo-500/20';
+    return 'border-accent-indigo/60 bg-accent-indigo/20';
   }
 
-  return 'border-slate-700 bg-slate-800/60';
+  return 'border-background-surface bg-background-elevated/60';
 }
 
 function MemoryBoard({ board, feedbackState, feedbackPoints, feedbackMessage, shouldReduceMotion }) {
@@ -1507,8 +1518,8 @@ function MemoryBoard({ board, feedbackState, feedbackPoints, feedbackMessage, sh
   const isSuccess = feedbackState === 'success';
 
   return (
-    <div className="w-full max-w-4xl rounded-2xl border border-white/10 bg-slate-900/30 p-4 sm:p-6 relative">
-      <div className="mb-4 text-center text-sm text-slate-400">Tablero de Memoria</div>
+    <div className="w-full max-w-4xl rounded-2xl border border-border-default bg-background-base/30 p-4 sm:p-6 relative">
+      <div className="mb-4 text-center text-sm text-text-muted">Tablero de Memoria</div>
 
       {/* Floating badge for match */}
       {isSuccess && (
@@ -1545,8 +1556,8 @@ function MemoryBoard({ board, feedbackState, feedbackPoints, feedbackMessage, sh
               className={cn(
                 'aspect-square rounded-xl border transition-all memory-card-flip',
                 slotClasses,
-                isMatchFeedback && 'shadow-[0_0_20px] shadow-emerald-500/40',
-                isMismatchFeedback && 'border-rose-400/60'
+                isMatchFeedback && 'shadow-[0_0_20px] shadow-success-glow',
+                isMismatchFeedback && 'border-error-base/60'
               )}
               animate={
                 shouldReduceMotion ? {} :
@@ -1562,11 +1573,11 @@ function MemoryBoard({ board, feedbackState, feedbackPoints, feedbackMessage, sh
                 isOpen && 'memory-card-flipped'
               )}>
                 {/* Cara trasera (oculta) */}
-                <div className="memory-card-face w-full h-full rounded-lg bg-slate-700/60 flex items-center justify-center text-slate-300 text-2xl font-bold select-none">
+                <div className="memory-card-face w-full h-full rounded-lg bg-background-surface/60 flex items-center justify-center text-text-secondary text-2xl font-bold select-none">
                   ?
                 </div>
                 {/* Cara frontal (contenido) */}
-                <div className="memory-card-back w-full h-full rounded-lg p-2 flex items-center justify-center bg-slate-800/40">
+                <div className="memory-card-back w-full h-full rounded-lg p-2 flex items-center justify-center bg-background-elevated/40">
                   <CardAssetPreview
                     asset={slot.displayData || { display: slot.assignedValue || '🎴' }}
                     className="w-full h-full rounded-lg"
@@ -1603,8 +1614,8 @@ function FallbackTouchPanel({ cards, onSelectCard, onPauseRequest, canPause }) {
   const visibleCards = Array.isArray(cards) ? cards.slice(0, 12) : [];
 
   return (
-    <div className="mt-3 w-full max-w-3xl rounded-xl border border-amber-400/30 bg-amber-500/10 p-2.5">
-      <div className="flex items-center gap-2 text-amber-100">
+    <div className="mt-3 w-full max-w-3xl rounded-xl border border-warning-base/30 bg-warning-base/10 p-2.5">
+      <div className="flex items-center gap-2 text-warning-base">
         <AlertTriangle size={14} className="shrink-0" />
         <p className="text-xs font-semibold">Sin sensor RFID — toca una carta para responder</p>
       </div>
@@ -1619,9 +1630,10 @@ function FallbackTouchPanel({ cards, onSelectCard, onPauseRequest, canPause }) {
               key={`fallback-card-${card.uid}`}
               type="button"
               onClick={() => onSelectCard(card)}
+              // TOKEN-EXCEPTION: Framer Motion whileTap requires direct color value for interpolation
               whileTap={{ scale: 0.92, backgroundColor: 'rgba(99, 102, 241, 0.2)' }}
               aria-label={`Seleccionar carta: ${card.assignedValue || card.uid}`}
-              className="rounded-lg border border-white/10 bg-slate-900/40 p-1.5 text-center hover:bg-slate-900/60 transition-colors focus-visible:ring-2 focus-visible:ring-indigo-400"
+              className="rounded-lg border border-border-default bg-background-base/40 p-1.5 text-center hover:bg-background-base/60 transition-colors focus-visible:ring-2 focus-visible:ring-accent-indigo"
             >
               <CardAssetPreview
                 asset={card.displayData || { display: card.assignedValue || card.uid }}
@@ -1639,7 +1651,7 @@ function FallbackTouchPanel({ cards, onSelectCard, onPauseRequest, canPause }) {
         <button
           type="button"
           onClick={onPauseRequest}
-          className="mt-2 text-[10px] px-2 py-1 rounded bg-slate-900/60 text-slate-300 border border-white/5 hover:bg-slate-900/80 transition-colors"
+          className="mt-2 text-[10px] px-2 py-1 rounded bg-background-base/60 text-text-secondary border border-border-subtle hover:bg-background-base/80 transition-colors"
         >
           Pausar para revisar sensor
         </button>

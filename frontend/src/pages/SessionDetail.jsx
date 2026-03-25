@@ -35,6 +35,7 @@ import StatusBadge from '../components/ui/StatusBadge';
 import CardAssetPreview from '../components/ui/CardAssetPreview';
 import { SkeletonCard } from '../components/ui/SkeletonShimmer';
 import EmptyState from '../components/ui/EmptyState';
+import Breadcrumb from '../components/ui/Breadcrumb';
 import Tooltip from '../components/ui/Tooltip';
 import ConfirmationModal, { useConfirmationModal } from '../components/ui/ConfirmationModal';
 import { cn, pageVariants } from '../lib/utils';
@@ -196,20 +197,18 @@ export default function SessionDetail() {
       exit="exit"
     >
       <div className="flex flex-col gap-6">
+        <Breadcrumb items={[
+          { label: 'Sesiones', to: ROUTES.SESSIONS },
+          { label: session.deck?.name || 'Sesión de juego' },
+        ]} />
         <header className="flex flex-wrap items-center justify-between gap-4">
-          <div className="flex items-center gap-3">
-            <ButtonPremium variant="ghost" onClick={() => navigate(ROUTES.SESSIONS)}>
-              <ArrowLeft size={16} />
-              Volver
-            </ButtonPremium>
-            <div>
-              <h1 className="text-2xl font-bold text-white font-display">
-                {session.deck?.name || 'Sesión de juego'}
-              </h1>
-              <p className="text-slate-400">
-                {session.mechanic?.displayName || session.mechanic?.name} · {session.context?.name}
-              </p>
-            </div>
+          <div>
+            <h1 className="text-2xl font-bold text-text-primary font-display">
+              {session.deck?.name || 'Sesión de juego'}
+            </h1>
+            <p className="text-text-muted">
+              {session.mechanic?.displayName || session.mechanic?.name} · {session.context?.name}
+            </p>
           </div>
           <div className="flex items-center gap-3">
             <StatusBadge status={statusInfo.tone}>{statusInfo.label}</StatusBadge>
@@ -228,8 +227,8 @@ export default function SessionDetail() {
               <Timer size={16} />
               Volver a jugar
             </ButtonPremium>
-            <div className="border-l border-white/10 h-8 mx-1" />
-            <div className="flex items-center gap-1 bg-white/5 rounded-lg p-1">
+            <div className="border-l border-border-default h-8 mx-1" />
+            <div className="flex items-center gap-1 bg-glass-bg rounded-lg p-1">
               <ButtonPremium
                 variant="ghost"
                 size="sm"
@@ -253,14 +252,14 @@ export default function SessionDetail() {
         </header>
 
         {canEdit && isAssociationSession && session.requiresAssociationPlanConfiguration && (
-          <GlassCard className="p-4 border border-amber-500/40 text-amber-300 flex items-center gap-3">
+          <GlassCard className="p-4 border border-warning-base/40 text-warning-base flex items-center gap-3">
             <AlertTriangle size={18} />
             Esta sesión es un clon con borrador de retos precargado. Revísalo y guarda la configuración antes de iniciar.
           </GlassCard>
         )}
 
         {canEdit && isMemorySession && !hasMemoryBoardConfigured && (
-          <GlassCard className="p-4 border border-amber-500/40 text-amber-300 flex flex-wrap items-center justify-between gap-3">
+          <GlassCard className="p-4 border border-warning-base/40 text-warning-base flex flex-wrap items-center justify-between gap-3">
             <div className="flex items-center gap-3">
               <AlertTriangle size={18} />
               Esta sesión de memoria requiere configurar el tablero antes de iniciar.
@@ -277,62 +276,62 @@ export default function SessionDetail() {
 
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
           <GlassCard className="p-6 lg:col-span-2 space-y-5">
-            <h2 className="text-lg font-semibold text-white">Configuración</h2>
+            <h2 className="text-lg font-semibold text-text-primary">Configuración</h2>
             <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-              <div className="bg-indigo-500/10 rounded-xl p-4">
-                <div className="flex items-center gap-2 text-slate-400">
-                  <Layers size={16} className="text-indigo-400" />
+              <div className="bg-accent-indigo/10 rounded-xl p-4">
+                <div className="flex items-center gap-2 text-text-muted">
+                  <Layers size={16} className="text-accent-indigo" />
                   Tarjetas
                 </div>
-                <p className="text-white text-xl font-semibold font-display mt-2">
+                <p className="text-text-primary text-xl font-semibold font-display mt-2">
                   {session.config?.numberOfCards}
                 </p>
               </div>
-              <div className="bg-amber-500/10 rounded-xl p-4">
-                <div className="flex items-center gap-2 text-slate-400">
-                  <Timer size={16} className="text-amber-400" />
+              <div className="bg-warning-base/10 rounded-xl p-4">
+                <div className="flex items-center gap-2 text-text-muted">
+                  <Timer size={16} className="text-warning-base" />
                   Tiempo por ronda
                 </div>
-                <p className="text-white text-xl font-semibold font-display mt-2">
+                <p className="text-text-primary text-xl font-semibold font-display mt-2">
                   {session.config?.timeLimit}s
                 </p>
               </div>
-              <div className="bg-emerald-500/10 rounded-xl p-4">
-                <div className="flex items-center gap-2 text-slate-400">
-                  <Award size={16} className="text-emerald-400" />
+              <div className="bg-success-base/10 rounded-xl p-4">
+                <div className="flex items-center gap-2 text-text-muted">
+                  <Award size={16} className="text-success-base" />
                   Puntos por acierto
                 </div>
-                <p className="text-white text-xl font-semibold font-display mt-2">
+                <p className="text-text-primary text-xl font-semibold font-display mt-2">
                   +{session.config?.pointsPerCorrect}
                 </p>
               </div>
             </div>
 
             <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-              <div className="bg-cyan-500/10 rounded-xl p-4">
-                <div className="flex items-center gap-2 text-slate-400">
-                  <RotateCcw size={16} className="text-cyan-400" />
+              <div className="bg-accent-cyan/10 rounded-xl p-4">
+                <div className="flex items-center gap-2 text-text-muted">
+                  <RotateCcw size={16} className="text-accent-cyan" />
                   Rondas
                 </div>
-                <p className="text-white text-xl font-semibold font-display mt-2">
+                <p className="text-text-primary text-xl font-semibold font-display mt-2">
                   {session.config?.numberOfRounds}
                 </p>
               </div>
-              <div className="bg-rose-500/10 rounded-xl p-4">
-                <div className="flex items-center gap-2 text-slate-400">
-                  <Minus size={16} className="text-rose-400" />
+              <div className="bg-error-base/10 rounded-xl p-4">
+                <div className="flex items-center gap-2 text-text-muted">
+                  <Minus size={16} className="text-error-base" />
                   Penalización
                 </div>
-                <p className="text-white text-xl font-semibold font-display mt-2">
+                <p className="text-text-primary text-xl font-semibold font-display mt-2">
                   {session.config?.penaltyPerError}
                 </p>
               </div>
-              <div className="bg-purple-500/10 rounded-xl p-4">
-                <div className="flex items-center gap-2 text-slate-400">
-                  <Gauge size={16} className="text-purple-400" />
+              <div className="bg-brand-base/10 rounded-xl p-4">
+                <div className="flex items-center gap-2 text-text-muted">
+                  <Gauge size={16} className="text-brand-base" />
                   Dificultad
                 </div>
-                <p className="text-white text-xl font-semibold font-display mt-2">
+                <p className="text-text-primary text-xl font-semibold font-display mt-2">
                   {{ easy: 'Fácil', medium: 'Media', hard: 'Difícil' }[session.difficulty] || session.difficulty}
                 </p>
               </div>
@@ -340,46 +339,46 @@ export default function SessionDetail() {
           </GlassCard>
 
           <GlassCard className="p-6 space-y-4">
-            <h2 className="text-lg font-semibold text-white">Resumen</h2>
-            <div className="divide-y divide-white/5">
+            <h2 className="text-lg font-semibold text-text-primary">Resumen</h2>
+            <div className="divide-y divide-border-subtle">
               <div className="flex items-center justify-between py-3">
-                <span className="text-sm text-slate-400 flex items-center gap-2">
+                <span className="text-sm text-text-muted flex items-center gap-2">
                   <Info size={14} />
                   Estado
                 </span>
                 <StatusBadge status={statusInfo.tone} size="sm">{statusInfo.label}</StatusBadge>
               </div>
               <div className="flex items-center justify-between py-3">
-                <span className="text-sm text-slate-400 flex items-center gap-2">
+                <span className="text-sm text-text-muted flex items-center gap-2">
                   <Gamepad2 size={14} />
                   Mecánica
                 </span>
-                <span className="text-sm text-white font-medium">{session.mechanic?.displayName}</span>
+                <span className="text-sm text-text-primary font-medium">{session.mechanic?.displayName}</span>
               </div>
               <div className="flex items-center justify-between py-3">
-                <span className="text-sm text-slate-400 flex items-center gap-2">
+                <span className="text-sm text-text-muted flex items-center gap-2">
                   <FolderOpen size={14} />
                   Contexto
                 </span>
-                <span className="text-sm text-white font-medium">{session.context?.name}</span>
+                <span className="text-sm text-text-primary font-medium">{session.context?.name}</span>
               </div>
               <div className="flex items-center justify-between py-3">
-                <span className="text-sm text-slate-400 flex items-center gap-2">
+                <span className="text-sm text-text-muted flex items-center gap-2">
                   <CreditCard size={14} />
                   Mazo
                 </span>
-                <span className="text-sm text-white font-medium">{session.deck?.name}</span>
+                <span className="text-sm text-text-primary font-medium">{session.deck?.name}</span>
               </div>
               <div className="flex items-center justify-between py-3">
-                <span className="text-sm text-slate-400 flex items-center gap-2">
+                <span className="text-sm text-text-muted flex items-center gap-2">
                   <Calendar size={14} />
                   Creada
                 </span>
-                <span className="text-sm text-white font-medium">{new Date(session.createdAt).toLocaleDateString()}</span>
+                <span className="text-sm text-text-primary font-medium">{new Date(session.createdAt).toLocaleDateString()}</span>
               </div>
             </div>
             {!canEdit && (
-              <div className="text-xs text-slate-500 border border-white/10 rounded-lg p-3">
+              <div className="text-xs text-text-muted border border-border-default rounded-lg p-3">
                 Solo las sesiones en borrador pueden editarse o eliminarse.
               </div>
             )}
@@ -387,13 +386,13 @@ export default function SessionDetail() {
         </div>
 
         <GlassCard className="p-6">
-          <h2 className="text-lg font-semibold text-white mb-4">Mapping de tarjetas</h2>
+          <h2 className="text-lg font-semibold text-text-primary mb-4">Mapping de tarjetas</h2>
           {mappingCards.length === 0 ? (
             <EmptyState
               title="Sin tarjetas asignadas"
               description="Aún no hay tarjetas vinculadas a esta sesión."
               icon={<Layers size={26} />}
-              className="bg-transparent border border-white/5"
+              className="bg-transparent border border-border-subtle"
             />
           ) : (
             <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
@@ -404,7 +403,7 @@ export default function SessionDetail() {
                   <motion.div
                     key={mapping.id || mapping.uid}
                     className={cn(
-                      'rounded-2xl border border-indigo-500/15 p-4 bg-white/5',
+                      'rounded-2xl border border-accent-indigo/15 p-4 bg-glass-bg',
                       'flex flex-col items-center justify-center gap-2 text-center'
                     )}
                     whileHover={{ scale: 1.04, y: -2 }}
@@ -417,8 +416,8 @@ export default function SessionDetail() {
                       fit="cover"
                       fallbackLabel={display}
                     />
-                    <p className="text-sm text-white font-semibold">{label}</p>
-                    <p className="text-xs text-slate-400">{mapping.uid}</p>
+                    <p className="text-sm text-text-primary font-semibold">{label}</p>
+                    <p className="text-xs text-text-muted">{mapping.uid}</p>
                   </motion.div>
                 );
               })}

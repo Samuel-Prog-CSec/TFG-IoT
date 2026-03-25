@@ -101,7 +101,17 @@ const noopErrorMiddleware = (err, req, res, next) => next(err);
 const SentryHandlers = {
   requestHandler: () => (isSentryEnabled ? Sentry.Handlers.requestHandler() : noopMiddleware),
   tracingHandler: () => (isSentryEnabled ? Sentry.Handlers.tracingHandler() : noopMiddleware),
-  errorHandler: () => (isSentryEnabled ? Sentry.Handlers.errorHandler() : noopErrorMiddleware)
+  errorHandler: () =>
+    isSentryEnabled
+      ? Sentry.Handlers.errorHandler({
+          shouldHandleError(error) {
+            // Solo capturar errores no-operacionales o con status >= 500.
+            // Errores 4xx operacionales (validación, 404, CSRF, auth) no van a Sentry.
+            const status = error.statusCode || error.status || 500;
+            return status >= 500 || error.isOperational === false;
+          }
+        })
+      : noopErrorMiddleware
 };
 
 /**

@@ -12,7 +12,7 @@ export default function CardAssetPreview({
   className,
   imageClassName,
   fallbackClassName,
-  fallbackIcon = <CreditCard size={16} className="text-slate-400" />,
+  fallbackIcon = <CreditCard size={16} className="text-text-muted" />,
   fallbackLabel,
   showSkeleton = true
 }) {
@@ -40,7 +40,7 @@ export default function CardAssetPreview({
   return (
     <div
       className={cn(
-        'relative overflow-hidden bg-slate-900/60 flex items-center justify-center',
+        'relative overflow-hidden bg-background-base/60 flex items-center justify-center',
         className
       )}
     >
@@ -49,7 +49,7 @@ export default function CardAssetPreview({
           {/* Shimmer skeleton while loading */}
           {showSkeleton && imageLoading && (
             <div
-              className="absolute inset-0 bg-slate-800/80 before:absolute before:inset-0 before:-translate-x-full before:animate-[shimmer_2s_infinite] before:bg-gradient-to-r before:from-transparent before:via-text-primary/5 before:to-transparent"
+              className="absolute inset-0 bg-background-elevated/80 before:absolute before:inset-0 before:-translate-x-full before:animate-[shimmer_2s_infinite] before:bg-gradient-to-r before:from-transparent before:via-text-primary/5 before:to-transparent"
             />
           )}
           {/* eslint-disable-next-line jsx-a11y/no-noninteractive-element-interactions -- onLoad/onError are lifecycle events, not user interactions */}

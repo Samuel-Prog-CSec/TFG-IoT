@@ -279,13 +279,13 @@ Los endpoints de consulta de sesiones y comandos socket de control mostraban sob
 
 ## ADR-007: Security Gate de dependencias en CI (runtime bloqueante)
 
-### Contexto (ADR-007)
+### Contexto (ADR-013)
 
 Tras la actualización masiva de dependencias, `npm audit` completo empezó a reportar vulnerabilidades en cadenas de tooling (lint/test/build) cuya mitigación forzada mediante overrides globales podía romper `eslint` o `jest` por incompatibilidades de API.
 
 Se necesitaba una política que equilibrara seguridad efectiva en producción y estabilidad del ciclo de desarrollo.
 
-### Decisión (ADR-007)
+### Decisión (ADR-013)
 
 1. Definir un **gate bloqueante** en CI para dependencias de runtime:
   - Comando: `npm run audit:prod`
@@ -297,14 +297,14 @@ Se necesitaba una política que equilibrara seguridad efectiva en producción y 
 4. Establecer una revisión operativa **mensual** de dependencias y PRs de Dependabot.
 5. No usar registro formal de excepciones; el control de deuda se realiza mediante revisión mensual + evidencia en CI.
 
-### Consecuencias (ADR-007)
+### Consecuencias (ADR-013)
 
 - **Seguridad de producción priorizada**: el merge queda condicionado a 0 vulnerabilidades runtime.
 - **Estabilidad de desarrollo preservada**: lint/tests no se rompen por forzar resoluciones transitorias incompatibles.
 - **Trazabilidad operativa**: la deuda de tooling sigue visible en CI y documentación para su remediación gradual.
 - **Disciplina de mantenimiento**: la cadencia mensual reduce carga operativa sin bloquear flujo diario.
 
-### Referencias (ADR-007)
+### Referencias (ADR-013)
 
 - Workflow CI: `.github/workflows/build.yml`
 - Scripts root: `package.json` (`audit:prod`, `audit:all`)
@@ -727,3 +727,84 @@ Cada UID escaneado se registra automáticamente en una colección Card ligera, s
 - **ADR-003** (DTOs): se eliminan `toCardDTOV1`, `toCardListDTOV1`, `toCardStatsDTOV1`. Se actualizan `mapCardMappingDTOV1` y DTOs de boardLayout/associationPlan. Se eliminan los endpoints de Cards del mapeo Endpoint → DTO.
 - **ADR-004** (Locks distribuidos de UIDs): los locks ya usan UIDs como keys, no cardIds. Esta decisión valida retroactivamente la elección de ADR-004 de usar UIDs directamente.
 - **ADR-008** (Gobierno de identidades): el super_admin pierde la responsabilidad de gestionar tarjetas, lo que simplifica su carga operativa y refuerza el foco en gestión de identidades.
+
+---
+
+## ADR-013: Flujo de Errores HTTP Centralizado
+
+### Contexto (ADR-013)
+
+La auditoría del Sprint 5 identificó **8 puntos** en el backend donde los errores HTTP se respondían directamente al cliente (`res.status().json()`) saltándose el `errorHandler` centralizado:
+
+- **3 en `middlewares/validation.js`**: Los middlewares `validateBody`, `validateQuery` y `validateParams` capturaban `ZodError` y respondían con `res.status(400).json(...)` directamente.
+- **1 en `middlewares/securityPayloadGuard.js`**: Respondía `res.status(400).json(...)` ante payloads peligrosos (NoSQL injection, prototype pollution).
+- **4 en `config/security.js` (csrfProtection)**: Respondía `res.status(403).json(...)` directamente ante errores de CSRF/Referer.
+- **1 en `middlewares/errorHandler.js` (notFoundHandler)**: Respondía `res.status(404).json(...)` directamente para rutas no encontradas.
+
+Además se identificaron dos problemas adicionales:
+
+1. **Bug del spread-operator**: `errorHandler` usaba `let error = { ...err }` que creaba un objeto plano, perdiendo la cadena de prototipos (`name`, `isOperational`, `data`, `errors`) de las clases de error personalizadas.
+2. **Doble-captura en Sentry**: `Sentry.Handlers.errorHandler()` capturaba TODOS los errores que le llegaban, Y nuestro `errorHandler` llamaba manualmente `Sentry.captureException()` para errores 500. Resultado: errores 500 se capturaban dos veces.
+3. **Boilerplate try/catch**: Los 11 controllers (~73 handlers) repetían manualmente `try { ... } catch (error) { next(error); }`, cuando Express 5.x maneja errores async nativamente.
+
+### Decisión (ADR-013)
+
+Se unifica **todo** el flujo de errores HTTP a través del `errorHandler` centralizado, con las siguientes medidas:
+
+1. **Middleware de validación**: Los 3 middlewares Zod ahora construyen `ApiValidationError` con el array de errores formateados y lo delegan via `next(error)`.
+
+2. **Security payload guard**: Construye `ApiValidationError` y delega via `next(error)`, preservando el `logSecurityEvent` para el audit trail.
+
+3. **CSRF protection**: Las 4 respuestas directas ahora usan `next(new ForbiddenError(...))`.
+
+4. **notFoundHandler**: Construye `AppError(msg, 404)` y delega via `next(error)`.
+
+5. **errorHandler refactorizado**:
+   - Eliminado el spread-operator bug — ahora usa variables independientes (`statusCode`, `message`, `errors`, `data`).
+   - Cadena `if/else if` con prioridad: errores operacionales (AppError) → Mongoose → JWT → default 500.
+   - Soporte para array `errors` en la respuesta (para errores de validación).
+   - Logging Pino: `error` level para 500+, `warn` para 4xx.
+
+6. **Sentry `shouldHandleError`**: Configurado para capturar solo errores con `statusCode >= 500` o `isOperational === false`. Eliminada la captura manual en `errorHandler`.
+
+7. **`asyncHandler` utility**: Creado `utils/asyncHandler.js` que envuelve handlers async para capturar errores síncronos y asíncronos.
+
+8. **Migración de controllers**: Los 11 controllers (~73 handlers) eliminan el try/catch boilerplate. Las rutas envuelven los handlers con `asyncHandler(handler)`.
+
+### Alternativas Consideradas
+
+1. **Mantener respuestas directas**: Rechazada porque impedía agregar comportamiento transversal (métricas, analytics) y causaba inconsistencia en formato de respuesta.
+2. **Crear un error middleware por tipo**: Rechazada por complejidad innecesaria — un único `errorHandler` con detección de tipo es suficiente.
+3. **Usar solo Express 5 native async**: Express 5 maneja errores async nativamente en route handlers, pero `asyncHandler` aporta safety net y documentación de intención.
+
+### Consecuencias
+
+**Positivas:**
+- Un único punto de logging (Pino), captura (Sentry) y formato de respuesta para TODOS los errores HTTP
+- Eliminación de la doble-captura en Sentry
+- Reducción de ~400-600 LOC de boilerplate try/catch en controllers
+- Formato de respuesta unificado: `{ success, message, errors?, data?, stack? }`
+- Las rutas 404 ahora aparecen en el logging estructurado de Pino
+- Los errores de CSRF ahora aparecen en el logging estructurado
+
+**Negativas:**
+- Latencia microscópica adicional en el path de error (un `next()` extra en middleware chain)
+- `authController.js` mantiene try/catch selectivo en handlers con security logging (register, login, refresh)
+
+### Archivos Afectados
+
+- `backend/src/utils/errors.js` — `ApiValidationError` con propiedad `errors`
+- `backend/src/utils/asyncHandler.js` — Nuevo: wrapper para handlers async
+- `backend/src/middlewares/errorHandler.js` — Refactorizado completamente
+- `backend/src/middlewares/validation.js` — Delegación via `next()`
+- `backend/src/middlewares/securityPayloadGuard.js` — Delegación via `next()`
+- `backend/src/config/security.js` — CSRF via `next(new ForbiddenError(...))`
+- `backend/src/config/sentry.js` — `shouldHandleError`
+- `backend/src/controllers/*.js` (11 archivos) — Eliminado try/catch boilerplate
+- `backend/src/routes/*.js` (10 archivos) — `asyncHandler(handler)` en todas las rutas
+- `backend/tests/errorFlow.test.js` — Tests del flujo unificado
+
+### Relación con otros ADRs
+
+- **ADR-003** (DTOs): el formato de respuesta de errores se mantiene compatible con el estándar `{ success, message, data }` definido en DTOs.
+- Esta decisión es prerequisito de **T-519** (responseHelper + filterBuilder) y **T-601** (nuevos endpoints analytics), que podrán usar el errorHandler y asyncHandler unificados.

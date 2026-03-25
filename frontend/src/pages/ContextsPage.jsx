@@ -17,6 +17,7 @@ import { toast } from 'sonner';
 
 import GlassCard from '../components/ui/GlassCard';
 import ButtonPremium from '../components/ui/ButtonPremium';
+import PageHeader from '../components/ui/PageHeader';
 import InputPremium from '../components/ui/InputPremium';
 import EmptyState from '../components/ui/EmptyState';
 import { SkeletonCard } from '../components/ui/SkeletonShimmer';
@@ -72,28 +73,19 @@ export default function ContextsPage() {
   );
 
   return (
-    <div className="min-h-screen bg-slate-950 p-4 lg:p-8">
+    <div className="min-h-screen bg-background-deep p-4 lg:p-8">
       {/* Header y Stats */}
       <motion.div
         initial={shouldReduceMotion ? false : { opacity: 0, y: -20 }}
         animate={{ opacity: 1, y: 0 }}
         className="max-w-7xl mx-auto mb-8"
       >
-        <div className="flex flex-col md:flex-row md:items-end justify-between gap-6 mb-8">
-          <div className="flex items-center gap-4">
-            <div className="size-14 rounded-2xl bg-gradient-to-br from-indigo-500 to-purple-600 flex items-center justify-center shadow-lg shadow-indigo-500/20">
-              <Palette size={28} className="text-white" />
-            </div>
-            <div>
-              <h1 className="text-3xl font-bold text-white tracking-tight">Contextos Temáticos</h1>
-              <p className="text-slate-400 mt-1">
-                Explora y gestiona los recursos multimedia para los juegos
-              </p>
-            </div>
-          </div>
-
-          {/* Botón crear — solo super_admin */}
-          {isSuperAdmin && (
+        <PageHeader
+          icon={<Palette size={28} />}
+          iconClassName="size-14 bg-gradient-to-br from-accent-indigo to-brand-base shadow-lg shadow-accent-indigo/20 text-text-primary"
+          title="Contextos Temáticos"
+          subtitle="Explora y gestiona los recursos multimedia para los juegos"
+          actions={isSuperAdmin ? (
             <ButtonPremium
               onClick={() => setShowCreateModal(true)}
               icon={<Plus size={18} />}
@@ -101,48 +93,49 @@ export default function ContextsPage() {
             >
               Nuevo Contexto
             </ButtonPremium>
-          )}
-        </div>
+          ) : undefined}
+          className="mb-8"
+        />
 
         {/* Stats globales */}
         <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-8">
           <GlassCard className="p-4 flex items-center gap-4">
-            <div className="size-12 rounded-xl bg-indigo-500/10 flex items-center justify-center">
-              <Palette size={22} className="text-indigo-400" />
+            <div className="size-12 rounded-xl bg-accent-indigo/10 flex items-center justify-center">
+              <Palette size={22} className="text-accent-indigo" />
             </div>
             <div>
-              <p className="text-2xl font-semibold text-white font-display">{contexts.length}</p>
-              <p className="text-xs text-slate-400 font-medium uppercase tracking-wider">Contextos</p>
+              <p className="text-2xl font-semibold text-text-primary font-display">{contexts.length}</p>
+              <p className="text-xs text-text-muted font-medium uppercase tracking-wider">Contextos</p>
             </div>
           </GlassCard>
 
           <GlassCard className="p-4 flex items-center gap-4">
-            <div className="size-12 rounded-xl bg-emerald-500/10 flex items-center justify-center">
-              <ImageIcon size={22} className="text-emerald-400" />
+            <div className="size-12 rounded-xl bg-success-base/10 flex items-center justify-center">
+              <ImageIcon size={22} className="text-success-base" />
             </div>
             <div>
-              <p className="text-2xl font-semibold text-white font-display">{totalImages}</p>
-              <p className="text-xs text-slate-400 font-medium uppercase tracking-wider">Imágenes</p>
+              <p className="text-2xl font-semibold text-text-primary font-display">{totalImages}</p>
+              <p className="text-xs text-text-muted font-medium uppercase tracking-wider">Imágenes</p>
             </div>
           </GlassCard>
 
           <GlassCard className="p-4 flex items-center gap-4">
-            <div className="size-12 rounded-xl bg-amber-500/10 flex items-center justify-center">
-              <Music size={22} className="text-amber-400" />
+            <div className="size-12 rounded-xl bg-warning-base/10 flex items-center justify-center">
+              <Music size={22} className="text-warning-base" />
             </div>
             <div>
-              <p className="text-2xl font-semibold text-white font-display">{totalAudio}</p>
-              <p className="text-xs text-slate-400 font-medium uppercase tracking-wider">Audios</p>
+              <p className="text-2xl font-semibold text-text-primary font-display">{totalAudio}</p>
+              <p className="text-xs text-text-muted font-medium uppercase tracking-wider">Audios</p>
             </div>
           </GlassCard>
 
           <GlassCard className="p-4 flex items-center gap-4">
-            <div className="size-12 rounded-xl bg-purple-500/10 flex items-center justify-center">
-              <ImageIcon size={22} className="text-purple-400" />
+            <div className="size-12 rounded-xl bg-brand-base/10 flex items-center justify-center">
+              <ImageIcon size={22} className="text-brand-light" />
             </div>
             <div>
-              <p className="text-2xl font-semibold text-white font-display">{totalAssets}</p>
-              <p className="text-xs text-slate-400 font-medium uppercase tracking-wider">Assets totales</p>
+              <p className="text-2xl font-semibold text-text-primary font-display">{totalAssets}</p>
+              <p className="text-xs text-text-muted font-medium uppercase tracking-wider">Assets totales</p>
             </div>
           </GlassCard>
         </div>
@@ -169,9 +162,9 @@ export default function ContextsPage() {
           </div>
         ) : error ? (
           <GlassCard className="p-8 text-center max-w-lg mx-auto mt-12">
-            <AlertTriangle size={48} className="mx-auto text-rose-500 mb-4" />
-            <h3 className="text-xl font-medium text-white mb-2">Error al cargar contextos</h3>
-            <p className="text-slate-400 mb-6">{error}</p>
+            <AlertTriangle size={48} className="mx-auto text-error-base mb-4" />
+            <h3 className="text-xl font-medium text-text-primary mb-2">Error al cargar contextos</h3>
+            <p className="text-text-muted mb-6">{error}</p>
             <ButtonPremium onClick={refetch} variant="secondary">
               Reintentar
             </ButtonPremium>
@@ -243,62 +236,62 @@ function ContextCard({ context, onClick, index, reducedMotion }) {
       onClick={onClick}
       className="group cursor-pointer"
     >
-      <GlassCard className="h-full p-6 transition-colors hover:bg-slate-800/40 hover:border-indigo-500/30">
+      <GlassCard className="h-full p-6 transition-colors hover:bg-background-elevated/40 hover:border-accent-indigo/30">
         <div className="flex justify-between items-start mb-6">
-          <div className="size-12 rounded-xl bg-indigo-500/10 flex items-center justify-center border border-indigo-500/20 group-hover:bg-indigo-500/20 transition-colors">
-            <Palette size={24} className="text-indigo-400" />
+          <div className="size-12 rounded-xl bg-accent-indigo/10 flex items-center justify-center border border-accent-indigo/20 group-hover:bg-accent-indigo/20 transition-colors">
+            <Palette size={24} className="text-accent-indigo" />
           </div>
-          <div className="flex items-center gap-1 text-slate-500 group-hover:text-indigo-400 transition-colors">
+          <div className="flex items-center gap-1 text-text-muted group-hover:text-accent-indigo transition-colors">
             <span className="text-sm font-medium">Ver detalles</span>
             <ChevronRight size={16} />
           </div>
         </div>
 
-        <h3 className="text-xl font-semibold text-white tracking-tight mb-2 line-clamp-1">
+        <h3 className="text-xl font-semibold text-text-primary tracking-tight mb-2 line-clamp-1">
           {context.name}
         </h3>
 
         <div className="flex items-center gap-2 mb-6">
-          <span className="text-xs font-mono text-slate-500 bg-slate-800/50 px-2 py-1 rounded-md">
+          <span className="text-xs font-mono text-text-muted bg-background-elevated/50 px-2 py-1 rounded-md">
             {context.contextId}
           </span>
           {context.isActive ? (
-            <span className="text-xs font-medium text-emerald-400 bg-emerald-400/10 px-2 py-1 rounded-full">
+            <span className="text-xs font-medium text-success-base bg-success-base/10 px-2 py-1 rounded-full">
               Activo
             </span>
           ) : (
-            <span className="text-xs font-medium text-slate-400 bg-slate-800/80 px-2 py-1 rounded-full">
+            <span className="text-xs font-medium text-text-muted bg-background-elevated/80 px-2 py-1 rounded-full">
               Inactivo
             </span>
           )}
         </div>
 
-        <div className="flex items-center justify-between mt-auto pt-4 border-t border-white/5">
-          <div className="flex items-center gap-3 text-sm text-slate-400">
+        <div className="flex items-center justify-between mt-auto pt-4 border-t border-border-subtle">
+          <div className="flex items-center gap-3 text-sm text-text-muted">
             <div className="flex items-center gap-1.5" title="Total Assets">
-              <span className="font-medium text-slate-300">{assetCount}</span> total
+              <span className="font-medium text-text-secondary">{assetCount}</span> total
             </div>
-            <div className="size-1 rounded-full bg-slate-700" />
+            <div className="size-1 rounded-full bg-background-surface" />
             <div className="flex items-center gap-1.5" title="Imágenes">
-              <ImageIcon size={14} className="text-slate-500" />
+              <ImageIcon size={14} className="text-text-muted" />
               <span>{imagesCount}</span>
             </div>
             <div className="flex items-center gap-1.5" title="Audios">
-              <Music size={14} className="text-slate-500" />
+              <Music size={14} className="text-text-muted" />
               <span>{audioCount}</span>
             </div>
           </div>
         </div>
 
         {previews.length > 0 && (
-          <div className="mt-4 flex gap-1.5 pt-4 border-t border-white/5 overflow-hidden">
+          <div className="mt-4 flex gap-1.5 pt-4 border-t border-border-subtle overflow-hidden">
             {previews.map((preview, i) => (
               <span key={i} className="text-2xl">
                 {preview}
               </span>
             ))}
             {assetCount > 5 && (
-              <div className="flex items-center justify-center size-8 rounded-full bg-slate-800/50 text-xs text-slate-400 ml-1">
+              <div className="flex items-center justify-center size-8 rounded-full bg-background-elevated/50 text-xs text-text-muted ml-1">
                 +{assetCount - 5}
               </div>
             )}
@@ -391,23 +384,23 @@ function CreateContextModal({ onClose, onSuccess }) {
         initial={{ scale: 0.9, opacity: 0 }}
         animate={{ scale: 1, opacity: 1 }}
         exit={{ scale: 0.9, opacity: 0 }}
-        className="bg-slate-900 border border-white/10 rounded-2xl w-full max-w-md shadow-2xl"
+        className="bg-background-base border border-border-default rounded-2xl w-full max-w-md shadow-2xl"
       >
         {/* Header */}
-        <div className="flex items-center justify-between p-6 border-b border-white/5">
+        <div className="flex items-center justify-between p-6 border-b border-border-subtle">
           <div className="flex items-center gap-3">
-            <div className="size-10 rounded-xl bg-indigo-500/20 flex items-center justify-center">
-              <ShieldCheck size={20} className="text-indigo-400" />
+            <div className="size-10 rounded-xl bg-accent-indigo/20 flex items-center justify-center">
+              <ShieldCheck size={20} className="text-accent-indigo" />
             </div>
             <div>
-              <h3 className="text-lg font-semibold text-white">Nuevo Contexto</h3>
-              <p className="text-xs text-slate-500">Los assets se añaden después</p>
+              <h3 className="text-lg font-semibold text-text-primary">Nuevo Contexto</h3>
+              <p className="text-xs text-text-muted">Los assets se añaden después</p>
             </div>
           </div>
           <button
             onClick={onClose}
             disabled={isSubmitting}
-            className="p-2 rounded-lg hover:bg-white/10 transition-colors text-slate-400 disabled:opacity-50"
+            className="p-2 rounded-lg hover:bg-border-default transition-colors text-text-muted disabled:opacity-50"
           >
             <X size={20} />
           </button>
@@ -436,15 +429,15 @@ function CreateContextModal({ onClose, onSuccess }) {
               info="Solo minúsculas, números, guiones y guiones bajos. Se genera automáticamente desde el nombre."
             />
             {contextId && (
-              <p className="text-xs text-slate-500 mt-1 font-mono">
-                Ruta: <span className="text-indigo-400">/contexts/{contextId}</span>
+              <p className="text-xs text-text-muted mt-1 font-mono">
+                Ruta: <span className="text-accent-indigo">/contexts/{contextId}</span>
               </p>
             )}
           </div>
 
-          <div className="bg-amber-500/10 border border-amber-500/20 rounded-xl p-3 flex gap-3">
-            <AlertTriangle size={16} className="text-amber-400 flex-shrink-0 mt-0.5" />
-            <p className="text-xs text-amber-300">
+          <div className="bg-warning-base/10 border border-warning-base/20 rounded-xl p-3 flex gap-3">
+            <AlertTriangle size={16} className="text-warning-base flex-shrink-0 mt-0.5" />
+            <p className="text-xs text-warning-base">
               El contexto se creará vacío. Los profesores podrán añadir imágenes y audios desde la
               página de detalle del contexto.
             </p>

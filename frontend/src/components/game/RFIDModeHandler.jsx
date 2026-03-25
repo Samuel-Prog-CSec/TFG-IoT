@@ -26,25 +26,25 @@ const MODES_CONFIG = {
   idle: {
     label: 'Inactivo',
     icon: WifiOff,
-    iconContainerClass: 'bg-slate-500/20 text-slate-400',
+    iconContainerClass: 'bg-background-surface/20 text-text-muted',
     description: 'El sensor no está procesando tarjetas'
   },
   gameplay: {
     label: 'Modo Juego',
     icon: Gamepad2,
-    iconContainerClass: 'bg-emerald-500/20 text-emerald-400',
+    iconContainerClass: 'bg-success-base/20 text-success-base',
     description: 'Escaneando respuestas de los estudiantes'
   },
   card_registration: {
     label: 'Registro',
     icon: UserPlus,
-    iconContainerClass: 'bg-blue-500/20 text-blue-400',
+    iconContainerClass: 'bg-info-base/20 text-info-base',
     description: 'Registrando nuevas tarjetas en el sistema'
   },
   card_assignment: {
     label: 'Asignación',
     icon: CreditCard,
-    iconContainerClass: 'bg-purple-500/20 text-purple-400',
+    iconContainerClass: 'bg-brand-base/20 text-brand-base',
     description: 'Vinculando tarjetas a estudiantes'
   }
 };
@@ -85,19 +85,19 @@ export default function RFIDModeHandler({ currentMode = 'idle', className }) {
           exit={{ opacity: 0, y: 20, scale: 0.95 }}
           className="pointer-events-auto"
         >
-          <GlassCard className="p-4 shadow-2xl border-white/10 overflow-hidden w-64">
+          <GlassCard className="p-4 shadow-2xl border-border-default overflow-hidden w-64">
             {/* Indicador de Conexión */}
             <div className="flex items-center justify-between mb-4">
               <div className="flex items-center gap-2">
                 <div className={cn(
                   "size-2 rounded-full",
-                  isConnected ? "bg-emerald-500 animate-pulse" : "bg-rose-500"
+                  isConnected ? "bg-success-base animate-pulse" : "bg-error-base"
                 )} />
-                <span className="text-[10px] uppercase tracking-wider font-bold text-slate-400">
+                <span className="text-[10px] uppercase tracking-wider font-bold text-text-muted">
                   {isConnected ? 'Sensor Conectado' : 'Sensor Desconectado'}
                 </span>
               </div>
-              <Settings size={14} className="text-slate-500 cursor-pointer hover:text-white transition-colors" />
+              <Settings size={14} className="text-text-muted cursor-pointer hover:text-text-primary transition-colors" />
             </div>
 
             {/* Estado del Modo */}
@@ -109,10 +109,10 @@ export default function RFIDModeHandler({ currentMode = 'idle', className }) {
                 <Icon size={20} />
               </div>
               <div className="flex-1">
-                <h4 className="text-sm font-bold text-white">
+                <h4 className="text-sm font-bold text-text-primary">
                   {modeInfo.label}
                 </h4>
-                <p className="text-[10px] text-slate-400 leading-tight mt-0.5">
+                <p className="text-[10px] text-text-muted leading-tight mt-0.5">
                   {modeInfo.description}
                 </p>
               </div>
@@ -122,7 +122,7 @@ export default function RFIDModeHandler({ currentMode = 'idle', className }) {
               <motion.div 
                 initial={{ opacity: 0, height: 0 }}
                 animate={{ opacity: 1, height: 'auto' }}
-                className="mt-3 pt-3 border-t border-white/5 flex items-center gap-2 text-amber-500 text-[10px]"
+                className="mt-3 pt-3 border-t border-border-subtle flex items-center gap-2 text-warning-base text-[10px]"
               >
                 <AlertCircle size={12} />
                 <span>Requiere conexión manual</span>
@@ -133,9 +133,9 @@ export default function RFIDModeHandler({ currentMode = 'idle', className }) {
               <motion.div
                 initial={{ opacity: 0, height: 0 }}
                 animate={{ opacity: 1, height: 'auto' }}
-                className="mt-3 pt-3 border-t border-white/5 flex items-center gap-3 text-[10px] text-slate-500"
+                className="mt-3 pt-3 border-t border-border-subtle flex items-center gap-3 text-[10px] text-text-muted"
               >
-                <Activity size={10} className="text-emerald-500" />
+                <Activity size={10} className="text-success-base" />
                 <span>Uptime: {Math.floor((deviceHealth.uptime || 0) / 1000)}s</span>
                 <span>·</span>
                 <span>Heap: {((deviceHealth.freeHeap || 0) / 1024).toFixed(1)}KB</span>

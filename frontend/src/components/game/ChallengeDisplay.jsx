@@ -15,9 +15,9 @@ import FloatingPointsBadge from './FloatingPointsBadge';
 
 const FEEDBACK_BORDER = {
   idle: '',
-  success: 'border-emerald-500 shadow-[0_0_40px] shadow-emerald-500/30',
-  error: 'border-rose-500/70 shadow-[0_0_20px] shadow-rose-500/20',
-  timeout: 'border-amber-500/70 shadow-[0_0_20px] shadow-amber-500/20',
+  success: 'border-success-base shadow-[0_0_40px] shadow-success-glow',
+  error: 'border-error-base/70 shadow-[0_0_20px] shadow-error-glow',
+  timeout: 'border-warning-base/70 shadow-[0_0_20px] shadow-warning-glow',
 };
 
 const SHAKE_ANIMATION = {
@@ -179,10 +179,49 @@ const ChallengeDisplay = function ChallengeDisplay({
         </AnimatePresence>
       </div>
 
+      {/* Error flash overlay */}
+      {isError && !shouldReduceMotion && (
+        <motion.div
+          initial={{ opacity: 0 }}
+          animate={{ opacity: [0, 0.12, 0] }}
+          transition={{ duration: 0.3 }}
+          className="absolute inset-0 rounded-3xl bg-error-base pointer-events-none z-20"
+        />
+      )}
+
+      {/* Success particles */}
+      {isSuccess && !shouldReduceMotion && (
+        <div className="absolute inset-0 pointer-events-none z-20 overflow-visible">
+          {Array.from({ length: 6 }).map((_, i) => {
+            const angle = (i / 6) * Math.PI * 2;
+            const distance = 80 + (i % 3) * 20;
+            return (
+              <motion.div
+                key={`particle-${i}`}
+                initial={{ x: 0, y: 0, opacity: 1, scale: 1 }}
+                animate={{
+                  x: Math.cos(angle) * distance,
+                  y: Math.sin(angle) * distance,
+                  opacity: 0,
+                  scale: 0,
+                }}
+                transition={{ duration: 0.6, ease: 'easeOut' }}
+                className={cn(
+                  'absolute left-1/2 top-1/2 size-3 rounded-full -translate-x-1/2 -translate-y-1/2',
+                  i % 3 === 0 && 'bg-success-base',
+                  i % 3 === 1 && 'bg-accent-cyan',
+                  i % 3 === 2 && 'bg-warning-base'
+                )}
+              />
+            );
+          })}
+        </div>
+      )}
+
       {/* Decorative rings */}
       <div className="absolute inset-0 rounded-3xl overflow-hidden pointer-events-none">
-        <div className="absolute inset-4 rounded-2xl border border-white/5" />
-        <div className="absolute inset-8 rounded-xl border border-white/5" />
+        <div className="absolute inset-4 rounded-2xl border border-border-subtle" />
+        <div className="absolute inset-8 rounded-xl border border-border-subtle" />
       </div>
 
       {/* Pulsing glow effect */}
@@ -267,8 +306,8 @@ const ChallengeDisplay = function ChallengeDisplay({
           disabled={audioPlaying}
           className={cn(
             "mt-6 p-4 rounded-full",
-            "bg-white/10 hover:bg-white/20",
-            "border border-white/20",
+            "bg-glass-bg hover:bg-border-strong",
+            "border border-glass-border",
             "transition-all duration-300",
             !shouldReduceMotion && "hover:scale-110",
             audioPlaying && "animate-pulse"
@@ -277,9 +316,9 @@ const ChallengeDisplay = function ChallengeDisplay({
           title="Escuchar pista"
         >
           {audioPlaying ? (
-            <Volume2 className="size-8 text-white animate-bounce" />
+            <Volume2 className="size-8 text-text-primary animate-bounce" />
           ) : (
-            <VolumeX className="size-8 text-white/60" />
+            <VolumeX className="size-8 text-text-muted" />
           )}
         </motion.button>
       )}

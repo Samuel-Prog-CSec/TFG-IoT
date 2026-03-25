@@ -314,11 +314,11 @@ function DeckCardView({
       <motion.div
         className={cn(
           'relative rounded-2xl overflow-hidden',
-          'bg-gradient-to-br from-slate-900/90 to-slate-800/90',
-          'border border-white/10',
+          'bg-gradient-to-br from-background-base/90 to-background-elevated/90',
+          'border border-border-default',
           'backdrop-blur-xl',
           'transition-shadow duration-300',
-          isHovered && 'shadow-2xl shadow-indigo-500/20',
+          isHovered && 'shadow-2xl shadow-accent-indigo/20',
           selected && 'ring-2 ring-brand-base ring-offset-2 ring-offset-background-deep',
           selectable && 'hover:ring-2 hover:ring-brand-base/50 focus-ring'
         )}
@@ -333,7 +333,7 @@ function DeckCardView({
           <div
             className="absolute inset-0 rounded-2xl"
             style={{
-              background: 'linear-gradient(90deg, #6366f1, #8b5cf6, #a855f7, #6366f1)',
+              background: 'linear-gradient(90deg, var(--color-accent-indigo), var(--color-brand-base), var(--color-accent-pink), var(--color-accent-indigo))',
               backgroundSize: '300% 100%',
               animation: 'gradient-shift 3s ease infinite',
               padding: '1px',
@@ -357,7 +357,7 @@ function DeckCardView({
           />
 
           {deck.description && (
-            <p className="text-slate-400 text-sm mb-4 line-clamp-2" title={deck.description}>
+            <p className="text-text-muted text-sm mb-4 line-clamp-2" title={deck.description}>
               {deck.description}
             </p>
           )}
@@ -439,14 +439,14 @@ function DeckCardHeader({
   return (
     <div className="flex items-start justify-between mb-4">
       <div className="flex items-center gap-3">
-        <div className="size-12 rounded-xl bg-gradient-to-br from-indigo-500 to-purple-600 flex items-center justify-center shadow-lg shadow-indigo-500/30">
-          <Layers className="text-white" size={24} />
+        <div className="size-12 rounded-xl bg-gradient-to-br from-accent-indigo to-brand-base flex items-center justify-center shadow-lg shadow-accent-indigo/30">
+          <Layers className="text-text-primary" size={24} />
         </div>
         <div>
-          <h3 className="font-bold text-white text-lg leading-tight line-clamp-1" title={deck.name}>
+          <h3 className="font-bold text-text-primary text-lg leading-tight line-clamp-1" title={deck.name}>
             {deck.name}
           </h3>
-          <span className="text-xs text-purple-400 font-medium">
+          <span className="text-xs text-brand-light font-medium">
             {deck.context?.name || deck.contextId?.name || 'Sin contexto'}
           </span>
         </div>
@@ -456,7 +456,7 @@ function DeckCardHeader({
         <div className="relative z-20" ref={menuRef}>
           <Tooltip content="Opciones">
             <motion.button
-              className="p-2 rounded-lg text-slate-400 hover:text-white hover:bg-white/10 transition-colors"
+              className="p-2 rounded-lg text-text-muted hover:text-text-primary hover:bg-border-default transition-colors"
               whileHover={{ scale: 1.1 }}
               whileTap={{ scale: 0.95 }}
               onClick={(event) => {
@@ -525,7 +525,7 @@ function DeckPreviewAssets({
       {previewAssets.map((mapping, index) => (
         <motion.div
           key={mapping._id || index}
-          className="size-10 rounded-lg bg-slate-800/80 border border-white/10 flex items-center justify-center text-lg overflow-hidden"
+          className="size-10 rounded-lg bg-background-elevated/80 border border-border-default flex items-center justify-center text-lg overflow-hidden"
           initial={{ opacity: 0, scale: 0.8 }}
           animate={{ opacity: 1, scale: 1 }}
           transition={{ delay: index * 0.1 }}
@@ -543,7 +543,7 @@ function DeckPreviewAssets({
       ))}
       {remainingCount > 0 && (
         <motion.div
-          className="size-10 rounded-lg bg-slate-800/80 border border-white/10 flex items-center justify-center text-xs font-bold text-slate-400"
+          className="size-10 rounded-lg bg-background-elevated/80 border border-border-default flex items-center justify-center text-xs font-bold text-text-muted"
           initial={{ opacity: 0, scale: 0.8 }}
           animate={{ opacity: 1, scale: 1 }}
           transition={{ delay: 0.4 }}
@@ -566,7 +566,7 @@ DeckPreviewAssets.propTypes = {
 
 function DeckStats({ cardsCount, createdAt }) {
   return (
-    <div className="flex items-center gap-4 text-xs text-slate-500">
+    <div className="flex items-center gap-4 text-xs text-text-muted">
       <div className="flex items-center gap-1.5">
         <CreditCard size={14} />
         <span>{cardsCount} tarjetas</span>
@@ -592,7 +592,7 @@ function DeckHoverActions({ selectable, showActions, deck, onView, onEdit, onDel
   return (
     <motion.div
       className={cn(
-        'absolute bottom-0 left-0 right-0 p-4 pt-8 bg-gradient-to-t from-slate-900 via-slate-900/95 to-transparent z-20',
+        'absolute bottom-0 left-0 right-0 p-4 pt-8 bg-gradient-to-t from-background-base via-background-base/95 to-transparent z-20',
         showActions ? 'pointer-events-auto' : 'pointer-events-none'
       )}
       initial={{ opacity: 0, y: 20 }}
@@ -649,12 +649,12 @@ function DeckSelectionBadge({ selectable, selected }) {
 
   return (
     <motion.div
-      className="absolute top-3 right-3 size-6 rounded-full bg-indigo-500 flex items-center justify-center"
+      className="absolute top-3 right-3 size-6 rounded-full bg-accent-indigo flex items-center justify-center"
       initial={{ scale: 0 }}
       animate={{ scale: 1 }}
       transition={{ type: 'spring', stiffness: 500 }}
     >
-      <svg className="size-4 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+      <svg className="size-4 text-text-primary" fill="none" viewBox="0 0 24 24" stroke="currentColor">
         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7" />
       </svg>
     </motion.div>
@@ -674,11 +674,11 @@ function AnimateMenu({ isOpen, onView, onEdit, onDelete }) {
       initial={{ opacity: 0, y: -6, scale: 0.98 }}
       animate={{ opacity: 1, y: 0, scale: 1 }}
       exit={{ opacity: 0, y: -6, scale: 0.98 }}
-      className="absolute right-0 mt-2 w-36 rounded-xl border border-white/10 bg-slate-900/95 backdrop-blur-xl p-1.5 shadow-xl"
+      className="absolute right-0 mt-2 w-36 rounded-xl border border-border-default bg-background-base/95 backdrop-blur-xl p-1.5 shadow-xl"
     >
-      <button onClick={onView} className="w-full text-left px-2.5 py-2 rounded-lg text-sm text-slate-200 hover:bg-white/10 transition-colors">Ver</button>
-      <button onClick={onEdit} className="w-full text-left px-2.5 py-2 rounded-lg text-sm text-slate-200 hover:bg-white/10 transition-colors">Editar</button>
-      <button onClick={onDelete} className="w-full text-left px-2.5 py-2 rounded-lg text-sm text-rose-300 hover:bg-rose-500/20 transition-colors">Archivar</button>
+      <button onClick={onView} className="w-full text-left px-2.5 py-2 rounded-lg text-sm text-text-secondary hover:bg-border-default transition-colors">Ver</button>
+      <button onClick={onEdit} className="w-full text-left px-2.5 py-2 rounded-lg text-sm text-text-secondary hover:bg-border-default transition-colors">Editar</button>
+      <button onClick={onDelete} className="w-full text-left px-2.5 py-2 rounded-lg text-sm text-error-base hover:bg-error-base/20 transition-colors">Archivar</button>
     </motion.div>
   );
 }
@@ -691,8 +691,8 @@ function ActionButton({ icon: Icon, label, onClick, variant = 'default' }) {
     <motion.button
       className={cn(
         'flex items-center gap-1.5 px-3 py-2 rounded-lg text-xs font-medium transition-colors',
-        variant === 'default' && 'bg-white/10 text-white hover:bg-white/20',
-        variant === 'danger' && 'bg-rose-500/20 text-rose-400 hover:bg-rose-500/30'
+        variant === 'default' && 'bg-border-default text-text-primary hover:bg-border-strong',
+        variant === 'danger' && 'bg-error-base/20 text-error-base hover:bg-error-base/30'
       )}
       onClick={onClick}
       whileHover={{ scale: 1.05 }}
@@ -736,25 +736,25 @@ AnimateMenu.propTypes = {
  */
 export function DeckCardSkeleton() {
   return (
-    <div className="relative rounded-2xl overflow-hidden bg-slate-900/50 border border-white/5 p-5 animate-pulse">
+    <div className="relative rounded-2xl overflow-hidden bg-background-base/50 border border-border-subtle p-5 animate-pulse">
       <div className="flex items-start justify-between mb-4">
         <div className="flex items-center gap-3">
-          <div className="size-12 rounded-xl bg-slate-800" />
+          <div className="size-12 rounded-xl bg-background-elevated" />
           <div className="space-y-2">
-            <div className="w-32 h-5 bg-slate-800 rounded" />
-            <div className="w-20 h-3 bg-slate-800 rounded" />
+            <div className="w-32 h-5 bg-background-elevated rounded" />
+            <div className="w-20 h-3 bg-background-elevated rounded" />
           </div>
         </div>
       </div>
-      <div className="w-full h-4 bg-slate-800 rounded mb-4" />
+      <div className="w-full h-4 bg-background-elevated rounded mb-4" />
       <div className="flex gap-2 mb-4">
         {[1, 2, 3, 4].map((slot) => (
-          <div key={`deck-card-skeleton-${slot}`} className="size-10 rounded-lg bg-slate-800" />
+          <div key={`deck-card-skeleton-${slot}`} className="size-10 rounded-lg bg-background-elevated" />
         ))}
       </div>
       <div className="flex gap-4">
-        <div className="w-20 h-3 bg-slate-800 rounded" />
-        <div className="w-24 h-3 bg-slate-800 rounded" />
+        <div className="w-20 h-3 bg-background-elevated rounded" />
+        <div className="w-24 h-3 bg-background-elevated rounded" />
       </div>
     </div>
   );

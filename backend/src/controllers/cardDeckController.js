@@ -125,104 +125,96 @@ async function validateCardsExistAndActive(cardMappings) {
 /**
  * GET /api/decks
  */
-const getDecks = async (req, res, next) => {
-  try {
-    const {
-      page = 1,
-      limit = 20,
-      sortBy = 'createdAt',
-      order = 'desc',
-      contextId,
-      status,
-      search
-    } = req.query;
+const getDecks = async (req, res) => {
+  const {
+    page = 1,
+    limit = 20,
+    sortBy = 'createdAt',
+    order = 'desc',
+    contextId,
+    status,
+    search
+  } = req.query;
 
-    const filter = { createdBy: req.user._id };
+  const filter = { createdBy: req.user._id };
 
-    if (contextId) {
-      filter.contextId = contextId;
-    }
-
-    if (status) {
-      filter.status = status;
-    }
-
-    if (search) {
-      const safeSearch = escapeRegex(search);
-      filter.$or = [
-        { name: { $regex: safeSearch, $options: 'i' } },
-        { description: { $regex: safeSearch, $options: 'i' } }
-      ];
-    }
-
-    const skip = (page - 1) * limit;
-    const sortOptions = { [sortBy]: order === 'asc' ? 1 : -1 };
-
-    const [decks, total] = await Promise.all([
-      cardDeckRepository.find(filter, {
-        populate: { path: 'contextId', select: 'contextId name' },
-        sort: sortOptions,
-        limit: Number.parseInt(limit, 10),
-        skip
-      }),
-      cardDeckRepository.count(filter)
-    ]);
-
-    logger.info('Lista de mazos obtenida', {
-      requestedBy: req.user._id,
-      filters: { ...filter, ...(search ? { search } : {}) },
-      resultsCount: decks.length
-    });
-
-    res.json({
-      success: true,
-      ...toPaginatedDTOV1(toCardDeckListDTOV1(decks), {
-        page: Number.parseInt(page, 10),
-        limit: Number.parseInt(limit, 10),
-        total
-      })
-    });
-  } catch (error) {
-    next(error);
+  if (contextId) {
+    filter.contextId = contextId;
   }
+
+  if (status) {
+    filter.status = status;
+  }
+
+  if (search) {
+    const safeSearch = escapeRegex(search);
+    filter.$or = [
+      { name: { $regex: safeSearch, $options: 'i' } },
+      { description: { $regex: safeSearch, $options: 'i' } }
+    ];
+  }
+
+  const skip = (page - 1) * limit;
+  const sortOptions = { [sortBy]: order === 'asc' ? 1 : -1 };
+
+  const [decks, total] = await Promise.all([
+    cardDeckRepository.find(filter, {
+      populate: { path: 'contextId', select: 'contextId name' },
+      sort: sortOptions,
+      limit: Number.parseInt(limit, 10),
+      skip
+    }),
+    cardDeckRepository.count(filter)
+  ]);
+
+  logger.info('Lista de mazos obtenida', {
+    requestedBy: req.user._id,
+    filters: { ...filter, ...(search ? { search } : {}) },
+    resultsCount: decks.length
+  });
+
+  res.json({
+    success: true,
+    ...toPaginatedDTOV1(toCardDeckListDTOV1(decks), {
+      page: Number.parseInt(page, 10),
+      limit: Number.parseInt(limit, 10),
+      total
+    })
+  });
 };
 
 /**
  * GET /api/decks/:id
  */
-const getDeckById = async (req, res, next) => {
-  try {
-    const { id } = req.params;
+const getDeckById = async (req, res) => {
+  const { id } = req.params;
 
-    const deck = await cardDeckRepository.findById(id, {
-      populate: [
-        { path: 'contextId', select: 'contextId name assets' },
-        { path: 'createdBy', select: 'name email' },
-        { path: 'cardMappings.cardId', select: 'uid type status metadata' }
-      ]
-    });
+  const deck = await cardDeckRepository.findById(id, {
+    populate: [
+      { path: 'contextId', select: 'contextId name assets' },
+      { path: 'createdBy', select: 'name email' },
+      { path: 'cardMappings.cardId', select: 'uid type status metadata' }
+    ]
+  });
 
-    if (!deck) {
-      throw new NotFoundError('Mazo');
-    }
-
-    if (deck.createdBy._id.toString() !== req.user._id.toString()) {
-      throw new ForbiddenError('No tienes permiso para ver este mazo');
-    }
-
-    res.json({
-      success: true,
-      data: toCardDeckDetailDTOV1(deck)
-    });
-  } catch (error) {
-    next(error);
+  if (!deck) {
+    throw new NotFoundError('Mazo');
   }
+
+  if (deck.createdBy._id.toString() !== req.user._id.toString()) {
+    throw new ForbiddenError('No tienes permiso para ver este mazo');
+  }
+
+  res.json({
+    success: true,
+    data: toCardDeckDetailDTOV1(deck)
+  });
 };
 
 /**
  * POST /api/decks
  */
-const createDeck = async (req, res, next) => {
+const createDeck = async (req, res) => {
   try {
     const { name, description, contextId, cardMappings, status } = req.body;
 
@@ -282,9 +274,9 @@ const createDeck = async (req, res, next) => {
   } catch (error) {
     // Duplicado por índice único (createdBy + name)
     if (error?.code === 11000) {
-      return next(new ConflictError('Ya existe un mazo con ese nombre'));
+      throw new ConflictError('Ya existe un mazo con ese nombre');
     }
-    next(error);
+    throw error;
   }
 };
 
@@ -357,7 +349,7 @@ const applyDeckMappingUpdates = async (deck, { contextId, cardMappings }) => {
   }
 };
 
-const updateDeck = async (req, res, next) => {
+const updateDeck = async (req, res) => {
   try {
     const { id } = req.params;
     const { name, description, contextId, cardMappings, status } = req.body;
@@ -390,9 +382,9 @@ const updateDeck = async (req, res, next) => {
     });
   } catch (error) {
     if (error?.code === 11000) {
-      return next(new ConflictError('Ya existe un mazo con ese nombre'));
+      throw new ConflictError('Ya existe un mazo con ese nombre');
     }
-    next(error);
+    throw error;
   }
 };
 
@@ -400,35 +392,31 @@ const updateDeck = async (req, res, next) => {
  * DELETE /api/decks/:id
  * Soft delete: archiva el mazo.
  */
-const deleteDeck = async (req, res, next) => {
-  try {
-    const { id } = req.params;
+const deleteDeck = async (req, res) => {
+  const { id } = req.params;
 
-    const deck = await cardDeckRepository.findById(id);
+  const deck = await cardDeckRepository.findById(id);
 
-    if (!deck) {
-      throw new NotFoundError('Mazo');
-    }
-
-    if (deck.createdBy.toString() !== req.user._id.toString()) {
-      throw new ForbiddenError('No tienes permiso para eliminar este mazo');
-    }
-
-    deck.status = 'archived';
-    await deck.save();
-
-    logger.info('Mazo archivado', {
-      deckId: deck._id,
-      archivedBy: req.user._id
-    });
-
-    res.json({
-      success: true,
-      message: 'Mazo eliminado (archivado) exitosamente'
-    });
-  } catch (error) {
-    next(error);
+  if (!deck) {
+    throw new NotFoundError('Mazo');
   }
+
+  if (deck.createdBy.toString() !== req.user._id.toString()) {
+    throw new ForbiddenError('No tienes permiso para eliminar este mazo');
+  }
+
+  deck.status = 'archived';
+  await deck.save();
+
+  logger.info('Mazo archivado', {
+    deckId: deck._id,
+    archivedBy: req.user._id
+  });
+
+  res.json({
+    success: true,
+    message: 'Mazo eliminado (archivado) exitosamente'
+  });
 };
 
 module.exports = {

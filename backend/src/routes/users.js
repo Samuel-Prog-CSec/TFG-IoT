@@ -31,6 +31,7 @@ const {
   teacherStudentsQuerySchema
 } = require('../validators/userValidator');
 const { emptyObjectSchema } = require('../validators/commonValidator');
+const asyncHandler = require('../utils/asyncHandler');
 
 /**
  * @route   GET /api/users
@@ -43,7 +44,7 @@ router.get(
   authenticate,
   requireRole('teacher', 'super_admin'),
   validateQuery(userQuerySchema),
-  getUsers
+  asyncHandler(getUsers)
 );
 
 /**
@@ -58,7 +59,7 @@ router.get(
   requireRole('teacher', 'super_admin'),
   validateParams(teacherIdParamsSchema),
   validateQuery(teacherStudentsQuerySchema),
-  getStudentsByTeacher
+  asyncHandler(getStudentsByTeacher)
 );
 
 /**
@@ -72,7 +73,7 @@ router.get(
   authenticate,
   validateParams(userIdParamsSchema),
   validateQuery(emptyObjectSchema),
-  getUserById
+  asyncHandler(getUserById)
 );
 
 /**
@@ -86,7 +87,7 @@ router.get(
   authenticate,
   validateParams(userIdParamsSchema),
   validateQuery(emptyObjectSchema),
-  getUserStats
+  asyncHandler(getUserStats)
 );
 
 /**
@@ -103,7 +104,7 @@ router.post(
   requireRole('super_admin'),
   validateQuery(emptyObjectSchema),
   validateBody(createStudentSchema),
-  createUser
+  asyncHandler(createUser)
 );
 
 /**
@@ -119,7 +120,7 @@ router.put(
   validateParams(userIdParamsSchema),
   validateQuery(emptyObjectSchema),
   validateBody(updateUserSchema),
-  updateUser
+  asyncHandler(updateUser)
 );
 
 /**
@@ -134,7 +135,7 @@ router.delete(
   requireRole('super_admin'),
   validateParams(userIdParamsSchema),
   validateQuery(emptyObjectSchema),
-  deleteUser
+  asyncHandler(deleteUser)
 );
 
 /**
@@ -150,7 +151,7 @@ router.post(
   validateParams(userIdParamsSchema),
   validateQuery(emptyObjectSchema),
   validateBody(transferStudentSchema),
-  transferStudent
+  asyncHandler(transferStudent)
 );
 
 module.exports = router;

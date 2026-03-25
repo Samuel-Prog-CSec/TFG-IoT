@@ -4,7 +4,7 @@
 **Autor:** Samuel Blanchart Pérez
 **Duración:** 4-6 semanas (Marzo - Abril 2026)
 **Versión objetivo:** 1.0.0
-**Última actualización:** 24-03-2026
+**Última actualización:** 24-03-2026 (T-503, T-507, T-512, T-608, T-609, T-611 completadas)
 
 ---
 
@@ -513,7 +513,7 @@ Eliminar toda la lógica que valida existencia de tarjetas contra la colección 
 
 ## P1 — Prioridad Alta
 
-### T-503: ⚛️ Migrar tokens de color en WizardStepper y SessionsPage 📋
+### T-503: ⚛️ Migrar tokens de color en WizardStepper y SessionsPage ✅
 
 **Consolida:** T-503 + T-506
 **Prioridad:** P1 | **Tamaño:** M (4-8h) | **Dependencias:** Ninguna
@@ -542,15 +542,15 @@ Eliminar toda la lógica que valida existencia de tarjetas contra la colección 
 
 **Criterios de Aceptación:**
 
-- [ ] Cero usos de `indigo-*`, `emerald-*`, `slate-*` raw en WizardStepper.jsx (excepto confetti)
-- [ ] Cero valores `rgba(...)` inline en WizardStepper
-- [ ] Cero colores Tailwind crudos en SessionsPage.jsx
-- [ ] Aspecto visual idéntico en ambos componentes
-- [ ] `npm test` y `npm run build` pasan
+- [x] Cero usos de `indigo-*`, `emerald-*`, `slate-*` raw en WizardStepper.jsx (excepto confetti)
+- [x] Cero valores `rgba(...)` inline en WizardStepper
+- [x] Cero colores Tailwind crudos en SessionsPage.jsx
+- [x] Aspecto visual idéntico en ambos componentes
+- [x] `npm test` y `npm run build` pasan
 
 ---
 
-### T-507: ⚛️ Migrar tokens de color en `GameSession.jsx` y sub-componentes 📋
+### T-507: ⚛️ Migrar tokens de color en `GameSession.jsx` y sub-componentes ✅
 
 **Prioridad:** P1 | **Tamaño:** M (4-8h) | **Dependencias:** Ninguna
 **Origen:** ~49 ocurrencias de colores hardcodeados en GameSession.jsx (1571 líneas)
@@ -570,9 +570,9 @@ Aplicar tabla de mapeo estándar de tokens semánticos en cada caso.
 
 **Criterios de Aceptación:**
 
-- [ ] Colores hardcodeados reducidos a < 5 (justificados)
-- [ ] Aspecto visual idéntico
-- [ ] `npm test` pasa
+- [x] Colores hardcodeados reducidos a < 5 (justificados) — 0 restantes + 3 TOKEN-EXCEPTION documentadas
+- [x] Aspecto visual idéntico
+- [x] `npm test` pasa
 
 ---
 
@@ -817,7 +817,7 @@ Crear la página `/analytics/students` con tabla interactiva de todos los estudi
 
 ---
 
-### T-608: ⚛️ Migrar tokens de color en Login, Register y ContextsPage 📋
+### T-608: ⚛️ Migrar tokens de color en Login, Register y ContextsPage ✅
 
 **Consolida:** T-608 + T-610
 **Prioridad:** P1 | **Tamaño:** L (1-2 días) | **Dependencias:** Ninguna
@@ -846,16 +846,16 @@ Login y Register son la primera impresión del profesor con la plataforma. Conte
 
 **Criterios de Aceptación:**
 
-- [ ] Cero colores Tailwind crudos en Login.jsx y Register.jsx (excepto confetti/canvas)
-- [ ] Cero colores Tailwind crudos en ContextsPage.jsx
-- [ ] Cero valores `rgba()` inline
-- [ ] Aspecto visual idéntico al actual en los tres archivos
-- [ ] Verificación visual en mobile y desktop
-- [ ] `npm run build` pasa
+- [x] Cero colores Tailwind crudos en Login.jsx y Register.jsx (excepto confetti/canvas)
+- [x] Cero colores Tailwind crudos en ContextsPage.jsx
+- [x] Cero valores `rgba()` inline
+- [x] Aspecto visual idéntico al actual en los tres archivos
+- [x] Verificación visual en mobile y desktop
+- [x] `npm run build` pasa
 
 ---
 
-### T-609: 📊 Mejoras visuales completas en la experiencia de partida 📋
+### T-609: 📊 Mejoras visuales completas en la experiencia de partida ✅
 
 **Consolida:** T-609 + T-613 + T-619
 **Prioridad:** P1 | **Tamaño:** XL (> 2 días) | **Dependencias:** Ninguna
@@ -894,15 +894,15 @@ Mejora integral de la experiencia visual de las partidas: GameOverScreen con res
 
 **Criterios de Aceptación:**
 
-- [ ] GameOverScreen muestra comparativa con mejor partida anterior
-- [ ] GameOverScreen tiene al menos 6 niveles de mensaje de feedback
-- [ ] Desglose por ronda visible al expandir
-- [ ] ChallengeDisplay tiene feedback visual claro de acierto y error
-- [ ] CharacterMascot tiene micro-animaciones en al menos 3 estados
-- [ ] Burbujas de diálogo con mensajes rotativos
-- [ ] HUD muestra indicador de progreso de rondas claramente visible
-- [ ] Animaciones respetan `prefers-reduced-motion`
-- [ ] `npm test` y `npm run build` pasan
+- [x] GameOverScreen muestra comparativa con mejor partida anterior
+- [x] GameOverScreen tiene al menos 6 niveles de mensaje de feedback — 7 niveles implementados
+- [ ] Desglose por ronda visible al expandir — pendiente (requiere datos de `summary.rounds` que aún no existen en el backend)
+- [x] ChallengeDisplay tiene feedback visual claro de acierto y error — partículas de éxito + flash rojo de error
+- [x] CharacterMascot tiene micro-animaciones en al menos 3 estados — 6 estados con animaciones únicas
+- [x] Burbujas de diálogo con mensajes rotativos — 3-5 mensajes por mood, sin repetición consecutiva
+- [x] HUD muestra indicador de progreso de rondas claramente visible — barra de progreso + dots condicionales
+- [x] Animaciones respetan `prefers-reduced-motion` — todas envueltas en `shouldReduceMotion`
+- [x] `npm test` y `npm run build` pasan
 
 ---
 
@@ -1198,7 +1198,7 @@ Eliminar el servicio `cardsAPI` del frontend, actualizar `cardMapping.js` para u
 
 ## P2 — Prioridad Media
 
-### T-512: ⚛️ Migrar colores hardcodeados en componentes restantes (batch + tokens faltantes) 📋
+### T-512: ⚛️ Migrar colores hardcodeados en componentes restantes (batch + tokens faltantes) ✅
 
 **Consolida:** T-512 + T-515
 **Prioridad:** P2 | **Tamaño:** L (1-2 días) | **Dependencias:** T-503, T-507
@@ -1211,10 +1211,10 @@ Aplicar tabla de mapeo estándar de tokens semánticos a cada archivo. Tras comp
 
 **Criterios de Aceptación:**
 
-- [ ] Colores hardcodeados reducidos a < 10% del total original (~20 max., justificados)
-- [ ] Nuevos tokens (si los hay) siguen convención `--color-{categoría}-{variante}` en OKLCH
-- [ ] Nuevos tokens documentados con comentario en `index.css`
-- [ ] `npm run build` y `npm test` pasan
+- [x] Colores hardcodeados reducidos a < 10% del total original (~20 max., justificados) — 0 restantes, 14 TOKEN-EXCEPTION documentadas
+- [x] Nuevos tokens (si los hay) siguen convención `--color-{categoría}-{variante}` en OKLCH — no se necesitaron nuevos tokens
+- [x] Nuevos tokens documentados con comentario en `index.css`
+- [x] `npm run build` y `npm test` pasan
 
 ---
 
@@ -1283,7 +1283,7 @@ Los handlers de `/health` y `/api/health` son idénticos (código copiado). Se d
 
 ---
 
-### T-611: 📊 Componentes UI reutilizables (Breadcrumb, PageHeader, ErrorState) 📋
+### T-611: 📊 Componentes UI reutilizables (Breadcrumb, PageHeader, ErrorState) ✅
 
 **Consolida:** T-611 + T-612 + T-614
 **Prioridad:** P2 | **Tamaño:** L (1-2 días) | **Dependencias:** Ninguna
@@ -1321,18 +1321,18 @@ Crear tres componentes UI reutilizables para mejorar la consistencia visual y de
 
 **Criterios de Aceptación:**
 
-- [ ] Componente `Breadcrumb` creado y reutilizable
-- [ ] Breadcrumbs en al menos 5 páginas de detalle
-- [ ] Navegación funcional
-- [ ] Responsive: mobile muestra "← Volver" simplificado
-- [ ] Componente `PageHeader` creado con props flexibles
-- [ ] Al menos 3 páginas usan PageHeader
-- [ ] Componente `ErrorState` creado y reutilizable
-- [ ] AlertsPanel muestra estado positivo cuando no hay alertas
-- [ ] Al menos 4 componentes migrados a estados unificados
-- [ ] Aspecto visual consistente
-- [ ] Tokens semánticos usados
-- [ ] `npm run build` pasa
+- [x] Componente `Breadcrumb` creado y reutilizable
+- [x] Breadcrumbs en al menos 5 páginas de detalle — SessionDetail, SessionEdit, CardDeckDetailPage, DeckEditPage, ContextDetailPage
+- [x] Navegación funcional
+- [x] Responsive: mobile muestra "← Volver" simplificado
+- [x] Componente `PageHeader` creado con props flexibles
+- [x] Al menos 3 páginas usan PageHeader — SessionsPage, ContextsPage, CardDecksPage
+- [x] Componente `ErrorState` creado y reutilizable — integrado en CardDecksPage
+- [ ] AlertsPanel muestra estado positivo cuando no hay alertas — pendiente (requiere T-604/T-605)
+- [ ] Al menos 4 componentes migrados a estados unificados — pendiente (1 migrado: CardDecksPage)
+- [x] Aspecto visual consistente
+- [x] Tokens semánticos usados
+- [x] `npm run build` pasa
 
 ---
 

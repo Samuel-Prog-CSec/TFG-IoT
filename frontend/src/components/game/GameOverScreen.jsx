@@ -42,15 +42,19 @@ function GameOverScreen({
     []
   );
 
-  // Mensajes según rendimiento
+  // Mensajes segun rendimiento (7 niveles)
   const getMessage = () => {
-    if (percentage >= 90) return { emoji: '🏆', text: '¡INCREÍBLE!', sub: '¡Eres un campeón!' };
-    if (percentage >= 70) return { emoji: '🌟', text: '¡MUY BIEN!', sub: '¡Sigue así!' };
-    if (percentage >= 50) return { emoji: '👍', text: '¡BUEN TRABAJO!', sub: '¡Puedes mejorar!' };
-    return { emoji: '💪', text: '¡SIGUE INTENTANDO!', sub: '¡Tú puedes!' };
+    if (percentage >= 100) return { emoji: '🏆', text: '¡PERFECTO!', sub: '¡Has acertado todo!' };
+    if (percentage >= 90) return { emoji: '🌟', text: '¡INCREÍBLE!', sub: '¡Casi perfecto!' };
+    if (percentage >= 80) return { emoji: '✨', text: '¡EXCELENTE!', sub: '¡Gran trabajo!' };
+    if (percentage >= 70) return { emoji: '😊', text: '¡MUY BIEN!', sub: '¡Sigue así!' };
+    if (percentage >= 50) return { emoji: '💪', text: '¡BUEN TRABAJO!', sub: '¡Vas mejorando!' };
+    if (percentage >= 30) return { emoji: '🎯', text: '¡SIGUE INTENTANDO!', sub: '¡Cada vez mejor!' };
+    return { emoji: '💫', text: '¡NO TE RINDAS!', sub: '¡La práctica hace al maestro!' };
   };
 
   const message = getMessage();
+  const scoreDelta = score - bestScore;
 
   return (
     <motion.div
@@ -159,7 +163,7 @@ function GameOverScreen({
             <div className="text-text-muted">puntos</div>
 
             {/* New best badge */}
-            {isNewBest && (
+            {isNewBest ? (
               <motion.div
                 initial={{ scale: 0 }}
                 animate={{ scale: 1 }}
@@ -168,8 +172,17 @@ function GameOverScreen({
                 role="status"
               >
                 <Trophy size={16} aria-hidden="true" />
-                ¡Nuevo récord!
+                ¡Nuevo récord! +{scoreDelta} puntos
               </motion.div>
+            ) : bestScore > 0 && (
+              <motion.p
+                initial={shouldReduceMotion ? false : { opacity: 0, y: 6 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ delay: 0.7 }}
+                className="mt-3 text-text-muted text-sm"
+              >
+                A {Math.abs(scoreDelta)} puntos de tu récord
+              </motion.p>
             )}
           </motion.div>
 

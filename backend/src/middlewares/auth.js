@@ -837,62 +837,58 @@ const optionalAuth = async (req, res, next) => {
  * @param {import('express').Response} res
  * @param {import('express').NextFunction} next
  */
-const logout = async (req, res, next) => {
-  try {
-    // Revocar el access token actual
-    const accessTokenExp = req.tokenExp * 1000; // Convertir a milisegundos
-    await revokeToken(req.tokenJti, accessTokenExp, {
-      ...getRequestContext(req),
-      userId: req.user._id,
-      tokenType: 'access',
-      reason: 'logout'
-    });
+const logout = async (req, res) => {
+  // Revocar el access token actual
+  const accessTokenExp = req.tokenExp * 1000; // Convertir a milisegundos
+  await revokeToken(req.tokenJti, accessTokenExp, {
+    ...getRequestContext(req),
+    userId: req.user._id,
+    tokenType: 'access',
+    reason: 'logout'
+  });
 
-    // Revocar refresh token actual desde cookie httpOnly (si existe)
-    const refreshToken = req.cookies?.[REFRESH_COOKIE_NAME];
-    if (refreshToken) {
-      try {
-        const decoded = await verifyRefreshToken(refreshToken, req);
-        const refreshTokenExp = decoded.exp * 1000;
-        await revokeToken(decoded.jti, refreshTokenExp, {
-          ...getRequestContext(req),
-          userId: req.user._id,
-          tokenType: 'refresh',
-          reason: 'logout'
-        });
-      } catch (error) {
-        // Si el refresh token ya expiró o es inválido, no importa
-        logger.debug('Refresh token inválido en logout, ignorando', {
-          error: error.message
-        });
-      }
+  // Revocar refresh token actual desde cookie httpOnly (si existe)
+  const refreshToken = req.cookies?.[REFRESH_COOKIE_NAME];
+  if (refreshToken) {
+    try {
+      const decoded = await verifyRefreshToken(refreshToken, req);
+      const refreshTokenExp = decoded.exp * 1000;
+      await revokeToken(decoded.jti, refreshTokenExp, {
+        ...getRequestContext(req),
+        userId: req.user._id,
+        tokenType: 'refresh',
+        reason: 'logout'
+      });
+    } catch (error) {
+      // Si el refresh token ya expiró o es inválido, no importa
+      logger.debug('Refresh token inválido en logout, ignorando', {
+        error: error.message
+      });
     }
-
-    // SINGLE SESSION: invalidar inmediatamente el access token actual
-    // incluso si Redis no está disponible para blacklist.
-    if (req.user?.currentSessionId) {
-      req.user.currentSessionId = crypto.randomUUID();
-      await req.user.save();
-    }
-
-    logSecurityEvent('AUTH_TOKEN_REVOKED', {
-      ...getRequestContext(req),
-      userId: req.user._id,
-      email: req.user.email,
-      accessTokenJti: req.tokenJti,
-      reason: 'logout'
-    });
-
-    res.clearCookie(REFRESH_COOKIE_NAME, buildRefreshCookieOptions());
-    res.clearCookie(CSRF_COOKIE_NAME, buildCsrfCookieOptions());
-
-    res.json({
-      success: true,
-      message: 'Sesión cerrada exitosamente'
-    });
-  } catch (error) {
-    next(error);
   }
+
+  // SINGLE SESSION: invalidar inmediatamente el access token actual
+  // incluso si Redis no está disponible para blacklist.
+  if (req.user?.currentSessionId) {
+    req.user.currentSessionId = crypto.randomUUID();
+    await req.user.save();
+  }
+
+  logSecurityEvent('AUTH_TOKEN_REVOKED', {
+    ...getRequestContext(req),
+    userId: req.user._id,
+    email: req.user.email,
+    accessTokenJti: req.tokenJti,
+    reason: 'logout'
+  });
+
+  res.clearCookie(REFRESH_COOKIE_NAME, buildRefreshCookieOptions());
+  res.clearCookie(CSRF_COOKIE_NAME, buildCsrfCookieOptions());
+
+  res.json({
+    success: true,
+    message: 'Sesión cerrada exitosamente'
+  });
 };
 
 module.exports = {

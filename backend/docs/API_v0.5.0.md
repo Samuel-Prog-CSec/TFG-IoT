@@ -3,7 +3,7 @@
 Este documento detalla los endpoints de la API REST para el Backend de Juegos Educativos RFID.
 
 **URL Base:** `/api`
-**Versión:** 0.4.0
+**Versión:** 0.5.0
 
 ## Autenticación y Seguridad
 

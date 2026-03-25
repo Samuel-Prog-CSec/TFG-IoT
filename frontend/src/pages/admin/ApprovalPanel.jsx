@@ -176,7 +176,7 @@ function ConfirmationModal({
               {/* Info del usuario */}
               <div className="bg-background-elevated rounded-xl p-4 mb-4 border border-border-subtle">
                 <div className="flex items-center gap-3">
-                  <div className="size-10 rounded-full bg-gradient-to-br from-brand-base to-brand-dark flex items-center justify-center text-white font-semibold">
+                  <div className="size-10 rounded-full bg-gradient-to-br from-brand-base to-brand-dark flex items-center justify-center text-text-primary font-semibold">
                     {user?.name?.charAt(0)?.toUpperCase() || '?'}
                   </div>
                   <div>
@@ -263,7 +263,7 @@ function PendingTeacherCard({ teacher, onApprove, onReject }) {
         <div className="flex flex-col lg:flex-row lg:items-center gap-4">
           {/* Avatar y nombre */}
           <div className="flex items-center gap-4 flex-1 min-w-0">
-            <div className="size-14 rounded-xl bg-gradient-to-br from-brand-base via-brand-base/80 to-brand-dark flex items-center justify-center text-white text-xl font-bold shadow-lg shadow-brand-base/20 flex-shrink-0">
+            <div className="size-14 rounded-xl bg-gradient-to-br from-brand-base via-brand-base/80 to-brand-dark flex items-center justify-center text-text-primary text-xl font-bold shadow-lg shadow-brand-base/20 flex-shrink-0">
               {teacher.name?.charAt(0)?.toUpperCase() || '?'}
             </div>
             
@@ -462,12 +462,12 @@ export default function ApprovalPanel() {
       if (type === 'approve') {
         await adminAPI.approveTeacher(user._id || user.id);
         toast.success(`${user.name} ha sido aprobado correctamente`, {
-          icon: <CheckCircle className="size-5 text-emerald-400" />,
+          icon: <CheckCircle className="size-5 text-success-base" />,
         });
       } else {
         await adminAPI.rejectTeacher(user._id || user.id, reason);
         toast.success(`${user.name} ha sido rechazado`, {
-          icon: <XCircle className="size-5 text-rose-400" />,
+          icon: <XCircle className="size-5 text-error-base" />,
         });
       }
 
@@ -509,7 +509,7 @@ export default function ApprovalPanel() {
         >
           <div className="flex items-center gap-4 mb-2">
             <div className="size-12 rounded-xl bg-gradient-to-br from-warning-base to-warning-dark flex items-center justify-center shadow-lg shadow-warning-base/20">
-              <Shield className="size-6 text-white" />
+              <Shield className="size-6 text-text-primary" />
             </div>
             <div>
               <h1 className="text-2xl sm:text-3xl font-bold font-display text-text-primary">

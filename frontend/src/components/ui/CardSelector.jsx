@@ -119,9 +119,9 @@ export default function CardSelector({
         {/* Búsqueda */}
         {showSearch && (
           <div className="relative flex-1">
-            <Search 
-              className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-500 pointer-events-none" 
-              size={18} 
+            <Search
+              className="absolute left-3 top-1/2 -translate-y-1/2 text-text-muted pointer-events-none"
+              size={18}
             />
             <input
               type="text"
@@ -130,9 +130,9 @@ export default function CardSelector({
               placeholder="Buscar por UID..."
               className={cn(
                 'w-full pl-10 pr-4 py-2.5 rounded-xl',
-                'bg-slate-800/50 border border-white/10',
-                'text-white placeholder-slate-500 text-sm',
-                'focus:outline-none focus:border-indigo-500/50 focus:ring-2 focus:ring-indigo-500/20',
+                'bg-background-elevated/50 border border-border-default',
+                'text-text-primary placeholder-text-muted text-sm',
+                'focus:outline-none focus:border-accent-indigo/50 focus:ring-2 focus:ring-accent-indigo/20',
                 'transition-all duration-300'
               )}
             />
@@ -144,14 +144,14 @@ export default function CardSelector({
           <button
             onClick={selectAll}
             disabled={selectedCardIds.length >= maxCards}
-            className="px-3 py-2 rounded-lg bg-indigo-500/20 text-indigo-400 text-xs font-medium hover:bg-indigo-500/30 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+            className="px-3 py-2 rounded-lg bg-accent-indigo/20 text-accent-indigo text-xs font-medium hover:bg-accent-indigo/30 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
           >
             Seleccionar todo
           </button>
           <button
             onClick={deselectAll}
             disabled={selectedCardIds.length === 0}
-            className="px-3 py-2 rounded-lg bg-slate-700/50 text-slate-400 text-xs font-medium hover:bg-slate-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+            className="px-3 py-2 rounded-lg bg-background-surface/50 text-text-muted text-xs font-medium hover:bg-background-surface disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
           >
             Limpiar
           </button>
@@ -165,7 +165,7 @@ export default function CardSelector({
             initial={{ opacity: 0, height: 0 }}
             animate={{ opacity: 1, height: 'auto' }}
             exit={{ opacity: 0, height: 0 }}
-            className="flex flex-wrap gap-2 p-3 rounded-xl bg-slate-800/30 border border-white/5"
+            className="flex flex-wrap gap-2 p-3 rounded-xl bg-background-elevated/30 border border-border-subtle"
           >
             {selectedCardIds.map((cardId) => {
               const card = cards.find(c => c._id === cardId);
@@ -182,12 +182,12 @@ export default function CardSelector({
                     stiffness: 500,
                     damping: 25,
                   }}
-                  className="inline-flex items-center gap-1.5 pl-2 pr-1 py-1 rounded-full bg-indigo-500/20 border border-indigo-500/30 text-indigo-300 text-xs"
+                  className="inline-flex items-center gap-1.5 pl-2 pr-1 py-1 rounded-full bg-accent-indigo/20 border border-accent-indigo/30 text-accent-indigo text-xs"
                 >
                   <span className="font-mono">{card.uid}</span>
                   <button
                     onClick={() => toggleCard(cardId)}
-                    className="p-0.5 rounded-full hover:bg-indigo-500/30 transition-colors"
+                    className="p-0.5 rounded-full hover:bg-accent-indigo/30 transition-colors"
                   >
                     <X size={12} />
                   </button>
@@ -202,14 +202,14 @@ export default function CardSelector({
       {loading ? (
         <div className="space-y-2">
           {[...Array(5)].map((_, i) => (
-            <div key={i} className="h-14 rounded-xl bg-slate-800/50 animate-pulse" />
+            <div key={i} className="h-14 rounded-xl bg-background-elevated/50 animate-pulse" />
           ))}
         </div>
       ) : filteredCards.length === 0 ? (
         <motion.div
           initial={{ opacity: 0 }}
           animate={{ opacity: 1 }}
-          className="flex flex-col items-center justify-center py-12 text-slate-500"
+          className="flex flex-col items-center justify-center py-12 text-text-muted"
         >
           <CreditCard size={48} className="mb-4 opacity-50" />
           <p className="text-sm">
@@ -220,7 +220,7 @@ export default function CardSelector({
           {searchQuery && (
             <button
               onClick={() => setSearchQuery('')}
-              className="mt-2 text-indigo-400 hover:text-indigo-300 text-sm"
+              className="mt-2 text-accent-indigo hover:text-accent-indigo text-sm"
             >
               Limpiar búsqueda
             </button>
@@ -245,13 +245,13 @@ export default function CardSelector({
                 disabled={isDisabled}
                 className={cn(
                   'flex items-center gap-3 p-3 rounded-xl border text-left transition-all',
-                  'focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500',
+                  'focus:outline-none focus-visible:ring-2 focus-visible:ring-accent-indigo',
                   isSelected && [
-                    'bg-indigo-500/15 border-indigo-500/50',
+                    'bg-accent-indigo/15 border-accent-indigo/50',
                   ],
                   !isSelected && !isDisabled && [
-                    'bg-slate-800/30 border-white/5',
-                    'hover:bg-slate-800/50 hover:border-indigo-500/30',
+                    'bg-background-elevated/30 border-border-subtle',
+                    'hover:bg-background-elevated/50 hover:border-accent-indigo/30',
                   ],
                   isDisabled && 'opacity-40 cursor-not-allowed'
                 )}
@@ -261,9 +261,9 @@ export default function CardSelector({
                 {/* Checkbox animado */}
                 <div className={cn(
                   'size-5 rounded-md border-2 flex items-center justify-center transition-all',
-                  isSelected 
-                    ? 'bg-indigo-500 border-indigo-500' 
-                    : 'border-slate-600'
+                  isSelected
+                    ? 'bg-accent-indigo border-accent-indigo'
+                    : 'border-text-disabled'
                 )}>
                   <AnimatePresence>
                     {isSelected && (
@@ -273,7 +273,7 @@ export default function CardSelector({
                         exit={{ scale: 0, rotate: 90 }}
                         transition={{ type: 'spring', stiffness: 500, damping: 30 }}
                       >
-                        <Check size={12} className="text-white" strokeWidth={3} />
+                        <Check size={12} className="text-text-primary" strokeWidth={3} />
                       </motion.div>
                     )}
                   </AnimatePresence>
@@ -282,20 +282,20 @@ export default function CardSelector({
                 {/* Icono de tarjeta */}
                 <div className={cn(
                   'size-8 rounded-lg flex items-center justify-center',
-                  isSelected ? 'bg-indigo-500/20' : 'bg-slate-800'
+                  isSelected ? 'bg-accent-indigo/20' : 'bg-background-elevated'
                 )}>
-                  <CreditCard size={16} className={isSelected ? 'text-indigo-400' : 'text-slate-500'} />
+                  <CreditCard size={16} className={isSelected ? 'text-accent-indigo' : 'text-text-muted'} />
                 </div>
 
                 {/* Info de la tarjeta */}
                 <div className="flex-1 min-w-0">
                   <p className={cn(
                     'font-mono text-sm truncate',
-                    isSelected ? 'text-white' : 'text-slate-300'
+                    isSelected ? 'text-text-primary' : 'text-text-secondary'
                   )}>
                     {card.uid}
                   </p>
-                  <p className="text-[10px] text-slate-500">
+                  <p className="text-[10px] text-text-muted">
                     {card.type || 'RFID'} • {card.status === 'active' ? 'Activa' : 'Inactiva'}
                   </p>
                 </div>
@@ -306,16 +306,16 @@ export default function CardSelector({
       )}
 
       {/* Footer con contador y validación */}
-      <div className="flex items-center justify-between pt-2 border-t border-white/5">
+      <div className="flex items-center justify-between pt-2 border-t border-border-subtle">
         <div className="flex items-center gap-2">
           <span className={cn(
             'text-sm font-medium',
-            isValid ? 'text-emerald-400' : 'text-amber-400'
+            isValid ? 'text-success-base' : 'text-warning-base'
           )}>
             {selectedCardIds.length}/{maxCards} tarjetas
           </span>
           {!isValid && selectedCardIds.length < minCards && (
-            <span className="flex items-center gap-1 text-xs text-amber-400">
+            <span className="flex items-center gap-1 text-xs text-warning-base">
               <AlertCircle size={12} />
               Mínimo {minCards}
             </span>
@@ -323,11 +323,11 @@ export default function CardSelector({
         </div>
 
         {/* Barra de progreso mini */}
-        <div className="w-24 h-1.5 bg-slate-800 rounded-full overflow-hidden">
+        <div className="w-24 h-1.5 bg-background-elevated rounded-full overflow-hidden">
           <motion.div
             className={cn(
               'h-full rounded-full',
-              isValid ? 'bg-emerald-500' : 'bg-amber-500'
+              isValid ? 'bg-success-base' : 'bg-warning-base'
             )}
             initial={{ width: 0 }}
             animate={{ width: `${Math.min((selectedCardIds.length / minCards) * 100, 100)}%` }}

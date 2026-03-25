@@ -188,7 +188,7 @@ export default function TransferStudents() {
   if (loading) {
     return (
       <div className="min-h-screen p-8">
-        <div className="text-slate-300">Cargando transferencia...</div>
+        <div className="text-text-secondary">Cargando transferencia...</div>
       </div>
     );
   }

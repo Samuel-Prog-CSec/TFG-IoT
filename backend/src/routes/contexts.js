@@ -41,6 +41,7 @@ const {
   uploadAssetMetaSchema
 } = require('../validators/gameContextValidator');
 const { emptyObjectSchema } = require('../validators/commonValidator');
+const asyncHandler = require('../utils/asyncHandler');
 
 const { IMAGE_CONFIG } = require('../services/imageProcessingService');
 const { AUDIO_CONFIG } = require('../services/audioValidationService');
@@ -96,7 +97,7 @@ router.get(
   authenticate,
   requireRole('teacher', 'super_admin'),
   validateQuery(gameContextQuerySchema),
-  getContexts
+  asyncHandler(getContexts)
 );
 
 /**
@@ -125,7 +126,7 @@ router.get(
   requireRole('teacher', 'super_admin'),
   validateParams(gameContextParamsSchema),
   validateQuery(emptyObjectSchema),
-  getContextById
+  asyncHandler(getContextById)
 );
 
 /**
@@ -140,7 +141,7 @@ router.get(
   requireRole('teacher', 'super_admin'),
   validateParams(gameContextParamsSchema),
   validateQuery(emptyObjectSchema),
-  getContextAssets
+  asyncHandler(getContextAssets)
 );
 
 /**
@@ -156,7 +157,7 @@ router.post(
   requireRole('super_admin'),
   validateQuery(emptyObjectSchema),
   validateBody(createGameContextSchema),
-  createContext
+  asyncHandler(createContext)
 );
 
 /**
@@ -173,7 +174,7 @@ router.post(
   validateParams(gameContextIdParamsSchema),
   validateQuery(emptyObjectSchema),
   validateBody(addAssetSchema),
-  addAsset
+  asyncHandler(addAsset)
 );
 
 /**
@@ -192,7 +193,7 @@ router.post(
   validateQuery(emptyObjectSchema),
   imageUpload.single('file'),
   validateBody(uploadAssetMetaSchema),
-  uploadImage
+  asyncHandler(uploadImage)
 );
 
 /**
@@ -211,7 +212,7 @@ router.post(
   validateQuery(emptyObjectSchema),
   audioUpload.single('file'),
   validateBody(uploadAssetMetaSchema),
-  uploadAudio
+  asyncHandler(uploadAudio)
 );
 
 /**
@@ -227,7 +228,7 @@ router.put(
   validateParams(gameContextIdParamsSchema),
   validateQuery(emptyObjectSchema),
   validateBody(updateGameContextSchema),
-  updateContext
+  asyncHandler(updateContext)
 );
 
 /**
@@ -242,7 +243,7 @@ router.delete(
   requireRole('super_admin'),
   validateParams(gameContextIdParamsSchema),
   validateQuery(emptyObjectSchema),
-  deleteContext
+  asyncHandler(deleteContext)
 );
 
 /**
@@ -258,7 +259,7 @@ router.delete(
   requireRole('teacher', 'super_admin'),
   validateParams(gameContextAssetParamsSchema),
   validateQuery(emptyObjectSchema),
-  removeAsset
+  asyncHandler(removeAsset)
 );
 
 /**
@@ -273,7 +274,7 @@ router.delete(
   requireRole('teacher', 'super_admin'),
   validateParams(gameContextAssetParamsSchema),
   validateQuery(emptyObjectSchema),
-  deleteImage
+  asyncHandler(deleteImage)
 );
 
 /**
@@ -288,7 +289,7 @@ router.delete(
   requireRole('teacher', 'super_admin'),
   validateParams(gameContextAssetParamsSchema),
   validateQuery(emptyObjectSchema),
-  deleteAudio
+  asyncHandler(deleteAudio)
 );
 
 module.exports = router;

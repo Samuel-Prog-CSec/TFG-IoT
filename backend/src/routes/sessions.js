@@ -30,6 +30,7 @@ const {
   cloneSessionParamsSchema
 } = require('../validators/gameSessionValidator');
 const { emptyObjectSchema } = require('../validators/commonValidator');
+const asyncHandler = require('../utils/asyncHandler');
 
 /**
  * @route   GET /api/sessions
@@ -42,7 +43,7 @@ router.get(
   authenticate,
   requireRole('teacher'),
   validateQuery(gameSessionQuerySchema),
-  getSessions
+  asyncHandler(getSessions)
 );
 
 /**
@@ -57,7 +58,7 @@ router.get(
   requireRole('teacher'),
   validateParams(gameSessionParamsSchema),
   validateQuery(emptyObjectSchema),
-  getSessionById
+  asyncHandler(getSessionById)
 );
 
 /**
@@ -73,7 +74,7 @@ router.post(
   requireRole('teacher'),
   validateQuery(emptyObjectSchema),
   validateBody(createGameSessionSchema),
-  createSession
+  asyncHandler(createSession)
 );
 
 /**
@@ -89,7 +90,7 @@ router.post(
   validateParams(sessionActionSchema),
   validateQuery(emptyObjectSchema),
   validateBody(emptyObjectSchema),
-  startSession
+  asyncHandler(startSession)
 );
 
 /**
@@ -105,7 +106,7 @@ router.post(
   validateParams(sessionActionSchema),
   validateQuery(emptyObjectSchema),
   validateBody(emptyObjectSchema),
-  endSession
+  asyncHandler(endSession)
 );
 
 /**
@@ -122,7 +123,7 @@ router.post(
   validateParams(cloneSessionParamsSchema),
   validateQuery(emptyObjectSchema),
   validateBody(emptyObjectSchema),
-  cloneSession
+  asyncHandler(cloneSession)
 );
 
 /**
@@ -138,7 +139,7 @@ router.put(
   validateParams(gameSessionParamsSchema),
   validateQuery(emptyObjectSchema),
   validateBody(updateGameSessionSchema),
-  updateSession
+  asyncHandler(updateSession)
 );
 
 /**
@@ -153,7 +154,7 @@ router.delete(
   requireRole('teacher'),
   validateParams(gameSessionParamsSchema),
   validateQuery(emptyObjectSchema),
-  deleteSession
+  asyncHandler(deleteSession)
 );
 
 module.exports = router;

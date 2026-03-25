@@ -23,67 +23,62 @@ const { escapeRegex } = require('../utils/escapeRegex');
  *
  * @param {import('express').Request} req
  * @param {import('express').Response} res
- * @param {import('express').NextFunction} next
  */
-const getCards = async (req, res, next) => {
-  try {
-    const {
-      page = 1,
-      limit = 30,
-      sortBy = 'createdAt',
-      order = 'desc',
-      status,
-      type,
-      search
-    } = req.query;
+const getCards = async (req, res) => {
+  const {
+    page = 1,
+    limit = 30,
+    sortBy = 'createdAt',
+    order = 'desc',
+    status,
+    type,
+    search
+  } = req.query;
 
-    // Construir filtro
-    const filter = {};
+  // Construir filtro
+  const filter = {};
 
-    if (status) {
-      filter.status = status;
-    }
-    if (type) {
-      filter.type = type;
-    }
-
-    // Búsqueda por UID parcial
-    if (search) {
-      const safeSearch = escapeRegex(search.toUpperCase());
-      filter.uid = { $regex: safeSearch, $options: 'i' };
-    }
-
-    // Paginación
-    const skip = (page - 1) * limit; // Calcular offset
-    const sortOptions = { [sortBy]: order === 'asc' ? 1 : -1 };
-
-    // Ejecutar query
-    const [cards, total] = await Promise.all([
-      cardRepository.find(filter, {
-        sort: sortOptions,
-        limit: Number.parseInt(limit, 10),
-        skip
-      }),
-      cardRepository.count(filter)
-    ]);
-
-    logger.info('Lista de tarjetas obtenida', {
-      requestedBy: req.user._id,
-      filters: filter,
-      resultsCount: cards.length
-    });
-
-    res.json({
-      success: true,
-      ...toPaginatedDTOV1(toCardListDTOV1(cards), {
-        page: Number.parseInt(page, 10),
-        limit: Number.parseInt(limit, 10),
-        total
-      })
-    });
-  } catch (error) {
-    next(error);
+  if (status) {
+    filter.status = status;
   }
+  if (type) {
+    filter.type = type;
+  }
+
+  // Búsqueda por UID parcial
+  if (search) {
+    const safeSearch = escapeRegex(search.toUpperCase());
+    filter.uid = { $regex: safeSearch, $options: 'i' };
+  }
+
+  // Paginación
+  const skip = (page - 1) * limit; // Calcular offset
+  const sortOptions = { [sortBy]: order === 'asc' ? 1 : -1 };
+
+  // Ejecutar query
+  const [cards, total] = await Promise.all([
+    cardRepository.find(filter, {
+      sort: sortOptions,
+      limit: Number.parseInt(limit, 10),
+      skip
+    }),
+    cardRepository.count(filter)
+  ]);
+
+  logger.info('Lista de tarjetas obtenida', {
+    requestedBy: req.user._id,
+    filters: filter,
+    resultsCount: cards.length
+  });
+
+  res.json({
+    success: true,
+    ...toPaginatedDTOV1(toCardListDTOV1(cards), {
+      page: Number.parseInt(page, 10),
+      limit: Number.parseInt(limit, 10),
+      total
+    })
+  });
 };
 
 /**
@@ -94,34 +89,29 @@ const getCards = async (req, res, next) => {
  *
  * @param {import('express').Request} req
  * @param {import('express').Response} res
- * @param {import('express').NextFunction} next
  */
-const getCardById = async (req, res, next) => {
-  try {
-    const { id } = req.params;
+const getCardById = async (req, res) => {
+  const { id } = req.params;
 
-    // Intentar buscar por ID de MongoDB o por UID
-    let card;
+  // Intentar buscar por ID de MongoDB o por UID
+  let card;
 
-    if (id.match(/^[0-9a-fA-F]{24}$/)) {
-      // Es un ObjectId válido
-      card = await cardRepository.findById(id);
-    } else {
-      // Asumir que es un UID
-      card = await cardRepository.findOne({ uid: id.toUpperCase() });
-    }
-
-    if (!card) {
-      throw new NotFoundError('Tarjeta');
-    }
-
-    res.json({
-      success: true,
-      data: toCardDTOV1(card)
-    });
-  } catch (error) {
-    next(error);
+  if (id.match(/^[0-9a-fA-F]{24}$/)) {
+    // Es un ObjectId válido
+    card = await cardRepository.findById(id);
+  } else {
+    // Asumir que es un UID
+    card = await cardRepository.findOne({ uid: id.toUpperCase() });
   }
+
+  if (!card) {
+    throw new NotFoundError('Tarjeta');
+  }
+
+  res.json({
+    success: true,
+    data: toCardDTOV1(card)
+  });
 };
 
 /**
@@ -133,41 +123,36 @@ const getCardById = async (req, res, next) => {
  *
  * @param {import('express').Request} req
  * @param {import('express').Response} res
- * @param {import('express').NextFunction} next
  */
-const createCard = async (req, res, next) => {
-  try {
-    const { uid, type, status } = req.body;
+const createCard = async (req, res) => {
+  const { uid, type, status } = req.body;
 
-    // Verificar si el UID ya existe
-    const existingCard = await cardRepository.findOne({ uid: uid.toUpperCase() });
+  // Verificar si el UID ya existe
+  const existingCard = await cardRepository.findOne({ uid: uid.toUpperCase() });
 
-    if (existingCard) {
-      throw new ConflictError('Una tarjeta con este UID ya existe');
-    }
-
-    // Crear tarjeta
-    const card = await cardRepository.create({
-      uid: uid.toUpperCase(),
-      type: type || 'UNKNOWN',
-      status: status || 'active'
-    });
-
-    logger.info('Tarjeta registrada', {
-      cardId: card._id,
-      uid: card.uid,
-      type: card.type,
-      registeredBy: req.user._id
-    });
-
-    res.status(201).json({
-      success: true,
-      message: 'Tarjeta registrada exitosamente',
-      data: toCardDTOV1(card)
-    });
-  } catch (error) {
-    next(error);
+  if (existingCard) {
+    throw new ConflictError('Una tarjeta con este UID ya existe');
   }
+
+  // Crear tarjeta
+  const card = await cardRepository.create({
+    uid: uid.toUpperCase(),
+    type: type || 'UNKNOWN',
+    status: status || 'active'
+  });
+
+  logger.info('Tarjeta registrada', {
+    cardId: card._id,
+    uid: card.uid,
+    type: card.type,
+    registeredBy: req.user._id
+  });
+
+  res.status(201).json({
+    success: true,
+    message: 'Tarjeta registrada exitosamente',
+    data: toCardDTOV1(card)
+  });
 };
 
 /**
@@ -181,43 +166,38 @@ const createCard = async (req, res, next) => {
  *
  * @param {import('express').Request} req
  * @param {import('express').Response} res
- * @param {import('express').NextFunction} next
  */
-const updateCard = async (req, res, next) => {
-  try {
-    const { id } = req.params;
-    const { type, status } = req.body;
+const updateCard = async (req, res) => {
+  const { id } = req.params;
+  const { type, status } = req.body;
 
-    const card = await cardRepository.findById(id);
+  const card = await cardRepository.findById(id);
 
-    if (!card) {
-      throw new NotFoundError('Tarjeta');
-    }
-
-    // Actualizar campos permitidos
-    if (type) {
-      card.type = type;
-    }
-    if (status) {
-      card.status = status;
-    }
-
-    await card.save();
-
-    logger.info('Tarjeta actualizada', {
-      cardId: card._id,
-      uid: card.uid,
-      updatedBy: req.user._id
-    });
-
-    res.json({
-      success: true,
-      message: 'Tarjeta actualizada exitosamente',
-      data: toCardDTOV1(card)
-    });
-  } catch (error) {
-    next(error);
+  if (!card) {
+    throw new NotFoundError('Tarjeta');
   }
+
+  // Actualizar campos permitidos
+  if (type) {
+    card.type = type;
+  }
+  if (status) {
+    card.status = status;
+  }
+
+  await card.save();
+
+  logger.info('Tarjeta actualizada', {
+    cardId: card._id,
+    uid: card.uid,
+    updatedBy: req.user._id
+  });
+
+  res.json({
+    success: true,
+    message: 'Tarjeta actualizada exitosamente',
+    data: toCardDTOV1(card)
+  });
 };
 
 /**
@@ -228,35 +208,30 @@ const updateCard = async (req, res, next) => {
  *
  * @param {import('express').Request} req
  * @param {import('express').Response} res
- * @param {import('express').NextFunction} next
  */
-const deleteCard = async (req, res, next) => {
-  try {
-    const { id } = req.params;
+const deleteCard = async (req, res) => {
+  const { id } = req.params;
 
-    const card = await cardRepository.findById(id);
+  const card = await cardRepository.findById(id);
 
-    if (!card) {
-      throw new NotFoundError('Tarjeta');
-    }
-
-    // Soft delete - marcar como perdida
-    card.status = 'lost';
-    await card.save();
-
-    logger.info('Tarjeta marcada como perdida', {
-      cardId: card._id,
-      uid: card.uid,
-      deletedBy: req.user._id
-    });
-
-    res.json({
-      success: true,
-      message: 'Tarjeta marcada como perdida exitosamente'
-    });
-  } catch (error) {
-    next(error);
+  if (!card) {
+    throw new NotFoundError('Tarjeta');
   }
+
+  // Soft delete - marcar como perdida
+  card.status = 'lost';
+  await card.save();
+
+  logger.info('Tarjeta marcada como perdida', {
+    cardId: card._id,
+    uid: card.uid,
+    deletedBy: req.user._id
+  });
+
+  res.json({
+    success: true,
+    message: 'Tarjeta marcada como perdida exitosamente'
+  });
 };
 
 /**
@@ -269,59 +244,54 @@ const deleteCard = async (req, res, next) => {
  *
  * @param {import('express').Request} req
  * @param {import('express').Response} res
- * @param {import('express').NextFunction} next
  */
-const createCardsBatch = async (req, res, next) => {
-  try {
-    const { cards } = req.body;
+const createCardsBatch = async (req, res) => {
+  const { cards } = req.body;
 
-    if (!Array.isArray(cards) || cards.length === 0) {
-      throw new ValidationError('Debe proporcionar un array de tarjetas');
-    }
-
-    // Normalizar UIDs a uppercase
-    const normalizedCards = cards.map(card => ({
-      ...card,
-      uid: card.uid.toUpperCase(),
-      type: card.type || 'UNKNOWN',
-      status: card.status || 'active'
-    }));
-
-    // Verificar duplicados en el batch
-    const uids = normalizedCards.map(c => c.uid);
-    const uniqueUids = [...new Set(uids)];
-
-    if (uids.length !== uniqueUids.length) {
-      throw new ValidationError('Hay UIDs duplicados en el batch');
-    }
-
-    // Verificar si algún UID ya existe en la BD
-    const existingCards = await cardRepository.find({ uid: { $in: uniqueUids } });
-
-    if (existingCards.length > 0) {
-      const existingUids = existingCards.map(c => c.uid);
-      throw new ConflictError(`Las siguientes tarjetas ya existen: ${existingUids.join(', ')}`);
-    }
-
-    // Insertar todas las tarjetas
-    const createdCards = await cardRepository.insertMany(normalizedCards);
-
-    logger.info('Batch de tarjetas registradas', {
-      count: createdCards.length,
-      registeredBy: req.user._id
-    });
-
-    res.status(201).json({
-      success: true,
-      message: `${createdCards.length} tarjetas registradas exitosamente`,
-      data: {
-        cards: toCardListDTOV1(createdCards),
-        count: createdCards.length
-      }
-    });
-  } catch (error) {
-    next(error);
+  if (!Array.isArray(cards) || cards.length === 0) {
+    throw new ValidationError('Debe proporcionar un array de tarjetas');
   }
+
+  // Normalizar UIDs a uppercase
+  const normalizedCards = cards.map(card => ({
+    ...card,
+    uid: card.uid.toUpperCase(),
+    type: card.type || 'UNKNOWN',
+    status: card.status || 'active'
+  }));
+
+  // Verificar duplicados en el batch
+  const uids = normalizedCards.map(c => c.uid);
+  const uniqueUids = [...new Set(uids)];
+
+  if (uids.length !== uniqueUids.length) {
+    throw new ValidationError('Hay UIDs duplicados en el batch');
+  }
+
+  // Verificar si algún UID ya existe en la BD
+  const existingCards = await cardRepository.find({ uid: { $in: uniqueUids } });
+
+  if (existingCards.length > 0) {
+    const existingUids = existingCards.map(c => c.uid);
+    throw new ConflictError(`Las siguientes tarjetas ya existen: ${existingUids.join(', ')}`);
+  }
+
+  // Insertar todas las tarjetas
+  const createdCards = await cardRepository.insertMany(normalizedCards);
+
+  logger.info('Batch de tarjetas registradas', {
+    count: createdCards.length,
+    registeredBy: req.user._id
+  });
+
+  res.status(201).json({
+    success: true,
+    message: `${createdCards.length} tarjetas registradas exitosamente`,
+    data: {
+      cards: toCardListDTOV1(createdCards),
+      count: createdCards.length
+    }
+  });
 };
 
 /**
@@ -332,62 +302,57 @@ const createCardsBatch = async (req, res, next) => {
  *
  * @param {import('express').Request} req
  * @param {import('express').Response} res
- * @param {import('express').NextFunction} next
  */
-const getCardStats = async (req, res, next) => {
-  try {
-    const stats = await cardRepository.aggregate([
-      {
-        $group: {
-          _id: null,
-          total: { $sum: 1 },
-          active: {
-            $sum: { $cond: [{ $eq: ['$status', 'active'] }, 1, 0] }
-          },
-          inactive: {
-            $sum: { $cond: [{ $eq: ['$status', 'inactive'] }, 1, 0] }
-          },
-          lost: {
-            $sum: { $cond: [{ $eq: ['$status', 'lost'] }, 1, 0] }
-          },
-          mifare1kb: {
-            $sum: { $cond: [{ $eq: ['$type', 'MIFARE_1KB'] }, 1, 0] }
-          },
-          mifare4kb: {
-            $sum: { $cond: [{ $eq: ['$type', 'MIFARE_4KB'] }, 1, 0] }
-          },
-          ntag: {
-            $sum: { $cond: [{ $eq: ['$type', 'NTAG'] }, 1, 0] }
-          },
-          unknown: {
-            $sum: { $cond: [{ $eq: ['$type', 'UNKNOWN'] }, 1, 0] }
-          }
+const getCardStats = async (req, res) => {
+  const stats = await cardRepository.aggregate([
+    {
+      $group: {
+        _id: null,
+        total: { $sum: 1 },
+        active: {
+          $sum: { $cond: [{ $eq: ['$status', 'active'] }, 1, 0] }
+        },
+        inactive: {
+          $sum: { $cond: [{ $eq: ['$status', 'inactive'] }, 1, 0] }
+        },
+        lost: {
+          $sum: { $cond: [{ $eq: ['$status', 'lost'] }, 1, 0] }
+        },
+        mifare1kb: {
+          $sum: { $cond: [{ $eq: ['$type', 'MIFARE_1KB'] }, 1, 0] }
+        },
+        mifare4kb: {
+          $sum: { $cond: [{ $eq: ['$type', 'MIFARE_4KB'] }, 1, 0] }
+        },
+        ntag: {
+          $sum: { $cond: [{ $eq: ['$type', 'NTAG'] }, 1, 0] }
+        },
+        unknown: {
+          $sum: { $cond: [{ $eq: ['$type', 'UNKNOWN'] }, 1, 0] }
         }
       }
-    ]);
+    }
+  ]);
 
-    const result = stats[0] || {
-      total: 0,
-      active: 0,
-      inactive: 0,
-      lost: 0,
-      mifare1kb: 0,
-      mifare4kb: 0,
-      ntag: 0,
-      unknown: 0
-    };
+  const result = stats[0] || {
+    total: 0,
+    active: 0,
+    inactive: 0,
+    lost: 0,
+    mifare1kb: 0,
+    mifare4kb: 0,
+    ntag: 0,
+    unknown: 0
+  };
 
-    delete result._id;
+  delete result._id;
 
-    res.json({
-      success: true,
-      data: {
-        stats: toCardStatsDTOV1(result)
-      }
-    });
-  } catch (error) {
-    next(error);
-  }
+  res.json({
+    success: true,
+    data: {
+      stats: toCardStatsDTOV1(result)
+    }
+  });
 };
 
 module.exports = {

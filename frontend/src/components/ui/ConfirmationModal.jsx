@@ -204,7 +204,7 @@ export default function ConfirmationModal({
                 disabled={loading}
                 className={cn(
                   'p-2 rounded-lg transition-colors',
-                  'hover:bg-white/10 text-text-muted hover:text-text-primary',
+                  'hover:bg-border-default text-text-muted hover:text-text-primary',
                   'disabled:opacity-50 disabled:cursor-not-allowed'
                 )}
                 aria-label="Cerrar modal"

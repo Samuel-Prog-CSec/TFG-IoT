@@ -105,9 +105,9 @@ export default function AssetSelector({
       {/* Barra de búsqueda */}
       {showSearch && (
         <div className="relative">
-          <Search 
-            className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-500 pointer-events-none" 
-            size={18} 
+          <Search
+            className="absolute left-3 top-1/2 -translate-y-1/2 text-text-muted pointer-events-none"
+            size={18}
           />
           <motion.input
             type="text"
@@ -116,9 +116,9 @@ export default function AssetSelector({
             placeholder={placeholder}
             className={cn(
               'w-full pl-10 pr-4 py-3 rounded-xl',
-              'bg-slate-800/50 border border-white/10',
-              'text-white placeholder-slate-500',
-              'focus:outline-none focus:border-indigo-500/50 focus:ring-2 focus:ring-indigo-500/20',
+              'bg-background-elevated/50 border border-border-default',
+              'text-text-primary placeholder-text-muted',
+              'focus:outline-none focus:border-accent-indigo/50 focus:ring-2 focus:ring-accent-indigo/20',
               'transition-all duration-300'
             )}
             whileFocus={{ scale: 1.01 }}
@@ -130,7 +130,7 @@ export default function AssetSelector({
                 initial={{ opacity: 0, scale: 0.8 }}
                 animate={{ opacity: 1, scale: 1 }}
                 exit={{ opacity: 0, scale: 0.8 }}
-                className="absolute right-3 top-1/2 -translate-y-1/2 text-xs text-slate-500"
+                className="absolute right-3 top-1/2 -translate-y-1/2 text-xs text-text-muted"
               >
                 {filteredAssets.length} resultado{filteredAssets.length !== 1 ? 's' : ''}
               </motion.div>
@@ -170,19 +170,19 @@ export default function AssetSelector({
                 className={cn(
                   'relative flex flex-col items-center justify-center gap-2 p-4 rounded-xl',
                   'border transition-all duration-300',
-                  'focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500',
+                  'focus:outline-none focus-visible:ring-2 focus-visible:ring-accent-indigo',
                   isSelected && [
-                    'bg-indigo-500/20 border-indigo-500',
-                    'ring-2 ring-indigo-500/50',
-                    'shadow-lg shadow-indigo-500/30',
+                    'bg-accent-indigo/20 border-accent-indigo',
+                    'ring-2 ring-accent-indigo/50',
+                    'shadow-lg shadow-accent-indigo/30',
                   ],
                   !isSelected && !isAssigned && [
-                    'bg-slate-800/50 border-white/10',
-                    'hover:bg-slate-700/50 hover:border-indigo-400/30',
-                    'hover:shadow-lg hover:shadow-indigo-500/10',
+                    'bg-background-elevated/50 border-border-default',
+                    'hover:bg-background-surface/50 hover:border-accent-indigo/30',
+                    'hover:shadow-lg hover:shadow-accent-indigo/10',
                   ],
                   isAssigned && [
-                    'bg-slate-900/50 border-slate-700/50',
+                    'bg-background-base/50 border-background-surface/50',
                     'cursor-not-allowed opacity-60',
                   ]
                 )}
@@ -196,14 +196,14 @@ export default function AssetSelector({
                     alt={asset.value}
                     className="size-14 rounded-lg"
                     fit="cover"
-                    fallbackClassName="bg-slate-900/80 text-3xl"
+                    fallbackClassName="bg-background-base/80 text-3xl"
                     fallbackLabel={asset.display || '📎'}
                   />
 
                   {/* Indicador de audio */}
                   {asset.audioUrl && (
-                    <div className="absolute -top-1 -right-1 size-5 rounded-full bg-purple-500 flex items-center justify-center">
-                      <Volume2 size={10} className="text-white" />
+                    <div className="absolute -top-1 -right-1 size-5 rounded-full bg-brand-base flex items-center justify-center">
+                      <Volume2 size={10} className="text-text-primary" />
                     </div>
                   )}
                 </div>
@@ -211,7 +211,7 @@ export default function AssetSelector({
                 {/* Nombre del asset */}
                 <span className={cn(
                   'text-xs font-medium text-center line-clamp-2',
-                  isSelected ? 'text-white' : 'text-slate-300'
+                  isSelected ? 'text-text-primary' : 'text-text-secondary'
                 )}>
                   {asset.value}
                 </span>
@@ -223,9 +223,9 @@ export default function AssetSelector({
                       initial={{ scale: 0, rotate: -180 }}
                       animate={{ scale: 1, rotate: 0 }}
                       exit={{ scale: 0, rotate: 180 }}
-                      className="absolute top-2 right-2 size-5 rounded-full bg-indigo-500 flex items-center justify-center"
+                      className="absolute top-2 right-2 size-5 rounded-full bg-accent-indigo flex items-center justify-center"
                     >
-                      <Check size={12} className="text-white" strokeWidth={3} />
+                      <Check size={12} className="text-text-primary" strokeWidth={3} />
                     </motion.div>
                   )}
                 </AnimatePresence>
@@ -237,10 +237,11 @@ export default function AssetSelector({
                       initial={{ opacity: 0, y: 10 }}
                       animate={{ opacity: 1, y: 0 }}
                       exit={{ opacity: 0, y: 10 }}
-                      className="absolute inset-0 flex items-center justify-center bg-slate-900/80 rounded-xl"
+                      className="absolute inset-0 flex items-center justify-center bg-background-base/80 rounded-xl"
                     >
                       <motion.span
-                        className="px-2 py-1 rounded-full bg-amber-500/20 text-amber-400 text-[10px] font-bold uppercase tracking-wider"
+                        className="px-2 py-1 rounded-full bg-warning-base/20 text-warning-base text-[10px] font-bold uppercase tracking-wider"
+                        // TOKEN-EXCEPTION: Framer Motion keyframe animation requires literal rgba values for boxShadow interpolation
                         animate={{
                           boxShadow: [
                             '0 0 0 0 rgba(245, 158, 11, 0)',
@@ -264,9 +265,9 @@ export default function AssetSelector({
                     animate={{ opacity: 1 }}
                     exit={{ opacity: 0 }}
                     style={{
-                      background: isSelected 
-                        ? 'radial-gradient(circle at center, rgba(99, 102, 241, 0.2) 0%, transparent 70%)'
-                        : 'radial-gradient(circle at center, rgba(139, 92, 246, 0.15) 0%, transparent 70%)',
+                      background: isSelected
+                        ? 'radial-gradient(circle at center, color-mix(in srgb, var(--color-accent-indigo) 20%, transparent) 0%, transparent 70%)'
+                        : 'radial-gradient(circle at center, color-mix(in srgb, var(--color-brand-base) 15%, transparent) 0%, transparent 70%)',
                     }}
                   />
                 )}
@@ -281,14 +282,14 @@ export default function AssetSelector({
         <motion.div
           initial={{ opacity: 0, y: 10 }}
           animate={{ opacity: 1, y: 0 }}
-          className="flex flex-col items-center justify-center py-12 text-slate-500"
+          className="flex flex-col items-center justify-center py-12 text-text-muted"
         >
           <Search size={48} className="mb-4 opacity-50" />
           <p className="text-sm">No se encontraron assets</p>
           {searchQuery && (
             <button
               onClick={() => setSearchQuery('')}
-              className="mt-2 text-indigo-400 hover:text-indigo-300 text-sm"
+              className="mt-2 text-accent-indigo hover:text-accent-indigo text-sm"
             >
               Limpiar búsqueda
             </button>
@@ -297,7 +298,7 @@ export default function AssetSelector({
       )}
 
       {/* Contador de assets */}
-      <div className="flex items-center justify-between text-xs text-slate-500">
+      <div className="flex items-center justify-between text-xs text-text-muted">
         <span>
           {filteredAssets.length} asset{filteredAssets.length !== 1 ? 's' : ''} disponible{filteredAssets.length !== 1 ? 's' : ''}
         </span>
@@ -338,16 +339,16 @@ export function AssetSelectorCompact({
             className={cn(
               'flex items-center gap-2 px-3 py-2 rounded-lg border text-sm',
               'transition-all duration-200',
-              isSelected && 'bg-indigo-500/20 border-indigo-500 text-white',
-              !isSelected && !isAssigned && 'bg-slate-800/50 border-white/10 text-slate-300 hover:border-indigo-400/50',
-              isAssigned && 'bg-slate-900/50 border-slate-700/50 text-slate-600 cursor-not-allowed'
+              isSelected && 'bg-accent-indigo/20 border-accent-indigo text-text-primary',
+              !isSelected && !isAssigned && 'bg-background-elevated/50 border-border-default text-text-secondary hover:border-accent-indigo/50',
+              isAssigned && 'bg-background-base/50 border-background-surface/50 text-text-disabled cursor-not-allowed'
             )}
             whileHover={!isAssigned ? { scale: 1.02 } : {}}
             whileTap={!isAssigned ? { scale: 0.98 } : {}}
           >
             <span className="text-lg">{asset.display || '📎'}</span>
             <span>{asset.value}</span>
-            {isSelected && <Check size={14} className="text-indigo-400" />}
+            {isSelected && <Check size={14} className="text-accent-indigo" />}
           </motion.button>
         );
       })}

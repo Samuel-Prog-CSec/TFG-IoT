@@ -10,7 +10,6 @@ import { useNavigate, useParams } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import confetti from 'canvas-confetti';
 import {
-  ArrowLeft,
   Eye,
   Save,
   Layers,
@@ -43,6 +42,7 @@ import { decksAPI, cardsAPI, extractData, extractErrorMessage, isAbortError } fr
 import { ROUTES } from '../constants/routes';
 import { GAME_CONFIG } from '../constants/gameConfig';
 import { toast } from 'sonner';
+import Breadcrumb from '../components/ui/Breadcrumb';
 
 const { MIN_CARDS, MAX_CARDS } = GAME_CONFIG;
 
@@ -303,6 +303,7 @@ export default function DeckEditPage() {
       
       await decksAPI.updateDeck(deckId, updateData);
       
+      // TOKEN-EXCEPTION: canvas-confetti requires raw hex colors
       confetti({
         particleCount: 100,
         spread: 60,
@@ -351,10 +352,10 @@ export default function DeckEditPage() {
   // Loading state
   if (loading) {
     return (
-      <div className="min-h-screen bg-slate-950 p-4 lg:p-8">
+      <div className="min-h-screen bg-background-deep p-4 lg:p-8">
         <div className="max-w-5xl mx-auto">
-          <div className="h-8 w-32 bg-slate-800 rounded animate-pulse mb-6" />
-          <div className="h-12 w-64 bg-slate-800 rounded animate-pulse mb-8" />
+          <div className="h-8 w-32 bg-background-elevated rounded animate-pulse mb-6" />
+          <div className="h-12 w-64 bg-background-elevated rounded animate-pulse mb-8" />
           <SkeletonCard className="h-96" />
         </div>
       </div>
@@ -364,11 +365,11 @@ export default function DeckEditPage() {
   // Error state
   if (error) {
     return (
-      <div className="min-h-screen bg-slate-950 p-4 lg:p-8 flex items-center justify-center">
+      <div className="min-h-screen bg-background-deep p-4 lg:p-8 flex items-center justify-center">
         <GlassCard className="p-8 max-w-md text-center">
-          <AlertTriangle size={48} className="text-rose-400 mx-auto mb-4" />
-          <h2 className="text-xl font-semibold text-white mb-2">Error</h2>
-          <p className="text-slate-400 mb-6">{error}</p>
+          <AlertTriangle size={48} className="text-error-base mx-auto mb-4" />
+          <h2 className="text-xl font-semibold text-text-primary mb-2">Error</h2>
+          <p className="text-text-muted mb-6">{error}</p>
           <div className="flex flex-col sm:flex-row gap-3 justify-center">
             <ButtonPremium
               variant="primary"
@@ -394,29 +395,27 @@ export default function DeckEditPage() {
   const currentDeckId = deck?.id || deck?._id || deckId;
 
   return (
-    <div className="min-h-screen bg-slate-950 p-4 lg:p-8">
+    <div className="min-h-screen bg-background-deep p-4 lg:p-8">
       {/* Header */}
       <motion.div
         initial={{ opacity: 0, y: -20 }}
         animate={{ opacity: 1, y: 0 }}
         className="max-w-5xl mx-auto mb-6"
       >
-        <button
-          onClick={() => navigate(ROUTES.CARD_DECKS)}
-          className="flex items-center gap-2 text-slate-400 hover:text-white transition-colors mb-4"
-        >
-          <ArrowLeft size={18} />
-          Volver a Mis Mazos
-        </button>
-        
+        <Breadcrumb items={[
+          { label: 'Mazos', to: ROUTES.CARD_DECKS },
+          { label: deck?.name || 'Mazo', to: ROUTES.CARD_DECKS_DETAIL(deckId) },
+          { label: 'Editar' },
+        ]} />
+
         <div className="flex items-start justify-between gap-4">
           <div className="flex items-center gap-4">
-            <div className="size-12 rounded-xl bg-gradient-to-br from-indigo-500 to-purple-600 flex items-center justify-center">
-              <Layers size={24} className="text-white" />
+            <div className="size-12 rounded-xl bg-gradient-to-br from-accent-indigo to-brand-base flex items-center justify-center">
+              <Layers size={24} className="text-text-primary" />
             </div>
             <div>
-              <h1 className="text-2xl font-bold text-white">Editar Mazo</h1>
-              <p className="text-slate-400 text-sm">
+              <h1 className="text-2xl font-bold text-text-primary">Editar Mazo</h1>
+              <p className="text-text-muted text-sm">
                 {deck?.name}
               </p>
             </div>
@@ -435,7 +434,7 @@ export default function DeckEditPage() {
               variant="ghost"
               onClick={() => deleteModal.open()}
               icon={<Trash2 size={16} />}
-              className="text-rose-400 hover:text-rose-300"
+              className="text-error-base hover:text-error-base/80"
             >
               Archivar
             </ButtonPremium>
@@ -466,7 +465,7 @@ export default function DeckEditPage() {
 
       {/* Tabs */}
       <div className="max-w-5xl mx-auto mb-6">
-        <div className="flex bg-slate-800/50 rounded-xl p-1 w-fit">
+        <div className="flex bg-background-elevated/50 rounded-xl p-1 w-fit">
           {[
             { id: 'cards', label: 'Cartas', icon: CreditCard, count: selectedCards.length },
             { id: 'context', label: 'Contexto', icon: Palette },
@@ -478,8 +477,8 @@ export default function DeckEditPage() {
               className={cn(
                 'flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-all',
                 ui.activeTab === tab.id
-                  ? 'bg-indigo-500 text-white'
-                  : 'text-slate-400 hover:text-white'
+                  ? 'bg-accent-indigo text-text-primary'
+                  : 'text-text-muted hover:text-text-primary'
               )}
             >
               <tab.icon size={16} />
@@ -487,7 +486,7 @@ export default function DeckEditPage() {
               {tab.count && (
                 <span className={cn(
                   'text-xs px-1.5 py-0.5 rounded-full',
-                  ui.activeTab === tab.id ? 'bg-white/20' : 'bg-slate-700'
+                  ui.activeTab === tab.id ? 'bg-border-strong' : 'bg-background-surface'
                 )}>
                   {tab.count}
                 </span>
@@ -510,8 +509,8 @@ export default function DeckEditPage() {
               <GlassCard className="p-6">
                 <div className="flex items-center justify-between mb-4">
                   <div>
-                    <h2 className="text-lg font-semibold text-white">Cartas del mazo</h2>
-                    <p className="text-sm text-slate-400">
+                    <h2 className="text-lg font-semibold text-text-primary">Cartas del mazo</h2>
+                    <p className="text-sm text-text-muted">
                       {selectedCards.length} de {MIN_CARDS}-{MAX_CARDS} cartas
                     </p>
                   </div>
@@ -530,26 +529,26 @@ export default function DeckEditPage() {
                     <motion.div
                       key={card._id}
                       layout
-                      className="relative p-4 rounded-xl bg-slate-800/50 border border-white/10 group"
+                      className="relative p-4 rounded-xl bg-background-elevated/50 border border-border-default group"
                     >
                       <button
                         onClick={() => handleRemoveCard(card._id)}
                         disabled={selectedCards.length <= MIN_CARDS}
                         className={cn(
                           'absolute -top-2 -right-2 size-6 rounded-full',
-                          'bg-rose-500 text-white flex items-center justify-center',
+                          'bg-error-base text-text-primary flex items-center justify-center',
                           'opacity-0 group-hover:opacity-100 transition-opacity',
-                          'hover:bg-rose-400 disabled:opacity-50 disabled:cursor-not-allowed'
+                          'hover:bg-error-base/80 disabled:opacity-50 disabled:cursor-not-allowed'
                         )}
                       >
                         <X size={12} />
                       </button>
                       
-                      <div className="size-10 rounded-lg bg-gradient-to-br from-indigo-500/20 to-purple-500/20 flex items-center justify-center mb-2">
-                        <CreditCard size={18} className="text-indigo-400" />
+                      <div className="size-10 rounded-lg bg-gradient-to-br from-accent-indigo/20 to-brand-base/20 flex items-center justify-center mb-2">
+                        <CreditCard size={18} className="text-accent-indigo" />
                       </div>
-                      <p className="text-sm font-mono text-white">{card.uid}</p>
-                      <p className="text-xs text-slate-500">{card.type || 'RFID'}</p>
+                      <p className="text-sm font-mono text-text-primary">{card.uid}</p>
+                      <p className="text-xs text-text-muted">{card.type || 'RFID'}</p>
                     </motion.div>
                   ))}
                 </div>
@@ -566,8 +565,8 @@ export default function DeckEditPage() {
             >
               <GlassCard className="p-6">
                 <div className="mb-4">
-                  <h2 className="text-lg font-semibold text-white">Contexto temático</h2>
-                  <p className="text-sm text-slate-400">
+                  <h2 className="text-lg font-semibold text-text-primary">Contexto temático</h2>
+                  <p className="text-sm text-text-muted">
                     Cambiar el contexto reseteará las asignaciones de assets
                   </p>
                 </div>
@@ -577,15 +576,15 @@ export default function DeckEditPage() {
                     {[1, 2, 3, 4, 5, 6].map((slot) => (
                       <div 
                         key={`context-skeleton-${slot}`} 
-                        className="p-4 rounded-xl border-2 border-white/5 bg-slate-800/30 animate-pulse"
+                        className="p-4 rounded-xl border-2 border-border-subtle bg-background-elevated/30 animate-pulse"
                       >
                         <div className="flex gap-1.5 mb-3 h-10">
                           {[1, 2, 3, 4].map((assetSlot) => (
-                            <div key={`asset-skeleton-${slot}-${assetSlot}`} className="size-8 rounded bg-slate-700" />
+                            <div key={`asset-skeleton-${slot}-${assetSlot}`} className="size-8 rounded bg-background-surface" />
                           ))}
                         </div>
-                        <div className="h-5 w-24 bg-slate-700 rounded mb-2" />
-                        <div className="h-3 w-16 bg-slate-700/50 rounded" />
+                        <div className="h-5 w-24 bg-background-surface rounded mb-2" />
+                        <div className="h-3 w-16 bg-background-surface/50 rounded" />
                       </div>
                     ))}
                   </div>
@@ -598,8 +597,8 @@ export default function DeckEditPage() {
                         className={cn(
                           'relative p-4 rounded-xl border-2 transition-all text-left',
                           effectiveContext?._id === context._id
-                            ? 'border-indigo-500 bg-indigo-500/10'
-                            : 'border-white/10 bg-slate-800/30 hover:border-white/20'
+                            ? 'border-accent-indigo bg-accent-indigo/10'
+                            : 'border-border-default bg-background-elevated/30 hover:border-border-strong'
                         )}
                         whileHover={{ scale: 1.02 }}
                         whileTap={{ scale: 0.98 }}
@@ -614,8 +613,8 @@ export default function DeckEditPage() {
                             </span>
                           ))}
                         </div>
-                        <h3 className="font-medium text-white mb-1">{context.name}</h3>
-                        <p className="text-xs text-slate-400">
+                        <h3 className="font-medium text-text-primary mb-1">{context.name}</h3>
+                        <p className="text-xs text-text-muted">
                           {context.assets?.length || 0} assets
                         </p>
                       </motion.button>
@@ -636,7 +635,7 @@ export default function DeckEditPage() {
               <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
                 {/* Lista de cartas */}
                 <GlassCard className="p-4">
-                  <h3 className="font-medium text-white mb-3">Cartas</h3>
+                  <h3 className="font-medium text-text-primary mb-3">Cartas</h3>
                   <div className="space-y-2 max-h-[400px] overflow-y-auto">
                     {selectedCards.map((card) => {
                       const isAssigned = !!cardAssignments[card._id];
@@ -649,13 +648,13 @@ export default function DeckEditPage() {
                           className={cn(
                             'w-full flex items-center gap-3 p-3 rounded-xl border transition-all text-left',
                             isActive
-                              ? 'border-indigo-500 bg-indigo-500/10'
-                              : 'border-white/10 bg-slate-800/30 hover:border-white/20'
+                              ? 'border-accent-indigo bg-accent-indigo/10'
+                              : 'border-border-default bg-background-elevated/30 hover:border-border-strong'
                           )}
                         >
                           <div className={cn(
                             'size-8 rounded-lg flex items-center justify-center text-lg overflow-hidden',
-                            isAssigned ? 'bg-green-500/20' : 'bg-slate-700'
+                            isAssigned ? 'bg-success-base/20' : 'bg-background-surface'
                           )}>
                             {isAssigned ? (
                               <CardAssetPreview
@@ -666,12 +665,12 @@ export default function DeckEditPage() {
                                 fallbackLabel="📎"
                               />
                             ) : (
-                              <CreditCard size={16} className="text-slate-400" />
+                              <CreditCard size={16} className="text-text-muted" />
                             )}
                           </div>
                           <div className="flex-1 min-w-0">
-                            <p className="text-sm font-medium text-white truncate">{card.uid}</p>
-                            <p className="text-xs text-slate-500 truncate">
+                            <p className="text-sm font-medium text-text-primary truncate">{card.uid}</p>
+                            <p className="text-xs text-text-muted truncate">
                               {isAssigned ? cardAssignments[card._id]?.value : 'Sin asignar'}
                             </p>
                           </div>
@@ -685,7 +684,7 @@ export default function DeckEditPage() {
                 <GlassCard className="p-4 lg:col-span-2">
                   {ui.activeCardId ? (
                     <>
-                      <h3 className="font-medium text-white mb-3">
+                      <h3 className="font-medium text-text-primary mb-3">
                         Assets de &quot;{effectiveContext?.name}&quot;
                       </h3>
                       <AssetSelector
@@ -696,7 +695,7 @@ export default function DeckEditPage() {
                       />
                     </>
                   ) : (
-                    <div className="flex items-center justify-center h-64 text-slate-400">
+                    <div className="flex items-center justify-center h-64 text-text-muted">
                       Selecciona una carta
                     </div>
                   )}
@@ -722,27 +721,27 @@ export default function DeckEditPage() {
               animate={{ scale: 1, opacity: 1 }}
               exit={{ scale: 0.9, opacity: 0 }}
               onClick={(e) => e.stopPropagation()}
-              className="bg-slate-900 border border-white/10 rounded-2xl p-6 max-w-3xl w-full max-h-[80vh] overflow-y-auto"
+              className="bg-background-base border border-border-default rounded-2xl p-6 max-w-3xl w-full max-h-[80vh] overflow-y-auto"
             >
               <div className="flex items-center justify-between mb-4">
-                <h3 className="text-lg font-semibold text-white">Añadir cartas</h3>
+                <h3 className="text-lg font-semibold text-text-primary">Añadir cartas</h3>
                 <button
                   onClick={() => dispatchUI({ type: 'HIDE_ADD_CARDS' })}
-                  className="p-2 rounded-lg hover:bg-white/10 transition-colors"
+                  className="p-2 rounded-lg hover:bg-border-default transition-colors"
                 >
-                  <X size={20} className="text-slate-400" />
+                  <X size={20} className="text-text-muted" />
                 </button>
               </div>
 
               {/* Toggle modo */}
-              <div className="flex bg-slate-800/50 rounded-xl p-1 mb-4 w-fit">
+              <div className="flex bg-background-elevated/50 rounded-xl p-1 mb-4 w-fit">
                 <button
                   onClick={() => dispatchUI({ type: 'SET_CAPTURE_MODE', payload: 'manual' })}
                   className={cn(
                     'px-4 py-2 rounded-lg text-sm font-medium transition-all',
                     ui.captureMode === 'manual'
-                      ? 'bg-indigo-500 text-white'
-                      : 'text-slate-400 hover:text-white'
+                      ? 'bg-accent-indigo text-text-primary'
+                      : 'text-text-muted hover:text-text-primary'
                   )}
                 >
                   Selección Manual
@@ -752,8 +751,8 @@ export default function DeckEditPage() {
                   className={cn(
                     'px-4 py-2 rounded-lg text-sm font-medium transition-all',
                     ui.captureMode === 'rfid'
-                      ? 'bg-indigo-500 text-white'
-                      : 'text-slate-400 hover:text-white'
+                      ? 'bg-accent-indigo text-text-primary'
+                      : 'text-text-muted hover:text-text-primary'
                   )}
                 >
                   Escaneo RFID
@@ -791,7 +790,7 @@ export default function DeckEditPage() {
         description={
           <>
             ¿Estás seguro de archivar{' '}
-            <strong className="text-white">&quot;{deckName}&quot;</strong>?
+            <strong className="text-text-primary">&quot;{deckName}&quot;</strong>?
             El mazo dejará de aparecer en tu lista de mazos activos.
           </>
         }
@@ -809,9 +808,9 @@ export default function DeckEditPage() {
             exit={{ opacity: 0, y: 50 }}
             className="fixed bottom-6 left-1/2 -translate-x-1/2 z-40"
           >
-            <div className="flex items-center gap-3 px-4 py-3 rounded-xl bg-amber-500/20 border border-amber-500/50 backdrop-blur-lg">
-              <AlertTriangle size={18} className="text-amber-400" />
-              <span className="text-sm text-amber-200">Tienes cambios sin guardar</span>
+            <div className="flex items-center gap-3 px-4 py-3 rounded-xl bg-warning-base/20 border border-warning-base/50 backdrop-blur-lg">
+              <AlertTriangle size={18} className="text-warning-base" />
+              <span className="text-sm text-warning-base/80">Tienes cambios sin guardar</span>
               <ButtonPremium
                 size="sm"
                 onClick={handleSave}

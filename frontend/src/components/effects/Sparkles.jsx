@@ -4,19 +4,20 @@ import PropTypes from 'prop-types';
 import { cn } from '../../lib/utils';
 
 const COLOR_CLASSES = {
-  amber: 'text-amber-400',
-  purple: 'text-purple-400',
-  cyan: 'text-cyan-400',
-  pink: 'text-pink-400',
-  white: 'text-white',
+  amber: 'text-warning-base',
+  purple: 'text-brand-light',
+  cyan: 'text-accent-cyan',
+  pink: 'text-accent-pink',
+  white: 'text-text-primary',
 };
 
+// TOKEN-EXCEPTION: drop-shadow filter strings require direct rgba values; CSS vars cannot be used inside filter()
 const SPARKLE_AURAS = {
-  amber: 'text-amber-400 drop-shadow-[0_0_6px_rgba(251,191,36,0.8)]',
-  purple: 'text-purple-400 drop-shadow-[0_0_6px_rgba(192,132,252,0.8)]',
-  cyan: 'text-cyan-400 drop-shadow-[0_0_6px_rgba(34,211,238,0.8)]',
-  pink: 'text-pink-400 drop-shadow-[0_0_6px_rgba(244,114,182,0.8)]',
-  white: 'text-white drop-shadow-[0_0_6px_rgba(255,255,255,0.8)]',
+  amber: 'text-warning-base drop-shadow-[0_0_6px_rgba(251,191,36,0.8)]',
+  purple: 'text-brand-light drop-shadow-[0_0_6px_rgba(192,132,252,0.8)]',
+  cyan: 'text-accent-cyan drop-shadow-[0_0_6px_rgba(34,211,238,0.8)]',
+  pink: 'text-accent-pink drop-shadow-[0_0_6px_rgba(244,114,182,0.8)]',
+  white: 'text-text-primary drop-shadow-[0_0_6px_rgba(255,255,255,0.8)]',
 };
 
 const getSecureRandomUnit = () => {

@@ -29,6 +29,7 @@ const {
   createCardsBatchSchema
 } = require('../validators/cardValidator');
 const { emptyObjectSchema } = require('../validators/commonValidator');
+const asyncHandler = require('../utils/asyncHandler');
 
 /**
  * @route   GET /api/cards/stats
@@ -41,7 +42,7 @@ router.get(
   authenticate,
   requireRole('teacher'),
   validateQuery(emptyObjectSchema),
-  getCardStats
+  asyncHandler(getCardStats)
 );
 
 /**
@@ -50,7 +51,13 @@ router.get(
  * @access  Private (Teacher)
  * @validation query: cardQuerySchema
  */
-router.get('/', authenticate, requireRole('teacher'), validateQuery(cardQuerySchema), getCards);
+router.get(
+  '/',
+  authenticate,
+  requireRole('teacher'),
+  validateQuery(cardQuerySchema),
+  asyncHandler(getCards)
+);
 
 /**
  * @route   GET /api/cards/:id
@@ -64,7 +71,7 @@ router.get(
   requireRole('teacher'),
   validateParams(cardIdOrUidParamsSchema),
   validateQuery(emptyObjectSchema),
-  getCardById
+  asyncHandler(getCardById)
 );
 
 /**
@@ -80,7 +87,7 @@ router.post(
   requireRole('teacher'),
   validateQuery(emptyObjectSchema),
   validateBody(createCardSchema),
-  createCard
+  asyncHandler(createCard)
 );
 
 /**
@@ -95,7 +102,7 @@ router.post(
   requireRole('teacher'),
   validateQuery(emptyObjectSchema),
   validateBody(createCardsBatchSchema),
-  createCardsBatch
+  asyncHandler(createCardsBatch)
 );
 
 /**
@@ -111,7 +118,7 @@ router.put(
   validateParams(cardIdParamsSchema),
   validateQuery(emptyObjectSchema),
   validateBody(updateCardSchema),
-  updateCard
+  asyncHandler(updateCard)
 );
 
 /**
@@ -126,7 +133,7 @@ router.delete(
   requireRole('teacher'),
   validateParams(cardIdParamsSchema),
   validateQuery(emptyObjectSchema),
-  deleteCard
+  asyncHandler(deleteCard)
 );
 
 module.exports = router;

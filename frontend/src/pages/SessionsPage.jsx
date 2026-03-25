@@ -36,6 +36,7 @@ import { SkeletonCard } from '../components/ui/SkeletonShimmer';
 import Tooltip from '../components/ui/Tooltip';
 import EmptyState from '../components/ui/EmptyState';
 import ConfirmationModal, { useConfirmationModal } from '../components/ui/ConfirmationModal';
+import PageHeader from '../components/ui/PageHeader';
 import { listContainerVariants, listItemVariants } from '../lib/utils';
 
 const STATUS_OPTIONS = [
@@ -79,9 +80,9 @@ const extractSessionItems = ({ payload, extracted }) => {
 };
 
 const BORDER_CLASSES = {
-  created: 'border-l-amber-500/70',
-  active: 'border-l-emerald-500/70',
-  completed: 'border-l-slate-500/50',
+  created: 'border-l-warning-base/70',
+  active: 'border-l-success-base/70',
+  completed: 'border-l-background-surface/50',
 };
 
 const SessionCard = memo(function SessionCard({
@@ -98,59 +99,59 @@ const SessionCard = memo(function SessionCard({
   const sessionId = session.id || session._id;
   const canEdit = session.status === 'created';
   const canDelete = session.status === 'created';
-  const borderClass = BORDER_CLASSES[session.status] || 'border-l-slate-500/50';
+  const borderClass = BORDER_CLASSES[session.status] || 'border-l-background-surface/50';
 
   return (
     <motion.div variants={listItemVariants}>
-      <GlassCard className={`p-6 flex flex-col gap-5 hover:border-white/20 transition-all border-l-4 ${borderClass}`}>
+      <GlassCard className={`p-6 flex flex-col gap-5 hover:border-border-strong transition-all border-l-4 ${borderClass}`}>
         <div className="flex items-start justify-between gap-3">
           <div>
-            <h3 className="text-lg font-semibold text-white">{title}</h3>
-            <p className="text-sm text-slate-400">{mechanicLabel} · {contextLabel}</p>
+            <h3 className="text-lg font-semibold text-text-primary">{title}</h3>
+            <p className="text-sm text-text-muted">{mechanicLabel} · {contextLabel}</p>
           </div>
           <StatusBadge status={statusInfo.tone}>{statusInfo.label}</StatusBadge>
         </div>
 
-        <div className="grid grid-cols-2 gap-4 text-xs text-slate-300">
-          <div className="bg-indigo-500/5 rounded-lg p-3 flex items-center gap-3">
-            <div className="size-8 rounded-lg bg-indigo-500/15 flex items-center justify-center flex-shrink-0">
-              <Layers size={14} className="text-indigo-400" />
+        <div className="grid grid-cols-2 gap-4 text-xs text-text-secondary">
+          <div className="bg-accent-indigo/5 rounded-lg p-3 flex items-center gap-3">
+            <div className="size-8 rounded-lg bg-accent-indigo/15 flex items-center justify-center flex-shrink-0">
+              <Layers size={14} className="text-accent-indigo" />
             </div>
             <div>
-              <p className="text-slate-400">Tarjetas</p>
-              <p className="text-white font-semibold font-display">{session.config?.numberOfCards || session.cardMappingsCount}</p>
+              <p className="text-text-muted">Tarjetas</p>
+              <p className="text-text-primary font-semibold font-display">{session.config?.numberOfCards || session.cardMappingsCount}</p>
             </div>
           </div>
-          <div className="bg-cyan-500/5 rounded-lg p-3 flex items-center gap-3">
-            <div className="size-8 rounded-lg bg-cyan-500/15 flex items-center justify-center flex-shrink-0">
-              <RotateCcw size={14} className="text-cyan-400" />
+          <div className="bg-accent-cyan/5 rounded-lg p-3 flex items-center gap-3">
+            <div className="size-8 rounded-lg bg-accent-cyan/15 flex items-center justify-center flex-shrink-0">
+              <RotateCcw size={14} className="text-accent-cyan" />
             </div>
             <div>
-              <p className="text-slate-400">Rondas</p>
-              <p className="text-white font-semibold font-display">{session.config?.numberOfRounds}</p>
+              <p className="text-text-muted">Rondas</p>
+              <p className="text-text-primary font-semibold font-display">{session.config?.numberOfRounds}</p>
             </div>
           </div>
-          <div className="bg-amber-500/5 rounded-lg p-3 flex items-center gap-3">
-            <div className="size-8 rounded-lg bg-amber-500/15 flex items-center justify-center flex-shrink-0">
-              <Timer size={14} className="text-amber-400" />
+          <div className="bg-warning-base/5 rounded-lg p-3 flex items-center gap-3">
+            <div className="size-8 rounded-lg bg-warning-base/15 flex items-center justify-center flex-shrink-0">
+              <Timer size={14} className="text-warning-base" />
             </div>
             <div>
-              <p className="text-slate-400">Tiempo</p>
-              <p className="text-white font-semibold font-display">{session.config?.timeLimit}s</p>
+              <p className="text-text-muted">Tiempo</p>
+              <p className="text-text-primary font-semibold font-display">{session.config?.timeLimit}s</p>
             </div>
           </div>
-          <div className="bg-emerald-500/5 rounded-lg p-3 flex items-center gap-3">
-            <div className="size-8 rounded-lg bg-emerald-500/15 flex items-center justify-center flex-shrink-0">
-              <Award size={14} className="text-emerald-400" />
+          <div className="bg-success-base/5 rounded-lg p-3 flex items-center gap-3">
+            <div className="size-8 rounded-lg bg-success-base/15 flex items-center justify-center flex-shrink-0">
+              <Award size={14} className="text-success-base" />
             </div>
             <div>
-              <p className="text-slate-400">Puntos</p>
-              <p className="text-white font-semibold font-display">+{session.config?.pointsPerCorrect}</p>
+              <p className="text-text-muted">Puntos</p>
+              <p className="text-text-primary font-semibold font-display">+{session.config?.pointsPerCorrect}</p>
             </div>
           </div>
         </div>
 
-        <div className="mt-auto pt-4 border-t border-white/5 space-y-3">
+        <div className="mt-auto pt-4 border-t border-border-subtle space-y-3">
           <div className="flex gap-3">
             <ButtonPremium
               variant="secondary"
@@ -171,7 +172,7 @@ const SessionCard = memo(function SessionCard({
             </ButtonPremium>
           </div>
           <div className="flex items-center justify-between">
-            <div className="flex items-center gap-1 bg-white/5 rounded-lg p-1">
+            <div className="flex items-center gap-1 bg-glass-bg rounded-lg p-1">
               <Tooltip content="Ver mapping">
                 <ButtonPremium
                   variant="ghost"
@@ -570,31 +571,25 @@ export default function SessionsPage() {
       className="p-6 lg:p-8 max-w-7xl mx-auto"
     >
       <div className="flex flex-col gap-6">
-        <header className="flex flex-col gap-4">
-          <div className="flex flex-wrap items-center justify-between gap-4">
-            <div className="flex items-center gap-3">
-              <div className="size-12 rounded-2xl bg-indigo-500/20 flex items-center justify-center text-indigo-300">
-                <CalendarClock size={24} />
-              </div>
-              <div>
-                <h1 className="text-2xl font-bold text-white font-display">Sesiones de juego</h1>
-                <p className="text-slate-400">Configura y gestiona tus sesiones antes de jugar.</p>
-              </div>
-            </div>
-            <div className="flex flex-wrap gap-3">
-              <ButtonPremium
-                variant="secondary"
-                onClick={() => setShowFilters((prev) => !prev)}
-              >
-                <Filter size={18} />
-                {showFilters ? 'Ocultar filtros' : 'Mostrar filtros'}
-              </ButtonPremium>
-              <ButtonPremium variant="primary" onClick={() => navigate(ROUTES.CREATE_SESSION)}>
-                <PlusCircle size={18} />
-                Crear sesión
-              </ButtonPremium>
-            </div>
-          </div>
+        <PageHeader
+          icon={<CalendarClock size={24} />}
+          iconClassName="bg-accent-indigo/20 text-accent-indigo"
+          title="Sesiones de juego"
+          subtitle="Configura y gestiona tus sesiones antes de jugar."
+          actions={<>
+            <ButtonPremium
+              variant="secondary"
+              onClick={() => setShowFilters((prev) => !prev)}
+            >
+              <Filter size={18} />
+              {showFilters ? 'Ocultar filtros' : 'Mostrar filtros'}
+            </ButtonPremium>
+            <ButtonPremium variant="primary" onClick={() => navigate(ROUTES.CREATE_SESSION)}>
+              <PlusCircle size={18} />
+              Crear sesión
+            </ButtonPremium>
+          </>}
+        />
 
           <AnimatePresence>
             {showFilters && (
@@ -643,11 +638,10 @@ export default function SessionsPage() {
               </motion.div>
             )}
           </AnimatePresence>
-        </header>
 
         {error && (
-          <GlassCard className="p-6 border border-rose-500/30">
-            <p className="text-rose-400">{error}</p>
+          <GlassCard className="p-6 border border-error-base/30">
+            <p className="text-error-base">{error}</p>
           </GlassCard>
         )}
 
@@ -674,7 +668,7 @@ export default function SessionsPage() {
         description={
           <div className="space-y-2">
             <p>Se creará una nueva sesión en borrador con la configuración resincronizada desde el mazo actual.</p>
-            <p className="text-slate-400 text-sm">No se modifica la sesión original ni sus partidas.</p>
+            <p className="text-text-muted text-sm">No se modifica la sesión original ni sus partidas.</p>
           </div>
         }
         confirmText="Clonar sesión"
@@ -691,7 +685,7 @@ export default function SessionsPage() {
         description={
           <div className="space-y-2">
             <p>Esta acción eliminará la configuración de la sesión seleccionada.</p>
-            <p className="text-slate-400 text-sm">Solo se puede eliminar si está en borrador.</p>
+            <p className="text-text-muted text-sm">Solo se puede eliminar si está en borrador.</p>
           </div>
         }
         confirmText="Eliminar"

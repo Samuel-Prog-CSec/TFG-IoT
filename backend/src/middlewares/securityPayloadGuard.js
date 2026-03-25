@@ -1,10 +1,12 @@
 /**
  * @fileoverview Middleware de hardening para bloquear payloads peligrosos antes de validaciones/repositorios.
+ * Delega errores al errorHandler centralizado mediante next() para logging y formato unificado.
  * @module middlewares/securityPayloadGuard
  */
 
 const { findDangerousPayloadPath } = require('../utils/payloadSecurity');
 const { logSecurityEvent, getRequestContext } = require('../utils/securityLogger');
+const { ValidationError } = require('../utils/errors');
 
 const inspectSources = req => [
   { name: 'body', value: req.body },
@@ -12,30 +14,28 @@ const inspectSources = req => [
   { name: 'params', value: req.params }
 ];
 
-const rejectDangerousPayload = (req, res, source, path) => {
+const rejectDangerousPayload = (req, next, source, path) => {
   logSecurityEvent('SECURITY_PAYLOAD_BLOCKED', {
     ...getRequestContext(req),
     source,
     path
   });
 
-  return res.status(400).json({
-    success: false,
-    message: 'Payload no permitido por política de seguridad',
-    errors: [
+  next(
+    new ValidationError('Payload no permitido por política de seguridad', [
       {
         field: `${source}.${path}`,
         message: 'Se detectó una clave no permitida en la petición'
       }
-    ]
-  });
+    ])
+  );
 };
 
 const securityPayloadGuard = (req, res, next) => {
   for (const source of inspectSources(req)) {
     const path = findDangerousPayloadPath(source.value);
     if (path) {
-      return rejectDangerousPayload(req, res, source.name, path);
+      return rejectDangerousPayload(req, next, source.name, path);
     }
   }
 

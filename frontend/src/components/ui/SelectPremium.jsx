@@ -234,8 +234,8 @@ export default function SelectPremium({
                     isSelected
                       ? 'bg-brand-base/20 text-text-primary'
                       : isHighlighted
-                        ? 'bg-white/5 text-text-primary'
-                        : 'text-text-secondary hover:bg-white/5 hover:text-text-primary'
+                        ? 'bg-glass-bg text-text-primary'
+                        : 'text-text-secondary hover:bg-glass-bg hover:text-text-primary'
                   )}
                 >
                   {/* Icon */}

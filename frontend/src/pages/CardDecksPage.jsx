@@ -29,6 +29,8 @@ import { useContexts } from '../hooks/useContexts';
 import { useRefetchOnFocus } from '../hooks/useRefetchOnFocus';
 import { useReducedMotion } from '../hooks/useReducedMotion';
 import { ROUTES } from '../constants/routes';
+import PageHeader from '../components/ui/PageHeader';
+import ErrorState from '../components/ui/ErrorState';
 import { toast } from 'sonner';
 
 // Límite de mazos por profesor (sincronizado con backend)
@@ -96,24 +98,13 @@ const renderDecksGrid = ({ decks, shouldReduceMotion, handleViewDeck, handleEdit
   </motion.div>
 );
 
-const renderDecksErrorState = ({ error, shouldReduceMotion, loadDecks }) => (
-  <motion.div
-    initial={shouldReduceMotion ? false : { opacity: 0 }}
-    animate={{ opacity: 1 }}
-    className="flex flex-col items-center justify-center py-16"
-  >
-    <div className="size-16 rounded-full bg-rose-500/20 flex items-center justify-center mb-4">
-      <AlertCircle className="text-rose-400" size={32} />
-    </div>
-    <p className="text-slate-400 mb-4">{error}</p>
-    <ButtonPremium
-      variant="secondary"
-      onClick={() => loadDecks({ resetPage: true })}
-      icon={<RefreshCw size={16} />}
-    >
-      Reintentar
-    </ButtonPremium>
-  </motion.div>
+const renderDecksErrorState = ({ error, loadDecks }) => (
+  <ErrorState
+    title="Error al cargar mazos"
+    message={error}
+    icon={<AlertCircle size={28} />}
+    onRetry={() => loadDecks({ resetPage: true })}
+  />
 );
 
 const renderDecksLoadingState = ({ shouldReduceMotion }) => (
@@ -170,10 +161,10 @@ const renderDecksEmptyState = ({ shouldReduceMotion, hasActiveFilters, clearFilt
       </svg>
     </motion.div>
 
-    <h3 className="text-xl font-semibold text-white mb-2">
+    <h3 className="text-xl font-semibold text-text-primary mb-2">
       {hasActiveFilters ? 'No hay resultados' : 'Crea tu primer mazo'}
     </h3>
-    <p className="text-slate-400 text-center max-w-md mb-6">
+    <p className="text-text-muted text-center max-w-md mb-6">
       {hasActiveFilters
         ? 'Intenta con otros filtros o términos de búsqueda'
         : 'Los mazos te permiten reutilizar configuraciones de tarjetas en múltiples sesiones de juego'}
@@ -447,56 +438,39 @@ export default function CardDecksPage() {
 
   return (
     <div className="p-6 lg:p-8 max-w-7xl mx-auto">
-      {/* Header */}
-      <motion.div
-        initial={shouldReduceMotion ? false : { opacity: 0, y: -20 }}
-        animate={{ opacity: 1, y: 0 }}
+      <PageHeader
+        icon={<Layers size={20} />}
+        iconClassName="size-10 bg-gradient-to-br from-accent-indigo to-brand-base text-text-primary"
+        title="Mis Mazos"
+        subtitle="Gestiona tus mazos de cartas RFID para las sesiones de juego"
+        actions={<>
+          <motion.div
+            className={cn(
+              'px-4 py-2 rounded-xl text-sm font-medium',
+              'bg-background-elevated/50 border border-border-default',
+              deckCount.active >= MAX_DECKS && 'border-warning-base/50 bg-warning-base/10'
+            )}
+            initial={shouldReduceMotion ? false : { scale: 0.9, opacity: 0 }}
+            animate={{ scale: 1, opacity: 1 }}
+            transition={{ delay: shouldReduceMotion ? 0 : 0.2 }}
+          >
+            <span className={cn(
+              deckCount.active >= MAX_DECKS ? 'text-warning-base' : 'text-accent-indigo'
+            )}>
+              {deckCount.active}
+            </span>
+            <span className="text-text-muted">/{MAX_DECKS} mazos</span>
+          </motion.div>
+          <ButtonPremium
+            onClick={handleCreateDeck}
+            disabled={deckCount.active >= MAX_DECKS}
+            icon={<Plus size={18} />}
+          >
+            Nuevo Mazo
+          </ButtonPremium>
+        </>}
         className="mb-8"
-      >
-        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
-          <div>
-            <h1 className="text-3xl font-bold text-white font-display flex items-center gap-3">
-              <div className="size-10 rounded-xl bg-gradient-to-br from-indigo-500 to-purple-600 flex items-center justify-center">
-                <Layers size={20} className="text-white" />
-              </div>
-              Mis Mazos
-            </h1>
-            <p className="text-slate-400 mt-1">
-              Gestiona tus mazos de cartas RFID para las sesiones de juego
-            </p>
-          </div>
-
-          {/* Contador y botón crear */}
-          <div className="flex items-center gap-4">
-            {/* Contador de mazos */}
-            <motion.div
-              className={cn(
-                'px-4 py-2 rounded-xl text-sm font-medium',
-                'bg-slate-800/50 border border-white/10',
-                deckCount.active >= MAX_DECKS && 'border-amber-500/50 bg-amber-500/10'
-              )}
-              initial={shouldReduceMotion ? false : { scale: 0.9, opacity: 0 }}
-              animate={{ scale: 1, opacity: 1 }}
-              transition={{ delay: shouldReduceMotion ? 0 : 0.2 }}
-            >
-              <span className={cn(
-                deckCount.active >= MAX_DECKS ? 'text-amber-400' : 'text-indigo-400'
-              )}>
-                {deckCount.active}
-              </span>
-              <span className="text-slate-500">/{MAX_DECKS} mazos</span>
-            </motion.div>
-
-            <ButtonPremium
-              onClick={handleCreateDeck}
-              disabled={deckCount.active >= MAX_DECKS}
-              icon={<Plus size={18} />}
-            >
-              Nuevo Mazo
-            </ButtonPremium>
-          </div>
-        </div>
-      </motion.div>
+      />
 
       {/* Barra de búsqueda y filtros */}
       <motion.div
@@ -509,9 +483,9 @@ export default function CardDecksPage() {
           <div className="flex flex-col sm:flex-row gap-4">
             {/* Búsqueda */}
             <div className="relative flex-1">
-              <Search 
-                className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-500" 
-                size={18} 
+              <Search
+                className="absolute left-3 top-1/2 -translate-y-1/2 text-text-muted"
+                size={18}
               />
               <input
                 type="text"
@@ -520,9 +494,9 @@ export default function CardDecksPage() {
                 placeholder="Buscar mazos..."
                 className={cn(
                   'w-full pl-10 pr-4 py-2.5 rounded-xl',
-                  'bg-slate-800/50 border border-white/10',
-                  'text-white placeholder-slate-500',
-                  'focus:outline-none focus:border-indigo-500/50 focus:ring-2 focus:ring-indigo-500/20',
+                  'bg-background-elevated/50 border border-border-default',
+                  'text-text-primary placeholder-text-muted',
+                  'focus:outline-none focus:border-accent-indigo/50 focus:ring-2 focus:ring-accent-indigo/20',
                   'transition-all duration-300'
                 )}
               />
@@ -534,14 +508,14 @@ export default function CardDecksPage() {
               className={cn(
                 'flex items-center gap-2 px-4 py-2.5 rounded-xl border transition-all',
                 showFilters || hasActiveFilters
-                  ? 'bg-indigo-500/20 border-indigo-500/50 text-indigo-300'
-                  : 'bg-slate-800/50 border-white/10 text-slate-400 hover:border-white/20'
+                  ? 'bg-accent-indigo/20 border-accent-indigo/50 text-accent-indigo'
+                  : 'bg-background-elevated/50 border-border-default text-text-muted hover:border-border-strong'
               )}
             >
               <Filter size={18} />
               Filtros
               {hasActiveFilters && (
-                <span className="size-2 rounded-full bg-indigo-500" />
+                <span className="size-2 rounded-full bg-accent-indigo" />
               )}
             </button>
           </div>
@@ -553,7 +527,7 @@ export default function CardDecksPage() {
                 initial={shouldReduceMotion ? false : { opacity: 0, height: 0 }}
                 animate={{ opacity: 1, height: 'auto' }}
                 exit={{ opacity: 0, height: 0 }}
-                className="mt-4 pt-4 border-t border-white/5 overflow-hidden"
+                className="mt-4 pt-4 border-t border-border-subtle overflow-hidden"
               >
                 <div className="flex flex-wrap gap-4">
                   {/* Filtro por estado */}
@@ -589,7 +563,7 @@ export default function CardDecksPage() {
                   {hasActiveFilters && (
                     <button
                       onClick={clearFilters}
-                      className="self-end px-3 py-2 rounded-lg text-slate-400 hover:text-white hover:bg-white/5 transition-colors text-sm flex items-center gap-1.5"
+                      className="self-end px-3 py-2 rounded-lg text-text-muted hover:text-text-primary hover:bg-glass-bg transition-colors text-sm flex items-center gap-1.5"
                     >
                       <X size={14} />
                       Limpiar
@@ -603,7 +577,7 @@ export default function CardDecksPage() {
       </motion.div>
 
       {loading && decks.length > 0 && (
-        <div className="mb-4 bg-slate-800/50 border border-white/10 text-slate-300 px-4 py-2 rounded-xl text-sm">
+        <div className="mb-4 bg-background-elevated/50 border border-border-default text-text-secondary px-4 py-2 rounded-xl text-sm">
           Actualizando mazos...
         </div>
       )}
@@ -636,7 +610,7 @@ export default function CardDecksPage() {
         description={
           <>
             ¿Estás seguro de que quieres archivar{' '}
-            <strong className="text-white">&quot;{archivingDeck?.name}&quot;</strong>?
+            <strong className="text-text-primary">&quot;{archivingDeck?.name}&quot;</strong>?
             El mazo no se eliminará, pero no aparecerá en tus mazos activos.
           </>
         }

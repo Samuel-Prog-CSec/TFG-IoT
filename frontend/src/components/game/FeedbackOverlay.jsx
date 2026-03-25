@@ -50,9 +50,9 @@ function FeedbackOverlay({ type, points = 0, onComplete, shouldReduceMotion = fa
           aria-hidden="true"
           className={cn(
             "absolute inset-0",
-            isSuccess 
-              ? "bg-emerald-500/10" 
-              : "bg-rose-500/10"
+            isSuccess
+              ? "bg-success-base/10"
+              : "bg-error-base/10"
           )}
         />
 
@@ -84,7 +84,7 @@ function FeedbackOverlay({ type, points = 0, onComplete, shouldReduceMotion = fa
             transition={shouldReduceMotion ? { duration: 0 } : { delay: 0.1 }}
             className={cn(
               "text-3xl sm:text-4xl font-bold font-display mb-2",
-              isSuccess ? "text-emerald-400" : "text-rose-300"
+              isSuccess ? "text-success-base" : "text-error-base"
             )}
           >
             {feedbackMessage}
@@ -97,9 +97,9 @@ function FeedbackOverlay({ type, points = 0, onComplete, shouldReduceMotion = fa
             transition={shouldReduceMotion ? { duration: 0 } : { delay: 0.2 }}
             className={cn(
               "text-2xl font-bold px-6 py-2 rounded-full inline-block",
-              isSuccess 
-                ? "bg-emerald-500/20 text-emerald-400 shadow-lg shadow-emerald-500/20" 
-                : "bg-rose-500/20 text-rose-400"
+              isSuccess
+                ? "bg-success-base/20 text-success-base shadow-lg shadow-success-base/20"
+                : "bg-error-base/20 text-error-base"
             )}
             aria-label={`Puntos: ${isSuccess ? '+' : ''}${points}`}
           >
@@ -145,6 +145,7 @@ function FeedbackOverlay({ type, points = 0, onComplete, shouldReduceMotion = fa
 
 // Confetti component
 function Confetti() {
+  // TOKEN-EXCEPTION: canvas-confetti API requires direct color values
   const colors = ['#8b5cf6', '#22d3ee', '#f472b6', '#facc15', '#4ade80'];
   const pieces = Array.from({ length: 42 }, (_, index) => ({
     id: index,

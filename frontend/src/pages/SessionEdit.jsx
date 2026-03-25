@@ -8,7 +8,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { motion } from 'framer-motion';
-import { ArrowLeft, Save, Map as MapIcon, AlertTriangle } from 'lucide-react';
+import { Save, Map as MapIcon, AlertTriangle } from 'lucide-react';
 import { toast } from 'sonner';
 import { sessionsAPI, decksAPI, extractData, extractErrorMessage, isAbortError } from '../services/api';
 import { ROUTES } from '../constants/routes';
@@ -17,6 +17,7 @@ import GlassCard from '../components/ui/GlassCard';
 import InputPremium from '../components/ui/InputPremium';
 import SelectPremium from '../components/ui/SelectPremium';
 import StatusBadge from '../components/ui/StatusBadge';
+import Breadcrumb from '../components/ui/Breadcrumb';
 import { pageVariants } from '../lib/utils';
 import { useRefetchOnFocus } from '../hooks/useRefetchOnFocus';
 
@@ -289,13 +290,13 @@ export default function SessionEdit() {
 
   if (loading && !session) {
     return (
-      <div className="p-8 text-slate-300">Cargando sesión...</div>
+      <div className="p-8 text-text-secondary">Cargando sesión...</div>
     );
   }
 
   if (!session) {
     return (
-      <div className="p-8 text-slate-300">Sesión no encontrada.</div>
+      <div className="p-8 text-text-secondary">Sesión no encontrada.</div>
     );
   }
 
@@ -308,18 +309,17 @@ export default function SessionEdit() {
       exit="exit"
     >
       <div className="flex flex-col gap-6">
+        <Breadcrumb items={[
+          { label: 'Sesiones', to: ROUTES.SESSIONS },
+          { label: session.deck?.name || 'Sesión', to: ROUTES.SESSION_DETAIL(sessionId) },
+          { label: 'Editar' },
+        ]} />
         <header className="flex flex-wrap items-center justify-between gap-4">
-          <div className="flex items-center gap-3">
-            <ButtonPremium variant="ghost" onClick={() => navigate(ROUTES.SESSION_DETAIL(sessionId))}>
-              <ArrowLeft size={16} />
-              Volver
-            </ButtonPremium>
-            <div>
-              <h1 className="text-2xl font-bold text-white font-display">Editar sesión</h1>
-              <p className="text-slate-400">
-                {session.deck?.name || 'Sesión'} · {session.context?.name}
-              </p>
-            </div>
+          <div>
+            <h1 className="text-2xl font-bold text-text-primary font-display">Editar sesión</h1>
+            <p className="text-text-muted">
+              {session.deck?.name || 'Sesión'} · {session.context?.name}
+            </p>
           </div>
           <div className="flex items-center gap-3">
             <StatusBadge status={statusInfo.tone}>{statusInfo.label}</StatusBadge>
@@ -334,21 +334,21 @@ export default function SessionEdit() {
         </header>
 
         {!canEdit && (
-          <GlassCard className="p-4 border border-amber-500/40 text-amber-300 flex items-center gap-3">
+          <GlassCard className="p-4 border border-warning-base/40 text-warning-base flex items-center gap-3">
             <AlertTriangle size={18} />
             Esta sesión ya no está en borrador y no se puede editar.
           </GlassCard>
         )}
 
         {canEdit && isAssociationSession && session.requiresAssociationPlanConfiguration && (
-          <GlassCard className="p-4 border border-amber-500/40 text-amber-300 flex items-center gap-3">
+          <GlassCard className="p-4 border border-warning-base/40 text-warning-base flex items-center gap-3">
             <AlertTriangle size={18} />
             Esta sesión clonada tiene un borrador de retos precargado. Revísalo y guarda para confirmar antes de iniciar.
           </GlassCard>
         )}
 
         {canEdit && isMemorySession && !hasMemoryBoardConfigured && (
-          <GlassCard className="p-4 border border-amber-500/40 text-amber-300 flex flex-wrap items-center justify-between gap-3">
+          <GlassCard className="p-4 border border-warning-base/40 text-warning-base flex flex-wrap items-center justify-between gap-3">
             <div className="flex items-center gap-3">
               <AlertTriangle size={18} />
               Esta sesión de memoria requiere configurar el tablero antes de iniciar.
@@ -383,16 +383,16 @@ export default function SessionEdit() {
 
           {isAssociationSession && (
             <div className="space-y-4">
-              <h2 className="text-lg font-semibold text-white">Retos de Association por ronda</h2>
+              <h2 className="text-lg font-semibold text-text-primary">Retos de Association por ronda</h2>
               {associationChallengePlan.length === 0 ? (
-                <p className="text-sm text-amber-300">
+                <p className="text-sm text-warning-base">
                   No hay retos configurables. Revisa el mazo o el número de rondas.
                 </p>
               ) : (
                 associationChallengePlan.map(item => (
                   <div
                     key={`edit-association-round-${item.roundNumber}`}
-                    className="rounded-xl border border-white/10 bg-slate-900/40 p-4 grid grid-cols-1 md:grid-cols-2 gap-4"
+                    className="rounded-xl border border-border-default bg-background-base/40 p-4 grid grid-cols-1 md:grid-cols-2 gap-4"
                   >
                     <SelectPremium
                       label={`Ronda ${item.roundNumber}: tarjeta objetivo`}

@@ -11,15 +11,15 @@ import { cn } from '../../lib/utils';
 
 const BADGE_STYLES = {
   success: {
-    bg: 'bg-emerald-500/20 border-emerald-500/40',
-    text: 'text-emerald-300',
-    points: 'text-emerald-400',
-    shadow: 'shadow-lg shadow-emerald-500/20',
+    bg: 'bg-success-base/20 border-success-base/40',
+    text: 'text-success-base',
+    points: 'text-success-base',
+    shadow: 'shadow-lg shadow-success-base/20',
   },
   error: {
-    bg: 'bg-rose-500/20 border-rose-500/40',
-    text: 'text-rose-300',
-    points: 'text-rose-400',
+    bg: 'bg-error-base/20 border-error-base/40',
+    text: 'text-error-base',
+    points: 'text-error-base',
     shadow: '',
   },
 };
@@ -47,7 +47,7 @@ export default function FloatingPointsBadge({
           className={cn(
             'flex items-center gap-2 px-4 py-2 rounded-full',
             'backdrop-blur-md border',
-            'bg-black/60',
+            'bg-backdrop',
             styles.bg,
             styles.shadow,
             className

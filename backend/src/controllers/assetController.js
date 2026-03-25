@@ -71,7 +71,7 @@ function validateUniqueKey(context, key) {
  * @param {import('express').Response} res
  * @param {import('express').NextFunction} next
  */
-const uploadImage = async (req, res, next) => {
+const uploadImage = async (req, res) => {
   let imageUrl = null;
   let thumbnailUrl = null;
 
@@ -157,7 +157,7 @@ const uploadImage = async (req, res, next) => {
       await storageService.deleteFile(thumbnailUrl);
     }
 
-    next(error);
+    throw error;
   }
 };
 
@@ -174,7 +174,7 @@ const uploadImage = async (req, res, next) => {
  * @param {import('express').Response} res
  * @param {import('express').NextFunction} next
  */
-const uploadAudio = async (req, res, next) => {
+const uploadAudio = async (req, res) => {
   let audioUrl = null;
 
   try {
@@ -248,7 +248,7 @@ const uploadAudio = async (req, res, next) => {
       await storageService.deleteFile(audioUrl);
     }
 
-    next(error);
+    throw error;
   }
 };
 
@@ -263,52 +263,48 @@ const uploadAudio = async (req, res, next) => {
  * @param {import('express').Response} res
  * @param {import('express').NextFunction} next
  */
-const deleteImage = async (req, res, next) => {
-  try {
-    const { id: contextId, assetKey } = req.params;
+const deleteImage = async (req, res) => {
+  const { id: contextId, assetKey } = req.params;
 
-    const context = await gameContextRepository.findById(contextId);
+  const context = await gameContextRepository.findById(contextId);
 
-    if (!context) {
-      throw new NotFoundError('Contexto de juego');
-    }
-
-    // Buscar asset por key
-    const assetIndex = context.assets.findIndex(
-      asset => asset.key === assetKey.toLowerCase() && asset.imageUrl
-    );
-
-    if (assetIndex === -1) {
-      throw new NotFoundError('Asset de imagen');
-    }
-
-    const asset = context.assets[assetIndex];
-
-    // Eliminar archivos de Supabase
-    if (asset.imageUrl) {
-      await storageService.deleteFile(asset.imageUrl, { strict: true });
-    }
-    if (asset.thumbnailUrl) {
-      await storageService.deleteFile(asset.thumbnailUrl, { strict: true });
-    }
-
-    // Eliminar asset del array
-    context.assets.splice(assetIndex, 1);
-    await context.save();
-
-    logger.info('Imagen eliminada exitosamente', {
-      contextId: context.contextId,
-      assetKey,
-      deletedBy: req.user._id
-    });
-
-    res.json({
-      success: true,
-      message: 'Imagen eliminada correctamente'
-    });
-  } catch (error) {
-    next(error);
+  if (!context) {
+    throw new NotFoundError('Contexto de juego');
   }
+
+  // Buscar asset por key
+  const assetIndex = context.assets.findIndex(
+    asset => asset.key === assetKey.toLowerCase() && asset.imageUrl
+  );
+
+  if (assetIndex === -1) {
+    throw new NotFoundError('Asset de imagen');
+  }
+
+  const asset = context.assets[assetIndex];
+
+  // Eliminar archivos de Supabase
+  if (asset.imageUrl) {
+    await storageService.deleteFile(asset.imageUrl, { strict: true });
+  }
+  if (asset.thumbnailUrl) {
+    await storageService.deleteFile(asset.thumbnailUrl, { strict: true });
+  }
+
+  // Eliminar asset del array
+  context.assets.splice(assetIndex, 1);
+  await context.save();
+
+  logger.info('Imagen eliminada exitosamente', {
+    contextId: context.contextId,
+    assetKey,
+    deletedBy: req.user._id
+  });
+
+  res.json({
+    success: true,
+    message: 'Imagen eliminada correctamente'
+  });
 };
 
 /**
@@ -322,49 +318,45 @@ const deleteImage = async (req, res, next) => {
  * @param {import('express').Response} res
  * @param {import('express').NextFunction} next
  */
-const deleteAudio = async (req, res, next) => {
-  try {
-    const { id: contextId, assetKey } = req.params;
+const deleteAudio = async (req, res) => {
+  const { id: contextId, assetKey } = req.params;
 
-    const context = await gameContextRepository.findById(contextId);
+  const context = await gameContextRepository.findById(contextId);
 
-    if (!context) {
-      throw new NotFoundError('Contexto de juego');
-    }
-
-    // Buscar asset por key
-    const assetIndex = context.assets.findIndex(
-      asset => asset.key === assetKey.toLowerCase() && asset.audioUrl
-    );
-
-    if (assetIndex === -1) {
-      throw new NotFoundError('Asset de audio');
-    }
-
-    const asset = context.assets[assetIndex];
-
-    // Eliminar archivo de Supabase
-    if (asset.audioUrl) {
-      await storageService.deleteFile(asset.audioUrl, { strict: true });
-    }
-
-    // Eliminar asset del array
-    context.assets.splice(assetIndex, 1);
-    await context.save();
-
-    logger.info('Audio eliminado exitosamente', {
-      contextId: context.contextId,
-      assetKey,
-      deletedBy: req.user._id
-    });
-
-    res.json({
-      success: true,
-      message: 'Audio eliminado correctamente'
-    });
-  } catch (error) {
-    next(error);
+  if (!context) {
+    throw new NotFoundError('Contexto de juego');
   }
+
+  // Buscar asset por key
+  const assetIndex = context.assets.findIndex(
+    asset => asset.key === assetKey.toLowerCase() && asset.audioUrl
+  );
+
+  if (assetIndex === -1) {
+    throw new NotFoundError('Asset de audio');
+  }
+
+  const asset = context.assets[assetIndex];
+
+  // Eliminar archivo de Supabase
+  if (asset.audioUrl) {
+    await storageService.deleteFile(asset.audioUrl, { strict: true });
+  }
+
+  // Eliminar asset del array
+  context.assets.splice(assetIndex, 1);
+  await context.save();
+
+  logger.info('Audio eliminado exitosamente', {
+    contextId: context.contextId,
+    assetKey,
+    deletedBy: req.user._id
+  });
+
+  res.json({
+    success: true,
+    message: 'Audio eliminado correctamente'
+  });
 };
 
 /**

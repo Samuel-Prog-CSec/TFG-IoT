@@ -57,9 +57,9 @@ function ScoreDisplay({
               aria-hidden="true"
               className={cn(
                 "transition-all duration-300",
-                i < starsEarned 
-                  ? "fill-amber-400 text-amber-400 drop-shadow-[0_0_10px_rgba(251,191,36,0.6)]"
-                  : "fill-slate-700 text-slate-600"
+                i < starsEarned
+                  ? "fill-warning-base text-warning-base drop-shadow-[0_0_10px_rgba(251,191,36,0.6)]" // TOKEN-EXCEPTION: drop-shadow filter requires direct rgba value
+                  : "fill-background-surface text-text-disabled"
               )}
             />
           </motion.div>
@@ -79,7 +79,7 @@ function ScoreDisplay({
         >
           {score}
         </div>
-        <div className="text-xs text-slate-500 text-center mt-1">puntos</div>
+        <div className="text-xs text-text-muted text-center mt-1">puntos</div>
       </motion.div>
     </div>
   );
@@ -119,8 +119,8 @@ function ScoreDisplayCompact({ score = 0, className }) {
       className={cn("flex items-center gap-2 relative", className)}
       aria-label={`Puntuación: ${score} puntos`}
     >
-      <Star size={20} className="fill-amber-400 text-amber-400" aria-hidden="true" />
-      <span className="text-2xl font-bold font-display text-white tabular-nums">{score}</span>
+      <Star size={20} className="fill-warning-base text-warning-base" aria-hidden="true" />
+      <span className="text-2xl font-bold font-display text-text-primary tabular-nums">{score}</span>
       <AnimatePresence>
         {scoreDelta !== null && (
           <motion.span
@@ -129,7 +129,7 @@ function ScoreDisplayCompact({ score = 0, className }) {
             animate={{ opacity: 0, y: -24 }}
             exit={{ opacity: 0 }}
             transition={{ duration: 1, ease: 'easeOut' }}
-            className="absolute -top-1 -right-6 text-sm font-bold font-display text-emerald-400 pointer-events-none"
+            className="absolute -top-1 -right-6 text-sm font-bold font-display text-success-base pointer-events-none"
           >
             +{scoreDelta}
           </motion.span>

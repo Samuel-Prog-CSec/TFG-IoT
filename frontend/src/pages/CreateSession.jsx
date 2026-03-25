@@ -111,19 +111,19 @@ const DIFFICULTY_PRESETS = {
 
 const DIFFICULTY_VARIANT_STYLES = {
   easy: {
-    selectedCard: 'border-emerald-500 bg-emerald-500/10',
-    selectedText: 'text-emerald-400',
-    selectedIndicator: 'bg-emerald-500'
+    selectedCard: 'border-success-base bg-success-base/10',
+    selectedText: 'text-success-base',
+    selectedIndicator: 'bg-success-base'
   },
   medium: {
-    selectedCard: 'border-amber-500 bg-amber-500/10',
-    selectedText: 'text-amber-400',
-    selectedIndicator: 'bg-amber-500'
+    selectedCard: 'border-warning-base bg-warning-base/10',
+    selectedText: 'text-warning-base',
+    selectedIndicator: 'bg-warning-base'
   },
   hard: {
-    selectedCard: 'border-rose-500 bg-rose-500/10',
-    selectedText: 'text-rose-400',
-    selectedIndicator: 'bg-rose-500'
+    selectedCard: 'border-error-base bg-error-base/10',
+    selectedText: 'text-error-base',
+    selectedIndicator: 'bg-error-base'
   }
 };
 
@@ -533,6 +533,7 @@ export default function CreateSession() {
       const newSession = extractData(response);
       
       // Celebración
+      // TOKEN-EXCEPTION: canvas-confetti requires raw hex colors
       confetti({
         particleCount: 150,
         spread: 80,
@@ -629,17 +630,17 @@ export default function CreateSession() {
   };
 
   return (
-    <div className="min-h-screen bg-slate-950 p-4 lg:p-8">
+    <div className="min-h-screen bg-background-deep p-4 lg:p-8">
       {/* Header */}
       <motion.div
         initial={shouldReduceMotion ? false : { opacity: 0, y: -20 }}
         animate={{ opacity: 1, y: 0 }}
         className="max-w-5xl mx-auto mb-8"
       >
-        <h1 className="text-3xl font-bold text-white font-display mb-2">
+        <h1 className="text-3xl font-bold text-text-primary font-display mb-2">
           Crear Nueva Sesión
         </h1>
-        <p className="text-slate-400">
+        <p className="text-text-muted">
           {WIZARD_STEPS[currentStep].description}
         </p>
       </motion.div>
@@ -691,7 +692,7 @@ export default function CreateSession() {
               Anterior
             </ButtonPremium>
 
-            <div className="flex items-center gap-2 text-sm text-slate-500">
+            <div className="flex items-center gap-2 text-sm text-text-muted">
               Paso {currentStep + 1} de {WIZARD_STEPS.length}
             </div>
 
@@ -745,13 +746,13 @@ function StepDeck({ decks, loading, selectedDeckId, onSelect }) {
   if (decks.length === 0) {
     return (
       <GlassCard className="p-8 text-center">
-        <div className="size-16 mx-auto mb-4 rounded-full bg-amber-500/20 flex items-center justify-center">
-          <AlertTriangle className="text-amber-400" size={32} />
+        <div className="size-16 mx-auto mb-4 rounded-full bg-warning-base/20 flex items-center justify-center">
+          <AlertTriangle className="text-warning-base" size={32} />
         </div>
-        <h3 className="text-xl font-semibold text-white mb-2">
+        <h3 className="text-xl font-semibold text-text-primary mb-2">
           No tienes mazos creados
         </h3>
-        <p className="text-slate-400 mb-6">
+        <p className="text-text-muted mb-6">
           Necesitas crear al menos un mazo de cartas antes de crear una sesión.
         </p>
         <Link to={ROUTES.CARD_DECKS_NEW}>
@@ -766,10 +767,10 @@ function StepDeck({ decks, loading, selectedDeckId, onSelect }) {
   return (
     <GlassCard className="p-6">
       <div className="mb-6">
-        <h2 className="text-xl font-semibold text-white mb-1">
+        <h2 className="text-xl font-semibold text-text-primary mb-1">
           Selecciona un Mazo
         </h2>
-        <p className="text-slate-400 text-sm">
+        <p className="text-text-muted text-sm">
           El mazo determina las tarjetas RFID y los assets que se usarán en el juego
         </p>
       </div>
@@ -787,10 +788,10 @@ function StepDeck({ decks, loading, selectedDeckId, onSelect }) {
             onClick={() => onSelect(deck)}
             className={cn(
               'relative p-4 rounded-xl border-2 text-left transition-all',
-              'hover:border-indigo-500/50 hover:bg-indigo-500/5',
+              'hover:border-accent-indigo/50 hover:bg-accent-indigo/5',
               selectedDeckId === deckId
-                ? 'border-indigo-500 bg-indigo-500/10'
-                : 'border-white/10 bg-slate-800/30'
+                ? 'border-accent-indigo bg-accent-indigo/10'
+                : 'border-border-default bg-background-elevated/30'
             )}
             aria-pressed={selectedDeckId === deckId}
             whileHover={{ scale: 1.02 }}
@@ -800,9 +801,9 @@ function StepDeck({ decks, loading, selectedDeckId, onSelect }) {
               <motion.div
                 initial={{ scale: 0 }}
                 animate={{ scale: 1 }}
-                className="absolute top-2 right-2 size-7 rounded-full bg-indigo-500 flex items-center justify-center shadow-lg shadow-indigo-500/40"
+                className="absolute top-2 right-2 size-7 rounded-full bg-accent-indigo flex items-center justify-center shadow-lg shadow-accent-indigo/40"
               >
-                <Check size={14} className="text-white" />
+                <Check size={14} className="text-text-primary" />
               </motion.div>
             )}
 
@@ -818,8 +819,8 @@ function StepDeck({ decks, loading, selectedDeckId, onSelect }) {
               ))}
             </div>
 
-            <h3 className="font-medium text-white mb-1">{deck.name}</h3>
-            <div className="flex items-center gap-3 text-xs text-slate-400">
+            <h3 className="font-medium text-text-primary mb-1">{deck.name}</h3>
+            <div className="flex items-center gap-3 text-xs text-text-muted">
               <span className="flex items-center gap-1">
                 <CreditCard size={12} />
                 {cardsCount} cartas
@@ -834,7 +835,7 @@ function StepDeck({ decks, loading, selectedDeckId, onSelect }) {
         })}
       </div>
 
-      <div className="mt-6 pt-4 border-t border-white/5 flex justify-center">
+      <div className="mt-6 pt-4 border-t border-border-subtle flex justify-center">
         <Link to={ROUTES.CARD_DECKS_NEW}>
           <ButtonPremium variant="ghost" icon={<Plus size={16} />}>
             Crear nuevo mazo
@@ -872,10 +873,10 @@ function StepMechanic({ mechanics, loading, selectedMechanicId, onSelect }) {
   return (
     <GlassCard className="p-6">
       <div className="mb-6">
-        <h2 className="text-xl font-semibold text-white mb-1">
+        <h2 className="text-xl font-semibold text-text-primary mb-1">
           Selecciona la Mecánica de Juego
         </h2>
-        <p className="text-slate-400 text-sm">
+        <p className="text-text-muted text-sm">
           La mecánica define cómo interactuarán los estudiantes con las tarjetas
         </p>
       </div>
@@ -895,18 +896,18 @@ function StepMechanic({ mechanics, loading, selectedMechanicId, onSelect }) {
               className={cn(
                 'relative p-6 rounded-xl border-2 text-left transition-all',
                 selectable
-                  ? 'hover:border-purple-500/50 hover:bg-purple-500/5'
-                  : 'opacity-70 cursor-not-allowed border-white/10 bg-slate-900/40',
+                  ? 'hover:border-brand-base/50 hover:bg-brand-base/5'
+                  : 'opacity-70 cursor-not-allowed border-border-default bg-background-base/40',
                 selected
-                  ? 'border-purple-500 bg-purple-500/10'
-                  : 'border-white/10 bg-slate-800/30'
+                  ? 'border-brand-base bg-brand-base/10'
+                  : 'border-border-default bg-background-elevated/30'
               )}
               aria-pressed={selected}
               whileHover={selectable ? { scale: 1.03, y: -4 } : undefined}
               whileTap={selectable ? { scale: 0.98 } : undefined}
             >
               {!selectable && (
-                <span className="absolute top-3 right-3 rounded-full border border-amber-400/40 bg-amber-500/10 px-2 py-0.5 text-[11px] font-medium text-amber-300">
+                <span className="absolute top-3 right-3 rounded-full border border-warning-base/40 bg-warning-base/10 px-2 py-0.5 text-[11px] font-medium text-warning-base">
                   Próximamente
                 </span>
               )}
@@ -915,22 +916,22 @@ function StepMechanic({ mechanics, loading, selectedMechanicId, onSelect }) {
                 <motion.div
                   initial={{ scale: 0 }}
                   animate={{ scale: 1 }}
-                  className="absolute top-3 right-3 size-7 rounded-full bg-purple-500 flex items-center justify-center shadow-lg shadow-purple-500/40"
+                  className="absolute top-3 right-3 size-7 rounded-full bg-brand-base flex items-center justify-center shadow-lg shadow-brand-glow"
                 >
-                  <Check size={14} className="text-white" />
+                  <Check size={14} className="text-text-primary" />
                 </motion.div>
               )}
 
               <div className="text-4xl mb-4">{mechanic.icon || icon}</div>
-              <h3 className="text-lg font-semibold text-white mb-2">
+              <h3 className="text-lg font-semibold text-text-primary mb-2">
                 {mechanic.displayName || mechanic.name}
               </h3>
-              <p className="text-sm text-slate-400 line-clamp-3">
+              <p className="text-sm text-text-muted line-clamp-3">
                 {mechanic.description || 'Mecánica de juego interactiva'}
               </p>
 
               {!selectable && (
-                <p className="mt-3 text-xs text-amber-300/90">
+                <p className="mt-3 text-xs text-warning-base/90">
                   Esta mecánica no está habilitada para creación de sesiones en este entorno.
                 </p>
               )}
@@ -995,8 +996,8 @@ function StepMemoryRules({
   return (
     <div className="space-y-6">
       <GlassCard className="p-6">
-        <h2 className="text-xl font-semibold text-white mb-2">Tablero de Memoria</h2>
-        <p className="text-slate-400 text-sm mb-4">
+        <h2 className="text-xl font-semibold text-text-primary mb-2">Tablero de Memoria</h2>
+        <p className="text-text-muted text-sm mb-4">
           Selecciona una carta y colócala en una posición para que la mesa real coincida con el tablero.
         </p>
 
@@ -1013,8 +1014,8 @@ function StepMemoryRules({
                 className={cn(
                   'rounded-xl border p-3 text-left transition-all',
                   isSelected
-                    ? 'border-indigo-500 bg-indigo-500/20'
-                    : 'border-white/10 bg-slate-800/40 hover:border-white/30',
+                    ? 'border-accent-indigo bg-accent-indigo/20'
+                    : 'border-border-default bg-background-elevated/40 hover:border-border-strong',
                   alreadyPlaced && !isSelected ? 'opacity-70' : ''
                 )}
               >
@@ -1025,7 +1026,7 @@ function StepMemoryRules({
                     fallbackLabel={card.displayData?.display || card.assignedValue || '🎴'}
                   />
                 </div>
-                <p className="text-xs text-slate-300 truncate">{card.assignedValue || card.uid}</p>
+                <p className="text-xs text-text-secondary truncate">{card.assignedValue || card.uid}</p>
               </button>
             );
           })}
@@ -1039,8 +1040,8 @@ function StepMemoryRules({
               onClick={() => handleAssignToSlot(slotIndex)}
               className={cn(
                 'aspect-square rounded-xl border-2 border-dashed p-3 transition-all',
-                slotCard ? 'border-emerald-500/50 bg-emerald-500/10' : 'border-slate-700 bg-slate-900/40',
-                selectedCard ? 'hover:border-indigo-400' : ''
+                slotCard ? 'border-success-base/50 bg-success-base/10' : 'border-background-surface bg-background-base/40',
+                selectedCard ? 'hover:border-accent-indigo' : ''
               )}
             >
               {slotCard ? (
@@ -1050,7 +1051,7 @@ function StepMemoryRules({
                     className="w-full h-full rounded-lg"
                     fallbackLabel={slotCard.displayData?.display || slotCard.assignedValue || '🎴'}
                   />
-                  <span className="absolute top-1 left-1 text-[10px] px-1.5 py-0.5 rounded-full bg-slate-950/70 text-slate-200">
+                  <span className="absolute top-1 left-1 text-[10px] px-1.5 py-0.5 rounded-full bg-background-deep/70 text-text-secondary">
                     #{slotIndex + 1}
                   </span>
                   <button
@@ -1060,13 +1061,13 @@ function StepMemoryRules({
                       e.stopPropagation();
                       handleClearSlot(slotIndex);
                     }}
-                    className="absolute top-1 right-1 text-[10px] px-1.5 py-0.5 rounded-full bg-rose-500/80 text-white"
+                    className="absolute top-1 right-1 text-[10px] px-1.5 py-0.5 rounded-full bg-error-base/80 text-text-primary"
                   >
                     Quitar
                   </button>
                 </div>
               ) : (
-                <div className="h-full w-full flex items-center justify-center text-slate-500 text-sm">
+                <div className="h-full w-full flex items-center justify-center text-text-muted text-sm">
                   Slot #{slotIndex + 1}
                 </div>
               )}
@@ -1074,7 +1075,7 @@ function StepMemoryRules({
           ))}
         </div>
 
-        <p className={cn('mt-4 text-sm', boardComplete ? 'text-emerald-400' : 'text-amber-400')}>
+        <p className={cn('mt-4 text-sm', boardComplete ? 'text-success-base' : 'text-warning-base')}>
           {boardComplete
             ? 'Tablero completo. Puedes continuar.'
             : 'Debes colocar todas las cartas en el tablero para continuar.'}
@@ -1082,12 +1083,12 @@ function StepMemoryRules({
       </GlassCard>
 
       <GlassCard className="p-6">
-        <h2 className="text-lg font-semibold text-white mb-4">Reglas de Memoria</h2>
+        <h2 className="text-lg font-semibold text-text-primary mb-4">Reglas de Memoria</h2>
 
         <div className="space-y-5">
           <div>
-            <label htmlFor="memory-time-limit" className="flex items-center gap-2 text-sm text-slate-300 mb-2">
-              <Clock size={14} className="text-purple-400" />
+            <label htmlFor="memory-time-limit" className="flex items-center gap-2 text-sm text-text-secondary mb-2">
+              <Clock size={14} className="text-brand-light" />
               Tiempo total de partida (segundos)
             </label>
             <div className="flex items-center gap-4">
@@ -1099,17 +1100,17 @@ function StepMemoryRules({
                 step={10}
                 value={config.timeLimit}
                 onChange={(e) => onConfigChange('timeLimit', Number.parseInt(e.target.value, 10))}
-                className="flex-1 accent-purple-500"
+                className="flex-1 accent-brand-base"
               />
-              <span className="w-16 text-center text-white font-medium bg-slate-800 rounded-lg py-1">
+              <span className="w-16 text-center text-text-primary font-medium bg-background-elevated rounded-lg py-1">
                 {config.timeLimit}s
               </span>
             </div>
           </div>
 
           <div>
-            <label htmlFor="memory-points-correct" className="flex items-center gap-2 text-sm text-slate-300 mb-2">
-              <Zap size={14} className="text-emerald-400" />
+            <label htmlFor="memory-points-correct" className="flex items-center gap-2 text-sm text-text-secondary mb-2">
+              <Zap size={14} className="text-success-base" />
               Puntos por pareja correcta
             </label>
             <div className="flex items-center gap-4">
@@ -1121,17 +1122,17 @@ function StepMemoryRules({
                 step={5}
                 value={config.pointsPerCorrect}
                 onChange={(e) => onConfigChange('pointsPerCorrect', Number.parseInt(e.target.value, 10))}
-                className="flex-1 accent-emerald-500"
+                className="flex-1 accent-success-base"
               />
-              <span className="w-16 text-center text-white font-medium bg-slate-800 rounded-lg py-1">
+              <span className="w-16 text-center text-text-primary font-medium bg-background-elevated rounded-lg py-1">
                 +{config.pointsPerCorrect}
               </span>
             </div>
           </div>
 
           <div>
-            <label htmlFor="memory-penalty-error" className="flex items-center gap-2 text-sm text-slate-300 mb-2">
-              <AlertTriangle size={14} className="text-rose-400" />
+            <label htmlFor="memory-penalty-error" className="flex items-center gap-2 text-sm text-text-secondary mb-2">
+              <AlertTriangle size={14} className="text-error-base" />
               Penalización por pareja incorrecta
             </label>
             <div className="flex items-center gap-4">
@@ -1143,9 +1144,9 @@ function StepMemoryRules({
                 step={1}
                 value={config.penaltyPerError}
                 onChange={(e) => onConfigChange('penaltyPerError', Number.parseInt(e.target.value, 10))}
-                className="flex-1 accent-rose-500"
+                className="flex-1 accent-error-base"
               />
-              <span className="w-16 text-center text-white font-medium bg-slate-800 rounded-lg py-1">
+              <span className="w-16 text-center text-text-primary font-medium bg-background-elevated rounded-lg py-1">
                 {config.penaltyPerError}
               </span>
             </div>
@@ -1156,30 +1157,30 @@ function StepMemoryRules({
       <GlassCard className="p-6">
         <div className="flex flex-col md:flex-row md:items-center justify-between gap-6">
           <div className="flex-1">
-            <h2 className="text-lg font-semibold text-white mb-2 flex items-center gap-2">
-              <Wifi size={20} className="text-indigo-400" />
+            <h2 className="text-lg font-semibold text-text-primary mb-2 flex items-center gap-2">
+              <Wifi size={20} className="text-accent-indigo" />
               Vincular Sensor RFID
             </h2>
-            <p className="text-sm text-slate-400">
+            <p className="text-sm text-text-muted">
               Solo se aceptarán lecturas del sensor activo cuando la sesión lo requiera.
             </p>
           </div>
 
           <div className="flex items-center gap-4">
             {currentSensorId ? (
-              <div className="flex items-center gap-3 p-3 rounded-xl bg-slate-800/50 border border-white/10">
-                <span className="text-xs font-mono text-slate-500 max-w-[150px] truncate">
+              <div className="flex items-center gap-3 p-3 rounded-xl bg-background-elevated/50 border border-border-default">
+                <span className="text-xs font-mono text-text-muted max-w-[150px] truncate">
                   ID: {currentSensorId}
                 </span>
                 <button
                   type="button"
                   onClick={() => onLinkSensorChange(!linkSensor)}
-                  className="flex items-center h-6 w-12 rounded-full bg-slate-700 relative p-1"
+                  className="flex items-center h-6 w-12 rounded-full bg-background-surface relative p-1"
                 >
                   <motion.div
                     className={cn(
                       'h-4 w-4 rounded-full shadow-sm',
-                      linkSensor ? 'bg-indigo-500' : 'bg-slate-500'
+                      linkSensor ? 'bg-accent-indigo' : 'bg-text-muted'
                     )}
                     transition={{ type: 'spring', stiffness: 500, damping: 30 }}
                     animate={{ x: linkSensor ? 24 : 0 }}
@@ -1187,7 +1188,7 @@ function StepMemoryRules({
                 </button>
               </div>
             ) : (
-              <div className="flex items-center gap-2 text-amber-500 bg-amber-500/10 p-3 rounded-xl border border-amber-500/20">
+              <div className="flex items-center gap-2 text-warning-base bg-warning-base/10 p-3 rounded-xl border border-warning-base/20">
                 <AlertTriangle size={16} />
                 <span className="text-sm">Sensor no detectado</span>
               </div>
@@ -1225,7 +1226,7 @@ function StepRules({
     <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
       {/* Presets de dificultad */}
       <GlassCard className="p-6">
-        <h2 className="text-lg font-semibold text-white mb-4">
+        <h2 className="text-lg font-semibold text-text-primary mb-4">
           Dificultad Predefinida
         </h2>
         
@@ -1242,7 +1243,7 @@ function StepRules({
                 'w-full p-4 rounded-xl border-2 text-left transition-all',
                 isSelected
                   ? style.selectedCard
-                  : 'border-white/10 bg-slate-800/30 hover:border-white/20'
+                  : 'border-border-default bg-background-elevated/30 hover:border-border-strong'
               )}
               whileHover={{ x: 4 }}
             >
@@ -1250,11 +1251,11 @@ function StepRules({
                 <div>
                   <h3 className={cn(
                     'font-medium',
-                    isSelected ? style.selectedText : 'text-white'
+                    isSelected ? style.selectedText : 'text-text-primary'
                   )}>
                     {d.label}
                   </h3>
-                  <p className="text-xs text-slate-400">{d.description}</p>
+                  <p className="text-xs text-text-muted">{d.description}</p>
                 </div>
                 {isSelected && (
                   <motion.div
@@ -1265,7 +1266,7 @@ function StepRules({
                       style.selectedIndicator
                     )}
                   >
-                    <Check size={14} className="text-white" />
+                    <Check size={14} className="text-text-primary" />
                   </motion.div>
                 )}
               </div>
@@ -1277,15 +1278,15 @@ function StepRules({
 
       {/* Configuración manual */}
       <GlassCard className="p-6">
-        <h2 className="text-lg font-semibold text-white mb-4">
+        <h2 className="text-lg font-semibold text-text-primary mb-4">
           Configuración Detallada
         </h2>
         
         <div className="space-y-5">
           {/* Número de rondas */}
           <div>
-            <label htmlFor="assoc-num-rounds" className="flex items-center gap-2 text-sm text-slate-300 mb-2">
-              <Target size={14} className="text-indigo-400" />
+            <label htmlFor="assoc-num-rounds" className="flex items-center gap-2 text-sm text-text-secondary mb-2">
+              <Target size={14} className="text-accent-indigo" />
               Número de rondas
             </label>
             <div className="flex items-center gap-4">
@@ -1296,9 +1297,9 @@ function StepRules({
                 max={15}
                 value={config.numberOfRounds}
                 onChange={(e) => onConfigChange('numberOfRounds', Number.parseInt(e.target.value, 10))}
-                className="flex-1 accent-indigo-500"
+                className="flex-1 accent-accent-indigo"
               />
-              <span className="w-12 text-center text-white font-medium bg-slate-800 rounded-lg py-1">
+              <span className="w-12 text-center text-text-primary font-medium bg-background-elevated rounded-lg py-1">
                 {config.numberOfRounds}
               </span>
             </div>
@@ -1306,8 +1307,8 @@ function StepRules({
 
           {/* Tiempo por ronda */}
           <div>
-            <label htmlFor="assoc-time-limit" className="flex items-center gap-2 text-sm text-slate-300 mb-2">
-              <Clock size={14} className="text-purple-400" />
+            <label htmlFor="assoc-time-limit" className="flex items-center gap-2 text-sm text-text-secondary mb-2">
+              <Clock size={14} className="text-brand-light" />
               Tiempo por ronda (segundos)
             </label>
             <div className="flex items-center gap-4">
@@ -1319,9 +1320,9 @@ function StepRules({
                 step={5}
                 value={config.timeLimit}
                 onChange={(e) => onConfigChange('timeLimit', Number.parseInt(e.target.value, 10))}
-                className="flex-1 accent-purple-500"
+                className="flex-1 accent-brand-base"
               />
-              <span className="w-12 text-center text-white font-medium bg-slate-800 rounded-lg py-1">
+              <span className="w-12 text-center text-text-primary font-medium bg-background-elevated rounded-lg py-1">
                 {config.timeLimit}s
               </span>
             </div>
@@ -1329,8 +1330,8 @@ function StepRules({
 
           {/* Puntos por acierto */}
           <div>
-            <label htmlFor="assoc-points-correct" className="flex items-center gap-2 text-sm text-slate-300 mb-2">
-              <Zap size={14} className="text-emerald-400" />
+            <label htmlFor="assoc-points-correct" className="flex items-center gap-2 text-sm text-text-secondary mb-2">
+              <Zap size={14} className="text-success-base" />
               Puntos por acierto
             </label>
             <div className="flex items-center gap-4">
@@ -1342,9 +1343,9 @@ function StepRules({
                 step={5}
                 value={config.pointsPerCorrect}
                 onChange={(e) => onConfigChange('pointsPerCorrect', Number.parseInt(e.target.value, 10))}
-                className="flex-1 accent-emerald-500"
+                className="flex-1 accent-success-base"
               />
-              <span className="w-12 text-center text-white font-medium bg-slate-800 rounded-lg py-1">
+              <span className="w-12 text-center text-text-primary font-medium bg-background-elevated rounded-lg py-1">
                 +{config.pointsPerCorrect}
               </span>
             </div>
@@ -1352,8 +1353,8 @@ function StepRules({
 
           {/* Penalización por error */}
           <div>
-            <label htmlFor="assoc-penalty-error" className="flex items-center gap-2 text-sm text-slate-300 mb-2">
-              <AlertTriangle size={14} className="text-rose-400" />
+            <label htmlFor="assoc-penalty-error" className="flex items-center gap-2 text-sm text-text-secondary mb-2">
+              <AlertTriangle size={14} className="text-error-base" />
               Penalización por error
             </label>
             <div className="flex items-center gap-4">
@@ -1364,9 +1365,9 @@ function StepRules({
                 max={0}
                 value={config.penaltyPerError}
                 onChange={(e) => onConfigChange('penaltyPerError', Number.parseInt(e.target.value, 10))}
-                className="flex-1 accent-rose-500"
+                className="flex-1 accent-error-base"
               />
-              <span className="w-12 text-center text-white font-medium bg-slate-800 rounded-lg py-1">
+              <span className="w-12 text-center text-text-primary font-medium bg-background-elevated rounded-lg py-1">
                 {config.penaltyPerError}
               </span>
             </div>
@@ -1378,11 +1379,11 @@ function StepRules({
       <GlassCard className="p-6 lg:col-span-2">
         <div className="flex flex-col md:flex-row md:items-center justify-between gap-6">
           <div className="flex-1">
-            <h2 className="text-lg font-semibold text-white mb-2 flex items-center gap-2">
-              <Wifi size={20} className="text-indigo-400" />
+            <h2 className="text-lg font-semibold text-text-primary mb-2 flex items-center gap-2">
+              <Wifi size={20} className="text-accent-indigo" />
               Vincular Sensor RFID (T-009)
             </h2>
-            <p className="text-sm text-slate-400">
+            <p className="text-sm text-text-muted">
               Si activas esta opción, solo las lecturas provenientes de tu sensor actual 
               serán válidas para esta sesión. Útil en entornos con múltiples sensores simultáneos.
             </p>
@@ -1391,28 +1392,28 @@ function StepRules({
           <div className="flex items-center gap-4">
             {currentSensorId ? (
               <div className="flex flex-col items-end gap-2">
-                <div className="flex items-center gap-3 p-3 rounded-xl bg-slate-800/50 border border-white/10">
-                  <span className="text-xs font-mono text-slate-500 max-w-[150px] truncate">
+                <div className="flex items-center gap-3 p-3 rounded-xl bg-background-elevated/50 border border-border-default">
+                  <span className="text-xs font-mono text-text-muted max-w-[150px] truncate">
                     ID: {currentSensorId}
                   </span>
                   <button
                     type="button"
-                    className="flex items-center h-6 w-12 rounded-full bg-slate-700 relative p-1"
+                    className="flex items-center h-6 w-12 rounded-full bg-background-surface relative p-1"
                     onClick={() => onLinkSensorChange(!linkSensor)}
                   >
-                    <motion.div 
-                      className={cn("h-4 w-4 rounded-full shadow-sm", linkSensor ? "bg-indigo-500" : "bg-slate-500")}
+                    <motion.div
+                      className={cn("h-4 w-4 rounded-full shadow-sm", linkSensor ? "bg-accent-indigo" : "bg-text-muted")}
                       transition={{ type: "spring", stiffness: 500, damping: 30 }}
                       animate={{ x: linkSensor ? 24 : 0 }}
                     />
                   </button>
                 </div>
-                <span className={cn("text-xs font-medium", linkSensor ? "text-indigo-400" : "text-slate-500")}>
+                <span className={cn("text-xs font-medium", linkSensor ? "text-accent-indigo" : "text-text-muted")}>
                   {linkSensor ? "Sensor vinculado" : "Sin vincular"}
                 </span>
               </div>
             ) : (
-              <div className="flex items-center gap-2 text-amber-500 bg-amber-500/10 p-3 rounded-xl border border-amber-500/20">
+              <div className="flex items-center gap-2 text-warning-base bg-warning-base/10 p-3 rounded-xl border border-warning-base/20">
                 <AlertTriangle size={16} />
                 <span className="text-sm">Sensor no detectado</span>
               </div>
@@ -1479,9 +1480,9 @@ function AssociationChallengeComposer({ cards, challengePlan, onPlanChange, disa
 
   if (safePlan.length === 0) {
     return (
-      <GlassCard className="p-6 lg:col-span-2 border border-amber-500/40">
-        <h2 className="text-lg font-semibold text-white mb-2">Retos de Association</h2>
-        <p className="text-sm text-amber-300">
+      <GlassCard className="p-6 lg:col-span-2 border border-warning-base/40">
+        <h2 className="text-lg font-semibold text-text-primary mb-2">Retos de Association</h2>
+        <p className="text-sm text-warning-base">
           Selecciona un mazo con tarjetas y define el número de rondas para configurar los retos.
         </p>
       </GlassCard>
@@ -1490,8 +1491,8 @@ function AssociationChallengeComposer({ cards, challengePlan, onPlanChange, disa
 
   return (
     <GlassCard className="p-6 lg:col-span-2">
-      <h2 className="text-lg font-semibold text-white mb-1">Plan de retos (Association)</h2>
-      <p className="text-sm text-slate-400 mb-4">
+      <h2 className="text-lg font-semibold text-text-primary mb-1">Plan de retos (Association)</h2>
+      <p className="text-sm text-text-muted mb-4">
         Define para cada ronda qué tarjeta será el reto principal y, si quieres, añade una consigna breve.
       </p>
 
@@ -1499,10 +1500,10 @@ function AssociationChallengeComposer({ cards, challengePlan, onPlanChange, disa
         {safePlan.map(item => (
           <div
             key={`association-round-${item.roundNumber}`}
-            className="rounded-xl border border-white/10 bg-slate-900/40 p-4 grid grid-cols-1 lg:grid-cols-3 gap-4"
+            className="rounded-xl border border-border-default bg-background-base/40 p-4 grid grid-cols-1 lg:grid-cols-3 gap-4"
           >
             <div className="lg:col-span-1">
-              <p className="text-sm font-medium text-white mb-2">Ronda {item.roundNumber}</p>
+              <p className="text-sm font-medium text-text-primary mb-2">Ronda {item.roundNumber}</p>
               <SelectPremium
                 label="Tarjeta objetivo"
                 value={item.uid || ''}
@@ -1539,7 +1540,7 @@ function StepReview({ sessionConfig, setSessionConfig, selectedDeck, selectedMec
     <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
       {/* Nombre de la sesión */}
       <GlassCard className="p-6">
-        <h2 className="text-lg font-semibold text-white mb-4">
+        <h2 className="text-lg font-semibold text-text-primary mb-4">
           Nombre de la Sesión
         </h2>
         <InputPremium
@@ -1553,20 +1554,20 @@ function StepReview({ sessionConfig, setSessionConfig, selectedDeck, selectedMec
 
       {/* Resumen de configuración */}
       <GlassCard className="p-6">
-        <h2 className="text-lg font-semibold text-white mb-4">
+        <h2 className="text-lg font-semibold text-text-primary mb-4">
           Resumen de Configuración
         </h2>
         
         <div className="space-y-4">
           {/* Mazo */}
-          <div className="flex items-start gap-3 p-3 rounded-xl bg-slate-800/50">
-            <div className="size-10 rounded-lg bg-indigo-500/20 flex items-center justify-center flex-shrink-0">
-              <CreditCard size={18} className="text-indigo-400" />
+          <div className="flex items-start gap-3 p-3 rounded-xl bg-background-elevated/50">
+            <div className="size-10 rounded-lg bg-accent-indigo/20 flex items-center justify-center flex-shrink-0">
+              <CreditCard size={18} className="text-accent-indigo" />
             </div>
             <div className="flex-1 min-w-0">
-              <p className="text-xs text-slate-400">Mazo</p>
-              <p className="text-white font-medium">{selectedDeck?.name || 'No seleccionado'}</p>
-              <p className="text-xs text-slate-500">
+              <p className="text-xs text-text-muted">Mazo</p>
+              <p className="text-text-primary font-medium">{selectedDeck?.name || 'No seleccionado'}</p>
+              <p className="text-xs text-text-muted">
                 {selectedDeck?.cards?.length || selectedDeck?.cardMappings?.length || 0} cartas {'\u2022'} {selectedDeck?.contextId?.name}
               </p>
               {/* Mini-galería de assets del mazo */}
@@ -1581,7 +1582,7 @@ function StepReview({ sessionConfig, setSessionConfig, selectedDeck, selectedMec
                     />
                   ))}
                   {selectedDeck.cardMappings.length > 8 && (
-                    <div className="size-10 rounded-lg flex-shrink-0 bg-slate-700/60 flex items-center justify-center text-xs text-slate-400">
+                    <div className="size-10 rounded-lg flex-shrink-0 bg-background-surface/60 flex items-center justify-center text-xs text-text-muted">
                       +{selectedDeck.cardMappings.length - 8}
                     </div>
                   )}
@@ -1591,38 +1592,38 @@ function StepReview({ sessionConfig, setSessionConfig, selectedDeck, selectedMec
           </div>
 
           {/* Mecánica */}
-          <div className="flex items-start gap-3 p-3 rounded-xl bg-slate-800/50">
-            <div className="size-10 rounded-lg bg-purple-500/20 flex items-center justify-center flex-shrink-0">
-              <Layers size={18} className="text-purple-400" />
+          <div className="flex items-start gap-3 p-3 rounded-xl bg-background-elevated/50">
+            <div className="size-10 rounded-lg bg-brand-base/20 flex items-center justify-center flex-shrink-0">
+              <Layers size={18} className="text-brand-light" />
             </div>
             <div>
-              <p className="text-xs text-slate-400">Mecánica</p>
-              <p className="text-white font-medium">
+              <p className="text-xs text-text-muted">Mecánica</p>
+              <p className="text-text-primary font-medium">
                 {selectedMechanic?.displayName || selectedMechanic?.name || 'No seleccionada'}
               </p>
             </div>
           </div>
 
           {/* Reglas */}
-          <div className="flex items-start gap-3 p-3 rounded-xl bg-slate-800/50">
-            <div className="size-10 rounded-lg bg-emerald-500/20 flex items-center justify-center flex-shrink-0">
-              <Settings size={18} className="text-emerald-400" />
+          <div className="flex items-start gap-3 p-3 rounded-xl bg-background-elevated/50">
+            <div className="size-10 rounded-lg bg-success-base/20 flex items-center justify-center flex-shrink-0">
+              <Settings size={18} className="text-success-base" />
             </div>
             <div className="flex-1">
-              <p className="text-xs text-slate-400">Configuración</p>
+              <p className="text-xs text-text-muted">Configuración</p>
               <div className="grid grid-cols-2 gap-2 mt-1 text-sm">
-                <span className="text-slate-300">
+                <span className="text-text-secondary">
                   <Target size={12} className="inline mr-1" />
                   {sessionConfig.config.numberOfRounds} rondas
                 </span>
-                <span className="text-slate-300">
+                <span className="text-text-secondary">
                   <Clock size={12} className="inline mr-1" />
                   {sessionConfig.config.timeLimit}s
                 </span>
-                <span className="text-emerald-400">
+                <span className="text-success-base">
                   +{sessionConfig.config.pointsPerCorrect} pts
                 </span>
-                <span className="text-rose-400">
+                <span className="text-error-base">
                   {sessionConfig.config.penaltyPerError} pts
                 </span>
               </div>

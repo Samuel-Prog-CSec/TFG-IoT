@@ -331,6 +331,7 @@ export default function DeckCreationWizard() {
       clearDraft();
       
       // Celebración
+      // TOKEN-EXCEPTION: canvas-confetti requires raw hex colors
       confetti({
         particleCount: 150,
         spread: 80,
@@ -408,7 +409,7 @@ export default function DeckCreationWizard() {
   };
 
   return (
-    <div className="min-h-screen bg-slate-950 p-4 lg:p-8">
+    <div className="min-h-screen bg-background-deep p-4 lg:p-8">
       {/* Header */}
       <motion.div
         initial={shouldReduceMotion ? false : { opacity: 0, y: -20 }}
@@ -417,19 +418,19 @@ export default function DeckCreationWizard() {
       >
         <button
           onClick={handleExitWizard}
-          className="flex items-center gap-2 text-slate-400 hover:text-white transition-colors mb-4"
+          className="flex items-center gap-2 text-text-muted hover:text-text-primary transition-colors mb-4"
         >
           <ArrowLeft size={18} />
           Volver a Mis Mazos
         </button>
         
         <div className="flex items-center gap-4">
-          <div className="size-12 rounded-xl bg-gradient-to-br from-indigo-500 to-purple-600 flex items-center justify-center">
-            <Layers size={24} className="text-white" />
+          <div className="size-12 rounded-xl bg-gradient-to-br from-accent-indigo to-brand-base flex items-center justify-center">
+            <Layers size={24} className="text-text-primary" />
           </div>
           <div>
-            <h1 className="text-2xl font-bold text-white">Crear Nuevo Mazo</h1>
-            <p className="text-slate-400 text-sm">
+            <h1 className="text-2xl font-bold text-text-primary">Crear Nuevo Mazo</h1>
+            <p className="text-text-muted text-sm">
               {WIZARD_STEPS[currentStep].description}
             </p>
           </div>
@@ -484,7 +485,7 @@ export default function DeckCreationWizard() {
               Anterior
             </ButtonPremium>
 
-            <div className="flex items-center gap-2 text-sm text-slate-500">
+            <div className="flex items-center gap-2 text-sm text-text-muted">
               <span>Paso {currentStep + 1} de {WIZARD_STEPS.length}</span>
             </div>
 
@@ -524,21 +525,21 @@ export default function DeckCreationWizard() {
               initial={{ scale: 0.9, opacity: 0 }}
               animate={{ scale: 1, opacity: 1 }}
               exit={{ scale: 0.9, opacity: 0 }}
-              className="bg-slate-900 border border-white/10 rounded-2xl p-6 max-w-md w-full shadow-2xl"
+              className="bg-background-base border border-border-default rounded-2xl p-6 max-w-md w-full shadow-2xl"
             >
               <div className="flex items-center gap-4 mb-4">
-                <div className="size-12 rounded-xl bg-indigo-500/20 flex items-center justify-center">
-                  <Save className="text-indigo-400" size={24} />
+                <div className="size-12 rounded-xl bg-accent-indigo/20 flex items-center justify-center">
+                  <Save className="text-accent-indigo" size={24} />
                 </div>
                 <div>
-                  <h3 className="text-lg font-semibold text-white">Borrador encontrado</h3>
-                  <p className="text-sm text-slate-400">
+                  <h3 className="text-lg font-semibold text-text-primary">Borrador encontrado</h3>
+                  <p className="text-sm text-text-muted">
                     {draftTimestamp && formatDraftDate(draftTimestamp)}
                   </p>
                 </div>
               </div>
 
-              <p className="text-slate-300 mb-6">
+              <p className="text-text-secondary mb-6">
                 Tienes un mazo sin terminar guardado. ¿Quieres continuar donde lo dejaste?
               </p>
 
@@ -595,20 +596,20 @@ function StepCards({
       {/* Toggle de modo */}
       <div className="flex items-center justify-between mb-6">
         <div>
-          <h2 className="text-lg font-semibold text-white mb-1">Modo de captura</h2>
-          <p className="text-sm text-slate-400">
+          <h2 className="text-lg font-semibold text-text-primary mb-1">Modo de captura</h2>
+          <p className="text-sm text-text-muted">
             {selectedCards.length} de {minCards}-{maxCards} cartas
           </p>
         </div>
 
-        <div className="flex bg-slate-800/50 rounded-xl p-1">
+        <div className="flex bg-background-elevated/50 rounded-xl p-1">
           <button
             onClick={() => setCaptureMode('rfid')}
             className={cn(
               'px-4 py-2 rounded-lg text-sm font-medium transition-all',
               captureMode === 'rfid'
-                ? 'bg-indigo-500 text-white'
-                : 'text-slate-400 hover:text-white'
+                ? 'bg-accent-indigo text-text-primary'
+                : 'text-text-muted hover:text-text-primary'
             )}
           >
             Escaneo RFID
@@ -618,8 +619,8 @@ function StepCards({
             className={cn(
               'px-4 py-2 rounded-lg text-sm font-medium transition-all',
               captureMode === 'manual'
-                ? 'bg-indigo-500 text-white'
-                : 'text-slate-400 hover:text-white'
+                ? 'bg-accent-indigo text-text-primary'
+                : 'text-text-muted hover:text-text-primary'
             )}
           >
             Selección Manual
@@ -668,7 +669,7 @@ function StepCards({
         <motion.div
           initial={{ opacity: 0, y: 10 }}
           animate={{ opacity: 1, y: 0 }}
-          className="mt-4 flex items-center gap-2 text-amber-400 text-sm"
+          className="mt-4 flex items-center gap-2 text-warning-base text-sm"
         >
           <AlertTriangle size={16} />
           {selectedCards.length < minCards 
@@ -696,7 +697,7 @@ function StepContext({
           {[...Array(6)].map((_, i) => (
             <div 
               key={i}
-              className="h-32 rounded-xl bg-slate-800/50 animate-pulse"
+              className="h-32 rounded-xl bg-background-elevated/50 animate-pulse"
             />
           ))}
         </div>
@@ -707,8 +708,8 @@ function StepContext({
   return (
     <GlassCard className="p-6">
       <div className="mb-6">
-        <h2 className="text-lg font-semibold text-white mb-1">Elige un contexto</h2>
-        <p className="text-sm text-slate-400">
+        <h2 className="text-lg font-semibold text-text-primary mb-1">Elige un contexto</h2>
+        <p className="text-sm text-text-muted">
           El contexto determina los assets que podrás asignar a las cartas
         </p>
       </div>
@@ -720,10 +721,10 @@ function StepContext({
             onClick={() => onSelectContext(context)}
             className={cn(
               'relative p-4 rounded-xl border-2 transition-all text-left',
-              'hover:border-indigo-500/50 hover:bg-indigo-500/5',
+              'hover:border-accent-indigo/50 hover:bg-accent-indigo/5',
               selectedContext?._id === context._id
-                ? 'border-indigo-500 bg-indigo-500/10'
-                : 'border-white/10 bg-slate-800/30'
+                ? 'border-accent-indigo bg-accent-indigo/10'
+                : 'border-border-default bg-background-elevated/30'
             )}
             whileHover={{ scale: 1.02 }}
             whileTap={{ scale: 0.98 }}
@@ -733,9 +734,9 @@ function StepContext({
               <motion.div
                 initial={{ scale: 0 }}
                 animate={{ scale: 1 }}
-                className="absolute top-2 right-2 size-6 rounded-full bg-indigo-500 flex items-center justify-center"
+                className="absolute top-2 right-2 size-6 rounded-full bg-accent-indigo flex items-center justify-center"
               >
-                <Check size={14} className="text-white" />
+                <Check size={14} className="text-text-primary" />
               </motion.div>
             )}
 
@@ -747,14 +748,14 @@ function StepContext({
                 </span>
               ))}
               {context.assets?.length > 6 && (
-                <span className="text-slate-500 text-xs self-end">
+                <span className="text-text-muted text-xs self-end">
                   +{context.assets.length - 6}
                 </span>
               )}
             </div>
 
-            <h3 className="font-medium text-white mb-1">{context.name}</h3>
-            <p className="text-xs text-slate-400">
+            <h3 className="font-medium text-text-primary mb-1">{context.name}</h3>
+            <p className="text-xs text-text-muted">
               {context.assets?.length || 0} assets disponibles
             </p>
           </motion.button>
@@ -762,7 +763,7 @@ function StepContext({
       </div>
 
       {contexts.length === 0 && (
-        <div className="text-center py-12 text-slate-400">
+        <div className="text-center py-12 text-text-muted">
           <Palette size={48} className="mx-auto mb-4 opacity-50" />
           <p>No hay contextos disponibles</p>
         </div>
@@ -794,16 +795,16 @@ function StepAssign({
       {/* Lista de cartas */}
       <GlassCard className="p-4 lg:col-span-1">
         <div className="mb-4">
-          <h3 className="font-medium text-white mb-1">Cartas del mazo</h3>
-          <div className="h-1.5 bg-slate-800 rounded-full overflow-hidden">
+          <h3 className="font-medium text-text-primary mb-1">Cartas del mazo</h3>
+          <div className="h-1.5 bg-background-elevated rounded-full overflow-hidden">
             <motion.div
-              className="h-full bg-gradient-to-r from-indigo-500 to-purple-500"
+              className="h-full bg-gradient-to-r from-accent-indigo to-brand-base"
               initial={{ width: 0 }}
               animate={{ width: `${progress}%` }}
               transition={{ duration: 0.5 }}
             />
           </div>
-          <p className="text-xs text-slate-400 mt-1">
+          <p className="text-xs text-text-muted mt-1">
             {assignedCount}/{selectedCards.length} asignadas
           </p>
         </div>
@@ -820,16 +821,16 @@ function StepAssign({
                 className={cn(
                   'w-full flex items-center gap-3 p-3 rounded-xl border transition-all text-left',
                   isActive
-                    ? 'border-indigo-500 bg-indigo-500/10'
-                    : 'border-white/10 bg-slate-800/30 hover:border-white/20'
+                    ? 'border-accent-indigo bg-accent-indigo/10'
+                    : 'border-border-default bg-background-elevated/30 hover:border-border-strong'
                 )}
                 whileHover={{ x: 4 }}
               >
                 <div className={cn(
                   'size-8 rounded-lg flex items-center justify-center text-sm overflow-hidden',
                   isAssigned
-                    ? 'bg-green-500/20 text-green-400'
-                    : 'bg-slate-700 text-slate-400'
+                    ? 'bg-success-base/20 text-success-base'
+                    : 'bg-background-surface text-text-muted'
                 )}>
                   {isAssigned ? (
                     <CardAssetPreview
@@ -837,19 +838,19 @@ function StepAssign({
                       alt={`Asset asignado a ${card.uid}`}
                       className="w-full h-full rounded-lg"
                       fit="cover"
-                      fallbackIcon={<Check size={16} className="text-green-400" />}
+                      fallbackIcon={<Check size={16} className="text-success-base" />}
                     />
                   ) : (
                     <CreditCard size={16} />
                   )}
                 </div>
                 <div className="flex-1 min-w-0">
-                  <p className="text-sm font-medium text-white truncate">
+                  <p className="text-sm font-medium text-text-primary truncate">
                     {card.uid}
                   </p>
-                  <p className="text-xs text-slate-500 truncate">
-                    {isAssigned 
-                      ? cardAssignments[card._id]?.value 
+                  <p className="text-xs text-text-muted truncate">
+                    {isAssigned
+                      ? cardAssignments[card._id]?.value
                       : 'Sin asignar'
                     }
                   </p>
@@ -858,7 +859,7 @@ function StepAssign({
                   <motion.div
                     initial={{ scale: 0 }}
                     animate={{ scale: 1 }}
-                    className="size-2 rounded-full bg-indigo-500"
+                    className="size-2 rounded-full bg-accent-indigo"
                   />
                 )}
               </motion.button>
@@ -872,10 +873,10 @@ function StepAssign({
         {activeCard ? (
           <>
             <div className="mb-4">
-              <h3 className="font-medium text-white mb-1">
-                Asignar asset a <span className="text-indigo-400">{activeCard.uid}</span>
+              <h3 className="font-medium text-text-primary mb-1">
+                Asignar asset a <span className="text-accent-indigo">{activeCard.uid}</span>
               </h3>
-              <p className="text-sm text-slate-400">
+              <p className="text-sm text-text-muted">
                 Selecciona un asset del contexto &quot;{selectedContext?.name}&quot;
               </p>
             </div>
@@ -888,7 +889,7 @@ function StepAssign({
             />
           </>
         ) : (
-          <div className="flex items-center justify-center h-64 text-slate-400">
+          <div className="flex items-center justify-center h-64 text-text-muted">
             <p>Selecciona una carta para asignar un asset</p>
           </div>
         )}
@@ -911,7 +912,7 @@ function StepConfirm({
     <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
       {/* Nombre del mazo */}
       <GlassCard className="p-6">
-        <h2 className="text-lg font-semibold text-white mb-4">Nombre del mazo</h2>
+        <h2 className="text-lg font-semibold text-text-primary mb-4">Nombre del mazo</h2>
         
         <InputPremium
           label="Nombre"
@@ -922,19 +923,19 @@ function StepConfirm({
           helperText={`${deckName.length}/50 caracteres`}
         />
 
-        <div className="mt-6 p-4 rounded-xl bg-slate-800/50 border border-white/5">
-          <h3 className="text-sm font-medium text-white mb-3">Resumen</h3>
+        <div className="mt-6 p-4 rounded-xl bg-background-elevated/50 border border-border-subtle">
+          <h3 className="text-sm font-medium text-text-primary mb-3">Resumen</h3>
           <ul className="space-y-2 text-sm">
-            <li className="flex items-center gap-2 text-slate-300">
-              <CreditCard size={16} className="text-indigo-400" />
+            <li className="flex items-center gap-2 text-text-secondary">
+              <CreditCard size={16} className="text-accent-indigo" />
               {selectedCards.length} cartas
             </li>
-            <li className="flex items-center gap-2 text-slate-300">
-              <Palette size={16} className="text-purple-400" />
+            <li className="flex items-center gap-2 text-text-secondary">
+              <Palette size={16} className="text-brand-light" />
               Contexto: {selectedContext?.name}
             </li>
-            <li className="flex items-center gap-2 text-slate-300">
-              <LinkIcon size={16} className="text-pink-400" />
+            <li className="flex items-center gap-2 text-text-secondary">
+              <LinkIcon size={16} className="text-accent-pink" />
               {Object.keys(cardAssignments).length} asignaciones
             </li>
           </ul>
@@ -943,7 +944,7 @@ function StepConfirm({
 
       {/* Preview del mazo */}
       <GlassCard className="p-6">
-        <h2 className="text-lg font-semibold text-white mb-4">Vista previa</h2>
+        <h2 className="text-lg font-semibold text-text-primary mb-4">Vista previa</h2>
         
         <div className="space-y-3 max-h-[300px] overflow-y-auto">
           {selectedCards.map((card) => {
@@ -951,21 +952,21 @@ function StepConfirm({
             return (
               <div
                 key={card._id}
-                className="flex items-center gap-3 p-3 rounded-xl bg-slate-800/50 border border-white/5"
+                className="flex items-center gap-3 p-3 rounded-xl bg-background-elevated/50 border border-border-subtle"
               >
                 <CardAssetPreview
                   asset={assignment}
                   alt={`Asset de carta ${card.uid}`}
                   className="size-10 rounded-lg"
                   fit="cover"
-                  fallbackClassName="bg-gradient-to-br from-indigo-500/20 to-purple-500/20 text-xl"
+                  fallbackClassName="bg-gradient-to-br from-accent-indigo/20 to-brand-base/20 text-xl"
                   fallbackLabel="❓"
                 />
                 <div className="flex-1 min-w-0">
-                  <p className="text-sm font-medium text-white truncate">
+                  <p className="text-sm font-medium text-text-primary truncate">
                     {assignment?.value || 'Sin asignar'}
                   </p>
-                  <p className="text-xs text-slate-500">
+                  <p className="text-xs text-text-muted">
                     Carta: {card.uid}
                   </p>
                 </div>

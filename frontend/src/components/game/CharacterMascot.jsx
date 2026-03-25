@@ -1,4 +1,5 @@
 import { motion } from 'framer-motion';
+import { useRef } from 'react';
 import PropTypes from 'prop-types';
 import { cn } from '../../lib/utils';
 import MascotAccessory from './MascotAccessory';
@@ -29,17 +30,32 @@ export default function CharacterMascot({
     sad: { bodyAnim: 'sway' },
   };
 
-  const defaultMessages = {
-    idle: '¡Hola, amigo!',
-    happy: '¡Muy bien hecho!',
-    encouraging: '¡Venga, tú puedes!',
-    celebrating: '¡GENIAL, CAMPEÓN!',
-    thinking: 'Piensa bien...',
-    sad: '¡Otra vez, tú puedes!',
+  const messagePool = {
+    idle: ['¡Hola, amigo!', '¡Vamos a jugar!', '¿Listo?'],
+    happy: ['¡Muy bien hecho!', '¡Eres genial!', '¡Así se hace!', '¡Fantástico!', '¡Bravo!'],
+    encouraging: ['¡Venga, tú puedes!', '¡Ánimo!', '¡Tu siguiente será mejor!', '¡No te rindas!'],
+    celebrating: ['¡GENIAL, CAMPEÓN!', '¡INCREÍBLE!', '¡ERES UNA ESTRELLA!'],
+    thinking: ['Piensa bien...', 'Tómate tu tiempo...', '¿Cuál será?'],
+    sad: ['¡Otra vez, tú puedes!', '¡Inténtalo de nuevo!', '¡Todos nos equivocamos!'],
   };
 
+  const lastMsgRef = useRef(-1);
+
   const expr = expressions[mood];
-  const displayMessage = message || defaultMessages[mood];
+
+  // Selecciona mensaje rotativo evitando repetir el ultimo
+  const getRotatingMessage = () => {
+    const pool = messagePool[mood] || messagePool.idle;
+    if (pool.length <= 1) return pool[0];
+    let idx;
+    do {
+      idx = Math.floor(Math.random() * pool.length);
+    } while (idx === lastMsgRef.current && pool.length > 1);
+    lastMsgRef.current = idx;
+    return pool[idx];
+  };
+
+  const displayMessage = message || getRotatingMessage();
 
   // Animaciones según el estado
   const bodyAnimation = {
@@ -85,10 +101,10 @@ export default function CharacterMascot({
           key={displayMessage}
           className={cn(
             "absolute -top-16 max-w-48",
-            "bg-white/10 backdrop-blur-sm",
+            "bg-glass-bg backdrop-blur-sm",
             "px-3 py-1.5 rounded-2xl",
-            "border border-white/20",
-            "text-white text-sm font-medium",
+            "border border-glass-border",
+            "text-text-primary text-sm font-medium",
             position === 'left' ? 'left-0' : 'right-0'
           )}
         >
@@ -96,7 +112,7 @@ export default function CharacterMascot({
           {/* Bubble tail */}
           <div className={cn(
             "absolute -bottom-2 size-4",
-            "bg-white/10 border-l border-b border-white/20",
+            "bg-glass-bg border-l border-b border-glass-border",
             "rotate-[-45deg]",
             position === 'left' ? 'left-4' : 'right-4'
           )} />
@@ -111,10 +127,10 @@ export default function CharacterMascot({
         {/* Glow effect */}
         <div className={cn(
           "absolute inset-0 rounded-full blur-xl",
-          mood === 'celebrating' && "bg-amber-400/30",
-          mood === 'happy' && "bg-emerald-400/20",
-          mood === 'encouraging' && "bg-purple-400/20",
-          (mood === 'idle' || mood === 'thinking') && "bg-slate-400/10"
+          mood === 'celebrating' && "bg-warning-base/30",
+          mood === 'happy' && "bg-success-base/20",
+          mood === 'encouraging' && "bg-brand-light/20",
+          (mood === 'idle' || mood === 'thinking') && "bg-text-muted/10"
         )} />
 
         {/* Mascot emoji — always 🦉 for identity consistency */}

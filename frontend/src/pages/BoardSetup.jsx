@@ -230,21 +230,21 @@ export default function BoardSetup() {
             particleCount: 30,
             spread: 50,
             origin: { y: 0.7 },
-            colors: ['#6366f1', '#8b5cf6', '#a855f7'],
+            colors: ['#6366f1', '#8b5cf6', '#a855f7'], // TOKEN-EXCEPTION: canvas-confetti requires hex values
             disableForReducedMotion: true
         });
     }
   };
 
-  if (loading) return <div className="text-white p-8">Cargando tablero...</div>;
+  if (loading) return <div className="text-text-primary p-8">Cargando tablero...</div>;
 
   return (
     <DndContext sensors={sensors} onDragStart={handleDragStart} onDragEnd={handleDragEnd}>
-        <div className="h-screen flex flex-col p-6 bg-slate-900 overflow-hidden">
+        <div className="h-screen flex flex-col p-6 bg-background-base overflow-hidden">
             <header className="flex justify-between items-center mb-6 shrink-0">
                 <div>
-                    <h1 className="text-2xl font-bold text-white font-display">Configuración del Tablero</h1>
-                    <p className="text-slate-400">Arrastra las tarjetas a los huecos para configurar la partida.</p>
+                    <h1 className="text-2xl font-bold text-text-primary font-display">Configuración del Tablero</h1>
+                    <p className="text-text-muted">Arrastra las tarjetas a los huecos para configurar la partida.</p>
                 </div>
                 <div className="flex gap-3 items-center">
                     <SelectPremium
@@ -270,7 +270,7 @@ export default function BoardSetup() {
                         variant="success"
                         onClick={handleStartPlay}
                         disabled={!canStart || savingBoard}
-                        className="shadow-lg shadow-emerald-500/20"
+                        className="shadow-lg shadow-success-base/20"
                     >
                         <Play size={20} /> {savingBoard ? 'Guardando tablero...' : 'Iniciar Partida'}
                     </ButtonPremium>
@@ -282,8 +282,8 @@ export default function BoardSetup() {
                 <LibraryDroppable cards={cardsInLibrary} />
 
                 {/* BOARD AREA */}
-                <div className="flex-1 bg-slate-800/20 rounded-3xl border-2 border-dashed border-white/5 flex flex-col items-center justify-center relative p-8">
-                     <div className="absolute top-4 left-4 text-slate-500 font-mono text-xs">TABLERO VIRTUAL</div>
+                <div className="flex-1 bg-background-elevated/20 rounded-3xl border-2 border-dashed border-border-subtle flex flex-col items-center justify-center relative p-8">
+                     <div className="absolute top-4 left-4 text-text-muted font-mono text-xs">TABLERO VIRTUAL</div>
                      
                      <div className="w-full h-full overflow-y-auto flex items-center justify-center p-8 custom-scrollbar">
                          <div className="grid grid-cols-5 gap-6 max-w-6xl">
@@ -333,12 +333,12 @@ function LibraryDroppable({ cards }) {
             animate={{ x: 0, opacity: 1 }}
             ref={setNodeRef}
             className={clsx(
-                "w-80 bg-slate-800/40 backdrop-blur-md rounded-2xl border p-4 flex flex-col transition-colors",
-                isOver ? "border-indigo-500 bg-indigo-500/10" : "border-white/5"
+                "w-80 bg-background-elevated/40 backdrop-blur-md rounded-2xl border p-4 flex flex-col transition-colors",
+                isOver ? "border-accent-indigo bg-accent-indigo/10" : "border-border-subtle"
             )}
         >
-            <h2 className="text-lg font-bold text-white mb-4 flex items-center gap-2">
-                <Layers size={18} className="text-indigo-400"/> Librería ({cards.length})
+            <h2 className="text-lg font-bold text-text-primary mb-4 flex items-center gap-2">
+                <Layers size={18} className="text-accent-indigo"/> Librería ({cards.length})
             </h2>
             <div className="flex-1 overflow-y-auto pr-2 space-y-3 custom-scrollbar">
                 <AnimatePresence>
@@ -346,7 +346,7 @@ function LibraryDroppable({ cards }) {
                         <DraggableCard key={card.id} card={card} />
                     ))}
                     {cards.length === 0 && (
-                        <div className="text-center text-slate-500 py-8 text-sm italic">
+                        <div className="text-center text-text-muted py-8 text-sm italic">
                             Todas las tarjetas están colocadas.
                         </div>
                     )}
@@ -364,11 +364,11 @@ function Slot({ id, card, index }) {
             ref={setNodeRef}
             className={clsx(
                 "size-32 rounded-xl border-2 border-dashed transition-all flex items-center justify-center relative",
-                isOver ? "border-indigo-400 bg-indigo-400/10 scale-105" : 
-                card ? "border-indigo-500/30 bg-indigo-500/5 shadow-inner" : "border-slate-700 bg-slate-900/20"
+                isOver ? "border-accent-indigo bg-accent-indigo/10 scale-105" :
+                card ? "border-accent-indigo/30 bg-accent-indigo/5 shadow-inner" : "border-background-surface bg-background-base/20"
             )}
         >
-            {!card && <span className="absolute top-2 left-2 text-xs font-mono text-slate-600">#{index + 1}</span>}
+            {!card && <span className="absolute top-2 left-2 text-xs font-mono text-text-disabled">#{index + 1}</span>}
             {card && <DraggableCard card={card} variant="slot" />}
         </div>
     )
@@ -395,7 +395,7 @@ function CardView({ card, isOverlay, variant = 'default' }) {
         return (
              <div className={clsx(
                  "w-full h-full flex flex-col items-center justify-center p-2 cursor-grab active:cursor-grabbing rounded-xl",
-                 isOverlay && "bg-slate-800/90 border border-indigo-400 shadow-xl" // Overlay needs bg
+                 isOverlay && "bg-background-elevated/90 border border-accent-indigo shadow-xl" // Overlay needs bg
              )}>
                   <CardAssetPreview
                     asset={card.asset}
@@ -405,27 +405,27 @@ function CardView({ card, isOverlay, variant = 'default' }) {
                     fallbackClassName="text-4xl"
                     fallbackLabel={card.icon || '🎴'}
                   />
-                  <div className="text-white font-bold text-xs text-center leading-tight bg-slate-900/50 px-2 py-1 rounded-full">{card.label}</div>
+                  <div className="text-text-primary font-bold text-xs text-center leading-tight bg-background-base/50 px-2 py-1 rounded-full">{card.label}</div>
              </div>
         )
     }
 
     return (
         <div className={clsx(
-            "p-3 rounded-xl border bg-slate-800 flex items-center gap-3 cursor-grab active:cursor-grabbing",
-            isOverlay ? "border-indigo-400 shadow-2xl scale-105" : "border-white/10 hover:border-white/30 shadow-sm"
+            "p-3 rounded-xl border bg-background-elevated flex items-center gap-3 cursor-grab active:cursor-grabbing",
+            isOverlay ? "border-accent-indigo shadow-2xl scale-105" : "border-border-default hover:border-border-strong shadow-sm"
         )}>
             <CardAssetPreview
               asset={card.asset}
               alt={`Carta ${card.uid}`}
-              className="size-10 rounded border border-indigo-500/30"
+              className="size-10 rounded border border-accent-indigo/30"
               fit="cover"
-              fallbackClassName="bg-indigo-500/20 text-xl font-bold"
+              fallbackClassName="bg-accent-indigo/20 text-xl font-bold"
               fallbackLabel={card.icon || '#'}
             />
             <div>
-                <div className="text-white font-bold text-sm leading-tight">{card.label}</div>
-                <div className="text-slate-500 text-xs font-mono">{card.uid}</div>
+                <div className="text-text-primary font-bold text-sm leading-tight">{card.label}</div>
+                <div className="text-text-muted text-xs font-mono">{card.uid}</div>
             </div>
         </div>
     )

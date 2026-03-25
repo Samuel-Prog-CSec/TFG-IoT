@@ -248,13 +248,13 @@ export default function Register() {
         <div 
           className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[800px] h-[800px] rounded-full"
           style={{
-            background: 'radial-gradient(circle, rgba(99, 102, 241, 0.15) 0%, transparent 70%)',
+            background: 'radial-gradient(circle, color-mix(in srgb, var(--color-accent-indigo) 15%, transparent) 0%, transparent 70%)',
           }}
         />
         
         {/* Orbes decorativos */}
         <motion.div
-          className="absolute top-32 right-20 w-72 h-72 rounded-full bg-cyan-500/10 blur-3xl"
+          className="absolute top-32 right-20 w-72 h-72 rounded-full bg-accent-cyan/10 blur-3xl"
           animate={{
             scale: [1, 1.3, 1],
             opacity: [0.3, 0.5, 0.3],
@@ -262,7 +262,7 @@ export default function Register() {
           transition={{ duration: 9, repeat: Infinity, ease: 'easeInOut' }}
         />
         <motion.div
-          className="absolute bottom-32 left-20 w-64 h-64 rounded-full bg-indigo-500/10 blur-3xl"
+          className="absolute bottom-32 left-20 w-64 h-64 rounded-full bg-accent-indigo/10 blur-3xl"
           animate={{
             scale: [1.2, 1, 1.2],
             opacity: [0.4, 0.2, 0.4],
@@ -274,8 +274,8 @@ export default function Register() {
         <div 
           className="absolute inset-0 opacity-[0.02]"
           style={{
-            backgroundImage: `linear-gradient(rgba(255,255,255,0.1) 1px, transparent 1px),
-                             linear-gradient(90deg, rgba(255,255,255,0.1) 1px, transparent 1px)`,
+            backgroundImage: `linear-gradient(var(--color-border-default) 1px, transparent 1px),
+                             linear-gradient(90deg, var(--color-border-default) 1px, transparent 1px)`,
             backgroundSize: '50px 50px',
           }}
         />
@@ -310,16 +310,16 @@ export default function Register() {
             initial={{ scale: 0.8, opacity: 0 }}
             animate={{ scale: 1, opacity: 1 }}
             transition={{ delay: 0.1, duration: 0.4 }}
-            className="inline-flex items-center justify-center size-20 rounded-2xl bg-gradient-to-br from-cyan-500 via-indigo-500 to-purple-500 mb-4 shadow-lg shadow-indigo-500/30"
+            className="inline-flex items-center justify-center size-20 rounded-2xl bg-gradient-to-br from-accent-cyan via-accent-indigo to-brand-base mb-4 shadow-lg shadow-brand-glow"
           >
-            <UserPlus className="size-10 text-white" />
+            <UserPlus className="size-10 text-text-primary" />
           </motion.div>
           
           <motion.h1 
             initial={{ opacity: 0, y: 10 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ delay: 0.2 }}
-            className="text-3xl font-bold font-display bg-gradient-to-r from-white via-cyan-200 to-indigo-200 bg-clip-text text-transparent"
+            className="text-3xl font-bold font-display bg-gradient-to-r from-text-primary via-accent-cyan to-accent-indigo bg-clip-text text-transparent"
           >
             Crear Cuenta
           </motion.h1>
@@ -349,10 +349,10 @@ export default function Register() {
                   initial={{ opacity: 0, y: -10, height: 0 }}
                   animate={{ opacity: 1, y: 0, height: 'auto' }}
                   exit={{ opacity: 0, y: -10, height: 0 }}
-                  className="flex items-start gap-3 p-4 rounded-xl bg-rose-500/10 border border-rose-500/20"
+                  className="flex items-start gap-3 p-4 rounded-xl bg-error-base/10 border border-error-base/20"
                 >
-                  <AlertCircle className="size-5 text-rose-400 flex-shrink-0 mt-0.5" />
-                  <p className="text-rose-300 text-sm">{error}</p>
+                  <AlertCircle className="size-5 text-error-base flex-shrink-0 mt-0.5" />
+                  <p className="text-error-base text-sm">{error}</p>
                 </motion.div>
               )}
             </AnimatePresence>
@@ -500,9 +500,9 @@ export default function Register() {
             </AnimatePresence>
 
             {/* Aviso de aprobación */}
-            <motion.div variants={shouldReduceMotion ? {} : formFieldVariants(4)} className="flex items-start gap-3 p-4 rounded-xl bg-indigo-500/10 border border-indigo-500/20">
-              <Shield className="size-5 text-indigo-400 flex-shrink-0 mt-0.5" />
-              <p className="text-indigo-300/90 text-sm">
+            <motion.div variants={shouldReduceMotion ? {} : formFieldVariants(4)} className="flex items-start gap-3 p-4 rounded-xl bg-accent-indigo/10 border border-accent-indigo/20">
+              <Shield className="size-5 text-accent-indigo flex-shrink-0 mt-0.5" />
+              <p className="text-accent-indigo/90 text-sm">
                 Tu cuenta requerirá <strong>aprobación de un administrador</strong> antes de poder acceder a la plataforma.
               </p>
             </motion.div>
@@ -528,7 +528,7 @@ export default function Register() {
             ¿Ya tienes cuenta?{' '}
             <Link 
               to={ROUTES.LOGIN}
-              className="text-indigo-400 hover:text-indigo-300 transition-colors font-medium"
+              className="text-accent-indigo hover:text-accent-indigo transition-colors font-medium"
             >
               Inicia sesión
             </Link>

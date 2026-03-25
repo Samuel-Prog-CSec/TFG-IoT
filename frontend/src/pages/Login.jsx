@@ -243,20 +243,20 @@ export default function Login() {
   const isLocked = rateLimitState.lockoutUntil && Date.now() < rateLimitState.lockoutUntil;
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-slate-950 p-4 relative overflow-hidden">
+    <div className="min-h-screen flex items-center justify-center bg-background-deep p-4 relative overflow-hidden">
       {/* Fondo con efectos */}
       <div className="absolute inset-0 overflow-hidden pointer-events-none">
         {/* Gradiente radial principal */}
         <div 
           className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[800px] h-[800px] rounded-full"
           style={{
-            background: 'radial-gradient(circle, rgba(139, 92, 246, 0.15) 0%, transparent 70%)',
+            background: `radial-gradient(circle, var(--color-brand-glow) 0%, transparent 70%)`,
           }}
         />
         
         {/* Orbes decorativos */}
         <motion.div
-          className="absolute top-20 left-20 w-64 h-64 rounded-full bg-indigo-500/10 blur-3xl"
+          className="absolute top-20 left-20 w-64 h-64 rounded-full bg-accent-indigo/10 blur-3xl"
           animate={{
             scale: [1, 1.2, 1],
             opacity: [0.3, 0.5, 0.3],
@@ -264,7 +264,7 @@ export default function Login() {
           transition={{ duration: 8, repeat: Infinity, ease: 'easeInOut' }}
         />
         <motion.div
-          className="absolute bottom-20 right-20 w-80 h-80 rounded-full bg-purple-500/10 blur-3xl"
+          className="absolute bottom-20 right-20 w-80 h-80 rounded-full bg-brand-base/10 blur-3xl"
           animate={{
             scale: [1.2, 1, 1.2],
             opacity: [0.4, 0.2, 0.4],
@@ -276,8 +276,8 @@ export default function Login() {
         <div 
           className="absolute inset-0 opacity-[0.02]"
           style={{
-            backgroundImage: `linear-gradient(rgba(255,255,255,0.1) 1px, transparent 1px),
-                             linear-gradient(90deg, rgba(255,255,255,0.1) 1px, transparent 1px)`,
+            backgroundImage: `linear-gradient(var(--color-border-default) 1px, transparent 1px),
+                             linear-gradient(90deg, var(--color-border-default) 1px, transparent 1px)`,
             backgroundSize: '50px 50px',
           }}
         />
@@ -296,7 +296,7 @@ export default function Login() {
             initial={{ scale: 0.8, opacity: 0 }}
             animate={{ scale: 1, opacity: 1 }}
             transition={{ delay: 0.1, duration: 0.4 }}
-            className="inline-flex items-center justify-center size-20 rounded-2xl bg-gradient-to-br from-indigo-500 via-purple-500 to-pink-500 mb-4 shadow-lg shadow-purple-500/30"
+            className="inline-flex items-center justify-center size-20 rounded-2xl bg-gradient-to-br from-accent-indigo via-brand-base to-accent-pink mb-4 shadow-lg shadow-brand-glow"
           >
             <span className="text-4xl">🎮</span>
           </motion.div>
@@ -305,7 +305,7 @@ export default function Login() {
             initial={{ opacity: 0, y: 10 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ delay: 0.2 }}
-            className="text-3xl font-bold font-display bg-gradient-to-r from-white via-purple-200 to-indigo-200 bg-clip-text text-transparent"
+            className="text-3xl font-bold font-display bg-gradient-to-r from-white via-brand-light to-accent-indigo bg-clip-text text-transparent"
           >
             EduPlay RFID
           </motion.h1>
@@ -314,7 +314,7 @@ export default function Login() {
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             transition={{ delay: 0.3 }}
-            className="text-slate-400 mt-2"
+            className="text-text-muted mt-2"
           >
             Plataforma de Juegos Educativos
           </motion.p>
@@ -329,13 +329,13 @@ export default function Login() {
               exit={{ opacity: 0, y: -10, height: 0 }}
               className="mb-4"
             >
-              <div className="flex items-start gap-3 p-4 rounded-xl bg-emerald-500/10 border border-emerald-500/20">
-                <CheckCircle className="size-5 text-emerald-400 flex-shrink-0 mt-0.5" />
+              <div className="flex items-start gap-3 p-4 rounded-xl bg-success-base/10 border border-success-base/20">
+                <CheckCircle className="size-5 text-success-base flex-shrink-0 mt-0.5" />
                 <div>
-                  <p className="text-emerald-300 font-medium text-sm">
+                  <p className="text-success-base font-medium text-sm">
                     ¡Registro exitoso!
                   </p>
-                  <p className="text-emerald-400/80 text-sm mt-1">
+                  <p className="text-success-base/80 text-sm mt-1">
                     Tu cuenta está pendiente de aprobación. Recibirás acceso cuando un administrador la apruebe.
                   </p>
                 </div>
@@ -350,13 +350,13 @@ export default function Login() {
               exit={{ opacity: 0, y: -10, height: 0 }}
               className="mb-4"
             >
-              <div className="flex items-start gap-3 p-4 rounded-xl bg-amber-500/10 border border-amber-500/20">
-                <Info className="size-5 text-amber-400 flex-shrink-0 mt-0.5" />
+              <div className="flex items-start gap-3 p-4 rounded-xl bg-warning-base/10 border border-warning-base/20">
+                <Info className="size-5 text-warning-base flex-shrink-0 mt-0.5" />
                 <div>
-                  <p className="text-amber-300 font-medium text-sm">
+                  <p className="text-warning-base font-medium text-sm">
                     Sesión cerrada
                   </p>
-                  <p className="text-amber-400/80 text-sm mt-1">
+                  <p className="text-warning-base/80 text-sm mt-1">
                     Tu sesión fue cerrada porque iniciaste sesión en otro dispositivo.
                   </p>
                 </div>
@@ -372,13 +372,13 @@ export default function Login() {
               exit={{ opacity: 0, y: -10, height: 0 }}
               className="mb-4"
             >
-              <div className="flex items-start gap-3 p-4 rounded-xl bg-rose-500/10 border border-rose-500/20">
-                <Clock className="size-5 text-rose-400 flex-shrink-0 mt-0.5" />
+              <div className="flex items-start gap-3 p-4 rounded-xl bg-error-base/10 border border-error-base/20">
+                <Clock className="size-5 text-error-base flex-shrink-0 mt-0.5" />
                 <div>
-                  <p className="text-rose-300 font-medium text-sm">
+                  <p className="text-error-base font-medium text-sm">
                     Demasiados intentos fallidos
                   </p>
-                  <p className="text-rose-400/80 text-sm mt-1">
+                  <p className="text-error-base/80 text-sm mt-1">
                     Por seguridad, debes esperar {countdown} segundo{countdown === 1 ? '' : 's'} antes de intentar nuevamente.
                   </p>
                 </div>
@@ -397,8 +397,8 @@ export default function Login() {
           >
             {/* Título del formulario */}
             <motion.div variants={shouldReduceMotion ? {} : formFieldVariants(0)} className="text-center mb-6">
-              <h2 className="text-xl font-semibold text-white">Iniciar Sesión</h2>
-              <p className="text-slate-400 text-sm mt-1">
+              <h2 className="text-xl font-semibold text-text-primary">Iniciar Sesión</h2>
+              <p className="text-text-muted text-sm mt-1">
                 Accede a tu cuenta de profesor
               </p>
             </motion.div>
@@ -410,10 +410,10 @@ export default function Login() {
                   initial={{ opacity: 0, y: -10, height: 0 }}
                   animate={{ opacity: 1, y: 0, height: 'auto' }}
                   exit={{ opacity: 0, y: -10, height: 0 }}
-                  className="flex items-start gap-3 p-4 rounded-xl bg-rose-500/10 border border-rose-500/20"
+                  className="flex items-start gap-3 p-4 rounded-xl bg-error-base/10 border border-error-base/20"
                 >
-                  <AlertCircle className="size-5 text-rose-400 flex-shrink-0 mt-0.5" />
-                  <p className="text-rose-300 text-sm">{error}</p>
+                  <AlertCircle className="size-5 text-error-base flex-shrink-0 mt-0.5" />
+                  <p className="text-error-base text-sm">{error}</p>
                 </motion.div>
               )}
             </AnimatePresence>
@@ -449,7 +449,7 @@ export default function Login() {
               <button
                 type="button"
                 onClick={() => setShowPassword(!showPassword)}
-                className="absolute right-3 top-[38px] text-slate-400 hover:text-white transition-colors p-1"
+                className="absolute right-3 top-[38px] text-text-muted hover:text-text-primary transition-colors p-1"
                 tabIndex={-1}
               >
                 {showPassword ? (
@@ -479,10 +479,10 @@ export default function Login() {
           {/* Separador */}
           <div className="relative my-8">
             <div className="absolute inset-0 flex items-center">
-              <div className="w-full border-t border-white/10" />
+              <div className="w-full border-t border-border-default" />
             </div>
             <div className="relative flex justify-center text-sm">
-              <span className="px-4 bg-slate-800/80 text-slate-400">
+              <span className="px-4 bg-background-elevated/80 text-text-muted">
                 ¿No tienes cuenta?
               </span>
             </div>
@@ -506,7 +506,7 @@ export default function Login() {
           initial={{ opacity: 0 }}
           animate={{ opacity: 1 }}
           transition={{ delay: 0.5 }}
-          className="text-center text-slate-500 text-sm mt-6"
+          className="text-center text-text-muted text-sm mt-6"
         >
           © {new Date().getFullYear()} EduPlay RFID · Proyecto TFG
         </motion.p>

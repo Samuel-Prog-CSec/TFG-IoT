@@ -13,6 +13,7 @@ const {
   analyticsStudentParamsSchema,
   analyticsTimeRangeQuerySchema
 } = require('../validators/analyticsValidator');
+const asyncHandler = require('../utils/asyncHandler');
 
 // Todas las rutas requieren estar autenticado como profesor o super admin
 router.use(authenticate, requireRole('teacher', 'super_admin'));
@@ -22,30 +23,30 @@ router.get(
   '/student/:id/progress',
   validateParams(analyticsStudentParamsSchema),
   validateQuery(analyticsTimeRangeQuerySchema),
-  analyticsController.getStudentProgress
+  asyncHandler(analyticsController.getStudentProgress)
 );
 router.get(
   '/student/:id/difficulties',
   validateParams(analyticsStudentParamsSchema),
   validateQuery(emptyObjectSchema),
-  analyticsController.getStudentDifficulties
+  asyncHandler(analyticsController.getStudentDifficulties)
 );
 
 // Rutas de clase (profesor)
 router.get(
   '/classroom/summary',
   validateQuery(emptyObjectSchema),
-  analyticsController.getClassroomSummary
+  asyncHandler(analyticsController.getClassroomSummary)
 );
 router.get(
   '/classroom/comparison',
   validateQuery(analyticsTimeRangeQuerySchema),
-  analyticsController.getClassroomComparison
+  asyncHandler(analyticsController.getClassroomComparison)
 );
 router.get(
   '/classroom/difficulties',
   validateQuery(emptyObjectSchema),
-  analyticsController.getClassroomDifficulties
+  asyncHandler(analyticsController.getClassroomDifficulties)
 );
 
 module.exports = router;

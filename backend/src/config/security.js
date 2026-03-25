@@ -7,6 +7,7 @@
 const rateLimit = require('express-rate-limit');
 const crypto = require('node:crypto');
 const logger = require('../utils/logger');
+const { ForbiddenError } = require('../utils/errors');
 
 const isTestEnv = () => process.env.NODE_ENV === 'test' || typeof globalThis.it === 'function';
 
@@ -160,34 +161,24 @@ const csrfProtection = (req, res, next) => {
 
   // En producción, SIEMPRE requerir referer
   if (process.env.NODE_ENV === 'production' && !referer) {
-    return res.status(403).json({
-      success: false,
-      message: 'Referer/Origin header requerido para operaciones de modificación'
-    });
+    return next(
+      new ForbiddenError('Referer/Origin header requerido para operaciones de modificación')
+    );
   }
 
   if (referer) {
     const refererOrigin = parseOrigin(referer);
     if (!refererOrigin) {
-      return res.status(403).json({
-        success: false,
-        message: 'Referer header inválido'
-      });
+      return next(new ForbiddenError('Referer header inválido'));
     }
 
     if (!corsWhitelist.includes(refererOrigin)) {
-      return res.status(403).json({
-        success: false,
-        message: 'Referer no autorizado'
-      });
+      return next(new ForbiddenError('Referer no autorizado'));
     }
   }
 
   if (!hasValidCsrf(req)) {
-    return res.status(403).json({
-      success: false,
-      message: 'CSRF token invalido o ausente'
-    });
+    return next(new ForbiddenError('CSRF token invalido o ausente'));
   }
 
   next();

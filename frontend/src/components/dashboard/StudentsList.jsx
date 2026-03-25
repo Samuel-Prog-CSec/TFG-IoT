@@ -80,7 +80,7 @@ function StudentsList({ students = studentProgressData }) {
               
               {/* Avatar */}
               <div 
-                className="size-10 rounded-full bg-gradient-to-br from-indigo-500 to-purple-500 flex items-center justify-center text-lg shadow-lg group-hover:scale-105 transition-transform"
+                className="size-10 rounded-full bg-gradient-to-br from-accent-indigo to-brand-base flex items-center justify-center text-lg shadow-lg group-hover:scale-105 transition-transform"
                 aria-label={`Avatar de ${student.name}`}
               >
                 <span aria-hidden="true">{student.avatar}</span>

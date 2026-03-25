@@ -41,11 +41,11 @@ const getStepButtonClassName = ({ isActive, isCompleted, isClickable }) =>
   cn(
     'size-10 rounded-full flex items-center justify-center',
     'transition-all duration-300 border-2 relative z-10',
-    'focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-900',
-    isActive && 'bg-indigo-600 border-indigo-400 text-white shadow-lg shadow-indigo-500/40',
-    isCompleted && 'bg-emerald-500 border-emerald-400 text-white',
-    !isActive && !isCompleted && 'bg-slate-900 border-slate-700 text-slate-500',
-    isClickable && 'cursor-pointer hover:scale-110 hover:shadow-emerald-500/30 hover:shadow-lg',
+    'focus:outline-none focus-visible:ring-2 focus-visible:ring-accent-indigo focus-visible:ring-offset-2 focus-visible:ring-offset-background-base',
+    isActive && 'bg-accent-indigo border-accent-indigo text-text-primary shadow-lg shadow-accent-indigo/40',
+    isCompleted && 'bg-success-base border-success-base text-text-primary',
+    !isActive && !isCompleted && 'bg-background-base border-background-surface text-text-disabled',
+    isClickable && 'cursor-pointer hover:scale-110 hover:shadow-success-base/30 hover:shadow-lg',
     !isClickable && !isActive && 'cursor-default'
   );
 
@@ -56,6 +56,7 @@ const getStepPulseAnimation = ({ reducedMotion, isActive }) => {
 
   return {
     scale: [1, 1.05, 1],
+    // TOKEN-EXCEPTION: Framer Motion boxShadow interpolation requires direct color values
     boxShadow: [
       '0 0 0 0 rgba(99, 102, 241, 0)',
       '0 0 20px 4px rgba(99, 102, 241, 0.4)',
@@ -79,9 +80,9 @@ const getStepPulseTransition = ({ reducedMotion, isActive }) => {
 const getStepLabelClassName = ({ isActive, isCompleted }) =>
   cn(
     'text-xs font-medium uppercase tracking-wider transition-colors duration-300',
-    isActive && 'text-indigo-400',
-    isCompleted && 'text-emerald-400',
-    !isActive && !isCompleted && 'text-slate-500'
+    isActive && 'text-accent-indigo',
+    isCompleted && 'text-success-base',
+    !isActive && !isCompleted && 'text-text-disabled'
   );
 
 function WizardStepItem({
@@ -154,7 +155,7 @@ function WizardStepItem({
             {PARTICLE_VECTORS.map((vector, particleIndex) => (
               <motion.div
                 key={`${step.id}-${particleIndex}`}
-                className="absolute size-1.5 bg-indigo-400 rounded-full"
+                className="absolute size-1.5 bg-accent-indigo rounded-full"
                 style={{ top: '50%', left: '50%' }}
                 animate={{
                   x: [0, vector.x * 20],
@@ -183,7 +184,7 @@ function WizardStepItem({
       </motion.span>
 
       {step.description && (
-        <span className="text-[10px] text-slate-600 max-w-[80px] text-center hidden sm:block">
+        <span className="text-[10px] text-text-disabled max-w-[80px] text-center hidden sm:block">
           {step.description}
         </span>
       )}
@@ -252,6 +253,7 @@ const WizardStepper = memo(function WizardStepper({
         particleCount: 50,
         spread: 60,
         origin: { y: 0.3 },
+        // TOKEN-EXCEPTION: canvas-confetti API requires direct color values
         colors: ['#8b5cf6', '#6366f1', '#a855f7', '#c084fc'],
         scalar: 0.8,
         gravity: 1.2,
@@ -272,7 +274,7 @@ const WizardStepper = memo(function WizardStepper({
   return (
     <div className={cn('relative', className)}>
       {/* Línea de fondo */}
-      <div className="absolute top-5 left-5 right-5 h-1 bg-slate-800/60 rounded-full overflow-hidden">
+      <div className="absolute top-5 left-5 right-5 h-1 bg-background-elevated/60 rounded-full overflow-hidden">
         {/* Línea de progreso con efecto de fluido */}
         <motion.div
           className="h-full rounded-full relative"
@@ -283,7 +285,7 @@ const WizardStepper = memo(function WizardStepper({
             ease: [0.32, 0.72, 0, 1],
           }}
           style={{
-            background: 'linear-gradient(90deg, #6366f1 0%, #8b5cf6 50%, #a855f7 100%)',
+            background: 'linear-gradient(90deg, var(--color-accent-indigo) 0%, var(--color-brand-base) 50%, var(--color-accent-pink) 100%)',
           }}
         >
           {/* Efecto de brillo que se mueve */}
@@ -353,9 +355,9 @@ export function WizardStepperCompact({ steps, currentStep, className }) {
               className={cn(
                 'size-8 rounded-full flex items-center justify-center text-xs font-bold',
                 'transition-all duration-300',
-                isActive && 'bg-indigo-600 text-white',
-                isCompleted && 'bg-emerald-500 text-white',
-                !isActive && !isCompleted && 'bg-slate-800 text-slate-500'
+                isActive && 'bg-accent-indigo text-text-primary',
+                isCompleted && 'bg-success-base text-text-primary',
+                !isActive && !isCompleted && 'bg-background-elevated text-text-disabled'
               )}
               animate={isActive ? { scale: [1, 1.1, 1] } : {}}
               transition={{ duration: 1.5, repeat: Infinity }}
@@ -366,7 +368,7 @@ export function WizardStepperCompact({ steps, currentStep, className }) {
               <div 
                 className={cn(
                   'w-8 h-0.5 mx-1',
-                  isCompleted ? 'bg-emerald-500' : 'bg-slate-700'
+                  isCompleted ? 'bg-success-base' : 'bg-background-surface'
                 )}
               />
             )}

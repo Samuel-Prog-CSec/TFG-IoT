@@ -18,6 +18,7 @@ import EmptyState from '../components/ui/EmptyState';
 import GlassCard from '../components/ui/GlassCard';
 import { SkeletonCard } from '../components/ui/SkeletonShimmer';
 import StatusBadge from '../components/ui/StatusBadge';
+import Breadcrumb from '../components/ui/Breadcrumb';
 import { pageVariants } from '../lib/utils';
 import { useRefetchOnFocus } from '../hooks/useRefetchOnFocus';
 
@@ -177,16 +178,14 @@ export default function CardDeckDetailPage() {
       exit="exit"
     >
       <div className="flex flex-col gap-6">
+        <Breadcrumb items={[
+          { label: 'Mazos', to: ROUTES.CARD_DECKS },
+          { label: deck.name || 'Mazo de cartas' },
+        ]} />
         <header className="flex flex-wrap items-center justify-between gap-4">
-          <div className="flex items-center gap-3">
-            <ButtonPremium variant="ghost" onClick={() => navigate(ROUTES.CARD_DECKS)}>
-              <ArrowLeft size={16} />
-              Volver
-            </ButtonPremium>
-            <div>
-              <h1 className="text-2xl font-bold text-white font-display">{deck.name || 'Mazo de cartas'}</h1>
-              <p className="text-slate-400">{contextName}</p>
-            </div>
+          <div>
+            <h1 className="text-2xl font-bold text-text-primary font-display">{deck.name || 'Mazo de cartas'}</h1>
+            <p className="text-text-muted">{contextName}</p>
           </div>
 
           <div className="flex items-center gap-3">
@@ -205,76 +204,76 @@ export default function CardDeckDetailPage() {
 
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
           <GlassCard className="p-6 lg:col-span-2 space-y-5">
-            <h2 className="text-lg font-semibold text-white">Información general</h2>
+            <h2 className="text-lg font-semibold text-text-primary">Información general</h2>
 
             <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-              <div className="bg-indigo-500/10 rounded-xl p-4">
-                <div className="flex items-center gap-2 text-slate-400">
-                  <CreditCard size={16} className="text-indigo-400" />
+              <div className="bg-accent-indigo/10 rounded-xl p-4">
+                <div className="flex items-center gap-2 text-text-muted">
+                  <CreditCard size={16} className="text-accent-indigo" />
                   Tarjetas
                 </div>
-                <p className="text-white text-xl font-semibold font-display mt-2">{cards.length}</p>
+                <p className="text-text-primary text-xl font-semibold font-display mt-2">{cards.length}</p>
               </div>
-              <div className="bg-amber-500/10 rounded-xl p-4">
-                <div className="flex items-center gap-2 text-slate-400">
-                  <Calendar size={16} className="text-amber-400" />
+              <div className="bg-warning-base/10 rounded-xl p-4">
+                <div className="flex items-center gap-2 text-text-muted">
+                  <Calendar size={16} className="text-warning-base" />
                   Creado
                 </div>
-                <p className="text-white text-xl font-semibold font-display mt-2">{formatDate(deck.createdAt)}</p>
+                <p className="text-text-primary text-xl font-semibold font-display mt-2">{formatDate(deck.createdAt)}</p>
               </div>
-              <div className="bg-emerald-500/10 rounded-xl p-4">
-                <div className="flex items-center gap-2 text-slate-400">
-                  <Archive size={16} className="text-emerald-400" />
+              <div className="bg-success-base/10 rounded-xl p-4">
+                <div className="flex items-center gap-2 text-text-muted">
+                  <Archive size={16} className="text-success-base" />
                   Estado
                 </div>
-                <p className="text-white text-xl font-semibold font-display mt-2">{statusLabel}</p>
+                <p className="text-text-primary text-xl font-semibold font-display mt-2">{statusLabel}</p>
               </div>
             </div>
 
             <div className="space-y-2">
-              <h3 className="text-sm font-medium text-slate-300">Descripción</h3>
-              <div className="rounded-xl border border-white/10 bg-slate-800/30 px-4 py-3 text-sm text-slate-300">
+              <h3 className="text-sm font-medium text-text-secondary">Descripción</h3>
+              <div className="rounded-xl border border-border-default bg-background-elevated/30 px-4 py-3 text-sm text-text-secondary">
                 {deck.description?.trim() || 'Sin descripción'}
               </div>
             </div>
           </GlassCard>
 
           <GlassCard className="p-6 space-y-4">
-            <h2 className="text-lg font-semibold text-white">Resumen</h2>
-            <div className="divide-y divide-white/5">
+            <h2 className="text-lg font-semibold text-text-primary">Resumen</h2>
+            <div className="divide-y divide-border-subtle">
               <div className="flex items-center justify-between py-3">
-                <span className="text-sm text-slate-400">Nombre</span>
-                <span className="text-sm text-white font-medium">{deck.name || '—'}</span>
+                <span className="text-sm text-text-muted">Nombre</span>
+                <span className="text-sm text-text-primary font-medium">{deck.name || '—'}</span>
               </div>
               <div className="flex items-center justify-between py-3">
-                <span className="text-sm text-slate-400">Contexto</span>
-                <span className="text-sm text-white font-medium">{contextName}</span>
+                <span className="text-sm text-text-muted">Contexto</span>
+                <span className="text-sm text-text-primary font-medium">{contextName}</span>
               </div>
               <div className="flex items-center justify-between py-3">
-                <span className="text-sm text-slate-400">Estado</span>
-                <span className="text-sm text-white font-medium">{statusLabel}</span>
+                <span className="text-sm text-text-muted">Estado</span>
+                <span className="text-sm text-text-primary font-medium">{statusLabel}</span>
               </div>
               <div className="flex items-center justify-between py-3">
-                <span className="text-sm text-slate-400">Creado</span>
-                <span className="text-sm text-white font-medium">{formatDate(deck.createdAt)}</span>
+                <span className="text-sm text-text-muted">Creado</span>
+                <span className="text-sm text-text-primary font-medium">{formatDate(deck.createdAt)}</span>
               </div>
               <div className="flex items-center justify-between py-3">
-                <span className="text-sm text-slate-400">Actualizado</span>
-                <span className="text-sm text-white font-medium">{formatDate(deck.updatedAt)}</span>
+                <span className="text-sm text-text-muted">Actualizado</span>
+                <span className="text-sm text-text-primary font-medium">{formatDate(deck.updatedAt)}</span>
               </div>
             </div>
           </GlassCard>
         </div>
 
         <GlassCard className="p-6">
-          <h2 className="text-lg font-semibold text-white mb-4">Tarjetas del mazo</h2>
+          <h2 className="text-lg font-semibold text-text-primary mb-4">Tarjetas del mazo</h2>
 
           {cards.length === 0 ? (
             <EmptyState
               title="Sin tarjetas asignadas"
               description="Este mazo todavía no tiene tarjetas vinculadas."
               icon={<Layers size={24} />}
-              className="bg-transparent border border-white/5"
+              className="bg-transparent border border-border-subtle"
             />
           ) : (
             <div className="space-y-3">
@@ -285,11 +284,11 @@ export default function CardDeckDetailPage() {
                 return (
                   <div
                     key={key}
-                    className="rounded-xl border border-white/10 bg-slate-800/30 px-4 py-3 flex flex-col md:flex-row md:items-center md:justify-between gap-2"
+                    className="rounded-xl border border-border-default bg-background-elevated/30 px-4 py-3 flex flex-col md:flex-row md:items-center md:justify-between gap-2"
                   >
                     <div>
-                      <p className="text-white font-medium">{label}</p>
-                      <p className="text-xs text-slate-400">UID: {uid}</p>
+                      <p className="text-text-primary font-medium">{label}</p>
+                      <p className="text-xs text-text-muted">UID: {uid}</p>
                     </div>
                     <div className="flex items-center gap-3">
                       {displayData ? (
@@ -298,7 +297,7 @@ export default function CardDeckDetailPage() {
                           className="size-10 rounded-lg flex-shrink-0"
                         />
                       ) : null}
-                      <p className="text-sm text-indigo-300">{assetLabel}</p>
+                      <p className="text-sm text-accent-indigo">{assetLabel}</p>
                     </div>
                   </div>
                 );

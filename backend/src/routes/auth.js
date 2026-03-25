@@ -26,6 +26,7 @@ const {
   refreshTokenSchema,
   emptyObjectSchema
 } = require('../validators/authValidator');
+const asyncHandler = require('../utils/asyncHandler');
 
 /**
  * @route   POST /api/auth/register
@@ -47,10 +48,15 @@ router.post(
   registerRateLimiter,
   validateQuery(emptyObjectSchema),
   validateBody(registerTeacherSchema),
-  register
+  asyncHandler(register)
 );
 
-router.post('/login', validateQuery(emptyObjectSchema), validateBody(loginSchema), login);
+router.post(
+  '/login',
+  validateQuery(emptyObjectSchema),
+  validateBody(loginSchema),
+  asyncHandler(login)
+);
 
 /**
  * @route   GET /api/auth/me
@@ -58,7 +64,7 @@ router.post('/login', validateQuery(emptyObjectSchema), validateBody(loginSchema
  * @access  Private
  * @validation query: emptyObjectSchema
  */
-router.get('/me', authenticate, validateQuery(emptyObjectSchema), getProfile);
+router.get('/me', authenticate, validateQuery(emptyObjectSchema), asyncHandler(getProfile));
 
 /**
  * @route   PUT /api/auth/me
@@ -71,7 +77,7 @@ router.put(
   authenticate,
   validateQuery(emptyObjectSchema),
   validateBody(updateProfileSchema),
-  updateProfile
+  asyncHandler(updateProfile)
 );
 
 /**
@@ -85,7 +91,7 @@ router.put(
   authenticate,
   validateQuery(emptyObjectSchema),
   validateBody(changePasswordSchema),
-  changePassword
+  asyncHandler(changePassword)
 );
 
 /**
@@ -98,7 +104,7 @@ router.post(
   '/refresh',
   validateQuery(emptyObjectSchema),
   validateBody(refreshTokenSchema),
-  refreshAccessToken
+  asyncHandler(refreshAccessToken)
 );
 
 /**
@@ -112,7 +118,7 @@ router.post(
   authenticate,
   validateQuery(emptyObjectSchema),
   validateBody(emptyObjectSchema),
-  logout
+  asyncHandler(logout)
 );
 
 module.exports = router;

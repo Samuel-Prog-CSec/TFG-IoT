@@ -27,6 +27,7 @@ const {
   gameMechanicIdParamsSchema
 } = require('../validators/gameMechanicValidator');
 const { emptyObjectSchema } = require('../validators/commonValidator');
+const asyncHandler = require('../utils/asyncHandler');
 
 /**
  * @route   GET /api/mechanics/active
@@ -34,7 +35,12 @@ const { emptyObjectSchema } = require('../validators/commonValidator');
  * @access  Public (con auth opcional)
  * @validation query: emptyObjectSchema
  */
-router.get('/active', optionalAuth, validateQuery(emptyObjectSchema), getActiveMechanics);
+router.get(
+  '/active',
+  optionalAuth,
+  validateQuery(emptyObjectSchema),
+  asyncHandler(getActiveMechanics)
+);
 
 /**
  * @route   GET /api/mechanics
@@ -47,7 +53,7 @@ router.get(
   authenticate,
   requireRole('teacher'),
   validateQuery(gameMechanicQuerySchema),
-  getMechanics
+  asyncHandler(getMechanics)
 );
 
 /**
@@ -62,7 +68,7 @@ router.get(
   requireRole('teacher'),
   validateParams(gameMechanicParamsSchema),
   validateQuery(emptyObjectSchema),
-  getMechanicById
+  asyncHandler(getMechanicById)
 );
 
 /**
@@ -78,7 +84,7 @@ router.post(
   requireRole('teacher'),
   validateQuery(emptyObjectSchema),
   validateBody(createGameMechanicSchema),
-  createMechanic
+  asyncHandler(createMechanic)
 );
 
 /**
@@ -94,7 +100,7 @@ router.put(
   validateParams(gameMechanicIdParamsSchema),
   validateQuery(emptyObjectSchema),
   validateBody(updateGameMechanicSchema),
-  updateMechanic
+  asyncHandler(updateMechanic)
 );
 
 /**
@@ -109,7 +115,7 @@ router.delete(
   requireRole('teacher'),
   validateParams(gameMechanicIdParamsSchema),
   validateQuery(emptyObjectSchema),
-  deleteMechanic
+  asyncHandler(deleteMechanic)
 );
 
 module.exports = router;

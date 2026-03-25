@@ -11,6 +11,9 @@ export { default as StatusBadge, CountBadge } from './StatusBadge';
 export { default as SkeletonShimmer, SkeletonCard, SkeletonStatCard } from './SkeletonShimmer';
 export { default as Tooltip } from './Tooltip';
 export { default as EmptyState } from './EmptyState';
+export { default as ErrorState } from './ErrorState';
+export { default as Breadcrumb } from './Breadcrumb';
+export { default as PageHeader } from './PageHeader';
 
 // Modal de confirmación reutilizable
 export { default as ConfirmationModal, useConfirmationModal } from './ConfirmationModal';
