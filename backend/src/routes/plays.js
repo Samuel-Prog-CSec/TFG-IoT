@@ -135,6 +135,7 @@ router.post(
  */
 router.post(
   '/:id/pause',
+  eventRateLimiter, // Rate limiting para prevenir abuso en pause/resume
   validateParams(gamePlayParamsSchema),
   validateQuery(emptyObjectSchema),
   validateBody(emptyObjectSchema),
@@ -149,6 +150,7 @@ router.post(
  */
 router.post(
   '/:id/resume',
+  eventRateLimiter, // Rate limiting para prevenir abuso en pause/resume
   validateParams(gamePlayParamsSchema),
   validateQuery(emptyObjectSchema),
   validateBody(emptyObjectSchema),

@@ -903,3 +903,321 @@ Se unifica **todo** el flujo de errores HTTP a través del `errorHandler` centra
 
 - **ADR-003** (DTOs): el formato de respuesta de errores se mantiene compatible con el estándar `{ success, message, data }` definido en DTOs.
 - Esta decisión es prerequisito de **T-519** (responseHelper + filterBuilder) y **T-601** (nuevos endpoints analytics), que podrán usar el errorHandler y asyncHandler unificados.
+
+---
+
+## ADR-014: Utilidades centralizadas de respuesta y filtrado (responseHelper + filterBuilder)
+
+### Contexto (ADR-014)
+
+La auditoría del Sprint 5 detectó dos patrones de boilerplate repetitivo en los controllers:
+
+1. **Respuestas manuales (~70 instancias)**: Cada handler construía manualmente `res.status(XXX).json({ success: true, data, message })`. Este código repetitivo dificultaba mantener el contrato de respuesta uniforme definido en ADR-003 y multiplicaba los puntos de fallo ante cambios en el formato.
+
+2. **Filtros duplicados**: Las funciones `buildUsersFilter` (userController), los filtros inline en `getMechanics` (gameMechanicController) y `getDecks` (cardDeckController) replicaban la misma lógica de conversión query params → filtros MongoDB (exact match, regex search, etc.). Esto generaba inconsistencias (unos escapaban regex, otros no) y dificultaba agregar nuevos tipos de filtro.
+
+**Tarea:** T-519 (consolida T-519 + T-530)
+
+### Decisión (ADR-014)
+
+Se crean dos utilidades centralizadas:
+
+1. **`utils/responseHelper.js`** — 4 funciones de respuesta:
+   - `sendSuccess(res, data, message?, status=200)` — Respuesta genérica exitosa
+   - `sendCreated(res, data, message?)` — Recurso creado (201)
+   - `sendPaginated(res, dtoData, { page, limit, total })` — Integra `toPaginatedDTOV1` internamente, eliminando la necesidad de importarlo en cada controller
+   - `sendNoContent(res)` — Operaciones sin respuesta (204)
+
+2. **`utils/filterBuilder.js`** — Factory genérica `buildFilter(queryParams, fieldMappings, options)` con 6 tipos de mapping:
+   - `exact`: Igualdad directa (`filter[field] = value`)
+   - `regex`: Búsqueda parcial con escape automático via `escapeRegex` (prevención ReDoS)
+   - `search`: Búsqueda multi-campo con `$or` y regex escapado
+   - `range`: Rango numérico/fecha con `$gte`/`$lte` desde params separados
+   - `in`: Lista de valores con split por comas o array directo
+   - `computed`: Lógica custom via callback `(value, filter, allParams) => void`
+
+### Alternativas Consideradas (ADR-014)
+
+1. **Clase `ApiResponse` estática**: Rechazada por inconsistencia con el estilo funcional del proyecto (sin clases en utilidades) y porque requiere importar la clase completa cuando solo se usa una función.
+2. **Middleware de respuesta automática**: Un middleware que intercepte `res.locals.data` y construya la respuesta. Rechazado por magia implícita — los controllers pierden visibilidad sobre qué se envía.
+3. **ORM-level query builder (Mongoose query helpers)**: Para filterBuilder, usar Mongoose query helpers integrados en los schemas. Rechazado porque acoplaría la lógica de filtrado al modelo, violando la separación controller/repository.
+
+### Consecuencias (ADR-014)
+
+**Positivas:**
+- Contrato de respuesta garantizado: cambiar el formato solo requiere modificar `responseHelper.js`
+- Eliminación progresiva de ~70 instancias de `{ success: true }` manual
+- filterBuilder escapa regex automáticamente, eliminando una categoría de vulnerabilidad (ReDoS)
+- El tipo `computed` permite migrar filtros complejos (como el scope de teacher → student) sin pérdida de expresividad
+- 37 tests unitarios cubren ambas utilidades
+
+**Negativas:**
+- Indirección adicional: los controllers ya no muestran el `res.json()` directamente, lo que puede dificultar la comprensión inicial del flujo
+- La migración es progresiva (solo 2 controllers piloto migrados), por lo que coexisten ambos estilos temporalmente
+
+### Archivos Afectados
+
+- `backend/src/utils/responseHelper.js` (nuevo — 4 funciones exportadas)
+- `backend/src/utils/filterBuilder.js` (nuevo — factory genérica)
+- `backend/src/controllers/cardDeckController.js` (piloto responseHelper — 5 respuestas migradas)
+- `backend/src/controllers/userController.js` (piloto filterBuilder — `buildUsersFilter` reemplazado por mappings declarativos)
+- `backend/tests/responseHelper.test.js` (nuevo — 17 tests unitarios)
+- `backend/tests/filterBuilder.test.js` (nuevo — 20 tests unitarios)
+
+### Relación con otros ADRs
+
+- **ADR-003** (DTOs): responseHelper preserva el contrato `{ success, data, pagination }` definido en DTOs. `sendPaginated` integra `toPaginatedDTOV1` como dependencia interna.
+- **ADR-013** (Errores centralizados): Los helpers de respuesta cubren el path de éxito; el errorHandler cubre el path de error. Juntos garantizan formato uniforme en el 100% de las respuestas HTTP.
+
+---
+
+## ADR-015: Patrón Repository completo con operaciones de escritura, transacciones y batch
+
+### Contexto (ADR-015)
+
+Los repositorios del proyecto implementaban un patrón Repository incompleto: solo exponían operaciones de lectura (`find`, `findById`, `findOne`, `count`) y creación (`create`). La auditoría identificó:
+
+- **~25 llamadas directas a `doc.save()`** en controllers y services, bypasseando la capa de abstracción
+- **Sin métodos de actualización ni eliminación** en los repositorios — los controllers usaban `Model.findByIdAndUpdate()` directamente
+- **Sin soporte de transacciones** — operaciones multi-documento no tenían garantía de atomicidad
+- **Sin operaciones batch** — la creación masiva de documentos (seeders, importaciones) usaba bucles con `create()` individual
+
+Esto violaba el principio de separación de responsabilidades: los controllers conocían detalles de Mongoose (`doc.save()`, opciones de `findByIdAndUpdate`), dificultando el testing y la eventual migración a otro ORM.
+
+**Tarea:** T-520 (consolida T-520 + T-533 + T-534)
+
+### Decisión (ADR-015)
+
+Se amplía el patrón Repository en 3 fases:
+
+**Fase A — Operaciones de escritura** en `baseRepository.js`:
+- `updateById(Model, id, update, options)` — Wrapper de `findByIdAndUpdate` con defaults seguros (`returnDocument: 'after'`, `runValidators: true`)
+- `updateOne(Model, filter, update, options)` — Wrapper de `findOneAndUpdate` con mismos defaults
+- `deleteById(Model, id)` — Wrapper de `findByIdAndDelete`
+- `deleteMany(Model, filter)` — Wrapper de `Model.deleteMany`
+
+Cada repositorio concreto (6 total) envuelve estas funciones con su Model bindeado, siguiendo el mismo patrón que `find`/`findById`:
+```js
+const updateById = (id, update, options = {}) => baseRepo.updateById(User, id, update, options);
+```
+
+**Fase B — Transacciones** con `utils/withTransaction.js`:
+- Patrón `session → startTransaction → callback(session) → commit/abort → endSession`
+- Logging automático de transacciones abortadas con Pino
+- Los métodos de `applyQueryOptions` ahora aceptan `session` como opción para pass-through a Mongoose
+
+**Fase C — Operaciones batch**:
+- `insertMany(Model, docs, options)` — Para creación masiva eficiente
+- `bulkWrite(Model, operations, options)` — Para operaciones mixtas atómicas
+- Expuestos en repositorios relevantes: `userRepository` (bulk student creation), `gamePlayRepository` (batch events), `cardDeckRepository` (batch mappings)
+
+**Decisión importante**: NO se migran controllers/services para usar los nuevos métodos en esta tarea. La migración se hará en tareas futuras para limitar el blast radius del cambio.
+
+### Alternativas Consideradas (ADR-015)
+
+1. **Clase BaseRepository con herencia**: Un `BaseRepository<T>` del que hereden los repositorios concretos. Rechazada porque el proyecto usa estilo funcional (módulos con funciones exportadas, sin clases) y la herencia añade complejidad innecesaria.
+2. **Mongoose plugins**: Registrar plugins en los schemas que expongan métodos CRUD. Rechazado porque acoplaría la lógica de repository al modelo y dificultaría el testing con mocks.
+3. **Active Record pattern (métodos en el documento)**: Ya lo hace Mongoose con `doc.save()`. Rechazado explícitamente porque queremos que el Repository sea la única puerta de acceso a datos, facilitando el testing y el audit trail.
+
+### Consecuencias (ADR-015)
+
+**Positivas:**
+- Los 6 repositorios ahora ofrecen CRUD completo + batch + transactions
+- Defaults seguros (`runValidators: true`) previenen escrituras que violen validaciones de Mongoose
+- El soporte de `session` permite transacciones sin romper la API existente (es opt-in via options)
+- Los controllers/services podrán migrar progresivamente sin breaking changes
+- `withTransaction` encapsula el boilerplate de session management (~15 LOC por transacción)
+
+**Negativas:**
+- Los métodos no se consumen aún en controllers/services (migración futura), creando API surface sin consumidores inmediatos
+- Las transacciones requieren replica set de MongoDB — en entornos standalone (desarrollo local sin Docker) no funcionarán. Se documenta el requisito y se testea con mocks
+- `returnDocument: 'after'` (Mongoose 9) reemplaza el deprecated `new: true` — los controllers que usen `findByIdAndUpdate` directamente podrían confundirse si ven ambos estilos
+
+### Archivos Afectados
+
+- `backend/src/repositories/baseRepository.js` — 7 funciones nuevas (updateById, updateOne, deleteById, deleteMany, insertMany, bulkWrite) + session support
+- `backend/src/repositories/userRepository.js` — 7 métodos nuevos expuestos
+- `backend/src/repositories/gamePlayRepository.js` — 7 métodos nuevos expuestos
+- `backend/src/repositories/gameSessionRepository.js` — 5 métodos nuevos (sin batch)
+- `backend/src/repositories/gameContextRepository.js` — 5 métodos nuevos (sin batch)
+- `backend/src/repositories/gameMechanicRepository.js` — 5 métodos nuevos (sin batch)
+- `backend/src/repositories/cardDeckRepository.js` — 7 métodos nuevos expuestos
+- `backend/src/utils/withTransaction.js` — Nuevo: utility de transacciones
+- `backend/tests/repositoryWriteOps.test.js` — Nuevo: tests de integración con MongoDB real
+- `backend/tests/withTransaction.test.js` — Nuevo: tests unitarios con mocks
+
+### Relación con otros ADRs
+
+- **ADR-005** (Persistencia atómica de eventos): `withTransaction` proporciona la infraestructura necesaria para operaciones multi-documento que ADR-005 abordaba a nivel de operador `$push + $inc`.
+- **ADR-006** (Lean reads): Los nuevos métodos de lectura heredan el soporte de `lean` existente en `applyQueryOptions`.
+
+---
+
+## ADR-016: Rate Limiting con Redis Store y protección de pause/resume
+
+### Contexto (ADR-016)
+
+La auditoría de seguridad del Sprint 5 identificó dos problemas en el rate limiting:
+
+1. **Store en memoria inadecuado para producción**: Los 6 rate limiters existentes (global, auth, register, createResource, event, upload) usaban el `MemoryStore` por defecto de `express-rate-limit`. Esto significa que:
+   - Cada instancia del servidor mantiene contadores independientes — con N instancias, un atacante puede hacer N × limit peticiones
+   - Los contadores se reinician al reiniciar el servidor
+   - No hay visibilidad centralizada de los rate limits
+
+2. **Pause/Resume sin protección**: Las acciones `POST /api/plays/:id/pause` y `POST /api/plays/:id/resume` no tenían rate limiting, a diferencia de `/events` (que ya usaba `eventRateLimiter`). Un cliente malicioso podría hacer spam de pause/resume para degradar el rendimiento del servidor.
+
+**Tarea:** T-521
+
+### Decisión (ADR-016)
+
+1. **Redis Store factory** en `config/security.js`:
+   - Se crea `createRedisStore(prefix)` que usa `rate-limit-redis` v4 con el cliente `ioredis` v5 existente
+   - Se integra en `createRateLimiter` para que **todos** los rate limiters usen Redis automáticamente sin modificar sus definiciones individuales
+   - Import lazy: `rate-limit-redis` se importa dentro de la factory para evitar errores si Redis no está configurado
+   - Adapter ioredis: `sendCommand: (...args) => client.call(...args)` según la documentación oficial de `rate-limit-redis` para ioredis
+
+2. **Fallback graceful**: Si Redis no está disponible (no conectado, error de módulo), `createRedisStore` retorna `undefined` y `express-rate-limit` usa su `MemoryStore` por defecto. Se loguea un warning para visibilidad.
+
+3. **Protección de Pause/Resume**: Se agrega `eventRateLimiter` (120 req/min por userId, key compuesta `user:${userId}` o `ip:${req.ip}`) a ambas rutas.
+
+4. **Prefijos separados**: Cada rate limiter tiene un prefijo único en Redis para evitar colisiones de keys:
+   - `rl:global:` — Rate limiter global
+   - `rl:auth:` — Autenticación (skipSuccessfulRequests)
+   - `rl:register:` — Registro de profesores
+   - `rl:create:` — Creación de recursos
+   - `rl:event:` — Eventos de juego + pause/resume
+   - `rl:upload:` — Subida de archivos
+
+### Alternativas Consideradas (ADR-016)
+
+1. **Rate limiter dedicado para pause/resume**: Crear un rate limiter específico más restrictivo (ej: 10 req/min). Rechazado porque pause/resume son acciones del mismo flujo de juego que events, y el `eventRateLimiter` existente (120 req/min) ya es adecuado.
+2. **Redis store a nivel de proxy (Nginx)**: Mover el rate limiting a Nginx con `ngx_http_limit_req_module`. Rechazado porque:
+   - Perdemos la key compuesta `user:${userId}` (Nginx solo conoce IP)
+   - En contexto escolar, muchos estudiantes comparten la misma IP (NAT del colegio)
+   - No podemos tener `skipSuccessfulRequests` en Nginx
+3. **Sliding window algorithm**: Implementar sliding window con Redis directamente (más preciso). Rechazado por complejidad innecesaria — `express-rate-limit` con fixed window es suficiente para el caso de uso educativo.
+
+### Consecuencias (ADR-016)
+
+**Positivas:**
+- Escalabilidad horizontal: los contadores de rate limiting se comparten entre todas las instancias del servidor
+- Persistencia de contadores: los rate limits sobreviven a reinicios del servidor
+- Pause/resume protegidos contra abuse
+- Zero-config: la integración es transparente — `createRateLimiter` inyecta el store automáticamente
+- Fallback seguro: el sistema funciona con MemoryStore si Redis cae
+
+**Negativas:**
+- Dependencia adicional: `rate-limit-redis` (1 package, ~50KB)
+- Latencia marginal: cada check de rate limit requiere un round-trip a Redis (~1ms en red local)
+- En desarrollo local sin Redis, se usa MemoryStore (comportamiento diferente al de producción)
+
+### Archivos Afectados
+
+- `backend/src/config/security.js` — `createRedisStore` factory, `createRateLimiter` ampliado, prefijos en 6 rate limiters
+- `backend/src/routes/plays.js` — `eventRateLimiter` agregado a pause (línea 137) y resume (línea 150)
+- `backend/package.json` — Nueva dependencia: `rate-limit-redis` v4.x
+
+### Relación con otros ADRs
+
+- **ADR-002** (WebSocket auth): El rate limiting HTTP complementa la protección del socketRateLimiter (definido en `socketRateLimits.js`) para cubrir ambos canales de comunicación.
+- **ADR-011** (Socket.IO Redis Adapter): La infraestructura Redis ya existe para Socket.IO adapter; reutilizarla para rate limiting es coherente y no añade nueva infraestructura.
+
+---
+
+## ADR-017: Endpoints de Analytics expandidos para Dashboard
+
+### Contexto (ADR-017)
+
+El dashboard frontend depende de datos de analytics para visualizar KPIs, distribuciones de rendimiento y progreso de estudiantes. En el estado previo, solo existían 5 endpoints básicos:
+- `/classroom/summary` — KPIs básicos (studentsInRisk, averageScore, totalGames, gamesToday)
+- `/classroom/comparison` — Promedio diario de clase por fecha
+- `/classroom/difficulties` — Error rate por contexto/mecánica
+- `/student/:id/progress` — Evolución temporal del score
+- `/student/:id/difficulties` — Dificultades individuales
+
+Estos endpoints eran insuficientes para las mejoras de dashboard planificadas (T-602 a T-606):
+- **T-602**: Necesita lista de estudiantes con métricas y tier → No existe endpoint
+- **T-603**: Necesita distribución de rendimiento → No existe endpoint
+- **T-604**: Necesita trends comparativos → No existe endpoint
+- **T-606**: Necesita resumen completo de estudiante → No existe endpoint
+
+**Tarea:** T-601
+
+### Decisión (ADR-017)
+
+Se crean **6 nuevos endpoints** de analytics, manteniendo el patrón existente (auth + role middleware, Zod validators, asyncHandler, DTOs):
+
+| Endpoint | Descripción | Datos fuente |
+|----------|-------------|--------------|
+| `GET /classroom/students` | Lista estudiantes con métricas, tier, accuracyRate | `User` (studentMetrics) |
+| `GET /classroom/distribution` | Distribución en 4 rangos | `User` (studentMetrics.averageScore) |
+| `GET /classroom/trends` | Comparación período actual vs anterior, 6 KPIs | `GamePlay` (aggregation) + `User` |
+| `GET /student/:id/summary` | Resumen completo con últimas partidas, contextos, mecánicas | `GamePlay` ($facet) + `User` |
+| `GET /classroom/heatmap` | Actividad por día de semana × hora | `GamePlay` ($dayOfWeek, $hour) |
+| `GET /classroom/rankings` | Top N contextos y mecánicas | `GamePlay` (aggregation) |
+
+**Decisiones de diseño clave:**
+
+1. **User.studentMetrics vs agregación en tiempo real**: Los endpoints de `/classroom/students` y `/classroom/distribution` usan `User.studentMetrics` (datos pre-agregados, actualizados atómicamente con `$inc` al completar cada partida). Esto evita pipelines pesados de agregación sobre la colección `gameplays` para operaciones frecuentes. Los endpoints de `/trends`, `/heatmap` y `/rankings` sí usan agregación porque sus datos son inherentemente temporales y no se pre-computan.
+
+2. **$facet para student summary**: El endpoint `/student/:id/summary` usa un pipeline con `$facet` que ejecuta 4 sub-pipelines en un solo round-trip a MongoDB (lastGames, byContext, byMechanic, overallStats). La comparativa con la clase es una query separada a `User` (simple, sin agregación). Total: 2 queries por request en vez de 5+.
+
+3. **Clasificación de tiers**: Rangos fijos basados en `averageScore`:
+   - `risk`: 0-49 (rojo) — Estudiantes que necesitan intervención
+   - `average`: 50-69 (amarillo) — Rendimiento básico
+   - `good`: 70-89 (azul) — Buen rendimiento
+   - `excellent`: 90-100 (verde) — Rendimiento excepcional
+
+   Se eligieron rangos fijos en vez de percentiles porque el profesor debe poder interpretar los tiers de forma absoluta, no relativa a la clase.
+
+4. **Endpoints extra (heatmap y rankings)**: No estaban en la especificación original pero añaden valor significativo al dashboard:
+   - Heatmap permite al profesor identificar las franjas horarias de mayor actividad → optimizar planificación
+   - Rankings permite identificar qué contenidos son más utilizados y efectivos → informar decisiones pedagógicas
+
+5. **accuracyRate calculado**: Se calcula como `totalCorrectAnswers / (totalCorrectAnswers + totalErrors) * 100`. Es un campo derivado, no almacenado, para evitar inconsistencias con los contadores atómicos.
+
+### Alternativas Consideradas (ADR-017)
+
+1. **GraphQL para analytics**: Un endpoint GraphQL que permita al frontend construir queries flexibles. Rechazado por:
+   - Añade una dependencia y paradigma nuevo al proyecto (solo REST)
+   - Los pipelines de agregación de MongoDB no se mapean bien a resolvers GraphQL
+   - Para un TFG, la complejidad no se justifica
+
+2. **Materialización en colección separada**: Pre-computar los datos de analytics en una colección `analytics_snapshots` con un cron job. Rechazado porque:
+   - Añade lag (los datos no son en tiempo real)
+   - Requiere infraestructura adicional (cron/scheduler)
+   - Los volúmenes actuales (cientos de partidas, no millones) no lo justifican
+
+3. **Calcular tiers con percentiles (curva normal)**: En vez de rangos fijos, usar percentiles de la distribución real. Rechazado porque:
+   - Con pocos estudiantes (5-30), los percentiles son inestables
+   - El profesor espera interpretar "70% = bueno" de forma absoluta
+
+### Consecuencias (ADR-017)
+
+**Positivas:**
+- Desbloquea las tareas T-602 a T-606 del dashboard frontend
+- Los endpoints usan datos pre-agregados cuando es posible, manteniendo buen rendimiento
+- El patrón $facet reduce round-trips a MongoDB
+- Validación Zod estricta en todos los endpoints (sort, order, tier, timeRange, limit)
+- Ownership check reutilizado (`ensureStudentOwnership`) para endpoints de estudiante individual
+- 16 tests de integración con supertest
+
+**Negativas:**
+- Los pipelines de agregación son complejos y difíciles de debuggear (especialmente el $facet de student summary)
+- La clasificación de tiers está hardcodeada en el service — si el profesor quiere personalizar los rangos, requiere cambio de código
+- Los endpoints de trends hacen 2 queries (aggregation + User.count para studentsInRisk), lo que podría optimizarse con un pipeline combinado
+
+### Archivos Afectados
+
+- `backend/src/services/analyticsService.js` — 6 funciones nuevas (getClassroomStudents, getClassroomDistribution, getClassroomTrends, getStudentSummary, getClassroomHeatmap, getTopContextsAndMechanics)
+- `backend/src/controllers/analyticsController.js` — 6 handlers nuevos + helper `ensureStudentOwnership`
+- `backend/src/routes/analytics.js` — 6 rutas nuevas con validators y asyncHandler
+- `backend/src/validators/analyticsValidator.js` — 6 schemas Zod nuevos
+- `backend/tests/analyticsEndpoints.test.js` — 16 tests de integración
+
+### Relación con otros ADRs
+
+- **ADR-003** (DTOs): Los nuevos endpoints usan `sendSuccess` de responseHelper (ADR-014) que preserva el contrato de DTOs.
+- **ADR-005** (Persistencia atómica): Los datos de `studentMetrics` que consumen estos endpoints son actualizados atómicamente por los operadores `$inc`/`$push` definidos en ADR-005.
+- **ADR-013** (Errores centralizados): Los handlers usan `asyncHandler` y lanzan `NotFoundError`/`ForbiddenError` que fluyen por el errorHandler centralizado.
+- **ADR-014** (responseHelper): Los nuevos controllers usan `sendSuccess` en vez de `res.json()` manual.

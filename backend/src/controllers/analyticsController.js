@@ -6,6 +6,7 @@
 const analyticsService = require('../services/analyticsService');
 const userRepository = require('../repositories/userRepository');
 const { ForbiddenError, NotFoundError } = require('../utils/errors');
+const { sendSuccess } = require('../utils/responseHelper');
 
 /**
  * Obtiene el progreso temporal de un estudiante.
@@ -101,4 +102,99 @@ exports.getClassroomDifficulties = async (req, res) => {
     success: true,
     data: difficulties
   });
+};
+
+// ══════════════════════════════════════════════════════════════════════
+// Nuevos handlers (T-601)
+// ══════════════════════════════════════════════════════════════════════
+
+/**
+ * Verifica que el profesor tiene acceso al estudiante.
+ * @private
+ */
+const ensureStudentOwnership = async (req, studentId) => {
+  if (req.user.role === 'teacher') {
+    const student = await userRepository.findById(studentId, { select: 'createdBy' });
+    if (!student) {
+      throw new NotFoundError('Alumno');
+    }
+    if (student.createdBy?.toString() !== req.user._id.toString()) {
+      throw new ForbiddenError('No tienes permiso para ver este alumno');
+    }
+  }
+};
+
+/**
+ * Lista de estudiantes con métricas agregadas.
+ * @route GET /api/analytics/classroom/students
+ */
+exports.getClassroomStudents = async (req, res) => {
+  const teacherId = req.user._id.toString();
+  const { sort, order, tier, classroom } = req.query;
+
+  const data = await analyticsService.getClassroomStudents(teacherId, {
+    sort,
+    order,
+    tier,
+    classroom
+  });
+
+  sendSuccess(res, data);
+};
+
+/**
+ * Distribución de rendimiento en 4 rangos.
+ * @route GET /api/analytics/classroom/distribution
+ */
+exports.getClassroomDistribution = async (req, res) => {
+  const teacherId = req.user._id.toString();
+  const data = await analyticsService.getClassroomDistribution(teacherId);
+  sendSuccess(res, data);
+};
+
+/**
+ * Tendencias período-sobre-período.
+ * @route GET /api/analytics/classroom/trends
+ */
+exports.getClassroomTrends = async (req, res) => {
+  const teacherId = req.user._id.toString();
+  const { timeRange } = req.query;
+  const data = await analyticsService.getClassroomTrends(teacherId, timeRange);
+  sendSuccess(res, data);
+};
+
+/**
+ * Resumen completo de un estudiante.
+ * @route GET /api/analytics/student/:id/summary
+ */
+exports.getStudentSummary = async (req, res) => {
+  const { id } = req.params;
+  const { timeRange } = req.query;
+
+  await ensureStudentOwnership(req, id);
+
+  const data = await analyticsService.getStudentSummary(id, timeRange);
+  sendSuccess(res, data);
+};
+
+/**
+ * Mapa de calor de actividad.
+ * @route GET /api/analytics/classroom/heatmap
+ */
+exports.getClassroomHeatmap = async (req, res) => {
+  const teacherId = req.user._id.toString();
+  const { timeRange } = req.query;
+  const data = await analyticsService.getClassroomHeatmap(teacherId, timeRange);
+  sendSuccess(res, data);
+};
+
+/**
+ * Top contextos y mecánicas.
+ * @route GET /api/analytics/classroom/rankings
+ */
+exports.getClassroomRankings = async (req, res) => {
+  const teacherId = req.user._id.toString();
+  const { timeRange, limit } = req.query;
+  const data = await analyticsService.getTopContextsAndMechanics(teacherId, timeRange, limit);
+  sendSuccess(res, data);
 };

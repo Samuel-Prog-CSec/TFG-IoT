@@ -13,7 +13,8 @@ const {
   ForbiddenError
 } = require('../utils/errors');
 const logger = require('../utils/logger');
-const { toCardDeckDetailDTOV1, toCardDeckListDTOV1, toPaginatedDTOV1 } = require('../utils/dtos');
+const { toCardDeckDetailDTOV1, toCardDeckListDTOV1 } = require('../utils/dtos');
+const { sendSuccess, sendCreated, sendPaginated } = require('../utils/responseHelper');
 const { escapeRegex } = require('../utils/escapeRegex');
 
 /**
@@ -134,13 +135,10 @@ const getDecks = async (req, res) => {
     resultsCount: decks.length
   });
 
-  res.json({
-    success: true,
-    ...toPaginatedDTOV1(toCardDeckListDTOV1(decks), {
-      page: Number.parseInt(page, 10),
-      limit: Number.parseInt(limit, 10),
-      total
-    })
+  sendPaginated(res, toCardDeckListDTOV1(decks), {
+    page: Number.parseInt(page, 10),
+    limit: Number.parseInt(limit, 10),
+    total
   });
 };
 
@@ -165,10 +163,7 @@ const getDeckById = async (req, res) => {
     throw new ForbiddenError('No tienes permiso para ver este mazo');
   }
 
-  res.json({
-    success: true,
-    data: toCardDeckDetailDTOV1(deck)
-  });
+  sendSuccess(res, toCardDeckDetailDTOV1(deck));
 };
 
 /**
@@ -223,11 +218,7 @@ const createDeck = async (req, res) => {
       createdBy: req.user._id
     });
 
-    res.status(201).json({
-      success: true,
-      message: 'Mazo creado exitosamente',
-      data: toCardDeckDetailDTOV1(deck)
-    });
+    sendCreated(res, toCardDeckDetailDTOV1(deck), 'Mazo creado exitosamente');
   } catch (error) {
     // Duplicado por índice único (createdBy + name)
     if (error?.code === 11000) {
@@ -331,11 +322,7 @@ const updateDeck = async (req, res) => {
       updatedBy: req.user._id
     });
 
-    res.json({
-      success: true,
-      message: 'Mazo actualizado exitosamente',
-      data: toCardDeckDetailDTOV1(deck)
-    });
+    sendSuccess(res, toCardDeckDetailDTOV1(deck), 'Mazo actualizado exitosamente');
   } catch (error) {
     if (error?.code === 11000) {
       throw new ConflictError('Ya existe un mazo con ese nombre');
@@ -369,10 +356,7 @@ const deleteDeck = async (req, res) => {
     archivedBy: req.user._id
   });
 
-  res.json({
-    success: true,
-    message: 'Mazo eliminado (archivado) exitosamente'
-  });
+  sendSuccess(res, null, 'Mazo eliminado (archivado) exitosamente');
 };
 
 module.exports = {

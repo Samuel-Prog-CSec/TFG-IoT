@@ -24,34 +24,27 @@ const { escapeRegex } = require('../utils/escapeRegex');
 const { revokeAllUserTokens } = require('../middlewares/auth');
 const { disconnectUserSockets } = require('../utils/socketUtils');
 const { getRequestContext, logSecurityEvent } = require('../utils/securityLogger');
+const { buildFilter } = require('../utils/filterBuilder');
 
-const buildUsersFilter = ({ role, classroom, status, search, requester }) => {
-  const filter = {};
-
-  if (role) {
-    filter.role = role;
+/**
+ * Mappings para construir filtros de búsqueda de usuarios.
+ * Utiliza el filterBuilder genérico para reducir boilerplate.
+ * @see utils/filterBuilder.js
+ */
+const userFilterMappings = {
+  role: { field: 'role', type: 'exact' },
+  classroom: { field: 'profile.classroom', type: 'exact' },
+  status: { field: 'status', type: 'exact' },
+  search: { type: 'search', fields: ['name', 'email'] },
+  requester: {
+    type: 'computed',
+    compute: (requester, filter) => {
+      if (requester.role === 'teacher') {
+        filter.role = 'student';
+        filter.createdBy = requester._id;
+      }
+    }
   }
-  if (classroom) {
-    filter['profile.classroom'] = classroom;
-  }
-  if (status) {
-    filter.status = status;
-  }
-
-  if (search) {
-    const safeSearch = escapeRegex(search);
-    filter.$or = [
-      { name: { $regex: safeSearch, $options: 'i' } },
-      { email: { $regex: safeSearch, $options: 'i' } }
-    ];
-  }
-
-  if (requester.role === 'teacher') {
-    filter.role = 'student';
-    filter.createdBy = requester._id;
-  }
-
-  return filter;
 };
 
 const ensureSuperAdmin = user => {
@@ -100,13 +93,10 @@ const getUsers = async (req, res) => {
     search
   } = req.query;
 
-  const filter = buildUsersFilter({
-    role,
-    classroom,
-    status,
-    search,
-    requester: req.user
-  });
+  const filter = buildFilter(
+    { role, classroom, status, search, requester: req.user },
+    userFilterMappings
+  );
 
   // Paginación
   const skip = (page - 1) * limit;

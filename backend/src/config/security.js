@@ -11,13 +11,59 @@ const { ForbiddenError } = require('../utils/errors');
 
 const isTestEnv = () => process.env.NODE_ENV === 'test' || typeof globalThis.it === 'function';
 
-// Helper para crear rate limiters que se deshabilitan en tests
+/**
+ * Crea un Redis store para express-rate-limit.
+ * Usa carga lazy de rate-limit-redis y getRedis() de config/redis.
+ * Si Redis no está disponible, retorna undefined para fallback a MemoryStore.
+ *
+ * @param {string} [prefix='default'] - Prefijo para las keys de rate limiting en Redis
+ * @returns {Object|undefined} RedisStore instance o undefined (fallback in-memory)
+ */
+const createRedisStore = (prefix = 'default') => {
+  if (isTestEnv()) {
+    return undefined;
+  }
+
+  try {
+    // Import lazy: evita errores si Redis no está configurado
+    const { getRedis } = require('./redis');
+    const client = getRedis();
+
+    if (!client) {
+      logger.warn('Rate limiter: Redis no disponible, usando store en memoria', { prefix });
+      return undefined;
+    }
+
+    const { RedisStore } = require('rate-limit-redis');
+    return new RedisStore({
+      sendCommand: (...args) => client.call(...args),
+      prefix: `rl:${prefix}:`
+    });
+  } catch (error) {
+    logger.warn('Rate limiter: Error creando Redis store, fallback a memoria', {
+      prefix,
+      error: error.message
+    });
+    return undefined;
+  }
+};
+
+/**
+ * Helper para crear rate limiters que se deshabilitan en tests
+ * y usan Redis store en producción cuando está disponible.
+ *
+ * @param {Object} options - Opciones de express-rate-limit + { prefix } para Redis key
+ * @returns {Function} Middleware de rate limiting
+ */
 const createRateLimiter = options => {
-  // Check NODE_ENV or existence of Jest global 'it'
   if (isTestEnv()) {
     return (req, res, next) => next();
   }
-  return rateLimit(options);
+  const { prefix, ...rateLimitOptions } = options;
+  return rateLimit({
+    ...rateLimitOptions,
+    store: rateLimitOptions.store || createRedisStore(prefix || 'global')
+  });
 };
 
 /**
@@ -237,6 +283,7 @@ const globalMax = isDev
   : Number.parseInt(process.env.RATE_LIMIT_MAX_REQUESTS, 10) || 100;
 
 const globalRateLimiter = createRateLimiter({
+  prefix: 'global',
   windowMs: globalWindowMs,
   max: globalMax,
   message: {
@@ -247,8 +294,6 @@ const globalRateLimiter = createRateLimiter({
   legacyHeaders: false, // Deshabilitar headers `X-RateLimit-*`
   skipSuccessfulRequests: false,
   skipFailedRequests: false
-  // Opcional: Usar Redis store en producción
-  // store: new RedisStore({ client: redisClient })
 });
 
 /**
@@ -258,6 +303,7 @@ const globalRateLimiter = createRateLimiter({
  * @type {import('express-rate-limit').RateLimitRequestHandler}
  */
 const authRateLimiter = createRateLimiter({
+  prefix: 'auth',
   windowMs: Number.parseInt(process.env.RATE_LIMIT_AUTH_WINDOW_MS, 10) || 15 * 60 * 1000,
   max: isDev
     ? Number.parseInt(process.env.RATE_LIMIT_AUTH_MAX_REQUESTS_DEV, 10) || 400
@@ -278,6 +324,7 @@ const authRateLimiter = createRateLimiter({
  * @type {import('express-rate-limit').RateLimitRequestHandler}
  */
 const registerRateLimiter = createRateLimiter({
+  prefix: 'register',
   windowMs: Number.parseInt(process.env.RATE_LIMIT_REGISTER_WINDOW_MS, 10) || 60 * 60 * 1000,
   max: Number.parseInt(process.env.RATE_LIMIT_REGISTER_MAX_REQUESTS, 10) || (isDev ? 50 : 3),
   message: {
@@ -295,6 +342,7 @@ const registerRateLimiter = createRateLimiter({
  * @type {import('express-rate-limit').RateLimitRequestHandler}
  */
 const createResourceRateLimiter = createRateLimiter({
+  prefix: 'create',
   windowMs: Number.parseInt(process.env.RATE_LIMIT_CREATE_WINDOW_MS, 10) || 60 * 1000,
   max: Number.parseInt(process.env.RATE_LIMIT_CREATE_MAX_REQUESTS, 10) || (isDev ? 200 : 10),
   message: {
@@ -317,6 +365,7 @@ const createResourceRateLimiter = createRateLimiter({
  * @type {import('express-rate-limit').RateLimitRequestHandler}
  */
 const eventRateLimiter = createRateLimiter({
+  prefix: 'event',
   windowMs: 60 * 1000, // 1 minuto
   max: 120, // 120 eventos por minuto (2 por segundo - permite ráfagas rápidas)
   message: {
@@ -339,6 +388,7 @@ const eventRateLimiter = createRateLimiter({
  * @type {import('express-rate-limit').RateLimitRequestHandler}
  */
 const uploadRateLimiter = createRateLimiter({
+  prefix: 'upload',
   windowMs: 60 * 60 * 1000, // 1 hora
   max: 20, // 20 uploads por hora
   message: {

@@ -112,7 +112,7 @@ Tres problemas relacionados con el flujo de errores:
 
 ---
 
-### T-601: 📊 Backend — Nuevos endpoints de analytics para dashboards 📋
+### T-601: 📊 Backend — Nuevos endpoints de analytics para dashboards ✅
 
 **Prioridad:** P0 | **Tamaño:** L (1-2 días) | **Dependencias:** T-516 (recomendado: usar asyncHandler y errorHandler unificado)
 **Origen:** Dashboard frontend necesita datos que actualmente no existen en la API
@@ -160,14 +160,15 @@ El dashboard actual depende de 3 endpoints (`/classroom/summary`, `/classroom/co
 
 **Criterios de Aceptación:**
 
-- [ ] `GET /api/analytics/classroom/students` retorna lista con métricas
-- [ ] `GET /api/analytics/classroom/distribution` retorna distribución en 4 rangos
-- [ ] `GET /api/analytics/classroom/trends?timeRange=7d` retorna trends con cambio porcentual
-- [ ] `GET /api/analytics/student/:id/summary` retorna resumen completo
-- [ ] Todos requieren autenticación y rol teacher/super_admin
-- [ ] Validación Zod aplicada en todos los endpoints
-- [ ] Tests unitarios para cada nuevo pipeline de agregación
-- [ ] `npm test` pasa en backend sin regresiones
+- [x] `GET /api/analytics/classroom/students` retorna lista con métricas
+- [x] `GET /api/analytics/classroom/distribution` retorna distribución en 4 rangos
+- [x] `GET /api/analytics/classroom/trends?timeRange=7d` retorna trends con cambio porcentual
+- [x] `GET /api/analytics/student/:id/summary` retorna resumen completo
+- [x] Todos requieren autenticación y rol teacher/super_admin
+- [x] Validación Zod aplicada en todos los endpoints
+- [x] Tests de integración para cada nuevo endpoint
+- [x] `npm test` pasa en backend sin regresiones
+- [x] Endpoints extra: `GET /classroom/heatmap` y `GET /classroom/rankings`
 
 ---
 
@@ -576,7 +577,7 @@ Aplicar tabla de mapeo estándar de tokens semánticos en cada caso.
 
 ---
 
-### T-519: 🔧 Utilidades backend reutilizables (responseHelper, filterBuilder) 📋
+### T-519: 🔧 Utilidades backend reutilizables (responseHelper, filterBuilder) ✅
 
 **Consolida:** T-519 + T-530
 **Prioridad:** P1 | **Tamaño:** L (1-2 días) | **Dependencias:** T-516
@@ -605,20 +606,20 @@ Dos utilidades para reducir boilerplate en controllers:
 
 **Criterios de Aceptación:**
 
-- [ ] `utils/responseHelper.js` creado con funciones documentadas
-- [ ] Al menos un controller migrado y usando el helper
-- [ ] Respuestas mantienen el mismo formato JSON (retrocompatibilidad)
-- [ ] El frontend no necesita cambios
-- [ ] `utils/filterBuilder.js` creado con soporte para los 5 tipos
-- [ ] Al menos un controller migrado al filterBuilder
-- [ ] Builder escapa valores regex automáticamente
-- [ ] Tests unitarios para ambas utilidades
+- [x] `utils/responseHelper.js` creado con funciones documentadas
+- [x] Al menos un controller migrado y usando el helper
+- [x] Respuestas mantienen el mismo formato JSON (retrocompatibilidad)
+- [x] El frontend no necesita cambios
+- [x] `utils/filterBuilder.js` creado con soporte para los 5 tipos
+- [x] Al menos un controller migrado al filterBuilder
+- [x] Builder escapa valores regex automáticamente
+- [x] Tests unitarios para ambas utilidades
 
 **Archivos afectados:** `backend/src/utils/responseHelper.js` (nuevo), `backend/src/utils/filterBuilder.js` (nuevo), `backend/src/utils/dtos.js`, `backend/src/controllers/cardController.js` (piloto responseHelper), `backend/src/controllers/userController.js` (piloto filterBuilder)
 
 ---
 
-### T-520: 🔧 Completar el patrón Repository (write ops, transacciones, batch) 📋
+### T-520: 🔧 Completar el patrón Repository (write ops, transacciones, batch) ✅
 
 **Consolida:** T-520 + T-533 + T-534
 **Prioridad:** P1 | **Tamaño:** XL (> 2 días) | **Dependencias:** Ninguna
@@ -652,23 +653,23 @@ Los repositorios carecen de métodos de actualización y eliminación. Esta tare
 
 **Criterios de Aceptación:**
 
-- [ ] `baseRepository.js` tiene funciones genéricas de update/delete
-- [ ] Los 7 repositorios exponen `updateById`, `updateOne`, `deleteById`, `deleteMany`
-- [ ] Métodos de update soportan mismas opciones que lectura
-- [ ] Tests unitarios cubren CRUD completo
-- [ ] Tests existentes pasan sin regresiones
-- [ ] `utils/withTransaction.js` creado y documentado
-- [ ] Métodos del repository aceptan `session` como opción
-- [ ] Test demuestra commit y rollback
-- [ ] Documentación sobre requisitos de replica set
-- [ ] `insertMany` y `bulkWrite` disponibles en repository base
-- [ ] Al menos 3 repositorios concretos los exponen
+- [x] `baseRepository.js` tiene funciones genéricas de update/delete
+- [x] Los 6 repositorios exponen `updateById`, `updateOne`, `deleteById`, `deleteMany`
+- [x] Métodos de update soportan mismas opciones que lectura
+- [x] Tests unitarios cubren CRUD completo
+- [x] Tests existentes pasan sin regresiones
+- [x] `utils/withTransaction.js` creado y documentado
+- [x] Métodos del repository aceptan `session` como opción
+- [x] Test demuestra commit y rollback
+- [x] Documentación sobre requisitos de replica set
+- [x] `insertMany` y `bulkWrite` disponibles en repository base
+- [x] Al menos 3 repositorios concretos los exponen
 
 **Archivos afectados:** `backend/src/repositories/baseRepository.js`, `backend/src/repositories/*.js`, `backend/src/utils/withTransaction.js` (nuevo)
 
 ---
 
-### T-521: 🔧 Rate limiting en acciones de play y migración a Redis store 📋
+### T-521: 🔧 Rate limiting en acciones de play y migración a Redis store ✅
 
 **Prioridad:** P1 | **Tamaño:** M (4-8h) | **Dependencias:** Ninguna
 **Origen:** Auditoría — pause/resume sin rate limiting; store in-memory no apto para horizontal scaling
@@ -686,11 +687,11 @@ Las acciones de pause/resume carecen de rate limiting. Todos los rate limiters u
 
 **Criterios de Aceptación:**
 
-- [ ] `/api/plays/:id/pause` y `resume` tienen rate limiting
-- [ ] En producción, rate limiters usan Redis
-- [ ] En desarrollo/test, usan in-memory
-- [ ] Degradación graceful si Redis no disponible
-- [ ] Tests cubren nuevos rate limits
+- [x] `/api/plays/:id/pause` y `resume` tienen rate limiting
+- [x] En producción, rate limiters usan Redis
+- [x] En desarrollo/test, usan in-memory
+- [x] Degradación graceful si Redis no disponible
+- [x] Tests cubren nuevos rate limits
 
 **Archivos afectados:** `backend/src/routes/plays.js`, `backend/src/config/security.js`, `backend/package.json`
 
