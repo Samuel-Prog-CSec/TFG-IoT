@@ -57,7 +57,7 @@ const createGameMechanicSchema = z
 
     icon: z.string().trim().optional(),
 
-    rules: z.record(z.any()).optional().default({}),
+    rules: z.record(z.string(), z.any()).optional().default({}),
 
     isActive: z.boolean().default(true)
   })

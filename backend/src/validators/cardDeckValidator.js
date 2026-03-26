@@ -30,7 +30,7 @@ const cardDeckMappingSchema = z
       .max(200, 'El valor asignado no puede exceder 200 caracteres')
       .trim(),
 
-    displayData: z.record(z.any()).optional().default({})
+    displayData: z.record(z.string(), z.any()).optional().default({})
   })
   .strict();
 

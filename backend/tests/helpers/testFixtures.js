@@ -37,4 +37,45 @@ function createTestCardMappings(count = 2, options = {}) {
   }));
 }
 
-module.exports = { createTestCardMappings };
+/**
+ * Genera un boardLayout a partir de cardMappings.
+ * Cada slot recibe slotIndex secuencial y uid/assignedValue/displayData del mapping.
+ *
+ * @param {Object[]} cardMappings - Mappings generados con createTestCardMappings
+ * @returns {Object[]} Array de boardLayout items
+ */
+function createTestBoardLayout(cardMappings) {
+  return (cardMappings || []).map((m, i) => ({
+    slotIndex: i,
+    uid: m.uid,
+    assignedValue: m.assignedValue,
+    displayData: m.displayData || {}
+  }));
+}
+
+/**
+ * Genera un associationChallengePlan a partir de cardMappings.
+ * Cicla round-robin sobre los mappings para cubrir numberOfRounds.
+ *
+ * @param {Object[]} cardMappings - Mappings generados con createTestCardMappings
+ * @param {number} numberOfRounds - Número de rondas del plan
+ * @returns {Object[]} Array de challenge items
+ */
+function createTestAssociationPlan(cardMappings, numberOfRounds) {
+  const mappings = cardMappings || [];
+  if (mappings.length === 0 || numberOfRounds < 1) {
+    return [];
+  }
+
+  return Array.from({ length: numberOfRounds }, (_, i) => {
+    const m = mappings[i % mappings.length];
+    return {
+      roundNumber: i + 1,
+      uid: m.uid,
+      assignedValue: m.assignedValue,
+      displayData: m.displayData || {}
+    };
+  });
+}
+
+module.exports = { createTestCardMappings, createTestBoardLayout, createTestAssociationPlan };
