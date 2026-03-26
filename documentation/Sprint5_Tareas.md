@@ -4,7 +4,7 @@
 **Autor:** Samuel Blanchart Pérez
 **Duración:** 4-6 semanas (Marzo - Abril 2026)
 **Versión objetivo:** 1.0.0
-**Última actualización:** 24-03-2026 (T-503, T-507, T-512, T-608, T-609, T-611 completadas)
+**Última actualización:** 26-03-2026 (T-802, T-803, T-804, T-806, T-807 completadas — eje RFID Cards 100%)
 
 ---
 
@@ -423,7 +423,7 @@ Redactar el ADR-012 en `backend/docs/Architecture_Decisions.md` documentando la 
 
 ---
 
-### T-802: 🃏 Backend — Eliminar `cardId` de esquemas Mongoose y validadores Zod 📋
+### T-802: 🃏 Backend — Eliminar `cardId` de esquemas Mongoose y validadores Zod ✅
 
 **Prioridad:** P0 | **Tamaño:** M (4-8h) | **Dependencias:** T-801
 **Origen:** ADR-012 — Fase 1 (modelos) y Fase 2 (validadores) del plan de implementación
@@ -446,18 +446,18 @@ Eliminar el campo `cardId` (ObjectId, ref Card) de todos los esquemas Mongoose y
 
 **Criterios de Aceptación:**
 
-- [ ] `CardDeck.cardMappings` no contiene campo `cardId`
-- [ ] `GameSession.cardMappings`, `boardLayout` y `associationChallengePlan` no contienen `cardId`
-- [ ] Validador de boardLayout en GameSession usa `uid` en vez de `cardId`
-- [ ] Validadores Zod no requieren `cardId` en ningún mapping schema
-- [ ] Validación de unicidad de UIDs dentro de un mazo se mantiene
-- [ ] `npm run lint` pasa en backend
+- [x] `CardDeck.cardMappings` no contiene campo `cardId`
+- [x] `GameSession.cardMappings`, `boardLayout` y `associationChallengePlan` no contienen `cardId`
+- [x] Validador de boardLayout en GameSession usa `uid` en vez de `cardId`
+- [x] Validadores Zod no requieren `cardId` en ningún mapping schema
+- [x] Validación de unicidad de UIDs dentro de un mazo se mantiene
+- [x] `npm run lint` pasa en backend
 
 **Archivos afectados:** `backend/src/models/CardDeck.js`, `backend/src/models/GameSession.js`, `backend/src/validators/cardDeckValidator.js`, `backend/src/validators/gameSessionValidator.js`
 
 ---
 
-### T-803: 🃏 Backend — Refactorizar lógica de negocio y DTOs sin Card 📋
+### T-803: 🃏 Backend — Refactorizar lógica de negocio y DTOs sin Card ✅
 
 **Prioridad:** P0 | **Tamaño:** L (1-2 días) | **Dependencias:** T-802
 **Origen:** ADR-012 — Fases 3 (lógica) y 4 (DTOs) del plan de implementación
@@ -499,13 +499,13 @@ Eliminar toda la lógica que valida existencia de tarjetas contra la colección 
 
 **Criterios de Aceptación:**
 
-- [ ] `cardDeckController` no importa `cardRepository` ni valida existencia de cartas
-- [ ] `gameSessionService` no importa `cardRepository` ni valida cartas
-- [ ] Todos los lookups de mappings en `sessionValidationHelpers` usan `uid` como key
-- [ ] DTOs de Card eliminados de `dtos.js`
-- [ ] DTOs de mapping/boardLayout/associationPlan no contienen `cardId`
-- [ ] `POST /api/decks` funciona con mappings que solo tienen `uid` (sin `cardId`)
-- [ ] `npm run lint` pasa en backend
+- [x] `cardDeckController` no importa `cardRepository` ni valida existencia de cartas
+- [x] `gameSessionService` no importa `cardRepository` ni valida cartas
+- [x] Todos los lookups de mappings en `sessionValidationHelpers` usan `uid` como key
+- [x] DTOs de Card eliminados de `dtos.js`
+- [x] DTOs de mapping/boardLayout/associationPlan no contienen `cardId`
+- [x] `POST /api/decks` funciona con mappings que solo tienen `uid` (sin `cardId`)
+- [x] `npm run lint` pasa en backend
 
 **Archivos afectados:** `backend/src/controllers/cardDeckController.js`, `backend/src/services/gameSessionService.js`, `backend/src/controllers/helpers/sessionValidationHelpers.js`, `backend/src/controllers/gameSessionController.js`, `backend/src/services/gameEngine.js`, `backend/src/utils/dtos.js`
 
@@ -1046,7 +1046,7 @@ No existe forma de exportar los datos personales de un estudiante en formato est
 
 ---
 
-### T-804: 🃏 Backend — Eliminar infraestructura de Card y actualizar seeders 📋
+### T-804: 🃏 Backend — Eliminar infraestructura de Card y actualizar seeders ✅
 
 **Consolida:** T-804 + T-805
 **Prioridad:** P1 | **Tamaño:** L (1-2 días) | **Dependencias:** T-803
@@ -1088,25 +1088,25 @@ Eliminar completamente los 9 archivos de la capa Card y limpiar las referencias 
 
 **Criterios de Aceptación:**
 
-- [ ] Los 9 archivos listados no existen en el repositorio
-- [ ] `server.js` no tiene rutas `/api/cards`
-- [ ] Máquina de estados RFID no tiene modo `CARD_REGISTRATION`
-- [ ] Modo `CARD_ASSIGNMENT` sigue funcionando (no se elimina)
-- [ ] `GET /api/cards` devuelve 404 (ruta no encontrada)
-- [ ] El servidor arranca sin errores
-- [ ] `npm run seed:reset` ejecuta exitosamente sin modelo Card
-- [ ] Los mazos generados tienen UIDs sintéticos válidos (formato `AA00XXXX`)
-- [ ] Las sesiones generadas no contienen campo `cardId` en mappings
-- [ ] El pipeline de seeding no referencia la colección `cards`
-- [ ] `npm run lint` pasa en backend
-- [ ] `npm test` pasa en backend
+- [x] Los 9 archivos listados no existen en el repositorio
+- [x] `server.js` no tiene rutas `/api/cards`
+- [x] Máquina de estados RFID no tiene modo `CARD_REGISTRATION`
+- [x] Modo `CARD_ASSIGNMENT` sigue funcionando (no se elimina)
+- [x] `GET /api/cards` devuelve 404 (ruta no encontrada)
+- [x] El servidor arranca sin errores
+- [x] `npm run seed:reset` ejecuta exitosamente sin modelo Card
+- [x] Los mazos generados tienen UIDs sintéticos válidos (formato `AA00XXXX`)
+- [x] Las sesiones generadas no contienen campo `cardId` en mappings
+- [x] El pipeline de seeding no referencia la colección `cards`
+- [x] `npm run lint` pasa en backend
+- [x] `npm test` pasa en backend
 
 **Archivos eliminados:** (ver Sub-tarea 1 Fase A)
 **Archivos modificados:** `backend/src/server.js`, `backend/src/states/rfid/index.js`, `backend/src/commands/socket/index.js`, `backend/src/realtime/socketHandlers.js`, `backend/seeders/index.js`, `backend/seeders/05-carddecks.js`, `backend/seeders/06-sessions.js`
 
 ---
 
-### T-806: 🃏 Backend — Actualizar tests sin modelo Card 📋
+### T-806: 🃏 Backend — Actualizar tests sin modelo Card ✅
 
 **Prioridad:** P1 | **Tamaño:** L (1-2 días) | **Dependencias:** T-803, T-804
 **Origen:** ADR-012 — Fase 7 del plan de implementación
@@ -1133,17 +1133,17 @@ Eliminar el test de CRUD de Card y actualizar ~12 archivos de test que importan 
 
 **Criterios de Aceptación:**
 
-- [ ] No existen tests que importen `Card` model
-- [ ] Todos los tests de deck/session usan UIDs directos sin crear documentos Card
-- [ ] `npm test` pasa al 100% sin regresiones
-- [ ] Coverage no disminuye significativamente (se eliminan tests de Card, pero se mantienen los de deck/session)
+- [x] No existen tests que importen `Card` model
+- [x] Todos los tests de deck/session usan UIDs directos sin crear documentos Card
+- [x] `npm test` pasa al 100% sin regresiones
+- [x] Coverage no disminuye significativamente (se eliminan tests de Card, pero se mantienen los de deck/session)
 
 **Archivos eliminados:** `backend/tests/cards.test.js` (si existe)
 **Archivos modificados:** ~12 archivos de test (ver Sub-tarea 2)
 
 ---
 
-### T-807: 🃏 Frontend — Eliminar capa Card y actualizar páginas de mazos, sesiones y admin 📋
+### T-807: 🃏 Frontend — Eliminar capa Card y actualizar páginas de mazos, sesiones y admin ✅
 
 **Consolida:** T-807 + T-808 + T-809
 **Prioridad:** P1 | **Tamaño:** L (1-2 días) | **Dependencias:** T-803
@@ -1178,19 +1178,19 @@ Eliminar el servicio `cardsAPI` del frontend, actualizar `cardMapping.js` para u
 
 **Criterios de Aceptación:**
 
-- [ ] `cardsAPI` no existe en `api.js`
-- [ ] `cardMapping.js` usa `uid` como identificador primario
-- [ ] No existen imports de `cardsAPI` en ningún componente frontend
-- [ ] `DeckCreationWizard` no importa ni llama a `cardsAPI`
-- [ ] `DeckEditPage` no usa `cardId` ni `cardsAPI`
-- [ ] `CardDeckDetailPage` muestra UIDs directamente sin buscar `cardId`
-- [ ] `CardSelector.jsx` eliminado o refactorizado (justificado en commit)
-- [ ] Crear/editar mazo funciona con UIDs capturados por escaneo en vivo
-- [ ] `SessionDetail` y `SessionEdit` no referencian `cardId`
-- [ ] No existen páginas de gestión de cartas en el panel admin
-- [ ] No existe enlace a "Gestión de tarjetas" en la navegación
-- [ ] Rutas de admin de cartas eliminadas del router
-- [ ] `npm run build` y `npm test` pasan
+- [x] `cardsAPI` no existe en `api.js`
+- [x] `cardMapping.js` usa `uid` como identificador primario
+- [x] No existen imports de `cardsAPI` en ningún componente frontend
+- [x] `DeckCreationWizard` no importa ni llama a `cardsAPI`
+- [x] `DeckEditPage` no usa `cardId` ni `cardsAPI`
+- [x] `CardDeckDetailPage` muestra UIDs directamente sin buscar `cardId`
+- [x] `CardSelector.jsx` eliminado o refactorizado (justificado en commit)
+- [x] Crear/editar mazo funciona con UIDs capturados por escaneo en vivo
+- [x] `SessionDetail` y `SessionEdit` no referencian `cardId`
+- [x] No existen páginas de gestión de cartas en el panel admin
+- [x] No existe enlace a "Gestión de tarjetas" en la navegación
+- [x] Rutas de admin de cartas eliminadas del router
+- [x] `npm run build` y `npm test` pasan
 
 **Archivos afectados:** `frontend/src/services/api.js`, `frontend/src/lib/cardMapping.js`, `frontend/src/pages/DeckCreationWizard.jsx`, `frontend/src/pages/DeckEditPage.jsx`, `frontend/src/pages/CardDeckDetailPage.jsx`, `frontend/src/components/ui/CardSelector.jsx`, `frontend/src/pages/SessionDetail.jsx`, `frontend/src/pages/SessionEdit.jsx`, `frontend/src/App.jsx` (router), páginas admin de cartas (por identificar)
 
@@ -1495,12 +1495,12 @@ T-703 + T-704 ──► T-710 (Privacidad info + audit trail)
 ═══════════════════════════════════════════════════════════════
 
 T-801 (ADR-012 documentación) ✅
-  └──► T-802 (Esquemas Mongoose + Zod)
-        └──► T-803 (Lógica negocio + DTOs)
-              ├──► T-804 (Eliminar infra Card + seeders)
-              │      └──► T-806 (Tests backend)
-              ├──► T-807 (Frontend: data layer + páginas + admin)
-              └──► T-806 (Tests backend)
+  └──► T-802 (Esquemas Mongoose + Zod) ✅
+        └──► T-803 (Lógica negocio + DTOs) ✅
+              ├──► T-804 (Eliminar infra Card + seeders) ✅
+              │      └──► T-806 (Tests backend) ✅
+              ├──► T-807 (Frontend: data layer + páginas + admin) ✅
+              └──► T-806 (Tests backend) ✅
 
 ═══════════════════════════════════════════════════════════════
               DEPENDENCIAS CRUZADAS (Cross-area)
@@ -1519,8 +1519,8 @@ T-803 (Card refactor DTOs) ║ T-601 (Analytics — ambos modifican dtos.js, coo
 ```
 Dashboards:   T-516 (L) → T-601 (L) → T-602 (M) → T-603/T-604/T-606 (XL)
 Protección:   T-701 (L) → T-702 (M) → T-704 (XL)
-RFID Cards:   T-801 ✅ → T-802 (M) → T-803 (L) → T-804 (L) → T-806 (L)
-                                         └──► T-807 (L)
+RFID Cards:   T-801 ✅ → T-802 ✅ → T-803 ✅ → T-804 ✅ → T-806 ✅
+                                         └──► T-807 ✅  (eje completado)
 ```
 
 La cadena de dashboards determina cuándo el dashboard estará completamente funcional con datos reales. La cadena de protección de datos es independiente y puede ejecutarse en paralelo. La cadena de RFID Cards es independiente de las otras dos y puede ejecutarse en paralelo, excepto en `dtos.js` (compartido con T-601).
@@ -1537,7 +1537,7 @@ La cadena de dashboards determina cuándo el dashboard estará completamente fun
 | **P1 (Alta)** | 15 tareas (T-503, T-507, T-519~T-521, T-604, T-606, T-608, T-609, T-703, T-704, T-706, T-804, T-806, T-807) | ~20-30 días |
 | **P2 (Media)** | 4 tareas (T-512, T-523, T-525, T-611) | ~4-6 días |
 | **P3 (Baja)** | 3 tareas (T-535, T-616, T-710) | ~2-3 días |
-| **Total** | **31 tareas** (1 completada) | **~38-57 días** |
+| **Total** | **31 tareas** (13 completadas) | **~38-57 días** |
 
 ### Por Área
 
@@ -1547,7 +1547,7 @@ La cadena de dashboards determina cuándo el dashboard estará completamente fun
 | ⚛️ React & Tailwind CSS v4 | T-503, T-507, T-512 (3 tareas) | ~10% |
 | 📊 UI/UX, Dashboards y Analytics | T-601~T-604, T-606, T-608, T-609, T-611, T-616 (9 tareas) | ~42% |
 | 🛡️ Protección de Datos de Menores | T-701~T-704, T-706, T-710 (6 tareas) | ~18% |
-| 🃏 Refactor RFID Cards (Tokens Fungibles) | T-801~T-804, T-806, T-807 (6 tareas, 1 completada) | ~12% |
+| 🃏 Refactor RFID Cards (Tokens Fungibles) | T-801~T-804, T-806, T-807 (6 tareas, 6 completadas ✅) | ~12% |
 
 ### Tabla de Consolidación (Trazabilidad)
 
