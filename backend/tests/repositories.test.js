@@ -1,21 +1,13 @@
 const userRepository = require('../src/repositories/userRepository');
-const cardRepository = require('../src/repositories/cardRepository');
 const User = require('../src/models/User');
-const Card = require('../src/models/Card');
 
 describe('Repository Layer', () => {
   const createdUserIds = [];
-  const createdCardIds = [];
 
   afterEach(async () => {
     if (createdUserIds.length > 0) {
       await User.deleteMany({ _id: { $in: createdUserIds } });
       createdUserIds.length = 0;
-    }
-
-    if (createdCardIds.length > 0) {
-      await Card.deleteMany({ _id: { $in: createdCardIds } });
-      createdCardIds.length = 0;
     }
   });
 
@@ -54,29 +46,5 @@ describe('Repository Layer', () => {
 
     expect(latestTeachers.length).toBe(1);
     expect(latestTeachers[0].email).toBe(email);
-  });
-
-  it('aggregates card status counts', async () => {
-    const uidBase = Date.now().toString(16).toUpperCase().slice(-6).padStart(6, '0');
-    const cards = await cardRepository.insertMany([
-      { uid: `AA${uidBase}`, type: 'NTAG', status: 'active' },
-      { uid: `AB${uidBase}`, type: 'NTAG', status: 'active' },
-      { uid: `AC${uidBase}`, type: 'UNKNOWN', status: 'inactive' }
-    ]);
-
-    cards.forEach(card => createdCardIds.push(card._id));
-
-    const results = await cardRepository.aggregate([
-      { $match: { uid: { $in: cards.map(card => card.uid) } } },
-      { $group: { _id: '$status', total: { $sum: 1 } } }
-    ]);
-
-    const counts = results.reduce((acc, item) => {
-      acc[item._id] = item.total;
-      return acc;
-    }, {});
-
-    expect(counts.active).toBe(2);
-    expect(counts.inactive).toBe(1);
   });
 });

@@ -1,30 +1,27 @@
 /**
- * @fileoverview Modelo de datos para mazos de cartas de tarjetas RFID del sistema.
- * Representa un conjunto de tarjetas físicas que pueden ser escaneadas por el lector RC522.
- * A estas tarjetas se les ha pre-asignado un significado específico dentro del contexto de un juego o actividad.
- * Se utilizan para facilitar la gestión y organización de las tarjetas en grupos lógicos.
- * Los mazos se asignan a sesiones de juego para definir qué tarjetas están disponibles y su función dentro de esa sesión.
+ * @fileoverview Modelo de datos para mazos de tokens RFID fungibles.
+ * Un mazo agrupa tarjetas RFID identificadas únicamente por su UID (token fungible),
+ * asignándoles un significado dentro de un contexto educativo.
+ * Las tarjetas no requieren registro previo en BD — cualquier tarjeta RFID
+ * puede escanearse y asignarse directamente a un mazo (ADR-012).
  * @module models/CardDeck
  */
 
 const mongoose = require('mongoose');
 
 /**
- * Subdocumento: mapeo de una tarjeta RFID a un valor dentro de un contexto.
+ * Subdocumento: mapeo de un token RFID fungible a un valor dentro de un contexto.
+ * Cada tarjeta se identifica únicamente por su UID físico (8 o 14 hex).
  * Se reutiliza posteriormente al crear GameSessions desde un mazo.
  */
 const cardDeckMappingSchema = new mongoose.Schema(
   {
-    cardId: {
-      type: mongoose.Schema.Types.ObjectId,
-      ref: 'Card',
-      required: true
-    },
     uid: {
       type: String,
       required: true,
       uppercase: true,
-      trim: true
+      trim: true,
+      match: [/^[0-9A-F]{8}$|^[0-9A-F]{14}$/, 'UID debe ser 8 o 14 caracteres hexadecimales']
     },
     assignedValue: {
       type: String,
@@ -39,18 +36,24 @@ const cardDeckMappingSchema = new mongoose.Schema(
 );
 
 /**
- * Esquema de Mongoose para mazos de cartas de tarjetas RFID.
+ * Esquema de Mongoose para mazos de tokens RFID fungibles.
+ * Cada mazo agrupa tarjetas físicas (identificadas por UID) asignándoles
+ * un valor semántico dentro de un contexto educativo (ADR-012).
  *
  * @typedef {Object} CardDeck
  * @property {string} name - Nombre del mazo
  * @property {string} [description] - Descripción opcional del mazo
  * @property {ObjectId} contextId - Referencia al contexto temático (GameContext)
- * @property {CardMapping[]} cardMappings - Array de mapeos de tarjetas en el mazo
+ * @property {TokenMapping[]} cardMappings - Array de mapeos de tokens RFID en el mazo
  * @property {string} status - Estado del mazo ('active' o 'archived')
  * @property {ObjectId} createdBy - Referencia al usuario (profesor) que creó el mazo
  * @property {Date} createdAt - Fecha de creación del registro
  * @property {Date} updatedAt - Fecha de última actualización del registro
  *
+ * @typedef {Object} TokenMapping
+ * @property {string} uid - UID físico de la tarjeta RFID (8 o 14 hex, token fungible)
+ * @property {string} assignedValue - Valor semántico asignado (ej: "España", "5", "Rojo")
+ * @property {Mixed} displayData - Datos de visualización para el frontend (flexible)
  */
 const CardDeckSchema = new mongoose.Schema(
   {
@@ -107,6 +110,15 @@ CardDeckSchema.path('cardMappings').validate(value => {
   }
   return true;
 }, 'El mazo debe tener entre 2 y 30 mapeos de tarjetas.');
+
+// Validación: UIDs únicos dentro del mazo (defensa en profundidad — complementa Zod)
+CardDeckSchema.path('cardMappings').validate(value => {
+  if (!Array.isArray(value)) {
+    return true;
+  }
+  const uids = value.map(m => m.uid);
+  return uids.length === new Set(uids).size;
+}, 'No puede haber UIDs duplicados dentro del mismo mazo.');
 // Índices
 CardDeckSchema.index({ createdBy: 1, createdAt: -1 });
 CardDeckSchema.index({ createdBy: 1, contextId: 1 });

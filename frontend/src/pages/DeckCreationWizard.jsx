@@ -33,14 +33,13 @@ import { cn } from '../lib/utils';
 import { buildCardMappingsPayload } from '../lib/cardMapping';
 import WizardStepper from '../components/ui/WizardStepper';
 import RFIDScannerPanel from '../components/ui/RFIDScannerPanel';
-import CardSelector from '../components/ui/CardSelector';
 import AssetSelector from '../components/ui/AssetSelector';
 import CardAssetPreview from '../components/ui/CardAssetPreview';
 import ButtonPremium from '../components/ui/ButtonPremium';
 import GlassCard from '../components/ui/GlassCard';
 import InputPremium from '../components/ui/InputPremium';
 import ConfirmationModal, { useConfirmationModal } from '../components/ui/ConfirmationModal';
-import { decksAPI, cardsAPI, extractData, extractErrorMessage, isAbortError } from '../services/api';
+import { decksAPI, extractErrorMessage } from '../services/api';
 import useDeckWizardDraft, { formatDraftDate } from '../hooks/useDeckWizardDraft';
 import { useContexts } from '../hooks/useContexts';
 import { useRefetchOnFocus } from '../hooks/useRefetchOnFocus';
@@ -109,10 +108,6 @@ export default function DeckCreationWizard() {
     refetch: refetchContexts
   } = useContexts({ autoLoad: true, onlyActive: true });
   
-  // Datos auxiliares de cartas
-  const [availableCards, setAvailableCards] = useState([]);
-  const [loadingCards, setLoadingCards] = useState(true);
-  
   // Modo de captura de cartas
   const [captureMode, setCaptureMode] = useState('rfid'); // 'rfid' | 'manual'
   
@@ -135,41 +130,6 @@ export default function DeckCreationWizard() {
     clearDraft,
     draftTimestamp 
   } = useDeckWizardDraft();
-
-  // Cargar cartas disponibles
-  const loadCards = useCallback((signal) => {
-    const run = async () => {
-      try {
-        const cardsRes = await cardsAPI.getCards({ limit: 100 }, signal ? { signal } : {});
-        setAvailableCards(extractData(cardsRes)?.data || []);
-      } catch (err) {
-        if (isAbortError(err)) {
-          return;
-        }
-        toast.error('Error al cargar cartas', {
-          description: extractErrorMessage(err)
-        });
-      } finally {
-        if (!signal?.aborted) {
-          setLoadingCards(false);
-        }
-      }
-    };
-
-    run();
-  }, []);
-
-  useEffect(() => {
-    const controller = new AbortController();
-    loadCards(controller.signal);
-    return () => controller.abort();
-  }, [loadCards]);
-
-  useRefetchOnFocus({
-    refetch: () => loadCards(),
-    isLoading: loadingCards,
-    hasData: availableCards.length > 0
-  });
 
   useRefetchOnFocus({
     refetch: () => refetchContexts(),
@@ -244,7 +204,7 @@ export default function DeckCreationWizard() {
       return;
     }
     
-    if (selectedCards.find(c => c._id === card._id)) {
+    if (selectedCards.find(c => c.uid === card.uid)) {
       toast.info('Carta ya añadida');
       return;
     }
@@ -252,18 +212,14 @@ export default function DeckCreationWizard() {
     setSelectedCards(prev => [...prev, card]);
   }, [selectedCards]);
 
-  // Handler para selección manual
-  const handleManualSelection = useCallback((cards) => {
-    setSelectedCards(cards);
-  }, []);
 
   // Remover carta
-  const handleRemoveCard = useCallback((cardId) => {
-    setSelectedCards(prev => prev.filter(c => c._id !== cardId));
+  const handleRemoveCard = useCallback((uid) => {
+    setSelectedCards(prev => prev.filter(c => c.uid !== uid));
     // Remover también su asignación
     setCardAssignments(prev => {
       const next = { ...prev };
-      delete next[cardId];
+      delete next[uid];
       return next;
     });
   }, []);
@@ -276,10 +232,10 @@ export default function DeckCreationWizard() {
   }, []);
 
   // Asignar asset a carta
-  const handleAssignAsset = useCallback((cardId, asset) => {
+  const handleAssignAsset = useCallback((uid, asset) => {
     setCardAssignments(prev => ({
       ...prev,
-      [cardId]: asset
+      [uid]: asset
     }));
   }, []);
 
@@ -366,10 +322,7 @@ export default function DeckCreationWizard() {
             captureMode={captureMode}
             setCaptureMode={setCaptureMode}
             selectedCards={selectedCards}
-            availableCards={availableCards}
-            loadingCards={loadingCards}
             onRFIDScan={handleRFIDScan}
-            onManualSelect={handleManualSelection}
             onRemoveCard={handleRemoveCard}
             minCards={MIN_CARDS}
             maxCards={MAX_CARDS}
@@ -581,10 +534,7 @@ function StepCards({
   captureMode,
   setCaptureMode,
   selectedCards,
-  availableCards,
-  loadingCards,
   onRFIDScan,
-  onManualSelect,
   onRemoveCard,
   minCards,
   maxCards
@@ -642,7 +592,6 @@ function StepCards({
               scannedCards={selectedCards}
               onRemoveCard={onRemoveCard}
               maxCards={maxCards}
-              availableCards={availableCards}
               showMockButton={import.meta.env.MODE === 'development'}
             />
           </motion.div>
@@ -653,12 +602,12 @@ function StepCards({
             animate={{ opacity: 1, y: 0 }}
             exit={{ opacity: 0, y: -10 }}
           >
-            <CardSelector
-              cards={availableCards}
-              selectedCards={selectedCards}
-              onChange={onManualSelect}
+            <RFIDScannerPanel
+              onCardScanned={onRFIDScan}
+              scannedCards={selectedCards}
+              onRemoveCard={onRemoveCard}
               maxCards={maxCards}
-              loading={loadingCards}
+              showMockButton={import.meta.env.MODE === 'development'}
             />
           </motion.div>
         )}
@@ -781,10 +730,10 @@ function StepAssign({
   cardAssignments,
   onAssignAsset
 }) {
-  const [activeCardId, setActiveCardId] = useState(selectedCards[0]?._id || null);
+  const [activeCardId, setActiveCardId] = useState(selectedCards[0]?.uid || null);
   const assignedAssetKeys = Object.values(cardAssignments).map(a => a?.key);
-  
-  const activeCard = selectedCards.find(c => c._id === activeCardId);
+
+  const activeCard = selectedCards.find(c => c.uid === activeCardId);
   const currentAssignment = cardAssignments[activeCardId];
 
   const assignedCount = Object.keys(cardAssignments).length;
@@ -811,13 +760,13 @@ function StepAssign({
 
         <div className="space-y-2 max-h-[400px] overflow-y-auto">
           {selectedCards.map((card) => {
-            const isAssigned = !!cardAssignments[card._id];
-            const isActive = activeCardId === card._id;
-            
+            const isAssigned = !!cardAssignments[card.uid];
+            const isActive = activeCardId === card.uid;
+
             return (
               <motion.button
-                key={card._id}
-                onClick={() => setActiveCardId(card._id)}
+                key={card.uid}
+                onClick={() => setActiveCardId(card.uid)}
                 className={cn(
                   'w-full flex items-center gap-3 p-3 rounded-xl border transition-all text-left',
                   isActive
@@ -834,7 +783,7 @@ function StepAssign({
                 )}>
                   {isAssigned ? (
                     <CardAssetPreview
-                      asset={cardAssignments[card._id]}
+                      asset={cardAssignments[card.uid]}
                       alt={`Asset asignado a ${card.uid}`}
                       className="w-full h-full rounded-lg"
                       fit="cover"
@@ -850,7 +799,7 @@ function StepAssign({
                   </p>
                   <p className="text-xs text-text-muted truncate">
                     {isAssigned
-                      ? cardAssignments[card._id]?.value
+                      ? cardAssignments[card.uid]?.value
                       : 'Sin asignar'
                     }
                   </p>
@@ -948,10 +897,10 @@ function StepConfirm({
         
         <div className="space-y-3 max-h-[300px] overflow-y-auto">
           {selectedCards.map((card) => {
-            const assignment = cardAssignments[card._id];
+            const assignment = cardAssignments[card.uid];
             return (
               <div
-                key={card._id}
+                key={card.uid}
                 className="flex items-center gap-3 p-3 rounded-xl bg-background-elevated/50 border border-border-subtle"
               >
                 <CardAssetPreview
@@ -983,10 +932,7 @@ StepCards.propTypes = {
   captureMode: PropTypes.oneOf(['rfid', 'manual']).isRequired,
   setCaptureMode: PropTypes.func.isRequired,
   selectedCards: PropTypes.arrayOf(PropTypes.object).isRequired,
-  availableCards: PropTypes.arrayOf(PropTypes.object).isRequired,
-  loadingCards: PropTypes.bool.isRequired,
   onRFIDScan: PropTypes.func.isRequired,
-  onManualSelect: PropTypes.func.isRequired,
   onRemoveCard: PropTypes.func.isRequired,
   minCards: PropTypes.number.isRequired,
   maxCards: PropTypes.number.isRequired

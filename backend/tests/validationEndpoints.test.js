@@ -176,63 +176,6 @@ describe('Validation (Zod) - All API endpoints', () => {
     });
   });
 
-  describe('Cards routes', () => {
-    it('GET /api/cards - invalid query', async () => {
-      const res = await request(app).get('/api/cards?limit=0').set(makeAuthHeaders(teacherToken));
-
-      expect(res.statusCode).toBe(400);
-    });
-
-    it('GET /api/cards/stats - invalid query', async () => {
-      const res = await request(app)
-        .get('/api/cards/stats?extra=1')
-        .set(makeAuthHeaders(teacherToken));
-
-      expect(res.statusCode).toBe(400);
-    });
-
-    it('GET /api/cards/:id - invalid params', async () => {
-      const res = await request(app).get('/api/cards/not-valid').set(makeAuthHeaders(teacherToken));
-
-      expect(res.statusCode).toBe(400);
-    });
-
-    it('POST /api/cards - invalid body', async () => {
-      const res = await request(app)
-        .post('/api/cards')
-        .set(makeAuthHeaders(teacherToken))
-        .send({ uid: '123' });
-
-      expect(res.statusCode).toBe(400);
-    });
-
-    it('POST /api/cards/batch - invalid body', async () => {
-      const res = await request(app)
-        .post('/api/cards/batch')
-        .set(makeAuthHeaders(teacherToken))
-        .send({ cards: [] });
-
-      expect(res.statusCode).toBe(400);
-    });
-
-    it('PUT /api/cards/:id - invalid params', async () => {
-      const res = await request(app)
-        .put('/api/cards/invalid')
-        .set(makeAuthHeaders(teacherToken))
-        .send({ status: 'active' });
-
-      expect(res.statusCode).toBe(400);
-    });
-
-    it('DELETE /api/cards/:id - invalid params', async () => {
-      const res = await request(app)
-        .delete('/api/cards/invalid')
-        .set(makeAuthHeaders(teacherToken));
-
-      expect(res.statusCode).toBe(400);
-    });
-  });
-
   describe('Mechanics routes', () => {
     it('GET /api/mechanics - invalid query', async () => {
       const res = await request(app)

@@ -290,20 +290,12 @@ const toUserRefDTOV1 = user =>
 
 const mapCardMappingDTOV1 = mapping => {
   const mappingData = toPlainObject(mapping);
-  const cardRef = toPopulated(mappingData.cardId, card => ({
-    id: toId(card),
-    uid: card.uid,
-    type: card.type,
-    status: card.status
-  }));
 
   return {
     id: toId(mappingData),
-    cardId: toId(mappingData.cardId),
     uid: mappingData.uid,
     assignedValue: mappingData.assignedValue,
-    displayData: mappingData.displayData,
-    card: cardRef
+    displayData: mappingData.displayData
   };
 };
 
@@ -312,7 +304,6 @@ const mapBoardLayoutItemDTOV1 = layoutItem => {
 
   return {
     slotIndex: itemData.slotIndex,
-    cardId: toId(itemData.cardId),
     uid: itemData.uid,
     assignedValue: itemData.assignedValue,
     displayData: itemData.displayData
@@ -324,7 +315,6 @@ const mapAssociationChallengeItemDTOV1 = challengeItem => {
 
   return {
     roundNumber: itemData.roundNumber,
-    cardId: toId(itemData.cardId),
     uid: itemData.uid,
     assignedValue: itemData.assignedValue,
     displayData: itemData.displayData,
@@ -413,38 +403,6 @@ const toGameSessionDetailDTOV1 = session => {
  */
 const toGameSessionListDTOV1 = sessions =>
   Array.isArray(sessions) ? sessions.map(toGameSessionDTOV1).filter(Boolean) : [];
-
-/**
- * DTO v1 para Card (tarjeta RFID).
- *
- * @param {Object} card - Documento Card de Mongoose
- * @returns {Object|null} Tarjeta transformada o null si no existe
- */
-const toCardDTOV1 = card => {
-  if (!card) {
-    return null;
-  }
-
-  const cardData = toPlainObject(card);
-
-  return {
-    id: toId(cardData),
-    uid: cardData.uid,
-    type: cardData.type,
-    status: cardData.status,
-    createdAt: cardData.createdAt,
-    updatedAt: cardData.updatedAt
-  };
-};
-
-/**
- * DTO v1 para array de Cards.
- *
- * @param {Array} cards - Array de documentos Card
- * @returns {Array} Array de tarjetas transformadas
- */
-const toCardListDTOV1 = cards =>
-  Array.isArray(cards) ? cards.map(toCardDTOV1).filter(Boolean) : [];
 
 /**
  * DTO v1 para GameMechanic.
@@ -668,23 +626,6 @@ const toAuthResponseDTOV1 = (user, tokens) => ({
 });
 
 /**
- * DTO v1 para estadísticas de tarjetas.
- *
- * @param {Object} stats - Estadísticas agregadas
- * @returns {Object} Estadísticas normalizadas
- */
-const toCardStatsDTOV1 = stats => ({
-  total: stats.total,
-  active: stats.active,
-  inactive: stats.inactive,
-  lost: stats.lost,
-  mifare1kb: stats.mifare1kb,
-  mifare4kb: stats.mifare4kb,
-  ntag: stats.ntag,
-  unknown: stats.unknown
-});
-
-/**
  * DTO v1 para estadísticas de alumno.
  *
  * @param {Object} user - Documento User
@@ -773,10 +714,6 @@ module.exports = {
   toGameSessionDetailDTOV1,
   toGameSessionListDTOV1,
 
-  // Cards
-  toCardDTOV1,
-  toCardListDTOV1,
-
   // Mechanics
   toGameMechanicDTOV1,
   toGameMechanicListDTOV1,
@@ -799,7 +736,6 @@ module.exports = {
   toAuthResponseDTOV1,
 
   // Analytics
-  toCardStatsDTOV1,
   toUserStatsDTOV1,
   toPlayerStatsDTOV1,
   toSystemMetricsDTOV1

@@ -172,7 +172,6 @@ const findMechanicById = (mechanics, mechanicId) => {
 const toDeckCardMappings = deck =>
   Array.isArray(deck?.cardMappings)
     ? deck.cardMappings.map(mapping => ({
-        cardId: mapping.cardId || mapping.id,
         uid: mapping.uid,
         assignedValue: mapping.assignedValue,
         displayData: mapping.displayData || {}
@@ -200,7 +199,6 @@ const buildAssociationPlanByRounds = ({ currentPlan, cards, numberOfRounds }) =>
 
     return {
       roundNumber,
-      cardId: card.cardId,
       uid: card.uid,
       assignedValue: card.assignedValue,
       displayData: card.displayData || {},
@@ -508,7 +506,6 @@ export default function CreateSession() {
 
                 return {
                   slotIndex,
-                  cardId: slotCard.cardId || slotCard.id,
                   uid: slotCard.uid,
                   assignedValue: slotCard.assignedValue,
                   displayData: slotCard.displayData || {}
@@ -519,7 +516,6 @@ export default function CreateSession() {
         associationChallengePlan: isAssociationSelected
           ? associationChallengePlan.map(item => ({
               roundNumber: item.roundNumber,
-              cardId: item.cardId,
               uid: item.uid,
               assignedValue: item.assignedValue,
               displayData: item.displayData || {},
@@ -811,7 +807,7 @@ function StepDeck({ decks, loading, selectedDeckId, onSelect }) {
             <div className="flex gap-1.5 mb-3 h-8 overflow-hidden">
               {cardsPreview.slice(0, 6).map((mapping) => (
                 <CardAssetPreview
-                  key={mapping.id || mapping.uid || mapping.cardId || mapping._id}
+                  key={mapping.uid || mapping.id || mapping._id}
                   asset={mapping.displayData}
                   className="size-8 rounded-md flex-shrink-0"
                   fallbackLabel={mapping.displayData?.display || mapping.displayData?.emoji || '\uD83C\uDFB3'}
@@ -1455,7 +1451,6 @@ function AssociationChallengeComposer({ cards, challengePlan, onPlanChange, disa
         item.roundNumber === roundNumber
           ? {
               ...item,
-              cardId: selectedCard.cardId,
               uid: selectedCard.uid,
               assignedValue: selectedCard.assignedValue,
               displayData: selectedCard.displayData || {}
@@ -1575,7 +1570,7 @@ function StepReview({ sessionConfig, setSessionConfig, selectedDeck, selectedMec
                 <div className="flex gap-1.5 mt-2 overflow-x-auto pb-1 max-w-full">
                   {selectedDeck.cardMappings.slice(0, 8).map((m) => (
                     <CardAssetPreview
-                      key={m.id || m.uid || m.cardId || m._id}
+                      key={m.uid || m.id || m._id}
                       asset={m.displayData}
                       className="size-10 rounded-lg flex-shrink-0"
                       fallbackLabel={m.displayData?.display || m.displayData?.emoji || '\uD83C\uDFB3'}
@@ -1638,7 +1633,6 @@ function StepReview({ sessionConfig, setSessionConfig, selectedDeck, selectedMec
 const cardMappingShape = PropTypes.shape({
   id: PropTypes.oneOfType([PropTypes.string, PropTypes.number]),
   _id: PropTypes.oneOfType([PropTypes.string, PropTypes.number]),
-  cardId: PropTypes.oneOfType([PropTypes.string, PropTypes.number]),
   uid: PropTypes.string,
   assignedValue: PropTypes.string,
   displayData: PropTypes.object
@@ -1711,7 +1705,6 @@ StepRules.propTypes = {
   associationChallengePlan: PropTypes.arrayOf(
     PropTypes.shape({
       roundNumber: PropTypes.number,
-      cardId: PropTypes.oneOfType([PropTypes.string, PropTypes.number]),
       uid: PropTypes.string,
       assignedValue: PropTypes.string,
       displayData: PropTypes.object,
@@ -1726,7 +1719,6 @@ AssociationChallengeComposer.propTypes = {
   challengePlan: PropTypes.arrayOf(
     PropTypes.shape({
       roundNumber: PropTypes.number,
-      cardId: PropTypes.oneOfType([PropTypes.string, PropTypes.number]),
       uid: PropTypes.string,
       assignedValue: PropTypes.string,
       displayData: PropTypes.object,

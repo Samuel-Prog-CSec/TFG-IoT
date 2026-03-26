@@ -34,16 +34,13 @@ class MemoryStrategy extends BaseMechanicStrategy {
     const matchingGroupSize = Number(behavior.matchingGroupSize) || 2;
     const providedLayout = Array.isArray(sessionDoc.boardLayout) ? sessionDoc.boardLayout : [];
 
-    const uidByCardId = new Map(
-      mappings.map(mapping => [mapping.cardId?.toString?.(), mapping.uid])
-    );
+    const uidSet = new Map(mappings.map(mapping => [mapping.uid, mapping]));
 
     const mappedLayout = providedLayout
       .map(slot => {
-        const slotCardId = slot.cardId?.toString?.();
-        const uidFromDeck = uidByCardId.get(slotCardId);
-        const fallbackMapping = mappings.find(mapping => mapping.uid === slot.uid);
-        const resolvedUid = uidFromDeck || fallbackMapping?.uid || slot.uid;
+        const slotUid = slot.uid;
+        const matchedMapping = uidSet.get(slotUid);
+        const resolvedUid = slotUid || matchedMapping?.uid;
 
         if (!resolvedUid) {
           return null;
@@ -51,10 +48,9 @@ class MemoryStrategy extends BaseMechanicStrategy {
 
         return {
           slotIndex: slot.slotIndex,
-          cardId: slot.cardId,
           uid: resolvedUid,
           assignedValue: slot.assignedValue,
-          displayData: slot.displayData || fallbackMapping?.displayData || {}
+          displayData: slot.displayData || matchedMapping?.displayData || {}
         };
       })
       .filter(Boolean)
@@ -62,7 +58,6 @@ class MemoryStrategy extends BaseMechanicStrategy {
 
     const fallbackLayout = shuffle(mappings).map((mapping, index) => ({
       slotIndex: index,
-      cardId: mapping.cardId,
       uid: mapping.uid,
       assignedValue: mapping.assignedValue,
       displayData: mapping.displayData || {}
@@ -112,7 +107,6 @@ class MemoryStrategy extends BaseMechanicStrategy {
 
     return (strategyState.boardLayout || []).map(slot => ({
       slotIndex: slot.slotIndex,
-      cardId: slot.cardId,
       uid: slot.uid,
       assignedValue: slot.assignedValue,
       isMatched: matched.has(slot.uid),

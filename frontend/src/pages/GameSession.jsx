@@ -155,7 +155,7 @@ export default function GameSession() { // NOSONAR
     }
 
     return {
-      id: rawChallenge?.cardId || rawChallenge?.uid || displayData?.key || displayData?.value,
+      id: rawChallenge?.uid || displayData?.key || displayData?.value,
       uid: rawChallenge?.uid,
       key: displayData?.key || '',
       value: displayData?.value || rawChallenge?.assignedValue || '---',

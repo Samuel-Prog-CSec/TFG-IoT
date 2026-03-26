@@ -6,7 +6,7 @@ export function getBestAssetImageUrl(asset) {
   return asset.thumbnailUrl || asset.imageUrl || null;
 }
 
-export function normalizeCardMappingsFromDeck(deckData, cardsCatalog = []) {
+export function normalizeCardMappingsFromDeck(deckData) {
   const mappings = Array.isArray(deckData?.cardMappings)
     ? deckData.cardMappings
     : Array.isArray(deckData?.cards)
@@ -15,23 +15,17 @@ export function normalizeCardMappingsFromDeck(deckData, cardsCatalog = []) {
 
   return mappings
     .map((mapping) => {
-      const cardId =
-        mapping?.cardId?._id ||
-        mapping?.cardId ||
-        mapping?.card?.id ||
-        mapping?.card?.cardId;
+      const uid = mapping?.uid;
 
-      if (!cardId) {
+      if (!uid) {
         return null;
       }
 
-      const fallbackCard = cardsCatalog.find((card) => card._id === cardId || card.id === cardId);
       const displayData = mapping.displayData || mapping.assignedAsset || {};
       const assignedValue = mapping.assignedValue || displayData.value || '';
 
       return {
-        cardId,
-        uid: mapping.uid || mapping?.cardId?.uid || mapping?.card?.uid || fallbackCard?.uid || '',
+        uid,
         assignedValue,
         displayData: {
           ...displayData,
@@ -46,11 +40,10 @@ export function normalizeCardMappingsFromDeck(deckData, cardsCatalog = []) {
 
 export function buildCardMappingsPayload(selectedCards, cardAssignments) {
   return selectedCards.map((card) => {
-    const assignedAsset = cardAssignments[card._id] || {};
+    const assignedAsset = cardAssignments[card.uid] || {};
     const assignedValue = assignedAsset.value || assignedAsset.display || card.uid;
 
     return {
-      cardId: card._id,
       uid: card.uid,
       assignedValue,
       displayData: {

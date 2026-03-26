@@ -10,7 +10,6 @@ const GameSession = require('../src/models/GameSession');
 const GamePlay = require('../src/models/GamePlay');
 const GameMechanic = require('../src/models/GameMechanic');
 const GameContext = require('../src/models/GameContext');
-const Card = require('../src/models/Card');
 const CardDeck = require('../src/models/CardDeck');
 const redisService = require('../src/services/redisService');
 const { connectRedis, disconnectRedis } = require('../src/config/redis');
@@ -41,7 +40,6 @@ describe('GamePlay atomic event persistence', () => {
     await GamePlay.deleteMany({});
     await GameMechanic.deleteMany({});
     await GameContext.deleteMany({});
-    await Card.deleteMany({});
     await CardDeck.deleteMany({});
 
     for (const namespace of Object.values(redisService.NAMESPACES)) {
@@ -81,9 +79,6 @@ describe('GamePlay atomic event persistence', () => {
       ]
     });
 
-    const card1 = await Card.create({ uid: 'DD110001', type: 'NTAG', status: 'active' });
-    const card2 = await Card.create({ uid: 'DD110002', type: 'NTAG', status: 'active' });
-
     const deck = await CardDeck.create({
       name: 'Persistence Deck',
       contextId: context._id,
@@ -91,13 +86,11 @@ describe('GamePlay atomic event persistence', () => {
       status: 'active',
       cardMappings: [
         {
-          cardId: card1._id,
           uid: 'DD110001',
           assignedValue: 'One',
           displayData: { key: 'one', display: 'One', value: 'One' }
         },
         {
-          cardId: card2._id,
           uid: 'DD110002',
           assignedValue: 'Two',
           displayData: { key: 'two', display: 'Two', value: 'Two' }

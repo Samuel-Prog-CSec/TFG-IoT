@@ -6,7 +6,6 @@
 
 const cardDeckRepository = require('../repositories/cardDeckRepository');
 const gameContextRepository = require('../repositories/gameContextRepository');
-const cardRepository = require('../repositories/cardRepository');
 const {
   NotFoundError,
   ConflictError,
@@ -41,14 +40,10 @@ function validateDeckMappingsStructure(cardMappings) {
   }
 
   const uids = cardMappings.map(m => (m.uid || '').toString().trim().toUpperCase());
-  const cardIds = cardMappings.map(m => m.cardId?.toString());
   const assignedValues = cardMappings.map(m => (m.assignedValue || '').toString().trim());
 
   if (uids.some(uid => !uid)) {
     throw new ValidationError('Todos los mapeos deben incluir uid');
-  }
-  if (cardIds.some(id => !id)) {
-    throw new ValidationError('Todos los mapeos deben incluir cardId');
   }
   if (assignedValues.some(v => !v)) {
     throw new ValidationError('Todos los mapeos deben incluir assignedValue');
@@ -56,9 +51,6 @@ function validateDeckMappingsStructure(cardMappings) {
 
   if (new Set(uids).size !== uids.length) {
     throw new ValidationError('Los UIDs en cardMappings deben ser únicos');
-  }
-  if (new Set(cardIds).size !== cardIds.length) {
-    throw new ValidationError('Los cardIds en cardMappings deben ser únicos');
   }
   if (new Set(assignedValues).size !== assignedValues.length) {
     throw new ValidationError('No puede haber valores asignados duplicados en cardMappings');
@@ -89,37 +81,6 @@ async function validateContextAndAssignedValues(contextId, cardMappings) {
   }
 
   return context;
-}
-
-async function validateCardsExistAndActive(cardMappings) {
-  const cardIds = cardMappings.map(m => m.cardId);
-  const cards = await cardRepository.find({ _id: { $in: cardIds } });
-
-  if (cards.length !== cardIds.length) {
-    throw new ValidationError('Una o más tarjetas no existen');
-  }
-
-  const inactiveCards = cards.filter(card => card.status !== 'active');
-  if (inactiveCards.length > 0) {
-    throw new ValidationError(
-      `Las siguientes tarjetas no están activas: ${inactiveCards.map(c => c.uid).join(', ')}`
-    );
-  }
-
-  // Validar consistencia uid declarado vs uid de la tarjeta
-  const cardById = new Map(cards.map(c => [c._id.toString(), c]));
-  const mismatch = cardMappings.filter(m => {
-    const card = cardById.get(m.cardId.toString());
-    return !card || card.uid !== m.uid;
-  });
-
-  if (mismatch.length > 0) {
-    throw new ValidationError(
-      `UID no coincide con la tarjeta para: ${mismatch.map(m => m.uid).join(', ')}`
-    );
-  }
-
-  return cards;
 }
 
 /**
@@ -192,8 +153,7 @@ const getDeckById = async (req, res) => {
   const deck = await cardDeckRepository.findById(id, {
     populate: [
       { path: 'contextId', select: 'contextId name assets' },
-      { path: 'createdBy', select: 'name email' },
-      { path: 'cardMappings.cardId', select: 'uid type status metadata' }
+      { path: 'createdBy', select: 'name email' }
     ]
   });
 
@@ -243,9 +203,6 @@ const createDeck = async (req, res) => {
 
     // Validar contexto y que assignedValue pertenece al contexto
     await validateContextAndAssignedValues(contextId, normalizedMappings);
-
-    // Validar tarjetas
-    await validateCardsExistAndActive(normalizedMappings);
 
     const deck = await cardDeckRepository.create({
       name: name.trim(),
@@ -339,7 +296,6 @@ const applyDeckMappingUpdates = async (deck, { contextId, cardMappings }) => {
   if (hasCardMappingsUpdate) {
     const normalizedMappings = validateDeckMappingsStructure(cardMappings);
     await validateContextAndAssignedValues(finalContextId, normalizedMappings);
-    await validateCardsExistAndActive(normalizedMappings);
     deck.cardMappings = normalizedMappings;
     return;
   }

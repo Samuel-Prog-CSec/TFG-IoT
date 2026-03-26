@@ -73,8 +73,8 @@ function generateAssociationPlan(cardMappings, numberOfRounds) {
       // Despues de agotar todas, ciclar evitando repeticion inmediata
       index = (round - 1) % cardMappings.length;
       if (plan.length > 0) {
-        const prevCardId = plan[plan.length - 1].cardId.toString();
-        if (cardMappings[index].cardId.toString() === prevCardId) {
+        const prevUid = plan[plan.length - 1].uid;
+        if (cardMappings[index].uid === prevUid) {
           index = (index + 1) % cardMappings.length;
         }
       }
@@ -83,7 +83,6 @@ function generateAssociationPlan(cardMappings, numberOfRounds) {
     const mapping = cardMappings[index];
     plan.push({
       roundNumber: round,
-      cardId: mapping.cardId,
       uid: mapping.uid,
       assignedValue: mapping.assignedValue,
       displayData: mapping.displayData
@@ -117,7 +116,6 @@ function generateBoardLayout(cardMappings, numberOfCards) {
     const mapping = cardMappings[mappingIndex];
     layout.push({
       slotIndex: slot,
-      cardId: mapping.cardId,
       uid: mapping.uid,
       assignedValue: mapping.assignedValue,
       displayData: mapping.displayData
@@ -229,7 +227,6 @@ function generateSessionsForTeacher(teacher, teacherDecks, mechanics, contexts) 
 
     // Construir cardMappings copiados desde el mazo (como hace el controller real)
     const cardMappings = deck.cardMappings.map(mapping => ({
-      cardId: mapping.cardId,
       uid: mapping.uid,
       assignedValue: mapping.assignedValue,
       displayData: mapping.displayData
@@ -289,11 +286,10 @@ function generateSessionsForTeacher(teacher, teacherDecks, mechanics, contexts) 
  * @param {Object} users - Usuarios creados { teachers, students }
  * @param {Array} mechanics - Mecanicas creadas
  * @param {Array} contexts - Contextos creados
- * @param {Array} cards - Tarjetas creadas (no usado directamente, viene del mazo)
  * @param {Array} decks - Mazos creados
  * @returns {Promise<Array>} Array de sesiones creadas
  */
-async function seedSessions(users, mechanics, contexts, cards, decks) {
+async function seedSessions(users, mechanics, contexts, decks) {
   try {
     const { teachers } = users;
     const allSessions = [];

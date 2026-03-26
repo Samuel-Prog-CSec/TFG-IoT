@@ -24,4 +24,3 @@ export { default as DeckCard, DeckCardSkeleton } from './DeckCard';
 export { default as CardAssetPreview } from './CardAssetPreview';
 export { default as AssetSelector, AssetSelectorCompact } from './AssetSelector';
 export { default as RFIDScannerPanel, RFIDScannerMini } from './RFIDScannerPanel';
-export { default as CardSelector, getSelectedCards } from './CardSelector';

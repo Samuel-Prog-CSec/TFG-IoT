@@ -32,13 +32,12 @@ import GlassCard from '../components/ui/GlassCard';
 import InputPremium from '../components/ui/InputPremium';
 import AssetSelector from '../components/ui/AssetSelector';
 import CardAssetPreview from '../components/ui/CardAssetPreview';
-import CardSelector from '../components/ui/CardSelector';
 import RFIDScannerPanel from '../components/ui/RFIDScannerPanel';
 import { SkeletonCard } from '../components/ui/SkeletonShimmer';
 import ConfirmationModal, { useConfirmationModal } from '../components/ui/ConfirmationModal';
 import { useContexts } from '../hooks/useContexts';
 import { useRefetchOnFocus } from '../hooks/useRefetchOnFocus';
-import { decksAPI, cardsAPI, extractData, extractErrorMessage, isAbortError } from '../services/api';
+import { decksAPI, extractData, extractErrorMessage, isAbortError } from '../services/api';
 import { ROUTES } from '../constants/routes';
 import { GAME_CONFIG } from '../constants/gameConfig';
 import { toast } from 'sonner';
@@ -50,7 +49,7 @@ const uiInitialState = {
   activeTab: 'cards',
   showAddCards: false,
   captureMode: 'manual',
-  activeCardId: null,
+  activeUid: null,
 };
 
 function uiReducer(state, action) {
@@ -66,20 +65,14 @@ function uiReducer(state, action) {
     case 'SET_CAPTURE_MODE':
       return { ...state, captureMode: action.payload };
     case 'SET_ACTIVE_CARD':
-      return { ...state, activeCardId: action.payload };
+      return { ...state, activeUid: action.payload };
     default:
       return state;
   }
 }
 
 const buildUpdatedCardMappings = (cards, assignments) => {
-  const mappings = buildCardMappingsPayload(cards, assignments);
-  const cardsById = new Map(cards.map((card) => [card._id, card]));
-
-  return mappings.map((mapping) => ({
-    ...mapping,
-    cardId: cardsById.get(mapping.cardId) || mapping.cardId,
-  }));
+  return buildCardMappingsPayload(cards, assignments);
 };
 
 /**
@@ -108,7 +101,6 @@ export default function DeckEditPage() {
   });
   
   // Datos auxiliares
-  const [availableCards, setAvailableCards] = useState([]);
   
   // UI states (agrupados con useReducer)
   const [ui, dispatchUI] = useReducer(uiReducer, uiInitialState);
@@ -129,14 +121,10 @@ export default function DeckEditPage() {
       setLoading(true);
       setError(null);
 
-      // Cargar mazo y cartas en paralelo (contextos ya se cargan con useContexts)
-      const [deckRes, cardsRes] = await Promise.all([
-        decksAPI.getDeckById(deckId, signal ? { signal } : {}),
-        cardsAPI.getCards({ status: 'active', limit: 100 }, signal ? { signal } : {})
-      ]);
+      // Cargar mazo (contextos ya se cargan con useContexts)
+      const deckRes = await decksAPI.getDeckById(deckId, signal ? { signal } : {});
 
       const deckData = extractData(deckRes);
-      const cardsData = extractData(cardsRes)?.data || [];
 
       if (!deckData) {
         throw new Error('Mazo no encontrado');
@@ -144,27 +132,28 @@ export default function DeckEditPage() {
 
       setDeck(deckData);
       setDeckName(deckData.name);
-      setAvailableCards(cardsData);
 
-      const normalizedMappings = normalizeCardMappingsFromDeck(deckData, cardsData);
+      const normalizedMappings = normalizeCardMappingsFromDeck(deckData);
 
       if (normalizedMappings.length > 0) {
-        const cards = normalizedMappings
-          .map((mapping) => cardsData.find(c => c._id === mapping.cardId))
-          .filter(Boolean);
+        // Build card objects from mappings using uid
+        const cards = normalizedMappings.map((mapping) => ({
+          uid: mapping.uid,
+          type: 'RFID'
+        }));
 
         setSelectedCards(cards);
 
         const assignments = {};
         normalizedMappings.forEach((mapping) => {
           if (mapping.displayData) {
-            assignments[mapping.cardId] = mapping.displayData;
+            assignments[mapping.uid] = mapping.displayData;
           }
         });
         setCardAssignments(assignments);
 
         if (cards.length > 0) {
-          dispatchUI({ type: 'SET_ACTIVE_CARD', payload: cards[0]._id });
+          dispatchUI({ type: 'SET_ACTIVE_CARD', payload: cards[0].uid });
         }
       }
     } catch (err) {
@@ -201,8 +190,8 @@ export default function DeckEditPage() {
 
     const originalName = deck.name;
     const originalContext = deck.contextId?._id || deck.contextId;
-    const originalCardIds = (deck.cardMappings || []).map(c => c.cardId?._id || c.cardId).sort();
-    const currentCardIds = selectedCards.map(c => c._id).sort();
+    const originalCardIds = (deck.cardMappings || []).map(c => c.uid).filter(Boolean).sort();
+    const currentCardIds = selectedCards.map(c => c.uid).sort();
 
     const nameChanged = deckName !== originalName;
     const contextChanged = effectiveContext?._id !== originalContext;
@@ -220,35 +209,35 @@ export default function DeckEditPage() {
       return;
     }
     
-    if (selectedCards.some((c) => c._id === card._id)) {
+    if (selectedCards.some((c) => c.uid === card.uid)) {
       toast.info('Esta carta ya está en el mazo');
       return;
     }
-    
+
     setSelectedCards(prev => [...prev, card]);
-    dispatchUI({ type: 'SET_ACTIVE_CARD', payload: card._id });
+    dispatchUI({ type: 'SET_ACTIVE_CARD', payload: card.uid });
     toast.success(`Carta ${card.uid} añadida`);
   }, [selectedCards]);
 
-  const handleRemoveCard = useCallback((cardId) => {
+  const handleRemoveCard = useCallback((uid) => {
     if (selectedCards.length <= MIN_CARDS) {
       toast.warning(`Mínimo ${MIN_CARDS} cartas por mazo`);
       return;
     }
-    
-    setSelectedCards(prev => prev.filter(c => c._id !== cardId));
+
+    setSelectedCards(prev => prev.filter(c => c.uid !== uid));
     setCardAssignments(prev => {
       const next = { ...prev };
-      delete next[cardId];
+      delete next[uid];
       return next;
     });
-    
+
     // Si era la carta activa, seleccionar otra
-    if (ui.activeCardId === cardId) {
-      const nextActiveCard = selectedCards.find((c) => c._id !== cardId);
-      dispatchUI({ type: 'SET_ACTIVE_CARD', payload: nextActiveCard?._id || null });
+    if (ui.activeUid === uid) {
+      const nextActiveCard = selectedCards.find((c) => c.uid !== uid);
+      dispatchUI({ type: 'SET_ACTIVE_CARD', payload: nextActiveCard?.uid || null });
     }
-  }, [selectedCards, ui.activeCardId]);
+  }, [selectedCards, ui.activeUid]);
 
   const handleContextChange = useCallback((context) => {
     if (effectiveContext?._id === context._id) return;
@@ -259,10 +248,10 @@ export default function DeckEditPage() {
     toast.info('Contexto cambiado. Reasigna los assets.');
   }, [effectiveContext]);
 
-  const handleAssignAsset = useCallback((cardId, asset) => {
+  const handleAssignAsset = useCallback((uid, asset) => {
     setCardAssignments(prev => ({
       ...prev,
-      [cardId]: asset
+      [uid]: asset
     }));
   }, []);
 
@@ -285,7 +274,7 @@ export default function DeckEditPage() {
     }
     
     // Verificar que todas las cartas tengan asignación
-    const unassigned = selectedCards.filter(c => !cardAssignments[c._id]);
+    const unassigned = selectedCards.filter(c => !cardAssignments[c.uid]);
     if (unassigned.length > 0) {
       toast.error(`Hay ${unassigned.length} carta(s) sin asignar`);
       dispatchUI({ type: 'SET_ACTIVE_TAB', payload: 'assign' });
@@ -527,12 +516,12 @@ export default function DeckEditPage() {
                 <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
                   {selectedCards.map((card) => (
                     <motion.div
-                      key={card._id}
+                      key={card.uid}
                       layout
                       className="relative p-4 rounded-xl bg-background-elevated/50 border border-border-default group"
                     >
                       <button
-                        onClick={() => handleRemoveCard(card._id)}
+                        onClick={() => handleRemoveCard(card.uid)}
                         disabled={selectedCards.length <= MIN_CARDS}
                         className={cn(
                           'absolute -top-2 -right-2 size-6 rounded-full',
@@ -638,13 +627,13 @@ export default function DeckEditPage() {
                   <h3 className="font-medium text-text-primary mb-3">Cartas</h3>
                   <div className="space-y-2 max-h-[400px] overflow-y-auto">
                     {selectedCards.map((card) => {
-                      const isAssigned = !!cardAssignments[card._id];
-                      const isActive = ui.activeCardId === card._id;
-                      
+                      const isAssigned = !!cardAssignments[card.uid];
+                      const isActive = ui.activeUid === card.uid;
+
                       return (
                         <button
-                          key={card._id}
-                          onClick={() => dispatchUI({ type: 'SET_ACTIVE_CARD', payload: card._id })}
+                          key={card.uid}
+                          onClick={() => dispatchUI({ type: 'SET_ACTIVE_CARD', payload: card.uid })}
                           className={cn(
                             'w-full flex items-center gap-3 p-3 rounded-xl border transition-all text-left',
                             isActive
@@ -658,7 +647,7 @@ export default function DeckEditPage() {
                           )}>
                             {isAssigned ? (
                               <CardAssetPreview
-                                asset={cardAssignments[card._id]}
+                                asset={cardAssignments[card.uid]}
                                 alt={`Asset asignado a ${card.uid}`}
                                 className="w-full h-full rounded-lg"
                                 fit="cover"
@@ -671,7 +660,7 @@ export default function DeckEditPage() {
                           <div className="flex-1 min-w-0">
                             <p className="text-sm font-medium text-text-primary truncate">{card.uid}</p>
                             <p className="text-xs text-text-muted truncate">
-                              {isAssigned ? cardAssignments[card._id]?.value : 'Sin asignar'}
+                              {isAssigned ? cardAssignments[card.uid]?.value : 'Sin asignar'}
                             </p>
                           </div>
                         </button>
@@ -682,16 +671,16 @@ export default function DeckEditPage() {
 
                 {/* Selector de assets */}
                 <GlassCard className="p-4 lg:col-span-2">
-                  {ui.activeCardId ? (
+                  {ui.activeUid ? (
                     <>
                       <h3 className="font-medium text-text-primary mb-3">
                         Assets de &quot;{effectiveContext?.name}&quot;
                       </h3>
                       <AssetSelector
                         assets={effectiveContext?.assets || []}
-                        selectedAssetKey={cardAssignments[ui.activeCardId]?.key}
+                        selectedAssetKey={cardAssignments[ui.activeUid]?.key}
                         assignedAssets={assignedAssetKeys}
-                        onSelect={(asset) => handleAssignAsset(ui.activeCardId, asset)}
+                        onSelect={(asset) => handleAssignAsset(ui.activeUid, asset)}
                       />
                     </>
                   ) : (
@@ -733,49 +722,12 @@ export default function DeckEditPage() {
                 </button>
               </div>
 
-              {/* Toggle modo */}
-              <div className="flex bg-background-elevated/50 rounded-xl p-1 mb-4 w-fit">
-                <button
-                  onClick={() => dispatchUI({ type: 'SET_CAPTURE_MODE', payload: 'manual' })}
-                  className={cn(
-                    'px-4 py-2 rounded-lg text-sm font-medium transition-all',
-                    ui.captureMode === 'manual'
-                      ? 'bg-accent-indigo text-text-primary'
-                      : 'text-text-muted hover:text-text-primary'
-                  )}
-                >
-                  Selección Manual
-                </button>
-                <button
-                  onClick={() => dispatchUI({ type: 'SET_CAPTURE_MODE', payload: 'rfid' })}
-                  className={cn(
-                    'px-4 py-2 rounded-lg text-sm font-medium transition-all',
-                    ui.captureMode === 'rfid'
-                      ? 'bg-accent-indigo text-text-primary'
-                      : 'text-text-muted hover:text-text-primary'
-                  )}
-                >
-                  Escaneo RFID
-                </button>
-              </div>
-
-              {ui.captureMode === 'manual' ? (
-                <CardSelector
-                  cards={availableCards.filter((c) => !selectedCards.some((sc) => sc._id === c._id))}
-                  selectedCards={[]}
-                  onChange={(cards) => {
-                    cards.forEach(handleAddCard);
-                  }}
-                  maxCards={MAX_CARDS - selectedCards.length}
-                />
-              ) : (
-                <RFIDScannerPanel
-                  onCardScanned={handleAddCard}
-                  scannedCards={[]}
-                  maxCards={MAX_CARDS - selectedCards.length}
-                  showMockButton={import.meta.env.MODE === 'development'}
-                />
-              )}
+              <RFIDScannerPanel
+                onCardScanned={handleAddCard}
+                scannedCards={[]}
+                maxCards={MAX_CARDS - selectedCards.length}
+                showMockButton={import.meta.env.MODE === 'development'}
+              />
             </motion.div>
           </motion.div>
         )}

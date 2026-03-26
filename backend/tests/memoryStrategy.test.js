@@ -7,25 +7,21 @@ describe('MemoryStrategy', () => {
     },
     cardMappings: [
       {
-        cardId: 'c1',
         uid: 'AA000001',
         assignedValue: 'A',
         displayData: { value: 'A', display: '🅰️' }
       },
       {
-        cardId: 'c2',
         uid: 'AA000002',
         assignedValue: 'A',
         displayData: { value: 'A', display: '🅰️' }
       },
       {
-        cardId: 'c3',
         uid: 'AA000003',
         assignedValue: 'B',
         displayData: { value: 'B', display: '🅱️' }
       },
       {
-        cardId: 'c4',
         uid: 'AA000004',
         assignedValue: 'B',
         displayData: { value: 'B', display: '🅱️' }
@@ -34,28 +30,24 @@ describe('MemoryStrategy', () => {
     boardLayout: [
       {
         slotIndex: 0,
-        cardId: 'c1',
         uid: 'AA000001',
         assignedValue: 'A',
         displayData: { value: 'A' }
       },
       {
         slotIndex: 1,
-        cardId: 'c2',
         uid: 'AA000002',
         assignedValue: 'A',
         displayData: { value: 'A' }
       },
       {
         slotIndex: 2,
-        cardId: 'c3',
         uid: 'AA000003',
         assignedValue: 'B',
         displayData: { value: 'B' }
       },
       {
         slotIndex: 3,
-        cardId: 'c4',
         uid: 'AA000004',
         assignedValue: 'B',
         displayData: { value: 'B' }

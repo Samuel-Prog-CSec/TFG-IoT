@@ -707,20 +707,115 @@ Cada UID escaneado se registra automáticamente en una colección Card ligera, s
 2. **Sin detección de tipo MIFARE**: se pierde el tracking del tipo de tarjeta (MIFARE_1KB, 4KB, NTAG). Se acepta porque: (a) el tipo nunca se utilizó en la lógica del juego ni en la UI del profesor, y (b) Web Serial sigue detectando el tipo en el frontend si fuera necesario en el futuro.
 3. **UIDs no validados contra registro central**: dos profesores podrían asignar la misma tarjeta física en mazos distintos sin advertencia. Se acepta porque: (a) es equivalente a compartir un dado entre dos juegos de mesa, (b) el Redis distributed locking ya previene conflictos en sesiones simultáneas (ADR-004).
 
-### Evidencia técnica asociada (ADR-012)
+### Implementación realizada (ADR-012)
 
-**Archivos eliminados:**
-- `backend/src/models/Card.js`, `backend/src/repositories/cardRepository.js`
-- `backend/src/controllers/cardController.js`, `backend/src/routes/cards.js`
-- `backend/src/validators/cardValidator.js`, `backend/seeders/02-cards.js`
-- `backend/src/states/rfid/CardRegistrationState.js`
-- `backend/src/commands/socket/JoinCardRegistrationCommand.js`, `LeaveCardRegistrationCommand.js`
+#### Estrategia de implementación
 
-**Archivos modificados (core):**
-- `backend/src/models/CardDeck.js`, `backend/src/models/GameSession.js`
-- `backend/src/controllers/cardDeckController.js`, `backend/src/services/gameSessionService.js`
-- `backend/src/controllers/helpers/sessionValidationHelpers.js`
-- `backend/src/utils/dtos.js`
+La implementación se realizó en 6 fases secuenciales, siguiendo un orden de dependencias estricto que garantiza la integridad del sistema en cada etapa. Se priorizó la secuencialidad sobre el paralelismo porque cada fase modifica contratos de datos que las fases posteriores consumen: los esquemas Mongoose (Fase 1) definen la estructura que la lógica de negocio (Fase 2) manipula, que a su vez es la que los seeders (Fase 3) y tests (Fase 4) deben reproducir.
+
+Este enfoque de "contrato hacia afuera" es consistente con la recomendación de Martin Fowler para refactorizaciones de modelos de datos en sistemas con múltiples capas de consumidores.
+
+#### Fase 1 — Esquemas y validadores (fundación del cambio)
+
+Se eliminó el campo `cardId` (ObjectId, ref a Card) de los subdocumentos de `CardDeck.cardMappings`, `GameSession.cardMappings`, `GameSession.boardLayout` y `GameSession.associationChallengePlan`. El `uid` (String) pasa a ser el único identificador de una tarjeta dentro del sistema.
+
+Como mejora de ingeniería del software, se implementó **validación de defensa en profundidad** (defense-in-depth, patrón recomendado por OWASP) añadiendo un validador `match` con regex hexadecimal en los esquemas Mongoose que complementa la validación Zod existente en la boundary HTTP:
+
+```javascript
+uid: {
+  type: String,
+  required: true,
+  uppercase: true,
+  trim: true,
+  match: [/^[0-9A-F]{8}$|^[0-9A-F]{14}$/, 'UID debe ser 8 o 14 caracteres hexadecimales']
+}
+```
+
+La justificación es que la validación Zod protege la entrada HTTP, pero los seeders, scripts de migración y tests interactúan directamente con Mongoose sin pasar por la capa Zod. La validación a nivel de esquema garantiza integridad incluso en esos escenarios.
+
+Adicionalmente, se añadió un validador Mongoose de unicidad de UIDs dentro de cada mazo en `CardDeck`, cerrando la posibilidad de corrupción de datos por bypass de la boundary HTTP.
+
+Los validadores Zod de `cardDeckValidator.js` y `gameSessionValidator.js` se simplificaron: se eliminaron los campos `cardId: objectIdSchema` y los refinamientos de unicidad de cardId. La validación de unicidad de UIDs y assignedValues se mantuvo intacta, ya que es ortogonal al cambio de modelo.
+
+**Archivos modificados:** `CardDeck.js`, `GameSession.js`, `cardDeckValidator.js`, `gameSessionValidator.js`
+
+#### Fase 2 — Lógica de negocio y DTOs (propagación del cambio)
+
+Esta fase eliminó toda la lógica que validaba la existencia de tarjetas contra la colección Card, y actualizó las estructuras de datos de respuesta (DTOs) para reflejar el nuevo modelo.
+
+En `cardDeckController.js`, se eliminó la función `validateCardsExistAndActive()` de 30 líneas que realizaba tres queries al modelo Card: verificación de existencia, comprobación de estado activo, y validación de consistencia UID-cardId. Esta función representaba el cuello de botella principal del flujo anterior, ya que cada creación o actualización de mazo requería una consulta a la base de datos por cada tarjeta del mazo.
+
+En `gameSessionService.js`, se eliminó el bloque análogo de validación contra la colección Card en `syncSessionFromDeck()`, que era responsable de sincronizar sesiones con sus mazos. El filtro de `boardLayout` cambió de `mappingCardIds` (basado en ObjectId) a `mappingUids` (basado en UID), lo que simplifica la lógica y elimina una dependencia del repositorio Card.
+
+El cambio más delicado fue en `sessionValidationHelpers.js`, donde 6 funciones utilizaban Maps keyed por `cardId` para validar, normalizar y reparar boardLayouts y associationChallengePlans. Cada `mappingByCardId` se transformó en `mappingByUid`, y se eliminó el patrón de "doble resolución" (buscar primero por UID, luego por cardId como fallback) que existía como deuda técnica del modelo anterior.
+
+Los DTOs de Card (`toCardDTOV1`, `toCardListDTOV1`, `toCardStatsDTOV1`) se eliminaron completamente. Los DTOs de mappings se simplificaron: `mapCardMappingDTOV1` pasó de retornar 6 campos (incluyendo `cardId` y un objeto `card` con populate) a retornar 4 campos (`id`, `uid`, `assignedValue`, `displayData`). Este cambio reduce el payload de red y simplifica el contrato de API.
+
+**Archivos modificados:** `cardDeckController.js`, `gameSessionService.js`, `sessionValidationHelpers.js`, `gameSessionController.js`, `gameEngine.js`, `dtos.js`
+
+#### Fase 3 — Eliminación de infraestructura y actualización de seeders
+
+Se eliminaron 9 archivos del backend y 1 del frontend que constituían la infraestructura completa del modelo Card:
+
+- **Capa de datos**: `Card.js` (modelo), `cardRepository.js` (repositorio)
+- **Capa de API**: `cardController.js` (7 handlers CRUD), `cards.js` (rutas), `cardValidator.js` (schemas Zod)
+- **Capa de estado RFID**: `CardRegistrationState.js` (máquina de estados), `JoinCardRegistrationCommand.js` y `LeaveCardRegistrationCommand.js` (comandos socket)
+- **Datos de prueba**: `02-cards.js` (seeder)
+- **UI de selección**: `CardSelector.jsx` (componente frontend)
+
+Es importante notar que `CardAssignmentState`, `JoinCardAssignmentCommand` y `LeaveCardAssignmentCommand` se **mantuvieron** deliberadamente, ya que gestionan el flujo de escaneo RFID en vivo durante la creación de mazos — un flujo que sigue siendo necesario y funcional tras la refactorización.
+
+Los seeders se actualizaron para generar UIDs sintéticos hex que simulan tarjetas RFID reales (formato MIFARE de 8 caracteres hexadecimales), eliminando la dependencia del seeder `02-cards.js` y el parámetro `cards` en las funciones de generación de mazos y sesiones.
+
+Se creó un script de migración (`backend/scripts/migrate-remove-cardId.js`) idempotente con soporte `--dry-run` y logging estructurado con Pino, que permite limpiar bases de datos existentes realizando `$unset` del campo `cardId` en las colecciones `card_decks` y `game_sessions`, y opcionalmente dropeando la colección `cards`.
+
+**Archivos eliminados:** 10 (9 backend + 1 frontend)
+**Archivos modificados:** `server.js`, `states/rfid/index.js`, `commands/socket/index.js`, `realtime/socketHandlers.js`, `seeders/index.js`, `seeders/05-carddecks.js`, `seeders/06-sessions.js`
+**Archivos creados:** `backend/scripts/migrate-remove-cardId.js`
+
+#### Fase 4 — Actualización de tests
+
+Se eliminó `cards.test.js` (test de CRUD de endpoints `/api/cards` que ya no existen) y se actualizaron 13 archivos de test.
+
+Como mejora de ingeniería del software, se aplicó el **principio DRY** creando un helper centralizado `backend/tests/helpers/testFixtures.js` con la función `createTestCardMappings()`. Los 11 test files que antes duplicaban el patrón de crear documentos Card con `Card.create()` y usar `card._id` en mappings ahora utilizan este helper, que genera mappings con UIDs directos. Esto eliminó aproximadamente 40 líneas de código repetido por archivo y facilita el mantenimiento futuro: si el formato de los mappings cambia, solo hay que actualizar un archivo en lugar de 11.
+
+La actualización de `validationEndpoints.test.js` eliminó 7 test cases de endpoints de Card, y `socketAuth.test.js` se actualizó para reemplazar referencias a `join_card_registration` por `join_card_assignment`.
+
+**Archivos eliminados:** `cards.test.js`
+**Archivos modificados:** 13 test files
+**Archivos creados:** `backend/tests/helpers/testFixtures.js`
+
+#### Fase 5 — Frontend
+
+En el frontend, se eliminó el objeto `cardsAPI` de `api.js` (5 métodos de comunicación con `/api/cards`) y se reescribió `cardMapping.js` para usar `uid` como identificador primario. La función `normalizeCardMappingsFromDeck()` tenía una cadena de 4 niveles de fallback para resolver `cardId` (legado de múltiples iteraciones del backend), que se simplificó a una extracción directa de `mapping.uid`, reduciendo la complejidad ciclomática de la función.
+
+Las páginas de mazos (`DeckCreationWizard.jsx`, `DeckEditPage.jsx`) se simplificaron al eliminar la carga de tarjetas pre-registradas via `cardsAPI.getCards()`. El componente `CardSelector.jsx` (que permitía seleccionar tarjetas de una lista cargada de la BD) se eliminó completamente, ya que el escaneo RFID en vivo via `RFIDScannerPanel` es ahora el único método de asignación de tarjetas.
+
+Las páginas de sesiones (`CreateSession.jsx`, `SessionEdit.jsx`, `BoardSetup.jsx`, `GameSession.jsx`) se actualizaron para eliminar `cardId` de todos los objetos de mapping, layout y plan de asociación. Los parámetros de callbacks se renombraron de `cardId` a `uid` para reflejar la nueva semántica.
+
+**Archivos eliminados:** `CardSelector.jsx`
+**Archivos modificados:** `api.js`, `cardMapping.js`, `socket.js`, `DeckCreationWizard.jsx`, `DeckEditPage.jsx`, `CreateSession.jsx`, `SessionEdit.jsx`, `BoardSetup.jsx`, `GameSession.jsx`
+
+#### Verificación de integridad del flujo RFID
+
+Tras completar la implementación, se realizó una auditoría completa del flujo de comunicación RFID para verificar que la eliminación del modelo Card no introdujo regresiones en el canal de comunicación frontend ↔ backend.
+
+La auditoría verificó la cadena completa: hardware ESP8266 → Web Serial API → `webSerialService.js` → Socket.IO (`rfid_scan_from_client`) → `socketHandlers.js` → `rfidService.js` → `gameEngine.js`. En ningún punto de esta cadena existía dependencia del modelo Card: el payload de escaneo (`{uid, type, sensorId, timestamp, source}`) se definió originalmente con `uid` como identificador primario, y el motor de juego (`gameEngine.js`) siempre utilizó Maps en memoria indexados por UID (`uidToMapping`, `cardUidToPlayId`) sin consultas a la base de datos durante el gameplay.
+
+El contrato de validación entre frontend (payload emitido por `webSerialService`) y backend (schema `rfidClientEventSchema` en `rfidValidator.js`) se verificó campo por campo, confirmando una correspondencia exacta. El modo `CARD_ASSIGNMENT` de la máquina de estados RFID funciona correctamente sin el modelo Card, ya que su responsabilidad se limita a gestionar el estado del modo de escaneo y la pertenencia a rooms de Socket.IO.
+
+#### Resultados de verificación
+
+| Verificación | Resultado |
+|---|---|
+| `npm run lint` (backend) | 0 errores |
+| `npm test` (backend) | 33 suites, 281 tests passed |
+| `npm run lint` (frontend) | 0 errores |
+| `npm test` (frontend) | 3 suites, 17 tests passed |
+| `npm run build` (frontend) | Build exitoso |
+| Referencias a `cardId` en backend/src | 0 (solo README.md) |
+| Referencias a `cardId` en frontend/src | 0 |
+| Flujo RFID end-to-end | Auditoría aprobada |
 
 ### Relación con otros ADRs
 

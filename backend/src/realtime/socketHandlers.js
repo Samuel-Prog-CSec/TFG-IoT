@@ -21,7 +21,6 @@ const Sentry = require('@sentry/node');
 const RFID_MODES = Object.freeze({
   IDLE: 'idle',
   GAMEPLAY: 'gameplay',
-  CARD_REGISTRATION: 'card_registration',
   CARD_ASSIGNMENT: 'card_assignment'
 });
 
@@ -180,7 +179,6 @@ const getRfidModeState = userId => {
   return rfidModeByUserId.get(userId) || { mode: RFID_MODES.IDLE, sensorId: null, socketId: null };
 };
 
-const getRegistrationRoom = userId => `card_registration_${userId}`;
 const getAssignmentRoom = userId => `card_assignment_${userId}`;
 const getPlayRoom = playId => `play_${playId}`;
 
@@ -611,7 +609,6 @@ const validateRfidStateForRead = (socket, modeState, state) => {
   }
 
   const rooms = {
-    registration: getRegistrationRoom(socket.data.userId),
     assignment: getAssignmentRoom(socket.data.userId),
     play: modeState.metadata?.playId ? getPlayRoom(modeState.metadata.playId) : null
   };
@@ -897,8 +894,6 @@ const registerSocketHandlers = ({ io, gameEngine, rfidService, socketRateLimiter
       'pause_play',
       'resume_play',
       'next_round',
-      'join_card_registration',
-      'leave_card_registration',
       'join_card_assignment',
       'leave_card_assignment',
       'join_admin_room',
@@ -914,7 +909,6 @@ const registerSocketHandlers = ({ io, gameEngine, rfidService, socketRateLimiter
       setRfidModeState,
       clearRfidModeState,
       getPlayRoom,
-      getRegistrationRoom,
       getAssignmentRoom,
       handleRfidScanFromClient,
       RFID_MODES
@@ -1003,11 +997,6 @@ const registerRfidHandlers = ({ io, gameEngine, rfidService, logger }) => {
       const userId = getUserIdBySensorId(event.sensorId);
       if (userId) {
         io.to(getAssignmentRoom(userId)).emit('rfid_event', event);
-      }
-    } else if (event.event === 'card_detected' || event.event === 'card_removed') {
-      const userId = getUserIdBySensorId(event.sensorId);
-      if (userId) {
-        io.to(getRegistrationRoom(userId)).emit('rfid_event', event);
       }
     } else {
       io.to('admin_room').emit('rfid_event', event);

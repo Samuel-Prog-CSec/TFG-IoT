@@ -31,7 +31,6 @@ const generateMockUid = () => {
  * @typedef {Object} ScannedCard
  * @property {string} uid - UID de la tarjeta
  * @property {string} [type] - Tipo de tarjeta (MIFARE_1KB, etc.)
- * @property {string} [cardId] - ID en base de datos (si existe)
  * @property {Date} scannedAt - Fecha/hora del escaneo
  */
 
@@ -538,7 +537,6 @@ RFIDScannerPanel.propTypes = {
     PropTypes.shape({
       uid: PropTypes.string.isRequired,
       type: PropTypes.string,
-      cardId: PropTypes.string,
       scannedAt: PropTypes.instanceOf(Date)
     })
   ),
