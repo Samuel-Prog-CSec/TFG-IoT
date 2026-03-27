@@ -30,11 +30,14 @@ RUN npm run build
 # ============================================
 FROM nginx:alpine AS production
 
+# Version de la aplicacion (sincronizar con package.json)
+ARG APP_VERSION=0.5.0
+
 # Metadatos OCI
 LABEL org.opencontainers.image.title="RFID Games Frontend"
 LABEL org.opencontainers.image.description="Frontend SPA for RFID educational games platform"
 LABEL org.opencontainers.image.authors="Samuel Blanchart Pérez"
-LABEL org.opencontainers.image.version="0.2.0"
+LABEL org.opencontainers.image.version="${APP_VERSION}"
 
 # Copiar el build de Vite (carpeta dist)
 COPY --from=builder /app/dist /usr/share/nginx/html

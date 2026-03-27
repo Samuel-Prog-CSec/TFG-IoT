@@ -43,11 +43,14 @@ CMD ["npm", "run", "dev"]
 # ============================================
 FROM node:24-alpine AS production
 
+# Version de la aplicacion (sincronizar con package.json)
+ARG APP_VERSION=0.5.0
+
 # Metadatos OCI
 LABEL org.opencontainers.image.title="RFID Games Backend"
 LABEL org.opencontainers.image.description="Backend API for RFID educational games platform"
 LABEL org.opencontainers.image.authors="Samuel Blanchart Pérez"
-LABEL org.opencontainers.image.version="0.2.0"
+LABEL org.opencontainers.image.version="${APP_VERSION}"
 
 # Configuración de entorno
 ENV NODE_ENV=production
