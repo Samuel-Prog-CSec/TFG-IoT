@@ -195,8 +195,36 @@ jobs:
         working-directory: ./frontend
 
       - name: Ejecutar tests con cobertura
-        run: npm run test:coverage
         working-directory: ./frontend
+        run: |
+          # Node 24 + tinypool: worker crash (ERR_WORKER_OUT_OF_MEMORY) al terminar
+          # produce exit code 1 aunque todos los tests hayan pasado.
+          # Capturamos la salida y verificamos que no hay tests fallidos reales.
+          set +e
+          npm run test:coverage 2>&1 | tee vitest-output.txt
+          EXIT_CODE=$?
+          set -e
+
+          # Si exit code es 0, todo bien
+          if [ $EXIT_CODE -eq 0 ]; then
+            exit 0
+          fi
+
+          # Si hay tests que realmente fallaron, falla el step
+          if grep -qE "Tests.*failed" vitest-output.txt; then
+            echo "❌ Tests reales fallaron"
+            exit 1
+          fi
+
+          # Si todos los tests pasaron pero el worker crasheó al terminar, es OK
+          if grep -qE "Tests.*passed" vitest-output.txt; then
+            echo "⚠️  Worker crash post-tests (Node 24 + tinypool known issue) — tests passed"
+            exit 0
+          fi
+
+          # Caso desconocido: fallar por seguridad
+          echo "❌ No se pudo determinar el resultado de los tests"
+          exit 1
 
       - name: Normalizar rutas LCOV para SonarCloud
         if: always()

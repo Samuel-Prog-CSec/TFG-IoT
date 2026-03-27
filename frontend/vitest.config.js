@@ -1,14 +1,21 @@
 import { defineConfig } from 'vitest/config';
 import react from '@vitejs/plugin-react-swc';
-import tailwindcss from '@tailwindcss/vite';
 
 export default defineConfig({
-  plugins: [react(), tailwindcss()],
+  // Solo el plugin de React — @tailwindcss/vite se omite porque no es
+  // necesario para tests unitarios y puede causar hangs en CI al intentar
+  // compilar CSS en workers que no terminan correctamente.
+  plugins: [react()],
   test: {
     environment: 'jsdom',
     globals: true,
     setupFiles: ['./src/test/setup.js'],
-    css: true,
+    css: false,
+    // Secuencial (sin paralelismo entre archivos): previene OOM en workers
+    // de tinypool con Node 24, que causan ERR_WORKER_OUT_OF_MEMORY y hang
+    // infinito en CI. El crash ocurre en el cleanup del worker al terminar;
+    // el script npm "test" usa --no-file-parallelism para mitigarlo.
+    testTimeout: 30000,
     coverage: {
       provider: 'v8',
       reporter: ['text', 'lcov'],

@@ -63,7 +63,8 @@ vi.mock('../../components/ui/StatusBadge', () => ({
 }));
 
 vi.mock('../../components/ui/SkeletonShimmer', () => ({
-  SkeletonCard: () => <div>loading</div>
+  SkeletonCard: () => <div>loading</div>,
+  SkeletonGrid: () => <div>loading grid</div>
 }));
 
 vi.mock('../../components/ui/Tooltip', () => ({

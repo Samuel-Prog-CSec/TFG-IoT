@@ -1,7 +1,7 @@
-import { act, render, screen, waitFor } from '@testing-library/react';
+import { act, cleanup, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { MemoryRouter, Route, Routes } from 'react-router-dom';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { toast } from 'sonner';
 import GameSession from '../GameSession';
 import { socketService, SOCKET_EVENTS } from '../../services/socket';
@@ -221,6 +221,10 @@ function renderGameSession() {
 }
 
 describe('GameSession realtime gameplay', () => {
+  afterEach(() => {
+    cleanup();
+  });
+
   beforeEach(() => {
     vi.clearAllMocks();
 

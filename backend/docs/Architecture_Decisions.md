@@ -953,14 +953,48 @@ Se crean dos utilidades centralizadas:
 
 **Negativas:**
 - Indirección adicional: los controllers ya no muestran el `res.json()` directamente, lo que puede dificultar la comprensión inicial del flujo
-- La migración es progresiva (solo 2 controllers piloto migrados), por lo que coexisten ambos estilos temporalmente
+
+### Migración Completa (Mantenimiento Sprint 5)
+
+La migración piloto inicial cubría solo 2 controllers. Durante el mantenimiento del Sprint 5 se completó la migración a todos los controllers del proyecto:
+
+**responseHelper — Migración completa (9/10 controllers):**
+
+| Controller | Calls migradas | Funciones usadas |
+|------------|---------------|-----------------|
+| adminController | 3 | sendSuccess, sendPaginated |
+| analyticsController | 5 (handlers pre-T-601) | sendSuccess |
+| authController | 6 | sendSuccess, sendCreated |
+| userController | 8 | sendSuccess, sendCreated, sendPaginated |
+| gameContextController | 6 | sendSuccess, sendCreated, sendPaginated |
+| gameMechanicController | 6 | sendSuccess, sendCreated, sendPaginated |
+| gamePlayController | 9 | sendSuccess, sendCreated, sendPaginated |
+| gameSessionController | 8 | sendSuccess, sendCreated, sendPaginated |
+| assetController | 5 | sendSuccess, sendCreated |
+| **Total** | **~56 calls migradas** | |
+
+**Exclusión documentada:** `healthController.js` no usa responseHelper porque sus endpoints de health/metrics siguen convenciones de infraestructura (formato libre, sin wrapper `{ success, data }`).
+
+**filterBuilder — Migración completa (6/10 controllers con filtros):**
+
+| Controller | Mapping declarativo | Tipos usados | Líneas eliminadas |
+|------------|-------------------|-------------|-------------------|
+| userController (piloto) | `userFilterMappings` | exact, search, computed | — (ya migrado) |
+| gamePlayController | `playFilterMappings` | exact, range | ~36 (eliminadas `buildScoreRangeFilter` y `buildPlaysFilter`) |
+| gameSessionController | `sessionFilterMappings` | exact | ~17 |
+| adminController | `pendingTeacherFilterMappings` | search (con baseFilter) | ~12 |
+| gameMechanicController | `mechanicFilterMappings` | exact, search | ~14 |
+| gameContextController | `contextFilterMappings` | search, exact | ~14 |
+
+Los 4 controllers restantes (authController, assetController, cardDeckController, healthController) no tienen endpoints de listado con filtros query-based, por lo que no aplican para filterBuilder.
+
+Imports de `escapeRegex` eliminados de adminController, gameMechanicController y gameContextController — ya no necesitan el escape manual porque filterBuilder lo aplica internamente en el tipo `search`.
 
 ### Archivos Afectados
 
 - `backend/src/utils/responseHelper.js` (nuevo — 4 funciones exportadas)
 - `backend/src/utils/filterBuilder.js` (nuevo — factory genérica)
-- `backend/src/controllers/cardDeckController.js` (piloto responseHelper — 5 respuestas migradas)
-- `backend/src/controllers/userController.js` (piloto filterBuilder — `buildUsersFilter` reemplazado por mappings declarativos)
+- `backend/src/controllers/*.js` (9 controllers migrados a responseHelper, 6 a filterBuilder)
 - `backend/tests/responseHelper.test.js` (nuevo — 17 tests unitarios)
 - `backend/tests/filterBuilder.test.js` (nuevo — 20 tests unitarios)
 
