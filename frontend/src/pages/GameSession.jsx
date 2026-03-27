@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useRef, memo } from 'react';
+import { useState, useEffect, useCallback, useRef, memo, useMemo } from 'react';
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Wifi, WifiOff, Pause, Play, Volume2, VolumeX, AlertTriangle } from 'lucide-react';
@@ -50,6 +50,9 @@ const REALTIME_STATUS_COPY = {
 };
 
 const TIMER_ANNOUNCEMENT_THRESHOLDS = new Set([10, 5, 3, 2, 1, 0]);
+
+const FLOAT_DELAY_STYLE = { animationDelay: '1s' };
+const FLOAT_DELAY_NONE = { animationDelay: '0s' };
 
 function resolveSocketError(payload) {
   const code = payload?.code;
@@ -135,10 +138,10 @@ export default function GameSession() { // NOSONAR
   const [challenge, setChallenge] = useState(null);
   const [memoryBoard, setMemoryBoard] = useState([]);
   const fallbackCards = Array.isArray(session?.cardMappings) ? session.cardMappings : [];
-  const roundIndicators = [];
-  for (let roundNumber = 1; roundNumber <= totalRounds; roundNumber += 1) {
-    roundIndicators.push(roundNumber);
-  }
+  const roundIndicators = useMemo(
+    () => Array.from({ length: totalRounds }, (_, i) => i + 1),
+    [totalRounds]
+  );
 
   useEffect(() => {
     playIdRef.current = playId;
@@ -970,7 +973,7 @@ export default function GameSession() { // NOSONAR
       {/* Animated background elements */}
       <div className="absolute inset-0 overflow-hidden pointer-events-none">
         <div className={cn('absolute top-20 left-10 w-64 h-64 bg-brand-base/10 rounded-full blur-[100px]', !shouldReduceMotion && 'animate-float')} />
-        <div className={cn('absolute bottom-20 right-10 w-80 h-80 bg-accent-cyan/10 rounded-full blur-[100px]', !shouldReduceMotion && 'animate-float')} style={{ animationDelay: shouldReduceMotion ? '0s' : '1s' }} />
+        <div className={cn('absolute bottom-20 right-10 w-80 h-80 bg-accent-cyan/10 rounded-full blur-[100px]', !shouldReduceMotion && 'animate-float')} style={shouldReduceMotion ? FLOAT_DELAY_NONE : FLOAT_DELAY_STYLE} />
         <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[600px] h-[600px] bg-accent-pink/5 rounded-full blur-[120px]" />
       </div>
 
@@ -1475,6 +1478,12 @@ function resolveMemoryColumns(totalCards) {
   return 5;
 }
 
+const GRID_STYLES = {
+  3: { gridTemplateColumns: 'repeat(3, minmax(0, 1fr))' },
+  4: { gridTemplateColumns: 'repeat(4, minmax(0, 1fr))' },
+  5: { gridTemplateColumns: 'repeat(5, minmax(0, 1fr))' }
+};
+
 function getMemorySlotClasses(isMatched, isOpen) {
   if (isMatched) {
     return 'border-success-base/70 bg-success-base/20';
@@ -1491,6 +1500,7 @@ function MemoryBoard({ board, feedbackState, feedbackPoints, feedbackMessage, sh
   const safeBoard = Array.isArray(board) ? [...board].sort((a, b) => a.slotIndex - b.slotIndex) : [];
   const total = safeBoard.length;
   const columns = resolveMemoryColumns(total);
+  const gridStyle = GRID_STYLES[columns] || GRID_STYLES[3];
   const [prevBoard, setPrevBoard] = useState([]);
 
   // Detect which slots just changed (newly matched or revealed for feedback)
@@ -1535,7 +1545,7 @@ function MemoryBoard({ board, feedbackState, feedbackPoints, feedbackMessage, sh
 
       <div
         className="grid gap-3"
-        style={{ gridTemplateColumns: `repeat(${columns}, minmax(0, 1fr))` }}
+        style={gridStyle}
         role="grid"
         aria-label="Tablero de memoria"
       >
