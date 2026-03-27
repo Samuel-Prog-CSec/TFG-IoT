@@ -20,6 +20,7 @@ import ButtonPremium from '../components/ui/ButtonPremium';
 import PageHeader from '../components/ui/PageHeader';
 import InputPremium from '../components/ui/InputPremium';
 import EmptyState from '../components/ui/EmptyState';
+import ErrorState from '../components/ui/ErrorState';
 import { SkeletonCard } from '../components/ui/SkeletonShimmer';
 import { useContexts } from '../hooks/useContexts';
 import { useReducedMotion } from '../hooks/useReducedMotion';
@@ -161,14 +162,12 @@ export default function ContextsPage() {
             ))}
           </div>
         ) : error ? (
-          <GlassCard className="p-8 text-center max-w-lg mx-auto mt-12">
-            <AlertTriangle size={48} className="mx-auto text-error-base mb-4" />
-            <h3 className="text-xl font-medium text-text-primary mb-2">Error al cargar contextos</h3>
-            <p className="text-text-muted mb-6">{error}</p>
-            <ButtonPremium onClick={refetch} variant="secondary">
-              Reintentar
-            </ButtonPremium>
-          </GlassCard>
+          <ErrorState
+            title="Error al cargar contextos"
+            message={error}
+            onRetry={refetch}
+            className="max-w-lg mx-auto mt-12"
+          />
         ) : filteredContexts.length === 0 ? (
           <EmptyState
             title="No se encontraron contextos"

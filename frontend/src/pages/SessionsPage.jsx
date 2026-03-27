@@ -35,6 +35,7 @@ import StatusBadge from '../components/ui/StatusBadge';
 import { SkeletonCard } from '../components/ui/SkeletonShimmer';
 import Tooltip from '../components/ui/Tooltip';
 import EmptyState from '../components/ui/EmptyState';
+import ErrorState from '../components/ui/ErrorState';
 import ConfirmationModal, { useConfirmationModal } from '../components/ui/ConfirmationModal';
 import PageHeader from '../components/ui/PageHeader';
 import { listContainerVariants, listItemVariants } from '../lib/utils';
@@ -640,9 +641,11 @@ export default function SessionsPage() {
           </AnimatePresence>
 
         {error && (
-          <GlassCard className="p-6 border border-error-base/30">
-            <p className="text-error-base">{error}</p>
-          </GlassCard>
+          <ErrorState
+            title="Error al cargar sesiones"
+            message={error}
+            onRetry={refetchSessions}
+          />
         )}
 
         {sessionsContent}

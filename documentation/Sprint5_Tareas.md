@@ -1219,34 +1219,37 @@ Aplicar tabla de mapeo estándar de tokens semánticos a cada archivo. Tras comp
 
 ---
 
-### T-523: 🔧 Gestionar deprecación de rutas legacy con headers HTTP 📋
+### T-523: 🔧 Eliminar rutas legacy de assets y código subyacente ✅
 
 **Prioridad:** P2 | **Tamaño:** S (2-4h) | **Dependencias:** Ninguna
-**Origen:** Auditoría — rutas `@deprecated` en JSDoc sin informar al consumidor
+**Origen:** Auditoría — rutas `@deprecated` en JSDoc con código legacy sin consumidores
 
 **Descripción:**
-Las rutas legacy de assets tienen `@deprecated` en JSDoc pero no emiten headers de deprecación (RFC 8594).
+Las rutas legacy de assets (`POST /:id/assets`, `DELETE /:id/assets/:assetKey`) estaban marcadas como `@deprecated` en JSDoc y habían sido reemplazadas por rutas con subida de archivo (`POST /:id/images`, `POST /:id/audio`, `DELETE /:id/images/:assetKey`, `DELETE /:id/audio/:assetKey`). Al no existir consumidores externos de la API, se decidió eliminar directamente las rutas legacy y todo su código subyacente en lugar de implementar un middleware de deprecación RFC 8594 (que solo tendría sentido con una API pública con consumidores de terceros).
 
 **Sub-tareas:**
 
-1. Crear middleware `deprecated(sunsetDate, alternativeRoute)` en `middlewares/deprecated.js`.
-2. Aplicar a las dos rutas deprecadas en `routes/contexts.js`.
-3. Agregar logging `warn` cuando se usen.
-4. Documentar en `docs/deprecated-routes.md`.
-5. Test de headers.
+1. Eliminar las dos rutas deprecated de `routes/contexts.js` (`POST /:id/assets`, `DELETE /:id/assets/:assetKey`).
+2. Eliminar handlers `addAsset` y `removeAsset` de `controllers/gameContextController.js`.
+3. Eliminar `addAssetSchema` de `validators/gameContextValidator.js`.
+4. Eliminar tests de validación de las rutas eliminadas en `tests/validationEndpoints.test.js`.
+5. Actualizar tabla de endpoints en `docs/API_v0.5.0.md` (eliminar filas de rutas legacy).
 
 **Criterios de Aceptación:**
 
-- [ ] Middleware `deprecated()` creado y reutilizable
-- [ ] Rutas legacy emiten headers `Deprecation` y `Sunset`
-- [ ] Logging registra uso con contexto
-- [ ] Tests verifican headers
+- [x] Rutas `POST /:id/assets` y `DELETE /:id/assets/:assetKey` eliminadas de `routes/contexts.js`
+- [x] Handlers `addAsset` y `removeAsset` eliminados de `gameContextController.js`
+- [x] `addAssetSchema` eliminado del validador
+- [x] Tests de validación de rutas eliminadas quitados
+- [x] `API_v0.5.0.md` actualizado sin las filas legacy
+- [x] `npm test` pasa en backend sin regresiones
+- [x] `npm run lint` pasa sin errores nuevos
 
-**Archivos afectados:** `backend/src/middlewares/deprecated.js` (nuevo), `backend/src/routes/contexts.js`
+**Archivos afectados:** `backend/src/routes/contexts.js`, `backend/src/controllers/gameContextController.js`, `backend/src/validators/gameContextValidator.js`, `backend/tests/validationEndpoints.test.js`, `backend/docs/API_v0.5.0.md`
 
 ---
 
-### T-525: 🔧 Unificar health checks y extraer handlers inline de server.js 📋
+### T-525: 🔧 Unificar health checks y extraer handlers inline de server.js ✅
 
 **Consolida:** T-525 + T-532
 **Prioridad:** P2 | **Tamaño:** M (4-8h) | **Dependencias:** Ninguna
@@ -1272,15 +1275,19 @@ Los handlers de `/health` y `/api/health` son idénticos (código copiado). Se d
 
 **Criterios de Aceptación:**
 
-- [ ] `/health` y `/api/health` comparten handler
-- [ ] Health check incluye versión
-- [ ] Test verifica que versión es correcta
-- [ ] Handlers inline extraídos a controllers/routes
-- [ ] `server.js` solo contiene configuración y montaje
-- [ ] Endpoints funcionan idénticamente
-- [ ] Tests existentes pasan
+- [x] `/health` y `/api/health` comparten handler — ambos delegan a `healthController.healthCheck`
+- [x] Health check incluye versión — campo `version` de `package.json` añadido a la respuesta
+- [x] Test verifica que versión es correcta — test en `metricsEndpoints.test.js`
+- [x] Handlers inline extraídos a controllers/routes — `healthController.js` (3 handlers) + `health.js` (router)
+- [x] `server.js` solo contiene configuración y montaje — ~90 líneas de handlers inline eliminadas
+- [x] Endpoints funcionan idénticamente — test de paridad `/health` vs `/api/health`
+- [x] Tests existentes pasan — 691 tests, 0 fallos
+- [x] Servicios inyectados via `app.set` (rfidService, runtimeMetrics) — patrón DI existente del proyecto
+- [x] Filtro pinoHttp migrado a `req.originalUrl` para compatibilidad con routers
+- [x] Nuevo endpoint `GET /api/info` con metadatos de la API
+- [x] `API_v0.5.0.md` actualizado con campo `version` en health y endpoint `/api/info`
 
-**Archivos afectados:** `backend/src/server.js`, `backend/src/controllers/healthController.js` (nuevo), `backend/src/routes/health.js` (nuevo)
+**Archivos afectados:** `backend/src/server.js`, `backend/src/controllers/healthController.js` (nuevo), `backend/src/routes/health.js` (nuevo), `backend/tests/metricsEndpoints.test.js`, `backend/docs/API_v0.5.0.md`
 
 ---
 
@@ -1330,7 +1337,7 @@ Crear tres componentes UI reutilizables para mejorar la consistencia visual y de
 - [x] Al menos 3 páginas usan PageHeader — SessionsPage, ContextsPage, CardDecksPage
 - [x] Componente `ErrorState` creado y reutilizable — integrado en CardDecksPage
 - [ ] AlertsPanel muestra estado positivo cuando no hay alertas — pendiente (requiere T-604/T-605)
-- [ ] Al menos 4 componentes migrados a estados unificados — pendiente (1 migrado: CardDecksPage)
+- [x] Al menos 4 componentes migrados a estados unificados — 6 migrados: CardDecksPage (ErrorState), SessionsPage (ErrorState), ContextsPage (ErrorState), Dashboard (ErrorState), DifficultyHeatmap (EmptyState), StudentProgressChart (EmptyState)
 - [x] Aspecto visual consistente
 - [x] Tokens semánticos usados
 - [x] `npm run build` pasa
@@ -1339,7 +1346,7 @@ Crear tres componentes UI reutilizables para mejorar la consistencia visual y de
 
 ## P3 — Prioridad Baja
 
-### T-535: 🔧 Plan de descomposición modular de gameEngine.js 📋
+### T-535: 🔧 Plan de descomposición modular de gameEngine.js ✅
 
 **Prioridad:** P3 | **Tamaño:** S (2-4h) | **Dependencias:** Ninguna
 **Origen:** `gameEngine.js` tiene 1915 líneas
@@ -1349,13 +1356,13 @@ Tarea de **PLANIFICACIÓN** — no implementación. Analizar el archivo, identif
 
 **Criterios de Aceptación:**
 
-- [ ] Documento de diseño creado en `docs/adr/`
-- [ ] Responsabilidades catalogadas
-- [ ] Propuesta de módulos con dependencias claras
-- [ ] Estimaciones de esfuerzo por módulo
-- [ ] No se modifica código en esta tarea
+- [x] Documento de diseño creado — ADR-018 en `backend/docs/Architecture_Decisions.md` (siguiendo el formato de ADRs existentes del proyecto en vez de crear un directorio `docs/adr/` separado)
+- [x] Responsabilidades catalogadas — 10 grupos con líneas, métodos y complejidad
+- [x] Propuesta de módulos con dependencias claras — 11 módulos bajo `services/gameEngine/` con diagrama de dependencias
+- [x] Estimaciones de esfuerzo por módulo — 3 fases (~4h, ~8h, ~12h) = ~32h total
+- [x] No se modifica código en esta tarea
 
-**Archivos afectados:** `backend/docs/adr/gameEngine-decomposition.md` (nuevo)
+**Archivos afectados:** `backend/docs/Architecture_Decisions.md` (ADR-018 añadido al final)
 
 ---
 

@@ -1,6 +1,7 @@
 import { useMemo } from 'react';
 import { ScatterChart, Scatter, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Cell } from 'recharts';
 import ChartSection from './ChartSection';
+import EmptyState from '../ui/EmptyState';
 
 export default function DifficultyHeatmap({ data }) {
   const { mechanics, contexts, processedData } = useMemo(() => {
@@ -25,11 +26,13 @@ export default function DifficultyHeatmap({ data }) {
 
   if (!data || data.length === 0) {
     return (
-        <ChartSection title="Mapa de Calor de Dificultad (Errores)">
-          <div className="h-[300px] w-full flex items-center justify-center text-text-muted font-medium">
-            No hay datos de errores suficientes
-          </div>
-        </ChartSection>
+      <ChartSection title="Mapa de Calor de Dificultad (Errores)">
+        <EmptyState
+          title="Sin datos de errores"
+          description="No hay datos de errores suficientes para generar el mapa de calor."
+          className="shadow-none border-none bg-transparent"
+        />
+      </ChartSection>
     );
   }
   const getColor = (errorRate) => {

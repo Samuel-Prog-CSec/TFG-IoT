@@ -37,15 +37,14 @@ const {
 const rfidService = require('./services/rfidService');
 const GameEngine = require('./services/gameEngine');
 const logger = require('./utils/logger');
-const { authenticate, requireRole } = require('./middlewares/auth');
 const { errorHandler, notFoundHandler } = require('./middlewares/errorHandler');
 const { createSocketRateLimiter } = require('./middlewares/socketRateLimiter');
 const { securityPayloadGuard } = require('./middlewares/securityPayloadGuard');
-const { getHealthStatus, getMemoryUsage } = require('./utils/healthCheck');
 const runtimeMetrics = require('./utils/runtimeMetrics');
-const { toSystemMetricsDTOV1 } = require('./utils/dtos');
 const { validateQuery } = require('./middlewares/validation');
 const { emptyObjectSchema } = require('./validators/commonValidator');
+const { healthCheck, getApiInfo } = require('./controllers/healthController');
+const asyncHandler = require('./utils/asyncHandler');
 const { registerSocketHandlers, registerRfidHandlers, stopCacheCleanup } = require('./realtime');
 
 // Importar rutas
@@ -58,6 +57,7 @@ const playRoutes = require('./routes/plays');
 const deckRoutes = require('./routes/decks');
 const adminRoutes = require('./routes/admin');
 const analyticsRoutes = require('./routes/analytics');
+const healthRoutes = require('./routes/health');
 
 // Crear aplicación Express
 const app = express();
@@ -92,10 +92,11 @@ if (process.env.NODE_ENV !== 'test') {
   socketRateLimiter.startCleanupTimer();
 }
 
-// Exponer el gameEngine a controllers (REST) sin imports circulares.
+// Exponer servicios a controllers (REST) sin imports circulares.
 app.set('gameEngine', gameEngine);
-// Exponer io a controllers para notificaciones (e.g. session_invalidated)
 app.set('io', io);
+app.set('rfidService', rfidService);
+app.set('runtimeMetrics', runtimeMetrics);
 
 // ============================================================================
 // MIDDLEWARE
@@ -188,7 +189,8 @@ app.use(
       userRole: req.user?.role
     }),
     autoLogging: {
-      ignore: req => req.url === '/health' || req.url === '/api/health'
+      // Usar originalUrl (no url) para que funcione con rutas montadas en routers
+      ignore: req => req.originalUrl === '/health' || req.originalUrl === '/api/health'
     }
   })
 );
@@ -253,99 +255,14 @@ app.use('/api/admin', adminRoutes);
 // Rutas de analíticas
 app.use('/api/analytics', analyticsRoutes);
 
-/**
- * Endpoint de salud del servidor con información detallada.
- * @route GET /api/health
- * @returns {Object} 200 - Estado completo del servidor, MongoDB y RFID
- */
-app.get('/api/health', validateQuery(emptyObjectSchema), async (req, res) => {
-  try {
-    const healthStatus = await getHealthStatus(rfidService);
-    const httpStatus = ['healthy', 'degraded'].includes(healthStatus.status) ? 200 : 503;
-    res.status(httpStatus).json(healthStatus);
-  } catch (error) {
-    logger.error('Error en health check:', error);
-    res.status(500).json({
-      status: 'error',
-      message: 'Health check failed',
-      error: error.message
-    });
-  }
-});
+// Rutas de salud, metricas e informacion del sistema
+app.use('/api', healthRoutes);
 
-/**
- * Alias del health check para herramientas externas.
- * @route GET /health
- */
-app.get('/health', validateQuery(emptyObjectSchema), async (req, res) => {
-  try {
-    const healthStatus = await getHealthStatus(rfidService);
-    const httpStatus = ['healthy', 'degraded'].includes(healthStatus.status) ? 200 : 503;
-    res.status(httpStatus).json(healthStatus);
-  } catch (error) {
-    logger.error('Error en health check:', error);
-    res.status(500).json({
-      status: 'error',
-      message: 'Health check failed',
-      error: error.message
-    });
-  }
-});
+// Alias /health sin prefijo /api (Docker, k8s, load balancers)
+app.get('/health', validateQuery(emptyObjectSchema), asyncHandler(healthCheck));
 
-/**
- * Endpoint de métricas del sistema (solo para desarrollo).
- * @route GET /api/metrics
- * @returns {Object} 200 - Métricas del gameEngine y rfidService
- */
-app.get(
-  '/api/metrics',
-  authenticate,
-  requireRole('teacher', 'super_admin'),
-  validateQuery(emptyObjectSchema),
-  (req, res) => {
-    const snapshot = runtimeMetrics.getSnapshot();
-
-    res.json(
-      toSystemMetricsDTOV1({
-        timestamp: new Date().toISOString(),
-        http: snapshot.http,
-        websocket: {
-          connectedClients: io?.engine?.clientsCount ?? 0,
-          events: snapshot.websocket
-        },
-        gameEngine: gameEngine.getMetrics(),
-        rfid: {
-          processed: snapshot.rfid,
-          service: rfidService.getStatus()
-        },
-        memory: getMemoryUsage()
-      })
-    );
-  }
-);
-
-/**
- * Endpoint raíz de la API.
- * @route GET /
- * @returns {Object} 200 - Información general de la API
- */
-app.get('/', validateQuery(emptyObjectSchema), (req, res) => {
-  res.json({
-    message: 'API REST de Juegos RFID',
-    version: require('../package.json').version,
-    endpoints: {
-      auth: '/api/auth',
-      users: '/api/users',
-      mechanics: '/api/mechanics',
-      contexts: '/api/contexts',
-      sessions: '/api/sessions',
-      plays: '/api/plays',
-      decks: '/api/decks',
-      health: '/api/health'
-    },
-    documentation: 'Ver README.md para documentación completa'
-  });
-});
+// Endpoint raiz de la API
+app.get('/', validateQuery(emptyObjectSchema), getApiInfo);
 
 // ============================================================================
 // MANEJO DE ERRORES

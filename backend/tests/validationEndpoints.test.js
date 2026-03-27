@@ -246,15 +246,6 @@ describe('Validation (Zod) - All API endpoints', () => {
       expect(res.statusCode).toBe(400);
     });
 
-    it('POST /api/contexts/:id/assets - invalid body', async () => {
-      const res = await request(app)
-        .post('/api/contexts/507f1f77bcf86cd799439011/assets')
-        .set(makeAuthHeaders(teacherToken))
-        .send({ key: 'spain' });
-
-      expect(res.statusCode).toBe(400);
-    });
-
     it('GET /api/contexts/upload-config - invalid query', async () => {
       const res = await request(app)
         .get('/api/contexts/upload-config?x=1')
@@ -274,14 +265,6 @@ describe('Validation (Zod) - All API endpoints', () => {
     it('POST /api/contexts/:id/audio - invalid params', async () => {
       const res = await request(app)
         .post('/api/contexts/invalid/audio')
-        .set(makeAuthHeaders(teacherToken));
-
-      expect(res.statusCode).toBe(400);
-    });
-
-    it('DELETE /api/contexts/:id/assets/:assetKey - invalid assetKey', async () => {
-      const res = await request(app)
-        .delete('/api/contexts/507f1f77bcf86cd799439011/assets/Invalid Key')
         .set(makeAuthHeaders(teacherToken));
 
       expect(res.statusCode).toBe(400);

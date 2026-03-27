@@ -42,14 +42,16 @@ Todas las respuestas de error siguen el formato:
 
 | Método | Endpoint   | Descripción                                                                     | Acceso   |
 | :----- | :--------- | :------------------------------------------------------------------------------ | :------- |
-| `GET`  | `/health`  | Health check (MongoDB, Redis, RFID, memoria, uptime)                            | Público  |
-| `GET`  | `/metrics` | Métricas runtime (latencia HTTP, conexiones WS, partidas activas, eventos RFID) | Profesor |
+| `GET`  | `/health`  | Health check (MongoDB, Redis, RFID, memoria, uptime, version)                   | Publico  |
+| `GET`  | `/metrics` | Metricas runtime (latencia HTTP, conexiones WS, partidas activas, eventos RFID) | Profesor |
+| `GET`  | `/info`    | Informacion general de la API (version, endpoints disponibles)                  | Publico  |
 
 > Nota: La URL base del documento es `/api`. Por tanto:
 >
 > - `GET /api/health` es el endpoint principal.
-> - `GET /health` existe como alias en la raíz (útil para herramientas externas).
+> - `GET /health` existe como alias en la raiz (util para herramientas externas).
 > - `GET /api/metrics` es una ruta protegida.
+> - `GET /api/info` y `GET /` devuelven la misma informacion.
 
 #### GET `/health`
 
@@ -63,6 +65,7 @@ Respuesta (resumen):
 ```json
 {
   "status": "healthy",
+  "version": "0.5.0",
   "issues": { "critical": [], "degraded": [] },
   "timestamp": "2026-01-02T12:00:00.000Z",
   "uptime": "0h 10m 5s",
@@ -239,8 +242,8 @@ Notas de contrato de `PUT /api/users/:id`:
 | `POST`   | `/`                     | Crear nuevo contexto                      | Profesor | Creación   |
 | `POST`   | `/:id/images`           | Subir imagen al contexto (WebP)           | Profesor | Upload     |
 | `POST`   | `/:id/audio`            | Subir audio al contexto (MP3/OGG)         | Profesor | Upload     |
-| `PUT`    | `/:id`                  | Actualizar contexto                       | Profesor | Creación   |
-| `DELETE` | `/:id`                  | Eliminar contexto                         | Profesor | Creación   |
+| `PUT`    | `/:id`                  | Actualizar contexto                       | Profesor | Creacion   |
+| `DELETE` | `/:id`                  | Eliminar contexto                         | Profesor | Creacion   |
 | `DELETE` | `/:id/images/:assetKey` | Eliminar imagen del asset                 | Profesor | -          |
 | `DELETE` | `/:id/audio/:assetKey`  | Eliminar audio del asset                  | Profesor | -          |
 

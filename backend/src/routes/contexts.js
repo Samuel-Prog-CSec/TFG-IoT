@@ -14,8 +14,6 @@ const {
   createContext,
   updateContext,
   deleteContext,
-  addAsset,
-  removeAsset,
   getContextAssets
 } = require('../controllers/gameContextController');
 
@@ -37,7 +35,6 @@ const {
   gameContextParamsSchema,
   gameContextIdParamsSchema,
   gameContextAssetParamsSchema,
-  addAssetSchema,
   uploadAssetMetaSchema
 } = require('../validators/gameContextValidator');
 const { emptyObjectSchema } = require('../validators/commonValidator');
@@ -161,23 +158,6 @@ router.post(
 );
 
 /**
- * @route   POST /api/contexts/:id/assets
- * @desc    Añadir asset a un contexto (sin archivo, solo metadatos)
- * @access  Private (Teacher / Super_Admin)
- * @deprecated Usa POST /api/contexts/:id/images o /audio para subir con archivo
- * @validation params: gameContextIdParamsSchema | body: addAssetSchema | query: emptyObjectSchema
- */
-router.post(
-  '/:id/assets',
-  authenticate,
-  requireRole('teacher', 'super_admin'),
-  validateParams(gameContextIdParamsSchema),
-  validateQuery(emptyObjectSchema),
-  validateBody(addAssetSchema),
-  asyncHandler(addAsset)
-);
-
-/**
  * @route   POST /api/contexts/:id/images
  * @desc    Subir imagen a un contexto (convierte a WebP, genera thumbnail)
  * @access  Private (Teacher / Super_Admin)
@@ -244,22 +224,6 @@ router.delete(
   validateParams(gameContextIdParamsSchema),
   validateQuery(emptyObjectSchema),
   asyncHandler(deleteContext)
-);
-
-/**
- * @route   DELETE /api/contexts/:id/assets/:assetKey
- * @desc    Eliminar asset de un contexto (genérico, legacy)
- * @access  Private (Teacher / Super_Admin)
- * @deprecated Usa DELETE /api/contexts/:id/images/:assetKey o /audio/:assetKey
- * @validation params: gameContextAssetParamsSchema | query: emptyObjectSchema
- */
-router.delete(
-  '/:id/assets/:assetKey',
-  authenticate,
-  requireRole('teacher', 'super_admin'),
-  validateParams(gameContextAssetParamsSchema),
-  validateQuery(emptyObjectSchema),
-  asyncHandler(removeAsset)
 );
 
 /**

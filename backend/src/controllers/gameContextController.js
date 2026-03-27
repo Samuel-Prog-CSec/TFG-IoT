@@ -305,106 +305,6 @@ const deleteContext = async (req, res) => {
 };
 
 /**
- * Añadir un asset a un contexto existente.
- *
- * POST /api/contexts/:id/assets
- * Headers: Authorization: Bearer <token>
- * Body: { key, display, value, audioUrl?, imageUrl? }
- *
- * @param {import('express').Request} req
- * @param {import('express').Response} res
- * @param {import('express').NextFunction} next
- */
-const addAsset = async (req, res) => {
-  const { id } = req.params;
-  const { key, display, value, audioUrl, imageUrl } = req.body;
-
-  const context = await gameContextRepository.findById(id);
-
-  if (!context) {
-    throw new NotFoundError('Contexto de juego');
-  }
-
-  // Verificar que la key no exista ya
-  const existingAsset = context.assets.find(asset => asset.key === key.toLowerCase());
-
-  if (existingAsset) {
-    throw new ConflictError('Un asset con esta key ya existe en este contexto');
-  }
-
-  // Añadir asset
-  context.assets.push({
-    key: key.toLowerCase(),
-    display,
-    value,
-    audioUrl,
-    imageUrl
-  });
-
-  await context.save();
-
-  logger.info('Asset añadido al contexto', {
-    contextId: context.contextId,
-    assetKey: key,
-    addedBy: req.user._id
-  });
-
-  res.status(201).json({
-    success: true,
-    message: 'Asset añadido exitosamente',
-    data: toGameContextDetailDTOV1(context)
-  });
-};
-
-/**
- * Eliminar un asset de un contexto.
- *
- * DELETE /api/contexts/:id/assets/:assetKey
- * Headers: Authorization: Bearer <token>
- *
- * @param {import('express').Request} req
- * @param {import('express').Response} res
- * @param {import('express').NextFunction} next
- */
-const removeAsset = async (req, res) => {
-  const { id, assetKey } = req.params;
-
-  const context = await gameContextRepository.findById(id);
-
-  if (!context) {
-    throw new NotFoundError('Contexto de juego');
-  }
-
-  // Verificar que el asset exista
-  const assetIndex = context.assets.findIndex(asset => asset.key === assetKey.toLowerCase());
-
-  if (assetIndex === -1) {
-    throw new NotFoundError('Asset');
-  }
-
-  // Verificar que queden al menos 2 assets después de eliminar
-  if (context.assets.length <= 2) {
-    throw new ValidationError('El contexto debe tener al menos 2 assets');
-  }
-
-  // Eliminar asset
-  context.assets.splice(assetIndex, 1);
-  await context.save();
-
-  logger.info('Asset eliminado del contexto', {
-    contextId: context.contextId,
-    assetKey,
-    deletedBy: req.user._id
-  });
-
-  res.json({
-    success: true,
-    message: 'Asset eliminado exitosamente',
-    data: toGameContextDetailDTOV1(context)
-  });
-};
-
-/**
  * Obtener assets de un contexto específico.
  *
  * GET /api/contexts/:id/assets
@@ -450,7 +350,5 @@ module.exports = {
   createContext,
   updateContext,
   deleteContext,
-  addAsset,
-  removeAsset,
   getContextAssets
 };

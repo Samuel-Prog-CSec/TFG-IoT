@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Users, Gamepad2, Trophy, AlertTriangle, Calendar } from 'lucide-react';
+import ErrorState from '../components/ui/ErrorState';
 import { listContainerVariants, listItemVariants, crossfadeVariants } from '../lib/utils';
 import { useDocumentTitle } from '../hooks/useDocumentTitle';
 import { useRefetchOnFocus } from '../hooks/useRefetchOnFocus';
@@ -155,10 +156,11 @@ export default function Dashboard() {
             ) : null}
 
             {error ? (
-              <div className="bg-error-base/10 border border-error-base/20 text-error-base p-4 rounded-xl flex items-center gap-3">
-                  <AlertTriangle className="shrink-0" size={20} />
-                  <p className="font-medium">{error}</p>
-              </div>
+              <ErrorState
+                title="Error al cargar datos"
+                message={error}
+                onRetry={fetchData}
+              />
             ) : null}
 
             {/* BI Principle: Jerarquía Visual - KPIs Arriba */}

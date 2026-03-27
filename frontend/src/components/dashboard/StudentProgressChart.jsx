@@ -1,5 +1,6 @@
 import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
 import ChartSection from './ChartSection';
+import EmptyState from '../ui/EmptyState';
 
 const PERIOD_OPTIONS = [
   { value: '7d', label: 'Últimos 7 días' },
@@ -10,9 +11,11 @@ export default function StudentProgressChart({ data, period = '7d', onPeriodChan
   if (!data || data.length === 0) {
     return (
       <ChartSection title="Rendimiento de Clase (Tendencia)" period={period} onPeriodChange={onPeriodChange} periodOptions={PERIOD_OPTIONS}>
-        <div className="h-[300px] w-full flex items-center justify-center text-text-muted font-medium">
-          No hay datos disponibles
-        </div>
+        <EmptyState
+          title="Sin datos disponibles"
+          description="No hay datos de rendimiento para el periodo seleccionado."
+          className="shadow-none border-none bg-transparent"
+        />
       </ChartSection>
     );
   }

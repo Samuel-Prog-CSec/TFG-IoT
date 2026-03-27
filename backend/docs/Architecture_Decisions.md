@@ -1221,3 +1221,186 @@ Se crean **6 nuevos endpoints** de analytics, manteniendo el patrón existente (
 - **ADR-005** (Persistencia atómica): Los datos de `studentMetrics` que consumen estos endpoints son actualizados atómicamente por los operadores `$inc`/`$push` definidos en ADR-005.
 - **ADR-013** (Errores centralizados): Los handlers usan `asyncHandler` y lanzan `NotFoundError`/`ForbiddenError` que fluyen por el errorHandler centralizado.
 - **ADR-014** (responseHelper): Los nuevos controllers usan `sendSuccess` en vez de `res.json()` manual.
+
+---
+
+## ADR-018: Plan de descomposicion modular de gameEngine.js
+
+### Contexto (ADR-018)
+
+`gameEngine.js` ha crecido hasta ~1915 lineas con ~50 funciones distribuidas en 10 grupos de responsabilidad. El archivo mezcla logica de juego, persistencia en MongoDB, coordinacion distribuida con Redis, comunicacion WebSocket y gestion de timers en una unica clase singleton.
+
+Esto genera cuatro problemas concretos:
+
+1. **Acoplamiento vertical**: Testear `processResponse` (logica de juego pura) requiere mockear Redis, MongoDB, Socket.IO y los Maps internos del motor.
+2. **Estado compartido sin encapsulacion**: `this.activePlays` (Map), `this.cardUidToPlayId` (Map) y `this.playLocks` (Map) son accesibles directamente por todos los metodos sin ninguna capa de abstraccion.
+3. **Timers anidados**: `roundTimer`, `nextRoundTimer`, `playTimer` y `transientTimers` interactuan con la logica de pausa/reanudacion que debe recalcular remaining time, generando codigo fragil.
+4. **Complejidad cognitiva**: Un desarrollador nuevo necesita leer ~1915 lineas para entender una sola responsabilidad. No existe una guia de "How to Add a New Mechanic".
+
+### Analisis de responsabilidades actuales
+
+| # | Grupo | Lineas aprox. | Metodos principales | Complejidad |
+|---|-------|---------------|---------------------|-------------|
+| 1 | Ciclo de vida | ~200 | `startPlay`, `endPlay`, `shutdown` | Alta (orquesta todo) |
+| 2 | Logica de rondas | ~370 | `sendNextRound`, `processResponse`, `handleTimeout`, `advanceToNextRound` | Alta (core del juego) |
+| 3 | Modo Memory | ~200 | `processMemoryScan`, `emitMemoryTurnState`, `handleMemoryTimeout` | Media |
+| 4 | Entrada RFID | ~65 | `handleCardScan`, `getPlayIdByCardUid` | Baja |
+| 5 | Pausa/Reanudacion | ~295 | `pausePlay`, `resumePlay`, `calculatePauseRemainingTime`, `persistPauseState` | Alta (timers + estado) |
+| 6 | Gestion de timers | ~130 | `scheduleTransientTimer`, `clearPlayTimers`, `startCleanupTimer`, `startLockHeartbeatTimer` | Media |
+| 7 | Persistencia/Sync | ~240 | `syncPlayToRedis`, `checkpointPlayIfNeeded`, `recoverActivePlays`, `recoverOrphanedPlaysFromDB` | Alta (Redis + MongoDB) |
+| 8 | Ops distribuidas Redis | ~155 | `reserveDistributedCardMappings`, `releaseDistributedCardMappings`, `refreshActivePlayLeases` | Alta |
+| 9 | Observabilidad | ~120 | `getPlayState`, `getRealtimeRemainingTimeMs`, `getPlayRuntimeContext`, `getMetrics` | Baja |
+| 10 | Control de concurrencia | ~50 | `executeWithPlayLock`, `processInBatches` | Media |
+
+### Estructuras de datos en memoria
+
+| Estructura | Tipo | Proposito | Tamano tipico |
+|---|---|---|---|
+| `this.activePlays` | `Map<playId, playState>` | Estado completo de cada partida activa | 100-500 entradas |
+| `this.cardUidToPlayId` | `Map<uid, playId>` | Busqueda O(1) inversa: UID → partida | 1500-15000 mappings |
+| `this.playLocks` | `Map<playId, Promise>` | Mutex en memoria por partida (serializa operaciones) | Partidas con operaciones en vuelo |
+| `this.metrics` | `Object` | Contadores de telemetria del motor | ~25 campos |
+
+### Decision (ADR-018)
+
+Descomponer `gameEngine.js` en **11 modulos** bajo `services/gameEngine/`, manteniendo backward compatibility via `index.js` que re-exporta la misma API publica.
+
+**Esta ADR es un plan de ejecucion futura — no se modifica codigo.**
+
+#### Estructura de modulos propuesta
+
+```
+backend/src/services/gameEngine/
+├── index.js                    # Re-export backward compatible (module.exports = GameEngine)
+├── GameEngine.js               # Orquestador: instancia managers, delega operaciones
+├── PlayStateManager.js         # Encapsula activePlays, cardUidToPlayId (CRUD + queries)
+├── RoundManager.js             # sendNextRound, processResponse, handleTimeout, advanceToNextRound
+├── MemoryGameManager.js        # processMemoryScan, emitMemoryTurnState, handleMemoryTimeout
+├── PlayPauseManager.js         # pausePlay, resumePlay, calculatePauseRemainingTime
+├── RFIDInputHandler.js         # handleCardScan, getPlayIdByCardUid
+├── PersistenceManager.js       # syncPlayToRedis, checkpoint, recoverActivePlays, recoverOrphaned
+├── DistributedLockManager.js   # reserveDistributedCardMappings, releaseDistributed, refreshLeases
+├── TimerManager.js             # Abstraccion sobre setTimeout/clearTimeout, cleanup, heartbeat
+├── MetricsCollector.js         # getPlayState, getMetrics, contadores de telemetria
+└── ConcurrencyControl.js       # executeWithPlayLock, processInBatches
+```
+
+#### Diagrama de dependencias entre modulos
+
+```
+GameEngine (orquestador)
+├── PlayStateManager          (sin dependencias externas — puro estado en memoria)
+├── TimerManager              (sin dependencias externas — wrapper de setTimeout)
+├── ConcurrencyControl        (sin dependencias externas — mutex + batching)
+├── MetricsCollector          ← PlayStateManager (lee activePlays.size para snapshots)
+├── RFIDInputHandler          ← PlayStateManager (cardUidToPlayId lookup)
+├── DistributedLockManager    ← redisService (inyectado)
+├── PersistenceManager        ← PlayStateManager, redisService, gamePlayRepository (inyectados)
+├── RoundManager              ← PlayStateManager, TimerManager, PersistenceManager, io (inyectados)
+├── MemoryGameManager         ← PlayStateManager, TimerManager, PersistenceManager, io (inyectados)
+└── PlayPauseManager          ← PlayStateManager, TimerManager, PersistenceManager, io (inyectados)
+```
+
+#### Patron de inyeccion (Constructor Dependency Injection)
+
+Cada manager recibe sus dependencias en el constructor:
+
+```javascript
+class RoundManager {
+  constructor({ playStateManager, timerManager, persistenceManager, io, logger }) {
+    this.playState = playStateManager;
+    this.timers = timerManager;
+    this.persistence = persistenceManager;
+    this.io = io;
+    this.logger = logger;
+  }
+
+  async sendNextRound(playId) {
+    const playState = this.playState.get(playId);
+    // ... logica de ronda usando this.timers, this.persistence, this.io
+  }
+}
+```
+
+El `GameEngine` orquestador instancia todos los managers y los conecta:
+
+```javascript
+class GameEngine {
+  constructor(io) {
+    this.playState = new PlayStateManager();
+    this.timers = new TimerManager();
+    this.concurrency = new ConcurrencyControl();
+    this.metrics = new MetricsCollector({ playState: this.playState });
+    this.locks = new DistributedLockManager({ redisService });
+    this.persistence = new PersistenceManager({ playState: this.playState, redisService, ... });
+    this.rounds = new RoundManager({ playState: this.playState, timers: this.timers, ... });
+    // ... etc.
+  }
+}
+```
+
+### Estrategia de migracion (3 fases)
+
+#### Fase 1 — Modulos sin dependencias externas (~4h, bajo riesgo)
+
+| Modulo | Lineas | Metodos | Riesgo | Justificacion |
+|--------|--------|---------|--------|---------------|
+| `ConcurrencyControl` | ~50 | `executeWithPlayLock`, `processInBatches` | Muy bajo | Funciones puras, sin estado compartido complejo |
+| `TimerManager` | ~130 | `scheduleTransientTimer`, `clearPlayTimers`, `startCleanupTimer`, etc. | Bajo | Wrapper sobre Node.js timers |
+| `MetricsCollector` | ~120 | `getPlayState`, `getMetrics`, contadores | Bajo | Solo lectura de estado |
+| `PlayStateManager` | ~80 | Encapsular Maps con API publica (get, set, delete, has) | Bajo | Fundamental para los demas modulos |
+
+#### Fase 2 — Modulos con dependencias simples (~8h, riesgo medio)
+
+| Modulo | Lineas | Dependencias | Riesgo | Justificacion |
+|--------|--------|-------------|--------|---------------|
+| `RFIDInputHandler` | ~65 | PlayStateManager | Bajo | Solo lookup O(1) + delegacion |
+| `DistributedLockManager` | ~155 | redisService | Medio | Operaciones Lua atomicas — tests criticos |
+| `PersistenceManager` | ~240 | PlayStateManager, redisService, repositories | Medio | I/O con dos stores — requiere tests de integracion |
+
+#### Fase 3 — Modulos complejos (~12h, riesgo alto)
+
+| Modulo | Lineas | Dependencias | Riesgo | Justificacion |
+|--------|--------|-------------|--------|---------------|
+| `RoundManager` | ~370 | PlayStateManager, TimerManager, PersistenceManager, io | Alto | Core del juego, interaccion con timers y Socket.IO |
+| `MemoryGameManager` | ~200 | PlayStateManager, TimerManager, PersistenceManager, io | Medio-Alto | Logica especifica de memoria con timers de ocultacion |
+| `PlayPauseManager` | ~295 | PlayStateManager, TimerManager, PersistenceManager, io | Alto | Remaining time gymnastics, timer freeze/restore |
+| `GameEngine.js` (refactor) | ~200 | Todos los managers | Alto | Orquestador puro — delegacion sin logica propia |
+
+**Estimacion total:** ~24h de desarrollo + ~8h de testing = ~32h
+
+### Alternativas consideradas
+
+1. **No descomponer, solo documentar**: Mantener el monolito pero añadir JSDoc extensivo y guias. Rechazado porque no resuelve el problema de testabilidad ni la complejidad cognitiva para nuevos desarrolladores.
+
+2. **Dividir en 3-4 modulos grandes** (lifecycle, gameplay, infrastructure): Mas rapido pero mantiene acoplamiento dentro de cada modulo. Rechazado porque la testabilidad apenas mejora.
+
+3. **Migrar a event-driven con EventEmitter**: Desacoplar modulos mediante eventos internos. Considerado para futuro (Sprint 6+) pero anade complejidad de indirectacion que no se justifica en el scope actual.
+
+### Consecuencias (ADR-018)
+
+**Positivas:**
+- Archivos de ~100-300 lineas en vez de uno de ~1915
+- Testing aislado por modulo (mock solo dependencias directas del manager, no toda la infra)
+- Facilita onboarding: un desarrollador nuevo puede leer `RoundManager.js` (~370 lineas) para entender la logica de rondas sin wade through 1900 lineas
+- `index.js` re-exporta la misma API publica → backward compatible para consumers (server.js, socketHandlers, commands)
+- Posibilita "How to Add a New Mechanic" como guia documental
+
+**Negativas:**
+- Esfuerzo significativo (~32h)
+- Riesgo de regresiones en logica de timers y pausa/reanudacion (Fase 3)
+- Mas archivos para navegar (11 vs 1), mitigado con buena organizacion y JSDoc
+- El patron DI requiere disciplina para no volver a acoplar
+
+**Riesgos:**
+- La logica de pausa/reanudacion con remaining time es la parte mas fragil de la Fase 3
+- Los tests de integracion existentes (`gameFlow.test.js`, `playPauseResume.test.js`, `memoryStrategy.test.js`) deben pasar sin cambios — son la red de seguridad principal
+- El `index.js` debe mantener exactamente la misma interfaz publica que `gameEngine.js` actual
+
+### Relacion con otros ADRs
+
+- **ADR-001** (Soft limit de partidas): `PlayStateManager` encapsulara el threshold warning de `ACTIVE_PLAYS_WARNING_THRESHOLD`
+- **ADR-004** (Locks distribuidos de UIDs): `DistributedLockManager` aisla las operaciones Lua de reserva/liberacion/renovacion
+- **ADR-005** (Persistencia atomica de eventos): `PersistenceManager` consolida `addEventAtomic`, `checkpointPlayIfNeeded` y `syncPlayToRedis`
+- **ADR-010** (Checkpoints periodicos): `PersistenceManager` gestiona los umbrales de checkpoint (`CHECKPOINT_INTERVAL_MS`, `CHECKPOINT_EVENT_THRESHOLD`)
+- **ADR-011** (Redis Adapter): `DistributedLockManager` mantiene compatibilidad con el Redis adapter para scaling horizontal
