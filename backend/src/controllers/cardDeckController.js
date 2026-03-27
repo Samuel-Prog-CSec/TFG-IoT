@@ -170,6 +170,7 @@ const getDeckById = async (req, res) => {
  * POST /api/decks
  */
 const createDeck = async (req, res) => {
+  // Captura MongoDB error 11000 (unique index) para lanzar ConflictError de dominio
   try {
     const { name, description, contextId, cardMappings, status } = req.body;
 
@@ -297,6 +298,7 @@ const applyDeckMappingUpdates = async (deck, { contextId, cardMappings }) => {
 };
 
 const updateDeck = async (req, res) => {
+  // Captura MongoDB error 11000 (unique index) para lanzar ConflictError de dominio
   try {
     const { id } = req.params;
     const { name, description, contextId, cardMappings, status } = req.body;

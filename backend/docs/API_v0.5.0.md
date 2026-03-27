@@ -1,4 +1,4 @@
-# Documentación de la API ("RFID Games Backend") - v0.4.0
+# Documentación de la API ("RFID Games Backend") - v0.5.0
 
 Este documento detalla los endpoints de la API REST para el Backend de Juegos Educativos RFID.
 

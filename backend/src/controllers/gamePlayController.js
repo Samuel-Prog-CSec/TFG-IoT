@@ -404,6 +404,7 @@ const abandonPlay = async (req, res) => {
   // Limpiar estado del motor si la partida está activa (timers, Redis, cards)
   const gameEngine = req.app.get('gameEngine');
   if (gameEngine) {
+    // Limpieza graceful del engine — fallo no crítico no debe propagarse
     try {
       await gameEngine.endPlay(id);
     } catch (engineErr) {

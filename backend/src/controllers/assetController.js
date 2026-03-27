@@ -76,6 +76,7 @@ const uploadImage = async (req, res) => {
   let imageUrl = null;
   let thumbnailUrl = null;
 
+  // Rollback: elimina archivos subidos en caso de fallo posterior
   try {
     const { id } = req.params;
     const { key, value, display } = req.body;
@@ -178,6 +179,7 @@ const uploadImage = async (req, res) => {
 const uploadAudio = async (req, res) => {
   let audioUrl = null;
 
+  // Rollback: elimina archivos subidos en caso de fallo posterior
   try {
     const { id } = req.params;
     const { key, value, display } = req.body;

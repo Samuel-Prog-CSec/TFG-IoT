@@ -101,6 +101,7 @@ const register = async (req, res) => {
 
   // Crear profesor (role hardcodeado a 'teacher')
   let teacher;
+  // Captura errores de creación para logging de seguridad antes de re-lanzar
   try {
     teacher = await userRepository.create({
       name,
@@ -206,6 +207,7 @@ const login = async (req, res) => {
   }
 
   // Verificar aprobación de cuenta (para roles con login)
+  // Security logging antes de rethrow — catch intencional para audit trail
   try {
     assertAccountApprovedForLogin(user);
   } catch (error) {
@@ -411,6 +413,7 @@ const refreshAccessToken = async (req, res) => {
   }
 
   let decoded;
+  // Security logging antes de rethrow — catch intencional para audit trail
   try {
     // Verificar refresh token (incluye fingerprint, blacklist y detección de robo)
     decoded = await verifyRefreshToken(refreshToken, req);
@@ -443,6 +446,7 @@ const refreshAccessToken = async (req, res) => {
   }
 
   // Bloquear refresh para cuentas no aprobadas
+  // Security logging antes de rethrow — catch intencional para audit trail
   try {
     assertAccountApprovedForLogin(user);
   } catch (error) {

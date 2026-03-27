@@ -32,6 +32,7 @@ const pkg = require('../../package.json');
  * @param {import('express').Response} res
  */
 const healthCheck = async (req, res) => {
+  // Health endpoint debe retornar 500 JSON en fallo, no delegar a error handler
   try {
     const rfidService = req.app.get('rfidService');
     const healthStatus = await getHealthStatus(rfidService);

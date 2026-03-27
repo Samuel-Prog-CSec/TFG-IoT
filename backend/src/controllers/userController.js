@@ -178,6 +178,7 @@ const getUserById = async (req, res) => {
  * @param {import('express').NextFunction} next
  */
 const createUser = async (req, res) => {
+  // Enriquece ConflictError con datos del estudiante existente para UX
   try {
     const { name, profile } = req.body;
 
