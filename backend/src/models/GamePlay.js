@@ -322,4 +322,16 @@ gamePlaySchema.index({ playerId: 1 });
  */
 gamePlaySchema.index({ sessionId: 1 });
 
+/**
+ * Índice compuesto para analytics: historial de un jugador ordenado por fecha.
+ * Caso de uso: GET /api/analytics/student/:id/summary (últimas N partidas).
+ */
+gamePlaySchema.index({ playerId: 1, completedAt: -1 });
+
+/**
+ * Índice compuesto para analytics: partidas completadas ordenadas por fecha.
+ * Caso de uso: agregaciones de rendimiento en classroom trends/distribution.
+ */
+gamePlaySchema.index({ status: 1, completedAt: -1 });
+
 module.exports = mongoose.model('GamePlay', gamePlaySchema);

@@ -15,8 +15,15 @@
  * Aplica opciones comunes (select, populate, sort, limit, skip, lean)
  * a una query de Mongoose.
  *
+ * lean: true devuelve POJOs (~5x menos memoria que documentos Mongoose).
+ * Se activa por defecto en queries de listado (cuando hay sort/limit/skip),
+ * donde el resultado nunca necesita .save(). Para findById/findOne se mantiene
+ * desactivado por defecto porque muchos flujos hacen find → modify → .save().
+ * Se puede forzar con lean: true/false explícito en cualquier caso.
+ *
  * @param {import('mongoose').Query} query - Query de Mongoose en curso
  * @param {Object} options - Opciones a aplicar
+ * @param {boolean} [options.lean] - true para POJOs, false para documentos Mongoose
  * @returns {import('mongoose').Query} Query con opciones aplicadas
  */
 const applyQueryOptions = (query, options = {}) => {
@@ -37,10 +44,17 @@ const applyQueryOptions = (query, options = {}) => {
   if (Number.isInteger(skip)) {
     query = query.skip(skip);
   }
-  if (lean) {
+
+  // lean: activar por defecto en queries de listado (tienen sort/limit/skip)
+  // para devolver POJOs ligeros. Desactivar explícitamente con lean: false.
+  const isListQuery = sort || Number.isInteger(limit) || Number.isInteger(skip);
+  const shouldLean = lean !== undefined ? lean : isListQuery;
+
+  if (shouldLean) {
     const leanOptions = typeof lean === 'object' ? lean : undefined;
     query = query.lean(leanOptions);
   }
+
   if (session) {
     query = query.session(session);
   }

@@ -260,3 +260,29 @@ Estos datos se devuelven en formato legible (MB) a través de `toSystemMetricsDT
 4. El componente rehidrata su estado con `handlePlayState()`.
 
 **Impacto**: reconexión más robusta y recuperación automática del estado de juego sin intervención del usuario. Para más detalles sobre el comando `play_state_sync`, ver `WebSockets-ExtendedUsage.md`.
+
+## Mantenimiento Sprint 5 — Optimización de Queries Mongoose
+
+### 1. Aplicación automática de `.lean()` en queries de listado
+
+Mongoose devuelve por defecto documentos completos con getters, setters, virtuals y métodos de instancia (`.save()`, `.validate()`, etc.). Estos documentos hidratados consumen aproximadamente 5 veces más memoria que un objeto JavaScript plano (POJO) equivalente. Para endpoints de listado que transforman resultados a DTOs antes de enviarlos, esta hidratación es overhead innecesario.
+
+**Implementación**: se modificó `baseRepository.applyQueryOptions()` para aplicar `.lean()` automáticamente cuando la query incluye opciones de paginación/ordenamiento (`sort`, `limit` o `skip`). Estas queries siempre corresponden a listados cuyo resultado se pasa directamente a funciones DTO — nunca se invoca `.save()` sobre ellos.
+
+**Por qué no se aplicó globalmente**: los métodos `findById` y `findOne` no aplican lean por defecto porque existen aproximadamente 30 flujos en controllers y services que siguen el patrón `find → modify → .save()`. Forzar lean en estas rutas rompería todas esas llamadas a `.save()` (que no existe en POJOs), requiriendo una refactorización masiva a patrón `updateById`. El lean en `findById`/`findOne` permanece disponible como opción explícita para casos de solo lectura.
+
+**Resultado**: las queries de listado devuelven POJOs con ~5x menos consumo de memoria por documento, sin cambios en la interfaz pública del repository ni en los DTOs consumidores.
+
+### 2. Índices compuestos para queries de analytics
+
+Se añadieron 3 índices compuestos en los modelos para optimizar las consultas más frecuentes de los endpoints de analytics:
+
+| Índice | Modelo | Campos | Caso de uso |
+|--------|--------|--------|-------------|
+| `playerId_completedAt` | GamePlay | `{ playerId: 1, completedAt: -1 }` | Historial de partidas de un estudiante, ordenado por fecha. Usado en `GET /api/analytics/student/:id/summary` y listados de plays por jugador. |
+| `status_completedAt` | GamePlay | `{ status: 1, completedAt: -1 }` | Agregaciones de analytics que filtran por estado (completed, abandoned) y ordenan por fecha. Usado en `GET /api/analytics/distribution`, `trends`, `rankings`. |
+| `createdBy_role` | User | `{ createdBy: 1, role: 1 }` | Listado de estudiantes de un profesor. Usado en `GET /api/analytics/classroom/students` y filtros de usuario por rol dentro de un aula. |
+
+Sin estos índices, las queries realizaban collection scans completos, lo cual degradaría progresivamente el rendimiento conforme crece el volumen de datos en GamePlay y User.
+
+Para más contexto sobre la decisión, ver **ADR-019** en `Architecture_Decisions.md`.

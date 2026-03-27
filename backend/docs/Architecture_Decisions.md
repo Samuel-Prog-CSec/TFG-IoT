@@ -1404,3 +1404,48 @@ class GameEngine {
 - **ADR-005** (Persistencia atomica de eventos): `PersistenceManager` consolida `addEventAtomic`, `checkpointPlayIfNeeded` y `syncPlayToRedis`
 - **ADR-010** (Checkpoints periodicos): `PersistenceManager` gestiona los umbrales de checkpoint (`CHECKPOINT_INTERVAL_MS`, `CHECKPOINT_EVENT_THRESHOLD`)
 - **ADR-011** (Redis Adapter): `DistributedLockManager` mantiene compatibilidad con el Redis adapter para scaling horizontal
+
+---
+
+## ADR-019: Optimización de queries con lean() e índices compuestos
+
+### Contexto (ADR-019)
+
+Todas las consultas de lectura de Mongoose devolvían documentos completos con getters, setters y métodos del modelo, consumiendo aproximadamente 5 veces más memoria que objetos JavaScript planos (POJOs). Este overhead era innecesario en la mayoría de endpoints de listado, donde los resultados se transforman a DTOs antes de enviarlos al cliente y nunca necesitan `.save()`.
+
+Adicionalmente, los endpoints de analytics como `classroom/students` y `student/summary` ejecutaban queries sin índices compuestos óptimos, provocando escaneos completos de colección (collection scans) que degradaban el rendimiento conforme crecía el volumen de datos.
+
+### Decisión (ADR-019)
+
+Se adoptan dos optimizaciones complementarias:
+
+1. **Aplicar `.lean()` automáticamente en `baseRepository.applyQueryOptions`** para queries de listado — aquellas que incluyen `sort`, `limit` o `skip`. Sus resultados siempre se transforman a DTOs y nunca requieren `.save()`. Para `findById` y `findOne`, lean permanece como opt-in porque muchos flujos de controllers/services siguen el patrón find → modify → `.save()`.
+
+2. **Añadir 3 índices compuestos** para las consultas más costosas:
+   - `GamePlay { playerId: 1, completedAt: -1 }` — historial de partidas por estudiante, ordenado por fecha de completado
+   - `GamePlay { status: 1, completedAt: -1 }` — agregaciones de analytics filtradas por estado
+   - `User { createdBy: 1, role: 1 }` — listados de estudiantes de un aula (teacher → students)
+
+### Alternativas Consideradas (ADR-019)
+
+1. **Lean global por defecto en todas las queries**: Rechazada porque rompería aproximadamente 30 call sites que usan `.save()` tras un find, requiriendo una refactorización masiva a patrón `updateById`. El riesgo de regresión no justificaba la ganancia.
+
+2. **Override de lean por repositorio**: Cada repositorio decidiría si aplicar lean o no. Rechazada por inconsistencia — algunos repositorios lo aplicarían y otros no, generando confusión y errores difíciles de depurar.
+
+### Consecuencias (ADR-019)
+
+**Positivas:**
+- Las queries de listado devuelven POJOs (~5x menos memoria por documento) sin cambios en controllers ni DTOs
+- Los endpoints de analytics se benefician de los índices compuestos, evitando collection scans
+- La aplicación es transparente: `applyQueryOptions` detecta automáticamente si la query tiene sort/limit/skip y aplica lean sin intervención del desarrollador
+- Los flujos de escritura (find → modify → save) no se ven afectados
+
+**Negativas:**
+- Los POJOs devueltos por lean no tienen virtuals, getters ni métodos de instancia del modelo — si algún consumidor futuro los necesita en una query de listado, deberá añadir `lean: false` explícitamente en las opciones
+- Los índices compuestos consumen espacio adicional en disco y RAM de MongoDB, aunque el impacto es mínimo para el volumen de datos actual
+
+### Relación con otros ADRs
+
+- **ADR-003** (DTOs): Los resultados lean son compatibles con la capa de DTOs porque estos solo acceden a propiedades planas del documento, no a métodos de Mongoose
+- **ADR-006** (Lecturas lean en sesiones): ADR-006 aplicó lean manualmente en endpoints de sesión como caso piloto; ADR-019 generaliza el patrón a nivel de baseRepository
+- **ADR-015** (Repository completo): La lógica lean se centraliza en `applyQueryOptions` del baseRepository, consistente con el principio de que el acceso a datos se gestiona desde la capa repository

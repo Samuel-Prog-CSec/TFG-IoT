@@ -415,4 +415,10 @@ userSchema.index({ role: 1, 'profile.classroom': 1 });
  */
 userSchema.index({ createdBy: 1 });
 
+/**
+ * Índice compuesto para analytics de clase: estudiantes de un profesor por rol.
+ * Caso de uso: GET /api/analytics/classroom/students (lista filtrada por profesor).
+ */
+userSchema.index({ createdBy: 1, role: 1 });
+
 module.exports = mongoose.model('User', userSchema);
