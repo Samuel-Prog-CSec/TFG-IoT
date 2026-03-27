@@ -1,9 +1,10 @@
-import { memo, useMemo } from 'react';
+import { memo, useMemo, useState, useEffect } from 'react';
 import { motion } from 'framer-motion';
 import PropTypes from 'prop-types';
 import { Star, Trophy, RotateCcw, Home } from 'lucide-react';
 import { cn, calculateStars } from '../../lib/utils';
 import ButtonPremium from '../ui/ButtonPremium';
+import Confetti from '../effects/Confetti';
 
 /**
  * Pantalla de fin de juego
@@ -55,6 +56,14 @@ function GameOverScreen({
 
   const message = getMessage();
   const scoreDelta = score - bestScore;
+
+  const [showConfetti, setShowConfetti] = useState(false);
+
+  useEffect(() => {
+    if (shouldReduceMotion || percentage < 70) return;
+    const timer = setTimeout(() => setShowConfetti(true), 800);
+    return () => clearTimeout(timer);
+  }, [shouldReduceMotion, percentage]);
 
   return (
     <motion.div
@@ -276,6 +285,15 @@ function GameOverScreen({
             </motion.div>
           ))}
         </div>
+      )}
+
+      {/* Confetti celebration for good results */}
+      {showConfetti && (
+        <Confetti
+          active
+          particleCount={percentage >= 90 ? 80 : 40}
+          duration={3500}
+        />
       )}
     </motion.div>
   );
