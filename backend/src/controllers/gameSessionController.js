@@ -16,11 +16,8 @@ const {
   ConflictError
 } = require('../utils/errors');
 const logger = require('../utils/logger');
-const {
-  toGameSessionDetailDTOV1,
-  toGameSessionListDTOV1,
-  toPaginatedDTOV1
-} = require('../utils/dtos');
+const { toGameSessionDetailDTOV1, toGameSessionListDTOV1 } = require('../utils/dtos');
+const { sendSuccess, sendCreated, sendPaginated } = require('../utils/responseHelper');
 const {
   normalizeMechanicName,
   isMechanicEnabledForSessionCreation,
@@ -118,13 +115,10 @@ const getSessions = async (req, res) => {
     resultsCount: sessions.length
   });
 
-  res.json({
-    success: true,
-    ...toPaginatedDTOV1(toGameSessionListDTOV1(sessions), {
-      page: Number.parseInt(page, 10),
-      limit: Number.parseInt(limit, 10),
-      total
-    })
+  sendPaginated(res, toGameSessionListDTOV1(sessions), {
+    page: Number.parseInt(page, 10),
+    limit: Number.parseInt(limit, 10),
+    total
   });
 };
 
@@ -163,10 +157,7 @@ const getSessionById = async (req, res) => {
     throw new ForbiddenError('No tienes permiso para ver esta sesión');
   }
 
-  res.json({
-    success: true,
-    data: toGameSessionDetailDTOV1(session)
-  });
+  sendSuccess(res, toGameSessionDetailDTOV1(session));
 };
 
 /**
@@ -301,11 +292,7 @@ const createSession = async (req, res) => {
     createdBy: req.user._id
   });
 
-  res.status(201).json({
-    success: true,
-    message: 'Sesión creada exitosamente',
-    data: toGameSessionDetailDTOV1(session)
-  });
+  sendCreated(res, toGameSessionDetailDTOV1(session), 'Sesión creada exitosamente');
 };
 
 /**
@@ -400,11 +387,7 @@ const updateSession = async (req, res) => {
     updatedBy: req.user._id
   });
 
-  res.json({
-    success: true,
-    message: 'Sesión actualizada exitosamente',
-    data: toGameSessionDetailDTOV1(session)
-  });
+  sendSuccess(res, toGameSessionDetailDTOV1(session), 'Sesión actualizada exitosamente');
 };
 
 /**
@@ -443,10 +426,7 @@ const deleteSession = async (req, res) => {
     deletedBy: req.user._id
   });
 
-  res.json({
-    success: true,
-    message: 'Sesión eliminada exitosamente'
-  });
+  sendSuccess(res, null, 'Sesión eliminada exitosamente');
 };
 
 /**
@@ -519,11 +499,7 @@ const startSession = async (req, res) => {
     startedBy: req.user._id
   });
 
-  res.json({
-    success: true,
-    message: 'Sesión iniciada exitosamente',
-    data: toGameSessionDetailDTOV1(session)
-  });
+  sendSuccess(res, toGameSessionDetailDTOV1(session), 'Sesión iniciada exitosamente');
 };
 
 /**
@@ -569,11 +545,7 @@ const endSession = async (req, res) => {
     endedBy: req.user._id
   });
 
-  res.json({
-    success: true,
-    message: 'Sesión finalizada exitosamente',
-    data: toGameSessionDetailDTOV1(session)
-  });
+  sendSuccess(res, toGameSessionDetailDTOV1(session), 'Sesión finalizada exitosamente');
 };
 
 /**
@@ -646,11 +618,7 @@ const cloneSession = async (req, res) => {
     clonedBy: req.user._id
   });
 
-  res.status(201).json({
-    success: true,
-    message: buildCloneSuccessMessage(mechanicName),
-    data: toGameSessionDetailDTOV1(clonedSession)
-  });
+  sendCreated(res, toGameSessionDetailDTOV1(clonedSession), buildCloneSuccessMessage(mechanicName));
 };
 
 module.exports = {

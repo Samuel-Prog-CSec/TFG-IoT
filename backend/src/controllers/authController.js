@@ -22,6 +22,7 @@ const {
 const logger = require('../utils/logger');
 const { logSecurityEvent, getRequestContext } = require('../utils/securityLogger');
 const { toUserDTOV1, toAuthResponseDTOV1 } = require('../utils/dtos');
+const { sendSuccess, sendCreated } = require('../utils/responseHelper');
 const { disconnectUserSockets } = require('../utils/socketUtils');
 const crypto = require('node:crypto');
 
@@ -128,13 +129,11 @@ const register = async (req, res) => {
     email: teacher.email
   });
 
-  res.status(201).json({
-    success: true,
-    message: 'Profesor registrado. Cuenta pendiente de aprobación por Super Admin.',
-    data: {
-      user: toUserDTOV1(teacher)
-    }
-  });
+  sendCreated(
+    res,
+    { user: toUserDTOV1(teacher) },
+    'Profesor registrado. Cuenta pendiente de aprobación por Super Admin.'
+  );
 };
 
 const assertAccountApprovedForLogin = user => {
@@ -271,11 +270,7 @@ const login = async (req, res) => {
     role: user.role
   });
 
-  res.json({
-    success: true,
-    message: 'Login exitoso',
-    data: toAuthResponseDTOV1(user, publicTokens)
-  });
+  sendSuccess(res, toAuthResponseDTOV1(user, publicTokens), 'Login exitoso');
 };
 
 /**
@@ -295,10 +290,7 @@ const getProfile = async (req, res) => {
     throw new NotFoundError('Usuario');
   }
 
-  res.json({
-    success: true,
-    data: toUserDTOV1(user)
-  });
+  sendSuccess(res, toUserDTOV1(user));
 };
 
 /**
@@ -335,11 +327,7 @@ const updateProfile = async (req, res) => {
     email: user.email
   });
 
-  res.json({
-    success: true,
-    message: 'Perfil actualizado exitosamente',
-    data: toUserDTOV1(user)
-  });
+  sendSuccess(res, toUserDTOV1(user), 'Perfil actualizado exitosamente');
 };
 
 /**
@@ -397,10 +385,7 @@ const changePassword = async (req, res) => {
 
   res.clearCookie(REFRESH_COOKIE_NAME, buildRefreshCookieOptions(0));
 
-  res.json({
-    success: true,
-    message: 'Contraseña actualizada exitosamente. Inicia sesión nuevamente.'
-  });
+  sendSuccess(res, null, 'Contraseña actualizada exitosamente. Inicia sesión nuevamente.');
 };
 
 /**
@@ -521,15 +506,15 @@ const refreshAccessToken = async (req, res) => {
     familyId
   });
 
-  res.json({
-    success: true,
-    message: 'Tokens refrescados exitosamente',
-    data: {
+  sendSuccess(
+    res,
+    {
       accessToken: publicTokens.accessToken,
       accessTokenExpiresIn: publicTokens.accessTokenExpiresIn,
       tokenType: publicTokens.tokenType
-    }
-  });
+    },
+    'Tokens refrescados exitosamente'
+  );
 };
 
 module.exports = {

@@ -13,13 +13,8 @@ const {
 } = require('../utils/errors');
 const logger = require('../utils/logger');
 const userService = require('../services/userService');
-const {
-  toUserDTOV1,
-  toStudentDTOV1,
-  toUserListDTOV1,
-  toPaginatedDTOV1,
-  toUserStatsDTOV1
-} = require('../utils/dtos');
+const { toUserDTOV1, toStudentDTOV1, toUserListDTOV1, toUserStatsDTOV1 } = require('../utils/dtos');
+const { sendSuccess, sendCreated, sendPaginated } = require('../utils/responseHelper');
 const { escapeRegex } = require('../utils/escapeRegex');
 const { revokeAllUserTokens } = require('../middlewares/auth');
 const { disconnectUserSockets } = require('../utils/socketUtils');
@@ -119,14 +114,10 @@ const getUsers = async (req, res) => {
     resultsCount: users.length
   });
 
-  res.json({
-    success: true,
-    ...toPaginatedDTOV1(
-      toUserListDTOV1(users),
-      Number.parseInt(page, 10),
-      Number.parseInt(limit, 10),
-      total
-    )
+  sendPaginated(res, toUserListDTOV1(users), {
+    page: Number.parseInt(page, 10),
+    limit: Number.parseInt(limit, 10),
+    total
   });
 };
 
@@ -161,10 +152,7 @@ const getUserById = async (req, res) => {
 
   const userPayload = user.role === 'student' ? toStudentDTOV1(user) : toUserDTOV1(user);
 
-  res.json({
-    success: true,
-    data: userPayload
-  });
+  sendSuccess(res, userPayload);
 };
 
 /**
@@ -219,11 +207,7 @@ const createUser = async (req, res) => {
       teacherName: req.user.name
     });
 
-    res.status(201).json({
-      success: true,
-      message: 'Alumno creado exitosamente',
-      data: toStudentDTOV1(student)
-    });
+    sendCreated(res, toStudentDTOV1(student), 'Alumno creado exitosamente');
   } catch (error) {
     if (error instanceof ConflictError) {
       const existingStudent = await userService.findDuplicateStudent({
@@ -383,11 +367,7 @@ const updateUser = async (req, res) => {
 
   const userPayload = buildUserPayload(user);
 
-  res.json({
-    success: true,
-    message: 'Usuario actualizado exitosamente',
-    data: userPayload
-  });
+  sendSuccess(res, userPayload, 'Usuario actualizado exitosamente');
 };
 
 /**
@@ -433,10 +413,7 @@ const deleteUser = async (req, res) => {
     deletedBy: req.user._id
   });
 
-  res.json({
-    success: true,
-    message: 'Usuario eliminado exitosamente'
-  });
+  sendSuccess(res, null, 'Usuario eliminado exitosamente');
 };
 
 /**
@@ -478,14 +455,14 @@ const getUserStats = async (req, res) => {
         ).toFixed(2)
       : 0;
 
-  res.json({
-    success: true,
-    data: toUserStatsDTOV1(
+  sendSuccess(
+    res,
+    toUserStatsDTOV1(
       user,
       user.studentMetrics?.toObject?.() || user.studentMetrics,
       Number.parseFloat(accuracyRate)
     )
-  });
+  );
 };
 
 /**
@@ -526,13 +503,7 @@ const getStudentsByTeacher = async (req, res) => {
     select: '-password'
   });
 
-  res.json({
-    success: true,
-    data: toUserListDTOV1(students),
-    meta: {
-      count: students.length
-    }
-  });
+  sendSuccess(res, toUserListDTOV1(students));
 };
 
 /**
@@ -616,11 +587,7 @@ const transferStudent = async (req, res) => {
     reason
   });
 
-  res.json({
-    success: true,
-    message: 'Alumno transferido exitosamente',
-    data: toStudentDTOV1(student)
-  });
+  sendSuccess(res, toStudentDTOV1(student), 'Alumno transferido exitosamente');
 };
 
 module.exports = {

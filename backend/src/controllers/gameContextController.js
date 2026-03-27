@@ -11,11 +11,8 @@ const cardDeckRepository = require('../repositories/cardDeckRepository');
 const storageService = require('../services/storageService');
 const { NotFoundError, ConflictError, ValidationError } = require('../utils/errors');
 const logger = require('../utils/logger');
-const {
-  toGameContextDetailDTOV1,
-  toGameContextListDTOV1,
-  toPaginatedDTOV1
-} = require('../utils/dtos');
+const { toGameContextDetailDTOV1, toGameContextListDTOV1 } = require('../utils/dtos');
+const { sendSuccess, sendCreated, sendPaginated } = require('../utils/responseHelper');
 const { escapeRegex } = require('../utils/escapeRegex');
 
 const ACTIVE_SESSION_STATUSES = ['created', 'active'];
@@ -107,13 +104,10 @@ const getContexts = async (req, res) => {
     resultsCount: contexts.length
   });
 
-  res.json({
-    success: true,
-    ...toPaginatedDTOV1(toGameContextListDTOV1(contexts), {
-      page: Number.parseInt(page, 10),
-      limit: Number.parseInt(limit, 10),
-      total
-    })
+  sendPaginated(res, toGameContextListDTOV1(contexts), {
+    page: Number.parseInt(page, 10),
+    limit: Number.parseInt(limit, 10),
+    total
   });
 };
 
@@ -144,10 +138,7 @@ const getContextById = async (req, res) => {
     throw new NotFoundError('Contexto de juego');
   }
 
-  res.json({
-    success: true,
-    data: toGameContextDetailDTOV1(context)
-  });
+  sendSuccess(res, toGameContextDetailDTOV1(context));
 };
 
 /**
@@ -189,11 +180,7 @@ const createContext = async (req, res) => {
     role: req.user.role
   });
 
-  res.status(201).json({
-    success: true,
-    message: 'Contexto creado exitosamente',
-    data: toGameContextDetailDTOV1(context)
-  });
+  sendCreated(res, toGameContextDetailDTOV1(context), 'Contexto creado exitosamente');
 };
 
 /**
@@ -246,11 +233,7 @@ const updateContext = async (req, res) => {
     updatedBy: req.user._id
   });
 
-  res.json({
-    success: true,
-    message: 'Contexto actualizado exitosamente',
-    data: toGameContextDetailDTOV1(context)
-  });
+  sendSuccess(res, toGameContextDetailDTOV1(context), 'Contexto actualizado exitosamente');
 };
 
 /**
@@ -298,10 +281,7 @@ const deleteContext = async (req, res) => {
     deletedBy: req.user._id
   });
 
-  res.json({
-    success: true,
-    message: 'Contexto eliminado exitosamente'
-  });
+  sendSuccess(res, null, 'Contexto eliminado exitosamente');
 };
 
 /**
@@ -335,13 +315,7 @@ const getContextAssets = async (req, res) => {
 
   const payload = toGameContextDetailDTOV1(context);
 
-  res.json({
-    success: true,
-    data: {
-      ...payload,
-      count: payload.assetsCount
-    }
-  });
+  sendSuccess(res, { ...payload, count: payload.assetsCount });
 };
 
 module.exports = {

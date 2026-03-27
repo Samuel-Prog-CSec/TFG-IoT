@@ -7,7 +7,8 @@
 const gameMechanicRepository = require('../repositories/gameMechanicRepository');
 const { NotFoundError, ConflictError } = require('../utils/errors');
 const logger = require('../utils/logger');
-const { toGameMechanicDTOV1, toGameMechanicListDTOV1, toPaginatedDTOV1 } = require('../utils/dtos');
+const { toGameMechanicDTOV1, toGameMechanicListDTOV1 } = require('../utils/dtos');
+const { sendSuccess, sendCreated, sendPaginated } = require('../utils/responseHelper');
 const { escapeRegex } = require('../utils/escapeRegex');
 
 /**
@@ -65,13 +66,10 @@ const getMechanics = async (req, res) => {
     resultsCount: mechanics.length
   });
 
-  res.json({
-    success: true,
-    ...toPaginatedDTOV1(toGameMechanicListDTOV1(mechanics), {
-      page: Number.parseInt(page, 10),
-      limit: Number.parseInt(limit, 10),
-      total
-    })
+  sendPaginated(res, toGameMechanicListDTOV1(mechanics), {
+    page: Number.parseInt(page, 10),
+    limit: Number.parseInt(limit, 10),
+    total
   });
 };
 
@@ -101,10 +99,7 @@ const getMechanicById = async (req, res) => {
     throw new NotFoundError('Mecánica de juego');
   }
 
-  res.json({
-    success: true,
-    data: toGameMechanicDTOV1(mechanic)
-  });
+  sendSuccess(res, toGameMechanicDTOV1(mechanic));
 };
 
 /**
@@ -144,11 +139,7 @@ const createMechanic = async (req, res) => {
     createdBy: req.user._id
   });
 
-  res.status(201).json({
-    success: true,
-    message: 'Mecánica creada exitosamente',
-    data: toGameMechanicDTOV1(mechanic)
-  });
+  sendCreated(res, toGameMechanicDTOV1(mechanic), 'Mecánica creada exitosamente');
 };
 
 /**
@@ -198,11 +189,7 @@ const updateMechanic = async (req, res) => {
     updatedBy: req.user._id
   });
 
-  res.json({
-    success: true,
-    message: 'Mecánica actualizada exitosamente',
-    data: toGameMechanicDTOV1(mechanic)
-  });
+  sendSuccess(res, toGameMechanicDTOV1(mechanic), 'Mecánica actualizada exitosamente');
 };
 
 /**
@@ -234,10 +221,7 @@ const deleteMechanic = async (req, res) => {
     deletedBy: req.user._id
   });
 
-  res.json({
-    success: true,
-    message: 'Mecánica desactivada exitosamente'
-  });
+  sendSuccess(res, null, 'Mecánica desactivada exitosamente');
 };
 
 /**
@@ -255,13 +239,7 @@ const getActiveMechanics = async (req, res) => {
     { sort: { name: 1 }, select: '-__v' }
   );
 
-  res.json({
-    success: true,
-    data: toGameMechanicListDTOV1(mechanics),
-    meta: {
-      count: mechanics.length
-    }
-  });
+  sendSuccess(res, toGameMechanicListDTOV1(mechanics));
 };
 
 module.exports = {

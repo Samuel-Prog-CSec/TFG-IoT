@@ -12,7 +12,8 @@
 const userRepository = require('../repositories/userRepository');
 const { ValidationError, NotFoundError } = require('../utils/errors');
 const logger = require('../utils/logger');
-const { toUserDTOV1, toUserListDTOV1, toPaginatedDTOV1 } = require('../utils/dtos');
+const { toUserDTOV1, toUserListDTOV1 } = require('../utils/dtos');
+const { sendSuccess, sendPaginated } = require('../utils/responseHelper');
 const { revokeAllUserTokens } = require('../middlewares/auth');
 const { disconnectUserSockets } = require('../utils/socketUtils');
 const { getRequestContext } = require('../utils/securityLogger');
@@ -68,14 +69,10 @@ const getPendingTeachers = async (req, res) => {
     userRepository.count(filter)
   ]);
 
-  res.json({
-    success: true,
-    ...toPaginatedDTOV1(
-      toUserListDTOV1(teachers),
-      Number.parseInt(page, 10),
-      Number.parseInt(limit, 10),
-      total
-    )
+  sendPaginated(res, toUserListDTOV1(teachers), {
+    page: Number.parseInt(page, 10),
+    limit: Number.parseInt(limit, 10),
+    total
   });
 };
 
@@ -101,13 +98,7 @@ const approveTeacher = async (req, res) => {
     approvedBy: req.user?._id
   });
 
-  res.json({
-    success: true,
-    message: 'Profesor aprobado exitosamente',
-    data: {
-      user: toUserDTOV1(target)
-    }
-  });
+  sendSuccess(res, { user: toUserDTOV1(target) }, 'Profesor aprobado exitosamente');
 };
 
 /**
@@ -141,13 +132,7 @@ const rejectTeacher = async (req, res) => {
     rejectedBy: req.user?._id
   });
 
-  res.json({
-    success: true,
-    message: 'Profesor rechazado exitosamente',
-    data: {
-      user: toUserDTOV1(target)
-    }
-  });
+  sendSuccess(res, { user: toUserDTOV1(target) }, 'Profesor rechazado exitosamente');
 };
 
 module.exports = {

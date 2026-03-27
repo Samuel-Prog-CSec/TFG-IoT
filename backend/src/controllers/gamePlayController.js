@@ -11,12 +11,8 @@ const gamePlayService = require('../services/gamePlayService');
 const { recalculateSessionStatusFromPlays } = require('../services/sessionStatusService');
 const { NotFoundError, ValidationError, ForbiddenError } = require('../utils/errors');
 const logger = require('../utils/logger');
-const {
-  toGamePlayDetailDTOV1,
-  toGamePlayListDTOV1,
-  toPaginatedDTOV1,
-  toPlayerStatsDTOV1
-} = require('../utils/dtos');
+const { toGamePlayDetailDTOV1, toGamePlayListDTOV1, toPlayerStatsDTOV1 } = require('../utils/dtos');
+const { sendSuccess, sendCreated, sendPaginated } = require('../utils/responseHelper');
 
 const buildScoreRangeFilter = (minScore, maxScore) => {
   if (minScore === undefined && maxScore === undefined) {
@@ -138,13 +134,10 @@ const getPlays = async (req, res) => {
     resultsCount: plays.length
   });
 
-  res.json({
-    success: true,
-    ...toPaginatedDTOV1(toGamePlayListDTOV1(plays), {
-      page: Number.parseInt(page, 10),
-      limit: Number.parseInt(limit, 10),
-      total
-    })
+  sendPaginated(res, toGamePlayListDTOV1(plays), {
+    page: Number.parseInt(page, 10),
+    limit: Number.parseInt(limit, 10),
+    total
   });
 };
 
@@ -186,10 +179,7 @@ const getPlayById = async (req, res) => {
     throw new ForbiddenError('No tienes permiso para ver esta partida');
   }
 
-  res.json({
-    success: true,
-    data: toGamePlayDetailDTOV1(play)
-  });
+  sendSuccess(res, toGamePlayDetailDTOV1(play));
 };
 
 /**
@@ -212,11 +202,7 @@ const createPlay = async (req, res) => {
     creatorId: req.user._id
   });
 
-  res.status(201).json({
-    success: true,
-    message: 'Partida creada exitosamente',
-    data: toGamePlayDetailDTOV1(play)
-  });
+  sendCreated(res, toGamePlayDetailDTOV1(play), 'Partida creada exitosamente');
 };
 
 /**
@@ -265,11 +251,7 @@ const pausePlay = async (req, res) => {
 
   const updated = await gamePlayRepository.findById(id);
 
-  res.json({
-    success: true,
-    message: 'Partida pausada',
-    data: toGamePlayDetailDTOV1(updated)
-  });
+  sendSuccess(res, toGamePlayDetailDTOV1(updated), 'Partida pausada');
 };
 
 /**
@@ -317,11 +299,7 @@ const resumePlay = async (req, res) => {
 
   const updated = await gamePlayRepository.findById(id);
 
-  res.json({
-    success: true,
-    message: 'Partida reanudada',
-    data: toGamePlayDetailDTOV1(updated)
-  });
+  sendSuccess(res, toGamePlayDetailDTOV1(updated), 'Partida reanudada');
 };
 
 /**
@@ -367,14 +345,11 @@ const addEvent = async (req, res) => {
     roundNumber: eventData.roundNumber
   });
 
-  res.json({
-    success: true,
-    message: 'Evento registrado exitosamente',
-    data: {
-      ...toGamePlayDetailDTOV1(play),
-      event: eventData
-    }
-  });
+  sendSuccess(
+    res,
+    { ...toGamePlayDetailDTOV1(play), event: eventData },
+    'Evento registrado exitosamente'
+  );
 };
 
 /**
@@ -407,14 +382,11 @@ const completePlay = async (req, res) => {
 
   const result = await gamePlayService.completePlay(id);
 
-  res.json({
-    success: true,
-    message: 'Partida completada exitosamente',
-    data: {
-      ...toGamePlayDetailDTOV1(result.play),
-      rating: result.rating
-    }
-  });
+  sendSuccess(
+    res,
+    { ...toGamePlayDetailDTOV1(result.play), rating: result.rating },
+    'Partida completada exitosamente'
+  );
 };
 
 /**
@@ -474,11 +446,7 @@ const abandonPlay = async (req, res) => {
     abandonedAt: play.completedAt
   });
 
-  res.json({
-    success: true,
-    message: 'Partida abandonada',
-    data: toGamePlayDetailDTOV1(play)
-  });
+  sendSuccess(res, toGamePlayDetailDTOV1(play), 'Partida abandonada');
 };
 
 /**
@@ -546,15 +514,15 @@ const getPlayerStats = async (req, res) => {
       ? ((result.totalCorrect / (result.totalCorrect + result.totalErrors)) * 100).toFixed(2)
       : 0;
 
-  res.json({
-    success: true,
-    data: toPlayerStatsDTOV1({
+  sendSuccess(
+    res,
+    toPlayerStatsDTOV1({
       playerId,
       sessionId: sessionId || 'all',
       stats: result,
       accuracyRate: Number.parseFloat(accuracyRate)
     })
-  });
+  );
 };
 
 module.exports = {

@@ -10,6 +10,10 @@
  * - GET / — Informacion general de la API
  *
  * @module controllers/healthController
+ *
+ * NOTA: Este controller NO usa responseHelper (sendSuccess/sendPaginated).
+ * Los endpoints de health/metrics siguen convenciones de infraestructura
+ * (formato libre, sin wrapper { success, data }) y no el contrato API estandar.
  */
 
 const { getHealthStatus, getMemoryUsage } = require('../utils/healthCheck');

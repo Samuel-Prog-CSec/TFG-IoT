@@ -11,6 +11,7 @@ const audioValidationService = require('../services/audioValidationService.js');
 const logger = require('../utils/logger');
 const { NotFoundError, ValidationError, ConflictError } = require('../utils/errors');
 const { toAssetDTOV1 } = require('../utils/dtos');
+const { sendSuccess, sendCreated } = require('../utils/responseHelper');
 
 /**
  * Límite máximo de assets por contexto.
@@ -136,18 +137,18 @@ const uploadImage = async (req, res) => {
       metadata
     });
 
-    res.status(201).json({
-      success: true,
-      message: 'Imagen subida y procesada correctamente',
-      data: {
+    sendCreated(
+      res,
+      {
         asset: toAssetDTOV1(newAsset),
         processing: {
           originalDimensions: `${metadata.originalWidth}x${metadata.originalHeight}`,
           format: metadata.format,
           quality: metadata.quality
         }
-      }
-    });
+      },
+      'Imagen subida y procesada correctamente'
+    );
   } catch (error) {
     // Rollback: eliminar archivos subidos si falló algo después
     if (imageUrl) {
@@ -230,18 +231,18 @@ const uploadAudio = async (req, res) => {
       durationSeconds: metadata.durationSeconds
     });
 
-    res.status(201).json({
-      success: true,
-      message: 'Audio subido y vinculado correctamente',
-      data: {
+    sendCreated(
+      res,
+      {
         asset: toAssetDTOV1(newAsset),
         metadata: {
           format: metadata.formatName,
           size: `${(metadata.size / 1024).toFixed(1)} KB`,
           durationSeconds: metadata.durationSeconds
         }
-      }
-    });
+      },
+      'Audio subido y vinculado correctamente'
+    );
   } catch (error) {
     // Rollback: eliminar archivo si falló después de subir
     if (audioUrl) {
@@ -301,10 +302,7 @@ const deleteImage = async (req, res) => {
     deletedBy: req.user._id
   });
 
-  res.json({
-    success: true,
-    message: 'Imagen eliminada correctamente'
-  });
+  sendSuccess(res, null, 'Imagen eliminada correctamente');
 };
 
 /**
@@ -353,10 +351,7 @@ const deleteAudio = async (req, res) => {
     deletedBy: req.user._id
   });
 
-  res.json({
-    success: true,
-    message: 'Audio eliminado correctamente'
-  });
+  sendSuccess(res, null, 'Audio eliminado correctamente');
 };
 
 /**
@@ -370,14 +365,11 @@ const deleteAudio = async (req, res) => {
  * @param {import('express').Response} res
  */
 const getUploadConfig = (req, res) => {
-  res.json({
-    success: true,
-    data: {
-      image: imageProcessingService.getConfig(),
-      audio: audioValidationService.getConfig(),
-      maxAssetsPerContext: MAX_ASSETS_PER_CONTEXT,
-      storageEnabled: storageService.isEnabled()
-    }
+  sendSuccess(res, {
+    image: imageProcessingService.getConfig(),
+    audio: audioValidationService.getConfig(),
+    maxAssetsPerContext: MAX_ASSETS_PER_CONTEXT,
+    storageEnabled: storageService.isEnabled()
   });
 };
 

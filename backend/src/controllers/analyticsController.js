@@ -28,10 +28,7 @@ exports.getStudentProgress = async (req, res) => {
 
   const progress = await analyticsService.getStudentProgress(id, timeRange);
 
-  res.status(200).json({
-    success: true,
-    data: progress
-  });
+  sendSuccess(res, progress);
 };
 
 /**
@@ -53,10 +50,7 @@ exports.getStudentDifficulties = async (req, res) => {
 
   const difficulties = await analyticsService.getStudentDifficulties(id);
 
-  res.status(200).json({
-    success: true,
-    data: difficulties
-  });
+  sendSuccess(res, difficulties);
 };
 
 /**
@@ -69,10 +63,7 @@ exports.getClassroomSummary = async (req, res) => {
 
   const summary = await analyticsService.getClassroomSummary(teacherId);
 
-  res.status(200).json({
-    success: true,
-    data: summary
-  });
+  sendSuccess(res, summary);
 };
 
 /**
@@ -85,10 +76,7 @@ exports.getClassroomComparison = async (req, res) => {
 
   const comparison = await analyticsService.getClassroomComparison(teacherId, timeRange);
 
-  res.status(200).json({
-    success: true,
-    data: comparison
-  });
+  sendSuccess(res, comparison);
 };
 
 /**
@@ -98,10 +86,7 @@ exports.getClassroomComparison = async (req, res) => {
 exports.getClassroomDifficulties = async (req, res) => {
   const teacherId = req.user?._id?.toString();
   const difficulties = await analyticsService.getClassroomDifficulties(teacherId);
-  res.status(200).json({
-    success: true,
-    data: difficulties
-  });
+  sendSuccess(res, difficulties);
 };
 
 // ══════════════════════════════════════════════════════════════════════
