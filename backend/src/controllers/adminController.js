@@ -14,10 +14,14 @@ const { ValidationError, NotFoundError } = require('../utils/errors');
 const logger = require('../utils/logger');
 const { toUserDTOV1, toUserListDTOV1 } = require('../utils/dtos');
 const { sendSuccess, sendPaginated } = require('../utils/responseHelper');
+const { buildFilter } = require('../utils/filterBuilder');
 const { revokeAllUserTokens } = require('../middlewares/auth');
 const { disconnectUserSockets } = require('../utils/socketUtils');
 const { getRequestContext } = require('../utils/securityLogger');
-const { escapeRegex } = require('../utils/escapeRegex');
+
+const pendingTeacherFilterMappings = {
+  search: { type: 'search', fields: ['name', 'email'] }
+};
 
 const assertTargetIsTeacher = user => {
   if (!user) {
@@ -43,18 +47,9 @@ const assertTargetIsPendingTeacher = user => {
 const getPendingTeachers = async (req, res) => {
   const { page = 1, limit = 20, sortBy = 'createdAt', order = 'desc', search } = req.query;
 
-  const filter = {
-    role: 'teacher',
-    accountStatus: 'pending_approval'
-  };
-
-  if (search) {
-    const safeSearch = escapeRegex(search);
-    filter.$or = [
-      { name: { $regex: safeSearch, $options: 'i' } },
-      { email: { $regex: safeSearch, $options: 'i' } }
-    ];
-  }
+  const filter = buildFilter({ search }, pendingTeacherFilterMappings, {
+    baseFilter: { role: 'teacher', accountStatus: 'pending_approval' }
+  });
 
   const skip = (page - 1) * limit;
   const sortOptions = { [sortBy]: order === 'asc' ? 1 : -1 };

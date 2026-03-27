@@ -9,7 +9,12 @@ const { NotFoundError, ConflictError } = require('../utils/errors');
 const logger = require('../utils/logger');
 const { toGameMechanicDTOV1, toGameMechanicListDTOV1 } = require('../utils/dtos');
 const { sendSuccess, sendCreated, sendPaginated } = require('../utils/responseHelper');
-const { escapeRegex } = require('../utils/escapeRegex');
+const { buildFilter } = require('../utils/filterBuilder');
+
+const mechanicFilterMappings = {
+  isActive: { field: 'isActive', type: 'exact' },
+  search: { type: 'search', fields: ['name', 'displayName'] }
+};
 
 /**
  * Obtener lista de mecánicas con paginación y filtros.
@@ -31,20 +36,7 @@ const getMechanics = async (req, res) => {
   } = req.query;
 
   // Construir filtro
-  const filter = {};
-
-  if (isActive !== undefined) {
-    filter.isActive = isActive;
-  }
-
-  // Búsqueda por nombre o displayName
-  if (search) {
-    const safeSearch = escapeRegex(search);
-    filter.$or = [
-      { name: { $regex: safeSearch, $options: 'i' } },
-      { displayName: { $regex: safeSearch, $options: 'i' } }
-    ];
-  }
+  const filter = buildFilter({ isActive, search }, mechanicFilterMappings);
 
   // Paginación
   const skip = (page - 1) * limit;

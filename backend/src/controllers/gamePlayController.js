@@ -13,42 +13,19 @@ const { NotFoundError, ValidationError, ForbiddenError } = require('../utils/err
 const logger = require('../utils/logger');
 const { toGamePlayDetailDTOV1, toGamePlayListDTOV1, toPlayerStatsDTOV1 } = require('../utils/dtos');
 const { sendSuccess, sendCreated, sendPaginated } = require('../utils/responseHelper');
+const { buildFilter } = require('../utils/filterBuilder');
 
-const buildScoreRangeFilter = (minScore, maxScore) => {
-  if (minScore === undefined && maxScore === undefined) {
-    return null;
+const playFilterMappings = {
+  sessionId: { field: 'sessionId', type: 'exact' },
+  playerId: { field: 'playerId', type: 'exact' },
+  status: { field: 'status', type: 'exact' },
+  score: {
+    field: 'score',
+    type: 'range',
+    minParam: 'minScore',
+    maxParam: 'maxScore',
+    transform: v => Number.parseInt(v, 10)
   }
-
-  const scoreFilter = {};
-  if (minScore !== undefined) {
-    scoreFilter.$gte = Number.parseInt(minScore, 10);
-  }
-  if (maxScore !== undefined) {
-    scoreFilter.$lte = Number.parseInt(maxScore, 10);
-  }
-
-  return scoreFilter;
-};
-
-const buildPlaysFilter = ({ sessionId, playerId, status, minScore, maxScore }) => {
-  const filter = {};
-
-  if (sessionId) {
-    filter.sessionId = sessionId;
-  }
-  if (playerId) {
-    filter.playerId = playerId;
-  }
-  if (status) {
-    filter.status = status;
-  }
-
-  const scoreFilter = buildScoreRangeFilter(minScore, maxScore);
-  if (scoreFilter) {
-    filter.score = scoreFilter;
-  }
-
-  return filter;
 };
 
 const applyTeacherScopeToPlayFilter = async ({ user, sessionId, filter }) => {
@@ -96,13 +73,10 @@ const getPlays = async (req, res) => {
     maxScore
   } = req.query;
 
-  const filter = buildPlaysFilter({
-    sessionId,
-    playerId,
-    status,
-    minScore,
-    maxScore
-  });
+  const filter = buildFilter(
+    { sessionId, playerId, status, minScore, maxScore },
+    playFilterMappings
+  );
 
   await applyTeacherScopeToPlayFilter({
     user: req.user,

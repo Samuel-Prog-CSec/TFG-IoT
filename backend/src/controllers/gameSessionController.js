@@ -18,6 +18,7 @@ const {
 const logger = require('../utils/logger');
 const { toGameSessionDetailDTOV1, toGameSessionListDTOV1 } = require('../utils/dtos');
 const { sendSuccess, sendCreated, sendPaginated } = require('../utils/responseHelper');
+const { buildFilter } = require('../utils/filterBuilder');
 const {
   normalizeMechanicName,
   isMechanicEnabledForSessionCreation,
@@ -31,6 +32,14 @@ const {
   applyCloneMechanicState,
   buildCloneSuccessMessage
 } = require('./helpers/sessionValidationHelpers');
+
+const sessionFilterMappings = {
+  mechanicId: { field: 'mechanicId', type: 'exact' },
+  contextId: { field: 'contextId', type: 'exact' },
+  status: { field: 'status', type: 'exact' },
+  difficulty: { field: 'difficulty', type: 'exact' },
+  createdBy: { field: 'createdBy', type: 'exact' }
+};
 
 const isSessionReadLeanEnabled = () => process.env.SESSION_READ_LEAN_ENABLED !== 'false';
 
@@ -56,32 +65,18 @@ const getSessions = async (req, res) => {
     createdBy
   } = req.query;
 
-  // Construir filtro
-  const filter = {};
-
-  if (mechanicId) {
-    filter.mechanicId = mechanicId;
-  }
-  if (contextId) {
-    filter.contextId = contextId;
-  }
-  if (status) {
-    filter.status = status;
-  }
-  if (difficulty) {
-    filter.difficulty = difficulty;
-  }
-  if (createdBy) {
-    filter.createdBy = createdBy;
-  }
-
   // Los profesores ven todas sus sesiones, los alumnos no deberían acceder
   if (req.user.role === 'student') {
     throw new ForbiddenError('Los alumnos no pueden acceder a sesiones directamente');
   }
 
-  // Filtrar SIEMPRE por sesiones del profesor actual.
-  // Evita que un teacher fuerce createdBy en query para consultar sesiones ajenas.
+  // Construir filtro
+  const filter = buildFilter(
+    { mechanicId, contextId, status, difficulty, createdBy },
+    sessionFilterMappings
+  );
+
+  // Teachers can only see their own sessions — override any createdBy from query
   if (req.user.role === 'teacher') {
     filter.createdBy = req.user._id;
   }

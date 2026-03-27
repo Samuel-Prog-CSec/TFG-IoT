@@ -13,7 +13,12 @@ const { NotFoundError, ConflictError, ValidationError } = require('../utils/erro
 const logger = require('../utils/logger');
 const { toGameContextDetailDTOV1, toGameContextListDTOV1 } = require('../utils/dtos');
 const { sendSuccess, sendCreated, sendPaginated } = require('../utils/responseHelper');
-const { escapeRegex } = require('../utils/escapeRegex');
+const { buildFilter } = require('../utils/filterBuilder');
+
+const contextFilterMappings = {
+  search: { type: 'search', fields: ['contextId', 'name'] },
+  isActive: { field: 'isActive', type: 'exact' }
+};
 
 const ACTIVE_SESSION_STATUSES = ['created', 'active'];
 const ACTIVE_PLAY_STATUSES = ['in-progress', 'paused'];
@@ -69,20 +74,7 @@ const getContexts = async (req, res) => {
   } = req.query;
 
   // Construir filtro
-  const filter = {};
-
-  // Búsqueda por contextId o nombre
-  if (search) {
-    const safeSearch = escapeRegex(search);
-    filter.$or = [
-      { contextId: { $regex: safeSearch, $options: 'i' } },
-      { name: { $regex: safeSearch, $options: 'i' } }
-    ];
-  }
-
-  if (typeof isActive === 'boolean') {
-    filter.isActive = isActive;
-  }
+  const filter = buildFilter({ search, isActive }, contextFilterMappings);
 
   // Paginación
   const skip = (page - 1) * limit;
