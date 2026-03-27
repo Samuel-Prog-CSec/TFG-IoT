@@ -1449,3 +1449,49 @@ Se adoptan dos optimizaciones complementarias:
 - **ADR-003** (DTOs): Los resultados lean son compatibles con la capa de DTOs porque estos solo acceden a propiedades planas del documento, no a métodos de Mongoose
 - **ADR-006** (Lecturas lean en sesiones): ADR-006 aplicó lean manualmente en endpoints de sesión como caso piloto; ADR-019 generaliza el patrón a nivel de baseRepository
 - **ADR-015** (Repository completo): La lógica lean se centraliza en `applyQueryOptions` del baseRepository, consistente con el principio de que el acceso a datos se gestiona desde la capa repository
+
+---
+
+## ADR-020: Estrategia de cache Redis para entidades de alta lectura
+
+### Contexto (ADR-020)
+
+Las mecánicas de juego (~3 en el sistema) y los contextos temáticos (~15) se consultan en cada carga de sesión, inicio de partida y vista de dashboard, pero cambian muy raramente (solo cuando un administrador crea o edita). Los resúmenes de analytics de clase agregan datos a través de múltiples colecciones. Todas estas consultas impactan MongoDB en cada petición sin ningún tipo de cache.
+
+### Decisión (ADR-020)
+
+Se adopta el patrón **cache-aside** mediante `utils/cacheHelper.js`, reutilizando la infraestructura existente de `redisService` con circuit breaker. Se definen tres niveles de cache:
+
+1. **Mecánicas** — TTL de 1 hora. Se cachean las consultas `getById` (llamadas frecuentemente, datos estables). Los endpoints de listado quedan sin cache (se llaman raramente y tienen combinaciones variables de filtros que generarían demasiadas cache keys).
+
+2. **Contextos** — TTL de 30 minutos. Misma estrategia que mecánicas: solo `getById` cacheado. Los listados quedan sin cache por las mismas razones.
+
+3. **Analytics** — TTL de 5 minutos. TTL corto porque los datos cambian con cada partida completada. La key incluye `teacherId` para aislamiento entre profesores.
+
+4. **Invalidación**: las mutaciones (create/update/delete) invalidan explícitamente mediante `cacheInvalidate`. Analytics usa solo expiración por TTL (sin invalidación explícita necesaria).
+
+5. **Fallback**: si Redis no está disponible, `cacheGet` cae transparentemente a la función de fetch (sin cache, sin error).
+
+### Alternativas Consideradas (ADR-020)
+
+1. **Cache-through (Redis como lectura primaria)**: Rechazada. Añade complejidad y dependencia de Redis para todas las lecturas.
+
+2. **TTL global sin invalidación explícita**: Rechazada para mecánicas y contextos. Datos obsoletos durante hasta 1 hora tras ediciones es inaceptable para la experiencia del administrador.
+
+3. **Cache en endpoints de listado**: Rechazada. Las combinaciones variables de filtros, ordenamiento y paginación crean demasiadas cache keys con baja tasa de acierto.
+
+### Consecuencias (ADR-020)
+
+**Positivas:**
+- Reducción de carga en MongoDB para lecturas repetidas de mecánicas, contextos y analytics
+- Sin cambio de comportamiento para los consumidores — la interfaz de servicios permanece idéntica
+- El fallo de Redis es transparente: el sistema opera sin cache en modo degradado
+- Invalidación explícita garantiza datos frescos tras mutaciones de administrador
+
+**Negativas:**
+- Complejidad adicional en la capa de servicios para gestionar invalidación
+- Las cache keys de analytics incluyen `teacherId`, lo que limita la reutilización entre profesores (decisión deliberada por aislamiento de datos)
+
+### Relación con otros ADRs
+
+- **ADR-016** (Rate limiting Redis store): Reutiliza la misma infraestructura de `redisService` con circuit breaker. Los namespaces `CACHE_MECHANIC`, `CACHE_CONTEXT` y `CACHE_ANALYTICS` se añaden al enum `NAMESPACES`

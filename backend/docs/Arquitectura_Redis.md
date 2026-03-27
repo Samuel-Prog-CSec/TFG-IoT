@@ -483,6 +483,9 @@ prefijo     tipo      identificador
 | `play`        | Estado de partidas activas   | Hash               | 90s (renovado por heartbeat cada 30s)  | `play:play-id-456`       |
 | `card`        | Mapeo UID tarjeta → playId   | String             | 90s (renovado por heartbeat cada 30s)  | `card:32B8FA05`          |
 | `tokenfamily` | Familias de tokens           | Set                | 7 días                                 | `tokenfamily:family-abc` |
+| `cache:mechanic` | Mecánica de juego cacheada | String (JSON)      | 1 hora                                 | `cache:mechanic:byId:{mechanicId_or_name}` |
+| `cache:context`  | Contexto temático cacheado | String (JSON)      | 30 minutos                             | `cache:context:byId:{contextId_or_mongoId}` |
+| `cache:analytics` | Resumen y distribución de clase | String (JSON) | 5 minutos                              | `cache:analytics:summary:{teacherId}` |
 
 > **Nota sobre TTL de play/card (T-066):** Aunque antes este documento indicaba "Sin TTL*", el código
 > real aplica un TTL de 90s (`DISTRIBUTED_LOCK_TTL_SECONDS`) con un heartbeat de 30s
@@ -1115,6 +1118,26 @@ Para más contexto sobre la decisión y alternativas, ver **ADR-011** en `Archit
   │                         │     │    • Rooms entre instancias │
   └─────────────────────────┘     └─────────────────────────────┘
 ```
+
+---
+
+# Política de Invalidación de Cache
+
+El sistema utiliza dos estrategias de invalidación según el tipo de dato cacheado:
+
+## Invalidación explícita por mutación
+
+Para **mecánicas** y **contextos**, las operaciones de escritura (create, update, delete) invocan `cacheInvalidate` para eliminar la entrada correspondiente de Redis inmediatamente después de la mutación en MongoDB. Esto garantiza que la siguiente lectura obtenga datos frescos directamente de la base de datos y los re-cachee.
+
+## Expiración por TTL
+
+Para **analytics**, no se realiza invalidación explícita. Los datos expiran automáticamente tras 5 minutos (TTL). Esta estrategia es adecuada porque los datos de analytics cambian con cada partida completada — invalidar explícitamente tras cada play generaría demasiadas invalidaciones con beneficio marginal.
+
+## Fallback transparente ante fallo de Redis
+
+Si Redis no está disponible (circuit breaker abierto, timeout, error de conexión), `cacheGet` ejecuta directamente la función de fetch contra MongoDB sin lanzar error. El sistema opera en modo degradado (sin cache) de forma transparente para el consumidor. Cuando Redis vuelve a estar disponible, las siguientes lecturas re-poblan el cache automáticamente.
+
+Para más detalles sobre la decisión, ver **ADR-020** en `Architecture_Decisions.md`.
 
 ---
 

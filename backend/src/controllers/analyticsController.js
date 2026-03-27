@@ -7,6 +7,7 @@ const analyticsService = require('../services/analyticsService');
 const userRepository = require('../repositories/userRepository');
 const { ForbiddenError, NotFoundError } = require('../utils/errors');
 const { sendSuccess } = require('../utils/responseHelper');
+const { cacheGet } = require('../utils/cacheHelper');
 
 /**
  * Obtiene el progreso temporal de un estudiante.
@@ -61,7 +62,12 @@ exports.getClassroomSummary = async (req, res) => {
   // El ID del profesor viene del token (req.user)
   const teacherId = req.user?._id?.toString();
 
-  const summary = await analyticsService.getClassroomSummary(teacherId);
+  const summary = await cacheGet(
+    'cache:analytics',
+    `summary:${teacherId}`,
+    async () => analyticsService.getClassroomSummary(teacherId),
+    300
+  );
 
   sendSuccess(res, summary);
 };
@@ -133,7 +139,12 @@ exports.getClassroomStudents = async (req, res) => {
  */
 exports.getClassroomDistribution = async (req, res) => {
   const teacherId = req.user._id.toString();
-  const data = await analyticsService.getClassroomDistribution(teacherId);
+  const data = await cacheGet(
+    'cache:analytics',
+    `distribution:${teacherId}`,
+    async () => analyticsService.getClassroomDistribution(teacherId),
+    300
+  );
   sendSuccess(res, data);
 };
 

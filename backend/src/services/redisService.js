@@ -57,7 +57,16 @@ const NAMESPACES = {
   SECURITY: 'security',
 
   /** Familias de tokens por usuario */
-  TOKEN_FAMILY: 'tokenfamily'
+  TOKEN_FAMILY: 'tokenfamily',
+
+  /** Cache de mecánicas de juego (TTL: 1h) */
+  CACHE_MECHANIC: 'cache:mechanic',
+
+  /** Cache de contextos temáticos (TTL: 30min) */
+  CACHE_CONTEXT: 'cache:context',
+
+  /** Cache de analytics de clase (TTL: 5min) */
+  CACHE_ANALYTICS: 'cache:analytics'
 };
 
 /**

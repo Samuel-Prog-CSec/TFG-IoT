@@ -10,6 +10,7 @@ const logger = require('../utils/logger');
 const { toGameMechanicDTOV1, toGameMechanicListDTOV1 } = require('../utils/dtos');
 const { sendSuccess, sendCreated, sendPaginated } = require('../utils/responseHelper');
 const { buildFilter } = require('../utils/filterBuilder');
+const { cacheGet, cacheInvalidate } = require('../utils/cacheHelper');
 
 const mechanicFilterMappings = {
   isActive: { field: 'isActive', type: 'exact' },
@@ -77,15 +78,22 @@ const getMechanics = async (req, res) => {
 const getMechanicById = async (req, res) => {
   const { id } = req.params;
 
-  // Intentar buscar por ID de MongoDB o por nombre
-  let mechanic;
-
-  if (id.match(/^[0-9a-fA-F]{24}$/)) {
-    mechanic = await gameMechanicRepository.findById(id);
-  } else {
-    // Buscar por nombre (ej: 'association', 'sequence')
-    mechanic = await gameMechanicRepository.findOne({ name: id.toLowerCase() });
-  }
+  // Intentar buscar por ID de MongoDB o por nombre (con cache)
+  const mechanic = await cacheGet(
+    'cache:mechanic',
+    `byId:${id}`,
+    async () => {
+      let result;
+      if (id.match(/^[0-9a-fA-F]{24}$/)) {
+        result = await gameMechanicRepository.findById(id);
+      } else {
+        // Buscar por nombre (ej: 'association', 'sequence')
+        result = await gameMechanicRepository.findOne({ name: id.toLowerCase() });
+      }
+      return result;
+    },
+    3600
+  );
 
   if (!mechanic) {
     throw new NotFoundError('Mecánica de juego');
@@ -175,6 +183,10 @@ const updateMechanic = async (req, res) => {
 
   await mechanic.save();
 
+  await cacheInvalidate('cache:mechanic', `byId:${id}`);
+  // Also invalidate by-name since getMechanicById can look up by name
+  await cacheInvalidate('cache:mechanic', `byId:${mechanic.name}`);
+
   logger.info('Mecánica actualizada', {
     mechanicId: mechanic._id,
     name: mechanic.name,
@@ -206,6 +218,10 @@ const deleteMechanic = async (req, res) => {
   // Soft delete
   mechanic.isActive = false;
   await mechanic.save();
+
+  await cacheInvalidate('cache:mechanic', `byId:${id}`);
+  // Also invalidate by-name since getMechanicById can look up by name
+  await cacheInvalidate('cache:mechanic', `byId:${mechanic.name}`);
 
   logger.info('Mecánica desactivada', {
     mechanicId: mechanic._id,

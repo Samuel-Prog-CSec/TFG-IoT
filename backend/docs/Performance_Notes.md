@@ -286,3 +286,23 @@ Se añadieron 3 índices compuestos en los modelos para optimizar las consultas 
 Sin estos índices, las queries realizaban collection scans completos, lo cual degradaría progresivamente el rendimiento conforme crece el volumen de datos en GamePlay y User.
 
 Para más contexto sobre la decisión, ver **ADR-019** en `Architecture_Decisions.md`.
+
+### Cache Redis para Entidades Core
+
+Se implementó el patrón **cache-aside** mediante `utils/cacheHelper.js` para reducir la carga de lecturas repetidas a MongoDB en entidades que cambian con poca frecuencia. Se definen tres niveles de cache con TTLs diferenciados según la volatilidad de los datos:
+
+| Nivel | Entidad | TTL | Justificación |
+|-------|---------|-----|---------------|
+| **Tier 1** | Mecánicas de juego | 1 hora | ~3 mecánicas en el sistema, cambian solo por acción de administrador |
+| **Tier 2** | Contextos temáticos | 30 minutos | ~15 contextos, cambian solo por acción de administrador |
+| **Tier 3** | Analytics de clase | 5 minutos | Cambian con cada partida completada, TTL corto para balance frescura/rendimiento |
+
+**Patrón cache-aside**: el servicio intenta leer de Redis primero. En caso de cache miss, consulta MongoDB, almacena el resultado en Redis con el TTL correspondiente, y lo devuelve al consumidor. Las lecturas posteriores dentro del TTL se sirven directamente desde Redis.
+
+**Invalidación explícita en mutaciones**: las operaciones de create, update y delete en mecánicas y contextos invocan `cacheInvalidate` para eliminar la entrada de Redis inmediatamente. Esto garantiza que la siguiente lectura obtenga datos frescos. Analytics no requiere invalidación explícita — el TTL de 5 minutos proporciona un balance adecuado.
+
+**Fallback transparente**: si Redis no está disponible (circuit breaker abierto o error de conexión), `cacheGet` ejecuta directamente la función de fetch contra MongoDB sin lanzar error. El sistema opera en modo degradado sin cache, y re-puebla automáticamente cuando Redis vuelve a estar disponible.
+
+Solo se cachean endpoints `getById` (llamados frecuentemente con datos estables). Los endpoints de listado quedan sin cache porque las combinaciones variables de filtros, ordenamiento y paginación generarían demasiadas cache keys con baja tasa de acierto.
+
+Para más contexto sobre la decisión, ver **ADR-020** en `Architecture_Decisions.md`.

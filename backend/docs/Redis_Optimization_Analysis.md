@@ -425,3 +425,7 @@ node scripts/benchmark-redis-ops.js --cards=20 --iterations=100
 - **Observabilidad:** Exponer métricas Lua via endpoint HTTP para dashboards de monitoreo.
 - **Test E2E con Redis real:** GitHub Actions con service container de Redis para
   verificar atomicidad de Lua scripts en CI.
+
+### Cache-aside para entidades de alta lectura (implementado)
+
+Se implementó el patrón cache-aside para mecánicas, contextos y analytics de clase (ver **ADR-020** en `Architecture_Decisions.md`). El helper `cacheHelper.js` reutiliza la infraestructura de `redisService` con circuit breaker, definiendo tres niveles de cache con TTLs diferenciados (mecánicas 1h, contextos 30min, analytics 5min). La invalidación explícita en mutaciones garantiza frescura de datos para mecánicas y contextos, mientras que analytics se basa en expiración por TTL.

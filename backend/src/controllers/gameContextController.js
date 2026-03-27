@@ -14,6 +14,7 @@ const logger = require('../utils/logger');
 const { toGameContextDetailDTOV1, toGameContextListDTOV1 } = require('../utils/dtos');
 const { sendSuccess, sendCreated, sendPaginated } = require('../utils/responseHelper');
 const { buildFilter } = require('../utils/filterBuilder');
+const { cacheGet, cacheInvalidate } = require('../utils/cacheHelper');
 
 const contextFilterMappings = {
   search: { type: 'search', fields: ['contextId', 'name'] },
@@ -116,15 +117,22 @@ const getContexts = async (req, res) => {
 const getContextById = async (req, res) => {
   const { id } = req.params;
 
-  // Intentar buscar por ID de MongoDB o por contextId
-  let context;
-
-  if (id.match(/^[0-9a-fA-F]{24}$/)) {
-    context = await gameContextRepository.findById(id);
-  } else {
-    // Buscar por contextId (ej: 'geography', 'animals')
-    context = await gameContextRepository.findOne({ contextId: id.toLowerCase() });
-  }
+  // Intentar buscar por ID de MongoDB o por contextId (con cache)
+  const context = await cacheGet(
+    'cache:context',
+    `byId:${id}`,
+    async () => {
+      let result;
+      if (id.match(/^[0-9a-fA-F]{24}$/)) {
+        result = await gameContextRepository.findById(id);
+      } else {
+        // Buscar por contextId (ej: 'geography', 'animals')
+        result = await gameContextRepository.findOne({ contextId: id.toLowerCase() });
+      }
+      return result;
+    },
+    1800
+  );
 
   if (!context) {
     throw new NotFoundError('Contexto de juego');
@@ -219,6 +227,9 @@ const updateContext = async (req, res) => {
 
   await context.save();
 
+  await cacheInvalidate('cache:context', `byId:${id}`);
+  await cacheInvalidate('cache:context', `byId:${context.contextId}`);
+
   logger.info('Contexto actualizado', {
     contextId: context.contextId,
     name: context.name,
@@ -258,6 +269,9 @@ const deleteContext = async (req, res) => {
       'No se puede eliminar el contexto porque tiene dependencias activas (sessions/decks/plays)'
     );
   }
+
+  await cacheInvalidate('cache:context', `byId:${id}`);
+  await cacheInvalidate('cache:context', `byId:${context.contextId}`);
 
   // Limpiar archivos del contexto en Supabase Storage.
   // Hard-fail: si Supabase falla, se lanza excepción y el contexto NO se elimina de MongoDB.
