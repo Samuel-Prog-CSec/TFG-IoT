@@ -56,8 +56,8 @@ services:
     environment:
       - PORT=5000
       - NODE_ENV=${NODE_ENV:-development}
-      # Conexión interna a servicios Docker
-      - REDIS_URL=redis://redis:6379
+      # Conexión interna a servicios Docker (incluye password de Redis)
+      - REDIS_URL=redis://:${REDIS_PASSWORD:-devRedis123!}@redis:6379
       - MONGO_URI=mongodb://mongo:27017/rfid_games_db
     env_file:
       - .env
@@ -123,13 +123,14 @@ services:
       --tcp-keepalive 60
       --timeout 0
       --loglevel notice
+      --requirepass ${REDIS_PASSWORD:-devRedis123!}
     networks:
       - rfid-games-network
     labels:
       - "com.rfid-games.service=cache"
       - "com.rfid-games.description=Redis cache and session store"
     healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
+      test: ["CMD", "redis-cli", "-a", "${REDIS_PASSWORD:-devRedis123!}", "--no-auth-warning", "ping"]
       interval: 10s
       timeout: 5s
       retries: 5
@@ -146,7 +147,7 @@ services:
     ports:
       - "${REDIS_COMMANDER_PORT:-8081}:8081"
     environment:
-      - REDIS_HOSTS=local:redis:6379
+      - REDIS_HOSTS=local:redis:6379:0:${REDIS_PASSWORD:-devRedis123!}
     depends_on:
       redis:
         condition: service_healthy
