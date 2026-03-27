@@ -89,6 +89,7 @@
     "ts-api-utils": "^2.4.0"
   },
   "overrides": {
+    "brace-expansion": ">=5.0.5",
     "@sentry/node": {
       "minimatch": "^10.2.1"
     },
