@@ -4,6 +4,53 @@ import PropTypes from 'prop-types';
 import { cn } from '../../lib/utils';
 import MascotAccessory from './MascotAccessory';
 
+const bodyAnimation = {
+  float: {
+    y: [0, -8, 0],
+    transition: { duration: 2, repeat: Infinity, ease: 'easeInOut' }
+  },
+  bounce: {
+    y: [0, -15, 0],
+    scale: [1, 1.1, 1],
+    transition: { duration: 0.5, repeat: Infinity }
+  },
+  jump: {
+    y: [0, -30, 0],
+    rotate: [0, 10, -10, 0],
+    transition: { duration: 0.6, repeat: Infinity }
+  },
+  nod: {
+    rotate: [0, 5, -5, 0],
+    transition: { duration: 1, repeat: Infinity }
+  },
+  tilt: {
+    rotate: [0, 15, 0],
+    transition: { duration: 2, repeat: Infinity, ease: 'easeInOut' }
+  },
+  sway: {
+    x: [-5, 5, -5],
+    transition: { duration: 2, repeat: Infinity, ease: 'easeInOut' }
+  },
+};
+
+const expressions = {
+  idle: { bodyAnim: 'float' },
+  happy: { bodyAnim: 'bounce' },
+  encouraging: { bodyAnim: 'nod' },
+  celebrating: { bodyAnim: 'jump' },
+  thinking: { bodyAnim: 'tilt' },
+  sad: { bodyAnim: 'sway' },
+};
+
+const messagePool = {
+  idle: ['¡Hola, amigo!', '¡Vamos a jugar!', '¿Listo?'],
+  happy: ['¡Muy bien hecho!', '¡Eres genial!', '¡Así se hace!', '¡Fantástico!', '¡Bravo!'],
+  encouraging: ['¡Venga, tú puedes!', '¡Ánimo!', '¡Tu siguiente será mejor!', '¡No te rindas!'],
+  celebrating: ['¡GENIAL, CAMPEÓN!', '¡INCREÍBLE!', '¡ERES UNA ESTRELLA!'],
+  thinking: ['Piensa bien...', 'Tómate tu tiempo...', '¿Cuál será?'],
+  sad: ['¡Otra vez, tú puedes!', '¡Inténtalo de nuevo!', '¡Todos nos equivocamos!'],
+};
+
 /**
  * Mascota animada híbrida (emoji 🦉 + accesorios SVG) que acompaña al niño durante el juego.
  * El emoji base es siempre 🦉 para consistencia de identidad.
@@ -21,24 +68,6 @@ export default function CharacterMascot({
   shouldReduceMotion = false,
   className
 }) {
-  const expressions = {
-    idle: { bodyAnim: 'float' },
-    happy: { bodyAnim: 'bounce' },
-    encouraging: { bodyAnim: 'nod' },
-    celebrating: { bodyAnim: 'jump' },
-    thinking: { bodyAnim: 'tilt' },
-    sad: { bodyAnim: 'sway' },
-  };
-
-  const messagePool = {
-    idle: ['¡Hola, amigo!', '¡Vamos a jugar!', '¿Listo?'],
-    happy: ['¡Muy bien hecho!', '¡Eres genial!', '¡Así se hace!', '¡Fantástico!', '¡Bravo!'],
-    encouraging: ['¡Venga, tú puedes!', '¡Ánimo!', '¡Tu siguiente será mejor!', '¡No te rindas!'],
-    celebrating: ['¡GENIAL, CAMPEÓN!', '¡INCREÍBLE!', '¡ERES UNA ESTRELLA!'],
-    thinking: ['Piensa bien...', 'Tómate tu tiempo...', '¿Cuál será?'],
-    sad: ['¡Otra vez, tú puedes!', '¡Inténtalo de nuevo!', '¡Todos nos equivocamos!'],
-  };
-
   const lastMsgRef = useRef(-1);
 
   const expr = expressions[mood];
@@ -56,36 +85,6 @@ export default function CharacterMascot({
   };
 
   const displayMessage = message || getRotatingMessage();
-
-  // Animaciones según el estado
-  const bodyAnimation = {
-    float: {
-      y: [0, -8, 0],
-      transition: { duration: 2, repeat: Infinity, ease: 'easeInOut' }
-    },
-    bounce: {
-      y: [0, -15, 0],
-      scale: [1, 1.1, 1],
-      transition: { duration: 0.5, repeat: Infinity }
-    },
-    jump: {
-      y: [0, -30, 0],
-      rotate: [0, 10, -10, 0],
-      transition: { duration: 0.6, repeat: Infinity }
-    },
-    nod: {
-      rotate: [0, 5, -5, 0],
-      transition: { duration: 1, repeat: Infinity }
-    },
-    tilt: {
-      rotate: [0, 15, 0],
-      transition: { duration: 2, repeat: Infinity, ease: 'easeInOut' }
-    },
-    sway: {
-      x: [-5, 5, -5],
-      transition: { duration: 2, repeat: Infinity, ease: 'easeInOut' }
-    },
-  };
 
   return (
     <div className={cn(
