@@ -96,3 +96,90 @@ export function SkeletonStatCard({ className }) {
     </GlassCard>
   );
 }
+
+/**
+ * Skeleton que simula un área de gráfico con ejes y línea ondulada.
+ * Previene CLS al reservar el espacio exacto del chart final.
+ *
+ * @param {Object} props
+ * @param {number} props.height - Altura del skeleton en px (default: 200)
+ * @param {boolean} props.showAxes - Mostrar ejes X/Y simulados (default: true)
+ * @param {string} props.className
+ */
+export function SkeletonChart({ height = 200, showAxes = true, className }) {
+  return (
+    <GlassCard variant="default" className={cn('overflow-hidden', className)}>
+      <div className="flex items-end gap-2" style={{ height }}>
+        {/* Y axis */}
+        {showAxes && (
+          <div className="flex flex-col justify-between h-full py-2 shrink-0">
+            {[0, 1, 2, 3].map(i => (
+              <SkeletonShimmer key={i} className="h-2.5 w-6 rounded-sm" />
+            ))}
+          </div>
+        )}
+
+        {/* Chart area */}
+        <div className="flex-1 relative h-full">
+          {/* Simulated wave line */}
+          <svg
+            className="absolute inset-0 w-full h-full"
+            viewBox="0 0 400 200"
+            preserveAspectRatio="none"
+            aria-hidden="true"
+          >
+            <path
+              d="M 0 150 C 50 130, 100 80, 150 100 S 250 140, 300 90 S 370 60, 400 80"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2"
+              className="text-background-surface/60 animate-pulse"
+            />
+            <path
+              d="M 0 150 C 50 130, 100 80, 150 100 S 250 140, 300 90 S 370 60, 400 80 L 400 200 L 0 200 Z"
+              className="fill-background-surface/20 animate-pulse"
+            />
+          </svg>
+
+          {/* X axis labels */}
+          {showAxes && (
+            <div className="absolute bottom-0 left-0 right-0 flex justify-between px-2 pb-1">
+              {[0, 1, 2, 3, 4].map(i => (
+                <SkeletonShimmer key={i} className="h-2 w-8 rounded-sm" />
+              ))}
+            </div>
+          )}
+        </div>
+      </div>
+    </GlassCard>
+  );
+}
+
+/**
+ * Skeleton que simula un grid de cards con layout responsive.
+ * Útil para páginas de listado (sesiones, mazos, contextos).
+ *
+ * @param {Object} props
+ * @param {number} props.count - Número de skeleton cards (default: 6)
+ * @param {number} props.columns - Columnas en desktop (default: 3)
+ * @param {string} props.className
+ */
+export function SkeletonGrid({ count = 6, columns = 3, className }) {
+  const gridCols = {
+    2: 'sm:grid-cols-2',
+    3: 'sm:grid-cols-2 lg:grid-cols-3',
+    4: 'sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4',
+  };
+
+  return (
+    <div className={cn(
+      'grid grid-cols-1 gap-4',
+      gridCols[columns] || gridCols[3],
+      className
+    )}>
+      {Array.from({ length: count }).map((_, i) => (
+        <SkeletonCard key={i} />
+      ))}
+    </div>
+  );
+}

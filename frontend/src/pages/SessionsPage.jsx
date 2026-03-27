@@ -32,7 +32,7 @@ import ButtonPremium from '../components/ui/ButtonPremium';
 import GlassCard from '../components/ui/GlassCard';
 import SelectPremium from '../components/ui/SelectPremium';
 import StatusBadge from '../components/ui/StatusBadge';
-import { SkeletonCard } from '../components/ui/SkeletonShimmer';
+import { SkeletonGrid } from '../components/ui/SkeletonShimmer';
 import Tooltip from '../components/ui/Tooltip';
 import EmptyState from '../components/ui/EmptyState';
 import ErrorState from '../components/ui/ErrorState';
@@ -244,20 +244,13 @@ SessionCard.propTypes = {
 const renderSessionsContent = ({
   loading,
   sessions,
-  skeletonKeys,
   navigate,
   cloneLoading,
   handleClone,
   handleDelete
 }) => {
   if (loading && sessions.length === 0) {
-    return (
-      <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-6">
-        {skeletonKeys.map((key) => (
-          <SkeletonCard key={key} />
-        ))}
-      </div>
-    );
+    return <SkeletonGrid count={6} columns={3} />;
   }
 
   if (sessions.length === 0) {
@@ -344,10 +337,6 @@ export default function SessionsPage() {
   const [selectedSession, setSelectedSession] = useState(null);
   const [deleteLoading, setDeleteLoading] = useState(false);
   const [cloneLoading, setCloneLoading] = useState(false);
-  const skeletonKeys = useMemo(() => (
-    ['session-skeleton-1', 'session-skeleton-2', 'session-skeleton-3', 'session-skeleton-4', 'session-skeleton-5', 'session-skeleton-6']
-  ), []);
-
   const mechanicOptions = useMemo(() => [
     { value: '', label: 'Todas' },
     ...mechanics.map((mechanic) => ({
@@ -553,7 +542,6 @@ export default function SessionsPage() {
   const sessionsContent = renderSessionsContent({
     loading,
     sessions,
-    skeletonKeys,
     navigate,
     cloneLoading,
     handleClone,

@@ -16,7 +16,7 @@ import StudentProgressChart from '../components/dashboard/StudentProgressChart';
 import ClassroomOverview from '../components/dashboard/ClassroomOverview';
 import AlertsPanel from '../components/dashboard/AlertsPanel';
 import DifficultyHeatmap from '../components/dashboard/DifficultyHeatmap';
-import SkeletonShimmer, { SkeletonCard, SkeletonStatCard } from '../components/ui/SkeletonShimmer';
+import SkeletonShimmer, { SkeletonCard, SkeletonStatCard, SkeletonChart } from '../components/ui/SkeletonShimmer';
 import SelectPremium from '../components/ui/SelectPremium';
 import ButtonPremium from '../components/ui/ButtonPremium';
 
@@ -130,8 +130,8 @@ export default function Dashboard() {
           {/* Main Visualizations Skeleton Grid */}
           <div className="grid grid-cols-1 xl:grid-cols-3 gap-6 lg:gap-8">
             <div className="xl:col-span-2 space-y-6">
-              <SkeletonCard className="h-96" />
-              <SkeletonCard className="h-80" />
+              <SkeletonChart height={384} />
+              <SkeletonChart height={320} />
             </div>
             <aside className="space-y-6">
               <SkeletonCard className="h-[21rem]" />

@@ -21,6 +21,7 @@ import {
 import { cn, listContainerVariants, listItemVariants } from '../lib/utils';
 import { decksAPI, extractErrorMessage, isAbortError } from '../services/api';
 import DeckCard, { DeckCardSkeleton } from '../components/ui/DeckCard';
+import { SkeletonGrid } from '../components/ui/SkeletonShimmer';
 import ButtonPremium from '../components/ui/ButtonPremium';
 import GlassCard from '../components/ui/GlassCard';
 import SelectPremium from '../components/ui/SelectPremium';
@@ -107,19 +108,8 @@ const renderDecksErrorState = ({ error, loadDecks }) => (
   />
 );
 
-const renderDecksLoadingState = ({ shouldReduceMotion }) => (
-  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
-    {[1, 2, 3, 4, 5, 6].map((slot) => (
-      <motion.div
-        key={`deck-skeleton-${slot}`}
-        initial={shouldReduceMotion ? false : { opacity: 0, y: 20 }}
-        animate={{ opacity: 1, y: 0 }}
-        transition={{ delay: shouldReduceMotion ? 0 : slot * 0.1 }}
-      >
-        <DeckCardSkeleton />
-      </motion.div>
-    ))}
-  </div>
+const renderDecksLoadingState = () => (
+  <SkeletonGrid count={6} columns={3} />
 );
 
 const renderDecksEmptyState = ({ shouldReduceMotion, hasActiveFilters, clearFilters, handleCreateDeck }) => (
@@ -200,7 +190,7 @@ const renderDecksState = ({
   }
 
   if (loading && decks.length === 0) {
-    return renderDecksLoadingState({ shouldReduceMotion });
+    return renderDecksLoadingState();
   }
 
   if (decks.length === 0) {
