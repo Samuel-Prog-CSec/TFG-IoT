@@ -329,7 +329,9 @@ export function AuthProvider({ children }) {
           type: AUTH_ACTIONS.SET_ERROR, 
           payload: 'Tu cuenta ha sido rechazada. Contacta con el administrador para más información.' 
         });
-        toast.error('Cuenta rechazada');
+        toast.error('Cuenta rechazada', {
+          description: 'Contacta con un administrador si crees que es un error.'
+        });
       } else {
         dispatch({ type: AUTH_ACTIONS.SET_ERROR, payload: message });
         toast.error(message);

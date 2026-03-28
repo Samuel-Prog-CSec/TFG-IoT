@@ -89,7 +89,7 @@ const errorHandler = (err, req, res, _next) => {
     });
   }
 
-  // Sentry: la captura se delega a Sentry.Handlers.errorHandler({ shouldHandleError })
+  // Sentry: la captura se delega a setupExpressErrorHandler({ shouldHandleError })
   // configurado en config/sentry.js. No se llama Sentry.captureException() aquí
   // para evitar doble-captura.
 

@@ -30,6 +30,14 @@ export default function AppLayout() {
 
   return (
     <div className="flex h-screen bg-background-base text-text-primary font-sans overflow-hidden">
+      {/* Skip Link — accesibilidad WCAG 2.4.1 */}
+      <a
+        href="#main-content"
+        className="sr-only focus:not-sr-only focus:fixed focus:top-4 focus:left-1/2 focus:-translate-x-1/2 focus:z-[60] focus:px-6 focus:py-3 focus:rounded-xl focus:bg-brand-base focus:text-white focus:font-semibold focus:shadow-lg focus:shadow-brand-glow focus:outline-none"
+      >
+        Ir al contenido principal
+      </a>
+
       {/* Aurora Background Effect */}
       <div className="fixed inset-0 pointer-events-none overflow-hidden mix-blend-screen opacity-60">
         <div className="absolute top-0 left-1/4 w-96 h-96 bg-brand-base/20 rounded-full blur-[128px] animate-pulse" />
@@ -40,7 +48,7 @@ export default function AppLayout() {
       {/* Mobile Menu Button */}
       <button
         onClick={() => setSidebarOpen(true)}
-        className="lg:hidden fixed top-4 left-4 z-50 p-3 rounded-xl bg-background-elevated/80 backdrop-blur-xl border border-border-default text-text-primary hover:bg-background-surface/80 transition-colors"
+        className="lg:hidden fixed top-4 left-4 z-50 p-3 rounded-xl bg-background-elevated/80 backdrop-blur-xl border border-border-default text-text-primary hover:bg-background-surface/80 transition-colors duration-200"
         aria-label="Abrir menú"
       >
         <Menu size={24} />
@@ -127,7 +135,7 @@ export default function AppLayout() {
         </div>
 
         {/* Navigation */}
-        <nav className="flex-1 p-4 space-y-1 overflow-y-auto custom-scrollbar">
+        <nav className="flex-1 p-4 space-y-1 overflow-y-auto overscroll-contain custom-scrollbar">
           {/* Admin Section */}
           {isSuperAdmin && (
             <>
@@ -170,14 +178,14 @@ export default function AppLayout() {
         <div className="p-4 border-t border-transparent bg-gradient-to-r from-transparent via-border-default/50 to-transparent space-y-1">
           <button
             onClick={() => toast.info('Configuración en desarrollo', { description: 'Esta función estará disponible próximamente.' })}
-            className="flex items-center gap-3 w-full px-4 py-3 text-text-muted hover:text-text-primary hover:bg-background-elevated rounded-xl transition-all duration-200 group"
+            className="flex items-center gap-3 w-full px-4 py-3 text-text-muted hover:text-text-primary hover:bg-background-elevated rounded-xl transition-colors duration-200 group"
           >
             <Settings size={20} className="group-hover:rotate-90 transition-transform duration-300" />
             <span className="font-medium text-sm">Configuración</span>
           </button>
           <button 
             onClick={logout}
-            className="flex items-center gap-3 w-full px-4 py-3 text-error-base hover:bg-error-base/10 rounded-xl transition-all duration-200"
+            className="flex items-center gap-3 w-full px-4 py-3 text-error-base hover:bg-error-base/10 rounded-xl transition-colors duration-200"
           >
             <LogOut size={20} />
             <span className="font-medium text-sm">Cerrar Sesión</span>
@@ -186,7 +194,7 @@ export default function AppLayout() {
       </motion.aside>
 
       {/* Main Content */}
-      <main className="flex-1 overflow-auto relative custom-scrollbar pb-44">
+      <main id="main-content" className="flex-1 overflow-auto relative custom-scrollbar pb-44">
         {/* Subtle Grid Pattern for Depth */}
         <div className="absolute inset-0 bg-grid opacity-20 pointer-events-none" />
 
@@ -215,7 +223,7 @@ function NavItem({ to, icon, label }) {
       to={to}
       className={({ isActive }) =>
         cn(
-          'flex items-center gap-3 px-4 py-3 rounded-xl transition-all duration-200 group relative overflow-hidden',
+          'flex items-center gap-3 px-4 py-3 rounded-xl transition-colors duration-200 group relative overflow-hidden',
           isActive
             ? 'text-brand-light font-medium bg-brand-base/10 border border-brand-base/20'
             : 'text-text-secondary hover:text-text-primary hover:bg-background-surface/50 font-medium'

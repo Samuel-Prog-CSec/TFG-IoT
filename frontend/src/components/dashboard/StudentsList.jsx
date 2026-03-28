@@ -61,7 +61,7 @@ function StudentsList({ students = studentProgressData }) {
             key={student.id} 
             variants={staggerItem}
             whileHover={{ x: 4, backgroundColor: 'rgba(255,255,255,0.05)' }}
-            className="flex items-center justify-between p-3 rounded-xl transition-all duration-200 group cursor-pointer list-none"
+            className="flex items-center justify-between p-3 rounded-xl transition-colors duration-200 group cursor-pointer list-none"
           >
             <div className="flex items-center gap-3">
               {/* Rank Badge */}
@@ -121,7 +121,7 @@ function StudentsList({ students = studentProgressData }) {
           whileHover={{ scale: 1.02 }}
           whileTap={{ scale: 0.98 }}
           onClick={() => navigate(ROUTES.STUDENT_MANAGEMENT)}
-          className="w-full mt-6 py-3 rounded-xl border border-dashed border-border-default text-text-muted hover:text-text-primary hover:border-brand-base/50 hover:bg-brand-base/5 transition-all duration-300 focus:outline-none focus:ring-2 focus:ring-brand-base/50 text-sm font-medium"
+          className="w-full mt-6 py-3 rounded-xl border border-dashed border-border-default text-text-muted hover:text-text-primary hover:border-brand-base/50 hover:bg-brand-base/5 transition-[color,background-color,border-color] duration-300 focus:outline-none focus:ring-2 focus:ring-brand-base/50 text-sm font-medium"
           aria-label="Ir a gestión de alumnos"
         >
           Gestionar Todos los Alumnos

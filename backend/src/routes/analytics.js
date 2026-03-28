@@ -7,6 +7,7 @@ const express = require('express');
 const router = express.Router();
 const analyticsController = require('../controllers/analyticsController');
 const { authenticate, requireRole } = require('../middlewares/auth');
+const { analyticsRateLimiter } = require('../config/security');
 const { validateParams, validateQuery } = require('../middlewares/validation');
 const { emptyObjectSchema } = require('../validators/commonValidator');
 const {
@@ -22,7 +23,7 @@ const {
 const asyncHandler = require('../utils/asyncHandler');
 
 // Todas las rutas requieren estar autenticado como profesor o super admin
-router.use(authenticate, requireRole('teacher', 'super_admin'));
+router.use(authenticate, requireRole('teacher', 'super_admin'), analyticsRateLimiter);
 
 // ──────────────── Rutas existentes ────────────────
 

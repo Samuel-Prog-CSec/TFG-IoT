@@ -267,7 +267,7 @@ export default function TransferStudents() {
             <div className="pt-2">
               <InputPremium
                 label="Motivo de la Transferencia (Opcional)"
-                placeholder="Ej: Cambio de ciclo, refuerzo educativo..."
+                placeholder="Ej: Cambio de ciclo, refuerzo educativo\u2026"
                 value={reason}
                 onChange={(e) => setReason(e.target.value)}
               />
@@ -309,7 +309,7 @@ export default function TransferStudents() {
             </ul>
 
             <div className={cn(
-              'rounded-xl border p-5 text-sm transition-all duration-300',
+              'rounded-xl border p-5 text-sm transition-colors duration-300',
               selectedStudent 
                 ? 'bg-brand-base/5 border-brand-base/20 text-text-primary' 
                 : 'bg-background-elevated/30 border-border-subtle text-text-muted'

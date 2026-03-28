@@ -221,6 +221,21 @@
     overflow-x: hidden;
   }
 
+  /* Elimina delay de 300ms por double-tap zoom en tablets y móviles */
+  button,
+  a,
+  [role="button"],
+  input,
+  select,
+  textarea {
+    touch-action: manipulation;
+  }
+
+  /* Equilibra el wrap de headings para mejor ritmo visual */
+  h1, h2, h3, h4 {
+    text-wrap: balance;
+  }
+
   /* Focus outline de accesibilidad global */
   *:focus-visible {
     outline: 2px solid var(--color-brand-base);
@@ -302,45 +317,10 @@
 }
 
 /* ============================================
-   💬 TOOLTIP SYSTEM
+   💬 TOOLTIP SYSTEM (posicionamiento vía JS en Tooltip.jsx)
    ============================================ */
 @utility tooltip-anchor {
   @apply relative inline-flex;
-
-  & .tooltip-content {
-    @apply invisible opacity-0 absolute z-50 px-2.5 py-1.5 rounded-lg text-xs font-medium whitespace-nowrap pointer-events-none;
-    @apply bg-background-elevated text-text-primary border border-border-default shadow-lg;
-    transition: opacity 0.15s ease, visibility 0.15s ease;
-  }
-
-  &:hover .tooltip-content,
-  &:focus-within .tooltip-content {
-    @apply visible opacity-100;
-  }
-}
-
-@utility tooltip-top {
-  bottom: calc(100% + 6px);
-  left: 50%;
-  transform: translateX(-50%);
-}
-
-@utility tooltip-bottom {
-  top: calc(100% + 6px);
-  left: 50%;
-  transform: translateX(-50%);
-}
-
-@utility tooltip-left {
-  right: calc(100% + 6px);
-  top: 50%;
-  transform: translateY(-50%);
-}
-
-@utility tooltip-right {
-  left: calc(100% + 6px);
-  top: 50%;
-  transform: translateY(-50%);
 }
 
 /* Gradientes Textuales Reutilizables */
@@ -364,7 +344,7 @@
   @apply inline-flex items-center justify-center gap-3 px-8 py-4 rounded-2xl font-bold font-display text-white tracking-wide;
   @apply bg-gradient-to-br from-brand-base to-accent-indigo;
   @apply shadow-[0_0_20px_var(--color-brand-glow),0_4px_16px_rgba(0,0,0,0.3)];
-  @apply transition-all duration-200;
+  @apply transition-[color,box-shadow,transform,border-color] duration-200;
   @apply hover:shadow-[0_0_30px_var(--color-brand-glow),0_6px_24px_rgba(0,0,0,0.4)];
   @apply active:scale-95;
   @apply disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:shadow-none;

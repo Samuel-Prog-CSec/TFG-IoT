@@ -33,6 +33,7 @@ import GlassCard from '../../components/ui/GlassCard';
 import { SkeletonCard } from '../../components/ui/SkeletonShimmer';
 import EmptyState from '../../components/ui/EmptyState';
 import StatusBadge from '../../components/ui/StatusBadge';
+import Tooltip from '../../components/ui/Tooltip';
 import ConfirmationModal from '../../components/ui/ConfirmationModal';
 import { useRefetchOnFocus } from '../../hooks/useRefetchOnFocus';
 import { cn, pageVariants, staggerContainer, staggerItem } from '../../lib/utils';
@@ -378,7 +379,9 @@ export default function StudentManagement() {
     } catch (err) {
       if (!isAbortError(err)) {
         setError(extractErrorMessage(err));
-        toast.error('Error al cargar datos');
+        toast.error('Error al cargar datos', {
+          description: 'Recarga la p\u00e1gina o int\u00e9ntalo de nuevo en unos segundos.'
+        });
       }
     } finally {
       setLoading(false);
@@ -465,7 +468,7 @@ export default function StudentManagement() {
 
         <div className="md:col-span-3">
           <InputPremium
-            placeholder="Buscar por nombre o clase..."
+            placeholder="Buscar por nombre o clase\u2026"
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
             icon={<Search size={20} className={cn(searchQuery !== deferredSearch && "animate-pulse")} />}
@@ -504,19 +507,22 @@ export default function StudentManagement() {
           >
             {students.map((student) => (
               <motion.div key={student.id || student._id} variants={staggerItem}>
-                <GlassCard className="p-5 hover:border-brand-base/40 group transition-all duration-300 relative overflow-hidden h-full flex flex-col">
+                <GlassCard className="p-5 hover:border-brand-base/40 group transition-[border-color] duration-300 relative overflow-hidden h-full flex flex-col">
                   {/* Acciones */}
                   <div className="absolute top-3 right-3 z-10">
                     <div className="relative">
-                      <button 
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          setActiveMenuId(activeMenuId === (student.id || student._id) ? null : (student.id || student._id));
-                        }}
-                        className="p-1.5 rounded-lg text-text-muted hover:text-text-primary hover:bg-white/5 transition-colors"
-                      >
-                        <MoreVertical size={16} />
-                      </button>
+                      <Tooltip content="Acciones">
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setActiveMenuId(activeMenuId === (student.id || student._id) ? null : (student.id || student._id));
+                          }}
+                          className="p-1.5 rounded-lg text-text-muted hover:text-text-primary hover:bg-white/5 transition-colors"
+                          aria-label="Acciones"
+                        >
+                          <MoreVertical size={16} />
+                        </button>
+                      </Tooltip>
                       
                       <AnimatePresence>
                         {activeMenuId === (student.id || student._id) && (

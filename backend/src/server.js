@@ -24,7 +24,7 @@ const pinoHttp = require('pino-http');
 const { Server } = require('socket.io');
 const { connectDB, disconnectDB } = require('./config/database');
 const { connectRedis, disconnectRedis } = require('./config/redis');
-const { initSentry, Sentry } = require('./config/sentry');
+const { initSentry, setupSentryErrorHandler, Sentry } = require('./config/sentry');
 const { socketPayloadLimits } = require('./config/socketRateLimits');
 const {
   corsOptions,
@@ -101,10 +101,6 @@ app.set('runtimeMetrics', runtimeMetrics);
 // ============================================================================
 // MIDDLEWARE
 // ============================================================================
-
-// Sentry request handler (DEBE ser el primero)
-app.use(Sentry.Handlers.requestHandler());
-app.use(Sentry.Handlers.tracingHandler());
 
 // Security headers con Helmet (configuración centralizada)
 app.use(helmet(helmetOptions));
@@ -269,7 +265,7 @@ app.get('/', validateQuery(emptyObjectSchema), getApiInfo);
 // ============================================================================
 
 // Sentry error handler (ANTES del errorHandler personalizado)
-app.use(Sentry.Handlers.errorHandler());
+setupSentryErrorHandler(app);
 
 // Manejador 404 para rutas no encontradas
 app.use(notFoundHandler);

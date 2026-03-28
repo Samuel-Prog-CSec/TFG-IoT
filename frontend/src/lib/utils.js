@@ -153,11 +153,41 @@ export const slideVariants = {
 
 /**
  * Formatea un número con separadores de miles
- * @param {number} num 
+ * @param {number} num
  * @returns {string}
  */
 export function formatNumber(num) {
   return num.toLocaleString('es-ES');
+}
+
+/**
+ * Presets de formato de fecha para Intl.DateTimeFormat
+ * @type {Record<string, Intl.DateTimeFormatOptions>}
+ */
+const DATE_PRESETS = {
+  short: { day: 'numeric', month: 'short', year: 'numeric' },
+  medium: { day: 'numeric', month: 'long', year: 'numeric' },
+  long: { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' },
+  weekday: { weekday: 'short', day: 'numeric', month: 'short' },
+};
+
+/**
+ * Formatea una fecha usando Intl.DateTimeFormat con locale es-ES.
+ * Centraliza todo el formateo de fechas para consistencia.
+ *
+ * @param {string|number|Date} date - Fecha a formatear
+ * @param {'short'|'medium'|'long'|'weekday'} [variant='medium'] - Preset de formato
+ * @returns {string} Fecha formateada en español
+ *
+ * @example
+ * formatDate('2026-03-28')           // "28 de marzo de 2026"
+ * formatDate('2026-03-28', 'short')  // "28 mar 2026"
+ * formatDate('2026-03-28', 'long')   // "sábado, 28 de marzo de 2026"
+ */
+export function formatDate(date, variant = 'medium') {
+  const d = date instanceof Date ? date : new Date(date);
+  const options = DATE_PRESETS[variant] || DATE_PRESETS.medium;
+  return new Intl.DateTimeFormat('es-ES', options).format(d);
 }
 
 /**

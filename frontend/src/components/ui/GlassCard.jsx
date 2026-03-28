@@ -12,7 +12,7 @@ import { useReducedMotion } from '../../hooks/useReducedMotion';
  */
 
 const cardVariants = cva(
-  'rounded-2xl transition-all duration-300 relative overflow-hidden',
+  'rounded-2xl transition-[background-color,box-shadow,border-color,transform,opacity] duration-300 relative overflow-hidden',
   {
     variants: {
       variant: {

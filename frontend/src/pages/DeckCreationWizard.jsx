@@ -556,7 +556,7 @@ function StepCards({
           <button
             onClick={() => setCaptureMode('rfid')}
             className={cn(
-              'px-4 py-2 rounded-lg text-sm font-medium transition-all',
+              'px-4 py-2 rounded-lg text-sm font-medium transition-colors',
               captureMode === 'rfid'
                 ? 'bg-accent-indigo text-text-primary'
                 : 'text-text-muted hover:text-text-primary'
@@ -567,7 +567,7 @@ function StepCards({
           <button
             onClick={() => setCaptureMode('manual')}
             className={cn(
-              'px-4 py-2 rounded-lg text-sm font-medium transition-all',
+              'px-4 py-2 rounded-lg text-sm font-medium transition-colors',
               captureMode === 'manual'
                 ? 'bg-accent-indigo text-text-primary'
                 : 'text-text-muted hover:text-text-primary'
@@ -669,7 +669,7 @@ function StepContext({
             key={context._id}
             onClick={() => onSelectContext(context)}
             className={cn(
-              'relative p-4 rounded-xl border-2 transition-all text-left',
+              'relative p-4 rounded-xl border-2 transition-[border-color,background-color] text-left',
               'hover:border-accent-indigo/50 hover:bg-accent-indigo/5',
               selectedContext?._id === context._id
                 ? 'border-accent-indigo bg-accent-indigo/10'
@@ -768,7 +768,7 @@ function StepAssign({
                 key={card.uid}
                 onClick={() => setActiveCardId(card.uid)}
                 className={cn(
-                  'w-full flex items-center gap-3 p-3 rounded-xl border transition-all text-left',
+                  'w-full flex items-center gap-3 p-3 rounded-xl border transition-colors text-left',
                   isActive
                     ? 'border-accent-indigo bg-accent-indigo/10'
                     : 'border-border-default bg-background-elevated/30 hover:border-border-strong'

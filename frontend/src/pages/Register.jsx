@@ -108,7 +108,7 @@ function PasswordStrengthMeter({ password }) {
           <div
             key={level}
             className={cn(
-              'h-1 flex-1 rounded-full transition-all duration-300',
+              'h-1 flex-1 rounded-full transition-colors duration-300',
               level <= strength ? getColor() : 'bg-background-surface'
             )}
           />
@@ -384,6 +384,7 @@ export default function Register() {
                 error={validationErrors.email}
                 icon={<Mail className="size-5" />}
                 autoComplete="email"
+                spellCheck={false}
               />
             </motion.div>
 
@@ -518,7 +519,7 @@ export default function Register() {
                 disabled={isSubmitting || isLoading}
                 icon={<UserPlus className="size-5" />}
               >
-                {isSubmitting ? 'Registrando...' : 'Crear cuenta'}
+                {isSubmitting ? 'Registrando\u2026' : 'Crear cuenta'}
               </ButtonPremium>
             </motion.div>
           </motion.form>

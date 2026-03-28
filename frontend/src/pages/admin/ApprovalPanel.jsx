@@ -34,7 +34,7 @@ import StatusBadge from '../../components/ui/StatusBadge';
 import { SkeletonCard } from '../../components/ui/SkeletonShimmer';
 import EmptyState from '../../components/ui/EmptyState';
 import { useRefetchOnFocus } from '../../hooks/useRefetchOnFocus';
-import { cn } from '../../lib/utils';
+import { cn, formatDate } from '../../lib/utils';
 
 /**
  * Modal de confirmación para aprobar/rechazar
@@ -191,7 +191,7 @@ function ConfirmationModal({
                 <div className="mb-4">
                   <InputPremium
                     label="Razón del rechazo (opcional)"
-                    placeholder="Ej: Información incompleta..."
+                    placeholder="Ej: Informaci\u00f3n incompleta\u2026"
                     value={reason}
                     onChange={(e) => setReason(e.target.value)}
                   />
@@ -246,11 +246,7 @@ ConfirmationModal.propTypes = {
  * Card de profesor pendiente
  */
 function PendingTeacherCard({ teacher, onApprove, onReject }) {
-  const createdAt = new Date(teacher.createdAt).toLocaleDateString('es-ES', {
-    day: 'numeric',
-    month: 'short',
-    year: 'numeric',
-  });
+  const createdAt = formatDate(teacher.createdAt, 'short');
 
   return (
     <motion.div
@@ -259,7 +255,7 @@ function PendingTeacherCard({ teacher, onApprove, onReject }) {
       exit={{ opacity: 0, y: -20 }}
       layout
     >
-      <GlassCard className="p-5 hover:border-brand-base/40 hover:shadow-lg hover:shadow-brand-base/10 transition-all duration-300">
+      <GlassCard className="p-5 hover:border-brand-base/40 hover:shadow-lg hover:shadow-brand-base/10 transition-[box-shadow,border-color] duration-300">
         <div className="flex flex-col lg:flex-row lg:items-center gap-4">
           {/* Avatar y nombre */}
           <div className="flex items-center gap-4 flex-1 min-w-0">
@@ -405,7 +401,9 @@ export default function ApprovalPanel() {
       }
       const message = extractErrorMessage(err);
       setError(message);
-      toast.error('Error al cargar las solicitudes');
+      toast.error('Error al cargar las solicitudes', {
+        description: 'Recarga la p\u00e1gina o int\u00e9ntalo de nuevo en unos segundos.'
+      });
     } finally {
       if (!controller.signal.aborted) {
         setLoading(false);
@@ -562,7 +560,7 @@ export default function ApprovalPanel() {
           className="mb-6 relative"
         >
           <InputPremium
-            placeholder="Buscar por nombre o email..."
+            placeholder="Buscar por nombre o email\u2026"
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
             icon={<Search className={cn('size-5', isSearchPending && 'animate-pulse')} />}

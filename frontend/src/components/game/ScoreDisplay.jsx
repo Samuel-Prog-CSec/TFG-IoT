@@ -56,7 +56,7 @@ function ScoreDisplay({
               size={32}
               aria-hidden="true"
               className={cn(
-                "transition-all duration-300",
+                "transition-colors duration-300",
                 i < starsEarned
                   ? "fill-warning-base text-warning-base drop-shadow-[0_0_10px_rgba(251,191,36,0.6)]" // TOKEN-EXCEPTION: drop-shadow filter requires direct rgba value
                   : "fill-background-surface text-text-disabled"

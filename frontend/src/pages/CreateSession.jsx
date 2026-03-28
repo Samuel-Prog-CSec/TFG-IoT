@@ -53,6 +53,8 @@ import { SkeletonCard } from '../components/ui/SkeletonShimmer';
 import { ROUTES } from '../constants/routes';
 import { useRefetchOnFocus } from '../hooks/useRefetchOnFocus';
 import { useReducedMotion } from '../hooks/useReducedMotion';
+import { useUnsavedChanges } from '../hooks/useUnsavedChanges';
+import ConfirmationModal from '../components/ui/ConfirmationModal';
 import { toast } from 'sonner';
 
 // Configuración del wizard
@@ -246,6 +248,10 @@ export default function CreateSession() {
   const [memoryBoardSlots, setMemoryBoardSlots] = useState([]);
   const [selectedMemoryCardUid, setSelectedMemoryCardUid] = useState(null);
   const [associationChallengePlan, setAssociationChallengePlan] = useState([]);
+
+  // Dirty detection: user has started configuring the session
+  const isDirty = currentStep > 0 || selectedDeck !== null;
+  const { blocker, isBlocked } = useUnsavedChanges(isDirty);
 
   const dataAbortRef = useRef(null);
 
@@ -714,6 +720,17 @@ export default function CreateSession() {
           </div>
         </GlassCard>
       </motion.div>
+
+      <ConfirmationModal
+        open={isBlocked}
+        onConfirm={() => blocker.proceed()}
+        onClose={() => blocker.reset()}
+        title="Cambios sin guardar"
+        description="Tienes cambios sin guardar. Si sales ahora, perderás los cambios realizados."
+        variant="warning"
+        confirmText="Salir sin guardar"
+        cancelText="Seguir editando"
+      />
     </div>
   );
 }
@@ -783,7 +800,7 @@ function StepDeck({ decks, loading, selectedDeckId, onSelect }) {
             key={deckId}
             onClick={() => onSelect(deck)}
             className={cn(
-              'relative p-4 rounded-xl border-2 text-left transition-all',
+              'relative p-4 rounded-xl border-2 text-left transition-[border-color,background-color]',
               'hover:border-accent-indigo/50 hover:bg-accent-indigo/5',
               selectedDeckId === deckId
                 ? 'border-accent-indigo bg-accent-indigo/10'
@@ -890,7 +907,7 @@ function StepMechanic({ mechanics, loading, selectedMechanicId, onSelect }) {
               onClick={() => onSelect(mechanic)}
               disabled={!selectable}
               className={cn(
-                'relative p-6 rounded-xl border-2 text-left transition-all',
+                'relative p-6 rounded-xl border-2 text-left transition-[border-color,background-color]',
                 selectable
                   ? 'hover:border-brand-base/50 hover:bg-brand-base/5'
                   : 'opacity-70 cursor-not-allowed border-border-default bg-background-base/40',
@@ -1008,7 +1025,7 @@ function StepMemoryRules({
                 type="button"
                 onClick={() => onSelectedCardUidChange(card.uid)}
                 className={cn(
-                  'rounded-xl border p-3 text-left transition-all',
+                  'rounded-xl border p-3 text-left transition-colors',
                   isSelected
                     ? 'border-accent-indigo bg-accent-indigo/20'
                     : 'border-border-default bg-background-elevated/40 hover:border-border-strong',
@@ -1035,7 +1052,7 @@ function StepMemoryRules({
               type="button"
               onClick={() => handleAssignToSlot(slotIndex)}
               className={cn(
-                'aspect-square rounded-xl border-2 border-dashed p-3 transition-all',
+                'aspect-square rounded-xl border-2 border-dashed p-3 transition-colors',
                 slotCard ? 'border-success-base/50 bg-success-base/10' : 'border-background-surface bg-background-base/40',
                 selectedCard ? 'hover:border-accent-indigo' : ''
               )}
@@ -1236,7 +1253,7 @@ function StepRules({
               key={d.id}
               onClick={() => onDifficultyChange(d.id)}
               className={cn(
-                'w-full p-4 rounded-xl border-2 text-left transition-all',
+                'w-full p-4 rounded-xl border-2 text-left transition-colors',
                 isSelected
                   ? style.selectedCard
                   : 'border-border-default bg-background-elevated/30 hover:border-border-strong'

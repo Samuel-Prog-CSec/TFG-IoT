@@ -11,6 +11,7 @@ const {
   ConflictError,
   ValidationError
 } = require('../utils/errors');
+const { ensureResourceOwnership } = require('../utils/ownershipHelpers');
 const logger = require('../utils/logger');
 const userService = require('../services/userService');
 const { toUserDTOV1, toStudentDTOV1, toUserListDTOV1, toUserStatsDTOV1 } = require('../utils/dtos');
@@ -440,9 +441,7 @@ const getUserStats = async (req, res) => {
 
   const isSuperAdmin = req.user.role === 'super_admin';
   if (req.user.role === 'teacher' && user.role === 'student') {
-    if (user.createdBy?.toString() !== req.user._id.toString()) {
-      throw new ForbiddenError('No tienes permiso para ver estas estadísticas');
-    }
+    ensureResourceOwnership(user, req.user._id, 'alumno');
   } else if (!isSuperAdmin && req.user._id.toString() !== id) {
     throw new ForbiddenError('No tienes permiso para ver estas estadísticas');
   }

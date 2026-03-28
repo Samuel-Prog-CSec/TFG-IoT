@@ -37,11 +37,13 @@ import { SkeletonCard } from '../components/ui/SkeletonShimmer';
 import ConfirmationModal, { useConfirmationModal } from '../components/ui/ConfirmationModal';
 import { useContexts } from '../hooks/useContexts';
 import { useRefetchOnFocus } from '../hooks/useRefetchOnFocus';
+import { useUnsavedChanges } from '../hooks/useUnsavedChanges';
 import { decksAPI, extractData, extractErrorMessage, isAbortError } from '../services/api';
 import { ROUTES } from '../constants/routes';
 import { GAME_CONFIG } from '../constants/gameConfig';
 import { toast } from 'sonner';
 import Breadcrumb from '../components/ui/Breadcrumb';
+import Tooltip from '../components/ui/Tooltip';
 
 const { MIN_CARDS, MAX_CARDS } = GAME_CONFIG;
 
@@ -201,6 +203,8 @@ export default function DeckEditPage() {
 
     return nameChanged || contextChanged || cardsChanged || assignmentsChanged;
   }, [deck, deckName, effectiveContext, selectedCards, cardAssignments]);
+
+  const { blocker, isBlocked } = useUnsavedChanges(hasChanges);
 
   // Handlers
   const handleAddCard = useCallback((card) => {
@@ -464,7 +468,7 @@ export default function DeckEditPage() {
               key={tab.id}
               onClick={() => dispatchUI({ type: 'SET_ACTIVE_TAB', payload: tab.id })}
               className={cn(
-                'flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-all',
+                'flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-colors',
                 ui.activeTab === tab.id
                   ? 'bg-accent-indigo text-text-primary'
                   : 'text-text-muted hover:text-text-primary'
@@ -520,18 +524,20 @@ export default function DeckEditPage() {
                       layout
                       className="relative p-4 rounded-xl bg-background-elevated/50 border border-border-default group"
                     >
-                      <button
-                        onClick={() => handleRemoveCard(card.uid)}
-                        disabled={selectedCards.length <= MIN_CARDS}
-                        className={cn(
-                          'absolute -top-2 -right-2 size-6 rounded-full',
-                          'bg-error-base text-text-primary flex items-center justify-center',
-                          'opacity-0 group-hover:opacity-100 transition-opacity',
-                          'hover:bg-error-base/80 disabled:opacity-50 disabled:cursor-not-allowed'
-                        )}
-                      >
-                        <X size={12} />
-                      </button>
+                      <Tooltip content="Quitar carta">
+                        <button
+                          onClick={() => handleRemoveCard(card.uid)}
+                          disabled={selectedCards.length <= MIN_CARDS}
+                          className={cn(
+                            'absolute -top-2 -right-2 size-6 rounded-full',
+                            'bg-error-base text-text-primary flex items-center justify-center',
+                            'opacity-0 group-hover:opacity-100 transition-opacity',
+                            'hover:bg-error-base/80 disabled:opacity-50 disabled:cursor-not-allowed'
+                          )}
+                        >
+                          <X size={12} />
+                        </button>
+                      </Tooltip>
                       
                       <div className="size-10 rounded-lg bg-gradient-to-br from-accent-indigo/20 to-brand-base/20 flex items-center justify-center mb-2">
                         <CreditCard size={18} className="text-accent-indigo" />
@@ -584,7 +590,7 @@ export default function DeckEditPage() {
                         key={context._id}
                         onClick={() => handleContextChange(context)}
                         className={cn(
-                          'relative p-4 rounded-xl border-2 transition-all text-left',
+                          'relative p-4 rounded-xl border-2 transition-[border-color,background-color] text-left',
                           effectiveContext?._id === context._id
                             ? 'border-accent-indigo bg-accent-indigo/10'
                             : 'border-border-default bg-background-elevated/30 hover:border-border-strong'
@@ -635,7 +641,7 @@ export default function DeckEditPage() {
                           key={card.uid}
                           onClick={() => dispatchUI({ type: 'SET_ACTIVE_CARD', payload: card.uid })}
                           className={cn(
-                            'w-full flex items-center gap-3 p-3 rounded-xl border transition-all text-left',
+                            'w-full flex items-center gap-3 p-3 rounded-xl border transition-colors text-left',
                             isActive
                               ? 'border-accent-indigo bg-accent-indigo/10'
                               : 'border-border-default bg-background-elevated/30 hover:border-border-strong'
@@ -714,12 +720,14 @@ export default function DeckEditPage() {
             >
               <div className="flex items-center justify-between mb-4">
                 <h3 className="text-lg font-semibold text-text-primary">Añadir cartas</h3>
-                <button
-                  onClick={() => dispatchUI({ type: 'HIDE_ADD_CARDS' })}
-                  className="p-2 rounded-lg hover:bg-border-default transition-colors"
-                >
-                  <X size={20} className="text-text-muted" />
-                </button>
+                <Tooltip content="Cerrar">
+                  <button
+                    onClick={() => dispatchUI({ type: 'HIDE_ADD_CARDS' })}
+                    className="p-2 rounded-lg hover:bg-border-default transition-colors"
+                  >
+                    <X size={20} className="text-text-muted" />
+                  </button>
+                </Tooltip>
               </div>
 
               <RFIDScannerPanel
@@ -775,6 +783,17 @@ export default function DeckEditPage() {
           </motion.div>
         )}
       </AnimatePresence>
+
+      <ConfirmationModal
+        open={isBlocked}
+        onConfirm={() => blocker.proceed()}
+        onClose={() => blocker.reset()}
+        title="Cambios sin guardar"
+        description="Tienes cambios sin guardar. Si sales ahora, perderás los cambios realizados."
+        variant="warning"
+        confirmText="Salir sin guardar"
+        cancelText="Seguir editando"
+      />
     </div>
   );
 }

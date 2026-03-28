@@ -430,6 +430,7 @@ export default function Login() {
                 error={validationErrors.email}
                 icon={<Mail className="size-5" />}
                 autoComplete="email"
+                spellCheck={false}
               />
             </motion.div>
 
@@ -471,7 +472,7 @@ export default function Login() {
                 disabled={isSubmitting || isLoading || isLocked}
                 icon={<LogIn className="size-5" />}
               >
-                {isSubmitting ? 'Iniciando sesión...' : 'Iniciar Sesión'}
+                {isSubmitting ? 'Iniciando sesi\u00f3n\u2026' : 'Iniciar Sesi\u00f3n'}
               </ButtonPremium>
             </motion.div>
           </motion.form>

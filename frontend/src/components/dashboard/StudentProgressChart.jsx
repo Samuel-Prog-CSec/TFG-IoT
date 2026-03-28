@@ -1,6 +1,7 @@
 import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
 import ChartSection from './ChartSection';
 import EmptyState from '../ui/EmptyState';
+import { formatDate } from '../../lib/utils';
 
 const PERIOD_OPTIONS = [
   { value: '7d', label: 'Últimos 7 días' },
@@ -64,7 +65,7 @@ export default function StudentProgressChart({ data, period = '7d', onPeriodChan
               itemStyle={{ color: 'var(--color-text-primary)' }}
               labelStyle={{ color: 'var(--color-text-muted)', fontWeight: 600, marginBottom: '8px' }}
               formatter={(value) => [`${value}%`, 'Promedio']}
-              labelFormatter={(label) => new Date(label).toLocaleDateString('es-ES', { weekday: 'short', day: 'numeric', month: 'short' })}
+              labelFormatter={(label) => formatDate(label, 'weekday')}
             />
             <Area
               type="monotone"

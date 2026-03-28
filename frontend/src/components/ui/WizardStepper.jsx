@@ -40,7 +40,7 @@ const getStepState = ({ index, currentStep, allowNavigation }) => {
 const getStepButtonClassName = ({ isActive, isCompleted, isClickable }) =>
   cn(
     'size-10 rounded-full flex items-center justify-center',
-    'transition-all duration-300 border-2 relative z-10',
+    'transition-[color,background-color,border-color,box-shadow,transform] duration-300 border-2 relative z-10',
     'focus:outline-none focus-visible:ring-2 focus-visible:ring-accent-indigo focus-visible:ring-offset-2 focus-visible:ring-offset-background-base',
     isActive && 'bg-accent-indigo border-accent-indigo text-text-primary shadow-lg shadow-accent-indigo/40',
     isCompleted && 'bg-success-base border-success-base text-text-primary',
@@ -354,7 +354,7 @@ export function WizardStepperCompact({ steps, currentStep, className }) {
             <motion.div
               className={cn(
                 'size-8 rounded-full flex items-center justify-center text-xs font-bold',
-                'transition-all duration-300',
+                'transition-colors duration-300',
                 isActive && 'bg-accent-indigo text-text-primary',
                 isCompleted && 'bg-success-base text-text-primary',
                 !isActive && !isCompleted && 'bg-background-elevated text-text-disabled'

@@ -15,18 +15,11 @@ import { useState, useRef, useMemo, useEffect } from 'react';
 import { motion, useMotionValue, useSpring, useTransform } from 'framer-motion';
 import { Layers, Edit2, Trash2, Eye, MoreVertical, Calendar, CreditCard } from 'lucide-react';
 import PropTypes from 'prop-types';
-import { cn } from '../../lib/utils';
+import { cn, formatDate } from '../../lib/utils';
 import Tooltip from './Tooltip';
 import CardAssetPreview from './CardAssetPreview';
 
-const formatDeckDate = (dateString) => {
-  const date = new Date(dateString);
-  return date.toLocaleDateString('es-ES', {
-    day: 'numeric',
-    month: 'short',
-    year: 'numeric'
-  });
-};
+const formatDeckDate = (dateString) => formatDate(dateString, 'short');
 
 const deckContextShape = PropTypes.shape({
   name: PropTypes.string,

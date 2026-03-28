@@ -12,6 +12,15 @@ const cardDeckRepository = require('../repositories/cardDeckRepository');
 const gamePlayRepository = require('../repositories/gamePlayRepository');
 const mongoose = require('mongoose');
 const { NotFoundError, ValidationError, ForbiddenError } = require('../utils/errors');
+const {
+  normalizeMechanicName,
+  isMechanicEnabledForSessionCreation,
+  validateConfigAgainstMechanicRules,
+  ensureMemoryBoardLayoutIsComplete,
+  normalizeBoardLayout,
+  validateBoardLayoutAgainstMappings,
+  validateAssociationChallengePlanAgainstMappings
+} = require('../controllers/helpers/sessionValidationHelpers');
 const logger = require('../utils/logger').child({ component: 'gameSessionService' });
 
 const MIN_DECK_CARDS = 2;
@@ -361,10 +370,126 @@ async function getSessionStats(sessionId) {
   );
 }
 
+/**
+ * Crea una sesión de juego a partir de un mazo (flujo actual).
+ * Consolida toda la lógica de negocio: validación de mecánica, config,
+ * sincronización con mazo, boardLayout y associationChallengePlan.
+ *
+ * @param {Object} params - Parámetros de creación
+ * @param {string} params.mechanicId - ID de la mecánica
+ * @param {string} params.deckId - ID del mazo
+ * @param {string} [params.sensorId] - ID del sensor RFID
+ * @param {Object} [params.config={}] - Configuración de la sesión
+ * @param {string} [params.contextId] - ID explícito del contexto (debe coincidir con el del mazo)
+ * @param {Array} [params.boardLayout] - Layout del tablero (mecánica memory)
+ * @param {Array} [params.associationChallengePlan] - Plan de retos (mecánica association)
+ * @param {string} params.createdBy - ID del profesor creador
+ * @returns {Promise<Object>} Sesión creada y populada
+ */
+async function createSessionFromDeck({
+  mechanicId,
+  deckId,
+  sensorId,
+  config = {},
+  contextId,
+  boardLayout,
+  associationChallengePlan,
+  createdBy
+}) {
+  // Validar mecánica
+  const mechanic = await validateMechanic(mechanicId);
+  const mechanicName = normalizeMechanicName(mechanic.name);
+
+  if (!isMechanicEnabledForSessionCreation(mechanic)) {
+    throw new ValidationError(
+      'La mecánica seleccionada no está habilitada para creación de sesiones en el entorno actual.'
+    );
+  }
+
+  validateConfigAgainstMechanicRules({ mechanic, config });
+
+  // Construir sesión a partir del mazo
+  const session = gameSessionRepository.build({
+    mechanicId,
+    deckId,
+    contextId: contextId || undefined,
+    sensorId,
+    config: { ...config },
+    status: 'created',
+    createdBy
+  });
+
+  const {
+    deck,
+    context,
+    cardMappings: syncedMappings
+  } = await syncSessionFromDeck(session, { deckId, userId: createdBy });
+
+  // BoardLayout (mecánica memory)
+  if (boardLayout !== undefined) {
+    validateBoardLayoutAgainstMappings(boardLayout, syncedMappings);
+    session.boardLayout = normalizeBoardLayout(boardLayout);
+  }
+
+  // AssociationChallengePlan (mecánica association)
+  if (mechanicName === 'association') {
+    const normalizedPlan = validateAssociationChallengePlanAgainstMappings({
+      associationChallengePlan,
+      cardMappings: syncedMappings,
+      numberOfRounds: Number(session.config?.numberOfRounds)
+    });
+    session.associationChallengePlan = normalizedPlan;
+    session.requiresAssociationPlanConfiguration = false;
+  } else {
+    session.associationChallengePlan = [];
+    session.requiresAssociationPlanConfiguration = false;
+  }
+
+  ensureMemoryBoardLayoutIsComplete({
+    mechanic,
+    boardLayout: session.boardLayout,
+    cardMappings: syncedMappings
+  });
+
+  // Verificar consistencia de contextId explícito
+  if (contextId && deck.contextId.toString() !== contextId.toString()) {
+    throw new ValidationError('contextId no coincide con el contexto del mazo');
+  }
+
+  // Verificar consistencia de numberOfCards explícito
+  if (config.numberOfCards !== undefined && config.numberOfCards !== syncedMappings.length) {
+    throw new ValidationError(
+      `config.numberOfCards (${config.numberOfCards}) no coincide con el número de cardMappings del mazo (${syncedMappings.length})`
+    );
+  }
+
+  // Persistir (la dificultad se auto-calcula en el modelo)
+  await session.save();
+
+  await session.populate([
+    { path: 'mechanicId', select: 'name displayName icon' },
+    { path: 'contextId', select: 'contextId name' },
+    { path: 'createdBy', select: 'name email' }
+  ]);
+
+  logger.info('Sesión creada desde mazo', {
+    sessionId: session._id,
+    mechanicId: mechanicName,
+    contextId: context.contextId,
+    cardsCount: syncedMappings.length,
+    deckId,
+    sensorId,
+    createdBy
+  });
+
+  return session;
+}
+
 module.exports = {
   syncSessionFromDeck,
   cloneSessionFromExisting,
   createSession,
+  createSessionFromDeck,
   updateSession,
   validateSessionDeletion,
   getSessionStats,

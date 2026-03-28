@@ -5,7 +5,7 @@
  * @module pages/SessionEdit
  */
 
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { motion } from 'framer-motion';
 import { Save, Map as MapIcon, AlertTriangle } from 'lucide-react';
@@ -20,6 +20,8 @@ import StatusBadge from '../components/ui/StatusBadge';
 import Breadcrumb from '../components/ui/Breadcrumb';
 import { pageVariants } from '../lib/utils';
 import { useRefetchOnFocus } from '../hooks/useRefetchOnFocus';
+import { useUnsavedChanges } from '../hooks/useUnsavedChanges';
+import ConfirmationModal from '../components/ui/ConfirmationModal';
 
 const statusToBadge = (status) => {
   switch (status) {
@@ -90,6 +92,17 @@ export default function SessionEdit() {
   const [penaltyPerError, setPenaltyPerError] = useState('');
   const [associationChallengePlan, setAssociationChallengePlan] = useState([]);
 
+  // Snapshot of initial values for dirty detection
+  const initialValuesRef = useRef(null);
+
+  const isDirty = useMemo(() => {
+    if (!initialValuesRef.current) return false;
+    const current = JSON.stringify({ deckId, numberOfRounds, timeLimit, pointsPerCorrect, penaltyPerError });
+    return current !== initialValuesRef.current;
+  }, [deckId, numberOfRounds, timeLimit, pointsPerCorrect, penaltyPerError]);
+
+  const { blocker, isBlocked } = useUnsavedChanges(isDirty);
+
   const loadSession = useCallback(async (signal) => {
     if (!sessionId) return;
 
@@ -104,6 +117,15 @@ export default function SessionEdit() {
       setPointsPerCorrect(String(data.config?.pointsPerCorrect ?? ''));
       setPenaltyPerError(String(data.config?.penaltyPerError ?? ''));
       setAssociationChallengePlan(Array.isArray(data.associationChallengePlan) ? data.associationChallengePlan : []);
+
+      // Store initial snapshot for dirty detection
+      initialValuesRef.current = JSON.stringify({
+        deckId: data.deckId || data.deck?.id || '',
+        numberOfRounds: String(data.config?.numberOfRounds ?? ''),
+        timeLimit: String(data.config?.timeLimit ?? ''),
+        pointsPerCorrect: String(data.config?.pointsPerCorrect ?? ''),
+        penaltyPerError: String(data.config?.penaltyPerError ?? '')
+      });
     } catch (err) {
       if (isAbortError(err)) {
         return;
@@ -469,11 +491,22 @@ export default function SessionEdit() {
               disabled={!canEdit || saving}
             >
               <Save size={16} />
-              {saving ? 'Guardando...' : 'Guardar cambios'}
+              {saving ? 'Guardando\u2026' : 'Guardar cambios'}
             </ButtonPremium>
           </div>
         </GlassCard>
       </div>
+
+      <ConfirmationModal
+        open={isBlocked}
+        onConfirm={() => blocker.proceed()}
+        onClose={() => blocker.reset()}
+        title="Cambios sin guardar"
+        description="Tienes cambios sin guardar. Si sales ahora, perderás los cambios realizados."
+        variant="warning"
+        confirmText="Salir sin guardar"
+        cancelText="Seguir editando"
+      />
     </motion.div>
   );
 }

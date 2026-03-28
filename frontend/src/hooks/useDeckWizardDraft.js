@@ -7,6 +7,7 @@
 
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { captureException } from '../lib/sentry';
+import { formatDate } from '../lib/utils';
 
 const STORAGE_KEY = 'deck_wizard_draft';
 const DEBOUNCE_MS = 500;
@@ -231,10 +232,5 @@ export function formatDraftDate(date) {
   if (hours < 24) return `hace ${hours} hora${hours !== 1 ? 's' : ''}`;
   if (days < 7) return `hace ${days} día${days !== 1 ? 's' : ''}`;
   
-  return date.toLocaleDateString('es-ES', {
-    day: 'numeric',
-    month: 'short',
-    hour: '2-digit',
-    minute: '2-digit',
-  });
+  return formatDate(date, 'short');
 }

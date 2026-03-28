@@ -188,7 +188,7 @@ export default function RFIDConnector({
             onClick={isPortOpen ? handleDisconnect : handleConnect}
             disabled={isReconnecting}
             className={cn(
-              'px-4 py-2 rounded-lg text-sm font-semibold transition-all',
+              'px-4 py-2 rounded-lg text-sm font-semibold transition-colors',
               isPortOpen
                 ? 'bg-error-base/20 text-error-base hover:bg-error-base/30'
                 : isReconnecting

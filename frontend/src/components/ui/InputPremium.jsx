@@ -76,7 +76,7 @@ const InputPremium = ({
           className={cn(
             'w-full bg-background-elevated border rounded-xl px-4 py-3',
             'text-text-primary placeholder:text-text-muted',
-            'transition-all duration-200 ease-in-out',
+            'transition-[color,border-color,box-shadow] duration-200 ease-in-out',
             'focus:outline-none focus:ring-4 focus:ring-brand-glow focus:border-brand-base',
             // Estados normales vs Errores
             hasError

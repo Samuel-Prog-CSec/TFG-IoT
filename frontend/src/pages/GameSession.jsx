@@ -20,6 +20,7 @@ import {
 import { ROUTES } from '../constants/routes';
 import { toast } from 'sonner';
 import ErrorBoundary from '../components/common/ErrorBoundary';
+import Tooltip from '../components/ui/Tooltip';
 import ChallengeDisplay from '../components/game/ChallengeDisplay';
 import TimerBar from '../components/game/TimerBar';
 import { ScoreDisplayCompactMemo as ScoreDisplayCompact } from '../components/game/ScoreDisplay';
@@ -44,9 +45,9 @@ const SOCKET_ERROR_MESSAGES = {
 
 const REALTIME_STATUS_COPY = {
   connected: { label: 'Juego listo', announcement: 'El juego está conectado.' },
-  reconnecting: { label: 'Reconectando', announcement: 'Reconectando el juego.' },
-  disconnected: { label: 'Sin conexión', announcement: 'Se perdió la conexión del juego.' },
-  connecting: { label: 'Conectando', announcement: 'Conectando el juego.' }
+  reconnecting: { label: 'Reconectando\u2026', announcement: 'Reconectando el juego.' },
+  disconnected: { label: 'Sin conexi\u00f3n', announcement: 'Se perdi\u00f3 la conexi\u00f3n del juego.' },
+  connecting: { label: 'Conectando\u2026', announcement: 'Conectando el juego.' }
 };
 
 const TIMER_ANNOUNCEMENT_THRESHOLDS = new Set([10, 5, 3, 2, 1, 0]);
@@ -1002,31 +1003,33 @@ export default function GameSession() { // NOSONAR
           {/* Right - Controls */}
           <div className="flex items-center gap-2 sm:gap-3">
             {/* Sound toggle */}
-            <button
-              onClick={() => setSoundEnabled(!soundEnabled)}
-              className={cn(
-                "p-2.5 min-w-10 min-h-10 rounded-lg transition-all active:scale-95",
-                soundEnabled ? "bg-border-default text-text-primary" : "bg-border-subtle text-text-disabled"
-              )}
-              aria-pressed={soundEnabled}
-              aria-label={soundEnabled ? 'Silenciar' : 'Activar sonido'}
-              title={soundEnabled ? 'Silenciar' : 'Activar sonido'}
-            >
-              {soundEnabled ? <Volume2 size={20} /> : <VolumeX size={20} />}
-            </button>
+            <Tooltip content={soundEnabled ? 'Silenciar' : 'Activar sonido'}>
+              <button
+                onClick={() => setSoundEnabled(!soundEnabled)}
+                className={cn(
+                  "p-2.5 min-w-10 min-h-10 rounded-lg transition-[background-color,color,transform] active:scale-95",
+                  soundEnabled ? "bg-border-default text-text-primary" : "bg-border-subtle text-text-disabled"
+                )}
+                aria-pressed={soundEnabled}
+                aria-label={soundEnabled ? 'Silenciar' : 'Activar sonido'}
+              >
+                {soundEnabled ? <Volume2 size={20} /> : <VolumeX size={20} />}
+              </button>
+            </Tooltip>
 
             {/* Pause button */}
             {gameState === 'playing' || gameState === 'paused' ? (
-              <button
-                onClick={togglePause}
-                ref={pauseButtonRef}
-                className="p-2.5 min-w-10 min-h-10 rounded-lg bg-border-default text-text-primary hover:bg-border-strong active:scale-95 active:bg-border-strong transition-all"
-                aria-pressed={gameState === 'paused'}
-                aria-label={gameState === 'paused' ? 'Reanudar' : 'Pausar'}
-                title={gameState === 'paused' ? 'Reanudar' : 'Pausar'}
-              >
-                {gameState === 'paused' ? <Play size={20} /> : <Pause size={20} />}
-              </button>
+              <Tooltip content={gameState === 'paused' ? 'Reanudar' : 'Pausar'}>
+                <button
+                  onClick={togglePause}
+                  ref={pauseButtonRef}
+                  className="p-2.5 min-w-10 min-h-10 rounded-lg bg-border-default text-text-primary hover:bg-border-strong active:scale-95 active:bg-border-strong transition-[background-color,color,transform]"
+                  aria-pressed={gameState === 'paused'}
+                  aria-label={gameState === 'paused' ? 'Reanudar' : 'Pausar'}
+                >
+                  {gameState === 'paused' ? <Play size={20} /> : <Pause size={20} />}
+                </button>
+              </Tooltip>
             ) : null}
 
             {/* RFID status */}
@@ -1054,7 +1057,7 @@ export default function GameSession() { // NOSONAR
               {realtimeStatus === 'reconnecting' && '⏳ '}
               {realtimeStatus === 'disconnected' && '❌ '}
               {realtimeStatus === 'connecting' && '⏳ '}
-              {REALTIME_STATUS_COPY[realtimeStatus]?.label || 'Conectando'}
+              {REALTIME_STATUS_COPY[realtimeStatus]?.label || 'Conectando\u2026'}
             </div>
           </div>
         </div>
@@ -1252,7 +1255,7 @@ export default function GameSession() { // NOSONAR
                 animate={{ scale: 1 }}
                 transition={{ delay: shouldReduceMotion ? 0 : (roundNumber - 1) * 0.05 }}
                 className={cn(
-                  "size-3.5 rounded-full transition-all duration-300",
+                  "size-3.5 rounded-full transition-[background-color,box-shadow,transform] duration-300",
                   roundNumber < currentRound && "bg-success-base shadow-lg shadow-success-glow",
                   roundNumber === currentRound && "bg-brand-base shadow-lg shadow-brand-glow scale-125",
                   roundNumber > currentRound && "bg-background-surface"
@@ -1564,7 +1567,7 @@ function MemoryBoard({ board, feedbackState, feedbackPoints, feedbackMessage, sh
             <motion.div
               key={`memory-slot-${slot.slotIndex}`}
               className={cn(
-                'aspect-square rounded-xl border transition-all memory-card-flip',
+                'aspect-square rounded-xl border transition-[box-shadow,border-color] memory-card-flip',
                 slotClasses,
                 isMatchFeedback && 'shadow-[0_0_20px] shadow-success-glow',
                 isMismatchFeedback && 'border-error-base/60'

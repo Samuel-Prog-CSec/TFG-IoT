@@ -525,7 +525,7 @@ function UploadAssetModal({ context, onClose, onSuccess }) {
               type="button"
               onClick={() => { setType('image'); setFile(null); setPreview(null); }}
               className={cn(
-                'flex-1 flex items-center justify-center gap-2 py-2.5 rounded-lg text-sm font-medium transition-all',
+                'flex-1 flex items-center justify-center gap-2 py-2.5 rounded-lg text-sm font-medium transition-colors',
                 type === 'image' ? TAB_BUTTON_VARIANTS.active : TAB_BUTTON_VARIANTS.inactive
               )}
             >
@@ -535,7 +535,7 @@ function UploadAssetModal({ context, onClose, onSuccess }) {
               type="button"
               onClick={() => { setType('audio'); setFile(null); setPreview(null); }}
               className={cn(
-                'flex-1 flex items-center justify-center gap-2 py-2.5 rounded-lg text-sm font-medium transition-all',
+                'flex-1 flex items-center justify-center gap-2 py-2.5 rounded-lg text-sm font-medium transition-colors',
                 type === 'audio' ? TAB_BUTTON_VARIANTS.active : TAB_BUTTON_VARIANTS.inactive
               )}
             >

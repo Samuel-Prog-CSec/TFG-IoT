@@ -170,7 +170,7 @@ export default function ConfirmationModal({
             exit={{ scale: 0.9, opacity: 0, y: 20 }}
             transition={{ type: 'spring', damping: 25, stiffness: 300 }}
             onClick={(e) => e.stopPropagation()}
-            className="bg-background-base border border-border-default rounded-2xl p-6 max-w-md w-full shadow-2xl"
+            className="bg-background-base border border-border-default rounded-2xl p-6 max-w-md w-full shadow-2xl overscroll-contain"
           >
             {/* Header con icono */}
             <motion.div

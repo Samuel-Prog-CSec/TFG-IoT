@@ -308,7 +308,7 @@ const ChallengeDisplay = function ChallengeDisplay({
             "mt-6 p-4 rounded-full",
             "bg-glass-bg hover:bg-border-strong",
             "border border-glass-border",
-            "transition-all duration-300",
+            "transition-[color,background-color,transform] duration-300",
             !shouldReduceMotion && "hover:scale-110",
             audioPlaying && "animate-pulse"
           )}

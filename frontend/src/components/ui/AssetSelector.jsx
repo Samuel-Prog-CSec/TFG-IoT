@@ -119,7 +119,7 @@ export default function AssetSelector({
               'bg-background-elevated/50 border border-border-default',
               'text-text-primary placeholder-text-muted',
               'focus:outline-none focus:border-accent-indigo/50 focus:ring-2 focus:ring-accent-indigo/20',
-              'transition-all duration-300'
+              'transition-[color,border-color,box-shadow] duration-300'
             )}
             whileFocus={{ scale: 1.01 }}
           />
@@ -169,7 +169,7 @@ export default function AssetSelector({
                 disabled={isAssigned}
                 className={cn(
                   'relative flex flex-col items-center justify-center gap-2 p-4 rounded-xl',
-                  'border transition-all duration-300',
+                  'border transition-[color,background-color,border-color,box-shadow] duration-300',
                   'focus:outline-none focus-visible:ring-2 focus-visible:ring-accent-indigo',
                   isSelected && [
                     'bg-accent-indigo/20 border-accent-indigo',
@@ -338,7 +338,7 @@ export function AssetSelectorCompact({
             disabled={isAssigned}
             className={cn(
               'flex items-center gap-2 px-3 py-2 rounded-lg border text-sm',
-              'transition-all duration-200',
+              'transition-[color,background-color,border-color] duration-200',
               isSelected && 'bg-accent-indigo/20 border-accent-indigo text-text-primary',
               !isSelected && !isAssigned && 'bg-background-elevated/50 border-border-default text-text-secondary hover:border-accent-indigo/50',
               isAssigned && 'bg-background-base/50 border-background-surface/50 text-text-disabled cursor-not-allowed'

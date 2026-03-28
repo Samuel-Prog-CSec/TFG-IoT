@@ -38,7 +38,7 @@ import EmptyState from '../components/ui/EmptyState';
 import Breadcrumb from '../components/ui/Breadcrumb';
 import Tooltip from '../components/ui/Tooltip';
 import ConfirmationModal, { useConfirmationModal } from '../components/ui/ConfirmationModal';
-import { cn, pageVariants } from '../lib/utils';
+import { cn, pageVariants, formatDate } from '../lib/utils';
 import { useRefetchOnFocus } from '../hooks/useRefetchOnFocus';
 
 const statusToBadge = (status) => {
@@ -229,14 +229,16 @@ export default function SessionDetail() {
             </ButtonPremium>
             <div className="border-l border-border-default h-8 mx-1" />
             <div className="flex items-center gap-1 bg-glass-bg rounded-lg p-1">
-              <ButtonPremium
-                variant="ghost"
-                size="sm"
-                onClick={() => navigate(ROUTES.SESSION_EDIT(session.id || session._id))}
-                disabled={!canEdit}
-              >
-                <Pencil size={14} />
-              </ButtonPremium>
+              <Tooltip content="Editar sesión">
+                <ButtonPremium
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => navigate(ROUTES.SESSION_EDIT(session.id || session._id))}
+                  disabled={!canEdit}
+                >
+                  <Pencil size={14} />
+                </ButtonPremium>
+              </Tooltip>
               <Tooltip content="Eliminar sesión">
                 <ButtonPremium
                   variant="ghost"
@@ -374,7 +376,7 @@ export default function SessionDetail() {
                   <Calendar size={14} />
                   Creada
                 </span>
-                <span className="text-sm text-text-primary font-medium">{new Date(session.createdAt).toLocaleDateString()}</span>
+                <span className="text-sm text-text-primary font-medium">{formatDate(session.createdAt, 'short')}</span>
               </div>
             </div>
             {!canEdit && (

@@ -15,7 +15,8 @@ const {
 const logger = require('../utils/logger');
 const { toCardDeckDetailDTOV1, toCardDeckListDTOV1 } = require('../utils/dtos');
 const { sendSuccess, sendCreated, sendPaginated } = require('../utils/responseHelper');
-const { escapeRegex } = require('../utils/escapeRegex');
+const { buildFilter } = require('../utils/filterBuilder');
+const { ensureResourceOwnership } = require('../utils/ownershipHelpers');
 
 /**
  * Límites de configuración para mazos de cartas.
@@ -29,6 +30,12 @@ const { escapeRegex } = require('../utils/escapeRegex');
 const MAX_DECK_CARDS = 20;
 const MIN_DECK_CARDS = 2;
 const MAX_DECKS_PER_TEACHER = 50;
+
+const deckFilterMappings = {
+  contextId: { field: 'contextId', type: 'exact' },
+  status: { field: 'status', type: 'exact' },
+  search: { type: 'search', fields: ['name', 'description'] }
+};
 
 function validateDeckMappingsStructure(cardMappings) {
   if (!Array.isArray(cardMappings)) {
@@ -98,23 +105,9 @@ const getDecks = async (req, res) => {
     search
   } = req.query;
 
-  const filter = { createdBy: req.user._id };
-
-  if (contextId) {
-    filter.contextId = contextId;
-  }
-
-  if (status) {
-    filter.status = status;
-  }
-
-  if (search) {
-    const safeSearch = escapeRegex(search);
-    filter.$or = [
-      { name: { $regex: safeSearch, $options: 'i' } },
-      { description: { $regex: safeSearch, $options: 'i' } }
-    ];
-  }
+  const filter = buildFilter({ contextId, status, search }, deckFilterMappings, {
+    baseFilter: { createdBy: req.user._id }
+  });
 
   const skip = (page - 1) * limit;
   const sortOptions = { [sortBy]: order === 'asc' ? 1 : -1 };
@@ -159,9 +152,7 @@ const getDeckById = async (req, res) => {
     throw new NotFoundError('Mazo');
   }
 
-  if (deck.createdBy._id.toString() !== req.user._id.toString()) {
-    throw new ForbiddenError('No tienes permiso para ver este mazo');
-  }
+  ensureResourceOwnership(deck, req.user._id, 'mazo');
 
   sendSuccess(res, toCardDeckDetailDTOV1(deck));
 };
@@ -309,9 +300,7 @@ const updateDeck = async (req, res) => {
       throw new NotFoundError('Mazo');
     }
 
-    if (deck.createdBy.toString() !== req.user._id.toString()) {
-      throw new ForbiddenError('No tienes permiso para actualizar este mazo');
-    }
+    ensureResourceOwnership(deck, req.user._id, 'mazo');
 
     applyDeckFieldUpdates(deck, { name, description, status });
     await applyDeckMappingUpdates(deck, { contextId, cardMappings });
@@ -346,9 +335,7 @@ const deleteDeck = async (req, res) => {
     throw new NotFoundError('Mazo');
   }
 
-  if (deck.createdBy.toString() !== req.user._id.toString()) {
-    throw new ForbiddenError('No tienes permiso para eliminar este mazo');
-  }
+  ensureResourceOwnership(deck, req.user._id, 'mazo');
 
   deck.status = 'archived';
   await deck.save();

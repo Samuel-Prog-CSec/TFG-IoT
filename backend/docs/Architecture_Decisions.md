@@ -1529,3 +1529,54 @@ Se adopta el patrón **cache-aside** mediante `utils/cacheHelper.js`, reutilizan
 ### Relación con otros ADRs
 
 - **ADR-016** (Rate limiting Redis store): Reutiliza la misma infraestructura de `redisService` con circuit breaker. Los namespaces `CACHE_MECHANIC`, `CACHE_CONTEXT` y `CACHE_ANALYTICS` se añaden al enum `NAMESPACES`
+
+## ADR-021: Revision de patrones de diseno — ownership helpers, Service Layer y rate limiting
+
+### Contexto (ADR-021)
+
+Una revision exhaustiva de los 13 patrones de diseno documentados revelo tres areas de mejora concreta:
+
+1. **Ownership checks duplicados**: El patron `entity.createdBy.toString() !== req.user._id.toString()` aparecia 18 veces en 5 controllers con 3 variantes distintas (simple, con bypass super_admin, teacher-student). Las variaciones sutiles (manejo de objetos populados vs ObjectId directo) aumentaban el riesgo de bugs silenciosos.
+
+2. **Service Layer incompleto**: `gameSessionController.createSession()` contenia ~120 lineas de logica de negocio (validacion de mecanica, config, boardLayout, associationChallengePlan) que deberian estar en el service, violando la regla documentada: "Controllers orquestan, no ejecutan reglas complejas."
+
+3. **Rate limiting incompleto**: Los 12 endpoints de analytics ejecutaban aggregations MongoDB costosas sin rate limiter especifico (solo el global de 100 req/15min).
+
+Adicionalmente, se identificaron 3 patrones ya implementados pero no documentados (Cache-Aside, Factory Method, Decorator) y 2 inconsistencias menores (filterBuilder no usado en cardDeckController, DRY violation en analyticsController).
+
+### Decision (ADR-021)
+
+1. **ownershipHelpers** (`utils/ownershipHelpers.js`): Tres funciones centralizadas:
+   - `ensureResourceOwnership(entity, userId, resourceName)` — check simple
+   - `ensureResourceOwnershipOrAdmin(entity, user, resourceName)` — con bypass super_admin
+   - `ensureStudentBelongsToTeacher(studentId, user, userRepository)` — relacion teacher-student
+   - `getOwnerId(entity)` — extrae createdBy manejando tanto ObjectId como objeto populado
+
+2. **createSessionFromDeck** en `gameSessionService.js`: Consolida toda la logica de creacion de sesion desde mazo. El controller queda como orquestador de ~15 lineas.
+
+3. **analyticsRateLimiter** en `config/security.js`: 30 req/min por usuario en produccion, aplicado como middleware de router en `routes/analytics.js`.
+
+4. **filterBuilder** adoptado en `cardDeckController.getDecks()` reemplazando construccion manual.
+
+5. **Documentacion**: Patrones 14 (Cache-Aside), 15 (Factory Method) y 16 (Decorator) anadidos a `02-Patrones_Diseno.md`.
+
+### Alternativas Consideradas (ADR-021)
+
+1. **Authorization Policy pattern** (politicas por entidad): Evaluado y pospuesto. El ownershipHelpers cubre el 95% de los casos. Se recomienda activar si las reglas de autorizacion crecen (sesiones compartidas entre profesores, permisos granulares).
+
+2. **Dependency Injection container**: Descartado. Node.js module system con `require()` ya actua como DI simple; un contenedor formal es excesivo para el tamano del proyecto.
+
+3. **Builder pattern** para construccion de sesiones: Descartado. Mongoose + Service Layer ya manejan la construccion; un builder aniade indirection sin beneficio real.
+
+### Consecuencias (ADR-021)
+
+**Positivas:**
+- 18 bloques de codigo duplicado eliminados de 5 controllers
+- Mensajes de error de autorizacion ahora son consistentes
+- `gameSessionController.createSession()` reducido de ~120 a ~15 lineas
+- Analytics protegidos contra abuso de aggregations costosas
+- 16 patrones documentados (vs 13 previos)
+
+**Negativas:**
+- `ownershipHelpers` introduce una dependencia transversal; cambios en la firma afectan 5 controllers
+- `createSessionFromDeck` importa helpers desde `controllers/helpers/` — inversion de dependencia atipica (service importa de controller helpers). Los helpers son funciones puras sin dependencia HTTP, pero la ubicacion es suboptima. Considerar mover a `utils/` o `services/helpers/` en futuras iteraciones

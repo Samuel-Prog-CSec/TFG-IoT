@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Users, Gamepad2, Trophy, AlertTriangle, Calendar } from 'lucide-react';
 import ErrorState from '../components/ui/ErrorState';
-import { listContainerVariants, listItemVariants, crossfadeVariants } from '../lib/utils';
+import { listContainerVariants, listItemVariants, crossfadeVariants, formatDate } from '../lib/utils';
 import { useDocumentTitle } from '../hooks/useDocumentTitle';
 import { useRefetchOnFocus } from '../hooks/useRefetchOnFocus';
 import { useReducedMotion } from '../hooks/useReducedMotion';
@@ -151,14 +151,14 @@ export default function Dashboard() {
           <div className="flex flex-col gap-8 flex-1">
             {loading && summary ? (
               <div className="bg-background-elevated/50 border border-border-default text-text-muted px-4 py-2 rounded-xl text-sm font-medium animate-pulse">
-                Actualizando métricas...
+                Actualizando m\u00e9tricas\u2026
               </div>
             ) : null}
 
             {error ? (
               <ErrorState
                 title="Error al cargar datos"
-                message={error}
+                message={`${error} Pulsa Reintentar o recarga la p\u00e1gina.`}
                 onRetry={fetchData}
               />
             ) : null}
@@ -258,12 +258,7 @@ export default function Dashboard() {
 
 function Header({ timeRange, setTimeRange, reducedMotion = false }) {
   const navigate = useNavigate();
-  const todayRaw = new Date().toLocaleDateString('es-ES', {
-    weekday: 'long',
-    year: 'numeric',
-    month: 'long',
-    day: 'numeric'
-  });
+  const todayRaw = formatDate(new Date(), 'long');
   // Spanish dates should only capitalize the first letter (e.g. "Jueves, 19 de marzo de 2026")
   const today = todayRaw.charAt(0).toUpperCase() + todayRaw.slice(1).toLowerCase();
 

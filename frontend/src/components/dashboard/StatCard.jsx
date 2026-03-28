@@ -70,7 +70,7 @@ function StatCard({ title, value, trend, icon, color }) {
         variant="default"
         padding="none"
         className={cn(
-          "h-full p-6 transition-all duration-300",
+          "h-full p-6 transition-[box-shadow,border-color] duration-300",
           "hover:shadow-[0_8px_32px_rgba(0,0,0,0.3)] hover:border-border-strong"
         )}
       >
@@ -89,7 +89,7 @@ function StatCard({ title, value, trend, icon, color }) {
         {/* Content */}
         <div className="relative z-10 pr-14">
           <h3 className="text-text-muted text-sm font-semibold tracking-wide uppercase mb-2">{title}</h3>
-          <div className="text-3xl font-bold text-text-primary mb-3 font-display tracking-tight">
+          <div className="text-3xl font-bold text-text-primary mb-3 font-display tracking-tight tabular-nums">
             <AnimatedNumber value={value} />
           </div>
           <div className={cn(
@@ -108,7 +108,7 @@ function StatCard({ title, value, trend, icon, color }) {
         <div
           className={cn(
             "absolute -bottom-16 -right-16 w-40 h-40 rounded-full blur-3xl",
-            "opacity-20 transition-all duration-500 group-hover:opacity-40 group-hover:scale-110 pointer-events-none",
+            "opacity-20 transition-[opacity,transform] duration-500 group-hover:opacity-40 group-hover:scale-110 pointer-events-none",
             color
           )}
           aria-hidden="true"

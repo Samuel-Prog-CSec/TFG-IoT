@@ -10,6 +10,11 @@ const userRepository = require('../repositories/userRepository');
 const gamePlayService = require('../services/gamePlayService');
 const { recalculateSessionStatusFromPlays } = require('../services/sessionStatusService');
 const { NotFoundError, ValidationError, ForbiddenError } = require('../utils/errors');
+const {
+  ensureResourceOwnership,
+  ensureResourceOwnershipOrAdmin,
+  ensureStudentBelongsToTeacher
+} = require('../utils/ownershipHelpers');
 const logger = require('../utils/logger');
 const { toGamePlayDetailDTOV1, toGamePlayListDTOV1, toPlayerStatsDTOV1 } = require('../utils/dtos');
 const { sendSuccess, sendCreated, sendPaginated } = require('../utils/responseHelper');
@@ -147,11 +152,7 @@ const getPlayById = async (req, res) => {
   const session = await gameSessionRepository.findById(play.sessionId._id, {
     select: 'createdBy'
   });
-  const isCreator = session?.createdBy?.toString() === req.user._id.toString();
-
-  if (!isCreator && req.user.role !== 'super_admin') {
-    throw new ForbiddenError('No tienes permiso para ver esta partida');
-  }
+  ensureResourceOwnershipOrAdmin(session, req.user, 'partida');
 
   sendSuccess(res, toGamePlayDetailDTOV1(play));
 };
@@ -203,9 +204,7 @@ const pausePlay = async (req, res) => {
   }
 
   // Solo el creador de la sesión puede pausar/reanudar
-  if (session.createdBy.toString() !== req.user._id.toString()) {
-    throw new ForbiddenError('No tienes permiso para pausar esta partida');
-  }
+  ensureResourceOwnership(session, req.user._id, 'partida');
 
   if (play.status !== 'in-progress') {
     throw new ValidationError('La partida no está en progreso');
@@ -251,9 +250,7 @@ const resumePlay = async (req, res) => {
     throw new ValidationError('La partida no tiene sesión asociada');
   }
 
-  if (session.createdBy.toString() !== req.user._id.toString()) {
-    throw new ForbiddenError('No tienes permiso para reanudar esta partida');
-  }
+  ensureResourceOwnership(session, req.user._id, 'partida');
 
   if (play.status !== 'paused') {
     throw new ValidationError('La partida no está pausada');
@@ -303,12 +300,7 @@ const addEvent = async (req, res) => {
   const session = await gameSessionRepository.findById(play.sessionId, {
     select: 'createdBy'
   });
-  if (
-    req.user.role !== 'super_admin' &&
-    session?.createdBy?.toString() !== req.user._id.toString()
-  ) {
-    throw new ForbiddenError('No tienes permiso para registrar eventos en esta partida');
-  }
+  ensureResourceOwnershipOrAdmin(session, req.user, 'partida');
 
   // Usar el método del modelo para añadir evento
   await play.addEvent(eventData);
@@ -347,12 +339,7 @@ const completePlay = async (req, res) => {
     throw new NotFoundError('Partida');
   }
 
-  if (
-    req.user.role !== 'super_admin' &&
-    play.sessionId.createdBy.toString() !== req.user._id.toString()
-  ) {
-    throw new ForbiddenError('No tienes permiso para completar esta partida');
-  }
+  ensureResourceOwnershipOrAdmin(play.sessionId, req.user, 'partida');
 
   const result = await gamePlayService.completePlay(id);
 
@@ -388,12 +375,7 @@ const abandonPlay = async (req, res) => {
   const session = await gameSessionRepository.findById(play.sessionId, {
     select: 'createdBy'
   });
-  if (
-    req.user.role !== 'super_admin' &&
-    session?.createdBy?.toString() !== req.user._id.toString()
-  ) {
-    throw new ForbiddenError('No tienes permiso para abandonar esta partida');
-  }
+  ensureResourceOwnershipOrAdmin(session, req.user, 'partida');
 
   // Cambiar status a abandoned
   play.status = 'abandoned';
@@ -438,12 +420,7 @@ const getPlayerStats = async (req, res) => {
   const { playerId } = req.params;
   const { sessionId } = req.query;
 
-  if (req.user.role === 'teacher') {
-    const player = await userRepository.findById(playerId, { select: 'createdBy' });
-    if (!player || player.createdBy?.toString() !== req.user._id.toString()) {
-      throw new ForbiddenError('No tienes permiso para ver estas estadísticas');
-    }
-  }
+  await ensureStudentBelongsToTeacher(playerId, req.user, userRepository);
 
   const filter = { playerId, status: 'completed' };
   if (sessionId) {

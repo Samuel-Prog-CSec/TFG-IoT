@@ -11,12 +11,12 @@ import { motion } from 'framer-motion';
 /**
  * Loader de autenticación con animaciones premium
  * @param {Object} props
- * @param {string} [props.message='Cargando...'] - Mensaje a mostrar bajo el spinner
+ * @param {string} [props.message='Cargando\u2026'] - Mensaje a mostrar bajo el spinner
  * @param {boolean} [props.fullScreen=true] - Si ocupa toda la pantalla
  * @param {string} [props.className] - Clases CSS adicionales
  */
 export default function AuthLoader({ 
-  message = 'Cargando...', 
+  message = 'Cargando\u2026',
   fullScreen = true,
   className = '' 
 }) {

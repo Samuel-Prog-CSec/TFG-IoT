@@ -382,6 +382,29 @@ const eventRateLimiter = createRateLimiter({
 });
 
 /**
+ * Rate limiter para endpoints de analíticas.
+ * Las aggregations de MongoDB son costosas; este limiter previene abuso
+ * sin afectar el uso normal de un dashboard (30 req/min es suficiente).
+ *
+ * @type {import('express-rate-limit').RateLimitRequestHandler}
+ */
+const analyticsRateLimiter = createRateLimiter({
+  prefix: 'analytics',
+  windowMs: 60 * 1000, // 1 minuto
+  max: isDev ? 200 : 30,
+  message: {
+    success: false,
+    message: 'Demasiadas peticiones de analíticas, espera un momento'
+  },
+  standardHeaders: true,
+  legacyHeaders: false,
+  keyGenerator: req => {
+    const userId = req.user?._id?.toString();
+    return userId ? `user:${userId}` : `ip:${req.ip}`;
+  }
+});
+
+/**
  * Rate limiter para subida de archivos.
  * Muy restrictivo debido al costo de procesamiento.
  *
@@ -414,6 +437,7 @@ module.exports = {
   registerRateLimiter,
   createResourceRateLimiter,
   eventRateLimiter,
+  analyticsRateLimiter,
   uploadRateLimiter,
   corsWhitelist,
   CSRF_COOKIE_NAME,

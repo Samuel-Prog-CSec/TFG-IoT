@@ -102,7 +102,7 @@ const renderDecksGrid = ({ decks, shouldReduceMotion, handleViewDeck, handleEdit
 const renderDecksErrorState = ({ error, loadDecks }) => (
   <ErrorState
     title="Error al cargar mazos"
-    message={error}
+    message={`${error} Pulsa Reintentar o recarga la p\u00e1gina.`}
     icon={<AlertCircle size={28} />}
     onRetry={() => loadDecks({ resetPage: true })}
   />
@@ -481,13 +481,13 @@ export default function CardDecksPage() {
                 type="text"
                 value={filters.searchQuery}
                 onChange={(e) => dispatchFilters({ type: 'SET_SEARCH', payload: e.target.value })}
-                placeholder="Buscar mazos..."
+                placeholder="Buscar mazos\u2026"
                 className={cn(
                   'w-full pl-10 pr-4 py-2.5 rounded-xl',
                   'bg-background-elevated/50 border border-border-default',
                   'text-text-primary placeholder-text-muted',
                   'focus:outline-none focus:border-accent-indigo/50 focus:ring-2 focus:ring-accent-indigo/20',
-                  'transition-all duration-300'
+                  'transition-[color,border-color,box-shadow] duration-300'
                 )}
               />
             </div>
@@ -496,7 +496,7 @@ export default function CardDecksPage() {
             <button
               onClick={() => setShowFilters(!showFilters)}
               className={cn(
-                'flex items-center gap-2 px-4 py-2.5 rounded-xl border transition-all',
+                'flex items-center gap-2 px-4 py-2.5 rounded-xl border transition-colors',
                 showFilters || hasActiveFilters
                   ? 'bg-accent-indigo/20 border-accent-indigo/50 text-accent-indigo'
                   : 'bg-background-elevated/50 border-border-default text-text-muted hover:border-border-strong'
@@ -568,7 +568,7 @@ export default function CardDecksPage() {
 
       {loading && decks.length > 0 && (
         <div className="mb-4 bg-background-elevated/50 border border-border-default text-text-secondary px-4 py-2 rounded-xl text-sm">
-          Actualizando mazos...
+          Actualizando mazos\u2026
         </div>
       )}
 

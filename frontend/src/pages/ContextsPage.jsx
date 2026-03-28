@@ -21,6 +21,7 @@ import PageHeader from '../components/ui/PageHeader';
 import InputPremium from '../components/ui/InputPremium';
 import EmptyState from '../components/ui/EmptyState';
 import ErrorState from '../components/ui/ErrorState';
+import Tooltip from '../components/ui/Tooltip';
 import { SkeletonCard } from '../components/ui/SkeletonShimmer';
 import { useContexts } from '../hooks/useContexts';
 import { useReducedMotion } from '../hooks/useReducedMotion';
@@ -144,7 +145,7 @@ export default function ContextsPage() {
         {/* Filtros */}
         <div className="flex flex-col sm:flex-row gap-4">
           <InputPremium
-            placeholder="Buscar por nombre o ID..."
+            placeholder="Buscar por nombre o ID\u2026"
             value={searchTerm}
             onChange={e => setSearchTerm(e.target.value)}
             icon={<Search size={18} />}
@@ -164,7 +165,7 @@ export default function ContextsPage() {
         ) : error ? (
           <ErrorState
             title="Error al cargar contextos"
-            message={error}
+            message={`${error} Pulsa Reintentar o recarga la p\u00e1gina.`}
             onRetry={refetch}
             className="max-w-lg mx-auto mt-12"
           />
@@ -267,18 +268,24 @@ function ContextCard({ context, onClick, index, reducedMotion }) {
 
         <div className="flex items-center justify-between mt-auto pt-4 border-t border-border-subtle">
           <div className="flex items-center gap-3 text-sm text-text-muted">
-            <div className="flex items-center gap-1.5" title="Total Assets">
-              <span className="font-medium text-text-secondary">{assetCount}</span> total
-            </div>
+            <Tooltip content="Total Assets">
+              <div className="flex items-center gap-1.5">
+                <span className="font-medium text-text-secondary">{assetCount}</span> total
+              </div>
+            </Tooltip>
             <div className="size-1 rounded-full bg-background-surface" />
-            <div className="flex items-center gap-1.5" title="Imágenes">
-              <ImageIcon size={14} className="text-text-muted" />
-              <span>{imagesCount}</span>
-            </div>
-            <div className="flex items-center gap-1.5" title="Audios">
-              <Music size={14} className="text-text-muted" />
-              <span>{audioCount}</span>
-            </div>
+            <Tooltip content="Imágenes">
+              <div className="flex items-center gap-1.5">
+                <ImageIcon size={14} className="text-text-muted" />
+                <span>{imagesCount}</span>
+              </div>
+            </Tooltip>
+            <Tooltip content="Audios">
+              <div className="flex items-center gap-1.5">
+                <Music size={14} className="text-text-muted" />
+                <span>{audioCount}</span>
+              </div>
+            </Tooltip>
           </div>
         </div>
 

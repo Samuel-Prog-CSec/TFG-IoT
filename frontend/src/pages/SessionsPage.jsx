@@ -104,7 +104,7 @@ const SessionCard = memo(function SessionCard({
 
   return (
     <motion.div variants={listItemVariants}>
-      <GlassCard className={`p-6 flex flex-col gap-5 hover:border-border-strong transition-all border-l-4 ${borderClass}`}>
+      <GlassCard className={`p-6 flex flex-col gap-5 hover:border-border-strong transition-[border-color] border-l-4 ${borderClass}`}>
         <div className="flex items-start justify-between gap-3">
           <div>
             <h3 className="text-lg font-semibold text-text-primary">{title}</h3>
@@ -550,7 +550,7 @@ export default function SessionsPage() {
 
   let loadMoreLabel = 'No hay más sesiones';
   if (loadingMore) {
-    loadMoreLabel = 'Cargando...';
+    loadMoreLabel = 'Cargando\u2026';
   } else if (hasMore) {
     loadMoreLabel = 'Cargar más';
   }
@@ -631,7 +631,7 @@ export default function SessionsPage() {
         {error && (
           <ErrorState
             title="Error al cargar sesiones"
-            message={error}
+            message={`${error} Pulsa Reintentar o recarga la p\u00e1gina.`}
             onRetry={refetchSessions}
           />
         )}

@@ -140,7 +140,7 @@ function GameOverScreen({
                       size={48}
                       aria-hidden="true"
                       className={cn(
-                        "transition-all",
+                        "transition-colors",
                         isEarned
                           ? "fill-warning-base text-warning-base drop-shadow-[0_0_15px_var(--color-warning-glow)]"
                           : "fill-background-surface text-text-disabled"

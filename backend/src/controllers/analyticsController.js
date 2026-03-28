@@ -5,9 +5,9 @@
 
 const analyticsService = require('../services/analyticsService');
 const userRepository = require('../repositories/userRepository');
-const { ForbiddenError, NotFoundError } = require('../utils/errors');
 const { sendSuccess } = require('../utils/responseHelper');
 const { cacheGet } = require('../utils/cacheHelper');
+const { ensureStudentBelongsToTeacher } = require('../utils/ownershipHelpers');
 
 /**
  * Obtiene el progreso temporal de un estudiante.
@@ -17,15 +17,7 @@ exports.getStudentProgress = async (req, res) => {
   const { id } = req.params;
   const { timeRange } = req.query; // '7d', '30d'
 
-  if (req.user.role === 'teacher') {
-    const student = await userRepository.findById(id, { select: 'createdBy' });
-    if (!student) {
-      throw new NotFoundError('Alumno');
-    }
-    if (student.createdBy?.toString() !== req.user._id.toString()) {
-      throw new ForbiddenError('No tienes permiso para ver este alumno');
-    }
-  }
+  await ensureStudentBelongsToTeacher(id, req.user, userRepository);
 
   const progress = await analyticsService.getStudentProgress(id, timeRange);
 
@@ -39,15 +31,7 @@ exports.getStudentProgress = async (req, res) => {
 exports.getStudentDifficulties = async (req, res) => {
   const { id } = req.params;
 
-  if (req.user.role === 'teacher') {
-    const student = await userRepository.findById(id, { select: 'createdBy' });
-    if (!student) {
-      throw new NotFoundError('Alumno');
-    }
-    if (student.createdBy?.toString() !== req.user._id.toString()) {
-      throw new ForbiddenError('No tienes permiso para ver este alumno');
-    }
-  }
+  await ensureStudentBelongsToTeacher(id, req.user, userRepository);
 
   const difficulties = await analyticsService.getStudentDifficulties(id);
 
@@ -98,22 +82,6 @@ exports.getClassroomDifficulties = async (req, res) => {
 // ══════════════════════════════════════════════════════════════════════
 // Nuevos handlers (T-601)
 // ══════════════════════════════════════════════════════════════════════
-
-/**
- * Verifica que el profesor tiene acceso al estudiante.
- * @private
- */
-const ensureStudentOwnership = async (req, studentId) => {
-  if (req.user.role === 'teacher') {
-    const student = await userRepository.findById(studentId, { select: 'createdBy' });
-    if (!student) {
-      throw new NotFoundError('Alumno');
-    }
-    if (student.createdBy?.toString() !== req.user._id.toString()) {
-      throw new ForbiddenError('No tienes permiso para ver este alumno');
-    }
-  }
-};
 
 /**
  * Lista de estudiantes con métricas agregadas.
@@ -167,7 +135,7 @@ exports.getStudentSummary = async (req, res) => {
   const { id } = req.params;
   const { timeRange } = req.query;
 
-  await ensureStudentOwnership(req, id);
+  await ensureStudentBelongsToTeacher(id, req.user, userRepository);
 
   const data = await analyticsService.getStudentSummary(id, timeRange);
   sendSuccess(res, data);

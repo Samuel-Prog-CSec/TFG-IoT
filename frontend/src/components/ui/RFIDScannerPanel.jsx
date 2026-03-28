@@ -418,7 +418,7 @@ export default function RFIDScannerPanel({
               onClick={handleMockScan}
               disabled={scannedCards.length >= maxCards}
               className={cn(
-                'w-full py-3 rounded-xl font-medium transition-all',
+                'w-full py-3 rounded-xl font-medium transition-[color,background-color,box-shadow]',
                 'flex items-center justify-center gap-2',
                 scannedCards.length >= maxCards
                   ? 'bg-background-elevated text-text-muted cursor-not-allowed'
@@ -492,7 +492,7 @@ export default function RFIDScannerPanel({
                   </div>
                   <motion.button
                     onClick={() => handleRemoveCard(card.uid)}
-                    className="opacity-0 group-hover:opacity-100 p-1.5 rounded-lg bg-error-base/20 text-error-base hover:bg-error-base/30 transition-all"
+                    className="opacity-0 group-hover:opacity-100 p-1.5 rounded-lg bg-error-base/20 text-error-base hover:bg-error-base/30 transition-[opacity,background-color]"
                     whileHover={{ scale: 1.1 }}
                     whileTap={{ scale: 0.9 }}
                   >

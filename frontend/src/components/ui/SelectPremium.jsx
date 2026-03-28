@@ -20,7 +20,7 @@ export default function SelectPremium({
   options = [],
   value,
   onChange,
-  placeholder = 'Seleccionar...',
+  placeholder = 'Seleccionar\u2026',
   label,
   disabled = false,
   className,
@@ -163,7 +163,7 @@ export default function SelectPremium({
           'border border-border-default rounded-xl',
           'px-4 py-3',
           'text-left',
-          'transition-all duration-300',
+          'transition-[color,background-color,border-color,box-shadow] duration-300',
           'focus-ring',
           isOpen && 'border-brand-base/50 ring-2 ring-brand-base/20',
           disabled && 'opacity-50 cursor-not-allowed',
@@ -210,7 +210,7 @@ export default function SelectPremium({
               'border border-border-default rounded-xl',
               'shadow-xl shadow-black/30',
               'overflow-hidden',
-              'max-h-60 overflow-y-auto custom-scrollbar'
+              'max-h-60 overflow-y-auto overscroll-contain custom-scrollbar'
             )}
           >
             {options.map((option, index) => {

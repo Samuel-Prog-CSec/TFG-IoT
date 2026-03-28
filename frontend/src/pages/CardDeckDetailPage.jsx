@@ -19,7 +19,7 @@ import GlassCard from '../components/ui/GlassCard';
 import { SkeletonCard } from '../components/ui/SkeletonShimmer';
 import StatusBadge from '../components/ui/StatusBadge';
 import Breadcrumb from '../components/ui/Breadcrumb';
-import { pageVariants } from '../lib/utils';
+import { pageVariants, formatDate } from '../lib/utils';
 import { useRefetchOnFocus } from '../hooks/useRefetchOnFocus';
 
 function isDeckArchived(deck) {
@@ -29,15 +29,15 @@ function isDeckArchived(deck) {
   return Boolean(deck.archivedAt);
 }
 
-function formatDate(value) {
+/**
+ * Wrapper local que mantiene el guard de valores nulos/inválidos
+ * y delega al formatDate centralizado.
+ */
+function formatDeckDate(value) {
   if (!value) return '—';
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return '—';
-  return date.toLocaleDateString('es-ES', {
-    year: 'numeric',
-    month: '2-digit',
-    day: '2-digit',
-  });
+  return formatDate(date);
 }
 
 function getContextName(deck) {
@@ -218,7 +218,7 @@ export default function CardDeckDetailPage() {
                   <Calendar size={16} className="text-warning-base" />
                   Creado
                 </div>
-                <p className="text-text-primary text-xl font-semibold font-display mt-2">{formatDate(deck.createdAt)}</p>
+                <p className="text-text-primary text-xl font-semibold font-display mt-2">{formatDeckDate(deck.createdAt)}</p>
               </div>
               <div className="bg-success-base/10 rounded-xl p-4">
                 <div className="flex items-center gap-2 text-text-muted">
@@ -254,11 +254,11 @@ export default function CardDeckDetailPage() {
               </div>
               <div className="flex items-center justify-between py-3">
                 <span className="text-sm text-text-muted">Creado</span>
-                <span className="text-sm text-text-primary font-medium">{formatDate(deck.createdAt)}</span>
+                <span className="text-sm text-text-primary font-medium">{formatDeckDate(deck.createdAt)}</span>
               </div>
               <div className="flex items-center justify-between py-3">
                 <span className="text-sm text-text-muted">Actualizado</span>
-                <span className="text-sm text-text-primary font-medium">{formatDate(deck.updatedAt)}</span>
+                <span className="text-sm text-text-primary font-medium">{formatDeckDate(deck.updatedAt)}</span>
               </div>
             </div>
           </GlassCard>

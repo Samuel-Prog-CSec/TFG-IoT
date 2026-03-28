@@ -12,7 +12,7 @@ import { cn } from '../../lib/utils';
 const buttonVariants = cva(
   [
     'relative inline-flex items-center justify-center whitespace-nowrap',
-    'transition-all duration-300',
+    'transition-[color,background-color,box-shadow,border-color] duration-300',
     'focus-ring',
     'disabled:opacity-50 disabled:pointer-events-none'
   ],

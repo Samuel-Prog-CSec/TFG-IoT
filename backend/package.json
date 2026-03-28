@@ -43,8 +43,8 @@
   ],
   "author": "Samuel Blanchart Pérez",
   "dependencies": {
-    "@sentry/node": "9.47.1",
-    "@sentry/profiling-node": "9.47.1",
+    "@sentry/node": "^10.46.0",
+    "@sentry/profiling-node": "^10.46.0",
     "@socket.io/redis-adapter": "^8.3.0",
     "@supabase/supabase-js": "^2.98.0",
     "bcrypt": "^6.0.0",
@@ -89,12 +89,6 @@
   },
   "overrides": {
     "brace-expansion": ">=5.0.5",
-    "@sentry/node": {
-      "minimatch": "^10.2.1"
-    },
-    "@sentry/profiling-node": {
-      "minimatch": "^10.2.1"
-    },
     "socket.io-parser": "^4.2.6"
   },
   "engines": {

@@ -271,7 +271,7 @@ export default function BoardSetup() {
                         disabled={!canStart || savingBoard}
                         className="shadow-lg shadow-success-base/20"
                     >
-                        <Play size={20} /> {savingBoard ? 'Guardando tablero...' : 'Iniciar Partida'}
+                        <Play size={20} /> {savingBoard ? 'Guardando tablero\u2026' : 'Iniciar Partida'}
                     </ButtonPremium>
                 </div>
             </header>
@@ -362,7 +362,7 @@ function Slot({ id, card, index }) {
         <div 
             ref={setNodeRef}
             className={clsx(
-                "size-32 rounded-xl border-2 border-dashed transition-all flex items-center justify-center relative",
+                "size-32 rounded-xl border-2 border-dashed transition-[transform,border-color,background-color] flex items-center justify-center relative",
                 isOver ? "border-accent-indigo bg-accent-indigo/10 scale-105" :
                 card ? "border-accent-indigo/30 bg-accent-indigo/5 shadow-inner" : "border-background-surface bg-background-base/20"
             )}
