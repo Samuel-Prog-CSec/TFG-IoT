@@ -156,6 +156,70 @@ const gameReducer = (state, action) => {
 
 ---
 
+## 9. Patrón Singleton para Servicios de Comunicación
+
+Los servicios de comunicación del frontend (`SocketService` y `WebSerialService`) implementan el patrón singleton para garantizar una única instancia compartida por toda la aplicación.
+
+### Motivación
+
+- **Socket.IO**: Solo una conexión WebSocket activa por usuario. Múltiples instancias crearían conexiones duplicadas y conflictos de autenticación.
+- **Web Serial**: Solo un puerto serial abierto simultáneamente. El navegador no permite que dos instancias lean del mismo puerto.
+
+### Implementación
+
+Cada servicio se exporta como instancia única:
+
+```javascript
+// services/socket.js
+class SocketService {
+  // Métodos de conexión, emisión y suscripción
+}
+export const socketService = new SocketService();
+
+// services/webSerialService.js
+class WebSerialService {
+  // Métodos de conexión serial, parsing y deduplicación
+}
+export const webSerialService = new WebSerialService();
+```
+
+### Patrones de Emisión
+
+Los servicios usan dos patrones de emisión diferenciados:
+
+| Patrón | Método | Uso | Ejemplo |
+| --- | --- | --- | --- |
+| **Con ACK** | `emit(event, data)` | Comandos que requieren confirmación | `join_play`, `start_play` |
+| **Fire-and-forget** | `emitFireAndForget(event, data)` | Eventos de alta frecuencia sin confirmación | `rfid_scan_from_client`, `play_state_sync` |
+
+La elección se basa en la criticidad: comandos de gameplay usan ACK; escaneos RFID usan fire-and-forget porque el rate limiter del backend elimina el callback y la cola de pendientes del frontend gestiona las desconexiones.
+
+### Comunicación Event-Driven entre Servicios
+
+Los servicios se comunican mediante eventos del DOM y eventos internos:
+
+```text
+┌──────────────────┐     socket_reconnected      ┌─────────────────┐
+│  WebSerialService│◄──── (CustomEvent DOM) ──────│  SocketService  │
+│                  │                              │                 │
+│ flushPendingScans│                              │ _wasConnected   │
+│ (envía cola)     │                              │ → dispatch event│
+└──────────────────┘                              └─────────────────┘
+```
+
+Cuando el `SocketService` detecta una reconexión exitosa, emite un `CustomEvent` en `window`. El `GameSession.jsx` escucha este evento y llama a `webSerialService.flushPendingScans()` para enviar los scans encolados durante la desconexión.
+
+### Cola de Pendientes (WebSerialService)
+
+El `WebSerialService` implementa una cola interna para scans que no pueden enviarse por desconexión del socket:
+
+- **Capacidad**: 200 scans máximo
+- **TTL**: 30 segundos por scan
+- **Poda**: Automática al añadir nuevos scans (elimina expirados)
+- **Flush**: Al reconectar el socket, se envían todos los scans no expirados
+
+---
+
 ## Resumen de Decisiones
 
 | Patrón | Uso Principal | Archivos Clave |
@@ -165,6 +229,7 @@ const gameReducer = (state, action) => {
 | Context + Reducer | Estado del juego | `/context/GameContext.jsx` |
 | Container/Presentational | Separar lógica/UI | `/pages` vs `/components` |
 | Error Boundary | Manejo de errores | `/components/common/ErrorBoundary.jsx` |
+| Singleton | Servicios de comunicación | `/services/socket.js`, `/services/webSerialService.js` |
 
 ---
 

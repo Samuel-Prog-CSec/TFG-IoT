@@ -173,6 +173,17 @@ const cardDeckParamsSchema = z
   })
   .strict();
 
+/**
+ * Schema para verificar si un UID existe en otros mazos activos (ADR-022).
+ * Usado en GET /api/decks/check-card?uid=...
+ */
+const checkCardQuerySchema = z
+  .object({
+    uid: uidSchema,
+    excludeDeckId: objectIdSchema.optional()
+  })
+  .strict();
+
 module.exports = {
   objectIdSchema,
   uidSchema,
@@ -180,5 +191,6 @@ module.exports = {
   createCardDeckSchema,
   updateCardDeckSchema,
   cardDeckQuerySchema,
-  cardDeckParamsSchema
+  cardDeckParamsSchema,
+  checkCardQuerySchema
 };

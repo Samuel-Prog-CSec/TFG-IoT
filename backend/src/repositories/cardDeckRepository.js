@@ -17,6 +17,9 @@ const count = (filter = {}) => CardDeck.countDocuments(filter);
 
 const create = data => CardDeck.create(data);
 
+const createWithSession = (data, session) =>
+  session ? CardDeck.create([data], { session }).then(docs => docs[0]) : CardDeck.create(data);
+
 const updateById = (id, update, options = {}) => baseRepo.updateById(CardDeck, id, update, options);
 
 const updateOne = (filter, update, options = {}) =>
@@ -39,6 +42,7 @@ module.exports = {
   findOne,
   count,
   create,
+  createWithSession,
   updateById,
   updateOne,
   findByIdAndUpdate,

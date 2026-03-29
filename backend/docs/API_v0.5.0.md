@@ -609,21 +609,22 @@ Además de `cardMappings`, la sesión incluye:
 
 Los **mazos** (CardDeck) permiten al profesor **reutilizar** la configuración de mapeos `UID → assignedValue` para un `GameContext` y usarla en múltiples sesiones.
 
-| Método   | Endpoint | Descripción                                    | Acceso   | Rate Limit |
-| :------- | :------- | :--------------------------------------------- | :------- | :--------- |
-| `GET`    | `/`      | Listar mazos del profesor (paginado + filtros) | Profesor | -          |
-| `GET`    | `/:id`   | Obtener mazo por ID                            | Profesor | -          |
-| `POST`   | `/`      | Crear nuevo mazo                               | Profesor | Creación   |
-| `PUT`    | `/:id`   | Actualizar mazo                                | Profesor | Creación   |
-| `DELETE` | `/:id`   | Eliminar mazo (soft delete → `archived`)       | Profesor | Creación   |
+| Método   | Endpoint       | Descripción                                    | Acceso   | Rate Limit |
+| :------- | :------------- | :--------------------------------------------- | :------- | :--------- |
+| `GET`    | `/`            | Listar mazos del profesor (paginado + filtros) | Profesor | -          |
+| `GET`    | `/check-card`  | Verificar si un UID existe en otros mazos (ADR-023) | Profesor | -     |
+| `GET`    | `/:id`         | Obtener mazo por ID                            | Profesor | -          |
+| `POST`   | `/`            | Crear nuevo mazo                               | Profesor | Creación   |
+| `PUT`    | `/:id`         | Actualizar mazo                                | Profesor | Creación   |
+| `DELETE` | `/:id`         | Eliminar mazo (soft delete → `archived`)       | Profesor | Creación   |
 
 #### Reglas de Validación (negocio)
 
-- `cardMappings` debe tener entre **2 y 30** elementos.
-- Dentro del mazo no se permiten duplicados de: `uid`, `cardId`, `assignedValue`.
+- `cardMappings` debe tener entre **2 y 20** elementos.
+- Dentro del mazo no se permiten duplicados de: `uid`, `assignedValue`.
 - Cada `assignedValue` debe existir en `GameContext.assets[].value` del `contextId` del mazo.
-- Todas las `Card` referenciadas deben existir y estar en `status=active`.
-- Consistencia: el `uid` del mapping debe coincidir con el `uid` de la tarjeta (`Card.uid`).
+- Las tarjetas RFID son tokens fungibles identificados por UID (ADR-012). No requieren registro previo.
+- **Unicidad cross-deck (ADR-023):** Al crear o actualizar un mazo, si un UID ya existe en otro mazo activo del mismo profesor, se elimina automaticamente del mazo anterior. Si el mazo anterior queda con menos de 2 tarjetas, se archiva automaticamente.
 
 #### GET `/decks` (listado)
 
@@ -660,6 +661,42 @@ Los **mazos** (CardDeck) permiten al profesor **reutilizar** la configuración d
       "hasMore": false,
       "hasPrevious": false
     }
+  }
+}
+```
+
+#### GET `/decks/check-card` (verificar UID — ADR-023)
+
+Verifica si un UID de tarjeta RFID existe en otros mazos activos del profesor. Endpoint read-only para feedback inmediato durante el escaneo de tarjetas.
+
+**Query params:**
+
+- `uid` (requerido): UID de la tarjeta RFID (8 o 14 caracteres hexadecimales)
+- `excludeDeckId` (opcional): ID de mazo a excluir de la busqueda (para edicion)
+
+**Respuesta (200) — UID encontrado en otro mazo:**
+
+```json
+{
+  "success": true,
+  "data": {
+    "found": true,
+    "deck": {
+      "id": "...",
+      "name": "Banderas de Europa",
+      "cardsCount": 6
+    }
+  }
+}
+```
+
+**Respuesta (200) — UID no encontrado:**
+
+```json
+{
+  "success": true,
+  "data": {
+    "found": false
   }
 }
 ```
@@ -739,19 +776,29 @@ Los **mazos** (CardDeck) permiten al profesor **reutilizar** la configuración d
     "cardMappings": [
       {
         "id": "...",
-        "cardId": "...",
         "uid": "AA000001",
         "assignedValue": "A",
         "displayData": { "key": "asset1", "display": "A1", "value": "A" }
       }
-    ]
+    ],
+    "affectedDecks": {
+      "movedCards": [
+        { "uid": "AA000001", "fromDeck": { "id": "...", "name": "Mazo Anterior" } }
+      ],
+      "archivedDecks": [
+        { "id": "...", "name": "Mazo Anterior" }
+      ]
+    }
   }
 }
 ```
 
+> **Nota (ADR-023):** El campo `affectedDecks` solo aparece si se movieron tarjetas desde otros mazos activos del profesor. `archivedDecks` lista los mazos que fueron archivados por quedar con menos de 2 tarjetas.
+```
+
 #### PUT `/decks/:id` (actualizar)
 
-Permite actualizar `name`, `description`, `status`, `contextId` y/o `cardMappings`. Si cambia `contextId`, se revalida que `assignedValue` siga existiendo en los assets del nuevo contexto.
+Permite actualizar `name`, `description`, `status`, `contextId` y/o `cardMappings`. Si cambia `contextId`, se revalida que `assignedValue` siga existiendo en los assets del nuevo contexto. Si se actualizan `cardMappings`, se aplica la misma logica de unicidad cross-deck que en la creacion (ADR-023): tarjetas duplicadas se mueven automaticamente desde otros mazos, y la respuesta puede incluir el campo `affectedDecks`.
 
 #### DELETE `/decks/:id` (soft delete)
 
@@ -792,8 +839,6 @@ No borra el documento: cambia `status` a `archived`.
 | `pause_play` | Cliente -> Servidor | Pausar partida | `{ playId }` |
 | `resume_play` | Cliente -> Servidor | Reanudar partida | `{ playId }` |
 | `next_round` | Cliente -> Servidor | Siguiente ronda manual | `{ playId }` |
-| `join_card_registration` | Cliente -> Servidor | Unirse a sala de registro | `{}` |
-| `leave_card_registration` | Cliente -> Servidor | Salir de sala de registro | `{}` |
 | `join_admin_room` | Cliente -> Servidor | Unirse a sala admin | `{}` |
 | `leave_admin_room` | Cliente -> Servidor | Salir de sala admin | `{}` |
 | `rfid_scan_from_client` | Cliente -> Servidor | Escaneo RFID desde cliente | `{ uid, type, sensorId, timestamp, source }` |

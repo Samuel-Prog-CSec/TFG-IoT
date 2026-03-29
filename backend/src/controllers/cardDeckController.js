@@ -6,6 +6,7 @@
 
 const cardDeckRepository = require('../repositories/cardDeckRepository');
 const gameContextRepository = require('../repositories/gameContextRepository');
+const cardDeckService = require('../services/cardDeckService');
 const {
   NotFoundError,
   ConflictError,
@@ -17,6 +18,7 @@ const { toCardDeckDetailDTOV1, toCardDeckListDTOV1 } = require('../utils/dtos');
 const { sendSuccess, sendCreated, sendPaginated } = require('../utils/responseHelper');
 const { buildFilter } = require('../utils/filterBuilder');
 const { ensureResourceOwnership } = require('../utils/ownershipHelpers');
+const { withTransaction } = require('../utils/withTransaction');
 
 /**
  * Límites de configuración para mazos de cartas.
@@ -158,6 +160,17 @@ const getDeckById = async (req, res) => {
 };
 
 /**
+ * GET /api/decks/check-card
+ * Verifica si un UID existe en otros mazos activos del profesor (ADR-022).
+ * Endpoint read-only para feedback inmediato durante el escaneo de tarjetas.
+ */
+const checkCard = async (req, res) => {
+  const { uid, excludeDeckId } = req.query;
+  const result = await cardDeckService.checkCardInOtherDecks(uid, req.user._id, excludeDeckId);
+  sendSuccess(res, result);
+};
+
+/**
  * POST /api/decks
  */
 const createDeck = async (req, res) => {
@@ -191,13 +204,25 @@ const createDeck = async (req, res) => {
     // Validar contexto y que assignedValue pertenece al contexto
     await validateContextAndAssignedValues(contextId, normalizedMappings);
 
-    const deck = await cardDeckRepository.create({
-      name: name.trim(),
-      description: description ? description.trim() : undefined,
-      contextId,
-      cardMappings: normalizedMappings,
-      status: status || 'active',
-      createdBy: req.user._id
+    // Crear mazo con resolución atómica de conflictos cross-deck (ADR-022)
+    const uids = normalizedMappings.map(m => m.uid);
+
+    const { deck, conflictSummary } = await withTransaction(async session => {
+      const summary = await cardDeckService.resolveCardConflicts(uids, req.user._id, session);
+
+      const createdDeck = await cardDeckRepository.createWithSession(
+        {
+          name: name.trim(),
+          description: description ? description.trim() : undefined,
+          contextId,
+          cardMappings: normalizedMappings,
+          status: status || 'active',
+          createdBy: req.user._id
+        },
+        session
+      );
+
+      return { deck: createdDeck, conflictSummary: summary };
     });
 
     await deck.populate([{ path: 'contextId', select: 'contextId name' }]);
@@ -207,10 +232,17 @@ const createDeck = async (req, res) => {
       name: deck.name,
       contextId: deck.contextId,
       cardsCount: deck.cardMappings.length,
-      createdBy: req.user._id
+      createdBy: req.user._id,
+      movedCards: conflictSummary.movedCards.length,
+      archivedDecks: conflictSummary.archivedDecks.length
     });
 
-    sendCreated(res, toCardDeckDetailDTOV1(deck), 'Mazo creado exitosamente');
+    const responseData = toCardDeckDetailDTOV1(deck);
+    if (conflictSummary.movedCards.length > 0) {
+      responseData.affectedDecks = conflictSummary;
+    }
+
+    sendCreated(res, responseData, 'Mazo creado exitosamente');
   } catch (error) {
     // Duplicado por índice único (createdBy + name)
     if (error?.code === 11000) {
@@ -305,15 +337,36 @@ const updateDeck = async (req, res) => {
     applyDeckFieldUpdates(deck, { name, description, status });
     await applyDeckMappingUpdates(deck, { contextId, cardMappings });
 
-    await deck.save();
+    // Si se actualizan cardMappings, resolver conflictos cross-deck atómicamente (ADR-022)
+    let conflictSummary = { movedCards: [], archivedDecks: [] };
+
+    if (cardMappings !== undefined) {
+      const uids = deck.cardMappings.map(m => m.uid);
+
+      conflictSummary = await withTransaction(async session => {
+        const summary = await cardDeckService.resolveCardConflicts(uids, req.user._id, session, id);
+        await deck.save(session ? { session } : {});
+        return summary;
+      });
+    } else {
+      await deck.save();
+    }
+
     await deck.populate([{ path: 'contextId', select: 'contextId name' }]);
 
     logger.info('Mazo actualizado', {
       deckId: deck._id,
-      updatedBy: req.user._id
+      updatedBy: req.user._id,
+      movedCards: conflictSummary.movedCards.length,
+      archivedDecks: conflictSummary.archivedDecks.length
     });
 
-    sendSuccess(res, toCardDeckDetailDTOV1(deck), 'Mazo actualizado exitosamente');
+    const responseData = toCardDeckDetailDTOV1(deck);
+    if (conflictSummary.movedCards.length > 0) {
+      responseData.affectedDecks = conflictSummary;
+    }
+
+    sendSuccess(res, responseData, 'Mazo actualizado exitosamente');
   } catch (error) {
     if (error?.code === 11000) {
       throw new ConflictError('Ya existe un mazo con ese nombre');
@@ -351,6 +404,7 @@ const deleteDeck = async (req, res) => {
 module.exports = {
   getDecks,
   getDeckById,
+  checkCard,
   createDeck,
   updateDeck,
   deleteDeck

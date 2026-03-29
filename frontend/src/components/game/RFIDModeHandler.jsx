@@ -8,11 +8,10 @@
 import { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { 
-  Wifi, 
-  WifiOff, 
-  Settings, 
-  Gamepad2, 
-  UserPlus, 
+  Wifi,
+  WifiOff,
+  Settings,
+  Gamepad2,
   CreditCard,
   AlertCircle,
   Activity
@@ -34,12 +33,6 @@ const MODES_CONFIG = {
     icon: Gamepad2,
     iconContainerClass: 'bg-success-base/20 text-success-base',
     description: 'Escaneando respuestas de los estudiantes'
-  },
-  card_registration: {
-    label: 'Registro',
-    icon: UserPlus,
-    iconContainerClass: 'bg-info-base/20 text-info-base',
-    description: 'Registrando nuevas tarjetas en el sistema'
   },
   card_assignment: {
     label: 'Asignación',

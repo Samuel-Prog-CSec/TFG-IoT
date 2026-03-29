@@ -73,3 +73,97 @@ El sistema conmuta automaticamente el modo del lector RFID para optimizar el con
 - [rfid_architecture.puml](diagrams/rfid_architecture.puml)
 - [rfid_data_flow.puml](diagrams/rfid_data_flow.puml)
 - [rfid_gameplay_sequence.puml](diagrams/rfid_gameplay_sequence.puml)
+
+## Cola de Scans Pendientes (Offline Queue)
+
+Cuando el socket está desconectado, el `webSerialService` encola los escaneos en una cola interna con las siguientes características:
+
+| Parámetro | Valor | Configurable |
+| --- | --- | --- |
+| Capacidad máxima | 200 scans | `MAX_PENDING_SCANS` |
+| TTL por scan | 30 segundos | `PENDING_SCAN_TTL` |
+| Poda automática | Al añadir, se eliminan scans expirados | Automático |
+
+**Flujo**:
+1. Si el socket está conectado: el scan se envía directamente via `rfid_scan_from_client` (fire-and-forget).
+2. Si el socket está desconectado: el scan se encola con timestamp.
+3. Al reconectar, `flushPendingScans()` envía todos los scans encolados no expirados al servidor.
+4. El evento `queue_status` se emite localmente al añadir/eliminar de la cola.
+5. El evento `queue_flush` se emite al vaciar la cola tras reconexión.
+
+**Decisión de diseño**: Se usa fire-and-forget (sin ACK) para los scans RFID. El rate limiter del backend elimina el callback ACK de todos modos, y el patrón de cola del frontend maneja la pérdida de conexión. Añadir ACK incrementaría la latencia en un path de alta frecuencia sin beneficio real.
+
+## Deduplicación de UID
+
+El servicio aplica deduplicación client-side antes de enviar al servidor:
+
+| Parámetro | Valor |
+| --- | --- |
+| Cooldown entre mismos UIDs | 1200ms (`DEDUPE_COOLDOWN_MS`) |
+| Tamaño máximo de cache | 500 UIDs (`MAX_UID_CACHE_SIZE`) |
+| TTL de cache | 5 minutos (`UID_CACHE_TTL`) |
+
+Cuando un UID duplicado se detecta dentro del cooldown, se emite un evento local `dedupe` en lugar de enviar al servidor. La cache se limpia oportunistamente al procesar nuevos scans (no hay timer periódico).
+
+Esta deduplicación es complementaria al `DUPLICATE_RFID_EVENT` del backend (ver [WebSockets-ExtendedUsage.md §10.4](WebSockets-ExtendedUsage.md#104-deduplicación-rfid)): el cliente filtra duplicados inmediatos, el servidor filtra los que pasan el filtro del cliente.
+
+## Heartbeat Watchdog
+
+El servicio monitorea la salud del dispositivo RFID mediante un watchdog de heartbeat:
+
+| Parámetro | Valor |
+| --- | --- |
+| Timeout de heartbeat | 20 segundos (`HEARTBEAT_TIMEOUT`) |
+| Mensaje esperado | Evento `status` del firmware |
+
+Si el dispositivo no envía un evento `status` dentro del timeout, el estado del dispositivo pasa a `stale`. Cada evento `status` recibido resetea el timer del watchdog.
+
+## Máquina de Estados del Dispositivo
+
+```text
+                  ┌─────────────┐
+                  │   unknown   │ ◄── Estado inicial (sin conexión)
+                  └──────┬──────┘
+                         │ connectToPort()
+                         ▼
+                  ┌──────────────┐
+                  │ initializing │ ◄── Esperando respuesta init del firmware
+                  └──────┬───┬──┘
+                         │   │
+              init OK    │   │  init timeout / error
+                         ▼   ▼
+                  ┌───────┐  ┌───────┐
+                  │ ready │  │ error │
+                  └───┬───┘  └───────┘
+                      │
+         sin heartbeat│
+          (20s)       │
+                      ▼
+                  ┌───────┐
+                  │ stale │ ◄── Sin señal del sensor
+                  └───┬───┘
+                      │ heartbeat recibido
+                      ▼
+                  ┌───────┐
+                  │ ready │
+                  └───────┘
+```
+
+**Estados**:
+- `unknown`: Sin puerto serial abierto. Estado por defecto.
+- `initializing`: Puerto abierto, esperando que el firmware envíe el evento `init` (timeout: 8s).
+- `ready`: Firmware respondió con `init` exitoso. Sensor operativo.
+- `error`: Firmware reportó error o no respondió al init.
+- `stale`: Sin heartbeat durante 20s. El sensor puede haberse desconectado físicamente.
+
+El estado se comunica al frontend via el evento local `device_state_change`, que incluye el estado y la versión del firmware (si disponible).
+
+## Reconexión Automática del Puerto Serial
+
+| Parámetro | Valor |
+| --- | --- |
+| Intentos máximos | 3 (`MAX_RECONNECT_ATTEMPTS`) |
+| Backoff | Exponencial: `delay * 2^(intento-1)` |
+| Deshabilitación | `autoReconnectEnabled = false` |
+
+La reconexión automática se activa cuando el puerto se cierra inesperadamente (no por acción del usuario). Las desconexiones físicas (USB) requieren intervención manual del usuario debido a restricciones de seguridad del navegador (Web Serial API no permite re-abrir puertos sin gesto del usuario).

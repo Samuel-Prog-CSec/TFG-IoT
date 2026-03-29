@@ -52,6 +52,14 @@ const rfidDedupeConfig = {
 };
 
 /**
+ * Límite máximo de conexiones WebSocket simultáneas por usuario.
+ * Previene agotamiento de recursos por apertura masiva de conexiones.
+ */
+const socketConnectionLimits = {
+  maxConnectionsPerUser: Number.parseInt(process.env.SOCKET_MAX_CONNECTIONS_PER_USER, 10) || 5
+};
+
+/**
  * Limpieza de estados viejos para evitar fugas de memoria.
  */
 const socketStateCleanup = {
@@ -64,5 +72,6 @@ module.exports = {
   socketBlockConfig,
   socketPayloadLimits,
   rfidDedupeConfig,
+  socketConnectionLimits,
   socketStateCleanup
 };

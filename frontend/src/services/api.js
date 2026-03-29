@@ -183,7 +183,7 @@ api.interceptors.response.use(
     }
 
     // 429 - Rate limit excedido
-    if (status === 429 && !originalRequest._rateLimitRetry) {
+    if (status === 429 && (originalRequest._rateLimitRetryCount || 0) < RATE_LIMIT_MAX_RETRIES) {
       return handleRateLimitError(error, originalRequest);
     }
 
@@ -356,13 +356,10 @@ async function handleRateLimitError(error, originalRequest) {
     );
   }
 
-  originalRequest._rateLimitRetry = true;
   originalRequest._rateLimitRetryCount = retryCount + 1;
 
   await new Promise((resolve) => setTimeout(resolve, waitMs));
 
-  // Permitir que el siguiente intento también sea interceptado si recibe 429
-  originalRequest._rateLimitRetry = false;
   return api(originalRequest);
 }
 
@@ -622,8 +619,18 @@ export const decksAPI = {
    * @param {string} deckId - ID del mazo
    * @returns {Promise} Respuesta de confirmación
    */
-  deleteDeck: (deckId) => 
+  deleteDeck: (deckId) =>
     api.delete(`/decks/${deckId}`),
+
+  /**
+   * Verificar si un UID de tarjeta RFID existe en otros mazos activos del profesor (ADR-022).
+   * Usado durante el escaneo para dar feedback inmediato al profesor.
+   * @param {string} uid - UID de la tarjeta RFID
+   * @param {string} [excludeDeckId] - ID de mazo a excluir (para edición)
+   * @returns {Promise} Respuesta con { found: boolean, deck?: { id, name, cardsCount } }
+   */
+  checkCard: (uid, excludeDeckId) =>
+    api.get('/decks/check-card', { params: { uid, ...(excludeDeckId && { excludeDeckId }) } }),
 
   /**
    * Obtener contador de mazos activos del profesor

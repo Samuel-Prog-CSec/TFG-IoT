@@ -16,7 +16,13 @@ const { objectIdSchema } = require('../validators/commonValidator');
 const { getRfidState } = require('../states/rfid');
 const { getSocketCommand, getCommandNames } = require('../commands/socket');
 const { findDangerousPayloadPath } = require('../utils/payloadSecurity');
+const { socketConnectionLimits } = require('../config/socketRateLimits');
+const { getRedis } = require('../config/redis');
 const Sentry = require('@sentry/node');
+
+const REDIS_RFID_MODE_PREFIX = 'rfid:mode:';
+const REDIS_SENSOR_PREFIX = 'rfid:sensor:';
+const REDIS_RFID_MODE_TTL = 3600; // 1 hora
 
 const RFID_MODES = Object.freeze({
   IDLE: 'idle',
@@ -34,6 +40,7 @@ const rfidModeByUserId = new Map();
 const sensorIdToUserId = new Map();
 const authRevalidationCache = new Map();
 const playOwnershipCache = new Map();
+const connectionCountByUserId = new Map();
 let socketServerRef = null;
 
 /**
@@ -172,11 +179,37 @@ const setSocketOwnershipCacheEntry = (socket, cacheKey, value) => {
   };
 };
 
-const getRfidModeState = userId => {
+const RFID_IDLE_STATE = Object.freeze({ mode: RFID_MODES.IDLE, sensorId: null, socketId: null });
+
+const getRfidModeState = async userId => {
   if (!userId) {
-    return { mode: RFID_MODES.IDLE, sensorId: null, socketId: null };
+    return RFID_IDLE_STATE;
   }
-  return rfidModeByUserId.get(userId) || { mode: RFID_MODES.IDLE, sensorId: null, socketId: null };
+
+  const cached = rfidModeByUserId.get(userId);
+  if (cached) {
+    return cached;
+  }
+
+  // Fallback: tras reinicio del servidor, recuperar de Redis
+  const redis = getRedis();
+  if (redis) {
+    try {
+      const raw = await redis.get(`${REDIS_RFID_MODE_PREFIX}${userId}`);
+      if (raw) {
+        const restored = JSON.parse(raw);
+        rfidModeByUserId.set(userId, restored);
+        if (restored.sensorId) {
+          sensorIdToUserId.set(restored.sensorId, userId);
+        }
+        return restored;
+      }
+    } catch {
+      // Silencioso: Redis no disponible, usar default
+    }
+  }
+
+  return RFID_IDLE_STATE;
 };
 
 const getAssignmentRoom = userId => `card_assignment_${userId}`;
@@ -188,6 +221,41 @@ const getUserIdBySensorId = sensorId => {
   }
 
   return sensorIdToUserId.get(sensorId) || null;
+};
+
+/**
+ * Persiste estado RFID en Redis (fire-and-forget).
+ * @param {string} userId
+ * @param {Object|null} state - null para borrar
+ */
+const persistRfidModeToRedis = (userId, state) => {
+  const redis = getRedis();
+  if (!redis) {
+    return;
+  }
+
+  if (!state) {
+    redis.del(`${REDIS_RFID_MODE_PREFIX}${userId}`).catch(() => {});
+    return;
+  }
+
+  redis
+    .setex(`${REDIS_RFID_MODE_PREFIX}${userId}`, REDIS_RFID_MODE_TTL, JSON.stringify(state))
+    .catch(() => {});
+};
+
+const persistSensorBindingToRedis = (sensorId, userId) => {
+  const redis = getRedis();
+  if (!redis) {
+    return;
+  }
+
+  if (!userId) {
+    redis.del(`${REDIS_SENSOR_PREFIX}${sensorId}`).catch(() => {});
+    return;
+  }
+
+  redis.setex(`${REDIS_SENSOR_PREFIX}${sensorId}`, REDIS_RFID_MODE_TTL, userId).catch(() => {});
 };
 
 const setRfidModeState = (userId, mode, socketId, metadata = {}) => {
@@ -207,10 +275,12 @@ const setRfidModeState = (userId, mode, socketId, metadata = {}) => {
 
   if (current?.sensorId) {
     sensorIdToUserId.delete(current.sensorId);
+    persistSensorBindingToRedis(current.sensorId, null);
   }
 
   if (mode === RFID_MODES.IDLE) {
     rfidModeByUserId.delete(userId);
+    persistRfidModeToRedis(userId, null);
     emitRfidModeChanged(userId, {
       mode: RFID_MODES.IDLE,
       sensorId: null,
@@ -221,13 +291,16 @@ const setRfidModeState = (userId, mode, socketId, metadata = {}) => {
     return;
   }
 
-  rfidModeByUserId.set(userId, {
+  const newState = {
     mode,
     socketId,
     sensorId: null,
     metadata,
     updatedAt: modeChangedAt
-  });
+  };
+
+  rfidModeByUserId.set(userId, newState);
+  persistRfidModeToRedis(userId, newState);
 
   emitRfidModeChanged(userId, {
     mode,
@@ -246,27 +319,28 @@ const setRfidSensorBinding = (userId, sensorId, socketId) => {
   const current = rfidModeByUserId.get(userId);
   if (current?.sensorId && current.sensorId !== sensorId) {
     sensorIdToUserId.delete(current.sensorId);
+    persistSensorBindingToRedis(current.sensorId, null);
   }
 
   sensorIdToUserId.set(sensorId, userId);
+  persistSensorBindingToRedis(sensorId, userId);
   const nextUpdatedAt = Date.now();
-  rfidModeByUserId.set(userId, {
+  const nextState = {
     ...current,
     sensorId,
     socketId,
     updatedAt: nextUpdatedAt
-  });
+  };
+  rfidModeByUserId.set(userId, nextState);
+  persistRfidModeToRedis(userId, nextState);
 
-  const nextState = rfidModeByUserId.get(userId);
-  if (nextState) {
-    emitRfidModeChanged(userId, {
-      mode: nextState.mode,
-      sensorId: nextState.sensorId,
-      metadata: nextState.metadata || {},
-      socketId: nextState.socketId || null,
-      updatedAt: nextUpdatedAt
-    });
-  }
+  emitRfidModeChanged(userId, {
+    mode: nextState.mode,
+    sensorId: nextState.sensorId,
+    metadata: nextState.metadata || {},
+    socketId: nextState.socketId || null,
+    updatedAt: nextUpdatedAt
+  });
 };
 
 const clearRfidModeState = (userId, socketId) => {
@@ -285,9 +359,11 @@ const clearRfidModeState = (userId, socketId) => {
 
   if (current?.sensorId) {
     sensorIdToUserId.delete(current.sensorId);
+    persistSensorBindingToRedis(current.sensorId, null);
   }
 
   rfidModeByUserId.delete(userId);
+  persistRfidModeToRedis(userId, null);
   emitRfidModeChanged(userId, {
     mode: RFID_MODES.IDLE,
     sensorId: null,
@@ -574,8 +650,8 @@ const parseRfidClientPayload = (socket, data) => {
   return null;
 };
 
-const getRfidStateForSocket = (socket, logger) => {
-  const modeState = getRfidModeState(socket.data.userId);
+const getRfidStateForSocket = async (socket, logger) => {
+  const modeState = await getRfidModeState(socket.data.userId);
   const state = getRfidState(modeState.mode, logger);
   return { modeState, state };
 };
@@ -722,7 +798,7 @@ const handleRfidScanFromClient = async (socket, data, gameEngine, rfidService, l
     return;
   }
 
-  const { modeState, state } = getRfidStateForSocket(socket, logger);
+  const { modeState, state } = await getRfidStateForSocket(socket, logger);
   if (!validateRfidStateForRead(socket, modeState, state)) {
     return;
   }
@@ -855,11 +931,24 @@ const registerSocketHandlers = ({ io, gameEngine, rfidService, socketRateLimiter
         return next(new Error('Sesion invalida'));
       }
 
-      socket.data.userId = user._id.toString();
+      const userId = user._id.toString();
+      const currentCount = connectionCountByUserId.get(userId) || 0;
+      if (currentCount >= socketConnectionLimits.maxConnectionsPerUser) {
+        logSocketSecurityEvent('WS_CONNECTION_LIMIT', socket, {
+          reason: 'MAX_CONNECTIONS_EXCEEDED',
+          userId,
+          currentCount,
+          limit: socketConnectionLimits.maxConnectionsPerUser
+        });
+        return next(new Error('Limite de conexiones alcanzado'));
+      }
+      connectionCountByUserId.set(userId, currentCount + 1);
+
+      socket.data.userId = userId;
       socket.data.userRole = user.role;
       socket.data.accessToken = accessToken;
       socket.data.tokenExp = decoded.exp;
-      socketRateLimiter.setIdentity(socket, { id: user._id.toString(), role: user.role });
+      socketRateLimiter.setIdentity(socket, { id: userId, role: user.role });
 
       socket.join(`user_${decoded.id}`);
 
@@ -872,13 +961,13 @@ const registerSocketHandlers = ({ io, gameEngine, rfidService, socketRateLimiter
     }
   });
 
-  io.on('connection', socket => {
+  io.on('connection', async socket => {
     logger.info(`Cliente conectado: ${socket.id}`, {
       userId: socket.data.userId,
       role: socket.data.userRole
     });
 
-    const currentMode = getRfidModeState(socket.data.userId);
+    const currentMode = await getRfidModeState(socket.data.userId);
     socket.emit('rfid_mode_changed', {
       mode: currentMode.mode,
       sensorId: currentMode.sensorId || null,
@@ -937,13 +1026,17 @@ const registerSocketHandlers = ({ io, gameEngine, rfidService, socketRateLimiter
             eventName,
             socketId: socket.id
           },
-          user: socket.user ? { id: socket.user._id, role: socket.user.role } : null
+          user: socket.data?.userId ? { id: socket.data.userId, role: socket.data.userRole } : null
         });
         logger.error('Error ejecutando comando Socket', {
           eventName,
           message: error.message
         });
-        socket.emit('error', { message: 'Error al procesar el evento' });
+        socket.emit('error', {
+          code: 'COMMAND_ERROR',
+          message: 'Error al procesar el evento',
+          event: eventName
+        });
       }
     };
 
@@ -972,8 +1065,17 @@ const registerSocketHandlers = ({ io, gameEngine, rfidService, socketRateLimiter
     });
 
     socket.on('disconnect', () => {
+      const disconnUserId = socket.data.userId;
+      if (disconnUserId) {
+        const count = connectionCountByUserId.get(disconnUserId) || 0;
+        if (count <= 1) {
+          connectionCountByUserId.delete(disconnUserId);
+        } else {
+          connectionCountByUserId.set(disconnUserId, count - 1);
+        }
+      }
       socket.data.playOwnershipCache = null;
-      clearRfidModeState(socket.data.userId, socket.id);
+      clearRfidModeState(disconnUserId, socket.id);
       socketRateLimiter.cleanupForSocket(socket);
       logger.info(`Cliente desconectado: ${socket.id}`, {
         userId: socket.data.userId,

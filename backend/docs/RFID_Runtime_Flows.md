@@ -42,7 +42,7 @@ Objetivo: eliminar conflictos multi-tab y lecturas duplicadas o inconsistentes.
 ## 3.1 Frontend (navegador del profesor)
 
 - Lee datos del sensor vía Web Serial.
-- Emite comandos socket de intención (`join_card_registration`, `join_card_assignment`, `join_play`, etc.).
+- Emite comandos socket de intención (`join_card_assignment`, `join_play`, etc.).
 - Envía scans con `rfid_scan_from_client`.
 - Escucha `rfid_mode_changed` y actualiza UI global de modo.
 
@@ -74,7 +74,7 @@ Evento servidor → cliente:
 
 Payload:
 
-- `mode`: `idle | gameplay | card_registration | card_assignment`
+- `mode`: `idle | gameplay | card_assignment`
 - `sensorId`: sensor ligado al modo actual (o `null`)
 - `metadata`: contexto adicional (por ejemplo `playId` en gameplay)
 - `socketId`: socket owner activo
@@ -102,8 +102,7 @@ Semántica:
 4. `RFIDService` emite `rfid_event` interno.
 5. Socket layer enruta por modo:
    - gameplay: room de play,
-   - card_assignment: room de asignación del usuario,
-   - card_registration: room de registro del usuario.
+   - card_assignment: room de asignación del usuario.
 6. En gameplay, GameEngine consume scan y emite eventos de juego.
 
 ---
@@ -119,24 +118,7 @@ Estado de reposo.
 
 Uso típico: sin operación RFID activa, o tras `leave_*` / cierre de contexto.
 
-## 6.2 Card Registration
-
-Inicio:
-
-1. Frontend emite `join_card_registration`.
-2. Backend valida rol profesor/admin.
-3. Backend une socket a `card_registration_<userId>`.
-4. Backend fija modo `card_registration` y emite `rfid_mode_changed`.
-
-Operación:
-
-- Scan válido se ingesta y reenvía como `rfid_event` al room de registro del usuario.
-
-Salida:
-
-- `leave_card_registration` limpia estado y retorna a `idle`.
-
-## 6.3 Card Assignment
+## 6.2 Card Assignment
 
 Inicio:
 
@@ -153,7 +135,7 @@ Salida:
 
 - `leave_card_assignment` limpia estado y retorna a `idle`.
 
-## 6.4 Gameplay
+## 6.3 Gameplay
 
 Inicio:
 
@@ -199,6 +181,8 @@ Objetivo:
 
 ## 8. Errores esperados (guardrails, no bugs)
 
+> **Catálogo completo de códigos de error**: Ver [WebSockets-ExtendedUsage.md §6.2](WebSockets-ExtendedUsage.md#62-códigos-de-error) para la lista consolidada de todos los códigos de error WebSocket.
+
 Estos códigos representan **rechazos de control intencionales** del contrato:
 
 - `RFID_MODE_INVALID`: scan fuera de modo/room permitidos.
@@ -221,7 +205,6 @@ Interpretación operativa:
 
 | Acción | Actor que inicia | Backend valida | Backend decide estado | Backend emite | Frontend reacciona |
 | --- | --- | --- | --- | --- | --- |
-| Entrar registro | Frontend profesor | rol + auth | `card_registration` | `rfid_mode_changed` | UI modo registro |
 | Entrar asignación | Frontend profesor | rol + auth | `card_assignment` | `rfid_mode_changed` | UI modo asignación |
 | Entrar gameplay | Frontend juego | ownership + auth | `gameplay` + `playId` | `rfid_mode_changed` | UI en juego activo |
 | Enviar scan | Frontend profesor | modo/room/owner/sensor | aceptar/rechazar | `rfid_event` o `error` | feedback/flujo |

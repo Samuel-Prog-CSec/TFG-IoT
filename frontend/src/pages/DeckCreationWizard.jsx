@@ -203,13 +203,25 @@ export default function DeckCreationWizard() {
       });
       return;
     }
-    
+
     if (selectedCards.find(c => c.uid === card.uid)) {
       toast.info('Carta ya añadida');
       return;
     }
-    
+
     setSelectedCards(prev => [...prev, card]);
+
+    // Check cross-deck: verificar si la tarjeta está en otro mazo activo (ADR-022)
+    decksAPI.checkCard(card.uid).then(res => {
+      const result = res.data?.data;
+      if (result?.found) {
+        toast.warning('Tarjeta en otro mazo', {
+          description: `La tarjeta ${card.uid} está en el mazo "${result.deck.name}". Se moverá automáticamente al crear este mazo.`
+        });
+      }
+    }).catch(() => {
+      // Silencioso: el check es informativo, no crítico
+    });
   }, [selectedCards]);
 
 
@@ -281,11 +293,12 @@ export default function DeckCreationWizard() {
         cardMappings: buildCardMappingsPayload(selectedCards, cardAssignments)
       };
       
-      await decksAPI.createDeck(deckData);
-      
+      const response = await decksAPI.createDeck(deckData);
+      const responseData = response.data?.data;
+
       // Limpiar borrador
       clearDraft();
-      
+
       // Celebración
       // TOKEN-EXCEPTION: canvas-confetti requires raw hex colors
       confetti({
@@ -295,10 +308,20 @@ export default function DeckCreationWizard() {
         colors: ['#8b5cf6', '#6366f1', '#a855f7', '#ec4899'],
         disableForReducedMotion: shouldReduceMotion,
       });
-      
+
       toast.success('¡Mazo creado!', {
         description: `"${deckName}" está listo para usar`
       });
+
+      // Resumen de tarjetas movidas cross-deck (ADR-022)
+      if (responseData?.affectedDecks?.movedCards?.length > 0) {
+        const { movedCards, archivedDecks } = responseData.affectedDecks;
+        let description = `${movedCards.length} tarjeta(s) movida(s) desde otros mazos.`;
+        if (archivedDecks?.length > 0) {
+          description += ` ${archivedDecks.length} mazo(s) archivado(s) por quedar con pocas cartas.`;
+        }
+        toast.info('Tarjetas reorganizadas', { description, duration: 6000 });
+      }
       
       // Redirigir después de un momento para que se vea el confetti
       setTimeout(() => {

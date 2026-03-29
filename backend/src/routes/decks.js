@@ -10,6 +10,7 @@ const router = express.Router();
 const {
   getDecks,
   getDeckById,
+  checkCard,
   createDeck,
   updateDeck,
   deleteDeck
@@ -22,7 +23,8 @@ const {
   createCardDeckSchema,
   updateCardDeckSchema,
   cardDeckQuerySchema,
-  cardDeckParamsSchema
+  cardDeckParamsSchema,
+  checkCardQuerySchema
 } = require('../validators/cardDeckValidator');
 const { emptyObjectSchema } = require('../validators/commonValidator');
 const asyncHandler = require('../utils/asyncHandler');
@@ -39,6 +41,20 @@ router.get(
   requireRole('teacher'),
   validateQuery(cardDeckQuerySchema),
   asyncHandler(getDecks)
+);
+
+/**
+ * @route   GET /api/decks/check-card
+ * @desc    Verificar si un UID existe en otros mazos activos del profesor (ADR-022)
+ * @access  Private (Teacher)
+ * @validation query: checkCardQuerySchema
+ */
+router.get(
+  '/check-card',
+  authenticate,
+  requireRole('teacher'),
+  validateQuery(checkCardQuerySchema),
+  asyncHandler(checkCard)
 );
 
 /**

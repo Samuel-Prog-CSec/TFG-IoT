@@ -221,7 +221,19 @@ export default function DeckEditPage() {
     setSelectedCards(prev => [...prev, card]);
     dispatchUI({ type: 'SET_ACTIVE_CARD', payload: card.uid });
     toast.success(`Carta ${card.uid} añadida`);
-  }, [selectedCards]);
+
+    // Check cross-deck: verificar si la tarjeta está en otro mazo activo (ADR-022)
+    decksAPI.checkCard(card.uid, deckId).then(res => {
+      const result = res.data?.data;
+      if (result?.found) {
+        toast.warning('Tarjeta en otro mazo', {
+          description: `La tarjeta ${card.uid} está en el mazo "${result.deck.name}". Se moverá automáticamente al guardar.`
+        });
+      }
+    }).catch(() => {
+      // Silencioso: el check es informativo, no crítico
+    });
+  }, [selectedCards, deckId]);
 
   const handleRemoveCard = useCallback((uid) => {
     if (selectedCards.length <= MIN_CARDS) {
@@ -294,8 +306,9 @@ export default function DeckEditPage() {
         cardMappings: buildCardMappingsPayload(selectedCards, cardAssignments)
       };
       
-      await decksAPI.updateDeck(deckId, updateData);
-      
+      const response = await decksAPI.updateDeck(deckId, updateData);
+      const responseData = response.data?.data;
+
       // TOKEN-EXCEPTION: canvas-confetti requires raw hex colors
       confetti({
         particleCount: 100,
@@ -303,8 +316,18 @@ export default function DeckEditPage() {
         origin: { y: 0.6 },
         colors: ['#10b981', '#059669', '#34d399']
       });
-      
+
       toast.success('Mazo actualizado');
+
+      // Resumen de tarjetas movidas cross-deck (ADR-022)
+      if (responseData?.affectedDecks?.movedCards?.length > 0) {
+        const { movedCards, archivedDecks } = responseData.affectedDecks;
+        let description = `${movedCards.length} tarjeta(s) movida(s) desde otros mazos.`;
+        if (archivedDecks?.length > 0) {
+          description += ` ${archivedDecks.length} mazo(s) archivado(s) por quedar con pocas cartas.`;
+        }
+        toast.info('Tarjetas reorganizadas', { description, duration: 6000 });
+      }
 
       const updatedCardMappings = buildUpdatedCardMappings(selectedCards, cardAssignments);
       

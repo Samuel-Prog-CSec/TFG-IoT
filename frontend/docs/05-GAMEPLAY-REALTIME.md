@@ -4,6 +4,8 @@
 
 Documentar el comportamiento funcional de la pantalla de partida (`GameSession`) en modo productivo, conectada por Socket.IO al backend y sin flujos simulados.
 
+> **Referencia canónica de eventos WebSocket**: Para la lista completa y actualizada de todos los eventos WebSocket, consultar [WebSockets-ExtendedUsage.md §6](../../backend/docs/WebSockets-ExtendedUsage.md#6-eventos-websocket) en la documentación del backend.
+
 ## Principios de diseño aplicados
 
 1. **Socket-first en gameplay**: las acciones de partida (`join/start/pause/resume`) se ejecutan por eventos realtime.

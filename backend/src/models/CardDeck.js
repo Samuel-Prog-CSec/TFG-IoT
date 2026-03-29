@@ -123,6 +123,8 @@ CardDeckSchema.path('cardMappings').validate(value => {
 CardDeckSchema.index({ createdBy: 1, createdAt: -1 });
 CardDeckSchema.index({ createdBy: 1, contextId: 1 });
 CardDeckSchema.index({ status: 1 });
+// Búsqueda eficiente de UIDs cross-deck por profesor (ADR-022)
+CardDeckSchema.index({ createdBy: 1, status: 1, 'cardMappings.uid': 1 });
 // Evitar nombres duplicados por profesor (UX más limpia)
 CardDeckSchema.index({ createdBy: 1, name: 1 }, { unique: true });
 

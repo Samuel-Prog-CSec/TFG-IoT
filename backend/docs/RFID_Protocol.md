@@ -26,7 +26,6 @@
 > | Procesamiento de Escaneo | [rfid_card_scan_processing.puml](diagrams/rfid_card_scan_processing.puml) |
 > | Flujo de Gameplay        | [rfid_gameplay_sequence.puml](diagrams/rfid_gameplay_sequence.puml)       |
 > | Inicialización           | [rfid_init_sequence.puml](diagrams/rfid_init_sequence.puml)               |
-> | Registro de Tarjetas     | [rfid_card_registration.puml](diagrams/rfid_card_registration.puml)       |
 >
 > Para generar imágenes: `plantuml diagrams/*.puml`
 
@@ -47,7 +46,6 @@ El sistema RFID permite:
 
 - **Interacción física**: Los alumnos responden a desafíos escaneando tarjetas físicas
 - **Retroalimentación inmediata**: El sistema valida respuestas en tiempo real
-- **Registro de tarjetas**: Los profesores pueden registrar nuevas tarjetas en el sistema
 - **Asignación dinámica**: Las tarjetas se asignan a conceptos educativos por sesión de juego
 
 ### 1.2 Componentes Principales
@@ -86,7 +84,7 @@ El sistema RFID está compuesto por tres capas principales:
 
 - Pantalla del alumno (visualización de desafíos y feedback)
 - Dashboard del profesor (monitoreo y control)
-- Panel de configuración (registro y asignación de tarjetas)
+- Panel de configuración (asignación de tarjetas)
 
 ### 2.2 Flujo de Datos
 
@@ -413,12 +411,11 @@ El sensor RFID es un recurso compartido que puede operar en diferentes modos seg
 
 ### 6.1 Modos Disponibles
 
-| Modo                | Descripción               | Acción al Escanear                         |
-| ------------------- | ------------------------- | ------------------------------------------ |
-| `idle`              | Sin operación activa      | Broadcast informativo a todos los clientes |
-| `gameplay`          | Partida en curso          | Validar respuesta en GameEngine            |
-| `card_registration` | Registrando nueva tarjeta | Enviar UID al cliente solicitante          |
-| `card_assignment`   | Asignando tarjeta a asset | Enviar UID + assetKey al cliente           |
+| Modo              | Descripción               | Acción al Escanear                         |
+| ----------------- | ------------------------- | ------------------------------------------ |
+| `idle`            | Sin operación activa      | Broadcast informativo a todos los clientes |
+| `gameplay`        | Partida en curso          | Validar respuesta en GameEngine            |
+| `card_assignment` | Asignando tarjeta a asset | Enviar UID + assetKey al cliente           |
 
 ### 6.2 Diagrama de Estados de Modos
 
@@ -430,16 +427,13 @@ El sensor RFID es un recurso compartido que puede operar en diferentes modos seg
 
 - **`gameplay`**: Se activa cuando hay una partida en curso. Los escaneos se procesan en `GameEngine` para validar respuestas. Este modo **coexiste** con los demás (no bloquea otras operaciones).
 
-- **`card_registration`**: Se activa cuando un profesor inicia el registro de una nueva tarjeta. El primer escaneo se envía únicamente al cliente que solicitó el modo. Tiene un timeout de 30 segundos.
+- **`card_assignment`**: Se usa para asignar una tarjeta a un asset específico (ej: "España" → UID). Incluye el `assetKey` en la respuesta. Timeout de 60 segundos.
 
-- **`card_assignment`**: Similar a registro, pero se usa para asignar una tarjeta existente a un asset específico (ej: "España" → UID). Incluye el `assetKey` en la respuesta. Timeout de 60 segundos.
-
-**Decisión de diseño**: El modo `gameplay` coexiste con otros modos para permitir que las partidas no bloqueen operaciones administrativas como el registro de tarjetas. Sin embargo, si hay una partida activa que utiliza una tarjeta específica, esa tarjeta está "bloqueada" y no puede ser re-asignada.
+**Decisión de diseño**: El modo `gameplay` coexiste con otros modos para permitir que las partidas no bloqueen operaciones administrativas como la asignación de tarjetas. Sin embargo, si hay una partida activa que utiliza una tarjeta específica, esa tarjeta está "bloqueada" y no puede ser re-asignada.
 
 ### 6.3 Reglas de Transición
 
 - ✅ `idle` → cualquier modo: **Permitido**
-- ✅ `card_registration` → `idle`: **Permitido** (tras escaneo o cancelación)
 - ✅ `card_assignment` → `idle`: **Permitido** (tras escaneo o cancelación)
 - ❌ `gameplay` → otro modo: **Bloqueado** (partidas tienen prioridad)
 - ✅ cualquier modo → `gameplay`: **Permitido** (iniciar partida)
@@ -449,7 +443,7 @@ El sensor RFID es un recurso compartido que puede operar en diferentes modos seg
 - Cada modo tiene un "dueño" (el socket que lo solicitó)
 - Solo el dueño puede cancelar el modo
 - Si el dueño se desconecta, el modo se resetea automáticamente
-- Timeout configurable (30s para registro, 60s para asignación)
+- Timeout configurable (60s para asignación)
 
 ---
 
@@ -524,6 +518,8 @@ Cuando un alumno escanea una tarjeta durante una partida:
 
 ## 8. Eventos WebSocket
 
+> **Referencia canónica de eventos WebSocket**: Para la lista completa y actualizada de todos los eventos WebSocket (cliente→servidor y servidor→cliente), consultar [WebSockets-ExtendedUsage.md §6](WebSockets-ExtendedUsage.md#6-eventos-websocket). Esta sección solo documenta los eventos específicos del protocolo RFID.
+
 ### 8.1 Eventos Cliente → Servidor
 
 | Evento | Payload | Descripción |
@@ -534,8 +530,6 @@ Cuando un alumno escanea una tarjeta durante una partida:
 | `resume_play` | `{ playId }` | Reanudar partida (solo profesor) |
 | `leave_play` | `{ playId }` | Abandonar la sala de una partida |
 | `next_round` | `{ playId }` | Solicitar siguiente ronda manualmente |
-| `join_card_registration` | `{}` | Activar modo registro de tarjetas (room por usuario) |
-| `leave_card_registration` | `{}` | Salir de modo registro |
 | `join_card_assignment` | `{}` | Activar modo asignación (room por usuario) |
 | `leave_card_assignment` | `{}` | Salir de modo asignación |
 | `rfid_scan_from_client` | `{ uid, type, sensorId, ... }` | Evento RFID desde Web Serial |
@@ -568,7 +562,6 @@ Cuando un alumno escanea una tarjeta durante una partida:
 
 | Evento | Payload | Descripción |
 | --- | --- | --- |
-| `rfid_event` (room `card_registration_<userId>`) | `{ event, uid, type, sensorId, ... }` | Evento RFID en modo registro |
 | `rfid_event` (room `card_assignment_<userId>`) | `{ event, uid, type, sensorId, ... }` | Evento RFID en modo asignación |
 
 ---
@@ -677,14 +670,13 @@ Endpoint: `GET /api/metrics` (requiere autenticación de profesor)
 
 ## Apéndice B: Códigos de Error
 
+> **Catálogo completo**: Para la lista consolidada de todos los códigos de error WebSocket (autenticación, RFID, gameplay, rate limiting), consultar [WebSockets-ExtendedUsage.md §6.2](WebSockets-ExtendedUsage.md#62-códigos-de-error). Esta sección solo lista los códigos específicos del protocolo hardware RFID.
+
 | Código                | Descripción                               | HTTP Status |
 | --------------------- | ----------------------------------------- | ----------- |
 | `MODE_BLOCKED`        | No se puede activar modo (partida activa) | -           |
 | `INVALID_DATA`        | Faltan datos requeridos                   | 400         |
 | `NOT_OWNER`           | No eres el dueño del modo                 | 403         |
-| `CARD_EXISTS`         | Tarjeta ya registrada                     | 409         |
-| `CARD_NOT_FOUND`      | Tarjeta no en BD                          | 404         |
-| `CARD_INACTIVE`       | Tarjeta desactivada                       | 400         |
 | `SENSOR_DISCONNECTED` | Sensor RFID no conectado                  | 503         |
 
 ---

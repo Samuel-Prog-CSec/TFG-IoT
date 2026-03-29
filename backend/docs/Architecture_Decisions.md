@@ -1580,3 +1580,121 @@ Adicionalmente, se identificaron 3 patrones ya implementados pero no documentado
 **Negativas:**
 - `ownershipHelpers` introduce una dependencia transversal; cambios en la firma afectan 5 controllers
 - `createSessionFromDeck` importa helpers desde `controllers/helpers/` — inversion de dependencia atipica (service importa de controller helpers). Los helpers son funciones puras sin dependencia HTTP, pero la ubicacion es suboptima. Considerar mover a `utils/` o `services/helpers/` en futuras iteraciones
+
+## ADR-022: Hardening de la capa WebSocket — persistencia RFID en Redis y limite de conexiones por usuario
+
+### Contexto (ADR-022)
+
+Una auditoria de la comunicacion frontend-backend revelo dos vulnerabilidades en la capa WebSocket:
+
+1. **Estado RFID volatil**: Los Maps en memoria `rfidModeByUserId` y `sensorIdToUserId` se pierden si el servidor se reinicia durante una partida activa. El profesor debe re-entrar al juego manualmente para restaurar el modo RFID, interrumpiendo la sesion educativa.
+
+2. **Conexiones ilimitadas por usuario**: No existia limite de conexiones WebSocket simultaneas por usuario. Un usuario (o atacante) podia abrir conexiones ilimitadas, agotando recursos del servidor.
+
+Adicionalmente, se identificaron dos bugs menores:
+- El contexto de usuario en Sentry referenciaba `socket.user` (inexistente) en lugar de `socket.data.userId`.
+- El error generico de fallo de comando no incluia codigo de error ni nombre del evento.
+
+### Decision (ADR-022)
+
+**Persistencia RFID en Redis (write-through)**:
+- Al cambiar el modo RFID (`setRfidModeState`), se escribe simultaneamente en el Map en memoria y en Redis (`rfid:mode:{userId}`, TTL 1h).
+- Al consultar el modo (`getRfidModeState`), se lee primero del Map; si esta vacio (post-reinicio), se recupera de Redis y se restaura el Map.
+- Al limpiar el modo (`clearRfidModeState`), se borra de ambos.
+- Los bindings sensor-usuario siguen el mismo patron (`rfid:sensor:{sensorId}`).
+- Las escrituras a Redis son fire-and-forget (no bloquean el flujo principal).
+- Si Redis no esta disponible, el sistema opera solo con el Map en memoria (degradacion transparente).
+
+**Limite de conexiones por usuario**:
+- Map `connectionCountByUserId` que cuenta conexiones activas por `userId`.
+- Se incrementa en el middleware de autenticacion tras validacion exitosa.
+- Se decrementa en el handler `disconnect`.
+- Limite configurable via `SOCKET_MAX_CONNECTIONS_PER_USER` (default: 5).
+- Al superar el limite: se rechaza la conexion con error `Limite de conexiones alcanzado` y se registra evento de seguridad `WS_CONNECTION_LIMIT`.
+
+**Fixes de Sentry y error de comando**:
+- Sentry usa `socket.data.userId` y `socket.data.userRole` correctamente.
+- El error generico incluye `code: 'COMMAND_ERROR'` y `event: eventName` para diagnostico.
+
+### Alternativas Consideradas (ADR-022)
+
+1. **Persistir RFID state solo en Redis (sin Map)**: Rechazada. Introduciria latencia de red en cada lectura de modo RFID, que ocurre en el path critico de cada scan.
+
+2. **Persistir todas las caches en Redis** (auth, ownership): Rechazada. Estas caches son de TTL muy corto (5-30s) y se repoblan naturalmente tras reinicio. El coste de persistencia supera el beneficio.
+
+3. **Limite de conexiones via Redis** (distribuido): No necesario en la escala actual (single server). El Map local es suficiente y no introduce dependencia de Redis para la gestion de conexiones.
+
+### Consecuencias (ADR-022)
+
+**Positivas:**
+- Tras reinicio del servidor, el modo RFID se recupera automaticamente al primer acceso — sin intervencion del profesor
+- Proteccion contra DoS via apertura masiva de conexiones WebSocket
+- Reportes de Sentry incluyen contexto de usuario para diagnostico efectivo
+- Errores de comando distinguibles por el frontend (codigo + evento)
+
+**Negativas:**
+- `getRfidModeState` pasa de sincrono a async (requiere `await` en los call sites)
+- Dependencia adicional de Redis para estado RFID (mitigado por fallback transparente)
+
+### Relacion con otros ADRs
+
+- **ADR-010** (Checkpoints de partida): Mismo patron de persistencia en Redis para recuperacion ante crash
+- **ADR-011** (Redis Adapter): Reutiliza la infraestructura de Redis ya configurada para Socket.IO
+- **ADR-016** (Rate limiting Redis store): Complementario — rate limiting protege throughput, este ADR protege recursos de conexion
+- **ADR-020** (Cache Redis): Mismo patron fire-and-forget con fallback transparente
+
+## ADR-023: Unicidad cross-deck de tarjetas RFID por profesor
+
+### Contexto (ADR-023)
+
+ADR-012 elimino el modelo Card y trato las tarjetas RFID como tokens fungibles. Una consecuencia aceptada (punto 3 de "Negativas") fue que el mismo UID podia existir en multiples mazos activos del mismo profesor sin advertencia. En la practica, esto causaba confusion cuando un profesor reutilizaba una tarjeta fisica en un nuevo mazo sin darse cuenta de que ya estaba en otro, produciendo comportamiento inesperado al crear sesiones de juego.
+
+### Decision (ADR-023)
+
+Se implementa unicidad cross-deck de UIDs dentro de los mazos **activos** de un mismo profesor. El mismo UID puede existir en mazos de distintos profesores (compartir tarjetas entre aulas) y en mazos archivados.
+
+**Resolucion automatica de conflictos:**
+- Al crear o actualizar un mazo, si un UID ya existe en otro mazo activo del profesor, se elimina automaticamente del mazo anterior.
+- Si el mazo anterior queda con menos de `MIN_DECK_CARDS` (2), se archiva automaticamente.
+- La operacion es atomica (transaccion MongoDB via `withTransaction`).
+
+**Feedback al profesor (doble capa):**
+- `GET /api/decks/check-card?uid=X` — endpoint read-only para verificacion durante escaneo. El frontend muestra un toast informativo no bloqueante: "Esta tarjeta esta en el mazo X, se movera automaticamente."
+- Al crear/actualizar, la respuesta incluye campo opcional `affectedDecks` con resumen de tarjetas movidas y mazos archivados.
+
+**Service Layer para CardDeck:**
+- Se introduce `cardDeckService.js` con dos funciones:
+  - `checkCardInOtherDecks(uid, teacherId, excludeDeckId?)` — lectura para feedback inmediato
+  - `resolveCardConflicts(uids, teacherId, session, excludeDeckId?)` — resolucion atomica dentro de transaccion
+- El servicio no maneja transacciones; el controller orquesta `withTransaction` y pasa el session.
+
+**Indice compuesto:**
+- `{ createdBy: 1, status: 1, 'cardMappings.uid': 1 }` en CardDeck para busqueda eficiente de UIDs cross-deck.
+
+### Alternativas Consideradas (ADR-023)
+
+1. **Validacion sin auto-move (bloquear y avisar):** Rechazada. Obliga al profesor a ir manualmente al otro mazo, eliminar la tarjeta, volver al wizard y re-escanear. Demasiada friccion para un flujo comun.
+
+2. **Move inmediato al escanear (sin transaccion):** Rechazada. Si el profesor cancela el wizard despues de escanear, las tarjetas ya se habrian movido de los mazos originales — estado inconsistente.
+
+3. **Todo en el momento de crear (sin check previo):** Viable pero inferior. El profesor no recibe feedback hasta el final, cuando el mazo ya esta creado. El check al escanear da visibilidad inmediata.
+
+### Consecuencias (ADR-023)
+
+**Positivas:**
+1. Elimina confusion por tarjetas duplicadas entre mazos activos del mismo profesor
+2. Flujo no-destructivo hasta confirmar: si el profesor cancela, nada cambia
+3. Introduce Service Layer para CardDeck (alineado con ADR-021)
+4. Operacion atomica con transacciones MongoDB (alineado con ADR-015)
+5. UX no intrusiva: toast informativo durante escaneo, resolucion automatica al guardar
+
+**Negativas:**
+1. Creacion/actualizacion de mazos ahora puede modificar otros mazos del mismo profesor como efecto secundario
+2. El auto-archivado puede sorprender al profesor si no lee los toasts informativos
+3. Latencia adicional en creacion/actualizacion por la transaccion multi-documento (despreciable en la escala actual)
+
+### Relacion con otros ADRs
+
+- **ADR-012** (Tarjetas como tokens fungibles): Este ADR refina ADR-012 anadiendo unicidad cross-deck por profesor, manteniendo la fungibilidad cross-profesor
+- **ADR-015** (Repository pattern y transacciones): Reutiliza `withTransaction` y `createWithSession` en el repository
+- **ADR-021** (Service Layer): Sigue el patron establecido de Service Layer para logica de negocio compleja

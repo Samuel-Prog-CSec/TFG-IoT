@@ -28,23 +28,59 @@ const logger = require('./logger');
  *   return user[0];
  * });
  */
+/**
+ * Detecta si un error indica que MongoDB no soporta transacciones (standalone).
+ * @param {Error} error
+ * @returns {boolean}
+ */
+const isTransactionNotSupportedError = error => {
+  const msg = error?.message || '';
+  return (
+    msg.includes('Transaction numbers') ||
+    msg.includes('transaction') ||
+    error?.codeName === 'IllegalOperation'
+  );
+};
+
 const withTransaction = async callback => {
-  const session = await mongoose.startSession();
-  session.startTransaction();
+  let session;
+
+  try {
+    session = await mongoose.startSession();
+    session.startTransaction();
+  } catch {
+    // Standalone MongoDB (sin replica set): ejecutar sin transacción
+    logger.debug('Transacciones no disponibles (standalone), ejecutando sin sesión');
+    return callback(null);
+  }
 
   try {
     const result = await callback(session);
     await session.commitTransaction();
     return result;
   } catch (error) {
-    await session.abortTransaction();
+    try {
+      await session.abortTransaction();
+    } catch {
+      // Puede fallar si la transacción ya fue abortada por el driver
+    }
+
+    // Si el error es por falta de replica set, reintentar sin transacción
+    if (isTransactionNotSupportedError(error)) {
+      logger.debug('Transacciones no soportadas, reintentando sin sesión');
+      session.endSession();
+      return callback(null);
+    }
+
     logger.error('Transacción abortada', {
       error: error.message,
       stack: error.stack
     });
     throw error;
   } finally {
-    session.endSession();
+    if (session.hasEnded !== undefined ? !session.hasEnded : true) {
+      session.endSession();
+    }
   }
 };
 
