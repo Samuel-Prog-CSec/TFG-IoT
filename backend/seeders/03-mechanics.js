@@ -21,7 +21,7 @@ const mechanicsData = [
     displayName: 'Asociación',
     description:
       'Se muestra en pantalla una consigna o elemento visual y el alumno debe escanear la tarjeta física correcta en el sensor.',
-    icon: 'association',
+    icon: '🔗',
     rules: {
       // Configuración por defecto
       defaults: {
@@ -58,7 +58,7 @@ const mechanicsData = [
     description:
       'El alumno debe escanear las tarjetas en un orden específico. ' +
       'Por ejemplo: ordenar los números del 1 al 5, o los días de la semana.',
-    icon: 'sequence',
+    icon: '🔢',
     rules: {
       defaults: {
         numberOfCards: 5,
@@ -90,7 +90,7 @@ const mechanicsData = [
     displayName: 'Memoria',
     description:
       'Las cartas se muestran en tablero boca abajo. Al escanear, se revela su contenido; al formar parejas iguales se mantienen visibles y al fallar se vuelven a ocultar.',
-    icon: 'memory',
+    icon: '🧠',
     rules: {
       defaults: {
         numberOfCards: 6,

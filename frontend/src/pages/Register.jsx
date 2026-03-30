@@ -519,7 +519,7 @@ export default function Register() {
                 disabled={isSubmitting || isLoading}
                 icon={<UserPlus className="size-5" />}
               >
-                {isSubmitting ? 'Registrando\u2026' : 'Crear cuenta'}
+                {isSubmitting ? 'Registrando…' : 'Crear cuenta'}
               </ButtonPremium>
             </motion.div>
           </motion.form>

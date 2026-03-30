@@ -491,7 +491,7 @@ export default function SessionEdit() {
               disabled={!canEdit || saving}
             >
               <Save size={16} />
-              {saving ? 'Guardando\u2026' : 'Guardar cambios'}
+              {saving ? 'Guardando…' : 'Guardar cambios'}
             </ButtonPremium>
           </div>
         </GlassCard>

@@ -271,7 +271,7 @@ export default function BoardSetup() {
                         disabled={!canStart || savingBoard}
                         className="shadow-lg shadow-success-base/20"
                     >
-                        <Play size={20} /> {savingBoard ? 'Guardando tablero\u2026' : 'Iniciar Partida'}
+                        <Play size={20} /> {savingBoard ? 'Guardando tablero…' : 'Iniciar Partida'}
                     </ButtonPremium>
                 </div>
             </header>

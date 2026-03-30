@@ -24,7 +24,7 @@ export default function GuestRoute({ children }) {
 
   // Mostrar loading mientras verifica
   if (isLoading) {
-    return <AuthLoader message="Cargando\u2026" />;
+    return <AuthLoader message="Cargando…" />;
   }
 
   // Redirigir si ya está autenticado

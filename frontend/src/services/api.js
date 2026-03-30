@@ -736,6 +736,18 @@ export const contextsAPI = {
     api.delete(`/contexts/${contextMongoId}`),
 
   /**
+   * Adjuntar o reemplazar audio en un asset existente
+   * @param {string} contextMongoId - MongoDB _id del contexto
+   * @param {string} assetKey - Key del asset destino
+   * @param {FormData} formData - Datos con archivo de audio (file)
+   * @returns {Promise} Asset actualizado con audioUrl
+   */
+  attachAudio: (contextMongoId, assetKey, formData) =>
+    api.patch(`/contexts/${contextMongoId}/assets/${assetKey}/audio`, formData, {
+      headers: { 'Content-Type': 'multipart/form-data' }
+    }),
+
+  /**
    * Eliminar la imagen de un asset (y el registro del asset completo)
    * @param {string} contextMongoId - MongoDB _id del contexto
    * @param {string} assetKey - Key del asset a eliminar

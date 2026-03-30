@@ -518,12 +518,14 @@ function DeckPreviewAssets({
       {previewAssets.map((mapping, index) => (
         <motion.div
           key={mapping._id || index}
-          className="size-10 rounded-lg bg-background-elevated/80 border border-border-default flex items-center justify-center text-lg overflow-hidden"
+          className="size-10 rounded-lg border border-border-default flex items-center justify-center text-lg overflow-hidden shadow-[inset_0_1px_4px_rgba(0,0,0,0.3)] ring-1 ring-white/5"
           initial={{ opacity: 0, scale: 0.8 }}
           animate={{ opacity: 1, scale: 1 }}
           transition={{ delay: index * 0.1 }}
           style={{
             transform: `translateZ(${(index + 1) * 10}px)`,
+            // Fondo con dominantColor del asset para continuidad visual
+            backgroundColor: mapping.displayData?.dominantColor || 'var(--color-background-elevated)',
           }}
         >
           <CardAssetPreview

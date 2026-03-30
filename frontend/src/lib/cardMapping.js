@@ -1,9 +1,30 @@
-export function getBestAssetImageUrl(asset) {
+/**
+ * Selecciona la URL de imagen óptima según el contexto de uso.
+ *
+ * @param {Object} asset - Objeto asset con imageUrl y thumbnailUrl
+ * @param {Object} [options]
+ * @param {boolean} [options.preferFull=false] - true para displays grandes (ChallengeDisplay),
+ *   false para grids/cards donde el thumbnail (256x256) es suficiente
+ * @returns {string|null} URL de la imagen seleccionada
+ */
+export function getAssetImageUrl(asset, { preferFull = false } = {}) {
   if (!asset) {
     return null;
   }
 
+  if (preferFull) {
+    return asset.imageUrl || asset.thumbnailUrl || null;
+  }
+
   return asset.thumbnailUrl || asset.imageUrl || null;
+}
+
+/**
+ * Alias retrocompatible: devuelve thumbnail > imageUrl.
+ * Usado por CardAssetPreview y grids de cards.
+ */
+export function getBestAssetImageUrl(asset) {
+  return getAssetImageUrl(asset);
 }
 
 export function normalizeCardMappingsFromDeck(deckData) {
@@ -52,7 +73,8 @@ export function buildCardMappingsPayload(selectedCards, cardAssignments) {
         display: assignedAsset.display || '',
         imageUrl: assignedAsset.imageUrl || null,
         thumbnailUrl: assignedAsset.thumbnailUrl || null,
-        audioUrl: assignedAsset.audioUrl || null
+        audioUrl: assignedAsset.audioUrl || null,
+        dominantColor: assignedAsset.dominantColor || null
       }
     };
   });

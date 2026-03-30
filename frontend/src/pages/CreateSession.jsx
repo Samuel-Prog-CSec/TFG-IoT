@@ -46,6 +46,7 @@ import {
 import WizardStepper from '../components/ui/WizardStepper';
 import ButtonPremium from '../components/ui/ButtonPremium';
 import CardAssetPreview from '../components/ui/CardAssetPreview';
+import AudioPlayBadge from '../components/ui/AudioPlayBadge';
 import GlassCard from '../components/ui/GlassCard';
 import InputPremium from '../components/ui/InputPremium';
 import SelectPremium from '../components/ui/SelectPremium';
@@ -1586,12 +1587,20 @@ function StepReview({ sessionConfig, setSessionConfig, selectedDeck, selectedMec
               {selectedDeck?.cardMappings?.length > 0 && (
                 <div className="flex gap-1.5 mt-2 overflow-x-auto pb-1 max-w-full">
                   {selectedDeck.cardMappings.slice(0, 8).map((m) => (
-                    <CardAssetPreview
-                      key={m.uid || m.id || m._id}
-                      asset={m.displayData}
-                      className="size-10 rounded-lg flex-shrink-0"
-                      fallbackLabel={m.displayData?.display || m.displayData?.emoji || '\uD83C\uDFB3'}
-                    />
+                    <div key={m.uid || m.id || m._id} className="relative flex-shrink-0">
+                      <CardAssetPreview
+                        asset={m.displayData}
+                        className="size-10 rounded-lg"
+                        fallbackLabel={m.displayData?.display || m.displayData?.emoji || '\uD83C\uDFB3'}
+                      />
+                      {m.displayData?.audioUrl && (
+                        <AudioPlayBadge
+                          audioUrl={m.displayData.audioUrl}
+                          size="xs"
+                          className="absolute -top-1 -right-1"
+                        />
+                      )}
+                    </div>
                   ))}
                   {selectedDeck.cardMappings.length > 8 && (
                     <div className="size-10 rounded-lg flex-shrink-0 bg-background-surface/60 flex items-center justify-center text-xs text-text-muted">

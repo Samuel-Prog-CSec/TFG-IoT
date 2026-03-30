@@ -472,7 +472,7 @@ export default function Login() {
                 disabled={isSubmitting || isLoading || isLocked}
                 icon={<LogIn className="size-5" />}
               >
-                {isSubmitting ? 'Iniciando sesi\u00f3n\u2026' : 'Iniciar Sesi\u00f3n'}
+                {isSubmitting ? 'Iniciando sesión…' : 'Iniciar Sesión'}
               </ButtonPremium>
             </motion.div>
           </motion.form>

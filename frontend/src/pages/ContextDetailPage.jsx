@@ -1,22 +1,21 @@
 import { useState, useEffect, useRef } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
-import { 
-  ArrowLeft, 
-  Palette, 
-  Image as ImageIcon, 
-  Music, 
-  Plus, 
-  Upload, 
+import {
+  ArrowLeft,
+  Palette,
+  Image as ImageIcon,
+  Music,
+  Plus,
+  Upload,
   X,
   Check,
-  Play,
-  Pause,
   AlertTriangle,
   Trash2,
   Pencil,
   Loader2,
-  ShieldCheck
+  ShieldCheck,
+  RefreshCw
 } from 'lucide-react';
 import { toast } from 'sonner';
 
@@ -24,6 +23,8 @@ import GlassCard from '../components/ui/GlassCard';
 import ButtonPremium from '../components/ui/ButtonPremium';
 import InputPremium from '../components/ui/InputPremium';
 import CardAssetPreview from '../components/ui/CardAssetPreview';
+import AudioMiniPlayer from '../components/ui/AudioMiniPlayer';
+import AudioUploadModal from '../components/ui/AudioUploadModal';
 import { SkeletonCard } from '../components/ui/SkeletonShimmer';
 import { cn } from '../lib/utils';
 import { useAuth } from '../context/AuthContext';
@@ -53,8 +54,10 @@ export default function ContextDetailPage() {
   const [showUploadModal, setShowUploadModal] = useState(false);
   const [showEditModal, setShowEditModal] = useState(false);
   const [showDeleteModal, setShowDeleteModal] = useState(false);
-  const [isDeletingAsset, setIsDeletingAsset] = useState(null); // key del asset en borrado
-  
+  const [isDeletingAsset, setIsDeletingAsset] = useState(null);
+  const [isDeletingAudio, setIsDeletingAudio] = useState(null);
+  const [audioModalAsset, setAudioModalAsset] = useState(null); // asset para AudioUploadModal
+
   const fetchContext = async () => {
     try {
       setLoading(true);
@@ -69,22 +72,18 @@ export default function ContextDetailPage() {
     }
   };
 
+  // Eliminar asset completo (imagen + audio)
   const handleDeleteAsset = async (asset) => {
     const contextDocId = context._id || context.id;
-    const assetKey = asset.key;
 
-    setIsDeletingAsset(assetKey);
+    setIsDeletingAsset(asset.key);
     try {
-      if (asset.imageUrl || asset.thumbnailUrl) {
-        await contextsAPI.deleteImage(contextDocId, assetKey);
-      } else if (asset.audioUrl) {
-        await contextsAPI.deleteAudio(contextDocId, assetKey);
-      }
+      // deleteImage elimina el asset completo incluyendo audio si lo tiene
+      await contextsAPI.deleteImage(contextDocId, asset.key);
       toast.success(`Asset "${asset.value}" eliminado`);
       await fetchContext();
     } catch (err) {
       const msg = extractErrorMessage(err);
-      // 409 = asset en uso por algún mazo activo
       if (err?.response?.status === 409) {
         toast.error('No se puede eliminar: el asset está en uso por un mazo activo', { description: msg });
       } else {
@@ -92,6 +91,22 @@ export default function ContextDetailPage() {
       }
     } finally {
       setIsDeletingAsset(null);
+    }
+  };
+
+  // Eliminar solo el audio de un asset (conservar imagen)
+  const handleDeleteAudio = async (asset) => {
+    const contextDocId = context._id || context.id;
+
+    setIsDeletingAudio(asset.key);
+    try {
+      await contextsAPI.deleteAudio(contextDocId, asset.key);
+      toast.success(`Audio de "${asset.value}" eliminado`);
+      await fetchContext();
+    } catch (err) {
+      toast.error('Error al eliminar el audio', { description: extractErrorMessage(err) });
+    } finally {
+      setIsDeletingAudio(null);
     }
   };
 
@@ -189,7 +204,7 @@ export default function ContextDetailPage() {
                 icon={<Plus size={18} />}
                 className="flex-1 md:flex-none"
               >
-                Añadir Asset
+                Añadir imagen
               </ButtonPremium>
             </div>
           </div>
@@ -217,8 +232,12 @@ export default function ContextDetailPage() {
                   key={asset.key}
                   asset={asset}
                   index={i}
+                  contextId={context._id || context.id}
                   onDelete={handleDeleteAsset}
                   isDeleting={isDeletingAsset === asset.key}
+                  onDeleteAudio={handleDeleteAudio}
+                  isDeletingAudio={isDeletingAudio === asset.key}
+                  onManageAudio={(a) => setAudioModalAsset(a)}
                 />
               ))}
             </AnimatePresence>
@@ -229,11 +248,24 @@ export default function ContextDetailPage() {
       {/* Modales */}
       <AnimatePresence>
         {showUploadModal && (
-          <UploadAssetModal 
+          <UploadAssetModal
             context={context}
             onClose={() => setShowUploadModal(false)}
             onSuccess={() => {
               setShowUploadModal(false);
+              fetchContext();
+            }}
+          />
+        )}
+        {audioModalAsset && (
+          <AudioUploadModal
+            assetKey={audioModalAsset.key}
+            assetValue={audioModalAsset.value}
+            contextId={context._id || context.id}
+            currentAudioUrl={audioModalAsset.audioUrl || null}
+            onClose={() => setAudioModalAsset(null)}
+            onSuccess={() => {
+              setAudioModalAsset(null);
               fetchContext();
             }}
           />
@@ -264,21 +296,7 @@ export default function ContextDetailPage() {
 // COMPONENTES AUXILIARES
 // ============================================
 
-function AssetCard({ asset, index, onDelete, isDeleting = false }) {
-  const [isPlaying, setIsPlaying] = useState(false);
-  const audioRef = useRef(null);
-
-  const toggleAudio = (e) => {
-    e.stopPropagation();
-    if (!audioRef.current) return;
-    
-    if (isPlaying) {
-      audioRef.current.pause();
-    } else {
-      audioRef.current.play();
-    }
-  };
-
+function AssetCard({ asset, index, onDelete, isDeleting = false, onDeleteAudio, isDeletingAudio = false, onManageAudio }) {
   return (
     <motion.div
       initial={{ opacity: 0, scale: 0.9 }}
@@ -287,9 +305,15 @@ function AssetCard({ asset, index, onDelete, isDeleting = false }) {
       whileHover={{ y: -4 }}
       className="group"
     >
-      <GlassCard className="h-full overflow-hidden flex flex-col relative border-border-subtle hover:border-accent-indigo/30 transition-colors">
+      <GlassCard
+        className={cn(
+          "h-full overflow-hidden flex flex-col relative border-border-subtle transition-[border-color,box-shadow] duration-300",
+          "hover:border-accent-indigo/30"
+        )}
+        style={asset.dominantColor ? { '--card-glow': asset.dominantColor } : undefined}
+      >
         {/* Preview Container */}
-        <div className="aspect-square w-full bg-background-elevated/50 relative overflow-hidden flex items-center justify-center">
+        <div className="aspect-square w-full bg-background-elevated/50 relative overflow-hidden flex items-center justify-center group-hover:shadow-[0_0_24px_var(--card-glow,transparent)]">
           <CardAssetPreview
             asset={asset}
             alt={asset.value}
@@ -299,7 +323,7 @@ function AssetCard({ asset, index, onDelete, isDeleting = false }) {
             fallbackIcon={<Palette size={40} className="text-text-disabled" />}
           />
 
-          {/* Type Badge */}
+          {/* Type Badges */}
           <div className="absolute top-2 right-2 flex gap-1">
             {(asset.imageUrl || asset.thumbnailUrl) && (
               <div className="size-6 rounded-full bg-backdrop backdrop-blur-md flex items-center justify-center">
@@ -312,22 +336,10 @@ function AssetCard({ asset, index, onDelete, isDeleting = false }) {
               </div>
             )}
           </div>
-          
-          {/* Audio Overlay Play Button */}
-          {asset.audioUrl && (
-            <div className="absolute inset-0 bg-backdrop opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
-              <button 
-                onClick={toggleAudio}
-                className="size-12 rounded-full bg-accent-indigo text-text-primary flex items-center justify-center hover:scale-110 transition-transform shadow-xl"
-              >
-                {isPlaying ? <Pause size={24} /> : <Play size={24} className="ml-1" />}
-              </button>
-            </div>
-          )}
         </div>
 
-        {/* Detalles */}
-        <div className="p-3 bg-background-base/40 border-t border-border-subtle flex-1 flex flex-col">
+        {/* Detalles + Audio Management */}
+        <div className="p-3 bg-background-base/40 border-t border-border-subtle flex-1 flex flex-col gap-2">
           <div className="flex items-start justify-between gap-1">
             <div className="min-w-0 flex-1">
               <h4 className="font-medium text-text-primary truncate" title={asset.value}>
@@ -342,7 +354,7 @@ function AssetCard({ asset, index, onDelete, isDeleting = false }) {
                 onClick={(e) => { e.stopPropagation(); onDelete(asset); }}
                 disabled={isDeleting}
                 className="flex-shrink-0 p-1.5 rounded-lg text-text-muted hover:text-error-base hover:bg-error-base/10 transition-colors disabled:opacity-50"
-                title="Eliminar asset"
+                title="Eliminar asset completo"
               >
                 {isDeleting
                   ? <Loader2 size={14} className="animate-spin" />
@@ -350,26 +362,53 @@ function AssetCard({ asset, index, onDelete, isDeleting = false }) {
               </button>
             )}
           </div>
-        </div>
 
-        {/* Audio helper */}
-        {asset.audioUrl && (
-          /* eslint-disable-next-line jsx-a11y/media-has-caption */
-          <audio 
-            ref={audioRef} 
-            src={asset.audioUrl} 
-            onPlay={() => setIsPlaying(true)}
-            onPause={() => setIsPlaying(false)}
-            onEnded={() => setIsPlaying(false)}
-          />
-        )}
+          {/* Audio: player + acciones, o botón añadir */}
+          {asset.audioUrl ? (
+            <div className="space-y-1.5">
+              <AudioMiniPlayer audioUrl={asset.audioUrl} size="md" variant="solid" />
+              <div className="flex items-center gap-1.5">
+                <button
+                  onClick={(e) => { e.stopPropagation(); onManageAudio(asset); }}
+                  className="flex items-center gap-1 px-2 py-1 rounded-lg text-[10px] font-medium text-text-muted hover:text-accent-indigo hover:bg-accent-indigo/10 transition-colors"
+                  title="Reemplazar audio"
+                >
+                  <RefreshCw size={10} />
+                  Reemplazar
+                </button>
+                <button
+                  onClick={(e) => { e.stopPropagation(); onDeleteAudio(asset); }}
+                  disabled={isDeletingAudio}
+                  className="flex items-center gap-1 px-2 py-1 rounded-lg text-[10px] font-medium text-text-muted hover:text-error-base hover:bg-error-base/10 transition-colors disabled:opacity-50"
+                  title="Eliminar solo el audio"
+                >
+                  {isDeletingAudio ? <Loader2 size={10} className="animate-spin" /> : <Trash2 size={10} />}
+                  Audio
+                </button>
+              </div>
+            </div>
+          ) : (
+            <button
+              onClick={(e) => { e.stopPropagation(); onManageAudio(asset); }}
+              title="Adjuntar un archivo de audio MP3/OGG a este asset"
+              className={cn(
+                "flex items-center justify-center gap-1.5 py-2 rounded-lg text-xs font-medium",
+                "border border-dashed border-border-default text-text-muted",
+                "hover:border-accent-indigo/50 hover:text-accent-indigo hover:bg-accent-indigo/5",
+                "transition-colors duration-200"
+              )}
+            >
+              <Music size={12} />
+              Añadir audio
+            </button>
+          )}
+        </div>
       </GlassCard>
     </motion.div>
   );
 }
 
 function UploadAssetModal({ context, onClose, onSuccess }) {
-  const [type, setType] = useState('image'); // 'image' | 'audio'
   const [file, setFile] = useState(null);
   const [preview, setPreview] = useState(null);
   const fileInputRef = useRef(null);
@@ -382,13 +421,7 @@ function UploadAssetModal({ context, onClose, onSuccess }) {
   
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [uploadConfig, setUploadConfig] = useState({
-    image: { maxInputSizeMB: 8, allowedFormats: ['PNG', 'JPG', 'JPEG', 'GIF', 'WebP'] },
-    audio: {
-      maxSizeMB: 5,
-      allowedFormats: ['MP3', 'OGG'],
-      minDurationSeconds: 0.3,
-      maxDurationSeconds: 45
-    }
+    image: { maxInputSizeMB: 8, allowedFormats: ['PNG', 'JPG', 'JPEG', 'GIF', 'WebP'] }
   });
 
   useEffect(() => {
@@ -417,32 +450,20 @@ function UploadAssetModal({ context, onClose, onSuccess }) {
     const selected = e.target.files[0];
     if (!selected) return;
 
-    const maxSizeMB = type === 'image' ? uploadConfig?.image?.maxInputSizeMB : uploadConfig?.audio?.maxSizeMB;
-    if (maxSizeMB && selected.size > maxSizeMB * 1024 * 1024) {
+    const maxSizeMB = uploadConfig?.image?.maxInputSizeMB || 8;
+    if (selected.size > maxSizeMB * 1024 * 1024) {
       toast.error(`El archivo excede el máximo permitido de ${maxSizeMB}MB`);
       return;
     }
 
-    if (type === 'image' && !selected.type.startsWith('image/')) {
+    if (!selected.type.startsWith('image/')) {
       toast.error('Formato inválido: selecciona una imagen válida');
       return;
     }
 
-    if (type === 'audio' && !['audio/mpeg', 'audio/mp3', 'audio/ogg'].includes(selected.type)) {
-      toast.error('Formato inválido: usa MP3 u OGG');
-      return;
-    }
-
     setFile(selected);
+    setPreview(URL.createObjectURL(selected));
 
-    // Generar preview si es imagen
-    if (selected.type.startsWith('image/')) {
-      const url = URL.createObjectURL(selected);
-      setPreview(url);
-    } else {
-      setPreview(null);
-    }
-    
     // Auto-completar campos según el archivo si están vacíos
     if (!formData.key) {
       const nameWithoutExt = selected.name.split('.')[0].toLowerCase().replace(/[^a-z0-9_-]/g, '_');
@@ -477,17 +498,11 @@ function UploadAssetModal({ context, onClose, onSuccess }) {
         data.append('display', formData.display.trim());
       }
 
-      if (type === 'image') {
-        await contextsAPI.uploadImage(context._id || context.contextId, data);
-        toast.success('Imagen subida correctamente');
-      } else {
-        await contextsAPI.uploadAudio(context._id || context.contextId, data);
-        toast.success('Audio subido correctamente');
-      }
-      
+      await contextsAPI.uploadImage(context._id || context.contextId, data);
+      toast.success('Imagen subida correctamente');
       onSuccess();
     } catch (err) {
-      toast.error(type === 'image' ? 'Error al subir imagen' : 'Error al subir audio', {
+      toast.error('Error al subir imagen', {
         description: extractErrorMessage(err)
       });
     } finally {
@@ -508,7 +523,7 @@ function UploadAssetModal({ context, onClose, onSuccess }) {
             <div className="size-10 rounded-xl bg-accent-indigo/20 flex items-center justify-center">
               <Upload size={20} className="text-accent-indigo" />
             </div>
-            <h3 className="text-lg font-semibold text-text-primary">Añadir Asset</h3>
+            <h3 className="text-lg font-semibold text-text-primary">Subir imagen</h3>
           </div>
           <button
             onClick={onClose}
@@ -519,30 +534,6 @@ function UploadAssetModal({ context, onClose, onSuccess }) {
         </div>
 
         <div className="p-6 overflow-y-auto">
-          {/* Tabs Tipo */}
-          <div className="flex bg-background-elevated/50 rounded-xl p-1 mb-6">
-            <button
-              type="button"
-              onClick={() => { setType('image'); setFile(null); setPreview(null); }}
-              className={cn(
-                'flex-1 flex items-center justify-center gap-2 py-2.5 rounded-lg text-sm font-medium transition-colors',
-                type === 'image' ? TAB_BUTTON_VARIANTS.active : TAB_BUTTON_VARIANTS.inactive
-              )}
-            >
-              <ImageIcon size={16} /> Imagen
-            </button>
-            <button
-              type="button"
-              onClick={() => { setType('audio'); setFile(null); setPreview(null); }}
-              className={cn(
-                'flex-1 flex items-center justify-center gap-2 py-2.5 rounded-lg text-sm font-medium transition-colors',
-                type === 'audio' ? TAB_BUTTON_VARIANTS.active : TAB_BUTTON_VARIANTS.inactive
-              )}
-            >
-              <Music size={16} /> Audio
-            </button>
-          </div>
-
           <form onSubmit={handleSubmit} className="space-y-5">
             {/* File Dropzone */}
             <div
@@ -555,15 +546,15 @@ function UploadAssetModal({ context, onClose, onSuccess }) {
                 file ? DROPZONE_VARIANTS.withFile : DROPZONE_VARIANTS.empty
               )}
             >
-              <input 
+              <input
                 type="file"
                 ref={fileInputRef}
                 onChange={handleFileChange}
-                accept={type === 'image' ? '.png,.jpg,.jpeg,.gif,.webp,image/*' : '.mp3,.ogg,audio/mpeg,audio/ogg'}
+                accept=".png,.jpg,.jpeg,.gif,.webp,image/*"
                 className="hidden"
               />
               
-              {preview && type === 'image' ? (
+              {preview ? (
                 <>
                   <img src={preview} alt="Preview" className="w-full h-full object-contain opacity-40 blur-sm absolute" />
                   <img src={preview} alt="Preview focus" className="h-full object-contain z-10 drop-shadow-lg" />
@@ -584,12 +575,10 @@ function UploadAssetModal({ context, onClose, onSuccess }) {
                 </div>
               ) : (
                 <div className="text-center px-4">
-                  {type === 'image' ? <ImageIcon size={32} className="mx-auto text-text-muted mb-3" /> : <Music size={32} className="mx-auto text-text-muted mb-3" />}
-                  <p className="text-sm font-medium text-text-primary mb-1">Click para seleccionar archivo</p>
+                  <ImageIcon size={32} className="mx-auto text-text-muted mb-3" />
+                  <p className="text-sm font-medium text-text-primary mb-1">Click para seleccionar imagen</p>
                   <p className="text-xs text-text-muted">
-                    {type === 'image'
-                      ? `${uploadConfig?.image?.allowedFormats?.join(', ')} (Max ${uploadConfig?.image?.maxInputSizeMB}MB)`
-                      : `${uploadConfig?.audio?.allowedFormats?.join(', ')} (Max ${uploadConfig?.audio?.maxSizeMB}MB · ${uploadConfig?.audio?.minDurationSeconds}s-${uploadConfig?.audio?.maxDurationSeconds}s)`}
+                    {uploadConfig?.image?.allowedFormats?.join(', ')} (Max {uploadConfig?.image?.maxInputSizeMB}MB)
                   </p>
                 </div>
               )}

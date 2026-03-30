@@ -14,6 +14,7 @@ const InputPremium = ({
   label,
   error,
   hint,
+  helperText,
   icon,
   iconPosition = 'left',
   className,
@@ -117,6 +118,9 @@ const InputPremium = ({
           </p>
         ) : null}
       </AnimatePresence>
+      {helperText && !hasError && !hint && (
+        <p className="mt-1.5 text-xs text-text-muted">{helperText}</p>
+      )}
     </div>
   );
 };

@@ -183,3 +183,21 @@ Nota: persisten warnings legacy (principalmente PropTypes y a11y en componentes 
 ## 8. Conclusión
 
 La intervención corrige la causa raíz de inconsistencia (contrato de cartas), homogeneiza visualización de assets en los tres flujos críticos solicitados y fortalece la calidad de subida de audio con validación objetiva de duración. El resultado mejora confiabilidad funcional, trazabilidad arquitectónica y defendibilidad técnica de decisiones para memoria/defensa del TFG.
+
+---
+
+## Mejoras de Integración Visual y Rendimiento (Sprint 5, 30-03-2026)
+
+### Decisiones Tomadas
+
+6. **LQIP con color dominante**: El backend extrae el color dominante de cada imagen mediante `sharp().stats()` y lo almacena como `dominantColor` (hex `#RRGGBB`) en el subdocumento del asset. El frontend lo usa como fondo del contenedor de imagen mientras carga, reemplazando el skeleton shimmer genérico.
+
+7. **Profundidad visual con inner shadow**: Se aplica `shadow-[inset_0_2px_8px_rgba(0,0,0,0.25)]` en `CardAssetPreview` para que las imágenes parezcan "incrustadas" en sus contenedores, en vez de "pegadas" sobre ellos.
+
+8. **AudioMiniPlayer standalone**: Se creó `AudioMiniPlayer.jsx` como componente independiente (patrón análogo a `CardAssetPreview`), reemplazando los botones básicos de play/pause en `ChallengeDisplay` y `ContextDetailPage`.
+
+9. **Selección contextual de URL**: `getAssetImageUrl(asset, { preferFull })` permite a displays grandes (ChallengeDisplay) usar la imagen principal (768x768) en vez del thumbnail (256x256), optimizando claridad en retina.
+
+10. **Sharpening post-resize**: `sharp().sharpen({ sigma: 0.5 })` aplicado tras el redimensionado en backend, compensando la pérdida de definición natural del downscale.
+
+11. **Glow tematizado por asset**: Los cards en ContextDetailPage usan `--card-glow` (CSS variable) con el `dominantColor` del asset para producir un glow personalizado en hover.

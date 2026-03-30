@@ -45,9 +45,9 @@ const SOCKET_ERROR_MESSAGES = {
 
 const REALTIME_STATUS_COPY = {
   connected: { label: 'Juego listo', announcement: 'El juego está conectado.' },
-  reconnecting: { label: 'Reconectando\u2026', announcement: 'Reconectando el juego.' },
-  disconnected: { label: 'Sin conexi\u00f3n', announcement: 'Se perdi\u00f3 la conexi\u00f3n del juego.' },
-  connecting: { label: 'Conectando\u2026', announcement: 'Conectando el juego.' }
+  reconnecting: { label: 'Reconectando…', announcement: 'Reconectando el juego.' },
+  disconnected: { label: 'Sin conexión', announcement: 'Se perdió la conexión del juego.' },
+  connecting: { label: 'Conectando…', announcement: 'Conectando el juego.' }
 };
 
 const TIMER_ANNOUNCEMENT_THRESHOLDS = new Set([10, 5, 3, 2, 1, 0]);
@@ -1057,7 +1057,7 @@ export default function GameSession() { // NOSONAR
               {realtimeStatus === 'reconnecting' && '⏳ '}
               {realtimeStatus === 'disconnected' && '❌ '}
               {realtimeStatus === 'connecting' && '⏳ '}
-              {REALTIME_STATUS_COPY[realtimeStatus]?.label || 'Conectando\u2026'}
+              {REALTIME_STATUS_COPY[realtimeStatus]?.label || 'Conectando…'}
             </div>
           </div>
         </div>

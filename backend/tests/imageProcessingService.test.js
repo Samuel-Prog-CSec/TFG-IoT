@@ -18,8 +18,10 @@ const mockGetFileType = jest.fn();
 const mockSharpInstance = {
   metadata: jest.fn(),
   resize: jest.fn().mockReturnThis(),
+  sharpen: jest.fn().mockReturnThis(),
   webp: jest.fn().mockReturnThis(),
-  toBuffer: jest.fn()
+  toBuffer: jest.fn(),
+  stats: jest.fn()
 };
 
 const mockSharp = jest.fn(() => mockSharpInstance);
@@ -53,8 +55,12 @@ describe('imageProcessingService', () => {
       format: 'png'
     });
     mockSharpInstance.resize.mockReturnThis();
+    mockSharpInstance.sharpen.mockReturnThis();
     mockSharpInstance.webp.mockReturnThis();
     mockSharpInstance.toBuffer.mockResolvedValue(Buffer.from('processed-image'));
+    mockSharpInstance.stats.mockResolvedValue({
+      dominant: { r: 128, g: 64, b: 255 }
+    });
   });
 
   describe('processImage', () => {
@@ -75,8 +81,31 @@ describe('imageProcessingService', () => {
       expect(result).toHaveProperty('metadata');
       expect(result.metadata.format).toBe('webp');
       expect(result.metadata.quality).toBe(85);
+      expect(result.metadata.dominantColor).toBe('#8040ff');
       expect(Buffer.isBuffer(result.mainImage)).toBe(true);
       expect(Buffer.isBuffer(result.thumbnail)).toBe(true);
+    });
+
+    it('should apply sharpening after resize in main image and thumbnail', async () => {
+      const mockFile = {
+        buffer: Buffer.from('fake-png-content'),
+        originalname: 'test.png',
+        mimetype: 'image/png',
+        size: 1024 * 100
+      };
+
+      mockGetFileType.mockResolvedValue({ mime: 'image/png', ext: 'png' });
+      mockSharpInstance.metadata.mockResolvedValue({
+        width: 1024,
+        height: 1024,
+        format: 'png'
+      });
+
+      await imageProcessingService.processImage(mockFile);
+
+      // sharpen se llama 2 veces: main image + thumbnail
+      expect(mockSharpInstance.sharpen).toHaveBeenCalledWith({ sigma: 0.5 });
+      expect(mockSharpInstance.sharpen).toHaveBeenCalledTimes(2);
     });
 
     it('should reject files exceeding max size', async () => {
@@ -142,6 +171,35 @@ describe('imageProcessingService', () => {
       await expect(imageProcessingService.processImage(mockFile)).rejects.toThrow(
         /demasiado pequeña/i
       );
+    });
+  });
+
+  describe('extractDominantColor', () => {
+    it('should extract dominant color as hex string', async () => {
+      mockSharpInstance.stats.mockResolvedValue({
+        dominant: { r: 128, g: 64, b: 255 }
+      });
+
+      const result = await imageProcessingService.extractDominantColor(Buffer.from('test'));
+      expect(result).toBe('#8040ff');
+    });
+
+    it('should handle pure black', async () => {
+      mockSharpInstance.stats.mockResolvedValue({
+        dominant: { r: 0, g: 0, b: 0 }
+      });
+
+      const result = await imageProcessingService.extractDominantColor(Buffer.from('test'));
+      expect(result).toBe('#000000');
+    });
+
+    it('should handle pure white', async () => {
+      mockSharpInstance.stats.mockResolvedValue({
+        dominant: { r: 255, g: 255, b: 255 }
+      });
+
+      const result = await imageProcessingService.extractDominantColor(Buffer.from('test'));
+      expect(result).toBe('#ffffff');
     });
   });
 

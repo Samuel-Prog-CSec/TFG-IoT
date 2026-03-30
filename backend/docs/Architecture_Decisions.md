@@ -1698,3 +1698,89 @@ Se implementa unicidad cross-deck de UIDs dentro de los mazos **activos** de un 
 - **ADR-012** (Tarjetas como tokens fungibles): Este ADR refina ADR-012 anadiendo unicidad cross-deck por profesor, manteniendo la fungibilidad cross-profesor
 - **ADR-015** (Repository pattern y transacciones): Reutiliza `withTransaction` y `createWithSession` en el repository
 - **ADR-021** (Service Layer): Sigue el patron establecido de Service Layer para logica de negocio compleja
+
+## ADR-024: Mejoras del Sistema de Assets — Sharpening, LQIP y AudioMiniPlayer
+
+**Estado**: Aprobado
+**Fecha**: 30-03-2026
+
+### Contexto
+
+Los assets multimedia (imágenes y audio) de la plataforma funcionaban correctamente pero presentaban áreas de mejora en rendimiento percibido, claridad visual e integración con la UI. Las imágenes redimensionadas perdían definición, los placeholders de carga eran genéricos, el reproductor de audio era básico, y los assets se sentían "pegados" visualmente en las tarjetas y pantallas de juego.
+
+### Decisiones
+
+#### 1. Sharpening post-resize con Sharp (sigma 0.5)
+
+Tras el redimensionado de imágenes (`768x768` y `256x256`), se aplica `sharp().sharpen({ sigma: 0.5 })`. Este valor es conservador: restaura la definición de bordes sin crear artefactos de halo visibles.
+
+**Alternativas descartadas:**
+- Sigma más alto (1.0+): riesgo de artefactos, especialmente en imágenes con gradientes suaves
+- No aplicar sharpening: las imágenes redimensionadas mantienen el blur de downscale
+
+#### 2. Extracción de color dominante via Sharp `stats()`
+
+Se usa `sharp(buffer).stats()` para extraer el `{ dominant: { r, g, b } }` y almacenarlo como hex `#RRGGBB` en el campo `dominantColor` del asset.
+
+**Alternativas descartadas:**
+- `node-vibrant` / `color-thief`: dependencia externa, más lento, devuelve paletas completas innecesarias
+- Computación lazy (calcular en frontend): requeriría descargar la imagen completa antes de mostrar el placeholder
+
+**Decisión de backfill**: se creó `scripts/backfill-dominant-colors.js` para poblar assets existentes. NO se re-procesan imágenes existentes para sharpening (cambiaría URLs en Supabase, requiriendo actualizar documentos en cascada).
+
+#### 3. AudioMiniPlayer como componente standalone
+
+Se extrajo el reproductor de audio a `AudioMiniPlayer.jsx`, siguiendo el mismo patrón que `CardAssetPreview` (componente reutilizable para rendering de assets).
+
+**Alternativas descartadas:**
+- Audio inline en cada componente: duplicación, inconsistencia visual
+- Librería de audio (howler.js, react-player): sobre-ingeniería para clips de ≤45s
+
+#### 4. Thumbnail quality 80% → 85%
+
+La diferencia de tamaño entre 80% y 85% WebP es ~5-10%, pero la claridad visual mejora notablemente en thumbnails con detalles finos (texto, bordes definidos).
+
+### Consecuencias
+
+- **Positivas**: imágenes más nítidas, carga percibida más rápida (LQIP), UI más cohesiva, audio con mejor UX
+- **Negativas**: campo `dominantColor` requiere backfill para datos existentes; imágenes procesadas son ~2-5% más grandes por sharpening
+- **Retrocompatibilidad**: `dominantColor` es opcional (`|| null` en DTOs); `getBestAssetImageUrl` se mantiene como alias
+
+## ADR-025: Vinculación de Audio a Assets Existentes
+
+**Estado**: Aprobado
+**Fecha**: 30-03-2026
+
+### Contexto
+
+El sistema trataba imagen y audio como assets independientes: `uploadImage` creaba un subdocumento con `imageUrl`, `uploadAudio` creaba otro con `audioUrl`. El schema permitía ambos campos en un mismo subdocumento, pero la API nunca los vinculaba. Además, `deleteAudio` eliminaba el asset completo del array, no solo el audio.
+
+### Decisiones
+
+#### 1. Audio como complemento del asset visual
+
+Se añadió `PATCH /contexts/:id/assets/:assetKey/audio` para adjuntar o reemplazar audio en un asset existente (identificado por key). El flujo natural es: crear asset con imagen, luego opcionalmente añadir audio.
+
+**Alternativa descartada**: Modal unificado donde imagen y audio se suben en un solo paso. Descartado porque el audio es opcional y frecuentemente se añade después de la imagen.
+
+#### 2. Smart delete para audio
+
+`deleteAudio` ahora solo elimina el `audioUrl` si el asset tiene imagen (conserva el asset). Si el asset solo tiene audio, elimina el asset completo.
+
+**Alternativa descartada**: Siempre eliminar solo el campo `audioUrl`. Descartado porque dejaría assets vacíos sin utilidad visual.
+
+#### 3. AudioPlayBadge vs AudioMiniPlayer en vistas de consulta
+
+Para vistas de consulta (mazos, sesiones, wizard), se usa un badge compacto (`AudioPlayBadge`, 20px) con play rápido en lugar del `AudioMiniPlayer` completo. Este último se reserva para `ContextDetailPage` (gestión) y `ChallengeDisplay` (gameplay).
+
+**Razón**: Las vistas de consulta muestran muchos assets en grids compactos. Un mini-player por cada card ocuparía demasiado espacio y añadiría ruido visual.
+
+#### 4. Limpieza de audio en deleteImage
+
+`deleteImage` ahora también elimina el archivo de audio de Supabase si el asset lo tiene, previniendo archivos huérfanos en Storage.
+
+### Consecuencias
+
+- **Positivas**: Audio vinculado al asset, gestión individual (añadir/reemplazar/eliminar), indicadores de audio cross-app, sin archivos huérfanos
+- **Negativas**: Pestaña "Audio" eliminada del UploadAssetModal (ya no se pueden crear assets solo-audio desde la UI)
+- **Retrocompatibilidad**: Assets solo-audio existentes siguen funcionando; el smart delete los elimina correctamente

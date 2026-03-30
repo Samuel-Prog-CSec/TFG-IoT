@@ -1,6 +1,5 @@
 .git/
 .vscode/
-.agent/
 .agents/
 node_modules/
 coverage/
@@ -14,3 +13,4 @@ skills-lock.json
 memoria/
 CLAUDE.md
 .claude/
+.playwright-mcp/

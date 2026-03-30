@@ -7,10 +7,11 @@
  */
 
 import { motion, AnimatePresence } from 'framer-motion';
-import { Volume2, VolumeX } from 'lucide-react';
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useState } from 'react';
 import PropTypes from 'prop-types';
 import { cn } from '../../lib/utils';
+import { getAssetImageUrl } from '../../lib/cardMapping';
+import AudioMiniPlayer from '../ui/AudioMiniPlayer';
 import FloatingPointsBadge from './FloatingPointsBadge';
 
 const FEEDBACK_BORDER = {
@@ -91,47 +92,21 @@ const ChallengeDisplay = function ChallengeDisplay({
   shouldReduceMotion = false,
   className
 }) {
-  const [audioPlaying, setAudioPlaying] = useState(false);
   const [imageError, setImageError] = useState(false);
   const [imageLoading, setImageLoading] = useState(false);
-  const audioRef = useRef(null);
+
+  // Usar imagen completa para el display grande (768x768 para retina 2x a 160px CSS)
+  const assetImageUrl = getAssetImageUrl(asset, { preferFull: true });
 
   useEffect(() => {
     setImageError(false);
-    setImageLoading(Boolean(asset?.thumbnailUrl || asset?.imageUrl));
-  }, [asset?.imageUrl, asset?.thumbnailUrl]);
-
-  useEffect(() => {
-    return () => {
-      if (audioRef.current) {
-        audioRef.current.pause();
-        audioRef.current = null;
-      }
-    };
-  }, []);
+    setImageLoading(Boolean(assetImageUrl));
+  }, [assetImageUrl]);
 
   const theme = themeColors[contextTheme] || themeColors.default;
   const isIdle = feedbackState === 'idle';
   const isSuccess = feedbackState === 'success';
   const isError = feedbackState === 'error';
-
-  const playAudio = () => {
-    if (!asset?.audioUrl) return;
-
-    if (audioRef.current) {
-      audioRef.current.pause();
-      audioRef.current.currentTime = 0;
-    }
-
-    setAudioPlaying(true);
-    const audio = new Audio(asset.audioUrl);
-    audio.preload = 'auto';
-    audioRef.current = audio;
-    audio.play().catch(() => {
-      setAudioPlaying(false);
-    });
-    audio.onended = () => setAudioPlaying(false);
-  };
 
   // Determine card-level animation based on feedback
   const cardAnimate = (() => {
@@ -238,16 +213,26 @@ const ChallengeDisplay = function ChallengeDisplay({
           className="relative z-10 text-center"
         >
         {/* Emoji/Image */}
-        {(asset?.thumbnailUrl || asset?.imageUrl) && !imageError ? (
-          <div className="relative size-32 sm:size-40 mx-auto mb-4">
-            {imageLoading && (
+        {assetImageUrl && !imageError ? (
+          <div
+            className={cn(
+              "relative size-32 sm:size-40 mx-auto mb-4 rounded-2xl overflow-hidden",
+              // Marco tematizado: ring + shadow con color del tema
+              `ring-2 ring-offset-2 ring-offset-transparent`,
+              theme.border.replace('border-', 'ring-'),
+              // Sombra interior para profundidad
+              "shadow-[inset_0_2px_6px_rgba(0,0,0,0.3)]"
+            )}
+            style={asset?.dominantColor ? { backgroundColor: asset.dominantColor } : undefined}
+          >
+            {imageLoading && !asset?.dominantColor && (
               <div className="absolute inset-0 rounded-2xl border border-white/10 bg-white/5 animate-pulse" />
             )}
             <motion.img
-              src={asset.thumbnailUrl || asset.imageUrl}
+              src={assetImageUrl}
               alt={asset.value}
               className={cn(
-                "size-32 sm:size-40 object-contain mx-auto mb-4 drop-shadow-2xl transition-opacity duration-500",
+                "size-32 sm:size-40 object-contain drop-shadow-2xl transition-opacity duration-400 ease-out",
                 imageLoading ? "opacity-0" : "opacity-100"
               )}
               animate={shouldReduceMotion ? { scale: 1 } : { scale: [1, 1.05, 1] }}
@@ -296,31 +281,16 @@ const ChallengeDisplay = function ChallengeDisplay({
         </motion.div>
       </AnimatePresence>
 
-      {/* Audio button */}
+      {/* Audio mini-player */}
       {asset?.audioUrl && (
-        <motion.button
-          initial={shouldReduceMotion ? false : { opacity: 0, scale: 0 }}
-          animate={{ opacity: 1, scale: 1 }}
+        <motion.div
+          initial={shouldReduceMotion ? false : { opacity: 0, y: 10 }}
+          animate={{ opacity: 1, y: 0 }}
           transition={shouldReduceMotion ? { duration: 0 } : { delay: 0.3 }}
-          onClick={playAudio}
-          disabled={audioPlaying}
-          className={cn(
-            "mt-6 p-4 rounded-full",
-            "bg-glass-bg hover:bg-border-strong",
-            "border border-glass-border",
-            "transition-[color,background-color,transform] duration-300",
-            !shouldReduceMotion && "hover:scale-110",
-            audioPlaying && "animate-pulse"
-          )}
-          aria-label="Reproducir audio"
-          title="Escuchar pista"
+          className="mt-6 w-full max-w-xs"
         >
-          {audioPlaying ? (
-            <Volume2 className="size-8 text-text-primary animate-bounce" />
-          ) : (
-            <VolumeX className="size-8 text-text-muted" />
-          )}
-        </motion.button>
+          <AudioMiniPlayer audioUrl={asset.audioUrl} size="sm" variant="glass" />
+        </motion.div>
       )}
 
       {/* Sparkles decoration */}

@@ -550,7 +550,7 @@ export default function SessionsPage() {
 
   let loadMoreLabel = 'No hay más sesiones';
   if (loadingMore) {
-    loadMoreLabel = 'Cargando\u2026';
+    loadMoreLabel = 'Cargando…';
   } else if (hasMore) {
     loadMoreLabel = 'Cargar más';
   }
@@ -631,7 +631,7 @@ export default function SessionsPage() {
         {error && (
           <ErrorState
             title="Error al cargar sesiones"
-            message={`${error} Pulsa Reintentar o recarga la p\u00e1gina.`}
+            message={`${error} Pulsa Reintentar o recarga la página.`}
             onRetry={refetchSessions}
           />
         )}

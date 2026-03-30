@@ -11,6 +11,7 @@
     "seed:if-empty": "node scripts/seed-if-empty.js",
     "seed:storage": "node scripts/seed-storage-assets.js",
     "migrate:sessions": "node scripts/migrate-session-status.js",
+    "migrate:dominant-colors": "node scripts/backfill-dominant-colors.js",
     "bench:sessions": "node scripts/benchmark-session-reads.js",
     "drop-db": "node scripts/drop-db.js",
     "lint": "eslint .",

@@ -35,6 +35,7 @@ import WizardStepper from '../components/ui/WizardStepper';
 import RFIDScannerPanel from '../components/ui/RFIDScannerPanel';
 import AssetSelector from '../components/ui/AssetSelector';
 import CardAssetPreview from '../components/ui/CardAssetPreview';
+import AudioPlayBadge from '../components/ui/AudioPlayBadge';
 import ButtonPremium from '../components/ui/ButtonPremium';
 import GlassCard from '../components/ui/GlassCard';
 import InputPremium from '../components/ui/InputPremium';
@@ -926,14 +927,23 @@ function StepConfirm({
                 key={card.uid}
                 className="flex items-center gap-3 p-3 rounded-xl bg-background-elevated/50 border border-border-subtle"
               >
-                <CardAssetPreview
-                  asset={assignment}
-                  alt={`Asset de carta ${card.uid}`}
-                  className="size-10 rounded-lg"
-                  fit="cover"
-                  fallbackClassName="bg-gradient-to-br from-accent-indigo/20 to-brand-base/20 text-xl"
-                  fallbackLabel="❓"
-                />
+                <div className="relative flex-shrink-0">
+                  <CardAssetPreview
+                    asset={assignment}
+                    alt={`Asset de carta ${card.uid}`}
+                    className="size-10 rounded-lg"
+                    fit="cover"
+                    fallbackClassName="bg-gradient-to-br from-accent-indigo/20 to-brand-base/20 text-xl"
+                    fallbackLabel="❓"
+                  />
+                  {assignment?.audioUrl && (
+                    <AudioPlayBadge
+                      audioUrl={assignment.audioUrl}
+                      size="xs"
+                      className="absolute -top-1 -right-1"
+                    />
+                  )}
+                </div>
                 <div className="flex-1 min-w-0">
                   <p className="text-sm font-medium text-text-primary truncate">
                     {assignment?.value || 'Sin asignar'}

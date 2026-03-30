@@ -145,7 +145,7 @@ export default function ContextsPage() {
         {/* Filtros */}
         <div className="flex flex-col sm:flex-row gap-4">
           <InputPremium
-            placeholder="Buscar por nombre o ID\u2026"
+            placeholder="Buscar por nombre o ID…"
             value={searchTerm}
             onChange={e => setSearchTerm(e.target.value)}
             icon={<Search size={18} />}
@@ -165,7 +165,7 @@ export default function ContextsPage() {
         ) : error ? (
           <ErrorState
             title="Error al cargar contextos"
-            message={`${error} Pulsa Reintentar o recarga la p\u00e1gina.`}
+            message={`${error} Pulsa Reintentar o recarga la página.`}
             onRetry={refetch}
             className="max-w-lg mx-auto mt-12"
           />

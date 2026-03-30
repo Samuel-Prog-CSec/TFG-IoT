@@ -14,6 +14,7 @@ import { decksAPI, extractData, extractErrorMessage, isAbortError } from '../ser
 import { ROUTES } from '../constants/routes';
 import ButtonPremium from '../components/ui/ButtonPremium';
 import CardAssetPreview from '../components/ui/CardAssetPreview';
+import AudioPlayBadge from '../components/ui/AudioPlayBadge';
 import EmptyState from '../components/ui/EmptyState';
 import GlassCard from '../components/ui/GlassCard';
 import { SkeletonCard } from '../components/ui/SkeletonShimmer';
@@ -291,10 +292,19 @@ export default function CardDeckDetailPage() {
                     </div>
                     <div className="flex items-center gap-3">
                       {displayData ? (
-                        <CardAssetPreview
-                          asset={displayData}
-                          className="size-10 rounded-lg flex-shrink-0"
-                        />
+                        <div className="relative flex-shrink-0">
+                          <CardAssetPreview
+                            asset={displayData}
+                            className="size-14 rounded-lg"
+                          />
+                          {displayData.audioUrl && (
+                            <AudioPlayBadge
+                              audioUrl={displayData.audioUrl}
+                              size="xs"
+                              className="absolute -top-1 -right-1"
+                            />
+                          )}
+                        </div>
                       ) : null}
                       <p className="text-sm text-accent-indigo">{assetLabel}</p>
                     </div>

@@ -26,6 +26,10 @@ const IMAGE_CONFIG = {
 
   // Calidad WebP (85% = balance óptimo calidad/tamaño)
   WEBP_QUALITY: 85,
+  THUMBNAIL_QUALITY: 85,
+
+  // Sharpening post-resize (compensa blur de downscale)
+  SHARPEN_SIGMA: 0.5,
 
   // Dimensiones
   MIN_WIDTH: 256,
@@ -72,18 +76,22 @@ class ImageProcessingService {
     // 3. Obtener metadatos y validar dimensiones
     const metadata = await this.getAndValidateMetadata(file.buffer);
 
-    // 4. Procesar imagen principal (redimensionar si es necesario + convertir a WebP)
+    // 4. Procesar imagen principal (redimensionar + sharpen + convertir a WebP)
     const mainImage = await this.createMainImage(file.buffer, metadata);
 
     // 5. Generar thumbnail
     const thumbnail = await this.createThumbnail(file.buffer);
+
+    // 6. Extraer color dominante para LQIP en frontend
+    const dominantColor = await this.extractDominantColor(mainImage);
 
     logger.info('Imagen procesada exitosamente', {
       originalName: file.originalname,
       originalSize: file.size,
       processedSize: mainImage.length,
       thumbnailSize: thumbnail.length,
-      dimensions: `${metadata.width}x${metadata.height}`
+      dimensions: `${metadata.width}x${metadata.height}`,
+      dominantColor
     });
 
     return {
@@ -93,7 +101,8 @@ class ImageProcessingService {
         originalWidth: metadata.width,
         originalHeight: metadata.height,
         format: IMAGE_CONFIG.OUTPUT_FORMAT,
-        quality: IMAGE_CONFIG.WEBP_QUALITY
+        quality: IMAGE_CONFIG.WEBP_QUALITY,
+        dominantColor
       }
     };
   }
@@ -191,6 +200,9 @@ class ImageProcessingService {
       });
     }
 
+    // Sharpen post-resize para compensar pérdida de definición
+    pipeline = pipeline.sharpen({ sigma: IMAGE_CONFIG.SHARPEN_SIGMA });
+
     // Convertir a WebP con calidad configurada
     return pipeline
       .webp({
@@ -213,11 +225,26 @@ class ImageProcessingService {
         fit: 'cover', // Recorta para llenar el cuadrado
         position: 'centre'
       })
+      .sharpen({ sigma: IMAGE_CONFIG.SHARPEN_SIGMA })
       .webp({
-        quality: 80, // Ligeramente menor para thumbnails
+        quality: IMAGE_CONFIG.THUMBNAIL_QUALITY,
         effort: 4
       })
       .toBuffer();
+  }
+
+  /**
+   * Extrae el color dominante de una imagen procesada.
+   * Usado como placeholder LQIP (Low Quality Image Placeholder) en el frontend.
+   *
+   * @async
+   * @param {Buffer} buffer - Imagen procesada en WebP
+   * @returns {Promise<string>} Color dominante en formato hex (#RRGGBB)
+   */
+  async extractDominantColor(buffer) {
+    const { dominant } = await sharp(buffer).stats();
+    const toHex = n => Math.round(n).toString(16).padStart(2, '0');
+    return `#${toHex(dominant.r)}${toHex(dominant.g)}${toHex(dominant.b)}`;
   }
 
   /**

@@ -33,6 +33,7 @@ import ButtonPremium from '../components/ui/ButtonPremium';
 import GlassCard from '../components/ui/GlassCard';
 import StatusBadge from '../components/ui/StatusBadge';
 import CardAssetPreview from '../components/ui/CardAssetPreview';
+import AudioPlayBadge from '../components/ui/AudioPlayBadge';
 import { SkeletonCard } from '../components/ui/SkeletonShimmer';
 import EmptyState from '../components/ui/EmptyState';
 import Breadcrumb from '../components/ui/Breadcrumb';
@@ -411,13 +412,22 @@ export default function SessionDetail() {
                     whileHover={{ scale: 1.04, y: -2 }}
                     transition={{ type: 'spring', stiffness: 400, damping: 25 }}
                   >
-                    <CardAssetPreview
-                      asset={mapping.displayData}
-                      alt={label}
-                      className="w-14 h-14 rounded-xl"
-                      fit="cover"
-                      fallbackLabel={display}
-                    />
+                    <div className="relative">
+                      <CardAssetPreview
+                        asset={mapping.displayData}
+                        alt={label}
+                        className="w-14 h-14 rounded-xl"
+                        fit="cover"
+                        fallbackLabel={display}
+                      />
+                      {mapping.displayData?.audioUrl && (
+                        <AudioPlayBadge
+                          audioUrl={mapping.displayData.audioUrl}
+                          size="xs"
+                          className="absolute -top-1 -right-1"
+                        />
+                      )}
+                    </div>
                     <p className="text-sm text-text-primary font-semibold">{label}</p>
                     <p className="text-xs text-text-muted">{mapping.uid}</p>
                   </motion.div>

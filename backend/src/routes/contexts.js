@@ -20,6 +20,7 @@ const {
 const {
   uploadImage,
   uploadAudio,
+  attachAudio,
   deleteImage,
   deleteAudio,
   getUploadConfig
@@ -193,6 +194,24 @@ router.post(
   audioUpload.single('file'),
   validateBody(uploadAssetMetaSchema),
   asyncHandler(uploadAudio)
+);
+
+/**
+ * @route   PATCH /api/contexts/:id/assets/:assetKey/audio
+ * @desc    Adjuntar o reemplazar audio en un asset existente
+ * @access  Private (Teacher / Super_Admin)
+ * @body    multipart/form-data { file }
+ * @validation params: gameContextAssetParamsSchema | query: emptyObjectSchema
+ */
+router.patch(
+  '/:id/assets/:assetKey/audio',
+  uploadRateLimiter,
+  authenticate,
+  requireRole('teacher', 'super_admin'),
+  validateParams(gameContextAssetParamsSchema),
+  validateQuery(emptyObjectSchema),
+  audioUpload.single('file'),
+  asyncHandler(attachAudio)
 );
 
 /**

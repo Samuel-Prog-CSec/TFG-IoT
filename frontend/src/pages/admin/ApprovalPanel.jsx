@@ -191,7 +191,7 @@ function ConfirmationModal({
                 <div className="mb-4">
                   <InputPremium
                     label="Razón del rechazo (opcional)"
-                    placeholder="Ej: Informaci\u00f3n incompleta\u2026"
+                    placeholder="Ej: Información incompleta…"
                     value={reason}
                     onChange={(e) => setReason(e.target.value)}
                   />
@@ -402,7 +402,7 @@ export default function ApprovalPanel() {
       const message = extractErrorMessage(err);
       setError(message);
       toast.error('Error al cargar las solicitudes', {
-        description: 'Recarga la p\u00e1gina o int\u00e9ntalo de nuevo en unos segundos.'
+        description: 'Recarga la página o inténtalo de nuevo en unos segundos.'
       });
     } finally {
       if (!controller.signal.aborted) {
@@ -560,7 +560,7 @@ export default function ApprovalPanel() {
           className="mb-6 relative"
         >
           <InputPremium
-            placeholder="Buscar por nombre o email\u2026"
+            placeholder="Buscar por nombre o email…"
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
             icon={<Search className={cn('size-5', isSearchPending && 'animate-pulse')} />}

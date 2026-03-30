@@ -24,7 +24,7 @@ export default function ProtectedRoute({ children }) {
 
   // Mostrar loading mientras verifica
   if (isLoading) {
-    return <AuthLoader message="Verificando sesi\u00f3n\u2026" />;
+    return <AuthLoader message="Verificando sesión…" />;
   }
 
   // Redirigir a login si no autenticado

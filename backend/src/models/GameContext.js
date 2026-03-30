@@ -83,7 +83,8 @@ const gameContextSchema = new mongoose.Schema(
         },
         audioUrl: String,
         imageUrl: String,
-        thumbnailUrl: String
+        thumbnailUrl: String,
+        dominantColor: String
       }
     ]
   },

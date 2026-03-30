@@ -8,9 +8,10 @@
 
 import { useState, useMemo } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Search, Check, Volume2 } from 'lucide-react';
+import { Search, Check } from 'lucide-react';
 import { cn } from '../../lib/utils';
 import CardAssetPreview from './CardAssetPreview';
+import AudioPlayBadge from './AudioPlayBadge';
 
 /**
  * @typedef {Object} Asset
@@ -200,11 +201,13 @@ export default function AssetSelector({
                     fallbackLabel={asset.display || '📎'}
                   />
 
-                  {/* Indicador de audio */}
+                  {/* Indicador de audio con play rápido */}
                   {asset.audioUrl && (
-                    <div className="absolute -top-1 -right-1 size-5 rounded-full bg-brand-base flex items-center justify-center">
-                      <Volume2 size={10} className="text-text-primary" />
-                    </div>
+                    <AudioPlayBadge
+                      audioUrl={asset.audioUrl}
+                      size="xs"
+                      className="absolute -top-1 -right-1"
+                    />
                   )}
                 </div>
 

@@ -118,13 +118,14 @@ const uploadImage = async (req, res) => {
       'image/webp'
     );
 
-    // Construir nuevo asset
+    // Construir nuevo asset (incluye dominantColor para LQIP en frontend)
     const newAsset = {
       key: key.toLowerCase(),
       value,
       display: display || value,
       imageUrl,
-      thumbnailUrl
+      thumbnailUrl,
+      dominantColor: metadata.dominantColor
     };
 
     // Guardar en MongoDB
@@ -286,25 +287,29 @@ const deleteImage = async (req, res) => {
 
   const asset = context.assets[assetIndex];
 
-  // Eliminar archivos de Supabase
+  // Eliminar archivos de Supabase (imagen + thumbnail + audio si existe)
   if (asset.imageUrl) {
     await storageService.deleteFile(asset.imageUrl, { strict: true });
   }
   if (asset.thumbnailUrl) {
     await storageService.deleteFile(asset.thumbnailUrl, { strict: true });
   }
+  if (asset.audioUrl) {
+    await storageService.deleteFile(asset.audioUrl, { strict: true });
+  }
 
-  // Eliminar asset del array
+  // Eliminar asset del array (completo: imagen + audio)
   context.assets.splice(assetIndex, 1);
   await context.save();
 
-  logger.info('Imagen eliminada exitosamente', {
+  logger.info('Asset eliminado exitosamente (imagen + audio)', {
     contextId: context.contextId,
     assetKey,
+    hadAudio: Boolean(asset.audioUrl),
     deletedBy: req.user._id
   });
 
-  sendSuccess(res, null, 'Imagen eliminada correctamente');
+  sendSuccess(res, null, 'Asset eliminado correctamente');
 };
 
 /**
@@ -327,7 +332,7 @@ const deleteAudio = async (req, res) => {
     throw new NotFoundError('Contexto de juego');
   }
 
-  // Buscar asset por key
+  // Buscar asset por key que tenga audio
   const assetIndex = context.assets.findIndex(
     asset => asset.key === assetKey.toLowerCase() && asset.audioUrl
   );
@@ -338,22 +343,126 @@ const deleteAudio = async (req, res) => {
 
   const asset = context.assets[assetIndex];
 
-  // Eliminar archivo de Supabase
-  if (asset.audioUrl) {
-    await storageService.deleteFile(asset.audioUrl, { strict: true });
+  // Eliminar archivo de audio de Supabase
+  await storageService.deleteFile(asset.audioUrl, { strict: true });
+
+  // Smart delete: si el asset tiene imagen, solo eliminar audioUrl (conservar asset)
+  // Si el asset NO tiene imagen, eliminar el asset completo del array
+  const hasImage = Boolean(asset.imageUrl || asset.thumbnailUrl);
+
+  if (hasImage) {
+    asset.audioUrl = undefined;
+    await context.save();
+
+    logger.info('Audio desvinculado de asset (imagen conservada)', {
+      contextId: context.contextId,
+      assetKey,
+      deletedBy: req.user._id
+    });
+
+    sendSuccess(res, { asset: toAssetDTOV1(asset) }, 'Audio eliminado del asset');
+  } else {
+    context.assets.splice(assetIndex, 1);
+    await context.save();
+
+    logger.info('Asset de solo-audio eliminado', {
+      contextId: context.contextId,
+      assetKey,
+      deletedBy: req.user._id
+    });
+
+    sendSuccess(res, null, 'Asset de audio eliminado correctamente');
   }
+};
 
-  // Eliminar asset del array
-  context.assets.splice(assetIndex, 1);
-  await context.save();
+/**
+ * Adjunta o reemplaza un archivo de audio en un asset existente.
+ * Si el asset ya tiene audio, elimina el archivo anterior de Supabase antes de subir el nuevo.
+ *
+ * PATCH /api/contexts/:id/assets/:assetKey/audio
+ * Headers: Authorization: Bearer <token>
+ * Body: multipart/form-data { file }
+ *
+ * @async
+ * @param {import('express').Request} req
+ * @param {import('express').Response} res
+ */
+const attachAudio = async (req, res) => {
+  let newAudioUrl = null;
 
-  logger.info('Audio eliminado exitosamente', {
-    contextId: context.contextId,
-    assetKey,
-    deletedBy: req.user._id
-  });
+  try {
+    const { id, assetKey } = req.params;
+    const file = req.file;
 
-  sendSuccess(res, null, 'Audio eliminado correctamente');
+    if (!file) {
+      throw new ValidationError('No se ha subido ningún archivo de audio');
+    }
+
+    const context = await gameContextRepository.findById(id);
+
+    if (!context) {
+      throw new NotFoundError('Contexto de juego');
+    }
+
+    // Buscar asset existente por key
+    const asset = context.assets.find(a => a.key === assetKey.toLowerCase());
+
+    if (!asset) {
+      throw new NotFoundError('Asset');
+    }
+
+    // Validar audio (magic bytes, tamaño, duración)
+    const { buffer, metadata } = await audioValidationService.validateAudio(file);
+
+    // Si ya tiene audio, eliminar el archivo anterior de Supabase
+    const oldAudioUrl = asset.audioUrl;
+    if (oldAudioUrl) {
+      await storageService.deleteFile(oldAudioUrl);
+    }
+
+    // Subir nuevo audio a Supabase
+    newAudioUrl = await storageService.uploadFile(
+      buffer,
+      context.contextId,
+      'audio',
+      `${assetKey}.${metadata.format}`,
+      metadata.mime
+    );
+
+    // Actualizar audioUrl en el subdocumento
+    asset.audioUrl = newAudioUrl;
+    await context.save();
+
+    logger.info('Audio adjuntado a asset exitosamente', {
+      contextId: context.contextId,
+      assetKey,
+      replaced: Boolean(oldAudioUrl),
+      uploadedBy: req.user._id,
+      format: metadata.formatName,
+      durationSeconds: metadata.durationSeconds
+    });
+
+    sendSuccess(
+      res,
+      {
+        asset: toAssetDTOV1(asset),
+        metadata: {
+          format: metadata.formatName,
+          size: `${(metadata.size / 1024).toFixed(1)} KB`,
+          durationSeconds: metadata.durationSeconds,
+          replaced: Boolean(oldAudioUrl)
+        }
+      },
+      oldAudioUrl ? 'Audio reemplazado correctamente' : 'Audio adjuntado correctamente'
+    );
+  } catch (error) {
+    // Rollback: eliminar archivo nuevo si falló después de subir
+    if (newAudioUrl) {
+      await storageService.deleteFile(newAudioUrl);
+    }
+
+    throw error;
+  }
 };
 
 /**
@@ -378,6 +487,7 @@ const getUploadConfig = (req, res) => {
 module.exports = {
   uploadImage,
   uploadAudio,
+  attachAudio,
   deleteImage,
   deleteAudio,
   getUploadConfig,

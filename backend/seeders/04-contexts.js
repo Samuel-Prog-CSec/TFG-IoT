@@ -28,7 +28,7 @@ const assetUrls = (contextId, key) => ({
 const contextsData = [
   {
     contextId: 'geography-europe',
-    name: 'Paises de Europa',
+    name: 'Países de Europa',
     isActive: true,
     assets: [
       {
@@ -126,7 +126,7 @@ const contextsData = [
   },
   {
     contextId: 'colors-basic',
-    name: 'Colores Basicos',
+    name: 'Colores Básicos',
     isActive: true,
     assets: [
       {
@@ -175,7 +175,7 @@ const contextsData = [
   },
   {
     contextId: 'numbers-1-15',
-    name: 'Numeros del 1 al 6',
+    name: 'Números del 1 al 6',
     isActive: true,
     assets: [
       {
@@ -224,7 +224,7 @@ const contextsData = [
   },
   {
     contextId: 'shapes-basic',
-    name: 'Formas Basicas',
+    name: 'Formas Básicas',
     isActive: true,
     assets: [
       {

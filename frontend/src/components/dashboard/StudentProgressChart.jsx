@@ -64,7 +64,7 @@ export default function StudentProgressChart({ data, period = '7d', onPeriodChan
               }}
               itemStyle={{ color: 'var(--color-text-primary)' }}
               labelStyle={{ color: 'var(--color-text-muted)', fontWeight: 600, marginBottom: '8px' }}
-              formatter={(value) => [`${value}%`, 'Promedio']}
+              formatter={(value) => [`${Math.round(value)}%`, 'Promedio']}
               labelFormatter={(label) => formatDate(label, 'weekday')}
             />
             <Area

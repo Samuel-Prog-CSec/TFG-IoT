@@ -20,7 +20,7 @@ export default function SelectPremium({
   options = [],
   value,
   onChange,
-  placeholder = 'Seleccionar\u2026',
+  placeholder = 'Seleccionar…',
   label,
   disabled = false,
   className,

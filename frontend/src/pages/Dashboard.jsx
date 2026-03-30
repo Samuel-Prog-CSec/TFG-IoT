@@ -151,14 +151,14 @@ export default function Dashboard() {
           <div className="flex flex-col gap-8 flex-1">
             {loading && summary ? (
               <div className="bg-background-elevated/50 border border-border-default text-text-muted px-4 py-2 rounded-xl text-sm font-medium animate-pulse">
-                Actualizando m\u00e9tricas\u2026
+                Actualizando métricas…
               </div>
             ) : null}
 
             {error ? (
               <ErrorState
                 title="Error al cargar datos"
-                message={`${error} Pulsa Reintentar o recarga la p\u00e1gina.`}
+                message={`${error} Pulsa Reintentar o recarga la página.`}
                 onRetry={fetchData}
               />
             ) : null}

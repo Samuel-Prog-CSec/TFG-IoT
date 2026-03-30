@@ -380,7 +380,7 @@ export default function StudentManagement() {
       if (!isAbortError(err)) {
         setError(extractErrorMessage(err));
         toast.error('Error al cargar datos', {
-          description: 'Recarga la p\u00e1gina o int\u00e9ntalo de nuevo en unos segundos.'
+          description: 'Recarga la página o inténtalo de nuevo en unos segundos.'
         });
       }
     } finally {
@@ -468,7 +468,7 @@ export default function StudentManagement() {
 
         <div className="md:col-span-3">
           <InputPremium
-            placeholder="Buscar por nombre o clase\u2026"
+            placeholder="Buscar por nombre o clase…"
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
             icon={<Search size={20} className={cn(searchQuery !== deferredSearch && "animate-pulse")} />}

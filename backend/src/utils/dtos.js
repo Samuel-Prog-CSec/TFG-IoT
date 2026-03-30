@@ -458,6 +458,7 @@ const toGameContextDTOV1 = context => {
     contextId: contextData.contextId,
     name: contextData.name,
     isActive: contextData.isActive,
+    assets: assets.map(toAssetDTOV1),
     assetsCount: assets.length,
     imageCount: assets.filter(a => a.imageUrl).length,
     audioCount: assets.filter(a => a.audioUrl).length,
@@ -485,7 +486,8 @@ const toAssetDTOV1 = asset => {
     value: assetData.value,
     audioUrl: assetData.audioUrl,
     imageUrl: assetData.imageUrl,
-    thumbnailUrl: assetData.thumbnailUrl
+    thumbnailUrl: assetData.thumbnailUrl,
+    dominantColor: assetData.dominantColor || null
   };
 };
 
@@ -539,6 +541,10 @@ const toCardDeckDTOV1 = deck => {
     context: toContextRefDTOV1(deckData.contextId),
     status: deckData.status,
     cardsCount: Array.isArray(deckData.cardMappings) ? deckData.cardMappings.length : 0,
+    // Preview de hasta 4 mappings para mostrar thumbnails en tarjetas de mazo
+    cardMappings: Array.isArray(deckData.cardMappings)
+      ? deckData.cardMappings.slice(0, 4).map(mapCardMappingDTOV1)
+      : [],
     createdBy: toId(deckData.createdBy),
     creator: toUserRefDTOV1(deckData.createdBy),
     createdAt: deckData.createdAt,

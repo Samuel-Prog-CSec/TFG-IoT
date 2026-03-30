@@ -102,7 +102,7 @@ const renderDecksGrid = ({ decks, shouldReduceMotion, handleViewDeck, handleEdit
 const renderDecksErrorState = ({ error, loadDecks }) => (
   <ErrorState
     title="Error al cargar mazos"
-    message={`${error} Pulsa Reintentar o recarga la p\u00e1gina.`}
+    message={`${error} Pulsa Reintentar o recarga la página.`}
     icon={<AlertCircle size={28} />}
     onRetry={() => loadDecks({ resetPage: true })}
   />
@@ -481,7 +481,7 @@ export default function CardDecksPage() {
                 type="text"
                 value={filters.searchQuery}
                 onChange={(e) => dispatchFilters({ type: 'SET_SEARCH', payload: e.target.value })}
-                placeholder="Buscar mazos\u2026"
+                placeholder="Buscar mazos…"
                 className={cn(
                   'w-full pl-10 pr-4 py-2.5 rounded-xl',
                   'bg-background-elevated/50 border border-border-default',
@@ -568,7 +568,7 @@ export default function CardDecksPage() {
 
       {loading && decks.length > 0 && (
         <div className="mb-4 bg-background-elevated/50 border border-border-default text-text-secondary px-4 py-2 rounded-xl text-sm">
-          Actualizando mazos\u2026
+          Actualizando mazos…
         </div>
       )}
 
