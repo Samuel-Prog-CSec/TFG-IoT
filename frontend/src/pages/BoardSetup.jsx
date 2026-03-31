@@ -285,7 +285,7 @@ export default function BoardSetup() {
                      <div className="absolute top-4 left-4 text-text-muted font-mono text-xs">TABLERO VIRTUAL</div>
                      
                      <div className="w-full h-full overflow-y-auto flex items-center justify-center p-8 custom-scrollbar">
-                         <div className="grid grid-cols-5 gap-6 max-w-6xl">
+                         <div className="grid gap-6 max-w-6xl" style={{ gridTemplateColumns: `repeat(${Math.ceil(Math.sqrt(totalSlots))}, 1fr)` }}>
                             {Array.from({ length: totalSlots }).map((_, idx) => {
                                 const slotId = `slot_${idx}`;
                                 const card = slots[slotId];

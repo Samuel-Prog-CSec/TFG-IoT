@@ -110,6 +110,7 @@ const ensureMemoryBoardLayoutIsComplete = ({ mechanic, boardLayout, cardMappings
     DEFAULT_MEMORY_MATCHING_GROUP_SIZE,
     Number(mechanic?.rules?.behavior?.matchingGroupSize) || DEFAULT_MEMORY_MATCHING_GROUP_SIZE
   );
+
   const valuesCount = boardLayout.reduce((acc, slot) => {
     const value = (slot?.assignedValue || '').toString();
     if (!value) {

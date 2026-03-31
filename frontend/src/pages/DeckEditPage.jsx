@@ -407,7 +407,10 @@ export default function DeckEditPage() {
   }
 
   const assignedCount = Object.keys(cardAssignments).length;
-  const assignedAssetKeys = Object.values(cardAssignments).map(a => a?.key);
+  const assetUsageCounts = Object.values(cardAssignments).reduce((acc, asset) => {
+    if (asset?.key) acc.set(asset.key, (acc.get(asset.key) || 0) + 1);
+    return acc;
+  }, new Map());
   const currentDeckId = deck?.id || deck?._id || deckId;
 
   return (
@@ -708,7 +711,8 @@ export default function DeckEditPage() {
                       <AssetSelector
                         assets={effectiveContext?.assets || []}
                         selectedAssetKey={cardAssignments[ui.activeUid]?.key}
-                        assignedAssets={assignedAssetKeys}
+                        assignedAssets={[]}
+                        assetUsageCounts={assetUsageCounts}
                         onSelect={(asset) => handleAssignAsset(ui.activeUid, asset)}
                       />
                     </>

@@ -327,6 +327,25 @@ export default function CreateSession() {
   const deckCards = useMemo(() => toDeckCardMappings(selectedDeck), [selectedDeck]);
   const memoryDeckCards = deckCards;
 
+  const memoryPairValidation = useMemo(() => {
+    if (!isMemorySelected || !selectedDeck?.cardMappings) {
+      return { valid: true, message: '' };
+    }
+    const valueCounts = selectedDeck.cardMappings.reduce((acc, m) => {
+      acc.set(m.assignedValue, (acc.get(m.assignedValue) || 0) + 1);
+      return acc;
+    }, new Map());
+    const invalidPairs = [...valueCounts.entries()].filter(([, count]) => count !== 2);
+    if (invalidPairs.length > 0) {
+      const details = invalidPairs.map(([v, c]) => `${v} (${c}×)`).join(', ');
+      return {
+        valid: false,
+        message: `El mazo no tiene parejas correctas para memoria. Cada concepto debe tener exactamente 2 tarjetas: ${details}`
+      };
+    }
+    return { valid: true, message: `${valueCounts.size} parejas detectadas` };
+  }, [isMemorySelected, selectedDeck]);
+
   // Cargar mazos y mecánicas
   useEffect(() => {
     // Escuchar el sensor ID actual
@@ -444,7 +463,11 @@ export default function CreateSession() {
   const canProceed = () => {
     switch (currentStep) {
       case 0: return sessionConfig.deckId !== null;
-      case 1: return sessionConfig.mechanicId !== null;
+      case 1: {
+        if (sessionConfig.mechanicId === null) return false;
+        if (isMemorySelected && !memoryPairValidation.valid) return false;
+        return true;
+      }
       case 2:
         if (isMemorySelected) {
           return (
@@ -587,6 +610,7 @@ export default function CreateSession() {
             loading={loadingMechanics}
             selectedMechanicId={sessionConfig.mechanicId}
             onSelect={handleSelectMechanic}
+            memoryPairWarning={isMemorySelected && !memoryPairValidation.valid ? memoryPairValidation.message : null}
           />
         );
       case 2:
@@ -863,7 +887,7 @@ function StepDeck({ decks, loading, selectedDeckId, onSelect }) {
 /**
  * Paso 2: Seleccionar Mecánica
  */
-function StepMechanic({ mechanics, loading, selectedMechanicId, onSelect }) {
+function StepMechanic({ mechanics, loading, selectedMechanicId, onSelect, memoryPairWarning }) {
   // Iconos para mecánicas
   const mechanicIcons = {
     association: '🔗',
@@ -901,7 +925,7 @@ function StepMechanic({ mechanics, loading, selectedMechanicId, onSelect }) {
           const mechanicId = mechanic.id || mechanic._id;
           const selectable = isMechanicSelectable(mechanic);
           const selected = selectable && selectedMechanicId === mechanicId;
-          
+
           return (
             <motion.button
               key={mechanicId}
@@ -953,6 +977,13 @@ function StepMechanic({ mechanics, loading, selectedMechanicId, onSelect }) {
           );
         })}
       </div>
+
+      {memoryPairWarning && (
+        <div className="mt-4 p-4 rounded-xl border border-warning-base/30 bg-warning-base/10 text-warning-base text-sm">
+          <p className="font-medium mb-1">Mazo no compatible con memoria</p>
+          <p className="text-warning-base/80">{memoryPairWarning}</p>
+        </div>
+      )}
     </GlassCard>
   );
 }
@@ -1046,14 +1077,16 @@ function StepMemoryRules({
           })}
         </div>
 
-        <div className="grid gap-4" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(110px, 1fr))' }}>
+        <div className="grid gap-4" style={{ gridTemplateColumns: `repeat(${Math.ceil(Math.sqrt(slotEntries.length))}, 1fr)` }}>
           {slotEntries.map(({ slotCard, slotIndex, slotKey }) => (
-            <button
+            <div
               key={`memory-slot-${slotKey}`}
-              type="button"
+              role="button"
+              tabIndex={0}
               onClick={() => handleAssignToSlot(slotIndex)}
+              onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') handleAssignToSlot(slotIndex); }}
               className={cn(
-                'aspect-square rounded-xl border-2 border-dashed p-3 transition-colors',
+                'aspect-square rounded-xl border-2 border-dashed p-3 transition-colors cursor-pointer',
                 slotCard ? 'border-success-base/50 bg-success-base/10' : 'border-background-surface bg-background-base/40',
                 selectedCard ? 'hover:border-accent-indigo' : ''
               )}
@@ -1071,7 +1104,6 @@ function StepMemoryRules({
                   <button
                     type="button"
                     onClick={(e) => {
-                      e.preventDefault();
                       e.stopPropagation();
                       handleClearSlot(slotIndex);
                     }}
@@ -1085,7 +1117,7 @@ function StepMemoryRules({
                   Slot #{slotIndex + 1}
                 </div>
               )}
-            </button>
+            </div>
           ))}
         </div>
 

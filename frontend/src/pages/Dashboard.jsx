@@ -325,7 +325,7 @@ function Header({ timeRange, setTimeRange, reducedMotion = false }) {
           className="hidden sm:flex items-center gap-2.5 text-sm font-medium text-text-muted bg-background-elevated/50 backdrop-blur-sm px-4 py-2.5 rounded-xl border border-border-subtle"
         >
           <Calendar size={16} className="text-brand-base" aria-hidden="true" />
-          <span className="capitalize">{today}</span>
+          <span>{today}</span>
         </motion.time>
       </div>
     </motion.header>

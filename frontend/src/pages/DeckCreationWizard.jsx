@@ -11,7 +11,7 @@
  * @module pages/DeckCreationWizard
  */
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useMemo } from 'react';
 import PropTypes from 'prop-types';
 import { useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
@@ -755,7 +755,12 @@ function StepAssign({
   onAssignAsset
 }) {
   const [activeCardId, setActiveCardId] = useState(selectedCards[0]?.uid || null);
-  const assignedAssetKeys = Object.values(cardAssignments).map(a => a?.key);
+  const assetUsageCounts = useMemo(() => {
+    return Object.values(cardAssignments).reduce((acc, asset) => {
+      if (asset?.key) acc.set(asset.key, (acc.get(asset.key) || 0) + 1);
+      return acc;
+    }, new Map());
+  }, [cardAssignments]);
 
   const activeCard = selectedCards.find(c => c.uid === activeCardId);
   const currentAssignment = cardAssignments[activeCardId];
@@ -823,7 +828,14 @@ function StepAssign({
                   </p>
                   <p className="text-xs text-text-muted truncate">
                     {isAssigned
-                      ? cardAssignments[card.uid]?.value
+                      ? <>
+                          {cardAssignments[card.uid]?.value}
+                          {(assetUsageCounts.get(cardAssignments[card.uid]?.key) || 0) >= 2 && (
+                            <span className="ml-1 text-success-base font-medium">
+                              {`(×${assetUsageCounts.get(cardAssignments[card.uid]?.key)})`}
+                            </span>
+                          )}
+                        </>
                       : 'Sin asignar'
                     }
                   </p>
@@ -857,7 +869,8 @@ function StepAssign({
             <AssetSelector
               assets={selectedContext?.assets || []}
               selectedAssetKey={currentAssignment?.key}
-              assignedAssets={assignedAssetKeys}
+              assignedAssets={[]}
+              assetUsageCounts={assetUsageCounts}
               onSelect={(asset) => onAssignAsset(activeCardId, asset)}
             />
           </>

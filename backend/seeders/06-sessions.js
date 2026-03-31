@@ -41,17 +41,23 @@ function getTeacherDecks(decks, teacherId) {
 
 /**
  * Busca un mazo por contextId dentro de los mazos de un profesor.
+ * Opcionalmente filtra por nombre del mazo cuando hay varios mazos con el mismo contexto.
  * @param {Array} teacherDecks - Mazos del profesor
  * @param {Array} contexts - Contextos disponibles
  * @param {string} contextKey - Key del contexto (ej: 'colors-basic')
+ * @param {string} [deckName] - Nombre del mazo para desambiguar
  * @returns {Object|undefined} Mazo encontrado
  */
-function findDeckByContext(teacherDecks, contexts, contextKey) {
+function findDeckByContext(teacherDecks, contexts, contextKey, deckName) {
   const context = findContext(contexts, contextKey);
   if (!context) {
     return undefined;
   }
-  return teacherDecks.find(d => d.contextId.toString() === context._id.toString());
+  const candidates = teacherDecks.filter(d => d.contextId.toString() === context._id.toString());
+  if (deckName) {
+    return candidates.find(d => d.name === deckName) || candidates[0];
+  }
+  return candidates[0];
 }
 
 /**
@@ -94,24 +100,24 @@ function generateAssociationPlan(cardMappings, numberOfRounds) {
 
 /**
  * Genera un boardLayout para sesiones de mecanica 'memory'.
- * Duplica las tarjetas (parejas) y las baraja de forma determinista.
- * @param {Array} cardMappings - Mapeos de tarjetas de la sesion
- * @param {number} numberOfCards - Numero de tarjetas unicas (las parejas son el doble)
+ * Usa todos los cardMappings del mazo (que ya contienen 2N tarjetas con parejas)
+ * y los baraja de forma determinista. Cada tarjeta ocupa su propio slot con UID unico.
+ * @param {Array} cardMappings - Mapeos de tarjetas de la sesion (ya con parejas, 2N)
  * @returns {Array} Layout del tablero
  */
-function generateBoardLayout(cardMappings, numberOfCards) {
-  // Para memoria, el tablero contiene cada tarjeta una vez con su posicion
+function generateBoardLayout(cardMappings) {
+  const totalCards = cardMappings.length;
   const layout = [];
 
   // Baraja determinista basada en indice (Fisher-Yates con seed fija)
-  const indices = Array.from({ length: numberOfCards }, (_, i) => i);
+  const indices = Array.from({ length: totalCards }, (_, i) => i);
   for (let i = indices.length - 1; i > 0; i--) {
     // Intercambio determinista basado en posicion
     const j = (i * 7 + 3) % (i + 1);
     [indices[i], indices[j]] = [indices[j], indices[i]];
   }
 
-  for (let slot = 0; slot < numberOfCards; slot++) {
+  for (let slot = 0; slot < totalCards; slot++) {
     const mappingIndex = indices[slot];
     const mapping = cardMappings[mappingIndex];
     layout.push({
@@ -141,7 +147,7 @@ const sessionTemplates = [
       penaltyPerError: -2
     },
     status: 'completed',
-    description: 'Asociacion con paises de Europa',
+    description: 'Asociación con países de Europa',
     daysAgo: 10
   },
   {
@@ -167,7 +173,7 @@ const sessionTemplates = [
       penaltyPerError: -2
     },
     status: 'completed',
-    description: 'Colores basicos - practica',
+    description: 'Colores básicos - práctica',
     daysAgo: 6
   },
   {
@@ -181,11 +187,12 @@ const sessionTemplates = [
     },
     // Sesion recien creada, aun sin iniciar
     status: 'created',
-    description: 'Numeros del 1 al 6 - asociacion',
+    description: 'Números del 1 al 6 - asociación',
     daysAgo: 1
   },
   {
     contextKey: 'shapes-basic',
+    deckName: 'Formas Memoria',
     mechanicName: 'memory',
     config: {
       numberOfRounds: 5,
@@ -194,7 +201,7 @@ const sessionTemplates = [
       penaltyPerError: -3
     },
     status: 'completed',
-    description: 'Memoria con formas basicas',
+    description: 'Memoria con formas básicas',
     daysAgo: 2
   }
 ];
@@ -212,7 +219,7 @@ function generateSessionsForTeacher(teacher, teacherDecks, mechanics, contexts) 
 
   sessionTemplates.forEach(template => {
     const mechanic = findMechanic(mechanics, template.mechanicName);
-    const deck = findDeckByContext(teacherDecks, contexts, template.contextKey);
+    const deck = findDeckByContext(teacherDecks, contexts, template.contextKey, template.deckName);
 
     if (!mechanic) {
       logger.warn(`Mecanica '${template.mechanicName}' no encontrada, saltando sesion`);
@@ -272,7 +279,7 @@ function generateSessionsForTeacher(teacher, teacherDecks, mechanics, contexts) 
 
     // Generar boardLayout para mecanica 'memory'
     if (template.mechanicName === 'memory') {
-      sessionData.boardLayout = generateBoardLayout(cardMappings, numberOfCards);
+      sessionData.boardLayout = generateBoardLayout(cardMappings);
     }
 
     sessions.push(sessionData);

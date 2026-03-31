@@ -241,7 +241,8 @@ describe('Session mechanic availability (Sprint 4)', () => {
     expect(res.statusCode).toBe(201);
     expect(res.body.data.config.timeLimit).toBe(300);
     expect(Array.isArray(res.body.data.boardLayout)).toBe(true);
-    expect(res.body.data.boardLayout).toHaveLength(4);
+    const deckForAssert = await CardDeck.findById(deckId).lean();
+    expect(res.body.data.boardLayout).toHaveLength((deckForAssert.cardMappings || []).length);
   });
 
   it('rejects memory session creation without boardLayout', async () => {

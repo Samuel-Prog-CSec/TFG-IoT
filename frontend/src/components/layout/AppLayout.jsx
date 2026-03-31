@@ -207,6 +207,7 @@ export default function AppLayout() {
               animate={routeTransition.animate}
               exit={routeTransition.exit}
               className="w-full"
+              style={{ willChange: 'opacity, transform' }}
             >
               <Outlet />
             </motion.div>

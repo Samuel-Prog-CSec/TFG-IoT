@@ -304,6 +304,7 @@ export const routeTransition = {
   exit: {
     opacity: 0,
     y: -8,
+    pointerEvents: 'none',
     transition: { duration: DURATION.exit, ease: EASING.outQuart },
   },
 };

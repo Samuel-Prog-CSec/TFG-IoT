@@ -222,7 +222,7 @@ describe('ensureMemoryBoardLayoutIsComplete', () => {
   });
 
   it('lanza si boardLayout.length !== cardMappings.length', () => {
-    const mappings = createTestCardMappings(4, { values: ['A', 'A', 'B', 'B'] });
+    const mappings = createTestCardMappings(3, { values: ['A', 'B', 'C'] });
     const layout = buildBoardLayoutFromMappings(mappings.slice(0, 2));
 
     expect(() =>
@@ -235,37 +235,47 @@ describe('ensureMemoryBoardLayoutIsComplete', () => {
   });
 
   it('lanza si un valor no aparece exactamente groupSize veces', () => {
-    const mappings = [
-      { uid: 'AA000001', assignedValue: 'A', displayData: {} },
-      { uid: 'AA000002', assignedValue: 'A', displayData: {} },
-      { uid: 'AA000003', assignedValue: 'A', displayData: {} },
-      { uid: 'AA000004', assignedValue: 'B', displayData: {} }
-    ];
-    const layout = buildBoardLayoutFromMappings(mappings);
-
-    expect(() =>
-      ensureMemoryBoardLayoutIsComplete({
-        mechanic: memoryMechanic,
-        boardLayout: layout,
-        cardMappings: mappings
-      })
-    ).toThrow(/debe aparecer 2 veces/);
-  });
-
-  it('acepta layout correcto con pares', () => {
-    const mappings = [
+    const uniqueCards = [
       { uid: 'AA000001', assignedValue: 'A', displayData: {} },
       { uid: 'AA000002', assignedValue: 'A', displayData: {} },
       { uid: 'AA000003', assignedValue: 'B', displayData: {} },
       { uid: 'AA000004', assignedValue: 'B', displayData: {} }
     ];
-    const layout = buildBoardLayoutFromMappings(mappings);
+    const layout = [
+      { slotIndex: 0, uid: 'AA000001', assignedValue: 'A', displayData: {} },
+      { slotIndex: 1, uid: 'AA000002', assignedValue: 'A', displayData: {} },
+      { slotIndex: 2, uid: 'AA000003', assignedValue: 'A', displayData: {} },
+      { slotIndex: 3, uid: 'AA000004', assignedValue: 'B', displayData: {} }
+    ];
 
     expect(() =>
       ensureMemoryBoardLayoutIsComplete({
         mechanic: memoryMechanic,
         boardLayout: layout,
-        cardMappings: mappings
+        cardMappings: uniqueCards
+      })
+    ).toThrow(/debe aparecer 2 veces/);
+  });
+
+  it('acepta layout correcto con pares', () => {
+    const uniqueCards = [
+      { uid: 'AA000001', assignedValue: 'A', displayData: {} },
+      { uid: 'AA000002', assignedValue: 'A', displayData: {} },
+      { uid: 'AA000003', assignedValue: 'B', displayData: {} },
+      { uid: 'AA000004', assignedValue: 'B', displayData: {} }
+    ];
+    const layout = [
+      { slotIndex: 0, uid: 'AA000001', assignedValue: 'A', displayData: {} },
+      { slotIndex: 1, uid: 'AA000002', assignedValue: 'A', displayData: {} },
+      { slotIndex: 2, uid: 'AA000003', assignedValue: 'B', displayData: {} },
+      { slotIndex: 3, uid: 'AA000004', assignedValue: 'B', displayData: {} }
+    ];
+
+    expect(() =>
+      ensureMemoryBoardLayoutIsComplete({
+        mechanic: memoryMechanic,
+        boardLayout: layout,
+        cardMappings: uniqueCards
       })
     ).not.toThrow();
   });

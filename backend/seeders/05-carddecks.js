@@ -33,6 +33,47 @@ function generateCardMappings(contextAssets, count, baseOffset) {
 }
 
 /**
+ * Genera cardMappings para un mazo de memoria con parejas.
+ * Cada asset produce 2 tarjetas con UIDs distintos pero mismo assignedValue y displayData,
+ * resultando en 2N tarjetas para N assets.
+ * @param {Array} contextAssets - Assets del contexto
+ * @param {number} count - Número de assets (parejas) a usar
+ * @param {number} baseOffset - Offset base para generar UIDs sintéticos
+ * @returns {Array} Array de cardMappings (2 * count elementos)
+ */
+function generateMemoryCardMappings(contextAssets, count, baseOffset) {
+  const selectedAssets = contextAssets.slice(0, count);
+  const mappings = [];
+
+  selectedAssets.forEach((asset, index) => {
+    const displayData = {
+      key: asset.key,
+      display: asset.display,
+      value: asset.value,
+      audioUrl: asset.audioUrl || null,
+      imageUrl: asset.imageUrl || null,
+      thumbnailUrl: asset.thumbnailUrl || null
+    };
+
+    // Primera copia: offset normal
+    mappings.push({
+      uid: (baseOffset + index).toString(16).toUpperCase().padStart(8, '0'),
+      assignedValue: asset.value,
+      displayData
+    });
+
+    // Segunda copia: offset desplazado por count
+    mappings.push({
+      uid: (baseOffset + count + index).toString(16).toUpperCase().padStart(8, '0'),
+      assignedValue: asset.value,
+      displayData
+    });
+  });
+
+  return mappings;
+}
+
+/**
  * Busca un contexto por contextId.
  * @param {Array} contexts - Array de contextos
  * @param {string} contextId - ID del contexto
@@ -49,7 +90,7 @@ function findContext(contexts, contextId) {
 const deckTemplates = [
   {
     name: 'Banderas de Europa',
-    description: 'Mazo para aprender paises de Europa',
+    description: 'Mazo para aprender países de Europa',
     contextKey: 'geography-europe',
     cardCount: 6
   },
@@ -60,24 +101,43 @@ const deckTemplates = [
     cardCount: 6
   },
   {
-    name: 'Colores Basicos',
-    description: 'Mazo para aprender colores basicos',
+    name: 'Colores Básicos',
+    description: 'Mazo para aprender colores básicos',
     contextKey: 'colors-basic',
     cardCount: 6
   },
   {
-    name: 'Numeros del 1 al 6',
-    description: 'Mazo para practicar numeros del 1 al 6',
+    name: 'Números del 1 al 6',
+    description: 'Mazo para practicar números del 1 al 6',
     contextKey: 'numbers-1-15',
     cardCount: 6
   },
   {
-    name: 'Formas Basicas',
-    description: 'Mazo para aprender formas basicas',
+    name: 'Formas Básicas',
+    description: 'Mazo para aprender formas básicas',
     contextKey: 'shapes-basic',
     cardCount: 6
+  },
+  {
+    name: 'Formas Memoria',
+    description: 'Mazo con parejas de formas para juegos de memoria',
+    contextKey: 'shapes-basic',
+    cardCount: 6,
+    memoryPairs: true
   }
 ];
+
+/**
+ * Calcula el numero total de tarjetas que genera un profesor,
+ * considerando que los mazos de memoria producen 2x tarjetas.
+ * @returns {number} Total de tarjetas por profesor
+ */
+function calculateCardsPerTeacher() {
+  return deckTemplates.reduce((total, t) => {
+    const multiplier = t.memoryPairs ? 2 : 1;
+    return total + t.cardCount * multiplier;
+  }, 0);
+}
 
 /**
  * Genera mazos para un profesor específico.
@@ -88,12 +148,13 @@ const deckTemplates = [
  */
 function generateDecksForTeacher(teacher, contexts, teacherIndex) {
   const decks = [];
-  const cardsPerDeck = 6;
-  const decksPerTeacher = deckTemplates.length;
-  const cardsPerTeacher = decksPerTeacher * cardsPerDeck;
+  const cardsPerTeacher = calculateCardsPerTeacher();
   const uidBaseOffset = teacherIndex * cardsPerTeacher;
 
-  deckTemplates.forEach((template, templateIndex) => {
+  // Acumular offset real por mazo para evitar colisiones de UIDs
+  let currentOffset = 0;
+
+  deckTemplates.forEach(template => {
     const context = findContext(contexts, template.contextKey);
 
     if (!context) {
@@ -110,8 +171,16 @@ function generateDecksForTeacher(teacher, contexts, teacherIndex) {
       return;
     }
 
-    const baseOffset = uidBaseOffset + templateIndex * cardsPerDeck;
-    const cardMappings = generateCardMappings(context.assets, template.cardCount, baseOffset);
+    const baseOffset = uidBaseOffset + currentOffset;
+
+    let cardMappings;
+    if (template.memoryPairs) {
+      cardMappings = generateMemoryCardMappings(context.assets, template.cardCount, baseOffset);
+      currentOffset += template.cardCount * 2;
+    } else {
+      cardMappings = generateCardMappings(context.assets, template.cardCount, baseOffset);
+      currentOffset += template.cardCount;
+    }
 
     decks.push({
       name: template.name,

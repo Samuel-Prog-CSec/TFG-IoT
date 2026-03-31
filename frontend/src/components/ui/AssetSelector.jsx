@@ -51,6 +51,7 @@ export default function AssetSelector({
   selectedAssetKey,
   onSelect,
   assignedAssets = [],
+  assetUsageCounts = null,
   showSearch = true,
   placeholder = 'Buscar asset...',
   className,
@@ -157,7 +158,10 @@ export default function AssetSelector({
         <AnimatePresence mode="popLayout">
           {filteredAssets.map((asset) => {
             const isSelected = asset.key === selectedAssetKey;
-            const isAssigned = assignedSet.has(asset.key) && asset.key !== selectedAssetKey;
+            const usageCount = assetUsageCounts instanceof Map ? (assetUsageCounts.get(asset.key) || 0) : 0;
+            const isAssigned = assetUsageCounts
+              ? false
+              : assignedSet.has(asset.key) && asset.key !== selectedAssetKey;
 
             return (
               <motion.button
@@ -229,6 +233,20 @@ export default function AssetSelector({
                       className="absolute top-2 right-2 size-5 rounded-full bg-accent-indigo flex items-center justify-center"
                     >
                       <Check size={12} className="text-text-primary" strokeWidth={3} />
+                    </motion.div>
+                  )}
+                </AnimatePresence>
+
+                {/* Badge de conteo de tarjetas asignadas */}
+                <AnimatePresence>
+                  {usageCount > 0 && !isSelected && (
+                    <motion.div
+                      initial={{ scale: 0 }}
+                      animate={{ scale: 1 }}
+                      exit={{ scale: 0 }}
+                      className="absolute top-2 left-2 px-1.5 py-0.5 rounded-full bg-success-base/20 text-success-base text-[10px] font-bold"
+                    >
+                      {`×${usageCount}`}
                     </motion.div>
                   )}
                 </AnimatePresence>

@@ -33,8 +33,8 @@ const contextsData = [
     assets: [
       {
         key: 'spain',
-        display: 'Espana',
-        value: 'Espana',
+        display: 'España',
+        value: 'España',
         audioUrl: null,
         ...assetUrls('geography-europe', 'spain')
       },
@@ -229,8 +229,8 @@ const contextsData = [
     assets: [
       {
         key: 'circle',
-        display: 'Circulo',
-        value: 'Circulo',
+        display: 'Círculo',
+        value: 'Círculo',
         audioUrl: null,
         ...assetUrls('shapes-basic', 'circle')
       },
@@ -243,8 +243,8 @@ const contextsData = [
       },
       {
         key: 'triangle',
-        display: 'Triangulo',
-        value: 'Triangulo',
+        display: 'Triángulo',
+        value: 'Triángulo',
         audioUrl: null,
         ...assetUrls('shapes-basic', 'triangle')
       },
@@ -257,8 +257,8 @@ const contextsData = [
       },
       {
         key: 'heart',
-        display: 'Corazon',
-        value: 'Corazon',
+        display: 'Corazón',
+        value: 'Corazón',
         audioUrl: null,
         ...assetUrls('shapes-basic', 'heart')
       },

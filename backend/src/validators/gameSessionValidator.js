@@ -142,7 +142,7 @@ const boardLayoutSchema = z
 
     const uidSet = new Set(layout.map(item => item.uid));
     return uidSet.size === layout.length;
-  }, 'No puede haber tarjetas duplicadas en boardLayout');
+  }, 'No puede haber UIDs duplicados en boardLayout');
 
 const associationChallengeItemSchema = z
   .object({
