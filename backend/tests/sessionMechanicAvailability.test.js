@@ -245,7 +245,7 @@ describe('Session mechanic availability (Sprint 4)', () => {
     expect(res.body.data.boardLayout).toHaveLength((deckForAssert.cardMappings || []).length);
   });
 
-  it('rejects memory session creation without boardLayout', async () => {
+  it('allows memory session creation without boardLayout (validated at startPlay)', async () => {
     process.env.SESSION_ENABLED_MECHANICS = 'association,memory';
 
     const res = await request(app)
@@ -262,8 +262,9 @@ describe('Session mechanic availability (Sprint 4)', () => {
         }
       });
 
-    expect(res.statusCode).toBe(400);
-    expect(res.body.message).toMatch(/boardLayout es obligatorio/i);
+    // La validación de boardLayout se ha movido a startPlay para permitir
+    // el flujo frontend donde la sesión se crea primero y boardLayout se configura después
+    expect(res.statusCode).toBe(201);
   });
 
   it('rejects memory sessions with timeLimit above mechanic max', async () => {

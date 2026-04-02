@@ -174,7 +174,7 @@ const contextsData = [
     ]
   },
   {
-    contextId: 'numbers-1-15',
+    contextId: 'numbers-1-6',
     name: 'Números del 1 al 6',
     isActive: true,
     assets: [
@@ -183,42 +183,42 @@ const contextsData = [
         display: 'Uno',
         value: 'Uno',
         audioUrl: null,
-        ...assetUrls('numbers-1-15', 'one')
+        ...assetUrls('numbers-1-6', 'one')
       },
       {
         key: 'two',
         display: 'Dos',
         value: 'Dos',
         audioUrl: null,
-        ...assetUrls('numbers-1-15', 'two')
+        ...assetUrls('numbers-1-6', 'two')
       },
       {
         key: 'three',
         display: 'Tres',
         value: 'Tres',
         audioUrl: null,
-        ...assetUrls('numbers-1-15', 'three')
+        ...assetUrls('numbers-1-6', 'three')
       },
       {
         key: 'four',
         display: 'Cuatro',
         value: 'Cuatro',
         audioUrl: null,
-        ...assetUrls('numbers-1-15', 'four')
+        ...assetUrls('numbers-1-6', 'four')
       },
       {
         key: 'five',
         display: 'Cinco',
         value: 'Cinco',
         audioUrl: null,
-        ...assetUrls('numbers-1-15', 'five')
+        ...assetUrls('numbers-1-6', 'five')
       },
       {
         key: 'six',
         display: 'Seis',
         value: 'Seis',
         audioUrl: null,
-        ...assetUrls('numbers-1-15', 'six')
+        ...assetUrls('numbers-1-6', 'six')
       }
     ]
   },

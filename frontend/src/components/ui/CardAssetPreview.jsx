@@ -82,9 +82,14 @@ export default function CardAssetPreview({
             'w-full h-full flex items-center justify-center text-center p-1',
             fallbackClassName
           )}
+          title={fallbackText || undefined}
         >
           {fallbackText ? (
-            <span className="text-lg leading-none select-none">{fallbackText}</span>
+            <span className={cn(
+              'select-none truncate max-w-full font-medium text-text-secondary',
+              // Base size for general use; consumers can override via fallbackClassName
+              'text-[0.65rem] leading-tight'
+            )}>{fallbackText}</span>
           ) : (
             fallbackIcon
           )}

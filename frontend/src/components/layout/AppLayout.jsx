@@ -2,10 +2,24 @@ import { useState, useEffect } from 'react';
 import PropTypes from 'prop-types';
 import { Outlet, NavLink, useLocation } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
-import { toast } from 'sonner';
 import { ROUTES, NAV_ROUTES, ADMIN_NAV_ROUTES } from '../../constants/routes';
-import * as LucideIcons from 'lucide-react';
-import { Shield, Layers, X, Menu, Sparkles, Settings, LogOut } from 'lucide-react';
+import {
+  Shield, Layers, X, Menu, Sparkles, LogOut,
+  LayoutDashboard, CalendarClock, Palette, PlusCircle,
+  UserCheck, ArrowRightLeft, Users
+} from 'lucide-react';
+
+const ICON_MAP = {
+  LayoutDashboard,
+  CalendarClock,
+  Palette,
+  Layers,
+  PlusCircle,
+  UserCheck,
+  ArrowRightLeft,
+  Users,
+  Shield,
+};
 import { useAuth } from '../../context/AuthContext';
 import { cn, routeTransition } from '../../lib/utils';
 import { useIsMobile } from '../../hooks/useIsMobile';
@@ -102,7 +116,9 @@ export default function AppLayout() {
               <h1 className="text-xl font-bold gradient-text-brand font-display tracking-tight">
                 EduPlay
               </h1>
-              <p className="text-xs text-text-muted font-medium">Portal del profesor</p>
+              <p className="text-xs text-text-muted font-medium">
+                {isSuperAdmin ? 'Panel de administración' : 'Portal del profesor'}
+              </p>
             </div>
           </div>
         </div>
@@ -143,7 +159,7 @@ export default function AppLayout() {
                 <Shield size={10} /> Administración
               </p>
               {ADMIN_NAV_ROUTES.map((route) => {
-                const Icon = LucideIcons[route.icon] || Shield;
+                const Icon = ICON_MAP[route.icon] || Shield;
                 return (
                   <NavItem 
                     key={route.path} 
@@ -158,32 +174,29 @@ export default function AppLayout() {
             </>
           )}
           
-          <p className="px-4 py-2 mt-2 text-[11px] font-semibold text-text-muted uppercase tracking-widest">
-            Menú Principal
-          </p>
-          {NAV_ROUTES.map((route) => {
-            const Icon = LucideIcons[route.icon] || Layers;
-            return (
-              <NavItem 
-                key={route.path} 
-                to={route.path} 
-                icon={<Icon size={20} />} 
-                label={route.label} 
-              />
-            );
-          })}
+          {!isSuperAdmin && (
+            <>
+              <p className="px-4 py-2 mt-2 text-[11px] font-semibold text-text-muted uppercase tracking-widest">
+                Menú Principal
+              </p>
+              {NAV_ROUTES.map((route) => {
+                const Icon = ICON_MAP[route.icon] || Layers;
+                return (
+                  <NavItem
+                    key={route.path}
+                    to={route.path}
+                    icon={<Icon size={20} />}
+                    label={route.label}
+                  />
+                );
+              })}
+            </>
+          )}
         </nav>
 
         {/* Footer Actions */}
-        <div className="p-4 border-t border-transparent bg-gradient-to-r from-transparent via-border-default/50 to-transparent space-y-1">
+        <div className="p-4 border-t border-transparent bg-gradient-to-r from-transparent via-border-default/50 to-transparent">
           <button
-            onClick={() => toast.info('Configuración en desarrollo', { description: 'Esta función estará disponible próximamente.' })}
-            className="flex items-center gap-3 w-full px-4 py-3 text-text-muted hover:text-text-primary hover:bg-background-elevated rounded-xl transition-colors duration-200 group"
-          >
-            <Settings size={20} className="group-hover:rotate-90 transition-transform duration-300" />
-            <span className="font-medium text-sm">Configuración</span>
-          </button>
-          <button 
             onClick={logout}
             className="flex items-center gap-3 w-full px-4 py-3 text-error-base hover:bg-error-base/10 rounded-xl transition-colors duration-200"
           >
@@ -194,11 +207,11 @@ export default function AppLayout() {
       </motion.aside>
 
       {/* Main Content */}
-      <main id="main-content" className="flex-1 overflow-auto relative custom-scrollbar pb-44">
+      <main id="main-content" className="flex-1 overflow-auto relative custom-scrollbar pb-16">
         {/* Subtle Grid Pattern for Depth */}
         <div className="absolute inset-0 bg-grid opacity-20 pointer-events-none" />
 
-        {/* Page Content — popLayout removes exiting elements from document flow */}
+        {/* Page Content — popLayout removes exiting page from flow during transitions */}
         <div className="relative z-10 w-full min-h-full">
           <AnimatePresence mode="popLayout" initial={false}>
             <motion.div

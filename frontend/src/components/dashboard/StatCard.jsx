@@ -52,8 +52,9 @@ function AnimatedNumber({ value }) {
  * @param {string} props.trend - Tendencia (ej: "+12%" o "-5%")
  * @param {React.ReactNode} props.icon - Icono de la tarjeta
  * @param {string} props.color - Clase de color para el fondo del icono
+ * @param {string} [props.periodLabel] - Etiqueta del periodo comparativo (ej: "vs semana pasada")
  */
-function StatCard({ title, value, trend, icon, color }) {
+function StatCard({ title, value, trend, icon, color, periodLabel = 'vs semana pasada' }) {
   // Determinar si el trend es positivo o negativo
   const isPositive = !trend.startsWith('-');
   const TrendIcon = isPositive ? ArrowUpRight : ArrowDownRight;
@@ -100,7 +101,7 @@ function StatCard({ title, value, trend, icon, color }) {
           )}>
             <TrendIcon size={14} strokeWidth={3} />
             <span>{trend}</span>
-            <span className="text-text-muted font-medium ml-1 text-xs">vs semana pasada</span>
+            <span className="text-text-muted font-medium ml-1 text-xs">{periodLabel}</span>
           </div>
         </div>
 
@@ -124,6 +125,7 @@ StatCard.propTypes = {
   trend: PropTypes.string.isRequired,
   icon: PropTypes.node.isRequired,
   color: PropTypes.string,
+  periodLabel: PropTypes.string,
 };
 
 export default memo(StatCard);

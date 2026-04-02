@@ -742,7 +742,10 @@ const validateRfidSensorAuthorization = (socket, modeState, payload, gameEngine)
 
   const sessionSensorId = playContext.sensorId;
 
-  if (!sessionSensorId || sessionSensorId === payload.sensorId) {
+  // Los sensores touch_fallback (modo táctil del navegador) se aceptan siempre
+  const isTouchFallback = payload.sensorId?.startsWith?.('touch_fallback');
+
+  if (!sessionSensorId || sessionSensorId === payload.sensorId || isTouchFallback) {
     return true;
   }
 

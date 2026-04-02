@@ -177,7 +177,7 @@ const sessionTemplates = [
     daysAgo: 6
   },
   {
-    contextKey: 'numbers-1-15',
+    contextKey: 'numbers-1-6',
     mechanicName: 'association',
     config: {
       numberOfRounds: 5,

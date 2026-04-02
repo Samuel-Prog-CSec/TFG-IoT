@@ -96,6 +96,11 @@ const gameSessionSchema = new mongoose.Schema(
       type: String,
       trim: true
     },
+    name: {
+      type: String,
+      trim: true,
+      maxlength: 100
+    },
     config: {
       numberOfCards: {
         type: Number,

@@ -99,7 +99,7 @@ export default function CharacterMascot({
           animate={{ opacity: 1, scale: 1, y: 0 }}
           key={displayMessage}
           className={cn(
-            "absolute -top-16 max-w-48",
+            "absolute -top-20 max-w-48 z-10",
             "bg-glass-bg backdrop-blur-sm",
             "px-3 py-1.5 rounded-2xl",
             "border border-glass-border",

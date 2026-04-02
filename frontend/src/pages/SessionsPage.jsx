@@ -21,7 +21,8 @@ import {
   Layers,
   Timer,
   Award,
-  RotateCcw
+  RotateCcw,
+  BarChart3
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { sessionsAPI, mechanicsAPI, extractErrorMessage, extractData, isAbortError } from '../services/api';
@@ -94,7 +95,7 @@ const SessionCard = memo(function SessionCard({
   onNavigate
 }) {
   const statusInfo = statusToBadge(session.status);
-  const title = session.deck?.name || 'Sesión sin mazo asignado';
+  const title = session.name || session.deck?.name || 'Sesión sin mazo asignado';
   const mechanicLabel = session.mechanic?.displayName || session.mechanic?.name || 'Mecánica';
   const contextLabel = session.context?.name || 'Contexto';
   const sessionId = session.id || session._id;
@@ -152,6 +153,18 @@ const SessionCard = memo(function SessionCard({
           </div>
         </div>
 
+        {session.playStats && session.playStats.playsCount > 0 && (
+          <div className="flex items-center gap-2 rounded-lg bg-background-surface/50 px-3 py-2 text-xs text-text-muted">
+            <BarChart3 size={14} className="text-text-muted/70 flex-shrink-0" />
+            <span>
+              {session.playStats.playsCount} {session.playStats.playsCount === 1 ? 'partida jugada' : 'partidas jugadas'}
+              {session.playStats.averageScore != null && (
+                <> {'\u00B7'} {session.playStats.averageScore} pts promedio</>
+              )}
+            </span>
+          </div>
+        )}
+
         <div className="mt-auto pt-4 border-t border-border-subtle space-y-3">
           <div className="flex gap-3">
             <ButtonPremium
@@ -169,7 +182,8 @@ const SessionCard = memo(function SessionCard({
               className="flex-1"
             >
               <RefreshCw size={16} />
-              Volver a jugar
+              <span className="sm:hidden">Jugar</span>
+              <span className="hidden sm:inline">Volver a jugar</span>
             </ButtonPremium>
           </div>
           <div className="flex items-center justify-between">
@@ -234,6 +248,10 @@ SessionCard.propTypes = {
       pointsPerCorrect: PropTypes.number,
     }),
     cardMappingsCount: PropTypes.number,
+    playStats: PropTypes.shape({
+      playsCount: PropTypes.number,
+      averageScore: PropTypes.number,
+    }),
   }).isRequired,
   cloneLoading: PropTypes.bool.isRequired,
   onClone: PropTypes.func.isRequired,

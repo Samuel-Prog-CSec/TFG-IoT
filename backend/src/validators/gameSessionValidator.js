@@ -183,6 +183,10 @@ const createGameSessionSchema = z
 
     sensorId: z.string().max(100, 'sensorId no puede exceder 100 caracteres').trim().optional(),
 
+    name: z.string().max(100, 'El nombre no puede exceder 100 caracteres').trim().optional(),
+
+    difficulty: z.enum(['easy', 'medium', 'hard', 'custom']).optional(),
+
     config: sessionConfigInputSchema.optional(),
 
     boardLayout: boardLayoutSchema,
@@ -207,13 +211,15 @@ const updateGameSessionSchema = z
 
     sensorId: z.string().max(100, 'sensorId no puede exceder 100 caracteres').trim().optional(),
 
+    name: z.string().max(100, 'El nombre no puede exceder 100 caracteres').trim().optional(),
+
     config: sessionConfigInputSchema.optional(),
 
     boardLayout: boardLayoutSchema,
 
     associationChallengePlan: associationChallengePlanSchema,
 
-    difficulty: z.enum(['easy', 'medium', 'hard']).optional()
+    difficulty: z.enum(['easy', 'medium', 'hard', 'custom']).optional()
   })
   .strict()
   .refine(data => Object.keys(data).length > 0, {
@@ -245,7 +251,7 @@ const gameSessionQuerySchema = paginationSchema.extend({
 
   status: z.enum(['created', 'active', 'completed']).optional(),
 
-  difficulty: z.enum(['easy', 'medium', 'hard']).optional(),
+  difficulty: z.enum(['easy', 'medium', 'hard', 'custom']).optional(),
 
   createdBy: objectIdSchema.optional()
 });

@@ -1,12 +1,13 @@
 import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Users, Gamepad2, Trophy, AlertTriangle, Calendar } from 'lucide-react';
+import { Users, Gamepad2, Trophy, AlertTriangle, Calendar, CalendarClock, Layers, ChevronRight } from 'lucide-react';
 import ErrorState from '../components/ui/ErrorState';
 import { listContainerVariants, listItemVariants, crossfadeVariants, formatDate } from '../lib/utils';
 import { useDocumentTitle } from '../hooks/useDocumentTitle';
 import { useRefetchOnFocus } from '../hooks/useRefetchOnFocus';
 import { useReducedMotion } from '../hooks/useReducedMotion';
+import { useAuth } from '../context/AuthContext';
 import analyticsService from '../services/analytics';
 import { isAbortError } from '../services/api';
 import { captureException } from '../lib/sentry';
@@ -21,12 +22,22 @@ import SelectPremium from '../components/ui/SelectPremium';
 import ButtonPremium from '../components/ui/ButtonPremium';
 
 export default function Dashboard() {
+  const { isSuperAdmin } = useAuth();
+  const navigate = useNavigate();
   useDocumentTitle('Dashboard');
   const { shouldReduceMotion } = useReducedMotion();
   const [timeRange, setTimeRange] = useState('7d'); // '7d' or '30d'
-  
+
+  // Redirigir super_admin a su panel
+  useEffect(() => {
+    if (isSuperAdmin) {
+      navigate(ROUTES.ADMIN_APPROVALS, { replace: true });
+    }
+  }, [isSuperAdmin, navigate]);
+
   // State for data
   const [summary, setSummary] = useState(null);
+  const [trends, setTrends] = useState(null);
   const [progressData, setProgressData] = useState([]);
   const [difficulties, setDifficulties] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -41,13 +52,15 @@ export default function Dashboard() {
     const run = async () => {
       try {
         setLoading(true);
-        const [summaryData, progress, difficultiesData] = await Promise.all([
+        const [summaryData, trendsData, progress, difficultiesData] = await Promise.all([
           analyticsService.getClassroomSummary({ signal: controller.signal }),
+          analyticsService.getClassroomTrends(timeRange, { signal: controller.signal }),
           analyticsService.getClassroomComparison(timeRange, { signal: controller.signal }),
           analyticsService.getClassroomDifficulties({ signal: controller.signal })
         ]);
 
         setSummary(summaryData);
+        setTrends(trendsData);
         setProgressData(progress);
         setDifficulties(difficultiesData);
         setError(null);
@@ -76,6 +89,17 @@ export default function Dashboard() {
     hasData: Boolean(summary),
     hasError: Boolean(error)
   });
+
+  // Extraer el cambio porcentual de un KPI por nombre
+  const getTrend = useCallback((kpiName) => {
+    if (!trends?.kpis) return '';
+    const kpi = trends.kpis.find(k => k.name === kpiName);
+    if (!kpi || kpi.changePercent === 0 || kpi.changePercent == null) return '';
+    const sign = kpi.changePercent > 0 ? '+' : '';
+    return `${sign}${kpi.changePercent}%`;
+  }, [trends]);
+
+  const periodLabel = timeRange === '30d' ? 'vs mes anterior' : 'vs semana pasada';
 
   // Derivar alertas de los datos - Memoized to prevent recalculation on unrelated re-renders
   const alerts = useMemo(() => {
@@ -143,12 +167,12 @@ export default function Dashboard() {
         <motion.main
           key="content"
           {...(shouldReduceMotion ? {} : crossfadeVariants)}
-          className="p-6 lg:p-8 max-w-7xl mx-auto space-y-8 flex flex-col"
+          className="p-6 lg:p-8 max-w-7xl mx-auto space-y-8"
           aria-label="Panel principal del dashboard"
         >
           <Header timeRange={timeRange} setTimeRange={setTimeRange} reducedMotion={shouldReduceMotion} />
 
-          <div className="flex flex-col gap-8 flex-1">
+          <div className="flex flex-col gap-8">
             {loading && summary ? (
               <div className="bg-background-elevated/50 border border-border-default text-text-muted px-4 py-2 rounded-xl text-sm font-medium animate-pulse">
                 Actualizando métricas…
@@ -179,7 +203,8 @@ export default function Dashboard() {
                   <StatCard
                     title="Alumnos en Riesgo"
                     value={summary?.studentsInRisk || 0}
-                    trend={summary?.studentsInRisk > 0 ? "+1" : "0"}
+                    trend={getTrend('studentsInRisk')}
+                    periodLabel={periodLabel}
                     icon={<AlertTriangle className="text-white drop-shadow-sm" size={24} aria-hidden="true" />}
                     color="bg-gradient-to-br from-error-base to-error-dark"
                   />
@@ -189,7 +214,8 @@ export default function Dashboard() {
                   <StatCard
                     title="Puntuación Media"
                     value={`${summary?.averageScore || 0}%`}
-                    trend="+2.4%"
+                    trend={getTrend('averageScore')}
+                    periodLabel={periodLabel}
                     icon={<Trophy className="text-white drop-shadow-sm" size={24} aria-hidden="true" />}
                     color="bg-gradient-to-br from-success-base to-success-dark"
                   />
@@ -199,7 +225,8 @@ export default function Dashboard() {
                   <StatCard
                     title="Partidas Hoy"
                     value={summary?.gamesToday || 0}
-                    trend="+5%"
+                    trend={getTrend('gamesToday')}
+                    periodLabel={periodLabel}
                     icon={<Gamepad2 className="text-white drop-shadow-sm" size={24} aria-hidden="true" />}
                     color="bg-gradient-to-br from-brand-base to-accent-indigo"
                   />
@@ -209,7 +236,8 @@ export default function Dashboard() {
                   <StatCard
                     title="Partidas Totales"
                     value={summary?.totalGames || 0}
-                    trend="+12%"
+                    trend={getTrend('totalGames')}
+                    periodLabel={periodLabel}
                     icon={<Users className="text-white drop-shadow-sm" size={24} aria-hidden="true" />}
                     color="bg-gradient-to-br from-info-base to-accent-cyan"
                   />
@@ -222,11 +250,11 @@ export default function Dashboard() {
               variants={listContainerVariants(0.12)}
               initial={shouldReduceMotion ? false : "hidden"}
               animate="visible"
-              className="grid grid-cols-1 xl:grid-cols-3 gap-6 lg:gap-8 flex-1"
+              className="grid grid-cols-1 xl:grid-cols-3 gap-6 lg:gap-8"
               aria-label="Análisis detallado"
             >
               {/* Columna Principal (2/3 de ancho) */}
-              <div className="xl:col-span-2 space-y-6 lg:space-y-8 flex flex-col h-full">
+              <div className="xl:col-span-2 space-y-6 lg:space-y-8">
                 <motion.div variants={shouldReduceMotion ? {} : listItemVariants}>
                   <StudentProgressChart
                     data={progressData}
@@ -240,12 +268,15 @@ export default function Dashboard() {
               </div>
 
               {/* Columna Lateral (1/3 de ancho) */}
-              <aside className="space-y-6 lg:space-y-8 h-full flex flex-col">
+              <aside className="space-y-6 lg:space-y-8">
                 <motion.div variants={shouldReduceMotion ? {} : listItemVariants}>
                   <ClassroomOverview summary={summary} distribution={null} />
                 </motion.div>
                 <motion.div variants={shouldReduceMotion ? {} : listItemVariants}>
                   <AlertsPanel alerts={alerts} />
+                </motion.div>
+                <motion.div variants={shouldReduceMotion ? {} : listItemVariants}>
+                  <QuickLinks navigate={navigate} />
                 </motion.div>
               </aside>
             </motion.section>
@@ -329,5 +360,32 @@ function Header({ timeRange, setTimeRange, reducedMotion = false }) {
         </motion.time>
       </div>
     </motion.header>
+  );
+}
+
+const QUICK_LINKS = [
+  { label: 'Ver todas las sesiones', route: ROUTES.SESSIONS, icon: CalendarClock },
+  { label: 'Crear nueva sesión', route: ROUTES.CREATE_SESSION, icon: Gamepad2 },
+  { label: 'Ver mazos de cartas', route: ROUTES.CARD_DECKS, icon: Layers },
+];
+
+function QuickLinks({ navigate }) {
+  return (
+    <div className="rounded-2xl bg-background-elevated/60 backdrop-blur-sm border border-border-default p-5">
+      <h3 className="text-lg font-bold text-text-primary mb-3 px-1 font-display">Accesos Rápidos</h3>
+      <nav className="space-y-1" aria-label="Accesos rápidos">
+        {QUICK_LINKS.map(({ label, route, icon: Icon }) => (
+          <button
+            key={route}
+            onClick={() => navigate(route)}
+            className="flex items-center gap-3 w-full px-3 py-2.5 rounded-xl text-sm font-medium text-text-secondary hover:text-text-primary hover:bg-background-surface/60 transition-colors duration-150 group"
+          >
+            <Icon size={18} className="text-text-muted group-hover:text-brand-base transition-colors" aria-hidden="true" />
+            <span className="flex-1 text-left">{label}</span>
+            <ChevronRight size={14} className="text-text-muted/50 group-hover:text-text-muted transition-colors" aria-hidden="true" />
+          </button>
+        ))}
+      </nav>
+    </div>
   );
 }

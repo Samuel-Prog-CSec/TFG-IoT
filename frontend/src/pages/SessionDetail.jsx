@@ -7,7 +7,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
-import { motion } from 'framer-motion';
+import { motion, AnimatePresence } from 'framer-motion';
 import {
   ArrowLeft,
   Pencil,
@@ -24,16 +24,20 @@ import {
   Gamepad2,
   FolderOpen,
   CreditCard,
-  Calendar
+  Calendar,
+  Users,
+  X
 } from 'lucide-react';
 import { toast } from 'sonner';
-import { sessionsAPI, extractData, extractErrorMessage, isAbortError } from '../services/api';
+import { sessionsAPI, usersAPI, extractData, extractErrorMessage, isAbortError } from '../services/api';
 import { ROUTES } from '../constants/routes';
+import { useAuth } from '../context/AuthContext';
 import ButtonPremium from '../components/ui/ButtonPremium';
 import GlassCard from '../components/ui/GlassCard';
 import StatusBadge from '../components/ui/StatusBadge';
 import CardAssetPreview from '../components/ui/CardAssetPreview';
 import AudioPlayBadge from '../components/ui/AudioPlayBadge';
+import SelectPremium from '../components/ui/SelectPremium';
 import { SkeletonCard } from '../components/ui/SkeletonShimmer';
 import EmptyState from '../components/ui/EmptyState';
 import Breadcrumb from '../components/ui/Breadcrumb';
@@ -58,6 +62,7 @@ const statusToBadge = (status) => {
 export default function SessionDetail() {
   const { sessionId } = useParams();
   const navigate = useNavigate();
+  const { user } = useAuth();
   const deleteModal = useConfirmationModal();
   const cloneModal = useConfirmationModal();
 
@@ -65,6 +70,12 @@ export default function SessionDetail() {
   const [loading, setLoading] = useState(true);
   const [deleteLoading, setDeleteLoading] = useState(false);
   const [cloneLoading, setCloneLoading] = useState(false);
+
+  // Estado para el modal de seleccion de alumno antes de jugar
+  const [playerModalOpen, setPlayerModalOpen] = useState(false);
+  const [availableStudents, setAvailableStudents] = useState([]);
+  const [selectedStudentId, setSelectedStudentId] = useState('');
+  const [loadingStudents, setLoadingStudents] = useState(false);
 
   const loadSession = useCallback(async (signal) => {
     if (!sessionId) return;
@@ -149,9 +160,47 @@ export default function SessionDetail() {
     }
   };
 
+  const handleOpenPlayerModal = useCallback(async () => {
+    setPlayerModalOpen(true);
+    setSelectedStudentId('');
+
+    const teacherId = user?.id || user?._id;
+    if (!teacherId) {
+      toast.error('No se pudo determinar el profesor.');
+      return;
+    }
+
+    setLoadingStudents(true);
+    try {
+      const studentsRes = await usersAPI.getStudentsByTeacher(teacherId, {
+        sortBy: 'name',
+        order: 'asc'
+      });
+      const students = extractData(studentsRes) || [];
+      setAvailableStudents(Array.isArray(students) ? students : []);
+    } catch (err) {
+      toast.error('No se pudieron cargar los alumnos', {
+        description: extractErrorMessage(err)
+      });
+    } finally {
+      setLoadingStudents(false);
+    }
+  }, [user]);
+
+  const handleStartWithPlayer = useCallback(() => {
+    if (!selectedStudentId) {
+      toast.warning('Selecciona un alumno antes de iniciar.');
+      return;
+    }
+    const sid = session?.id || session?._id;
+    setPlayerModalOpen(false);
+    navigate(`${ROUTES.GAME(sid)}?playerId=${encodeURIComponent(selectedStudentId)}`);
+  }, [selectedStudentId, session, navigate]);
+
   const statusInfo = statusToBadge(session?.status);
   const canEdit = session?.status === 'created';
   const canDelete = session?.status === 'created';
+  const canPlayDirectly = session?.status === 'created' || session?.status === 'active';
   const isAssociationSession = (session?.mechanic?.name || '').toString().toLowerCase() === 'association';
   const isMemorySession = (session?.mechanic?.name || '').toString().toLowerCase() === 'memory';
   const hasMemoryBoardConfigured = Array.isArray(session?.boardLayout) && session.boardLayout.length > 0;
@@ -200,12 +249,12 @@ export default function SessionDetail() {
       <div className="flex flex-col gap-6">
         <Breadcrumb items={[
           { label: 'Sesiones', to: ROUTES.SESSIONS },
-          { label: session.deck?.name || 'Sesión de juego' },
+          { label: session.name || session.deck?.name || 'Sesión de juego' },
         ]} />
         <header className="flex flex-wrap items-center justify-between gap-4">
           <div>
             <h1 className="text-2xl font-bold text-text-primary font-display">
-              {session.deck?.name || 'Sesión de juego'}
+              {session.name || session.deck?.name || 'Sesión de juego'}
             </h1>
             <p className="text-text-muted">
               {session.mechanic?.displayName || session.mechanic?.name} · {session.context?.name}
@@ -220,14 +269,33 @@ export default function SessionDetail() {
               <Map size={16} />
               Ver mapping
             </ButtonPremium>
-            <ButtonPremium
-              variant="primary"
-              onClick={cloneModal.open}
-              disabled={cloneLoading}
-            >
-              <Timer size={16} />
-              Volver a jugar
-            </ButtonPremium>
+            {/* Botón de juego: navegar directamente si no se ha jugado, clonar si ya finalizó */}
+            {canPlayDirectly ? (
+              <ButtonPremium
+                variant="primary"
+                onClick={() => {
+                  const sid = session.id || session._id;
+                  if (isMemorySession) {
+                    navigate(ROUTES.BOARD_SETUP_WITH_ID(sid));
+                  } else {
+                    handleOpenPlayerModal();
+                  }
+                }}
+              >
+                <Gamepad2 size={16} />
+                Jugar
+              </ButtonPremium>
+            ) : (
+              <ButtonPremium
+                variant="primary"
+                onClick={cloneModal.open}
+                disabled={cloneLoading}
+              >
+                <Timer size={16} />
+                <span className="sm:hidden">Jugar</span>
+                <span className="hidden sm:inline">Volver a jugar</span>
+              </ButtonPremium>
+            )}
             <div className="border-l border-border-default h-8 mx-1" />
             <div className="flex items-center gap-1 bg-glass-bg rounded-lg p-1">
               <Tooltip content="Editar sesión">
@@ -278,66 +346,67 @@ export default function SessionDetail() {
         )}
 
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-          <GlassCard className="p-6 lg:col-span-2 space-y-5">
+          <GlassCard className="p-6 lg:col-span-2">
+            <div className="h-full flex flex-col gap-5">
             <h2 className="text-lg font-semibold text-text-primary">Configuración</h2>
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+            <div className="flex-1 flex items-center">
+            <div className="grid grid-cols-2 md:grid-cols-3 gap-4 w-full">
               <div className="bg-accent-indigo/10 rounded-xl p-4">
-                <div className="flex items-center gap-2 text-text-muted">
-                  <Layers size={16} className="text-accent-indigo" />
-                  Tarjetas
+                <div className="flex items-center gap-2 text-sm text-text-muted">
+                  <Layers size={15} className="text-accent-indigo shrink-0" />
+                  <span>Tarjetas</span>
                 </div>
                 <p className="text-text-primary text-xl font-semibold font-display mt-2">
                   {session.config?.numberOfCards}
                 </p>
               </div>
               <div className="bg-warning-base/10 rounded-xl p-4">
-                <div className="flex items-center gap-2 text-text-muted">
-                  <Timer size={16} className="text-warning-base" />
-                  Tiempo por ronda
+                <div className="flex items-center gap-2 text-sm text-text-muted">
+                  <Timer size={15} className="text-warning-base shrink-0" />
+                  <span>Tiempo por ronda</span>
                 </div>
                 <p className="text-text-primary text-xl font-semibold font-display mt-2">
                   {session.config?.timeLimit}s
                 </p>
               </div>
               <div className="bg-success-base/10 rounded-xl p-4">
-                <div className="flex items-center gap-2 text-text-muted">
-                  <Award size={16} className="text-success-base" />
-                  Puntos por acierto
+                <div className="flex items-center gap-2 text-sm text-text-muted">
+                  <Award size={15} className="text-success-base shrink-0" />
+                  <span>Puntos por acierto</span>
                 </div>
                 <p className="text-text-primary text-xl font-semibold font-display mt-2">
                   +{session.config?.pointsPerCorrect}
                 </p>
               </div>
-            </div>
-
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
               <div className="bg-accent-cyan/10 rounded-xl p-4">
-                <div className="flex items-center gap-2 text-text-muted">
-                  <RotateCcw size={16} className="text-accent-cyan" />
-                  Rondas
+                <div className="flex items-center gap-2 text-sm text-text-muted">
+                  <RotateCcw size={15} className="text-accent-cyan shrink-0" />
+                  <span>Rondas</span>
                 </div>
                 <p className="text-text-primary text-xl font-semibold font-display mt-2">
                   {session.config?.numberOfRounds}
                 </p>
               </div>
               <div className="bg-error-base/10 rounded-xl p-4">
-                <div className="flex items-center gap-2 text-text-muted">
-                  <Minus size={16} className="text-error-base" />
-                  Penalización
+                <div className="flex items-center gap-2 text-sm text-text-muted">
+                  <Minus size={15} className="text-error-base shrink-0" />
+                  <span>Penalización</span>
                 </div>
                 <p className="text-text-primary text-xl font-semibold font-display mt-2">
                   {session.config?.penaltyPerError}
                 </p>
               </div>
               <div className="bg-brand-base/10 rounded-xl p-4">
-                <div className="flex items-center gap-2 text-text-muted">
-                  <Gauge size={16} className="text-brand-base" />
-                  Dificultad
+                <div className="flex items-center gap-2 text-sm text-text-muted">
+                  <Gauge size={15} className="text-brand-base shrink-0" />
+                  <span>Dificultad</span>
                 </div>
                 <p className="text-text-primary text-xl font-semibold font-display mt-2">
                   {{ easy: 'Fácil', medium: 'Media', hard: 'Difícil' }[session.difficulty] || session.difficulty}
                 </p>
               </div>
+            </div>
+            </div>
             </div>
           </GlassCard>
 
@@ -461,6 +530,92 @@ export default function SessionDetail() {
         variant="danger"
         loading={deleteLoading}
       />
+
+      {/* Modal de seleccion de alumno antes de iniciar partida */}
+      <AnimatePresence>
+        {playerModalOpen && (
+          <motion.div
+            className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm"
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            onClick={() => setPlayerModalOpen(false)}
+          >
+            <motion.div
+              className="bg-background-elevated border border-border-default rounded-2xl shadow-xl w-full max-w-md mx-4 p-6"
+              initial={{ scale: 0.95, opacity: 0, y: 10 }}
+              animate={{ scale: 1, opacity: 1, y: 0 }}
+              exit={{ scale: 0.95, opacity: 0, y: 10 }}
+              transition={{ type: 'spring', stiffness: 400, damping: 30 }}
+              onClick={(e) => e.stopPropagation()}
+            >
+              <div className="flex items-center justify-between mb-5">
+                <div className="flex items-center gap-3">
+                  <div className="p-2 rounded-xl bg-accent-indigo/10">
+                    <Users size={20} className="text-accent-indigo" />
+                  </div>
+                  <div>
+                    <h3 className="text-lg font-semibold text-text-primary font-display">
+                      Seleccionar alumno
+                    </h3>
+                    <p className="text-sm text-text-muted">
+                      Elige quién va a jugar esta partida.
+                    </p>
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setPlayerModalOpen(false)}
+                  className="p-1.5 rounded-lg text-text-muted hover:text-text-primary hover:bg-glass-bg transition-colors"
+                >
+                  <X size={18} />
+                </button>
+              </div>
+
+              {loadingStudents && (
+                <div className="flex items-center justify-center py-8 text-text-muted text-sm">
+                  Cargando alumnos...
+                </div>
+              )}
+              {!loadingStudents && availableStudents.length === 0 && (
+                <div className="text-center py-6 text-text-muted text-sm">
+                  No hay alumnos asignados. Crea o asigna alumnos desde el panel de administracion.
+                </div>
+              )}
+              {!loadingStudents && availableStudents.length > 0 && (
+                <SelectPremium
+                  value={selectedStudentId}
+                  onChange={(val) => setSelectedStudentId(val)}
+                  placeholder="Seleccionar alumno..."
+                  label="Alumno"
+                  options={availableStudents.map(student => ({
+                    value: student.id || student._id,
+                    label: student.name
+                  }))}
+                  className="w-full"
+                />
+              )}
+
+              <div className="flex justify-end gap-3 mt-6">
+                <ButtonPremium
+                  variant="secondary"
+                  onClick={() => setPlayerModalOpen(false)}
+                >
+                  Cancelar
+                </ButtonPremium>
+                <ButtonPremium
+                  variant="primary"
+                  onClick={handleStartWithPlayer}
+                  disabled={!selectedStudentId || loadingStudents}
+                >
+                  <Gamepad2 size={16} />
+                  Iniciar partida
+                </ButtonPremium>
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
     </motion.div>
   );
 }

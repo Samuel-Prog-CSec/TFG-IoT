@@ -16,7 +16,7 @@ import PropTypes from 'prop-types';
 import { useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import confetti from 'canvas-confetti';
-import { 
+import {
   ArrowLeft,
   ArrowRight,
   Layers,
@@ -27,7 +27,10 @@ import {
   Save,
   X,
   AlertTriangle,
-  Sparkles
+  Sparkles,
+  Hash,
+  Wand2,
+  Eye
 } from 'lucide-react';
 import { cn } from '../lib/utils';
 import { buildCardMappingsPayload } from '../lib/cardMapping';
@@ -83,6 +86,22 @@ const WIZARD_STEPS = [
 
 const {MIN_CARDS} = GAME_CONFIG;
 const {MAX_CARDS} = GAME_CONFIG;
+
+/**
+ * Genera el siguiente UID secuencial disponible que no exista ya en la lista.
+ * Formato: 8 caracteres hex (00000000, 00000001, ...).
+ */
+function generateNextSequentialUid(existingCards) {
+  const existingUids = new Set(existingCards.map(c => c.uid));
+  let counter = existingCards.length;
+  let candidate = String(counter).padStart(8, '0');
+  // Saltar UIDs que ya existan (por si hay huecos o duplicados)
+  while (existingUids.has(candidate)) {
+    counter++;
+    candidate = String(counter).padStart(8, '0');
+  }
+  return candidate;
+}
 
 /**
  * Componente principal del wizard de creación de mazos
@@ -564,6 +583,38 @@ function StepCards({
   maxCards
 }) {
   const isValidCount = selectedCards.length >= minCards && selectedCards.length <= maxCards;
+  const [manualUid, setManualUid] = useState('');
+
+  const nextSuggestedUid = useMemo(
+    () => generateNextSequentialUid(selectedCards),
+    [selectedCards]
+  );
+
+  const handleManualAdd = useCallback(() => {
+    const uid = manualUid.trim().toUpperCase();
+    if (!uid) return;
+    if (uid.length < 4) {
+      toast.warning('UID muy corto', { description: 'El UID debe tener al menos 4 caracteres' });
+      return;
+    }
+    onRFIDScan({
+      _id: `manual-${uid}`,
+      uid,
+      type: 'MANUAL',
+      scannedAt: new Date()
+    });
+    setManualUid('');
+  }, [manualUid, onRFIDScan]);
+
+  const handleGenerateUid = useCallback(() => {
+    const uid = nextSuggestedUid;
+    onRFIDScan({
+      _id: `manual-${uid}`,
+      uid,
+      type: 'MANUAL',
+      scannedAt: new Date()
+    });
+  }, [nextSuggestedUid, onRFIDScan]);
 
   return (
     <GlassCard className="p-6">
@@ -625,7 +676,47 @@ function StepCards({
             initial={{ opacity: 0, y: 10 }}
             animate={{ opacity: 1, y: 0 }}
             exit={{ opacity: 0, y: -10 }}
+            className="space-y-4"
           >
+            {/* Manual UID entry with auto-suggest */}
+            <div className="p-4 rounded-xl bg-background-elevated/40 border border-border-default">
+              <h3 className="text-sm font-medium text-text-primary mb-3 flex items-center gap-2">
+                <Hash size={16} className="text-accent-indigo" />
+                Entrada manual de UID
+              </h3>
+              <div className="flex gap-2">
+                <div className="flex-1">
+                  <InputPremium
+                    value={manualUid}
+                    onChange={(e) => setManualUid(e.target.value.toUpperCase())}
+                    placeholder={nextSuggestedUid}
+                    maxLength={16}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter') handleManualAdd();
+                    }}
+                    helperText="Introduce un UID o genera uno secuencial"
+                  />
+                </div>
+                <ButtonPremium
+                  variant="ghost"
+                  onClick={handleGenerateUid}
+                  disabled={selectedCards.length >= maxCards}
+                  icon={<Wand2 size={16} />}
+                  title="Generar UID secuencial"
+                >
+                  Generar UID
+                </ButtonPremium>
+                <ButtonPremium
+                  onClick={handleManualAdd}
+                  disabled={!manualUid.trim() || selectedCards.length >= maxCards}
+                  icon={<Check size={16} />}
+                >
+                  Agregar
+                </ButtonPremium>
+              </div>
+            </div>
+
+            {/* Card list for manual mode */}
             <RFIDScannerPanel
               onCardScanned={onRFIDScan}
               scannedCards={selectedCards}
@@ -768,118 +859,215 @@ function StepAssign({
   const assignedCount = Object.keys(cardAssignments).length;
   const progress = (assignedCount / selectedCards.length) * 100;
 
+  // Compute unassigned cards and assets for auto-assign
+  const unassignedCards = useMemo(
+    () => selectedCards.filter(c => !cardAssignments[c.uid]),
+    [selectedCards, cardAssignments]
+  );
+
+  const assignedAssetKeys = useMemo(
+    () => new Set(Object.values(cardAssignments).map(a => a?.key).filter(Boolean)),
+    [cardAssignments]
+  );
+
+  const unassignedAssets = useMemo(
+    () => (selectedContext?.assets || []).filter(a => !assignedAssetKeys.has(a.key)),
+    [selectedContext?.assets, assignedAssetKeys]
+  );
+
+  const canAutoAssign = unassignedCards.length > 0 && unassignedAssets.length > 0;
+
+  const handleAutoAssign = useCallback(() => {
+    const count = Math.min(unassignedCards.length, unassignedAssets.length);
+    for (let i = 0; i < count; i++) {
+      onAssignAsset(unassignedCards[i].uid, unassignedAssets[i]);
+    }
+    toast.success('Auto-asignacion completada', {
+      description: `${count} carta(s) asignada(s) automaticamente`
+    });
+  }, [unassignedCards, unassignedAssets, onAssignAsset]);
+
   return (
-    <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-      {/* Lista de cartas */}
-      <GlassCard className="p-4 lg:col-span-1">
-        <div className="mb-4">
-          <h3 className="font-medium text-text-primary mb-1">Cartas del mazo</h3>
-          <div className="h-1.5 bg-background-elevated rounded-full overflow-hidden">
-            <motion.div
-              className="h-full bg-gradient-to-r from-accent-indigo to-brand-base"
-              initial={{ width: 0 }}
-              animate={{ width: `${progress}%` }}
-              transition={{ duration: 0.5 }}
-            />
-          </div>
-          <p className="text-xs text-text-muted mt-1">
-            {assignedCount}/{selectedCards.length} asignadas
-          </p>
-        </div>
-
-        <div className="space-y-2 max-h-[400px] overflow-y-auto">
-          {selectedCards.map((card) => {
-            const isAssigned = !!cardAssignments[card.uid];
-            const isActive = activeCardId === card.uid;
-
-            return (
-              <motion.button
-                key={card.uid}
-                onClick={() => setActiveCardId(card.uid)}
-                className={cn(
-                  'w-full flex items-center gap-3 p-3 rounded-xl border transition-colors text-left',
-                  isActive
-                    ? 'border-accent-indigo bg-accent-indigo/10'
-                    : 'border-border-default bg-background-elevated/30 hover:border-border-strong'
-                )}
-                whileHover={{ x: 4 }}
-              >
-                <div className={cn(
-                  'size-8 rounded-lg flex items-center justify-center text-sm overflow-hidden',
-                  isAssigned
-                    ? 'bg-success-base/20 text-success-base'
-                    : 'bg-background-surface text-text-muted'
-                )}>
-                  {isAssigned ? (
-                    <CardAssetPreview
-                      asset={cardAssignments[card.uid]}
-                      alt={`Asset asignado a ${card.uid}`}
-                      className="w-full h-full rounded-lg"
-                      fit="cover"
-                      fallbackIcon={<Check size={16} className="text-success-base" />}
-                    />
-                  ) : (
-                    <CreditCard size={16} />
-                  )}
-                </div>
-                <div className="flex-1 min-w-0">
-                  <p className="text-sm font-medium text-text-primary truncate">
-                    {card.uid}
-                  </p>
-                  <p className="text-xs text-text-muted truncate">
-                    {isAssigned
-                      ? <>
-                          {cardAssignments[card.uid]?.value}
-                          {(assetUsageCounts.get(cardAssignments[card.uid]?.key) || 0) >= 2 && (
-                            <span className="ml-1 text-success-base font-medium">
-                              {`(×${assetUsageCounts.get(cardAssignments[card.uid]?.key)})`}
-                            </span>
-                          )}
-                        </>
-                      : 'Sin asignar'
-                    }
-                  </p>
-                </div>
-                {isActive && (
-                  <motion.div
-                    initial={{ scale: 0 }}
-                    animate={{ scale: 1 }}
-                    className="size-2 rounded-full bg-accent-indigo"
-                  />
-                )}
-              </motion.button>
-            );
-          })}
-        </div>
-      </GlassCard>
-
-      {/* Selector de assets */}
-      <GlassCard className="p-4 lg:col-span-2">
-        {activeCard ? (
-          <>
-            <div className="mb-4">
-              <h3 className="font-medium text-text-primary mb-1">
-                Asignar asset a <span className="text-accent-indigo">{activeCard.uid}</span>
-              </h3>
-              <p className="text-sm text-text-muted">
-                Selecciona un asset del contexto &quot;{selectedContext?.name}&quot;
-              </p>
+    <div className="space-y-4">
+      {/* Auto-assign button */}
+      {canAutoAssign && (
+        <motion.div
+          initial={{ opacity: 0, y: -10 }}
+          animate={{ opacity: 1, y: 0 }}
+        >
+          <GlassCard className="p-3 flex items-center justify-between">
+            <div className="flex items-center gap-2 text-sm text-text-secondary">
+              <Wand2 size={16} className="text-accent-indigo" />
+              <span>
+                {unassignedCards.length} carta(s) y {unassignedAssets.length} asset(s) sin asignar
+              </span>
             </div>
+            <ButtonPremium
+              variant="ghost"
+              size="sm"
+              onClick={handleAutoAssign}
+              icon={<Wand2 size={14} />}
+            >
+              Auto-asignar restantes
+            </ButtonPremium>
+          </GlassCard>
+        </motion.div>
+      )}
 
-            <AssetSelector
-              assets={selectedContext?.assets || []}
-              selectedAssetKey={currentAssignment?.key}
-              assignedAssets={[]}
-              assetUsageCounts={assetUsageCounts}
-              onSelect={(asset) => onAssignAsset(activeCardId, asset)}
-            />
-          </>
-        ) : (
-          <div className="flex items-center justify-center h-64 text-text-muted">
-            <p>Selecciona una carta para asignar un asset</p>
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+        {/* Lista de cartas */}
+        <GlassCard className="p-4 lg:col-span-1">
+          <div className="mb-4">
+            <h3 className="font-medium text-text-primary mb-1">Cartas del mazo</h3>
+            <div className="h-1.5 bg-background-elevated rounded-full overflow-hidden">
+              <motion.div
+                className="h-full bg-gradient-to-r from-accent-indigo to-brand-base"
+                initial={{ width: 0 }}
+                animate={{ width: `${progress}%` }}
+                transition={{ duration: 0.5 }}
+              />
+            </div>
+            <p className="text-xs text-text-muted mt-1">
+              {assignedCount}/{selectedCards.length} asignadas
+            </p>
           </div>
-        )}
-      </GlassCard>
+
+          <div className="space-y-2 max-h-[400px] overflow-y-auto">
+            {selectedCards.map((card) => {
+              const isAssigned = !!cardAssignments[card.uid];
+              const isActive = activeCardId === card.uid;
+
+              return (
+                <motion.button
+                  key={card.uid}
+                  onClick={() => setActiveCardId(card.uid)}
+                  className={cn(
+                    'w-full flex items-center gap-3 p-3 rounded-xl border transition-colors text-left',
+                    isActive
+                      ? 'border-accent-indigo bg-accent-indigo/10'
+                      : 'border-border-default bg-background-elevated/30 hover:border-border-strong'
+                  )}
+                  whileHover={{ x: 4 }}
+                >
+                  <div className={cn(
+                    'size-8 rounded-lg flex items-center justify-center text-sm overflow-hidden',
+                    isAssigned
+                      ? 'bg-success-base/20 text-success-base'
+                      : 'bg-background-surface text-text-muted'
+                  )}>
+                    {isAssigned ? (
+                      <CardAssetPreview
+                        asset={cardAssignments[card.uid]}
+                        alt={`Asset asignado a ${card.uid}`}
+                        className="w-full h-full rounded-lg"
+                        fit="cover"
+                        fallbackIcon={<Check size={16} className="text-success-base" />}
+                      />
+                    ) : (
+                      <CreditCard size={16} />
+                    )}
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm font-medium text-text-primary truncate">
+                      {card.uid}
+                    </p>
+                    <p className="text-xs text-text-muted truncate">
+                      {isAssigned
+                        ? <>
+                            {cardAssignments[card.uid]?.value}
+                            {(assetUsageCounts.get(cardAssignments[card.uid]?.key) || 0) >= 2 && (
+                              <span className="ml-1 text-success-base font-medium">
+                                {`(×${assetUsageCounts.get(cardAssignments[card.uid]?.key)})`}
+                              </span>
+                            )}
+                          </>
+                        : 'Sin asignar'
+                      }
+                    </p>
+                  </div>
+                  {isActive && (
+                    <motion.div
+                      initial={{ scale: 0 }}
+                      animate={{ scale: 1 }}
+                      className="size-2 rounded-full bg-accent-indigo"
+                    />
+                  )}
+                </motion.button>
+              );
+            })}
+          </div>
+        </GlassCard>
+
+        {/* Selector de assets */}
+        <GlassCard className="p-4 lg:col-span-2">
+          {activeCard ? (
+            <>
+              <div className="mb-4">
+                <h3 className="font-medium text-text-primary mb-1">
+                  Asignar asset a <span className="text-accent-indigo">{activeCard.uid}</span>
+                </h3>
+                <p className="text-sm text-text-muted">
+                  Selecciona un asset del contexto &quot;{selectedContext?.name}&quot;
+                </p>
+              </div>
+
+              <AssetSelector
+                assets={selectedContext?.assets || []}
+                selectedAssetKey={currentAssignment?.key}
+                assignedAssets={[]}
+                assetUsageCounts={assetUsageCounts}
+                onSelect={(asset) => onAssignAsset(activeCardId, asset)}
+              />
+
+              {/* Live preview of assigned card */}
+              <AnimatePresence>
+                {currentAssignment && (
+                  <motion.div
+                    initial={{ opacity: 0, y: 10 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    exit={{ opacity: 0, y: -10 }}
+                    className="mt-4"
+                  >
+                    <div className="flex items-center gap-2 mb-2 text-xs text-text-muted">
+                      <Eye size={14} />
+                      <span>Vista previa del juego</span>
+                    </div>
+                    <div className="flex items-center gap-4 p-4 rounded-xl bg-background-elevated/50 border border-border-subtle">
+                      <CardAssetPreview
+                        asset={currentAssignment}
+                        alt={`Preview de ${currentAssignment.value}`}
+                        className="size-16 rounded-xl flex-shrink-0"
+                        fit="cover"
+                        fallbackClassName="bg-gradient-to-br from-accent-indigo/20 to-brand-base/20 text-2xl"
+                      />
+                      <div className="flex-1 min-w-0">
+                        <p className="text-sm font-semibold text-text-primary truncate">
+                          {currentAssignment.value || currentAssignment.display}
+                        </p>
+                        <p className="text-xs font-mono text-text-muted mt-0.5">
+                          UID: {activeCard.uid}
+                        </p>
+                        {currentAssignment.audioUrl && (
+                          <div className="mt-1.5">
+                            <AudioPlayBadge
+                              audioUrl={currentAssignment.audioUrl}
+                              size="xs"
+                            />
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  </motion.div>
+                )}
+              </AnimatePresence>
+            </>
+          ) : (
+            <div className="flex items-center justify-center h-64 text-text-muted">
+              <p>Selecciona una carta para asignar un asset</p>
+            </div>
+          )}
+        </GlassCard>
+      </div>
     </div>
   );
 }

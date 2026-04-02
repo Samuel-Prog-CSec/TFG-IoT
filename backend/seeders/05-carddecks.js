@@ -109,7 +109,7 @@ const deckTemplates = [
   {
     name: 'Números del 1 al 6',
     description: 'Mazo para practicar números del 1 al 6',
-    contextKey: 'numbers-1-15',
+    contextKey: 'numbers-1-6',
     cardCount: 6
   },
   {

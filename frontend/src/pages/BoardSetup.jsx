@@ -4,7 +4,7 @@ import { DndContext, DragOverlay, useSensor, useSensors, PointerSensor, defaultD
 import { SortableContext, useSortable } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Layers, RotateCcw, Play, CheckCircle } from 'lucide-react';
+import { Layers, RotateCcw, Play, CheckCircle, Shuffle } from 'lucide-react';
 import clsx from 'clsx';
 import confetti from 'canvas-confetti';
 import { toast } from 'sonner';
@@ -17,6 +17,16 @@ import CardAssetPreview from '../components/ui/CardAssetPreview';
 import SelectPremium from '../components/ui/SelectPremium';
 import ButtonPremium from '../components/ui/ButtonPremium';
 import Tooltip from '../components/ui/Tooltip';
+
+/** Fisher-Yates shuffle — returns a new shuffled copy of the array */
+function shuffleArray(array) {
+  const shuffled = [...array];
+  for (let i = shuffled.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [shuffled[i], shuffled[j]] = [shuffled[j], shuffled[i]];
+  }
+  return shuffled;
+}
 
 export default function BoardSetup() {
   const { sessionId } = useParams();
@@ -147,6 +157,25 @@ export default function BoardSetup() {
             .sort((a, b) => a.slotIndex - b.slotIndex);
     }, [slots]);
 
+    const handleRandomize = useCallback(() => {
+        if (!session?.cardMappings?.length) return;
+        const shuffled = shuffleArray(session.cardMappings);
+        const newSlots = {};
+        shuffled.forEach((card, index) => {
+            newSlots[`slot_${index}`] = {
+                id: card.uid,
+                uid: card.uid,
+                assignedValue: card.assignedValue,
+                displayData: card.displayData || {},
+                label: card.assignedValue,
+                asset: card.displayData || null,
+                icon: card.displayData?.display || null
+            };
+        });
+        setSlots(newSlots);
+        toast.success('Tablero distribuido aleatoriamente');
+    }, [session?.cardMappings]);
+
     const handleStartPlay = useCallback(async () => {
         if (!canStart || savingBoard) {
             return;
@@ -257,6 +286,16 @@ export default function BoardSetup() {
                         className="w-64"
                     />
 
+                    <Tooltip content="Distribuir aleatoriamente">
+                        <button
+                            type="button"
+                            onClick={handleRandomize}
+                            className="flex items-center gap-2 rounded-lg border border-accent-indigo/30 bg-accent-indigo/10 px-4 py-2 text-sm font-medium text-accent-indigo hover:bg-accent-indigo/20 transition-colors"
+                        >
+                            <Shuffle size={16} />
+                            Aleatorio
+                        </button>
+                    </Tooltip>
                     <Tooltip content="Resetear Tablero">
                         <ButtonPremium
                             variant="ghost"

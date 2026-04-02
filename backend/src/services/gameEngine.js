@@ -11,6 +11,9 @@ const gameSessionRepository = require('../repositories/gameSessionRepository');
 const redisService = require('./redisService');
 const { recalculateSessionStatusFromPlays } = require('./sessionStatusService');
 const { getMechanicStrategy } = require('../strategies/mechanics');
+const {
+  ensureMemoryBoardLayoutIsComplete
+} = require('../controllers/helpers/sessionValidationHelpers');
 
 // Constantes de configuración
 // Umbral de alerta (soft limit) - no bloquea, solo emite warnings
@@ -466,10 +469,24 @@ class GameEngine {
       const uidToMapping = new Map(sessionDoc.cardMappings.map(m => [m.uid, m]));
 
       // 3. Crear el estado en memoria
-      const mechanicName =
-        typeof sessionDoc.mechanicId === 'object' && sessionDoc.mechanicId?.name
-          ? sessionDoc.mechanicId.name
-          : sessionDoc.mechanicId?.toString?.();
+      // Garantizar que mechanicId esté poblado con su nombre
+      if (typeof sessionDoc.mechanicId !== 'object' || !sessionDoc.mechanicId?.name) {
+        if (typeof sessionDoc.populate === 'function') {
+          await sessionDoc.populate({ path: 'mechanicId', select: 'name rules' });
+        }
+      }
+      const mechanicName = sessionDoc.mechanicId?.name || null;
+      if (!mechanicName) {
+        throw new Error('No se pudo resolver el nombre de la mecánica de juego.');
+      }
+
+      // Validar boardLayout para sesiones de memoria antes de construir el estado
+      ensureMemoryBoardLayoutIsComplete({
+        mechanic: sessionDoc.mechanicId,
+        boardLayout: sessionDoc.boardLayout,
+        cardMappings: sessionDoc.cardMappings
+      });
+
       const mechanicStrategy = getMechanicStrategy(mechanicName, logger);
       const strategyState = mechanicStrategy.initialize({ sessionDoc, playDoc });
 
@@ -500,9 +517,10 @@ class GameEngine {
       if (playState.mechanicName === 'memory') {
         const playDurationMs =
           Number(playState.mechanicStrategy.getPlayDurationMs(sessionDoc)) ||
-          (sessionDoc.config?.timeLimit || 15) * 1000;
+          (sessionDoc.config?.timeLimit || 90) * 1000;
         playState.playDurationMs = playDurationMs;
-        playState.playEndsAt = Date.now() + playDurationMs;
+        playState.awaitingBoardReady = true;
+        // El timer se inicia cuando el frontend confirma que el tablero es visible (board_ready)
       }
 
       // 4. Almacenar el estado en memoria
@@ -860,7 +878,10 @@ class GameEngine {
       });
 
       this.emitMemoryTurnState(playId, playState, { phase: 'round_start' });
-      this.scheduleMemoryPlayTimeout(playId, playState, remainingTimeMs);
+      // Solo programar timeout si el frontend ya confirmó que el tablero es visible
+      if (!playState.awaitingBoardReady) {
+        this.scheduleMemoryPlayTimeout(playId, playState, remainingTimeMs);
+      }
       return;
     }
 
@@ -1512,6 +1533,26 @@ class GameEngine {
    */
   resumePlay(playId) {
     return this.resumePlayInternal(playId);
+  }
+
+  /**
+   * Confirma que el tablero de memoria está visible en el frontend.
+   * Inicia el timer de la partida de memoria.
+   */
+  async confirmBoardReady(playId) {
+    const playState = this.activePlays.get(playId);
+    if (!playState || !this.isMemoryPlay(playState) || !playState.awaitingBoardReady) {
+      return;
+    }
+
+    playState.awaitingBoardReady = false;
+    playState.playEndsAt = Date.now() + playState.playDurationMs;
+    this.scheduleMemoryPlayTimeout(playId, playState, playState.playDurationMs);
+
+    logger.info('Timer de memoria iniciado tras board_ready', {
+      playId,
+      durationMs: playState.playDurationMs
+    });
   }
 
   /**

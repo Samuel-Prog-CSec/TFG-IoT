@@ -9,7 +9,7 @@ import PropTypes from 'prop-types';
  */
 function DistributionChart({ data }) {
   return (
-    <ResponsiveContainer width="100%" height="100%">
+    <ResponsiveContainer width="100%" height="100%" minWidth={0} minHeight={0}>
       <BarChart data={data} barSize={40} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
         <CartesianGrid strokeDasharray="3 3" stroke="var(--color-border-subtle)" vertical={false} />
         <XAxis 

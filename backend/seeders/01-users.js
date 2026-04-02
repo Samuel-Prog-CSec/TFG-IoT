@@ -175,9 +175,17 @@ function generateStudentsData(teacher, names, count, indexOffset) {
 async function seedUsers() {
   try {
     // Crear profesores (usar create/save para aplicar hooks de password)
+    // Verificar existencia antes de insertar para evitar E11000 duplicate key
     const teachers = [];
     for (const teacherData of teachersData) {
-      // Asegurar que quedan aprobados en seed
+      const existing = await User.findOne({ email: teacherData.email });
+
+      if (existing) {
+        logger.info(`Profesor ya existe, omitiendo creacion: ${teacherData.email}`);
+        teachers.push(existing);
+        continue;
+      }
+
       const teacher = await User.create({
         ...teacherData,
         role: 'teacher',
@@ -187,9 +195,22 @@ async function seedUsers() {
       teachers.push(teacher);
     }
 
-    // Crear 15-20 alumnos por cada profesor
+    // Crear 18 alumnos por cada profesor (omitir si ya existen)
     const studentsArrays = [];
     for (const [index, teacher] of teachers.entries()) {
+      const existingStudents = await User.find({
+        createdBy: teacher._id,
+        role: 'student'
+      });
+
+      if (existingStudents.length > 0) {
+        logger.info(
+          `Profesor ${teacher.email} ya tiene ${existingStudents.length} alumnos, omitiendo creacion`
+        );
+        studentsArrays.push(existingStudents);
+        continue;
+      }
+
       const studentsCount = 18;
       const studentNames = buildStudentNames(studentsCount, index * studentsCount);
       const studentsData = generateStudentsData(teacher, studentNames, studentsCount, 0);

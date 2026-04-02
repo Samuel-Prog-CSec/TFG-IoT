@@ -291,9 +291,6 @@ function DeckCardView({
       onPointerEnter={onPointerEnter}
       onPointerLeave={handlePointerLeave}
       onClick={handleClick}
-      style={{
-        transformStyle: 'preserve-3d',
-      }}
       initial={{ opacity: 0, y: 20 }}
       animate={{ opacity: 1, y: 0 }}
       whileHover={{ z: 20 }}
@@ -366,15 +363,6 @@ function DeckCardView({
 
           <DeckStats cardsCount={cardsCount} createdAt={deck.createdAt} />
 
-          <DeckHoverActions
-            selectable={selectable}
-            showActions={showActions}
-            deck={deck}
-            onView={onView}
-            onEdit={onEdit}
-            onDelete={onDelete}
-          />
-
           <DeckSelectionBadge selectable={selectable} selected={selected} />
         </div>
 
@@ -385,6 +373,16 @@ function DeckCardView({
           }}
         />
       </motion.div>
+
+      {/* Acciones fuera del div con rotación 3D para que no se desplacen con el tilt */}
+      <DeckHoverActions
+        selectable={selectable}
+        showActions={showActions}
+        deck={deck}
+        onView={onView}
+        onEdit={onEdit}
+        onDelete={onDelete}
+      />
 
     </motion.div>
   );
@@ -515,27 +513,33 @@ function DeckPreviewAssets({
         y: useFullAnimations && isHovered ? assetY : 0,
       }}
     >
-      {previewAssets.map((mapping, index) => (
-        <motion.div
-          key={mapping._id || index}
-          className="size-10 rounded-lg border border-border-default flex items-center justify-center text-lg overflow-hidden shadow-[inset_0_1px_4px_rgba(0,0,0,0.3)] ring-1 ring-white/5"
-          initial={{ opacity: 0, scale: 0.8 }}
-          animate={{ opacity: 1, scale: 1 }}
-          transition={{ delay: index * 0.1 }}
-          style={{
-            transform: `translateZ(${(index + 1) * 10}px)`,
-            // Fondo con dominantColor del asset para continuidad visual
-            backgroundColor: mapping.displayData?.dominantColor || 'var(--color-background-elevated)',
-          }}
-        >
-          <CardAssetPreview
-            asset={mapping.displayData}
-            className="w-full h-full rounded-lg"
-            showSkeleton={false}
-            fallbackLabel={mapping.displayData?.display || mapping.displayData?.emoji || '🎴'}
-          />
-        </motion.div>
-      ))}
+      {previewAssets.map((mapping, index) => {
+        const label = mapping.displayData?.display || mapping.displayData?.emoji || '🎴';
+        const hasImage = Boolean(mapping.displayData?.thumbnailUrl || mapping.displayData?.imageUrl);
+        return (
+          <motion.div
+            key={mapping._id || index}
+            className="size-10 rounded-lg border border-border-default flex items-center justify-center text-lg overflow-hidden shadow-[inset_0_1px_4px_rgba(0,0,0,0.3)] ring-1 ring-white/5"
+            initial={{ opacity: 0, scale: 0.8 }}
+            animate={{ opacity: 1, scale: 1 }}
+            transition={{ delay: index * 0.1 }}
+            title={!hasImage ? label : undefined}
+            style={{
+              transform: `translateZ(${(index + 1) * 10}px)`,
+              // Fondo con dominantColor del asset para continuidad visual
+              backgroundColor: mapping.displayData?.dominantColor || 'var(--color-background-elevated)',
+            }}
+          >
+            <CardAssetPreview
+              asset={mapping.displayData}
+              className="w-full h-full rounded-lg"
+              showSkeleton={false}
+              fallbackLabel={label}
+              fallbackClassName={!hasImage ? 'p-0.5' : undefined}
+            />
+          </motion.div>
+        );
+      })}
       {remainingCount > 0 && (
         <motion.div
           className="size-10 rounded-lg bg-background-elevated/80 border border-border-default flex items-center justify-center text-xs font-bold text-text-muted"
@@ -587,7 +591,7 @@ function DeckHoverActions({ selectable, showActions, deck, onView, onEdit, onDel
   return (
     <motion.div
       className={cn(
-        'absolute bottom-0 left-0 right-0 p-4 pt-8 bg-gradient-to-t from-background-base via-background-base/95 to-transparent z-20',
+        'absolute bottom-0 left-0 right-0 p-4 pt-8 rounded-b-2xl bg-gradient-to-t from-background-base via-background-base/95 to-transparent z-30',
         showActions ? 'pointer-events-auto' : 'pointer-events-none'
       )}
       initial={{ opacity: 0, y: 20 }}
@@ -596,6 +600,7 @@ function DeckHoverActions({ selectable, showActions, deck, onView, onEdit, onDel
         y: showActions ? 0 : 20
       }}
       transition={{ duration: 0.2 }}
+      onPointerMove={(e) => e.stopPropagation()}
     >
       <div className="flex items-center justify-center gap-2">
         <ActionButton

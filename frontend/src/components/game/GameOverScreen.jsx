@@ -33,37 +33,48 @@ function GameOverScreen({
   const isNewBest = score > bestScore;
   const floatingStars = useMemo(
     () =>
-      Array.from({ length: 16 }, (_, index) => ({
+      Array.from({ length: 12 }, (_, index) => ({
         id: index,
-        x: 6 + (index % 8) * 11,
-        delay: (index % 6) * 0.35,
-        duration: 3 + (index % 4) * 0.45,
+        x: 5 + index * (90 / 12) + (index % 3) * 2,
+        delay: 0.3 + (index % 5) * 0.4,
+        duration: 2.5 + (index % 3) * 0.5,
         symbol: ['⭐', '✨', '🌟'][index % 3]
       })),
     []
   );
 
-  // Mensajes segun rendimiento (7 niveles)
-  const getMessage = () => {
-    if (percentage >= 100) return { emoji: '🏆', text: '¡PERFECTO!', sub: '¡Has acertado todo!' };
-    if (percentage >= 90) return { emoji: '🌟', text: '¡INCREÍBLE!', sub: '¡Casi perfecto!' };
-    if (percentage >= 80) return { emoji: '✨', text: '¡EXCELENTE!', sub: '¡Gran trabajo!' };
-    if (percentage >= 70) return { emoji: '😊', text: '¡MUY BIEN!', sub: '¡Sigue así!' };
-    if (percentage >= 50) return { emoji: '💪', text: '¡BUEN TRABAJO!', sub: '¡Vas mejorando!' };
-    if (percentage >= 30) return { emoji: '🎯', text: '¡SIGUE INTENTANDO!', sub: '¡Cada vez mejor!' };
-    return { emoji: '💫', text: '¡NO TE RINDAS!', sub: '¡La práctica hace al maestro!' };
-  };
+  // Mensajes y estilo visual segun estrellas obtenidas (4 niveles)
+  const tierConfig = useMemo(() => {
+    switch (stars) {
+      case 3: return {
+        emoji: '🏆', text: '¡INCREIBLE!', sub: '¡Eres un crack!',
+        glowA: 'bg-warning-base/25', glowB: 'bg-brand-base/25',
+      };
+      case 2: return {
+        emoji: '🎉', text: '¡MUY BIEN!', sub: '¡Sigue asi!',
+        glowA: 'bg-success-base/20', glowB: 'bg-accent-cyan/20',
+      };
+      case 1: return {
+        emoji: '💪', text: '¡BUEN INTENTO!', sub: '¡Vas por buen camino!',
+        glowA: 'bg-brand-base/20', glowB: 'bg-accent-cyan/15',
+      };
+      default: return {
+        emoji: '💫', text: '¡NO TE RINDAS!', sub: '¡La practica hace al maestro!',
+        glowA: 'bg-brand-base/15', glowB: 'bg-accent-cyan/10',
+      };
+    }
+  }, [stars]);
 
-  const message = getMessage();
+  const message = tierConfig;
   const scoreDelta = score - bestScore;
 
   const [showConfetti, setShowConfetti] = useState(false);
 
   useEffect(() => {
-    if (shouldReduceMotion || percentage < 70) return;
+    if (shouldReduceMotion || stars < 2) return;
     const timer = setTimeout(() => setShowConfetti(true), 800);
     return () => clearTimeout(timer);
-  }, [shouldReduceMotion, percentage]);
+  }, [shouldReduceMotion, stars]);
 
   return (
     <motion.div
@@ -77,8 +88,8 @@ function GameOverScreen({
     >
       {/* Animated background */}
       <div className="absolute inset-0 overflow-hidden" aria-hidden="true">
-        <div className={cn('absolute top-1/4 left-1/4 w-96 h-96 bg-brand-base/20 rounded-full blur-[128px]', !shouldReduceMotion && 'animate-pulse')} />
-        <div className={cn('absolute bottom-1/4 right-1/4 w-96 h-96 bg-accent-cyan/20 rounded-full blur-[128px]', !shouldReduceMotion && 'animate-pulse')} style={{ animationDelay: '1s' }} />
+        <div className={cn('absolute top-1/4 left-1/4 w-96 h-96 rounded-full blur-[128px]', tierConfig.glowA, !shouldReduceMotion && 'animate-pulse')} />
+        <div className={cn('absolute bottom-1/4 right-1/4 w-96 h-96 rounded-full blur-[128px]', tierConfig.glowB, !shouldReduceMotion && 'animate-pulse')} style={{ animationDelay: '1s' }} />
       </div>
 
       <motion.article
@@ -95,7 +106,7 @@ function GameOverScreen({
               scale: [1, 1.2, 1],
               rotate: [0, 5, -5, 0]
             }}
-            transition={shouldReduceMotion ? { duration: 0 } : { duration: 1, repeat: Infinity }}
+            transition={shouldReduceMotion ? { duration: 0 } : { duration: 1, repeat: 5 }}
             className="text-7xl mb-4"
             aria-hidden="true"
           >
@@ -211,15 +222,16 @@ function GameOverScreen({
           {summary && (
             <div className="grid grid-cols-3 gap-2 mb-8 text-xs">
               <div className="rounded-lg bg-background-elevated/60 border border-border-subtle px-3 py-2 text-center">
-                <div className="text-text-muted">Errores</div>
-                <div className="text-white font-display font-semibold">{summary.errors ?? 0}</div>
+                <div className="text-text-muted">Sin completar</div>
+                <div className="text-white font-display font-semibold">{Math.max(0, totalRounds - correctAnswers)}</div>
               </div>
               <div className="rounded-lg bg-background-elevated/60 border border-border-subtle px-3 py-2 text-center">
                 <div className="text-text-muted">T. medio</div>
                 <div className="text-white font-display font-semibold">
+                  {/* En modo memory no hay T. medio del servidor */}
                   {summary.averageResponseTimeMs > 0
                     ? `${(summary.averageResponseTimeMs / 1000).toFixed(1)}s`
-                    : '—'}
+                    : (summary.mode === 'memory' ? 'N/A' : '—')}
                 </div>
               </div>
               <div className="rounded-lg bg-background-elevated/60 border border-border-subtle px-3 py-2 text-center">
@@ -276,7 +288,7 @@ function GameOverScreen({
               }}
               transition={{
                 duration: piece.duration,
-                repeat: Infinity,
+                repeat: 1,
                 delay: piece.delay,
               }}
               className="absolute text-2xl"
@@ -291,8 +303,8 @@ function GameOverScreen({
       {showConfetti && (
         <Confetti
           active
-          particleCount={percentage >= 90 ? 80 : 40}
-          duration={3500}
+          particleCount={stars >= 3 ? 80 : 40}
+          duration={stars >= 3 ? 4000 : 3500}
         />
       )}
     </motion.div>

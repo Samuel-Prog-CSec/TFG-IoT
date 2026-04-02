@@ -24,6 +24,19 @@ const analyticsService = {
   },
 
   /**
+   * Obtiene tendencias con cambio porcentual (periodo actual vs anterior).
+   * @param {string} timeRange - '7d' o '30d'
+   * @returns {Promise<Object>} KPIs con valores actuales, anteriores y cambio porcentual
+   */
+  getClassroomTrends: async (timeRange = '7d', config = {}) => {
+    const response = await api.get('/analytics/classroom/trends', {
+      params: { timeRange },
+      ...config
+    });
+    return extractData(response);
+  },
+
+  /**
    * Obtiene las dificultades globales de la clase.
    * @returns {Promise<Array>}
    */

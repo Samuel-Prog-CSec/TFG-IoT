@@ -27,7 +27,6 @@ const {
   ensureMemoryBoardLayoutIsComplete,
   normalizeBoardLayout,
   validateBoardLayoutAgainstMappings,
-  validateAssociationChallengePlanAgainstMappings,
   applyAssociationPlanOnUpdate,
   ensureAssociationPlanReadyForStart,
   applyCloneMechanicState,
@@ -90,7 +89,7 @@ const getSessions = async (req, res) => {
   const [sessions, total] = await Promise.all([
     gameSessionRepository.find(filter, {
       select:
-        'mechanicId deckId contextId createdBy config status difficulty startedAt endedAt createdAt updatedAt',
+        'name mechanicId deckId contextId createdBy config status difficulty startedAt endedAt createdAt updatedAt',
       populate: [
         { path: 'mechanicId', select: 'name displayName icon' },
         { path: 'deckId', select: 'name status contextId' },
@@ -104,6 +103,36 @@ const getSessions = async (req, res) => {
     }),
     gameSessionRepository.count(filter)
   ]);
+
+  // Aggregate play stats per session (count + average score)
+  const sessionIds = sessions.map(s => s._id || s.id);
+  const playStatsMap = {};
+
+  if (sessionIds.length > 0) {
+    const playStatsAgg = await gamePlayRepository.aggregate([
+      { $match: { sessionId: { $in: sessionIds }, status: 'completed' } },
+      {
+        $group: {
+          _id: '$sessionId',
+          playsCount: { $sum: 1 },
+          averageScore: { $avg: '$score' }
+        }
+      }
+    ]);
+
+    for (const stat of playStatsAgg) {
+      playStatsMap[stat._id.toString()] = {
+        playsCount: stat.playsCount,
+        averageScore: Math.round(stat.averageScore ?? 0)
+      };
+    }
+  }
+
+  // Attach playStats to each session before DTO conversion
+  for (const s of sessions) {
+    const sid = (s._id || s.id).toString();
+    s.playStats = playStatsMap[sid] || null;
+  }
 
   logger.info('Lista de sesiones obtenida', {
     requestedBy: req.user._id,
@@ -132,7 +161,7 @@ const getSessionById = async (req, res) => {
 
   const session = await gameSessionRepository.findById(id, {
     select:
-      'mechanicId deckId contextId createdBy config cardMappings boardLayout associationChallengePlan requiresAssociationPlanConfiguration status difficulty startedAt endedAt createdAt updatedAt',
+      'name mechanicId deckId contextId createdBy config cardMappings boardLayout associationChallengePlan requiresAssociationPlanConfiguration status difficulty startedAt endedAt createdAt updatedAt',
     populate: [
       { path: 'mechanicId', select: 'name displayName icon' },
       { path: 'deckId', select: 'name status contextId' },
@@ -172,7 +201,9 @@ const createSession = async (req, res) => {
     contextId,
     deckId,
     sensorId,
+    name,
     config,
+    difficulty,
     cardMappings,
     boardLayout,
     associationChallengePlan
@@ -191,12 +222,19 @@ const createSession = async (req, res) => {
     mechanicId,
     deckId,
     sensorId,
+    name,
     config,
     contextId,
     boardLayout,
     associationChallengePlan,
     createdBy: req.user._id
   });
+
+  // Si el profesor seleccionó una dificultad, sobrescribir el valor auto-calculado por el pre-save hook
+  if (difficulty) {
+    session.difficulty = difficulty;
+    await session.save({ validateBeforeSave: false });
+  }
 
   sendCreated(res, toGameSessionDetailDTOV1(session), 'Sesión creada exitosamente');
 };
@@ -214,7 +252,8 @@ const createSession = async (req, res) => {
  */
 const updateSession = async (req, res) => {
   const { id } = req.params;
-  const { deckId, sensorId, config, boardLayout, associationChallengePlan } = req.body;
+  const { deckId, sensorId, name, config, difficulty, boardLayout, associationChallengePlan } =
+    req.body;
 
   const session = await gameSessionRepository.findById(id);
 
@@ -236,6 +275,10 @@ const updateSession = async (req, res) => {
 
   if (sensorId !== undefined) {
     session.sensorId = sensorId;
+  }
+
+  if (name !== undefined) {
+    session.name = name;
   }
 
   if (!session.deckId) {
@@ -284,6 +327,12 @@ const updateSession = async (req, res) => {
   });
 
   await session.save();
+
+  // Si se proporcionó dificultad explícita, sobrescribir el valor auto-calculado por el pre-save hook
+  if (difficulty !== undefined) {
+    session.difficulty = difficulty;
+    await session.save({ validateBeforeSave: false });
+  }
 
   logger.info('Sesión actualizada', {
     sessionId: session._id,
@@ -342,7 +391,9 @@ const deleteSession = async (req, res) => {
 const startSession = async (req, res) => {
   const { id } = req.params;
 
-  const session = await gameSessionRepository.findById(id);
+  const session = await gameSessionRepository.findById(id, {
+    populate: [{ path: 'mechanicId', select: 'name displayName icon rules' }]
+  });
 
   if (!session) {
     throw new NotFoundError('Sesión de juego');

@@ -65,11 +65,15 @@ function resolveSocketError(payload) {
   };
 }
 
-function normalizeFinalSummary(rawMetrics, score, correctAnswers, isMemoryMode) {
+function normalizeFinalSummary(rawMetrics, score, correctAnswers, isMemoryMode, gameStartTime) {
   const metrics = rawMetrics && typeof rawMetrics === 'object' ? rawMetrics : {};
   const totalAttempts = Number(metrics.totalAttempts || 0);
   const averageResponseTimeMs = Number(metrics.averageResponseTime || 0);
-  const totalTimePlayed = Number(metrics.totalTimePlayed || 0);
+  const rawTotalTime = Number(metrics.totalTimePlayed || metrics.playDuration || 0);
+
+  // Si no hay tiempo del servidor, calcular a partir del inicio local (en ms)
+  const elapsedMs = gameStartTime ? Date.now() - gameStartTime : 0;
+  const totalTimePlayed = rawTotalTime > 0 ? rawTotalTime : elapsedMs;
 
   return {
     score,
@@ -105,6 +109,7 @@ export default function GameSession() { // NOSONAR
   const initCalledRef = useRef(false);
   const lastSocketErrorToastRef = useRef(0);
   const lastRetryAtRef = useRef(0);
+  const gameStartTimeRef = useRef(null);
   const RETRY_COOLDOWN_MS = 5000;
 
   // Game state
@@ -134,11 +139,21 @@ export default function GameSession() { // NOSONAR
   const [srAnnouncement, setSrAnnouncement] = useState('');
   const [showPreCelebration, setShowPreCelebration] = useState(false);
   const [retryKey, setRetryKey] = useState(0);
+  const [shakeError, setShakeError] = useState(false);
   const gameStateRef = useRef('waiting');
 
   const [challenge, setChallenge] = useState(null);
   const [memoryBoard, setMemoryBoard] = useState([]);
-  const fallbackCards = Array.isArray(session?.cardMappings) ? session.cardMappings : [];
+  // Barajar las cartas fallback en cada ronda para evitar memorización por posición
+  const shuffledFallbackCards = useMemo(() => {
+    const cards = Array.isArray(session?.cardMappings) ? [...session.cardMappings] : [];
+    // Shuffle determinista basado en el número de ronda
+    for (let i = cards.length - 1; i > 0; i--) {
+      const j = Math.abs((i * ((currentRound || 1) + 7) * 13) % (i + 1));
+      [cards[i], cards[j]] = [cards[j], cards[i]];
+    }
+    return cards;
+  }, [session?.cardMappings, currentRound]);
   const roundIndicators = useMemo(
     () => Array.from({ length: totalRounds }, (_, i) => i + 1),
     [totalRounds]
@@ -208,6 +223,10 @@ export default function GameSession() { // NOSONAR
 
       if (isCorrect) {
         setCorrectAnswers(prev => prev + 1);
+      } else {
+        // Shake visual del contenedor del juego ante respuesta incorrecta
+        setShakeError(true);
+        globalThis.setTimeout(() => setShakeError(false), 600);
       }
 
       scheduleFeedbackClear(
@@ -223,6 +242,10 @@ export default function GameSession() { // NOSONAR
       clearPendingTimeouts();
       gameFeedback.clearFeedback();
       setGameState('playing');
+      // Registrar el momento de inicio del juego (solo la primera vez)
+      if (!gameStartTimeRef.current) {
+        gameStartTimeRef.current = Date.now();
+      }
       setCurrentRound(Number(payload?.roundNumber || 1));
 
       const payloadTotalRounds = Number(payload?.totalRounds);
@@ -374,7 +397,7 @@ export default function GameSession() { // NOSONAR
     setScore(finalScore);
     setSrAnnouncement('Partida finalizada.');
     setPlaySummary(
-      normalizeFinalSummary(payload?.metrics, finalScore, correctAnswers, isMemoryMode)
+      normalizeFinalSummary(payload?.metrics, finalScore, correctAnswers, isMemoryMode, gameStartTimeRef.current)
     );
 
     // Brief celebration before showing game over screen (skip if reduced motion)
@@ -426,7 +449,6 @@ export default function GameSession() { // NOSONAR
     }
 
     const studentsRes = await usersAPI.getStudentsByTeacher(teacherId, {
-      limit: 1,
       sortBy: 'createdAt',
       order: 'asc'
     });
@@ -476,6 +498,12 @@ export default function GameSession() { // NOSONAR
 
     const onSocketError = payload => {
       const normalized = resolveSocketError(payload);
+
+      // No mostrar warning de sensor RFID en modo fallback táctil
+      if (normalized.code === 'RFID_SENSOR_UNAUTHORIZED') {
+        return;
+      }
+
       setRealtimeError(normalized);
       setSrAnnouncement(normalized.message);
 
@@ -566,7 +594,16 @@ export default function GameSession() { // NOSONAR
 
         if (sessionData?.status === 'created') {
           const startSessionRes = await sessionsAPI.startSession(sessionId);
-          sessionData = extractData(startSessionRes) || sessionData;
+          const startedData = extractData(startSessionRes);
+          if (startedData) {
+            // Preservar datos poblados de la sesión original (mechanic, deck, context)
+            sessionData = {
+              ...startedData,
+              mechanic: startedData.mechanic?.name ? startedData.mechanic : sessionData.mechanic,
+              deck: startedData.deck?.name ? startedData.deck : sessionData.deck,
+              context: startedData.context?.name ? startedData.context : sessionData.context
+            };
+          }
         }
         if (controller.signal.aborted) return;
 
@@ -649,6 +686,21 @@ export default function GameSession() { // NOSONAR
     }
   }, [gameFeedback.feedbackState]);
 
+  // Confirmar que el tablero de memoria está visible para iniciar el timer
+  const boardReadyEmittedRef = useRef(false);
+  useEffect(() => {
+    if (
+      isMemoryMode &&
+      gameState === 'playing' &&
+      memoryBoard.length > 0 &&
+      playId &&
+      !boardReadyEmittedRef.current
+    ) {
+      boardReadyEmittedRef.current = true;
+      socketService.sendCommand(SOCKET_EVENTS.BOARD_READY, { playId });
+    }
+  }, [isMemoryMode, gameState, memoryBoard, playId]);
+
   // Timer effect
   useEffect(() => {
     const shouldRunVisualTimer =
@@ -684,7 +736,9 @@ export default function GameSession() { // NOSONAR
     announcedThresholdsRef.current.add(timeLeft);
 
     if (timeLeft === 0) {
-      setSrAnnouncement('Tiempo agotado.');
+      if (gameState === 'playing') {
+        setSrAnnouncement('Tiempo agotado.');
+      }
       return;
     }
 
@@ -851,6 +905,21 @@ export default function GameSession() { // NOSONAR
     [gameState, playId, session?.sensorId]
   );
 
+  const handleMemoryCardTap = useCallback(
+    slot => {
+      if (!playId || gameState !== 'playing' || !slot?.uid) return;
+      const sensorId = session?.sensorId || 'touch_fallback_sensor';
+      socketService.sendCommand(SOCKET_EVENTS.RFID_SCAN_FROM_CLIENT, {
+        uid: slot.uid,
+        type: 'UNKNOWN',
+        sensorId,
+        timestamp: Date.now(),
+        source: 'web_serial'
+      });
+    },
+    [gameState, playId, session?.sensorId]
+  );
+
   // Play again
   const playAgain = async () => {
     if (!selectedPlayerId) {
@@ -948,9 +1017,6 @@ export default function GameSession() { // NOSONAR
     );
   }
 
-  const playAttempts = isMemoryMode ? memoryStats.attempts : Math.max(0, currentRound - 1);
-  const playErrors = Math.max(0, playAttempts - correctAnswers);
-
   return (
     <ErrorBoundary
       fallback={
@@ -984,17 +1050,29 @@ export default function GameSession() { // NOSONAR
           {/* Round indicator */}
           <div className="flex items-center gap-3">
             <motion.div
-              key={currentRound}
+              key={isMemoryMode ? Math.floor((memoryStats.matchedCount || 0) / 2) : currentRound}
               initial={shouldReduceMotion ? false : { scale: 0 }}
               animate={{ scale: 1 }}
               className="size-12 rounded-xl bg-gradient-to-br from-brand-base to-accent-indigo flex items-center justify-center shadow-lg shadow-brand-glow"
             >
-              <span className="text-2xl font-bold font-display text-text-primary">{currentRound}</span>
+              <span className="text-2xl font-bold font-display text-text-primary">
+                {isMemoryMode ? Math.floor((memoryStats.matchedCount || 0) / 2) : currentRound}
+              </span>
             </motion.div>
-            <div className="hidden sm:block">
-              <div className="text-xs text-text-disabled uppercase tracking-wider">Ronda</div>
-              <div className="text-sm text-text-primary font-medium">{currentRound} de {totalRounds}</div>
-            </div>
+            {/* Indicador contextual: parejas para memory, ronda para asociación */}
+            {isMemoryMode ? (
+              <div className="hidden sm:block">
+                <div className="text-xs text-text-disabled uppercase tracking-wider">Parejas</div>
+                <div className="text-sm text-text-primary font-medium">
+                  {Math.floor((memoryStats.matchedCount || 0) / 2)} de {Math.floor((memoryStats.totalCards || 0) / 2)}
+                </div>
+              </div>
+            ) : (
+              <div className="hidden sm:block">
+                <div className="text-xs text-text-disabled uppercase tracking-wider">Ronda</div>
+                <div className="text-sm text-text-primary font-medium">{currentRound} de {totalRounds}</div>
+              </div>
+            )}
           </div>
 
           {/* Center - Score */}
@@ -1131,7 +1209,10 @@ export default function GameSession() { // NOSONAR
               initial={shouldReduceMotion ? false : { opacity: 0 }}
               animate={{ opacity: 1 }}
               exit={{ opacity: 0 }}
-              className="w-full max-w-2xl flex flex-col items-center"
+              className={cn(
+                "w-full max-w-2xl flex flex-col items-center",
+                shakeError && 'animate-shake'
+              )}
             >
               {/* Challenge display */}
               {isMemoryMode ? (
@@ -1144,6 +1225,7 @@ export default function GameSession() { // NOSONAR
                   feedbackPoints={gameFeedback.feedbackPoints}
                   feedbackMessage={gameFeedback.feedbackMessage}
                   shouldReduceMotion={shouldReduceMotion}
+                  onCardTap={handleMemoryCardTap}
                 />
               ) : (
                 <AssociationGameplayPanel
@@ -1174,13 +1256,22 @@ export default function GameSession() { // NOSONAR
                 )}
               </motion.p>
 
-              {!rfidConnected && (
+              {!rfidConnected && !isMemoryMode && (
                 <FallbackTouchPanel
-                  cards={fallbackCards}
+                  cards={shuffledFallbackCards}
                   onSelectCard={emitFallbackCardScan}
                   onPauseRequest={togglePause}
                   canPause={gameState === 'playing'}
                 />
+              )}
+
+              {!rfidConnected && isMemoryMode && (
+                <div className="mt-3 w-full max-w-3xl rounded-xl border border-warning-base/30 bg-warning-base/10 p-2.5">
+                  <div className="flex items-center gap-2 text-warning-base">
+                    <AlertTriangle size={14} className="shrink-0" />
+                    <p className="text-xs font-semibold">Sin sensor RFID — toca las cartas del tablero para jugar</p>
+                  </div>
+                </div>
               )}
             </motion.div>
           )}
@@ -1241,8 +1332,7 @@ export default function GameSession() { // NOSONAR
             mode={isMemoryMode ? 'memory' : 'association'}
             score={score}
             correctAnswers={correctAnswers}
-            errors={playErrors}
-            attempts={playAttempts}
+            totalRounds={totalRounds}
           />
           <div
             className="flex justify-center items-center gap-2"
@@ -1382,7 +1472,7 @@ AssociationGameplayPanel.propTypes = {
 
 const MemoryGameplayPanel = memo(function MemoryGameplayPanel({
   board, attempts, matchedCount, totalCards,
-  feedbackState, feedbackPoints, feedbackMessage, shouldReduceMotion
+  feedbackState, feedbackPoints, feedbackMessage, shouldReduceMotion, onCardTap
 }) {
   const totalPairs = Math.max(1, Math.ceil(Number(totalCards || 0) / 2));
   const matchedPairs = Math.max(0, Math.floor(Number(matchedCount || 0) / 2));
@@ -1414,6 +1504,7 @@ const MemoryGameplayPanel = memo(function MemoryGameplayPanel({
         feedbackPoints={feedbackPoints}
         feedbackMessage={feedbackMessage}
         shouldReduceMotion={shouldReduceMotion}
+        onCardTap={onCardTap}
       />
     </div>
   );
@@ -1427,20 +1518,19 @@ MemoryGameplayPanel.propTypes = {
   feedbackState: PropTypes.oneOf(['idle', 'success', 'error']),
   feedbackPoints: PropTypes.number,
   feedbackMessage: PropTypes.string,
-  shouldReduceMotion: PropTypes.bool
+  shouldReduceMotion: PropTypes.bool,
+  onCardTap: PropTypes.func
 };
 
-const CurrentPlayMetrics = memo(function CurrentPlayMetrics({ mode, score, correctAnswers, errors, attempts }) {
-  const safeAttempts = Math.max(1, attempts || 0);
-
+const CurrentPlayMetrics = memo(function CurrentPlayMetrics({ mode, score, correctAnswers, totalRounds }) {
   return (
     <div className="mb-1.5 max-w-4xl mx-auto rounded-lg border border-border-default bg-background-base/30 px-3 py-1.5">
       <div className="grid grid-cols-3 gap-2 text-xs">
         <MetricPill label="⭐ Puntos" value={score} />
         <MetricPill label="✅ Aciertos" value={correctAnswers} />
         <MetricPill
-          label={mode === 'memory' ? '🧠 Parejas' : '🎯 Intentos'}
-          value={mode === 'memory' ? `${correctAnswers}` : `${safeAttempts - errors}/${safeAttempts}`}
+          label={mode === 'memory' ? '🧠 Parejas' : '🎯 Aciertos'}
+          value={mode === 'memory' ? `${correctAnswers}` : `${correctAnswers} de ${totalRounds}`}
         />
       </div>
     </div>
@@ -1451,8 +1541,7 @@ CurrentPlayMetrics.propTypes = {
   mode: PropTypes.string,
   score: PropTypes.number,
   correctAnswers: PropTypes.number,
-  errors: PropTypes.number,
-  attempts: PropTypes.number
+  totalRounds: PropTypes.number
 };
 
 function MetricPill({ label, value }) {
@@ -1499,7 +1588,7 @@ function getMemorySlotClasses(isMatched, isOpen) {
   return 'border-background-surface bg-background-elevated/60';
 }
 
-function MemoryBoard({ board, feedbackState, feedbackPoints, feedbackMessage, shouldReduceMotion }) {
+function MemoryBoard({ board, feedbackState, feedbackPoints, feedbackMessage, shouldReduceMotion, onCardTap }) {
   const safeBoard = Array.isArray(board) ? [...board].sort((a, b) => a.slotIndex - b.slotIndex) : [];
   const total = safeBoard.length;
   const columns = resolveMemoryColumns(total);
@@ -1570,7 +1659,8 @@ function MemoryBoard({ board, feedbackState, feedbackPoints, feedbackMessage, sh
                 'aspect-square rounded-xl border transition-[box-shadow,border-color] memory-card-flip',
                 slotClasses,
                 isMatchFeedback && 'shadow-[0_0_20px] shadow-success-glow',
-                isMismatchFeedback && 'border-error-base/60'
+                isMismatchFeedback && 'border-error-base/60',
+                onCardTap && !slot.isMatched && !slot.isRevealed && 'cursor-pointer'
               )}
               animate={
                 shouldReduceMotion ? {} :
@@ -1580,6 +1670,14 @@ function MemoryBoard({ board, feedbackState, feedbackPoints, feedbackMessage, sh
               }
               role="gridcell"
               aria-label={slotLabel}
+              onClick={() => onCardTap && !slot.isMatched && onCardTap(slot)}
+              tabIndex={onCardTap && !slot.isMatched ? 0 : undefined}
+              onKeyDown={e => {
+                if (onCardTap && !slot.isMatched && (e.key === 'Enter' || e.key === ' ')) {
+                  e.preventDefault();
+                  onCardTap(slot);
+                }
+              }}
             >
               <div className={cn(
                 'relative w-full h-full memory-card-inner',
@@ -1620,7 +1718,8 @@ MemoryBoard.propTypes = {
   feedbackState: PropTypes.oneOf(['idle', 'success', 'error']),
   feedbackPoints: PropTypes.number,
   feedbackMessage: PropTypes.string,
-  shouldReduceMotion: PropTypes.bool
+  shouldReduceMotion: PropTypes.bool,
+  onCardTap: PropTypes.func
 };
 
 function FallbackTouchPanel({ cards, onSelectCard, onPauseRequest, canPause }) {

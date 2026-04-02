@@ -290,7 +290,10 @@ function ContextCard({ context, onClick, index, reducedMotion }) {
         </div>
 
         {previews.length > 0 && (
-          <div className="mt-4 flex gap-1.5 pt-4 border-t border-border-subtle overflow-hidden">
+          <div
+            className="mt-4 flex gap-1.5 pt-4 border-t border-border-subtle overflow-hidden"
+            title={context.assets?.filter(a => a.display).map(a => a.display).join(', ')}
+          >
             {previews.map((preview, i) => (
               <span key={i} className="text-2xl">
                 {preview}

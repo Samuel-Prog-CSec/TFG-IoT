@@ -16,7 +16,6 @@ const {
   normalizeMechanicName,
   isMechanicEnabledForSessionCreation,
   validateConfigAgainstMechanicRules,
-  ensureMemoryBoardLayoutIsComplete,
   normalizeBoardLayout,
   validateBoardLayoutAgainstMappings,
   validateAssociationChallengePlanAgainstMappings
@@ -110,6 +109,7 @@ async function cloneSessionFromExisting({ sourceSession, userId }) {
     mechanicId: sourceSession.mechanicId,
     deckId: sourceSession.deckId,
     sensorId: sourceSession.sensorId,
+    name: sourceSession.name || undefined,
     config: normalizeSessionConfig(sourceSession.config),
     status: 'created',
     createdBy: userId
@@ -390,6 +390,7 @@ async function createSessionFromDeck({
   mechanicId,
   deckId,
   sensorId,
+  name,
   config = {},
   contextId,
   boardLayout,
@@ -414,6 +415,7 @@ async function createSessionFromDeck({
     deckId,
     contextId: contextId || undefined,
     sensorId,
+    name: name || undefined,
     config: { ...config },
     status: 'created',
     createdBy
@@ -444,12 +446,6 @@ async function createSessionFromDeck({
     session.associationChallengePlan = [];
     session.requiresAssociationPlanConfiguration = false;
   }
-
-  ensureMemoryBoardLayoutIsComplete({
-    mechanic,
-    boardLayout: session.boardLayout,
-    cardMappings: syncedMappings
-  });
 
   // Verificar consistencia de contextId explícito
   if (contextId && deck.contextId.toString() !== contextId.toString()) {

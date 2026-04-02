@@ -5,10 +5,11 @@
  * @module App
  */
 
-import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
-import { lazy, Suspense } from 'react';
+import { BrowserRouter, Routes, Route } from 'react-router-dom';
+import { lazy, Suspense, memo } from 'react';
+import PropTypes from 'prop-types';
 import { Toaster } from 'sonner';
-import { AuthProvider } from './context/AuthContext';
+import { AuthProvider, useAuth } from './context/AuthContext';
 import ProtectedRoute from './components/auth/ProtectedRoute';
 import GuestRoute from './components/auth/GuestRoute';
 import RequireRole from './components/auth/RequireRole';
@@ -41,6 +42,9 @@ const ContextDetailPage = lazy(() => import('./pages/ContextDetailPage'));
 // Auth pages
 const Login = lazy(() => import('./pages/Login'));
 const Register = lazy(() => import('./pages/Register'));
+
+// Error pages
+const NotFound = lazy(() => import('./pages/NotFound'));
 
 // Admin pages
 const ApprovalPanel = lazy(() => import('./pages/admin/ApprovalPanel'));
@@ -89,6 +93,19 @@ function SuspenseWrapper({ children }) {
 }
 
 /**
+ * Renderiza children solo si el usuario esta autenticado (sin redirect)
+ */
+const AuthenticatedOnly = memo(function AuthenticatedOnly({ children }) {
+  const { isAuthenticated, isLoading, isSuperAdmin } = useAuth();
+  if (isLoading || !isAuthenticated || isSuperAdmin) return null;
+  return children;
+});
+
+AuthenticatedOnly.propTypes = {
+  children: PropTypes.node.isRequired,
+};
+
+/**
  * Componente que envuelve el contenido de la aplicación para poder usar useLocation
  */
 function AppContent() {
@@ -99,22 +116,26 @@ function AppContent() {
         <Route path="/login" element={<GuestRoute><SuspenseWrapper><Login /></SuspenseWrapper></GuestRoute>} />
         <Route path="/register" element={<GuestRoute><SuspenseWrapper><Register /></SuspenseWrapper></GuestRoute>} />
 
-        {/* RUTAS PROTEGIDAS */}
+        {/* RUTAS PROTEGIDAS (profesor + admin comparten layout) */}
         <Route path="/" element={<ProtectedRoute><AppLayout /></ProtectedRoute>}>
           <Route index element={<SuspenseWrapper><Dashboard /></SuspenseWrapper>} />
           <Route path="dashboard" element={<SuspenseWrapper><Dashboard /></SuspenseWrapper>} />
-          <Route path="decks" element={<SuspenseWrapper><CardDecksPage /></SuspenseWrapper>} />
-          <Route path="decks/new" element={<SuspenseWrapper><DeckCreationWizard /></SuspenseWrapper>} />
-          <Route path="decks/:deckId" element={<SuspenseWrapper><CardDeckDetailPage /></SuspenseWrapper>} />
-          <Route path="decks/:deckId/edit" element={<SuspenseWrapper><DeckEditPage /></SuspenseWrapper>} />
-          <Route path="contexts" element={<SuspenseWrapper><ContextsPage /></SuspenseWrapper>} />
-          <Route path="contexts/:contextId" element={<SuspenseWrapper><ContextDetailPage /></SuspenseWrapper>} />
-          <Route path="sessions" element={<SuspenseWrapper><SessionsPage /></SuspenseWrapper>} />
-          <Route path="sessions/:sessionId" element={<SuspenseWrapper><SessionDetail /></SuspenseWrapper>} />
-          <Route path="sessions/:sessionId/edit" element={<SuspenseWrapper><SessionEdit /></SuspenseWrapper>} />
-          <Route path="create-session" element={<SuspenseWrapper><CreateSession /></SuspenseWrapper>} />
-          <Route path="board-setup" element={<SuspenseWrapper><BoardSetup /></SuspenseWrapper>} />
-          <Route path="board-setup/:sessionId" element={<SuspenseWrapper><BoardSetup /></SuspenseWrapper>} />
+
+          {/* Rutas exclusivas de profesor — admin redirige a su panel */}
+          <Route path="decks" element={<RequireRole roles="teacher" redirectTo={ROUTES.ADMIN_APPROVALS}><SuspenseWrapper><CardDecksPage /></SuspenseWrapper></RequireRole>} />
+          <Route path="decks/new" element={<RequireRole roles="teacher" redirectTo={ROUTES.ADMIN_APPROVALS}><SuspenseWrapper><DeckCreationWizard /></SuspenseWrapper></RequireRole>} />
+          <Route path="decks/:deckId" element={<RequireRole roles="teacher" redirectTo={ROUTES.ADMIN_APPROVALS}><SuspenseWrapper><CardDeckDetailPage /></SuspenseWrapper></RequireRole>} />
+          <Route path="decks/:deckId/edit" element={<RequireRole roles="teacher" redirectTo={ROUTES.ADMIN_APPROVALS}><SuspenseWrapper><DeckEditPage /></SuspenseWrapper></RequireRole>} />
+          <Route path="contexts" element={<RequireRole roles="teacher" redirectTo={ROUTES.ADMIN_APPROVALS}><SuspenseWrapper><ContextsPage /></SuspenseWrapper></RequireRole>} />
+          <Route path="contexts/:contextId" element={<RequireRole roles="teacher" redirectTo={ROUTES.ADMIN_APPROVALS}><SuspenseWrapper><ContextDetailPage /></SuspenseWrapper></RequireRole>} />
+          <Route path="sessions" element={<RequireRole roles="teacher" redirectTo={ROUTES.ADMIN_APPROVALS}><SuspenseWrapper><SessionsPage /></SuspenseWrapper></RequireRole>} />
+          <Route path="sessions/:sessionId" element={<RequireRole roles="teacher" redirectTo={ROUTES.ADMIN_APPROVALS}><SuspenseWrapper><SessionDetail /></SuspenseWrapper></RequireRole>} />
+          <Route path="sessions/:sessionId/edit" element={<RequireRole roles="teacher" redirectTo={ROUTES.ADMIN_APPROVALS}><SuspenseWrapper><SessionEdit /></SuspenseWrapper></RequireRole>} />
+          <Route path="create-session" element={<RequireRole roles="teacher" redirectTo={ROUTES.ADMIN_APPROVALS}><SuspenseWrapper><CreateSession /></SuspenseWrapper></RequireRole>} />
+          <Route path="board-setup" element={<RequireRole roles="teacher" redirectTo={ROUTES.ADMIN_APPROVALS}><SuspenseWrapper><BoardSetup /></SuspenseWrapper></RequireRole>} />
+          <Route path="board-setup/:sessionId" element={<RequireRole roles="teacher" redirectTo={ROUTES.ADMIN_APPROVALS}><SuspenseWrapper><BoardSetup /></SuspenseWrapper></RequireRole>} />
+
+          {/* Ruta exclusiva de admin */}
           <Route path="students/transfer" element={
             <RequireRole roles="super_admin">
               <SuspenseWrapper><TransferStudents /></SuspenseWrapper>
@@ -131,11 +152,11 @@ function AppContent() {
         {/* RUTAS DE JUEGO */}
         <Route path="/game/:sessionId" element={<ProtectedRoute><SuspenseWrapper><GameSession /></SuspenseWrapper></ProtectedRoute>} />
 
-        {/* FALLBACK */}
-        <Route path="*" element={<Navigate to={ROUTES.HOME} replace />} />
+        {/* FALLBACK — 404 */}
+        <Route path="*" element={<SuspenseWrapper><NotFound /></SuspenseWrapper>} />
       </Routes>
-      
-      <RFIDModeHandler />
+
+      <AuthenticatedOnly><RFIDModeHandler /></AuthenticatedOnly>
     </>
   );
 }

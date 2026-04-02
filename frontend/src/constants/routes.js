@@ -85,11 +85,6 @@ export const ADMIN_NAV_ROUTES = [
     icon: 'ArrowRightLeft',
   },
   {
-    path: ROUTES.DASHBOARD,
-    label: 'Dashboard',
-    icon: 'LayoutDashboard',
-  },
-  {
     path: ROUTES.STUDENT_MANAGEMENT,
     label: 'Alumnos',
     icon: 'Users',

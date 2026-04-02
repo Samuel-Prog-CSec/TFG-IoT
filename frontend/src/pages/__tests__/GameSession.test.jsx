@@ -312,7 +312,7 @@ describe('GameSession realtime gameplay', () => {
     expect(screen.getByText(/🧠\s*Parejas/i)).toBeInTheDocument();
   });
 
-  it('maps realtime backend error codes to specific UX messages', async () => {
+  it('suppresses RFID_SENSOR_UNAUTHORIZED in touch fallback mode', async () => {
     renderGameSession();
     await screen.findByRole('button', { name: /empezar/i });
 
@@ -323,9 +323,8 @@ describe('GameSession realtime gameplay', () => {
       });
     });
 
-    await waitFor(() => {
-      expect(toast.warning).toHaveBeenCalled();
-    });
+    // RFID_SENSOR_UNAUTHORIZED se suprime en modo fallback táctil (Fix 2D)
+    expect(toast.warning).not.toHaveBeenCalled();
   });
 
   it('requires realtime socket to pause or resume gameplay', async () => {

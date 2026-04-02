@@ -337,6 +337,7 @@ const toGameSessionDTOV1 = session => {
 
   return {
     id: toId(sessionData),
+    name: sessionData.name || null,
     mechanicId: toId(sessionData.mechanicId),
     deckId: toId(sessionData.deckId),
     contextId: toId(sessionData.contextId),
@@ -366,6 +367,8 @@ const toGameSessionDTOV1 = session => {
     requiresAssociationPlanConfiguration: Boolean(sessionData.requiresAssociationPlanConfiguration),
     status: sessionData.status,
     difficulty: sessionData.difficulty,
+    // Play stats (attached externally by controller when listing sessions)
+    playStats: sessionData.playStats || null,
     startedAt: sessionData.startedAt,
     endedAt: sessionData.endedAt,
     createdAt: sessionData.createdAt,
