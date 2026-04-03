@@ -136,73 +136,146 @@ function generateBoardLayout(cardMappings) {
  * Cada template define que tipo de sesion crear.
  * Incluye variedad de estados para datos mas realistas.
  */
+/**
+ * Templates de sesiones distribuidas en 60 días para alimentar analytics avanzados.
+ * Incluye variedad temporal, mecánicas y estados (completed, created).
+ * El seeder de gameplays (07) generará partidas para las sesiones completed.
+ *
+ * Criterios BI:
+ * - Suficientes sesiones para trends de 7d, 30d y 90d
+ * - Múltiples contextos y mecánicas para content-effectiveness
+ * - Distribución temporal para heatmaps y trayectorias
+ * - Sesiones recientes y antiguas para detección de tendencias
+ */
 const sessionTemplates = [
+  // ─── Semana 8-9 (hace ~56-60 días) — inicio del periodo ───
   {
     contextKey: 'geography-europe',
     mechanicName: 'association',
-    config: {
-      numberOfRounds: 6,
-      timeLimit: 20,
-      pointsPerCorrect: 10,
-      penaltyPerError: -2
-    },
+    config: { numberOfRounds: 6, timeLimit: 20, pointsPerCorrect: 10, penaltyPerError: -2 },
     status: 'completed',
-    description: 'Asociación con países de Europa',
-    daysAgo: 10
-  },
-  {
-    contextKey: 'animals-farm',
-    mechanicName: 'association',
-    config: {
-      numberOfRounds: 6,
-      timeLimit: 15,
-      pointsPerCorrect: 10,
-      penaltyPerError: -3
-    },
-    status: 'completed',
-    description: 'Animales de granja - repaso',
-    daysAgo: 8
+    description: 'Geografía Europa - sesión inicial',
+    daysAgo: 58
   },
   {
     contextKey: 'colors-basic',
     mechanicName: 'association',
-    config: {
-      numberOfRounds: 6,
-      timeLimit: 12,
-      pointsPerCorrect: 10,
-      penaltyPerError: -2
-    },
+    config: { numberOfRounds: 5, timeLimit: 12, pointsPerCorrect: 10, penaltyPerError: -2 },
     status: 'completed',
-    description: 'Colores básicos - práctica',
-    daysAgo: 6
+    description: 'Colores básicos - primera sesión',
+    daysAgo: 55
   },
+  // ─── Semana 6-7 (hace ~42-49 días) ───
+  {
+    contextKey: 'animals-farm',
+    mechanicName: 'association',
+    config: { numberOfRounds: 6, timeLimit: 15, pointsPerCorrect: 10, penaltyPerError: -3 },
+    status: 'completed',
+    description: 'Animales de granja - introducción',
+    daysAgo: 47
+  },
+  {
+    contextKey: 'geography-europe',
+    mechanicName: 'association',
+    config: { numberOfRounds: 6, timeLimit: 20, pointsPerCorrect: 10, penaltyPerError: -2 },
+    status: 'completed',
+    description: 'Geografía Europa - repaso 1',
+    daysAgo: 42
+  },
+  // ─── Semana 4-5 (hace ~28-35 días) ───
   {
     contextKey: 'numbers-1-6',
     mechanicName: 'association',
-    config: {
-      numberOfRounds: 5,
-      timeLimit: 25,
-      pointsPerCorrect: 15,
-      penaltyPerError: -5
-    },
-    // Sesion recien creada, aun sin iniciar
-    status: 'created',
-    description: 'Números del 1 al 6 - asociación',
-    daysAgo: 1
+    config: { numberOfRounds: 5, timeLimit: 25, pointsPerCorrect: 15, penaltyPerError: -5 },
+    status: 'completed',
+    description: 'Números 1-6 - primera sesión',
+    daysAgo: 33
+  },
+  {
+    contextKey: 'colors-basic',
+    mechanicName: 'association',
+    config: { numberOfRounds: 6, timeLimit: 12, pointsPerCorrect: 10, penaltyPerError: -2 },
+    status: 'completed',
+    description: 'Colores básicos - repaso',
+    daysAgo: 28
   },
   {
     contextKey: 'shapes-basic',
     deckName: 'Formas Memoria',
     mechanicName: 'memory',
-    config: {
-      numberOfRounds: 5,
-      timeLimit: 20,
-      pointsPerCorrect: 20,
-      penaltyPerError: -3
-    },
+    config: { numberOfRounds: 5, timeLimit: 20, pointsPerCorrect: 20, penaltyPerError: -3 },
     status: 'completed',
-    description: 'Memoria con formas básicas',
-    daysAgo: 2
+    description: 'Memoria con formas - introducción',
+    daysAgo: 26
+  },
+  // ─── Semana 3 (hace ~18-22 días) ───
+  {
+    contextKey: 'animals-farm',
+    mechanicName: 'association',
+    config: { numberOfRounds: 6, timeLimit: 15, pointsPerCorrect: 10, penaltyPerError: -3 },
+    status: 'completed',
+    description: 'Animales de granja - repaso',
+    daysAgo: 21
+  },
+  {
+    contextKey: 'geography-europe',
+    mechanicName: 'association',
+    config: { numberOfRounds: 6, timeLimit: 18, pointsPerCorrect: 12, penaltyPerError: -3 },
+    status: 'completed',
+    description: 'Geografía Europa - repaso 2',
+    daysAgo: 18
+  },
+  // ─── Semana 2 (hace ~10-14 días) ───
+  {
+    contextKey: 'numbers-1-6',
+    mechanicName: 'association',
+    config: { numberOfRounds: 6, timeLimit: 20, pointsPerCorrect: 15, penaltyPerError: -5 },
+    status: 'completed',
+    description: 'Números 1-6 - repaso',
+    daysAgo: 12
+  },
+  {
+    contextKey: 'shapes-basic',
+    deckName: 'Formas Memoria',
+    mechanicName: 'memory',
+    config: { numberOfRounds: 6, timeLimit: 18, pointsPerCorrect: 20, penaltyPerError: -3 },
+    status: 'completed',
+    description: 'Memoria con formas - repaso',
+    daysAgo: 10
+  },
+  {
+    contextKey: 'colors-basic',
+    mechanicName: 'association',
+    config: { numberOfRounds: 6, timeLimit: 12, pointsPerCorrect: 10, penaltyPerError: -2 },
+    status: 'completed',
+    description: 'Colores - práctica avanzada',
+    daysAgo: 8
+  },
+  // ─── Semana 1 (hace ~3-6 días) — más reciente ───
+  {
+    contextKey: 'animals-farm',
+    mechanicName: 'association',
+    config: { numberOfRounds: 6, timeLimit: 15, pointsPerCorrect: 10, penaltyPerError: -3 },
+    status: 'completed',
+    description: 'Animales de granja - evaluación',
+    daysAgo: 5
+  },
+  {
+    contextKey: 'geography-europe',
+    mechanicName: 'association',
+    config: { numberOfRounds: 6, timeLimit: 18, pointsPerCorrect: 12, penaltyPerError: -3 },
+    status: 'completed',
+    description: 'Geografía Europa - evaluación final',
+    daysAgo: 3
+  },
+  // ─── Sesiones pendientes (para testing de estados) ───
+  {
+    contextKey: 'numbers-1-6',
+    mechanicName: 'association',
+    config: { numberOfRounds: 5, timeLimit: 25, pointsPerCorrect: 15, penaltyPerError: -5 },
+    status: 'created',
+    description: 'Números 1-6 - sesión programada',
+    daysAgo: 0
   }
 ];
 

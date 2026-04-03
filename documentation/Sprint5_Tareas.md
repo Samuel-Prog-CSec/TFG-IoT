@@ -1366,6 +1366,95 @@ Tarea de **PLANIFICACIÓN** — no implementación. Analizar el archivo, identif
 
 ---
 
+### T-625: 📊 Backend — Endpoints de analytics avanzados (19 endpoints) ✅
+
+**Prioridad:** P0 | **Tamaño:** XL (> 2 días) | **Dependencias:** T-601
+**Origen:** Análisis de necesidades pedagógicas — los profesores necesitan profundidad analítica para entender cómo aprenden los niños individualmente
+
+**Descripción:**
+Expansión mayor del backend de analytics, añadiendo 19 nuevos endpoints organizados en 6 grupos: trayectoria de aprendizaje (4), análisis profundo de sesiones (4), métricas de engagement (3), efectividad de contenido (3), alertas inteligentes server-side (2) y datos para reportes/exportación (3). Se descompone la funcionalidad en sub-servicios temáticos bajo `services/analytics/` sin modificar el servicio existente (zero regresión). Documentación completa en `backend/docs/Analytics_Design_Rationale.md` y ADR-026.
+
+**Sub-tareas:**
+
+1. **Documentación y arquitectura:**
+   - Crear `backend/docs/Analytics_Design_Rationale.md` con justificación pedagógica y de BI
+   - ADR-026 en `Architecture_Decisions.md` (descomposición modular del servicio)
+   - Crear estructura `services/analytics/` con helpers compartidos
+
+2. **Trayectoria de aprendizaje (E01-E04):**
+   - `GET /student/:id/trajectory` — progresión temporal con tendencia (regresión lineal)
+   - `GET /student/:id/velocity` — velocidad de mejora en ventanas temporales
+   - `GET /student/:id/plateaus` — detección de mesetas (estancamiento)
+   - `GET /student/:id/evolution` — evolución por contexto o mecánica
+
+3. **Análisis de sesiones (E05-E08):**
+   - `GET /gameplay/:id/rounds` — desglose ronda-a-ronda con detección de fatiga
+   - `GET /classroom/card-analysis` — análisis de tarjetas: tasa de error, dificultad
+   - `GET /student/:id/struggles` — momentos de dificultad (errores consecutivos)
+   - `GET /classroom/fatigue` — indicadores de fatiga agregados por clase
+
+4. **Engagement (E09-E11):**
+   - `GET /student/:id/engagement` — score de engagement (5 componentes ponderados)
+   - `GET /classroom/engagement` — engagement agregado de la clase con ranking
+   - `GET /student/:id/play-patterns` — patrones de juego (horarios, timeline)
+
+5. **Efectividad de contenido (E12-E14):**
+   - `GET /classroom/content-effectiveness` — qué contextos producen mejor aprendizaje
+   - `GET /classroom/card-difficulty` — tarjetas problemáticas (tasa error > umbral)
+   - `GET /classroom/learning-curves` — curvas de aprendizaje por contenido
+
+6. **Alertas inteligentes (E15-E16):**
+   - `GET /alerts` — alertas computadas server-side con severidad y recomendaciones
+   - `GET /alerts/summary` — resumen de alertas para badges del sidebar
+   - 7 tipos: declining, inactivity, score_drop, timeout, improving, plateau, abandonment
+
+7. **Reportes y exportación (E17-E19):**
+   - `GET /reports/student/:id` — reporte completo de estudiante (orquesta sub-servicios)
+   - `GET /reports/classroom` — reporte de clase completo
+   - `GET /reports/classroom/export` — datos tabulares para CSV
+
+8. **Infraestructura:**
+   - 18 nuevos validadores Zod (incluyendo timeRange extendido a 90d)
+   - 2 nuevos índices MongoDB (GamePlay, GameSession)
+   - Método `aggregate` en gameSessionRepository
+   - Caching diferenciado (300s datos, 600s alertas/reportes)
+
+**Archivos Creados:**
+- `backend/src/services/analytics/analyticsHelpers.js`
+- `backend/src/services/analytics/alertsService.js`
+- `backend/src/services/analytics/studentTrajectoryService.js`
+- `backend/src/services/analytics/sessionAnalysisService.js`
+- `backend/src/services/analytics/engagementService.js`
+- `backend/src/services/analytics/contentEffectivenessService.js`
+- `backend/src/services/analytics/reportDataService.js`
+- `backend/src/services/analytics/index.js`
+- `backend/src/controllers/analyticsAdvancedController.js`
+- `backend/docs/Analytics_Design_Rationale.md`
+
+**Archivos Modificados:**
+- `backend/src/routes/analytics.js` — 19 nuevas rutas
+- `backend/src/validators/analyticsValidator.js` — 18 nuevos schemas
+- `backend/src/models/GamePlay.js` — 1 nuevo índice
+- `backend/src/models/GameSession.js` — 1 nuevo índice
+- `backend/src/repositories/gameSessionRepository.js` — método aggregate
+- `backend/docs/Architecture_Decisions.md` — ADR-026
+
+**Criterios de Aceptación:**
+
+- [x] 19 nuevos endpoints implementados bajo `/api/analytics/`
+- [x] Todos requieren autenticación y rol teacher/super_admin
+- [x] Validación Zod estricta en todos los endpoints
+- [x] Sub-servicios organizados por dominio en `services/analytics/`
+- [x] `analyticsService.js` original NO modificado (zero regresión)
+- [x] `analyticsController.js` original NO modificado
+- [x] Documento de diseño con justificación pedagógica y de BI
+- [x] ADR-026 documentando la decisión de descomposición
+- [x] Caching Redis en endpoints costosos
+- [x] `npm run lint` sin errores
+- [x] `npm test` — 695 tests pasando sin regresiones
+
+---
+
 ### T-616: 📊 Onboarding — Guía de primer uso para profesores 📋
 
 **Prioridad:** P3 | **Tamaño:** M (4-8h) | **Dependencias:** T-602

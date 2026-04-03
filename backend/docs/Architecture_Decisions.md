@@ -1784,3 +1784,83 @@ Para vistas de consulta (mazos, sesiones, wizard), se usa un badge compacto (`Au
 - **Positivas**: Audio vinculado al asset, gestión individual (añadir/reemplazar/eliminar), indicadores de audio cross-app, sin archivos huérfanos
 - **Negativas**: Pestaña "Audio" eliminada del UploadAssetModal (ya no se pueden crear assets solo-audio desde la UI)
 - **Retrocompatibilidad**: Assets solo-audio existentes siguen funcionando; el smart delete los elimina correctamente
+
+---
+
+## ADR-026: Descomposición modular del servicio de Analytics
+
+**Estado**: Aprobado
+**Fecha**: 03-04-2026
+
+### Contexto (ADR-026)
+
+El servicio `analyticsService.js` alcanzó 1092 líneas con 11 funciones tras la implementación de ADR-017 (endpoints de analytics para dashboard). El Sprint 5 requiere añadir 19 nuevos endpoints analíticos que cubren trayectorias de aprendizaje, análisis de sesiones, engagement, efectividad de contenido, alertas inteligentes y datos de exportación.
+
+Añadir estas funciones al servicio monolítico lo llevaría a ~3000+ líneas, con problemas de:
+- **Mantenibilidad**: funciones de dominios distintos (alertas, engagement, contenido) en un solo archivo
+- **Testabilidad**: dificultad para testear un dominio sin cargar todo el servicio
+- **Code review**: un archivo de 3000 líneas es difícil de revisar en PRs
+- **Paralelismo de trabajo**: dos desarrolladores no pueden trabajar simultáneamente en engagement y alertas sin conflictos
+
+### Decisión (ADR-026)
+
+Se descompone la funcionalidad **nueva** en sub-servicios temáticos bajo `services/analytics/`, preservando el servicio existente intacto:
+
+```
+services/
+  analyticsService.js              ← INTACTO (11 funciones, 1092 líneas)
+  analytics/
+    analyticsHelpers.js            ← Utilidades compartidas
+    studentTrajectoryService.js    ← 4 funciones (trajectory, velocity, plateaus, evolution)
+    sessionAnalysisService.js      ← 4 funciones (rounds, cardAnalysis, struggles, fatigue)
+    engagementService.js           ← 3 funciones (student, classroom, playPatterns)
+    contentEffectivenessService.js ← 3 funciones (effectiveness, cardDifficulty, learningCurves)
+    alertsService.js               ← 2 funciones (alerts, alertsSummary)
+    reportDataService.js           ← 3 funciones (studentReport, classroomReport, exportData)
+    index.js                       ← Re-exporta todos los sub-servicios
+```
+
+**Principios clave:**
+
+1. **No se modifica `analyticsService.js`**: Las 11 funciones existentes permanecen idénticas. Zero riesgo de regresión en los endpoints actuales.
+2. **Controller separado**: Los nuevos handlers van en `analyticsAdvancedController.js`, no en el controller existente.
+3. **Helpers compartidos**: Las utilidades que usan múltiples sub-servicios (cálculo de date ranges, clasificación de tiers, constantes de performance) se extraen a `analyticsHelpers.js`.
+4. **Mismos patrones**: Los sub-servicios usan los mismos repositories, cacheHelper, ownershipHelpers y logger que el servicio original.
+
+### Alternativas Consideradas (ADR-026)
+
+1. **Ampliar el servicio monolítico**: Simplemente añadir funciones a `analyticsService.js`. Rechazado por los problemas de mantenibilidad descritos.
+
+2. **Refactorizar todo (mover funciones existentes)**: Mover las 11 funciones existentes a sub-servicios y dejar `analyticsService.js` como orquestador. Rechazado porque:
+   - Introduce riesgo de regresión innecesario en endpoints que funcionan correctamente
+   - Requiere actualizar todos los imports del controller existente
+   - No aporta beneficio inmediato (las 11 funciones existentes son un conjunto cohesivo)
+
+3. **Patrón Strategy por tipo de analytics**: Crear una interfaz `AnalyticsStrategy` con implementaciones por dominio. Rechazado porque:
+   - Sobre-ingeniería para un servicio de lectura (no hay polimorfismo real en las queries)
+   - El patrón de funciones exportadas de Node.js es más simple y directo
+
+### Consecuencias (ADR-026)
+
+**Positivas:**
+- Cada sub-servicio tiene 250-400 líneas → fácil de entender y revisar
+- Tests unitarios aislados por dominio
+- Nuevo controller dedicado evita saturar el existente (165 líneas → ~450 sería el nuevo)
+- Los imports son explícitos: `require('../services/analytics/alertsService')`
+- El servicio original sigue funcionando sin cambios para el frontend actual
+
+**Negativas:**
+- Duplicación conceptual de imports (cacheHelper, logger, repositories) en cada sub-servicio
+- 8 archivos nuevos en vez de 1
+- Si en el futuro se quiere unificar, requiere consolidación
+
+### Relación con otros ADRs
+
+- **ADR-017**: Los 11 endpoints existentes y sus funciones en `analyticsService.js` no se modifican
+- **ADR-014**: Los nuevos handlers usan `sendSuccess` de responseHelper
+- **ADR-013**: Los nuevos handlers usan `asyncHandler` del flujo de errores centralizado
+- **ADR-020**: Los nuevos endpoints usan `cacheGet` de cacheHelper con la misma estrategia de TTL
+
+### Documento de Diseño
+
+La justificación pedagógica y de Business Intelligence detallada (por qué cada endpoint, qué pregunta responde al profesor, justificación de umbrales) se documenta en `backend/docs/Analytics_Design_Rationale.md`.

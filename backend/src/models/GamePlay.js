@@ -334,4 +334,11 @@ gamePlaySchema.index({ playerId: 1, completedAt: -1 });
  */
 gamePlaySchema.index({ status: 1, completedAt: -1 });
 
+/**
+ * Índice compuesto para analytics de engagement: queries que necesitan
+ * partidas abandonadas y completadas de un jugador ordenadas por fecha.
+ * Caso de uso: engagement score, análisis de abandono (E09, E10).
+ */
+gamePlaySchema.index({ playerId: 1, status: 1, startedAt: -1 });
+
 module.exports = mongoose.model('GamePlay', gamePlaySchema);

@@ -8,6 +8,7 @@
 const logger = require('../utils/logger').child({ component: 'gameEngine' });
 const gamePlayRepository = require('../repositories/gamePlayRepository');
 const gameSessionRepository = require('../repositories/gameSessionRepository');
+const userRepository = require('../repositories/userRepository');
 const redisService = require('./redisService');
 const { recalculateSessionStatusFromPlays } = require('./sessionStatusService');
 const { getMechanicStrategy } = require('../strategies/mechanics');
@@ -185,8 +186,7 @@ class GameEngine {
       });
 
       await this.processInBatches(abandonedPlays, async playId => {
-        await this.endPlay(playId);
-        this.metrics.totalPlaysCancelled++;
+        await this.endPlay(playId, { abandoned: true });
       });
     }
 
@@ -554,20 +554,26 @@ class GameEngine {
    * 3. Emite el evento 'game_over' al cliente
    * 4. Libera las tarjetas bloqueadas
    * 5. Elimina la partida de la memoria activa
-   * 6. Actualiza métricas
+   * 6. Actualiza métricas del alumno
    *
    * @async
    * @param {string} playId - ID de la partida a finalizar
+   * @param {Object} [options] - Opciones de finalización
+   * @param {boolean} [options.abandoned=false] - Si true, marca la partida como abandonada
+   *   (por timeout de inactividad) en vez de completada. Las partidas abandonadas no
+   *   contribuyen al averageScore del alumno pero sí se registran en totalAbandonedGames.
    * @returns {Promise<void>}
    * @emits game_over - Con puntuación final y métricas
    */
-  async endPlay(playId) {
+  async endPlay(playId, { abandoned = false } = {}) {
     const playState = this.activePlays.get(playId);
     if (!playState) {
       return;
     }
 
-    logger.info(`Finalizando partida ${playId}...`);
+    logger.info(
+      `Finalizando partida ${playId}${abandoned ? ' (abandonada por inactividad)' : ''}...`
+    );
 
     // 1. Limpiar timers pendientes
     if (playState.roundTimer) {
@@ -584,20 +590,57 @@ class GameEngine {
     try {
       const playDuration = Date.now() - playState.createdAt;
 
-      await playState.playDoc.complete(); // Llama al método .complete() del modelo
+      if (abandoned) {
+        // Partida abandonada: marcar status y registrar evento
+        playState.playDoc.status = 'abandoned';
+        playState.playDoc.completedAt = new Date();
+        playState.playDoc.metrics.completionTime = playDuration;
+        playState.playDoc.events.push({
+          timestamp: new Date(),
+          eventType: 'server_restart',
+          roundNumber: playState.playDoc.currentRound,
+          pointsAwarded: 0
+        });
+        await playState.playDoc.save();
+
+        // Registrar abandono en métricas del alumno (no afecta averageScore)
+        const player = await userRepository.findById(playState.playDoc.playerId);
+        if (player) {
+          await player.recordAbandonedGame();
+        }
+
+        this.metrics.totalPlaysCancelled++;
+      } else {
+        // Partida completada normalmente
+        await playState.playDoc.complete();
+
+        // Actualizar métricas del alumno con todos los datos
+        const player = await userRepository.findById(playState.playDoc.playerId);
+        if (player) {
+          await player.updateStudentMetrics({
+            score: playState.playDoc.score,
+            correctAttempts: playState.playDoc.metrics.correctAttempts,
+            errorAttempts: playState.playDoc.metrics.errorAttempts,
+            timeoutAttempts: playState.playDoc.metrics.timeoutAttempts,
+            averageResponseTime: playState.playDoc.metrics.averageResponseTime
+          });
+        }
+
+        this.metrics.totalPlaysCompleted++;
+        this.metrics.averagePlayDuration =
+          (this.metrics.averagePlayDuration * (this.metrics.totalPlaysCompleted - 1) +
+            playDuration) /
+          this.metrics.totalPlaysCompleted;
+      }
+
       await recalculateSessionStatusFromPlays(playState.playDoc.sessionId);
 
       logger.info(`Partida ${playId} guardada en BD`, {
         playId,
         score: playState.playDoc.score,
+        status: abandoned ? 'abandoned' : 'completed',
         duration: `${(playDuration / 1000).toFixed(2)}s`
       });
-
-      // Actualizar métricas
-      this.metrics.totalPlaysCompleted++;
-      this.metrics.averagePlayDuration =
-        (this.metrics.averagePlayDuration * (this.metrics.totalPlaysCompleted - 1) + playDuration) /
-        this.metrics.totalPlaysCompleted;
     } catch (err) {
       logger.error(`Error al guardar partida final ${playId}: ${err.message}`);
     }
@@ -605,7 +648,8 @@ class GameEngine {
     // 3. Emitir evento final al cliente
     this.io.to(`play_${playId}`).emit('game_over', {
       finalScore: playState.playDoc.score,
-      metrics: playState.playDoc.metrics
+      metrics: playState.playDoc.metrics,
+      abandoned
     });
 
     // 4. Limpiar la memoria

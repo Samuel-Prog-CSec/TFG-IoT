@@ -33,6 +33,8 @@ const deleteById = id => baseRepo.deleteById(GameSession, id);
 
 const deleteMany = filter => baseRepo.deleteMany(GameSession, filter);
 
+const aggregate = pipeline => GameSession.aggregate(pipeline);
+
 module.exports = {
   find,
   findById,
@@ -44,5 +46,6 @@ module.exports = {
   updateOne,
   findByIdAndUpdate,
   deleteById,
-  deleteMany
+  deleteMany,
+  aggregate
 };
