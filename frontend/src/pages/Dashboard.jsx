@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Users, Gamepad2, Trophy, AlertTriangle, Calendar, CalendarClock, Layers, ChevronRight } from 'lucide-react';
+import { Users, Gamepad2, Trophy, AlertTriangle, Calendar, CalendarClock, Layers, ChevronRight, Target, Clock, UserCheck, CheckCircle2 } from 'lucide-react';
 import ErrorState from '../components/ui/ErrorState';
 import { listContainerVariants, listItemVariants, crossfadeVariants, formatDate } from '../lib/utils';
 import { useDocumentTitle } from '../hooks/useDocumentTitle';
@@ -17,6 +17,8 @@ import StudentProgressChart from '../components/dashboard/StudentProgressChart';
 import ClassroomOverview from '../components/dashboard/ClassroomOverview';
 import AlertsPanel from '../components/dashboard/AlertsPanel';
 import DifficultyHeatmap from '../components/dashboard/DifficultyHeatmap';
+import StudentsList from '../components/dashboard/StudentsList';
+import ActivityHeatmap from '../components/analytics/ActivityHeatmap';
 import SkeletonShimmer, { SkeletonCard, SkeletonStatCard, SkeletonChart } from '../components/ui/SkeletonShimmer';
 import SelectPremium from '../components/ui/SelectPremium';
 import ButtonPremium from '../components/ui/ButtonPremium';
@@ -26,7 +28,7 @@ export default function Dashboard() {
   const navigate = useNavigate();
   useDocumentTitle('Dashboard');
   const { shouldReduceMotion } = useReducedMotion();
-  const [timeRange, setTimeRange] = useState('7d'); // '7d' or '30d'
+  const [timeRange, setTimeRange] = useState('7d');
 
   // Redirigir super_admin a su panel
   useEffect(() => {
@@ -40,6 +42,10 @@ export default function Dashboard() {
   const [trends, setTrends] = useState(null);
   const [progressData, setProgressData] = useState([]);
   const [difficulties, setDifficulties] = useState([]);
+  const [studentsData, setStudentsData] = useState(null);
+  const [distributionData, setDistributionData] = useState(null);
+  const [alertsData, setAlertsData] = useState(null);
+  const [heatmapData, setHeatmapData] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const dataAbortRef = useRef(null);
@@ -52,17 +58,27 @@ export default function Dashboard() {
     const run = async () => {
       try {
         setLoading(true);
-        const [summaryData, trendsData, progress, difficultiesData] = await Promise.all([
+        // Summary y Trends son criticos (KPIs principales). El resto son secundarios:
+        // si fallan, la pagina sigue funcionando con datos parciales.
+        const [summaryData, trendsData, progress, difficultiesData, students, distribution, alerts, heatmap] = await Promise.all([
           analyticsService.getClassroomSummary({ signal: controller.signal }),
           analyticsService.getClassroomTrends(timeRange, { signal: controller.signal }),
-          analyticsService.getClassroomComparison(timeRange, { signal: controller.signal }),
-          analyticsService.getClassroomDifficulties({ signal: controller.signal })
+          analyticsService.getClassroomComparison(timeRange, { signal: controller.signal }).catch(() => []),
+          analyticsService.getClassroomDifficulties({ signal: controller.signal }).catch(() => []),
+          analyticsService.getClassroomStudents({ sort: 'score', order: 'desc' }, { signal: controller.signal }).catch(() => null),
+          analyticsService.getClassroomDistribution({}, { signal: controller.signal }).catch(() => null),
+          analyticsService.getAlerts({ limit: 5 }, { signal: controller.signal }).catch(() => null),
+          analyticsService.getClassroomHeatmap(timeRange, { signal: controller.signal }).catch(() => null)
         ]);
 
         setSummary(summaryData);
         setTrends(trendsData);
         setProgressData(progress);
         setDifficulties(difficultiesData);
+        setStudentsData(students);
+        setDistributionData(distribution);
+        setAlertsData(alerts);
+        setHeatmapData(heatmap);
         setError(null);
       } catch (err) {
         if (isAbortError(err)) return;
@@ -99,27 +115,33 @@ export default function Dashboard() {
     return `${sign}${kpi.changePercent}%`;
   }, [trends]);
 
+  // Obtener el valor actual de un KPI desde trends
+  const getKPIValue = useCallback((kpiName) => {
+    if (!trends?.kpis) return null;
+    const kpi = trends.kpis.find(k => k.name === kpiName);
+    return kpi?.current ?? null;
+  }, [trends]);
+
   const periodLabel = timeRange === '30d' ? 'vs mes anterior' : 'vs semana pasada';
 
-  // Derivar alertas de los datos - Memoized to prevent recalculation on unrelated re-renders
-  const alerts = useMemo(() => {
-    const arr = [];
-    if (summary?.studentsInRisk > 0) {
-        arr.push({
-            type: 'risk',
-            title: 'Alumnos en Riesgo',
-            message: `${summary.studentsInRisk} alumnos tienen un promedio bajo (<50) en sus últimas partidas.`
-        });
-    }
-    if (summary?.gamesToday > 5) {
-        arr.push({
-            type: 'milestone',
-            title: 'Alta Actividad',
-            message: `Hoy ha sido un día muy activo con ${summary.gamesToday} partidas jugadas.`
-        });
-    }
-    return arr;
-  }, [summary]);
+  // Derivar contadores de estudiantes activos
+  const activeStudentsCount = useMemo(() => {
+    if (!studentsData?.students) return 0;
+    const sevenDaysAgo = new Date();
+    sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
+    return studentsData.students.filter(s => {
+      if (!s.lastPlayedAt) return false;
+      return new Date(s.lastPlayedAt) >= sevenDaysAgo;
+    }).length;
+  }, [studentsData]);
+
+  const totalStudents = studentsData?.students?.length || 0;
+
+  // Alertas inteligentes del backend (reemplaza la derivacion client-side)
+  const backendAlerts = useMemo(() => {
+    if (!alertsData?.alerts) return [];
+    return alertsData.alerts;
+  }, [alertsData]);
 
   // Prevenir Layout Shifts (CLS) renderizando una estructura idéntica durante la carga
   const skeletonContent = loading && !summary;
@@ -146,7 +168,7 @@ export default function Dashboard() {
 
           {/* KPIs Skeleton */}
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 lg:gap-6">
-            {[...Array(4)].map((_, index) => (
+            {[...Array(8)].map((_, index) => (
               <SkeletonStatCard key={`stat-skeleton-${index}`} />
             ))}
           </div>
@@ -242,6 +264,51 @@ export default function Dashboard() {
                     color="bg-gradient-to-br from-info-base to-accent-cyan"
                   />
                 </motion.div>
+
+                {/* Fila 2: KPIs secundarios */}
+                <motion.div variants={shouldReduceMotion ? {} : listItemVariants} role="listitem">
+                  <StatCard
+                    title="Tasa de Acierto"
+                    value={`${getKPIValue('averageAccuracy') ?? summary?.averageAccuracy ?? 0}%`}
+                    trend={getTrend('averageAccuracy')}
+                    periodLabel={periodLabel}
+                    icon={<Target className="text-white drop-shadow-sm" size={24} aria-hidden="true" />}
+                    color="bg-gradient-to-br from-accent-cyan to-info-base"
+                  />
+                </motion.div>
+
+                <motion.div variants={shouldReduceMotion ? {} : listItemVariants} role="listitem">
+                  <StatCard
+                    title="Tiempo Medio"
+                    value={`${(getKPIValue('averageResponseTime') ?? summary?.averageResponseTime ?? 0) / 1000}s`}
+                    trend={getTrend('averageResponseTime')}
+                    periodLabel={periodLabel}
+                    icon={<Clock className="text-white drop-shadow-sm" size={24} aria-hidden="true" />}
+                    color="bg-gradient-to-br from-accent-orange to-warning-base"
+                  />
+                </motion.div>
+
+                <motion.div variants={shouldReduceMotion ? {} : listItemVariants} role="listitem">
+                  <StatCard
+                    title="Alumnos Activos"
+                    value={`${activeStudentsCount}/${totalStudents}`}
+                    trend=""
+                    periodLabel="ultimos 7 dias"
+                    icon={<UserCheck className="text-white drop-shadow-sm" size={24} aria-hidden="true" />}
+                    color="bg-gradient-to-br from-brand-base to-accent-pink"
+                  />
+                </motion.div>
+
+                <motion.div variants={shouldReduceMotion ? {} : listItemVariants} role="listitem">
+                  <StatCard
+                    title="Tasa Completado"
+                    value={`${100 - (summary?.abandonmentRate || 0)}%`}
+                    trend=""
+                    periodLabel="partidas completadas"
+                    icon={<CheckCircle2 className="text-white drop-shadow-sm" size={24} aria-hidden="true" />}
+                    color="bg-gradient-to-br from-success-dark to-success-base"
+                  />
+                </motion.div>
               </div>
             </motion.section>
 
@@ -265,21 +332,34 @@ export default function Dashboard() {
                 <motion.div variants={shouldReduceMotion ? {} : listItemVariants}>
                   <DifficultyHeatmap data={difficulties} />
                 </motion.div>
+                {heatmapData && (
+                  <motion.div variants={shouldReduceMotion ? {} : listItemVariants}>
+                    <ActivityHeatmap data={heatmapData} />
+                  </motion.div>
+                )}
               </div>
 
               {/* Columna Lateral (1/3 de ancho) */}
               <aside className="space-y-6 lg:space-y-8">
                 <motion.div variants={shouldReduceMotion ? {} : listItemVariants}>
-                  <ClassroomOverview summary={summary} distribution={null} />
+                  <ClassroomOverview summary={summary} distribution={distributionData} />
                 </motion.div>
                 <motion.div variants={shouldReduceMotion ? {} : listItemVariants}>
-                  <AlertsPanel alerts={alerts} />
+                  <AlertsPanel alerts={backendAlerts} />
+                </motion.div>
+                <motion.div variants={shouldReduceMotion ? {} : listItemVariants}>
+                  <StudentsList students={studentsData?.students} />
                 </motion.div>
                 <motion.div variants={shouldReduceMotion ? {} : listItemVariants}>
                   <QuickLinks navigate={navigate} />
                 </motion.div>
               </aside>
             </motion.section>
+
+            {/* Actividad Reciente (timeline) */}
+            {studentsData?.students?.length > 0 && (
+              <RecentActivity students={studentsData.students} />
+            )}
           </div>
         </motion.main>
       )}
@@ -342,8 +422,9 @@ function Header({ timeRange, setTimeRange, reducedMotion = false }) {
           value={timeRange}
           onChange={(val) => setTimeRange(val)}
           options={[
-            { value: '7d', label: 'Últimos 7 días' },
-            { value: '30d', label: 'Últimos 30 días' },
+            { value: '7d', label: 'Ultimos 7 dias' },
+            { value: '30d', label: 'Ultimos 30 dias' },
+            { value: '90d', label: 'Ultimos 90 dias' },
           ]}
           className="w-48"
         />
@@ -372,8 +453,8 @@ const QUICK_LINKS = [
 function QuickLinks({ navigate }) {
   return (
     <div className="rounded-2xl bg-background-elevated/60 backdrop-blur-sm border border-border-default p-5">
-      <h3 className="text-lg font-bold text-text-primary mb-3 px-1 font-display">Accesos Rápidos</h3>
-      <nav className="space-y-1" aria-label="Accesos rápidos">
+      <h3 className="text-lg font-bold text-text-primary mb-3 px-1 font-display">Accesos Rapidos</h3>
+      <nav className="space-y-1" aria-label="Accesos rapidos">
         {QUICK_LINKS.map(({ label, route, icon: Icon }) => (
           <button
             key={route}
@@ -387,5 +468,65 @@ function QuickLinks({ navigate }) {
         ))}
       </nav>
     </div>
+  );
+}
+
+/**
+ * Timeline de actividad reciente — muestra las ultimas partidas de alumnos.
+ * Se deriva de los datos de students (ordenados por lastPlayedAt).
+ */
+function RecentActivity({ students }) {
+  const recentStudents = useMemo(() => {
+    if (!students?.length) return [];
+    return [...students]
+      .filter(s => s.lastPlayedAt)
+      .sort((a, b) => new Date(b.lastPlayedAt) - new Date(a.lastPlayedAt))
+      .slice(0, 6);
+  }, [students]);
+
+  if (recentStudents.length === 0) return null;
+
+  const getInitials = (name) => {
+    if (!name) return '?';
+    const parts = name.trim().split(/\s+/);
+    return parts.length === 1 ? parts[0][0].toUpperCase() : (parts[0][0] + parts[parts.length - 1][0]).toUpperCase();
+  };
+
+  const getRelativeTime = (dateStr) => {
+    const diffMs = Date.now() - new Date(dateStr).getTime();
+    const diffMins = Math.floor(diffMs / 60000);
+    if (diffMins < 60) return `Hace ${diffMins}m`;
+    const diffHours = Math.floor(diffMins / 60);
+    if (diffHours < 24) return `Hace ${diffHours}h`;
+    return `Hace ${Math.floor(diffHours / 24)}d`;
+  };
+
+  return (
+    <section className="bg-background-elevated/40 backdrop-blur-sm rounded-2xl border border-border-subtle p-5">
+      <h3 className="text-lg font-bold text-text-primary font-display mb-4">Actividad Reciente</h3>
+      <div className="flex gap-3 overflow-x-auto pb-2 -mx-1 px-1 custom-scrollbar">
+        {recentStudents.map((student) => (
+          <div
+            key={student.studentId || student._id}
+            className="flex-shrink-0 flex items-center gap-3 bg-background-surface/40 rounded-xl px-4 py-3 min-w-[200px] border border-border-subtle/50"
+          >
+            <div className="size-8 rounded-full bg-gradient-to-br from-accent-indigo to-brand-base flex items-center justify-center text-xs font-bold text-white">
+              {getInitials(student.name)}
+            </div>
+            <div className="min-w-0">
+              <p className="text-sm font-medium text-text-primary truncate">{student.name}</p>
+              <div className="flex items-center gap-2">
+                <span className="text-xs text-text-muted font-bold tabular-nums">
+                  {Math.round(student.averageScore || 0)} pts
+                </span>
+                <span className="text-[10px] text-text-disabled">
+                  {getRelativeTime(student.lastPlayedAt)}
+                </span>
+              </div>
+            </div>
+          </div>
+        ))}
+      </div>
+    </section>
   );
 }

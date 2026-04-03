@@ -1,8 +1,11 @@
 import api, { extractData } from './api';
 
 const analyticsService = {
+  // ──────────────── Classroom Analytics ────────────────
+
   /**
    * Obtiene el resumen global de la clase (KPIs).
+   * @param {Object} [config] - Configuracion de Axios (AbortController, etc.)
    * @returns {Promise<Object>} KPIs de la clase
    */
   getClassroomSummary: async (config = {}) => {
@@ -11,9 +14,10 @@ const analyticsService = {
   },
 
   /**
-   * Obtiene el progreso comparativo de la clase (gráfico de área/línea).
-   * @param {string} timeRange - '7d' o '30d' (aunque el backend por ahora devuelve 7d)
-   * @returns {Promise<Array>} Datos para el gráfico
+   * Obtiene el progreso comparativo de la clase (grafico de area/linea).
+   * @param {string} [timeRange='7d'] - '7d' o '30d'
+   * @param {Object} [config] - Configuracion de Axios
+   * @returns {Promise<Array>} Datos para el grafico
    */
   getClassroomComparison: async (timeRange = '7d', config = {}) => {
     const response = await api.get('/analytics/classroom/comparison', {
@@ -25,8 +29,9 @@ const analyticsService = {
 
   /**
    * Obtiene tendencias con cambio porcentual (periodo actual vs anterior).
-   * @param {string} timeRange - '7d' o '30d'
-   * @returns {Promise<Object>} KPIs con valores actuales, anteriores y cambio porcentual
+   * @param {string} [timeRange='7d'] - '7d' o '30d'
+   * @param {Object} [config] - Configuracion de Axios
+   * @returns {Promise<Object>} KPIs con current, previous, change, changePercent
    */
   getClassroomTrends: async (timeRange = '7d', config = {}) => {
     const response = await api.get('/analytics/classroom/trends', {
@@ -38,7 +43,8 @@ const analyticsService = {
 
   /**
    * Obtiene las dificultades globales de la clase.
-   * @returns {Promise<Array>}
+   * @param {Object} [config] - Configuracion de Axios
+   * @returns {Promise<Array>} Dificultades por contexto/mecanica
    */
   getClassroomDifficulties: async (config = {}) => {
     const response = await api.get('/analytics/classroom/difficulties', config);
@@ -46,9 +52,97 @@ const analyticsService = {
   },
 
   /**
-   * Obtiene las dificultades de un estudiante específico.
-   * @param {string} studentId
-   * @returns {Promise<Array>} Lista de dificultades por contexto/mecánica
+   * Obtiene la lista de estudiantes con metricas agregadas.
+   * @param {Object} [params] - Query params: sort, order, tier, classroom
+   * @param {Object} [config] - Configuracion de Axios
+   * @returns {Promise<Object>} Lista de estudiantes con metricas
+   */
+  getClassroomStudents: async (params = {}, config = {}) => {
+    const response = await api.get('/analytics/classroom/students', {
+      params,
+      ...config
+    });
+    return extractData(response);
+  },
+
+  /**
+   * Obtiene la distribucion de rendimiento en 4 rangos (riesgo, promedio, bueno, excelente).
+   * @param {Object} [params] - Query params: timeRange
+   * @param {Object} [config] - Configuracion de Axios
+   * @returns {Promise<Array>} Distribucion [{range, count, percentage}]
+   */
+  getClassroomDistribution: async (params = {}, config = {}) => {
+    const response = await api.get('/analytics/classroom/distribution', {
+      params,
+      ...config
+    });
+    return extractData(response);
+  },
+
+  /**
+   * Obtiene el mapa de calor de actividad (dia de la semana x hora).
+   * @param {string} [timeRange='30d'] - '7d' o '30d'
+   * @param {Object} [config] - Configuracion de Axios
+   * @returns {Promise<Object>} Datos de heatmap dia x hora
+   */
+  getClassroomHeatmap: async (timeRange = '30d', config = {}) => {
+    const response = await api.get('/analytics/classroom/heatmap', {
+      params: { timeRange },
+      ...config
+    });
+    return extractData(response);
+  },
+
+  /**
+   * Obtiene rankings de contextos y mecanicas por uso y rendimiento.
+   * @param {string} [timeRange='30d'] - '7d' o '30d'
+   * @param {number} [limit=10] - Numero maximo de resultados (1-20)
+   * @param {Object} [config] - Configuracion de Axios
+   * @returns {Promise<Object>} Rankings de contextos y mecanicas
+   */
+  getClassroomRankings: async (timeRange = '30d', limit = 10, config = {}) => {
+    const response = await api.get('/analytics/classroom/rankings', {
+      params: { timeRange, limit },
+      ...config
+    });
+    return extractData(response);
+  },
+
+  /**
+   * Obtiene engagement agregado de toda la clase.
+   * @param {Object} [params] - Query params: timeRange, sort, order
+   * @param {Object} [config] - Configuracion de Axios
+   * @returns {Promise<Object>} Engagement por estudiante con score desglosado
+   */
+  getClassroomEngagement: async (params = {}, config = {}) => {
+    const response = await api.get('/analytics/classroom/engagement', {
+      params,
+      ...config
+    });
+    return extractData(response);
+  },
+
+  /**
+   * Obtiene indicadores de fatiga agregados de la clase.
+   * @param {string} [timeRange='30d'] - '7d' o '30d'
+   * @param {Object} [config] - Configuracion de Axios
+   * @returns {Promise<Object>} Indicadores de fatiga (ralentizacion segunda mitad)
+   */
+  getClassroomFatigue: async (timeRange = '30d', config = {}) => {
+    const response = await api.get('/analytics/classroom/fatigue', {
+      params: { timeRange },
+      ...config
+    });
+    return extractData(response);
+  },
+
+  // ──────────────── Student Analytics ────────────────
+
+  /**
+   * Obtiene las dificultades de un estudiante especifico.
+   * @param {string} studentId - ID del estudiante
+   * @param {Object} [config] - Configuracion de Axios
+   * @returns {Promise<Array>} Dificultades por contexto/mecanica
    */
   getStudentDifficulties: async (studentId, config = {}) => {
     const response = await api.get(`/analytics/student/${studentId}/difficulties`, config);
@@ -56,14 +150,279 @@ const analyticsService = {
   },
 
   /**
-   * Obtiene el progreso histórico de un estudiante.
-   * @param {string} studentId
-   * @param {string} timeRange
-   * @returns {Promise<Array>} Datos para el gráfico de progreso
+   * Obtiene el progreso historico de un estudiante.
+   * @param {string} studentId - ID del estudiante
+   * @param {string} [timeRange='30d'] - '7d' o '30d'
+   * @param {Object} [config] - Configuracion de Axios
+   * @returns {Promise<Array>} Datos para el grafico de progreso
    */
   getStudentProgress: async (studentId, timeRange = '30d', config = {}) => {
     const response = await api.get(`/analytics/student/${studentId}/progress`, {
       params: { timeRange },
+      ...config
+    });
+    return extractData(response);
+  },
+
+  /**
+   * Obtiene resumen completo de un estudiante (metricas, ultimas partidas, rendimiento, comparativa).
+   * @param {string} studentId - ID del estudiante
+   * @param {Object} [params] - Query params: timeRange
+   * @param {Object} [config] - Configuracion de Axios
+   * @returns {Promise<Object>} Resumen completo del estudiante
+   */
+  getStudentSummary: async (studentId, params = {}, config = {}) => {
+    const response = await api.get(`/analytics/student/${studentId}/summary`, {
+      params,
+      ...config
+    });
+    return extractData(response);
+  },
+
+  /**
+   * Obtiene la trayectoria de aprendizaje con tendencia calculada (mejorando/estable/declinando).
+   * @param {string} studentId - ID del estudiante
+   * @param {Object} [params] - Query params: timeRange (7d/30d/90d), granularity (daily/weekly/monthly)
+   * @param {Object} [config] - Configuracion de Axios
+   * @returns {Promise<Object>} Progresion temporal con linea de tendencia
+   */
+  getStudentTrajectory: async (studentId, params = {}, config = {}) => {
+    const response = await api.get(`/analytics/student/${studentId}/trajectory`, {
+      params,
+      ...config
+    });
+    return extractData(response);
+  },
+
+  /**
+   * Obtiene la velocidad de mejora en ventanas temporales.
+   * @param {string} studentId - ID del estudiante
+   * @param {Object} [params] - Query params: timeRange, windowDays (3-14)
+   * @param {Object} [config] - Configuracion de Axios
+   * @returns {Promise<Object>} Tasa de mejora por ventana temporal
+   */
+  getStudentVelocity: async (studentId, params = {}, config = {}) => {
+    const response = await api.get(`/analytics/student/${studentId}/velocity`, {
+      params,
+      ...config
+    });
+    return extractData(response);
+  },
+
+  /**
+   * Detecta periodos de estancamiento (plateaus) en el rendimiento.
+   * @param {string} studentId - ID del estudiante
+   * @param {Object} [params] - Query params: timeRange, minDays (3-30)
+   * @param {Object} [config] - Configuracion de Axios
+   * @returns {Promise<Object>} Periodos de estancamiento detectados
+   */
+  getStudentPlateaus: async (studentId, params = {}, config = {}) => {
+    const response = await api.get(`/analytics/student/${studentId}/plateaus`, {
+      params,
+      ...config
+    });
+    return extractData(response);
+  },
+
+  /**
+   * Obtiene la evolucion del estudiante agrupada por contexto o mecanica.
+   * @param {string} studentId - ID del estudiante
+   * @param {Object} [params] - Query params: timeRange, groupBy (context/mechanic)
+   * @param {Object} [config] - Configuracion de Axios
+   * @returns {Promise<Object>} Evolucion por dimension
+   */
+  getStudentEvolution: async (studentId, params = {}, config = {}) => {
+    const response = await api.get(`/analytics/student/${studentId}/evolution`, {
+      params,
+      ...config
+    });
+    return extractData(response);
+  },
+
+  /**
+   * Detecta momentos de dificultad (errores consecutivos / frustracion).
+   * @param {string} studentId - ID del estudiante
+   * @param {Object} [params] - Query params: timeRange, minConsecutiveErrors (2-5)
+   * @param {Object} [config] - Configuracion de Axios
+   * @returns {Promise<Object>} Momentos de frustracion detectados
+   */
+  getStudentStruggles: async (studentId, params = {}, config = {}) => {
+    const response = await api.get(`/analytics/student/${studentId}/struggles`, {
+      params,
+      ...config
+    });
+    return extractData(response);
+  },
+
+  /**
+   * Obtiene el engagement score individual con componentes desglosados.
+   * @param {string} studentId - ID del estudiante
+   * @param {Object} [params] - Query params: timeRange (30d/90d)
+   * @param {Object} [config] - Configuracion de Axios
+   * @returns {Promise<Object>} Engagement score con 5 componentes
+   */
+  getStudentEngagement: async (studentId, params = {}, config = {}) => {
+    const response = await api.get(`/analytics/student/${studentId}/engagement`, {
+      params,
+      ...config
+    });
+    return extractData(response);
+  },
+
+  /**
+   * Obtiene patrones de juego del estudiante.
+   * @param {string} studentId - ID del estudiante
+   * @param {Object} [params] - Query params: timeRange
+   * @param {Object} [config] - Configuracion de Axios
+   * @returns {Promise<Object>} Patrones de comportamiento en partidas
+   */
+  getStudentPlayPatterns: async (studentId, params = {}, config = {}) => {
+    const response = await api.get(`/analytics/student/${studentId}/play-patterns`, {
+      params,
+      ...config
+    });
+    return extractData(response);
+  },
+
+  // ──────────────── Gameplay Analysis ────────────────
+
+  /**
+   * Obtiene el desglose ronda-a-ronda de una partida con deteccion de fatiga.
+   * @param {string} gameplayId - ID del gameplay
+   * @param {Object} [config] - Configuracion de Axios
+   * @returns {Promise<Object>} Desglose por rondas con indicador de fatiga
+   */
+  getGameplayRounds: async (gameplayId, config = {}) => {
+    const response = await api.get(`/analytics/gameplay/${gameplayId}/rounds`, config);
+    return extractData(response);
+  },
+
+  // ──────────────── Content Effectiveness ────────────────
+
+  /**
+   * Analiza que contextos/mecanicas producen mejor aprendizaje.
+   * @param {Object} [params] - Query params: timeRange, groupBy (context/mechanic)
+   * @param {Object} [config] - Configuracion de Axios
+   * @returns {Promise<Object>} Efectividad por contenido
+   */
+  getContentEffectiveness: async (params = {}, config = {}) => {
+    const response = await api.get('/analytics/classroom/content-effectiveness', {
+      params,
+      ...config
+    });
+    return extractData(response);
+  },
+
+  /**
+   * Identifica tarjetas RFID problematicas con alta tasa de error.
+   * @param {Object} [params] - Query params: timeRange, contextId, threshold (10-90)
+   * @param {Object} [config] - Configuracion de Axios
+   * @returns {Promise<Object>} Tarjetas con mayor dificultad
+   */
+  getCardDifficulty: async (params = {}, config = {}) => {
+    const response = await api.get('/analytics/classroom/card-difficulty', {
+      params,
+      ...config
+    });
+    return extractData(response);
+  },
+
+  /**
+   * Obtiene curvas de aprendizaje por contenido (como mejoran con repeticion).
+   * @param {Object} [params] - Query params: timeRange (90d), contextId, mechanicId
+   * @param {Object} [config] - Configuracion de Axios
+   * @returns {Promise<Object>} Curvas de aprendizaje por intento
+   */
+  getLearningCurves: async (params = {}, config = {}) => {
+    const response = await api.get('/analytics/classroom/learning-curves', {
+      params,
+      ...config
+    });
+    return extractData(response);
+  },
+
+  /**
+   * Analiza rendimiento por tarjeta RFID (analisis de cartas).
+   * @param {Object} [params] - Query params: timeRange, contextId, limit
+   * @param {Object} [config] - Configuracion de Axios
+   * @returns {Promise<Object>} Rendimiento por tarjeta
+   */
+  getCardAnalysis: async (params = {}, config = {}) => {
+    const response = await api.get('/analytics/classroom/card-analysis', {
+      params,
+      ...config
+    });
+    return extractData(response);
+  },
+
+  // ──────────────── Alerts ────────────────
+
+  /**
+   * Obtiene alertas inteligentes computadas server-side.
+   * Tipos: declining_performance, inactivity, sudden_score_drop,
+   *        consistent_timeout, improving_fast, plateau_detected, high_abandonment
+   * @param {Object} [params] - Query params: severity, type, limit
+   * @param {Object} [config] - Configuracion de Axios
+   * @returns {Promise<Object>} Alertas activas con severidad e interpretacion
+   */
+  getAlerts: async (params = {}, config = {}) => {
+    const response = await api.get('/analytics/alerts', {
+      params,
+      ...config
+    });
+    return extractData(response);
+  },
+
+  /**
+   * Obtiene resumen de alertas (conteos) para badges del sidebar.
+   * @param {Object} [config] - Configuracion de Axios
+   * @returns {Promise<Object>} Conteos de alertas por severidad y tipo
+   */
+  getAlertsSummary: async (config = {}) => {
+    const response = await api.get('/analytics/alerts/summary', config);
+    return extractData(response);
+  },
+
+  // ──────────────── Reports & Export ────────────────
+
+  /**
+   * Obtiene datos completos de reporte de un estudiante.
+   * @param {string} studentId - ID del estudiante
+   * @param {Object} [params] - Query params: timeRange, format (summary/detailed)
+   * @param {Object} [config] - Configuracion de Axios
+   * @returns {Promise<Object>} Datos completos del reporte individual
+   */
+  getStudentReport: async (studentId, params = {}, config = {}) => {
+    const response = await api.get(`/analytics/reports/student/${studentId}`, {
+      params,
+      ...config
+    });
+    return extractData(response);
+  },
+
+  /**
+   * Obtiene datos completos de reporte de la clase.
+   * @param {Object} [params] - Query params: timeRange, format (summary/detailed)
+   * @param {Object} [config] - Configuracion de Axios
+   * @returns {Promise<Object>} Datos completos del reporte de clase
+   */
+  getClassroomReport: async (params = {}, config = {}) => {
+    const response = await api.get('/analytics/reports/classroom', {
+      params,
+      ...config
+    });
+    return extractData(response);
+  },
+
+  /**
+   * Obtiene datos tabulares optimizados para exportacion CSV.
+   * @param {Object} [params] - Query params: timeRange
+   * @param {Object} [config] - Configuracion de Axios
+   * @returns {Promise<Object>} Datos tabulares para CSV
+   */
+  getClassroomExport: async (params = {}, config = {}) => {
+    const response = await api.get('/analytics/reports/classroom/export', {
+      params,
       ...config
     });
     return extractData(response);

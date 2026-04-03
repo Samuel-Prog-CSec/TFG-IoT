@@ -348,28 +348,121 @@ Los endpoints de reportes (E17, E18) estructuran sus respuestas en niveles jerá
 
 ---
 
-## 4. Relación con el Dashboard Frontend
+## 4. Implementación Frontend: Suite de Analytics
 
-Este documento cubre solo la capa de backend. El frontend consumirá estos endpoints en una fase posterior. El mapeo planeado es:
+> **Estado**: Implementado — Sprint 5 (abril 2026)
+> **ADRs relacionados**: ADR-027 (Arquitectura Frontend de Analytics), ADR-028 (Composición de Componentes)
 
-| Endpoint backend | Componente frontend previsto | Tipo de visualización |
-|-----------------|------------------------------|----------------------|
-| E01 trajectory | StudentProfile → LineChart | Línea temporal con selector 7d/30d/90d |
-| E02 velocity | StudentProfile → KPI card | Indicador de aceleración/desaceleración |
-| E03 plateaus | StudentProfile → Timeline markers | Markers en el gráfico de trayectoria |
-| E04 evolution | StudentProfile → Grouped BarChart | Barras agrupadas por contexto/mecánica |
-| E05 rounds | GameplayDetail → Step chart | Gráfico paso a paso con indicador de fatiga |
-| E06 card-analysis | Dashboard → DataTable | Tabla ordenable con indicador de dificultad |
-| E07 struggles | StudentProfile → Timeline events | Marcadores de frustración en el historial |
-| E08 fatigue | Dashboard → Summary card | Resumen con % de alumnos con fatiga |
-| E09 engagement | StudentProfile → RadialChart | Gráfico radial con 5 componentes |
-| E10 classroom engagement | Dashboard → BarChart ranking | Ranking de engagement por alumno |
-| E11 play-patterns | StudentProfile → Calendar heatmap | Mapa de calor de actividad semanal |
-| E12 content-effectiveness | Dashboard → Comparative BarChart | Barras comparativas por contexto |
-| E13 card-difficulty | Dashboard → Flagged items list | Lista de tarjetas problemáticas con acción |
-| E14 learning-curves | Dashboard → Multi-line chart | Líneas superpuestas por contexto |
-| E15 alerts | Dashboard → AlertsPanel | Panel de alertas con severidad y acciones |
-| E16 alerts/summary | Sidebar → Badge | Contador de alertas activas |
-| E17 reports/student | StudentProfile → Export button | Generación de PDF client-side |
-| E18 reports/classroom | Dashboard → Export button | Generación de PDF client-side |
-| E19 reports/export | StudentsAnalytics → CSV button | Descarga directa de CSV |
+### 4.1. Arquitectura de 4 páginas
+
+El frontend consume los 26 endpoints del backend a través de `services/analytics.js` (26 métodos) y los distribuye en 4 páginas con niveles de profundidad progresiva:
+
+| Página | Ruta | Propósito | Pregunta que responde |
+|--------|------|-----------|----------------------|
+| **Dashboard** | `/dashboard` | Visión rápida (5 segundos) | "¿Cómo va mi clase hoy?" |
+| **Perfil Estudiante** | `/students/:id` | Análisis individual (2 minutos) | "¿Qué le pasa a este alumno?" |
+| **Mis Alumnos** | `/analytics/students` | Comparación de grupo | "¿Quién destaca, quién necesita apoyo?" |
+| **Insights y Reportes** | `/analytics/insights` | Análisis profundo | "¿Qué contenido funciona? ¿Qué alertas hay?" |
+
+**Justificación de 4 páginas (no 1 dashboard monolítico)**: los profesores necesitan diferentes niveles de profundidad para diferentes tareas. Un dashboard único con todo genera sobrecarga cognitiva en usuarios no técnicos. La navegación progresiva (Dashboard → click alumno → Perfil) guía al profesor de lo general a lo específico.
+
+### 4.2. Lenguaje visual: Sistema RAG como elemento firma
+
+Todas las visualizaciones comparten un **patrón de 4 capas** consistente en cada métrica:
+
+1. **Valor numérico** — el dato crudo (ej: "82%")
+2. **Indicador RAG** — semáforo visual (verde/ámbar/rojo) con los umbrales de la sección 3.4
+3. **Comparativa contextual** — contexto que da significado al dato (ej: "vs clase: 71%")
+4. **Micro-narrativa** — texto accionable (ej: "Mejorando" / "Necesita atención")
+
+Este patrón se implementa en el componente `StudentKPICard` con borde izquierdo coloreado (4px) como indicador RAG. Los profesores entienden intuitivamente el semáforo sin formación técnica.
+
+**Colores RAG**: se reutilizan los tokens OKLCH del design system existente (`--color-success-base`, `--color-warning-base`, `--color-error-base`) para mantener coherencia visual con el resto de la aplicación.
+
+### 4.3. Mapeo endpoint → componente (implementado)
+
+| Endpoint backend | Componente frontend | Página | Tipo de visualización |
+|-----------------|---------------------|--------|----------------------|
+| E01 trajectory | `TrajectoryChart` | Perfil Estudiante | LineChart con línea alumno + overlay clase punteada + badge tendencia (mejorando/estable/declinando) |
+| E02-E03 velocity/plateaus | Datos en `TrajectoryChart` | Perfil Estudiante | Indicador de confianza + detección de mesetas integrada |
+| E04 evolution | `PerformanceByDimension` | Perfil Estudiante | BarChart horizontal con barras coloreadas RAG, dos instancias: por contexto Y por mecánica |
+| E05 rounds | `GameHistoryTable` (expandible) | Perfil Estudiante | Tabla con desglose por ronda al hacer click |
+| E06 card-analysis | `ContentEffectivenessMatrix` | Insights (tab Efectividad) | Matriz grid mecánica × contexto con celdas RAG interactivas |
+| E07 struggles | Datos en `StrengthsWeaknesses` | Perfil Estudiante | Tarjetas de debilidades derivadas de datos de rendimiento |
+| E08 fatigue | `ActivityHeatmap` | Dashboard | Grid día × hora con intensidad de color (cuándo juegan) |
+| E09 engagement | `EngagementRadar` | Perfil Estudiante | RadarChart con 5 ejes (frecuencia, regularidad, completado, constancia, replays) |
+| E10 classroom engagement | Datos en `StudentsAnalytics` | Mis Alumnos | Columna de engagement en tabla comparativa |
+| E11 play-patterns | `ActivityHeatmap` + timeline | Dashboard | Heatmap semanal + timeline de actividad reciente |
+| E12 content-effectiveness | `ContentEffectivenessMatrix` | Insights (tab Efectividad) | Grid mecánica × contexto con RAG y detalle expandible |
+| E13 card-difficulty | Datos en `ContentEffectivenessMatrix` | Insights (tab Efectividad) | Integrado en la matriz de efectividad |
+| E14 learning-curves | `LearningCurvesSection` (AreaChart) | Insights (tab Efectividad) | AreaChart con múltiples líneas por contexto, eje X = intento, eje Y = score |
+| E15 alerts | `AlertsPanel` (Dashboard) + `AlertsHub` (Insights) | Dashboard + Insights | Dashboard: top 5 alertas con acción. Insights: hub completo con filtros severidad/tipo |
+| E16 alerts/summary | Sidebar badge | Navegación | Badge numérico en "Dashboard" del sidebar |
+| E17 reports/student | `ReportGenerator` | Insights (tab Informes) | Preview renderizado + exportación CSV/print |
+| E18 reports/classroom | `ReportGenerator` | Insights (tab Informes) | Preview renderizado + exportación CSV/print |
+| E19 reports/export | `exportToCSV()` | Mis Alumnos | Descarga CSV client-side con `Blob + URL.createObjectURL` |
+
+### 4.4. Justificación de decisiones de visualización
+
+#### ¿Por qué la dimensión mecánica × contexto como matriz grid?
+
+La `ContentEffectivenessMatrix` muestra mecánicas como filas y contextos como columnas, con celdas coloreadas RAG. Se eligió un grid (no un scatter plot) porque:
+- Un profesor de primaria interpreta una **tabla coloreada** (celda verde = bien, roja = mal) mucho más rápido que un gráfico abstracto
+- La dimensión mecánica × contexto es **exactamente una matriz 2D**, por lo que la representación natural es un grid
+- Permite identificar rápidamente combinaciones problemáticas (ej: "Asociación + Números tiene celda roja")
+
+#### ¿Por qué RadarChart para engagement?
+
+El `EngagementRadar` usa 5 ejes (frecuencia, regularidad, completado, constancia, replays) porque:
+- Muestra el **perfil completo** de un vistazo: un alumno con alta frecuencia pero baja regularidad se ve inmediatamente
+- Los radares son intuitivos para mostrar equilibrio/desequilibrio entre múltiples factores
+- Es visualmente diferente a los BarCharts de rendimiento, lo que ayuda a distinguir "cómo rinde" de "cuánto participa"
+
+#### ¿Por qué narrativa What/So What/Now What?
+
+El `NarrativeCard` traduce datos numéricos en lenguaje natural siguiendo el framework BI de Data Storytelling:
+- **What Happened** ("Qué pasó"): observación factual — ancla al profesor en los datos
+- **So What** ("Por qué importa"): implicación pedagógica — conecta el dato con el contexto educativo
+- **Now What** ("Qué hacer"): acción recomendada — el dato se convierte en acción
+
+Estas narrativas se generan server-side en `analyticsHelpers.js` con `generateInterpretation()` y se entregan al frontend listas para renderizar. El profesor no necesita interpretar gráficos — recibe directamente la acción sugerida.
+
+#### ¿Por qué tabla (no cards) en Mis Alumnos?
+
+Para comparación de múltiples alumnos, la tabla es superior a cards porque:
+- Permite **ordenar** por cualquier columna con un click
+- Facilita el **escaneo vertical** para encontrar valores extremos
+- Los valores están **alineados** para comparación directa
+- Es la forma más **densa** de mostrar datos multidimensionales
+
+Las cards se usan en el Perfil Individual donde cada métrica necesita más espacio visual (RAG, comparativa, narrativa).
+
+### 4.5. Estrategia de rendimiento frontend
+
+| Técnica | Implementación | Impacto |
+|---------|----------------|---------|
+| **Lazy loading** de páginas | `React.lazy()` en App.jsx | Las 3 páginas nuevas no se cargan hasta que se navega a ellas |
+| **Promise.all** para fetching | Todos los datos de cada página se piden en paralelo | Elimina waterfalls secuenciales |
+| **Catch no-bloqueante** | Datos secundarios (trajectory, engagement) con `.catch(() => null)` | Si un endpoint falla, la página muestra lo que tiene |
+| **Memoización** | `memo()` en charts, `useMemo()` en derivaciones | Evita re-renders costosos de Recharts |
+| **AbortController** | Limpieza en `useEffect` cleanup | Previene race conditions al cambiar de página o período |
+| **Skeleton loading** | Estructura idéntica al contenido final | Previene CLS (Cumulative Layout Shift) |
+| **prefers-reduced-motion** | `useReducedMotion()` hook en todos los componentes | Desactiva animaciones para usuarios sensibles al movimiento |
+
+### 4.6. Componentes reutilizables
+
+Se crearon 11 componentes en `frontend/src/components/analytics/` diseñados para composición flexible:
+
+| Componente | Responsabilidad | Reutilizado en |
+|------------|----------------|----------------|
+| `StudentKPICard` | Métrica individual con RAG 4 capas | Perfil Estudiante (6 instancias) |
+| `TrajectoryChart` | Gráfico temporal con overlay de clase | Perfil Estudiante |
+| `NarrativeCard` | Framework What/So What/Now What | Perfil Estudiante |
+| `PerformanceByDimension` | BarChart horizontal (contexto O mecánica) | Perfil Estudiante (2 instancias) |
+| `EngagementRadar` | RadarChart de 5 ejes | Perfil Estudiante |
+| `GameHistoryTable` | Tabla de historial con paginación | Perfil Estudiante |
+| `StrengthsWeaknesses` | Fortalezas/debilidades derivadas | Perfil Estudiante |
+| `ActivityHeatmap` | Grid día × hora | Dashboard |
+| `ContentEffectivenessMatrix` | Matriz mecánica × contexto RAG | Insights |
+| `AlertsHub` | Hub de alertas con filtros | Insights |
+| `ReportGenerator` | Generación de informes | Insights |

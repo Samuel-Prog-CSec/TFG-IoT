@@ -39,6 +39,11 @@ const DeckEditPage = lazy(() => import('./pages/DeckEditPage'));
 const ContextsPage = lazy(() => import('./pages/ContextsPage'));
 const ContextDetailPage = lazy(() => import('./pages/ContextDetailPage'));
 
+// Analytics pages
+const StudentProfile = lazy(() => import('./pages/StudentProfile'));
+const StudentsAnalytics = lazy(() => import('./pages/StudentsAnalytics'));
+const InsightsReports = lazy(() => import('./pages/InsightsReports'));
+
 // Auth pages
 const Login = lazy(() => import('./pages/Login'));
 const Register = lazy(() => import('./pages/Register'));
@@ -134,6 +139,9 @@ function AppContent() {
           <Route path="create-session" element={<RequireRole roles="teacher" redirectTo={ROUTES.ADMIN_APPROVALS}><SuspenseWrapper><CreateSession /></SuspenseWrapper></RequireRole>} />
           <Route path="board-setup" element={<RequireRole roles="teacher" redirectTo={ROUTES.ADMIN_APPROVALS}><SuspenseWrapper><BoardSetup /></SuspenseWrapper></RequireRole>} />
           <Route path="board-setup/:sessionId" element={<RequireRole roles="teacher" redirectTo={ROUTES.ADMIN_APPROVALS}><SuspenseWrapper><BoardSetup /></SuspenseWrapper></RequireRole>} />
+          <Route path="students/:studentId" element={<RequireRole roles="teacher" redirectTo={ROUTES.ADMIN_APPROVALS}><SuspenseWrapper><StudentProfile /></SuspenseWrapper></RequireRole>} />
+          <Route path="analytics/students" element={<RequireRole roles="teacher" redirectTo={ROUTES.ADMIN_APPROVALS}><SuspenseWrapper><StudentsAnalytics /></SuspenseWrapper></RequireRole>} />
+          <Route path="analytics/insights" element={<RequireRole roles="teacher" redirectTo={ROUTES.ADMIN_APPROVALS}><SuspenseWrapper><InsightsReports /></SuspenseWrapper></RequireRole>} />
 
           {/* Ruta exclusiva de admin */}
           <Route path="students/transfer" element={

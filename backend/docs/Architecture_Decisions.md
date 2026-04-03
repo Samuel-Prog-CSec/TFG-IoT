@@ -1864,3 +1864,97 @@ services/
 ### Documento de Diseño
 
 La justificación pedagógica y de Business Intelligence detallada (por qué cada endpoint, qué pregunta responde al profesor, justificación de umbrales) se documenta en `backend/docs/Analytics_Design_Rationale.md`.
+
+---
+
+## ADR-027: Arquitectura Frontend de Analytics — Suite de 4 Páginas
+
+### Contexto (ADR-027)
+
+El backend (ADR-017, ADR-026) dispone de 26 endpoints de analytics con framework KPI completo (RAG, narrativas What/So What/Now What, 10 KPIs con umbrales). Sin embargo, el frontend solo consumía 6 de esos 26 endpoints. El dashboard mostraba datos mock en `StudentsList`, la distribución recibía `null`, y los trends eran strings hardcodeados. Los profesores no tenían forma de hacer seguimiento individual de alumnos ni de analizar la efectividad del contenido por la dimensión mecánica × contexto.
+
+### Decisión (ADR-027)
+
+Construir una suite completa de analytics frontend con **4 páginas** y un lenguaje visual RAG uniforme:
+
+1. **Dashboard mejorado** (`/dashboard`): 8 KPIs con datos reales y trends calculados, alertas inteligentes del backend (7 tipos, 3 severidades), heatmap de actividad semanal (día × hora), timeline de actividad reciente, distribución real de rendimiento.
+
+2. **Perfil Individual de Estudiante** (`/students/:studentId`): KPIs con indicador RAG y comparativa con clase, trayectoria de aprendizaje con overlay de promedio de clase e indicador de tendencia (mejorando/estable/declinando), narrativa BI auto-generada (Qué pasó / Por qué importa / Qué hacer), rendimiento por contexto temático Y por mecánica de juego con barras coloreadas RAG, engagement score, historial de partidas, fortalezas y debilidades derivadas automáticamente.
+
+3. **Vista Comparativa** (`/analytics/students`): Tabla interactiva ordenable/filtrable con métricas, búsqueda por nombre, filtro por tier, indicadores de actividad coloreados, resumen con distribución, y exportación CSV client-side.
+
+4. **Insights y Reportes** (`/analytics/insights`): Matriz de efectividad mecánica × contexto con colores RAG, curvas de aprendizaje por contenido, hub centralizado de alertas con filtros, y generación de informes (clase/individual) con exportación.
+
+### Alternativas descartadas
+
+1. **Dashboard único con todo**: Descartado porque la sobrecarga cognitiva para profesores no técnicos es excesiva. Los profesores necesitan diferentes niveles de profundidad para diferentes tareas (visión rápida vs. seguimiento individual vs. análisis profundo).
+
+2. **Tablas sin visualización**: Descartado porque los profesores de infantil/primaria necesitan patrones visuales intuitivos (semáforos, barras de colores), no números crudos.
+
+3. **5+ páginas separadas**: Descartado para evitar fragmentación de la navegación. Los 3 aspectos de Insights (efectividad, alertas, informes) comparten contexto temporal y se resuelven mejor con tabs.
+
+### Justificación pedagógica
+
+- **Sistema RAG (semáforo)**: Lenguaje visual universal en educación — verde/ámbar/rojo se interpreta intuitivamente sin formación.
+- **Narrativas What/So What/Now What**: Framework BI que traduce datos en acciones pedagógicas concretas, reduciendo carga cognitiva del profesor.
+- **Dimensión mecánica × contexto**: Cada juego combina una mecánica (Asociación, Memoria) con un contexto temático (Animales, Números, Banderas). Sin cruzar ambas dimensiones, los promedios ocultan patrones críticos (ej: alumno domina memoria con animales pero falla en asociación con números).
+- **Comparativa con clase**: Los números aislados no tienen significado para un profesor. "82%" no dice nada; "82% (vs clase: 71%)" da contexto.
+
+### Componentes reutilizables creados
+
+| Componente | Propósito | Ubicación |
+|------------|-----------|-----------|
+| `StudentKPICard` | KPI con RAG 4 capas (valor, semáforo, comparativa, narrativa) | `components/analytics/` |
+| `TrajectoryChart` | LineChart con tendencia + overlay clase | `components/analytics/` |
+| `NarrativeCard` | What/So What/Now What | `components/analytics/` |
+| `PerformanceByDimension` | BarChart horizontal (contexto O mecánica) | `components/analytics/` |
+| `GameHistoryTable` | Tabla de historial con badge RAG | `components/analytics/` |
+| `StrengthsWeaknesses` | Fortalezas/debilidades derivadas | `components/analytics/` |
+| `ActivityHeatmap` | Grid día × hora de actividad | `components/analytics/` |
+| `ContentEffectivenessMatrix` | Grid mecánica × contexto RAG | `components/analytics/` |
+| `AlertsHub` | Hub completo de alertas con filtros | `components/analytics/` |
+| `ReportGenerator` | Interfaz de generación de informes | `components/analytics/` |
+
+### Estrategia de rendimiento
+
+- **Fetching sin waterfalls**: `Promise.all` para datos independientes. Datos secundarios (trajectory, engagement) como `.catch(() => null)` para no bloquear.
+- **Bundle optimization**: Páginas lazy-loaded con `React.lazy`. Recharts (~390KB) en chunk separado.
+- **Re-render optimization**: `memo()` en componentes de chart, `useMemo()` para derivaciones, `useCallback()` para handlers.
+- **Animaciones**: Solo donde aceleran comprensión. `prefers-reduced-motion` respetado via `useReducedMotion`.
+
+### Relación con otros ADRs
+
+- **ADR-017** y **ADR-026**: Los 26 endpoints del backend son consumidos completos por esta suite frontend
+- **ADR-003**: Los DTOs del backend se mapean directamente a props de componentes
+- **ADR-012**: Las tarjetas RFID se referencian por UID en el análisis de dificultad de tarjetas
+
+---
+
+## ADR-028: Estrategia de Composición de Componentes de Analytics
+
+### Contexto (ADR-028)
+
+La suite de analytics requiere 10+ componentes nuevos con patrones compartidos (RAG colors, comparativa con clase, animaciones condicionales). Sin una estrategia de composición clara, se arriesga duplicación de lógica y boolean prop proliferation.
+
+### Decisión (ADR-028)
+
+1. **Patrón RAG como elemento firma**: Cada métrica en cada página sigue el patrón de 4 capas: valor numérico + indicador RAG (borde/dot) + comparativa contextual + micro-narrativa. Implementado en `StudentKPICard` con props explícitos (`ragStatus`, `comparison`, `comparisonPositive`).
+
+2. **Explicit variants en vez de boolean props**: `PerformanceByDimension` acepta `dimension="context"` o `dimension="mechanic"` en vez de `isContext={true}`. Cada variante tiene su comportamiento explícito.
+
+3. **Datos derivados durante render**: Alertas, filtros, y fortalezas/debilidades se derivan con `useMemo` durante render, no en `useEffect`. Evita efectos secundarios innecesarios y re-renders extra.
+
+4. **Fetch strategy por página**: Cada página hace su propio fetch con `Promise.all` y `AbortController`. No hay store global de analytics — cada vista es autosuficiente.
+
+5. **Tokens RAG del design system existente**: Se reutilizan `--color-success-base`, `--color-warning-base`, `--color-error-base` de los tokens OKLCH ya definidos en `index.css`. No se crea una segunda paleta.
+
+### Consecuencias
+
+**Positivas:**
+- Componentes autocontenidos: cada uno es testeable y reutilizable
+- Sin prop drilling complejo: datos pasan directo del fetch al componente
+- Lenguaje visual consistente en toda la suite gracias al patrón RAG
+
+**Negativas:**
+- Múltiples fetches pueden hacer más peticiones al backend (mitigado por caché Redis server-side)
+- Sin store global, cambiar de página pierde el estado (comportamiento esperado — cada vista es independiente)
