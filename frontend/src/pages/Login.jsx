@@ -10,6 +10,7 @@ import { useState, useEffect } from 'react';
 import { Link, useLocation } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import { LogIn, Mail, Lock, Eye, EyeOff, AlertCircle, CheckCircle, Info, Clock } from 'lucide-react';
+import EduPlayIcon from '../components/icons/EduPlayIcon';
 import { useAuth } from '../context/AuthContext';
 import { useReducedMotion } from '../hooks/useReducedMotion';
 import { formFieldVariants } from '../lib/utils';
@@ -298,7 +299,7 @@ export default function Login() {
             transition={{ delay: 0.1, duration: 0.4 }}
             className="inline-flex items-center justify-center size-20 rounded-2xl bg-gradient-to-br from-accent-indigo via-brand-base to-accent-pink mb-4 shadow-lg shadow-brand-glow"
           >
-            <span className="text-4xl">🎮</span>
+            <EduPlayIcon size={40} className="text-white" />
           </motion.div>
           
           <motion.h1 

@@ -4,10 +4,11 @@ import { Outlet, NavLink, useLocation } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import { ROUTES, NAV_ROUTES, ADMIN_NAV_ROUTES } from '../../constants/routes';
 import {
-  Shield, Layers, X, Menu, Sparkles, LogOut,
+  Shield, Layers, X, Menu, LogOut,
   LayoutDashboard, CalendarClock, Palette, PlusCircle,
   UserCheck, ArrowRightLeft, Users
 } from 'lucide-react';
+import EduPlayIcon from '../icons/EduPlayIcon';
 
 const ICON_MAP = {
   LayoutDashboard,
@@ -110,7 +111,7 @@ export default function AppLayout() {
         <div className="p-6 border-b border-border-subtle">
           <div className="flex items-center gap-3">
             <div className="size-10 rounded-xl bg-gradient-to-br from-brand-base to-accent-indigo flex items-center justify-center shadow-[0_4px_16px_var(--color-brand-glow)]">
-              <Sparkles size={20} className="text-white" />
+              <EduPlayIcon size={20} className="text-white" />
             </div>
             <div>
               <h1 className="text-xl font-bold gradient-text-brand font-display tracking-tight">

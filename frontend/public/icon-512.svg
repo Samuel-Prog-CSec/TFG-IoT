@@ -1,0 +1,31 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" fill="none">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="512" y2="512" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#a78bfa"/>
+      <stop offset="1" stop-color="#7c3aed"/>
+    </linearGradient>
+    <filter id="shadow" x="-10%" y="-10%" width="130%" height="130%">
+      <feDropShadow dx="4" dy="6" stdDeviation="8" flood-color="#4c1d95" flood-opacity="0.35"/>
+    </filter>
+  </defs>
+  <!-- Background -->
+  <rect width="512" height="512" rx="112" fill="url(#bg)"/>
+  <!-- RFID Card -->
+  <rect x="80" y="112" width="224" height="288" rx="24" fill="white" filter="url(#shadow)"/>
+  <!-- Card chip -->
+  <rect x="128" y="168" width="80" height="56" rx="10" fill="#8b5cf6" opacity="0.22"/>
+  <line x1="168" y1="168" x2="168" y2="224" stroke="#8b5cf6" stroke-width="2.5" opacity="0.18"/>
+  <line x1="128" y1="196" x2="208" y2="196" stroke="#8b5cf6" stroke-width="2.5" opacity="0.18"/>
+  <!-- Card lines (content) -->
+  <rect x="128" y="256" width="128" height="8" rx="4" fill="#8b5cf6" opacity="0.12"/>
+  <rect x="128" y="280" width="96" height="8" rx="4" fill="#8b5cf6" opacity="0.08"/>
+  <rect x="128" y="304" width="112" height="8" rx="4" fill="#8b5cf6" opacity="0.06"/>
+  <!-- Signal wave 1 -->
+  <path d="M352 200a72 72 0 010 112" stroke="white" stroke-width="22" stroke-linecap="round"/>
+  <!-- Signal wave 2 -->
+  <path d="M400 160a120 120 0 010 192" stroke="white" stroke-width="18" stroke-linecap="round" opacity="0.5"/>
+  <!-- Signal wave 3 -->
+  <path d="M440 128a160 160 0 010 256" stroke="white" stroke-width="14" stroke-linecap="round" opacity="0.25"/>
+  <!-- Signal origin dot -->
+  <circle cx="328" cy="256" r="10" fill="white" opacity="0.7"/>
+</svg>
