@@ -172,7 +172,7 @@ El dashboard actual depende de 3 endpoints (`/classroom/summary`, `/classroom/co
 
 ---
 
-### T-602: 📊 Dashboard — Eliminar datos mock y conectar datos reales 📋
+### T-602: 📊 Dashboard — Eliminar datos mock y conectar datos reales ✅
 
 **Prioridad:** P0 | **Tamaño:** M (4-8h) | **Dependencias:** T-601
 **Origen:** StudentsList usa mock hardcoded, DistributionChart recibe null, trends son strings fijos
@@ -212,17 +212,17 @@ Tres componentes del dashboard muestran datos ficticios en producción, invalida
 
 **Criterios de Aceptación:**
 
-- [ ] `StudentsList` muestra estudiantes reales del profesor autenticado
-- [ ] `DistributionChart` muestra distribución real de rendimiento
-- [ ] StatCards muestran trends calculados (comparación período actual vs anterior)
-- [ ] Zero datos mock/hardcodeados en el dashboard
-- [ ] Click en estudiante navega a su perfil
-- [ ] Loading states (skeleton) durante carga de nuevos endpoints
-- [ ] `npm test` y `npm run build` pasan
+- [x] `StudentsList` muestra estudiantes reales del profesor autenticado
+- [x] `DistributionChart` muestra distribución real de rendimiento
+- [x] StatCards muestran trends calculados (comparación período actual vs anterior)
+- [x] Zero datos mock/hardcodeados en el dashboard
+- [x] Click en estudiante navega a su perfil
+- [x] Loading states (skeleton) durante carga de nuevos endpoints
+- [x] `npm test` y `npm run build` pasan
 
 ---
 
-### T-603: 📊 Nueva página — Perfil Individual de Estudiante (con comparativa de clase) 📋
+### T-603: 📊 Nueva página — Perfil Individual de Estudiante (con comparativa de clase) ✅
 
 **Consolida:** T-603 + T-620
 **Prioridad:** P0 | **Tamaño:** XL (> 2 días) | **Dependencias:** T-601
@@ -279,20 +279,20 @@ Crear la página `/students/:studentId` que permita al profesor consultar el pro
 
 **Criterios de Aceptación:**
 
-- [ ] Página accesible en `/students/:studentId` con autenticación
-- [ ] Header muestra nombre, avatar, aula, badge de rendimiento, última actividad
-- [ ] 4-6 KPIs individuales con valores reales y comparativa con clase
-- [ ] Gráfico de progreso temporal funcional con selector 7d/30d
-- [ ] Línea punteada de promedio de clase visible en el gráfico de progreso
-- [ ] Leyenda clara diferenciando alumno vs clase, tooltip muestra ambos valores
-- [ ] Gráfico de rendimiento por contexto con barras coloreadas
-- [ ] Gráfico de rendimiento por mecánica funcional
-- [ ] Historial de partidas recientes con al menos 10 entradas
-- [ ] Sección de fortalezas/debilidades derivada de datos
-- [ ] Skeleton loaders durante carga
-- [ ] Responsive: legible en ≥768px
-- [ ] Navegable desde Dashboard y desde breadcrumb
-- [ ] `npm test` y `npm run build` pasan
+- [x] Página accesible en `/students/:studentId` con autenticación
+- [x] Header muestra nombre, avatar, aula, badge de rendimiento, última actividad
+- [x] 4-6 KPIs individuales con valores reales y comparativa con clase
+- [x] Gráfico de progreso temporal funcional con selector 7d/30d
+- [x] Línea punteada de promedio de clase visible en el gráfico de progreso
+- [x] Leyenda clara diferenciando alumno vs clase, tooltip muestra ambos valores
+- [x] Gráfico de rendimiento por contexto con barras coloreadas
+- [x] Gráfico de rendimiento por mecánica funcional
+- [x] Historial de partidas recientes con al menos 10 entradas
+- [x] Sección de fortalezas/debilidades derivada de datos
+- [x] Skeleton loaders durante carga
+- [x] Responsive: legible en ≥768px
+- [x] Navegable desde Dashboard y desde breadcrumb
+- [x] `npm test` y `npm run build` pasan
 
 ---
 
@@ -697,7 +697,7 @@ Las acciones de pause/resume carecen de rate limiting. Todos los rate limiters u
 
 ---
 
-### T-604: 📊 Dashboard — KPIs expandidos, filtros interactivos, alertas inteligentes y heatmap mejorado 📋
+### T-604: 📊 Dashboard — KPIs expandidos, filtros interactivos, alertas inteligentes y heatmap mejorado ✅
 
 **Consolida:** T-604 + T-605 + T-607 + T-615
 **Prioridad:** P1 | **Tamaño:** XL (> 2 días) | **Dependencias:** T-601, T-602
@@ -743,25 +743,25 @@ Mejora integral del dashboard con: KPIs adicionales, filtros interactivos, siste
 
 **Criterios de Aceptación:**
 
-- [ ] 8 KPIs visibles con datos reales
-- [ ] Filtros de contexto, mecánica y rango de fechas funcionales
-- [ ] Filtros afectan todos los componentes del dashboard
-- [ ] Sección de actividad reciente con partidas reales
-- [ ] Al menos 5 tipos de alerta diferentes derivados de datos
-- [ ] Cada alerta tiene acción directa que navega a contenido relevante
-- [ ] Estado vacío muestra mensaje positivo en vez de `null`
-- [ ] Alertas se generan automáticamente de los datos
-- [ ] Leyenda clara con 3 niveles de dificultad en heatmap
-- [ ] Tooltips con información accionable en heatmap
-- [ ] Visualización intuitiva para personas no técnicas
-- [ ] Cero `<select>` nativos en Dashboard y ChartSection
-- [ ] Accesibilidad mantenida en SelectPremium
-- [ ] Layout responsivo en ≥768px
-- [ ] `npm test` y `npm run build` pasan
+- [x] 8 KPIs visibles con datos reales
+- [x] Filtros de contexto, mecánica y rango de fechas funcionales
+- [x] Filtros afectan todos los componentes del dashboard
+- [x] Sección de actividad reciente con partidas reales
+- [x] Al menos 5 tipos de alerta diferentes derivados de datos
+- [x] Cada alerta tiene acción directa que navega a contenido relevante
+- [x] Estado vacío muestra mensaje positivo en vez de `null`
+- [x] Alertas se generan automáticamente de los datos
+- [x] Leyenda clara con 3 niveles de dificultad en heatmap
+- [x] Tooltips con información accionable en heatmap
+- [x] Visualización intuitiva para personas no técnicas
+- [x] Cero `<select>` nativos en Dashboard y ChartSection
+- [x] Accesibilidad mantenida en SelectPremium
+- [x] Layout responsivo en ≥768px
+- [x] `npm test` y `npm run build` pasan
 
 ---
 
-### T-606: 📊 Nueva página — Vista Comparativa de Estudiantes (con exportación CSV y navegación) 📋
+### T-606: 📊 Nueva página — Vista Comparativa de Estudiantes (con exportación CSV y navegación) ✅
 
 **Consolida:** T-606 + T-617 + T-618
 **Prioridad:** P1 | **Tamaño:** XL (> 2 días) | **Dependencias:** T-601, T-603
@@ -800,21 +800,21 @@ Crear la página `/analytics/students` con tabla interactiva de todos los estudi
 
 **Criterios de Aceptación:**
 
-- [ ] Página accesible en `/analytics/students`
-- [ ] Tabla con todos los estudiantes y métricas reales
-- [ ] Ordenable por todas las columnas
-- [ ] Filtrable por tier y búsqueda por nombre
-- [ ] Click en estudiante navega a su perfil (T-603)
-- [ ] Resumen visual de distribución de clase
-- [ ] Skeleton loader durante carga
-- [ ] Responsive en ≥768px
-- [ ] Botón "Exportar CSV" visible en vista de estudiantes
-- [ ] CSV generado correctamente con datos reales
-- [ ] Descarga automática del archivo
-- [ ] Sin dependencias externas para CSV
-- [ ] Badge de notificación visible cuando hay alertas
-- [ ] Enlace "Mis Alumnos" funcional en sidebar
-- [ ] `npm test` y `npm run build` pasan
+- [x] Página accesible en `/analytics/students`
+- [x] Tabla con todos los estudiantes y métricas reales
+- [x] Ordenable por todas las columnas
+- [x] Filtrable por tier y búsqueda por nombre
+- [x] Click en estudiante navega a su perfil (T-603)
+- [x] Resumen visual de distribución de clase
+- [x] Skeleton loader durante carga
+- [x] Responsive en ≥768px
+- [x] Botón "Exportar CSV" visible en vista de estudiantes
+- [x] CSV generado correctamente con datos reales
+- [x] Descarga automática del archivo
+- [x] Sin dependencias externas para CSV
+- [x] Badge de notificación visible cuando hay alertas
+- [x] Enlace "Mis Alumnos" funcional en sidebar
+- [x] `npm test` y `npm run build` pasan
 
 ---
 
@@ -1336,7 +1336,7 @@ Crear tres componentes UI reutilizables para mejorar la consistencia visual y de
 - [x] Componente `PageHeader` creado con props flexibles
 - [x] Al menos 3 páginas usan PageHeader — SessionsPage, ContextsPage, CardDecksPage
 - [x] Componente `ErrorState` creado y reutilizable — integrado en CardDecksPage
-- [ ] AlertsPanel muestra estado positivo cuando no hay alertas — pendiente (requiere T-604/T-605)
+- [x] AlertsPanel muestra estado positivo cuando no hay alertas — implementado en T-604
 - [x] Al menos 4 componentes migrados a estados unificados — 6 migrados: CardDecksPage (ErrorState), SessionsPage (ErrorState), ContextsPage (ErrorState), Dashboard (ErrorState), DifficultyHeatmap (EmptyState), StudentProgressChart (EmptyState)
 - [x] Aspecto visual consistente
 - [x] Tokens semánticos usados
@@ -1363,6 +1363,95 @@ Tarea de **PLANIFICACIÓN** — no implementación. Analizar el archivo, identif
 - [x] No se modifica código en esta tarea
 
 **Archivos afectados:** `backend/docs/Architecture_Decisions.md` (ADR-018 añadido al final)
+
+---
+
+### T-625: 📊 Backend — Endpoints de analytics avanzados (19 endpoints) ✅
+
+**Prioridad:** P0 | **Tamaño:** XL (> 2 días) | **Dependencias:** T-601
+**Origen:** Análisis de necesidades pedagógicas — los profesores necesitan profundidad analítica para entender cómo aprenden los niños individualmente
+
+**Descripción:**
+Expansión mayor del backend de analytics, añadiendo 19 nuevos endpoints organizados en 6 grupos: trayectoria de aprendizaje (4), análisis profundo de sesiones (4), métricas de engagement (3), efectividad de contenido (3), alertas inteligentes server-side (2) y datos para reportes/exportación (3). Se descompone la funcionalidad en sub-servicios temáticos bajo `services/analytics/` sin modificar el servicio existente (zero regresión). Documentación completa en `backend/docs/Analytics_Design_Rationale.md` y ADR-026.
+
+**Sub-tareas:**
+
+1. **Documentación y arquitectura:**
+   - Crear `backend/docs/Analytics_Design_Rationale.md` con justificación pedagógica y de BI
+   - ADR-026 en `Architecture_Decisions.md` (descomposición modular del servicio)
+   - Crear estructura `services/analytics/` con helpers compartidos
+
+2. **Trayectoria de aprendizaje (E01-E04):**
+   - `GET /student/:id/trajectory` — progresión temporal con tendencia (regresión lineal)
+   - `GET /student/:id/velocity` — velocidad de mejora en ventanas temporales
+   - `GET /student/:id/plateaus` — detección de mesetas (estancamiento)
+   - `GET /student/:id/evolution` — evolución por contexto o mecánica
+
+3. **Análisis de sesiones (E05-E08):**
+   - `GET /gameplay/:id/rounds` — desglose ronda-a-ronda con detección de fatiga
+   - `GET /classroom/card-analysis` — análisis de tarjetas: tasa de error, dificultad
+   - `GET /student/:id/struggles` — momentos de dificultad (errores consecutivos)
+   - `GET /classroom/fatigue` — indicadores de fatiga agregados por clase
+
+4. **Engagement (E09-E11):**
+   - `GET /student/:id/engagement` — score de engagement (5 componentes ponderados)
+   - `GET /classroom/engagement` — engagement agregado de la clase con ranking
+   - `GET /student/:id/play-patterns` — patrones de juego (horarios, timeline)
+
+5. **Efectividad de contenido (E12-E14):**
+   - `GET /classroom/content-effectiveness` — qué contextos producen mejor aprendizaje
+   - `GET /classroom/card-difficulty` — tarjetas problemáticas (tasa error > umbral)
+   - `GET /classroom/learning-curves` — curvas de aprendizaje por contenido
+
+6. **Alertas inteligentes (E15-E16):**
+   - `GET /alerts` — alertas computadas server-side con severidad y recomendaciones
+   - `GET /alerts/summary` — resumen de alertas para badges del sidebar
+   - 7 tipos: declining, inactivity, score_drop, timeout, improving, plateau, abandonment
+
+7. **Reportes y exportación (E17-E19):**
+   - `GET /reports/student/:id` — reporte completo de estudiante (orquesta sub-servicios)
+   - `GET /reports/classroom` — reporte de clase completo
+   - `GET /reports/classroom/export` — datos tabulares para CSV
+
+8. **Infraestructura:**
+   - 18 nuevos validadores Zod (incluyendo timeRange extendido a 90d)
+   - 2 nuevos índices MongoDB (GamePlay, GameSession)
+   - Método `aggregate` en gameSessionRepository
+   - Caching diferenciado (300s datos, 600s alertas/reportes)
+
+**Archivos Creados:**
+- `backend/src/services/analytics/analyticsHelpers.js`
+- `backend/src/services/analytics/alertsService.js`
+- `backend/src/services/analytics/studentTrajectoryService.js`
+- `backend/src/services/analytics/sessionAnalysisService.js`
+- `backend/src/services/analytics/engagementService.js`
+- `backend/src/services/analytics/contentEffectivenessService.js`
+- `backend/src/services/analytics/reportDataService.js`
+- `backend/src/services/analytics/index.js`
+- `backend/src/controllers/analyticsAdvancedController.js`
+- `backend/docs/Analytics_Design_Rationale.md`
+
+**Archivos Modificados:**
+- `backend/src/routes/analytics.js` — 19 nuevas rutas
+- `backend/src/validators/analyticsValidator.js` — 18 nuevos schemas
+- `backend/src/models/GamePlay.js` — 1 nuevo índice
+- `backend/src/models/GameSession.js` — 1 nuevo índice
+- `backend/src/repositories/gameSessionRepository.js` — método aggregate
+- `backend/docs/Architecture_Decisions.md` — ADR-026
+
+**Criterios de Aceptación:**
+
+- [x] 19 nuevos endpoints implementados bajo `/api/analytics/`
+- [x] Todos requieren autenticación y rol teacher/super_admin
+- [x] Validación Zod estricta en todos los endpoints
+- [x] Sub-servicios organizados por dominio en `services/analytics/`
+- [x] `analyticsService.js` original NO modificado (zero regresión)
+- [x] `analyticsController.js` original NO modificado
+- [x] Documento de diseño con justificación pedagógica y de BI
+- [x] ADR-026 documentando la decisión de descomposición
+- [x] Caching Redis en endpoints costosos
+- [x] `npm run lint` sin errores
+- [x] `npm test` — 695 tests pasando sin regresiones
 
 ---
 

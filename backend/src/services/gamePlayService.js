@@ -189,6 +189,7 @@ async function completePlay(playId) {
     score: play.score,
     correctAttempts: play.metrics.correctAttempts,
     errorAttempts: play.metrics.errorAttempts,
+    timeoutAttempts: play.metrics.timeoutAttempts,
     averageResponseTime: play.metrics.averageResponseTime
   });
 

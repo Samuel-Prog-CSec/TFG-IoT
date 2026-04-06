@@ -189,6 +189,16 @@ const userSchema = new mongoose.Schema(
         default: 0,
         min: 0
       },
+      totalTimeouts: {
+        type: Number,
+        default: 0,
+        min: 0
+      },
+      totalAbandonedGames: {
+        type: Number,
+        default: 0,
+        min: 0
+      },
       lastPlayedAt: Date
     },
     status: {
@@ -281,6 +291,7 @@ userSchema.methods.updateLastLogin = function () {
  * @param {number} playResults.score - Puntuación obtenida en la partida
  * @param {number} playResults.correctAttempts - Cantidad de respuestas correctas
  * @param {number} playResults.errorAttempts - Cantidad de errores
+ * @param {number} [playResults.timeoutAttempts=0] - Cantidad de timeouts
  * @param {number} playResults.averageResponseTime - Tiempo medio de respuesta en ms
  * @returns {Promise<User>} Promesa que resuelve con el documento actualizado
  * @example
@@ -288,6 +299,7 @@ userSchema.methods.updateLastLogin = function () {
  *   score: 50,
  *   correctAttempts: 8,
  *   errorAttempts: 2,
+ *   timeoutAttempts: 1,
  *   averageResponseTime: 3500
  * });
  */
@@ -311,9 +323,10 @@ userSchema.methods.updateStudentMetrics = function (playResults) {
     this.studentMetrics.bestScore = playResults.score;
   }
 
-  // Actualizar contadores de aciertos y errores
+  // Actualizar contadores de aciertos, errores y timeouts
   this.studentMetrics.totalCorrectAnswers += playResults.correctAttempts;
   this.studentMetrics.totalErrors += playResults.errorAttempts;
+  this.studentMetrics.totalTimeouts += playResults.timeoutAttempts || 0;
 
   // Recalcular tiempo medio de respuesta (promedio ponderado)
   const totalAttempts = this.studentMetrics.totalCorrectAnswers + this.studentMetrics.totalErrors;
@@ -328,6 +341,26 @@ userSchema.methods.updateStudentMetrics = function (playResults) {
   }
 
   // Actualizar última fecha de juego
+  this.studentMetrics.lastPlayedAt = new Date();
+
+  return this.save();
+};
+
+/**
+ * Registra una partida abandonada en las métricas del alumno.
+ * No afecta al averageScore (las abandonadas no cuentan para la media).
+ * Solo incrementa el contador de abandonos y actualiza lastPlayedAt.
+ *
+ * @instance
+ * @memberof User
+ * @returns {Promise<User>} Promesa que resuelve con el documento actualizado
+ */
+userSchema.methods.recordAbandonedGame = function () {
+  if (this.role !== 'student') {
+    throw new Error('Solo los alumnos tienen métricas de juego');
+  }
+
+  this.studentMetrics.totalAbandonedGames += 1;
   this.studentMetrics.lastPlayedAt = new Date();
 
   return this.save();

@@ -43,7 +43,9 @@ export default function DifficultyHeatmap({ data }) {
 
   return (
     <ChartSection title="Mapa de Calor de Dificultad">
-      <div className="h-[300px] w-full">
+      {/* Contenedor con scroll horizontal para viewports pequenos */}
+      <div className="overflow-x-auto">
+      <div className="h-[300px] w-full min-w-[480px]">
         <ResponsiveContainer width="100%" height="100%" minWidth={0} minHeight={0}>
           <ScatterChart margin={{ top: 20, right: 20, bottom: 40, left: 20 }}>
             <CartesianGrid strokeDasharray="3 3" stroke="var(--color-border-subtle)" />
@@ -89,6 +91,7 @@ export default function DifficultyHeatmap({ data }) {
             </Scatter>
           </ScatterChart>
         </ResponsiveContainer>
+      </div>
       </div>
       <p className="text-xs text-text-muted mt-6 text-center font-medium">
         Identifica qué combinaciones de <strong>Contexto + Mecánica</strong> generan más errores.

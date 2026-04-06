@@ -17,6 +17,7 @@ export const ROUTES = {
   GAME: (sessionId) => `/game/${sessionId}`,
 
   // Alumnos
+  STUDENT_PROFILE: (studentId) => `/students/${studentId}`,
   STUDENT_TRANSFER: '/students/transfer',
 
   // Sesiones
@@ -34,6 +35,10 @@ export const ROUTES = {
   CARD_DECKS_DETAIL: (deckId) => `/decks/${deckId}`,
   CARD_DECKS_EDIT: (deckId) => `/decks/${deckId}/edit`,
   
+  // Analytics
+  STUDENTS_ANALYTICS: '/analytics/students',
+  INSIGHTS: '/analytics/insights',
+
   // Admin (solo super_admin)
   ADMIN_APPROVALS: '/admin/approvals',
   STUDENT_MANAGEMENT: '/admin/students',
@@ -47,6 +52,16 @@ export const NAV_ROUTES = [
     path: ROUTES.DASHBOARD,
     label: 'Dashboard',
     icon: 'LayoutDashboard',
+  },
+  {
+    path: ROUTES.STUDENTS_ANALYTICS,
+    label: 'Mis Alumnos',
+    icon: 'Users',
+  },
+  {
+    path: ROUTES.INSIGHTS,
+    label: 'Insights',
+    icon: 'TrendingUp',
   },
   {
     path: ROUTES.SESSIONS,

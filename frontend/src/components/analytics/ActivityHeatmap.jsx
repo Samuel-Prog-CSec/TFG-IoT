@@ -1,0 +1,148 @@
+import { memo, useMemo } from 'react';
+import PropTypes from 'prop-types';
+import { cn } from '../../lib/utils';
+import GlassCard from '../ui/GlassCard';
+
+/**
+ * Dias de la semana en espanol (abreviados)
+ */
+const DAYS = ['Lun', 'Mar', 'Mie', 'Jue', 'Vie', 'Sab', 'Dom'];
+
+/**
+ * Horas del dia a mostrar (reducido para legibilidad)
+ */
+const HOURS = [8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18];
+
+/**
+ * Calcula la intensidad de color basada en el valor relativo al maximo
+ * @param {number} value - Numero de partidas en esa celda
+ * @param {number} max - Maximo valor en todo el heatmap
+ * @returns {string} Clase de Tailwind para el color de fondo
+ */
+const getIntensityClass = (value, max) => {
+  if (!value || value === 0) return 'bg-background-surface/30';
+  const ratio = value / max;
+  if (ratio >= 0.75) return 'bg-brand-base/60';
+  if (ratio >= 0.5) return 'bg-brand-base/40';
+  if (ratio >= 0.25) return 'bg-brand-base/25';
+  return 'bg-brand-base/12';
+};
+
+/**
+ * Heatmap de actividad semanal (dia x hora).
+ * Muestra cuando juegan los alumnos — util para planificar sesiones.
+ *
+ * @param {Object} props
+ * @param {Object} props.data - Datos del endpoint /classroom/heatmap
+ *   Formato esperado: { heatmap: [[...hours], ...days] } o { data: [{day, hour, count}] }
+ */
+function ActivityHeatmap({ data }) {
+  const { grid, maxValue } = useMemo(() => {
+    if (!data) return { grid: null, maxValue: 0 };
+
+    let gridData = [];
+    let max = 0;
+
+    // Soportar ambos formatos de respuesta del backend
+    if (Array.isArray(data.heatmap)) {
+      // Formato matriz: heatmap[day][hour] = count
+      gridData = data.heatmap;
+      for (const row of gridData) {
+        for (const val of row) {
+          if (val > max) max = val;
+        }
+      }
+    } else if (Array.isArray(data.data || data)) {
+      // Formato flat: [{day, hour, count}]
+      const flat = data.data || data;
+      gridData = Array.from({ length: 7 }, () => Array(24).fill(0));
+      for (const item of flat) {
+        const d = item.day ?? item.dayOfWeek;
+        const h = item.hour;
+        const c = item.count ?? item.games ?? 0;
+        if (d != null && h != null) {
+          gridData[d][h] = c;
+          if (c > max) max = c;
+        }
+      }
+    }
+
+    return { grid: gridData, maxValue: max };
+  }, [data]);
+
+  if (!grid || maxValue === 0) {
+    return (
+      <GlassCard variant="default" padding="none" className="p-5">
+        <h3 className="text-base font-bold text-text-primary font-display mb-4">Actividad Semanal</h3>
+        <div className="py-6 text-center">
+          <p className="text-sm text-text-muted">No hay datos de actividad disponibles.</p>
+        </div>
+      </GlassCard>
+    );
+  }
+
+  return (
+    <GlassCard variant="default" padding="none" className="p-5">
+      <div className="flex items-center justify-between mb-4">
+        <h3 className="text-base font-bold text-text-primary font-display">Actividad Semanal</h3>
+        <div className="flex items-center gap-2 text-[10px] text-text-muted">
+          <span>Menos</span>
+          <div className="flex gap-0.5">
+            <div className="size-3 rounded-sm bg-background-surface/30" />
+            <div className="size-3 rounded-sm bg-brand-base/12" />
+            <div className="size-3 rounded-sm bg-brand-base/25" />
+            <div className="size-3 rounded-sm bg-brand-base/40" />
+            <div className="size-3 rounded-sm bg-brand-base/60" />
+          </div>
+          <span>Mas</span>
+        </div>
+      </div>
+
+      <div className="overflow-x-auto -mx-2">
+        <div className="min-w-[400px] px-2">
+          {/* Hours header */}
+          <div className="flex gap-0.5 ml-10 mb-1">
+            {HOURS.map(h => (
+              <div key={h} className="flex-1 text-center text-[10px] text-text-muted tabular-nums">
+                {h}h
+              </div>
+            ))}
+          </div>
+
+          {/* Grid rows */}
+          <div className="space-y-0.5" aria-label="Mapa de calor de actividad semanal, horario de 8 a 18 horas, lunes a domingo">
+            {DAYS.map((day, dayIndex) => (
+              <div key={day} className="flex items-center gap-0.5">
+                <span className="w-9 text-right text-[11px] text-text-muted font-medium pr-1">
+                  {day}
+                </span>
+                <div className="flex gap-0.5 flex-1">
+                  {HOURS.map(hour => {
+                    const value = grid[dayIndex]?.[hour] || 0;
+                    return (
+                      <div
+                        key={hour}
+                        className={cn(
+                          "flex-1 aspect-square rounded-sm transition-colors",
+                          getIntensityClass(value, maxValue)
+                        )}
+                        title={`${day} ${hour}:00 — ${value} partidas`}
+                        aria-label={`${day} a las ${hour}: ${value} partidas`}
+                      />
+                    );
+                  })}
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      </div>
+    </GlassCard>
+  );
+}
+
+ActivityHeatmap.propTypes = {
+  data: PropTypes.object,
+};
+
+export default memo(ActivityHeatmap);

@@ -1784,3 +1784,226 @@ Para vistas de consulta (mazos, sesiones, wizard), se usa un badge compacto (`Au
 - **Positivas**: Audio vinculado al asset, gestión individual (añadir/reemplazar/eliminar), indicadores de audio cross-app, sin archivos huérfanos
 - **Negativas**: Pestaña "Audio" eliminada del UploadAssetModal (ya no se pueden crear assets solo-audio desde la UI)
 - **Retrocompatibilidad**: Assets solo-audio existentes siguen funcionando; el smart delete los elimina correctamente
+
+---
+
+## ADR-026: Descomposición modular del servicio de Analytics
+
+**Estado**: Aprobado
+**Fecha**: 03-04-2026
+
+### Contexto (ADR-026)
+
+El servicio `analyticsService.js` alcanzó 1092 líneas con 11 funciones tras la implementación de ADR-017 (endpoints de analytics para dashboard). El Sprint 5 requiere añadir 19 nuevos endpoints analíticos que cubren trayectorias de aprendizaje, análisis de sesiones, engagement, efectividad de contenido, alertas inteligentes y datos de exportación.
+
+Añadir estas funciones al servicio monolítico lo llevaría a ~3000+ líneas, con problemas de:
+- **Mantenibilidad**: funciones de dominios distintos (alertas, engagement, contenido) en un solo archivo
+- **Testabilidad**: dificultad para testear un dominio sin cargar todo el servicio
+- **Code review**: un archivo de 3000 líneas es difícil de revisar en PRs
+- **Paralelismo de trabajo**: dos desarrolladores no pueden trabajar simultáneamente en engagement y alertas sin conflictos
+
+### Decisión (ADR-026)
+
+Se descompone la funcionalidad **nueva** en sub-servicios temáticos bajo `services/analytics/`, preservando el servicio existente intacto:
+
+```
+services/
+  analyticsService.js              ← INTACTO (11 funciones, 1092 líneas)
+  analytics/
+    analyticsHelpers.js            ← Utilidades compartidas
+    studentTrajectoryService.js    ← 4 funciones (trajectory, velocity, plateaus, evolution)
+    sessionAnalysisService.js      ← 4 funciones (rounds, cardAnalysis, struggles, fatigue)
+    engagementService.js           ← 3 funciones (student, classroom, playPatterns)
+    contentEffectivenessService.js ← 3 funciones (effectiveness, cardDifficulty, learningCurves)
+    alertsService.js               ← 2 funciones (alerts, alertsSummary)
+    reportDataService.js           ← 3 funciones (studentReport, classroomReport, exportData)
+    index.js                       ← Re-exporta todos los sub-servicios
+```
+
+**Principios clave:**
+
+1. **No se modifica `analyticsService.js`**: Las 11 funciones existentes permanecen idénticas. Zero riesgo de regresión en los endpoints actuales.
+2. **Controller separado**: Los nuevos handlers van en `analyticsAdvancedController.js`, no en el controller existente.
+3. **Helpers compartidos**: Las utilidades que usan múltiples sub-servicios (cálculo de date ranges, clasificación de tiers, constantes de performance) se extraen a `analyticsHelpers.js`.
+4. **Mismos patrones**: Los sub-servicios usan los mismos repositories, cacheHelper, ownershipHelpers y logger que el servicio original.
+
+### Alternativas Consideradas (ADR-026)
+
+1. **Ampliar el servicio monolítico**: Simplemente añadir funciones a `analyticsService.js`. Rechazado por los problemas de mantenibilidad descritos.
+
+2. **Refactorizar todo (mover funciones existentes)**: Mover las 11 funciones existentes a sub-servicios y dejar `analyticsService.js` como orquestador. Rechazado porque:
+   - Introduce riesgo de regresión innecesario en endpoints que funcionan correctamente
+   - Requiere actualizar todos los imports del controller existente
+   - No aporta beneficio inmediato (las 11 funciones existentes son un conjunto cohesivo)
+
+3. **Patrón Strategy por tipo de analytics**: Crear una interfaz `AnalyticsStrategy` con implementaciones por dominio. Rechazado porque:
+   - Sobre-ingeniería para un servicio de lectura (no hay polimorfismo real en las queries)
+   - El patrón de funciones exportadas de Node.js es más simple y directo
+
+### Consecuencias (ADR-026)
+
+**Positivas:**
+- Cada sub-servicio tiene 250-400 líneas → fácil de entender y revisar
+- Tests unitarios aislados por dominio
+- Nuevo controller dedicado evita saturar el existente (165 líneas → ~450 sería el nuevo)
+- Los imports son explícitos: `require('../services/analytics/alertsService')`
+- El servicio original sigue funcionando sin cambios para el frontend actual
+
+**Negativas:**
+- Duplicación conceptual de imports (cacheHelper, logger, repositories) en cada sub-servicio
+- 8 archivos nuevos en vez de 1
+- Si en el futuro se quiere unificar, requiere consolidación
+
+### Relación con otros ADRs
+
+- **ADR-017**: Los 11 endpoints existentes y sus funciones en `analyticsService.js` no se modifican
+- **ADR-014**: Los nuevos handlers usan `sendSuccess` de responseHelper
+- **ADR-013**: Los nuevos handlers usan `asyncHandler` del flujo de errores centralizado
+- **ADR-020**: Los nuevos endpoints usan `cacheGet` de cacheHelper con la misma estrategia de TTL
+
+### Documento de Diseño
+
+La justificación pedagógica y de Business Intelligence detallada (por qué cada endpoint, qué pregunta responde al profesor, justificación de umbrales) se documenta en `backend/docs/Analytics_Design_Rationale.md`.
+
+---
+
+## ADR-027: Arquitectura Frontend de Analytics — Suite de 4 Páginas
+
+### Contexto (ADR-027)
+
+El backend (ADR-017, ADR-026) dispone de 26 endpoints de analytics con framework KPI completo (RAG, narrativas What/So What/Now What, 10 KPIs con umbrales). Sin embargo, el frontend solo consumía 6 de esos 26 endpoints. El dashboard mostraba datos mock en `StudentsList`, la distribución recibía `null`, y los trends eran strings hardcodeados. Los profesores no tenían forma de hacer seguimiento individual de alumnos ni de analizar la efectividad del contenido por la dimensión mecánica × contexto.
+
+### Decisión (ADR-027)
+
+Construir una suite completa de analytics frontend con **4 páginas** y un lenguaje visual RAG uniforme:
+
+1. **Dashboard mejorado** (`/dashboard`): 8 KPIs con datos reales y trends calculados, alertas inteligentes del backend (7 tipos, 3 severidades), heatmap de actividad semanal (día × hora), timeline de actividad reciente, distribución real de rendimiento.
+
+2. **Perfil Individual de Estudiante** (`/students/:studentId`): KPIs con indicador RAG y comparativa con clase, trayectoria de aprendizaje con overlay de promedio de clase e indicador de tendencia (mejorando/estable/declinando), narrativa BI auto-generada (Qué pasó / Por qué importa / Qué hacer), rendimiento por contexto temático Y por mecánica de juego con barras coloreadas RAG, engagement score, historial de partidas, fortalezas y debilidades derivadas automáticamente.
+
+3. **Vista Comparativa** (`/analytics/students`): Tabla interactiva ordenable/filtrable con métricas, búsqueda por nombre, filtro por tier, indicadores de actividad coloreados, resumen con distribución, y exportación CSV client-side.
+
+4. **Insights y Reportes** (`/analytics/insights`): Matriz de efectividad mecánica × contexto con colores RAG, curvas de aprendizaje por contenido, hub centralizado de alertas con filtros, y generación de informes (clase/individual) con exportación.
+
+### Alternativas descartadas
+
+1. **Dashboard único con todo**: Descartado porque la sobrecarga cognitiva para profesores no técnicos es excesiva. Los profesores necesitan diferentes niveles de profundidad para diferentes tareas (visión rápida vs. seguimiento individual vs. análisis profundo).
+
+2. **Tablas sin visualización**: Descartado porque los profesores de infantil/primaria necesitan patrones visuales intuitivos (semáforos, barras de colores), no números crudos.
+
+3. **5+ páginas separadas**: Descartado para evitar fragmentación de la navegación. Los 3 aspectos de Insights (efectividad, alertas, informes) comparten contexto temporal y se resuelven mejor con tabs.
+
+### Justificación pedagógica
+
+- **Sistema RAG (semáforo)**: Lenguaje visual universal en educación — verde/ámbar/rojo se interpreta intuitivamente sin formación.
+- **Narrativas What/So What/Now What**: Framework BI que traduce datos en acciones pedagógicas concretas, reduciendo carga cognitiva del profesor.
+- **Dimensión mecánica × contexto**: Cada juego combina una mecánica (Asociación, Memoria) con un contexto temático (Animales, Números, Banderas). Sin cruzar ambas dimensiones, los promedios ocultan patrones críticos (ej: alumno domina memoria con animales pero falla en asociación con números).
+- **Comparativa con clase**: Los números aislados no tienen significado para un profesor. "82%" no dice nada; "82% (vs clase: 71%)" da contexto.
+
+### Componentes reutilizables creados
+
+| Componente | Propósito | Ubicación |
+|------------|-----------|-----------|
+| `StudentKPICard` | KPI con RAG 4 capas (valor, semáforo, comparativa, narrativa) | `components/analytics/` |
+| `TrajectoryChart` | LineChart con tendencia + overlay clase | `components/analytics/` |
+| `NarrativeCard` | What/So What/Now What | `components/analytics/` |
+| `PerformanceByDimension` | BarChart horizontal (contexto O mecánica) | `components/analytics/` |
+| `GameHistoryTable` | Tabla de historial con badge RAG | `components/analytics/` |
+| `StrengthsWeaknesses` | Fortalezas/debilidades derivadas | `components/analytics/` |
+| `ActivityHeatmap` | Grid día × hora de actividad | `components/analytics/` |
+| `ContentEffectivenessMatrix` | Grid mecánica × contexto RAG | `components/analytics/` |
+| `AlertsHub` | Hub completo de alertas con filtros | `components/analytics/` |
+| `ReportGenerator` | Interfaz de generación de informes | `components/analytics/` |
+
+### Estrategia de rendimiento
+
+- **Fetching sin waterfalls**: `Promise.all` para datos independientes. Datos secundarios (trajectory, engagement) como `.catch(() => null)` para no bloquear.
+- **Bundle optimization**: Páginas lazy-loaded con `React.lazy`. Recharts (~390KB) en chunk separado.
+- **Re-render optimization**: `memo()` en componentes de chart, `useMemo()` para derivaciones, `useCallback()` para handlers.
+- **Animaciones**: Solo donde aceleran comprensión. `prefers-reduced-motion` respetado via `useReducedMotion`.
+
+### Relación con otros ADRs
+
+- **ADR-017** y **ADR-026**: Los 26 endpoints del backend son consumidos completos por esta suite frontend
+- **ADR-003**: Los DTOs del backend se mapean directamente a props de componentes
+- **ADR-012**: Las tarjetas RFID se referencian por UID en el análisis de dificultad de tarjetas
+
+---
+
+## ADR-028: Estrategia de Composición de Componentes de Analytics
+
+### Contexto (ADR-028)
+
+La suite de analytics requiere 10+ componentes nuevos con patrones compartidos (RAG colors, comparativa con clase, animaciones condicionales). Sin una estrategia de composición clara, se arriesga duplicación de lógica y boolean prop proliferation.
+
+### Decisión (ADR-028)
+
+1. **Patrón RAG como elemento firma**: Cada métrica en cada página sigue el patrón de 4 capas: valor numérico + indicador RAG (borde/dot) + comparativa contextual + micro-narrativa. Implementado en `StudentKPICard` con props explícitos (`ragStatus`, `comparison`, `comparisonPositive`).
+
+2. **Explicit variants en vez de boolean props**: `PerformanceByDimension` acepta `dimension="context"` o `dimension="mechanic"` en vez de `isContext={true}`. Cada variante tiene su comportamiento explícito.
+
+3. **Datos derivados durante render**: Alertas, filtros, y fortalezas/debilidades se derivan con `useMemo` durante render, no en `useEffect`. Evita efectos secundarios innecesarios y re-renders extra.
+
+4. **Fetch strategy por página**: Cada página hace su propio fetch con `Promise.all` y `AbortController`. No hay store global de analytics — cada vista es autosuficiente.
+
+5. **Tokens RAG del design system existente**: Se reutilizan `--color-success-base`, `--color-warning-base`, `--color-error-base` de los tokens OKLCH ya definidos en `index.css`. No se crea una segunda paleta.
+
+### Consecuencias
+
+**Positivas:**
+- Componentes autocontenidos: cada uno es testeable y reutilizable
+- Sin prop drilling complejo: datos pasan directo del fetch al componente
+- Lenguaje visual consistente en toda la suite gracias al patrón RAG
+
+**Negativas:**
+- Múltiples fetches pueden hacer más peticiones al backend (mitigado por caché Redis server-side)
+- Sin store global, cambiar de página pierde el estado (comportamiento esperado — cada vista es independiente)
+
+## ADR-029: Consolidación de umbrales RAG y filtrado híbrido en Dashboard
+
+**Fecha:** 2026-04-06
+**Estado:** Aceptado
+**Contexto:** ADR-026, ADR-027, ADR-028
+
+### Situación
+
+Dos problemas identificados durante la revisión de la suite de analytics:
+
+1. **Umbrales RAG duplicados**: Los mismos magic numbers de clasificación (score ≥70 → green, ≥50 → amber; score ≥90 → excellent, ≥70 → good, ≥50 → average) estaban definidos como funciones inline en 6 archivos frontend diferentes. Riesgo de divergencia y violación DRY.
+
+2. **Filtros de contenido en Dashboard**: T-604 requería filtros de contexto temático y mecánica de juego, pero `analyticsService.js` no puede modificarse (ADR-026).
+
+### Decisiones
+
+**1. Módulo compartido de umbrales:**
+- Crear `frontend/src/constants/analyticsThresholds.js` como fuente única de verdad frontend
+- Exportar funciones de clasificación: `scoreToTier()`, `scoreToRAG()`, `getRAGCSSColor()`, `scoreToRAGWithNull()`
+- Exportar constantes: `PERFORMANCE_TIERS`, `TIER_CONFIG`, `TIER_BADGE`
+- Refactorizar 5 componentes para importar desde este módulo
+
+**2. Filtrado híbrido:**
+- **Server-side** en `analyticsController.js` para `getClassroomStudents`: pre-filtra por sessionIds que coincidan con contexto/mecánica, luego filtra los estudiantes que jugaron en esas sesiones
+- **KPIs y trends sin filtrar**: muestran datos globales de clase (pedagógicamente correcto, el profesor necesita la visión general)
+- El filtrado granular por contenido permanece en `/analytics/insights` con la `ContentEffectivenessMatrix`
+
+**3. Cache ligero en Dashboard:**
+- `useRef` con timestamp de último fetch y clave de filtros
+- TTL de 60 segundos para evitar re-fetches en tab-focus
+- Reduce las 8 peticiones paralelas a solo cuando los datos están realmente obsoletos
+
+### Alternativas descartadas
+
+- **Modificar `analyticsService.js`**: Descartada por ADR-026 (zero regresión)
+- **Filtrado 100% client-side por contenido**: Los datos de estudiantes son agregados (avgScore) y no contienen desglose por contexto, por lo que filtrar no tendría sentido semántico
+- **Store global (Redux/Zustand)**: Sobreingeniería para el caso de uso — cada página es independiente
+
+### Consecuencias
+
+**Positivas:**
+- Fuente única de verdad para umbrales → eliminación de divergencia
+- Filtros funcionales sin romper ADR-026
+- Reducción de peticiones redundantes al backend
+
+**Negativas:**
+- Los umbrales frontend deben actualizarse manualmente si cambian en el backend (documentado en el header del archivo)
+- El filtro de contenido no afecta a KPIs/trends (mitigado: la página de Insights cubre este caso)

@@ -5,6 +5,8 @@
 
 const analyticsService = require('../services/analyticsService');
 const userRepository = require('../repositories/userRepository');
+const GameSession = require('../models/GameSession');
+const GamePlay = require('../models/GamePlay');
 const { sendSuccess } = require('../utils/responseHelper');
 const { cacheGet } = require('../utils/cacheHelper');
 const { ensureStudentBelongsToTeacher } = require('../utils/ownershipHelpers');
@@ -89,7 +91,7 @@ exports.getClassroomDifficulties = async (req, res) => {
  */
 exports.getClassroomStudents = async (req, res) => {
   const teacherId = req.user._id.toString();
-  const { sort, order, tier, classroom } = req.query;
+  const { sort, order, tier, classroom, contextId, mechanicId } = req.query;
 
   const data = await analyticsService.getClassroomStudents(teacherId, {
     sort,
@@ -97,6 +99,35 @@ exports.getClassroomStudents = async (req, res) => {
     tier,
     classroom
   });
+
+  // Filtro opcional por contexto/mecánica: identifica los estudiantes que han
+  // jugado en sesiones con el contexto o mecánica seleccionados y descarta el resto.
+  // No modifica analyticsService.js (ADR-026) — filtra a nivel de controlador.
+  if (contextId || mechanicId) {
+    const sessionFilter = { createdBy: req.user._id };
+    if (contextId) {
+      sessionFilter.contextId = contextId;
+    }
+    if (mechanicId) {
+      sessionFilter.mechanicId = mechanicId;
+    }
+
+    const sessionIds = await GameSession.find(sessionFilter).select('_id').lean();
+    const matchingSessionIds = sessionIds.map(s => s._id);
+
+    if (matchingSessionIds.length === 0) {
+      data.students = [];
+    } else {
+      const playerIds = await GamePlay.distinct('playerId', {
+        sessionId: { $in: matchingSessionIds },
+        status: 'completed'
+      });
+      const playerIdSet = new Set(playerIds.map(id => id.toString()));
+      data.students = data.students.filter(s => playerIdSet.has(s._id.toString()));
+    }
+
+    data.total = data.students.length;
+  }
 
   sendSuccess(res, data);
 };
