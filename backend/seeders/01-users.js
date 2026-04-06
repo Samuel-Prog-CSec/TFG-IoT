@@ -144,12 +144,7 @@ function generateStudentsData(teacher, names, count, indexOffset) {
   return Array.from({ length: count }, (_, i) => {
     const nameIndex = (indexOffset + i) % names.length;
     const age = ages[i % ages.length];
-
-    // Calcular fecha de nacimiento determinista basada en indice
-    const currentYear = new Date().getFullYear();
-    const birthYear = currentYear - age;
-    const birthMonth = (i * 3 + indexOffset) % 12;
-    const birthDay = ((i * 7) % 28) + 1;
+    // birthdate ELIMINADO: Art. 5.1.c RGPD (minimización de datos)
 
     return {
       name: names[nameIndex],
@@ -157,8 +152,15 @@ function generateStudentsData(teacher, names, count, indexOffset) {
       profile: {
         age,
         classroom: classrooms[i % classrooms.length],
-        avatar: null,
-        birthdate: new Date(birthYear, birthMonth, birthDay)
+        avatar: null
+      },
+      consent: {
+        granted: true,
+        grantedBy: `Tutor de ${names[nameIndex]}`,
+        grantedAt: new Date(),
+        purposes: ['educational_tracking', 'performance_analytics'],
+        policyVersion: '1.0',
+        withdrawnAt: null
       },
       status: 'active',
       createdBy: teacher._id,

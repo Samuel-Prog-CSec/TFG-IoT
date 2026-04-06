@@ -195,10 +195,12 @@ const createUser = async (req, res) => {
       throw new ForbiddenError('Se debe especificar a qué profesor pertenece el alumno');
     }
 
+    const { consent } = req.body;
     const student = await userService.createStudent({
       name,
       profile: profile || {},
-      createdBy: teacherId
+      createdBy: teacherId,
+      consent
     });
 
     logger.info('Alumno creado por super admin', {
@@ -254,7 +256,7 @@ const createUser = async (req, res) => {
  * CASOS DE USO:
  * - Cambio de clase: profile.classroom
  * - Corrección de nombre: name (valida duplicados)
- * - Actualización de edad/cumpleaños: profile.age, profile.birthdate
+ * - Actualización de edad: profile.age
  *
  * @param {import('express').Request} req
  * @param {import('express').Response} res
@@ -590,6 +592,79 @@ const transferStudent = async (req, res) => {
   sendSuccess(res, toStudentDTOV1(student), 'Alumno transferido exitosamente');
 };
 
+/**
+ * Actualizar consentimiento parental de un estudiante.
+ * Art. 7.3 RGPD: la retirada del consentimiento debe ser tan fácil como su otorgamiento.
+ *
+ * PATCH /api/users/:id/consent
+ */
+const updateConsent = async (req, res) => {
+  const { id } = req.params;
+  const consentData = req.body;
+
+  const updatedUser = await userService.updateConsent(id, consentData, req.user._id);
+
+  // Si se revocó, desconectar WebSocket activo del estudiante
+  if (!consentData.granted) {
+    const io = req.app.get('io');
+    if (io) {
+      disconnectUserSockets(io, id, 'CONSENT_WITHDRAWN');
+    }
+  }
+
+  logSecurityEvent('DATA_CONSENT_CHANGE', {
+    ...getRequestContext(req),
+    studentId: id,
+    action: consentData.granted ? 'granted' : 'withdrawn',
+    changedBy: req.user._id
+  });
+
+  sendSuccess(
+    res,
+    toStudentDTOV1(updatedUser),
+    consentData.granted
+      ? 'Consentimiento parental otorgado'
+      : 'Consentimiento parental revocado — estudiante desactivado'
+  );
+};
+
+/**
+ * Borrado efectivo (hard delete) de todos los datos de un estudiante.
+ * Art. 17 RGPD: derecho de supresión, especialmente Art. 17.1.f (datos de menores).
+ *
+ * DELETE /api/users/:id/data
+ */
+const hardDeleteUser = async (req, res) => {
+  const { id } = req.params;
+
+  const result = await userService.hardDeleteStudent(id, req.user);
+
+  // Revocar tokens Redis y desconectar WebSocket
+  await revokeAllUserTokens(id, 'hard_delete', getRequestContext(req));
+  const io = req.app.get('io');
+  if (io) {
+    disconnectUserSockets(io, id, 'ACCOUNT_HARD_DELETED');
+  }
+
+  logSecurityEvent('DATA_HARD_DELETE', {
+    ...getRequestContext(req),
+    deletedUserId: id,
+    deletedBy: req.user._id,
+    gamePlaysDeleted: result.gamePlaysDeleted
+  });
+
+  sendSuccess(
+    res,
+    {
+      deleted: true,
+      summary: {
+        gamePlaysDeleted: result.gamePlaysDeleted
+      }
+    },
+    'Datos del estudiante eliminados permanentemente (Art. 17 RGPD)'
+  );
+};
+
 module.exports = {
   getUsers,
   getUserById,
@@ -598,5 +673,7 @@ module.exports = {
   deleteUser,
   getUserStats,
   getStudentsByTeacher,
-  transferStudent
+  transferStudent,
+  updateConsent,
+  hardDeleteUser
 };

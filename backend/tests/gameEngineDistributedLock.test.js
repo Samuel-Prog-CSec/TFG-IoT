@@ -84,14 +84,28 @@ describe('GameEngine distributed UID lock', () => {
       name: 'Student One',
       role: 'student',
       createdBy: teacher._id,
-      status: 'active'
+      status: 'active',
+      consent: {
+        granted: true,
+        grantedBy: 'Tutor Test',
+        grantedAt: new Date(),
+        purposes: ['educational_tracking', 'performance_analytics'],
+        policyVersion: '1.0'
+      }
     });
 
     student2 = await User.create({
       name: 'Student Two',
       role: 'student',
       createdBy: teacher._id,
-      status: 'active'
+      status: 'active',
+      consent: {
+        granted: true,
+        grantedBy: 'Tutor Test',
+        grantedAt: new Date(),
+        purposes: ['educational_tracking', 'performance_analytics'],
+        policyVersion: '1.0'
+      }
     });
 
     const mechanic = await GameMechanic.create({

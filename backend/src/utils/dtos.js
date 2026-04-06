@@ -107,12 +107,12 @@ const toUserDTOV1 = user => {
       ? {
           avatar: userData.profile.avatar,
           age: userData.profile.age,
-          classroom: userData.profile.classroom,
-          birthdate: userData.profile.birthdate
+          classroom: userData.profile.classroom
+          // birthdate ELIMINADO: Art. 5.1.c RGPD (minimización)
         }
       : undefined,
     createdBy: toId(userData.createdBy),
-    lastLoginAt: userData.lastLoginAt,
+    lastLoginAt: hasLogin ? userData.lastLoginAt : undefined,
     createdAt: userData.createdAt,
     updatedAt: userData.updatedAt
     // NO incluir: password, __v, tokens internos
@@ -134,7 +134,17 @@ const toStudentDTOV1 = user => {
   const userData = toPlainObject(user);
   return {
     ...base,
-    studentMetrics: mapStudentMetrics(userData.studentMetrics)
+    studentMetrics: mapStudentMetrics(userData.studentMetrics),
+    consent: userData.consent
+      ? {
+          granted: userData.consent.granted,
+          grantedBy: userData.consent.grantedBy,
+          grantedAt: userData.consent.grantedAt,
+          purposes: userData.consent.purposes,
+          policyVersion: userData.consent.policyVersion,
+          withdrawnAt: userData.consent.withdrawnAt
+        }
+      : undefined
   };
 };
 

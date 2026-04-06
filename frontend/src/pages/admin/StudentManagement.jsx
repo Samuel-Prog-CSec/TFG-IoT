@@ -21,7 +21,8 @@ import {
   Edit,
   Trash2,
   RefreshCw,
-  AlertCircle
+  AlertCircle,
+  ShieldCheck
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { toast } from 'sonner';
@@ -188,12 +189,21 @@ function CreateStudentModal({ isOpen, onClose, onCreated, teachers }) {
     name: '',
     age: '',
     classroom: '',
-    teacherId: ''
+    teacherId: '',
+    consentGranted: false,
+    consentGrantedBy: ''
   });
 
   useEffect(() => {
     if (!isOpen) {
-      setFormData({ name: '', age: '', classroom: '', teacherId: '' });
+      setFormData({
+        name: '',
+        age: '',
+        classroom: '',
+        teacherId: '',
+        consentGranted: false,
+        consentGrantedBy: ''
+      });
     }
   }, [isOpen]);
 
@@ -208,6 +218,14 @@ function CreateStudentModal({ isOpen, onClose, onCreated, teachers }) {
       toast.error('La edad debe estar entre 3 y 99 años');
       return;
     }
+    if (!formData.consentGranted) {
+      toast.error('El consentimiento parental es obligatorio (Art. 8 RGPD)');
+      return;
+    }
+    if (!formData.consentGrantedBy.trim()) {
+      toast.error('Debe indicar el nombre del tutor/a legal');
+      return;
+    }
 
     setLoading(true);
     try {
@@ -217,7 +235,11 @@ function CreateStudentModal({ isOpen, onClose, onCreated, teachers }) {
           age: parsedAge,
           classroom: formData.classroom.trim() || undefined
         },
-        teacherId: formData.teacherId
+        teacherId: formData.teacherId,
+        consent: {
+          granted: true,
+          grantedBy: formData.consentGrantedBy.trim()
+        }
       };
 
       await usersAPI.createUser(payload);
@@ -300,6 +322,55 @@ function CreateStudentModal({ isOpen, onClose, onCreated, teachers }) {
                 onChange={(val) => setFormData(prev => ({ ...prev, teacherId: val }))}
                 required
               />
+
+              {/* Consentimiento parental — Art. 8 RGPD + Art. 7 LOPDGDD */}
+              <div className="rounded-xl border border-brand-base/30 bg-brand-base/5 p-4 space-y-4">
+                <div className="flex items-center gap-2 text-brand-base">
+                  <ShieldCheck size={20} />
+                  <span className="font-semibold text-sm">Consentimiento Parental</span>
+                </div>
+                <p className="text-xs text-text-muted leading-relaxed">
+                  De acuerdo con el Art. 8 del RGPD y el Art. 7 de la LOPDGDD,
+                  el tratamiento de datos de menores de 14 a{'\u00F1'}os requiere
+                  el consentimiento del titular de la patria potestad o tutela.
+                </p>
+
+                <label className="flex items-start gap-3 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={formData.consentGranted}
+                    onChange={(e) =>
+                      setFormData(prev => ({
+                        ...prev,
+                        consentGranted: e.target.checked
+                      }))
+                    }
+                    className="mt-1 size-4 rounded border-border-primary text-brand-base
+                      focus:ring-brand-base focus:ring-offset-0"
+                  />
+                  <span className="text-sm text-text-primary leading-relaxed">
+                    Confirmo que el tutor/a legal ha otorgado consentimiento
+                    expreso para el tratamiento de datos con fines de
+                    seguimiento educativo y an{'\u00E1'}lisis de rendimiento.
+                  </span>
+                </label>
+
+                {formData.consentGranted && (
+                  <InputPremium
+                    label="Nombre del tutor/a legal"
+                    placeholder="Ej: Ana Garc\u00EDa L\u00F3pez"
+                    value={formData.consentGrantedBy}
+                    onChange={(e) =>
+                      setFormData(prev => ({
+                        ...prev,
+                        consentGrantedBy: e.target.value
+                      }))
+                    }
+                    icon={<ShieldCheck size={18} />}
+                    required
+                  />
+                )}
+              </div>
 
               <div className="flex gap-3 pt-4">
                 <ButtonPremium

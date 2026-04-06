@@ -56,7 +56,11 @@ describe('User Management Endpoints', () => {
   describe('POST /api/users (Create Student)', () => {
     const newStudent = {
       name: 'Student One',
-      profile: { classroom: '1A', age: 6 }
+      profile: { classroom: '1A', age: 6 },
+      consent: {
+        granted: true,
+        grantedBy: 'Tutor Test'
+      }
     };
 
     it('should create a student successfully as admin', async () => {
@@ -132,13 +136,27 @@ describe('User Management Endpoints', () => {
         name: 'S1',
         role: 'student',
         createdBy: teacherUser._id,
-        status: 'active'
+        status: 'active',
+        consent: {
+          granted: true,
+          grantedBy: 'Tutor Test',
+          grantedAt: new Date(),
+          purposes: ['educational_tracking', 'performance_analytics'],
+          policyVersion: '1.0'
+        }
       });
       await User.create({
         name: 'S2',
         role: 'student',
         createdBy: teacherUser._id,
-        status: 'active'
+        status: 'active',
+        consent: {
+          granted: true,
+          grantedBy: 'Tutor Test',
+          grantedAt: new Date(),
+          purposes: ['educational_tracking', 'performance_analytics'],
+          policyVersion: '1.0'
+        }
       });
     });
 
@@ -168,7 +186,14 @@ describe('User Management Endpoints', () => {
         name: 'Student Safe',
         role: 'student',
         createdBy: teacherUser._id,
-        status: 'active'
+        status: 'active',
+        consent: {
+          granted: true,
+          grantedBy: 'Tutor Test',
+          grantedAt: new Date(),
+          purposes: ['educational_tracking', 'performance_analytics'],
+          policyVersion: '1.0'
+        }
       });
 
       const res = await request(app)
@@ -193,7 +218,14 @@ describe('User Management Endpoints', () => {
         role: 'student',
         createdBy: teacherUser._id,
         status: 'active',
-        profile: { classroom: 'A1', age: 6 }
+        profile: { classroom: 'A1', age: 6 },
+        consent: {
+          granted: true,
+          grantedBy: 'Tutor Test',
+          grantedAt: new Date(),
+          purposes: ['educational_tracking', 'performance_analytics'],
+          policyVersion: '1.0'
+        }
       });
 
       await User.create({
@@ -201,7 +233,14 @@ describe('User Management Endpoints', () => {
         role: 'student',
         createdBy: teacherUser._id,
         status: 'active',
-        profile: { classroom: 'B1', age: 7 }
+        profile: { classroom: 'B1', age: 7 },
+        consent: {
+          granted: true,
+          grantedBy: 'Tutor Test',
+          grantedAt: new Date(),
+          purposes: ['educational_tracking', 'performance_analytics'],
+          policyVersion: '1.0'
+        }
       });
     });
 
@@ -262,7 +301,14 @@ describe('User Management Endpoints', () => {
         role: 'student',
         createdBy: teacherUser._id,
         status: 'active',
-        profile: { classroom: 'A1' }
+        profile: { classroom: 'A1' },
+        consent: {
+          granted: true,
+          grantedBy: 'Tutor Test',
+          grantedAt: new Date(),
+          purposes: ['educational_tracking', 'performance_analytics'],
+          policyVersion: '1.0'
+        }
       });
 
       const res = await request(app)
@@ -281,7 +327,14 @@ describe('User Management Endpoints', () => {
         name: 'Student Forbidden Update',
         role: 'student',
         createdBy: teacherUser._id,
-        status: 'active'
+        status: 'active',
+        consent: {
+          granted: true,
+          grantedBy: 'Tutor Test',
+          grantedAt: new Date(),
+          purposes: ['educational_tracking', 'performance_analytics'],
+          policyVersion: '1.0'
+        }
       });
 
       const res = await request(app)
@@ -303,7 +356,14 @@ describe('User Management Endpoints', () => {
         name: 'To Delete',
         role: 'student',
         createdBy: teacherUser._id,
-        status: 'active'
+        status: 'active',
+        consent: {
+          granted: true,
+          grantedBy: 'Tutor Test',
+          grantedAt: new Date(),
+          purposes: ['educational_tracking', 'performance_analytics'],
+          policyVersion: '1.0'
+        }
       });
       studentId = s._id;
     });

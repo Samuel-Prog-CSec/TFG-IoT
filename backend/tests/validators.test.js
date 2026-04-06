@@ -206,7 +206,11 @@ describe('Validators', () => {
       const validStudent = {
         name: 'Alumno Test',
         profile: { age: 8 },
-        teacherId: VALID_OBJECT_ID
+        teacherId: VALID_OBJECT_ID,
+        consent: {
+          granted: true,
+          grantedBy: 'Tutor Test'
+        }
       };
 
       it('accepts valid student', () => {

@@ -193,7 +193,14 @@ describe('Super Admin Approval Flow', () => {
       role: 'student',
       status: 'active',
       createdBy: teacher._id,
-      profile: { age: 5, classroom: 'A' }
+      profile: { age: 5, classroom: 'A' },
+      consent: {
+        granted: true,
+        grantedBy: 'Tutor Test',
+        grantedAt: new Date(),
+        purposes: ['educational_tracking', 'performance_analytics'],
+        policyVersion: '1.0'
+      }
     });
 
     const anotherSuperAdmin = await User.create({

@@ -101,6 +101,13 @@ describe('Analytics Endpoints (T-601)', () => {
         createdBy: teacher._id,
         status: 'active',
         profile: { classroom: s.classroom },
+        consent: {
+          granted: true,
+          grantedBy: 'Tutor Test',
+          grantedAt: new Date(),
+          purposes: ['educational_tracking', 'performance_analytics'],
+          policyVersion: '1.0'
+        },
         studentMetrics: {
           totalGamesPlayed: s.correct + s.errors > 0 ? 10 : 0,
           totalScore: s.avgScore * 10,

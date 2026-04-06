@@ -2007,3 +2007,79 @@ Dos problemas identificados durante la revisión de la suite de analytics:
 **Negativas:**
 - Los umbrales frontend deben actualizarse manualmente si cambian en el backend (documentado en el header del archivo)
 - El filtro de contenido no afecta a KPIs/trends (mitigado: la página de Insights cubre este caso)
+
+## ADR-030: Protección de datos de menores — Minimización, consentimiento y ciclo de vida
+
+### Contexto (ADR-030)
+
+La plataforma trata datos personales de menores de 4-8 años (colectivo especialmente protegido bajo el Considerando 38 del RGPD). La auditoría del código (T-701) identificó carencias significativas en materia de gobernanza de datos:
+
+1. Se almacenaba `profile.birthdate` (fecha de nacimiento completa) cuando solo se necesita `profile.age`, violando el principio de minimización (Art. 5.1.c RGPD).
+2. No existía mecanismo de consentimiento parental verificable, incumpliendo el Art. 8 RGPD y el Art. 7 LOPDGDD (edad mínima de 14 años en España).
+3. El borrado de estudiantes era solo soft delete (`status: 'inactive'`), insuficiente para el derecho de supresión del Art. 17 RGPD.
+4. No existía política de retención con plazos definidos (Art. 5.1.e RGPD).
+5. No existían RAT (Art. 30) ni EIPD (Art. 35) obligatorios para tratamiento de datos de menores.
+
+### Decisión (ADR-030)
+
+Se implementan tres ejes de protección:
+
+**Eje 1 — Minimización de datos (Art. 5.1.c RGPD):**
+- Eliminación de `profile.birthdate` del modelo User para estudiantes. Se conserva únicamente `profile.age`.
+- Eliminación de `lastLoginAt` para estudiantes (dato innecesario — los alumnos no inician sesión).
+- Validación en pre-save que rechaza birthdate para role `student`.
+- Script de migración `migrateBirthdate.js` para datos existentes.
+- DTOs actualizados para no exponer birthdate.
+
+**Eje 2 — Consentimiento parental (Art. 8 RGPD + Art. 7 LOPDGDD):**
+- Campo `consent` en el modelo User con: `granted`, `grantedBy`, `grantedAt`, `purposes`, `policyVersion`, `withdrawnAt`.
+- Bloqueo de creación de estudiante sin `consent.granted=true` y `consent.grantedBy`.
+- Endpoint `PATCH /api/users/:id/consent` para otorgar/revocar consentimiento.
+- La revocación desactiva automáticamente al estudiante (`status: 'inactive'`).
+- Frontend: formulario de creación con checkbox de consentimiento obligatorio y campo de nombre del tutor.
+- Evento de seguridad `DATA_CONSENT_CHANGE` para trazabilidad.
+
+**Eje 3 — Ciclo de vida de datos (Arts. 17 + 5.1.e RGPD):**
+- Endpoint `DELETE /api/users/:id/data` para borrado efectivo (hard delete) con cascada completa: User + GamePlays + tokens Redis + WebSocket.
+- Requiere `confirmDeletion: true` como confirmación explícita.
+- Solo accesible por profesor propietario (`createdBy`) o `super_admin`.
+- Script `dataRetention.js` con política de retención automática:
+  - GamePlays > 12 meses: anonimización (eliminar `playerId`, `cardUid`).
+  - Estudiantes inactivos > 24 meses: borrado efectivo.
+  - Flag `--dry-run` para previsualización.
+- Configuración centralizada en `config/dataRetention.js`.
+
+**Documentación normativa:**
+- RAT (Registro de Actividades de Tratamiento) — Art. 30 RGPD.
+- EIPD (Evaluación de Impacto en Protección de Datos) — Art. 35 RGPD.
+- Script `dataAudit.js` para auditoría automática de campos PII.
+
+### Alternativas Consideradas (ADR-030)
+
+1. **Cifrar birthdate en vez de eliminar**: Descartada. El dato no es necesario para la función educativa; cifrarlo mantendría un dato innecesario (violación de minimización) y añadiría complejidad sin beneficio.
+
+2. **Soft delete como único mecanismo de supresión**: Descartada. El soft delete no satisface el Art. 17 RGPD — los datos siguen existiendo en la base de datos. Se mantiene como mecanismo de «desactivación» (operación reversible), complementado por el hard delete como operación de supresión definitiva.
+
+3. **Consentimiento implícito por uso del sistema**: Descartada. El Art. 8 RGPD exige consentimiento explícito del titular de la patria potestad para menores, y el Art. 7.1 exige que el responsable pueda demostrar que se obtuvo. Un consentimiento implícito no cumple ninguno de los dos requisitos.
+
+4. **Separación física de PII en colección MongoDB separada**: Descartada para esta fase. Se opta por separación a nivel de DTOs (más pragmática, menor impacto en código existente). La separación física se puede implementar en fases posteriores si el análisis de riesgos lo justifica.
+
+### Consecuencias (ADR-030)
+
+**Positivas:**
+- Cumplimiento demostrable del RGPD (Arts. 5, 8, 17, 25, 30, 35) y LOPDGDD (Arts. 7, 83, 92).
+- Reducción de la superficie de datos: menos datos almacenados = menor impacto en caso de brecha.
+- Consentimiento verificable: el registro es prueba ante una inspección de la AEPD.
+- Datos más limpios: la retención evita acumulación indefinida de datos obsoletos.
+- Diferenciación académica: demuestra madurez profesional en el TFG.
+
+**Negativas:**
+- Mayor fricción en la creación de estudiantes (formulario requiere datos del tutor).
+- El borrado efectivo es irreversible — requiere confirmación explícita y comunicación clara.
+- Los tests existentes que crean estudiantes necesitan actualización (incluir `consent`).
+
+**Relaciones:**
+- **ADR-015** (Repository pattern): Los nuevos endpoints usan `userRepository` y `gamePlayRepository`.
+- **ADR-014** (responseHelper): Los nuevos handlers usan `sendSuccess` y `sendCreated`.
+- **ADR-016** (Rate limiting): Los nuevos endpoints heredan rate limiting existente.
+- **ADR-021** (Service Layer): Las funciones `updateConsent` y `hardDeleteStudent` residen en `userService`.

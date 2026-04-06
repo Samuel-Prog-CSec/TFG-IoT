@@ -89,6 +89,20 @@ const SECURITY_EVENTS = {
     level: 'info',
     message: 'Transferencia de alumno registrada'
   },
+  // Protección de datos — Art. 5.2 RGPD (accountability)
+  DATA_CONSENT_CHANGE: {
+    level: 'info',
+    message: 'Cambio en consentimiento parental registrado'
+  },
+  DATA_HARD_DELETE: {
+    level: 'warn',
+    message: 'Borrado efectivo de datos de estudiante ejecutado (Art. 17 RGPD)',
+    sentry: { threshold: 5, windowMs: 60 * 1000, level: 'warning' }
+  },
+  DATA_RETENTION_EXECUTED: {
+    level: 'info',
+    message: 'Política de retención de datos ejecutada'
+  },
   WS_AUTH_FAILED: {
     level: 'warn',
     message: 'Autenticación WebSocket fallida',

@@ -1533,6 +1533,143 @@ Dos piezas de cumplimiento RGPD:
 
 ---
 
+### T-712: 🛡️ Protocolo de notificación de brechas de seguridad 📋
+
+**Prioridad:** P2 | **Tamaño:** M (4-8h) | **Dependencias:** T-701
+**Origen:** Arts. 33 y 34 RGPD — obligación de notificación a la autoridad de control en 72h y al interesado si hay alto riesgo
+
+**Descripción:**
+Documentar el procedimiento de notificación de brechas de seguridad que involucren datos de menores: detección, evaluación de impacto del incidente, notificación a la AEPD (máximo 72 horas desde conocimiento, Art. 33.1), y comunicación a los interesados (tutores) cuando sea probable que la brecha entrañe alto riesgo para sus derechos (Art. 34.1). Crear template de registro de brechas y checklist de actuación.
+
+**Sub-tareas:**
+
+1. Crear documento `documentation/Protocolo_Notificacion_Brechas.md` con procedimiento paso a paso
+2. Template de registro de brecha con campos requeridos por Art. 33.3 RGPD
+3. Checklist de evaluación de riesgo (¿datos de menores afectados? → obligatoria notificación)
+4. Script helper para generar formulario de notificación (opcional)
+
+**Criterios de Aceptación:**
+
+- [ ] Documento cubre los requisitos del Art. 33.3 RGPD (naturaleza, categorías, consecuencias, medidas)
+- [ ] Template de registro incluye todos los campos exigidos
+- [ ] Procedimiento distingue brechas con/sin datos de menores
+- [ ] Plazo de 72 horas documentado con escalación
+
+---
+
+### T-713: 🛡️ Endpoint de rectificación de datos con audit trail 📋
+
+**Prioridad:** P2 | **Tamaño:** S (2-4h) | **Dependencias:** T-702
+**Origen:** Art. 16 RGPD — derecho de rectificación
+
+**Descripción:**
+Aunque la rectificación se puede realizar via `PUT /api/users/:id`, no existe un trail de auditoría específico que registre qué campos se modificaron, cuándo, y por quién. Esto es necesario para demostrar cumplimiento del Art. 5.2 RGPD (responsabilidad proactiva). Crear middleware o hook que registre los cambios en datos personales de estudiantes.
+
+**Sub-tareas:**
+
+1. Detectar cambios en campos PII del estudiante (name, profile.age, profile.classroom) en el service/controller
+2. Registrar evento `DATA_RECTIFICATION` con: campos modificados (sin valores), studentPseudoId, requestingUserId
+3. Tests que verifiquen el registro de rectificación
+
+**Criterios de Aceptación:**
+
+- [ ] Los cambios en name, age, classroom de estudiantes se registran como evento de seguridad
+- [ ] El log no contiene los valores antiguos ni nuevos (solo los nombres de campos)
+- [ ] `npm test` pasa
+
+---
+
+### T-714: 🛡️ Evaluación de riesgo de re-identificación en aulas pequeñas 📋
+
+**Prioridad:** P2 | **Tamaño:** S (2-4h) | **Dependencias:** T-703
+**Origen:** Directrices EDPB 01/2025 sobre seudonimización; Considerando 26 RGPD (identificabilidad en contexto)
+
+**Descripción:**
+En aulas de 5-6 alumnos, la combinación edad + rendimiento + aula puede hacer trivial la re-identificación incluso con pseudoIds. La AEPD advierte en su Guía de Anonimización que *«la anonimización absoluta no existe»* y que el riesgo de re-identificación debe evaluarse en contexto. Documentar formalmente este riesgo y evaluar si se necesitan medidas adicionales (ej: umbral mínimo de alumnos para analytics comparativos, generalización de edad a rango).
+
+**Sub-tareas:**
+
+1. Documentar el análisis de riesgo en la EIPD (ampliar R-01)
+2. Evaluar si implementar umbral mínimo de k-anonimato (k=5) para endpoints comparativos
+3. Si se implementa: los endpoints de analytics devuelven datos agregados solo si el grupo tiene >= 5 estudiantes
+
+**Criterios de Aceptación:**
+
+- [ ] Análisis documentado en EIPD con justificación de la decisión tomada
+- [ ] Si se implementa umbral: endpoints de analytics lo respetan
+
+---
+
+### T-715: 🛡️ Derecho de oposición a analytics comportamentales 📋
+
+**Prioridad:** P3 | **Tamaño:** M (4-8h) | **Dependencias:** T-702
+**Origen:** Art. 21 RGPD — derecho de oposición al tratamiento
+
+**Descripción:**
+Permitir que un tutor se oponga al tratamiento de datos con fines de analytics sin que eso impida al estudiante jugar (funcionalidad básica). Requiere separar los flujos de «juego» (funcionalidad educativa) y «analytics» (tratamiento adicional). Si un tutor se opone a analytics, los GamePlays se registran pero las métricas no se agregan a `studentMetrics` ni se incluyen en endpoints de analytics.
+
+**Sub-tareas:**
+
+1. Añadir propósito `performance_analytics` como revocable individualmente en `consent.purposes`
+2. Modificar `User.updateStudentMetrics()` para verificar si el propósito está activo
+3. Modificar endpoints de analytics para excluir estudiantes sin consentimiento de analytics
+4. Frontend: opción de oposición parcial en el formulario de consentimiento
+
+**Criterios de Aceptación:**
+
+- [ ] Un tutor puede revocar `performance_analytics` sin revocar `educational_tracking`
+- [ ] Estudiantes sin analytics consent pueden jugar normalmente
+- [ ] Los endpoints de analytics no incluyen a estos estudiantes
+- [ ] `npm test` pasa
+
+---
+
+### T-716: 🛡️ Planificación de Atlas CSFLE para producción 📋
+
+**Prioridad:** P3 | **Tamaño:** L (1-2 días) | **Dependencias:** T-701
+**Origen:** Art. 32.1.a RGPD — cifrado como medida de seguridad
+
+**Descripción:**
+MongoDB Atlas proporciona cifrado en reposo (AES-256) por defecto y Client-Side Field Level Encryption (CSFLE) como opción avanzada para cifrar campos específicos antes de enviarlos al servidor. Evaluar y planificar la implementación de CSFLE para los campos PII más sensibles (`name`, `profile.age`, `profile.classroom`) como medida complementaria para el despliegue en producción.
+
+**Sub-tareas:**
+
+1. Documentar requisitos de infraestructura: Atlas M10+, Key Vault (AWS KMS / Azure Key Vault / GCP KMS)
+2. Identificar campos candidatos a CSFLE y evaluar impacto en queries (CSFLE no permite búsquedas en campos cifrados con deterministic encryption)
+3. Evaluar alternativa: Queryable Encryption de MongoDB 7.0+ (permite queries sobre campos cifrados)
+4. Crear roadmap de implementación con estimación de esfuerzo
+5. Documentar en EIPD como medida planificada (Art. 32)
+
+**Criterios de Aceptación:**
+
+- [ ] Documento técnico con análisis de viabilidad y roadmap
+- [ ] EIPD actualizada con referencia a la medida planificada
+
+---
+
+### T-717: 🛡️ Documentar Sentry como procesador internacional 📋
+
+**Prioridad:** P2 | **Tamaño:** S (2-4h) | **Dependencias:** T-701
+**Origen:** Arts. 28 y 46 RGPD — procesadores y transferencias internacionales
+
+**Descripción:**
+Sentry actúa como procesador de datos (Art. 28 RGPD) con sede en EE.UU., lo que implica una transferencia internacional de datos. Esta transferencia debe ampararse en Standard Contractual Clauses (SCCs) según Art. 46.2.c RGPD. Documentar formalmente: (1) relación responsable-procesador, (2) base legal para la transferencia, (3) datos que Sentry puede recibir, (4) verificar que la configuración de `beforeSend` no envía PII de estudiantes.
+
+**Sub-tareas:**
+
+1. Revisar `backend/src/config/sentry.js` — verificar filtro `beforeSend` para PII de menores
+2. Documentar en RAT la relación con Sentry como procesador (AT-06)
+3. Verificar que los breadcrumbs de Sentry no contienen datos identificativos de estudiantes
+4. Si se detectan PII en Sentry: añadir filtros adicionales en `beforeSend`
+
+**Criterios de Aceptación:**
+
+- [ ] RAT incluye actividad de tratamiento AT-06 con Sentry como procesador
+- [ ] Verificación documentada de que `beforeSend` filtra PII de menores
+- [ ] Si hay gaps: filtros adicionales implementados
+
+---
+
 ## Dependencias entre Tareas
 
 ```

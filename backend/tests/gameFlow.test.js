@@ -50,7 +50,14 @@ describe('Game Full Flow', () => {
       name: 'Game Student',
       role: 'student',
       createdBy: teacherUser._id,
-      status: 'active'
+      status: 'active',
+      consent: {
+        granted: true,
+        grantedBy: 'Tutor Test',
+        grantedAt: new Date(),
+        purposes: ['educational_tracking', 'performance_analytics'],
+        policyVersion: '1.0'
+      }
     });
     studentId = student._id;
 

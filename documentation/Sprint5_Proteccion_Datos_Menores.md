@@ -586,4 +586,60 @@ T-704 ──► T-711 (Audit trail, necesita acciones a registrar)
 
 ---
 
+## 9. Estado de implementación
+
+**Última actualización:** 06-04-2026
+
+### Medidas técnicas implementadas
+
+| Medida | Tarea | Estado | Normativa |
+|--------|-------|--------|-----------|
+| MT-01: Eliminación de `profile.birthdate` | T-702 Fase A | ✅ Implementada | Art. 5.1.c RGPD |
+| MT-02: Seudonimización en logs/analytics | T-703 | 📋 Pendiente | Art. 25 RGPD, EDPB 01/2025 |
+| MT-03: Borrado efectivo (hard delete) | T-704 Fase A | ✅ Implementada | Art. 17 RGPD |
+| MT-04: Política de retención automática | T-704 Fase B | ✅ Implementada | Art. 5.1.e RGPD |
+| MT-05: Exportación de datos (portabilidad) | T-706 | 📋 Pendiente | Art. 20 RGPD |
+| MT-06: Consentimiento parental | T-702 Fase B | ✅ Implementada | Art. 8 RGPD + Art. 7 LOPDGDD |
+| MT-07: Separación PII/analytics en DTOs | T-709 (en T-703) | 📋 Pendiente | Art. 25 RGPD |
+
+### Medidas organizativas implementadas
+
+| Medida | Tarea | Estado | Normativa |
+|--------|-------|--------|-----------|
+| MO-01: Registro de Actividades de Tratamiento (RAT) | T-701 | ✅ Implementada | Art. 30 RGPD |
+| MO-02: Evaluación de Impacto (EIPD) | T-701 | ✅ Implementada | Art. 35 RGPD |
+| MO-03: Página de privacidad | T-710 | 📋 Pendiente | Arts. 13-14 RGPD |
+
+### Medidas adicionales identificadas (sesión 06-04-2026)
+
+| Medida | Tarea | Estado | Normativa |
+|--------|-------|--------|-----------|
+| Protocolo de notificación de brechas | T-712 | 📋 Pendiente | Arts. 33-34 RGPD |
+| Endpoint de rectificación con audit trail | T-713 | 📋 Pendiente | Art. 16 RGPD |
+| Evaluación riesgo re-identificación aulas pequeñas | T-714 | 📋 Pendiente | EDPB 01/2025 |
+| Derecho de oposición a analytics | T-715 | 📋 Pendiente | Art. 21 RGPD |
+| Planificación Atlas CSFLE para producción | T-716 | 📋 Pendiente | Art. 32.1.a RGPD |
+| Documentar Sentry como procesador internacional | T-717 | 📋 Pendiente | Arts. 28, 46 RGPD |
+
+### Carencias resueltas
+
+| Carencia original (§3.4) | Resolución |
+|--------------------------|------------|
+| No existe RAT | ✅ `backend/docs/RAT_Registro_Actividades_Tratamiento.md` creado con 7 actividades |
+| No existe EIPD | ✅ `documentation/EIPD_Evaluacion_Impacto.md` creado con 12 riesgos identificados |
+| Se almacena fecha de nacimiento completa | ✅ `profile.birthdate` eliminado, validación en pre-save, script migración |
+| No hay mecanismo de borrado efectivo | ✅ `DELETE /api/users/:id/data` con cascada completa (User + GamePlays + Redis + WebSocket) |
+| No hay política de retención | ✅ `config/dataRetention.js` + `scripts/dataRetention.js` con `--dry-run` |
+| No se registra consentimiento parental | ✅ Campo `consent` en User, bloqueo de creación sin consentimiento, endpoint PATCH, frontend |
+
+### Documentación generada
+
+- **ADR-030:** Protección de datos de menores — en `backend/docs/Architecture_Decisions.md`
+- **RAT:** `backend/docs/RAT_Registro_Actividades_Tratamiento.md` (Art. 30 RGPD)
+- **EIPD:** `documentation/EIPD_Evaluacion_Impacto.md` (Art. 35 RGPD)
+- **Scripts:** `data:audit`, `data:retention`, `data:retention:dry-run`, `migrate:birthdate`
+- **Eventos de seguridad:** `DATA_CONSENT_CHANGE`, `DATA_HARD_DELETE`, `DATA_RETENTION_EXECUTED`
+
+---
+
 *Documento elaborado como parte del Sprint 5 del TFG «Plataforma de Juegos Educativos con RFID» para fundamentar las medidas técnicas y organizativas de protección de datos de menores implementadas en la plataforma Eduplay.*

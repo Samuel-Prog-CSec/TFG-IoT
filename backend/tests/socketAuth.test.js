@@ -124,7 +124,14 @@ describe('Socket.IO auth & ownership', () => {
       name: 'Socket Student',
       role: 'student',
       createdBy: teacherOwner._id,
-      status: 'active'
+      status: 'active',
+      consent: {
+        granted: true,
+        grantedBy: 'Tutor Test',
+        grantedAt: new Date(),
+        purposes: ['educational_tracking', 'performance_analytics'],
+        policyVersion: '1.0'
+      }
     });
 
     teacherOwnerToken = (await generateTokenPair(teacherOwner, mockReq)).accessToken;

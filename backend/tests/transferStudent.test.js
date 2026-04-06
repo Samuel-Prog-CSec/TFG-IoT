@@ -36,7 +36,14 @@ describe('Student Transfer', () => {
       role: 'student',
       createdBy: teacherA._id,
       status: 'active',
-      profile: { classroom: 'Class A' }
+      profile: { classroom: 'Class A' },
+      consent: {
+        granted: true,
+        grantedBy: 'Tutor Test',
+        grantedAt: new Date(),
+        purposes: ['educational_tracking', 'performance_analytics'],
+        policyVersion: '1.0'
+      }
     });
 
     // Generate tokens

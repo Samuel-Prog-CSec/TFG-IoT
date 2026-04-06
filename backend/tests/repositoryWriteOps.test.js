@@ -29,6 +29,13 @@ const createStudent = async (teacherId, suffix = '') =>
     role: 'student',
     createdBy: teacherId,
     status: 'active',
+    consent: {
+      granted: true,
+      grantedBy: 'Tutor Test',
+      grantedAt: new Date(),
+      purposes: ['educational_tracking', 'performance_analytics'],
+      policyVersion: '1.0'
+    },
     studentMetrics: {
       totalGamesPlayed: 5,
       totalScore: 400,
@@ -191,8 +198,30 @@ describe('Repository Write Operations', () => {
   describe('insertMany', () => {
     it('debe insertar múltiples documentos', async () => {
       const students = await userRepository.insertMany([
-        { name: 'Alumno Test-write-batch1', role: 'student', createdBy: teacher._id },
-        { name: 'Alumno Test-write-batch2', role: 'student', createdBy: teacher._id }
+        {
+          name: 'Alumno Test-write-batch1',
+          role: 'student',
+          createdBy: teacher._id,
+          consent: {
+            granted: true,
+            grantedBy: 'Tutor Test',
+            grantedAt: new Date(),
+            purposes: ['educational_tracking', 'performance_analytics'],
+            policyVersion: '1.0'
+          }
+        },
+        {
+          name: 'Alumno Test-write-batch2',
+          role: 'student',
+          createdBy: teacher._id,
+          consent: {
+            granted: true,
+            grantedBy: 'Tutor Test',
+            grantedAt: new Date(),
+            purposes: ['educational_tracking', 'performance_analytics'],
+            policyVersion: '1.0'
+          }
+        }
       ]);
 
       expect(students).toHaveLength(2);
