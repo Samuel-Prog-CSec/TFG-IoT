@@ -2,16 +2,7 @@ import { memo, useMemo } from 'react';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Cell } from 'recharts';
 import PropTypes from 'prop-types';
 import ChartSection from '../dashboard/ChartSection';
-
-/**
- * Color RAG segun score
- */
-const getRAGColor = (score) => {
-  if (score >= 90) return 'var(--color-success-base)';
-  if (score >= 70) return 'var(--color-success-base)';
-  if (score >= 50) return 'var(--color-warning-base)';
-  return 'var(--color-error-base)';
-};
+import { getRAGCSSColor as getRAGColor } from '../../constants/analyticsThresholds';
 
 /**
  * Tooltip personalizado para el chart
@@ -26,8 +17,10 @@ function CustomTooltip({ active, payload }) {
       <p className="text-text-secondary">
         Score: <span className="font-bold tabular-nums">{Math.round(data.score)}%</span>
       </p>
-      {data.gamesPlayed != null && (
-        <p className="text-text-muted text-xs mt-0.5">{data.gamesPlayed} partidas</p>
+      {(data.gamesPlayed != null || data.totalGames != null) && (
+        <p className="text-text-muted text-xs mt-0.5">
+          {data.gamesPlayed ?? data.totalGames} {(data.gamesPlayed ?? data.totalGames) === 1 ? 'partida' : 'partidas'}
+        </p>
       )}
     </div>
   );

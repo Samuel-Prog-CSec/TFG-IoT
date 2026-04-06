@@ -9,7 +9,7 @@ import { useRefetchOnFocus } from '../hooks/useRefetchOnFocus';
 import { useReducedMotion } from '../hooks/useReducedMotion';
 import { useAuth } from '../context/AuthContext';
 import analyticsService from '../services/analytics';
-import { isAbortError } from '../services/api';
+import { isAbortError, contextsAPI, mechanicsAPI } from '../services/api';
 import { captureException } from '../lib/sentry';
 import { ROUTES } from '../constants/routes';
 import StatCard from '../components/dashboard/StatCard';
@@ -29,6 +29,32 @@ export default function Dashboard() {
   useDocumentTitle('Dashboard');
   const { shouldReduceMotion } = useReducedMotion();
   const [timeRange, setTimeRange] = useState('7d');
+  const [selectedContextId, setSelectedContextId] = useState('');
+  const [selectedMechanicId, setSelectedMechanicId] = useState('');
+  const [contextOptions, setContextOptions] = useState([]);
+  const [mechanicOptions, setMechanicOptions] = useState([]);
+
+  // Cargar opciones de contextos y mecanicas una sola vez
+  useEffect(() => {
+    let cancelled = false;
+    Promise.all([
+      contextsAPI.getContexts().catch(() => ({ data: { data: [] } })),
+      mechanicsAPI.getMechanics().catch(() => ({ data: { data: [] } }))
+    ]).then(([ctxRes, mechRes]) => {
+      if (cancelled) return;
+      const contexts = ctxRes?.data?.data || [];
+      const mechanics = mechRes?.data?.data || [];
+      setContextOptions([
+        { value: '', label: 'Todos los contextos' },
+        ...contexts.map(c => ({ value: c._id, label: c.name }))
+      ]);
+      setMechanicOptions([
+        { value: '', label: 'Todas las mecanicas' },
+        ...mechanics.map(m => ({ value: m._id, label: m.displayName || m.name }))
+      ]);
+    });
+    return () => { cancelled = true; };
+  }, []);
 
   // Redirigir super_admin a su panel
   useEffect(() => {
@@ -49,8 +75,17 @@ export default function Dashboard() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const dataAbortRef = useRef(null);
+  // Cache: evita re-fetch si los datos tienen menos de 60s de antiguedad (ej. tab-focus)
+  const lastFetchRef = useRef({ at: 0, key: '' });
+  const CACHE_TTL_MS = 60_000;
 
-  const fetchData = useCallback(() => {
+  const fetchData = useCallback((forceRefresh = false) => {
+    const cacheKey = `${timeRange}:${selectedContextId}:${selectedMechanicId}`;
+    const now = Date.now();
+    if (!forceRefresh && lastFetchRef.current.key === cacheKey && now - lastFetchRef.current.at < CACHE_TTL_MS) {
+      return; // Datos frescos, no re-fetch
+    }
+
     dataAbortRef.current?.abort();
     const controller = new AbortController();
     dataAbortRef.current = controller;
@@ -65,7 +100,11 @@ export default function Dashboard() {
           analyticsService.getClassroomTrends(timeRange, { signal: controller.signal }),
           analyticsService.getClassroomComparison(timeRange, { signal: controller.signal }).catch(() => []),
           analyticsService.getClassroomDifficulties({ signal: controller.signal }).catch(() => []),
-          analyticsService.getClassroomStudents({ sort: 'score', order: 'desc' }, { signal: controller.signal }).catch(() => null),
+          analyticsService.getClassroomStudents({
+            sort: 'score', order: 'desc',
+            ...(selectedContextId && { contextId: selectedContextId }),
+            ...(selectedMechanicId && { mechanicId: selectedMechanicId })
+          }, { signal: controller.signal }).catch(() => null),
           analyticsService.getClassroomDistribution({}, { signal: controller.signal }).catch(() => null),
           analyticsService.getAlerts({ limit: 5 }, { signal: controller.signal }).catch(() => null),
           analyticsService.getClassroomHeatmap(timeRange, { signal: controller.signal }).catch(() => null)
@@ -80,6 +119,7 @@ export default function Dashboard() {
         setAlertsData(alerts);
         setHeatmapData(heatmap);
         setError(null);
+        lastFetchRef.current = { at: Date.now(), key: cacheKey };
       } catch (err) {
         if (isAbortError(err)) return;
         captureException(err);
@@ -92,7 +132,7 @@ export default function Dashboard() {
     };
 
     run();
-  }, [timeRange]);
+  }, [timeRange, selectedContextId, selectedMechanicId]);
 
   useEffect(() => {
     fetchData();
@@ -192,7 +232,17 @@ export default function Dashboard() {
           className="p-6 lg:p-8 max-w-7xl mx-auto space-y-8"
           aria-label="Panel principal del dashboard"
         >
-          <Header timeRange={timeRange} setTimeRange={setTimeRange} reducedMotion={shouldReduceMotion} />
+          <Header
+            timeRange={timeRange}
+            setTimeRange={setTimeRange}
+            selectedContextId={selectedContextId}
+            setSelectedContextId={setSelectedContextId}
+            selectedMechanicId={selectedMechanicId}
+            setSelectedMechanicId={setSelectedMechanicId}
+            contextOptions={contextOptions}
+            mechanicOptions={mechanicOptions}
+            reducedMotion={shouldReduceMotion}
+          />
 
           <div className="flex flex-col gap-8">
             {loading && summary ? (
@@ -367,7 +417,13 @@ export default function Dashboard() {
   );
 }
 
-function Header({ timeRange, setTimeRange, reducedMotion = false }) {
+function Header({
+  timeRange, setTimeRange,
+  selectedContextId, setSelectedContextId,
+  selectedMechanicId, setSelectedMechanicId,
+  contextOptions, mechanicOptions,
+  reducedMotion = false,
+}) {
   const navigate = useNavigate();
   const todayRaw = formatDate(new Date(), 'long');
   // Spanish dates should only capitalize the first letter (e.g. "Jueves, 19 de marzo de 2026")
@@ -417,17 +473,38 @@ function Header({ timeRange, setTimeRange, reducedMotion = false }) {
           </ButtonPremium>
         </div>
 
-        {/* Global Filter */}
-        <SelectPremium
-          value={timeRange}
-          onChange={(val) => setTimeRange(val)}
-          options={[
-            { value: '7d', label: 'Ultimos 7 dias' },
-            { value: '30d', label: 'Ultimos 30 dias' },
-            { value: '90d', label: 'Ultimos 90 dias' },
-          ]}
-          className="w-48"
-        />
+        {/* Filtros globales */}
+        <div className="flex items-center gap-2 flex-wrap">
+          {contextOptions.length > 1 && (
+            <SelectPremium
+              value={selectedContextId}
+              onChange={(val) => setSelectedContextId(val)}
+              options={contextOptions}
+              className="w-44"
+              aria-label="Filtrar por contexto tematico"
+            />
+          )}
+          {mechanicOptions.length > 1 && (
+            <SelectPremium
+              value={selectedMechanicId}
+              onChange={(val) => setSelectedMechanicId(val)}
+              options={mechanicOptions}
+              className="w-44"
+              aria-label="Filtrar por mecanica de juego"
+            />
+          )}
+          <SelectPremium
+            value={timeRange}
+            onChange={(val) => setTimeRange(val)}
+            options={[
+              { value: '7d', label: 'Ultimos 7 dias' },
+              { value: '30d', label: 'Ultimos 30 dias' },
+              { value: '90d', label: 'Ultimos 90 dias' },
+            ]}
+            className="w-44"
+            aria-label="Filtrar por rango de tiempo"
+          />
+        </div>
 
         <motion.time 
           dateTime={new Date().toISOString().split('T')[0]}

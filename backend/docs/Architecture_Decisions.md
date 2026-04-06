@@ -1958,3 +1958,52 @@ La suite de analytics requiere 10+ componentes nuevos con patrones compartidos (
 **Negativas:**
 - Múltiples fetches pueden hacer más peticiones al backend (mitigado por caché Redis server-side)
 - Sin store global, cambiar de página pierde el estado (comportamiento esperado — cada vista es independiente)
+
+## ADR-029: Consolidación de umbrales RAG y filtrado híbrido en Dashboard
+
+**Fecha:** 2026-04-06
+**Estado:** Aceptado
+**Contexto:** ADR-026, ADR-027, ADR-028
+
+### Situación
+
+Dos problemas identificados durante la revisión de la suite de analytics:
+
+1. **Umbrales RAG duplicados**: Los mismos magic numbers de clasificación (score ≥70 → green, ≥50 → amber; score ≥90 → excellent, ≥70 → good, ≥50 → average) estaban definidos como funciones inline en 6 archivos frontend diferentes. Riesgo de divergencia y violación DRY.
+
+2. **Filtros de contenido en Dashboard**: T-604 requería filtros de contexto temático y mecánica de juego, pero `analyticsService.js` no puede modificarse (ADR-026).
+
+### Decisiones
+
+**1. Módulo compartido de umbrales:**
+- Crear `frontend/src/constants/analyticsThresholds.js` como fuente única de verdad frontend
+- Exportar funciones de clasificación: `scoreToTier()`, `scoreToRAG()`, `getRAGCSSColor()`, `scoreToRAGWithNull()`
+- Exportar constantes: `PERFORMANCE_TIERS`, `TIER_CONFIG`, `TIER_BADGE`
+- Refactorizar 5 componentes para importar desde este módulo
+
+**2. Filtrado híbrido:**
+- **Server-side** en `analyticsController.js` para `getClassroomStudents`: pre-filtra por sessionIds que coincidan con contexto/mecánica, luego filtra los estudiantes que jugaron en esas sesiones
+- **KPIs y trends sin filtrar**: muestran datos globales de clase (pedagógicamente correcto, el profesor necesita la visión general)
+- El filtrado granular por contenido permanece en `/analytics/insights` con la `ContentEffectivenessMatrix`
+
+**3. Cache ligero en Dashboard:**
+- `useRef` con timestamp de último fetch y clave de filtros
+- TTL de 60 segundos para evitar re-fetches en tab-focus
+- Reduce las 8 peticiones paralelas a solo cuando los datos están realmente obsoletos
+
+### Alternativas descartadas
+
+- **Modificar `analyticsService.js`**: Descartada por ADR-026 (zero regresión)
+- **Filtrado 100% client-side por contenido**: Los datos de estudiantes son agregados (avgScore) y no contienen desglose por contexto, por lo que filtrar no tendría sentido semántico
+- **Store global (Redux/Zustand)**: Sobreingeniería para el caso de uso — cada página es independiente
+
+### Consecuencias
+
+**Positivas:**
+- Fuente única de verdad para umbrales → eliminación de divergencia
+- Filtros funcionales sin romper ADR-026
+- Reducción de peticiones redundantes al backend
+
+**Negativas:**
+- Los umbrales frontend deben actualizarse manualmente si cambian en el backend (documentado en el header del archivo)
+- El filtro de contenido no afecta a KPIs/trends (mitigado: la página de Insights cubre este caso)

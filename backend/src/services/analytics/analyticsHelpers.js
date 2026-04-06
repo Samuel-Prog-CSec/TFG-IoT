@@ -7,6 +7,13 @@
  * también existen en analyticsService.js (servicio original). No se refactorizan
  * allí para mantener zero regresión — ver ADR-026.
  *
+ * CONVENCIÓN DE ERRORES en los sub-servicios de analytics:
+ * - Funciones de entidad (por ID específico, ej. getGameplayRounds, getStudentReport):
+ *   lanzan NotFoundError si el recurso no existe.
+ * - Funciones de agregación (sobre datasets, ej. getClassroomEngagement, getAlerts):
+ *   devuelven arrays vacíos u objetos con valores por defecto (0, []).
+ *   No tener datos no es un error; significa que el alumno/clase aún no ha jugado.
+ *
  * @module services/analytics/analyticsHelpers
  */
 

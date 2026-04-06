@@ -172,7 +172,7 @@ El dashboard actual depende de 3 endpoints (`/classroom/summary`, `/classroom/co
 
 ---
 
-### T-602: 📊 Dashboard — Eliminar datos mock y conectar datos reales 📋
+### T-602: 📊 Dashboard — Eliminar datos mock y conectar datos reales ✅
 
 **Prioridad:** P0 | **Tamaño:** M (4-8h) | **Dependencias:** T-601
 **Origen:** StudentsList usa mock hardcoded, DistributionChart recibe null, trends son strings fijos
@@ -212,17 +212,17 @@ Tres componentes del dashboard muestran datos ficticios en producción, invalida
 
 **Criterios de Aceptación:**
 
-- [ ] `StudentsList` muestra estudiantes reales del profesor autenticado
-- [ ] `DistributionChart` muestra distribución real de rendimiento
-- [ ] StatCards muestran trends calculados (comparación período actual vs anterior)
-- [ ] Zero datos mock/hardcodeados en el dashboard
-- [ ] Click en estudiante navega a su perfil
-- [ ] Loading states (skeleton) durante carga de nuevos endpoints
-- [ ] `npm test` y `npm run build` pasan
+- [x] `StudentsList` muestra estudiantes reales del profesor autenticado
+- [x] `DistributionChart` muestra distribución real de rendimiento
+- [x] StatCards muestran trends calculados (comparación período actual vs anterior)
+- [x] Zero datos mock/hardcodeados en el dashboard
+- [x] Click en estudiante navega a su perfil
+- [x] Loading states (skeleton) durante carga de nuevos endpoints
+- [x] `npm test` y `npm run build` pasan
 
 ---
 
-### T-603: 📊 Nueva página — Perfil Individual de Estudiante (con comparativa de clase) 📋
+### T-603: 📊 Nueva página — Perfil Individual de Estudiante (con comparativa de clase) ✅
 
 **Consolida:** T-603 + T-620
 **Prioridad:** P0 | **Tamaño:** XL (> 2 días) | **Dependencias:** T-601
@@ -279,20 +279,20 @@ Crear la página `/students/:studentId` que permita al profesor consultar el pro
 
 **Criterios de Aceptación:**
 
-- [ ] Página accesible en `/students/:studentId` con autenticación
-- [ ] Header muestra nombre, avatar, aula, badge de rendimiento, última actividad
-- [ ] 4-6 KPIs individuales con valores reales y comparativa con clase
-- [ ] Gráfico de progreso temporal funcional con selector 7d/30d
-- [ ] Línea punteada de promedio de clase visible en el gráfico de progreso
-- [ ] Leyenda clara diferenciando alumno vs clase, tooltip muestra ambos valores
-- [ ] Gráfico de rendimiento por contexto con barras coloreadas
-- [ ] Gráfico de rendimiento por mecánica funcional
-- [ ] Historial de partidas recientes con al menos 10 entradas
-- [ ] Sección de fortalezas/debilidades derivada de datos
-- [ ] Skeleton loaders durante carga
-- [ ] Responsive: legible en ≥768px
-- [ ] Navegable desde Dashboard y desde breadcrumb
-- [ ] `npm test` y `npm run build` pasan
+- [x] Página accesible en `/students/:studentId` con autenticación
+- [x] Header muestra nombre, avatar, aula, badge de rendimiento, última actividad
+- [x] 4-6 KPIs individuales con valores reales y comparativa con clase
+- [x] Gráfico de progreso temporal funcional con selector 7d/30d
+- [x] Línea punteada de promedio de clase visible en el gráfico de progreso
+- [x] Leyenda clara diferenciando alumno vs clase, tooltip muestra ambos valores
+- [x] Gráfico de rendimiento por contexto con barras coloreadas
+- [x] Gráfico de rendimiento por mecánica funcional
+- [x] Historial de partidas recientes con al menos 10 entradas
+- [x] Sección de fortalezas/debilidades derivada de datos
+- [x] Skeleton loaders durante carga
+- [x] Responsive: legible en ≥768px
+- [x] Navegable desde Dashboard y desde breadcrumb
+- [x] `npm test` y `npm run build` pasan
 
 ---
 
@@ -697,7 +697,7 @@ Las acciones de pause/resume carecen de rate limiting. Todos los rate limiters u
 
 ---
 
-### T-604: 📊 Dashboard — KPIs expandidos, filtros interactivos, alertas inteligentes y heatmap mejorado 📋
+### T-604: 📊 Dashboard — KPIs expandidos, filtros interactivos, alertas inteligentes y heatmap mejorado ✅
 
 **Consolida:** T-604 + T-605 + T-607 + T-615
 **Prioridad:** P1 | **Tamaño:** XL (> 2 días) | **Dependencias:** T-601, T-602
@@ -743,25 +743,25 @@ Mejora integral del dashboard con: KPIs adicionales, filtros interactivos, siste
 
 **Criterios de Aceptación:**
 
-- [ ] 8 KPIs visibles con datos reales
-- [ ] Filtros de contexto, mecánica y rango de fechas funcionales
-- [ ] Filtros afectan todos los componentes del dashboard
-- [ ] Sección de actividad reciente con partidas reales
-- [ ] Al menos 5 tipos de alerta diferentes derivados de datos
-- [ ] Cada alerta tiene acción directa que navega a contenido relevante
-- [ ] Estado vacío muestra mensaje positivo en vez de `null`
-- [ ] Alertas se generan automáticamente de los datos
-- [ ] Leyenda clara con 3 niveles de dificultad en heatmap
-- [ ] Tooltips con información accionable en heatmap
-- [ ] Visualización intuitiva para personas no técnicas
-- [ ] Cero `<select>` nativos en Dashboard y ChartSection
-- [ ] Accesibilidad mantenida en SelectPremium
-- [ ] Layout responsivo en ≥768px
-- [ ] `npm test` y `npm run build` pasan
+- [x] 8 KPIs visibles con datos reales
+- [x] Filtros de contexto, mecánica y rango de fechas funcionales
+- [x] Filtros afectan todos los componentes del dashboard
+- [x] Sección de actividad reciente con partidas reales
+- [x] Al menos 5 tipos de alerta diferentes derivados de datos
+- [x] Cada alerta tiene acción directa que navega a contenido relevante
+- [x] Estado vacío muestra mensaje positivo en vez de `null`
+- [x] Alertas se generan automáticamente de los datos
+- [x] Leyenda clara con 3 niveles de dificultad en heatmap
+- [x] Tooltips con información accionable en heatmap
+- [x] Visualización intuitiva para personas no técnicas
+- [x] Cero `<select>` nativos en Dashboard y ChartSection
+- [x] Accesibilidad mantenida en SelectPremium
+- [x] Layout responsivo en ≥768px
+- [x] `npm test` y `npm run build` pasan
 
 ---
 
-### T-606: 📊 Nueva página — Vista Comparativa de Estudiantes (con exportación CSV y navegación) 📋
+### T-606: 📊 Nueva página — Vista Comparativa de Estudiantes (con exportación CSV y navegación) ✅
 
 **Consolida:** T-606 + T-617 + T-618
 **Prioridad:** P1 | **Tamaño:** XL (> 2 días) | **Dependencias:** T-601, T-603
@@ -800,21 +800,21 @@ Crear la página `/analytics/students` con tabla interactiva de todos los estudi
 
 **Criterios de Aceptación:**
 
-- [ ] Página accesible en `/analytics/students`
-- [ ] Tabla con todos los estudiantes y métricas reales
-- [ ] Ordenable por todas las columnas
-- [ ] Filtrable por tier y búsqueda por nombre
-- [ ] Click en estudiante navega a su perfil (T-603)
-- [ ] Resumen visual de distribución de clase
-- [ ] Skeleton loader durante carga
-- [ ] Responsive en ≥768px
-- [ ] Botón "Exportar CSV" visible en vista de estudiantes
-- [ ] CSV generado correctamente con datos reales
-- [ ] Descarga automática del archivo
-- [ ] Sin dependencias externas para CSV
-- [ ] Badge de notificación visible cuando hay alertas
-- [ ] Enlace "Mis Alumnos" funcional en sidebar
-- [ ] `npm test` y `npm run build` pasan
+- [x] Página accesible en `/analytics/students`
+- [x] Tabla con todos los estudiantes y métricas reales
+- [x] Ordenable por todas las columnas
+- [x] Filtrable por tier y búsqueda por nombre
+- [x] Click en estudiante navega a su perfil (T-603)
+- [x] Resumen visual de distribución de clase
+- [x] Skeleton loader durante carga
+- [x] Responsive en ≥768px
+- [x] Botón "Exportar CSV" visible en vista de estudiantes
+- [x] CSV generado correctamente con datos reales
+- [x] Descarga automática del archivo
+- [x] Sin dependencias externas para CSV
+- [x] Badge de notificación visible cuando hay alertas
+- [x] Enlace "Mis Alumnos" funcional en sidebar
+- [x] `npm test` y `npm run build` pasan
 
 ---
 
@@ -1336,7 +1336,7 @@ Crear tres componentes UI reutilizables para mejorar la consistencia visual y de
 - [x] Componente `PageHeader` creado con props flexibles
 - [x] Al menos 3 páginas usan PageHeader — SessionsPage, ContextsPage, CardDecksPage
 - [x] Componente `ErrorState` creado y reutilizable — integrado en CardDecksPage
-- [ ] AlertsPanel muestra estado positivo cuando no hay alertas — pendiente (requiere T-604/T-605)
+- [x] AlertsPanel muestra estado positivo cuando no hay alertas — implementado en T-604
 - [x] Al menos 4 componentes migrados a estados unificados — 6 migrados: CardDecksPage (ErrorState), SessionsPage (ErrorState), ContextsPage (ErrorState), Dashboard (ErrorState), DifficultyHeatmap (EmptyState), StudentProgressChart (EmptyState)
 - [x] Aspecto visual consistente
 - [x] Tokens semánticos usados

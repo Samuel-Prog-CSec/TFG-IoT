@@ -341,4 +341,11 @@ gamePlaySchema.index({ status: 1, completedAt: -1 });
  */
 gamePlaySchema.index({ playerId: 1, status: 1, startedAt: -1 });
 
+/**
+ * Índice compuesto para analytics de sesión: queries que filtran partidas
+ * por sesión, estado y fecha de completado.
+ * Caso de uso: análisis de rondas, tarjetas, fatiga (E05-E08).
+ */
+gamePlaySchema.index({ sessionId: 1, status: 1, completedAt: -1 });
+
 module.exports = mongoose.model('GamePlay', gamePlaySchema);

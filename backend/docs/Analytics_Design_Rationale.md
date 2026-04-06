@@ -466,3 +466,25 @@ Se crearon 11 componentes en `frontend/src/components/analytics/` diseñados par
 | `ContentEffectivenessMatrix` | Matriz mecánica × contexto RAG | Insights |
 | `AlertsHub` | Hub de alertas con filtros | Insights |
 | `ReportGenerator` | Generación de informes | Insights |
+
+### 4.7. Consolidación de umbrales RAG en frontend
+
+Los umbrales de clasificación RAG (score ≥70 → green, ≥50 → amber, <50 → red) y los tiers de rendimiento (≥90 excellent, ≥70 good, ≥50 average, <50 risk) estaban definidos como funciones inline en 6 archivos diferentes (StudentProfile, GameHistoryTable, PerformanceByDimension, ContentEffectivenessMatrix, ReportGenerator). Esto violaba el principio DRY y creaba riesgo de divergencia.
+
+**Decisión:** Se creó `frontend/src/constants/analyticsThresholds.js` como fuente única de verdad frontend. Exporta `scoreToTier()`, `scoreToRAG()`, `getRAGCSSColor()`, `scoreToRAGWithNull()`, `PERFORMANCE_TIERS`, `TIER_CONFIG` y `TIER_BADGE`. Los 5 componentes fueron refactorizados para importar desde este módulo.
+
+**Relación con backend:** Los valores reflejan los definidos en `analyticsHelpers.js` → `KPI_DEFINITIONS`. Si los umbrales cambian en el backend, deben actualizarse en el frontend también (documentado en el header del archivo).
+
+### 4.8. Estrategia de filtrado en Dashboard
+
+**Contexto:** T-604 requería filtros de contexto temático y mecánica de juego en el Dashboard. El servicio original `analyticsService.js` no puede modificarse (ADR-026).
+
+**Decisión:** Filtrado híbrido:
+- **Server-side** para `getClassroomStudents`: el controlador (`analyticsController.js`) pre-filtra los estudiantes que han jugado en sesiones con el contexto/mecánica seleccionados usando queries a `GameSession` + `GamePlay.distinct('playerId')`.
+- **Client-side** para componentes cuyo endpoint no acepta estos filtros: los KPIs y trends muestran datos globales de clase (que es lo pedagógicamente correcto — el profesor necesita la visión general).
+
+**Justificación:** El filtrado más granular por contenido está disponible en la página de Insights (`/analytics/insights`) con la `ContentEffectivenessMatrix`, que es el lugar natural para ese nivel de detalle. El Dashboard prioriza la visión de alto nivel.
+
+### 4.9. Cache ligero en Dashboard
+
+El Dashboard realiza 8 peticiones paralelas en cada carga. Para evitar re-fetches innecesarios (ej. al volver a la pestaña), se implementó un cache en memoria con `useRef` que almacena el timestamp del último fetch junto con la clave de filtros (`timeRange:contextId:mechanicId`). Si los datos tienen menos de 60 segundos y los filtros no han cambiado, se reutilizan los datos existentes sin hacer nuevas peticiones.

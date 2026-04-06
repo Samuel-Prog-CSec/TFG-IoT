@@ -374,6 +374,12 @@ gameSessionSchema.index({ createdBy: 1, status: 1 });
  */
 gameSessionSchema.index({ createdBy: 1, contextId: 1 });
 
+/**
+ * Índice compuesto para lookups de analytics por profesor y mecánica.
+ * Caso de uso: efectividad de contenido, fatiga, engagement (E06, E08, E12-E14).
+ */
+gameSessionSchema.index({ createdBy: 1, mechanicId: 1 });
+
 const GameSession = mongoose.model('GameSession', gameSessionSchema);
 
 // Exportar modelo y función auxiliar

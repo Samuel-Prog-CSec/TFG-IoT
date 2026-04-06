@@ -67,12 +67,17 @@ function EngagementRadar({ engagement }) {
   const score = engagement?.engagementScore;
   const rag = score != null ? getEngagementRAG(score) : null;
 
-  if (chartData.length === 0) {
+  // Estado vacio: sin datos de componentes, o engagement nulo/cero
+  const isEmpty = chartData.length === 0 || !engagement || (!score && score !== undefined);
+
+  if (isEmpty) {
     return (
       <GlassCard variant="default" padding="none" className="p-5">
         <h3 className="text-base font-bold text-text-primary font-display mb-4">Engagement</h3>
-        <div className="py-8 text-center">
-          <p className="text-sm text-text-muted">Se necesitan mas datos para calcular el engagement.</p>
+        <div className="py-8 text-center px-6">
+          <p className="text-text-muted text-sm text-center">
+            Sin datos de engagement aun. Se calculara cuando el alumno acumule mas partidas.
+          </p>
         </div>
       </GlassCard>
     );

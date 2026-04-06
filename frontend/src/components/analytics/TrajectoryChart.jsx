@@ -3,7 +3,17 @@ import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContai
 import { TrendingUp, TrendingDown, Minus } from 'lucide-react';
 import PropTypes from 'prop-types';
 import { cn, formatDate } from '../../lib/utils';
+import { scoreToRAG } from '../../constants/analyticsThresholds';
 import GlassCard from '../ui/GlassCard';
+
+/**
+ * Colores CSS del indicador RAG para el tooltip
+ */
+const RAG_DOT_COLORS = {
+  green: 'bg-success-base',
+  amber: 'bg-warning-base',
+  red: 'bg-error-base',
+};
 
 /**
  * Estilos del indicador de tendencia
@@ -27,8 +37,10 @@ function CustomTooltip({ active, payload, label }) {
     <div className="bg-background-elevated border border-border-default rounded-lg p-3 shadow-xl text-sm">
       <p className="text-text-muted text-xs mb-2">{label}</p>
       {studentScore && (
-        <p className="text-text-primary">
-          Alumno: <span className="font-bold tabular-nums">{Math.round(studentScore.value)}</span>
+        <p className="text-text-primary flex items-center gap-1.5">
+          Alumno:
+          <span className={cn('inline-block w-2 h-2 rounded-full', RAG_DOT_COLORS[scoreToRAG(studentScore.value)])} />
+          <span className="font-bold tabular-nums">{Math.round(studentScore.value)}</span>
         </p>
       )}
       {classScore && (
@@ -80,8 +92,10 @@ function TrajectoryChart({ trajectoryData, classComparison, title = 'Trayectoria
     return (
       <GlassCard variant="default" padding="none" className="p-5">
         <h3 className="text-base font-bold text-text-primary font-display mb-4">{title}</h3>
-        <div className="h-[250px] flex items-center justify-center">
-          <p className="text-sm text-text-muted">Se necesitan mas partidas para mostrar la trayectoria.</p>
+        <div className="h-[250px] flex items-center justify-center px-6">
+          <p className="text-text-muted text-sm text-center">
+            No hay partidas en este periodo. Cambia el rango de tiempo o espera a nuevas partidas.
+          </p>
         </div>
       </GlassCard>
     );

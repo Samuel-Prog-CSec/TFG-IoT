@@ -5,18 +5,7 @@ import PropTypes from 'prop-types';
 import { cn, DURATION, EASING } from '../../lib/utils';
 import { useReducedMotion } from '../../hooks/useReducedMotion';
 import GlassCard from '../ui/GlassCard';
-
-/**
- * Determina el color RAG segun la puntuacion.
- * @param {number} score
- * @returns {'green'|'amber'|'red'|'gray'}
- */
-function getRAGColor(score) {
-  if (score == null || isNaN(score)) return 'gray';
-  if (score >= 70) return 'green';
-  if (score >= 50) return 'amber';
-  return 'red';
-}
+import { scoreToRAGWithNull as getRAGColor } from '../../constants/analyticsThresholds';
 
 /**
  * Estilos de fondo y texto segun color RAG.

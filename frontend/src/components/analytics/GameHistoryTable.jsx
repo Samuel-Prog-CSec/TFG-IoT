@@ -5,26 +5,7 @@ import PropTypes from 'prop-types';
 import { cn, formatDate } from '../../lib/utils';
 import { useReducedMotion } from '../../hooks/useReducedMotion';
 import GlassCard from '../ui/GlassCard';
-
-/**
- * Badge de tier RAG para cada partida
- */
-const TIER_BADGE = {
-  excellent: { label: 'Excelente', className: 'bg-success-base/15 text-success-base' },
-  good: { label: 'Bueno', className: 'bg-success-base/10 text-success-base/80' },
-  average: { label: 'Medio', className: 'bg-warning-base/15 text-warning-base' },
-  risk: { label: 'Bajo', className: 'bg-error-base/15 text-error-base' },
-};
-
-/**
- * Obtiene el tier de una partida segun su score
- */
-const getGameTier = (score) => {
-  if (score >= 90) return 'excellent';
-  if (score >= 70) return 'good';
-  if (score >= 50) return 'average';
-  return 'risk';
-};
+import { TIER_BADGE, scoreToTier as getGameTier } from '../../constants/analyticsThresholds';
 
 /**
  * Formatea milisegundos a formato legible (ej: "2m 30s")

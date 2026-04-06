@@ -21,6 +21,7 @@ import SelectPremium from '../ui/SelectPremium';
 import ButtonPremium from '../ui/ButtonPremium';
 import SkeletonShimmer from '../ui/SkeletonShimmer';
 import ErrorState from '../ui/ErrorState';
+import { scoreToRAG as getScoreRAGColor } from '../../constants/analyticsThresholds';
 
 /**
  * Opciones de tipo de reporte.
@@ -46,15 +47,6 @@ const FORMAT_OPTIONS = [
   { value: 'summary', label: 'Resumen' },
   { value: 'detailed', label: 'Detallado' },
 ];
-
-/**
- * Obtiene el color RAG segun la puntuacion.
- */
-function getScoreRAGColor(score) {
-  if (score >= 70) return 'green';
-  if (score >= 50) return 'amber';
-  return 'red';
-}
 
 /**
  * Componente de KPI simple para el reporte.

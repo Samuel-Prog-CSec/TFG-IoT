@@ -30,7 +30,9 @@ const classroomStudentsQuerySchema = z
     sort: z.enum(['name', 'score', 'lastPlayed', 'accuracy']).optional().default('name'),
     order: z.enum(['asc', 'desc']).optional().default('asc'),
     tier: z.enum(['risk', 'average', 'good', 'excellent']).optional(),
-    classroom: z.string().trim().max(50).optional()
+    classroom: z.string().trim().max(50).optional(),
+    contextId: objectIdSchema.optional(),
+    mechanicId: objectIdSchema.optional()
   })
   .strict();
 

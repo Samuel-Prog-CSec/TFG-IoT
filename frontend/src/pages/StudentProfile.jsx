@@ -20,29 +20,7 @@ import PerformanceByDimension from '../components/analytics/PerformanceByDimensi
 import GameHistoryTable from '../components/analytics/GameHistoryTable';
 import StrengthsWeaknesses from '../components/analytics/StrengthsWeaknesses';
 import EngagementRadar from '../components/analytics/EngagementRadar';
-
-/**
- * Tiers de rendimiento con labels y colores RAG
- */
-const TIER_CONFIG = {
-  excellent: { label: 'Excelente', className: 'bg-success-base/15 text-success-base border-success-base/30' },
-  good: { label: 'Bueno', className: 'bg-success-base/10 text-success-base/80 border-success-base/20' },
-  average: { label: 'Promedio', className: 'bg-warning-base/15 text-warning-base border-warning-base/30' },
-  risk: { label: 'Necesita apoyo', className: 'bg-error-base/15 text-error-base border-error-base/30' },
-};
-
-const scoreToRAG = (score) => {
-  if (score >= 70) return 'green';
-  if (score >= 50) return 'amber';
-  return 'red';
-};
-
-const scoreToTier = (score) => {
-  if (score >= 90) return 'excellent';
-  if (score >= 70) return 'good';
-  if (score >= 50) return 'average';
-  return 'risk';
-};
+import { TIER_CONFIG, scoreToRAG, scoreToTier } from '../constants/analyticsThresholds';
 
 const getRelativeTime = (dateStr) => {
   if (!dateStr) return 'Sin actividad';
