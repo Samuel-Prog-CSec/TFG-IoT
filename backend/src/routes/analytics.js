@@ -146,6 +146,20 @@ router.get(
   asyncHandler(analyticsController.getStudentSummary)
 );
 
+// ──────────────── Resolución de identidad seudonimizada (T-703) ────────────────
+
+/**
+ * @route   GET /api/analytics/students/identity
+ * @desc    Mapeo pseudoId → identidad para los estudiantes del profesor.
+ *          Endpoint dedicado de resolución (Art. 25 RGPD: separación PII/analytics).
+ * @access  Private (Teacher/Super Admin)
+ */
+router.get(
+  '/students/identity',
+  validateQuery(emptyObjectSchema),
+  asyncHandler(analyticsController.getStudentsIdentity)
+);
+
 // ──────────────── Rutas avanzadas (Analytics Expansion) ────────────────
 
 // — Trayectoria de aprendizaje (E01-E04) —

@@ -126,6 +126,19 @@ const SECURITY_EVENTS = {
     level: 'warn',
     message: 'Evento RFID inválido recibido',
     sentry: { threshold: 10, windowMs: 60 * 1000, level: 'warning' }
+  },
+  // Protección de datos — Seudonimización y auditoría (Art. 5.2, 16, 20, 25 RGPD)
+  DATA_RECTIFICATION: {
+    level: 'info',
+    message: 'Rectificación de datos personales de estudiante registrada (Art. 16 RGPD)'
+  },
+  DATA_ACCESS: {
+    level: 'info',
+    message: 'Acceso a datos personales de estudiante registrado'
+  },
+  DATA_EXPORT: {
+    level: 'info',
+    message: 'Exportación de datos de estudiante ejecutada (Art. 20 RGPD)'
   }
 };
 
@@ -148,7 +161,10 @@ const SENSITIVE_KEYS = new Set([
   'fingerprint',
   'secret',
   'jwt',
-  'session'
+  'session',
+  // PII de menores — Art. 25 RGPD (protección desde el diseño)
+  'studentName',
+  'playerName'
 ]);
 
 const eventCounters = new Map();

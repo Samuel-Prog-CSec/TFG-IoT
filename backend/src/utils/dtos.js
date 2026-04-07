@@ -5,6 +5,8 @@
  * @module utils/dtos
  */
 
+const { pseudonymize } = require('./pseudonymize');
+
 const toPlainObject = value =>
   value && typeof value.toObject === 'function' ? value.toObject() : value;
 
@@ -716,6 +718,60 @@ const toSystemMetricsDTOV1 = payload => ({
   memory: payload.memory
 });
 
+/**
+ * DTO para analytics seudonimizado (Art. 25 RGPD).
+ * Expone pseudoId en vez de id/name para separar PII de datos analíticos.
+ *
+ * @param {Object} user - Documento User de Mongoose
+ * @returns {Object|null} Datos analíticos sin PII directa
+ */
+const toStudentAnalyticsDTOV1 = user => {
+  if (!user) {
+    return null;
+  }
+
+  const userData = toPlainObject(user);
+  return {
+    pseudoId: pseudonymize(userData._id || userData.id),
+    profile: {
+      age: userData.profile?.age,
+      classroom: userData.profile?.classroom
+    },
+    studentMetrics: mapStudentMetrics(userData.studentMetrics),
+    consent: userData.consent
+      ? {
+          granted: userData.consent.granted,
+          purposes: userData.consent.purposes
+        }
+      : undefined
+  };
+};
+
+/**
+ * DTO para resolución de identidad (endpoint dedicado).
+ * Vincula pseudoId con datos identificativos — solo accesible por el profesor propietario.
+ *
+ * @param {Object} user - Documento User de Mongoose
+ * @returns {Object|null} Mapeo pseudoId → identidad
+ */
+const toStudentIdentityDTOV1 = user => {
+  if (!user) {
+    return null;
+  }
+
+  const userData = toPlainObject(user);
+  return {
+    pseudoId: pseudonymize(userData._id || userData.id),
+    id: toId(userData),
+    name: userData.name,
+    profile: {
+      avatar: userData.profile?.avatar,
+      age: userData.profile?.age,
+      classroom: userData.profile?.classroom
+    }
+  };
+};
+
 module.exports = {
   // Users
   toUserDTOV1,
@@ -757,5 +813,9 @@ module.exports = {
   // Analytics
   toUserStatsDTOV1,
   toPlayerStatsDTOV1,
-  toSystemMetricsDTOV1
+  toSystemMetricsDTOV1,
+
+  // Analytics seudonimizados (Art. 25 RGPD)
+  toStudentAnalyticsDTOV1,
+  toStudentIdentityDTOV1
 };

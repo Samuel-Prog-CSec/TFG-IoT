@@ -588,19 +588,19 @@ T-704 ──► T-711 (Audit trail, necesita acciones a registrar)
 
 ## 9. Estado de implementación
 
-**Última actualización:** 06-04-2026
+**Última actualización:** 08-04-2026
 
 ### Medidas técnicas implementadas
 
 | Medida | Tarea | Estado | Normativa |
 |--------|-------|--------|-----------|
 | MT-01: Eliminación de `profile.birthdate` | T-702 Fase A | ✅ Implementada | Art. 5.1.c RGPD |
-| MT-02: Seudonimización en logs/analytics | T-703 | 📋 Pendiente | Art. 25 RGPD, EDPB 01/2025 |
+| MT-02: Seudonimización en logs/analytics | T-703 | ✅ Implementada | Art. 25 RGPD, EDPB 01/2025 |
 | MT-03: Borrado efectivo (hard delete) | T-704 Fase A | ✅ Implementada | Art. 17 RGPD |
 | MT-04: Política de retención automática | T-704 Fase B | ✅ Implementada | Art. 5.1.e RGPD |
-| MT-05: Exportación de datos (portabilidad) | T-706 | 📋 Pendiente | Art. 20 RGPD |
+| MT-05: Exportación de datos (portabilidad) | T-706 | ✅ Implementada | Art. 20 RGPD |
 | MT-06: Consentimiento parental | T-702 Fase B | ✅ Implementada | Art. 8 RGPD + Art. 7 LOPDGDD |
-| MT-07: Separación PII/analytics en DTOs | T-709 (en T-703) | 📋 Pendiente | Art. 25 RGPD |
+| MT-07: Separación PII/analytics en DTOs | T-703 Fase B | ✅ Implementada | Art. 25 RGPD |
 
 ### Medidas organizativas implementadas
 
@@ -614,12 +614,12 @@ T-704 ──► T-711 (Audit trail, necesita acciones a registrar)
 
 | Medida | Tarea | Estado | Normativa |
 |--------|-------|--------|-----------|
-| Protocolo de notificación de brechas | T-712 | 📋 Pendiente | Arts. 33-34 RGPD |
-| Endpoint de rectificación con audit trail | T-713 | 📋 Pendiente | Art. 16 RGPD |
-| Evaluación riesgo re-identificación aulas pequeñas | T-714 | 📋 Pendiente | EDPB 01/2025 |
+| Protocolo de notificación de brechas | T-712 | ✅ Implementada | Arts. 33-34 RGPD |
+| Endpoint de rectificación con audit trail | T-713 | ✅ Implementada | Art. 16 RGPD |
+| Evaluación riesgo re-identificación aulas pequeñas | T-714 | ✅ Implementada | EDPB 01/2025 |
 | Derecho de oposición a analytics | T-715 | 📋 Pendiente | Art. 21 RGPD |
 | Planificación Atlas CSFLE para producción | T-716 | 📋 Pendiente | Art. 32.1.a RGPD |
-| Documentar Sentry como procesador internacional | T-717 | 📋 Pendiente | Arts. 28, 46 RGPD |
+| Documentar Sentry como procesador internacional | T-717 | ✅ Implementada | Arts. 28, 46 RGPD |
 
 ### Carencias resueltas
 
@@ -638,7 +638,13 @@ T-704 ──► T-711 (Audit trail, necesita acciones a registrar)
 - **RAT:** `backend/docs/RAT_Registro_Actividades_Tratamiento.md` (Art. 30 RGPD)
 - **EIPD:** `documentation/EIPD_Evaluacion_Impacto.md` (Art. 35 RGPD)
 - **Scripts:** `data:audit`, `data:retention`, `data:retention:dry-run`, `migrate:birthdate`
-- **Eventos de seguridad:** `DATA_CONSENT_CHANGE`, `DATA_HARD_DELETE`, `DATA_RETENTION_EXECUTED`
+- **Eventos de seguridad:** `DATA_CONSENT_CHANGE`, `DATA_HARD_DELETE`, `DATA_RETENTION_EXECUTED`, `DATA_RECTIFICATION`, `DATA_ACCESS`, `DATA_EXPORT`
+- **Seudonimización:** `backend/src/utils/pseudonymize.js` (SHA-256 truncado, 8 chars hex)
+- **Exportación datos:** `GET /api/users/:id/export-data` con `backend/src/services/dataExportService.js`
+- **k-anonimidad:** `MIN_ANALYTICS_GROUP_SIZE: 5` en `config/dataRetention.js`
+- **Evaluación re-identificación:** `documentation/Evaluacion_Riesgo_Reidentificacion.md`
+- **Protocolo brechas:** `documentation/Protocolo_Notificacion_Brechas.md` (Art. 33-34)
+- **Filtrado Sentry:** PII de menores eliminada de breadcrumbs/extras/tags en `beforeSend`
 
 ---
 

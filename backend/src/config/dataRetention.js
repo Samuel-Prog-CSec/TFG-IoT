@@ -23,5 +23,11 @@ module.exports = {
   SECURITY_LOGS_RETENTION_MONTHS: 12,
 
   /** Propósitos válidos para consentimiento parental (Art. 8 RGPD). */
-  CONSENT_PURPOSES: ['educational_tracking', 'performance_analytics']
+  CONSENT_PURPOSES: ['educational_tracking', 'performance_analytics'],
+
+  /** Tamaño mínimo de grupo para devolver datos individuales en analytics.
+   *  Si el grupo tiene menos estudiantes, solo se devuelven datos agregados
+   *  para prevenir re-identificación (k-anonimidad).
+   *  Referencia: Guía de Anonimización AEPD (2019), §4.2. */
+  MIN_ANALYTICS_GROUP_SIZE: 5
 };

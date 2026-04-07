@@ -111,10 +111,10 @@ Adicionalmente, el **Art. 5.2 RGPD** (principio de responsabilidad proactiva) ex
 | **Relación contractual** | Sentry actúa como **encargado del tratamiento** (Art. 28 RGPD). La relación se rige por los términos de servicio de Sentry que incluyen cláusulas de protección de datos |
 | **Categorías de interesados** | Profesores (adultos). Los errores del sistema pueden contener contexto con IDs de usuarios |
 | **Categorías de datos personales** | Datos técnicos del error (stack trace, URL, método HTTP), IP del profesor (filtrada opcionalmente), email del profesor (filtrada en beforeSend) |
-| **Datos de menores** | La configuración de Sentry **debe asegurar** que no se envíen datos PII de estudiantes en breadcrumbs, contexto de error o tags. El filtro `beforeSend` de Sentry debe redactar cualquier dato identificativo de menores |
-| **Transferencias internacionales** | **Sí** — Sentry, Inc. tiene sede en EE.UU. La transferencia se ampara en Standard Contractual Clauses (SCCs) según Art. 46.2.c RGPD, incorporadas en los términos de servicio de Sentry. Se recomienda documentar formalmente esta transferencia (tarea T-717) |
+| **Datos de menores** | La configuración de Sentry asegura que **no se envían datos PII de estudiantes** en breadcrumbs, contexto de error ni tags. El filtro `beforeSend` redacta: `studentName`, `playerName`, `name`, `classroom` de `event.breadcrumbs[].data`, `event.extra` y `event.tags`. **Verificado (T-717)** |
+| **Transferencias internacionales** | **Sí** — Sentry, Inc. tiene sede en EE.UU. La transferencia se ampara en Standard Contractual Clauses (SCCs) según Art. 46.2.c RGPD, incorporadas en los términos de servicio de Sentry. **Documentado formalmente (T-717)** |
 | **Plazo de conservación** | Según configuración de Sentry (por defecto 90 días para eventos) |
-| **Medidas de seguridad** | Filtro `beforeSend` que redacta email, circuit breaker para evitar sobrecarga, umbrales de severidad configurables |
+| **Medidas de seguridad** | Filtro `beforeSend` que redacta email y PII de menores (breadcrumbs/extras/tags), circuit breaker para evitar sobrecarga, umbrales de severidad configurables. **Estado: Verificado** |
 
 ---
 

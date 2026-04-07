@@ -10,6 +10,8 @@ const GamePlay = require('../models/GamePlay');
 const { sendSuccess } = require('../utils/responseHelper');
 const { cacheGet } = require('../utils/cacheHelper');
 const { ensureStudentBelongsToTeacher } = require('../utils/ownershipHelpers');
+const { toStudentIdentityDTOV1 } = require('../utils/dtos');
+const { MIN_ANALYTICS_GROUP_SIZE } = require('../config/dataRetention');
 
 /**
  * Obtiene el progreso temporal de un estudiante.
@@ -129,6 +131,33 @@ exports.getClassroomStudents = async (req, res) => {
     data.total = data.students.length;
   }
 
+  // Protección k-anonimidad: si el grupo es menor al umbral, solo datos agregados.
+  // Previene re-identificación en aulas pequeñas (Guía Anonimización AEPD, 2019).
+  if (
+    data.students &&
+    data.students.length > 0 &&
+    data.students.length < MIN_ANALYTICS_GROUP_SIZE
+  ) {
+    const students = data.students;
+    const totalGames = students.reduce(
+      (sum, s) => sum + (s.studentMetrics?.totalGamesPlayed || 0),
+      0
+    );
+    const avgScore =
+      students.reduce((sum, s) => sum + (s.studentMetrics?.averageScore || 0), 0) / students.length;
+
+    return sendSuccess(res, {
+      aggregatedOnly: true,
+      reason: `Protección k-anonimidad: grupo de ${students.length} estudiantes (mínimo ${MIN_ANALYTICS_GROUP_SIZE})`,
+      total: students.length,
+      aggregatedMetrics: {
+        totalGames,
+        averageScore: Math.round(avgScore * 10) / 10,
+        tiers: data.tiers || {}
+      }
+    });
+  }
+
   sendSuccess(res, data);
 };
 
@@ -192,4 +221,19 @@ exports.getClassroomRankings = async (req, res) => {
   const { timeRange, limit } = req.query;
   const data = await analyticsService.getTopContextsAndMechanics(teacherId, timeRange, limit);
   sendSuccess(res, data);
+};
+
+/**
+ * Resolución de identidad seudonimizada.
+ * Devuelve el mapeo pseudoId → datos identificativos para los estudiantes del profesor.
+ * Endpoint dedicado que separa PII de datos analíticos (Art. 25 RGPD).
+ * @route GET /api/analytics/students/identity
+ */
+exports.getStudentsIdentity = async (req, res) => {
+  const teacherId = req.user._id.toString();
+  const students = await userRepository.find(
+    { createdBy: teacherId, role: 'student', status: 'active' },
+    { select: 'name profile.avatar profile.age profile.classroom' }
+  );
+  sendSuccess(res, students.map(toStudentIdentityDTOV1));
 };

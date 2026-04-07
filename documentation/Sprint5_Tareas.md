@@ -296,7 +296,7 @@ Crear la página `/students/:studentId` que permita al profesor consultar el pro
 
 ---
 
-### T-701: 🛡️ Auditoría de datos personales, RAT y Evaluación de Impacto (EIPD) 📋
+### T-701: 🛡️ Auditoría de datos personales, RAT y Evaluación de Impacto (EIPD) ✅
 
 **Consolida:** T-701 + T-707
 **Prioridad:** P0 | **Tamaño:** L (1-2 días) | **Dependencias:** Ninguna
@@ -347,7 +347,7 @@ La plataforma trata datos personales de menores de 4-8 años (colectivo especial
 
 ---
 
-### T-702: 🛡️ Minimización de datos y consentimiento parental para estudiantes 📋
+### T-702: 🛡️ Minimización de datos y consentimiento parental para estudiantes ✅
 
 **Consolida:** T-702 + T-708
 **Prioridad:** P0 | **Tamaño:** M (4-8h) | **Dependencias:** T-701
@@ -907,7 +907,7 @@ Mejora integral de la experiencia visual de las partidas: GameOverScreen con res
 
 ---
 
-### T-703: 🛡️ Seudonimización y separación de datos identificativos en analytics 📋
+### T-703: 🛡️ Seudonimización y separación de datos identificativos en analytics ✅
 
 **Consolida:** T-703 + T-709
 **Prioridad:** P1 | **Tamaño:** L (1-2 días) | **Dependencias:** T-701
@@ -949,7 +949,7 @@ Los logs de Pino pueden registrar datos identificativos de estudiantes, y los en
 
 ---
 
-### T-704: 🛡️ Borrado efectivo y política de retención de datos de estudiantes 📋
+### T-704: 🛡️ Borrado efectivo y política de retención de datos de estudiantes ✅
 
 **Consolida:** T-704 + T-705
 **Prioridad:** P1 | **Tamaño:** XL (> 2 días) | **Dependencias:** T-702
@@ -1010,7 +1010,7 @@ Dos capacidades complementarias para el ciclo de vida de datos:
 
 ---
 
-### T-706: 🛡️ Derecho a la portabilidad — Endpoint de exportación de datos de estudiante 📋
+### T-706: 🛡️ Derecho a la portabilidad — Endpoint de exportación de datos de estudiante ✅
 
 **Prioridad:** P1 | **Tamaño:** M (4-8h) | **Dependencias:** T-701
 **Origen:** Auditoría de protección de datos — Art. 20 RGPD (derecho a la portabilidad de datos)
@@ -1478,7 +1478,7 @@ Dashboard vacío con card de bienvenida con pasos visuales (crear alumnos, explo
 
 ---
 
-### T-710: 🛡️ Información de privacidad y audit trail de acceso a datos 📋
+### T-710: 🛡️ Información de privacidad y audit trail de acceso a datos 📋 (parcial: audit trail en T-713)
 
 **Consolida:** T-710 + T-711
 **Prioridad:** P3 | **Tamaño:** M (4-8h) | **Dependencias:** T-704, T-703
@@ -1533,7 +1533,7 @@ Dos piezas de cumplimiento RGPD:
 
 ---
 
-### T-712: 🛡️ Protocolo de notificación de brechas de seguridad 📋
+### T-712: 🛡️ Protocolo de notificación de brechas de seguridad ✅
 
 **Prioridad:** P2 | **Tamaño:** M (4-8h) | **Dependencias:** T-701
 **Origen:** Arts. 33 y 34 RGPD — obligación de notificación a la autoridad de control en 72h y al interesado si hay alto riesgo
@@ -1557,7 +1557,7 @@ Documentar el procedimiento de notificación de brechas de seguridad que involuc
 
 ---
 
-### T-713: 🛡️ Endpoint de rectificación de datos con audit trail 📋
+### T-713: 🛡️ Endpoint de rectificación de datos con audit trail ✅
 
 **Prioridad:** P2 | **Tamaño:** S (2-4h) | **Dependencias:** T-702
 **Origen:** Art. 16 RGPD — derecho de rectificación
@@ -1579,7 +1579,7 @@ Aunque la rectificación se puede realizar via `PUT /api/users/:id`, no existe u
 
 ---
 
-### T-714: 🛡️ Evaluación de riesgo de re-identificación en aulas pequeñas 📋
+### T-714: 🛡️ Evaluación de riesgo de re-identificación en aulas pequeñas ✅
 
 **Prioridad:** P2 | **Tamaño:** S (2-4h) | **Dependencias:** T-703
 **Origen:** Directrices EDPB 01/2025 sobre seudonimización; Considerando 26 RGPD (identificabilidad en contexto)
@@ -1647,7 +1647,7 @@ MongoDB Atlas proporciona cifrado en reposo (AES-256) por defecto y Client-Side 
 
 ---
 
-### T-717: 🛡️ Documentar Sentry como procesador internacional 📋
+### T-717: 🛡️ Documentar Sentry como procesador internacional ✅
 
 **Prioridad:** P2 | **Tamaño:** S (2-4h) | **Dependencias:** T-701
 **Origen:** Arts. 28 y 46 RGPD — procesadores y transferencias internacionales

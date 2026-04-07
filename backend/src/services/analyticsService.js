@@ -354,6 +354,7 @@ async function getClassroomDifficulties(teacherId) {
 // ══════════════════════════════════════════════════════════════════════
 
 const userRepository = require('../repositories/userRepository');
+const { pseudonymize } = require('../utils/pseudonymize');
 
 /**
  * Rangos de rendimiento para clasificación de estudiantes.
@@ -426,6 +427,7 @@ async function getClassroomStudents(
 
     return {
       id: student._id.toString(),
+      pseudoId: pseudonymize(student._id),
       name: student.name,
       avatar: student.profile?.avatar || null,
       classroom: student.profile?.classroom || null,
@@ -895,6 +897,7 @@ async function getStudentSummary(studentId, timeRange = '30d') {
     student: student
       ? {
           id: student._id.toString(),
+          pseudoId: pseudonymize(student._id),
           name: student.name,
           avatar: student.profile?.avatar || null,
           classroom: student.profile?.classroom || null,

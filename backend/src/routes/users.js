@@ -17,11 +17,12 @@ const {
   getStudentsByTeacher,
   transferStudent,
   updateConsent,
-  hardDeleteUser
+  hardDeleteUser,
+  exportStudentData
 } = require('../controllers/userController');
 
 const { authenticate, requireRole } = require('../middlewares/auth');
-const { createResourceRateLimiter } = require('../config/security');
+const { createResourceRateLimiter, exportDataRateLimiter } = require('../config/security');
 const { validateBody, validateQuery, validateParams } = require('../middlewares/validation');
 const {
   createStudentSchema,
@@ -64,6 +65,23 @@ router.get(
   validateParams(teacherIdParamsSchema),
   validateQuery(teacherStudentsQuerySchema),
   asyncHandler(getStudentsByTeacher)
+);
+
+/**
+ * @route   GET /api/users/:id/export-data
+ * @desc    Exportar todos los datos personales de un estudiante (portabilidad)
+ * @access  Private (Teacher propietario, Super Admin)
+ * @validation params: userIdParamsSchema
+ * @normativa Art. 20 RGPD (derecho a la portabilidad de datos)
+ */
+router.get(
+  '/:id/export-data',
+  authenticate,
+  requireRole('teacher', 'super_admin'),
+  exportDataRateLimiter,
+  validateParams(userIdParamsSchema),
+  validateQuery(emptyObjectSchema),
+  asyncHandler(exportStudentData)
 );
 
 /**

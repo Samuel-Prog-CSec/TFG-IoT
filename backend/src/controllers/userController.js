@@ -21,6 +21,8 @@ const { revokeAllUserTokens } = require('../middlewares/auth');
 const { disconnectUserSockets } = require('../utils/socketUtils');
 const { getRequestContext, logSecurityEvent } = require('../utils/securityLogger');
 const { buildFilter } = require('../utils/filterBuilder');
+const { pseudonymize } = require('../utils/pseudonymize');
+const dataExportService = require('../services/dataExportService');
 
 /**
  * Mappings para construir filtros de búsqueda de usuarios.
@@ -204,11 +206,8 @@ const createUser = async (req, res) => {
     });
 
     logger.info('Alumno creado por super admin', {
-      studentId: student._id,
-      studentName: student.name,
-      classroom: student.profile?.classroom,
-      createdBy: req.user._id,
-      teacherName: req.user.name
+      studentPseudoId: pseudonymize(student._id),
+      createdBy: req.user._id
     });
 
     sendCreated(res, toStudentDTOV1(student), 'Alumno creado exitosamente');
@@ -223,10 +222,8 @@ const createUser = async (req, res) => {
       if (existingStudent) {
         logger.warn('Intento de crear alumno duplicado por admin', {
           adminId: req.user._id,
-          studentName: req.body.name,
-          classroom: req.body.profile?.classroom,
-          teacherId: req.body.teacherId,
-          existingStudentId: existingStudent._id
+          existingStudentPseudoId: pseudonymize(existingStudent._id),
+          teacherId: req.body.teacherId
         });
 
         throw new ConflictError(error.message, {
@@ -345,7 +342,36 @@ const updateUser = async (req, res) => {
     });
   }
 
+  // Capturar valores PII originales para audit trail de rectificación (Art. 16 RGPD)
+  const originalPII =
+    user.role === 'student'
+      ? { name: user.name, age: user.profile?.age, classroom: user.profile?.classroom }
+      : null;
+
   updateMutableUserFields({ user, name, profile, status });
+
+  // Registrar rectificación de datos de menores si cambiaron campos PII
+  if (originalPII) {
+    const rectifiedFields = [];
+    if (name && name.trim() !== originalPII.name) {
+      rectifiedFields.push('name');
+    }
+    if (profile?.age !== undefined && profile.age !== originalPII.age) {
+      rectifiedFields.push('profile.age');
+    }
+    if (profile?.classroom !== undefined && profile.classroom !== originalPII.classroom) {
+      rectifiedFields.push('profile.classroom');
+    }
+
+    if (rectifiedFields.length > 0) {
+      logSecurityEvent('DATA_RECTIFICATION', {
+        ...getRequestContext(req),
+        studentPseudoId: pseudonymize(user._id),
+        rectifiedFields,
+        rectifiedBy: req.user._id
+      });
+    }
+  }
 
   await user.save();
 
@@ -562,10 +588,9 @@ const transferStudent = async (req, res) => {
 
   const fromTeacherId = student.createdBy;
 
-  // Registrar cambios para auditoría (log)
+  // Registrar cambios para auditoría (log) — seudonimizado (Art. 25 RGPD)
   logger.info('Iniciando transferencia de alumno', {
-    studentId: student._id,
-    studentName: student.name,
+    studentPseudoId: pseudonymize(student._id),
     fromTeacher: fromTeacherId,
     toTeacher: newTeacherId,
     initiatedBy: req.user._id,
@@ -580,8 +605,7 @@ const transferStudent = async (req, res) => {
 
   logSecurityEvent('STUDENT_TRANSFER', {
     ...getRequestContext(req),
-    studentId: student._id,
-    studentName: student.name,
+    studentPseudoId: pseudonymize(student._id),
     fromTeacher: fromTeacherId,
     toTeacher: newTeacherId,
     initiatedBy: req.user._id,
@@ -665,6 +689,33 @@ const hardDeleteUser = async (req, res) => {
   );
 };
 
+/**
+ * Exportar datos personales de un estudiante (Art. 20 RGPD — portabilidad).
+ * Genera un paquete JSON descargable con todos los datos del estudiante.
+ *
+ * GET /api/users/:id/export-data
+ */
+const exportStudentData = async (req, res) => {
+  const { id } = req.params;
+  const data = await dataExportService.exportStudentData(id, req.user);
+
+  logSecurityEvent('DATA_EXPORT', {
+    ...getRequestContext(req),
+    studentPseudoId: pseudonymize(id),
+    exportedBy: req.user._id
+  });
+
+  const pseudoId = pseudonymize(id);
+  const date = new Date().toISOString().split('T')[0];
+
+  res.setHeader('Content-Type', 'application/json; charset=utf-8');
+  res.setHeader(
+    'Content-Disposition',
+    `attachment; filename="student-data-${pseudoId}-${date}.json"`
+  );
+  res.json(data);
+};
+
 module.exports = {
   getUsers,
   getUserById,
@@ -675,5 +726,6 @@ module.exports = {
   getStudentsByTeacher,
   transferStudent,
   updateConsent,
-  hardDeleteUser
+  hardDeleteUser,
+  exportStudentData
 };
