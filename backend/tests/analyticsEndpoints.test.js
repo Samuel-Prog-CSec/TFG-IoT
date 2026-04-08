@@ -201,10 +201,11 @@ describe('Analytics Endpoints (T-601)', () => {
 
       expect(res.statusCode).toBe(200);
       expect(res.body.success).toBe(true);
-      expect(Array.isArray(res.body.data)).toBe(true);
-      expect(res.body.data.length).toBe(5);
+      // La respuesta ahora es { students: [...], total: N } (k-anonimidad fix)
+      expect(res.body.data.students).toBeDefined();
+      expect(res.body.data.students.length).toBe(5);
 
-      const first = res.body.data[0];
+      const first = res.body.data.students[0];
       expect(first).toHaveProperty('id');
       expect(first).toHaveProperty('name');
       expect(first).toHaveProperty('tier');
@@ -218,9 +219,15 @@ describe('Analytics Endpoints (T-601)', () => {
         .set(makeAuthHeaders(token));
 
       expect(res.statusCode).toBe(200);
-      // Alumno Riesgo (30) y Alumno Nuevo (0) están en riesgo
-      expect(res.body.data.length).toBe(2);
-      res.body.data.forEach(s => expect(s.tier).toBe('risk'));
+      // Alumno Riesgo (30) y Alumno Nuevo (0) están en riesgo — <5 activa k-anonimidad
+      const payload = res.body.data;
+      // Con tier=risk solo 2 alumnos → k-anonimidad se activa (< 5)
+      if (payload.aggregatedOnly) {
+        expect(payload.total).toBe(2);
+      } else {
+        expect(payload.students.length).toBe(2);
+        payload.students.forEach(s => expect(s.tier).toBe('risk'));
+      }
     });
 
     it('debe filtrar por classroom', async () => {
@@ -229,7 +236,13 @@ describe('Analytics Endpoints (T-601)', () => {
         .set(makeAuthHeaders(token));
 
       expect(res.statusCode).toBe(200);
-      expect(res.body.data.length).toBe(2);
+      // classroom=A2 tiene 2 alumnos → k-anonimidad se activa
+      const payload = res.body.data;
+      if (payload.aggregatedOnly) {
+        expect(payload.total).toBe(2);
+      } else {
+        expect(payload.students.length).toBe(2);
+      }
     });
 
     it('debe ordenar por score desc', async () => {
@@ -238,7 +251,7 @@ describe('Analytics Endpoints (T-601)', () => {
         .set(makeAuthHeaders(token));
 
       expect(res.statusCode).toBe(200);
-      const scores = res.body.data.map(s => s.studentMetrics.averageScore);
+      const scores = res.body.data.students.map(s => s.studentMetrics.averageScore);
       expect(scores).toEqual([...scores].sort((a, b) => b - a));
     });
 
@@ -444,7 +457,7 @@ describe('Analytics Endpoints (T-601)', () => {
         .set(makeAuthHeaders(token));
 
       expect(res.statusCode).toBe(200);
-      const student = res.body.data[0];
+      const student = res.body.data.students[0];
 
       // Campos de primer nivel
       expect(student).toHaveProperty('id');
@@ -605,7 +618,7 @@ describe('Analytics Endpoints (T-601)', () => {
         .set(makeAuthHeaders(token));
 
       expect(res.statusCode).toBe(200);
-      const rates = res.body.data.map(s => s.accuracyRate);
+      const rates = res.body.data.students.map(s => s.accuracyRate);
       for (let i = 1; i < rates.length; i++) {
         expect(rates[i - 1]).toBeGreaterThanOrEqual(rates[i]);
       }
@@ -617,9 +630,14 @@ describe('Analytics Endpoints (T-601)', () => {
         .set(makeAuthHeaders(token));
 
       expect(res.statusCode).toBe(200);
-      // Solo Alumno Excelente (95)
-      expect(res.body.data.length).toBe(1);
-      expect(res.body.data[0].studentMetrics.averageScore).toBeGreaterThanOrEqual(90);
+      // Solo Alumno Excelente (95) — 1 alumno → k-anonimidad se activa
+      const payload = res.body.data;
+      if (payload.aggregatedOnly) {
+        expect(payload.total).toBe(1);
+      } else {
+        expect(payload.students.length).toBe(1);
+        expect(payload.students[0].studentMetrics.averageScore).toBeGreaterThanOrEqual(90);
+      }
     });
 
     it('trends: timeRange=30d debe funcionar', async () => {

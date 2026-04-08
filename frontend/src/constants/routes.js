@@ -42,6 +42,9 @@ export const ROUTES = {
   // Admin (solo super_admin)
   ADMIN_APPROVALS: '/admin/approvals',
   STUDENT_MANAGEMENT: '/admin/students',
+
+  // Publicas
+  PRIVACY: '/privacy',
 };
 
 /**

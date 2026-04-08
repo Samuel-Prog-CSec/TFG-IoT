@@ -270,8 +270,45 @@ const userSchema = new mongoose.Schema(
       withdrawnAt: {
         type: Date,
         default: null
+      },
+      // Metadata del canal de recogida — Art. 7.1 RGPD (demostrar consentimiento)
+      channel: {
+        type: String,
+        trim: true,
+        enum: ['web_form', 'api', 'admin_panel'],
+        default: 'web_form'
+      },
+      ipAddress: {
+        type: String,
+        trim: true
+      },
+      userAgent: {
+        type: String,
+        trim: true
       }
     },
+    // Historial de cambios de consentimiento — Art. 7.1 RGPD (demostrar consentimiento)
+    // Cada otorgamiento o revocación se registra para trazabilidad completa.
+    consentHistory: [
+      {
+        action: {
+          type: String,
+          enum: ['granted', 'withdrawn']
+        },
+        grantedBy: String,
+        timestamp: {
+          type: Date,
+          default: Date.now
+        },
+        policyVersion: String,
+        purposes: [
+          {
+            type: String,
+            enum: ['educational_tracking', 'performance_analytics']
+          }
+        ]
+      }
+    ],
     currentSessionId: {
       type: String,
       default: null,

@@ -203,9 +203,9 @@ Se han identificado los siguientes flujos de tratamiento de datos de estudiantes
 ```
                    ┌─────────────────────────────────┐
                    │  CREACIÓN DE ESTUDIANTE          │
-                   │  Profesor → POST /api/users      │
-                   │  Datos: name, birthdate, age,    │
-                   │  classroom, avatar                │
+                   │  Super Admin → POST /api/users   │
+                   │  Datos: name, age, classroom,    │
+                   │  avatar, consent (obligatorio)   │
                    └──────────────┬──────────────────┘
                                   │
                    ┌──────────────▼──────────────────┐
@@ -224,10 +224,11 @@ Se han identificado los siguientes flujos de tratamiento de datos de estudiantes
    └─────────────────────┘  └────────────────┘  └─────────────────┘
                                   │
                    ┌──────────────▼──────────────────┐
-                   │  ELIMINACIÓN (actual)            │
-                   │  Soft delete: status='inactive'  │
-                   │  Datos permanecen en MongoDB     │
-                   │  GamePlays NO se eliminan        │
+                   │  ELIMINACIÓN (implementado)      │
+                   │  Soft: status='inactive'         │
+                   │  Hard: DELETE /api/users/:id/data │
+                   │  → cascada User+GamePlays+Redis  │
+                   │  Solo super_admin (ADR-032)      │
                    └─────────────────────────────────┘
 ```
 
@@ -337,7 +338,7 @@ Las medidas técnicas se organizan por prioridad de implementación:
 
 **Por qué:** El soft delete actual (cambiar `status` a `'inactive'`) **no satisface** el derecho de supresión del Art. 17 RGPD. Los datos siguen existiendo en la base de datos y podrían ser consultados. El Considerando 65 enfatiza que este derecho es especialmente relevante para datos recogidos de menores.
 
-**Cómo:** Endpoint protegido (solo teacher propietario o super_admin) con confirmación explícita. Cascada de eliminación: User → GamePlays (por playerId) → tokens Redis → logs de transferencia.
+**Cómo:** Endpoint protegido (solo super_admin — operación RGPD centralizada, ADR-032) con confirmación explícita (`confirmDeletion: true`). Cascada de eliminación: User → GamePlays (por playerId) → tokens Redis → WebSocket disconnect. Ownership check como defense in depth (ADR-031).
 
 #### MT-04: Política de retención con limpieza automática
 
@@ -369,7 +370,7 @@ Las medidas técnicas se organizan por prioridad de implementación:
 
 **Por qué:** El Art. 8 RGPD y el Art. 7 LOPDGDD exigen consentimiento del titular de la patria potestad para menores de 14 años. Además, el RGPD requiere que el responsable sea capaz de **demostrar** que se obtuvo el consentimiento (Art. 7.1). Sin un registro técnico, no hay forma de probarlo.
 
-**Cómo:** Nuevos campos en el modelo User (para role `student`): `consent.granted`, `consent.grantedBy`, `consent.grantedAt`, `consent.purposes[]`, `consent.policyVersion`. Validación: no se permite crear un estudiante sin consentimiento registrado.
+**Cómo:** Nuevos campos en el modelo User (para role `student`): `consent.granted`, `consent.grantedBy`, `consent.grantedAt`, `consent.purposes[]`, `consent.policyVersion`, `consent.withdrawnAt`, `consent.channel`, `consent.ipAddress`, `consent.userAgent` (metadata de canal — ADR-031). Array `consentHistory[]` para trazabilidad completa de otorgamientos y revocaciones (Art. 7.1 RGPD). Validación: no se permite crear un estudiante sin consentimiento registrado. Operaciones de gestión de consentimiento centralizadas en super_admin (ADR-032).
 
 #### MT-07: Separación lógica de datos identificativos y analíticos
 
@@ -429,10 +430,11 @@ El diseño actual utiliza soft delete (cambiar `status` a `'inactive'`). Esta de
 
 **Solución adoptada:** Mantener el soft delete como mecanismo por defecto para la «desactivación» de cuentas (operación reversible), e implementar un **borrado efectivo** separado como operación explícita e irreversible, con las siguientes garantías:
 
-1. **Confirmación explícita:** El profesor debe confirmar la acción con un diálogo de confirmación.
-2. **Cascada completa:** Se eliminan: documento User, todos los GamePlays con `playerId`, todos los tokens en Redis, y se limpian referencias en GameSessions.
-3. **Registro de la acción:** Se registra un log (sin PII del estudiante eliminado) que documenta que se ejerció el derecho de supresión, cuándo, y por quién.
+1. **Confirmación explícita:** El super_admin debe confirmar la acción con `confirmDeletion: true` en el body.
+2. **Cascada completa:** Se eliminan: documento User, todos los GamePlays con `playerId`, todos los tokens en Redis, y se desconectan WebSockets activos.
+3. **Registro de la acción:** Se registra un evento de seguridad `DATA_HARD_DELETE` (sin PII del estudiante eliminado) que documenta que se ejerció el derecho de supresión, cuándo, y por quién.
 4. **Irreversibilidad comunicada:** El frontend advierte claramente de que esta acción no es reversible.
+5. **Acceso centralizado:** Solo super_admin puede ejecutar el borrado (ADR-032). Ownership check como defense in depth (ADR-031).
 
 ### 5.3 Retención temporal con anonimización diferida
 

@@ -114,10 +114,10 @@ describe('Data Export Endpoint (Art. 20 RGPD)', () => {
   });
 
   describe('GET /api/users/:id/export-data', () => {
-    it('permite al profesor propietario exportar datos de su alumno', async () => {
+    it('permite al super_admin exportar datos completos de un alumno (ADR-032)', async () => {
       const res = await request(app)
         .get(`/api/users/${student._id}/export-data`)
-        .set('Authorization', `Bearer ${teacherToken}`)
+        .set('Authorization', `Bearer ${adminToken}`)
         .set('User-Agent', 'jest-test')
         .set('Accept-Language', 'en')
         .set('Accept-Encoding', 'gzip');
@@ -156,6 +156,17 @@ describe('Data Export Endpoint (Art. 20 RGPD)', () => {
       expect(data.gameHistory[0].events).toHaveLength(1);
     });
 
+    it('prohíbe al profesor exportar datos — operación centralizada en super_admin (ADR-032)', async () => {
+      const res = await request(app)
+        .get(`/api/users/${student._id}/export-data`)
+        .set('Authorization', `Bearer ${teacherToken}`)
+        .set('User-Agent', 'jest-test')
+        .set('Accept-Language', 'en')
+        .set('Accept-Encoding', 'gzip');
+
+      expect(res.status).toBe(403);
+    });
+
     it('permite al super_admin exportar datos de cualquier alumno', async () => {
       const res = await request(app)
         .get(`/api/users/${student._id}/export-data`)
@@ -168,7 +179,7 @@ describe('Data Export Endpoint (Art. 20 RGPD)', () => {
       expect(res.body.data || res.body).toHaveProperty('student');
     });
 
-    it('prohíbe a un profesor exportar datos de un alumno ajeno', async () => {
+    it('prohíbe a cualquier profesor exportar datos, incluso de alumno ajeno', async () => {
       const res = await request(app)
         .get(`/api/users/${student._id}/export-data`)
         .set('Authorization', `Bearer ${otherTeacherToken}`)
@@ -183,7 +194,7 @@ describe('Data Export Endpoint (Art. 20 RGPD)', () => {
       const fakeId = '507f1f77bcf86cd799439099';
       const res = await request(app)
         .get(`/api/users/${fakeId}/export-data`)
-        .set('Authorization', `Bearer ${teacherToken}`)
+        .set('Authorization', `Bearer ${adminToken}`)
         .set('User-Agent', 'jest-test')
         .set('Accept-Language', 'en')
         .set('Accept-Encoding', 'gzip');
@@ -200,7 +211,7 @@ describe('Data Export Endpoint (Art. 20 RGPD)', () => {
     it('incluye pseudoId en los datos exportados', async () => {
       const res = await request(app)
         .get(`/api/users/${student._id}/export-data`)
-        .set('Authorization', `Bearer ${teacherToken}`)
+        .set('Authorization', `Bearer ${adminToken}`)
         .set('User-Agent', 'jest-test')
         .set('Accept-Language', 'en')
         .set('Accept-Encoding', 'gzip');

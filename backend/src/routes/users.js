@@ -70,14 +70,14 @@ router.get(
 /**
  * @route   GET /api/users/:id/export-data
  * @desc    Exportar todos los datos personales de un estudiante (portabilidad)
- * @access  Private (Teacher propietario, Super Admin)
+ * @access  Private (Super Admin — operación RGPD centralizada, ADR-032)
  * @validation params: userIdParamsSchema
  * @normativa Art. 20 RGPD (derecho a la portabilidad de datos)
  */
 router.get(
   '/:id/export-data',
   authenticate,
-  requireRole('teacher', 'super_admin'),
+  requireRole('super_admin'),
   exportDataRateLimiter,
   validateParams(userIdParamsSchema),
   validateQuery(emptyObjectSchema),
@@ -179,14 +179,14 @@ router.post(
 /**
  * @route   PATCH /api/users/:id/consent
  * @desc    Actualizar consentimiento parental de un estudiante
- * @access  Private (Teacher propietario, Super Admin)
+ * @access  Private (Super Admin — operación RGPD centralizada, ADR-032)
  * @validation params: userIdParamsSchema | body: updateConsentSchema
  * @normativa Art. 7.3 RGPD (retirada de consentimiento), Art. 8 RGPD (consentimiento menores)
  */
 router.patch(
   '/:id/consent',
   authenticate,
-  requireRole('teacher', 'super_admin'),
+  requireRole('super_admin'),
   validateParams(userIdParamsSchema),
   validateQuery(emptyObjectSchema),
   validateBody(updateConsentSchema),
@@ -196,14 +196,14 @@ router.patch(
 /**
  * @route   DELETE /api/users/:id/data
  * @desc    Borrado efectivo (hard delete) de todos los datos de un estudiante
- * @access  Private (Teacher propietario, Super Admin)
+ * @access  Private (Super Admin — operación RGPD centralizada, ADR-032)
  * @validation params: userIdParamsSchema | body: hardDeleteSchema
  * @normativa Art. 17 RGPD (derecho de supresión), Art. 17.1.f (datos de menores)
  */
 router.delete(
   '/:id/data',
   authenticate,
-  requireRole('teacher', 'super_admin'),
+  requireRole('super_admin'),
   validateParams(userIdParamsSchema),
   validateQuery(emptyObjectSchema),
   validateBody(hardDeleteSchema),

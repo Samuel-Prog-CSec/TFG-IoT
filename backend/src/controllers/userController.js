@@ -624,12 +624,19 @@ const transferStudent = async (req, res) => {
  */
 const updateConsent = async (req, res) => {
   const { id } = req.params;
-  const consentData = req.body;
+  const consentData = {
+    ...req.body,
+    // Metadata de canal — Art. 7.1 RGPD (demostrar consentimiento)
+    channel: 'web_form',
+    ipAddress: req.ip,
+    userAgent: req.get('user-agent')
+  };
 
-  const updatedUser = await userService.updateConsent(id, consentData, req.user._id);
+  const updatedUser = await userService.updateConsent(id, consentData, req.user);
 
-  // Si se revocó, desconectar WebSocket activo del estudiante
+  // Si se revocó, revocar tokens Redis y desconectar WebSocket — Art. 7.3 RGPD
   if (!consentData.granted) {
+    await revokeAllUserTokens(id, 'consent_withdrawn', getRequestContext(req));
     const io = req.app.get('io');
     if (io) {
       disconnectUserSockets(io, id, 'CONSENT_WITHDRAWN');

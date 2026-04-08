@@ -113,6 +113,15 @@ async function exportStudentData(studentId, requestingUser) {
           withdrawnAt: student.consent.withdrawnAt
         }
       : null,
+    consentHistory: Array.isArray(student.consentHistory)
+      ? student.consentHistory.map(entry => ({
+          action: entry.action,
+          grantedBy: entry.grantedBy,
+          timestamp: entry.timestamp,
+          policyVersion: entry.policyVersion,
+          purposes: entry.purposes
+        }))
+      : [],
     metrics: student.studentMetrics
       ? {
           totalGamesPlayed: student.studentMetrics.totalGamesPlayed,
@@ -121,6 +130,8 @@ async function exportStudentData(studentId, requestingUser) {
           bestScore: student.studentMetrics.bestScore,
           totalCorrectAnswers: student.studentMetrics.totalCorrectAnswers,
           totalErrors: student.studentMetrics.totalErrors,
+          totalTimeouts: student.studentMetrics.totalTimeouts,
+          totalAbandonedGames: student.studentMetrics.totalAbandonedGames,
           averageResponseTime: student.studentMetrics.averageResponseTime,
           lastPlayedAt: student.studentMetrics.lastPlayedAt
         }

@@ -4,7 +4,7 @@
 **Encargado del tratamiento:** Plataforma Eduplay (TFG)
 **Delegado de Protección de Datos (DPD):** No aplica (TFG académico)
 **Fecha de elaboración:** 06-04-2026
-**Última actualización:** 06-04-2026
+**Última actualización:** 08-04-2026
 **Base legal del registro:** Artículo 30 del Reglamento (UE) 2016/679 (RGPD)
 
 ---
@@ -27,10 +27,10 @@ Adicionalmente, el **Art. 5.2 RGPD** (principio de responsabilidad proactiva) ex
 | **Categorías de interesados** | Menores de edad (4-8 años) — colectivo especialmente protegido (Considerando 38 RGPD) |
 | **Categorías de datos personales** | Nombre completo (`name`), edad (`profile.age`), aula (`profile.classroom`), avatar opcional (`profile.avatar`), identificador interno (`_id`), fecha de creación (`createdAt`), profesor responsable (`createdBy`, `assignedTeacher`) |
 | **Datos NO recogidos (por diseño)** | Email, contraseña, dirección, teléfono, fecha de nacimiento completa (eliminada por minimización — Art. 5.1.c), datos biométricos, datos de salud |
-| **Destinatarios** | Profesor creador (acceso completo), super_admin (acceso de gestión). No se comparten datos con terceros |
+| **Destinatarios** | Super_admin (gestión completa: creación, consentimiento, borrado, exportación — ADR-032), profesor creador (acceso de lectura y uso pedagógico). No se comparten datos con terceros |
 | **Transferencias internacionales** | No directamente. Sentry (procesador de errores) puede recibir metadatos en caso de error del sistema — ver AT-06 |
 | **Plazo de conservación** | Mientras el consentimiento parental esté vigente. Máximo 24 meses tras inactividad del estudiante, tras lo cual se aplica borrado efectivo (Art. 17 RGPD) |
-| **Medidas de seguridad** | Control de acceso por roles (RBAC), cifrado en tránsito (TLS/HTTPS), DTOs para control de exposición, rate limiting, validación de entrada (Zod), ausencia de credenciales para estudiantes |
+| **Medidas de seguridad** | Control de acceso por roles (RBAC) con operaciones RGPD centralizadas en super_admin (ADR-032), cifrado en tránsito (TLS/HTTPS), DTOs para control de exposición, rate limiting, validación de entrada (Zod), ausencia de credenciales para estudiantes, ownership check como defense in depth (ADR-031), historial de consentimiento (`consentHistory`) para trazabilidad (Art. 7.1), metadata de canal (IP, user-agent) en registro de consentimiento |
 
 ---
 
@@ -156,6 +156,10 @@ Las siguientes medidas de seguridad se aplican a **todas** las actividades de tr
 | Logging estructurado con Pino | Art. 32.1.d | Implementado |
 | Monitorización de errores con Sentry | Art. 32.1.d | Implementado |
 | Consentimiento parental obligatorio y verificable | Art. 8 + Art. 7 LOPDGDD | Implementado (T-702) |
+| Historial de consentimiento (`consentHistory`) con trazabilidad completa | Art. 7.1 | Implementado (ADR-031) |
+| Metadata de canal en consentimiento (IP, user-agent, canal) | Art. 7.1 | Implementado (ADR-031) |
+| Verificación de consentimiento activo en creación de partidas (defense in depth) | Art. 6.1 | Implementado (ADR-031) |
+| Operaciones RGPD centralizadas en super_admin (mínimo privilegio) | Art. 5.1.f + Art. 32.1.b | Implementado (ADR-032) |
 | Borrado efectivo (hard delete) con cascada | Art. 17 | Implementado (T-704) |
 | Política de retención con plazos definidos | Art. 5.1.e | Implementado (T-704) |
 

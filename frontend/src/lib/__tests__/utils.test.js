@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, afterEach } from 'vitest';
-import { cn, formatNumber, formatTime, calculateStars, delay } from '../utils';
+import { cn, formatNumber, formatTime, calculateStars, delay, downloadBlob } from '../utils';
 
 describe('utils', () => {
   describe('cn', () => {
@@ -90,6 +90,46 @@ describe('utils', () => {
       await vi.advanceTimersByTimeAsync(1000);
 
       expect(resolved).toBe(true);
+    });
+  });
+
+  describe('downloadBlob', () => {
+    afterEach(() => {
+      vi.restoreAllMocks();
+    });
+
+    it('crea enlace temporal, dispara click y revoca URL', () => {
+      const mockUrl = 'blob:http://localhost/fake-url';
+      const originalCreateObjectURL = globalThis.URL.createObjectURL;
+      const originalRevokeObjectURL = globalThis.URL.revokeObjectURL;
+
+      globalThis.URL.createObjectURL = vi.fn(() => mockUrl);
+      globalThis.URL.revokeObjectURL = vi.fn();
+
+      const mockClick = vi.fn();
+      const mockLink = {
+        href: '',
+        download: '',
+        click: mockClick
+      };
+
+      vi.spyOn(document, 'createElement').mockReturnValue(mockLink);
+      vi.spyOn(document.body, 'appendChild').mockImplementation(() => {});
+      vi.spyOn(document.body, 'removeChild').mockImplementation(() => {});
+
+      const blob = new Blob(['test data'], { type: 'application/json' });
+      downloadBlob(blob, 'test-file.json');
+
+      expect(globalThis.URL.createObjectURL).toHaveBeenCalledWith(blob);
+      expect(mockLink.download).toBe('test-file.json');
+      expect(mockClick).toHaveBeenCalled();
+      expect(globalThis.URL.revokeObjectURL).toHaveBeenCalledWith(mockUrl);
+      expect(document.body.appendChild).toHaveBeenCalled();
+      expect(document.body.removeChild).toHaveBeenCalled();
+
+      // Restaurar
+      globalThis.URL.createObjectURL = originalCreateObjectURL;
+      globalThis.URL.revokeObjectURL = originalRevokeObjectURL;
     });
   });
 });

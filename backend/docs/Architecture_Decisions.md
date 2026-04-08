@@ -2083,3 +2083,153 @@ Se implementan tres ejes de protección:
 - **ADR-014** (responseHelper): Los nuevos handlers usan `sendSuccess` y `sendCreated`.
 - **ADR-016** (Rate limiting): Los nuevos endpoints heredan rate limiting existente.
 - **ADR-021** (Service Layer): Las funciones `updateConsent` y `hardDeleteStudent` residen en `userService`.
+
+## ADR-031: Endurecimiento del consentimiento parental — Autorización, trazabilidad y defense in depth
+
+### Contexto (ADR-031)
+
+Una revisión de seguridad exhaustiva del flujo de consentimiento parental (implementado en ADR-030) identificó varias vulnerabilidades y limitaciones:
+
+1. **Falta de verificación de ownership** (SEC-01, CRÍTICO): La función `updateConsent` en `userService.js` no verificaba que el solicitante fuese el profesor creador (`createdBy`) del estudiante o `super_admin`. Cualquier teacher autenticado podía modificar el consentimiento de cualquier estudiante del sistema. Comparación directa con `hardDeleteStudent` que sí verificaba ownership, evidenciando un oversight.
+
+2. **Tokens no revocados al retirar consentimiento** (SEC-02, ALTO): Al revocar el consentimiento, se desconectaba el WebSocket pero no se revocaban los tokens JWT en Redis. Inconsistencia con `hardDeleteUser` que sí revocaba tokens. Si la revocación se completaba pero la revocación de tokens fallaba, existía una ventana de acceso indebido.
+
+3. **Sin historial de consentimiento** (SEC-03, ALTO): Al re-otorgar consentimiento, se reemplazaba todo el objeto `consent`, perdiendo la fecha de revocación anterior (`withdrawnAt`), el tutor anterior, y la cadena de otorgamiento-revocación-re-otorgamiento. El Art. 7.1 RGPD exige poder demostrar que se obtuvo consentimiento válido.
+
+4. **Sin check de consentimiento en gameplay** (SEC-04, MEDIO): El sistema dependía exclusivamente de `status: 'inactive'` para impedir partidas sin consentimiento. No existía verificación directa de `consent.granted` al crear un GamePlay.
+
+5. **Sin metadata de canal** (SEC-05, MEDIO): El registro de consentimiento no capturaba IP, user-agent ni canal de recogida en MongoDB. Esta información solo existía en los logs de Pino, dificultando la correlación en caso de disputa.
+
+6. **`classroom` no redactado en logs** (SEC-06, BAJO): El campo `classroom` combinado con edad constituye un quasi-identificador (según la propia evaluación T-714), pero no se incluía en `SENSITIVE_KEYS` del security logger.
+
+7. **Exportación incompleta** (SEC-08, BAJO): El endpoint de portabilidad (Art. 20 RGPD) omitía `totalTimeouts` y `totalAbandonedGames` del studentMetrics.
+
+### Decisión (ADR-031)
+
+Se implementan 7 mejoras para endurecer el flujo de consentimiento:
+
+**1. Verificación de ownership en `updateConsent` (SEC-01):**
+- La función recibe ahora el objeto `requestingUser` completo (antes solo el ID).
+- Se verifica `student.createdBy === requestingUser._id` o `requestingUser.role === 'super_admin'`.
+- Patrón idéntico al usado en `hardDeleteStudent` para consistencia.
+- Archivo: `services/userService.js`.
+
+**2. Revocación de tokens al retirar consentimiento (SEC-02):**
+- Se añade `revokeAllUserTokens(id, 'consent_withdrawn', requestContext)` en el controller antes de desconectar WebSocket.
+- Patrón idéntico a `hardDeleteUser`.
+- Archivo: `controllers/userController.js`.
+
+**3. Historial de consentimiento (SEC-03):**
+- Nuevo campo `consentHistory: [{ action, grantedBy, timestamp, policyVersion, purposes }]` en el schema User.
+- Cada otorgamiento o revocación genera un `$push` atómico al array.
+- El historial se incluye en el DTO de estudiante y en la exportación de datos (Art. 20 RGPD).
+- Archivos: `models/User.js`, `services/userService.js`, `utils/dtos.js`, `services/dataExportService.js`.
+
+**4. Check de consentimiento en gameplay (SEC-04):**
+- Se añade verificación `player.consent?.granted === true` en `validatePlayer()` de `gamePlayService.js`.
+- Complementa la verificación implícita vía `status: 'inactive'` con un check directo (defense in depth).
+- Archivo: `services/gamePlayService.js`.
+
+**5. Metadata de canal en consentimiento (SEC-05):**
+- Nuevos campos opcionales en el subdocumento `consent`: `channel`, `ipAddress`, `userAgent`.
+- El controller inyecta estos datos desde `req.ip` y `req.get('user-agent')` antes de pasar al service.
+- Archivos: `models/User.js`, `controllers/userController.js`, `services/userService.js`.
+
+**6. Redacción de `classroom` en logs (SEC-06):**
+- Se añade `'classroom'` a `SENSITIVE_KEYS` en `securityLogger.js`.
+- Archivo: `utils/securityLogger.js`.
+
+**7. Exportación completa de métricas (SEC-08):**
+- Se añaden `totalTimeouts` y `totalAbandonedGames` al bloque de métricas de `dataExportService.js`.
+- Archivo: `services/dataExportService.js`.
+
+### Alternativas Consideradas (ADR-031)
+
+1. **Colección separada `ConsentEvents` para historial**: Descartada. Más limpia pero añade complejidad de queries y joins. El array embebido `consentHistory` es suficiente para la escala del proyecto (un estudiante tendrá típicamente 1-3 cambios de consentimiento en su vida útil).
+
+2. **Verificación de ownership en middleware en vez de service**: Descartada. El patrón del proyecto (ADR-021) ubica las validaciones de negocio en el service layer, no en middleware. Mantener consistencia con `hardDeleteStudent`.
+
+3. **Almacenar IP hasheada en vez de en claro**: Considerada y descartada para esta fase. La IP del profesor se almacena para demostrar accountability (Art. 5.2 RGPD). Si se requiere mayor protección, se puede hashear en una fase posterior.
+
+### Consecuencias (ADR-031)
+
+**Positivas:**
+- Eliminación de vulnerabilidad crítica de autorización (SEC-01).
+- Coherencia total entre operaciones de consentimiento y borrado (mismos patrones de ownership + token revocation).
+- Trazabilidad completa del ciclo de vida del consentimiento (Art. 7.1 RGPD).
+- Defense in depth: el check de consentimiento en gameplay previene fallos en cascada si `status` no se actualiza correctamente.
+- Metadata de canal proporciona evidencia vinculada al registro de consentimiento, no solo a logs.
+
+**Negativas:**
+- El array `consentHistory` crece con cada operación (impacto negligible a la escala del proyecto).
+- La metadata de canal incluye IP en claro (aceptable para el contexto de un TFG educativo).
+
+**Relaciones:**
+- **ADR-030** (Protección de datos base): Esta ADR endurece y completa las medidas implementadas en ADR-030.
+- **ADR-021** (Service Layer): Los ownership checks siguen el patrón establecido en el service layer.
+- **ADR-016** (Rate limiting): Los endpoints afectados mantienen el rate limiting existente.
+
+## ADR-032: Centralización de operaciones RGPD en el rol Super Admin
+
+### Contexto (ADR-032)
+
+La plataforma gestiona datos de menores de 4-8 años en centros educativos. Tras implementar las capacidades de consentimiento parental (ADR-030) y su endurecimiento (ADR-031), se identificó que tres endpoints RGPD permitían acceso a `teacher` además de `super_admin`:
+
+- `PATCH /api/users/:id/consent` — Otorgar/revocar consentimiento parental
+- `DELETE /api/users/:id/data` — Borrado efectivo de datos (Art. 17 RGPD)
+- `GET /api/users/:id/export-data` — Exportación de datos portables (Art. 20 RGPD)
+
+En el flujo real de un centro educativo, estas operaciones no corresponden al profesor individual sino a la **dirección del centro** (jefe de estudios, director, secretaría), que es quien:
+
+1. Recibe las solicitudes de los tutores legales (matrícula, revocación, ejercicio de derechos ARCO).
+2. Actúa como punto de contacto ante la AEPD.
+3. Es el **Responsable del Tratamiento** según el Art. 4.7 RGPD (no el profesor individual).
+
+### Decisión (ADR-032)
+
+Centralizar todas las operaciones RGPD sobre datos de estudiantes en el rol `super_admin`, dejando al `teacher` exclusivamente las funciones pedagógicas:
+
+**Rol Super Admin (dirección del centro):**
+- Crear estudiantes con consentimiento parental obligatorio (ya era así)
+- Actualizar/transferir estudiantes (ya era así)
+- Otorgar y revocar consentimiento parental
+- Ejecutar borrado efectivo de datos (Art. 17)
+- Exportar datos portables de estudiantes (Art. 20)
+- Acceder a la futura página de información de privacidad (T-710)
+
+**Rol Teacher (profesor):**
+- Gestionar contextos educativos, mazos de tarjetas y sesiones de juego
+- Lanzar y supervisar partidas en tiempo real
+- Consultar analytics y estadísticas de sus alumnos (filtrados por `createdBy`)
+- Sin acceso a operaciones de consentimiento, borrado ni exportación
+
+**Cambios técnicos realizados:**
+- `routes/users.js`: Los tres endpoints cambian `requireRole('teacher', 'super_admin')` a `requireRole('super_admin')`.
+- Los ownership checks en `userService.js` y `dataExportService.js` se mantienen como defense in depth (si en el futuro se amplía el acceso, la protección ya existe).
+- Los JSDoc de las rutas se actualizan para reflejar el nuevo nivel de acceso.
+
+### Alternativas Consideradas (ADR-032)
+
+1. **Mantener acceso de teacher con ownership check**: Descartada. Aunque técnicamente seguro (con el fix de SEC-01 en ADR-031), no refleja la realidad organizativa de un centro educativo. Los profesores no gestionan consentimiento ni ejercen derechos ARCO — eso es responsabilidad de la dirección.
+
+2. **Crear rol intermedio `data_officer`**: Descartada. Añadir un tercer rol con login para una plataforma de alcance limitado (un centro educativo) introduce complejidad sin beneficio. El `super_admin` ya cumple esta función.
+
+3. **Permitir a teachers solo exportar, no borrar ni revocar**: Descartada. La separación parcial crea ambigüedad sobre responsabilidades y dificulta explicar el modelo de acceso en la documentación de privacidad.
+
+### Consecuencias (ADR-032)
+
+**Positivas:**
+- **Principio de mínimo privilegio**: Los profesores solo acceden a lo que necesitan para enseñar.
+- **Alineación con la realidad organizativa**: Las operaciones RGPD las gestiona quien legalmente responde por ellas (la dirección del centro).
+- **Simplicidad de auditoría**: Todas las acciones sobre datos de menores las ejecuta un único rol centralizado, facilitando el audit trail.
+- **Menor superficie de ataque**: Menos usuarios con permisos sensibles = menor riesgo de uso indebido (accidental o malintencionado).
+- **Claridad para la memoria del TFG**: El modelo de roles es limpio y fácil de justificar académicamente.
+
+**Negativas:**
+- Si el super_admin no está disponible, no se puede revocar consentimiento ni exportar datos hasta que vuelva. Mitigación: en un centro real habría más de un super_admin.
+- Requiere que el centro tenga al menos una persona con rol super_admin permanentemente accesible.
+
+**Relaciones:**
+- **ADR-030** (Protección de datos base): Esta ADR restringe quién ejecuta las operaciones definidas en ADR-030.
+- **ADR-031** (Endurecimiento del consentimiento): Los ownership checks de ADR-031 se mantienen como defense in depth.
+- **ADR-008** (Gobierno de identidades centrado en Super Admin): Esta ADR extiende el principio de ADR-008 a las operaciones RGPD.

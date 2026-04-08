@@ -146,7 +146,16 @@ const toStudentDTOV1 = user => {
           policyVersion: userData.consent.policyVersion,
           withdrawnAt: userData.consent.withdrawnAt
         }
-      : undefined
+      : undefined,
+    consentHistory: Array.isArray(userData.consentHistory)
+      ? userData.consentHistory.map(entry => ({
+          action: entry.action,
+          grantedBy: entry.grantedBy,
+          timestamp: entry.timestamp,
+          policyVersion: entry.policyVersion,
+          purposes: entry.purposes
+        }))
+      : []
   };
 };
 
@@ -175,6 +184,7 @@ const toUserSummaryDTOV1 = user => {
           classroom: userData.profile.classroom
         }
       : undefined,
+    consent: userData.consent ? { granted: userData.consent.granted } : undefined,
     createdBy: toId(userData.createdBy),
     createdAt: userData.createdAt,
     updatedAt: userData.updatedAt

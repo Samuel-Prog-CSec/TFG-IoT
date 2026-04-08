@@ -167,10 +167,10 @@ async function createStudent(studentData) {
  * @param {Object} consentData - Datos del consentimiento
  * @param {boolean} consentData.granted - Si se otorga o revoca
  * @param {string} [consentData.grantedBy] - Nombre del tutor (obligatorio si granted=true)
- * @param {string} requestingUserId - ID del usuario que solicita el cambio
+ * @param {Object} requestingUser - Usuario que solicita el cambio (req.user)
  * @returns {Promise<Object>} Estudiante actualizado
  */
-async function updateConsent(studentId, consentData, requestingUserId) {
+async function updateConsent(studentId, consentData, requestingUser) {
   const student = await userRepository.findById(studentId);
 
   if (!student) {
@@ -180,21 +180,53 @@ async function updateConsent(studentId, consentData, requestingUserId) {
     throw new ValidationError('El consentimiento parental solo aplica a estudiantes');
   }
 
+  // Verificar ownership: solo profesor creador o super_admin — Art. 5.1.f RGPD
+  const isOwner = student.createdBy?.toString() === requestingUser._id.toString();
+  const isSuperAdmin = requestingUser.role === 'super_admin';
+  if (!isOwner && !isSuperAdmin) {
+    throw new ForbiddenError(
+      'No tienes permiso para modificar el consentimiento de este estudiante'
+    );
+  }
+
   const updates = {};
+
+  // Registrar entrada en historial de consentimiento — Art. 7.1 RGPD (demostrar consentimiento)
+  const currentConsent = student.consent?.toObject?.() || student.consent || {};
+  const historyEntry = {
+    action: consentData.granted ? 'granted' : 'withdrawn',
+    grantedBy: consentData.granted ? consentData.grantedBy : currentConsent.grantedBy,
+    timestamp: new Date(),
+    policyVersion: consentData.granted
+      ? consentData.policyVersion || currentConsent.policyVersion || '1.0'
+      : currentConsent.policyVersion,
+    purposes: consentData.granted
+      ? consentData.purposes ||
+        currentConsent.purposes || ['educational_tracking', 'performance_analytics']
+      : currentConsent.purposes
+  };
+
+  // Metadata de canal para trazabilidad (si la proporciona el controller)
+  const channelMetadata = {
+    ...(consentData.channel && { channel: consentData.channel }),
+    ...(consentData.ipAddress && { ipAddress: consentData.ipAddress }),
+    ...(consentData.userAgent && { userAgent: consentData.userAgent })
+  };
 
   if (consentData.granted === false) {
     // Revocación — Art. 7.3 RGPD + Art. 17.1.b RGPD (supresión si se retira consentimiento)
     updates.consent = {
-      ...(student.consent?.toObject?.() || student.consent || {}),
+      ...currentConsent,
       granted: false,
-      withdrawnAt: new Date()
+      withdrawnAt: new Date(),
+      ...channelMetadata
     };
     // La revocación desactiva automáticamente al estudiante
     updates.status = 'inactive';
 
     logger.warn('Consentimiento parental revocado — estudiante desactivado', {
       studentId,
-      revokedBy: requestingUserId
+      revokedBy: requestingUser._id
     });
   } else {
     // Otorgamiento o re-otorgamiento
@@ -204,16 +236,21 @@ async function updateConsent(studentId, consentData, requestingUserId) {
       grantedAt: new Date(),
       purposes: consentData.purposes || ['educational_tracking', 'performance_analytics'],
       policyVersion: consentData.policyVersion || '1.0',
-      withdrawnAt: null
+      withdrawnAt: null,
+      ...channelMetadata
     };
 
     logger.info('Consentimiento parental otorgado', {
       studentId,
-      grantedBy: requestingUserId
+      grantedBy: requestingUser._id
     });
   }
 
-  return userRepository.updateById(studentId, updates);
+  // Usar $set + $push en una sola operación atómica
+  return userRepository.updateById(studentId, {
+    $set: updates,
+    $push: { consentHistory: historyEntry }
+  });
 }
 
 /**

@@ -164,7 +164,9 @@ const SENSITIVE_KEYS = new Set([
   'session',
   // PII de menores — Art. 25 RGPD (protección desde el diseño)
   'studentName',
-  'playerName'
+  'playerName',
+  // Quasi-identificador en aulas pequeñas (ver T-714, evaluación riesgo re-identificación)
+  'classroom'
 ]);
 
 const eventCounters = new Map();

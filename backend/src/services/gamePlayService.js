@@ -54,6 +54,13 @@ async function validatePlayer(playerId, sessionId) {
     throw new ValidationError('Solo los estudiantes pueden jugar partidas');
   }
 
+  // Defense in depth: verificar consentimiento activo — Art. 6.1 RGPD (licitud del tratamiento)
+  if (!player.consent?.granted) {
+    throw new ValidationError(
+      'El estudiante no tiene consentimiento parental activo. No puede participar en partidas.'
+    );
+  }
+
   // Verificar partida activa existente
   const existingPlay = await gamePlayRepository.findOne({
     sessionId,

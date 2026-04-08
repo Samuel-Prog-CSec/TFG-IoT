@@ -196,13 +196,20 @@ export default function AppLayout() {
         </nav>
 
         {/* Footer Actions */}
-        <div className="p-4 border-t border-transparent bg-gradient-to-r from-transparent via-border-default/50 to-transparent">
+        <div className="p-4 border-t border-transparent bg-gradient-to-r from-transparent via-border-default/50 to-transparent space-y-1">
+          <NavLink
+            to="/privacy"
+            className="flex items-center gap-3 w-full px-4 py-3 text-text-muted hover:text-text-primary hover:bg-white/5 rounded-xl transition-colors duration-200"
+          >
+            <Shield size={20} />
+            <span className="font-medium text-sm">Privacidad</span>
+          </NavLink>
           <button
             onClick={logout}
             className="flex items-center gap-3 w-full px-4 py-3 text-error-base hover:bg-error-base/10 rounded-xl transition-colors duration-200"
           >
             <LogOut size={20} />
-            <span className="font-medium text-sm">Cerrar Sesión</span>
+            <span className="font-medium text-sm">Cerrar Sesion</span>
           </button>
         </div>
       </motion.aside>

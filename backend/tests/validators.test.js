@@ -12,7 +12,9 @@ const {
   loginSchema,
   registerTeacherSchema,
   passwordSchema,
-  createStudentSchema
+  createStudentSchema,
+  updateConsentSchema,
+  hardDeleteSchema
 } = require('../src/validators/userValidator');
 const { createCardDeckSchema } = require('../src/validators/cardDeckValidator');
 const { rfidClientEventSchema } = require('../src/validators/rfidValidator');
@@ -334,6 +336,77 @@ describe('Validators', () => {
       const event = buildValidRfidEvent();
       event.extra = 'field';
       expect(rfidClientEventSchema.safeParse(event).success).toBe(false);
+    });
+  });
+
+  // ────────────────────────────────────────────────────────────
+  // Validators RGPD — Consentimiento y borrado (ADR-031/032)
+  // ────────────────────────────────────────────────────────────
+
+  describe('updateConsentSchema (Art. 7.3 RGPD)', () => {
+    it('acepta revocación válida (granted: false)', () => {
+      expect(updateConsentSchema.safeParse({ granted: false }).success).toBe(true);
+    });
+
+    it('acepta otorgamiento con grantedBy', () => {
+      expect(
+        updateConsentSchema.safeParse({ granted: true, grantedBy: 'Ana García' }).success
+      ).toBe(true);
+    });
+
+    it('rechaza otorgamiento sin grantedBy (refine)', () => {
+      const result = updateConsentSchema.safeParse({ granted: true });
+      expect(result.success).toBe(false);
+    });
+
+    it('rechaza grantedBy demasiado corto', () => {
+      const result = updateConsentSchema.safeParse({ granted: true, grantedBy: 'A' });
+      expect(result.success).toBe(false);
+    });
+
+    it('acepta purposes opcionales válidos', () => {
+      const result = updateConsentSchema.safeParse({
+        granted: true,
+        grantedBy: 'Ana García',
+        purposes: ['educational_tracking']
+      });
+      expect(result.success).toBe(true);
+    });
+
+    it('rechaza purposes inválidos', () => {
+      const result = updateConsentSchema.safeParse({
+        granted: true,
+        grantedBy: 'Ana García',
+        purposes: ['invalid_purpose']
+      });
+      expect(result.success).toBe(false);
+    });
+
+    it('rechaza campos extra (strict mode)', () => {
+      const result = updateConsentSchema.safeParse({
+        granted: true,
+        grantedBy: 'Ana García',
+        extraField: 'hack'
+      });
+      expect(result.success).toBe(false);
+    });
+  });
+
+  describe('hardDeleteSchema (Art. 17 RGPD)', () => {
+    it('acepta confirmDeletion: true', () => {
+      expect(hardDeleteSchema.safeParse({ confirmDeletion: true }).success).toBe(true);
+    });
+
+    it('rechaza confirmDeletion: false', () => {
+      expect(hardDeleteSchema.safeParse({ confirmDeletion: false }).success).toBe(false);
+    });
+
+    it('rechaza sin confirmDeletion', () => {
+      expect(hardDeleteSchema.safeParse({}).success).toBe(false);
+    });
+
+    it('rechaza campos extra (strict mode)', () => {
+      expect(hardDeleteSchema.safeParse({ confirmDeletion: true, extra: 1 }).success).toBe(false);
     });
   });
 });
