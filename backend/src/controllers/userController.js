@@ -23,6 +23,7 @@ const { getRequestContext, logSecurityEvent } = require('../utils/securityLogger
 const { buildFilter } = require('../utils/filterBuilder');
 const { pseudonymize } = require('../utils/pseudonymize');
 const dataExportService = require('../services/dataExportService');
+const { cacheInvalidateNamespace } = require('../utils/cacheHelper');
 
 /**
  * Mappings para construir filtros de búsqueda de usuarios.
@@ -649,6 +650,9 @@ const updateConsent = async (req, res) => {
     action: consentData.granted ? 'granted' : 'withdrawn',
     changedBy: req.user._id
   });
+
+  // Invalidar cache de analytics para reflejar cambio de consent inmediatamente
+  await cacheInvalidateNamespace('cache:analytics');
 
   sendSuccess(
     res,

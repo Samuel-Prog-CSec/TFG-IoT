@@ -4,7 +4,7 @@
 **Autor:** Samuel Blanchart Pérez
 **Duración:** 4-6 semanas (Marzo - Abril 2026)
 **Versión objetivo:** 1.0.0
-**Última actualización:** 26-03-2026 (T-802, T-803, T-804, T-806, T-807 completadas — eje RFID Cards 100%)
+**Última actualización:** 08-04-2026 (T-710, T-715, T-716 completadas — eje Protección de Datos 100%)
 
 ---
 
@@ -1478,7 +1478,7 @@ Dashboard vacío con card de bienvenida con pasos visuales (crear alumnos, explo
 
 ---
 
-### T-710: 🛡️ Información de privacidad y audit trail de acceso a datos 📋 (parcial: audit trail en T-713)
+### T-710: 🛡️ Información de privacidad y audit trail de acceso a datos ✅
 
 **Consolida:** T-710 + T-711
 **Prioridad:** P3 | **Tamaño:** M (4-8h) | **Dependencias:** T-704, T-703
@@ -1518,16 +1518,16 @@ Dos piezas de cumplimiento RGPD:
 
 **Criterios de Aceptación:**
 
-- [ ] Página de privacidad accesible en `/privacy`
-- [ ] Contenido cubre los 6 puntos mínimos del Art. 13 RGPD
-- [ ] Lenguaje claro y accesible (no jurídico)
-- [ ] Enlace visible desde el layout principal
-- [ ] Utilidad `dataAccessLogger` creada con eventos definidos
-- [ ] Se registra log al acceder al perfil de un estudiante
-- [ ] Se registra log al exportar o eliminar datos de un estudiante
-- [ ] Logs usan `pseudoId` del estudiante, nunca el nombre
-- [ ] `npm test` pasa en backend
-- [ ] `npm run build` pasa en frontend
+- [x] Página de privacidad accesible en `/privacy`
+- [x] Contenido cubre los 6 puntos mínimos del Art. 13 RGPD
+- [x] Lenguaje claro y accesible (no jurídico)
+- [x] Enlace visible desde el layout principal
+- [x] Eventos DATA_ACCESS definidos en securityLogger.js e integrados en analyticsController
+- [x] Se registra log al acceder al perfil de un estudiante (getStudentProgress, getStudentDifficulties, getStudentSummary)
+- [x] Se registra log al exportar o eliminar datos de un estudiante
+- [x] Logs usan `pseudoId` del estudiante, nunca el nombre
+- [x] `npm test` pasa en backend
+- [x] `npm run build` pasa en frontend
 
 **Archivos afectados:** `frontend/src/pages/PrivacyInfo.jsx` (nuevo), `frontend/src/App.jsx` (ruta), `frontend/src/components/layout/AppLayout.jsx` (enlace), `backend/src/utils/dataAccessLogger.js` (nuevo), `backend/src/controllers/userController.js`, `backend/src/controllers/analyticsController.js`
 
@@ -1600,7 +1600,7 @@ En aulas de 5-6 alumnos, la combinación edad + rendimiento + aula puede hacer t
 
 ---
 
-### T-715: 🛡️ Derecho de oposición a analytics comportamentales 📋
+### T-715: 🛡️ Derecho de oposición a analytics comportamentales ✅
 
 **Prioridad:** P3 | **Tamaño:** M (4-8h) | **Dependencias:** T-702
 **Origen:** Art. 21 RGPD — derecho de oposición al tratamiento
@@ -1617,14 +1617,14 @@ Permitir que un tutor se oponga al tratamiento de datos con fines de analytics s
 
 **Criterios de Aceptación:**
 
-- [ ] Un tutor puede revocar `performance_analytics` sin revocar `educational_tracking`
-- [ ] Estudiantes sin analytics consent pueden jugar normalmente
-- [ ] Los endpoints de analytics no incluyen a estos estudiantes
-- [ ] `npm test` pasa
+- [x] Un tutor puede revocar `performance_analytics` sin revocar `educational_tracking`
+- [x] Estudiantes sin analytics consent pueden jugar normalmente
+- [x] Los endpoints de analytics no incluyen a estos estudiantes
+- [x] `npm test` pasa
 
 ---
 
-### T-716: 🛡️ Planificación de Atlas CSFLE para producción 📋
+### T-716: 🛡️ Planificación de Atlas CSFLE para producción ✅
 
 **Prioridad:** P3 | **Tamaño:** L (1-2 días) | **Dependencias:** T-701
 **Origen:** Art. 32.1.a RGPD — cifrado como medida de seguridad
@@ -1642,8 +1642,8 @@ MongoDB Atlas proporciona cifrado en reposo (AES-256) por defecto y Client-Side 
 
 **Criterios de Aceptación:**
 
-- [ ] Documento técnico con análisis de viabilidad y roadmap
-- [ ] EIPD actualizada con referencia a la medida planificada
+- [x] Documento técnico con análisis de viabilidad y roadmap (`documentation/CSFLE_Planificacion_Produccion.md`)
+- [x] EIPD actualizada con referencia a la medida planificada
 
 ---
 

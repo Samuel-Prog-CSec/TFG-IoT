@@ -610,7 +610,7 @@ T-704 ──► T-711 (Audit trail, necesita acciones a registrar)
 |--------|-------|--------|-----------|
 | MO-01: Registro de Actividades de Tratamiento (RAT) | T-701 | ✅ Implementada | Art. 30 RGPD |
 | MO-02: Evaluación de Impacto (EIPD) | T-701 | ✅ Implementada | Art. 35 RGPD |
-| MO-03: Página de privacidad | T-710 | 📋 Pendiente | Arts. 13-14 RGPD |
+| MO-03: Página de privacidad y audit trail | T-710 | ✅ Implementada | Arts. 13-14, 5.2 RGPD |
 
 ### Medidas adicionales identificadas (sesión 06-04-2026)
 
@@ -619,8 +619,8 @@ T-704 ──► T-711 (Audit trail, necesita acciones a registrar)
 | Protocolo de notificación de brechas | T-712 | ✅ Implementada | Arts. 33-34 RGPD |
 | Endpoint de rectificación con audit trail | T-713 | ✅ Implementada | Art. 16 RGPD |
 | Evaluación riesgo re-identificación aulas pequeñas | T-714 | ✅ Implementada | EDPB 01/2025 |
-| Derecho de oposición a analytics | T-715 | 📋 Pendiente | Art. 21 RGPD |
-| Planificación Atlas CSFLE para producción | T-716 | 📋 Pendiente | Art. 32.1.a RGPD |
+| Derecho de oposición a analytics | T-715 | ✅ Implementada | Art. 21 RGPD |
+| Planificación Atlas CSFLE para producción | T-716 | ✅ Implementada | Art. 32.1.a RGPD |
 | Documentar Sentry como procesador internacional | T-717 | ✅ Implementada | Arts. 28, 46 RGPD |
 
 ### Carencias resueltas
@@ -647,6 +647,8 @@ T-704 ──► T-711 (Audit trail, necesita acciones a registrar)
 - **Evaluación re-identificación:** `documentation/Evaluacion_Riesgo_Reidentificacion.md`
 - **Protocolo brechas:** `documentation/Protocolo_Notificacion_Brechas.md` (Art. 33-34)
 - **Filtrado Sentry:** PII de menores eliminada de breadcrumbs/extras/tags en `beforeSend`
+- **ADR-033:** Derecho de oposición a analytics comportamentales — en `backend/docs/Architecture_Decisions.md`
+- **Planificación CSFLE:** `documentation/CSFLE_Planificacion_Produccion.md` (Art. 32.1.a)
 
 ---
 

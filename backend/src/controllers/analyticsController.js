@@ -12,6 +12,27 @@ const { cacheGet } = require('../utils/cacheHelper');
 const { ensureStudentBelongsToTeacher } = require('../utils/ownershipHelpers');
 const { toStudentIdentityDTOV1 } = require('../utils/dtos');
 const { MIN_ANALYTICS_GROUP_SIZE } = require('../config/dataRetention');
+const { getRequestContext, logSecurityEvent } = require('../utils/securityLogger');
+const { pseudonymize } = require('../utils/pseudonymize');
+const { ForbiddenError } = require('../utils/errors');
+
+/**
+ * Verifica que el estudiante tiene consentimiento activo de analytics.
+ * Art. 21 RGPD — si el tutor se opuso a analytics, no se sirven datos.
+ * @param {string} studentId
+ * @throws {ForbiddenError} Si el estudiante no tiene consent de performance_analytics
+ * @private
+ */
+async function verifyAnalyticsConsent(studentId) {
+  const student = await userRepository.findById(studentId, {
+    select: 'consent.granted consent.purposes'
+  });
+  if (!student?.consent?.granted || !student.consent.purposes?.includes('performance_analytics')) {
+    throw new ForbiddenError(
+      'El tutor de este estudiante ha ejercido su derecho de oposición a analytics (Art. 21 RGPD)'
+    );
+  }
+}
 
 /**
  * Obtiene el progreso temporal de un estudiante.
@@ -22,6 +43,14 @@ exports.getStudentProgress = async (req, res) => {
   const { timeRange } = req.query; // '7d', '30d'
 
   await ensureStudentBelongsToTeacher(id, req.user, userRepository);
+  await verifyAnalyticsConsent(id);
+
+  // Audit trail — Art. 5.2 RGPD (accountability)
+  logSecurityEvent('DATA_ACCESS', {
+    ...getRequestContext(req),
+    studentPseudoId: pseudonymize(id),
+    endpoint: 'student/progress'
+  });
 
   const progress = await analyticsService.getStudentProgress(id, timeRange);
 
@@ -36,6 +65,14 @@ exports.getStudentDifficulties = async (req, res) => {
   const { id } = req.params;
 
   await ensureStudentBelongsToTeacher(id, req.user, userRepository);
+  await verifyAnalyticsConsent(id);
+
+  // Audit trail — Art. 5.2 RGPD (accountability)
+  logSecurityEvent('DATA_ACCESS', {
+    ...getRequestContext(req),
+    studentPseudoId: pseudonymize(id),
+    endpoint: 'student/difficulties'
+  });
 
   const difficulties = await analyticsService.getStudentDifficulties(id);
 
@@ -194,6 +231,14 @@ exports.getStudentSummary = async (req, res) => {
   const { timeRange } = req.query;
 
   await ensureStudentBelongsToTeacher(id, req.user, userRepository);
+  await verifyAnalyticsConsent(id);
+
+  // Audit trail — Art. 5.2 RGPD (accountability)
+  logSecurityEvent('DATA_ACCESS', {
+    ...getRequestContext(req),
+    studentPseudoId: pseudonymize(id),
+    endpoint: 'student/summary'
+  });
 
   const data = await analyticsService.getStudentSummary(id, timeRange);
   sendSuccess(res, data);
@@ -229,8 +274,15 @@ exports.getClassroomRankings = async (req, res) => {
  */
 exports.getStudentsIdentity = async (req, res) => {
   const teacherId = req.user._id.toString();
+  // Solo estudiantes con consentimiento de analytics activo (Art. 21 RGPD)
   const students = await userRepository.find(
-    { createdBy: teacherId, role: 'student', status: 'active' },
+    {
+      createdBy: teacherId,
+      role: 'student',
+      status: 'active',
+      'consent.granted': true,
+      'consent.purposes': 'performance_analytics'
+    },
     { select: 'name profile.avatar profile.age profile.classroom' }
   );
   sendSuccess(res, students.map(toStudentIdentityDTOV1));

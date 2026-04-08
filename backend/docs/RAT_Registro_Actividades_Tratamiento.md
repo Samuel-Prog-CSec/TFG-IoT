@@ -61,6 +61,7 @@ Adicionalmente, el **Art. 5.2 RGPD** (principio de responsabilidad proactiva) ex
 | **Categorías de interesados** | Menores de edad (4-8 años) |
 | **Categorías de datos personales** | Métricas acumuladas del estudiante (`studentMetrics.*`: totalGamesPlayed, averageScore, bestScore, totalCorrectAnswers, totalErrors, averageResponseTime, totalTimeouts, totalAbandonedGames, lastPlayedAt), identificador pseudonimizado en endpoints de analytics |
 | **Tratamiento de perfilado** | Este tratamiento implica una **evaluación sistemática de aspectos personales** (rendimiento educativo, patrones de respuesta) que, combinada con el tratamiento de datos de menores, justifica la realización de una EIPD (Art. 35 RGPD). No se toman decisiones automatizadas con efectos jurídicos (Art. 22 RGPD) — la interpretación de los datos es siempre responsabilidad del profesor |
+| **Derecho de oposición (Art. 21 RGPD)** | El tutor legal puede oponerse al tratamiento con fines de analytics de rendimiento (`performance_analytics`) sin que ello impida la participación del alumno en sesiones de juego. Cuando se ejerce este derecho: (1) las métricas agregadas (`studentMetrics`) dejan de actualizarse con nuevas partidas, (2) el alumno se excluye de todas las consultas de analytics, (3) el cambio se registra en `consentHistory` para trazabilidad. Implementado en ADR-033 |
 | **Destinatarios** | Profesor creador (datos de sus alumnos), super_admin (datos agregados). No se comparten con terceros |
 | **Transferencias internacionales** | No |
 | **Plazo de conservación** | Métricas vinculadas a estudiantes activos: mientras el consentimiento esté vigente. Métricas anonimizadas: indefinidamente |
@@ -160,6 +161,8 @@ Las siguientes medidas de seguridad se aplican a **todas** las actividades de tr
 | Metadata de canal en consentimiento (IP, user-agent, canal) | Art. 7.1 | Implementado (ADR-031) |
 | Verificación de consentimiento activo en creación de partidas (defense in depth) | Art. 6.1 | Implementado (ADR-031) |
 | Operaciones RGPD centralizadas en super_admin (mínimo privilegio) | Art. 5.1.f + Art. 32.1.b | Implementado (ADR-032) |
+| Audit trail de acceso a datos individuales de estudiantes (DATA_ACCESS) | Art. 5.2 | Implementado (T-710) |
+| Derecho de oposición a analytics de rendimiento | Art. 21 | Implementado (ADR-033) |
 | Borrado efectivo (hard delete) con cascada | Art. 17 | Implementado (T-704) |
 | Política de retención con plazos definidos | Art. 5.1.e | Implementado (T-704) |
 

@@ -2233,3 +2233,62 @@ Centralizar todas las operaciones RGPD sobre datos de estudiantes en el rol `sup
 - **ADR-030** (Protección de datos base): Esta ADR restringe quién ejecuta las operaciones definidas en ADR-030.
 - **ADR-031** (Endurecimiento del consentimiento): Los ownership checks de ADR-031 se mantienen como defense in depth.
 - **ADR-008** (Gobierno de identidades centrado en Super Admin): Esta ADR extiende el principio de ADR-008 a las operaciones RGPD.
+
+## ADR-033: Derecho de oposición a analytics comportamentales (Art. 21 RGPD)
+
+### Contexto (ADR-033)
+
+La plataforma procesa datos de rendimiento educativo de menores de 4-8 años con dos finalidades distintas: **seguimiento educativo** (permitir al alumno jugar y registrar partidas) y **analytics de rendimiento** (agregar métricas, generar tendencias, rankings y comparativas). El Art. 21 del RGPD otorga al interesado (el tutor legal, en este caso) el derecho a oponerse al tratamiento de sus datos con fines de análisis sin que ello impida el uso básico del servicio.
+
+Hasta ahora, el modelo de consentimiento (`consent.purposes: ['educational_tracking', 'performance_analytics']`) definía estos dos propósitos, pero no existía mecanismo para revocar uno sin revocar el otro. Al revocar el consentimiento completo (`consent.granted = false`), el alumno quedaba inactivo y no podía jugar.
+
+### Decisión (ADR-033)
+
+Implementar la revocación granular del propósito `performance_analytics` sin afectar al propósito `educational_tracking`:
+
+**En la capa de agregación de métricas (gameEngine + gamePlayService):**
+- Antes de llamar a `player.updateStudentMetrics()`, verificar si `consent.purposes` incluye `performance_analytics`.
+- Si el propósito no está activo, la partida se completa normalmente pero las métricas agregadas del alumno (`studentMetrics`) no se actualizan.
+- Se registra un log informativo para trazabilidad.
+
+**En la capa de analytics (analyticsService + analyticsController):**
+- Todas las queries que consultan estudiantes directamente (User model) añaden el filtro `{ 'consent.granted': true, 'consent.purposes': 'performance_analytics' }`.
+- Las queries basadas en GamePlay (aggregation pipelines) excluyen los `playerId` de estudiantes sin consentimiento de analytics mediante `$nin`.
+- Los endpoints de student individual verifican el consentimiento antes de servir datos y devuelven 403 con mensaje explicativo si el propósito no está activo.
+- El helper `getAnalyticsExcludedPlayerIds(teacherId)` pre-obtiene los IDs a excluir para minimizar el impacto en las pipelines existentes.
+
+**En la API de consentimiento (userService):**
+- La función `updateConsent()` ya soporta enviar `purposes` parciales. Para revocar solo analytics: `{ granted: true, grantedBy: "...", purposes: ["educational_tracking"] }`.
+- No se necesitan cambios en el validador (`updateConsentSchema` ya acepta `purposes` como array opcional).
+
+**En el frontend (ConsentDetailPanel):**
+- Sección de "Propósitos del tratamiento" con checkboxes individuales.
+- `educational_tracking` es obligatorio y no se puede desmarcar sin revocar todo el consentimiento.
+- `performance_analytics` es revocable individualmente con advertencia visual.
+- `StudentProfile` muestra un banner informativo cuando el tutor ha ejercido el derecho de oposición.
+
+### Alternativas Consideradas (ADR-033)
+
+1. **Filtrar solo en el frontend (ocultar datos)**: Descartada. Viola el principio de que el tratamiento debe cesar en la fuente (Art. 5.1.b RGPD — limitación de la finalidad). Los datos seguirían agregándose en el backend.
+
+2. **Crear un flag `analyticsOptOut` separado del consent**: Descartada. Duplicar la semántica de los purposes en un campo distinto introduce inconsistencia. El array `consent.purposes` ya modela exactamente este caso.
+
+3. **Dejar de registrar GamePlay para alumnos sin analytics**: Descartada. El GamePlay es necesario para el seguimiento educativo básico (saber que el alumno jugó, su puntuación). Solo la agregación en `studentMetrics` y la inclusión en analytics deben cesar.
+
+### Consecuencias (ADR-033)
+
+**Positivas:**
+- **Cumplimiento Art. 21 RGPD**: Los tutores pueden oponerse a analytics sin impedir la participación del alumno.
+- **Granularidad**: Dos propósitos separados permiten control fino sobre el tratamiento.
+- **Consistencia**: Usa el modelo de consent existente sin añadir campos nuevos.
+- **Transparencia**: El frontend informa claramente sobre las implicaciones de la oposición.
+- **Audit trail**: El historial de consentimiento registra los cambios de propósitos.
+
+**Negativas:**
+- Las analytics de aula excluyen a alumnos sin consent, lo que puede sesgar los promedios si una proporción significativa opta out.
+- Cada consulta de analytics tiene una query adicional para obtener IDs excluidos. Impacto negligible en escala de aula (<50 estudiantes).
+
+**Relaciones:**
+- **ADR-030** (Protección de datos base): Esta ADR materializa el derecho de oposición mencionado en ADR-030.
+- **ADR-031** (Endurecimiento del consentimiento): Los purposes se registran en `consentHistory` para trazabilidad.
+- **ADR-032** (Centralización RGPD en super_admin): Solo super_admin puede modificar propósitos de consentimiento.

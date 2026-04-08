@@ -632,13 +632,15 @@ Las siguientes medidas estan clasificadas como **Planificadas** o **Recomendadas
 
 | Medida | Estado | Tarea | Prioridad |
 |--------|--------|-------|-----------|
-| Seudonimizacion en endpoints de analytics | Planificada | T-703 | Alta |
-| Separacion PII / datos analiticos en DTOs | Planificada | T-703 | Alta |
-| Endpoint de exportacion de datos (portabilidad) | Planificada | T-706 | Alta |
-| Audit trail de acceso a datos | Planificada | T-710 | Media |
-| Documentacion formal de transferencia a Sentry | Recomendada | T-710 | Media |
-| Informacion al profesor sobre limites de la interpretacion | Recomendada | T-710 | Media |
+| Seudonimizacion en endpoints de analytics | Implementada | T-703 | Alta |
+| Separacion PII / datos analiticos en DTOs | Implementada | T-703 | Alta |
+| Endpoint de exportacion de datos (portabilidad) | Implementada | T-706 | Alta |
+| Audit trail de acceso a datos | Implementada | T-710 | Media |
+| Documentacion formal de transferencia a Sentry | Implementada | T-717 | Media |
+| Informacion al profesor sobre limites de la interpretacion | Implementada | T-710 | Media |
 | Versionado de la politica de privacidad | Recomendada | T-710 | Baja |
+| Derecho de oposicion a analytics (Art. 21 RGPD) | Implementada | T-715 | Media |
+| Cifrado a nivel de campo (CSFLE / Queryable Encryption) | Planificada | T-716 | Media (produccion) |
 | MongoDB replica set | Recomendada | --- | Baja (produccion) |
 | Backups periodicos automatizados | Recomendada | --- | Baja (produccion) |
 | Pruebas de restauracion periodicas | Recomendada | --- | Baja (produccion) |

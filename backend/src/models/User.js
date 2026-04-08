@@ -460,6 +460,18 @@ userSchema.methods.recordAbandonedGame = function () {
 };
 
 /**
+ * Verifica si el estudiante tiene consentimiento activo para un propósito específico.
+ *
+ * @instance
+ * @memberof User
+ * @param {string} purpose - Propósito a verificar ('educational_tracking' o 'performance_analytics')
+ * @returns {boolean} true si el consentimiento está activo y el propósito incluido
+ */
+userSchema.methods.hasConsentFor = function (purpose) {
+  return this.consent?.granted === true && this.consent?.purposes?.includes(purpose);
+};
+
+/**
  * Obtiene una representación segura del usuario sin información sensible.
  * Elimina el campo password del objeto retornado.
  *

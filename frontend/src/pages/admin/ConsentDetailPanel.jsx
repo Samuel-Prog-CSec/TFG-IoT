@@ -304,6 +304,38 @@ export default function ConsentDetailPanel({ isOpen, onClose, student, onConsent
     }
   };
 
+  /** Actualizar propósitos de consentimiento individualmente (Art. 21 RGPD) */
+  const handleToggleAnalytics = async () => {
+    if (!consent?.granted || !consent?.grantedBy) return;
+
+    const hasAnalytics = consent.purposes?.includes('performance_analytics');
+    const newPurposes = hasAnalytics
+      ? ['educational_tracking']
+      : ['educational_tracking', 'performance_analytics'];
+
+    setActionLoading(true);
+    try {
+      await usersAPI.updateConsent(student.id, {
+        granted: true,
+        grantedBy: consent.grantedBy,
+        purposes: newPurposes
+      });
+      toast.success(
+        hasAnalytics
+          ? 'Analytics de rendimiento desactivado'
+          : 'Analytics de rendimiento reactivado'
+      );
+      onConsentChanged?.();
+      await fetchDetail(student.id);
+    } catch (err) {
+      toast.error('Error al actualizar los propósitos', {
+        description: extractErrorMessage(err)
+      });
+    } finally {
+      setActionLoading(false);
+    }
+  };
+
   /** Borrado efectivo Art. 17 RGPD */
   const handleHardDelete = async () => {
     setActionLoading(true);
@@ -469,6 +501,66 @@ export default function ConsentDetailPanel({ isOpen, onClose, student, onConsent
                       </div>
                     </GlassCard>
                   </section>
+
+                  {/* ====== Propósitos del tratamiento (Art. 21 RGPD) ====== */}
+                  {isGranted && (
+                    <section>
+                      <h3 className="text-xs font-semibold text-text-muted uppercase tracking-wider mb-3">
+                        Propósitos del tratamiento
+                      </h3>
+
+                      <GlassCard variant="subtle" padding="sm" className="space-y-3">
+                        {/* Seguimiento educativo — siempre activo */}
+                        <label className="flex items-center gap-3 cursor-not-allowed opacity-80">
+                          <input
+                            type="checkbox"
+                            checked
+                            disabled
+                            className="size-4 accent-brand-base rounded"
+                          />
+                          <div>
+                            <p className="text-sm text-text-primary font-medium">
+                              Seguimiento educativo
+                            </p>
+                            <p className="text-xs text-text-muted">
+                              Obligatorio para participar en sesiones de juego
+                            </p>
+                          </div>
+                        </label>
+
+                        {/* Analytics de rendimiento — revocable */}
+                        <label className="flex items-center gap-3 cursor-pointer">
+                          <input
+                            type="checkbox"
+                            checked={consent?.purposes?.includes('performance_analytics')}
+                            onChange={handleToggleAnalytics}
+                            disabled={actionLoading}
+                            className="size-4 accent-brand-base rounded cursor-pointer"
+                          />
+                          <div>
+                            <p className="text-sm text-text-primary font-medium">
+                              Analytics de rendimiento
+                            </p>
+                            <p className="text-xs text-text-muted">
+                              Métricas agregadas, tendencias y análisis comparativo
+                            </p>
+                          </div>
+                        </label>
+
+                        {/* Aviso sobre desactivación de analytics */}
+                        {!consent?.purposes?.includes('performance_analytics') && (
+                          <div className="flex items-start gap-2 p-2.5 rounded-lg bg-warning-base/5
+                                          border border-warning-base/20 mt-1">
+                            <ShieldX size={16} className="text-warning-base mt-0.5 shrink-0" />
+                            <p className="text-xs text-warning-base leading-relaxed">
+                              Las métricas de rendimiento no se actualizarán con nuevas partidas.
+                              El alumno seguirá pudiendo jugar con normalidad.
+                            </p>
+                          </div>
+                        )}
+                      </GlassCard>
+                    </section>
+                  )}
 
                   {/* ====== Acciones de consentimiento ====== */}
                   <section>
