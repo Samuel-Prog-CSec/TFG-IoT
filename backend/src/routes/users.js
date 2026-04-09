@@ -15,11 +15,14 @@ const {
   deleteUser,
   getUserStats,
   getStudentsByTeacher,
-  transferStudent
+  transferStudent,
+  updateConsent,
+  hardDeleteUser,
+  exportStudentData
 } = require('../controllers/userController');
 
 const { authenticate, requireRole } = require('../middlewares/auth');
-const { createResourceRateLimiter } = require('../config/security');
+const { createResourceRateLimiter, exportDataRateLimiter } = require('../config/security');
 const { validateBody, validateQuery, validateParams } = require('../middlewares/validation');
 const {
   createStudentSchema,
@@ -28,7 +31,9 @@ const {
   transferStudentSchema,
   userIdParamsSchema,
   teacherIdParamsSchema,
-  teacherStudentsQuerySchema
+  teacherStudentsQuerySchema,
+  updateConsentSchema,
+  hardDeleteSchema
 } = require('../validators/userValidator');
 const { emptyObjectSchema } = require('../validators/commonValidator');
 const asyncHandler = require('../utils/asyncHandler');
@@ -60,6 +65,23 @@ router.get(
   validateParams(teacherIdParamsSchema),
   validateQuery(teacherStudentsQuerySchema),
   asyncHandler(getStudentsByTeacher)
+);
+
+/**
+ * @route   GET /api/users/:id/export-data
+ * @desc    Exportar todos los datos personales de un estudiante (portabilidad)
+ * @access  Private (Super Admin — operación RGPD centralizada, ADR-032)
+ * @validation params: userIdParamsSchema
+ * @normativa Art. 20 RGPD (derecho a la portabilidad de datos)
+ */
+router.get(
+  '/:id/export-data',
+  authenticate,
+  requireRole('super_admin'),
+  exportDataRateLimiter,
+  validateParams(userIdParamsSchema),
+  validateQuery(emptyObjectSchema),
+  asyncHandler(exportStudentData)
 );
 
 /**
@@ -152,6 +174,40 @@ router.post(
   validateQuery(emptyObjectSchema),
   validateBody(transferStudentSchema),
   asyncHandler(transferStudent)
+);
+
+/**
+ * @route   PATCH /api/users/:id/consent
+ * @desc    Actualizar consentimiento parental de un estudiante
+ * @access  Private (Super Admin — operación RGPD centralizada, ADR-032)
+ * @validation params: userIdParamsSchema | body: updateConsentSchema
+ * @normativa Art. 7.3 RGPD (retirada de consentimiento), Art. 8 RGPD (consentimiento menores)
+ */
+router.patch(
+  '/:id/consent',
+  authenticate,
+  requireRole('super_admin'),
+  validateParams(userIdParamsSchema),
+  validateQuery(emptyObjectSchema),
+  validateBody(updateConsentSchema),
+  asyncHandler(updateConsent)
+);
+
+/**
+ * @route   DELETE /api/users/:id/data
+ * @desc    Borrado efectivo (hard delete) de todos los datos de un estudiante
+ * @access  Private (Super Admin — operación RGPD centralizada, ADR-032)
+ * @validation params: userIdParamsSchema | body: hardDeleteSchema
+ * @normativa Art. 17 RGPD (derecho de supresión), Art. 17.1.f (datos de menores)
+ */
+router.delete(
+  '/:id/data',
+  authenticate,
+  requireRole('super_admin'),
+  validateParams(userIdParamsSchema),
+  validateQuery(emptyObjectSchema),
+  validateBody(hardDeleteSchema),
+  asyncHandler(hardDeleteUser)
 );
 
 module.exports = router;

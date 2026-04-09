@@ -348,3 +348,21 @@ export function exportToCSV(data, filename, columns) {
   document.body.removeChild(link);
   URL.revokeObjectURL(url);
 }
+
+/**
+ * Descarga un Blob como archivo.
+ * Patron identico a exportToCSV pero para cualquier tipo de blob.
+ *
+ * @param {Blob} blob - Blob a descargar
+ * @param {string} filename - Nombre del archivo con extension
+ */
+export function downloadBlob(blob, filename) {
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement('a');
+  link.href = url;
+  link.download = filename;
+  document.body.appendChild(link);
+  link.click();
+  document.body.removeChild(link);
+  URL.revokeObjectURL(url);
+}

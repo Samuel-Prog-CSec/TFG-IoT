@@ -17,8 +17,8 @@ const updateProfileSchema = z
       .object({
         avatar: z.string().url('URL de avatar inválida').optional(),
         age: z.number().int().min(3).max(99).optional(),
-        classroom: z.string().trim().max(50).optional(),
-        birthdate: z.string().datetime().or(z.date()).optional()
+        classroom: z.string().trim().max(50).optional()
+        // birthdate ELIMINADO: Art. 5.1.c RGPD (minimización)
       })
       .optional()
   })

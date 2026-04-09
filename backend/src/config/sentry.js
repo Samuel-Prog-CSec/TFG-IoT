@@ -69,6 +69,29 @@ function initSentry() {
         }
       }
 
+      // Filtrar PII de menores en breadcrumbs y extras (Art. 25 RGPD, AT-06 RAT).
+      // Sentry es procesador internacional (Art. 28): minimizar datos transferidos.
+      const piiKeys = ['studentName', 'playerName', 'name', 'classroom'];
+      if (event.breadcrumbs) {
+        for (const bc of event.breadcrumbs) {
+          if (bc.data) {
+            for (const key of piiKeys) {
+              delete bc.data[key];
+            }
+          }
+        }
+      }
+      if (event.extra) {
+        for (const key of piiKeys) {
+          delete event.extra[key];
+        }
+      }
+      if (event.tags) {
+        for (const key of piiKeys) {
+          delete event.tags[key];
+        }
+      }
+
       return event;
     }
   });

@@ -203,9 +203,9 @@ Se han identificado los siguientes flujos de tratamiento de datos de estudiantes
 ```
                    ┌─────────────────────────────────┐
                    │  CREACIÓN DE ESTUDIANTE          │
-                   │  Profesor → POST /api/users      │
-                   │  Datos: name, birthdate, age,    │
-                   │  classroom, avatar                │
+                   │  Super Admin → POST /api/users   │
+                   │  Datos: name, age, classroom,    │
+                   │  avatar, consent (obligatorio)   │
                    └──────────────┬──────────────────┘
                                   │
                    ┌──────────────▼──────────────────┐
@@ -224,10 +224,11 @@ Se han identificado los siguientes flujos de tratamiento de datos de estudiantes
    └─────────────────────┘  └────────────────┘  └─────────────────┘
                                   │
                    ┌──────────────▼──────────────────┐
-                   │  ELIMINACIÓN (actual)            │
-                   │  Soft delete: status='inactive'  │
-                   │  Datos permanecen en MongoDB     │
-                   │  GamePlays NO se eliminan        │
+                   │  ELIMINACIÓN (implementado)      │
+                   │  Soft: status='inactive'         │
+                   │  Hard: DELETE /api/users/:id/data │
+                   │  → cascada User+GamePlays+Redis  │
+                   │  Solo super_admin (ADR-032)      │
                    └─────────────────────────────────┘
 ```
 
@@ -337,7 +338,7 @@ Las medidas técnicas se organizan por prioridad de implementación:
 
 **Por qué:** El soft delete actual (cambiar `status` a `'inactive'`) **no satisface** el derecho de supresión del Art. 17 RGPD. Los datos siguen existiendo en la base de datos y podrían ser consultados. El Considerando 65 enfatiza que este derecho es especialmente relevante para datos recogidos de menores.
 
-**Cómo:** Endpoint protegido (solo teacher propietario o super_admin) con confirmación explícita. Cascada de eliminación: User → GamePlays (por playerId) → tokens Redis → logs de transferencia.
+**Cómo:** Endpoint protegido (solo super_admin — operación RGPD centralizada, ADR-032) con confirmación explícita (`confirmDeletion: true`). Cascada de eliminación: User → GamePlays (por playerId) → tokens Redis → WebSocket disconnect. Ownership check como defense in depth (ADR-031).
 
 #### MT-04: Política de retención con limpieza automática
 
@@ -369,7 +370,7 @@ Las medidas técnicas se organizan por prioridad de implementación:
 
 **Por qué:** El Art. 8 RGPD y el Art. 7 LOPDGDD exigen consentimiento del titular de la patria potestad para menores de 14 años. Además, el RGPD requiere que el responsable sea capaz de **demostrar** que se obtuvo el consentimiento (Art. 7.1). Sin un registro técnico, no hay forma de probarlo.
 
-**Cómo:** Nuevos campos en el modelo User (para role `student`): `consent.granted`, `consent.grantedBy`, `consent.grantedAt`, `consent.purposes[]`, `consent.policyVersion`. Validación: no se permite crear un estudiante sin consentimiento registrado.
+**Cómo:** Nuevos campos en el modelo User (para role `student`): `consent.granted`, `consent.grantedBy`, `consent.grantedAt`, `consent.purposes[]`, `consent.policyVersion`, `consent.withdrawnAt`, `consent.channel`, `consent.ipAddress`, `consent.userAgent` (metadata de canal — ADR-031). Array `consentHistory[]` para trazabilidad completa de otorgamientos y revocaciones (Art. 7.1 RGPD). Validación: no se permite crear un estudiante sin consentimiento registrado. Operaciones de gestión de consentimiento centralizadas en super_admin (ADR-032).
 
 #### MT-07: Separación lógica de datos identificativos y analíticos
 
@@ -429,10 +430,11 @@ El diseño actual utiliza soft delete (cambiar `status` a `'inactive'`). Esta de
 
 **Solución adoptada:** Mantener el soft delete como mecanismo por defecto para la «desactivación» de cuentas (operación reversible), e implementar un **borrado efectivo** separado como operación explícita e irreversible, con las siguientes garantías:
 
-1. **Confirmación explícita:** El profesor debe confirmar la acción con un diálogo de confirmación.
-2. **Cascada completa:** Se eliminan: documento User, todos los GamePlays con `playerId`, todos los tokens en Redis, y se limpian referencias en GameSessions.
-3. **Registro de la acción:** Se registra un log (sin PII del estudiante eliminado) que documenta que se ejerció el derecho de supresión, cuándo, y por quién.
+1. **Confirmación explícita:** El super_admin debe confirmar la acción con `confirmDeletion: true` en el body.
+2. **Cascada completa:** Se eliminan: documento User, todos los GamePlays con `playerId`, todos los tokens en Redis, y se desconectan WebSockets activos.
+3. **Registro de la acción:** Se registra un evento de seguridad `DATA_HARD_DELETE` (sin PII del estudiante eliminado) que documenta que se ejerció el derecho de supresión, cuándo, y por quién.
 4. **Irreversibilidad comunicada:** El frontend advierte claramente de que esta acción no es reversible.
+5. **Acceso centralizado:** Solo super_admin puede ejecutar el borrado (ADR-032). Ownership check como defense in depth (ADR-031).
 
 ### 5.3 Retención temporal con anonimización diferida
 
@@ -583,6 +585,70 @@ T-704 ──► T-711 (Audit trail, necesita acciones a registrar)
 11. **Considerando 26** — Datos anónimos y principio de identificabilidad.
 12. **Considerando 38** — Protección específica de los datos personales de los niños.
 13. **Considerando 65** — Derecho de supresión en relación con datos recogidos de menores.
+
+---
+
+## 9. Estado de implementación
+
+**Última actualización:** 08-04-2026
+
+### Medidas técnicas implementadas
+
+| Medida | Tarea | Estado | Normativa |
+|--------|-------|--------|-----------|
+| MT-01: Eliminación de `profile.birthdate` | T-702 Fase A | ✅ Implementada | Art. 5.1.c RGPD |
+| MT-02: Seudonimización en logs/analytics | T-703 | ✅ Implementada | Art. 25 RGPD, EDPB 01/2025 |
+| MT-03: Borrado efectivo (hard delete) | T-704 Fase A | ✅ Implementada | Art. 17 RGPD |
+| MT-04: Política de retención automática | T-704 Fase B | ✅ Implementada | Art. 5.1.e RGPD |
+| MT-05: Exportación de datos (portabilidad) | T-706 | ✅ Implementada | Art. 20 RGPD |
+| MT-06: Consentimiento parental | T-702 Fase B | ✅ Implementada | Art. 8 RGPD + Art. 7 LOPDGDD |
+| MT-07: Separación PII/analytics en DTOs | T-703 Fase B | ✅ Implementada | Art. 25 RGPD |
+
+### Medidas organizativas implementadas
+
+| Medida | Tarea | Estado | Normativa |
+|--------|-------|--------|-----------|
+| MO-01: Registro de Actividades de Tratamiento (RAT) | T-701 | ✅ Implementada | Art. 30 RGPD |
+| MO-02: Evaluación de Impacto (EIPD) | T-701 | ✅ Implementada | Art. 35 RGPD |
+| MO-03: Página de privacidad y audit trail | T-710 | ✅ Implementada | Arts. 13-14, 5.2 RGPD |
+
+### Medidas adicionales identificadas (sesión 06-04-2026)
+
+| Medida | Tarea | Estado | Normativa |
+|--------|-------|--------|-----------|
+| Protocolo de notificación de brechas | T-712 | ✅ Implementada | Arts. 33-34 RGPD |
+| Endpoint de rectificación con audit trail | T-713 | ✅ Implementada | Art. 16 RGPD |
+| Evaluación riesgo re-identificación aulas pequeñas | T-714 | ✅ Implementada | EDPB 01/2025 |
+| Derecho de oposición a analytics | T-715 | ✅ Implementada | Art. 21 RGPD |
+| Planificación Atlas CSFLE para producción | T-716 | ✅ Implementada | Art. 32.1.a RGPD |
+| Documentar Sentry como procesador internacional | T-717 | ✅ Implementada | Arts. 28, 46 RGPD |
+
+### Carencias resueltas
+
+| Carencia original (§3.4) | Resolución |
+|--------------------------|------------|
+| No existe RAT | ✅ `backend/docs/RAT_Registro_Actividades_Tratamiento.md` creado con 7 actividades |
+| No existe EIPD | ✅ `documentation/EIPD_Evaluacion_Impacto.md` creado con 12 riesgos identificados |
+| Se almacena fecha de nacimiento completa | ✅ `profile.birthdate` eliminado, validación en pre-save, script migración |
+| No hay mecanismo de borrado efectivo | ✅ `DELETE /api/users/:id/data` con cascada completa (User + GamePlays + Redis + WebSocket) |
+| No hay política de retención | ✅ `config/dataRetention.js` + `scripts/dataRetention.js` con `--dry-run` |
+| No se registra consentimiento parental | ✅ Campo `consent` en User, bloqueo de creación sin consentimiento, endpoint PATCH, frontend |
+
+### Documentación generada
+
+- **ADR-030:** Protección de datos de menores — en `backend/docs/Architecture_Decisions.md`
+- **RAT:** `backend/docs/RAT_Registro_Actividades_Tratamiento.md` (Art. 30 RGPD)
+- **EIPD:** `documentation/EIPD_Evaluacion_Impacto.md` (Art. 35 RGPD)
+- **Scripts:** `data:audit`, `data:retention`, `data:retention:dry-run`, `migrate:birthdate`
+- **Eventos de seguridad:** `DATA_CONSENT_CHANGE`, `DATA_HARD_DELETE`, `DATA_RETENTION_EXECUTED`, `DATA_RECTIFICATION`, `DATA_ACCESS`, `DATA_EXPORT`
+- **Seudonimización:** `backend/src/utils/pseudonymize.js` (SHA-256 truncado, 8 chars hex)
+- **Exportación datos:** `GET /api/users/:id/export-data` con `backend/src/services/dataExportService.js`
+- **k-anonimidad:** `MIN_ANALYTICS_GROUP_SIZE: 5` en `config/dataRetention.js`
+- **Evaluación re-identificación:** `documentation/Evaluacion_Riesgo_Reidentificacion.md`
+- **Protocolo brechas:** `documentation/Protocolo_Notificacion_Brechas.md` (Art. 33-34)
+- **Filtrado Sentry:** PII de menores eliminada de breadcrumbs/extras/tags en `beforeSend`
+- **ADR-033:** Derecho de oposición a analytics comportamentales — en `backend/docs/Architecture_Decisions.md`
+- **Planificación CSFLE:** `documentation/CSFLE_Planificacion_Produccion.md` (Art. 32.1.a)
 
 ---
 

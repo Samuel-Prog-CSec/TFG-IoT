@@ -427,6 +427,23 @@ const uploadRateLimiter = createRateLimiter({
   }
 });
 
+// Límite estricto para exportación de datos personales (Art. 20 RGPD)
+const exportDataRateLimiter = createRateLimiter({
+  prefix: 'export',
+  windowMs: 60 * 1000, // 1 minuto
+  max: 1, // 1 exportación por minuto por usuario
+  message: {
+    success: false,
+    message: 'Solo se permite una exportación de datos por minuto'
+  },
+  standardHeaders: true,
+  legacyHeaders: false,
+  keyGenerator: req => {
+    const userId = req.user?._id?.toString();
+    return userId ? `user:${userId}` : `ip:${req.ip}`;
+  }
+});
+
 module.exports = {
   corsOptions,
   ensureCsrfCookie,
@@ -439,6 +456,7 @@ module.exports = {
   eventRateLimiter,
   analyticsRateLimiter,
   uploadRateLimiter,
+  exportDataRateLimiter,
   corsWhitelist,
   CSRF_COOKIE_NAME,
   CSRF_HEADER_NAME

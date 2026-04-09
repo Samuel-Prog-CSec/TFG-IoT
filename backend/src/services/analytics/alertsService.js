@@ -19,6 +19,7 @@ const {
   getPeriodDates,
   generateAlertId
 } = require('./analyticsHelpers');
+const { pseudonymize } = require('../../utils/pseudonymize');
 
 // ══════════════════════════════════════════════════════════════════════
 // Detectores individuales de alertas
@@ -102,6 +103,7 @@ async function detectDecliningPerformance(teacherId, students) {
         type: 'declining_performance',
         severity,
         studentId: sid,
+        studentPseudoId: pseudonymize(sid),
         studentName: student.name,
         message: `El rendimiento de ${student.name} ha bajado un ${Math.round(declinePercent)}% en la última semana`,
         recommendation:
@@ -145,6 +147,7 @@ function detectInactivity(students) {
         type: 'inactivity',
         severity,
         studentId: student._id.toString(),
+        studentPseudoId: pseudonymize(student._id),
         studentName: student.name,
         message: `${student.name} no ha jugado en ${daysSince} días`,
         recommendation:
@@ -218,6 +221,7 @@ async function detectSuddenScoreDrop(teacherId, students) {
         type: 'sudden_score_drop',
         severity: 'warning',
         studentId: sid,
+        studentPseudoId: pseudonymize(sid),
         studentName: student.name,
         message: `${student.name} obtuvo ${lastScore} puntos en su última partida (media: ${Math.round(avgScore)})`,
         recommendation: 'Revisar si hubo alguna dificultad específica en la última sesión',
@@ -305,6 +309,7 @@ async function detectConsistentTimeout(teacherId, students) {
         type: 'consistent_timeout',
         severity: 'warning',
         studentId: sid,
+        studentPseudoId: pseudonymize(sid),
         studentName: student.name,
         message: `${student.name} tiene una tasa de timeout del ${Math.round(avgTimeoutRate * 100)}% en sus últimas ${r.last5.length} partidas`,
         recommendation:
@@ -401,6 +406,7 @@ async function detectImprovingFast(teacherId, students) {
         type: 'improving_fast',
         severity: 'info',
         studentId: sid,
+        studentPseudoId: pseudonymize(sid),
         studentName: student.name,
         message: `${student.name} ha mejorado un ${Math.round(improvementPercent)}% en la última semana`,
         recommendation: 'Reforzar positivamente el progreso del alumno',
@@ -474,6 +480,7 @@ async function detectHighAbandonment(teacherId, students) {
         type: 'high_abandonment',
         severity: 'warning',
         studentId: sid,
+        studentPseudoId: pseudonymize(sid),
         studentName: student.name,
         message: `${student.name} ha abandonado ${r.abandoned} de ${r.total} partidas en los últimos 7 días (${Math.round(abandonmentRate * 100)}%)`,
         recommendation:

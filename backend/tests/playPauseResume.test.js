@@ -54,7 +54,14 @@ describe('GamePlay pause/resume', () => {
       name: 'Pause Student',
       role: 'student',
       createdBy: teacherUser._id,
-      status: 'active'
+      status: 'active',
+      consent: {
+        granted: true,
+        grantedBy: 'Tutor Test',
+        grantedAt: new Date(),
+        purposes: ['educational_tracking', 'performance_analytics'],
+        policyVersion: '1.0'
+      }
     });
     studentToken = (await generateTokenPair(studentUser, mockReq)).accessToken;
 

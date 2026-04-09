@@ -6,7 +6,13 @@
  */
 
 const userRepository = require('../repositories/userRepository');
-const { NotFoundError, ValidationError, ConflictError } = require('../utils/errors');
+const gamePlayRepository = require('../repositories/gamePlayRepository');
+const {
+  NotFoundError,
+  ValidationError,
+  ConflictError,
+  ForbiddenError
+} = require('../utils/errors');
 const logger = require('../utils/logger').child({ component: 'userService' });
 
 /**
@@ -103,13 +109,14 @@ async function validateTeacher(teacherId) {
  *
  * @param {Object} studentData - Datos del estudiante
  * @param {string} studentData.name - Nombre del estudiante
- * @param {Object} studentData.profile - Perfil del estudiante (age, classroom, birthdate)
+ * @param {Object} studentData.profile - Perfil del estudiante (age, classroom)
  * @param {string} studentData.createdBy - ID del profesor creador
+ * @param {Object} studentData.consent - Consentimiento parental (Art. 8 RGPD + Art. 7 LOPDGDD)
  * @returns {Promise<Object>} Estudiante creado
- * @throws {ValidationError} Si falta edad o el estudiante está fuera del rango 4-6 años
+ * @throws {ValidationError} Si falta edad, consentimiento o el estudiante está fuera del rango
  */
 async function createStudent(studentData) {
-  const { name, profile, createdBy } = studentData;
+  const { name, profile, createdBy, consent } = studentData;
 
   // Validar que el profesor existe
   await validateTeacher(createdBy);
@@ -126,23 +133,124 @@ async function createStudent(studentData) {
     throw new ValidationError('La edad debe estar entre 3 y 99 años');
   }
 
-  // Crear estudiante (sin email ni password)
+  // Crear estudiante (sin email ni password, con consentimiento parental)
   const student = await userRepository.create({
     name,
     role: 'student',
     profile,
+    consent: {
+      granted: consent.granted,
+      grantedBy: consent.grantedBy,
+      grantedAt: consent.grantedAt || new Date(),
+      purposes: consent.purposes || ['educational_tracking', 'performance_analytics'],
+      policyVersion: consent.policyVersion || '1.0',
+      withdrawnAt: null
+    },
     status: 'active',
     createdBy
   });
 
   logger.info('Estudiante creado via service', {
     studentId: student._id,
-    name: student.name,
     age: profile.age,
     createdBy
   });
 
   return student;
+}
+
+/**
+ * Actualiza el consentimiento parental de un estudiante.
+ * Art. 7.3 RGPD: la retirada del consentimiento debe ser tan fácil como su otorgamiento.
+ *
+ * @param {string} studentId - ID del estudiante
+ * @param {Object} consentData - Datos del consentimiento
+ * @param {boolean} consentData.granted - Si se otorga o revoca
+ * @param {string} [consentData.grantedBy] - Nombre del tutor (obligatorio si granted=true)
+ * @param {Object} requestingUser - Usuario que solicita el cambio (req.user)
+ * @returns {Promise<Object>} Estudiante actualizado
+ */
+async function updateConsent(studentId, consentData, requestingUser) {
+  const student = await userRepository.findById(studentId);
+
+  if (!student) {
+    throw new NotFoundError('Estudiante');
+  }
+  if (student.role !== 'student') {
+    throw new ValidationError('El consentimiento parental solo aplica a estudiantes');
+  }
+
+  // Verificar ownership: solo profesor creador o super_admin — Art. 5.1.f RGPD
+  const isOwner = student.createdBy?.toString() === requestingUser._id.toString();
+  const isSuperAdmin = requestingUser.role === 'super_admin';
+  if (!isOwner && !isSuperAdmin) {
+    throw new ForbiddenError(
+      'No tienes permiso para modificar el consentimiento de este estudiante'
+    );
+  }
+
+  const updates = {};
+
+  // Registrar entrada en historial de consentimiento — Art. 7.1 RGPD (demostrar consentimiento)
+  const currentConsent = student.consent?.toObject?.() || student.consent || {};
+  const historyEntry = {
+    action: consentData.granted ? 'granted' : 'withdrawn',
+    grantedBy: consentData.granted ? consentData.grantedBy : currentConsent.grantedBy,
+    timestamp: new Date(),
+    policyVersion: consentData.granted
+      ? consentData.policyVersion || currentConsent.policyVersion || '1.0'
+      : currentConsent.policyVersion,
+    purposes: consentData.granted
+      ? consentData.purposes ||
+        currentConsent.purposes || ['educational_tracking', 'performance_analytics']
+      : currentConsent.purposes
+  };
+
+  // Metadata de canal para trazabilidad (si la proporciona el controller)
+  const channelMetadata = {
+    ...(consentData.channel && { channel: consentData.channel }),
+    ...(consentData.ipAddress && { ipAddress: consentData.ipAddress }),
+    ...(consentData.userAgent && { userAgent: consentData.userAgent })
+  };
+
+  if (consentData.granted === false) {
+    // Revocación — Art. 7.3 RGPD + Art. 17.1.b RGPD (supresión si se retira consentimiento)
+    updates.consent = {
+      ...currentConsent,
+      granted: false,
+      withdrawnAt: new Date(),
+      ...channelMetadata
+    };
+    // La revocación desactiva automáticamente al estudiante
+    updates.status = 'inactive';
+
+    logger.warn('Consentimiento parental revocado — estudiante desactivado', {
+      studentId,
+      revokedBy: requestingUser._id
+    });
+  } else {
+    // Otorgamiento o re-otorgamiento
+    updates.consent = {
+      granted: true,
+      grantedBy: consentData.grantedBy,
+      grantedAt: new Date(),
+      purposes: consentData.purposes || ['educational_tracking', 'performance_analytics'],
+      policyVersion: consentData.policyVersion || '1.0',
+      withdrawnAt: null,
+      ...channelMetadata
+    };
+
+    logger.info('Consentimiento parental otorgado', {
+      studentId,
+      grantedBy: requestingUser._id
+    });
+  }
+
+  // Usar $set + $push en una sola operación atómica
+  return userRepository.updateById(studentId, {
+    $set: updates,
+    $push: { consentHistory: historyEntry }
+  });
 }
 
 /**
@@ -363,9 +471,61 @@ async function validateUserDeletion(userId) {
   return user;
 }
 
+/**
+ * Borrado efectivo (hard delete) de todos los datos de un estudiante.
+ * Art. 17 RGPD: derecho de supresión, especialmente Art. 17.1.f (datos de menores).
+ * Considerando 65: el derecho es pertinente cuando el interesado dio su consentimiento siendo niño.
+ *
+ * Cascada de eliminación:
+ * 1. Todos los GamePlays del estudiante
+ * 2. Documento User de MongoDB
+ *
+ * @param {string} studentId - ID del estudiante a eliminar
+ * @param {Object} requestingUser - Usuario que solicita la eliminación
+ * @returns {Promise<Object>} Resumen de la eliminación
+ */
+async function hardDeleteStudent(studentId, requestingUser) {
+  const student = await userRepository.findById(studentId);
+
+  if (!student) {
+    throw new NotFoundError('Estudiante');
+  }
+  if (student.role !== 'student') {
+    throw new ValidationError('El borrado efectivo solo aplica a estudiantes');
+  }
+
+  // Verificar ownership: solo profesor creador o super_admin
+  const isOwner = student.createdBy?.toString() === requestingUser._id.toString();
+  const isSuperAdmin = requestingUser.role === 'super_admin';
+  if (!isOwner && !isSuperAdmin) {
+    throw new ForbiddenError('No tienes permiso para eliminar los datos de este estudiante');
+  }
+
+  // 1. Eliminar todos los GamePlays del estudiante
+  const deletedPlays = await gamePlayRepository.deleteMany({ playerId: studentId });
+
+  // 2. Eliminar el documento User
+  await userRepository.deleteById(studentId);
+
+  // Log sin PII del estudiante — Art. 5.2 RGPD (accountability)
+  logger.warn('Borrado efectivo de estudiante completado (Art. 17 RGPD)', {
+    deletedStudentId: studentId,
+    deletedBy: requestingUser._id,
+    deletedByRole: requestingUser.role,
+    gamePlaysDeleted: deletedPlays?.deletedCount || 0
+  });
+
+  return {
+    userId: studentId,
+    gamePlaysDeleted: deletedPlays?.deletedCount || 0
+  };
+}
+
 module.exports = {
   createStudent,
   updateUser,
+  updateConsent,
+  hardDeleteStudent,
   getStudentComparativeStats,
   getTeacherStudents,
   validateUserDeletion,

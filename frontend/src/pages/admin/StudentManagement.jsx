@@ -6,13 +6,13 @@
  */
 
 import { useState, useEffect, useCallback, useDeferredValue } from 'react';
-import { 
-  Users, 
-  UserPlus, 
-  Search, 
-  GraduationCap, 
-  Filter, 
-  ChevronLeft, 
+import {
+  Users,
+  UserPlus,
+  Search,
+  GraduationCap,
+  Filter,
+  ChevronLeft,
   ChevronRight,
   User,
   School,
@@ -21,8 +21,13 @@ import {
   Edit,
   Trash2,
   RefreshCw,
-  AlertCircle
+  AlertCircle,
+  ShieldCheck,
+  ShieldX,
+  Download,
+  FileText
 } from 'lucide-react';
+import ConsentDetailPanel from './ConsentDetailPanel';
 import { motion, AnimatePresence } from 'framer-motion';
 import { toast } from 'sonner';
 import { usersAPI, extractErrorMessage, isAbortError } from '../../services/api';
@@ -188,12 +193,21 @@ function CreateStudentModal({ isOpen, onClose, onCreated, teachers }) {
     name: '',
     age: '',
     classroom: '',
-    teacherId: ''
+    teacherId: '',
+    consentGranted: false,
+    consentGrantedBy: ''
   });
 
   useEffect(() => {
     if (!isOpen) {
-      setFormData({ name: '', age: '', classroom: '', teacherId: '' });
+      setFormData({
+        name: '',
+        age: '',
+        classroom: '',
+        teacherId: '',
+        consentGranted: false,
+        consentGrantedBy: ''
+      });
     }
   }, [isOpen]);
 
@@ -208,6 +222,14 @@ function CreateStudentModal({ isOpen, onClose, onCreated, teachers }) {
       toast.error('La edad debe estar entre 3 y 99 años');
       return;
     }
+    if (!formData.consentGranted) {
+      toast.error('El consentimiento parental es obligatorio (Art. 8 RGPD)');
+      return;
+    }
+    if (!formData.consentGrantedBy.trim()) {
+      toast.error('Debe indicar el nombre del tutor/a legal');
+      return;
+    }
 
     setLoading(true);
     try {
@@ -217,7 +239,11 @@ function CreateStudentModal({ isOpen, onClose, onCreated, teachers }) {
           age: parsedAge,
           classroom: formData.classroom.trim() || undefined
         },
-        teacherId: formData.teacherId
+        teacherId: formData.teacherId,
+        consent: {
+          granted: true,
+          grantedBy: formData.consentGrantedBy.trim()
+        }
       };
 
       await usersAPI.createUser(payload);
@@ -301,6 +327,55 @@ function CreateStudentModal({ isOpen, onClose, onCreated, teachers }) {
                 required
               />
 
+              {/* Consentimiento parental — Art. 8 RGPD + Art. 7 LOPDGDD */}
+              <div className="rounded-xl border border-brand-base/30 bg-brand-base/5 p-4 space-y-4">
+                <div className="flex items-center gap-2 text-brand-base">
+                  <ShieldCheck size={20} />
+                  <span className="font-semibold text-sm">Consentimiento Parental</span>
+                </div>
+                <p className="text-xs text-text-muted leading-relaxed">
+                  De acuerdo con el Art. 8 del RGPD y el Art. 7 de la LOPDGDD,
+                  el tratamiento de datos de menores de 14 a{'\u00F1'}os requiere
+                  el consentimiento del titular de la patria potestad o tutela.
+                </p>
+
+                <label className="flex items-start gap-3 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={formData.consentGranted}
+                    onChange={(e) =>
+                      setFormData(prev => ({
+                        ...prev,
+                        consentGranted: e.target.checked
+                      }))
+                    }
+                    className="mt-1 size-4 rounded border-border-primary text-brand-base
+                      focus:ring-brand-base focus:ring-offset-0"
+                  />
+                  <span className="text-sm text-text-primary leading-relaxed">
+                    Confirmo que el tutor/a legal ha otorgado consentimiento
+                    expreso para el tratamiento de datos con fines de
+                    seguimiento educativo y an{'\u00E1'}lisis de rendimiento.
+                  </span>
+                </label>
+
+                {formData.consentGranted && (
+                  <InputPremium
+                    label="Nombre del tutor/a legal"
+                    placeholder="Ej: Ana Garc\u00EDa L\u00F3pez"
+                    value={formData.consentGrantedBy}
+                    onChange={(e) =>
+                      setFormData(prev => ({
+                        ...prev,
+                        consentGrantedBy: e.target.value
+                      }))
+                    }
+                    icon={<ShieldCheck size={18} />}
+                    required
+                  />
+                )}
+              </div>
+
               <div className="flex gap-3 pt-4">
                 <ButtonPremium
                   type="button"
@@ -338,11 +413,14 @@ export default function StudentManagement() {
   const [_error, setError] = useState(null);
   const [_isModalOpen, setIsModalOpen] = useState(false);
   const [isEditModalOpen, setIsEditModalOpen] = useState(false);
-  const [isDeleteModalOpen, setIsDeleteModalOpen] = useState(false);
   const [selectedStudent, setSelectedStudent] = useState(null);
-  const [isDeleting, setIsDeleting] = useState(false);
-  
-  // Menú de acciones por alumno
+
+  // Panel de consentimiento y acciones RGPD (ADR-031/032)
+  const [isConsentPanelOpen, setIsConsentPanelOpen] = useState(false);
+  const [isHardDeleteModalOpen, setIsHardDeleteModalOpen] = useState(false);
+  const [isHardDeleting, setIsHardDeleting] = useState(false);
+
+  // Menu de acciones por alumno
   const [activeMenuId, setActiveMenuId] = useState(null);
   
   // Filtros
@@ -404,25 +482,48 @@ export default function StudentManagement() {
     setActiveMenuId(null);
   };
 
-  const handleDeleteClick = (student) => {
+  // --- Handlers RGPD (ADR-031/032) ---
+
+  const handleConsentClick = (student) => {
     setSelectedStudent(student);
-    setIsDeleteModalOpen(true);
+    setIsConsentPanelOpen(true);
     setActiveMenuId(null);
   };
 
-  const handleDeleteConfirm = async () => {
-    if (!selectedStudent || isDeleting) return;
-
-    setIsDeleting(true);
+  const handleExportClick = async (student) => {
+    const studentId = student.id || student._id;
+    setActiveMenuId(null);
     try {
-      await usersAPI.deleteUser(selectedStudent.id || selectedStudent._id);
-      toast.success('Alumno eliminado correctamente');
+      const res = await usersAPI.exportStudentData(studentId);
+      const date = new Date().toISOString().split('T')[0];
+      const filename = `datos-alumno-${student.name.replace(/\s+/g, '-')}-${date}.json`;
+      const { downloadBlob } = await import('../../lib/utils');
+      downloadBlob(res.data, filename);
+      toast.success('Datos exportados correctamente');
+    } catch (err) {
+      toast.error(extractErrorMessage(err));
+    }
+  };
+
+  const handleHardDeleteClick = (student) => {
+    setSelectedStudent(student);
+    setIsHardDeleteModalOpen(true);
+    setActiveMenuId(null);
+  };
+
+  const handleHardDeleteConfirm = async () => {
+    if (!selectedStudent || isHardDeleting) return;
+
+    setIsHardDeleting(true);
+    try {
+      await usersAPI.hardDeleteUser(selectedStudent.id || selectedStudent._id);
+      toast.success('Datos del alumno eliminados permanentemente (Art. 17 RGPD)');
       fetchInitialData(pagination.page);
-      setIsDeleteModalOpen(false);
+      setIsHardDeleteModalOpen(false);
     } catch (err) {
       toast.error(extractErrorMessage(err));
     } finally {
-      setIsDeleting(false);
+      setIsHardDeleting(false);
       setSelectedStudent(null);
     }
   };
@@ -539,19 +640,32 @@ export default function StudentManagement() {
                               initial={{ opacity: 0, scale: 0.95, y: -10 }}
                               animate={{ opacity: 1, scale: 1, y: 0 }}
                               exit={{ opacity: 0, scale: 0.95, y: -10 }}
-                              className="absolute right-0 mt-2 w-40 bg-background-elevated border border-border-subtle rounded-xl shadow-xl z-20 py-1 overflow-hidden"
+                              className="absolute right-0 mt-2 w-48 bg-background-elevated border border-border-subtle rounded-xl shadow-xl z-20 py-1 overflow-hidden"
                             >
-                              <button 
+                              <button
                                 onClick={() => handleEditClick(student)}
                                 className="w-full px-4 py-2 text-left text-sm text-text-primary hover:bg-white/5 flex items-center gap-2 transition-colors"
                               >
                                 <Edit size={14} /> Editar
                               </button>
-                              <button 
-                                onClick={() => handleDeleteClick(student)}
+                              <button
+                                onClick={() => handleConsentClick(student)}
+                                className="w-full px-4 py-2 text-left text-sm text-text-primary hover:bg-white/5 flex items-center gap-2 transition-colors"
+                              >
+                                <ShieldCheck size={14} /> Consentimiento
+                              </button>
+                              <button
+                                onClick={() => handleExportClick(student)}
+                                className="w-full px-4 py-2 text-left text-sm text-text-primary hover:bg-white/5 flex items-center gap-2 transition-colors"
+                              >
+                                <Download size={14} /> Exportar datos
+                              </button>
+                              <hr className="my-1 border-border-subtle" />
+                              <button
+                                onClick={() => handleHardDeleteClick(student)}
                                 className="w-full px-4 py-2 text-left text-sm text-error-base hover:bg-error-base/10 flex items-center gap-2 transition-colors"
                               >
-                                <Trash2 size={14} /> Eliminar
+                                <Trash2 size={14} /> Eliminar datos
                               </button>
                             </motion.div>
                           </>
@@ -586,8 +700,18 @@ export default function StudentManagement() {
                     </div>
                     <div className="flex items-center justify-between">
                       <span className="text-xs uppercase tracking-wider text-text-muted font-bold">Estado</span>
-                      <StatusBadge status={student.status === 'active' ? 'success' : 'neutral'} size="sm">
+                      <StatusBadge status={student.status === 'active' ? 'success' : 'inactive'} size="sm">
                         {student.status === 'active' ? 'Activo' : 'Inactivo'}
+                      </StatusBadge>
+                    </div>
+                    <div className="flex items-center justify-between">
+                      <span className="text-xs uppercase tracking-wider text-text-muted font-bold">Consentimiento</span>
+                      <StatusBadge
+                        status={student.consent?.granted ? 'active' : 'error'}
+                        size="sm"
+                        pulse={student.consent?.granted === false}
+                      >
+                        {student.consent?.granted ? 'Activo' : 'Revocado'}
                       </StatusBadge>
                     </div>
                   </div>
@@ -635,18 +759,30 @@ export default function StudentManagement() {
         student={selectedStudent}
       />
 
-      <ConfirmationModal
-        open={isDeleteModalOpen}
+      {/* Panel de consentimiento RGPD (ADR-031/032) */}
+      <ConsentDetailPanel
+        isOpen={isConsentPanelOpen}
         onClose={() => {
-          setIsDeleteModalOpen(false);
+          setIsConsentPanelOpen(false);
           setSelectedStudent(null);
         }}
-        onConfirm={handleDeleteConfirm}
-        title="Eliminar Alumno"
-        description={`¿Estás seguro de que deseas eliminar a ${selectedStudent?.name}? Esta acción no se puede deshacer y se borrarán todos sus registros de juego asociados.`}
+        student={selectedStudent}
+        onConsentChanged={() => fetchInitialData(pagination.page)}
+      />
+
+      {/* Modal de borrado efectivo Art. 17 RGPD */}
+      <ConfirmationModal
+        open={isHardDeleteModalOpen}
+        onClose={() => {
+          setIsHardDeleteModalOpen(false);
+          setSelectedStudent(null);
+        }}
+        onConfirm={handleHardDeleteConfirm}
+        title="Eliminar datos permanentemente"
+        description={`Esta acción eliminará de forma irreversible TODOS los datos de ${selectedStudent?.name}: perfil, historial de partidas, métricas y registros de consentimiento. Cumple con el Art. 17 RGPD (derecho de supresión). No se puede deshacer.`}
         confirmText="Eliminar permanentemente"
         variant="error"
-        loading={isDeleting}
+        loading={isHardDeleting}
       />
     </motion.div>
   );

@@ -89,6 +89,20 @@ const SECURITY_EVENTS = {
     level: 'info',
     message: 'Transferencia de alumno registrada'
   },
+  // Protección de datos — Art. 5.2 RGPD (accountability)
+  DATA_CONSENT_CHANGE: {
+    level: 'info',
+    message: 'Cambio en consentimiento parental registrado'
+  },
+  DATA_HARD_DELETE: {
+    level: 'warn',
+    message: 'Borrado efectivo de datos de estudiante ejecutado (Art. 17 RGPD)',
+    sentry: { threshold: 5, windowMs: 60 * 1000, level: 'warning' }
+  },
+  DATA_RETENTION_EXECUTED: {
+    level: 'info',
+    message: 'Política de retención de datos ejecutada'
+  },
   WS_AUTH_FAILED: {
     level: 'warn',
     message: 'Autenticación WebSocket fallida',
@@ -112,6 +126,19 @@ const SECURITY_EVENTS = {
     level: 'warn',
     message: 'Evento RFID inválido recibido',
     sentry: { threshold: 10, windowMs: 60 * 1000, level: 'warning' }
+  },
+  // Protección de datos — Seudonimización y auditoría (Art. 5.2, 16, 20, 25 RGPD)
+  DATA_RECTIFICATION: {
+    level: 'info',
+    message: 'Rectificación de datos personales de estudiante registrada (Art. 16 RGPD)'
+  },
+  DATA_ACCESS: {
+    level: 'info',
+    message: 'Acceso a datos personales de estudiante registrado'
+  },
+  DATA_EXPORT: {
+    level: 'info',
+    message: 'Exportación de datos de estudiante ejecutada (Art. 20 RGPD)'
   }
 };
 
@@ -134,7 +161,12 @@ const SENSITIVE_KEYS = new Set([
   'fingerprint',
   'secret',
   'jwt',
-  'session'
+  'session',
+  // PII de menores — Art. 25 RGPD (protección desde el diseño)
+  'studentName',
+  'playerName',
+  // Quasi-identificador en aulas pequeñas (ver T-714, evaluación riesgo re-identificación)
+  'classroom'
 ]);
 
 const eventCounters = new Map();

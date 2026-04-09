@@ -59,7 +59,14 @@ describe('GamePlay atomic event persistence', () => {
       name: 'Student Persistence',
       role: 'student',
       createdBy: teacher._id,
-      status: 'active'
+      status: 'active',
+      consent: {
+        granted: true,
+        grantedBy: 'Tutor Test',
+        grantedAt: new Date(),
+        purposes: ['educational_tracking', 'performance_analytics'],
+        policyVersion: '1.0'
+      }
     });
 
     const mechanic = await GameMechanic.create({

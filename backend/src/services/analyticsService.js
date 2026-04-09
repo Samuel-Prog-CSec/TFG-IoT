@@ -155,10 +155,8 @@ async function getStudentDifficulties(studentId) {
  * @returns {Promise<Object>} KPIs calculados
  */
 async function getClassroomSummary(teacherId) {
-  // Primero obtenemos los estudiantes del profesor
-  // Nota: Esto asume que userController o userService tiene un método para obtener estudiantes por profesor
-  // o hacemos un match en Users.
-  // Para optimizar, hacemos el análisis desde GamePlay filtrando por sesiones creadas por el teacher
+  // Excluir estudiantes sin consentimiento de analytics (Art. 21 RGPD)
+  const excludedIds = await getAnalyticsExcludedPlayerIds(teacherId);
 
   const pipeline = [
     {
@@ -172,7 +170,8 @@ async function getClassroomSummary(teacherId) {
     { $unwind: '$session' },
     {
       $match: {
-        'session.createdBy': new mongoose.Types.ObjectId(teacherId)
+        'session.createdBy': new mongoose.Types.ObjectId(teacherId),
+        ...(excludedIds.length > 0 && { playerId: { $nin: excludedIds } })
       }
     },
     {
@@ -243,7 +242,9 @@ async function getClassroomComparison(teacherId, timeRange = '7d') {
     startDate.setDate(today.getDate() - 7);
   }
 
-  // Obtener promedio diario de TODOS los alumnos del profesor
+  // Excluir estudiantes sin consentimiento de analytics (Art. 21 RGPD)
+  const excludedIds = await getAnalyticsExcludedPlayerIds(teacherId);
+
   const pipeline = [
     {
       $lookup: {
@@ -258,7 +259,8 @@ async function getClassroomComparison(teacherId, timeRange = '7d') {
       $match: {
         'session.createdBy': new mongoose.Types.ObjectId(teacherId),
         status: 'completed',
-        completedAt: { $gte: startDate }
+        completedAt: { $gte: startDate },
+        ...(excludedIds.length > 0 && { playerId: { $nin: excludedIds } })
       }
     },
     {
@@ -278,6 +280,9 @@ async function getClassroomComparison(teacherId, timeRange = '7d') {
  * @param {string} teacherId
  */
 async function getClassroomDifficulties(teacherId) {
+  // Excluir estudiantes sin consentimiento de analytics (Art. 21 RGPD)
+  const excludedIds = await getAnalyticsExcludedPlayerIds(teacherId);
+
   const pipeline = [
     {
       $lookup: {
@@ -291,7 +296,8 @@ async function getClassroomDifficulties(teacherId) {
     {
       $match: {
         'session.createdBy': new mongoose.Types.ObjectId(teacherId),
-        status: 'completed'
+        status: 'completed',
+        ...(excludedIds.length > 0 && { playerId: { $nin: excludedIds } })
       }
     },
     {
@@ -354,6 +360,50 @@ async function getClassroomDifficulties(teacherId) {
 // ══════════════════════════════════════════════════════════════════════
 
 const userRepository = require('../repositories/userRepository');
+const { pseudonymize } = require('../utils/pseudonymize');
+const { cacheGet } = require('../utils/cacheHelper');
+
+/**
+ * Filtro de consentimiento para analytics.
+ * Solo incluye estudiantes con consentimiento activo de performance_analytics.
+ * Art. 21 RGPD — Derecho de oposición al tratamiento con fines de análisis.
+ * @private
+ */
+const ANALYTICS_CONSENT_FILTER = {
+  'consent.granted': true,
+  'consent.purposes': 'performance_analytics'
+};
+
+/**
+ * Obtiene los IDs de estudiantes que NO tienen consentimiento de analytics activo.
+ * Usado para excluir sus partidas de aggregaciones GamePlay ($nin).
+ * Art. 21 RGPD — Derecho de oposición al tratamiento con fines de análisis.
+ *
+ * @param {string} teacherId - ID del profesor
+ * @returns {Promise<Array<import('mongoose').Types.ObjectId>>} IDs a excluir
+ * @private
+ */
+async function getAnalyticsExcludedPlayerIds(teacherId) {
+  return cacheGet(
+    'cache:analytics',
+    `excluded:${teacherId}`,
+    async () => {
+      const excluded = await userRepository.find(
+        {
+          createdBy: new mongoose.Types.ObjectId(teacherId),
+          role: 'student',
+          $or: [
+            { 'consent.granted': { $ne: true } },
+            { 'consent.purposes': { $ne: 'performance_analytics' } }
+          ]
+        },
+        { select: '_id' }
+      );
+      return excluded.map(s => s._id);
+    },
+    60
+  ); // TTL 60s — los cambios de consentimiento son infrecuentes
+}
 
 /**
  * Rangos de rendimiento para clasificación de estudiantes.
@@ -408,7 +458,8 @@ async function getClassroomStudents(
   const filter = {
     createdBy: new mongoose.Types.ObjectId(teacherId),
     role: 'student',
-    status: 'active'
+    status: 'active',
+    ...ANALYTICS_CONSENT_FILTER
   };
 
   if (classroom) {
@@ -426,6 +477,7 @@ async function getClassroomStudents(
 
     return {
       id: student._id.toString(),
+      pseudoId: pseudonymize(student._id),
       name: student.name,
       avatar: student.profile?.avatar || null,
       classroom: student.profile?.classroom || null,
@@ -492,7 +544,8 @@ async function getClassroomDistribution(teacherId) {
     {
       createdBy: new mongoose.Types.ObjectId(teacherId),
       role: 'student',
-      status: 'active'
+      status: 'active',
+      ...ANALYTICS_CONSENT_FILTER
     },
     { select: 'studentMetrics.averageScore' }
   );
@@ -541,6 +594,9 @@ async function getClassroomTrends(teacherId, timeRange = '7d') {
   const { now, currentStart, previousStart } = getDateRange(timeRange);
   const teacherOid = new mongoose.Types.ObjectId(teacherId);
 
+  // Excluir estudiantes sin consentimiento de analytics (Art. 21 RGPD)
+  const excludedIds = await getAnalyticsExcludedPlayerIds(teacherId);
+
   // Pipeline para obtener stats de ambos períodos en un solo query
   const pipeline = [
     {
@@ -556,7 +612,8 @@ async function getClassroomTrends(teacherId, timeRange = '7d') {
       $match: {
         'session.createdBy': teacherOid,
         status: 'completed',
-        completedAt: { $gte: previousStart, $lte: now }
+        completedAt: { $gte: previousStart, $lte: now },
+        ...(excludedIds.length > 0 && { playerId: { $nin: excludedIds } })
       }
     },
     {
@@ -611,10 +668,12 @@ async function getClassroomTrends(teacherId, timeRange = '7d') {
   const gamesToday = result.todayGames[0]?.count || 0;
 
   // Estudiantes en riesgo (score < 50) — desde User model
+  // Solo estudiantes con consentimiento de analytics activo (Art. 21 RGPD)
   const riskStudents = await userRepository.count({
     createdBy: teacherOid,
     role: 'student',
     status: 'active',
+    ...ANALYTICS_CONSENT_FILTER,
     'studentMetrics.averageScore': { $lt: 50, $gt: 0 }
   });
 
@@ -895,6 +954,7 @@ async function getStudentSummary(studentId, timeRange = '30d') {
     student: student
       ? {
           id: student._id.toString(),
+          pseudoId: pseudonymize(student._id),
           name: student.name,
           avatar: student.profile?.avatar || null,
           classroom: student.profile?.classroom || null,
@@ -930,6 +990,9 @@ async function getClassroomHeatmap(teacherId, timeRange = '30d') {
   const { currentStart, now } = getDateRange(timeRange);
   const teacherOid = new mongoose.Types.ObjectId(teacherId);
 
+  // Excluir estudiantes sin consentimiento de analytics (Art. 21 RGPD)
+  const excludedIds = await getAnalyticsExcludedPlayerIds(teacherId);
+
   const pipeline = [
     {
       $lookup: {
@@ -944,7 +1007,8 @@ async function getClassroomHeatmap(teacherId, timeRange = '30d') {
       $match: {
         'session.createdBy': teacherOid,
         status: 'completed',
-        completedAt: { $gte: currentStart, $lte: now }
+        completedAt: { $gte: currentStart, $lte: now },
+        ...(excludedIds.length > 0 && { playerId: { $nin: excludedIds } })
       }
     },
     {
@@ -984,6 +1048,9 @@ async function getTopContextsAndMechanics(teacherId, timeRange = '30d', limitPar
   const { currentStart, now } = getDateRange(timeRange);
   const teacherOid = new mongoose.Types.ObjectId(teacherId);
 
+  // Excluir estudiantes sin consentimiento de analytics (Art. 21 RGPD)
+  const excludedIds = await getAnalyticsExcludedPlayerIds(teacherId);
+
   const basePipeline = [
     {
       $lookup: {
@@ -998,7 +1065,8 @@ async function getTopContextsAndMechanics(teacherId, timeRange = '30d', limitPar
       $match: {
         'session.createdBy': teacherOid,
         status: 'completed',
-        completedAt: { $gte: currentStart, $lte: now }
+        completedAt: { $gte: currentStart, $lte: now },
+        ...(excludedIds.length > 0 && { playerId: { $nin: excludedIds } })
       }
     }
   ];

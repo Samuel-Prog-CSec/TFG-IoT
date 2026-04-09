@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { motion } from 'framer-motion';
-import { ArrowLeft, User } from 'lucide-react';
+import { ArrowLeft, User, ShieldX } from 'lucide-react';
 import { useDocumentTitle } from '../hooks/useDocumentTitle';
 import { useRefetchOnFocus } from '../hooks/useRefetchOnFocus';
 import { useReducedMotion } from '../hooks/useReducedMotion';
@@ -64,6 +64,7 @@ export default function StudentProfile() {
   const [engagement, setEngagement] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
+  const [analyticsDisabled, setAnalyticsDisabled] = useState(false);
   const abortRef = useRef(null);
 
   const fetchData = useCallback(() => {
@@ -96,8 +97,14 @@ export default function StudentProfile() {
         setError(null);
       } catch (err) {
         if (isAbortError(err)) return;
-        captureException(err);
-        setError('No se pudieron cargar los datos del estudiante.');
+        // Art. 21 RGPD — el tutor ha ejercido su derecho de oposición a analytics
+        if (err.response?.status === 403 && err.response?.data?.message?.includes('oposición')) {
+          setAnalyticsDisabled(true);
+          setError(null);
+        } else {
+          captureException(err);
+          setError('No se pudieron cargar los datos del estudiante.');
+        }
       } finally {
         if (!controller.signal.aborted) setLoading(false);
       }
@@ -145,6 +152,38 @@ export default function StudentProfile() {
     return (
       <main className="p-6 lg:p-8 max-w-7xl mx-auto">
         <ErrorState title="Error al cargar perfil" message={error} onRetry={fetchData} />
+      </main>
+    );
+  }
+
+  // Art. 21 RGPD — el tutor ha ejercido su derecho de oposición a analytics
+  if (analyticsDisabled) {
+    return (
+      <main className="p-6 lg:p-8 max-w-7xl mx-auto">
+        <ButtonPremium
+          variant="ghost"
+          size="sm"
+          icon={<ArrowLeft size={18} />}
+          onClick={() => navigate(-1)}
+          className="mb-6"
+        >
+          Volver
+        </ButtonPremium>
+        <div className="flex flex-col items-center text-center py-16 px-4">
+          <div className="size-16 rounded-full bg-warning-base/10 border border-warning-base/20
+                          flex items-center justify-center mb-4">
+            <ShieldX size={32} className="text-warning-base" />
+          </div>
+          <h1 className="text-xl font-bold text-text-primary mb-2">
+            Analytics no disponibles
+          </h1>
+          <p className="text-text-secondary max-w-md leading-relaxed">
+            El tutor de este estudiante ha ejercido su derecho de oposición al
+            tratamiento de datos con fines de analytics de rendimiento
+            (Art. 21 RGPD). El alumno puede seguir participando en sesiones
+            de juego con normalidad.
+          </p>
+        </div>
       </main>
     );
   }

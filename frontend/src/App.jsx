@@ -55,6 +55,9 @@ const NotFound = lazy(() => import('./pages/NotFound'));
 const ApprovalPanel = lazy(() => import('./pages/admin/ApprovalPanel'));
 const StudentManagement = lazy(() => import('./pages/admin/StudentManagement'));
 
+// Public pages
+const PrivacyPage = lazy(() => import('./pages/PrivacyPage'));
+
 /**
  * Loading fallback component con spinner animado
  */
@@ -120,6 +123,7 @@ function AppContent() {
         {/* RUTAS PÚBLICAS */}
         <Route path="/login" element={<GuestRoute><SuspenseWrapper><Login /></SuspenseWrapper></GuestRoute>} />
         <Route path="/register" element={<GuestRoute><SuspenseWrapper><Register /></SuspenseWrapper></GuestRoute>} />
+        <Route path="/privacy" element={<SuspenseWrapper><PrivacyPage /></SuspenseWrapper>} />
 
         {/* RUTAS PROTEGIDAS (profesor + admin comparten layout) */}
         <Route path="/" element={<ProtectedRoute><AppLayout /></ProtectedRoute>}>

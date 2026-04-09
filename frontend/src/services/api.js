@@ -563,6 +563,19 @@ export const usersAPI = {
    */
   transferStudent: (studentId, payload) =>
     api.post(`/users/${studentId}/transfer`, payload),
+
+  // Operaciones RGPD — solo super_admin (ADR-032)
+
+  /** Actualizar consentimiento parental (PATCH /api/users/:id/consent) */
+  updateConsent: (userId, data) => api.patch(`/users/${userId}/consent`, data),
+
+  /** Borrado efectivo Art. 17 RGPD (DELETE /api/users/:id/data) */
+  hardDeleteUser: (userId) =>
+    api.delete(`/users/${userId}/data`, { data: { confirmDeletion: true } }),
+
+  /** Exportar datos Art. 20 RGPD (GET /api/users/:id/export-data) */
+  exportStudentData: (userId) =>
+    api.get(`/users/${userId}/export-data`, { responseType: 'blob' }),
 };
 
 // ============================================

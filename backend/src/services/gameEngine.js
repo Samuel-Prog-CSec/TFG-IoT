@@ -615,15 +615,26 @@ class GameEngine {
         await playState.playDoc.complete();
 
         // Actualizar métricas del alumno con todos los datos
+        // Solo si el tutor no ha ejercido el derecho de oposición a analytics (Art. 21 RGPD)
         const player = await userRepository.findById(playState.playDoc.playerId);
         if (player) {
-          await player.updateStudentMetrics({
-            score: playState.playDoc.score,
-            correctAttempts: playState.playDoc.metrics.correctAttempts,
-            errorAttempts: playState.playDoc.metrics.errorAttempts,
-            timeoutAttempts: playState.playDoc.metrics.timeoutAttempts,
-            averageResponseTime: playState.playDoc.metrics.averageResponseTime
-          });
+          if (player.hasConsentFor('performance_analytics')) {
+            await player.updateStudentMetrics({
+              score: playState.playDoc.score,
+              correctAttempts: playState.playDoc.metrics.correctAttempts,
+              errorAttempts: playState.playDoc.metrics.errorAttempts,
+              timeoutAttempts: playState.playDoc.metrics.timeoutAttempts,
+              averageResponseTime: playState.playDoc.metrics.averageResponseTime
+            });
+          } else {
+            logger.info(
+              'Métricas de analytics omitidas — sin consentimiento de performance_analytics',
+              {
+                playId,
+                playerId: player._id
+              }
+            );
+          }
         }
 
         this.metrics.totalPlaysCompleted++;

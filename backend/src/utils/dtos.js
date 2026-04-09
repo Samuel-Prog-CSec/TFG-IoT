@@ -5,6 +5,8 @@
  * @module utils/dtos
  */
 
+const { pseudonymize } = require('./pseudonymize');
+
 const toPlainObject = value =>
   value && typeof value.toObject === 'function' ? value.toObject() : value;
 
@@ -107,12 +109,12 @@ const toUserDTOV1 = user => {
       ? {
           avatar: userData.profile.avatar,
           age: userData.profile.age,
-          classroom: userData.profile.classroom,
-          birthdate: userData.profile.birthdate
+          classroom: userData.profile.classroom
+          // birthdate ELIMINADO: Art. 5.1.c RGPD (minimización)
         }
       : undefined,
     createdBy: toId(userData.createdBy),
-    lastLoginAt: userData.lastLoginAt,
+    lastLoginAt: hasLogin ? userData.lastLoginAt : undefined,
     createdAt: userData.createdAt,
     updatedAt: userData.updatedAt
     // NO incluir: password, __v, tokens internos
@@ -134,7 +136,26 @@ const toStudentDTOV1 = user => {
   const userData = toPlainObject(user);
   return {
     ...base,
-    studentMetrics: mapStudentMetrics(userData.studentMetrics)
+    studentMetrics: mapStudentMetrics(userData.studentMetrics),
+    consent: userData.consent
+      ? {
+          granted: userData.consent.granted,
+          grantedBy: userData.consent.grantedBy,
+          grantedAt: userData.consent.grantedAt,
+          purposes: userData.consent.purposes,
+          policyVersion: userData.consent.policyVersion,
+          withdrawnAt: userData.consent.withdrawnAt
+        }
+      : undefined,
+    consentHistory: Array.isArray(userData.consentHistory)
+      ? userData.consentHistory.map(entry => ({
+          action: entry.action,
+          grantedBy: entry.grantedBy,
+          timestamp: entry.timestamp,
+          policyVersion: entry.policyVersion,
+          purposes: entry.purposes
+        }))
+      : []
   };
 };
 
@@ -163,6 +184,7 @@ const toUserSummaryDTOV1 = user => {
           classroom: userData.profile.classroom
         }
       : undefined,
+    consent: userData.consent ? { granted: userData.consent.granted } : undefined,
     createdBy: toId(userData.createdBy),
     createdAt: userData.createdAt,
     updatedAt: userData.updatedAt
@@ -706,6 +728,60 @@ const toSystemMetricsDTOV1 = payload => ({
   memory: payload.memory
 });
 
+/**
+ * DTO para analytics seudonimizado (Art. 25 RGPD).
+ * Expone pseudoId en vez de id/name para separar PII de datos analíticos.
+ *
+ * @param {Object} user - Documento User de Mongoose
+ * @returns {Object|null} Datos analíticos sin PII directa
+ */
+const toStudentAnalyticsDTOV1 = user => {
+  if (!user) {
+    return null;
+  }
+
+  const userData = toPlainObject(user);
+  return {
+    pseudoId: pseudonymize(userData._id || userData.id),
+    profile: {
+      age: userData.profile?.age,
+      classroom: userData.profile?.classroom
+    },
+    studentMetrics: mapStudentMetrics(userData.studentMetrics),
+    consent: userData.consent
+      ? {
+          granted: userData.consent.granted,
+          purposes: userData.consent.purposes
+        }
+      : undefined
+  };
+};
+
+/**
+ * DTO para resolución de identidad (endpoint dedicado).
+ * Vincula pseudoId con datos identificativos — solo accesible por el profesor propietario.
+ *
+ * @param {Object} user - Documento User de Mongoose
+ * @returns {Object|null} Mapeo pseudoId → identidad
+ */
+const toStudentIdentityDTOV1 = user => {
+  if (!user) {
+    return null;
+  }
+
+  const userData = toPlainObject(user);
+  return {
+    pseudoId: pseudonymize(userData._id || userData.id),
+    id: toId(userData),
+    name: userData.name,
+    profile: {
+      avatar: userData.profile?.avatar,
+      age: userData.profile?.age,
+      classroom: userData.profile?.classroom
+    }
+  };
+};
+
 module.exports = {
   // Users
   toUserDTOV1,
@@ -747,5 +823,9 @@ module.exports = {
   // Analytics
   toUserStatsDTOV1,
   toPlayerStatsDTOV1,
-  toSystemMetricsDTOV1
+  toSystemMetricsDTOV1,
+
+  // Analytics seudonimizados (Art. 25 RGPD)
+  toStudentAnalyticsDTOV1,
+  toStudentIdentityDTOV1
 };

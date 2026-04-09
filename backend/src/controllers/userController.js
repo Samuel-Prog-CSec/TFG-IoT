@@ -21,6 +21,9 @@ const { revokeAllUserTokens } = require('../middlewares/auth');
 const { disconnectUserSockets } = require('../utils/socketUtils');
 const { getRequestContext, logSecurityEvent } = require('../utils/securityLogger');
 const { buildFilter } = require('../utils/filterBuilder');
+const { pseudonymize } = require('../utils/pseudonymize');
+const dataExportService = require('../services/dataExportService');
+const { cacheInvalidateNamespace } = require('../utils/cacheHelper');
 
 /**
  * Mappings para construir filtros de búsqueda de usuarios.
@@ -195,18 +198,17 @@ const createUser = async (req, res) => {
       throw new ForbiddenError('Se debe especificar a qué profesor pertenece el alumno');
     }
 
+    const { consent } = req.body;
     const student = await userService.createStudent({
       name,
       profile: profile || {},
-      createdBy: teacherId
+      createdBy: teacherId,
+      consent
     });
 
     logger.info('Alumno creado por super admin', {
-      studentId: student._id,
-      studentName: student.name,
-      classroom: student.profile?.classroom,
-      createdBy: req.user._id,
-      teacherName: req.user.name
+      studentPseudoId: pseudonymize(student._id),
+      createdBy: req.user._id
     });
 
     sendCreated(res, toStudentDTOV1(student), 'Alumno creado exitosamente');
@@ -221,10 +223,8 @@ const createUser = async (req, res) => {
       if (existingStudent) {
         logger.warn('Intento de crear alumno duplicado por admin', {
           adminId: req.user._id,
-          studentName: req.body.name,
-          classroom: req.body.profile?.classroom,
-          teacherId: req.body.teacherId,
-          existingStudentId: existingStudent._id
+          existingStudentPseudoId: pseudonymize(existingStudent._id),
+          teacherId: req.body.teacherId
         });
 
         throw new ConflictError(error.message, {
@@ -254,7 +254,7 @@ const createUser = async (req, res) => {
  * CASOS DE USO:
  * - Cambio de clase: profile.classroom
  * - Corrección de nombre: name (valida duplicados)
- * - Actualización de edad/cumpleaños: profile.age, profile.birthdate
+ * - Actualización de edad: profile.age
  *
  * @param {import('express').Request} req
  * @param {import('express').Response} res
@@ -343,7 +343,36 @@ const updateUser = async (req, res) => {
     });
   }
 
+  // Capturar valores PII originales para audit trail de rectificación (Art. 16 RGPD)
+  const originalPII =
+    user.role === 'student'
+      ? { name: user.name, age: user.profile?.age, classroom: user.profile?.classroom }
+      : null;
+
   updateMutableUserFields({ user, name, profile, status });
+
+  // Registrar rectificación de datos de menores si cambiaron campos PII
+  if (originalPII) {
+    const rectifiedFields = [];
+    if (name && name.trim() !== originalPII.name) {
+      rectifiedFields.push('name');
+    }
+    if (profile?.age !== undefined && profile.age !== originalPII.age) {
+      rectifiedFields.push('profile.age');
+    }
+    if (profile?.classroom !== undefined && profile.classroom !== originalPII.classroom) {
+      rectifiedFields.push('profile.classroom');
+    }
+
+    if (rectifiedFields.length > 0) {
+      logSecurityEvent('DATA_RECTIFICATION', {
+        ...getRequestContext(req),
+        studentPseudoId: pseudonymize(user._id),
+        rectifiedFields,
+        rectifiedBy: req.user._id
+      });
+    }
+  }
 
   await user.save();
 
@@ -560,10 +589,9 @@ const transferStudent = async (req, res) => {
 
   const fromTeacherId = student.createdBy;
 
-  // Registrar cambios para auditoría (log)
+  // Registrar cambios para auditoría (log) — seudonimizado (Art. 25 RGPD)
   logger.info('Iniciando transferencia de alumno', {
-    studentId: student._id,
-    studentName: student.name,
+    studentPseudoId: pseudonymize(student._id),
     fromTeacher: fromTeacherId,
     toTeacher: newTeacherId,
     initiatedBy: req.user._id,
@@ -578,8 +606,7 @@ const transferStudent = async (req, res) => {
 
   logSecurityEvent('STUDENT_TRANSFER', {
     ...getRequestContext(req),
-    studentId: student._id,
-    studentName: student.name,
+    studentPseudoId: pseudonymize(student._id),
     fromTeacher: fromTeacherId,
     toTeacher: newTeacherId,
     initiatedBy: req.user._id,
@@ -590,6 +617,116 @@ const transferStudent = async (req, res) => {
   sendSuccess(res, toStudentDTOV1(student), 'Alumno transferido exitosamente');
 };
 
+/**
+ * Actualizar consentimiento parental de un estudiante.
+ * Art. 7.3 RGPD: la retirada del consentimiento debe ser tan fácil como su otorgamiento.
+ *
+ * PATCH /api/users/:id/consent
+ */
+const updateConsent = async (req, res) => {
+  const { id } = req.params;
+  const consentData = {
+    ...req.body,
+    // Metadata de canal — Art. 7.1 RGPD (demostrar consentimiento)
+    channel: 'web_form',
+    ipAddress: req.ip,
+    userAgent: req.get('user-agent')
+  };
+
+  const updatedUser = await userService.updateConsent(id, consentData, req.user);
+
+  // Si se revocó, revocar tokens Redis y desconectar WebSocket — Art. 7.3 RGPD
+  if (!consentData.granted) {
+    await revokeAllUserTokens(id, 'consent_withdrawn', getRequestContext(req));
+    const io = req.app.get('io');
+    if (io) {
+      disconnectUserSockets(io, id, 'CONSENT_WITHDRAWN');
+    }
+  }
+
+  logSecurityEvent('DATA_CONSENT_CHANGE', {
+    ...getRequestContext(req),
+    studentId: id,
+    action: consentData.granted ? 'granted' : 'withdrawn',
+    changedBy: req.user._id
+  });
+
+  // Invalidar cache de analytics para reflejar cambio de consent inmediatamente
+  await cacheInvalidateNamespace('cache:analytics');
+
+  sendSuccess(
+    res,
+    toStudentDTOV1(updatedUser),
+    consentData.granted
+      ? 'Consentimiento parental otorgado'
+      : 'Consentimiento parental revocado — estudiante desactivado'
+  );
+};
+
+/**
+ * Borrado efectivo (hard delete) de todos los datos de un estudiante.
+ * Art. 17 RGPD: derecho de supresión, especialmente Art. 17.1.f (datos de menores).
+ *
+ * DELETE /api/users/:id/data
+ */
+const hardDeleteUser = async (req, res) => {
+  const { id } = req.params;
+
+  const result = await userService.hardDeleteStudent(id, req.user);
+
+  // Revocar tokens Redis y desconectar WebSocket
+  await revokeAllUserTokens(id, 'hard_delete', getRequestContext(req));
+  const io = req.app.get('io');
+  if (io) {
+    disconnectUserSockets(io, id, 'ACCOUNT_HARD_DELETED');
+  }
+
+  logSecurityEvent('DATA_HARD_DELETE', {
+    ...getRequestContext(req),
+    deletedUserId: id,
+    deletedBy: req.user._id,
+    gamePlaysDeleted: result.gamePlaysDeleted
+  });
+
+  sendSuccess(
+    res,
+    {
+      deleted: true,
+      summary: {
+        gamePlaysDeleted: result.gamePlaysDeleted
+      }
+    },
+    'Datos del estudiante eliminados permanentemente (Art. 17 RGPD)'
+  );
+};
+
+/**
+ * Exportar datos personales de un estudiante (Art. 20 RGPD — portabilidad).
+ * Genera un paquete JSON descargable con todos los datos del estudiante.
+ *
+ * GET /api/users/:id/export-data
+ */
+const exportStudentData = async (req, res) => {
+  const { id } = req.params;
+  const data = await dataExportService.exportStudentData(id, req.user);
+
+  logSecurityEvent('DATA_EXPORT', {
+    ...getRequestContext(req),
+    studentPseudoId: pseudonymize(id),
+    exportedBy: req.user._id
+  });
+
+  const pseudoId = pseudonymize(id);
+  const date = new Date().toISOString().split('T')[0];
+
+  res.setHeader('Content-Type', 'application/json; charset=utf-8');
+  res.setHeader(
+    'Content-Disposition',
+    `attachment; filename="student-data-${pseudoId}-${date}.json"`
+  );
+  res.json(data);
+};
+
 module.exports = {
   getUsers,
   getUserById,
@@ -598,5 +735,8 @@ module.exports = {
   deleteUser,
   getUserStats,
   getStudentsByTeacher,
-  transferStudent
+  transferStudent,
+  updateConsent,
+  hardDeleteUser,
+  exportStudentData
 };

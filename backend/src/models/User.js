@@ -58,6 +58,30 @@ const validateStudentRequirements = user => {
   if (!user.createdBy && user.isNew) {
     throw new Error('Los alumnos deben ser creados por un profesor (campo createdBy requerido)');
   }
+  // Minimización de datos — Art. 5.1.c RGPD: la fecha de nacimiento completa
+  // tiene alto potencial identificativo y no aporta valor pedagógico respecto a la edad simple
+  if (user.profile?.birthdate) {
+    throw new Error(
+      'Los alumnos NO deben tener fecha de nacimiento (principio de minimización, Art. 5.1.c RGPD). Usar profile.age en su lugar.'
+    );
+  }
+  // Consentimiento parental obligatorio — Art. 8 RGPD + Art. 7 LOPDGDD
+  if (user.isNew) {
+    if (!user.consent?.granted) {
+      throw new Error(
+        'El consentimiento parental es obligatorio para crear alumnos (Art. 8 RGPD + Art. 7 LOPDGDD)'
+      );
+    }
+    if (!user.consent?.grantedBy) {
+      throw new Error('Se requiere el nombre del tutor que otorga el consentimiento');
+    }
+    if (!user.consent.grantedAt) {
+      user.consent.grantedAt = new Date();
+    }
+    if (!user.consent.purposes || user.consent.purposes.length === 0) {
+      user.consent.purposes = ['educational_tracking', 'performance_analytics'];
+    }
+  }
 };
 
 const hashPasswordIfNeeded = async user => {
@@ -216,6 +240,75 @@ const userSchema = new mongoose.Schema(
       type: mongoose.Schema.Types.ObjectId,
       ref: 'User'
     },
+    // Consentimiento parental — Art. 8 RGPD + Art. 7 LOPDGDD
+    // Obligatorio para estudiantes menores de 14 años.
+    // Registra quién otorgó el consentimiento, cuándo, para qué finalidades y bajo qué versión de la política.
+    consent: {
+      granted: {
+        type: Boolean,
+        default: false
+      },
+      grantedBy: {
+        type: String,
+        trim: true,
+        maxlength: [100, 'El nombre del tutor no puede exceder 100 caracteres']
+      },
+      grantedAt: {
+        type: Date
+      },
+      purposes: [
+        {
+          type: String,
+          enum: ['educational_tracking', 'performance_analytics']
+        }
+      ],
+      policyVersion: {
+        type: String,
+        trim: true,
+        default: '1.0'
+      },
+      withdrawnAt: {
+        type: Date,
+        default: null
+      },
+      // Metadata del canal de recogida — Art. 7.1 RGPD (demostrar consentimiento)
+      channel: {
+        type: String,
+        trim: true,
+        enum: ['web_form', 'api', 'admin_panel'],
+        default: 'web_form'
+      },
+      ipAddress: {
+        type: String,
+        trim: true
+      },
+      userAgent: {
+        type: String,
+        trim: true
+      }
+    },
+    // Historial de cambios de consentimiento — Art. 7.1 RGPD (demostrar consentimiento)
+    // Cada otorgamiento o revocación se registra para trazabilidad completa.
+    consentHistory: [
+      {
+        action: {
+          type: String,
+          enum: ['granted', 'withdrawn']
+        },
+        grantedBy: String,
+        timestamp: {
+          type: Date,
+          default: Date.now
+        },
+        policyVersion: String,
+        purposes: [
+          {
+            type: String,
+            enum: ['educational_tracking', 'performance_analytics']
+          }
+        ]
+      }
+    ],
     currentSessionId: {
       type: String,
       default: null,
@@ -364,6 +457,18 @@ userSchema.methods.recordAbandonedGame = function () {
   this.studentMetrics.lastPlayedAt = new Date();
 
   return this.save();
+};
+
+/**
+ * Verifica si el estudiante tiene consentimiento activo para un propósito específico.
+ *
+ * @instance
+ * @memberof User
+ * @param {string} purpose - Propósito a verificar ('educational_tracking' o 'performance_analytics')
+ * @returns {boolean} true si el consentimiento está activo y el propósito incluido
+ */
+userSchema.methods.hasConsentFor = function (purpose) {
+  return this.consent?.granted === true && this.consent?.purposes?.includes(purpose);
 };
 
 /**
