@@ -19,6 +19,7 @@ const { findDangerousPayloadPath } = require('../utils/payloadSecurity');
 const { socketConnectionLimits } = require('../config/socketRateLimits');
 const { getRedis } = require('../config/redis');
 const Sentry = require('@sentry/node');
+const logger = require('../utils/logger').child({ component: 'socketHandlers' });
 
 const REDIS_RFID_MODE_PREFIX = 'rfid:mode:';
 const REDIS_SENSOR_PREFIX = 'rfid:sensor:';
@@ -41,6 +42,8 @@ const sensorIdToUserId = new Map();
 const authRevalidationCache = new Map();
 const playOwnershipCache = new Map();
 const connectionCountByUserId = new Map();
+/** Mutex por userId para serializar operaciones RFID mode (evita race conditions). */
+const rfidModeLocks = new Map();
 let socketServerRef = null;
 
 /**
@@ -51,6 +54,34 @@ let cacheCleanupIntervalRef = null;
 
 /** Intervalo de limpieza periódica de caches (5 minutos). */
 const CACHE_CLEANUP_INTERVAL_MS = 5 * 60 * 1000;
+
+/**
+ * Ejecuta una operación RFID con exclusión mutua por userId.
+ * Serializa operaciones concurrentes sobre el mismo usuario para evitar race conditions.
+ *
+ * @param {string} userId - ID del usuario
+ * @param {Function} operation - Operación async a ejecutar
+ * @returns {Promise<*>} Resultado de la operación
+ */
+const executeWithRfidLock = async (userId, operation) => {
+  const prevLock = rfidModeLocks.get(userId) || Promise.resolve();
+  let releaseLock;
+  const lockPromise = new Promise(resolve => {
+    releaseLock = resolve;
+  });
+  rfidModeLocks.set(userId, lockPromise);
+
+  try {
+    await prevLock;
+    return await operation();
+  } finally {
+    releaseLock();
+    // Limpiar lock si no hay operaciones pendientes posteriores
+    if (rfidModeLocks.get(userId) === lockPromise) {
+      rfidModeLocks.delete(userId);
+    }
+  }
+};
 
 const emitRfidModeChanged = (userId, payload) => {
   if (!socketServerRef || !userId) {
@@ -235,13 +266,19 @@ const persistRfidModeToRedis = (userId, state) => {
   }
 
   if (!state) {
-    redis.del(`${REDIS_RFID_MODE_PREFIX}${userId}`).catch(() => {});
+    redis
+      .del(`${REDIS_RFID_MODE_PREFIX}${userId}`)
+      .catch(err =>
+        logger.warn('Error al borrar estado RFID en Redis', { userId, error: err.message })
+      );
     return;
   }
 
   redis
     .setex(`${REDIS_RFID_MODE_PREFIX}${userId}`, REDIS_RFID_MODE_TTL, JSON.stringify(state))
-    .catch(() => {});
+    .catch(err =>
+      logger.warn('Error al persistir estado RFID en Redis', { userId, error: err.message })
+    );
 };
 
 const persistSensorBindingToRedis = (sensorId, userId) => {
@@ -251,11 +288,21 @@ const persistSensorBindingToRedis = (sensorId, userId) => {
   }
 
   if (!userId) {
-    redis.del(`${REDIS_SENSOR_PREFIX}${sensorId}`).catch(() => {});
+    redis
+      .del(`${REDIS_SENSOR_PREFIX}${sensorId}`)
+      .catch(err =>
+        logger.warn('Error al borrar sensor binding en Redis', { sensorId, error: err.message })
+      );
     return;
   }
 
-  redis.setex(`${REDIS_SENSOR_PREFIX}${sensorId}`, REDIS_RFID_MODE_TTL, userId).catch(() => {});
+  redis.setex(`${REDIS_SENSOR_PREFIX}${sensorId}`, REDIS_RFID_MODE_TTL, userId).catch(err =>
+    logger.warn('Error al persistir sensor binding en Redis', {
+      sensorId,
+      userId,
+      error: err.message
+    })
+  );
 };
 
 const setRfidModeState = (userId, mode, socketId, metadata = {}) => {
@@ -998,8 +1045,11 @@ const registerSocketHandlers = ({ io, gameEngine, rfidService, socketRateLimiter
       requireSocketRole,
       requirePlayOwnership,
       validatePlayId,
-      setRfidModeState,
-      clearRfidModeState,
+      // RFID mode helpers serializados por userId para evitar race conditions
+      setRfidModeState: (userId, mode, socketId, metadata) =>
+        executeWithRfidLock(userId, () => setRfidModeState(userId, mode, socketId, metadata)),
+      clearRfidModeState: (userId, socketId) =>
+        executeWithRfidLock(userId, () => clearRfidModeState(userId, socketId)),
       getPlayRoom,
       getAssignmentRoom,
       handleRfidScanFromClient,

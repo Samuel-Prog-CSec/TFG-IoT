@@ -36,8 +36,10 @@ export default function SelectPremium({
 
   const selected = options.find(o => o.value === value);
 
-  // Cerrar al hacer clic fuera
+  // Cerrar al hacer clic fuera (solo escuchar cuando está abierto)
   useEffect(() => {
+    if (!isOpen) return undefined;
+
     const handleClickOutside = (event) => {
       if (containerRef.current && !containerRef.current.contains(event.target)) {
         setIsOpen(false);
@@ -46,7 +48,7 @@ export default function SelectPremium({
 
     document.addEventListener('mousedown', handleClickOutside);
     return () => document.removeEventListener('mousedown', handleClickOutside);
-  }, []);
+  }, [isOpen]);
 
   const handleSelect = useCallback((option) => {
     onChange?.(option.value);
@@ -205,7 +207,7 @@ export default function SelectPremium({
             exit={{ opacity: 0, y: -10, scale: 0.95 }}
             transition={{ duration: 0.15 }}
             className={cn(
-              'absolute z-50 w-full mt-2',
+              'absolute z-40 w-full mt-2',
               'bg-background-elevated/95 backdrop-blur-xl',
               'border border-border-default rounded-xl',
               'shadow-xl shadow-black/30',

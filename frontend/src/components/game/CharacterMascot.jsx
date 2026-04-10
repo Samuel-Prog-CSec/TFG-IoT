@@ -1,7 +1,8 @@
 import { motion } from 'framer-motion';
-import { useRef } from 'react';
+import { useRef, useMemo } from 'react';
 import PropTypes from 'prop-types';
 import { cn } from '../../lib/utils';
+import { useReducedMotion } from '../../hooks/useReducedMotion';
 import MascotAccessory from './MascotAccessory';
 
 const bodyAnimation = {
@@ -65,15 +66,15 @@ export default function CharacterMascot({
   mood = 'idle',
   message,
   position = 'left',
-  shouldReduceMotion = false,
   className
 }) {
+  const { shouldReduceMotion } = useReducedMotion();
   const lastMsgRef = useRef(-1);
 
   const expr = expressions[mood];
 
-  // Selecciona mensaje rotativo evitando repetir el ultimo
-  const getRotatingMessage = () => {
+  // Selecciona mensaje rotativo evitando repetir el ultimo — memoizado por mood
+  const rotatingMessage = useMemo(() => {
     const pool = messagePool[mood] || messagePool.idle;
     if (pool.length <= 1) return pool[0];
     let idx;
@@ -82,9 +83,9 @@ export default function CharacterMascot({
     } while (idx === lastMsgRef.current && pool.length > 1);
     lastMsgRef.current = idx;
     return pool[idx];
-  };
+  }, [mood]);
 
-  const displayMessage = message || getRotatingMessage();
+  const displayMessage = message || rotatingMessage;
 
   return (
     <div className={cn(
@@ -134,6 +135,7 @@ export default function CharacterMascot({
 
         {/* Mascot emoji — always 🦉 for identity consistency */}
         <motion.div
+          key={mood}
           className="relative text-6xl select-none filter drop-shadow-lg"
           animate={!shouldReduceMotion && (mood === 'happy' || mood === 'celebrating') ? {
             scale: [1, 1.1, 1],
@@ -142,7 +144,7 @@ export default function CharacterMascot({
         >
           🦉
           {/* SVG accessory overlay */}
-          <MascotAccessory mood={mood} shouldReduceMotion={shouldReduceMotion} />
+          <MascotAccessory mood={mood} />
         </motion.div>
 
         {/* Extra decorations for celebrating */}
@@ -178,6 +180,5 @@ CharacterMascot.propTypes = {
   mood: PropTypes.oneOf(['idle', 'happy', 'encouraging', 'celebrating', 'thinking', 'sad']),
   message: PropTypes.string,
   position: PropTypes.oneOf(['left', 'right']),
-  shouldReduceMotion: PropTypes.bool,
   className: PropTypes.string
 };

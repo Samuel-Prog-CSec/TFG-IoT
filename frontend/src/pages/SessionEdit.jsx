@@ -21,6 +21,7 @@ import Breadcrumb from '../components/ui/Breadcrumb';
 import { pageVariants } from '../lib/utils';
 import { useRefetchOnFocus } from '../hooks/useRefetchOnFocus';
 import { useUnsavedChanges } from '../hooks/useUnsavedChanges';
+import { useDocumentTitle } from '../hooks/useDocumentTitle';
 import ConfirmationModal from '../components/ui/ConfirmationModal';
 
 const statusToBadge = (status) => {
@@ -79,6 +80,7 @@ const buildAssociationPlanByRounds = ({ currentPlan, cards, numberOfRounds }) =>
 export default function SessionEdit() {
   const { sessionId } = useParams();
   const navigate = useNavigate();
+  useDocumentTitle('Editar Sesión');
 
   const [session, setSession] = useState(null);
   const [loading, setLoading] = useState(true);

@@ -107,10 +107,10 @@ async function createPlay({ sessionId, playerId, creatorId }) {
     currentRound: 1
   });
 
-  // Populate para respuesta completa
+  // Populate para respuesta completa (RGPD data minimization: solo campos necesarios del perfil)
   await play.populate([
     { path: 'sessionId', select: 'mechanicId contextId config difficulty' },
-    { path: 'playerId', select: 'name profile' }
+    { path: 'playerId', select: 'name profile.classroom profile.age' }
   ]);
 
   logger.info('Partida creada via service', {

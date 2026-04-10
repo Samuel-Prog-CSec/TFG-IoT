@@ -468,7 +468,11 @@ userSchema.methods.recordAbandonedGame = function () {
  * @returns {boolean} true si el consentimiento está activo y el propósito incluido
  */
 userSchema.methods.hasConsentFor = function (purpose) {
-  return this.consent?.granted === true && this.consent?.purposes?.includes(purpose);
+  return (
+    this.consent?.granted === true &&
+    !this.consent?.withdrawnAt &&
+    this.consent?.purposes?.includes(purpose)
+  );
 };
 
 /**

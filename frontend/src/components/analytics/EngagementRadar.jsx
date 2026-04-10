@@ -11,7 +11,7 @@ const ENGAGEMENT_LABELS = {
   playFrequency: 'Frecuencia',
   regularity: 'Regularidad',
   completionRate: 'Completado',
-  timeBetweenSessions: 'Constancia',
+  avgTimeBetweenSessions: 'Constancia',
   voluntaryReplays: 'Replays',
 };
 
@@ -57,11 +57,14 @@ function EngagementRadar({ engagement }) {
   const chartData = useMemo(() => {
     if (!engagement?.components) return [];
 
-    return Object.entries(ENGAGEMENT_LABELS).map(([key, label]) => ({
-      label,
-      value: (engagement.components[key] ?? 0) * 100,
-      fullMark: 100,
-    }));
+    return Object.entries(ENGAGEMENT_LABELS).map(([key, label]) => {
+      const component = engagement.components[key];
+      // El backend devuelve objetos {value, score, ...} — usar score (0-100) directamente
+      const rawValue = typeof component === 'object' && component !== null
+        ? (component.score ?? 0)
+        : (component ?? 0) * 100;
+      return { label, value: rawValue, fullMark: 100 };
+    });
   }, [engagement]);
 
   const score = engagement?.engagementScore;
@@ -95,7 +98,7 @@ function EngagementRadar({ engagement }) {
       </div>
 
       <div className="h-[220px] w-full">
-        <ResponsiveContainer width="100%" height="100%" minWidth={0}>
+        <ResponsiveContainer width="100%" height="100%" minWidth={0} minHeight={0}>
           <RadarChart cx="50%" cy="50%" outerRadius="70%" data={chartData}>
             <PolarGrid
               stroke="var(--color-border-subtle)"
@@ -130,11 +133,11 @@ EngagementRadar.propTypes = {
   engagement: PropTypes.shape({
     engagementScore: PropTypes.number,
     components: PropTypes.shape({
-      playFrequency: PropTypes.number,
-      regularity: PropTypes.number,
-      completionRate: PropTypes.number,
-      timeBetweenSessions: PropTypes.number,
-      voluntaryReplays: PropTypes.number,
+      playFrequency: PropTypes.oneOfType([PropTypes.number, PropTypes.object]),
+      regularity: PropTypes.oneOfType([PropTypes.number, PropTypes.object]),
+      completionRate: PropTypes.oneOfType([PropTypes.number, PropTypes.object]),
+      avgTimeBetweenSessions: PropTypes.oneOfType([PropTypes.number, PropTypes.object]),
+      voluntaryReplays: PropTypes.oneOfType([PropTypes.number, PropTypes.object]),
     }),
   }),
 };

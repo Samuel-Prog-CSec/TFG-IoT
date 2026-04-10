@@ -28,6 +28,7 @@ import { toast } from 'sonner';
 import { sessionsAPI, mechanicsAPI, extractErrorMessage, extractData, isAbortError } from '../services/api';
 import { useContexts } from '../hooks/useContexts';
 import { useRefetchOnFocus } from '../hooks/useRefetchOnFocus';
+import { useDocumentTitle } from '../hooks/useDocumentTitle';
 import { ROUTES } from '../constants/routes';
 import ButtonPremium from '../components/ui/ButtonPremium';
 import GlassCard from '../components/ui/GlassCard';
@@ -39,7 +40,7 @@ import EmptyState from '../components/ui/EmptyState';
 import ErrorState from '../components/ui/ErrorState';
 import ConfirmationModal, { useConfirmationModal } from '../components/ui/ConfirmationModal';
 import PageHeader from '../components/ui/PageHeader';
-import { listContainerVariants, listItemVariants } from '../lib/utils';
+import { crossfadeVariants } from '../lib/utils';
 
 const STATUS_OPTIONS = [
   { value: '', label: 'Todas' },
@@ -104,7 +105,7 @@ const SessionCard = memo(function SessionCard({
   const borderClass = BORDER_CLASSES[session.status] || 'border-l-background-surface/50';
 
   return (
-    <motion.div variants={listItemVariants}>
+    <div>
       <GlassCard className={`p-6 flex flex-col gap-5 hover:border-border-strong transition-[border-color] border-l-4 ${borderClass}`}>
         <div className="flex items-start justify-between gap-3">
           <div>
@@ -222,7 +223,7 @@ const SessionCard = memo(function SessionCard({
         </div>
 
       </GlassCard>
-    </motion.div>
+    </div>
   );
 });
 
@@ -290,9 +291,7 @@ const renderSessionsContent = ({
   return (
     <motion.div
       className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-6"
-      variants={listContainerVariants()}
-      initial="hidden"
-      animate="visible"
+      {...crossfadeVariants}
     >
       {sessions.map((session) => (
         <SessionCard
@@ -335,6 +334,7 @@ function filtersReducer(state, action) {
 export default function SessionsPage() {
   const navigate = useNavigate();
   const { contexts } = useContexts({ autoLoad: true, onlyActive: true });
+  useDocumentTitle('Sesiones');
 
   const [sessions, setSessions] = useState([]);
   const [loading, setLoading] = useState(true);

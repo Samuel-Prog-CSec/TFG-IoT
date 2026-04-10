@@ -24,6 +24,7 @@ import {
 } from 'lucide-react';
 import { ROUTES } from '../constants/routes';
 import { useReducedMotion } from '../hooks/useReducedMotion';
+import { useDocumentTitle } from '../hooks/useDocumentTitle';
 
 // ============================================
 // CONSTANTES DE CONTENIDO
@@ -274,6 +275,7 @@ function SectionCard({ children, id }) {
  */
 export default function PrivacyPage() {
   const { shouldReduceMotion } = useReducedMotion();
+  useDocumentTitle('Privacidad');
   const reduced = shouldReduceMotion;
 
   // Variantes condicionadas a reduced motion

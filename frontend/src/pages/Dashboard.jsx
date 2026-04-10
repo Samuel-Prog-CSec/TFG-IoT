@@ -12,6 +12,8 @@ import analyticsService from '../services/analytics';
 import { isAbortError, contextsAPI, mechanicsAPI } from '../services/api';
 import { captureException } from '../lib/sentry';
 import { ROUTES } from '../constants/routes';
+import { useOnboarding } from '../hooks/useOnboarding';
+import OnboardingOverlay from '../components/onboarding/OnboardingOverlay';
 import StatCard from '../components/dashboard/StatCard';
 import StudentProgressChart from '../components/dashboard/StudentProgressChart';
 import ClassroomOverview from '../components/dashboard/ClassroomOverview';
@@ -28,6 +30,7 @@ export default function Dashboard() {
   const navigate = useNavigate();
   useDocumentTitle('Dashboard');
   const { shouldReduceMotion } = useReducedMotion();
+  const onboarding = useOnboarding();
   const [timeRange, setTimeRange] = useState('7d');
   const [selectedContextId, setSelectedContextId] = useState('');
   const [selectedMechanicId, setSelectedMechanicId] = useState('');
@@ -115,7 +118,7 @@ export default function Dashboard() {
         setProgressData(progress);
         setDifficulties(difficultiesData);
         setStudentsData(students);
-        setDistributionData(distribution);
+        setDistributionData(Array.isArray(distribution) ? distribution : distribution?.distribution || null);
         setAlertsData(alerts);
         setHeatmapData(heatmap);
         setError(null);
@@ -170,8 +173,9 @@ export default function Dashboard() {
     const sevenDaysAgo = new Date();
     sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
     return studentsData.students.filter(s => {
-      if (!s.lastPlayedAt) return false;
-      return new Date(s.lastPlayedAt) >= sevenDaysAgo;
+      const lastPlayed = s.lastPlayedAt || s.studentMetrics?.lastPlayedAt;
+      if (!lastPlayed) return false;
+      return new Date(lastPlayed) >= sevenDaysAgo;
     }).length;
   }, [studentsData]);
 
@@ -187,9 +191,10 @@ export default function Dashboard() {
   const skeletonContent = loading && !summary;
 
   return (
+    <>
     <AnimatePresence mode="wait">
       {skeletonContent ? (
-        <motion.main
+        <motion.section
           key="skeleton"
           {...(shouldReduceMotion ? {} : crossfadeVariants)}
           className="p-6 lg:p-8 max-w-7xl mx-auto space-y-8"
@@ -224,9 +229,9 @@ export default function Dashboard() {
               <SkeletonCard className="h-64" />
             </aside>
           </div>
-        </motion.main>
+        </motion.section>
       ) : (
-        <motion.main
+        <motion.section
           key="content"
           {...(shouldReduceMotion ? {} : crossfadeVariants)}
           className="p-6 lg:p-8 max-w-7xl mx-auto space-y-8"
@@ -261,7 +266,7 @@ export default function Dashboard() {
 
             {/* BI Principle: Jerarquía Visual - KPIs Arriba */}
             <motion.section
-              variants={listContainerVariants(0.08)}
+              variants={listContainerVariants(0.03)}
               initial={shouldReduceMotion ? false : "hidden"}
               animate="visible"
               aria-labelledby="stats-heading"
@@ -364,7 +369,7 @@ export default function Dashboard() {
 
             {/* Grid Principal: Gráficos y Listas */}
             <motion.section
-              variants={listContainerVariants(0.12)}
+              variants={listContainerVariants(0.05)}
               initial={shouldReduceMotion ? false : "hidden"}
               animate="visible"
               className="grid grid-cols-1 xl:grid-cols-3 gap-6 lg:gap-8"
@@ -411,9 +416,20 @@ export default function Dashboard() {
               <RecentActivity students={studentsData.students} />
             )}
           </div>
-        </motion.main>
+        </motion.section>
       )}
     </AnimatePresence>
+
+    <OnboardingOverlay
+      isVisible={onboarding.isVisible}
+      currentStep={onboarding.currentStep}
+      totalSteps={onboarding.totalSteps}
+      onNext={onboarding.nextStep}
+      onPrev={onboarding.prevStep}
+      onComplete={onboarding.completeOnboarding}
+      onSkip={onboarding.skipOnboarding}
+    />
+    </>
   );
 }
 
@@ -480,7 +496,7 @@ function Header({
               value={selectedContextId}
               onChange={(val) => setSelectedContextId(val)}
               options={contextOptions}
-              className="w-44"
+              className="w-52"
               aria-label="Filtrar por contexto tematico"
             />
           )}
@@ -489,7 +505,7 @@ function Header({
               value={selectedMechanicId}
               onChange={(val) => setSelectedMechanicId(val)}
               options={mechanicOptions}
-              className="w-44"
+              className="w-52"
               aria-label="Filtrar por mecanica de juego"
             />
           )}
@@ -501,7 +517,7 @@ function Header({
               { value: '30d', label: 'Ultimos 30 dias' },
               { value: '90d', label: 'Ultimos 90 dias' },
             ]}
-            className="w-44"
+            className="w-52"
             aria-label="Filtrar por rango de tiempo"
           />
         </div>
@@ -556,8 +572,8 @@ function RecentActivity({ students }) {
   const recentStudents = useMemo(() => {
     if (!students?.length) return [];
     return [...students]
-      .filter(s => s.lastPlayedAt)
-      .sort((a, b) => new Date(b.lastPlayedAt) - new Date(a.lastPlayedAt))
+      .filter(s => s.lastPlayedAt || s.studentMetrics?.lastPlayedAt)
+      .sort((a, b) => new Date(b.lastPlayedAt || b.studentMetrics?.lastPlayedAt) - new Date(a.lastPlayedAt || a.studentMetrics?.lastPlayedAt))
       .slice(0, 6);
   }, [students]);
 
@@ -582,9 +598,9 @@ function RecentActivity({ students }) {
     <section className="bg-background-elevated/40 backdrop-blur-sm rounded-2xl border border-border-subtle p-5">
       <h3 className="text-lg font-bold text-text-primary font-display mb-4">Actividad Reciente</h3>
       <div className="flex gap-3 overflow-x-auto pb-2 -mx-1 px-1 custom-scrollbar">
-        {recentStudents.map((student) => (
+        {recentStudents.map((student, index) => (
           <div
-            key={student.studentId || student._id}
+            key={student.studentId || student._id || `recent-${index}`}
             className="flex-shrink-0 flex items-center gap-3 bg-background-surface/40 rounded-xl px-4 py-3 min-w-[200px] border border-border-subtle/50"
           >
             <div className="size-8 rounded-full bg-gradient-to-br from-accent-indigo to-brand-base flex items-center justify-center text-xs font-bold text-white">
@@ -597,7 +613,7 @@ function RecentActivity({ students }) {
                   {Math.round(student.averageScore || 0)} pts
                 </span>
                 <span className="text-[10px] text-text-disabled">
-                  {getRelativeTime(student.lastPlayedAt)}
+                  {getRelativeTime(student.lastPlayedAt || student.studentMetrics?.lastPlayedAt)}
                 </span>
               </div>
             </div>

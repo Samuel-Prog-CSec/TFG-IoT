@@ -8,6 +8,7 @@
 
 import { motion, AnimatePresence } from 'framer-motion';
 import PropTypes from 'prop-types';
+import { useReducedMotion } from '../../hooks/useReducedMotion';
 
 const SPRING_POP = { type: 'spring', stiffness: 500, damping: 20 };
 const SLIDE_IN = { type: 'spring', stiffness: 300, damping: 25 };
@@ -190,10 +191,15 @@ const ACCESSORY_MAP = {
   sad: Bandage,
 };
 
-export default function MascotAccessory({ mood = 'idle', shouldReduceMotion = false }) {
-  if (shouldReduceMotion) return null;
+export default function MascotAccessory({ mood = 'idle' }) {
+  const { shouldReduceMotion } = useReducedMotion();
 
   const AccessoryComponent = ACCESSORY_MAP[mood];
+
+  if (shouldReduceMotion) {
+    // Renderizar sin animacion pero mantener el accesorio visible
+    return AccessoryComponent ? <AccessoryComponent key={mood} /> : null;
+  }
 
   return (
     <AnimatePresence mode="wait">
@@ -206,5 +212,4 @@ export default function MascotAccessory({ mood = 'idle', shouldReduceMotion = fa
 
 MascotAccessory.propTypes = {
   mood: PropTypes.oneOf(['idle', 'happy', 'encouraging', 'celebrating', 'thinking', 'sad']),
-  shouldReduceMotion: PropTypes.bool,
 };

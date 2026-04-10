@@ -6,7 +6,7 @@ import { ROUTES, NAV_ROUTES, ADMIN_NAV_ROUTES } from '../../constants/routes';
 import {
   Shield, Layers, X, Menu, LogOut,
   LayoutDashboard, CalendarClock, Palette, PlusCircle,
-  UserCheck, ArrowRightLeft, Users
+  UserCheck, ArrowRightLeft, Users, TrendingUp, Zap, ZapOff
 } from 'lucide-react';
 import EduPlayIcon from '../icons/EduPlayIcon';
 
@@ -20,9 +20,10 @@ const ICON_MAP = {
   ArrowRightLeft,
   Users,
   Shield,
+  TrendingUp,
 };
 import { useAuth } from '../../context/AuthContext';
-import { cn, routeTransition } from '../../lib/utils';
+import { cn } from '../../lib/utils';
 import { useIsMobile } from '../../hooks/useIsMobile';
 import { useReducedMotion } from '../../hooks/useReducedMotion';
 
@@ -31,7 +32,7 @@ export default function AppLayout() {
   const isMobile = useIsMobile(1024);
   const location = useLocation();
   const { user, logout, isSuperAdmin } = useAuth();
-  const { shouldReduceMotion } = useReducedMotion();
+  const { shouldReduceMotion, setUserPreference, resetUserPreference } = useReducedMotion();
 
   // Close sidebar on route change (mobile)
   useEffect(() => {
@@ -53,10 +54,10 @@ export default function AppLayout() {
         Ir al contenido principal
       </a>
 
-      {/* Aurora Background Effect */}
-      <div className="fixed inset-0 pointer-events-none overflow-hidden mix-blend-screen opacity-60">
-        <div className="absolute top-0 left-1/4 w-96 h-96 bg-brand-base/20 rounded-full blur-[128px] animate-pulse" />
-        <div className="absolute bottom-0 right-1/4 w-96 h-96 bg-accent-cyan/15 rounded-full blur-[128px] animate-pulse" style={{ animationDelay: '1s' }} />
+      {/* Aurora Background Effect — opacidad reducida para mejor contraste de texto */}
+      <div className="fixed inset-0 pointer-events-none overflow-hidden mix-blend-screen opacity-25">
+        <div className="absolute top-0 left-1/4 w-96 h-96 bg-brand-base/20 rounded-full blur-[128px]" />
+        <div className="absolute bottom-0 right-1/4 w-96 h-96 bg-accent-cyan/15 rounded-full blur-[128px]" />
         <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[600px] h-[600px] bg-accent-indigo/10 rounded-full blur-[150px]" />
       </div>
 
@@ -92,7 +93,7 @@ export default function AppLayout() {
         className={cn(
           'fixed lg:relative z-50',
           'w-72 h-full',
-          'bg-background-base/60 backdrop-blur-2xl',
+          'bg-background-base/90 backdrop-blur-xl',
           'border-r border-border-subtle',
           'flex flex-col',
           'shadow-2xl shadow-black/40'
@@ -197,6 +198,25 @@ export default function AppLayout() {
 
         {/* Footer Actions */}
         <div className="p-4 border-t border-transparent bg-gradient-to-r from-transparent via-border-default/50 to-transparent space-y-1">
+          {/* Toggle de movimiento reducido */}
+          <button
+            onClick={() => {
+              if (shouldReduceMotion) {
+                resetUserPreference();
+              } else {
+                setUserPreference('reduce');
+              }
+            }}
+            className="flex items-center gap-3 w-full px-4 py-2.5 text-text-muted hover:text-text-primary hover:bg-white/5 rounded-xl transition-colors duration-200"
+            aria-label={shouldReduceMotion ? 'Activar animaciones' : 'Reducir animaciones'}
+            title={shouldReduceMotion ? 'Animaciones desactivadas' : 'Animaciones activadas'}
+          >
+            {shouldReduceMotion ? <ZapOff size={18} /> : <Zap size={18} />}
+            <span className="font-medium text-xs text-text-disabled">
+              {shouldReduceMotion ? 'Movimiento reducido' : 'Animaciones activas'}
+            </span>
+          </button>
+
           <NavLink
             to="/privacy"
             className="flex items-center gap-3 w-full px-4 py-3 text-text-muted hover:text-text-primary hover:bg-white/5 rounded-xl transition-colors duration-200"
@@ -209,7 +229,7 @@ export default function AppLayout() {
             className="flex items-center gap-3 w-full px-4 py-3 text-error-base hover:bg-error-base/10 rounded-xl transition-colors duration-200"
           >
             <LogOut size={20} />
-            <span className="font-medium text-sm">Cerrar Sesion</span>
+            <span className="font-medium text-sm">Cerrar Sesión</span>
           </button>
         </div>
       </motion.aside>
@@ -219,20 +239,17 @@ export default function AppLayout() {
         {/* Subtle Grid Pattern for Depth */}
         <div className="absolute inset-0 bg-grid opacity-20 pointer-events-none" />
 
-        {/* Page Content — popLayout removes exiting page from flow during transitions */}
+        {/* Page Content — fade-in simple sin exit animation para máxima fiabilidad */}
         <div className="relative z-10 w-full min-h-full">
-          <AnimatePresence mode="popLayout" initial={false}>
-            <motion.div
-              key={location.pathname}
-              initial={shouldReduceMotion ? false : routeTransition.initial}
-              animate={routeTransition.animate}
-              exit={routeTransition.exit}
-              className="w-full"
-              style={{ willChange: 'opacity, transform' }}
-            >
-              <Outlet />
-            </motion.div>
-          </AnimatePresence>
+          <motion.div
+            key={location.pathname}
+            initial={shouldReduceMotion ? false : { opacity: 0 }}
+            animate={{ opacity: 1 }}
+            transition={{ duration: 0.2, ease: [0.16, 1, 0.3, 1] }}
+            className="w-full"
+          >
+            <Outlet />
+          </motion.div>
         </div>
       </main>
     </div>
@@ -253,8 +270,12 @@ function NavItem({ to, icon, label }) {
       }
     >
       {({ isActive }) => (
-        <>
-          {/* Active indicator bar - kept for Framer Motion layoutId magic */}
+        <motion.div
+          className="flex items-center gap-3 w-full"
+          whileHover={!isActive ? { x: 4 } : {}}
+          transition={{ type: 'spring', stiffness: 400, damping: 25 }}
+        >
+          {/* Active indicator bar */}
           {isActive && (
             <motion.div
               layoutId="activeIndicator"
@@ -262,7 +283,7 @@ function NavItem({ to, icon, label }) {
               transition={{ type: 'spring', stiffness: 300, damping: 30 }}
             />
           )}
-          
+
           <span className={cn(
             'relative z-10 transition-transform duration-200',
             isActive ? 'text-brand-light' : 'text-text-muted group-hover:text-text-primary'
@@ -270,7 +291,7 @@ function NavItem({ to, icon, label }) {
             {icon}
           </span>
           <span className="relative z-10 text-sm">{label}</span>
-        </>
+        </motion.div>
       )}
     </NavLink>
   );

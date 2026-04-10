@@ -25,6 +25,7 @@ import Tooltip from '../components/ui/Tooltip';
 import { SkeletonCard } from '../components/ui/SkeletonShimmer';
 import { useContexts } from '../hooks/useContexts';
 import { useReducedMotion } from '../hooks/useReducedMotion';
+import { useDocumentTitle } from '../hooks/useDocumentTitle';
 import { useAuth } from '../context/AuthContext';
 import { contextsAPI, extractData, extractErrorMessage } from '../services/api';
 import { ROUTES } from '../constants/routes';
@@ -33,6 +34,7 @@ export default function ContextsPage() {
   const navigate = useNavigate();
   const { shouldReduceMotion } = useReducedMotion();
   const { isSuperAdmin } = useAuth();
+  useDocumentTitle('Contextos');
 
   // Super_admin ve todos los contextos (activos e inactivos)
   const { contexts, loading, error, refetch } = useContexts({
@@ -75,7 +77,7 @@ export default function ContextsPage() {
   );
 
   return (
-    <div className="min-h-screen bg-background-deep p-4 lg:p-8">
+    <div className="min-h-full bg-background-deep p-4 lg:p-8">
       {/* Header y Stats */}
       <motion.div
         initial={shouldReduceMotion ? false : { opacity: 0, y: -20 }}

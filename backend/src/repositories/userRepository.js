@@ -23,9 +23,6 @@ const updateById = (id, update, options = {}) => baseRepo.updateById(User, id, u
 const updateOne = (filter, update, options = {}) =>
   baseRepo.updateOne(User, filter, update, options);
 
-const findByIdAndUpdate = (id, update, options = {}) =>
-  baseRepo.updateById(User, id, update, options);
-
 const deleteById = id => baseRepo.deleteById(User, id);
 
 const deleteMany = filter => baseRepo.deleteMany(User, filter);
@@ -43,7 +40,6 @@ module.exports = {
   aggregate,
   updateById,
   updateOne,
-  findByIdAndUpdate,
   deleteById,
   deleteMany,
   insertMany,

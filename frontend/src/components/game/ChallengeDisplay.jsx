@@ -10,6 +10,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { useEffect, useState } from 'react';
 import PropTypes from 'prop-types';
 import { cn } from '../../lib/utils';
+import { useReducedMotion } from '../../hooks/useReducedMotion';
 import { getAssetImageUrl } from '../../lib/cardMapping';
 import AudioMiniPlayer from '../ui/AudioMiniPlayer';
 import FloatingPointsBadge from './FloatingPointsBadge';
@@ -78,7 +79,6 @@ const themeColors = {
  * @param {'idle'|'success'|'error'} props.feedbackState - Estado de feedback actual
  * @param {number} props.feedbackPoints - Puntos del feedback
  * @param {string} props.feedbackMessage - Mensaje del feedback
- * @param {boolean} props.shouldReduceMotion - Respetar prefers-reduced-motion
  */
 const ChallengeDisplay = function ChallengeDisplay({
   ref,
@@ -89,9 +89,9 @@ const ChallengeDisplay = function ChallengeDisplay({
   feedbackPoints = 0,
   feedbackMessage = '',
   isTimeout = false,
-  shouldReduceMotion = false,
   className
 }) {
+  const { shouldReduceMotion } = useReducedMotion();
   const [imageError, setImageError] = useState(false);
   const [imageLoading, setImageLoading] = useState(false);
 
@@ -148,7 +148,6 @@ const ChallengeDisplay = function ChallengeDisplay({
               type={feedbackState}
               points={feedbackPoints}
               message={feedbackMessage}
-              shouldReduceMotion={shouldReduceMotion}
             />
           )}
         </AnimatePresence>
@@ -342,7 +341,6 @@ ChallengeDisplay.propTypes = {
   feedbackPoints: PropTypes.number,
   feedbackMessage: PropTypes.string,
   isTimeout: PropTypes.bool,
-  shouldReduceMotion: PropTypes.bool,
   className: PropTypes.string
 };
 

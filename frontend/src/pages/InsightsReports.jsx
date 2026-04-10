@@ -16,6 +16,7 @@ import { useReducedMotion } from '../hooks/useReducedMotion';
 import analyticsService from '../services/analytics';
 import { isAbortError } from '../services/api';
 import { captureException } from '../lib/sentry';
+import ChartErrorBoundary from '../components/common/ChartErrorBoundary';
 import GlassCard from '../components/ui/GlassCard';
 import SelectPremium from '../components/ui/SelectPremium';
 import SkeletonShimmer, { SkeletonChart } from '../components/ui/SkeletonShimmer';
@@ -98,7 +99,7 @@ function LearningCurvesSection({ data, loading }) {
         const name = curve.name || curve.contextName || curve.mechanicName || 'Curva';
         const points = curve.dataPoints || curve.points || [];
         if (points[i]) {
-          point[name] = points[i].averageScore ?? points[i].score ?? null;
+          point[name] = points[i].avgScore ?? points[i].averageScore ?? points[i].score ?? null;
         }
       }
       result.push(point);
@@ -155,7 +156,7 @@ function LearningCurvesSection({ data, loading }) {
       </div>
 
       <div className="h-[280px] w-full -ml-2">
-        <ResponsiveContainer width="100%" height="100%" minWidth={0}>
+        <ResponsiveContainer width="100%" height="100%" minWidth={0} minHeight={0}>
           <AreaChart data={chartData} margin={{ top: 5, right: 10, left: 0, bottom: 5 }}>
             <defs>
               {curveNames.map((name, idx) => (
@@ -235,7 +236,7 @@ export default function InsightsReports() {
   const alertsAbortRef = useRef(null);
 
   // Track which tabs have been loaded at least once for this timeRange
-  const [loadedTabs, setLoadedTabs] = useState({});
+  const loadedTabsRef = useRef({});
 
   // ──────── Fetch effectiveness data ────────
   const fetchEffectiveness = useCallback(() => {
@@ -324,36 +325,25 @@ export default function InsightsReports() {
     run();
   }, []);
 
+  // Limpiar cache de tabs cargados cuando cambia el rango temporal
+  useEffect(() => {
+    loadedTabsRef.current = {};
+  }, [timeRange]);
+
   // ──────── Load data on tab change ────────
   useEffect(() => {
     const tabKey = `${activeTab}-${timeRange}`;
-    if (loadedTabs[tabKey]) return;
+    if (loadedTabsRef.current[tabKey]) return;
 
     if (activeTab === 'effectiveness') {
+      loadedTabsRef.current[tabKey] = true;
       fetchEffectiveness();
-      setLoadedTabs(prev => ({ ...prev, [tabKey]: true }));
     } else if (activeTab === 'alerts') {
+      loadedTabsRef.current[tabKey] = true;
       fetchAlerts();
-      setLoadedTabs(prev => ({ ...prev, [tabKey]: true }));
     }
     // 'reports' tab manages its own fetching via ReportGenerator
-  }, [activeTab, timeRange, loadedTabs, fetchEffectiveness, fetchAlerts]);
-
-  // Reload effectiveness when timeRange changes
-  useEffect(() => {
-    if (activeTab === 'effectiveness') {
-      setLoadedTabs(prev => {
-        const updated = { ...prev };
-        // Invalidate previous effectiveness entries
-        for (const key of Object.keys(updated)) {
-          if (key.startsWith('effectiveness-')) {
-            delete updated[key];
-          }
-        }
-        return updated;
-      });
-    }
-  }, [timeRange, activeTab]);
+  }, [activeTab, timeRange, fetchEffectiveness, fetchAlerts]);
 
   // Fetch alerts count for badge on mount
   useEffect(() => {
@@ -403,13 +393,14 @@ export default function InsightsReports() {
   });
 
   return (
-    <motion.main
+    <motion.section
       initial={shouldReduceMotion ? false : { opacity: 0, y: 12 }}
       animate={{ opacity: 1, y: 0 }}
       transition={{ duration: DURATION.entrance, ease: EASING.outExpo }}
       className="p-6 lg:p-8 max-w-7xl mx-auto space-y-6"
       aria-label="Insights y Reportes"
     >
+      <ChartErrorBoundary>
       {/* Header */}
       <header className="flex flex-col sm:flex-row sm:items-end sm:justify-between gap-4 pt-14 lg:pt-0">
         <div>
@@ -541,7 +532,8 @@ export default function InsightsReports() {
           </motion.div>
         )}
       </AnimatePresence>
-    </motion.main>
+      </ChartErrorBoundary>
+    </motion.section>
   );
 }
 

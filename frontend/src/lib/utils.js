@@ -207,12 +207,12 @@ export function formatTime(seconds) {
  */
 export function getRandomAccentColor() {
   const colors = [
-    'var(--primary)',
-    'var(--accent-cyan)',
-    'var(--accent-pink)',
-    'var(--accent-yellow)',
-    'var(--accent-mint)',
-    'var(--accent-orange)',
+    'var(--color-brand-base)',
+    'var(--color-accent-cyan)',
+    'var(--color-accent-pink)',
+    'var(--color-warning-base)',
+    'var(--color-success-base)',
+    'var(--color-accent-orange)',
   ];
   return colors[Math.floor(Math.random() * colors.length)];
 }
@@ -255,11 +255,11 @@ export const DURATION = {
 };
 
 // --- List stagger factory ---
-export const listContainerVariants = (staggerDelay = 0.06) => ({
+export const listContainerVariants = (staggerDelay = 0.04) => ({
   hidden: { opacity: 0 },
   visible: {
     opacity: 1,
-    transition: { staggerChildren: staggerDelay, delayChildren: 0.1 },
+    transition: { staggerChildren: staggerDelay, delayChildren: 0.05 },
   },
 });
 
@@ -295,17 +295,16 @@ export const crossfadeVariants = {
 
 // --- Page transition (para AppLayout Outlet) ---
 export const routeTransition = {
-  initial: { opacity: 0, y: 12 },
+  initial: { opacity: 0, y: 8 },
   animate: {
     opacity: 1,
     y: 0,
-    transition: { duration: DURATION.entrance, ease: EASING.outExpo },
+    transition: { duration: 0.25, ease: EASING.outExpo },
   },
   exit: {
     opacity: 0,
-    y: -8,
-    pointerEvents: 'none',
-    transition: { duration: DURATION.exit, ease: EASING.outQuart },
+    y: -6,
+    transition: { duration: 0.15, ease: EASING.outQuart },
   },
 };
 

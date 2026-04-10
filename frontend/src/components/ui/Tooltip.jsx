@@ -122,24 +122,56 @@ export default function Tooltip({
     setVisible(false);
   }, []);
 
+  // Toggle para dispositivos táctiles (tablets no tienen hover)
+  const handleTouchToggle = useCallback(() => {
+    setVisible(prev => !prev);
+  }, []);
+
   if (!content || disabled) {
     return children;
   }
 
   const variants = getMotionVariants(effectiveSide);
 
+  // Detectar si el hijo ya es un elemento interactivo (evitar anidamiento button>button, a>button, etc.)
+  const isChildInteractive = (() => {
+    if (!isValidElement(children)) return false;
+    const tagType = children.type;
+    // Elementos HTML nativos interactivos
+    if (typeof tagType === 'string' && ['button', 'a', 'input', 'select', 'textarea'].includes(tagType)) {
+      return true;
+    }
+    // Componentes con role="button"
+    if (children.props?.role === 'button') return true;
+    // Componentes cuyo nombre contiene "Button" (ej: ButtonPremium)
+    const componentName = tagType?.displayName || tagType?.name || '';
+    if (componentName.includes('Button')) return true;
+    return false;
+  })();
+
   const child = isValidElement(children)
     ? cloneElement(children, { 'aria-describedby': tooltipId })
     : <span aria-describedby={tooltipId}>{children}</span>;
 
   return (
+    // eslint-disable-next-line jsx-a11y/no-static-element-interactions -- Cuando el hijo es interactivo, el wrapper solo usa eventos pasivos (hover/focus) sin role/tabIndex para evitar anidamiento de elementos interactivos
     <span
       ref={triggerRef}
+      {...(!isChildInteractive && { role: 'button', tabIndex: 0 })}
       className={cn('relative inline-flex', className)}
       onMouseEnter={show}
       onMouseLeave={hide}
       onFocus={showImmediate}
       onBlur={hide}
+      {...(!isChildInteractive && {
+        onClick: handleTouchToggle,
+        onKeyDown: (e) => {
+          if (e.key === 'Enter' || e.key === ' ') {
+            e.preventDefault();
+            handleTouchToggle();
+          }
+        },
+      })}
     >
       {child}
       <AnimatePresence>
@@ -152,7 +184,7 @@ export default function Tooltip({
             exit={variants.exit}
             transition={{ duration: 0.15, ease: [0.25, 1, 0.5, 1] }}
             className={cn(
-              'absolute z-50 pointer-events-none',
+              'absolute z-[60] pointer-events-none',
               'px-2.5 py-1.5 rounded-lg',
               'text-xs font-medium whitespace-nowrap',
               'bg-background-elevated text-text-primary',

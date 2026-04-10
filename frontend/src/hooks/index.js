@@ -7,3 +7,7 @@ export { useContexts } from './useContexts';
 export { useRefetchOnFocus } from './useRefetchOnFocus';
 export { useReducedMotion } from './useReducedMotion';
 export { useUnsavedChanges } from './useUnsavedChanges';
+export { useConfetti } from './useConfetti';
+export { useSoundEffects } from './useSoundEffects';
+export { useSessionWizardData } from './useSessionWizardData';
+export { useWizardConfig } from './useWizardConfig';

@@ -7,17 +7,23 @@
  * Endpoints:
  * - GET /api/health (y alias /health) — Estado del sistema
  * - GET /api/metrics — Metricas runtime (protegido)
+ * - GET /api/health/metrics — Metricas operacionales detalladas (super_admin)
  * - GET / — Informacion general de la API
  *
  * @module controllers/healthController
  *
- * NOTA: Este controller NO usa responseHelper (sendSuccess/sendPaginated).
- * Los endpoints de health/metrics siguen convenciones de infraestructura
- * (formato libre, sin wrapper { success, data }) y no el contrato API estandar.
+ * NOTA: La mayoría de endpoints de este controller NO usan responseHelper
+ * (sendSuccess/sendPaginated) porque siguen convenciones de infraestructura
+ * (formato libre, sin wrapper { success, data }).
+ * Excepción: getSystemMetrics usa sendSuccess por ser un endpoint de dominio
+ * protegido por autenticación.
  */
 
+const mongoose = require('mongoose');
 const { getHealthStatus, getMemoryUsage } = require('../utils/healthCheck');
 const { toSystemMetricsDTOV1 } = require('../utils/dtos');
+const { sendSuccess } = require('../utils/responseHelper');
+const { ping: pingRedis } = require('../config/redis');
 const logger = require('../utils/logger');
 const pkg = require('../../package.json');
 
@@ -85,6 +91,64 @@ const getMetrics = (req, res) => {
 };
 
 /**
+ * Métricas operacionales detalladas del sistema.
+ * Agrega estado de GameEngine, Redis, MongoDB, WebSocket y métricas runtime.
+ *
+ * @route GET /api/health/metrics
+ * @access Private (Super_Admin)
+ * @param {import('express').Request} req
+ * @param {import('express').Response} res
+ */
+const getSystemMetrics = async (req, res) => {
+  // --- GameEngine ---
+  const gameEngine = req.app.get('gameEngine');
+  const engineMetrics = gameEngine ? gameEngine.getMetrics() : { activePlays: 0, metrics: null };
+
+  // --- Redis: ping y latencia ---
+  let redisStatus;
+  try {
+    const pingResult = await pingRedis();
+    redisStatus = {
+      connected: pingResult.connected,
+      latencyMs: pingResult.latency
+    };
+  } catch (error) {
+    logger.warn({ err: error }, 'Error al consultar Redis para métricas');
+    redisStatus = { connected: false, latencyMs: null };
+  }
+
+  // --- MongoDB: readyState ---
+  const mongoReadyState = mongoose.connection.readyState;
+  const mongoStateNames = {
+    0: 'disconnected',
+    1: 'connected',
+    2: 'connecting',
+    3: 'disconnecting'
+  };
+  const mongodbStatus = {
+    readyState: mongoReadyState,
+    status: mongoStateNames[mongoReadyState] || 'unknown'
+  };
+
+  // --- Sockets conectados ---
+  const io = req.app.get('io');
+  const socketsConnected = io?.engine?.clientsCount ?? 0;
+
+  // --- RuntimeMetrics ---
+  const runtimeMetrics = req.app.get('runtimeMetrics');
+  const runtimeSnapshot = runtimeMetrics ? runtimeMetrics.getSnapshot() : null;
+
+  sendSuccess(res, {
+    gameEngine: engineMetrics,
+    redis: redisStatus,
+    mongodb: mongodbStatus,
+    sockets: { connectedClients: socketsConnected },
+    runtimeMetrics: runtimeSnapshot,
+    timestamp: new Date().toISOString()
+  });
+};
+
+/**
  * Informacion general de la API (version, endpoints disponibles).
  *
  * @route GET /
@@ -111,4 +175,4 @@ const getApiInfo = (_req, res) => {
   });
 };
 
-module.exports = { healthCheck, getMetrics, getApiInfo };
+module.exports = { healthCheck, getMetrics, getSystemMetrics, getApiInfo };

@@ -1,7 +1,9 @@
-import { memo, useMemo } from 'react';
+import { memo, useMemo, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import PropTypes from 'prop-types';
 import { cn } from '../../lib/utils';
+import { useReducedMotion } from '../../hooks/useReducedMotion';
+import { useConfetti } from '../../hooks/useConfetti';
 
 /**
  * Overlay de feedback tras cada respuesta
@@ -12,10 +14,33 @@ import { cn } from '../../lib/utils';
  * @param {number} props.points - Puntos ganados/perdidos
  * @param {Function} props.onComplete - Callback cuando termina la animación
  */
-function FeedbackOverlay({ type, points = 0, onComplete, shouldReduceMotion = false }) {
+function FeedbackOverlay({ type, points = 0, onComplete }) {
+  const { shouldReduceMotion } = useReducedMotion();
+  const { fireBurst } = useConfetti();
+
+  // Disparar confetti via canvas-confetti para éxito
+  useEffect(() => {
+    if (type === 'success') {
+      fireBurst();
+    }
+  }, [type, fireBurst]);
+
+  // Permitir cerrar con Escape
+  useEffect(() => {
+    if (!type) return;
+    const handleKeyDown = (e) => {
+      if (e.key === 'Escape' && onComplete) {
+        onComplete();
+      }
+    };
+    document.addEventListener('keydown', handleKeyDown);
+    return () => document.removeEventListener('keydown', handleKeyDown);
+  }, [type, onComplete]);
+
   const floatingEmojiSeeds = useMemo(
     () =>
       ['⭐', '🌟', '✨', '💫', '🎊'].map((emoji, index) => ({
+        id: index,
         emoji,
         x: 10 + index * 18,
         rotation: 30 + index * 40,
@@ -32,8 +57,7 @@ function FeedbackOverlay({ type, points = 0, onComplete, shouldReduceMotion = fa
   return (
     <AnimatePresence onExitComplete={onComplete}>
       <motion.div
-        role="dialog"
-        aria-modal="true"
+        role="status"
         aria-live="assertive"
         aria-label={`Resultado: ${feedbackMessage}. ${isSuccess ? 'Ganaste' : ''} ${points} puntos`}
         initial={{ opacity: 0 }}
@@ -107,15 +131,14 @@ function FeedbackOverlay({ type, points = 0, onComplete, shouldReduceMotion = fa
           </motion.div>
         </motion.div>
 
-        {/* Confetti for success */}
-        {isSuccess && !shouldReduceMotion && <Confetti />}
+        {/* Confetti ahora se dispara via useConfetti hook (useEffect arriba) */}
 
         {/* Floating emojis */}
         {isSuccess && !shouldReduceMotion && (
           <div className="absolute inset-0 overflow-hidden pointer-events-none" aria-hidden="true">
             {floatingEmojiSeeds.map(seed => (
               <motion.div
-                key={`floating-emoji-${seed.emoji}`}
+                key={`floating-emoji-${seed.id}`}
                 initial={{ 
                   x: `${seed.x}%`,
                   y: typeof window !== 'undefined' ? window.innerHeight : 500,
@@ -143,61 +166,10 @@ function FeedbackOverlay({ type, points = 0, onComplete, shouldReduceMotion = fa
   );
 }
 
-// Confetti component
-function Confetti() {
-  // TOKEN-EXCEPTION: canvas-confetti API requires direct color values
-  const colors = ['#8b5cf6', '#22d3ee', '#f472b6', '#facc15', '#4ade80'];
-  const pieces = Array.from({ length: 42 }, (_, index) => ({
-    id: index,
-    x: 15 + (index % 7) * 10,
-    y: 10 + Math.floor(index / 7) * 4,
-    size: 8 + (index % 4) * 2,
-    rotate: 80 + (index % 9) * 35,
-    duration: 1 + (index % 5) * 0.2,
-    colorIndex: index % colors.length,
-    isCircle: index % 2 === 0
-  }));
-
-  return (
-    <div className="absolute inset-0 overflow-hidden pointer-events-none">
-      {pieces.map(piece => (
-        <motion.div
-          key={piece.id}
-          initial={{
-            x: `${piece.x}%`,
-            y: `${piece.y}%`,
-            scale: 0,
-          }}
-          animate={{
-            x: `${piece.x + 8}%`,
-            y: `${100 + piece.y}%`,
-            scale: [0, 1, 1],
-            rotate: piece.rotate,
-          }}
-          transition={{
-            duration: piece.duration,
-            ease: 'easeOut',
-          }}
-          className="absolute"
-          style={{
-            width: piece.size,
-            height: piece.size,
-            backgroundColor: colors[piece.colorIndex],
-            borderRadius: piece.isCircle ? '50%' : '2px',
-          }}
-        />
-      ))}
-    </div>
-  );
-}
-
 FeedbackOverlay.propTypes = {
   type: PropTypes.oneOf(['success', 'error']),
   points: PropTypes.number,
   onComplete: PropTypes.func,
-  shouldReduceMotion: PropTypes.bool,
 };
-
-Confetti.propTypes = {};
 
 export default memo(FeedbackOverlay);

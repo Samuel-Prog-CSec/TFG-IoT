@@ -30,6 +30,7 @@ import { cn } from '../lib/utils';
 import { useAuth } from '../context/AuthContext';
 import { contextsAPI, extractData, extractErrorMessage } from '../services/api';
 import { ROUTES } from '../constants/routes';
+import { useDocumentTitle } from '../hooks/useDocumentTitle';
 import Breadcrumb from '../components/ui/Breadcrumb';
 
 const TAB_BUTTON_VARIANTS = {
@@ -46,7 +47,8 @@ export default function ContextDetailPage() {
   const { contextId } = useParams();
   const navigate = useNavigate();
   const { isSuperAdmin } = useAuth();
-  
+  useDocumentTitle('Detalle del Contexto');
+
   const [context, setContext] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
@@ -117,7 +119,7 @@ export default function ContextDetailPage() {
 
   if (loading) {
     return (
-      <div className="min-h-screen bg-background-deep p-4 lg:p-8">
+      <div className="min-h-full bg-background-deep p-4 lg:p-8">
         <div className="max-w-5xl mx-auto">
           <div className="h-8 w-32 bg-background-elevated rounded animate-pulse mb-6" />
           <div className="h-24 bg-background-elevated rounded-2xl animate-pulse mb-8" />
@@ -131,7 +133,7 @@ export default function ContextDetailPage() {
 
   if (error || !context) {
     return (
-      <div className="min-h-screen bg-background-deep p-4 lg:p-8 flex items-center justify-center">
+      <div className="min-h-full bg-background-deep p-4 lg:p-8 flex items-center justify-center">
         <GlassCard className="p-8 text-center max-w-md">
           <AlertTriangle size={48} className="text-error-base mx-auto mb-4" />
           <h2 className="text-xl font-semibold text-text-primary mb-2">Error</h2>
@@ -147,7 +149,7 @@ export default function ContextDetailPage() {
   const assets = context.assets || [];
 
   return (
-    <div className="min-h-screen bg-background-deep p-4 lg:p-8">
+    <div className="min-h-full bg-background-deep p-4 lg:p-8">
       {/* Header */}
       <motion.div
         initial={{ opacity: 0, y: -20 }}

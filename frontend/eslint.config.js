@@ -4,7 +4,11 @@ import reactHooks from 'eslint-plugin-react-hooks'
 import reactRefresh from 'eslint-plugin-react-refresh'
 import jsxA11y from 'eslint-plugin-jsx-a11y'
 import react from 'eslint-plugin-react'
+import sonarjs from 'eslint-plugin-sonarjs'
 import { defineConfig, globalIgnores } from 'eslint/config'
+
+// Extraer plugins de sonarjs para evitar redefinición (mismo patrón que backend)
+const { plugins: sonarPlugins, ...sonarRecommendedConfig } = sonarjs.configs.recommended
 
 /**
  * ESLint Configuration for EduPlay Frontend
@@ -14,7 +18,16 @@ import { defineConfig, globalIgnores } from 'eslint/config'
  */
 export default defineConfig([
   globalIgnores(['dist', 'node_modules', 'coverage', '*.min.js']),
-  
+
+  // SonarJS: reglas de calidad equivalentes a SonarCloud (feedback local)
+  {
+    ...sonarRecommendedConfig,
+    plugins: {
+      ...sonarPlugins,
+      sonarjs,
+    },
+  },
+
   // Configuración base para archivos JS/JSX
   {
     files: ['**/*.{js,jsx}'],
@@ -89,6 +102,7 @@ export default defineConfig([
       'react-hooks/purity': 'off',
       'react-hooks/immutability': 'off',
       'react-hooks/set-state-in-effect': 'off',
+      'react-hooks/refs': 'off',
       'react-compiler/react-compiler': 'off',
       
       // ==========================================
@@ -116,6 +130,25 @@ export default defineConfig([
       'jsx-a11y/role-supports-aria-props': 'error',
       'jsx-a11y/tabindex-no-positive': 'warn',
       
+      // ==========================================
+      // SONARJS (calidad de código, feedback local)
+      // ==========================================
+      'sonarjs/cognitive-complexity': ['warn', 50],
+      'sonarjs/pseudo-random': 'warn',
+      'sonarjs/todo-tag': 'warn',
+      'sonarjs/no-nested-conditional': 'warn',
+      'sonarjs/no-duplicate-string': 'off',
+      'sonarjs/no-redundant-assignments': 'warn',
+      'sonarjs/no-ignored-exceptions': 'warn',
+      'sonarjs/no-dead-store': 'warn',
+      'sonarjs/slow-regex': 'warn',
+      'sonarjs/no-unused-vars': 'warn',
+      'sonarjs/no-nested-functions': 'off',
+      'sonarjs/unused-import': 'warn',
+      'sonarjs/no-all-duplicated-branches': 'warn',
+      'sonarjs/concise-regex': 'warn',
+      'sonarjs/duplicates-in-character-class': 'warn',
+
       // ==========================================
       // BUENAS PRÁCTICAS
       // ==========================================

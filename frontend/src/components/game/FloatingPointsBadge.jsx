@@ -8,6 +8,7 @@
 import { motion, AnimatePresence } from 'framer-motion';
 import PropTypes from 'prop-types';
 import { cn } from '../../lib/utils';
+import { useReducedMotion } from '../../hooks/useReducedMotion';
 
 const BADGE_STYLES = {
   success: {
@@ -28,9 +29,9 @@ export default function FloatingPointsBadge({
   type,
   points = 0,
   message = '',
-  shouldReduceMotion = false,
   className,
 }) {
+  const { shouldReduceMotion } = useReducedMotion();
   const styles = BADGE_STYLES[type];
 
   return (
@@ -71,6 +72,5 @@ FloatingPointsBadge.propTypes = {
   type: PropTypes.oneOf(['success', 'error']),
   points: PropTypes.number,
   message: PropTypes.string,
-  shouldReduceMotion: PropTypes.bool,
   className: PropTypes.string,
 };

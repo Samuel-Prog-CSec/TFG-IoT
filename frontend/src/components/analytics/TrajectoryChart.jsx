@@ -77,9 +77,9 @@ function TrajectoryChart({ trajectoryData, classComparison, title = 'Trayectoria
     return trajectoryData.dataPoints.map((point, index) => {
       const classPoint = classComparison?.[index];
       return {
-        date: point.date ? formatDate(new Date(point.date), 'short') : `Punto ${index + 1}`,
-        score: point.averageScore ?? point.score ?? 0,
-        classAverage: classPoint?.averageScore ?? classPoint?.score ?? null,
+        date: (point.date || point.period) ? formatDate(new Date(point.date || point.period), 'short') : `Punto ${index + 1}`,
+        score: point.avgScore ?? point.averageScore ?? point.score ?? 0,
+        classAverage: classPoint?.avgScore ?? classPoint?.averageScore ?? classPoint?.score ?? null,
       };
     });
   }, [trajectoryData, classComparison]);
@@ -126,7 +126,7 @@ function TrajectoryChart({ trajectoryData, classComparison, title = 'Trayectoria
       </div>
 
       <div className="h-[250px] w-full -ml-2">
-        <ResponsiveContainer width="100%" height="100%" minWidth={0}>
+        <ResponsiveContainer width="100%" height="100%" minWidth={0} minHeight={0}>
           <LineChart data={chartData} margin={{ top: 5, right: 10, left: 0, bottom: 5 }}>
             <CartesianGrid
               stroke="var(--color-border-subtle)"
@@ -190,6 +190,8 @@ TrajectoryChart.propTypes = {
   trajectoryData: PropTypes.shape({
     dataPoints: PropTypes.arrayOf(PropTypes.shape({
       date: PropTypes.string,
+      period: PropTypes.string,
+      avgScore: PropTypes.number,
       averageScore: PropTypes.number,
       score: PropTypes.number,
     })),

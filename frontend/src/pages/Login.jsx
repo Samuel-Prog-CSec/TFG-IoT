@@ -7,12 +7,13 @@
  */
 
 import { useState, useEffect } from 'react';
-import { Link, useLocation } from 'react-router-dom';
+import { useLocation, useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import { LogIn, Mail, Lock, Eye, EyeOff, AlertCircle, CheckCircle, Info, Clock } from 'lucide-react';
 import EduPlayIcon from '../components/icons/EduPlayIcon';
 import { useAuth } from '../context/AuthContext';
 import { useReducedMotion } from '../hooks/useReducedMotion';
+import { useDocumentTitle } from '../hooks/useDocumentTitle';
 import { formFieldVariants } from '../lib/utils';
 import ButtonPremium from '../components/ui/ButtonPremium';
 import InputPremium from '../components/ui/InputPremium';
@@ -102,7 +103,9 @@ const resetRateLimit = () => {
 export default function Login() {
   const { login, error, clearError, isLoading } = useAuth();
   const location = useLocation();
+  const navigate = useNavigate();
   const { shouldReduceMotion } = useReducedMotion();
+  useDocumentTitle('Iniciar Sesión');
 
   // Estado del formulario
   const [formData, setFormData] = useState({
@@ -491,16 +494,15 @@ export default function Login() {
           </div>
 
           {/* Link a registro */}
-          <Link to={ROUTES.REGISTER}>
-            <ButtonPremium
-              type="button"
-              variant="secondary"
-              size="lg"
-              className="w-full"
-            >
-              Crear cuenta de profesor
-            </ButtonPremium>
-          </Link>
+          <ButtonPremium
+            type="button"
+            variant="secondary"
+            size="lg"
+            className="w-full"
+            onClick={() => navigate(ROUTES.REGISTER)}
+          >
+            Crear cuenta de profesor
+          </ButtonPremium>
         </GlassCard>
 
         {/* Footer */}

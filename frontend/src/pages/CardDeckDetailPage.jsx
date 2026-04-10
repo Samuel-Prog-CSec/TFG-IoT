@@ -22,6 +22,7 @@ import StatusBadge from '../components/ui/StatusBadge';
 import Breadcrumb from '../components/ui/Breadcrumb';
 import { pageVariants, formatDate } from '../lib/utils';
 import { useRefetchOnFocus } from '../hooks/useRefetchOnFocus';
+import { useDocumentTitle } from '../hooks/useDocumentTitle';
 
 function isDeckArchived(deck) {
   if (!deck) return false;
@@ -89,6 +90,7 @@ function getCardInfo(deckCard, index) {
 export default function CardDeckDetailPage() {
   const { deckId } = useParams();
   const navigate = useNavigate();
+  useDocumentTitle('Detalle del Mazo');
 
   const [deck, setDeck] = useState(null);
   const [loading, setLoading] = useState(true);

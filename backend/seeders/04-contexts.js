@@ -36,6 +36,7 @@ const contextsData = [
         display: 'España',
         value: 'España',
         audioUrl: null,
+        dominantColor: '#c60b1e',
         ...assetUrls('geography-europe', 'spain')
       },
       {
@@ -43,6 +44,7 @@ const contextsData = [
         display: 'Francia',
         value: 'Francia',
         audioUrl: null,
+        dominantColor: '#002395',
         ...assetUrls('geography-europe', 'france')
       },
       {
@@ -50,6 +52,7 @@ const contextsData = [
         display: 'Italia',
         value: 'Italia',
         audioUrl: null,
+        dominantColor: '#008c45',
         ...assetUrls('geography-europe', 'italy')
       },
       {
@@ -57,6 +60,7 @@ const contextsData = [
         display: 'Alemania',
         value: 'Alemania',
         audioUrl: null,
+        dominantColor: '#000000',
         ...assetUrls('geography-europe', 'germany')
       },
       {
@@ -64,6 +68,7 @@ const contextsData = [
         display: 'Portugal',
         value: 'Portugal',
         audioUrl: null,
+        dominantColor: '#006600',
         ...assetUrls('geography-europe', 'portugal')
       },
       {
@@ -71,6 +76,7 @@ const contextsData = [
         display: 'Grecia',
         value: 'Grecia',
         audioUrl: null,
+        dominantColor: '#0d5eaf',
         ...assetUrls('geography-europe', 'greece')
       }
     ]
@@ -85,6 +91,7 @@ const contextsData = [
         display: 'Vaca',
         value: 'Vaca',
         audioUrl: null,
+        dominantColor: '#8b6914',
         ...assetUrls('animals-farm', 'cow')
       },
       {
@@ -92,6 +99,7 @@ const contextsData = [
         display: 'Cerdo',
         value: 'Cerdo',
         audioUrl: null,
+        dominantColor: '#f4a7bb',
         ...assetUrls('animals-farm', 'pig')
       },
       {
@@ -99,6 +107,7 @@ const contextsData = [
         display: 'Gallina',
         value: 'Gallina',
         audioUrl: null,
+        dominantColor: '#e8a317',
         ...assetUrls('animals-farm', 'chicken')
       },
       {
@@ -106,6 +115,7 @@ const contextsData = [
         display: 'Caballo',
         value: 'Caballo',
         audioUrl: null,
+        dominantColor: '#6b3a2a',
         ...assetUrls('animals-farm', 'horse')
       },
       {
@@ -113,6 +123,7 @@ const contextsData = [
         display: 'Pato',
         value: 'Pato',
         audioUrl: null,
+        dominantColor: '#f5c71a',
         ...assetUrls('animals-farm', 'duck')
       },
       {
@@ -120,6 +131,7 @@ const contextsData = [
         display: 'Gato',
         value: 'Gato',
         audioUrl: null,
+        dominantColor: '#d4883a',
         ...assetUrls('animals-farm', 'cat')
       }
     ]
@@ -134,6 +146,7 @@ const contextsData = [
         display: 'Rojo',
         value: 'Rojo',
         audioUrl: null,
+        dominantColor: '#e53935',
         ...assetUrls('colors-basic', 'red')
       },
       {
@@ -141,6 +154,7 @@ const contextsData = [
         display: 'Azul',
         value: 'Azul',
         audioUrl: null,
+        dominantColor: '#1e88e5',
         ...assetUrls('colors-basic', 'blue')
       },
       {
@@ -148,6 +162,7 @@ const contextsData = [
         display: 'Verde',
         value: 'Verde',
         audioUrl: null,
+        dominantColor: '#43a047',
         ...assetUrls('colors-basic', 'green')
       },
       {
@@ -155,6 +170,7 @@ const contextsData = [
         display: 'Amarillo',
         value: 'Amarillo',
         audioUrl: null,
+        dominantColor: '#fdd835',
         ...assetUrls('colors-basic', 'yellow')
       },
       {
@@ -162,6 +178,7 @@ const contextsData = [
         display: 'Naranja',
         value: 'Naranja',
         audioUrl: null,
+        dominantColor: '#fb8c00',
         ...assetUrls('colors-basic', 'orange')
       },
       {
@@ -169,6 +186,7 @@ const contextsData = [
         display: 'Morado',
         value: 'Morado',
         audioUrl: null,
+        dominantColor: '#8e24aa',
         ...assetUrls('colors-basic', 'purple')
       }
     ]
@@ -183,6 +201,7 @@ const contextsData = [
         display: 'Uno',
         value: 'Uno',
         audioUrl: null,
+        dominantColor: '#5c6bc0',
         ...assetUrls('numbers-1-6', 'one')
       },
       {
@@ -190,6 +209,7 @@ const contextsData = [
         display: 'Dos',
         value: 'Dos',
         audioUrl: null,
+        dominantColor: '#26a69a',
         ...assetUrls('numbers-1-6', 'two')
       },
       {
@@ -197,6 +217,7 @@ const contextsData = [
         display: 'Tres',
         value: 'Tres',
         audioUrl: null,
+        dominantColor: '#ef5350',
         ...assetUrls('numbers-1-6', 'three')
       },
       {
@@ -204,6 +225,7 @@ const contextsData = [
         display: 'Cuatro',
         value: 'Cuatro',
         audioUrl: null,
+        dominantColor: '#66bb6a',
         ...assetUrls('numbers-1-6', 'four')
       },
       {
@@ -211,6 +233,7 @@ const contextsData = [
         display: 'Cinco',
         value: 'Cinco',
         audioUrl: null,
+        dominantColor: '#ffa726',
         ...assetUrls('numbers-1-6', 'five')
       },
       {
@@ -218,6 +241,7 @@ const contextsData = [
         display: 'Seis',
         value: 'Seis',
         audioUrl: null,
+        dominantColor: '#ab47bc',
         ...assetUrls('numbers-1-6', 'six')
       }
     ]
@@ -232,6 +256,7 @@ const contextsData = [
         display: 'Círculo',
         value: 'Círculo',
         audioUrl: null,
+        dominantColor: '#42a5f5',
         ...assetUrls('shapes-basic', 'circle')
       },
       {
@@ -239,6 +264,7 @@ const contextsData = [
         display: 'Cuadrado',
         value: 'Cuadrado',
         audioUrl: null,
+        dominantColor: '#66bb6a',
         ...assetUrls('shapes-basic', 'square')
       },
       {
@@ -246,6 +272,7 @@ const contextsData = [
         display: 'Triángulo',
         value: 'Triángulo',
         audioUrl: null,
+        dominantColor: '#ffa726',
         ...assetUrls('shapes-basic', 'triangle')
       },
       {
@@ -253,6 +280,7 @@ const contextsData = [
         display: 'Estrella',
         value: 'Estrella',
         audioUrl: null,
+        dominantColor: '#ffee58',
         ...assetUrls('shapes-basic', 'star')
       },
       {
@@ -260,6 +288,7 @@ const contextsData = [
         display: 'Corazón',
         value: 'Corazón',
         audioUrl: null,
+        dominantColor: '#ef5350',
         ...assetUrls('shapes-basic', 'heart')
       },
       {
@@ -267,6 +296,7 @@ const contextsData = [
         display: 'Rombo',
         value: 'Rombo',
         audioUrl: null,
+        dominantColor: '#ab47bc',
         ...assetUrls('shapes-basic', 'diamond')
       }
     ]

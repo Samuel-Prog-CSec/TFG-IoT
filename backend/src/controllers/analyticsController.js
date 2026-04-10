@@ -14,25 +14,7 @@ const { toStudentIdentityDTOV1 } = require('../utils/dtos');
 const { MIN_ANALYTICS_GROUP_SIZE } = require('../config/dataRetention');
 const { getRequestContext, logSecurityEvent } = require('../utils/securityLogger');
 const { pseudonymize } = require('../utils/pseudonymize');
-const { ForbiddenError } = require('../utils/errors');
-
-/**
- * Verifica que el estudiante tiene consentimiento activo de analytics.
- * Art. 21 RGPD — si el tutor se opuso a analytics, no se sirven datos.
- * @param {string} studentId
- * @throws {ForbiddenError} Si el estudiante no tiene consent de performance_analytics
- * @private
- */
-async function verifyAnalyticsConsent(studentId) {
-  const student = await userRepository.findById(studentId, {
-    select: 'consent.granted consent.purposes'
-  });
-  if (!student?.consent?.granted || !student.consent.purposes?.includes('performance_analytics')) {
-    throw new ForbiddenError(
-      'El tutor de este estudiante ha ejercido su derecho de oposición a analytics (Art. 21 RGPD)'
-    );
-  }
-}
+const consentService = require('../services/consentService');
 
 /**
  * Obtiene el progreso temporal de un estudiante.
@@ -43,7 +25,7 @@ exports.getStudentProgress = async (req, res) => {
   const { timeRange } = req.query; // '7d', '30d'
 
   await ensureStudentBelongsToTeacher(id, req.user, userRepository);
-  await verifyAnalyticsConsent(id);
+  await consentService.requireConsent(id, 'performance_analytics');
 
   // Audit trail — Art. 5.2 RGPD (accountability)
   logSecurityEvent('DATA_ACCESS', {
@@ -65,7 +47,7 @@ exports.getStudentDifficulties = async (req, res) => {
   const { id } = req.params;
 
   await ensureStudentBelongsToTeacher(id, req.user, userRepository);
-  await verifyAnalyticsConsent(id);
+  await consentService.requireConsent(id, 'performance_analytics');
 
   // Audit trail — Art. 5.2 RGPD (accountability)
   logSecurityEvent('DATA_ACCESS', {
@@ -231,7 +213,7 @@ exports.getStudentSummary = async (req, res) => {
   const { timeRange } = req.query;
 
   await ensureStudentBelongsToTeacher(id, req.user, userRepository);
-  await verifyAnalyticsConsent(id);
+  await consentService.requireConsent(id, 'performance_analytics');
 
   // Audit trail — Art. 5.2 RGPD (accountability)
   logSecurityEvent('DATA_ACCESS', {

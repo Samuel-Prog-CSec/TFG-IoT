@@ -9,6 +9,7 @@ import { listContainerVariants, listItemVariants, crossfadeVariants } from '../l
 import analyticsService from '../services/analytics';
 import { isAbortError } from '../services/api';
 import { captureException } from '../lib/sentry';
+import ChartErrorBoundary from '../components/common/ChartErrorBoundary';
 import ErrorState from '../components/ui/ErrorState';
 import SkeletonShimmer, { SkeletonStatCard, SkeletonChart } from '../components/ui/SkeletonShimmer';
 import SelectPremium from '../components/ui/SelectPremium';
@@ -80,6 +81,7 @@ export default function StudentProfile() {
         const summaryData = await analyticsService.getStudentSummary(
           studentId, { timeRange }, { signal: controller.signal }
         );
+        if (controller.signal.aborted) return;
         setSummary(summaryData);
 
         // Fetches secundarios en paralelo (no bloqueantes si fallan)
@@ -88,10 +90,11 @@ export default function StudentProfile() {
             studentId, { timeRange, granularity: 'daily' }, { signal: controller.signal }
           ).catch(() => null),
           analyticsService.getStudentEngagement(
-            studentId, { timeRange: '30d' }, { signal: controller.signal }
+            studentId, { timeRange }, { signal: controller.signal }
           ).catch(() => null),
         ]);
 
+        if (controller.signal.aborted) return;
         setTrajectory(trajectoryData);
         setEngagement(engagementData);
         setError(null);
@@ -208,10 +211,11 @@ export default function StudentProfile() {
     : 0;
 
   return (
-    <motion.main
+    <motion.section
       {...(shouldReduceMotion ? {} : crossfadeVariants)}
       className="p-6 lg:p-8 max-w-7xl mx-auto space-y-6"
     >
+      <ChartErrorBoundary>
       {/* ═══════ HEADER ═══════ */}
       <header className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 pt-14 lg:pt-0">
         <div className="flex items-center gap-4">
@@ -334,7 +338,7 @@ export default function StudentProfile() {
           />
         </div>
         <div className="lg:col-span-2">
-          <NarrativeCard interpretation={trajectory?.interpretation || summary?.interpretation} />
+          <NarrativeCard interpretation={trajectory?.interpretation || trajectory?.trend?.interpretation || engagement?.interpretation || summary?.interpretation} />
         </div>
       </div>
 
@@ -363,6 +367,7 @@ export default function StudentProfile() {
 
       {/* ═══════ Historial de Partidas ═══════ */}
       <GameHistoryTable games={summary?.lastGames} />
-    </motion.main>
+      </ChartErrorBoundary>
+    </motion.section>
   );
 }

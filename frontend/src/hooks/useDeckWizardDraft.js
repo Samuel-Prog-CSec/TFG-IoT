@@ -190,11 +190,32 @@ export default function useDeckWizardDraft() {
     setStateInternal(INITIAL_STATE);
   }, []);
 
-  // Limpiar debounce al desmontar
+  // Ref sincronizada con el estado más reciente (para flush en cleanup)
+  const stateRef = useRef(state);
+  useEffect(() => {
+    stateRef.current = state;
+  }, [state]);
+
+  // Flush del borrador pendiente y limpieza al desmontar
   useEffect(() => {
     return () => {
       if (debounceRef.current) {
         clearTimeout(debounceRef.current);
+        // Flush: guardar inmediatamente si hay datos significativos pendientes
+        const current = stateRef.current;
+        if (
+          current.scannedCards?.length > 0 ||
+          current.contextId ||
+          current.name ||
+          Object.keys(current.cardMappings || {}).length > 0
+        ) {
+          try {
+            const toSave = { ...current, lastUpdated: Date.now() };
+            localStorage.setItem(STORAGE_KEY, JSON.stringify(toSave));
+          } catch {
+            // Error al guardar, ignorar
+          }
+        }
       }
     };
   }, []);

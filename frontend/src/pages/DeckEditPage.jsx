@@ -8,7 +8,7 @@
 import { useState, useEffect, useCallback, useMemo, useReducer } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
-import confetti from 'canvas-confetti';
+import { useConfetti } from '../hooks/useConfetti';
 import {
   Eye,
   Save,
@@ -38,6 +38,7 @@ import ConfirmationModal, { useConfirmationModal } from '../components/ui/Confir
 import { useContexts } from '../hooks/useContexts';
 import { useRefetchOnFocus } from '../hooks/useRefetchOnFocus';
 import { useUnsavedChanges } from '../hooks/useUnsavedChanges';
+import { useDocumentTitle } from '../hooks/useDocumentTitle';
 import { decksAPI, extractData, extractErrorMessage, isAbortError } from '../services/api';
 import { ROUTES } from '../constants/routes';
 import { GAME_CONFIG } from '../constants/gameConfig';
@@ -83,7 +84,9 @@ const buildUpdatedCardMappings = (cards, assignments) => {
 export default function DeckEditPage() {
   const { deckId } = useParams();
   const navigate = useNavigate();
-  
+  useDocumentTitle('Editar Mazo');
+  const { fireConfetti } = useConfetti();
+
   // Estados de carga
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -309,12 +312,10 @@ export default function DeckEditPage() {
       const response = await decksAPI.updateDeck(deckId, updateData);
       const responseData = response.data?.data;
 
-      // TOKEN-EXCEPTION: canvas-confetti requires raw hex colors
-      confetti({
+      fireConfetti({
         particleCount: 100,
         spread: 60,
         origin: { y: 0.6 },
-        colors: ['#10b981', '#059669', '#34d399']
       });
 
       toast.success('Mazo actualizado');
@@ -368,7 +369,7 @@ export default function DeckEditPage() {
   // Loading state
   if (loading) {
     return (
-      <div className="min-h-screen bg-background-deep p-4 lg:p-8">
+      <div className="min-h-full bg-background-deep p-4 lg:p-8">
         <div className="max-w-5xl mx-auto">
           <div className="h-8 w-32 bg-background-elevated rounded animate-pulse mb-6" />
           <div className="h-12 w-64 bg-background-elevated rounded animate-pulse mb-8" />
@@ -381,7 +382,7 @@ export default function DeckEditPage() {
   // Error state
   if (error) {
     return (
-      <div className="min-h-screen bg-background-deep p-4 lg:p-8 flex items-center justify-center">
+      <div className="min-h-full bg-background-deep p-4 lg:p-8 flex items-center justify-center">
         <GlassCard className="p-8 max-w-md text-center">
           <AlertTriangle size={48} className="text-error-base mx-auto mb-4" />
           <h2 className="text-xl font-semibold text-text-primary mb-2">Error</h2>
@@ -414,7 +415,7 @@ export default function DeckEditPage() {
   const currentDeckId = deck?.id || deck?._id || deckId;
 
   return (
-    <div className="min-h-screen bg-background-deep p-4 lg:p-8">
+    <div className="min-h-full bg-background-deep p-4 lg:p-8">
       {/* Header */}
       <motion.div
         initial={{ opacity: 0, y: -20 }}

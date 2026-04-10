@@ -153,21 +153,34 @@ function ContentEffectivenessMatrix({ data, onCellClick }) {
       }
     }
 
-    // Si no hay suficientes datos cruzados, intentar construir un resumen
-    if (mechanicSet.size === 0 || contextSet.size === 0) {
-      // Construir desde datos planos agrupando por nombre
+    // Si no hay datos cruzados, construir filas flat con los datos disponibles
+    if (Object.keys(cellMap).length === 0) {
       for (const item of data) {
         const name = item.name || item.mechanicName || item.contextName || 'Desconocido';
         const id = item._id || item.id || name;
         const groupBy = item.groupBy || (item.mechanicName ? 'mechanic' : 'context');
 
         if (groupBy === 'mechanic') {
-          if (!mechanicSet.has(id)) {
-            mechanicSet.set(id, name);
+          if (!mechanicSet.has(id)) mechanicSet.set(id, name);
+        } else {
+          if (!contextSet.has(id)) contextSet.set(id, name);
+        }
+
+        // Crear celda con los datos flat: usar "all" como placeholder para el eje sin datos
+        const score = item.avgScore ?? item.averageScore ?? item.score ?? null;
+        const gamesPlayed = item.totalPlays ?? item.gamesPlayed ?? item.totalGames ?? 0;
+        const improvement = item.improvementRate ?? item.improvement ?? null;
+
+        if (groupBy === 'mechanic') {
+          // Poner en cada contexto existente o crear un placeholder
+          if (contextSet.size === 0) contextSet.set('_all', 'Global');
+          for (const [ctxId] of contextSet) {
+            cellMap[`${id}__${ctxId}`] = { score, gamesPlayed, improvement };
           }
         } else {
-          if (!contextSet.has(id)) {
-            contextSet.set(id, name);
+          if (mechanicSet.size === 0) mechanicSet.set('_all', 'Global');
+          for (const [mechId] of mechanicSet) {
+            cellMap[`${mechId}__${id}`] = { score, gamesPlayed, improvement };
           }
         }
       }
@@ -228,16 +241,16 @@ function ContentEffectivenessMatrix({ data, onCellClick }) {
         </div>
         <div className="flex items-center gap-3 text-xs text-text-muted">
           <span className="flex items-center gap-1.5">
-            <span className="inline-block w-3 h-3 rounded bg-success-base/30" />
-            {'>'}70%
+            <span className="inline-block w-3 h-3 rounded bg-success-base/30" aria-hidden="true" />
+            {'>'}70% (Alto)
           </span>
           <span className="flex items-center gap-1.5">
-            <span className="inline-block w-3 h-3 rounded bg-warning-base/30" />
-            50-69%
+            <span className="inline-block w-3 h-3 rounded bg-warning-base/30" aria-hidden="true" />
+            50-69% (Medio)
           </span>
           <span className="flex items-center gap-1.5">
-            <span className="inline-block w-3 h-3 rounded bg-error-base/30" />
-            {'<'}50%
+            <span className="inline-block w-3 h-3 rounded bg-error-base/30" aria-hidden="true" />
+            {'<'}50% (Bajo)
           </span>
         </div>
       </div>

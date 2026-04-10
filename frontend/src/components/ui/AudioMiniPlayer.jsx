@@ -90,6 +90,7 @@ export default function AudioMiniPlayer({
 
     return () => {
       audio.pause();
+      audio.src = '';
       audio.removeEventListener('loadedmetadata', onLoadedMetadata);
       audio.removeEventListener('timeupdate', onTimeUpdate);
       audio.removeEventListener('ended', onEnded);
@@ -244,6 +245,7 @@ export default function AudioMiniPlayer({
         aria-valuemin={0}
         aria-valuemax={Math.round(duration)}
         aria-label="Progreso del audio"
+        aria-valuetext={`${formatTime(currentTime)} de ${formatTime(duration)}`}
         onClick={handleSeek}
         onKeyDown={handleProgressKeyDown}
         className={cn(

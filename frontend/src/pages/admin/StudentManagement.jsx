@@ -41,6 +41,7 @@ import StatusBadge from '../../components/ui/StatusBadge';
 import Tooltip from '../../components/ui/Tooltip';
 import ConfirmationModal from '../../components/ui/ConfirmationModal';
 import { useRefetchOnFocus } from '../../hooks/useRefetchOnFocus';
+import { useDocumentTitle } from '../../hooks/useDocumentTitle';
 import { cn, pageVariants, staggerContainer, staggerItem } from '../../lib/utils';
 
 /**
@@ -407,6 +408,7 @@ function CreateStudentModal({ isOpen, onClose, onCreated, teachers }) {
  * Componente principal de gestión de alumnos
  */
 export default function StudentManagement() {
+  useDocumentTitle('Gestión de Alumnos');
   const [students, setStudents] = useState([]);
   const [_teachers, setTeachers] = useState([]);
   const [loading, setLoading] = useState(true);

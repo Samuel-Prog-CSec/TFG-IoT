@@ -25,9 +25,6 @@ const updateById = (id, update, options = {}) => baseRepo.updateById(CardDeck, i
 const updateOne = (filter, update, options = {}) =>
   baseRepo.updateOne(CardDeck, filter, update, options);
 
-const findByIdAndUpdate = (id, update, options = {}) =>
-  baseRepo.updateById(CardDeck, id, update, options);
-
 const deleteById = id => baseRepo.deleteById(CardDeck, id);
 
 const deleteMany = filter => baseRepo.deleteMany(CardDeck, filter);
@@ -45,7 +42,6 @@ module.exports = {
   createWithSession,
   updateById,
   updateOne,
-  findByIdAndUpdate,
   deleteById,
   deleteMany,
   insertMany,

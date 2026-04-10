@@ -16,6 +16,7 @@ import analyticsService from '../services/analytics';
 import { isAbortError } from '../services/api';
 import { captureException } from '../lib/sentry';
 import { ROUTES } from '../constants/routes';
+import ChartErrorBoundary from '../components/common/ChartErrorBoundary';
 import GlassCard from '../components/ui/GlassCard';
 import ButtonPremium from '../components/ui/ButtonPremium';
 import SelectPremium from '../components/ui/SelectPremium';
@@ -186,7 +187,13 @@ export default function StudentsAnalytics() {
       } catch (err) {
         if (isAbortError(err)) return;
         captureException(err);
-        setError('No se pudieron cargar los datos de los alumnos.');
+        const status = err.response?.status;
+        const message = status === 403
+          ? 'No tienes permisos para ver estos datos.'
+          : status >= 500
+            ? 'Error del servidor. Intentalo de nuevo mas tarde.'
+            : 'Error de conexion. Comprueba tu red e intenta de nuevo.';
+        setError(message);
       } finally {
         if (!controller.signal.aborted) {
           setLoading(false);
@@ -213,7 +220,14 @@ export default function StudentsAnalytics() {
   const processedStudents = useMemo(() => {
     if (!students?.students) return [];
 
-    let filtered = students.students;
+    // Normalizar: extraer campos de studentMetrics al nivel raíz si no existen
+    let filtered = students.students.map(s => ({
+      ...s,
+      totalGames: s.totalGames ?? s.studentMetrics?.totalGamesPlayed ?? 0,
+      averageScore: s.averageScore ?? s.studentMetrics?.averageScore ?? 0,
+      lastPlayedAt: s.lastPlayedAt ?? s.studentMetrics?.lastPlayedAt ?? null,
+      avgResponseTime: s.avgResponseTime ?? s.studentMetrics?.averageResponseTime ?? null,
+    }));
 
     // Apply search filter
     if (debouncedSearch) {
@@ -307,7 +321,7 @@ export default function StudentsAnalytics() {
   return (
     <AnimatePresence mode="wait">
       {skeletonContent ? (
-        <motion.main
+        <motion.section
           key="skeleton"
           {...(shouldReduceMotion ? {} : crossfadeVariants)}
           className="p-6 lg:p-8 max-w-7xl mx-auto space-y-8"
@@ -345,14 +359,15 @@ export default function StudentsAnalytics() {
               ))}
             </div>
           </GlassCard>
-        </motion.main>
+        </motion.section>
       ) : (
-        <motion.main
+        <motion.section
           key="content"
           {...(shouldReduceMotion ? {} : crossfadeVariants)}
           className="p-6 lg:p-8 max-w-7xl mx-auto space-y-8"
           aria-label="Pagina de analisis de alumnos"
         >
+          <ChartErrorBoundary>
           {/* ─── Header ─────────────────────────────────────────── */}
           <motion.header
             initial={shouldReduceMotion ? false : { opacity: 0, y: -20 }}
@@ -408,7 +423,7 @@ export default function StudentsAnalytics() {
           {/* ─── Summary KPIs ───────────────────────────────────── */}
           {!error && (
             <motion.section
-              variants={listContainerVariants(0.08)}
+              variants={listContainerVariants(0.03)}
               initial={shouldReduceMotion ? false : 'hidden'}
               animate="visible"
               aria-labelledby="kpis-heading"
@@ -573,16 +588,13 @@ export default function StudentsAnalytics() {
                       </tr>
                     </thead>
                     <motion.tbody
-                      variants={shouldReduceMotion ? {} : listContainerVariants(0.04)}
-                      initial={shouldReduceMotion ? false : 'hidden'}
-                      animate="visible"
+                      {...(shouldReduceMotion ? {} : crossfadeVariants)}
                     >
-                      {processedStudents.map((student) => (
+                      {processedStudents.map((student, index) => (
                         <StudentRow
-                          key={student._id || student.studentId}
+                          key={student._id || student.studentId || `student-${index}`}
                           student={student}
                           navigate={navigate}
-                          shouldReduceMotion={shouldReduceMotion}
                         />
                       ))}
                     </motion.tbody>
@@ -608,7 +620,8 @@ export default function StudentsAnalytics() {
               </p>
             </GlassCard>
           )}
-        </motion.main>
+          </ChartErrorBoundary>
+        </motion.section>
       )}
     </AnimatePresence>
   );
@@ -625,13 +638,12 @@ function SortIcon({ field, sortField, sortOrder }) {
     : <ArrowDown size={14} className="text-brand-base" aria-hidden="true" />;
 }
 
-function StudentRow({ student, navigate, shouldReduceMotion }) {
+function StudentRow({ student, navigate }) {
   const tier = getTierBadge(student.tier);
-  const studentId = student._id || student.studentId;
+  const studentId = student.id || student._id || student.studentId;
 
   return (
-    <motion.tr
-      variants={shouldReduceMotion ? {} : listItemVariants}
+    <tr
       onClick={() => navigate(ROUTES.STUDENT_PROFILE(studentId))}
       onKeyDown={(e) => {
         if (e.key === 'Enter' || e.key === ' ') {
@@ -697,7 +709,7 @@ function StudentRow({ student, navigate, shouldReduceMotion }) {
           {tier.label}
         </span>
       </td>
-    </motion.tr>
+    </tr>
   );
 }
 

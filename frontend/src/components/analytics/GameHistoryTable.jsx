@@ -73,9 +73,13 @@ function GameHistoryTable({ games, initialCount = 10 }) {
               {visibleGames.map((game, index) => {
                 const tier = getGameTier(game.score ?? 0);
                 const badge = TIER_BADGE[tier];
-                const accuracy = game.correctAttempts != null && game.totalAttempts > 0
-                  ? Math.round((game.correctAttempts / game.totalAttempts) * 100)
-                  : null;
+                // El backend puede enviar accuracy pre-calculada (%) o correctAttempts/totalAttempts
+                let accuracy = null;
+                if (game.accuracy != null) {
+                  accuracy = Math.round(game.accuracy);
+                } else if (game.correctAttempts != null && game.totalAttempts > 0) {
+                  accuracy = Math.round((game.correctAttempts / game.totalAttempts) * 100);
+                }
 
                 return (
                   <motion.tr
@@ -88,11 +92,11 @@ function GameHistoryTable({ games, initialCount = 10 }) {
                     <td className="py-2.5 pr-3 text-text-secondary whitespace-nowrap">
                       {game.completedAt ? formatDate(new Date(game.completedAt), 'short') : '—'}
                     </td>
-                    <td className="py-2.5 pr-3 text-text-primary font-medium truncate max-w-[120px]">
-                      {game.contextName || '—'}
+                    <td className="py-2.5 pr-3 text-text-primary font-medium truncate max-w-[120px]" title={game.contextName || game.context || undefined}>
+                      {game.contextName || game.context || '—'}
                     </td>
-                    <td className="py-2.5 pr-3 text-text-secondary truncate max-w-[100px]">
-                      {game.mechanicName || '—'}
+                    <td className="py-2.5 pr-3 text-text-secondary truncate max-w-[100px]" title={game.mechanicName || game.mechanic || undefined}>
+                      {game.mechanicName || game.mechanic || '—'}
                     </td>
                     <td className="py-2.5 pr-3 text-right">
                       <span className={cn("text-xs font-semibold px-1.5 py-0.5 rounded-md inline-block", badge.className)} aria-label={`Puntuacion ${Math.round(game.score ?? 0)}, nivel ${badge.label}`}>
@@ -134,12 +138,15 @@ GameHistoryTable.propTypes = {
     gameplayId: PropTypes.string,
     _id: PropTypes.string,
     score: PropTypes.number,
+    accuracy: PropTypes.number,
     correctAttempts: PropTypes.number,
     totalAttempts: PropTypes.number,
     completedAt: PropTypes.string,
     completionTime: PropTypes.number,
     contextName: PropTypes.string,
     mechanicName: PropTypes.string,
+    context: PropTypes.string,
+    mechanic: PropTypes.string,
   })),
   initialCount: PropTypes.number,
 };

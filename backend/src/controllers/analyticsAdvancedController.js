@@ -11,25 +11,7 @@ const { sendSuccess } = require('../utils/responseHelper');
 const { cacheGet } = require('../utils/cacheHelper');
 const { ensureStudentBelongsToTeacher } = require('../utils/ownershipHelpers');
 const userRepository = require('../repositories/userRepository');
-const { ForbiddenError } = require('../utils/errors');
-
-/**
- * Verifica que el estudiante tiene consentimiento activo de analytics.
- * Art. 21 RGPD — si el tutor se opuso a analytics, no se sirven datos.
- * @param {string} studentId
- * @throws {ForbiddenError}
- * @private
- */
-async function verifyAnalyticsConsent(studentId) {
-  const student = await userRepository.findById(studentId, {
-    select: 'consent.granted consent.purposes'
-  });
-  if (!student?.consent?.granted || !student.consent.purposes?.includes('performance_analytics')) {
-    throw new ForbiddenError(
-      'El tutor de este estudiante ha ejercido su derecho de oposición a analytics (Art. 21 RGPD)'
-    );
-  }
-}
+const consentService = require('../services/consentService');
 
 // Sub-servicios de analytics
 const alertsService = require('../services/analytics/alertsService');
@@ -74,7 +56,7 @@ exports.getStudentTrajectory = async (req, res) => {
   const { timeRange, granularity } = req.query;
 
   await ensureStudentBelongsToTeacher(id, req.user, userRepository);
-  await verifyAnalyticsConsent(id);
+  await consentService.requireConsent(id, 'performance_analytics');
 
   const data = await cacheGet(
     'cache:analytics',
@@ -95,7 +77,7 @@ exports.getStudentVelocity = async (req, res) => {
   const { timeRange, windowDays } = req.query;
 
   await ensureStudentBelongsToTeacher(id, req.user, userRepository);
-  await verifyAnalyticsConsent(id);
+  await consentService.requireConsent(id, 'performance_analytics');
 
   const data = await studentTrajectoryService.getStudentVelocity(id, { timeRange, windowDays });
 
@@ -111,7 +93,7 @@ exports.getStudentPlateaus = async (req, res) => {
   const { timeRange, minDays } = req.query;
 
   await ensureStudentBelongsToTeacher(id, req.user, userRepository);
-  await verifyAnalyticsConsent(id);
+  await consentService.requireConsent(id, 'performance_analytics');
 
   const data = await studentTrajectoryService.getStudentPlateaus(id, { timeRange, minDays });
 
@@ -127,7 +109,7 @@ exports.getStudentEvolution = async (req, res) => {
   const { timeRange, groupBy } = req.query;
 
   await ensureStudentBelongsToTeacher(id, req.user, userRepository);
-  await verifyAnalyticsConsent(id);
+  await consentService.requireConsent(id, 'performance_analytics');
 
   const data = await studentTrajectoryService.getStudentEvolution(id, { timeRange, groupBy });
 
@@ -182,7 +164,7 @@ exports.getStudentStruggles = async (req, res) => {
   const { timeRange, minConsecutiveErrors } = req.query;
 
   await ensureStudentBelongsToTeacher(id, req.user, userRepository);
-  await verifyAnalyticsConsent(id);
+  await consentService.requireConsent(id, 'performance_analytics');
 
   const data = await sessionAnalysisService.getStudentStruggles(id, {
     timeRange,
@@ -223,7 +205,7 @@ exports.getStudentEngagement = async (req, res) => {
   const { timeRange } = req.query;
 
   await ensureStudentBelongsToTeacher(id, req.user, userRepository);
-  await verifyAnalyticsConsent(id);
+  await consentService.requireConsent(id, 'performance_analytics');
 
   const data = await cacheGet(
     'cache:analytics',
@@ -262,7 +244,7 @@ exports.getStudentPlayPatterns = async (req, res) => {
   const { timeRange } = req.query;
 
   await ensureStudentBelongsToTeacher(id, req.user, userRepository);
-  await verifyAnalyticsConsent(id);
+  await consentService.requireConsent(id, 'performance_analytics');
 
   const data = await engagementService.getStudentPlayPatterns(id, { timeRange });
 
@@ -351,7 +333,7 @@ exports.getStudentReport = async (req, res) => {
   const { timeRange, format } = req.query;
 
   await ensureStudentBelongsToTeacher(id, req.user, userRepository);
-  await verifyAnalyticsConsent(id);
+  await consentService.requireConsent(id, 'performance_analytics');
 
   const data = await cacheGet(
     'cache:analytics',

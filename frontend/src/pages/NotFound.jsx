@@ -5,18 +5,29 @@
  * @module pages/NotFound
  */
 
-import { Link } from 'react-router-dom';
+import { useNavigate } from 'react-router-dom';
 import { Home } from 'lucide-react';
+import { motion } from 'framer-motion';
 import { ROUTES } from '../constants/routes';
+import ButtonPremium from '../components/ui/ButtonPremium';
+import { useDocumentTitle } from '../hooks/useDocumentTitle';
 
 /**
  * Página 404 con diseño centrado y tema oscuro
  */
 export default function NotFound() {
+  const navigate = useNavigate();
+  useDocumentTitle('Página no encontrada');
+
   return (
     <div className="min-h-screen flex items-center justify-center bg-background-base px-4">
-      <div className="text-center max-w-md">
-        <p className="text-8xl font-bold text-brand-base select-none">404</p>
+      <motion.div
+        className="text-center max-w-md"
+        initial={{ opacity: 0, y: 20 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ duration: 0.4, ease: [0.16, 1, 0.3, 1] }}
+      >
+        <p className="text-8xl font-bold text-brand-base select-none font-display">404</p>
 
         <h1 className="mt-4 text-2xl font-semibold text-text-primary">
           Página no encontrada
@@ -26,14 +37,16 @@ export default function NotFound() {
           La página que buscas no existe o ha sido movida.
         </p>
 
-        <Link
-          to={ROUTES.DASHBOARD}
-          className="mt-8 inline-flex items-center gap-2 rounded-lg bg-brand-base px-5 py-2.5 text-sm font-medium text-white hover:bg-brand-hover transition-colors"
-        >
-          <Home size={18} />
-          Volver al inicio
-        </Link>
-      </div>
+        <div className="mt-8">
+          <ButtonPremium
+            variant="primary"
+            icon={<Home size={18} />}
+            onClick={() => navigate(ROUTES.DASHBOARD)}
+          >
+            Volver al inicio
+          </ButtonPremium>
+        </div>
+      </motion.div>
     </div>
   );
 }

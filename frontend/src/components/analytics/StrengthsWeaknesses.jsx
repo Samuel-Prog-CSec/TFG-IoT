@@ -17,14 +17,14 @@ import GlassCard from '../ui/GlassCard';
 const deriveStrengthsWeaknesses = (performanceByContext = [], performanceByMechanic = [], count = 3) => {
   const allItems = [
     ...performanceByContext.map(c => ({
-      name: c.name || c.contextName || 'Sin nombre',
-      score: c.averageScore ?? c.score ?? 0,
+      name: c.name || c.context || c.contextName || 'Sin nombre',
+      score: c.averageScore ?? c.avgScore ?? c.score ?? 0,
       gamesPlayed: c.gamesPlayed ?? c.totalGames ?? 0,
       type: 'context',
     })),
     ...performanceByMechanic.map(m => ({
-      name: m.name || m.mechanicName || 'Sin nombre',
-      score: m.averageScore ?? m.score ?? 0,
+      name: m.name || m.mechanic || m.mechanicName || 'Sin nombre',
+      score: m.averageScore ?? m.avgScore ?? m.score ?? 0,
       gamesPlayed: m.gamesPlayed ?? m.totalGames ?? 0,
       type: 'mechanic',
     })),
@@ -71,7 +71,7 @@ function StrengthsWeaknesses({ performanceByContext, performanceByMechanic }) {
           <div className="space-y-2">
             {strengths.map((item, index) => (
               <motion.div
-                key={`strength-${item.name}`}
+                key={`strength-${index}-${item.name}`}
                 initial={shouldReduceMotion ? false : { opacity: 0, x: -10 }}
                 animate={{ opacity: 1, x: 0 }}
                 transition={{ delay: shouldReduceMotion ? 0 : index * 0.08 }}
@@ -100,7 +100,7 @@ function StrengthsWeaknesses({ performanceByContext, performanceByMechanic }) {
           <div className="space-y-2">
             {weaknesses.length > 0 ? weaknesses.map((item, index) => (
               <motion.div
-                key={`weakness-${item.name}`}
+                key={`weakness-${index}-${item.name}`}
                 initial={shouldReduceMotion ? false : { opacity: 0, x: 10 }}
                 animate={{ opacity: 1, x: 0 }}
                 transition={{ delay: shouldReduceMotion ? 0 : index * 0.08 }}

@@ -15,7 +15,7 @@ import { useState, useEffect, useCallback, useMemo } from 'react';
 import PropTypes from 'prop-types';
 import { useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
-import confetti from 'canvas-confetti';
+import { useConfetti } from '../hooks/useConfetti';
 import {
   ArrowLeft,
   ArrowRight,
@@ -48,6 +48,7 @@ import useDeckWizardDraft, { formatDraftDate } from '../hooks/useDeckWizardDraft
 import { useContexts } from '../hooks/useContexts';
 import { useRefetchOnFocus } from '../hooks/useRefetchOnFocus';
 import { useReducedMotion } from '../hooks/useReducedMotion';
+import { useDocumentTitle } from '../hooks/useDocumentTitle';
 import { ROUTES } from '../constants/routes';
 import { GAME_CONFIG } from '../constants/gameConfig';
 import { toast } from 'sonner';
@@ -109,7 +110,9 @@ function generateNextSequentialUid(existingCards) {
 export default function DeckCreationWizard() {
   const navigate = useNavigate();
   const { shouldReduceMotion } = useReducedMotion();
-  
+  const { fireConfetti } = useConfetti();
+  useDocumentTitle('Crear Mazo');
+
   // Estado del wizard
   const [currentStep, setCurrentStep] = useState(0);
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -320,13 +323,10 @@ export default function DeckCreationWizard() {
       clearDraft();
 
       // Celebración
-      // TOKEN-EXCEPTION: canvas-confetti requires raw hex colors
-      confetti({
+      fireConfetti({
         particleCount: 150,
         spread: 80,
         origin: { y: 0.6 },
-        colors: ['#8b5cf6', '#6366f1', '#a855f7', '#ec4899'],
-        disableForReducedMotion: shouldReduceMotion,
       });
 
       toast.success('¡Mazo creado!', {
@@ -405,7 +405,7 @@ export default function DeckCreationWizard() {
   };
 
   return (
-    <div className="min-h-screen bg-background-deep p-4 lg:p-8">
+    <div className="min-h-full bg-background-deep p-4 lg:p-8">
       {/* Header */}
       <motion.div
         initial={shouldReduceMotion ? false : { opacity: 0, y: -20 }}

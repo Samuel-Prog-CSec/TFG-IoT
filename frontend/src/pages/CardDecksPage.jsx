@@ -18,7 +18,7 @@ import {
   RefreshCw,
   X
 } from 'lucide-react';
-import { cn, listContainerVariants, listItemVariants } from '../lib/utils';
+import { cn, crossfadeVariants } from '../lib/utils';
 import { decksAPI, extractErrorMessage, isAbortError } from '../services/api';
 import DeckCard, { DeckCardSkeleton } from '../components/ui/DeckCard';
 import { SkeletonGrid } from '../components/ui/SkeletonShimmer';
@@ -29,6 +29,7 @@ import ConfirmationModal, { useConfirmationModal } from '../components/ui/Confir
 import { useContexts } from '../hooks/useContexts';
 import { useRefetchOnFocus } from '../hooks/useRefetchOnFocus';
 import { useReducedMotion } from '../hooks/useReducedMotion';
+import { useDocumentTitle } from '../hooks/useDocumentTitle';
 import { ROUTES } from '../constants/routes';
 import PageHeader from '../components/ui/PageHeader';
 import ErrorState from '../components/ui/ErrorState';
@@ -75,17 +76,12 @@ const resolveDeckCount = async ({
 const renderDecksGrid = ({ decks, shouldReduceMotion, handleViewDeck, handleEditDeck, handleArchiveDeck }) => (
   <motion.div
     className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6"
-    initial={shouldReduceMotion ? false : "hidden"}
-    animate="visible"
-    variants={listContainerVariants(0.05)}
+    {...(shouldReduceMotion ? {} : crossfadeVariants)}
   >
     {decks.map((deck) => {
       const deckId = deck.id || deck._id;
       return (
-        <motion.div
-          key={deckId}
-          variants={shouldReduceMotion ? {} : listItemVariants}
-        >
+        <div key={deckId}>
           <DeckCard
             deck={deck}
             onView={handleViewDeck}
@@ -93,7 +89,7 @@ const renderDecksGrid = ({ decks, shouldReduceMotion, handleViewDeck, handleEdit
             onDelete={handleArchiveDeck}
             reducedMotion={shouldReduceMotion}
           />
-        </motion.div>
+        </div>
       );
     })}
   </motion.div>
@@ -226,7 +222,8 @@ function filtersReducer(state, action) {
 export default function CardDecksPage() {
   const navigate = useNavigate();
   const { shouldReduceMotion } = useReducedMotion();
-  
+  useDocumentTitle('Mis Mazos');
+
   // Estados
   const [decks, setDecks] = useState([]);
   const [loading, setLoading] = useState(true);

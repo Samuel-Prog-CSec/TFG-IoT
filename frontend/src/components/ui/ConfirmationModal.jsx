@@ -103,34 +103,53 @@ export default function ConfirmationModal({
   const variantConfig = VARIANT_COLORS[variant] || VARIANT_COLORS.warning;
   const Icon = CustomIcon || VARIANT_ICONS[variant] || AlertTriangle;
 
-  // Cerrar con Escape
+  // Manejo de teclado: Escape para cerrar, Tab para focus trap
   const handleKeyDown = useCallback((e) => {
     if (e.key === 'Escape' && !loading) {
       onClose();
+      return;
+    }
+
+    // Focus trap: ciclar Tab dentro del modal
+    if (e.key === 'Tab' && modalRef.current) {
+      const focusableElements = modalRef.current.querySelectorAll(
+        'button:not([disabled]), [href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])'
+      );
+      if (focusableElements.length === 0) return;
+
+      const firstEl = focusableElements[0];
+      const lastEl = focusableElements[focusableElements.length - 1];
+
+      if (e.shiftKey) {
+        if (document.activeElement === firstEl) {
+          e.preventDefault();
+          lastEl.focus();
+        }
+      } else {
+        if (document.activeElement === lastEl) {
+          e.preventDefault();
+          firstEl.focus();
+        }
+      }
     }
   }, [onClose, loading]);
 
-  // Focus trap básico
+  // Focus management al abrir/cerrar
   useEffect(() => {
     if (open) {
-      // Guardar elemento activo antes de abrir
       const previousActiveElement = document.activeElement;
-      
+
       // Enfocar primer elemento focuseable
       setTimeout(() => {
         firstFocusableRef.current?.focus();
       }, 50);
 
-      // Listener para Escape
       document.addEventListener('keydown', handleKeyDown);
-      
-      // Prevenir scroll del body
       document.body.style.overflow = 'hidden';
 
       return () => {
         document.removeEventListener('keydown', handleKeyDown);
         document.body.style.overflow = '';
-        // Restaurar foco
         previousActiveElement?.focus?.();
       };
     }

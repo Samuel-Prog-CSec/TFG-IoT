@@ -13,7 +13,7 @@ import PropTypes from 'prop-types';
 import { motion, AnimatePresence, useSpring, useTransform, useReducedMotion } from 'framer-motion';
 import { CreditCard, Wifi, WifiOff, Plus, Trash2, AlertCircle, Zap, LogOut } from 'lucide-react';
 import { cn } from '../../lib/utils';
-import confetti from 'canvas-confetti';
+import { useConfetti } from '../../hooks/useConfetti';
 import RFIDConnector from './RFIDConnector';
 import webSerialService from '../../services/webSerialService';
 
@@ -77,6 +77,7 @@ export default function RFIDScannerPanel({
   const [error, setError] = useState(null);
   const containerRef = useRef(null);
   const prefersReducedMotion = useReducedMotion();
+  const { fireFromElement } = useConfetti();
 
   // Contador animado
   const countSpring = useSpring(scannedCards.length, { stiffness: 300, damping: 30 });
@@ -119,24 +120,17 @@ export default function RFIDScannerPanel({
     setLastScanned(newCard);
     onCardScanned(newCard);
 
-    if (containerRef.current && !prefersReducedMotion) {
-      const rect = containerRef.current.getBoundingClientRect();
-      confetti({
+    if (containerRef.current) {
+      fireFromElement(containerRef.current, {
         particleCount: 15,
         spread: 40,
-        origin: {
-          x: (rect.left + rect.width / 2) / window.innerWidth,
-          y: (rect.top + 100) / window.innerHeight,
-        },
-        // TOKEN-EXCEPTION: canvas-confetti API requires direct color values
-        colors: ['#6366f1', '#8b5cf6', '#a855f7'],
         scalar: 0.6,
         gravity: 0.8,
       });
     }
 
     setTimeout(() => setLastScanned(null), 1500);
-  }, [onCardScanned, prefersReducedMotion]);
+  }, [onCardScanned, fireFromElement]);
 
   const handleRealScan = useCallback((payload) => {
     if (!payload?.uid) {
@@ -492,11 +486,12 @@ export default function RFIDScannerPanel({
                   </div>
                   <motion.button
                     onClick={() => handleRemoveCard(card.uid)}
+                    aria-label={`Eliminar tarjeta ${card.uid}`}
                     className="opacity-0 group-hover:opacity-100 p-1.5 rounded-lg bg-error-base/20 text-error-base hover:bg-error-base/30 transition-[opacity,background-color]"
                     whileHover={{ scale: 1.1 }}
                     whileTap={{ scale: 0.9 }}
                   >
-                    <Trash2 size={12} />
+                    <Trash2 size={12} aria-hidden="true" />
                   </motion.button>
                 </motion.div>
               ))}

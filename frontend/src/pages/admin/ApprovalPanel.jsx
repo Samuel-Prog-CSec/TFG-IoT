@@ -34,6 +34,7 @@ import StatusBadge from '../../components/ui/StatusBadge';
 import { SkeletonCard } from '../../components/ui/SkeletonShimmer';
 import EmptyState from '../../components/ui/EmptyState';
 import { useRefetchOnFocus } from '../../hooks/useRefetchOnFocus';
+import { useDocumentTitle } from '../../hooks/useDocumentTitle';
 import { cn, formatDate } from '../../lib/utils';
 
 /**
@@ -340,6 +341,7 @@ function LoadingSkeleton() {
  * Panel de Aprobación de Profesores
  */
 export default function ApprovalPanel() {
+  useDocumentTitle('Aprobaciones');
   // Estado
   const [teachers, setTeachers] = useState([]);
   const [loading, setLoading] = useState(true);

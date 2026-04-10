@@ -4,6 +4,7 @@
  * Se montan bajo /api en server.js:
  * - GET /api/health — Health check publico
  * - GET /api/metrics — Metricas runtime (protegido)
+ * - GET /api/health/metrics — Metricas operacionales detalladas (super_admin)
  * - GET /api/info — Informacion de la API
  *
  * El alias GET /health (sin /api) se monta directamente en app
@@ -17,7 +18,12 @@ const express = require('express');
 const router = express.Router();
 
 const { authenticate, requireRole } = require('../middlewares/auth');
-const { healthCheck, getMetrics, getApiInfo } = require('../controllers/healthController');
+const {
+  healthCheck,
+  getMetrics,
+  getSystemMetrics,
+  getApiInfo
+} = require('../controllers/healthController');
 const { validateQuery } = require('../middlewares/validation');
 const { emptyObjectSchema } = require('../validators/commonValidator');
 const asyncHandler = require('../utils/asyncHandler');
@@ -42,6 +48,20 @@ router.get(
   requireRole('teacher', 'super_admin'),
   validateQuery(emptyObjectSchema),
   asyncHandler(getMetrics)
+);
+
+/**
+ * @route   GET /api/health/metrics
+ * @desc    Metricas operacionales detalladas (GameEngine, Redis, MongoDB, Sockets, runtime)
+ * @access  Private (Super_Admin)
+ * @validation query: emptyObjectSchema
+ */
+router.get(
+  '/health/metrics',
+  authenticate,
+  requireRole('super_admin'),
+  validateQuery(emptyObjectSchema),
+  asyncHandler(getSystemMetrics)
 );
 
 /**

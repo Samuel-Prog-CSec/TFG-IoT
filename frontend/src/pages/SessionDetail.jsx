@@ -45,6 +45,7 @@ import Tooltip from '../components/ui/Tooltip';
 import ConfirmationModal, { useConfirmationModal } from '../components/ui/ConfirmationModal';
 import { cn, pageVariants, formatDate } from '../lib/utils';
 import { useRefetchOnFocus } from '../hooks/useRefetchOnFocus';
+import { useDocumentTitle } from '../hooks/useDocumentTitle';
 
 const statusToBadge = (status) => {
   switch (status) {
@@ -65,6 +66,7 @@ export default function SessionDetail() {
   const { user } = useAuth();
   const deleteModal = useConfirmationModal();
   const cloneModal = useConfirmationModal();
+  useDocumentTitle('Detalle de Sesión');
 
   const [session, setSession] = useState(null);
   const [loading, setLoading] = useState(true);

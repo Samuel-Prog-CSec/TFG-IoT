@@ -44,7 +44,7 @@ function ActivityHeatmap({ data }) {
     let max = 0;
 
     // Soportar ambos formatos de respuesta del backend
-    if (Array.isArray(data.heatmap)) {
+    if (Array.isArray(data.heatmap) && Array.isArray(data.heatmap[0])) {
       // Formato matriz: heatmap[day][hour] = count
       gridData = data.heatmap;
       for (const row of gridData) {
@@ -52,9 +52,9 @@ function ActivityHeatmap({ data }) {
           if (val > max) max = val;
         }
       }
-    } else if (Array.isArray(data.data || data)) {
-      // Formato flat: [{day, hour, count}]
-      const flat = data.data || data;
+    } else if (Array.isArray(data.heatmap) || Array.isArray(data.data || data)) {
+      // Formato flat: [{day, hour, count}] o [{dayOfWeek, hour, count}]
+      const flat = Array.isArray(data.heatmap) ? data.heatmap : (data.data || data);
       gridData = Array.from({ length: 7 }, () => Array(24).fill(0));
       for (const item of flat) {
         const d = item.day ?? item.dayOfWeek;

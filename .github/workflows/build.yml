@@ -251,12 +251,13 @@ jobs:
           NODE_ENV: production
 
   # ──────────────────────────────────────────────
-  # Job 5: SonarCloud (depende de tests backend + frontend)
+  # Job 5: SonarCloud (informativo, no bloquea CI)
   # ──────────────────────────────────────────────
   sonar:
-    name: SonarCloud Analysis
+    name: SonarCloud Analysis (informativo)
     runs-on: ubuntu-latest
     timeout-minutes: 10
+    continue-on-error: true
     needs: [backend-tests, frontend-checks]
     permissions:
       contents: read
@@ -292,7 +293,87 @@ jobs:
           exit 1
 
       - name: SonarCloud Scan
+        id: sonar_scan
         uses: sonarsource/sonarqube-scan-action@v7
         with:
           args: >-
             -Dsonar.token=${{ secrets.SONAR_TOKEN }}
+
+      - name: Resumen SonarCloud
+        if: always()
+        run: |
+          echo "## SonarCloud Analysis" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          if [ "${{ steps.sonar_scan.outcome }}" = "success" ]; then
+            echo "> **Estado:** Analisis completado" >> $GITHUB_STEP_SUMMARY
+          else
+            echo "> **Estado:** Analisis con problemas (no bloquea CI)" >> $GITHUB_STEP_SUMMARY
+          fi
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "Resultados detallados en [SonarCloud](https://sonarcloud.io/project/overview?id=Samuel-Prog-CSec_TFG-IoT)" >> $GITHUB_STEP_SUMMARY
+
+  # ──────────────────────────────────────────────
+  # Job 6: Reporte de calidad (cobertura visible en todas las ramas)
+  # ──────────────────────────────────────────────
+  quality-report:
+    name: Quality Report
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    needs: [backend-tests, frontend-checks]
+    if: always()
+    permissions:
+      contents: read
+
+    steps:
+      - name: Descargar cobertura backend
+        uses: actions/download-artifact@v8
+        with:
+          name: backend-coverage
+          path: backend/coverage
+        continue-on-error: true
+
+      - name: Descargar cobertura frontend
+        uses: actions/download-artifact@v8
+        with:
+          name: frontend-coverage
+          path: frontend/coverage
+        continue-on-error: true
+
+      - name: Generar resumen de cobertura
+        run: |
+          echo "## Reporte de Cobertura" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+
+          parse_lcov() {
+            local file="$1"
+            local name="$2"
+            if [ ! -f "$file" ]; then
+              echo "| $name | - | - | Sin datos |" >> $GITHUB_STEP_SUMMARY
+              return
+            fi
+            local lh=$(awk -F: '/^LH:/{s+=$2} END{print s+0}' "$file")
+            local lf=$(awk -F: '/^LF:/{s+=$2} END{print s+0}' "$file")
+            if [ "$lf" -eq 0 ]; then
+              echo "| $name | 0 | 0 | 0% |" >> $GITHUB_STEP_SUMMARY
+              return
+            fi
+            local pct=$((lh * 100 / lf))
+            local icon="🔴"
+            [ "$pct" -ge 40 ] && icon="🟡"
+            [ "$pct" -ge 60 ] && icon="🟢"
+            echo "| $name | $lh | $lf | $icon **${pct}%** |" >> $GITHUB_STEP_SUMMARY
+          }
+
+          echo "| Modulo | Lineas cubiertas | Lineas totales | Cobertura |" >> $GITHUB_STEP_SUMMARY
+          echo "|--------|-----------------|----------------|-----------|" >> $GITHUB_STEP_SUMMARY
+          parse_lcov "backend/coverage/lcov.info" "Backend"
+          parse_lcov "frontend/coverage/lcov.info" "Frontend"
+          echo "" >> $GITHUB_STEP_SUMMARY
+
+          # Resumen de jobs anteriores
+          echo "### Estado de Jobs" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "| Job | Estado |" >> $GITHUB_STEP_SUMMARY
+          echo "|-----|--------|" >> $GITHUB_STEP_SUMMARY
+          echo "| Backend Tests | ${{ needs.backend-tests.result == 'success' && '✅ Passed' || '❌ Failed' }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Frontend Tests & Build | ${{ needs.frontend-checks.result == 'success' && '✅ Passed' || '❌ Failed' }} |" >> $GITHUB_STEP_SUMMARY

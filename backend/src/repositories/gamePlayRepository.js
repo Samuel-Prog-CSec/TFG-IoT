@@ -24,9 +24,6 @@ const updateById = (id, update, options = {}) => baseRepo.updateById(GamePlay, i
 const updateOne = (filter, update, options = {}) =>
   baseRepo.updateOne(GamePlay, filter, update, options);
 
-const findByIdAndUpdate = (id, update, options = {}) =>
-  baseRepo.updateById(GamePlay, id, update, options);
-
 const deleteById = id => baseRepo.deleteById(GamePlay, id);
 
 const deleteMany = filter => baseRepo.deleteMany(GamePlay, filter);
@@ -44,7 +41,6 @@ module.exports = {
   aggregate,
   updateById,
   updateOne,
-  findByIdAndUpdate,
   deleteById,
   deleteMany,
   insertMany,

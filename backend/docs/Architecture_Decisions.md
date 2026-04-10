@@ -2292,3 +2292,131 @@ Implementar la revocación granular del propósito `performance_analytics` sin a
 - **ADR-030** (Protección de datos base): Esta ADR materializa el derecho de oposición mencionado en ADR-030.
 - **ADR-031** (Endurecimiento del consentimiento): Los purposes se registran en `consentHistory` para trazabilidad.
 - **ADR-032** (Centralización RGPD en super_admin): Solo super_admin puede modificar propósitos de consentimiento.
+
+## ADR-034: Centralización de verificación de consentimiento RGPD
+
+### Contexto (ADR-034)
+
+La verificación de consentimiento estaba dispersa en 3 ubicaciones (User model, analyticsController, analyticsAdvancedController) con implementaciones duplicadas. Cada una tenía su propia función `verifyAnalyticsConsent` con lógica idéntica: comprobar que el usuario tuviese `consent.granted === true` y que `consent.purposes` incluyese el propósito requerido. Esta dispersión implicaba que cualquier cambio en la lógica de verificación (por ejemplo, añadir la comprobación de `withdrawnAt`) debía replicarse manualmente en cada ubicación, con el consiguiente riesgo de inconsistencia.
+
+### Decisión (ADR-034)
+
+Crear `consentService.js` centralizado con los siguientes métodos:
+
+- **`canTrackPerformance(user)`**: Verifica si el usuario tiene consentimiento activo para `performance_analytics`. Comprueba `consent.granted`, presencia del propósito en `consent.purposes`, y ausencia de `withdrawnAt` posterior al último `grantedAt`.
+- **`canTrackEducational(user)`**: Verifica si el usuario tiene consentimiento activo para `educational_tracking`. Misma lógica de verificación que `canTrackPerformance` pero para el propósito educativo.
+- **`requireConsent(user, purpose)`**: Lanza `AppError` con código 403 si el consentimiento para el propósito indicado no está activo. Uso en controllers como guard clause.
+- **`getConsentStatus(user)`**: Devuelve un objeto resumen con el estado de cada propósito, útil para DTOs y el frontend.
+
+Se eliminan las funciones `verifyAnalyticsConsent` duplicadas en `analyticsController.js` y `analyticsAdvancedController.js`, sustituyéndolas por llamadas al servicio centralizado.
+
+### Alternativas Consideradas (ADR-034)
+
+1. **Middleware de consentimiento por ruta**: Descartada. No todas las rutas requieren el mismo propósito, y la granularidad necesaria (educational vs. performance) haría el middleware demasiado complejo.
+
+2. **Método estático en el modelo User**: Descartada. Viola la separación de responsabilidades del proyecto (ADR-021) donde la lógica de negocio reside en el service layer, no en los modelos.
+
+3. **Mantener las funciones locales y sincronizarlas manualmente**: Descartada. Exactamente el problema que motivó esta ADR: la sincronización manual es propensa a errores y dificulta la auditoría.
+
+### Consecuencias (ADR-034)
+
+**Positivas:**
+- Punto único de auditoría para compliance RGPD: toda verificación de consentimiento pasa por un solo servicio.
+- Bug fix: `hasConsentFor()` ahora verifica `withdrawnAt` (Art. 7.3 RGPD — el consentimiento puede retirarse en cualquier momento y la retirada debe ser efectiva).
+- Menor superficie de error al modificar la lógica de consentimiento.
+- Facilita la adición de nuevos propósitos de tratamiento en el futuro.
+
+**Negativas:**
+- Añade una dependencia de servicio adicional en controllers que antes eran autónomos.
+
+**Relaciones:**
+- **ADR-030** (Protección de datos base): Centraliza la verificación de consentimiento introducida en ADR-030.
+- **ADR-031** (Endurecimiento del consentimiento): El bug fix de `withdrawnAt` completa el endurecimiento de ADR-031.
+- **ADR-033** (Derecho de oposición): La verificación granular por propósito soporta directamente el mecanismo de oposición de ADR-033.
+
+## ADR-035: Serialización de operaciones RFID mode con mutex por usuario
+
+### Contexto (ADR-035)
+
+Las funciones de gestión de modo RFID (`setRfidModeState`, `clearRfidModeState`, `setRfidSensorBinding`) operan sobre Maps en memoria sin protección contra interleaving. Aunque Node.js es single-threaded y el event loop garantiza la atomicidad de operaciones síncronas, se añade defensa en profundidad por dos motivos:
+
+1. Si en el futuro se introduce lógica asíncrona (e.g., persistencia en Redis del estado RFID, como se menciona en ADR-022), las operaciones dejarían de ser atómicas y podrían intercalarse.
+2. El patrón ya existe en el proyecto (`executeWithPlayLock` en GameEngine) y su adopción es consistente con la arquitectura establecida.
+
+### Decisión (ADR-035)
+
+Implementar `executeWithRfidLock(userId, operation)` como mutex basado en Promise chaining, siguiendo el mismo patrón que `executeWithPlayLock` en GameEngine:
+
+- Se mantiene un `Map<userId, Promise>` donde cada nueva operación se encadena a la Promise anterior del mismo usuario.
+- Los helpers expuestos a socket commands (`setRfidModeState`, `clearRfidModeState`, `setRfidSensorBinding`) wrappean internamente sus operaciones con el lock.
+- El lock se libera automáticamente al completarse la operación (tanto en éxito como en error).
+- Usuarios distintos no se bloquean entre sí (el lock es per-user, no global).
+
+### Alternativas Consideradas (ADR-035)
+
+1. **No añadir lock (confiar en single-thread)**: Descartada. Correcta para el estado actual, pero frágil ante cambios futuros. El coste del lock es negligible y la protección es preventiva.
+
+2. **Lock global para todas las operaciones RFID**: Descartada. Serializaría operaciones de usuarios independientes, introduciendo latencia innecesaria en escenarios de múltiples profesores simultáneos.
+
+3. **Mutex con semáforo explícito (`async-mutex`)**: Descartada. Añade una dependencia externa para un patrón que ya se resuelve con Promise chaining nativo en el proyecto.
+
+### Consecuencias (ADR-035)
+
+**Positivas:**
+- Previene race conditions si se añade lógica async en el futuro (defensa en profundidad).
+- Operaciones RFID del mismo usuario se serializan, garantizando consistencia del estado.
+- Overhead mínimo (~0ms) para operaciones síncronas actuales, ya que las Promises se resuelven inmediatamente.
+- Patrón consistente con `executeWithPlayLock` del GameEngine.
+
+**Negativas:**
+- Complejidad añadida para un escenario que actualmente no presenta problemas reales de concurrencia.
+- El Map de locks crece con cada usuario activo (se limpia automáticamente al completarse las operaciones).
+
+**Relaciones:**
+- **ADR-022** (Hardening WebSocket — RFID en Redis): Si se implementa persistencia RFID en Redis, el lock protegerá las operaciones async resultantes.
+- **ADR-010** (Checkpoints y resiliencia): Sigue el mismo patrón de Promise-based mutex establecido en GameEngine.
+
+## ADR-036: Endpoint de métricas del sistema (/api/health/metrics)
+
+### Contexto (ADR-036)
+
+El endpoint `/health` solo devolvía estado básico (`status: 'ok'`, timestamp). No había visibilidad sobre el estado interno de la plataforma: partidas activas, estado de conexión a Redis y MongoDB, métricas del GameEngine, o número de clientes WebSocket conectados. Para diagnóstico y monitorización en producción, era necesario conectarse directamente al servidor o consultar logs.
+
+Las métricas del GameEngine (`activePlays`, `totalPlaysStarted`, `totalPlaysFinished`, etc.) existían como código implementado pero no expuesto — se calculaban internamente pero no había forma de consultarlas externamente.
+
+### Decisión (ADR-036)
+
+Añadir `GET /api/health/metrics` protegido por `requireRole('super_admin')` que expone métricas agregadas de los subsistemas principales:
+
+- **GameEngine**: `activePlays`, `totalPlaysStarted`, `totalPlaysFinished`, `totalErrors`, locks activos y colas pendientes.
+- **Redis**: latencia medida via `PING` (ms), estado de conexión.
+- **MongoDB**: `readyState` del driver Mongoose (0=disconnected, 1=connected, 2=connecting, 3=disconnecting).
+- **Sockets**: `clientsCount` (conexiones WebSocket activas).
+- **Runtime**: `uptime` del proceso, uso de memoria (`process.memoryUsage()`), versión de Node.js.
+
+El endpoint requiere autenticación JWT y rol `super_admin`. Devuelve 403 para cualquier otro rol.
+
+### Alternativas Consideradas (ADR-036)
+
+1. **Exponer métricas en formato Prometheus**: Descartada para esta fase. Requiere una dependencia adicional (`prom-client`) y un stack de monitorización (Prometheus + Grafana) que excede el alcance del TFG. Se puede añadir en el futuro reutilizando los mismos datos.
+
+2. **Endpoint público sin autenticación**: Descartada. Las métricas del sistema (partidas activas, estado de BD, memoria) son información sensible que podría facilitar ataques de timing o reconocimiento.
+
+3. **Logs estructurados periódicos en vez de endpoint**: Descartada. Los logs ya existen (Pino), pero no permiten consulta bajo demanda. El endpoint complementa los logs, no los sustituye.
+
+### Consecuencias (ADR-036)
+
+**Positivas:**
+- Visibilidad operacional sin herramientas externas: un super_admin puede diagnosticar problemas desde el navegador o con `curl`.
+- Solo accesible por `super_admin`, manteniendo el principio de mínimo privilegio.
+- Métricas del GameEngine que antes eran código muerto ahora se exponen y son útiles.
+- Base para futura integración con sistemas de monitorización (Prometheus, Grafana).
+
+**Negativas:**
+- El `PING` a Redis añade ~1ms de latencia al endpoint. Aceptable para un endpoint de diagnóstico que no se consulta con alta frecuencia.
+- Las métricas son un snapshot puntual, no series temporales. Para tendencias históricas se necesitaría un sistema de monitorización completo.
+
+**Relaciones:**
+- **ADR-010** (Checkpoints y resiliencia): Las métricas del GameEngine expuestas aquí incluyen los contadores de partidas gestionados por el sistema de checkpoints.
+- **ADR-016** (Rate limiting Redis): El estado de Redis verificado aquí es el mismo store usado para rate limiting.
+- **ADR-011** (Socket.IO Redis Adapter): El `clientsCount` refleja las conexiones gestionadas por el adapter.

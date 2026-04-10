@@ -124,6 +124,8 @@ function getEmptyMetrics() {
     bestScore: 0,
     totalCorrectAnswers: 0,
     totalErrors: 0,
+    totalTimeouts: 0,
+    totalAbandonedGames: 0,
     averageResponseTime: 0,
     lastPlayedAt: null
   };
@@ -160,8 +162,18 @@ function generateStudentsData(teacher, names, count, indexOffset) {
         grantedAt: new Date(),
         purposes: ['educational_tracking', 'performance_analytics'],
         policyVersion: '1.0',
-        withdrawnAt: null
+        withdrawnAt: null,
+        channel: 'web_form'
       },
+      consentHistory: [
+        {
+          action: 'granted',
+          grantedBy: `Tutor de ${names[nameIndex]}`,
+          timestamp: new Date(),
+          policyVersion: '1.0',
+          purposes: ['educational_tracking', 'performance_analytics']
+        }
+      ],
       status: 'active',
       createdBy: teacher._id,
       assignedTeacher: teacher._id,

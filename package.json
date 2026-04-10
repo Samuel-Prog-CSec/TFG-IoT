@@ -36,7 +36,7 @@
   "lint-staged": {
     "backend/**/*.js": [
       "npm --prefix backend run lint:staged --",
-      "npm --prefix backend test -- --findRelatedTests --passWithNoTests"
+      "npm --prefix backend test -- --findRelatedTests --passWithNoTests --coverage=false"
     ],
     "frontend/**/*.{js,jsx}": [
       "npm --prefix frontend run lint:staged --"

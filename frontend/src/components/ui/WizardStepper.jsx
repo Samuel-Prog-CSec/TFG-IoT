@@ -9,7 +9,6 @@
 import { motion, AnimatePresence } from 'framer-motion';
 import { Check } from 'lucide-react';
 import { cn } from '../../lib/utils';
-import confetti from 'canvas-confetti';
 import { memo, useEffect, useMemo, useRef } from 'react';
 import PropTypes from 'prop-types';
 
@@ -114,6 +113,7 @@ function WizardStepItem({
       transition={{ delay: reducedMotion ? 0 : index * 0.1 }}
     >
       <motion.button
+        type="button"
         onClick={handleStepClick}
         disabled={!isClickable}
         className={getStepButtonClassName({ isActive, isCompleted, isClickable })}
@@ -245,25 +245,15 @@ const WizardStepper = memo(function WizardStepper({
   const isLastStep = currentStep >= steps.length - 1;
   const wasLastStep = useRef(false);
 
-  // Efecto de confetti al llegar al último paso
+  // Track último paso para posible uso futuro (confetti movido al callback de éxito real)
   useEffect(() => {
-    if (!reducedMotion && isLastStep && !wasLastStep.current) {
-      // Mini confetti celebration
-      confetti({
-        particleCount: 50,
-        spread: 60,
-        origin: { y: 0.3 },
-        // TOKEN-EXCEPTION: canvas-confetti API requires direct color values
-        colors: ['#8b5cf6', '#6366f1', '#a855f7', '#c084fc'],
-        scalar: 0.8,
-        gravity: 1.2,
-      });
+    if (isLastStep) {
       wasLastStep.current = true;
     }
     if (!isLastStep) {
       wasLastStep.current = false;
     }
-  }, [isLastStep, reducedMotion]);
+  }, [isLastStep]);
 
   // Calcular progreso
   const totalSteps = useMemo(() => Math.max(steps.length - 1, 1), [steps.length]);

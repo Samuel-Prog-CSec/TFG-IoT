@@ -28,7 +28,15 @@ export default defineConfig({
         '*.config.{js,mjs,cjs}',
         'eslint.config.js',
         'vite.config.js'
-      ]
+      ],
+      // Umbrales mínimos de cobertura — protegen contra regresiones.
+      // Valores actuales (abr 2026): Stmts 65%, Branch 53%, Funcs 62%, Lines 66%
+      thresholds: {
+        statements: 55,
+        branches: 45,
+        functions: 55,
+        lines: 55,
+      }
     }
   }
 });

@@ -27,7 +27,8 @@ function generateCardMappings(contextAssets, count, baseOffset) {
       value: asset.value,
       audioUrl: asset.audioUrl || null,
       imageUrl: asset.imageUrl || null,
-      thumbnailUrl: asset.thumbnailUrl || null
+      thumbnailUrl: asset.thumbnailUrl || null,
+      dominantColor: asset.dominantColor || null
     }
   }));
 }
@@ -52,7 +53,8 @@ function generateMemoryCardMappings(contextAssets, count, baseOffset) {
       value: asset.value,
       audioUrl: asset.audioUrl || null,
       imageUrl: asset.imageUrl || null,
-      thumbnailUrl: asset.thumbnailUrl || null
+      thumbnailUrl: asset.thumbnailUrl || null,
+      dominantColor: asset.dominantColor || null
     };
 
     // Primera copia: offset normal

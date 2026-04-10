@@ -105,22 +105,7 @@ describe('Repository Write Operations', () => {
       await User.findByIdAndDelete(student._id);
     });
 
-    it('findByIdAndUpdate debe ser alias de updateById (mismo resultado)', async () => {
-      const student = await createStudent(teacher._id, '-write-alias');
-
-      const resultUpdate = await userRepository.updateById(student._id, { name: 'Alias Test A' });
-      const resultAlias = await userRepository.findByIdAndUpdate(student._id, {
-        name: 'Alias Test B'
-      });
-
-      // Ambos retornan el documento actualizado con los mismos campos estructurales
-      expect(resultUpdate).not.toBeNull();
-      expect(resultAlias).not.toBeNull();
-      expect(resultUpdate._id.toString()).toBe(resultAlias._id.toString());
-      expect(resultAlias.name).toBe('Alias Test B');
-
-      await User.findByIdAndDelete(student._id);
-    });
+    // Alias findByIdAndUpdate eliminado en auditoría de código muerto (DEAD-01)
   });
 
   describe('updateOne', () => {

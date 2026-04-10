@@ -11,6 +11,7 @@ import { ArrowRightLeft, User, Users, School, AlertTriangle } from 'lucide-react
 import { toast } from 'sonner';
 import { useAuth } from '../context/AuthContext';
 import { useRefetchOnFocus } from '../hooks/useRefetchOnFocus';
+import { useDocumentTitle } from '../hooks/useDocumentTitle';
 import { usersAPI, extractData, extractErrorMessage, isAbortError } from '../services/api';
 import ButtonPremium from '../components/ui/ButtonPremium';
 import GlassCard from '../components/ui/GlassCard';
@@ -21,6 +22,7 @@ import { cn, pageVariants } from '../lib/utils';
 
 export default function TransferStudents() {
   const { user } = useAuth(); // Removed isSuperAdmin as it's no longer needed for conditional logic here
+  useDocumentTitle('Transferir Alumnos');
   const [students, setStudents] = useState([]);
   const [teachers, setTeachers] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -187,7 +189,7 @@ export default function TransferStudents() {
 
   if (loading) {
     return (
-      <div className="min-h-screen p-8">
+      <div className="min-h-full p-8">
         <div className="text-text-secondary">Cargando transferencia...</div>
       </div>
     );
@@ -195,7 +197,7 @@ export default function TransferStudents() {
 
   return (
     <motion.div
-      className="min-h-screen p-6 lg:p-10"
+      className="min-h-full p-6 lg:p-10"
       variants={pageVariants}
       initial="initial"
       animate="animate"

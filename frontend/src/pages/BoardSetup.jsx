@@ -6,13 +6,14 @@ import { CSS } from '@dnd-kit/utilities';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Layers, RotateCcw, Play, CheckCircle, Shuffle } from 'lucide-react';
 import clsx from 'clsx';
-import confetti from 'canvas-confetti';
+import { useConfetti } from '../hooks/useConfetti';
 import { toast } from 'sonner';
 import { sessionsAPI, usersAPI, extractData, extractErrorMessage, isAbortError } from '../services/api';
 import { captureException } from '../lib/sentry';
 import { useAuth } from '../context/AuthContext';
 import { useRefetchOnFocus } from '../hooks/useRefetchOnFocus';
 import { ROUTES } from '../constants/routes';
+import { useDocumentTitle } from '../hooks/useDocumentTitle';
 import CardAssetPreview from '../components/ui/CardAssetPreview';
 import SelectPremium from '../components/ui/SelectPremium';
 import ButtonPremium from '../components/ui/ButtonPremium';
@@ -32,6 +33,8 @@ export default function BoardSetup() {
   const { sessionId } = useParams();
   const navigate = useNavigate();
     const { user } = useAuth();
+  useDocumentTitle('Configurar Tablero');
+  const { fireBurst } = useConfetti();
   const [loading, setLoading] = useState(true);
   
   // Game Data
@@ -253,13 +256,11 @@ export default function BoardSetup() {
         newSlots[targetSlotId] = activeCard;
         setSlots(newSlots);
 
-        // 🎉 Confetti effect for feedback
-        confetti({
+        // Confetti effect for feedback
+        fireBurst({
             particleCount: 30,
             spread: 50,
             origin: { y: 0.7 },
-            colors: ['#6366f1', '#8b5cf6', '#a855f7'], // TOKEN-EXCEPTION: canvas-confetti requires hex values
-            disableForReducedMotion: true
         });
     }
   };

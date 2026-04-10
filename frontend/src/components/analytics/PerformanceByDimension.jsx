@@ -40,8 +40,8 @@ function PerformanceByDimension({ title, data, dimension = 'context' }) {
     if (!Array.isArray(data) || data.length === 0) return [];
     return data
       .map(item => ({
-        name: item.name || item.contextName || item.mechanicName || 'Sin nombre',
-        score: item.averageScore ?? item.score ?? 0,
+        name: item.name || item.context || item.mechanic || item.contextName || item.mechanicName || 'Sin nombre',
+        score: item.averageScore ?? item.avgScore ?? item.score ?? 0,
         gamesPlayed: item.gamesPlayed ?? item.totalGames ?? null,
       }))
       .sort((a, b) => b.score - a.score);
@@ -50,7 +50,7 @@ function PerformanceByDimension({ title, data, dimension = 'context' }) {
   if (chartData.length === 0) {
     return (
       <ChartSection title={title}>
-        <div className="py-8 text-center">
+        <div className="min-h-[160px] flex items-center justify-center py-8 text-center">
           <p className="text-sm text-text-muted">Sin datos disponibles para esta dimension.</p>
         </div>
       </ChartSection>
@@ -62,7 +62,7 @@ function PerformanceByDimension({ title, data, dimension = 'context' }) {
   return (
     <ChartSection title={title}>
       <div style={{ height: chartHeight }} className="w-full mt-2">
-        <ResponsiveContainer width="100%" height="100%" minWidth={0}>
+        <ResponsiveContainer width="100%" height="100%" minWidth={0} minHeight={0}>
           <BarChart
             data={chartData}
             layout="vertical"

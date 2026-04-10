@@ -1,10 +1,11 @@
-import { memo, useMemo, useState, useEffect } from 'react';
+import { memo, useMemo, useEffect } from 'react';
 import { motion } from 'framer-motion';
 import PropTypes from 'prop-types';
 import { Star, Trophy, RotateCcw, Home } from 'lucide-react';
 import { cn, calculateStars } from '../../lib/utils';
+import { useReducedMotion } from '../../hooks/useReducedMotion';
+import { useConfetti } from '../../hooks/useConfetti';
 import ButtonPremium from '../ui/ButtonPremium';
-import Confetti from '../effects/Confetti';
 
 /**
  * Pantalla de fin de juego
@@ -26,8 +27,8 @@ function GameOverScreen({
   summary = null,
   onPlayAgain,
   onGoHome,
-  shouldReduceMotion = false,
 }) {
+  const { shouldReduceMotion } = useReducedMotion();
   const percentage = totalRounds > 0 ? (correctAnswers / totalRounds) * 100 : 0;
   const stars = calculateStars(percentage);
   const isNewBest = score > bestScore;
@@ -68,13 +69,13 @@ function GameOverScreen({
   const message = tierConfig;
   const scoreDelta = score - bestScore;
 
-  const [showConfetti, setShowConfetti] = useState(false);
+  const { fireSuccess } = useConfetti();
 
   useEffect(() => {
     if (shouldReduceMotion || stars < 2) return;
-    const timer = setTimeout(() => setShowConfetti(true), 800);
+    const timer = setTimeout(() => fireSuccess(), 800);
     return () => clearTimeout(timer);
-  }, [shouldReduceMotion, stars]);
+  }, [shouldReduceMotion, stars, fireSuccess]);
 
   return (
     <motion.div
@@ -255,6 +256,7 @@ function GameOverScreen({
               onClick={onPlayAgain}
               icon={<RotateCcw size={20} aria-hidden="true" />}
               className="flex-1"
+              autoFocus
             >
               Jugar de Nuevo
             </ButtonPremium>
@@ -299,14 +301,7 @@ function GameOverScreen({
         </div>
       )}
 
-      {/* Confetti celebration for good results */}
-      {showConfetti && (
-        <Confetti
-          active
-          particleCount={stars >= 3 ? 80 : 40}
-          duration={stars >= 3 ? 4000 : 3500}
-        />
-      )}
+      {/* Confetti ahora se dispara via useConfetti hook (useEffect arriba) */}
     </motion.div>
   );
 }
@@ -323,7 +318,6 @@ GameOverScreen.propTypes = {
   }),
   onPlayAgain: PropTypes.func.isRequired,
   onGoHome: PropTypes.func.isRequired,
-  shouldReduceMotion: PropTypes.bool,
 };
 
 export default memo(GameOverScreen);

@@ -23,6 +23,7 @@ import {
 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { useReducedMotion } from '../hooks/useReducedMotion';
+import { useDocumentTitle } from '../hooks/useDocumentTitle';
 import ButtonPremium from '../components/ui/ButtonPremium';
 import InputPremium from '../components/ui/InputPremium';
 import GlassCard from '../components/ui/GlassCard';
@@ -130,6 +131,7 @@ function PasswordStrengthMeter({ password }) {
 export default function Register() {
   const { register, error, clearError, isLoading } = useAuth();
   const { shouldReduceMotion } = useReducedMotion();
+  useDocumentTitle('Registro');
 
   // Estado del formulario
   const [formData, setFormData] = useState({

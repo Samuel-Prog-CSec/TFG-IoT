@@ -360,12 +360,25 @@ function generateGamePlaysData(sessions, students) {
       );
 
       // Calcular timestamp: distribuir partidas del alumno a lo largo del tiempo
-      const sessionStart = session.startedAt || session.createdAt || new Date();
+      // Las últimas 3 partidas de cada alumno se ubican en los últimos 7 días
+      // para que las métricas de "Partidas Hoy" y "Alumnos Activos" muestren datos
+      const isRecentPlay = i >= playsCount - 3;
+      let baseTime;
 
-      // Añadir variabilidad horaria (entre 8:00 y 14:00, horario escolar)
-      const hourOffset = ((index * 3 + i * 7) % 6) * 60 * 60 * 1000;
-      const minuteOffset = ((index * 11 + i * 13) % 60) * 60 * 1000;
-      const baseTime = sessionStart.getTime() + hourOffset + minuteOffset;
+      if (isRecentPlay) {
+        // Partidas recientes: hoy y últimos días (horario escolar 8:00-14:00)
+        const daysAgo = playsCount - 1 - i; // 2, 1, 0 (hoy la última)
+        const recentDate = new Date();
+        recentDate.setDate(recentDate.getDate() - daysAgo);
+        recentDate.setHours(9 + ((index * 3 + i) % 5), (index * 11 + i * 13) % 60, 0, 0);
+        baseTime = recentDate.getTime();
+      } else {
+        // Partidas históricas: distribuidas en los últimos 60 días
+        const sessionStart = session.startedAt || session.createdAt || new Date();
+        const hourOffset = ((index * 3 + i * 7) % 6) * 60 * 60 * 1000;
+        const minuteOffset = ((index * 11 + i * 13) % 60) * 60 * 1000;
+        baseTime = sessionStart.getTime() + hourOffset + minuteOffset;
+      }
 
       // Ajustar timestamps de eventos relativos a esta base
       const timeShift = baseTime - playData.events[0].timestamp.getTime();
@@ -387,9 +400,9 @@ function generateGamePlaysData(sessions, students) {
         startedAt
       };
 
-      if (!willAbandon) {
-        gamePlay.completedAt = new Date(lastEventTime + 1000);
-      }
+      // completedAt se establece tanto para completadas como abandonadas
+      // (el modelo GameEngine también lo hace en endPlay para ambos estados)
+      gamePlay.completedAt = new Date(lastEventTime + 1000);
 
       gamePlays.push(gamePlay);
     }
