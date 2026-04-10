@@ -102,7 +102,39 @@ jobs:
           npm ci --prefix frontend
 
       - name: Security gate (producción)
-        run: npm run audit:prod
+        run: |
+          # Backend: audit estricto (0 vulnerabilidades toleradas)
+          npm --prefix backend audit --omit=dev
+
+          # Frontend: audit con excepciones documentadas
+          # GHSA-3p68-rc4w-qgx5 (axios SSRF via NO_PROXY) solo afecta Node.js server-side,
+          # no browsers. axios fijado a 1.14.0 (última versión pre-supply-chain-attack).
+          EXCLUDED_ADVISORIES="GHSA-3p68-rc4w-qgx5"
+
+          if npm --prefix frontend audit --omit=dev 2>/dev/null; then
+            echo "✅ Frontend audit limpio"
+          else
+            REAL_VULNS=$(npm --prefix frontend audit --omit=dev --json 2>/dev/null | node -e "
+              const excluded = process.argv[1].split(',');
+              let input = '';
+              process.stdin.on('data', c => input += c);
+              process.stdin.on('end', () => {
+                const data = JSON.parse(input);
+                const vulns = Object.values(data.vulnerabilities || {});
+                const real = vulns.filter(v =>
+                  !v.via.every(a => typeof a === 'string' || excluded.includes((a.url || '').split('/').pop()))
+                );
+                console.log(real.length);
+              });
+            " "$EXCLUDED_ADVISORIES")
+
+            if [ "$REAL_VULNS" != "0" ]; then
+              echo "❌ Vulnerabilidades de producción no excluidas en frontend"
+              npm --prefix frontend audit --omit=dev
+              exit 1
+            fi
+            echo "✅ Frontend audit: solo vulnerabilidades excluidas (no aplican a browsers)"
+          fi
 
       - name: Security report (completo)
         run: npm run audit:all
