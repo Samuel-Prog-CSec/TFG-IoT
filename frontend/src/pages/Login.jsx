@@ -34,7 +34,7 @@ const LOCKOUT_DURATION = 30 * 1000; // 30 segundos
  * @returns {boolean}
  */
 const isValidEmail = (email) => {
-  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
+  return /^[^\s@]+@[^\s@]+$/.test(email) && email.includes('.');
 };
 
 /**

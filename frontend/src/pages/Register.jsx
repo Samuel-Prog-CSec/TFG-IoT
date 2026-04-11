@@ -46,7 +46,7 @@ const PASSWORD_REQUIREMENTS = [
  * @returns {boolean}
  */
 const isValidEmail = (email) => {
-  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
+  return /^[^\s@]+@[^\s@]+$/.test(email) && email.includes('.');
 };
 
 /**
