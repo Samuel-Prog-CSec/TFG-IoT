@@ -11,7 +11,6 @@ import {
   UserPlus,
   Search,
   GraduationCap,
-  Filter,
   ChevronLeft,
   ChevronRight,
   User,
@@ -20,12 +19,8 @@ import {
   MoreVertical,
   Edit,
   Trash2,
-  RefreshCw,
-  AlertCircle,
   ShieldCheck,
-  ShieldX,
-  Download,
-  FileText
+  Download
 } from 'lucide-react';
 import ConsentDetailPanel from './ConsentDetailPanel';
 import { motion, AnimatePresence } from 'framer-motion';
@@ -410,9 +405,12 @@ function CreateStudentModal({ isOpen, onClose, onCreated, teachers }) {
 export default function StudentManagement() {
   useDocumentTitle('Gestión de Alumnos');
   const [students, setStudents] = useState([]);
+  // eslint-disable-next-line sonarjs/no-unused-vars -- solo se usa el setter
   const [_teachers, setTeachers] = useState([]);
   const [loading, setLoading] = useState(true);
+  // eslint-disable-next-line sonarjs/no-unused-vars -- solo se usa el setter
   const [_error, setError] = useState(null);
+  // eslint-disable-next-line sonarjs/no-unused-vars -- solo se usa el setter
   const [_isModalOpen, setIsModalOpen] = useState(false);
   const [isEditModalOpen, setIsEditModalOpen] = useState(false);
   const [selectedStudent, setSelectedStudent] = useState(null);
@@ -581,36 +579,39 @@ export default function StudentManagement() {
       </section>
 
       <AnimatePresence mode="wait">
-        {loading ? (
-          <motion.div 
-            key="loading"
-            variants={staggerContainer}
-            initial="hidden"
-            animate="show"
-            className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6"
-          >
-            {[...Array(6)].map((_, i) => (
-              <SkeletonCard key={i} className="h-48" />
-            ))}
-          </motion.div>
-        ) : students.length === 0 ? (
-          <EmptyState
-            key="empty"
-            title="No se encontraron alumnos"
-            description={searchQuery ? "Prueba con otros términos de búsqueda." : "Aún no hay alumnos registrados en el sistema."}
-            icon={<User size={48} />}
-          />
-        ) : (
-          <motion.div
-            key="list"
-            variants={staggerContainer}
-            initial="hidden"
-            animate="show"
-            className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6"
-          >
-            {students.map((student) => (
-              <motion.div key={student.id || student._id} variants={staggerItem}>
-                <GlassCard className="p-5 hover:border-brand-base/40 group transition-[border-color] duration-300 relative overflow-hidden h-full flex flex-col">
+        {(() => {
+          if (loading) return (
+            <motion.div
+              key="loading"
+              variants={staggerContainer}
+              initial="hidden"
+              animate="show"
+              className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6"
+            >
+              {[...Array(6)].map((_, i) => (
+                <SkeletonCard key={i} className="h-48" />
+              ))}
+            </motion.div>
+          );
+          if (students.length === 0) return (
+            <EmptyState
+              key="empty"
+              title="No se encontraron alumnos"
+              description={searchQuery ? "Prueba con otros términos de búsqueda." : "Aún no hay alumnos registrados en el sistema."}
+              icon={<User size={48} />}
+            />
+          );
+          return (
+            <motion.div
+              key="list"
+              variants={staggerContainer}
+              initial="hidden"
+              animate="show"
+              className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6"
+            >
+              {students.map((student) => (
+                <motion.div key={student.id || student._id} variants={staggerItem}>
+                  <GlassCard className="p-5 hover:border-brand-base/40 group transition-[border-color] duration-300 relative overflow-hidden h-full flex flex-col">
                   {/* Acciones */}
                   <div className="absolute top-3 right-3 z-10">
                     <div className="relative">
@@ -720,8 +721,9 @@ export default function StudentManagement() {
                 </GlassCard>
               </motion.div>
             ))}
-          </motion.div>
-        )}
+            </motion.div>
+          );
+        })()}
       </AnimatePresence>
 
       {!loading && pagination.totalPages > 1 && (

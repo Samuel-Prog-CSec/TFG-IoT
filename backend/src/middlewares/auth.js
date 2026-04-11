@@ -784,9 +784,9 @@ const requireOwnership =
         throw new ForbiddenError('No tienes permiso para acceder a este recurso');
       }
 
-      next();
+      return next();
     } catch (error) {
-      next(error);
+      return next(error);
     }
   };
 
@@ -816,13 +816,13 @@ const optionalAuth = async (req, res, next) => {
       Sentry.setUser({ id: user._id.toString(), role: user.role });
     }
 
-    next();
+    return next();
   } catch (error) {
     // Ignorar errores de autenticación en modo opcional
     logger.debug('Token opcional inválido, continuando sin autenticación', {
       error: error.message
     });
-    next();
+    return next();
   }
 };
 

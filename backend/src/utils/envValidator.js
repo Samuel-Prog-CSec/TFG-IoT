@@ -51,7 +51,7 @@ const REQUIRED_REDIS_IN_PRODUCTION = ['REDIS_URL'];
  * Valida que todas las variables requeridas estén configuradas.
  * @throws {Error} Si falta alguna variable crítica
  */
-// eslint-disable-next-line sonarjs/cognitive-complexity
+// eslint-disable-next-line sonarjs/cognitive-complexity, sonarjs/cyclomatic-complexity -- validacion exhaustiva de variables de entorno, la complejidad es inherente
 function validateEnv() {
   const missing = [];
   const warnings = [];

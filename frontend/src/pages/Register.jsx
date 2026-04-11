@@ -37,7 +37,7 @@ const PASSWORD_REQUIREMENTS = [
   { id: 'length', label: 'Mínimo 8 caracteres', test: (p) => p.length >= 8 },
   { id: 'uppercase', label: 'Una letra mayúscula', test: (p) => /[A-Z]/.test(p) },
   { id: 'lowercase', label: 'Una letra minúscula', test: (p) => /[a-z]/.test(p) },
-  { id: 'number', label: 'Un número', test: (p) => /[0-9]/.test(p) },
+  { id: 'number', label: 'Un número', test: (p) => /\d/.test(p) },
 ];
 
 /**

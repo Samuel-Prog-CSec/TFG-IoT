@@ -28,9 +28,9 @@
  *   res.json({ success: true, data: items });
  * };
  */
-const asyncHandler = fn => (req, res, next) => {
+const asyncHandler = fn => async (req, res, next) => {
   try {
-    Promise.resolve(fn(req, res, next)).catch(next);
+    await fn(req, res, next);
   } catch (error) {
     next(error);
   }

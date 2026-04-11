@@ -79,6 +79,7 @@ async function detectDecliningPerformance(teacherId, students) {
     byStudent[sid][r._id.period] = { avgScore: r.avgScore, count: r.count };
   }
 
+  // eslint-disable-next-line sonarjs/too-many-break-or-continue-in-loop -- cada continue filtra un criterio estadistico diferente
   for (const student of students) {
     const sid = student._id.toString();
     const data = byStudent[sid];
@@ -290,6 +291,7 @@ async function detectConsistentTimeout(teacherId, students) {
   const results = await gamePlayRepository.aggregate(pipeline);
   const studentMap = new Map(students.map(s => [s._id.toString(), s]));
 
+  // eslint-disable-next-line sonarjs/too-many-break-or-continue-in-loop -- cada continue filtra un criterio estadistico diferente
   for (const r of results) {
     if (r.last5.length < 3) {
       continue;
@@ -381,6 +383,7 @@ async function detectImprovingFast(teacherId, students) {
 
   const studentMap = new Map(students.map(s => [s._id.toString(), s]));
 
+  // eslint-disable-next-line sonarjs/too-many-break-or-continue-in-loop -- cada continue filtra un criterio estadistico diferente
   for (const [sid, data] of Object.entries(byStudent)) {
     if (!data.current || !data.previous) {
       continue;

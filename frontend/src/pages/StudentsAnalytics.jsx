@@ -132,6 +132,7 @@ const TABLE_COLUMNS = [
 
 // ─── Main Component ─────────────────────────────────────────────────
 
+// eslint-disable-next-line sonarjs/cyclomatic-complexity -- pagina de analytics con tabla, filtros, distribucion y multiples estados
 export default function StudentsAnalytics() {
   const navigate = useNavigate();
   useDocumentTitle('Mis Alumnos');
@@ -188,11 +189,11 @@ export default function StudentsAnalytics() {
         if (isAbortError(err)) return;
         captureException(err);
         const status = err.response?.status;
-        const message = status === 403
-          ? 'No tienes permisos para ver estos datos.'
-          : status >= 500
-            ? 'Error del servidor. Intentalo de nuevo mas tarde.'
-            : 'Error de conexion. Comprueba tu red e intenta de nuevo.';
+        const message = (() => {
+          if (status === 403) return 'No tienes permisos para ver estos datos.';
+          if (status >= 500) return 'Error del servidor. Intentalo de nuevo mas tarde.';
+          return 'Error de conexion. Comprueba tu red e intenta de nuevo.';
+        })();
         setError(message);
       } finally {
         if (!controller.signal.aborted) {
@@ -243,7 +244,7 @@ export default function StudentsAnalytics() {
     }
 
     // Apply sorting
-    const sorted = [...filtered].sort((a, b) => {
+    return [...filtered].sort((a, b) => {
       let aVal = a[sortField];
       let bVal = b[sortField];
 
@@ -265,8 +266,6 @@ export default function StudentsAnalytics() {
       bVal = bVal ?? -Infinity;
       return sortOrder === 'asc' ? aVal - bVal : bVal - aVal;
     });
-
-    return sorted;
   }, [students, debouncedSearch, tierFilter, sortField, sortOrder]);
 
   // Derived KPIs
@@ -317,13 +316,14 @@ export default function StudentsAnalytics() {
 
   // ─── Skeleton state ─────────────────────────────────────────────
   const skeletonContent = loading && !students;
+  const motionVariants = shouldReduceMotion ? {} : crossfadeVariants;
 
   return (
     <AnimatePresence mode="wait">
       {skeletonContent ? (
         <motion.section
           key="skeleton"
-          {...(shouldReduceMotion ? {} : crossfadeVariants)}
+          {...motionVariants}
           className="p-6 lg:p-8 max-w-7xl mx-auto space-y-8"
         >
           {/* Header skeleton */}
@@ -363,7 +363,7 @@ export default function StudentsAnalytics() {
       ) : (
         <motion.section
           key="content"
-          {...(shouldReduceMotion ? {} : crossfadeVariants)}
+          {...motionVariants}
           className="p-6 lg:p-8 max-w-7xl mx-auto space-y-8"
           aria-label="Pagina de analisis de alumnos"
         >
@@ -568,7 +568,10 @@ export default function StudentsAnalytics() {
                             key={col.key}
                             scope="col"
                             className="px-4 py-3 text-left text-xs font-semibold text-text-muted uppercase tracking-wider whitespace-nowrap"
-                            aria-sort={col.sortable && sortField === col.key ? (sortOrder === 'asc' ? 'ascending' : 'descending') : undefined}
+                            aria-sort={(() => {
+                              if (col.sortable && sortField === col.key) return sortOrder === 'asc' ? 'ascending' : 'descending';
+                              return undefined;
+                            })()}
                           >
                             {col.sortable ? (
                               <button
@@ -588,7 +591,7 @@ export default function StudentsAnalytics() {
                       </tr>
                     </thead>
                     <motion.tbody
-                      {...(shouldReduceMotion ? {} : crossfadeVariants)}
+                      {...motionVariants}
                     >
                       {processedStudents.map((student, index) => (
                         <StudentRow

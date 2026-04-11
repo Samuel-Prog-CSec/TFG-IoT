@@ -175,7 +175,7 @@ exports.getClassroomStudents = async (req, res) => {
     });
   }
 
-  sendSuccess(res, data);
+  return sendSuccess(res, data);
 };
 
 /**

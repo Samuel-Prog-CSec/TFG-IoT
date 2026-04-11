@@ -27,7 +27,7 @@ function FeedbackOverlay({ type, points = 0, onComplete }) {
 
   // Permitir cerrar con Escape
   useEffect(() => {
-    if (!type) return;
+    if (!type) return undefined;
     const handleKeyDown = (e) => {
       if (e.key === 'Escape' && onComplete) {
         onComplete();

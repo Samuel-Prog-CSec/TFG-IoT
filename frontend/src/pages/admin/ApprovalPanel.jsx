@@ -63,7 +63,7 @@ function ConfirmationModal({
 
   // Focus trap y manejo de Escape
   useEffect(() => {
-    if (!isOpen) return;
+    if (!isOpen) return undefined;
 
     // Guardar el elemento que tenía el foco antes de abrir el modal
     const previouslyFocused = document.activeElement;
@@ -600,29 +600,31 @@ export default function ApprovalPanel() {
           animate={{ opacity: 1 }}
           transition={{ delay: 0.3 }}
         >
-          {loading ? (
-            <LoadingSkeleton />
-          ) : filteredTeachers.length === 0 ? (
-            <EmptyState
-              title="No hay solicitudes pendientes"
-              description="Todas las solicitudes de profesores han sido procesadas. Vuelve más tarde para revisar nuevas solicitudes."
-              icon={<Inbox className="size-10" />}
-              className="bg-transparent"
-            />
-          ) : (
-            <div className="space-y-4">
-              <AnimatePresence mode="popLayout">
-                {filteredTeachers.map((teacher) => (
-                  <PendingTeacherCard
-                    key={teacher._id || teacher.id}
-                    teacher={teacher}
-                    onApprove={() => openModal('approve', teacher)}
-                    onReject={() => openModal('reject', teacher)}
-                  />
-                ))}
-              </AnimatePresence>
-            </div>
-          )}
+          {(() => {
+            if (loading) return <LoadingSkeleton />;
+            if (filteredTeachers.length === 0) return (
+              <EmptyState
+                title="No hay solicitudes pendientes"
+                description="Todas las solicitudes de profesores han sido procesadas. Vuelve más tarde para revisar nuevas solicitudes."
+                icon={<Inbox className="size-10" />}
+                className="bg-transparent"
+              />
+            );
+            return (
+              <div className="space-y-4">
+                <AnimatePresence mode="popLayout">
+                  {filteredTeachers.map((teacher) => (
+                    <PendingTeacherCard
+                      key={teacher._id || teacher.id}
+                      teacher={teacher}
+                      onApprove={() => openModal('approve', teacher)}
+                      onReject={() => openModal('reject', teacher)}
+                    />
+                  ))}
+                </AnimatePresence>
+              </div>
+            );
+          })()}
         </motion.div>
 
         {/* Paginación */}

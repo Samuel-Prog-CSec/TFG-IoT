@@ -7,12 +7,7 @@
 const cardDeckRepository = require('../repositories/cardDeckRepository');
 const gameContextRepository = require('../repositories/gameContextRepository');
 const cardDeckService = require('../services/cardDeckService');
-const {
-  NotFoundError,
-  ConflictError,
-  ValidationError,
-  ForbiddenError
-} = require('../utils/errors');
+const { NotFoundError, ConflictError, ValidationError } = require('../utils/errors');
 const logger = require('../utils/logger');
 const { toCardDeckDetailDTOV1, toCardDeckListDTOV1 } = require('../utils/dtos');
 const { sendSuccess, sendCreated, sendPaginated } = require('../utils/responseHelper');

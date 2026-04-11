@@ -53,6 +53,7 @@ const getInitials = (name) => {
  * Pieza central del TFG: permite al profesor entender fortalezas,
  * debilidades y evolucion de cada alumno.
  */
+// eslint-disable-next-line sonarjs/cyclomatic-complexity -- perfil de estudiante con multiples secciones de analytics y estados de carga
 export default function StudentProfile() {
   const { studentId } = useParams();
   const navigate = useNavigate();
@@ -294,7 +295,11 @@ export default function StudentProfile() {
               label="Tiempo Respuesta"
               value={((metrics.averageResponseTime || 0) / 1000).toFixed(1)}
               suffix="s"
-              ragStatus={metrics.averageResponseTime <= 4000 ? 'green' : metrics.averageResponseTime <= 8000 ? 'amber' : 'red'}
+              ragStatus={(() => {
+                if (metrics.averageResponseTime <= 4000) return 'green';
+                if (metrics.averageResponseTime <= 8000) return 'amber';
+                return 'red';
+              })()}
               comparison={classComparison.responseTime != null ? `vs clase: ${(classComparison.responseTime / 1000).toFixed(1)}s` : null}
               comparisonPositive={metrics.averageResponseTime < (classComparison.responseTime || Infinity)}
             />
@@ -304,7 +309,12 @@ export default function StudentProfile() {
             <StudentKPICard
               label="Engagement"
               value={engagement?.engagementScore != null ? Math.round(engagement.engagementScore) : '—'}
-              ragStatus={engagement?.engagementScore >= 60 ? 'green' : engagement?.engagementScore >= 35 ? 'amber' : engagement ? 'red' : 'gray'}
+              ragStatus={(() => {
+                if (engagement?.engagementScore >= 60) return 'green';
+                if (engagement?.engagementScore >= 35) return 'amber';
+                if (engagement) return 'red';
+                return 'gray';
+              })()}
             />
           </motion.div>
 
@@ -322,7 +332,11 @@ export default function StudentProfile() {
               label="Completado"
               value={completionRate}
               suffix="%"
-              ragStatus={completionRate >= 85 ? 'green' : completionRate >= 60 ? 'amber' : 'red'}
+              ragStatus={(() => {
+                if (completionRate >= 85) return 'green';
+                if (completionRate >= 60) return 'amber';
+                return 'red';
+              })()}
               comparison={metrics.totalAbandonedGames > 0 ? `${metrics.totalAbandonedGames} abandonadas` : 'Sin abandonos'}
             />
           </motion.div>

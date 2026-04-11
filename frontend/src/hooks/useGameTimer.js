@@ -36,7 +36,7 @@ export function useGameTimer({
       gameState === 'playing' && (isMemoryMode ? !memoryFeedbackActive : isAwaitingResponse);
 
     if (!shouldRunVisualTimer) {
-      return;
+      return undefined;
     }
 
     const timer = setInterval(() => {

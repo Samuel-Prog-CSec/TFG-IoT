@@ -19,7 +19,7 @@ const rfidClientEventSchema = z
       .trim()
       .min(1, 'sensorId inválido')
       .max(64, 'sensorId inválido')
-      .regex(/^[a-zA-Z0-9:_-]+$/, 'sensorId inválido'),
+      .regex(/^[\w:-]+$/, 'sensorId inválido'),
     timestamp: z.number().int().positive('timestamp inválido'),
     source: z.literal('web_serial')
   })

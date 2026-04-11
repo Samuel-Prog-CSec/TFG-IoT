@@ -153,6 +153,7 @@ export default function ConfirmationModal({
         previousActiveElement?.focus?.();
       };
     }
+    return undefined;
   }, [open, handleKeyDown]);
 
   const handleOverlayClick = () => {

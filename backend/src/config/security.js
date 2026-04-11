@@ -115,9 +115,9 @@ const corsOptions = {
 
     // Validación estricta contra whitelist
     if (corsWhitelist.includes(origin)) {
-      callback(null, true);
+      return callback(null, true);
     } else {
-      callback(new Error(`Origin ${origin} no autorizado por política CORS`), false);
+      return callback(new Error(`Origin ${origin} no autorizado por política CORS`), false);
     }
   },
   credentials: true, // Permitir cookies y headers de autenticación
@@ -167,7 +167,7 @@ const ensureCsrfCookie = (req, res, next) => {
 
   const token = crypto.randomUUID();
   res.cookie(CSRF_COOKIE_NAME, token, buildCsrfCookieOptions());
-  next();
+  return next();
 };
 
 const getRequestOrigin = req => req.get('Referer') || req.get('Origin');
@@ -227,7 +227,7 @@ const csrfProtection = (req, res, next) => {
     return next(new ForbiddenError('CSRF token invalido o ausente'));
   }
 
-  next();
+  return next();
 };
 
 /**

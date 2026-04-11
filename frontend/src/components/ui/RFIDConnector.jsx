@@ -189,14 +189,18 @@ export default function RFIDConnector({
             disabled={isReconnecting}
             className={cn(
               'px-4 py-2 rounded-lg text-sm font-semibold transition-colors',
-              isPortOpen
-                ? 'bg-error-base/20 text-error-base hover:bg-error-base/30'
-                : isReconnecting
-                  ? 'bg-background-surface text-text-disabled cursor-not-allowed'
-                  : 'bg-accent-indigo/20 text-accent-indigo hover:bg-accent-indigo/30'
+              (() => {
+                if (isPortOpen) return 'bg-error-base/20 text-error-base hover:bg-error-base/30';
+                if (isReconnecting) return 'bg-background-surface text-text-disabled cursor-not-allowed';
+                return 'bg-accent-indigo/20 text-accent-indigo hover:bg-accent-indigo/30';
+              })()
             )}
           >
-            {isPortOpen ? 'Desconectar' : isReconnecting ? 'Reconectando...' : 'Conectar'}
+            {(() => {
+              if (isPortOpen) return 'Desconectar';
+              if (isReconnecting) return 'Reconectando...';
+              return 'Conectar';
+            })()}
           </button>
         ) : (
           <div className="flex items-center gap-2 text-xs text-warning-base">

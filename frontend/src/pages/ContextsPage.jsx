@@ -158,51 +158,56 @@ export default function ContextsPage() {
 
       {/* Contenido */}
       <div className="max-w-7xl mx-auto">
-        {loading ? (
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-            {[...Array(6)].map((_, i) => (
-              <SkeletonCard key={i} className="h-64" />
-            ))}
-          </div>
-        ) : error ? (
-          <ErrorState
-            title="Error al cargar contextos"
-            message={`${error} Pulsa Reintentar o recarga la página.`}
-            onRetry={refetch}
-            className="max-w-lg mx-auto mt-12"
-          />
-        ) : filteredContexts.length === 0 ? (
-          <EmptyState
-            title="No se encontraron contextos"
-            description={
-              searchTerm
-                ? 'Intenta usar otros términos de búsqueda.'
-                : 'Aún no hay contextos temáticos disponibles.'
-            }
-            icon={<Palette size={28} />}
-            action={
-              isSuperAdmin && !searchTerm ? (
-                <ButtonPremium onClick={() => setShowCreateModal(true)} icon={<Plus size={16} />}>
-                  Crear el primer contexto
-                </ButtonPremium>
-              ) : undefined
-            }
-          />
-        ) : (
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-            <AnimatePresence>
-              {filteredContexts.map((context, index) => (
-                <ContextCard
-                  key={context._id || context.id}
-                  context={context}
-                  index={index}
-                  reducedMotion={shouldReduceMotion}
-                  onClick={() => navigate(ROUTES.CONTEXT_DETAIL(context._id || context.id))}
-                />
+        {(() => {
+          if (loading) return (
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+              {[...Array(6)].map((_, i) => (
+                <SkeletonCard key={i} className="h-64" />
               ))}
-            </AnimatePresence>
-          </div>
-        )}
+            </div>
+          );
+          if (error) return (
+            <ErrorState
+              title="Error al cargar contextos"
+              message={`${error} Pulsa Reintentar o recarga la página.`}
+              onRetry={refetch}
+              className="max-w-lg mx-auto mt-12"
+            />
+          );
+          if (filteredContexts.length === 0) return (
+            <EmptyState
+              title="No se encontraron contextos"
+              description={
+                searchTerm
+                  ? 'Intenta usar otros términos de búsqueda.'
+                  : 'Aún no hay contextos temáticos disponibles.'
+              }
+              icon={<Palette size={28} />}
+              action={
+                isSuperAdmin && !searchTerm ? (
+                  <ButtonPremium onClick={() => setShowCreateModal(true)} icon={<Plus size={16} />}>
+                    Crear el primer contexto
+                  </ButtonPremium>
+                ) : undefined
+              }
+            />
+          );
+          return (
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+              <AnimatePresence>
+                {filteredContexts.map((context, index) => (
+                  <ContextCard
+                    key={context._id || context.id}
+                    context={context}
+                    index={index}
+                    reducedMotion={shouldReduceMotion}
+                    onClick={() => navigate(ROUTES.CONTEXT_DETAIL(context._id || context.id))}
+                  />
+                ))}
+              </AnimatePresence>
+            </div>
+          );
+        })()}
       </div>
 
       {/* Modal crear contexto (solo super_admin) */}

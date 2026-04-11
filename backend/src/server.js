@@ -24,7 +24,7 @@ const pinoHttp = require('pino-http');
 const { Server } = require('socket.io');
 const { connectDB, disconnectDB } = require('./config/database');
 const { connectRedis, disconnectRedis } = require('./config/redis');
-const { initSentry, setupSentryErrorHandler, Sentry } = require('./config/sentry');
+const { initSentry, setupSentryErrorHandler } = require('./config/sentry');
 const { socketPayloadLimits } = require('./config/socketRateLimits');
 const {
   corsOptions,

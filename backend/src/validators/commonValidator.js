@@ -10,7 +10,7 @@ const { z } = require('zod');
  * Schema para validar ObjectId de MongoDB.
  * @type {import('zod').ZodString}
  */
-const objectIdSchema = z.string().regex(/^[0-9a-fA-F]{24}$/, 'ID de MongoDB inválido');
+const objectIdSchema = z.string().regex(/^[0-9a-f]{24}$/i, 'ID de MongoDB inválido');
 
 /**
  * Schema para validar UID de tarjeta RFID (8 o 14 hex).

@@ -35,10 +35,11 @@ async function exportStudentData(studentId, requestingUser) {
   }
 
   // Verificar acceso: solo el profesor creador o super_admin
-  if (requestingUser.role === 'teacher') {
-    if (student.createdBy?.toString() !== requestingUser._id.toString()) {
-      throw new ForbiddenError('No tienes permiso para exportar los datos de este alumno');
-    }
+  if (
+    requestingUser.role === 'teacher' &&
+    student.createdBy?.toString() !== requestingUser._id.toString()
+  ) {
+    throw new ForbiddenError('No tienes permiso para exportar los datos de este alumno');
   }
 
   // Recoger historial de partidas (dentro del periodo de retención)

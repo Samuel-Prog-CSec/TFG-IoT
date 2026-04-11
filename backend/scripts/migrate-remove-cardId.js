@@ -32,6 +32,7 @@ const logger = pino({
 // --- Constantes ---
 const MONGODB_URI = process.env.MONGODB_URI || 'mongodb://localhost:27017/rfid_games';
 
+// eslint-disable-next-line sonarjs/process-argv -- script CLI, uso seguro de process.argv
 const DRY_RUN = process.argv.includes('--dry-run');
 
 /**
@@ -82,6 +83,7 @@ const countDocsWithCardId = async (collection, arrayField) =>
 const unsetCardIdFromArrays = async (db, collectionName, arrayFields) => {
   const collection = db.collection(collectionName);
 
+  // eslint-disable-next-line sonarjs/too-many-break-or-continue-in-loop -- cada continue filtra un caso distinto de forma clara
   for (const field of arrayFields) {
     const beforeCount = await countDocsWithCardId(collection, field);
 

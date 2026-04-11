@@ -72,7 +72,7 @@ function GameOverScreen({
   const { fireSuccess } = useConfetti();
 
   useEffect(() => {
-    if (shouldReduceMotion || stars < 2) return;
+    if (shouldReduceMotion || stars < 2) return undefined;
     const timer = setTimeout(() => fireSuccess(), 800);
     return () => clearTimeout(timer);
   }, [shouldReduceMotion, stars, fireSuccess]);
@@ -138,7 +138,7 @@ function GameOverScreen({
                 <motion.div
                   key={i}
                   initial={shouldReduceMotion ? false : { scale: 0, rotate: -180 }}
-                  animate={shouldReduceMotion ? { scale: 1, rotate: 0 } : { scale: 1, rotate: 0 }}
+                  animate={{ scale: 1, rotate: 0 }}
                   transition={shouldReduceMotion ? { duration: 0 } : { delay: 0.3 + i * 0.2, type: 'spring' }}
                 >
                   <motion.div
@@ -230,9 +230,11 @@ function GameOverScreen({
                 <div className="text-text-muted">T. medio</div>
                 <div className="text-white font-display font-semibold">
                   {/* En modo memory no hay T. medio del servidor */}
-                  {summary.averageResponseTimeMs > 0
-                    ? `${(summary.averageResponseTimeMs / 1000).toFixed(1)}s`
-                    : (summary.mode === 'memory' ? 'N/A' : '—')}
+                  {(() => {
+                    if (summary.averageResponseTimeMs > 0) return `${(summary.averageResponseTimeMs / 1000).toFixed(1)}s`;
+                    if (summary.mode === 'memory') return 'N/A';
+                    return '—';
+                  })()}
                 </div>
               </div>
               <div className="rounded-lg bg-background-elevated/60 border border-border-subtle px-3 py-2 text-center">
@@ -250,6 +252,7 @@ function GameOverScreen({
 
           {/* Actions */}
           <nav className="flex flex-col sm:flex-row gap-3" aria-label="Acciones de fin de juego">
+            {/* eslint-disable jsx-a11y/no-autofocus -- autoFocus intencionado: al terminar la partida, el foco debe ir al boton principal */}
             <ButtonPremium
               variant="primary"
               size="lg"
@@ -260,6 +263,7 @@ function GameOverScreen({
             >
               Jugar de Nuevo
             </ButtonPremium>
+            {/* eslint-enable jsx-a11y/no-autofocus */}
             <ButtonPremium
               variant="secondary"
               size="lg"

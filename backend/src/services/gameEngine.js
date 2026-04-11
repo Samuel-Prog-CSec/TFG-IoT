@@ -470,10 +470,11 @@ class GameEngine {
 
       // 3. Crear el estado en memoria
       // Garantizar que mechanicId esté poblado con su nombre
-      if (typeof sessionDoc.mechanicId !== 'object' || !sessionDoc.mechanicId?.name) {
-        if (typeof sessionDoc.populate === 'function') {
-          await sessionDoc.populate({ path: 'mechanicId', select: 'name rules' });
-        }
+      if (
+        (typeof sessionDoc.mechanicId !== 'object' || !sessionDoc.mechanicId?.name) &&
+        typeof sessionDoc.populate === 'function'
+      ) {
+        await sessionDoc.populate({ path: 'mechanicId', select: 'name rules' });
       }
       const mechanicName = sessionDoc.mechanicId?.name || null;
       if (!mechanicName) {
@@ -764,6 +765,7 @@ class GameEngine {
     });
   }
 
+  // eslint-disable-next-line sonarjs/cyclomatic-complexity -- orquestacion central del juego de memoria, la complejidad es inherente al flujo
   async processMemoryScan(playId, playState, scannedCard) {
     const timeElapsed = playState.roundStartTime ? Date.now() - playState.roundStartTime : 0;
     const outcome = playState.mechanicStrategy.processScan({
@@ -1656,11 +1658,13 @@ class GameEngine {
       playState.pausedDuringFeedback = false;
       playState.awaitingResponse = !wasPausedDuringFeedback;
 
-      if (this.isMemoryPlay(playState)) {
-        if (typeof remainingTimeMs === 'number' && remainingTimeMs > 0) {
-          playState.playEndsAt = Date.now() + remainingTimeMs;
-          this.scheduleMemoryPlayTimeout(playId, playState, remainingTimeMs);
-        }
+      if (
+        this.isMemoryPlay(playState) &&
+        typeof remainingTimeMs === 'number' &&
+        remainingTimeMs > 0
+      ) {
+        playState.playEndsAt = Date.now() + remainingTimeMs;
+        this.scheduleMemoryPlayTimeout(playId, playState, remainingTimeMs);
       }
 
       // Persistir en BD

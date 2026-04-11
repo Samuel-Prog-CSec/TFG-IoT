@@ -139,7 +139,7 @@ const userSchema = new mongoose.Schema(
       lowercase: true,
       unique: true,
       sparse: true, // Permite múltiples documentos con email undefined (para alumnos)
-      match: [/^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$/, 'El email no es válido']
+      match: [/^[\w.%+-]+@[a-z0-9.-]+\.[a-z]{2,}$/i, 'El email no es válido']
     },
     password: {
       type: String,

@@ -325,7 +325,7 @@ function ReportGenerator() {
 
   // Fetch students list when report type changes to individual
   useEffect(() => {
-    if (reportType !== 'student') return;
+    if (reportType !== 'student') return undefined;
 
     studentsAbortRef.current?.abort();
     const controller = new AbortController();

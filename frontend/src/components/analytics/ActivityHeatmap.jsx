@@ -16,7 +16,7 @@ const HOURS = [8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18];
 /**
  * Calcula la intensidad de color basada en el valor relativo al maximo
  * @param {number} value - Numero de partidas en esa celda
- * @param {number} max - Maximo valor en todo el heatmap
+ * @param {number} max - Maximo valor del heatmap completo
  * @returns {string} Clase de Tailwind para el color de fondo
  */
 const getIntensityClass = (value, max) => {

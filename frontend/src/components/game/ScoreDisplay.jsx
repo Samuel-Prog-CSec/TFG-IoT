@@ -24,7 +24,12 @@ function ScoreDisplay({
 }) {
   // Calcular estrellas basado en el porcentaje de respuestas correctas
   const percentage = totalQuestions > 0 ? (correctAnswers / totalQuestions) * 100 : 0;
-  const starsEarned = percentage >= 90 ? 3 : percentage >= 70 ? 2 : percentage >= 50 ? 1 : 0;
+  const starsEarned = (() => {
+    if (percentage >= 90) return 3;
+    if (percentage >= 70) return 2;
+    if (percentage >= 50) return 1;
+    return 0;
+  })();
 
   return (
     <div 
@@ -109,6 +114,7 @@ function ScoreDisplayCompact({ score = 0, className }) {
       return () => clearTimeout(timer);
     }
     prevScoreRef.current = score;
+    return undefined;
   }, [score]);
 
   return (

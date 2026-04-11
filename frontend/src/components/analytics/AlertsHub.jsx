@@ -1,5 +1,5 @@
 import { memo, useMemo, useState, useCallback } from 'react';
-import { motion, AnimatePresence } from 'framer-motion';
+import { motion } from 'framer-motion';
 import { useNavigate } from 'react-router-dom';
 import {
   TrendingDown,
@@ -15,7 +15,7 @@ import {
   Layers,
 } from 'lucide-react';
 import PropTypes from 'prop-types';
-import { cn, listContainerVariants, listItemVariants, DURATION, EASING } from '../../lib/utils';
+import { cn, listContainerVariants, listItemVariants } from '../../lib/utils';
 import { useReducedMotion } from '../../hooks/useReducedMotion';
 import GlassCard from '../ui/GlassCard';
 import SelectPremium from '../ui/SelectPremium';

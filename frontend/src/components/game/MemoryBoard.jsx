@@ -119,12 +119,12 @@ export default function MemoryBoard({ board, feedbackState, feedbackPoints, feed
                 isMismatchFeedback && 'border-error-base/60',
                 onCardTap && !slot.isMatched && !slot.isRevealed && 'cursor-pointer'
               )}
-              animate={
-                shouldReduceMotion ? {} :
-                isMatchFeedback ? { scale: [1, 1.1, 1], transition: { duration: 0.4 } } :
-                isMismatchFeedback ? { x: [-3, 3, -2, 2, 0], transition: { duration: 0.4 } } :
-                {}
-              }
+              animate={(() => {
+                if (shouldReduceMotion) return {};
+                if (isMatchFeedback) return { scale: [1, 1.1, 1], transition: { duration: 0.4 } };
+                if (isMismatchFeedback) return { x: [-3, 3, -2, 2, 0], transition: { duration: 0.4 } };
+                return {};
+              })()}
               role="gridcell"
               aria-label={slotLabel}
               onClick={() => onCardTap && !slot.isMatched && onCardTap(slot)}

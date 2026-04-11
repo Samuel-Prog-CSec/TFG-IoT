@@ -229,7 +229,7 @@ export function useGameSocket({
     const initRealtimePlay = async () => {
       // Prevenir re-inicialización cuando useEffect se re-ejecuta por cambios de dependencias
       if (initCalledRef.current) {
-        return;
+        return undefined;
       }
       initCalledRef.current = true;
 
@@ -246,7 +246,7 @@ export function useGameSocket({
         if (!socketService.isSocketConnected()) {
           await socketService.connect();
         }
-        if (controller.signal.aborted) return;
+        if (controller.signal.aborted) return undefined;
 
         // 2. Registrar listeners (this.socket ya existe)
         socketService.on(SOCKET_EVENTS.NEW_ROUND, onNewRound);
@@ -270,7 +270,7 @@ export function useGameSocket({
         });
 
         let sessionData = extractData(response);
-        if (controller.signal.aborted) return;
+        if (controller.signal.aborted) return undefined;
 
         if (sessionData?.status === 'created') {
           const startSessionRes = await sessionsAPI.startSession(sessionId);
@@ -285,12 +285,12 @@ export function useGameSocket({
             };
           }
         }
-        if (controller.signal.aborted) return;
+        if (controller.signal.aborted) return undefined;
 
         setSession(sessionData);
 
         const resolvedPlay = await bootstrapPlay(controller.signal);
-        if (controller.signal.aborted) return;
+        if (controller.signal.aborted) return undefined;
         if (!resolvedPlay?.playId) {
           throw new Error('No se pudo inicializar una partida de juego.');
         }
@@ -302,16 +302,17 @@ export function useGameSocket({
         if (resolvedPlay.playerId) {
           playsAPI.getPlayerStats(resolvedPlay.playerId, { sessionId })
             .then(statsRes => {
-              if (controller.signal.aborted) return;
+              if (controller.signal.aborted) return undefined;
               const stats = extractData(statsRes);
               if (Number.isFinite(stats?.stats?.bestScore)) {
                 setBestScore(stats.stats.bestScore);
               }
+              return undefined;
             })
             .catch(() => { /* No bloquear gameplay si las stats fallan */ });
         }
 
-        if (controller.signal.aborted) return;
+        if (controller.signal.aborted) return undefined;
         socketService.sendCommand(SOCKET_EVENTS.JOIN_PLAY, { playId: resolvedPlay.playId });
         socketService.sendCommand(SOCKET_EVENTS.START_PLAY, { playId: resolvedPlay.playId });
         // Sincronizar estado en caso de que rondas avanzaran durante la inicialización
@@ -321,10 +322,11 @@ export function useGameSocket({
         return sessionData;
       } catch (error) {
         if (isAbortError(error)) {
-          return;
+          return undefined;
         }
 
         setSessionError(extractErrorMessage(error));
+        return undefined;
       } finally {
         if (!controller.signal.aborted) {
           setLoadingSession(false);
@@ -436,14 +438,13 @@ export function useGameSocket({
 
   const emitFallbackScan = useCallback((card, sensorId) => {
     if (!playIdRef.current || !card?.uid) return false;
-    const sent = socketService.sendCommand(SOCKET_EVENTS.RFID_SCAN_FROM_CLIENT, {
+    return socketService.sendCommand(SOCKET_EVENTS.RFID_SCAN_FROM_CLIENT, {
       uid: card.uid,
       type: 'UNKNOWN',
       sensorId: sensorId || 'touch_fallback_sensor',
       timestamp: Date.now(),
       source: 'web_serial'
     });
-    return sent;
   }, []);
 
   const emitMemoryCardTap = useCallback((slot, sensorId) => {

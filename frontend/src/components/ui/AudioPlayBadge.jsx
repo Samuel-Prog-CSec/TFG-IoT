@@ -71,6 +71,7 @@ export default function AudioPlayBadge({ audioUrl, size = 'xs', className }) {
       audio.play().then(() => {
         audioRef.current = audio;
         setIsPlaying(true);
+        return undefined;
       }).catch(() => {
         // El navegador bloqueo la reproduccion (autoplay policy)
         setIsPlaying(false);

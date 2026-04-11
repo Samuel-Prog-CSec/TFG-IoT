@@ -123,7 +123,7 @@ const getContextById = async (req, res) => {
     `byId:${id}`,
     async () => {
       let result;
-      if (id.match(/^[0-9a-fA-F]{24}$/)) {
+      if (id.match(/^[0-9a-f]{24}$/i)) {
         result = await gameContextRepository.findById(id);
       } else {
         // Buscar por contextId (ej: 'geography', 'animals')
@@ -304,7 +304,7 @@ const getContextAssets = async (req, res) => {
 
   let context;
 
-  if (id.match(/^[0-9a-fA-F]{24}$/)) {
+  if (id.match(/^[0-9a-f]{24}$/i)) {
     context = await gameContextRepository.findById(id, {
       select: 'contextId name assets'
     });

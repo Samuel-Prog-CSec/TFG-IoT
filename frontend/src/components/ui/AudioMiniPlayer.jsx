@@ -125,6 +125,7 @@ export default function AudioMiniPlayer({
     } else {
       audio.play().then(() => {
         setIsPlaying(true);
+        return undefined;
       }).catch(() => {
         // El navegador bloqueo la reproduccion (autoplay policy)
         setIsPlaying(false);
@@ -189,7 +190,7 @@ export default function AudioMiniPlayer({
   // Clases de contenedor segun variante
   const containerClasses = cn(
     'flex items-center gap-2 rounded-xl',
-    size === 'sm' ? 'px-3 py-2' : 'px-3 py-2',
+    'px-3 py-2',
     variant === 'glass'
       ? 'bg-glass-bg border border-glass-border backdrop-blur-xl saturate-150'
       : 'bg-background-elevated/60 border border-border-subtle',

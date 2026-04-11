@@ -83,6 +83,7 @@ const MEMORY_MANY_ATTEMPTS = [
 function pickFromPool(pool, recentMessages) {
   const available = pool.filter(msg => !recentMessages.has(msg));
   const finalPool = available.length > 0 ? available : pool;
+  // eslint-disable-next-line sonarjs/pseudo-random -- seleccion aleatoria de mensaje de feedback, no requiere seguridad criptografica
   return finalPool[Math.floor(Math.random() * finalPool.length)];
 }
 

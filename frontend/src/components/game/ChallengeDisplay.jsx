@@ -80,6 +80,7 @@ const themeColors = {
  * @param {number} props.feedbackPoints - Puntos del feedback
  * @param {string} props.feedbackMessage - Mensaje del feedback
  */
+// eslint-disable-next-line sonarjs/cyclomatic-complexity -- componente de visualizacion de retos con multiples estados de feedback
 const ChallengeDisplay = function ChallengeDisplay({
   ref,
   asset,
@@ -123,6 +124,9 @@ const ChallengeDisplay = function ChallengeDisplay({
     return undefined;
   })();
 
+  // Determinar clase de borde segun estado de feedback
+  const feedbackBorderClass = isTimeout ? FEEDBACK_BORDER.timeout : FEEDBACK_BORDER[feedbackState];
+
   return (
     <motion.div
       ref={ref}
@@ -135,7 +139,7 @@ const ChallengeDisplay = function ChallengeDisplay({
         "rounded-3xl",
         `bg-gradient-to-br ${theme.bg}`,
         "border-2 transition-[border-color,box-shadow] duration-300",
-        isIdle ? `${theme.border} shadow-2xl ${theme.glow}` : isTimeout ? FEEDBACK_BORDER.timeout : FEEDBACK_BORDER[feedbackState],
+        isIdle ? `${theme.border} shadow-2xl ${theme.glow}` : feedbackBorderClass,
         "backdrop-blur-xl",
         className
       )}

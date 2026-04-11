@@ -79,6 +79,7 @@ export default function CharacterMascot({
     if (pool.length <= 1) return pool[0];
     let idx;
     do {
+      // eslint-disable-next-line sonarjs/pseudo-random -- seleccion aleatoria de mensaje visual, no requiere seguridad criptografica
       idx = Math.floor(Math.random() * pool.length);
     } while (idx === lastMsgRef.current && pool.length > 1);
     lastMsgRef.current = idx;

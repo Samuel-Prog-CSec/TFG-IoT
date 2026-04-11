@@ -1,6 +1,6 @@
 import { memo, useMemo, useState, useCallback } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { ChevronDown, ChevronUp, Gamepad2, TrendingUp, BarChart3 } from 'lucide-react';
+import { Gamepad2, TrendingUp, BarChart3 } from 'lucide-react';
 import PropTypes from 'prop-types';
 import { cn, DURATION, EASING } from '../../lib/utils';
 import { useReducedMotion } from '../../hooks/useReducedMotion';
@@ -111,6 +111,7 @@ function ContentEffectivenessMatrix({ data, onCellClick }) {
   const [expandedCell, setExpandedCell] = useState(null);
 
   // Construir la matriz cruzando mecanicas y contextos
+  // eslint-disable-next-line sonarjs/cyclomatic-complexity, sonarjs/cognitive-complexity -- matriz cruzada mecanicas/contextos, la complejidad es inherente a la visualizacion
   const { mechanics, contexts, matrix } = useMemo(() => {
     if (!data || !Array.isArray(data) || data.length === 0) {
       return { mechanics: [], contexts: [], matrix: {} };
@@ -140,16 +141,12 @@ function ContentEffectivenessMatrix({ data, onCellClick }) {
           gamesPlayed: item.gamesPlayed ?? item.totalGames ?? 0,
           improvement: item.improvement ?? item.trend ?? null,
         };
-      } else if (mechName && !ctxName) {
+      } else if (mechName && !ctxName && !mechanicSet.has(mechId)) {
         // Solo mecanica
-        if (!mechanicSet.has(mechId)) {
-          mechanicSet.set(mechId, mechName);
-        }
-      } else if (ctxName && !mechName) {
+        mechanicSet.set(mechId, mechName);
+      } else if (ctxName && !mechName && !contextSet.has(ctxId)) {
         // Solo contexto
-        if (!contextSet.has(ctxId)) {
-          contextSet.set(ctxId, ctxName);
-        }
+        contextSet.set(ctxId, ctxName);
       }
     }
 

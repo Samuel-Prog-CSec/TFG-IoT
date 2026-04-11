@@ -173,7 +173,7 @@ const DATE_PRESETS = {
 
 /**
  * Formatea una fecha usando Intl.DateTimeFormat con locale es-ES.
- * Centraliza todo el formateo de fechas para consistencia.
+ * Centraliza el formateo de fechas para consistencia.
  *
  * @param {string|number|Date} date - Fecha a formatear
  * @param {'short'|'medium'|'long'|'weekday'} [variant='medium'] - Preset de formato
@@ -214,6 +214,7 @@ export function getRandomAccentColor() {
     'var(--color-success-base)',
     'var(--color-accent-orange)',
   ];
+  // eslint-disable-next-line sonarjs/pseudo-random -- seleccion aleatoria de color visual, no requiere seguridad criptografica
   return colors[Math.floor(Math.random() * colors.length)];
 }
 

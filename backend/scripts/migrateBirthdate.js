@@ -19,6 +19,7 @@ const mongoose = require('mongoose');
 const pino = require('pino');
 
 const MONGODB_URI = process.env.MONGODB_URI || 'mongodb://localhost:27017/rfid_games';
+// eslint-disable-next-line sonarjs/process-argv -- script CLI, uso seguro de process.argv
 const DRY_RUN = process.argv.includes('--dry-run');
 
 const logger = pino({

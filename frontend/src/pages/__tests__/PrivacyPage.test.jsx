@@ -78,7 +78,7 @@ describe('PrivacyPage (Art. 13/14 RGPD)', () => {
 
   it('menciona los derechos del interesado', () => {
     renderPage();
-    expect(screen.getAllByText(/[Dd]erechos/i).length).toBeGreaterThan(0);
+    expect(screen.getAllByText(/derechos/i).length).toBeGreaterThan(0);
   });
 
   it('referencia la AEPD como autoridad de control', () => {
@@ -88,6 +88,6 @@ describe('PrivacyPage (Art. 13/14 RGPD)', () => {
 
   it('indica que NO se recogen ciertos datos sensibles', () => {
     renderPage();
-    expect(screen.getAllByText(/[Nn][Oo] recogemos/i).length).toBeGreaterThan(0);
+    expect(screen.getAllByText(/no recogemos/i).length).toBeGreaterThan(0);
   });
 });

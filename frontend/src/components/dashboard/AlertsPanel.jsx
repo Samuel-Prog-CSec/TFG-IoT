@@ -1,4 +1,4 @@
-import { AlertTriangle, TrendingUp, TrendingDown, CheckCircle, Clock, Pause, Zap, XCircle, ChevronRight } from 'lucide-react';
+import { AlertTriangle, TrendingUp, TrendingDown, CheckCircle, Clock, Pause, XCircle, ChevronRight } from 'lucide-react';
 import { motion } from 'framer-motion';
 import { useNavigate } from 'react-router-dom';
 import { cn, listContainerVariants, listItemVariants } from '../../lib/utils';

@@ -512,7 +512,13 @@ async function getClassroomStudents(
     if (sort === 'name') {
       valA = (a.name || '').toLowerCase();
       valB = (b.name || '').toLowerCase();
-      return valA < valB ? -1 * dir : valA > valB ? 1 * dir : 0;
+      if (valA < valB) {
+        return -1 * dir;
+      }
+      if (valA > valB) {
+        return 1 * dir;
+      }
+      return 0;
     }
     if (sort === 'score') {
       valA = a.studentMetrics.averageScore;

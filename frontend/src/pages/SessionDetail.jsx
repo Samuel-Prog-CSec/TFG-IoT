@@ -60,6 +60,7 @@ const statusToBadge = (status) => {
   }
 };
 
+// eslint-disable-next-line sonarjs/cyclomatic-complexity -- pagina de detalle con multiples secciones, modales y estados
 export default function SessionDetail() {
   const { sessionId } = useParams();
   const navigate = useNavigate();

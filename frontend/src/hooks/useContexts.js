@@ -43,8 +43,12 @@ export function useContexts({ autoLoad = true, onlyActive = true, showInactive =
         setLoading(true);
         setError(null);
 
-        // showInactive=true → no filtrar; onlyActive=true → solo activos; ambos false → todos
-        const params = showInactive ? {} : onlyActive ? { isActive: true } : {};
+        // showInactive=true -> no filtrar; onlyActive=true -> solo activos; ambos false -> todos
+        const params = (() => {
+          if (showInactive) return {};
+          if (onlyActive) return { isActive: true };
+          return {};
+        })();
         const response = await contextsAPI.getContexts(params, signal ? { signal } : {});
         const data = extractData(response) || [];
 

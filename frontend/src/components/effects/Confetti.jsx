@@ -1,6 +1,8 @@
 import { motion } from 'framer-motion';
 import { useEffect, useState } from 'react';
 
+/* eslint-disable sonarjs/pseudo-random -- Math.random para efectos visuales (confetti), no para seguridad */
+
 const CONFETTI_COLORS = [
   '#8b5cf6', // Purple
   '#22d3ee', // Cyan
@@ -31,7 +33,7 @@ export default function Confetti({
   useEffect(() => {
     if (!active) {
       setIsActive(false);
-      return;
+      return undefined;
     }
 
     setIsActive(true);
@@ -111,7 +113,7 @@ export function ConfettiBurst({
   useEffect(() => {
     if (!active) {
       setIsActive(false);
-      return;
+      return undefined;
     }
 
     setIsActive(true);

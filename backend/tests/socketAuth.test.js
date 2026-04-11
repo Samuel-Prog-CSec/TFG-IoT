@@ -90,7 +90,6 @@ describe('Socket.IO auth & ownership', () => {
   let teacherOwner;
   let teacherOwnerToken;
   let teacherOtherToken;
-  let studentToken;
   let playId;
 
   beforeAll(async () => {
@@ -136,7 +135,8 @@ describe('Socket.IO auth & ownership', () => {
 
     teacherOwnerToken = (await generateTokenPair(teacherOwner, mockReq)).accessToken;
     teacherOtherToken = (await generateTokenPair(teacherOther, mockReq)).accessToken;
-    studentToken = (await generateTokenPair(student, mockReq)).accessToken;
+    // Token generado para completar el setup (no se usa directamente en los tests actuales)
+    await generateTokenPair(student, mockReq);
 
     const mechanic = await GameMechanic.create({
       name: 'socket-mechanic',

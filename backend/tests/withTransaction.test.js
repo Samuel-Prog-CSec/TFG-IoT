@@ -141,8 +141,7 @@ describe('withTransaction', () => {
       // Simulamos varias operaciones asíncronas anidadas
       const paso1 = await Promise.resolve({ id: 'abc' });
       const paso2 = await Promise.resolve({ ...paso1, nombre: 'test' });
-      const paso3 = await Promise.resolve({ ...paso2, completo: true });
-      return paso3;
+      return Promise.resolve({ ...paso2, completo: true });
     });
 
     expect(nestedResult).toEqual({ id: 'abc', nombre: 'test', completo: true });

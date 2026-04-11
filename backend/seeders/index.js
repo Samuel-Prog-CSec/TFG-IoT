@@ -155,6 +155,7 @@ async function runSeeders() {
 async function main() {
   try {
     // Parsear argumentos de línea de comandos
+    // eslint-disable-next-line sonarjs/process-argv -- script CLI, parseo seguro de argumentos
     const args = process.argv.slice(2);
     const shouldReset = args.includes('--reset');
 

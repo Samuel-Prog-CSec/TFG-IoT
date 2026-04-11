@@ -202,7 +202,7 @@ export default function useDeckWizardDraft() {
       if (debounceRef.current) {
         clearTimeout(debounceRef.current);
         // Flush: guardar inmediatamente si hay datos significativos pendientes
-        const current = stateRef.current;
+        const { current } = stateRef;
         if (
           current.scannedCards?.length > 0 ||
           current.contextId ||

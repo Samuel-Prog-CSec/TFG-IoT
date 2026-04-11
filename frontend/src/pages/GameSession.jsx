@@ -120,7 +120,8 @@ function gameReducer(state, action) {
  * Pantalla principal de juego para niños de 4-8 años.
  * Diseño colorido, amigable y sin texto complejo.
  */
-export default function GameSession() { // NOSONAR
+// eslint-disable-next-line sonarjs/cyclomatic-complexity -- pantalla de juego con multiples fases, estados y logica de rondas
+export default function GameSession() {
   const { sessionId } = useParams();
   const [searchParams] = useSearchParams();
   const navigate = useNavigate();
@@ -571,12 +572,13 @@ export default function GameSession() { // NOSONAR
 
   // Sonido de victoria cuando la partida termina con buen resultado (>=2 estrellas)
   useEffect(() => {
-    if (gameState !== 'finished') return;
+    if (gameState !== 'finished') return undefined;
     const percentage = totalRounds > 0 ? (correctAnswers / totalRounds) * 100 : 0;
     if (calculateStars(percentage) >= 2) {
       const timer = globalThis.setTimeout(() => playSuccess(), 600);
       return () => globalThis.clearTimeout(timer);
     }
+    return undefined;
   }, [gameState, correctAnswers, totalRounds, playSuccess]);
 
   // Gestión de foco en pausa

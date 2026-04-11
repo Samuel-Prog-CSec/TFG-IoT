@@ -233,6 +233,7 @@ export default function DeckEditPage() {
           description: `La tarjeta ${card.uid} está en el mazo "${result.deck.name}". Se moverá automáticamente al guardar.`
         });
       }
+      return undefined;
     }).catch(() => {
       // Silencioso: el check es informativo, no crítico
     });

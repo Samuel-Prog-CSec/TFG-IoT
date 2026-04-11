@@ -220,6 +220,7 @@ describe('Validators', () => {
       });
 
       it('rejects student without teacherId', () => {
+        // eslint-disable-next-line sonarjs/no-unused-vars -- destructuring para omitir teacherId
         const { teacherId: _removed, ...noTeacher } = validStudent;
         expect(createStudentSchema.safeParse(noTeacher).success).toBe(false);
       });

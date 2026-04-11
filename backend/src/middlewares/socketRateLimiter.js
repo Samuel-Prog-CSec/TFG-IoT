@@ -320,7 +320,7 @@ class SocketRateLimiter {
           eventName,
           outcome: 'payload_rejected'
         });
-        return;
+        return undefined;
       }
 
       const dedupeCheck = this.checkRfidDedupe(eventName, payload, rateKey);
@@ -342,7 +342,7 @@ class SocketRateLimiter {
           eventName,
           outcome: 'deduped'
         });
-        return;
+        return undefined;
       }
 
       const rateResult = this.checkRateLimit(rateKey, eventName);
@@ -371,7 +371,7 @@ class SocketRateLimiter {
           eventName,
           outcome: rateResult.blocked ? 'blocked' : 'rate_limited'
         });
-        return;
+        return undefined;
       }
 
       runtimeMetrics.recordWebsocketEvent({

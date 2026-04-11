@@ -107,7 +107,7 @@ describe('StudentKPICard', () => {
   });
 
   it('aplica borde verde para ragStatus "green"', () => {
-    const { container } = render(
+    render(
       <StudentKPICard label="KPI" value={90} ragStatus="green" />
     );
     // El GlassCard recibe className con border-l-success-base
@@ -138,7 +138,7 @@ describe('StudentKPICard', () => {
         label="Score"
         value={85}
         comparison="vs clase: +11%"
-        comparisonPositive={true}
+        comparisonPositive
       />
     );
     expect(screen.getByText('vs clase: +11%')).toBeTruthy();

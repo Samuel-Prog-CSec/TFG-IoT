@@ -242,6 +242,7 @@ export default function DeckCreationWizard() {
           description: `La tarjeta ${card.uid} está en el mazo "${result.deck.name}". Se moverá automáticamente al crear este mazo.`
         });
       }
+      return undefined;
     }).catch(() => {
       // Silencioso: el check es informativo, no crítico
     });

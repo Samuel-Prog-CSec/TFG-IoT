@@ -42,7 +42,11 @@ function DistributionChart({ data }) {
           {data.map((entry, index) => (
             <Cell 
               key={`cell-${index}`} 
-              fill={entry.range === '0-49' ? 'var(--color-error-base)' : entry.range === '90-100' ? 'var(--color-success-base)' : 'var(--color-brand-base)'} 
+              fill={(() => {
+                if (entry.range === '0-49') return 'var(--color-error-base)';
+                if (entry.range === '90-100') return 'var(--color-success-base)';
+                return 'var(--color-brand-base)';
+              })()}
               fillOpacity={0.9}
             />
           ))}

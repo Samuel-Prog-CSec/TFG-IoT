@@ -28,11 +28,11 @@ export function getBestAssetImageUrl(asset) {
 }
 
 export function normalizeCardMappingsFromDeck(deckData) {
-  const mappings = Array.isArray(deckData?.cardMappings)
-    ? deckData.cardMappings
-    : Array.isArray(deckData?.cards)
-      ? deckData.cards
-      : [];
+  const mappings = (() => {
+    if (Array.isArray(deckData?.cardMappings)) return deckData.cardMappings;
+    if (Array.isArray(deckData?.cards)) return deckData.cards;
+    return [];
+  })();
 
   return mappings
     .map((mapping) => {

@@ -9,18 +9,17 @@
 import { useState, useEffect, useCallback, useReducer, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
-import { 
-  Plus, 
-  Search, 
-  Filter, 
-  Layers, 
+import {
+  Plus,
+  Search,
+  Filter,
+  Layers,
   AlertCircle,
-  RefreshCw,
   X
 } from 'lucide-react';
 import { cn, crossfadeVariants } from '../lib/utils';
 import { decksAPI, extractErrorMessage, isAbortError } from '../services/api';
-import DeckCard, { DeckCardSkeleton } from '../components/ui/DeckCard';
+import DeckCard from '../components/ui/DeckCard';
 import { SkeletonGrid } from '../components/ui/SkeletonShimmer';
 import ButtonPremium from '../components/ui/ButtonPremium';
 import GlassCard from '../components/ui/GlassCard';

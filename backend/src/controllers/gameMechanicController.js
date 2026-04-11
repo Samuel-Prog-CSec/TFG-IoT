@@ -84,7 +84,7 @@ const getMechanicById = async (req, res) => {
     `byId:${id}`,
     async () => {
       let result;
-      if (id.match(/^[0-9a-fA-F]{24}$/)) {
+      if (id.match(/^[0-9a-f]{24}$/i)) {
         result = await gameMechanicRepository.findById(id);
       } else {
         // Buscar por nombre (ej: 'association', 'sequence')

@@ -233,11 +233,11 @@ export default function SelectPremium({
                     'w-full flex items-center gap-3 px-4 py-3',
                     'text-left',
                     'transition-colors duration-150',
-                    isSelected
-                      ? 'bg-brand-base/20 text-text-primary'
-                      : isHighlighted
-                        ? 'bg-glass-bg text-text-primary'
-                        : 'text-text-secondary hover:bg-glass-bg hover:text-text-primary'
+                    (() => {
+                      if (isSelected) return 'bg-brand-base/20 text-text-primary';
+                      if (isHighlighted) return 'bg-glass-bg text-text-primary';
+                      return 'text-text-secondary hover:bg-glass-bg hover:text-text-primary';
+                    })()
                   )}
                 >
                   {/* Icon */}

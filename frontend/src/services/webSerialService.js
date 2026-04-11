@@ -25,6 +25,7 @@ const generateSensorId = () => {
   if (globalThis.crypto?.randomUUID) {
     return `sensor-${globalThis.crypto.randomUUID()}`;
   }
+  // eslint-disable-next-line sonarjs/pseudo-random -- fallback para generar ID de sensor, no requiere seguridad criptografica
   return `sensor-${Math.random().toString(16).slice(2)}-${Date.now()}`;
 };
 

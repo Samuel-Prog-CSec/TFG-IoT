@@ -25,6 +25,7 @@ import SkeletonShimmer, { SkeletonCard, SkeletonStatCard, SkeletonChart } from '
 import SelectPremium from '../components/ui/SelectPremium';
 import ButtonPremium from '../components/ui/ButtonPremium';
 
+// eslint-disable-next-line sonarjs/cyclomatic-complexity -- dashboard principal con multiples widgets, filtros y estados de carga
 export default function Dashboard() {
   const { isSuperAdmin } = useAuth();
   const navigate = useNavigate();
@@ -44,7 +45,7 @@ export default function Dashboard() {
       contextsAPI.getContexts().catch(() => ({ data: { data: [] } })),
       mechanicsAPI.getMechanics().catch(() => ({ data: { data: [] } }))
     ]).then(([ctxRes, mechRes]) => {
-      if (cancelled) return;
+      if (cancelled) return undefined;
       const contexts = ctxRes?.data?.data || [];
       const mechanics = mechRes?.data?.data || [];
       setContextOptions([
@@ -55,7 +56,8 @@ export default function Dashboard() {
         { value: '', label: 'Todas las mecanicas' },
         ...mechanics.map(m => ({ value: m._id, label: m.displayName || m.name }))
       ]);
-    });
+      return undefined;
+    }).catch(() => { /* errores individuales ya manejados */ });
     return () => { cancelled = true; };
   }, []);
 
@@ -189,6 +191,7 @@ export default function Dashboard() {
 
   // Prevenir Layout Shifts (CLS) renderizando una estructura idéntica durante la carga
   const skeletonContent = loading && !summary;
+  const motionVariants = shouldReduceMotion ? {} : crossfadeVariants;
 
   return (
     <>
@@ -196,7 +199,7 @@ export default function Dashboard() {
       {skeletonContent ? (
         <motion.section
           key="skeleton"
-          {...(shouldReduceMotion ? {} : crossfadeVariants)}
+          {...motionVariants}
           className="p-6 lg:p-8 max-w-7xl mx-auto space-y-8"
         >
           {/* Header Skeleton Mimic */}
@@ -233,7 +236,7 @@ export default function Dashboard() {
       ) : (
         <motion.section
           key="content"
-          {...(shouldReduceMotion ? {} : crossfadeVariants)}
+          {...motionVariants}
           className="p-6 lg:p-8 max-w-7xl mx-auto space-y-8"
           aria-label="Panel principal del dashboard"
         >

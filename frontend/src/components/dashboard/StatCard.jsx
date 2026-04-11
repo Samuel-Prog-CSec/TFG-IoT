@@ -17,12 +17,13 @@ function AnimatedNumber({ value }) {
 
   // Parse numeric part and suffix
   const strValue = String(value);
+  // eslint-disable-next-line security/detect-unsafe-regex -- regex simple para parsear valor numérico + sufijo
   const match = strValue.match(/^(\d+(?:\.\d+)?)(.*)/);
   const numericPart = match ? parseFloat(match[1]) : null;
   const suffix = match ? match[2] : '';
 
   useEffect(() => {
-    if (numericPart === null || shouldReduceMotion || !ref.current) return;
+    if (numericPart === null || shouldReduceMotion || !ref.current) return undefined;
 
     const controls = animate(0, numericPart, {
       duration: 1.2,

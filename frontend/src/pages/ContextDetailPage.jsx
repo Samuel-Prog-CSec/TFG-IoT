@@ -2,7 +2,6 @@ import { useState, useEffect, useRef } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
-  ArrowLeft,
   Palette,
   Image as ImageIcon,
   Music,
@@ -556,34 +555,39 @@ function UploadAssetModal({ context, onClose, onSuccess }) {
                 className="hidden"
               />
               
-              {preview ? (
-                <>
-                  <img src={preview} alt="Preview" className="w-full h-full object-contain opacity-40 blur-sm absolute" />
-                  <img src={preview} alt="Preview focus" className="h-full object-contain z-10 drop-shadow-lg" />
-                  <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/80 to-transparent p-3 z-20 flex justify-between items-end">
-                    <span className="text-xs text-text-primary truncate max-w-[80%]">{file.name}</span>
-                    <button type="button" onClick={(e) => { e.stopPropagation(); setFile(null); setPreview(null); }} className="text-error-base hover:text-error-base/80">
-                      <X size={16} />
-                    </button>
+              {/* Contenido del area de subida */}
+              {(() => {
+                if (preview) return (
+                  <>
+                    <img src={preview} alt="Preview" className="w-full h-full object-contain opacity-40 blur-sm absolute" />
+                    <img src={preview} alt="Preview focus" className="h-full object-contain z-10 drop-shadow-lg" />
+                    <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/80 to-transparent p-3 z-20 flex justify-between items-end">
+                      <span className="text-xs text-text-primary truncate max-w-[80%]">{file.name}</span>
+                      <button type="button" onClick={(e) => { e.stopPropagation(); setFile(null); setPreview(null); }} className="text-error-base hover:text-error-base/80">
+                        <X size={16} />
+                      </button>
+                    </div>
+                  </>
+                );
+                if (file) return (
+                  <div className="text-center z-10 px-4">
+                    <div className="size-12 rounded-full bg-success-base/20 text-success-base flex items-center justify-center mx-auto mb-3">
+                      <Check size={24} />
+                    </div>
+                    <p className="text-sm font-medium text-text-primary truncate mb-1">{file.name}</p>
+                    <p className="text-xs text-text-muted">{(file.size / 1024 / 1024).toFixed(2)} MB</p>
                   </div>
-                </>
-              ) : file ? (
-                <div className="text-center z-10 px-4">
-                  <div className="size-12 rounded-full bg-success-base/20 text-success-base flex items-center justify-center mx-auto mb-3">
-                    <Check size={24} />
+                );
+                return (
+                  <div className="text-center px-4">
+                    <ImageIcon size={32} className="mx-auto text-text-muted mb-3" />
+                    <p className="text-sm font-medium text-text-primary mb-1">Click para seleccionar imagen</p>
+                    <p className="text-xs text-text-muted">
+                      {uploadConfig?.image?.allowedFormats?.join(', ')} (Max {uploadConfig?.image?.maxInputSizeMB}MB)
+                    </p>
                   </div>
-                  <p className="text-sm font-medium text-text-primary truncate mb-1">{file.name}</p>
-                  <p className="text-xs text-text-muted">{(file.size / 1024 / 1024).toFixed(2)} MB</p>
-                </div>
-              ) : (
-                <div className="text-center px-4">
-                  <ImageIcon size={32} className="mx-auto text-text-muted mb-3" />
-                  <p className="text-sm font-medium text-text-primary mb-1">Click para seleccionar imagen</p>
-                  <p className="text-xs text-text-muted">
-                    {uploadConfig?.image?.allowedFormats?.join(', ')} (Max {uploadConfig?.image?.maxInputSizeMB}MB)
-                  </p>
-                </div>
-              )}
+                );
+              })()}
             </div>
 
             <div className="grid grid-cols-2 gap-4 mt-2">

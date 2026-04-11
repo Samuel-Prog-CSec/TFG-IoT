@@ -7,8 +7,7 @@
 
 import { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { 
-  Wifi,
+import {
   WifiOff,
   Settings,
   Gamepad2,

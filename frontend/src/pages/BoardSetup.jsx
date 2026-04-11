@@ -1,10 +1,10 @@
 import { useState, useEffect, useCallback } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { DndContext, DragOverlay, useSensor, useSensors, PointerSensor, defaultDropAnimationSideEffects, useDroppable } from '@dnd-kit/core';
-import { SortableContext, useSortable } from '@dnd-kit/sortable';
+import { useSortable } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Layers, RotateCcw, Play, CheckCircle, Shuffle } from 'lucide-react';
+import { Layers, RotateCcw, Play, Shuffle } from 'lucide-react';
 import clsx from 'clsx';
 import { useConfetti } from '../hooks/useConfetti';
 import { toast } from 'sonner';
@@ -23,6 +23,7 @@ import Tooltip from '../components/ui/Tooltip';
 function shuffleArray(array) {
   const shuffled = [...array];
   for (let i = shuffled.length - 1; i > 0; i--) {
+    // eslint-disable-next-line sonarjs/pseudo-random -- Fisher-Yates shuffle para UI, no requiere seguridad criptografica
     const j = Math.floor(Math.random() * (i + 1));
     [shuffled[i], shuffled[j]] = [shuffled[j], shuffled[i]];
   }
@@ -62,8 +63,9 @@ export default function BoardSetup() {
                         setSession(currentSession);
 
                         const teacherId = user?.id || user?._id;
+                        const requestOptions = signal ? { signal } : {};
                         const studentsResponse = teacherId
-                            ? await usersAPI.getStudentsByTeacher(teacherId, { sortBy: 'name', order: 'asc' }, signal ? { signal } : {})
+                            ? await usersAPI.getStudentsByTeacher(teacherId, { sortBy: 'name', order: 'asc' }, requestOptions)
                             : { data: { data: [] } };
 
                         const students = extractData(studentsResponse) || [];
@@ -403,8 +405,11 @@ function Slot({ id, card, index }) {
             ref={setNodeRef}
             className={clsx(
                 "size-32 rounded-xl border-2 border-dashed transition-[transform,border-color,background-color] flex items-center justify-center relative",
-                isOver ? "border-accent-indigo bg-accent-indigo/10 scale-105" :
-                card ? "border-accent-indigo/30 bg-accent-indigo/5 shadow-inner" : "border-background-surface bg-background-base/20"
+                (() => {
+                    if (isOver) return "border-accent-indigo bg-accent-indigo/10 scale-105";
+                    if (card) return "border-accent-indigo/30 bg-accent-indigo/5 shadow-inner";
+                    return "border-background-surface bg-background-base/20";
+                })()
             )}
         >
             {!card && <span className="absolute top-2 left-2 text-xs font-mono text-text-disabled">#{index + 1}</span>}

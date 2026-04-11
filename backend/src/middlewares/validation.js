@@ -34,12 +34,12 @@ const formatZodErrors = issues =>
 const validateBody = schema => (req, res, next) => {
   try {
     req.body = schema.parse(req.body);
-    next();
+    return next();
   } catch (error) {
     if (error instanceof z.ZodError) {
       return next(new ValidationError('Error de validación', formatZodErrors(error.issues)));
     }
-    next(error);
+    return next(error);
   }
 };
 
@@ -55,14 +55,14 @@ const validateBody = schema => (req, res, next) => {
 const validateQuery = schema => (req, res, next) => {
   try {
     req.query = schema.parse(req.query);
-    next();
+    return next();
   } catch (error) {
     if (error instanceof z.ZodError) {
       return next(
         new ValidationError('Parámetros de consulta inválidos', formatZodErrors(error.issues))
       );
     }
-    next(error);
+    return next(error);
   }
 };
 
@@ -79,14 +79,14 @@ const validateQuery = schema => (req, res, next) => {
 const validateParams = schema => (req, res, next) => {
   try {
     req.params = schema.parse(req.params);
-    next();
+    return next();
   } catch (error) {
     if (error instanceof z.ZodError) {
       return next(
         new ValidationError('Parámetros de ruta inválidos', formatZodErrors(error.issues))
       );
     }
-    next(error);
+    return next(error);
   }
 };
 

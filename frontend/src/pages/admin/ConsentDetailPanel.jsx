@@ -216,11 +216,12 @@ export default function ConsentDetailPanel({ isOpen, onClose, student, onConsent
       document.body.style.overflow = 'hidden';
       return () => { document.body.style.overflow = ''; };
     }
+    return undefined;
   }, [isOpen]);
 
   // Cerrar con Escape
   useEffect(() => {
-    if (!isOpen) return;
+    if (!isOpen) return undefined;
     const handleKey = (e) => {
       if (e.key === 'Escape' && !actionLoading && !exportLoading) onClose();
     };
@@ -420,21 +421,22 @@ export default function ConsentDetailPanel({ isOpen, onClose, student, onConsent
 
             {/* ---- Body (scrollable) ---- */}
             <div className="flex-1 overflow-y-auto overscroll-contain">
-              {loading ? (
-                <PanelSkeleton />
-              ) : !detailedStudent ? (
-                <div className="flex flex-col items-center justify-center h-full gap-3 text-text-muted px-6">
-                  <ShieldX size={40} className="opacity-40" />
-                  <p className="text-sm">No se pudieron cargar los datos</p>
-                  <ButtonPremium
-                    variant="ghost"
-                    size="sm"
-                    onClick={() => student?.id && fetchDetail(student.id)}
-                  >
-                    Reintentar
-                  </ButtonPremium>
-                </div>
-              ) : (
+              {(() => {
+                if (loading) return <PanelSkeleton />;
+                if (!detailedStudent) return (
+                  <div className="flex flex-col items-center justify-center h-full gap-3 text-text-muted px-6">
+                    <ShieldX size={40} className="opacity-40" />
+                    <p className="text-sm">No se pudieron cargar los datos</p>
+                    <ButtonPremium
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => student?.id && fetchDetail(student.id)}
+                    >
+                      Reintentar
+                    </ButtonPremium>
+                  </div>
+                );
+                return (
                 <div className="p-6 space-y-6">
                   {/* ====== Estado del consentimiento ====== */}
                   <section>
@@ -511,8 +513,10 @@ export default function ConsentDetailPanel({ isOpen, onClose, student, onConsent
 
                       <GlassCard variant="subtle" padding="sm" className="space-y-3">
                         {/* Seguimiento educativo — siempre activo */}
-                        <label className="flex items-center gap-3 cursor-not-allowed opacity-80">
+                        {/* eslint-disable-next-line jsx-a11y/label-has-associated-control -- label con htmlFor apunta al input, el texto accesible esta en los <p> hijos */}
+                        <label htmlFor="purpose-educational-tracking" className="flex items-center gap-3 cursor-not-allowed opacity-80">
                           <input
+                            id="purpose-educational-tracking"
                             type="checkbox"
                             checked
                             disabled
@@ -529,8 +533,10 @@ export default function ConsentDetailPanel({ isOpen, onClose, student, onConsent
                         </label>
 
                         {/* Analytics de rendimiento — revocable */}
-                        <label className="flex items-center gap-3 cursor-pointer">
+                        {/* eslint-disable-next-line jsx-a11y/label-has-associated-control -- label con htmlFor apunta al input, el texto accesible esta en los <p> hijos */}
+                        <label htmlFor="purpose-performance-analytics" className="flex items-center gap-3 cursor-pointer">
                           <input
+                            id="purpose-performance-analytics"
                             type="checkbox"
                             checked={consent?.purposes?.includes('performance_analytics')}
                             onChange={handleToggleAnalytics}
@@ -609,6 +615,7 @@ export default function ConsentDetailPanel({ isOpen, onClose, student, onConsent
                                 className="overflow-hidden"
                               >
                                 <GlassCard variant="subtle" padding="sm" className="space-y-3">
+                                  {/* eslint-disable jsx-a11y/no-autofocus -- autoFocus intencionado: al abrir el formulario de re-otorgamiento, el foco debe ir al input */}
                                   <InputPremium
                                     label="Nombre del tutor/a"
                                     placeholder="Ej. María López García"
@@ -622,6 +629,7 @@ export default function ConsentDetailPanel({ isOpen, onClose, student, onConsent
                                     required
                                     autoFocus
                                   />
+                                  {/* eslint-enable jsx-a11y/no-autofocus */}
                                   <div className="flex gap-2">
                                     <ButtonPremium
                                       variant="ghost"
@@ -750,7 +758,8 @@ export default function ConsentDetailPanel({ isOpen, onClose, student, onConsent
                     </div>
                   </section>
                 </div>
-              )}
+                );
+              })()}
             </div>
           </motion.aside>
 
