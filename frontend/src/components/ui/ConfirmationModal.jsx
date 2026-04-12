@@ -223,8 +223,8 @@ export default function ConfirmationModal({
                 onClick={onClose}
                 disabled={loading}
                 className={cn(
-                  'p-2 rounded-lg transition-colors',
-                  'hover:bg-border-default text-text-muted hover:text-text-primary',
+                  'p-2 rounded-lg transition-[colors,transform]',
+                  'hover:bg-border-default text-text-muted hover:text-text-primary active:scale-90',
                   'disabled:opacity-50 disabled:cursor-not-allowed'
                 )}
                 aria-label="Cerrar modal"

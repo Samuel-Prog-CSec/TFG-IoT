@@ -1,7 +1,7 @@
-import { motion } from 'framer-motion';
+import { motion, AnimatePresence } from 'framer-motion';
 import { useRef, useMemo } from 'react';
 import PropTypes from 'prop-types';
-import { cn } from '../../lib/utils';
+import { cn, EASING } from '../../lib/utils';
 import { useReducedMotion } from '../../hooks/useReducedMotion';
 import MascotAccessory from './MascotAccessory';
 
@@ -95,30 +95,34 @@ export default function CharacterMascot({
       className
     )}>
       {/* Speech bubble */}
-      {displayMessage && (
-        <motion.div
-          initial={shouldReduceMotion ? false : { opacity: 0, scale: 0, y: 10 }}
-          animate={{ opacity: 1, scale: 1, y: 0 }}
-          key={displayMessage}
-          className={cn(
-            "absolute -top-20 max-w-48 z-10",
-            "bg-glass-bg backdrop-blur-sm",
-            "px-3 py-1.5 rounded-2xl",
-            "border border-glass-border",
-            "text-text-primary text-sm font-medium",
-            position === 'left' ? 'left-0' : 'right-0'
-          )}
-        >
-          {displayMessage}
-          {/* Bubble tail */}
-          <div className={cn(
-            "absolute -bottom-2 size-4",
-            "bg-glass-bg border-l border-b border-glass-border",
-            "rotate-[-45deg]",
-            position === 'left' ? 'left-4' : 'right-4'
-          )} />
-        </motion.div>
-      )}
+      <AnimatePresence>
+        {displayMessage && (
+          <motion.div
+            key={displayMessage}
+            initial={shouldReduceMotion ? false : { opacity: 0, scale: 0, y: 10 }}
+            animate={{ opacity: 1, scale: 1, y: 0 }}
+            exit={shouldReduceMotion ? { opacity: 0 } : { opacity: 0, scale: 0.8, y: 6 }}
+            transition={shouldReduceMotion ? { duration: 0 } : { duration: 0.25, ease: EASING.outQuart }}
+            className={cn(
+              "absolute -top-20 max-w-48 z-10",
+              "bg-glass-bg backdrop-blur-sm",
+              "px-3 py-1.5 rounded-2xl",
+              "border border-glass-border",
+              "text-text-primary text-sm font-medium",
+              position === 'left' ? 'left-0' : 'right-0'
+            )}
+          >
+            {displayMessage}
+            {/* Bubble tail */}
+            <div className={cn(
+              "absolute -bottom-2 size-4",
+              "bg-glass-bg border-l border-b border-glass-border",
+              "rotate-[-45deg]",
+              position === 'left' ? 'left-4' : 'right-4'
+            )} />
+          </motion.div>
+        )}
+      </AnimatePresence>
 
       {/* Mascot container */}
       <motion.div
@@ -135,18 +139,28 @@ export default function CharacterMascot({
         )} />
 
         {/* Mascot emoji — always 🦉 for identity consistency */}
-        <motion.div
-          key={mood}
-          className="relative text-6xl select-none filter drop-shadow-lg"
-          animate={!shouldReduceMotion && (mood === 'happy' || mood === 'celebrating') ? {
-            scale: [1, 1.1, 1],
-          } : { scale: 1 }}
-          transition={{ duration: 0.5, repeat: !shouldReduceMotion && (mood === 'happy' || mood === 'celebrating') ? Infinity : 0 }}
-        >
-          🦉
-          {/* SVG accessory overlay */}
-          <MascotAccessory mood={mood} />
-        </motion.div>
+        <AnimatePresence mode="wait">
+          <motion.div
+            key={mood}
+            initial={shouldReduceMotion ? false : { opacity: 0, scale: 0.8 }}
+            animate={{
+              opacity: 1,
+              scale: !shouldReduceMotion && (mood === 'happy' || mood === 'celebrating')
+                ? [1, 1.1, 1]
+                : 1,
+            }}
+            exit={shouldReduceMotion ? { opacity: 0 } : { opacity: 0, scale: 0.8 }}
+            transition={shouldReduceMotion
+              ? { duration: 0 }
+              : { duration: 0.5, repeat: (mood === 'happy' || mood === 'celebrating') ? Infinity : 0 }
+            }
+            className="relative text-6xl select-none filter drop-shadow-lg"
+          >
+            🦉
+            {/* SVG accessory overlay */}
+            <MascotAccessory mood={mood} />
+          </motion.div>
+        </AnimatePresence>
 
         {/* Extra decorations for celebrating */}
         {mood === 'celebrating' && !shouldReduceMotion && (

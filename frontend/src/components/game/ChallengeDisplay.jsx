@@ -209,10 +209,10 @@ const ChallengeDisplay = function ChallengeDisplay({
       <AnimatePresence mode="wait">
         <motion.div
           key={asset?.value}
-          initial={shouldReduceMotion ? false : { y: 20, opacity: 0, scale: 0.95 }}
+          initial={shouldReduceMotion ? false : { y: 28, opacity: 0, scale: 0.85 }}
           animate={assetFeedbackAnimate || { y: 0, opacity: 1, scale: 1 }}
-          exit={shouldReduceMotion ? { opacity: 0 } : { y: -12, opacity: 0, scale: 0.95, transition: { duration: 0.2 } }}
-          transition={shouldReduceMotion ? { duration: 0 } : { type: 'spring', stiffness: 400, damping: 25 }}
+          exit={shouldReduceMotion ? { opacity: 0 } : { y: -12, opacity: 0, scale: 0.9, transition: { duration: 0.15 } }}
+          transition={shouldReduceMotion ? { duration: 0 } : { type: 'spring', stiffness: 300, damping: 20 }}
           className="relative z-10 text-center"
         >
         {/* Emoji/Image */}

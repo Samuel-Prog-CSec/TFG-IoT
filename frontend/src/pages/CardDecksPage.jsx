@@ -17,7 +17,7 @@ import {
   AlertCircle,
   X
 } from 'lucide-react';
-import { cn, crossfadeVariants } from '../lib/utils';
+import { cn, listContainerVariants, listItemVariants } from '../lib/utils';
 import { decksAPI, extractErrorMessage, isAbortError } from '../services/api';
 import DeckCard from '../components/ui/DeckCard';
 import { SkeletonGrid } from '../components/ui/SkeletonShimmer';
@@ -75,12 +75,14 @@ const resolveDeckCount = async ({
 const renderDecksGrid = ({ decks, shouldReduceMotion, handleViewDeck, handleEditDeck, handleArchiveDeck }) => (
   <motion.div
     className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6"
-    {...(shouldReduceMotion ? {} : crossfadeVariants)}
+    variants={shouldReduceMotion ? {} : listContainerVariants(0.04)}
+    initial={shouldReduceMotion ? false : "hidden"}
+    animate="visible"
   >
     {decks.map((deck) => {
       const deckId = deck.id || deck._id;
       return (
-        <div key={deckId}>
+        <motion.div key={deckId} variants={shouldReduceMotion ? {} : listItemVariants}>
           <DeckCard
             deck={deck}
             onView={handleViewDeck}
@@ -88,7 +90,7 @@ const renderDecksGrid = ({ decks, shouldReduceMotion, handleViewDeck, handleEdit
             onDelete={handleArchiveDeck}
             reducedMotion={shouldReduceMotion}
           />
-        </div>
+        </motion.div>
       );
     })}
   </motion.div>

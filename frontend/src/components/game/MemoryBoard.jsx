@@ -121,8 +121,9 @@ export default function MemoryBoard({ board, feedbackState, feedbackPoints, feed
               )}
               animate={(() => {
                 if (shouldReduceMotion) return {};
-                if (isMatchFeedback) return { scale: [1, 1.1, 1], transition: { duration: 0.4 } };
+                if (isMatchFeedback) return { scale: [1, 1.12, 1], transition: { duration: 0.4 } };
                 if (isMismatchFeedback) return { x: [-3, 3, -2, 2, 0], transition: { duration: 0.4 } };
+                if (slot.isMatched) return { opacity: 0.55, scale: 0.95, transition: { duration: 0.4 } };
                 return {};
               })()}
               role="gridcell"

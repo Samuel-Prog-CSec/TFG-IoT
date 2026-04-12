@@ -101,9 +101,8 @@ describe('StudentKPICard', () => {
 
   it('renderiza el sufijo cuando se proporciona', () => {
     render(<StudentKPICard label="Precision" value={88} suffix="%" />);
-    // El sufijo aparece dos veces: dentro de AnimatedValue y como span separado
-    const suffixes = screen.getAllByText('%');
-    expect(suffixes.length).toBeGreaterThanOrEqual(1);
+    // AnimatedNumber renderiza valor+sufijo juntos como "88%"
+    expect(screen.getByText('88%')).toBeTruthy();
   });
 
   it('aplica borde verde para ragStatus "green"', () => {

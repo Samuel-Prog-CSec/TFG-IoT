@@ -16,27 +16,41 @@ export function cn(...inputs) {
  * Configuración de animaciones para Framer Motion
  */
 export const motionConfig = {
-  // Spring suave para interacciones
+  // Spring suave para interacciones UI generales
   spring: {
     type: 'spring',
     stiffness: 400,
     damping: 30,
   },
-  
+
+  // Spring para entradas de elementos de juego (overshoot sutil ~1.03)
+  springGame: {
+    type: 'spring',
+    stiffness: 350,
+    damping: 22,
+  },
+
+  // Spring para feedback de recompensa (bounce visible)
+  springFeedback: {
+    type: 'spring',
+    stiffness: 400,
+    damping: 18,
+  },
+
   // Transición suave estándar
   smooth: {
     type: 'tween',
     ease: [0.4, 0, 0.2, 1],
     duration: 0.3,
   },
-  
+
   // Transición rápida
   fast: {
     type: 'tween',
     ease: [0.4, 0, 0.2, 1],
     duration: 0.15,
   },
-  
+
   // Transición lenta para efectos dramáticos
   slow: {
     type: 'tween',

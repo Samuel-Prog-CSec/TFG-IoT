@@ -21,6 +21,7 @@ import PerformanceByDimension from '../components/analytics/PerformanceByDimensi
 import GameHistoryTable from '../components/analytics/GameHistoryTable';
 import StrengthsWeaknesses from '../components/analytics/StrengthsWeaknesses';
 import EngagementRadar from '../components/analytics/EngagementRadar';
+import ScrollRevealSection from '../components/ui/ScrollRevealSection';
 import { TIER_CONFIG, scoreToRAG, scoreToTier } from '../constants/analyticsThresholds';
 
 const getRelativeTime = (dateStr) => {
@@ -357,30 +358,36 @@ export default function StudentProfile() {
       </div>
 
       {/* ═══════ Rendimiento por Contexto y por Mecanica ═══════ */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        <PerformanceByDimension
-          title="Rendimiento por Contexto"
-          data={summary?.performanceByContext}
-          dimension="context"
-        />
-        <PerformanceByDimension
-          title="Rendimiento por Mecanica"
-          data={summary?.performanceByMechanic}
-          dimension="mechanic"
-        />
-      </div>
+      <ScrollRevealSection>
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+          <PerformanceByDimension
+            title="Rendimiento por Contexto"
+            data={summary?.performanceByContext}
+            dimension="context"
+          />
+          <PerformanceByDimension
+            title="Rendimiento por Mecanica"
+            data={summary?.performanceByMechanic}
+            dimension="mechanic"
+          />
+        </div>
+      </ScrollRevealSection>
 
       {/* ═══════ Engagement + Fortalezas/Debilidades ═══════ */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        <EngagementRadar engagement={engagement} />
-        <StrengthsWeaknesses
-          performanceByContext={summary?.performanceByContext}
-          performanceByMechanic={summary?.performanceByMechanic}
-        />
-      </div>
+      <ScrollRevealSection delay={0.1}>
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+          <EngagementRadar engagement={engagement} />
+          <StrengthsWeaknesses
+            performanceByContext={summary?.performanceByContext}
+            performanceByMechanic={summary?.performanceByMechanic}
+          />
+        </div>
+      </ScrollRevealSection>
 
       {/* ═══════ Historial de Partidas ═══════ */}
-      <GameHistoryTable games={summary?.lastGames} />
+      <ScrollRevealSection delay={0.15}>
+        <GameHistoryTable games={summary?.lastGames} />
+      </ScrollRevealSection>
       </ChartErrorBoundary>
     </motion.section>
   );

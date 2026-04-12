@@ -22,20 +22,14 @@ function TimerBar({ timeLeft, timeLimit, className }) {
   const safeTimeLeft = Math.max(0, Number(timeLeft || 0));
   const percentage = (safeTimeLeft / safeTimeLimit) * 100;
   
-  // Determinar color y estado según el porcentaje (tokens semánticos)
-  let colorClass = 'from-timer-safe to-timer-safe-alt';
-  let glowColor = 'var(--color-timer-safe-glow)';
+  // Determinar estado de urgencia según el porcentaje
   let isUrgent = false;
   let isCritical = false;
 
   if (percentage <= 20) {
-    colorClass = 'from-timer-critical to-timer-critical-alt';
-    glowColor = 'var(--color-timer-critical-glow)';
     isUrgent = true;
     isCritical = true;
   } else if (percentage <= 40) {
-    colorClass = 'from-timer-warning to-timer-warning-alt';
-    glowColor = 'var(--color-timer-warning-glow)';
     isUrgent = true;
   }
 
@@ -98,19 +92,28 @@ function TimerBar({ timeLeft, timeLimit, className }) {
         )}
         aria-hidden="true"
       >
-        {/* Fill */}
-        <motion.div
-          className={cn(
-            "absolute inset-y-0 left-0 rounded-full",
-            `bg-gradient-to-r ${colorClass}`
-          )}
-          initial={{ width: '100%' }}
-          animate={{ width: `${percentage}%` }}
-          transition={{ duration: shouldReduceMotion ? 0 : 0.3, ease: 'linear' }}
-          style={{
-            boxShadow: `0 0 20px ${glowColor}`,
-          }}
-        />
+        {/* Fill — 3 capas superpuestas con crossfade de opacity para transicion suave de color */}
+        {[
+          { tier: 'safe', active: percentage > 40, gradient: 'from-timer-safe to-timer-safe-alt', glow: 'var(--color-timer-safe-glow)' },
+          { tier: 'warning', active: percentage > 20 && percentage <= 40, gradient: 'from-timer-warning to-timer-warning-alt', glow: 'var(--color-timer-warning-glow)' },
+          { tier: 'critical', active: percentage <= 20, gradient: 'from-timer-critical to-timer-critical-alt', glow: 'var(--color-timer-critical-glow)' },
+        ].map(({ tier, active, gradient, glow }) => (
+          <motion.div
+            key={tier}
+            className={cn(
+              "absolute inset-y-0 left-0 rounded-full",
+              `bg-gradient-to-r ${gradient}`,
+              "transition-opacity duration-500"
+            )}
+            initial={{ width: '100%' }}
+            animate={{ width: `${percentage}%` }}
+            transition={{ duration: shouldReduceMotion ? 0 : 0.3, ease: 'linear' }}
+            style={{
+              boxShadow: `0 0 20px ${glow}`,
+              opacity: active ? 1 : 0,
+            }}
+          />
+        ))}
 
         {/* Shimmer effect */}
         <div 

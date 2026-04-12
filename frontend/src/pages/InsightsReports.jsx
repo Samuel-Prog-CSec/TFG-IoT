@@ -450,10 +450,8 @@ export default function InsightsReports() {
               }}
               className={cn(
                 'relative flex items-center gap-2 px-4 py-3 text-sm font-medium transition-colors duration-200',
-                'focus-ring rounded-t-lg -mb-px',
-                isActive
-                  ? 'text-brand-base border-b-2 border-brand-base'
-                  : 'text-text-muted hover:text-text-secondary border-b-2 border-transparent'
+                'focus-ring rounded-t-lg -mb-px border-b-2 border-transparent',
+                isActive ? 'text-brand-base' : 'text-text-muted hover:text-text-secondary'
               )}
             >
               <TabIcon size={16} aria-hidden="true" />
@@ -467,6 +465,13 @@ export default function InsightsReports() {
                 )}>
                   {alertsCount}
                 </span>
+              )}
+              {isActive && (
+                <motion.div
+                  layoutId="insights-tab-indicator"
+                  className="absolute bottom-0 left-0 right-0 h-0.5 bg-brand-base rounded-full"
+                  transition={{ type: 'spring', stiffness: 400, damping: 30 }}
+                />
               )}
             </button>
           );

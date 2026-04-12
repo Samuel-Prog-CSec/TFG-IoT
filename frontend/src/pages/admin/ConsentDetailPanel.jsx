@@ -357,7 +357,7 @@ export default function ConsentDetailPanel({ isOpen, onClose, student, onConsent
 
   // ----- Render -----
   return (
-    <AnimatePresence>
+    <AnimatePresence mode="wait">
       {isOpen && (
         <>
           {/* Backdrop */}

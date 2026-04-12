@@ -230,7 +230,7 @@ export default function OnboardingOverlay({
                     aria-selected={i === currentStep}
                     aria-label={`Paso ${i + 1} de ${totalSteps}`}
                     className={cn(
-                      'rounded-full transition-all duration-300',
+                      'rounded-full transition-[width,background-color,box-shadow] duration-300',
                       i === currentStep
                         ? 'w-8 h-2.5 bg-gradient-to-r from-brand-base to-accent-indigo shadow-[0_0_12px_var(--color-brand-glow)]'
                         : 'w-2.5 h-2.5 bg-text-disabled/40 hover:bg-text-muted/50'

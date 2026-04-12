@@ -1,49 +1,10 @@
-import { memo, useEffect, useRef } from 'react';
-import { motion, animate } from 'framer-motion';
+import { memo } from 'react';
+import { motion } from 'framer-motion';
 import { ArrowUpRight, ArrowDownRight } from 'lucide-react';
 import PropTypes from 'prop-types';
-import { cn, EASING } from '../../lib/utils';
-import { useReducedMotion } from '../../hooks/useReducedMotion';
+import { cn } from '../../lib/utils';
 import GlassCard from '../ui/GlassCard';
-
-/**
- * Componente interno para animar un numero de 0 al valor final.
- * Soporta sufijos (ej: "45%").
- * Si el valor no es numerico, lo renderiza directamente.
- */
-function AnimatedNumber({ value }) {
-  const { shouldReduceMotion } = useReducedMotion();
-  const ref = useRef(null);
-
-  // Parse numeric part and suffix
-  const strValue = String(value);
-  // eslint-disable-next-line security/detect-unsafe-regex -- regex simple para parsear valor numérico + sufijo
-  const match = strValue.match(/^(\d+(?:\.\d+)?)(.*)/);
-  const numericPart = match ? parseFloat(match[1]) : null;
-  const suffix = match ? match[2] : '';
-
-  useEffect(() => {
-    if (numericPart === null || shouldReduceMotion || !ref.current) return undefined;
-
-    const controls = animate(0, numericPart, {
-      duration: 1.2,
-      ease: EASING.outExpo,
-      onUpdate(latest) {
-        if (ref.current) {
-          ref.current.textContent = `${Math.round(latest)}${suffix}`;
-        }
-      },
-    });
-
-    return () => controls.stop();
-  }, [numericPart, suffix, shouldReduceMotion]);
-
-  if (numericPart === null || shouldReduceMotion) {
-    return <span>{value}</span>;
-  }
-
-  return <span ref={ref}>0{suffix}</span>;
-}
+import AnimatedNumber from '../ui/AnimatedNumber';
 
 /**
  * Tarjeta de estadísticas del dashboard

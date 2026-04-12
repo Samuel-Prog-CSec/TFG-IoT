@@ -1,10 +1,9 @@
 import { memo } from 'react';
-import { motion } from 'framer-motion';
 import { ArrowUpRight, ArrowDownRight, Minus } from 'lucide-react';
 import PropTypes from 'prop-types';
 import { cn } from '../../lib/utils';
-import { useReducedMotion } from '../../hooks/useReducedMotion';
 import GlassCard from '../ui/GlassCard';
+import AnimatedNumber from '../ui/AnimatedNumber';
 
 /**
  * Colores RAG segun estado
@@ -35,28 +34,6 @@ const RAG_STYLES = {
     text: 'text-text-muted',
   },
 };
-
-/**
- * Animacion del numero (cuenta de 0 a valor final)
- */
-function AnimatedValue({ value, suffix = '' }) {
-  const { shouldReduceMotion } = useReducedMotion();
-  const numericPart = typeof value === 'number' ? value : parseFloat(value);
-
-  if (shouldReduceMotion || isNaN(numericPart)) {
-    return <span>{value}{suffix}</span>;
-  }
-
-  return (
-    <motion.span
-      initial={{ opacity: 0 }}
-      animate={{ opacity: 1 }}
-      transition={{ duration: 0.3 }}
-    >
-      {typeof value === 'number' ? Math.round(value) : value}{suffix}
-    </motion.span>
-  );
-}
 
 /**
  * KPI Card con indicador RAG (semaforo), valor principal, comparativa con clase,
@@ -104,10 +81,10 @@ function StudentKPICard({
             {label}
           </p>
           <div className="flex items-baseline gap-1.5">
-            <span className="text-2xl font-bold text-text-primary font-display tabular-nums">
-              <AnimatedValue value={value} suffix={suffix} />
-            </span>
-            {suffix && <span className="text-sm text-text-muted font-medium">{suffix}</span>}
+            <AnimatedNumber
+              value={`${value}${suffix}`}
+              className="text-2xl font-bold text-text-primary font-display tabular-nums"
+            />
           </div>
         </div>
 

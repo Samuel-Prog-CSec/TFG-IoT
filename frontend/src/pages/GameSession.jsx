@@ -785,8 +785,9 @@ export default function GameSession() {
           <div className="flex items-center gap-3">
             <motion.div
               key={sessionIsMemory ? Math.floor((memoryStats.matchedCount || 0) / 2) : currentRound}
-              initial={shouldReduceMotion ? false : { scale: 0 }}
-              animate={{ scale: 1 }}
+              initial={shouldReduceMotion ? false : { scale: 0.6, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              transition={{ type: 'spring', stiffness: 400, damping: 20 }}
               className="size-12 rounded-xl bg-gradient-to-br from-brand-base to-accent-indigo flex items-center justify-center shadow-lg shadow-brand-glow"
             >
               <span className="text-2xl font-bold font-display text-text-primary">

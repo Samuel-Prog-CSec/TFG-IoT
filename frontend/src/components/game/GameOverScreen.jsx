@@ -1,5 +1,5 @@
-import { memo, useMemo, useEffect } from 'react';
-import { motion } from 'framer-motion';
+import { memo, useMemo, useEffect, useRef } from 'react';
+import { motion, useSpring, useTransform } from 'framer-motion';
 import PropTypes from 'prop-types';
 import { Star, Trophy, RotateCcw, Home } from 'lucide-react';
 import { cn, calculateStars } from '../../lib/utils';
@@ -68,6 +68,25 @@ function GameOverScreen({
 
   const message = tierConfig;
   const scoreDelta = score - bestScore;
+
+  // Counter animado para el score (0 -> score en 1.5s)
+  const springScore = useSpring(0, { stiffness: 50, damping: 20 });
+  const displayScore = useTransform(springScore, (v) => Math.round(v));
+  const scoreRef = useRef(null);
+
+  useEffect(() => {
+    if (shouldReduceMotion) {
+      springScore.jump(score);
+    } else {
+      springScore.set(score);
+    }
+  }, [score, springScore, shouldReduceMotion]);
+
+  useEffect(() => {
+    return displayScore.on('change', (v) => {
+      if (scoreRef.current) scoreRef.current.textContent = v;
+    });
+  }, [displayScore]);
 
   const { fireSuccess } = useConfetti();
 
@@ -175,7 +194,8 @@ function GameOverScreen({
             transition={{ delay: 0.5 }}
             className="bg-background-elevated/50 rounded-2xl p-6 mb-6"
           >
-            <div 
+            <div
+              ref={scoreRef}
               className="text-5xl font-bold font-display text-white mb-2 tabular-nums"
               aria-label={`Puntuación final: ${score} puntos`}
             >
@@ -283,18 +303,20 @@ function GameOverScreen({
           {floatingStars.map(piece => (
             <motion.div
               key={`floating-star-${piece.id}`}
-              initial={{ 
+              initial={{
                 x: `${piece.x}%`,
                 y: '100%',
                 opacity: 0
               }}
-              animate={{ 
+              animate={{
+                x: [`${piece.x}%`, `${piece.x + 3}%`, `${piece.x}%`],
                 y: '-20%',
                 opacity: [0, 1, 0]
               }}
               transition={{
                 duration: piece.duration,
-                repeat: 1,
+                repeat: 2,
+                repeatType: 'loop',
                 delay: piece.delay,
               }}
               className="absolute text-2xl"

@@ -47,7 +47,7 @@ function MatrixCell({ score, gamesPlayed, improvement, isExpanded, onClick, shou
         type="button"
         onClick={onClick}
         className={cn(
-          'w-full rounded-lg px-3 py-2.5 text-center transition-all duration-200',
+          'w-full rounded-lg px-3 py-2.5 text-center transition-[background-color,border-color,box-shadow] duration-200',
           'border focus-ring cursor-pointer',
           styles.bg,
           styles.border,

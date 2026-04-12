@@ -24,7 +24,10 @@ export default function EmptyState({
           initial={shouldReduceMotion ? false : { opacity: 0, scale: 0.8 }}
           animate={{ opacity: 1, scale: 1 }}
           transition={{ duration: DURATION.entrance, ease: EASING.outExpo }}
-          className="mx-auto mb-5 flex size-16 items-center justify-center rounded-2xl bg-glass-bg text-text-muted"
+          className={cn(
+            "mx-auto mb-5 flex size-16 items-center justify-center rounded-2xl bg-glass-bg text-text-muted",
+            !shouldReduceMotion && "animate-float"
+          )}
         >
           {icon}
         </motion.div>

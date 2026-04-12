@@ -40,7 +40,7 @@ import EmptyState from '../components/ui/EmptyState';
 import ErrorState from '../components/ui/ErrorState';
 import ConfirmationModal, { useConfirmationModal } from '../components/ui/ConfirmationModal';
 import PageHeader from '../components/ui/PageHeader';
-import { crossfadeVariants } from '../lib/utils';
+import { listContainerVariants, listItemVariants } from '../lib/utils';
 
 const STATUS_OPTIONS = [
   { value: '', label: 'Todas' },
@@ -105,7 +105,11 @@ const SessionCard = memo(function SessionCard({
   const borderClass = BORDER_CLASSES[session.status] || 'border-l-background-surface/50';
 
   return (
-    <div>
+    <motion.div
+      whileHover={{ y: -4, scale: 1.01 }}
+      whileTap={{ scale: 0.99 }}
+      transition={{ type: 'spring', stiffness: 400, damping: 25 }}
+    >
       <GlassCard className={`p-6 flex flex-col gap-5 hover:border-border-strong transition-[border-color] border-l-4 ${borderClass}`}>
         <div className="flex items-start justify-between gap-3">
           <div>
@@ -223,7 +227,7 @@ const SessionCard = memo(function SessionCard({
         </div>
 
       </GlassCard>
-    </div>
+    </motion.div>
   );
 });
 
@@ -291,17 +295,20 @@ const renderSessionsContent = ({
   return (
     <motion.div
       className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-6"
-      {...crossfadeVariants}
+      variants={listContainerVariants(0.04)}
+      initial="hidden"
+      animate="visible"
     >
       {sessions.map((session) => (
-        <SessionCard
-          key={session.id || session._id}
-          session={session}
-          cloneLoading={cloneLoading}
-          onClone={handleClone}
-          onDelete={handleDelete}
-          onNavigate={navigate}
-        />
+        <motion.div key={session.id || session._id} variants={listItemVariants}>
+          <SessionCard
+            session={session}
+            cloneLoading={cloneLoading}
+            onClone={handleClone}
+            onDelete={handleDelete}
+            onNavigate={navigate}
+          />
+        </motion.div>
       ))}
     </motion.div>
   );

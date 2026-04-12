@@ -87,6 +87,7 @@ export default function CreateSession() {
 
   // Estado del wizard
   const [currentStep, setCurrentStep] = useState(0);
+  const [stepDirection, setStepDirection] = useState(1);
   const [isSubmitting, setIsSubmitting] = useState(false);
 
   // Datos cargados (mazos, mecanicas, sensor)
@@ -125,12 +126,14 @@ export default function CreateSession() {
   // Navegacion
   const goNext = () => {
     if (currentStep < WIZARD_STEPS.length - 1 && canProceed(currentStep)) {
+      setStepDirection(1);
       setCurrentStep(prev => prev + 1);
     }
   };
 
   const goBack = () => {
     if (currentStep > 0) {
+      setStepDirection(-1);
       setCurrentStep(prev => prev - 1);
     }
   };
@@ -287,6 +290,7 @@ export default function CreateSession() {
           reducedMotion={shouldReduceMotion}
           onStepClick={(index) => {
             if (index < currentStep) {
+              setStepDirection(index < currentStep ? -1 : 1);
               setCurrentStep(index);
             }
           }}
@@ -295,12 +299,13 @@ export default function CreateSession() {
 
       {/* Contenido */}
       <div className="max-w-5xl mx-auto mb-8">
-        <AnimatePresence mode="wait">
+        <AnimatePresence mode="wait" custom={stepDirection}>
           <motion.div
             key={currentStep}
-            initial={shouldReduceMotion ? false : { opacity: 0, x: 20 }}
+            custom={stepDirection}
+            initial={shouldReduceMotion ? false : (d) => ({ opacity: 0, x: d * 30 })}
             animate={{ opacity: 1, x: 0 }}
-            exit={shouldReduceMotion ? { opacity: 0 } : { opacity: 0, x: -20 }}
+            exit={shouldReduceMotion ? { opacity: 0 } : (d) => ({ opacity: 0, x: d * -30 })}
             transition={{ duration: shouldReduceMotion ? 0.15 : 0.3 }}
           >
             {renderStep()}
