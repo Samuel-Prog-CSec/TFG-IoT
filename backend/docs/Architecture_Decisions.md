@@ -2420,3 +2420,245 @@ El endpoint requiere autenticación JWT y rol `super_admin`. Devuelve 403 para c
 - **ADR-010** (Checkpoints y resiliencia): Las métricas del GameEngine expuestas aquí incluyen los contadores de partidas gestionados por el sistema de checkpoints.
 - **ADR-016** (Rate limiting Redis): El estado de Redis verificado aquí es el mismo store usado para rate limiting.
 - **ADR-011** (Socket.IO Redis Adapter): El `clientsCount` refleja las conexiones gestionadas por el adapter.
+
+---
+
+## ADR-037: Protección de estabilidad del proceso (unhandledRejection/uncaughtException)
+
+### Contexto (ADR-037)
+
+El servidor no disponía de handlers para `process.on('unhandledRejection')` ni `process.on('uncaughtException')`. En Node.js >=15, las promesas rechazadas sin handler crashean el proceso sin logging ni cleanup. Las excepciones síncronas fuera de try/catch tienen el mismo efecto.
+
+### Decisión (ADR-037)
+
+Se han añadido ambos handlers en `server.js` que:
+1. Loguean el error con nivel `fatal` via Pino.
+2. Reportan a Sentry con tag de origen (`unhandledRejection` / `uncaughtException`).
+3. Ejecutan `gracefulShutdown()` para cerrar conexiones ordenadamente.
+
+Adicionalmente, los timers del proceso (`setInterval` del GameEngine, `setTimeout` del shutdown) ahora llaman `.unref()` para no impedir la terminación del event loop si el shutdown handler falla.
+
+### Consecuencias (ADR-037)
+
+- Un error no capturado ya no produce un crash silencioso — siempre hay log y reporte.
+- El proceso se cierra de forma controlada incluso ante errores fatales.
+- Los timers no bloquean el apagado del proceso.
+
+---
+
+## ADR-038: Límite duro de partidas activas simultáneas
+
+### Contexto (ADR-038)
+
+ADR-001 eliminó el límite duro de partidas, manteniendo solo un umbral de warning. Sin embargo, sin límite duro, una acumulación de partidas (por bug, abuso, o cleanup fallido) puede provocar OOM y crash del proceso.
+
+### Decisión (ADR-038)
+
+Se ha añadido `ACTIVE_PLAYS_HARD_LIMIT` (configurable via env, default 2000) que rechaza nuevas partidas cuando se alcanza. El umbral de warning existente (default 1000) se mantiene como alerta temprana. Esto complementa ADR-001 con una red de seguridad sin afectar al uso normal.
+
+### Consecuencias (ADR-038)
+
+- Protección contra OOM: el proceso nunca acumula más de `HARD_LIMIT` partidas en memoria.
+- En uso normal del aula (decenas de partidas), el límite es inalcanzable.
+- El error se comunica al cliente via Socket.IO para que el profesor pueda reintentar.
+
+---
+
+## ADR-039: Timeout de queries aggregate (maxTimeMS)
+
+### Contexto (ADR-039)
+
+Las aggregation pipelines de MongoDB (analytics, stats) no tenían `maxTimeMS`. Un pipeline mal optimizado o sobre un dataset grande podría ejecutarse indefinidamente, bloqueando el pool de conexiones.
+
+### Decisión (ADR-039)
+
+Se ha centralizado `maxTimeMS` en los repositories (`gamePlayRepository`, `gameSessionRepository`, `userRepository`) con un default de 15 segundos (configurable via `AGGREGATE_TIMEOUT_MS`). Todos los callers heredan el timeout automáticamente, con posibilidad de override por llamada.
+
+### Consecuencias (ADR-039)
+
+- Ninguna aggregation puede bloquear el pool de conexiones indefinidamente.
+- El timeout de 15s es generoso para el volumen de datos esperado (decenas de usuarios).
+- Si un pipeline legítimo necesita más tiempo, puede pasar `{ maxTimeMS: 30000 }` como segundo argumento.
+
+---
+
+## ADR-040: Observabilidad del circuit breaker y health check mejorado
+
+### Contexto (ADR-040)
+
+El `CircuitBreaker` (usado por Redis y Supabase Storage) cambiaba de estado sin emitir logs. El health check de Redis solo verificaba conexión, no consultaba el estado del circuit breaker.
+
+### Decisión (ADR-040)
+
+1. El `CircuitBreaker` ahora logea cada transición de estado (`closed→open`, `open→half_open`, `half_open→closed`) con nivel `warn`.
+2. El health check de Redis (`/health`) reporta el estado del circuit breaker como campo adicional.
+3. Si el circuit breaker está `open`, Redis se reporta como `degraded` en vez de `healthy`.
+
+### Consecuencias (ADR-040)
+
+- Los operadores saben inmediatamente cuándo Redis entra en degradación.
+- El health check refleja el estado real del servicio, no solo la conexión TCP.
+- No hay impacto en rendimiento (el log solo se emite en transiciones, no en cada operación).
+
+---
+
+## ADR-041: Recovery de card locks tras reconexión Redis
+
+### Contexto (ADR-041)
+
+Si Redis se desconecta temporalmente durante partidas activas, las card locks (con TTL) expiran. Cuando Redis reconecta, las partidas siguen en memoria pero sus tarjetas ya no están reservadas, permitiendo conflictos.
+
+### Decisión (ADR-041)
+
+Se ha añadido un mecanismo de recovery que:
+1. `redis.js` emite un callback cuando el evento `ready` se dispara tras una desconexión.
+2. El `GameEngine` registra un callback en `onReconnect()` al inicializarse.
+3. Al reconectar, re-ejecuta `reserveDistributedCardMappings` para cada partida activa.
+
+### Consecuencias (ADR-041)
+
+- Las partidas activas mantienen sus reservas de tarjetas incluso tras interrupciones de Redis.
+- Si una reserva falla (conflicto con otra instancia), se logea pero la partida continúa.
+- El recovery es automático y no requiere intervención del operador.
+
+---
+
+## ADR-042: Multer memory storage como diseño aceptado
+
+### Contexto (ADR-042)
+
+Multer usa `memoryStorage()` para almacenar uploads (imágenes ≤8MB, audio ≤5MB) en RAM antes de procesarlas con Sharp/music-metadata. Se evaluó migrar a `diskStorage` o streaming para reducir presión de memoria.
+
+### Decisión (ADR-042)
+
+**Se mantiene `memoryStorage()`.** Razones:
+1. Los límites de tamaño (8MB/5MB) protegen contra uploads abusivos.
+2. Sharp procesa buffers de forma eficiente con streaming interno.
+3. El rate limiter de uploads (20/hora por usuario) limita concurrencia.
+4. Para el caso de uso (decenas de profesores), incluso 10 uploads simultáneos = ~80MB temporal, aceptable.
+5. Migrar a disk storage requeriría cambiar el pipeline de procesamiento en `imageProcessingService` y `audioValidationService`.
+
+### Consecuencias (ADR-042)
+
+- Sin cambios de código. El pipeline actual (multer buffer → Sharp → Supabase) se mantiene.
+- Si en el futuro se necesita manejar cientos de uploads concurrentes, se debería migrar a streaming.
+
+---
+
+## ADR-043: Invalidación inmediata de auth cache vía eventos internos
+
+### Contexto (ADR-043)
+
+El `authRevalidationCache` en Socket.IO cacheaba resultados de auth por 30 segundos. Un token revocado (logout, detección de robo) seguía siendo válido para operaciones socket durante esa ventana.
+
+### Decisión (ADR-043)
+
+Se implementó un `authEventBus` (EventEmitter interno en `utils/authEvents.js`) que comunica revocaciones de tokens del middleware de auth al layer de sockets:
+- `revokeAllUserTokens()` emite `all_tokens_revoked` → purga todas las entradas del cache de ese userId
+- `revokeToken()` emite `token_revoked` → caso individual, impacto mínimo por el TTL corto
+
+### Consecuencias (ADR-043)
+
+- La ventana de revocación para `revokeAllUserTokens` baja de 30s a ~0s.
+- Para revocación individual, se mantiene la expiración por TTL (30s) — el impacto es una sola entrada.
+- El EventEmitter es síncrono y no añade latencia al flujo de revocación.
+
+---
+
+## ADR-044: Migración a Socket.IO namespaces (/game)
+
+### Contexto (ADR-044)
+
+Todos los eventos Socket.IO (sistema, gameplay, RFID) usaban el namespace por defecto `/`. Esto impedía aplicar middleware, rate limiting y auth de forma granular.
+
+### Decisión (ADR-044)
+
+Se crearon dos namespaces:
+- **`/`** (default): Eventos de sistema — `connect`, `disconnect`, `session_invalidated`, `rfid_mode_changed`. Auth middleware con conteo de conexiones.
+- **`/game`**: Eventos de gameplay — todos los comandos de partida, RFID scans, card assignment. Auth middleware sin conteo (reutiliza la conexión del namespace default). Rate limiting y payload validation solo aquí.
+
+El `GameEngine` recibe la referencia al namespace `/game` y emite gameplay events directamente. Los eventos de sistema (como `rfid_mode_changed`) se emiten en el namespace default.
+
+### Cambios (ADR-044)
+
+**Backend**: `server.js` (creación namespace), `socketHandlers.js` (auth middleware extraído, dos handlers de conexión), `gameEngine` (recibe namespace `/game`).
+
+**Frontend**: `socket.js` (dos sockets multiplexados), métodos `onGame`/`emitGame` para gameplay, `on`/`emit` para sistema. `useGameSocket.js`, `webSerialService.js` y tests actualizados.
+
+### Consecuencias (ADR-044)
+
+- Mejor separación de concerns: middleware y rate limiting solo afectan al namespace relevante.
+- El conteo de conexiones solo ocurre en el namespace default (evita doble conteo por multiplexación).
+- Los eventos de gameplay están aislados de los de sistema.
+- Socket.IO multiplexa ambos namespaces sobre la misma conexión WebSocket — sin overhead de red adicional.
+
+---
+
+## ADR-045: Decomposición modular del GameEngine
+
+### Contexto (ADR-045)
+
+El `GameEngine` era un archivo monolítico de 2080 líneas con 48 métodos que gestionaba: lifecycle de partidas, escaneo RFID, timers, cleanup, locks distribuidos, recovery, métricas y estrategias de juego. Difícil de testear y mantener.
+
+### Decisión (ADR-045)
+
+Se descompuso en una estructura de directorio con 3 módulos extraídos:
+
+```
+services/gameEngine/
+├── index.js          — Re-exporta la clase (mismo require path para consumidores)
+├── GameEngine.js     — Clase principal (~1560 líneas, core gameplay)
+├── recovery.js       — Recovery al startup y cleanup de huérfanos (~280 líneas)
+├── timerManager.js   — Timers: cleanup, heartbeat, transient (~230 líneas)
+└── stateHelpers.js   — Getters de estado, cálculos de tiempo (~260 líneas)
+```
+
+Cada módulo exporta funciones que reciben `engine` (instancia de GameEngine) como parámetro. La clase mantiene métodos-puente de una línea que delegan al módulo. Los consumidores siguen haciendo `require('./services/gameEngine')` sin cambios.
+
+### Consecuencias (ADR-045)
+
+- El archivo principal bajó de 2080 a 1560 líneas (~25% reducción).
+- Los módulos extraídos son testeables de forma independiente con un mock de `engine`.
+- La API pública del GameEngine no cambió — transparente para los 13 archivos consumidores.
+- Los imports internos se ajustaron al nuevo path relativo (un nivel más profundo).
+
+---
+
+## ADR-046: Feedback explícito para escaneos RFID ignorados (scan_ignored)
+
+### Contexto (ADR-046)
+
+El `GameEngine.handleCardScan()` ignoraba silenciosamente escaneos RFID en varios escenarios: partida pausada, entre rondas, tarjeta no reconocida. El profesor no recibía ningún feedback — simplemente no pasaba nada. Para usuarios no técnicos en un aula, esto es inaceptable.
+
+### Decisión (ADR-046)
+
+1. **Backend**: El GameEngine emite `scan_ignored` al play room con `{ uid, reason }` en 3 escenarios donde el `playId` es conocido: `play_paused`, `not_awaiting_response`, `card_not_in_play`.
+2. **Frontend**: `useGameSocket` escucha `scan_ignored` y muestra un toast informativo con mensaje en español adaptado al `reason` code. El toast usa `id: 'scan-ignored'` para deduplicar escaneos rápidos.
+3. **Timeout client-side**: Si el frontend emite un scan pero no recibe ninguna respuesta del servidor en 3 segundos, muestra un toast warning "Tarjeta no reconocida". Esto cubre el caso donde el UID no está en ninguna partida activa (el backend no puede emitir porque no conoce el playId).
+
+### Consecuencias (ADR-046)
+
+- El profesor siempre recibe feedback visible cuando un escaneo no produce efecto.
+- El volumen de `scan_ignored` está limitado por el dedup del frontend (1200ms) y el rate limiter del backend (2/3s).
+- El toast usa `toast.info` (no error) para no alarmar — indica que el sistema funciona pero el escaneo no aplica.
+
+---
+
+## ADR-047: Política de bloqueo RFID relajada para entorno educativo
+
+### Contexto (ADR-047)
+
+La política de bloqueo temporal de Socket.IO bloqueaba un socket tras 3 violaciones de rate limit durante 60 segundos. En un entorno de aula, un profesor que accidentalmente doble-escanea una tarjeta 3 veces rápidamente quedaba bloqueado durante 1 minuto completo — frustrante e incomprensible para un usuario no técnico.
+
+### Decisión (ADR-047)
+
+Se ajustó `socketBlockConfig`:
+- `violationThreshold`: 3 → **5** (más margen para errores accidentales)
+- `blockDurationMs`: 60s → **15s** (recuperación rápida si se alcanza)
+
+### Consecuencias (ADR-047)
+
+- Un profesor necesita 5 violaciones consecutivas (no 3) para ser bloqueado.
+- Si se bloquea, se recupera en 15 segundos (no 60).
+- La protección contra abuso deliberado sigue activa — 5 violaciones seguidas no es comportamiento normal.
+- Test actualizado en `socketRateLimiter.test.js`.

@@ -1393,5 +1393,8 @@ module.exports = {
 
   // Pipeline batch operations
   existsMany,
-  hgetallMany
+  hgetallMany,
+
+  // Diagnóstico
+  getCircuitBreakerState: () => redisBreaker.getState()
 };

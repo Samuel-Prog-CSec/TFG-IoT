@@ -265,9 +265,7 @@ function generatePlayEvents(
     timeoutAttempts += roundResult.counters.timeoutAttempts;
 
     score += pointsAwarded;
-    if (eventType !== 'timeout') {
-      responseTimes.push(timeElapsed);
-    }
+    responseTimes.push(timeElapsed);
 
     events.push(
       ...buildRoundEvents({
@@ -289,14 +287,14 @@ function generatePlayEvents(
 
   return {
     events,
-    score: Math.max(0, score),
+    score,
     metrics: {
       totalAttempts: roundsToPlay,
       correctAttempts,
       errorAttempts,
       timeoutAttempts,
       averageResponseTime,
-      completionTime: roundsToPlay * 15000
+      completionTime: 0 // Se recalcula con timestamps reales en generateGamePlaysData
     },
     roundsPlayed: roundsToPlay
   };
@@ -324,7 +322,7 @@ function generateGamePlaysData(sessions, students) {
   }, {});
 
   students.forEach((student, index) => {
-    const teacherId = (student.assignedTeacher || student.createdBy || '').toString();
+    const teacherId = (student.createdBy || '').toString();
     const teacherSessions = sessionsByTeacher[teacherId] || [];
     if (teacherSessions.length === 0) {
       return;
@@ -389,20 +387,25 @@ function generateGamePlaysData(sessions, students) {
       const startedAt = playData.events[0].timestamp;
       const lastEventTime = playData.events[playData.events.length - 1].timestamp.getTime();
 
+      const completedAt = new Date(lastEventTime + 1000);
+
       const gamePlay = {
         sessionId: session._id,
         playerId: student._id,
         score: playData.score,
-        currentRound: willAbandon ? playData.roundsPlayed : numberOfRounds + 1,
+        currentRound: willAbandon ? playData.roundsPlayed + 1 : numberOfRounds + 1,
         events: playData.events,
-        metrics: playData.metrics,
+        metrics: {
+          ...playData.metrics,
+          // Recalcular completionTime desde timestamps reales (como hace GamePlay.complete())
+          completionTime: completedAt - startedAt
+        },
         status: willAbandon ? 'abandoned' : 'completed',
-        startedAt
+        startedAt,
+        // completedAt se establece tanto para completadas como abandonadas
+        // (el modelo GameEngine también lo hace en endPlay para ambos estados)
+        completedAt
       };
-
-      // completedAt se establece tanto para completadas como abandonadas
-      // (el modelo GameEngine también lo hace en endPlay para ambos estados)
-      gamePlay.completedAt = new Date(lastEventTime + 1000);
 
       gamePlays.push(gamePlay);
     }

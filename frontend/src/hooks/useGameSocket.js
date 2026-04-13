@@ -7,7 +7,7 @@
  */
 
 import { useState, useEffect, useCallback, useRef } from 'react';
-import { socketService, SOCKET_EVENTS } from '../services/socket';
+import { socketService, SOCKET_EVENTS, GAME_EVENTS } from '../services/socket';
 import webSerialService from '../services/webSerialService';
 import {
   sessionsAPI,
@@ -31,6 +31,14 @@ const SOCKET_ERROR_MESSAGES = {
   AUTH_REQUIRED: 'Tu sesión expiró. Inicia sesión de nuevo.',
   ENGINE_ERROR: 'Algo salió mal. Inténtalo de nuevo o avisa al profesor.'
 };
+
+const SCAN_IGNORED_MESSAGES = {
+  play_paused: 'La partida está pausada. Reanúdala para continuar.',
+  not_awaiting_response: 'Escaneo fuera de turno. Espera a la siguiente ronda.',
+  card_not_in_play: 'Tarjeta no reconocida en esta partida.'
+};
+
+const SCAN_RESPONSE_TIMEOUT_MS = 3000;
 
 const REALTIME_STATUS_COPY = {
   connected: { label: 'Juego listo', announcement: 'El juego está conectado.' },
@@ -104,6 +112,7 @@ export function useGameSocket({
   const previousRealtimeStatusRef = useRef('connecting');
   const playIdRef = useRef(null);
   const gameStateRef = useRef('waiting');
+  const pendingScanTimeoutRef = useRef(null);
 
   const RETRY_COOLDOWN_MS = 5000;
 
@@ -222,9 +231,45 @@ export function useGameSocket({
       }
 
       if (playIdRef.current) {
-        socketService.sendCommand(SOCKET_EVENTS.JOIN_PLAY, { playId: playIdRef.current });
+        socketService.sendGameCommand(GAME_EVENTS.JOIN_PLAY, { playId: playIdRef.current });
       }
     };
+
+    // ── Feedback para escaneos RFID ignorados ──────────────────────────
+    const cancelPendingScanTimeout = () => {
+      if (pendingScanTimeoutRef.current) {
+        clearTimeout(pendingScanTimeoutRef.current);
+        pendingScanTimeoutRef.current = null;
+      }
+    };
+
+    // Wrappers: cancelar timeout de escaneo pendiente al recibir cualquier respuesta del servidor
+    const wrappedOnNewRound = data => { cancelPendingScanTimeout(); onNewRound(data); };
+    const wrappedOnValidationResult = data => { cancelPendingScanTimeout(); onValidationResult(data); };
+    const wrappedOnMemoryTurnState = data => { cancelPendingScanTimeout(); onMemoryTurnState(data); };
+    const wrappedOnGameOver = data => { cancelPendingScanTimeout(); onGameOver(data); };
+
+    const onScanIgnored = payload => {
+      cancelPendingScanTimeout();
+      const message = SCAN_IGNORED_MESSAGES[payload?.reason] || 'Escaneo ignorado.';
+      toast.info(message, { id: 'scan-ignored', duration: 3000 });
+      onSrAnnouncement?.(message);
+    };
+
+    // Timeout client-side: si el frontend envía un scan y no recibe respuesta en 3s
+    const handleLocalScan = () => {
+      cancelPendingScanTimeout();
+      pendingScanTimeoutRef.current = setTimeout(() => {
+        toast.warning('Tarjeta no reconocida. Verifica que pertenece a esta sesión.', {
+          id: 'scan-timeout',
+          duration: 4000
+        });
+        onSrAnnouncement?.('Tarjeta no reconocida.');
+        pendingScanTimeoutRef.current = null;
+      }, SCAN_RESPONSE_TIMEOUT_MS);
+    };
+
+    webSerialService.on('scan', handleLocalScan);
 
     const initRealtimePlay = async () => {
       // Prevenir re-inicialización cuando useEffect se re-ejecuta por cambios de dependencias
@@ -248,16 +293,17 @@ export function useGameSocket({
         }
         if (controller.signal.aborted) return undefined;
 
-        // 2. Registrar listeners (this.socket ya existe)
-        socketService.on(SOCKET_EVENTS.NEW_ROUND, onNewRound);
-        socketService.on(SOCKET_EVENTS.MEMORY_TURN_STATE, onMemoryTurnState);
-        socketService.on(SOCKET_EVENTS.VALIDATION_RESULT, onValidationResult);
-        socketService.on(SOCKET_EVENTS.GAME_OVER, onGameOver);
-        socketService.on(SOCKET_EVENTS.PLAY_PAUSED, onPlayPaused);
-        socketService.on(SOCKET_EVENTS.PLAY_RESUMED, onPlayResumed);
-        socketService.on(SOCKET_EVENTS.PLAY_STATE, onPlayState);
-        socketService.on(SOCKET_EVENTS.PLAY_INTERRUPTED, onPlayInterrupted);
-        socketService.on(SOCKET_EVENTS.ERROR, onSocketError);
+        // 2. Registrar listeners — gameplay en namespace /game, sistema en /
+        socketService.onGame(GAME_EVENTS.NEW_ROUND, wrappedOnNewRound);
+        socketService.onGame(GAME_EVENTS.MEMORY_TURN_STATE, wrappedOnMemoryTurnState);
+        socketService.onGame(GAME_EVENTS.VALIDATION_RESULT, wrappedOnValidationResult);
+        socketService.onGame(GAME_EVENTS.GAME_OVER, wrappedOnGameOver);
+        socketService.onGame(GAME_EVENTS.PLAY_PAUSED, onPlayPaused);
+        socketService.onGame(GAME_EVENTS.PLAY_RESUMED, onPlayResumed);
+        socketService.onGame(GAME_EVENTS.PLAY_STATE, onPlayState);
+        socketService.onGame(GAME_EVENTS.PLAY_INTERRUPTED, onPlayInterrupted);
+        socketService.onGame(GAME_EVENTS.SCAN_IGNORED, onScanIgnored);
+        socketService.onGame(GAME_EVENTS.ERROR, onSocketError);
         socketService.on(SOCKET_EVENTS.DISCONNECT, onSocketDisconnect);
         socketService.on(SOCKET_EVENTS.CONNECT, onSocketConnect);
 
@@ -313,8 +359,8 @@ export function useGameSocket({
         }
 
         if (controller.signal.aborted) return undefined;
-        socketService.sendCommand(SOCKET_EVENTS.JOIN_PLAY, { playId: resolvedPlay.playId });
-        socketService.sendCommand(SOCKET_EVENTS.START_PLAY, { playId: resolvedPlay.playId });
+        socketService.sendGameCommand(GAME_EVENTS.JOIN_PLAY, { playId: resolvedPlay.playId });
+        socketService.sendGameCommand(GAME_EVENTS.START_PLAY, { playId: resolvedPlay.playId });
         // Sincronizar estado en caso de que rondas avanzaran durante la inicialización
         socketService.requestPlayStateSync(resolvedPlay.playId);
 
@@ -341,17 +387,23 @@ export function useGameSocket({
       initCalledRef.current = false;
       controller.abort();
       if (playIdRef.current) {
-        socketService.sendCommand(SOCKET_EVENTS.LEAVE_PLAY, { playId: playIdRef.current });
+        socketService.sendGameCommand(GAME_EVENTS.LEAVE_PLAY, { playId: playIdRef.current });
       }
-      socketService.off(SOCKET_EVENTS.NEW_ROUND, onNewRound);
-      socketService.off(SOCKET_EVENTS.MEMORY_TURN_STATE, onMemoryTurnState);
-      socketService.off(SOCKET_EVENTS.VALIDATION_RESULT, onValidationResult);
-      socketService.off(SOCKET_EVENTS.GAME_OVER, onGameOver);
-      socketService.off(SOCKET_EVENTS.PLAY_PAUSED, onPlayPaused);
-      socketService.off(SOCKET_EVENTS.PLAY_RESUMED, onPlayResumed);
-      socketService.off(SOCKET_EVENTS.PLAY_STATE, onPlayState);
-      socketService.off(SOCKET_EVENTS.PLAY_INTERRUPTED, onPlayInterrupted);
-      socketService.off(SOCKET_EVENTS.ERROR, onSocketError);
+      // Limpiar listeners de gameplay (namespace /game)
+      socketService.offGame(GAME_EVENTS.NEW_ROUND, wrappedOnNewRound);
+      socketService.offGame(GAME_EVENTS.MEMORY_TURN_STATE, wrappedOnMemoryTurnState);
+      socketService.offGame(GAME_EVENTS.VALIDATION_RESULT, wrappedOnValidationResult);
+      socketService.offGame(GAME_EVENTS.GAME_OVER, wrappedOnGameOver);
+      socketService.offGame(GAME_EVENTS.PLAY_PAUSED, onPlayPaused);
+      socketService.offGame(GAME_EVENTS.PLAY_RESUMED, onPlayResumed);
+      socketService.offGame(GAME_EVENTS.PLAY_STATE, onPlayState);
+      socketService.offGame(GAME_EVENTS.PLAY_INTERRUPTED, onPlayInterrupted);
+      socketService.offGame(GAME_EVENTS.SCAN_IGNORED, onScanIgnored);
+      socketService.offGame(GAME_EVENTS.ERROR, onSocketError);
+      // Limpiar listener de scan local y timeout pendiente
+      webSerialService.off('scan', handleLocalScan);
+      cancelPendingScanTimeout();
+      // Limpiar listeners de sistema (namespace /)
       socketService.off(SOCKET_EVENTS.DISCONNECT, onSocketDisconnect);
       socketService.off(SOCKET_EVENTS.CONNECT, onSocketConnect);
     };
@@ -410,7 +462,7 @@ export function useGameSocket({
 
   const emitPausePlay = useCallback(() => {
     if (!playIdRef.current) return false;
-    const sent = socketService.sendCommand(SOCKET_EVENTS.PAUSE_PLAY, { playId: playIdRef.current });
+    const sent = socketService.sendGameCommand(GAME_EVENTS.PAUSE_PLAY, { playId: playIdRef.current });
     if (sent === false) {
       setRealtimeStatus('disconnected');
       setRealtimeError({
@@ -424,7 +476,7 @@ export function useGameSocket({
 
   const emitResumePlay = useCallback(() => {
     if (!playIdRef.current) return false;
-    const sent = socketService.sendCommand(SOCKET_EVENTS.RESUME_PLAY, { playId: playIdRef.current });
+    const sent = socketService.sendGameCommand(GAME_EVENTS.RESUME_PLAY, { playId: playIdRef.current });
     if (sent === false) {
       setRealtimeStatus('disconnected');
       setRealtimeError({
@@ -438,7 +490,7 @@ export function useGameSocket({
 
   const emitFallbackScan = useCallback((card, sensorId) => {
     if (!playIdRef.current || !card?.uid) return false;
-    return socketService.sendCommand(SOCKET_EVENTS.RFID_SCAN_FROM_CLIENT, {
+    return socketService.sendGameCommand(GAME_EVENTS.RFID_SCAN_FROM_CLIENT, {
       uid: card.uid,
       type: 'UNKNOWN',
       sensorId: sensorId || 'touch_fallback_sensor',
@@ -449,7 +501,7 @@ export function useGameSocket({
 
   const emitMemoryCardTap = useCallback((slot, sensorId) => {
     if (!playIdRef.current || !slot?.uid) return false;
-    return socketService.sendCommand(SOCKET_EVENTS.RFID_SCAN_FROM_CLIENT, {
+    return socketService.sendGameCommand(GAME_EVENTS.RFID_SCAN_FROM_CLIENT, {
       uid: slot.uid,
       type: 'UNKNOWN',
       sensorId: sensorId || 'touch_fallback_sensor',
@@ -474,12 +526,12 @@ export function useGameSocket({
 
   const startPlay = useCallback(() => {
     if (!playIdRef.current) return false;
-    return socketService.sendCommand(SOCKET_EVENTS.START_PLAY, { playId: playIdRef.current });
+    return socketService.sendGameCommand(GAME_EVENTS.START_PLAY, { playId: playIdRef.current });
   }, []);
 
   const leaveAndCreateNewPlay = useCallback(async (playerId) => {
     if (playIdRef.current) {
-      socketService.sendCommand(SOCKET_EVENTS.LEAVE_PLAY, { playId: playIdRef.current });
+      socketService.sendGameCommand(GAME_EVENTS.LEAVE_PLAY, { playId: playIdRef.current });
     }
 
     const createPlayRes = await playsAPI.createPlay({ sessionId, playerId });
@@ -491,15 +543,15 @@ export function useGameSocket({
     }
 
     setPlayId(nextPlayId);
-    socketService.sendCommand(SOCKET_EVENTS.JOIN_PLAY, { playId: nextPlayId });
-    socketService.sendCommand(SOCKET_EVENTS.START_PLAY, { playId: nextPlayId });
+    socketService.sendGameCommand(GAME_EVENTS.JOIN_PLAY, { playId: nextPlayId });
+    socketService.sendGameCommand(GAME_EVENTS.START_PLAY, { playId: nextPlayId });
 
     return nextPlayId;
   }, [sessionId]);
 
   const emitBoardReady = useCallback(() => {
     if (!playIdRef.current) return false;
-    return socketService.sendCommand(SOCKET_EVENTS.BOARD_READY, { playId: playIdRef.current });
+    return socketService.sendGameCommand(GAME_EVENTS.BOARD_READY, { playId: playIdRef.current });
   }, []);
 
   return {

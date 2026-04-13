@@ -422,59 +422,9 @@ const getPlayerStats = async (req, res) => {
 
   await ensureStudentBelongsToTeacher(playerId, req.user, userRepository);
 
-  const filter = { playerId, status: 'completed' };
-  if (sessionId) {
-    filter.sessionId = sessionId;
-  }
+  const data = await gamePlayService.getPlayerStats(playerId, sessionId || null);
 
-  // Calcular estadísticas agregadas
-  const stats = await gamePlayRepository.aggregate([
-    { $match: filter },
-    {
-      $group: {
-        _id: null,
-        totalPlays: { $sum: 1 },
-        totalScore: { $sum: '$score' },
-        averageScore: { $avg: '$score' },
-        bestScore: { $max: '$score' },
-        worstScore: { $min: '$score' },
-        totalCorrect: { $sum: '$metrics.correctAttempts' },
-        totalErrors: { $sum: '$metrics.errorAttempts' },
-        averageResponseTime: { $avg: '$metrics.averageResponseTime' },
-        totalCompletionTime: { $sum: '$metrics.completionTime' }
-      }
-    }
-  ]);
-
-  const result = stats[0] || {
-    totalPlays: 0,
-    totalScore: 0,
-    averageScore: 0,
-    bestScore: 0,
-    worstScore: 0,
-    totalCorrect: 0,
-    totalErrors: 0,
-    averageResponseTime: 0,
-    totalCompletionTime: 0
-  };
-
-  delete result._id;
-
-  // Calcular tasa de acierto
-  const accuracyRate =
-    result.totalCorrect + result.totalErrors > 0
-      ? ((result.totalCorrect / (result.totalCorrect + result.totalErrors)) * 100).toFixed(2)
-      : 0;
-
-  sendSuccess(
-    res,
-    toPlayerStatsDTOV1({
-      playerId,
-      sessionId: sessionId || 'all',
-      stats: result,
-      accuracyRate: Number.parseFloat(accuracyRate)
-    })
-  );
+  sendSuccess(res, toPlayerStatsDTOV1(data));
 };
 
 module.exports = {

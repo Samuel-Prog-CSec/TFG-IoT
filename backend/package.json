@@ -100,6 +100,6 @@
     "socket.io-parser": "^4.2.6"
   },
   "engines": {
-    "node": ">=24.12.0"
+    "node": ">=18.0.0"
   }
 }

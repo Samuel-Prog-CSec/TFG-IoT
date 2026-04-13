@@ -306,3 +306,27 @@ Se implementó el patrón **cache-aside** mediante `utils/cacheHelper.js` para r
 Solo se cachean endpoints `getById` (llamados frecuentemente con datos estables). Los endpoints de listado quedan sin cache porque las combinaciones variables de filtros, ordenamiento y paginación generarían demasiadas cache keys con baja tasa de acierto.
 
 Para más contexto sobre la decisión, ver **ADR-020** en `Architecture_Decisions.md`.
+
+---
+
+## Mejoras de rendimiento y estabilidad (Mantenimiento 2026-04-12)
+
+### maxTimeMS en aggregations (ADR-039)
+
+Todas las aggregation pipelines ahora tienen un timeout por defecto de 15 segundos, centralizado en los repositories (`gamePlayRepository`, `gameSessionRepository`, `userRepository`). Esto evita que un pipeline lento bloquee el pool de conexiones de Mongoose indefinidamente. Configurable via `AGGREGATE_TIMEOUT_MS`.
+
+### Hard cap en caches in-memory de Socket.IO
+
+Los caches `authRevalidationCache` y `playOwnershipCache` en `socketHandlers.js` ahora tienen un hard cap basado en `CACHE_SWEEP_THRESHOLD` (default 2000). Si el cache supera el umbral tras un sweep completo, las nuevas entradas se descartan. Esto previene acumulación de memoria por ráfagas de conexiones.
+
+### Fix: TTL fallback en cacheGet
+
+El fallback de TTL en `cacheHelper.js` ahora resuelve correctamente el namespace (`cache:analytics` → `analytics` → 300s) en vez de buscar por key (que nunca matcheaba). Los callers que pasan TTL explícito no se ven afectados.
+
+### Fix: cacheInvalidateNamespace implementado
+
+La función `cacheInvalidateNamespace` en `cacheHelper.js` ahora delega a `redisService.flushNamespace()` (SCAN + DEL) en vez de ser un no-op. Se usa en `userController` para invalidar analytics tras un cambio de consentimiento RGPD.
+
+### Lógica de aggregation extraída a services
+
+Las aggregation pipelines que estaban en `gamePlayController` y `gameSessionController` se han movido a los services correspondientes (`gamePlayService.getPlayerStats`, `gamePlayService.getPlayStatsBySessionIds`), manteniendo los controllers como orquestadores delgados.

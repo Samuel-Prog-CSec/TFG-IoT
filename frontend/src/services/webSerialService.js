@@ -18,6 +18,7 @@ const MAX_RECONNECT_ATTEMPTS = 3;
 const RECONNECT_DELAY_BASE_MS = 1000;
 const HEARTBEAT_TIMEOUT_MS = 20000;
 const INIT_TIMEOUT_MS = 8000;
+const MAX_BUFFER_SIZE = 4096;
 
 const CARD_TYPES = new Set(['MIFARE_1KB', 'MIFARE_4KB', 'NTAG', 'UNKNOWN']);
 
@@ -43,14 +44,16 @@ const getOrCreateSensorId = () => {
   }
 };
 
-const normalizeCardType = (rawType) => {
+const normalizeCardType = rawType => {
   if (!rawType) return 'UNKNOWN';
   const normalized = String(rawType).trim().toUpperCase().replace(/\s+/g, '_');
   if (CARD_TYPES.has(normalized)) {
     return normalized;
   }
-  if (normalized.includes('MIFARE_1KB')) return 'MIFARE_1KB';
-  if (normalized.includes('MIFARE_4KB')) return 'MIFARE_4KB';
+  // El firmware MFRC522 envía formatos como "MIFARE Classic 1K" → "MIFARE_CLASSIC_1K"
+  // que no matchea directamente con "MIFARE_1KB". Usamos patrones más amplios.
+  if (normalized.includes('1K') && normalized.includes('MIFARE')) return 'MIFARE_1KB';
+  if (normalized.includes('4K') && normalized.includes('MIFARE')) return 'MIFARE_4KB';
   if (normalized.includes('NTAG')) return 'NTAG';
   return 'UNKNOWN';
 };
@@ -78,6 +81,7 @@ class WebSerialService {
     this.autoReconnectEnabled = true;
     this.heartbeatTimerId = null;
     this.initTimeoutId = null;
+    this._connectInProgress = false;
   }
 
   isSupported() {
@@ -163,22 +167,27 @@ class WebSerialService {
       throw new Error('Web Serial API no soportada en este navegador');
     }
 
-    if (this.port) {
+    if (this.port || this._connectInProgress) {
       return;
     }
 
-    this.autoReconnectEnabled = true;
+    this._connectInProgress = true;
+    try {
+      this.autoReconnectEnabled = true;
 
-    this.setStatus('connecting');
-    this.port = await navigator.serial.requestPort();
-    await this.port.open({ baudRate: DEFAULT_BAUD_RATE });
-    this.setStatus('connected');
-    this.reconnectAttempts = 0;
-    this.reconnecting = false;
+      this.setStatus('connecting');
+      this.port = await navigator.serial.requestPort();
+      await this.port.open({ baudRate: DEFAULT_BAUD_RATE });
+      this.setStatus('connected');
+      this.reconnectAttempts = 0;
+      this.reconnecting = false;
 
-    if (navigator.serial?.addEventListener && !this.hasSerialDisconnectListener) {
-      navigator.serial.addEventListener('disconnect', this.handleDisconnect);
-      this.hasSerialDisconnectListener = true;
+      if (navigator.serial?.addEventListener && !this.hasSerialDisconnectListener) {
+        navigator.serial.addEventListener('disconnect', this.handleDisconnect);
+        this.hasSerialDisconnectListener = true;
+      }
+    } finally {
+      this._connectInProgress = false;
     }
   }
 
@@ -193,6 +202,8 @@ class WebSerialService {
     this.setDeviceState('unknown');
     this.lastPort = this.port;
     this.port = null;
+    // Cada desconexión empieza con presupuesto fresco de reintentos
+    this.reconnectAttempts = 0;
     this.setStatus('disconnected', 'device_disconnected');
 
     if (navigator.serial?.removeEventListener && this.hasSerialDisconnectListener) {
@@ -351,6 +362,16 @@ class WebSerialService {
   }
 
   processBuffer() {
+    // Protección contra buffer overflow (datos sin newline del sensor corrupto)
+    if (this.buffer.length > MAX_BUFFER_SIZE) {
+      this.emit('error', {
+        message: 'Buffer serial desbordado, reiniciando',
+        details: `${this.buffer.length} bytes descartados`
+      });
+      this.buffer = '';
+      return;
+    }
+
     const lines = this.buffer.split('\n');
     this.buffer = lines.pop() || '';
 
@@ -424,6 +445,10 @@ class WebSerialService {
         }
         break;
       default:
+        this.emit('error', {
+          message: 'Evento RFID desconocido del sensor',
+          details: `event.event = "${event.event}"`
+        });
         break;
     }
   }
@@ -460,11 +485,11 @@ class WebSerialService {
       return;
     }
 
-    if (socketService.isSocketConnected()) {
+    if (socketService.isGameSocketConnected()) {
       this.flushPendingScans();
 
       try {
-        socketService.emitFireAndForget('rfid_scan_from_client', payload);
+        socketService.emitGameFireAndForget('rfid_scan_from_client', payload);
       } catch (error) {
         this.enqueuePendingScan(payload);
         this.emit('error', {
@@ -504,18 +529,18 @@ class WebSerialService {
   }
 
   flushPendingScans() {
-    if (!socketService.isSocketConnected()) {
+    if (!socketService.isGameSocketConnected()) {
       return { sent: 0, pending: this.pendingScans.length };
     }
 
     this.prunePendingScans();
 
     let sent = 0;
-    while (this.pendingScans.length > 0 && socketService.isSocketConnected()) {
+    while (this.pendingScans.length > 0 && socketService.isGameSocketConnected()) {
       const next = this.pendingScans[0];
 
       try {
-        socketService.emitFireAndForget('rfid_scan_from_client', next.payload);
+        socketService.emitGameFireAndForget('rfid_scan_from_client', next.payload);
         this.pendingScans.shift();
         sent += 1;
       } catch {

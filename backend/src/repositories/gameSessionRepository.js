@@ -30,7 +30,11 @@ const deleteById = id => baseRepo.deleteById(GameSession, id);
 
 const deleteMany = filter => baseRepo.deleteMany(GameSession, filter);
 
-const aggregate = pipeline => GameSession.aggregate(pipeline);
+// maxTimeMS por defecto para proteger contra aggregations lentas que bloqueen el pool
+const DEFAULT_AGGREGATE_TIMEOUT_MS = Number.parseInt(process.env.AGGREGATE_TIMEOUT_MS, 10) || 15000;
+
+const aggregate = (pipeline, { maxTimeMS = DEFAULT_AGGREGATE_TIMEOUT_MS } = {}) =>
+  GameSession.aggregate(pipeline).option({ maxTimeMS });
 
 module.exports = {
   find,

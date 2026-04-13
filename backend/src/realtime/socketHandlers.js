@@ -20,6 +20,7 @@ const { socketConnectionLimits } = require('../config/socketRateLimits');
 const { getRedis } = require('../config/redis');
 const Sentry = require('@sentry/node');
 const logger = require('../utils/logger').child({ component: 'socketHandlers' });
+const { authEventBus } = require('../utils/authEvents');
 
 const REDIS_RFID_MODE_PREFIX = 'rfid:mode:';
 const REDIS_SENSOR_PREFIX = 'rfid:sensor:';
@@ -45,6 +46,9 @@ const connectionCountByUserId = new Map();
 /** Mutex por userId para serializar operaciones RFID mode (evita race conditions). */
 const rfidModeLocks = new Map();
 let socketServerRef = null;
+/** Referencia al namespace /game para emitir eventos de gameplay (reservado para uso interno futuro). */
+// eslint-disable-next-line no-unused-vars -- referencia almacenada para uso interno por funciones del módulo
+let gameNspRef = null;
 
 /**
  * Referencia al intervalo de limpieza periódica de caches.
@@ -152,6 +156,17 @@ const setAuthCacheEntry = (accessToken, value) => {
 
   sweepExpiredEntries(authRevalidationCache);
 
+  // Hard cap: si tras el sweep el cache sigue al límite, forzar limpieza completa
+  if (authRevalidationCache.size >= CACHE_SWEEP_THRESHOLD) {
+    sweepAllExpiredEntries(authRevalidationCache);
+    if (authRevalidationCache.size >= CACHE_SWEEP_THRESHOLD) {
+      logger.warn('Auth revalidation cache al límite tras sweep completo, descartando entrada', {
+        cacheSize: authRevalidationCache.size
+      });
+      return;
+    }
+  }
+
   authRevalidationCache.set(accessToken, {
     ...value,
     expiresAt: Date.now() + AUTH_REVALIDATION_CACHE_TTL_MS
@@ -177,6 +192,17 @@ const getOwnershipCacheEntry = cacheKey => {
 
 const setOwnershipCacheEntry = (cacheKey, value) => {
   sweepExpiredEntries(playOwnershipCache);
+
+  // Hard cap: si tras el sweep el cache sigue al límite, forzar limpieza completa
+  if (playOwnershipCache.size >= CACHE_SWEEP_THRESHOLD) {
+    sweepAllExpiredEntries(playOwnershipCache);
+    if (playOwnershipCache.size >= CACHE_SWEEP_THRESHOLD) {
+      logger.warn('Play ownership cache al límite tras sweep completo, descartando entrada', {
+        cacheSize: playOwnershipCache.size
+      });
+      return;
+    }
+  }
 
   playOwnershipCache.set(cacheKey, {
     value,
@@ -868,33 +894,16 @@ const handleRfidScanFromClient = async (socket, data, gameEngine, rfidService, l
   });
 };
 
-const registerSocketHandlers = ({ io, gameEngine, rfidService, socketRateLimiter, logger }) => {
-  socketServerRef = io;
-
-  // Iniciar limpieza periódica de caches (cada 5 minutos)
-  if (cacheCleanupIntervalRef) {
-    clearInterval(cacheCleanupIntervalRef);
-  }
-  cacheCleanupIntervalRef = setInterval(() => {
-    const authRemoved = sweepAllExpiredEntries(authRevalidationCache);
-    const ownershipRemoved = sweepAllExpiredEntries(playOwnershipCache);
-    if (authRemoved > 0 || ownershipRemoved > 0) {
-      logger.debug('Limpieza periódica de caches Socket.IO completada', {
-        authRemoved,
-        ownershipRemoved,
-        authCacheSize: authRevalidationCache.size,
-        ownershipCacheSize: playOwnershipCache.size
-      });
-    }
-  }, CACHE_CLEANUP_INTERVAL_MS);
-
-  // Evitar que el intervalo impida el cierre del proceso
-  if (cacheCleanupIntervalRef.unref) {
-    cacheCleanupIntervalRef.unref();
-  }
-
-  // Middleware de autenticacion obligatoria.
-  io.use(async (socket, next) => {
+/**
+ * Crea middleware de autenticación reutilizable para namespaces Socket.IO.
+ * Valida token JWT, origen, estado del usuario y límite de conexiones.
+ *
+ * @param {Object} socketRateLimiter - Instancia del rate limiter de sockets
+ * @returns {Function} Middleware async para Socket.IO
+ */
+const createAuthMiddleware =
+  (socketRateLimiter, { trackConnections = true } = {}) =>
+  async (socket, next) => {
     try {
       const tokenFromAuth = socket.handshake?.auth?.token;
       const headerAuth = socket.handshake?.headers?.authorization || '';
@@ -982,17 +991,22 @@ const registerSocketHandlers = ({ io, gameEngine, rfidService, socketRateLimiter
       }
 
       const userId = user._id.toString();
-      const currentCount = connectionCountByUserId.get(userId) || 0;
-      if (currentCount >= socketConnectionLimits.maxConnectionsPerUser) {
-        logSocketSecurityEvent('WS_CONNECTION_LIMIT', socket, {
-          reason: 'MAX_CONNECTIONS_EXCEEDED',
-          userId,
-          currentCount,
-          limit: socketConnectionLimits.maxConnectionsPerUser
-        });
-        return next(new Error('Limite de conexiones alcanzado'));
+
+      // Solo contar conexiones en el namespace principal (default /).
+      // El namespace /game reutiliza la misma conexión WebSocket subyacente.
+      if (trackConnections) {
+        const currentCount = connectionCountByUserId.get(userId) || 0;
+        if (currentCount >= socketConnectionLimits.maxConnectionsPerUser) {
+          logSocketSecurityEvent('WS_CONNECTION_LIMIT', socket, {
+            reason: 'MAX_CONNECTIONS_EXCEEDED',
+            userId,
+            currentCount,
+            limit: socketConnectionLimits.maxConnectionsPerUser
+          });
+          return next(new Error('Limite de conexiones alcanzado'));
+        }
+        connectionCountByUserId.set(userId, currentCount + 1);
       }
-      connectionCountByUserId.set(userId, currentCount + 1);
 
       socket.data.userId = userId;
       socket.data.userRole = user.role;
@@ -1009,14 +1023,52 @@ const registerSocketHandlers = ({ io, gameEngine, rfidService, socketRateLimiter
       });
       return next(new Error('Autenticacion invalida'));
     }
-  });
+  };
+
+const registerSocketHandlers = ({
+  io,
+  gameNsp,
+  gameEngine,
+  rfidService,
+  socketRateLimiter,
+  logger
+}) => {
+  socketServerRef = io;
+  gameNspRef = gameNsp;
+
+  // Iniciar limpieza periódica de caches (cada 5 minutos)
+  if (cacheCleanupIntervalRef) {
+    clearInterval(cacheCleanupIntervalRef);
+  }
+  cacheCleanupIntervalRef = setInterval(() => {
+    const authRemoved = sweepAllExpiredEntries(authRevalidationCache);
+    const ownershipRemoved = sweepAllExpiredEntries(playOwnershipCache);
+    if (authRemoved > 0 || ownershipRemoved > 0) {
+      logger.debug('Limpieza periódica de caches Socket.IO completada', {
+        authRemoved,
+        ownershipRemoved,
+        authCacheSize: authRevalidationCache.size,
+        ownershipCacheSize: playOwnershipCache.size
+      });
+    }
+  }, CACHE_CLEANUP_INTERVAL_MS);
+
+  // Evitar que el intervalo impida el cierre del proceso
+  if (cacheCleanupIntervalRef.unref) {
+    cacheCleanupIntervalRef.unref();
+  }
+
+  // ---- Namespace por defecto (/): eventos de sistema ----
+  const authMiddleware = createAuthMiddleware(socketRateLimiter);
+  io.use(authMiddleware);
 
   io.on('connection', async socket => {
-    logger.info(`Cliente conectado: ${socket.id}`, {
+    logger.info(`Cliente conectado [/]: ${socket.id}`, {
       userId: socket.data.userId,
       role: socket.data.userRole
     });
 
+    // Emitir estado RFID actual al conectarse
     const currentMode = await getRfidModeState(socket.data.userId);
     socket.emit('rfid_mode_changed', {
       mode: currentMode.mode,
@@ -1024,6 +1076,35 @@ const registerSocketHandlers = ({ io, gameEngine, rfidService, socketRateLimiter
       metadata: currentMode.metadata || {},
       socketId: currentMode.socketId || null,
       updatedAt: currentMode.updatedAt || Date.now()
+    });
+
+    socket.on('disconnect', () => {
+      const disconnUserId = socket.data.userId;
+      if (disconnUserId) {
+        const count = connectionCountByUserId.get(disconnUserId) || 0;
+        if (count <= 1) {
+          connectionCountByUserId.delete(disconnUserId);
+        } else {
+          connectionCountByUserId.set(disconnUserId, count - 1);
+        }
+      }
+      // NOTA: la limpieza RFID se hace en el disconnect del namespace /game,
+      // donde se registró el modo (con el socketId correcto de /game).
+      logger.info(`Cliente desconectado [/]: ${socket.id}`, {
+        userId: socket.data.userId,
+        role: socket.data.userRole
+      });
+    });
+  });
+
+  // ---- Namespace /game: eventos de gameplay ----
+  // No contamos conexiones en /game (ya se cuentan en el namespace default)
+  gameNsp.use(createAuthMiddleware(socketRateLimiter, { trackConnections: false }));
+
+  gameNsp.on('connection', socket => {
+    logger.info(`Cliente conectado [/game]: ${socket.id}`, {
+      userId: socket.data.userId,
+      role: socket.data.userRole
     });
 
     const sensitiveEvents = new Set([
@@ -1068,7 +1149,7 @@ const registerSocketHandlers = ({ io, gameEngine, rfidService, socketRateLimiter
           socket,
           data,
           logger,
-          io,
+          io: gameNsp,
           gameEngine,
           rfidService,
           helpers: commandHelpers
@@ -1113,48 +1194,48 @@ const registerSocketHandlers = ({ io, gameEngine, rfidService, socketRateLimiter
         })
       );
 
+    // Registrar todos los comandos de gameplay en el namespace /game
     getCommandNames().forEach(eventName => {
       onEvent(eventName);
     });
 
     socket.on('disconnect', () => {
-      const disconnUserId = socket.data.userId;
-      if (disconnUserId) {
-        const count = connectionCountByUserId.get(disconnUserId) || 0;
-        if (count <= 1) {
-          connectionCountByUserId.delete(disconnUserId);
-        } else {
-          connectionCountByUserId.set(disconnUserId, count - 1);
-        }
+      // Limpiar estado RFID: el modo se registró con el socketId de /game,
+      // por lo que debe limpiarse aquí (no en el namespace default).
+      const gameUserId = socket.data.userId;
+      if (gameUserId) {
+        clearRfidModeState(gameUserId, socket.id);
       }
       socket.data.playOwnershipCache = null;
-      clearRfidModeState(disconnUserId, socket.id);
       socketRateLimiter.cleanupForSocket(socket);
-      logger.info(`Cliente desconectado: ${socket.id}`, {
-        userId: socket.data.userId,
+      logger.info(`Cliente desconectado [/game]: ${socket.id}`, {
+        userId: gameUserId,
         role: socket.data.userRole
       });
     });
   });
 };
 
-const registerRfidHandlers = ({ io, gameEngine, rfidService, logger }) => {
+const registerRfidHandlers = ({ io, gameNsp, gameEngine, rfidService, logger }) => {
   rfidService.on('rfid_event', event => {
     runtimeMetrics.recordRfidEvent(event);
 
     const playId = event?.uid ? gameEngine.getPlayIdByCardUid(event.uid) : null;
 
     if (event.event === 'card_detected' && event.mode === RFID_MODES.GAMEPLAY && playId) {
-      io.to(getPlayRoom(playId)).emit('rfid_event', {
+      // Eventos de gameplay se emiten en el namespace /game
+      gameNsp.to(getPlayRoom(playId)).emit('rfid_event', {
         event: 'card_detected'
       });
     } else if (event.event === 'card_detected' && event.mode === RFID_MODES.CARD_ASSIGNMENT) {
+      // Eventos de asignacion de tarjetas se emiten en el namespace /game
       const userId = getUserIdBySensorId(event.sensorId);
       if (userId) {
-        io.to(getAssignmentRoom(userId)).emit('rfid_event', event);
+        gameNsp.to(getAssignmentRoom(userId)).emit('rfid_event', event);
       }
     } else {
-      io.to('admin_room').emit('rfid_event', event);
+      // Eventos administrativos se emiten en el namespace /game (admin_room)
+      gameNsp.to('admin_room').emit('rfid_event', event);
     }
 
     switch (event.event) {
@@ -1179,6 +1260,7 @@ const registerRfidHandlers = ({ io, gameEngine, rfidService, logger }) => {
     }
   });
 
+  // Evento de estado del servicio RFID: evento de sistema, se emite en namespace por defecto
   rfidService.on('status', status => {
     logger.info(`Estado del servicio RFID: ${status}`);
     io.to('admin_room').emit('rfid_status', { status });
@@ -1195,6 +1277,46 @@ const stopCacheCleanup = () => {
     cacheCleanupIntervalRef = null;
   }
 };
+
+// ============================================================================
+// INVALIDACIÓN INMEDIATA DEL AUTH CACHE VIA EVENTOS INTERNOS
+// ============================================================================
+
+/**
+ * Purga del auth cache todas las entradas de un userId específico.
+ * Se ejecuta cuando se revocan todos los tokens del usuario (seguridad).
+ *
+ * @param {string} userId
+ * @returns {number} Número de entradas purgadas
+ */
+const purgeAuthCacheByUserId = userId => {
+  let purged = 0;
+  for (const [token, cached] of authRevalidationCache.entries()) {
+    if (cached.userId === userId) {
+      authRevalidationCache.delete(token);
+      purged++;
+    }
+  }
+  return purged;
+};
+
+// Registrar listeners para eventos de revocación de tokens
+authEventBus.on('all_tokens_revoked', ({ userId, reason }) => {
+  const purged = purgeAuthCacheByUserId(userId);
+  if (purged > 0) {
+    logger.info('Auth cache purgado por revocación de todos los tokens', {
+      userId,
+      reason,
+      entriesPurged: purged
+    });
+  }
+});
+
+authEventBus.on('token_revoked', () => {
+  // Para revocación individual no tenemos el token string (solo JTI).
+  // El impacto es mínimo: una sola entrada expirará en ≤30s.
+  // La purga por userId cubre el caso de seguridad importante.
+});
 
 module.exports = {
   RFID_MODES,

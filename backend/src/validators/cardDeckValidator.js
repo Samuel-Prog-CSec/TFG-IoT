@@ -79,16 +79,6 @@ const createCardDeckSchema = z
         'Los UIDs en cardMappings deben ser únicos (no se puede usar la misma tarjeta dos veces)',
       path: ['cardMappings']
     }
-  )
-  .refine(
-    data => {
-      const assignedValues = data.cardMappings.map(m => m.assignedValue);
-      return assignedValues.length === new Set(assignedValues).size;
-    },
-    {
-      message: 'No puede haber valores asignados duplicados en cardMappings',
-      path: ['cardMappings']
-    }
   );
 
 /**
@@ -134,19 +124,6 @@ const updateCardDeckSchema = z
     },
     {
       message: 'Los UIDs en cardMappings deben ser únicos',
-      path: ['cardMappings']
-    }
-  )
-  .refine(
-    data => {
-      if (!data.cardMappings) {
-        return true;
-      }
-      const assignedValues = data.cardMappings.map(m => m.assignedValue);
-      return assignedValues.length === new Set(assignedValues).size;
-    },
-    {
-      message: 'No puede haber valores asignados duplicados en cardMappings',
       path: ['cardMappings']
     }
   );

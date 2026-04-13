@@ -27,7 +27,7 @@
  * @returns {import('mongoose').Query} Query con opciones aplicadas
  */
 const applyQueryOptions = (query, options = {}) => {
-  const { select, populate, sort, limit, skip, lean, session } = options;
+  const { select, populate, sort, limit, skip, lean, session, maxTimeMS } = options;
 
   if (select) {
     query = query.select(select);
@@ -57,6 +57,12 @@ const applyQueryOptions = (query, options = {}) => {
 
   if (session) {
     query = query.session(session);
+  }
+
+  // maxTimeMS: timeout opcional para queries que podrían ser lentas.
+  // No se aplica por defecto; los callers lo pasan cuando lo necesitan.
+  if (Number.isInteger(maxTimeMS)) {
+    query = query.setOptions({ maxTimeMS });
   }
 
   return query;

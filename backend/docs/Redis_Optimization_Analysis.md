@@ -429,3 +429,11 @@ node scripts/benchmark-redis-ops.js --cards=20 --iterations=100
 ### Cache-aside para entidades de alta lectura (implementado)
 
 Se implementó el patrón cache-aside para mecánicas, contextos y analytics de clase (ver **ADR-020** en `Architecture_Decisions.md`). El helper `cacheHelper.js` reutiliza la infraestructura de `redisService` con circuit breaker, definiendo tres niveles de cache con TTLs diferenciados (mecánicas 1h, contextos 30min, analytics 5min). La invalidación explícita en mutaciones garantiza frescura de datos para mecánicas y contextos, mientras que analytics se basa en expiración por TTL.
+
+### Mejoras de resiliencia Redis (Mantenimiento 2026-04-12)
+
+**Observabilidad del Circuit Breaker (ADR-040):** El `CircuitBreaker` ahora logea cada transición de estado (`closed→open→half_open→closed`). El health check (`/health`) incluye el campo `circuitBreaker` en la sección de Redis, y reporta estado `degraded` cuando el circuit breaker está abierto.
+
+**Recovery de card locks (ADR-041):** Cuando Redis reconecta tras una desconexión, el GameEngine automáticamente re-registra las reservas de tarjetas para las partidas activas en memoria. Esto usa el mecanismo `onReconnect()` de `config/redis.js` que emite un callback en el evento `ready` tras una desconexión.
+
+**Documentación de política de errores:** El handler `on('error')` de Redis en producción ahora documenta explícitamente que NO cierra el proceso (a diferencia del fallo en `connect()` inicial). El circuit breaker de `redisService` gestiona la degradación graceful.

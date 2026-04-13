@@ -79,12 +79,15 @@ const io = new Server(server, {
   allowEIO3: false // Solo usar Engine.IO v4
 });
 
+// Namespace para eventos de gameplay (partidas, RFID scans, card assignment)
+const gameNsp = io.of('/game');
+
 /**
- * Instancia del motor de juego con Socket.IO inyectado.
+ * Instancia del motor de juego con namespace /game inyectado.
  * Gestiona todas las partidas activas del sistema.
  * @type {GameEngine}
  */
-const gameEngine = new GameEngine(io);
+const gameEngine = new GameEngine(gameNsp);
 
 // Rate limiting para WebSockets (instancia única compartida)
 const socketRateLimiter = createSocketRateLimiter({ logger });
@@ -95,6 +98,7 @@ if (process.env.NODE_ENV !== 'test') {
 // Exponer servicios a controllers (REST) sin imports circulares.
 app.set('gameEngine', gameEngine);
 app.set('io', io);
+app.set('gameNsp', gameNsp);
 app.set('rfidService', rfidService);
 app.set('runtimeMetrics', runtimeMetrics);
 
@@ -279,6 +283,7 @@ app.use(errorHandler);
 
 registerSocketHandlers({
   io,
+  gameNsp,
   gameEngine,
   rfidService,
   socketRateLimiter,
@@ -287,6 +292,7 @@ registerSocketHandlers({
 
 registerRfidHandlers({
   io,
+  gameNsp,
   gameEngine,
   rfidService,
   logger
@@ -411,11 +417,44 @@ const gracefulShutdown = async signal => {
   setTimeout(() => {
     logger.error(`Forzando shutdown tras timeout de ${shutdownTimeoutMs}ms`);
     process.exit(1);
-  }, shutdownTimeoutMs);
+  }, shutdownTimeoutMs).unref();
 };
 
 process.on('SIGTERM', () => gracefulShutdown('SIGTERM'));
 process.on('SIGINT', () => gracefulShutdown('SIGINT')); // Ctrl+C
+
+// ============================================================================
+// MANEJO DE ERRORES NO CAPTURADOS
+// ============================================================================
+
+/**
+ * Captura promesas rechazadas que no tienen .catch().
+ * Logea el error, lo reporta a Sentry y ejecuta shutdown controlado
+ * para evitar un estado inconsistente del proceso.
+ */
+process.on('unhandledRejection', (reason, promise) => {
+  logger.fatal({ err: reason, promise: String(promise) }, 'Unhandled Promise Rejection detectada');
+  const { Sentry } = require('./config/sentry');
+  Sentry.captureException(reason instanceof Error ? reason : new Error(String(reason)), {
+    tags: { source: 'unhandledRejection' }
+  });
+  gracefulShutdown('unhandledRejection');
+});
+
+/**
+ * Captura excepciones síncronas que escapan fuera de try/catch.
+ * Logea el error, lo reporta a Sentry y fuerza shutdown inmediato
+ * ya que el estado del proceso puede estar corrupto.
+ */
+process.on('uncaughtException', error => {
+  logger.fatal({ err: error }, 'Uncaught Exception detectada');
+  const { Sentry } = require('./config/sentry');
+  Sentry.captureException(error, {
+    tags: { source: 'uncaughtException' }
+  });
+  // Tras uncaughtException el estado del proceso es incierto — shutdown inmediato
+  gracefulShutdown('uncaughtException');
+});
 
 // Iniciar el servidor
 // Iniciar el servidor solo si se ejecuta directamente
@@ -423,4 +462,4 @@ if (require.main === module) {
   startServer();
 }
 
-module.exports = { app, server, io, gameEngine };
+module.exports = { app, server, io, gameNsp, gameEngine };

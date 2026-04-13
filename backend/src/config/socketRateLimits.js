@@ -30,8 +30,10 @@ const socketRateLimits = {
  * Política de bloqueo temporal tras abuso.
  */
 const socketBlockConfig = {
-  violationThreshold: 3,
-  blockDurationMs: 60 * 1000
+  // Relajado para entorno educativo: profesores pueden doble-escanear accidentalmente
+  // sin quedar bloqueados durante una clase (ver ADR-047)
+  violationThreshold: 5,
+  blockDurationMs: 15 * 1000
 };
 
 /**

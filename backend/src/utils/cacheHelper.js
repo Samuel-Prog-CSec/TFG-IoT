@@ -34,7 +34,7 @@ const DEFAULT_TTLS = {
  * @returns {Promise<*>} Datos del cache o de fetchFn
  */
 const cacheGet = async (namespace, key, fetchFn, ttlSeconds) => {
-  const ttl = ttlSeconds || DEFAULT_TTLS[key] || 300;
+  const ttl = ttlSeconds || DEFAULT_TTLS[namespace.replace('cache:', '')] || 300;
 
   // Intentar obtener del cache
   const cached = await redisService.get(namespace, key);
@@ -83,12 +83,14 @@ const cacheInvalidate = async (namespace, key) => {
  */
 const cacheInvalidateNamespace = async namespace => {
   logger.debug('Cache INVALIDATE namespace', { namespace });
-  // redisService no tiene deleteByPattern público, así que usamos
-  // el prefijo de ioredis + SCAN. Por simplicidad, iteramos keys conocidas
-  // o dejamos que expiren por TTL. Para invalidación masiva usamos
-  // el método delMany si conocemos las keys, o dejamos expirar.
-  // En la práctica, las invalidaciones son por key específica (create/update).
-  return true;
+  try {
+    const deletedCount = await redisService.flushNamespace(namespace);
+    logger.info('Cache namespace invalidado', { namespace, deletedCount });
+    return true;
+  } catch (error) {
+    logger.warn('Cache: error al invalidar namespace', { namespace, error: error.message });
+    return false;
+  }
 };
 
 module.exports = {

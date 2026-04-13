@@ -30,6 +30,13 @@ let redisClient = null;
 let isConnected = false;
 
 /**
+ * Callback invocado cuando Redis reconecta tras una desconexión.
+ * Permite al GameEngine re-registrar card locks de partidas activas.
+ * @type {Function|null}
+ */
+let onReconnectCallback = null;
+
+/**
  * Prefijo para todas las keys del proyecto.
  * @type {string}
  */
@@ -184,18 +191,32 @@ const connectRedis = async () => {
   });
 
   redisClient.on('ready', () => {
+    const wasDisconnected = !isConnected;
     isConnected = true;
     logger.info('Redis: Cliente listo para recibir comandos');
+
+    // Si Redis reconecta tras una desconexión, emitir evento para que
+    // el GameEngine pueda re-registrar card locks de partidas activas.
+    if (wasDisconnected && onReconnectCallback) {
+      logger.info('Redis: Reconexión detectada, ejecutando callback de recovery');
+      onReconnectCallback().catch(err => {
+        logger.error('Redis: Error en callback de reconexión', { error: err.message });
+      });
+    }
   });
 
   redisClient.on('error', error => {
     isConnected = false;
     logger.error('Redis: Error de conexión', { error: error.message });
 
-    // En producción, un fallo de Redis es crítico
+    // POLÍTICA DE ERRORES EN RUNTIME:
+    // No cerramos el proceso. El circuit breaker de redisService se encarga de
+    // degradar gracefully (omitir operaciones Redis) hasta que la conexión se
+    // restablezca. El health check (/health) reportará estado 'degraded'.
+    // Esto difiere del fallo en connect() inicial, que SÍ lanza en producción
+    // porque sin conexión inicial Redis no puede cargar scripts Lua ni validar PING.
     if (process.env.NODE_ENV === 'production') {
-      logger.error('Redis: Error crítico en producción');
-      // No cerramos el proceso, pero marcamos como no saludable
+      logger.error('Redis: Error en runtime — servicio degradado, circuit breaker activo');
     }
   });
 
@@ -316,6 +337,16 @@ const ping = async () => {
   }
 };
 
+/**
+ * Registra un callback que se ejecutará cuando Redis reconecte tras una desconexión.
+ * Útil para que el GameEngine re-registre card locks de partidas activas.
+ *
+ * @param {Function} callback - Función async a ejecutar en reconexión
+ */
+const onReconnect = callback => {
+  onReconnectCallback = callback;
+};
+
 module.exports = {
   connectRedis,
   disconnectRedis,
@@ -325,5 +356,6 @@ module.exports = {
   ping,
   getLuaScriptSHA,
   getLuaScriptSource,
-  loadLuaScripts
+  loadLuaScripts,
+  onReconnect
 };

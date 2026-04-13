@@ -313,11 +313,59 @@ async function getPlayerStats(playerId, sessionId = null) {
   };
 }
 
+/**
+ * Calcula estadísticas de partidas agrupadas por sesión.
+ * Devuelve un Map sessionId → { playsCount, averageScore }.
+ *
+ * @param {Array<string|ObjectId>} sessionIds - IDs de sesiones
+ * @returns {Promise<Object>} Mapa sessionId → stats
+ */
+async function getPlayStatsBySessionIds(sessionIds) {
+  if (!sessionIds || sessionIds.length === 0) {
+    return {};
+  }
+
+  const playStatsAgg = await gamePlayRepository.aggregate([
+    { $match: { sessionId: { $in: sessionIds }, status: 'completed' } },
+    {
+      $group: {
+        _id: '$sessionId',
+        playsCount: { $sum: 1 },
+        averageScore: { $avg: '$score' }
+      }
+    }
+  ]);
+
+  const statsMap = {};
+  for (const stat of playStatsAgg) {
+    statsMap[stat._id.toString()] = {
+      playsCount: stat.playsCount,
+      averageScore: Math.round(stat.averageScore ?? 0)
+    };
+  }
+  return statsMap;
+}
+
+/**
+ * Verifica si una sesión tiene partidas activas (in-progress o paused).
+ *
+ * @param {string|ObjectId} sessionId - ID de la sesión
+ * @returns {Promise<number>} Número de partidas activas
+ */
+async function countActivePlays(sessionId) {
+  return gamePlayRepository.count({
+    sessionId,
+    status: { $in: ['in-progress', 'paused'] }
+  });
+}
+
 module.exports = {
   createPlay,
   addEventToPlay,
   completePlay,
   getPlayerStats,
+  getPlayStatsBySessionIds,
+  countActivePlays,
   validateGameSession,
   validatePlayer,
   calculateRating

@@ -17,7 +17,11 @@ const count = (filter = {}) => GamePlay.countDocuments(filter);
 
 const create = data => GamePlay.create(data);
 
-const aggregate = pipeline => GamePlay.aggregate(pipeline);
+// maxTimeMS por defecto para proteger contra aggregations lentas que bloqueen el pool
+const DEFAULT_AGGREGATE_TIMEOUT_MS = Number.parseInt(process.env.AGGREGATE_TIMEOUT_MS, 10) || 15000;
+
+const aggregate = (pipeline, { maxTimeMS = DEFAULT_AGGREGATE_TIMEOUT_MS } = {}) =>
+  GamePlay.aggregate(pipeline).option({ maxTimeMS });
 
 const updateById = (id, update, options = {}) => baseRepo.updateById(GamePlay, id, update, options);
 

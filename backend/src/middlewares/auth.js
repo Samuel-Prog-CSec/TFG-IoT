@@ -13,6 +13,7 @@ const logger = require('../utils/logger').child({ component: 'auth' });
 const { logSecurityEvent, getRequestContext } = require('../utils/securityLogger');
 const redisService = require('../services/redisService');
 const { Sentry } = require('../config/sentry');
+const { authEventBus } = require('../utils/authEvents');
 
 /**
  * Constantes de seguridad para tokens.
@@ -74,6 +75,8 @@ const revokeToken = async (jti, expiresAt, meta = {}) => {
       expiresAt: new Date(expiresAt).toISOString(),
       ttlSeconds
     });
+    // Invalidar caches in-memory de Socket.IO inmediatamente
+    authEventBus.emit('token_revoked', { jti });
   }
 
   return success;
@@ -110,6 +113,8 @@ const revokeAllUserTokens = async (userId, reason = 'security', meta = {}) => {
       userId,
       reason
     });
+    // Invalidar caches in-memory de Socket.IO inmediatamente
+    authEventBus.emit('all_tokens_revoked', { userId, reason });
   }
 
   return success;

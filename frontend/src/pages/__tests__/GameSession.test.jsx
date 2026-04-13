@@ -75,51 +75,59 @@ vi.mock('sonner', () => ({
 
 vi.mock('../../services/socket', () => {
   let connected = false;
+  // Listeners compartidos: los tests emiten eventos sin distinción de namespace,
+  // así que sistema y juego comparten el mismo mapa para simplificar.
   const listeners = new Map();
+  const gameListeners = new Map();
 
-  const addListener = (event, callback) => {
-    if (!listeners.has(event)) {
-      listeners.set(event, new Set());
+  const addListener = (map) => (event, callback) => {
+    if (!map.has(event)) {
+      map.set(event, new Set());
     }
-    listeners.get(event).add(callback);
+    map.get(event).add(callback);
   };
 
-  const removeListener = (event, callback) => {
-    if (!listeners.has(event)) {
+  const removeListener = (map) => (event, callback) => {
+    if (!map.has(event)) {
       return;
     }
     if (!callback) {
-      listeners.delete(event);
+      map.delete(event);
       return;
     }
-    listeners.get(event).delete(callback);
+    map.get(event).delete(callback);
   };
 
+  // __emit busca en ambos mapas para que los tests existentes sigan funcionando
   const emitEvent = (event, payload) => {
-    const callbacks = listeners.get(event);
-    if (!callbacks) {
-      return;
+    for (const map of [listeners, gameListeners]) {
+      const callbacks = map.get(event);
+      if (callbacks) {
+        callbacks.forEach(cb => cb(payload));
+      }
     }
-    callbacks.forEach(cb => cb(payload));
   };
 
-  const SOCKET_EVENTS = {
+  const SYSTEM_EVENTS = {
     CONNECT: 'connect',
     DISCONNECT: 'disconnect',
     CONNECT_ERROR: 'connect_error',
     SESSION_INVALIDATED: 'session_invalidated',
-    RFID_EVENT: 'rfid_event',
-    RFID_STATUS: 'rfid_status',
     RFID_MODE_CHANGED: 'rfid_mode_changed',
-    RFID_SCAN_FROM_CLIENT: 'rfid_scan_from_client',
+  };
+
+  const GAME_EVENTS = {
     JOIN_PLAY: 'join_play',
     LEAVE_PLAY: 'leave_play',
     START_PLAY: 'start_play',
     PAUSE_PLAY: 'pause_play',
     RESUME_PLAY: 'resume_play',
     NEXT_ROUND: 'next_round',
+    PLAY_STATE_SYNC: 'play_state_sync',
+    BOARD_READY: 'board_ready',
     JOIN_CARD_ASSIGNMENT: 'join_card_assignment',
     LEAVE_CARD_ASSIGNMENT: 'leave_card_assignment',
+    RFID_SCAN_FROM_CLIENT: 'rfid_scan_from_client',
     PLAY_STATE: 'play_state',
     NEW_ROUND: 'new_round',
     MEMORY_TURN_STATE: 'memory_turn_state',
@@ -128,10 +136,17 @@ vi.mock('../../services/socket', () => {
     PLAY_INTERRUPTED: 'play_interrupted',
     PLAY_PAUSED: 'play_paused',
     PLAY_RESUMED: 'play_resumed',
-    ERROR: 'error'
+    SCAN_IGNORED: 'scan_ignored',
+    RFID_EVENT: 'rfid_event',
+    RFID_STATUS: 'rfid_status',
+    ERROR: 'error',
   };
 
+  const SOCKET_EVENTS = { ...SYSTEM_EVENTS, ...GAME_EVENTS };
+
   return {
+    SYSTEM_EVENTS,
+    GAME_EVENTS,
     SOCKET_EVENTS,
     socketService: {
       connect: vi.fn(async () => {
@@ -141,10 +156,18 @@ vi.mock('../../services/socket', () => {
         connected = false;
       }),
       isSocketConnected: vi.fn(() => connected),
-      on: vi.fn(addListener),
-      off: vi.fn(removeListener),
+      isGameSocketConnected: vi.fn(() => connected),
+      // Namespace de sistema
+      on: vi.fn(addListener(listeners)),
+      off: vi.fn(removeListener(listeners)),
       sendCommand: vi.fn(() => true),
+      // Namespace de juego
+      onGame: vi.fn(addListener(gameListeners)),
+      offGame: vi.fn(removeListener(gameListeners)),
+      sendGameCommand: vi.fn(() => true),
+      emitGameFireAndForget: vi.fn(),
       requestPlayStateSync: vi.fn(() => true),
+      // Helpers de test
       __emit: emitEvent,
       __setConnected: (value) => {
         connected = value;
@@ -240,7 +263,7 @@ describe('GameSession realtime gameplay', () => {
     };
 
     socketService.__setConnected(false);
-    socketService.sendCommand.mockReturnValue(true);
+    socketService.sendGameCommand.mockReturnValue(true);
   });
 
   it('renders association gameplay and updates round event in realtime', async () => {
@@ -329,7 +352,7 @@ describe('GameSession realtime gameplay', () => {
 
   it('requires realtime socket to pause or resume gameplay', async () => {
     const user = userEvent.setup();
-    socketService.sendCommand.mockReturnValue(false);
+    socketService.sendGameCommand.mockReturnValue(false);
 
     renderGameSession();
     await screen.findByRole('button', { name: /empezar/i });
@@ -352,7 +375,7 @@ describe('GameSession realtime gameplay', () => {
     const pauseButton = await screen.findByLabelText('Pausar');
     await user.click(pauseButton);
 
-    expect(socketService.sendCommand).toHaveBeenCalledWith(SOCKET_EVENTS.PAUSE_PLAY, {
+    expect(socketService.sendGameCommand).toHaveBeenCalledWith(SOCKET_EVENTS.PAUSE_PLAY, {
       playId: 'play-1'
     });
     await waitFor(() => {
@@ -480,7 +503,7 @@ describe('GameSession realtime gameplay', () => {
     const cardButton = await screen.findByRole('button', { name: /perro/i });
     await user.click(cardButton);
 
-    expect(socketService.sendCommand).toHaveBeenCalledWith(SOCKET_EVENTS.RFID_SCAN_FROM_CLIENT, {
+    expect(socketService.sendGameCommand).toHaveBeenCalledWith(SOCKET_EVENTS.RFID_SCAN_FROM_CLIENT, {
       uid: 'AA11',
       type: 'UNKNOWN',
       sensorId: 'sensor-class-1',
@@ -496,8 +519,8 @@ describe('GameSession realtime gameplay', () => {
 
     expect(sessionsAPI.getSessionById).toHaveBeenCalledWith('session-1', expect.any(Object));
     expect(playsAPI.createPlay).toHaveBeenCalledWith({ sessionId: 'session-1', playerId: 'student-1' });
-    expect(socketService.sendCommand).toHaveBeenCalledWith(SOCKET_EVENTS.JOIN_PLAY, { playId: 'play-1' });
-    expect(socketService.sendCommand).toHaveBeenCalledWith(SOCKET_EVENTS.START_PLAY, { playId: 'play-1' });
+    expect(socketService.sendGameCommand).toHaveBeenCalledWith(SOCKET_EVENTS.JOIN_PLAY, { playId: 'play-1' });
+    expect(socketService.sendGameCommand).toHaveBeenCalledWith(SOCKET_EVENTS.START_PLAY, { playId: 'play-1' });
   });
 
   it('announces round start in the live status region for screen readers', async () => {
@@ -600,6 +623,6 @@ describe('GameSession realtime gameplay', () => {
 
     await user.keyboard('{Escape}');
 
-    expect(socketService.sendCommand).toHaveBeenCalledWith(SOCKET_EVENTS.RESUME_PLAY, { playId: 'play-1' });
+    expect(socketService.sendGameCommand).toHaveBeenCalledWith(SOCKET_EVENTS.RESUME_PLAY, { playId: 'play-1' });
   });
 });

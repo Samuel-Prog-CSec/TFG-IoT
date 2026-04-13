@@ -551,6 +551,7 @@ Cuando un alumno escanea una tarjeta durante una partida:
 | `play_state`        | `{ playId, currentRound, score, maxRounds }`                         | Estado actual de la partida                  |
 | `new_round`         | `{ roundNumber, totalRounds, challenge, timeLimit, score }`          | Nueva ronda/desafío                          |
 | `validation_result` | `{ isCorrect, expected, actual, pointsAwarded, newScore, timeout? }` | Resultado de escaneo                         |
+| `scan_ignored`      | `{ uid, reason }` reason: `play_paused` \| `not_awaiting_response` \| `card_not_in_play` | Escaneo ignorado (ADR-046) |
 | `game_over`         | `{ finalScore, metrics }`                                            | Fin de partida                               |
 | `play_paused`       | `{ playId, currentRound, remainingTimeMs }`                          | Partida pausada                              |
 | `play_resumed`      | `{ playId, currentRound, remainingTimeMs, challenge? }`              | Partida reanudada                            |

@@ -24,13 +24,16 @@ describe('socketRateLimiter', () => {
     );
   });
 
-  test('bloquea temporalmente tras 3 violaciones consecutivas', async () => {
+  test('bloquea temporalmente tras 5 violaciones consecutivas', async () => {
     let now = 2000;
     const limiter = createSocketRateLimiter({ nowProvider: () => now });
     const socket = createSocket();
     const handler = jest.fn();
     const wrapped = limiter.wrap(socket, 'start_play', handler);
 
+    // 1 evento pasa + 5 violaciones = bloqueo tras la 5a violación
+    await wrapped({ playId: 'play-1' });
+    await wrapped({ playId: 'play-1' });
     await wrapped({ playId: 'play-1' });
     await wrapped({ playId: 'play-1' });
     await wrapped({ playId: 'play-1' });
@@ -42,7 +45,8 @@ describe('socketRateLimiter', () => {
       expect.objectContaining({ code: 'TEMP_BLOCKED', event: 'start_play' })
     );
 
-    now += 60 * 1000 + 1;
+    // Bloqueo de 15s (socketBlockConfig.blockDurationMs)
+    now += 15 * 1000 + 1;
     await wrapped({ playId: 'play-1' });
 
     expect(handler).toHaveBeenCalledTimes(2);

@@ -49,8 +49,10 @@ const withTransaction = async callback => {
     session = await mongoose.startSession();
     session.startTransaction();
   } catch {
-    // Standalone MongoDB (sin replica set): ejecutar sin transacción
-    logger.debug('Transacciones no disponibles (standalone), ejecutando sin sesión');
+    // Standalone MongoDB (sin replica set): ejecutar sin transacción.
+    // NOTA: En producción, esto no debería ocurrir (Docker Compose configura replica set).
+    // Si aparece en logs de producción, revisar configuración de MongoDB.
+    logger.warn('MongoDB sin soporte de transacciones (standalone), ejecutando sin sesión');
     return callback(null);
   }
 
@@ -67,7 +69,7 @@ const withTransaction = async callback => {
 
     // Si el error es por falta de replica set, reintentar sin transacción
     if (isTransactionNotSupportedError(error)) {
-      logger.debug('Transacciones no soportadas, reintentando sin sesión');
+      logger.warn('Transacciones no soportadas, reintentando sin sesión');
       session.endSession();
       return callback(null);
     }
