@@ -107,9 +107,12 @@ jobs:
           npm --prefix backend audit --omit=dev
 
           # Frontend: audit con excepciones documentadas
-          # GHSA-3p68-rc4w-qgx5 (axios SSRF via NO_PROXY) solo afecta Node.js server-side,
-          # no browsers. axios fijado a 1.14.0 (última versión pre-supply-chain-attack).
-          EXCLUDED_ADVISORIES="GHSA-3p68-rc4w-qgx5"
+          # axios fijado a 1.14.0 (última versión pre-supply-chain-attack).
+          # Las siguientes advisories solo afectan Node.js server-side, no browsers:
+          # - GHSA-3p68-rc4w-qgx5: axios SSRF via NO_PROXY bypass
+          # - GHSA-fvcv-3m26-pcqx: axios Cloud Metadata Exfiltration via Header Injection
+          # - GHSA-r4q5-vmmm-2653: follow-redirects filtra cabeceras auth en redirects cross-domain
+          EXCLUDED_ADVISORIES="GHSA-3p68-rc4w-qgx5,GHSA-fvcv-3m26-pcqx,GHSA-r4q5-vmmm-2653"
 
           if npm --prefix frontend audit --omit=dev 2>/dev/null; then
             echo "✅ Frontend audit limpio"
