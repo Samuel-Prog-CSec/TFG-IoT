@@ -1,6 +1,73 @@
 # Registro de Decisiones de Arquitectura (ADR)
 
-## ADR-001: Eliminación del Límite Duro de Partidas Simultáneas
+Documento unificado de todas las decisiones arquitectonicas del proyecto.
+Cada ADR indica su alcance: **[Backend]**, **[Frontend]**, **[Full-stack]** o **[DevOps]**.
+
+## Indice de ADRs
+
+| ADR | Titulo | Alcance |
+|-----|--------|---------|
+| ADR-001 | Eliminación del Límite Duro de Partidas Simultáneas | Backend |
+| ADR-002 | Autenticación Obligatoria en WebSockets y Desconexión por Invalidez | Backend |
+| ADR-003 | Capa de DTOs v1 y Contrato de Respuestas | Backend |
+| ADR-004 | Locks distribuidos de UIDs con lease TTL + heartbeat | Backend |
+| ADR-005 | Persistencia atómica de eventos de partida | Backend |
+| ADR-006 | Lectura de sesiones sin mutación + caché de ownership por capas | Backend |
+| ADR-007 | Security Gate de dependencias en CI (runtime bloqueante) | DevOps |
+| ADR-008 | Gobierno de identidades centrado en Super Admin + contrato paginado explícito FE/BE | Full-stack |
+| ADR-009 | Campo `data` en errores operacionales (AppError) | Backend |
+| ADR-010 | Checkpoints periódicos de partida y resiliencia ante crash | Full-stack |
+| ADR-011 | Socket.IO Redis Adapter para escalabilidad horizontal | Backend |
+| ADR-012 | Eliminación del modelo Card — Tarjetas RFID como tokens fungibles | Full-stack |
+| ADR-013 | Flujo de Errores HTTP Centralizado | Backend |
+| ADR-014 | Utilidades centralizadas de respuesta y filtrado (responseHelper + filterBuilder) | Backend |
+| ADR-015 | Patrón Repository completo con operaciones de escritura, transacciones y batch | Backend |
+| ADR-016 | Rate Limiting con Redis Store y protección de pause/resume | Backend |
+| ADR-017 | Endpoints de Analytics expandidos para Dashboard | Backend |
+| ADR-018 | Plan de descomposicion modular de gameEngine.js | Backend |
+| ADR-019 | Optimización de queries con lean() e índices compuestos | Backend |
+| ADR-020 | Estrategia de cache Redis para entidades de alta lectura | Backend |
+| ADR-021 | Revision de patrones de diseno — ownership helpers, Service Layer y rate limiting | Backend |
+| ADR-022 | Hardening de la capa WebSocket — persistencia RFID en Redis y limite de conexiones por usuario | Full-stack |
+| ADR-023 | Unicidad cross-deck de tarjetas RFID por profesor | Full-stack |
+| ADR-024 | Mejoras del Sistema de Assets — Sharpening, LQIP y AudioMiniPlayer | Full-stack |
+| ADR-025 | Vinculación de Audio a Assets Existentes | Full-stack |
+| ADR-026 | Descomposición modular del servicio de Analytics | Backend |
+| ADR-027 | Arquitectura Frontend de Analytics — Suite de 4 Páginas | Frontend |
+| ADR-028 | Estrategia de Composición de Componentes de Analytics | Frontend |
+| ADR-029 | Consolidación de umbrales RAG y filtrado híbrido en Dashboard | Full-stack |
+| ADR-030 | Protección de datos de menores — Minimización, consentimiento y ciclo de vida | Full-stack |
+| ADR-031 | Endurecimiento del consentimiento parental — Autorización, trazabilidad y defense in depth | Full-stack |
+| ADR-032 | Centralización de operaciones RGPD en el rol Super Admin | Full-stack |
+| ADR-033 | Derecho de oposición a analytics comportamentales (Art. 21 RGPD) | Full-stack |
+| ADR-034 | Centralización de verificación de consentimiento RGPD | Backend |
+| ADR-035 | Serialización de operaciones RFID mode con mutex por usuario | Backend |
+| ADR-036 | Endpoint de métricas del sistema (/api/health/metrics) | Backend |
+| ADR-037 | Protección de estabilidad del proceso (unhandledRejection/uncaughtException) | Backend |
+| ADR-038 | Límite duro de partidas activas simultáneas | Backend |
+| ADR-039 | Timeout de queries aggregate (maxTimeMS) | Backend |
+| ADR-040 | Observabilidad del circuit breaker y health check mejorado | Backend |
+| ADR-041 | Recovery de card locks tras reconexión Redis | Backend |
+| ADR-042 | Multer memory storage como diseño aceptado | Backend |
+| ADR-043 | Invalidación inmediata de auth cache vía eventos internos | Backend |
+| ADR-044 | Migración a Socket.IO namespaces (/game) | Full-stack |
+| ADR-045 | Decomposición modular del GameEngine | Backend |
+| ADR-046 | Feedback explícito para escaneos RFID ignorados (scan_ignored) | Full-stack |
+| ADR-047 | Política de bloqueo RFID relajada para entorno educativo | Backend |
+| ADR-048 | Selección de Librería de Visualización (Recharts) | Frontend |
+| ADR-049 | Patrón de Diseño de Dashboard (Jerarquía "F") | Frontend |
+| ADR-050 | Estrategia de Fetching de Datos (On-Mount + Polling Sincronizado) | Frontend |
+| ADR-051 | Sistema de Alertas Basado en Reglas (Frontend) | Frontend |
+
+**Leyenda de alcance:**
+- **Backend**: Cambios exclusivamente en el servidor (Node.js/Express)
+- **Frontend**: Cambios exclusivamente en el cliente (React/Vite)
+- **Full-stack**: Cambios que afectan tanto al backend como al frontend
+- **DevOps**: Cambios en CI/CD, infraestructura o tooling
+
+---
+
+## ADR-001: Eliminación del Límite Duro de Partidas Simultáneas [Backend]
 
 ### Contexto (ADR-001)
 
@@ -42,7 +109,7 @@ Si el sistema escala a producción masiva, se deberá reimplementar un rate-limi
 
 ---
 
-## ADR-002: Autenticación Obligatoria en WebSockets y Desconexión por Invalidez
+## ADR-002: Autenticación Obligatoria en WebSockets y Desconexión por Invalidez [Backend]
 
 ### Contexto (ADR-002)
 
@@ -66,7 +133,7 @@ Además, cuando una sesión se invalida (nuevo login) o la cuenta se desactiva/r
 
 ---
 
-## ADR-003: Capa de DTOs v1 y Contrato de Respuestas
+## ADR-003: Capa de DTOs v1 y Contrato de Respuestas [Backend]
 
 ### Contexto (ADR-003)
 
@@ -209,7 +276,7 @@ Los endpoints `/api/cards` fueron eliminados. Las tarjetas RFID se tratan como t
 
 ---
 
-## ADR-004: Locks distribuidos de UIDs con lease TTL + heartbeat
+## ADR-004: Locks distribuidos de UIDs con lease TTL + heartbeat [Backend]
 
 ### Contexto (ADR-004)
 
@@ -230,7 +297,7 @@ El `gameEngine` mantiene estado en memoria (`activePlays`, `cardUidToPlayId`) pe
 
 ---
 
-## ADR-005: Persistencia atómica de eventos de partida
+## ADR-005: Persistencia atómica de eventos de partida [Backend]
 
 ### Contexto (ADR-005)
 
@@ -251,7 +318,7 @@ El flujo de ronda realizaba múltiples escrituras por iteración (`round_start`,
 
 ---
 
-## ADR-006: Lectura de sesiones sin mutación + caché de ownership por capas
+## ADR-006: Lectura de sesiones sin mutación + caché de ownership por capas [Backend]
 
 ### Contexto (ADR-006)
 
@@ -277,7 +344,7 @@ Los endpoints de consulta de sesiones y comandos socket de control mostraban sob
 
 ---
 
-## ADR-007: Security Gate de dependencias en CI (runtime bloqueante)
+## ADR-007: Security Gate de dependencias en CI (runtime bloqueante) [DevOps]
 
 ### Contexto (ADR-013)
 
@@ -313,7 +380,7 @@ Se necesitaba una política que equilibrara seguridad efectiva en producción y 
 
 ---
 
-## ADR-008: Gobierno de identidades centrado en Super Admin + contrato paginado explícito FE/BE
+## ADR-008: Gobierno de identidades centrado en Super Admin + contrato paginado explícito FE/BE [Full-stack]
 
 ### Contexto (ADR-008)
 
@@ -376,7 +443,7 @@ Se acepta este trade-off por priorizar control, seguridad y trazabilidad institu
 
 ---
 
-## ADR-009: Campo `data` en errores operacionales (AppError)
+## ADR-009: Campo `data` en errores operacionales (AppError) [Backend]
 
 ### Contexto (ADR-009)
 
@@ -406,7 +473,7 @@ Se extiende `AppError` con un campo opcional `data`:
 
 ---
 
-## ADR-010: Checkpoints periódicos de partida y resiliencia ante crash
+## ADR-010: Checkpoints periódicos de partida y resiliencia ante crash [Full-stack]
 
 ### Contexto (ADR-010)
 
@@ -497,7 +564,7 @@ Ambos valores se pueden ajustar por entorno. Para entornos de producción de alt
 
 ---
 
-## ADR-011: Socket.IO Redis Adapter para escalabilidad horizontal
+## ADR-011: Socket.IO Redis Adapter para escalabilidad horizontal [Backend]
 
 ### Contexto (ADR-011)
 
@@ -595,7 +662,7 @@ El adapter **no** lee ni escribe en las mismas keys que el `gameEngine`, `redisS
 
 ---
 
-## ADR-012: Eliminación del modelo Card — Tarjetas RFID como tokens fungibles
+## ADR-012: Eliminación del modelo Card — Tarjetas RFID como tokens fungibles [Full-stack]
 
 ### Contexto (ADR-012)
 
@@ -825,7 +892,7 @@ El contrato de validación entre frontend (payload emitido por `webSerialService
 
 ---
 
-## ADR-013: Flujo de Errores HTTP Centralizado
+## ADR-013: Flujo de Errores HTTP Centralizado [Backend]
 
 ### Contexto (ADR-013)
 
@@ -906,7 +973,7 @@ Se unifica **todo** el flujo de errores HTTP a través del `errorHandler` centra
 
 ---
 
-## ADR-014: Utilidades centralizadas de respuesta y filtrado (responseHelper + filterBuilder)
+## ADR-014: Utilidades centralizadas de respuesta y filtrado (responseHelper + filterBuilder) [Backend]
 
 ### Contexto (ADR-014)
 
@@ -1005,7 +1072,7 @@ Imports de `escapeRegex` eliminados de adminController, gameMechanicController y
 
 ---
 
-## ADR-015: Patrón Repository completo con operaciones de escritura, transacciones y batch
+## ADR-015: Patrón Repository completo con operaciones de escritura, transacciones y batch [Backend]
 
 ### Contexto (ADR-015)
 
@@ -1087,7 +1154,7 @@ const updateById = (id, update, options = {}) => baseRepo.updateById(User, id, u
 
 ---
 
-## ADR-016: Rate Limiting con Redis Store y protección de pause/resume
+## ADR-016: Rate Limiting con Redis Store y protección de pause/resume [Backend]
 
 ### Contexto (ADR-016)
 
@@ -1158,7 +1225,7 @@ La auditoría de seguridad del Sprint 5 identificó dos problemas en el rate lim
 
 ---
 
-## ADR-017: Endpoints de Analytics expandidos para Dashboard
+## ADR-017: Endpoints de Analytics expandidos para Dashboard [Backend]
 
 ### Contexto (ADR-017)
 
@@ -1258,7 +1325,7 @@ Se crean **6 nuevos endpoints** de analytics, manteniendo el patrón existente (
 
 ---
 
-## ADR-018: Plan de descomposicion modular de gameEngine.js
+## ADR-018: Plan de descomposicion modular de gameEngine.js [Backend]
 
 ### Contexto (ADR-018)
 
@@ -1441,7 +1508,7 @@ class GameEngine {
 
 ---
 
-## ADR-019: Optimización de queries con lean() e índices compuestos
+## ADR-019: Optimización de queries con lean() e índices compuestos [Backend]
 
 ### Contexto (ADR-019)
 
@@ -1486,7 +1553,7 @@ Se adoptan dos optimizaciones complementarias:
 
 ---
 
-## ADR-020: Estrategia de cache Redis para entidades de alta lectura
+## ADR-020: Estrategia de cache Redis para entidades de alta lectura [Backend]
 
 ### Contexto (ADR-020)
 
@@ -1530,7 +1597,7 @@ Se adopta el patrón **cache-aside** mediante `utils/cacheHelper.js`, reutilizan
 
 - **ADR-016** (Rate limiting Redis store): Reutiliza la misma infraestructura de `redisService` con circuit breaker. Los namespaces `CACHE_MECHANIC`, `CACHE_CONTEXT` y `CACHE_ANALYTICS` se añaden al enum `NAMESPACES`
 
-## ADR-021: Revision de patrones de diseno — ownership helpers, Service Layer y rate limiting
+## ADR-021: Revision de patrones de diseno — ownership helpers, Service Layer y rate limiting [Backend]
 
 ### Contexto (ADR-021)
 
@@ -1581,7 +1648,7 @@ Adicionalmente, se identificaron 3 patrones ya implementados pero no documentado
 - `ownershipHelpers` introduce una dependencia transversal; cambios en la firma afectan 5 controllers
 - `createSessionFromDeck` importa helpers desde `controllers/helpers/` — inversion de dependencia atipica (service importa de controller helpers). Los helpers son funciones puras sin dependencia HTTP, pero la ubicacion es suboptima. Considerar mover a `utils/` o `services/helpers/` en futuras iteraciones
 
-## ADR-022: Hardening de la capa WebSocket — persistencia RFID en Redis y limite de conexiones por usuario
+## ADR-022: Hardening de la capa WebSocket — persistencia RFID en Redis y limite de conexiones por usuario [Full-stack]
 
 ### Contexto (ADR-022)
 
@@ -1643,7 +1710,7 @@ Adicionalmente, se identificaron dos bugs menores:
 - **ADR-016** (Rate limiting Redis store): Complementario — rate limiting protege throughput, este ADR protege recursos de conexion
 - **ADR-020** (Cache Redis): Mismo patron fire-and-forget con fallback transparente
 
-## ADR-023: Unicidad cross-deck de tarjetas RFID por profesor
+## ADR-023: Unicidad cross-deck de tarjetas RFID por profesor [Full-stack]
 
 ### Contexto (ADR-023)
 
@@ -1699,7 +1766,7 @@ Se implementa unicidad cross-deck de UIDs dentro de los mazos **activos** de un 
 - **ADR-015** (Repository pattern y transacciones): Reutiliza `withTransaction` y `createWithSession` en el repository
 - **ADR-021** (Service Layer): Sigue el patron establecido de Service Layer para logica de negocio compleja
 
-## ADR-024: Mejoras del Sistema de Assets — Sharpening, LQIP y AudioMiniPlayer
+## ADR-024: Mejoras del Sistema de Assets — Sharpening, LQIP y AudioMiniPlayer [Full-stack]
 
 **Estado**: Aprobado
 **Fecha**: 30-03-2026
@@ -1746,7 +1813,7 @@ La diferencia de tamaño entre 80% y 85% WebP es ~5-10%, pero la claridad visual
 - **Negativas**: campo `dominantColor` requiere backfill para datos existentes; imágenes procesadas son ~2-5% más grandes por sharpening
 - **Retrocompatibilidad**: `dominantColor` es opcional (`|| null` en DTOs); `getBestAssetImageUrl` se mantiene como alias
 
-## ADR-025: Vinculación de Audio a Assets Existentes
+## ADR-025: Vinculación de Audio a Assets Existentes [Full-stack]
 
 **Estado**: Aprobado
 **Fecha**: 30-03-2026
@@ -1787,7 +1854,7 @@ Para vistas de consulta (mazos, sesiones, wizard), se usa un badge compacto (`Au
 
 ---
 
-## ADR-026: Descomposición modular del servicio de Analytics
+## ADR-026: Descomposición modular del servicio de Analytics [Backend]
 
 **Estado**: Aprobado
 **Fecha**: 03-04-2026
@@ -1867,7 +1934,7 @@ La justificación pedagógica y de Business Intelligence detallada (por qué cad
 
 ---
 
-## ADR-027: Arquitectura Frontend de Analytics — Suite de 4 Páginas
+## ADR-027: Arquitectura Frontend de Analytics — Suite de 4 Páginas [Frontend]
 
 ### Contexto (ADR-027)
 
@@ -1930,7 +1997,7 @@ Construir una suite completa de analytics frontend con **4 páginas** y un lengu
 
 ---
 
-## ADR-028: Estrategia de Composición de Componentes de Analytics
+## ADR-028: Estrategia de Composición de Componentes de Analytics [Frontend]
 
 ### Contexto (ADR-028)
 
@@ -1959,7 +2026,7 @@ La suite de analytics requiere 10+ componentes nuevos con patrones compartidos (
 - Múltiples fetches pueden hacer más peticiones al backend (mitigado por caché Redis server-side)
 - Sin store global, cambiar de página pierde el estado (comportamiento esperado — cada vista es independiente)
 
-## ADR-029: Consolidación de umbrales RAG y filtrado híbrido en Dashboard
+## ADR-029: Consolidación de umbrales RAG y filtrado híbrido en Dashboard [Full-stack]
 
 **Fecha:** 2026-04-06
 **Estado:** Aceptado
@@ -2008,7 +2075,7 @@ Dos problemas identificados durante la revisión de la suite de analytics:
 - Los umbrales frontend deben actualizarse manualmente si cambian en el backend (documentado en el header del archivo)
 - El filtro de contenido no afecta a KPIs/trends (mitigado: la página de Insights cubre este caso)
 
-## ADR-030: Protección de datos de menores — Minimización, consentimiento y ciclo de vida
+## ADR-030: Protección de datos de menores — Minimización, consentimiento y ciclo de vida [Full-stack]
 
 ### Contexto (ADR-030)
 
@@ -2084,7 +2151,7 @@ Se implementan tres ejes de protección:
 - **ADR-016** (Rate limiting): Los nuevos endpoints heredan rate limiting existente.
 - **ADR-021** (Service Layer): Las funciones `updateConsent` y `hardDeleteStudent` residen en `userService`.
 
-## ADR-031: Endurecimiento del consentimiento parental — Autorización, trazabilidad y defense in depth
+## ADR-031: Endurecimiento del consentimiento parental — Autorización, trazabilidad y defense in depth [Full-stack]
 
 ### Contexto (ADR-031)
 
@@ -2169,7 +2236,7 @@ Se implementan 7 mejoras para endurecer el flujo de consentimiento:
 - **ADR-021** (Service Layer): Los ownership checks siguen el patrón establecido en el service layer.
 - **ADR-016** (Rate limiting): Los endpoints afectados mantienen el rate limiting existente.
 
-## ADR-032: Centralización de operaciones RGPD en el rol Super Admin
+## ADR-032: Centralización de operaciones RGPD en el rol Super Admin [Full-stack]
 
 ### Contexto (ADR-032)
 
@@ -2234,7 +2301,7 @@ Centralizar todas las operaciones RGPD sobre datos de estudiantes en el rol `sup
 - **ADR-031** (Endurecimiento del consentimiento): Los ownership checks de ADR-031 se mantienen como defense in depth.
 - **ADR-008** (Gobierno de identidades centrado en Super Admin): Esta ADR extiende el principio de ADR-008 a las operaciones RGPD.
 
-## ADR-033: Derecho de oposición a analytics comportamentales (Art. 21 RGPD)
+## ADR-033: Derecho de oposición a analytics comportamentales (Art. 21 RGPD) [Full-stack]
 
 ### Contexto (ADR-033)
 
@@ -2293,7 +2360,7 @@ Implementar la revocación granular del propósito `performance_analytics` sin a
 - **ADR-031** (Endurecimiento del consentimiento): Los purposes se registran en `consentHistory` para trazabilidad.
 - **ADR-032** (Centralización RGPD en super_admin): Solo super_admin puede modificar propósitos de consentimiento.
 
-## ADR-034: Centralización de verificación de consentimiento RGPD
+## ADR-034: Centralización de verificación de consentimiento RGPD [Backend]
 
 ### Contexto (ADR-034)
 
@@ -2334,7 +2401,7 @@ Se eliminan las funciones `verifyAnalyticsConsent` duplicadas en `analyticsContr
 - **ADR-031** (Endurecimiento del consentimiento): El bug fix de `withdrawnAt` completa el endurecimiento de ADR-031.
 - **ADR-033** (Derecho de oposición): La verificación granular por propósito soporta directamente el mecanismo de oposición de ADR-033.
 
-## ADR-035: Serialización de operaciones RFID mode con mutex por usuario
+## ADR-035: Serialización de operaciones RFID mode con mutex por usuario [Backend]
 
 ### Contexto (ADR-035)
 
@@ -2376,7 +2443,7 @@ Implementar `executeWithRfidLock(userId, operation)` como mutex basado en Promis
 - **ADR-022** (Hardening WebSocket — RFID en Redis): Si se implementa persistencia RFID en Redis, el lock protegerá las operaciones async resultantes.
 - **ADR-010** (Checkpoints y resiliencia): Sigue el mismo patrón de Promise-based mutex establecido en GameEngine.
 
-## ADR-036: Endpoint de métricas del sistema (/api/health/metrics)
+## ADR-036: Endpoint de métricas del sistema (/api/health/metrics) [Backend]
 
 ### Contexto (ADR-036)
 
@@ -2423,7 +2490,7 @@ El endpoint requiere autenticación JWT y rol `super_admin`. Devuelve 403 para c
 
 ---
 
-## ADR-037: Protección de estabilidad del proceso (unhandledRejection/uncaughtException)
+## ADR-037: Protección de estabilidad del proceso (unhandledRejection/uncaughtException) [Backend]
 
 ### Contexto (ADR-037)
 
@@ -2446,7 +2513,7 @@ Adicionalmente, los timers del proceso (`setInterval` del GameEngine, `setTimeou
 
 ---
 
-## ADR-038: Límite duro de partidas activas simultáneas
+## ADR-038: Límite duro de partidas activas simultáneas [Backend]
 
 ### Contexto (ADR-038)
 
@@ -2464,7 +2531,7 @@ Se ha añadido `ACTIVE_PLAYS_HARD_LIMIT` (configurable via env, default 2000) qu
 
 ---
 
-## ADR-039: Timeout de queries aggregate (maxTimeMS)
+## ADR-039: Timeout de queries aggregate (maxTimeMS) [Backend]
 
 ### Contexto (ADR-039)
 
@@ -2482,7 +2549,7 @@ Se ha centralizado `maxTimeMS` en los repositories (`gamePlayRepository`, `gameS
 
 ---
 
-## ADR-040: Observabilidad del circuit breaker y health check mejorado
+## ADR-040: Observabilidad del circuit breaker y health check mejorado [Backend]
 
 ### Contexto (ADR-040)
 
@@ -2502,7 +2569,7 @@ El `CircuitBreaker` (usado por Redis y Supabase Storage) cambiaba de estado sin 
 
 ---
 
-## ADR-041: Recovery de card locks tras reconexión Redis
+## ADR-041: Recovery de card locks tras reconexión Redis [Backend]
 
 ### Contexto (ADR-041)
 
@@ -2523,7 +2590,7 @@ Se ha añadido un mecanismo de recovery que:
 
 ---
 
-## ADR-042: Multer memory storage como diseño aceptado
+## ADR-042: Multer memory storage como diseño aceptado [Backend]
 
 ### Contexto (ADR-042)
 
@@ -2545,7 +2612,7 @@ Multer usa `memoryStorage()` para almacenar uploads (imágenes ≤8MB, audio ≤
 
 ---
 
-## ADR-043: Invalidación inmediata de auth cache vía eventos internos
+## ADR-043: Invalidación inmediata de auth cache vía eventos internos [Backend]
 
 ### Contexto (ADR-043)
 
@@ -2565,7 +2632,7 @@ Se implementó un `authEventBus` (EventEmitter interno en `utils/authEvents.js`)
 
 ---
 
-## ADR-044: Migración a Socket.IO namespaces (/game)
+## ADR-044: Migración a Socket.IO namespaces (/game) [Full-stack]
 
 ### Contexto (ADR-044)
 
@@ -2594,7 +2661,7 @@ El `GameEngine` recibe la referencia al namespace `/game` y emite gameplay event
 
 ---
 
-## ADR-045: Decomposición modular del GameEngine
+## ADR-045: Decomposición modular del GameEngine [Backend]
 
 ### Contexto (ADR-045)
 
@@ -2624,7 +2691,7 @@ Cada módulo exporta funciones que reciben `engine` (instancia de GameEngine) co
 
 ---
 
-## ADR-046: Feedback explícito para escaneos RFID ignorados (scan_ignored)
+## ADR-046: Feedback explícito para escaneos RFID ignorados (scan_ignored) [Full-stack]
 
 ### Contexto (ADR-046)
 
@@ -2644,7 +2711,7 @@ El `GameEngine.handleCardScan()` ignoraba silenciosamente escaneos RFID en vario
 
 ---
 
-## ADR-047: Política de bloqueo RFID relajada para entorno educativo
+## ADR-047: Política de bloqueo RFID relajada para entorno educativo [Backend]
 
 ### Contexto (ADR-047)
 
@@ -2662,3 +2729,97 @@ Se ajustó `socketBlockConfig`:
 - Si se bloquea, se recupera en 15 segundos (no 60).
 - La protección contra abuso deliberado sigue activa — 5 violaciones seguidas no es comportamiento normal.
 - Test actualizado en `socketRateLimiter.test.js`.
+
+## ADR-048: Selección de Librería de Visualización (Recharts) [Frontend]
+
+### Contexto
+
+El dashboard requiere múltiples tipos de gráficos (áreas, mapas de calor, barras) para visualizar datos complejos de rendimiento. Necesitamos una librería que sea:
+
+1.  **React-Nativa**: Para evitar wrappers y problemas de ciclo de vida.
+2.  **Flexible**: Personalizable para adaptarse al sistema de diseño (Temas oscuros, gradientes).
+3.  **Ligera**: Para no impactar negativamente en el tiempo de carga (LCP).
+
+### Decisión
+
+Se ha seleccionado **Recharts** sobre alternativas como Chart.js o Victory.
+
+### Justificación
+
+- **Composición**: Recharts usa un modelo de composición de componentes (`<AreaChart>`, `<XAxis>`, `<Tooltip>`) que encaja perfectamente con la filosofía de React, haciendo el código más legible y mantenible.
+- **SVG**: Renderiza SVG, lo que garantiza nitidez en cualquier resolución (crucial para pantallas de retina en tablets) y facilita la animación con CSS/Framer Motion.
+- **Payload**: Es Modular, permitiendo tree-shaking efectivo (solo importamos lo que usamos).
+
+### Consecuencias
+
+- **Curva de aprendizaje**: Requiere entender el modelo de composición en lugar de pasar un gran objeto de configuración.
+- **Rendimiento**: Excelente para datasets medianos (<1000 puntos), que es nuestro caso de uso (clases de ~30 alumnos). Para Big Data habría que considerar Canvas, pero no aplica aquí.
+
+---
+
+## ADR-049: Patrón de Diseño de Dashboard (Jerarquía "F") [Frontend]
+
+### Contexto
+
+El dashboard es una herramienta de trabajo diaria para el profesor. La carga cognitiva debe ser mínima; el profesor debe poder entender el estado de la clase en segundos.
+
+### Decisión
+
+Se implementa un layout siguiendo el **Patrón de Lectura en F** y principios de Jerarquía Visual.
+
+### Detalles de Implementación
+
+1.  **Nivel Superior (Encabezado)**: Filtros globales (Contexto temporal). Afectan a toda la página.
+2.  **Nivel 1 (Izquierda Superior)**: KPIs Críticos (Estudiantes en Riesgo). Es el primer punto donde se posa la vista. Usamos colores semánticos (Rojo = Alerta).
+3.  **Nivel 2 (Centro)**: Gráfico de Tendencia. Proporciona contexto histórico inmediato.
+4.  **Nivel 3 (Inferior/Derecha)**: Detalles y listas. Información para análisis profundo, accesible tras el escaneo inicial.
+
+### Consecuencias
+
+- **Usabilidad**: Reduce el tiempo de análisis del profesor.
+- **Escalabilidad**: El layout permite añadir más "filas" de análisis verticalmente sin romper la jerarquía.
+
+---
+
+## ADR-050: Estrategia de Fetching de Datos (On-Mount + Polling Sincronizado) [Frontend]
+
+### Contexto
+
+Los datos de analíticas cambian cuando los alumnos terminan partidas. No es un sistema de trading (ms), pero tampoco puede ser estático.
+
+### Decisión
+
+Se opta por **Fetch en Paralelo al Montar** (`Promise.all`) para la carga inicial.
+
+### Justificación
+
+- **UX**: Evita el "efecto cascada" donde los gráficos van apareciendo uno a uno. El dashboard carga sus esqueletos y luego muestra todo el contenido de golpe (o con transiciones coordinadas).
+- **Separación de Responsabilidades**:
+  - `analyticsService.js`: Abstrae la lógica de llamadas HTTP.
+  - `Dashboard.jsx`: Gestiona el estado y la presentación.
+- **Simplicidad**: En esta fase, no se usan WebSockets para analíticas (solo para juego en tiempo real). La complejidad de mantener sockets para un dashboard que se consulta periódicamente no compensa el beneficio.
+
+### Futuras Mejoras
+
+- Implementar `SWR` o `TanStack Query` para revalidación automática en foco y caché inteligente, reduciendo llamadas innecesarias.
+
+---
+
+## ADR-051: Sistema de Alertas Basado en Reglas (Frontend) [Frontend]
+
+### Contexto
+
+El backend devuelve datos crudos o agregados, pero la "interpretación" pedagógica (¿es esto bueno o malo?) a veces depende del contexto del frontend o preferencias del usuario (futuro).
+
+### Decisión
+
+Se implementa un motor de reglas ligero en el cliente (`Dashboard.jsx` -> `alerts` logic) que consume los KPIs del backend.
+
+### Justificación
+
+- **Inmediatez**: Permite generar feedback visual instantáneo sin ida y vuelta al servidor para cada validación de UI.
+- **Flexibilidad**: Podemos cambiar los umbrales de "Riesgo" (ej. subir de nota 50 a 60) en el frontend rápidamente según feedback de usabilidad, sin redeploy de backend.
+
+### Consecuencias
+
+- Lógica de negocio en cliente: Debe mantenerse sincronizada con cualquier lógica crítica de backend (ej. si el backend envía emails de alerta, debe usar los mismos criterios). Para visualización, es aceptable.

@@ -247,7 +247,7 @@ export default function Login() {
   const isLocked = rateLimitState.lockoutUntil && Date.now() < rateLimitState.lockoutUntil;
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-background-deep p-4 relative overflow-hidden">
+    <div className="min-h-screen flex bg-background-deep relative overflow-hidden">
       {/* Fondo con efectos */}
       <div className="absolute inset-0 overflow-hidden pointer-events-none">
         {/* Gradiente radial principal */}
@@ -287,13 +287,52 @@ export default function Login() {
         />
       </div>
 
-      {/* Contenido principal */}
+      {/* Panel de branding — solo desktop */}
+      <motion.aside
+        initial={{ opacity: 0, x: -30 }}
+        animate={{ opacity: 1, x: 0 }}
+        transition={{ duration: 0.6, ease: [0.22, 1, 0.36, 1] }}
+        className="hidden lg:flex lg:w-1/2 relative z-10 flex-col justify-center px-16 xl:px-24"
+      >
+        <div className="max-w-lg">
+          <div className="inline-flex items-center justify-center size-16 rounded-2xl bg-gradient-to-br from-accent-indigo via-brand-base to-accent-pink mb-8 shadow-lg shadow-brand-glow">
+            <EduPlayIcon size={32} className="text-white" />
+          </div>
+          <h1 className="text-4xl xl:text-5xl font-bold font-display text-text-primary leading-tight mb-6">
+            Aprende jugando con <span className="bg-gradient-to-r from-brand-light to-accent-indigo bg-clip-text text-transparent">tecnología RFID</span>
+          </h1>
+          <p className="text-lg text-text-muted leading-relaxed mb-10">
+            Crea experiencias educativas interactivas para tus alumnos. Tarjetas físicas, juegos digitales, resultados en tiempo real.
+          </p>
+          <div className="space-y-4">
+            {[
+              { icon: '🎯', text: 'Mecánicas de asociación y memoria adaptadas por edades' },
+              { icon: '📊', text: 'Analytics en tiempo real del progreso de cada alumno' },
+              { icon: '🔒', text: 'Protección de datos de menores (RGPD / LOPDGDD)' },
+            ].map((feature, i) => (
+              <motion.div
+                key={i}
+                initial={{ opacity: 0, x: -20 }}
+                animate={{ opacity: 1, x: 0 }}
+                transition={{ delay: 0.3 + i * 0.1 }}
+                className="flex items-start gap-3"
+              >
+                <span className="text-xl flex-shrink-0 mt-0.5">{feature.icon}</span>
+                <span className="text-text-secondary text-sm leading-relaxed">{feature.text}</span>
+              </motion.div>
+            ))}
+          </div>
+        </div>
+      </motion.aside>
+
+      {/* Panel del formulario */}
       <motion.div
         initial={{ opacity: 0, y: 20 }}
         animate={{ opacity: 1, y: 0 }}
         transition={{ duration: 0.5 }}
-        className="w-full max-w-md relative z-10"
+        className="w-full lg:w-1/2 flex items-center justify-center p-4 relative z-10"
       >
+      <div className="w-full max-w-md">
         {/* Logo y título */}
         <div className="text-center mb-8">
           <motion.div
@@ -514,6 +553,7 @@ export default function Login() {
         >
           © {new Date().getFullYear()} EduPlay RFID · Proyecto TFG
         </motion.p>
+      </div>
       </motion.div>
     </div>
   );

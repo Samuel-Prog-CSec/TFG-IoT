@@ -443,7 +443,7 @@ function CardView({ card, isOverlay, variant = 'default' }) {
              )}>
                   <CardAssetPreview
                     asset={card.asset}
-                    alt={`Carta ${card.uid}`}
+                    alt={card.label || 'Carta'}
                     className="size-16 rounded-xl mb-2"
                     fit="cover"
                     fallbackClassName="text-4xl"
@@ -456,12 +456,12 @@ function CardView({ card, isOverlay, variant = 'default' }) {
 
     return (
         <div className={clsx(
-            "p-3 rounded-xl border bg-background-elevated flex items-center gap-3 cursor-grab active:cursor-grabbing",
+            "group p-3 rounded-xl border bg-background-elevated flex items-center gap-3 cursor-grab active:cursor-grabbing",
             isOverlay ? "border-accent-indigo shadow-2xl scale-105" : "border-border-default hover:border-border-strong shadow-sm"
         )}>
             <CardAssetPreview
               asset={card.asset}
-              alt={`Carta ${card.uid}`}
+              alt={card.label || 'Carta'}
               className="size-10 rounded border border-accent-indigo/30"
               fit="cover"
               fallbackClassName="bg-accent-indigo/20 text-xl font-bold"
@@ -469,7 +469,7 @@ function CardView({ card, isOverlay, variant = 'default' }) {
             />
             <div>
                 <div className="text-text-primary font-bold text-sm leading-tight">{card.label}</div>
-                <div className="text-text-muted text-xs font-mono">{card.uid}</div>
+                <div className="text-text-muted text-xs font-mono opacity-0 group-hover:opacity-100 transition-opacity" title={card.uid}>{card.uid}</div>
             </div>
         </div>
     )

@@ -40,7 +40,7 @@ import EmptyState from '../components/ui/EmptyState';
 import ErrorState from '../components/ui/ErrorState';
 import ConfirmationModal, { useConfirmationModal } from '../components/ui/ConfirmationModal';
 import PageHeader from '../components/ui/PageHeader';
-import { listContainerVariants, listItemVariants } from '../lib/utils';
+import { cn, listContainerVariants, listItemVariants } from '../lib/utils';
 
 const STATUS_OPTIONS = [
   { value: '', label: 'Todas' },
@@ -85,7 +85,13 @@ const extractSessionItems = ({ payload, extracted }) => {
 const BORDER_CLASSES = {
   created: 'border-l-warning-base/70',
   active: 'border-l-success-base/70',
-  completed: 'border-l-background-surface/50',
+  completed: 'border-l-success-base/40',
+};
+
+const STATUS_CARD_CLASSES = {
+  created: 'border-dashed border-warning-base/30',
+  active: 'ring-1 ring-brand-base/30 shadow-[0_0_12px_var(--color-brand-glow)]',
+  completed: 'border-b-2 border-b-success-base/40',
 };
 
 const SessionCard = memo(function SessionCard({
@@ -110,7 +116,11 @@ const SessionCard = memo(function SessionCard({
       whileTap={{ scale: 0.99 }}
       transition={{ type: 'spring', stiffness: 400, damping: 25 }}
     >
-      <GlassCard className={`p-6 flex flex-col gap-5 hover:border-border-strong transition-[border-color] border-l-4 ${borderClass}`}>
+      <GlassCard className={cn(
+        'p-6 flex flex-col gap-5 hover:border-border-strong transition-[border-color] border-l-4',
+        borderClass,
+        STATUS_CARD_CLASSES[session.status]
+      )}>
         <div className="flex items-start justify-between gap-3">
           <div>
             <h3 className="text-lg font-semibold text-text-primary">{title}</h3>
@@ -187,8 +197,8 @@ const SessionCard = memo(function SessionCard({
               className="flex-1"
             >
               <RefreshCw size={16} />
-              <span className="sm:hidden">Jugar</span>
-              <span className="hidden sm:inline">Volver a jugar</span>
+              <span className="sm:hidden">Clonar</span>
+              <span className="hidden sm:inline">Clonar y jugar</span>
             </ButtonPremium>
           </div>
           <div className="flex items-center justify-between">
@@ -419,7 +429,7 @@ export default function SessionsPage() {
       }
       setError(null);
 
-      const pageToUse = reset ? 1 : (pageOverride || page);
+      const pageToUse = reset ? 1 : pageOverride;
       const params = buildParams(pageToUse);
       const response = await sessionsAPI.getSessions(params, signal ? { signal } : {});
       const payload = response?.data || {};
@@ -447,7 +457,7 @@ export default function SessionsPage() {
         setLoadingMore(false);
       }
     }
-  }, [buildParams, page]);
+  }, [buildParams]);
 
   useEffect(() => {
     mechanicsAbortRef.current?.abort();

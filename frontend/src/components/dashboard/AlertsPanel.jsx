@@ -9,12 +9,12 @@ import { useReducedMotion } from '../../hooks/useReducedMotion';
  */
 const SEVERITY_STYLES = {
   critical: {
-    container: 'bg-error-base/10 border-error-base/20',
+    container: 'bg-error-base/10 border-error-base/20 border-l-2 border-l-error-base/60',
     icon: 'text-error-base',
     dot: 'bg-error-base',
   },
   warning: {
-    container: 'bg-warning-base/10 border-warning-base/20',
+    container: 'bg-warning-base/10 border-warning-base/20 border-l-2 border-l-warning-base/60',
     icon: 'text-warning-base',
     dot: 'bg-warning-base',
   },

@@ -22,7 +22,6 @@ import {
   XCircle,
   ChevronLeft,
   ChevronRight,
-  Inbox,
   Shield
 } from 'lucide-react';
 import { toast } from 'sonner';
@@ -562,6 +561,7 @@ export default function ApprovalPanel() {
           className="mb-6 relative"
         >
           <InputPremium
+            aria-label="Buscar profesores por nombre o email"
             placeholder="Buscar por nombre o email…"
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
@@ -604,9 +604,9 @@ export default function ApprovalPanel() {
             if (loading) return <LoadingSkeleton />;
             if (filteredTeachers.length === 0) return (
               <EmptyState
-                title="No hay solicitudes pendientes"
-                description="Todas las solicitudes de profesores han sido procesadas. Vuelve más tarde para revisar nuevas solicitudes."
-                icon={<Inbox className="size-10" />}
+                title="Todo al día"
+                description="No hay solicitudes pendientes. Cuando nuevos profesores se registren, aparecerán aquí para tu aprobación."
+                icon={<CheckCircle className="size-10 text-success-base" />}
                 className="bg-transparent"
               />
             );

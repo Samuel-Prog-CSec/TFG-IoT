@@ -51,7 +51,7 @@ router.get(
 router.get(
   '/',
   authenticate,
-  requireRole('teacher'),
+  requireRole('teacher', 'super_admin'),
   validateQuery(gameMechanicQuerySchema),
   asyncHandler(getMechanics)
 );
@@ -65,7 +65,7 @@ router.get(
 router.get(
   '/:id',
   authenticate,
-  requireRole('teacher'),
+  requireRole('teacher', 'super_admin'),
   validateParams(gameMechanicParamsSchema),
   validateQuery(emptyObjectSchema),
   asyncHandler(getMechanicById)

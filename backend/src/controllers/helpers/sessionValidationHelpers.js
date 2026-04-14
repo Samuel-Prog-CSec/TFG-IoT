@@ -433,7 +433,7 @@ const applyCloneMechanicState = ({
       cardMappings,
       numberOfRounds: Number(clonedSession.config?.numberOfRounds || 0)
     });
-    clonedSession.requiresAssociationPlanConfiguration = true;
+    clonedSession.requiresAssociationPlanConfiguration = false;
     return;
   }
 
@@ -466,7 +466,7 @@ const buildCloneSuccessMessage = mechanicName => {
   }
 
   if (mechanicName === 'association') {
-    return 'Sesión clonada exitosamente. Se precargaron los retos de asociación como borrador; revísalos y confirma antes de iniciar.';
+    return 'Sesión clonada exitosamente. Los retos de asociación se copiaron de la sesión original.';
   }
 
   return 'Sesión clonada exitosamente';

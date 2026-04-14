@@ -202,7 +202,7 @@ const contextsData = [
         value: 'Uno',
         audioUrl: null,
         dominantColor: '#5c6bc0',
-        ...assetUrls('numbers-1-6', 'one')
+        ...assetUrls('numbers-1-15', 'one')
       },
       {
         key: 'two',
@@ -210,7 +210,7 @@ const contextsData = [
         value: 'Dos',
         audioUrl: null,
         dominantColor: '#26a69a',
-        ...assetUrls('numbers-1-6', 'two')
+        ...assetUrls('numbers-1-15', 'two')
       },
       {
         key: 'three',
@@ -218,7 +218,7 @@ const contextsData = [
         value: 'Tres',
         audioUrl: null,
         dominantColor: '#ef5350',
-        ...assetUrls('numbers-1-6', 'three')
+        ...assetUrls('numbers-1-15', 'three')
       },
       {
         key: 'four',
@@ -226,7 +226,7 @@ const contextsData = [
         value: 'Cuatro',
         audioUrl: null,
         dominantColor: '#66bb6a',
-        ...assetUrls('numbers-1-6', 'four')
+        ...assetUrls('numbers-1-15', 'four')
       },
       {
         key: 'five',
@@ -234,7 +234,7 @@ const contextsData = [
         value: 'Cinco',
         audioUrl: null,
         dominantColor: '#ffa726',
-        ...assetUrls('numbers-1-6', 'five')
+        ...assetUrls('numbers-1-15', 'five')
       },
       {
         key: 'six',
@@ -242,7 +242,7 @@ const contextsData = [
         value: 'Seis',
         audioUrl: null,
         dominantColor: '#ab47bc',
-        ...assetUrls('numbers-1-6', 'six')
+        ...assetUrls('numbers-1-15', 'six')
       }
     ]
   },

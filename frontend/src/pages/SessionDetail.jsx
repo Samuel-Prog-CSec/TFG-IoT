@@ -295,8 +295,8 @@ export default function SessionDetail() {
                 disabled={cloneLoading}
               >
                 <Timer size={16} />
-                <span className="sm:hidden">Jugar</span>
-                <span className="hidden sm:inline">Volver a jugar</span>
+                <span className="sm:hidden">Clonar</span>
+                <span className="hidden sm:inline">Clonar y jugar</span>
               </ButtonPremium>
             )}
             <div className="border-l border-border-default h-8 mx-1" />
@@ -478,7 +478,7 @@ export default function SessionDetail() {
                   <motion.div
                     key={mapping.id || mapping.uid}
                     className={cn(
-                      'rounded-2xl border border-accent-indigo/15 p-4 bg-glass-bg',
+                      'group rounded-2xl border border-accent-indigo/15 p-4 bg-glass-bg',
                       'flex flex-col items-center justify-center gap-2 text-center'
                     )}
                     whileHover={{ scale: 1.04, y: -2 }}
@@ -501,7 +501,7 @@ export default function SessionDetail() {
                       )}
                     </div>
                     <p className="text-sm text-text-primary font-semibold">{label}</p>
-                    <p className="text-xs text-text-muted">{mapping.uid}</p>
+                    <p className="text-xs text-text-muted opacity-0 group-hover:opacity-100 transition-opacity font-mono" title={mapping.uid}>{mapping.uid}</p>
                   </motion.div>
                 );
               })}

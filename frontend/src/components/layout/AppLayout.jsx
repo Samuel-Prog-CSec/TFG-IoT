@@ -23,7 +23,7 @@ const ICON_MAP = {
   TrendingUp,
 };
 import { useAuth } from '../../context/AuthContext';
-import { cn } from '../../lib/utils';
+import { cn, motionConfig } from '../../lib/utils';
 import { useIsMobile } from '../../hooks/useIsMobile';
 import { useReducedMotion } from '../../hooks/useReducedMotion';
 
@@ -89,7 +89,7 @@ export default function AppLayout() {
         animate={{
           x: sidebarOffset,
         }}
-        transition={{ type: 'spring', damping: 30, stiffness: 300 }}
+        transition={motionConfig.spring}
         className={cn(
           'fixed lg:relative z-50',
           'w-72 h-full',
@@ -115,9 +115,9 @@ export default function AppLayout() {
               <EduPlayIcon size={20} className="text-white" />
             </div>
             <div>
-              <h1 className="text-xl font-bold gradient-text-brand font-display tracking-tight">
+              <span className="text-xl font-bold gradient-text-brand font-display tracking-tight" role="banner">
                 EduPlay
-              </h1>
+              </span>
               <p className="text-xs text-text-muted font-medium">
                 {isSuperAdmin ? 'Panel de administración' : 'Portal del profesor'}
               </p>
@@ -239,17 +239,20 @@ export default function AppLayout() {
         {/* Subtle Grid Pattern for Depth */}
         <div className="absolute inset-0 bg-grid opacity-20 pointer-events-none" />
 
-        {/* Page Content — fade-in simple sin exit animation para máxima fiabilidad */}
+        {/* Page Content — crossfade con slide-up sutil */}
         <div className="relative z-10 w-full min-h-full">
-          <motion.div
-            key={location.pathname}
-            initial={shouldReduceMotion ? false : { opacity: 0 }}
-            animate={{ opacity: 1 }}
-            transition={{ duration: 0.2, ease: [0.16, 1, 0.3, 1] }}
-            className="w-full"
-          >
-            <Outlet />
-          </motion.div>
+          <AnimatePresence mode="wait">
+            <motion.div
+              key={location.pathname}
+              initial={shouldReduceMotion ? false : { opacity: 0, y: 8 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={shouldReduceMotion ? undefined : { opacity: 0, y: -6 }}
+              transition={{ duration: 0.25, ease: [0.16, 1, 0.3, 1] }}
+              className="w-full"
+            >
+              <Outlet />
+            </motion.div>
+          </AnimatePresence>
         </div>
       </main>
     </div>
@@ -273,14 +276,14 @@ function NavItem({ to, icon, label }) {
         <motion.div
           className="flex items-center gap-3 w-full"
           whileHover={!isActive ? { x: 4 } : {}}
-          transition={{ type: 'spring', stiffness: 400, damping: 25 }}
+          transition={motionConfig.spring}
         >
           {/* Active indicator bar */}
           {isActive && (
             <motion.div
               layoutId="activeIndicator"
-              className="absolute left-0 top-1/2 -translate-y-1/2 w-1 h-6 bg-gradient-to-b from-brand-light to-brand-base rounded-r-full shadow-[0_0_10px_var(--color-brand-glow)]"
-              transition={{ type: 'spring', stiffness: 300, damping: 30 }}
+              className="absolute left-0 top-1/2 -translate-y-1/2 w-1 h-8 bg-gradient-to-b from-brand-light to-brand-base rounded-r-full shadow-[0_0_10px_var(--color-brand-glow)]"
+              transition={motionConfig.spring}
             />
           )}
 

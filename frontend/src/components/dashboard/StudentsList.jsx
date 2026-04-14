@@ -96,7 +96,7 @@ function StudentsList({ students }) {
                 role="button"
                 tabIndex={0}
                 onKeyDown={(e) => { if (e.key === 'Enter') navigate(`/students/${student.studentId || student._id}`); }}
-                aria-label={`${student.name}, puntuacion ${Math.round(student.averageScore || 0)}`}
+                aria-label={`${student.name}, puntuacion ${Math.round(student.studentMetrics?.averageScore || student.averageScore || 0)}`}
               >
                 <div className="flex items-center gap-3">
                   {/* Rank Badge */}
@@ -145,7 +145,7 @@ function StudentsList({ students }) {
                     <div
                       className={cn("font-bold tabular-nums", getTierColor(student.tier))}
                     >
-                      {Math.round(student.averageScore || 0)}
+                      {Math.round(student.studentMetrics?.averageScore || student.averageScore || 0)}
                     </div>
                     <div className="text-[10px] text-text-muted">pts</div>
                   </div>

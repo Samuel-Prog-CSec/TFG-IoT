@@ -596,8 +596,8 @@ export default function StudentManagement() {
           if (students.length === 0) return (
             <EmptyState
               key="empty"
-              title="No se encontraron alumnos"
-              description={searchQuery ? "Prueba con otros términos de búsqueda." : "Aún no hay alumnos registrados en el sistema."}
+              title={searchQuery ? "Sin resultados" : "No hay alumnos aún"}
+              description={searchQuery ? "Intenta con otros términos de búsqueda o ajusta los filtros." : "Los alumnos aparecerán aquí cuando los profesores los registren en sus aulas."}
               icon={<User size={48} />}
             />
           );

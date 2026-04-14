@@ -29,6 +29,7 @@ import { useDocumentTitle } from '../hooks/useDocumentTitle';
 import { useAuth } from '../context/AuthContext';
 import { contextsAPI, extractData, extractErrorMessage } from '../services/api';
 import { ROUTES } from '../constants/routes';
+import { listContainerVariants, listItemVariants } from '../lib/utils';
 
 export default function ContextsPage() {
   const navigate = useNavigate();
@@ -193,19 +194,27 @@ export default function ContextsPage() {
             />
           );
           return (
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+            <motion.div
+              className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6"
+              variants={shouldReduceMotion ? {} : listContainerVariants(0.06)}
+              initial={shouldReduceMotion ? false : "hidden"}
+              animate="visible"
+            >
               <AnimatePresence>
-                {filteredContexts.map((context, index) => (
-                  <ContextCard
+                {filteredContexts.map((context) => (
+                  <motion.div
                     key={context._id || context.id}
-                    context={context}
-                    index={index}
-                    reducedMotion={shouldReduceMotion}
-                    onClick={() => navigate(ROUTES.CONTEXT_DETAIL(context._id || context.id))}
-                  />
+                    variants={shouldReduceMotion ? {} : listItemVariants}
+                  >
+                    <ContextCard
+                      context={context}
+                      reducedMotion={shouldReduceMotion}
+                      onClick={() => navigate(ROUTES.CONTEXT_DETAIL(context._id || context.id))}
+                    />
+                  </motion.div>
                 ))}
               </AnimatePresence>
-            </div>
+            </motion.div>
           );
         })()}
       </div>
@@ -227,7 +236,7 @@ export default function ContextsPage() {
 // TARJETA DE CONTEXTO
 // ============================================
 
-function ContextCard({ context, onClick, index, reducedMotion }) {
+function ContextCard({ context, onClick, reducedMotion }) {
   const assetCount = context.assetsCount ?? context.assets?.length ?? 0;
   const imagesCount = context.imageCount ?? context.assets?.filter(a => a.imageUrl)?.length ?? 0;
   const audioCount = context.audioCount ?? context.assets?.filter(a => a.audioUrl)?.length ?? 0;
@@ -235,10 +244,7 @@ function ContextCard({ context, onClick, index, reducedMotion }) {
 
   return (
     <motion.div
-      initial={reducedMotion ? false : { opacity: 0, y: 16 }}
-      animate={{ opacity: 1, y: 0 }}
       exit={reducedMotion ? false : { opacity: 0, scale: 0.95 }}
-      transition={{ delay: reducedMotion ? 0 : index * 0.06, duration: 0.6, ease: [0.16, 1, 0.3, 1] }}
       whileHover={reducedMotion ? {} : { y: -4 }}
       onClick={onClick}
       className="group cursor-pointer"

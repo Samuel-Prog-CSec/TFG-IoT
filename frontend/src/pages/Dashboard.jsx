@@ -275,6 +275,7 @@ export default function Dashboard() {
               aria-labelledby="stats-heading"
             >
               <h2 id="stats-heading" className="sr-only">KPIs Principales</h2>
+              {/* KPIs primarios — metricas clave */}
               <div
                 className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 lg:gap-6"
                 role="list"
@@ -287,6 +288,7 @@ export default function Dashboard() {
                     periodLabel={periodLabel}
                     icon={<AlertTriangle className="text-white drop-shadow-sm" size={24} aria-hidden="true" />}
                     color="bg-gradient-to-br from-error-base to-error-dark"
+                    onClick={() => navigate('/analytics/students')}
                   />
                 </motion.div>
 
@@ -298,6 +300,7 @@ export default function Dashboard() {
                     periodLabel={periodLabel}
                     icon={<Trophy className="text-white drop-shadow-sm" size={24} aria-hidden="true" />}
                     color="bg-gradient-to-br from-success-base to-success-dark"
+                    onClick={() => navigate('/analytics/students')}
                   />
                 </motion.div>
 
@@ -309,6 +312,7 @@ export default function Dashboard() {
                     periodLabel={periodLabel}
                     icon={<Gamepad2 className="text-white drop-shadow-sm" size={24} aria-hidden="true" />}
                     color="bg-gradient-to-br from-brand-base to-accent-indigo"
+                    onClick={() => navigate('/sessions')}
                   />
                 </motion.div>
 
@@ -320,10 +324,16 @@ export default function Dashboard() {
                     periodLabel={periodLabel}
                     icon={<Users className="text-white drop-shadow-sm" size={24} aria-hidden="true" />}
                     color="bg-gradient-to-br from-info-base to-accent-cyan"
+                    onClick={() => navigate('/sessions')}
                   />
                 </motion.div>
+              </div>
 
-                {/* Fila 2: KPIs secundarios */}
+              {/* KPIs secundarios — metricas complementarias */}
+              <div
+                className="grid grid-cols-2 lg:grid-cols-4 gap-3 lg:gap-4 mt-3 opacity-90"
+                role="list"
+              >
                 <motion.div variants={shouldReduceMotion ? {} : listItemVariants} role="listitem">
                   <StatCard
                     title="Tasa de Acierto"
@@ -332,6 +342,8 @@ export default function Dashboard() {
                     periodLabel={periodLabel}
                     icon={<Target className="text-white drop-shadow-sm" size={24} aria-hidden="true" />}
                     color="bg-gradient-to-br from-accent-cyan to-info-base"
+                    compact
+                    onClick={() => navigate('/analytics/insights')}
                   />
                 </motion.div>
 
@@ -343,6 +355,8 @@ export default function Dashboard() {
                     periodLabel={periodLabel}
                     icon={<Clock className="text-white drop-shadow-sm" size={24} aria-hidden="true" />}
                     color="bg-gradient-to-br from-accent-orange to-warning-base"
+                    compact
+                    onClick={() => navigate('/analytics/insights')}
                   />
                 </motion.div>
 
@@ -354,6 +368,8 @@ export default function Dashboard() {
                     periodLabel="ultimos 7 dias"
                     icon={<UserCheck className="text-white drop-shadow-sm" size={24} aria-hidden="true" />}
                     color="bg-gradient-to-br from-brand-base to-accent-pink"
+                    compact
+                    onClick={() => navigate('/analytics/students')}
                   />
                 </motion.div>
 
@@ -365,6 +381,8 @@ export default function Dashboard() {
                     periodLabel="partidas completadas"
                     icon={<CheckCircle2 className="text-white drop-shadow-sm" size={24} aria-hidden="true" />}
                     color="bg-gradient-to-br from-success-dark to-success-base"
+                    compact
+                    onClick={() => navigate('/sessions')}
                   />
                 </motion.div>
               </div>
@@ -590,6 +608,7 @@ function RecentActivity({ students }) {
 
   const getRelativeTime = (dateStr) => {
     const diffMs = Date.now() - new Date(dateStr).getTime();
+    if (diffMs < 0) return 'Hace poco';
     const diffMins = Math.floor(diffMs / 60000);
     if (diffMins < 60) return `Hace ${diffMins}m`;
     const diffHours = Math.floor(diffMins / 60);
@@ -613,7 +632,7 @@ function RecentActivity({ students }) {
               <p className="text-sm font-medium text-text-primary truncate">{student.name}</p>
               <div className="flex items-center gap-2">
                 <span className="text-xs text-text-muted font-bold tabular-nums">
-                  {Math.round(student.averageScore || 0)} pts
+                  {Math.round(student.studentMetrics?.averageScore || student.averageScore || 0)} pts
                 </span>
                 <span className="text-[10px] text-text-disabled">
                   {getRelativeTime(student.lastPlayedAt || student.studentMetrics?.lastPlayedAt)}

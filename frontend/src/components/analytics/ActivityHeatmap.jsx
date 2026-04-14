@@ -1,4 +1,4 @@
-import { memo, useMemo } from 'react';
+import { memo, useState, useMemo } from 'react';
 import PropTypes from 'prop-types';
 import { cn } from '../../lib/utils';
 import GlassCard from '../ui/GlassCard';
@@ -20,7 +20,7 @@ const HOURS = [8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18];
  * @returns {string} Clase de Tailwind para el color de fondo
  */
 const getIntensityClass = (value, max) => {
-  if (!value || value === 0) return 'bg-background-surface/30';
+  if (!value || value === 0) return 'bg-background-surface/20 ring-1 ring-inset ring-border-subtle/30';
   const ratio = value / max;
   if (ratio >= 0.75) return 'bg-brand-base/60';
   if (ratio >= 0.5) return 'bg-brand-base/40';
@@ -37,6 +37,8 @@ const getIntensityClass = (value, max) => {
  *   Formato esperado: { heatmap: [[...hours], ...days] } o { data: [{day, hour, count}] }
  */
 function ActivityHeatmap({ data }) {
+  const [hoveredCell, setHoveredCell] = useState(null);
+
   const { grid, maxValue } = useMemo(() => {
     if (!data) return { grid: null, maxValue: 0 };
 
@@ -88,7 +90,7 @@ function ActivityHeatmap({ data }) {
         <div className="flex items-center gap-2 text-[10px] text-text-muted">
           <span>Menos</span>
           <div className="flex gap-0.5">
-            <div className="size-3 rounded-sm bg-background-surface/30" />
+            <div className="size-3 rounded-sm bg-background-surface/20 ring-1 ring-inset ring-border-subtle/30" />
             <div className="size-3 rounded-sm bg-brand-base/12" />
             <div className="size-3 rounded-sm bg-brand-base/25" />
             <div className="size-3 rounded-sm bg-brand-base/40" />
@@ -103,7 +105,10 @@ function ActivityHeatmap({ data }) {
           {/* Hours header */}
           <div className="flex gap-0.5 ml-10 mb-1">
             {HOURS.map(h => (
-              <div key={h} className="flex-1 text-center text-[10px] text-text-muted tabular-nums">
+              <div key={h} className={cn(
+                "flex-1 text-center text-[10px] tabular-nums transition-opacity duration-150",
+                hoveredCell && hoveredCell.hour !== h ? "text-text-muted/40" : "text-text-muted"
+              )}>
                 {h}h
               </div>
             ))}
@@ -113,22 +118,41 @@ function ActivityHeatmap({ data }) {
           <div className="space-y-0.5" aria-label="Mapa de calor de actividad semanal, horario de 8 a 18 horas, lunes a domingo">
             {DAYS.map((day, dayIndex) => (
               <div key={day} className="flex items-center gap-0.5">
-                <span className="w-9 text-right text-[11px] text-text-muted font-medium pr-1">
+                <span className={cn(
+                  "w-9 text-right text-[11px] font-medium pr-1 transition-opacity duration-150",
+                  hoveredCell && hoveredCell.dayIndex !== dayIndex ? "text-text-muted/40" : "text-text-muted"
+                )}>
                   {day}
                 </span>
                 <div className="flex gap-0.5 flex-1">
                   {HOURS.map(hour => {
                     const value = grid[dayIndex]?.[hour] || 0;
+                    const isHovered = hoveredCell?.dayIndex === dayIndex && hoveredCell?.hour === hour;
+                    const isInRowOrCol = hoveredCell && (hoveredCell.dayIndex === dayIndex || hoveredCell.hour === hour);
+                    const isDimmed = hoveredCell && !isHovered && !isInRowOrCol;
                     return (
                       <div
                         key={hour}
                         className={cn(
-                          "flex-1 aspect-square rounded-sm transition-colors",
-                          getIntensityClass(value, maxValue)
+                          "flex-1 aspect-square rounded-sm transition-all duration-150",
+                          getIntensityClass(value, maxValue),
+                          isHovered && "scale-125 z-10 ring-2 ring-brand-base/50",
+                          isDimmed && "opacity-40",
+                          isHovered && "relative"
                         )}
-                        title={`${day} ${hour}:00 — ${value} partidas`}
+                        role="gridcell"
+                        tabIndex={-1}
+                        onMouseEnter={() => setHoveredCell({ dayIndex, hour })}
+                        onMouseLeave={() => setHoveredCell(null)}
                         aria-label={`${day} a las ${hour}: ${value} partidas`}
-                      />
+                      >
+                        {isHovered && (
+                          <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-1 bg-background-elevated/90 backdrop-blur-sm border border-border-default rounded-lg shadow-lg p-2 text-xs text-text-primary whitespace-nowrap z-20 pointer-events-none">
+                            <span className="font-semibold">{day} {hour}:00</span>
+                            <span className="text-text-muted ml-1.5">{value} partidas</span>
+                          </div>
+                        )}
+                      </div>
                     );
                   })}
                 </div>
