@@ -98,20 +98,16 @@ describe('Validación Zod → errorHandler centralizado', () => {
     });
   });
 
-  it('body inválido devuelve 400 con formato unificado y array errors', async () => {
+  it('POST /api/mechanics devuelve 405 Method Not Allowed (mecánicas inmutables, ADR-052)', async () => {
     const res = await request(app)
       .post('/api/mechanics')
       .set(makeAuthHeaders(teacherToken))
       .send({ invalid: 'data' });
 
-    expect(res.statusCode).toBe(400);
+    expect(res.statusCode).toBe(405);
+    expect(res.headers.allow).toBe('GET');
     expect(res.body.success).toBe(false);
-    expect(res.body.message).toBe('Error de validación');
-    expect(res.body.errors).toBeDefined();
-    expect(Array.isArray(res.body.errors)).toBe(true);
-    expect(res.body.errors.length).toBeGreaterThan(0);
-    expect(res.body.errors[0]).toHaveProperty('field');
-    expect(res.body.errors[0]).toHaveProperty('message');
+    expect(res.body.error).toBe('Method Not Allowed');
   });
 
   it('query inválida devuelve 400 con mensaje de parámetros de consulta', async () => {

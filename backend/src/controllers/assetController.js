@@ -9,7 +9,12 @@ const storageService = require('../services/storageService.js');
 const imageProcessingService = require('../services/imageProcessingService.js');
 const audioValidationService = require('../services/audioValidationService.js');
 const logger = require('../utils/logger');
-const { NotFoundError, ValidationError, ConflictError } = require('../utils/errors');
+const {
+  NotFoundError,
+  ValidationError,
+  ConflictError,
+  ForbiddenError
+} = require('../utils/errors');
 const { toAssetDTOV1 } = require('../utils/dtos');
 const { sendSuccess, sendCreated } = require('../utils/responseHelper');
 
@@ -56,6 +61,37 @@ function validateUniqueKey(context, key) {
 
   if (existingAsset) {
     throw new ConflictError('Un asset con esta key ya existe en este contexto');
+  }
+}
+
+/**
+ * Politica de autorizacion para borrar/modificar un asset existente.
+ *
+ * Reglas (ver Architecture_Decisions ADR-053):
+ * - El asset solo puede gestionarlo el profesor que lo subio (asset.uploadedBy === user._id).
+ * - Assets sin uploadedBy son "del sistema" (seedeados como base del producto) y nadie
+ *   puede eliminarlos individualmente. La unica forma de eliminarlos es borrar el
+ *   contexto entero, accion exclusiva del super_admin.
+ * - El super_admin NO tiene override sobre assets individuales: su responsabilidad es
+ *   gestionar contextos como "carpetas", no gestionar el contenido subido por
+ *   profesores.
+ *
+ * @param {Object} asset - Subdocumento asset
+ * @param {Object} user - req.user
+ * @throws {ForbiddenError} Si el usuario no esta autorizado
+ */
+function assertCanManageAsset(asset, user) {
+  if (!asset.uploadedBy) {
+    throw new ForbiddenError(
+      'Este asset es parte de la base del contexto y no puede eliminarse individualmente'
+    );
+  }
+
+  // uploadedBy es un ObjectId; comparamos via toString por robustez
+  if (asset.uploadedBy.toString() !== user._id.toString()) {
+    throw new ForbiddenError(
+      'Solo el profesor que subio este asset puede eliminarlo o reemplazar su audio'
+    );
   }
 }
 
@@ -118,14 +154,16 @@ const uploadImage = async (req, res) => {
       'image/webp'
     );
 
-    // Construir nuevo asset (incluye dominantColor para LQIP en frontend)
+    // Construir nuevo asset (incluye dominantColor para LQIP en frontend
+    // y uploadedBy para la politica de gestion: solo el creador o super_admin pueden borrar)
     const newAsset = {
       key: key.toLowerCase(),
       value,
       display: display || value,
       imageUrl,
       thumbnailUrl,
-      dominantColor: metadata.dominantColor
+      dominantColor: metadata.dominantColor,
+      uploadedBy: req.user._id
     };
 
     // Guardar en MongoDB
@@ -213,12 +251,13 @@ const uploadAudio = async (req, res) => {
       metadata.mime
     );
 
-    // Construir nuevo asset
+    // Construir nuevo asset (uploadedBy define la politica de gestion del asset)
     const newAsset = {
       key: key.toLowerCase(),
       value,
       display: display || value,
-      audioUrl
+      audioUrl,
+      uploadedBy: req.user._id
     };
 
     // Guardar en MongoDB
@@ -287,6 +326,9 @@ const deleteImage = async (req, res) => {
 
   const asset = context.assets[assetIndex];
 
+  // Politica de ownership: solo el creador o super_admin puede borrar
+  assertCanManageAsset(asset, req.user);
+
   // Eliminar archivos de Supabase (imagen + thumbnail + audio si existe)
   if (asset.imageUrl) {
     await storageService.deleteFile(asset.imageUrl, { strict: true });
@@ -342,6 +384,9 @@ const deleteAudio = async (req, res) => {
   }
 
   const asset = context.assets[assetIndex];
+
+  // Politica de ownership: solo el creador del asset o super_admin pueden borrar el audio
+  assertCanManageAsset(asset, req.user);
 
   // Eliminar archivo de audio de Supabase
   await storageService.deleteFile(asset.audioUrl, { strict: true });
@@ -410,6 +455,9 @@ const attachAudio = async (req, res) => {
     if (!asset) {
       throw new NotFoundError('Asset');
     }
+
+    // Politica de ownership: adjuntar/reemplazar audio sigue la misma regla que borrar
+    assertCanManageAsset(asset, req.user);
 
     // Validar audio (magic bytes, tamaño, duración)
     const { buffer, metadata } = await audioValidationService.validateAudio(file);

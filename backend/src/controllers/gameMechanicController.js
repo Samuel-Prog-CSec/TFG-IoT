@@ -1,16 +1,20 @@
 /**
- * @fileoverview Controller para gestión CRUD de mecánicas de juego.
- * Maneja las diferentes mecánicas disponibles (association, sequence, memory, etc.).
+ * @fileoverview Controller de mecánicas de juego (solo lectura).
+ *
+ * Las mecánicas son inmutables a nivel de API: solo los desarrolladores
+ * las definen mediante seeders y migraciones. Por tanto, este controller
+ * únicamente expone operaciones de lectura.
+ *
  * @module controllers/gameMechanicController
  */
 
 const gameMechanicRepository = require('../repositories/gameMechanicRepository');
-const { NotFoundError, ConflictError } = require('../utils/errors');
+const { NotFoundError } = require('../utils/errors');
 const logger = require('../utils/logger');
 const { toGameMechanicDTOV1, toGameMechanicListDTOV1 } = require('../utils/dtos');
-const { sendSuccess, sendCreated, sendPaginated } = require('../utils/responseHelper');
+const { sendSuccess, sendPaginated } = require('../utils/responseHelper');
 const { buildFilter } = require('../utils/filterBuilder');
-const { cacheGet, cacheInvalidate } = require('../utils/cacheHelper');
+const { cacheGet } = require('../utils/cacheHelper');
 
 const mechanicFilterMappings = {
   isActive: { field: 'isActive', type: 'exact' },
@@ -36,14 +40,11 @@ const getMechanics = async (req, res) => {
     search
   } = req.query;
 
-  // Construir filtro
   const filter = buildFilter({ isActive, search }, mechanicFilterMappings);
 
-  // Paginación
   const skip = (page - 1) * limit;
   const sortOptions = { [sortBy]: order === 'asc' ? 1 : -1 };
 
-  // Ejecutar query
   const [mechanics, total] = await Promise.all([
     gameMechanicRepository.find(filter, {
       sort: sortOptions,
@@ -78,7 +79,6 @@ const getMechanics = async (req, res) => {
 const getMechanicById = async (req, res) => {
   const { id } = req.params;
 
-  // Intentar buscar por ID de MongoDB o por nombre (con cache)
   const mechanic = await cacheGet(
     'cache:mechanic',
     `byId:${id}`,
@@ -87,7 +87,6 @@ const getMechanicById = async (req, res) => {
       if (id.match(/^[0-9a-f]{24}$/i)) {
         result = await gameMechanicRepository.findById(id);
       } else {
-        // Buscar por nombre (ej: 'association', 'sequence')
         result = await gameMechanicRepository.findOne({ name: id.toLowerCase() });
       }
       return result;
@@ -100,136 +99,6 @@ const getMechanicById = async (req, res) => {
   }
 
   sendSuccess(res, toGameMechanicDTOV1(mechanic));
-};
-
-/**
- * Crear una nueva mecánica de juego.
- * Solo profesores pueden crear mecánicas.
- *
- * POST /api/mechanics
- * Headers: Authorization: Bearer <token>
- * Body: { name, displayName, description, icon?, rules?, isActive? }
- *
- * @param {import('express').Request} req
- * @param {import('express').Response} res
- */
-const createMechanic = async (req, res) => {
-  const { name, displayName, description, icon, rules, isActive } = req.body;
-
-  // Verificar si el nombre ya existe
-  const existingMechanic = await gameMechanicRepository.findOne({ name: name.toLowerCase() });
-
-  if (existingMechanic) {
-    throw new ConflictError('Una mecánica con este nombre ya existe');
-  }
-
-  // Crear mecánica
-  const mechanic = await gameMechanicRepository.create({
-    name: name.toLowerCase(),
-    displayName,
-    description,
-    icon: icon || '🎮',
-    rules: rules || {},
-    isActive: isActive !== undefined ? isActive : true
-  });
-
-  logger.info('Mecánica creada', {
-    mechanicId: mechanic._id,
-    name: mechanic.name,
-    createdBy: req.user._id
-  });
-
-  sendCreated(res, toGameMechanicDTOV1(mechanic), 'Mecánica creada exitosamente');
-};
-
-/**
- * Actualizar una mecánica existente.
- *
- * PUT /api/mechanics/:id
- * Headers: Authorization: Bearer <token>
- * Body: { displayName?, description?, icon?, rules?, isActive? }
- *
- * NOTA: El nombre no se puede modificar para mantener consistencia.
- *
- * @param {import('express').Request} req
- * @param {import('express').Response} res
- */
-const updateMechanic = async (req, res) => {
-  const { id } = req.params;
-  const { displayName, description, icon, rules, isActive } = req.body;
-
-  const mechanic = await gameMechanicRepository.findById(id);
-
-  if (!mechanic) {
-    throw new NotFoundError('Mecánica de juego');
-  }
-
-  // Actualizar campos permitidos (name es inmutable)
-  if (displayName) {
-    mechanic.displayName = displayName;
-  }
-  if (description) {
-    mechanic.description = description;
-  }
-  if (icon) {
-    mechanic.icon = icon;
-  }
-  if (rules) {
-    mechanic.rules = { ...mechanic.rules, ...rules };
-  }
-  if (isActive !== undefined) {
-    mechanic.isActive = isActive;
-  }
-
-  await mechanic.save();
-
-  await cacheInvalidate('cache:mechanic', `byId:${id}`);
-  // Also invalidate by-name since getMechanicById can look up by name
-  await cacheInvalidate('cache:mechanic', `byId:${mechanic.name}`);
-
-  logger.info('Mecánica actualizada', {
-    mechanicId: mechanic._id,
-    name: mechanic.name,
-    updatedBy: req.user._id
-  });
-
-  sendSuccess(res, toGameMechanicDTOV1(mechanic), 'Mecánica actualizada exitosamente');
-};
-
-/**
- * Eliminar (desactivar) una mecánica.
- * Soft delete cambiando isActive a false.
- *
- * DELETE /api/mechanics/:id
- * Headers: Authorization: Bearer <token>
- *
- * @param {import('express').Request} req
- * @param {import('express').Response} res
- */
-const deleteMechanic = async (req, res) => {
-  const { id } = req.params;
-
-  const mechanic = await gameMechanicRepository.findById(id);
-
-  if (!mechanic) {
-    throw new NotFoundError('Mecánica de juego');
-  }
-
-  // Soft delete
-  mechanic.isActive = false;
-  await mechanic.save();
-
-  await cacheInvalidate('cache:mechanic', `byId:${id}`);
-  // Also invalidate by-name since getMechanicById can look up by name
-  await cacheInvalidate('cache:mechanic', `byId:${mechanic.name}`);
-
-  logger.info('Mecánica desactivada', {
-    mechanicId: mechanic._id,
-    name: mechanic.name,
-    deletedBy: req.user._id
-  });
-
-  sendSuccess(res, null, 'Mecánica desactivada exitosamente');
 };
 
 /**
@@ -253,8 +122,5 @@ const getActiveMechanics = async (req, res) => {
 module.exports = {
   getMechanics,
   getMechanicById,
-  createMechanic,
-  updateMechanic,
-  deleteMechanic,
   getActiveMechanics
 };

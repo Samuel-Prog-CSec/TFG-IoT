@@ -28,7 +28,7 @@ const CurrentPlayMetrics = memo(function CurrentPlayMetrics({ mode, score, corre
         <MetricPill label="⭐ Puntos" value={score} />
         <MetricPill label="✅ Aciertos" value={correctAnswers} />
         <MetricPill
-          label={mode === 'memory' ? '🧠 Parejas' : '🎯 Aciertos'}
+          label={mode === 'memory' ? '🧠 Parejas' : '🎯 Progreso'}
           value={mode === 'memory' ? `${correctAnswers}` : `${correctAnswers} de ${totalRounds}`}
         />
       </div>

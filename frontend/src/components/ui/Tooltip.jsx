@@ -185,11 +185,16 @@ export default function Tooltip({
             transition={{ duration: 0.15, ease: [0.25, 1, 0.5, 1] }}
             className={cn(
               'absolute z-[60] pointer-events-none',
-              'px-2.5 py-1.5 rounded-lg',
-              'text-xs font-medium whitespace-nowrap',
-              'bg-background-elevated text-text-primary',
+              'px-3 py-2 rounded-lg',
+              'text-xs font-medium leading-snug',
+              // Texto corto = una sola linea; texto largo (mas de 32 chars) hace wrap con max-width
+              typeof content === 'string' && content.length > 32
+                ? 'max-w-[260px] whitespace-normal text-balance'
+                : 'whitespace-nowrap',
+              // Glassmorphism con saturacion para coherencia con resto de UI
+              'bg-background-elevated/95 backdrop-blur-md text-text-primary',
               'border border-border-default',
-              'shadow-lg shadow-black/30',
+              'shadow-[0_8px_24px_rgba(0,0,0,0.4),inset_0_1px_0_rgba(255,255,255,0.06)]',
               positionClasses[effectiveSide]
             )}
           >

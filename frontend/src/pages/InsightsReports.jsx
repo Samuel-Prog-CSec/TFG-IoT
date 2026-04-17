@@ -264,15 +264,17 @@ export default function InsightsReports() {
           ),
         ]);
 
-        // Merge context and mechanic data for the matrix
+        // Mantenemos las dos dimensiones por separado (no se mezclan): el componente
+        // de efectividad muestra UNA dimension a la vez (barras horizontales con RAG).
+        // Antes se mergeaba todo en un solo array y la matriz cruzada acababa con valores
+        // repetidos por columna; el rediseno ya no necesita ese workaround.
         const contextItems = contextData?.items || contextData?.data || contextData || [];
         const mechanicItems = mechanicData?.items || mechanicData?.data || mechanicData || [];
-        const mergedData = [
-          ...(Array.isArray(contextItems) ? contextItems : []),
-          ...(Array.isArray(mechanicItems) ? mechanicItems : []),
-        ];
 
-        setEffectivenessData(mergedData);
+        setEffectivenessData({
+          context: Array.isArray(contextItems) ? contextItems : [],
+          mechanic: Array.isArray(mechanicItems) ? mechanicItems : []
+        });
         setLearningCurvesData(curvesData);
       } catch (err) {
         if (isAbortError(err)) return;
@@ -566,8 +568,9 @@ function EffectivenessTabContent({ effectivenessData, learningCurvesData, loadin
       animate="visible"
       className="space-y-6"
     >
-      <motion.div variants={shouldReduceMotion ? {} : listItemVariants}>
-        <ContentEffectivenessMatrix data={effectivenessData} />
+      <motion.div variants={shouldReduceMotion ? {} : listItemVariants} className="grid grid-cols-1 xl:grid-cols-2 gap-6">
+        <ContentEffectivenessMatrix data={effectivenessData?.context || []} groupBy="context" />
+        <ContentEffectivenessMatrix data={effectivenessData?.mechanic || []} groupBy="mechanic" />
       </motion.div>
       <motion.div variants={shouldReduceMotion ? {} : listItemVariants}>
         <LearningCurvesSection

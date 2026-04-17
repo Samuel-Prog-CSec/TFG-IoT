@@ -39,6 +39,22 @@ const toPopulated = (value, mapper) => {
   return undefined;
 };
 
+/**
+ * Normaliza el campo createdBy de un user. Si viene poblado (objeto con name),
+ * devuelve {id, name}; si solo es ObjectId/string, devuelve el id en string.
+ * Permite que el frontend muestre el nombre del profesor que creo a un alumno
+ * sin tener que cargar otro endpoint.
+ */
+const mapCreatedBy = createdBy => {
+  if (!createdBy) {
+    return undefined;
+  }
+  if (typeof createdBy === 'object' && (createdBy._id || createdBy.id) && createdBy.name) {
+    return { id: toId(createdBy), name: createdBy.name };
+  }
+  return toId(createdBy);
+};
+
 const mapStudentMetrics = metrics => {
   if (!metrics) {
     return undefined;
@@ -113,7 +129,7 @@ const toUserDTOV1 = user => {
           // birthdate ELIMINADO: Art. 5.1.c RGPD (minimización)
         }
       : undefined,
-    createdBy: toId(userData.createdBy),
+    createdBy: mapCreatedBy(userData.createdBy),
     lastLoginAt: hasLogin ? userData.lastLoginAt : undefined,
     createdAt: userData.createdAt,
     updatedAt: userData.updatedAt
@@ -185,7 +201,7 @@ const toUserSummaryDTOV1 = user => {
         }
       : undefined,
     consent: userData.consent ? { granted: userData.consent.granted } : undefined,
-    createdBy: toId(userData.createdBy),
+    createdBy: mapCreatedBy(userData.createdBy),
     createdAt: userData.createdAt,
     updatedAt: userData.updatedAt
   };
@@ -505,6 +521,20 @@ const toAssetDTOV1 = asset => {
 
   const assetData = toPlainObject(asset);
 
+  // uploadedBy puede venir poblado (objeto User) o solo como ObjectId/string.
+  // Normalizamos a {id, name} cuando hay populate, o a {id} cuando no.
+  let uploadedBy = null;
+  if (assetData.uploadedBy) {
+    if (typeof assetData.uploadedBy === 'object' && assetData.uploadedBy._id) {
+      uploadedBy = {
+        id: assetData.uploadedBy._id.toString(),
+        name: assetData.uploadedBy.name || null
+      };
+    } else {
+      uploadedBy = { id: toId(assetData.uploadedBy), name: null };
+    }
+  }
+
   return {
     key: assetData.key,
     display: assetData.display,
@@ -512,7 +542,8 @@ const toAssetDTOV1 = asset => {
     audioUrl: assetData.audioUrl,
     imageUrl: assetData.imageUrl,
     thumbnailUrl: assetData.thumbnailUrl,
-    dominantColor: assetData.dominantColor || null
+    dominantColor: assetData.dominantColor || null,
+    uploadedBy
   };
 };
 

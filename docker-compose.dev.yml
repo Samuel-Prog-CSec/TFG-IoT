@@ -33,6 +33,12 @@ services:
     environment:
       - VITE_API_URL=http://localhost:5000/api
     command: npm run dev -- --host 0.0.0.0
+    # Vite dev server necesita memoria suficiente para dependency optimization y HMR
+    # (el limite de 128M de produccion mata el proceso con SIGKILL)
+    deploy:
+      resources:
+        limits:
+          memory: 1G
     healthcheck:
       test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://127.0.0.1:5173"]
       interval: 30s

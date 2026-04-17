@@ -45,24 +45,24 @@ function TimerBar({ timeLeft, timeLimit, className }) {
   return (
     <div className={cn("w-full", className)}>
       <span className="sr-only">Tiempo restante: {Math.ceil(safeTimeLeft)} segundos, estado: {timeStatus}</span>
-      {/* Timer label con icono animado */}
-      <div className="flex items-center justify-center gap-2 mb-3">
-        <motion.span
-          animate={isCritical && !shouldReduceMotion ? {
-            scale: [1, 1.15, 1],
-          } : {}}
-          transition={{ duration: 1.5, repeat: isCritical && !shouldReduceMotion ? Infinity : 0, ease: 'easeInOut' }}
-          className="text-2xl"
-          aria-hidden="true"
-        >
-          ⏰
-        </motion.span>
-        {isUrgent && (
+      {/* Timer label compacto: icono + alerta se muestran en linea con la barra
+          (inline) solo cuando es urgente, para no robar altura durante la mayor
+          parte de la partida. */}
+      {isUrgent && (
+        <div className="flex items-center justify-center gap-2 mb-1">
+          <motion.span
+            animate={isCritical && !shouldReduceMotion ? { scale: [1, 1.15, 1] } : {}}
+            transition={{ duration: 1.5, repeat: isCritical && !shouldReduceMotion ? Infinity : 0, ease: 'easeInOut' }}
+            className="text-lg"
+            aria-hidden="true"
+          >
+            ⏰
+          </motion.span>
           <motion.span
             initial={{ opacity: 0, scale: 0 }}
             animate={{ opacity: 1, scale: 1 }}
             className={cn(
-              "text-sm font-bold px-3 py-1 rounded-full",
+              "text-xs font-bold px-2 py-0.5 rounded-full",
               isCritical
                 ? cn("bg-timer-critical/20 text-timer-critical", !shouldReduceMotion && "animate-pulse")
                 : "bg-timer-warning/20 text-timer-warning"
@@ -72,8 +72,8 @@ function TimerBar({ timeLeft, timeLimit, className }) {
           >
             {isCritical ? '¡Rápido!' : '¡Vamos!'}
           </motion.span>
-        )}
-      </div>
+        </div>
+      )}
 
       {/* Track */}
       <progress className="sr-only" max={safeTimeLimit} value={safeTimeLeft}>
@@ -82,11 +82,11 @@ function TimerBar({ timeLeft, timeLimit, className }) {
 
       <div
         className={cn(
-          "relative h-6 rounded-full overflow-hidden",
+          "relative h-4 sm:h-5 rounded-full overflow-hidden",
           "bg-background-elevated/80 backdrop-blur-sm",
-          "border-2",
+          "border",
           !isUrgent && "border-border-default",
-          isUrgent && !isCritical && "border-dashed border-timer-warning/50",
+          isUrgent && !isCritical && "border-dashed border-timer-warning/60",
           isCritical && "border-timer-critical/70",
           isCritical && !shouldReduceMotion && "animate-shake"
         )}

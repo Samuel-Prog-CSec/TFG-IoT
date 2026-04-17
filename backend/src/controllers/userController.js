@@ -101,14 +101,21 @@ const getUsers = async (req, res) => {
   const skip = (page - 1) * limit;
   const sortOptions = { [sortBy]: order === 'asc' ? 1 : -1 };
 
-  // Ejecutar query
+  // Ejecutar query.
+  // Para alumnos, poblamos createdBy (profesor) con su nombre/email para que la UI
+  // de admin pueda mostrar a quien pertenece cada alumno (evita el placeholder "Sistema").
+  const findOptions = {
+    sort: sortOptions,
+    limit: Number.parseInt(limit, 10),
+    skip,
+    select: '-password'
+  };
+  if (role === 'student') {
+    findOptions.populate = { path: 'createdBy', select: 'name email' };
+  }
+
   const [users, total] = await Promise.all([
-    userRepository.find(filter, {
-      sort: sortOptions,
-      limit: Number.parseInt(limit, 10),
-      skip,
-      select: '-password'
-    }),
+    userRepository.find(filter, findOptions),
     userRepository.count(filter)
   ]);
 

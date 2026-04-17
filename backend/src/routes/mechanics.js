@@ -1,6 +1,14 @@
 /**
  * @fileoverview Rutas de gestión de mecánicas de juego.
- * Endpoints CRUD para mecánicas (association, sequence, memory, etc.).
+ *
+ * Las mecánicas (association, sequence, memory, ...) son inmutables a nivel
+ * de API. Se definen en los seeders del proyecto y solo los desarrolladores
+ * pueden añadir, modificar o eliminar mecánicas mediante migraciones.
+ *
+ * Por seguridad y consistencia del producto, los métodos POST/PUT/PATCH/DELETE
+ * sobre /api/mechanics están deshabilitados para todos los roles, incluido
+ * super_admin. Cualquier intento devuelve 405 Method Not Allowed.
+ *
  * @module routes/mechanics
  */
 
@@ -10,24 +18,31 @@ const router = express.Router();
 const {
   getMechanics,
   getMechanicById,
-  createMechanic,
-  updateMechanic,
-  deleteMechanic,
   getActiveMechanics
 } = require('../controllers/gameMechanicController');
 
 const { authenticate, requireRole, optionalAuth } = require('../middlewares/auth');
-const { createResourceRateLimiter } = require('../config/security');
-const { validateBody, validateQuery, validateParams } = require('../middlewares/validation');
+const { validateQuery, validateParams } = require('../middlewares/validation');
 const {
-  createGameMechanicSchema,
-  updateGameMechanicSchema,
   gameMechanicQuerySchema,
-  gameMechanicParamsSchema,
-  gameMechanicIdParamsSchema
+  gameMechanicParamsSchema
 } = require('../validators/gameMechanicValidator');
 const { emptyObjectSchema } = require('../validators/commonValidator');
 const asyncHandler = require('../utils/asyncHandler');
+
+/**
+ * Handler genérico para métodos no permitidos sobre el recurso de mecánicas.
+ * Devuelve 405 con el header Allow indicando los métodos válidos.
+ */
+const mechanicMethodNotAllowed = (req, res) => {
+  res.set('Allow', 'GET');
+  return res.status(405).json({
+    success: false,
+    error: 'Method Not Allowed',
+    message:
+      'Las mecánicas de juego son inmutables. Solo los desarrolladores pueden añadir, modificar o eliminar mecánicas mediante seeders y migraciones del backend.'
+  });
+};
 
 /**
  * @route   GET /api/mechanics/active
@@ -45,7 +60,7 @@ router.get(
 /**
  * @route   GET /api/mechanics
  * @desc    Obtener lista de mecánicas con filtros
- * @access  Private (Teacher)
+ * @access  Private (Teacher, Super Admin)
  * @validation query: gameMechanicQuerySchema
  */
 router.get(
@@ -59,7 +74,7 @@ router.get(
 /**
  * @route   GET /api/mechanics/:id
  * @desc    Obtener mecánica por ID o nombre
- * @access  Private (Teacher)
+ * @access  Private (Teacher, Super Admin)
  * @validation params: gameMechanicParamsSchema | query: emptyObjectSchema
  */
 router.get(
@@ -71,51 +86,10 @@ router.get(
   asyncHandler(getMechanicById)
 );
 
-/**
- * @route   POST /api/mechanics
- * @desc    Crear nueva mecánica
- * @access  Private (Teacher)
- * @validation body: createGameMechanicSchema | query: emptyObjectSchema
- */
-router.post(
-  '/',
-  createResourceRateLimiter, // Rate limiting para prevenir spam
-  authenticate,
-  requireRole('teacher'),
-  validateQuery(emptyObjectSchema),
-  validateBody(createGameMechanicSchema),
-  asyncHandler(createMechanic)
-);
-
-/**
- * @route   PUT /api/mechanics/:id
- * @desc    Actualizar mecánica
- * @access  Private (Teacher)
- * @validation params: gameMechanicIdParamsSchema | body: updateGameMechanicSchema | query: emptyObjectSchema
- */
-router.put(
-  '/:id',
-  authenticate,
-  requireRole('teacher'),
-  validateParams(gameMechanicIdParamsSchema),
-  validateQuery(emptyObjectSchema),
-  validateBody(updateGameMechanicSchema),
-  asyncHandler(updateMechanic)
-);
-
-/**
- * @route   DELETE /api/mechanics/:id
- * @desc    Eliminar mecánica (soft delete)
- * @access  Private (Teacher)
- * @validation params: gameMechanicIdParamsSchema | query: emptyObjectSchema
- */
-router.delete(
-  '/:id',
-  authenticate,
-  requireRole('teacher'),
-  validateParams(gameMechanicIdParamsSchema),
-  validateQuery(emptyObjectSchema),
-  asyncHandler(deleteMechanic)
-);
+// Mecánicas inmutables: bloqueamos cualquier intento de write para todos los roles.
+router.post('/', mechanicMethodNotAllowed);
+router.put('/:id', mechanicMethodNotAllowed);
+router.patch('/:id', mechanicMethodNotAllowed);
+router.delete('/:id', mechanicMethodNotAllowed);
 
 module.exports = router;

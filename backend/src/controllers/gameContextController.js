@@ -123,11 +123,12 @@ const getContextById = async (req, res) => {
     `byId:${id}`,
     async () => {
       let result;
+      const populateOpts = { populate: { path: 'assets.uploadedBy', select: 'name email' } };
       if (id.match(/^[0-9a-f]{24}$/i)) {
-        result = await gameContextRepository.findById(id);
+        result = await gameContextRepository.findById(id, populateOpts);
       } else {
         // Buscar por contextId (ej: 'geography', 'animals')
-        result = await gameContextRepository.findOne({ contextId: id.toLowerCase() });
+        result = await gameContextRepository.findOne({ contextId: id.toLowerCase() }, populateOpts);
       }
       return result;
     },
@@ -303,16 +304,15 @@ const getContextAssets = async (req, res) => {
   const { id } = req.params;
 
   let context;
+  const baseOpts = {
+    select: 'contextId name assets',
+    populate: { path: 'assets.uploadedBy', select: 'name email' }
+  };
 
   if (id.match(/^[0-9a-f]{24}$/i)) {
-    context = await gameContextRepository.findById(id, {
-      select: 'contextId name assets'
-    });
+    context = await gameContextRepository.findById(id, baseOpts);
   } else {
-    context = await gameContextRepository.findOne(
-      { contextId: id.toLowerCase() },
-      { select: 'contextId name assets' }
-    );
+    context = await gameContextRepository.findOne({ contextId: id.toLowerCase() }, baseOpts);
   }
 
   if (!context) {

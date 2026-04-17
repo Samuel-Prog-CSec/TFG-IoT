@@ -698,7 +698,9 @@ export default function StudentManagement() {
                     <div className="flex items-center justify-between">
                       <span className="text-xs uppercase tracking-wider text-text-muted font-bold">Profesor</span>
                       <span className="text-xs text-text-primary font-medium truncate max-w-[160px]">
-                        {student.createdBy?.name || 'Sistema'}
+                        {/* createdBy puede venir poblado ({id, name}) o como string ObjectId.
+                            Si es objeto, mostramos el nombre; si es string sin populate o falta, "Sistema". */}
+                        {(typeof student.createdBy === 'object' && student.createdBy?.name) || 'Sistema'}
                       </span>
                     </div>
                     <div className="flex items-center justify-between">

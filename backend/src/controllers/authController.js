@@ -405,11 +405,14 @@ const refreshAccessToken = async (req, res) => {
   const requestContext = getRequestContext(req);
 
   if (!refreshToken) {
+    // No es un error de validacion (400) sino "no autenticado" (401): el cliente
+    // simplemente no tiene sesion previa. Devolvemos 401 limpio para que el frontend
+    // no contamine la consola con "Bad Request" en cargas frescas sin login.
     logSecurityEvent('AUTH_REFRESH_FAILED', {
       ...requestContext,
       reason: 'REFRESH_TOKEN_REQUIRED'
     });
-    throw new ValidationError('Refresh token requerido');
+    throw new UnauthorizedError('No hay sesion activa');
   }
 
   let decoded;

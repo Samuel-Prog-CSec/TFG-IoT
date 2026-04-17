@@ -4,11 +4,16 @@
    🎨 SISTEMA DE DISEÑO "EDUPLAY" - TAILWIND V4
    ============================================ */
 @theme {
-  /* ===== TIPOGRAFÍA ===== */
+  /* ===== TIPOGRAFÍA =====
+     Sans: Inter Tight (cuerpo y UI), variante "Tight" con tracking más ajustado
+     que el Inter clásico — mejor jerarquia visual y menos "anodino".
+     Display: Bricolage Grotesque, fuente variable con axes opsz/wdth, calida y
+     contemporanea. Da personalidad sin ser infantil — encaja con un producto
+     educativo serio pero amable. */
   --font-sans:
-    "Inter", system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto,
+    "Inter Tight", system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto,
     "Helvetica Neue", Arial, sans-serif;
-  --font-display: "Outfit", var(--font-sans);
+  --font-display: "Bricolage Grotesque", "Inter Tight", var(--font-sans);
 
   /* ===== COLORES SEMÁNTICOS (OKLCH) ===== */
   /* Backgrounds: Fríos, profundos, con sutiles matices morados/azules */
@@ -233,9 +238,28 @@
     touch-action: manipulation;
   }
 
-  /* Equilibra el wrap de headings para mejor ritmo visual */
+  /* Equilibra el wrap de headings y aplica tracking optico para look editorial.
+     Bricolage Grotesque tiene mejor presencia con tracking ligeramente negativo
+     en tamaños grandes (h1/h2) y neutro/positivo en h3/h4. */
   h1, h2, h3, h4 {
     text-wrap: balance;
+  }
+  h1 {
+    letter-spacing: -0.025em;
+  }
+  h2 {
+    letter-spacing: -0.02em;
+  }
+  h3 {
+    letter-spacing: -0.01em;
+  }
+
+  /* Antialiasing y kerning de calidad tipografica para body */
+  html {
+    text-rendering: optimizeLegibility;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    font-feature-settings: "kern", "liga", "calt", "ss01";
   }
 
   /* Focus outline de accesibilidad global */

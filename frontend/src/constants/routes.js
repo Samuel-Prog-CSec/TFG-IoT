@@ -42,6 +42,7 @@ export const ROUTES = {
   // Admin (solo super_admin)
   ADMIN_APPROVALS: '/admin/approvals',
   STUDENT_MANAGEMENT: '/admin/students',
+  ADMIN_CONTEXTS: '/admin/contexts',
 
   // Publicas
   PRIVACY: '/privacy',
@@ -106,6 +107,11 @@ export const ADMIN_NAV_ROUTES = [
     path: ROUTES.STUDENT_MANAGEMENT,
     label: 'Alumnos',
     icon: 'Users',
+  },
+  {
+    path: ROUTES.ADMIN_CONTEXTS,
+    label: 'Contextos',
+    icon: 'Palette',
   },
 ];
 

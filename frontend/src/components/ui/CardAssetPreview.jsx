@@ -21,16 +21,26 @@ export default function CardAssetPreview({
   const [imageError, setImageError] = useState(false);
   const [imageLoading, setImageLoading] = useState(Boolean(imageUrl));
 
-  // Reset state when asset image URL changes
+  // Reset state cuando cambia la URL. Importante: tambien si el asset cambia
+  // pero la URL es la misma (por ejemplo entre rondas que reusan cartas),
+  // chequeamos en el callback ref si la imagen ya esta cargada.
   useEffect(() => {
     setImageError(false);
     setImageLoading(Boolean(imageUrl));
   }, [imageUrl]);
 
-  // Callback ref: detecta imágenes que ya se cargaron desde cache
-  // antes de que React adjunte el handler onLoad
+  // Callback ref: detecta imágenes que ya se cargaron desde cache antes de
+  // que React adjunte el handler onLoad. Tambien sincroniza el estado cuando
+  // un re-render reusa el mismo <img> con el mismo src (caso comun en juegos
+  // donde se barajan las cartas pero los assets se repiten entre rondas).
   const imgRef = useCallback((node) => {
-    if (node?.complete && node.naturalWidth > 0) {
+    if (!node) return;
+    if (node.complete && node.naturalWidth > 0) {
+      setImageLoading(false);
+      setImageError(false);
+    } else if (node.complete && node.naturalWidth === 0) {
+      // Imagen completed sin dimensiones reales = error de carga
+      setImageError(true);
       setImageLoading(false);
     }
   }, []);

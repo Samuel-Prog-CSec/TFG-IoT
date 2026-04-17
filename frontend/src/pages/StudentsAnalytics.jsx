@@ -65,7 +65,8 @@ function getTierBadge(tier) {
  */
 function getActivityColor(dateStr) {
   if (!dateStr) return 'bg-text-disabled';
-  const diff = (Date.now() - new Date(dateStr).getTime()) / (1000 * 60 * 60 * 24);
+  // Clamp a 0 para que fechas en el futuro (fixtures/seeders) no den valores negativos.
+  const diff = Math.max(0, (Date.now() - new Date(dateStr).getTime()) / (1000 * 60 * 60 * 24));
   if (diff < 3) return 'bg-success-base';
   if (diff <= 7) return 'bg-warning-base';
   return 'bg-error-base';
@@ -73,12 +74,13 @@ function getActivityColor(dateStr) {
 
 /**
  * Genera un texto relativo a partir de una fecha.
+ * Las fechas en el futuro (por seeders) se muestran como "Hoy" en vez de "Hace -X dias".
  * @param {string} dateStr - Fecha ISO
  * @returns {string} Texto "Hace X dias"
  */
 function getRelativeTime(dateStr) {
   if (!dateStr) return 'Sin actividad';
-  const diff = Math.floor((Date.now() - new Date(dateStr).getTime()) / (1000 * 60 * 60 * 24));
+  const diff = Math.max(0, Math.floor((Date.now() - new Date(dateStr).getTime()) / (1000 * 60 * 60 * 24)));
   if (diff === 0) return 'Hoy';
   if (diff === 1) return 'Hace 1 dia';
   return `Hace ${diff} dias`;
@@ -273,13 +275,17 @@ export default function StudentsAnalytics() {
   const classAverage = summary?.averageScore ?? 0;
   const studentsInRisk = summary?.studentsInRisk ?? 0;
 
+  // Contador de alumnos activos: cualquier alumno con lastPlayedAt en los ultimos 7 dias.
+  // El backend lo devuelve dentro de studentMetrics, pero el procesador del listado
+  // lo eleva a la raiz, asi que aqui aceptamos ambas rutas.
   const activeStudentsCount = useMemo(() => {
     if (!students?.students) return 0;
     const sevenDaysAgo = new Date();
     sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
     return students.students.filter(s => {
-      if (!s.lastPlayedAt) return false;
-      return new Date(s.lastPlayedAt) >= sevenDaysAgo;
+      const last = s.lastPlayedAt ?? s.studentMetrics?.lastPlayedAt ?? null;
+      if (!last) return false;
+      return new Date(last) >= sevenDaysAgo;
     }).length;
   }, [students]);
 

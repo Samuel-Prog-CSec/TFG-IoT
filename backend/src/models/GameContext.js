@@ -42,6 +42,8 @@ const mongoose = require('mongoose');
  * @property {string} [audioUrl] - URL del archivo de audio en Supabase Storage (duda #12)
  * @property {string} [imageUrl] - URL de la imagen principal en Supabase Storage (768x768 max, WebP)
  * @property {string} [thumbnailUrl] - URL del thumbnail en Supabase Storage (256x256, WebP)
+ * @property {ObjectId} [uploadedBy] - Usuario que subio el asset. Si es null, el asset fue creado
+ *   por seeders/migraciones y solo puede gestionarlo un super_admin (politica de borrado).
  */
 
 /**
@@ -84,7 +86,17 @@ const gameContextSchema = new mongoose.Schema(
         audioUrl: String,
         imageUrl: String,
         thumbnailUrl: String,
-        dominantColor: String
+        dominantColor: String,
+        // Usuario que subio el asset (null para assets seedeados; los seeders pueden asignar
+        // explicitamente al super_admin). La autorizacion de borrado en assetController exige:
+        // - super_admin siempre puede borrar
+        // - teacher solo si uploadedBy === user._id
+        // - si uploadedBy es null y el user no es super_admin, se rechaza
+        uploadedBy: {
+          type: mongoose.Schema.Types.ObjectId,
+          ref: 'User',
+          default: null
+        }
       }
     ]
   },

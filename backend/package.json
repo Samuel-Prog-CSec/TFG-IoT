@@ -13,6 +13,7 @@
     "migrate:sessions": "node scripts/migrate-session-status.js",
     "migrate:dominant-colors": "node scripts/backfill-dominant-colors.js",
     "migrate:birthdate": "node scripts/migrateBirthdate.js",
+    "migrate:assets-uploadedby": "node scripts/migrate-assets-uploadedby.js",
     "data:audit": "node scripts/dataAudit.js",
     "data:retention": "node scripts/dataRetention.js",
     "data:retention:dry-run": "node scripts/dataRetention.js --dry-run",

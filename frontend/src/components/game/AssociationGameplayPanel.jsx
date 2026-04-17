@@ -11,8 +11,10 @@ import ChallengeDisplay from './ChallengeDisplay';
 /**
  * Resuelve un tema visual basado en el valor del desafío.
  * Utilizado para contextualizar colores/iconos del ChallengeDisplay.
+ * Exportado para que otros componentes (p.ej. GameBackdrop) puedan usar la
+ * misma heuristica y mantener la coherencia visual durante toda la partida.
  */
-function resolveAssociationTheme(challengeValue) {
+export function resolveAssociationTheme(challengeValue) {
   const challengeKey = (challengeValue || '').toLowerCase();
 
   if (challengeKey.includes('animal')) {
@@ -25,6 +27,15 @@ function resolveAssociationTheme(challengeValue) {
 
   if (challengeKey.includes('número') || challengeKey.includes('numero')) {
     return 'numbers';
+  }
+
+  if (
+    challengeKey.includes('pais') ||
+    challengeKey.includes('país') ||
+    challengeKey.includes('geograf') ||
+    challengeKey.includes('europa')
+  ) {
+    return 'geography';
   }
 
   return 'default';

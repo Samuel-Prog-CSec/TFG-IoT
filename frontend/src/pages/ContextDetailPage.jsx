@@ -11,9 +11,7 @@ import {
   Check,
   AlertTriangle,
   Trash2,
-  Pencil,
   Loader2,
-  ShieldCheck,
   RefreshCw
 } from 'lucide-react';
 import { toast } from 'sonner';
@@ -45,7 +43,7 @@ const DROPZONE_VARIANTS = {
 export default function ContextDetailPage() {
   const { contextId } = useParams();
   const navigate = useNavigate();
-  const { isSuperAdmin } = useAuth();
+  const { user: currentUser } = useAuth();
   useDocumentTitle('Detalle del Contexto');
 
   const [context, setContext] = useState(null);
@@ -53,8 +51,6 @@ export default function ContextDetailPage() {
   const [error, setError] = useState(null);
   
   const [showUploadModal, setShowUploadModal] = useState(false);
-  const [showEditModal, setShowEditModal] = useState(false);
-  const [showDeleteModal, setShowDeleteModal] = useState(false);
   const [isDeletingAsset, setIsDeletingAsset] = useState(null);
   const [isDeletingAudio, setIsDeletingAudio] = useState(null);
   const [audioModalAsset, setAudioModalAsset] = useState(null); // asset para AudioUploadModal
@@ -180,27 +176,9 @@ export default function ContextDetailPage() {
             </div>
             
             <div className="flex items-center gap-3 w-full md:w-auto flex-wrap">
-              {isSuperAdmin && (
-                <>
-                  <ButtonPremium
-                    variant="ghost"
-                    onClick={() => setShowEditModal(true)}
-                    icon={<Pencil size={16} />}
-                    className="flex-1 md:flex-none"
-                  >
-                    Editar
-                  </ButtonPremium>
-                  <ButtonPremium
-                    variant="danger"
-                    onClick={() => setShowDeleteModal(true)}
-                    icon={<Trash2 size={16} />}
-                    className="flex-1 md:flex-none"
-                  >
-                    Eliminar contexto
-                  </ButtonPremium>
-                </>
-              )}
-              <ButtonPremium 
+              {/* La gestion del contexto (editar/eliminar) vive en /admin/contexts (super_admin).
+                  Aqui los profesores solo pueden subir nuevos assets. */}
+              <ButtonPremium
                 onClick={() => setShowUploadModal(true)}
                 icon={<Plus size={18} />}
                 className="flex-1 md:flex-none"
@@ -239,6 +217,7 @@ export default function ContextDetailPage() {
                   onDeleteAudio={handleDeleteAudio}
                   isDeletingAudio={isDeletingAudio === asset.key}
                   onManageAudio={(a) => setAudioModalAsset(a)}
+                  currentUserId={currentUser?.id || currentUser?._id}
                 />
               ))}
             </AnimatePresence>
@@ -271,23 +250,6 @@ export default function ContextDetailPage() {
             }}
           />
         )}
-        {showEditModal && (
-          <EditContextModal
-            context={context}
-            onClose={() => setShowEditModal(false)}
-            onSuccess={() => {
-              setShowEditModal(false);
-              fetchContext();
-            }}
-          />
-        )}
-        {showDeleteModal && (
-          <DeleteContextModal
-            context={context}
-            onClose={() => setShowDeleteModal(false)}
-            onSuccess={() => navigate(ROUTES.CONTEXTS)}
-          />
-        )}
       </AnimatePresence>
     </div>
   );
@@ -297,7 +259,35 @@ export default function ContextDetailPage() {
 // COMPONENTES AUXILIARES
 // ============================================
 
-function AssetCard({ asset, index, onDelete, isDeleting = false, onDeleteAudio, isDeletingAudio = false, onManageAudio }) {
+function AssetCard({ asset, index, onDelete, isDeleting = false, onDeleteAudio, isDeletingAudio = false, onManageAudio, currentUserId }) {
+  // Politica de ownership (ver ADR-053):
+  //  - solo el creador del asset puede gestionarlo (delete / replace audio)
+  //  - assets sin uploadedBy son "del sistema" y nadie puede eliminarlos individualmente;
+  //    para borrarlos hay que eliminar el contexto entero desde /admin/contexts (super_admin)
+  //  - el super_admin no tiene override sobre assets individuales: su rol es gestionar
+  //    contextos como "carpetas", no el contenido subido por profesores
+  const ownerId = asset.uploadedBy?.id || null;
+  const ownerName = asset.uploadedBy?.name || null;
+  const isOwner = Boolean(currentUserId && ownerId && ownerId === currentUserId);
+  const canManage = isOwner;
+
+  let ownershipLabel;
+  let ownershipTooltip;
+  if (isOwner) {
+    ownershipLabel = 'Subido por ti';
+    ownershipTooltip = 'Eres el creador del asset y puedes gestionarlo.';
+  } else if (ownerName) {
+    ownershipLabel = `Subido por ${ownerName}`;
+    ownershipTooltip = `Solo ${ownerName} puede eliminar o reemplazar este asset.`;
+  } else {
+    ownershipLabel = 'Asset del sistema';
+    ownershipTooltip =
+      'Este asset es parte de la base del contexto y no puede eliminarse individualmente. Para borrarlo, elimina el contexto entero desde el panel de administración.';
+  }
+
+  const deleteTooltip = canManage ? 'Eliminar asset completo' : ownershipTooltip;
+  const audioActionsTooltip = canManage ? null : ownershipTooltip;
+
   return (
     <motion.div
       initial={{ opacity: 0, scale: 0.9 }}
@@ -352,10 +342,17 @@ function AssetCard({ asset, index, onDelete, isDeleting = false, onDeleteAudio, 
             </div>
             {onDelete && (
               <button
-                onClick={(e) => { e.stopPropagation(); onDelete(asset); }}
-                disabled={isDeleting}
-                className="flex-shrink-0 p-1.5 rounded-lg text-text-muted hover:text-error-base hover:bg-error-base/10 transition-colors disabled:opacity-50"
-                title="Eliminar asset completo"
+                onClick={(e) => { e.stopPropagation(); if (canManage) onDelete(asset); }}
+                disabled={isDeleting || !canManage}
+                aria-disabled={!canManage}
+                className={cn(
+                  'flex-shrink-0 p-1.5 rounded-lg transition-colors',
+                  canManage
+                    ? 'text-text-muted hover:text-error-base hover:bg-error-base/10'
+                    : 'text-text-disabled cursor-not-allowed opacity-60'
+                )}
+                title={deleteTooltip}
+                aria-label={canManage ? 'Eliminar asset completo' : `Bloqueado: ${ownershipTooltip}`}
               >
                 {isDeleting
                   ? <Loader2 size={14} className="animate-spin" />
@@ -364,24 +361,46 @@ function AssetCard({ asset, index, onDelete, isDeleting = false, onDeleteAudio, 
             )}
           </div>
 
-          {/* Audio: player + acciones, o botón añadir */}
+          {/* Linea de autoría (ADR-052): muestra quien subio el asset */}
+          <p
+            className="text-[10px] text-text-muted truncate"
+            title={ownershipTooltip}
+          >
+            {ownershipLabel}
+          </p>
+
+          {/* Audio: player + acciones, o boton añadir.
+              Solo el creador o el super_admin puede modificar/eliminar (ADR-052). */}
           {asset.audioUrl ? (
             <div className="space-y-1.5">
               <AudioMiniPlayer audioUrl={asset.audioUrl} size="md" variant="solid" />
               <div className="flex items-center gap-1.5">
                 <button
-                  onClick={(e) => { e.stopPropagation(); onManageAudio(asset); }}
-                  className="flex items-center gap-1 px-2 py-1 rounded-lg text-[10px] font-medium text-text-muted hover:text-accent-indigo hover:bg-accent-indigo/10 transition-colors"
-                  title="Reemplazar audio"
+                  onClick={(e) => { e.stopPropagation(); if (canManage) onManageAudio(asset); }}
+                  disabled={!canManage}
+                  aria-disabled={!canManage}
+                  className={cn(
+                    'flex items-center gap-1 px-2 py-1 rounded-lg text-[10px] font-medium transition-colors',
+                    canManage
+                      ? 'text-text-muted hover:text-accent-indigo hover:bg-accent-indigo/10'
+                      : 'text-text-disabled cursor-not-allowed opacity-60'
+                  )}
+                  title={canManage ? 'Reemplazar audio' : audioActionsTooltip}
                 >
                   <RefreshCw size={10} />
                   Reemplazar
                 </button>
                 <button
-                  onClick={(e) => { e.stopPropagation(); onDeleteAudio(asset); }}
-                  disabled={isDeletingAudio}
-                  className="flex items-center gap-1 px-2 py-1 rounded-lg text-[10px] font-medium text-text-muted hover:text-error-base hover:bg-error-base/10 transition-colors disabled:opacity-50"
-                  title="Eliminar solo el audio"
+                  onClick={(e) => { e.stopPropagation(); if (canManage) onDeleteAudio(asset); }}
+                  disabled={isDeletingAudio || !canManage}
+                  aria-disabled={!canManage}
+                  className={cn(
+                    'flex items-center gap-1 px-2 py-1 rounded-lg text-[10px] font-medium transition-colors disabled:opacity-50',
+                    canManage
+                      ? 'text-text-muted hover:text-error-base hover:bg-error-base/10'
+                      : 'text-text-disabled cursor-not-allowed opacity-60'
+                  )}
+                  title={canManage ? 'Eliminar solo el audio' : audioActionsTooltip}
                 >
                   {isDeletingAudio ? <Loader2 size={10} className="animate-spin" /> : <Trash2 size={10} />}
                   Audio
@@ -390,13 +409,15 @@ function AssetCard({ asset, index, onDelete, isDeleting = false, onDeleteAudio, 
             </div>
           ) : (
             <button
-              onClick={(e) => { e.stopPropagation(); onManageAudio(asset); }}
-              title="Adjuntar un archivo de audio MP3/OGG a este asset"
+              onClick={(e) => { e.stopPropagation(); if (canManage) onManageAudio(asset); }}
+              disabled={!canManage}
+              aria-disabled={!canManage}
+              title={canManage ? 'Adjuntar un archivo de audio MP3/OGG a este asset' : audioActionsTooltip}
               className={cn(
-                "flex items-center justify-center gap-1.5 py-2 rounded-lg text-xs font-medium",
-                "border border-dashed border-border-default text-text-muted",
-                "hover:border-accent-indigo/50 hover:text-accent-indigo hover:bg-accent-indigo/5",
-                "transition-colors duration-200"
+                'flex items-center justify-center gap-1.5 py-2 rounded-lg text-xs font-medium border border-dashed transition-colors duration-200',
+                canManage
+                  ? 'border-border-default text-text-muted hover:border-accent-indigo/50 hover:text-accent-indigo hover:bg-accent-indigo/5'
+                  : 'border-border-subtle text-text-disabled cursor-not-allowed opacity-60'
               )}
             >
               <Music size={12} />
@@ -643,183 +664,3 @@ function UploadAssetModal({ context, onClose, onSuccess }) {
 }
 
 // ============================================
-// EditContextModal — solo super_admin
-// ============================================
-
-function EditContextModal({ context, onClose, onSuccess }) {
-  const [formData, setFormData] = useState({
-    name: context.name || '',
-    contextId: context.contextId || ''
-  });
-  const [isSubmitting, setIsSubmitting] = useState(false);
-
-  const handleSubmit = async (e) => {
-    e.preventDefault();
-    if (!formData.name.trim() || !formData.contextId.trim()) {
-      toast.error('El nombre y el identificador son requeridos');
-      return;
-    }
-
-    setIsSubmitting(true);
-    try {
-      const docId = context._id || context.id;
-      await contextsAPI.updateContext(docId, {
-        name: formData.name.trim(),
-        contextId: formData.contextId.trim().toLowerCase().replace(/[^a-z0-9_-]/g, '-')
-      });
-      toast.success('Contexto actualizado');
-      onSuccess();
-    } catch (err) {
-      toast.error('Error al actualizar el contexto', { description: extractErrorMessage(err) });
-    } finally {
-      setIsSubmitting(false);
-    }
-  };
-
-  return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-backdrop backdrop-blur-sm">
-      <motion.div
-        initial={{ scale: 0.9, opacity: 0 }}
-        animate={{ scale: 1, opacity: 1 }}
-        exit={{ scale: 0.9, opacity: 0 }}
-        className="bg-background-base border border-border-default rounded-2xl w-full max-w-md shadow-2xl"
-      >
-        <div className="flex items-center justify-between p-6 border-b border-border-subtle">
-          <div className="flex items-center gap-3">
-            <div className="size-10 rounded-xl bg-accent-indigo/20 flex items-center justify-center">
-              <Pencil size={20} className="text-accent-indigo" />
-            </div>
-            <h3 className="text-lg font-semibold text-text-primary">Editar Contexto</h3>
-          </div>
-          <button
-            onClick={onClose}
-            className="p-2 rounded-lg hover:bg-border-default transition-colors text-text-muted"
-          >
-            <X size={20} />
-          </button>
-        </div>
-
-        <form onSubmit={handleSubmit} className="p-6 space-y-4">
-          <div className="flex items-center gap-2 text-warning-base bg-warning-base/10 border border-warning-base/20 rounded-xl px-4 py-3 text-sm">
-            <ShieldCheck size={16} className="flex-shrink-0" />
-            <span>Solo los super_admin pueden editar los metadatos del contexto.</span>
-          </div>
-
-          <InputPremium
-            label="Nombre del contexto"
-            placeholder="Ej: Animales de la Granja"
-            value={formData.name}
-            onChange={e => setFormData(prev => ({ ...prev, name: e.target.value }))}
-            required
-          />
-
-          <InputPremium
-            label="Identificador único (contextId)"
-            placeholder="Ej: animales-granja"
-            value={formData.contextId}
-            onChange={e => setFormData(prev => ({
-              ...prev,
-              contextId: e.target.value.toLowerCase().replace(/[^a-z0-9_-]/g, '-')
-            }))}
-            required
-            info="Solo letras minúsculas, números y guiones"
-          />
-
-          <div className="flex justify-end gap-3 pt-2 border-t border-border-subtle">
-            <ButtonPremium type="button" variant="ghost" onClick={onClose} disabled={isSubmitting}>
-              Cancelar
-            </ButtonPremium>
-            <ButtonPremium type="submit" loading={isSubmitting} icon={<Check size={16} />}>
-              Guardar cambios
-            </ButtonPremium>
-          </div>
-        </form>
-      </motion.div>
-    </div>
-  );
-}
-
-// ============================================
-// DeleteContextModal — solo super_admin
-// ============================================
-
-function DeleteContextModal({ context, onClose, onSuccess }) {
-  const [isDeleting, setIsDeleting] = useState(false);
-
-  const handleDelete = async () => {
-    setIsDeleting(true);
-    try {
-      const docId = context._id || context.id;
-      await contextsAPI.deleteContext(docId);
-      toast.success(`Contexto "${context.name}" eliminado correctamente`);
-      onSuccess();
-    } catch (err) {
-      const status = err?.response?.status;
-      const msg = extractErrorMessage(err);
-      if (status === 409) {
-        toast.error('No se puede eliminar: el contexto tiene mazos activos asociados', { description: msg });
-      } else {
-        toast.error('Error al eliminar el contexto', { description: msg });
-      }
-    } finally {
-      setIsDeleting(false);
-      onClose();
-    }
-  };
-
-  return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-backdrop backdrop-blur-sm">
-      <motion.div
-        initial={{ scale: 0.9, opacity: 0 }}
-        animate={{ scale: 1, opacity: 1 }}
-        exit={{ scale: 0.9, opacity: 0 }}
-        className="bg-background-base border border-error-base/20 rounded-2xl w-full max-w-md shadow-2xl"
-      >
-        <div className="flex items-center justify-between p-6 border-b border-border-subtle">
-          <div className="flex items-center gap-3">
-            <div className="size-10 rounded-xl bg-error-base/20 flex items-center justify-center">
-              <Trash2 size={20} className="text-error-base" />
-            </div>
-            <h3 className="text-lg font-semibold text-text-primary">Eliminar Contexto</h3>
-          </div>
-          <button
-            onClick={onClose}
-            className="p-2 rounded-lg hover:bg-border-default transition-colors text-text-muted"
-          >
-            <X size={20} />
-          </button>
-        </div>
-
-        <div className="p-6 space-y-5">
-          <div className="space-y-3">
-            <p className="text-text-primary">
-              ¿Estás seguro de que quieres eliminar el contexto <strong>&quot;{context.name}&quot;</strong>?
-            </p>
-            <div className="flex items-start gap-2 text-error-base bg-error-base/10 border border-error-base/20 rounded-xl px-4 py-3 text-sm">
-              <AlertTriangle size={16} className="flex-shrink-0 mt-0.5" />
-              <span>
-                Esta acción eliminará permanentemente todos los archivos de Supabase Storage asociados
-                a este contexto (<strong>{context.assets?.length || 0} assets</strong>).
-                Esta operación no se puede deshacer.
-              </span>
-            </div>
-          </div>
-
-          <div className="flex justify-end gap-3 pt-2 border-t border-border-subtle">
-            <ButtonPremium type="button" variant="ghost" onClick={onClose} disabled={isDeleting}>
-              Cancelar
-            </ButtonPremium>
-            <ButtonPremium
-              variant="danger"
-              onClick={handleDelete}
-              loading={isDeleting}
-              icon={<Trash2 size={16} />}
-            >
-              Sí, eliminar contexto
-            </ButtonPremium>
-          </div>
-        </div>
-      </motion.div>
-    </div>
-  );
-}

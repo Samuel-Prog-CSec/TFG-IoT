@@ -208,26 +208,31 @@ const SessionCard = memo(function SessionCard({
                   variant="ghost"
                   size="sm"
                   onClick={() => onNavigate(ROUTES.BOARD_SETUP_WITH_ID(sessionId))}
+                  aria-label="Ver mapping de tarjetas"
                 >
                   <Map size={14} />
                 </ButtonPremium>
               </Tooltip>
-              <Tooltip content="Editar sesión">
+              {/* Tooltip dinamico: explica el motivo cuando los botones estan disabled
+                  para que el usuario sepa que solo las sesiones en borrador son editables. */}
+              <Tooltip content={canEdit ? 'Editar sesión' : 'Las sesiones jugadas no se pueden editar; clónala para crear una nueva en borrador'}>
                 <ButtonPremium
                   variant="ghost"
                   size="sm"
                   onClick={() => onNavigate(ROUTES.SESSION_EDIT(sessionId))}
                   disabled={!canEdit}
+                  aria-label={canEdit ? 'Editar sesión' : 'Editar sesión (deshabilitado: ya tiene partidas)'}
                 >
                   <Pencil size={14} />
                 </ButtonPremium>
               </Tooltip>
-              <Tooltip content="Eliminar sesión">
+              <Tooltip content={canDelete ? 'Eliminar sesión' : 'Las sesiones jugadas no se pueden eliminar; archivalas en su lugar'}>
                 <ButtonPremium
                   variant="ghost"
                   size="sm"
                   onClick={() => onDelete(session)}
                   disabled={!canDelete}
+                  aria-label={canDelete ? 'Eliminar sesión' : 'Eliminar sesión (deshabilitado: ya tiene partidas)'}
                 >
                   <Trash2 size={14} />
                 </ButtonPremium>

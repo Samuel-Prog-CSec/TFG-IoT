@@ -17,6 +17,7 @@ import AppLayout from './components/layout/AppLayout';
 import ErrorBoundary from './components/common/ErrorBoundary';
 import { ROUTES } from './constants/routes';
 import RFIDModeHandler from './components/game/RFIDModeHandler';
+import TopProgressBar from './components/ui/TopProgressBar';
 import { RfidModeProvider } from './context/RfidModeContext';
 
 // Lazy loaded pages for better performance
@@ -54,6 +55,7 @@ const NotFound = lazy(() => import('./pages/NotFound'));
 // Admin pages
 const ApprovalPanel = lazy(() => import('./pages/admin/ApprovalPanel'));
 const StudentManagement = lazy(() => import('./pages/admin/StudentManagement'));
+const AdminContexts = lazy(() => import('./pages/admin/AdminContexts'));
 
 // Public pages
 const PrivacyPage = lazy(() => import('./pages/PrivacyPage'));
@@ -119,6 +121,9 @@ AuthenticatedOnly.propTypes = {
 function AppContent() {
   return (
     <>
+      {/* Barra de progreso superior durante navegacion entre rutas (estilo NProgress) */}
+      <TopProgressBar />
+
       <Routes>
         {/* RUTAS PÚBLICAS */}
         <Route path="/login" element={<GuestRoute><SuspenseWrapper><Login /></SuspenseWrapper></GuestRoute>} />
@@ -159,6 +164,7 @@ function AppContent() {
         <Route path="/admin" element={<ProtectedRoute><RequireRole roles="super_admin"><AppLayout /></RequireRole></ProtectedRoute>}>
           <Route path="approvals" element={<SuspenseWrapper><ApprovalPanel /></SuspenseWrapper>} />
           <Route path="students" element={<SuspenseWrapper><StudentManagement /></SuspenseWrapper>} />
+          <Route path="contexts" element={<SuspenseWrapper><AdminContexts /></SuspenseWrapper>} />
         </Route>
 
         {/* RUTAS DE JUEGO */}

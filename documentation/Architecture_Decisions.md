@@ -2823,3 +2823,98 @@ Se implementa un motor de reglas ligero en el cliente (`Dashboard.jsx` -> `alert
 ### Consecuencias
 
 - Lógica de negocio en cliente: Debe mantenerse sincronizada con cualquier lógica crítica de backend (ej. si el backend envía emails de alerta, debe usar los mismos criterios). Para visualización, es aceptable.
+
+
+---
+
+## ADR-052: Mecánicas de juego inmutables en API [Backend]
+
+### Contexto
+
+Hasta v0.5.0 los endpoints `POST/PUT/DELETE /api/mechanics` permitían a cualquier teacher autenticado crear, modificar y desactivar mecánicas. Las mecánicas son un primitivo del producto: el modelo de juego (Asociación, Memoria, Secuencia) lo decide el equipo de desarrollo, no los profesores.
+
+### Decisión
+
+Se eliminan las operaciones de escritura en `/api/mechanics`. Los handlers POST/PUT/PATCH/DELETE devuelven 405 Method Not Allowed con `Allow: GET` y un mensaje explicando que las mecánicas se gestionan vía seeders/migraciones.
+
+### Justificación
+
+- **Integridad del producto**: las mecánicas tienen comportamiento implementado en el backend (state machines, scoring); permitir CREATE arbitrario sin código que las soporte es un footgun.
+- **Seguridad**: cierra una superficie de escritura innecesaria.
+- **Honestidad de la API**: si algo no debe modificarse en runtime, la API no debe exponerlo.
+
+### Consecuencias
+
+- Los tests del módulo (`validationEndpoints.test.js`) se actualizan para esperar 405 en POST/PUT/DELETE.
+- Frontend ya no consumía esos endpoints; no hay impacto cliente.
+- Si en el futuro se quiere "configuración fina" de una mecánica (ej. cambiar `defaults.timeLimit`), se hará vía seeders versionados o un endpoint dedicado distinto.
+
+---
+
+## ADR-053: Política de ownership en assets de contextos [Full-stack]
+
+### Contexto
+
+Los contextos temáticos (`game_contexts`) son recursos compartidos: cualquier teacher ve todos. El subdocumento `assets[]` permitía hasta v0.5.0 que cualquier teacher subiera assets, pero también que cualquier teacher eliminara assets de otros, sin trazabilidad.
+
+A nivel de producto se distinguen dos tipos de "propiedad":
+
+- **El contexto** (la "carpeta") es responsabilidad del super_admin: él lo crea, lo renombra y lo elimina (junto con todo su contenido) desde `/admin/contexts`.
+- **Los assets** dentro de un contexto son responsabilidad de los profesores: cada profesor sube los suyos para sus sesiones y solo él puede eliminarlos. El super_admin **no** tiene UI para gestionar assets individuales y **no** debe tenerla: su rol es estructural (gestión de carpetas), no editorial (contenido).
+
+### Decisión
+
+Se añade el campo `uploadedBy: ObjectId<User>` al subdocumento de asset. La política de gestión es:
+
+- **teacher**: puede gestionar (eliminar / reemplazar audio) **solo los assets que él mismo subió** (`asset.uploadedBy === user._id`).
+- **assets sin `uploadedBy`** (`null`): son "del sistema" — provienen de los seeders y forman la base del producto. No pueden eliminarse individualmente desde la UI por nadie. Se eliminan únicamente al borrar el contexto entero (acción exclusiva del super_admin desde `/admin/contexts`).
+- **super_admin**: NO tiene override sobre assets individuales. Si necesita borrar un asset seedeado, debe eliminar el contexto entero o realizar una migración/script de mantenimiento.
+
+Backend valida en `assetController.deleteImage`, `deleteAudio` y `attachAudio` mediante el helper `assertCanManageAsset`. Frontend muestra "Subido por X" / "Subido por ti" / "Asset del sistema" en cada card y deshabilita los botones con tooltip explicativo cuando el usuario no es el propietario.
+
+Para datos existentes se publica `migrate-assets-uploadedby.js` que normaliza los assets seedeados (cuya `key` está en la lista canónica del seeder) a `uploadedBy = null`. Es idempotente y respeta a los assets subidos por profesores.
+
+### Justificación
+
+- **Justicia**: refleja "el contexto es de todos, el asset es del autor".
+- **Separación de responsabilidades**: el super_admin no debe entrar en la edición de contenido ajeno; su rol es estructural.
+- **Trazabilidad**: cada asset subido por un profesor tiene autor identificable.
+- **Inmutabilidad de la base**: los assets seed son la base del producto y no se eliminan ad-hoc por error.
+
+### Consecuencias
+
+- DTO `toAssetDTOV1` normaliza `uploadedBy` a `{id, name}` cuando viene poblado, o `null` si es del sistema.
+- `getContextById` y `getContextAssets` añaden `populate({ path: 'assets.uploadedBy', select: 'name email' })`.
+- Los endpoints DELETE devuelven `403 ForbiddenError` con mensaje claro: para assets ajenos `"Solo el profesor que subió este asset puede eliminarlo o reemplazar su audio"`; para assets seed `"Este asset es parte de la base del contexto y no puede eliminarse individualmente"`.
+- `ContextDetailPage` ya no recibe `isSuperAdmin` (la ruta `/contexts/:id` está restringida a `roles="teacher"`); las modales obsoletas de Editar/Eliminar contexto se han retirado del componente para concentrar esa gestión en `/admin/contexts`.
+
+---
+
+## ADR-054: UI admin para CRUD de contextos con limpieza de Storage [Full-stack]
+
+### Contexto
+
+El backend permitía a super_admin crear/modificar/eliminar contextos enteros vía `/api/contexts`, pero no había UI: los contextos solo se creaban vía seeders. Esto convertía esos endpoints en *zombie code* y limitaba al admin a operar contra la BD directamente.
+
+### Decisión
+
+Se añade la página `/admin/contexts` (componente `AdminContexts.jsx`) con:
+
+- Listado con tarjetas (KPI de assets/imagenes/audios + estado).
+- Modal de creación (validación de slug `^[a-z0-9-]+$`).
+- Modal de edición (bloquea cambio de `contextId` si ya hay assets en Storage).
+- Modal de eliminación con doble confirmación que advierte explícitamente sobre la limpieza de Supabase Storage (carpeta `ctx-{contextId}/{image,thumbnail,audio}`).
+
+El controlador `deleteContext` ya invocaba `storageService.deleteFolder(context.contextId)` con política hard-fail (si Storage falla, no se borra de MongoDB para preservar consistencia). Se documenta y se confirma este comportamiento.
+
+### Justificación
+
+- Cierra el gap funcional: el super_admin tenía endpoints sin UI.
+- Coordina BD + Storage explícitamente, evitando assets huérfanos en Supabase.
+- La advertencia visual sobre Storage en el modal de eliminación previene errores no informados.
+
+### Consecuencias
+
+- Nueva ruta protegida `/admin/contexts` (rol super_admin) y nuevo item en `ADMIN_NAV_ROUTES`.
+- Sin cambios en backend (los endpoints ya existían).
+- El admin puede eliminar contextos siempre que no tengan dependencias activas (decks/sesiones/plays activas), respetando la regla de integridad referencial existente.

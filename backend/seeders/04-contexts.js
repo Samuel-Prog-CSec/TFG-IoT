@@ -305,17 +305,35 @@ const contextsData = [
 
 /**
  * Ejecuta el seeder de contextos.
+ *
+ * Los assets seedeados quedan SIEMPRE con `uploadedBy = null`. Esto refleja la
+ * decision de producto (ADR-053): los assets seed son "del sistema" — base del
+ * producto, no propiedad de un usuario. No pueden eliminarse individualmente
+ * desde la UI; solo se eliminan al borrar el contexto entero (accion exclusiva
+ * del super_admin desde /admin/contexts).
+ *
  * @returns {Promise<Array>} Array de contextos creados
  */
 async function seedContexts() {
   try {
-    const contexts = await GameContext.create(contextsData);
+    // Asegurar uploadedBy=null en cada asset (defensivo: el default del schema ya es null)
+    const dataWithOwnership = contextsData.map(ctx => ({
+      ...ctx,
+      assets: ctx.assets.map(asset => ({
+        ...asset,
+        uploadedBy: null
+      }))
+    }));
 
-    const totalAssets = contextsData.reduce((sum, ctx) => sum + ctx.assets.length, 0);
+    const contexts = await GameContext.create(dataWithOwnership);
+
+    const totalAssets = dataWithOwnership.reduce((sum, ctx) => sum + ctx.assets.length, 0);
 
     logger.info('Contextos de juego seeded exitosamente');
     logger.info(`- ${contexts.length} contextos creados`);
-    logger.info(`- ${totalAssets} assets totales (todos con imagen en Storage)`);
+    logger.info(
+      `- ${totalAssets} assets totales del sistema (uploadedBy=null, no eliminables individualmente)`
+    );
 
     return contexts;
   } catch (error) {

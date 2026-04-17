@@ -43,13 +43,17 @@ const expressions = {
   sad: { bodyAnim: 'sway' },
 };
 
+// Mensajes revisados para vocabulario de 4-6 anos: frases cortas, directas,
+// con interrogaciones y exclamaciones claras. Se eliminan giros sintacticos
+// complejos como "Tu siguiente sera mejor" o "Todos nos equivocamos" y se
+// sustituyen por expresiones infantiles mas calidas.
 const messagePool = {
-  idle: ['¡Hola, amigo!', '¡Vamos a jugar!', '¿Listo?'],
-  happy: ['¡Muy bien hecho!', '¡Eres genial!', '¡Así se hace!', '¡Fantástico!', '¡Bravo!'],
-  encouraging: ['¡Venga, tú puedes!', '¡Ánimo!', '¡Tu siguiente será mejor!', '¡No te rindas!'],
-  celebrating: ['¡GENIAL, CAMPEÓN!', '¡INCREÍBLE!', '¡ERES UNA ESTRELLA!'],
-  thinking: ['Piensa bien...', 'Tómate tu tiempo...', '¿Cuál será?'],
-  sad: ['¡Otra vez, tú puedes!', '¡Inténtalo de nuevo!', '¡Todos nos equivocamos!'],
+  idle: ['¡Hola!', '¿Jugamos?', '¡Vamos!'],
+  happy: ['¡Muy bien!', '¡Eres genial!', '¡Así se hace!', '¡Qué bien!', '¡Bravo!'],
+  encouraging: ['¡Tú puedes!', '¡Ánimo!', '¡La próxima lo clavas!', '¡Sigue!'],
+  celebrating: ['¡GENIAL!', '¡INCREÍBLE!', '¡ERES UNA ESTRELLA!'],
+  thinking: ['Piensa bien…', 'Tómate tu tiempo', '¿Cuál será?'],
+  sad: ['¡Casi! 💪', '¡Otra vez!', '¡No pasa nada!'],
 };
 
 /**

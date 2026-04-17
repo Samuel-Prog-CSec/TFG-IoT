@@ -198,7 +198,8 @@ export default function AppLayout() {
 
         {/* Footer Actions */}
         <div className="p-4 border-t border-transparent bg-gradient-to-r from-transparent via-border-default/50 to-transparent space-y-1">
-          {/* Toggle de movimiento reducido */}
+          {/* Toggle de movimiento reducido (preferencia de a11y).
+              Estilizado como switch en lugar de nav item para que se distinga de los enlaces. */}
           <button
             onClick={() => {
               if (shouldReduceMotion) {
@@ -207,13 +208,31 @@ export default function AppLayout() {
                 setUserPreference('reduce');
               }
             }}
-            className="flex items-center gap-3 w-full px-4 py-2.5 text-text-muted hover:text-text-primary hover:bg-white/5 rounded-xl transition-colors duration-200"
+            role="switch"
+            aria-checked={!shouldReduceMotion}
             aria-label={shouldReduceMotion ? 'Activar animaciones' : 'Reducir animaciones'}
             title={shouldReduceMotion ? 'Animaciones desactivadas' : 'Animaciones activadas'}
+            className="flex items-center justify-between w-full px-4 py-2 rounded-xl text-text-muted hover:text-text-primary hover:bg-white/5 transition-colors duration-200"
           >
-            {shouldReduceMotion ? <ZapOff size={18} /> : <Zap size={18} />}
-            <span className="font-medium text-xs text-text-disabled">
-              {shouldReduceMotion ? 'Movimiento reducido' : 'Animaciones activas'}
+            <span className="flex items-center gap-3">
+              {shouldReduceMotion ? <ZapOff size={16} /> : <Zap size={16} />}
+              <span className="font-medium text-[11px] uppercase tracking-wider text-text-disabled">
+                Animaciones
+              </span>
+            </span>
+            <span
+              aria-hidden="true"
+              className={cn(
+                'relative inline-flex h-4 w-7 items-center rounded-full transition-colors',
+                shouldReduceMotion ? 'bg-background-surface/60' : 'bg-brand-base/70'
+              )}
+            >
+              <span
+                className={cn(
+                  'inline-block h-3 w-3 transform rounded-full bg-text-primary shadow transition-transform',
+                  shouldReduceMotion ? 'translate-x-0.5' : 'translate-x-3'
+                )}
+              />
             </span>
           </button>
 

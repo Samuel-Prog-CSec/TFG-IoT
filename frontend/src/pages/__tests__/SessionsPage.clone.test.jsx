@@ -157,7 +157,7 @@ describe('SessionsPage clone action', () => {
 
     await screen.findByText('Deck test');
 
-    const cloneButton = screen.getByRole('button', { name: /volver a jugar/i });
+    const cloneButton = screen.getByRole('button', { name: /clonar y jugar/i });
     await user.click(cloneButton);
 
     await user.click(screen.getByRole('button', { name: /clonar sesión/i }));
@@ -189,7 +189,7 @@ describe('SessionsPage clone action', () => {
 
     await screen.findByText('Deck test');
 
-    const cloneButton = screen.getByRole('button', { name: /volver a jugar/i });
+    const cloneButton = screen.getByRole('button', { name: /clonar y jugar/i });
     await user.click(cloneButton);
     await user.click(screen.getByRole('button', { name: /clonar sesión/i }));
 

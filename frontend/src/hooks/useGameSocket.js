@@ -488,8 +488,27 @@ export function useGameSocket({
     return sent;
   }, []);
 
+  // Guardia anti-rebote por UID: el cooldown del backend para eventos RFID
+  // duplicados es 1200 ms. Si un usuario hace doble click rapido (o un evento
+  // sintetico se dispara), el segundo emit llegaria al server y devolveria
+  // "Evento RFID duplicado en ventana corta", contaminando la UX. Cortamos
+  // esos duplicados en el cliente antes de salir.
+  const lastScanRef = useRef({ uid: null, ts: 0 });
+  const SCAN_DEDUPE_MS = 1300;
+
+  const isDuplicateScan = (uid) => {
+    const now = Date.now();
+    const last = lastScanRef.current;
+    if (last.uid === uid && now - last.ts < SCAN_DEDUPE_MS) {
+      return true;
+    }
+    lastScanRef.current = { uid, ts: now };
+    return false;
+  };
+
   const emitFallbackScan = useCallback((card, sensorId) => {
     if (!playIdRef.current || !card?.uid) return false;
+    if (isDuplicateScan(card.uid)) return true; // silenciosamente swallow, no es un error
     return socketService.sendGameCommand(GAME_EVENTS.RFID_SCAN_FROM_CLIENT, {
       uid: card.uid,
       type: 'UNKNOWN',
@@ -501,6 +520,7 @@ export function useGameSocket({
 
   const emitMemoryCardTap = useCallback((slot, sensorId) => {
     if (!playIdRef.current || !slot?.uid) return false;
+    if (isDuplicateScan(slot.uid)) return true;
     return socketService.sendGameCommand(GAME_EVENTS.RFID_SCAN_FROM_CLIENT, {
       uid: slot.uid,
       type: 'UNKNOWN',

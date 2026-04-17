@@ -90,7 +90,8 @@ async function runSeeders() {
     }
     logger.info(`  ✓ ${mechanics.length} mecánicas creadas\n`);
 
-    // 4. Contextos de juego
+    // 4. Contextos de juego (los assets seedeados quedan como "del sistema",
+    //    sin uploadedBy: forman la base del producto y no son eliminables vía UI)
     logger.info('4️⃣  Seeding contextos de juego...');
     const contexts = await seedContexts();
     if (!contexts?.length) {

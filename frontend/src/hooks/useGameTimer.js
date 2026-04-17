@@ -25,15 +25,34 @@ export function useGameTimer({
   isMemoryMode,
   memoryFeedbackActive,
   roundTime,
-  playTick
+  playTick,
+  /**
+   * Modo Memoria: senal externa que indica si el backend ha confirmado
+   * board_ready y el timer del lado servidor esta activo. Mientras sea
+   * false, NO decrementamos en el cliente para evitar el bug visual de
+   * "TimerBar vacia en bucle" que aparecia cuando el `playEndsAt` del
+   * backend aun era null (ver GameEngine.confirmBoardReady).
+   */
+  memoryTimerArmed = false
 }) {
   const [timeLeft, setTimeLeft] = useState(roundTime);
   const announcedThresholdsRef = useRef(new Set());
 
-  // Temporizador visual: decrementa cada segundo mientras se juega
+  // Sincronizar timeLeft con roundTime cuando cambia (por ejemplo, la sesion
+  // carga su timeLimit real tras la primera render). Solo sube el valor; si
+  // ya esta decrementado no lo sobreescribe.
   useEffect(() => {
-    const shouldRunVisualTimer =
-      gameState === 'playing' && (isMemoryMode ? !memoryFeedbackActive : isAwaitingResponse);
+    setTimeLeft(prev => (prev === 0 || prev > roundTime ? roundTime : prev));
+  }, [roundTime]);
+
+  // Temporizador visual: decrementa cada segundo mientras se juega.
+  // En Memoria esperamos ademas a que el backend haya confirmado el arranque
+  // del timer (`memoryTimerArmed`); antes de eso, la UI muestra la barra
+  // completa en lugar de contar hacia cero con un valor invalido.
+  useEffect(() => {
+    const inActivePhase = isMemoryMode ? !memoryFeedbackActive : isAwaitingResponse;
+    const memoryGatePasses = !isMemoryMode || memoryTimerArmed;
+    const shouldRunVisualTimer = gameState === 'playing' && inActivePhase && memoryGatePasses;
 
     if (!shouldRunVisualTimer) {
       return undefined;
@@ -48,7 +67,7 @@ export function useGameTimer({
     }, 1000);
 
     return () => clearInterval(timer);
-  }, [gameState, isAwaitingResponse, isMemoryMode, memoryFeedbackActive, playTick]);
+  }, [gameState, isAwaitingResponse, isMemoryMode, memoryFeedbackActive, memoryTimerArmed, playTick, roundTime]);
 
   /**
    * Comprueba si el tiempo restante actual debe generar un anuncio de accesibilidad.

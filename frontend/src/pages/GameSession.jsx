@@ -1,7 +1,7 @@
 import { useState, useReducer, useEffect, useCallback, useRef, useMemo } from 'react';
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Wifi, WifiOff, Pause, Play, Volume2, VolumeX, AlertTriangle } from 'lucide-react';
+import { Wifi, WifiOff, Pause, Play, Volume2, VolumeX, AlertTriangle, Hand } from 'lucide-react';
 import { cn, calculateStars } from '../lib/utils';
 import { useReducedMotion } from '../hooks/useReducedMotion';
 import { useAuth } from '../context/AuthContext';
@@ -15,8 +15,9 @@ import TimerBar from '../components/game/TimerBar';
 import { ScoreDisplayCompactMemo as ScoreDisplayCompact } from '../components/game/ScoreDisplay';
 import GameOverScreen from '../components/game/GameOverScreen';
 import CharacterMascot from '../components/game/CharacterMascot';
-import AssociationGameplayPanel from '../components/game/AssociationGameplayPanel';
+import AssociationGameplayPanel, { resolveAssociationTheme } from '../components/game/AssociationGameplayPanel';
 import MemoryGameplayPanel from '../components/game/MemoryGameplayPanel';
+import GameBackdrop from '../components/game/GameBackdrop';
 import FallbackTouchPanel from '../components/game/FallbackTouchPanel';
 import CurrentPlayMetrics from '../components/game/CurrentPlayMetrics';
 import { useGameFeedback } from '../hooks/useGameFeedback';
@@ -160,6 +161,10 @@ export default function GameSession() {
   const [memoryBoard, setMemoryBoard] = useState([]);
   // isMemoryMode se resuelve como derivado tras obtener session del socket hook
   const [sessionIsMemory, setSessionIsMemory] = useState(false);
+  // Flag para el hook de timer: en Memoria, solo empieza a decrementar cuando
+  // el backend ha confirmado board_ready (playEndsAt establecido). Antes de
+  // eso mostramos la barra llena y estatica, evitando el visual "bucle vacio".
+  const [memoryTimerArmed, setMemoryTimerArmed] = useState(false);
 
   // --- Hooks de feedback y sonido ---
   const gameFeedback = useGameFeedback({ isMemoryMode: sessionIsMemory, shouldReduceMotion });
@@ -184,6 +189,7 @@ export default function GameSession() {
     isAwaitingResponse,
     isMemoryMode: sessionIsMemory,
     memoryFeedbackActive,
+    memoryTimerArmed,
     roundTime,
     playTick
   });
@@ -385,8 +391,12 @@ export default function GameSession() {
     });
 
     const remainingMs = Number(payload?.remainingTimeMs);
-    if (Number.isFinite(remainingMs) && remainingMs >= 0) {
+    if (Number.isFinite(remainingMs) && remainingMs > 0) {
       setTimeLeft(Math.max(0, Math.ceil(remainingMs / 1000)));
+      // El backend ha armado el timer (playEndsAt != null). Senalamos al hook
+      // de timer que ya puede decrementar: hasta ahora la UI mostraba la barra
+      // completa sin moverse para evitar el bucle de "vacia" prematuro.
+      setMemoryTimerArmed(true);
     }
 
     // Actualización atómica de campos coordinados
@@ -622,6 +632,9 @@ export default function GameSession() {
     dispatch({ type: 'SET_GAME_STATE', value: 'playing' });
     clearFeedback();
     setRealtimeError(null);
+    // Resetear la senal del timer de Memoria: se rearma cuando llegue el
+    // primer memory_turn_state con remainingTimeMs valido tras board_ready.
+    setMemoryTimerArmed(false);
     setSrAnnouncement('Partida iniciada.');
   };
 
@@ -771,40 +784,77 @@ export default function GameSession() {
       <output className="sr-only" aria-live="polite" aria-atomic="true">
         {srAnnouncement}
       </output>
-      {/* Elementos decorativos animados de fondo */}
-      <div className="absolute inset-0 overflow-hidden pointer-events-none">
-        <div className={cn('absolute top-20 left-10 w-64 h-64 bg-brand-base/10 rounded-full blur-[100px]', !shouldReduceMotion && 'animate-float')} />
-        <div className={cn('absolute bottom-20 right-10 w-80 h-80 bg-accent-cyan/10 rounded-full blur-[100px]', !shouldReduceMotion && 'animate-float')} style={shouldReduceMotion ? FLOAT_DELAY_NONE : FLOAT_DELAY_STYLE} />
-        <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[600px] h-[600px] bg-accent-pink/5 rounded-full blur-[120px]" />
-      </div>
+      {/* Backdrop tematizado por contexto: gradient mesh + patron de puntos +
+          iconos decorativos. Sustituye los orbes neutros anteriores para que
+          cada contexto (geografia/animales/colores/numeros) tenga atmosfera
+          propia y se distinga visualmente del resto de la app admin. */}
+      <GameBackdrop
+        theme={resolveAssociationTheme(
+          challenge?.value || session?.context?.name || session?.deck?.name
+        )}
+      />
 
       {/* Top HUD */}
       <header className="relative z-10 p-2 sm:p-3 shrink-0">
         <div className="glass rounded-2xl p-2.5 sm:p-3 flex items-center justify-between gap-3">
-          {/* Indicador de ronda */}
+          {/* Indicador de progreso — dots visuales para niños (en vez de "3 de 6").
+              - Asociacion: 1 dot por ronda; el actual pulsa y los completados estan llenos
+              - Memoria: 1 dot por pareja; se iluminan a medida que se emparejan */}
           <div className="flex items-center gap-3">
-            <motion.div
-              key={sessionIsMemory ? Math.floor((memoryStats.matchedCount || 0) / 2) : currentRound}
-              initial={shouldReduceMotion ? false : { scale: 0.6, opacity: 0 }}
-              animate={{ scale: 1, opacity: 1 }}
-              transition={{ type: 'spring', stiffness: 400, damping: 20 }}
-              className="size-12 rounded-xl bg-gradient-to-br from-brand-base to-accent-indigo flex items-center justify-center shadow-lg shadow-brand-glow"
+            <div
+              className="flex items-center gap-1.5"
+              role="progressbar"
+              aria-label={sessionIsMemory ? 'Progreso de parejas' : 'Progreso de rondas'}
+              aria-valuenow={sessionIsMemory ? Math.floor((memoryStats.matchedCount || 0) / 2) : currentRound}
+              aria-valuemin={0}
+              aria-valuemax={sessionIsMemory ? Math.floor((memoryStats.totalCards || 0) / 2) : totalRounds}
             >
-              <span className="text-2xl font-bold font-display text-text-primary">
-                {sessionIsMemory ? Math.floor((memoryStats.matchedCount || 0) / 2) : currentRound}
-              </span>
-            </motion.div>
+              {(() => {
+                const total = sessionIsMemory
+                  ? Math.floor((memoryStats.totalCards || 0) / 2)
+                  : totalRounds;
+                const current = sessionIsMemory
+                  ? Math.floor((memoryStats.matchedCount || 0) / 2)
+                  : currentRound;
+                return Array.from({ length: Math.max(1, total) }).map((_, i) => {
+                  const isCompleted = i + 1 < current;
+                  const isCurrent = i + 1 === current;
+                  return (
+                    <motion.span
+                      key={`round-dot-${i}`}
+                      className={cn(
+                        'block h-2.5 rounded-full transition-[background-color,width]',
+                        isCurrent && 'w-6 bg-gradient-to-r from-brand-base to-accent-indigo shadow-[0_0_8px_var(--color-brand-glow)]',
+                        isCompleted && 'w-2.5 bg-success-base/80',
+                        !isCurrent && !isCompleted && 'w-2.5 bg-background-surface/60'
+                      )}
+                      animate={
+                        isCurrent && !shouldReduceMotion
+                          ? { opacity: [1, 0.6, 1], scale: [1, 1.12, 1] }
+                          : { opacity: 1, scale: 1 }
+                      }
+                      transition={{ duration: 1.4, repeat: isCurrent ? Infinity : 0, ease: 'easeInOut' }}
+                      aria-hidden="true"
+                    />
+                  );
+                });
+              })()}
+            </div>
             {sessionIsMemory ? (
               <div className="hidden sm:block">
-                <div className="text-xs text-text-disabled uppercase tracking-wider">Parejas</div>
-                <div className="text-sm text-text-primary font-medium">
-                  {Math.floor((memoryStats.matchedCount || 0) / 2)} de {Math.floor((memoryStats.totalCards || 0) / 2)}
+                <div className="text-[10px] text-text-disabled uppercase tracking-wider">Parejas</div>
+                <div className="text-sm text-text-primary font-bold font-display">
+                  {Math.floor((memoryStats.matchedCount || 0) / 2)}
+                  <span className="text-text-muted font-normal"> / {Math.floor((memoryStats.totalCards || 0) / 2)}</span>
                 </div>
               </div>
             ) : (
               <div className="hidden sm:block">
-                <div className="text-xs text-text-disabled uppercase tracking-wider">Ronda</div>
-                <div className="text-sm text-text-primary font-medium">{currentRound} de {totalRounds}</div>
+                <div className="text-[10px] text-text-disabled uppercase tracking-wider">Ronda</div>
+                <div className="text-sm text-text-primary font-bold font-display">
+                  {currentRound}
+                  <span className="text-text-muted font-normal"> / {totalRounds}</span>
+                </div>
               </div>
             )}
           </div>
@@ -852,8 +902,11 @@ export default function GameSession() {
               {rfidConnected ? <Wifi size={20} /> : <WifiOff size={20} />}
             </div>
 
+            {/* Chip de estado: durante la partida cambia de "Juego listo" a
+                "Jugando" con pulso verde para reforzar que la partida esta
+                activa (feedback ambiental para niño y profesor). */}
             <div className={cn(
-              'px-3 py-1.5 rounded-lg text-xs font-semibold uppercase tracking-wide',
+              'px-3 py-1.5 rounded-lg text-xs font-semibold uppercase tracking-wide inline-flex items-center gap-1.5',
               realtimeStatus === 'connected' && 'bg-success-base/20 text-success-base',
               realtimeStatus === 'reconnecting' && 'bg-warning-base/20 text-warning-base',
               realtimeStatus === 'disconnected' && 'bg-error-base/20 text-error-base',
@@ -862,11 +915,29 @@ export default function GameSession() {
               <output className="sr-only" aria-live="polite" aria-atomic="true">
                 {REALTIME_STATUS_COPY[realtimeStatus]?.announcement || 'Conectando el juego.'}
               </output>
-              {realtimeStatus === 'connected' && '✅ '}
-              {realtimeStatus === 'reconnecting' && '⏳ '}
-              {realtimeStatus === 'disconnected' && '❌ '}
-              {realtimeStatus === 'connecting' && '⏳ '}
-              {REALTIME_STATUS_COPY[realtimeStatus]?.label || 'Conectando…'}
+              {realtimeStatus === 'connected' && gameState === 'playing' ? (
+                <>
+                  <motion.span
+                    aria-hidden="true"
+                    className="inline-block size-2 rounded-full bg-success-base"
+                    animate={
+                      shouldReduceMotion
+                        ? undefined
+                        : { opacity: [1, 0.35, 1], scale: [1, 1.3, 1] }
+                    }
+                    transition={{ duration: 1.2, repeat: Infinity, ease: 'easeInOut' }}
+                  />
+                  Jugando
+                </>
+              ) : (
+                <>
+                  {realtimeStatus === 'connected' && '✅ '}
+                  {realtimeStatus === 'reconnecting' && '⏳ '}
+                  {realtimeStatus === 'disconnected' && '❌ '}
+                  {realtimeStatus === 'connecting' && '⏳ '}
+                  {REALTIME_STATUS_COPY[realtimeStatus]?.label || 'Conectando…'}
+                </>
+              )}
             </div>
           </div>
         </div>
@@ -892,8 +963,10 @@ export default function GameSession() {
         </div>
       )}
 
-      {/* Área principal del juego */}
-      <main className="flex-1 min-h-0 relative z-10 flex items-center justify-center p-2 sm:p-4 overflow-y-auto">
+      {/* Área principal del juego — sin scroll: todo debe caber en la ventana.
+          Si el contenido se comprime por pantalla pequeña, el ChallengeDisplay
+          y el FallbackTouchPanel usan min-h-0 y tamaños relativos para adaptarse. */}
+      <main className="flex-1 min-h-0 relative z-10 flex items-center justify-center px-2 py-1 sm:px-4 sm:py-2 overflow-hidden">
         <AnimatePresence mode="wait">
           {gameState === 'waiting' && (
             <motion.div
@@ -938,7 +1011,11 @@ export default function GameSession() {
               animate={{ opacity: 1 }}
               exit={{ opacity: 0 }}
               className={cn(
-                "w-full max-w-2xl flex flex-col items-center",
+                // Memoria necesita mas ancho para el grid de 4 cols; asociacion se queda compacta.
+                // Ambas mecanicas usan h-full para que su contenido pueda ocupar el alto disponible
+                // y se evite scroll durante la partida.
+                'w-full flex flex-col items-center h-full',
+                sessionIsMemory ? 'max-w-5xl' : 'max-w-2xl justify-center',
                 shakeError && 'animate-shake'
               )}
             >
@@ -969,13 +1046,13 @@ export default function GameSession() {
                 initial={shouldReduceMotion ? false : { opacity: 0, y: 20 }}
                 animate={{ opacity: 1, y: 0 }}
                 transition={{ delay: shouldReduceMotion ? 0 : 0.3 }}
-                className="mt-3 text-center text-text-secondary text-base font-semibold"
+                className="mt-2 text-center text-text-secondary text-sm sm:text-base font-semibold"
               >
                 {sessionIsMemory ? (
-                  <>Encuentra las parejas antes de que se termine el tiempo.</>
+                  <>¡Encuentra las parejas antes de que se acabe el tiempo!</>
                 ) : (
                   <>
-                    Busca <span className="text-text-primary font-bold">{challenge?.value || 'la tarjeta correcta'}</span>
+                    🔎 ¿Dónde está <span className="text-text-primary font-bold">{challenge?.value || 'la tarjeta correcta'}</span>?
                   </>
                 )}
               </motion.p>
@@ -990,10 +1067,10 @@ export default function GameSession() {
               )}
 
               {!rfidConnected && sessionIsMemory && (
-                <div className="mt-3 w-full max-w-3xl rounded-xl border border-warning-base/30 bg-warning-base/10 p-2.5">
-                  <div className="flex items-center gap-2 text-warning-base">
-                    <AlertTriangle size={14} className="shrink-0" />
-                    <p className="text-xs font-semibold">Sin sensor RFID — toca las cartas del tablero para jugar</p>
+                <div className="mt-2 rounded-lg border border-accent-indigo/25 bg-accent-indigo/5 px-3 py-1.5">
+                  <div className="flex items-center gap-2 text-text-secondary">
+                    <Hand size={14} className="shrink-0 text-accent-indigo" aria-hidden="true" />
+                    <p className="text-xs font-medium">Toca las cartas del tablero para jugar</p>
                   </div>
                 </div>
               )}
@@ -1048,42 +1125,17 @@ export default function GameSession() {
         />
       </div>
 
-      {/* Progreso de rondas */}
+      {/* Footer: solo metricas — el progreso de rondas vive en el header como
+          dots (ver header). Eliminamos el indicador redundante del footer y la
+          barra secundaria para dejar que el gameplay ocupe el espacio vertical. */}
       {(gameState === 'playing' || gameState === 'paused') && (
-        <footer className="relative z-10 px-3 py-2 sm:px-4 sm:py-2 shrink-0">
+        <footer className="relative z-10 px-3 py-1.5 sm:px-4 shrink-0">
           <CurrentPlayMetrics
             mode={sessionIsMemory ? 'memory' : 'association'}
             score={score}
             correctAnswers={correctAnswers}
             totalRounds={totalRounds}
           />
-          <div
-            className="flex justify-center items-center gap-2"
-            aria-label={`Progreso: ronda ${currentRound} de ${totalRounds}`}
-          >
-            {totalRounds <= 8 && roundIndicators.map(roundNumber => (
-              <motion.div
-                key={`round-${roundNumber}`}
-                initial={shouldReduceMotion ? false : { scale: 0 }}
-                animate={{ scale: 1 }}
-                transition={{ delay: shouldReduceMotion ? 0 : (roundNumber - 1) * 0.05 }}
-                className={cn(
-                  "size-3.5 rounded-full transition-[background-color,box-shadow,transform] duration-300",
-                  roundNumber < currentRound && "bg-success-base shadow-lg shadow-success-glow",
-                  roundNumber === currentRound && "bg-brand-base shadow-lg shadow-brand-glow scale-125",
-                  roundNumber > currentRound && "bg-background-surface"
-                )}
-              />
-            ))}
-          </div>
-          <div className="w-full max-w-md mx-auto mt-2 h-1.5 bg-background-elevated/60 rounded-full overflow-hidden">
-            <motion.div
-              className="h-full rounded-full bg-gradient-to-r from-brand-base to-success-base"
-              initial={{ width: 0 }}
-              animate={{ width: `${totalRounds > 0 ? ((currentRound - 1) / totalRounds) * 100 : 0}%` }}
-              transition={{ duration: 0.3, ease: 'easeOut' }}
-            />
-          </div>
         </footer>
       )}
 

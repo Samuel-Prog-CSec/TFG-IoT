@@ -286,7 +286,7 @@ describe('GameSession realtime gameplay', () => {
       });
     });
 
-    expect(await screen.findByText(/^Busca$/i)).toBeInTheDocument();
+    expect(await screen.findByText(/¿Dónde está/i)).toBeInTheDocument();
     expect(screen.getByText(/Puntos/i)).toBeInTheDocument();
   });
 
@@ -330,8 +330,11 @@ describe('GameSession realtime gameplay', () => {
       });
     });
 
-    expect(await screen.findByText(/Parejas encontradas/i)).toBeInTheDocument();
-    expect(screen.getByText(/1\s*\/\s*2/)).toBeInTheDocument();
+    // La barra textual "Parejas encontradas: X/Y" se eliminó del panel para
+    // liberar altura vertical (el mismo dato esta en los dots del header y en
+    // los corazones superiores del tablero). Los asserts ahora verifican el
+    // contador "1 / 2" del header y la metric pill "🧠 Parejas" del footer.
+    expect(await screen.findByText((_content, el) => /1\s*\/\s*2/.test(el?.textContent || '') && el?.tagName === 'DIV' && el?.className?.includes('font-display'))).toBeInTheDocument();
     expect(screen.getByText(/🧠\s*Parejas/i)).toBeInTheDocument();
   });
 
@@ -432,8 +435,7 @@ describe('GameSession realtime gameplay', () => {
       });
     });
 
-    expect(await screen.findByText(/Parejas encontradas/i)).toBeInTheDocument();
-    expect(screen.getByText(/1\s*\/\s*2/)).toBeInTheDocument();
+    expect(await screen.findByText((_content, el) => /1\s*\/\s*2/.test(el?.textContent || '') && el?.tagName === 'DIV' && el?.className?.includes('font-display'))).toBeInTheDocument();
   });
 
   it('handles play_interrupted event with warning feedback', async () => {

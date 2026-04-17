@@ -24,9 +24,17 @@ import EngagementRadar from '../components/analytics/EngagementRadar';
 import ScrollRevealSection from '../components/ui/ScrollRevealSection';
 import { TIER_CONFIG, scoreToRAG, scoreToTier } from '../constants/analyticsThresholds';
 
+// Calcula dias transcurridos desde una fecha; nunca devuelve negativo (las fechas
+// futuras de fixtures/seeders se tratan como "hoy" para evitar etiquetas como "Hace -1 dias").
+const daysSince = (dateStr) => {
+  if (!dateStr) return null;
+  const diff = (new Date() - new Date(dateStr)) / (1000 * 60 * 60 * 24);
+  return Math.max(0, Math.floor(diff));
+};
+
 const getRelativeTime = (dateStr) => {
-  if (!dateStr) return 'Sin actividad';
-  const diffDays = Math.floor((new Date() - new Date(dateStr)) / (1000 * 60 * 60 * 24));
+  const diffDays = daysSince(dateStr);
+  if (diffDays === null) return 'Sin actividad';
   if (diffDays === 0) return 'Hoy';
   if (diffDays === 1) return 'Ayer';
   if (diffDays < 7) return `Hace ${diffDays} dias`;
@@ -35,8 +43,8 @@ const getRelativeTime = (dateStr) => {
 };
 
 const getActivityColor = (dateStr) => {
-  if (!dateStr) return 'bg-text-muted';
-  const diffDays = Math.floor((new Date() - new Date(dateStr)) / (1000 * 60 * 60 * 24));
+  const diffDays = daysSince(dateStr);
+  if (diffDays === null) return 'bg-text-muted';
   if (diffDays <= 3) return 'bg-success-base';
   if (diffDays <= 7) return 'bg-warning-base';
   return 'bg-error-base';

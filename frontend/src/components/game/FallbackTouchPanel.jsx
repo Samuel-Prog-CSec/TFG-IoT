@@ -5,23 +5,42 @@
  */
 
 import { motion } from 'framer-motion';
-import { AlertTriangle } from 'lucide-react';
+import { Hand } from 'lucide-react';
 import PropTypes from 'prop-types';
 import CardAssetPreview from '../ui/CardAssetPreview';
 
+/**
+ * Panel de respuesta tactil para modo sin sensor RFID.
+ *
+ * Diseño pensado para niños 4-6 años:
+ *  - Grid fluido 2 cols (movil) / 3 cols (≥640px) con cartas GRANDES (aspect
+ *    cuadrado) que caben comodamente en la motricidad fina del usuario.
+ *  - Tono neutro (no warning): el aviso superior usa mano indicativa, no alerta.
+ *  - Feedback tactil: scale 0.92 y background pulse al tocar (whileTap).
+ */
 export default function FallbackTouchPanel({ cards, onSelectCard, onPauseRequest, canPause }) {
   const visibleCards = Array.isArray(cards) ? cards.slice(0, 12) : [];
 
+  // Numero de columnas adaptativo: con 2-4 cartas una fila compacta, con mas
+  // un grid 3xN. Los cards son siempre grandes (aspect-square) pero se escalan
+  // con el ancho disponible para que siempre quepan en viewport sin scroll.
+  const colsClass = (() => {
+    const n = visibleCards.length;
+    if (n <= 3) return 'grid-cols-3';
+    if (n <= 4) return 'grid-cols-4';
+    return 'grid-cols-3 sm:grid-cols-6';
+  })();
+
   return (
-    <div className="mt-3 w-full max-w-3xl rounded-xl border border-warning-base/30 bg-warning-base/10 p-2.5">
-      <div className="flex items-center gap-2 text-warning-base">
-        <AlertTriangle size={14} className="shrink-0" />
-        <p className="text-xs font-semibold">Sin sensor RFID — toca una carta para responder</p>
+    <div className="mt-2 w-full max-w-3xl rounded-2xl border border-accent-indigo/25 bg-accent-indigo/5 p-3">
+      <div className="flex items-center justify-center gap-2 text-text-secondary mb-2">
+        <Hand size={14} className="shrink-0 text-accent-indigo" aria-hidden="true" />
+        <p className="text-xs font-medium">Toca la carta correcta para responder</p>
       </div>
 
       {visibleCards.length > 0 && (
         <fieldset
-          className="mt-2 grid grid-cols-3 sm:grid-cols-6 gap-1.5 border-0 p-0 m-0"
+          className={`grid ${colsClass} gap-2 border-0 p-0 m-0`}
           aria-label="Cartas disponibles para selección táctil"
         >
           {visibleCards.map(card => (
@@ -30,13 +49,15 @@ export default function FallbackTouchPanel({ cards, onSelectCard, onPauseRequest
               type="button"
               onClick={() => onSelectCard(card)}
               // TOKEN-EXCEPTION: Framer Motion whileTap requires direct color value for interpolation
-              whileTap={{ scale: 0.92, backgroundColor: 'rgba(99, 102, 241, 0.2)' }}
+              whileTap={{ scale: 0.94, backgroundColor: 'rgba(99, 102, 241, 0.25)' }}
+              whileHover={{ y: -2 }}
+              transition={{ type: 'spring', stiffness: 500, damping: 28 }}
               aria-label={`Seleccionar carta: ${card.assignedValue || card.uid}`}
-              className="rounded-lg border border-border-default bg-background-base/40 p-1.5 text-center hover:bg-background-base/60 transition-colors focus-visible:ring-2 focus-visible:ring-accent-indigo"
+              className="aspect-square rounded-xl border-2 border-border-default bg-background-base/60 p-1.5 text-center transition-[background-color,border-color,box-shadow] hover:border-accent-indigo/50 hover:shadow-[0_4px_16px_rgba(99,102,241,0.2)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-indigo focus-visible:ring-offset-2 focus-visible:ring-offset-background-base"
             >
               <CardAssetPreview
                 asset={card.displayData || { display: card.assignedValue || card.uid }}
-                className="h-14 w-full rounded"
+                className="h-full w-full rounded-lg"
                 fit="contain"
                 loading="eager"
                 fallbackLabel={card.assignedValue || card.uid}
