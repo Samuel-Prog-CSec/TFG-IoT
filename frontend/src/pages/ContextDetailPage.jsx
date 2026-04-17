@@ -259,32 +259,113 @@ export default function ContextDetailPage() {
 // COMPONENTES AUXILIARES
 // ============================================
 
-function AssetCard({ asset, index, onDelete, isDeleting = false, onDeleteAudio, isDeletingAudio = false, onManageAudio, currentUserId }) {
-  // Politica de ownership (ver ADR-053):
-  //  - solo el creador del asset puede gestionarlo (delete / replace audio)
-  //  - assets sin uploadedBy son "del sistema" y nadie puede eliminarlos individualmente;
-  //    para borrarlos hay que eliminar el contexto entero desde /admin/contexts (super_admin)
-  //  - el super_admin no tiene override sobre assets individuales: su rol es gestionar
-  //    contextos como "carpetas", no el contenido subido por profesores
+// Politica de ownership (ver ADR-053):
+//  - solo el creador del asset puede gestionarlo (delete / replace audio)
+//  - assets sin uploadedBy son "del sistema" y nadie puede eliminarlos individualmente;
+//    para borrarlos hay que eliminar el contexto entero desde /admin/contexts (super_admin)
+//  - el super_admin no tiene override sobre assets individuales: su rol es gestionar
+//    contextos como "carpetas", no el contenido subido por profesores
+function computeAssetOwnership(asset, currentUserId) {
   const ownerId = asset.uploadedBy?.id || null;
   const ownerName = asset.uploadedBy?.name || null;
   const isOwner = Boolean(currentUserId && ownerId && ownerId === currentUserId);
-  const canManage = isOwner;
 
-  let ownershipLabel;
-  let ownershipTooltip;
   if (isOwner) {
-    ownershipLabel = 'Subido por ti';
-    ownershipTooltip = 'Eres el creador del asset y puedes gestionarlo.';
-  } else if (ownerName) {
-    ownershipLabel = `Subido por ${ownerName}`;
-    ownershipTooltip = `Solo ${ownerName} puede eliminar o reemplazar este asset.`;
-  } else {
-    ownershipLabel = 'Asset del sistema';
-    ownershipTooltip =
-      'Este asset es parte de la base del contexto y no puede eliminarse individualmente. Para borrarlo, elimina el contexto entero desde el panel de administración.';
+    return {
+      canManage: true,
+      ownershipLabel: 'Subido por ti',
+      ownershipTooltip: 'Eres el creador del asset y puedes gestionarlo.'
+    };
   }
 
+  if (ownerName) {
+    return {
+      canManage: false,
+      ownershipLabel: `Subido por ${ownerName}`,
+      ownershipTooltip: `Solo ${ownerName} puede eliminar o reemplazar este asset.`
+    };
+  }
+
+  return {
+    canManage: false,
+    ownershipLabel: 'Asset del sistema',
+    ownershipTooltip:
+      'Este asset es parte de la base del contexto y no puede eliminarse individualmente. Para borrarlo, elimina el contexto entero desde el panel de administración.'
+  };
+}
+
+function AssetCardAudioSection({
+  asset,
+  canManage,
+  audioActionsTooltip,
+  onManageAudio,
+  onDeleteAudio,
+  isDeletingAudio
+}) {
+  if (!asset.audioUrl) {
+    return (
+      <button
+        onClick={(e) => { e.stopPropagation(); if (canManage) onManageAudio(asset); }}
+        disabled={!canManage}
+        aria-disabled={!canManage}
+        title={canManage ? 'Adjuntar un archivo de audio MP3/OGG a este asset' : audioActionsTooltip}
+        className={cn(
+          'flex items-center justify-center gap-1.5 py-2 rounded-lg text-xs font-medium border border-dashed transition-colors duration-200',
+          canManage
+            ? 'border-border-default text-text-muted hover:border-accent-indigo/50 hover:text-accent-indigo hover:bg-accent-indigo/5'
+            : 'border-border-subtle text-text-disabled cursor-not-allowed opacity-60'
+        )}
+      >
+        <Music size={12} />
+        Añadir audio
+      </button>
+    );
+  }
+
+  const replaceClass = canManage
+    ? 'text-text-muted hover:text-accent-indigo hover:bg-accent-indigo/10'
+    : 'text-text-disabled cursor-not-allowed opacity-60';
+  const deleteAudioClass = canManage
+    ? 'text-text-muted hover:text-error-base hover:bg-error-base/10'
+    : 'text-text-disabled cursor-not-allowed opacity-60';
+
+  return (
+    <div className="space-y-1.5">
+      <AudioMiniPlayer audioUrl={asset.audioUrl} size="md" variant="solid" />
+      <div className="flex items-center gap-1.5">
+        <button
+          onClick={(e) => { e.stopPropagation(); if (canManage) onManageAudio(asset); }}
+          disabled={!canManage}
+          aria-disabled={!canManage}
+          className={cn(
+            'flex items-center gap-1 px-2 py-1 rounded-lg text-[10px] font-medium transition-colors',
+            replaceClass
+          )}
+          title={canManage ? 'Reemplazar audio' : audioActionsTooltip}
+        >
+          <RefreshCw size={10} />
+          Reemplazar
+        </button>
+        <button
+          onClick={(e) => { e.stopPropagation(); if (canManage) onDeleteAudio(asset); }}
+          disabled={isDeletingAudio || !canManage}
+          aria-disabled={!canManage}
+          className={cn(
+            'flex items-center gap-1 px-2 py-1 rounded-lg text-[10px] font-medium transition-colors disabled:opacity-50',
+            deleteAudioClass
+          )}
+          title={canManage ? 'Eliminar solo el audio' : audioActionsTooltip}
+        >
+          {isDeletingAudio ? <Loader2 size={10} className="animate-spin" /> : <Trash2 size={10} />}
+          Audio
+        </button>
+      </div>
+    </div>
+  );
+}
+
+function AssetCard({ asset, index, onDelete, isDeleting = false, onDeleteAudio, isDeletingAudio = false, onManageAudio, currentUserId }) {
+  const { canManage, ownershipLabel, ownershipTooltip } = computeAssetOwnership(asset, currentUserId);
   const deleteTooltip = canManage ? 'Eliminar asset completo' : ownershipTooltip;
   const audioActionsTooltip = canManage ? null : ownershipTooltip;
 
@@ -371,59 +452,14 @@ function AssetCard({ asset, index, onDelete, isDeleting = false, onDeleteAudio, 
 
           {/* Audio: player + acciones, o boton añadir.
               Solo el creador o el super_admin puede modificar/eliminar (ADR-052). */}
-          {asset.audioUrl ? (
-            <div className="space-y-1.5">
-              <AudioMiniPlayer audioUrl={asset.audioUrl} size="md" variant="solid" />
-              <div className="flex items-center gap-1.5">
-                <button
-                  onClick={(e) => { e.stopPropagation(); if (canManage) onManageAudio(asset); }}
-                  disabled={!canManage}
-                  aria-disabled={!canManage}
-                  className={cn(
-                    'flex items-center gap-1 px-2 py-1 rounded-lg text-[10px] font-medium transition-colors',
-                    canManage
-                      ? 'text-text-muted hover:text-accent-indigo hover:bg-accent-indigo/10'
-                      : 'text-text-disabled cursor-not-allowed opacity-60'
-                  )}
-                  title={canManage ? 'Reemplazar audio' : audioActionsTooltip}
-                >
-                  <RefreshCw size={10} />
-                  Reemplazar
-                </button>
-                <button
-                  onClick={(e) => { e.stopPropagation(); if (canManage) onDeleteAudio(asset); }}
-                  disabled={isDeletingAudio || !canManage}
-                  aria-disabled={!canManage}
-                  className={cn(
-                    'flex items-center gap-1 px-2 py-1 rounded-lg text-[10px] font-medium transition-colors disabled:opacity-50',
-                    canManage
-                      ? 'text-text-muted hover:text-error-base hover:bg-error-base/10'
-                      : 'text-text-disabled cursor-not-allowed opacity-60'
-                  )}
-                  title={canManage ? 'Eliminar solo el audio' : audioActionsTooltip}
-                >
-                  {isDeletingAudio ? <Loader2 size={10} className="animate-spin" /> : <Trash2 size={10} />}
-                  Audio
-                </button>
-              </div>
-            </div>
-          ) : (
-            <button
-              onClick={(e) => { e.stopPropagation(); if (canManage) onManageAudio(asset); }}
-              disabled={!canManage}
-              aria-disabled={!canManage}
-              title={canManage ? 'Adjuntar un archivo de audio MP3/OGG a este asset' : audioActionsTooltip}
-              className={cn(
-                'flex items-center justify-center gap-1.5 py-2 rounded-lg text-xs font-medium border border-dashed transition-colors duration-200',
-                canManage
-                  ? 'border-border-default text-text-muted hover:border-accent-indigo/50 hover:text-accent-indigo hover:bg-accent-indigo/5'
-                  : 'border-border-subtle text-text-disabled cursor-not-allowed opacity-60'
-              )}
-            >
-              <Music size={12} />
-              Añadir audio
-            </button>
-          )}
+          <AssetCardAudioSection
+            asset={asset}
+            canManage={canManage}
+            audioActionsTooltip={audioActionsTooltip}
+            onManageAudio={onManageAudio}
+            onDeleteAudio={onDeleteAudio}
+            isDeletingAudio={isDeletingAudio}
+          />
         </div>
       </GlassCard>
     </motion.div>

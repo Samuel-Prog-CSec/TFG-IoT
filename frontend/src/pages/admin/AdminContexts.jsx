@@ -244,6 +244,68 @@ function AdminContextCard({ context, onEdit, onDelete }) {
 }
 
 /**
+ * Renderiza la seccion principal de la pagina segun el estado: error, carga,
+ * vacio o listado. Extraido para evitar ternarios anidados en el JSX.
+ */
+function renderContextsSection({
+  error,
+  loading,
+  filtered,
+  search,
+  loadContexts,
+  openEdit,
+  onDeleteRequest
+}) {
+  if (error) {
+    return (
+      <EmptyState
+        icon={AlertTriangle}
+        title="Error al cargar contextos"
+        description={error}
+        action={{ label: 'Reintentar', onClick: loadContexts }}
+      />
+    );
+  }
+
+  if (loading) {
+    return (
+      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+        {Array.from({ length: 6 }).map((_, i) => (
+          <SkeletonCard key={i} />
+        ))}
+      </div>
+    );
+  }
+
+  if (filtered.length === 0) {
+    return (
+      <EmptyState
+        icon={Palette}
+        title={search ? 'Sin resultados' : 'No hay contextos'}
+        description={
+          search
+            ? 'Prueba con otros terminos de busqueda.'
+            : 'Crea el primer contexto para empezar.'
+        }
+      />
+    );
+  }
+
+  return (
+    <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+      {filtered.map(ctx => (
+        <AdminContextCard
+          key={ctx.id || ctx._id}
+          context={ctx}
+          onEdit={openEdit}
+          onDelete={onDeleteRequest}
+        />
+      ))}
+    </div>
+  );
+}
+
+/**
  * Pagina principal de administracion de contextos.
  */
 export default function AdminContexts() {
@@ -399,37 +461,15 @@ export default function AdminContexts() {
         />
       </GlassCard>
 
-      {error ? (
-        <EmptyState
-          icon={AlertTriangle}
-          title="Error al cargar contextos"
-          description={error}
-          action={{ label: 'Reintentar', onClick: loadContexts }}
-        />
-      ) : loading ? (
-        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-          {Array.from({ length: 6 }).map((_, i) => (
-            <SkeletonCard key={i} />
-          ))}
-        </div>
-      ) : filtered.length === 0 ? (
-        <EmptyState
-          icon={Palette}
-          title={search ? 'Sin resultados' : 'No hay contextos'}
-          description={search ? 'Prueba con otros terminos de busqueda.' : 'Crea el primer contexto para empezar.'}
-        />
-      ) : (
-        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-          {filtered.map(ctx => (
-            <AdminContextCard
-              key={ctx.id || ctx._id}
-              context={ctx}
-              onEdit={openEdit}
-              onDelete={handleDeleteRequest}
-            />
-          ))}
-        </div>
-      )}
+      {renderContextsSection({
+        error,
+        loading,
+        filtered,
+        search,
+        loadContexts,
+        openEdit,
+        onDeleteRequest: handleDeleteRequest
+      })}
 
       <ContextFormModal
         open={formMode !== null}

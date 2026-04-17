@@ -266,8 +266,8 @@ export default function InsightsReports() {
 
         // Mantenemos las dos dimensiones por separado (no se mezclan): el componente
         // de efectividad muestra UNA dimension a la vez (barras horizontales con RAG).
-        // Antes se mergeaba todo en un solo array y la matriz cruzada acababa con valores
-        // repetidos por columna; el rediseno ya no necesita ese workaround.
+        // Antes se mergeaba el conjunto en un solo array y la matriz cruzada acababa con
+        // valores repetidos por columna; el rediseno ya no necesita ese workaround.
         const contextItems = contextData?.items || contextData?.data || contextData || [];
         const mechanicItems = mechanicData?.items || mechanicData?.data || mechanicData || [];
 

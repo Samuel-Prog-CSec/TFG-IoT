@@ -15,7 +15,8 @@ import TimerBar from '../components/game/TimerBar';
 import { ScoreDisplayCompactMemo as ScoreDisplayCompact } from '../components/game/ScoreDisplay';
 import GameOverScreen from '../components/game/GameOverScreen';
 import CharacterMascot from '../components/game/CharacterMascot';
-import AssociationGameplayPanel, { resolveAssociationTheme } from '../components/game/AssociationGameplayPanel';
+import AssociationGameplayPanel from '../components/game/AssociationGameplayPanel';
+import { resolveAssociationTheme } from '../components/game/associationTheme';
 import MemoryGameplayPanel from '../components/game/MemoryGameplayPanel';
 import GameBackdrop from '../components/game/GameBackdrop';
 import FallbackTouchPanel from '../components/game/FallbackTouchPanel';
@@ -121,7 +122,10 @@ function gameReducer(state, action) {
  * Pantalla principal de juego para niños de 4-8 años.
  * Diseño colorido, amigable y sin texto complejo.
  */
-// eslint-disable-next-line sonarjs/cyclomatic-complexity -- pantalla de juego con multiples fases, estados y logica de rondas
+/* eslint-disable-next-line sonarjs/cyclomatic-complexity, sonarjs/cognitive-complexity --
+   pantalla de juego con multiples fases (waiting/playing/paused/ended), modos (association/memory),
+   handlers de socket y renderizado condicional por estado. La logica esta partida en hooks
+   (useGameSocket, useGameTimer, useGameFeedback) pero la coordinacion visual reside aqui. */
 export default function GameSession() {
   const { sessionId } = useParams();
   const [searchParams] = useSearchParams();
@@ -552,11 +556,6 @@ export default function GameSession() {
     return cards;
   }, [session?.cardMappings, currentRound]);
 
-  const roundIndicators = useMemo(
-    () => Array.from({ length: totalRounds }, (_, i) => i + 1),
-    [totalRounds]
-  );
-
   // --- Efectos secundarios ---
 
   // Limpiar memoryFeedbackActive cuando feedback vuelve a idle
@@ -963,7 +962,7 @@ export default function GameSession() {
         </div>
       )}
 
-      {/* Área principal del juego — sin scroll: todo debe caber en la ventana.
+      {/* Área principal del juego — sin scroll: el contenido entero debe caber en la ventana.
           Si el contenido se comprime por pantalla pequeña, el ChallengeDisplay
           y el FallbackTouchPanel usan min-h-0 y tamaños relativos para adaptarse. */}
       <main className="flex-1 min-h-0 relative z-10 flex items-center justify-center px-2 py-1 sm:px-4 sm:py-2 overflow-hidden">

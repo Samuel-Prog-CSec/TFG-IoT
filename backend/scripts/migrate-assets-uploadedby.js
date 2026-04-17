@@ -34,6 +34,7 @@ const GameContext = require('../src/models/GameContext');
 
 require('dotenv').config();
 
+// eslint-disable-next-line sonarjs/process-argv -- script CLI, uso seguro de process.argv
 const isDryRun = process.argv.includes('--dry-run');
 
 // Lista canonica de keys seedeadas por contexto (espejo de seeders/04-contexts.js).

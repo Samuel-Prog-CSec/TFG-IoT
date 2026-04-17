@@ -13,7 +13,7 @@
  *   3) Iconos decorativos flotantes con animacion lenta (2-3 iconos max,
  *      opacity ~0.12, no intercalados con el gameplay).
  *
- * Todo este componente es `pointer-events: none` y vive detras del gameplay.
+ * El componente entero es `pointer-events: none` y vive detras del gameplay.
  *
  * Respeta `prefers-reduced-motion` desactivando las animaciones de los orbes
  * y de los iconos flotantes.
