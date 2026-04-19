@@ -27,6 +27,7 @@ import { useDocumentTitle } from '../hooks/useDocumentTitle';
 import { useSoundEffects } from '../hooks/useSoundEffects';
 import { useGameTimer } from '../hooks/useGameTimer';
 import { useGameSocket } from '../hooks/useGameSocket';
+import { saveSnapshot, loadSnapshot, clearSnapshot, purgeExpiredSnapshots } from '../lib/sessionSnapshot';
 
 const FLOAT_DELAY_STYLE = { animationDelay: '1s' };
 const FLOAT_DELAY_NONE = { animationDelay: '0s' };
@@ -517,6 +518,57 @@ export default function GameSession() {
     socketSessionRef.current = session;
     setSessionIsMemory(session?.mechanic?.name === 'memory');
   }, [session]);
+
+  // --- Snapshot de partida en sessionStorage (resiliencia a F5) ---
+  // Limpiamos snapshots vencidos al montar para no acumular basura.
+  useEffect(() => {
+    purgeExpiredSnapshots();
+  }, []);
+
+  // Hidratar UI desde snapshot local si existe, mientras el servidor
+  // reconcilia el estado canónico vía PLAY_STATE_SYNC.
+  const snapshotHydratedRef = useRef(false);
+  useEffect(() => {
+    if (!playId || snapshotHydratedRef.current) return;
+    const snapshot = loadSnapshot(playId);
+    if (snapshot) {
+      dispatch({ type: 'PLAY_STATE_SYNC', ...snapshot });
+      if (snapshot.score !== undefined) {
+        // No reconstruimos challenge/board (el server los aportará); sólo
+        // los contadores que evitan el flash de "ronda 1 / score 0".
+      }
+    }
+    snapshotHydratedRef.current = true;
+  }, [playId]);
+
+  // Persistir snapshot tras cada transición relevante. Se ejecuta en cada
+  // cambio del estado coordinado del juego — sessionStorage write es
+  // síncrono pero rápido (<1ms para payload pequeño).
+  useEffect(() => {
+    if (!playId || gameState === 'finished') return;
+    saveSnapshot(playId, {
+      gameState,
+      currentRound,
+      score,
+      correctAnswers,
+      isAwaitingResponse
+    });
+  }, [playId, gameState, currentRound, score, correctAnswers, isAwaitingResponse]);
+
+  // Limpiar snapshot al cerrar la partida o desmontar el componente.
+  useEffect(() => {
+    if (gameState === 'finished' && playId) {
+      clearSnapshot(playId);
+    }
+  }, [gameState, playId]);
+
+  useEffect(() => () => {
+    if (playId) {
+      // Al desmontar (navegación fuera de la pantalla), limpiamos para
+      // no resucitar la partida si el usuario vuelve a una distinta.
+      clearSnapshot(playId);
+    }
+  }, [playId]);
 
   // Configurar totalRounds y roundTime cuando la sesión carga
   useEffect(() => {

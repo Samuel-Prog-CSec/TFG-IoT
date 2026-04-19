@@ -18,8 +18,26 @@ import CardAssetPreview from '../ui/CardAssetPreview';
  *  - Tono neutro (no warning): el aviso superior usa mano indicativa, no alerta.
  *  - Feedback tactil: scale 0.92 y background pulse al tocar (whileTap).
  */
+/**
+ * Devuelve la cadena que usaremos para ordenar la carta. Prioridad:
+ *  1. `assignedValue` (concepto educativo)
+ *  2. `displayData.display` (texto visible)
+ *  3. `uid` como último recurso (estable)
+ *
+ * @param {Object} card
+ * @returns {string}
+ */
+const getSortKey = (card) =>
+  String(card?.assignedValue ?? card?.displayData?.display ?? card?.uid ?? '').toLowerCase();
+
 export default function FallbackTouchPanel({ cards, round = 1, onSelectCard, onPauseRequest, canPause }) {
-  const visibleCards = Array.isArray(cards) ? cards.slice(0, 12) : [];
+  // Ordenamos alfabéticamente con `localeCompare('es')` para que el niño
+  // encuentre el concepto de forma predecible bajo presión de tiempo.
+  // Sólo afecta al panel táctil de fallback; el flujo con sensor RFID
+  // mantiene su orden original (el alumno escanea físicamente).
+  const visibleCards = (Array.isArray(cards) ? [...cards] : [])
+    .sort((a, b) => getSortKey(a).localeCompare(getSortKey(b), 'es'))
+    .slice(0, 12);
 
   // Numero de columnas adaptativo: con 2-4 cartas una fila compacta, con mas
   // un grid 3xN. Los cards son siempre grandes (aspect-square) pero se escalan

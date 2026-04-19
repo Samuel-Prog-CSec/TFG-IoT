@@ -6,6 +6,7 @@
  */
 
 import { socketService } from './socket';
+import * as pendingScansStore from '../lib/pendingScansStore';
 
 const SENSOR_ID_KEY = 'rfid_sensor_id';
 const DEFAULT_BAUD_RATE = 115200;
@@ -14,11 +15,41 @@ const MAX_UID_CACHE_SIZE = 500;
 const UID_CACHE_TTL_MS = 5 * 60 * 1000;
 const MAX_PENDING_SCANS = 200;
 const PENDING_SCAN_TTL_MS = 30 * 1000;
+/**
+ * TTL para scans persistidos en IndexedDB. Más generoso que el de memoria
+ * (30s) porque IDB sobrevive a recargas y queremos recuperar scans de
+ * sesiones interrumpidas hasta 10 min.
+ */
+const PENDING_SCAN_PERSISTENCE_TTL_MS = 10 * 60 * 1000;
 const MAX_RECONNECT_ATTEMPTS = 3;
 const RECONNECT_DELAY_BASE_MS = 1000;
 const HEARTBEAT_TIMEOUT_MS = 20000;
 const INIT_TIMEOUT_MS = 8000;
 const MAX_BUFFER_SIZE = 4096;
+/**
+ * Tiempo máximo que un fragmento de línea puede esperar al `\n` antes de
+ * considerar el buffer corrupto y vaciarlo. Defiende contra firmware que
+ * envía bytes sin terminador (boot ruidoso, fallo eléctrico).
+ */
+const LINE_TIMEOUT_MS = 2000;
+/**
+ * Cadencia con la que comprobamos si el buffer lleva más de
+ * LINE_TIMEOUT_MS sin recibir un byte nuevo.
+ */
+const LINE_TIMEOUT_CHECK_INTERVAL_MS = 500;
+
+/**
+ * UIDs válidos: hex mayúsculas de 8 (4 bytes) o 14 (7 bytes) caracteres.
+ * Compensa la falta de validación CRC en el firmware de fallback
+ * anticollision crudo (rfid_scanner/src/main.cpp:96-107).
+ */
+const UID_FORMAT_REGEX = /^[0-9A-F]{8}$|^[0-9A-F]{14}$/;
+
+/**
+ * Patrón del banner de boot del firmware (`Serial.println("RFID Scanner v1.0...")`
+ * en rfid_scanner/src/main.cpp:16). El parser lo descarta sin emitir error.
+ */
+const BOOT_BANNER_REGEX = /^RFID Scanner/i;
 
 const CARD_TYPES = new Set(['MIFARE_1KB', 'MIFARE_4KB', 'NTAG', 'UNKNOWN']);
 
@@ -82,6 +113,28 @@ class WebSerialService {
     this.heartbeatTimerId = null;
     this.initTimeoutId = null;
     this._connectInProgress = false;
+    /**
+     * Timestamp del último byte recibido del puerto. Se usa junto a
+     * `lineTimeoutTimerId` para detectar buffer estancado.
+     * @type {number|null}
+     */
+    this.lastByteAt = null;
+    /**
+     * Interval que comprueba LINE_TIMEOUT_MS sin nuevos bytes.
+     * @type {number|null}
+     */
+    this.lineTimeoutTimerId = null;
+    /**
+     * Marca si ya se emitió `device_banner` para no spamearlo (sólo se
+     * espera UN banner por sesión de conexión).
+     */
+    this._bannerEmitted = false;
+    /**
+     * Flag de cancelación del bucle de reconexión. `disconnect()` lo pone a
+     * true para garantizar que un `port.open` en vuelo no concluya como
+     * conexión activa tras una desconexión explícita del usuario.
+     */
+    this._reconnectAborted = false;
   }
 
   isSupported() {
@@ -137,6 +190,36 @@ class WebSerialService {
       clearTimeout(this.initTimeoutId);
       this.initTimeoutId = null;
     }
+    if (this.lineTimeoutTimerId) {
+      clearInterval(this.lineTimeoutTimerId);
+      this.lineTimeoutTimerId = null;
+    }
+  }
+
+  /**
+   * Arranca un interval periódico que vacía el buffer si lleva más de
+   * LINE_TIMEOUT_MS sin recibir bytes (firmware corrupto o cuelgue).
+   * @private
+   */
+  _armLineTimeoutWatchdog() {
+    if (this.lineTimeoutTimerId) {
+      clearInterval(this.lineTimeoutTimerId);
+    }
+    this.lineTimeoutTimerId = setInterval(() => {
+      if (this.buffer.length === 0 || !this.lastByteAt) {
+        return;
+      }
+      if (Date.now() - this.lastByteAt > LINE_TIMEOUT_MS) {
+        const dropped = this.buffer.length;
+        this.buffer = '';
+        this.lastByteAt = null;
+        this.emit('error', {
+          message: 'Línea serial incompleta descartada por timeout',
+          details: `${dropped} bytes pendientes sin newline en ${LINE_TIMEOUT_MS}ms`,
+          type: 'line_timeout'
+        });
+      }
+    }, LINE_TIMEOUT_CHECK_INTERVAL_MS);
   }
 
   _armHeartbeatWatchdog() {
@@ -189,6 +272,8 @@ class WebSerialService {
     } finally {
       this._connectInProgress = false;
     }
+    // Tras conectar, recuperar scans pendientes de sesiones previas (F5 / cierre).
+    this.hydratePendingScansFromStorage().catch(() => {});
   }
 
   handleDisconnect = () => {
@@ -215,60 +300,125 @@ class WebSerialService {
     this.attemptReconnect();
   };
 
-  async attemptReconnect() {
-    if (!this.autoReconnectEnabled) {
-      return;
+  /**
+   * Sleep cancelable con setTimeout. La promesa se resuelve cuando expira
+   * el delay; si `_reconnectAborted` se activa antes, el caller comprueba
+   * el flag y aborta el siguiente paso del bucle.
+   *
+   * @param {number} ms
+   * @returns {Promise<void>}
+   * @private
+   */
+  _sleep(ms) {
+    return new Promise(resolve => {
+      this.reconnectTimerId = setTimeout(() => {
+        this.reconnectTimerId = null;
+        resolve();
+      }, ms);
+    });
+  }
+
+  /**
+   * Intenta UNA reconexión: busca un puerto autorizado y lo abre.
+   * Aborta limpiamente si `_reconnectAborted` se activa entre fases.
+   *
+   * @returns {Promise<'success'|'no_port'|'aborted'|'error'>}
+   * @private
+   */
+  async _attemptReconnectOnce() {
+    let ports;
+    try {
+      ports = await navigator.serial.getPorts();
+    } catch {
+      return 'error';
     }
 
-    if (this.reconnecting || this.reconnectAttempts >= MAX_RECONNECT_ATTEMPTS) {
-      if (this.reconnectAttempts >= MAX_RECONNECT_ATTEMPTS) {
+    const portToTry = ports.find(p => p === this.lastPort) || ports[0];
+    if (!portToTry) {
+      return 'no_port';
+    }
+
+    try {
+      this.port = portToTry;
+      await this.port.open({ baudRate: DEFAULT_BAUD_RATE });
+    } catch {
+      this.port = null;
+      return 'error';
+    }
+
+    if (this._reconnectAborted || !this.autoReconnectEnabled) {
+      try {
+        await this.port.close();
+      } catch {
+        // Best effort.
+      }
+      this.port = null;
+      return 'aborted';
+    }
+
+    this.setStatus('connected');
+    this.reconnectAttempts = 0;
+    this.startReading();
+    return 'success';
+  }
+
+  /**
+   * Bucle iterativo de reconexión con backoff exponencial. Reemplaza la
+   * versión recursiva previa que podía ejecutar varios intentos en
+   * paralelo si `setTimeout` solapaba con un nuevo trigger.
+   *
+   * Comprueba `_reconnectAborted` en cada iteración para que un
+   * `disconnect()` durante el reintento no concluya con port.open exitoso
+   * tras la desconexión.
+   *
+   * @returns {Promise<void>}
+   */
+  async attemptReconnect() {
+    if (this.reconnecting || !this.autoReconnectEnabled) {
+      return;
+    }
+    this.reconnecting = true;
+    this._reconnectAborted = false;
+
+    try {
+      while (
+        this.autoReconnectEnabled &&
+        !this._reconnectAborted &&
+        this.reconnectAttempts < MAX_RECONNECT_ATTEMPTS
+      ) {
+        this.reconnectAttempts += 1;
+        this.setStatus('reconnecting', { attempt: this.reconnectAttempts });
+
+        const delay = RECONNECT_DELAY_BASE_MS * Math.pow(2, this.reconnectAttempts - 1);
+        await this._sleep(delay);
+
+        if (this._reconnectAborted || !this.autoReconnectEnabled) {
+          return;
+        }
+
+        const outcome = await this._attemptReconnectOnce();
+        if (outcome === 'success' || outcome === 'aborted') {
+          return;
+        }
+      }
+
+      if (
+        this.reconnectAttempts >= MAX_RECONNECT_ATTEMPTS &&
+        !this._reconnectAborted
+      ) {
         this.emit('error', {
           message: 'Máximo de intentos de reconexión alcanzado',
           details: 'Por favor, reconecta el sensor manualmente.'
         });
       }
-      return;
+    } finally {
+      this.reconnecting = false;
     }
-
-    this.reconnecting = true;
-    this.reconnectAttempts++;
-    this.setStatus('reconnecting', { attempt: this.reconnectAttempts });
-
-    const delay = RECONNECT_DELAY_BASE_MS * Math.pow(2, this.reconnectAttempts - 1);
-
-    if (this.reconnectTimerId) {
-      clearTimeout(this.reconnectTimerId);
-    }
-
-    this.reconnectTimerId = setTimeout(async () => {
-      try {
-        // En Web Serial, no podemos "reabrir" el mismo objeto puerto fácilmente si se desconectó físicamente
-        // Pero si fue un error lógico o temporal, intentamos.
-        // Si fue una desconexión física, el usuario debe interactuar de nuevo (seguridad del navegador).
-        // Sin embargo, si el puerto vuelve a aparecer, podemos intentar buscarlo en getPorts().
-        const ports = await navigator.serial.getPorts();
-        // Intentar encontrar un puerto que coincida si es posible, o usar el último conocido si sigue ahí
-        const portToTry = ports.find(p => p === this.lastPort) || ports[0];
-
-        if (portToTry) {
-           this.port = portToTry;
-           await this.port.open({ baudRate: DEFAULT_BAUD_RATE });
-           this.setStatus('connected');
-           this.reconnectAttempts = 0;
-           this.reconnecting = false;
-           this.startReading(); // Reiniciar lectura
-        } else {
-          throw new Error('No se encontró el puerto para reconectar');
-        }
-      } catch {
-        this.reconnecting = false;
-        this.attemptReconnect(); // Reintentar
-      }
-    }, delay);
   }
 
   async disconnect() {
     this.autoReconnectEnabled = false;
+    this._reconnectAborted = true;
     this.reconnecting = false;
     this.reconnectAttempts = 0;
 
@@ -312,9 +462,12 @@ class WebSerialService {
     }
 
     this.keepReading = true;
+    this._bannerEmitted = false;
+    this.lastByteAt = null;
     this.setStatus('reading');
     this.setDeviceState('initializing');
     this._armInitTimeout();
+    this._armLineTimeoutWatchdog();
 
     const textDecoder = new TextDecoderStream();
     const readableStreamClosed = this.port.readable.pipeTo(textDecoder.writable);
@@ -327,6 +480,7 @@ class WebSerialService {
           break;
         }
         if (value) {
+          this.lastByteAt = Date.now();
           this.buffer += value;
           this.processBuffer();
         }
@@ -337,6 +491,7 @@ class WebSerialService {
         details: error?.message
       });
     } finally {
+      this._clearDeviceTimers();
       try {
         this.reader?.releaseLock();
         await readableStreamClosed.catch(() => null);
@@ -377,7 +532,22 @@ class WebSerialService {
 
     lines.forEach((line) => {
       const trimmed = line.trim();
-      if (!trimmed || !trimmed.startsWith('{')) {
+      if (!trimmed) {
+        return;
+      }
+
+      // El firmware emite un banner de boot en texto plano antes del primer
+      // JSON (rfid_scanner/src/main.cpp:16). Lo silenciamos como "banner"
+      // y no como error para no asustar a la UI en cada conexión.
+      if (BOOT_BANNER_REGEX.test(trimmed)) {
+        if (!this._bannerEmitted) {
+          this._bannerEmitted = true;
+          this.emit('device_banner', { line: trimmed });
+        }
+        return;
+      }
+
+      if (!trimmed.startsWith('{')) {
         return;
       }
 
@@ -459,6 +629,16 @@ class WebSerialService {
       return;
     }
 
+    // Validar formato (8 ó 14 hex) — el firmware en su path de fallback
+    // anticollision crudo no garantiza CRC, así que filtramos UIDs corruptos.
+    if (!UID_FORMAT_REGEX.test(uid)) {
+      this.emit('device_error', {
+        type: 'invalid_uid',
+        message: `UID con formato inválido: ${uid}`
+      });
+      return;
+    }
+
     const now = Date.now();
     const last = this.lastScanByUid.get(uid);
     if (last && now - last < this.dedupeCooldownMs) {
@@ -507,11 +687,28 @@ class WebSerialService {
     const now = Date.now();
     this.prunePendingScans(now);
 
-    this.pendingScans.push({ payload, queuedAt: now });
+    this.pendingScans.push({ payload, queuedAt: now, persistedId: null });
 
     while (this.pendingScans.length > MAX_PENDING_SCANS) {
       this.pendingScans.shift();
     }
+
+    // Persistencia best-effort en IndexedDB para sobrevivir a F5 o pérdida
+    // de conexión larga; el pendingScans en memoria sigue siendo el primario.
+    pendingScansStore
+      .add(payload)
+      .then(persistedId => {
+        if (persistedId !== null && persistedId !== undefined) {
+          const entry = this.pendingScans.find(p => p.payload === payload);
+          if (entry) {
+            entry.persistedId = persistedId;
+          }
+        }
+        return persistedId;
+      })
+      .catch(() => {
+        // IDB no disponible (modo incógnito, etc.) — degradación silenciosa.
+      });
 
     this.emit('queue_status', {
       pending: this.pendingScans.length
@@ -543,6 +740,10 @@ class WebSerialService {
         socketService.emitGameFireAndForget('rfid_scan_from_client', next.payload);
         this.pendingScans.shift();
         sent += 1;
+        // Eliminar el entry persistido en IDB (best-effort).
+        if (next.persistedId !== null && next.persistedId !== undefined) {
+          pendingScansStore.remove(next.persistedId).catch(() => {});
+        }
       } catch {
         break;
       }
@@ -554,6 +755,43 @@ class WebSerialService {
     });
 
     return { sent, pending: this.pendingScans.length };
+  }
+
+  /**
+   * Recupera scans persistidos en IndexedDB y los mergea con el buffer
+   * en memoria. Llamar tras `connect()` para resucitar scans pendientes
+   * de una sesión previa (recarga de página o desconexión larga).
+   *
+   * @returns {Promise<number>} Número de scans recuperados.
+   */
+  async hydratePendingScansFromStorage() {
+    try {
+      await pendingScansStore.purgeOlderThan(PENDING_SCAN_PERSISTENCE_TTL_MS);
+      const persisted = await pendingScansStore.getAll();
+      const knownIds = new Set(
+        this.pendingScans.map(p => p.persistedId).filter(id => id !== null && id !== undefined)
+      );
+      let added = 0;
+      for (const entry of persisted) {
+        if (this.pendingScans.length >= MAX_PENDING_SCANS) {
+          break;
+        }
+        if (!knownIds.has(entry.id)) {
+          this.pendingScans.push({
+            payload: entry.payload,
+            queuedAt: entry.queuedAt,
+            persistedId: entry.id
+          });
+          added += 1;
+        }
+      }
+      if (added > 0) {
+        this.emit('queue_status', { pending: this.pendingScans.length });
+      }
+      return added;
+    } catch {
+      return 0;
+    }
   }
 
   cleanupUidCache(now) {

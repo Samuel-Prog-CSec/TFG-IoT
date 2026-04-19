@@ -342,6 +342,12 @@ class SocketRateLimiter {
           eventName,
           outcome: 'deduped'
         });
+        // Contador específico del servicio RFID para el endpoint de salud.
+        try {
+          require('../services/rfidService').recordDedupeHit();
+        } catch {
+          // Best effort: si rfidService no está disponible (tests aislados), ignorar.
+        }
         return undefined;
       }
 

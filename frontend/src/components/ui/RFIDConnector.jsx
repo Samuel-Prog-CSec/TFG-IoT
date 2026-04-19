@@ -49,6 +49,30 @@ const DEVICE_STATE_CONFIG = {
   },
 };
 
+/**
+ * Lee la info del puerto USB (vendor/product ID) si la API lo soporta.
+ * Útil para mostrar al profesor cuál dispositivo se ha conectado y
+ * confirmar que es el sensor correcto.
+ *
+ * @param {SerialPort|null} port
+ * @returns {{ usbVendorId: string|null, usbProductId: string|null }}
+ */
+const readPortInfo = (port) => {
+  try {
+    const info = port?.getInfo?.();
+    return {
+      usbVendorId: info?.usbVendorId
+        ? info.usbVendorId.toString(16).toUpperCase().padStart(4, '0')
+        : null,
+      usbProductId: info?.usbProductId
+        ? info.usbProductId.toString(16).toUpperCase().padStart(4, '0')
+        : null
+    };
+  } catch {
+    return { usbVendorId: null, usbProductId: null };
+  }
+};
+
 export default function RFIDConnector({
   className,
   onScan,
@@ -59,6 +83,8 @@ export default function RFIDConnector({
   const [fwVersion, setFwVersion] = useState(webSerialService.firmwareVersion);
   const [error, setError] = useState(null);
   const [isSupported, setIsSupported] = useState(webSerialService.isSupported());
+  const [hasAttempted, setHasAttempted] = useState(false);
+  const [portInfo, setPortInfo] = useState({ usbVendorId: null, usbProductId: null });
   const errorTimeoutRef = useRef(null);
 
   const handleStatus = useCallback((payload) => {
@@ -121,11 +147,14 @@ export default function RFIDConnector({
   }, [handleStatus, handleDeviceStateChange, handleScan, handleError, handleDeviceError]);
 
   const handleConnect = async () => {
+    setHasAttempted(true);
     try {
       if (!socketService.isSocketConnected()) {
         await socketService.connect();
       }
       await webSerialService.connect();
+      // Capturar info del dispositivo USB para mostrar al profesor.
+      setPortInfo(readPortInfo(webSerialService.port));
       await webSerialService.startReading();
     } catch (connectError) {
       showError(connectError?.message || 'No se pudo conectar al sensor');
@@ -134,6 +163,7 @@ export default function RFIDConnector({
 
   const handleDisconnect = async () => {
     await webSerialService.disconnect();
+    setPortInfo({ usbVendorId: null, usbProductId: null });
   };
 
   // Derivar estado visual
@@ -199,7 +229,7 @@ export default function RFIDConnector({
             {(() => {
               if (isPortOpen) return 'Desconectar';
               if (isReconnecting) return 'Reconectando...';
-              return 'Conectar';
+              return hasAttempted ? 'Reintentar conexión' : 'Conectar';
             })()}
           </button>
         ) : (
@@ -214,6 +244,11 @@ export default function RFIDConnector({
         <div className="mt-3 flex items-center gap-2 text-xs text-text-muted">
           <Usb size={14} />
           <span>SensorId: {webSerialService.sensorId}</span>
+          {portInfo.usbVendorId && (
+            <span className="ml-2 rounded bg-background-surface px-1.5 py-0.5 font-mono text-[10px] text-text-secondary">
+              USB {portInfo.usbVendorId}:{portInfo.usbProductId || '????'}
+            </span>
+          )}
           {visualState === 'ready' && (
             <Activity size={12} className="ml-1 text-success-base" />
           )}

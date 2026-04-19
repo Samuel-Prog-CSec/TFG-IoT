@@ -3187,3 +3187,150 @@ Paletas soportadas: `default`, `geography`, `animals`, `colors`, `numbers`, `sha
 - `frontend/src/index.css` (paletas OKLCH preexistentes)
 - `frontend/src/components/game/GameBackdrop.jsx` (consumidor histórico)
 - Propuesta relacionada: PROP-16 (atmósferas dinámicas por contexto) y PROP-40A.
+
+---
+
+## ADR-062: Endurecimiento integral del pipeline RFID (defensas + observabilidad) [Full-stack]
+
+### Contexto
+
+Auditoría exhaustiva del pipeline de comunicación RFID (firmware → frontend → backend) detectó ~15 issues que comprometían que el sensor funcionase "al 100% desde el momento 0 en todas las situaciones". Los más críticos:
+
+1. **Leak latente de `connectionCountByUserId`** en `socketHandlers.js`: el listener de `disconnect` se registraba TRAS un `await getRfidModeState(...)` en el handler de `connection`. Si la inicialización lanzase, el listener no se registraba y el contador quedaba huérfano → tras 5 reconexiones rápidas el profesor se bloqueaba con `MAX_CONNECTIONS_EXCEEDED`.
+2. **Sin watchdog del modo RFID**: si el profesor cerraba el navegador sin disparar `leave_*`, el modo permanecía en memoria + Redis (TTL 1 h), y otro socket suyo recibía `RFID_MODE_TAKEN_OVER` en cadena durante esa hora.
+3. **Errores fatales silenciados** en `processResponse` y `processMemoryScan`: un fallo de BD se logueaba con `logger.error` y la función seguía emitiendo `validation_result` con score posiblemente desactualizado; el cliente nunca recibía `play_interrupted`.
+4. **Observabilidad pobre** del path `card_not_in_play` (`logger.debug` invisible en producción) y de la contención de locks (sin alertas).
+5. **Códigos de error como strings dispersos**: la UI no podía diferenciar "sensor roto" vs "tarjeta no reconocida" vs "tarjeta de otra sesión".
+6. **Parser Web Serial frágil**: el banner de boot del firmware contaminaba el buffer; sin validación de UID; sin timeout de línea ante firmware que emite bytes corruptos sin newline.
+7. **Reconexión Web Serial recursiva**: `attemptReconnect` se re-llamaba dentro del `setTimeout`; un `disconnect()` durante un intento podía resolver con `port.open` exitoso TRAS la desconexión explícita.
+
+El firmware (`rfid_scanner/`) lo aporta el tutor del TFG y se trata como **inmutable**: la app web compensa defensivamente cualquier limitación.
+
+### Decisión
+
+Endurecer el pipeline en una intervención integral con un único commit, agrupando 13 cambios coordinados:
+
+**Backend**
+
+- `socketHandlers.js`: helpers testables (`incrementConnectionCount`, `decrementConnectionCount`, `getConnectionCount`); listener de `disconnect` registrado ANTES de cualquier await + try/catch en init.
+- Watchdog del modo RFID con `RFID_MODE_IDLE_TIMEOUT_MS` (default 5 min), refrescado por scan válido y por evento `rfid_mode_heartbeat` desde el cliente.
+- `GameEngine._emitFatalScanError`: helper común que loguea, captura Sentry, emite `play_interrupted` y cierra la partida graceful. Aplicado en `processResponse`, `processMemoryScan` (first_pick + resolved) y `handleTimeout`.
+- Observabilidad: log info agrupado por UID/ventana de 60 s para `card_not_in_play`; alerta Sentry cuando `lockContention % 100 === 0`.
+- `backend/src/constants/errorCodes.js`: constantes `RFID_ERROR_CODES`, `SCAN_IGNORED_REASONS`, `PLAY_INTERRUPTED_REASONS` con valores estables (contrato público).
+- Endpoint `GET /api/metrics/rfid` con `health: ok|degraded|down`, contadores, scanRate 1m/5m, dedupeHits, errorsByType y snippet del `gameEngine`.
+- `rfidService` extendido: `_scanTimestamps`, `lastScanAt`, `lastErrorAt`, `errorsByType`, `recordDedupeHit()`, `getHealthSnapshot()`.
+
+**Frontend**
+
+- `webSerialService.js`: filtro explícito del banner de boot → emite `device_banner` una vez en lugar de error; validación estricta de UID hex (8 ó 14 chars); timeout de línea (2 s sin `\n` → descarta buffer).
+- Bucle de reconexión iterativo con flag `_reconnectAborted` + helper `_attemptReconnectOnce`; `_clearDeviceTimers` invocado en todos los paths.
+- `socket.js`: heartbeat `rfid_mode_heartbeat` cada 60 s en `/game` con `volatile.emit`.
+- `useGameSocket.js`: copy granular para `RFID_SENSOR_STALE`, `RFID_SENSOR_NOT_CONNECTED`, `CARD_NOT_IN_PLAY`, `UID_UNKNOWN`. `play_paused` sin toast (banner ya visible). Comentario clarificador del dedupe del fallback.
+- `RFIDConnector.jsx`: botón "Reintentar conexión" tras intento previo; preview USB vendor/product ID.
+- `FallbackTouchPanel.jsx`: orden alfabético `localeCompare('es')`.
+
+**Resiliencia**
+
+- `frontend/src/lib/sessionSnapshot.js`: snapshot del estado coordinado en `sessionStorage` por `playId` (TTL 10 min, esquema versionado). `GameSession` hidrata al montar y persiste tras cada transición relevante.
+- `frontend/src/lib/pendingScansStore.js`: wrapper IndexedDB integrado en `webSerialService`. `hydratePendingScansFromStorage()` recupera scans tras F5 o desconexión larga.
+
+### Consecuencias
+
+**Positivas**
+
+- El profesor puede reconectarse N veces sin bloquearse por `MAX_CONNECTIONS_EXCEEDED`.
+- Modos abandonados se liberan automáticamente en 5 min; otros sockets del mismo usuario no quedan bloqueados.
+- Errores fatales de BD interrumpen la partida con feedback claro al cliente, no la dejan en limbo.
+- La UI puede mostrar mensajes diferenciados gracias a códigos estables.
+- Dashboard `/api/metrics/rfid` permite monitorización externa de salud del sensor.
+- F5 accidental durante una partida activa muestra el estado previo en menos de 50 ms; el sync canónico reconcilia después.
+- Scans pendientes sobreviven a desconexiones largas y recargas de página vía IndexedDB.
+
+**Negativas / trade-offs**
+
+- Más estado en memoria (`rfidModeTimers`, `cardNotInPlayCounters`, `_scanTimestamps`) — acotado y purgado periódicamente.
+- IndexedDB añade complejidad y un punto más de fallo (degradado silenciosamente si IDB no está disponible).
+- Heartbeat cada 60 s genera tráfico WebSocket adicional, pero `volatile.emit` es barato y la carga es marginal.
+- Los códigos de error son contrato: cualquier cambio futuro requiere coordinación frontend/backend con deprecación.
+
+### Verificación
+
+- Tests Jest nuevos: `tests/realtime/connectionLifecycle.test.js`, `tests/realtime/rfidModeWatchdog.test.js`, `tests/services/gameEngineRfidErrorPaths.test.js`, `tests/services/gameEngineObservability.test.js`, `tests/controllers/metricsController.test.js`, `tests/constants/errorCodes.test.js`.
+- Tests Vitest nuevos: `webSerialService.parser.test.js`, `webSerialService.reconnect.test.js`, `sessionSnapshot.test.js`, `pendingScansStore.test.js`, `FallbackTouchPanel.test.jsx`.
+- `npm test` 966/966 backend, 246/246 frontend.
+- `npm run lint` 0 warnings ambos.
+- `npm run audit:prod` 0 vulnerabilidades.
+- Endpoint validado en Docker: `GET /api/metrics/rfid` con teacher token devuelve `health: 'ok'` y shape correcta.
+
+### Referencias
+
+- `backend/src/realtime/socketHandlers.js`, `backend/src/services/gameEngine/GameEngine.js`, `backend/src/services/rfidService.js`
+- `backend/src/constants/errorCodes.js` (nuevo)
+- `backend/src/controllers/metricsController.js`, `backend/src/routes/metrics.js` (nuevos)
+- `frontend/src/services/webSerialService.js`, `frontend/src/services/socket.js`, `frontend/src/hooks/useGameSocket.js`
+- `frontend/src/components/ui/RFIDConnector.jsx`, `frontend/src/components/game/FallbackTouchPanel.jsx`
+- `frontend/src/lib/sessionSnapshot.js`, `frontend/src/lib/pendingScansStore.js` (nuevos)
+- `frontend/src/pages/GameSession.jsx` (integración snapshot)
+- `backend/docs/RFID_Protocol.md` apéndices C/D/E
+- `backend/docs/RFID_Runtime_Flows.md` §§12-14
+- `frontend/docs/05-GAMEPLAY-REALTIME.md`
+- `documentation/Firmware_RFID_Findings.md` (propuesta para tutor sobre el firmware inmutable)
+
+---
+
+## ADR-063: Snapshot de partida en sessionStorage + queue persistente IndexedDB [Frontend]
+
+### Contexto
+
+Dos casos de uso quedaban descubiertos por el modelo "estado canónico vive en el servidor":
+
+1. **F5 accidental durante una partida**: el reconnect del Socket.IO + `play_state_sync` reconcilia en ~200-500 ms, pero el alumno ve un flash de "ronda 1 / score 0" hasta que llega el sync. Para un niño de 4-6 años bajo presión de tiempo, esos 500 ms son desconcertantes.
+2. **Desconexión socket larga (>30 s)**: la cola en memoria `pendingScans[]` (TTL 30 s) descartaba scans antiguos. Si la conexión cae 1 min en plena partida, los scans del alumno se pierden.
+
+### Decisión
+
+Persistencia local en dos niveles complementarios:
+
+1. **`sessionStorage` para snapshot del estado de juego** — `frontend/src/lib/sessionSnapshot.js`:
+   - Clave: `rfid_game_snapshot_<playId>`.
+   - TTL: 10 min (`SNAPSHOT_TTL_MS`). Snapshot más viejo se descarta al cargar.
+   - Esquema versionado (`SNAPSHOT_SCHEMA_VERSION`): si cambiamos la forma del estado guardado, incrementar para invalidar snapshots antiguos sin romper la app.
+   - API minimalista: `saveSnapshot(playId, state)`, `loadSnapshot(playId)`, `clearSnapshot(playId)`, `purgeExpiredSnapshots()`.
+   - Integración en `GameSession.jsx`: hidratación al montar (antes del sync), persistencia en cada cambio del reducer relevante, limpieza en `gameState === 'finished'` y al desmontar.
+
+2. **`IndexedDB` para scans pendientes** — `frontend/src/lib/pendingScansStore.js`:
+   - DB: `rfid_game_db`, store: `pendingScans` con `keyPath: 'id'` autoIncrement.
+   - TTL: 10 min (`DEFAULT_TTL_MS`). Purgado en `connect()` antes de hidratar.
+   - API: `add(payload)`, `getAll()`, `remove(id)`, `purgeOlderThan(ttlMs)`, `clear()`.
+   - Integración en `webSerialService`: `enqueuePendingScan` persiste además del push en memoria; `flushPendingScans` elimina al enviar; `hydratePendingScansFromStorage()` mergea persistidos al `connect()`.
+   - Best-effort: si IDB no está disponible (modo incógnito, cuota agotada), opera sólo con la cola en memoria sin lanzar.
+
+### Consecuencias
+
+**Positivas**
+
+- F5 accidental → UI vuelve al estado previo en menos de 50 ms; el sync del servidor reconcilia silenciosamente. La pantalla en blanco desaparece.
+- Scans realizados durante una desconexión larga del socket sobreviven a F5 o crash del navegador.
+- Aislamiento por pestaña (sessionStorage no localStorage) evita conflictos entre dos sesiones simultáneas del profesor.
+- Esquema versionado permite migrar la forma del snapshot sin romper sesiones en curso.
+
+**Negativas / trade-offs**
+
+- IndexedDB añade dependencia de devDep `fake-indexeddb` para tests.
+- sessionStorage write se hace en cada cambio relevante del reducer — síncrono pero rápido (menos de 1 ms para payload pequeño). Si en el futuro el snapshot crece mucho, considerar throttle.
+- Modo incógnito o navegadores con storage deshabilitado degradan a comportamiento previo (sin snapshot/persistencia) — aceptable.
+- IDB transactions tienen su propia event loop; `fake-indexeddb` colisiona con `vi.useFakeTimers` en algunos tests (workaround: TTL pequeño + `setTimeout` real).
+
+### Verificación
+
+- `frontend/src/lib/__tests__/sessionSnapshot.test.js` — 9 tests (TTL, esquema versionado, JSON corrupto, purge, multi-playId).
+- `frontend/src/lib/__tests__/pendingScansStore.test.js` — 6 tests (add/getAll/remove/purge/clear + degradación).
+- Validación manual recomendada: levantar Docker, iniciar partida, F5 mid-ronda, verificar UI restaurada inmediata; cerrar backend 30 s y reabrir, verificar que los scans realizados durante la desconexión llegan al reconectar.
+
+### Referencias
+
+- `frontend/src/lib/sessionSnapshot.js`, `frontend/src/lib/pendingScansStore.js`
+- `frontend/src/pages/GameSession.jsx` (integración snapshot)
+- `frontend/src/services/webSerialService.js` (integración IDB)
+- `frontend/docs/05-GAMEPLAY-REALTIME.md` (resiliencia + IDB)
+- ADR-062 (decisión hermana: hardening del pipeline backend)

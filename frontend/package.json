@@ -63,6 +63,7 @@
     "eslint-plugin-regexp": "^3.1.0",
     "eslint-plugin-security": "^4.0.0",
     "eslint-plugin-sonarjs": "^4.0.2",
+    "fake-indexeddb": "^6.2.5",
     "globals": "^17.5.0",
     "jsdom": "^29.0.2",
     "vite": "^8.0.8",

@@ -682,8 +682,115 @@ Endpoint: `GET /api/metrics` (requiere autenticación de profesor)
 
 ---
 
+## Apéndice C: Constantes de error y razones (`backend/src/constants/errorCodes.js`)
+
+Centralizamos los strings que viajan en eventos `error`, `scan_ignored` y `play_interrupted` para que el frontend pueda ofrecer feedback granular consumiendo las mismas constantes.
+
+### `RFID_ERROR_CODES`
+
+| Constante                 | Valor                       | Uso                                                                     |
+| ------------------------- | --------------------------- | ----------------------------------------------------------------------- |
+| `SENSOR_DISABLED`         | `RFID_DISABLED`             | Servicio RFID off por configuración (`RFID_SOURCE=disabled`).           |
+| `SENSOR_MISMATCH`         | `RFID_SENSOR_MISMATCH`      | El sensorId del payload no coincide con el ligado al modo.              |
+| `SENSOR_UNAUTHORIZED`     | `RFID_SENSOR_UNAUTHORIZED`  | Sensor no autorizado para esta sesión.                                  |
+| `MODE_TAKEN_OVER`         | `RFID_MODE_TAKEN_OVER`      | Otro socket del usuario tomó el control del modo.                       |
+| `MODE_INVALID`            | `RFID_MODE_INVALID`         | El modo solicitado no es válido o no coincide con el room actual.       |
+| `SOCKET_NOT_ACTIVE`       | `RFID_SOCKET_NOT_ACTIVE`    | El socket no está marcado como dueño activo del modo.                   |
+
+### `SCAN_IGNORED_REASONS`
+
+Valores que viajan en el campo `reason` del evento `scan_ignored`:
+
+| Constante           | Valor                  | Cuándo se emite                                                  |
+| ------------------- | ---------------------- | ---------------------------------------------------------------- |
+| `PLAY_PAUSED`       | `play_paused`          | Partida pausada; el scan se descarta sin penalizar.              |
+| `NOT_AWAITING`      | `not_awaiting_response`| Scan llegó entre rondas, sin respuesta esperada.                 |
+| `CARD_NOT_IN_PLAY`  | `card_not_in_play`     | UID mapeado a la partida pero no encontrado en `uidToMapping`.   |
+| `UID_UNKNOWN`       | `uid_unknown`          | UID no asociado a ninguna partida activa (tarjeta desconocida).  |
+
+### `PLAY_INTERRUPTED_REASONS`
+
+| Constante                 | Valor                       | Cuándo se emite                                                       |
+| ------------------------- | --------------------------- | --------------------------------------------------------------------- |
+| `INTERNAL_ERROR`          | `internal_error`            | Error fatal procesando un scan (BD caída, excepción inesperada).      |
+| `RECONCILIATION_FAILED`   | `reconciliation_failed`     | Restauración tras reinicio del servidor sin estado recuperable.       |
+
+> Estos VALORES son **contrato público** y no deben cambiar tras el primer despliegue. Si hace falta deprecar uno, añadir uno nuevo y mantener el antiguo durante una versión.
+
+---
+
+## Apéndice D: Endpoint de salud `GET /api/metrics/rfid`
+
+Exposición granular de la salud del sensor para dashboards y monitorización externa, separada de las métricas runtime generales (`/api/metrics`).
+
+**Acceso**: `Authorization: Bearer <token>` con role `teacher` o `super_admin`.
+
+**Respuesta** (`200 OK`):
+
+```json
+{
+  "success": true,
+  "data": {
+    "service": { "status": "client_ready", "source": "client" },
+    "health": "ok",
+    "counters": {
+      "totalEvents": 1284,
+      "totalScans": 612,
+      "totalErrors": 3,
+      "dedupeHits": 47,
+      "errorsByType": { "read_failure": 2, "init_failure": 1 }
+    },
+    "rates": {
+      "scanRate1m": 24,
+      "scanRate5m": 113
+    },
+    "timestamps": {
+      "lastScanAt": 1776640000000,
+      "lastErrorAt": 1776630000000,
+      "lastEventAt": 1776640012345,
+      "connectedAt": 1776600000000
+    },
+    "gameEngine": {
+      "activePlays": 3,
+      "totalCardScans": 2150,
+      "ignoredCardScans": 12,
+      "ignoredScanRatioPct": 0.6,
+      "lockContention": 0
+    },
+    "timestamp": "2026-04-19T23:18:34.862Z"
+  }
+}
+```
+
+**Campos `health`**:
+
+- `ok` — servicio activo, último scan dentro de la ventana de 90 s.
+- `degraded` — servicio activo pero sin scans en los últimos 90 s.
+- `down` — servicio detenido / deshabilitado / mal configurado.
+
+---
+
+## Apéndice E: Watchdog del modo RFID (auto-cleanup)
+
+Para evitar que un modo activo (gameplay o card_assignment) quede "stuck" cuando el profesor cierra el navegador sin disparar `leave_*`, el backend programa un watchdog de **5 minutos** por usuario que se refresca con cada actividad legítima:
+
+1. **Scan RFID válido** (`rfid_scan_from_client`): tras pasar todas las validaciones, `refreshRfidModeActivity` actualiza `updatedAt` y reprograma el timer.
+2. **Heartbeat explícito**: el frontend emite `rfid_mode_heartbeat` cada 60 s en el namespace `/game`.
+3. **Reasignación de modo** (`setRfidModeState`): cualquier nuevo `setRfidModeState` cancela y reprograma.
+
+Si transcurre `RFID_MODE_IDLE_TIMEOUT_MS` (env `RFID_MODE_IDLE_TIMEOUT_MS`, default 300000 ms) sin ninguna señal, el watchdog dispara `clearRfidModeState`. La UI se entera vía `rfid_mode_changed` con `mode=idle` y el log estructurado emite:
+
+```
+WARN  Modo RFID auto-limpiado por inactividad { userId, mode, socketId, idleMs: 300000 }
+```
+
+Implementación en `backend/src/realtime/socketHandlers.js` (helpers `scheduleRfidModeWatchdog`, `clearRfidModeTimer`, `refreshRfidModeActivity`).
+
+---
+
 ## Changelog
 
-| Versión | Fecha      | Cambios                        |
-| ------- | ---------- | ------------------------------ |
-| 1.0.0   | 2026-01-06 | Documentación inicial completa |
+| Versión | Fecha      | Cambios                                                              |
+| ------- | ---------- | -------------------------------------------------------------------- |
+| 1.1.0   | 2026-04-20 | Apéndices C/D/E: códigos error granulares, endpoint métricas, watchdog |
+| 1.0.0   | 2026-01-06 | Documentación inicial completa                                       |

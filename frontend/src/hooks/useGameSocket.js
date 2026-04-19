@@ -23,6 +23,9 @@ const SOCKET_ERROR_MESSAGES = {
   RFID_MODE_INVALID: 'El lector de tarjetas no está listo. Avisa al profesor.',
   RFID_SENSOR_UNAUTHORIZED: 'Este lector no está configurado para esta sesión. Avisa al profesor.',
   RFID_SENSOR_MISMATCH: 'Se detectó un cambio en el lector durante la partida.',
+  RFID_SENSOR_NOT_CONNECTED: 'El sensor RFID no está conectado. Conéctalo para continuar.',
+  RFID_SENSOR_STALE: 'El sensor no responde. Comprueba que esté encendido.',
+  RFID_DISABLED: 'El servicio RFID está desactivado por configuración del servidor.',
   PLAY_NOT_ACTIVE: 'La partida ha terminado o fue interrumpida.',
   ROUND_BLOCKED: 'Espera un momento antes de pasar la siguiente tarjeta.',
   RFID_SOCKET_NOT_ACTIVE: 'El juego se abrió en otra ventana. Cierra las demás para continuar.',
@@ -38,9 +41,20 @@ const SOCKET_ERROR_MESSAGES = {
 };
 
 const SCAN_IGNORED_MESSAGES = {
-  play_paused: 'La partida está pausada. Reanúdala para continuar.',
+  // play_paused: NO toast — el banner de pausa ya es visible y el toast
+  // duplicaría el mensaje. Solo se anuncia para lectores de pantalla.
+  play_paused: null,
   not_awaiting_response: 'Escaneo fuera de turno. Espera a la siguiente ronda.',
-  card_not_in_play: 'Tarjeta no reconocida en esta partida.'
+  card_not_in_play: 'Tarjeta fuera de esta partida.',
+  uid_unknown: 'Tarjeta no registrada en el sistema.'
+};
+
+const SCAN_IGNORED_TOAST_LEVEL = {
+  // not_awaiting es informativo (timing); card_not_in_play y uid_unknown
+  // son advertencias accionables (la tarjeta no debería estar aquí).
+  not_awaiting_response: 'info',
+  card_not_in_play: 'warning',
+  uid_unknown: 'warning'
 };
 
 const SCAN_RESPONSE_TIMEOUT_MS = 3000;
@@ -256,9 +270,23 @@ export function useGameSocket({
 
     const onScanIgnored = payload => {
       cancelPendingScanTimeout();
-      const message = SCAN_IGNORED_MESSAGES[payload?.reason] || 'Escaneo ignorado.';
-      toast.info(message, { id: 'scan-ignored', duration: 3000 });
-      onSrAnnouncement?.(message);
+      const reason = payload?.reason;
+      const message = SCAN_IGNORED_MESSAGES[reason];
+      // Anuncio screen-reader siempre (incluso si no mostramos toast),
+      // para no perder accesibilidad cuando el banner de pausa ya cubre
+      // el caso visualmente.
+      const srMessage = message || (reason === 'play_paused'
+        ? 'La partida está pausada.'
+        : 'Escaneo ignorado.');
+      onSrAnnouncement?.(srMessage);
+
+      if (message === null || message === undefined) {
+        return;
+      }
+
+      const level = SCAN_IGNORED_TOAST_LEVEL[reason] || 'info';
+      const toastFn = toast[level] || toast.info;
+      toastFn(message, { id: 'scan-ignored', duration: 3000 });
     };
 
     // Timeout client-side: si el frontend envía un scan y no recibe respuesta en 3s
@@ -493,11 +521,14 @@ export function useGameSocket({
     return sent;
   }, []);
 
-  // Guardia anti-rebote por UID: el cooldown del backend para eventos RFID
-  // duplicados es 1200 ms. Si un usuario hace doble click rapido (o un evento
-  // sintetico se dispara), el segundo emit llegaria al server y devolveria
-  // "Evento RFID duplicado en ventana corta", contaminando la UX. Cortamos
-  // esos duplicados en el cliente antes de salir.
+  // Guardia anti-rebote SÓLO para el path de FallbackTouchPanel y los
+  // taps en el tablero de memoria: protege contra dobles clicks rápidos
+  // del usuario sobre los botones, NO contra duplicados del sensor físico
+  // (esos los filtra `webSerialService` con su propio dedupe de 1200 ms).
+  // Mantenemos esta guardia aunque parezca redundante porque cubre una
+  // fuente independiente (gestos UI vs lectura serial); eliminarla
+  // expondría la UX a doble-tap → backend devolvería DUPLICATE_RFID_EVENT
+  // y mostraríamos el toast "Espera un momento..." al usuario sin razón.
   const lastScanRef = useRef({ uid: null, ts: 0 });
   const SCAN_DEDUPE_MS = 1300;
 

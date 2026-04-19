@@ -5,8 +5,10 @@
  * @module services/gameEngine
  */
 
+const Sentry = require('@sentry/node');
 const logger = require('../../utils/logger').child({ component: 'gameEngine' });
 const userRepository = require('../../repositories/userRepository');
+const { SCAN_IGNORED_REASONS, PLAY_INTERRUPTED_REASONS } = require('../../constants/errorCodes');
 const redisService = require('../redisService');
 const { recalculateSessionStatusFromPlays } = require('../sessionStatusService');
 const { getMechanicStrategy } = require('../../strategies/mechanics');
@@ -37,6 +39,31 @@ const MEMORY_DEFAULT_HIDE_DELAY_MS = Number.parseInt(process.env.MEMORY_HIDE_DEL
 const MEMORY_FEEDBACK_PAUSE_MS = Number.parseInt(process.env.MEMORY_FEEDBACK_PAUSE_MS, 10) || 1400;
 const CHECKPOINT_INTERVAL_MS = Number.parseInt(process.env.CHECKPOINT_INTERVAL_MS, 10) || 120000; // 2 min
 const CHECKPOINT_EVENT_THRESHOLD = Number.parseInt(process.env.CHECKPOINT_EVENT_THRESHOLD, 10) || 5;
+
+/**
+ * Ventana de agregación para logs de "tarjeta escaneada sin partida activa".
+ * Permite emitir un único log info por UID/ventana en lugar de spamear debug
+ * por cada scan. Síntoma típico de tarjetas mal asociadas o sensor en mal modo.
+ */
+const CARD_NOT_IN_PLAY_LOG_WINDOW_MS = 60_000;
+
+/**
+ * Umbral de alertas de contención de locks (cada N conflictos disparamos
+ * Sentry warning para detectar patrones de carga anómala).
+ */
+const LOCK_CONTENTION_ALERT_THRESHOLD = 100;
+
+/**
+ * Contador agrupado de scans `card_not_in_play` por UID en la ventana actual.
+ * Reseteado de forma perezosa cuando expira la ventana.
+ *
+ * @type {Map<string, { count: number, firstAt: number }>}
+ */
+const cardNotInPlayCounters = new Map();
+
+const resetCardNotInPlayCountersForTests = () => cardNotInPlayCounters.clear();
+
+const peekCardNotInPlayCountersForTests = () => Array.from(cardNotInPlayCounters.entries());
 
 /**
  * GameEngine - Servicio con estado para gestión de partidas en tiempo real.
@@ -205,6 +232,21 @@ class GameEngine {
 
     if (this.playLocks.has(playId) === true) {
       this.metrics.lockContention++;
+      // Alerta cada N conflictos: indica carga anómala (escaneos en cascada
+      // o muchas operaciones concurrentes sobre la misma partida).
+      if (this.metrics.lockContention % LOCK_CONTENTION_ALERT_THRESHOLD === 0) {
+        logger.warn('Alta contención de locks RFID', {
+          playId,
+          operationName,
+          contention: this.metrics.lockContention,
+          threshold: LOCK_CONTENTION_ALERT_THRESHOLD
+        });
+        Sentry.captureMessage('Lock contention spike RFID', {
+          level: 'warning',
+          tags: { module: 'gameEngine', path: 'executeWithPlayLock' },
+          extra: { playId, operationName, contention: this.metrics.lockContention }
+        });
+      }
     }
 
     const operationQueue =
@@ -701,15 +743,20 @@ class GameEngine {
     if (outcome.type === 'first_pick') {
       playState.roundStartTime = Date.now();
 
-      await playState.playDoc.addEvent({
-        eventType: 'card_scanned',
-        cardUid: scannedCard.uid,
-        expectedValue: scannedCard.assignedValue,
-        actualValue: scannedCard.assignedValue,
-        pointsAwarded: 0,
-        timeElapsed,
-        roundNumber: playState.playDoc.currentRound
-      });
+      try {
+        await playState.playDoc.addEvent({
+          eventType: 'card_scanned',
+          cardUid: scannedCard.uid,
+          expectedValue: scannedCard.assignedValue,
+          actualValue: scannedCard.assignedValue,
+          pointsAwarded: 0,
+          timeElapsed,
+          roundNumber: playState.playDoc.currentRound
+        });
+      } catch (err) {
+        await this._emitFatalScanError(playId, playState, err, 'processMemoryScan.firstPick');
+        return;
+      }
 
       this.emitMemoryTurnState(playId, playState, { phase: 'first_pick' });
       return;
@@ -732,18 +779,23 @@ class GameEngine {
     const firstCard = boardByUid.get(firstUid);
     const secondCard = boardByUid.get(secondUid);
 
-    await playState.playDoc.addEventAtomic(
-      {
-        eventType,
-        cardUid: secondUid || scannedCard.uid,
-        expectedValue: firstCard?.assignedValue,
-        actualValue: secondCard?.assignedValue,
-        pointsAwarded: Number(outcome.pointsAwarded || 0),
-        timeElapsed,
-        roundNumber: playState.playDoc.currentRound
-      },
-      { advanceRound: true }
-    );
+    try {
+      await playState.playDoc.addEventAtomic(
+        {
+          eventType,
+          cardUid: secondUid || scannedCard.uid,
+          expectedValue: firstCard?.assignedValue,
+          actualValue: secondCard?.assignedValue,
+          pointsAwarded: Number(outcome.pointsAwarded || 0),
+          timeElapsed,
+          roundNumber: playState.playDoc.currentRound
+        },
+        { advanceRound: true }
+      );
+    } catch (err) {
+      await this._emitFatalScanError(playId, playState, err, 'processMemoryScan.resolve');
+      return;
+    }
 
     await this.checkpointPlayIfNeeded(playId, playState);
 
@@ -984,7 +1036,22 @@ class GameEngine {
     const playId = this.cardUidToPlayId.get(uid);
     if (!playId) {
       this.metrics.ignoredCardScans++;
-      logger.debug(`Tarjeta ${uid} escaneada, pero no pertenece a ningún juego activo.`);
+      // Agrupamos el log por UID/ventana de 60s para no inundar producción
+      // si alguien escanea repetidamente una tarjeta no registrada.
+      const existing = cardNotInPlayCounters.get(uid);
+      const now = Date.now();
+      if (!existing) {
+        cardNotInPlayCounters.set(uid, { count: 1, firstAt: now });
+      } else if (now - existing.firstAt > CARD_NOT_IN_PLAY_LOG_WINDOW_MS) {
+        logger.info('Tarjeta escaneada sin partida activa', {
+          uid,
+          occurrencesInWindow: existing.count,
+          windowMs: CARD_NOT_IN_PLAY_LOG_WINDOW_MS
+        });
+        cardNotInPlayCounters.set(uid, { count: 1, firstAt: now });
+      } else {
+        existing.count++;
+      }
       return;
     }
 
@@ -996,7 +1063,9 @@ class GameEngine {
       if (playState?.paused || playState?.playDoc?.status === 'paused') {
         this.metrics.ignoredCardScans++;
         logger.debug(`Tarjeta ${uid} ignorada: partida ${playId} en pausa.`);
-        this.io.to(`play_${playId}`).emit('scan_ignored', { uid, reason: 'play_paused' });
+        this.io
+          .to(`play_${playId}`)
+          .emit('scan_ignored', { uid, reason: SCAN_IGNORED_REASONS.PLAY_PAUSED });
         return;
       }
 
@@ -1006,7 +1075,9 @@ class GameEngine {
         // El juego existe, pero no está esperando una respuesta
         // (ej. escaneo demasiado rápido, o entre rondas)
         logger.debug(`Tarjeta ${uid} escaneada para ${playId}, pero no se esperaba respuesta.`);
-        this.io.to(`play_${playId}`).emit('scan_ignored', { uid, reason: 'not_awaiting_response' });
+        this.io
+          .to(`play_${playId}`)
+          .emit('scan_ignored', { uid, reason: SCAN_IGNORED_REASONS.NOT_AWAITING });
         return;
       }
 
@@ -1018,7 +1089,9 @@ class GameEngine {
         logger.error(
           `Error CRÍTICO: ${uid} mapeado a ${playId} pero no encontrado en uidToMapping.`
         );
-        this.io.to(`play_${playId}`).emit('scan_ignored', { uid, reason: 'card_not_in_play' });
+        this.io
+          .to(`play_${playId}`)
+          .emit('scan_ignored', { uid, reason: SCAN_IGNORED_REASONS.CARD_NOT_IN_PLAY });
         return;
       }
 
@@ -1094,11 +1167,14 @@ class GameEngine {
       roundNumber: playDoc.currentRound
     };
 
-    // 3. Guardar el evento y avanzar ronda en una sola operación atómica
+    // 3. Guardar el evento y avanzar ronda en una sola operación atómica.
+    //    Si falla la persistencia, interrumpimos la partida en lugar de
+    //    emitir un validation_result con score posiblemente incorrecto.
     try {
       await playDoc.addEventAtomic(eventData, { advanceRound: true });
     } catch (err) {
-      logger.error(`Error guardando evento en la BD para ${playId}: ${err.message}`);
+      await this._emitFatalScanError(playId, playState, err, 'processResponse');
+      return;
     }
 
     await this.checkpointPlayIfNeeded(playId, playState);
@@ -1176,8 +1252,15 @@ class GameEngine {
         roundNumber: playDoc.currentRound
       };
 
-      // 3. Guardar en BD y avanzar ronda en una sola operación atómica
-      await playDoc.addEventAtomic(eventData, { advanceRound: true });
+      // 3. Guardar en BD y avanzar ronda en una sola operación atómica.
+      //    Si falla la persistencia, interrumpimos la partida en lugar de
+      //    emitir un validation_result inconsistente.
+      try {
+        await playDoc.addEventAtomic(eventData, { advanceRound: true });
+      } catch (err) {
+        await this._emitFatalScanError(playId, playState, err, 'handleTimeout');
+        return;
+      }
 
       await this.checkpointPlayIfNeeded(playId, playState);
 
@@ -1200,6 +1283,52 @@ class GameEngine {
   // ============================================================================
   // UTILIDADES Y GESTIÓN DE ESTADO
   // ============================================================================
+
+  /**
+   * Maneja un error fatal durante el procesamiento de un escaneo:
+   * loguea, notifica a Sentry, emite `play_interrupted` al cliente y
+   * cierra la partida de forma segura. Cualquier excepción durante
+   * `endPlay` se ignora para no escalar el fallo.
+   *
+   * @param {string} playId
+   * @param {Object} playState
+   * @param {Error} err
+   * @param {string} context Identificador del path (processResponse/Memory/Timeout)
+   */
+  async _emitFatalScanError(playId, playState, err, context) {
+    const finalScore = playState?.playDoc?.score ?? 0;
+    logger.error('Fallo fatal procesando scan RFID', {
+      playId,
+      context,
+      err: err?.message,
+      stack: err?.stack
+    });
+    Sentry.captureException(err, {
+      tags: { module: 'gameEngine', path: context },
+      extra: { playId }
+    });
+    try {
+      this.io.to(`play_${playId}`).emit('play_interrupted', {
+        playId,
+        reason: PLAY_INTERRUPTED_REASONS.INTERNAL_ERROR,
+        message: 'Error interno procesando el escaneo. La partida se ha interrumpido.',
+        finalScore
+      });
+    } catch (emitErr) {
+      logger.warn('No se pudo emitir play_interrupted', {
+        playId,
+        emitErr: emitErr?.message
+      });
+    }
+    try {
+      await this.endPlay(playId);
+    } catch (endErr) {
+      logger.warn('Error cerrando partida tras fallo fatal', {
+        playId,
+        endErr: endErr?.message
+      });
+    }
+  }
 
   getPlayState(playId) {
     return stateHelpers.getPlayState(this, playId);
@@ -1618,3 +1747,7 @@ class GameEngine {
 }
 
 module.exports = GameEngine;
+module.exports.CARD_NOT_IN_PLAY_LOG_WINDOW_MS = CARD_NOT_IN_PLAY_LOG_WINDOW_MS;
+module.exports.LOCK_CONTENTION_ALERT_THRESHOLD = LOCK_CONTENTION_ALERT_THRESHOLD;
+module.exports.resetCardNotInPlayCountersForTests = resetCardNotInPlayCountersForTests;
+module.exports.peekCardNotInPlayCountersForTests = peekCardNotInPlayCountersForTests;

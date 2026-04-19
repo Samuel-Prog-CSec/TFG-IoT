@@ -164,3 +164,55 @@ Cuando el lector RFID no está conectado (`!rfidConnected`), `GameSession.jsx` d
 - **Memoria** (`sessionIsMemory && !rfidConnected`): **NO** renderiza `<FallbackTouchPanel>` porque el `<MemoryBoard>` ya es clicable directamente (cada celda del tablero es un botón que voltea la carta). En su lugar muestra un hint compacto en `accent-indigo`: *"Toca las cartas del tablero para jugar"*. Mostrar el FallbackTouchPanel adicional en Memoria duplicaría la interacción y confundiría al alumno (decisión documentada en QA del 19/04/2026 — PROP-57).
 
 Razón de fondo: el FallbackTouchPanel está diseñado como *panel de selección* (responder a una consigna eligiendo entre N opciones), no como *panel de revelación* (voltear cartas). Memoria usa el modelo de revelación, así que su input nativo es el propio tablero.
+
+## Resiliencia frente a recarga (snapshot sessionStorage)
+
+Para que un F5 accidental durante una partida activa no produzca un flash de "ronda 1 / score 0" mientras el servidor reconcilia, persistimos un snapshot ligero del estado coordinado del juego en `sessionStorage` por `playId` (`frontend/src/lib/sessionSnapshot.js`).
+
+- TTL: 10 min. Pasados 10 min sin actualización, preferimos pedir el estado canónico al servidor que mostrar datos obsoletos.
+- Ámbito: `sessionStorage` (no `localStorage`) — aislado por pestaña, no comparte estado entre sesiones simultáneas del profesor.
+- Esquema versionado: si cambia la forma del snapshot, se incrementa `SNAPSHOT_SCHEMA_VERSION` para invalidar snapshots antiguos.
+- Triggers de save: cualquier transición coordinada del reducer (`gameState`, `currentRound`, `score`, `correctAnswers`, `isAwaitingResponse`) — gestionado vía `useEffect` en `GameSession.jsx`.
+- Triggers de clear: `gameState === 'finished'`, unmount del componente.
+- Hidratación al montar: `loadSnapshot(playId)` antes de que el servidor responda con `play_state_sync`. Pinta UI preliminar y reconcilia cuando llega el sync canónico.
+
+Tests: `frontend/src/lib/__tests__/sessionSnapshot.test.js`.
+
+## Persistencia de pending scans en IndexedDB
+
+`webSerialService` mantiene una cola en memoria (`pendingScans[]`, max 200, TTL 30 s) para reenviar scans cuando el socket se reconecta. Tras esta versión, cada scan encolado se persiste **además** en IndexedDB (`frontend/src/lib/pendingScansStore.js`):
+
+- Best-effort: si IDB no está disponible (modo incógnito, cuota agotada), seguimos operando sólo con la cola en memoria.
+- TTL persistente: 10 min (`PENDING_SCAN_PERSISTENCE_TTL_MS`). Pasado ese tiempo, los scans se purgan al siguiente `connect()`.
+- Hydration: al conectar (`webSerialService.connect()`), `hydratePendingScansFromStorage()` mergea los scans persistidos con la cola en memoria (deduplica por `persistedId`).
+- Cleanup: cuando `flushPendingScans` envía un scan con éxito, también elimina la entrada IDB asociada.
+
+Beneficio: un F5 o crash del navegador en mitad de un periodo de desconexión socket no pierde scans que el alumno realizó.
+
+Tests: `frontend/src/lib/__tests__/pendingScansStore.test.js`.
+
+## Feedback granular de errores RFID
+
+`useGameSocket.js` mapea códigos de error RFID estables (definidos en `backend/src/constants/errorCodes.js`) a mensajes user-friendly diferenciados:
+
+| Código backend                 | Mensaje UI                                              |
+| ------------------------------ | ------------------------------------------------------- |
+| `RFID_SENSOR_STALE`            | "El sensor no responde. Comprueba que esté encendido."  |
+| `RFID_SENSOR_NOT_CONNECTED`    | "El sensor RFID no está conectado..."                   |
+| `RFID_DISABLED`                | "El servicio RFID está desactivado..."                  |
+| `RFID_SENSOR_MISMATCH`         | "Se detectó un cambio en el lector durante la partida." |
+| `RFID_MODE_INVALID`            | "El lector de tarjetas no está listo. Avisa al profesor." |
+| `RFID_MODE_TAKEN_OVER`         | "Otra ventana tomó el control del lector..."            |
+| Razón `card_not_in_play`       | (warning) "Tarjeta fuera de esta partida."              |
+| Razón `uid_unknown`            | (warning) "Tarjeta no registrada en el sistema."        |
+| Razón `play_paused`            | Sin toast (banner de pausa ya cubre visualmente)        |
+| Razón `not_awaiting_response`  | (info) "Escaneo fuera de turno. Espera a la siguiente ronda." |
+
+## Dedupe en cliente — capas y propósito
+
+Mantenemos dos capas de dedupe complementarias (NO redundantes):
+
+1. **`webSerialService`** (`DEFAULT_DEDUPE_MS = 1200`): protege contra múltiples lecturas del MISMO UID por el sensor físico cuando una tarjeta queda apoyada sobre el lector. Aplica a la fuente serial.
+2. **`useGameSocket`** (`SCAN_DEDUPE_MS = 1300`): protege contra dobles clicks del usuario sobre los botones del FallbackTouchPanel y los taps en el `MemoryBoard`. Aplica a la fuente UI/táctil.
+
+El backend mantiene además su propio dedupe defensivo (`socketRateLimiter.checkRfidDedupe`, 1200 ms) como capa final.

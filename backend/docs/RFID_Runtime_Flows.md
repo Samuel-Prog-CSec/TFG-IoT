@@ -232,3 +232,70 @@ Interpretación operativa:
 4. Comprobar consistencia/autorización de `sensorId`.
 5. En gameplay, verificar `metadata.playId` y runtime activo del play.
 6. Revisar código de error recibido antes de asumir bug de infraestructura.
+
+---
+
+## 12. Watchdog del modo RFID y heartbeat (auto-cleanup)
+
+### 12.1 Motivación
+
+Antes del watchdog, si un profesor cerraba el navegador sin disparar `leave_*`, el modo RFID quedaba "stuck" en memoria + Redis hasta el TTL de 1 h. Cualquier otro socket del mismo usuario recibía `RFID_MODE_TAKEN_OVER` en cadena durante todo ese tiempo.
+
+### 12.2 Funcionamiento
+
+- Constante: `RFID_MODE_IDLE_TIMEOUT_MS` (env, default 300000 ms = 5 min).
+- Estructura: `Map<userId, NodeJS.Timeout>` (`rfidModeTimers` en `socketHandlers.js`).
+- Refresco: `refreshRfidModeActivity(userId, socketId)` actualiza `updatedAt` en memoria y reprograma el timer. Se invoca desde:
+  - `handleRfidScanFromClient` tras pasar todas las validaciones.
+  - Handler `rfid_mode_heartbeat` (emitido por el cliente cada 60 s en `/game`).
+- Cancelación: `clearRfidModeTimer(userId)` se llama en `clearRfidModeState` y al cambiar el modo a IDLE.
+- Disparo: tras `RFID_MODE_IDLE_TIMEOUT_MS` sin actividad, el callback ejecuta `clearRfidModeState` y emite `rfid_mode_changed { mode: 'idle' }`. Log estructurado:
+  ```
+  WARN  Modo RFID auto-limpiado por inactividad { userId, mode, socketId, idleMs: 300000 }
+  ```
+
+### 12.3 Heartbeat cliente → servidor
+
+Frontend (`socket.js`): tras conectar el namespace `/game`, arranca `setInterval(() => gameSocket.volatile.emit('rfid_mode_heartbeat'), 60_000)`. `volatile` evita encolar si el socket cae justo entre intervals.
+
+---
+
+## 13. Disconnect del namespace por defecto y leak de connectionCountByUserId
+
+El middleware de auth (default namespace) incrementa `connectionCountByUserId[userId]` para enforcement de `MAX_CONNECTIONS_PER_USER`. El listener de `disconnect` decrementa de forma correlativa.
+
+**Cambio crítico (2026-04-20)**: el listener de `disconnect` se registra ANTES de cualquier `await` en el handler de `connection`. Si la inicialización (`await getRfidModeState`) lanzase, el listener no se registraría y el contador quedaría huérfano (leak → bloqueo del usuario tras MAX reconexiones rápidas). El init del modo va dentro de `try/catch` con captura Sentry para evitar promesas no manejadas.
+
+Helpers expuestos para tests:
+
+- `incrementConnectionCount(userId)` / `decrementConnectionCount(userId)` / `getConnectionCount(userId)`
+- `resetConnectionCountsForTests()`
+
+Ver `backend/tests/realtime/connectionLifecycle.test.js`.
+
+---
+
+## 14. Path `play_interrupted` por error fatal
+
+Cuando un escaneo encuentra un error irrecuperable durante la persistencia (`addEvent`/`addEventAtomic`), `GameEngine._emitFatalScanError` se encarga de:
+
+1. Loguear con `logger.error` (contexto: playId, path, stack).
+2. Capturar la excepción en Sentry (`tags: { module: 'gameEngine', path }`).
+3. Emitir al cliente:
+   ```json
+   {
+     "playId": "...",
+     "reason": "internal_error",
+     "message": "Error interno procesando el escaneo. La partida se ha interrumpido.",
+     "finalScore": <score actual>
+   }
+   ```
+4. Llamar `this.endPlay(playId)` graceful (capturando errores propios para no escalar).
+
+Llamadores:
+
+- `processResponse` (modo asociación) — fallo de `addEventAtomic`.
+- `processMemoryScan` (modo memoria) — fallo de `addEvent` o `addEventAtomic`.
+- `handleTimeout` — fallo de `addEventAtomic` al registrar el timeout.
+
+Tests: `backend/tests/services/gameEngineRfidErrorPaths.test.js`.

@@ -56,6 +56,7 @@ const sessionRoutes = require('./routes/sessions');
 const playRoutes = require('./routes/plays');
 const deckRoutes = require('./routes/decks');
 const adminRoutes = require('./routes/admin');
+const metricsRoutes = require('./routes/metrics');
 const analyticsRoutes = require('./routes/analytics');
 const healthRoutes = require('./routes/health');
 
@@ -254,6 +255,9 @@ app.use('/api/admin', adminRoutes);
 
 // Rutas de analíticas
 app.use('/api/analytics', analyticsRoutes);
+
+// Rutas de métricas de dominio (salud RFID, etc.)
+app.use('/api/metrics', metricsRoutes);
 
 // Rutas de salud, metricas e informacion del sistema
 app.use('/api', healthRoutes);

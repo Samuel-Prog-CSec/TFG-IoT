@@ -16,6 +16,28 @@ const EVENT_BUFFER_SIZE = 100;
 const VALID_RFID_SOURCES = new Set(['web_serial']);
 
 /**
+ * Ventana del scan rate corto (1 min) en ms.
+ */
+const SCAN_RATE_SHORT_WINDOW_MS = 60_000;
+
+/**
+ * Ventana del scan rate medio (5 min) en ms.
+ */
+const SCAN_RATE_LONG_WINDOW_MS = 5 * 60_000;
+
+/**
+ * Antigüedad máxima de timestamps de scan que mantenemos en memoria.
+ * Cualquier timestamp más viejo se descarta al calcular tasas.
+ */
+const SCAN_TIMESTAMPS_RETENTION_MS = SCAN_RATE_LONG_WINDOW_MS + 30_000;
+
+/**
+ * Si no llega un scan en este intervalo y antes había actividad, marcamos
+ * el sensor como "stale" en el snapshot de salud.
+ */
+const SENSOR_STALE_THRESHOLD_MS = 90_000;
+
+/**
  * Servicio RFID para eventos entrantes desde el navegador.
  *
  * Emite eventos para notificar cambios de estado y cuando se detectan tarjetas RFID.
@@ -51,9 +73,23 @@ class RFIDService extends EventEmitter {
       totalCardDetections: 0,
       totalErrors: 0,
       lastEventTimestamp: null,
+      lastScanAt: null,
+      lastErrorAt: null,
       connectionUptime: 0,
-      lastConnectedAt: null
+      lastConnectedAt: null,
+      /** Total de eventos `dedupe` registrados desde el cliente o servidor. */
+      dedupeHits: 0,
+      /** Errores agregados por `type` (init_failure, read_failure, ...). */
+      errorsByType: {}
     };
+
+    /**
+     * Timestamps de scans recientes para calcular tasas. Se trunca al
+     * tamaño máximo dictado por SCAN_TIMESTAMPS_RETENTION_MS al consultar.
+     * @type {number[]}
+     * @private
+     */
+    this._scanTimestamps = [];
 
     /**
      * Estado actual del servicio RFID
@@ -120,11 +156,20 @@ class RFIDService extends EventEmitter {
       return;
     }
 
+    const now = Date.now();
     this.metrics.totalEventsReceived++;
-    this.metrics.lastEventTimestamp = Date.now();
+    this.metrics.lastEventTimestamp = now;
 
     if (event.event === 'card_detected') {
       this.metrics.totalCardDetections++;
+      this.metrics.lastScanAt = now;
+      this._scanTimestamps.push(now);
+      this._pruneScanTimestamps(now);
+    } else if (event.event === 'error') {
+      this.metrics.totalErrors++;
+      this.metrics.lastErrorAt = now;
+      const type = String(event.type || 'unknown');
+      this.metrics.errorsByType[type] = (this.metrics.errorsByType[type] || 0) + 1;
     }
 
     this.eventBuffer.push({
@@ -137,6 +182,82 @@ class RFIDService extends EventEmitter {
     }
 
     this.emit('rfid_event', event);
+  }
+
+  /**
+   * Registra un evento de deduplicación (rechazado por dedupe upstream).
+   * El frontend no debe llamarlo directamente; se invoca desde el rate
+   * limiter o desde paths donde detectamos duplicados.
+   */
+  recordDedupeHit() {
+    this.metrics.dedupeHits++;
+  }
+
+  /**
+   * Devuelve un snapshot de salud del sensor RFID con tasas computadas
+   * y un rating cualitativo (ok | degraded | down) consumible por la UI.
+   *
+   * @returns {Object}
+   */
+  getHealthSnapshot() {
+    const now = Date.now();
+    this._pruneScanTimestamps(now);
+    const scansLast1m = this._scanTimestamps.filter(
+      t => now - t <= SCAN_RATE_SHORT_WINDOW_MS
+    ).length;
+    const scansLast5m = this._scanTimestamps.length;
+
+    let health;
+    if (
+      this.status === 'disabled' ||
+      this.status === 'misconfigured' ||
+      this.status === 'stopped'
+    ) {
+      health = 'down';
+    } else if (
+      this.metrics.lastScanAt &&
+      now - this.metrics.lastScanAt > SENSOR_STALE_THRESHOLD_MS
+    ) {
+      health = 'degraded';
+    } else {
+      health = 'ok';
+    }
+
+    return {
+      service: { status: this.status, source: this.source },
+      health,
+      counters: {
+        totalEvents: this.metrics.totalEventsReceived,
+        totalScans: this.metrics.totalCardDetections,
+        totalErrors: this.metrics.totalErrors,
+        dedupeHits: this.metrics.dedupeHits,
+        errorsByType: { ...this.metrics.errorsByType }
+      },
+      rates: {
+        scanRate1m: scansLast1m,
+        scanRate5m: scansLast5m
+      },
+      timestamps: {
+        lastScanAt: this.metrics.lastScanAt,
+        lastErrorAt: this.metrics.lastErrorAt,
+        lastEventAt: this.metrics.lastEventTimestamp,
+        connectedAt: this.metrics.lastConnectedAt
+      }
+    };
+  }
+
+  /**
+   * Elimina del buffer interno los timestamps de scan más antiguos que
+   * SCAN_TIMESTAMPS_RETENTION_MS.
+   *
+   * @param {number} now Timestamp actual (en ms epoch).
+   * @private
+   */
+  _pruneScanTimestamps(now) {
+    const cutoff = now - SCAN_TIMESTAMPS_RETENTION_MS;
+    while (this._scanTimestamps.length > 0 && this._scanTimestamps[0] < cutoff) {
+      this._scanTimestamps.shift();
+    }
   }
 
   /**

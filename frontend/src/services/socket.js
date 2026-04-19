@@ -17,6 +17,12 @@ const RECONNECTION_ATTEMPTS = 15;
 const RECONNECTION_DELAY = 1000;
 const RECONNECTION_DELAY_MAX = 15000;
 const CONNECTION_TIMEOUT = 10000; // 10 segundos timeout para conexión inicial
+/**
+ * Intervalo del heartbeat de modo RFID. El backend lo usa para refrescar
+ * el watchdog que libera modos abandonados; debe ser cómodamente menor
+ * que `RFID_MODE_IDLE_TIMEOUT_MS` (5 min en backend).
+ */
+const RFID_HEARTBEAT_INTERVAL_MS = 60_000;
 const IS_DEV = import.meta.env.DEV;
 
 const socketLog = (level, ...args) => {
@@ -56,6 +62,7 @@ export const GAME_EVENTS = {
   JOIN_CARD_ASSIGNMENT: 'join_card_assignment',
   LEAVE_CARD_ASSIGNMENT: 'leave_card_assignment',
   RFID_SCAN_FROM_CLIENT: 'rfid_scan_from_client',
+  RFID_MODE_HEARTBEAT: 'rfid_mode_heartbeat',
   // Servidor → Cliente
   PLAY_STATE: 'play_state',
   NEW_ROUND: 'new_round',
@@ -90,6 +97,38 @@ class SocketService {
     /** Listeners registrados en el socket de juego */
     this.gameListeners = new Map();
     this._wasConnected = false;
+    /** Timer del heartbeat de modo RFID (refresca watchdog del backend). */
+    this._rfidHeartbeatTimerId = null;
+  }
+
+  /**
+   * Inicia el heartbeat periódico que refresca el watchdog del modo RFID
+   * en el backend. Idempotente: si ya está corriendo, no duplica.
+   * @private
+   */
+  _startRfidHeartbeat() {
+    if (this._rfidHeartbeatTimerId || !this.gameSocket) {
+      return;
+    }
+
+    this._rfidHeartbeatTimerId = setInterval(() => {
+      if (!this.gameSocket?.connected) {
+        return;
+      }
+      // volatile: si el socket cae justo entre intervals, no encolamos.
+      this.gameSocket.volatile.emit(GAME_EVENTS.RFID_MODE_HEARTBEAT);
+    }, RFID_HEARTBEAT_INTERVAL_MS);
+  }
+
+  /**
+   * Detiene el heartbeat de modo RFID.
+   * @private
+   */
+  _stopRfidHeartbeat() {
+    if (this._rfidHeartbeatTimerId) {
+      clearInterval(this._rfidHeartbeatTimerId);
+      this._rfidHeartbeatTimerId = null;
+    }
   }
 
   // ============================================
@@ -198,6 +237,9 @@ class SocketService {
 
           if (isSystem) {
             this.isConnected = true;
+          } else {
+            // Arrancamos heartbeat de modo RFID en el namespace /game.
+            this._startRfidHeartbeat();
           }
           resolve();
         }
@@ -209,6 +251,9 @@ class SocketService {
             window.dispatchEvent(new CustomEvent('socket_reconnected'));
           }
           this._wasConnected = true;
+        } else {
+          // Reasegurar heartbeat tras reconexión.
+          this._startRfidHeartbeat();
         }
       });
 
@@ -238,6 +283,9 @@ class SocketService {
 
         if (isSystem) {
           this.isConnected = false;
+        } else {
+          // El namespace /game cae: parar heartbeat hasta reconexión.
+          this._stopRfidHeartbeat();
         }
 
         if (reason === 'io server disconnect') {
@@ -279,6 +327,8 @@ class SocketService {
 
     // Limpiar socket de juego
     if (this.gameSocket) {
+      this._stopRfidHeartbeat();
+
       this.gameListeners.forEach((callbacks, event) => {
         callbacks.forEach((cb) => this.gameSocket.off(event, cb));
       });
