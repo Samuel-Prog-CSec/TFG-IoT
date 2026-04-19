@@ -43,6 +43,19 @@ const initialState = {
 // Tiempo antes de expiración para refrescar token (5 minutos)
 const TOKEN_REFRESH_THRESHOLD = 5 * 60 * 1000;
 
+// Marcador local de "sesion iniciada alguna vez" para evitar llamar a /auth/refresh
+// sin refresh token y generar 401 ruidosos en consola en landing/login.
+const SESSION_MARKER_KEY = 'eduplay:hasSession';
+const hasSessionMarker = () => {
+  try { return globalThis.localStorage?.getItem(SESSION_MARKER_KEY) === '1'; } catch { return false; }
+};
+const setSessionMarker = () => {
+  try { globalThis.localStorage?.setItem(SESSION_MARKER_KEY, '1'); } catch { /* noop */ }
+};
+const clearSessionMarker = () => {
+  try { globalThis.localStorage?.removeItem(SESSION_MARKER_KEY); } catch { /* noop */ }
+};
+
 // ============================================
 // REDUCER
 // ============================================
@@ -185,6 +198,13 @@ export function AuthProvider({ children }) {
    */
   useEffect(() => {
     const checkExistingSession = async () => {
+      // Evita llamar a /auth/refresh si nunca hubo una sesion en este navegador.
+      // Sin el marker el endpoint devolvera 401 y ensucia la consola del usuario
+      // en landing/login/register.
+      if (!hasSessionMarker()) {
+        dispatch({ type: AUTH_ACTIONS.SET_USER, payload: null });
+        return;
+      }
       try {
         const refreshResponse = await authAPI.refreshToken();
         const { accessToken, accessTokenExpiresIn } = extractData(refreshResponse);
@@ -195,10 +215,10 @@ export function AuthProvider({ children }) {
 
         const response = await authAPI.getProfile();
         const user = extractData(response);
-        
+
         dispatch({ type: AUTH_ACTIONS.SET_USER, payload: user });
         scheduleTokenRefresh((accessTokenExpiresIn || 15 * 60) * 1000);
-        
+
         // Conectar WebSocket
         try {
           await socketService.connect();
@@ -206,8 +226,15 @@ export function AuthProvider({ children }) {
           captureException(socketError);
         }
       } catch (error) {
-        captureException(error);
+        // 401 en checkExistingSession es esperado cuando el refresh token
+        // expiro o no existe (cookie limpiada externamente). No reportar a
+        // Sentry porque no es accionable. Solo limpiar estado local.
+        const status = error?.response?.status ?? error?.cause?.response?.status;
+        if (status !== 401 && status !== 403) {
+          captureException(error);
+        }
         clearTokens();
+        clearSessionMarker();
         setUserContext(null);
         dispatch({ type: AUTH_ACTIONS.SET_USER, payload: null });
       }
@@ -232,6 +259,7 @@ export function AuthProvider({ children }) {
       setUserContext(null);
       dispatch({ type: AUTH_ACTIONS.LOGOUT });
       clearTokens();
+      clearSessionMarker();
       socketService.disconnect();
       navigate(ROUTES.LOGIN, { replace: true });
     };
@@ -245,6 +273,7 @@ export function AuthProvider({ children }) {
       setUserContext(null);
       dispatch({ type: AUTH_ACTIONS.LOGOUT });
       clearTokens();
+      clearSessionMarker();
       socketService.disconnect();
       navigate(ROUTES.LOGIN, { 
         replace: true,
@@ -256,6 +285,7 @@ export function AuthProvider({ children }) {
       setUserContext(null);
       dispatch({ type: AUTH_ACTIONS.LOGOUT });
       clearTokens();
+      clearSessionMarker();
       socketService.disconnect();
       navigate(ROUTES.LOGIN, { replace: true });
     };
@@ -292,7 +322,8 @@ export function AuthProvider({ children }) {
       // Guardar tokens
       setTokens(accessToken);
       socketService.updateAuth(accessToken);
-      
+      setSessionMarker();
+
       // Actualizar estado
       dispatch({ type: AUTH_ACTIONS.SET_USER, payload: user });
       
@@ -393,9 +424,10 @@ export function AuthProvider({ children }) {
     }
     
     clearTokens();
+    clearSessionMarker();
     socketService.disconnect();
     dispatch({ type: AUTH_ACTIONS.LOGOUT });
-    
+
     toast.info('Sesión cerrada correctamente');
     navigate(ROUTES.LOGIN, { replace: true });
   }, [navigate]);

@@ -217,7 +217,7 @@ const gameSessionSchema = new mongoose.Schema(
       type: String,
       lowercase: true,
       trim: true,
-      enum: ['easy', 'medium', 'hard'],
+      enum: ['easy', 'medium', 'hard', 'custom'],
       default: 'medium'
     },
     startedAt: Date,

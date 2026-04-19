@@ -73,5 +73,51 @@ export function useConfetti() {
     });
   }, [shouldReduceMotion]);
 
-  return { fireConfetti, fireBurst, fireSuccess, fireFromElement };
+  /**
+   * Efecto fireworks: rafagas aleatorias multiples durante `durationMs`.
+   * Pensado para celebrar score perfecto (100%) en la pantalla post-partida.
+   * Respeta reduced-motion: no dispara nada si el usuario lo prefiere.
+   */
+  const fireFireworks = useCallback((durationMs = 1800) => {
+    if (shouldReduceMotion) return () => {};
+    const end = Date.now() + durationMs;
+    const interval = setInterval(() => {
+      if (Date.now() > end) {
+        clearInterval(interval);
+        return;
+      }
+      // Dos rafagas (izquierda/derecha) por tick para densidad visual.
+      // Math.random aqui es puramente decorativo (posicion de particulas);
+      // no tiene implicaciones de seguridad.
+      /* eslint-disable sonarjs/pseudo-random */
+      const leftX = Math.random() * 0.3;
+      const leftY = Math.random() * 0.4;
+      const rightX = 0.7 + Math.random() * 0.3;
+      const rightY = Math.random() * 0.4;
+      /* eslint-enable sonarjs/pseudo-random */
+      confetti({
+        particleCount: 20,
+        startVelocity: 40,
+        spread: 360,
+        ticks: 60,
+        origin: { x: leftX, y: leftY },
+        colors: BRAND_COLORS,
+        shapes: ['star', 'circle'],
+        disableForReducedMotion: true,
+      });
+      confetti({
+        particleCount: 20,
+        startVelocity: 40,
+        spread: 360,
+        ticks: 60,
+        origin: { x: rightX, y: rightY },
+        colors: BRAND_COLORS,
+        shapes: ['star', 'circle'],
+        disableForReducedMotion: true,
+      });
+    }, 280);
+    return () => clearInterval(interval);
+  }, [shouldReduceMotion]);
+
+  return { fireConfetti, fireBurst, fireSuccess, fireFromElement, fireFireworks };
 }

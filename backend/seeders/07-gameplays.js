@@ -389,10 +389,16 @@ function generateGamePlaysData(sessions, students) {
 
       const completedAt = new Date(lastEventTime + 1000);
 
+      // P19: calcular maxScore y clamar score para integridad (nunca > maximo teorico).
+      const pointsPerCorrect = Number(session.config?.pointsPerCorrect) || 10;
+      const maxScore = Math.max(1, numberOfRounds * pointsPerCorrect);
+      const clampedScore = Math.max(0, Math.min(playData.score, maxScore));
+
       const gamePlay = {
         sessionId: session._id,
         playerId: student._id,
-        score: playData.score,
+        score: clampedScore,
+        maxScore,
         currentRound: willAbandon ? playData.roundsPlayed + 1 : numberOfRounds + 1,
         events: playData.events,
         metrics: {

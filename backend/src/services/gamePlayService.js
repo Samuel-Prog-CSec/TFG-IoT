@@ -98,12 +98,20 @@ async function createPlay({ sessionId, playerId, creatorId }) {
   // Validar jugador
   await validatePlayer(playerId, sessionId);
 
+  // Calcular maxScore teorico para integridad de puntuaciones (P19).
+  // Evita que el score acumulado supere el maximo posible ante eventos duplicados
+  // o bugs en el motor de puntuacion.
+  const rounds = Number(session.config?.numberOfRounds) || 1;
+  const points = Number(session.config?.pointsPerCorrect) || 10;
+  const maxScore = Math.max(1, rounds * points);
+
   // Crear partida
   const play = await gamePlayRepository.create({
     sessionId,
     playerId,
     status: 'in-progress',
     score: 0,
+    maxScore,
     currentRound: 1
   });
 

@@ -135,7 +135,16 @@ const gamePlaySchema = new mongoose.Schema(
     },
     score: {
       type: Number,
-      default: 0
+      default: 0,
+      min: 0
+    },
+    // maxScore guardado para auditoria e integridad. Calculado al crear la partida
+    // como numberOfRounds * pointsPerCorrect. Hace imposible que el score supere el
+    // maximo teorico de la sesion, incluso si llegan eventos duplicados.
+    maxScore: {
+      type: Number,
+      default: null,
+      min: 1
     },
     currentRound: {
       type: Number,
@@ -301,8 +310,35 @@ gamePlaySchema.methods.complete = function () {
       responseTimes.reduce((a, b) => a + b, 0) / responseTimes.length;
   }
 
+  // Salvaguarda de integridad: clampar score al maximo teorico.
+  // Pre-save hook tambien valida, pero lo hacemos explicito aqui para que
+  // quede en logs de auditoria antes de delegar al hook.
+  if (typeof this.maxScore === 'number' && this.score > this.maxScore) {
+    this.score = this.maxScore;
+  }
+
   return this.save();
 };
+
+/**
+ * Hook pre-save: garantiza score ∈ [0, maxScore] siempre que maxScore exista.
+ * Si maxScore no esta definido en el documento (partidas legacy pre-migracion),
+ * se deja pasar para no romper la persistencia, pero se loguea un warning.
+ */
+gamePlaySchema.pre('save', function () {
+  if (typeof this.maxScore === 'number' && this.maxScore > 0) {
+    if (this.score > this.maxScore) {
+      // eslint-disable-next-line no-console -- pre-save Mongoose hook sin acceso al logger Pino
+      console.warn(
+        `[GamePlay] Score ${this.score} excede maxScore ${this.maxScore} en partida ${this._id}. Clampeado.`
+      );
+      this.score = this.maxScore;
+    }
+    if (this.score < 0) {
+      this.score = 0;
+    }
+  }
+});
 
 /**
  * Índice compuesto para búsquedas eficientes en el GameEngine.

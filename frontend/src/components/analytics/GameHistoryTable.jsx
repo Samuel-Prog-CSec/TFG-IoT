@@ -62,10 +62,10 @@ function GameHistoryTable({ games, initialCount = 10 }) {
             <tr className="border-b border-border-subtle">
               <th className="text-left text-xs font-semibold text-text-muted uppercase tracking-wider pb-3 pr-3">Fecha</th>
               <th className="text-left text-xs font-semibold text-text-muted uppercase tracking-wider pb-3 pr-3">Contexto</th>
-              <th className="text-left text-xs font-semibold text-text-muted uppercase tracking-wider pb-3 pr-3">Mecanica</th>
+              <th className="text-left text-xs font-semibold text-text-muted uppercase tracking-wider pb-3 pr-3">Mecánica</th>
               <th className="text-right text-xs font-semibold text-text-muted uppercase tracking-wider pb-3 pr-3">Score</th>
               <th className="text-right text-xs font-semibold text-text-muted uppercase tracking-wider pb-3 pr-3">Aciertos</th>
-              <th className="text-right text-xs font-semibold text-text-muted uppercase tracking-wider pb-3 hidden sm:table-cell">Duracion</th>
+              <th className="text-right text-xs font-semibold text-text-muted uppercase tracking-wider pb-3 hidden sm:table-cell">Duración</th>
             </tr>
           </thead>
           <tbody>

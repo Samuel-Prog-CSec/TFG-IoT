@@ -52,7 +52,7 @@ function GameOverScreen({
         glowA: 'bg-warning-base/25', glowB: 'bg-brand-base/25',
       };
       case 2: return {
-        emoji: '🎉', text: '¡MUY BIEN!', sub: '¡Sigue asi!',
+        emoji: '🎉', text: '¡MUY BIEN!', sub: '¡Sigue así!',
         glowA: 'bg-success-base/20', glowB: 'bg-accent-cyan/20',
       };
       case 1: return {
@@ -60,7 +60,7 @@ function GameOverScreen({
         glowA: 'bg-brand-base/20', glowB: 'bg-accent-cyan/15',
       };
       default: return {
-        emoji: '💫', text: '¡NO TE RINDAS!', sub: '¡La practica hace al maestro!',
+        emoji: '💫', text: '¡NO TE RINDAS!', sub: '¡La práctica hace al maestro!',
         glowA: 'bg-brand-base/15', glowB: 'bg-accent-cyan/10',
       };
     }
@@ -88,13 +88,22 @@ function GameOverScreen({
     });
   }, [displayScore]);
 
-  const { fireSuccess } = useConfetti();
+  const { fireSuccess, fireFireworks } = useConfetti();
 
   useEffect(() => {
     if (shouldReduceMotion || stars < 2) return undefined;
-    const timer = setTimeout(() => fireSuccess(), 800);
-    return () => clearTimeout(timer);
-  }, [shouldReduceMotion, stars, fireSuccess]);
+    // 2 estrellas (>=70%): rafagas laterales cortas.
+    // 3 estrellas (100%): rafagas + fireworks sostenidos 2s para celebracion completa.
+    const timers = [];
+    timers.push(setTimeout(() => fireSuccess(), 400));
+    if (stars === 3) {
+      // Offset sobre el fireSuccess para que se perciban en capas.
+      timers.push(setTimeout(() => fireFireworks(2000), 600));
+    }
+    return () => {
+      timers.forEach(t => clearTimeout(t));
+    };
+  }, [shouldReduceMotion, stars, fireSuccess, fireFireworks]);
 
   return (
     <motion.div
@@ -213,7 +222,9 @@ function GameOverScreen({
                 role="status"
               >
                 <Trophy size={16} aria-hidden="true" />
-                ¡Nuevo récord! +{scoreDelta} puntos
+                {bestScore > 0
+                  ? `¡Nuevo récord! +${scoreDelta} pts sobre el anterior (${bestScore})`
+                  : `¡Tu primer récord! ${score} pts`}
               </motion.div>
             ) : bestScore > 0 && (
               <motion.p

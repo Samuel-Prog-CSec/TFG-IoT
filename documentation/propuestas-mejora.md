@@ -1,9 +1,9 @@
 # Propuestas de Mejora Pendientes - EduPlay RFID
 
-> Propuestas pendientes de implementacion para el Sprint 6.
-> Los bugs y mejoras UX identificados durante el testing del 31 de marzo de 2026 fueron resueltos en su totalidad durante el Sprint 5 y la fase de mantenimiento.
+> Propuestas pendientes de implementacion para versiones futuras (Sprint 6 y posteriores).
+> Las propuestas marcadas como ✅ IMPLEMENTADA en sesiones anteriores fueron eliminadas de este documento — su trazabilidad queda en el historial de Git y en los memory files de cada sesion (`memory/project_qa_session_*.md`, `memory/project_implementation_*.md`).
 >
-> Las propuestas PROP-9 a PROP-13 fueron añadidas en la sesion de QA del 17 de abril de 2026.
+> **En el pase de verificacion + limpieza del 19/04/2026 (tarde) se eliminaron las propuestas verificadas al 100% en browser tras rebuild de Docker:** PROP-26, PROP-38, PROP-39, PROP-40, PROP-45, PROP-48, PROP-50, PROP-56, PROP-57, PROP-58 (todas confirmadas funcionando con screenshots).
 
 ---
 
@@ -138,22 +138,6 @@
 
 ---
 
-## PROP-14: Hover lift unificado y ripple en cards de listado
-
-**Descripcion:** Las cards de Sesiones y Contextos ya tienen `whileHover={{ y: -4 }}`. Las de Mis Mazos no. Unificar el hover behavior con un primitive (`<HoverCard>` o variant en `GlassCard`) que añada lift + glow contextual del color de la mecanica/contexto/dificultad. Considerar tambien un sutil ripple al hacer click.
-
-**Justificacion:** Polish UX: la sensacion de "tactilidad" mejora cuando todas las cards reaccionan igual de forma predecible. Detectado durante la pasada de polish del 17/04/2026 — algunas cards no tienen feedback visual al hover.
-
----
-
-## PROP-15: Confetti / celebracion visual al completar partida con buen score
-
-**Descripcion:** Cuando un alumno termina una partida con score ≥ 70%, mostrar confetti (libreria `canvas-confetti` o `react-confetti`) sobre la pantalla de resultados. Para score perfecto (100%), añadir efecto adicional (estrellas, fireworks).
-
-**Justificacion:** Refuerza positivamente el logro del alumno. Existe la pantalla de resultados pero hoy es estatica salvo por el badge "¡Nuevo record!". Para un producto educativo infantil, la celebracion visual es importante.
-
----
-
 ## PROP-16: Atmosferas dinamicas por contexto
 
 **Descripcion:** Cuando un profesor entra al detalle de un contexto, el fondo de la pagina podria adoptar un sutil gradient mesh con el `dominantColor` del contexto (ej: animales-granja → tonos verdes/marrones). Misma idea para el tema visual de cada mecanica durante la partida.
@@ -167,3 +151,55 @@
 **Descripcion:** Anadir atajos como `g + s` para ir a Sesiones, `g + d` para Dashboard, `?` para abrir lista de atajos, `n` para "Nueva Sesion", `/` para enfocar busqueda. Documentar en un mini-overlay accesible desde `?`.
 
 **Justificacion:** Profesores experimentados ganan velocidad. Mejora a11y (uso sin mouse). Es un patron consolidado en SaaS modernos (Linear, Notion, GitHub).
+
+---
+
+## PROP-18: Auditoria y refactor de AnimatePresence / motion.div (React 19 + Framer Motion)
+
+**Descripcion:** En la sesion QA del 18/04/2026 se detectaron multiples motion.div que quedan atascados en estado exit o initial (`opacity: 0; transform: translateY(...)`) tras transiciones SPA. Afecta a:
+- AppLayout page transitions (ya mitigado con `mode="popLayout" initial={false}` en Maintenance, pero convive con duplicados en dev por React StrictMode).
+- Contextos (`/contexts`): las cards quedan con opacity 0 aunque el store las tiene.
+- FallbackTouchPanel: imagenes desaparecen entre rondas (ver PROP-11).
+
+**Justificacion:** Patron comun de incompatibilidad Framer Motion + React 19 StrictMode. En produccion sin StrictMode es menos visible, pero conviene auditar todos los `<AnimatePresence>` y evitar llaves sobre elementos que se remontan en cada tick. Ademas, React 19 cambio el comportamiento de `useLayoutEffect` en doble-mount.
+
+**Alcance estimado:**
+- Auditar todas las ocurrencias de `AnimatePresence` y `motion.div` con `key` dinamica
+- Probar cada una con y sin reduced-motion
+- Migrar a patrones sugeridos por el equipo de Motion (modo popLayout, `LayoutGroup`, `useIsPresent`) donde aplique
+- Plan de tests visuales o Playwright que detecten la regresion automaticamente
+
+---
+
+## PROP-21: Vistas de "Contextos" y "Gestion de Alumnos" con listado visible por defecto
+
+**Descripcion:** La pagina de Contextos (teacher) y `/admin/students` muestran KPIs y buscador pero el listado completo no se renderiza por defecto — requiere scroll o pensar que hay que buscar. En Contextos las cards estan en DOM pero bloqueadas por un motion.div opacity:0 (ver PROP-18). En Alumnos no hay listado.
+
+**Justificacion:** El usuario deberia ver los recursos disponibles inmediatamente. No hay razon para ocultarlos.
+
+**Alcance estimado:** Asegurar render por defecto de todos los items con paginacion/virtualizacion si son muchos, y exponerlos visualmente en la parte superior.
+
+---
+
+## PROP-27: Validacion enum difficulty coherente entre Zod y Mongoose
+
+**Descripcion:** En QA se detecto que el validador Zod aceptaba `difficulty: 'custom'` pero el modelo Mongoose de GameSession solo permitia `['easy','medium','hard']`. El fix en Maintenance del 18/04 añadio `custom` al enum Mongoose. Queda pendiente auditar el resto de enums (status, mechanic types, etc.) para evitar mismatches similares.
+
+**Justificacion:** Single source of truth. Un enum desalineado rompe la confianza en `validateBeforeSave: false` y puede permitir datos invalidos.
+
+**Alcance estimado:**
+- Script de auditoria que extraiga todos los `z.enum(...)` y los compare con los `enum: [...]` en los schemas Mongoose correspondientes.
+- Si es realista, derivar ambos de una constante unica.
+- Añadir un test que falle si alguno se desincroniza.
+
+---
+
+## PROP-47: Timestamps relativos del backend muestran "Hace 7 min" para todas las alertas
+
+**Descripcion:** En la pagina Insights > Alertas, las 5 alertas mostradas tienen "Hace 7 min" como timestamp. En la lista de alumnos, todos los 18 alumnos tienen "Hoy" en "Ultima Actividad". Es estadisticamente improbable que todas las alertas se generen exactamente al mismo tiempo. Hipotesis: el seeder usa `Date.now()` para todos los timestamps, o el backend genera todas las alertas con el mismo timestamp en cada peticion.
+
+**Justificacion:** Calidad de datos visibles en demos / pre-release. Aunque es seeder data, transmite poca confianza en la veracidad de los timestamps.
+
+**Alcance estimado:**
+- Auditar `backend/seeders/07-gameplays.js` y `08-alerts.js` (si existe) para variar timestamps de manera realista.
+- Verificar si el backend regenera timestamps al servir alertas (no deberia).

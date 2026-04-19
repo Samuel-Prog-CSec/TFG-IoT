@@ -133,7 +133,7 @@ function ContextFormModal({ open, mode, initialContext, onClose, onSubmit, isLoa
             ref={firstInputRef}
             id="context-name"
             label="Nombre"
-            placeholder="Ej: Paises de Europa"
+            placeholder="Ej: Países de Europa"
             value={name}
             onChange={e => setName(e.target.value)}
             error={errors.name}
@@ -217,7 +217,7 @@ function AdminContextCard({ context, onEdit, onDelete }) {
         </div>
         <div className="rounded-lg border border-border-subtle bg-background-base/40 p-2">
           <dt className="flex items-center justify-center gap-1 text-text-muted">
-            <ImageIcon size={11} aria-hidden="true" /> Imagenes
+            <ImageIcon size={11} aria-hidden="true" /> Imágenes
           </dt>
           <dd className="text-base font-bold text-text-primary">{imagesCount}</dd>
         </div>
@@ -435,9 +435,9 @@ export default function AdminContexts() {
             <Palette size={24} aria-hidden="true" />
           </div>
           <div>
-            <h1 className="text-2xl font-bold text-text-primary">Gestion de Contextos</h1>
+            <h1 className="text-2xl font-bold text-text-primary">Gestión de Contextos</h1>
             <p className="text-sm text-text-muted">
-              Crea, edita y elimina contextos tematicos. Las eliminaciones tambien limpian Supabase Storage.
+              Crea, edita y elimina contextos temáticos. Las eliminaciones también limpian Supabase Storage.
             </p>
           </div>
         </div>

@@ -14,6 +14,7 @@ import {
   PlusCircle,
   Filter,
   RefreshCw,
+  Play,
   Eye,
   Pencil,
   Trash2,
@@ -32,6 +33,7 @@ import { useDocumentTitle } from '../hooks/useDocumentTitle';
 import { ROUTES } from '../constants/routes';
 import ButtonPremium from '../components/ui/ButtonPremium';
 import GlassCard from '../components/ui/GlassCard';
+import HoverLiftCard from '../components/ui/HoverLiftCard';
 import SelectPremium from '../components/ui/SelectPremium';
 import StatusBadge from '../components/ui/StatusBadge';
 import { SkeletonGrid } from '../components/ui/SkeletonShimmer';
@@ -41,6 +43,7 @@ import ErrorState from '../components/ui/ErrorState';
 import ConfirmationModal, { useConfirmationModal } from '../components/ui/ConfirmationModal';
 import PageHeader from '../components/ui/PageHeader';
 import { cn, listContainerVariants, listItemVariants } from '../lib/utils';
+import { getPrimaryActionForSession, getPlayRouteForSession } from '../lib/sessionHelpers';
 
 const STATUS_OPTIONS = [
   { value: '', label: 'Todas' },
@@ -109,13 +112,19 @@ const SessionCard = memo(function SessionCard({
   const canEdit = session.status === 'created';
   const canDelete = session.status === 'created';
   const borderClass = BORDER_CLASSES[session.status] || 'border-l-background-surface/50';
+  const primary = getPrimaryActionForSession(session);
+  // Tint del glow segun dificultad configurada. Para sesiones activas damos
+  // prioridad al tint brand (ya tienen ring-1 en STATUS_CARD_CLASSES).
+  const glowTint = (() => {
+    if (session.status === 'active') return 'brand';
+    const d = (session.difficulty || '').toLowerCase();
+    if (d === 'easy') return 'success';
+    if (d === 'hard') return 'error';
+    return 'cyan';
+  })();
 
   return (
-    <motion.div
-      whileHover={{ y: -4, scale: 1.01 }}
-      whileTap={{ scale: 0.99 }}
-      transition={{ type: 'spring', stiffness: 400, damping: 25 }}
-    >
+    <HoverLiftCard glowTint={glowTint}>
       <GlassCard className={cn(
         'p-6 flex flex-col gap-5 hover:border-border-strong transition-[border-color] border-l-4',
         borderClass,
@@ -190,16 +199,27 @@ const SessionCard = memo(function SessionCard({
               <Eye size={16} />
               Ver detalle
             </ButtonPremium>
-            <ButtonPremium
-              variant="primary"
-              onClick={() => onClone(session)}
-              disabled={cloneLoading}
-              className="flex-1"
-            >
-              <RefreshCw size={16} />
-              <span className="sm:hidden">Clonar</span>
-              <span className="hidden sm:inline">Clonar y jugar</span>
-            </ButtonPremium>
+            {primary.action === 'play' ? (
+              <ButtonPremium
+                variant="primary"
+                onClick={() => onNavigate(getPlayRouteForSession(session))}
+                className="flex-1"
+              >
+                <Play size={16} />
+                <span>{primary.label}</span>
+              </ButtonPremium>
+            ) : (
+              <ButtonPremium
+                variant="primary"
+                onClick={() => onClone(session)}
+                disabled={cloneLoading}
+                className="flex-1"
+              >
+                <RefreshCw size={16} />
+                <span className="sm:hidden">Clonar</span>
+                <span className="hidden sm:inline">{primary.label}</span>
+              </ButtonPremium>
+            )}
           </div>
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-1 bg-glass-bg rounded-lg p-1">
@@ -242,7 +262,7 @@ const SessionCard = memo(function SessionCard({
         </div>
 
       </GlassCard>
-    </motion.div>
+    </HoverLiftCard>
   );
 });
 

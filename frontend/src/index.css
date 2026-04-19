@@ -387,6 +387,19 @@
   @apply shadow-[0_8px_40px_rgba(0,0,0,0.4),inset_0_1px_0_rgba(255,255,255,0.08)];
 }
 
+/* Patrón rayas diagonales sutiles para celdas "sin datos" en heatmaps (PROP-38).
+ * Se diferencia visualmente de celdas activas con datos sin necesidad de
+ * cambiar el color principal del fondo, evitando confusión con valores RAG. */
+@utility bg-stripe-diagonal {
+  background-image: repeating-linear-gradient(
+    45deg,
+    transparent,
+    transparent 4px,
+    rgba(255, 255, 255, 0.04) 4px,
+    rgba(255, 255, 255, 0.04) 8px
+  );
+}
+
 /* Gameplay: Card flip animation para tablero de memoria */
 @utility memory-card-flip {
   perspective: 600px;

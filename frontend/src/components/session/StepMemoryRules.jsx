@@ -21,9 +21,9 @@ import { DIFFICULTY_VARIANT_STYLES } from './sessionHelpers';
 import { configShape } from './sessionPropTypes';
 
 const DIFFICULTIES = [
-  { id: 'easy', label: 'Facil', description: 'Mas tiempo, sin penalizacion' },
-  { id: 'medium', label: 'Normal', description: 'Configuracion equilibrada' },
-  { id: 'hard', label: 'Dificil', description: 'Menos tiempo, mas penalizacion' }
+  { id: 'easy', label: 'Fácil', description: 'Más tiempo, sin penalización' },
+  { id: 'medium', label: 'Normal', description: 'Configuración equilibrada' },
+  { id: 'hard', label: 'Difícil', description: 'Menos tiempo, más penalización' }
 ];
 
 /**
@@ -160,7 +160,7 @@ export default function StepMemoryRules({
           <div>
             <label htmlFor="memory-penalty-error" className="flex items-center gap-2 text-sm text-text-secondary mb-2">
               <AlertTriangle size={14} className="text-error-base" />
-              Penalizacion por pareja incorrecta
+              Penalización por pareja incorrecta
             </label>
             <div className="flex items-center gap-4">
               <input
@@ -190,7 +190,7 @@ export default function StepMemoryRules({
               Vincular Sensor RFID
             </h2>
             <p className="text-sm text-text-muted">
-              Solo se aceptaran lecturas del sensor activo cuando la sesion lo requiera.
+              Solo se aceptarán lecturas del sensor activo cuando la sesión lo requiera.
             </p>
           </div>
 

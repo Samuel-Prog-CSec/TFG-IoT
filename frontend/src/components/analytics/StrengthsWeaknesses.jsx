@@ -79,12 +79,12 @@ function StrengthsWeaknesses({ performanceByContext, performanceByMechanic }) {
               >
                 <div className="flex items-center justify-between">
                   <span className="text-sm font-medium text-text-primary truncate">{item.name}</span>
-                  <span className="text-sm font-bold text-success-base tabular-nums ml-2">{Math.round(item.score)}%</span>
+                  <span className="text-sm font-bold text-success-base tabular-nums ml-2">{Math.min(100, Math.max(0, Math.round(item.score)))}%</span>
                 </div>
                 <div className="flex items-center gap-2 mt-1">
-                  <span className="text-[10px] text-text-muted capitalize">{item.type === 'context' ? 'Contexto' : 'Mecanica'}</span>
+                  <span className="text-[10px] text-text-muted capitalize">{item.type === 'context' ? 'Contexto' : 'Mecánica'}</span>
                   <span className="text-[10px] text-text-disabled">{'\u2022'}</span>
-                  <span className="text-[10px] text-text-muted">{item.gamesPlayed} partidas</span>
+                  <span className="text-[10px] text-text-muted">{item.gamesPlayed} {item.gamesPlayed === 1 ? 'partida' : 'partidas'}</span>
                 </div>
               </motion.div>
             ))}
@@ -108,12 +108,12 @@ function StrengthsWeaknesses({ performanceByContext, performanceByMechanic }) {
               >
                 <div className="flex items-center justify-between">
                   <span className="text-sm font-medium text-text-primary truncate">{item.name}</span>
-                  <span className="text-sm font-bold text-error-base tabular-nums ml-2">{Math.round(item.score)}%</span>
+                  <span className="text-sm font-bold text-error-base tabular-nums ml-2">{Math.min(100, Math.max(0, Math.round(item.score)))}%</span>
                 </div>
                 <div className="flex items-center gap-2 mt-1">
-                  <span className="text-[10px] text-text-muted capitalize">{item.type === 'context' ? 'Contexto' : 'Mecanica'}</span>
+                  <span className="text-[10px] text-text-muted capitalize">{item.type === 'context' ? 'Contexto' : 'Mecánica'}</span>
                   <span className="text-[10px] text-text-disabled">{'\u2022'}</span>
-                  <span className="text-[10px] text-text-muted">{item.gamesPlayed} partidas</span>
+                  <span className="text-[10px] text-text-muted">{item.gamesPlayed} {item.gamesPlayed === 1 ? 'partida' : 'partidas'}</span>
                 </div>
               </motion.div>
             )) : (

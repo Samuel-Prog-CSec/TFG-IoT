@@ -233,4 +233,58 @@ El `WebSerialService` implementa una cola interna para scans que no pueden envia
 
 ---
 
+## Convenciones de Framer Motion (lecciones de QA pre-release v0.5.0)
+
+La suite de QA del 18/04/2026 descubrió dos bugs graves provocados por el mismo malentendido sobre la propagación de variants. Documentado en ADR-059 y ADR-060.
+
+### Regla 1 — Propagación explícita de variants
+
+**Síntoma**: una lista tiene datos pero no se renderiza porque los items quedan atascados en `opacity:0; transform:translateY(...)` (el estado `hidden` del variant).
+
+**Causa**: el `motion.child` tiene `variants={...}` pero su padre:
+- No es un `motion.container` con `initial` + `animate`, o
+- Es un `motion.container` pero hay un `<AnimatePresence>` en medio, o
+- El padre se montó antes que los children y no vuelve a disparar `animate` al añadirse datos.
+
+**Regla**: cuando el padre no garantiza la propagación, añadir `initial="hidden" animate="visible"` directos al child. Es ligeramente redundante si el padre está OK, pero es robusto frente a refactors.
+
+```jsx
+// Antes (frágil)
+<ul>
+  {items.map(i => <motion.li variants={staggerItem}>...</motion.li>)}
+</ul>
+
+// Después (robusto)
+<motion.ul variants={staggerContainer} initial="hidden" animate="show">
+  {items.map(i => <motion.li variants={staggerItem}>...</motion.li>)}
+</motion.ul>
+
+// Alternativa cuando no se quiere orchestrator
+<ul>
+  {items.map(i => (
+    <motion.li variants={staggerItem} initial="hidden" animate="visible">...</motion.li>
+  ))}
+</ul>
+```
+
+### Regla 2 — `pointer-events` en exit animations
+
+**Síntoma**: al navegar de una ruta a otra, el botón de la nueva página no responde a clicks en el primer segundo. En el DOM aparecen dos copias (entrante + saliente) bajo StrictMode.
+
+**Causa**: `AnimatePresence mode="popLayout"` permite que el exit conviva con el enter. El wrapper saliente tiene `opacity:0` pero `pointer-events:auto` por defecto, interceptando clicks.
+
+**Regla**: siempre que uses AnimatePresence para transiciones de ruta o contenido que se reemplaza, el `exit` debe incluir `pointerEvents: 'none'` y el `animate` debe restaurar `pointerEvents: 'auto'`.
+
+```jsx
+<motion.div
+  initial={{ opacity: 0 }}
+  animate={{ opacity: 1, pointerEvents: 'auto' }}
+  exit={{ opacity: 0, pointerEvents: 'none' }}
+>
+```
+
+Referencias: ADR-059, ADR-060, PROP-30, PROP-31, PROP-32.
+
+---
+
 *Referencia: [React Patterns](https://reactpatterns.com/)*

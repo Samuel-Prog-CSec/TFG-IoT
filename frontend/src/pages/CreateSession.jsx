@@ -43,6 +43,7 @@ import StepMechanic from '../components/session/StepMechanic';
 import StepMemoryRules from '../components/session/StepMemoryRules';
 import StepRules from '../components/session/StepRules';
 import StepReview from '../components/session/StepReview';
+import { getStepDescription } from '../components/session/sessionHelpers';
 
 // Configuracion del wizard (iconos resueltos en tiempo de renderizado)
 const WIZARD_STEPS = [
@@ -51,28 +52,28 @@ const WIZARD_STEPS = [
     title: 'Seleccionar Mazo',
     subtitle: 'Elige las cartas',
     icon: CreditCard,
-    description: 'El mazo define las tarjetas y assets que usaran los estudiantes'
+    description: 'El mazo define las tarjetas y assets que usarán los estudiantes'
   },
   {
     id: 'mechanic',
-    title: 'Mecanica',
+    title: 'Mecánica',
     subtitle: 'Tipo de juego',
     icon: Layers,
-    description: 'Elige como interactuaran los estudiantes con las tarjetas'
+    description: 'Elige cómo interactuarán los estudiantes con las tarjetas'
   },
   {
     id: 'rules',
     title: 'Reglas',
-    subtitle: 'Configura parametros',
+    subtitle: 'Configura parámetros',
     icon: Settings,
-    description: 'Define tiempo, puntos y numero de rondas'
+    description: 'Define tiempo, puntos y número de rondas'
   },
   {
     id: 'review',
     title: 'Crear',
     subtitle: 'Revisa y lanza',
     icon: Save,
-    description: 'Revisa la configuracion antes de crear la sesion'
+    description: 'Revisa la configuración antes de crear la sesión'
   }
 ];
 
@@ -83,7 +84,7 @@ export default function CreateSession() {
   const navigate = useNavigate();
   const { shouldReduceMotion } = useReducedMotion();
   const { fireConfetti } = useConfetti();
-  useDocumentTitle('Nueva Sesion');
+  useDocumentTitle('Nueva Sesión');
 
   // Estado del wizard
   const [currentStep, setCurrentStep] = useState(0);
@@ -275,10 +276,10 @@ export default function CreateSession() {
         className="max-w-5xl mx-auto mb-4"
       >
         <h1 className="text-3xl font-bold text-text-primary font-display mb-2">
-          Crear Nueva Sesion
+          Crear Nueva Sesión
         </h1>
         <p className="text-text-muted">
-          {WIZARD_STEPS[currentStep].description}
+          {getStepDescription(WIZARD_STEPS[currentStep].id, selectedMechanic?.name?.toLowerCase())}
         </p>
       </motion.div>
 
@@ -342,7 +343,7 @@ export default function CreateSession() {
                 loading={isSubmitting}
                 icon={<Sparkles size={18} />}
               >
-                Crear Sesion
+                Crear Sesión
               </ButtonPremium>
             ) : (
               <ButtonPremium

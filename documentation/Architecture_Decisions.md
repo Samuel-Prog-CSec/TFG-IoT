@@ -58,6 +58,16 @@ Cada ADR indica su alcance: **[Backend]**, **[Frontend]**, **[Full-stack]** o **
 | ADR-049 | Patrón de Diseño de Dashboard (Jerarquía "F") | Frontend |
 | ADR-050 | Estrategia de Fetching de Datos (On-Mount + Polling Sincronizado) | Frontend |
 | ADR-051 | Sistema de Alertas Basado en Reglas (Frontend) | Frontend |
+| ADR-052 | Mecánicas de juego inmutables en API | Backend |
+| ADR-053 | Política de ownership en assets de contextos | Full-stack |
+| ADR-054 | UI admin para CRUD de contextos con limpieza de Storage | Full-stack |
+| ADR-055 | Enum `difficulty` ampliado con `custom` y marker de sesion en cliente | Full-stack |
+| ADR-056 | AnimatePresence `mode="popLayout"` para transiciones de ruta en React 19 | Frontend |
+| ADR-057 | Integridad de scores: `maxScore` obligatorio y clamp defensivo en 3 capas | Full-stack |
+| ADR-058 | `HoverLiftCard` primitive — micro-interaccion unificada en listados | Frontend |
+| ADR-059 | Propagación explícita de variants Framer cuando hay wrapper intermedio | Frontend |
+| ADR-060 | `pointer-events: none` durante exit de AnimatePresence de ruta | Frontend |
+| ADR-061 | Tema visual por contexto de juego (signature cross-pantalla) | Frontend |
 
 **Leyenda de alcance:**
 - **Backend**: Cambios exclusivamente en el servidor (Node.js/Express)
@@ -2918,3 +2928,262 @@ El controlador `deleteContext` ya invocaba `storageService.deleteFolder(context.
 - Nueva ruta protegida `/admin/contexts` (rol super_admin) y nuevo item en `ADMIN_NAV_ROUTES`.
 - Sin cambios en backend (los endpoints ya existían).
 - El admin puede eliminar contextos siempre que no tengan dependencias activas (decks/sesiones/plays activas), respetando la regla de integridad referencial existente.
+
+---
+
+## ADR-055: Enum `difficulty` ampliado con `custom` y marker de sesion en cliente [Full-stack]
+
+**Fecha:** 2026-04-18
+**Estado:** Aprobado
+**Contexto QA:** Sesion de QA intensiva pre-release v0.5.0 (18/04/2026).
+
+### Contexto
+
+Durante la QA del 18/04 se detectaron dos bugs de impacto cliente-servidor:
+
+1. **`difficulty: 'custom'` rechazado al cargar partida.** El wizard de creacion de sesion envia `difficulty: 'custom'` cuando el profesor ajusta los sliders al margen de los presets. El validador Zod (`gameSessionValidator`) aceptaba el valor, el controller hacia `session.save({ validateBeforeSave: false })` y lo persistia. Al intentar cargar la partida despues, Mongoose validaba el documento (lectura/populate en otras rutas) y fallaba con `Error de validación: custom is not a valid enum value for path difficulty`.
+2. **Ruido `401 Unauthorized` al entrar a `/login` en navegadores sin sesion.** `AuthContext.checkExistingSession` llamaba a `/api/auth/refresh` incondicionalmente al montar la app, generando 401 ruidosos en la consola del usuario y trabajo inutil en backend.
+
+### Decision
+
+- **Backend:** ampliar el enum de `GameSession.difficulty` a `['easy', 'medium', 'hard', 'custom']` para que el modelo Mongoose sea coherente con el validador Zod. `custom` se usa como etiqueta semantica para "el profesor salio del preset" y se renderiza como "Personalizada" en el frontend.
+- **Frontend:** introducir un **session marker** en `localStorage` (`eduplay:hasSession`) que se fija al hacer login exitoso y se limpia al logout, expiracion o invalidacion de sesion. `checkExistingSession` solo dispara `/auth/refresh` si el marker esta presente. Asi los landing/login/register limpios no generan 401s.
+
+### Consecuencias
+
+- No hay migracion de datos; documentos nuevos pueden tener `difficulty: 'custom'` sin romper validaciones.
+- La UI (`SessionDetail`) ya mapea `custom → 'Personalizada'`.
+- El marker no es un canal de seguridad (solo presencia boolean), los tokens siguen siendo cookies httpOnly. El marker solo evita el request preventivo.
+- Tests backend (927) y frontend (214) pasan en verde tras el cambio.
+
+### Referencias
+
+- `backend/src/models/GameSession.js`
+- `backend/src/validators/gameSessionValidator.js`
+- `frontend/src/context/AuthContext.jsx`
+- `frontend/src/pages/SessionDetail.jsx`
+
+---
+
+## ADR-056: AnimatePresence `mode="popLayout"` para transiciones de ruta en React 19 [Frontend]
+
+**Fecha:** 2026-04-18
+**Estado:** Aprobado
+**Contexto QA:** Sesion de QA intensiva pre-release v0.5.0 (18/04/2026).
+
+### Contexto
+
+En AppLayout, las transiciones entre paginas usaban `<AnimatePresence mode="wait">` con `key={location.pathname}`. Al navegar de `/analytics/students` a `/students/:id` clicando una fila de la tabla, el `motion.div` de la nueva ruta quedaba atascado en el estado `exit` (`opacity: 0; transform: translateY(-6px)`), dejando la pantalla en blanco salvo por el sidebar. Se trata de una incompatibilidad conocida entre `mode="wait"` y el doble-mount que introduce React 19 en StrictMode.
+
+### Decision
+
+Cambiar a `<AnimatePresence mode="popLayout" initial={false}>`:
+
+- `mode="popLayout"` permite que el nuevo hijo comience su enter antes de que el viejo complete su exit. El hijo entrante nunca depende del estado final del saliente, lo que rompe el bloqueo observado.
+- `initial={false}` evita que la primera hidratacion de la app anime desde el estado `initial` (`opacity: 0`) a `animate`, reduciendo flash en carga directa.
+
+### Consecuencias
+
+- Durante SPA nav pueden coexistir dos paginas brevemente (ambas motion.div). En produccion sin StrictMode no hay duplicados. En dev StrictMode crea dos copias pero al menos una renderiza con `opacity: 1`.
+- Documentar en PROP-18 la auditoria pendiente para otros `AnimatePresence` dispersos en la app (Contextos, FallbackTouchPanel) que exhiben sintomas similares.
+- Tests existentes (17 archivos, 214 tests) no se veian afectados ya que la logica es puramente visual.
+
+### Referencias
+
+- `frontend/src/components/layout/AppLayout.jsx:263`
+- Propuesta relacionada: PROP-18 (auditoria global de AnimatePresence).
+
+---
+
+## ADR-057: Integridad de scores — `maxScore` obligatorio y clamp defensivo en 3 capas [Full-stack]
+
+**Fecha:** 2026-04-18
+**Estado:** Aprobado
+**Contexto:** Implementacion de propuesta PROP-19 tras hallazgo en QA 18/04.
+
+### Contexto
+
+En la QA intensiva pre-release v0.5.0 se detecto que el historial de partidas del alumno exponia scores 110 y 120 ("Formas Basicas 110%", "Memoria 110%" en Fortalezas), imposibles en un sistema que se supone 0-100%. Origen: el seeder y el motor de puntuacion acumulaban `score += pointsAwarded` sin cota, y no existia un campo que documentara el maximo teorico de la partida.
+
+### Decision
+
+Introducir un modelo explicito de integridad para el score en tres capas:
+
+1. **Modelo** (`backend/src/models/GamePlay.js`): nuevo campo `maxScore: Number, min: 1` obligatorio para partidas nuevas + pre-save hook que clampa `score ≤ maxScore` (con `console.warn` si se clampa) y evita `score < 0`.
+2. **Creacion** (`backend/src/services/gamePlayService.js`, `backend/seeders/07-gameplays.js`): `maxScore = numberOfRounds * pointsPerCorrect` se calcula y persiste en el momento de crear/seedear la partida. El seeder ademas clampa `score` antes de insertar.
+3. **Lectura defensiva** (`backend/src/services/analytics/contentEffectivenessService.js`): la pipeline envuelve `avgScore`/`avgAccuracy` en `$min: 100` para que, aunque datos historicos previos a la migracion esten sucios, la UI nunca reciba valores >100%.
+4. **UI defensiva** (`frontend/src/components/analytics/StrengthsWeaknesses.jsx`): los porcentajes se clampan con `Math.min(100, Math.max(0, Math.round(x)))`.
+
+Se provee script one-shot `npm run migrate:clamp-scores [--dry-run]` que recorre GamePlays legacy: establece `maxScore` inferido de la sesion cuando falta y clampa scores historicos que lo superen.
+
+### Consecuencias
+
+- No mas scores >100% en la UI.
+- El modelo ahora documenta el maximo teorico por partida (util para analytics futuras).
+- Migracion idempotente: si todo esta OK, el script es noop.
+- Tests backend (927) y frontend (214) en verde tras los cambios.
+
+### Referencias
+
+- `backend/src/models/GamePlay.js`
+- `backend/src/services/gamePlayService.js`
+- `backend/seeders/07-gameplays.js`
+- `backend/scripts/migrate-clamp-scores.js`
+- Propuesta relacionada: PROP-19.
+
+---
+
+## ADR-058: `HoverLiftCard` primitive — micro-interaccion unificada en listados [Frontend]
+
+**Fecha:** 2026-04-18
+**Estado:** Aprobado
+**Contexto:** Implementacion de propuesta PROP-14 tras hallazgo en QA 18/04.
+
+### Contexto
+
+Los tres listados principales del profesor (Sesiones, Mazos, Contextos) tenian tres comportamientos de hover distintos: `{ y: -4, scale: 1.01 }` en Sesiones, `{ z: 20 }` (3D rotation) en Mazos, y ninguno en Contextos. Esto rompia la sensacion de "todas las cards son tactiles y reaccionan igual", un polish importante para la percepcion de calidad.
+
+### Decision
+
+Crear el primitive `frontend/src/components/ui/HoverLiftCard.jsx`: un wrapper `motion.div` con `whileHover={{ y: -4, scale: 1.01 }}` + `whileTap={{ scale: 0.99 }}` + glow contextual via prop `glowTint` (brand/indigo/cyan/success/warning/error/pink). Respeta `prefers-reduced-motion`.
+
+- SessionCard: tint derivado de `difficulty` (easy=success, medium=cyan, hard=error, active=brand).
+- ContextCard: tint `indigo` (color sistema del area de contextos).
+- DeckCard: **no se migra** — mantiene su animacion 3D propia (rotateX/rotateY con mouse + perspective 1000) como signature de area. La consistencia que buscamos es "todas las cards tienen hover, no una sola forma visual" — DeckCard ya la tiene, y mas sofisticada.
+
+El diseño evita boolean-prop proliferation (siguiendo vercel-composition-patterns): `HoverLiftCard` acepta solo `glowTint` y compone, no toma `shadow`/`lift`/`scale`/`rotate`/`ripple` como booleans independientes.
+
+### Consecuencias
+
+- Consistencia visual entre Sesiones y Contextos (mas glow contextual por tipo).
+- DeckCard preservada — ningun cambio en su animacion premium.
+- Facil de extender (nuevo glowTint o nuevo componente que use el primitive).
+
+### Referencias
+
+- `frontend/src/components/ui/HoverLiftCard.jsx`
+- `frontend/src/pages/SessionsPage.jsx` (SessionCard migrada)
+- `frontend/src/pages/ContextsPage.jsx` (ContextCard migrada)
+- Propuesta relacionada: PROP-14.
+
+---
+
+## ADR-059: Propagación explícita de variants Framer cuando hay wrapper intermedio [Frontend]
+
+### Contexto
+
+En la sesión de QA intensiva del 18/04/2026 (tarde) se detectaron dos listas que aparecían completamente vacías en DOM pese a tener datos:
+
+1. **Widget "Mejores Estudiantes"** (`StudentsList.jsx`) — los 5 `<li>` existían con `style="opacity:0; transform:translateY(20px)"`.
+2. **Grid de contextos del profesor** (`ContextsPage.jsx`) — los 5 `<div>` de contextos existían con `style="opacity:0; transform:translateY(16px)"`.
+
+En ambos casos los items usaban `variants={staggerItem}` (o equivalente) pero no había un `motion.container` padre con `initial` + `animate` que disparase el estado `visible`. Los variants sin orchestrator se quedan en su estado `hidden` indefinidamente.
+
+En `ContextsPage` además había un `<AnimatePresence>` intermedio entre el `motion.div` grid y los items, que corta la propagación automática de variants por el árbol (comportamiento documentado de Framer Motion — `AnimatePresence` gestiona su propio ciclo initial/animate/exit para el enter de los hijos, y los variants heredados del parent NO se aplican).
+
+### Decisión
+
+**Regla del proyecto:** todo `motion.div` con `variants={...}` debe recibir explícitamente `initial` y `animate` (o `initial="hidden" animate="visible"` si se alimenta del variant) en uno de estos dos escenarios:
+
+1. **El padre no es un motion component** (es un `<ol>`, `<div>` o wrapper JSX normal). → el hijo debe tener init/animate directos.
+2. **Hay un `<AnimatePresence>` entre el padre y el hijo.** → el hijo debe tener init/animate directos. No confiar en la propagación del orchestrator por encima del AnimatePresence.
+
+Cuando el padre ES un `motion.div` directo con `variants` + init/animate y NO hay AnimatePresence intermedio, la propagación automática de variants por nombre sí funciona y no hace falta duplicar.
+
+### Implementación
+
+- `StudentsList.jsx`: `<ol>` → `motion.ol` con `variants={staggerContainer}` + `initial="hidden"` + `animate="show"`.
+- `ContextsPage.jsx`: se eliminó el `<AnimatePresence>` (no había animaciones de exit) y los `motion.div` hijos recibieron `initial="hidden" animate="visible"` directos para ser robustos a cualquier cambio futuro de wrapping.
+
+### Consecuencias
+
+**Positivas**
+- Ambos widgets aparecen correctamente y son resilientes a remontados.
+- Patrón aplicable y copiable a futuras listas con stagger.
+
+**Negativas**
+- Ligera duplicación entre parent.variants y child.initial/animate. Es un trade-off aceptable a cambio de robustez frente a refactorizaciones.
+
+### Referencias
+
+- `frontend/src/components/dashboard/StudentsList.jsx` (motion.ol + staggerContainer)
+- `frontend/src/pages/ContextsPage.jsx` (AnimatePresence removido)
+- Propuestas relacionadas: PROP-30, PROP-31.
+
+---
+
+## ADR-060: `pointer-events: none` durante exit de AnimatePresence de ruta [Frontend]
+
+### Contexto
+
+El ADR-056 estableció `AnimatePresence mode="popLayout" + initial={false}` en `AppLayout.jsx` para evitar que la transición de pagina dejase el `motion.div` atascado en estado exit. Sin embargo, en la sesión de QA del 18/04/2026 (tarde) se observó que bajo React 19 + StrictMode en dev, el wrapper saliente puede convivir en el DOM durante unos ms con el entrante, ambos con tamaño completo.
+
+El wrapper saliente con `style="opacity:0; transform:translateY(-6px)"` sigue recibiendo clicks del usuario porque, pese a ser invisible, `pointer-events` sigue en `auto`. Esto impedía hacer clic en el botón "Volver a jugar" de `SessionDetail` al entrar desde el listado.
+
+### Decisión
+
+Ampliar el variant del motion.div de ruta para que **exit** incluya `pointerEvents: 'none'` y **animate** reinstaure `pointerEvents: 'auto'`. Con esto, aunque el wrapper saliente quede montado durante la transición (o por StrictMode en dev), no intercepta clicks.
+
+```jsx
+animate={{ opacity: 1, y: 0, pointerEvents: 'auto' }}
+exit={shouldReduceMotion ? { pointerEvents: 'none' } : { opacity: 0, y: -6, pointerEvents: 'none' }}
+```
+
+### Consecuencias
+
+**Positivas**
+- Los clicks siempre llegan a la ruta activa, incluso si el wrapper anterior persiste.
+- Cero impacto visual (solo propiedad CSS que no afecta la animación de opacity/transform).
+- Compatible con `shouldReduceMotion` (variante reducida mantiene la protección de pointer-events sin animar nada más).
+
+**Negativas**
+- Añade una propiedad al variant que Framer debe animar (trivial en rendimiento).
+
+### Referencias
+
+- `frontend/src/components/layout/AppLayout.jsx` (Outlet wrapper)
+- ADR-056 (decisión base que este ADR complementa).
+- Propuesta relacionada: PROP-32.
+
+---
+
+## ADR-061: Tema visual por contexto de juego (signature cross-pantalla) [Frontend]
+
+### Contexto
+
+Tras una segunda pasada de QA centrada exclusivamente en UI/UX, craft y diferenciación (18/04/2026 tarde) se detectó que la app se sentía como una plantilla SaaS dashboard genérica: todos los mazos compartían el mismo icono `Layers` en gradient morado, las cards eran idénticas en cada listado, y las pantallas no reflejaban la naturaleza del producto (tarjetas físicas RFID para juegos educativos infantiles con distintos contextos temáticos — geografía, animales, colores, números, formas).
+
+El sistema de tokens ya definía paletas OKLCH por tema en `index.css` (`--color-theme-geography`, `-animals`, `-colors`, `-numbers`) pero solo se consumían en `GameBackdrop.jsx` (fondo de partida). El resto de la aplicación era ciega al contexto de los datos que mostraba.
+
+### Decisión
+
+Introducir un **helper único de tematización** que mapea un contexto (por slug o por name) a una paleta OKLCH y devuelve clases Tailwind listas para consumir en iconos, bordes y fondos sutiles.
+
+```js
+// frontend/src/lib/contextTheme.js
+export function getContextTheme(input) { /* returns { gradientClass, ringClass, textClass, glowClass } */ }
+```
+
+Aplicación inicial en `DeckCard.jsx` (icon header + subtítulo). Puede extenderse a `SessionCard`, `ContextCard`, `StudentProfile` (badges de contexto favorito), etc. sin duplicar el mapping.
+
+Paletas soportadas: `default`, `geography`, `animals`, `colors`, `numbers`, `shapes`. Resolución por prefijo del slug (`geography-europe` → `geography`) o por alias explícito en `SLUG_ALIASES`.
+
+### Consecuencias
+
+**Positivas**
+- **Diferenciación visible**: cada contexto se reconoce de un vistazo por color, sin leer el texto. Un profesor con 6 mazos distingue "Animales de Granja" de "Colores Básicos" sin esfuerzo.
+- **Consistencia cross-producto**: el tema del contexto viaja del `GameBackdrop` (durante la partida) a los listados (fuera de partida). Los niños y profesores construyen memoria espacial por color.
+- **Zero duplicación**: los tokens OKLCH ya existían; el helper solo los cablea.
+- **Extensible**: añadir un contexto nuevo = añadir vars a `index.css` + entrada al helper.
+
+**Negativas / trade-offs**
+- El consumidor del helper debe usar clases Tailwind arbitrarias (`from-[var(--color-theme-...)]`) — no falla pero obliga a Tailwind JIT a generar las clases a build. Alternativa sería un `<div style={{ background: theme.primaryVar }}>` puro CSS vars; se mantuvo el approach de clases por consistencia con el resto del proyecto.
+- `shapes` no tenía paleta dedicada en `index.css` y se mapea a `accent-cyan` / `accent-indigo` (fallback sensato). Revisar si se quiere crear `--color-theme-shapes` dedicado.
+
+### Referencias
+
+- `frontend/src/lib/contextTheme.js` (helper nuevo)
+- `frontend/src/components/ui/DeckCard.jsx` (primer consumidor)
+- `frontend/src/index.css` (paletas OKLCH preexistentes)
+- `frontend/src/components/game/GameBackdrop.jsx` (consumidor histórico)
+- Propuesta relacionada: PROP-16 (atmósferas dinámicas por contexto) y PROP-40A.

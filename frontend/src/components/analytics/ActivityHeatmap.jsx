@@ -4,9 +4,9 @@ import { cn } from '../../lib/utils';
 import GlassCard from '../ui/GlassCard';
 
 /**
- * Dias de la semana en espanol (abreviados)
+ * Dias de la semana en espanol (abreviados con tildes)
  */
-const DAYS = ['Lun', 'Mar', 'Mie', 'Jue', 'Vie', 'Sab', 'Dom'];
+const DAYS = ['Lun', 'Mar', 'Mié', 'Jue', 'Vie', 'Sáb', 'Dom'];
 
 /**
  * Horas del dia a mostrar (reducido para legibilidad)

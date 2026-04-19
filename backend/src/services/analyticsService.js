@@ -236,11 +236,8 @@ async function getClassroomSummary(teacherId) {
 async function getClassroomComparison(teacherId, timeRange = '7d') {
   const today = new Date();
   const startDate = new Date(today);
-  if (timeRange === '30d') {
-    startDate.setDate(today.getDate() - 30);
-  } else {
-    startDate.setDate(today.getDate() - 7);
-  }
+  const rangeDays = timeRange === '30d' ? 30 : 7;
+  startDate.setDate(today.getDate() - rangeDays);
 
   // Excluir estudiantes sin consentimiento de analytics (Art. 21 RGPD)
   const excludedIds = await getAnalyticsExcludedPlayerIds(teacherId);
@@ -266,13 +263,34 @@ async function getClassroomComparison(teacherId, timeRange = '7d') {
     {
       $group: {
         _id: { $dateToString: { format: '%Y-%m-%d', date: '$completedAt' } },
-        classAverage: { $avg: '$score' }
+        classAverage: { $avg: '$score' },
+        score: { $avg: '$score' },
+        playCount: { $sum: 1 }
       }
     },
     { $sort: { _id: 1 } }
   ];
 
-  return await gamePlayRepository.aggregate(pipeline);
+  const aggregated = await gamePlayRepository.aggregate(pipeline);
+
+  // PROP-26: rellenar dias faltantes del rango con null para que el chart
+  // de tendencia muestre exactamente N puntos (UX honesta — el rango
+  // elegido por el usuario es contractual). El frontend usa
+  // connectNulls={false} para visualizar los gaps como huecos visibles.
+  const byDate = new Map(aggregated.map(item => [item._id, item]));
+  const result = [];
+  for (let i = rangeDays; i >= 0; i--) {
+    const day = new Date(today);
+    day.setDate(today.getDate() - i);
+    const key = day.toISOString().slice(0, 10);
+    const existing = byDate.get(key);
+    if (existing) {
+      result.push(existing);
+    } else {
+      result.push({ _id: key, classAverage: null, score: null, playCount: 0 });
+    }
+  }
+  return result;
 }
 
 /**

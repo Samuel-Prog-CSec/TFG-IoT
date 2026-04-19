@@ -38,8 +38,8 @@ const TABS = [
  * Opciones de rango temporal global.
  */
 const TIME_RANGE_OPTIONS = [
-  { value: '30d', label: 'Ultimos 30 dias' },
-  { value: '90d', label: 'Ultimos 90 dias' },
+  { value: '30d', label: 'Últimos 30 días' },
+  { value: '90d', label: 'Últimos 90 días' },
 ];
 
 /**
@@ -155,8 +155,8 @@ function LearningCurvesSection({ data, loading }) {
         </div>
       </div>
 
-      <div className="h-[280px] w-full -ml-2">
-        <ResponsiveContainer width="100%" height="100%" minWidth={0} minHeight={0}>
+      <div className="h-[280px] w-full -ml-2 min-h-[280px]">
+        <ResponsiveContainer width="100%" height="100%" minWidth={0} minHeight={0} debounce={50}>
           <AreaChart data={chartData} margin={{ top: 5, right: 10, left: 0, bottom: 5 }}>
             <defs>
               {curveNames.map((name, idx) => (
@@ -184,7 +184,7 @@ function LearningCurvesSection({ data, loading }) {
               tickLine={false}
               axisLine={false}
               width={35}
-              label={{ value: 'Puntuacion %', angle: -90, position: 'insideLeft', fill: 'var(--color-text-muted)', fontSize: 10 }}
+              label={{ value: 'Puntuación %', angle: -90, position: 'insideLeft', fill: 'var(--color-text-muted)', fontSize: 10 }}
             />
             <Tooltip content={<LearningCurveTooltip />} />
             <Legend
@@ -410,7 +410,7 @@ export default function InsightsReports() {
             Insights y Reportes
           </h1>
           <p className="text-text-muted mt-1 text-sm">
-            Analisis profundo de efectividad, alertas inteligentes e informes
+            Análisis profundo de efectividad, alertas inteligentes e informes
           </p>
         </div>
         <SelectPremium

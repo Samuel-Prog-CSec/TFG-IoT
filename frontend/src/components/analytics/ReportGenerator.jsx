@@ -35,9 +35,9 @@ const REPORT_TYPE_OPTIONS = [
  * Opciones de periodo.
  */
 const PERIOD_OPTIONS = [
-  { value: '7d', label: 'Ultimos 7 dias' },
-  { value: '30d', label: 'Ultimos 30 dias' },
-  { value: '90d', label: 'Ultimos 90 dias' },
+  { value: '7d', label: 'Últimos 7 días' },
+  { value: '30d', label: 'Últimos 30 días' },
+  { value: '90d', label: 'Últimos 90 días' },
 ];
 
 /**
@@ -102,7 +102,7 @@ function ClassroomReportView({ data }) {
         </h4>
         <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
           <ReportKPI
-            label="Puntuacion Media"
+            label="Puntuación Media"
             value={kpis.averageScore != null ? Math.round(kpis.averageScore) : kpis.avgScore}
             suffix="%"
             icon={Award}
@@ -133,7 +133,7 @@ function ClassroomReportView({ data }) {
       {/* Distribution */}
       {distribution.length > 0 && (
         <div>
-          <h4 className="text-sm font-bold text-text-primary mb-3">Distribucion de Rendimiento</h4>
+          <h4 className="text-sm font-bold text-text-primary mb-3">Distribución de Rendimiento</h4>
           <div className="grid grid-cols-2 lg:grid-cols-4 gap-2">
             {distribution.map((tier) => (
               <div
@@ -222,7 +222,7 @@ function StudentReportView({ data }) {
         </h4>
         <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
           <ReportKPI
-            label="Puntuacion Media"
+            label="Puntuación Media"
             value={kpis.averageScore != null ? Math.round(kpis.averageScore) : '-'}
             suffix="%"
             icon={Award}
@@ -235,7 +235,7 @@ function StudentReportView({ data }) {
             ragColor="blue"
           />
           <ReportKPI
-            label="Mejor Puntuacion"
+            label="Mejor Puntuación"
             value={kpis.bestScore != null ? Math.round(kpis.bestScore) : '-'}
             suffix="%"
             icon={Award}
@@ -452,7 +452,7 @@ function ReportGenerator() {
           </div>
           <div>
             <h3 className="text-base font-bold text-text-primary font-display">Generar Informe</h3>
-            <p className="text-xs text-text-muted mt-0.5">Configura los parametros del reporte</p>
+            <p className="text-xs text-text-muted mt-0.5">Configura los parámetros del reporte</p>
           </div>
         </div>
 
@@ -480,7 +480,7 @@ function ReportGenerator() {
           )}
 
           <SelectPremium
-            label="Periodo"
+            label="Período"
             options={PERIOD_OPTIONS}
             value={period}
             onChange={setPeriod}

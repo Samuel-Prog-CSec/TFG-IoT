@@ -16,6 +16,7 @@ import {
 import { toast } from 'sonner';
 
 import GlassCard from '../components/ui/GlassCard';
+import HoverLiftCard from '../components/ui/HoverLiftCard';
 import ButtonPremium from '../components/ui/ButtonPremium';
 import PageHeader from '../components/ui/PageHeader';
 import InputPremium from '../components/ui/InputPremium';
@@ -200,20 +201,20 @@ export default function ContextsPage() {
               initial={shouldReduceMotion ? false : "hidden"}
               animate="visible"
             >
-              <AnimatePresence>
-                {filteredContexts.map((context) => (
-                  <motion.div
-                    key={context._id || context.id}
-                    variants={shouldReduceMotion ? {} : listItemVariants}
-                  >
-                    <ContextCard
-                      context={context}
-                      reducedMotion={shouldReduceMotion}
-                      onClick={() => navigate(ROUTES.CONTEXT_DETAIL(context._id || context.id))}
-                    />
-                  </motion.div>
-                ))}
-              </AnimatePresence>
+              {filteredContexts.map((context) => (
+                <motion.div
+                  key={context._id || context.id}
+                  variants={shouldReduceMotion ? {} : listItemVariants}
+                  initial={shouldReduceMotion ? false : "hidden"}
+                  animate="visible"
+                >
+                  <ContextCard
+                    context={context}
+                    reducedMotion={shouldReduceMotion}
+                    onClick={() => navigate(ROUTES.CONTEXT_DETAIL(context._id || context.id))}
+                  />
+                </motion.div>
+              ))}
             </motion.div>
           );
         })()}
@@ -245,10 +246,9 @@ function ContextCard({ context, onClick, reducedMotion }) {
   return (
     <motion.div
       exit={reducedMotion ? false : { opacity: 0, scale: 0.95 }}
-      whileHover={reducedMotion ? {} : { y: -4 }}
-      onClick={onClick}
-      className="group cursor-pointer"
+      className="group h-full"
     >
+      <HoverLiftCard glowTint="indigo" onClick={onClick} className="cursor-pointer h-full">
       <GlassCard className="h-full p-6 transition-colors hover:bg-background-elevated/40 hover:border-accent-indigo/30">
         <div className="flex justify-between items-start mb-6">
           <div className="size-12 rounded-xl bg-accent-indigo/10 flex items-center justify-center border border-accent-indigo/20 group-hover:bg-accent-indigo/20 transition-colors">
@@ -320,6 +320,7 @@ function ContextCard({ context, onClick, reducedMotion }) {
           </div>
         )}
       </GlassCard>
+      </HoverLiftCard>
     </motion.div>
   );
 }

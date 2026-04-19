@@ -73,13 +73,21 @@ function EngagementRadar({ engagement }) {
   // Estado vacio: sin datos de componentes, o engagement nulo/cero
   const isEmpty = chartData.length === 0 || !engagement || (!score && score !== undefined);
 
-  if (isEmpty) {
+  // Estado "datos insuficientes": al menos 3 de 5 ejes en cero/null.
+  // Evita renderizar un radar deformado (ala apuntando a un solo eje)
+  // cuando el backend no calcula la mayoria de las metricas (PROP-48).
+  const zeroAxes = chartData.filter(d => !d.value || d.value === 0).length;
+  const hasInsufficientData = !isEmpty && zeroAxes >= 3;
+
+  if (isEmpty || hasInsufficientData) {
     return (
       <GlassCard variant="default" padding="none" className="p-5">
         <h3 className="text-base font-bold text-text-primary font-display mb-4">Engagement</h3>
         <div className="py-8 text-center px-6">
           <p className="text-text-muted text-sm text-center">
-            Sin datos de engagement aun. Se calculara cuando el alumno acumule mas partidas.
+            {hasInsufficientData
+              ? 'Datos insuficientes para calcular Engagement. Se necesitan más partidas distribuidas en el tiempo.'
+              : 'Sin datos de engagement aún. Se calculará cuando el alumno acumule más partidas.'}
           </p>
         </div>
       </GlassCard>
@@ -97,8 +105,8 @@ function EngagementRadar({ engagement }) {
         )}
       </div>
 
-      <div className="h-[220px] w-full">
-        <ResponsiveContainer width="100%" height="100%" minWidth={0} minHeight={0}>
+      <div className="h-[220px] w-full min-h-[220px]">
+        <ResponsiveContainer width="100%" height="100%" minWidth={0} minHeight={0} debounce={50}>
           <RadarChart cx="50%" cy="50%" outerRadius="70%" data={chartData}>
             <PolarGrid
               stroke="var(--color-border-subtle)"

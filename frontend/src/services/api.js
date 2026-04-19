@@ -164,7 +164,12 @@ api.interceptors.response.use(
         return handleTokenRefresh(originalRequest);
       }
 
-      // Si no hay refresh token o el refresh falló, emitir evento
+      // Si no hay refresh token o el refresh falló, emitir evento.
+      // Nota: el 401 en /auth/refresh sin tokens activos es comportamiento
+      // esperado (usuario sin sesion previa). El AuthContext usa un session
+      // marker en localStorage para evitar la llamada en ese caso, pero si
+      // por algun motivo (marker stale) se dispara, no es necesario reportar
+      // el error al captureException porque no es accionable.
       globalThis.dispatchEvent(new CustomEvent(AUTH_EVENTS.UNAUTHORIZED));
       clearTokens();
       throw error;

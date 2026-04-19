@@ -12,21 +12,21 @@ import GlassCard from '../ui/GlassCard';
 const SECTIONS = [
   {
     key: 'whatHappened',
-    label: 'Que paso',
+    label: 'Qué pasó',
     icon: CheckCircle2,
     color: 'text-success-base',
     bg: 'bg-success-base/10',
   },
   {
     key: 'soWhat',
-    label: 'Por que importa',
+    label: 'Por qué importa',
     icon: Lightbulb,
     color: 'text-warning-base',
     bg: 'bg-warning-base/10',
   },
   {
     key: 'nowWhat',
-    label: 'Que hacer',
+    label: 'Qué hacer',
     icon: Target,
     color: 'text-brand-light',
     bg: 'bg-brand-base/10',

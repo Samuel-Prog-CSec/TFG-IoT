@@ -16,6 +16,7 @@ import { motion, useMotionValue, useSpring, useTransform } from 'framer-motion';
 import { Layers, Edit2, Trash2, Eye, MoreVertical, Calendar, CreditCard } from 'lucide-react';
 import PropTypes from 'prop-types';
 import { cn, formatDate } from '../../lib/utils';
+import { getContextTheme } from '../../lib/contextTheme';
 import Tooltip from './Tooltip';
 import CardAssetPreview from './CardAssetPreview';
 
@@ -301,6 +302,16 @@ function DeckCardView({
       tabIndex={selectable ? 0 : undefined}
       onKeyDown={selectable ? handleSelectableKeyDown : undefined}
     >
+      {/* Stack effect: dos cartas fantasma detras reforzando la metafora "deck fisico".
+          pointer-events:none para no interferir; aria-hidden porque son decorativas. */}
+      <div
+        aria-hidden="true"
+        className="pointer-events-none absolute inset-0 -z-10 rounded-2xl border border-border-subtle/60 bg-background-elevated/30 translate-x-1.5 translate-y-1.5 transition-transform duration-300 group-hover:translate-x-2.5 group-hover:translate-y-2.5"
+      />
+      <div
+        aria-hidden="true"
+        className="pointer-events-none absolute inset-0 -z-20 rounded-2xl border border-border-subtle/40 bg-background-elevated/15 translate-x-3 translate-y-3 transition-transform duration-300 group-hover:translate-x-5 group-hover:translate-y-5"
+      />
       <motion.div
         className={cn(
           'relative rounded-2xl overflow-hidden',
@@ -427,18 +438,28 @@ function DeckCardHeader({
   onEdit,
   onDelete
 }) {
+  const contextRef = deck.context || deck.contextId;
+  const theme = getContextTheme(contextRef?.slug || contextRef?.name);
+
   return (
     <div className="flex items-start justify-between mb-4">
       <div className="flex items-center gap-3">
-        <div className="size-12 rounded-xl bg-gradient-to-br from-accent-indigo to-brand-base flex items-center justify-center shadow-lg shadow-accent-indigo/30">
-          <Layers className="text-text-primary" size={24} />
+        <div
+          className={cn(
+            'size-12 rounded-xl flex items-center justify-center bg-gradient-to-br ring-1 ring-inset',
+            theme.gradientClass,
+            theme.ringClass,
+            theme.glowClass
+          )}
+        >
+          <Layers className="text-text-primary drop-shadow-sm" size={22} strokeWidth={2.25} />
         </div>
         <div>
-          <h3 className="font-bold text-text-primary text-lg leading-tight line-clamp-1" title={deck.name}>
+          <h3 className="font-bold text-text-primary text-lg leading-tight line-clamp-1 font-display" title={deck.name}>
             {deck.name}
           </h3>
-          <span className="text-xs text-brand-light font-medium">
-            {deck.context?.name || deck.contextId?.name || 'Sin contexto'}
+          <span className={cn('text-xs font-medium', theme.textClass)}>
+            {contextRef?.name || 'Sin contexto'}
           </span>
         </div>
       </div>
@@ -514,7 +535,7 @@ function DeckPreviewAssets({
       }}
     >
       {previewAssets.map((mapping, index) => {
-        const label = mapping.displayData?.display || mapping.displayData?.emoji || '🎴';
+        const label = mapping.displayData?.display || mapping.displayData?.emoji || '?';
         const hasImage = Boolean(mapping.displayData?.thumbnailUrl || mapping.displayData?.imageUrl);
         return (
           <motion.div
@@ -622,7 +643,7 @@ function DeckHoverActions({ selectable, showActions, deck, onView, onEdit, onDel
         <ActionButton
           icon={Trash2}
           label="Archivar"
-          variant="danger"
+          variant="warning"
           onClick={(event) => {
             event.stopPropagation();
             onDelete?.(deck);
@@ -678,7 +699,7 @@ function AnimateMenu({ isOpen, onView, onEdit, onDelete }) {
     >
       <button onClick={onView} className="w-full text-left px-2.5 py-2 rounded-lg text-sm text-text-secondary hover:bg-border-default transition-colors">Ver</button>
       <button onClick={onEdit} className="w-full text-left px-2.5 py-2 rounded-lg text-sm text-text-secondary hover:bg-border-default transition-colors">Editar</button>
-      <button onClick={onDelete} className="w-full text-left px-2.5 py-2 rounded-lg text-sm text-error-base hover:bg-error-base/20 transition-colors">Archivar</button>
+      <button onClick={onDelete} className="w-full text-left px-2.5 py-2 rounded-lg text-sm text-warning-base hover:bg-warning-base/15 transition-colors">Archivar</button>
     </motion.div>
   );
 }
@@ -692,6 +713,7 @@ function ActionButton({ icon: Icon, label, onClick, variant = 'default' }) {
       className={cn(
         'flex items-center gap-1.5 px-3 py-2 rounded-lg text-xs font-medium transition-colors',
         variant === 'default' && 'bg-border-default text-text-primary hover:bg-border-strong',
+        variant === 'warning' && 'bg-warning-base/15 text-warning-base hover:bg-warning-base/25 ring-1 ring-inset ring-warning-base/20',
         variant === 'danger' && 'bg-error-base/20 text-error-base hover:bg-error-base/30'
       )}
       onClick={onClick}
@@ -709,7 +731,7 @@ ActionButton.propTypes = {
   icon: PropTypes.elementType.isRequired,
   label: PropTypes.string.isRequired,
   onClick: PropTypes.func.isRequired,
-  variant: PropTypes.oneOf(['default', 'danger']),
+  variant: PropTypes.oneOf(['default', 'warning', 'danger']),
 };
 
 DeckCard.propTypes = {

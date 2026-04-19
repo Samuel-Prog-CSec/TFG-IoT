@@ -20,6 +20,7 @@ import { resolveAssociationTheme } from '../components/game/associationTheme';
 import MemoryGameplayPanel from '../components/game/MemoryGameplayPanel';
 import GameBackdrop from '../components/game/GameBackdrop';
 import FallbackTouchPanel from '../components/game/FallbackTouchPanel';
+import { prefetchDeckImages } from '../lib/cardMapping';
 import CurrentPlayMetrics from '../components/game/CurrentPlayMetrics';
 import { useGameFeedback } from '../hooks/useGameFeedback';
 import { useDocumentTitle } from '../hooks/useDocumentTitle';
@@ -230,7 +231,7 @@ export default function GameSession() {
       uid: rawChallenge?.uid,
       key: displayData?.key || '',
       value: displayData?.value || rawChallenge?.assignedValue || '---',
-      display: displayData?.display || '🎴',
+      display: displayData?.display || '?',
       imageUrl: displayData?.imageUrl || null,
       thumbnailUrl: displayData?.thumbnailUrl || null,
       audioUrl: displayData?.audioUrl || null
@@ -531,6 +532,20 @@ export default function GameSession() {
       setRoundTime(configuredTime);
     }
   }, [session]);
+
+  // Prefetch de todas las imagenes del mazo al recibir la sesion para
+  // calentar el cache del navegador y evitar flash de bloque-de-color entre
+  // rondas (problema detectado en QA 18/04/2026 con FallbackTouchPanel).
+  const prefetchNotifiedRef = useRef(false);
+  useEffect(() => {
+    const mappings = session?.cardMappings;
+    if (!Array.isArray(mappings) || mappings.length === 0) return;
+    prefetchDeckImages(mappings, () => {
+      if (prefetchNotifiedRef.current) return;
+      prefetchNotifiedRef.current = true;
+      console.warn('[GameSession] Alguna imagen del mazo fallo al precargar. Se mostrara el nombre como fallback.');
+    });
+  }, [session?.cardMappings]);
 
   // Sincronizar gameState con el socket hook
   useEffect(() => {
@@ -1059,6 +1074,7 @@ export default function GameSession() {
               {!rfidConnected && !sessionIsMemory && (
                 <FallbackTouchPanel
                   cards={shuffledFallbackCards}
+                  round={currentRound}
                   onSelectCard={handleFallbackCardScan}
                   onPauseRequest={togglePause}
                   canPause={gameState === 'playing'}

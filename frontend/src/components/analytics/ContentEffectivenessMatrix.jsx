@@ -6,6 +6,7 @@ import { cn, DURATION, EASING } from '../../lib/utils';
 import { useReducedMotion } from '../../hooks/useReducedMotion';
 import GlassCard from '../ui/GlassCard';
 import { scoreToRAGWithNull as getRAGColor } from '../../constants/analyticsThresholds';
+import { formatMechanicName } from '../../lib/mechanicNames';
 
 /**
  * Estilos de fondo y texto segun color RAG.
@@ -51,17 +52,26 @@ function ContentEffectivenessMatrix({ data, groupBy = 'context' }) {
   const items = useMemo(() => {
     if (!Array.isArray(data) || data.length === 0) return [];
     return data
-      .map(item => ({
-        id: item.id || item._id || item.name,
-        name: item.name || item.contextName || item.mechanicName || 'Sin nombre',
-        score: item.avgScore ?? item.averageScore ?? item.score ?? null,
-        totalPlays: item.totalPlays ?? item.gamesPlayed ?? item.totalGames ?? 0,
-        improvement: item.improvementRate ?? item.improvement ?? null,
-        learningEfficiency: item.learningEfficiency || null
-      }))
+      .map(item => {
+        const rawName = item.name || item.contextName || item.mechanicName || 'Sin nombre';
+        // Normalizar nombres de mecanica aqui para cubrir tambien datos historicos
+        // que no pasaron por la pipeline actualizada (defense in depth).
+        const displayName = groupBy === 'mechanic' ? formatMechanicName(rawName) : rawName;
+        return {
+          id: item.id || item._id || rawName,
+          name: displayName,
+          score: item.avgScore ?? item.averageScore ?? item.score ?? null,
+          totalPlays: item.totalPlays ?? item.gamesPlayed ?? item.totalGames ?? 0,
+          improvement: item.improvementRate ?? item.improvement ?? null,
+          learningEfficiency: item.learningEfficiency || null
+        };
+      })
       .filter(item => item.score != null && !Number.isNaN(item.score))
+      // Filtrar items sin partidas — evita mostrar mecánicas inactivas
+      // como Secuencia ("Próximamente") con barra a 0% (PROP-58).
+      .filter(item => item.totalPlays > 0)
       .sort((a, b) => (b.score ?? 0) - (a.score ?? 0));
-  }, [data]);
+  }, [data, groupBy]);
 
   const dimensionLabel = groupBy === 'mechanic' ? 'Mecánica' : 'Contexto';
 
@@ -95,7 +105,7 @@ function ContentEffectivenessMatrix({ data, groupBy = 'context' }) {
               Efectividad por {dimensionLabel}
             </h3>
             <p className="text-xs text-text-muted mt-0.5">
-              Puntuacion media de las partidas agrupadas por {dimensionLabel.toLowerCase()}.
+              Puntuación media de las partidas agrupadas por {dimensionLabel.toLowerCase()}.
             </p>
           </div>
         </div>

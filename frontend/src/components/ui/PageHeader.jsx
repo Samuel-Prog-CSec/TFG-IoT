@@ -28,11 +28,11 @@ export default function PageHeader({
       className={cn('flex flex-col gap-4', className)}
     >
       <div className="flex flex-wrap items-center justify-between gap-4">
-        <div className="flex items-center gap-3">
+        <div className="flex items-center gap-4">
           {icon && (
             <div
               className={cn(
-                'size-12 rounded-2xl flex items-center justify-center shrink-0',
+                'size-12 rounded-2xl flex items-center justify-center shrink-0 ring-1 ring-inset ring-white/5',
                 iconClassName || 'bg-accent-indigo/20 text-accent-indigo'
               )}
             >
@@ -40,12 +40,12 @@ export default function PageHeader({
             </div>
           )}
           <div>
-            <div className="flex items-center gap-2">
-              <h1 className="text-2xl font-bold text-text-primary font-display">{title}</h1>
+            <div className="flex items-center gap-3">
+              <h1 className="text-3xl font-bold text-text-primary font-display tracking-tight leading-[1.1]">{title}</h1>
               {badge}
             </div>
             {subtitle && (
-              <p className="text-text-muted">{subtitle}</p>
+              <p className="text-text-muted mt-1">{subtitle}</p>
             )}
           </div>
         </div>

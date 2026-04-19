@@ -285,7 +285,7 @@ export default function OnboardingOverlay({
 
               {/* Texto de omitir debajo */}
               <p className="text-center mt-4 text-xs text-text-disabled">
-                Puedes volver a ver este tutorial desde la configuraci\u00F3n
+                Puedes volver a ver este tutorial desde la configuración
               </p>
             </GlassCard>
           </motion.div>

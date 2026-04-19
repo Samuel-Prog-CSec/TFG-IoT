@@ -109,7 +109,7 @@ export function useWizardConfig({ mechanics, currentStep }) {
     setSessionConfig(prev => ({
       ...prev,
       deckId,
-      name: prev.name || `Sesion - ${deck.name}`
+      name: prev.name || `Sesión - ${deck.name}`
     }));
     // Cargar detalle completo para obtener cardMappings
     try {

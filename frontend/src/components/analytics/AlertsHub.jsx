@@ -17,6 +17,7 @@ import {
 import PropTypes from 'prop-types';
 import { cn, listContainerVariants, listItemVariants } from '../../lib/utils';
 import { useReducedMotion } from '../../hooks/useReducedMotion';
+import { formatRelativeTime } from '../../lib/dateUtils';
 import GlassCard from '../ui/GlassCard';
 import SelectPremium from '../ui/SelectPremium';
 import SkeletonShimmer from '../ui/SkeletonShimmer';
@@ -57,7 +58,7 @@ const SEVERITY_STYLES = {
     bg: 'bg-error-base/10',
     border: 'border-error-base/30',
     text: 'text-error-base',
-    label: 'Criticas',
+    label: 'Críticas',
   },
   warning: {
     dot: 'bg-warning-base',
@@ -65,7 +66,7 @@ const SEVERITY_STYLES = {
     bg: 'bg-warning-base/10',
     border: 'border-warning-base/30',
     text: 'text-warning-base',
-    label: 'Warning',
+    label: 'Advertencia',
   },
   info: {
     dot: 'bg-info-base',
@@ -77,24 +78,8 @@ const SEVERITY_STYLES = {
   },
 };
 
-/**
- * Formatea una fecha como texto relativo.
- */
-function formatRelativeDate(dateStr) {
-  if (!dateStr) return '';
-  const date = new Date(dateStr);
-  const now = new Date();
-  const diffMs = now - date;
-  const diffMins = Math.floor(diffMs / 60000);
-  const diffHours = Math.floor(diffMs / 3600000);
-  const diffDays = Math.floor(diffMs / 86400000);
-
-  if (diffMins < 1) return 'Hace un momento';
-  if (diffMins < 60) return `Hace ${diffMins}min`;
-  if (diffHours < 24) return `Hace ${diffHours}h`;
-  if (diffDays < 7) return `Hace ${diffDays}d`;
-  return date.toLocaleDateString('es-ES', { day: 'numeric', month: 'short' });
-}
+// Helper relativo centralizado en `lib/dateUtils.js` (P25).
+// Se importa al principio del archivo.
 
 /**
  * Tarjeta de contador de severidad.
@@ -168,7 +153,7 @@ function AlertCard({ alert, shouldReduceMotion }) {
           </p>
           <div className="flex items-center justify-between mt-2">
             <span className="text-[10px] text-text-disabled">
-              {formatRelativeDate(alert.createdAt || alert.detectedAt)}
+              {formatRelativeTime(alert.createdAt || alert.detectedAt)}
             </span>
             {alert.studentId && (
               <button
@@ -214,8 +199,8 @@ function AlertsHub({ alerts = [], loading = false }) {
   // Opciones de filtro
   const severityOptions = useMemo(() => [
     { value: 'all', label: 'Todas' },
-    { value: 'critical', label: `Criticas (${severityCounts.critical})` },
-    { value: 'warning', label: `Warning (${severityCounts.warning})` },
+    { value: 'critical', label: `Críticas (${severityCounts.critical})` },
+    { value: 'warning', label: `Advertencia (${severityCounts.warning})` },
     { value: 'info', label: `Info (${severityCounts.info})` },
   ], [severityCounts]);
 
@@ -347,7 +332,7 @@ function AlertsHub({ alerts = [], loading = false }) {
           </div>
           <p className="text-sm font-semibold text-success-base">Sin alertas activas</p>
           <p className="text-xs text-text-muted mt-1">
-            Todos los alumnos estan dentro de los parametros esperados.
+            Todos los alumnos están dentro de los parámetros esperados.
           </p>
         </GlassCard>
       )}

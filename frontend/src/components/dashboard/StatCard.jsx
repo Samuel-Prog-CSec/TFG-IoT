@@ -17,8 +17,12 @@ import AnimatedNumber from '../ui/AnimatedNumber';
  * @param {string} [props.periodLabel] - Etiqueta del periodo comparativo (ej: "vs semana pasada")
  */
 function StatCard({ title, value, trend, icon, color, periodLabel = 'vs semana pasada', compact = false, onClick }) {
-  // Determinar si el trend es positivo o negativo
-  const isPositive = !trend.startsWith('-');
+  // Determinar si hay valor de tendencia para renderizar el pill RAG.
+  // Si trend es vacio (caso "Alumnos en Riesgo" / "Partidas Hoy" sin histórico),
+  // renderizamos un pill neutro con sólo el periodLabel para preservar la altura
+  // de la card y evitar el bug de pill verde con flecha sin valor numerico.
+  const hasTrendValue = typeof trend === 'string' && trend.length > 0;
+  const isPositive = hasTrendValue && !trend.startsWith('-');
   const TrendIcon = isPositive ? ArrowUpRight : ArrowDownRight;
 
   return (
@@ -61,27 +65,33 @@ function StatCard({ title, value, trend, icon, color, periodLabel = 'vs semana p
 
         {/* Content */}
         <div className={cn("relative z-10", compact ? "pr-12" : "pr-14")}>
-          <h3 className={cn("text-text-muted font-semibold tracking-wide uppercase", compact ? "text-xs mb-1" : "text-sm mb-2")}>{title}</h3>
-          <div className={cn("font-bold text-text-primary font-display tracking-tight tabular-nums", compact ? "text-2xl mb-2" : "text-3xl mb-3")}>
+          <h3 className={cn("text-text-muted font-semibold tracking-[0.08em] uppercase", compact ? "text-[11px] mb-1" : "text-xs mb-2")}>{title}</h3>
+          <div className={cn("font-bold text-text-primary font-display tracking-tight tabular-nums leading-none", compact ? "text-2xl mb-2" : "text-5xl mb-3")}>
             <AnimatedNumber value={value} />
           </div>
-          <div className={cn(
-            "inline-flex items-center gap-1 text-sm font-semibold px-2.5 py-1 rounded-lg whitespace-nowrap",
-            isPositive
-              ? "text-success-base bg-success-base/10"
-              : "text-error-base bg-error-base/10"
-          )}>
-            <TrendIcon size={14} strokeWidth={3} />
-            <span>{trend}</span>
-            <span className="text-text-muted font-medium ml-1 text-xs">{periodLabel}</span>
-          </div>
+          {hasTrendValue ? (
+            <div className={cn(
+              "inline-flex items-center gap-1 text-sm font-semibold px-2.5 py-1 rounded-lg whitespace-nowrap ring-1 ring-inset",
+              isPositive
+                ? "text-success-base bg-success-base/10 ring-success-base/20"
+                : "text-error-base bg-error-base/10 ring-error-base/20"
+            )}>
+              <TrendIcon size={14} strokeWidth={3} />
+              <span>{trend}</span>
+              <span className="text-text-muted font-medium ml-1 text-xs">{periodLabel}</span>
+            </div>
+          ) : (
+            <div className="inline-flex items-center text-xs font-medium text-text-muted px-2.5 py-1 rounded-lg ring-1 ring-inset ring-border-subtle">
+              {periodLabel}
+            </div>
+          )}
         </div>
 
         {/* Glow effect fallback for visual flair */}
         <div
           className={cn(
             "absolute -bottom-16 -right-16 w-40 h-40 rounded-full blur-3xl",
-            "opacity-20 transition-[opacity,transform] duration-500 group-hover:opacity-40 group-hover:scale-110 pointer-events-none",
+            "opacity-[0.12] transition-[opacity,transform] duration-500 group-hover:opacity-30 group-hover:scale-110 pointer-events-none",
             color
           )}
           aria-hidden="true"

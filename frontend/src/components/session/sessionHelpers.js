@@ -12,30 +12,46 @@ export const WIZARD_STEPS = [
     title: 'Seleccionar Mazo',
     subtitle: 'Elige las cartas',
     icon: 'CreditCard',
-    description: 'El mazo define las tarjetas y assets que usaran los estudiantes'
+    description: 'El mazo define las tarjetas y assets que usarán los estudiantes'
   },
   {
     id: 'mechanic',
-    title: 'Mecanica',
+    title: 'Mecánica',
     subtitle: 'Tipo de juego',
     icon: 'Layers',
-    description: 'Elige como interactuaran los estudiantes con las tarjetas'
+    description: 'Elige cómo interactuarán los estudiantes con las tarjetas'
   },
   {
     id: 'rules',
     title: 'Reglas',
-    subtitle: 'Configura parametros',
+    subtitle: 'Configura parámetros',
     icon: 'Settings',
-    description: 'Define tiempo, puntos y numero de rondas'
+    description: 'Define tiempo, puntos y número de rondas'
   },
   {
     id: 'review',
     title: 'Crear',
     subtitle: 'Revisa y lanza',
     icon: 'Save',
-    description: 'Revisa la configuracion antes de crear la sesion'
+    description: 'Revisa la configuración antes de crear la sesión'
   }
 ];
+
+/**
+ * Devuelve el subtitulo del step apropiado segun la mecanica seleccionada.
+ * Solo el step "rules" cambia: Memoria no tiene rondas configurables, asi
+ * que mostrar "número de rondas" en su descripcion confunde (PROP-45).
+ *
+ * @param {string} stepId - id del step ('deck'|'mechanic'|'rules'|'review')
+ * @param {string} [mechanicKey] - normalizada en lowercase ('memory'|'association'|...)
+ * @returns {string} descripcion adaptada al contexto
+ */
+export const getStepDescription = (stepId, mechanicKey) => {
+  if (stepId === 'rules' && mechanicKey === 'memory') {
+    return 'Define tiempo total de partida, puntos y penalización';
+  }
+  return WIZARD_STEPS.find(s => s.id === stepId)?.description || '';
+};
 
 // Configuraciones por defecto segun dificultad
 export const DIFFICULTY_PRESETS = {

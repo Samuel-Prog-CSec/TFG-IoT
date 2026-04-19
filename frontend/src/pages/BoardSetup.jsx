@@ -1,10 +1,10 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { DndContext, DragOverlay, useSensor, useSensors, PointerSensor, defaultDropAnimationSideEffects, useDroppable } from '@dnd-kit/core';
 import { useSortable } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Layers, RotateCcw, Play, Shuffle } from 'lucide-react';
+import { Layers, RotateCcw, Play, Shuffle, Info, X } from 'lucide-react';
 import clsx from 'clsx';
 import { useConfetti } from '../hooks/useConfetti';
 import { toast } from 'sonner';
@@ -42,13 +42,38 @@ export default function BoardSetup() {
   const [session, setSession] = useState(null);
   const [availableCards, setAvailableCards] = useState([]); // All cards in session
   const [availableStudents, setAvailableStudents] = useState([]);
-  
+
   // Board State
   // Map<SlotId, Card>
-  const [slots, setSlots] = useState({}); 
+  const [slots, setSlots] = useState({});
   const [activeId, setActiveId] = useState(null); // For DragOverlay
   const [selectedStudentId, setSelectedStudentId] = useState('');
     const [savingBoard, setSavingBoard] = useState(false);
+
+  // Banner de onboarding la primera vez que se entra a BoardSetup (PROP-39).
+  // Se persiste en localStorage para no mostrarlo en visitas posteriores.
+  const HINT_KEY = 'eduplay:hasSeenBoardSetupHint';
+  const [showOnboardingHint, setShowOnboardingHint] = useState(() => {
+    try { return globalThis.localStorage?.getItem(HINT_KEY) !== '1'; }
+    catch { return false; }
+  });
+  const dismissHint = useCallback(() => {
+    try { globalThis.localStorage?.setItem(HINT_KEY, '1'); }
+    catch { /* noop */ }
+    setShowOnboardingHint(false);
+  }, []);
+
+  // Scroll-top automatico al montar (PROP-39): evita que el usuario llegue
+  // a media altura tras navegar desde Crear Sesion en pantallas con scroll
+  // residual del main del layout.
+  const rootRef = useRef(null);
+  useEffect(() => {
+    // El layout principal usa main con overflow-auto; resetear su scroll
+    // ademas del window para cubrir ambos casos.
+    const main = document.querySelector('main');
+    if (main) main.scrollTop = 0;
+    globalThis.scrollTo?.({ top: 0, behavior: 'instant' });
+  }, []);
 
     const init = useCallback((signal) => {
         const run = async () => {
@@ -271,7 +296,38 @@ export default function BoardSetup() {
 
   return (
     <DndContext sensors={sensors} onDragStart={handleDragStart} onDragEnd={handleDragEnd}>
-        <div className="h-screen flex flex-col p-6 bg-background-base overflow-hidden">
+        <div ref={rootRef} className="h-screen flex flex-col p-6 bg-background-base overflow-hidden">
+            {/* Banner de onboarding (primera visita). Sale del flow para no
+                desplazar el header. PROP-39 — explicar drag-and-drop + Aleatorio. */}
+            <AnimatePresence>
+              {showOnboardingHint && (
+                <motion.div
+                  initial={{ opacity: 0, y: -8 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  exit={{ opacity: 0, y: -8 }}
+                  transition={{ duration: 0.2 }}
+                  className="mb-4 shrink-0 flex items-start gap-3 rounded-xl border border-accent-indigo/30 bg-accent-indigo/10 px-4 py-3 text-sm text-text-secondary"
+                  role="status"
+                >
+                  <Info size={18} className="shrink-0 text-accent-indigo mt-0.5" aria-hidden="true" />
+                  <p className="flex-1">
+                    Arrastra las tarjetas de la librería a los huecos del tablero, o pulsa
+                    <strong className="text-text-primary mx-1">Aleatorio</strong>
+                    para distribuirlas automáticamente. Cuando todas estén colocadas y hayas elegido un alumno, podrás
+                    <strong className="text-text-primary mx-1">Iniciar Partida</strong>.
+                  </p>
+                  <button
+                    type="button"
+                    onClick={dismissHint}
+                    className="shrink-0 rounded-lg p-1 text-text-muted hover:text-text-primary hover:bg-white/5 transition-colors"
+                    aria-label="Cerrar instrucciones"
+                  >
+                    <X size={16} />
+                  </button>
+                </motion.div>
+              )}
+            </AnimatePresence>
+
             <header className="flex justify-between items-center mb-6 shrink-0">
                 <div>
                     <h1 className="text-2xl font-bold text-text-primary font-display">Configuración del Tablero</h1>
@@ -447,7 +503,7 @@ function CardView({ card, isOverlay, variant = 'default' }) {
                     className="size-16 rounded-xl mb-2"
                     fit="cover"
                     fallbackClassName="text-4xl"
-                    fallbackLabel={card.icon || '🎴'}
+                    fallbackLabel={card.icon || card.label?.charAt(0)?.toUpperCase() || '?'}
                   />
                   <div className="text-text-primary font-bold text-xs text-center leading-tight bg-background-base/50 px-2 py-1 rounded-full">{card.label}</div>
              </div>
@@ -469,7 +525,7 @@ function CardView({ card, isOverlay, variant = 'default' }) {
             />
             <div>
                 <div className="text-text-primary font-bold text-sm leading-tight">{card.label}</div>
-                <div className="text-text-muted text-xs font-mono opacity-0 group-hover:opacity-100 transition-opacity" title={card.uid}>{card.uid}</div>
+                <div className="text-text-muted text-xs font-mono" title={card.uid}>{card.uid}</div>
             </div>
         </div>
     )

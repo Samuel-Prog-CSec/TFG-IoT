@@ -18,7 +18,7 @@ import CardAssetPreview from '../ui/CardAssetPreview';
  *  - Tono neutro (no warning): el aviso superior usa mano indicativa, no alerta.
  *  - Feedback tactil: scale 0.92 y background pulse al tocar (whileTap).
  */
-export default function FallbackTouchPanel({ cards, onSelectCard, onPauseRequest, canPause }) {
+export default function FallbackTouchPanel({ cards, round = 1, onSelectCard, onPauseRequest, canPause }) {
   const visibleCards = Array.isArray(cards) ? cards.slice(0, 12) : [];
 
   // Numero de columnas adaptativo: con 2-4 cartas una fila compacta, con mas
@@ -45,7 +45,9 @@ export default function FallbackTouchPanel({ cards, onSelectCard, onPauseRequest
         >
           {visibleCards.map(card => (
             <motion.button
-              key={`fallback-card-${card.uid}`}
+              // Key incluye round para forzar re-mount de CardAssetPreview entre rondas
+              // y asi sanear el estado interno si una imagen fallo en la ronda anterior.
+              key={`fallback-card-${card.uid}-r${round}`}
               type="button"
               onClick={() => onSelectCard(card)}
               // TOKEN-EXCEPTION: Framer Motion whileTap requires direct color value for interpolation
@@ -61,6 +63,10 @@ export default function FallbackTouchPanel({ cards, onSelectCard, onPauseRequest
                 fit="contain"
                 loading="eager"
                 fallbackLabel={card.assignedValue || card.uid}
+                // Cuando el panel fallback esta en pantalla, el alumno necesita
+                // leer el nombre grande si la imagen no llega a cargar tras
+                // los retries, porque es su unica forma de asociar.
+                largeFallback
               />
             </motion.button>
           ))}
@@ -82,6 +88,7 @@ export default function FallbackTouchPanel({ cards, onSelectCard, onPauseRequest
 
 FallbackTouchPanel.propTypes = {
   cards: PropTypes.array,
+  round: PropTypes.number,
   onSelectCard: PropTypes.func.isRequired,
   onPauseRequest: PropTypes.func.isRequired,
   canPause: PropTypes.bool

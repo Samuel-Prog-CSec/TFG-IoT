@@ -110,7 +110,7 @@ vi.mock('../../services/api', () => ({
         data: [
           {
             id: 'session-1',
-            status: 'created',
+            status: 'completed',
             deck: { name: 'Deck test' },
             mechanic: { name: 'association', displayName: 'Asociación' },
             context: { name: 'Animales' },
@@ -119,7 +119,10 @@ vi.mock('../../services/api', () => ({
               numberOfRounds: 5,
               timeLimit: 15,
               pointsPerCorrect: 10
-            }
+            },
+            // playStats fuerza action 'clone' (P28 helper getPrimaryActionForSession):
+            // sesion con partidas previas → boton "Volver a jugar"
+            playStats: { playsCount: 3, averageScore: 72 }
           }
         ],
         pagination: { page: 1, totalPages: 1 }
@@ -157,7 +160,7 @@ describe('SessionsPage clone action', () => {
 
     await screen.findByText('Deck test');
 
-    const cloneButton = screen.getByRole('button', { name: /clonar y jugar/i });
+    const cloneButton = screen.getByRole('button', { name: /volver a jugar/i });
     await user.click(cloneButton);
 
     await user.click(screen.getByRole('button', { name: /clonar sesión/i }));
@@ -189,7 +192,7 @@ describe('SessionsPage clone action', () => {
 
     await screen.findByText('Deck test');
 
-    const cloneButton = screen.getByRole('button', { name: /clonar y jugar/i });
+    const cloneButton = screen.getByRole('button', { name: /volver a jugar/i });
     await user.click(cloneButton);
     await user.click(screen.getByRole('button', { name: /clonar sesión/i }));
 

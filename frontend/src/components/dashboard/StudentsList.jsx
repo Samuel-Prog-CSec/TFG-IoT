@@ -3,7 +3,7 @@ import { motion } from 'framer-motion';
 import { useNavigate } from 'react-router-dom';
 import { ChevronRight } from 'lucide-react';
 import PropTypes from 'prop-types';
-import { staggerItem, cn } from '../../lib/utils';
+import { staggerItem, staggerContainer, cn } from '../../lib/utils';
 
 /**
  * Obtiene el color RAG segun el tier del estudiante
@@ -83,7 +83,13 @@ function StudentsList({ students }) {
       </header>
 
       {hasStudents ? (
-        <ol aria-label="Lista de mejores estudiantes" className="space-y-3">
+        <motion.ol
+          aria-label="Lista de mejores estudiantes"
+          className="space-y-3"
+          variants={staggerContainer}
+          initial="hidden"
+          animate="show"
+        >
           {topStudents.map((student, index) => {
             const tierBadge = getTierBadge(student.tier);
             return (
@@ -96,7 +102,7 @@ function StudentsList({ students }) {
                 role="button"
                 tabIndex={0}
                 onKeyDown={(e) => { if (e.key === 'Enter') navigate(`/students/${student.studentId || student._id}`); }}
-                aria-label={`${student.name}, puntuacion ${Math.round(student.studentMetrics?.averageScore || student.averageScore || 0)}`}
+                aria-label={`${student.name}, puntuación ${Math.round(student.studentMetrics?.averageScore || student.averageScore || 0)}`}
               >
                 <div className="flex items-center gap-3">
                   {/* Rank Badge */}
@@ -108,7 +114,7 @@ function StudentsList({ students }) {
                       index === 2 && "bg-error-base/20 text-error-base",
                       index > 2 && "bg-background-surface/50 text-text-muted"
                     )}
-                    aria-label={`Posicion ${index + 1}`}
+                    aria-label={`Posición ${index + 1}`}
                   >
                     {index + 1}
                   </span>
@@ -154,11 +160,11 @@ function StudentsList({ students }) {
               </motion.li>
             );
           })}
-        </ol>
+        </motion.ol>
       ) : (
         <div className="flex flex-col items-center justify-center py-8 text-center">
-          <p className="text-text-muted text-sm">Aun no hay datos de estudiantes.</p>
-          <p className="text-text-disabled text-xs mt-1">Los datos apareceran cuando los alumnos jueguen partidas.</p>
+          <p className="text-text-muted text-sm">Aún no hay datos de estudiantes.</p>
+          <p className="text-text-disabled text-xs mt-1">Los datos aparecerán cuando los alumnos jueguen partidas.</p>
         </div>
       )}
 

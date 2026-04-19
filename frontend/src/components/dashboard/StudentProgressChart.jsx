@@ -8,10 +8,15 @@ const PERIOD_OPTIONS = [
   { value: '30d', label: 'Últimos 30 días' },
 ];
 
-export default function StudentProgressChart({ data, period = '7d', onPeriodChange }) {
+export default function StudentProgressChart({ data, period = '7d', onPeriodChange, omitPeriodSelector = false }) {
+  // Cuando el rango ya esta controlado por un toolbar global (Dashboard),
+  // omitimos el selector interno para evitar duplicar el control
+  // ("Ultimos 7 dias" mostrado dos veces — bug PROP-37 / fix PROP-43).
+  const sectionPeriodChange = omitPeriodSelector ? undefined : onPeriodChange;
+
   if (!data || data.length === 0) {
     return (
-      <ChartSection title="Rendimiento de Clase (Tendencia)" period={period} onPeriodChange={onPeriodChange} periodOptions={PERIOD_OPTIONS}>
+      <ChartSection title="Rendimiento de Clase (Tendencia)" period={period} onPeriodChange={sectionPeriodChange} periodOptions={PERIOD_OPTIONS}>
         <EmptyState
           title="Sin datos disponibles"
           description="No hay datos de rendimiento para el periodo seleccionado."
@@ -22,9 +27,9 @@ export default function StudentProgressChart({ data, period = '7d', onPeriodChan
   }
 
   return (
-    <ChartSection title="Rendimiento de Clase (Tendencia)" period={period} onPeriodChange={onPeriodChange} periodOptions={PERIOD_OPTIONS}>
-      <div className="h-[300px] w-full -ml-4 sm:ml-0">
-        <ResponsiveContainer width="100%" height="100%" minWidth={0} minHeight={0}>
+    <ChartSection title="Rendimiento de Clase (Tendencia)" period={period} onPeriodChange={sectionPeriodChange} periodOptions={PERIOD_OPTIONS}>
+      <div className="h-[300px] w-full -ml-4 sm:ml-0 min-h-[300px]">
+        <ResponsiveContainer width="100%" height="100%" minWidth={0} minHeight={0} debounce={50}>
           <AreaChart data={data} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
             <defs>
               <linearGradient id="colorScore" x1="0" y1="0" x2="0" y2="1">
@@ -64,21 +69,36 @@ export default function StudentProgressChart({ data, period = '7d', onPeriodChan
               }}
               itemStyle={{ color: 'var(--color-text-primary)' }}
               labelStyle={{ color: 'var(--color-text-muted)', fontWeight: 600, marginBottom: '8px' }}
-              formatter={(value) => [`${Math.round(value)}%`, 'Promedio']}
+              // Cuando el dia no tiene datos (PROP-26), score y classAverage
+              // son null. Mostrar "Sin partidas" en lugar de "NaN%".
+              formatter={(value, name) => {
+                if (value === null || value === undefined) return ['Sin partidas', name];
+                return [`${Math.round(value)}%`, name];
+              }}
               labelFormatter={(label) => formatDate(label, 'weekday')}
             />
             <Area
               type="monotone"
               dataKey="classAverage"
               name="Promedio Clase"
-              stroke="var(--color-text-secondary)"
-              strokeWidth={3}
+              stroke="var(--color-text-muted)"
+              strokeWidth={1.5}
+              strokeDasharray="4 4"
               fill="url(#colorClass)"
-              activeDot={{ r: 6, fill: "var(--color-brand-light)", stroke: "var(--color-background-elevated)", strokeWidth: 2 }}
+              activeDot={false}
+              dot={false}
+              connectNulls={false}
             />
             <Area
               type="monotone"
-              dataKey="score" 
+              dataKey="score"
+              name="Puntuación"
+              stroke="var(--color-brand-base)"
+              strokeWidth={2.5}
+              fill="url(#colorScore)"
+              dot={{ r: 3, fill: 'var(--color-brand-base)', stroke: 'var(--color-background-elevated)', strokeWidth: 2 }}
+              activeDot={{ r: 6, fill: 'var(--color-brand-light)', stroke: 'var(--color-background-elevated)', strokeWidth: 2 }}
+              connectNulls={false}
             />
           </AreaChart>
         </ResponsiveContainer>

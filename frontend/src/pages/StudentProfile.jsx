@@ -23,6 +23,7 @@ import StrengthsWeaknesses from '../components/analytics/StrengthsWeaknesses';
 import EngagementRadar from '../components/analytics/EngagementRadar';
 import ScrollRevealSection from '../components/ui/ScrollRevealSection';
 import { TIER_CONFIG, scoreToRAG, scoreToTier } from '../constants/analyticsThresholds';
+import { formatRelativeTime } from '../lib/dateUtils';
 
 // Calcula dias transcurridos desde una fecha; nunca devuelve negativo (las fechas
 // futuras de fixtures/seeders se tratan como "hoy" para evitar etiquetas como "Hace -1 dias").
@@ -32,14 +33,11 @@ const daysSince = (dateStr) => {
   return Math.max(0, Math.floor(diff));
 };
 
+// getRelativeTime usa el helper centralizado en lib/dateUtils.js (P25)
+// y degrada a "Sin actividad" cuando no hay fecha.
 const getRelativeTime = (dateStr) => {
-  const diffDays = daysSince(dateStr);
-  if (diffDays === null) return 'Sin actividad';
-  if (diffDays === 0) return 'Hoy';
-  if (diffDays === 1) return 'Ayer';
-  if (diffDays < 7) return `Hace ${diffDays} dias`;
-  if (diffDays < 30) return `Hace ${Math.floor(diffDays / 7)} semanas`;
-  return `Hace ${Math.floor(diffDays / 30)} meses`;
+  if (!dateStr) return 'Sin actividad';
+  return formatRelativeTime(dateStr);
 };
 
 const getActivityColor = (dateStr) => {
@@ -261,9 +259,9 @@ export default function StudentProfile() {
           value={timeRange}
           onChange={setTimeRange}
           options={[
-            { value: '7d', label: 'Ultimos 7 dias' },
-            { value: '30d', label: 'Ultimos 30 dias' },
-            { value: '90d', label: 'Ultimos 90 dias' },
+            { value: '7d', label: 'Últimos 7 días' },
+            { value: '30d', label: 'Últimos 30 días' },
+            { value: '90d', label: 'Últimos 90 días' },
           ]}
           className="w-48"
         />
@@ -279,7 +277,7 @@ export default function StudentProfile() {
         <div className="grid grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-3 lg:gap-4">
           <motion.div variants={shouldReduceMotion ? {} : listItemVariants}>
             <StudentKPICard
-              label="Puntuacion Media"
+              label="Puntuación Media"
               value={Math.round(metrics.averageScore || 0)}
               suffix="%"
               ragStatus={scoreToRAG(metrics.averageScore || 0)}
@@ -365,7 +363,7 @@ export default function StudentProfile() {
         </div>
       </div>
 
-      {/* ═══════ Rendimiento por Contexto y por Mecanica ═══════ */}
+      {/* ═══════ Rendimiento por Contexto y por Mecánica ═══════ */}
       <ScrollRevealSection>
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
           <PerformanceByDimension
@@ -374,7 +372,7 @@ export default function StudentProfile() {
             dimension="context"
           />
           <PerformanceByDimension
-            title="Rendimiento por Mecanica"
+            title="Rendimiento por Mecánica"
             data={summary?.performanceByMechanic}
             dimension="mechanic"
           />

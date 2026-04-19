@@ -125,8 +125,8 @@ function TrajectoryChart({ trajectoryData, classComparison, title = 'Trayectoria
         )}
       </div>
 
-      <div className="h-[250px] w-full -ml-2">
-        <ResponsiveContainer width="100%" height="100%" minWidth={0} minHeight={0}>
+      <div className="h-[250px] w-full -ml-2 min-h-[250px]">
+        <ResponsiveContainer width="100%" height="100%" minWidth={0} minHeight={0} debounce={50}>
           <LineChart data={chartData} margin={{ top: 5, right: 10, left: 0, bottom: 5 }}>
             <CartesianGrid
               stroke="var(--color-border-subtle)"
@@ -141,6 +141,8 @@ function TrajectoryChart({ trajectoryData, classComparison, title = 'Trayectoria
             />
             <YAxis
               domain={[0, 100]}
+              allowDataOverflow
+              ticks={[0, 25, 50, 75, 100]}
               tick={{ fill: 'var(--color-text-muted)', fontSize: 11 }}
               tickLine={false}
               axisLine={false}

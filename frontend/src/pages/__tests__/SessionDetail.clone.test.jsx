@@ -174,7 +174,7 @@ describe('SessionDetail clone action', () => {
 
     await screen.findByRole('heading', { name: /deck detail/i });
 
-    const cloneButton = screen.getByRole('button', { name: /clonar y jugar/i });
+    const cloneButton = screen.getByRole('button', { name: /volver a jugar/i });
     await user.click(cloneButton);
 
     await user.click(screen.getByRole('button', { name: /clonar sesión/i }));

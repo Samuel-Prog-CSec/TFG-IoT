@@ -67,7 +67,7 @@ export default function StepDeck({ decks, loading, selectedDeckId, onSelect }) {
           Selecciona un Mazo
         </h2>
         <p className="text-text-muted text-sm">
-          El mazo determina las tarjetas RFID y los assets que se usaran en el juego
+          El mazo determina las tarjetas RFID y los assets que se usarán en el juego
         </p>
       </div>
 

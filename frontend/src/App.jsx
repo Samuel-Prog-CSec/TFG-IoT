@@ -5,7 +5,7 @@
  * @module App
  */
 
-import { BrowserRouter, Routes, Route } from 'react-router-dom';
+import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { lazy, Suspense, memo } from 'react';
 import PropTypes from 'prop-types';
 import { Toaster } from 'sonner';
@@ -152,25 +152,30 @@ function AppContent() {
           <Route path="analytics/students" element={<RequireRole roles="teacher" redirectTo={ROUTES.ADMIN_APPROVALS}><SuspenseWrapper><StudentsAnalytics /></SuspenseWrapper></RequireRole>} />
           <Route path="analytics/insights" element={<RequireRole roles="teacher" redirectTo={ROUTES.ADMIN_APPROVALS}><SuspenseWrapper><InsightsReports /></SuspenseWrapper></RequireRole>} />
 
-          {/* Ruta exclusiva de admin */}
-          <Route path="students/transfer" element={
-            <RequireRole roles="super_admin">
-              <SuspenseWrapper><TransferStudents /></SuspenseWrapper>
-            </RequireRole>
-          } />
+          {/* Redirect del path antiguo /students/transfer al canónico /admin/students/transfer
+              para no romper bookmarks externos tras la unificación de URLs admin (PROP-56). */}
+          <Route path="students/transfer" element={<Navigate to="/admin/students/transfer" replace />} />
+
+          {/* 404 dentro del layout para usuarios autenticados — preserva sidebar
+              y header para que el usuario no pierda contexto de navegación (PROP-50). */}
+          <Route path="*" element={<SuspenseWrapper><NotFound /></SuspenseWrapper>} />
         </Route>
 
         {/* RUTAS DE ADMIN */}
         <Route path="/admin" element={<ProtectedRoute><RequireRole roles="super_admin"><AppLayout /></RequireRole></ProtectedRoute>}>
           <Route path="approvals" element={<SuspenseWrapper><ApprovalPanel /></SuspenseWrapper>} />
           <Route path="students" element={<SuspenseWrapper><StudentManagement /></SuspenseWrapper>} />
+          <Route path="students/transfer" element={<SuspenseWrapper><TransferStudents /></SuspenseWrapper>} />
           <Route path="contexts" element={<SuspenseWrapper><AdminContexts /></SuspenseWrapper>} />
+          {/* 404 dentro del layout admin */}
+          <Route path="*" element={<SuspenseWrapper><NotFound /></SuspenseWrapper>} />
         </Route>
 
         {/* RUTAS DE JUEGO */}
         <Route path="/game/:sessionId" element={<ProtectedRoute><SuspenseWrapper><GameSession /></SuspenseWrapper></ProtectedRoute>} />
 
-        {/* FALLBACK — 404 */}
+        {/* FALLBACK — 404 standalone para usuarios sin sesión.
+            Los catch-all dentro de los layouts protegidos cubren a los autenticados. */}
         <Route path="*" element={<SuspenseWrapper><NotFound /></SuspenseWrapper>} />
       </Routes>
 

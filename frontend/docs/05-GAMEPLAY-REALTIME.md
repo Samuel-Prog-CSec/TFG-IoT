@@ -155,3 +155,12 @@ Escenarios cubiertos:
 npm run test
 npx eslint src/pages/GameSession.jsx src/pages/__tests__/GameSession.test.jsx vitest.config.js src/test/setup.js
 ```
+
+## Modos de interacción por mecánica (PROP-57)
+
+Cuando el lector RFID no está conectado (`!rfidConnected`), `GameSession.jsx` decide qué UI alternativa de input mostrar según la mecánica activa:
+
+- **Asociación** (`!sessionIsMemory && !rfidConnected`): renderiza `<FallbackTouchPanel>` con las cartas del mazo en una grid 3-6 cols clicables. El alumno toca la carta correcta para responder al desafío central.
+- **Memoria** (`sessionIsMemory && !rfidConnected`): **NO** renderiza `<FallbackTouchPanel>` porque el `<MemoryBoard>` ya es clicable directamente (cada celda del tablero es un botón que voltea la carta). En su lugar muestra un hint compacto en `accent-indigo`: *"Toca las cartas del tablero para jugar"*. Mostrar el FallbackTouchPanel adicional en Memoria duplicaría la interacción y confundiría al alumno (decisión documentada en QA del 19/04/2026 — PROP-57).
+
+Razón de fondo: el FallbackTouchPanel está diseñado como *panel de selección* (responder a una consigna eligiendo entre N opciones), no como *panel de revelación* (voltear cartas). Memoria usa el modelo de revelación, así que su input nativo es el propio tablero.

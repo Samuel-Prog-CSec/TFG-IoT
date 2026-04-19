@@ -258,14 +258,20 @@ export default function AppLayout() {
         {/* Subtle Grid Pattern for Depth */}
         <div className="absolute inset-0 bg-grid opacity-20 pointer-events-none" />
 
-        {/* Page Content — crossfade con slide-up sutil */}
+        {/* Page Content — crossfade con slide-up sutil.
+            mode="popLayout" permite que la entrada de la nueva pagina comience
+            mientras la anterior sale, evitando que el motion.div quede atascado
+            en el estado exit (bug observado en React 19 + AnimatePresence wait).
+            El exit incluye pointerEvents: 'none' para evitar que el wrapper
+            saliente intercepte clicks en la pagina entrante cuando StrictMode
+            deja ambos montados simultaneamente (QA 18/04/2026 tarde). */}
         <div className="relative z-10 w-full min-h-full">
-          <AnimatePresence mode="wait">
+          <AnimatePresence mode="popLayout" initial={false}>
             <motion.div
               key={location.pathname}
               initial={shouldReduceMotion ? false : { opacity: 0, y: 8 }}
-              animate={{ opacity: 1, y: 0 }}
-              exit={shouldReduceMotion ? undefined : { opacity: 0, y: -6 }}
+              animate={{ opacity: 1, y: 0, pointerEvents: 'auto' }}
+              exit={shouldReduceMotion ? { pointerEvents: 'none' } : { opacity: 0, y: -6, pointerEvents: 'none' }}
               transition={{ duration: 0.25, ease: [0.16, 1, 0.3, 1] }}
               className="w-full"
             >
@@ -279,42 +285,54 @@ export default function AppLayout() {
 }
 
 function NavItem({ to, icon, label }) {
+  // Rutas "hijas" que deben activar el mismo item del sidebar.
+  // Ej: /students/:id es parte del area "Mis Alumnos" (listado en /analytics/students).
+  const location = useLocation();
+  const isParentOf = to === '/analytics/students' && location.pathname.startsWith('/students/');
+
+  // Forzar match exacto en /admin/students para que /admin/students/transfer
+  // no marque ALSO el item "Alumnos" (que comparte prefix con "Transferencias").
+  const exactMatch = to === '/admin/students';
+
   return (
     <NavLink
       to={to}
+      end={exactMatch}
       className={({ isActive }) =>
         cn(
           'flex items-center gap-3 px-4 py-3 rounded-xl transition-colors duration-200 group relative overflow-hidden',
-          isActive
+          (isActive || isParentOf)
             ? 'text-brand-light font-medium bg-brand-base/10 border border-brand-base/20'
             : 'text-text-secondary hover:text-text-primary hover:bg-background-surface/50 font-medium'
         )
       }
     >
-      {({ isActive }) => (
-        <motion.div
-          className="flex items-center gap-3 w-full"
-          whileHover={!isActive ? { x: 4 } : {}}
-          transition={motionConfig.spring}
-        >
-          {/* Active indicator bar */}
-          {isActive && (
-            <motion.div
-              layoutId="activeIndicator"
-              className="absolute left-0 top-1/2 -translate-y-1/2 w-1 h-8 bg-gradient-to-b from-brand-light to-brand-base rounded-r-full shadow-[0_0_10px_var(--color-brand-glow)]"
-              transition={motionConfig.spring}
-            />
-          )}
+      {({ isActive }) => {
+        const active = isActive || isParentOf;
+        return (
+          <motion.div
+            className="flex items-center gap-3 w-full"
+            whileHover={!active ? { x: 4 } : {}}
+            transition={motionConfig.spring}
+          >
+            {active && (
+              <motion.div
+                layoutId="activeIndicator"
+                className="absolute left-0 top-1/2 -translate-y-1/2 w-1 h-8 bg-gradient-to-b from-brand-light to-brand-base rounded-r-full shadow-[0_0_10px_var(--color-brand-glow)]"
+                transition={motionConfig.spring}
+              />
+            )}
 
-          <span className={cn(
-            'relative z-10 transition-transform duration-200',
-            isActive ? 'text-brand-light' : 'text-text-muted group-hover:text-text-primary'
-          )}>
-            {icon}
-          </span>
-          <span className="relative z-10 text-sm">{label}</span>
-        </motion.div>
-      )}
+            <span className={cn(
+              'relative z-10 transition-transform duration-200',
+              active ? 'text-brand-light' : 'text-text-muted group-hover:text-text-primary'
+            )}>
+              {icon}
+            </span>
+            <span className="relative z-10 text-sm">{label}</span>
+          </motion.div>
+        );
+      }}
     </NavLink>
   );
 }

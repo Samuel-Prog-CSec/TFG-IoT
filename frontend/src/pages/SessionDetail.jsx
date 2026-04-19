@@ -296,7 +296,7 @@ export default function SessionDetail() {
               >
                 <Timer size={16} />
                 <span className="sm:hidden">Clonar</span>
-                <span className="hidden sm:inline">Clonar y jugar</span>
+                <span className="hidden sm:inline">Volver a jugar</span>
               </ButtonPremium>
             )}
             <div className="border-l border-border-default h-8 mx-1" />
@@ -405,7 +405,7 @@ export default function SessionDetail() {
                   <span>Dificultad</span>
                 </div>
                 <p className="text-text-primary text-xl font-semibold font-display mt-2">
-                  {{ easy: 'Fácil', medium: 'Media', hard: 'Difícil' }[session.difficulty] || session.difficulty}
+                  {{ easy: 'Fácil', medium: 'Media', hard: 'Difícil', custom: 'Personalizada' }[session.difficulty] || session.difficulty}
                 </p>
               </div>
             </div>
@@ -501,7 +501,7 @@ export default function SessionDetail() {
                       )}
                     </div>
                     <p className="text-sm text-text-primary font-semibold">{label}</p>
-                    <p className="text-xs text-text-muted opacity-0 group-hover:opacity-100 transition-opacity font-mono" title={mapping.uid}>{mapping.uid}</p>
+                    <p className="text-xs text-text-muted font-mono" title={mapping.uid}>{mapping.uid}</p>
                   </motion.div>
                 );
               })}

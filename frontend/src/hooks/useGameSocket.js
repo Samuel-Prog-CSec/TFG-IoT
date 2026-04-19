@@ -29,7 +29,12 @@ const SOCKET_ERROR_MESSAGES = {
   RFID_MODE_TAKEN_OVER: 'Otra ventana tomó el control del lector. Usa solo esta ventana.',
   FORBIDDEN: 'No tienes permisos para ejecutar esta acción.',
   AUTH_REQUIRED: 'Tu sesión expiró. Inicia sesión de nuevo.',
-  ENGINE_ERROR: 'Algo salió mal. Inténtalo de nuevo o avisa al profesor.'
+  ENGINE_ERROR: 'Algo salió mal. Inténtalo de nuevo o avisa al profesor.',
+  // Codigos de socketRateLimiter — mensajes user-friendly para audiencia infantil
+  RATE_LIMITED: 'Espera un momento entre intentos.',
+  TEMP_BLOCKED: 'Has ido demasiado rápido. Espera unos segundos antes de continuar.',
+  PAYLOAD_TOO_LARGE: 'Hubo un problema con tu acción. Inténtalo de nuevo.',
+  DUPLICATE_RFID_EVENT: 'Espera un momento antes del siguiente escaneo.'
 };
 
 const SCAN_IGNORED_MESSAGES = {

@@ -193,8 +193,13 @@ export default function MemoryBoard({ board, feedbackState, feedbackPoints, feed
               )}>
                 {/* Cara trasera decorativa: patron de dots + degradado brand.
                     Sustituye al "?" plano anterior — es mas satisfactorio
-                    visualmente al voltearse y comunica "carta de baraja". */}
-                <div className="memory-card-face w-full h-full rounded-lg overflow-hidden relative flex items-center justify-center select-none bg-gradient-to-br from-brand-dark via-accent-indigo to-brand-base">
+                    visualmente al voltearse y comunica "carta de baraja".
+                    aria-hidden cuando la carta esta boca arriba para que el
+                    lector no lea "patron decorativo" sobre el contenido util. */}
+                <div
+                  className="memory-card-face w-full h-full rounded-lg overflow-hidden relative flex items-center justify-center select-none bg-gradient-to-br from-brand-dark via-accent-indigo to-brand-base"
+                  aria-hidden={isOpen ? 'true' : undefined}
+                >
                   {/* Capa de patron de dots */}
                   <div
                     className="absolute inset-0 opacity-[0.22]"
@@ -215,13 +220,21 @@ export default function MemoryBoard({ board, feedbackState, feedbackPoints, feed
                     ✦
                   </span>
                 </div>
-                {/* Cara frontal (contenido) */}
-                <div className="memory-card-back w-full h-full rounded-lg p-2 flex items-center justify-center bg-background-elevated/40">
+                {/* Cara frontal (contenido).
+                    aria-hidden cuando la carta NO esta abierta para evitar que el
+                    lector de pantalla lea el contenido de cartas boca abajo y
+                    "haga trampas" en la mecanica de memoria (a11y fix P24).
+                    alt="" en la img refuerza el ocultado. */}
+                <div
+                  className="memory-card-back w-full h-full rounded-lg p-2 flex items-center justify-center bg-background-elevated/40"
+                  aria-hidden={isOpen ? undefined : 'true'}
+                >
                   <CardAssetPreview
-                    asset={slot.displayData || { display: slot.assignedValue || '🎴' }}
+                    asset={slot.displayData || { display: slot.assignedValue || '?' }}
+                    alt={isOpen ? (slot.assignedValue || '') : ''}
                     className="w-full h-full rounded-lg"
                     loading="eager"
-                    fallbackLabel={slot.displayData?.display || slot.assignedValue || '🎴'}
+                    fallbackLabel={slot.displayData?.display || slot.assignedValue || '?'}
                   />
                 </div>
               </div>

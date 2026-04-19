@@ -23,9 +23,9 @@ import { DIFFICULTY_VARIANT_STYLES } from './sessionHelpers';
 import { configShape, cardMappingShape, challengePlanItemShape } from './sessionPropTypes';
 
 const DIFFICULTIES = [
-  { id: 'easy', label: 'Facil', description: 'Mas tiempo, sin penalizacion' },
-  { id: 'medium', label: 'Normal', description: 'Configuracion equilibrada' },
-  { id: 'hard', label: 'Dificil', description: 'Menos tiempo, mas penalizacion' }
+  { id: 'easy', label: 'Fácil', description: 'Más tiempo, sin penalización' },
+  { id: 'medium', label: 'Normal', description: 'Configuración equilibrada' },
+  { id: 'hard', label: 'Difícil', description: 'Menos tiempo, más penalización' }
 ];
 
 /**
@@ -118,7 +118,7 @@ export default function StepRules({
       {/* Configuracion manual */}
       <GlassCard className="p-6">
         <h2 className="text-lg font-semibold text-text-primary mb-4">
-          Configuracion Detallada
+          Configuración Detallada
         </h2>
 
         <div className="space-y-5">
@@ -126,7 +126,7 @@ export default function StepRules({
           <div>
             <label htmlFor="assoc-num-rounds" className="flex items-center gap-2 text-sm text-text-secondary mb-2">
               <Target size={14} className="text-accent-indigo" />
-              Numero de rondas
+              Número de rondas
             </label>
             <div className="flex items-center gap-4">
               <input
@@ -194,7 +194,7 @@ export default function StepRules({
           <div>
             <label htmlFor="assoc-penalty-error" className="flex items-center gap-2 text-sm text-text-secondary mb-2">
               <AlertTriangle size={14} className="text-error-base" />
-              Penalizacion por error
+              Penalización por error
             </label>
             <div className="flex items-center gap-4">
               <input
@@ -214,17 +214,17 @@ export default function StepRules({
         </div>
       </GlassCard>
 
-      {/* T-009: Vincular Sensor RFID */}
+      {/* Vincular Sensor RFID — anclar la sesion a un lector especifico */}
       <GlassCard className="p-6 lg:col-span-2">
         <div className="flex flex-col md:flex-row md:items-center justify-between gap-6">
           <div className="flex-1">
             <h2 className="text-lg font-semibold text-text-primary mb-2 flex items-center gap-2">
               <Wifi size={20} className="text-accent-indigo" />
-              Vincular Sensor RFID (T-009)
+              Vincular Sensor RFID
             </h2>
             <p className="text-sm text-text-muted">
-              Si activas esta opcion, solo las lecturas provenientes de tu sensor actual
-              seran validas para esta sesion. Util en entornos con multiples sensores simultaneos.
+              Si activas esta opción, solo las lecturas provenientes de tu sensor actual
+              serán válidas para esta sesión. Útil en entornos con múltiples sensores simultáneos.
             </p>
           </div>
 

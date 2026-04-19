@@ -31,21 +31,21 @@ export default function StepReview({ sessionConfig, setSessionConfig, selectedDe
       {/* Nombre de la sesion */}
       <GlassCard className="p-6">
         <h2 className="text-lg font-semibold text-text-primary mb-4">
-          Nombre de la Sesion
+          Nombre de la Sesión
         </h2>
         <InputPremium
           value={sessionConfig.name}
           onChange={(e) => setSessionConfig(prev => ({ ...prev, name: e.target.value }))}
           placeholder="Ej: Capitales de Europa - Nivel 1"
           maxLength={100}
-          helperText="Un nombre descriptivo ayuda a identificar la sesion"
+          helperText="Un nombre descriptivo ayuda a identificar la sesión"
         />
       </GlassCard>
 
       {/* Resumen de configuracion */}
       <GlassCard className="p-6">
         <h2 className="text-lg font-semibold text-text-primary mb-4">
-          Resumen de Configuracion
+          Resumen de Configuración
         </h2>
 
         <div className="space-y-4">
@@ -95,7 +95,7 @@ export default function StepReview({ sessionConfig, setSessionConfig, selectedDe
               <Layers size={18} className="text-brand-light" />
             </div>
             <div>
-              <p className="text-xs text-text-muted">Mecanica</p>
+              <p className="text-xs text-text-muted">Mecánica</p>
               <p className="text-text-primary font-medium">
                 {selectedMechanic?.displayName || selectedMechanic?.name || 'No seleccionada'}
               </p>
@@ -108,7 +108,7 @@ export default function StepReview({ sessionConfig, setSessionConfig, selectedDe
               <Settings size={18} className="text-success-base" />
             </div>
             <div className="flex-1">
-              <p className="text-xs text-text-muted">Configuracion</p>
+              <p className="text-xs text-text-muted">Configuración</p>
               <div className="grid grid-cols-2 gap-2 mt-1 text-sm">
                 {isMemory ? (
                   /* Memoria: tiempo total (sin rondas) */

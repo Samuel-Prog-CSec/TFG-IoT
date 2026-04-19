@@ -695,22 +695,22 @@ export default function StudentManagement() {
                   </div>
 
                   <div className="mt-auto pt-4 border-t border-border-subtle space-y-3">
-                    <div className="flex items-center justify-between">
-                      <span className="text-xs uppercase tracking-wider text-text-muted font-bold">Profesor</span>
+                    <div className="flex items-center justify-between gap-3">
+                      <span className="text-xs uppercase tracking-wider text-text-muted font-bold shrink-0">Profesor</span>
                       <span className="text-xs text-text-primary font-medium truncate max-w-[160px]">
                         {/* createdBy puede venir poblado ({id, name}) o como string ObjectId.
                             Si es objeto, mostramos el nombre; si es string sin populate o falta, "Sistema". */}
                         {(typeof student.createdBy === 'object' && student.createdBy?.name) || 'Sistema'}
                       </span>
                     </div>
-                    <div className="flex items-center justify-between">
-                      <span className="text-xs uppercase tracking-wider text-text-muted font-bold">Estado</span>
+                    <div className="flex items-center justify-between gap-3">
+                      <span className="text-xs uppercase tracking-wider text-text-muted font-bold shrink-0">Estado</span>
                       <StatusBadge status={student.status === 'active' ? 'success' : 'inactive'} size="sm">
                         {student.status === 'active' ? 'Activo' : 'Inactivo'}
                       </StatusBadge>
                     </div>
-                    <div className="flex items-center justify-between">
-                      <span className="text-xs uppercase tracking-wider text-text-muted font-bold">Consentimiento</span>
+                    <div className="flex items-center justify-between gap-3">
+                      <span className="text-xs uppercase tracking-wider text-text-muted font-bold shrink-0">Consentimiento</span>
                       <StatusBadge
                         status={student.consent?.granted ? 'active' : 'error'}
                         size="sm"

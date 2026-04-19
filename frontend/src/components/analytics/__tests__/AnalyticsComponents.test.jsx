@@ -297,9 +297,9 @@ describe('NarrativeCard', () => {
   it('muestra las tres secciones de la narrativa BI', () => {
     render(<NarrativeCard interpretation={fullInterpretation} />);
     // Labels de secciones
-    expect(screen.getByText('Que paso')).toBeTruthy();
-    expect(screen.getByText('Por que importa')).toBeTruthy();
-    expect(screen.getByText('Que hacer')).toBeTruthy();
+    expect(screen.getByText('Qué pasó')).toBeTruthy();
+    expect(screen.getByText('Por qué importa')).toBeTruthy();
+    expect(screen.getByText('Qué hacer')).toBeTruthy();
     // Contenido
     expect(
       screen.getByText('El alumno mejoro un 15% en la ultima semana.')
@@ -416,14 +416,14 @@ describe('EngagementRadar', () => {
   it('muestra estado vacio cuando engagement es null', () => {
     render(<EngagementRadar engagement={null} />);
     expect(
-      screen.getByText(/Sin datos de engagement aun/)
+      screen.getByText(/Sin datos de engagement aún/)
     ).toBeTruthy();
   });
 
   it('muestra estado vacio cuando no hay componentes', () => {
     render(<EngagementRadar engagement={{}} />);
     expect(
-      screen.getByText(/Sin datos de engagement aun/)
+      screen.getByText(/Sin datos de engagement aún/)
     ).toBeTruthy();
   });
 

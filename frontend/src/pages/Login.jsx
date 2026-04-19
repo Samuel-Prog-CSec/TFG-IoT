@@ -9,7 +9,10 @@
 import { useState, useEffect } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
-import { LogIn, Mail, Lock, Eye, EyeOff, AlertCircle, CheckCircle, Info, Clock } from 'lucide-react';
+import {
+  LogIn, Mail, Lock, Eye, EyeOff, AlertCircle, CheckCircle, Info, Clock,
+  Target, BarChart3, ShieldCheck,
+} from 'lucide-react';
 import EduPlayIcon from '../components/icons/EduPlayIcon';
 import { useAuth } from '../context/AuthContext';
 import { useReducedMotion } from '../hooks/useReducedMotion';
@@ -306,10 +309,10 @@ export default function Login() {
           </p>
           <div className="space-y-4">
             {[
-              { icon: '🎯', text: 'Mecánicas de asociación y memoria adaptadas por edades' },
-              { icon: '📊', text: 'Analytics en tiempo real del progreso de cada alumno' },
-              { icon: '🔒', text: 'Protección de datos de menores (RGPD / LOPDGDD)' },
-            ].map((feature, i) => (
+              { Icon: Target, tint: 'text-accent-indigo', text: 'Mecánicas de asociación y memoria adaptadas por edades' },
+              { Icon: BarChart3, tint: 'text-brand-light', text: 'Analytics en tiempo real del progreso de cada alumno' },
+              { Icon: ShieldCheck, tint: 'text-accent-pink', text: 'Protección de datos de menores (RGPD / LOPDGDD)' },
+            ].map(({ Icon, tint, text }, i) => (
               <motion.div
                 key={i}
                 initial={{ opacity: 0, x: -20 }}
@@ -317,8 +320,13 @@ export default function Login() {
                 transition={{ delay: 0.3 + i * 0.1 }}
                 className="flex items-start gap-3"
               >
-                <span className="text-xl flex-shrink-0 mt-0.5">{feature.icon}</span>
-                <span className="text-text-secondary text-sm leading-relaxed">{feature.text}</span>
+                <span
+                  className={`flex-shrink-0 mt-0.5 inline-flex size-8 items-center justify-center rounded-lg bg-white/5 ring-1 ring-white/10 ${tint}`}
+                  aria-hidden="true"
+                >
+                  <Icon className="size-4" strokeWidth={2} />
+                </span>
+                <span className="text-text-secondary text-sm leading-relaxed">{text}</span>
               </motion.div>
             ))}
           </div>

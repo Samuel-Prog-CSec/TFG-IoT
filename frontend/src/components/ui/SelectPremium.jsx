@@ -221,7 +221,10 @@ export default function SelectPremium({
 
               return (
                 <button
-                  key={option.value}
+                  // Combinar value + index para garantizar key unica incluso
+                  // cuando el caller pase opciones con value duplicado (ej:
+                  // filtro "Todos" con value="" + lista de items reales).
+                  key={`${option.value || 'opt'}-${index}`}
                   id={`${id}-option-${index}`}
                   type="button"
                   role="option"

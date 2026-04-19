@@ -102,10 +102,10 @@ const CSV_COLUMNS = [
   { key: 'name', label: 'Nombre' },
   { key: 'classroom', label: 'Aula' },
   { key: 'totalGames', label: 'Partidas' },
-  { key: 'averageScore', label: 'Puntuacion' },
+  { key: 'averageScore', label: 'Puntuación' },
   { key: 'accuracyRate', label: 'Tasa Acierto' },
   { key: 'avgResponseTime', label: 'Tiempo Respuesta' },
-  { key: 'lastPlayedAt', label: 'Ultima Actividad' },
+  { key: 'lastPlayedAt', label: 'Última Actividad' },
   { key: 'tier', label: 'Nivel' },
 ];
 
@@ -506,7 +506,7 @@ export default function StudentsAnalytics() {
             >
               <GlassCard>
                 <h3 className="text-lg font-bold text-text-primary font-display mb-4">
-                  Distribucion de Rendimiento
+                  Distribución de Rendimiento
                 </h3>
                 <div className="h-48">
                   <DistributionChart data={distribution} />
@@ -714,7 +714,8 @@ function StudentRow({ student, navigate }) {
 
       {/* Tier badge */}
       <td className="px-4 py-3 whitespace-nowrap">
-        <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-[11px] font-semibold uppercase tracking-wider border ${tier.className}`}>
+        <span className={`inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[11px] font-semibold uppercase tracking-[0.08em] border ${tier.className}`}>
+          <span className="size-1.5 rounded-full bg-current" aria-hidden="true" />
           {tier.label}
         </span>
       </td>
@@ -746,7 +747,7 @@ function EmptyState({ shouldReduceMotion }) {
         transition={{ delay: 0.15 }}
         className="text-text-muted mt-2 max-w-md mx-auto"
       >
-        Cuando tus alumnos jueguen sus primeras partidas, aqui podras ver su rendimiento y progreso.
+        Cuando tus alumnos jueguen sus primeras partidas, aquí podrás ver su rendimiento y progreso.
       </motion.p>
     </GlassCard>
   );
