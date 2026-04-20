@@ -17,7 +17,8 @@ const {
   verifyRefreshToken,
   markRefreshTokenAsUsed,
   deleteRefreshToken,
-  revokeAllUserTokens
+  revokeAllUserTokens,
+  invalidateUserCache
 } = require('../middlewares/auth');
 const logger = require('../utils/logger');
 const { logSecurityEvent, getRequestContext } = require('../utils/securityLogger');
@@ -241,6 +242,10 @@ const login = async (req, res) => {
   // Actualizar lastLoginAt (esto guarda también el currentSessionId)
   await user.updateLastLogin();
 
+  // Invalidar cache: nuevo login genera nuevo sessionId. Cualquier cache previo
+  // del usuario en otra instancia queda obsoleto y debe re-fetchearse.
+  await invalidateUserCache(user._id);
+
   // Notificar al dispositivo anterior vía WebSocket
   const io = req.app.get('io');
   if (io) {
@@ -324,6 +329,9 @@ const updateProfile = async (req, res) => {
 
   await user.save();
 
+  // Invalidar cache de slim-user para reflejar name/profile actualizados.
+  await invalidateUserCache(user._id);
+
   logger.info('Perfil actualizado', {
     userId: user._id,
     email: user.email
@@ -368,6 +376,10 @@ const changePassword = async (req, res) => {
   user.password = newPassword;
   user.currentSessionId = crypto.randomUUID();
   await user.save();
+
+  // Invalidar cache: currentSessionId cambió, cualquier request pendiente con la
+  // versión vieja debe re-fetchear y validar el nuevo sessionId.
+  await invalidateUserCache(user._id);
 
   await revokeAllUserTokens(user._id.toString(), 'password_changed', {
     ...requestContext,
@@ -482,6 +494,8 @@ const refreshAccessToken = async (req, res) => {
     sessionId = crypto.randomUUID();
     user.currentSessionId = sessionId;
     await user.save();
+    // Invalidar cache para que los siguientes requests vean el nuevo sessionId.
+    await invalidateUserCache(user._id);
   }
 
   // TOKEN ROTATION:

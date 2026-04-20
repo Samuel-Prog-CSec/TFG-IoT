@@ -66,7 +66,13 @@ const NAMESPACES = {
   CACHE_CONTEXT: 'cache:context',
 
   /** Cache de analytics de clase (TTL: 5min) */
-  CACHE_ANALYTICS: 'cache:analytics'
+  CACHE_ANALYTICS: 'cache:analytics',
+
+  /** Cache de slim-user para middleware de autenticación (TTL: 60s) */
+  AUTH_USER: 'auth:user',
+
+  /** Lock distribuido de idempotencia para startPlay (TTL: 60s) */
+  PLAY_INIT_LOCK: 'play:init'
 };
 
 /**

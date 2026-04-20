@@ -34,7 +34,12 @@ exports.getStudentProgress = async (req, res) => {
     endpoint: 'student/progress'
   });
 
-  const progress = await analyticsService.getStudentProgress(id, timeRange);
+  const progress = await cacheGet(
+    'cache:analytics',
+    `student:progress:${id}:${timeRange || '30d'}`,
+    async () => analyticsService.getStudentProgress(id, timeRange),
+    180
+  );
 
   sendSuccess(res, progress);
 };
@@ -56,7 +61,12 @@ exports.getStudentDifficulties = async (req, res) => {
     endpoint: 'student/difficulties'
   });
 
-  const difficulties = await analyticsService.getStudentDifficulties(id);
+  const difficulties = await cacheGet(
+    'cache:analytics',
+    `student:difficulties:${id}`,
+    async () => analyticsService.getStudentDifficulties(id),
+    180
+  );
 
   sendSuccess(res, difficulties);
 };
@@ -87,7 +97,12 @@ exports.getClassroomComparison = async (req, res) => {
   const teacherId = req.user?._id?.toString();
   const { timeRange } = req.query;
 
-  const comparison = await analyticsService.getClassroomComparison(teacherId, timeRange);
+  const comparison = await cacheGet(
+    'cache:analytics',
+    `comparison:${teacherId}:${timeRange || 'default'}`,
+    async () => analyticsService.getClassroomComparison(teacherId, timeRange),
+    300
+  );
 
   sendSuccess(res, comparison);
 };
@@ -98,7 +113,12 @@ exports.getClassroomComparison = async (req, res) => {
  */
 exports.getClassroomDifficulties = async (req, res) => {
   const teacherId = req.user?._id?.toString();
-  const difficulties = await analyticsService.getClassroomDifficulties(teacherId);
+  const difficulties = await cacheGet(
+    'cache:analytics',
+    `difficulties:${teacherId}`,
+    async () => analyticsService.getClassroomDifficulties(teacherId),
+    300
+  );
   sendSuccess(res, difficulties);
 };
 
@@ -114,68 +134,79 @@ exports.getClassroomStudents = async (req, res) => {
   const teacherId = req.user._id.toString();
   const { sort, order, tier, classroom, contextId, mechanicId } = req.query;
 
-  // El servicio devuelve un array de estudiantes; lo envolvemos en objeto
-  // para poder aplicar filtros y k-anonimidad de forma consistente.
-  const students = await analyticsService.getClassroomStudents(teacherId, {
-    sort,
-    order,
-    tier,
-    classroom
-  });
-  const data = { students, total: students.length };
+  const cacheKey = `students:${teacherId}:${sort || ''}:${order || ''}:${tier || ''}:${classroom || ''}:${contextId || ''}:${mechanicId || ''}`;
 
-  // Filtro opcional por contexto/mecánica: identifica los estudiantes que han
-  // jugado en sesiones con el contexto o mecánica seleccionados y descarta el resto.
-  // No modifica analyticsService.js (ADR-026) — filtra a nivel de controlador.
-  if (contextId || mechanicId) {
-    const sessionFilter = { createdBy: req.user._id };
-    if (contextId) {
-      sessionFilter.contextId = contextId;
-    }
-    if (mechanicId) {
-      sessionFilter.mechanicId = mechanicId;
-    }
-
-    const sessionIds = await GameSession.find(sessionFilter).select('_id').lean();
-    const matchingSessionIds = sessionIds.map(s => s._id);
-
-    if (matchingSessionIds.length === 0) {
-      data.students = [];
-    } else {
-      const playerIds = await GamePlay.distinct('playerId', {
-        sessionId: { $in: matchingSessionIds },
-        status: 'completed'
+  const response = await cacheGet(
+    'cache:analytics',
+    cacheKey,
+    async () => {
+      // El servicio devuelve un array de estudiantes; lo envolvemos en objeto
+      // para poder aplicar filtros y k-anonimidad de forma consistente.
+      const students = await analyticsService.getClassroomStudents(teacherId, {
+        sort,
+        order,
+        tier,
+        classroom
       });
-      const playerIdSet = new Set(playerIds.map(id => id.toString()));
-      data.students = data.students.filter(s => playerIdSet.has(s._id.toString()));
-    }
+      const data = { students, total: students.length };
 
-    data.total = data.students.length;
-  }
+      // Filtro opcional por contexto/mecánica: identifica los estudiantes que han
+      // jugado en sesiones con el contexto o mecánica seleccionados y descarta el resto.
+      // No modifica analyticsService.js (ADR-026) — filtra a nivel de controlador.
+      if (contextId || mechanicId) {
+        const sessionFilter = { createdBy: req.user._id };
+        if (contextId) {
+          sessionFilter.contextId = contextId;
+        }
+        if (mechanicId) {
+          sessionFilter.mechanicId = mechanicId;
+        }
 
-  // Protección k-anonimidad: si el grupo es menor al umbral, solo datos agregados.
-  // Previene re-identificación en aulas pequeñas (Guía Anonimización AEPD, 2019).
-  if (data.students.length > 0 && data.students.length < MIN_ANALYTICS_GROUP_SIZE) {
-    const totalGames = data.students.reduce(
-      (sum, s) => sum + (s.studentMetrics?.totalGamesPlayed || 0),
-      0
-    );
-    const avgScore =
-      data.students.reduce((sum, s) => sum + (s.studentMetrics?.averageScore || 0), 0) /
-      data.students.length;
+        const sessionIds = await GameSession.find(sessionFilter).select('_id').lean();
+        const matchingSessionIds = sessionIds.map(s => s._id);
 
-    return sendSuccess(res, {
-      aggregatedOnly: true,
-      reason: `Protección k-anonimidad: grupo de ${data.students.length} estudiantes (mínimo ${MIN_ANALYTICS_GROUP_SIZE})`,
-      total: data.students.length,
-      aggregatedMetrics: {
-        totalGames,
-        averageScore: Math.round(avgScore * 10) / 10
+        if (matchingSessionIds.length === 0) {
+          data.students = [];
+        } else {
+          const playerIds = await GamePlay.distinct('playerId', {
+            sessionId: { $in: matchingSessionIds },
+            status: 'completed'
+          });
+          const playerIdSet = new Set(playerIds.map(id => id.toString()));
+          data.students = data.students.filter(s => playerIdSet.has(s._id.toString()));
+        }
+
+        data.total = data.students.length;
       }
-    });
-  }
 
-  return sendSuccess(res, data);
+      // Protección k-anonimidad: si el grupo es menor al umbral, solo datos agregados.
+      // Previene re-identificación en aulas pequeñas (Guía Anonimización AEPD, 2019).
+      if (data.students.length > 0 && data.students.length < MIN_ANALYTICS_GROUP_SIZE) {
+        const totalGames = data.students.reduce(
+          (sum, s) => sum + (s.studentMetrics?.totalGamesPlayed || 0),
+          0
+        );
+        const avgScore =
+          data.students.reduce((sum, s) => sum + (s.studentMetrics?.averageScore || 0), 0) /
+          data.students.length;
+
+        return {
+          aggregatedOnly: true,
+          reason: `Protección k-anonimidad: grupo de ${data.students.length} estudiantes (mínimo ${MIN_ANALYTICS_GROUP_SIZE})`,
+          total: data.students.length,
+          aggregatedMetrics: {
+            totalGames,
+            averageScore: Math.round(avgScore * 10) / 10
+          }
+        };
+      }
+
+      return data;
+    },
+    120
+  );
+
+  return sendSuccess(res, response);
 };
 
 /**
@@ -200,7 +231,12 @@ exports.getClassroomDistribution = async (req, res) => {
 exports.getClassroomTrends = async (req, res) => {
   const teacherId = req.user._id.toString();
   const { timeRange } = req.query;
-  const data = await analyticsService.getClassroomTrends(teacherId, timeRange);
+  const data = await cacheGet(
+    'cache:analytics',
+    `trends:${teacherId}:${timeRange || 'default'}`,
+    async () => analyticsService.getClassroomTrends(teacherId, timeRange),
+    300
+  );
   sendSuccess(res, data);
 };
 
@@ -222,7 +258,12 @@ exports.getStudentSummary = async (req, res) => {
     endpoint: 'student/summary'
   });
 
-  const data = await analyticsService.getStudentSummary(id, timeRange);
+  const data = await cacheGet(
+    'cache:analytics',
+    `student:summary:${id}:${timeRange || 'default'}`,
+    async () => analyticsService.getStudentSummary(id, timeRange),
+    180
+  );
   sendSuccess(res, data);
 };
 
@@ -233,7 +274,12 @@ exports.getStudentSummary = async (req, res) => {
 exports.getClassroomHeatmap = async (req, res) => {
   const teacherId = req.user._id.toString();
   const { timeRange } = req.query;
-  const data = await analyticsService.getClassroomHeatmap(teacherId, timeRange);
+  const data = await cacheGet(
+    'cache:analytics',
+    `heatmap:${teacherId}:${timeRange || 'default'}`,
+    async () => analyticsService.getClassroomHeatmap(teacherId, timeRange),
+    300
+  );
   sendSuccess(res, data);
 };
 
@@ -244,7 +290,12 @@ exports.getClassroomHeatmap = async (req, res) => {
 exports.getClassroomRankings = async (req, res) => {
   const teacherId = req.user._id.toString();
   const { timeRange, limit } = req.query;
-  const data = await analyticsService.getTopContextsAndMechanics(teacherId, timeRange, limit);
+  const data = await cacheGet(
+    'cache:analytics',
+    `rankings:${teacherId}:${timeRange || 'default'}:${limit || 'default'}`,
+    async () => analyticsService.getTopContextsAndMechanics(teacherId, timeRange, limit),
+    600
+  );
   sendSuccess(res, data);
 };
 
@@ -252,6 +303,11 @@ exports.getClassroomRankings = async (req, res) => {
  * Resolución de identidad seudonimizada.
  * Devuelve el mapeo pseudoId → datos identificativos para los estudiantes del profesor.
  * Endpoint dedicado que separa PII de datos analíticos (Art. 25 RGPD).
+ *
+ * NO cachear: el payload contiene datos identificativos directos (name, avatar,
+ * classroom, age). Cachearlo ampliaría la superficie de exposición de PII sin
+ * beneficio de rendimiento relevante (query simple por createdBy + role).
+ *
  * @route GET /api/analytics/students/identity
  */
 exports.getStudentsIdentity = async (req, res) => {

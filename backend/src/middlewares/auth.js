@@ -12,8 +12,88 @@ const userRepository = require('../repositories/userRepository');
 const logger = require('../utils/logger').child({ component: 'auth' });
 const { logSecurityEvent, getRequestContext } = require('../utils/securityLogger');
 const redisService = require('../services/redisService');
+const { cacheInvalidate } = require('../utils/cacheHelper');
+const { recordAuthUserCache } = require('../utils/runtimeMetrics');
 const { Sentry } = require('../config/sentry');
 const { authEventBus } = require('../utils/authEvents');
+
+/**
+ * TTL (segundos) del cache de slim-user usado por authenticate/optionalAuth.
+ * Equilibra reducción de queries Mongo vs. ventana máxima de staleness post-ban.
+ * Los flags de seguridad (revokeAllUserTokens) siguen siendo inmediatos porque
+ * no pasan por este cache: `checkSecurityFlag` consulta `security:<userId>` directo.
+ */
+const AUTH_USER_CACHE_TTL_SECONDS =
+  Number.parseInt(process.env.AUTH_USER_CACHE_TTL_SECONDS, 10) || 60;
+
+/**
+ * Invalida la entrada cacheada de un usuario para forzar re-fetch desde MongoDB
+ * en el siguiente request autenticado. Debe invocarse tras cualquier cambio en
+ * `role`, `status`, `accountStatus`, `currentSessionId`, `name`, `consent`.
+ *
+ * Fire-and-forget: si Redis no está disponible, falla silenciosamente porque el
+ * TTL del cache garantiza frescura en ≤60s de todas formas.
+ *
+ * @param {string|Object} userId - ID del usuario (string o ObjectId)
+ * @returns {Promise<void>}
+ */
+const invalidateUserCache = async userId => {
+  if (!userId) {
+    return;
+  }
+  const id = typeof userId === 'string' ? userId : userId.toString();
+  await cacheInvalidate('auth:user', id).catch(err => {
+    logger.debug('invalidateUserCache: fallo al invalidar (ignorado)', {
+      userId: id,
+      error: err.message
+    });
+  });
+};
+
+/**
+ * Obtiene un slim-user desde cache o MongoDB.
+ * Centraliza la estrategia cache-aside usada por authenticate y optionalAuth.
+ *
+ * @param {string} userId
+ * @param {string} [select='-password +currentSessionId'] - Campos Mongoose a proyectar
+ * @returns {Promise<Object|null>} POJO con los campos seleccionados o null
+ */
+const fetchUserForAuth = async (userId, select = '-password +currentSessionId') => {
+  // Obtener del cache Redis (slim POJO). Si hit, incrementa métrica.
+  const cached = await redisService.get('auth:user', userId);
+  if (cached !== null) {
+    try {
+      recordAuthUserCache('hit');
+      return JSON.parse(cached);
+    } catch {
+      // Valor cacheado corrupto: continuar con fetch.
+    }
+  }
+
+  recordAuthUserCache('miss');
+  const userDoc = await userRepository.findById(userId, { select });
+  if (!userDoc) {
+    return null;
+  }
+
+  // Serializar como POJO para cachear. `.toObject()` en Mongoose, fallback si ya es plano.
+  const plain =
+    typeof userDoc.toObject === 'function' ? userDoc.toObject({ virtuals: true }) : { ...userDoc };
+
+  // Eliminar password si se coló (defensa en profundidad — select ya lo excluye).
+  delete plain.password;
+
+  redisService
+    .setWithTTL('auth:user', userId, JSON.stringify(plain), AUTH_USER_CACHE_TTL_SECONDS)
+    .catch(err => {
+      logger.debug('fetchUserForAuth: fallo al cachear (ignorado)', {
+        userId,
+        error: err.message
+      });
+    });
+
+  return plain;
+};
 
 /**
  * Constantes de seguridad para tokens.
@@ -645,10 +725,8 @@ const authenticate = async (req, res, next) => {
     // Verificar access token (incluye validación de fingerprint)
     const decoded = await verifyAccessToken(token, req);
 
-    // Buscar usuario en la base de datos (y seleccionar currentSessionId para validación)
-    const user = await userRepository.findById(decoded.id, {
-      select: '-password +currentSessionId'
-    });
+    // Buscar usuario (cache-aside Redis, TTL 60s). Invalidación explícita en updates.
+    const user = await fetchUserForAuth(decoded.id);
 
     if (!user) {
       logSecurityEvent('AUTH_TOKEN_INVALID', {
@@ -813,7 +891,7 @@ const optionalAuth = async (req, res, next) => {
       return next(); // Sin token, continuar sin error
     }
     const decoded = await verifyAccessToken(token, req);
-    const user = await userRepository.findById(decoded.id, { select: '-password' });
+    const user = await fetchUserForAuth(decoded.id, '-password');
 
     if (user && user.status === 'active') {
       req.user = user;
@@ -874,9 +952,14 @@ const logout = async (req, res) => {
 
   // SINGLE SESSION: invalidar inmediatamente el access token actual
   // incluso si Redis no está disponible para blacklist.
+  // Nota: req.user es un POJO cacheado (slim user), no un Mongoose doc — usamos
+  // userRepository.updateById en vez de req.user.save(), e invalidamos el cache
+  // para forzar re-fetch en el siguiente request del mismo usuario.
   if (req.user?.currentSessionId) {
-    req.user.currentSessionId = crypto.randomUUID();
-    await req.user.save();
+    const newSessionId = crypto.randomUUID();
+    await userRepository.updateById(req.user._id, { currentSessionId: newSessionId });
+    await invalidateUserCache(req.user._id);
+    req.user.currentSessionId = newSessionId;
   }
 
   logSecurityEvent('AUTH_TOKEN_REVOKED', {
@@ -928,6 +1011,10 @@ module.exports = {
   requireOwnership,
   optionalAuth,
   logout,
+
+  // Cache de slim-user (helpers para consumidores que replican el patrón cache-aside)
+  invalidateUserCache,
+  fetchUserForAuth,
 
   // Constants
   TOKEN_SECURITY

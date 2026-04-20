@@ -17,7 +17,7 @@ const userService = require('../services/userService');
 const { toUserDTOV1, toStudentDTOV1, toUserListDTOV1, toUserStatsDTOV1 } = require('../utils/dtos');
 const { sendSuccess, sendCreated, sendPaginated } = require('../utils/responseHelper');
 const { escapeRegex } = require('../utils/escapeRegex');
-const { revokeAllUserTokens } = require('../middlewares/auth');
+const { revokeAllUserTokens, invalidateUserCache } = require('../middlewares/auth');
 const { disconnectUserSockets } = require('../utils/socketUtils');
 const { getRequestContext, logSecurityEvent } = require('../utils/securityLogger');
 const { buildFilter } = require('../utils/filterBuilder');
@@ -383,6 +383,10 @@ const updateUser = async (req, res) => {
 
   await user.save();
 
+  // Invalidar cache de slim-user: cambios en status/name/profile afectan a la
+  // entrada cacheada que consume el middleware authenticate.
+  await invalidateUserCache(user._id);
+
   if (shouldDisconnectByStatus({ status, role: user.role })) {
     await revokeAllUserTokens(user._id.toString(), 'account_inactivated', {
       ...getRequestContext(req),
@@ -435,6 +439,9 @@ const deleteUser = async (req, res) => {
   // Soft delete
   user.status = 'inactive';
   await user.save();
+
+  // Invalidar cache: status cambió de activo a inactivo.
+  await invalidateUserCache(user._id);
 
   if (['teacher', 'super_admin'].includes(user.role)) {
     await revokeAllUserTokens(user._id.toString(), 'account_deleted', {

@@ -76,6 +76,21 @@ const loadLuaScripts = async () => {
       return;
     }
 
+    // Flush opcional del script cache de Redis antes de recargar.
+    // Necesario en deploys donde hemos modificado scripts .lua y Redis (p. ej. Upstash
+    // o Docker volume persistente) mantiene el script cache entre reinicios del backend.
+    // Sin esto, EVALSHA seguiría ejecutando la versión vieja sin disparar NOSCRIPT.
+    if (process.env.REDIS_FLUSH_LUA_ON_BOOT === 'true') {
+      try {
+        await redisClient.script('FLUSH');
+        logger.info('Redis: Lua script cache flushed antes de recargar (REDIS_FLUSH_LUA_ON_BOOT)');
+      } catch (flushErr) {
+        logger.warn('Redis: SCRIPT FLUSH falló, continuando con SCRIPT LOAD', {
+          error: flushErr.message
+        });
+      }
+    }
+
     const luaFiles = fs.readdirSync(luaDir).filter(f => f.endsWith('.lua'));
 
     for (const file of luaFiles) {
@@ -84,7 +99,8 @@ const loadLuaScripts = async () => {
       const scriptContent = fs.readFileSync(path.join(luaDir, file), 'utf8');
       const sha = await redisClient.script('LOAD', scriptContent);
       luaScriptSHAs.set(scriptName, sha);
-      logger.info(`Redis: Lua script '${scriptName}' cargado (SHA: ${sha.slice(0, 8)}...)`);
+      // Log con SHA completo a nivel info para facilitar verificación visual en logs de deploy
+      logger.info(`Redis: Lua script '${scriptName}' cargado`, { scriptName, sha });
     }
 
     logger.info(`Redis: ${luaScriptSHAs.size} Lua scripts cargados exitosamente`);

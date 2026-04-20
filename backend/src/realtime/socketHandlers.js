@@ -6,8 +6,7 @@
  */
 
 const gamePlayRepository = require('../repositories/gamePlayRepository');
-const userRepository = require('../repositories/userRepository');
-const { verifyAccessToken } = require('../middlewares/auth');
+const { verifyAccessToken, fetchUserForAuth } = require('../middlewares/auth');
 const { corsWhitelist } = require('../config/security');
 const runtimeMetrics = require('../utils/runtimeMetrics');
 const { logSecurityEvent, getSocketContext } = require('../utils/securityLogger');
@@ -714,9 +713,10 @@ const revalidateSocketAuth = async (socket, eventName) => {
     const decoded = await verifyAccessToken(accessToken, {
       headers: socket.handshake.headers
     });
-    const user = await userRepository.findById(decoded.id, {
-      select: 'role status accountStatus +currentSessionId'
-    });
+    // Usar cache-aside Redis (slim-user, TTL 60s) en vez de hit directo a Mongo
+    // por cada revalidación WebSocket. El cache local authRevalidationCache
+    // sigue actuando como primer nivel (TTL 30s, per-process).
+    const user = await fetchUserForAuth(decoded.id, 'role status accountStatus +currentSessionId');
 
     if (!user) {
       throw new Error('Usuario no encontrado');
@@ -1098,9 +1098,12 @@ const createAuthMiddleware =
         return next(new Error('Token invalido'));
       }
 
-      const user = await userRepository.findById(decoded.id, {
-        select: 'role status accountStatus +currentSessionId'
-      });
+      // Cache-aside Redis (slim-user, TTL 60s) en el handshake de Socket.IO.
+      // Reduce queries repetidas a Mongo en reconexiones rápidas (WiFi inestable de aulas).
+      const user = await fetchUserForAuth(
+        decoded.id,
+        'role status accountStatus +currentSessionId'
+      );
       if (!user) {
         logSocketSecurityEvent('WS_AUTH_FAILED', socket, {
           reason: 'USER_NOT_FOUND',

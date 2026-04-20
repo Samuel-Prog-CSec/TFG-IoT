@@ -14,6 +14,7 @@ const {
   ForbiddenError
 } = require('../utils/errors');
 const logger = require('../utils/logger').child({ component: 'userService' });
+const { invalidateUserCache } = require('../middlewares/auth');
 
 /**
  * Valida que un email no esté duplicado al crear o actualizar usuarios.
@@ -313,6 +314,9 @@ async function updateUser(userId, updates, requestingUserId) {
   }
 
   await user.save();
+
+  // Invalidar cache de slim-user para reflejar cambios en el siguiente request autenticado.
+  await invalidateUserCache(user._id);
 
   logger.info('Usuario actualizado via service', {
     userId: user._id,

@@ -3334,3 +3334,213 @@ Persistencia local en dos niveles complementarios:
 - `frontend/src/services/webSerialService.js` (integración IDB)
 - `frontend/docs/05-GAMEPLAY-REALTIME.md` (resiliencia + IDB)
 - ADR-062 (decisión hermana: hardening del pipeline backend)
+
+---
+
+## ADR-064: Cobertura total de cache-aside en endpoints de analytics [Backend]
+
+### Contexto
+
+ADR-020 introdujo el patrón cache-aside en Redis con tres niveles (mecánicas 1h, contextos 30min, analytics 5min) y se aplicó inicialmente a `getClassroomSummary`, `getClassroomDistribution` y a todos los endpoints "advanced" creados en T-066. Sin embargo, nueve handlers "clásicos" de `analyticsController.js` — `getStudentProgress`, `getStudentDifficulties`, `getClassroomComparison`, `getClassroomDifficulties`, `getClassroomTrends`, `getStudentSummary`, `getClassroomHeatmap`, `getClassroomRankings` y `getClassroomStudents` — seguían consultando MongoDB con aggregations complejas (varias con `$facet` y `$lookup`) en cada request. Un profesor navegando rápido por distintas pestañas del dashboard disparaba decenas de aggregations idénticas al mismo `teacherId`/`studentId`, sin beneficio respecto al primer fetch.
+
+La inconsistencia entre ambos grupos de endpoints violaba además la preferencia del proyecto por migraciones completas: si el patrón sirve para unos, debe servir para todos.
+
+### Decisión
+
+Envolver los nueve handlers restantes con `cacheGet('cache:analytics', <key>, fetchFn, <ttl>)` del helper ya existente en `backend/src/utils/cacheHelper.js`. TTLs diferenciados por volatilidad y granularidad:
+
+- **300s** para KPIs agregados de clase (comparison, difficulties, trends, heatmap).
+- **600s** para rankings de clase (contextos/mecánicas) — más estables a nivel de clase.
+- **180s** para datos individuales de un estudiante (progress, difficulties, summary).
+- **120s** para `getClassroomStudents` — incluye filtros dinámicos y k-anonimidad, cambia más frecuentemente.
+
+Las claves incluyen `teacherId` y parámetros relevantes (`timeRange`, `limit`, filtros) para evitar colisiones entre usuarios o variantes del mismo dashboard.
+
+**Exclusión explícita**: `getStudentsIdentity` NO se cachea por contener PII directa (name, avatar, profile.age, profile.classroom). El comentario en el código justifica la decisión — cachear ampliaría la superficie de exposición con beneficio marginal (query simple por createdBy + role).
+
+**Invalidación**: además del TTL natural, `GameEngine.endPlay` ejecuta `cacheInvalidateNamespace('cache:analytics').catch(...)` en fire-and-forget tras persistir la partida. Esto garantiza frescura inmediata en el dashboard del profesor cuando un alumno termina o abandona una partida. La invalidación por namespace es suficientemente barata (SCAN + DEL) y el escenario estable es que los TTL hagan el trabajo.
+
+### Consecuencias
+
+**Positivas**
+
+- Los dashboards en uso real (profesor abriendo múltiples pestañas) ejecutan 1 aggregation por namespace/parámetros en vez de N.
+- Consistencia: los 11 endpoints de analytics "clásicos" + 19 endpoints "advanced" siguen el mismo patrón de cache-aside.
+- El fallback transparente cuando Redis cae (documentado en ADR-020) sigue aplicando — cero cambios en contratos externos.
+
+**Negativas**
+
+- La invalidación por namespace en `endPlay` borra TODO `cache:analytics` (también de otros profesores). Aceptado: el re-fetch es barato, el TTL amortigua, y la alternativa (invalidación por teacherId específica) requiere mantener índices secundarios que no se justifican en v0.5.0.
+- Ventana máxima de staleness = TTL de cada key si no hay play completada mientras tanto (300-600s). Aceptable para el caso de uso educativo (no es monitorización realtime).
+
+### Verificación
+
+- `backend/tests/analyticsCacheCoverage.test.js` — 11 tests, uno por endpoint, verifican que (1) la primera llamada escribe la key esperada en `cache:analytics` con el nombre correcto y (2) la segunda llamada no invoca el service (cache HIT).
+- `backend/tests/endPlayInvalidatesAnalyticsCache.test.js` — 3 tests: completar una partida borra las keys sembradas en el namespace; abandonar una partida también; endPlay sin playState en memoria es no-op.
+- Verificación manual con Redis CLI: `redis-cli --scan --pattern 'rfid-games:cache:analytics:*' | wc -l` crece al navegar el dashboard y se limpia tras completar una partida.
+
+### Referencias
+
+- `backend/src/controllers/analyticsController.js` (9 handlers envueltos)
+- `backend/src/services/gameEngine/GameEngine.js` (invalidación fire-and-forget en `endPlay`)
+- `backend/src/utils/cacheHelper.js` (helper preexistente, sin cambios)
+- ADR-020 (decisión original de cache-aside)
+
+---
+
+## ADR-065: Cache distribuido de slim-user en middleware de autenticación [Backend]
+
+### Contexto
+
+Cada request HTTP autenticado (`middlewares/auth.authenticate`) y cada handshake WebSocket ejecutaba un `userRepository.findById(decoded.id)` sobre MongoDB para obtener `role`, `status`, `accountStatus`, `currentSessionId`, `name` y `consent`. Con 20 profesores trabajando simultáneamente (~50 req/min/u) son ~1000 lookups/min; datos que cambian con frecuencia muy baja (segundos, no milisegundos).
+
+Existía ya un cache local per-process en `socketHandlers.js` (`authRevalidationCache`, TTL 30s) que amortiguaba el impacto en Socket.IO, pero no cubría HTTP ni compartía estado entre instancias en un despliegue multi-réplica.
+
+### Decisión
+
+Introducir un cache-aside Redis en el namespace `auth:user` con TTL de 60 segundos, encapsulado en dos helpers exportados por `middlewares/auth.js`:
+
+- `fetchUserForAuth(userId, select)` — consulta Redis primero, cae a `userRepository.findById` en miss, y escribe el POJO serializado con `setWithTTL` en fire-and-forget.
+- `invalidateUserCache(userId)` — elimina la entrada para forzar re-fetch en el siguiente request.
+
+Se cachea un **slim POJO** resultante de `userDoc.toObject({ virtuals: true })`, eliminando `password` como defensa en profundidad. `authenticate` y `optionalAuth` (HTTP) y los dos puntos de verificación en `socketHandlers.js` (handshake y ownership re-check) usan el helper.
+
+**Invalidación explícita** en cuantos puntos muten los campos cacheados:
+
+- `authController.login` al rotar `currentSessionId`.
+- `authController.updateProfile` al cambiar `name` o `profile`.
+- `authController.changePassword` al rotar `currentSessionId`.
+- `authController.refreshAccessToken` si se asigna `currentSessionId` (flujo legacy).
+- `userController.updateUser` y `userController.deleteUser` (soft delete a inactive).
+- `userService.updateUser`.
+- `authenticate` (en logout): se rota `currentSessionId` via `userRepository.updateById` y se invalida el cache en lugar del antiguo `req.user.save()`.
+
+**TTL de 60 segundos** — equilibra dos fuerzas: ventana máxima de staleness tras un ban o cambio de estado (aceptable para un TFG educativo: peor caso es una ronda de partida) vs. reducción efectiva de queries (>90% en carga típica). El `security flag` de `revokeAllUserTokens` no pasa por este cache — sigue siendo inmediato porque se consulta vía `checkSecurityFlag` sobre el namespace `security:<userId>` independiente.
+
+### Consecuencias
+
+**Positivas**
+
+- Reducción drástica de queries a `users` en cada request autenticado (cache HIT rate esperado >90%).
+- `req.user` como POJO simplifica testing y DTO mappings.
+- Invalidación quirúrgica por eventos asegura que cambios críticos (role, status, sessionId) se propagan rápido.
+- Métricas nuevas en `runtimeMetrics.redis.authUserCacheHits/Misses` permiten observar la eficacia del cache.
+
+**Negativas**
+
+- `req.user` deja de ser un documento Mongoose con `.save()`. Los tres puntos que usaban `.save()` sobre `req.user` se migraron a `userRepository.updateById` + `invalidateUserCache`. El patrón general del proyecto (find explícito → save) no se ve afectado.
+- Ventana de 60s entre cambio y efecto para los campos cacheados. Documentado en `Seguridad_tokens_JWT.md`.
+- Si Redis cae, fallback transparente a MongoDB (el helper retorna el POJO de findById sin cachear) — mismo comportamiento que sin cache, sin penalización adicional.
+
+### Verificación
+
+- `backend/tests/authCache.test.js` — 9 tests sobre `fetchUserForAuth` (HIT/MISS, null user, password filtering) e `invalidateUserCache` (purge correcto, toString coerción, re-fetch post-invalidate).
+- `backend/tests/runtimeMetrics.test.js` — verifica que los contadores `authUserCacheHits/Misses` incrementan y se resetean.
+- Verificación manual: tras login, `redis-cli TTL 'rfid-games:auth:user:<userId>'` entre 0 y 60.
+
+### Referencias
+
+- `backend/src/middlewares/auth.js` (`fetchUserForAuth`, `invalidateUserCache`, integración en `authenticate` y `optionalAuth`)
+- `backend/src/realtime/socketHandlers.js` (uso de `fetchUserForAuth` en handshake y revalidación)
+- `backend/src/controllers/authController.js`, `backend/src/controllers/userController.js`, `backend/src/services/userService.js` (invalidación tras mutaciones)
+- `backend/src/utils/cacheHelper.js` (reutilización)
+- ADR-020 (patrón cache-aside base)
+- ADR-041 (recovery post-reconnect, mecanismo análogo de propagación de eventos)
+
+---
+
+## ADR-066: Idempotencia distribuida en `startPlay` mediante `SET NX` [Backend]
+
+### Contexto
+
+`GameEngine.startPlay` contaba con un guard in-memory (`this.activePlays.has(playId)`) que evitaba doble arranque en single-process, introducido en T-055. Con el Socket.IO Redis adapter activo (ADR-011) y un despliegue multi-instancia, dos réplicas podían recibir concurrentemente un `start_play` para el mismo `playId` (p.ej. un cliente que retransmite por timeout percibido). Cada réplica pasaba su guard local, ejecutaba `syncPlayToRedis`, `sendNextRound` y emitía `new_round` — duplicando tráfico al cliente y corrompiendo el estado.
+
+`reserveCardsAtomic` (ADR-004, T-066) ya protegía contra race conditions de card locks, pero no cubría `sendNextRound` ni la emisión de eventos realtime.
+
+### Decisión
+
+Añadir un lock distribuido `SET NX` con TTL 60s al inicio del cuerpo de `executeWithPlayLock('startPlay', ...)`:
+
+```js
+const acquired = await redisService.setIfNotExists('play:init', playId, 'initializing', 60);
+if (!acquired) {
+  logger.warn(`Partida ${playId}: otra instancia ya está inicializando`);
+  return;
+}
+```
+
+El lock **no se libera manualmente** — el TTL de 60s lo purga. 60s cubre con margen el peor caso de `startPlay` (<2s: populate mechanic, board layout, primera ronda) + cualquier GC stop del event loop + margen de seguridad. Si la instancia muere durante la inicialización, el TTL permite a otra instancia reintentar en ≤60s — compatible con el recovery existente.
+
+Reutiliza el namespace `play:init` (nuevo) y la función `setIfNotExists` ya implementada en `redisService.js`. Si Redis cae, `setIfNotExists` retorna `true` por fallback (ver patrón en `redisService`), lo que degrada el comportamiento al guard in-memory previo — aceptable porque sin Redis tampoco hay multi-instancia real.
+
+### Consecuencias
+
+**Positivas**
+
+- En despliegues multi-instancia, exactamente una réplica ejecuta `startPlay` por playId incluso bajo requests concurrentes.
+- Defensa en profundidad: `reserveCardsAtomic` sigue protegiendo las cards; este lock protege la inicialización completa.
+- Latencia añadida despreciable (1 EVAL Redis ~1ms).
+
+**Negativas**
+
+- TTL de 60s implica que si `startPlay` falla silenciosamente antes de registrar en `activePlays`, hay que esperar hasta 60s para reintentar. Aceptable: error log en Sentry + retry desde el cliente.
+- No libera explícitamente el lock al completar exitosamente — decisión consciente: liberarlo prematuramente permitiría re-entry malicioso o accidental.
+
+### Verificación
+
+- `backend/tests/gameEngineStartPlayIdempotency.test.js` — 3 tests: (1) con el lock pre-ocupado, startPlay aborta sin tocar `activePlays` ni emitir `new_round`; (2) sin lock previo, el spy captura la llamada a `setIfNotExists` con los parámetros exactos; (3) el TTL de la key es ≤60s.
+- Verificación manual en Docker con dos instancias simuladas (tests/gameEngineDistributedLock.test.js existente no regresó).
+
+### Referencias
+
+- `backend/src/services/gameEngine/GameEngine.js` (método `startPlay`)
+- `backend/src/services/redisService.js` (namespace `PLAY_INIT_LOCK`, `setIfNotExists` preexistente)
+- ADR-004 (locks distribuidos de UIDs con lease+heartbeat — decisión hermana)
+- ADR-011 (Socket.IO Redis adapter que habilita multi-instance)
+
+---
+
+## ADR-067: Observabilidad y endurecimiento del fallback in-memory del rate limiter HTTP [Backend]
+
+### Contexto
+
+La factory `createRedisStore` en `config/security.js` se invoca **una vez por limiter al boot del servidor**. Si Redis no está disponible en ese momento, retorna `undefined` y el limiter cae a `MemoryStore` de `express-rate-limit`. Esto tiene dos problemas:
+
+1. **No reversible**: aunque Redis vuelva segundos después, el limiter queda anclado a memoria hasta un reinicio del proceso. No hay lógica de re-intento del store.
+2. **Silencioso**: un único `logger.warn` puntual que se pierde en el ruido. En producción, un operador no se entera hasta que detecta tráfico anómalo.
+
+En multi-instancia, un limiter en `MemoryStore` fragmenta el límite global: cada réplica lleva su propio contador (N réplicas × máx = N veces el límite efectivo), anulando la protección bajo ataque coordinado.
+
+### Decisión
+
+Endurecer la observabilidad del fallback sin cambiar el comportamiento funcional:
+
+1. Reportar cada fallback con log estructurado. En `NODE_ENV==='production'`, nivel `error` con `alert: true` + `fallback: 'memory'` + `reason` para que Sentry lo ingeste y alerte. En desarrollo, nivel `warn`.
+2. Incrementar un nuevo contador `rateLimitStoreFallbackCount` en `runtimeMetrics.redis`, expuesto vía `/api/metrics` (patrón existente).
+3. Comentario visible en `createRedisStore` documentando la naturaleza one-shot del boot y la deuda técnica de la re-creación lazy (pospuesta a Sprint 6 en la propuesta PROP-59-64 de `Rate_Limiting_Analysis.md`).
+
+No se cambia la lógica de creación — una reescritura a store lazy que se re-cree ante reconexión de Redis tiene implicaciones (stateful reset del cache en memoria durante la transición) y se acota a una decisión de arquitectura propia.
+
+### Consecuencias
+
+**Positivas**
+
+- Cualquier fallback a memoria genera ahora un evento Sentry con contexto (prefix, reason) que permite al operador reaccionar (reinicio de servicio, investigación).
+- La métrica `rateLimitStoreFallbackCount` en `/api/metrics` permite dashboards y alertas automáticas.
+- Comportamiento funcional preservado: cero riesgo de regresión.
+
+**Negativas**
+
+- El problema de fragmentación del límite en multi-instancia bajo fallback sigue existiendo. Esto es deuda técnica explícita, documentada para Sprint 6.
+- Un operador humano sigue siendo necesario para reaccionar — no hay auto-recovery.
+
+### Verificación
+
+- `backend/tests/runtimeMetrics.test.js` — verifica que `recordRateLimitStoreFallback` incrementa el contador y que `reset()` lo limpia.
+- Verificación manual: bajar Redis antes de arrancar backend en modo dev → `GET /api/metrics/system` (o eq.) muestra `redis.rateLimitStoreFallbackCount >= 1` y los logs reportan el fallback.
+
+### Referencias
+
+- `backend/src/config/security.js` (`createRedisStore` con `reportFallback` helper interno)
+- `backend/src/utils/runtimeMetrics.js` (`recordRateLimitStoreFallback`, `redis.rateLimitStoreFallbackCount`)
+- `backend/docs/Rate_Limiting_Analysis.md` (deuda técnica documentada: re-creación lazy y propuestas Sprint 6)

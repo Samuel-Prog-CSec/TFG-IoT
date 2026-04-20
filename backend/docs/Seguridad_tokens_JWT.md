@@ -979,6 +979,29 @@ authChannel.onmessage = (event) => {
 | **ioredis** | Cliente Redis para Node.js | https://github.com/redis/ioredis |
 | **bcrypt** | Hashing de contraseñas | https://github.com/kelektiv/node.bcrypt.js |
 
+## Anexo: Cache de slim-user en middleware (Mantenimiento 2026-04-20, ADR-065)
+
+Desde el mantenimiento 2026-04-20, el middleware `authenticate` cachea un POJO "slim" del usuario en Redis bajo el namespace `auth:user:<userId>` con TTL de 60 segundos. Reduce drásticamente las queries a MongoDB en cada request autenticado y en cada handshake WebSocket.
+
+### Interacción con los mecanismos de seguridad de tokens
+
+- **Blacklist de access token** (`isTokenRevoked`): sigue funcionando sin cambios. Se consulta antes del user fetch en `verifyAccessToken`. Un token revocado vía `revokeToken` se rechaza inmediatamente sin pasar por el cache de user.
+- **Security flag** (`checkSecurityFlag` sobre `security:<userId>`): sigue siendo **inmediato**. El flag se consulta en `verifyAccessToken`, no pasa por el cache de user, y expira naturalmente a 1h.
+- **Single-session enforcement**: cuando `authController.login` genera un nuevo `currentSessionId`, invoca `invalidateUserCache(userId)` para forzar re-fetch. Misma lógica en `changePassword` y `logout`.
+- **Rotación de refresh token**: el flujo de `refreshAccessToken` hace `findById` explícito con select específico; solo invalida el cache en el fallback legacy cuando crea `currentSessionId` por primera vez.
+
+### Ventana de staleness
+
+**Máximo 60 segundos** entre un cambio de estado del usuario (p. ej. ban admin) y su efecto en el middleware. Aceptable para un TFG educativo — peor caso: el alumno termina la ronda en curso y es desconectado al siguiente request.
+
+**NO afecta** a la ventana de inmediatez de los mecanismos de revocación centrales: `revokeToken(jti)` y `revokeAllUserTokens(userId)` siguen siendo inmediatos (consultan blacklist / security flag Redis directos).
+
+### Defensa en profundidad
+
+- `fetchUserForAuth` elimina `password` del POJO antes de cachear, aunque el `select` ya lo excluya.
+- Si Redis cae, el helper cae a `userRepository.findById` transparentemente (sin cachear).
+- Métricas `runtimeMetrics.redis.authUserCacheHits/Misses` permiten detectar anomalías.
+
 ## Conceptos Específicos Implementados
 
 | Concepto | Fuente Principal | Notas |

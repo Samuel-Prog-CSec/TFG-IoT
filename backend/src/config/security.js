@@ -8,6 +8,7 @@ const rateLimit = require('express-rate-limit');
 const crypto = require('node:crypto');
 const logger = require('../utils/logger');
 const { ForbiddenError } = require('../utils/errors');
+const { recordRateLimitStoreFallback } = require('../utils/runtimeMetrics');
 
 const isTestEnv = () => process.env.NODE_ENV === 'test' || typeof globalThis.it === 'function';
 
@@ -15,6 +16,12 @@ const isTestEnv = () => process.env.NODE_ENV === 'test' || typeof globalThis.it 
  * Crea un Redis store para express-rate-limit.
  * Usa carga lazy de rate-limit-redis y getRedis() de config/redis.
  * Si Redis no está disponible, retorna undefined para fallback a MemoryStore.
+ *
+ * IMPORTANTE: createRedisStore se invoca UNA vez por limiter al boot del servidor.
+ * Si Redis no está disponible al arrancar, el limiter queda anclado a MemoryStore
+ * incluso tras reconexión de Redis. En multi-instancia esto fragmenta el límite
+ * global (cada réplica lleva su propio contador). Se registra como evento de alerta
+ * (error + Sentry) y se incrementa un contador en runtimeMetrics para observabilidad.
  *
  * @param {string} [prefix='default'] - Prefijo para las keys de rate limiting en Redis
  * @returns {Object|undefined} RedisStore instance o undefined (fallback in-memory)
@@ -24,13 +31,30 @@ const createRedisStore = (prefix = 'default') => {
     return undefined;
   }
 
+  const reportFallback = (reason, extra = {}) => {
+    recordRateLimitStoreFallback();
+    // En producción elevamos a error con alert: true para que llegue a Sentry.
+    // En desarrollo nos basta con warn (ruido en logs aceptable).
+    const logLevel = process.env.NODE_ENV === 'production' ? 'error' : 'warn';
+    logger[logLevel](
+      {
+        alert: process.env.NODE_ENV === 'production',
+        fallback: 'memory',
+        prefix,
+        reason,
+        ...extra
+      },
+      'Rate limiter fallback a MemoryStore — límite no distribuido'
+    );
+  };
+
   try {
     // Import lazy: evita errores si Redis no está configurado
     const { getRedis } = require('./redis');
     const client = getRedis();
 
     if (!client) {
-      logger.warn('Rate limiter: Redis no disponible, usando store en memoria', { prefix });
+      reportFallback('redis_not_connected');
       return undefined;
     }
 
@@ -40,10 +64,7 @@ const createRedisStore = (prefix = 'default') => {
       prefix: `rl:${prefix}:`
     });
   } catch (error) {
-    logger.warn('Rate limiter: Error creando Redis store, fallback a memoria', {
-      prefix,
-      error: error.message
-    });
+    reportFallback('store_creation_failed', { error: error.message });
     return undefined;
   }
 };

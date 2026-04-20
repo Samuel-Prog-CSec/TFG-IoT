@@ -437,3 +437,73 @@ Se implementó el patrón cache-aside para mecánicas, contextos y analytics de 
 **Recovery de card locks (ADR-041):** Cuando Redis reconecta tras una desconexión, el GameEngine automáticamente re-registra las reservas de tarjetas para las partidas activas en memoria. Esto usa el mecanismo `onReconnect()` de `config/redis.js` que emite un callback en el evento `ready` tras una desconexión.
 
 **Documentación de política de errores:** El handler `on('error')` de Redis en producción ahora documenta explícitamente que NO cierra el proceso (a diferencia del fallo en `connect()` inicial). El circuit breaker de `redisService` gestiona la degradación graceful.
+
+---
+
+## Mantenimiento 2026-04-20: Cobertura total cache analytics + cache auth + idempotencia distribuida
+
+Esta iteración cierra inconsistencias de cobertura y amplía el uso de Redis a dos dominios que no lo aprovechaban. Cinco mejoras integradas:
+
+### 1. Cobertura total de cache-aside en analytics (ADR-064)
+
+`analyticsController.js` tenía 9 de 11 handlers sin cache (solo `getClassroomSummary` y `getClassroomDistribution` estaban envueltos en `cacheGet`). El controller "advanced" T-066 ya cacheaba 14 de 19. Se envolvieron los 9 faltantes con claves parametrizadas por `teacherId`/`studentId` + parámetros relevantes y TTLs escalonados:
+
+| Endpoint | Key | TTL |
+|---|---|---|
+| `getStudentProgress` | `student:progress:${id}:${timeRange\|\|'30d'}` | 180s |
+| `getStudentDifficulties` | `student:difficulties:${id}` | 180s |
+| `getStudentSummary` | `student:summary:${id}:${timeRange\|\|'default'}` | 180s |
+| `getClassroomComparison` | `comparison:${teacherId}:${timeRange\|\|'default'}` | 300s |
+| `getClassroomDifficulties` | `difficulties:${teacherId}` | 300s |
+| `getClassroomTrends` | `trends:${teacherId}:${timeRange\|\|'default'}` | 300s |
+| `getClassroomHeatmap` | `heatmap:${teacherId}:${timeRange\|\|'default'}` | 300s |
+| `getClassroomRankings` | `rankings:${teacherId}:${timeRange\|\|'default'}:${limit\|\|'default'}` | 600s |
+| `getClassroomStudents` | `students:${teacherId}:${sort}:${order}:${tier}:${classroom}:${contextId}:${mechanicId}` | 120s |
+
+`getStudentsIdentity` NO se cachea por contener PII (name, avatar, profile). Comentario en el código justifica la exclusión.
+
+**Invalidación**: `GameEngine.endPlay` ejecuta `cacheInvalidateNamespace('cache:analytics').catch(...)` en fire-and-forget tras persistir la partida. Garantiza frescura inmediata en el dashboard del profesor cuando un alumno termina.
+
+### 2. Cache distribuido de slim-user en middleware auth (ADR-065)
+
+El middleware `authenticate` y el handshake Socket.IO hacían `userRepository.findById` en cada request. Se introduce `auth:user:<userId>` con TTL 60s. Dos helpers nuevos en `middlewares/auth.js`:
+
+- `fetchUserForAuth(userId, select)`: cache-aside con recuento en `runtimeMetrics.redis.authUserCacheHits/Misses`.
+- `invalidateUserCache(userId)`: purga explícita.
+
+Invalidación en 8 puntos (login, logout, updateProfile, changePassword, refreshAccessToken, updateUser, deleteUser, userService.updateUser).
+
+**Gotcha**: `req.user` pasa a ser POJO (no Mongoose doc). En el único punto donde hacíamos `req.user.save()` (logout), se migró a `userRepository.updateById` + `invalidateUserCache`. Los demás flujos del proyecto ya hacían `find + save` con una variable local, no sobre `req.user`, por lo que no hubo impacto transversal.
+
+### 3. Idempotencia distribuida de `startPlay` (ADR-066)
+
+Nuevo namespace `play:init:<playId>` con TTL 60s. En multi-instancia (Socket.IO adapter activo), un SET NX al inicio de `startPlay` garantiza que solo una réplica ejecuta el arranque. Si Redis cae, `setIfNotExists` retorna `true` por fallback y degradamos al guard in-memory previo.
+
+### 4. Hardening del fallback de rate limiter HTTP (ADR-067)
+
+Cuando Redis no está disponible al boot, `createRedisStore` retorna `undefined` y los limiters caen a `MemoryStore`. Mejoras:
+
+- Log `error` con `{ alert: true, fallback: 'memory' }` en producción (llega a Sentry).
+- Nuevo contador `runtimeMetrics.redis.rateLimitStoreFallbackCount`.
+- Comentario documentando la naturaleza one-shot del boot y la deuda técnica de la re-creación lazy (Sprint 6).
+
+### 5. Flush opt-in de Lua scripts en deploys (sin ADR nuevo — enmienda ADR-004)
+
+Nueva env var `REDIS_FLUSH_LUA_ON_BOOT=true` en `loadLuaScripts` que ejecuta `SCRIPT FLUSH` antes de recargar. Necesario en deploys con cambios en `.lua` donde Redis en producción mantiene el script cache entre reinicios del backend. Sin esto, `EVALSHA` sigue ejecutando la versión vieja sin disparar `NOSCRIPT`. Logs con SHA completo de cada script al cargar para verificación visual en deploys.
+
+### Archivos nuevos / modificados clave
+
+- `backend/src/controllers/analyticsController.js` (9 handlers envueltos)
+- `backend/src/services/gameEngine/GameEngine.js` (invalidación en `endPlay`, lock en `startPlay`)
+- `backend/src/middlewares/auth.js` (`fetchUserForAuth`, `invalidateUserCache`)
+- `backend/src/realtime/socketHandlers.js` (handshake usa cache-aside)
+- `backend/src/controllers/authController.js`, `userController.js`, `services/userService.js` (invalidaciones)
+- `backend/src/config/security.js` (hardening fallback)
+- `backend/src/config/redis.js` (`REDIS_FLUSH_LUA_ON_BOOT`, log SHA completo)
+- `backend/src/utils/runtimeMetrics.js` (nuevas métricas `redis.*`)
+- `backend/tests/analyticsCacheCoverage.test.js`, `authCache.test.js`, `endPlayInvalidatesAnalyticsCache.test.js`, `gameEngineStartPlayIdempotency.test.js` (nuevos)
+- `backend/tests/runtimeMetrics.test.js` (extendido)
+
+### Propuestas para Sprint 6
+
+Ver sección "Mejoras Redis Sprint 6" en `documentation/propuestas-mejora.md` (PROP-59 a PROP-64): WebSocket rate-limit distribuido, leaderboards ZSET, feature flags, cola BullMQ, materialización studentMetrics, estado RFID distribuido.

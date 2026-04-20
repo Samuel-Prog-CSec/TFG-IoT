@@ -485,7 +485,9 @@ prefijo     tipo      identificador
 | `tokenfamily` | Familias de tokens           | Set                | 7 días                                 | `tokenfamily:family-abc` |
 | `cache:mechanic` | Mecánica de juego cacheada | String (JSON)      | 1 hora                                 | `cache:mechanic:byId:{mechanicId_or_name}` |
 | `cache:context`  | Contexto temático cacheado | String (JSON)      | 30 minutos                             | `cache:context:byId:{contextId_or_mongoId}` |
-| `cache:analytics` | Resumen y distribución de clase | String (JSON) | 5 minutos                              | `cache:analytics:summary:{teacherId}` |
+| `cache:analytics` | KPIs y agregaciones de analytics (11 handlers) | String (JSON) | 2-10 minutos según granularidad    | `cache:analytics:summary:{teacherId}`, `cache:analytics:trends:{teacherId}:{timeRange}`, `cache:analytics:student:summary:{studentId}:{timeRange}`... |
+| `auth:user`      | Slim-user cacheado para middleware de autenticación | String (JSON POJO) | 60 segundos | `auth:user:{userId}` |
+| `play:init`      | Lock distribuido de idempotencia de `startPlay`     | String       | 60 segundos                  | `play:init:{playId}` |
 
 > **Nota sobre TTL de play/card (T-066):** Aunque antes este documento indicaba "Sin TTL*", el código
 > real aplica un TTL de 90s (`DISTRIBUTED_LOCK_TTL_SECONDS`) con un heartbeat de 30s
@@ -1138,6 +1140,31 @@ Para **analytics**, no se realiza invalidación explícita. Los datos expiran au
 Si Redis no está disponible (circuit breaker abierto, timeout, error de conexión), `cacheGet` ejecuta directamente la función de fetch contra MongoDB sin lanzar error. El sistema opera en modo degradado (sin cache) de forma transparente para el consumidor. Cuando Redis vuelve a estar disponible, las siguientes lecturas re-poblan el cache automáticamente.
 
 Para más detalles sobre la decisión, ver **ADR-020** en `Architecture_Decisions.md`.
+
+## Cache de autenticación (`auth:user`)
+
+Desde el mantenimiento 2026-04-20, el middleware `authenticate` (HTTP) y el handshake Socket.IO comparten un cache Redis `auth:user:<userId>` con TTL 60s. Cachea un POJO "slim" del usuario con los campos que el middleware necesita (`role`, `status`, `accountStatus`, `currentSessionId`, `name`, `consent`). El helper `fetchUserForAuth` en `middlewares/auth.js` encapsula el flujo cache-aside; `invalidateUserCache(userId)` fuerza re-fetch.
+
+**Invalidación explícita** en estos puntos:
+- `authController.login` (rota `currentSessionId`)
+- `authController.changePassword` (rota `currentSessionId` + password)
+- `authController.updateProfile` (cambia `name`/`profile`)
+- `authController.refreshAccessToken` cuando asigna `currentSessionId` legacy
+- `userController.updateUser` y `userController.deleteUser`
+- `userService.updateUser`
+- `middleware/auth.logout` (tras rotar el sessionId vía `updateById`)
+
+**Ventana de staleness máxima**: 60s entre un cambio de estado y su efecto en el middleware. El `security flag` de `revokeAllUserTokens` sigue siendo inmediato porque consulta un namespace distinto (`security:<userId>`) sin pasar por este cache.
+
+Para más detalles, ver **ADR-065** en `Architecture_Decisions.md`.
+
+## Idempotencia distribuida de `startPlay` (`play:init`)
+
+En despliegues multi-instancia (con Socket.IO Redis adapter activo), dos réplicas podrían recibir concurrentemente un mismo `start_play`. Desde el mantenimiento 2026-04-20, `GameEngine.startPlay` adquiere un lock `SET NX` en `play:init:<playId>` con TTL 60s **antes** de cualquier otro registro en memoria o emisión de `new_round`. Si el lock ya existe (otra réplica lo tomó), `startPlay` retorna temprano.
+
+El lock NO se libera manualmente — el TTL lo purga. 60s cubre el peor caso de `startPlay` (<2s) con margen para GC stops y reintentos legítimos. Si Redis cae, `setIfNotExists` retorna `true` por fallback y degradamos al guard in-memory previo (aceptable porque sin Redis tampoco hay multi-instancia real).
+
+Para más detalles, ver **ADR-066** en `Architecture_Decisions.md`.
 
 ---
 

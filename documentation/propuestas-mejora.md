@@ -203,3 +203,158 @@
 **Alcance estimado:**
 - Auditar `backend/seeders/07-gameplays.js` y `08-alerts.js` (si existe) para variar timestamps de manera realista.
 - Verificar si el backend regenera timestamps al servir alertas (no deberia).
+
+---
+
+# Mejoras Redis Sprint 6 (propuestas tras auditoria del 2026-04-20)
+
+Las siguientes propuestas surgen de la auditoria integral de la implementacion de Redis realizada en la sesion de mantenimiento 2026-04-20. Las mejoras de alto ROI y bajo riesgo ya se integraron en esta rama (ver ADRs 064-067). Las siguientes requieren alcance mayor y se proponen para Sprint 6.
+
+---
+
+## PROP-59: Rate limiting WebSocket distribuido (Redis Sorted Set + Lua)
+
+**Descripcion:** El `SocketRateLimiter` actual mantiene el sliding window en memoria (`Map<string, number[]>`) — no distribuido entre instancias. En multi-replica, un cliente puede eludir el limite conectandose a distintas instancias por round-robin. Gap documentado en `Rate_Limiting_Analysis.md` desde 2026-04-03 sin resolver.
+
+**Estructura Redis propuesta:**
+- `rl:ws:<event>:<rateKey>` → Sorted Set con timestamps como score y member
+- `rl:ws:block:<rateKey>` → String con TTL (bloqueo progresivo activo)
+- `rl:ws:violations:<rateKey>` → String counter con TTL corto
+- `rl:ws:rfid:<rateKey>:<sensorId>` → String con TTL (dedupe UID por sensor)
+
+**Pseudocodigo Lua (`checkSocketRateLimit.lua`):** ZREMRANGEBYSCORE (purgar expirados) → ZCARD (contar) → si excede: INCR violations + opcionalmente SET block → devolver rechazo con `retryAfterMs`; si no: ZADD timestamp → resetear violations. 1 roundtrip atomico.
+
+**TTLs:** `windowMs * 2` en sortset (autopurga), `PX blockDurationMs` en block key, ventana corta en violations.
+
+**Invalidacion:** solo TTL.
+
+**Fallback:** mantener la implementacion in-memory actual como `insuranceLimiter` — si Lua falla o Redis cae, cae al Map actual sin interrupcion.
+
+**Tests:** extender `socketRateLimiter.test.js` con casos de contencion entre dos instancias simuladas (ioredis-mock soporta sortsets).
+
+**Esfuerzo:** M (3-5 dias). Archivos: `socketRateLimiter.js` + 1 script Lua + tests + actualizar `Rate_Limiting_Analysis.md`.
+
+**ADR tentativo:** "Rate limiting WebSocket distribuido con Redis Sorted Set"
+
+---
+
+## PROP-60: Leaderboards con ZSET para rankings de contextos/mecanicas/estudiantes
+
+**Descripcion:** `analyticsService.getTopContextsAndMechanics` ejecuta dos aggregations con `$lookup` × 2 cada una en cada request del dashboard. Con ZSETs en Redis: O(log N) actualizacion al completar play, O(log N + M) lectura del top M.
+
+**Estructura Redis propuesta:**
+- `leaderboard:context:score:<teacherId>:<timeRange>` → ZSET (score = sumScoreByContext, member = contextId)
+- `leaderboard:context:plays:<teacherId>:<timeRange>` → ZSET (score = playCountByContext)
+- `leaderboard:mechanic:score:<teacherId>:<timeRange>`, `leaderboard:mechanic:plays:<teacherId>:<timeRange>`
+- `leaderboard:student:score:<teacherId>:<timeRange>` (futura expansion)
+
+**Pseudocodigo:** en `endPlay`: `redis.zincrby(key, playScore, contextId)` + `redis.zincrby(playsKey, 1, contextId)`. Lectura: `ZREVRANGEBYSCORE key +inf -inf WITHSCORES LIMIT 0 N`.
+
+**TTLs:** 8 dias por key (una ventana >7d). Para timeRanges dinamicos, pre-calcular buckets diarios y sumar al leer.
+
+**Invalidacion:** TTL + recalculo nocturno por job BullMQ (PROP-62) para reconciliar con Mongo y corregir drift.
+
+**Tests:** `leaderboardZset.test.js` — insertar 100 plays mock, verificar que el top coincide con la agregacion Mongo sobre los mismos datos.
+
+**Trade-off:** perdida de consistencia inmediata (eventually consistent). Requiere tarea de reconciliacion.
+
+**Esfuerzo:** M (3-4 dias).
+
+**ADR tentativo:** "Leaderboards con ZSET para rankings de analytics"
+
+---
+
+## PROP-61: Feature flags / kill switches en Redis Hash
+
+**Descripcion:** No existen hoy. Activar/desactivar features requiere redeploy. Util para: pausar onboarding de estudiantes en picos, desactivar WebSerial si hay bugs, limitar endpoints costosos a subconjunto de usuarios.
+
+**Estructura Redis propuesta:** `feature:<featureName>` → Hash: `{ enabled: '1'|'0', rolloutPct: '50', whitelist: 'uid1,uid2', reason: 'text' }`
+
+**Pseudocodigo:** `cacheGet('feature:flags', featureName, () => redis.hgetall(...), 30)`. Si `!flag?.enabled`: throw `ServiceUnavailableError(flag.reason)`. Si `rolloutPct`: determinar por hash del userId.
+
+**TTL:** 30s de cache local en el namespace `feature:flags` — equilibra latencia vs responsividad.
+
+**Invalidacion:** panel super_admin + endpoint `POST /api/admin/flags/:name` que ejecuta `cacheInvalidate('feature:flags', name)`.
+
+**Tests:** `featureFlags.test.js` — toggles on/off, rollouts por porcentaje, listas blancas, invalidacion inmediata.
+
+**Frontend:** hook `useFeatureFlag('newDashboard')` que consulta endpoint `GET /api/flags` + panel admin de super_admin para gestionar.
+
+**Esfuerzo:** S-M (2-3 dias Full-stack).
+
+**ADR tentativo:** "Feature flags distribuidos en Redis"
+
+---
+
+## PROP-62: Cola de jobs asincronos con BullMQ
+
+**Descripcion:** Operaciones pesadas hoy son sincronas o `setInterval`: exports GDPR (bloquean request), retention jobs (se ejecutan en todas las replicas simultaneamente), notificaciones batch (no implementadas).
+
+**Eleccion:** **BullMQ** sobre Redis Streams. Razones: API de alto nivel (job state, retries con backoff, dashboards Bull-Board), compatible con ioredis ya instalado, comunidad activa.
+
+**Queues propuestas:**
+- `gdpr-exports`: usuarios piden data export → worker genera ZIP, sube a Supabase Storage, emite email con signed URL
+- `data-retention`: purgas programadas (replace `setInterval`)
+- `notifications`: emails, push futuros
+
+**Pseudocodigo (producer):** `await exportsQueue.add('export-user-data', { userId, requestId }, { attempts: 3, backoff: 'exponential' })`.
+
+**Worker separado:** proceso `worker.js` independiente (`npm run worker`) — habilita escalado horizontal del worker por si mismo.
+
+**TTLs:** `removeOnComplete: { age: 86400 }`, `removeOnFail: { age: 604800 }`.
+
+**Invalidacion:** jobs se auto-purgan por BullMQ.
+
+**Tests:** `jobQueues.test.js` — mock redis, verificar add/process/retry/fail.
+
+**Infraestructura:** Docker Compose añade `worker` service. Deploy scripts actualizados.
+
+**Esfuerzo:** L (1-2 semanas). Impacta estructura del proyecto (nuevo proceso, nuevos tests, nueva pipeline CI).
+
+**ADR tentativo:** "Cola de jobs asincronos con BullMQ"
+
+---
+
+## PROP-63: Materializacion de `studentMetrics` en Redis Hash
+
+**Descripcion:** El campo `user.studentMetrics` (averageScore, totalGamesPlayed, totalCorrectAttempts) se recalcula con cada `endPlay` via `player.updateStudentMetrics(...)` que hace `.save()` sobre el doc User. Para dashboards con muchos estudiantes, la lectura masiva es costosa porque Mongo tiene que leer el doc entero.
+
+**Estructura Redis propuesta:** `student:metrics:<studentId>` → Hash: `{ totalGamesPlayed, totalCorrectAttempts, totalAttempts, sumScores, count, lastUpdated }`
+
+**Pseudocodigo en endPlay:** `redis.hincrby(...):totalGamesPlayed 1`, `redis.hincrby(...sumScores, score)`, etc. `avgScore` calculado en lectura.
+
+**TTL:** sin TTL (datos persistentes). Reconciliados con Mongo en job nocturno de PROP-62.
+
+**Invalidacion:** reconciliacion nocturna: leer GamePlay del dia, recalcular agregados, escribir en Mongo + Redis como source of truth.
+
+**Tests:** `studentMetricsMaterialized.test.js` — 10 plays en sucesion, verificar que agregados Redis coinciden con calculo directo Mongo.
+
+**Consideracion GDPR:** al eliminar estudiante (Art. 17), purgar la key. Integrar con `dataExportService`.
+
+**Esfuerzo:** M-L (5-7 dias). Requiere ADR dedicado.
+
+**ADR tentativo:** "Materializacion de studentMetrics en Redis"
+
+---
+
+## PROP-64: Estado RFID mode distribuido
+
+**Descripcion:** El estado "modo RFID" del usuario (normal/config/lock) esta hoy en memoria local (`socketHandlers.js` Map). En multi-replica, el mismo usuario podria tener estado inconsistente segun a que instancia se conecte. El codigo ya tiene la constante `REDIS_RFID_MODE_PREFIX = 'rfid:mode:'` declarada pero no usada.
+
+**Estructura Redis propuesta:**
+- `rfid:mode:<userId>` → String: `'normal'|'config'|'lock'` con TTL 1h
+- Pub/Sub channel `rfid-mode:<userId>` para notificar cambios instantaneos entre instancias
+
+**Pseudocodigo setMode:** `await redis.setex('rfid:mode:'+userId, 3600, mode); await redis.publish('rfid-mode:'+userId, mode)`.
+
+**Pseudocodigo getMode:** `return (await redis.get('rfid:mode:'+userId)) || 'normal'`.
+
+**TTL:** 1h — mayor que cualquier sesion tipica de profesor en una clase.
+
+**Invalidacion:** TTL + pub/sub para cambios en tiempo real entre instancias.
+
+**Tests:** `rfidModeDistributed.test.js` — dos instancias simuladas, setMode en A → B recibe el cambio via pub/sub.
+
+**Esfuerzo:** S (1-2 dias). Usa la constante ya declarada y el adapter pub/sub existente.
+
+**ADR tentativo:** "Estado RFID mode distribuido"

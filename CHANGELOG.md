@@ -5,6 +5,28 @@ Todas las notas notables de cambios en este proyecto serán documentadas en este
 El formato está basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.0.0/),
 y este proyecto adhiere a [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Añadido
+
+- **Cache-aside total en analytics (ADR-064):** Los 9 handlers de `analyticsController.js` que seguían sin cache ahora pasan por `cacheGet('cache:analytics', ...)` con TTLs escalonados (120-600s) según granularidad. `GameEngine.endPlay` invalida el namespace fire-and-forget tras cada partida.
+- **Cache slim-user en middleware auth (ADR-065):** Nuevo namespace `auth:user:<userId>` con TTL 60s que reduce queries Mongo por cada request HTTP autenticado y handshake WebSocket. Helpers `fetchUserForAuth` e `invalidateUserCache` exportados desde `middlewares/auth.js`. Métricas `redis.authUserCacheHits/Misses` expuestas en `/api/metrics`.
+- **Idempotencia distribuida de `startPlay` (ADR-066):** Nuevo lock `play:init:<playId>` con SET NX + TTL 60s. Previene duplicación de `new_round` emit en despliegues multi-instancia con Socket.IO adapter activo.
+- **Observabilidad del fallback del rate limiter (ADR-067):** Cuando Redis no está disponible al boot, los limiters HTTP caen a `MemoryStore`. Ahora el fallback se reporta con log `error` + `alert: true` a Sentry en producción y se contabiliza en `runtimeMetrics.redis.rateLimitStoreFallbackCount`.
+- **`REDIS_FLUSH_LUA_ON_BOOT` env var:** Flag opt-in que ejecuta `SCRIPT FLUSH` antes de recargar los Lua scripts en `loadLuaScripts`. Necesaria en deploys con cambios en `.lua` si Redis mantiene el script cache entre reinicios del backend. Logs con SHA completo de cada script al cargar.
+- **Tests nuevos:** `analyticsCacheCoverage.test.js`, `authCache.test.js`, `endPlayInvalidatesAnalyticsCache.test.js`, `gameEngineStartPlayIdempotency.test.js`. Extensión de `runtimeMetrics.test.js` con casos para `redis.*`.
+
+### Cambiado
+
+- **`req.user` es un POJO**, no un documento Mongoose. Los flujos que hacían `req.user.save()` (un único punto en `middlewares/auth.logout`) se migraron a `userRepository.updateById` + `invalidateUserCache`.
+- **Invalidación explícita del cache auth** en `authController.login/logout/changePassword/updateProfile/refreshAccessToken`, `userController.updateUser/deleteUser` y `userService.updateUser`.
+
+### Documentación
+
+- Nuevos ADRs 064-067 en `documentation/Architecture_Decisions.md`.
+- Actualizados `backend/docs/Arquitectura_Redis.md`, `Redis_Optimization_Analysis.md`, `Rate_Limiting_Analysis.md`, `Performance_Notes.md` y `Seguridad_tokens_JWT.md`.
+- Nuevas propuestas PROP-59 a PROP-64 en `documentation/propuestas-mejora.md` (Sprint 6): WebSocket rate-limit distribuido, leaderboards ZSET, feature flags, BullMQ, materialización studentMetrics, RFID mode distribuido.
+
 ## [0.4.0] - 2026-03-22
 
 ### Añadido

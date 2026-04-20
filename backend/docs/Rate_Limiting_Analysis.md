@@ -318,3 +318,41 @@ Leer este documento con calma y decidir entre:
 - **Hibrido**: rate-limiter-flexible solo para WS + express-rate-limit para HTTP
 
 Fecha del analisis: 2026-04-03
+
+---
+
+## 8. Hardening del fallback in-memory (Mantenimiento 2026-04-20)
+
+### Decisión aplicada
+
+Tras la auditoría de la sesión de mantenimiento, se decidió:
+
+1. **Aplazar la migración WS distribuido (Opcion A) al Sprint 6** por alcance. Se documenta como PROP-59 en `documentation/propuestas-mejora.md` con estructura Redis Sorted Set + Lua detallada.
+2. **Endurecer la observabilidad del fallback in-memory de HTTP en esta iteración** (ADR-067).
+
+### Cambios implementados
+
+`config/security.js → createRedisStore`:
+
+- Cuando retorna `undefined` en `NODE_ENV==='production'`, emite `logger.error({ alert: true, fallback: 'memory', prefix, reason })` para que llegue a Sentry con tag de alerta. En desarrollo, sigue siendo `warn`.
+- Nuevo helper interno `reportFallback(reason, extra)` centraliza el reporte y el `recordRateLimitStoreFallback()` de `runtimeMetrics`.
+- Comentario de deuda técnica: la re-creación lazy del store tras reconexión de Redis queda pendiente de decisión arquitectónica en Sprint 6. Por ahora, si Redis cae al boot, los limiters quedan anclados a memoria hasta reinicio del proceso.
+
+`utils/runtimeMetrics.js`:
+
+- Nuevo contador `redis.rateLimitStoreFallbackCount` expuesto en `/api/metrics` junto con `redis.authUserCacheHits/Misses` (del ADR-065).
+- Función `recordRateLimitStoreFallback()` invocada por `createRedisStore` en cada fallback detectado.
+
+### Impacto observacional
+
+Un operador puede ahora:
+
+- Ver en Sentry cada fallback con contexto (prefix, reason, timestamp).
+- Consultar `/api/metrics` para el contador agregado desde boot.
+- Detectar la fragmentación del límite en multi-instancia por el crecimiento del contador (si todas las réplicas reportan fallback, el problema es Redis; si solo una, es una anomalía local).
+
+### Deuda técnica restante (Sprint 6)
+
+La re-creación lazy del store cuando Redis vuelve requiere reset del estado interno del limiter de forma segura. Se acota a una decisión de arquitectura propia. Hasta entonces, el operador debe reiniciar el proceso tras una recuperación de Redis para restaurar el límite distribuido.
+
+Ver también **ADR-067** en `documentation/Architecture_Decisions.md`.

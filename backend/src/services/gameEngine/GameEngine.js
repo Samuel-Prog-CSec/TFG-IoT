@@ -10,6 +10,7 @@ const logger = require('../../utils/logger').child({ component: 'gameEngine' });
 const userRepository = require('../../repositories/userRepository');
 const { SCAN_IGNORED_REASONS, PLAY_INTERRUPTED_REASONS } = require('../../constants/errorCodes');
 const redisService = require('../redisService');
+const { cacheInvalidateNamespace } = require('../../utils/cacheHelper');
 const { recalculateSessionStatusFromPlays } = require('../sessionStatusService');
 const { getMechanicStrategy } = require('../../strategies/mechanics');
 const {
@@ -379,6 +380,18 @@ class GameEngine {
     const playId = playDoc._id.toString();
 
     return this.executeWithPlayLock(playId, 'startPlay', async () => {
+      // Idempotencia distribuida: en despliegues multi-instancia con Socket.IO adapter,
+      // dos instancias pueden recibir start_play concurrentes para el mismo playId.
+      // SET NX con TTL 60s garantiza que solo una instancia ejecute el arranque.
+      // Si Redis cae, setIfNotExists retorna true → fallback al guard en memoria.
+      const acquired = await redisService.setIfNotExists('play:init', playId, 'initializing', 60);
+      if (!acquired) {
+        logger.warn(
+          `Partida ${playId}: otra instancia ya está inicializando (lock distribuido activo)`
+        );
+        return;
+      }
+
       if (this.activePlays.has(playId)) {
         logger.warn(`Partida ${playId} ya estaba iniciada en memoria (idempotencia start_play)`);
         return;
@@ -621,6 +634,15 @@ class GameEngine {
       }
 
       await recalculateSessionStatusFromPlays(playState.playDoc.sessionId);
+
+      // Invalidar cache de analytics para garantizar frescura en el dashboard del profesor
+      // inmediatamente después de completar/abandonar la partida. Fire-and-forget.
+      cacheInvalidateNamespace('cache:analytics').catch(err => {
+        logger.warn('endPlay: fallo al invalidar cache:analytics (ignorado)', {
+          playId,
+          error: err.message
+        });
+      });
 
       logger.info(`Partida ${playId} guardada en BD`, {
         playId,

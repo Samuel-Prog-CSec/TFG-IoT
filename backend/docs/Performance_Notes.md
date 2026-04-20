@@ -330,3 +330,33 @@ La función `cacheInvalidateNamespace` en `cacheHelper.js` ahora delega a `redis
 ### Lógica de aggregation extraída a services
 
 Las aggregation pipelines que estaban en `gamePlayController` y `gameSessionController` se han movido a los services correspondientes (`gamePlayService.getPlayerStats`, `gamePlayService.getPlayStatsBySessionIds`), manteniendo los controllers como orquestadores delgados.
+
+---
+
+## Mantenimiento 2026-04-20 — Cobertura total cache analytics + cache auth + idempotencia
+
+### Cobertura total de cache-aside en analytics (ADR-064)
+
+Los 9 handlers de `analyticsController.js` que seguían consultando Mongo en cada request ahora pasan por `cacheGet('cache:analytics', ...)`. TTLs escalonados (120-600s) según granularidad. `GameEngine.endPlay` invalida el namespace en fire-and-forget tras cada partida para garantizar frescura en el dashboard del profesor.
+
+Impacto esperado en p95 de endpoints cacheados: reducción de ~150-400ms (cold aggregate) a <10ms (warm cache hit).
+
+### Cache slim-user en middleware auth (ADR-065)
+
+Nuevo cache `auth:user:<userId>` con TTL 60s que evita el `userRepository.findById` de cada request autenticado (HTTP + WebSocket handshake). Invalidación explícita en login/logout/updateProfile/changePassword y en mutaciones de `userController`/`userService`. Métricas `runtimeMetrics.redis.authUserCacheHits/Misses` permiten observar la efectividad.
+
+`req.user` pasa a ser POJO (no Mongoose doc); los flujos afectados se migraron a `userRepository.updateById` + `invalidateUserCache`.
+
+### Idempotencia distribuida de startPlay (ADR-066)
+
+SET NX en `play:init:<playId>` con TTL 60s al inicio de `GameEngine.startPlay`. Previene duplicación de `new_round` emit y `syncPlayToRedis` en despliegues multi-instancia con Socket.IO adapter activo. Complementa el `reserveCardsAtomic` (ADR-004) que ya protegía los card locks.
+
+### Hardening fallback rate-limit + Lua flush opt-in
+
+- `config/security.createRedisStore`: fallback a memoria reporta a Sentry con `alert: true` en producción, incrementa `runtimeMetrics.redis.rateLimitStoreFallbackCount`, y deja documentada la deuda técnica de re-creación lazy (ver ADR-067).
+- `config/redis.loadLuaScripts`: nueva env var `REDIS_FLUSH_LUA_ON_BOOT=true` ejecuta `SCRIPT FLUSH` antes de recargar — necesaria en deploys con cambios en `.lua` si Redis mantiene el script cache entre reinicios. Log con SHA completo de cada script al cargar.
+
+### Tests nuevos (993 verde tras los cambios)
+
+- `analyticsCacheCoverage.test.js`, `authCache.test.js`, `endPlayInvalidatesAnalyticsCache.test.js`, `gameEngineStartPlayIdempotency.test.js` (4 nuevos).
+- `runtimeMetrics.test.js` extendido con 3 nuevos casos para `redis.*`.
