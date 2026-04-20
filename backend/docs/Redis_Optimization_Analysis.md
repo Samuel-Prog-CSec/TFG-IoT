@@ -475,17 +475,19 @@ Invalidación en 8 puntos (login, logout, updateProfile, changePassword, refresh
 
 **Gotcha**: `req.user` pasa a ser POJO (no Mongoose doc). En el único punto donde hacíamos `req.user.save()` (logout), se migró a `userRepository.updateById` + `invalidateUserCache`. Los demás flujos del proyecto ya hacían `find + save` con una variable local, no sobre `req.user`, por lo que no hubo impacto transversal.
 
-### 3. Idempotencia distribuida de `startPlay` (ADR-066)
+### 3. Idempotencia distribuida de `startPlay` (ADR-066) + liberación explícita en `endPlay` (ADR-068)
 
 Nuevo namespace `play:init:<playId>` con TTL 60s. En multi-instancia (Socket.IO adapter activo), un SET NX al inicio de `startPlay` garantiza que solo una réplica ejecuta el arranque. Si Redis cae, `setIfNotExists` retorna `true` por fallback y degradamos al guard in-memory previo.
 
-### 4. Hardening del fallback de rate limiter HTTP (ADR-067)
+`startPlay` y `endPlay` usan ahora la constante `redisService.NAMESPACES.PLAY_INIT_LOCK` en vez del literal `'play:init'` (coherencia con el resto del módulo). `endPlay` libera el lock explícitamente con `redisService.del(NAMESPACES.PLAY_INIT_LOCK, playId)` envuelto en try/catch silencioso. El TTL 60s sigue siendo la red de seguridad ante errores de Redis. Este cambio elimina el caso "abort silencioso" que se producía si el cliente intentaba reiniciar la misma partida durante esos 60 s post-endPlay (p. ej. F5 inmediato del alumno tras una partida muy corta).
 
-Cuando Redis no está disponible al boot, `createRedisStore` retorna `undefined` y los limiters caen a `MemoryStore`. Mejoras:
+### 4. Hardening del fallback de rate limiter HTTP (ADR-067) + lazy promotion (ADR-068)
 
-- Log `error` con `{ alert: true, fallback: 'memory' }` en producción (llega a Sentry).
-- Nuevo contador `runtimeMetrics.redis.rateLimitStoreFallbackCount`.
-- Comentario documentando la naturaleza one-shot del boot y la deuda técnica de la re-creación lazy (Sprint 6).
+ADR-067 (commit a52e62e) añadió observabilidad del fallback pero no resolvió la causa raíz: los limiters se anclaban a `MemoryStore` siempre al boot porque `require('./config/security')` se ejecuta antes de `await connectRedis()`. La QA del 2026-04-20 confirmó `rateLimitStoreFallbackCount == 8` y keys `rl:*` ausentes.
+
+ADR-068 (mantenimiento posterior) refactoriza la inicialización a una factory deferida: `createRateLimiter` registra la config y devuelve un middleware shim; `initRateLimiters()` instancia los 8 limiters reales con Redis store cuando se invoca desde `server.js` justo tras `await connectRedis()`. Resultados: `rateLimitStoreFallbackCount == 0` en boot normal, keys `rl:*` aparecen en Redis, y `passOnStoreError: true` evita 500s ante blips de Redis.
+
+Observabilidad existente (logs alerta + contador runtimeMetrics) se preserva.
 
 ### 5. Flush opt-in de Lua scripts en deploys (sin ADR nuevo — enmienda ADR-004)
 

@@ -356,6 +356,16 @@ SET NX en `play:init:<playId>` con TTL 60s al inicio de `GameEngine.startPlay`. 
 - `config/security.createRedisStore`: fallback a memoria reporta a Sentry con `alert: true` en producción, incrementa `runtimeMetrics.redis.rateLimitStoreFallbackCount`, y deja documentada la deuda técnica de re-creación lazy (ver ADR-067).
 - `config/redis.loadLuaScripts`: nueva env var `REDIS_FLUSH_LUA_ON_BOOT=true` ejecuta `SCRIPT FLUSH` antes de recargar — necesaria en deploys con cambios en `.lua` si Redis mantiene el script cache entre reinicios. Log con SHA completo de cada script al cargar.
 
+### Lazy promotion del rate limiter HTTP a Redis store (ADR-068)
+
+Refactor posterior a ADR-067 que resuelve la causa raíz del fallback sistemático al boot: los 8 limiters se registran ahora lazy en un `rateLimitersRegistry` y se instancian con Redis store por `initRateLimiters()` invocado desde `server.js` tras `await connectRedis()`. Los exports (`globalRateLimiter`, etc.) son middleware shims que delegan al limiter real cuando existe.
+
+Configuración adicional al crear los limiters: `passOnStoreError: true` — si Redis cae mid-request, `express-rate-limit` deja pasar el request (fail-open) en lugar de devolver 500. Criterio: preferible tolerar un pico de tráfico ante blip de Redis que tirar el servicio entero con errores. El blip queda visible vía `runtimeMetrics.redis` + Sentry (desde ADR-067). Helper compartido `utils/ipHelper.js::userOrIpKeyGenerator` usa `ipKeyGenerator` para normalizar IPv6 al /64, eliminando warnings de `express-rate-limit` y cerrando un potencial bypass por prefijos IPv6 del mismo rango.
+
+Además, el handler `unhandledRejection` en `server.js` ya no ejecuta `gracefulShutdown` — solo loguea y reporta a Sentry. Esto evita el ciclo de reinicios del contenedor que se observaba durante blips de Redis cuando alguna promise Redis pendiente rechazaba. `uncaughtException` mantiene el shutdown (estado del proceso realmente incierto).
+
+Impacto medido tras despliegue: `rateLimitStoreFallbackCount == 0` en boot normal (antes 8), keys `rl:*` presentes en Redis desde el primer request, `RestartCount` del contenedor permanece 0 tras `docker stop redis` + requests concurrentes.
+
 ### Tests nuevos (993 verde tras los cambios)
 
 - `analyticsCacheCoverage.test.js`, `authCache.test.js`, `endPlayInvalidatesAnalyticsCache.test.js`, `gameEngineStartPlayIdempotency.test.js` (4 nuevos).

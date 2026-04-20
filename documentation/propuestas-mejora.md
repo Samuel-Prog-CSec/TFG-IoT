@@ -214,6 +214,8 @@ Las siguientes propuestas surgen de la auditoria integral de la implementacion d
 
 ## PROP-59: Rate limiting WebSocket distribuido (Redis Sorted Set + Lua)
 
+> **Estado 2026-04-20 tarde**: la parte **HTTP** de esta propuesta queda **resuelta** vía ADR-068 (lazy promotion + shim factory + `passOnStoreError`). Las 8 instancias de `express-rate-limit` ahora usan efectivamente Redis store desde el boot, con keys `rl:*` visibles en el servidor. Lo que sigue abierto es la parte **WebSocket** descrita a continuación.
+
 **Descripcion:** El `SocketRateLimiter` actual mantiene el sliding window en memoria (`Map<string, number[]>`) — no distribuido entre instancias. En multi-replica, un cliente puede eludir el limite conectandose a distintas instancias por round-robin. Gap documentado en `Rate_Limiting_Analysis.md` desde 2026-04-03 sin resolver.
 
 **Estructura Redis propuesta:**

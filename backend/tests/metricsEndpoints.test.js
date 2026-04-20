@@ -57,6 +57,12 @@ describe('System Endpoints (/health, /api/metrics)', () => {
       expect(res.body.rfid.processed).toHaveProperty('totalEventsProcessed');
       expect(res.body.rfid).toHaveProperty('service');
       expect(res.body.rfid.service).toHaveProperty('metrics');
+      // Fix BUG-QA-2: el DTO debe incluir el bloque redis con contadores del
+      // cache de auth y del fallback de rate limiter.
+      expect(res.body).toHaveProperty('redis');
+      expect(res.body.redis).toHaveProperty('rateLimitStoreFallbackCount');
+      expect(res.body.redis).toHaveProperty('authUserCacheHits');
+      expect(res.body.redis).toHaveProperty('authUserCacheMisses');
     });
   });
 

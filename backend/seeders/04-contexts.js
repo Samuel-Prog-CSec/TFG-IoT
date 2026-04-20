@@ -312,10 +312,19 @@ const contextsData = [
  * desde la UI; solo se eliminan al borrar el contexto entero (accion exclusiva
  * del super_admin desde /admin/contexts).
  *
- * @returns {Promise<Array>} Array de contextos creados
+ * Idempotente: si ya existen contextos, los devuelve sin recrearlos (evita
+ * E11000 por el indice unique en `contextId`).
+ *
+ * @returns {Promise<Array>} Array de contextos creados o preexistentes
  */
 async function seedContexts() {
   try {
+    const existing = await GameContext.find({});
+    if (existing.length > 0) {
+      logger.info(`Contextos ya existen (${existing.length}), omitiendo creacion`);
+      return existing;
+    }
+
     // Asegurar uploadedBy=null en cada asset (defensivo: el default del schema ya es null)
     const dataWithOwnership = contextsData.map(ctx => ({
       ...ctx,

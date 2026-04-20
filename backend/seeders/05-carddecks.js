@@ -37,6 +37,13 @@ function generateCardMappings(contextAssets, count, baseOffset) {
  * Genera cardMappings para un mazo de memoria con parejas.
  * Cada asset produce 2 tarjetas con UIDs distintos pero mismo assignedValue y displayData,
  * resultando en 2N tarjetas para N assets.
+ *
+ * Esquema de offsets: para N assets se ocupa el rango [baseOffset, baseOffset+2N).
+ * La primera copia toma `baseOffset+i` y la segunda `baseOffset+N+i`, de forma que
+ * los UIDs son únicos dentro del mazo (requisito del modelo CardDeck) y además
+ * `currentOffset` en el caller puede avanzar +2N para el siguiente mazo sin
+ * colisionar.
+ *
  * @param {Array} contextAssets - Assets del contexto
  * @param {number} count - Número de assets (parejas) a usar
  * @param {number} baseOffset - Offset base para generar UIDs sintéticos
@@ -64,7 +71,7 @@ function generateMemoryCardMappings(contextAssets, count, baseOffset) {
       displayData
     });
 
-    // Segunda copia: offset desplazado por count
+    // Segunda copia: desplazada por `count` para garantizar unicidad de UID
     mappings.push({
       uid: (baseOffset + count + index).toString(16).toUpperCase().padStart(8, '0'),
       assignedValue: asset.value,
@@ -199,12 +206,21 @@ function generateDecksForTeacher(teacher, contexts, teacherIndex) {
 
 /**
  * Ejecuta el seeder de mazos de tarjetas.
+ * Idempotente: si ya existen mazos, los devuelve sin recrearlos (evita
+ * duplicados y posibles violaciones del indice unique {createdBy, name}).
+ *
  * @param {Object} users - Usuarios creados { teachers, students }
  * @param {Array} contexts - Contextos creados
- * @returns {Promise<Array>} Array de mazos creados
+ * @returns {Promise<Array>} Array de mazos creados o preexistentes
  */
 async function seedCardDecks(users, contexts) {
   try {
+    const existing = await CardDeck.find({});
+    if (existing.length > 0) {
+      logger.info(`Mazos ya existen (${existing.length}), omitiendo creacion`);
+      return existing;
+    }
+
     const { teachers } = users;
     const allDecks = [];
 

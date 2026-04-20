@@ -3544,3 +3544,73 @@ No se cambia la lógica de creación — una reescritura a store lazy que se re-
 - `backend/src/config/security.js` (`createRedisStore` con `reportFallback` helper interno)
 - `backend/src/utils/runtimeMetrics.js` (`recordRateLimitStoreFallback`, `redis.rateLimitStoreFallbackCount`)
 - `backend/docs/Rate_Limiting_Analysis.md` (deuda técnica documentada: re-creación lazy y propuestas Sprint 6)
+
+---
+
+## ADR-068: Lazy promotion de rate limiters HTTP a Redis store [Backend]
+
+### Contexto
+
+ADR-067 documentó la deuda técnica del fallback in-memory del rate limiter: los 8 limiters se creaban en el `require('./config/security')` ejecutado al top del `server.js`, antes de que `await connectRedis()` dentro de `startServer()` hubiera resuelto. `createRedisStore()` devolvía `undefined` y los limiters quedaban anclados a `MemoryStore` para toda la vida del proceso, incluso tras la conexión de Redis ~270 ms más tarde.
+
+La auditoría QA del 2026-04-20 confirmó el impacto en producción: `rateLimitStoreFallbackCount == 8` al boot, keys `rl:*` siempre vacías en Redis, rate-limit efectivamente no distribuido en multi-instancia. Esto invalidaba la promesa del ADR-016 (T-521 del Sprint 5).
+
+Además, la auditoría encontró cuatro hallazgos relacionados que se resuelven en el mismo cambio: DTO `toSystemMetricsDTOV1` no exponía el bloque `redis` pese a que `runtimeMetrics` lo recolectaba (BUG-QA-2); `unhandledRejection` ejecutaba `gracefulShutdown` y mataba el proceso ante cualquier promise rechazada (incluyendo operaciones Redis durante blips), causando reinicios del contenedor (BUG-QA-3); 5 `keyGenerator` custom usaban `req.ip` directo sin `ipKeyGenerator` helper (BUG-QA-4, posible bypass IPv6); el lock `play:init:<playId>` nunca se liberaba tras `endPlay` y dependía únicamente del TTL de 60 s (OBS-QA-1).
+
+### Decisión
+
+Refactor integral del `config/security.js` + ajustes puntuales en `server.js`, `utils/dtos.js`, `controllers/healthController.js`, `services/gameEngine/GameEngine.js` y el nuevo `utils/ipHelper.js`:
+
+1. **Factory deferida con registry interno** (BUG-QA-1):
+   - `createRateLimiter(options)` ahora registra la configuración en `limiterConfigs` y devuelve un middleware **shim** que delega al limiter real cuando éste exista en `rateLimitersRegistry`. Antes de la inicialización el shim hace `next()` (fail-open temprano).
+   - Nueva función `initRateLimiters()` (idempotente) instancia los 8 limiters reales con `createRedisStore(prefix)` ya operativo. Se llama desde `server.js` inmediatamente tras `await connectRedis()`, o en la rama de fallback dev tras el warning de Redis no disponible.
+   - Los exports (`globalRateLimiter`, `authRateLimiter`, etc.) siguen siendo funciones middleware válidas desde el require-time, preservando el contrato de las 11 rutas sin cambios.
+
+2. **Helper compartido `userOrIpKeyGenerator`** (BUG-QA-4):
+   - Nuevo `utils/ipHelper.js` con `userOrIpKeyGenerator(req)` que devuelve `user:<id>` si hay autenticación o `ip:${ipKeyGenerator(req.ip)}` en otro caso. `ipKeyGenerator` de `express-rate-limit` normaliza IPv6 al `/64` (subred /64 es la unidad mínima de asignación global), evitando bypass por prefijos dentro del mismo rango.
+   - Reemplaza 5 definiciones inline duplicadas en `config/security.js`.
+
+3. **`passOnStoreError: true` en `initRateLimiters`**: si Redis cae mid-request, `rate-limit-redis` emite error y `express-rate-limit` deja pasar el request (fail-open) en vez de devolver 500. Combinado con el punto siguiente evita tumbar el servicio durante blips de Redis.
+
+4. **`unhandledRejection` no mata el proceso** (BUG-QA-3): `server.js:439-446` solo loguea y reporta a Sentry. Recomendación oficial Node desde 2020; el estado del proceso sigue válido porque el caller que generó la rejection ya falló localmente. `uncaughtException` mantiene el shutdown (estado incierto justifica exit).
+
+5. **DTO expone bloque `redis`** (BUG-QA-2): `toSystemMetricsDTOV1` añade `redis: payload.redis` y `healthController.getMetrics` pasa `snapshot.redis`. `/api/metrics` ya muestra `authUserCacheHits/Misses` y `rateLimitStoreFallbackCount` donde prometía el commit a52e62e.
+
+6. **Liberación explícita del lock `play:init`** (OBS-QA-1): `GameEngine.endPlay` hace `redisService.del(NAMESPACES.PLAY_INIT_LOCK, playId)` tras limpiar el estado, envuelto en try/catch silencioso porque el TTL 60s ya es red de seguridad. Además `startPlay` ahora usa la constante `NAMESPACES.PLAY_INIT_LOCK` en vez del literal (coherencia con el resto del módulo).
+
+### Consecuencias
+
+**Positivas**
+
+- Rate-limit HTTP **realmente distribuido** en multi-instancia: las keys `rl:global:`, `rl:auth:`, `rl:analytics:user:<id>`… aparecen en Redis al primer request. `rateLimitStoreFallbackCount == 0` en boot normal.
+- Backend **sobrevive** caídas temporales de Redis: `RestartCount` del contenedor ya no se incrementa ante `docker stop redis` + requests.
+- Observabilidad completa: `/api/metrics` muestra hits del cache auth (~84-88 % en uso real) y cualquier incidente de fallback queda visible automáticamente en dashboards.
+- `passOnStoreError: true` garantiza que un blip de Redis no tira el servicio entero con 500s.
+- Sin IPv6 bypass: las ventanas se agrupan correctamente al /64.
+- Lock `play:init` liberado explícitamente: retries rápidos del cliente tras endPlay dejan de experimentar "abort silencioso" durante 60 s.
+
+**Negativas / trade-offs**
+
+- Durante la ventana de boot (entre `require` y `initRateLimiters()`) el shim deja pasar todos los requests. En la práctica esta ventana es < 2 s porque `initRateLimiters()` se llama inmediatamente tras `await connectRedis()` (el servidor aún no escucha en el puerto hasta `server.listen()`, 30+ líneas más abajo). Sin impacto real.
+- `unhandledRejection` sin exit puede ocultar bugs de código que dejaba promises sin `.catch()`. Mitigación: Sentry recoge cada evento; se monitoriza el ratio en la primera semana post-merge.
+- Cambio del `keyGenerator` normaliza IPv6 al /64, lo que invalida contadores previos por IP específica durante el despliegue. Aceptable (single event).
+
+### Verificación
+
+- `backend/tests/rateLimitRedisStore.test.js` extendido: idempotencia de `initRateLimiters`, shim pre-init = noop, keyGenerator IPv6 al /64, keyGenerator user:<id>.
+- `backend/tests/endPlayReleasesInitLock.test.js` (nuevo): 4 tests cubren completion, abandoned, error en `del` (no propaga), y lock no adquirido.
+- `backend/tests/metricsEndpoints.test.js` extendido: `/api/metrics` debe exponer `redis.rateLimitStoreFallbackCount`, `authUserCacheHits`, `authUserCacheMisses`.
+- Suite completa: 71 suites / 1003 tests verdes (antes 70 / 993).
+- E2E Docker: tras boot, `KEYS rfid-games:rl:*` muestra ≥ 1 key por prefix tras requests. `docker stop redis` + requests → backend `RestartCount` permanece 0.
+
+### Referencias
+
+- `backend/src/config/security.js` (registry, `initRateLimiters`, shim factory, keyGenerator compartido)
+- `backend/src/utils/ipHelper.js` (nuevo — `userOrIpKeyGenerator`)
+- `backend/src/server.js` (invocación post-connectRedis + eliminación de shutdown en unhandledRejection)
+- `backend/src/utils/dtos.js` (bloque `redis` en DTO)
+- `backend/src/controllers/healthController.js` (propaga `snapshot.redis`)
+- `backend/src/services/gameEngine/GameEngine.js` (`endPlay` libera lock; `startPlay` usa constante)
+- `memory/project_qa_2026_04_20.md` (auditoría QA que identificó los 5 defectos)
+- ADR-016 (rate limiting distribuido Sprint 5 — ahora realmente cumplido)
+- ADR-065/066/067 (ADRs previos que introdujeron las funcionalidades cuya integración se endurece aquí)

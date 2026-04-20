@@ -384,7 +384,12 @@ class GameEngine {
       // dos instancias pueden recibir start_play concurrentes para el mismo playId.
       // SET NX con TTL 60s garantiza que solo una instancia ejecute el arranque.
       // Si Redis cae, setIfNotExists retorna true → fallback al guard en memoria.
-      const acquired = await redisService.setIfNotExists('play:init', playId, 'initializing', 60);
+      const acquired = await redisService.setIfNotExists(
+        redisService.NAMESPACES.PLAY_INIT_LOCK,
+        playId,
+        'initializing',
+        60
+      );
       if (!acquired) {
         logger.warn(
           `Partida ${playId}: otra instancia ya está inicializando (lock distribuido activo)`
@@ -677,6 +682,20 @@ class GameEngine {
 
     // Limpiar de Redis
     await redisService.del(redisService.NAMESPACES.PLAY, playId);
+
+    // Liberar el lock distribuido de idempotencia. El TTL de 60s lo expiraría
+    // solo de todas formas, pero liberar explícitamente evita el caso "abort
+    // silencioso" si el cliente intenta reiniciar la misma partida justo tras
+    // un endPlay rápido (p. ej. F5 durante el finalize). Silenciamos el fallo
+    // porque el TTL es nuestra red de seguridad.
+    try {
+      await redisService.del(redisService.NAMESPACES.PLAY_INIT_LOCK, playId);
+    } catch (err) {
+      logger.warn('endPlay: fallo al liberar lock play:init (TTL lo expirará)', {
+        playId,
+        error: err.message
+      });
+    }
 
     logger.info(`Partida ${playId} finalizada y limpiada de memoria`, {
       activePlaysRemaining: this.activePlays.size

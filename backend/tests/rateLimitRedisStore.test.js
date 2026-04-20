@@ -136,5 +136,54 @@ describe('Rate Limit Redis Store Factory', () => {
       expect(security.CSRF_COOKIE_NAME).toBe('csrfToken');
       expect(security.CSRF_HEADER_NAME).toBe('x-csrf-token');
     });
+
+    it('debe exportar initRateLimiters tras el refactor a factory deferida', () => {
+      const security = require('../src/config/security');
+      expect(typeof security.initRateLimiters).toBe('function');
+    });
+  });
+
+  describe('factory deferida (fix BUG-QA-1)', () => {
+    it('initRateLimiters es idempotente: llamadas múltiples no lanzan', () => {
+      const { initRateLimiters } = require('../src/config/security');
+      expect(() => {
+        initRateLimiters();
+        initRateLimiters();
+        initRateLimiters();
+      }).not.toThrow();
+    });
+
+    it('en test env, initRateLimiters es no-op (los limiters siguen siendo noop middleware)', () => {
+      const { initRateLimiters, globalRateLimiter } = require('../src/config/security');
+      initRateLimiters();
+
+      const next = jest.fn();
+      globalRateLimiter({}, {}, next);
+      expect(next).toHaveBeenCalledTimes(1);
+    });
+  });
+
+  describe('helper userOrIpKeyGenerator (fix BUG-QA-4)', () => {
+    it('retorna user:<id> cuando hay req.user autenticado', () => {
+      const { userOrIpKeyGenerator } = require('../src/utils/ipHelper');
+      const req = { user: { _id: { toString: () => 'abc123' } }, ip: '127.0.0.1' };
+      expect(userOrIpKeyGenerator(req)).toBe('user:abc123');
+    });
+
+    it('retorna ip:<ip-normalizada> cuando no hay req.user', () => {
+      const { userOrIpKeyGenerator } = require('../src/utils/ipHelper');
+      const req = { ip: '127.0.0.1' };
+      // ipKeyGenerator de express-rate-limit normaliza IPv4 tal cual.
+      expect(userOrIpKeyGenerator(req)).toMatch(/^ip:/);
+      expect(userOrIpKeyGenerator(req)).toContain('127.0.0.1');
+    });
+
+    it('normaliza IPv6 a su /64 para evitar bypass por subnet', () => {
+      const { userOrIpKeyGenerator } = require('../src/utils/ipHelper');
+      const req1 = { ip: '2001:db8:1234:5678::1' };
+      const req2 = { ip: '2001:db8:1234:5678::ffff' };
+      // Ambas IPs en el mismo /64 deben producir la misma key.
+      expect(userOrIpKeyGenerator(req1)).toBe(userOrIpKeyGenerator(req2));
+    });
   });
 });

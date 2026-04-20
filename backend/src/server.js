@@ -32,7 +32,8 @@ const {
   csrfProtection, // Middleware CSRF
   helmetOptions,
   globalRateLimiter,
-  authRateLimiter
+  authRateLimiter,
+  initRateLimiters
 } = require('./config/security');
 const rfidService = require('./services/rfidService');
 const GameEngine = require('./services/gameEngine');
@@ -326,6 +327,12 @@ const startServer = async () => {
       await connectRedis();
       logger.info('Redis conectado');
 
+      // Inicializar los rate limiters HTTP con Redis store distribuido.
+      // Debe ocurrir DESPUÉS de connectRedis() para que createRedisStore()
+      // obtenga un cliente válido (sin esto los limiters caen a MemoryStore
+      // al boot y el rate-limit distribuido queda inutilizado).
+      initRateLimiters();
+
       // Configurar Socket.IO Redis adapter para escalabilidad horizontal
       try {
         const { isRedisConnected, getRedis } = require('./config/redis');
@@ -359,6 +366,9 @@ const startServer = async () => {
       logger.warn('Redis no disponible, continuando sin persistencia de estado:', {
         error: redisError.message
       });
+      // Inicializar los limiters igualmente para que existan; caerán a MemoryStore
+      // y `recordRateLimitStoreFallback` dejará rastro en runtimeMetrics.redis.
+      initRateLimiters();
     }
 
     logger.info('Iniciando servicio RFID en modo cliente...');
@@ -433,8 +443,12 @@ process.on('SIGINT', () => gracefulShutdown('SIGINT')); // Ctrl+C
 
 /**
  * Captura promesas rechazadas que no tienen .catch().
- * Logea el error, lo reporta a Sentry y ejecuta shutdown controlado
- * para evitar un estado inconsistente del proceso.
+ * Registra el error y lo reporta a Sentry, pero NO termina el proceso: el
+ * caller que generó la rejection ya falló localmente, el resto del proceso
+ * sigue válido (práctica oficial recomendada por Node desde 2020). Matar el
+ * proceso aquí causaba reinicios en cadena ante blips de Redis que degradaban
+ * el servicio en vez de tolerarlos. Para fallos realmente fatales (estado
+ * corrupto) existe el handler de `uncaughtException` más abajo.
  */
 process.on('unhandledRejection', (reason, promise) => {
   logger.fatal({ err: reason, promise: String(promise) }, 'Unhandled Promise Rejection detectada');
@@ -442,7 +456,6 @@ process.on('unhandledRejection', (reason, promise) => {
   Sentry.captureException(reason instanceof Error ? reason : new Error(String(reason)), {
     tags: { source: 'unhandledRejection' }
   });
-  gracefulShutdown('unhandledRejection');
 });
 
 /**

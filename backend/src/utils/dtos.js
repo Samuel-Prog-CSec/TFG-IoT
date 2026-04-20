@@ -756,6 +756,11 @@ const toSystemMetricsDTOV1 = payload => ({
   websocket: payload.websocket,
   gameEngine: payload.gameEngine,
   rfid: payload.rfid,
+  // Bloque con métricas de Redis: hits/misses del cache de slim-user en auth,
+  // y contador acumulado de fallbacks del rate limiter HTTP a MemoryStore.
+  // Clave para detectar en producción si el cache y el rate-limit distribuidos
+  // están operativos.
+  redis: payload.redis,
   memory: payload.memory
 });
 

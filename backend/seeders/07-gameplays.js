@@ -173,30 +173,50 @@ function buildRoundEvents({
   expectedMapping,
   errorMapping,
   pointsAwarded,
-  timeElapsed
+  timeElapsed,
+  isMemory
 }) {
-  return [
+  // Replica fielmente lo que emite GameEngine:
+  // 1. round_start al iniciar ronda (GameEngine.js:982)
+  // 2. En memory, card_scanned antes del outcome del par resuelto (GameEngine.js:769-777)
+  // 3. correct | error | timeout con advanceRound (GameEngine.js:793, 1175-1178, 1271)
+  // NO emite round_end: el enum lo contempla pero el engine nunca lo invoca.
+  const events = [
     {
       timestamp: new Date(roundStartTime),
       eventType: 'round_start',
       roundNumber: round
-    },
-    {
-      timestamp: new Date(roundStartTime + timeElapsed),
-      eventType,
-      cardUid: resolveCardUid(eventType, expectedMapping, errorMapping),
-      expectedValue: expectedMapping.assignedValue,
-      actualValue: resolveActualValue(eventType, expectedMapping, errorMapping),
-      pointsAwarded,
-      timeElapsed,
-      roundNumber: round
-    },
-    {
-      timestamp: new Date(roundStartTime + timeElapsed + 500),
-      eventType: 'round_end',
-      roundNumber: round
     }
   ];
+
+  if (isMemory && eventType !== 'timeout') {
+    // En memory, el first_pick se registra como card_scanned sin puntos
+    // antes de resolverse el par. timeout no genera first_pick.
+    const firstPickElapsed = Math.max(0, Math.floor(timeElapsed / 2));
+    events.push({
+      timestamp: new Date(roundStartTime + firstPickElapsed),
+      eventType: 'card_scanned',
+      cardUid: expectedMapping.uid,
+      expectedValue: expectedMapping.assignedValue,
+      actualValue: expectedMapping.assignedValue,
+      pointsAwarded: 0,
+      timeElapsed: firstPickElapsed,
+      roundNumber: round
+    });
+  }
+
+  events.push({
+    timestamp: new Date(roundStartTime + timeElapsed),
+    eventType,
+    cardUid: resolveCardUid(eventType, expectedMapping, errorMapping),
+    expectedValue: expectedMapping.assignedValue,
+    actualValue: resolveActualValue(eventType, expectedMapping, errorMapping),
+    pointsAwarded,
+    timeElapsed,
+    roundNumber: round
+  });
+
+  return events;
 }
 
 /**
@@ -208,6 +228,7 @@ function buildRoundEvents({
  * @param {Object} profile - Perfil STUDENT_PROFILES[key]
  * @param {number} gameNumber - Número de partida (para progresión)
  * @param {boolean} willAbandon - Si la partida será abandonada
+ * @param {boolean} isMemory - Si la sesión es mecánica memory (para emitir card_scanned)
  * @returns {Object} { events, score, metrics, roundsPlayed }
  */
 function generatePlayEvents(
@@ -216,7 +237,8 @@ function generatePlayEvents(
   cardMappings,
   profile,
   gameNumber,
-  willAbandon
+  willAbandon,
+  isMemory
 ) {
   const events = [];
   let score = 0;
@@ -275,7 +297,8 @@ function generatePlayEvents(
         expectedMapping,
         errorMapping,
         pointsAwarded,
-        timeElapsed
+        timeElapsed,
+        isMemory
       })
     );
   }
@@ -345,6 +368,9 @@ function generateGamePlaysData(sessions, students) {
       const session = sortedSessions[i % sortedSessions.length];
       const numberOfRounds = session.config.numberOfRounds;
 
+      // Inferir si la sesión usa mecánica memory desde boardLayout (solo memory lo tiene)
+      const isMemory = Array.isArray(session.boardLayout) && session.boardLayout.length > 0;
+
       // Decidir si abandona (según perfil)
       const willAbandon = Math.random() < profile.abandonProbability;
 
@@ -354,7 +380,8 @@ function generateGamePlaysData(sessions, students) {
         session.cardMappings,
         profile,
         i,
-        willAbandon
+        willAbandon,
+        isMemory
       );
 
       // Calcular timestamp: distribuir partidas del alumno a lo largo del tiempo
@@ -527,12 +554,20 @@ async function recalculateSessionStatusesFromSeededPlays() {
 
 /**
  * Ejecuta el seeder de partidas.
+ * Idempotente: si ya existen partidas, las devuelve sin regenerarlas ni
+ * recalcular métricas/estados (evita duplicados en ejecuciones repetidas).
  * @param {Array} sessions - Sesiones creadas
  * @param {Array} students - Alumnos creados
- * @returns {Promise<Array>} Array de partidas creadas
+ * @returns {Promise<Array>} Array de partidas creadas o preexistentes
  */
 async function seedGamePlays(sessions, students) {
   try {
+    const existing = await GamePlay.find({});
+    if (existing.length > 0) {
+      logger.info(`Partidas ya existen (${existing.length}), omitiendo creacion`);
+      return existing;
+    }
+
     const gamePlaysData = generateGamePlaysData(sessions, students);
     const gamePlays = await GamePlay.create(gamePlaysData);
 

@@ -21,11 +21,22 @@ y este proyecto adhiere a [Semantic Versioning](https://semver.org/spec/v2.0.0.h
 - **`req.user` es un POJO**, no un documento Mongoose. Los flujos que hacían `req.user.save()` (un único punto en `middlewares/auth.logout`) se migraron a `userRepository.updateById` + `invalidateUserCache`.
 - **Invalidación explícita del cache auth** en `authController.login/logout/changePassword/updateProfile/refreshAccessToken`, `userController.updateUser/deleteUser` y `userService.updateUser`.
 
+### Arreglado
+
+- **Rate limiters HTTP realmente distribuidos (ADR-068, BUG-QA-1):** los 8 limiters (`global`, `auth`, `register`, `create`, `event`, `analytics`, `upload`, `export`) caían a `MemoryStore` al boot porque `require('./config/security')` se ejecutaba antes de `await connectRedis()`. Nueva factory deferida en `config/security.js` + `initRateLimiters()` invocado desde `server.js` tras conectar Redis. Las keys `rl:*` aparecen ahora en Redis desde el primer request y `rateLimitStoreFallbackCount == 0` en boot normal.
+- **Backend sobrevive blips de Redis (BUG-QA-3):** el handler `unhandledRejection` en `server.js` ya no ejecuta `gracefulShutdown`. Solo loguea y reporta a Sentry. Evita el ciclo de reinicios del contenedor que se observaba cuando alguna promise Redis pendiente rechazaba durante caídas temporales. `uncaughtException` mantiene el shutdown (estado del proceso incierto).
+- **DTO `toSystemMetricsDTOV1` expone el bloque `redis` (BUG-QA-2):** `/api/metrics` ahora muestra `redis.{rateLimitStoreFallbackCount, authUserCacheHits, authUserCacheMisses}` — cumpliendo lo prometido por el ADR-065/067.
+- **Normalización IPv6 en rate limiters (BUG-QA-4):** nuevo helper `utils/ipHelper.js::userOrIpKeyGenerator` reemplaza 5 `keyGenerator` duplicados que usaban `req.ip` directo. Usa `ipKeyGenerator` de `express-rate-limit` para agrupar al /64, cerrando `ValidationError` repetidos y potencial bypass IPv6.
+- **Liberación explícita del lock `play:init` en `endPlay` (OBS-QA-1):** evita "abort silencioso" si el cliente intenta reiniciar la misma partida durante los 60 s de TTL post-endPlay (p. ej. F5 inmediato del alumno). `startPlay` y `endPlay` usan ahora la constante `NAMESPACES.PLAY_INIT_LOCK`.
+- **`passOnStoreError: true` en todos los limiters:** si Redis cae mid-request, `express-rate-limit` deja pasar el request (fail-open) en lugar de devolver 500. Preferible tolerar un pico de tráfico ante blip a tirar el servicio.
+
 ### Documentación
 
-- Nuevos ADRs 064-067 en `documentation/Architecture_Decisions.md`.
-- Actualizados `backend/docs/Arquitectura_Redis.md`, `Redis_Optimization_Analysis.md`, `Rate_Limiting_Analysis.md`, `Performance_Notes.md` y `Seguridad_tokens_JWT.md`.
-- Nuevas propuestas PROP-59 a PROP-64 en `documentation/propuestas-mejora.md` (Sprint 6): WebSocket rate-limit distribuido, leaderboards ZSET, feature flags, BullMQ, materialización studentMetrics, RFID mode distribuido.
+- Nuevos ADRs 064-068 en `documentation/Architecture_Decisions.md`.
+- Actualizados `backend/docs/Arquitectura_Redis.md`, `Redis_Optimization_Analysis.md`, `Rate_Limiting_Analysis.md` (sección 9 — deuda técnica resuelta), `Performance_Notes.md` y `Seguridad_tokens_JWT.md`.
+- `documentation/propuestas-mejora.md`: PROP-59 marcada como resuelta para HTTP; queda pendiente únicamente la parte WebSocket para Sprint 6.
+- Nuevas propuestas PROP-60 a PROP-64 en `documentation/propuestas-mejora.md` (Sprint 6): leaderboards ZSET, feature flags, BullMQ, materialización studentMetrics, RFID mode distribuido.
+- Nuevos tests: `endPlayReleasesInitLock.test.js`; extensiones en `rateLimitRedisStore.test.js` (shim, idempotencia, IPv6) y `metricsEndpoints.test.js` (bloque `redis` en DTO). Suite: 71 suites / 1003 tests verdes.
 
 ## [0.4.0] - 2026-03-22
 

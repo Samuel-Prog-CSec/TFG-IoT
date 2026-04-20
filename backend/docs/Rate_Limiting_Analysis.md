@@ -356,3 +356,43 @@ Un operador puede ahora:
 La re-creación lazy del store cuando Redis vuelve requiere reset del estado interno del limiter de forma segura. Se acota a una decisión de arquitectura propia. Hasta entonces, el operador debe reiniciar el proceso tras una recuperación de Redis para restaurar el límite distribuido.
 
 Ver también **ADR-067** en `documentation/Architecture_Decisions.md`.
+
+---
+
+## 9. Promoción lazy a Redis store — deuda técnica resuelta (Mantenimiento 2026-04-20 tarde)
+
+### Contexto
+
+La auditoría QA posterior al despliegue de ADR-067 confirmó empíricamente lo que el propio ADR anticipaba: los 8 rate limiters entraban en fallback a `MemoryStore` siempre al boot (`rateLimitStoreFallbackCount == 8`, keys `rl:*` ausentes en Redis incluso tras cientos de requests). La razón: `require('./config/security')` se ejecuta al top de `server.js`, antes de `await connectRedis()` dentro de `startServer()` (~270 ms antes). `createRedisStore()` recibía `getRedis() == null` y los limiters se anclaban a memoria para el resto de la vida del proceso.
+
+El rate-limiting distribuido del ADR-016 (T-521) era, en la práctica, **letra muerta** en cualquier despliegue multi-instancia real.
+
+### Decisión aplicada
+
+Refactor a factory deferida con middleware shim en `config/security.js`:
+
+1. `createRateLimiter(options)` ahora registra la config en `limiterConfigs` y devuelve un middleware **shim**. El shim delega al limiter real cuando éste exista en `rateLimitersRegistry`; antes de la inicialización hace `next()` (fail-open durante la ventana de boot < 2 s, siempre previa a `server.listen()`).
+2. Nueva función `initRateLimiters()` (idempotente) instancia los 8 limiters reales con `rate-limit-redis` ya operativo. Invocada desde `server.js` justo tras `await connectRedis()` en el happy path, o tras el warning dev si Redis no está disponible.
+3. `passOnStoreError: true`: si Redis cae mid-request, `express-rate-limit` deja pasar el request (fail-open) en vez de devolver 500. Evita tirar el servicio entero durante blips.
+4. Helper compartido `utils/ipHelper.js::userOrIpKeyGenerator` reemplaza los 5 `keyGenerator` inline duplicados en security.js. Usa `ipKeyGenerator` de `express-rate-limit` para normalizar IPv6 al `/64` (elimina `ValidationError: Custom keyGenerator appears to use request IP...`).
+
+El contrato público de los exports (`globalRateLimiter`, `authRateLimiter`, etc.) se preserva: las 11 rutas que los consumen no necesitan cambios.
+
+### Verificación post-despliegue
+
+- **Boot limpio**: logs muestran `Rate limiters HTTP inicializados { count: 8 }` inmediatamente después de `Redis conectado`. Sin `Rate limiter fallback a MemoryStore`.
+- **Keys en Redis**: tras el primer request, `KEYS rfid-games:rl:*` devuelve entradas por prefix (`rl:global:172.18.0.1`, `rl:auth:172.18.0.1`, `rl:analytics:user:<id>`…).
+- **Métricas**: `/api/metrics` ahora incluye `redis.rateLimitStoreFallbackCount == 0` en operación normal (antes 8 al boot). También `authUserCacheHits/Misses` visibles desde ese endpoint (resolviendo la promesa rota del commit a52e62e — ver ADR-068).
+- **Resilience**: `docker stop rfid-games-redis` + requests concurrentes → backend sigue respondiendo (HTTP 200 en `/health`, `RestartCount` del contenedor queda en 0). Antes del fix, el handler de `unhandledRejection` disparaba `gracefulShutdown` y mataba el proceso; ahora solo loguea + Sentry.
+
+### Referencias
+
+- **ADR-068** en `documentation/Architecture_Decisions.md` — decisión y trade-offs completos
+- `backend/src/config/security.js` — registry, `initRateLimiters`, `createLimiterShim`
+- `backend/src/utils/ipHelper.js` — helper compartido IPv6-safe
+- `backend/src/server.js` — invocación post-`connectRedis`
+- `backend/tests/rateLimitRedisStore.test.js` — tests del shim e idempotencia
+
+### Deuda técnica pendiente
+
+PROP-59 (migración WebSocket a Redis Sorted Set distribuido) sigue en Sprint 6. El rate-limit HTTP queda cerrado como distribuido real.
