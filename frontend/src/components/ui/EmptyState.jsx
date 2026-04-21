@@ -54,7 +54,13 @@ export default function EmptyState({
           initial={shouldReduceMotion ? false : { opacity: 0, scale: 0.9 }}
           animate={{ opacity: 1, scale: 1 }}
           transition={{ duration: DURATION.entrance, ease: EASING.outExpo }}
-          className="mx-auto mb-6 flex items-center justify-center"
+          className={cn(
+            'mx-auto mb-6 flex items-center justify-center',
+            // Float sutil sobre la ilustracion: refuerza la metafora "objeto fisico
+            // que descansa sobre la mesa". El reset global de prefers-reduced-motion
+            // en index.css lo neutraliza automaticamente si el usuario lo prefiere.
+            !shouldReduceMotion && 'animate-float'
+          )}
         >
           {illustration}
         </motion.div>

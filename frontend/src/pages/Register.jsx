@@ -314,7 +314,13 @@ export default function Register() {
             initial={{ scale: 0.8, opacity: 0 }}
             animate={{ scale: 1, opacity: 1 }}
             transition={{ delay: 0.1, duration: 0.4 }}
-            className="inline-flex items-center justify-center size-20 rounded-2xl bg-gradient-to-br from-accent-cyan via-accent-indigo to-brand-base mb-4 shadow-lg shadow-brand-glow"
+            className={cn(
+              'inline-flex items-center justify-center size-20 rounded-2xl mb-4',
+              'bg-gradient-to-br from-accent-cyan via-accent-indigo to-brand-base',
+              'shadow-lg shadow-brand-glow',
+              // Pulse-glow signature coherente con Login.
+              !shouldReduceMotion && 'animate-pulse-glow'
+            )}
           >
             <UserPlus className="size-10 text-text-primary" />
           </motion.div>

@@ -31,7 +31,54 @@ import { useDocumentTitle } from '../hooks/useDocumentTitle';
 import { useAuth } from '../context/AuthContext';
 import { contextsAPI, extractData, extractErrorMessage } from '../services/api';
 import { ROUTES } from '../constants/routes';
-import { listContainerVariants, listItemVariants } from '../lib/utils';
+import ScanlineOverlay from '../components/ui/ScanlineOverlay';
+import { listContainerVariants, motionConfig, DURATION, EASING } from '../lib/utils';
+import { getContextTheme } from '../lib/contextTheme';
+
+// Mapea un tema de contexto a uno de los glowTints soportados por HoverLiftCard
+// para que cada contexto tenga un hover signature propio pero dentro de la paleta.
+const CONTEXT_THEME_TO_GLOW = {
+  default: 'indigo',
+  geography: 'cyan',
+  animals: 'warning',
+  colors: 'pink',
+  numbers: 'success',
+  shapes: 'cyan',
+};
+
+const resolveContextGlow = (context) => {
+  const theme = getContextTheme(context?.contextId || context?.slug || context?.name);
+  // Derivar la key desde la primaryVar (ej: '--color-theme-animals' -> 'animals')
+  const themeKey = theme?.primaryVar?.replace('--color-theme-', '').replace('--color-accent-', '') || 'default';
+  return CONTEXT_THEME_TO_GLOW[themeKey] || 'indigo';
+};
+
+// Variants locales con settle spring en entrada y "papel volando" en exit.
+const buildContextCardVariants = (shouldReduceMotion) => {
+  if (shouldReduceMotion) {
+    return {
+      hidden: { opacity: 0 },
+      visible: { opacity: 1, transition: { duration: 0 } },
+      exit: { opacity: 0, transition: { duration: 0 } },
+    };
+  }
+  return {
+    hidden: { opacity: 0, y: -12, scale: 0.94 },
+    visible: {
+      opacity: 1,
+      y: 0,
+      scale: 1,
+      transition: motionConfig.springGame,
+    },
+    exit: {
+      opacity: 0,
+      x: -24,
+      scale: 0.92,
+      rotate: -2,
+      transition: { duration: DURATION.exit, ease: EASING.outQuart },
+    },
+  };
+};
 
 export default function ContextsPage() {
   const navigate = useNavigate();
@@ -196,29 +243,32 @@ export default function ContextsPage() {
               }
             />
           );
-          return (
-            <motion.div
-              className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6"
-              variants={shouldReduceMotion ? {} : listContainerVariants(0.06)}
-              initial={shouldReduceMotion ? false : "hidden"}
-              animate="visible"
-            >
-              {filteredContexts.map((context) => (
-                <motion.div
-                  key={context._id || context.id}
-                  variants={shouldReduceMotion ? {} : listItemVariants}
-                  initial={shouldReduceMotion ? false : "hidden"}
-                  animate="visible"
-                >
-                  <ContextCard
-                    context={context}
-                    reducedMotion={shouldReduceMotion}
-                    onClick={() => navigate(ROUTES.CONTEXT_DETAIL(context._id || context.id))}
-                  />
-                </motion.div>
-              ))}
-            </motion.div>
-          );
+          {
+            const cardVariants = buildContextCardVariants(shouldReduceMotion);
+            return (
+              <motion.div
+                className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6"
+                variants={shouldReduceMotion ? {} : listContainerVariants(0.06)}
+                initial={shouldReduceMotion ? false : "hidden"}
+                animate="visible"
+              >
+                <AnimatePresence>
+                  {filteredContexts.map((context) => (
+                    <motion.div
+                      key={context._id || context.id}
+                      variants={cardVariants}
+                      exit="exit"
+                    >
+                      <ContextCard
+                        context={context}
+                        onClick={() => navigate(ROUTES.CONTEXT_DETAIL(context._id || context.id))}
+                      />
+                    </motion.div>
+                  ))}
+                </AnimatePresence>
+              </motion.div>
+            );
+          }
         })()}
       </div>
 
@@ -239,19 +289,22 @@ export default function ContextsPage() {
 // TARJETA DE CONTEXTO
 // ============================================
 
-function ContextCard({ context, onClick, reducedMotion }) {
+function ContextCard({ context, onClick }) {
   const assetCount = context.assetsCount ?? context.assets?.length ?? 0;
   const imagesCount = context.imageCount ?? context.assets?.filter(a => a.imageUrl)?.length ?? 0;
   const audioCount = context.audioCount ?? context.assets?.filter(a => a.audioUrl)?.length ?? 0;
   const previews = context.assets?.filter(a => a.display)?.slice(0, 5).map(a => a.display) || [];
+  const glowTint = resolveContextGlow(context);
 
   return (
-    <motion.div
-      exit={reducedMotion ? false : { opacity: 0, scale: 0.95 }}
-      className="group h-full"
+    <HoverLiftCard
+      glowTint={glowTint}
+      onClick={onClick}
+      className="group cursor-pointer h-full"
     >
-      <HoverLiftCard glowTint="indigo" onClick={onClick} className="cursor-pointer h-full">
-      <GlassCard className="h-full p-6 transition-colors hover:bg-background-elevated/40 hover:border-accent-indigo/30">
+      <GlassCard className="relative overflow-hidden h-full p-6 transition-colors hover:bg-background-elevated/40 hover:border-accent-indigo/30">
+        {/* Scanline signature con visibilidad CSS-controlled via group-hover. */}
+        <ScanlineOverlay className="opacity-0 group-hover:opacity-100 transition-opacity duration-300" />
         <div className="flex justify-between items-start mb-6">
           <div className="size-12 rounded-xl bg-accent-indigo/10 flex items-center justify-center border border-accent-indigo/20 group-hover:bg-accent-indigo/20 transition-colors">
             <Palette size={24} className="text-accent-indigo" />
@@ -322,8 +375,7 @@ function ContextCard({ context, onClick, reducedMotion }) {
           </div>
         )}
       </GlassCard>
-      </HoverLiftCard>
-    </motion.div>
+    </HoverLiftCard>
   );
 }
 

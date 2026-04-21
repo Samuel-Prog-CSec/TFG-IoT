@@ -17,7 +17,35 @@ import {
   AlertCircle,
   X
 } from 'lucide-react';
-import { cn, listContainerVariants, listItemVariants } from '../lib/utils';
+import { cn, listContainerVariants, motionConfig, DURATION, EASING } from '../lib/utils';
+
+// Variants locales con settle en entrada y "papel volando" en exit, coherente
+// con SessionsPage / ContextsPage para toda la familia de tarjetas de lista.
+const buildDeckCardWrapperVariants = (shouldReduceMotion) => {
+  if (shouldReduceMotion) {
+    return {
+      hidden: { opacity: 0 },
+      visible: { opacity: 1, transition: { duration: 0 } },
+      exit: { opacity: 0, transition: { duration: 0 } },
+    };
+  }
+  return {
+    hidden: { opacity: 0, y: -12, scale: 0.94 },
+    visible: {
+      opacity: 1,
+      y: 0,
+      scale: 1,
+      transition: motionConfig.springGame,
+    },
+    exit: {
+      opacity: 0,
+      x: -24,
+      scale: 0.92,
+      rotate: -2,
+      transition: { duration: DURATION.exit, ease: EASING.outQuart },
+    },
+  };
+};
 import { decksAPI, extractErrorMessage, isAbortError } from '../services/api';
 import DeckCard from '../components/ui/DeckCard';
 import { SkeletonGrid } from '../components/ui/SkeletonShimmer';
@@ -75,29 +103,38 @@ const resolveDeckCount = async ({
   return decksAPI.getDecksCount(signal ? { signal } : {});
 };
 
-const renderDecksGrid = ({ decks, shouldReduceMotion, handleViewDeck, handleEditDeck, handleArchiveDeck }) => (
-  <motion.div
-    className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6"
-    variants={shouldReduceMotion ? {} : listContainerVariants(0.04)}
-    initial={shouldReduceMotion ? false : "hidden"}
-    animate="visible"
-  >
-    {decks.map((deck) => {
-      const deckId = deck.id || deck._id;
-      return (
-        <motion.div key={deckId} variants={shouldReduceMotion ? {} : listItemVariants}>
-          <DeckCard
-            deck={deck}
-            onView={handleViewDeck}
-            onEdit={handleEditDeck}
-            onDelete={handleArchiveDeck}
-            reducedMotion={shouldReduceMotion}
-          />
-        </motion.div>
-      );
-    })}
-  </motion.div>
-);
+const renderDecksGrid = ({ decks, shouldReduceMotion, handleViewDeck, handleEditDeck, handleArchiveDeck }) => {
+  const wrapperVariants = buildDeckCardWrapperVariants(shouldReduceMotion);
+  return (
+    <motion.div
+      className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6"
+      variants={shouldReduceMotion ? {} : listContainerVariants(0.04)}
+      initial={shouldReduceMotion ? false : "hidden"}
+      animate="visible"
+    >
+      <AnimatePresence>
+        {decks.map((deck) => {
+          const deckId = deck.id || deck._id;
+          return (
+            <motion.div
+              key={deckId}
+              variants={wrapperVariants}
+              exit="exit"
+            >
+              <DeckCard
+                deck={deck}
+                onView={handleViewDeck}
+                onEdit={handleEditDeck}
+                onDelete={handleArchiveDeck}
+                reducedMotion={shouldReduceMotion}
+              />
+            </motion.div>
+          );
+        })}
+      </AnimatePresence>
+    </motion.div>
+  );
+};
 
 const renderDecksErrorState = ({ error, loadDecks }) => (
   <ErrorState

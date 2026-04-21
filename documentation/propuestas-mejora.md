@@ -464,3 +464,143 @@ Ya existe como PROP-17 arriba. Se reabre aqui para marcar prioridad alta tras au
 **Esfuerzo:** S (1-2 dias).
 
 ---
+
+# Mejoras motion signature diferidas (post ADR-070, 2026-04-21 noche)
+
+Propuestas surgidas del pase de motion signature "Tactile RFID + Paper" (ADR-070).
+Demasiado grandes para esa sesion; cada una merece su propio ADR.
+
+---
+
+## PROP-71: Shared element transition DeckCard → CardDeckDetailPage (hero)
+
+**Descripcion:** Usar `layoutId` de Framer Motion para que la tarjeta de mazo
+seleccionada "se expanda" al entrar en su detalle, como una hero transition
+clasica de apps nativas.
+
+**Justificacion:** Hoy la navegacion DeckCard → DeckDetailPage es un corte seco.
+Una hero transition refuerza la sensacion de que la app "piensa" y que los
+objetos son continuos. Signature fuerte que diferencia frente a SaaS genericos.
+
+**Alcance estimado:**
+- Plumbing del router para no desmontar el DOM durante la transicion.
+- Coordinar `layoutId="deck-<id>"` entre grid (DeckCard) y pagina de detalle.
+- Evaluar rendimiento con 50+ decks (AnimatePresence `mode="popLayout"` en la
+  ruta, tests aparte porque hay incompatibilidad conocida con jsdom).
+
+**Esfuerzo:** M (2-3 dias).
+
+---
+
+## PROP-72: Navegacion direccional (back vs forward)
+
+**Descripcion:** Hook `useNavigationDirection` que detecta pop vs push del history
+exponiendo `direction: 'forward' | 'backward'`. `AppLayout` lo consume para
+aplicar exit animation direccional: `x: +100vw` en pop (back), `x: -100vw` en push
+(forward).
+
+**Justificacion:** Hoy toda transicion de ruta usa `routeTransition` (fade + y
+sutil). Direccion espacial mejora la percepcion de donde estamos en la jerarquia.
+Patron estandar en apps nativas.
+
+**Alcance estimado:**
+- Hook en `hooks/useNavigationDirection.js` con `useNavigationType()` de
+  react-router 7.
+- Propagar direction a AppLayout como context o prop.
+- Variantes de transicion direccional en `lib/utils.js`.
+- Respetar `prefers-reduced-motion` (sin direccion, solo fade).
+
+**Esfuerzo:** S-M (1.5-2 dias).
+
+---
+
+## PROP-73: Scroll-linked parallax en Dashboard
+
+**Descripcion:** `useScroll` + `useTransform` sobre el aurora background del
+AppLayout para que se desplace sutilmente con el scroll del Dashboard y otras
+paginas largas.
+
+**Justificacion:** `useScroll` esta importado en `lib/utils.js` sin uso real.
+Parallax en el fondo aporta profundidad sin ruido. Refuerza la sensacion de
+"mesa con papeles" — el fondo se mueve ligeramente distinto al contenido, como
+si miraras desde cierto angulo.
+
+**Alcance estimado:**
+- Detectar cuando el overflow del main es significativo.
+- Aplicar `useTransform(scrollY, [0, 800], [0, -60])` a los orbes de aurora.
+- Respetar `prefers-reduced-motion` (sin parallax).
+
+**Esfuerzo:** S (1 dia).
+
+---
+
+## PROP-74: Mascota CharacterMascot extendida
+
+**Descripcion:** Reactivar a la mascota en mas contextos que solo GameOver:
+- Empty states (micro mascota sobre la ilustracion).
+- Onboarding (mascota guia los pasos).
+- Exitos criticos (guardar sesion/mazo por primera vez, alcanzar N partidas).
+
+Relaciona con PROP-67 ya existente — ampliar scope.
+
+**Justificacion:** La mascota ya esta disenada pero infrautilizada (solo
+GameOver). Extenderla da consistencia emocional a la app, especialmente en
+empty states donde hoy solo hay ilustraciones abstractas.
+
+**Alcance estimado:**
+- Refactor de CharacterMascot para aceptar mas states (greeting, pointing,
+  celebrating, thinking).
+- Integrar en EmptyState como opcional via prop `mascot`.
+- Integrar en Onboarding (4 pasos actuales).
+- Disenar nuevos estados SVG si faltan.
+
+**Esfuerzo:** M (3-4 dias con diseno).
+
+---
+
+## PROP-75: Atmosferas dinamicas por contexto (reapertura de PROP-16)
+
+**Descripcion:** Ya existe como PROP-16. Reabrir con prioridad media tras ver
+como el `resolveContextGlow` de ADR-070 abre la puerta: cuando el profesor
+entra en una sesion de "Geografia", toda la aurora del fondo adopta tintes
+geography (cyan), el icono del header se tinta con `--color-theme-geography`,
+los botones primarios heredan el tint.
+
+**Justificacion:** La app es educativa y cross-contextual. Hoy todas las
+pantallas comparten el mismo fondo dark con aurora brand. Atmospheric theming
+por contexto refuerza memoria espacial y hace la app menos monocorde.
+
+**Alcance estimado:**
+- `ThemeContext` con scope por contexto activo.
+- CSS vars scoped (ej: `--color-atmosphere-primary` que cambia segun contexto).
+- Aplicar en AppLayout aurora background + PageHeader icono + ButtonPremium
+  variant primary.
+- Persistir el contexto activo por sesion/route.
+
+**Esfuerzo:** M (3-5 dias).
+
+---
+
+## PROP-76: Inline success badges micro (complemento al toast)
+
+**Descripcion:** Post-accion (crear, guardar, duplicar): un micro-check
+"✓ Guardado" que aparece al lado del boton que disparo la accion y desaparece
+en 2s. Complementario al toast Sonner existente (que sigue apareciendo para
+errores y acciones destructivas).
+
+**Justificacion:** El toast aparece lejos del punto de accion. El badge inline
+es mas tactil — "tocaste aqui, pasó esto, aqui mismo". Refuerza la metafora
+tactile del leitmotiv.
+
+**Alcance estimado:**
+- Hook `useInlineSuccess({ onTrigger, duration = 2000 })` que expone
+  `isVisible` y handlers.
+- Componente `<InlineSuccessBadge visible={...} label="Guardado" />`
+  absolute-positioned al lado del boton trigger.
+- Integrar en botones de "Guardar" de formularios (CreateSession, DeckEdit,
+  ContextoForm...).
+- No desplazar a otros toasts (mantener Sonner para errores).
+
+**Esfuerzo:** S (1-1.5 dias).
+
+---

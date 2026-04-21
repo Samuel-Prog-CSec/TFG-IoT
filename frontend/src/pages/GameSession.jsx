@@ -2,7 +2,7 @@ import { useState, useReducer, useEffect, useCallback, useRef, useMemo } from 'r
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Wifi, WifiOff, Pause, Play, Volume2, VolumeX, AlertTriangle, Hand } from 'lucide-react';
-import { cn, calculateStars } from '../lib/utils';
+import { cn, calculateStars, EASING } from '../lib/utils';
 import { useReducedMotion } from '../hooks/useReducedMotion';
 import { useAuth } from '../context/AuthContext';
 import RFIDConnector from '../components/ui/RFIDConnector';
@@ -151,6 +151,21 @@ export default function GameSession() {
   // --- Estado coordinado del juego (reducer) ---
   const [game, dispatch] = useReducer(gameReducer, INITIAL_GAME_STATE);
   const { gameState, currentRound, score, correctAnswers, isAwaitingResponse } = game;
+
+  // Flash "Seguimos" al reanudar partida: captura el cambio paused -> playing
+  // para mostrar un micro-feedback visual que confirma la accion del usuario.
+  const prevGameStateRef = useRef(gameState);
+  const [showResumeFlash, setShowResumeFlash] = useState(false);
+  useEffect(() => {
+    if (prevGameStateRef.current === 'paused' && gameState === 'playing') {
+      setShowResumeFlash(true);
+      const timer = globalThis.setTimeout(() => setShowResumeFlash(false), 420);
+      prevGameStateRef.current = gameState;
+      return () => globalThis.clearTimeout(timer);
+    }
+    prevGameStateRef.current = gameState;
+    return undefined;
+  }, [gameState]);
 
   const [soundEnabled, setSoundEnabled] = useState(true);
   const { playCorrect, playIncorrect, playTick, playRoundStart, playGameOver, playSuccess } = useSoundEffects(soundEnabled);
@@ -1145,14 +1160,16 @@ export default function GameSession() {
           )}
         </AnimatePresence>
 
-        {/* Overlay de pausa */}
+        {/* Overlay de pausa — diseno mas expresivo con icono Lucide, vignette y
+            spring entry + micro-flash "Seguimos" al reanudar que confirma la accion. */}
         <AnimatePresence>
           {gameState === 'paused' && (
             <motion.div
               initial={shouldReduceMotion ? false : { opacity: 0 }}
               animate={{ opacity: 1 }}
               exit={{ opacity: 0 }}
-              className="absolute inset-0 bg-background-base/80 backdrop-blur-md flex items-center justify-center z-20"
+              transition={{ duration: 0.2, ease: 'easeOut' }}
+              className="absolute inset-0 bg-background-deep/85 backdrop-blur-md flex items-center justify-center z-20"
               role="dialog"
               aria-modal="true"
               aria-labelledby="pause-title"
@@ -1160,13 +1177,27 @@ export default function GameSession() {
               onKeyDown={handlePauseDialogKeyDown}
             >
               <motion.div
-                initial={shouldReduceMotion ? false : { scale: 0.9 }}
-                animate={{ scale: 1 }}
-                className="text-center"
+                initial={shouldReduceMotion ? false : { scale: 0.92, y: 8, opacity: 0 }}
+                animate={{ scale: 1, y: 0, opacity: 1 }}
+                transition={{ type: 'spring', stiffness: 340, damping: 24 }}
+                className="text-center px-6"
               >
-                <div className="text-6xl mb-4">⏸️</div>
-                <h2 id="pause-title" className="text-3xl font-bold text-text-primary mb-2">Juego pausado</h2>
-                <p id="pause-description" className="text-text-secondary mb-4">Pulsa continuar para volver al juego.</p>
+                <div className={cn(
+                  'mx-auto mb-5 flex size-20 items-center justify-center rounded-2xl',
+                  'bg-brand-base/15 border border-brand-base/30',
+                  'shadow-[0_0_32px_var(--color-brand-glow)]'
+                )}>
+                  <Pause size={44} className="text-brand-light" aria-hidden="true" />
+                </div>
+                <h2
+                  id="pause-title"
+                  className="text-3xl font-bold font-display gradient-text-brand mb-2 tracking-tight"
+                >
+                  Juego pausado
+                </h2>
+                <p id="pause-description" className="text-text-secondary mb-6">
+                  Pulsa continuar para volver al juego.
+                </p>
                 <motion.button
                   whileHover={shouldReduceMotion ? {} : { scale: 1.05 }}
                   whileTap={shouldReduceMotion ? {} : { scale: 0.95 }}
@@ -1177,6 +1208,34 @@ export default function GameSession() {
                   <Play size={24} />
                   Continuar
                 </motion.button>
+              </motion.div>
+            </motion.div>
+          )}
+        </AnimatePresence>
+
+        {/* Micro-flash al reanudar: feedback breve de que la accion se aplico. */}
+        <AnimatePresence>
+          {showResumeFlash && !shouldReduceMotion && (
+            <motion.div
+              aria-hidden="true"
+              className="pointer-events-none absolute inset-0 z-20 flex items-center justify-center"
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              transition={{ duration: 0.12, ease: 'easeOut' }}
+            >
+              <motion.div
+                initial={{ scale: 0.8, opacity: 0 }}
+                animate={{ scale: 1, opacity: 1 }}
+                exit={{ scale: 1.15, opacity: 0 }}
+                transition={{ duration: 0.35, ease: EASING.outExpo }}
+                className={cn(
+                  'flex size-20 items-center justify-center rounded-full',
+                  'bg-success-base/20 border-2 border-success-base/60',
+                  'shadow-[0_0_28px_var(--color-success-glow)]'
+                )}
+              >
+                <Play size={36} className="text-success-base" aria-hidden="true" fill="currentColor" />
               </motion.div>
             </motion.div>
           )}

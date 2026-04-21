@@ -168,6 +168,12 @@ export default function ConfirmationModal({
   const variantConfig = VARIANT_COLORS[variant] || VARIANT_COLORS.warning;
   const Icon = CustomIcon || VARIANT_ICONS[variant] || AlertTriangle;
   const iconAnimation = getIconAnimation(variant, shouldReduceMotion);
+  // Para acciones criticas (danger) el modal entra con un flip 3D sutil
+  // reforzando la metafora "estas tocando un papel fisico - piensalo bien".
+  const useFlipEntry = variant === 'danger' && !shouldReduceMotion;
+  // Blip radial en variantes criticas: un unico pulso saliente del icono al
+  // abrir, marcando "accion irreversible". No se usa en info/archive/success.
+  const showOpenBlip = (variant === 'danger' || variant === 'warning') && !shouldReduceMotion;
 
   // Manejo de teclado: Escape para cerrar, Tab para focus trap
   const handleKeyDown = useCallback((e) => {
@@ -252,10 +258,19 @@ export default function ConfirmationModal({
         >
           <motion.div
             ref={modalRef}
-            initial={{ scale: 0.9, opacity: 0, y: 20 }}
-            animate={{ scale: 1, opacity: 1, y: 0 }}
-            exit={{ scale: 0.9, opacity: 0, y: 20 }}
-            transition={{ type: 'spring', damping: 25, stiffness: 300 }}
+            initial={useFlipEntry
+              ? { scale: 0.94, opacity: 0, rotateX: -8 }
+              : { scale: 0.9, opacity: 0, y: 20 }}
+            animate={useFlipEntry
+              ? { scale: 1, opacity: 1, rotateX: 0 }
+              : { scale: 1, opacity: 1, y: 0 }}
+            exit={useFlipEntry
+              ? { scale: 0.94, opacity: 0, rotateX: -8 }
+              : { scale: 0.9, opacity: 0, y: 20 }}
+            transition={useFlipEntry
+              ? { duration: 0.24, ease: EASING.outExpo }
+              : { type: 'spring', damping: 25, stiffness: 300 }}
+            style={useFlipEntry ? { transformStyle: 'preserve-3d', transformPerspective: 1000 } : undefined}
             onClick={(e) => e.stopPropagation()}
             className={cn(
               'relative bg-background-base border rounded-2xl p-6 max-w-md w-full shadow-2xl overscroll-contain',
@@ -283,11 +298,25 @@ export default function ConfirmationModal({
                 animate={iconAnimation.animate}
                 transition={iconAnimation.transition}
                 className={cn(
-                  'size-12 rounded-xl flex items-center justify-center flex-shrink-0',
+                  'relative size-12 rounded-xl flex items-center justify-center flex-shrink-0',
                   variantConfig.bg,
                   variantConfig.glow
                 )}
               >
+                {/* Blip radial de apertura: anillo saliente unico que refuerza la
+                    idea "tocaste algo importante" en acciones criticas. */}
+                {showOpenBlip && (
+                  <motion.span
+                    aria-hidden="true"
+                    className={cn(
+                      'pointer-events-none absolute inset-0 rounded-xl border-2',
+                      variant === 'danger' ? 'border-error-base/60' : 'border-warning-base/60'
+                    )}
+                    initial={{ scale: 1, opacity: 0.55 }}
+                    animate={{ scale: 2.4, opacity: 0 }}
+                    transition={{ duration: 0.65, ease: EASING.outExpo, delay: 0.15 }}
+                  />
+                )}
                 {variant === 'danger' && !shouldReduceMotion ? (
                   <motion.span
                     className="flex"

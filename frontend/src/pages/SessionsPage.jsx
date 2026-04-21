@@ -30,6 +30,7 @@ import { sessionsAPI, mechanicsAPI, extractErrorMessage, extractData, isAbortErr
 import { useContexts } from '../hooks/useContexts';
 import { useRefetchOnFocus } from '../hooks/useRefetchOnFocus';
 import { useDocumentTitle } from '../hooks/useDocumentTitle';
+import { useReducedMotion } from '../hooks/useReducedMotion';
 import { ROUTES } from '../constants/routes';
 import ButtonPremium from '../components/ui/ButtonPremium';
 import GlassCard from '../components/ui/GlassCard';
@@ -44,7 +45,36 @@ import ErrorState from '../components/ui/ErrorState';
 import ActiveFiltersBar from '../components/ui/ActiveFiltersBar';
 import ConfirmationModal, { useConfirmationModal } from '../components/ui/ConfirmationModal';
 import PageHeader from '../components/ui/PageHeader';
-import { cn, listContainerVariants, listItemVariants } from '../lib/utils';
+import ScanlineOverlay from '../components/ui/ScanlineOverlay';
+import { cn, listContainerVariants, motionConfig, DURATION, EASING } from '../lib/utils';
+
+// Variants locales con settle en entrada y "papel volando" en exit para reforzar
+// el leitmotiv Tactile+Paper en las tarjetas de lista.
+const buildSessionCardVariants = (shouldReduceMotion) => {
+  if (shouldReduceMotion) {
+    return {
+      hidden: { opacity: 0 },
+      visible: { opacity: 1, transition: { duration: 0 } },
+      exit: { opacity: 0, transition: { duration: 0 } },
+    };
+  }
+  return {
+    hidden: { opacity: 0, y: -12, scale: 0.94 },
+    visible: {
+      opacity: 1,
+      y: 0,
+      scale: 1,
+      transition: motionConfig.springGame,
+    },
+    exit: {
+      opacity: 0,
+      x: -24,
+      scale: 0.92,
+      rotate: -2,
+      transition: { duration: DURATION.exit, ease: EASING.outQuart },
+    },
+  };
+};
 import { getPrimaryActionForSession, getPlayRouteForSession } from '../lib/sessionHelpers';
 
 const STATUS_OPTIONS = [
@@ -126,12 +156,15 @@ const SessionCard = memo(function SessionCard({
   })();
 
   return (
-    <HoverLiftCard glowTint={glowTint}>
+    <HoverLiftCard glowTint={glowTint} className="group">
       <GlassCard className={cn(
-        'p-6 flex flex-col gap-5 hover:border-border-strong transition-[border-color] border-l-4',
+        'relative overflow-hidden p-6 flex flex-col gap-5 hover:border-border-strong transition-[border-color] border-l-4',
         borderClass,
         STATUS_CARD_CLASSES[session.status]
       )}>
+        {/* Scanline signature: refuerza el leitmotiv "tactile/scan" en hover.
+            Visibilidad controlada via group-hover para no necesitar state JS. */}
+        <ScanlineOverlay className="opacity-0 group-hover:opacity-100 transition-opacity duration-300" />
         <div className="flex items-start justify-between gap-3">
           <div>
             <h3 className="text-lg font-semibold text-text-primary">{title}</h3>
@@ -310,6 +343,7 @@ const renderSessionsContent = ({
   handleDelete,
   hasActiveFilters,
   clearFilters,
+  shouldReduceMotion,
 }) => {
   if (loading && sessions.length === 0) {
     return <SkeletonGrid count={6} columns={3} />;
@@ -340,6 +374,8 @@ const renderSessionsContent = ({
     );
   }
 
+  const cardVariants = buildSessionCardVariants(shouldReduceMotion);
+
   return (
     <motion.div
       className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-6"
@@ -347,17 +383,23 @@ const renderSessionsContent = ({
       initial="hidden"
       animate="visible"
     >
-      {sessions.map((session) => (
-        <motion.div key={session.id || session._id} variants={listItemVariants}>
-          <SessionCard
-            session={session}
-            cloneLoading={cloneLoading}
-            onClone={handleClone}
-            onDelete={handleDelete}
-            onNavigate={navigate}
-          />
-        </motion.div>
-      ))}
+      <AnimatePresence>
+        {sessions.map((session) => (
+          <motion.div
+            key={session.id || session._id}
+            variants={cardVariants}
+            exit="exit"
+          >
+            <SessionCard
+              session={session}
+              cloneLoading={cloneLoading}
+              onClone={handleClone}
+              onDelete={handleDelete}
+              onNavigate={navigate}
+            />
+          </motion.div>
+        ))}
+      </AnimatePresence>
     </motion.div>
   );
 };
@@ -389,6 +431,7 @@ function filtersReducer(state, action) {
 export default function SessionsPage() {
   const navigate = useNavigate();
   const { contexts } = useContexts({ autoLoad: true, onlyActive: true });
+  const { shouldReduceMotion } = useReducedMotion();
   useDocumentTitle('Sesiones');
 
   const [sessions, setSessions] = useState([]);
@@ -644,6 +687,7 @@ export default function SessionsPage() {
     handleDelete,
     hasActiveFilters,
     clearFilters,
+    shouldReduceMotion,
   });
 
   let loadMoreLabel = 'No hay más sesiones';

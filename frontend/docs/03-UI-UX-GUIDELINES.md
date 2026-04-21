@@ -507,3 +507,64 @@ Toda nueva animación (Framer Motion, CSS keyframes, `requestAnimationFrame`) de
 
 Si el trigger del `Tooltip` es un icono sin texto accesible, el componente promueve automáticamente el `content` (si es string) como `aria-label` del wrapper. Si el trigger es un botón con su propio `aria-label`, el tooltip actúa como `aria-describedby` adicional.
 
+---
+
+## Motion signature: Tactile RFID + Paper (ADR-070)
+
+La app adopta un leitmotiv dual para diferenciarse de dashboards SaaS genericos.
+Toda nueva signature motion debe pertenecer a una de estas dos familias.
+
+### Scanline (Tactile RFID)
+
+**Donde si**: tarjetas de listado interactivas secundarias (SessionCard, ContextCard
+y cualquier futura). Refuerza la metafora de "escaneo RFID" en hover.
+
+**Donde no**:
+- DeckCard — tiene su propio signature (`gradient-shift` en el borde).
+- Botones pequenos, inputs, badges, filas muy densas.
+- Elementos sin tamano suficiente para percibir el barrido (≥160px de alto).
+
+**Implementacion**: usar el primitivo `<ScanlineOverlay>` con visibilidad
+controlada via CSS `group-hover` (ver `01-PATRONES-DISENO.md` §14).
+
+### Blip radial (Tactile RFID)
+
+**Donde si**: `ConfirmationModal` variantes `danger` y `warning` al abrir. **Un
+unico pulso**, no infinite. Refuerza "estas tocando algo importante" en acciones
+irreversibles.
+
+**Donde no**:
+- Como feedback positivo general (confeti o toast son mas apropiados).
+- En acciones reversibles triviales (cancelar, cerrar).
+- Como decoracion continua.
+
+### Flip 3D (Paper)
+
+**Donde si**: entrada del `ConfirmationModal` variante `danger`. `rotateX: -8deg → 0`
++ scale sutil + `transformPerspective: 1000` — transmite "estas manejando un
+papel fisico, piensalo bien".
+
+**Donde no**:
+- Variantes no-danger del ConfirmationModal (usar spring estandar).
+- Tarjetas de listado (el tilt 3D de DeckCard ya cubre esa metafora en listados).
+
+### Paridad obligatoria entre tarjetas de lista
+
+`DeckCard` define el baseline de calidad visual para tarjetas de listado
+(tilt 3D, stack effect, parallax de assets, gradient-shift border). Todas las
+demas tarjetas (`SessionCard`, `ContextCard`, `AlertCard`, futuras) deben
+compartir al menos:
+
+- Lift sutil en hover (`y: -4, scale: 1.01`) via `HoverLiftCard` o equivalente.
+- Glow contextual tintado en hover (via `glowTint` prop de `HoverLiftCard`).
+- Focus-visible claro (ring o border).
+- Signature propia (scanline minimo, mascota/ilustracion para empty states).
+- Entry settle (`motionConfig.springGame`) y exit "paper flying" (rotate sutil)
+  si estan en un grid dinamico.
+
+### Entradas/salidas en grids
+
+Envolver `.map()` de tarjetas con `<AnimatePresence>` (sin `mode="popLayout"` ni
+`layout` prop por incompatibilidad con tests) y variants con hidden/visible/exit.
+Ver patron en `01-PATRONES-DISENO.md` §14.
+

@@ -18,7 +18,7 @@ import { useAuth } from '../context/AuthContext';
 import { useReducedMotion } from '../hooks/useReducedMotion';
 import { useDocumentTitle } from '../hooks/useDocumentTitle';
 import { useFormFocusFirstError } from '../hooks/useFormFocusFirstError';
-import { formFieldVariants } from '../lib/utils';
+import { cn, formFieldVariants } from '../lib/utils';
 import ButtonPremium from '../components/ui/ButtonPremium';
 import InputPremium from '../components/ui/InputPremium';
 import GlassCard from '../components/ui/GlassCard';
@@ -349,7 +349,14 @@ export default function Login() {
             initial={{ scale: 0.8, opacity: 0 }}
             animate={{ scale: 1, opacity: 1 }}
             transition={{ delay: 0.1, duration: 0.4 }}
-            className="inline-flex items-center justify-center size-20 rounded-2xl bg-gradient-to-br from-accent-indigo via-brand-base to-accent-pink mb-4 shadow-lg shadow-brand-glow"
+            className={cn(
+              'inline-flex items-center justify-center size-20 rounded-2xl mb-4',
+              'bg-gradient-to-br from-accent-indigo via-brand-base to-accent-pink',
+              'shadow-lg shadow-brand-glow',
+              // Pulse-glow como firma: el logo "respira" refuerza identidad del producto
+              // y lo diferencia de auth genericos. Respeta reduced-motion via reset global.
+              !shouldReduceMotion && 'animate-pulse-glow'
+            )}
           >
             <EduPlayIcon size={40} className="text-white" />
           </motion.div>

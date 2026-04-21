@@ -322,10 +322,73 @@ import { EmptySessionsIllustration } from '../components/ui/illustrations';
 - `EmptyDecksIllustration` — stack de cartas en perspectiva
 - `EmptyContextsIllustration` — libro + globo + huella animal
 - `EmptyStudentsIllustration` — grupo de avatares con "+" central
+- `EmptyAlertsIllustration` — campana en reposo con ondas apagadas (ADR-070)
 
-Todas respetan `useReducedMotion` y usan tokens CSS para adaptarse al tema.
+Todas respetan `useReducedMotion` y usan tokens CSS para adaptarse al tema. El wrapper
+de `illustration` dentro de `EmptyState` aplica `animate-float` automaticamente para
+que las ilustraciones respiren con un leve up/down (reset global de `prefers-reduced-motion`
+las desactiva).
 
-Referencias: ADR-069, PROP-41A (primera iteración de empty states en DeckCard), skill `ui-ux-pro-max`.
+Referencias: ADR-069, ADR-070, PROP-41A (primera iteración de empty states en DeckCard), skill `ui-ux-pro-max`.
+
+---
+
+## 14. Signature motion primitives: `ScanlineOverlay` y patron "Paper exit" (ADR-070)
+
+### `<ScanlineOverlay>` — primitivo reutilizable
+
+Una linea sutil que barre top→bottom reforzando la metafora "tactile/scan" del
+producto RFID. Se aplica sobre tarjetas de listado secundarias (SessionCard,
+ContextCard) que carecen de signature propia; **DeckCard no lo usa** porque
+ya tiene gradient-shift en el borde como firma.
+
+**Diseño CSS-controlled:** el componente renderiza siempre la animacion loop
+(`motion.span` con infinite repeat). La visibilidad se controla desde fuera con
+`opacity-0 group-hover:opacity-100 transition-opacity duration-300` en el wrapper
+padre que debe llevar class `group`. Decision deliberada: evita anadir state JS
+y handlers de mouse/pointer al padre, porque en tests con `userEvent.click`
+romperian la propagacion del click cuando el padre es un motion.div con whileTap
+(framer-motion 12 + jsdom).
+
+```jsx
+import ScanlineOverlay from '@/components/ui/ScanlineOverlay';
+
+<HoverLiftCard glowTint={glowTint} className="group">
+  <GlassCard className="relative overflow-hidden ...">
+    <ScanlineOverlay className="opacity-0 group-hover:opacity-100 transition-opacity duration-300" />
+    {/* contenido */}
+  </GlassCard>
+</HoverLiftCard>
+```
+
+Reglas:
+- Solo en tarjetas interactivas primarias; nunca en botones pequenos ni inputs.
+- El contenedor padre debe tener `position: relative` + `overflow: hidden` + la
+  clase `group` para que `group-hover:` tenga efecto.
+- Respeta `prefers-reduced-motion`: si esta activado, no renderiza nada (guard
+  interno via hook `useReducedMotion`).
+
+### Patron "Paper exit" en listas
+
+Cuando un item sale de una lista (archive/delete/clone) no debe desaparecer
+instantaneo. Envolver el `.map()` con `<AnimatePresence>` (sin `mode="popLayout"`
+ni `layout` para no romper tests) y dar variants con hidden/visible/exit:
+
+```js
+const buildCardVariants = (shouldReduceMotion) => shouldReduceMotion
+  ? { hidden: { opacity: 0 }, visible: { opacity: 1, transition: { duration: 0 } }, exit: { opacity: 0, transition: { duration: 0 } } }
+  : {
+      hidden: { opacity: 0, y: -12, scale: 0.94 },
+      visible: { opacity: 1, y: 0, scale: 1, transition: motionConfig.springGame },
+      exit: { opacity: 0, x: -24, scale: 0.92, rotate: -2, transition: { duration: DURATION.exit, ease: EASING.outQuart } },
+    };
+```
+
+El item nuevo "cae y se asienta" (settle spring) y al salir "vuela" con un rotate
+sutil — refuerza la metafora de papel fisico que retiras de la mesa. Aplicado en
+`SessionsPage`, `ContextsPage`, `CardDecksPage`.
+
+Referencias: ADR-070, skill `framer-motion-animator`.
 
 ---
 

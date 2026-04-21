@@ -9,7 +9,6 @@ import {
   TrendingUp,
   Minus,
   XCircle,
-  CheckCircle2,
   Filter,
   User,
   Layers,
@@ -23,6 +22,8 @@ import { formatRelativeTime } from '../../lib/dateUtils';
 import GlassCard from '../ui/GlassCard';
 import SelectPremium from '../ui/SelectPremium';
 import SkeletonShimmer from '../ui/SkeletonShimmer';
+import EmptyState from '../ui/EmptyState';
+import { EmptyAlertsIllustration } from '../ui/illustrations';
 
 /**
  * Mapeo de tipo de alerta a icono de Lucide.
@@ -123,20 +124,30 @@ function AlertCard({ alert, shouldReduceMotion }) {
   const TypeIcon = ALERT_TYPE_ICONS[alert.type] || AlertTriangle;
   const typeLabel = ALERT_TYPE_LABELS[alert.type] || alert.type;
   const isPositive = alert.type === 'improving_fast';
+  const isCritical = alert.severity === 'critical';
 
   return (
     <motion.div
       variants={shouldReduceMotion ? {} : listItemVariants}
+      whileHover={shouldReduceMotion ? undefined : { y: -2, scale: 1.005 }}
+      transition={{ type: 'spring', stiffness: 400, damping: 28 }}
       className={cn(
-        'rounded-xl border p-4 transition-colors duration-200',
+        'rounded-xl border p-4 transition-[border-color,background-color,box-shadow] duration-200',
         'bg-background-elevated/40 hover:bg-background-elevated/60',
         'border-border-subtle hover:border-border-default',
-        'focus-within:ring-1 focus-within:ring-brand-base/40'
+        'focus-within:ring-1 focus-within:ring-brand-base/40',
+        // Alertas criticas respiran suavemente con pulse-glow para llamar la atencion
+        // sin saltar; respeta prefers-reduced-motion por el reset global en index.css.
+        isCritical && 'animate-pulse-glow shadow-[0_0_18px_var(--color-error-glow)]'
       )}
     >
       <div className="flex items-start gap-3">
-        {/* Severity dot */}
-        <div className={cn('size-2.5 rounded-full mt-1.5 flex-shrink-0', severity.dot, severity.glow)} />
+        {/* Severity dot — en critical, usa glow mas intenso */}
+        <div className={cn(
+          'size-2.5 rounded-full mt-1.5 flex-shrink-0',
+          severity.dot,
+          isCritical ? 'shadow-[0_0_10px_var(--color-error-glow)]' : severity.glow
+        )} />
 
         {/* Icon */}
         <div className={cn(
@@ -335,18 +346,28 @@ function AlertsHub({ alerts = [], loading = false }) {
         </div>
       </div>
 
-      {/* Empty state */}
-      {filteredAlerts.length === 0 && (
-        <GlassCard variant="default" className="text-center py-8">
-          <div className="mx-auto mb-3 flex size-12 items-center justify-center rounded-xl bg-success-base/10">
-            <CheckCircle2 size={24} className="text-success-base" aria-hidden="true" />
-          </div>
-          <p className="text-sm font-semibold text-success-base">Sin alertas activas</p>
-          <p className="text-xs text-text-muted mt-1">
-            Todos los alumnos están dentro de los parámetros esperados.
-          </p>
-        </GlassCard>
-      )}
+      {/* Empty state — variante "filtered" si hay filtros activos, si no ilustracion de calma */}
+      {filteredAlerts.length === 0 && (() => {
+        const hasFilterActive = severityFilter !== 'all' || typeFilter !== 'all';
+        if (hasFilterActive) {
+          return (
+            <EmptyState
+              variant="filtered"
+              title="Ninguna alerta coincide con los filtros"
+              description="Ajusta los filtros para ver otras alertas o limpialos para verlas todas."
+              titleLevel="h3"
+            />
+          );
+        }
+        return (
+          <EmptyState
+            illustration={<EmptyAlertsIllustration size={140} />}
+            title="Sin alertas activas"
+            description="Todos los alumnos estan dentro de los parametros esperados."
+            titleLevel="h3"
+          />
+        );
+      })()}
 
       {/* Grouped view */}
       {filteredAlerts.length > 0 && groupedAlerts && (

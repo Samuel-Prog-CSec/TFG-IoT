@@ -3703,3 +3703,143 @@ Se toman tres decisiones arquitectonicas que conviven:
 - `memory/project_a11y_ux_session_2026_04_21.md` — sesion de trabajo
 - Propuestas pendientes: PROP-65 a PROP-70 en `documentation/propuestas-mejora.md`
 - Skills usadas: `accessibility`, `ui-ux-pro-max`
+
+---
+
+## ADR-070: Sistema de motion signature "Tactile RFID + Paper" [Frontend]
+
+**Fecha:** 2026-04-21 (noche)
+**Autor:** Equipo EduPlay
+**Alcance:** Frontend
+**Estado:** Implementado
+
+### Contexto
+
+Tras las sesiones QA previas (ADRs 052-069) la app alcanzo un estado funcional y
+accesible, pero el diagnostico de motion revelo **desigualdad de calidad**: las
+signature animations (DeckCard tilt 3D, RFID radar, CharacterMascot, GameOverScreen
+score counter) conviven con tarjetas secundarias planas (SessionCard, ContextCard,
+AlertCard) y transiciones post-accion instantaneas. El riesgo era que la app se
+percibiera como "AI-slop dashboard SaaS" generico a pesar de su infraestructura
+de motion madura (tokens `DURATION`/`EASING`/`motionConfig` en `lib/utils.js`,
+reset global de `prefers-reduced-motion` en `index.css`, hook `useReducedMotion`).
+
+### Decision
+
+Se adopta un **leitmotiv dual** para toda la motion signature futura:
+
+1. **Tactile RFID** — refuerza la unicidad del producto (hardware RFID real):
+   - **Scanline** sutil barriendo top→bottom en hover de tarjetas secundarias
+     (nuevo primitivo `ScanlineOverlay`). Reservado a listados de Sesiones y
+     Contextos; NO en DeckCard (que ya tiene gradient-shift en borde).
+   - **Blip radial** unico al abrir `ConfirmationModal` variantes `danger` y
+     `warning` — marca "accion irreversible" con un anillo saliente del icono.
+   - **Pulse-glow** en logos de auth (Login/Register) y en `AlertCard` critica
+     — "respiracion" que indica atencion o actividad.
+
+2. **Paper / baraja fisica** — refuerza la metafora de objetos fisicos sobre una
+   mesa que se pueden tocar y escanear:
+   - **Entrada settle** (`motionConfig.springGame`) con scale inicial 0.94 y y
+     inicial -12px: los items caen y se asientan como papel.
+   - **Exit con rotate sutil** (-2deg) + slide izquierdo + scale 0.92: al
+     archivar/eliminar/clonar, el item "vuela" en lugar de desaparecer instantaneo.
+   - **Flip 3D** en la entrada del `ConfirmationModal` variante `danger`
+     (`rotateX: -8deg → 0`, `transformPerspective: 1000`): transmite "estas
+     tocando algo fisico, piensalo bien".
+   - **Float infinito** sobre las ilustraciones SVG de empty state: objetos que
+     reposan y flotan ligeramente en su lugar.
+
+### Implementacion
+
+**Primitivos nuevos:**
+- `frontend/src/components/ui/ScanlineOverlay.jsx` — componente reutilizable
+  que siempre renderiza la motion.span del barrido; la visibilidad se controla
+  desde fuera con utilidades Tailwind (`opacity-0 group-hover:opacity-100`).
+  Decision deliberada: **no aceptar un prop `active` JS-controlled** porque en
+  tests con `userEvent.click`, anadir `onMouseEnter/Leave` a un wrapper padre
+  (o al propio motion.div con `whileTap`) rompe la propagacion del click a los
+  buttons internos en jsdom con framer-motion 12. Toda la logica se hace via
+  CSS hover + animacion continua de la span (GPU transform, cost minimo).
+- `frontend/src/components/ui/illustrations/EmptyAlertsIllustration.jsx` —
+  quinta ilustracion inline (campana en reposo con ondas apagadas), coherente
+  con las 4 existentes. Exportada en `illustrations/index.js`.
+
+**Aplicaciones:**
+- `SessionsPage.jsx`, `ContextsPage.jsx`, `CardDecksPage.jsx` — grids envueltos
+  en `<AnimatePresence>` con variants locales `buildXxxCardVariants(shouldReduceMotion)`
+  que definen hidden/visible/exit. Entrada con `motionConfig.springGame`, exit
+  con rotate+slide+scale. Sin `mode="popLayout"` ni `layout` prop por
+  incompatibilidad con tests; el comportamiento visual restante cubre el
+  objetivo (exit animado).
+- `ContextCard` — migrada a `HoverLiftCard` sin wrapper extra; aplica
+  `resolveContextGlow(context)` para mapear el tema del contexto a un glowTint
+  de HoverLiftCard (animals→warning amber, geography→cyan, colors→pink, etc).
+- `AlertsHub` — `AlertCard` recibe `whileHover` (y=-2, scale=1.005), dot con
+  glow reforzado en critical, y `animate-pulse-glow` si severity=critical.
+  Empty state migrado a `<EmptyState illustration={<EmptyAlertsIllustration />}>`
+  con variante `filtered` vs default segun si hay filtros activos.
+- `EmptyState` — el wrapper del `illustration` recibe `animate-float` (antes
+  solo lo tenia el wrapper de `icon`); asi las 5 ilustraciones flotan.
+- `ConfirmationModal` — entrada condicional: flip 3D para `danger`, spring
+  estandar para el resto. Blip radial (`motion.span` absoluto) solo para
+  `danger|warning`. `transformPerspective: 1000` aplicado solo al `style` del
+  motion.div para no contaminar el overlay padre con class utility.
+- `GameSession` — overlay de pausa refactorizado: emoji `⏸️` → icono Lucide
+  `<Pause />` dentro de contenedor con `shadow-[0_0_32px_var(--color-brand-glow)]`,
+  titulo con `gradient-text-brand`, spring entrance. Nuevo **micro-flash**
+  `▶` (check radial verde) que aparece 420ms cuando `gameState` cambia de
+  `paused` a `playing`.
+- `Login.jsx`, `Register.jsx` — logo de marca con `animate-pulse-glow` como
+  micro-firma coherente entre las dos pantallas de auth.
+- `AudioPlayBadge` — el `animate-pulse` del icono de altavoz ahora es
+  condicional a `!shouldReduceMotion` (ademas del reset global).
+
+### Consecuencias positivas
+
+- Cohesion visual: las 4 familias de tarjetas (DeckCard, SessionCard, ContextCard,
+  AlertCard) comparten ahora un lenguaje de hover/exit consistente aunque cada
+  una conserva su propia signature (tilt 3D en DeckCard, scanline en las demas).
+- Feedback post-accion: archivar/eliminar/clonar ya no produce "pop" instantaneo.
+- Acciones criticas (danger) se sienten tactiles gracias al flip + blip radial.
+- ScanlineOverlay como primitivo reusable abre la puerta a aplicarlo en mas
+  superficies en el futuro sin reinventar la animacion.
+- 246/246 tests verdes, 0 regresiones.
+
+### Consecuencias negativas
+
+- El loop infinito del scanline corre aunque no sea visible (GPU transform, cost
+  minimo pero no nulo). Mitigacion: `prefers-reduced-motion` lo desactiva por
+  reset global + guard del componente.
+- AnimatePresence en listas no usa `mode="popLayout"` ni `layout` porque en
+  jsdom rompe tests — perdemos reflow suave cuando un item exit deja hueco.
+  Consecuencia visual minima: los items restantes saltan a su nueva posicion
+  sin animar. Aceptado como trade-off.
+
+### Alternativas consideradas
+
+- **Option "Calidez educativa"** (mascota + tint por contexto): desescalado
+  para esta fase; queda como PROP-74 para Sprint 6. Implicaria ampliar
+  CharacterMascot a mas zonas y reabrir PROP-16 (atmosferas dinamicas).
+- **CSS @keyframes para scanline** en lugar de motion.span: descartado porque
+  el primitivo debe respetar `useReducedMotion` del hook (no solo el media
+  query del sistema), y eso requiere un guard JS.
+- **Pseudo-elementos stack** (2 "papeles" detras de cada card): implementado
+  inicialmente pero revertido tras detectar que complica el DOM sin aportar
+  valor claro frente al lift + scanline. DeckCard ya tiene stack propio; para
+  las demas resultaba demasiado.
+
+### Archivos afectados
+
+- Nuevos: `frontend/src/components/ui/ScanlineOverlay.jsx`,
+  `frontend/src/components/ui/illustrations/EmptyAlertsIllustration.jsx`
+- Modificados: `frontend/src/pages/SessionsPage.jsx`, `ContextsPage.jsx`,
+  `CardDecksPage.jsx`, `Login.jsx`, `Register.jsx`, `GameSession.jsx`,
+  `frontend/src/components/ui/EmptyState.jsx`, `ConfirmationModal.jsx`,
+  `AudioPlayBadge.jsx`, `frontend/src/components/analytics/AlertsHub.jsx`,
+  `frontend/src/components/ui/illustrations/index.js`
+
+### Referencias
+
+- Plan de la sesion: `C:\Users\Samuel\.claude\plans\hola-me-gustaria-que-sequential-goblet.md`
+- Propuestas diferidas: PROP-71 a PROP-76 en `documentation/propuestas-mejora.md`
+- Skills usadas: `ui-ux-pro-max`, `animate`, `ui-animation`, `framer-motion-animator`
