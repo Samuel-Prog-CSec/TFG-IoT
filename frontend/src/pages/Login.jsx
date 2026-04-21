@@ -17,6 +17,7 @@ import EduPlayIcon from '../components/icons/EduPlayIcon';
 import { useAuth } from '../context/AuthContext';
 import { useReducedMotion } from '../hooks/useReducedMotion';
 import { useDocumentTitle } from '../hooks/useDocumentTitle';
+import { useFormFocusFirstError } from '../hooks/useFormFocusFirstError';
 import { formFieldVariants } from '../lib/utils';
 import ButtonPremium from '../components/ui/ButtonPremium';
 import InputPremium from '../components/ui/InputPremium';
@@ -118,6 +119,7 @@ export default function Login() {
   const [showPassword, setShowPassword] = useState(false);
   const [validationErrors, setValidationErrors] = useState({});
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const formRef = useFormFocusFirstError(validationErrors);
   
   // Estado de rate limiting
   const [rateLimitState, setRateLimitStateLocal] = useState(getRateLimitState);
@@ -441,6 +443,7 @@ export default function Login() {
         {/* Card del formulario */}
         <GlassCard className="p-8" variant="solid">
           <motion.form
+            ref={formRef}
             onSubmit={handleSubmit}
             className="space-y-6"
             initial={shouldReduceMotion ? false : "hidden"}
@@ -501,13 +504,14 @@ export default function Login() {
               <button
                 type="button"
                 onClick={() => setShowPassword(!showPassword)}
-                className="absolute right-3 top-[38px] text-text-muted hover:text-text-primary transition-colors p-1"
-                tabIndex={-1}
+                className="absolute right-3 top-[38px] text-text-muted hover:text-text-primary transition-colors p-1 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-base focus-visible:ring-offset-2 focus-visible:ring-offset-background-base rounded"
+                aria-label={showPassword ? 'Ocultar contraseña' : 'Mostrar contraseña'}
+                aria-pressed={showPassword}
               >
                 {showPassword ? (
-                  <EyeOff className="size-5" />
+                  <EyeOff className="size-5" aria-hidden="true" />
                 ) : (
-                  <Eye className="size-5" />
+                  <Eye className="size-5" aria-hidden="true" />
                 )}
               </button>
             </motion.div>

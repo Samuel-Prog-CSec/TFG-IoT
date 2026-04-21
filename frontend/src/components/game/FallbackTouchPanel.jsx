@@ -42,11 +42,14 @@ export default function FallbackTouchPanel({ cards, round = 1, onSelectCard, onP
   // Numero de columnas adaptativo: con 2-4 cartas una fila compacta, con mas
   // un grid 3xN. Los cards son siempre grandes (aspect-square) pero se escalan
   // con el ancho disponible para que siempre quepan en viewport sin scroll.
+  // Target size WCAG 2.5.8 y Apple HIG (>=44pt) para niños 4-6 años.
+  // En tablets pequeñas (640-768px) mantenemos 3 cols hasta `md` para
+  // que cada botón tenga al menos ~96px de lado útil.
   const colsClass = (() => {
     const n = visibleCards.length;
     if (n <= 3) return 'grid-cols-3';
     if (n <= 4) return 'grid-cols-4';
-    return 'grid-cols-3 sm:grid-cols-6';
+    return 'grid-cols-3 md:grid-cols-6';
   })();
 
   return (
@@ -73,7 +76,7 @@ export default function FallbackTouchPanel({ cards, round = 1, onSelectCard, onP
               whileHover={{ y: -2 }}
               transition={{ type: 'spring', stiffness: 500, damping: 28 }}
               aria-label={`Seleccionar carta: ${card.assignedValue || card.uid}`}
-              className="aspect-square rounded-xl border-2 border-border-default bg-background-base/60 p-1.5 text-center transition-[background-color,border-color,box-shadow] hover:border-accent-indigo/50 hover:shadow-[0_4px_16px_rgba(99,102,241,0.2)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-indigo focus-visible:ring-offset-2 focus-visible:ring-offset-background-base"
+              className="aspect-square min-h-[56px] rounded-xl border-2 border-border-default bg-background-base/60 p-1.5 text-center transition-[background-color,border-color,box-shadow] hover:border-accent-indigo/50 hover:shadow-[0_4px_16px_rgba(99,102,241,0.2)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-indigo focus-visible:ring-offset-2 focus-visible:ring-offset-background-base"
             >
               <CardAssetPreview
                 asset={card.displayData || { display: card.assignedValue || card.uid }}

@@ -11,3 +11,4 @@ export { useConfetti } from './useConfetti';
 export { useSoundEffects } from './useSoundEffects';
 export { useSessionWizardData } from './useSessionWizardData';
 export { useWizardConfig } from './useWizardConfig';
+export { useFormFocusFirstError } from './useFormFocusFirstError';

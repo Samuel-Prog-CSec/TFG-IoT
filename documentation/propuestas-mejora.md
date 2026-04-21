@@ -360,3 +360,107 @@ Las siguientes propuestas surgen de la auditoria integral de la implementacion d
 **Esfuerzo:** S (1-2 dias). Usa la constante ya declarada y el adapter pub/sub existente.
 
 **ADR tentativo:** "Estado RFID mode distribuido"
+
+---
+
+# Mejoras UI/UX + Accesibilidad (audit senior 2026-04-21)
+
+Las siguientes propuestas surgen de la sesion QA de accesibilidad y UX del 2026-04-21 (ver `memory/project_a11y_ux_session_2026_04_21.md` y ADR-069). Las mejoras de alto ROI y bajo riesgo se integraron en la sesion (role=alert en errores, focus-on-first-invalid, heatmap keyboard-accesible, variantes visuales del ConfirmationModal, ilustraciones SVG en empty states, sidebar con badge de rol y banner super_admin, etc.). Las siguientes requieren mas alcance y se proponen para Sprint 6.
+
+---
+
+## PROP-65: Paginacion y virtualizacion en listados grandes
+
+**Descripcion:** `SessionsPage` y `StudentManagement` cargan todos los items en DOM; con 50+ sesiones o 1000+ alumnos (super_admin) genera scroll muy largo en mobile, peor a11y por navegacion de teclado eterna, y latencia visible al renderizar.
+
+**Justificacion:** Un centro medio tiene 100-500 alumnos. El director abre `/admin/students` y la UI "pega un salto" al pintar todos. Tambien rompe el patron de SaaS moderno que el usuario espera.
+
+**Alcance estimado:**
+- Backend: verificar que los endpoints de students/sessions soportan `page`/`limit` (sessions ya lo hace parcialmente).
+- Frontend: hook `usePaginatedList` reutilizable. Opcion A paginacion clasica (numero de pagina + controles), opcion B virtualizacion con `react-window` o `@tanstack/react-virtual` para 1000+ filas.
+- Integrar en `StudentManagement` (prioritario) y `SessionsPage`.
+
+**Esfuerzo:** M-L (5-7 dias, backend + frontend).
+
+**ADR tentativo:** "Paginacion y virtualizacion de listados para escala real de centro"
+
+---
+
+## PROP-66: Charts Recharts con paleta de marca (anti-AI-slop)
+
+**Descripcion:** Los charts actuales (`StudentProgressChart`, `DifficultyHeatmap`, `ActivityHeatmap`, `StudentsDistributionChart`, `TrendsChart`, etc.) usan colores genericos: `success-base` verde y `error-base` rojo. Son indistinguibles del dashboard educativo promedio y fallan contraste para daltonismo rojo-verde.
+
+**Justificacion:** Dos objetivos: (1) acessibilidad colorblind — suplementar color con patrones diagonales/puntos en heatmaps y con iconos en datos categoricos; (2) personalidad visual — gradients `brand→accent-indigo` en lineas positivas, `warning→error-dark` en negativas, patterns `<defs>` reutilizables, coherencia con la identidad de la app (que si tiene firma en Dashboard).
+
+**Alcance estimado:**
+- `<defs>` globales con gradients y patterns (export desde `components/analytics/ChartsTheme.jsx`).
+- Wrapper `ThemedLineChart`, `ThemedBarChart`, `ThemedHeatmap` que aplican el tema.
+- Migrar los 6-8 charts principales.
+- Tests con snapshots que verifiquen que el `<defs>` esta presente.
+
+**Esfuerzo:** M (3-4 dias).
+
+**ADR tentativo:** "Sistema de tema para graficos Recharts con paleta de marca y patterns colorblind-safe"
+
+---
+
+## PROP-67: GameOver emocional y feedback de gameplay expresivo
+
+**Descripcion:** La pantalla de fin de partida funciona (confetti si >= 2 estrellas, record display) pero es funcional, no emocional. Feedback acierto/error en gameplay es consistente (FeedbackOverlay) pero generico.
+
+**Justificacion:** Es la pantalla mas memorable para el alumno. Debe transmitir logro: una mascota (diseño pendiente) reacciona al score, particle burst direccionado desde la tarjeta al score, escalera emocional:
+- 1 estrella: "Buen intento" + mascota animando "pulgar arriba pequeno"
+- 2 estrellas: "Muy bien" + confetti breve + mascota saltando
+- 3 estrellas: "Eres un crack" + confetti + fireworks + mascota dando vueltas
+
+Feedback acierto: mascota reacciona (animacion de ojitos brillantes), particles brotan de la tarjeta hacia el score. Feedback error: mascota inclina cabeza pensativa, barra de progreso "retrocede" un frame como rewind.
+
+**Alcance estimado:**
+- Diseno de mascota SVG (idealmente con el autor del TFG o un illustrator): 4-6 estados de animacion.
+- Componente `<Mascot state="idle|happy|thinking|dancing" />`.
+- Refactor de GameOverScreen para integrar mascota + escalera.
+- Refactor de FeedbackOverlay con particle burst direccionado.
+
+**Esfuerzo:** L (6-10 dias con diseno de mascota). Si se usa una illustracion abstracta en lugar de mascota, baja a M (3-4 dias).
+
+**ADR tentativo:** "Sistema de mascota y feedback emocional en gameplay"
+
+---
+
+## PROP-68: Atajos de teclado globales (ampliacion de PROP-17)
+
+Ya existe como PROP-17 arriba. Se reabre aqui para marcar prioridad alta tras audit 2026-04-21: el sidebar con el nuevo badge DIRECCION / DOCENTE y banner super_admin, junto con el heatmap keyboard-accesible, dejan al descubierto que no hay `g+s` (ir a sesiones), `g+d` (dashboard), `?` (help overlay) ni `/` (search). Documentado.
+
+---
+
+## PROP-69: Inline editing en listados (name de sesion / mazo)
+
+**Descripcion:** Editar el nombre de una sesion o mazo requiere ir al detalle y al form. Patron moderno: click en el name muestra lapiz on-hover, click al lapiz abre input inline, on-blur guarda con debounce + spinner.
+
+**Justificacion:** Fluidez. Ahorra 4-5 clicks por edicion de nombre. Airtable / Linear / Notion usan este patron.
+
+**Alcance estimado:**
+- Hook `useInlineEdit({ value, onSave, validate })`.
+- Componente `<InlineEditableText>` que acepta trigger ("click text" o "click pencil").
+- Integrar en `DeckCard.name` y `SessionCard.name`.
+- Autosave debounced a 800ms con toast de confirmacion.
+
+**Esfuerzo:** M (3-4 dias).
+
+---
+
+## PROP-70: Search-ahead en SelectPremium para listas >20 items
+
+**Descripcion:** Cuando un profesor con 50+ alumnos abre el selector de alumno para iniciar una partida (SessionDetail), ve una lista larga sin busqueda. Lo mismo para mazos/contextos.
+
+**Justificacion:** Eficiencia. Un super_admin con 500 alumnos en dropdown es impracticable.
+
+**Alcance estimado:**
+- Prop opcional `searchable` en SelectPremium.
+- Input arriba del dropdown que filtra opciones por `label` (case-insensitive, match parcial).
+- Sticky al scroll del dropdown.
+- Aria-live con "X resultados" al escribir.
+
+**Esfuerzo:** S (1-2 dias).
+
+---

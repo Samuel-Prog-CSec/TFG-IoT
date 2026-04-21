@@ -32,6 +32,9 @@ import { useDocumentTitle } from '../hooks/useDocumentTitle';
 import { ROUTES } from '../constants/routes';
 import PageHeader from '../components/ui/PageHeader';
 import ErrorState from '../components/ui/ErrorState';
+import ActiveFiltersBar from '../components/ui/ActiveFiltersBar';
+import EmptyState from '../components/ui/EmptyState';
+import { EmptyDecksIllustration } from '../components/ui/illustrations';
 import { toast } from 'sonner';
 
 // Límite de mazos por profesor (sincronizado con backend)
@@ -109,55 +112,17 @@ const renderDecksLoadingState = () => (
   <SkeletonGrid count={6} columns={3} />
 );
 
-const renderDecksEmptyState = ({ shouldReduceMotion, hasActiveFilters, clearFilters, handleCreateDeck }) => (
-  <motion.div
-    initial={shouldReduceMotion ? false : { opacity: 0, y: 20 }}
-    animate={{ opacity: 1, y: 0 }}
-    className="flex flex-col items-center justify-center py-16"
-  >
-    <motion.div
-      className="size-32 mb-6 relative"
-      animate={shouldReduceMotion ? { y: 0 } : { y: [0, -10, 0] }}
-      transition={shouldReduceMotion ? { duration: 0 } : { duration: 3, repeat: Infinity, ease: 'easeInOut' }}
-    >
-      <svg viewBox="0 0 100 100" className="w-full h-full">
-        <motion.rect
-          x="15" y="25" width="35" height="50" rx="4"
-          fill="none" stroke="#6366f1" strokeWidth="2"
-          initial={{ rotate: -15, opacity: 0.5 }}
-          animate={shouldReduceMotion ? { rotate: -15, opacity: 0.7 } : { rotate: [-15, -10, -15], opacity: [0.5, 0.8, 0.5] }}
-          transition={shouldReduceMotion ? { duration: 0 } : { duration: 2, repeat: Infinity }}
-          style={{ transformOrigin: '32px 50px' }}
-        />
-        <motion.rect
-          x="32" y="20" width="35" height="50" rx="4"
-          fill="none" stroke="#8b5cf6" strokeWidth="2"
-          initial={{ rotate: 0 }}
-          animate={shouldReduceMotion ? { rotate: 0 } : { rotate: [0, 5, 0] }}
-          transition={shouldReduceMotion ? { duration: 0 } : { duration: 2, repeat: Infinity, delay: 0.3 }}
-          style={{ transformOrigin: '50px 45px' }}
-        />
-        <motion.rect
-          x="50" y="25" width="35" height="50" rx="4"
-          fill="none" stroke="#a855f7" strokeWidth="2"
-          initial={{ rotate: 15, opacity: 0.5 }}
-          animate={shouldReduceMotion ? { rotate: 15, opacity: 0.7 } : { rotate: [15, 10, 15], opacity: [0.5, 0.8, 0.5] }}
-          transition={shouldReduceMotion ? { duration: 0 } : { duration: 2, repeat: Infinity, delay: 0.6 }}
-          style={{ transformOrigin: '68px 50px' }}
-        />
-      </svg>
-    </motion.div>
-
-    <h3 className="text-xl font-semibold text-text-primary mb-2">
-      {hasActiveFilters ? 'No hay resultados' : 'Crea tu primer mazo'}
-    </h3>
-    <p className="text-text-muted text-center max-w-md mb-6">
-      {hasActiveFilters
-        ? 'Intenta con otros filtros o términos de búsqueda'
-        : 'Los mazos te permiten reutilizar configuraciones de tarjetas en múltiples sesiones de juego'}
-    </p>
-
-    {hasActiveFilters ? (
+const renderDecksEmptyState = ({ hasActiveFilters, clearFilters, handleCreateDeck }) => (
+  <EmptyState
+    illustration={<EmptyDecksIllustration size={180} />}
+    variant={hasActiveFilters ? 'filtered' : 'first-use'}
+    title={hasActiveFilters ? 'Prueba con otro filtro' : 'Crea tu primer mazo'}
+    description={
+      hasActiveFilters
+        ? 'No encontramos mazos con esos criterios. Limpia los filtros o prueba con otra búsqueda.'
+        : 'Los mazos te permiten reutilizar un conjunto de tarjetas RFID en varias sesiones. Configura uno, asígnalo a sesiones y ahorra tiempo.'
+    }
+    action={hasActiveFilters ? (
       <ButtonPremium variant="secondary" onClick={clearFilters}>
         Limpiar filtros
       </ButtonPremium>
@@ -166,7 +131,7 @@ const renderDecksEmptyState = ({ shouldReduceMotion, hasActiveFilters, clearFilt
         Crear mi primer mazo
       </ButtonPremium>
     )}
-  </motion.div>
+  />
 );
 
 const renderDecksState = ({
@@ -191,7 +156,7 @@ const renderDecksState = ({
   }
 
   if (decks.length === 0) {
-    return renderDecksEmptyState({ shouldReduceMotion, hasActiveFilters, clearFilters, handleCreateDeck });
+    return renderDecksEmptyState({ hasActiveFilters, clearFilters, handleCreateDeck });
   }
 
   return renderDecksGrid({ decks, shouldReduceMotion, handleViewDeck, handleEditDeck, handleArchiveDeck });
@@ -410,6 +375,28 @@ export default function CardDecksPage() {
 
   const hasActiveFilters = filters.searchQuery || filters.statusFilter !== 'active' || filters.contextFilter;
 
+  // Chips de filtros activos para la barra visible sobre la lista
+  const activeFilterChips = [
+    filters.searchQuery && {
+      key: 'search',
+      label: `Búsqueda: "${filters.searchQuery}"`,
+      onRemove: () => dispatchFilters({ type: 'SET_SEARCH', payload: '' }),
+    },
+    filters.statusFilter !== 'active' && {
+      key: 'status',
+      label: filters.statusFilter === 'archived' ? 'Estado: Archivados' : `Estado: ${filters.statusFilter}`,
+      onRemove: () => dispatchFilters({ type: 'SET_STATUS', payload: 'active' }),
+    },
+    filters.contextFilter && {
+      key: 'context',
+      label: (() => {
+        const ctx = contexts.find((c) => c._id === filters.contextFilter);
+        return `Contexto: ${ctx?.name || 'Desconocido'}`;
+      })(),
+      onRemove: () => dispatchFilters({ type: 'SET_CONTEXT', payload: '' }),
+    },
+  ].filter(Boolean);
+
   const decksStateContent = renderDecksState({
     error,
     loading,
@@ -563,6 +550,12 @@ export default function CardDecksPage() {
           </AnimatePresence>
         </GlassCard>
       </motion.div>
+
+      {activeFilterChips.length > 0 && (
+        <div className="mb-4">
+          <ActiveFiltersBar filters={activeFilterChips} onClearAll={clearFilters} />
+        </div>
+      )}
 
       {loading && decks.length > 0 && (
         <div className="mb-4 bg-background-elevated/50 border border-border-default text-text-secondary px-4 py-2 rounded-xl text-sm">

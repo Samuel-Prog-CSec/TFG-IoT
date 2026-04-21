@@ -21,6 +21,7 @@ import ButtonPremium from '../components/ui/ButtonPremium';
 import PageHeader from '../components/ui/PageHeader';
 import InputPremium from '../components/ui/InputPremium';
 import EmptyState from '../components/ui/EmptyState';
+import { EmptyContextsIllustration } from '../components/ui/illustrations';
 import ErrorState from '../components/ui/ErrorState';
 import Tooltip from '../components/ui/Tooltip';
 import { SkeletonCard } from '../components/ui/SkeletonShimmer';
@@ -178,13 +179,14 @@ export default function ContextsPage() {
           );
           if (filteredContexts.length === 0) return (
             <EmptyState
-              title="No se encontraron contextos"
+              illustration={<EmptyContextsIllustration size={180} />}
+              variant={searchTerm ? 'filtered' : 'first-use'}
+              title={searchTerm ? 'Nada coincide con tu búsqueda' : 'Aún no hay contextos'}
               description={
                 searchTerm
-                  ? 'Intenta usar otros términos de búsqueda.'
-                  : 'Aún no hay contextos temáticos disponibles.'
+                  ? 'Prueba con otro término o limpia la búsqueda para ver todos los contextos disponibles.'
+                  : 'Los contextos agrupan tarjetas por temática (animales, países, profesiones…). Cuando haya alguno creado, lo verás aquí.'
               }
-              icon={<Palette size={28} />}
               action={
                 isSuperAdmin && !searchTerm ? (
                   <ButtonPremium onClick={() => setShowCreateModal(true)} icon={<Plus size={16} />}>

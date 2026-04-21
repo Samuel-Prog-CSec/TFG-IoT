@@ -3614,3 +3614,92 @@ Refactor integral del `config/security.js` + ajustes puntuales en `server.js`, `
 - `memory/project_qa_2026_04_20.md` (auditoría QA que identificó los 5 defectos)
 - ADR-016 (rate limiting distribuido Sprint 5 — ahora realmente cumplido)
 - ADR-065/066/067 (ADRs previos que introdujeron las funcionalidades cuya integración se endurece aquí)
+
+---
+
+## ADR-069: Accesibilidad keyboard-first + empty states contextualizados + variantes visuales del ConfirmationModal [Frontend]
+
+**Fecha:** 2026-04-21
+
+**Estado:** Aceptado
+
+**Alcance:** Frontend
+
+### Contexto
+
+Pre-release v0.5.0, audit senior de accesibilidad (WCAG 2.2 AA) y UX para usuarios no tecnicos (profesores y jefes de estudio). El codigo ya tenia base accesible (skip link, focus-trap en modales, `useReducedMotion`, tokens OKLCH) pero presentaba tres clases de problemas:
+
+1. **Gaps de accesibilidad con impacto real para profesores**: mensajes de error de validacion sin `role="alert"`, formularios sin focus-on-first-invalid, celdas del heatmap de actividad solo accesibles por hover, alertas criticas sin icono complementario al color rojo (daltonismo ~8% hombres), etc.
+2. **Micro-UX sin pulido**: feedback tras guardar modales abrupto, indicadores de filtros activos escondidos, input numerico sin `inputMode`, toggle de animaciones ilegible.
+3. **Estetica "AI-slop" en superficies secundarias**: el ConfirmationModal trataba todas las variantes (danger/warning/success/info/archive) con identico layout y solo cambio de color de icono. El EmptyState generico fallaba en transmitir identidad de producto.
+
+### Decisiones
+
+Se toman tres decisiones arquitectonicas que conviven:
+
+**1. Patron `role="alert"` + `aria-describedby` extendido + `useFormFocusFirstError`:**
+- `InputPremium` emite `role="alert"` en el `motion.p` del error; el shake via WAAPI (ya existente) se mantiene porque respeta `prefers-reduced-motion`.
+- `aria-describedby` se extiende para cubrir tambien `helperText` (antes solo cubria error/hint).
+- Nuevo hook `useFormFocusFirstError(errors)` que devuelve un `ref` para el `<form>`; al cambiar `errors`, busca `[aria-invalid="true"]` y focusea el primero en el siguiente frame. Aplicado en Login y Register (unicos forms con validacion inline por campo; los wizards tienen su propio stepper).
+
+**2. `EmptyState` con prop `illustration` + prop `variant` ('default' | 'filtered' | 'first-use'):**
+- El componente toma una `illustration` (React node, tipicamente un SVG inline) que sustituye al contenedor circular del icono y se renderiza a ~180px.
+- La variante `filtered` muestra un chip "Sin resultados para tu busqueda" y encaminja el CTA a "Limpiar filtros". La variante `first-use` habilita un `secondaryAction`.
+- Se crean 4 SVG inline como componentes en `components/ui/illustrations/` (`EmptySessions`, `EmptyDecks`, `EmptyContexts`, `EmptyStudents`). Cada una usa tokens CSS (`var(--color-brand-base)`, `var(--color-accent-indigo)`, etc.) para coherencia con el tema, y animacion sutil (`y:[0,-3,0]` bobbing, 3-4s infinite) que respeta `prefers-reduced-motion`.
+- `title` ahora usa `<motion.h2>` (prop `titleLevel` para subir/bajar) para jerarquia semantica correcta.
+
+**Razon para SVG inline en lugar de externos:** evitar request extra por pagina, permitir tokenizar colores con CSS custom properties (dark mode nativo), y mantener el bundle por ruta (cada pagina importa solo su ilustracion). Coste: ~60 lineas SVG por componente, asumible.
+
+**3. `ConfirmationModal` con variantes visuales distintivas:**
+- Cada variante (danger/warning/archive/info/success) recibe ahora: `border-{variant}-base/30`, `tint` sutil en el top del modal (`bg-gradient-to-b from-{variant}-base/10 to-transparent`, opacidad 70% sobre 96px), `glow` en el contenedor del icono (`shadow-[0_0_24px_var(--color-{variant}-glow)]`), y `iconAnimation` especifica por tipo.
+- Animaciones por variante: `danger` pulsa infinito (1.4s), `warning` oscila 1x al entrar, `success` entra con `backOut`, `archive` desliza lateral, `info` fade sutil. Todas se apagan con `shouldReduceMotion`.
+- Se mantiene el focus-trap, Escape, aria-modal, aria-labelledby/describedby existentes, y se anade `aria-busy={loading}`.
+
+### Consecuencias
+
+**Positivas:**
+- WCAG 2.2 AA cumplido en los hallazgos criticos del audit (A4, A10, D3, A3, G2 del reporte de exploracion).
+- Percepcion de calidad visual elevada sin rediseno: el sidebar se siente vivo (logo con breathing scale), el ConfirmationModal de eliminar se siente "peligroso" sin ser agresivo, los empty states no son "pantalla vacia" sino pantalla con intencion.
+- Consistencia: patrones reutilizables (`useFormFocusFirstError`, `EmptyState variant`, `ActiveFiltersBar`) previenen que proximas features bajen el baseline.
+
+**Negativas / trade-offs:**
+- Bundle incrementado ~8KB minificado por ilustraciones SVG inline (4 componentes). Aceptable: se carga solo cuando el empty state se renderiza (paginas separadas en chunks).
+- `ConfirmationModal` con icon pulse infinito en `danger` podria distraer en pantallas muy grandes; solucion adoptada: animacion de 1.4s con easeInOut (no "frenetica") y delay 0.6s tras la entrada (da tiempo al usuario a leer primero).
+- Banner de 4px para super_admin anade una zona no-interactiva fija arriba; aceptable porque solo afecta al rol administrador (minoritario).
+
+### Alternativas consideradas
+
+- **SVG sprites externos**: descartados por no evitar el request y por complicar la tokenizacion de colores.
+- **Fondo pleno del modal tintado por variante (no solo top gradient)**: descartado por ser demasiado intrusivo en un flujo de confirmacion.
+- **Ilustraciones Lottie**: descartadas por peso y complejidad innecesaria para "bobbing sutil" que hacemos en SVG + Framer Motion en 3 lineas.
+
+### Archivos clave afectados
+
+**Nuevos:**
+- `frontend/src/hooks/useFormFocusFirstError.js`
+- `frontend/src/components/ui/ActiveFiltersBar.jsx`
+- `frontend/src/components/ui/illustrations/EmptySessionsIllustration.jsx`
+- `frontend/src/components/ui/illustrations/EmptyDecksIllustration.jsx`
+- `frontend/src/components/ui/illustrations/EmptyContextsIllustration.jsx`
+- `frontend/src/components/ui/illustrations/EmptyStudentsIllustration.jsx`
+- `frontend/src/components/ui/illustrations/index.js`
+
+**Modificados:**
+- `frontend/src/components/ui/InputPremium.jsx` — role=alert + aria-describedby extendido
+- `frontend/src/components/ui/EmptyState.jsx` — props illustration/variant/titleLevel + secondaryAction
+- `frontend/src/components/ui/ConfirmationModal.jsx` — border, tint, glow e iconAnimation por variante
+- `frontend/src/components/ui/Tooltip.jsx` — aria-label del wrapper cuando hijo no es interactivo
+- `frontend/src/components/layout/AppLayout.jsx` — aria-label del aside, banner super_admin, logo breathing, NavItem chevron reveal, badge DOCENTE/DIRECCION, toggle animaciones legible
+- `frontend/src/components/analytics/ActivityHeatmap.jsx` — celdas como button con onFocus/onBlur
+- `frontend/src/components/analytics/AlertsHub.jsx` — SeverityCounter con icono + dot
+- `frontend/src/components/game/FallbackTouchPanel.jsx` — grid md:grid-cols-6 + min-h-[56px]
+- `frontend/src/components/effects/Confetti.jsx` — useReducedMotion centralizado
+- `frontend/src/pages/Login.jsx`, `Register.jsx` — useFormFocusFirstError + password toggle aria-label
+- `frontend/src/pages/SessionEdit.jsx`, `admin/StudentManagement.jsx` — inputMode numeric + delay en success
+- `frontend/src/pages/CardDecksPage.jsx`, `SessionsPage.jsx`, `ContextsPage.jsx`, `admin/StudentManagement.jsx` — empty states con ilustracion y variante + ActiveFiltersBar
+
+### Referencias
+
+- `memory/project_a11y_ux_session_2026_04_21.md` — sesion de trabajo
+- Propuestas pendientes: PROP-65 a PROP-70 en `documentation/propuestas-mejora.md`
+- Skills usadas: `accessibility`, `ui-ux-pro-max`

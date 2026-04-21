@@ -24,6 +24,7 @@ import {
 import { useAuth } from '../context/AuthContext';
 import { useReducedMotion } from '../hooks/useReducedMotion';
 import { useDocumentTitle } from '../hooks/useDocumentTitle';
+import { useFormFocusFirstError } from '../hooks/useFormFocusFirstError';
 import ButtonPremium from '../components/ui/ButtonPremium';
 import InputPremium from '../components/ui/InputPremium';
 import GlassCard from '../components/ui/GlassCard';
@@ -143,6 +144,7 @@ export default function Register() {
   const [showPassword, setShowPassword] = useState(false);
   const [showConfirmPassword, setShowConfirmPassword] = useState(false);
   const [validationErrors, setValidationErrors] = useState({});
+  const formRef = useFormFocusFirstError(validationErrors);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [showRequirements, setShowRequirements] = useState(false);
 
@@ -339,6 +341,7 @@ export default function Register() {
         {/* Card del formulario */}
         <GlassCard className="p-8" variant="solid">
           <motion.form
+            ref={formRef}
             onSubmit={handleSubmit}
             className="space-y-5"
             initial={shouldReduceMotion ? false : "hidden"}
@@ -408,13 +411,14 @@ export default function Register() {
                 <button
                   type="button"
                   onClick={() => setShowPassword(!showPassword)}
-                  className="absolute right-3 top-[38px] text-text-muted hover:text-text-primary transition-colors p-1"
-                  tabIndex={-1}
+                  className="absolute right-3 top-[38px] text-text-muted hover:text-text-primary transition-colors p-1 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-base focus-visible:ring-offset-2 focus-visible:ring-offset-background-base rounded"
+                  aria-label={showPassword ? 'Ocultar contraseña' : 'Mostrar contraseña'}
+                  aria-pressed={showPassword}
                 >
                   {showPassword ? (
-                    <EyeOff className="size-5" />
+                    <EyeOff className="size-5" aria-hidden="true" />
                   ) : (
-                    <Eye className="size-5" />
+                    <Eye className="size-5" aria-hidden="true" />
                   )}
                 </button>
               </div>
@@ -462,13 +466,14 @@ export default function Register() {
               <button
                 type="button"
                 onClick={() => setShowConfirmPassword(!showConfirmPassword)}
-                className="absolute right-3 top-[38px] text-text-muted hover:text-text-primary transition-colors p-1"
-                tabIndex={-1}
+                className="absolute right-3 top-[38px] text-text-muted hover:text-text-primary transition-colors p-1 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-base focus-visible:ring-offset-2 focus-visible:ring-offset-background-base rounded"
+                aria-label={showConfirmPassword ? 'Ocultar confirmación' : 'Mostrar confirmación'}
+                aria-pressed={showConfirmPassword}
               >
                 {showConfirmPassword ? (
-                  <EyeOff className="size-5" />
+                  <EyeOff className="size-5" aria-hidden="true" />
                 ) : (
-                  <Eye className="size-5" />
+                  <Eye className="size-5" aria-hidden="true" />
                 )}
               </button>
             </motion.div>

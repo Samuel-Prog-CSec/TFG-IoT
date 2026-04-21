@@ -6,7 +6,8 @@ import { NAV_ROUTES, ADMIN_NAV_ROUTES } from '../../constants/routes';
 import {
   Shield, Layers, X, Menu, LogOut,
   LayoutDashboard, CalendarClock, Palette, PlusCircle,
-  UserCheck, ArrowRightLeft, Users, TrendingUp, Zap, ZapOff
+  UserCheck, ArrowRightLeft, Users, TrendingUp, Zap, ZapOff,
+  ChevronRight
 } from 'lucide-react';
 import EduPlayIcon from '../icons/EduPlayIcon';
 
@@ -46,6 +47,15 @@ export default function AppLayout() {
 
   return (
     <div className="flex h-screen bg-background-base text-text-primary font-sans overflow-hidden">
+      {/* Banner superior para super_admin: refuerza rol y aporta firma visual.
+          4px fijos arriba del viewport, no interactuable, gradient warning→accent. */}
+      {isSuperAdmin && (
+        <div
+          aria-hidden="true"
+          className="pointer-events-none fixed top-0 left-0 right-0 h-1 z-[55] bg-gradient-to-r from-warning-base via-accent-orange to-warning-base"
+        />
+      )}
+
       {/* Skip Link — accesibilidad WCAG 2.4.1 */}
       <a
         href="#main-content"
@@ -90,6 +100,7 @@ export default function AppLayout() {
           x: sidebarOffset,
         }}
         transition={motionConfig.spring}
+        aria-label="Navegación principal"
         className={cn(
           'fixed lg:relative z-50',
           'w-72 h-full',
@@ -111,9 +122,17 @@ export default function AppLayout() {
         {/* Logo */}
         <div className="p-6 border-b border-border-subtle">
           <div className="flex items-center gap-3">
-            <div className="size-10 rounded-xl bg-gradient-to-br from-brand-base to-accent-indigo flex items-center justify-center shadow-[0_4px_16px_var(--color-brand-glow)]">
+            <motion.div
+              className="size-10 rounded-xl bg-gradient-to-br from-brand-base to-accent-indigo flex items-center justify-center shadow-[0_4px_16px_var(--color-brand-glow)]"
+              animate={shouldReduceMotion ? undefined : { scale: [1, 1.04, 1], boxShadow: [
+                '0 4px 16px var(--color-brand-glow)',
+                '0 4px 20px var(--color-brand-glow)',
+                '0 4px 16px var(--color-brand-glow)',
+              ] }}
+              transition={shouldReduceMotion ? { duration: 0 } : { duration: 4, repeat: Infinity, ease: 'easeInOut' }}
+            >
               <EduPlayIcon size={20} className="text-white" />
-            </div>
+            </motion.div>
             <div>
               <span className="text-xl font-bold gradient-text-brand font-display tracking-tight" role="banner">
                 EduPlay
@@ -130,8 +149,8 @@ export default function AppLayout() {
           <div className="flex items-center gap-3">
             <div className={cn(
               "size-10 rounded-full flex items-center justify-center text-white font-bold shadow-md",
-              isSuperAdmin 
-                ? "bg-gradient-to-br from-warning-base to-accent-orange" 
+              isSuperAdmin
+                ? "bg-gradient-to-br from-warning-base to-accent-orange"
                 : "bg-gradient-to-br from-brand-base to-accent-pink"
             )}>
               {user?.name?.charAt(0)?.toUpperCase() || 'U'}
@@ -140,13 +159,25 @@ export default function AppLayout() {
               <p className="text-sm font-medium text-text-primary truncate" title={user?.name || 'Usuario'}>
                 {user?.name || 'Usuario'}
               </p>
-              <p className="text-xs text-text-muted truncate" title={user?.email || 'Sin email'}>
-                {user?.email || 'Sin email'}
-              </p>
+              <div className="flex items-center gap-1.5 mt-0.5">
+                <span
+                  className={cn(
+                    'inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md text-[10px] font-bold uppercase tracking-wider',
+                    isSuperAdmin
+                      ? 'bg-warning-base/15 text-warning-base border border-warning-base/30'
+                      : 'bg-brand-base/15 text-brand-light border border-brand-base/30'
+                  )}
+                >
+                  {isSuperAdmin ? 'Dirección' : 'Docente'}
+                </span>
+                <p className="text-[10px] text-text-muted truncate" title={user?.email || 'Sin email'}>
+                  {user?.email || 'Sin email'}
+                </p>
+              </div>
             </div>
             {isSuperAdmin && (
               <div className="flex items-center justify-center size-6 rounded-full bg-warning-base/20">
-                <Shield size={12} className="text-warning-base" />
+                <Shield size={12} className="text-warning-base" aria-hidden="true" />
               </div>
             )}
           </div>
@@ -215,8 +246,8 @@ export default function AppLayout() {
             className="flex items-center justify-between w-full px-4 py-2 rounded-xl text-text-muted hover:text-text-primary hover:bg-white/5 transition-colors duration-200"
           >
             <span className="flex items-center gap-3">
-              {shouldReduceMotion ? <ZapOff size={16} /> : <Zap size={16} />}
-              <span className="font-medium text-[11px] uppercase tracking-wider text-text-disabled">
+              {shouldReduceMotion ? <ZapOff size={16} aria-hidden="true" /> : <Zap size={16} aria-hidden="true" />}
+              <span className="font-medium text-xs uppercase tracking-wider text-text-secondary">
                 Animaciones
               </span>
             </span>
@@ -329,7 +360,16 @@ function NavItem({ to, icon, label }) {
             )}>
               {icon}
             </span>
-            <span className="relative z-10 text-sm">{label}</span>
+            <span className="relative z-10 text-sm flex-1">{label}</span>
+            <span
+              aria-hidden="true"
+              className={cn(
+                'relative z-10 text-text-muted opacity-0 -translate-x-1 transition-[opacity,transform] duration-200',
+                active ? 'opacity-60 translate-x-0 text-brand-light' : 'group-hover:opacity-70 group-hover:translate-x-0'
+              )}
+            >
+              <ChevronRight size={14} />
+            </span>
           </motion.div>
         );
       }}

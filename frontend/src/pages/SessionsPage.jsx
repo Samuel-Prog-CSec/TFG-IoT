@@ -39,7 +39,9 @@ import StatusBadge from '../components/ui/StatusBadge';
 import { SkeletonGrid } from '../components/ui/SkeletonShimmer';
 import Tooltip from '../components/ui/Tooltip';
 import EmptyState from '../components/ui/EmptyState';
+import { EmptySessionsIllustration } from '../components/ui/illustrations';
 import ErrorState from '../components/ui/ErrorState';
+import ActiveFiltersBar from '../components/ui/ActiveFiltersBar';
 import ConfirmationModal, { useConfirmationModal } from '../components/ui/ConfirmationModal';
 import PageHeader from '../components/ui/PageHeader';
 import { cn, listContainerVariants, listItemVariants } from '../lib/utils';
@@ -305,7 +307,9 @@ const renderSessionsContent = ({
   navigate,
   cloneLoading,
   handleClone,
-  handleDelete
+  handleDelete,
+  hasActiveFilters,
+  clearFilters,
 }) => {
   if (loading && sessions.length === 0) {
     return <SkeletonGrid count={6} columns={3} />;
@@ -314,13 +318,22 @@ const renderSessionsContent = ({
   if (sessions.length === 0) {
     return (
       <EmptyState
-        title="Aún no tienes sesiones"
-        description="Crea tu primera sesión de juego para que tus alumnos empiecen a aprender."
-        icon={<CalendarClock size={28} />}
-        action={(
+        illustration={<EmptySessionsIllustration size={180} />}
+        variant={hasActiveFilters ? 'filtered' : 'first-use'}
+        title={hasActiveFilters ? 'Ninguna sesión coincide con tus filtros' : 'Aún no tienes sesiones'}
+        description={
+          hasActiveFilters
+            ? 'Prueba a quitar algún filtro o amplía los criterios de búsqueda.'
+            : 'Diseña tu primera sesión, elige una mecánica y un mazo, y tus alumnos estarán listos para jugar en minutos.'
+        }
+        action={hasActiveFilters ? (
+          <ButtonPremium variant="secondary" onClick={clearFilters}>
+            Limpiar filtros
+          </ButtonPremium>
+        ) : (
           <ButtonPremium variant="primary" onClick={() => navigate(ROUTES.CREATE_SESSION)}>
             <PlusCircle size={18} />
-            Crear sesión
+            Crear mi primera sesión
           </ButtonPremium>
         )}
       />
@@ -599,13 +612,38 @@ export default function SessionsPage() {
 
   const hasActiveFilters = filters.statusFilter || filters.difficultyFilter || filters.mechanicFilter || filters.contextFilter;
 
+  const activeFilterChips = [
+    filters.statusFilter && {
+      key: 'status',
+      label: `Estado: ${STATUS_OPTIONS.find((o) => o.value === filters.statusFilter)?.label || filters.statusFilter}`,
+      onRemove: () => dispatchFilters({ type: 'SET_STATUS', payload: '' }),
+    },
+    filters.difficultyFilter && {
+      key: 'difficulty',
+      label: `Dificultad: ${DIFFICULTY_OPTIONS.find((o) => o.value === filters.difficultyFilter)?.label || filters.difficultyFilter}`,
+      onRemove: () => dispatchFilters({ type: 'SET_DIFFICULTY', payload: '' }),
+    },
+    filters.mechanicFilter && {
+      key: 'mechanic',
+      label: `Mecánica: ${mechanics.find((m) => m._id === filters.mechanicFilter)?.name || 'Desconocida'}`,
+      onRemove: () => dispatchFilters({ type: 'SET_MECHANIC', payload: '' }),
+    },
+    filters.contextFilter && {
+      key: 'context',
+      label: `Contexto: ${contexts.find((c) => c._id === filters.contextFilter)?.name || 'Desconocido'}`,
+      onRemove: () => dispatchFilters({ type: 'SET_CONTEXT', payload: '' }),
+    },
+  ].filter(Boolean);
+
   const sessionsContent = renderSessionsContent({
     loading,
     sessions,
     navigate,
     cloneLoading,
     handleClone,
-    handleDelete
+    handleDelete,
+    hasActiveFilters,
+    clearFilters,
   });
 
   let loadMoreLabel = 'No hay más sesiones';
@@ -687,6 +725,10 @@ export default function SessionsPage() {
               </motion.div>
             )}
           </AnimatePresence>
+
+        {activeFilterChips.length > 0 && (
+          <ActiveFiltersBar filters={activeFilterChips} onClearAll={clearFilters} />
+        )}
 
         {error && (
           <ErrorState

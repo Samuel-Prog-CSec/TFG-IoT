@@ -1,5 +1,6 @@
 import { motion } from 'framer-motion';
 import { useEffect, useState } from 'react';
+import { useReducedMotion } from '../../hooks/useReducedMotion';
 
 /* eslint-disable sonarjs/pseudo-random -- Math.random para efectos visuales (confetti), no para seguridad */
 
@@ -27,12 +28,20 @@ export default function Confetti({
   particleCount = 50,
   onComplete
 }) {
+  const { shouldReduceMotion } = useReducedMotion();
   const [particles, setParticles] = useState([]);
   const [isActive, setIsActive] = useState(active);
 
   useEffect(() => {
-    if (!active) {
+    // Si el usuario pidio movimiento reducido, no disparamos particulas
+    // pero notificamos al caller para que la logica depende de onComplete
+    // siga su flujo.
+    if (!active || shouldReduceMotion) {
       setIsActive(false);
+      if (active && shouldReduceMotion && onComplete) {
+        const t = setTimeout(onComplete, 0);
+        return () => clearTimeout(t);
+      }
       return undefined;
     }
 
@@ -59,7 +68,7 @@ export default function Confetti({
     }, duration);
 
     return () => clearTimeout(timeout);
-  }, [active, particleCount, duration, onComplete]);
+  }, [active, particleCount, duration, onComplete, shouldReduceMotion]);
 
   if (!isActive) return null;
 
@@ -100,19 +109,24 @@ export default function Confetti({
 /**
  * Confetti explosivo desde un punto central
  */
-export function ConfettiBurst({ 
+export function ConfettiBurst({
   active = true,
   x = '50%',
   y = '50%',
   particleCount = 30,
-  onComplete 
+  onComplete
 }) {
+  const { shouldReduceMotion } = useReducedMotion();
   const [particles, setParticles] = useState([]);
   const [isActive, setIsActive] = useState(active);
 
   useEffect(() => {
-    if (!active) {
+    if (!active || shouldReduceMotion) {
       setIsActive(false);
+      if (active && shouldReduceMotion && onComplete) {
+        const t = setTimeout(onComplete, 0);
+        return () => clearTimeout(t);
+      }
       return undefined;
     }
 
@@ -138,7 +152,7 @@ export function ConfettiBurst({
     }, 1500);
 
     return () => clearTimeout(timeout);
-  }, [active, particleCount, onComplete]);
+  }, [active, particleCount, onComplete, shouldReduceMotion]);
 
   if (!isActive) return null;
 

@@ -13,6 +13,8 @@ import {
   Filter,
   User,
   Layers,
+  AlertOctagon,
+  Info,
 } from 'lucide-react';
 import PropTypes from 'prop-types';
 import { cn, listContainerVariants, listItemVariants } from '../../lib/utils';
@@ -59,6 +61,7 @@ const SEVERITY_STYLES = {
     border: 'border-error-base/30',
     text: 'text-error-base',
     label: 'Críticas',
+    Icon: AlertOctagon,
   },
   warning: {
     dot: 'bg-warning-base',
@@ -67,6 +70,7 @@ const SEVERITY_STYLES = {
     border: 'border-warning-base/30',
     text: 'text-warning-base',
     label: 'Advertencia',
+    Icon: AlertTriangle,
   },
   info: {
     dot: 'bg-info-base',
@@ -75,6 +79,7 @@ const SEVERITY_STYLES = {
     border: 'border-info-base/30',
     text: 'text-info-base',
     label: 'Info',
+    Icon: Info,
   },
 };
 
@@ -86,13 +91,19 @@ const SEVERITY_STYLES = {
  */
 function SeverityCounter({ severity, count }) {
   const style = SEVERITY_STYLES[severity] || SEVERITY_STYLES.info;
+  const SeverityIcon = style.Icon;
 
   return (
     <div className={cn(
       'rounded-xl border px-4 py-3 flex items-center gap-3',
       style.bg, style.border
     )}>
-      <div className={cn('size-3 rounded-full flex-shrink-0', style.dot, style.glow)} />
+      <div className={cn(
+        'size-8 rounded-lg flex items-center justify-center flex-shrink-0',
+        style.bg, style.text
+      )}>
+        <SeverityIcon size={16} aria-hidden="true" />
+      </div>
       <div>
         <p className={cn('text-xl font-bold tabular-nums font-display', style.text)}>
           {count}

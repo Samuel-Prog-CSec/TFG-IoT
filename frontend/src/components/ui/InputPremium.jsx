@@ -76,6 +76,7 @@ const InputPremium = ({
           aria-describedby={(() => {
             if (hasError) return `${inputId}-error`;
             if (hint) return `${inputId}-hint`;
+            if (helperText) return `${inputId}-helper`;
             return undefined;
           })()}
           className={cn(
@@ -113,6 +114,7 @@ const InputPremium = ({
               exit={shouldReduceMotion ? undefined : { opacity: 0, y: -4, height: 0 }}
               transition={{ duration: DURATION.feedback, ease: EASING.outQuart }}
               id={`${inputId}-error`}
+              role="alert"
               className="mt-1.5 text-sm text-error-base"
             >
               {error}
@@ -127,7 +129,7 @@ const InputPremium = ({
         })()}
       </AnimatePresence>
       {helperText && !hasError && !hint && (
-        <p className="mt-1.5 text-xs text-text-muted">{helperText}</p>
+        <p id={`${inputId}-helper`} className="mt-1.5 text-xs text-text-muted">{helperText}</p>
       )}
     </div>
   );

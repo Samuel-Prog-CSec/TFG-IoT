@@ -153,11 +153,18 @@ export default function Tooltip({
     ? cloneElement(children, { 'aria-describedby': tooltipId })
     : <span aria-describedby={tooltipId}>{children}</span>;
 
+  // Si el hijo no es interactivo y el content es un string, promovemos el content
+  // como aria-label del wrapper para que lectores de pantalla anuncien el proposito
+  // del trigger cuando este solo contenga iconos.
+  const wrapperAriaLabel = !isChildInteractive && typeof content === 'string'
+    ? content
+    : undefined;
+
   return (
     // eslint-disable-next-line jsx-a11y/no-static-element-interactions -- Cuando el hijo es interactivo, el wrapper solo usa eventos pasivos (hover/focus) sin role/tabIndex para evitar anidamiento de elementos interactivos
     <span
       ref={triggerRef}
-      {...(!isChildInteractive && { role: 'button', tabIndex: 0 })}
+      {...(!isChildInteractive && { role: 'button', tabIndex: 0, 'aria-label': wrapperAriaLabel })}
       className={cn('relative inline-flex', className)}
       onMouseEnter={show}
       onMouseLeave={hide}

@@ -287,4 +287,46 @@ Referencias: ADR-059, ADR-060, PROP-30, PROP-31, PROP-32.
 
 ---
 
+## 14. Empty states contextualizados (ADR-069)
+
+**Qué es:** Patrón para estados vacíos con tres variantes de UX y una ilustración SVG por dominio que sustituye al icono genérico.
+
+**Por qué lo usamos:**
+- Alejar la app de la estética "AI-slop" donde todos los empty states se ven iguales
+- Transmitir identidad de producto (tokens OKLCH compartidos con el tema)
+- UX contextual: el mensaje cambia según por qué la lista está vacía (sin datos vs. filtro activo)
+
+**Ejemplo:**
+```jsx
+import { EmptySessionsIllustration } from '../components/ui/illustrations';
+
+<EmptyState
+  illustration={<EmptySessionsIllustration size={180} />}
+  variant={hasActiveFilters ? 'filtered' : 'first-use'}
+  title={hasActiveFilters ? 'Ninguna sesión coincide' : 'Aún no tienes sesiones'}
+  description="..."
+  action={<ButtonPremium>CTA</ButtonPremium>}
+/>
+```
+
+**Contrato del componente (`components/ui/EmptyState.jsx`):**
+| Prop | Tipo | Descripción |
+|------|------|-------------|
+| `illustration` | React node | SVG inline de la carpeta `illustrations/`. Sustituye a `icon` y se renderiza a ~180px. Recomendado para páginas principales. |
+| `icon` | React node | Fallback al icono Lucide dentro del círculo si no hay ilustración. |
+| `variant` | `'default' \| 'filtered' \| 'first-use'` | `filtered` muestra chip "Sin resultados" + CTA "Limpiar". `first-use` habilita `secondaryAction`. |
+| `title`, `description`, `action`, `secondaryAction` | node | El `title` se renderiza como `<h2>` (configurable con `titleLevel`). |
+
+**Ilustraciones disponibles** (en `components/ui/illustrations/`):
+- `EmptySessionsIllustration` — mesa con cartas en abanico, glow radar
+- `EmptyDecksIllustration` — stack de cartas en perspectiva
+- `EmptyContextsIllustration` — libro + globo + huella animal
+- `EmptyStudentsIllustration` — grupo de avatares con "+" central
+
+Todas respetan `useReducedMotion` y usan tokens CSS para adaptarse al tema.
+
+Referencias: ADR-069, PROP-41A (primera iteración de empty states en DeckCard), skill `ui-ux-pro-max`.
+
+---
+
 *Referencia: [React Patterns](https://reactpatterns.com/)*

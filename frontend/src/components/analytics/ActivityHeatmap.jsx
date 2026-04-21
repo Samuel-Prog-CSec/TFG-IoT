@@ -130,29 +130,32 @@ function ActivityHeatmap({ data }) {
                     const isHovered = hoveredCell?.dayIndex === dayIndex && hoveredCell?.hour === hour;
                     const isInRowOrCol = hoveredCell && (hoveredCell.dayIndex === dayIndex || hoveredCell.hour === hour);
                     const isDimmed = hoveredCell && !isHovered && !isInRowOrCol;
+                    const activate = () => setHoveredCell({ dayIndex, hour });
+                    const deactivate = () => setHoveredCell(null);
                     return (
-                      <div
+                      <button
                         key={hour}
+                        type="button"
                         className={cn(
                           "flex-1 aspect-square rounded-sm transition-all duration-150",
+                          "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-base focus-visible:ring-offset-2 focus-visible:ring-offset-background-base",
                           getIntensityClass(value, maxValue),
-                          isHovered && "scale-125 z-10 ring-2 ring-brand-base/50",
-                          isDimmed && "opacity-40",
-                          isHovered && "relative"
+                          isHovered && "scale-125 z-10 ring-2 ring-brand-base/50 relative",
+                          isDimmed && "opacity-40"
                         )}
-                        role="gridcell"
-                        tabIndex={-1}
-                        onMouseEnter={() => setHoveredCell({ dayIndex, hour })}
-                        onMouseLeave={() => setHoveredCell(null)}
-                        aria-label={`${day} a las ${hour}: ${value} partidas`}
+                        onMouseEnter={activate}
+                        onMouseLeave={deactivate}
+                        onFocus={activate}
+                        onBlur={deactivate}
+                        aria-label={`${day} a las ${hour}:00 horas, ${value} partidas`}
                       >
                         {isHovered && (
-                          <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-1 bg-background-elevated/90 backdrop-blur-sm border border-border-default rounded-lg shadow-lg p-2 text-xs text-text-primary whitespace-nowrap z-20 pointer-events-none">
+                          <span className="absolute bottom-full left-1/2 -translate-x-1/2 mb-1 bg-background-elevated/90 backdrop-blur-sm border border-border-default rounded-lg shadow-lg p-2 text-xs text-text-primary whitespace-nowrap z-20 pointer-events-none">
                             <span className="font-semibold">{day} {hour}:00</span>
                             <span className="text-text-muted ml-1.5">{value} partidas</span>
-                          </div>
+                          </span>
                         )}
-                      </div>
+                      </button>
                     );
                   })}
                 </div>

@@ -32,6 +32,7 @@ import SelectPremium from '../../components/ui/SelectPremium';
 import GlassCard from '../../components/ui/GlassCard';
 import { SkeletonCard } from '../../components/ui/SkeletonShimmer';
 import EmptyState from '../../components/ui/EmptyState';
+import { EmptyStudentsIllustration } from '../../components/ui/illustrations';
 import StatusBadge from '../../components/ui/StatusBadge';
 import Tooltip from '../../components/ui/Tooltip';
 import ConfirmationModal from '../../components/ui/ConfirmationModal';
@@ -88,7 +89,9 @@ function EditStudentModal({ isOpen, onClose, onUpdated, student }) {
       await usersAPI.updateUser(student.id || student._id, payload);
       toast.success('Alumno actualizado correctamente');
       onUpdated();
-      onClose();
+      // Pequeña pausa para que el usuario perciba el toast antes de que
+      // el modal desaparezca (evita sensación de accion "sin respuesta").
+      setTimeout(onClose, 350);
     } catch (error) {
       toast.error(extractErrorMessage(error));
     } finally {
@@ -136,6 +139,7 @@ function EditStudentModal({ isOpen, onClose, onUpdated, student }) {
               <InputPremium
                 label="Edad"
                 type="number"
+                inputMode="numeric"
                 min="3"
                 max="99"
                 placeholder="Ej: 6"
@@ -293,6 +297,7 @@ function CreateStudentModal({ isOpen, onClose, onCreated, teachers }) {
               <InputPremium
                 label="Edad"
                 type="number"
+                inputMode="numeric"
                 min="3"
                 max="99"
                 placeholder="Ej: 6"
@@ -596,9 +601,14 @@ export default function StudentManagement() {
           if (students.length === 0) return (
             <EmptyState
               key="empty"
-              title={searchQuery ? "Sin resultados" : "No hay alumnos aún"}
-              description={searchQuery ? "Intenta con otros términos de búsqueda o ajusta los filtros." : "Los alumnos aparecerán aquí cuando los profesores los registren en sus aulas."}
-              icon={<User size={48} />}
+              illustration={<EmptyStudentsIllustration size={180} />}
+              variant={searchQuery ? 'filtered' : 'first-use'}
+              title={searchQuery ? 'Ningún alumno coincide con la búsqueda' : 'Sin alumnos registrados todavía'}
+              description={
+                searchQuery
+                  ? 'Prueba con otro nombre, aula o edad. Recuerda que los filtros acumulan criterios.'
+                  : 'Los alumnos aparecerán aquí cuando los profesores los registren. Puedes aprobar nuevas altas desde el panel de solicitudes.'
+              }
             />
           );
           return (

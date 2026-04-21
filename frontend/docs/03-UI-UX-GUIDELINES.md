@@ -418,3 +418,92 @@ Evidencia mínima requerida en la PR:
 ---
 
 *Inspiración: [Refactoring UI](https://www.refactoringui.com/), [Apple HIG](https://developer.apple.com/design/human-interface-guidelines/)*
+
+---
+
+## Accesibilidad actualizada 2026-04-21 (WCAG 2.2 AA)
+
+Tras el audit senior del 2026-04-21 (ADR-069), los siguientes patrones son baseline obligatorio para todo nuevo componente. Cualquier PR que los ignore debe justificar explícitamente por qué.
+
+### Mensajes de error en formularios
+
+Los errores de validación inline deben:
+- Usar `role="alert"` en el elemento del mensaje (ya aplicado en `InputPremium`).
+- Asociarse al input con `aria-describedby={\`${id}-error\`}` y marcar el input con `aria-invalid={true}`.
+- Respetar `prefers-reduced-motion`: la animación shake (WAAPI) no se dispara si el usuario tiene reduced-motion activado, pero el color rojo del borde se mantiene.
+
+### Focus-on-first-invalid
+
+Los formularios con validación inline de múltiples campos deben usar `useFormFocusFirstError(errors)`:
+
+```jsx
+import { useFormFocusFirstError } from '../hooks/useFormFocusFirstError';
+
+const formRef = useFormFocusFirstError(validationErrors);
+return <form ref={formRef} onSubmit={handleSubmit}>…</form>;
+```
+
+El hook observa el objeto `errors`; cuando cambia con errores nuevos, localiza el primer elemento con `aria-invalid="true"` y le transfiere el foco. No interfiere con wizards multi-paso (usa su propio stepper).
+
+### Celdas y elementos interactivos en charts
+
+Cualquier chart o heatmap con tooltip debe ser accesible por teclado:
+- Convertir las celdas en `<button type="button">`.
+- Añadir `onFocus` + `onBlur` que repliquen los handlers de `onMouseEnter` / `onMouseLeave`.
+- `aria-label` descriptivo (ej. "Lunes a las 10:00 horas, 3 partidas").
+- Focus-visible ring claro (`ring-brand-base` con offset del background).
+
+Ejemplo: `components/analytics/ActivityHeatmap.jsx`.
+
+### Alertas y estados críticos (colorblind-safe)
+
+Nunca usar color rojo (`text-error-base` / `bg-error-base`) como único indicador de error o severidad crítica. Siempre acompañar con:
+- Un icono Lucide (`AlertOctagon`, `AlertTriangle`, `XCircle`) o un patrón (líneas diagonales).
+- Texto descriptivo (no solo el número).
+
+Ver `AlertsHub.jsx` → `SeverityCounter` y `SEVERITY_STYLES`.
+
+### Target size (WCAG 2.5.8 + Apple HIG)
+
+Cualquier botón o target táctil usado por niños 4-6 años (gameplay, fallback) debe tener mínimo **56px de altura/ancho**. Para UI de profesor, WCAG 2.2 AA exige 24×24px, recomendado 44×44.
+
+### Empty states contextualizados
+
+Todo empty state debe usar `EmptyState` con prop `illustration` y prop `variant`:
+
+```jsx
+<EmptyState
+  illustration={<EmptySessionsIllustration size={180} />}
+  variant={hasActiveFilters ? 'filtered' : 'first-use'}
+  title="Aún no tienes sesiones"
+  description="Diseña tu primera sesión..."
+  action={<ButtonPremium>Crear sesión</ButtonPremium>}
+/>
+```
+
+Variantes:
+- `default`: icono/ilustración + título + descripción + CTA.
+- `filtered`: añade chip "Sin resultados para tu búsqueda" y redirige CTA a "Limpiar filtros".
+- `first-use`: habilita `secondaryAction` (ej. "Ver guía") bajo el CTA principal.
+
+Crear una ilustración nueva en `components/ui/illustrations/` si una página tiene empty state propio sin componente reutilizable aún. Seguir el patrón: SVG inline, tokens CSS (`var(--color-brand-base)`), bobbing sutil 3-4s que respeta `useReducedMotion`.
+
+### Variantes de ConfirmationModal
+
+Usar siempre el `variant` correcto:
+- `danger`: destructivo (borrar definitivo).
+- `warning`: acciones reversibles con consecuencias (desactivar algo temporalmente).
+- `archive`: archivar/desarchivar (no pérdida).
+- `info`: confirmaciones neutras.
+- `success`: acciones positivas (confirmar publicar, confirmar guardar).
+
+Cada variante tiene border, tint top gradient, glow del icono y animación del icono diferenciados (ver `ConfirmationModal.jsx:VARIANT_COLORS` y `getIconAnimation`).
+
+### `prefers-reduced-motion`
+
+Toda nueva animación (Framer Motion, CSS keyframes, `requestAnimationFrame`) debe comprobar `useReducedMotion` y desactivarse o reducir drasticamente cuando el usuario lo tiene activado. Ejemplo canónico: `components/effects/Confetti.jsx`.
+
+### Tooltip sobre iconos
+
+Si el trigger del `Tooltip` es un icono sin texto accesible, el componente promueve automáticamente el `content` (si es string) como `aria-label` del wrapper. Si el trigger es un botón con su propio `aria-label`, el tooltip actúa como `aria-describedby` adicional.
+
