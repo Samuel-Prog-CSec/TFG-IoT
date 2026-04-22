@@ -180,6 +180,9 @@ export default function GameSession() {
   const [shakeError, setShakeError] = useState(false);
   const [challenge, setChallenge] = useState(null);
   const [memoryBoard, setMemoryBoard] = useState([]);
+  // Hint "Toca las cartas del tablero" solo util antes del primer tap; se oculta
+  // al primer tap para no ruido visual durante el resto de la partida (QA 22/04/2026).
+  const [hasTappedBoardOnce, setHasTappedBoardOnce] = useState(false);
   // isMemoryMode se resuelve como derivado tras obtener session del socket hook
   const [sessionIsMemory, setSessionIsMemory] = useState(false);
   // Flag para el hook de timer: en Memoria, solo empieza a decrementar cuando
@@ -768,6 +771,7 @@ export default function GameSession() {
   const handleMemoryCardTap = useCallback(
     slot => {
       if (gameState !== 'playing' || !slot?.uid) return;
+      setHasTappedBoardOnce(true);
       const sensorId = session?.sensorId || 'touch_fallback_sensor';
       emitMemoryCardTap(slot, sensorId);
     },
@@ -787,6 +791,7 @@ export default function GameSession() {
       setShowPreCelebration(false);
       setChallenge(null);
       setMemoryBoard([]);
+      setHasTappedBoardOnce(false);
       resetForNewPlay();
       setPlaySummary(null);
       setMemoryStats({ attempts: 0, matchedCount: 0, totalCards: 0 });
@@ -1148,13 +1153,19 @@ export default function GameSession() {
                 />
               )}
 
-              {!rfidConnected && sessionIsMemory && (
-                <div className="mt-2 rounded-lg border border-accent-indigo/25 bg-accent-indigo/5 px-3 py-1.5">
+              {!rfidConnected && sessionIsMemory && !hasTappedBoardOnce && (
+                <motion.div
+                  className="mt-2 rounded-lg border border-accent-indigo/25 bg-accent-indigo/5 px-3 py-1.5"
+                  initial={shouldReduceMotion ? false : { opacity: 0, y: 4 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  exit={shouldReduceMotion ? { opacity: 0 } : { opacity: 0, y: -4 }}
+                  transition={{ duration: 0.2 }}
+                >
                   <div className="flex items-center gap-2 text-text-secondary">
                     <Hand size={14} className="shrink-0 text-accent-indigo" aria-hidden="true" />
                     <p className="text-xs font-medium">Toca las cartas del tablero para jugar</p>
                   </div>
-                </div>
+                </motion.div>
               )}
             </motion.div>
           )}

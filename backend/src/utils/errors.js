@@ -84,9 +84,13 @@ class NotFoundError extends AppError {
 class UnauthorizedError extends AppError {
   /**
    * @param {string} [message='No autorizado'] - Mensaje de error personalizado
+   * @param {string|null} [code=null] - Código semántico para el cliente (ej: TOKEN_EXPIRED, TOKEN_REVOKED)
    */
-  constructor(message = 'No autorizado') {
+  constructor(message = 'No autorizado', code = null) {
     super(message, 401);
+    if (code) {
+      this.code = code;
+    }
   }
 }
 

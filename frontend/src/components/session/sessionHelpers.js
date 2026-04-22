@@ -102,9 +102,12 @@ export const DIFFICULTY_VARIANT_STYLES = {
     selectedIndicator: 'bg-success-base'
   },
   medium: {
-    selectedCard: 'border-warning-base bg-warning-base/10',
-    selectedText: 'text-warning-base',
-    selectedIndicator: 'bg-warning-base'
+    // Normal es la opción por defecto y balanceada: usamos la paleta de marca
+    // (brand-base) en lugar de warning para no cargarla con semántica de
+    // precaución (QA 22/04/2026).
+    selectedCard: 'border-brand-base bg-brand-base/10',
+    selectedText: 'text-brand-light',
+    selectedIndicator: 'bg-brand-base'
   },
   hard: {
     selectedCard: 'border-error-base bg-error-base/10',

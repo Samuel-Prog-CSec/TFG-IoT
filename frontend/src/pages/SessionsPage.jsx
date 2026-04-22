@@ -18,7 +18,7 @@ import {
   Eye,
   Pencil,
   Trash2,
-  Map,
+  LayoutGrid,
   Layers,
   Timer,
   Award,
@@ -46,7 +46,7 @@ import ActiveFiltersBar from '../components/ui/ActiveFiltersBar';
 import ConfirmationModal, { useConfirmationModal } from '../components/ui/ConfirmationModal';
 import PageHeader from '../components/ui/PageHeader';
 import ScanlineOverlay from '../components/ui/ScanlineOverlay';
-import { cn, listContainerVariants, motionConfig, DURATION, EASING } from '../lib/utils';
+import { cn, listContainerVariants, motionConfig, DURATION, EASING, toTitleCaseEs } from '../lib/utils';
 
 // Variants locales con settle en entrada y "papel volando" en exit para reforzar
 // el leitmotiv Tactile+Paper en las tarjetas de lista.
@@ -137,7 +137,11 @@ const SessionCard = memo(function SessionCard({
   onNavigate
 }) {
   const statusInfo = statusToBadge(session.status);
-  const title = session.name || session.deck?.name || 'Sesión sin mazo asignado';
+  // Normalizamos a Title Case español para que la lista sea visualmente
+  // coherente aunque el usuario/seed haya guardado nombres con casing
+  // inconsistente (QA 22/04/2026).
+  const rawTitle = session.name || session.deck?.name || 'Sesión sin mazo asignado';
+  const title = toTitleCaseEs(rawTitle);
   const mechanicLabel = session.mechanic?.displayName || session.mechanic?.name || 'Mecánica';
   const contextLabel = session.context?.name || 'Contexto';
   const sessionId = session.id || session._id;
@@ -156,9 +160,9 @@ const SessionCard = memo(function SessionCard({
   })();
 
   return (
-    <HoverLiftCard glowTint={glowTint} className="group">
+    <HoverLiftCard glowTint={glowTint} className="group h-full">
       <GlassCard className={cn(
-        'relative overflow-hidden p-6 flex flex-col gap-5 hover:border-border-strong transition-[border-color] border-l-4',
+        'relative overflow-hidden p-6 flex flex-col gap-5 h-full hover:border-border-strong transition-[border-color] border-l-4',
         borderClass,
         STATUS_CARD_CLASSES[session.status]
       )}>
@@ -166,8 +170,10 @@ const SessionCard = memo(function SessionCard({
             Visibilidad controlada via group-hover para no necesitar state JS. */}
         <ScanlineOverlay className="opacity-0 group-hover:opacity-100 transition-opacity duration-300" />
         <div className="flex items-start justify-between gap-3">
-          <div>
-            <h3 className="text-lg font-semibold text-text-primary">{title}</h3>
+          <div className="min-w-0">
+            {/* min-h reserva espacio para títulos de 1 o 2 líneas y mantiene la
+                altura del resto del card alineada entre items del grid (QA 22/04/2026). */}
+            <h3 className="text-lg font-semibold text-text-primary line-clamp-2 min-h-[3.5rem]">{title}</h3>
             <p className="text-sm text-text-muted">{mechanicLabel} · {contextLabel}</p>
           </div>
           <StatusBadge status={statusInfo.tone}>{statusInfo.label}</StatusBadge>
@@ -258,14 +264,14 @@ const SessionCard = memo(function SessionCard({
           </div>
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-1 bg-glass-bg rounded-lg p-1">
-              <Tooltip content="Ver mapping">
+              <Tooltip content="Ver tablero y mapping">
                 <ButtonPremium
                   variant="ghost"
                   size="sm"
                   onClick={() => onNavigate(ROUTES.BOARD_SETUP_WITH_ID(sessionId))}
-                  aria-label="Ver mapping de tarjetas"
+                  aria-label="Ver tablero y mapping de tarjetas"
                 >
-                  <Map size={14} />
+                  <LayoutGrid size={14} />
                 </ButtonPremium>
               </Tooltip>
               {/* Tooltip dinamico: explica el motivo cuando los botones estan disabled

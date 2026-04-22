@@ -20,7 +20,7 @@ const mechanicsData = [
     name: 'association',
     displayName: 'Asociación',
     description:
-      'Se muestra en pantalla una consigna o elemento visual y el alumno debe escanear la tarjeta física correcta en el sensor.',
+      'El alumno ve una consigna en pantalla y debe encontrar la tarjeta física correcta.',
     icon: '🔗',
     rules: {
       // Configuración por defecto
@@ -56,7 +56,7 @@ const mechanicsData = [
     name: 'memory',
     displayName: 'Memoria',
     description:
-      'Las cartas se muestran en tablero boca abajo. Al escanear, se revela su contenido; al formar parejas iguales se mantienen visibles y al fallar se vuelven a ocultar.',
+      'Tablero de cartas boca abajo: el alumno las voltea por parejas para encontrar todas las iguales.',
     icon: '🧠',
     rules: {
       defaults: {

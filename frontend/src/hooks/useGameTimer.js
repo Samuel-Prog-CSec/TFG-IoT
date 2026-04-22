@@ -37,12 +37,20 @@ export function useGameTimer({
 }) {
   const [timeLeft, setTimeLeft] = useState(roundTime);
   const announcedThresholdsRef = useRef(new Set());
+  const previousRoundTimeRef = useRef(roundTime);
 
-  // Sincronizar timeLeft con roundTime cuando cambia (por ejemplo, la sesion
-  // carga su timeLimit real tras la primera render). Solo sube el valor; si
-  // ya esta decrementado no lo sobreescribe.
+  // Sincronizar timeLeft con roundTime cada vez que el prop cambia. Casos:
+  // - Primera ronda tras cargar la sesion (stale 1s -> valor real).
+  // - Nueva ronda con distinta duracion.
+  // La version anterior solo re-sincronizaba si `prev === 0 || prev > roundTime`,
+  // dejando un timer fosilizado en 1s cuando la UI arrancaba con un valor
+  // pequeno y luego recibia el timeLimit real (QA 22/04/2026: "Quedan 1 segundos"
+  // aparecia brevemente en aria-live al entrar a la partida).
   useEffect(() => {
-    setTimeLeft(prev => (prev === 0 || prev > roundTime ? roundTime : prev));
+    if (previousRoundTimeRef.current !== roundTime) {
+      setTimeLeft(roundTime);
+      previousRoundTimeRef.current = roundTime;
+    }
   }, [roundTime]);
 
   // Temporizador visual: decrementa cada segundo mientras se juega.

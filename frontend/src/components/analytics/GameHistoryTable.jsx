@@ -47,6 +47,11 @@ function GameHistoryTable({ games, initialCount = 10 }) {
   const visibleGames = showAll ? games : games.slice(0, initialCount);
   const hasMore = games.length > initialCount;
 
+  // Si ninguna partida trae completionTime, oculta la columna Duración para no
+  // mostrar una retahila de "—". Backend todavia no persiste este campo en
+  // todas las partidas (QA 22/04/2026).
+  const hasAnyDuration = games.some(g => g && g.completionTime != null);
+
   return (
     <GlassCard variant="default" padding="none" className="p-5">
       <div className="flex items-center justify-between mb-4">
@@ -65,7 +70,9 @@ function GameHistoryTable({ games, initialCount = 10 }) {
               <th className="text-left text-xs font-semibold text-text-muted uppercase tracking-wider pb-3 pr-3">Mecánica</th>
               <th className="text-right text-xs font-semibold text-text-muted uppercase tracking-wider pb-3 pr-3">Score</th>
               <th className="text-right text-xs font-semibold text-text-muted uppercase tracking-wider pb-3 pr-3">Aciertos</th>
-              <th className="text-right text-xs font-semibold text-text-muted uppercase tracking-wider pb-3 hidden sm:table-cell">Duración</th>
+              {hasAnyDuration && (
+                <th className="text-right text-xs font-semibold text-text-muted uppercase tracking-wider pb-3 hidden sm:table-cell">Duración</th>
+              )}
             </tr>
           </thead>
           <tbody>
@@ -106,9 +113,11 @@ function GameHistoryTable({ games, initialCount = 10 }) {
                     <td className="py-2.5 pr-3 text-right text-text-secondary tabular-nums">
                       {accuracy != null ? `${accuracy}%` : '—'}
                     </td>
-                    <td className="py-2.5 text-right text-text-muted tabular-nums hidden sm:table-cell">
-                      {formatDuration(game.completionTime)}
-                    </td>
+                    {hasAnyDuration && (
+                      <td className="py-2.5 text-right text-text-muted tabular-nums hidden sm:table-cell">
+                        {formatDuration(game.completionTime)}
+                      </td>
+                    )}
                   </motion.tr>
                 );
               })}

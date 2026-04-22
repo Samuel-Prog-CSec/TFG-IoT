@@ -9,6 +9,7 @@ import {
   TrendingUp,
   Minus,
   XCircle,
+  ChevronRight,
   Filter,
   User,
   Layers,
@@ -126,16 +127,32 @@ function AlertCard({ alert, shouldReduceMotion }) {
   const isPositive = alert.type === 'improving_fast';
   const isCritical = alert.severity === 'critical';
 
+  const handleOpenProfile = () => {
+    if (alert.studentId) navigate(`/students/${alert.studentId}`);
+  };
+  const handleKeyDown = e => {
+    if ((e.key === 'Enter' || e.key === ' ') && alert.studentId) {
+      e.preventDefault();
+      handleOpenProfile();
+    }
+  };
+
   return (
     <motion.div
       variants={shouldReduceMotion ? {} : listItemVariants}
       whileHover={shouldReduceMotion ? undefined : { y: -2, scale: 1.005 }}
       transition={{ type: 'spring', stiffness: 400, damping: 28 }}
+      role={alert.studentId ? 'button' : undefined}
+      tabIndex={alert.studentId ? 0 : undefined}
+      onClick={alert.studentId ? handleOpenProfile : undefined}
+      onKeyDown={alert.studentId ? handleKeyDown : undefined}
+      aria-label={alert.studentId ? `Ver perfil de ${alert.studentName || 'alumno'}` : undefined}
       className={cn(
-        'rounded-xl border p-4 transition-[border-color,background-color,box-shadow] duration-200',
+        'group rounded-xl border p-4 transition-[border-color,background-color,box-shadow] duration-200',
         'bg-background-elevated/40 hover:bg-background-elevated/60',
         'border-border-subtle hover:border-border-default',
         'focus-within:ring-1 focus-within:ring-brand-base/40',
+        alert.studentId && 'cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-base/60',
         // Alertas criticas respiran suavemente con pulse-glow para llamar la atencion
         // sin saltar; respeta prefers-reduced-motion por el reset global en index.css.
         isCritical && 'animate-pulse-glow shadow-[0_0_18px_var(--color-error-glow)]'
@@ -178,13 +195,13 @@ function AlertCard({ alert, shouldReduceMotion }) {
               {formatRelativeTime(alert.createdAt || alert.detectedAt)}
             </span>
             {alert.studentId && (
-              <button
-                type="button"
-                onClick={() => navigate(`/students/${alert.studentId}`)}
-                className="text-[10px] font-medium text-brand-base hover:text-brand-light transition-colors"
-              >
-                Ver perfil
-              </button>
+              // Affordance de card cliqueable: chevron sutil que se revela en
+              // hover. El card entero navega al perfil (QA 22/04/2026).
+              <ChevronRight
+                size={14}
+                className="text-text-muted opacity-0 group-hover:opacity-100 transition-opacity"
+                aria-hidden="true"
+              />
             )}
           </div>
         </div>

@@ -25,11 +25,17 @@ const NO_DATA_CLS = 'bg-stripe-diagonal bg-background-surface/15 ring-1 ring-ins
  * Escala inversa respecto a ActivityHeatmap: aqui mas valor (errorRate) = mas "rojo".
  * Usa tokens semanticos del sistema para coherencia con el resto de analytics.
  */
+// Escala redistribuida: la mayoría de valores reales cae entre 20-45%
+// (dataset actual: 25-33%) y antes quedaban todos en el mismo tono
+// `bg-warning-base/40`, anulando el propósito del heatmap. Ahora hay 5
+// niveles con thresholds más densos en el rango medio y una intensidad
+// creciente clara (QA 22/04/2026).
 function getDifficultyClass(errorRate, hasData) {
   if (!hasData) return NO_DATA_CLS;
-  if (errorRate >= 50) return 'bg-error-base/70';
-  if (errorRate >= 30) return 'bg-warning-base/70';
-  if (errorRate >= 15) return 'bg-warning-base/40';
+  if (errorRate >= 60) return 'bg-error-base/80';
+  if (errorRate >= 40) return 'bg-error-base/55';
+  if (errorRate >= 25) return 'bg-warning-base/65';
+  if (errorRate >= 10) return 'bg-warning-base/35';
   return 'bg-success-base/55';
 }
 
@@ -93,13 +99,16 @@ export default function DifficultyHeatmap({ data }) {
           <span className="size-3 rounded-sm bg-success-base/55" aria-hidden="true" />Poca
         </span>
         <span className="flex items-center gap-1.5">
-          <span className="size-3 rounded-sm bg-warning-base/40" aria-hidden="true" />Media
+          <span className="size-3 rounded-sm bg-warning-base/35" aria-hidden="true" />Media
         </span>
         <span className="flex items-center gap-1.5">
-          <span className="size-3 rounded-sm bg-warning-base/70" aria-hidden="true" />Alta
+          <span className="size-3 rounded-sm bg-warning-base/65" aria-hidden="true" />Alta
         </span>
         <span className="flex items-center gap-1.5">
-          <span className="size-3 rounded-sm bg-error-base/70" aria-hidden="true" />Critica
+          <span className="size-3 rounded-sm bg-error-base/55" aria-hidden="true" />Muy alta
+        </span>
+        <span className="flex items-center gap-1.5">
+          <span className="size-3 rounded-sm bg-error-base/80" aria-hidden="true" />Crítica
         </span>
         <span className="flex items-center gap-1.5">
           <span className="size-3 rounded-sm bg-stripe-diagonal bg-background-surface/15 ring-1 ring-inset ring-border-subtle/30" aria-hidden="true" />Sin datos

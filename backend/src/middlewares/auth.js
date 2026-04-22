@@ -503,7 +503,7 @@ const verifyAccessToken = async (token, req) => {
         userId: decoded.id,
         reason: 'ACCESS_TOKEN_WRONG_TYPE'
       });
-      throw new UnauthorizedError('Token type inválido');
+      throw new UnauthorizedError('Token type inválido', 'TOKEN_INVALID');
     }
 
     // Verificar blacklist en Redis
@@ -515,7 +515,7 @@ const verifyAccessToken = async (token, req) => {
         jti: decoded.jti,
         reason: 'ACCESS_TOKEN_REVOKED'
       });
-      throw new UnauthorizedError('Token revocado');
+      throw new UnauthorizedError('Token revocado', 'TOKEN_REVOKED');
     }
 
     // Verificar flag de seguridad (logout forzado)
@@ -528,7 +528,7 @@ const verifyAccessToken = async (token, req) => {
       });
       throw new UnauthorizedError(
         'Tu sesión fue cerrada por motivos de seguridad. Por favor, inicia sesión de nuevo.',
-        securityCheck.reason
+        'SESSION_REVOKED'
       );
     }
 
@@ -540,7 +540,7 @@ const verifyAccessToken = async (token, req) => {
         userId: decoded.id,
         fingerprintMismatch: true
       });
-      throw new UnauthorizedError('Token fingerprint inválido');
+      throw new UnauthorizedError('Token fingerprint inválido', 'TOKEN_FINGERPRINT_MISMATCH');
     }
 
     return decoded;
@@ -550,19 +550,19 @@ const verifyAccessToken = async (token, req) => {
         ...getRequestContext(req),
         reason: 'ACCESS_TOKEN_EXPIRED'
       });
-      throw new UnauthorizedError('Access token expirado');
+      throw new UnauthorizedError('Access token expirado', 'TOKEN_EXPIRED');
     }
     if (error.name === 'JsonWebTokenError') {
       logSecurityEvent('AUTH_TOKEN_INVALID', {
         ...getRequestContext(req),
         reason: 'ACCESS_TOKEN_INVALID'
       });
-      throw new UnauthorizedError('Access token inválido');
+      throw new UnauthorizedError('Access token inválido', 'TOKEN_INVALID');
     }
     if (error instanceof UnauthorizedError) {
       throw error;
     }
-    throw new UnauthorizedError('Error al verificar access token');
+    throw new UnauthorizedError('Error al verificar access token', 'TOKEN_INVALID');
   }
 };
 
@@ -719,7 +719,7 @@ const authenticate = async (req, res, next) => {
         ...getRequestContext(req),
         reason: 'MISSING_ACCESS_TOKEN'
       });
-      throw new UnauthorizedError('Access token no proporcionado');
+      throw new UnauthorizedError('Access token no proporcionado', 'TOKEN_MISSING');
     }
 
     // Verificar access token (incluye validación de fingerprint)
@@ -771,7 +771,8 @@ const authenticate = async (req, res, next) => {
         reason: 'SESSION_MISMATCH'
       });
       throw new UnauthorizedError(
-        'Tu sesión ha expirado porque se ha iniciado sesión en otro dispositivo.'
+        'Tu sesión ha expirado porque se ha iniciado sesión en otro dispositivo.',
+        'SESSION_MISMATCH'
       );
     }
 

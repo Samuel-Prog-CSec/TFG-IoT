@@ -32,6 +32,7 @@ const errorHandler = (err, req, res, _next) => {
   let message = err.message || 'Error interno del servidor';
   let errors = null;
   let data = null;
+  let code = null;
 
   // 1. Errores operacionales (AppError y subclases) — prioridad máxima
   if (err.isOperational) {
@@ -39,6 +40,7 @@ const errorHandler = (err, req, res, _next) => {
     message = err.message;
     errors = err.errors || null;
     data = err.data || null;
+    code = err.code || null;
   }
 
   // 2. Mongoose ValidationError (tiene err.name === 'ValidationError' pero NO isOperational)
@@ -66,9 +68,11 @@ const errorHandler = (err, req, res, _next) => {
   else if (err.name === 'JsonWebTokenError') {
     statusCode = 401;
     message = 'Token inválido';
+    code = 'TOKEN_INVALID';
   } else if (err.name === 'TokenExpiredError') {
     statusCode = 401;
     message = 'Token expirado';
+    code = 'TOKEN_EXPIRED';
   }
 
   // --- Logging estructurado con Pino ---
@@ -97,6 +101,7 @@ const errorHandler = (err, req, res, _next) => {
   res.status(statusCode).json({
     success: false,
     message,
+    ...(code && { code }),
     ...(errors && errors.length > 0 && { errors }),
     ...(data && { data }),
     ...(process.env.NODE_ENV === 'development' && { stack: err.stack })

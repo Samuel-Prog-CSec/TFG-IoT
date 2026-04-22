@@ -537,6 +537,17 @@ function DeckPreviewAssets({
       {previewAssets.map((mapping, index) => {
         const label = mapping.displayData?.display || mapping.displayData?.emoji || '?';
         const hasImage = Boolean(mapping.displayData?.thumbnailUrl || mapping.displayData?.imageUrl);
+        // En el espacio reducido del preview (40px), el texto "España" se ve
+        // apretado → usamos iniciales (1-2 chars) como fallback cuando la
+        // imagen no carga. Si es un emoji, se mantiene tal cual.
+        const initials = (() => {
+          if (!label || label === '?') return label;
+          const isEmoji = /\p{Emoji}/u.test(label);
+          if (isEmoji) return label;
+          const words = label.trim().split(/\s+/);
+          if (words.length >= 2) return (words[0][0] + words[1][0]).toUpperCase();
+          return label.slice(0, 2).toUpperCase();
+        })();
         return (
           <motion.div
             key={mapping._id || index}
@@ -544,7 +555,7 @@ function DeckPreviewAssets({
             initial={{ opacity: 0, scale: 0.8 }}
             animate={{ opacity: 1, scale: 1 }}
             transition={{ delay: index * 0.1 }}
-            title={!hasImage ? label : undefined}
+            title={label}
             style={{
               transform: `translateZ(${(index + 1) * 10}px)`,
               // Fondo con dominantColor del asset para continuidad visual
@@ -555,8 +566,8 @@ function DeckPreviewAssets({
               asset={mapping.displayData}
               className="w-full h-full rounded-lg"
               showSkeleton={false}
-              fallbackLabel={label}
-              fallbackClassName={!hasImage ? 'p-0.5' : undefined}
+              fallbackLabel={initials}
+              fallbackClassName={!hasImage ? 'p-0.5 text-white/90 font-bold' : undefined}
             />
           </motion.div>
         );

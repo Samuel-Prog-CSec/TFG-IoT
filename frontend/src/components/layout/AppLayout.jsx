@@ -289,26 +289,24 @@ export default function AppLayout() {
         {/* Subtle Grid Pattern for Depth */}
         <div className="absolute inset-0 bg-grid opacity-20 pointer-events-none" />
 
-        {/* Page Content — crossfade con slide-up sutil.
-            mode="popLayout" permite que la entrada de la nueva pagina comience
-            mientras la anterior sale, evitando que el motion.div quede atascado
-            en el estado exit (bug observado en React 19 + AnimatePresence wait).
-            El exit incluye pointerEvents: 'none' para evitar que el wrapper
-            saliente intercepte clicks en la pagina entrante cuando StrictMode
-            deja ambos montados simultaneamente (QA 18/04/2026 tarde). */}
+        {/* Page Content — fade-in al montar sin animación de salida.
+            Se retiró AnimatePresence porque la combinación lazy-loaded Outlet +
+            Suspense fallback + popLayout dejaba el motion.div saliente
+            atascado en exit state (opacity:0) al navegar entre rutas /admin/*
+            cuando el chunk entrante tardaba en resolver (QA 22/04/2026).
+            Con key={pathname} React desmonta el motion.div anterior y monta
+            uno nuevo con initial→animate; el resultado visual es un fade-in
+            limpio sin riesgo de pantalla en blanco. */}
         <div className="relative z-10 w-full min-h-full">
-          <AnimatePresence mode="popLayout" initial={false}>
-            <motion.div
-              key={location.pathname}
-              initial={shouldReduceMotion ? false : { opacity: 0, y: 8 }}
-              animate={{ opacity: 1, y: 0, pointerEvents: 'auto' }}
-              exit={shouldReduceMotion ? { pointerEvents: 'none' } : { opacity: 0, y: -6, pointerEvents: 'none' }}
-              transition={{ duration: 0.25, ease: [0.16, 1, 0.3, 1] }}
-              className="w-full"
-            >
-              <Outlet />
-            </motion.div>
-          </AnimatePresence>
+          <motion.div
+            key={location.pathname}
+            initial={shouldReduceMotion ? false : { opacity: 0, y: 8 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.22, ease: [0.16, 1, 0.3, 1] }}
+            className="w-full"
+          >
+            <Outlet />
+          </motion.div>
         </div>
       </main>
     </div>

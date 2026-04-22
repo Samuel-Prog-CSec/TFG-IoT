@@ -347,24 +347,27 @@ class SocketService {
   }
 
   /**
-   * Actualizar token de autenticación en ambos namespaces
-   * @param {string} token - Nuevo access token
+   * Actualizar token de autenticación en ambos namespaces.
+   * Si el token no ha cambiado, no hace nada (evita reconectar innecesariamente).
+   * Si el socket estaba conectado con un token distinto, se reconecta con el nuevo.
+   * Si no estaba conectado aún, solo actualiza el auth y un `connect()` posterior
+   * usará el token nuevo — evita el patrón conectar→disconnect→reconectar
+   * observado al hacer login cuando el socket ya tenía un token viejo inyectado
+   * del listener previo (QA 22/04/2026).
    */
   updateAuth(token) {
-    if (this.socket) {
-      this.socket.auth = { token };
-      if (this.socket.connected) {
-        this.socket.disconnect();
-        this.socket.connect();
+    const applyToNamespace = (sock) => {
+      if (!sock) return;
+      const previousToken = sock.auth?.token;
+      sock.auth = { token };
+      const tokenChanged = previousToken !== token;
+      if (tokenChanged && sock.connected) {
+        sock.disconnect();
+        sock.connect();
       }
-    }
-    if (this.gameSocket) {
-      this.gameSocket.auth = { token };
-      if (this.gameSocket.connected) {
-        this.gameSocket.disconnect();
-        this.gameSocket.connect();
-      }
-    }
+    };
+    applyToNamespace(this.socket);
+    applyToNamespace(this.gameSocket);
   }
 
   // ============================================

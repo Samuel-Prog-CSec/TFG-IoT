@@ -118,7 +118,7 @@ export default function CreateSession() {
     handleConfigChange,
     handleLinkSensorChange,
     canProceed
-  } = useWizardConfig({ mechanics, currentStep });
+  } = useWizardConfig({ mechanics });
 
   // Dirty detection: el usuario ha empezado a configurar la sesion
   const isDirty = currentStep > 0 || selectedDeck !== null;
@@ -181,10 +181,10 @@ export default function CreateSession() {
         origin: { y: 0.6 },
       });
 
-      toast.success('Sesion creada!', {
+      toast.success('¡Sesión creada!', {
         description: isMemorySelected
-          ? 'Redirigiendo a la configuracion del tablero...'
-          : 'Redirigiendo al detalle de la sesion...'
+          ? 'Redirigiendo a la configuración del tablero…'
+          : 'Redirigiendo al detalle de la sesión…'
       });
 
       // Memoria -> BoardSetup para configurar tablero, Asociacion -> Detalle de sesion
@@ -300,14 +300,19 @@ export default function CreateSession() {
 
       {/* Contenido */}
       <div className="max-w-5xl mx-auto mb-8">
-        <AnimatePresence mode="wait" custom={stepDirection}>
+        {/* mode="popLayout" permite que el paso entrante comience su enter
+            mientras el saliente aún completa su exit — elimina el flash vacío
+            de ~300ms que se veía con mode="wait" en QA 22/04/2026. La duración
+            total se acorta a 0.22s: combinada con popLayout produce una
+            transición horizontal limpia sin doble tiempo muerto. */}
+        <AnimatePresence mode="popLayout" custom={stepDirection}>
           <motion.div
             key={currentStep}
             custom={stepDirection}
-            initial={shouldReduceMotion ? false : (d) => ({ opacity: 0, x: d * 30 })}
+            initial={shouldReduceMotion ? false : (d) => ({ opacity: 0, x: d * 24 })}
             animate={{ opacity: 1, x: 0 }}
-            exit={shouldReduceMotion ? { opacity: 0 } : (d) => ({ opacity: 0, x: d * -30 })}
-            transition={{ duration: shouldReduceMotion ? 0.15 : 0.3 }}
+            exit={shouldReduceMotion ? { opacity: 0 } : (d) => ({ opacity: 0, x: d * -18 })}
+            transition={{ duration: shouldReduceMotion ? 0.12 : 0.22, ease: [0.16, 1, 0.3, 1] }}
           >
             {renderStep()}
           </motion.div>

@@ -1011,3 +1011,32 @@ Desde el mantenimiento 2026-04-20, el middleware `authenticate` cachea un POJO "
 | **Token Family (familyId)** | Auth0 Refresh Token Rotation | Innovación de Auth0 para detección de robo |
 | **Grace Period** | Auth0 Docs | Mitiga race conditions en aplicaciones multi-tab |
 | **Security Flags** | OWASP Session Management | Patrón de "invalidación por timestamp" |
+
+## Contrato de respuestas 401 con `code` semántico (ADR-071, 2026-04-22)
+
+El `errorHandler` anota un campo `code` opcional en el body JSON de cada 401
+para que el cliente distinga el motivo sin parsear el mensaje en español.
+Códigos emitidos por `middlewares/auth.js`:
+
+| code | Origen | Recuperable con refresh |
+|------|--------|-------------------------|
+| `TOKEN_EXPIRED` | Access token expirado (`TokenExpiredError`) | **Sí** |
+| `TOKEN_MISSING` | Header `Authorization` ausente | Sí |
+| `TOKEN_INVALID` | Token mal formado, tipo incorrecto o firma inválida | No |
+| `TOKEN_REVOKED` | JTI presente en la blacklist | No |
+| `TOKEN_FINGERPRINT_MISMATCH` | IP/UA difieren del fingerprint del token | No |
+| `SESSION_MISMATCH` | `sid` del token no coincide con `user.currentSessionId` | No |
+| `SESSION_REVOKED` | Security flag activo con mayor `iat` que el token | No |
+
+El interceptor del frontend considera recuperables `TOKEN_EXPIRED` y
+`TOKEN_MISSING`; cualquier otro código dispara `AUTH_EVENTS.UNAUTHORIZED` y
+logout. Por compatibilidad con tokens pre-deploy se mantiene un regex
+fallback `/expirado|expired/i` sobre `message` cuando `code` no está presente.
+
+## Guard single-flight en `checkExistingSession` (ADR-071)
+
+`AuthProvider` en dev con `React.StrictMode` ejecuta `useEffect` dos veces.
+Si ambas ejecuciones llaman a `POST /auth/refresh` en paralelo, la primera
+rota el refreshToken y la segunda recibe 401 (cookie ya inválida), lo que
+antes deslogueaba al usuario. Solución: `useRef(false)` en el hook que se
+pone a `true` al primer render y cortocircuita la segunda invocación.

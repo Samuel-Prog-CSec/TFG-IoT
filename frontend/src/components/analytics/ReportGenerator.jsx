@@ -11,6 +11,7 @@ import {
   Award,
   AlertTriangle,
 } from 'lucide-react';
+import { toast } from 'sonner';
 import { cn, DURATION, EASING, exportToCSV } from '../../lib/utils';
 import { useReducedMotion } from '../../hooks/useReducedMotion';
 import analyticsService from '../../services/analytics';
@@ -400,6 +401,12 @@ function ReportGenerator() {
       }
 
       setReportData(data);
+      // Toast de confirmacion: la preview aparece debajo del form y queda
+      // fuera del viewport inicial; el toast asegura feedback inmediato
+      // (QA 22/04/2026).
+      toast.success('Informe generado', {
+        description: 'Revisa la vista previa más abajo o exporta a CSV.'
+      });
     } catch (err) {
       if (isAbortError(err)) return;
       captureException(err);

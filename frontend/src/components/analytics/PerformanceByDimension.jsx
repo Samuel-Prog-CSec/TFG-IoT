@@ -81,19 +81,22 @@ function PerformanceByDimension({ title, data, dimension = 'context' }) {
             <XAxis
               type="number"
               domain={[0, 100]}
-              allowDataOverflow
               ticks={[0, 25, 50, 75, 100]}
               tick={{ fill: 'var(--color-text-muted)', fontSize: 11 }}
               tickLine={false}
               axisLine={false}
             />
+            {/* width aumentado de 120 a 140 para que etiquetas largas como
+                "Números del 1 al 6" o "Animales de Granja" no wrapeen en dos
+                líneas y descentren la barra (QA 22/04/2026). */}
             <YAxis
               type="category"
               dataKey="name"
-              width={120}
+              width={140}
               tick={{ fill: 'var(--color-text-secondary)', fontSize: 12 }}
               tickLine={false}
               axisLine={false}
+              interval={0}
             />
             <Tooltip content={<CustomTooltip />} cursor={{ fill: 'rgba(255,255,255,0.03)' }} />
             <Bar

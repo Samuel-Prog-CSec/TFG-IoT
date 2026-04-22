@@ -30,23 +30,23 @@ const logger = require('../src/utils/logger');
 const STUDENT_PROFILES = {
   high_performer: {
     label: 'Alto rendimiento estable',
-    baseSuccessProb: 0.92,
-    timeoutProb: 0.02,
-    avgSpeed: 2500,
-    // Tendencia: estable, ligera mejora
-    improvementPerGame: 0.005,
-    fatigueMultiplier: 1.15,
-    abandonProbability: 0.02
+    baseSuccessProb: 0.97,
+    timeoutProb: 0.01,
+    avgSpeed: 2200,
+    // Tendencia: estable, muy consistente — genera tier "Excelente" (90+)
+    improvementPerGame: 0.008,
+    fatigueMultiplier: 1.1,
+    abandonProbability: 0.01
   },
   improving: {
     label: 'Mejorando progresivamente',
-    baseSuccessProb: 0.45,
-    timeoutProb: 0.12,
-    avgSpeed: 6500,
-    // Tendencia: mejora clara
-    improvementPerGame: 0.04,
-    fatigueMultiplier: 1.3,
-    abandonProbability: 0.08
+    baseSuccessProb: 0.6,
+    timeoutProb: 0.08,
+    avgSpeed: 5500,
+    // Tendencia: mejora clara, termina en "Bueno" (70-89)
+    improvementPerGame: 0.045,
+    fatigueMultiplier: 1.25,
+    abandonProbability: 0.06
   },
   declining: {
     label: 'Rendimiento en descenso',
@@ -80,13 +80,13 @@ const STUDENT_PROFILES = {
   },
   average: {
     label: 'Rendimiento medio',
-    baseSuccessProb: 0.72,
-    timeoutProb: 0.06,
-    avgSpeed: 4000,
-    // Tendencia: mejora moderada
-    improvementPerGame: 0.02,
-    fatigueMultiplier: 1.25,
-    abandonProbability: 0.06
+    baseSuccessProb: 0.8,
+    timeoutProb: 0.05,
+    avgSpeed: 3500,
+    // Tendencia: mejora moderada, termina en "Bueno"
+    improvementPerGame: 0.025,
+    fatigueMultiplier: 1.2,
+    abandonProbability: 0.04
   }
 };
 

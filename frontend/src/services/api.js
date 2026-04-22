@@ -159,8 +159,15 @@ api.interceptors.response.use(
 
     // 401 - Token expirado o inválido
     if (status === 401 && !originalRequest._retry) {
-      // Si el error es de token expirado, intentar refresh
-      if (data?.code === 'TOKEN_EXPIRED' || data?.message?.includes('expired')) {
+      // Códigos recuperables via refresh. El backend ahora anota `code`
+      // semántico; también aceptamos el mensaje en ES/EN por compatibilidad.
+      const errCode = data?.code;
+      const msg = data?.message || '';
+      const isRecoverable =
+        errCode === 'TOKEN_EXPIRED' ||
+        errCode === 'TOKEN_MISSING' ||
+        /expirado|expired/i.test(msg);
+      if (isRecoverable) {
         return handleTokenRefresh(originalRequest);
       }
 

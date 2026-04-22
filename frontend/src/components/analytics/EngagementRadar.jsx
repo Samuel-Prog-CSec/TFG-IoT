@@ -105,9 +105,11 @@ function EngagementRadar({ engagement }) {
         )}
       </div>
 
-      <div className="h-[220px] w-full min-h-[220px]">
+      <div className="h-[300px] w-full min-h-[300px]">
         <ResponsiveContainer width="100%" height="100%" minWidth={0} minHeight={0} debounce={50}>
-          <RadarChart cx="50%" cy="50%" outerRadius="70%" data={chartData}>
+          {/* outerRadius=80% para aprovechar el alto extra del contenedor;
+              el radar se veia demasiado pequeno a 70% en 1920px (QA 22/04/2026). */}
+          <RadarChart cx="50%" cy="50%" outerRadius="80%" data={chartData}>
             <PolarGrid
               stroke="var(--color-border-subtle)"
               gridType="polygon"

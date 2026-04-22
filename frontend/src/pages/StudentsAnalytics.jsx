@@ -640,7 +640,9 @@ export default function StudentsAnalytics() {
 
 function SortIcon({ field, sortField, sortOrder }) {
   if (field !== sortField) {
-    return <ArrowUpDown size={14} className="text-text-muted/40 group-hover:text-text-muted transition-colors" aria-hidden="true" />;
+    // Atenuación mayor para que solo la columna activa destaque; el arrow
+    // inactivo solo se hace visible al hover como affordance (QA 22/04/2026).
+    return <ArrowUpDown size={14} className="text-text-muted/20 group-hover:text-text-muted transition-colors" aria-hidden="true" />;
   }
   return sortOrder === 'asc'
     ? <ArrowUp size={14} className="text-brand-base" aria-hidden="true" />

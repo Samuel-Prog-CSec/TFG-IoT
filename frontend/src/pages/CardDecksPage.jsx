@@ -14,6 +14,8 @@ import {
   Search,
   Filter,
   Layers,
+  Archive,
+  CreditCard,
   AlertCircle,
   X
 } from 'lucide-react';
@@ -456,22 +458,37 @@ export default function CardDecksPage() {
         title="Mis Mazos"
         subtitle="Gestiona tus mazos de cartas RFID para las sesiones de juego"
         actions={<>
+          {/* Pill de uso ampliado con barra de progreso sutil para que el
+              usuario perciba cuán cerca está del tope; con Nuevo Mazo al lado
+              para que la acción y su contexto cuantitativo estén unidos (QA 22/04/2026). */}
           <motion.div
             className={cn(
-              'px-4 py-2 rounded-xl text-sm font-medium',
-              'bg-background-elevated/50 border border-border-default',
+              'px-4 py-2 rounded-xl text-sm font-medium min-w-[140px]',
+              'bg-background-elevated/60 border border-border-default',
               deckCount.active >= MAX_DECKS && 'border-warning-base/50 bg-warning-base/10'
             )}
             initial={shouldReduceMotion ? false : { scale: 0.9, opacity: 0 }}
             animate={{ scale: 1, opacity: 1 }}
             transition={{ delay: shouldReduceMotion ? 0 : 0.2 }}
           >
-            <span className={cn(
-              deckCount.active >= MAX_DECKS ? 'text-warning-base' : 'text-accent-indigo'
-            )}>
-              {deckCount.active}
-            </span>
-            <span className="text-text-muted">/{MAX_DECKS} mazos</span>
+            <div className="flex items-baseline gap-1">
+              <span className={cn(
+                'text-lg font-display font-semibold tabular-nums',
+                deckCount.active >= MAX_DECKS ? 'text-warning-base' : 'text-accent-indigo'
+              )}>
+                {deckCount.active}
+              </span>
+              <span className="text-text-muted text-xs">/ {MAX_DECKS} mazos</span>
+            </div>
+            <div className="mt-1.5 h-1 rounded-full bg-background-surface/70 overflow-hidden">
+              <div
+                className={cn(
+                  'h-full rounded-full transition-all',
+                  deckCount.active >= MAX_DECKS ? 'bg-warning-base' : 'bg-gradient-to-r from-accent-indigo to-brand-base'
+                )}
+                style={{ width: `${Math.min(100, (deckCount.active / MAX_DECKS) * 100)}%` }}
+              />
+            </div>
           </motion.div>
           <ButtonPremium
             onClick={handleCreateDeck}
@@ -483,6 +500,44 @@ export default function CardDecksPage() {
         </>}
         className="mb-8"
       />
+
+      {/* KPIs resumen — coherente con la vista de Contextos, da contexto
+          numérico inmediato (Activos / Archivados / Total) sin tener que
+          ir a filtros (QA 22/04/2026). */}
+      <motion.div
+        initial={shouldReduceMotion ? false : { opacity: 0, y: 10 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ delay: shouldReduceMotion ? 0 : 0.08 }}
+        className="grid grid-cols-3 gap-3 mb-5"
+      >
+        <GlassCard className="p-3 flex items-center gap-3">
+          <div className="size-9 rounded-lg bg-accent-indigo/15 flex items-center justify-center">
+            <Layers size={16} className="text-accent-indigo" />
+          </div>
+          <div>
+            <p className="text-xl font-semibold text-text-primary font-display tabular-nums">{deckCount.active}</p>
+            <p className="text-[10px] text-text-muted font-medium uppercase tracking-wider">Activos</p>
+          </div>
+        </GlassCard>
+        <GlassCard className="p-3 flex items-center gap-3">
+          <div className="size-9 rounded-lg bg-background-surface/60 flex items-center justify-center">
+            <Archive size={16} className="text-text-muted" />
+          </div>
+          <div>
+            <p className="text-xl font-semibold text-text-primary font-display tabular-nums">{deckCount.archived}</p>
+            <p className="text-[10px] text-text-muted font-medium uppercase tracking-wider">Archivados</p>
+          </div>
+        </GlassCard>
+        <GlassCard className="p-3 flex items-center gap-3">
+          <div className="size-9 rounded-lg bg-brand-base/15 flex items-center justify-center">
+            <CreditCard size={16} className="text-brand-light" />
+          </div>
+          <div>
+            <p className="text-xl font-semibold text-text-primary font-display tabular-nums">{deckCount.total}</p>
+            <p className="text-[10px] text-text-muted font-medium uppercase tracking-wider">Total</p>
+          </div>
+        </GlassCard>
+      </motion.div>
 
       {/* Barra de búsqueda y filtros */}
       <motion.div

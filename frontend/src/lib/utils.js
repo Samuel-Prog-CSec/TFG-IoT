@@ -175,6 +175,49 @@ export function formatNumber(num) {
 }
 
 /**
+ * Normaliza un título en Title Case español: capitaliza la primera letra de
+ * cada palabra salvo artículos/preposiciones cortas (de, con, la, el, los,
+ * las, en, a, y, o, del, al), que quedan en minúsculas salvo si son la
+ * primera palabra del título.
+ *
+ * Solo normaliza si el texto está *todo en minúsculas* o *todo en mayúsculas*:
+ * si el autor ya tuvo intención de case mixto (p. ej. "Deck de prueba"),
+ * respeta su elección para no romper identificadores en tests o decisiones
+ * deliberadas del usuario (QA 22/04/2026).
+ *
+ * Ejemplos:
+ *   "colores básicos - repaso"      → "Colores Básicos - Repaso"
+ *   "animales de granja"            → "Animales de Granja"
+ *   "NÚMEROS 1-6 - PRIMERA SESIÓN"  → "Números 1-6 - Primera Sesión"
+ *   "Deck de prueba"                → "Deck de prueba" (respeta case mixto)
+ *
+ * @param {string} text
+ * @returns {string}
+ */
+export function toTitleCaseEs(text) {
+  if (!text || typeof text !== 'string') return text;
+  // Solo actuar sobre textos sin casing intencional (todo lower o todo upper).
+  // Los textos con mezcla de mayúsculas/minúsculas se devuelven tal cual.
+  const hasMixedCase = /[a-záéíóúñ]/.test(text) && /[A-ZÁÉÍÓÚÑ]/.test(text);
+  if (hasMixedCase) return text;
+
+  const lowerWords = new Set([
+    'de', 'del', 'al', 'a', 'la', 'el', 'los', 'las',
+    'y', 'o', 'u', 'en', 'con', 'sin', 'por', 'para'
+  ]);
+  return text
+    .toLowerCase()
+    .split(/(\s+|-|·)/)
+    .map((token, idx, arr) => {
+      if (!token.trim() || token === '-' || token === '·') return token;
+      const isFirstWord = idx === 0 || arr.slice(0, idx).every(t => !t.trim() || t === '-' || t === '·');
+      if (!isFirstWord && lowerWords.has(token)) return token;
+      return token.charAt(0).toUpperCase() + token.slice(1);
+    })
+    .join('');
+}
+
+/**
  * Presets de formato de fecha para Intl.DateTimeFormat
  * @type {Record<string, Intl.DateTimeFormatOptions>}
  */

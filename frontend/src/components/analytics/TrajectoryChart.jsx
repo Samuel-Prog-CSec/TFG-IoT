@@ -70,16 +70,29 @@ function CustomTooltip({ active, payload, label }) {
  * @param {Array} [props.classComparison] - Datos de promedio de clase para overlay
  * @param {string} [props.title] - Titulo personalizado
  */
+// Clamp defensivo a [0, 100] para que la línea no se salga del área del chart
+// cuando el backend envía scores crudos (p. ej. maxScore sin normalizar en
+// sesiones legadas). YAxis domain=[0,100] solo oculta overflow si ademas
+// clampeamos los valores — si no, la curva monotone hace overshoot visible.
+const clampScore = value => {
+  if (value == null) return null;
+  const n = Number(value);
+  if (Number.isNaN(n)) return null;
+  return Math.max(0, Math.min(100, n));
+};
+
 function TrajectoryChart({ trajectoryData, classComparison, title = 'Trayectoria de Aprendizaje' }) {
   const chartData = useMemo(() => {
     if (!trajectoryData?.dataPoints) return [];
 
     return trajectoryData.dataPoints.map((point, index) => {
       const classPoint = classComparison?.[index];
+      const rawScore = point.avgScore ?? point.averageScore ?? point.score ?? 0;
+      const rawClass = classPoint?.avgScore ?? classPoint?.averageScore ?? classPoint?.score ?? null;
       return {
         date: (point.date || point.period) ? formatDate(new Date(point.date || point.period), 'short') : `Punto ${index + 1}`,
-        score: point.avgScore ?? point.averageScore ?? point.score ?? 0,
-        classAverage: classPoint?.avgScore ?? classPoint?.averageScore ?? classPoint?.score ?? null,
+        score: clampScore(rawScore) ?? 0,
+        classAverage: clampScore(rawClass),
       };
     });
   }, [trajectoryData, classComparison]);
@@ -141,7 +154,6 @@ function TrajectoryChart({ trajectoryData, classComparison, title = 'Trayectoria
             />
             <YAxis
               domain={[0, 100]}
-              allowDataOverflow
               ticks={[0, 25, 50, 75, 100]}
               tick={{ fill: 'var(--color-text-muted)', fontSize: 11 }}
               tickLine={false}

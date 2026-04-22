@@ -204,68 +204,58 @@ export default function CardDeckDetailPage() {
           </div>
         </header>
 
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-          <GlassCard className="p-6 lg:col-span-2 space-y-5">
+        {/* Unificado en un solo panel: antes había "Información general" (4
+            tiles) + "Resumen" (tabla key-value) que duplicaban Tarjetas/Creado/
+            Estado/Contexto. Dejamos los 4 KPIs en tiles grandes + sección de
+            metadatos (contexto, actualizado) sin repetir info. QA 22/04/2026. */}
+        <GlassCard className="p-6 space-y-5">
+          <div className="flex items-center justify-between flex-wrap gap-3">
             <h2 className="text-lg font-semibold text-text-primary">Información general</h2>
+            <span className="text-xs text-text-muted">
+              Actualizado {formatDeckDate(deck.updatedAt)}
+            </span>
+          </div>
 
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-              <div className="bg-accent-indigo/10 rounded-xl p-4">
-                <div className="flex items-center gap-2 text-text-muted">
-                  <CreditCard size={16} className="text-accent-indigo" />
-                  Tarjetas
-                </div>
-                <p className="text-text-primary text-xl font-semibold font-display mt-2">{cards.length}</p>
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+            <div className="bg-accent-indigo/10 rounded-xl p-4">
+              <div className="flex items-center gap-2 text-text-muted">
+                <CreditCard size={16} className="text-accent-indigo" />
+                Tarjetas
               </div>
-              <div className="bg-warning-base/10 rounded-xl p-4">
-                <div className="flex items-center gap-2 text-text-muted">
-                  <Calendar size={16} className="text-warning-base" />
-                  Creado
-                </div>
-                <p className="text-text-primary text-xl font-semibold font-display mt-2">{formatDeckDate(deck.createdAt)}</p>
-              </div>
-              <div className="bg-success-base/10 rounded-xl p-4">
-                <div className="flex items-center gap-2 text-text-muted">
-                  <Archive size={16} className="text-success-base" />
-                  Estado
-                </div>
-                <p className="text-text-primary text-xl font-semibold font-display mt-2">{statusLabel}</p>
-              </div>
+              <p className="text-text-primary text-xl font-semibold font-display mt-2">{cards.length}</p>
             </div>
+            <div className="bg-warning-base/10 rounded-xl p-4">
+              <div className="flex items-center gap-2 text-text-muted">
+                <Calendar size={16} className="text-warning-base" />
+                Creado
+              </div>
+              <p className="text-text-primary text-xl font-semibold font-display mt-2">{formatDeckDate(deck.createdAt)}</p>
+            </div>
+            <div className="bg-success-base/10 rounded-xl p-4">
+              <div className="flex items-center gap-2 text-text-muted">
+                <Archive size={16} className="text-success-base" />
+                Estado
+              </div>
+              <p className="text-text-primary text-xl font-semibold font-display mt-2">{statusLabel}</p>
+            </div>
+            <div className="bg-brand-base/10 rounded-xl p-4">
+              <div className="flex items-center gap-2 text-text-muted">
+                <Layers size={16} className="text-brand-light" />
+                Contexto
+              </div>
+              <p className="text-text-primary text-xl font-semibold font-display mt-2 truncate" title={contextName}>
+                {contextName}
+              </p>
+            </div>
+          </div>
 
-            <div className="space-y-2">
-              <h3 className="text-sm font-medium text-text-secondary">Descripción</h3>
-              <div className="rounded-xl border border-border-default bg-background-elevated/30 px-4 py-3 text-sm text-text-secondary">
-                {deck.description?.trim() || 'Sin descripción'}
-              </div>
+          <div className="space-y-2">
+            <h3 className="text-sm font-medium text-text-secondary">Descripción</h3>
+            <div className="rounded-xl border border-border-default bg-background-elevated/30 px-4 py-3 text-sm text-text-secondary">
+              {deck.description?.trim() || 'Sin descripción'}
             </div>
-          </GlassCard>
-
-          <GlassCard className="p-6 space-y-4">
-            <h2 className="text-lg font-semibold text-text-primary">Resumen</h2>
-            <div className="divide-y divide-border-subtle">
-              <div className="flex items-center justify-between py-3">
-                <span className="text-sm text-text-muted">Nombre</span>
-                <span className="text-sm text-text-primary font-medium">{deck.name || '—'}</span>
-              </div>
-              <div className="flex items-center justify-between py-3">
-                <span className="text-sm text-text-muted">Contexto</span>
-                <span className="text-sm text-text-primary font-medium">{contextName}</span>
-              </div>
-              <div className="flex items-center justify-between py-3">
-                <span className="text-sm text-text-muted">Estado</span>
-                <span className="text-sm text-text-primary font-medium">{statusLabel}</span>
-              </div>
-              <div className="flex items-center justify-between py-3">
-                <span className="text-sm text-text-muted">Creado</span>
-                <span className="text-sm text-text-primary font-medium">{formatDeckDate(deck.createdAt)}</span>
-              </div>
-              <div className="flex items-center justify-between py-3">
-                <span className="text-sm text-text-muted">Actualizado</span>
-                <span className="text-sm text-text-primary font-medium">{formatDeckDate(deck.updatedAt)}</span>
-              </div>
-            </div>
-          </GlassCard>
-        </div>
+          </div>
+        </GlassCard>
 
         <GlassCard className="p-6">
           <h2 className="text-lg font-semibold text-text-primary mb-4">Tarjetas del mazo</h2>
@@ -308,7 +298,13 @@ export default function CardDeckDetailPage() {
                           )}
                         </div>
                       ) : null}
-                      <p className="text-sm text-accent-indigo">{assetLabel}</p>
+                      {/* assetLabel solo se muestra cuando no repite el label principal
+                          (ej: cuando el label es genérico "Tarjeta 1" y el assetLabel
+                          aporta el nombre real). Evita triple nombre en cards como
+                          banderas donde label=`España`, assetLabel=`España` (QA 22/04/2026). */}
+                      {assetLabel && assetLabel !== label && (
+                        <p className="text-sm text-accent-indigo">{assetLabel}</p>
+                      )}
                     </div>
                   </div>
                 );

@@ -3843,3 +3843,103 @@ Se adopta un **leitmotiv dual** para toda la motion signature futura:
 - Plan de la sesion: `C:\Users\Samuel\.claude\plans\hola-me-gustaria-que-sequential-goblet.md`
 - Propuestas diferidas: PROP-71 a PROP-76 en `documentation/propuestas-mejora.md`
 - Skills usadas: `ui-ux-pro-max`, `animate`, `ui-animation`, `framer-motion-animator`
+
+---
+
+## ADR-071: Single-flight guard en checkExistingSession + códigos 401 semánticos [Full-stack]
+
+- **Fecha:** 2026-04-22
+- **Alcance:** Full-stack
+- **Estado:** Aceptado e implementado
+
+### Contexto
+
+En dev con `React.StrictMode`, `AuthProvider.useEffect` corría dos veces en paralelo.
+La primera invocación hacía `POST /auth/refresh` con éxito (el backend rotaba el
+refreshToken y devolvía access nuevo); la segunda llegaba con la cookie ya
+rotada y recibía 401 → `clearTokens()` + evento `UNAUTHORIZED` → logout.
+Consecuencia: cualquier request disparada justo después (`/api/contexts` al
+navegar) salía sin Bearer (`MISSING_ACCESS_TOKEN`) y el usuario era expulsado
+al login. El interceptor tampoco reconocía la expiración del access token
+(comparaba `message.includes('expired')` con el mensaje en español
+`"Access token expirado"`), por lo que un `TokenExpiredError` real también
+acababa en logout en lugar de refresh.
+
+### Decisión
+
+1. **Guardia single-flight** en `AuthContext.checkExistingSession` con
+   `useRef(false)` que se pone a `true` en la primera entrada: StrictMode no
+   vuelve a disparar el refresh duplicado.
+2. Ampliar `UnauthorizedError` para aceptar `code` opcional; el middleware de
+   auth anota códigos semánticos (`TOKEN_EXPIRED`, `TOKEN_REVOKED`,
+   `TOKEN_INVALID`, `TOKEN_MISSING`, `SESSION_MISMATCH`, `SESSION_REVOKED`,
+   `TOKEN_FINGERPRINT_MISMATCH`) en cada 401.
+3. `errorHandler` propaga `err.code` en el JSON de respuesta.
+4. El interceptor del frontend detecta recuperables con `code === 'TOKEN_EXPIRED'`
+   o `'TOKEN_MISSING'`; se mantiene un regex fallback `expirado|expired` para
+   tokens emitidos antes del despliegue.
+
+### Consecuencias
+
+- **Positivas:** dev y producción ya no pierden la sesión por timing de
+  StrictMode; los códigos semánticos permiten al cliente distinguir motivos
+  ("revocación forzada" vs "rotación normal") sin depender del texto del mensaje.
+- **Negativas:** la API pública del error 401 añade un campo `code`. Se
+  documentó en `Seguridad_tokens_JWT.md`.
+
+### Archivos afectados
+
+- `backend/src/utils/errors.js`
+- `backend/src/middlewares/auth.js`
+- `backend/src/middlewares/errorHandler.js`
+- `frontend/src/context/AuthContext.jsx`
+- `frontend/src/services/api.js`
+
+### Referencias
+
+- QA 2026-04-22 (memory/project_qa_2026_04_22.md)
+
+---
+
+## ADR-072: Retirada de AnimatePresence en el contenedor de rutas del AppLayout [Frontend]
+
+- **Fecha:** 2026-04-22
+- **Alcance:** Frontend
+- **Estado:** Aceptado e implementado (reemplaza parcialmente ADR-056)
+
+### Contexto
+
+El `AppLayout` envolvía el `<Outlet />` de React Router en un
+`<AnimatePresence mode="popLayout">` con `motion.div` keyed por `pathname`
+para producir un crossfade con slide-up. En navegación client-side entre
+rutas admin (`/admin/approvals → /admin/students`), el componente destino
+estaba lazy-loaded: durante la resolución del chunk, el `<Outlet />` renderizaba
+el `<PageLoader />` del `SuspenseWrapper`. La combinación popLayout + Suspense
+fallback dejaba intermitentemente el `motion.div` saliente con
+`opacity: 0; transform: translateY(-6px)` y no se reemplazaba por el entrante
+(observable como pantalla en blanco hasta hard reload).
+
+### Decisión
+
+Retirar el `AnimatePresence` del contenedor principal. Sustituirlo por un
+`motion.div` con `key={location.pathname}` y transición `initial → animate`
+sin `exit`. React desmonta el viejo al cambiar la key y monta el nuevo, que
+hace fade-in; el resultado visual es un crossfade limpio sin dependencia del
+ciclo de exit de Framer y sin riesgo de quedarse atascado.
+
+### Consecuencias
+
+- **Positivas:** navegación SPA sin pantallas en blanco; código del layout más
+  simple; una variable menos en el ciclo de vida (exit→enter ya no coexisten).
+- **Negativas:** se pierde la animación horizontal de salida. El trade-off se
+  considera correcto porque la de entrada sola sigue siendo perceptible como
+  transición.
+
+### Archivos afectados
+
+- `frontend/src/components/layout/AppLayout.jsx`
+
+### Referencias
+
+- ADRs relacionados: ADR-056 (popLayout), ADR-060 (pointer-events none en exit).
+- QA 2026-04-22 (memory/project_qa_2026_04_22.md)

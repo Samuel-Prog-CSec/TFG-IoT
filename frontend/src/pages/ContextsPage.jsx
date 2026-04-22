@@ -1,4 +1,5 @@
 import { useState, useCallback } from 'react';
+import PropTypes from 'prop-types';
 import { useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
@@ -11,7 +12,11 @@ import {
   Plus,
   X,
   Loader2,
-  ShieldCheck
+  ShieldCheck,
+  Landmark,
+  PawPrint,
+  Hash,
+  Shapes
 } from 'lucide-react';
 import { toast } from 'sonner';
 
@@ -34,6 +39,41 @@ import { ROUTES } from '../constants/routes';
 import ScanlineOverlay from '../components/ui/ScanlineOverlay';
 import { listContainerVariants, motionConfig, DURATION, EASING } from '../lib/utils';
 import { getContextTheme } from '../lib/contextTheme';
+
+// Resuelve un "kind" de icono a partir del contexto; el render usa un switch
+// JSX directo para evitar la regla `react-hooks/static-components` que marca
+// cualquier asignación a variable PascalCase como "componente creado en render".
+const resolveContextIconKind = context => {
+  const id = context?.contextId;
+  if (id === 'geography-europe') return 'landmark';
+  if (id === 'animals-farm') return 'pawprint';
+  if (id === 'colors-basic') return 'palette';
+  if (id === 'numbers-1-6') return 'hash';
+  if (id === 'shapes-basic') return 'shapes';
+  const name = (context?.name || '').toLowerCase();
+  if (/pa[ií]s|geograf|europ|bandera/.test(name)) return 'landmark';
+  if (/animal|granja|zoo/.test(name)) return 'pawprint';
+  if (/color/.test(name)) return 'palette';
+  if (/n[uú]mero|d[ií]gito/.test(name)) return 'hash';
+  if (/forma|geometr/.test(name)) return 'shapes';
+  return 'palette';
+};
+
+function ContextIcon({ context }) {
+  const kind = resolveContextIconKind(context);
+  const iconProps = { size: 24, className: 'text-accent-indigo' };
+  if (kind === 'landmark') return <Landmark {...iconProps} />;
+  if (kind === 'pawprint') return <PawPrint {...iconProps} />;
+  if (kind === 'hash') return <Hash {...iconProps} />;
+  if (kind === 'shapes') return <Shapes {...iconProps} />;
+  return <Palette {...iconProps} />;
+}
+ContextIcon.propTypes = {
+  context: PropTypes.shape({
+    contextId: PropTypes.string,
+    name: PropTypes.string
+  })
+};
 
 // Mapea un tema de contexto a uno de los glowTints soportados por HoverLiftCard
 // para que cada contexto tenga un hover signature propio pero dentro de la paleta.
@@ -174,8 +214,10 @@ export default function ContextsPage() {
           </GlassCard>
 
           <GlassCard className="p-4 flex items-center gap-4">
-            <div className="size-12 rounded-xl bg-warning-base/10 flex items-center justify-center">
-              <Music size={22} className="text-warning-base" />
+            {/* Tile neutro cuando no hay audios: amarillo sugiere warning y
+                aquí es solo un contador informativo (QA 22/04/2026). */}
+            <div className={`size-12 rounded-xl flex items-center justify-center ${totalAudio > 0 ? 'bg-warning-base/10' : 'bg-background-surface/60'}`}>
+              <Music size={22} className={totalAudio > 0 ? 'text-warning-base' : 'text-text-muted'} />
             </div>
             <div>
               <p className="text-2xl font-semibold text-text-primary font-display">{totalAudio}</p>
@@ -307,7 +349,7 @@ function ContextCard({ context, onClick }) {
         <ScanlineOverlay className="opacity-0 group-hover:opacity-100 transition-opacity duration-300" />
         <div className="flex justify-between items-start mb-6">
           <div className="size-12 rounded-xl bg-accent-indigo/10 flex items-center justify-center border border-accent-indigo/20 group-hover:bg-accent-indigo/20 transition-colors">
-            <Palette size={24} className="text-accent-indigo" />
+            <ContextIcon context={context} />
           </div>
           <div className="flex items-center gap-1 text-text-muted group-hover:text-accent-indigo transition-colors">
             <span className="text-sm font-medium">Ver detalles</span>
@@ -320,9 +362,9 @@ function ContextCard({ context, onClick }) {
         </h3>
 
         <div className="flex items-center gap-2 mb-6">
-          <span className="text-xs font-mono text-text-muted bg-background-elevated/50 px-2 py-1 rounded-md">
-            {context.contextId}
-          </span>
+          {/* Slug técnico (`geography-europe`) se mantiene solo en la vista admin
+              (`/admin/contexts`) porque es útil como identificador; en la vista
+              teacher resulta ruido visual y mezcla español con kebab-case (QA 22/04/2026). */}
           {context.isActive ? (
             <span className="text-xs font-medium text-success-base bg-success-base/10 px-2 py-1 rounded-full">
               Activo
@@ -359,19 +401,25 @@ function ContextCard({ context, onClick }) {
 
         {previews.length > 0 && (
           <div
-            className="mt-4 flex gap-1.5 pt-4 border-t border-border-subtle overflow-hidden"
+            className="mt-4 flex gap-1.5 pt-4 border-t border-border-subtle overflow-hidden relative"
             title={context.assets?.filter(a => a.display).map(a => a.display).join(', ')}
           >
             {previews.map((preview, i) => (
-              <span key={i} className="text-2xl">
+              <span
+                key={i}
+                className="text-2xl max-w-[80px] truncate inline-block leading-none"
+              >
                 {preview}
               </span>
             ))}
-            {assetCount > 5 && (
-              <div className="flex items-center justify-center size-8 rounded-full bg-background-elevated/50 text-xs text-text-muted ml-1">
-                +{assetCount - 5}
+            {assetCount > previews.length && (
+              <div className="flex items-center justify-center size-8 rounded-full bg-background-elevated/50 text-xs text-text-muted ml-1 shrink-0">
+                +{assetCount - previews.length}
               </div>
             )}
+            {/* Gradiente de fade a la derecha para indicar visualmente que el
+                listado continúa cuando el contenido supera el ancho disponible. */}
+            <div className="pointer-events-none absolute right-0 top-[calc(1rem+1px)] bottom-0 w-8 bg-gradient-to-l from-background-elevated/80 to-transparent" />
           </div>
         )}
       </GlassCard>

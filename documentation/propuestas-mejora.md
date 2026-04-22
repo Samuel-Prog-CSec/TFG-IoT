@@ -604,3 +604,126 @@ tactile del leitmotiv.
 **Esfuerzo:** S (1-1.5 dias).
 
 ---
+
+# Hallazgos diferidos QA 2026-04-22 (post-release v0.5.0)
+
+Estas dos propuestas surgen de la sesion de QA intensiva del 22/04/2026 pero
+quedaron fuera de la release porque el cambio es demasiado invasivo para el
+ciclo v0.5.0. Todos los demas findings de esa auditoria (unos 32) fueron
+abordados en la propia sesion — ver `memory/project_qa_2026_04_22.md`.
+
+---
+
+## PROP-77: Refactor del scroll arquitectonico del AppLayout
+
+**Descripcion:** El contenedor `<main>` de `AppLayout.jsx` tiene
+`className="flex-1 overflow-auto relative custom-scrollbar pb-16"`. Todo el
+contenido de las paginas scrollea dentro de ese `main` en lugar del scroll
+natural de `<html>/<body>`. Provoca:
+
+- Scroll anidado: en Dashboard el `main` tiene `scrollHeight=2800px` mientras
+  `body=991px`. Rompe el scroll natural y puede atrapar la rueda del raton
+  sobre un `<ResponsiveContainer>` de Recharts.
+- `window.scrollTo(0, y)` no funciona — requiere targeteo explicito al
+  `<main>` en codigo QA/analytics.
+- Playwright `page.screenshot({fullPage:true})` NO captura el contenido
+  completo (se quedo fuera del viewport durante la auditoria).
+- Screenshot tools externos (html2canvas, html-to-image) capturan solo el
+  viewport visible del `main` — no la pagina entera.
+
+**Justificacion:** El scroll natural del body es el patron esperado en SaaS
+modernos (Linear, Vercel, Supabase). Arreglarlo desbloquea:
+- Screenshots automatizados correctos
+- Analytics de scroll depth si se quieren en el futuro
+- Position `sticky` en la pagina sin hacks
+- Scroll-linked animations de fondo (ver PROP-73) funcionan mejor
+
+**Alcance estimado:**
+- Quitar `overflow-auto` del `<main>` y dejar el overflow en `<body>`.
+- Convertir `<aside>` a `fixed left-0 top-0 h-screen` con `margin-left` en el
+  main equivalente al ancho del sidebar.
+- Verificar que mobile sidebar (overlay + backdrop) sigue funcionando sin
+  bloquear el scroll del body con `position: fixed` o `overflow: hidden`
+  temporal en `<html>`.
+- Revisar paginas con scroll interno propio (GameSession con pausa overlay,
+  BoardSetup con DndContext) para que no colisionen con el nuevo scroll del
+  body.
+- Tests: verificar en mobile / tablet / desktop que la navegacion y scroll
+  funcionan identicos.
+
+**Esfuerzo:** M (3-4 dias). Cambio arquitectonico pero acotado a AppLayout.
+
+**ADR tentativo:** "Eliminacion del scroll anidado en AppLayout y adopcion
+del scroll natural del body"
+
+---
+
+## PROP-78: Persistencia real de alertas inteligentes con createdAt historico
+
+**Descripcion:** Hoy las alertas que muestra `AlertsHub.jsx` y
+`AlertsPanel.jsx` provienen de `getClassroomAlerts` en
+`backend/src/services/analyticsService.js`. Se generan **on-the-fly** cada
+peticion: el servicio recorre partidas recientes y deriva alertas
+(`declining_performance`, `inactivity`, `sudden_score_drop`,
+`consistent_timeout`, etc.) pero no las persiste. Como consecuencia:
+
+- `createdAt` / `detectedAt` se setean al momento de la peticion → el
+  frontend siempre muestra "Ahora mismo" / "Hace 7 min" para todas las
+  alertas de la misma tanda.
+- No hay historial: el profesor no puede ver alertas de ayer o de la semana
+  pasada.
+- No hay estado: no se puede marcar una alerta como "leida" o "resuelta" —
+  si el alumno mejora, la alerta desaparece silenciosamente sin dejar huella.
+- La UI no puede ordenar correctamente alertas por antiguedad real.
+
+**Justificacion:** Calidad de datos visible en demos / pre-release. Ademas,
+las alertas son el canal principal que el profesor usa para priorizar
+intervenciones — que "desaparezcan" sin aviso o que todas parezcan recien
+detectadas es confuso e impide hacer seguimiento.
+
+**Alcance estimado:**
+
+1. **Modelo Mongoose nuevo `SmartAlert`:**
+   - Fields: `studentId`, `teacherId`, `type`, `severity`, `description`,
+     `detectedAt` (primera deteccion), `lastSeenAt` (ultima reaparicion),
+     `resolvedAt`, `status` (`active|resolved|dismissed`), `gamePlayId`
+     opcional.
+   - Indices: `{ teacherId, status, detectedAt: -1 }`,
+     `{ studentId, type, status }` (para dedupe).
+
+2. **Servicio `alertDetectionService.js`:**
+   - Recalculo periodico (BullMQ job cada 15 min — coordinar con PROP-62) que
+     evalua cada alumno activo y:
+     - Si detecta una alerta nueva (type + studentId no activa) → insert.
+     - Si una alerta existente sigue valida → update `lastSeenAt`.
+     - Si una alerta existente ya no aplica → transicion a `resolved`.
+   - Dedupe por `(studentId, type, status=active)`.
+   - Reemplaza el calculo on-the-fly del `analyticsService` actual.
+
+3. **Endpoints REST:**
+   - `GET /api/analytics/alerts?status=active&period=...` — listado paginado.
+   - `PATCH /api/analytics/alerts/:id/dismiss` — marcar como desestimada.
+   - `PATCH /api/analytics/alerts/:id/resolve` — marcar como resuelta.
+
+4. **Frontend:**
+   - AlertsHub: mostrar `detectedAt` real con `formatRelativeTime`.
+   - Filtros por estado (Activas / Resueltas / Desestimadas).
+   - Accion de "Dismiss" en cada alerta (con undo toast via sonner).
+
+5. **Migracion:** script `migrate-alerts.js` que genera alertas historicas a
+   partir de las partidas existentes.
+
+**Tests:**
+- Unit: dedupe de alertas (no duplicar la misma type+student en activas).
+- Unit: transicion a resolved cuando desaparece la condicion.
+- E2E: job corre → alertas aparecen con detectedAt correcto → profesor
+  dismiss → no reaparece aunque el criterio se repita.
+
+**Esfuerzo:** L (7-10 dias). Nuevo modelo + servicio + endpoints + frontend +
+migracion. Depende idealmente de PROP-62 (BullMQ) para la task periodica —
+sin ella se haria con `setInterval` y seria menos robusto en multi-replica.
+
+**ADR tentativo:** "Persistencia de alertas inteligentes con ciclo de vida
+activo/resuelto/desestimado"
+
+---

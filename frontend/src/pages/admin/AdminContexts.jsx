@@ -235,7 +235,16 @@ function AdminContextCard({ context, onEdit, onDelete }) {
         <ButtonPremium variant="ghost" size="sm" onClick={() => onEdit(context)}>
           <Pencil size={14} className="mr-1" /> Editar
         </ButtonPremium>
-        <ButtonPremium variant="danger" size="sm" onClick={() => onDelete(context)}>
+        {/* Outline rojo en reposo → solido rojo en hover/focus. Evita el
+            "click destructivo accidental" sobre una rejilla densa (QA 22/04/2026):
+            la accion sigue claramente marcada como peligrosa, pero no invita al
+            click tan agresivamente como el solid en la vista de listado. */}
+        <ButtonPremium
+          variant="outline"
+          size="sm"
+          onClick={() => onDelete(context)}
+          className="border-error-base/60 text-error-base hover:bg-error-base hover:text-white hover:border-error-base focus-visible:bg-error-base focus-visible:text-white"
+        >
           <Trash2 size={14} className="mr-1" /> Eliminar
         </ButtonPremium>
       </div>

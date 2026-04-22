@@ -135,6 +135,11 @@ export function AuthProvider({ children }) {
   const navigate = useNavigate();
   const location = useLocation();
   const refreshTimeoutRef = useRef(null);
+  // Guardia single-flight: evita que React.StrictMode (en dev) ejecute
+  // checkExistingSession dos veces en paralelo — el backend rota el
+  // refreshToken en cada POST /auth/refresh, así que la segunda llamada
+  // recibe 401 con la cookie ya inválida y provocaba logout espurio.
+  const didCheckSessionRef = useRef(false);
 
   // ============================================
   // FUNCIONES AUXILIARES
@@ -198,6 +203,11 @@ export function AuthProvider({ children }) {
    */
   useEffect(() => {
     const checkExistingSession = async () => {
+      // StrictMode en dev monta dos veces; sin este guard el segundo intento
+      // rotaría la cookie en medio del flujo y dejaría al usuario fuera.
+      if (didCheckSessionRef.current) return;
+      didCheckSessionRef.current = true;
+
       // Evita llamar a /auth/refresh si nunca hubo una sesion en este navegador.
       // Sin el marker el endpoint devolvera 401 y ensucia la consola del usuario
       // en landing/login/register.

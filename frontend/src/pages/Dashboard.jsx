@@ -397,7 +397,11 @@ export default function Dashboard() {
               className="grid grid-cols-1 xl:grid-cols-3 gap-6 lg:gap-8"
               aria-label="Análisis detallado"
             >
-              {/* Columna Principal (2/3 de ancho) */}
+              {/* Columna Principal (2/3 de ancho).
+                  RecentActivity se movió aquí (antes era fullwidth bajo la
+                  sección) para absorber el hueco vertical que dejaba la
+                  columna lateral cuando terminaba antes que la principal —
+                  así el grid queda balanceado sin aire muerto (QA 22/04/2026). */}
               <div className="xl:col-span-2 space-y-6 lg:space-y-8">
                 <motion.div variants={shouldReduceMotion ? {} : listItemVariants}>
                   <StudentProgressChart
@@ -413,6 +417,11 @@ export default function Dashboard() {
                 {heatmapData && (
                   <motion.div variants={shouldReduceMotion ? {} : listItemVariants}>
                     <ActivityHeatmap data={heatmapData} />
+                  </motion.div>
+                )}
+                {studentsData?.students?.length > 0 && (
+                  <motion.div variants={shouldReduceMotion ? {} : listItemVariants}>
+                    <RecentActivity students={studentsData.students} />
                   </motion.div>
                 )}
               </div>
@@ -433,11 +442,6 @@ export default function Dashboard() {
                 </motion.div>
               </aside>
             </motion.section>
-
-            {/* Actividad Reciente (timeline) */}
-            {studentsData?.students?.length > 0 && (
-              <RecentActivity students={studentsData.students} />
-            )}
           </div>
         </motion.section>
       )}
@@ -665,7 +669,7 @@ function RecentActivity({ students }) {
   // getRelativeTime centralizado en lib/dateUtils.js (P25).
 
   return (
-    <section className="bg-background-elevated/40 backdrop-blur-sm rounded-2xl border border-border-subtle p-5">
+    <section className="bg-background-elevated/40 backdrop-blur-sm rounded-2xl border border-border-subtle p-5 relative overflow-hidden">
       <h3 className="text-lg font-bold text-text-primary font-display mb-4">Actividad Reciente</h3>
       <div className="flex gap-3 overflow-x-auto pb-2 -mx-1 px-1 custom-scrollbar">
         {recentStudents.map((student, index) => (
@@ -690,6 +694,11 @@ function RecentActivity({ students }) {
           </div>
         ))}
       </div>
+      {/* Fade a la derecha para indicar scroll horizontal cuando hay más
+          cards que viewport (QA 22/04/2026). */}
+      {recentStudents.length > 3 && (
+        <div className="pointer-events-none absolute right-0 top-[3.75rem] bottom-5 w-12 bg-gradient-to-l from-background-elevated to-transparent" />
+      )}
     </section>
   );
 }

@@ -155,9 +155,12 @@ function LearningCurvesSection({ data, loading }) {
         </div>
       </div>
 
-      <div className="h-[280px] w-full -ml-2 min-h-[280px]">
+      {/* Altura y margin inferior aumentados: el label "Intento" del eje X y
+          la leyenda (5 contextos con middots) chocaban entre sí con bottom:5
+          (QA 22/04/2026). Ahora hay espacio respirable para ambos. */}
+      <div className="h-[320px] w-full -ml-2 min-h-[320px]">
         <ResponsiveContainer width="100%" height="100%" minWidth={0} minHeight={0} debounce={50}>
-          <AreaChart data={chartData} margin={{ top: 5, right: 10, left: 0, bottom: 5 }}>
+          <AreaChart data={chartData} margin={{ top: 5, right: 10, left: 0, bottom: 28 }}>
             <defs>
               {curveNames.map((name, idx) => (
                 <linearGradient key={name} id={`gradient-${idx}`} x1="0" y1="0" x2="0" y2="1">
@@ -176,7 +179,7 @@ function LearningCurvesSection({ data, loading }) {
               tick={{ fill: 'var(--color-text-muted)', fontSize: 11 }}
               tickLine={false}
               axisLine={false}
-              label={{ value: 'Intento', position: 'insideBottom', offset: -5, fill: 'var(--color-text-muted)', fontSize: 11 }}
+              label={{ value: 'Intento', position: 'insideBottom', offset: -18, fill: 'var(--color-text-muted)', fontSize: 11 }}
             />
             <YAxis
               domain={[0, 100]}

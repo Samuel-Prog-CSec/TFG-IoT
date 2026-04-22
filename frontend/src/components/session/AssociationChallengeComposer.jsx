@@ -85,10 +85,13 @@ export default function AssociationChallengeComposer({ cards, challengePlan, onP
 
   return (
     <GlassCard className="p-6 lg:col-span-2">
-      <h2 className="text-lg font-semibold text-text-primary mb-1">Plan de retos (Asociación)</h2>
-      <p className="text-sm text-text-muted mb-4">
-        Define para cada ronda que tarjeta sera el reto principal y, si quieres, anade una consigna breve.
-      </p>
+      <div className="mb-4">
+        <h2 className="text-lg font-semibold text-text-primary mb-1">Plan de retos (Asociación)</h2>
+        <p className="text-sm text-text-muted">
+          Hemos generado un plan para las {safePlan.length} rondas. Puedes personalizarlo:
+          elige la tarjeta objetivo y, si quieres, añade una consigna breve.
+        </p>
+      </div>
 
       <div className="space-y-4">
         {safePlan.map(item => (
