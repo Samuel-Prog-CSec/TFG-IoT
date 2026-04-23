@@ -171,7 +171,21 @@ export default function StepMemoryRules({
                 step={1}
                 value={config.penaltyPerError}
                 onChange={(e) => onConfigChange('penaltyPerError', Number.parseInt(e.target.value, 10))}
-                className="flex-1 accent-error-base"
+                className="flex-1 penalty-range"
+                // El accent-color nativo pinta desde min hacia value. Con rango
+                // [-15..0] eso deja la barra mas llena cuanto menor es la
+                // penalizacion (valor cercano a 0), al reves de la intuicion
+                // del profe ("mas fill = mas penalizacion"). Ocultamos el
+                // accent-color con transparent y pintamos un gradient
+                // explicito proporcional a |value| / 15 desde la izquierda.
+                style={{
+                  accentColor: 'transparent',
+                  background: `linear-gradient(to right, var(--color-error-base) 0%, var(--color-error-base) ${
+                    (Math.abs(config.penaltyPerError) / 15) * 100
+                  }%, var(--color-background-elevated) ${
+                    (Math.abs(config.penaltyPerError) / 15) * 100
+                  }%, var(--color-background-elevated) 100%)`
+                }}
               />
               <span className="w-16 text-center text-text-primary font-medium bg-background-elevated rounded-lg py-1">
                 {config.penaltyPerError}

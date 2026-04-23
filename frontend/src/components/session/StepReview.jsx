@@ -58,7 +58,10 @@ export default function StepReview({ sessionConfig, setSessionConfig, selectedDe
               <p className="text-xs text-text-muted">Mazo</p>
               <p className="text-text-primary font-medium">{selectedDeck?.name || 'No seleccionado'}</p>
               <p className="text-xs text-text-muted">
-                {selectedDeck?.cards?.length || selectedDeck?.cardMappings?.length || 0} cartas {'\u2022'} {selectedDeck?.contextId?.name}
+                {selectedDeck?.cards?.length || selectedDeck?.cardMappings?.length || 0} cartas
+                {(selectedDeck?.context?.name || selectedDeck?.contextId?.name) && (
+                  <> {'\u2022'} {selectedDeck?.context?.name || selectedDeck?.contextId?.name}</>
+                )}
               </p>
               {/* Mini-galeria de assets del mazo */}
               {selectedDeck?.cardMappings?.length > 0 && (
@@ -130,10 +133,12 @@ export default function StepReview({ sessionConfig, setSessionConfig, selectedDe
                   </>
                 )}
                 <span className="text-success-base">
-                  +{sessionConfig.config.pointsPerCorrect} pts
+                  +{sessionConfig.config.pointsPerCorrect} pts · acierto
                 </span>
                 <span className="text-error-base">
-                  {sessionConfig.config.penaltyPerError} pts
+                  {sessionConfig.config.penaltyPerError === 0
+                    ? 'Sin penalización'
+                    : `${sessionConfig.config.penaltyPerError} pts · error`}
                 </span>
               </div>
             </div>

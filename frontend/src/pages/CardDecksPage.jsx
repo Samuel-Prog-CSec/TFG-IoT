@@ -80,28 +80,18 @@ const buildDeckQueryParams = ({ page, statusFilter, searchQuery, contextFilter }
   order: 'desc',
 });
 
-const shouldUsePaginationCount = ({ statusFilter, searchQuery, contextFilter, pagination }) =>
-  statusFilter === 'active' && !searchQuery && !contextFilter && pagination.total !== undefined;
-
 const mergeDecks = ({ previousDecks, newDecks, resetPage }) =>
   resetPage ? newDecks : [...previousDecks, ...newDecks];
 
-const resolveDeckCount = async ({
-  skipCount,
-  statusFilter,
-  searchQuery,
-  contextFilter,
-  pagination,
-  signal
-}) => {
+const resolveDeckCount = async ({ skipCount, signal }) => {
   if (skipCount) {
     return null;
   }
 
-  if (shouldUsePaginationCount({ statusFilter, searchQuery, contextFilter, pagination })) {
-    return { active: pagination.total };
-  }
-
+  // Siempre pedimos el recuento completo {active, archived, total} para que
+  // los KPIs "ACTIVOS / ARCHIVADOS / TOTAL" sean siempre coherentes. El atajo
+  // anterior (reutilizar pagination.total cuando estabamos en "active") dejaba
+  // `total=0` aunque hubiera 6 activos (detectado en QA 2026-04-23).
   return decksAPI.getDecksCount(signal ? { signal } : {});
 };
 
@@ -283,17 +273,8 @@ export default function CardDecksPage() {
 
       setHasMore(pagination.page < pagination.totalPages);
 
-      const countData = await resolveDeckCount({
-        skipCount,
-        statusFilter: filters.statusFilter,
-        searchQuery: filters.searchQuery,
-        contextFilter: filters.contextFilter,
-        pagination,
-        signal
-      });
-      if (countData?.active !== undefined && countData?.total === undefined) {
-        setDeckCount(prev => ({ ...prev, active: countData.active }));
-      } else if (countData) {
+      const countData = await resolveDeckCount({ skipCount, signal });
+      if (countData) {
         setDeckCount(countData);
       }
 

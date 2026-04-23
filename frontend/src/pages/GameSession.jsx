@@ -990,16 +990,22 @@ export default function GameSession() {
 
             {/* Chip de estado: durante la partida cambia de "Juego listo" a
                 "Jugando" con pulso verde para reforzar que la partida esta
-                activa (feedback ambiental para niño y profesor). */}
+                activa (feedback ambiental para niño y profesor). Durante la
+                pausa mostramos "Pausado" para coherencia con el overlay y
+                evitar el confuso "Juego listo" que el usuario interpreta
+                como "ya puedes jugar". */}
             <div className={cn(
               'px-3 py-1.5 rounded-lg text-xs font-semibold uppercase tracking-wide inline-flex items-center gap-1.5',
-              realtimeStatus === 'connected' && 'bg-success-base/20 text-success-base',
+              realtimeStatus === 'connected' && gameState === 'paused' && 'bg-warning-base/20 text-warning-base',
+              realtimeStatus === 'connected' && gameState !== 'paused' && 'bg-success-base/20 text-success-base',
               realtimeStatus === 'reconnecting' && 'bg-warning-base/20 text-warning-base',
               realtimeStatus === 'disconnected' && 'bg-error-base/20 text-error-base',
               realtimeStatus === 'connecting' && 'bg-background-surface/70 text-text-secondary'
             )}>
               <output className="sr-only" aria-live="polite" aria-atomic="true">
-                {REALTIME_STATUS_COPY[realtimeStatus]?.announcement || 'Conectando el juego.'}
+                {gameState === 'paused'
+                  ? 'Partida pausada.'
+                  : (REALTIME_STATUS_COPY[realtimeStatus]?.announcement || 'Conectando el juego.')}
               </output>
               {realtimeStatus === 'connected' && gameState === 'playing' ? (
                 <>
@@ -1014,6 +1020,11 @@ export default function GameSession() {
                     transition={{ duration: 1.2, repeat: Infinity, ease: 'easeInOut' }}
                   />
                   Jugando
+                </>
+              ) : realtimeStatus === 'connected' && gameState === 'paused' ? (
+                <>
+                  <span aria-hidden="true" className="inline-block size-2 rounded-full bg-warning-base" />
+                  Pausado
                 </>
               ) : (
                 <>
@@ -1097,11 +1108,14 @@ export default function GameSession() {
               animate={{ opacity: 1 }}
               exit={{ opacity: 0 }}
               className={cn(
-                // Memoria necesita mas ancho para el grid de 4 cols; asociacion se queda compacta.
-                // Ambas mecanicas usan h-full para que su contenido pueda ocupar el alto disponible
-                // y se evite scroll durante la partida.
+                // Memoria necesita mas ancho para el grid de 4 cols; asociacion
+                // tambien aprovecha anchura para que consigna y grid de respuestas
+                // sean mas legibles (antes con max-w-2xl quedaba mucho aire
+                // lateral, detectado en QA 2026-04-23).
+                // Ambas mecanicas usan h-full para que su contenido pueda ocupar
+                // el alto disponible y se evite scroll durante la partida.
                 'w-full flex flex-col items-center h-full',
-                sessionIsMemory ? 'max-w-5xl' : 'max-w-2xl justify-center',
+                sessionIsMemory ? 'max-w-5xl' : 'max-w-4xl justify-center gap-4',
                 shakeError && 'animate-shake'
               )}
             >
@@ -1253,8 +1267,12 @@ export default function GameSession() {
         </AnimatePresence>
       </main>
 
-      {/* Mascota */}
-      <div className="fixed bottom-4 left-3 sm:left-6 z-20 scale-90 origin-bottom-left">
+      {/* Mascota — elevada sobre el footer con `bottom-24` para quedar siempre
+          visible independientemente de la altura del footer de métricas
+          (detectado en QA 2026-04-23: con `bottom-4` la mascota colisionaba
+          con el footer en viewports pequeños y se percibía como "desaparecida").
+          Scale completo ahora que tiene espacio reservado. */}
+      <div className="fixed bottom-24 left-4 sm:left-6 z-20 origin-bottom-left pointer-events-none">
         <CharacterMascot
           mood={mascotMood}
           message={mascotMessage || undefined}

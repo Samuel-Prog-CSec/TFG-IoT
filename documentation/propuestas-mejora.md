@@ -594,3 +594,249 @@ sin ella se haria con `setInterval` y seria menos robusto en multi-replica.
 activo/resuelto/desestimado"
 
 ---
+
+# Propuestas QA senior pre-release v0.5.0 final (2026-04-23)
+
+Propuestas surgidas de la sesión QA senior de diseño + auditoría UI/UX
+del 2026-04-23 (ver `memory/project_qa_senior_2026_04_23.md`). Los bugs
+críticos y fixes UI/UX de menor alcance se abordaron en la propia sesión;
+las siguientes requieren más alcance y quedan para Sprint 6.
+
+---
+
+## PROP-79: Fallback táctil robusto para rondas cortas de Asociación
+
+**Descripcion:** Durante el QA del 2026-04-23 jugando una partida de
+asociación con 15s por ronda, los clicks en las cartas del panel táctil
+fallback no se registraban como aciertos incluso cuando se pulsaba la
+carta correcta. El log del backend mostraba solo 2 de 5 rondas con
+evento (y ambas como `error`). Las otras quedaban como "sin completar"
+→ score final: 0 aciertos, -4 puntos, 5 sin completar.
+
+**Causa probable:** ventana de validacion/timing entre `round_start`,
+`emit scan`, `validation_result` y el timeout del ronda. El
+`isDuplicateScan` con SCAN_DEDUPE_MS=1300ms o el throttle del socket
+estan dejando colgado algun scan justo cuando la ronda ya expiro.
+
+**Justificacion:** la asociacion es una de las dos mecanicas principales
+y la usabilidad queda rota si en partidas cortas el jugador no recibe
+credito por aciertos reales. Con 15s por ronda muchos profes van a
+configurar tiempos tan ajustados.
+
+**Alcance estimado:**
+- Buffer de scans entrantes durante la transicion de ronda (100-200ms de
+  gracia) para atribuir el scan a la ronda pendiente si llega justo al
+  borde.
+- Telemetria: contar `scan_on_closed_round` y exponerlo en
+  `/api/health`.
+- Tests de carrera con tiempos simulados en ASSOCIATION_DURATION <= 15s.
+- Considerar un pequeño indicador visual "procesando..." durante la
+  ventana para que el jugador sepa que el scan se esta contabilizando.
+
+**ADR tentativo:** "Ventana de gracia en transiciones de ronda para
+evitar perdida de scans en Asociacion con tiempos cortos".
+
+---
+
+## PROP-80: Pódium oro/plata/bronce en Top 5 del Dashboard
+
+**Descripcion:** El widget "Mejores Estudiantes" del Dashboard muestra
+los puestos 1-5 con el mismo tratamiento violeta uniforme. En todos los
+productos educativos o gamificados los 3 primeros puestos usan los
+colores tradicionales oro/plata/bronce, que son lenguaje universal.
+
+**Justificacion:** claridad inmediata ("de un vistazo sé quién va
+primero") y pequeña delight que refuerza la metafora educativa/
+motivacional. Es una signature visual que se ve mucho y aporta
+personalidad sin ruido.
+
+**Alcance estimado:**
+- Tokens CSS `--color-podium-gold`, `--color-podium-silver`,
+  `--color-podium-bronze` en `index.css` (OKLCH o hex).
+- Helper `getPodiumRank(index)` que devuelve el color o fallback.
+- Integrar en `TopStudentsWidget`.
+- Quizas un halo sutil en el #1 ("drop-shadow-gold").
+
+**Esfuerzo:** S (1 dia).
+
+---
+
+## PROP-81: Seeder inicial de feature flags en el admin
+
+**Descripcion:** El admin entra a `/admin/flags` y ve "Aún no hay
+feature flags" aunque el sistema (PROP-61, ADR-073) declara flags en
+código (redis leaderboards, studentMetrics, rfid-mode-distributed,
+ws-rate-limit-distributed, bullmq-worker, context-cache-invalidator,
+feature-flags-ui, deck-sparkline, icon-opt-in, etc.). La UI lee Mongo
+pero los flags solo estan en Redis Hash.
+
+**Justificacion:** el admin debe poder ver y controlar las flags desde
+el deploy inicial sin tener que crearlas una a una. Actualmente no tiene
+forma de saber cuales flags existen y cuales estan ON/OFF.
+
+**Alcance estimado:**
+- Script `seed:feature-flags` que lea una lista canonica desde
+  `config/featureFlags.js` y escriba los docs iniciales en Mongo con
+  `status: inactive`.
+- Integrar con los `npm run seed` existentes (condicional `--flags`).
+- UI lista flags activas del catalogo aunque no existan en BD ("por
+  crear") con boton "Crear y activar".
+
+**Esfuerzo:** S (1-2 dias).
+
+---
+
+## PROP-82: Dashboard admin global con KPIs agregados
+
+**Descripcion:** El super_admin entra a `/dashboard` y ve exactamente la
+misma pagina que un profesor (KPIs, charts, alertas). Para su rol los
+valores son 0 (no tiene "sus" alumnos), lo que da una impresion rota.
+
+**Justificacion:** el super_admin es un rol de direccion. Necesita una
+vista globalizada: alumnos totales (todas las aulas), profesores
+activos, partidas agregadas, mazos totales, sesiones, alertas criticas
+del centro.
+
+**Alcance estimado:**
+- Nuevo endpoint `/api/admin/analytics/overview` que agrega por tenancy
+  sin filtrar por `teacherId`.
+- Reusar componentes de Dashboard pero con datasets agregados cuando
+  `role === 'super_admin'`.
+- Considerar filtros por profesor / aula para drill-down.
+
+**Esfuerzo:** M (3-4 dias).
+
+---
+
+## PROP-83: Chart "Rendimiento de Clase" — recortar eje X al rango con datos
+
+**Descripcion:** El chart `StudentProgressChart` del Dashboard muestra
+un eje X de 8 dias (16/4 → 23/4) pero solo tiene puntos en los ultimos
+1-2 dias, dejando el resto de la linea "flotando al final" con aspecto
+de que el sistema falla.
+
+**Justificacion:** mejor UX si mostramos solo el rango con datos o al
+menos etiquetamos explicitamente "sin partidas registradas" para los
+dias vacios.
+
+**Alcance estimado:**
+- Calcular en el backend el firstPlayAt; devolver solo dias desde ahí.
+- O alternativa frontend: `useMemo` que clamp el eje X al
+  `first/lastValidIndex` del dataset.
+- Opcion C: dejar 8 dias pero poner un patron diagonal en los dias sin
+  datos.
+
+**Esfuerzo:** S (1-2 dias).
+
+---
+
+## PROP-84: Search-ahead en dropdowns del modal "Jugar" y del Board Setup
+
+**Descripcion:** Reapertura de PROP-70. En la sesion 2026-04-23 el
+profe con 18 alumnos ve una lista plana sin buscador en el modal
+"Seleccionar alumno" del boton "Jugar" y en el selector "Asignar
+Estudiante" del board setup. Con un super_admin que ve los 36 del
+centro se hace inviable.
+
+**Justificacion:** escalabilidad real: centros con 100+ alumnos.
+
+**Alcance estimado:** igual que PROP-70 pero aplicado explicitamente a
+estos dos selects.
+
+---
+
+## PROP-85: Confirmacion de cierre de sesion
+
+**Descripcion:** El boton "Cerrar Sesión" del sidebar cierra la sesion
+inmediatamente sin confirmacion. Un click accidental pierde el progreso
+del profe (filtros, estado de navegacion...).
+
+**Justificacion:** prevencion de perdida de contexto. Patron standard
+en SaaS (Linear, Notion, Slack...).
+
+**Alcance estimado:**
+- Modal "¿Seguro que quieres cerrar sesion?" reutilizando
+  `ConfirmationModal` con variante `destructive` = false (es
+  reversible).
+- O toast "Sesion cerrada" con undo en 3s (patron mas moderno).
+
+**Esfuerzo:** XS (medio dia).
+
+---
+
+## PROP-87: Chart "Curvas de Aprendizaje" — label del eje X no solapa la leyenda
+
+**Descripcion:** En `InsightsReports > Efectividad > Curvas de Aprendizaje`,
+el label "Partida" del eje X y la leyenda horizontal de abajo (con los
+nombres de contextos) se solapan visualmente en viewports 1280-1920px.
+El texto de ambos queda apilado ilegible.
+
+**Justificacion:** es uno de los charts mas usados (curva de
+aprendizaje = mejora por repeticion). La superposicion visual es un
+defecto cosmetico claro.
+
+**Alcance estimado:**
+- Reservar altura explicita al `XAxis` label (`padding: { bottom: 20 }`
+  en Recharts) o `margin.bottom` del chart.
+- Verificar responsive en 1280/1440/1920.
+
+**Esfuerzo:** XS (medio dia).
+
+---
+
+## PROP-88: KPIs del Dashboard — delta "—" cuando no hay baseline
+
+**Descripcion:** Los KPIs del Dashboard ("Alumnos en Riesgo",
+"Puntuación Media", "Partidas Hoy", etc.) tienen todos una linea
+"vs semana pasada" pero solo algunos muestran el delta numerico
+(+340%, -28.7%). Otros muestran la linea vacia sin delta, dando
+impresion de dato faltante.
+
+**Justificacion:** transparencia de datos. Cuando no hay baseline
+(primera semana de uso, dato nuevo), deberia mostrar "—" explicito para
+que el profesor no asuma que es un bug.
+
+**Alcance estimado:**
+- Helper `formatDelta(current, previous)` que devuelve `"—"` cuando
+  `previous === 0 || previous === null`.
+- Integrar en `StatCard` o el render del KPI.
+
+**Esfuerzo:** XS (medio dia).
+
+---
+
+## PROP-89: Preview completo de mazo (6 miniaturas visibles en card)
+
+**Descripcion:** Las cards de mazo en `/decks` muestran solo 4 de las 6
+miniaturas (por ejemplo Banderas de Europa: España, Francia, Italia,
+Alemania — no aparece Portugal ni Grecia). No hay indicador "+N".
+
+**Justificacion:** coherencia con el numero real de tarjetas (los
+stats dicen "12 cartas" pero solo se ven 4). El contrato visual debe
+alinearse con el conteo.
+
+**Alcance estimado:**
+- Cambiar `slice(0, 4)` a `slice(0, 6)` (caben al ancho estandar de
+  la card).
+- O bien mantener 4 mas un badge "+N" consistente con los contextos.
+
+**Esfuerzo:** XS (unas horas).
+
+---
+
+## PROP-86: Actividad Reciente con indicador visual de scroll
+
+**Descripcion:** El carrusel horizontal "Actividad Reciente" del
+Dashboard corta el último item sin dar pistas claras de que hay más
+contenido a la derecha. La scrollbar nativa es muy fina.
+
+**Justificacion:** affordance. Un gradient fade + chevron basta para
+indicar "scrollea".
+
+**Alcance estimado:**
+- Gradient fade absolute en el borde derecho de
+  `RecentActivityCarousel`.
+- Chevron button que scroll-to por 1 item.
+- Responsive a si hay o no overflow (no mostrar si cabe todo).
+
+**Esfuerzo:** XS (medio dia).

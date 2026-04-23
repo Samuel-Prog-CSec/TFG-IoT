@@ -263,8 +263,12 @@ export function useGameSocket({
     };
 
     // Wrappers: cancelar timeout de escaneo pendiente al recibir cualquier respuesta del servidor
-    const wrappedOnNewRound = data => { cancelPendingScanTimeout(); onNewRound(data); };
-    const wrappedOnValidationResult = data => { cancelPendingScanTimeout(); onValidationResult(data); };
+    // Limpiamos el realtimeError cuando llega un evento válido del servidor
+    // (NEW_ROUND o VALIDATION_RESULT): el hint "Espera un momento entre
+    // intentos" persistía visualmente aunque el turno se hubiera completado
+    // correctamente (detectado en QA 2026-04-23).
+    const wrappedOnNewRound = data => { cancelPendingScanTimeout(); setRealtimeError(null); onNewRound(data); };
+    const wrappedOnValidationResult = data => { cancelPendingScanTimeout(); setRealtimeError(null); onValidationResult(data); };
     const wrappedOnMemoryTurnState = data => { cancelPendingScanTimeout(); onMemoryTurnState(data); };
     const wrappedOnGameOver = data => { cancelPendingScanTimeout(); onGameOver(data); };
 

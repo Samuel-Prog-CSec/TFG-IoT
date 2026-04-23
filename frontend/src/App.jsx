@@ -85,7 +85,7 @@ function PageLoader() {
             aria-hidden="true"
           />
         </div>
-        <p className="text-text-muted text-sm font-medium animate-pulse">Cargando plataforma...</p>
+        <p className="text-text-muted text-sm font-medium animate-pulse">Cargando sección...</p>
       </div>
     </div>
   );

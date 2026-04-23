@@ -335,7 +335,10 @@ function ContextCard({ context, onClick }) {
   const assetCount = context.assetsCount ?? context.assets?.length ?? 0;
   const imagesCount = context.imageCount ?? context.assets?.filter(a => a.imageUrl)?.length ?? 0;
   const audioCount = context.audioCount ?? context.assets?.filter(a => a.audioUrl)?.length ?? 0;
-  const previews = context.assets?.filter(a => a.display)?.slice(0, 5).map(a => a.display) || [];
+  // 3 previews (antes 5): con 5 chips + gap + badge "+N" los nombres quedaban
+  // ilegibles (cada chip recortado a 3-4 chars tipo "R... A... Ver..."). Con
+  // 3 chips y un ancho por chip mas generoso se leen palabras completas.
+  const previews = context.assets?.filter(a => a.display)?.slice(0, 3).map(a => a.display) || [];
   const glowTint = resolveContextGlow(context);
 
   return (
@@ -401,25 +404,22 @@ function ContextCard({ context, onClick }) {
 
         {previews.length > 0 && (
           <div
-            className="mt-4 flex gap-1.5 pt-4 border-t border-border-subtle overflow-hidden relative"
+            className="mt-4 flex items-center gap-2 pt-4 border-t border-border-subtle"
             title={context.assets?.filter(a => a.display).map(a => a.display).join(', ')}
           >
             {previews.map((preview, i) => (
               <span
                 key={i}
-                className="text-2xl max-w-[80px] truncate inline-block leading-none"
+                className="flex-1 min-w-0 truncate rounded-full border border-border-subtle bg-background-elevated/40 px-2.5 py-1 text-xs font-medium text-text-secondary text-center"
               >
                 {preview}
               </span>
             ))}
             {assetCount > previews.length && (
-              <div className="flex items-center justify-center size-8 rounded-full bg-background-elevated/50 text-xs text-text-muted ml-1 shrink-0">
+              <div className="shrink-0 flex items-center justify-center h-7 px-2 rounded-full border border-border-subtle bg-background-elevated/60 text-[11px] font-semibold text-text-muted">
                 +{assetCount - previews.length}
               </div>
             )}
-            {/* Gradiente de fade a la derecha para indicar visualmente que el
-                listado continúa cuando el contenido supera el ancho disponible. */}
-            <div className="pointer-events-none absolute right-0 top-[calc(1rem+1px)] bottom-0 w-8 bg-gradient-to-l from-background-elevated/80 to-transparent" />
           </div>
         )}
       </GlassCard>

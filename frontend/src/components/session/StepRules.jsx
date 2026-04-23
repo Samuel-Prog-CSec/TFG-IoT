@@ -204,7 +204,19 @@ export default function StepRules({
                 max={0}
                 value={config.penaltyPerError}
                 onChange={(e) => onConfigChange('penaltyPerError', Number.parseInt(e.target.value, 10))}
-                className="flex-1 accent-error-base"
+                className="flex-1 penalty-range"
+                // Ver nota en StepMemoryRules.jsx: con rango negativo el fill
+                // nativo del accent-color va al reves de lo intuitivo.
+                // Ocultamos el accent-color con transparent y pintamos un
+                // gradient explicito proporcional a |value| / 10.
+                style={{
+                  accentColor: 'transparent',
+                  background: `linear-gradient(to right, var(--color-error-base) 0%, var(--color-error-base) ${
+                    (Math.abs(config.penaltyPerError) / 10) * 100
+                  }%, var(--color-background-elevated) ${
+                    (Math.abs(config.penaltyPerError) / 10) * 100
+                  }%, var(--color-background-elevated) 100%)`
+                }}
               />
               <span className="w-12 text-center text-text-primary font-medium bg-background-elevated rounded-lg py-1">
                 {config.penaltyPerError}

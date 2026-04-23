@@ -333,9 +333,12 @@ describe('GameSession realtime gameplay', () => {
     // La barra textual "Parejas encontradas: X/Y" se eliminó del panel para
     // liberar altura vertical (el mismo dato esta en los dots del header y en
     // los corazones superiores del tablero). Los asserts ahora verifican el
-    // contador "1 / 2" del header y la metric pill "🧠 Parejas" del footer.
+    // contador "1 / 2" del header y la metric pill "Parejas" del footer
+    // (el icono Brain es un SVG hermano del texto tras la migración de emojis
+    // a Lucide en QA 2026-04-23; "Parejas" aparece tanto en el mini-dot del
+    // header como en la pill del footer, de ahí el getAllByText).
     expect(await screen.findByText((_content, el) => /1\s*\/\s*2/.test(el?.textContent || '') && el?.tagName === 'DIV' && el?.className?.includes('font-display'))).toBeInTheDocument();
-    expect(screen.getByText(/🧠\s*Parejas/i)).toBeInTheDocument();
+    expect(screen.getAllByText(/Parejas/i).length).toBeGreaterThan(0);
   });
 
   it('suppresses RFID_SENSOR_UNAUTHORIZED in touch fallback mode', async () => {

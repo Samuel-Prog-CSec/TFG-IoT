@@ -321,22 +321,26 @@ gamePlaySchema.methods.complete = function () {
 };
 
 /**
- * Hook pre-save: garantiza score ∈ [0, maxScore] siempre que maxScore exista.
- * Si maxScore no esta definido en el documento (partidas legacy pre-migracion),
- * se deja pasar para no romper la persistencia, pero se loguea un warning.
+ * Hook pre-validate: garantiza score ∈ [0, maxScore] ANTES de que Mongoose
+ * aplique el validator `min: 0` del schema.
+ *
+ * Se ejecuta en validate (no en save) porque en Mongoose ≥7 la cadena es:
+ * pre('validate') → validate() → pre('save') → save(). Si clampásemos en
+ * pre('save'), el validator `min: 0` ya habría rechazado el documento cuando
+ * una partida acumula más penalizaciones que aciertos (`$inc` deja score<0
+ * transitoriamente en BD/memoria y el save final falla — detectado en QA
+ * 2026-04-23 con score=-4 en asociación).
  */
-gamePlaySchema.pre('save', function () {
-  if (typeof this.maxScore === 'number' && this.maxScore > 0) {
-    if (this.score > this.maxScore) {
-      // eslint-disable-next-line no-console -- pre-save Mongoose hook sin acceso al logger Pino
-      console.warn(
-        `[GamePlay] Score ${this.score} excede maxScore ${this.maxScore} en partida ${this._id}. Clampeado.`
-      );
-      this.score = this.maxScore;
-    }
-    if (this.score < 0) {
-      this.score = 0;
-    }
+gamePlaySchema.pre('validate', function () {
+  if (typeof this.maxScore === 'number' && this.maxScore > 0 && this.score > this.maxScore) {
+    // eslint-disable-next-line no-console -- hook Mongoose sin acceso al logger Pino
+    console.warn(
+      `[GamePlay] Score ${this.score} excede maxScore ${this.maxScore} en partida ${this._id}. Clampeado.`
+    );
+    this.score = this.maxScore;
+  }
+  if (typeof this.score === 'number' && this.score < 0) {
+    this.score = 0;
   }
 });
 

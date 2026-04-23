@@ -1,6 +1,7 @@
 import { memo, useMemo, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import PropTypes from 'prop-types';
+import { PartyPopper, Flame } from 'lucide-react';
 import { cn } from '../../lib/utils';
 import { useReducedMotion } from '../../hooks/useReducedMotion';
 import { useConfetti } from '../../hooks/useConfetti';
@@ -88,17 +89,22 @@ function FeedbackOverlay({ type, points = 0, onComplete }) {
           transition={shouldReduceMotion ? { duration: 0 } : { type: 'spring', stiffness: 400, damping: 20 }}
           className="relative z-10 text-center"
         >
-          {/* Emoji */}
+          {/* Icono hero (Lucide en vez de emoji para consistencia con el
+              resto del design system). */}
           <motion.div
             animate={shouldReduceMotion ? { scale: 1, rotate: 0 } : {
               scale: [1, 1.2, 1],
               rotate: [0, 10, -10, 0]
             }}
             transition={shouldReduceMotion ? { duration: 0 } : { duration: 0.5 }}
-            className="text-8xl sm:text-9xl mb-4"
+            className="mb-4 flex items-center justify-center"
             aria-hidden="true"
           >
-            {isSuccess ? '🎉' : '💪'}
+            {isSuccess ? (
+              <PartyPopper size={112} className="text-success-base drop-shadow-[0_0_24px_rgba(34,197,94,0.55)]" />
+            ) : (
+              <Flame size={112} className="text-brand-base drop-shadow-[0_0_20px_rgba(139,92,246,0.5)]" />
+            )}
           </motion.div>
 
           {/* Message */}

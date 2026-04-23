@@ -4281,3 +4281,190 @@ de reconciliación nocturno.
 ### Referencias
 
 - PROP-60 y PROP-63 en `documentation/propuestas-mejora.md`.
+
+---
+
+## ADR-081: Clamping robusto de GamePlay.score para partidas con penalizaciones [Backend]
+
+**Fecha:** 2026-04-23
+**Alcance:** Backend (`backend/src/models/GamePlay.js`)
+
+### Contexto
+
+El schema de Mongoose `gamePlay.score` declara `min: 0` para reflejar que una
+partida no puede quedar con puntuación final negativa. Sin embargo el gameplay
+permite penalizaciones (`penaltyPerError` negativo) y el engine aplica cambios de
+score con un `$inc` atómico en `addEventAtomic`. En partidas con más errores que
+aciertos el score transitorio queda negativo en el documento en memoria y en BD.
+
+Cuando la lógica de negocio intenta `.save()` (al final de la partida o en los
+checkpoints periódicos), Mongoose ejecuta `pre('validate')` → validación → `pre('save')`.
+El clamp estaba en `pre('save')`, por lo que la validación `min: 0` ya había
+fallado antes de llegar al clamp. Resultado: `GamePlay validation failed: score
+(-4) is less than minimum allowed value (0)` — detectado en QA 2026-04-23
+jugando una partida de asociación con todos los intentos fallidos.
+
+La condición original del hook solo clampaba si `maxScore > 0`, lo que dejaba
+sin cubrir partidas legacy sin maxScore.
+
+### Decisión
+
+Mover el clamp a `pre('validate')` y aplicarlo siempre que el valor sea negativo
+(independientemente de si maxScore está definido). El clamp al techo (`maxScore`)
+se mantiene condicional por compatibilidad con partidas legacy.
+
+```js
+gamePlaySchema.pre('validate', function () {
+  if (typeof this.maxScore === 'number' && this.maxScore > 0 && this.score > this.maxScore) {
+    this.score = this.maxScore;
+  }
+  if (typeof this.score === 'number' && this.score < 0) {
+    this.score = 0;
+  }
+});
+```
+
+### Consecuencias
+
+- **Positivas:** las partidas con score negativo transitorio se guardan
+  correctamente con score clampeado a 0. El histórico queda consistente y el
+  profesor ve el resumen de la partida aunque el alumno solo haya fallado.
+- **Negativas:** ninguna. El valor persistido siempre cumple la invariante
+  `0 ≤ score ≤ maxScore`.
+
+### Referencias
+
+- B-12 en `qa-captures-2026-04-23/FINDINGS.md`.
+- Log del backend: `backend/src/services/gameEngine/GameEngine.js` checkpoint
+  handler.
+
+---
+
+## ADR-082: Migración emojis → Lucide en gameplay y feedback [Frontend]
+
+**Fecha:** 2026-04-23
+**Alcance:** Frontend (`frontend/src/components/game/*`)
+
+### Contexto
+
+En ADR-059 ya se decidió que los iconos estructurales de la UI deben ser
+componentes Lucide (no emojis Unicode) para evitar inconsistencias tipográficas
+entre navegadores y SO, y para poder controlar color/tamaño via design tokens.
+En el QA 2026-04-23 detectamos que la migración había sido parcial: `CurrentPlayMetrics.jsx`
+(footer de gameplay), `GameOverScreen.jsx` (icono hero) y `FeedbackOverlay.jsx`
+(icono de acierto/error) seguían usando `⭐`, `✅`, `🧠`, `🎯`, `🏆`, `💪`, `🎉`, `💫`.
+
+En navegadores con emojis del SO antiguo el renderizado era incoherente con el
+resto de la UI (que ya usa Lucide uniformemente).
+
+### Decisión
+
+Migrar los iconos estructurales de:
+
+- **`CurrentPlayMetrics`**: `Star`, `CheckCircle2`, `Brain` (memoria), `Target`
+  (asociación) con `iconClass` tonal (`text-warning-base`, `text-success-base`,
+  `text-brand-base`, `text-accent-indigo`).
+- **`GameOverScreen`** (icono hero según tier de estrellas): `Trophy` (3★),
+  `PartyPopper` (2★), `Flame` (1★), `Sparkles` (0★), con glow drop-shadow por
+  tier.
+- **`FeedbackOverlay`** (icono central tras cada respuesta): `PartyPopper` en
+  acierto, `Flame` en error.
+
+Mantenemos los emojis decorativos (confetti particles en `FeedbackOverlay`,
+estrellas flotantes en `Sparkles`, emoji base `🦉` de `CharacterMascot`) porque
+son elementos celebratorios intencionales, no iconos de sistema.
+
+### Consecuencias
+
+- **Positivas:** consistencia visual total con el resto del design system.
+  Control via `currentColor`/drop-shadow para glow tonal por estado. Escalado
+  uniforme en cualquier SO.
+- **Negativas:** los tests que buscaban el emoji exacto (`/🧠\s*Parejas/i`)
+  han tenido que relajarse para buscar solo el label (`/Parejas/i` con
+  `getAllByText` porque ahora el string "Parejas" aparece también en el header
+  dot-counter).
+
+### Referencias
+
+- ADR-059 (migración inicial emojis → Lucide, que quedó incompleta).
+- B-8 en `qa-captures-2026-04-23/FINDINGS.md`.
+
+---
+
+## ADR-083: Slider custom `.penalty-range` para inputs con rango negativo [Frontend]
+
+**Fecha:** 2026-04-23
+**Alcance:** Frontend (`frontend/src/index.css`, StepMemoryRules, StepRules)
+
+### Contexto
+
+Los sliders "Penalización por error/pareja incorrecta" del wizard usan un rango
+negativo `[-15..0]` (memoria) o `[-10..0]` (asociación). El `accent-color`
+nativo de Chrome/Firefox pinta el fill desde `min` hacia `value`, lo que con
+este rango **invierte la intuición** del profesor:
+
+- `value = 0` (sin penalización) → fill casi al 100% (confuso: parece "máximo rigor").
+- `value = -10` (penalización máxima) → fill vacío (confuso: parece "sin rigor").
+
+En el QA 2026-04-23 María describió "el slider está al revés".
+
+### Decisión
+
+Introducir una clase utility `.penalty-range` en `index.css` que:
+
+1. Aplica `appearance: none` al `<input type="range">`.
+2. Pinta el thumb con estilos explícitos en `::-webkit-slider-thumb` y
+   `::-moz-range-thumb` (círculo rojo 18px con halo glow).
+3. El componente setea `style.background` con un `linear-gradient` explícito
+   proporcional a `|value| / |min|` desde la izquierda, y
+   `style.accentColor = 'transparent'` para anular el accent nativo.
+
+La semántica pasa a ser "más fill = más penalización", alineada con la
+intuición.
+
+### Consecuencias
+
+- **Positivas:** el fill ahora comunica correctamente la intensidad de la
+  penalización. Fix aplicado a los dos sliders (memoria y asociación) con el
+  mismo patrón.
+- **Negativas:** ligero desacoplamiento visual entre thumb position (calculada
+  por el navegador desde min-max) y fill (proporcional a |value|). Es un
+  trade-off aceptable porque el usuario atiende al color y al número visible,
+  no al thumb.
+
+### Referencias
+
+- B-6 en `qa-captures-2026-04-23/FINDINGS.md`.
+
+---
+
+## ADR-084: Contextos preview — 3 chips legibles en lugar de 5 truncados [Frontend]
+
+**Fecha:** 2026-04-23
+**Alcance:** Frontend (`frontend/src/pages/ContextsPage.jsx`)
+
+### Contexto
+
+Cada card de contexto en `/contexts` mostraba hasta 5 chips con nombres de
+assets más un badge "+N". Con 5 chips en un contenedor flex limitado los
+nombres quedaban recortados a 3-4 caracteres con ellipsis: "R... A... Ver...
+Ama... Nara..." para `Colores Básicos`, "Es... Fra... It... Ale... Port..."
+para `Países de Europa`. Ilegible.
+
+### Decisión
+
+Reducir a 3 chips (suficientes para dar una pista del contexto) con más
+ancho por chip (flex-1 con `min-w-0 truncate`) y estilo pill (rounded-full,
+border, padding). El badge "+N" pasa a ser más compacto.
+
+### Consecuencias
+
+- **Positivas:** nombres completos legibles ("Rojo / Azul / Verde / +3"). La
+  card comunica mejor el contenido del contexto.
+- **Negativas:** solo se ven 3 de 6 assets (antes se intentaban 5, aunque
+  ilegiblemente). El badge "+N" y el tooltip con la lista completa compensan.
+
+### Referencias
+
+- B-3 en `qa-captures-2026-04-23/FINDINGS.md`.
+

@@ -452,3 +452,53 @@
     transform: scale(0.96) translateY(-4px);
   }
 }
+
+/* ------------------------------------------------------------------
+ * Slider custom para "penalización" (rango negativo [-N..0])
+ *
+ * El accent-color nativo pinta desde min hacia value, lo que con un
+ * rango negativo invierte la intuicion del profesor ("mas fill = mas
+ * penalizacion"). `.penalty-range` usa appearance:none y un
+ * linear-gradient explicito en `style` inline, para que el fill
+ * corresponda con |value|/|min| desde la izquierda. Los estilos del
+ * thumb aqui mantienen la firma rojo/error del resto de la UI.
+ * ------------------------------------------------------------------ */
+.penalty-range {
+  -webkit-appearance: none;
+  appearance: none;
+  height: 0.5rem; /* 8px — match accent-* inputs */
+  border-radius: 9999px;
+  outline: none;
+}
+
+.penalty-range::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 18px;
+  height: 18px;
+  border-radius: 9999px;
+  background: var(--color-error-base);
+  border: 2px solid var(--color-background-base);
+  box-shadow: 0 0 0 1px var(--color-error-base), 0 2px 8px rgba(239, 68, 68, 0.35);
+  cursor: grab;
+  transition: transform 120ms ease-out;
+}
+
+.penalty-range::-webkit-slider-thumb:active {
+  cursor: grabbing;
+  transform: scale(1.1);
+}
+
+.penalty-range::-moz-range-thumb {
+  width: 18px;
+  height: 18px;
+  border-radius: 9999px;
+  background: var(--color-error-base);
+  border: 2px solid var(--color-background-base);
+  box-shadow: 0 0 0 1px var(--color-error-base), 0 2px 8px rgba(239, 68, 68, 0.35);
+  cursor: grab;
+}
+
+.penalty-range:focus-visible {
+  box-shadow: 0 0 0 3px rgba(239, 68, 68, 0.3);
+}

@@ -1,7 +1,7 @@
 import { memo, useMemo, useEffect, useRef } from 'react';
 import { motion, useSpring, useTransform } from 'framer-motion';
 import PropTypes from 'prop-types';
-import { Star, Trophy, RotateCcw, Home } from 'lucide-react';
+import { Star, Trophy, RotateCcw, Home, PartyPopper, Flame, Sparkles as SparklesIcon } from 'lucide-react';
 import { cn, calculateStars } from '../../lib/utils';
 import { useReducedMotion } from '../../hooks/useReducedMotion';
 import { useConfetti } from '../../hooks/useConfetti';
@@ -44,23 +44,29 @@ function GameOverScreen({
     []
   );
 
-  // Mensajes y estilo visual segun estrellas obtenidas (4 niveles)
+  // Mensajes y estilo visual segun estrellas obtenidas (4 niveles).
+  // Usamos iconos Lucide para consistencia con el resto del design system
+  // (en vez de emojis que mezclan con la tipografía del sistema operativo).
   const tierConfig = useMemo(() => {
     switch (stars) {
       case 3: return {
-        emoji: '🏆', text: '¡INCREIBLE!', sub: '¡Eres un crack!',
+        Icon: Trophy, iconClass: 'text-warning-base drop-shadow-[0_0_18px_var(--color-warning-glow)]',
+        text: '¡INCREIBLE!', sub: '¡Eres un crack!',
         glowA: 'bg-warning-base/25', glowB: 'bg-brand-base/25',
       };
       case 2: return {
-        emoji: '🎉', text: '¡MUY BIEN!', sub: '¡Sigue así!',
+        Icon: PartyPopper, iconClass: 'text-success-base drop-shadow-[0_0_14px_rgba(34,197,94,0.55)]',
+        text: '¡MUY BIEN!', sub: '¡Sigue así!',
         glowA: 'bg-success-base/20', glowB: 'bg-accent-cyan/20',
       };
       case 1: return {
-        emoji: '💪', text: '¡BUEN INTENTO!', sub: '¡Vas por buen camino!',
+        Icon: Flame, iconClass: 'text-brand-base drop-shadow-[0_0_14px_rgba(139,92,246,0.5)]',
+        text: '¡BUEN INTENTO!', sub: '¡Vas por buen camino!',
         glowA: 'bg-brand-base/20', glowB: 'bg-accent-cyan/15',
       };
       default: return {
-        emoji: '💫', text: '¡NO TE RINDAS!', sub: '¡La práctica hace al maestro!',
+        Icon: SparklesIcon, iconClass: 'text-accent-cyan drop-shadow-[0_0_12px_rgba(34,211,238,0.45)]',
+        text: '¡NO TE RINDAS!', sub: '¡La práctica hace al maestro!',
         glowA: 'bg-brand-base/15', glowB: 'bg-accent-cyan/10',
       };
     }
@@ -129,17 +135,17 @@ function GameOverScreen({
       >
         {/* Main card */}
         <div className="glass-card-gradient p-8 text-center">
-          {/* Celebration emoji */}
+          {/* Icono hero del tier (Lucide en vez de emoji para consistencia) */}
           <motion.div
             animate={shouldReduceMotion ? { scale: 1, rotate: 0 } : {
               scale: [1, 1.2, 1],
               rotate: [0, 5, -5, 0]
             }}
             transition={shouldReduceMotion ? { duration: 0 } : { duration: 1, repeat: 5 }}
-            className="text-7xl mb-4"
+            className="mb-4 flex items-center justify-center"
             aria-hidden="true"
           >
-            {message.emoji}
+            <tierConfig.Icon size={80} className={tierConfig.iconClass} />
           </motion.div>
 
           {/* Main message */}

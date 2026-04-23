@@ -106,7 +106,7 @@ async function detectDecliningPerformance(teacherId, students) {
         studentId: sid,
         studentPseudoId: pseudonymize(sid),
         studentName: student.name,
-        message: `El rendimiento de ${student.name} ha bajado un ${Math.round(declinePercent)}% en la última semana`,
+        message: `Su rendimiento ha bajado un ${Math.round(declinePercent)}% en la última semana`,
         recommendation:
           'Considerar revisar el contenido asignado o proporcionar sesiones de refuerzo',
         detectedAt: new Date().toISOString(),
@@ -150,7 +150,7 @@ function detectInactivity(students) {
         studentId: student._id.toString(),
         studentPseudoId: pseudonymize(student._id),
         studentName: student.name,
-        message: `${student.name} no ha jugado en ${daysSince} días`,
+        message: `No ha jugado en ${daysSince} días`,
         recommendation:
           daysSince >= 14
             ? 'Verificar si el alumno tiene algún problema para acceder a las sesiones'
@@ -224,7 +224,7 @@ async function detectSuddenScoreDrop(teacherId, students) {
         studentId: sid,
         studentPseudoId: pseudonymize(sid),
         studentName: student.name,
-        message: `${student.name} obtuvo ${lastScore} puntos en su última partida (media: ${Math.round(avgScore)})`,
+        message: `Obtuvo ${lastScore} puntos en su última partida (media: ${Math.round(avgScore)})`,
         recommendation: 'Revisar si hubo alguna dificultad específica en la última sesión',
         detectedAt: new Date().toISOString(),
         data: {
@@ -313,7 +313,7 @@ async function detectConsistentTimeout(teacherId, students) {
         studentId: sid,
         studentPseudoId: pseudonymize(sid),
         studentName: student.name,
-        message: `${student.name} tiene una tasa de timeout del ${Math.round(avgTimeoutRate * 100)}% en sus últimas ${r.last5.length} partidas`,
+        message: `Tasa de timeout del ${Math.round(avgTimeoutRate * 100)}% en sus últimas ${r.last5.length} partidas`,
         recommendation:
           'Verificar si el tiempo límite es adecuado o si el alumno necesita apoyo adicional',
         detectedAt: new Date().toISOString(),
@@ -411,7 +411,7 @@ async function detectImprovingFast(teacherId, students) {
         studentId: sid,
         studentPseudoId: pseudonymize(sid),
         studentName: student.name,
-        message: `${student.name} ha mejorado un ${Math.round(improvementPercent)}% en la última semana`,
+        message: `Ha mejorado un ${Math.round(improvementPercent)}% en la última semana`,
         recommendation: 'Reforzar positivamente el progreso del alumno',
         detectedAt: new Date().toISOString(),
         data: {
@@ -485,7 +485,7 @@ async function detectHighAbandonment(teacherId, students) {
         studentId: sid,
         studentPseudoId: pseudonymize(sid),
         studentName: student.name,
-        message: `${student.name} ha abandonado ${r.abandoned} de ${r.total} partidas en los últimos 7 días (${Math.round(abandonmentRate * 100)}%)`,
+        message: `Ha abandonado ${r.abandoned} de ${r.total} partidas en los últimos 7 días (${Math.round(abandonmentRate * 100)}%)`,
         recommendation:
           'Revisar si las sesiones son demasiado largas o si el contenido genera frustración',
         detectedAt: new Date().toISOString(),
