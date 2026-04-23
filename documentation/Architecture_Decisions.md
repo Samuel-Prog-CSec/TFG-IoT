@@ -3943,3 +3943,341 @@ ciclo de exit de Framer y sin riesgo de quedarse atascado.
 
 - ADRs relacionados: ADR-056 (popLayout), ADR-060 (pointer-events none en exit).
 - QA 2026-04-22 (memory/project_qa_2026_04_22.md)
+
+---
+
+## ADR-073: Sistema de feature flags distribuidas en Redis Hash con rollout determinístico [Full-stack]
+
+- **Fecha:** 2026-04-23
+- **Alcance:** Full-stack (backend + frontend admin panel)
+- **Estado:** Aceptado e implementado (PROP-61)
+
+### Contexto
+
+Antes de v1.0.0 necesitamos kill-switches y rollout progresivo para activar features de
+forma segura sin redeploy: PROP-60 (leaderboards ZSET) y PROP-63 (studentMetrics
+materializadas) son cambios de hot-path que conviene poder apagar al instante si
+introducen inconsistencias. Sin un sistema de flags estaríamos atados al ciclo de despliegue.
+
+### Decisión
+
+- **Storage:** Hash Redis `feature:<name>` con campos `enabled, rolloutPct, whitelist,
+  reason, updatedAt, updatedBy`.
+- **Evaluación:** servicio `featureFlagService.isEnabled(name, userId)` con cache local
+  de 30 s (`cache:flags`). Orden: kill-switch → whitelist override → bucket determinístico
+  por FNV-1a(userId) % 100 < rolloutPct.
+- **Endpoints admin:** GET/PATCH/DELETE `/api/admin/flags/:name` (super_admin), idempotentes.
+- **Self-service:** GET `/api/me/flags` devuelve mapa evaluado para el usuario autenticado.
+- **Frontend:** `FeatureFlagsContext` carga el mapa al login, hook síncrono
+  `useFeatureFlag(name)` con default `false`. Panel admin `/admin/flags` con tabla,
+  toggle, slider y whitelist editable.
+
+### Consecuencias
+
+- **Positivas:** rollouts graduales reproducibles (mismo userId siempre cae en el mismo
+  bucket). Kill-switches sin redeploy. Habilitador para PROP-60/PROP-63 cuando se
+  implementen.
+- **Negativas:** una capa más que mantener. Cache local de 30 s implica que un cambio
+  desde el panel tarda hasta 30 s en propagarse a otras instancias.
+
+### Archivos afectados
+
+- Backend: `services/featureFlagService.js`, `utils/fnv1a.js`, `controllers/featureFlagsController.js`,
+  `routes/featureFlags.js`, `validators/featureFlagValidator.js`, mount en `routes/admin.js` y `server.js`.
+- Frontend: `context/FeatureFlagsContext.jsx`, `pages/admin/FeatureFlagsPanel.jsx`,
+  `services/api.js` (export `featureFlagsAPI`), `App.jsx` (provider + ruta),
+  `constants/routes.js` (ADMIN_FLAGS), `components/layout/AppLayout.jsx` (entrada nav).
+- Tests: `backend/tests/featureFlagService.test.js` (21 casos).
+
+---
+
+## ADR-074: Helper centralizado de invalidación de cache de contextos + cache de listados [Backend]
+
+- **Fecha:** 2026-04-23
+- **Alcance:** Backend
+- **Estado:** Aceptado e implementado (PROP-12)
+
+### Contexto
+
+Tras D2 (UI admin de contextos del 17/04/2026) las mutaciones invalidaban manualmente
+sus dos keys `byId:<mongoId>` y `byId:<slug>`, pero la lista global `getContexts` no
+estaba cacheada. Cada nueva ronda de write/read de contextos repetía el patrón sin un
+helper común, lo que invitaba al copy-paste y al desincronizado entre namespaces.
+
+### Decisión
+
+- Cachear `getContexts()` con clave compuesta de los query params (`list:p1:l20:scr:od:q:a`)
+  y TTL 30 min.
+- Helper único `invalidateContextCaches(mongoId, slug)` que invalida ambas entradas
+  byId y todas las keys `list:*` (vía `scanByNamespace` + `delMany`).
+- Aplicar en create / update / delete de `gameContextController`.
+
+### Consecuencias
+
+- **Positivas:** consistencia garantizada entre la lista y el detalle tras cualquier
+  mutación; un único punto de cambio si añadimos nuevos cachés. La lista del listado
+  ya no golpea Mongo en cada request.
+- **Negativas:** la primera llamada tras un write paga el coste de scan + del de las
+  keys list:*. Asumido porque las mutaciones de contexto son raras (super_admin only).
+
+### Archivos afectados
+
+- `backend/src/utils/cacheInvalidators/contextCacheInvalidator.js` (nuevo)
+- `backend/src/controllers/gameContextController.js`
+- `backend/tests/contextCacheInvalidator.test.js` (10 casos)
+
+---
+
+## ADR-075: Rate limiting WebSocket distribuido con Redis Sorted Set y Lua [Backend]
+
+- **Fecha:** 2026-04-23
+- **Alcance:** Backend
+- **Estado:** Aceptado e implementado (PROP-59, gap resuelto del ADR-068)
+
+### Contexto
+
+ADR-068 dejó el rate limit HTTP distribuido pero el WebSocket seguía en memoria
+(`Map<rateKey, timestamps[]>`). En multi-instancia, un cliente podía eludir el límite
+conectándose a distintos pods por round-robin. `Rate_Limiting_Analysis.md` lo
+documenta como gap principal desde 2026-04-03.
+
+### Decisión
+
+- **Lua atómico** `checkSocketRateLimit.lua`: combina `ZREMRANGEBYSCORE` (purga
+  expirados) + `ZCARD` (cuenta) + bloqueo progresivo con `INCR violations` /
+  `SET block PX blockDurationMs`. Devuelve un JSON con `{ok, blocked, retryAfterMs,
+  violations}`. Una sola roundtrip por evento.
+- **Estructura:** `rl:ws:<event>:<rateKey>` (ZSET timestamps), `rl:ws:block:<rateKey>`
+  (TTL del bloqueo), `rl:ws:violations:<rateKey>` (counter con TTL ventana × 2).
+- **Path Redis** en `socketRateLimiter.checkRateLimitAsync`. Si Redis cae o el script
+  falla, **fallback transparente al limiter in-memory original** (insurance limiter).
+- En `NODE_ENV=test` el path Redis se desactiva por defecto (ioredis-mock no soporta EVAL).
+
+### Consecuencias
+
+- **Positivas:** rate limit consistente entre instancias. Resistente a caídas de Redis
+  (degrada al limiter local sin perder protección).
+- **Negativas:** una roundtrip Redis por evento WS aceptada (es muy rápida). Se
+  monitoriza `getFallbackCount()` para detectar Redis degradado.
+
+### Archivos afectados
+
+- `backend/src/scripts/lua/checkSocketRateLimit.lua` (nuevo)
+- `backend/src/middlewares/socketRateLimiter.js` (path async + fallback)
+
+---
+
+## ADR-076: Estado RFID mode distribuido vía Redis pub/sub [Backend]
+
+- **Fecha:** 2026-04-23
+- **Alcance:** Backend
+- **Estado:** Aceptado e implementado (PROP-64)
+
+### Contexto
+
+`socketHandlers.js` ya escribía el estado RFID a Redis (`rfid:mode:<userId>`, TTL 1 h)
+con write-through cache local, pero las constantes `REDIS_RFID_MODE_PREFIX` se usaban
+solo en una dirección. En multi-instancia, una instancia que cachea el estado en su
+Map local no se entera de cambios hechos por otra hasta el próximo cache miss.
+
+### Decisión
+
+- Publicar cambios en el canal `rfid-mode-changes` cada vez que se persiste a Redis
+  (incluyendo `userId`, `state`, `from` con el HOSTNAME para skip de mensajes propios).
+- Subscriber dedicado en `realtime/rfidModeSubscriber.js` con cliente Redis duplicado:
+  al recibir un mensaje, llama a `applyRemoteRfidModeChange(userId, state)` que
+  invalida la entrada local correspondiente.
+- Arranque automático tras `connectRedis()` en `server.js`. Cierre limpio en
+  `gracefulShutdown`.
+- Resilencia: si Redis cae, el subscriber se cierra silenciosamente y el módulo opera
+  en modo single-instance equivalente al comportamiento previo.
+
+### Consecuencias
+
+- **Positivas:** propagación de cambios en milisegundos entre instancias. La
+  infraestructura pub/sub queda preparada para futuros cambios de estado distribuido.
+- **Negativas:** un cliente Redis adicional por instancia. Mensajes duplicados si
+  HOSTNAME no se setea correctamente (el skip por `from` no funciona).
+
+### Archivos afectados
+
+- `backend/src/realtime/socketHandlers.js`
+- `backend/src/realtime/rfidModeSubscriber.js` (nuevo)
+- `backend/src/server.js` (start/stop hooks)
+
+---
+
+## ADR-077: Cola de jobs asíncronos con BullMQ + worker en contenedor separado [Backend + Infra]
+
+- **Fecha:** 2026-04-23
+- **Alcance:** Backend + Infraestructura
+- **Estado:** Aceptado e implementado (PROP-62, scope reducido a infra + retention)
+
+### Contexto
+
+Operaciones pesadas (data retention RGPD, futuro export GDPR, futuras notificaciones)
+se ejecutaban como CLI manual o no estaban implementadas. Sin scheduler robusto, los
+jobs RGPD dependían de cron externo o se omitían. En multi-instancia, ejecutar el
+mismo job desde varias réplicas duplicaba trabajo.
+
+### Decisión
+
+- Instalar `bullmq` y registrar tres queues:
+  - `data-retention` — **ACTIVA** con worker. Cron nocturno `0 3 * * *`.
+  - `gdpr-exports` — **SCAFFOLD vacío**. Pendiente de Nodemailer + signed URLs Supabase.
+  - `notifications` — **SCAFFOLD vacío**.
+- **Worker en contenedor separado** (`docker-compose.yml` → servicio `worker`).
+  Aísla jobs pesados del backend HTTP, escala independientemente.
+- **Schedule en backend startup** con `jobId` fijo → idempotente entre reinicios.
+- **Ciclo de retención** extraído a `services/dataRetentionService.js`, compartido por
+  el worker BullMQ y el script CLI `scripts/dataRetention.js` (DRY).
+- Conexión Redis dedicada para BullMQ (necesita flags distintos al cliente principal).
+- `removeOnComplete: 24h | 1000 jobs`, `removeOnFail: 7d | 5000 jobs`.
+
+### Consecuencias
+
+- **Positivas:** retention RGPD ejecutada de forma fiable cada noche. Infraestructura
+  de jobs lista para adoptar nuevas tareas sin reescribir nada. El worker aislado
+  reduce el riesgo de jobs pesados degradando la API.
+- **Negativas:** un contenedor más que orquestar (RAM ~256 MB en producción). El cron
+  schedule se inyecta desde el backend startup; si el backend está caído, el job no se
+  programa (aceptado: el backend siempre debe estar arriba en producción).
+
+### Archivos afectados
+
+- `backend/src/queues/index.js` y queues registradas (data-retention, gdpr-exports, notifications).
+- `backend/src/workers/index.js`, `backend/src/workers/dataRetentionWorker.js`.
+- `backend/src/services/dataRetentionService.js` (nuevo, lógica pura).
+- `backend/scripts/dataRetention.js` (refactor a usar el service).
+- `backend/worker.js` (entry-point del proceso worker).
+- `backend/package.json` (deps + scripts `worker` / `worker:dev`).
+- `docker-compose.yml` (servicio `worker`).
+- `backend/src/server.js` (startup + graceful shutdown).
+
+---
+
+## ADR-078: Wrapper Icon como pattern opt-in para nuevo código [Frontend]
+
+- **Fecha:** 2026-04-23
+- **Alcance:** Frontend
+- **Estado:** Aceptado parcialmente (PROP-8, scope reducido)
+
+### Contexto
+
+PROP-8 partía de la premisa de que el proyecto usaba `import * as LucideIcons` y que
+el bundle pagaba el peso de los ~70 iconos enteros. La auditoría encontró que NO existía
+ningún wildcard import — todos los archivos usaban imports nominales y el tree-shaking
+ya funcionaba. La inconsistencia real era de tamaños (`size={16}` vs
+`className="h-4 w-4"`).
+
+### Decisión
+
+- **Crear el wrapper** `components/ui/Icon.jsx` con tokens de tamaño semánticos
+  (sm=14, md=16, lg=20, xl=24) y registry centralizado de los 107 iconos actualmente
+  usados.
+- **No migrar mecánicamente** los 64 archivos existentes. Dos intentos de script
+  automatizado fallaron en imports multi-línea y casos de identificadores Lucide
+  usados como valores en objetos (ej: `SECTIONS = [{ icon: CheckCircle2 }]`). El
+  riesgo de regresión a 3 días de v1.0.0 no compensa el beneficio cosmético.
+- **El wrapper queda disponible** como pattern recomendado para código NUEVO. La
+  migración mecánica de archivos legacy se posterga.
+
+### Consecuencias
+
+- **Positivas:** catálogo central auditable (`iconRegistry.js`), tokens de tamaño
+  consistentes para cualquier nuevo componente. Tests automatizados (11) cubren el
+  wrapper y el placeholder de fallback.
+- **Negativas:** convivencia de dos patrones (wrapper + import directo) hasta que se
+  haga la migración. Documentado en `01-PATRONES-DISENO.md` como deuda técnica baja
+  con plan de adopción gradual.
+
+### Archivos afectados
+
+- `frontend/src/components/ui/Icon.jsx`, `iconRegistry.js`, `__tests__/Icon.test.jsx`
+  (nuevos).
+
+---
+
+## ADR-079: Enriquecimiento de SessionCards con sparkline + última partida + indicador de dificultad [Full-stack]
+
+- **Fecha:** 2026-04-23
+- **Alcance:** Full-stack (backend extensión de DTO + frontend)
+- **Estado:** Aceptado e implementado (PROP-5)
+
+### Contexto
+
+`/sessions` mostraba info estática (tarjetas, rondas, tiempo, puntos) sin reflejar el
+historial real de cada sesión. Profesores con 20+ sesiones no podían identificar cuáles
+estaban activas o tenían tendencia bajista sin entrar al detalle.
+
+### Decisión
+
+- **Backend:** ampliar `gamePlayService.getPlayStatsBySessionIds` con `lastPlayedAt`
+  y `recentScores` (últimas 7 puntuaciones, orden cronológico ascendente). Aditivo —
+  no rompe contratos existentes.
+- **Frontend:** nuevo componente `SessionSparkline` (Recharts ResponsiveContainer +
+  LineChart minimalista, gradient `brand → accent-indigo`, 42 px de alto, sin ejes ni
+  tooltip, `aria-hidden="true"`).
+- **SessionCard:** sub-bloque con (1) recuento + promedio, (2) "Última partida: hace X
+  días" usando `formatRelativeTime`, (3) sparkline si `recentScores.length >= 2`.
+- **Indicador de dificultad:** pseudo-elemento `after:` derecho de 3 px (verde/amarillo/
+  rojo/brand) sin chocar con el `border-l-4` que ya marca el estado de la sesión.
+
+### Consecuencias
+
+- **Positivas:** la card revela tendencia real sin más interacción. Mejora a11y con
+  info cuantitativa accesible y sparkline decorativo aria-hidden.
+- **Negativas:** una agregación adicional en el endpoint `getPlayStatsBySessionIds`.
+  Coste despreciable porque ya hace `$group` sobre el mismo match.
+
+### Archivos afectados
+
+- `backend/src/services/gamePlayService.js`
+- `frontend/src/components/common/SessionSparkline.jsx` (nuevo)
+- `frontend/src/pages/SessionsPage.jsx`
+
+---
+
+## ADR-080: Leaderboards analytics y studentMetrics materializadas — diferidos a Sprint 7 [Backend]
+
+- **Fecha:** 2026-04-23
+- **Alcance:** Backend
+- **Estado:** Diferido (PROP-60 y PROP-63), infraestructura habilitadora lista
+
+### Contexto
+
+PROP-60 propone leaderboards de contextos/mecánicas con ZSET Redis para evitar que
+`getTopContextsAndMechanics` ejecute aggregations Mongo `$lookup × 2` en cada request.
+PROP-63 propone materializar `User.studentMetrics` en un Hash Redis para acelerar la
+lectura masiva en dashboards de aula. Ambas requieren consistencia eventual + un job
+de reconciliación nocturno.
+
+### Decisión
+
+**Diferir ambas propuestas** a Sprint 7. Razones:
+
+- PROP-60 con corrección requiere buckets diarios (ZSET por día) + `ZUNIONSTORE` para
+  soportar timeRanges 7d / 30d / 90d. Una versión simplificada (un solo ZSET de 30 d)
+  no aporta valor proporcional al riesgo. Adicionalmente, el cache existente
+  (`cache:analytics`, 5 min TTL) ya absorbe la mayor parte de la carga real.
+- PROP-63 cambia el hot-path de `endPlay` con escritura dual y, si se pretende que
+  aporte valor, también el read-path en `analyticsController`. Sin job de
+  reconciliación nocturno (que requiere PROP-62 plenamente operativo más allá del
+  scaffolding actual), el riesgo de inconsistencia Redis-Mongo es alto.
+
+**Infraestructura ya disponible para cuando aterricen:**
+
+- Feature flags `leaderboardsZSet` y `studentMetricsFromRedis` (ADR-073).
+- Helpers `redisService.hgetall`, `cacheGet`, `cacheInvalidate`.
+- Scaffolding BullMQ listo para aceptar la queue `analytics-reconcile` (ADR-077).
+
+### Consecuencias
+
+- **Positivas:** v1.0.0 sale con una cadena de optimizaciones más segura. Las flags ya
+  registradas permiten activar las features en cuanto se implementen sin tocar código
+  cliente.
+- **Negativas:** se mantiene el coste actual de aggregations Mongo en analytics.
+
+### Referencias
+
+- PROP-60 y PROP-63 en `documentation/propuestas-mejora.md`.

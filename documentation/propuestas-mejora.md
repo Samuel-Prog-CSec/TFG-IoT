@@ -1,9 +1,14 @@
 # Propuestas de Mejora Pendientes - EduPlay RFID
 
-> Propuestas pendientes de implementacion para versiones futuras (Sprint 6 y posteriores).
-> Las propuestas marcadas como ✅ IMPLEMENTADA en sesiones anteriores fueron eliminadas de este documento — su trazabilidad queda en el historial de Git y en los memory files de cada sesion (`memory/project_qa_session_*.md`, `memory/project_implementation_*.md`).
+> Propuestas pendientes de implementacion para versiones futuras.
+> Las propuestas implementadas en sesiones anteriores fueron eliminadas de este
+> documento — su trazabilidad queda en el historial de Git y en los memory files
+> de cada sesion (`memory/project_*.md`).
 >
-> **En el pase de verificacion + limpieza del 19/04/2026 (tarde) se eliminaron las propuestas verificadas al 100% en browser tras rebuild de Docker:** PROP-26, PROP-38, PROP-39, PROP-40, PROP-45, PROP-48, PROP-50, PROP-56, PROP-57, PROP-58 (todas confirmadas funcionando con screenshots).
+> **PROP-60 y PROP-63 (Redis):** se mantuvieron en el documento aunque el paquete
+> pre-v1.0.0 del 23/04/2026 (ADR-080) decidió diferirlas a Sprint 7. La
+> infraestructura habilitadora (feature flags ADR-073, helpers Redis, BullMQ
+> scaffolding ADR-077) está lista para cuando aterricen.
 
 ---
 
@@ -48,20 +53,6 @@
 
 ---
 
-## PROP-5: Mejora de tarjetas de sesion en listado
-
-**Descripcion:** Enriquecer las cards de sesiones en `/sessions` con mas informacion visual: fecha de ultima partida, mini-chart sparkline de rendimiento directamente en la card, y codigo de colores segun dificultad (verde=facil, amarillo=normal, rojo=dificil).
-
-**Justificacion:** Actualmente todas las cards muestran la misma informacion estatica (tarjetas, rondas, tiempo, puntos). Un profesor con muchas sesiones necesita poder identificar rapidamente cuales requieren atencion sin entrar al detalle de cada una.
-
-**Alcance estimado:**
-- Componente `SessionSparkline` reutilizando Recharts en mini formato
-- Mostrar "Ultima actividad: hace 2 dias" debajo del titulo
-- Badge de color en el borde izquierdo de la card segun dificultad configurada
-- Endpoint backend para stats resumidas por sesion (si no existe)
-
----
-
 ## PROP-6: Export/Import de sesiones y mazos
 
 **Descripcion:** Permitir exportar sesiones y mazos como archivo JSON descargable, e importarlos en otra cuenta o instancia de la plataforma.
@@ -73,19 +64,6 @@
 - Frontend: boton "Exportar" en deck detail, boton "Importar" en decks list
 - Validacion de formato al importar
 - Resolucion de conflictos (contextos/assets referenciados)
-
----
-
-## PROP-8: Refactorizacion del sistema de iconos
-
-**Descripcion:** Reemplazar el patron `import * as LucideIcons` por un IconRegistry centralizado que solo incluya los iconos realmente usados en la aplicacion. Aprovechar para unificar tamanos, colores y spacing de iconos en toda la app.
-
-**Justificacion:** Ademas del beneficio de rendimiento ya implementado (reduccion de ~500KB en el bundle), un registry centralizado asegura consistencia visual y facilita auditar que iconos usa la plataforma. Actualmente cada componente importa iconos con tamanos y colores ligeramente diferentes.
-
-**Alcance estimado:**
-- Crear `src/components/ui/Icon.jsx` como wrapper con tamanos estandarizados (sm/md/lg)
-- Migrar componentes a usar el wrapper en lugar de imports directos
-- Documentar el catalogo de iconos disponibles
 
 ---
 
@@ -117,14 +95,6 @@
 **Descripcion:** Reapertura formal de PROP-2 con prioridad alta tras detectar en QA del 17/04 que el bug del FallbackTouchPanel (imagenes que desaparecen + duplicados) hace que la unica forma de probar el flujo de partida sin hardware RFID sea fragil.
 
 **Justificacion:** Los profesores que aun no han recibido el lector fisico no pueden validar las sesiones que crean. Un "modo demo oficial" (no fallback) con UI distinta y pensada para preview, en lugar de reusar el panel tactil de emergencia, mejora la experiencia.
-
----
-
-## PROP-12: Pseudo-cache invalidation post-write para contextos
-
-**Descripcion:** Tras D2 (UI admin de contextos del 17/04/2026), las operaciones CREATE/UPDATE/DELETE invalidan correctamente el cache Redis del contexto editado, pero la lista global (`getContexts`) no esta cacheada. Si en el futuro se anaden mas listas cacheadas, valdria la pena un patron unificado de invalidacion.
-
-**Alcance estimado:** Service helper `invalidateContextCaches(contextId)` que centralice las llamadas. Aplicarlo en createContext/updateContext/deleteContext.
 
 ---
 
@@ -212,34 +182,6 @@ Las siguientes propuestas surgen de la auditoria integral de la implementacion d
 
 ---
 
-## PROP-59: Rate limiting WebSocket distribuido (Redis Sorted Set + Lua)
-
-> **Estado 2026-04-20 tarde**: la parte **HTTP** de esta propuesta queda **resuelta** vía ADR-068 (lazy promotion + shim factory + `passOnStoreError`). Las 8 instancias de `express-rate-limit` ahora usan efectivamente Redis store desde el boot, con keys `rl:*` visibles en el servidor. Lo que sigue abierto es la parte **WebSocket** descrita a continuación.
-
-**Descripcion:** El `SocketRateLimiter` actual mantiene el sliding window en memoria (`Map<string, number[]>`) — no distribuido entre instancias. En multi-replica, un cliente puede eludir el limite conectandose a distintas instancias por round-robin. Gap documentado en `Rate_Limiting_Analysis.md` desde 2026-04-03 sin resolver.
-
-**Estructura Redis propuesta:**
-- `rl:ws:<event>:<rateKey>` → Sorted Set con timestamps como score y member
-- `rl:ws:block:<rateKey>` → String con TTL (bloqueo progresivo activo)
-- `rl:ws:violations:<rateKey>` → String counter con TTL corto
-- `rl:ws:rfid:<rateKey>:<sensorId>` → String con TTL (dedupe UID por sensor)
-
-**Pseudocodigo Lua (`checkSocketRateLimit.lua`):** ZREMRANGEBYSCORE (purgar expirados) → ZCARD (contar) → si excede: INCR violations + opcionalmente SET block → devolver rechazo con `retryAfterMs`; si no: ZADD timestamp → resetear violations. 1 roundtrip atomico.
-
-**TTLs:** `windowMs * 2` en sortset (autopurga), `PX blockDurationMs` en block key, ventana corta en violations.
-
-**Invalidacion:** solo TTL.
-
-**Fallback:** mantener la implementacion in-memory actual como `insuranceLimiter` — si Lua falla o Redis cae, cae al Map actual sin interrupcion.
-
-**Tests:** extender `socketRateLimiter.test.js` con casos de contencion entre dos instancias simuladas (ioredis-mock soporta sortsets).
-
-**Esfuerzo:** M (3-5 dias). Archivos: `socketRateLimiter.js` + 1 script Lua + tests + actualizar `Rate_Limiting_Analysis.md`.
-
-**ADR tentativo:** "Rate limiting WebSocket distribuido con Redis Sorted Set"
-
----
-
 ## PROP-60: Leaderboards con ZSET para rankings de contextos/mecanicas/estudiantes
 
 **Descripcion:** `analyticsService.getTopContextsAndMechanics` ejecuta dos aggregations con `$lookup` × 2 cada una en cada request del dashboard. Con ZSETs en Redis: O(log N) actualizacion al completar play, O(log N + M) lectura del top M.
@@ -266,57 +208,6 @@ Las siguientes propuestas surgen de la auditoria integral de la implementacion d
 
 ---
 
-## PROP-61: Feature flags / kill switches en Redis Hash
-
-**Descripcion:** No existen hoy. Activar/desactivar features requiere redeploy. Util para: pausar onboarding de estudiantes en picos, desactivar WebSerial si hay bugs, limitar endpoints costosos a subconjunto de usuarios.
-
-**Estructura Redis propuesta:** `feature:<featureName>` → Hash: `{ enabled: '1'|'0', rolloutPct: '50', whitelist: 'uid1,uid2', reason: 'text' }`
-
-**Pseudocodigo:** `cacheGet('feature:flags', featureName, () => redis.hgetall(...), 30)`. Si `!flag?.enabled`: throw `ServiceUnavailableError(flag.reason)`. Si `rolloutPct`: determinar por hash del userId.
-
-**TTL:** 30s de cache local en el namespace `feature:flags` — equilibra latencia vs responsividad.
-
-**Invalidacion:** panel super_admin + endpoint `POST /api/admin/flags/:name` que ejecuta `cacheInvalidate('feature:flags', name)`.
-
-**Tests:** `featureFlags.test.js` — toggles on/off, rollouts por porcentaje, listas blancas, invalidacion inmediata.
-
-**Frontend:** hook `useFeatureFlag('newDashboard')` que consulta endpoint `GET /api/flags` + panel admin de super_admin para gestionar.
-
-**Esfuerzo:** S-M (2-3 dias Full-stack).
-
-**ADR tentativo:** "Feature flags distribuidos en Redis"
-
----
-
-## PROP-62: Cola de jobs asincronos con BullMQ
-
-**Descripcion:** Operaciones pesadas hoy son sincronas o `setInterval`: exports GDPR (bloquean request), retention jobs (se ejecutan en todas las replicas simultaneamente), notificaciones batch (no implementadas).
-
-**Eleccion:** **BullMQ** sobre Redis Streams. Razones: API de alto nivel (job state, retries con backoff, dashboards Bull-Board), compatible con ioredis ya instalado, comunidad activa.
-
-**Queues propuestas:**
-- `gdpr-exports`: usuarios piden data export → worker genera ZIP, sube a Supabase Storage, emite email con signed URL
-- `data-retention`: purgas programadas (replace `setInterval`)
-- `notifications`: emails, push futuros
-
-**Pseudocodigo (producer):** `await exportsQueue.add('export-user-data', { userId, requestId }, { attempts: 3, backoff: 'exponential' })`.
-
-**Worker separado:** proceso `worker.js` independiente (`npm run worker`) — habilita escalado horizontal del worker por si mismo.
-
-**TTLs:** `removeOnComplete: { age: 86400 }`, `removeOnFail: { age: 604800 }`.
-
-**Invalidacion:** jobs se auto-purgan por BullMQ.
-
-**Tests:** `jobQueues.test.js` — mock redis, verificar add/process/retry/fail.
-
-**Infraestructura:** Docker Compose añade `worker` service. Deploy scripts actualizados.
-
-**Esfuerzo:** L (1-2 semanas). Impacta estructura del proyecto (nuevo proceso, nuevos tests, nueva pipeline CI).
-
-**ADR tentativo:** "Cola de jobs asincronos con BullMQ"
-
----
-
 ## PROP-63: Materializacion de `studentMetrics` en Redis Hash
 
 **Descripcion:** El campo `user.studentMetrics` (averageScore, totalGamesPlayed, totalCorrectAttempts) se recalcula con cada `endPlay` via `player.updateStudentMetrics(...)` que hace `.save()` sobre el doc User. Para dashboards con muchos estudiantes, la lectura masiva es costosa porque Mongo tiene que leer el doc entero.
@@ -336,30 +227,6 @@ Las siguientes propuestas surgen de la auditoria integral de la implementacion d
 **Esfuerzo:** M-L (5-7 dias). Requiere ADR dedicado.
 
 **ADR tentativo:** "Materializacion de studentMetrics en Redis"
-
----
-
-## PROP-64: Estado RFID mode distribuido
-
-**Descripcion:** El estado "modo RFID" del usuario (normal/config/lock) esta hoy en memoria local (`socketHandlers.js` Map). En multi-replica, el mismo usuario podria tener estado inconsistente segun a que instancia se conecte. El codigo ya tiene la constante `REDIS_RFID_MODE_PREFIX = 'rfid:mode:'` declarada pero no usada.
-
-**Estructura Redis propuesta:**
-- `rfid:mode:<userId>` → String: `'normal'|'config'|'lock'` con TTL 1h
-- Pub/Sub channel `rfid-mode:<userId>` para notificar cambios instantaneos entre instancias
-
-**Pseudocodigo setMode:** `await redis.setex('rfid:mode:'+userId, 3600, mode); await redis.publish('rfid-mode:'+userId, mode)`.
-
-**Pseudocodigo getMode:** `return (await redis.get('rfid:mode:'+userId)) || 'normal'`.
-
-**TTL:** 1h — mayor que cualquier sesion tipica de profesor en una clase.
-
-**Invalidacion:** TTL + pub/sub para cambios en tiempo real entre instancias.
-
-**Tests:** `rfidModeDistributed.test.js` — dos instancias simuladas, setMode en A → B recibe el cambio via pub/sub.
-
-**Esfuerzo:** S (1-2 dias). Usa la constante ya declarada y el adapter pub/sub existente.
-
-**ADR tentativo:** "Estado RFID mode distribuido"
 
 ---
 

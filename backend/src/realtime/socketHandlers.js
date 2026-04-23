@@ -25,6 +25,12 @@ const REDIS_RFID_MODE_PREFIX = 'rfid:mode:';
 const REDIS_SENSOR_PREFIX = 'rfid:sensor:';
 const REDIS_RFID_MODE_TTL = 3600; // 1 hora
 
+// ADR-077 (PROP-64): canal pub/sub para que múltiples instancias del backend
+// se enteren de cambios de estado RFID al instante. Sin pub/sub, una instancia
+// que cachee localmente el estado podría servir un valor obsoleto hasta el
+// siguiente miss. Con esto, el cambio se propaga en milisegundos.
+const RFID_MODE_PUBSUB_CHANNEL = 'rfid-mode-changes';
+
 const RFID_MODES = Object.freeze({
   IDLE: 'idle',
   GAMEPLAY: 'gameplay',
@@ -426,7 +432,9 @@ const getUserIdBySensorId = sensorId => {
 };
 
 /**
- * Persiste estado RFID en Redis (fire-and-forget).
+ * Persiste estado RFID en Redis (fire-and-forget) y publica el cambio en el
+ * canal pub/sub para que otras instancias del backend invaliden su cache local.
+ *
  * @param {string} userId
  * @param {Object|null} state - null para borrar
  */
@@ -442,6 +450,7 @@ const persistRfidModeToRedis = (userId, state) => {
       .catch(err =>
         logger.warn('Error al borrar estado RFID en Redis', { userId, error: err.message })
       );
+    publishRfidModeChange(userId, null);
     return;
   }
 
@@ -450,6 +459,63 @@ const persistRfidModeToRedis = (userId, state) => {
     .catch(err =>
       logger.warn('Error al persistir estado RFID en Redis', { userId, error: err.message })
     );
+  publishRfidModeChange(userId, state);
+};
+
+/**
+ * Publica un cambio de modo RFID en el canal pub/sub. El instance ID se
+ * envía como `from` para que el suscriptor pueda ignorar mensajes propios
+ * (la instancia que escribe ya tiene el estado correcto en su cache).
+ *
+ * @param {string} userId
+ * @param {Object|null} state
+ */
+const publishRfidModeChange = (userId, state) => {
+  const redis = getRedis();
+  if (!redis) {
+    return;
+  }
+
+  const message = JSON.stringify({
+    userId,
+    state,
+    from: process.env.HOSTNAME || 'unknown',
+    at: Date.now()
+  });
+
+  redis
+    .publish(RFID_MODE_PUBSUB_CHANNEL, message)
+    .catch(err =>
+      logger.warn('Error al publicar cambio RFID mode', { userId, error: err.message })
+    );
+};
+
+/**
+ * Aplica un cambio recibido por pub/sub al cache local. Esta función no
+ * persiste en Redis (es la respuesta a un mensaje, no un cambio nuevo).
+ *
+ * @param {string} userId
+ * @param {Object|null} state
+ */
+const applyRemoteRfidModeChange = (userId, state) => {
+  if (!userId) {
+    return;
+  }
+
+  const previous = rfidModeByUserId.get(userId);
+
+  if (!state || state.mode === RFID_MODES.IDLE) {
+    rfidModeByUserId.delete(userId);
+    if (previous?.sensorId) {
+      sensorIdToUserId.delete(previous.sensorId);
+    }
+    return;
+  }
+
+  rfidModeByUserId.set(userId, state);
+  if (state.sensorId) {
+    sensorIdToUserId.set(state.sensorId, userId);
+  }
 };
 
 const persistSensorBindingToRedis = (sensorId, userId) => {
@@ -1505,6 +1571,7 @@ const peekRfidModeStateForTests = userId => rfidModeByUserId.get(userId);
 module.exports = {
   RFID_MODES,
   RFID_MODE_IDLE_TIMEOUT_MS,
+  RFID_MODE_PUBSUB_CHANNEL,
   registerSocketHandlers,
   registerRfidHandlers,
   stopCacheCleanup,
@@ -1517,5 +1584,7 @@ module.exports = {
   clearRfidModeState,
   refreshRfidModeActivity,
   resetRfidModeTimersForTests,
-  peekRfidModeStateForTests
+  peekRfidModeStateForTests,
+  // ADR-077: aplicación de cambios remotos vía pub/sub.
+  applyRemoteRfidModeChange
 };

@@ -60,6 +60,7 @@ const adminRoutes = require('./routes/admin');
 const metricsRoutes = require('./routes/metrics');
 const analyticsRoutes = require('./routes/analytics');
 const healthRoutes = require('./routes/health');
+const { meRouter: myFeatureFlagsRouter } = require('./routes/featureFlags');
 
 // Crear aplicación Express
 const app = express();
@@ -254,6 +255,9 @@ app.use('/api/decks', deckRoutes);
 // Rutas de administración (solo super admin)
 app.use('/api/admin', adminRoutes);
 
+// Feature flags evaluadas para el usuario autenticado (self-service)
+app.use('/api/me/flags', myFeatureFlagsRouter);
+
 // Rutas de analíticas
 app.use('/api/analytics', analyticsRoutes);
 
@@ -358,6 +362,29 @@ const startServer = async () => {
       if (recoveredCount > 0) {
         logger.info(`${recoveredCount} partidas recuperadas y marcadas como abandonadas`);
       }
+
+      // ADR-077 (PROP-64): subscriber pub/sub de cambios RFID mode entre
+      // instancias del backend. Si Redis no está, queda en no-op (modo
+      // single-instance equivalente al comportamiento previo).
+      try {
+        const { startRfidModeSubscriber } = require('./realtime/rfidModeSubscriber');
+        await startRfidModeSubscriber();
+      } catch (subErr) {
+        logger.warn('rfidModeSubscriber: no se pudo iniciar', { error: subErr.message });
+      }
+
+      // ADR-071 (PROP-62): programar el cron de retención RGPD vía BullMQ.
+      // El job se procesa en el contenedor `worker` (proceso separado),
+      // pero el SCHEDULING vive en el backend para que esté garantizado
+      // siempre que la API esté arriba. Idempotente por jobId.
+      try {
+        const { scheduleDataRetentionCron } = require('./queues');
+        await scheduleDataRetentionCron();
+      } catch (cronErr) {
+        logger.warn('queues: no se pudo programar el cron de retención', {
+          error: cronErr.message
+        });
+      }
     } catch (redisError) {
       // En desarrollo, continuar sin Redis con warning
       if (process.env.NODE_ENV === 'production') {
@@ -411,6 +438,22 @@ const gracefulShutdown = async signal => {
 
       // 3. Cerrar conexión RFID
       rfidService.stop();
+
+      // 4a. Cerrar el subscriber pub/sub de RFID mode (si activo)
+      try {
+        const { stopRfidModeSubscriber } = require('./realtime/rfidModeSubscriber');
+        await stopRfidModeSubscriber();
+      } catch (subErr) {
+        logger.warn('rfidModeSubscriber: error al cerrar', { error: subErr.message });
+      }
+
+      // 4b. Cerrar las queues BullMQ (libera conexiones Redis dedicadas)
+      try {
+        const { closeAllQueues } = require('./queues');
+        await closeAllQueues();
+      } catch (qErr) {
+        logger.warn('queues: error al cerrar', { error: qErr.message });
+      }
 
       // 4. Desconectar de Redis
       await disconnectRedis();

@@ -97,6 +97,39 @@ services:
       start_period: 15s
 
   # ============================================
+  # WORKER (BullMQ - data retention y jobs asíncronos, ADR-071)
+  # Proceso separado del backend para que jobs pesados no bloqueen HTTP.
+  # ============================================
+  worker:
+    build: ./backend
+    container_name: rfid-games-worker
+    restart: unless-stopped
+    read_only: true
+    tmpfs:
+      - /tmp
+    deploy:
+      resources:
+        limits:
+          memory: 256M
+    environment:
+      - NODE_ENV=${NODE_ENV:-development}
+      - REDIS_URL=redis://:${REDIS_PASSWORD:-devRedis123!}@redis:6379
+      - MONGO_URI=mongodb://mongo:27017/rfid_games_db
+    env_file:
+      - .env
+    depends_on:
+      redis:
+        condition: service_healthy
+      mongo:
+        condition: service_healthy
+    command: ["node", "worker.js"]
+    networks:
+      - rfid-games-network
+    labels:
+      - "com.rfid-games.service=worker"
+      - "com.rfid-games.description=BullMQ worker for async jobs (data retention, GDPR)"
+
+  # ============================================
   # BASE DE DATOS (MongoDB Local)
   # ============================================
   mongo:

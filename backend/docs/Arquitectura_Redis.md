@@ -488,6 +488,13 @@ prefijo     tipo      identificador
 | `cache:analytics` | KPIs y agregaciones de analytics (11 handlers) | String (JSON) | 2-10 minutos según granularidad    | `cache:analytics:summary:{teacherId}`, `cache:analytics:trends:{teacherId}:{timeRange}`, `cache:analytics:student:summary:{studentId}:{timeRange}`... |
 | `auth:user`      | Slim-user cacheado para middleware de autenticación | String (JSON POJO) | 60 segundos | `auth:user:{userId}` |
 | `play:init`      | Lock distribuido de idempotencia de `startPlay`     | String       | 60 segundos                  | `play:init:{playId}` |
+| `feature`        | Feature flags distribuidas (ADR-073, PROP-61)       | Hash         | Sin TTL (control manual)     | `feature:leaderboardsZSet` |
+| `cache:flags`    | Cache local de evaluación de feature flags          | String (JSON)| 30 segundos                  | `cache:flags:leaderboardsZSet` |
+| `cache:context` (list) | Listados cacheados de `getContexts` por query params (ADR-074, PROP-12) | String (JSON) | 30 minutos | `cache:context:list:p1:l20:scr:od:q:a` |
+| `rl:ws:*`        | Rate limit WebSocket distribuido (ADR-075, PROP-59) | ZSET / String| Ventana × 2 (ZSET), block PX | `rl:ws:join_room:user:abc123`, `rl:ws:block:user:abc123`, `rl:ws:violations:user:abc123` |
+| `rfid:mode:*`    | Estado RFID por usuario, distribuido vía pub/sub (ADR-076, PROP-64) | String (JSON) | 1 hora                       | `rfid:mode:{userId}` |
+| `rfid:sensor:*`  | Mapeo sensor → userId                               | String       | 1 hora                       | `rfid:sensor:{sensorId}` |
+| `bull:*`         | Queues BullMQ (data-retention, gdpr-exports, notifications). ADR-077, PROP-62 | varios (jobs, stats) | gestionado por BullMQ | `bull:data-retention:{jobId}` |
 
 > **Nota sobre TTL de play/card (T-066):** Aunque antes este documento indicaba "Sin TTL*", el código
 > real aplica un TTL de 90s (`DISTRIBUTED_LOCK_TTL_SECONDS`) con un heartbeat de 30s

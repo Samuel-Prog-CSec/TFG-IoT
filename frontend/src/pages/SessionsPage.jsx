@@ -46,7 +46,25 @@ import ActiveFiltersBar from '../components/ui/ActiveFiltersBar';
 import ConfirmationModal, { useConfirmationModal } from '../components/ui/ConfirmationModal';
 import PageHeader from '../components/ui/PageHeader';
 import ScanlineOverlay from '../components/ui/ScanlineOverlay';
+import SessionSparkline from '../components/common/SessionSparkline';
 import { cn, listContainerVariants, motionConfig, DURATION, EASING, toTitleCaseEs } from '../lib/utils';
+import { formatRelativeTime } from '../lib/dateUtils';
+
+// Mapeo de dificultad a indicador visual lateral derecho (PROP-5).
+// Se aplica como `after:bg-*` para no chocar con el `border-l-*` que indica el estado.
+const DIFFICULTY_INDICATOR_CLASSES = {
+  easy: 'after:bg-success-base/60',
+  medium: 'after:bg-warning-base/60',
+  hard: 'after:bg-error-base/60',
+  custom: 'after:bg-brand-base/60'
+};
+
+const DIFFICULTY_LABELS_ES = {
+  easy: 'Fácil',
+  medium: 'Normal',
+  hard: 'Difícil',
+  custom: 'Personalizada'
+};
 
 // Variants locales con settle en entrada y "papel volando" en exit para reforzar
 // el leitmotiv Tactile+Paper en las tarjetas de lista.
@@ -159,13 +177,25 @@ const SessionCard = memo(function SessionCard({
     return 'cyan';
   })();
 
+  // PROP-5: indicador lateral derecho que comunica la dificultad sin pelearse
+  // con el `border-l-4` que ya marca el estado de la sesión.
+  const difficultyKey = (session.difficulty || '').toLowerCase();
+  const difficultyIndicator =
+    DIFFICULTY_INDICATOR_CLASSES[difficultyKey] || 'after:bg-text-muted/30';
+  const difficultyLabel = DIFFICULTY_LABELS_ES[difficultyKey] || null;
+
   return (
     <HoverLiftCard glowTint={glowTint} className="group h-full">
       <GlassCard className={cn(
         'relative overflow-hidden p-6 flex flex-col gap-5 h-full hover:border-border-strong transition-[border-color] border-l-4',
+        // PROP-5: pseudo-elemento derecho coloreado por dificultad (1px de ancho).
+        'after:absolute after:top-0 after:right-0 after:bottom-0 after:w-[3px] after:rounded-r',
         borderClass,
+        difficultyIndicator,
         STATUS_CARD_CLASSES[session.status]
-      )}>
+      )}
+      title={difficultyLabel ? `Dificultad: ${difficultyLabel}` : undefined}
+      >
         {/* Scanline signature: refuerza el leitmotiv "tactile/scan" en hover.
             Visibilidad controlada via group-hover para no necesitar state JS. */}
         <ScanlineOverlay className="opacity-0 group-hover:opacity-100 transition-opacity duration-300" />
@@ -219,7 +249,8 @@ const SessionCard = memo(function SessionCard({
         </div>
 
         {session.playStats && session.playStats.playsCount > 0 && (
-          <div className="flex items-center gap-2 rounded-lg bg-background-surface/50 px-3 py-2 text-xs text-text-muted">
+          <div className="flex flex-col gap-2 rounded-lg bg-background-surface/50 px-3 py-2 text-xs text-text-muted">
+            <div className="flex items-center gap-2">
             <BarChart3 size={14} className="text-text-muted/70 flex-shrink-0" />
             <span>
               {session.playStats.playsCount} {session.playStats.playsCount === 1 ? 'partida jugada' : 'partidas jugadas'}
@@ -227,6 +258,17 @@ const SessionCard = memo(function SessionCard({
                 <> {'\u00B7'} {session.playStats.averageScore} pts promedio</>
               )}
             </span>
+            </div>
+            {/* PROP-5: tiempo desde la última partida en formato relativo. */}
+            {session.playStats.lastPlayedAt && (
+              <p className="text-[11px] text-text-muted/80">
+                Última partida: {formatRelativeTime(session.playStats.lastPlayedAt)}
+              </p>
+            )}
+            {/* PROP-5: sparkline solo si hay >=2 puntuaciones. */}
+            {Array.isArray(session.playStats.recentScores) && session.playStats.recentScores.length >= 2 && (
+              <SessionSparkline data={session.playStats.recentScores} height={42} />
+            )}
           </div>
         )}
 

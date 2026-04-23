@@ -14,7 +14,11 @@ const logger = require('../utils/logger');
 const { toGameContextDetailDTOV1, toGameContextListDTOV1 } = require('../utils/dtos');
 const { sendSuccess, sendCreated, sendPaginated } = require('../utils/responseHelper');
 const { buildFilter } = require('../utils/filterBuilder');
-const { cacheGet, cacheInvalidate } = require('../utils/cacheHelper');
+const { cacheGet } = require('../utils/cacheHelper');
+const {
+  buildListCacheKey,
+  invalidateContextCaches
+} = require('../utils/cacheInvalidators/contextCacheInvalidator');
 
 const contextFilterMappings = {
   search: { type: 'search', fields: ['contextId', 'name'] },
@@ -78,29 +82,51 @@ const getContexts = async (req, res) => {
   const filter = buildFilter({ search, isActive }, contextFilterMappings);
 
   // Paginación
-  const skip = (page - 1) * limit;
+  const parsedPage = Number.parseInt(page, 10);
+  const parsedLimit = Number.parseInt(limit, 10);
+  const skip = (parsedPage - 1) * parsedLimit;
   const sortOptions = { [sortBy]: order === 'asc' ? 1 : -1 };
 
-  // Ejecutar query
-  const [contexts, total] = await Promise.all([
-    gameContextRepository.find(filter, {
-      sort: sortOptions,
-      limit: Number.parseInt(limit, 10),
-      skip
-    }),
-    gameContextRepository.count(filter)
-  ]);
+  // Cache de la lista: la key depende de los query params. Las mutaciones
+  // create/update/delete invalidan todas las keys `list:*` del namespace vía
+  // contextCacheInvalidator.invalidateContextCaches.
+  const listCacheKey = buildListCacheKey({
+    page: parsedPage,
+    limit: parsedLimit,
+    sortBy,
+    order,
+    search,
+    isActive
+  });
+
+  const cachedList = await cacheGet(
+    'cache:context',
+    listCacheKey,
+    async () => {
+      const [contexts, total] = await Promise.all([
+        gameContextRepository.find(filter, {
+          sort: sortOptions,
+          limit: parsedLimit,
+          skip,
+          lean: true
+        }),
+        gameContextRepository.count(filter)
+      ]);
+      return { contexts, total };
+    },
+    1800
+  );
 
   logger.info('Lista de contextos obtenida', {
     requestedBy: req.user._id,
     filters: filter,
-    resultsCount: contexts.length
+    resultsCount: cachedList.contexts.length
   });
 
-  sendPaginated(res, toGameContextListDTOV1(contexts), {
-    page: Number.parseInt(page, 10),
-    limit: Number.parseInt(limit, 10),
-    total
+  sendPaginated(res, toGameContextListDTOV1(cachedList.contexts), {
+    page: parsedPage,
+    limit: parsedLimit,
+    total: cachedList.total
   });
 };
 
@@ -173,6 +199,9 @@ const createContext = async (req, res) => {
     assets: assets || []
   });
 
+  // Invalidar las listas cacheadas para que el nuevo contexto aparezca inmediatamente.
+  await invalidateContextCaches(context._id.toString(), context.contextId);
+
   logger.info('Contexto creado', {
     contextId: context.contextId,
     name: context.name,
@@ -228,8 +257,7 @@ const updateContext = async (req, res) => {
 
   await context.save();
 
-  await cacheInvalidate('cache:context', `byId:${id}`);
-  await cacheInvalidate('cache:context', `byId:${context.contextId}`);
+  await invalidateContextCaches(id, context.contextId);
 
   logger.info('Contexto actualizado', {
     contextId: context.contextId,
@@ -271,8 +299,7 @@ const deleteContext = async (req, res) => {
     );
   }
 
-  await cacheInvalidate('cache:context', `byId:${id}`);
-  await cacheInvalidate('cache:context', `byId:${context.contextId}`);
+  await invalidateContextCaches(id, context.contextId);
 
   // Limpiar archivos del contexto en Supabase Storage.
   // Hard-fail: si Supabase falla, se lanza excepción y el contexto NO se elimina de MongoDB.

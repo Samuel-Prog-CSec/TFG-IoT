@@ -322,8 +322,14 @@ async function getPlayerStats(playerId, sessionId = null) {
 }
 
 /**
- * Calcula estadísticas de partidas agrupadas por sesión.
- * Devuelve un Map sessionId → { playsCount, averageScore }.
+ * Calcula estadísticas de partidas agrupadas por sesión, incluyendo:
+ *   - `playsCount` y `averageScore` (uso histórico).
+ *   - `lastPlayedAt`: fecha de la última partida completada (para PROP-5,
+ *     "hace X días" en SessionCard).
+ *   - `recentScores`: hasta 7 últimas puntuaciones, ordenadas cronológicamente
+ *     ascendente (para sparkline en SessionCard, PROP-5).
+ *
+ * Devuelve un Map sessionId → stats. Solo considera plays con `status: 'completed'`.
  *
  * @param {Array<string|ObjectId>} sessionIds - IDs de sesiones
  * @returns {Promise<Object>} Mapa sessionId → stats
@@ -335,11 +341,28 @@ async function getPlayStatsBySessionIds(sessionIds) {
 
   const playStatsAgg = await gamePlayRepository.aggregate([
     { $match: { sessionId: { $in: sessionIds }, status: 'completed' } },
+    { $sort: { completedAt: -1 } },
     {
       $group: {
         _id: '$sessionId',
         playsCount: { $sum: 1 },
-        averageScore: { $avg: '$score' }
+        averageScore: { $avg: '$score' },
+        lastPlayedAt: { $max: '$completedAt' },
+        // Toma las primeras 7 entradas tras el sort desc → últimas 7 partidas.
+        recentScoresDesc: {
+          $push: { score: '$score', completedAt: '$completedAt' }
+        }
+      }
+    },
+    {
+      $project: {
+        playsCount: 1,
+        averageScore: 1,
+        lastPlayedAt: 1,
+        // Limitar a 7 elementos y revertir para orden cronológico ascendente.
+        recentScores: {
+          $reverseArray: { $slice: ['$recentScoresDesc', 7] }
+        }
       }
     }
   ]);
@@ -348,7 +371,12 @@ async function getPlayStatsBySessionIds(sessionIds) {
   for (const stat of playStatsAgg) {
     statsMap[stat._id.toString()] = {
       playsCount: stat.playsCount,
-      averageScore: Math.round(stat.averageScore ?? 0)
+      averageScore: Math.round(stat.averageScore ?? 0),
+      lastPlayedAt: stat.lastPlayedAt || null,
+      recentScores: (stat.recentScores || []).map(s => ({
+        score: Math.round(s.score ?? 0),
+        completedAt: s.completedAt
+      }))
     };
   }
   return statsMap;

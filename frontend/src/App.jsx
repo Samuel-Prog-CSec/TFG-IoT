@@ -19,6 +19,7 @@ import { ROUTES } from './constants/routes';
 import RFIDModeHandler from './components/game/RFIDModeHandler';
 import TopProgressBar from './components/ui/TopProgressBar';
 import { RfidModeProvider } from './context/RfidModeContext';
+import { FeatureFlagsProvider } from './context/FeatureFlagsContext';
 
 // Lazy loaded pages for better performance
 const Dashboard = lazy(() => import('./pages/Dashboard'));
@@ -56,6 +57,7 @@ const NotFound = lazy(() => import('./pages/NotFound'));
 const ApprovalPanel = lazy(() => import('./pages/admin/ApprovalPanel'));
 const StudentManagement = lazy(() => import('./pages/admin/StudentManagement'));
 const AdminContexts = lazy(() => import('./pages/admin/AdminContexts'));
+const FeatureFlagsPanel = lazy(() => import('./pages/admin/FeatureFlagsPanel'));
 
 // Public pages
 const PrivacyPage = lazy(() => import('./pages/PrivacyPage'));
@@ -167,6 +169,7 @@ function AppContent() {
           <Route path="students" element={<SuspenseWrapper><StudentManagement /></SuspenseWrapper>} />
           <Route path="students/transfer" element={<SuspenseWrapper><TransferStudents /></SuspenseWrapper>} />
           <Route path="contexts" element={<SuspenseWrapper><AdminContexts /></SuspenseWrapper>} />
+          <Route path="flags" element={<SuspenseWrapper><FeatureFlagsPanel /></SuspenseWrapper>} />
           {/* 404 dentro del layout admin */}
           <Route path="*" element={<SuspenseWrapper><NotFound /></SuspenseWrapper>} />
         </Route>
@@ -191,24 +194,26 @@ export default function App() {
   return (
     <BrowserRouter>
       <AuthProvider>
-        <RfidModeProvider>
-          <AppContent />
-          <Toaster 
-            position="top-right"
-            expand={false}
-            richColors
-            closeButton
-            theme="dark"
-            toastOptions={{
-              duration: 4000,
-              style: {
-                background: 'rgba(30, 41, 59, 0.95)',
-                border: '1px solid rgba(255, 255, 255, 0.1)',
-                backdropFilter: 'blur(8px)',
-              },
-            }}
-          />
-        </RfidModeProvider>
+        <FeatureFlagsProvider>
+          <RfidModeProvider>
+            <AppContent />
+            <Toaster
+              position="top-right"
+              expand={false}
+              richColors
+              closeButton
+              theme="dark"
+              toastOptions={{
+                duration: 4000,
+                style: {
+                  background: 'rgba(30, 41, 59, 0.95)',
+                  border: '1px solid rgba(255, 255, 255, 0.1)',
+                  backdropFilter: 'blur(8px)',
+                },
+              }}
+            />
+          </RfidModeProvider>
+        </FeatureFlagsProvider>
       </AuthProvider>
     </BrowserRouter>
   );

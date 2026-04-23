@@ -3,11 +3,15 @@
 ## Contexto
 
 El proyecto tiene una implementacion de rate limiting dual:
-- **HTTP**: `express-rate-limit` v8.3 + `rate-limit-redis` v4.3 (7 limiters, Redis store)
-- **WebSocket**: Clase custom `SocketRateLimiter` (sliding window en memoria, no Redis)
+- **HTTP**: `express-rate-limit` v8.3 + `rate-limit-redis` v4.3 (7 limiters, Redis store).
+- **WebSocket**: Clase custom `SocketRateLimiter` con **path Redis distribuido**
+  (Lua atómico + ZSET) + fallback in-memory transparente (ADR-075, 2026-04-23).
 
 Despliegue previsto: MongoDB Atlas, backend en Heroku/fly.io, frontend en Vercel/fly.io.
-Gap principal: WebSocket rate limiting no usa Redis (no distribuido).
+
+> **Estado 2026-04-23:** los dos gaps históricos (HTTP distribuido en ADR-068 y
+> WebSocket distribuido en ADR-075) están resueltos. El proyecto puede ejecutarse
+> en N instancias con rate limit consistente.
 
 ---
 
