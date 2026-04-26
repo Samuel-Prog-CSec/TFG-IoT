@@ -8,6 +8,7 @@ import { formatRelativeTime } from '../lib/dateUtils';
 import { useDocumentTitle } from '../hooks/useDocumentTitle';
 import { useRefetchOnFocus } from '../hooks/useRefetchOnFocus';
 import { useReducedMotion } from '../hooks/useReducedMotion';
+import { useHorizontalScroll } from '../hooks/useHorizontalScroll';
 import { useAuth } from '../context/AuthContext';
 import analyticsService from '../services/analytics';
 import { isAbortError, contextsAPI, mechanicsAPI } from '../services/api';
@@ -217,8 +218,8 @@ export default function Dashboard() {
 
           {/* KPIs Skeleton */}
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 lg:gap-6">
-            {[...Array(8)].map((_, index) => (
-              <SkeletonStatCard key={`stat-skeleton-${index}`} />
+            {Array.from({ length: 8 }, (_, i) => `stat-skeleton-${i}`).map(id => (
+              <SkeletonStatCard key={id} />
             ))}
           </div>
 
@@ -289,6 +290,7 @@ export default function Dashboard() {
                     periodLabel={periodLabel}
                     icon={<AlertTriangle className="text-white drop-shadow-sm" size={24} aria-hidden="true" />}
                     color="bg-gradient-to-br from-error-base to-error-dark"
+                    higherIsBetter={false}
                     onClick={() => navigate('/analytics/students')}
                   />
                 </motion.div>
@@ -356,6 +358,7 @@ export default function Dashboard() {
                     periodLabel={periodLabel}
                     icon={<Clock className="text-white drop-shadow-sm" size={24} aria-hidden="true" />}
                     color="bg-gradient-to-br from-accent-orange to-warning-base"
+                    higherIsBetter={false}
                     compact
                     onClick={() => navigate('/analytics/insights')}
                   />
@@ -658,6 +661,10 @@ function RecentActivity({ students }) {
       .slice(0, 6);
   }, [students]);
 
+  // Hooks antes del early-return para respetar reglas de hooks de React.
+  const { ref: scrollRef, hasOverflow, canScrollRight, scrollByOne } = useHorizontalScroll();
+  const { shouldReduceMotion: reduced } = useReducedMotion();
+
   if (recentStudents.length === 0) return null;
 
   const getInitials = (name) => {
@@ -671,7 +678,7 @@ function RecentActivity({ students }) {
   return (
     <section className="bg-background-elevated/40 backdrop-blur-sm rounded-2xl border border-border-subtle p-5 relative overflow-hidden">
       <h3 className="text-lg font-bold text-text-primary font-display mb-4">Actividad Reciente</h3>
-      <div className="flex gap-3 overflow-x-auto pb-2 -mx-1 px-1 custom-scrollbar">
+      <div ref={scrollRef} className="flex gap-3 overflow-x-auto pb-2 -mx-1 px-1 custom-scrollbar">
         {recentStudents.map((student, index) => (
           <div
             key={student.studentId || student._id || `recent-${index}`}
@@ -694,10 +701,27 @@ function RecentActivity({ students }) {
           </div>
         ))}
       </div>
-      {/* Fade a la derecha para indicar scroll horizontal cuando hay más
-          cards que viewport (QA 22/04/2026). */}
-      {recentStudents.length > 3 && (
-        <div className="pointer-events-none absolute right-0 top-[3.75rem] bottom-5 w-12 bg-gradient-to-l from-background-elevated to-transparent" />
+
+      {/* Fade a la derecha — visible solo si todavia queda contenido por
+          scrollear (useHorizontalScroll detecta overflow real, PROP-86). */}
+      {canScrollRight && (
+        <div
+          className="pointer-events-none absolute right-0 top-[3.75rem] bottom-5 w-16 bg-gradient-to-l from-background-elevated via-background-elevated/80 to-transparent"
+          aria-hidden="true"
+        />
+      )}
+
+      {/* Chevron button: scrollea ~80% del viewport al pulsar. Desaparece
+          al llegar al final. Respeta reduced-motion. */}
+      {hasOverflow && canScrollRight && (
+        <button
+          type="button"
+          onClick={() => scrollByOne(reduced ? 'auto' : 'smooth')}
+          aria-label="Ver más actividad"
+          className="absolute right-3 top-1/2 -translate-y-1/2 size-9 rounded-full bg-background-surface/90 hover:bg-background-surface ring-1 ring-border-default backdrop-blur-sm flex items-center justify-center text-text-secondary hover:text-text-primary transition-colors shadow-lg z-10"
+        >
+          <ChevronRight size={18} aria-hidden="true" />
+        </button>
       )}
     </section>
   );

@@ -1053,7 +1053,15 @@ const validateRfidSensorAuthorization = (socket, modeState, payload, gameEngine)
 };
 
 const ensureRfidSensorConsistency = (socket, modeState, payload) => {
-  if (modeState.sensorId && modeState.sensorId !== payload.sensorId) {
+  // Los sensores touch_fallback (panel táctil del navegador cuando no hay
+  // sensor físico conectado) se aceptan siempre, igual que en
+  // validateRfidSensorAuthorization. De lo contrario, si el modeState quedó
+  // vinculado a un sensorId previo (p. ej. tras simular escaneos en el wizard
+  // de mazos), los toques sucesivos del fallback se rechazaban con
+  // RFID_SENSOR_MISMATCH y la respuesta no se contabilizaba (QA 26/04/2026).
+  const isTouchFallback = payload.sensorId?.startsWith?.('touch_fallback');
+
+  if (modeState.sensorId && modeState.sensorId !== payload.sensorId && !isTouchFallback) {
     socket.emit('error', {
       code: 'RFID_SENSOR_MISMATCH',
       message:
@@ -1069,7 +1077,10 @@ const ensureRfidSensorConsistency = (socket, modeState, payload) => {
     return false;
   }
 
-  if (!modeState.sensorId) {
+  // Solo bindeamos el sensorId persistente con sensores reales: nunca
+  // sobreescribir el binding con `touch_fallback_sensor`, porque dejaría al
+  // próximo scan de un sensor físico atascado en consistency mismatch.
+  if (!modeState.sensorId && !isTouchFallback) {
     setRfidSensorBinding(socket.data.userId, payload.sensorId, socket.id);
   }
 

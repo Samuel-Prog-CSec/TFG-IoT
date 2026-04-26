@@ -929,6 +929,22 @@ class GameEngine {
       const remainingTimeMs = this.getMemoryRemainingTimeMs(playState);
       playState.awaitingResponse = true;
 
+      // En modo memoria el timer del backend solo arranca cuando el cliente
+      // confirma `board_ready`, por lo que `remainingTimeMs` puede ser null
+      // en este punto (al emitir el primer `new_round`). Si lo enviamos así,
+      // `Math.ceil((null||0)/1000) = 0` y el `Math.max(1, ...)` lo deja en
+      // 1 segundo, dejando la TimerBar fosilizada en `timeLimit=1` durante
+      // toda la partida (QA 26/04/2026 — el usuario reportó "la barra de
+      // tiempo no baja"). Para memoria publicamos siempre la duración total
+      // (`playDurationMs`) como `timeLimit`; el frontend la usa como
+      // `roundTime` y `useGameTimer` la sincroniza vía effect cuando el
+      // posterior `memory_turn_state` con `remainingTimeMs > 0` activa
+      // `memoryTimerArmed`.
+      const memoryTimeLimitSec = Math.max(
+        1,
+        Math.ceil((playState.playDurationMs || remainingTimeMs || 0) / 1000)
+      );
+
       this.io.to(`play_${playId}`).emit('new_round', {
         roundNumber: playState.playDoc.currentRound,
         totalRounds: Number(playState.strategyState?.totalGroups || 0),
@@ -937,7 +953,7 @@ class GameEngine {
             mode: 'memory_board'
           }
         },
-        timeLimit: Math.max(1, Math.ceil((remainingTimeMs || 0) / 1000)),
+        timeLimit: memoryTimeLimitSec,
         score: playState.playDoc.score
       });
 
@@ -1003,12 +1019,15 @@ class GameEngine {
       });
     }
 
-    // 5. Emitir al cliente
+    // 5. Emitir al cliente. `promptText` opcional: en asociación el profesor
+    // puede personalizar la consigna por ronda (QA 2026-04-24, PROP-102).
+    // Si viene vacío, el cliente aplica el default "¿Dónde está <X>?".
     this.io.to(`play_${playId}`).emit('new_round', {
       roundNumber: playDoc.currentRound,
       totalRounds: sessionDoc.config.numberOfRounds,
       challenge: {
-        displayData: challengeMapping.displayData
+        displayData: challengeMapping.displayData,
+        promptText: challengeMapping.promptText || undefined
       },
       timeLimit: sessionDoc.config.timeLimit,
       score: playDoc.score
@@ -1187,7 +1206,6 @@ class GameEngine {
 
     let pointsAwarded = 0;
     let eventType;
-    const symbol = isCorrect ? '+' : '-';
 
     if (isCorrect) {
       pointsAwarded = sessionDoc.config.pointsPerCorrect;
@@ -1196,6 +1214,11 @@ class GameEngine {
       pointsAwarded = sessionDoc.config.penaltyPerError;
       eventType = 'error';
     }
+
+    // `penaltyPerError` ya viene con signo (e.g. -2), por lo que usamos el
+    // propio signo del valor en el log. El previo `symbol = '-'` producia
+    // `--2 pts` al concatenar con un valor negativo (QA 2026-04-24).
+    const symbol = pointsAwarded >= 0 ? '+' : '';
 
     // 2. Crear el evento para la BD
     const eventData = {
@@ -1531,6 +1554,15 @@ class GameEngine {
     playState.awaitingBoardReady = false;
     playState.playEndsAt = Date.now() + playState.playDurationMs;
     this.scheduleMemoryPlayTimeout(playId, playState, playState.playDurationMs);
+
+    // Re-emitir estado del tablero para que el cliente reciba ya un
+    // `remainingTimeMs > 0` y active `memoryTimerArmed`. Sin esto, el primer
+    // `memory_turn_state` (emitido al `new_round`) viajaba con
+    // `remainingTimeMs = null` (porque playEndsAt aún no estaba seteado);
+    // los `memory_turn_state` siguientes solo se emiten al levantar cartas,
+    // así que la barra del cliente no podía empezar a decrementar hasta
+    // que el alumno tocaba la primera carta (QA 26/04/2026).
+    this.emitMemoryTurnState(playId, playState, { phase: 'round_start' });
 
     logger.info('Timer de memoria iniciado tras board_ready', {
       playId,

@@ -53,7 +53,7 @@ const parseWhitelist = raw => {
 /**
  * `redisService.hgetall` intenta JSON.parse cada campo, lo que convierte
  * strings numéricos ('1', '50') en números y strings JSON en objetos.
- * Para un contrato estable con el resto del servicio, normalizamos todo a string.
+ * Para un contrato estable con el resto del servicio, normalizamos cada campo a string.
  *
  * @param {Object|null} raw
  * @returns {Object|null}

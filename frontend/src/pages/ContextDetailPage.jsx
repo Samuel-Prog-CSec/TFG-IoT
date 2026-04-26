@@ -119,7 +119,7 @@ export default function ContextDetailPage() {
           <div className="h-8 w-32 bg-background-elevated rounded animate-pulse mb-6" />
           <div className="h-24 bg-background-elevated rounded-2xl animate-pulse mb-8" />
           <div className="grid grid-cols-2 md:grid-cols-3 gap-6">
-            {[...Array(6)].map((_, i) => <SkeletonCard key={i} />)}
+            {Array.from({ length: 6 }, (_, i) => `ctx-detail-skeleton-${i}`).map(id => <SkeletonCard key={id} />)}
           </div>
         </div>
       </div>
@@ -556,7 +556,11 @@ function UploadAssetModal({ context, onClose, onSuccess }) {
         data.append('display', formData.display.trim());
       }
 
-      await contextsAPI.uploadImage(context._id || context.contextId, data);
+      // El endpoint espera el _id de Mongo en la URL. El DTO
+      // `toGameContextDTOV1` expone `id` (no `_id`), por lo que sin este
+      // fallback el upload caia al `contextId` (slug) y el backend respondia
+      // 400 "ID de MongoDB invalido" (QA 26/04/2026).
+      await contextsAPI.uploadImage(context._id || context.id || context.contextId, data);
       toast.success('Imagen subida correctamente');
       onSuccess();
     } catch (err) {

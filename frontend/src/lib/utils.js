@@ -180,7 +180,7 @@ export function formatNumber(num) {
  * las, en, a, y, o, del, al), que quedan en minúsculas salvo si son la
  * primera palabra del título.
  *
- * Solo normaliza si el texto está *todo en minúsculas* o *todo en mayúsculas*:
+ * Solo normaliza si el texto está *enteramente en minúsculas* o *enteramente en mayúsculas*:
  * si el autor ya tuvo intención de case mixto (p. ej. "Deck de prueba"),
  * respeta su elección para no romper identificadores en tests o decisiones
  * deliberadas del usuario (QA 22/04/2026).
@@ -196,7 +196,7 @@ export function formatNumber(num) {
  */
 export function toTitleCaseEs(text) {
   if (!text || typeof text !== 'string') return text;
-  // Solo actuar sobre textos sin casing intencional (todo lower o todo upper).
+  // Solo actuar sobre textos sin casing intencional (enteramente lower o enteramente upper).
   // Los textos con mezcla de mayúsculas/minúsculas se devuelven tal cual.
   const hasMixedCase = /[a-záéíóúñ]/.test(text) && /[A-ZÁÉÍÓÚÑ]/.test(text);
   if (hasMixedCase) return text;

@@ -341,11 +341,33 @@ Se establece una politica dual para dependencias:
 - Forzar `overrides` globales (por ejemplo `minimatch`) para eliminar todo warning de dev tooling puede romper `eslint` o `jest` por incompatibilidades de API.
 - El enfoque adoptado prioriza **seguridad efectiva en produccion** sin degradar estabilidad de desarrollo.
 
+## Excepciones aceptadas en el gate de produccion
+
+El gate `Security gate (producción)` en `.github/workflows/build.yml` admite una lista explicita
+de advisories excluidos por workspace. Cada exclusion debe ser trazable a una razon tecnica que
+acredite que la ruta vulnerable no es alcanzable en nuestra cadena de dependencias.
+
+### Backend
+
+| Advisory | Paquete | Motivo |
+|---|---|---|
+| `GHSA-w5hq-g745-h8pq` | `uuid` < 14.0.0 (via `bullmq`) | La ruta vulnerable (buffer bounds check) solo aplica a `v3/v5/v6` cuando se pasa el argumento `buf`. `bullmq` es el unico consumidor transitivo y solo invoca `uuid.v4()` sin `buf` (`queue.js`, `worker.js`, `flow-producer.js`). No es posible forzar `uuid@14+` mediante `overrides`: `uuid@12` elimino el soporte CommonJS y `bullmq` (CJS) fallaria en runtime. La exclusion se retirara cuando `bullmq` bumpee su dependencia transitiva. |
+
+### Frontend
+
+| Advisory | Paquete | Motivo |
+|---|---|---|
+| `GHSA-3p68-rc4w-qgx5` | `axios` | SSRF via NO_PROXY bypass; superficie Node.js server-side, no alcanzable en navegador. |
+| `GHSA-fvcv-3m26-pcqx` | `axios` | Cloud Metadata Exfiltration via Header Injection; superficie server-side. |
+| `GHSA-r4q5-vmmm-2653` | `follow-redirects` | Cabeceras de auth filtradas en redirects cross-domain; superficie server-side. |
+
+`axios` esta fijado a `1.14.0` (ultima version pre-supply-chain-attack).
+
 ## Gobernanza de dependencias (operativa)
 
 - **Automatizacion mensual:** Dependabot genera PRs cada mes para backend, frontend y GitHub Actions.
 - **Revision mensual:** se realiza triage y mantenimiento planificado de vulnerabilidades de tooling.
-- **Sin registro formal de excepciones:** la gestion de deuda se controla por la revision mensual y por estado en PR/CI.
+- **Registro de excepciones:** ver la seccion "Excepciones aceptadas en el gate de produccion" arriba; cada PR que introduzca o retire una exclusion debe actualizar esa tabla.
 - **Playbook oficial:** ver `documentation/03-Gestion_Dependencias.md`.
 
 ## Referencias de Implementacion

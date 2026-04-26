@@ -215,8 +215,9 @@ export default function DeckCard({
     deck
   });
 
-  // Obtener preview de assets (primeros 4)
-  const previewAssets = deck.cardMappings?.slice(0, 4) || [];
+  // Obtener preview de assets (primeros 6, que coincide con el mazo estandar
+  // de 6 cartas unicas). Asi el contrato visual iguala al conteo real.
+  const previewAssets = deck.cardMappings?.slice(0, 6) || [];
   const cardsCount = deck.cardMappings?.length ?? deck.cardsCount ?? 0;
   const remainingCount = Math.max(cardsCount - previewAssets.length, 0);
   const showActions = !selectable;
@@ -554,7 +555,7 @@ function DeckPreviewAssets({
             className="size-10 rounded-lg border border-border-default flex items-center justify-center text-lg overflow-hidden shadow-[inset_0_1px_4px_rgba(0,0,0,0.3)] ring-1 ring-white/5"
             initial={{ opacity: 0, scale: 0.8 }}
             animate={{ opacity: 1, scale: 1 }}
-            transition={{ delay: index * 0.1 }}
+            transition={{ delay: index * 0.06 }}
             title={label}
             style={{
               transform: `translateZ(${(index + 1) * 10}px)`,

@@ -360,16 +360,16 @@ class SocketRateLimiter {
         try {
           raw = await redis.evalsha(sha, ...args);
         } catch (error) {
-          if (error?.message?.includes?.('NOSCRIPT')) {
-            const source = getLuaScriptSource(LUA_SCRIPT_NAME);
-            if (source) {
-              raw = await redis.eval(source, ...args);
-            } else {
-              throw error;
-            }
-          } else {
+          // Flatten de control flow: re-lanzar pronto si no es recuperable, en
+          // vez de anidar if/if dentro del catch (regla sonarjs/nested-control-flow).
+          if (!error?.message?.includes?.('NOSCRIPT')) {
             throw error;
           }
+          const source = getLuaScriptSource(LUA_SCRIPT_NAME);
+          if (!source) {
+            throw error;
+          }
+          raw = await redis.eval(source, ...args);
         }
       } else {
         const source = getLuaScriptSource(LUA_SCRIPT_NAME);

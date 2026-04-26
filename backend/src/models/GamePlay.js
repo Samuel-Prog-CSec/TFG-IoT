@@ -268,6 +268,21 @@ gamePlaySchema.methods.addEventAtomic = async function (eventData, options = {})
   await this.constructor.updateOne({ _id: this._id }, update);
   applyEventToDocState(this, normalizedEventData, options);
 
+  // El `$push` de events y los `$inc` de metrics/score/currentRound ya están
+  // persistidos por updateOne. La mutación adicional sobre `this` que hace
+  // `applyEventToDocState` mantiene el doc en memoria sincronizado para los
+  // callers que leen `playDoc.metrics.*` justo después, pero deja a Mongoose
+  // tracking esos cambios como modificaciones pendientes. Si más tarde se
+  // invoca `playDoc.save()` (p. ej. en `complete()`, `persistPause/Resume` o
+  // `checkpointPlayIfNeeded`), Mongoose vuelve a aplicar el `$push` del array
+  // y los $inc, duplicando eventos en BD (QA 26/04/2026: partida de memoria
+  // de 7 pares mostraba 28 entradas en events). $__reset() limpia el
+  // tracking interno para que los siguientes save() solo persistan campos
+  // realmente modificados después de este addEventAtomic.
+  if (typeof this.$__reset === 'function') {
+    this.$__reset();
+  }
+
   return this;
 };
 

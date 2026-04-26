@@ -51,7 +51,7 @@ function GameOverScreen({
     switch (stars) {
       case 3: return {
         Icon: Trophy, iconClass: 'text-warning-base drop-shadow-[0_0_18px_var(--color-warning-glow)]',
-        text: '¡INCREIBLE!', sub: '¡Eres un crack!',
+        text: '¡INCREÍBLE!', sub: '¡Eres un crack!',
         glowA: 'bg-warning-base/25', glowB: 'bg-brand-base/25',
       };
       case 2: return {
@@ -256,34 +256,65 @@ function GameOverScreen({
             </div>
           </dl>
 
-          {/* Resumen detallado */}
-          {summary && (
-            <div className="grid grid-cols-3 gap-2 mb-8 text-xs">
-              <div className="rounded-lg bg-background-elevated/60 border border-border-subtle px-3 py-2 text-center">
-                <div className="text-text-muted">Sin completar</div>
-                <div className="text-white font-display font-semibold">{Math.max(0, totalRounds - correctAnswers)}</div>
-              </div>
-              <div className="rounded-lg bg-background-elevated/60 border border-border-subtle px-3 py-2 text-center">
-                <div className="text-text-muted">T. medio</div>
-                <div className="text-white font-display font-semibold">
-                  {/* En modo memory no hay T. medio del servidor */}
-                  {(() => {
-                    if (summary.averageResponseTimeMs > 0) return `${(summary.averageResponseTimeMs / 1000).toFixed(1)}s`;
-                    if (summary.mode === 'memory') return 'N/A';
-                    return '—';
-                  })()}
+          {/* Resumen detallado. Desglosamos "Sin completar" en Incorrectas
+              (respuestas erroneas, summary.errors) y Sin responder
+              (rondas con timeout, remainder), para que el profesor vea
+              si el alumno se equivoco o si se quedo bloqueado sin tocar
+              la tarjeta (QA 2026-04-24, PROP-104). */}
+          {summary && (() => {
+            const errors = Number.isFinite(summary.errors) ? summary.errors : null;
+            const unanswered = errors != null
+              ? Math.max(0, totalRounds - correctAnswers - errors)
+              : null;
+            const avgTimeLabel = (() => {
+              if (summary.averageResponseTimeMs > 0) return `${(summary.averageResponseTimeMs / 1000).toFixed(1)}s`;
+              if (summary.mode === 'memory') return 'N/A';
+              return '—';
+            })();
+            const totalTimeLabel = summary.totalTimePlayed > 0
+              ? `${(summary.totalTimePlayed / (1000 * 60)).toFixed(1)} min`
+              : '—';
+            // Con summary.errors desglosamos en 4 columnas; sin el desglose,
+            // fallback al pill unico "Sin completar".
+            if (errors != null) {
+              return (
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 mb-8 text-xs">
+                  <div className="rounded-lg bg-error-base/10 border border-error-base/20 px-3 py-2 text-center" title="Respuestas incorrectas (tarjeta equivocada)">
+                    <div className="text-text-muted">Incorrectas</div>
+                    <div className="text-error-base font-display font-semibold">{errors}</div>
+                  </div>
+                  <div className="rounded-lg bg-background-elevated/60 border border-border-subtle px-3 py-2 text-center" title="Rondas sin respuesta (timeout)">
+                    <div className="text-text-muted">Sin responder</div>
+                    <div className="text-white font-display font-semibold">{unanswered}</div>
+                  </div>
+                  <div className="rounded-lg bg-background-elevated/60 border border-border-subtle px-3 py-2 text-center">
+                    <div className="text-text-muted">T. medio</div>
+                    <div className="text-white font-display font-semibold">{avgTimeLabel}</div>
+                  </div>
+                  <div className="rounded-lg bg-background-elevated/60 border border-border-subtle px-3 py-2 text-center">
+                    <div className="text-text-muted">Tiempo</div>
+                    <div className="text-white font-display font-semibold">{totalTimeLabel}</div>
+                  </div>
+                </div>
+              );
+            }
+            return (
+              <div className="grid grid-cols-3 gap-2 mb-8 text-xs">
+                <div className="rounded-lg bg-background-elevated/60 border border-border-subtle px-3 py-2 text-center" title="Rondas no completadas (incorrectas + sin responder)">
+                  <div className="text-text-muted">Sin completar</div>
+                  <div className="text-white font-display font-semibold">{Math.max(0, totalRounds - correctAnswers)}</div>
+                </div>
+                <div className="rounded-lg bg-background-elevated/60 border border-border-subtle px-3 py-2 text-center">
+                  <div className="text-text-muted">T. medio</div>
+                  <div className="text-white font-display font-semibold">{avgTimeLabel}</div>
+                </div>
+                <div className="rounded-lg bg-background-elevated/60 border border-border-subtle px-3 py-2 text-center">
+                  <div className="text-text-muted">Tiempo</div>
+                  <div className="text-white font-display font-semibold">{totalTimeLabel}</div>
                 </div>
               </div>
-              <div className="rounded-lg bg-background-elevated/60 border border-border-subtle px-3 py-2 text-center">
-                <div className="text-text-muted">Tiempo</div>
-                <div className="text-white font-display font-semibold">
-                  {summary.totalTimePlayed > 0
-                    ? `${(summary.totalTimePlayed / (1000 * 60)).toFixed(1)} min`
-                    : '—'}
-                </div>
-              </div>
-            </div>
-          )}
+            );
+          })()}
 
           {!summary && <div className="mb-8" />}
 

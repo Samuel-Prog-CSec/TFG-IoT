@@ -506,7 +506,11 @@ async function getClassroomStudents(
       studentMetrics: {
         totalGamesPlayed: metrics.totalGamesPlayed || 0,
         totalScore: metrics.totalScore || 0,
-        averageScore: metrics.averageScore || 0,
+        // Redondeo a 1 decimal para evitar floats con cola larga (p. ej.
+        // `42.722222...`) en la UI tras agregaciones de Mongo (QA 26/04/2026).
+        averageScore: Number.isFinite(metrics.averageScore)
+          ? Math.round(metrics.averageScore * 10) / 10
+          : 0,
         bestScore: metrics.bestScore || 0,
         totalCorrectAnswers: metrics.totalCorrectAnswers || 0,
         totalErrors: metrics.totalErrors || 0,

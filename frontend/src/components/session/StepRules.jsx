@@ -249,7 +249,10 @@ export default function StepRules({
                   </span>
                   <button
                     type="button"
-                    className="flex items-center h-6 w-12 rounded-full bg-background-surface relative p-1"
+                    role="switch"
+                    aria-checked={linkSensor}
+                    aria-label={linkSensor ? 'Desvincular sensor RFID' : 'Vincular sensor RFID'}
+                    className="flex items-center h-6 w-12 rounded-full bg-background-surface relative p-1 focus:outline-none focus-visible:ring-2 focus-visible:ring-accent-indigo focus-visible:ring-offset-2 focus-visible:ring-offset-background-base"
                     onClick={() => onLinkSensorChange(!linkSensor)}
                   >
                     <motion.div

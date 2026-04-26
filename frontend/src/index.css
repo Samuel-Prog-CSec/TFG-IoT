@@ -77,6 +77,16 @@
   --color-theme-numbers-alt: oklch(70% 0.12 183);
   --color-theme-numbers-text: oklch(82% 0.14 158);
 
+  /* Podium rankings (Top 3) — lenguaje universal oro/plata/bronce
+     usado en widgets de rankings. Mantiene coherencia con warning-base
+     pero con saturacion mayor para el dorado y tonos tierra para bronce. */
+  --color-podium-gold: oklch(82% 0.16 85);
+  --color-podium-gold-glow: oklch(82% 0.16 85 / 0.35);
+  --color-podium-silver: oklch(80% 0.02 260);
+  --color-podium-silver-glow: oklch(80% 0.02 260 / 0.3);
+  --color-podium-bronze: oklch(65% 0.12 45);
+  --color-podium-bronze-glow: oklch(65% 0.12 45 / 0.3);
+
   /* Timer States */
   --color-timer-safe: oklch(77% 0.16 156);
   --color-timer-safe-alt: oklch(79% 0.11 215);

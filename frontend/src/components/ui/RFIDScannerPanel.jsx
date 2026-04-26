@@ -295,9 +295,9 @@ export default function RFIDScannerPanel({
           <AnimatePresence>
             {isScanning && !prefersReducedMotion && (
               <>
-                {[...Array(3)].map((_, i) => (
+                {Array.from({ length: 3 }, (_, i) => ({ id: `radar-wave-${i}`, delay: i * 0.6 })).map(wave => (
                   <motion.div
-                    key={i}
+                    key={wave.id}
                     className="absolute size-32 rounded-full border-2 border-accent-indigo/30"
                     initial={{ scale: 0.5, opacity: 0.8 }}
                     animate={{
@@ -307,7 +307,7 @@ export default function RFIDScannerPanel({
                     transition={{
                       duration: 2,
                       repeat: Infinity,
-                      delay: i * 0.6,
+                      delay: wave.delay,
                       ease: 'easeOut',
                     }}
                   />

@@ -366,7 +366,7 @@ export default function SessionDetail() {
               <div className="bg-warning-base/10 rounded-xl p-4">
                 <div className="flex items-center gap-2 text-sm text-text-muted">
                   <Timer size={15} className="text-warning-base shrink-0" />
-                  <span>Tiempo por ronda</span>
+                  <span>{String(session.mechanic?.name || '').toLowerCase() === 'memory' ? 'Tiempo total' : 'Tiempo por ronda'}</span>
                 </div>
                 <p className="text-text-primary text-xl font-semibold font-display mt-2">
                   {session.config?.timeLimit}s
@@ -384,7 +384,7 @@ export default function SessionDetail() {
               <div className="bg-accent-cyan/10 rounded-xl p-4">
                 <div className="flex items-center gap-2 text-sm text-text-muted">
                   <RotateCcw size={15} className="text-accent-cyan shrink-0" />
-                  <span>Rondas</span>
+                  <span>{String(session.mechanic?.name || '').toLowerCase() === 'memory' ? 'Parejas' : 'Rondas'}</span>
                 </div>
                 <p className="text-text-primary text-xl font-semibold font-display mt-2">
                   {session.config?.numberOfRounds}

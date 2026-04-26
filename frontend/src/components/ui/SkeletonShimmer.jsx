@@ -40,14 +40,14 @@ export default function SkeletonShimmer({
   if (variant === 'text') {
     return (
       <div className={cn('space-y-2.5', className)} {...props}>
-        {Array.from({ length: lines }).map((_, i) => (
-          <div 
-            key={i}
+        {Array.from({ length: lines }, (_, i) => ({ id: `skeleton-line-${i}`, index: i })).map(line => (
+          <div
+            key={line.id}
             className={cn(
-              baseClasses, 
+              baseClasses,
               'h-4 rounded-md',
               // Simular anchos variables para líneas de texto
-              i === lines - 1 && lines > 1 ? 'w-2/3' : 'w-full'
+              line.index === lines - 1 && lines > 1 ? 'w-2/3' : 'w-full'
             )}
           />
         ))}

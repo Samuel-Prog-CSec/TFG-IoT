@@ -76,7 +76,7 @@ const logger = pino(
           return value;
         }
         // eslint-disable-next-line no-control-regex -- Intencional: eliminar chars de control (U+0000-U+001F, U+007F)
-        return value.replace(/[\u0000-\u001f\u007f]/g, '');
+        return value.replaceAll(/[\u0000-\u001f\u007f]/g, '');
       }
     },
     hooks: {

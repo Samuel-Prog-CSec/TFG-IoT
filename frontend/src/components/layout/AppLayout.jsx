@@ -28,6 +28,7 @@ import { useAuth } from '../../context/AuthContext';
 import { cn, motionConfig } from '../../lib/utils';
 import { useIsMobile } from '../../hooks/useIsMobile';
 import { useReducedMotion } from '../../hooks/useReducedMotion';
+import ConfirmationModal, { useConfirmationModal } from '../ui/ConfirmationModal';
 
 export default function AppLayout() {
   const [sidebarOpen, setSidebarOpen] = useState(false);
@@ -35,6 +36,21 @@ export default function AppLayout() {
   const location = useLocation();
   const { user, logout, isSuperAdmin } = useAuth();
   const { shouldReduceMotion, setUserPreference, resetUserPreference } = useReducedMotion();
+  const logoutModal = useConfirmationModal();
+
+  // Confirmacion al cerrar sesion: un click accidental pierde filtros y
+  // estado de navegacion (PROP-85). Variant warning (no danger) porque es
+  // reversible — re-login recupera el acceso.
+  const handleLogoutClick = () => {
+    logoutModal.openModal({
+      title: '¿Cerrar sesión?',
+      description: 'Se cerrará tu sesión actual. Tendrás que volver a iniciar sesión para acceder de nuevo.',
+      variant: 'warning',
+      confirmText: 'Cerrar sesión',
+      cancelText: 'Cancelar',
+      onConfirm: logout,
+    });
+  };
 
   // Close sidebar on route change (mobile)
   useEffect(() => {
@@ -47,7 +63,12 @@ export default function AppLayout() {
   }
 
   return (
-    <div className="flex h-screen bg-background-base text-text-primary font-sans overflow-hidden">
+    // El scroll vive en el viewport (body/html), no en `<main>`: teclado
+    // (PageDown/End/Home), "pull to refresh" mobile y capturas fullPage de
+    // Playwright funcionan nativamente (QA 2026-04-24, PROP-100).
+    // La sidebar se pega con `sticky top-0 h-screen` en desktop; mobile mantiene
+    // `fixed` porque usa `motion.aside` con transform para abrir/cerrar.
+    <div className="flex min-h-screen bg-background-base text-text-primary font-sans">
       {/* Banner superior para super_admin: refuerza rol y aporta firma visual.
           4px fijos arriba del viewport, no interactuable, gradient warning→accent. */}
       {isSuperAdmin && (
@@ -103,11 +124,13 @@ export default function AppLayout() {
         transition={motionConfig.spring}
         aria-label="Navegación principal"
         className={cn(
-          'fixed lg:relative z-50',
-          'w-72 h-full',
+          // Mobile: `fixed` con animación de transform; desktop: `sticky top-0`
+          // para quedarse pegada mientras el body hace scroll.
+          'fixed lg:sticky lg:top-0 z-50',
+          'w-72 h-screen lg:h-screen',
           'bg-background-base/90 backdrop-blur-xl',
           'border-r border-border-subtle',
-          'flex flex-col',
+          'flex flex-col flex-shrink-0',
           'shadow-2xl shadow-black/40'
         )}
       >
@@ -276,7 +299,7 @@ export default function AppLayout() {
             <span className="font-medium text-sm">Privacidad</span>
           </NavLink>
           <button
-            onClick={logout}
+            onClick={handleLogoutClick}
             className="flex items-center gap-3 w-full px-4 py-3 text-error-base hover:bg-error-base/10 rounded-xl transition-colors duration-200"
           >
             <LogOut size={20} />
@@ -285,8 +308,10 @@ export default function AppLayout() {
         </div>
       </motion.aside>
 
-      {/* Main Content */}
-      <main id="main-content" className="flex-1 overflow-auto relative custom-scrollbar pb-16">
+      {/* Main Content — sin overflow propio, el scroll vive en body/html
+          (PROP-100). El `pb-16` sigue reservando margen bajo el widget RFID
+          flotante para que no tape la última fila de la página. */}
+      <main id="main-content" className="flex-1 relative pb-16 min-w-0">
         {/* Subtle Grid Pattern for Depth */}
         <div className="absolute inset-0 bg-grid opacity-20 pointer-events-none" />
 
@@ -310,6 +335,9 @@ export default function AppLayout() {
           </motion.div>
         </div>
       </main>
+
+      {/* Modal de confirmacion de cierre de sesion (PROP-85) */}
+      <ConfirmationModal {...logoutModal.modalProps} />
     </div>
   );
 }

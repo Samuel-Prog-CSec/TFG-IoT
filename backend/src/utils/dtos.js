@@ -597,9 +597,10 @@ const toCardDeckDTOV1 = deck => {
     context: toContextRefDTOV1(deckData.contextId),
     status: deckData.status,
     cardsCount: Array.isArray(deckData.cardMappings) ? deckData.cardMappings.length : 0,
-    // Preview de hasta 4 mappings para mostrar thumbnails en tarjetas de mazo
+    // Preview de hasta 6 mappings — coincide con el mazo estandar (6 cartas
+    // unicas) para que la card del deck muestre todas las miniaturas.
     cardMappings: Array.isArray(deckData.cardMappings)
-      ? deckData.cardMappings.slice(0, 4).map(mapCardMappingDTOV1)
+      ? deckData.cardMappings.slice(0, 6).map(mapCardMappingDTOV1)
       : [],
     createdBy: toId(deckData.createdBy),
     creator: toUserRefDTOV1(deckData.createdBy),

@@ -15,15 +15,21 @@ import AnimatedNumber from '../ui/AnimatedNumber';
  * @param {React.ReactNode} props.icon - Icono de la tarjeta
  * @param {string} props.color - Clase de color para el fondo del icono
  * @param {string} [props.periodLabel] - Etiqueta del periodo comparativo (ej: "vs semana pasada")
+ * @param {boolean} [props.higherIsBetter=true] - Semantica del delta. false para
+ *   metricas donde subir es peor (tiempo medio, alumnos en riesgo, abandono).
  */
-function StatCard({ title, value, trend, icon, color, periodLabel = 'vs semana pasada', compact = false, onClick }) {
+function StatCard({ title, value, trend, icon, color, periodLabel = 'vs semana pasada', compact = false, onClick, higherIsBetter = true }) {
   // Determinar si hay valor de tendencia para renderizar el pill RAG.
   // Si trend es vacio (caso "Alumnos en Riesgo" / "Partidas Hoy" sin histórico),
   // renderizamos un pill neutro con sólo el periodLabel para preservar la altura
   // de la card y evitar el bug de pill verde con flecha sin valor numerico.
   const hasTrendValue = typeof trend === 'string' && trend.length > 0;
-  const isPositive = hasTrendValue && !trend.startsWith('-');
-  const TrendIcon = isPositive ? ArrowUpRight : ArrowDownRight;
+  const trendGoesUp = hasTrendValue && !trend.startsWith('-');
+  // isPositive = delta "bueno" segun la semantica de la metrica.
+  // Para metricas donde subir es peor (tiempo medio, alumnos en riesgo),
+  // un delta positivo se pinta en rojo y uno negativo en verde.
+  const isPositive = hasTrendValue && (higherIsBetter ? trendGoesUp : !trendGoesUp);
+  const TrendIcon = trendGoesUp ? ArrowUpRight : ArrowDownRight;
 
   return (
     <motion.article
@@ -110,6 +116,7 @@ StatCard.propTypes = {
   periodLabel: PropTypes.string,
   compact: PropTypes.bool,
   onClick: PropTypes.func,
+  higherIsBetter: PropTypes.bool,
 };
 
 export default memo(StatCard);

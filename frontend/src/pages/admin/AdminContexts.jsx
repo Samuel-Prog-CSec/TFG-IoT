@@ -268,7 +268,7 @@ function renderContextsSection({
   if (error) {
     return (
       <EmptyState
-        icon={AlertTriangle}
+        icon={<AlertTriangle size={48} className="text-error-base" />}
         title="Error al cargar contextos"
         description={error}
         action={{ label: 'Reintentar', onClick: loadContexts }}
@@ -289,7 +289,7 @@ function renderContextsSection({
   if (filtered.length === 0) {
     return (
       <EmptyState
-        icon={Palette}
+        icon={<Palette size={48} className="text-text-muted" />}
         title={search ? 'Sin resultados' : 'No hay contextos'}
         description={
           search

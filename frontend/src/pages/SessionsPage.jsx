@@ -161,6 +161,10 @@ const SessionCard = memo(function SessionCard({
   const rawTitle = session.name || session.deck?.name || 'Sesión sin mazo asignado';
   const title = toTitleCaseEs(rawTitle);
   const mechanicLabel = session.mechanic?.displayName || session.mechanic?.name || 'Mecánica';
+  // Memoria usa parejas (no rondas independientes). Adaptamos el copy del KPI
+  // para no confundir al profesor cuando revisa sesiones guardadas.
+  const isMemoryMechanic = String(session.mechanic?.name || '').toLowerCase() === 'memory';
+  const roundsOrPairsLabel = isMemoryMechanic ? 'Parejas' : 'Rondas';
   const contextLabel = session.context?.name || 'Contexto';
   const sessionId = session.id || session._id;
   const canEdit = session.status === 'created';
@@ -224,7 +228,7 @@ const SessionCard = memo(function SessionCard({
               <RotateCcw size={14} className="text-accent-cyan" />
             </div>
             <div>
-              <p className="text-text-muted">Rondas</p>
+              <p className="text-text-muted">{roundsOrPairsLabel}</p>
               <p className="text-text-primary font-semibold font-display">{session.config?.numberOfRounds}</p>
             </div>
           </div>

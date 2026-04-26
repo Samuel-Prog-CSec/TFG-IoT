@@ -220,17 +220,33 @@ export default function useDeckWizardDraft() {
     };
   }, []);
 
+  // Lectura diferida del borrador almacenado, para consumidores que mantienen su
+  // propio estado local y necesitan acceso al payload guardado tras restaurar.
+  const draft = (() => {
+    try {
+      const stored = localStorage.getItem(STORAGE_KEY);
+      return stored ? JSON.parse(stored) : null;
+    } catch {
+      return null;
+    }
+  })();
+
   return {
     state,
     setState,
     updateField,
     hasDraft,
     draftDate,
+    draftTimestamp: draftDate,
     isRestored,
     restoreDraft,
     discardDraft,
     clearDraft,
     resetState,
+    // Alias de compatibilidad: consumidores con estado externo (p. ej. DeckCreationWizard)
+    // invocan saveDraft(payload) directamente en lugar de pasar por setState/updateField.
+    saveDraft,
+    draft,
   };
 }
 

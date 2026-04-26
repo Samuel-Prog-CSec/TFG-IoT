@@ -155,12 +155,13 @@ function LearningCurvesSection({ data, loading }) {
         </div>
       </div>
 
-      {/* Altura y margin inferior aumentados: el label "Intento" del eje X y
-          la leyenda (5 contextos con middots) chocaban entre sí con bottom:5
-          (QA 22/04/2026). Ahora hay espacio respirable para ambos. */}
+      {/* Altura y margenes ajustados: el label "Intento" del eje X chocaba
+          con la leyenda inferior. Solucion definitiva: leyenda arriba del
+          chart (verticalAlign top) y margin top mayor para reservarle espacio.
+          El eje X queda libre para su propio label. */}
       <div className="h-[320px] w-full -ml-2 min-h-[320px]">
         <ResponsiveContainer width="100%" height="100%" minWidth={0} minHeight={0} debounce={50}>
-          <AreaChart data={chartData} margin={{ top: 5, right: 10, left: 0, bottom: 28 }}>
+          <AreaChart data={chartData} margin={{ top: 32, right: 10, left: 0, bottom: 28 }}>
             <defs>
               {curveNames.map((name, idx) => (
                 <linearGradient key={name} id={`gradient-${idx}`} x1="0" y1="0" x2="0" y2="1">
@@ -183,6 +184,8 @@ function LearningCurvesSection({ data, loading }) {
             />
             <YAxis
               domain={[0, 100]}
+              allowDataOverflow
+              ticks={[0, 25, 50, 75, 100]}
               tick={{ fill: 'var(--color-text-muted)', fontSize: 11 }}
               tickLine={false}
               axisLine={false}
@@ -191,7 +194,10 @@ function LearningCurvesSection({ data, loading }) {
             />
             <Tooltip content={<LearningCurveTooltip />} />
             <Legend
-              wrapperStyle={{ fontSize: '11px', color: 'var(--color-text-muted)' }}
+              verticalAlign="top"
+              align="right"
+              iconSize={10}
+              wrapperStyle={{ fontSize: '11px', color: 'var(--color-text-muted)', paddingBottom: 8 }}
             />
             {curveNames.map((name, idx) => (
               <Area

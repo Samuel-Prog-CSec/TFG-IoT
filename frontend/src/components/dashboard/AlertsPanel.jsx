@@ -77,10 +77,11 @@ export default function AlertsPanel({ alerts }) {
             const severity = SEVERITY_STYLES[alert.severity] || SEVERITY_STYLES.info;
             const IconComponent = ALERT_ICONS[alert.type] || AlertTriangle;
             const isCritical = alert.severity === 'critical';
+            const alertKey = alert.id || `alert-${alert.type}-${alert.studentId || 'global'}-${index}`;
 
             return (
               <motion.div
-                key={alert.id || index}
+                key={alertKey}
                 variants={shouldReduceMotion ? {} : listItemVariants}
                 className={cn(
                   'p-4 rounded-xl border flex items-start gap-3 group transition-colors',

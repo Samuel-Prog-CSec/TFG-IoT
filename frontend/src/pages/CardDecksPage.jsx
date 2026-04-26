@@ -214,6 +214,7 @@ function filtersReducer(state, action) {
 /**
  * Página principal de gestión de mazos
  */
+// eslint-disable-next-line sonarjs/cyclomatic-complexity -- pagina principal orquesta filtros, modals, CRUD y estados de carga (ver ADR-086 patron similar)
 export default function CardDecksPage() {
   const navigate = useNavigate();
   const { shouldReduceMotion } = useReducedMotion();

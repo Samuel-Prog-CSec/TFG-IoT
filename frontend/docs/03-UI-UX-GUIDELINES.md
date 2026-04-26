@@ -227,21 +227,43 @@ xl: 1280px  → Desktops
 2xl: 1536px → Pantallas grandes
 ```
 
-### Estrategia Mobile-First
+### Estrategia Desktop-First
+
+La aplicación se diseña para escritorio porque el hardware del TFG (lector
+RFID ESP8266) se conecta por cable USB al equipo del profesor. Tablet es
+un secundario aceptable (clase sin torre) y mobile es degradación de emergencia,
+no un destino objetivo. La prioridad de breakpoints es:
+
+1. **Desktop (`lg`+, 1024px en adelante) — objetivo principal.** Diseño,
+   densidad y flujos se validan aquí. Es donde corre una sesión real.
+2. **Tablet (`md`, 768–1023px) — adaptación útil.** Grid de 2 columnas,
+   sidebar mantenible. El sensor RFID puede no estar disponible; el
+   `FallbackTouchPanel` cubre la gameplay sin hardware.
+3. **Mobile (`<md`, <768px) — funcional pero no prioritario.** Evitamos
+   romper la app, pero no optimizamos estética ni densidad para esta
+   franja. Sidebar pasa a overlay con `motion.aside` + backdrop.
+
 ```jsx
-// Primero móvil, luego ajustar para desktop
+// Patron real: arrancamos con la densidad de desktop y degradamos hacia
+// breakpoints menores solo donde aporta (p.ej. pasar de 4 cols a 2 en
+// tablet y a 1 en mobile). No es "mobile-first" porque no rediseñamos
+// la experiencia para mobile — solo la mantenemos navegable.
 <div className="
-  grid grid-cols-1      /* Móvil: 1 columna */
-  sm:grid-cols-2        /* Tablet: 2 columnas */
-  lg:grid-cols-3        /* Desktop: 3 columnas */
+  grid grid-cols-1         /* Mobile: 1 columna (fallback) */
+  md:grid-cols-2           /* Tablet: 2 columnas */
+  lg:grid-cols-3 xl:grid-cols-4   /* Desktop: densidad prevista */
   gap-4 lg:gap-6
 ">
 ```
 
 ### Consideraciones Específicas
-- **Dashboard:** Sidebar colapsable en móvil
-- **GameSession:** Fullscreen, sin navegación visible
-- **BoardSetup:** Drag & drop con alternativa táctil
+- **Dashboard:** densidad pensada para desktop; sidebar sticky. En tablet
+  se apila a 2 columnas; en mobile pasa a 1 columna sin intentar mantener
+  la disposición visual del desktop.
+- **GameSession:** fullscreen sin navegación durante la partida en
+  cualquier viewport.
+- **BoardSetup:** drag & drop desktop como patrón nativo; `FallbackTouchPanel`
+  cubre el escenario tablet/mobile sin sensor.
 
 ---
 

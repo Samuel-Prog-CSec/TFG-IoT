@@ -35,6 +35,7 @@ const SIZE_TO_PX = {
  * Se exporta para que helpers puedan replicar el cálculo sin re-renderizar el
  * componente (p. ej. reservar espacio en un skeleton).
  */
+// eslint-disable-next-line react-refresh/only-export-components -- helper fuertemente acoplado al componente Icon; mover a fichero aparte romperia cohesion
 export const resolveIconSize = size => {
   if (typeof size === 'number' && Number.isFinite(size)) {
     return size;
@@ -59,7 +60,7 @@ const Icon = ({ name, size = 'md', className, strokeWidth, ref, ...rest }) => {
 
   if (!LucideComponent) {
     if (import.meta?.env?.DEV) {
-      // eslint-disable-next-line no-console -- mensaje intencional en dev para detectar typos
+      // Mensaje intencional en dev para detectar typos en nombres de icono.
       console.warn(`[Icon] "${name}" no existe en iconRegistry. Añádelo si es necesario.`);
     }
     const px = resolveIconSize(size);

@@ -39,9 +39,9 @@ function DistributionChart({ data }) {
           formatter={(value) => [`${value} Estudiantes`, 'Cantidad']}
         />
         <Bar dataKey="count" radius={[6, 6, 0, 0]}>
-          {data.map((entry, index) => (
-            <Cell 
-              key={`cell-${index}`} 
+          {data.map((entry) => (
+            <Cell
+              key={`cell-${entry.range}`}
               fill={(() => {
                 if (entry.range === '0-49') return 'var(--color-error-base)';
                 if (entry.range === '90-100') return 'var(--color-success-base)';

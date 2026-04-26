@@ -73,20 +73,36 @@ function EngagementRadar({ engagement }) {
   // Estado vacio: sin datos de componentes, o engagement nulo/cero
   const isEmpty = chartData.length === 0 || !engagement || (!score && score !== undefined);
 
-  // Estado "datos insuficientes": al menos 3 de 5 ejes en cero/null.
-  // Evita renderizar un radar deformado (ala apuntando a un solo eje)
-  // cuando el backend no calcula la mayoria de las metricas (PROP-48).
+  // Estado "datos insuficientes":
+  // (a) al menos 3 de 5 ejes en cero/null, o
+  // (b) al menos 4 de 5 ejes con valor despreciable (<=2 ejes con senal real >15).
+  // Evita renderizar un radar deformado (pajita apuntando a un eje aislado)
+  // cuando solo una o dos metricas tienen senal real (QA 2026-04-24, caso
+  // detectado en alumno con 4 partidas donde Completado+Regularidad altas
+  // y el resto casi 0 producian el sliver).
   const zeroAxes = chartData.filter(d => !d.value || d.value === 0).length;
-  const hasInsufficientData = !isEmpty && zeroAxes >= 3;
+  const SIGNAL_THRESHOLD = 15;
+  const signalAxes = chartData.filter(d => (d.value ?? 0) > SIGNAL_THRESHOLD).length;
+  const hasInsufficientData = !isEmpty && (zeroAxes >= 3 || signalAxes < 3);
 
   if (isEmpty || hasInsufficientData) {
     return (
       <GlassCard variant="default" padding="none" className="p-5">
-        <h3 className="text-base font-bold text-text-primary font-display mb-4">Engagement</h3>
+        <div className="flex items-center justify-between mb-4">
+          <h3 className="text-base font-bold text-text-primary font-display">Engagement</h3>
+          {/* Pintamos el RAG aunque el radar sea degenerado: el profesor
+              sigue necesitando saber si el score global es Alto/Medio/Bajo
+              aunque el desglose por ejes no sea visualizable. */}
+          {rag && hasInsufficientData && (
+            <div className={cn("flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-semibold", rag.bg, rag.color)}>
+              {Math.round(score)} — {rag.label}
+            </div>
+          )}
+        </div>
         <div className="py-8 text-center px-6">
           <p className="text-text-muted text-sm text-center">
             {hasInsufficientData
-              ? 'Datos insuficientes para calcular Engagement. Se necesitan más partidas distribuidas en el tiempo.'
+              ? 'Datos insuficientes para visualizar el desglose por ejes. Se necesitan más partidas distribuidas en el tiempo para calcular todas las métricas.'
               : 'Sin datos de engagement aún. Se calculará cuando el alumno acumule más partidas.'}
           </p>
         </div>

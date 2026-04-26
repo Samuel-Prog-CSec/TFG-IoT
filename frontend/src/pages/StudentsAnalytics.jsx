@@ -96,6 +96,22 @@ function formatResponseTime(ms) {
   return `${(ms / 1000).toFixed(1)}s`;
 }
 
+/**
+ * Formatea un porcentaje (0-100) eliminando decimales sobrantes.
+ * `1` decimal cuando el valor no es entero, sin decimales si lo es.
+ * Evita rendering tipo "42.7222222222222%" cuando el backend devuelve floats
+ * sin redondear (QA 26/04/2026).
+ * @param {number|string|null|undefined} v
+ * @returns {string}
+ */
+function formatPercent(v) {
+  if (v == null || v === '') return '0';
+  const n = Number(v);
+  if (!Number.isFinite(n)) return '0';
+  const rounded = Math.round(n * 10) / 10;
+  return Number.isInteger(rounded) ? String(rounded) : rounded.toFixed(1);
+}
+
 // ─── CSV column definitions ─────────────────────────────────────────
 
 const CSV_COLUMNS = [
@@ -691,12 +707,12 @@ function StudentRow({ student, navigate }) {
 
       {/* Average score */}
       <td className="px-4 py-3 font-semibold text-text-primary text-center whitespace-nowrap">
-        {student.averageScore ?? 0}%
+        {formatPercent(student.averageScore)}%
       </td>
 
       {/* Accuracy rate */}
       <td className="px-4 py-3 text-text-secondary text-center whitespace-nowrap">
-        {student.accuracyRate != null ? `${student.accuracyRate}%` : '-'}
+        {student.accuracyRate != null ? `${formatPercent(student.accuracyRate)}%` : '-'}
       </td>
 
       {/* Response time */}

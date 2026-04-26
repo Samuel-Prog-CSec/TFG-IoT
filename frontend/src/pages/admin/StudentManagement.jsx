@@ -410,13 +410,10 @@ function CreateStudentModal({ isOpen, onClose, onCreated, teachers }) {
 export default function StudentManagement() {
   useDocumentTitle('Gestión de Alumnos');
   const [students, setStudents] = useState([]);
-  // eslint-disable-next-line sonarjs/no-unused-vars -- solo se usa el setter
-  const [_teachers, setTeachers] = useState([]);
+  const [, setTeachers] = useState([]);
   const [loading, setLoading] = useState(true);
-  // eslint-disable-next-line sonarjs/no-unused-vars -- solo se usa el setter
-  const [_error, setError] = useState(null);
-  // eslint-disable-next-line sonarjs/no-unused-vars -- solo se usa el setter
-  const [_isModalOpen, setIsModalOpen] = useState(false);
+  const [, setError] = useState(null);
+  const [, setIsModalOpen] = useState(false);
   const [isEditModalOpen, setIsEditModalOpen] = useState(false);
   const [selectedStudent, setSelectedStudent] = useState(null);
 
@@ -593,8 +590,8 @@ export default function StudentManagement() {
               animate="show"
               className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6"
             >
-              {[...Array(6)].map((_, i) => (
-                <SkeletonCard key={i} className="h-48" />
+              {Array.from({ length: 6 }, (_, i) => `student-skeleton-${i}`).map(id => (
+                <SkeletonCard key={id} className="h-48" />
               ))}
             </motion.div>
           );

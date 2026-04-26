@@ -6,7 +6,7 @@
  */
 
 const mongoose = require('mongoose');
-const readline = require('readline');
+const readline = require('node:readline');
 const { connectDB } = require('../src/config/database');
 require('dotenv').config();
 

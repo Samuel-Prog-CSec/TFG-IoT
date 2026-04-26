@@ -1,9 +1,32 @@
 import { memo } from 'react';
 import { motion } from 'framer-motion';
 import { useNavigate } from 'react-router-dom';
-import { ChevronRight } from 'lucide-react';
+import { ChevronRight, Medal, Trophy, Award } from 'lucide-react';
 import PropTypes from 'prop-types';
 import { staggerItem, staggerContainer, cn } from '../../lib/utils';
+
+/**
+ * Estilos para el podio: oro/plata/bronce para los tres primeros puestos.
+ * Lenguaje universal en rankings educativos — refuerza la metafora
+ * de logro sin inventar tratamiento visual.
+ */
+const PODIUM_STYLES = [
+  {
+    icon: Trophy,
+    rankClass: 'bg-[var(--color-podium-gold)]/20 text-[var(--color-podium-gold)] ring-1 ring-inset ring-[var(--color-podium-gold-glow)]',
+    glow: 'shadow-[0_0_18px_var(--color-podium-gold-glow)]',
+  },
+  {
+    icon: Medal,
+    rankClass: 'bg-[var(--color-podium-silver)]/15 text-[var(--color-podium-silver)] ring-1 ring-inset ring-[var(--color-podium-silver-glow)]',
+    glow: '',
+  },
+  {
+    icon: Award,
+    rankClass: 'bg-[var(--color-podium-bronze)]/20 text-[var(--color-podium-bronze)] ring-1 ring-inset ring-[var(--color-podium-bronze-glow)]',
+    glow: '',
+  },
+];
 
 /**
  * Obtiene el color RAG segun el tier del estudiante
@@ -92,6 +115,8 @@ function StudentsList({ students }) {
         >
           {topStudents.map((student, index) => {
             const tierBadge = getTierBadge(student.tier);
+            const podium = PODIUM_STYLES[index];
+            const PodiumIcon = podium?.icon;
             return (
               <motion.li
                 key={student.studentId || student._id || index}
@@ -102,21 +127,23 @@ function StudentsList({ students }) {
                 role="button"
                 tabIndex={0}
                 onKeyDown={(e) => { if (e.key === 'Enter') navigate(`/students/${student.studentId || student._id}`); }}
-                aria-label={`${student.name}, puntuación ${Math.round(student.studentMetrics?.averageScore || student.averageScore || 0)}`}
+                aria-label={`${student.name}, puntuación ${Math.round(student.studentMetrics?.averageScore || student.averageScore || 0)}, posición ${index + 1}`}
               >
                 <div className="flex items-center gap-3">
-                  {/* Rank Badge */}
+                  {/* Rank Badge: pódium oro/plata/bronce para top 3; neutro resto */}
                   <span
                     className={cn(
-                      "size-6 rounded-lg flex items-center justify-center text-xs font-bold",
-                      index === 0 && "bg-warning-base/20 text-warning-base",
-                      index === 1 && "bg-text-muted/10 text-text-muted",
-                      index === 2 && "bg-error-base/20 text-error-base",
-                      index > 2 && "bg-background-surface/50 text-text-muted"
+                      "size-7 rounded-lg flex items-center justify-center text-xs font-bold flex-shrink-0",
+                      podium ? podium.rankClass : "bg-background-surface/50 text-text-muted",
+                      index === 0 && podium?.glow
                     )}
-                    aria-label={`Posición ${index + 1}`}
+                    aria-hidden="true"
                   >
-                    {index + 1}
+                    {PodiumIcon ? (
+                      <PodiumIcon size={14} strokeWidth={2.5} />
+                    ) : (
+                      <span>{index + 1}</span>
+                    )}
                   </span>
 
                   {/* Avatar */}

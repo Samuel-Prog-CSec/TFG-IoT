@@ -259,18 +259,41 @@ const WizardStepper = memo(function WizardStepper({
   const totalSteps = useMemo(() => Math.max(steps.length - 1, 1), [steps.length]);
   const progress = useMemo(() => (currentStep / totalSteps) * 100, [currentStep, totalSteps]);
 
+  // Cada item ocupa una fracción igual del contenedor (`grid` en lugar de
+  // `flex justify-between`). Eso garantiza que los centros de los círculos
+  // queden equidistantes y que la línea de fondo + progreso, anclados a los
+  // centros del primer y último botón, coincidan exactamente con cada
+  // círculo intermedio (QA 26/04/2026: antes la línea se quedaba ~28px corta
+  // del segundo círculo porque `left-5/right-5` asumía que los items
+  // extremos no tenían labels más anchos que el icono).
+  // `halfStepPercent = 50 / N` deja al primer círculo a `50/N %` desde el
+  // borde izquierdo del contenedor (centro de su columna), y al último a la
+  // misma distancia del borde derecho.
+  const halfStepPercent = useMemo(() => 50 / Math.max(steps.length, 1), [steps.length]);
+  const lineInset = `${halfStepPercent}%`;
+  const stepsGridStyle = useMemo(
+    () => ({ gridTemplateColumns: `repeat(${steps.length}, minmax(0, 1fr))` }),
+    [steps.length]
+  );
+
   const handleStepClick = (stepIndex) => onStepClick?.(stepIndex);
 
   return (
     <div className={cn('relative', className)}>
-      {/* Línea de fondo */}
-      <div className="absolute top-5 left-5 right-5 h-1 bg-background-elevated/60 rounded-full overflow-hidden">
+      {/* Línea de fondo. `left/right` se calcula dinámicamente para anclar
+          la línea al centro del primer/último círculo (no al borde del
+          contenedor), de modo que `width: progress%` aterrice exactamente
+          en cada círculo intermedio. */}
+      <div
+        className="absolute top-5 h-1 bg-background-elevated/60 rounded-full overflow-hidden"
+        style={{ left: lineInset, right: lineInset }}
+      >
         {/* Línea de progreso con efecto de fluido */}
         <motion.div
           className="h-full rounded-full relative"
           initial={false}
           animate={{ width: `${progress}%` }}
-          transition={{ 
+          transition={{
             duration: reducedMotion ? 0.15 : 0.25,
             ease: [0.32, 0.72, 0, 1],
           }}
@@ -298,8 +321,8 @@ const WizardStepper = memo(function WizardStepper({
         </motion.div>
       </div>
 
-      {/* Steps */}
-      <div className="flex justify-between relative">
+      {/* Steps en grid de columnas iguales para asegurar equidistancia. */}
+      <div className="grid relative" style={stepsGridStyle}>
         {steps.map((step, index) => {
           return (
             <WizardStepItem

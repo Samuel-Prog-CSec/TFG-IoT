@@ -98,13 +98,19 @@ export default function FallbackTouchPanel({ cards, round = 1, onSelectCard, onP
       )}
 
       {canPause && (
-        <button
-          type="button"
-          onClick={onPauseRequest}
-          className="mt-2 text-[10px] px-2 py-1 rounded bg-background-base/60 text-text-secondary border border-border-subtle hover:bg-background-base/80 transition-colors"
-        >
-          Pausar para revisar sensor
-        </button>
+        // El botón se centra en su propia fila bajo el grid; antes quedaba
+        // anclado al inicio (debajo del primer asset) por defecto del flow.
+        // Wording neutral: el panel táctil se usa sin sensor, así que
+        // "Pausar para revisar sensor" sugería revisar algo inexistente.
+        <div className="mt-3 flex justify-center">
+          <button
+            type="button"
+            onClick={onPauseRequest}
+            className="text-[10px] px-3 py-1 rounded-full bg-background-base/60 text-text-secondary border border-border-subtle hover:bg-background-base/80 transition-colors"
+          >
+            Pausar partida
+          </button>
+        </div>
       )}
     </div>
   );

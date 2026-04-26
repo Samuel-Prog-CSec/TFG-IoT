@@ -84,14 +84,28 @@ function ReportKPI({ label, value, suffix, icon: Icon, ragColor }) {
 
 /**
  * Vista del reporte de clase.
+ *
+ * El backend (`reportDataService.getClassroomReport`) devuelve la jerarquia
+ * `{ overview, distribution: { distribution: [] }, studentSummaries, ... }`
+ * mientras que iteraciones previas del componente esperaban `{ kpis, topStudents, ... }`.
+ * Mapeamos ambas formas para ser resilientes a backends futuros o mocks de tests.
  */
 function ClassroomReportView({ data }) {
   if (!data) return null;
 
-  const kpis = data.kpis || data.summary || {};
-  const distribution = data.distribution || [];
-  const topStudents = data.topStudents || data.top || [];
-  const bottomStudents = data.bottomStudents || data.bottom || [];
+  const kpis = data.kpis || data.overview || data.summary || {};
+
+  // `data.distribution` puede ser array (legacy/mocks) u objeto con `.distribution` (backend actual).
+  const distributionRaw = data.distribution;
+  const distribution = Array.isArray(distributionRaw)
+    ? distributionRaw
+    : (distributionRaw?.distribution || []);
+
+  // `studentSummaries` ordenado por engagementScore descendente. Top 5 primeros, bottom 5 ultimos.
+  const summaries = Array.isArray(data.studentSummaries) ? data.studentSummaries : [];
+  const topStudents = data.topStudents || data.top || summaries.slice(0, 5);
+  const bottomStudents = data.bottomStudents || data.bottom ||
+    (summaries.length > 5 ? summaries.slice(-5).reverse() : []);
 
   return (
     <div className="space-y-5">
@@ -104,10 +118,14 @@ function ClassroomReportView({ data }) {
         <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
           <ReportKPI
             label="Puntuación Media"
-            value={kpis.averageScore != null ? Math.round(kpis.averageScore) : kpis.avgScore}
+            value={
+              kpis.averageScore != null
+                ? Math.round(kpis.averageScore)
+                : kpis.avgScore != null ? Math.round(kpis.avgScore) : '-'
+            }
             suffix="%"
             icon={Award}
-            ragColor={getScoreRAGColor(kpis.averageScore)}
+            ragColor={getScoreRAGColor(kpis.averageScore ?? kpis.avgScore)}
           />
           <ReportKPI
             label="Total Partidas"
@@ -123,7 +141,11 @@ function ClassroomReportView({ data }) {
           />
           <ReportKPI
             label="Tasa Completado"
-            value={kpis.completionRate != null ? Math.round(kpis.completionRate) : '-'}
+            value={
+              kpis.completionRate != null
+                ? Math.round(kpis.completionRate)
+                : (kpis.totalStudents && kpis.classEngagementScore != null ? Math.round(kpis.classEngagementScore) : '-')
+            }
             suffix="%"
             icon={TrendingUp}
             ragColor="green"
@@ -138,11 +160,11 @@ function ClassroomReportView({ data }) {
           <div className="grid grid-cols-2 lg:grid-cols-4 gap-2">
             {distribution.map((tier) => (
               <div
-                key={tier.range || tier.tier || tier.name}
+                key={tier.range || tier.tier || tier.name || tier.label}
                 className="rounded-lg border border-border-subtle bg-background-elevated/20 p-3 text-center"
               >
                 <p className="text-lg font-bold text-text-primary tabular-nums">{tier.count ?? 0}</p>
-                <p className="text-xs text-text-muted">{tier.range || tier.tier || tier.name}</p>
+                <p className="text-xs text-text-muted">{tier.label || tier.range || tier.tier || tier.name}</p>
                 {tier.percentage != null && (
                   <p className="text-[10px] text-text-disabled mt-0.5">{Math.round(tier.percentage)}%</p>
                 )}
@@ -164,12 +186,12 @@ function ClassroomReportView({ data }) {
               <div className="space-y-1.5">
                 {topStudents.slice(0, 5).map((s, idx) => (
                   <div
-                    key={s._id || s.studentId || idx}
+                    key={s.id || s._id || s.studentId || idx}
                     className="flex items-center justify-between px-3 py-2 rounded-lg bg-success-base/5 border border-success-base/10"
                   >
                     <span className="text-sm text-text-primary truncate">{s.name || s.studentName || `Alumno ${idx + 1}`}</span>
                     <span className="text-sm font-bold text-success-base tabular-nums">
-                      {Math.round(s.averageScore ?? s.score ?? 0)}%
+                      {Math.round(s.averageScore ?? s.score ?? s.engagementScore ?? 0)}%
                     </span>
                   </div>
                 ))}
@@ -190,7 +212,10 @@ function ClassroomReportView({ data }) {
                   >
                     <span className="text-sm text-text-primary truncate">{s.name || s.studentName || `Alumno ${idx + 1}`}</span>
                     <span className="text-sm font-bold text-error-base tabular-nums">
-                      {Math.round(s.averageScore ?? s.score ?? 0)}%
+                      {/* `studentSummaries` del backend expone `engagementScore`,
+                          no `averageScore`. Antes el fallback caía a 0 y todos
+                          los alumnos en riesgo se pintaban con 0% (QA 26/04/2026). */}
+                      {Math.round(s.averageScore ?? s.score ?? s.engagementScore ?? 0)}%
                     </span>
                   </div>
                 ))}
@@ -205,12 +230,37 @@ function ClassroomReportView({ data }) {
 
 /**
  * Vista del reporte individual.
+ *
+ * Adaptador sobre la forma `{ summary: { avgScore: { value }, accuracy: {value}, ... }, details }`
+ * que devuelve `reportDataService.getStudentReport`. Los valores vienen anidados con RAG embebido
+ * (p.ej. `summary.avgScore.value`), asi que normalizamos a numeros planos para el render.
  */
 function StudentReportView({ data }) {
   if (!data) return null;
 
-  const kpis = data.kpis || data.summary || {};
-  const performance = data.performance || data.performanceSummary || {};
+  const rawKpis = data.kpis || data.summary || {};
+
+  // Normalizar: los campos del backend actual son objetos `{value, rag}`; los legacy/mocks son planos.
+  const pickValue = field => {
+    const v = rawKpis[field];
+    if (v == null) return undefined;
+    if (typeof v === 'object' && 'value' in v) return v.value;
+    return v;
+  };
+  const kpis = {
+    averageScore: pickValue('averageScore') ?? pickValue('avgScore'),
+    totalGames: rawKpis.totalGames ?? rawKpis.gamesPlayed,
+    bestScore: rawKpis.bestScore,
+    accuracy: pickValue('accuracy'),
+  };
+
+  // `data.details` (formato detailed) agrupa strengths/weaknesses; `data.performance` era el legacy.
+  const perfSource = data.performance || data.performanceSummary || data.details || {};
+  const performance = {
+    strengths: perfSource.strengths || perfSource.performanceByContext?.filter(p => (p.average ?? p.value ?? 0) >= 70) || [],
+    weaknesses: perfSource.weaknesses || perfSource.struggles || perfSource.performanceByContext?.filter(p => (p.average ?? p.value ?? 0) < 50) || [],
+  };
+
   const recommendations = data.recommendations || [];
 
   return (

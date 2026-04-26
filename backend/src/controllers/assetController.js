@@ -17,6 +17,7 @@ const {
 } = require('../utils/errors');
 const { toAssetDTOV1 } = require('../utils/dtos');
 const { sendSuccess, sendCreated } = require('../utils/responseHelper');
+const { invalidateContextCaches } = require('../utils/cacheInvalidators/contextCacheInvalidator');
 
 /**
  * Límite máximo de assets por contexto.
@@ -170,6 +171,11 @@ const uploadImage = async (req, res) => {
     context.assets.push(newAsset);
     await context.save();
 
+    // Invalidar caches de detalle/lista de contextos. Sin esto, el GET
+    // /contexts/:id sigue devolviendo el snapshot Redis previo y la UI muestra
+    // "0 assets en total" hasta que el TTL expira (QA 26/04/2026).
+    await invalidateContextCaches(context._id.toString(), context.contextId);
+
     logger.info('Imagen subida exitosamente', {
       contextId: context.contextId,
       assetKey: key,
@@ -264,6 +270,10 @@ const uploadAudio = async (req, res) => {
     context.assets.push(newAsset);
     await context.save();
 
+    // Invalidar caches igual que en uploadImage para que el detalle del
+    // contexto refleje el nuevo audio sin esperar al TTL (QA 26/04/2026).
+    await invalidateContextCaches(context._id.toString(), context.contextId);
+
     logger.info('Audio subido exitosamente', {
       contextId: context.contextId,
       assetKey: key,
@@ -344,6 +354,8 @@ const deleteImage = async (req, res) => {
   context.assets.splice(assetIndex, 1);
   await context.save();
 
+  await invalidateContextCaches(context._id.toString(), context.contextId);
+
   logger.info('Asset eliminado exitosamente (imagen + audio)', {
     contextId: context.contextId,
     assetKey,
@@ -399,6 +411,8 @@ const deleteAudio = async (req, res) => {
     asset.audioUrl = undefined;
     await context.save();
 
+    await invalidateContextCaches(context._id.toString(), context.contextId);
+
     logger.info('Audio desvinculado de asset (imagen conservada)', {
       contextId: context.contextId,
       assetKey,
@@ -409,6 +423,8 @@ const deleteAudio = async (req, res) => {
   } else {
     context.assets.splice(assetIndex, 1);
     await context.save();
+
+    await invalidateContextCaches(context._id.toString(), context.contextId);
 
     logger.info('Asset de solo-audio eliminado', {
       contextId: context.contextId,
@@ -462,11 +478,12 @@ const attachAudio = async (req, res) => {
     // Validar audio (magic bytes, tamaño, duración)
     const { buffer, metadata } = await audioValidationService.validateAudio(file);
 
-    // Si ya tiene audio, eliminar el archivo anterior de Supabase
+    // Snapshot del audio viejo antes de tocar nada. Solo lo borraremos del
+    // Storage tras persistir Mongo con éxito; así, si la subida nueva o el
+    // `context.save()` fallan, el rollback elimina solo el archivo nuevo y
+    // el asset conserva su audio antiguo (QA 26/04/2026 — antes el rollback
+    // dejaba al asset con `audioUrl` apuntando a un archivo ya borrado).
     const oldAudioUrl = asset.audioUrl;
-    if (oldAudioUrl) {
-      await storageService.deleteFile(oldAudioUrl);
-    }
 
     // Subir nuevo audio a Supabase
     newAudioUrl = await storageService.uploadFile(
@@ -477,9 +494,31 @@ const attachAudio = async (req, res) => {
       metadata.mime
     );
 
-    // Actualizar audioUrl en el subdocumento
+    // Actualizar audioUrl en el subdocumento (con el nuevo)
     asset.audioUrl = newAudioUrl;
     await context.save();
+
+    // A partir de aquí Mongo ya apunta al archivo nuevo: borramos el
+    // antiguo. Si esta limpieza fallara, el resultado funcional sigue
+    // siendo correcto (queda un archivo huérfano que se podrá purgar
+    // por el job de retención); por eso no abortamos la respuesta.
+    if (oldAudioUrl && oldAudioUrl !== newAudioUrl) {
+      try {
+        await storageService.deleteFile(oldAudioUrl);
+      } catch (cleanupErr) {
+        logger.warn('attachAudio: fallo al borrar audio antiguo', {
+          contextId: context.contextId,
+          assetKey,
+          oldAudioUrl,
+          error: cleanupErr.message
+        });
+      }
+    }
+
+    // Invalidar caches igual que en uploadImage/uploadAudio para que el
+    // detalle del contexto refleje el cambio de audio inmediatamente
+    // (QA 26/04/2026).
+    await invalidateContextCaches(context._id.toString(), context.contextId);
 
     logger.info('Audio adjuntado a asset exitosamente', {
       contextId: context.contextId,

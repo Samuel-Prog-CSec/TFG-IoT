@@ -42,10 +42,26 @@ function normalizeFinalSummary(rawMetrics, score, correctAnswers, isMemoryMode, 
   const elapsedMs = gameStartTime ? Date.now() - gameStartTime : 0;
   const totalTimePlayed = rawTotalTime > 0 ? rawTotalTime : elapsedMs;
 
+  // Errors y timeouts vienen desglosados desde el backend cuando estan
+  // disponibles. Antes calculabamos errors = totalAttempts - correctAnswers,
+  // pero el `correctAnswers` del reducer local puede llegar desincronizado
+  // si el evento `game_over` se procesa antes que el ultimo `response_*`
+  // (race entre eventos del socket). Usar `metrics.errorAttempts` como fuente
+  // de verdad evita falsos positivos como "Incorrectas: 5" en una partida
+  // de 4 aciertos + 1 fallo (QA 26/04/2026).
+  const errorAttempts = metrics.errorAttempts !== undefined ? Number(metrics.errorAttempts) : null;
+  const correctAttempts = metrics.correctAttempts !== undefined
+    ? Number(metrics.correctAttempts)
+    : null;
+  const errors = Number.isFinite(errorAttempts)
+    ? Math.max(0, errorAttempts)
+    : Math.max(0, totalAttempts - correctAnswers);
+  const finalCorrect = Number.isFinite(correctAttempts) ? correctAttempts : correctAnswers;
+
   return {
     score,
-    correctAnswers,
-    errors: Math.max(0, totalAttempts - correctAnswers),
+    correctAnswers: finalCorrect,
+    errors,
     attempts: totalAttempts,
     averageResponseTimeMs: Number.isFinite(averageResponseTimeMs) ? averageResponseTimeMs : 0,
     totalTimePlayed: Number.isFinite(totalTimePlayed) ? totalTimePlayed : 0,
@@ -253,7 +269,11 @@ export default function GameSession() {
       display: displayData?.display || '?',
       imageUrl: displayData?.imageUrl || null,
       thumbnailUrl: displayData?.thumbnailUrl || null,
-      audioUrl: displayData?.audioUrl || null
+      audioUrl: displayData?.audioUrl || null,
+      // Consigna personalizada opcional definida por el profesor en el
+      // wizard de creación de sesión (PROP-102). El backend la emite en
+      // el challenge del evento `new_round` / `game_state_update`.
+      promptText: rawChallenge?.promptText || displayData?.promptText || null
     };
   }, []);
 
@@ -1007,34 +1027,42 @@ export default function GameSession() {
                   ? 'Partida pausada.'
                   : (REALTIME_STATUS_COPY[realtimeStatus]?.announcement || 'Conectando el juego.')}
               </output>
-              {realtimeStatus === 'connected' && gameState === 'playing' ? (
-                <>
-                  <motion.span
-                    aria-hidden="true"
-                    className="inline-block size-2 rounded-full bg-success-base"
-                    animate={
-                      shouldReduceMotion
-                        ? undefined
-                        : { opacity: [1, 0.35, 1], scale: [1, 1.3, 1] }
-                    }
-                    transition={{ duration: 1.2, repeat: Infinity, ease: 'easeInOut' }}
-                  />
-                  Jugando
-                </>
-              ) : realtimeStatus === 'connected' && gameState === 'paused' ? (
-                <>
-                  <span aria-hidden="true" className="inline-block size-2 rounded-full bg-warning-base" />
-                  Pausado
-                </>
-              ) : (
-                <>
-                  {realtimeStatus === 'connected' && '✅ '}
-                  {realtimeStatus === 'reconnecting' && '⏳ '}
-                  {realtimeStatus === 'disconnected' && '❌ '}
-                  {realtimeStatus === 'connecting' && '⏳ '}
-                  {REALTIME_STATUS_COPY[realtimeStatus]?.label || 'Conectando…'}
-                </>
-              )}
+              {(() => {
+                if (realtimeStatus === 'connected' && gameState === 'playing') {
+                  return (
+                    <>
+                      <motion.span
+                        aria-hidden="true"
+                        className="inline-block size-2 rounded-full bg-success-base"
+                        animate={
+                          shouldReduceMotion
+                            ? undefined
+                            : { opacity: [1, 0.35, 1], scale: [1, 1.3, 1] }
+                        }
+                        transition={{ duration: 1.2, repeat: Infinity, ease: 'easeInOut' }}
+                      />
+                      Jugando
+                    </>
+                  );
+                }
+                if (realtimeStatus === 'connected' && gameState === 'paused') {
+                  return (
+                    <>
+                      <span aria-hidden="true" className="inline-block size-2 rounded-full bg-warning-base" />
+                      Pausado
+                    </>
+                  );
+                }
+                return (
+                  <>
+                    {realtimeStatus === 'connected' && '✅ '}
+                    {realtimeStatus === 'reconnecting' && '⏳ '}
+                    {realtimeStatus === 'disconnected' && '❌ '}
+                    {realtimeStatus === 'connecting' && '⏳ '}
+                    {REALTIME_STATUS_COPY[realtimeStatus]?.label || 'Conectando…'}
+                  </>
+                );
+              })()}
             </div>
           </div>
         </div>
@@ -1150,9 +1178,12 @@ export default function GameSession() {
               >
                 {sessionIsMemory ? (
                   <>¡Encuentra las parejas antes de que se acabe el tiempo!</>
+                ) : challenge?.promptText ? (
+                  // Consigna personalizada del profesor si la definió en el wizard.
+                  <>🔎 {challenge.promptText}</>
                 ) : (
                   <>
-                    🔎 ¿Dónde está <span className="text-text-primary font-bold">{challenge?.value || 'la tarjeta correcta'}</span>?
+                    🔎 ¿Dónde está <span className="text-text-primary font-bold">la {challenge?.value || 'tarjeta correcta'}</span>?
                   </>
                 )}
               </motion.p>
@@ -1329,11 +1360,14 @@ export default function GameSession() {
         )}
       </AnimatePresence>
 
-      {/* Pantalla de fin de partida */}
+      {/* Pantalla de fin de partida. Usamos el `correctAnswers` del summary
+          (origen backend cuando esta disponible) en lugar del estado local
+          del reducer, para eludir el race entre `response_*` y `game_over`
+          que dejaba ese contador 1 unidad por debajo del valor real. */}
       {gameState === 'finished' && (
         <GameOverScreen
           score={score}
-          correctAnswers={correctAnswers}
+          correctAnswers={playSummary?.correctAnswers ?? correctAnswers}
           totalRounds={totalRounds}
           bestScore={bestScore}
           summary={playSummary}

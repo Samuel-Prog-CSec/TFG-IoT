@@ -68,6 +68,11 @@ Cada ADR indica su alcance: **[Backend]**, **[Frontend]**, **[Full-stack]** o **
 | ADR-059 | Propagación explícita de variants Framer cuando hay wrapper intermedio | Frontend |
 | ADR-060 | `pointer-events: none` durante exit de AnimatePresence de ruta | Frontend |
 | ADR-061 | Tema visual por contexto de juego (signature cross-pantalla) | Frontend |
+| ADR-062..084 | Sesiones QA / Redis / UI signature consolidadas (ver cuerpo) | Varios |
+| ADR-085 | Paquete fixes QA final pre-release v0.5.0 | Full-stack |
+| ADR-086 | Decisiones SonarCloud post-release v0.4.0 — supresiones y resolución de hallazgos | DevOps |
+| ADR-087 | Paquete fixes QA senior pre-release v0.5.0 (bloqueantes y visibles) | Full-stack |
+| ADR-088 | Paquete fixes QA cierre Sprint 5 / pre-release v0.5.0 (gameplay, contextos, analytics) | Full-stack |
 
 **Leyenda de alcance:**
 - **Backend**: Cambios exclusivamente en el servidor (Node.js/Express)
@@ -4468,3 +4473,683 @@ border, padding). El badge "+N" pasa a ser más compacto.
 
 - B-3 en `qa-captures-2026-04-23/FINDINGS.md`.
 
+---
+
+## ADR-085: Paquete fixes QA final pre-release v0.5.0 [Full-stack]
+
+**Fecha:** 2026-04-24
+**Estado:** Aceptado
+**Alcance:** Full-stack
+
+### Contexto
+
+Sesión final de QA senior antes de la release v0.5.0. Se detectaron cinco
+bugs y mejoras con ROI alto / riesgo bajo que conviene consolidar antes del
+corte. Ver capturas en `qa-captures-2026-04-23-final/`.
+
+### Decisiones
+
+**1. `RevealOnScroll` en PrivacyPage — margin expansivo.**
+El wrapper usaba `useInView(ref, { once: true, margin: '-60px' })`, lo que
+obligaba a que el usuario scroleara para que secciones 3 a 7 de la política
+de privacidad pasaran de `opacity:0` a visible. En capturas full-page,
+impresión o lectores sin scroll, esas secciones quedaban en blanco.
+
+Cambio: `margin: '200% 0px 200% 0px'` — cualquier sección a ±2 viewports
+del actual se considera in-view al montar. Se preserva el stagger al hacer
+scroll y se respeta reduced-motion.
+
+**2. `StatCard` + prop `higherIsBetter`.**
+El componente pintaba verde cualquier delta positivo y rojo cualquier delta
+negativo, sin considerar la semántica de la métrica. "Tiempo Medio +14.6%"
+aparecía en verde aunque subir el tiempo es peor; "Alumnos en Riesgo" igual.
+
+Se añade `higherIsBetter` (default `true`). Con `false` se invierte el color
+del pill manteniendo la dirección de la flecha real (ArrowUp para +, Down
+para −). Dashboard pasa `higherIsBetter={false}` a "Alumnos en Riesgo" y
+"Tiempo Medio". El icono `TrendIcon` sigue reflejando la dirección real del
+delta (no mentir sobre el sentido del cambio, solo sobre si es buena noticia).
+
+**3. Pódium oro/plata/bronce en Top 5 del Dashboard.**
+Los cinco puestos usaban el mismo tratamiento violeta, perdiendo el lenguaje
+universal de rankings. Se añaden tokens CSS:
+
+- `--color-podium-gold` + glow para el #1
+- `--color-podium-silver` para el #2
+- `--color-podium-bronze` para el #3
+
+Los puestos 1-3 muestran iconos Lucide `Trophy`, `Medal`, `Award` en lugar
+del número, con `ring-1 ring-inset` del glow correspondiente. El #1 lleva
+`shadow-[0_0_18px_var(--color-podium-gold-glow)]`. Los puestos 4-5
+mantienen el tratamiento neutro actual.
+
+**4. Preview de 6 miniaturas en `DeckCard` + DTO del backend.**
+Las cards de mazo mostraban 4 de 6 miniaturas (ej: Banderas de Europa sin
+Portugal ni Grecia). El frontend recortaba en 4 y el DTO `toCardDeckDTOV1`
+también limitaba a 4. Se actualizan ambos límites a 6 (`cardMappings.slice(0, 6)`)
+para que el contrato visual iguale al conteo real. Stagger de entrada baja
+de 0.1s a 0.06s por ítem para mantener el total ≈ 360ms.
+
+**5. Leyenda del chart "Curvas de Aprendizaje" al top.**
+El label "Intento" del `XAxis` (position insideBottom) chocaba con la
+`Legend` inferior en viewports 1280–1920px incluso tras el fix del QA 22/04.
+Se mueve la leyenda a `verticalAlign="top" align="right"` con
+`paddingBottom: 8`; `margin.top` del chart sube a 32 para reservar espacio.
+El eje X queda libre para su label y los datos quedan sin cambios.
+
+**6. Redirect `/students` → `/analytics/students`.**
+Usuarios que tipean la URL o llegan desde bookmarks antiguos a `/students`
+sin `studentId` caían en 404. Se añade `<Route path="students" element={<Navigate to="/analytics/students" replace />} />`
+antes de la ruta dinámica `students/:studentId` para que el path limpio
+redirija al listado.
+
+**7. Confirmación modal al cerrar sesión (PROP-85).**
+El botón "Cerrar Sesión" del sidebar disparaba `logout()` instantáneo; un
+click accidental perdía filtros, estado de navegación y rutas en curso.
+Se añade `useConfirmationModal` + `<ConfirmationModal>` en `AppLayout.jsx`
+con `variant="warning"` (logout reversible, no destructivo — color ámbar,
+no rojo sangre), título "¿Cerrar sesión?" y copy breve. `onConfirm` llama
+al `logout` existente del `AuthContext` (sin cambios en la función).
+
+**8. `useHorizontalScroll` + chevron en "Actividad Reciente" (PROP-86).**
+Nuevo hook `hooks/useHorizontalScroll.js` detecta overflow horizontal real
+con `ResizeObserver` + `scroll` listener, exponiendo `hasOverflow`,
+`canScrollRight` y `scrollByOne(behavior)`. El widget "Actividad Reciente"
+del Dashboard lo usa para mostrar:
+- Gradient fade a la derecha (ensanchado a `w-16` con stop intermedio) solo
+  cuando `canScrollRight === true`.
+- Chevron button (`rounded-full`, `z-10`) que scrollea ~80% del ancho del
+  contenedor al pulsar, respetando `prefers-reduced-motion` (scroll `auto`
+  en ese caso).
+Ambos affordances desaparecen al llegar al final del scroll — honesto con
+el estado real. Reemplaza la heurística frágil `recentStudents.length > 3`
+usada hasta ahora.
+
+### Consecuencias
+
+- **Positivas:**
+  - PrivacyPage se imprime, se hace screenshot y se lee sin hacer scroll.
+  - Los KPIs del Dashboard no mienten sobre si un delta es buena noticia.
+  - El Top 5 tiene jerarquía visual reconocible de un vistazo.
+  - Los mazos muestran su inventario real — contrato honesto con el conteo.
+  - El chart Curvas de Aprendizaje es legible en todos los viewports
+    objetivo.
+  - Menos 404 innecesarios.
+  - Logout seguro ante clicks accidentales sin bloquear el flujo.
+  - Affordance real en el carrusel de Actividad Reciente — el usuario sabe
+    que hay más contenido y tiene cómo pedirlo.
+
+- **Negativas / riesgos:**
+  - `cardMappings.slice(0, 6)` duplica el payload de la lista de mazos
+    por deck. Impacto real con 50 mazos × 6 mappings vs 4 mappings: ~300
+    bytes extra por deck (insignificante).
+  - El prop `higherIsBetter` es viral a largo plazo — cada KPI nuevo tiene
+    que considerarlo. Se documenta el default `true` para que el 90% de
+    casos siga siendo trivial.
+  - `useHorizontalScroll` usa `ResizeObserver` (soportado en todos los
+    browsers target; fallback silencioso si falta). El chevron dispara
+    un re-render al cambiar `canScrollRight` — mínimo, dentro del widget.
+
+### Tests
+
+- Backend: `1034/1034 passed` (DTOs 29/29).
+- Frontend: `257/257 passed` (sin ajustes de snapshots necesarios).
+- Lint: 0 errores en ambos.
+
+### Referencias
+
+- Capturas before/after en `qa-captures-2026-04-23-final/` (fix-01 a fix-05).
+- Memory: `memory/project_qa_final_2026_04_24.md`.
+
+---
+
+## ADR-086: Decisiones SonarCloud post-release v0.4.0 — supresiones y resolución de hallazgos [DevOps]
+
+**Fecha:** 2026-04-24
+**Estado:** Aceptado
+**Alcance:** DevOps (configuración de análisis estático) con impacto en backend + frontend
+
+### Contexto
+
+El último análisis SonarCloud disponible es el del merge a `main` para la
+release v0.4.0 (commit `839a53c`). La cuenta gratuita de SonarCloud solo
+analiza en merges a main, así que entre releases la información no se actualiza.
+El reporte: **404 issues** (1 bug, 0 vulnerabilidades, 403 code smells) y
+**27 security hotspots**. Quality Gate en `ERROR` por tres condiciones en new
+code: `new_reliability_rating=3` (el bug único), `new_coverage=28.9%` (<80%),
+y `new_security_hotspots_reviewed=0%`.
+
+El análisis por facetas mostraba que **una sola regla `javascript:S6774`
+("PropTypes should be defined") representaba el 58% del total** (233 issues).
+Esta regla choca con la decisión arquitectónica del proyecto (JS puro sin
+PropTypes ni TypeScript — ver CLAUDE.md: "No usamos TypeScript"). Aplicarla
+exigiría mantener PropTypes en ~200 `.jsx` sin beneficio runtime: la validación
+de entrada se hace en la frontera del backend con Zod.
+
+De manera análoga, `javascript:S3776` (Cognitive Complexity) concentraba los
+10 CRITICAL en 10 ficheros orquestadores (Dashboard, GameSession, ChallengeDisplay,
+RFIDConnector, RFIDScannerPanel, SelectPremium, redisService, FeedbackOverlay,
+ContextsPage, feedbackMessages) donde la complejidad es inherente al dominio.
+
+Adicionalmente, el branch `Maintenance` ha refactorizado ampliamente el código
+desde v0.4.0 (sesiones QA intensivas 17-24 abril, ADRs 055-085) — muchos
+issues reportados estaban **ya resueltos** por simplificaciones, eliminaciones
+de código muerto y extracciones realizadas. Un agente delegado para verificar
+42 fixes mecánicos encontró que **solo 5 seguían vigentes**; el resto se había
+cerrado orgánicamente.
+
+### Decisiones
+
+**1. Supresión project-wide de `javascript:S6774` en `.jsx`.**
+
+Añadido a `sonar-project.properties` (patrón multicriteria):
+```
+sonar.issue.ignore.multicriteria.noproptypes.ruleKey=javascript:S6774
+sonar.issue.ignore.multicriteria.noproptypes.resourceKey=**/*.jsx
+```
+
+Justificación: decisión arquitectónica documentada — JS puro sin PropTypes ni
+TypeScript. Aplicar la regla generaría 233 issues sin beneficio de mantenibilidad
+o seguridad; solo ruido que oculta issues reales.
+
+**2. Supresión puntual de `javascript:S3776` en 9 ficheros orquestadores.**
+
+Dashboard.jsx, GameSession.jsx, ContextsPage.jsx, ChallengeDisplay.jsx,
+FeedbackOverlay.jsx, RFIDConnector.jsx, RFIDScannerPanel.jsx, SelectPremium.jsx,
+redisService.js — cada uno con su entrada `cog1..cog9` en multicriteria.
+
+Dos de ellos (Dashboard, ChallengeDisplay) ya tenían `eslint-disable-next-line
+sonarjs/cyclomatic-complexity` con justificación local; el resto comparten el
+patrón: orquestación stateful con muchos estados reales y fallbacks defensivos,
+no complejidad accidental. Refactorizar añadiría indirección (sub-componentes,
+hooks custom) sin mejora real — trade-off explícito del proyecto.
+
+**3. Refactor de `selectFeedbackMessage` en `feedbackMessages.js` (overshoot 23→3).**
+
+Único S3776 donde el refactor aportaba valor real: la función tenía 2 branches
+externos (acierto/error) y 10 branches internos encadenados con if/else. Se
+aplica split en dos helpers privados `selectSuccessPool` y `selectErrorPool`
+con destructuring específico por rama. La función pública queda en 3 líneas
+con API idéntica. Sin cambios de comportamiento — full suite sigue pasando
+257/257 (sin tests unitarios previos para este módulo, se verifica vía tests
+de integración que lo consumen).
+
+**4. Resolución vía API de 26 hotspots como SAFE + 1 como FIXED.**
+
+Todos los 27 security hotspots se cierran sin cambios de código excepto uno:
+
+- **16× S2245 `Math.random()`** (Confetti ×11, RFIDScannerPanel ×2,
+  feedbackMessages, utils, webSerialService): uso exclusivamente visual/UX/mock;
+  los ficheros ya tenían `eslint-disable sonarjs/pseudo-random` con justificación
+  inline.
+- **2× S5852 regex ReDoS** en Login.jsx y Register.jsx: regex
+  `/^[^\s@]+@[^\s@]+$/` sin cuantificadores anidados ni alternación ambigua
+  → backtracking lineal O(n), no vulnerable.
+- **4× S6505 `npm ci --ignore-scripts`**: rompe paquetes legítimos con
+  postinstall (sharp, esbuild); mitigación por `package-lock.json` con
+  integridad verificada + `npm audit --omit=dev` estricto en CI.
+- **1× S4507 `ENV NODE_ENV=development`**: está en stage `development` del
+  Dockerfile, no en `production`. docker-compose.prod.yml usa `target=production`.
+- **1× S6470 `COPY . .`** en builder: mitigado por `frontend/.dockerignore`
+  (excluye node_modules, .env, .git, tests, docs); la imagen final solo copia
+  `/app/dist`, no los fuentes.
+- **1× S6471 nginx como root**: contenedor aislado sirviendo solo estáticos,
+  tras reverse proxy con TLS aguas arriba. Migración a
+  `nginxinc/nginx-unprivileged` considerada para futura release.
+- **1× S5725 falta de SRI en Google Fonts**: Google sirve CSS dinámico según
+  User-Agent; aplicar `integrity` rompería carga en navegadores con subsets
+  distintos. Alternativa self-hosting considerada para futura release.
+- **1× S2068 password hardcoded** en `backend/scripts/benchmark-session-reads.js`:
+  **FIX real** — sustituido `'Password123!'` por template dinámico con
+  `crypto.randomUUID()` (el user de benchmark se destruye tras el run en
+  `cleanupFixture`, password no reutilizable).
+
+**5. Resolución vía API de 2 `javascript:S4123` como FALSE-POSITIVE.**
+
+`backend/scripts/seed-storage-assets.js:304, 309` awaitean `uploadToStorage()`,
+que es `async function` retornando Promise desde v0.4.0 (verificado con
+`git show 839a53c`). La inferencia de tipos de SonarCloud no resuelve el
+retorno de `supabase.storage.upload` a través del wrapper async — falso
+positivo claro. `await` correcto y necesario.
+
+**6. Fixes mecánicos puntuales que sí persistían.**
+
+Tras verificación sistemática, estos issues del 0.4.0 seguían vigentes en el
+código actual y se aplican:
+
+- **Backend:**
+  - `envValidator.js`: 3× `isNaN(x)` → `Number.isNaN(x)` (S7773).
+  - `redis.js`: `require('fs'|'path')` → `require('node:fs'|'node:path')` (S7772).
+  - `drop-db.js`: `require('readline')` → `require('node:readline')` (S7772).
+  - `logger.js`, `escapeRegex.js`: `String#replace(/g, ...)` → `replaceAll()` (S7781).
+  - `benchmark-session-reads.js`: password dinámico (S2068, descrito arriba).
+
+- **Frontend:**
+  - `sentry.js`: `replace` → `replaceAll` (S7781).
+  - `ErrorBoundary.jsx`: `window.X` → `globalThis.X` (S7764).
+  - `StudentManagement.jsx`: 3 vars con prefijo `_` en useState convertidas a
+    `const [, setX] = useState(...)` (S1481).
+
+Las otras categorías reportadas (S3358 nested ternaries ×24, S7735 negated
+else ×22, S7781/S7764 restantes, S1128 unused imports, etc.) **se
+verificaron como ya resueltas en el código actual**. No se aplica fix
+porque el patrón ya no existe en las líneas reportadas; SonarCloud las
+cerrará automáticamente al reanalizar.
+
+### Consecuencias
+
+- **Positivas:**
+  - El Quality Gate pasará a verde en 2 de 3 condiciones: el único Bug
+    (S3923 en GameOverScreen) ya se arregló por refactor previo; los
+    27 hotspots cerrados suben `security_hotspots_reviewed` a 100%. La
+    tercera condición (coverage <80%) queda como debt explícita.
+  - El count de issues baja de 404 a un estimado de ~40-60 reales tras el
+    próximo análisis (suprimir S6774 elimina 233, los refactors de Maintenance
+    cerrarán otros tantos al reanalizar).
+  - La deuda técnica visible en SonarCloud reflejará trabajo real del
+    proyecto, no ruido de reglas que chocan con decisiones arquitectónicas.
+  - 2/10 ficheros complejos ya tenían `eslint-disable` con justificación
+    local — la supresión en Sonar solo alinea herramientas.
+
+- **Negativas / riesgos:**
+  - 9 ficheros quedan exentos de S3776: si en el futuro se añade complejidad
+    a esos ficheros, SonarCloud no alertará. Mitigación: eslint-plugin-sonarjs
+    sigue activo localmente (`cognitive-complexity` rule) y PR review revisa
+    la complejidad manualmente.
+  - S6774 suprimida en todos los `.jsx`: si el proyecto migra a TS o añade
+    PropTypes, habrá que revisar la entrada multicriteria. Documentado en el
+    comentario del propio fichero de config.
+  - El marcaje de hotspots como SAFE persiste en SonarCloud. Mitigación
+    natural: Sonar reabre hotspots si la línea/texto cambia de forma
+    sustancial entre análisis.
+  - Cobertura del 28.9% → debt documentada como fuera del scope de esta
+    sesión; requiere campaña dedicada de testing unitario (se deja para
+    post-v0.5.0).
+
+### Tests
+
+- Backend: `1034/1034 passed` (88.9s) tras cambios en envValidator, redis,
+  logger, escapeRegex, drop-db, benchmark-session-reads.
+- Frontend: `257/257 passed` (24s) tras refactor feedbackMessages +
+  edits en sentry.js, ErrorBoundary.jsx, StudentManagement.jsx.
+- Lint: 0 errores backend, 0 errores frontend (15 warnings preexistentes
+  sin relación con esta sesión).
+
+### Referencias
+
+- `sonar-project.properties` — configuración multicriteria aplicada.
+- SonarCloud project: https://sonarcloud.io/project/overview?id=Samuel-Prog-CSec_TFG-IoT
+- Commit analizado: `839a53c` (release v0.4.0, 2026-03-19).
+- Token SonarCloud usado para las APIs de `hotspots/change_status`,
+  `issues/do_transition`, `issues/add_comment` — rotado tras la sesión.
+
+## ADR-087: Paquete fixes QA senior pre-release v0.5.0 (bloqueantes y visibles) [Full-stack]
+
+### Fecha
+
+2026-04-24
+
+### Contexto
+
+Última sesión QA antes de cerrar Sprint 5 y publicar la release v0.5.0.
+Recorrido completo con Playwright a 1920x1080: auth, dashboard, wizard
+memoria, partida memoria 6/6, wizard asociación, partida asociación con
+aciertos y fallos, mazos, sesiones, contextos (incluyendo crear/borrar
+contexto en Supabase Storage como super_admin). Ningún sensor físico
+disponible durante la sesión.
+
+Durante la auditoría aparecieron dos fallos **bloqueantes** que rompían
+flujos críticos vía `ErrorBoundary`, un fallo **alto** que entregaba
+KPIs vacíos en un reporte ya expuesto en producción, y varios defectos
+menores visibles (typo, eje del gráfico que desbordaba el 100%,
+etiquetas inconsistentes entre mecánicas).
+
+### Decisiones
+
+**1) Contrato del hook `useDeckWizardDraft` — alias retrocompatibles.**
+`DeckCreationWizard.jsx` importaba `{ draft, saveDraft, draftTimestamp }`,
+pero el hook exportaba `{ state, setState, updateField, draftDate, ... }`
+tras un refactor previo. Al añadir la 2.ª carta el efecto del wizard
+invocaba `saveDraft(...)` con `undefined` → `TypeError` → pantalla de
+error crashea todo el flujo de creación de mazos.
+
+Optamos por **exponer ambas superficies en el hook**:
+`saveDraft` pasa a ser público (ya existía internamente), `draftTimestamp`
+es un alias de `draftDate`, y `draft` lee perezosamente el borrador de
+`localStorage` para consumidores que mantienen su estado local.
+Alternativa rechazada: refactorizar el wizard a `setState`/`updateField`
+(trabajo amplio, riesgo de regresión antes de release).
+
+**2) `EmptyState` recibe elementos, no componentes.**
+`AdminContexts.jsx` pasaba `icon={AlertTriangle}`/`icon={Palette}` al
+`EmptyState`, que renderiza `{icon}` directamente. React 19 lanza
+`Objects are not valid as a React child (found: object with keys
+{$$typeof, render})` al ver el objeto forwardRef. El crash aparecía
+cada vez que el filtro dejaba la lista vacía o el endpoint fallaba.
+Fix mínimo: envolver con `<Icon size={48} className="..."/>`
+siguiendo la convención del resto de la app (`FeatureFlagsPanel`,
+`CardDecksPage`, etc.).
+
+**3) Adaptador `ReportGenerator ⇄ reportDataService`.**
+El backend devuelve la jerarquía
+`{ overview, distribution: { distribution }, studentSummaries, summary: { avgScore: { value } } }`,
+pero el componente leía `{ kpis, distribution[], topStudents, bottomStudents }`,
+por lo que todos los KPIs salían a `0` / `-` pese a tener 201 partidas.
+Añadimos adaptadores defensivos que aceptan ambas formas (forma actual
+del servicio y forma histórica / de mocks), normalizando `summary.avgScore.value`
+a un número plano y derivando `topStudents` / `bottomStudents` por slice
+de `studentSummaries` cuando no vienen pre-calculados. También
+aceptamos `tier.label` del backend para pintar etiquetas humanas.
+
+**4) Eje Y de Curvas de Aprendizaje con clamp duro.**
+Recharts extiende el dominio cuando los datos rozan el máximo
+(`106.4` visible cuando tocan 100). Añadimos `allowDataOverflow`
+y `ticks=[0,25,50,75,100]` para forzar la rejilla fija. El clamp en
+persistencia ya venía de ADR-081; esto resuelve sólo el render.
+
+**5) `INCREÍBLE` con tilde en GameOverScreen.**
+`CharacterMascot.jsx` tenía la ortografía correcta; `GameOverScreen.jsx`
+no. Revelado por la captura del fin de partida de memoria.
+
+**6) Etiqueta `Rondas` vs `Parejas` según mecánica.**
+Mostrar `Rondas N` en una sesión de memoria confunde: la memoria usa
+parejas (6 pares = 12 cartas), no rondas independientes. `SessionsPage`
+y `SessionDetail` ahora consultan `session.mechanic?.name === 'memory'`
+y cambian el copy a `Parejas` / `Tiempo total` en esa rama, dejando
+`Rondas` / `Tiempo por ronda` intacto para asociación.
+
+### Verificación
+
+- Frontend: `257/257` Vitest en verde tras los cambios.
+- Backend: `1034/1034` Jest en verde.
+- Lint: 0 errores (6 warnings preexistentes de complejidad/ternarios
+  anidados en ficheros ya fuera de este alcance).
+- Regresión manual con Playwright:
+  - Wizard de mazos: el modal "Borrador encontrado" aparece al
+    re-entrar con datos guardados, ya no crashea al añadir cartas.
+  - Admin contexts: filtro que deja la lista vacía pinta EmptyState
+    con icono Palette; crear contexto `qa-test-final-v050` y borrar
+    con limpieza de carpeta Supabase Storage (`ctx-qa-test-final-v050`).
+
+### Ampliación — fixes adicionales aplicados en la misma sesión
+
+Tras el primer pase se consolidaron también los hallazgos que originalmente
+iban a diferirse a Sprint 6. La razón fue hacer la release lo más limpia
+posible evitando arrastrar bugs conocidos aunque fueran menores.
+
+**7) Scroll del layout en `<body>` (PROP-100, hereda PROP-77).**
+`AppLayout` tenía `overflow-hidden` en el wrapper + `overflow-auto` en
+`<main>`, creando un scroll anidado que rompía `PageDown`, `End`, `Home`,
+"pull to refresh" mobile y `fullPage: true` de Playwright. Cambio:
+- Wrapper: `min-h-screen` (fuera `h-screen overflow-hidden`).
+- Sidebar desktop: `sticky top-0 h-screen` (mobile mantiene `fixed`
+  porque usa `motion.aside` con `transform` para abrir/cerrar).
+- `<main>` sin `overflow` propio; el scroll vive en el viewport.
+
+**8) Radar Engagement degradación explícita (PROP-101).**
+El fallback antiguo solo saltaba con `zeroAxes >= 3`, pero el backend
+devuelve ruido residual (2-5) en ejes sin datos, así que la condición
+no se disparaba y el radar salía como pajita visual. Nueva lógica:
+`signalAxes < 3` (menos de 3 ejes con valor > 15) → fallback. En el
+fallback se muestra además el badge RAG (`Alto/Medio/Bajo`) porque el
+profesor sigue necesitando la lectura global aunque el desglose por
+ejes no sea visualizable.
+
+**9) Consigna personalizada del wizard de asociación (PROP-102).**
+`AssociationStrategy.resolvePlannedChallenge` ya incluía `promptText`,
+pero `GameEngine._emitNewRound` no lo montaba en el payload emitido al
+cliente, así que la partida siempre pintaba el default. Fix: añadir
+`promptText` al objeto `challenge` del evento `new_round` y propagarlo
+en `normalizeChallenge` del frontend. `GameSession` ahora prioriza
+`challenge.promptText` si existe; si no, cae al default `¿Dónde está
+la <X>?` con artículo añadido (BUG-A12 del QA colateral).
+
+**10) A11y del toggle "Vincular Sensor RFID" (PROP-103).**
+`StepRules.jsx` y `StepMemoryRules.jsx` tenían un `<button>` plano para
+vincular/desvincular sensor. Añadido `role="switch"`, `aria-checked`
+dinámico, `aria-label` contextual y estilos de `focus-visible` ring
+consistentes con el resto de switches del sidebar.
+
+**11) Resumen de partida asociación desglosado (PROP-104).**
+"Sin completar: 4" mezclaba timeouts y respuestas incorrectas. En
+`GameOverScreen` ahora, cuando `summary.errors` está disponible,
+renderizamos un grid de 4 columnas:
+- `Incorrectas` (summary.errors, rojo)
+- `Sin responder` (totalRounds − correctas − incorrectas)
+- `T. medio`
+- `Tiempo`
+Fallback a 3 columnas con `Sin completar` si no hay desglose.
+
+**12) Log `gameEngine` sin doble signo (PROP-105).**
+`penaltyPerError` ya viene con signo (`-2`), así que el literal
+`symbol = '-'` producía `--2 pts`. Cambio: `symbol = pointsAwarded >= 0
+? '+' : ''` y dejamos que el propio valor aporte el signo negativo.
+
+### Referencias
+
+- `frontend/src/hooks/useDeckWizardDraft.js` — alias `saveDraft/draft/draftTimestamp` añadidos.
+- `frontend/src/pages/admin/AdminContexts.jsx` — EmptyState con `<Icon>`.
+- `frontend/src/components/analytics/ReportGenerator.jsx` — adaptadores de forma de datos.
+- `frontend/src/components/game/GameOverScreen.jsx` — tilde en "INCREÍBLE" + desglose stats (PROP-104).
+- `frontend/src/pages/InsightsReports.jsx` — YAxis `allowDataOverflow` + ticks fijos.
+- `frontend/src/pages/SessionsPage.jsx`, `frontend/src/pages/SessionDetail.jsx` — etiqueta dinámica memoria/asociación.
+- `frontend/src/components/layout/AppLayout.jsx` — scroll en body + sidebar sticky (PROP-100).
+- `frontend/src/components/analytics/EngagementRadar.jsx` — fallback por signalAxes < 3 (PROP-101).
+- `backend/src/services/gameEngine/GameEngine.js` — `promptText` en `new_round` + log signo natural (PROP-102, PROP-105).
+- `frontend/src/pages/GameSession.jsx` — `normalizeChallenge` con promptText + artículo "la" en default (PROP-102, BUG-A12).
+- `frontend/src/components/session/StepRules.jsx`, `StepMemoryRules.jsx` — switch a11y (PROP-103).
+- Capturas de la sesión: `qa-capturas-v0.5.0-final/` (01–66).
+
+
+---
+
+## ADR-088: Paquete fixes QA cierre Sprint 5 / pre-release v0.5.0 (gameplay, contextos, analytics) [Full-stack]
+
+**Estado**: Aprobado · 2026-04-26
+**Alcance**: Full-stack
+**Contexto**: Última sesión de QA antes de cerrar el Sprint 5 y la release
+v0.5.0. Auditoría exhaustiva por la app completa (perfil profesor + super
+admin) en viewport por defecto, jugando una partida de memorización y otra
+de asociación desde cero, ejercitando wizards, contextos, asset upload,
+Supabase Storage y administración. Se buscan únicamente bugs y errores; toda
+incidencia detectada se corrige aquí.
+
+**Decisión**: Aplicar 8 fixes coordinados que cierran 8 bugs reales detectados
+en flujos críticos:
+
+**1) Selección de contexto en wizard de mazos no funcionaba (todos seleccionados).**
+`toGameContextDTOV1` expone `id` (no `_id`), pero `DeckCreationWizard` usaba
+solo `selectedContext?._id === context._id`. Como ambos eran `undefined`,
+`undefined === undefined` evaluaba a `true` y todos los contextos aparecían
+con check de "seleccionado" + el `contextId` enviado al crear mazo era
+`undefined`. Fix: aceptar `_id || id` en `DeckCreationWizard`,
+`DeckEditPage` y `useContexts.findContextById` para tolerar ambos contratos.
+
+**2) Modal "Borrador encontrado" reaparecía tras descartar.**
+`useEffect([hasDraft, showDraftModal])` reabría el modal cada vez que el
+hook `useDeckWizardDraft` volvía a poner `hasDraft=true` al guardar el
+primer dato significativo del mazo nuevo. Fix: ref
+`draftDecisionTakenRef` que registra que el usuario ya tomó decisión, y la
+condición del effect lo respeta.
+
+**3) Modo táctil de asociación: respuestas correctas se contaban como fallo.**
+`ensureRfidSensorConsistency` rechazaba scans con sensorId distinto al
+bindeado en `modeState.sensorId`. Tras simular escaneos en el wizard de
+mazos quedaba el `sensor-<uuid>` pegado, y los toques sucesivos del
+`FallbackTouchPanel` enviaban `touch_fallback_sensor` → mismatch →
+RFID_SENSOR_MISMATCH → la respuesta no se contabilizaba. Fix: aceptar
+`payload.sensorId` que empiece por `touch_fallback` como excepción al
+mismatch, y nunca persistir un binding de `touch_fallback_sensor` (de lo
+contrario, bloquearía al sensor físico al volver). Coherente con la
+excepción ya presente en `validateRfidSensorAuthorization`.
+
+**4) Race entre `game_over` y `response_*` mostraba conteo incorrecto.**
+`normalizeFinalSummary` calculaba `errors = totalAttempts - correctAnswers`
+usando el `correctAnswers` del reducer local. Si `game_over` llegaba antes
+de procesar el último `response_correct`, ese contador iba 1 unidad por
+debajo y "Incorrectas" mostraba números absurdos (5 fallos en una partida
+de 4 aciertos + 1 fallo). Fix: el backend ya envía `metrics.correctAttempts`
+y `metrics.errorAttempts` en `play.metrics`; `normalizeFinalSummary` los usa
+como fuente de verdad y solo cae al cálculo derivado cuando faltan. El
+`GameOverScreen` recibe `playSummary?.correctAnswers ?? correctAnswers` para
+que la cifra sincronizada con el backend prevalezca.
+
+**5) Floats sin redondear en `Mis Alumnos`.**
+La columna Score mostraba `42.7222222222222%` para alumnos cuyo
+`averageScore` viene de un `$avg` de Mongo sin redondear. Fix doble:
+backend `analyticsService.listStudents` redondea a 1 decimal antes de
+enviar; frontend `StudentsAnalytics` añade helper `formatPercent()` que
+elimina decimales sobrantes (1 decimal solo si el valor no es entero).
+
+**6) "Alumnos en Riesgo" en informes mostraba 0% para todos.**
+`reportDataService.getClassroomReport` devuelve
+`studentSummaries[].engagementScore`. `ReportGenerator.bottomStudents`
+fallback hacía `s.averageScore ?? s.score ?? 0`, sin contemplar
+`engagementScore` (que sí estaba en el bloque de "Mejores Alumnos"). Fix:
+añadir `s.engagementScore` al fallback de bottomStudents.
+
+**7) Subida de asset al contexto fallaba con 400 "ID de MongoDB inválido".**
+`UploadAssetModal` usaba `context._id || context.contextId`. Como el DTO no
+expone `_id`, fallback al slug → backend rechaza porque la ruta
+`/contexts/:id/images` espera ObjectId. Fix: cadena `_id || id || contextId`
+(orden mantiene compat con admin que sí trabaja con `_id` crudo en algunos
+flujos legacy).
+
+**8) Tras subir/eliminar asset, el detalle mostraba "0 assets" hasta TTL.**
+`assetController.uploadImage`, `uploadAudio`, `deleteImage` y `deleteAudio`
+modifican `game_contexts` directamente vía `context.save()` y NO invocaban
+`invalidateContextCaches`. La cache Redis del detalle/lista seguía
+sirviendo el snapshot previo durante 60–300s. Fix: invalidar caches al
+final de cada handler con `(_id, contextId)` igual que en
+`gameContextController`. Se importa el helper `contextCacheInvalidator`
+en `assetController`.
+
+**9) Barra de progreso del `WizardStepper` no llegaba al círculo activo.**
+La línea de fondo se posicionaba con `left-5 right-5` (20px desde los
+bordes) asumiendo que los círculos quedaban exactamente a 20px del
+contenedor; pero los items usaban `flex justify-between` con labels y
+descripciones de ancho variable, que desplazaban el centro del primer y
+último círculo (medido: 58.84px y 984px en un viewport de 1024px). La
+barra de progreso, anclada al borde de la línea de fondo, terminaba a
+~28px del centro del segundo círculo en el step 2. Fix doble:
+1. Cambiar el contenedor de pasos a
+   `grid-template-columns: repeat(N, 1fr)` para que cada item ocupe una
+   fracción igual y los centros queden equidistantes (medido tras fix:
+   `[128, 384, 640, 896]` para N=4).
+2. Anclar la línea de fondo a `left/right: 50/N %` (12.5% para N=4) en
+   lugar de `left-5/right-5`, para que coincida exactamente con los
+   centros del primer y último círculo.
+Verificado con `getBoundingClientRect`: el final de la barra de progreso
+en step 2 cae en pixel 384 = centro exacto del segundo círculo
+(delta = 0). Afecta a `DeckCreationWizard` y `CreateSession` (ambos
+usan el mismo `WizardStepper`).
+
+**11) Duplicación de eventos en `GamePlay.events` por interacción
+`addEventAtomic` × `save()` posterior.**
+`addEventAtomic` ejecuta dos pasos: (a) `Model.updateOne` con `$push` del
+evento y `$inc` de las métricas, (b) `applyEventToDocState` que muta el
+doc en memoria (`doc.events.push`, `doc.metrics.totalAttempts += 1`,
+etc.) para que los callers puedan leer el estado actualizado sin un
+round-trip. El paso (b) deja al array `events` marcado por Mongoose como
+*modified* con un atomic op `$push` pendiente. Cuando el flujo posterior
+ejecuta `playDoc.save()` (p. ej. en `complete()`, `persistPlayPaused`,
+`persistPlayResumed` o `checkpointPlayIfNeeded`), Mongoose vuelve a
+aplicar ese `$push`, duplicando cada evento ya persistido por (a).
+Detectado en QA 26/04/2026: una partida de memoria con 7 pares
+evaluados (6 correct + 1 error) mostraba 28 entradas en `events` (cada
+par almacenado dos veces — 14 → 28). `metrics.totalAttempts` no se
+ve afectado porque los `$inc` no se duplican igual que `$push` (el `+= 1`
+en memoria converge al mismo valor que `$inc` aplicado, y `save()` no
+re-incrementa). Pero los analytics que recorren `events` (averageResponseTime
+ya correcto porque promedia, pero contadores derivados sí podían verse
+afectados) y los logs de auditoría sí veían el array corrupto.
+
+**Fix**: tras `applyEventToDocState`, llamar a `this.$__reset()` para
+limpiar el tracking de modificaciones de Mongoose. Los `$push`/`$inc` ya
+los hizo `updateOne` y los siguientes `save()` solo persistirán campos
+modificados *después* de este `addEventAtomic` (status, completedAt,
+etc.). Test suite completa (1034/1034) verde tras el cambio.
+
+**13) Barra de tiempo en partida memoria fosilizada en `timeLimit=1s`.**
+En memoria el `playEndsAt` del backend solo se setea cuando el cliente
+confirma `board_ready` (el timer no debe arrancar antes de que el alumno
+vea el tablero). El método que emite `new_round` calculaba
+`timeLimit = Math.max(1, Math.ceil((remainingTimeMs || 0) / 1000))`, lo
+que devolvía **1** cuando `remainingTimeMs` era `null` (porque
+`playEndsAt` aún no estaba seteado). El frontend recibía `timeLimit=1`
+en el evento `new_round`, lo aplicaba con `setRoundTime(1)` y la barra
+quedaba clavada en 1/1 (100%) durante toda la partida, sin contar.
+Además, tras `confirmBoardReady`, el GameEngine seteaba `playEndsAt`
+pero NO re-emitía `memory_turn_state`, por lo que el cliente nunca
+recibía un `remainingTimeMs > 0` que activase `memoryTimerArmed`. El
+backend sí terminaba la partida al cumplirse los 300 s reales (tested:
+`completionTime=300054 ms`), pero el alumno veía la barra "muerta" al
+100% hasta el game over.
+
+**Fix doble**:
+1. En `_emitNewRound` (rama memoria), publicar `timeLimit` calculado
+   desde `playState.playDurationMs` directamente, no desde el
+   `remainingTimeMs` que aún es null. El `useGameTimer` del cliente
+   sigue esperando a `memoryTimerArmed=true` para empezar a decrementar
+   localmente, así que no hay riesgo de adelantarse al backend.
+2. En `confirmBoardReady`, llamar a `emitMemoryTurnState(...)` después
+   de setear `playEndsAt`, para que el cliente reciba un
+   `remainingTimeMs > 0` y arranque el decremento visual.
+
+**Verificado E2E** con sesión de memoria de 300 s: la barra arranca con
+`max=300, value≈300` y decrementa visualmente (`283` → `269` tras 5 s
+reales, sincronizando con el `memory_turn_state` que el backend va
+emitiendo).
+
+**12) Banner "Pausar para revisar sensor" en `FallbackTouchPanel` mal
+posicionado y con copy ambiguo.**
+El botón estaba alineado al inicio (debajo del primer asset del grid)
+y su texto sugería revisar un sensor que en ese flow está
+deliberadamente ausente (el panel táctil aparece precisamente porque no
+hay sensor RFID). Fix: envolverlo en `flex justify-center` para
+centrarlo bajo el grid y cambiar el copy a "Pausar partida".
+
+**10) `attachAudio` (PATCH /assets/:assetKey/audio) no invalidaba caches
+y tenía rollback parcial.**
+Auditoría posterior del flujo Supabase Storage detectó dos defectos en el
+endpoint de adjuntar/reemplazar audio sobre un asset existente:
+1. Tras `context.save()` no se llamaba a `invalidateContextCaches`,
+   igual que ocurría en los otros 4 handlers ya corregidos en el fix #8.
+   Fix: añadir la invalidación.
+2. La secuencia era *(a) borrar audio viejo del Storage → (b) subir
+   nuevo → (c) persistir Mongo*. Si (b) o (c) fallaban, el rollback
+   eliminaba el archivo nuevo pero el viejo ya había desaparecido del
+   bucket: el asset quedaba en Mongo con `audioUrl` apuntando a un
+   archivo eliminado. Fix: invertir el orden a *(a) subir nuevo
+   → (b) persistir Mongo con la URL nueva → (c) borrar el viejo*. Si
+   (a) o (b) fallan, el catch borra solo el archivo nuevo y el viejo se
+   conserva intacto. La limpieza final del audio antiguo se envuelve en
+   try/catch para que un fallo de red al borrar no rompa la respuesta
+   (deja un huérfano que el job de retención purgará).
+
+**Verificación**:
+- Backend: 1034/1034 tests verdes. Lint backend: 0 errores.
+- Frontend: 257/257 tests verdes. Lint frontend: 0 errores (8 warnings
+  conocidos, todos no bloqueantes — complejidad ciclomática ya presente
+  antes de la sesión).
+- E2E manual con Playwright: jugada partida memoria completa
+  (50 pts, 3 estrellas, 6/6 parejas, 1 fallo) y partida asociación
+  completa post-fix (38 pts, 2 estrellas, 4/5 + 1 fallo, "Incorrectas: 1"
+  correcto). Subida de imagen 300×300 a contexto QA temporal funciona,
+  asset visible en Supabase Storage `ctx-qa-test-context-v050/image/`,
+  borrado del contexto limpia tanto Mongo como Storage.
+
+### Referencias
+
+- `frontend/src/pages/DeckCreationWizard.jsx` — `_id || id` + `useRef` para draft modal.
+- `frontend/src/pages/DeckEditPage.jsx` — mismo fallback en cambio de contexto y guardado.
+- `frontend/src/hooks/useContexts.js` — `findContextById` lee ambos.
+- `backend/src/realtime/socketHandlers.js` — excepción `touch_fallback*` en `ensureRfidSensorConsistency` + no bindear nunca el fallback.
+- `frontend/src/pages/GameSession.jsx` — `normalizeFinalSummary` lee `metrics.correctAttempts/errorAttempts`; `GameOverScreen` recibe `playSummary?.correctAnswers`.
+- `frontend/src/pages/StudentsAnalytics.jsx` — helper `formatPercent`.
+- `backend/src/services/analyticsService.js` — round 1 dec en `studentMetrics.averageScore`.
+- `frontend/src/components/analytics/ReportGenerator.jsx` — `engagementScore` en bottom.
+- `frontend/src/pages/ContextDetailPage.jsx` — `_id || id || contextId` en uploadImage.
+- `backend/src/controllers/assetController.js` — `invalidateContextCaches` tras upload/delete (image y audio).
+- `frontend/src/components/ui/WizardStepper.jsx` — grid de columnas iguales + línea anclada al centro de los círculos extremos.
+- Capturas: `qa-capturas-v0.5.0-final-2026-04-26/` (01–66).

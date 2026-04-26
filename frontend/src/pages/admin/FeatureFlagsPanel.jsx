@@ -46,7 +46,7 @@ function CreateFlagModal({ isOpen, onClose, onCreated, existingNames }) {
       setError('El nombre debe tener al menos 3 caracteres.');
       return;
     }
-    if (!/^[a-zA-Z][a-zA-Z0-9_-]*$/.test(trimmed)) {
+    if (!/^[a-z][\w-]*$/i.test(trimmed)) {
       setError('Solo letras, números, - y _. Debe empezar por letra.');
       return;
     }
@@ -96,6 +96,7 @@ function CreateFlagModal({ isOpen, onClose, onCreated, existingNames }) {
               onChange={(e) => setName(e.target.value)}
               hint="camelCase, kebab-case o snake_case. Mínimo 3 caracteres."
               disabled={loading}
+              // eslint-disable-next-line jsx-a11y/no-autofocus -- dialogo modal: el focus inicial en el primer input es UX esperada (WAI-ARIA dialog pattern)
               autoFocus
             />
             <InputPremium
@@ -214,6 +215,7 @@ function FlagRow({ flag, onSaved, onDeleteRequested }) {
         <label className="flex cursor-pointer items-center gap-3 rounded-lg bg-background-elevated/30 px-4 py-3">
           <input
             type="checkbox"
+            aria-label={`Activar o apagar la flag ${flag.name}`}
             checked={draft.enabled}
             onChange={(e) => setDraft({ ...draft, enabled: e.target.checked })}
             className="size-5 accent-brand-base"
@@ -252,11 +254,11 @@ function FlagRow({ flag, onSaved, onDeleteRequested }) {
             )}
           />
           <p className="text-xs text-text-muted">
-            {draft.rolloutPct === 0
-              ? 'Solo whitelist recibirá la flag.'
-              : draft.rolloutPct === 100
-                ? 'Todos los usuarios reciben la flag.'
-                : `Aprox. ${draft.rolloutPct}% de usuarios (determinístico).`}
+            {(() => {
+              if (draft.rolloutPct === 0) return 'Solo whitelist recibirá la flag.';
+              if (draft.rolloutPct === 100) return 'Todos los usuarios reciben la flag.';
+              return `Aprox. ${draft.rolloutPct}% de usuarios (determinístico).`;
+            })()}
           </p>
         </div>
 
@@ -394,39 +396,47 @@ export default function FeatureFlagsPanel() {
       </header>
 
       {/* Contenido */}
-      {loading && flags.length === 0 ? (
-        <div className="flex flex-col gap-4">
-          <SkeletonCard />
-          <SkeletonCard />
-        </div>
-      ) : flags.length === 0 ? (
-        <EmptyState
-          title="Aún no hay feature flags"
-          description="Crea la primera flag para habilitar rollouts progresivos y kill switches."
-          icon={<Icon name="Flag" size={40} className="text-text-muted" />}
-          action={
-            <ButtonPremium variant="primary" onClick={() => setCreateOpen(true)}>
-              <Icon name="Plus" size={14} />
-              Crear primera flag
-            </ButtonPremium>
-          }
-        />
-      ) : (
-        <motion.div
-          variants={staggerContainer}
-          initial="initial"
-          animate="animate"
-          className="flex flex-col gap-4"
-        >
-          <AnimatePresence initial={false}>
-            {flags.map((flag) => (
-              <motion.div key={flag.name} variants={staggerItem} layout>
-                <FlagRow flag={flag} onSaved={handleSaved} onDeleteRequested={requestDelete} />
-              </motion.div>
-            ))}
-          </AnimatePresence>
-        </motion.div>
-      )}
+      {(() => {
+        if (loading && flags.length === 0) {
+          return (
+            <div className="flex flex-col gap-4">
+              <SkeletonCard />
+              <SkeletonCard />
+            </div>
+          );
+        }
+        if (flags.length === 0) {
+          return (
+            <EmptyState
+              title="Aún no hay feature flags"
+              description="Crea la primera flag para habilitar rollouts progresivos y kill switches."
+              icon={<Icon name="Flag" size={40} className="text-text-muted" />}
+              action={
+                <ButtonPremium variant="primary" onClick={() => setCreateOpen(true)}>
+                  <Icon name="Plus" size={14} />
+                  Crear primera flag
+                </ButtonPremium>
+              }
+            />
+          );
+        }
+        return (
+          <motion.div
+            variants={staggerContainer}
+            initial="initial"
+            animate="animate"
+            className="flex flex-col gap-4"
+          >
+            <AnimatePresence initial={false}>
+              {flags.map((flag) => (
+                <motion.div key={flag.name} variants={staggerItem} layout>
+                  <FlagRow flag={flag} onSaved={handleSaved} onDeleteRequested={requestDelete} />
+                </motion.div>
+              ))}
+            </AnimatePresence>
+          </motion.div>
+        );
+      })()}
 
       {/* Modales */}
       <CreateFlagModal

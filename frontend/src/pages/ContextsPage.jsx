@@ -253,8 +253,8 @@ export default function ContextsPage() {
         {(() => {
           if (loading) return (
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-              {[...Array(6)].map((_, i) => (
-                <SkeletonCard key={i} className="h-64" />
+              {Array.from({ length: 6 }, (_, i) => `ctx-skeleton-${i}`).map(id => (
+                <SkeletonCard key={id} className="h-64" />
               ))}
             </div>
           );
@@ -409,7 +409,7 @@ function ContextCard({ context, onClick }) {
           >
             {previews.map((preview, i) => (
               <span
-                key={i}
+                key={`${preview}-${i}`}
                 className="flex-1 min-w-0 truncate rounded-full border border-border-subtle bg-background-elevated/40 px-2.5 py-1 text-xs font-medium text-text-secondary text-center"
               >
                 {preview}
