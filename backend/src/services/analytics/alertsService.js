@@ -62,7 +62,10 @@ async function detectDecliningPerformance(teacherId, students) {
       $group: {
         _id: { playerId: '$playerId', period: '$period' },
         avgScore: { $avg: '$score' },
-        count: { $sum: 1 }
+        count: { $sum: 1 },
+        // PROP-47: el detectedAt de la alerta debe venir del evento subyacente
+        // (última partida del periodo actual), no de Date.now() en cada lectura.
+        lastCompletedAt: { $max: '$completedAt' }
       }
     }
   ];
@@ -76,7 +79,11 @@ async function detectDecliningPerformance(teacherId, students) {
     if (!byStudent[sid]) {
       byStudent[sid] = {};
     }
-    byStudent[sid][r._id.period] = { avgScore: r.avgScore, count: r.count };
+    byStudent[sid][r._id.period] = {
+      avgScore: r.avgScore,
+      count: r.count,
+      lastCompletedAt: r.lastCompletedAt
+    };
   }
 
   // eslint-disable-next-line sonarjs/too-many-break-or-continue-in-loop -- cada continue filtra un criterio estadistico diferente
@@ -109,7 +116,7 @@ async function detectDecliningPerformance(teacherId, students) {
         message: `Su rendimiento ha bajado un ${Math.round(declinePercent)}% en la última semana`,
         recommendation:
           'Considerar revisar el contenido asignado o proporcionar sesiones de refuerzo',
-        detectedAt: new Date().toISOString(),
+        detectedAt: new Date(data.current.lastCompletedAt).toISOString(),
         data: {
           previousAvg: Math.round(data.previous.avgScore),
           currentAvg: Math.round(data.current.avgScore),
@@ -155,7 +162,10 @@ function detectInactivity(students) {
           daysSince >= 14
             ? 'Verificar si el alumno tiene algún problema para acceder a las sesiones'
             : 'Considerar asignar una sesión de juego motivadora',
-        detectedAt: new Date().toISOString(),
+        // PROP-47: la inactividad "se detecta" desde la última partida real
+        // (no desde el momento de la consulta — cada refresco daría timestamps
+        // distintos para el mismo evento).
+        detectedAt: new Date(lastPlayed).toISOString(),
         data: { daysSinceLastPlay: daysSince, lastPlayedAt: lastPlayed }
       });
     }
@@ -226,7 +236,8 @@ async function detectSuddenScoreDrop(teacherId, students) {
         studentName: student.name,
         message: `Obtuvo ${lastScore} puntos en su última partida (media: ${Math.round(avgScore)})`,
         recommendation: 'Revisar si hubo alguna dificultad específica en la última sesión',
-        detectedAt: new Date().toISOString(),
+        // PROP-47: detectedAt = momento real de la partida que disparó la alerta.
+        detectedAt: new Date(r.lastGame.completedAt).toISOString(),
         data: {
           lastScore,
           averageScore: Math.round(avgScore),
@@ -278,12 +289,15 @@ async function detectConsistentTimeout(teacherId, students) {
               ]
             }
           }
-        }
+        },
+        // PROP-47: detectedAt = última partida que entró en el análisis.
+        lastCompletedAt: { $max: '$completedAt' }
       }
     },
     {
       $project: {
-        last5: { $slice: ['$recentGames', 5] }
+        last5: { $slice: ['$recentGames', 5] },
+        lastCompletedAt: 1
       }
     }
   ];
@@ -316,7 +330,7 @@ async function detectConsistentTimeout(teacherId, students) {
         message: `Tasa de timeout del ${Math.round(avgTimeoutRate * 100)}% en sus últimas ${r.last5.length} partidas`,
         recommendation:
           'Verificar si el tiempo límite es adecuado o si el alumno necesita apoyo adicional',
-        detectedAt: new Date().toISOString(),
+        detectedAt: new Date(r.lastCompletedAt).toISOString(),
         data: {
           avgTimeoutRate: Math.round(avgTimeoutRate * 100 * 10) / 10,
           gamesAnalyzed: r.last5.length
@@ -365,7 +379,8 @@ async function detectImprovingFast(teacherId, students) {
       $group: {
         _id: { playerId: '$playerId', period: '$period' },
         avgScore: { $avg: '$score' },
-        count: { $sum: 1 }
+        count: { $sum: 1 },
+        lastCompletedAt: { $max: '$completedAt' }
       }
     }
   ];
@@ -378,7 +393,11 @@ async function detectImprovingFast(teacherId, students) {
     if (!byStudent[sid]) {
       byStudent[sid] = {};
     }
-    byStudent[sid][r._id.period] = { avgScore: r.avgScore, count: r.count };
+    byStudent[sid][r._id.period] = {
+      avgScore: r.avgScore,
+      count: r.count,
+      lastCompletedAt: r.lastCompletedAt
+    };
   }
 
   const studentMap = new Map(students.map(s => [s._id.toString(), s]));
@@ -413,7 +432,7 @@ async function detectImprovingFast(teacherId, students) {
         studentName: student.name,
         message: `Ha mejorado un ${Math.round(improvementPercent)}% en la última semana`,
         recommendation: 'Reforzar positivamente el progreso del alumno',
-        detectedAt: new Date().toISOString(),
+        detectedAt: new Date(data.current.lastCompletedAt).toISOString(),
         data: {
           previousAvg: Math.round(data.previous.avgScore),
           currentAvg: Math.round(data.current.avgScore),
@@ -457,7 +476,8 @@ async function detectHighAbandonment(teacherId, students) {
         total: { $sum: 1 },
         abandoned: {
           $sum: { $cond: [{ $eq: ['$status', 'abandoned'] }, 1, 0] }
-        }
+        },
+        lastEventAt: { $max: '$startedAt' }
       }
     },
     {
@@ -488,7 +508,7 @@ async function detectHighAbandonment(teacherId, students) {
         message: `Ha abandonado ${r.abandoned} de ${r.total} partidas en los últimos 7 días (${Math.round(abandonmentRate * 100)}%)`,
         recommendation:
           'Revisar si las sesiones son demasiado largas o si el contenido genera frustración',
-        detectedAt: new Date().toISOString(),
+        detectedAt: new Date(r.lastEventAt).toISOString(),
         data: {
           abandonedGames: r.abandoned,
           totalGames: r.total,

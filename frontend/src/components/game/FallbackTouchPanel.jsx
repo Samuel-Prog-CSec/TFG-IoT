@@ -4,8 +4,9 @@
  * pueda responder tocando directamente en la pantalla.
  */
 
-import { motion } from 'framer-motion';
-import { Hand } from 'lucide-react';
+import { useEffect, useState } from 'react';
+import { AnimatePresence, motion } from 'framer-motion';
+import { Hand, Loader2 } from 'lucide-react';
 import PropTypes from 'prop-types';
 import CardAssetPreview from '../ui/CardAssetPreview';
 
@@ -39,6 +40,21 @@ export default function FallbackTouchPanel({ cards, round = 1, onSelectCard, onP
     .sort((a, b) => getSortKey(a).localeCompare(getSortKey(b), 'es'))
     .slice(0, 12);
 
+  // PROP-79: feedback "procesando" entre tap y validation_result. Confirma
+  // visualmente al jugador que su tap se ha registrado, evitando la sensación
+  // de "he tocado y no ha pasado nada" que llevaba a doble taps innecesarios.
+  // El estado se resetea automáticamente al cambiar de ronda.
+  const [tappedUid, setTappedUid] = useState(null);
+
+  useEffect(() => {
+    setTappedUid(null);
+  }, [round]);
+
+  const handleTap = (card) => {
+    setTappedUid(card.uid);
+    onSelectCard(card);
+  };
+
   // Numero de columnas adaptativo: con 2-4 cartas una fila compacta, con mas
   // un grid 3xN. Los cards son siempre grandes (aspect-square) pero se escalan
   // con el ancho disponible para que siempre quepan en viewport sin scroll.
@@ -64,36 +80,57 @@ export default function FallbackTouchPanel({ cards, round = 1, onSelectCard, onP
           className={`grid ${colsClass} gap-3 sm:gap-4 border-0 p-0 m-0`}
           aria-label="Cartas disponibles para selección táctil"
         >
-          {visibleCards.map(card => (
-            <motion.button
-              // Key incluye round para forzar re-mount de CardAssetPreview entre rondas
-              // y asi sanear el estado interno si una imagen fallo en la ronda anterior.
-              key={`fallback-card-${card.uid}-r${round}`}
-              type="button"
-              onClick={() => onSelectCard(card)}
-              // TOKEN-EXCEPTION: Framer Motion whileTap requires direct color value for interpolation
-              whileTap={{ scale: 0.94, backgroundColor: 'rgba(99, 102, 241, 0.25)' }}
-              whileHover={{ y: -2 }}
-              transition={{ type: 'spring', stiffness: 500, damping: 28 }}
-              aria-label={`Seleccionar carta: ${card.assignedValue || card.uid}`}
-              // Tamaño generoso para desktop (QA 2026-04-23: antes las cartas
-              // quedaban muy pequeñas dejando mucho aire al usuario). En mobile
-              // se mantiene un min de 72px para preservar el target size WCAG.
-              className="aspect-square min-h-[72px] md:min-h-[110px] rounded-xl border-2 border-border-default bg-background-base/60 p-2 text-center transition-[background-color,border-color,box-shadow] hover:border-accent-indigo/50 hover:shadow-[0_4px_16px_rgba(99,102,241,0.2)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-indigo focus-visible:ring-offset-2 focus-visible:ring-offset-background-base"
-            >
-              <CardAssetPreview
-                asset={card.displayData || { display: card.assignedValue || card.uid }}
-                className="h-full w-full rounded-lg"
-                fit="contain"
-                loading="eager"
-                fallbackLabel={card.assignedValue || card.uid}
-                // Cuando el panel fallback esta en pantalla, el alumno necesita
-                // leer el nombre grande si la imagen no llega a cargar tras
-                // los retries, porque es su unica forma de asociar.
-                largeFallback
-              />
-            </motion.button>
-          ))}
+          {visibleCards.map(card => {
+            const isTapped = tappedUid === card.uid;
+            return (
+              <motion.button
+                // Key incluye round para forzar re-mount de CardAssetPreview entre rondas
+                // y asi sanear el estado interno si una imagen fallo en la ronda anterior.
+                key={`fallback-card-${card.uid}-r${round}`}
+                type="button"
+                onClick={() => handleTap(card)}
+                disabled={tappedUid !== null}
+                // TOKEN-EXCEPTION: Framer Motion whileTap requires direct color value for interpolation
+                whileTap={{ scale: 0.94, backgroundColor: 'rgba(99, 102, 241, 0.25)' }}
+                whileHover={tappedUid === null ? { y: -2 } : undefined}
+                transition={{ type: 'spring', stiffness: 500, damping: 28 }}
+                aria-label={`Seleccionar carta: ${card.assignedValue || card.uid}`}
+                aria-busy={isTapped}
+                // Tamaño generoso para desktop (QA 2026-04-23: antes las cartas
+                // quedaban muy pequeñas dejando mucho aire al usuario). En mobile
+                // se mantiene un min de 72px para preservar el target size WCAG.
+                className={`relative aspect-square min-h-[72px] md:min-h-[110px] rounded-xl border-2 ${isTapped ? 'border-accent-indigo' : 'border-border-default'} bg-background-base/60 p-2 text-center transition-[background-color,border-color,box-shadow,opacity] hover:border-accent-indigo/50 hover:shadow-[0_4px_16px_rgba(99,102,241,0.2)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-indigo focus-visible:ring-offset-2 focus-visible:ring-offset-background-base disabled:cursor-not-allowed ${tappedUid !== null && !isTapped ? 'opacity-40' : ''}`}
+              >
+                <CardAssetPreview
+                  asset={card.displayData || { display: card.assignedValue || card.uid }}
+                  className="h-full w-full rounded-lg"
+                  fit="contain"
+                  loading="eager"
+                  fallbackLabel={card.assignedValue || card.uid}
+                  // Cuando el panel fallback esta en pantalla, el alumno necesita
+                  // leer el nombre grande si la imagen no llega a cargar tras
+                  // los retries, porque es su unica forma de asociar.
+                  largeFallback
+                />
+                <AnimatePresence>
+                  {isTapped && (
+                    <motion.div
+                      key="processing"
+                      initial={{ opacity: 0 }}
+                      animate={{ opacity: 1 }}
+                      exit={{ opacity: 0 }}
+                      transition={{ duration: 0.15 }}
+                      className="absolute inset-0 flex flex-col items-center justify-center gap-1 rounded-xl bg-accent-indigo/15 backdrop-blur-[2px] pointer-events-none"
+                      aria-hidden="true"
+                    >
+                      <Loader2 size={20} className="text-accent-indigo animate-spin" />
+                      <span className="text-[10px] font-semibold text-accent-indigo">Procesando…</span>
+                    </motion.div>
+                  )}
+                </AnimatePresence>
+              </motion.button>
+            );
+          })}
         </fieldset>
       )}
 

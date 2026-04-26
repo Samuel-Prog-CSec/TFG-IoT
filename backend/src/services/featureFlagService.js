@@ -16,6 +16,7 @@
 const redisService = require('./redisService');
 const { cacheGet, cacheInvalidate } = require('../utils/cacheHelper');
 const { bucketPct } = require('../utils/fnv1a');
+const { FEATURE_FLAGS_CATALOG } = require('../config/featureFlagsCatalog');
 const logger = require('../utils/logger').child({ component: 'featureFlagService' });
 
 /** Namespace Redis para los Hashes de flags (`feature:<name>`). */
@@ -252,6 +253,60 @@ const deleteFlag = async name => {
 };
 
 /**
+ * Lista todas las flags fusionando el catálogo declarativo (`FEATURE_FLAGS_CATALOG`)
+ * con las flags realmente presentes en Redis. Una flag declarada que no exista
+ * todavía aparece con `status: 'unregistered'` para que el panel admin pueda
+ * mostrarla como "Por crear" y materializarla con un click.
+ *
+ * @returns {Promise<Array<Object>>} Cada flag incluye `status` y `description`
+ *   adicionales respecto al DTO de `listFlags()`.
+ */
+const listFlagsWithCatalog = async () => {
+  const stored = await listFlags();
+  const storedByName = new Map(stored.map(flag => [flag.name, flag]));
+
+  const merged = [];
+
+  // Primero el catálogo en su orden declarado: garantiza estabilidad visual.
+  for (const entry of FEATURE_FLAGS_CATALOG) {
+    const existing = storedByName.get(entry.name);
+    if (existing) {
+      merged.push({
+        ...existing,
+        description: entry.description,
+        status: 'registered'
+      });
+      storedByName.delete(entry.name);
+    } else {
+      merged.push({
+        name: entry.name,
+        enabled: false,
+        rolloutPct: entry.defaultRolloutPct ?? (entry.defaultEnabled ? 100 : 0),
+        whitelist: [],
+        reason: entry.reason || '',
+        updatedAt: '',
+        updatedBy: '',
+        description: entry.description,
+        status: 'unregistered',
+        defaultEnabled: entry.defaultEnabled
+      });
+    }
+  }
+
+  // Flags que existen en Redis pero no están declaradas en catálogo (legacy
+  // o experimentales): se muestran al final con status 'orphan'.
+  for (const orphan of storedByName.values()) {
+    merged.push({
+      ...orphan,
+      description: '',
+      status: 'orphan'
+    });
+  }
+
+  return merged;
+};
+
+/**
  * Evalúa todas las flags para un userId concreto. Útil para el endpoint /api/me/flags
  * que el frontend consume al iniciar sesión.
  *
@@ -290,6 +345,7 @@ const toFlagDTO = (name, raw) => ({
 module.exports = {
   isEnabled,
   listFlags,
+  listFlagsWithCatalog,
   getFlag,
   setFlag,
   deleteFlag,

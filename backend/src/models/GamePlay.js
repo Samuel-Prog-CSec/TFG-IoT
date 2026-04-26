@@ -11,6 +11,7 @@
  */
 
 const mongoose = require('mongoose');
+const { PLAY_STATUS, EVENT_TYPE } = require('../constants/enums');
 
 const MAX_EVENTS_PER_PLAY = 500;
 
@@ -161,15 +162,7 @@ const gamePlaySchema = new mongoose.Schema(
           lowercase: true,
           required: true,
           trim: true,
-          enum: [
-            'card_scanned',
-            'correct',
-            'error',
-            'timeout',
-            'round_start',
-            'round_end',
-            'server_restart'
-          ]
+          enum: EVENT_TYPE
         },
         cardUid: String,
         expectedValue: String,
@@ -212,7 +205,7 @@ const gamePlaySchema = new mongoose.Schema(
       type: String,
       lowercase: true,
       trim: true,
-      enum: ['in-progress', 'completed', 'abandoned', 'paused'],
+      enum: PLAY_STATUS,
       default: 'in-progress'
     },
     pausedAt: {

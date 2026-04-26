@@ -508,12 +508,15 @@ describe('GameSession realtime gameplay', () => {
     const cardButton = await screen.findByRole('button', { name: /perro/i });
     await user.click(cardButton);
 
+    // PROP-90 / ADR-090: el fallback táctil ahora envía source='touch_fallback'
+    // para que el backend aplique el cooldown corto (250ms) en vez del cooldown
+    // largo del sensor hardware (1200ms).
     expect(socketService.sendGameCommand).toHaveBeenCalledWith(SOCKET_EVENTS.RFID_SCAN_FROM_CLIENT, {
       uid: 'AA11',
       type: 'UNKNOWN',
       sensorId: 'sensor-class-1',
       timestamp: expect.any(Number),
-      source: 'web_serial'
+      source: 'touch_fallback'
     });
   });
 

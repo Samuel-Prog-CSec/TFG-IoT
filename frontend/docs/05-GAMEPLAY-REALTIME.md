@@ -213,6 +213,26 @@ Tests: `frontend/src/lib/__tests__/pendingScansStore.test.js`.
 Mantenemos dos capas de dedupe complementarias (NO redundantes):
 
 1. **`webSerialService`** (`DEFAULT_DEDUPE_MS = 1200`): protege contra múltiples lecturas del MISMO UID por el sensor físico cuando una tarjeta queda apoyada sobre el lector. Aplica a la fuente serial.
-2. **`useGameSocket`** (`SCAN_DEDUPE_MS = 1300`): protege contra dobles clicks del usuario sobre los botones del FallbackTouchPanel y los taps en el `MemoryBoard`. Aplica a la fuente UI/táctil.
+2. **`useGameSocket`** (`isDuplicateScan(uid, source)` con cooldown por fuente): protege contra dobles clicks del usuario sobre los botones del FallbackTouchPanel y los taps en el `MemoryBoard`. Aplica a la fuente UI/táctil.
 
-El backend mantiene además su propio dedupe defensivo (`socketRateLimiter.checkRfidDedupe`, 1200 ms) como capa final.
+A partir de PROP-90 / ADR-090 el cooldown se diferencia por `source` para no penalizar las mecánicas táctiles rápidas:
+
+| `source` enviado | Cooldown |
+|---|---|
+| `web_serial_hardware`, `web_serial` | 1300 ms (sensor anti-chattering) |
+| `touch_fallback` | 250 ms (panel táctil Asociación) |
+| `touch_memory_flip` | 250 ms (taps en Memoria) |
+
+`emitFallbackScan` envía `source: 'touch_fallback'`; `emitMemoryCardTap` envía `source: 'touch_memory_flip'`. El backend espeja la misma política en `socketRateLimiter.checkRfidDedupe` como capa defensiva final.
+
+## Banner `RateLimitBanner` con countdown (PROP-92 / ADR-093)
+
+Cuando el backend devuelve un error con `retryAfterMs` (`RATE_LIMITED`, `TEMP_BLOCKED`, `DUPLICATE_RFID_EVENT`), el hook `resolveSocketError(payload)` propaga el campo en el objeto `realtimeError`. `GameSession` renderiza `<RateLimitBanner>` en lugar del toast efímero:
+
+- Mensaje principal + texto "Vuelves a poder tocar en Xs".
+- Barra de progreso CSS-only que se vacía durante `retryAfterMs` (`@keyframes rate-limit-bar`).
+- Auto-dismiss tras `retryAfterMs` ms invocando `onDismiss` que limpia `realtimeError`.
+- `role="status"` + `aria-live="polite"` + `progressbar` con `aria-valuenow` actualizado.
+- Respeta `prefers-reduced-motion`: barra estática proporcional al tiempo restante en vez de animación CSS.
+
+El toast legacy se mantiene para errores sin `retryAfterMs` (mensajes informativos sin countdown).

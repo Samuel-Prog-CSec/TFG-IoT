@@ -143,16 +143,24 @@ class SocketRateLimiter {
       return { allowed: true };
     }
 
-    const { uid, sensorId } = payload || {};
+    const { uid, sensorId, source } = payload || {};
     if (!uid) {
       return { allowed: true };
     }
 
+    // PROP-90 / ADR-090: cooldown diferenciado por `source` del payload. Un tap
+    // sobre la mecánica Memoria no debe heredar el cooldown largo del sensor
+    // RFID hardware (que existe para protegerse del chattering del RC522).
+    const cooldownMs =
+      rfidDedupeConfig.cooldownMsBySource?.[source] || rfidDedupeConfig.defaultCooldownMs;
+
     const now = this.nowProvider();
-    const dedupeKey = `${rateKey}:${sensorId || 'unknown'}`;
+    // La clave de dedupe incluye `source` para que las distintas fuentes no
+    // se "ahoguen" entre sí (un tap táctil no afecta al cooldown del sensor).
+    const dedupeKey = `${rateKey}:${sensorId || 'unknown'}:${source || 'default'}`;
     const last = this.rfidDedupeState.get(dedupeKey);
 
-    if (last && last.uid === uid && now - last.timestamp < rfidDedupeConfig.cooldownMs) {
+    if (last && last.uid === uid && now - last.timestamp < cooldownMs) {
       return { allowed: false, reason: 'DUPLICATE_RFID_EVENT' };
     }
 
@@ -205,7 +213,7 @@ class SocketRateLimiter {
     }
 
     for (const [key, state] of this.rfidDedupeState.entries()) {
-      if (now - state.timestamp > rfidDedupeConfig.cooldownMs * 5) {
+      if (now - state.timestamp > rfidDedupeConfig.defaultCooldownMs * 5) {
         this.rfidDedupeState.delete(key);
       }
     }

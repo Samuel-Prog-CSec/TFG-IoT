@@ -7,7 +7,42 @@ y este proyecto adhiere a [Semantic Versioning](https://semver.org/spec/v2.0.0.h
 
 ## [Unreleased]
 
-_Sin cambios pendientes. Próxima ventana: Sprint 6 (camino a v1.0.0)._
+Paquete de mantenimiento final de Sprint 5: cierre de las 15 propuestas `[MANT]` que quedaban pendientes en `documentation/propuestas-mejora.md`. Foco en pulir gameplay, dashboards y panel admin antes del corte v1.0.0.
+
+### Añadido
+
+- **Buscador integrado en selectores grandes (PROP-70/84):** El componente `SelectPremium` ahora ofrece búsqueda automática cuando el listado supera las 20 opciones. Incluye input con lupa, filtrado en vivo case-insensitive, sticky al scroll del dropdown, anuncio aria-live del número de resultados y atajo `Esc` para limpiar la búsqueda. Selectores de alumno en "Jugar", "Asignar Estudiante" del board setup, generador de informes y filtros de mazo se benefician sin cambios adicionales.
+- **Banner de rate-limit con cuenta atrás visual (PROP-92, ADR-093):** Nuevo `RateLimitBanner` que sustituye al toast efímero "Espera un momento entre intentos". Muestra el tiempo restante real (`retryAfterMs`) con barra de progreso CSS que se vacía sola, auto-dismiss al llegar a 0 y soporte completo de lectores de pantalla y `prefers-reduced-motion`. El profesor sabe exactamente cuándo puede volver a interactuar.
+- **Catálogo declarativo de feature flags y seeder idempotente (PROP-81, ADR-091):** Nuevo `backend/src/config/featureFlagsCatalog.js` con las 9 flags conocidas del sistema y su contexto de negocio. El panel `/admin/flags` ahora muestra las flags declaradas pero no creadas como "POR CREAR" con botones "Crear apagada" / "Crear y activar" para materializarlas en un click. Script `npm run seed:feature-flags` puebla las flags en una instancia recién desplegada sin sobrescribir el estado manual del admin.
+- **Indicador "Procesando…" en panel táctil (PROP-79 frontend):** El `FallbackTouchPanel` muestra un overlay sutil durante 200 ms tras el tap del jugador para confirmar visualmente que el escaneo se ha registrado. Evita los doble-taps por ansiedad y comunica claramente que el sistema está procesando.
+- **Métrica `scansSavedByGracePeriod`** expuesta en `/api/admin/metrics` para monitorizar cuántos scans se rescatan gracias a la nueva ventana de gracia de Asociación.
+
+### Cambiado
+
+- **Ventana de gracia de 150 ms en transición de ronda Asociación (PROP-79, ADR-089):** En partidas con tiempos cortos (≤15 s), los scans del jugador llegaban al servidor justo después del timeout y se descartaban como "sin completar" pese al esfuerzo del alumno. El servidor concede ahora 150 ms invisibles extra antes de cerrar la ronda — el reloj visible al cliente sigue marcando "0 s" cuando expira el contador. Configurable vía `ROUND_GRACE_PERIOD_MS`.
+- **Dedupe WebSocket diferenciado por fuente (PROP-90, ADR-090):** El cooldown anti-duplicado de scans ya no es un único valor global. Se aplica `1200 ms` para el sensor RC522 hardware (anti-chattering), `250 ms` para el panel táctil de Asociación y `250 ms` para los taps en cartas de Memoria. La mecánica Memoria táctil deja de mostrar el banner "Espera un momento" cuando el alumno encadena taps rápidos legítimos.
+- **Alertas inteligentes con timestamps reales (PROP-47):** `detectedAt` se calcula desde el evento subyacente que disparó la alerta (última partida del estudiante, último scan, etc.), no desde `Date.now()` al servir la respuesta. Las alertas dejan de mostrar todas el mismo "Hace 7 min" — ahora cada una refleja el momento real del incidente.
+- **KPIs del Dashboard con delta neutro "—" cuando no hay baseline (PROP-88):** "Alumnos en Riesgo" y "Partidas Hoy" ya no pintan una línea vacía bajo el valor — muestran un pill neutro con "—" para comunicar de forma transparente que aún no hay periodo previo con el que comparar. Nuevo helper `lib/formatDelta.js`.
+- **Enums Zod ↔ Mongoose centralizados (PROP-27, ADR-092):** Los 11 enums duales del backend (`DIFFICULTY`, `SESSION_STATUS`, `PLAY_STATUS`, `EVENT_TYPE`, `ROLES`, `USER_STATUS`, `ACCOUNT_STATUS`, `DECK_STATUS`, `CONSENT_PURPOSES`, `CONSENT_CHANNEL`, `CONSENT_ACTION`) viven ahora en `backend/src/constants/enums.js` como única fuente de verdad. Test de coherencia que falla automáticamente si una capa se desincroniza.
+
+### Arreglado
+
+- **Mismatch de validador y modelo en `eventType` (PROP-27):** El schema Mongoose de `GamePlay.events.eventType` aceptaba `'server_restart'` pero el validador Zod no, lo que dejaba inalcanzables vía API eventos legítimos persistidos por el motor. Resuelto al centralizar `EVENT_TYPE` en una sola constante.
+- **Banner "Espera un momento" sin auto-dismiss en mecánica Memoria (PROP-92):** El banner se quedaba visible aunque la ronda hubiera avanzado, transmitiendo bloqueo permanente al jugador. Resuelto al sustituirlo por `RateLimitBanner` con auto-dismiss alimentado por el `retryAfterMs` que ya devolvía el backend.
+
+### Documentación
+
+- 5 nuevos ADRs en `documentation/Architecture_Decisions.md`: **089** (ventana de gracia Asociación), **090** (dedupe diferenciado por source), **091** (catálogo declarativo de feature flags), **092** (centralización de enums) y **093** (paquete consolidado de cierre Sprint 5).
+- Actualizadas las guías técnicas: `backend/docs/Rate_Limiting_Analysis.md` (sección "Dedupe RFID diferenciado por source"), `backend/docs/RFID_Runtime_Flows.md` (sección "Ventana de gracia en transición de ronda") y `frontend/docs/05-GAMEPLAY-REALTIME.md` (secciones "Dedupe en cliente — capas y propósito" actualizada y "Banner RateLimitBanner con countdown" nueva).
+- 15 propuestas cerradas y eliminadas de `documentation/propuestas-mejora.md` (sección `[MANT] Mantenimiento Sprint 5` retirada). Total de propuestas abiertas: 83 → 68.
+
+### Tests
+
+- **Backend: 1056/1056 verdes** (74 suites). +22 nuevos: 11 de coherencia de enums, 3 del grace period, 3 del catálogo de flags, 5 del dedupe diferenciado.
+- **Frontend: 287/287 verdes** (26 suites). +30 nuevos: 17 de `formatDelta`, 8 de `SelectPremium.searchable`, 5 de `RateLimitBanner`. Polyfill `scrollIntoView` añadido al setup de tests.
+- Lint: 0 errores en backend y frontend.
+
+## [0.5.0] - 2026-04-24
 
 ## [0.5.0] - 2026-04-24
 

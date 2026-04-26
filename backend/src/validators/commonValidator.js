@@ -5,6 +5,7 @@
  */
 
 const { z } = require('zod');
+const { ROLES, USER_STATUS } = require('../constants/enums');
 
 /**
  * Schema para validar ObjectId de MongoDB.
@@ -55,8 +56,8 @@ const paginationSchema = z
  * Schema para filtros de usuarios con paginación.
  */
 const userFiltersSchema = paginationSchema.extend({
-  role: z.enum(['super_admin', 'teacher', 'student']).optional(),
-  status: z.enum(['active', 'inactive']).optional(),
+  role: z.enum([...ROLES]).optional(),
+  status: z.enum([...USER_STATUS]).optional(),
   classroom: z.string().trim().max(50).optional(),
   createdBy: objectIdSchema.optional()
 });

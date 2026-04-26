@@ -127,4 +127,69 @@ describe('GameEngine — observabilidad', () => {
       expect(captureSpy).not.toHaveBeenCalled();
     });
   });
+
+  describe('grace period (PROP-79 / ADR-089)', () => {
+    it('inicializa la métrica scansSavedByGracePeriod en 0', () => {
+      const engine = buildEngine();
+      expect(engine.metrics.scansSavedByGracePeriod).toBe(0);
+    });
+
+    it('processResponse incrementa scansSavedByGracePeriod cuando timeElapsed > timeLimit', async () => {
+      const engine = buildEngine();
+      const timeLimitSec = 15;
+      const declaredLimitMs = timeLimitSec * 1000;
+
+      // Mock minimal de playState con un challenge y addEventAtomic stub.
+      const fakePlayDoc = {
+        currentRound: 1,
+        score: 0,
+        addEventAtomic: jest.fn().mockResolvedValue(undefined),
+        metrics: { totalAttempts: 0, correctAttempts: 0, errorAttempts: 0 }
+      };
+      const playState = {
+        playDoc: fakePlayDoc,
+        sessionDoc: {
+          config: { timeLimit: timeLimitSec, pointsPerCorrect: 10, penaltyPerError: -5 }
+        },
+        currentChallenge: { uid: 'AAA1', assignedValue: 'cat', displayData: {} },
+        roundStartTime: Date.now() - (declaredLimitMs + 50), // 50ms dentro del grace
+        nextRoundTimer: null
+      };
+      engine.activePlays.set('play-grace-1', playState);
+      jest.spyOn(engine, 'advanceToNextRound').mockResolvedValue(undefined);
+      jest.spyOn(engine, 'checkpointPlayIfNeeded').mockResolvedValue(undefined);
+
+      await engine.processResponse('play-grace-1', playState, { uid: 'AAA1' });
+
+      expect(engine.metrics.scansSavedByGracePeriod).toBe(1);
+    });
+
+    it('processResponse NO incrementa la métrica cuando el scan llega dentro del timeLimit', async () => {
+      const engine = buildEngine();
+      const timeLimitSec = 15;
+
+      const fakePlayDoc = {
+        currentRound: 1,
+        score: 0,
+        addEventAtomic: jest.fn().mockResolvedValue(undefined),
+        metrics: { totalAttempts: 0, correctAttempts: 0, errorAttempts: 0 }
+      };
+      const playState = {
+        playDoc: fakePlayDoc,
+        sessionDoc: {
+          config: { timeLimit: timeLimitSec, pointsPerCorrect: 10, penaltyPerError: -5 }
+        },
+        currentChallenge: { uid: 'BBB2', assignedValue: 'dog', displayData: {} },
+        roundStartTime: Date.now() - 5_000, // 5s, lejos del límite de 15s
+        nextRoundTimer: null
+      };
+      engine.activePlays.set('play-on-time-1', playState);
+      jest.spyOn(engine, 'advanceToNextRound').mockResolvedValue(undefined);
+      jest.spyOn(engine, 'checkpointPlayIfNeeded').mockResolvedValue(undefined);
+
+      await engine.processResponse('play-on-time-1', playState, { uid: 'BBB2' });
+
+      expect(engine.metrics.scansSavedByGracePeriod).toBe(0);
+    });
+  });
 });

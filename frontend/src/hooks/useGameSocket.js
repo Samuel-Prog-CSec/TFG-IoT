@@ -59,6 +59,18 @@ const SCAN_IGNORED_TOAST_LEVEL = {
 
 const SCAN_RESPONSE_TIMEOUT_MS = 3000;
 
+// PROP-90 / ADR-090: cooldown de dedupe local diferenciado por fuente del scan.
+// El sensor hardware necesita 1200-1300ms para protegerse del chattering del
+// RC522, pero los taps táctiles deben permitir secuencias rápidas. Backend
+// espeja la misma política en `socketRateLimits.rfidDedupeConfig`.
+const DEDUPE_MS_BY_SOURCE = {
+  web_serial_hardware: 1300,
+  web_serial: 1300,
+  touch_fallback: 250,
+  touch_memory_flip: 250
+};
+const DEFAULT_DEDUPE_MS = 1300;
+
 const REALTIME_STATUS_COPY = {
   connected: { label: 'Juego listo', announcement: 'El juego está conectado.' },
   reconnecting: { label: 'Reconectando…', announcement: 'Reconectando el juego.' },
@@ -70,9 +82,18 @@ function resolveSocketError(payload) {
   const code = payload?.code;
   const fallbackMessage = payload?.message || 'No se pudo procesar la acción en tiempo real.';
 
+  // PROP-92: el backend incluye `retryAfterMs` en RATE_LIMITED y TEMP_BLOCKED
+  // (ver backend/src/middlewares/socketRateLimiter.js). Lo propagamos al
+  // estado para que el componente <RateLimitBanner> pinte el countdown.
+  // null si no es aplicable al código en cuestión.
+  const retryAfterMs = Number.isFinite(payload?.retryAfterMs) && payload.retryAfterMs > 0
+    ? payload.retryAfterMs
+    : null;
+
   return {
     code: code || 'UNKNOWN',
-    message: SOCKET_ERROR_MESSAGES[code] || fallbackMessage
+    message: SOCKET_ERROR_MESSAGES[code] || fallbackMessage,
+    retryAfterMs
   };
 }
 
@@ -214,6 +235,15 @@ export function useGameSocket({
 
       setRealtimeError(normalized);
       onSrAnnouncement(normalized.message);
+
+      // PROP-92: cuando el error tiene retryAfterMs (RATE_LIMITED, TEMP_BLOCKED,
+      // DUPLICATE_RFID_EVENT con backend que devuelve el campo) lo presentamos
+      // mediante <RateLimitBanner> con barra de progreso, no con toast — el
+      // banner es persistente y comunica el tiempo restante mejor.
+      const banneredCodes = new Set(['RATE_LIMITED', 'TEMP_BLOCKED', 'DUPLICATE_RFID_EVENT']);
+      if (banneredCodes.has(normalized.code) && normalized.retryAfterMs) {
+        return;
+      }
 
       // Deduplicate socket error toasts — max 1 every 5 seconds
       const now = Date.now();
@@ -529,46 +559,45 @@ export function useGameSocket({
   // taps en el tablero de memoria: protege contra dobles clicks rápidos
   // del usuario sobre los botones, NO contra duplicados del sensor físico
   // (esos los filtra `webSerialService` con su propio dedupe de 1200 ms).
-  // Mantenemos esta guardia aunque parezca redundante porque cubre una
-  // fuente independiente (gestos UI vs lectura serial); eliminarla
-  // expondría la UX a doble-tap → backend devolvería DUPLICATE_RFID_EVENT
-  // y mostraríamos el toast "Espera un momento..." al usuario sin razón.
-  const lastScanRef = useRef({ uid: null, ts: 0 });
-  const SCAN_DEDUPE_MS = 1300;
+  // Diferenciación por fuente: ver constantes DEDUPE_MS_BY_SOURCE arriba.
+  const lastScanRef = useRef({ uid: null, ts: 0, source: null });
 
-  const isDuplicateScan = (uid) => {
+  const isDuplicateScan = useCallback((uid, source) => {
+    const cooldown = DEDUPE_MS_BY_SOURCE[source] || DEFAULT_DEDUPE_MS;
     const now = Date.now();
     const last = lastScanRef.current;
-    if (last.uid === uid && now - last.ts < SCAN_DEDUPE_MS) {
+    // Solo dedupea cuando coincide UID + source: dos fuentes distintas no se
+    // ahogan entre sí (un tap táctil no impide la siguiente lectura del sensor).
+    if (last.uid === uid && last.source === source && now - last.ts < cooldown) {
       return true;
     }
-    lastScanRef.current = { uid, ts: now };
+    lastScanRef.current = { uid, ts: now, source };
     return false;
-  };
+  }, []);
 
   const emitFallbackScan = useCallback((card, sensorId) => {
     if (!playIdRef.current || !card?.uid) return false;
-    if (isDuplicateScan(card.uid)) return true; // silenciosamente swallow, no es un error
+    if (isDuplicateScan(card.uid, 'touch_fallback')) return true; // silenciosamente swallow, no es un error
     return socketService.sendGameCommand(GAME_EVENTS.RFID_SCAN_FROM_CLIENT, {
       uid: card.uid,
       type: 'UNKNOWN',
       sensorId: sensorId || 'touch_fallback_sensor',
       timestamp: Date.now(),
-      source: 'web_serial'
+      source: 'touch_fallback'
     });
-  }, []);
+  }, [isDuplicateScan]);
 
   const emitMemoryCardTap = useCallback((slot, sensorId) => {
     if (!playIdRef.current || !slot?.uid) return false;
-    if (isDuplicateScan(slot.uid)) return true;
+    if (isDuplicateScan(slot.uid, 'touch_memory_flip')) return true;
     return socketService.sendGameCommand(GAME_EVENTS.RFID_SCAN_FROM_CLIENT, {
       uid: slot.uid,
       type: 'UNKNOWN',
       sensorId: sensorId || 'touch_fallback_sensor',
       timestamp: Date.now(),
-      source: 'web_serial'
+      source: 'touch_memory_flip'
     });
-  }, []);
+  }, [isDuplicateScan]);
 
   const retryInit = useCallback(() => {
     const now = Date.now();

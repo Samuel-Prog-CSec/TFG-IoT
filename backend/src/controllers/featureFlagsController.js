@@ -15,9 +15,12 @@ const logger = require('../utils/logger');
 
 /**
  * GET /api/admin/flags
+ *
+ * Devuelve la fusión catálogo ↔ Redis: las flags declaradas que no existen aún
+ * aparecen con `status: 'unregistered'` para que el panel pueda materializarlas.
  */
 const listFlags = async (req, res) => {
-  const flags = await featureFlagService.listFlags();
+  const flags = await featureFlagService.listFlagsWithCatalog();
   sendSuccess(res, { flags });
 };
 

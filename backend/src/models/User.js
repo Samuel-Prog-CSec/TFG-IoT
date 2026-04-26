@@ -32,6 +32,14 @@
 
 const mongoose = require('mongoose');
 const bcrypt = require('bcrypt');
+const {
+  ROLES,
+  USER_STATUS,
+  ACCOUNT_STATUS,
+  CONSENT_PURPOSES,
+  CONSENT_CHANNEL,
+  CONSENT_ACTION
+} = require('../constants/enums');
 
 const hasLoginRole = role => role === 'teacher' || role === 'super_admin';
 
@@ -150,7 +158,7 @@ const userSchema = new mongoose.Schema(
       lowercase: true,
       trim: true,
       enum: {
-        values: ['super_admin', 'teacher', 'student'],
+        values: ROLES,
         message: 'El rol debe ser super_admin, teacher o student'
       },
       required: [true, 'El rol es obligatorio'],
@@ -160,7 +168,7 @@ const userSchema = new mongoose.Schema(
       type: String,
       lowercase: true,
       trim: true,
-      enum: ['pending_approval', 'approved', 'rejected'],
+      enum: ACCOUNT_STATUS,
       default: 'approved'
     },
     profile: {
@@ -229,7 +237,7 @@ const userSchema = new mongoose.Schema(
       type: String,
       lowercase: true,
       trim: true,
-      enum: ['active', 'inactive'],
+      enum: USER_STATUS,
       default: 'active'
     },
     createdBy: {
@@ -259,7 +267,7 @@ const userSchema = new mongoose.Schema(
       purposes: [
         {
           type: String,
-          enum: ['educational_tracking', 'performance_analytics']
+          enum: CONSENT_PURPOSES
         }
       ],
       policyVersion: {
@@ -275,7 +283,7 @@ const userSchema = new mongoose.Schema(
       channel: {
         type: String,
         trim: true,
-        enum: ['web_form', 'api', 'admin_panel'],
+        enum: CONSENT_CHANNEL,
         default: 'web_form'
       },
       ipAddress: {
@@ -293,7 +301,7 @@ const userSchema = new mongoose.Schema(
       {
         action: {
           type: String,
-          enum: ['granted', 'withdrawn']
+          enum: CONSENT_ACTION
         },
         grantedBy: String,
         timestamp: {
@@ -304,7 +312,7 @@ const userSchema = new mongoose.Schema(
         purposes: [
           {
             type: String,
-            enum: ['educational_tracking', 'performance_analytics']
+            enum: CONSENT_PURPOSES
           }
         ]
       }

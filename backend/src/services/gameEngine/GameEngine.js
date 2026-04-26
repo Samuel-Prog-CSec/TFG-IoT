@@ -42,6 +42,22 @@ const CHECKPOINT_INTERVAL_MS = Number.parseInt(process.env.CHECKPOINT_INTERVAL_M
 const CHECKPOINT_EVENT_THRESHOLD = Number.parseInt(process.env.CHECKPOINT_EVENT_THRESHOLD, 10) || 5;
 
 /**
+ * Ventana de gracia post-`timeLimit` en la que el servidor sigue aceptando
+ * scans antes de marcar la ronda como timeout (PROP-79, ADR-089).
+ *
+ * Justificación: en Asociación con tiempos cortos (≤15s) la latencia de red
+ * + render del cliente puede dejar el scan en tránsito justo cuando expira el
+ * timer. Sin grace period, el backend descartaría el scan como `not_awaiting`
+ * y la ronda quedaría como "sin completar" pese al esfuerzo del jugador.
+ *
+ * El cliente sigue mostrando 0s cuando llega `timeLimit`; el buffer es
+ * imperceptible visualmente (150ms) pero captura los scans-borde.
+ *
+ * Sobrescribible vía env para QA / load testing.
+ */
+const ROUND_GRACE_PERIOD_MS = Number.parseInt(process.env.ROUND_GRACE_PERIOD_MS, 10) || 150;
+
+/**
  * Ventana de agregación para logs de "tarjeta escaneada sin partida activa".
  * Permite emitir un único log info por UID/ventana en lugar de spamear debug
  * por cada scan. Síntoma típico de tarjetas mal asociadas o sensor en mal modo.
@@ -151,6 +167,9 @@ class GameEngine {
       totalMemoryMatches: 0,
       averageRoundResponseTimeMs: 0,
       totalRoundResponses: 0,
+      // PROP-79 / ADR-089: cuántos scans habrían sido descartados sin la
+      // ventana de gracia post-timeout. Visible en /api/admin/metrics.
+      scansSavedByGracePeriod: 0,
       lockContention: 0,
       distributedLockLeaseRenewed: 0,
       distributedLockLeaseFailed: 0,
@@ -1037,10 +1056,16 @@ class GameEngine {
       `Ronda ${playDoc.currentRound} iniciada para ${playId}. Esperando tarjeta ${challengeMapping.uid}`
     );
 
-    // 6. Programar el timeout
-    playState.roundTimer = setTimeout(() => {
-      this.handleTimeout(playId);
-    }, sessionDoc.config.timeLimit * 1000);
+    // 6. Programar el timeout (con grace period — PROP-79/ADR-089).
+    // El cliente cree que el reloj llega a 0 a `timeLimit`, pero el servidor
+    // aún acepta scans durante `ROUND_GRACE_PERIOD_MS` extra. Esto evita que
+    // los scans en tránsito en el último frame se descarten como `not_awaiting`.
+    playState.roundTimer = setTimeout(
+      () => {
+        this.handleTimeout(playId);
+      },
+      sessionDoc.config.timeLimit * 1000 + ROUND_GRACE_PERIOD_MS
+    );
   }
 
   /**
@@ -1200,6 +1225,15 @@ class GameEngine {
   async processResponse(playId, playState, scannedCard) {
     const { playDoc, sessionDoc, currentChallenge } = playState;
     const timeElapsed = Date.now() - playState.roundStartTime;
+
+    // PROP-79 / ADR-089: contar scans rescatados por la ventana de gracia.
+    // Si el tiempo transcurrido superó el `timeLimit` declarado al cliente,
+    // este scan llegó dentro del buffer extra del servidor y de no haber
+    // existido se habría descartado como `not_awaiting`.
+    const declaredLimitMs = (sessionDoc?.config?.timeLimit || 0) * 1000;
+    if (declaredLimitMs > 0 && timeElapsed > declaredLimitMs) {
+      this.metrics.scansSavedByGracePeriod++;
+    }
 
     // 1. Validar la respuesta
     const isCorrect = scannedCard.uid === currentChallenge.uid;
@@ -1656,9 +1690,10 @@ class GameEngine {
         typeof remainingTimeMs === 'number' &&
         remainingTimeMs > 0
       ) {
+        // Grace period también al reanudar tras pausa (PROP-79/ADR-089).
         playState.roundTimer = setTimeout(() => {
           this.handleTimeout(playId);
-        }, remainingTimeMs);
+        }, remainingTimeMs + ROUND_GRACE_PERIOD_MS);
       }
 
       // Si la pausa ocurrió durante el delay entre rondas, avanzar a la siguiente

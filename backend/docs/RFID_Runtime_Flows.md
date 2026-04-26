@@ -299,3 +299,40 @@ Llamadores:
 - `handleTimeout` — fallo de `addEventAtomic` al registrar el timeout.
 
 Tests: `backend/tests/services/gameEngineRfidErrorPaths.test.js`.
+
+---
+
+## Ventana de gracia en transición de ronda (Asociación) — PROP-79 / ADR-089
+
+### Problema
+
+En partidas de Asociación con `timeLimit ≤ 15s` los scans del jugador llegaban al backend justo después de que el `setTimeout(handleTimeout, timeLimit*1000)` se hubiera disparado. El servidor marcaba la ronda como timeout y rechazaba el scan como `not_awaiting_response`, generando rondas "sin completar" pese a que el alumno había tocado la carta correcta dentro del tiempo visible.
+
+### Solución
+
+El `setTimeout` que arma el timer de timeout suma **`ROUND_GRACE_PERIOD_MS = 150`** al `timeLimit * 1000`. El cliente sigue mostrando "0 s" cuando expira el contador visible, pero el servidor concede 150 ms extra invisibles para absorber la latencia.
+
+```
+ronda inicia → cliente pinta timer (timeLimit s) → reloj llega a 0
+                                                 │
+                                  +150 ms grace ─┤ el server acepta scans
+                                                 │
+                                                 ▼
+                                       handleTimeout dispara → ronda cerrada
+```
+
+### Métrica
+
+`metrics.scansSavedByGracePeriod` cuenta los scans que llegaron en el buffer (entre `timeLimit` y `timeLimit + 150ms`) y por tanto habrían sido descartados sin la ventana. Visible vía `/api/admin/metrics`. Un crecimiento desproporcionado indica problema de latencia (red lenta) o de timing UI.
+
+### Configuración
+
+Variable de entorno `ROUND_GRACE_PERIOD_MS` (default `150`).
+
+### Tests
+
+`backend/tests/services/gameEngineObservability.test.js` — 3 cases (inicialización, incremento dentro del grace, NO incremento dentro del límite).
+
+### Frontend complementario
+
+`FallbackTouchPanel` muestra un overlay sutil "Procesando…" durante 200 ms tras cada tap del jugador para confirmar visualmente que el scan se ha registrado, evitando dobles taps por ansiedad.

@@ -320,4 +320,59 @@ describe('Feature Flag Service', () => {
       expect(await featureFlagService.isEnabled('toggle', 'user-1')).toBe(false);
     });
   });
+
+  describe('listFlagsWithCatalog (PROP-81)', () => {
+    const { FEATURE_FLAGS_CATALOG } = require('../src/config/featureFlagsCatalog');
+
+    it('devuelve cada entrada del catálogo, marcando como unregistered las no creadas', async () => {
+      const merged = await featureFlagService.listFlagsWithCatalog();
+
+      // El orden del catálogo se preserva (estabilidad visual del panel admin).
+      const catalogNames = FEATURE_FLAGS_CATALOG.map(f => f.name);
+      const mergedNames = merged.slice(0, catalogNames.length).map(f => f.name);
+      expect(mergedNames).toEqual(catalogNames);
+
+      // Sin nada en Redis, todas son 'unregistered'.
+      expect(merged.every(f => f.status === 'unregistered')).toBe(true);
+
+      // Cada entrada expone descripción del catálogo y default rollout.
+      const sample = merged.find(f => f.name === 'rfid-mode-distributed');
+      expect(sample.description).toMatch(/RFID/);
+      expect(sample.defaultEnabled).toBe(true);
+    });
+
+    it('marca como registered las flags presentes en Redis y preserva su estado', async () => {
+      await featureFlagService.setFlag('rfid-mode-distributed', {
+        enabled: false,
+        rolloutPct: 25,
+        whitelist: ['uid-admin'],
+        reason: 'Rollback temporal'
+      });
+
+      const merged = await featureFlagService.listFlagsWithCatalog();
+      const target = merged.find(f => f.name === 'rfid-mode-distributed');
+
+      expect(target.status).toBe('registered');
+      expect(target.enabled).toBe(false);
+      expect(target.rolloutPct).toBe(25);
+      expect(target.whitelist).toEqual(['uid-admin']);
+      expect(target.description).toMatch(/RFID/);
+    });
+
+    it('flags en Redis fuera del catálogo aparecen al final con status orphan', async () => {
+      await featureFlagService.setFlag('experimental-zzz', {
+        enabled: true,
+        rolloutPct: 100,
+        whitelist: [],
+        reason: 'Experimento ad-hoc'
+      });
+
+      const merged = await featureFlagService.listFlagsWithCatalog();
+      const orphan = merged.find(f => f.name === 'experimental-zzz');
+
+      expect(orphan).toBeDefined();
+      expect(orphan.status).toBe('orphan');
+      expect(orphan.enabled).toBe(true);
+    });
+  });
 });

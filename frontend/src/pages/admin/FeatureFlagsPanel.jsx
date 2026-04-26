@@ -128,6 +128,86 @@ function CreateFlagModal({ isOpen, onClose, onCreated, existingNames }) {
 }
 
 // ============================================================================
+// Fila: flag declarada en catálogo pero no creada todavía
+// (PROP-81 — el admin la materializa con un click sin abrir el modal)
+// ============================================================================
+
+function UnregisteredFlagRow({ flag, onMaterialized }) {
+  const [activating, setActivating] = useState(false);
+
+  const materialize = async (enable) => {
+    setActivating(true);
+    try {
+      await featureFlagsAPI.upsert(flag.name, {
+        enabled: enable,
+        rolloutPct: enable ? (flag.rolloutPct || 100) : 0,
+        whitelist: [],
+        reason: flag.reason || flag.description || ''
+      });
+      toast.success(
+        enable
+          ? `Flag "${flag.name}" creada y activada`
+          : `Flag "${flag.name}" creada (apagada)`
+      );
+      onMaterialized();
+    } catch (err) {
+      toast.error(extractErrorMessage(err));
+    } finally {
+      setActivating(false);
+    }
+  };
+
+  return (
+    <GlassCard className="flex flex-col gap-3 border border-dashed border-border-default bg-background-elevated/20 p-5">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div className="flex items-center gap-3">
+          <Icon name="Flag" size={18} className="text-text-muted" aria-hidden="true" />
+          <div className="flex flex-col">
+            <div className="flex items-center gap-2">
+              <h3 className="font-mono text-base font-semibold text-text-primary">{flag.name}</h3>
+              <span className="rounded-md bg-warning-base/15 px-2 py-0.5 text-[11px] font-semibold uppercase tracking-wider text-warning-base">
+                Por crear
+              </span>
+            </div>
+            {flag.description && (
+              <p className="text-xs text-text-muted">{flag.description}</p>
+            )}
+          </div>
+        </div>
+        <div className="flex items-center gap-2">
+          <ButtonPremium
+            variant="ghost"
+            onClick={() => materialize(false)}
+            disabled={activating}
+            aria-label={`Crear flag ${flag.name} apagada`}
+          >
+            Crear apagada
+          </ButtonPremium>
+          <ButtonPremium
+            variant="primary"
+            onClick={() => materialize(true)}
+            disabled={activating}
+            aria-label={`Crear y activar flag ${flag.name}`}
+          >
+            {activating ? (
+              <>
+                <Icon name="RefreshCw" size={14} className="animate-spin" />
+                Creando
+              </>
+            ) : (
+              <>
+                <Icon name="Power" size={14} />
+                Crear y activar
+              </>
+            )}
+          </ButtonPremium>
+        </div>
+      </div>
+    </GlassCard>
+  );
+}
+
+// ============================================================================
 // Fila: editor de una flag concreta
 // ============================================================================
 
@@ -430,7 +510,11 @@ export default function FeatureFlagsPanel() {
             <AnimatePresence initial={false}>
               {flags.map((flag) => (
                 <motion.div key={flag.name} variants={staggerItem} layout>
-                  <FlagRow flag={flag} onSaved={handleSaved} onDeleteRequested={requestDelete} />
+                  {flag.status === 'unregistered' ? (
+                    <UnregisteredFlagRow flag={flag} onMaterialized={handleSaved} />
+                  ) : (
+                    <FlagRow flag={flag} onSaved={handleSaved} onDeleteRequested={requestDelete} />
+                  )}
                 </motion.div>
               ))}
             </AnimatePresence>

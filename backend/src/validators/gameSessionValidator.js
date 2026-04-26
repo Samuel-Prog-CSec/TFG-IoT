@@ -6,6 +6,7 @@
 
 const { z } = require('zod');
 const { objectIdSchema, paginationSchema, uidSchema } = require('./commonValidator');
+const { DIFFICULTY, SESSION_STATUS } = require('../constants/enums');
 
 /**
  * Schema para configuración de la sesión.
@@ -185,7 +186,7 @@ const createGameSessionSchema = z
 
     name: z.string().max(100, 'El nombre no puede exceder 100 caracteres').trim().optional(),
 
-    difficulty: z.enum(['easy', 'medium', 'hard', 'custom']).optional(),
+    difficulty: z.enum([...DIFFICULTY]).optional(),
 
     config: sessionConfigInputSchema.optional(),
 
@@ -219,7 +220,7 @@ const updateGameSessionSchema = z
 
     associationChallengePlan: associationChallengePlanSchema,
 
-    difficulty: z.enum(['easy', 'medium', 'hard', 'custom']).optional()
+    difficulty: z.enum([...DIFFICULTY]).optional()
   })
   .strict()
   .refine(data => Object.keys(data).length > 0, {
@@ -249,9 +250,9 @@ const gameSessionQuerySchema = paginationSchema.extend({
 
   contextId: objectIdSchema.optional(),
 
-  status: z.enum(['created', 'active', 'completed']).optional(),
+  status: z.enum([...SESSION_STATUS]).optional(),
 
-  difficulty: z.enum(['easy', 'medium', 'hard', 'custom']).optional(),
+  difficulty: z.enum([...DIFFICULTY]).optional(),
 
   createdBy: objectIdSchema.optional()
 });

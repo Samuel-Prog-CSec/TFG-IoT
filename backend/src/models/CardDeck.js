@@ -8,6 +8,7 @@
  */
 
 const mongoose = require('mongoose');
+const { DECK_STATUS } = require('../constants/enums');
 
 /**
  * Subdocumento: mapeo de un token RFID fungible a un valor dentro de un contexto.
@@ -82,7 +83,7 @@ const CardDeckSchema = new mongoose.Schema(
       type: String,
       lowercase: true,
       trim: true,
-      enum: ['active', 'archived'],
+      enum: DECK_STATUS,
       default: 'active'
     },
     createdBy: {

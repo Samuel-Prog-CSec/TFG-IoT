@@ -4,6 +4,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { Users, Gamepad2, Trophy, AlertTriangle, Calendar, CalendarClock, Layers, ChevronRight, Target, Clock, UserCheck, CheckCircle2, Sparkles } from 'lucide-react';
 import ErrorState from '../components/ui/ErrorState';
 import { listContainerVariants, listItemVariants, crossfadeVariants, formatDate } from '../lib/utils';
+import { formatDelta } from '../lib/formatDelta';
 import { formatRelativeTime } from '../lib/dateUtils';
 import { useDocumentTitle } from '../hooks/useDocumentTitle';
 import { useRefetchOnFocus } from '../hooks/useRefetchOnFocus';
@@ -153,11 +154,29 @@ export default function Dashboard() {
     hasError: Boolean(error)
   });
 
-  // Extraer el cambio porcentual de un KPI por nombre
+  // Extraer el cambio porcentual de un KPI por nombre.
+  // PROP-88: si el KPI no tiene baseline (`previous` ausente, null o 0),
+  // devolvemos "—" para que StatCard pinte el pill neutro en lugar de la
+  // línea vacía que daba apariencia de bug.
   const getTrend = useCallback((kpiName) => {
     if (!trends?.kpis) return '';
     const kpi = trends.kpis.find(k => k.name === kpiName);
-    if (!kpi || kpi.changePercent === 0 || kpi.changePercent == null) return '';
+    if (!kpi) return '';
+
+    // Si el backend dice explícitamente que no hay baseline → "—"
+    if (kpi.previous === null || kpi.previous === undefined || kpi.previous === 0) {
+      return '—';
+    }
+
+    // Backend ya entrega `changePercent` redondeado; lo re-derivamos via
+    // formatDelta para que la lógica de signo/baseline esté centralizada.
+    if (kpi.current !== undefined) {
+      return formatDelta(kpi.current, kpi.previous);
+    }
+
+    // Fallback al formato legacy si por algún motivo falta `current`.
+    if (kpi.changePercent == null) return '';
+    if (kpi.changePercent === 0) return '0%';
     const sign = kpi.changePercent > 0 ? '+' : '';
     return `${sign}${kpi.changePercent}%`;
   }, [trends]);

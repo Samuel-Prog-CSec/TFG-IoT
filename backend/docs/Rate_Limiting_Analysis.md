@@ -400,3 +400,48 @@ El contrato público de los exports (`globalRateLimiter`, `authRateLimiter`, etc
 ### Deuda técnica pendiente
 
 PROP-59 (migración WebSocket a Redis Sorted Set distribuido) sigue en Sprint 6. El rate-limit HTTP queda cerrado como distribuido real.
+
+---
+
+## Dedupe RFID diferenciado por `source` (PROP-90 / ADR-090)
+
+A partir del cierre de Sprint 5 el dedupe de eventos `rfid_scan_from_client` deja de aplicar un único cooldown global y pasa a discriminar según el campo `source` del payload.
+
+### Tabla de cooldowns
+
+| `source` del payload | Cooldown | Razón |
+|---|---|---|
+| `web_serial_hardware`, `web_serial` | **1200 ms** | Anti-chattering del lector RC522. Una misma tarjeta apoyada sobre el sensor puede generar dos lecturas casi consecutivas. |
+| `touch_fallback` | **250 ms** | Taps en el panel táctil que sustituye al sensor cuando no está disponible (mecánica Asociación). |
+| `touch_memory_flip` | **250 ms** | Taps sobre cartas en la mecánica Memoria — el alumno alterna entre cartas distintas y necesita poder encadenar. |
+| Cualquier otro / ausente | `defaultCooldownMs = 1200 ms` | Fallback conservador para fuentes no declaradas. |
+
+### Clave de dedupe
+
+`{rateKey}:{sensorId || 'unknown'}:{source || 'default'}`
+
+Incluir `source` en la clave evita que dos fuentes distintas se "ahoguen" mutuamente (un tap táctil no extiende el cooldown del sensor real ni viceversa).
+
+### Configuración
+
+`backend/src/config/socketRateLimits.js`:
+
+```js
+const rfidDedupeConfig = {
+  defaultCooldownMs: 1200,
+  cooldownMsBySource: {
+    web_serial_hardware: 1200,
+    web_serial: 1200,
+    touch_fallback: 250,
+    touch_memory_flip: 250
+  }
+};
+```
+
+### Cliente
+
+El frontend (`useGameSocket.js`) aplica el mismo mapa **y envía explícitamente** `source: 'touch_fallback'` desde `emitFallbackScan` y `source: 'touch_memory_flip'` desde `emitMemoryCardTap`. La política backend se mantiene como capa defensiva final.
+
+### Tests
+
+`backend/tests/socketRateLimiter.test.js` cubre los 5 escenarios principales (cooldown corto que permite, cooldown corto que bloquea, hardware mantiene su cooldown largo, fuente ausente cae en default, sources distintos no se ahogan entre sí).

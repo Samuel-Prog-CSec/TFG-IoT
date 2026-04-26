@@ -12,17 +12,20 @@
 
 ---
 
-## Clasificacion de propuestas abiertas (planificacion 2026-04-24)
+## Clasificacion de propuestas abiertas (planificacion 2026-04-26)
 
-Las **83 propuestas abiertas** se reparten en tres categorias segun el
+Las **68 propuestas abiertas** se reparten en dos categorias segun el
 momento en que se abordaran. Esta seccion es el indice maestro; los
 headings individuales se mantienen sin etiqueta para no saturar el
 formato. **Consultar esta tabla antes de atacar cualquier PROP.**
 
-- **[MANT] Mantenimiento Sprint 5 (15)** — bugs y mejoras de bajo
-  alcance (S/XS, algunos M) que conviene cerrar antes del corte v1.0.0
-  pero no requieren deploy cloud. Se resuelven en sesiones posteriores
-  del Sprint 5. Son polish sobre la build actual.
+> **Cierre de Sprint 5 (2026-04-26)**: las 15 propuestas `[MANT]` que
+> figuraban aquí (PROP-21, 27, 47, 70, 77, 79, 80, 81, 83, 84, 87, 88,
+> 89, 90, 92) se cerraron en la sesión de mantenimiento del 26/04/2026.
+> Ver ADR-089, ADR-090, ADR-091, ADR-092 y ADR-093 en
+> `documentation/Architecture_Decisions.md` para los cambios
+> arquitectónicos derivados. Los memos quedan en el historial de Git.
+
 - **[SP6] Sprint 6 — Release v1.0.0 (25)** — bloqueantes o
   habilitadoras de la release cloud. Todas son **PROP-95 a PROP-133**
   (propuestas nuevas de la planificacion 2026-04-24). Ninguna
@@ -40,34 +43,6 @@ formato. **Consultar esta tabla antes de atacar cualquier PROP.**
 > Mapping: `BLOQUEANTE` y `ALTA` → categoria **[SP6]** en este indice.
 > `MEDIA` → categoria **[FUT]**. Este mapping es definitivo aunque el
 > heading no se renombre.
-
----
-
-### [MANT] Mantenimiento Sprint 5 (15)
-
-Pendientes de cerrar en sesiones posteriores del Sprint 5, sin deploy
-cloud implicado.
-
-| PROP | Titulo corto | Esfuerzo |
-|---|---|---|
-| PROP-21 | Contextos / Alumnos con listado visible por defecto | S |
-| PROP-27 | Validacion enum difficulty coherente Zod/Mongoose | S |
-| PROP-47 | Timestamps reales en alertas (no "Hace 7 min" global) | S |
-| PROP-70 | Search-ahead en SelectPremium listas >20 items | S |
-| PROP-77 | Refactor scroll anidado AppLayout | M |
-| PROP-79 | Fallback tactil robusto rondas cortas Asociacion | S-M |
-| PROP-80 | Podium oro/plata/bronce Top 5 Dashboard | S |
-| PROP-81 | Seeder inicial feature flags en /admin/flags | S |
-| PROP-83 | Chart "Rendimiento de Clase" recortar eje X | S |
-| PROP-84 | Search-ahead dropdowns "Jugar" y Board Setup | S |
-| PROP-87 | Chart Curvas Aprendizaje label eje X no solapa | XS |
-| PROP-88 | KPIs delta "—" cuando sin baseline | XS |
-| PROP-89 | Preview mazo 6 miniaturas completas | XS |
-| PROP-90 | Cooldown memoria tactil configurable por mecanica | S |
-| PROP-92 | Banner retryAfterMs con barra de progreso | S |
-
-**Esfuerzo total estimado:** ~15-20 dias repartidos en varias sesiones
-cortas.
 
 ---
 
@@ -137,7 +112,7 @@ automatizado).
 propuestas [MANT] y [SP6] son compromiso firme; las [FUT] son
 opcionales.
 
-**Total:** 15 + 25 + 43 = 83 propuestas abiertas.
+**Total:** 25 + 43 = 68 propuestas abiertas.
 
 ---
 
@@ -267,41 +242,6 @@ opcionales.
 - Probar cada una con y sin reduced-motion
 - Migrar a patrones sugeridos por el equipo de Motion (modo popLayout, `LayoutGroup`, `useIsPresent`) donde aplique
 - Plan de tests visuales o Playwright que detecten la regresion automaticamente
-
----
-
-## PROP-21: Vistas de "Contextos" y "Gestion de Alumnos" con listado visible por defecto
-
-**Descripcion:** La pagina de Contextos (teacher) y `/admin/students` muestran KPIs y buscador pero el listado completo no se renderiza por defecto — requiere scroll o pensar que hay que buscar. En Contextos las cards estan en DOM pero bloqueadas por un motion.div opacity:0 (ver PROP-18). En Alumnos no hay listado.
-
-**Justificacion:** El usuario deberia ver los recursos disponibles inmediatamente. No hay razon para ocultarlos.
-
-**Alcance estimado:** Asegurar render por defecto de todos los items con paginacion/virtualizacion si son muchos, y exponerlos visualmente en la parte superior.
-
----
-
-## PROP-27: Validacion enum difficulty coherente entre Zod y Mongoose
-
-**Descripcion:** En QA se detecto que el validador Zod aceptaba `difficulty: 'custom'` pero el modelo Mongoose de GameSession solo permitia `['easy','medium','hard']`. El fix en Maintenance del 18/04 añadio `custom` al enum Mongoose. Queda pendiente auditar el resto de enums (status, mechanic types, etc.) para evitar mismatches similares.
-
-**Justificacion:** Single source of truth. Un enum desalineado rompe la confianza en `validateBeforeSave: false` y puede permitir datos invalidos.
-
-**Alcance estimado:**
-- Script de auditoria que extraiga todos los `z.enum(...)` y los compare con los `enum: [...]` en los schemas Mongoose correspondientes.
-- Si es realista, derivar ambos de una constante unica.
-- Añadir un test que falle si alguno se desincroniza.
-
----
-
-## PROP-47: Timestamps relativos del backend muestran "Hace 7 min" para todas las alertas
-
-**Descripcion:** En la pagina Insights > Alertas, las 5 alertas mostradas tienen "Hace 7 min" como timestamp. En la lista de alumnos, todos los 18 alumnos tienen "Hoy" en "Ultima Actividad". Es estadisticamente improbable que todas las alertas se generen exactamente al mismo tiempo. Hipotesis: el seeder usa `Date.now()` para todos los timestamps, o el backend genera todas las alertas con el mismo timestamp en cada peticion.
-
-**Justificacion:** Calidad de datos visibles en demos / pre-release. Aunque es seeder data, transmite poca confianza en la veracidad de los timestamps.
-
-**Alcance estimado:**
-- Auditar `backend/seeders/07-gameplays.js` y `08-alerts.js` (si existe) para variar timestamps de manera realista.
-- Verificar si el backend regenera timestamps al servir alertas (no deberia).
 
 ---
 
@@ -442,22 +382,6 @@ Ya existe como PROP-17 arriba. Se reabre aqui para marcar prioridad alta tras au
 - Autosave debounced a 800ms con toast de confirmacion.
 
 **Esfuerzo:** M (3-4 dias).
-
----
-
-## PROP-70: Search-ahead en SelectPremium para listas >20 items
-
-**Descripcion:** Cuando un profesor con 50+ alumnos abre el selector de alumno para iniciar una partida (SessionDetail), ve una lista larga sin busqueda. Lo mismo para mazos/contextos.
-
-**Justificacion:** Eficiencia. Un super_admin con 500 alumnos en dropdown es impracticable.
-
-**Alcance estimado:**
-- Prop opcional `searchable` en SelectPremium.
-- Input arriba del dropdown que filtra opciones por `label` (case-insensitive, match parcial).
-- Sticky al scroll del dropdown.
-- Aria-live con "X resultados" al escribir.
-
-**Esfuerzo:** S (1-2 dias).
 
 ---
 
@@ -610,50 +534,6 @@ abordados en la propia sesion — ver `memory/project_qa_2026_04_22.md`.
 
 ---
 
-## PROP-77: Refactor del scroll arquitectonico del AppLayout
-
-**Descripcion:** El contenedor `<main>` de `AppLayout.jsx` tiene
-`className="flex-1 overflow-auto relative custom-scrollbar pb-16"`. Todo el
-contenido de las paginas scrollea dentro de ese `main` en lugar del scroll
-natural de `<html>/<body>`. Provoca:
-
-- Scroll anidado: en Dashboard el `main` tiene `scrollHeight=2800px` mientras
-  `body=991px`. Rompe el scroll natural y puede atrapar la rueda del raton
-  sobre un `<ResponsiveContainer>` de Recharts.
-- `window.scrollTo(0, y)` no funciona — requiere targeteo explicito al
-  `<main>` en codigo QA/analytics.
-- Playwright `page.screenshot({fullPage:true})` NO captura el contenido
-  completo (se quedo fuera del viewport durante la auditoria).
-- Screenshot tools externos (html2canvas, html-to-image) capturan solo el
-  viewport visible del `main` — no la pagina entera.
-
-**Justificacion:** El scroll natural del body es el patron esperado en SaaS
-modernos (Linear, Vercel, Supabase). Arreglarlo desbloquea:
-- Screenshots automatizados correctos
-- Analytics de scroll depth si se quieren en el futuro
-- Position `sticky` en la pagina sin hacks
-- Scroll-linked animations de fondo (ver PROP-73) funcionan mejor
-
-**Alcance estimado:**
-- Quitar `overflow-auto` del `<main>` y dejar el overflow en `<body>`.
-- Convertir `<aside>` a `fixed left-0 top-0 h-screen` con `margin-left` en el
-  main equivalente al ancho del sidebar.
-- Verificar que mobile sidebar (overlay + backdrop) sigue funcionando sin
-  bloquear el scroll del body con `position: fixed` o `overflow: hidden`
-  temporal en `<html>`.
-- Revisar paginas con scroll interno propio (GameSession con pausa overlay,
-  BoardSetup con DndContext) para que no colisionen con el nuevo scroll del
-  body.
-- Tests: verificar en mobile / tablet / desktop que la navegacion y scroll
-  funcionan identicos.
-
-**Esfuerzo:** M (3-4 dias). Cambio arquitectonico pero acotado a AppLayout.
-
-**ADR tentativo:** "Eliminacion del scroll anidado en AppLayout y adopcion
-del scroll natural del body"
-
----
-
 ## PROP-78: Persistencia real de alertas inteligentes con createdAt historico
 
 **Descripcion:** Hoy las alertas que muestra `AlertsHub.jsx` y
@@ -733,88 +613,6 @@ las siguientes requieren más alcance y quedan para Sprint 6.
 
 ---
 
-## PROP-79: Fallback táctil robusto para rondas cortas de Asociación
-
-**Descripcion:** Durante el QA del 2026-04-23 jugando una partida de
-asociación con 15s por ronda, los clicks en las cartas del panel táctil
-fallback no se registraban como aciertos incluso cuando se pulsaba la
-carta correcta. El log del backend mostraba solo 2 de 5 rondas con
-evento (y ambas como `error`). Las otras quedaban como "sin completar"
-→ score final: 0 aciertos, -4 puntos, 5 sin completar.
-
-**Causa probable:** ventana de validacion/timing entre `round_start`,
-`emit scan`, `validation_result` y el timeout del ronda. El
-`isDuplicateScan` con SCAN_DEDUPE_MS=1300ms o el throttle del socket
-estan dejando colgado algun scan justo cuando la ronda ya expiro.
-
-**Justificacion:** la asociacion es una de las dos mecanicas principales
-y la usabilidad queda rota si en partidas cortas el jugador no recibe
-credito por aciertos reales. Con 15s por ronda muchos profes van a
-configurar tiempos tan ajustados.
-
-**Alcance estimado:**
-- Buffer de scans entrantes durante la transicion de ronda (100-200ms de
-  gracia) para atribuir el scan a la ronda pendiente si llega justo al
-  borde.
-- Telemetria: contar `scan_on_closed_round` y exponerlo en
-  `/api/health`.
-- Tests de carrera con tiempos simulados en ASSOCIATION_DURATION <= 15s.
-- Considerar un pequeño indicador visual "procesando..." durante la
-  ventana para que el jugador sepa que el scan se esta contabilizando.
-
-**ADR tentativo:** "Ventana de gracia en transiciones de ronda para
-evitar perdida de scans en Asociacion con tiempos cortos".
-
----
-
-## PROP-80: Pódium oro/plata/bronce en Top 5 del Dashboard
-
-**Descripcion:** El widget "Mejores Estudiantes" del Dashboard muestra
-los puestos 1-5 con el mismo tratamiento violeta uniforme. En todos los
-productos educativos o gamificados los 3 primeros puestos usan los
-colores tradicionales oro/plata/bronce, que son lenguaje universal.
-
-**Justificacion:** claridad inmediata ("de un vistazo sé quién va
-primero") y pequeña delight que refuerza la metafora educativa/
-motivacional. Es una signature visual que se ve mucho y aporta
-personalidad sin ruido.
-
-**Alcance estimado:**
-- Tokens CSS `--color-podium-gold`, `--color-podium-silver`,
-  `--color-podium-bronze` en `index.css` (OKLCH o hex).
-- Helper `getPodiumRank(index)` que devuelve el color o fallback.
-- Integrar en `TopStudentsWidget`.
-- Quizas un halo sutil en el #1 ("drop-shadow-gold").
-
-**Esfuerzo:** S (1 dia).
-
----
-
-## PROP-81: Seeder inicial de feature flags en el admin
-
-**Descripcion:** El admin entra a `/admin/flags` y ve "Aún no hay
-feature flags" aunque el sistema (PROP-61, ADR-073) declara flags en
-código (redis leaderboards, studentMetrics, rfid-mode-distributed,
-ws-rate-limit-distributed, bullmq-worker, context-cache-invalidator,
-feature-flags-ui, deck-sparkline, icon-opt-in, etc.). La UI lee Mongo
-pero los flags solo estan en Redis Hash.
-
-**Justificacion:** el admin debe poder ver y controlar las flags desde
-el deploy inicial sin tener que crearlas una a una. Actualmente no tiene
-forma de saber cuales flags existen y cuales estan ON/OFF.
-
-**Alcance estimado:**
-- Script `seed:feature-flags` que lea una lista canonica desde
-  `config/featureFlags.js` y escriba los docs iniciales en Mongo con
-  `status: inactive`.
-- Integrar con los `npm run seed` existentes (condicional `--flags`).
-- UI lista flags activas del catalogo aunque no existan en BD ("por
-  crear") con boton "Crear y activar".
-
-**Esfuerzo:** S (1-2 dias).
-
----
-
 ## PROP-82: Dashboard admin global con KPIs agregados
 
 **Descripcion:** El super_admin entra a `/dashboard` y ve exactamente la
@@ -837,135 +635,10 @@ del centro.
 
 ---
 
-## PROP-83: Chart "Rendimiento de Clase" — recortar eje X al rango con datos
-
-**Descripcion:** El chart `StudentProgressChart` del Dashboard muestra
-un eje X de 8 dias (16/4 → 23/4) pero solo tiene puntos en los ultimos
-1-2 dias, dejando el resto de la linea "flotando al final" con aspecto
-de que el sistema falla.
-
-**Justificacion:** mejor UX si mostramos solo el rango con datos o al
-menos etiquetamos explicitamente "sin partidas registradas" para los
-dias vacios.
-
-**Alcance estimado:**
-- Calcular en el backend el firstPlayAt; devolver solo dias desde ahí.
-- O alternativa frontend: `useMemo` que clamp el eje X al
-  `first/lastValidIndex` del dataset.
-- Opcion C: dejar 8 dias pero poner un patron diagonal en los dias sin
-  datos.
-
-**Esfuerzo:** S (1-2 dias).
-
----
-
-## PROP-84: Search-ahead en dropdowns del modal "Jugar" y del Board Setup
-
-**Descripcion:** Reapertura de PROP-70. En la sesion 2026-04-23 el
-profe con 18 alumnos ve una lista plana sin buscador en el modal
-"Seleccionar alumno" del boton "Jugar" y en el selector "Asignar
-Estudiante" del board setup. Con un super_admin que ve los 36 del
-centro se hace inviable.
-
-**Justificacion:** escalabilidad real: centros con 100+ alumnos.
-
-**Alcance estimado:** igual que PROP-70 pero aplicado explicitamente a
-estos dos selects.
-
----
-
-## PROP-87: Chart "Curvas de Aprendizaje" — label del eje X no solapa la leyenda
-
-**Descripcion:** En `InsightsReports > Efectividad > Curvas de Aprendizaje`,
-el label "Partida" del eje X y la leyenda horizontal de abajo (con los
-nombres de contextos) se solapan visualmente en viewports 1280-1920px.
-El texto de ambos queda apilado ilegible.
-
-**Justificacion:** es uno de los charts mas usados (curva de
-aprendizaje = mejora por repeticion). La superposicion visual es un
-defecto cosmetico claro.
-
-**Alcance estimado:**
-- Reservar altura explicita al `XAxis` label (`padding: { bottom: 20 }`
-  en Recharts) o `margin.bottom` del chart.
-- Verificar responsive en 1280/1440/1920.
-
-**Esfuerzo:** XS (medio dia).
-
----
-
-## PROP-88: KPIs del Dashboard — delta "—" cuando no hay baseline
-
-**Descripcion:** Los KPIs del Dashboard ("Alumnos en Riesgo",
-"Puntuación Media", "Partidas Hoy", etc.) tienen todos una linea
-"vs semana pasada" pero solo algunos muestran el delta numerico
-(+340%, -28.7%). Otros muestran la linea vacia sin delta, dando
-impresion de dato faltante.
-
-**Justificacion:** transparencia de datos. Cuando no hay baseline
-(primera semana de uso, dato nuevo), deberia mostrar "—" explicito para
-que el profesor no asuma que es un bug.
-
-**Alcance estimado:**
-- Helper `formatDelta(current, previous)` que devuelve `"—"` cuando
-  `previous === 0 || previous === null`.
-- Integrar en `StatCard` o el render del KPI.
-
-**Esfuerzo:** XS (medio dia).
-
----
-
-## PROP-89: Preview completo de mazo (6 miniaturas visibles en card)
-
-**Descripcion:** Las cards de mazo en `/decks` muestran solo 4 de las 6
-miniaturas (por ejemplo Banderas de Europa: España, Francia, Italia,
-Alemania — no aparece Portugal ni Grecia). No hay indicador "+N".
-
-**Justificacion:** coherencia con el numero real de tarjetas (los
-stats dicen "12 cartas" pero solo se ven 4). El contrato visual debe
-alinearse con el conteo.
-
-**Alcance estimado:**
-- Cambiar `slice(0, 4)` a `slice(0, 6)` (caben al ancho estandar de
-  la card).
-- O bien mantener 4 mas un badge "+N" consistente con los contextos.
-
-**Esfuerzo:** XS (unas horas).
-
----
-
 # Propuestas QA final pre-release v0.5.0 (2026-04-24)
 
 Propuestas surgidas de la sesión QA final del 2026-04-24 que quedan fuera
 del corte por ser demasiado invasivas. Ver `memory/project_qa_final_2026_04_24.md`.
-
----
-
-## PROP-90: Cooldown entre intentos de memoria táctil configurable por mecánica
-
-**Descripcion:** El `SCAN_DEDUPE_MS` de 1300ms aplicado a toda la ronda de
-memoria provoca que tocar dos cartas en sucesión rápida muestre el banner
-"Espera un momento entre intentos" y bloquee el segundo tap. Para un niño
-tocando la pantalla, 1300ms es largo: el flip visual de la primera carta
-ya terminó y el jugador quiere voltear la segunda. El hint de la mascota
-("¡Mira con calma!") mitiga pero no resuelve.
-
-**Justificacion:** el dedupe está pensado para deduplicar scans RFID
-físicos (un tag lee dos veces en menos de 1s por chattering del lector).
-En la mecánica Memoria táctil el usuario elige DOS cartas distintas por
-intento — ningún scan es duplicado. El dedupe debería aplicarse solo
-entre la pareja-cerrada y el siguiente par, no entre la 1ª y 2ª carta.
-
-**Alcance estimado:**
-- Diferenciar `SCAN_DEDUPE_MS` por fuente (`rfid: 1300ms`, `touch-memory-flip: 250ms`).
-- O bien aplicar el dedupe por tipo de evento: permitir dos flips consecutivos
-  de cartas distintas sin throttle; bloquear sólo re-flips de la misma carta.
-- Tests de carrera con delays 200, 400, 800ms y verificar que todos los
-  aciertos se contabilizan.
-
-**Esfuerzo:** S (1-2 dias).
-
-**ADR tentativo:** "Dedupe de scans diferenciado por fuente y mecánica".
 
 ---
 
@@ -993,30 +666,6 @@ ejemplos y guardar plantillas son features naturales.
   "Claustro") que rellenan los 3 dropdowns de una.
 
 **Esfuerzo:** M (3-4 dias, frontend + persistencia ligera).
-
----
-
-## PROP-92: Aria-live region de "Espera un momento" autoescamotea al resolver
-
-**Descripcion:** Durante la sesión QA del 24/04 el banner amarillo "Espera
-un momento entre intentos" quedó persistente en una partida de memoria
-aunque ya se podía volver a tocar. El `useGameSocket.js` limpia
-`realtimeError` al recibir `NEW_ROUND` o `VALIDATION_RESULT` (PROP-65 fix
-del QA-senior), pero en mecánicas de memoria con varios fallos seguidos
-el banner se mantiene porque la condición que lo disparó sigue activa
-lógicamente (dedupe todavía no expiró).
-
-**Justificacion:** el banner pierde utilidad si no indica cuándo vuelve a
-poder tocar. Una cuenta atrás visual ("vuelve a tocar en 0.8s…") o una
-barra de progreso integrada en el propio banner comunica mejor.
-
-**Alcance estimado:**
-- El backend ya devuelve el `retryAfterMs` en el error `RATE_LIMITED`.
-  Exponerlo al componente.
-- Barra de progreso interna al banner que se vacía en `retryAfterMs`.
-- Al llegar a 0, auto-dismiss del banner con fade.
-
-**Esfuerzo:** S (1 dia).
 
 ---
 

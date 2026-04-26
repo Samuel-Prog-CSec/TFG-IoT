@@ -5153,3 +5153,247 @@ endpoint de adjuntar/reemplazar audio sobre un asset existente:
 - `backend/src/controllers/assetController.js` — `invalidateContextCaches` tras upload/delete (image y audio).
 - `frontend/src/components/ui/WizardStepper.jsx` — grid de columnas iguales + línea anclada al centro de los círculos extremos.
 - Capturas: `qa-capturas-v0.5.0-final-2026-04-26/` (01–66).
+
+---
+
+## ADR-089: Ventana de gracia 150 ms en transición de ronda Asociación [Backend]
+
+### Contexto
+
+QA del 23/04/2026 con la mecánica Asociación a `timeLimit=15s` reveló que
+varios scans del jugador llegaban al backend justo después de que el
+servidor disparase `handleTimeout`, generando rondas marcadas como "sin
+completar" pese a que el alumno había tocado la carta correcta. La causa
+es una carrera entre el `setTimeout(handleTimeout, timeLimit*1000)`, la
+emisión socket del scan, el viaje por la red y la deserialización. En
+partidas con tiempos cortos (≤15 s) — el caso de aulas con ritmo rápido —
+unos pocos ms de latencia generan un pico de "errores" que NO son del
+jugador: son del sistema.
+
+### Decisión
+
+Añadir una ventana de **gracia post-`timeLimit` de 150 ms** durante la cual
+el servidor sigue aceptando scans antes de marcar la ronda como timeout.
+El cliente sigue mostrando "0 s" cuando expira el contador visible (no se
+extiende el reloj UI), pero el servidor concede ese buffer transparente
+para capturar los scans en tránsito.
+
+Implementación:
+
+- Constante `ROUND_GRACE_PERIOD_MS = 150` (configurable vía env `ROUND_GRACE_PERIOD_MS`).
+- Los dos `setTimeout` que arman el timer de ronda (start y resume tras pausa) suman `ROUND_GRACE_PERIOD_MS` a `timeLimit * 1000`.
+- Métrica `metrics.scansSavedByGracePeriod` que se incrementa en `processResponse` cuando el `timeElapsed` supera el `timeLimit` declarado. Visible en `/api/admin/metrics` para detectar si el buffer se está consumiendo de forma anormal.
+
+### Alternativas consideradas
+
+- **Buffer post-timeout retroactivo**: aceptar el scan tras `handleTimeout` y revertir el evento `validation_result {timeout: true}`. Descartada por invariantes rotas (la ronda ya avanzó, race con `next_round`, UI ya pintó el resultado de timeout).
+- **Telemetría sin actuar**: solo contar y dejar que el alumno pierda el acierto. Descartada porque pide al jugador asumir un coste de un bug del sistema.
+
+### Consecuencias
+
+- Las partidas en Asociación con tiempos cortos cuentan correctamente los scans del último frame del temporizador.
+- El reloj visible al cliente NO se extiende — se mantiene la UX honesta: "0 s" sigue siendo "0 s" para el jugador.
+- 150 ms es invisible para el usuario pero suficiente para absorber la latencia típica de localhost + producción cloud.
+- Métrica `scansSavedByGracePeriod` permite detectar regresiones (si crece desproporcionadamente, indica problema de latencia o de timing UI).
+
+### Frontend complementario
+
+`FallbackTouchPanel` muestra un overlay sutil "Procesando…" durante 200 ms tras el tap del jugador para confirmar visualmente que el scan se ha registrado, evitando dobles taps por ansiedad de UX.
+
+### Tests
+
+`backend/tests/services/gameEngineObservability.test.js` — 3 cases (inicialización en 0, incremento cuando `timeElapsed > timeLimit`, NO incremento cuando llega antes).
+
+### Referencias
+
+- `backend/src/services/gameEngine/GameEngine.js` — constante, setTimeouts y `processResponse`.
+- `frontend/src/components/game/FallbackTouchPanel.jsx` — overlay "Procesando…".
+
+---
+
+## ADR-090: Dedupe de scans WebSocket diferenciado por `source` [Backend]
+
+### Contexto
+
+El `socketRateLimiter` aplicaba un único cooldown de **1200 ms** para todos los `rfid_scan_from_client`, indiferente de la fuente. Ese cooldown está pensado para protegerse del *chattering* del lector RC522 hardware, donde un mismo tag puede generar dos lecturas en menos de 1 s. **Pero las mecánicas táctiles** (panel fallback de Asociación, taps en cartas de Memoria) usan el mismo evento socket y heredaban el cooldown largo, provocando falsos positivos: tocar dos cartas distintas en sucesión rápida disparaba `DUPLICATE_RFID_EVENT` aunque los UIDs no coincidiesen y el flujo educativo lo justificase plenamente.
+
+### Decisión
+
+Diferenciar el cooldown por el campo `source` del payload del scan, espejando la política en backend y frontend:
+
+- `web_serial_hardware` y `web_serial`: 1200 ms (sensor RC522, anti-chattering).
+- `touch_fallback`: 250 ms (taps en panel táctil de Asociación).
+- `touch_memory_flip`: 250 ms (taps sobre cartas de Memoria).
+- Cualquier otro `source` o ausente: `defaultCooldownMs = 1200 ms`.
+
+Además, la `dedupeKey` incluye `source` para que dos fuentes distintas no se "ahoguen" entre sí (un tap táctil no afecta al cooldown del sensor real ni viceversa).
+
+### Implementación
+
+- `backend/src/config/socketRateLimits.js` — `rfidDedupeConfig` ya no es un número plano sino `{ defaultCooldownMs, cooldownMsBySource: {...} }`.
+- `backend/src/middlewares/socketRateLimiter.js` — `checkRfidDedupe()` lee `payload.source` y resuelve el cooldown apropiado.
+- `frontend/src/hooks/useGameSocket.js` — constantes `DEDUPE_MS_BY_SOURCE` y `DEFAULT_DEDUPE_MS` extraídas del módulo, `isDuplicateScan(uid, source)` aplica el cooldown según fuente, `emitFallbackScan` envía `source: 'touch_fallback'`, `emitMemoryCardTap` envía `source: 'touch_memory_flip'`.
+
+### Tests
+
+`backend/tests/socketRateLimiter.test.js` — 5 cases nuevos:
+
+- `touch_memory_flip` permite dos scans del mismo UID a 300 ms.
+- `touch_memory_flip` bloquea dos scans del mismo UID a 200 ms.
+- `web_serial_hardware` mantiene el cooldown largo (800 ms < 1200 ms → dedupe).
+- `source` ausente cae en `defaultCooldownMs`.
+- Mismo UID con sources distintos NO se ahogan entre sí.
+
+### Consecuencias
+
+- La mecánica Memoria táctil deja de provocar el banner "Espera un momento" innecesariamente cuando el alumno encadena taps rápidos (el flow esperado del juego).
+- El sensor hardware mantiene su protección anti-chattering intacta.
+- La política está centralizada en una sola estructura, fácil de extender con nuevas fuentes (Bluetooth, Zigbee, etc.) sin tocar la lógica.
+
+### Referencias
+
+- `backend/src/config/socketRateLimits.js`
+- `backend/src/middlewares/socketRateLimiter.js`
+- `frontend/src/hooks/useGameSocket.js`
+
+---
+
+## ADR-091: Catálogo declarativo de feature flags + seeder idempotente [Backend]
+
+### Contexto
+
+El servicio `featureFlagService` permitía CRUD sobre flags almacenadas en Redis Hash, pero sin un catálogo declarativo en código. El admin entraba a `/admin/flags` en una instancia recién desplegada y veía "Aún no hay feature flags", aunque el código backend y frontend ya consultaba flags nominales (`rfid-mode-distributed`, `ws-rate-limit-distributed`, `bullmq-worker`, etc.) que el panel debería poder gestionar.
+
+### Decisión
+
+Introducir un catálogo declarativo en `backend/src/config/featureFlagsCatalog.js` con las flags conocidas del sistema, su descripción de negocio y su `defaultEnabled`. El panel `/admin/flags` cruza el catálogo con el estado real de Redis: las flags declaradas pero no creadas se renderizan como "POR CREAR" con un botón "Crear y activar" que las materializa en un click sin abrir el modal de creación libre.
+
+Un seeder idempotente `npm run seed:feature-flags` puebla las flags al desplegar una instancia nueva, **sin sobrescribir el estado manual** del admin en flags ya existentes (preserva ediciones intencionales). Flag `--force` permite forzar el reset en entornos de desarrollo.
+
+### Implementación
+
+- `backend/src/config/featureFlagsCatalog.js` (NUEVO) — array de 9 flags con `name`, `description`, `defaultEnabled`, `defaultRolloutPct?`, `reason?`.
+- `backend/scripts/seed-feature-flags.js` (NUEVO) — script idempotente.
+- `backend/package.json` — script `seed:feature-flags`.
+- `backend/src/services/featureFlagService.js` — función nueva `listFlagsWithCatalog()` que merge catálogo ↔ Redis y añade `status: registered | unregistered | orphan`.
+- `backend/src/controllers/featureFlagsController.js` — `listFlags` endpoint usa `listFlagsWithCatalog()`.
+- `frontend/src/pages/admin/FeatureFlagsPanel.jsx` — componente nuevo `UnregisteredFlagRow` con badge "POR CREAR" + botones "Crear apagada" y "Crear y activar".
+
+### Tests
+
+`backend/tests/featureFlagService.test.js` — 3 cases nuevos:
+
+- Devuelve cada entrada del catálogo, marcando como `unregistered` las no creadas.
+- Marca como `registered` las flags presentes en Redis y preserva su estado.
+- Flags en Redis fuera del catálogo aparecen al final con status `orphan`.
+
+### Consecuencias
+
+- El admin tiene visibilidad inmediata de qué flags conoce el sistema y qué necesita gestionar, sin depender de memoria o documentación externa.
+- Despliegue de instancia nueva: `npm run seed:feature-flags` deja el panel listo con valores razonables.
+- El estado manual del admin nunca se pierde (idempotencia del seeder).
+- La descripción declarativa centraliza el contexto de negocio (referencias a propuestas y ADRs) en un solo sitio.
+
+### Referencias
+
+- `backend/src/config/featureFlagsCatalog.js`
+- `backend/scripts/seed-feature-flags.js`
+- `backend/src/services/featureFlagService.js`
+- `backend/src/controllers/featureFlagsController.js`
+- `frontend/src/pages/admin/FeatureFlagsPanel.jsx`
+
+---
+
+## ADR-092: Centralización de enums Zod ↔ Mongoose en `constants/enums.js` [Backend]
+
+### Contexto
+
+Los enums compartidos entre validators Zod (frontera HTTP) y schemas Mongoose (frontera de persistencia) estaban duplicados como literales en ambas capas. La auditoría de PROP-27 detectó **un mismatch real**: `GamePlay.events.eventType` en Mongoose incluía `'server_restart'` pero el `z.enum([...])` del validator NO. Resultado: un evento legítimo emitido por el GameEngine podía persistirse pero no se podía consultar a través de los endpoints que validan respuesta. Mismatches similares eran un riesgo presente en cada nueva edición (status, role, difficulty, purposes, etc.).
+
+### Decisión
+
+Centralizar los enums duales en `backend/src/constants/enums.js` como arrays congelados (`Object.freeze`) y migrar todos los validators Zod y schemas Mongoose a importar desde ahí. El test `backend/tests/constants/enums.test.js` verifica que cada `Model.schema.path(field).enumValues` coincide exactamente con la constante — un cambio en una capa sin actualizar la otra rompe el test inmediatamente.
+
+Enums centralizados (11 constantes):
+
+- `DIFFICULTY`, `SESSION_STATUS`, `PLAY_STATUS`, `EVENT_TYPE`
+- `ROLES`, `USER_STATUS`, `ACCOUNT_STATUS`
+- `DECK_STATUS`
+- `CONSENT_PURPOSES`, `CONSENT_CHANNEL`, `CONSENT_ACTION`
+
+### Implementación
+
+Touchpoints (5 validators + 4 models):
+
+- `backend/src/validators/{gameSession,gamePlay,user,common,cardDeck}Validator.js`
+- `backend/src/models/{GameSession,GamePlay,User,CardDeck}.js`
+
+En Zod se usa `z.enum([...DIFFICULTY])` (spread para evitar problemas de mutabilidad en plugins). En Mongoose se pasa el array directo (`enum: DIFFICULTY`).
+
+### Tests
+
+`backend/tests/constants/enums.test.js` — 11 cases:
+
+- Sanity: arrays no vacíos, strings únicos, congelados.
+- Valores literales preservados (contrato público con frontend).
+- Coherencia Mongoose ↔ constante para cada path.
+
+### Consecuencias
+
+- Mismatch resuelto: `EVENT_TYPE` ahora incluye `'server_restart'` en ambas capas.
+- Cualquier edición futura de un enum se refleja automáticamente en las dos capas o el test falla.
+- La protección estructural Zod ↔ Mongoose no requiere disciplina manual ni revisión cruzada.
+
+### Referencias
+
+- `backend/src/constants/enums.js`
+- `backend/tests/constants/enums.test.js`
+
+---
+
+## ADR-093: Cierre Sprint 5 — paquete fixes 15 propuestas pre-release v0.5.0 [Full-stack]
+
+### Contexto
+
+Sesión final de cierre de Sprint 5 que aborda las **15 propuestas [MANT]** pendientes en `documentation/propuestas-mejora.md`. Auditoría inicial reveló que **6 ya estaban implementadas** tras las pasadas QA del 21–26/04/2026 y solo requerían verificación visual en navegador. Las **9 restantes** se han implementado en esta sesión con tests automatizados añadidos para cada cambio.
+
+### Resumen de cambios
+
+| PROP | Tipo | Resumen |
+|---|---|---|
+| **21** | Verificación | `ContextsPage` y `StudentManagement` renderizan listados por defecto. |
+| **27** | Backend | Centralización enums Zod ↔ Mongoose (ver ADR-092). |
+| **47** | Backend | Alertas usan `detectedAt` del evento subyacente (no `Date.now()` al servir). |
+| **70+84** | Frontend | `searchable: 'auto'` en `SelectPremium` (>20 items activa input filtrado, sticky, aria-live). |
+| **77** | Verificación | `<main>` ya sin `overflow-auto` (scroll en body). |
+| **79** | Full-stack | Grace period 150 ms en Asociación (ver ADR-089) + overlay "Procesando…" en `FallbackTouchPanel`. |
+| **80** | Verificación | `PODIUM_STYLES` con tokens `--color-podium-{gold,silver,bronze}` en Top 5. |
+| **81** | Backend+Frontend | Catálogo declarativo + seeder de feature flags (ver ADR-091). |
+| **83** | Verificación | Backend rellena días vacíos con `null` (variante C de la propuesta). |
+| **87** | Verificación | Margin top 32 + bottom 28 + Legend top en Curvas de Aprendizaje. |
+| **88** | Frontend | Helper `formatDelta` + `StatCard` muestra "—" neutro cuando no hay baseline. |
+| **89** | Verificación | `slice(0, 6)` + badge "+N" en `DeckCard`. |
+| **90** | Full-stack | Dedupe WebSocket diferenciado por `source` (ver ADR-090). |
+| **92** | Frontend | `RateLimitBanner` con countdown + auto-dismiss + `aria-live`. |
+
+### Verificación
+
+- **Backend: 1056/1056 tests verdes** (74 suites). +22 tests sobre la base 1034: 11 (PROP-27 enums coherence), 3 (PROP-79 grace period), 3 (PROP-81 catalog merge), 5 (PROP-90 dedupe per source).
+- **Frontend: 287/287 tests verdes** (26 suites). +30 tests sobre la base 257: 17 (PROP-88 formatDelta), 8 (PROP-70/84 SelectPremium searchable), 5 (PROP-92 RateLimitBanner). Tests previos actualizados: 1 (`source: 'web_serial'` → `'touch_fallback'` en GameSession test por PROP-90).
+- **Lint: 0 errores en ambos** (warnings heredados, no introducidos).
+- **QA browser** con Docker dev stack:
+  - Dashboard: KPIs muestran "—" en "Alumnos en Riesgo" / "Partidas Hoy", podio oro/plata/bronce en Top 5, gráfica StudentProgress con gaps.
+  - `/decks`: 6 mazos con 6 miniaturas cada uno + bandera Portugal/Grecia visibles en Banderas de Europa.
+  - `/contexts`: 5 cards visibles por defecto sin scroll.
+  - `/analytics/insights` → Alertas: 5 alertas con timestamps distintos coherentes (11h, 12h, 8h, 10h, 8h — antes todas eran "Hace 7 min").
+  - `/analytics/insights` → Efectividad: Curvas de Aprendizaje sin solapamiento label/leyenda.
+  - `/admin/flags`: 9 flags del catálogo aparecen como "POR CREAR" con botones "Crear apagada" / "Crear y activar". Materialización E2E verificada (toast verde + flag pasa a editor completo).
+- Capturas en `qa-sprint5/` (7 imágenes representativas).
+
+### Referencias
+
+- ADR-089 — Ventana de gracia 150 ms en Asociación.
+- ADR-090 — Dedupe WebSocket diferenciado por source.
+- ADR-091 — Catálogo declarativo de feature flags.
+- ADR-092 — Centralización de enums.
+- `documentation/propuestas-mejora.md` — sección `[MANT] Mantenimiento Sprint 5` eliminada tras esta sesión.

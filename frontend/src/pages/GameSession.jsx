@@ -20,6 +20,7 @@ import { resolveAssociationTheme } from '../components/game/associationTheme';
 import MemoryGameplayPanel from '../components/game/MemoryGameplayPanel';
 import GameBackdrop from '../components/game/GameBackdrop';
 import FallbackTouchPanel from '../components/game/FallbackTouchPanel';
+import RateLimitBanner from '../components/game/RateLimitBanner';
 import { prefetchDeckImages } from '../lib/cardMapping';
 import CurrentPlayMetrics from '../components/game/CurrentPlayMetrics';
 import { useGameFeedback } from '../hooks/useGameFeedback';
@@ -1076,9 +1077,18 @@ export default function GameSession() {
 
       {realtimeError && (
         <div className="relative z-10 px-3 sm:px-4 mt-1 shrink-0">
-          <div className="max-w-4xl mx-auto rounded-lg border border-warning-base/30 bg-warning-base/10 px-3 py-2 text-xs text-warning-base">
-            {realtimeError.message}
-          </div>
+          {realtimeError.retryAfterMs ? (
+            // PROP-92: rate-limit / dedupe → banner con countdown que se vacía solo.
+            <RateLimitBanner
+              retryAfterMs={realtimeError.retryAfterMs}
+              message={realtimeError.message}
+              onDismiss={() => setRealtimeError(null)}
+            />
+          ) : (
+            <div className="max-w-4xl mx-auto rounded-lg border border-warning-base/30 bg-warning-base/10 px-3 py-2 text-xs text-warning-base">
+              {realtimeError.message}
+            </div>
+          )}
         </div>
       )}
 

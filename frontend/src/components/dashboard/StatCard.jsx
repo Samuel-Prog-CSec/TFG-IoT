@@ -3,6 +3,7 @@ import { motion } from 'framer-motion';
 import { ArrowUpRight, ArrowDownRight, ChevronRight } from 'lucide-react';
 import PropTypes from 'prop-types';
 import { cn, motionConfig } from '../../lib/utils';
+import { isNeutralDelta } from '../../lib/formatDelta';
 import GlassCard from '../ui/GlassCard';
 import AnimatedNumber from '../ui/AnimatedNumber';
 
@@ -23,12 +24,18 @@ function StatCard({ title, value, trend, icon, color, periodLabel = 'vs semana p
   // Si trend es vacio (caso "Alumnos en Riesgo" / "Partidas Hoy" sin histórico),
   // renderizamos un pill neutro con sólo el periodLabel para preservar la altura
   // de la card y evitar el bug de pill verde con flecha sin valor numerico.
+  //
+  // PROP-88: cuando el helper `formatDelta` devuelve "—" (sin baseline, primer
+  // dato), tratamos el trend como un valor pero lo pintamos en pill neutro
+  // (sin verde/rojo, sin flecha) — comunica "no hay comparación posible aún"
+  // sin transmitir ni positividad ni alarma.
   const hasTrendValue = typeof trend === 'string' && trend.length > 0;
-  const trendGoesUp = hasTrendValue && !trend.startsWith('-');
+  const isNeutralTrend = hasTrendValue && isNeutralDelta(trend);
+  const trendGoesUp = hasTrendValue && !isNeutralTrend && !trend.startsWith('-');
   // isPositive = delta "bueno" segun la semantica de la metrica.
   // Para metricas donde subir es peor (tiempo medio, alumnos en riesgo),
   // un delta positivo se pinta en rojo y uno negativo en verde.
-  const isPositive = hasTrendValue && (higherIsBetter ? trendGoesUp : !trendGoesUp);
+  const isPositive = hasTrendValue && !isNeutralTrend && (higherIsBetter ? trendGoesUp : !trendGoesUp);
   const TrendIcon = trendGoesUp ? ArrowUpRight : ArrowDownRight;
 
   return (
@@ -75,22 +82,36 @@ function StatCard({ title, value, trend, icon, color, periodLabel = 'vs semana p
           <div className={cn("font-bold text-text-primary font-display tracking-tight tabular-nums leading-none", compact ? "text-2xl mb-2" : "text-5xl mb-3")}>
             <AnimatedNumber value={value} />
           </div>
-          {hasTrendValue ? (
-            <div className={cn(
-              "inline-flex items-center gap-1 text-sm font-semibold px-2.5 py-1 rounded-lg whitespace-nowrap ring-1 ring-inset",
-              isPositive
-                ? "text-success-base bg-success-base/10 ring-success-base/20"
-                : "text-error-base bg-error-base/10 ring-error-base/20"
-            )}>
-              <TrendIcon size={14} strokeWidth={3} />
-              <span>{trend}</span>
-              <span className="text-text-muted font-medium ml-1 text-xs">{periodLabel}</span>
-            </div>
-          ) : (
-            <div className="inline-flex items-center text-xs font-medium text-text-muted px-2.5 py-1 rounded-lg ring-1 ring-inset ring-border-subtle">
-              {periodLabel}
-            </div>
-          )}
+          {(() => {
+            if (!hasTrendValue) {
+              return (
+                <div className="inline-flex items-center text-xs font-medium text-text-muted px-2.5 py-1 rounded-lg ring-1 ring-inset ring-border-subtle">
+                  {periodLabel}
+                </div>
+              );
+            }
+            // PROP-88: pill neutro cuando el delta es "—" (sin baseline)
+            if (isNeutralTrend) {
+              return (
+                <div className="inline-flex items-center gap-1 text-sm font-semibold px-2.5 py-1 rounded-lg whitespace-nowrap ring-1 ring-inset text-text-muted bg-background-surface/40 ring-border-subtle">
+                  <span aria-label="Sin baseline disponible">—</span>
+                  <span className="text-text-muted font-medium ml-1 text-xs">{periodLabel}</span>
+                </div>
+              );
+            }
+            return (
+              <div className={cn(
+                "inline-flex items-center gap-1 text-sm font-semibold px-2.5 py-1 rounded-lg whitespace-nowrap ring-1 ring-inset",
+                isPositive
+                  ? "text-success-base bg-success-base/10 ring-success-base/20"
+                  : "text-error-base bg-error-base/10 ring-error-base/20"
+              )}>
+                <TrendIcon size={14} strokeWidth={3} />
+                <span>{trend}</span>
+                <span className="text-text-muted font-medium ml-1 text-xs">{periodLabel}</span>
+              </div>
+            );
+          })()}
         </div>
 
         {/* Glow effect fallback for visual flair */}
