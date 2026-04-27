@@ -10,10 +10,13 @@
 
 const logger = require('../utils/logger').child({ component: 'rfidService' });
 const { EventEmitter } = require('node:events');
+const { RFID_EVENT_SOURCES } = require('../validators/rfidValidator');
 
 // Constantes de configuración
 const EVENT_BUFFER_SIZE = 100;
-const VALID_RFID_SOURCES = new Set(['web_serial']);
+// Coincide con el enum del validador Zod en validators/rfidValidator.js para
+// no rechazar eventos legítimos de fallback táctil cuando no hay sensor.
+const VALID_RFID_SOURCES = new Set(RFID_EVENT_SOURCES);
 
 /**
  * Ventana del scan rate corto (1 min) en ms.

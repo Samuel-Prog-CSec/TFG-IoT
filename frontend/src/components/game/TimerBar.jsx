@@ -1,6 +1,7 @@
 import { memo } from 'react';
 import { motion } from 'framer-motion';
 import PropTypes from 'prop-types';
+import { AlarmClock } from 'lucide-react';
 import { cn } from '../../lib/utils';
 import { useReducedMotion } from '../../hooks/useReducedMotion';
 
@@ -53,10 +54,13 @@ function TimerBar({ timeLeft, timeLimit, className }) {
           <motion.span
             animate={isCritical && !shouldReduceMotion ? { scale: [1, 1.15, 1] } : {}}
             transition={{ duration: 1.5, repeat: isCritical && !shouldReduceMotion ? Infinity : 0, ease: 'easeInOut' }}
-            className="text-lg"
+            className={cn(
+              'inline-flex items-center justify-center',
+              isCritical ? 'text-timer-critical' : 'text-timer-warning'
+            )}
             aria-hidden="true"
           >
-            ⏰
+            <AlarmClock size={18} strokeWidth={2.25} />
           </motion.span>
           <motion.span
             initial={{ opacity: 0, scale: 0 }}

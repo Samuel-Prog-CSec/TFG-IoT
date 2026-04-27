@@ -1,3 +1,4 @@
+import { useMemo } from 'react';
 import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
 import ChartSection from './ChartSection';
 import EmptyState from '../ui/EmptyState';
@@ -8,13 +9,35 @@ const PERIOD_OPTIONS = [
   { value: '30d', label: 'Últimos 30 días' },
 ];
 
+const hasValue = v => v !== null && v !== undefined;
+
 export default function StudentProgressChart({ data, period = '7d', onPeriodChange, omitPeriodSelector = false }) {
   // Cuando el rango ya esta controlado por un toolbar global (Dashboard),
   // omitimos el selector interno para evitar duplicar el control
   // ("Ultimos 7 dias" mostrado dos veces — bug PROP-37 / fix PROP-43).
   const sectionPeriodChange = omitPeriodSelector ? undefined : onPeriodChange;
 
-  if (!data || data.length === 0) {
+  // PROP-83: el backend devuelve N días aunque solo los últimos tengan partidas.
+  // Antes, `connectNulls={false}` dejaba la línea "flotando al final" como si
+  // el sistema estuviera roto. Recortamos al sub-rango con datos reales para
+  // que el eje X arranque en la primera medición. Si los huecos quedan en
+  // medio, siguen apareciendo como gaps (intencional, ver PROP-26).
+  const trimmedData = useMemo(() => {
+    if (!Array.isArray(data) || data.length === 0) return [];
+    let firstIdx = -1;
+    let lastIdx = -1;
+    for (let i = 0; i < data.length; i++) {
+      const point = data[i];
+      if (hasValue(point?.score) || hasValue(point?.classAverage)) {
+        if (firstIdx === -1) firstIdx = i;
+        lastIdx = i;
+      }
+    }
+    if (firstIdx === -1) return [];
+    return data.slice(firstIdx, lastIdx + 1);
+  }, [data]);
+
+  if (trimmedData.length === 0) {
     return (
       <ChartSection title="Rendimiento de Clase (Tendencia)" period={period} onPeriodChange={sectionPeriodChange} periodOptions={PERIOD_OPTIONS}>
         <EmptyState
@@ -30,7 +53,7 @@ export default function StudentProgressChart({ data, period = '7d', onPeriodChan
     <ChartSection title="Rendimiento de Clase (Tendencia)" period={period} onPeriodChange={sectionPeriodChange} periodOptions={PERIOD_OPTIONS}>
       <div className="h-[300px] w-full -ml-4 sm:ml-0 min-h-[300px]">
         <ResponsiveContainer width="100%" height="100%" minWidth={0} minHeight={0} debounce={50}>
-          <AreaChart data={data} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
+          <AreaChart data={trimmedData} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
             <defs>
               <linearGradient id="colorScore" x1="0" y1="0" x2="0" y2="1">
                 <stop offset="5%" stopColor="var(--color-brand-base)" stopOpacity={0.4} />

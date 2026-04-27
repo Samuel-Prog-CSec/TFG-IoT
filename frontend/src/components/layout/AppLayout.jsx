@@ -265,7 +265,7 @@ export default function AppLayout() {
             }}
             role="switch"
             aria-checked={!shouldReduceMotion}
-            aria-label={shouldReduceMotion ? 'Activar animaciones' : 'Reducir animaciones'}
+            aria-label="Animaciones"
             title={shouldReduceMotion ? 'Animaciones desactivadas' : 'Animaciones activadas'}
             className="flex items-center justify-between w-full px-4 py-2 rounded-xl text-text-muted hover:text-text-primary hover:bg-white/5 transition-colors duration-200"
           >

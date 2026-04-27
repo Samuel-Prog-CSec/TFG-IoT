@@ -901,8 +901,13 @@ export default function GameSession() {
         )}
       />
 
-      {/* Top HUD */}
-      <header className="relative z-10 p-2 sm:p-3 shrink-0">
+      {/* Top HUD — z-index ligeramente por encima de los wrappers hermanos
+          (TimerBar / banners realtime, todos a z-10) para que los tooltips de
+          los botones del HUD (Silenciar, Pausar) no queden tapados por la
+          barra de tiempo cuando se renderizan en el lado bottom. Se mantiene
+          por debajo del overlay de pausa (z-20) para que la pausa siga
+          ocultando el HUD durante el dialog modal. */}
+      <header className="relative z-[15] p-2 sm:p-3 shrink-0">
         <div className="glass rounded-2xl p-2.5 sm:p-3 flex items-center justify-between gap-3">
           {/* Indicador de progreso — dots visuales para niños (en vez de "3 de 6").
               - Asociacion: 1 dot por ronda; el actual pulsa y los completados estan llenos

@@ -157,6 +157,7 @@ async function getStudentDifficulties(studentId) {
 async function getClassroomSummary(teacherId) {
   // Excluir estudiantes sin consentimiento de analytics (Art. 21 RGPD)
   const excludedIds = await getAnalyticsExcludedPlayerIds(teacherId);
+  const teacherOid = new mongoose.Types.ObjectId(teacherId);
 
   const pipeline = [
     {
@@ -170,25 +171,12 @@ async function getClassroomSummary(teacherId) {
     { $unwind: '$session' },
     {
       $match: {
-        'session.createdBy': new mongoose.Types.ObjectId(teacherId),
+        'session.createdBy': teacherOid,
         ...(excludedIds.length > 0 && { playerId: { $nin: excludedIds } })
       }
     },
     {
       $facet: {
-        // Riesgo: Estudiantes con media < 50 en los últimos 5 juegos
-        studentsInRisk: [
-          { $sort: { completedAt: -1 } },
-          {
-            $group: {
-              _id: '$playerId',
-              recentScore: { $avg: '$score' },
-              lastPlayed: { $max: '$completedAt' }
-            }
-          },
-          { $match: { recentScore: { $lt: 50 } } },
-          { $count: 'count' }
-        ],
         // Promedio global y tendencia
         globalStats: [
           {
@@ -215,11 +203,26 @@ async function getClassroomSummary(teacherId) {
     }
   ];
 
-  const results = await gamePlayRepository.aggregate(pipeline);
+  // Riesgo: alineado con el listado de Mis Alumnos (BUG-4 QA pre-release v0.5.0).
+  // El listado clasifica a los alumnos por `studentMetrics.averageScore`
+  // (lifetime). Antes el KPI usaba la media reciente de partidas, lo que
+  // producía discrepancias entre el contador (9) y la cuenta de filas con badge
+  // EN RIESGO (8). Ahora ambas vistas leen la misma fuente.
+  const [results, studentsInRisk] = await Promise.all([
+    gamePlayRepository.aggregate(pipeline),
+    userRepository.count({
+      createdBy: teacherOid,
+      role: 'student',
+      status: 'active',
+      ...ANALYTICS_CONSENT_FILTER,
+      'studentMetrics.averageScore': { $gte: 0, $lt: 50 }
+    })
+  ]);
+
   const data = results[0];
 
   return {
-    studentsInRisk: data.studentsInRisk[0] ? data.studentsInRisk[0].count : 0,
+    studentsInRisk,
     averageScore: data.globalStats[0] ? Math.round(data.globalStats[0].avgScore) : 0,
     totalGames: data.globalStats[0] ? data.globalStats[0].totalGames : 0,
     gamesToday: data.todayActivity[0] ? data.todayActivity[0].count : 0

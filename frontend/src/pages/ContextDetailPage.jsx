@@ -22,6 +22,7 @@ import InputPremium from '../components/ui/InputPremium';
 import CardAssetPreview from '../components/ui/CardAssetPreview';
 import AudioMiniPlayer from '../components/ui/AudioMiniPlayer';
 import AudioUploadModal from '../components/ui/AudioUploadModal';
+import ConfirmationModal, { useConfirmationModal } from '../components/ui/ConfirmationModal';
 import { SkeletonCard } from '../components/ui/SkeletonShimmer';
 import { cn } from '../lib/utils';
 import { useAuth } from '../context/AuthContext';
@@ -55,6 +56,13 @@ export default function ContextDetailPage() {
   const [isDeletingAudio, setIsDeletingAudio] = useState(null);
   const [audioModalAsset, setAudioModalAsset] = useState(null); // asset para AudioUploadModal
 
+  // Confirmaciones de borrado (BUG-8 QA pre-release v0.5.0): el borrado de
+  // assets toca Supabase Storage y un eventual mazo activo, así que pedimos
+  // confirmación explícita. La de audio comparte el mismo flujo para evitar
+  // el "deshacer imposible" tras un click accidental.
+  const deleteAssetConfirm = useConfirmationModal();
+  const deleteAudioConfirm = useConfirmationModal();
+
   const fetchContext = async () => {
     try {
       setLoading(true);
@@ -70,7 +78,7 @@ export default function ContextDetailPage() {
   };
 
   // Eliminar asset completo (imagen + audio)
-  const handleDeleteAsset = async (asset) => {
+  const performDeleteAsset = async (asset) => {
     const contextDocId = context._id || context.id;
 
     setIsDeletingAsset(asset.key);
@@ -91,8 +99,19 @@ export default function ContextDetailPage() {
     }
   };
 
+  const handleDeleteAsset = (asset) => {
+    deleteAssetConfirm.openModal({
+      title: 'Eliminar asset',
+      description: `Vas a eliminar "${asset.value}" (${asset.key}). Se borrará la imagen, los audios asociados y los archivos en Supabase Storage. Si está en uso por un mazo activo, la operación se rechazará.`,
+      confirmText: 'Eliminar definitivamente',
+      cancelText: 'Cancelar',
+      variant: 'destructive',
+      onConfirm: () => performDeleteAsset(asset),
+    });
+  };
+
   // Eliminar solo el audio de un asset (conservar imagen)
-  const handleDeleteAudio = async (asset) => {
+  const performDeleteAudio = async (asset) => {
     const contextDocId = context._id || context.id;
 
     setIsDeletingAudio(asset.key);
@@ -105,6 +124,17 @@ export default function ContextDetailPage() {
     } finally {
       setIsDeletingAudio(null);
     }
+  };
+
+  const handleDeleteAudio = (asset) => {
+    deleteAudioConfirm.openModal({
+      title: 'Eliminar audio',
+      description: `Se eliminará el audio asociado a "${asset.value}". La imagen se mantiene.`,
+      confirmText: 'Eliminar audio',
+      cancelText: 'Cancelar',
+      variant: 'destructive',
+      onConfirm: () => performDeleteAudio(asset),
+    });
   };
 
   useEffect(() => {
@@ -251,6 +281,10 @@ export default function ContextDetailPage() {
           />
         )}
       </AnimatePresence>
+
+      {/* Confirmaciones destructivas para borrado de assets/audios */}
+      <ConfirmationModal {...deleteAssetConfirm.modalProps} />
+      <ConfirmationModal {...deleteAudioConfirm.modalProps} />
     </div>
   );
 }
