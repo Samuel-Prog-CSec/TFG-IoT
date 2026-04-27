@@ -308,9 +308,11 @@ export default function SelectPremium({
                     aria-atomic="true"
                     className="block mt-1.5 text-[11px] text-text-muted px-1"
                   >
-                    {filteredOptions.length === 0
-                      ? 'Sin coincidencias'
-                      : `${filteredOptions.length} ${filteredOptions.length === 1 ? 'resultado' : 'resultados'}`}
+                    {(() => {
+                      if (filteredOptions.length === 0) return 'Sin coincidencias';
+                      const noun = filteredOptions.length === 1 ? 'resultado' : 'resultados';
+                      return `${filteredOptions.length} ${noun}`;
+                    })()}
                   </span>
                 )}
               </div>

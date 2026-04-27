@@ -147,6 +147,47 @@ const STATUS_CARD_CLASSES = {
   completed: 'border-b-2 border-b-success-base/40',
 };
 
+// Bloque de stats con sparkline. Extraido para reducir la complejidad ciclomatica
+// del SessionCard (regla sonarjs/cyclomatic-complexity).
+function SessionPlayStats({ playStats }) {
+  if (!playStats || (playStats.playsCount ?? 0) <= 0) return null;
+  const playedLabel = playStats.playsCount === 1 ? 'partida jugada' : 'partidas jugadas';
+  const showSparkline =
+    Array.isArray(playStats.recentScores) && playStats.recentScores.length >= 2;
+  return (
+    <div className="flex flex-col gap-2 rounded-lg bg-background-surface/50 px-3 py-2 text-xs text-text-muted">
+      <div className="flex items-center gap-2">
+        <BarChart3 size={14} className="text-text-muted/70 flex-shrink-0" />
+        <span>
+          {playStats.playsCount} {playedLabel}
+          {playStats.averageScore != null && (
+            <> · {playStats.averageScore} pts promedio</>
+          )}
+        </span>
+      </div>
+      {/* PROP-5: tiempo desde la ultima partida en formato relativo. */}
+      {playStats.lastPlayedAt && (
+        <p className="text-[11px] text-text-muted/80">
+          Última partida: {formatRelativeTime(playStats.lastPlayedAt)}
+        </p>
+      )}
+      {/* PROP-5: sparkline solo si hay >=2 puntuaciones. */}
+      {showSparkline && (
+        <SessionSparkline data={playStats.recentScores} height={42} />
+      )}
+    </div>
+  );
+}
+
+SessionPlayStats.propTypes = {
+  playStats: PropTypes.shape({
+    playsCount: PropTypes.number,
+    averageScore: PropTypes.number,
+    lastPlayedAt: PropTypes.string,
+    recentScores: PropTypes.array
+  })
+};
+
 const SessionCard = memo(function SessionCard({
   session,
   cloneLoading,
@@ -252,29 +293,7 @@ const SessionCard = memo(function SessionCard({
           </div>
         </div>
 
-        {session.playStats && session.playStats.playsCount > 0 && (
-          <div className="flex flex-col gap-2 rounded-lg bg-background-surface/50 px-3 py-2 text-xs text-text-muted">
-            <div className="flex items-center gap-2">
-            <BarChart3 size={14} className="text-text-muted/70 flex-shrink-0" />
-            <span>
-              {session.playStats.playsCount} {session.playStats.playsCount === 1 ? 'partida jugada' : 'partidas jugadas'}
-              {session.playStats.averageScore != null && (
-                <> {'\u00B7'} {session.playStats.averageScore} pts promedio</>
-              )}
-            </span>
-            </div>
-            {/* PROP-5: tiempo desde la última partida en formato relativo. */}
-            {session.playStats.lastPlayedAt && (
-              <p className="text-[11px] text-text-muted/80">
-                Última partida: {formatRelativeTime(session.playStats.lastPlayedAt)}
-              </p>
-            )}
-            {/* PROP-5: sparkline solo si hay >=2 puntuaciones. */}
-            {Array.isArray(session.playStats.recentScores) && session.playStats.recentScores.length >= 2 && (
-              <SessionSparkline data={session.playStats.recentScores} height={42} />
-            )}
-          </div>
-        )}
+        <SessionPlayStats playStats={session.playStats} />
 
         <div className="mt-auto pt-4 border-t border-border-subtle space-y-3">
           <div className="flex gap-3">

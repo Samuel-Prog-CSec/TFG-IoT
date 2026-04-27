@@ -1191,16 +1191,20 @@ export default function GameSession() {
                 transition={{ delay: shouldReduceMotion ? 0 : 0.3 }}
                 className="mt-2 text-center text-text-secondary text-sm sm:text-base font-semibold"
               >
-                {sessionIsMemory ? (
-                  <>¡Encuentra las parejas antes de que se acabe el tiempo!</>
-                ) : challenge?.promptText ? (
+                {(() => {
+                  if (sessionIsMemory) {
+                    return <>¡Encuentra las parejas antes de que se acabe el tiempo!</>;
+                  }
                   // Consigna personalizada del profesor si la definió en el wizard.
-                  <>🔎 {challenge.promptText}</>
-                ) : (
-                  <>
-                    🔎 ¿Dónde está <span className="text-text-primary font-bold">la {challenge?.value || 'tarjeta correcta'}</span>?
-                  </>
-                )}
+                  if (challenge?.promptText) {
+                    return <>🔎 {challenge.promptText}</>;
+                  }
+                  return (
+                    <>
+                      🔎 ¿Dónde está <span className="text-text-primary font-bold">la {challenge?.value || 'tarjeta correcta'}</span>?
+                    </>
+                  );
+                })()}
               </motion.p>
 
               {!rfidConnected && !sessionIsMemory && (

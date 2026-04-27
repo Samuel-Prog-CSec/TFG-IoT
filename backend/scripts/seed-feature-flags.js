@@ -16,7 +16,11 @@ const { FEATURE_FLAGS_CATALOG } = require('../src/config/featureFlagsCatalog');
 const { disconnectRedis } = require('../src/config/redis');
 const logger = require('../src/utils/logger').child({ component: 'seed-feature-flags' });
 
-const FORCE_FLAG = process.argv.includes('--force');
+// Aceptamos un unico flag booleano (--force). Comparacion estricta contra el
+// literal exacto: no construimos paths/comandos con argv ni interpolamos en
+// shell, por lo que la lectura de process.argv es segura en este script CLI.
+// eslint-disable-next-line sonarjs/process-argv -- input restringido a comparacion booleana
+const FORCE_FLAG = process.argv.some(arg => arg === '--force');
 
 async function seedFeatureFlags() {
   let created = 0;
@@ -70,16 +74,24 @@ async function seedFeatureFlags() {
   return { created, updated, skipped };
 }
 
+async function runCli() {
+  try {
+    await seedFeatureFlags();
+    await disconnectRedis();
+    process.exit(0);
+  } catch (error) {
+    logger.error('Seed de feature flags falló', { error: error.message, stack: error.stack });
+    try {
+      await disconnectRedis();
+    } catch {
+      // Silencioso: si Redis ya no responde tampoco hay nada que limpiar.
+    }
+    process.exit(1);
+  }
+}
+
 if (require.main === module) {
-  seedFeatureFlags()
-    .then(() => disconnectRedis())
-    .then(() => process.exit(0))
-    .catch(error => {
-      logger.error('Seed de feature flags falló', { error: error.message, stack: error.stack });
-      disconnectRedis()
-        .catch(() => undefined)
-        .finally(() => process.exit(1));
-    });
+  runCli();
 }
 
 module.exports = { seedFeatureFlags };
