@@ -7,8 +7,8 @@
 >
 > **PROP-60 y PROP-63 (Redis):** se mantuvieron en el documento aunque el paquete
 > pre-v1.0.0 del 23/04/2026 (ADR-080) decidió diferirlas a Sprint 7. La
-> infraestructura habilitadora (feature flags ADR-073, helpers Redis, BullMQ
-> scaffolding ADR-077) está lista para cuando aterricen.
+> infraestructura habilitadora (helpers Redis, BullMQ scaffolding ADR-077) está
+> lista para cuando aterricen.
 
 ---
 
@@ -22,7 +22,7 @@ formato. **Consultar esta tabla antes de atacar cualquier PROP.**
 > **Cierre de Sprint 5 (2026-04-26)**: las 15 propuestas `[MANT]` que
 > figuraban aquí (PROP-21, 27, 47, 70, 77, 79, 80, 81, 83, 84, 87, 88,
 > 89, 90, 92) se cerraron en la sesión de mantenimiento del 26/04/2026.
-> Ver ADR-089, ADR-090, ADR-091, ADR-092 y ADR-093 en
+> Ver ADR-089, ADR-090, ADR-092 y ADR-093 en
 > `documentation/Architecture_Decisions.md` para los cambios
 > arquitectónicos derivados. Los memos quedan en el historial de Git.
 
@@ -746,11 +746,10 @@ v1.0.0 con deploy real a cloud** y dar el proyecto por entregado.
 - **Docker queda relegado a dev/testing local**. Los assets Docker
   orientados a produccion (`docker-compose.prod.yml`, Dockerfiles de prod)
   se archivan — ver PROP-132.
-- Se **mantienen Redis + BullMQ + feature flags** pese al deploy. Son los
+- Se **mantienen Redis + BullMQ** pese al deploy. Son los
   componentes que mejor escalan en cloud multi-instancia y su eliminacion
   reintroduciria problemas que ya estan resueltos (WS rate-limit en
-  multi-replica, kill-switch de features sin redeploy, retention jobs
-  atomicos).
+  multi-replica, retention jobs atomicos, idempotencia de startPlay).
 - **PROP-60** (leaderboards ZSET) y **PROP-63** (studentMetrics
   materializados) siguen diferidas a Sprint 7; no son bloqueantes para
   v1.0.0 y el volumen de datos esperado en demo cabe holgadamente en
@@ -1402,9 +1401,9 @@ seguridad de la memoria.
 
 ## PROP-116 [MEDIA]: Proteccion adicional endpoints super_admin
 
-**Descripcion:** Los `/admin/*` y `/admin/flags` actualmente dependen
-solo de JWT con rol `super_admin`. Añadir capa adicional: **MFA TOTP**
-para acciones sensibles (toggle flags, delete users, purge data) +
+**Descripcion:** Los endpoints `/admin/*` actualmente dependen solo
+de JWT con rol `super_admin`. Añadir capa adicional: **MFA TOTP**
+para acciones sensibles (delete users, purge data, transferencias) +
 opcional IP allowlist via env var.
 
 **Justificacion:** El super_admin tiene poder total; comprometer ese
@@ -1624,7 +1623,7 @@ concurrentemente podrian forzar picos.
 **Esfuerzo:** M (2-3 dias).
 
 **ADR tentativo:** "ADR-100: Optimizacion del command budget Upstash
-con pipelining y cache en memoria de feature flags".
+con pipelining".
 
 ---
 

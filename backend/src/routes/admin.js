@@ -17,13 +17,9 @@ const { validateParams, validateQuery } = require('../middlewares/validation');
 const { userIdParamsSchema } = require('../validators/userValidator');
 const { emptyObjectSchema, paginationSchema } = require('../validators/commonValidator');
 const asyncHandler = require('../utils/asyncHandler');
-const { adminRouter: featureFlagsAdminRouter } = require('./featureFlags');
 
 // Todas las rutas de admin requieren autenticación + rol super_admin
 router.use(authenticate, requireRole('super_admin'));
-
-// Sub-router de feature flags: /api/admin/flags/*
-router.use('/flags', featureFlagsAdminRouter);
 
 /**
  * @route   GET /api/admin/pending

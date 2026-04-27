@@ -60,7 +60,6 @@ const adminRoutes = require('./routes/admin');
 const metricsRoutes = require('./routes/metrics');
 const analyticsRoutes = require('./routes/analytics');
 const healthRoutes = require('./routes/health');
-const { meRouter: myFeatureFlagsRouter } = require('./routes/featureFlags');
 
 // Crear aplicación Express
 const app = express();
@@ -254,9 +253,6 @@ app.use('/api/decks', deckRoutes);
 
 // Rutas de administración (solo super admin)
 app.use('/api/admin', adminRoutes);
-
-// Feature flags evaluadas para el usuario autenticado (self-service)
-app.use('/api/me/flags', myFeatureFlagsRouter);
 
 // Rutas de analíticas
 app.use('/api/analytics', analyticsRoutes);

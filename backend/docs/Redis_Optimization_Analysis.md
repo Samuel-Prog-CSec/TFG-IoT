@@ -508,4 +508,4 @@ Nueva env var `REDIS_FLUSH_LUA_ON_BOOT=true` en `loadLuaScripts` que ejecuta `SC
 
 ### Propuestas para Sprint 6
 
-Ver sección "Mejoras Redis Sprint 6" en `documentation/propuestas-mejora.md` (PROP-59 a PROP-64): WebSocket rate-limit distribuido, leaderboards ZSET, feature flags, cola BullMQ, materialización studentMetrics, estado RFID distribuido.
+Ver sección "Mejoras Redis Sprint 6" en `documentation/propuestas-mejora.md` (PROP-59, PROP-60, PROP-62, PROP-63, PROP-64): WebSocket rate-limit distribuido, leaderboards ZSET, cola BullMQ, materialización studentMetrics, estado RFID distribuido.

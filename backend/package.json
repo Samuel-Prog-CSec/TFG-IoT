@@ -10,7 +10,6 @@
     "seed:reset": "node seeders/index.js --reset",
     "seed:if-empty": "node scripts/seed-if-empty.js",
     "seed:storage": "node scripts/seed-storage-assets.js",
-    "seed:feature-flags": "node scripts/seed-feature-flags.js",
     "migrate:sessions": "node scripts/migrate-session-status.js",
     "migrate:dominant-colors": "node scripts/backfill-dominant-colors.js",
     "migrate:birthdate": "node scripts/migrateBirthdate.js",

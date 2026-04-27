@@ -13,7 +13,6 @@ Paquete de mantenimiento final de Sprint 5: cierre de las 15 propuestas `[MANT]`
 
 - **Buscador integrado en selectores grandes (PROP-70/84):** El componente `SelectPremium` ahora ofrece búsqueda automática cuando el listado supera las 20 opciones. Incluye input con lupa, filtrado en vivo case-insensitive, sticky al scroll del dropdown, anuncio aria-live del número de resultados y atajo `Esc` para limpiar la búsqueda. Selectores de alumno en "Jugar", "Asignar Estudiante" del board setup, generador de informes y filtros de mazo se benefician sin cambios adicionales.
 - **Banner de rate-limit con cuenta atrás visual (PROP-92, ADR-093):** Nuevo `RateLimitBanner` que sustituye al toast efímero "Espera un momento entre intentos". Muestra el tiempo restante real (`retryAfterMs`) con barra de progreso CSS que se vacía sola, auto-dismiss al llegar a 0 y soporte completo de lectores de pantalla y `prefers-reduced-motion`. El profesor sabe exactamente cuándo puede volver a interactuar.
-- **Catálogo declarativo de feature flags y seeder idempotente (PROP-81, ADR-091):** Nuevo `backend/src/config/featureFlagsCatalog.js` con las 9 flags conocidas del sistema y su contexto de negocio. El panel `/admin/flags` ahora muestra las flags declaradas pero no creadas como "POR CREAR" con botones "Crear apagada" / "Crear y activar" para materializarlas en un click. Script `npm run seed:feature-flags` puebla las flags en una instancia recién desplegada sin sobrescribir el estado manual del admin.
 - **Indicador "Procesando…" en panel táctil (PROP-79 frontend):** El `FallbackTouchPanel` muestra un overlay sutil durante 200 ms tras el tap del jugador para confirmar visualmente que el escaneo se ha registrado. Evita los doble-taps por ansiedad y comunica claramente que el sistema está procesando.
 - **Métrica `scansSavedByGracePeriod`** expuesta en `/api/admin/metrics` para monitorizar cuántos scans se rescatan gracias a la nueva ventana de gracia de Asociación.
 
@@ -32,7 +31,7 @@ Paquete de mantenimiento final de Sprint 5: cierre de las 15 propuestas `[MANT]`
 
 ### Documentación
 
-- 5 nuevos ADRs en `documentation/Architecture_Decisions.md`: **089** (ventana de gracia Asociación), **090** (dedupe diferenciado por source), **091** (catálogo declarativo de feature flags), **092** (centralización de enums) y **093** (paquete consolidado de cierre Sprint 5).
+- 4 nuevos ADRs en `documentation/Architecture_Decisions.md`: **089** (ventana de gracia Asociación), **090** (dedupe diferenciado por source), **092** (centralización de enums) y **093** (paquete consolidado de cierre Sprint 5).
 - Actualizadas las guías técnicas: `backend/docs/Rate_Limiting_Analysis.md` (sección "Dedupe RFID diferenciado por source"), `backend/docs/RFID_Runtime_Flows.md` (sección "Ventana de gracia en transición de ronda") y `frontend/docs/05-GAMEPLAY-REALTIME.md` (secciones "Dedupe en cliente — capas y propósito" actualizada y "Banner RateLimitBanner con countdown" nueva).
 - 15 propuestas cerradas y eliminadas de `documentation/propuestas-mejora.md` (sección `[MANT] Mantenimiento Sprint 5` retirada). Total de propuestas abiertas: 83 → 68.
 
@@ -77,7 +76,6 @@ Cierre del Sprint 5 y última versión previa a la 1.0.0. Cinco ejes principales
 - **Cache slim-user en middleware auth (ADR-065):** Namespace `auth:user:<userId>` con TTL 60s que reduce queries Mongo por cada request HTTP autenticado y handshake WebSocket. Métricas `redis.authUserCacheHits/Misses` expuestas en `/api/metrics`.
 - **Idempotencia distribuida de `startPlay` (ADR-066):** Lock `play:init:<playId>` con SET NX + TTL 60s. Previene duplicación de `new_round` emit en despliegues multi-instancia.
 - **Observabilidad del fallback del rate limiter (ADR-067):** Reportado a Sentry como `error` + `alert: true` y contabilizado en `runtimeMetrics.redis.rateLimitStoreFallbackCount`.
-- **Sistema distribuido de feature flags (PROP-61, ADRs 073/074):** Persistencia en Redis Hash con panel de administración en frontend.
 - **Worker dedicado de BullMQ (PROP-62, ADR-077):** Contenedor separado con la cola `data-retention` activa y orquestada vía Docker Compose.
 - **WebSocket rate limit distribuido (PROP-59, ADR-076):** Implementación basada en script Lua + ZSET con eviction probabilística.
 - **RFID mode distribuido vía pub/sub (PROP-64, ADR-078):** El cambio de modo se propaga entre instancias del backend.
@@ -145,7 +143,7 @@ Cierre del Sprint 5 y última versión previa a la 1.0.0. Cinco ejes principales
 
 ### Documentación
 
-- **24 nuevos ADRs (064-087)** en `documentation/Architecture_Decisions.md` cubriendo cache analytics, cache auth, idempotencia `startPlay`, observabilidad rate-limit, factory deferida, motion signature, accesibilidad keyboard-first, feature flags distribuidos, BullMQ, WS rate limit, RFID pub/sub, sistema motion "Tactile + Paper" y fixes críticos de QA.
+- **23 nuevos ADRs (064-087)** en `documentation/Architecture_Decisions.md` cubriendo cache analytics, cache auth, idempotencia `startPlay`, observabilidad rate-limit, factory deferida, motion signature, accesibilidad keyboard-first, BullMQ, WS rate limit, RFID pub/sub, sistema motion "Tactile + Paper" y fixes críticos de QA.
 - **ADR-012** documentado: tokens RFID fungibles y eliminación del modelo Card.
 - **`documentation/Proteccion_Datos_Menores.md`:** Documento unificado RGPD (EIPD, RAT, brechas, k-anonimidad).
 - **`documentation/sprints/Sprint5_Tareas.md`:** Sprint 5 cerrado con 28/31 tareas completadas; tareas diferidas marcadas para Sprint 6.

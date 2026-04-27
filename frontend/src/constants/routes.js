@@ -45,7 +45,6 @@ export const ROUTES = {
   ADMIN_APPROVALS: '/admin/approvals',
   STUDENT_MANAGEMENT: '/admin/students',
   ADMIN_CONTEXTS: '/admin/contexts',
-  ADMIN_FLAGS: '/admin/flags',
 
   // Publicas
   PRIVACY: '/privacy',
@@ -115,11 +114,6 @@ export const ADMIN_NAV_ROUTES = [
     path: ROUTES.ADMIN_CONTEXTS,
     label: 'Contextos',
     icon: 'Palette',
-  },
-  {
-    path: ROUTES.ADMIN_FLAGS,
-    label: 'Feature Flags',
-    icon: 'Flag',
   },
 ];
 

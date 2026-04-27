@@ -262,7 +262,7 @@ Modificar el wizard de creación de sesión para que las fases y validaciones ca
 
 - Wizard de creación de sesión actualizado para permitir selección solo de `association` y `memory`.
 - Mecánicas fuera de alcance (ej. `sequence`) se muestran como **"Próximamente"** y quedan deshabilitadas en UI.
-- Backend endurecido para validar disponibilidad de mecánicas por feature flag (`SESSION_ENABLED_MECHANICS`) y bloquear `coming_soon` (evita bypass vía API).
+- Backend endurecido para validar disponibilidad de mecánicas por la variable de entorno `SESSION_ENABLED_MECHANICS` y bloquear `coming_soon` (evita bypass vía API).
 - Payload del wizard alineado con el contrato backend actual (sin campos extra fuera del schema).
 - Seeder de mecánicas y estrategia de memoria actualizados para reflejar contrato funcional de Sprint 4.
 

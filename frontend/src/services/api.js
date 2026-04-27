@@ -513,22 +513,6 @@ export const adminAPI = {
 };
 
 // ============================================
-// API ENDPOINTS - FEATURE FLAGS
-// ============================================
-
-/**
- * Cliente para feature flags. Expone endpoints admin (CRUD) y self-service (me/flags).
- */
-export const featureFlagsAPI = {
-  getMine: (config = {}) => api.get('/me/flags', config),
-  list: (config = {}) => api.get('/admin/flags', config),
-  getByName: (name, config = {}) => api.get(`/admin/flags/${encodeURIComponent(name)}`, config),
-  upsert: (name, payload) =>
-    api.patch(`/admin/flags/${encodeURIComponent(name)}`, payload),
-  remove: (name) => api.delete(`/admin/flags/${encodeURIComponent(name)}`),
-};
-
-// ============================================
 // API ENDPOINTS - USERS (para futuro uso)
 // ============================================
 

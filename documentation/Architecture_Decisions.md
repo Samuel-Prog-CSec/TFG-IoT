@@ -3951,51 +3951,6 @@ ciclo de exit de Framer y sin riesgo de quedarse atascado.
 
 ---
 
-## ADR-073: Sistema de feature flags distribuidas en Redis Hash con rollout determinístico [Full-stack]
-
-- **Fecha:** 2026-04-23
-- **Alcance:** Full-stack (backend + frontend admin panel)
-- **Estado:** Aceptado e implementado (PROP-61)
-
-### Contexto
-
-Antes de v1.0.0 necesitamos kill-switches y rollout progresivo para activar features de
-forma segura sin redeploy: PROP-60 (leaderboards ZSET) y PROP-63 (studentMetrics
-materializadas) son cambios de hot-path que conviene poder apagar al instante si
-introducen inconsistencias. Sin un sistema de flags estaríamos atados al ciclo de despliegue.
-
-### Decisión
-
-- **Storage:** Hash Redis `feature:<name>` con campos `enabled, rolloutPct, whitelist,
-  reason, updatedAt, updatedBy`.
-- **Evaluación:** servicio `featureFlagService.isEnabled(name, userId)` con cache local
-  de 30 s (`cache:flags`). Orden: kill-switch → whitelist override → bucket determinístico
-  por FNV-1a(userId) % 100 < rolloutPct.
-- **Endpoints admin:** GET/PATCH/DELETE `/api/admin/flags/:name` (super_admin), idempotentes.
-- **Self-service:** GET `/api/me/flags` devuelve mapa evaluado para el usuario autenticado.
-- **Frontend:** `FeatureFlagsContext` carga el mapa al login, hook síncrono
-  `useFeatureFlag(name)` con default `false`. Panel admin `/admin/flags` con tabla,
-  toggle, slider y whitelist editable.
-
-### Consecuencias
-
-- **Positivas:** rollouts graduales reproducibles (mismo userId siempre cae en el mismo
-  bucket). Kill-switches sin redeploy. Habilitador para PROP-60/PROP-63 cuando se
-  implementen.
-- **Negativas:** una capa más que mantener. Cache local de 30 s implica que un cambio
-  desde el panel tarda hasta 30 s en propagarse a otras instancias.
-
-### Archivos afectados
-
-- Backend: `services/featureFlagService.js`, `utils/fnv1a.js`, `controllers/featureFlagsController.js`,
-  `routes/featureFlags.js`, `validators/featureFlagValidator.js`, mount en `routes/admin.js` y `server.js`.
-- Frontend: `context/FeatureFlagsContext.jsx`, `pages/admin/FeatureFlagsPanel.jsx`,
-  `services/api.js` (export `featureFlagsAPI`), `App.jsx` (provider + ruta),
-  `constants/routes.js` (ADMIN_FLAGS), `components/layout/AppLayout.jsx` (entrada nav).
-- Tests: `backend/tests/featureFlagService.test.js` (21 casos).
-
----
-
 ## ADR-074: Helper centralizado de invalidación de cache de contextos + cache de listados [Backend]
 
 - **Fecha:** 2026-04-23
@@ -4272,15 +4227,14 @@ de reconciliación nocturno.
 
 **Infraestructura ya disponible para cuando aterricen:**
 
-- Feature flags `leaderboardsZSet` y `studentMetricsFromRedis` (ADR-073).
 - Helpers `redisService.hgetall`, `cacheGet`, `cacheInvalidate`.
 - Scaffolding BullMQ listo para aceptar la queue `analytics-reconcile` (ADR-077).
 
 ### Consecuencias
 
-- **Positivas:** v1.0.0 sale con una cadena de optimizaciones más segura. Las flags ya
-  registradas permiten activar las features en cuanto se implementen sin tocar código
-  cliente.
+- **Positivas:** v1.0.0 sale con una cadena de optimizaciones más segura. La activación
+  futura de PROP-60/PROP-63 puede entrar acompañada de su propio mecanismo de rollout
+  (env vars, despliegue progresivo) sin arrastrar deuda actual.
 - **Negativas:** se mantiene el coste actual de aggregations Mongo en analytics.
 
 ### Referencias
@@ -4827,8 +4781,8 @@ Alternativa rechazada: refactorizar el wizard a `setState`/`updateField`
 {$$typeof, render})` al ver el objeto forwardRef. El crash aparecía
 cada vez que el filtro dejaba la lista vacía o el endpoint fallaba.
 Fix mínimo: envolver con `<Icon size={48} className="..."/>`
-siguiendo la convención del resto de la app (`FeatureFlagsPanel`,
-`CardDecksPage`, etc.).
+siguiendo la convención del resto de la app (`CardDecksPage`,
+`SessionsPage`, etc.).
 
 **3) Adaptador `ReportGenerator ⇄ reportDataService`.**
 El backend devuelve la jerarquía
@@ -5258,52 +5212,6 @@ Además, la `dedupeKey` incluye `source` para que dos fuentes distintas no se "a
 
 ---
 
-## ADR-091: Catálogo declarativo de feature flags + seeder idempotente [Backend]
-
-### Contexto
-
-El servicio `featureFlagService` permitía CRUD sobre flags almacenadas en Redis Hash, pero sin un catálogo declarativo en código. El admin entraba a `/admin/flags` en una instancia recién desplegada y veía "Aún no hay feature flags", aunque el código backend y frontend ya consultaba flags nominales (`rfid-mode-distributed`, `ws-rate-limit-distributed`, `bullmq-worker`, etc.) que el panel debería poder gestionar.
-
-### Decisión
-
-Introducir un catálogo declarativo en `backend/src/config/featureFlagsCatalog.js` con las flags conocidas del sistema, su descripción de negocio y su `defaultEnabled`. El panel `/admin/flags` cruza el catálogo con el estado real de Redis: las flags declaradas pero no creadas se renderizan como "POR CREAR" con un botón "Crear y activar" que las materializa en un click sin abrir el modal de creación libre.
-
-Un seeder idempotente `npm run seed:feature-flags` puebla las flags al desplegar una instancia nueva, **sin sobrescribir el estado manual** del admin en flags ya existentes (preserva ediciones intencionales). Flag `--force` permite forzar el reset en entornos de desarrollo.
-
-### Implementación
-
-- `backend/src/config/featureFlagsCatalog.js` (NUEVO) — array de 9 flags con `name`, `description`, `defaultEnabled`, `defaultRolloutPct?`, `reason?`.
-- `backend/scripts/seed-feature-flags.js` (NUEVO) — script idempotente.
-- `backend/package.json` — script `seed:feature-flags`.
-- `backend/src/services/featureFlagService.js` — función nueva `listFlagsWithCatalog()` que merge catálogo ↔ Redis y añade `status: registered | unregistered | orphan`.
-- `backend/src/controllers/featureFlagsController.js` — `listFlags` endpoint usa `listFlagsWithCatalog()`.
-- `frontend/src/pages/admin/FeatureFlagsPanel.jsx` — componente nuevo `UnregisteredFlagRow` con badge "POR CREAR" + botones "Crear apagada" y "Crear y activar".
-
-### Tests
-
-`backend/tests/featureFlagService.test.js` — 3 cases nuevos:
-
-- Devuelve cada entrada del catálogo, marcando como `unregistered` las no creadas.
-- Marca como `registered` las flags presentes en Redis y preserva su estado.
-- Flags en Redis fuera del catálogo aparecen al final con status `orphan`.
-
-### Consecuencias
-
-- El admin tiene visibilidad inmediata de qué flags conoce el sistema y qué necesita gestionar, sin depender de memoria o documentación externa.
-- Despliegue de instancia nueva: `npm run seed:feature-flags` deja el panel listo con valores razonables.
-- El estado manual del admin nunca se pierde (idempotencia del seeder).
-- La descripción declarativa centraliza el contexto de negocio (referencias a propuestas y ADRs) en un solo sitio.
-
-### Referencias
-
-- `backend/src/config/featureFlagsCatalog.js`
-- `backend/scripts/seed-feature-flags.js`
-- `backend/src/services/featureFlagService.js`
-- `backend/src/controllers/featureFlagsController.js`
-- `frontend/src/pages/admin/FeatureFlagsPanel.jsx`
-
----
-
 ## ADR-092: Centralización de enums Zod ↔ Mongoose en `constants/enums.js` [Backend]
 
 ### Contexto
@@ -5368,7 +5276,6 @@ Sesión final de cierre de Sprint 5 que aborda las **15 propuestas [MANT]** pend
 | **77** | Verificación | `<main>` ya sin `overflow-auto` (scroll en body). |
 | **79** | Full-stack | Grace period 150 ms en Asociación (ver ADR-089) + overlay "Procesando…" en `FallbackTouchPanel`. |
 | **80** | Verificación | `PODIUM_STYLES` con tokens `--color-podium-{gold,silver,bronze}` en Top 5. |
-| **81** | Backend+Frontend | Catálogo declarativo + seeder de feature flags (ver ADR-091). |
 | **83** | Verificación | Backend rellena días vacíos con `null` (variante C de la propuesta). |
 | **87** | Verificación | Margin top 32 + bottom 28 + Legend top en Curvas de Aprendizaje. |
 | **88** | Frontend | Helper `formatDelta` + `StatCard` muestra "—" neutro cuando no hay baseline. |
@@ -5378,7 +5285,7 @@ Sesión final de cierre de Sprint 5 que aborda las **15 propuestas [MANT]** pend
 
 ### Verificación
 
-- **Backend: 1056/1056 tests verdes** (74 suites). +22 tests sobre la base 1034: 11 (PROP-27 enums coherence), 3 (PROP-79 grace period), 3 (PROP-81 catalog merge), 5 (PROP-90 dedupe per source).
+- **Backend: 1056/1056 tests verdes** (74 suites). +22 tests sobre la base 1034: 14 (PROP-27 enums coherence), 3 (PROP-79 grace period), 5 (PROP-90 dedupe per source).
 - **Frontend: 287/287 tests verdes** (26 suites). +30 tests sobre la base 257: 17 (PROP-88 formatDelta), 8 (PROP-70/84 SelectPremium searchable), 5 (PROP-92 RateLimitBanner). Tests previos actualizados: 1 (`source: 'web_serial'` → `'touch_fallback'` en GameSession test por PROP-90).
 - **Lint: 0 errores en ambos** (warnings heredados, no introducidos).
 - **QA browser** con Docker dev stack:
@@ -5387,13 +5294,11 @@ Sesión final de cierre de Sprint 5 que aborda las **15 propuestas [MANT]** pend
   - `/contexts`: 5 cards visibles por defecto sin scroll.
   - `/analytics/insights` → Alertas: 5 alertas con timestamps distintos coherentes (11h, 12h, 8h, 10h, 8h — antes todas eran "Hace 7 min").
   - `/analytics/insights` → Efectividad: Curvas de Aprendizaje sin solapamiento label/leyenda.
-  - `/admin/flags`: 9 flags del catálogo aparecen como "POR CREAR" con botones "Crear apagada" / "Crear y activar". Materialización E2E verificada (toast verde + flag pasa a editor completo).
 - Capturas en `qa-sprint5/` (7 imágenes representativas).
 
 ### Referencias
 
 - ADR-089 — Ventana de gracia 150 ms en Asociación.
 - ADR-090 — Dedupe WebSocket diferenciado por source.
-- ADR-091 — Catálogo declarativo de feature flags.
 - ADR-092 — Centralización de enums.
 - `documentation/propuestas-mejora.md` — sección `[MANT] Mantenimiento Sprint 5` eliminada tras esta sesión.

@@ -535,7 +535,7 @@ Respuesta exitosa:
 
 **Reglas Sprint 4 (T-056):**
 
-- En creación de sesión, la disponibilidad de mecánicas se controla por feature flag (`SESSION_ENABLED_MECHANICS`) y por reglas de mecánica (`rules.behavior.availability`).
+- En creación de sesión, la disponibilidad de mecánicas se controla por la variable de entorno `SESSION_ENABLED_MECHANICS` y por reglas de mecánica (`rules.behavior.availability`).
 - Una mecánica marcada como `coming_soon` se rechaza aunque exista en catálogo.
 - Si `SESSION_ENABLED_MECHANICS` no está definido, se aceptan mecánicas activas no marcadas como `coming_soon`.
 
