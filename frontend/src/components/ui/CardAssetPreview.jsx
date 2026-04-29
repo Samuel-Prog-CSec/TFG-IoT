@@ -130,13 +130,22 @@ export default function CardAssetPreview({
           title={fallbackText || undefined}
         >
           {fallbackText ? (
-            <span className={cn(
-              'select-none truncate max-w-full font-medium text-text-secondary leading-tight',
-              // largeFallback: usado cuando el consumidor sabe que el fallback debe
-              // ser legible para sustituir una imagen que deberia haber cargado
-              // (caso FallbackTouchPanel). Escala con el tamaño de la tarjeta.
-              largeFallback ? 'text-sm sm:text-base font-semibold text-text-primary' : 'text-[0.65rem]'
-            )}>{fallbackText}</span>
+            // aria-hidden defensivo cuando el consumidor pide alt="": indica que
+            // el contenido NO debe ser accesible (caso MemoryBoard cara oculta).
+            // Si el alt tiene texto el consumidor quiere que sea legible y dejamos
+            // el span sin aria-hidden para que los lectores lo expongan.
+            <span
+              aria-hidden={alt === '' ? 'true' : undefined}
+              className={cn(
+                'select-none truncate max-w-full font-medium text-text-secondary leading-tight',
+                // largeFallback: usado cuando el consumidor sabe que el fallback debe
+                // ser legible para sustituir una imagen que deberia haber cargado
+                // (caso FallbackTouchPanel). Escala con el tamaño de la tarjeta.
+                largeFallback ? 'text-sm sm:text-base font-semibold text-text-primary' : 'text-[0.65rem]'
+              )}
+            >
+              {fallbackText}
+            </span>
           ) : (
             fallbackIcon
           )}

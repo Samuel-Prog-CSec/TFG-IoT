@@ -115,8 +115,9 @@ const RANKING_TONE_CLASSES = {
 
 /**
  * Lista compacta de alumnos (top o bottom) con score normalizado.
- * `studentSummaries` del backend expone `engagementScore`; iteraciones
- * legacy expusieron `averageScore`/`score`. Mantenemos el fallback.
+ * `studentSummaries` del backend expone `averageScore` (alineado con la tabla
+ * "Mis Alumnos") con `engagementScore` y `completionRate` como complemento.
+ * Mantenemos el fallback a `score`/`engagementScore` para mocks legacy.
  */
 function StudentRankingList({ title, icon: Icon, tone, students }) {
   const palette = RANKING_TONE_CLASSES[tone];
@@ -169,7 +170,10 @@ function ClassroomReportView({ data }) {
     ? distributionRaw
     : (distributionRaw?.distribution || []);
 
-  // `studentSummaries` ordenado por engagementScore descendente. Top 5 primeros, bottom 5 ultimos.
+  // `studentSummaries` ordenado por averageScore descendente (igual que la
+  // tabla "Mis Alumnos", para evitar rankings divergentes — QA 2026-04-29).
+  // Top 5 primeros, bottom 5 ultimos en orden ascendente para que el peor
+  // aparezca primero en "Alumnos en Riesgo".
   const summaries = Array.isArray(data.studentSummaries) ? data.studentSummaries : [];
   const topStudents = data.topStudents || data.top || summaries.slice(0, 5);
   const bottomStudents = data.bottomStudents || data.bottom ||
@@ -511,11 +515,22 @@ function ReportGenerator() {
         { signal: controller.signal }
       );
 
-      const rows = data?.rows || data?.students || data || [];
-      if (rows.length === 0) return;
+      // El backend devuelve `{ headers: ['Nombre', 'Aula', ...], rows: [['Daniel', 'Aula 1', ...], ...] }`
+      // — `rows` es array de arrays, no de objetos. Tomamos `headers` del DTO para
+      // construir tanto las cabeceras del CSV como las claves de cada fila. Si en el
+      // futuro el endpoint devuelve array de objetos (mocks legacy), mantenemos el
+      // fallback a `Object.keys(row[0])` (QA 2026-04-29 BUG export informe).
+      const rawRows = data?.rows || data?.students || data || [];
+      if (rawRows.length === 0) return;
 
-      const sampleKeys = Object.keys(rows[0]);
-      const columns = sampleKeys.map(key => ({ key, label: key }));
+      const headers = Array.isArray(data?.headers) && data.headers.length > 0
+        ? data.headers
+        : Object.keys(rawRows[0] || {});
+      const rows = Array.isArray(rawRows[0])
+        ? rawRows.map(row => Object.fromEntries(headers.map((h, i) => [h, row[i]])))
+        : rawRows;
+      const columns = headers.map(h => ({ key: h, label: h }));
+
       exportToCSV(rows, `informe-${reportType}-${period}`, columns);
     } catch (err) {
       if (isAbortError(err)) return;

@@ -123,7 +123,7 @@ function ContextFormModal({ open, mode, initialContext, onClose, onSubmit, isLoa
             <p className="text-xs text-text-muted">
               {isEdit
                 ? 'Modifica metadatos del contexto. Los assets se gestionan por separado.'
-                : 'El contexto se creara vacio; los assets se anaden despues vía upload.'}
+                : 'El contexto se creará vacío; los assets se añaden después vía upload.'}
             </p>
           </div>
         </div>
@@ -162,7 +162,7 @@ function ContextFormModal({ open, mode, initialContext, onClose, onSubmit, isLoa
             {!isEdit && (
               <p className="mt-1 text-xs text-text-muted">
                 Define la carpeta de Storage (<code className="rounded bg-background-base/60 px-1">ctx-{contextId || 'tu-id'}</code>).
-                No podra cambiarse despues de subir assets.
+                No podrá cambiarse después de subir assets.
               </p>
             )}
           </div>
@@ -401,7 +401,7 @@ export default function AdminContexts() {
           <ul className="space-y-1 rounded-lg border border-error-base/30 bg-error-base/10 p-3 text-xs">
             <li className="flex items-start gap-2">
               <AlertTriangle size={12} className="mt-0.5 flex-shrink-0 text-error-base" aria-hidden="true" />
-              <span>Se borran <strong>{totalAssets}</strong> assets asociados (imagenes, thumbnails y audios).</span>
+              <span>Se borran <strong>{totalAssets}</strong> assets asociados (imágenes, thumbnails y audios).</span>
             </li>
             <li className="flex items-start gap-2">
               <AlertTriangle size={12} className="mt-0.5 flex-shrink-0 text-error-base" aria-hidden="true" />
@@ -413,7 +413,7 @@ export default function AdminContexts() {
             <li className="flex items-start gap-2">
               <AlertTriangle size={12} className="mt-0.5 flex-shrink-0 text-error-base" aria-hidden="true" />
               <span>
-                Si hay mazos, sesiones o partidas activas usando este contexto, la operacion se rechazara.
+                Si hay mazos, sesiones o partidas activas usando este contexto, la operación se rechazará.
               </span>
             </li>
           </ul>

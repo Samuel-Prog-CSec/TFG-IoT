@@ -72,6 +72,11 @@ function StudentKPICard({
       className={cn(
         "p-4 border-l-4 transition-[box-shadow,border-color] duration-300",
         "hover:shadow-[0_4px_16px_rgba(0,0,0,0.2)]",
+        // h-full + flex-col para que todas las cards de la fila igualen su
+        // altura al más alto (las que tienen `comparison` llevan +1 línea).
+        // Sin esto, en el grid de KPIs hay cards más altas que otras y el
+        // resultado es visualmente irregular (QA 2026-04-29).
+        "h-full flex flex-col",
         rag.border
       )}
     >
@@ -99,10 +104,12 @@ function StudentKPICard({
         </div>
       </div>
 
-      {/* Comparison line */}
+      {/* Comparison line — anclada al fondo (`mt-auto`) para que las cards sin
+          comparison no queden con el valor "flotando" cuando la altura se iguala
+          al más alto del grid. */}
       {comparison && (
         <div className={cn(
-          "mt-2 flex items-center gap-1.5 px-2 py-1 rounded-md text-xs font-medium",
+          "mt-auto pt-2 flex items-center gap-1.5 px-2 py-1 rounded-md text-xs font-medium",
           comparisonPositive === true && 'bg-success-base/8',
           comparisonPositive === false && 'bg-error-base/8'
         )}>

@@ -1,7 +1,7 @@
 import { useState, useReducer, useEffect, useCallback, useRef, useMemo } from 'react';
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Wifi, WifiOff, Pause, Play, Volume2, VolumeX, AlertTriangle, Hand } from 'lucide-react';
+import { Wifi, WifiOff, Pause, Play, Volume2, VolumeX, AlertTriangle, Hand, Search } from 'lucide-react';
 import { cn, calculateStars, EASING } from '../lib/utils';
 import { useReducedMotion } from '../hooks/useReducedMotion';
 import { useAuth } from '../context/AuthContext';
@@ -1197,11 +1197,20 @@ export default function GameSession() {
                   }
                   // Consigna personalizada del profesor si la definió en el wizard.
                   if (challenge?.promptText) {
-                    return <>🔎 {challenge.promptText}</>;
+                    return (
+                      <>
+                        <Search className="inline mr-1 -mt-0.5" size={16} aria-hidden="true" />
+                        {challenge.promptText}
+                      </>
+                    );
                   }
+                  // Frase neutra sin artículo: el español requiere concordancia
+                  // de género (el/la) que depende de la palabra; usar "la" hardcoded
+                  // produce "la Cerdo", "la Caballo", "la Pato" (QA v0.5.0).
                   return (
                     <>
-                      🔎 ¿Dónde está <span className="text-text-primary font-bold">la {challenge?.value || 'tarjeta correcta'}</span>?
+                      <Search className="inline mr-1 -mt-0.5" size={16} aria-hidden="true" />
+                      Encuentra: <span className="text-text-primary font-bold">{challenge?.value || 'tarjeta correcta'}</span>
                     </>
                   );
                 })()}

@@ -509,3 +509,60 @@ Nueva env var `REDIS_FLUSH_LUA_ON_BOOT=true` en `loadLuaScripts` que ejecuta `SC
 ### Propuestas para Sprint 6
 
 Ver sección "Mejoras Redis Sprint 6" en `documentation/propuestas-mejora.md` (PROP-59, PROP-60, PROP-62, PROP-63, PROP-64): WebSocket rate-limit distribuido, leaderboards ZSET, cola BullMQ, materialización studentMetrics, estado RFID distribuido.
+
+## Mantenimiento 2026-04-29: política de evicción `noeviction` (QA pre-release v0.5.0)
+
+### Contexto del hallazgo
+
+QA final pre-release v0.5.0 detectó que Redis arrancaba con `maxmemory-policy=allkeys-lru` en `docker-compose.yml` y `docker-compose.prod.yml`. BullMQ avisa explícitamente de este desajuste en cada conexión:
+
+```
+IMPORTANT! Eviction policy is allkeys-lru. It should be "noeviction"
+```
+
+El warning lleva en los logs de boot del backend desde la integración de BullMQ (PROP-62, ADR-077) sin que se hubiera actuado sobre él.
+
+### Diagnóstico
+
+`allkeys-lru` expulsa la clave usada hace más tiempo cuando la memoria llega al límite, dejando sitio a la nueva escritura. Es benigno mientras Redis no se llene, pero el proyecto usa Redis para datos cuya pérdida silenciosa rompe garantías:
+
+| Tipo de dato                    | Tolera evicción LRU | Riesgo si se expulsa                                                                |
+| ------------------------------- | ------------------- | ----------------------------------------------------------------------------------- |
+| `cache:analytics`, `cache:context`, `auth:user` | Sí           | Se regenera en la siguiente petición. TTL controla la frescura.                     |
+| `bull:*` (BullMQ)               | **No**              | Job perdido = cron de retención RGPD podría no ejecutarse esa noche.                |
+| `blacklist:*`                   | **No**              | Token revocado vuelve a ser válido hasta `exp` natural — agujero de seguridad.      |
+| `refresh:*`, `used:*`           | **No**              | Rotación rota: refresh válidos rechazados o reutilizables fuera de ventana.         |
+| `play:init:*`                   | **No**              | Idempotencia perdida: doble-click en "Iniciar partida" crea dos `GamePlay` distintos. |
+| `play:*`, `card:*`              | **No**              | Locks distribuidos perdidos = race conditions en motor de juego.                    |
+
+El bug es de "fallo diferido": funciona perfecto en dev (256MB nunca se llenan) pero en producción, tras horas de carga sostenida, una de las claves críticas puede desaparecer sin trace.
+
+### Cambio aplicado
+
+Dos líneas, en dos archivos:
+
+```yaml
+# docker-compose.yml (dev) y docker-compose.prod.yml (prod)
+command: >
+  redis-server
+  ...
+  --maxmemory-policy noeviction   # antes: allkeys-lru
+```
+
+Y la fila correspondiente de `docker/README.md` actualizada con la justificación.
+
+### Por qué `noeviction` es seguro
+
+`noeviction` rechaza escrituras nuevas con `OOM command not allowed when used memory > 'maxmemory'` en lugar de borrar nada. Aparenta ser más arriesgado, pero:
+
+1. Los caches descartables ya tienen **TTL explícito** (60s a 30 min según namespace), así que se vacían solos sin necesidad de evicción.
+2. **Fallo visible** (error en logs → alerta de monitorización) es preferible a **fallo silencioso** (clave de seguridad o idempotencia desaparecida que rompe invariantes días después).
+
+### Mitigación monitorizada
+
+`/api/admin/metrics` ya expone `redis.usedMemory` y `redis.maxMemory`. Conviene alertar cuando `usedMemory / maxMemory > 0.8` para escalar antes de tocar el límite. Si se llega a OOM, los caches existentes siguen sirviendo lectura — degradación parcial, no caída total.
+
+### Referencias
+
+- ADR-094 — QA final pre-release v0.5.0 (paquete fixes).
+- `backend/docs/Arquitectura_Redis.md` — sección "Política de evicción" amplía el razonamiento con la matriz completa de namespaces.

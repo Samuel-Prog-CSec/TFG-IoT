@@ -38,7 +38,7 @@ const CurrentPlayMetrics = memo(function CurrentPlayMetrics({ mode, score, corre
           icon={isMemory ? Brain : Target}
           iconClass={isMemory ? 'text-brand-base' : 'text-accent-indigo'}
           label={isMemory ? 'Parejas' : 'Progreso'}
-          value={isMemory ? `${correctAnswers}` : `${correctAnswers} de ${totalRounds}`}
+          value={`${correctAnswers} de ${totalRounds}`}
         />
       </div>
     </div>

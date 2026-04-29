@@ -166,6 +166,33 @@ async function getClassroomReport(teacherId, { timeRange = '30d', format = 'summ
 
   const results = await Promise.all(basePromises);
 
+  // Enriquecer studentSummaries con averageScore de studentMetrics para que el
+  // ranking "Mejores/En Riesgo" coincida con la tabla "Mis Alumnos" (que tambien
+  // ordena por averageScore historico). Sin esto, el informe ordenaba por
+  // engagementScore y producia rankings divergentes (QA 2026-04-29 BUG-2).
+  const studentIdsForScore = results[3].students.map(s => s.studentId);
+  const studentDocsByScore =
+    studentIdsForScore.length > 0
+      ? await userRepository.find(
+          { _id: { $in: studentIdsForScore } },
+          { select: '_id studentMetrics.averageScore' }
+        )
+      : [];
+  const scoreById = new Map(
+    studentDocsByScore.map(d => [d._id.toString(), d.studentMetrics?.averageScore ?? 0])
+  );
+
+  const enrichedStudentSummaries = results[3].students
+    .map(s => ({
+      id: s.studentId,
+      name: s.name,
+      averageScore: scoreById.get(s.studentId) ?? 0,
+      engagementScore: s.engagementScore,
+      completionRate: s.completionRate,
+      gamesPlayed: s.gamesPlayed
+    }))
+    .sort((a, b) => b.averageScore - a.averageScore);
+
   const report = {
     generatedAt: new Date().toISOString(),
     timeRange,
@@ -180,13 +207,7 @@ async function getClassroomReport(teacherId, { timeRange = '30d', format = 'summ
     distribution: results[1],
     trends: results[2],
     topAlerts: results[4],
-    studentSummaries: results[3].students.map(s => ({
-      id: s.studentId,
-      name: s.name,
-      engagementScore: s.engagementScore,
-      completionRate: s.completionRate,
-      gamesPlayed: s.gamesPlayed
-    }))
+    studentSummaries: enrichedStudentSummaries
   };
 
   if (format === 'detailed' && results[5]) {

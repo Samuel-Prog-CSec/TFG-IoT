@@ -431,6 +431,21 @@ export function useConfirmationModal() {
     setIsOpen(true);
   }, []);
 
+  // Cierre automatico tras confirmar (sea sync o async). Antes cada consumidor
+  // tenia que llamar a close() manualmente y la mayoria no lo hacia, dejando
+  // el modal visible despues de eliminar/archivar (QA v0.5.0: BUG modal queda
+  // abierto al confirmar). Si onConfirm lanza, el consumidor mostro toast pero
+  // el modal tambien se cierra para evitar bloquear la UI.
+  const handleConfirm = useCallback(async () => {
+    try {
+      if (typeof config.onConfirm === 'function') {
+        await config.onConfirm();
+      }
+    } finally {
+      setIsOpen(false);
+    }
+  }, [config]);
+
   const modalProps = {
     open: isOpen,
     onClose: close,
@@ -439,7 +454,7 @@ export function useConfirmationModal() {
     confirmText: config.confirmText,
     cancelText: config.cancelText,
     variant: config.variant,
-    onConfirm: config.onConfirm,
+    onConfirm: handleConfirm,
   };
 
   return {

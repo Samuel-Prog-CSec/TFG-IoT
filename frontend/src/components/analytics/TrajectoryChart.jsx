@@ -103,7 +103,7 @@ function TrajectoryChart({ trajectoryData, classComparison, title = 'Trayectoria
 
   if (chartData.length === 0) {
     return (
-      <GlassCard variant="default" padding="none" className="p-5">
+      <GlassCard variant="default" padding="none" className="p-5 h-full">
         <h3 className="text-base font-bold text-text-primary font-display mb-4">{title}</h3>
         <div className="h-[250px] flex items-center justify-center px-6">
           <p className="text-text-muted text-sm text-center">
@@ -115,7 +115,7 @@ function TrajectoryChart({ trajectoryData, classComparison, title = 'Trayectoria
   }
 
   return (
-    <GlassCard variant="default" padding="none" className="p-5">
+    <GlassCard variant="default" padding="none" className="p-5 h-full">
       <div className="flex items-center justify-between mb-4">
         <h3 className="text-base font-bold text-text-primary font-display">{title}</h3>
         <div className={cn("flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-semibold", trendStyle.bg, trendStyle.color)} aria-label={`Tendencia: ${trendStyle.label}`}>

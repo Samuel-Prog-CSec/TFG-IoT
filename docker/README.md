@@ -206,7 +206,7 @@ JWT_REFRESH_SECRET=otro_secret_seguro
 | `appendonly`       | yes         | Persistencia AOF activada |
 | `appendfsync`      | everysec    | Sync a disco cada segundo |
 | `maxmemory`        | 256mb       | Límite de memoria         |
-| `maxmemory-policy` | allkeys-lru | Evicción LRU cuando lleno |
+| `maxmemory-policy` | noeviction  | Sin evicción: BullMQ, JWT blacklist e idempotencia requieren persistencia (los caches usan TTL) |
 
 ---
 

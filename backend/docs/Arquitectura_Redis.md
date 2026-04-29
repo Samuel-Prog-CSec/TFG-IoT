@@ -499,6 +499,56 @@ prefijo     tipo      identificador
 > (`LOCK_HEARTBEAT_INTERVAL_MS`) que lo renueva periódicamente. Si el servidor se cae, las keys expiran
 > automáticamente en ≤90s, garantizando liberación de recursos sin intervención manual.
 
+## Política de evicción (`maxmemory-policy: noeviction`)
+
+Redis se configura con `maxmemory 256mb` (dev) / `512mb` (prod) y `maxmemory-policy noeviction`
+(ver `docker-compose.yml` y `docker-compose.prod.yml`). Esto significa que cuando la memoria llega
+al límite, las **escrituras nuevas fallan con error** (`OOM command not allowed when used memory > 'maxmemory'`)
+en lugar de expulsar claves existentes.
+
+### Por qué no `allkeys-lru`
+
+Una política de evicción tipo `allkeys-lru` (que expulsa la clave usada hace más tiempo bajo
+presión) es la elección habitual cuando Redis se usa como caché puro. Aquí **no** lo es: la
+mayoría de los namespaces almacenan datos cuya pérdida silenciosa rompe garantías del sistema.
+
+| Namespace                     | ¿Tolera evicción LRU? | Consecuencia de expulsión silenciosa                                                            |
+| ----------------------------- | --------------------- | ----------------------------------------------------------------------------------------------- |
+| `cache:analytics`             | Sí                    | Se regenera con la próxima petición. TTL 2-10 min.                                              |
+| `cache:context`, `cache:mechanic` | Sí                | Se rehidrata desde Mongo. TTL 30-60 min.                                                        |
+| `auth:user`                   | Sí                    | Se rehidrata en el siguiente `authenticate`. TTL 60s.                                           |
+| **`bull:*` (BullMQ)**         | **No**                | Job perdido = cron de retención RGPD podría no ejecutarse. BullMQ avisa explícitamente al arrancar si la policy no es `noeviction`. |
+| **`blacklist:*`**             | **No**                | Token revocado expulsado = el JWT vuelve a ser válido hasta su `exp` natural. Agujero de seguridad. |
+| **`refresh:*`, `used:*`**     | **No**                | Rotación rota: refresh tokens legítimos rechazados o reutilizables fuera de su ventana.         |
+| **`play:init:*`**             | **No**                | Idempotencia de `startPlay` rota: doble-click del profesor crea dos `GamePlay` distintos en BD. |
+| **`play:*`, `card:*`**        | **No**                | Locks distribuidos perdidos = race conditions silenciosas en el motor de juego.                 |
+| `rfid:mode:*`, `rfid:sensor:*` | Tolerable             | Pérdida puntual fuerza al cliente a rearmarse. No crítico.                                      |
+| `rl:ws:*`                     | Tolerable             | Contador de rate-limit reiniciado antes de tiempo. No crítico.                                  |
+
+La conclusión es que el "lado caché" de Redis y el "lado almacén persistente con TTL"
+**conviven en la misma instancia**. Como no podemos dar política distinta a cada namespace,
+elegimos la única que respeta a los críticos: `noeviction`.
+
+### Por qué es seguro
+
+`noeviction` parece más arriesgado a primera vista (las escrituras pueden fallar), pero los
+caches descartables ya tienen **TTL explícito** que los renueva sin necesidad de evicción
+forzada. Mientras los TTLs estén bien dimensionados, Redis no debería llegar a llenarse
+en operación normal.
+
+Es preferible:
+
+- **Fallo visible** (`OOM command not allowed` en logs → alerta) frente a
+- **Fallo silencioso** (clave de idempotencia o de blacklist desaparecida sin trace, produciendo
+  duplicados o accesos indebidos que se manifiestan días después).
+
+### Mitigación monitorizada
+
+`/api/admin/metrics` expone el bloque `redis` con `usedMemory` y `maxMemory`. Conviene alertar
+cuando `usedMemory / maxMemory > 0.8` para escalar capacidad antes de tocar el límite. Si se
+llega a OOM, las escrituras de los caches descartables fallarán pero los caches existentes
+siguen sirviendo lectura — degradación parcial, no caída total.
+
 ## ¿Por qué Tipos de Datos Diferentes?
 
 | Tipo       | Cuándo Usarlo               | Ejemplo                                  |

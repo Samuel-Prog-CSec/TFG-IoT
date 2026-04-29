@@ -286,7 +286,7 @@ describe('GameSession realtime gameplay', () => {
       });
     });
 
-    expect(await screen.findByText(/¿Dónde está/i)).toBeInTheDocument();
+    expect(await screen.findByText(/Encuentra:/i)).toBeInTheDocument();
     expect(screen.getByText(/Puntos/i)).toBeInTheDocument();
   });
 

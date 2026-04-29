@@ -5302,3 +5302,221 @@ Sesión final de cierre de Sprint 5 que aborda las **15 propuestas [MANT]** pend
 - ADR-090 — Dedupe WebSocket diferenciado por source.
 - ADR-092 — Centralización de enums.
 - `documentation/propuestas-mejora.md` — sección `[MANT] Mantenimiento Sprint 5` eliminada tras esta sesión.
+
+
+## ADR-094: QA final pre-release v0.5.0 — paquete fixes (Redis policy, modal lifecycle, gramática consigna, a11y MemoryBoard) [Full-stack]
+
+**Estado**: Aceptado · 2026-04-29 · Revisión QA exhaustiva
+
+### Contexto
+
+Última pasada de QA antes del corte v0.5.0. Sesión completa con perfiles profesor y super_admin: dashboard, mazos, sesiones, wizard de creación, partida memoria + asociación con fallback táctil (sin sensor disponible), gestión de contextos por admin, ciclo completo de upload/delete de assets en Supabase Storage. Se buscaron exclusivamente bugs y deficiencias funcionales — sin propuestas diferidas a Sprint 6.
+
+### Hallazgos
+
+| ID  | Severidad | Descripción                                                                                                                                                                                                |
+| --- | --------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 1   | ALTA      | Redis arrancaba con `maxmemory-policy=allkeys-lru` en `docker-compose.yml` y `docker-compose.prod.yml`. Bajo presión de memoria expulsaba claves de BullMQ (data-retention diaria), JWT blacklist (tokens revocados podían reaparecer) e idempotencia de `startPlay` (claves `play:init:*`).         |
+| 2   | CRÍTICA   | `useConfirmationModal` no cerraba el modal tras `onConfirm` exitoso. El consumidor podía cerrarlo manualmente con `close()`, pero `ContextDetailPage` y otros omitían esa llamada — el modal quedaba visible bloqueando la UI tras eliminar/archivar.        |
+| 3   | ALTA      | Concordancia gramatical "la {value}" hardcoded en `GameSession.jsx`. Producía frases incorrectas con sustantivos masculinos ("la Cerdo", "la Caballo", "la Pato"). |
+| 4   | MEDIA     | Switch "Animaciones" del sidebar usaba `<button>` sin `type` explícito → `type="submit"` por defecto. Submit accidental si en algún momento queda dentro de un `<form>`. |
+| 5   | MEDIA     | `CardAssetPreview` renderizaba el nombre del asset en un `<span>` sin `aria-hidden` cuando se mostraba como fallback (sin imagen). En la cara trasera del `MemoryBoard`, esto permitía a los lectores de pantalla revelar el contenido de cartas que deberían estar ocultas, "haciendo trampa" en la mecánica de memoria. |
+| 6   | BAJA      | Emoji 🔎 en consigna de Asociación. Inconsistente con la convención del resto de la app (iconos Lucide). |
+
+### Decisión
+
+**1. Redis `maxmemory-policy: noeviction`** — Los caches con datos descartables (analytics, contextos, slim-user) ya tienen TTL explícito; el resto (BullMQ, blacklist, idempotencia, distributed locks) requiere persistencia hasta vencimiento natural. `docker/README.md` actualizado con la justificación.
+
+**2. `useConfirmationModal` con auto-cierre** — El hook envuelve `onConfirm` en un wrapper `try/finally`:
+
+```js
+const handleConfirm = useCallback(async () => {
+  try {
+    if (typeof config.onConfirm === 'function') {
+      await config.onConfirm();
+    }
+  } finally {
+    setIsOpen(false);
+  }
+}, [config]);
+```
+
+El modal se cierra automáticamente al confirmar, incluso si el callback lanza una excepción (no se atrapa al usuario en un modal "muerto"). Los consumidores que ya llamaban a `close()` manualmente (CardDecksPage, DeckEditPage, SessionDetail, SessionsPage) siguen funcionando — `setIsOpen(false)` es idempotente.
+
+**3. Consigna sin artículo en Asociación** — `🔎 ¿Dónde está la {value}?` → `<Search /> Encuentra: {value}`. La frase pasa a ser neutra de género gramatical. Si el profesor define `promptText` personalizado en el wizard, ese texto sigue teniendo prioridad. Emoji 🔎 reemplazado por icono Lucide `Search` para alinearse con el resto de la app.
+
+**4. `type="button"` explícito en botón switch** — Evita el comportamiento por defecto `type="submit"` heredado de HTML.
+
+**5. `aria-hidden` defensivo en `CardAssetPreview` fallback** — El span del fallback aplica `aria-hidden="true"` cuando el consumidor pasa `alt=""`, lo que indica que el contenido no debe ser accesible (caso MemoryBoard cara oculta). En contextos donde el alt tiene valor (FallbackTouchPanel) el span sigue siendo accesible normalmente.
+
+### Consecuencias
+
+**Positivas**:
+
+- **Operativas**: BullMQ ya no pierde jobs bajo presión de memoria. Tokens revocados de la JWT blacklist son verdaderamente revocados hasta TTL natural. Idempotencia de `startPlay` garantizada.
+- **UX**: Confirmaciones de modal ya no bloquean la UI. Mensajes gramaticalmente correctos en todas las consignas de Asociación. Mecánica de memoria con accesibilidad reforzada (un screen reader ya no puede "leer la trampa").
+- **Consistencia**: Iconografía Lucide unificada (no más emojis huérfanos).
+- **Robustez**: El switch de animaciones es seguro frente a futuros wraps en `<form>`.
+
+**Riesgos asumidos**:
+
+- Cambio de `noeviction` requiere monitorización: si Redis llena su memoria de 256MB (dev) / 512MB (prod), las nuevas operaciones de escritura fallarán en lugar de sobrescribir. Mitigación: TTL explícito en todos los caches no críticos + alarma en `/api/admin/metrics` cuando `usedMemory > 80%`.
+
+### Verificación
+
+- **Tests backend**: 1032/1032 verdes (73 suites).
+- **Tests frontend**: 289/289 verdes (26 suites). +2 nuevos en `ConfirmationModal.test.jsx` (auto-close al confirmar, auto-close si callback lanza).
+- **Lint**: 0 errores en backend y frontend.
+- **Build production frontend**: OK, sin warnings.
+- **QA browser** con Docker dev stack a 1920x1080:
+  - Login profesor + admin verificados.
+  - Wizard de creación de sesión memoria desde 0 → partida con varias parejas + fallo intencional → game over con stats correctos.
+  - Wizard de creación de sesión asociación desde 0 → 5 rondas (4 aciertos, 1 fallo) → consigna ahora dice "Encuentra: Cerdo" / "Encuentra: Caballo" / "Encuentra: Pato" sin error gramatical.
+  - Crear/editar/eliminar contexto admin con verificación en Supabase Storage (subida de imagen, eliminación de asset, eliminación de contexto y limpieza de carpeta `ctx-*`).
+  - Modal "Eliminar asset" cierra automáticamente tras confirmar.
+  - Modal "Archivar mazo" cierra automáticamente tras confirmar.
+  - Capturas en `qa-capturas-v0.5.0-final-release/` (58 imágenes representativas).
+
+### Referencias
+
+- BUG report en sesión `project_qa_release_2026_04_29.md` (memoria del proyecto).
+- ADR-088 — Paquete fixes anterior cierre Sprint 5.
+- ADR-093 — Cierre Sprint 5 paquete consolidado.
+
+
+## ADR-095: Layout — sidebar bg extendido y grids con alturas uniformes [Frontend]
+
+**Estado**: Aceptado · 2026-04-29 · QA visual final pre-release v0.5.0
+
+### Contexto
+
+Tras los fixes funcionales del ADR-094, una pasada visual final a 1920×1080 reveló tres patrones de "fragmentación visual" que se repetían en varias pantallas:
+
+1. **Bloque de fondo "roto" debajo de la sidebar** en páginas largas (Sessions, Dashboard, StudentProfile). La sidebar `<aside>` con `sticky top-0 h-screen` solo ocupa el viewport (1080px); cuando `<main>` supera esa altura, debajo del aside queda visible el body crudo. Como el aside lleva `bg-background-base/90 backdrop-blur-xl shadow-2xl` y el body solo `bg-background-base`, el cambio se percibe como una franja de otro color.
+
+2. **Cards de KPI con alturas desiguales** en el perfil de estudiante. De las 6 cards superiores, dos llevan línea `comparison` ("Mejor: 120 pts", "Sin abandonos") y son ~14px más altas que las otras cuatro, rompiendo la rejilla.
+
+3. **Huecos verticales en grids con columnas asimétricas**. En "Trayectoria + Resumen del Alumno" (StudentProfile), un chart de 350px convive con un panel de 200px. En el Dashboard, la columna principal (StudentProgressChart + heatmaps + RecentActivity) termina antes que la lateral (ClassroomOverview + Alerts + Top 5 + QuickLinks), dejando ~250px de aire muerto bajo "Actividad Reciente".
+
+### Decisión
+
+**1. Pseudo-fondo de columna sidebar en `AppLayout`.** El flex container exterior recibe `relative` y se le añade un `<div aria-hidden>` con `absolute inset-y-0 left-0 w-72 bg-background-base border-r border-border-subtle pointer-events-none z-0`, oculto en mobile (`hidden lg:block`). Este div cubre toda la altura del flex (no solo el viewport), pintando la columna sidebar con el color base sólido. La sidebar real `motion.aside` con sticky+blur+shadow se renderiza por encima (z-50) y mantiene su efecto visual; al scrollear, lo que queda debajo del aside ya no es body crudo sino el pseudo-fondo, así que la transición se vuelve invisible.
+
+**2. KPI cards con `h-full flex flex-col` y `mt-auto` en la línea opcional.** `StudentKPICard` aplica `h-full flex flex-col` a su `GlassCard`, lo que permite al grid `align-items: stretch` (default) igualar alturas. La línea `comparison` lleva `mt-auto pt-2` para anclarse al fondo cuando existe; las cards sin comparison quedan con espacio en blanco abajo (uniforme con las que sí tienen). Los `motion.div` wrappers en `StudentProfile` reciben `className="h-full"` para que el motion no compita con el stretch.
+
+**3. Grids con `h-full` en cada celda y los componentes hijos.** En "Trayectoria + Resumen": tanto `TrajectoryChart` como `NarrativeCard` aplican `h-full` a su `GlassCard`, y los wrappers `lg:col-span-3` / `lg:col-span-2` también — la fila iguala alturas. En el Dashboard: la columna principal pasa de `space-y-6` a `flex flex-col gap-6` con `flex-1 flex flex-col` en el wrapper de `RecentActivity`. Esto fuerza al último bloque a estirarse hasta alinearse con el fondo de la columna lateral. `RecentActivity` lleva `h-full flex flex-col` para aceptar el estiramiento sin alterar su scroll horizontal interno.
+
+### Consecuencias
+
+**Positivas**:
+
+- En cualquier página donde `<main>` supere el viewport, el fondo de la sidebar es continuo. El usuario percibe un layout coherente en lugar de "el menú se acaba aquí, debajo es otra cosa".
+- Las rejillas de KPI quedan visualmente uniformes — sin la cards saltarinas que rompían la simetría.
+- Las filas asimétricas (chart + texto) se ven equilibradas con paneles del mismo alto.
+- La columna principal del Dashboard ya no tiene aire muerto bajo "Actividad Reciente" cuando la lateral es más alta.
+
+**Riesgos asumidos**:
+
+- El pseudo-fondo añade un `<div>` decorativo extra al árbol DOM (mínimo overhead, sin pointer-events ni listeners).
+- `h-full` en cada wrapper requiere disciplina: si en futuro se añaden filas con un único componente que no acepta estiramiento, conviene evaluar caso por caso. La política para KPI / chart cards de `analytics/` es: aceptan `h-full` y pintan bien.
+
+### Verificación
+
+- **QA browser** a 1920×1080:
+  - `/dashboard`: scroll vertical hasta el final → sidebar y body se ven con un único color base. "Actividad Reciente" alineada al bottom de "Accesos rápidos" (sin hueco).
+  - `/students/:id`: 6 KPI cards con altura uniforme. "Trayectoria de Aprendizaje" (350px) y "Resumen del Alumno" misma altura.
+  - `/sessions`: sidebar bg continuo hasta el footer en pantallas con 9+ sesiones.
+- **Tests**: 289/289 frontend + 1032/1032 backend.
+- **Lint**: 0 errores en backend y frontend.
+- Capturas en `qa-capturas-v0.5.0-final-release/`: 100→105 (antes), 111→115 (después).
+
+### Archivos modificados
+
+- `frontend/src/components/layout/AppLayout.jsx` — pseudo-fondo de columna sidebar.
+- `frontend/src/components/analytics/StudentKPICard.jsx` — `h-full flex flex-col` + `mt-auto` en comparison.
+- `frontend/src/components/analytics/TrajectoryChart.jsx` — `h-full` en GlassCard.
+- `frontend/src/components/analytics/NarrativeCard.jsx` — `h-full` en GlassCard.
+- `frontend/src/pages/StudentProfile.jsx` — `h-full` en motion wrappers de KPI y celdas de Trayectoria.
+- `frontend/src/pages/Dashboard.jsx` — `flex flex-col` con `flex-1` en último item de columna principal; `h-full flex flex-col` en `RecentActivity`.
+
+### Referencias
+
+- ADR-094 — Paquete fixes funcionales QA pre-release (Redis policy, modal lifecycle, gramática consigna, a11y MemoryBoard).
+
+
+## ADR-096: QA pre-release v0.5.0 — paquete fixes (métricas Memoria, ranking informe, copy admin contextos, KPI Parejas, export CSV informe) [Full-stack]
+
+**Estado**: Aceptado · 2026-04-29 · QA exhaustivo final pre-release v0.5.0
+
+### Contexto
+
+Una sesión QA completa con Playwright en viewport 1920×1080 cubriendo perfil teacher (maria@test.com), perfil super_admin (admin@test.com), creación de partida desde wizard (Memoria + Asociación), gameplay completo con aciertos y fallos, gestión de contextos (CRUD con Supabase Storage), Insights/Reportes y Mis Alumnos detectó cuatro inconsistencias dignas de fix:
+
+1. **Métricas inconsistentes en GameOver de Memoria.** El componente `GameOverScreen` mostraba "Correctas: 4 / Total: 6 / Incorrectas: 4 / Sin responder: 0" en una partida de Memoria. La aritmética 4 + 4 + 0 = 8 ≠ 6 sugería un bug de cálculo. La causa real era semántica: en Asociación, "Total" representa rondas y `errors` rondas falladas → la suma cuadra; en Memoria, "Total" representa parejas y `errors` cuenta intentos individuales fallidos (cada par mal volteado), por lo que `correctas + errors` puede superar `total` perfectamente. La UI no diferenciaba ambas semánticas y confundía al profesor.
+
+2. **Rankings divergentes entre tabla "Mis Alumnos" y "Mejores/En Riesgo" del Informe.** La tabla `/analytics/students` ordenaba alumnos por `studentMetrics.averageScore` (Isabella Pérez 71% como #1). El informe `/analytics/insights → Informes` los ordenaba por `engagementScore` calculado a partir de frecuencia de juego, regularidad y completion rate (Daniel Navarro 50% como #1, Isabella aparecía como #2 con 48%). El profesor recibía dos listas con la palabra "ranking" pero números y orden distintos sin explicación visible.
+
+3. **Typos sin tildes en modales de admin contextos** ("creara vacio", "anaden despues", "podra cambiarse", "imagenes", "operacion se rechazara") que afeaban una pantalla crítica del super_admin.
+
+4. **KPIs "Aciertos" y "Parejas" duplicados durante gameplay Memoria.** El footer de juego mostraba `Aciertos: 2 / Parejas: 2` en Memoria — dos pills con exactamente el mismo valor, vs Asociación donde "Progreso" mostraba `2 de 5`. No había forma de distinguir el progreso del total objetivo en Memoria.
+
+5. **Export CSV del informe con cabeceras `0,1,2,...`.** El endpoint `/api/analytics/reports/classroom/export` devuelve `{ headers: ['Nombre', 'Aula', ...], rows: [['Daniel', 'Aula 1', ...], ...] }` — `rows` es array de **arrays** y las cabeceras viajan en `headers`. El frontend (`ReportGenerator.handleExportCSV`) asumía `rows` como array de objetos y hacía `Object.keys(rows[0])` para derivar columnas, lo que produce `["0", "1", "2", ...]` cuando `rows[0]` es un array. El CSV resultante tenía datos correctos pero cabeceras numéricas inútiles para el profesor.
+
+### Decisión
+
+**1. GameOverScreen consciente del modo de juego.** Cuando `summary.mode === 'memory'`:
+- La etiqueta superior pasa de "Correctas" a "Parejas" (clarifica que `correctAnswers` cuenta parejas, no intentos individuales).
+- El desglose detallado pasa de 4 columnas (Incorrectas / Sin responder / T. medio / Tiempo) a 3 columnas (Errores / T. medio / Tiempo) — `Sin responder` no aplica a Memoria porque la mecánica no tiene rondas con timeout individual; el cálculo `unanswered = max(0, total - correctas - errors)` daba 0 forzado por el clamp en cuanto `errors > total - correctas`, lo que es engañoso.
+- El pill rojo se reetiqueta como "Errores" con el title `"Intentos fallidos (parejas mal emparejadas)"`, semánticamente correcto vs. el ambiguo "Incorrectas" anterior.
+- Asociación mantiene las 4 columnas originales sin cambios.
+
+**2. `studentSummaries` del informe enriquecido con `averageScore` y ordenado por él.** En `reportDataService.getClassroomReport`, tras obtener los students del `engagementService` se hace una segunda consulta a `userRepository` (`select: '_id studentMetrics.averageScore'`) y se mergea el campo. El array final se ordena `desc` por `averageScore` para que `topStudents = summaries.slice(0, 5)` produzca el mismo Top 5 que la tabla "Mis Alumnos". El frontend (`ReportGenerator.jsx`) ya tenía un fallback `s.averageScore ?? s.score ?? s.engagementScore` — ahora la primera entrada del fallback se rellena correctamente. `engagementScore` y `completionRate` siguen viajando en el DTO para usos futuros (vista detallada, exportación CSV).
+
+**3. Tildes corregidas en `AdminContexts.jsx`** (4 strings, todos visibles al super_admin en los modales Crear y Eliminar contexto).
+
+**4. `CurrentPlayMetrics` muestra siempre "X de Y" en el pill final.** El template literal anterior `isMemory ? \`${correctAnswers}\` : \`${correctAnswers} de ${totalRounds}\`` se reduce a `\`${correctAnswers} de ${totalRounds}\``. En Memoria el pill ahora muestra `Parejas: 2 de 6`, idéntico en estructura al `Progreso: 2 de 5` de Asociación, dejando "Aciertos: 2" como un valor distinto y útil (el contador de respuestas correctas absolutas, sin contexto de máximo).
+
+**5. `ReportGenerator.handleExportCSV` consume `data.headers` cuando llega con el DTO.** Si `data.headers` viene en la respuesta y `rows[0]` es un array, mapeamos cada fila a un objeto `{header: value}` antes de pasar a `exportToCSV`. Las columnas se derivan de `headers` (no de `Object.keys(rows[0])`). Mantenemos un fallback al patrón anterior para mocks legacy o respuestas con `rows` como array de objetos (defensa por si el endpoint cambia).
+
+### Consecuencias
+
+**Positivas**:
+
+- El profesor ya no ve aritmética que no cuadra en Memoria. Las métricas de fin de partida son legibles y semánticamente coherentes con la mecánica.
+- El Top 5 / Bottom 5 del informe coincide con la tabla "Mis Alumnos" — la palabra "ranking" significa lo mismo en toda la app.
+- Los textos de admin contextos quedan correctos. Es un fix barato pero relevante para la calidad percibida.
+- "Aciertos" y "Parejas" ya no son dos pills idénticos; cada uno aporta información distinta (absoluta vs. progreso relativo al total).
+
+**Riesgos asumidos**:
+
+- Una llamada adicional a Mongo en `getClassroomReport` para obtener `averageScore`. El impacto es mínimo: una sola query con `_id IN (…)` y `select` muy reducido, sobre el mismo dataset que ya se trajo en otras llamadas paralelas. Si en el futuro se nota latencia, el `averageScore` puede inyectarse desde `engagementService` para evitar el round-trip.
+- El cache Redis de analytics (TTL 120-600s) requiere `FLUSHDB` o esperar la expiración tras el deploy para que los rankings cambien en clientes activos. En el caso de upgrade en producción, el primer cliente tras el flush ve los nuevos números.
+
+### Verificación
+
+- **QA browser** a 1920×1080:
+  - GameOver Memoria muestra `Parejas: 4` arriba, `Errores: 4 / T. medio / Tiempo` abajo (3 columnas, sin "Sin responder").
+  - GameOver Asociación mantiene 4 columnas (Incorrectas / Sin responder / T. medio / Tiempo).
+  - `CurrentPlayMetrics` en Memoria activa muestra `Parejas: 0 de 6`.
+  - Informe `/analytics/insights → Informes`: tras `FLUSHDB` de Redis, "Mejores Alumnos" muestra Isabella Pérez 71%, Diego Sánchez 69%, Martina Jiménez 68%, Nicolás Moreno 68%, Sofía García 60% — idéntico al Top de la tabla `/analytics/students`.
+  - Modales `Crear/Editar/Eliminar contexto` con todas las tildes ("creará vacío", "se añaden después", "podrá cambiarse después", "imágenes", "operación se rechazará").
+  - **Export CSV `Mis Alumnos`** (client-side, `alumnos_2026-04-29.csv`): cabeceras `Nombre,Aula,Partidas,Puntuación,Tasa Acierto,Tiempo Respuesta,Última Actividad,Nivel`, BOM UTF-8, tildes correctas (Pérez, Sánchez, Sofía).
+  - **Export CSV `Informe`** (server-side, `informe-classroom-30d.csv`) tras fix: cabeceras `Nombre,Aula,Edad,Partidas Jugadas,Puntuación Media,Mejor Puntuación,Precisión (%),Tiempo Respuesta (ms),Nivel,Última Actividad` — antes mostraba `0,1,2,...,9`.
+- **Tests**: 1032/1032 backend (incluye 298/298 reportDataService) + 289/289 frontend.
+- **Lint**: 0 errores en backend y frontend.
+- **Supabase E2E**: creación + eliminación de contexto `qa-test-context` desde admin verificada con `mcp__plugin_supabase_supabase__execute_sql` consultando `storage.objects` (sin objetos residuales).
+
+### Archivos modificados
+
+- `frontend/src/components/game/GameOverScreen.jsx` — modo-aware (Memoria/Asociación), 3 vs 4 columnas, etiquetas semánticas.
+- `frontend/src/components/game/CurrentPlayMetrics.jsx` — pill "Parejas" siempre con formato `X de Y`.
+- `backend/src/services/analytics/reportDataService.js` — enriquecer `studentSummaries` con `averageScore` y ordenar por él.
+- `frontend/src/components/analytics/ReportGenerator.jsx` — comentarios actualizados (la fuente de orden es `averageScore`, no `engagementScore`); `handleExportCSV` consume `data.headers` con fallback robusto.
+- `frontend/src/pages/admin/AdminContexts.jsx` — 4 typos corregidos en modales Crear/Eliminar contexto.
+
+### Referencias
+
+- ADR-094 — Paquete fixes funcionales QA pre-release v0.5.0 (modal lifecycle, gramática consigna, Redis policy).
+- ADR-095 — Layout sidebar bg + grids alturas uniformes pre-release v0.5.0.
+- ADR-088 — QA Sprint 5 fixes (métricas backend formatPercent, modal asociación táctil).
+- BUG report en sesión `project_qa_pre_release_2026_04_29.md` (memoria del proyecto).

@@ -67,7 +67,17 @@ export default function AppLayout() {
     // Playwright funcionan nativamente (QA 2026-04-24, PROP-100).
     // La sidebar se pega con `sticky top-0 h-screen` en desktop; mobile mantiene
     // `fixed` porque usa `motion.aside` con transform para abrir/cerrar.
-    <div className="flex min-h-screen bg-background-base text-text-primary font-sans">
+    <div className="flex min-h-screen bg-background-base text-text-primary font-sans relative">
+      {/* Pseudo-fondo de columna sidebar (desktop): extiende el color base + borde
+          al alto completo del flex container. Sin esto, cuando el `<main>` supera
+          la altura del viewport, la sidebar sticky (`h-screen`) deja al descubierto
+          el body por debajo, lo que produce una franja visual diferente en
+          páginas largas (Sessions, Dashboard, StudentProfile — QA 2026-04-29). */}
+      <div
+        aria-hidden="true"
+        className="hidden lg:block absolute inset-y-0 left-0 w-72 bg-background-base border-r border-border-subtle pointer-events-none z-0"
+      />
+
       {/* Banner superior para super_admin: refuerza rol y aporta firma visual.
           4px fijos arriba del viewport, no interactuable, gradient warning→accent. */}
       {isSuperAdmin && (
@@ -255,6 +265,7 @@ export default function AppLayout() {
           {/* Toggle de movimiento reducido (preferencia de a11y).
               Estilizado como switch en lugar de nav item para que se distinga de los enlaces. */}
           <button
+            type="button"
             onClick={() => {
               if (shouldReduceMotion) {
                 resetUserPreference();

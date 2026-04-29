@@ -423,8 +423,12 @@ export default function Dashboard() {
                   RecentActivity se movió aquí (antes era fullwidth bajo la
                   sección) para absorber el hueco vertical que dejaba la
                   columna lateral cuando terminaba antes que la principal —
-                  así el grid queda balanceado sin aire muerto (QA 22/04/2026). */}
-              <div className="xl:col-span-2 space-y-6 lg:space-y-8">
+                  así el grid queda balanceado sin aire muerto (QA 22/04/2026).
+                  Convertida a `flex flex-col` con `flex-1` en el último item
+                  (RecentActivity) para estirarlo y eliminar definitivamente el
+                  hueco bajo la columna principal cuando la lateral es más alta
+                  (QA 2026-04-29). */}
+              <div className="xl:col-span-2 flex flex-col gap-6 lg:gap-8">
                 <motion.div variants={shouldReduceMotion ? {} : listItemVariants}>
                   <StudentProgressChart
                     data={progressData}
@@ -442,14 +446,14 @@ export default function Dashboard() {
                   </motion.div>
                 )}
                 {studentsData?.students?.length > 0 && (
-                  <motion.div variants={shouldReduceMotion ? {} : listItemVariants}>
+                  <motion.div variants={shouldReduceMotion ? {} : listItemVariants} className="flex-1 flex flex-col">
                     <RecentActivity students={studentsData.students} />
                   </motion.div>
                 )}
               </div>
 
               {/* Columna Lateral (1/3 de ancho) */}
-              <aside className="space-y-6 lg:space-y-8">
+              <aside className="flex flex-col gap-6 lg:gap-8">
                 <motion.div variants={shouldReduceMotion ? {} : listItemVariants}>
                   <ClassroomOverview summary={summary} distribution={distributionData} />
                 </motion.div>
@@ -695,7 +699,7 @@ function RecentActivity({ students }) {
   // getRelativeTime centralizado en lib/dateUtils.js (P25).
 
   return (
-    <section className="bg-background-elevated/40 backdrop-blur-sm rounded-2xl border border-border-subtle p-5 relative overflow-hidden">
+    <section className="bg-background-elevated/40 backdrop-blur-sm rounded-2xl border border-border-subtle p-5 relative overflow-hidden h-full flex flex-col">
       <h3 className="text-lg font-bold text-text-primary font-display mb-4">Actividad Reciente</h3>
       <div ref={scrollRef} className="flex gap-3 overflow-x-auto pb-2 -mx-1 px-1 custom-scrollbar">
         {recentStudents.map((student, index) => (

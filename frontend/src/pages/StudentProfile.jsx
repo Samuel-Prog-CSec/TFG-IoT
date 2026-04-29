@@ -275,7 +275,7 @@ export default function StudentProfile() {
         aria-label="KPIs del estudiante"
       >
         <div className="grid grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-3 lg:gap-4">
-          <motion.div variants={shouldReduceMotion ? {} : listItemVariants}>
+          <motion.div variants={shouldReduceMotion ? {} : listItemVariants} className="h-full">
             <StudentKPICard
               label="Puntuación Media"
               value={Math.round(metrics.averageScore || 0)}
@@ -286,7 +286,7 @@ export default function StudentProfile() {
             />
           </motion.div>
 
-          <motion.div variants={shouldReduceMotion ? {} : listItemVariants}>
+          <motion.div variants={shouldReduceMotion ? {} : listItemVariants} className="h-full">
             <StudentKPICard
               label="Tasa de Acierto"
               value={accuracyRate}
@@ -297,7 +297,7 @@ export default function StudentProfile() {
             />
           </motion.div>
 
-          <motion.div variants={shouldReduceMotion ? {} : listItemVariants}>
+          <motion.div variants={shouldReduceMotion ? {} : listItemVariants} className="h-full">
             <StudentKPICard
               label="Tiempo Respuesta"
               value={((metrics.averageResponseTime || 0) / 1000).toFixed(1)}
@@ -312,7 +312,7 @@ export default function StudentProfile() {
             />
           </motion.div>
 
-          <motion.div variants={shouldReduceMotion ? {} : listItemVariants}>
+          <motion.div variants={shouldReduceMotion ? {} : listItemVariants} className="h-full">
             <StudentKPICard
               label="Engagement"
               value={engagement?.engagementScore != null ? Math.round(engagement.engagementScore) : '—'}
@@ -325,7 +325,7 @@ export default function StudentProfile() {
             />
           </motion.div>
 
-          <motion.div variants={shouldReduceMotion ? {} : listItemVariants}>
+          <motion.div variants={shouldReduceMotion ? {} : listItemVariants} className="h-full">
             <StudentKPICard
               label="Total Partidas"
               value={metrics.totalGamesPlayed || 0}
@@ -334,7 +334,7 @@ export default function StudentProfile() {
             />
           </motion.div>
 
-          <motion.div variants={shouldReduceMotion ? {} : listItemVariants}>
+          <motion.div variants={shouldReduceMotion ? {} : listItemVariants} className="h-full">
             <StudentKPICard
               label="Completado"
               value={completionRate}
@@ -351,14 +351,18 @@ export default function StudentProfile() {
       </motion.section>
 
       {/* ═══════ Trayectoria + Narrativa ═══════ */}
+      {/* `items-stretch` (default en grid) + `h-full` en cada wrapper iguala
+          la altura de los dos paneles. Sin esto el chart de la izquierda
+          (~350px alto) y el panel "Resumen del Alumno" (~200px) generaban
+          un hueco visual en la fila (QA 2026-04-29). */}
       <div className="grid grid-cols-1 lg:grid-cols-5 gap-6">
-        <div className="lg:col-span-3">
+        <div className="lg:col-span-3 h-full">
           <TrajectoryChart
             trajectoryData={trajectory}
             classComparison={summary?.classProgressComparison}
           />
         </div>
-        <div className="lg:col-span-2">
+        <div className="lg:col-span-2 h-full">
           <NarrativeCard interpretation={trajectory?.interpretation || trajectory?.trend?.interpretation || engagement?.interpretation || summary?.interpretation} />
         </div>
       </div>
