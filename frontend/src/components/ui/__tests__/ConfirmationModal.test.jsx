@@ -54,7 +54,42 @@ describe('useConfirmationModal hook', () => {
     expect(result.current.modalProps.description).toBe('Are you sure?');
     expect(result.current.modalProps.confirmText).toBe('Delete');
     expect(result.current.modalProps.variant).toBe('danger');
-    expect(result.current.modalProps.onConfirm).toBe(onConfirm);
+    // El hook envuelve onConfirm en un handler que cierra el modal tras
+    // ejecutar el callback original; verificamos que el wrapper existe.
+    expect(typeof result.current.modalProps.onConfirm).toBe('function');
+  });
+
+  it('modalProps.onConfirm runs the callback and closes the modal', async () => {
+    const onConfirm = vi.fn();
+    const { result } = renderHook(() => useConfirmationModal());
+
+    act(() => {
+      result.current.openModal({ title: 'Confirm', onConfirm });
+    });
+
+    await act(async () => {
+      await result.current.modalProps.onConfirm();
+    });
+
+    expect(onConfirm).toHaveBeenCalledTimes(1);
+    expect(result.current.isOpen).toBe(false);
+  });
+
+  it('modalProps.onConfirm closes the modal even when callback throws', async () => {
+    const onConfirm = vi.fn(() => {
+      throw new Error('boom');
+    });
+    const { result } = renderHook(() => useConfirmationModal());
+
+    act(() => {
+      result.current.openModal({ title: 'Confirm', onConfirm });
+    });
+
+    await act(async () => {
+      await expect(result.current.modalProps.onConfirm()).rejects.toThrow('boom');
+    });
+
+    expect(result.current.isOpen).toBe(false);
   });
 
   it('modalProps.onClose closes the modal', () => {

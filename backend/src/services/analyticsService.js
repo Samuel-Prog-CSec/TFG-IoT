@@ -157,6 +157,7 @@ async function getStudentDifficulties(studentId) {
 async function getClassroomSummary(teacherId) {
   // Excluir estudiantes sin consentimiento de analytics (Art. 21 RGPD)
   const excludedIds = await getAnalyticsExcludedPlayerIds(teacherId);
+  const teacherOid = new mongoose.Types.ObjectId(teacherId);
 
   const pipeline = [
     {
@@ -170,25 +171,12 @@ async function getClassroomSummary(teacherId) {
     { $unwind: '$session' },
     {
       $match: {
-        'session.createdBy': new mongoose.Types.ObjectId(teacherId),
+        'session.createdBy': teacherOid,
         ...(excludedIds.length > 0 && { playerId: { $nin: excludedIds } })
       }
     },
     {
       $facet: {
-        // Riesgo: Estudiantes con media < 50 en los últimos 5 juegos
-        studentsInRisk: [
-          { $sort: { completedAt: -1 } },
-          {
-            $group: {
-              _id: '$playerId',
-              recentScore: { $avg: '$score' },
-              lastPlayed: { $max: '$completedAt' }
-            }
-          },
-          { $match: { recentScore: { $lt: 50 } } },
-          { $count: 'count' }
-        ],
         // Promedio global y tendencia
         globalStats: [
           {
@@ -215,11 +203,26 @@ async function getClassroomSummary(teacherId) {
     }
   ];
 
-  const results = await gamePlayRepository.aggregate(pipeline);
+  // Riesgo: alineado con el listado de Mis Alumnos (BUG-4 QA pre-release v0.5.0).
+  // El listado clasifica a los alumnos por `studentMetrics.averageScore`
+  // (lifetime). Antes el KPI usaba la media reciente de partidas, lo que
+  // producía discrepancias entre el contador (9) y la cuenta de filas con badge
+  // EN RIESGO (8). Ahora ambas vistas leen la misma fuente.
+  const [results, studentsInRisk] = await Promise.all([
+    gamePlayRepository.aggregate(pipeline),
+    userRepository.count({
+      createdBy: teacherOid,
+      role: 'student',
+      status: 'active',
+      ...ANALYTICS_CONSENT_FILTER,
+      'studentMetrics.averageScore': { $gte: 0, $lt: 50 }
+    })
+  ]);
+
   const data = results[0];
 
   return {
-    studentsInRisk: data.studentsInRisk[0] ? data.studentsInRisk[0].count : 0,
+    studentsInRisk,
     averageScore: data.globalStats[0] ? Math.round(data.globalStats[0].avgScore) : 0,
     totalGames: data.globalStats[0] ? data.globalStats[0].totalGames : 0,
     gamesToday: data.todayActivity[0] ? data.todayActivity[0].count : 0
@@ -236,11 +239,8 @@ async function getClassroomSummary(teacherId) {
 async function getClassroomComparison(teacherId, timeRange = '7d') {
   const today = new Date();
   const startDate = new Date(today);
-  if (timeRange === '30d') {
-    startDate.setDate(today.getDate() - 30);
-  } else {
-    startDate.setDate(today.getDate() - 7);
-  }
+  const rangeDays = timeRange === '30d' ? 30 : 7;
+  startDate.setDate(today.getDate() - rangeDays);
 
   // Excluir estudiantes sin consentimiento de analytics (Art. 21 RGPD)
   const excludedIds = await getAnalyticsExcludedPlayerIds(teacherId);
@@ -266,13 +266,34 @@ async function getClassroomComparison(teacherId, timeRange = '7d') {
     {
       $group: {
         _id: { $dateToString: { format: '%Y-%m-%d', date: '$completedAt' } },
-        classAverage: { $avg: '$score' }
+        classAverage: { $avg: '$score' },
+        score: { $avg: '$score' },
+        playCount: { $sum: 1 }
       }
     },
     { $sort: { _id: 1 } }
   ];
 
-  return await gamePlayRepository.aggregate(pipeline);
+  const aggregated = await gamePlayRepository.aggregate(pipeline);
+
+  // PROP-26: rellenar dias faltantes del rango con null para que el chart
+  // de tendencia muestre exactamente N puntos (UX honesta — el rango
+  // elegido por el usuario es contractual). El frontend usa
+  // connectNulls={false} para visualizar los gaps como huecos visibles.
+  const byDate = new Map(aggregated.map(item => [item._id, item]));
+  const result = [];
+  for (let i = rangeDays; i >= 0; i--) {
+    const day = new Date(today);
+    day.setDate(today.getDate() - i);
+    const key = day.toISOString().slice(0, 10);
+    const existing = byDate.get(key);
+    if (existing) {
+      result.push(existing);
+    } else {
+      result.push({ _id: key, classAverage: null, score: null, playCount: 0 });
+    }
+  }
+  return result;
 }
 
 /**
@@ -488,7 +509,11 @@ async function getClassroomStudents(
       studentMetrics: {
         totalGamesPlayed: metrics.totalGamesPlayed || 0,
         totalScore: metrics.totalScore || 0,
-        averageScore: metrics.averageScore || 0,
+        // Redondeo a 1 decimal para evitar floats con cola larga (p. ej.
+        // `42.722222...`) en la UI tras agregaciones de Mongo (QA 26/04/2026).
+        averageScore: Number.isFinite(metrics.averageScore)
+          ? Math.round(metrics.averageScore * 10) / 10
+          : 0,
         bestScore: metrics.bestScore || 0,
         totalCorrectAnswers: metrics.totalCorrectAnswers || 0,
         totalErrors: metrics.totalErrors || 0,
@@ -512,7 +537,13 @@ async function getClassroomStudents(
     if (sort === 'name') {
       valA = (a.name || '').toLowerCase();
       valB = (b.name || '').toLowerCase();
-      return valA < valB ? -1 * dir : valA > valB ? 1 * dir : 0;
+      if (valA < valB) {
+        return -1 * dir;
+      }
+      if (valA > valB) {
+        return 1 * dir;
+      }
+      return 0;
     }
     if (sort === 'score') {
       valA = a.studentMetrics.averageScore;

@@ -5,12 +5,13 @@
  */
 
 const { z } = require('zod');
+const { ROLES, USER_STATUS } = require('../constants/enums');
 
 /**
  * Schema para validar ObjectId de MongoDB.
  * @type {import('zod').ZodString}
  */
-const objectIdSchema = z.string().regex(/^[0-9a-fA-F]{24}$/, 'ID de MongoDB inválido');
+const objectIdSchema = z.string().regex(/^[0-9a-f]{24}$/i, 'ID de MongoDB inválido');
 
 /**
  * Schema para validar UID de tarjeta RFID (8 o 14 hex).
@@ -55,8 +56,8 @@ const paginationSchema = z
  * Schema para filtros de usuarios con paginación.
  */
 const userFiltersSchema = paginationSchema.extend({
-  role: z.enum(['super_admin', 'teacher', 'student']).optional(),
-  status: z.enum(['active', 'inactive']).optional(),
+  role: z.enum([...ROLES]).optional(),
+  status: z.enum([...USER_STATUS]).optional(),
   classroom: z.string().trim().max(50).optional(),
   createdBy: objectIdSchema.optional()
 });

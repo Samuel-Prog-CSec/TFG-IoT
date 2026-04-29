@@ -73,13 +73,37 @@ function EngagementRadar({ engagement }) {
   // Estado vacio: sin datos de componentes, o engagement nulo/cero
   const isEmpty = chartData.length === 0 || !engagement || (!score && score !== undefined);
 
-  if (isEmpty) {
+  // Estado "datos insuficientes":
+  // (a) al menos 3 de 5 ejes en cero/null, o
+  // (b) al menos 4 de 5 ejes con valor despreciable (<=2 ejes con senal real >15).
+  // Evita renderizar un radar deformado (pajita apuntando a un eje aislado)
+  // cuando solo una o dos metricas tienen senal real (QA 2026-04-24, caso
+  // detectado en alumno con 4 partidas donde Completado+Regularidad altas
+  // y el resto casi 0 producian el sliver).
+  const zeroAxes = chartData.filter(d => !d.value || d.value === 0).length;
+  const SIGNAL_THRESHOLD = 15;
+  const signalAxes = chartData.filter(d => (d.value ?? 0) > SIGNAL_THRESHOLD).length;
+  const hasInsufficientData = !isEmpty && (zeroAxes >= 3 || signalAxes < 3);
+
+  if (isEmpty || hasInsufficientData) {
     return (
       <GlassCard variant="default" padding="none" className="p-5">
-        <h3 className="text-base font-bold text-text-primary font-display mb-4">Engagement</h3>
+        <div className="flex items-center justify-between mb-4">
+          <h3 className="text-base font-bold text-text-primary font-display">Engagement</h3>
+          {/* Pintamos el RAG aunque el radar sea degenerado: el profesor
+              sigue necesitando saber si el score global es Alto/Medio/Bajo
+              aunque el desglose por ejes no sea visualizable. */}
+          {rag && hasInsufficientData && (
+            <div className={cn("flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-semibold", rag.bg, rag.color)}>
+              {Math.round(score)} — {rag.label}
+            </div>
+          )}
+        </div>
         <div className="py-8 text-center px-6">
           <p className="text-text-muted text-sm text-center">
-            Sin datos de engagement aun. Se calculara cuando el alumno acumule mas partidas.
+            {hasInsufficientData
+              ? 'Datos insuficientes para visualizar el desglose por ejes. Se necesitan más partidas distribuidas en el tiempo para calcular todas las métricas.'
+              : 'Sin datos de engagement aún. Se calculará cuando el alumno acumule más partidas.'}
           </p>
         </div>
       </GlassCard>
@@ -97,9 +121,11 @@ function EngagementRadar({ engagement }) {
         )}
       </div>
 
-      <div className="h-[220px] w-full">
-        <ResponsiveContainer width="100%" height="100%" minWidth={0} minHeight={0}>
-          <RadarChart cx="50%" cy="50%" outerRadius="70%" data={chartData}>
+      <div className="h-[300px] w-full min-h-[300px]">
+        <ResponsiveContainer width="100%" height="100%" minWidth={0} minHeight={0} debounce={50}>
+          {/* outerRadius=80% para aprovechar el alto extra del contenedor;
+              el radar se veia demasiado pequeno a 70% en 1920px (QA 22/04/2026). */}
+          <RadarChart cx="50%" cy="50%" outerRadius="80%" data={chartData}>
             <PolarGrid
               stroke="var(--color-border-subtle)"
               gridType="polygon"

@@ -198,8 +198,10 @@ describe('Dashboard — integracion analytics', () => {
     renderDashboard();
 
     await waitFor(() => {
-      // Hay dos spans: uno aria-hidden con emoji y otro sr-only sin emoji
-      const matches = screen.getAllByText(/Bienvenido de nuevo/);
+      // PROP-40A cambio el saludo a "Buenos dias/tardes/noches, {firstName}".
+      // El nombre se pinta con gradient en un span separado del saludo,
+      // por lo que matcheamos cualquiera de las tres variantes horarias.
+      const matches = screen.getAllByText(/Buen[oa]s (días|tardes|noches)/);
       expect(matches.length).toBeGreaterThanOrEqual(1);
     });
   });
@@ -267,7 +269,7 @@ describe('Dashboard — integracion analytics', () => {
     renderDashboard();
 
     await waitFor(() => {
-      expect(screen.getByText('Accesos Rapidos')).toBeInTheDocument();
+      expect(screen.getByText('Accesos rápidos')).toBeInTheDocument();
     });
 
     expect(screen.getByText('Ver todas las sesiones')).toBeInTheDocument();

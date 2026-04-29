@@ -5,11 +5,8 @@ const logger = require('../src/utils/logger');
 // Usar prefijo 'mock' para que Jest permita la referencia
 require('ioredis-mock');
 
-jest.mock('ioredis', () => {
-  const mockRedisMockInner = require('ioredis-mock');
-  // Cada instancia de ioredis-mock comparte el mismo almacenamiento por defecto
-  return mockRedisMockInner;
-});
+// Cada instancia de ioredis-mock comparte el mismo almacenamiento por defecto
+jest.mock('ioredis', () => require('ioredis-mock'));
 
 // Ahora importar los módulos que dependen de Redis
 const { server, gameEngine } = require('../src/server');

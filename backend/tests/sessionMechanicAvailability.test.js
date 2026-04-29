@@ -163,7 +163,7 @@ describe('Session mechanic availability (Sprint 4)', () => {
     }
   });
 
-  it('rejects non-enabled mechanics by feature flag', async () => {
+  it('rejects non-enabled mechanics by SESSION_ENABLED_MECHANICS env var', async () => {
     process.env.SESSION_ENABLED_MECHANICS = 'association,memory';
 
     const res = await request(app)

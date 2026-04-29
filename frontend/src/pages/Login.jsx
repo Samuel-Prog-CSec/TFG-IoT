@@ -9,12 +9,16 @@
 import { useState, useEffect } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
-import { LogIn, Mail, Lock, Eye, EyeOff, AlertCircle, CheckCircle, Info, Clock } from 'lucide-react';
+import {
+  LogIn, Mail, Lock, Eye, EyeOff, AlertCircle, CheckCircle, Info, Clock,
+  Target, BarChart3, ShieldCheck,
+} from 'lucide-react';
 import EduPlayIcon from '../components/icons/EduPlayIcon';
 import { useAuth } from '../context/AuthContext';
 import { useReducedMotion } from '../hooks/useReducedMotion';
 import { useDocumentTitle } from '../hooks/useDocumentTitle';
-import { formFieldVariants } from '../lib/utils';
+import { useFormFocusFirstError } from '../hooks/useFormFocusFirstError';
+import { cn, formFieldVariants } from '../lib/utils';
 import ButtonPremium from '../components/ui/ButtonPremium';
 import InputPremium from '../components/ui/InputPremium';
 import GlassCard from '../components/ui/GlassCard';
@@ -115,6 +119,7 @@ export default function Login() {
   const [showPassword, setShowPassword] = useState(false);
   const [validationErrors, setValidationErrors] = useState({});
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const formRef = useFormFocusFirstError(validationErrors);
   
   // Estado de rate limiting
   const [rateLimitState, setRateLimitStateLocal] = useState(getRateLimitState);
@@ -247,7 +252,7 @@ export default function Login() {
   const isLocked = rateLimitState.lockoutUntil && Date.now() < rateLimitState.lockoutUntil;
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-background-deep p-4 relative overflow-hidden">
+    <div className="min-h-screen flex bg-background-deep relative overflow-hidden">
       {/* Fondo con efectos */}
       <div className="absolute inset-0 overflow-hidden pointer-events-none">
         {/* Gradiente radial principal */}
@@ -287,41 +292,85 @@ export default function Login() {
         />
       </div>
 
-      {/* Contenido principal */}
+      {/* Panel de branding — solo desktop. Padding más ajustado y max-width
+          mayor para aprovechar viewport 1920px sin dejar al contenido flotando
+          en una franja estrecha (QA 22/04/2026). */}
+      <motion.aside
+        initial={{ opacity: 0, x: -30 }}
+        animate={{ opacity: 1, x: 0 }}
+        transition={{ duration: 0.6, ease: [0.22, 1, 0.36, 1] }}
+        className="hidden lg:flex lg:w-1/2 relative z-10 flex-col justify-center px-12 xl:px-20 2xl:px-28"
+      >
+        <div className="max-w-xl">
+          <div className="inline-flex items-center justify-center size-16 rounded-2xl bg-gradient-to-br from-accent-indigo via-brand-base to-accent-pink mb-8 shadow-lg shadow-brand-glow">
+            <EduPlayIcon size={32} className="text-white" />
+          </div>
+          <h1 className="text-4xl xl:text-5xl font-bold font-display text-text-primary leading-tight mb-6">
+            Aprende jugando con <span className="bg-gradient-to-r from-brand-light to-accent-indigo bg-clip-text text-transparent">tecnología RFID</span>
+          </h1>
+          <p className="text-lg text-text-muted leading-relaxed mb-10">
+            Crea experiencias educativas interactivas para tus alumnos. Tarjetas físicas, juegos digitales, resultados en tiempo real.
+          </p>
+          <div className="space-y-4">
+            {[
+              { Icon: Target, tint: 'text-accent-indigo', text: 'Mecánicas de asociación y memoria adaptadas por edades' },
+              { Icon: BarChart3, tint: 'text-brand-light', text: 'Analytics en tiempo real del progreso de cada alumno' },
+              { Icon: ShieldCheck, tint: 'text-accent-pink', text: 'Protección de datos de menores (RGPD / LOPDGDD)' },
+            ].map(({ Icon, tint, text }, i) => (
+              <motion.div
+                key={i}
+                initial={{ opacity: 0, x: -20 }}
+                animate={{ opacity: 1, x: 0 }}
+                transition={{ delay: 0.3 + i * 0.1 }}
+                className="flex items-start gap-3"
+              >
+                <span
+                  className={`flex-shrink-0 mt-0.5 inline-flex size-8 items-center justify-center rounded-lg bg-white/5 ring-1 ring-white/10 ${tint}`}
+                  aria-hidden="true"
+                >
+                  <Icon className="size-4" strokeWidth={2} />
+                </span>
+                <span className="text-text-secondary text-sm leading-relaxed">{text}</span>
+              </motion.div>
+            ))}
+          </div>
+        </div>
+      </motion.aside>
+
+      {/* Panel del formulario */}
       <motion.div
         initial={{ opacity: 0, y: 20 }}
         animate={{ opacity: 1, y: 0 }}
         transition={{ duration: 0.5 }}
-        className="w-full max-w-md relative z-10"
+        className="w-full lg:w-1/2 flex items-center justify-center p-4 relative z-10"
       >
-        {/* Logo y título */}
-        <div className="text-center mb-8">
+      <div className="w-full max-w-md">
+        {/* Logo duplicado eliminado (QA 22/04/2026): el panel izquierdo ya
+            comunica la marca. En mobile (< lg) el panel izquierdo se oculta y
+            el logo compacto aparece en el header del card del formulario
+            — ver `Iniciar Sesión` header más abajo. */}
+        <div className="lg:hidden text-center mb-6">
           <motion.div
             initial={{ scale: 0.8, opacity: 0 }}
             animate={{ scale: 1, opacity: 1 }}
             transition={{ delay: 0.1, duration: 0.4 }}
-            className="inline-flex items-center justify-center size-20 rounded-2xl bg-gradient-to-br from-accent-indigo via-brand-base to-accent-pink mb-4 shadow-lg shadow-brand-glow"
+            className={cn(
+              'inline-flex items-center justify-center size-14 rounded-2xl mb-2',
+              'bg-gradient-to-br from-accent-indigo via-brand-base to-accent-pink',
+              'shadow-lg shadow-brand-glow',
+              !shouldReduceMotion && 'animate-pulse-glow'
+            )}
           >
-            <EduPlayIcon size={40} className="text-white" />
+            <EduPlayIcon size={28} className="text-white" />
           </motion.div>
-          
-          <motion.h1 
+          <motion.h1
             initial={{ opacity: 0, y: 10 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ delay: 0.2 }}
-            className="text-3xl font-bold font-display bg-gradient-to-r from-white via-brand-light to-accent-indigo bg-clip-text text-transparent"
+            className="text-xl font-bold font-display bg-gradient-to-r from-white via-brand-light to-accent-indigo bg-clip-text text-transparent"
           >
             EduPlay RFID
           </motion.h1>
-          
-          <motion.p 
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            transition={{ delay: 0.3 }}
-            className="text-text-muted mt-2"
-          >
-            Plataforma de Juegos Educativos
-          </motion.p>
         </div>
 
         {/* Alertas de estado */}
@@ -394,6 +443,7 @@ export default function Login() {
         {/* Card del formulario */}
         <GlassCard className="p-8" variant="solid">
           <motion.form
+            ref={formRef}
             onSubmit={handleSubmit}
             className="space-y-6"
             initial={shouldReduceMotion ? false : "hidden"}
@@ -454,13 +504,14 @@ export default function Login() {
               <button
                 type="button"
                 onClick={() => setShowPassword(!showPassword)}
-                className="absolute right-3 top-[38px] text-text-muted hover:text-text-primary transition-colors p-1"
-                tabIndex={-1}
+                className="absolute right-3 top-[38px] text-text-muted hover:text-text-primary transition-colors p-1 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-base focus-visible:ring-offset-2 focus-visible:ring-offset-background-base rounded"
+                aria-label={showPassword ? 'Ocultar contraseña' : 'Mostrar contraseña'}
+                aria-pressed={showPassword}
               >
                 {showPassword ? (
-                  <EyeOff className="size-5" />
+                  <EyeOff className="size-5" aria-hidden="true" />
                 ) : (
-                  <Eye className="size-5" />
+                  <Eye className="size-5" aria-hidden="true" />
                 )}
               </button>
             </motion.div>
@@ -514,6 +565,7 @@ export default function Login() {
         >
           © {new Date().getFullYear()} EduPlay RFID · Proyecto TFG
         </motion.p>
+      </div>
       </motion.div>
     </div>
   );

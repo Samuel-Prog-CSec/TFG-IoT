@@ -7,10 +7,7 @@
  */
 
 // Mock de Redis ANTES de cualquier import que lo use
-jest.mock('ioredis', () => {
-  const RedisMock = require('ioredis-mock');
-  return RedisMock;
-});
+jest.mock('ioredis', () => require('ioredis-mock'));
 
 const mongoose = require('mongoose');
 const redisService = require('../src/services/redisService');

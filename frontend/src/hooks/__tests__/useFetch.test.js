@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { renderHook, waitFor, act } from '@testing-library/react';
 import { useFetch } from '../useFetch';
 
@@ -35,7 +35,7 @@ describe('useFetch', () => {
 
   it('transitions from loading to success', async () => {
     let resolve;
-    const slowFetch = vi.fn(() => new Promise(r => { resolve = r; }));
+    const slowFetch = vi.fn(() => new Promise(_resolve => { resolve = _resolve; }));
     const { result } = renderHook(() => useFetch(slowFetch));
 
     await waitFor(() => {
@@ -117,7 +117,7 @@ describe('useFetch', () => {
 
   it('does not update state after unmount', async () => {
     let resolve;
-    const slowFetch = vi.fn(() => new Promise(r => { resolve = r; }));
+    const slowFetch = vi.fn(() => new Promise(_resolve => { resolve = _resolve; }));
     const { result, unmount } = renderHook(() => useFetch(slowFetch));
 
     await waitFor(() => {

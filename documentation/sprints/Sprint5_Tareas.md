@@ -411,16 +411,16 @@ Dos cambios necesarios en el modelo de datos de estudiantes:
 **Origen:** Revisión con el tutor del TFG — las tarjetas RFID no deben requerir registro previo en BD
 
 **Descripción:**
-Redactar el ADR-012 en `backend/docs/Architecture_Decisions.md` documentando la decisión de eliminar el modelo Card. Incluye: situación actual y sus 5 limitaciones, perspectiva pedagógica, decisión con 5 cambios principales, alternativas consideradas (deprecación gradual y auto-descubrimiento) con motivos de descarte, análisis de impacto (qué cambia / qué no), consecuencias positivas y trade-offs, evidencia técnica y relación con ADR-003, ADR-004 y ADR-008. También actualizar la sección Cards del mapeo Endpoint → DTO en ADR-003.
+Redactar el ADR-012 en `documentation/Architecture_Decisions.md` documentando la decisión de eliminar el modelo Card. Incluye: situación actual y sus 5 limitaciones, perspectiva pedagógica, decisión con 5 cambios principales, alternativas consideradas (deprecación gradual y auto-descubrimiento) con motivos de descarte, análisis de impacto (qué cambia / qué no), consecuencias positivas y trade-offs, evidencia técnica y relación con ADR-003, ADR-004 y ADR-008. También actualizar la sección Cards del mapeo Endpoint → DTO en ADR-003.
 
 **Criterios de Aceptación:**
 
-- [x] ADR-012 añadido a `backend/docs/Architecture_Decisions.md`
+- [x] ADR-012 añadido a `documentation/Architecture_Decisions.md`
 - [x] Sección Cards de ADR-003 actualizada con referencia a ADR-012
 - [x] Documento incluye perspectiva pedagógica con argumentos de uso educativo real
 - [x] Alternativas documentadas con motivos de descarte
 
-**Archivos afectados:** `backend/docs/Architecture_Decisions.md`
+**Archivos afectados:** `documentation/Architecture_Decisions.md`
 
 ---
 
@@ -1356,13 +1356,13 @@ Tarea de **PLANIFICACIÓN** — no implementación. Analizar el archivo, identif
 
 **Criterios de Aceptación:**
 
-- [x] Documento de diseño creado — ADR-018 en `backend/docs/Architecture_Decisions.md` (siguiendo el formato de ADRs existentes del proyecto en vez de crear un directorio `docs/adr/` separado)
+- [x] Documento de diseño creado — ADR-018 en `documentation/Architecture_Decisions.md` (siguiendo el formato de ADRs existentes del proyecto en vez de crear un directorio `docs/adr/` separado)
 - [x] Responsabilidades catalogadas — 10 grupos con líneas, métodos y complejidad
 - [x] Propuesta de módulos con dependencias claras — 11 módulos bajo `services/gameEngine/` con diagrama de dependencias
 - [x] Estimaciones de esfuerzo por módulo — 3 fases (~4h, ~8h, ~12h) = ~32h total
 - [x] No se modifica código en esta tarea
 
-**Archivos afectados:** `backend/docs/Architecture_Decisions.md` (ADR-018 añadido al final)
+**Archivos afectados:** `documentation/Architecture_Decisions.md` (ADR-018 añadido al final)
 
 ---
 
@@ -1437,7 +1437,7 @@ Expansión mayor del backend de analytics, añadiendo 19 nuevos endpoints organi
 - `backend/src/models/GamePlay.js` — 1 nuevo índice
 - `backend/src/models/GameSession.js` — 1 nuevo índice
 - `backend/src/repositories/gameSessionRepository.js` — método aggregate
-- `backend/docs/Architecture_Decisions.md` — ADR-026
+- `documentation/Architecture_Decisions.md` — ADR-026
 
 **Criterios de Aceptación:**
 
@@ -1925,7 +1925,7 @@ La cadena de dashboards determina cuándo el dashboard estará completamente fun
 
 ### Refactor RFID Cards (ADR-012)
 
-- [x] ADR-012 documentado en `backend/docs/Architecture_Decisions.md`
+- [x] ADR-012 documentado en `documentation/Architecture_Decisions.md`
 - [ ] Modelo Card eliminado (`backend/src/models/Card.js` no existe)
 - [ ] Campo `cardId` eliminado de CardDeck y GameSession (modelos, validadores, DTOs)
 - [ ] `POST /api/decks` acepta mappings con solo `uid` (sin `cardId`)
@@ -1996,4 +1996,4 @@ La cadena de dashboards determina cuándo el dashboard estará completamente fun
     - `backend/docs/RAT_Registro_Actividades_Tratamiento.md`
     - `documentation/EIPD_Evaluacion_Impacto.md`
     - `documentation/Sprint5_Proteccion_Datos_Menores.md`
-    - ADR-012 en `backend/docs/Architecture_Decisions.md`
+    - ADR-012 en `documentation/Architecture_Decisions.md`

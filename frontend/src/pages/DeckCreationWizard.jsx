@@ -11,7 +11,7 @@
  * @module pages/DeckCreationWizard
  */
 
-import { useState, useEffect, useCallback, useMemo } from 'react';
+import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import PropTypes from 'prop-types';
 import { useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
@@ -115,6 +115,7 @@ export default function DeckCreationWizard() {
 
   // Estado del wizard
   const [currentStep, setCurrentStep] = useState(0);
+  const [stepDirection, setStepDirection] = useState(1);
   const [isSubmitting, setIsSubmitting] = useState(false);
   
   // Datos del mazo
@@ -134,8 +135,13 @@ export default function DeckCreationWizard() {
   // Modo de captura de cartas
   const [captureMode, setCaptureMode] = useState('rfid'); // 'rfid' | 'manual'
   
-  // Modal de borrador
+  // Modal de borrador. `draftDecisionTakenRef` evita que el modal reaparezca
+  // tras descartar y empezar a rellenar el wizard de nuevo: el hook
+  // `useDeckWizardDraft` vuelve a poner `hasDraft=true` en cuanto se guarda
+  // el primer dato significativo, lo que hacía rebrotar el modal en pleno
+  // step 2 (QA 26/04/2026).
   const [showDraftModal, setShowDraftModal] = useState(false);
+  const draftDecisionTakenRef = useRef(false);
   
   // Modal de confirmación para salir
   const exitConfirmation = useConfirmationModal();
@@ -161,9 +167,10 @@ export default function DeckCreationWizard() {
     hasError: Boolean(contextsError)
   });
 
-  // Mostrar modal si hay borrador guardado
+  // Mostrar modal si hay borrador guardado, solo si el usuario aún no ha
+  // tomado decisión sobre él en esta sesión del wizard.
   useEffect(() => {
-    if (hasDraft && !showDraftModal) {
+    if (hasDraft && !showDraftModal && !draftDecisionTakenRef.current) {
       setShowDraftModal(true);
     }
   }, [hasDraft, showDraftModal]);
@@ -192,12 +199,14 @@ export default function DeckCreationWizard() {
       restoreDraft();
       toast.success('Borrador restaurado');
     }
+    draftDecisionTakenRef.current = true;
     setShowDraftModal(false);
   }, [draft, restoreDraft]);
 
   // Descartar borrador
   const handleDiscardDraft = useCallback(() => {
     discardDraft();
+    draftDecisionTakenRef.current = true;
     setShowDraftModal(false);
   }, [discardDraft]);
 
@@ -242,6 +251,7 @@ export default function DeckCreationWizard() {
           description: `La tarjeta ${card.uid} está en el mazo "${result.deck.name}". Se moverá automáticamente al crear este mazo.`
         });
       }
+      return undefined;
     }).catch(() => {
       // Silencioso: el check es informativo, no crítico
     });
@@ -293,12 +303,14 @@ export default function DeckCreationWizard() {
   // Navegación
   const goNext = useCallback(() => {
     if (currentStep < WIZARD_STEPS.length - 1 && canProceed()) {
+      setStepDirection(1);
       setCurrentStep(prev => prev + 1);
     }
   }, [currentStep, canProceed]);
 
   const goBack = useCallback(() => {
     if (currentStep > 0) {
+      setStepDirection(-1);
       setCurrentStep(prev => prev - 1);
     }
   }, [currentStep]);
@@ -312,7 +324,9 @@ export default function DeckCreationWizard() {
     try {
       const deckData = {
         name: deckName.trim(),
-        contextId: selectedContext._id,
+        // El DTO del backend (toGameContextDTOV1) devuelve `id`, pero por
+        // resiliencia ante futuros cambios de contrato aceptamos también `_id`.
+        contextId: selectedContext._id || selectedContext.id,
         cardMappings: buildCardMappingsPayload(selectedCards, cardAssignments)
       };
       
@@ -442,6 +456,7 @@ export default function DeckCreationWizard() {
           onStepClick={(index) => {
             // Solo permitir ir a pasos anteriores
             if (index < currentStep) {
+              setStepDirection(index < currentStep ? -1 : 1);
               setCurrentStep(index);
             }
           }}
@@ -450,12 +465,13 @@ export default function DeckCreationWizard() {
 
       {/* Contenido del paso */}
       <div className="max-w-5xl mx-auto mb-8">
-        <AnimatePresence mode="wait">
+        <AnimatePresence mode="wait" custom={stepDirection}>
           <motion.div
             key={currentStep}
-            initial={shouldReduceMotion ? false : { opacity: 0, x: 20 }}
+            custom={stepDirection}
+            initial={shouldReduceMotion ? false : (d) => ({ opacity: 0, x: d * 30 })}
             animate={{ opacity: 1, x: 0 }}
-            exit={shouldReduceMotion ? { opacity: 0 } : { opacity: 0, x: -20 }}
+            exit={shouldReduceMotion ? { opacity: 0 } : (d) => ({ opacity: 0, x: d * -30 })}
             transition={{ duration: shouldReduceMotion ? 0.15 : 0.3 }}
           >
             {renderStep()}
@@ -758,9 +774,9 @@ function StepContext({
     return (
       <GlassCard className="p-6">
         <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
-          {[...Array(6)].map((_, i) => (
-            <div 
-              key={i}
+          {Array.from({ length: 6 }, (_, i) => `ctx-wizard-skeleton-${i}`).map(id => (
+            <div
+              key={id}
               className="h-32 rounded-xl bg-background-elevated/50 animate-pulse"
             />
           ))}
@@ -779,14 +795,20 @@ function StepContext({
       </div>
 
       <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
-        {contexts.map((context) => (
+        {contexts.map((context) => {
+          // El DTO toGameContextDTOV1 expone `id`; mantenemos compat con `_id`
+          // por si en algun consumidor el documento Mongoose llega crudo.
+          const contextKey = context._id || context.id;
+          const selectedKey = selectedContext?._id || selectedContext?.id;
+          const isSelected = Boolean(selectedKey) && selectedKey === contextKey;
+          return (
           <motion.button
-            key={context._id}
+            key={contextKey}
             onClick={() => onSelectContext(context)}
             className={cn(
               'relative p-4 rounded-xl border-2 transition-[border-color,background-color] text-left',
               'hover:border-accent-indigo/50 hover:bg-accent-indigo/5',
-              selectedContext?._id === context._id
+              isSelected
                 ? 'border-accent-indigo bg-accent-indigo/10'
                 : 'border-border-default bg-background-elevated/30'
             )}
@@ -794,7 +816,7 @@ function StepContext({
             whileTap={{ scale: 0.98 }}
           >
             {/* Check si está seleccionado */}
-            {selectedContext?._id === context._id && (
+            {isSelected && (
               <motion.div
                 initial={{ scale: 0 }}
                 animate={{ scale: 1 }}
@@ -807,7 +829,7 @@ function StepContext({
             {/* Preview de assets */}
             <div className="flex flex-wrap gap-1.5 mb-3 h-10 overflow-hidden">
               {context.assets?.slice(0, 6).map((asset, i) => (
-                <span key={i} className="text-2xl">
+                <span key={asset.key || `${asset.display || 'asset'}-${i}`} className="text-2xl">
                   {asset.display || '📦'}
                 </span>
               ))}
@@ -823,7 +845,8 @@ function StepContext({
               {context.assets?.length || 0} assets disponibles
             </p>
           </motion.button>
-        ))}
+          );
+        })}
       </div>
 
       {contexts.length === 0 && (

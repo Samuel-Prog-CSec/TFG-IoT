@@ -16,7 +16,11 @@ const count = (filter = {}) => User.countDocuments(filter);
 
 const create = data => User.create(data);
 
-const aggregate = pipeline => User.aggregate(pipeline);
+// maxTimeMS por defecto para proteger contra aggregations lentas que bloqueen el pool
+const DEFAULT_AGGREGATE_TIMEOUT_MS = Number.parseInt(process.env.AGGREGATE_TIMEOUT_MS, 10) || 15000;
+
+const aggregate = (pipeline, { maxTimeMS = DEFAULT_AGGREGATE_TIMEOUT_MS } = {}) =>
+  User.aggregate(pipeline).option({ maxTimeMS });
 
 const updateById = (id, update, options = {}) => baseRepo.updateById(User, id, update, options);
 

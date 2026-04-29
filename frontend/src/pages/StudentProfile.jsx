@@ -21,21 +21,28 @@ import PerformanceByDimension from '../components/analytics/PerformanceByDimensi
 import GameHistoryTable from '../components/analytics/GameHistoryTable';
 import StrengthsWeaknesses from '../components/analytics/StrengthsWeaknesses';
 import EngagementRadar from '../components/analytics/EngagementRadar';
+import ScrollRevealSection from '../components/ui/ScrollRevealSection';
 import { TIER_CONFIG, scoreToRAG, scoreToTier } from '../constants/analyticsThresholds';
+import { formatRelativeTime } from '../lib/dateUtils';
 
+// Calcula dias transcurridos desde una fecha; nunca devuelve negativo (las fechas
+// futuras de fixtures/seeders se tratan como "hoy" para evitar etiquetas como "Hace -1 dias").
+const daysSince = (dateStr) => {
+  if (!dateStr) return null;
+  const diff = (new Date() - new Date(dateStr)) / (1000 * 60 * 60 * 24);
+  return Math.max(0, Math.floor(diff));
+};
+
+// getRelativeTime usa el helper centralizado en lib/dateUtils.js (P25)
+// y degrada a "Sin actividad" cuando no hay fecha.
 const getRelativeTime = (dateStr) => {
   if (!dateStr) return 'Sin actividad';
-  const diffDays = Math.floor((new Date() - new Date(dateStr)) / (1000 * 60 * 60 * 24));
-  if (diffDays === 0) return 'Hoy';
-  if (diffDays === 1) return 'Ayer';
-  if (diffDays < 7) return `Hace ${diffDays} dias`;
-  if (diffDays < 30) return `Hace ${Math.floor(diffDays / 7)} semanas`;
-  return `Hace ${Math.floor(diffDays / 30)} meses`;
+  return formatRelativeTime(dateStr);
 };
 
 const getActivityColor = (dateStr) => {
-  if (!dateStr) return 'bg-text-muted';
-  const diffDays = Math.floor((new Date() - new Date(dateStr)) / (1000 * 60 * 60 * 24));
+  const diffDays = daysSince(dateStr);
+  if (diffDays === null) return 'bg-text-muted';
   if (diffDays <= 3) return 'bg-success-base';
   if (diffDays <= 7) return 'bg-warning-base';
   return 'bg-error-base';
@@ -53,6 +60,7 @@ const getInitials = (name) => {
  * Pieza central del TFG: permite al profesor entender fortalezas,
  * debilidades y evolucion de cada alumno.
  */
+// eslint-disable-next-line sonarjs/cyclomatic-complexity -- perfil de estudiante con multiples secciones de analytics y estados de carga
 export default function StudentProfile() {
   const { studentId } = useParams();
   const navigate = useNavigate();
@@ -251,9 +259,9 @@ export default function StudentProfile() {
           value={timeRange}
           onChange={setTimeRange}
           options={[
-            { value: '7d', label: 'Ultimos 7 dias' },
-            { value: '30d', label: 'Ultimos 30 dias' },
-            { value: '90d', label: 'Ultimos 90 dias' },
+            { value: '7d', label: 'Últimos 7 días' },
+            { value: '30d', label: 'Últimos 30 días' },
+            { value: '90d', label: 'Últimos 90 días' },
           ]}
           className="w-48"
         />
@@ -267,9 +275,9 @@ export default function StudentProfile() {
         aria-label="KPIs del estudiante"
       >
         <div className="grid grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-3 lg:gap-4">
-          <motion.div variants={shouldReduceMotion ? {} : listItemVariants}>
+          <motion.div variants={shouldReduceMotion ? {} : listItemVariants} className="h-full">
             <StudentKPICard
-              label="Puntuacion Media"
+              label="Puntuación Media"
               value={Math.round(metrics.averageScore || 0)}
               suffix="%"
               ragStatus={scoreToRAG(metrics.averageScore || 0)}
@@ -278,7 +286,7 @@ export default function StudentProfile() {
             />
           </motion.div>
 
-          <motion.div variants={shouldReduceMotion ? {} : listItemVariants}>
+          <motion.div variants={shouldReduceMotion ? {} : listItemVariants} className="h-full">
             <StudentKPICard
               label="Tasa de Acierto"
               value={accuracyRate}
@@ -289,26 +297,35 @@ export default function StudentProfile() {
             />
           </motion.div>
 
-          <motion.div variants={shouldReduceMotion ? {} : listItemVariants}>
+          <motion.div variants={shouldReduceMotion ? {} : listItemVariants} className="h-full">
             <StudentKPICard
               label="Tiempo Respuesta"
               value={((metrics.averageResponseTime || 0) / 1000).toFixed(1)}
               suffix="s"
-              ragStatus={metrics.averageResponseTime <= 4000 ? 'green' : metrics.averageResponseTime <= 8000 ? 'amber' : 'red'}
+              ragStatus={(() => {
+                if (metrics.averageResponseTime <= 4000) return 'green';
+                if (metrics.averageResponseTime <= 8000) return 'amber';
+                return 'red';
+              })()}
               comparison={classComparison.responseTime != null ? `vs clase: ${(classComparison.responseTime / 1000).toFixed(1)}s` : null}
               comparisonPositive={metrics.averageResponseTime < (classComparison.responseTime || Infinity)}
             />
           </motion.div>
 
-          <motion.div variants={shouldReduceMotion ? {} : listItemVariants}>
+          <motion.div variants={shouldReduceMotion ? {} : listItemVariants} className="h-full">
             <StudentKPICard
               label="Engagement"
               value={engagement?.engagementScore != null ? Math.round(engagement.engagementScore) : '—'}
-              ragStatus={engagement?.engagementScore >= 60 ? 'green' : engagement?.engagementScore >= 35 ? 'amber' : engagement ? 'red' : 'gray'}
+              ragStatus={(() => {
+                if (engagement?.engagementScore >= 60) return 'green';
+                if (engagement?.engagementScore >= 35) return 'amber';
+                if (engagement) return 'red';
+                return 'gray';
+              })()}
             />
           </motion.div>
 
-          <motion.div variants={shouldReduceMotion ? {} : listItemVariants}>
+          <motion.div variants={shouldReduceMotion ? {} : listItemVariants} className="h-full">
             <StudentKPICard
               label="Total Partidas"
               value={metrics.totalGamesPlayed || 0}
@@ -317,12 +334,16 @@ export default function StudentProfile() {
             />
           </motion.div>
 
-          <motion.div variants={shouldReduceMotion ? {} : listItemVariants}>
+          <motion.div variants={shouldReduceMotion ? {} : listItemVariants} className="h-full">
             <StudentKPICard
               label="Completado"
               value={completionRate}
               suffix="%"
-              ragStatus={completionRate >= 85 ? 'green' : completionRate >= 60 ? 'amber' : 'red'}
+              ragStatus={(() => {
+                if (completionRate >= 85) return 'green';
+                if (completionRate >= 60) return 'amber';
+                return 'red';
+              })()}
               comparison={metrics.totalAbandonedGames > 0 ? `${metrics.totalAbandonedGames} abandonadas` : 'Sin abandonos'}
             />
           </motion.div>
@@ -330,43 +351,53 @@ export default function StudentProfile() {
       </motion.section>
 
       {/* ═══════ Trayectoria + Narrativa ═══════ */}
+      {/* `items-stretch` (default en grid) + `h-full` en cada wrapper iguala
+          la altura de los dos paneles. Sin esto el chart de la izquierda
+          (~350px alto) y el panel "Resumen del Alumno" (~200px) generaban
+          un hueco visual en la fila (QA 2026-04-29). */}
       <div className="grid grid-cols-1 lg:grid-cols-5 gap-6">
-        <div className="lg:col-span-3">
+        <div className="lg:col-span-3 h-full">
           <TrajectoryChart
             trajectoryData={trajectory}
             classComparison={summary?.classProgressComparison}
           />
         </div>
-        <div className="lg:col-span-2">
+        <div className="lg:col-span-2 h-full">
           <NarrativeCard interpretation={trajectory?.interpretation || trajectory?.trend?.interpretation || engagement?.interpretation || summary?.interpretation} />
         </div>
       </div>
 
-      {/* ═══════ Rendimiento por Contexto y por Mecanica ═══════ */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        <PerformanceByDimension
-          title="Rendimiento por Contexto"
-          data={summary?.performanceByContext}
-          dimension="context"
-        />
-        <PerformanceByDimension
-          title="Rendimiento por Mecanica"
-          data={summary?.performanceByMechanic}
-          dimension="mechanic"
-        />
-      </div>
+      {/* ═══════ Rendimiento por Contexto y por Mecánica ═══════ */}
+      <ScrollRevealSection>
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+          <PerformanceByDimension
+            title="Rendimiento por Contexto"
+            data={summary?.performanceByContext}
+            dimension="context"
+          />
+          <PerformanceByDimension
+            title="Rendimiento por Mecánica"
+            data={summary?.performanceByMechanic}
+            dimension="mechanic"
+          />
+        </div>
+      </ScrollRevealSection>
 
       {/* ═══════ Engagement + Fortalezas/Debilidades ═══════ */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        <EngagementRadar engagement={engagement} />
-        <StrengthsWeaknesses
-          performanceByContext={summary?.performanceByContext}
-          performanceByMechanic={summary?.performanceByMechanic}
-        />
-      </div>
+      <ScrollRevealSection delay={0.1}>
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+          <EngagementRadar engagement={engagement} />
+          <StrengthsWeaknesses
+            performanceByContext={summary?.performanceByContext}
+            performanceByMechanic={summary?.performanceByMechanic}
+          />
+        </div>
+      </ScrollRevealSection>
 
       {/* ═══════ Historial de Partidas ═══════ */}
-      <GameHistoryTable games={summary?.lastGames} />
+      <ScrollRevealSection delay={0.15}>
+        <GameHistoryTable games={summary?.lastGames} />
+      </ScrollRevealSection>
       </ChartErrorBoundary>
     </motion.section>
   );

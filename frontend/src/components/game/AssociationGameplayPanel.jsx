@@ -7,28 +7,7 @@
 import { memo } from 'react';
 import PropTypes from 'prop-types';
 import ChallengeDisplay from './ChallengeDisplay';
-
-/**
- * Resuelve un tema visual basado en el valor del desafío.
- * Utilizado para contextualizar colores/iconos del ChallengeDisplay.
- */
-function resolveAssociationTheme(challengeValue) {
-  const challengeKey = (challengeValue || '').toLowerCase();
-
-  if (challengeKey.includes('animal')) {
-    return 'animals';
-  }
-
-  if (challengeKey.includes('color')) {
-    return 'colors';
-  }
-
-  if (challengeKey.includes('número') || challengeKey.includes('numero')) {
-    return 'numbers';
-  }
-
-  return 'default';
-}
+import { resolveAssociationTheme } from './associationTheme';
 
 const AssociationGameplayPanel = memo(function AssociationGameplayPanel({
   ref, challenge, paused, feedbackState, feedbackPoints, feedbackMessage, isTimeout

@@ -127,7 +127,7 @@ Entidades principales: `User`, `Card`, `CardDeck`, `GameMechanic`, `GameContext`
 ### 4.1 Arquitectura general
 
 Monorepo con tres capas: firmware RFID, backend Node.js y frontend React. Diagrama de despliegue (cloud + navegador + sensor USB).  
-📄 *Material base:* [backend/docs/Architecture_Decisions.md](../backend/docs/Architecture_Decisions.md), [documentation/02-Patrones_Diseno.md](../documentation/02-Patrones_Diseno.md)
+📄 *Material base:* [documentation/Architecture_Decisions.md](../documentation/Architecture_Decisions.md), [documentation/02-Patrones_Diseno.md](../documentation/02-Patrones_Diseno.md)
 
 ### 4.2 Decisiones arquitectónicas (ADRs)
 
@@ -137,7 +137,7 @@ Las decisiones de diseño con mayor impacto transversal:
 - **ADR-003** — Capa de DTOs v1 y contrato de respuestas uniforme
 - **ADR-004** — Migración RFID de backend serial a Web Serial en cliente (cloud-readiness)
 
-📄 *Material base:* [backend/docs/Architecture_Decisions.md](../backend/docs/Architecture_Decisions.md)
+📄 *Material base:* [documentation/Architecture_Decisions.md](../documentation/Architecture_Decisions.md)
 
 ### 4.3 Diseño del hardware RFID
 
@@ -269,7 +269,7 @@ Validación server-side de sensorId en gameplay (anti-spoofing). Discusión de l
 ### 6.6 Seguridad en WebSockets
 
 Autenticación obligatoria en handshake. Rate limiting por tipo de evento. Defensa contra CSWSH. Desconexión activa ante sesión inválida.  
-📄 *Material base:* [backend/docs/Architecture_Decisions.md](../backend/docs/Architecture_Decisions.md) ADR-002, [documentation/advanced_vulnerabilities.md](../documentation/advanced_vulnerabilities.md)
+📄 *Material base:* [documentation/Architecture_Decisions.md](../documentation/Architecture_Decisions.md) ADR-002, [documentation/advanced_vulnerabilities.md](../documentation/advanced_vulnerabilities.md)
 
 ### 6.7 Seguridad de assets y prevención de XSS
 
@@ -413,7 +413,7 @@ Resumen ejecutivo de cada sprint: objetivos, decisiones tomadas y deuda técnica
 | `documentation/advanced_vulnerabilities.md` | §6.1, §6.5, §6.6 |
 | `documentation/Dashboard.md` | §4.6.3, §8.3 |
 | `documentation/Sprint{1-4}_*.md` | Anexo E |
-| `backend/docs/Architecture_Decisions.md` | §4.1, §4.2, §6.2, §6.6 |
+| `documentation/Architecture_Decisions.md` | §4.1, §4.2, §6.2, §6.6 |
 | `backend/docs/Arquitectura_Redis.md` | §4.4.6, §6.2 |
 | `backend/docs/Seguridad_tokens_JWT.md` | §4.4.3, §6.2 |
 | `backend/docs/RFID_Protocol.md` | §4.3, §4.5, Anexo B |

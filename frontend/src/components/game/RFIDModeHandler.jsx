@@ -7,8 +7,7 @@
 
 import { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { 
-  Wifi,
+import {
   WifiOff,
   Settings,
   Gamepad2,
@@ -153,19 +152,35 @@ export default function RFIDModeHandler({ currentMode = 'idle', className }) {
             </GlassCard>
           </motion.div>
         ) : (
-          /* Widget colapsado: solo indicador mínimo */
+          /* Widget colapsado: signature del producto — un "sensor" vivo con pulso radar
+              que refuerza la naturaleza RFID de la plataforma. El anillo se expande
+              desde el dot central como una onda de radio. */
           <motion.button
             key="collapsed"
             initial={{ opacity: 0, scale: 0.8 }}
             animate={{ opacity: 1, scale: 1 }}
             exit={{ opacity: 0, scale: 0.8 }}
             onClick={() => setExpanded(true)}
-            className="pointer-events-auto flex items-center gap-2 px-3 py-2 rounded-full bg-background-elevated/80 border border-border-default backdrop-blur-md shadow-lg hover:bg-background-surface/80 transition-colors cursor-pointer"
+            className="pointer-events-auto group relative flex items-center gap-2.5 pl-2.5 pr-3.5 py-2 rounded-full bg-background-elevated/85 border border-border-default backdrop-blur-md shadow-lg hover:border-brand-base/40 hover:bg-background-surface/80 transition-[border-color,background-color] duration-200 cursor-pointer"
             aria-label="Expandir widget RFID"
             title="Sensor RFID desconectado — click para expandir"
           >
-            <div className="size-2 rounded-full bg-error-base" />
-            <span className="text-[10px] uppercase tracking-wider font-bold text-text-muted">RFID</span>
+            <span className="relative flex items-center justify-center size-5" aria-hidden="true">
+              <motion.span
+                className="absolute inset-0 rounded-full ring-2 ring-error-base/60"
+                initial={{ scale: 0.6, opacity: 0.6 }}
+                animate={{ scale: [0.6, 1.6], opacity: [0.6, 0] }}
+                transition={{ duration: 1.6, repeat: Infinity, ease: 'easeOut' }}
+              />
+              <motion.span
+                className="absolute inset-0 rounded-full ring-2 ring-error-base/40"
+                initial={{ scale: 0.6, opacity: 0.35 }}
+                animate={{ scale: [0.6, 2.1], opacity: [0.35, 0] }}
+                transition={{ duration: 1.6, repeat: Infinity, ease: 'easeOut', delay: 0.55 }}
+              />
+              <span className="relative size-2 rounded-full bg-error-base shadow-[0_0_8px_var(--color-error-glow)]" />
+            </span>
+            <span className="text-[10px] uppercase tracking-[0.15em] font-bold text-text-secondary group-hover:text-text-primary transition-colors">RFID</span>
           </motion.button>
         )}
       </AnimatePresence>

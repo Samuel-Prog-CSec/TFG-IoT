@@ -83,6 +83,7 @@ const MEMORY_MANY_ATTEMPTS = [
 function pickFromPool(pool, recentMessages) {
   const available = pool.filter(msg => !recentMessages.has(msg));
   const finalPool = available.length > 0 ? available : pool;
+  // eslint-disable-next-line sonarjs/pseudo-random -- seleccion aleatoria de mensaje de feedback, no requiere seguridad criptografica
   return finalPool[Math.floor(Math.random() * finalPool.length)];
 }
 
@@ -106,54 +107,47 @@ function pickFromPool(pool, recentMessages) {
  * @param {Set<string>} [context.recentMessages] - Last 3 messages shown
  * @returns {string}
  */
-export function selectFeedbackMessage(context) {
+// Selecciona pool de mensajes para respuestas correctas (acierto) segun contexto de juego.
+function selectSuccessPool(context) {
   const {
-    isCorrect, isTimeout = false,
-    streak = 0, previousStreak = 0, totalErrors = 0,
-    currentRound = 1, totalRounds = 1,
+    streak = 0, currentRound = 1, totalRounds = 1,
     timeLeft = Infinity, timeLimit = 30,
-    isMemoryMode = false,
-    matchedCount = 0, totalCards = 0, attempts = 0,
-    recentMessages = new Set()
+    isMemoryMode = false, matchedCount = 0, totalCards = 0
   } = context;
 
-  let pool;
-
-  if (isCorrect) {
-    if (isMemoryMode) {
-      const totalPairs = Math.max(1, Math.ceil(totalCards / 2));
-      const matchedPairs = Math.floor(matchedCount / 2);
-      pool = matchedPairs / totalPairs > 0.75
-        ? MEMORY_ALMOST_DONE
-        : MEMORY_MATCH;
-    } else if (streak >= 10) {
-      pool = SUCCESS_STREAK_10;
-    } else if (streak >= 5) {
-      pool = SUCCESS_STREAK_5;
-    } else if (streak >= 3) {
-      pool = SUCCESS_STREAK_3;
-    } else if (currentRound >= totalRounds) {
-      pool = SUCCESS_LAST_ROUND;
-    } else if (Number.isFinite(timeLimit) && timeLimit > 0 && timeLeft <= timeLimit * 0.2) {
-      pool = SUCCESS_TIME_PRESSURE;
-    } else {
-      pool = SUCCESS_DEFAULT;
-    }
-  } else {
-    if (isTimeout) {
-      pool = ERROR_TIMEOUT;
-    } else if (isMemoryMode) {
-      pool = attempts > totalCards * 1.5
-        ? MEMORY_MANY_ATTEMPTS
-        : MEMORY_MISMATCH;
-    } else if (previousStreak >= 3) {
-      pool = ERROR_STREAK_BROKEN;
-    } else if (totalErrors >= 3) {
-      pool = ERROR_MULTIPLE_FAILS;
-    } else {
-      pool = ERROR_DEFAULT;
-    }
+  if (isMemoryMode) {
+    const totalPairs = Math.max(1, Math.ceil(totalCards / 2));
+    const matchedPairs = Math.floor(matchedCount / 2);
+    return matchedPairs / totalPairs > 0.75 ? MEMORY_ALMOST_DONE : MEMORY_MATCH;
   }
+  if (streak >= 10) return SUCCESS_STREAK_10;
+  if (streak >= 5) return SUCCESS_STREAK_5;
+  if (streak >= 3) return SUCCESS_STREAK_3;
+  if (currentRound >= totalRounds) return SUCCESS_LAST_ROUND;
+  if (Number.isFinite(timeLimit) && timeLimit > 0 && timeLeft <= timeLimit * 0.2) {
+    return SUCCESS_TIME_PRESSURE;
+  }
+  return SUCCESS_DEFAULT;
+}
 
+// Selecciona pool de mensajes para respuestas incorrectas o timeout.
+function selectErrorPool(context) {
+  const {
+    isTimeout = false, previousStreak = 0, totalErrors = 0,
+    isMemoryMode = false, attempts = 0, totalCards = 0
+  } = context;
+
+  if (isTimeout) return ERROR_TIMEOUT;
+  if (isMemoryMode) {
+    return attempts > totalCards * 1.5 ? MEMORY_MANY_ATTEMPTS : MEMORY_MISMATCH;
+  }
+  if (previousStreak >= 3) return ERROR_STREAK_BROKEN;
+  if (totalErrors >= 3) return ERROR_MULTIPLE_FAILS;
+  return ERROR_DEFAULT;
+}
+
+export function selectFeedbackMessage(context) {
+  const { isCorrect, recentMessages = new Set() } = context;
+  const pool = isCorrect ? selectSuccessPool(context) : selectErrorPool(context);
   return pickFromPool(pool, recentMessages);
 }

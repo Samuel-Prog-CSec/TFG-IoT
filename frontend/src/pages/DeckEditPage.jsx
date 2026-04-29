@@ -233,6 +233,7 @@ export default function DeckEditPage() {
           description: `La tarjeta ${card.uid} está en el mazo "${result.deck.name}". Se moverá automáticamente al guardar.`
         });
       }
+      return undefined;
     }).catch(() => {
       // Silencioso: el check es informativo, no crítico
     });
@@ -259,8 +260,12 @@ export default function DeckEditPage() {
   }, [selectedCards, ui.activeUid]);
 
   const handleContextChange = useCallback((context) => {
-    if (effectiveContext?._id === context._id) return;
-    
+    // El DTO toGameContextDTOV1 expone `id`; mantenemos compat con `_id` por
+    // si llegase un documento Mongoose crudo desde otro consumidor.
+    const incomingKey = context?._id || context?.id;
+    const currentKey = effectiveContext?._id || effectiveContext?.id;
+    if (incomingKey && incomingKey === currentKey) return;
+
     setSelectedContext(context);
     // Limpiar asignaciones al cambiar contexto
     setCardAssignments({});
@@ -305,7 +310,7 @@ export default function DeckEditPage() {
     try {
       const updateData = {
         name: deckName.trim(),
-        contextId: effectiveContext._id,
+        contextId: effectiveContext._id || effectiveContext.id,
         cardMappings: buildCardMappingsPayload(selectedCards, cardAssignments)
       };
       
@@ -336,7 +341,7 @@ export default function DeckEditPage() {
       setDeck(prev => ({
         ...prev,
         name: deckName.trim(),
-        contextId: effectiveContext._id,
+        contextId: effectiveContext._id || effectiveContext.id,
         cardMappings: updatedCardMappings
       }));
       
@@ -612,13 +617,17 @@ export default function DeckEditPage() {
                   </div>
                 ) : (
                   <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
-                    {contexts.map((context) => (
+                    {contexts.map((context) => {
+                      const ctxKey = context._id || context.id;
+                      const effectiveKey = effectiveContext?._id || effectiveContext?.id;
+                      const isSelected = Boolean(effectiveKey) && effectiveKey === ctxKey;
+                      return (
                       <motion.button
-                        key={context._id}
+                        key={ctxKey}
                         onClick={() => handleContextChange(context)}
                         className={cn(
                           'relative p-4 rounded-xl border-2 transition-[border-color,background-color] text-left',
-                          effectiveContext?._id === context._id
+                          isSelected
                             ? 'border-accent-indigo bg-accent-indigo/10'
                             : 'border-border-default bg-background-elevated/30 hover:border-border-strong'
                         )}
@@ -628,7 +637,7 @@ export default function DeckEditPage() {
                         <div className="flex flex-wrap gap-1.5 mb-3 h-10 overflow-hidden">
                           {context.assets?.slice(0, 6).map((asset) => (
                             <span
-                              key={asset?.key || asset?.value || asset?.id || asset?.display || `${context._id}-asset`}
+                              key={asset?.key || asset?.value || asset?.id || asset?.display || `${ctxKey}-asset`}
                               className="text-2xl"
                             >
                               {asset.display || '📦'}
@@ -640,7 +649,8 @@ export default function DeckEditPage() {
                           {context.assets?.length || 0} assets
                         </p>
                       </motion.button>
-                    ))}
+                      );
+                    })}
                   </div>
                 )}
               </GlassCard>

@@ -23,6 +23,7 @@
  */
 
 const mongoose = require('mongoose');
+const { SESSION_STATUS, DIFFICULTY } = require('../constants/enums');
 
 /**
  * Calcula la dificultad del juego basándose en el número de tarjetas.
@@ -210,14 +211,14 @@ const gameSessionSchema = new mongoose.Schema(
       type: String,
       lowercase: true,
       trim: true,
-      enum: ['created', 'active', 'completed'],
+      enum: SESSION_STATUS,
       default: 'created'
     },
     difficulty: {
       type: String,
       lowercase: true,
       trim: true,
-      enum: ['easy', 'medium', 'hard'],
+      enum: DIFFICULTY,
       default: 'medium'
     },
     startedAt: Date,

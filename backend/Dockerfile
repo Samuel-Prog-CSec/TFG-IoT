@@ -32,6 +32,7 @@ RUN npm ci && npm cache clean --force
 COPY src/ ./src/
 COPY seeders/ ./seeders/
 COPY scripts/ ./scripts/
+COPY worker.js ./worker.js
 
 EXPOSE 5000
 
@@ -66,6 +67,8 @@ RUN npm ci --only=production && npm cache clean --force
 COPY src/ ./src/
 COPY seeders/ ./seeders/
 COPY scripts/ ./scripts/
+# worker.js es el entry-point del proceso BullMQ (ADR-077, PROP-62)
+COPY worker.js ./worker.js
 
 # Permisos seguros - usuario non-root
 RUN chown -R node:node /app

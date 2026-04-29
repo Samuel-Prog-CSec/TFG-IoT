@@ -7,8 +7,8 @@
 
 const gameSessionRepository = require('../repositories/gameSessionRepository');
 const gameMechanicRepository = require('../repositories/gameMechanicRepository');
-const gamePlayRepository = require('../repositories/gamePlayRepository');
 const gameSessionService = require('../services/gameSessionService');
+const gamePlayService = require('../services/gamePlayService');
 const {
   NotFoundError,
   ValidationError,
@@ -106,27 +106,7 @@ const getSessions = async (req, res) => {
 
   // Aggregate play stats per session (count + average score)
   const sessionIds = sessions.map(s => s._id || s.id);
-  const playStatsMap = {};
-
-  if (sessionIds.length > 0) {
-    const playStatsAgg = await gamePlayRepository.aggregate([
-      { $match: { sessionId: { $in: sessionIds }, status: 'completed' } },
-      {
-        $group: {
-          _id: '$sessionId',
-          playsCount: { $sum: 1 },
-          averageScore: { $avg: '$score' }
-        }
-      }
-    ]);
-
-    for (const stat of playStatsAgg) {
-      playStatsMap[stat._id.toString()] = {
-        playsCount: stat.playsCount,
-        averageScore: Math.round(stat.averageScore ?? 0)
-      };
-    }
-  }
+  const playStatsMap = await gamePlayService.getPlayStatsBySessionIds(sessionIds);
 
   // Attach playStats to each session before DTO conversion
   for (const s of sessions) {
@@ -471,10 +451,7 @@ const endSession = async (req, res) => {
   ensureResourceOwnership(session, req.user._id, 'sesión');
 
   // Verificar que no haya partidas activas
-  const activePlays = await gamePlayRepository.count({
-    sessionId: session._id,
-    status: { $in: ['in-progress', 'paused'] }
-  });
+  const activePlays = await gamePlayService.countActivePlays(session._id);
 
   if (activePlays > 0) {
     throw new ConflictError(

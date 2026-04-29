@@ -233,4 +233,163 @@ El `WebSerialService` implementa una cola interna para scans que no pueden envia
 
 ---
 
+## Convenciones de Framer Motion (lecciones de QA pre-release v0.5.0)
+
+La suite de QA del 18/04/2026 descubrió dos bugs graves provocados por el mismo malentendido sobre la propagación de variants. Documentado en ADR-059 y ADR-060.
+
+### Regla 1 — Propagación explícita de variants
+
+**Síntoma**: una lista tiene datos pero no se renderiza porque los items quedan atascados en `opacity:0; transform:translateY(...)` (el estado `hidden` del variant).
+
+**Causa**: el `motion.child` tiene `variants={...}` pero su padre:
+- No es un `motion.container` con `initial` + `animate`, o
+- Es un `motion.container` pero hay un `<AnimatePresence>` en medio, o
+- El padre se montó antes que los children y no vuelve a disparar `animate` al añadirse datos.
+
+**Regla**: cuando el padre no garantiza la propagación, añadir `initial="hidden" animate="visible"` directos al child. Es ligeramente redundante si el padre está OK, pero es robusto frente a refactors.
+
+```jsx
+// Antes (frágil)
+<ul>
+  {items.map(i => <motion.li variants={staggerItem}>...</motion.li>)}
+</ul>
+
+// Después (robusto)
+<motion.ul variants={staggerContainer} initial="hidden" animate="show">
+  {items.map(i => <motion.li variants={staggerItem}>...</motion.li>)}
+</motion.ul>
+
+// Alternativa cuando no se quiere orchestrator
+<ul>
+  {items.map(i => (
+    <motion.li variants={staggerItem} initial="hidden" animate="visible">...</motion.li>
+  ))}
+</ul>
+```
+
+### Regla 2 — `pointer-events` en exit animations
+
+**Síntoma**: al navegar de una ruta a otra, el botón de la nueva página no responde a clicks en el primer segundo. En el DOM aparecen dos copias (entrante + saliente) bajo StrictMode.
+
+**Causa**: `AnimatePresence mode="popLayout"` permite que el exit conviva con el enter. El wrapper saliente tiene `opacity:0` pero `pointer-events:auto` por defecto, interceptando clicks.
+
+**Regla**: siempre que uses AnimatePresence para transiciones de ruta o contenido que se reemplaza, el `exit` debe incluir `pointerEvents: 'none'` y el `animate` debe restaurar `pointerEvents: 'auto'`.
+
+```jsx
+<motion.div
+  initial={{ opacity: 0 }}
+  animate={{ opacity: 1, pointerEvents: 'auto' }}
+  exit={{ opacity: 0, pointerEvents: 'none' }}
+>
+```
+
+Referencias: ADR-059, ADR-060, PROP-30, PROP-31, PROP-32.
+
+---
+
+## 14. Empty states contextualizados (ADR-069)
+
+**Qué es:** Patrón para estados vacíos con tres variantes de UX y una ilustración SVG por dominio que sustituye al icono genérico.
+
+**Por qué lo usamos:**
+- Alejar la app de la estética "AI-slop" donde todos los empty states se ven iguales
+- Transmitir identidad de producto (tokens OKLCH compartidos con el tema)
+- UX contextual: el mensaje cambia según por qué la lista está vacía (sin datos vs. filtro activo)
+
+**Ejemplo:**
+```jsx
+import { EmptySessionsIllustration } from '../components/ui/illustrations';
+
+<EmptyState
+  illustration={<EmptySessionsIllustration size={180} />}
+  variant={hasActiveFilters ? 'filtered' : 'first-use'}
+  title={hasActiveFilters ? 'Ninguna sesión coincide' : 'Aún no tienes sesiones'}
+  description="..."
+  action={<ButtonPremium>CTA</ButtonPremium>}
+/>
+```
+
+**Contrato del componente (`components/ui/EmptyState.jsx`):**
+| Prop | Tipo | Descripción |
+|------|------|-------------|
+| `illustration` | React node | SVG inline de la carpeta `illustrations/`. Sustituye a `icon` y se renderiza a ~180px. Recomendado para páginas principales. |
+| `icon` | React node | Fallback al icono Lucide dentro del círculo si no hay ilustración. |
+| `variant` | `'default' \| 'filtered' \| 'first-use'` | `filtered` muestra chip "Sin resultados" + CTA "Limpiar". `first-use` habilita `secondaryAction`. |
+| `title`, `description`, `action`, `secondaryAction` | node | El `title` se renderiza como `<h2>` (configurable con `titleLevel`). |
+
+**Ilustraciones disponibles** (en `components/ui/illustrations/`):
+- `EmptySessionsIllustration` — mesa con cartas en abanico, glow radar
+- `EmptyDecksIllustration` — stack de cartas en perspectiva
+- `EmptyContextsIllustration` — libro + globo + huella animal
+- `EmptyStudentsIllustration` — grupo de avatares con "+" central
+- `EmptyAlertsIllustration` — campana en reposo con ondas apagadas (ADR-070)
+
+Todas respetan `useReducedMotion` y usan tokens CSS para adaptarse al tema. El wrapper
+de `illustration` dentro de `EmptyState` aplica `animate-float` automaticamente para
+que las ilustraciones respiren con un leve up/down (reset global de `prefers-reduced-motion`
+las desactiva).
+
+Referencias: ADR-069, ADR-070, PROP-41A (primera iteración de empty states en DeckCard), skill `ui-ux-pro-max`.
+
+---
+
+## 14. Signature motion primitives: `ScanlineOverlay` y patron "Paper exit" (ADR-070)
+
+### `<ScanlineOverlay>` — primitivo reutilizable
+
+Una linea sutil que barre top→bottom reforzando la metafora "tactile/scan" del
+producto RFID. Se aplica sobre tarjetas de listado secundarias (SessionCard,
+ContextCard) que carecen de signature propia; **DeckCard no lo usa** porque
+ya tiene gradient-shift en el borde como firma.
+
+**Diseño CSS-controlled:** el componente renderiza siempre la animacion loop
+(`motion.span` con infinite repeat). La visibilidad se controla desde fuera con
+`opacity-0 group-hover:opacity-100 transition-opacity duration-300` en el wrapper
+padre que debe llevar class `group`. Decision deliberada: evita anadir state JS
+y handlers de mouse/pointer al padre, porque en tests con `userEvent.click`
+romperian la propagacion del click cuando el padre es un motion.div con whileTap
+(framer-motion 12 + jsdom).
+
+```jsx
+import ScanlineOverlay from '@/components/ui/ScanlineOverlay';
+
+<HoverLiftCard glowTint={glowTint} className="group">
+  <GlassCard className="relative overflow-hidden ...">
+    <ScanlineOverlay className="opacity-0 group-hover:opacity-100 transition-opacity duration-300" />
+    {/* contenido */}
+  </GlassCard>
+</HoverLiftCard>
+```
+
+Reglas:
+- Solo en tarjetas interactivas primarias; nunca en botones pequenos ni inputs.
+- El contenedor padre debe tener `position: relative` + `overflow: hidden` + la
+  clase `group` para que `group-hover:` tenga efecto.
+- Respeta `prefers-reduced-motion`: si esta activado, no renderiza nada (guard
+  interno via hook `useReducedMotion`).
+
+### Patron "Paper exit" en listas
+
+Cuando un item sale de una lista (archive/delete/clone) no debe desaparecer
+instantaneo. Envolver el `.map()` con `<AnimatePresence>` (sin `mode="popLayout"`
+ni `layout` para no romper tests) y dar variants con hidden/visible/exit:
+
+```js
+const buildCardVariants = (shouldReduceMotion) => shouldReduceMotion
+  ? { hidden: { opacity: 0 }, visible: { opacity: 1, transition: { duration: 0 } }, exit: { opacity: 0, transition: { duration: 0 } } }
+  : {
+      hidden: { opacity: 0, y: -12, scale: 0.94 },
+      visible: { opacity: 1, y: 0, scale: 1, transition: motionConfig.springGame },
+      exit: { opacity: 0, x: -24, scale: 0.92, rotate: -2, transition: { duration: DURATION.exit, ease: EASING.outQuart } },
+    };
+```
+
+El item nuevo "cae y se asienta" (settle spring) y al salir "vuela" con un rotate
+sutil — refuerza la metafora de papel fisico que retiras de la mesa. Aplicado en
+`SessionsPage`, `ContextsPage`, `CardDecksPage`.
+
+Referencias: ADR-070, skill `framer-motion-animator`.
+
+---
+
 *Referencia: [React Patterns](https://reactpatterns.com/)*

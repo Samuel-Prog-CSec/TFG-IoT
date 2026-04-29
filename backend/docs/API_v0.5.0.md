@@ -220,32 +220,57 @@ Notas de contrato de `PUT /api/users/:id`:
 
 ### 4. Mecánicas de Juego (`/mechanics`)
 
+> **Nota (ADR-052):** Las mecánicas son inmutables a nivel de API. Solo se exponen
+> operaciones de lectura. Los métodos `POST/PUT/PATCH/DELETE` devuelven `405 Method
+> Not Allowed` con `Allow: GET` para todos los roles, incluido `super_admin`. Las
+> mecánicas se definen exclusivamente en seeders/migraciones del backend.
+
+
 | Método   | Endpoint  | Descripción                  | Acceso       |
 | :------- | :-------- | :--------------------------- | :----------- |
-| `GET`    | `/`       | Listar todas las mecánicas   | Profesor     |
-| `GET`    | `/active` | Listar mecánicas habilitadas | Público/Auth |
-| `GET`    | `/:id`    | Obtener detalles de mecánica | Profesor     |
-| `POST`   | `/`       | Crear nueva mecánica         | Profesor     |
-| `PUT`    | `/:id`    | Actualizar mecánica          | Profesor     |
-| `DELETE` | `/:id`    | Eliminar mecánica            | Profesor     |
+| `GET`    | `/`       | Listar todas las mecánicas               | Teacher / Super Admin |
+| `GET`    | `/active` | Listar mecánicas habilitadas             | Público / Auth opcional |
+| `GET`    | `/:id`    | Obtener detalles de mecánica             | Teacher / Super Admin |
+| `POST`   | `/`       | **DESHABILITADO (405)** — solo seeders    | — |
+| `PUT`    | `/:id`    | **DESHABILITADO (405)** — solo seeders    | — |
+| `PATCH`  | `/:id`    | **DESHABILITADO (405)** — solo seeders    | — |
+| `DELETE` | `/:id`    | **DESHABILITADO (405)** — solo seeders    | — |
 
 ---
 
 ### 5. Contextos de Juego (`/contexts`)
 
-| Método   | Endpoint                | Descripción                               | Acceso   | Rate Limit |
-| :------- | :---------------------- | :---------------------------------------- | :------- | :--------- |
-| `GET`    | `/`                     | Listar contextos                          | Profesor | -          |
-| `GET`    | `/:id`                  | Obtener detalles de contexto              | Profesor | -          |
-| `GET`    | `/:id/assets`           | Obtener recursos (assets) del contexto    | Profesor | -          |
-| `GET`    | `/upload-config`        | Obtener configuración de subida de assets | Profesor | -          |
-| `POST`   | `/`                     | Crear nuevo contexto                      | Profesor | Creación   |
-| `POST`   | `/:id/images`           | Subir imagen al contexto (WebP)           | Profesor | Upload     |
-| `POST`   | `/:id/audio`            | Subir audio al contexto (MP3/OGG)         | Profesor | Upload     |
-| `PUT`    | `/:id`                  | Actualizar contexto                       | Profesor | Creacion   |
-| `DELETE` | `/:id`                  | Eliminar contexto                         | Profesor | Creacion   |
-| `DELETE` | `/:id/images/:assetKey` | Eliminar imagen del asset                 | Profesor | -          |
-| `DELETE` | `/:id/audio/:assetKey`  | Eliminar audio del asset                  | Profesor | -          |
+| Método   | Endpoint                | Descripción                                                       | Acceso                       | Rate Limit |
+| :------- | :---------------------- | :---------------------------------------------------------------- | :--------------------------- | :--------- |
+| `GET`    | `/`                     | Listar contextos                                                  | Teacher / Super Admin        | -          |
+| `GET`    | `/:id`                  | Obtener detalles de contexto (con `uploadedBy` poblado por asset) | Teacher / Super Admin        | -          |
+| `GET`    | `/:id/assets`           | Obtener recursos (assets) del contexto                            | Teacher / Super Admin        | -          |
+| `GET`    | `/upload-config`        | Obtener configuración de subida de assets                         | Teacher / Super Admin        | -          |
+| `POST`   | `/`                     | Crear nuevo contexto                                              | **Super Admin**              | Creación   |
+| `POST`   | `/:id/images`           | Subir imagen al contexto (WebP) — set `uploadedBy = req.user._id` | Teacher                       | Upload     |
+| `POST`   | `/:id/audio`            | Subir audio al contexto (MP3/OGG) — set `uploadedBy`              | Teacher                       | Upload     |
+| `PATCH`  | `/:id/assets/:k/audio`  | Adjuntar/reemplazar audio en asset (solo el creador del asset)    | Owner del asset               | Upload     |
+| `PUT`    | `/:id`                  | Actualizar contexto (bloquea cambio de slug si hay assets)        | **Super Admin**               | -          |
+| `DELETE` | `/:id`                  | Eliminar contexto + carpeta `ctx-{id}` en Supabase Storage        | **Super Admin**               | -          |
+| `DELETE` | `/:id/images/:assetKey` | Eliminar asset (solo el creador del asset)                        | Owner del asset               | -          |
+| `DELETE` | `/:id/audio/:assetKey`  | Eliminar audio del asset (solo el creador del asset)              | Owner del asset               | -          |
+
+> **Política de ownership de assets (ADR-053):**
+>
+> - Cada asset persiste `uploadedBy` con el ID del profesor que lo subió. **Solo ese profesor**
+>   puede eliminarlo o reemplazar su audio. El super_admin NO tiene override sobre assets
+>   individuales (su rol es gestionar contextos como "carpetas", no el contenido).
+> - Los assets seedeados quedan con `uploadedBy = null` (assets "del sistema"): no pueden
+>   eliminarse individualmente desde la UI por nadie. Se eliminan únicamente al borrar el
+>   contexto entero (acción exclusiva del super_admin desde `/admin/contexts`).
+> - El script `npm run migrate:assets-uploadedby` normaliza los assets seedeados existentes
+>   a `uploadedBy = null` (idempotente; respeta a los assets subidos por profesores).
+
+> **Limpieza de Storage en eliminación de contexto (ADR-054):** `DELETE /api/contexts/:id`
+> ejecuta `storageService.deleteFolder(contextId)` antes de borrar el documento de
+> MongoDB. Política hard-fail: si Supabase Storage falla (red, permisos, circuit breaker
+> abierto) el contexto NO se borra de la BD para preservar consistencia. El admin verá
+> error 500 y puede reintentar.
 
 #### Rate Limits Especiales
 
@@ -510,7 +535,7 @@ Respuesta exitosa:
 
 **Reglas Sprint 4 (T-056):**
 
-- En creación de sesión, la disponibilidad de mecánicas se controla por feature flag (`SESSION_ENABLED_MECHANICS`) y por reglas de mecánica (`rules.behavior.availability`).
+- En creación de sesión, la disponibilidad de mecánicas se controla por la variable de entorno `SESSION_ENABLED_MECHANICS` y por reglas de mecánica (`rules.behavior.availability`).
 - Una mecánica marcada como `coming_soon` se rechaza aunque exista en catálogo.
 - Si `SESSION_ENABLED_MECHANICS` no está definido, se aceptan mecánicas activas no marcadas como `coming_soon`.
 

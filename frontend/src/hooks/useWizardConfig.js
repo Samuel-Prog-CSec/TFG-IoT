@@ -27,10 +27,9 @@ import {
  *
  * @param {Object} params
  * @param {Array} params.mechanics - Lista de mecanicas disponibles
- * @param {number} params.currentStep - Paso actual del wizard
  * @returns {Object} Estado y handlers del wizard
  */
-export function useWizardConfig({ mechanics, currentStep }) {
+export function useWizardConfig({ mechanics }) {
   const [sessionConfig, setSessionConfig] = useState(INITIAL_SESSION_CONFIG);
   const [selectedDeck, setSelectedDeck] = useState(null);
   const [selectedMechanic, setSelectedMechanic] = useState(null);
@@ -109,7 +108,7 @@ export function useWizardConfig({ mechanics, currentStep }) {
     setSessionConfig(prev => ({
       ...prev,
       deckId,
-      name: prev.name || `Sesion - ${deck.name}`
+      name: prev.name || `Sesión - ${deck.name}`
     }));
     // Cargar detalle completo para obtener cardMappings
     try {
@@ -151,17 +150,12 @@ export function useWizardConfig({ mechanics, currentStep }) {
     });
   }, []);
 
-  // Auto-seleccionar la primera mecanica disponible al entrar en el paso 2
-  useEffect(() => {
-    if (currentStep !== 1 || selectedMechanic !== null || mechanics.length === 0) {
-      return;
-    }
-
-    const firstSelectable = mechanics.find(isMechanicSelectable);
-    if (firstSelectable) {
-      handleSelectMechanic(firstSelectable);
-    }
-  }, [currentStep, selectedMechanic, mechanics, handleSelectMechanic]);
+  // Sin auto-selección en el paso 2: forzamos una elección explícita del usuario
+  // para que la mecánica no acabe siendo la primera de la lista por accidente
+  // cuando el mazo invita claramente a la otra (QA 22/04/2026).
+  // Nota: se mantiene el hook useEffect eliminado aquí para preservar el orden
+  // de imports/hooks y evitar regresiones si en el futuro se reintroduce la
+  // sugerencia automática.
 
   const handleDifficultyChange = useCallback((difficulty) => {
     const presets = isMemorySelected ? MEMORY_DIFFICULTY_PRESETS : DIFFICULTY_PRESETS;

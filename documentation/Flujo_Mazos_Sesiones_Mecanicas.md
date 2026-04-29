@@ -102,7 +102,7 @@ Esto garantiza que el significado de las cartas (`assignedValue`) sea consistent
 ## 4.3 Validaciones en create/update/start
 
 - mecánica debe existir y estar activa,
-- disponibilidad de mecánica controlada por feature flag (`SESSION_ENABLED_MECHANICS`) y por `rules.behavior.availability`,
+- disponibilidad de mecánica controlada por la variable de entorno `SESSION_ENABLED_MECHANICS` y por `rules.behavior.availability`,
 - mecánicas marcadas `coming_soon` (ej. `sequence`) se rechazan en creación,
 - `deckId` obligatorio,
 - sincronización obligatoria desde mazo,

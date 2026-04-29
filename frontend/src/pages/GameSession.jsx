@@ -1,8 +1,8 @@
 import { useState, useReducer, useEffect, useCallback, useRef, useMemo } from 'react';
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Wifi, WifiOff, Pause, Play, Volume2, VolumeX, AlertTriangle } from 'lucide-react';
-import { cn, calculateStars } from '../lib/utils';
+import { Wifi, WifiOff, Pause, Play, Volume2, VolumeX, AlertTriangle, Hand, Search } from 'lucide-react';
+import { cn, calculateStars, EASING } from '../lib/utils';
 import { useReducedMotion } from '../hooks/useReducedMotion';
 import { useAuth } from '../context/AuthContext';
 import RFIDConnector from '../components/ui/RFIDConnector';
@@ -16,14 +16,19 @@ import { ScoreDisplayCompactMemo as ScoreDisplayCompact } from '../components/ga
 import GameOverScreen from '../components/game/GameOverScreen';
 import CharacterMascot from '../components/game/CharacterMascot';
 import AssociationGameplayPanel from '../components/game/AssociationGameplayPanel';
+import { resolveAssociationTheme } from '../components/game/associationTheme';
 import MemoryGameplayPanel from '../components/game/MemoryGameplayPanel';
+import GameBackdrop from '../components/game/GameBackdrop';
 import FallbackTouchPanel from '../components/game/FallbackTouchPanel';
+import RateLimitBanner from '../components/game/RateLimitBanner';
+import { prefetchDeckImages } from '../lib/cardMapping';
 import CurrentPlayMetrics from '../components/game/CurrentPlayMetrics';
 import { useGameFeedback } from '../hooks/useGameFeedback';
 import { useDocumentTitle } from '../hooks/useDocumentTitle';
 import { useSoundEffects } from '../hooks/useSoundEffects';
 import { useGameTimer } from '../hooks/useGameTimer';
 import { useGameSocket } from '../hooks/useGameSocket';
+import { saveSnapshot, loadSnapshot, clearSnapshot, purgeExpiredSnapshots } from '../lib/sessionSnapshot';
 
 const FLOAT_DELAY_STYLE = { animationDelay: '1s' };
 const FLOAT_DELAY_NONE = { animationDelay: '0s' };
@@ -38,10 +43,26 @@ function normalizeFinalSummary(rawMetrics, score, correctAnswers, isMemoryMode, 
   const elapsedMs = gameStartTime ? Date.now() - gameStartTime : 0;
   const totalTimePlayed = rawTotalTime > 0 ? rawTotalTime : elapsedMs;
 
+  // Errors y timeouts vienen desglosados desde el backend cuando estan
+  // disponibles. Antes calculabamos errors = totalAttempts - correctAnswers,
+  // pero el `correctAnswers` del reducer local puede llegar desincronizado
+  // si el evento `game_over` se procesa antes que el ultimo `response_*`
+  // (race entre eventos del socket). Usar `metrics.errorAttempts` como fuente
+  // de verdad evita falsos positivos como "Incorrectas: 5" en una partida
+  // de 4 aciertos + 1 fallo (QA 26/04/2026).
+  const errorAttempts = metrics.errorAttempts !== undefined ? Number(metrics.errorAttempts) : null;
+  const correctAttempts = metrics.correctAttempts !== undefined
+    ? Number(metrics.correctAttempts)
+    : null;
+  const errors = Number.isFinite(errorAttempts)
+    ? Math.max(0, errorAttempts)
+    : Math.max(0, totalAttempts - correctAnswers);
+  const finalCorrect = Number.isFinite(correctAttempts) ? correctAttempts : correctAnswers;
+
   return {
     score,
-    correctAnswers,
-    errors: Math.max(0, totalAttempts - correctAnswers),
+    correctAnswers: finalCorrect,
+    errors,
     attempts: totalAttempts,
     averageResponseTimeMs: Number.isFinite(averageResponseTimeMs) ? averageResponseTimeMs : 0,
     totalTimePlayed: Number.isFinite(totalTimePlayed) ? totalTimePlayed : 0,
@@ -120,7 +141,11 @@ function gameReducer(state, action) {
  * Pantalla principal de juego para niños de 4-8 años.
  * Diseño colorido, amigable y sin texto complejo.
  */
-export default function GameSession() { // NOSONAR
+/* eslint-disable-next-line sonarjs/cyclomatic-complexity, sonarjs/cognitive-complexity --
+   pantalla de juego con multiples fases (waiting/playing/paused/ended), modos (association/memory),
+   handlers de socket y renderizado condicional por estado. La logica esta partida en hooks
+   (useGameSocket, useGameTimer, useGameFeedback) pero la coordinacion visual reside aqui. */
+export default function GameSession() {
   const { sessionId } = useParams();
   const [searchParams] = useSearchParams();
   const navigate = useNavigate();
@@ -144,6 +169,21 @@ export default function GameSession() { // NOSONAR
   const [game, dispatch] = useReducer(gameReducer, INITIAL_GAME_STATE);
   const { gameState, currentRound, score, correctAnswers, isAwaitingResponse } = game;
 
+  // Flash "Seguimos" al reanudar partida: captura el cambio paused -> playing
+  // para mostrar un micro-feedback visual que confirma la accion del usuario.
+  const prevGameStateRef = useRef(gameState);
+  const [showResumeFlash, setShowResumeFlash] = useState(false);
+  useEffect(() => {
+    if (prevGameStateRef.current === 'paused' && gameState === 'playing') {
+      setShowResumeFlash(true);
+      const timer = globalThis.setTimeout(() => setShowResumeFlash(false), 420);
+      prevGameStateRef.current = gameState;
+      return () => globalThis.clearTimeout(timer);
+    }
+    prevGameStateRef.current = gameState;
+    return undefined;
+  }, [gameState]);
+
   const [soundEnabled, setSoundEnabled] = useState(true);
   const { playCorrect, playIncorrect, playTick, playRoundStart, playGameOver, playSuccess } = useSoundEffects(soundEnabled);
   const [totalRounds, setTotalRounds] = useState(5);
@@ -157,8 +197,15 @@ export default function GameSession() { // NOSONAR
   const [shakeError, setShakeError] = useState(false);
   const [challenge, setChallenge] = useState(null);
   const [memoryBoard, setMemoryBoard] = useState([]);
+  // Hint "Toca las cartas del tablero" solo util antes del primer tap; se oculta
+  // al primer tap para no ruido visual durante el resto de la partida (QA 22/04/2026).
+  const [hasTappedBoardOnce, setHasTappedBoardOnce] = useState(false);
   // isMemoryMode se resuelve como derivado tras obtener session del socket hook
   const [sessionIsMemory, setSessionIsMemory] = useState(false);
+  // Flag para el hook de timer: en Memoria, solo empieza a decrementar cuando
+  // el backend ha confirmado board_ready (playEndsAt establecido). Antes de
+  // eso mostramos la barra llena y estatica, evitando el visual "bucle vacio".
+  const [memoryTimerArmed, setMemoryTimerArmed] = useState(false);
 
   // --- Hooks de feedback y sonido ---
   const gameFeedback = useGameFeedback({ isMemoryMode: sessionIsMemory, shouldReduceMotion });
@@ -183,6 +230,7 @@ export default function GameSession() { // NOSONAR
     isAwaitingResponse,
     isMemoryMode: sessionIsMemory,
     memoryFeedbackActive,
+    memoryTimerArmed,
     roundTime,
     playTick
   });
@@ -219,10 +267,14 @@ export default function GameSession() { // NOSONAR
       uid: rawChallenge?.uid,
       key: displayData?.key || '',
       value: displayData?.value || rawChallenge?.assignedValue || '---',
-      display: displayData?.display || '🎴',
+      display: displayData?.display || '?',
       imageUrl: displayData?.imageUrl || null,
       thumbnailUrl: displayData?.thumbnailUrl || null,
-      audioUrl: displayData?.audioUrl || null
+      audioUrl: displayData?.audioUrl || null,
+      // Consigna personalizada opcional definida por el profesor en el
+      // wizard de creación de sesión (PROP-102). El backend la emite en
+      // el challenge del evento `new_round` / `game_state_update`.
+      promptText: rawChallenge?.promptText || displayData?.promptText || null
     };
   }, []);
 
@@ -384,8 +436,12 @@ export default function GameSession() { // NOSONAR
     });
 
     const remainingMs = Number(payload?.remainingTimeMs);
-    if (Number.isFinite(remainingMs) && remainingMs >= 0) {
+    if (Number.isFinite(remainingMs) && remainingMs > 0) {
       setTimeLeft(Math.max(0, Math.ceil(remainingMs / 1000)));
+      // El backend ha armado el timer (playEndsAt != null). Senalamos al hook
+      // de timer que ya puede decrementar: hasta ahora la UI mostraba la barra
+      // completa sin moverse para evitar el bucle de "vacia" prematuro.
+      setMemoryTimerArmed(true);
     }
 
     // Actualización atómica de campos coordinados
@@ -502,6 +558,57 @@ export default function GameSession() { // NOSONAR
     setSessionIsMemory(session?.mechanic?.name === 'memory');
   }, [session]);
 
+  // --- Snapshot de partida en sessionStorage (resiliencia a F5) ---
+  // Limpiamos snapshots vencidos al montar para no acumular basura.
+  useEffect(() => {
+    purgeExpiredSnapshots();
+  }, []);
+
+  // Hidratar UI desde snapshot local si existe, mientras el servidor
+  // reconcilia el estado canónico vía PLAY_STATE_SYNC.
+  const snapshotHydratedRef = useRef(false);
+  useEffect(() => {
+    if (!playId || snapshotHydratedRef.current) return;
+    const snapshot = loadSnapshot(playId);
+    if (snapshot) {
+      dispatch({ type: 'PLAY_STATE_SYNC', ...snapshot });
+      if (snapshot.score !== undefined) {
+        // No reconstruimos challenge/board (el server los aportará); sólo
+        // los contadores que evitan el flash de "ronda 1 / score 0".
+      }
+    }
+    snapshotHydratedRef.current = true;
+  }, [playId]);
+
+  // Persistir snapshot tras cada transición relevante. Se ejecuta en cada
+  // cambio del estado coordinado del juego — sessionStorage write es
+  // síncrono pero rápido (<1ms para payload pequeño).
+  useEffect(() => {
+    if (!playId || gameState === 'finished') return;
+    saveSnapshot(playId, {
+      gameState,
+      currentRound,
+      score,
+      correctAnswers,
+      isAwaitingResponse
+    });
+  }, [playId, gameState, currentRound, score, correctAnswers, isAwaitingResponse]);
+
+  // Limpiar snapshot al cerrar la partida o desmontar el componente.
+  useEffect(() => {
+    if (gameState === 'finished' && playId) {
+      clearSnapshot(playId);
+    }
+  }, [gameState, playId]);
+
+  useEffect(() => () => {
+    if (playId) {
+      // Al desmontar (navegación fuera de la pantalla), limpiamos para
+      // no resucitar la partida si el usuario vuelve a una distinta.
+      clearSnapshot(playId);
+    }
+  }, [playId]);
+
   // Configurar totalRounds y roundTime cuando la sesión carga
   useEffect(() => {
     if (!session) return;
@@ -516,6 +623,20 @@ export default function GameSession() { // NOSONAR
       setRoundTime(configuredTime);
     }
   }, [session]);
+
+  // Prefetch de todas las imagenes del mazo al recibir la sesion para
+  // calentar el cache del navegador y evitar flash de bloque-de-color entre
+  // rondas (problema detectado en QA 18/04/2026 con FallbackTouchPanel).
+  const prefetchNotifiedRef = useRef(false);
+  useEffect(() => {
+    const mappings = session?.cardMappings;
+    if (!Array.isArray(mappings) || mappings.length === 0) return;
+    prefetchDeckImages(mappings, () => {
+      if (prefetchNotifiedRef.current) return;
+      prefetchNotifiedRef.current = true;
+      console.warn('[GameSession] Alguna imagen del mazo fallo al precargar. Se mostrara el nombre como fallback.');
+    });
+  }, [session?.cardMappings]);
 
   // Sincronizar gameState con el socket hook
   useEffect(() => {
@@ -540,11 +661,6 @@ export default function GameSession() { // NOSONAR
     }
     return cards;
   }, [session?.cardMappings, currentRound]);
-
-  const roundIndicators = useMemo(
-    () => Array.from({ length: totalRounds }, (_, i) => i + 1),
-    [totalRounds]
-  );
 
   // --- Efectos secundarios ---
 
@@ -571,12 +687,13 @@ export default function GameSession() { // NOSONAR
 
   // Sonido de victoria cuando la partida termina con buen resultado (>=2 estrellas)
   useEffect(() => {
-    if (gameState !== 'finished') return;
+    if (gameState !== 'finished') return undefined;
     const percentage = totalRounds > 0 ? (correctAnswers / totalRounds) * 100 : 0;
     if (calculateStars(percentage) >= 2) {
       const timer = globalThis.setTimeout(() => playSuccess(), 600);
       return () => globalThis.clearTimeout(timer);
     }
+    return undefined;
   }, [gameState, correctAnswers, totalRounds, playSuccess]);
 
   // Gestión de foco en pausa
@@ -620,6 +737,9 @@ export default function GameSession() { // NOSONAR
     dispatch({ type: 'SET_GAME_STATE', value: 'playing' });
     clearFeedback();
     setRealtimeError(null);
+    // Resetear la senal del timer de Memoria: se rearma cuando llegue el
+    // primer memory_turn_state con remainingTimeMs valido tras board_ready.
+    setMemoryTimerArmed(false);
     setSrAnnouncement('Partida iniciada.');
   };
 
@@ -672,6 +792,7 @@ export default function GameSession() { // NOSONAR
   const handleMemoryCardTap = useCallback(
     slot => {
       if (gameState !== 'playing' || !slot?.uid) return;
+      setHasTappedBoardOnce(true);
       const sensorId = session?.sensorId || 'touch_fallback_sensor';
       emitMemoryCardTap(slot, sensorId);
     },
@@ -691,6 +812,7 @@ export default function GameSession() { // NOSONAR
       setShowPreCelebration(false);
       setChallenge(null);
       setMemoryBoard([]);
+      setHasTappedBoardOnce(false);
       resetForNewPlay();
       setPlaySummary(null);
       setMemoryStats({ attempts: 0, matchedCount: 0, totalCards: 0 });
@@ -769,39 +891,82 @@ export default function GameSession() { // NOSONAR
       <output className="sr-only" aria-live="polite" aria-atomic="true">
         {srAnnouncement}
       </output>
-      {/* Elementos decorativos animados de fondo */}
-      <div className="absolute inset-0 overflow-hidden pointer-events-none">
-        <div className={cn('absolute top-20 left-10 w-64 h-64 bg-brand-base/10 rounded-full blur-[100px]', !shouldReduceMotion && 'animate-float')} />
-        <div className={cn('absolute bottom-20 right-10 w-80 h-80 bg-accent-cyan/10 rounded-full blur-[100px]', !shouldReduceMotion && 'animate-float')} style={shouldReduceMotion ? FLOAT_DELAY_NONE : FLOAT_DELAY_STYLE} />
-        <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[600px] h-[600px] bg-accent-pink/5 rounded-full blur-[120px]" />
-      </div>
+      {/* Backdrop tematizado por contexto: gradient mesh + patron de puntos +
+          iconos decorativos. Sustituye los orbes neutros anteriores para que
+          cada contexto (geografia/animales/colores/numeros) tenga atmosfera
+          propia y se distinga visualmente del resto de la app admin. */}
+      <GameBackdrop
+        theme={resolveAssociationTheme(
+          challenge?.value || session?.context?.name || session?.deck?.name
+        )}
+      />
 
-      {/* Top HUD */}
-      <header className="relative z-10 p-2 sm:p-3 shrink-0">
+      {/* Top HUD — z-index ligeramente por encima de los wrappers hermanos
+          (TimerBar / banners realtime, todos a z-10) para que los tooltips de
+          los botones del HUD (Silenciar, Pausar) no queden tapados por la
+          barra de tiempo cuando se renderizan en el lado bottom. Se mantiene
+          por debajo del overlay de pausa (z-20) para que la pausa siga
+          ocultando el HUD durante el dialog modal. */}
+      <header className="relative z-[15] p-2 sm:p-3 shrink-0">
         <div className="glass rounded-2xl p-2.5 sm:p-3 flex items-center justify-between gap-3">
-          {/* Indicador de ronda */}
+          {/* Indicador de progreso — dots visuales para niños (en vez de "3 de 6").
+              - Asociacion: 1 dot por ronda; el actual pulsa y los completados estan llenos
+              - Memoria: 1 dot por pareja; se iluminan a medida que se emparejan */}
           <div className="flex items-center gap-3">
-            <motion.div
-              key={sessionIsMemory ? Math.floor((memoryStats.matchedCount || 0) / 2) : currentRound}
-              initial={shouldReduceMotion ? false : { scale: 0 }}
-              animate={{ scale: 1 }}
-              className="size-12 rounded-xl bg-gradient-to-br from-brand-base to-accent-indigo flex items-center justify-center shadow-lg shadow-brand-glow"
+            <div
+              className="flex items-center gap-1.5"
+              role="progressbar"
+              aria-label={sessionIsMemory ? 'Progreso de parejas' : 'Progreso de rondas'}
+              aria-valuenow={sessionIsMemory ? Math.floor((memoryStats.matchedCount || 0) / 2) : currentRound}
+              aria-valuemin={0}
+              aria-valuemax={sessionIsMemory ? Math.floor((memoryStats.totalCards || 0) / 2) : totalRounds}
             >
-              <span className="text-2xl font-bold font-display text-text-primary">
-                {sessionIsMemory ? Math.floor((memoryStats.matchedCount || 0) / 2) : currentRound}
-              </span>
-            </motion.div>
+              {(() => {
+                const total = sessionIsMemory
+                  ? Math.floor((memoryStats.totalCards || 0) / 2)
+                  : totalRounds;
+                const current = sessionIsMemory
+                  ? Math.floor((memoryStats.matchedCount || 0) / 2)
+                  : currentRound;
+                return Array.from({ length: Math.max(1, total) }).map((_, i) => {
+                  const isCompleted = i + 1 < current;
+                  const isCurrent = i + 1 === current;
+                  return (
+                    <motion.span
+                      key={`round-dot-${i}`}
+                      className={cn(
+                        'block h-2.5 rounded-full transition-[background-color,width]',
+                        isCurrent && 'w-6 bg-gradient-to-r from-brand-base to-accent-indigo shadow-[0_0_8px_var(--color-brand-glow)]',
+                        isCompleted && 'w-2.5 bg-success-base/80',
+                        !isCurrent && !isCompleted && 'w-2.5 bg-background-surface/60'
+                      )}
+                      animate={
+                        isCurrent && !shouldReduceMotion
+                          ? { opacity: [1, 0.6, 1], scale: [1, 1.12, 1] }
+                          : { opacity: 1, scale: 1 }
+                      }
+                      transition={{ duration: 1.4, repeat: isCurrent ? Infinity : 0, ease: 'easeInOut' }}
+                      aria-hidden="true"
+                    />
+                  );
+                });
+              })()}
+            </div>
             {sessionIsMemory ? (
               <div className="hidden sm:block">
-                <div className="text-xs text-text-disabled uppercase tracking-wider">Parejas</div>
-                <div className="text-sm text-text-primary font-medium">
-                  {Math.floor((memoryStats.matchedCount || 0) / 2)} de {Math.floor((memoryStats.totalCards || 0) / 2)}
+                <div className="text-[10px] text-text-disabled uppercase tracking-wider">Parejas</div>
+                <div className="text-sm text-text-primary font-bold font-display">
+                  {Math.floor((memoryStats.matchedCount || 0) / 2)}
+                  <span className="text-text-muted font-normal"> / {Math.floor((memoryStats.totalCards || 0) / 2)}</span>
                 </div>
               </div>
             ) : (
               <div className="hidden sm:block">
-                <div className="text-xs text-text-disabled uppercase tracking-wider">Ronda</div>
-                <div className="text-sm text-text-primary font-medium">{currentRound} de {totalRounds}</div>
+                <div className="text-[10px] text-text-disabled uppercase tracking-wider">Ronda</div>
+                <div className="text-sm text-text-primary font-bold font-display">
+                  {currentRound}
+                  <span className="text-text-muted font-normal"> / {totalRounds}</span>
+                </div>
               </div>
             )}
           </div>
@@ -849,21 +1014,61 @@ export default function GameSession() { // NOSONAR
               {rfidConnected ? <Wifi size={20} /> : <WifiOff size={20} />}
             </div>
 
+            {/* Chip de estado: durante la partida cambia de "Juego listo" a
+                "Jugando" con pulso verde para reforzar que la partida esta
+                activa (feedback ambiental para niño y profesor). Durante la
+                pausa mostramos "Pausado" para coherencia con el overlay y
+                evitar el confuso "Juego listo" que el usuario interpreta
+                como "ya puedes jugar". */}
             <div className={cn(
-              'px-3 py-1.5 rounded-lg text-xs font-semibold uppercase tracking-wide',
-              realtimeStatus === 'connected' && 'bg-success-base/20 text-success-base',
+              'px-3 py-1.5 rounded-lg text-xs font-semibold uppercase tracking-wide inline-flex items-center gap-1.5',
+              realtimeStatus === 'connected' && gameState === 'paused' && 'bg-warning-base/20 text-warning-base',
+              realtimeStatus === 'connected' && gameState !== 'paused' && 'bg-success-base/20 text-success-base',
               realtimeStatus === 'reconnecting' && 'bg-warning-base/20 text-warning-base',
               realtimeStatus === 'disconnected' && 'bg-error-base/20 text-error-base',
               realtimeStatus === 'connecting' && 'bg-background-surface/70 text-text-secondary'
             )}>
               <output className="sr-only" aria-live="polite" aria-atomic="true">
-                {REALTIME_STATUS_COPY[realtimeStatus]?.announcement || 'Conectando el juego.'}
+                {gameState === 'paused'
+                  ? 'Partida pausada.'
+                  : (REALTIME_STATUS_COPY[realtimeStatus]?.announcement || 'Conectando el juego.')}
               </output>
-              {realtimeStatus === 'connected' && '✅ '}
-              {realtimeStatus === 'reconnecting' && '⏳ '}
-              {realtimeStatus === 'disconnected' && '❌ '}
-              {realtimeStatus === 'connecting' && '⏳ '}
-              {REALTIME_STATUS_COPY[realtimeStatus]?.label || 'Conectando…'}
+              {(() => {
+                if (realtimeStatus === 'connected' && gameState === 'playing') {
+                  return (
+                    <>
+                      <motion.span
+                        aria-hidden="true"
+                        className="inline-block size-2 rounded-full bg-success-base"
+                        animate={
+                          shouldReduceMotion
+                            ? undefined
+                            : { opacity: [1, 0.35, 1], scale: [1, 1.3, 1] }
+                        }
+                        transition={{ duration: 1.2, repeat: Infinity, ease: 'easeInOut' }}
+                      />
+                      Jugando
+                    </>
+                  );
+                }
+                if (realtimeStatus === 'connected' && gameState === 'paused') {
+                  return (
+                    <>
+                      <span aria-hidden="true" className="inline-block size-2 rounded-full bg-warning-base" />
+                      Pausado
+                    </>
+                  );
+                }
+                return (
+                  <>
+                    {realtimeStatus === 'connected' && '✅ '}
+                    {realtimeStatus === 'reconnecting' && '⏳ '}
+                    {realtimeStatus === 'disconnected' && '❌ '}
+                    {realtimeStatus === 'connecting' && '⏳ '}
+                    {REALTIME_STATUS_COPY[realtimeStatus]?.label || 'Conectando…'}
+                  </>
+                );
+              })()}
             </div>
           </div>
         </div>
@@ -877,9 +1082,18 @@ export default function GameSession() { // NOSONAR
 
       {realtimeError && (
         <div className="relative z-10 px-3 sm:px-4 mt-1 shrink-0">
-          <div className="max-w-4xl mx-auto rounded-lg border border-warning-base/30 bg-warning-base/10 px-3 py-2 text-xs text-warning-base">
-            {realtimeError.message}
-          </div>
+          {realtimeError.retryAfterMs ? (
+            // PROP-92: rate-limit / dedupe → banner con countdown que se vacía solo.
+            <RateLimitBanner
+              retryAfterMs={realtimeError.retryAfterMs}
+              message={realtimeError.message}
+              onDismiss={() => setRealtimeError(null)}
+            />
+          ) : (
+            <div className="max-w-4xl mx-auto rounded-lg border border-warning-base/30 bg-warning-base/10 px-3 py-2 text-xs text-warning-base">
+              {realtimeError.message}
+            </div>
+          )}
         </div>
       )}
 
@@ -889,8 +1103,10 @@ export default function GameSession() { // NOSONAR
         </div>
       )}
 
-      {/* Área principal del juego */}
-      <main className="flex-1 min-h-0 relative z-10 flex items-center justify-center p-2 sm:p-4 overflow-y-auto">
+      {/* Área principal del juego — sin scroll: el contenido entero debe caber en la ventana.
+          Si el contenido se comprime por pantalla pequeña, el ChallengeDisplay
+          y el FallbackTouchPanel usan min-h-0 y tamaños relativos para adaptarse. */}
+      <main className="flex-1 min-h-0 relative z-10 flex items-center justify-center px-2 py-1 sm:px-4 sm:py-2 overflow-hidden">
         <AnimatePresence mode="wait">
           {gameState === 'waiting' && (
             <motion.div
@@ -935,7 +1151,14 @@ export default function GameSession() { // NOSONAR
               animate={{ opacity: 1 }}
               exit={{ opacity: 0 }}
               className={cn(
-                "w-full max-w-2xl flex flex-col items-center",
+                // Memoria necesita mas ancho para el grid de 4 cols; asociacion
+                // tambien aprovecha anchura para que consigna y grid de respuestas
+                // sean mas legibles (antes con max-w-2xl quedaba mucho aire
+                // lateral, detectado en QA 2026-04-23).
+                // Ambas mecanicas usan h-full para que su contenido pueda ocupar
+                // el alto disponible y se evite scroll durante la partida.
+                'w-full flex flex-col items-center h-full',
+                sessionIsMemory ? 'max-w-5xl' : 'max-w-4xl justify-center gap-4',
                 shakeError && 'animate-shake'
               )}
             >
@@ -966,46 +1189,71 @@ export default function GameSession() { // NOSONAR
                 initial={shouldReduceMotion ? false : { opacity: 0, y: 20 }}
                 animate={{ opacity: 1, y: 0 }}
                 transition={{ delay: shouldReduceMotion ? 0 : 0.3 }}
-                className="mt-3 text-center text-text-secondary text-base font-semibold"
+                className="mt-2 text-center text-text-secondary text-sm sm:text-base font-semibold"
               >
-                {sessionIsMemory ? (
-                  <>Encuentra las parejas antes de que se termine el tiempo.</>
-                ) : (
-                  <>
-                    Busca <span className="text-text-primary font-bold">{challenge?.value || 'la tarjeta correcta'}</span>
-                  </>
-                )}
+                {(() => {
+                  if (sessionIsMemory) {
+                    return <>¡Encuentra las parejas antes de que se acabe el tiempo!</>;
+                  }
+                  // Consigna personalizada del profesor si la definió en el wizard.
+                  if (challenge?.promptText) {
+                    return (
+                      <>
+                        <Search className="inline mr-1 -mt-0.5" size={16} aria-hidden="true" />
+                        {challenge.promptText}
+                      </>
+                    );
+                  }
+                  // Frase neutra sin artículo: el español requiere concordancia
+                  // de género (el/la) que depende de la palabra; usar "la" hardcoded
+                  // produce "la Cerdo", "la Caballo", "la Pato" (QA v0.5.0).
+                  return (
+                    <>
+                      <Search className="inline mr-1 -mt-0.5" size={16} aria-hidden="true" />
+                      Encuentra: <span className="text-text-primary font-bold">{challenge?.value || 'tarjeta correcta'}</span>
+                    </>
+                  );
+                })()}
               </motion.p>
 
               {!rfidConnected && !sessionIsMemory && (
                 <FallbackTouchPanel
                   cards={shuffledFallbackCards}
+                  round={currentRound}
                   onSelectCard={handleFallbackCardScan}
                   onPauseRequest={togglePause}
                   canPause={gameState === 'playing'}
                 />
               )}
 
-              {!rfidConnected && sessionIsMemory && (
-                <div className="mt-3 w-full max-w-3xl rounded-xl border border-warning-base/30 bg-warning-base/10 p-2.5">
-                  <div className="flex items-center gap-2 text-warning-base">
-                    <AlertTriangle size={14} className="shrink-0" />
-                    <p className="text-xs font-semibold">Sin sensor RFID — toca las cartas del tablero para jugar</p>
+              {!rfidConnected && sessionIsMemory && !hasTappedBoardOnce && (
+                <motion.div
+                  className="mt-2 rounded-lg border border-accent-indigo/25 bg-accent-indigo/5 px-3 py-1.5"
+                  initial={shouldReduceMotion ? false : { opacity: 0, y: 4 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  exit={shouldReduceMotion ? { opacity: 0 } : { opacity: 0, y: -4 }}
+                  transition={{ duration: 0.2 }}
+                >
+                  <div className="flex items-center gap-2 text-text-secondary">
+                    <Hand size={14} className="shrink-0 text-accent-indigo" aria-hidden="true" />
+                    <p className="text-xs font-medium">Toca las cartas del tablero para jugar</p>
                   </div>
-                </div>
+                </motion.div>
               )}
             </motion.div>
           )}
         </AnimatePresence>
 
-        {/* Overlay de pausa */}
+        {/* Overlay de pausa — diseno mas expresivo con icono Lucide, vignette y
+            spring entry + micro-flash "Seguimos" al reanudar que confirma la accion. */}
         <AnimatePresence>
           {gameState === 'paused' && (
             <motion.div
               initial={shouldReduceMotion ? false : { opacity: 0 }}
               animate={{ opacity: 1 }}
               exit={{ opacity: 0 }}
-              className="absolute inset-0 bg-background-base/80 backdrop-blur-md flex items-center justify-center z-20"
+              transition={{ duration: 0.2, ease: 'easeOut' }}
+              className="absolute inset-0 bg-background-deep/85 backdrop-blur-md flex items-center justify-center z-20"
               role="dialog"
               aria-modal="true"
               aria-labelledby="pause-title"
@@ -1013,13 +1261,27 @@ export default function GameSession() { // NOSONAR
               onKeyDown={handlePauseDialogKeyDown}
             >
               <motion.div
-                initial={shouldReduceMotion ? false : { scale: 0.9 }}
-                animate={{ scale: 1 }}
-                className="text-center"
+                initial={shouldReduceMotion ? false : { scale: 0.92, y: 8, opacity: 0 }}
+                animate={{ scale: 1, y: 0, opacity: 1 }}
+                transition={{ type: 'spring', stiffness: 340, damping: 24 }}
+                className="text-center px-6"
               >
-                <div className="text-6xl mb-4">⏸️</div>
-                <h2 id="pause-title" className="text-3xl font-bold text-text-primary mb-2">Juego pausado</h2>
-                <p id="pause-description" className="text-text-secondary mb-4">Pulsa continuar para volver al juego.</p>
+                <div className={cn(
+                  'mx-auto mb-5 flex size-20 items-center justify-center rounded-2xl',
+                  'bg-brand-base/15 border border-brand-base/30',
+                  'shadow-[0_0_32px_var(--color-brand-glow)]'
+                )}>
+                  <Pause size={44} className="text-brand-light" aria-hidden="true" />
+                </div>
+                <h2
+                  id="pause-title"
+                  className="text-3xl font-bold font-display gradient-text-brand mb-2 tracking-tight"
+                >
+                  Juego pausado
+                </h2>
+                <p id="pause-description" className="text-text-secondary mb-6">
+                  Pulsa continuar para volver al juego.
+                </p>
                 <motion.button
                   whileHover={shouldReduceMotion ? {} : { scale: 1.05 }}
                   whileTap={shouldReduceMotion ? {} : { scale: 0.95 }}
@@ -1034,10 +1296,42 @@ export default function GameSession() { // NOSONAR
             </motion.div>
           )}
         </AnimatePresence>
+
+        {/* Micro-flash al reanudar: feedback breve de que la accion se aplico. */}
+        <AnimatePresence>
+          {showResumeFlash && !shouldReduceMotion && (
+            <motion.div
+              aria-hidden="true"
+              className="pointer-events-none absolute inset-0 z-20 flex items-center justify-center"
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              transition={{ duration: 0.12, ease: 'easeOut' }}
+            >
+              <motion.div
+                initial={{ scale: 0.8, opacity: 0 }}
+                animate={{ scale: 1, opacity: 1 }}
+                exit={{ scale: 1.15, opacity: 0 }}
+                transition={{ duration: 0.35, ease: EASING.outExpo }}
+                className={cn(
+                  'flex size-20 items-center justify-center rounded-full',
+                  'bg-success-base/20 border-2 border-success-base/60',
+                  'shadow-[0_0_28px_var(--color-success-glow)]'
+                )}
+              >
+                <Play size={36} className="text-success-base" aria-hidden="true" fill="currentColor" />
+              </motion.div>
+            </motion.div>
+          )}
+        </AnimatePresence>
       </main>
 
-      {/* Mascota */}
-      <div className="fixed bottom-4 left-3 sm:left-6 z-20 scale-90 origin-bottom-left">
+      {/* Mascota — elevada sobre el footer con `bottom-24` para quedar siempre
+          visible independientemente de la altura del footer de métricas
+          (detectado en QA 2026-04-23: con `bottom-4` la mascota colisionaba
+          con el footer en viewports pequeños y se percibía como "desaparecida").
+          Scale completo ahora que tiene espacio reservado. */}
+      <div className="fixed bottom-24 left-4 sm:left-6 z-20 origin-bottom-left pointer-events-none">
         <CharacterMascot
           mood={mascotMood}
           message={mascotMessage || undefined}
@@ -1045,42 +1339,17 @@ export default function GameSession() { // NOSONAR
         />
       </div>
 
-      {/* Progreso de rondas */}
+      {/* Footer: solo metricas — el progreso de rondas vive en el header como
+          dots (ver header). Eliminamos el indicador redundante del footer y la
+          barra secundaria para dejar que el gameplay ocupe el espacio vertical. */}
       {(gameState === 'playing' || gameState === 'paused') && (
-        <footer className="relative z-10 px-3 py-2 sm:px-4 sm:py-2 shrink-0">
+        <footer className="relative z-10 px-3 py-1.5 sm:px-4 shrink-0">
           <CurrentPlayMetrics
             mode={sessionIsMemory ? 'memory' : 'association'}
             score={score}
             correctAnswers={correctAnswers}
             totalRounds={totalRounds}
           />
-          <div
-            className="flex justify-center items-center gap-2"
-            aria-label={`Progreso: ronda ${currentRound} de ${totalRounds}`}
-          >
-            {totalRounds <= 8 && roundIndicators.map(roundNumber => (
-              <motion.div
-                key={`round-${roundNumber}`}
-                initial={shouldReduceMotion ? false : { scale: 0 }}
-                animate={{ scale: 1 }}
-                transition={{ delay: shouldReduceMotion ? 0 : (roundNumber - 1) * 0.05 }}
-                className={cn(
-                  "size-3.5 rounded-full transition-[background-color,box-shadow,transform] duration-300",
-                  roundNumber < currentRound && "bg-success-base shadow-lg shadow-success-glow",
-                  roundNumber === currentRound && "bg-brand-base shadow-lg shadow-brand-glow scale-125",
-                  roundNumber > currentRound && "bg-background-surface"
-                )}
-              />
-            ))}
-          </div>
-          <div className="w-full max-w-md mx-auto mt-2 h-1.5 bg-background-elevated/60 rounded-full overflow-hidden">
-            <motion.div
-              className="h-full rounded-full bg-gradient-to-r from-brand-base to-success-base"
-              initial={{ width: 0 }}
-              animate={{ width: `${totalRounds > 0 ? ((currentRound - 1) / totalRounds) * 100 : 0}%` }}
-              transition={{ duration: 0.3, ease: 'easeOut' }}
-            />
-          </div>
         </footer>
       )}
 
@@ -1119,11 +1388,14 @@ export default function GameSession() { // NOSONAR
         )}
       </AnimatePresence>
 
-      {/* Pantalla de fin de partida */}
+      {/* Pantalla de fin de partida. Usamos el `correctAnswers` del summary
+          (origen backend cuando esta disponible) en lugar del estado local
+          del reducer, para eludir el race entre `response_*` y `game_over`
+          que dejaba ese contador 1 unidad por debajo del valor real. */}
       {gameState === 'finished' && (
         <GameOverScreen
           score={score}
-          correctAnswers={correctAnswers}
+          correctAnswers={playSummary?.correctAnswers ?? correctAnswers}
           totalRounds={totalRounds}
           bestScore={bestScore}
           summary={playSummary}

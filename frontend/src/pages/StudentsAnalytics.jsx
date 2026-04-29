@@ -65,7 +65,8 @@ function getTierBadge(tier) {
  */
 function getActivityColor(dateStr) {
   if (!dateStr) return 'bg-text-disabled';
-  const diff = (Date.now() - new Date(dateStr).getTime()) / (1000 * 60 * 60 * 24);
+  // Clamp a 0 para que fechas en el futuro (fixtures/seeders) no den valores negativos.
+  const diff = Math.max(0, (Date.now() - new Date(dateStr).getTime()) / (1000 * 60 * 60 * 24));
   if (diff < 3) return 'bg-success-base';
   if (diff <= 7) return 'bg-warning-base';
   return 'bg-error-base';
@@ -73,12 +74,13 @@ function getActivityColor(dateStr) {
 
 /**
  * Genera un texto relativo a partir de una fecha.
+ * Las fechas en el futuro (por seeders) se muestran como "Hoy" en vez de "Hace -X dias".
  * @param {string} dateStr - Fecha ISO
  * @returns {string} Texto "Hace X dias"
  */
 function getRelativeTime(dateStr) {
   if (!dateStr) return 'Sin actividad';
-  const diff = Math.floor((Date.now() - new Date(dateStr).getTime()) / (1000 * 60 * 60 * 24));
+  const diff = Math.max(0, Math.floor((Date.now() - new Date(dateStr).getTime()) / (1000 * 60 * 60 * 24)));
   if (diff === 0) return 'Hoy';
   if (diff === 1) return 'Hace 1 dia';
   return `Hace ${diff} dias`;
@@ -94,16 +96,32 @@ function formatResponseTime(ms) {
   return `${(ms / 1000).toFixed(1)}s`;
 }
 
+/**
+ * Formatea un porcentaje (0-100) eliminando decimales sobrantes.
+ * `1` decimal cuando el valor no es entero, sin decimales si lo es.
+ * Evita rendering tipo "42.7222222222222%" cuando el backend devuelve floats
+ * sin redondear (QA 26/04/2026).
+ * @param {number|string|null|undefined} v
+ * @returns {string}
+ */
+function formatPercent(v) {
+  if (v == null || v === '') return '0';
+  const n = Number(v);
+  if (!Number.isFinite(n)) return '0';
+  const rounded = Math.round(n * 10) / 10;
+  return Number.isInteger(rounded) ? String(rounded) : rounded.toFixed(1);
+}
+
 // ─── CSV column definitions ─────────────────────────────────────────
 
 const CSV_COLUMNS = [
   { key: 'name', label: 'Nombre' },
   { key: 'classroom', label: 'Aula' },
   { key: 'totalGames', label: 'Partidas' },
-  { key: 'averageScore', label: 'Puntuacion' },
+  { key: 'averageScore', label: 'Puntuación' },
   { key: 'accuracyRate', label: 'Tasa Acierto' },
   { key: 'avgResponseTime', label: 'Tiempo Respuesta' },
-  { key: 'lastPlayedAt', label: 'Ultima Actividad' },
+  { key: 'lastPlayedAt', label: 'Última Actividad' },
   { key: 'tier', label: 'Nivel' },
 ];
 
@@ -132,6 +150,7 @@ const TABLE_COLUMNS = [
 
 // ─── Main Component ─────────────────────────────────────────────────
 
+// eslint-disable-next-line sonarjs/cyclomatic-complexity -- pagina de analytics con tabla, filtros, distribucion y multiples estados
 export default function StudentsAnalytics() {
   const navigate = useNavigate();
   useDocumentTitle('Mis Alumnos');
@@ -188,11 +207,11 @@ export default function StudentsAnalytics() {
         if (isAbortError(err)) return;
         captureException(err);
         const status = err.response?.status;
-        const message = status === 403
-          ? 'No tienes permisos para ver estos datos.'
-          : status >= 500
-            ? 'Error del servidor. Intentalo de nuevo mas tarde.'
-            : 'Error de conexion. Comprueba tu red e intenta de nuevo.';
+        const message = (() => {
+          if (status === 403) return 'No tienes permisos para ver estos datos.';
+          if (status >= 500) return 'Error del servidor. Intentalo de nuevo mas tarde.';
+          return 'Error de conexion. Comprueba tu red e intenta de nuevo.';
+        })();
         setError(message);
       } finally {
         if (!controller.signal.aborted) {
@@ -243,7 +262,7 @@ export default function StudentsAnalytics() {
     }
 
     // Apply sorting
-    const sorted = [...filtered].sort((a, b) => {
+    return [...filtered].sort((a, b) => {
       let aVal = a[sortField];
       let bVal = b[sortField];
 
@@ -265,8 +284,6 @@ export default function StudentsAnalytics() {
       bVal = bVal ?? -Infinity;
       return sortOrder === 'asc' ? aVal - bVal : bVal - aVal;
     });
-
-    return sorted;
   }, [students, debouncedSearch, tierFilter, sortField, sortOrder]);
 
   // Derived KPIs
@@ -274,13 +291,17 @@ export default function StudentsAnalytics() {
   const classAverage = summary?.averageScore ?? 0;
   const studentsInRisk = summary?.studentsInRisk ?? 0;
 
+  // Contador de alumnos activos: cualquier alumno con lastPlayedAt en los ultimos 7 dias.
+  // El backend lo devuelve dentro de studentMetrics, pero el procesador del listado
+  // lo eleva a la raiz, asi que aqui aceptamos ambas rutas.
   const activeStudentsCount = useMemo(() => {
     if (!students?.students) return 0;
     const sevenDaysAgo = new Date();
     sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
     return students.students.filter(s => {
-      if (!s.lastPlayedAt) return false;
-      return new Date(s.lastPlayedAt) >= sevenDaysAgo;
+      const last = s.lastPlayedAt ?? s.studentMetrics?.lastPlayedAt ?? null;
+      if (!last) return false;
+      return new Date(last) >= sevenDaysAgo;
     }).length;
   }, [students]);
 
@@ -317,13 +338,14 @@ export default function StudentsAnalytics() {
 
   // ─── Skeleton state ─────────────────────────────────────────────
   const skeletonContent = loading && !students;
+  const motionVariants = shouldReduceMotion ? {} : crossfadeVariants;
 
   return (
     <AnimatePresence mode="wait">
       {skeletonContent ? (
         <motion.section
           key="skeleton"
-          {...(shouldReduceMotion ? {} : crossfadeVariants)}
+          {...motionVariants}
           className="p-6 lg:p-8 max-w-7xl mx-auto space-y-8"
         >
           {/* Header skeleton */}
@@ -363,7 +385,7 @@ export default function StudentsAnalytics() {
       ) : (
         <motion.section
           key="content"
-          {...(shouldReduceMotion ? {} : crossfadeVariants)}
+          {...motionVariants}
           className="p-6 lg:p-8 max-w-7xl mx-auto space-y-8"
           aria-label="Pagina de analisis de alumnos"
         >
@@ -500,7 +522,7 @@ export default function StudentsAnalytics() {
             >
               <GlassCard>
                 <h3 className="text-lg font-bold text-text-primary font-display mb-4">
-                  Distribucion de Rendimiento
+                  Distribución de Rendimiento
                 </h3>
                 <div className="h-48">
                   <DistributionChart data={distribution} />
@@ -568,7 +590,10 @@ export default function StudentsAnalytics() {
                             key={col.key}
                             scope="col"
                             className="px-4 py-3 text-left text-xs font-semibold text-text-muted uppercase tracking-wider whitespace-nowrap"
-                            aria-sort={col.sortable && sortField === col.key ? (sortOrder === 'asc' ? 'ascending' : 'descending') : undefined}
+                            aria-sort={(() => {
+                              if (col.sortable && sortField === col.key) return sortOrder === 'asc' ? 'ascending' : 'descending';
+                              return undefined;
+                            })()}
                           >
                             {col.sortable ? (
                               <button
@@ -588,7 +613,7 @@ export default function StudentsAnalytics() {
                       </tr>
                     </thead>
                     <motion.tbody
-                      {...(shouldReduceMotion ? {} : crossfadeVariants)}
+                      {...motionVariants}
                     >
                       {processedStudents.map((student, index) => (
                         <StudentRow
@@ -631,7 +656,9 @@ export default function StudentsAnalytics() {
 
 function SortIcon({ field, sortField, sortOrder }) {
   if (field !== sortField) {
-    return <ArrowUpDown size={14} className="text-text-muted/40 group-hover:text-text-muted transition-colors" aria-hidden="true" />;
+    // Atenuación mayor para que solo la columna activa destaque; el arrow
+    // inactivo solo se hace visible al hover como affordance (QA 22/04/2026).
+    return <ArrowUpDown size={14} className="text-text-muted/20 group-hover:text-text-muted transition-colors" aria-hidden="true" />;
   }
   return sortOrder === 'asc'
     ? <ArrowUp size={14} className="text-brand-base" aria-hidden="true" />
@@ -680,12 +707,12 @@ function StudentRow({ student, navigate }) {
 
       {/* Average score */}
       <td className="px-4 py-3 font-semibold text-text-primary text-center whitespace-nowrap">
-        {student.averageScore ?? 0}%
+        {formatPercent(student.averageScore)}%
       </td>
 
       {/* Accuracy rate */}
       <td className="px-4 py-3 text-text-secondary text-center whitespace-nowrap">
-        {student.accuracyRate != null ? `${student.accuracyRate}%` : '-'}
+        {student.accuracyRate != null ? `${formatPercent(student.accuracyRate)}%` : '-'}
       </td>
 
       {/* Response time */}
@@ -705,7 +732,8 @@ function StudentRow({ student, navigate }) {
 
       {/* Tier badge */}
       <td className="px-4 py-3 whitespace-nowrap">
-        <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-[11px] font-semibold uppercase tracking-wider border ${tier.className}`}>
+        <span className={`inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[11px] font-semibold uppercase tracking-[0.08em] border ${tier.className}`}>
+          <span className="size-1.5 rounded-full bg-current" aria-hidden="true" />
           {tier.label}
         </span>
       </td>
@@ -737,7 +765,7 @@ function EmptyState({ shouldReduceMotion }) {
         transition={{ delay: 0.15 }}
         className="text-text-muted mt-2 max-w-md mx-auto"
       >
-        Cuando tus alumnos jueguen sus primeras partidas, aqui podras ver su rendimiento y progreso.
+        Cuando tus alumnos jueguen sus primeras partidas, aquí podrás ver su rendimiento y progreso.
       </motion.p>
     </GlassCard>
   );

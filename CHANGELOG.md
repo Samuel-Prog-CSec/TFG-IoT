@@ -5,6 +5,160 @@ Todas las notas notables de cambios en este proyecto serán documentadas en este
 El formato está basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.0.0/),
 y este proyecto adhiere a [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.5.0] - 2026-04-24
+
+Cierre del Sprint 5 y última versión previa a la 1.0.0. Cinco ejes principales: backend robustecido (errores unificados, capa de datos completa, limitación de tráfico distribuida), suite completa de analytics (backend y frontend), protección de datos de menores conforme a RGPD y LOPDGDD, refactor de tarjetas RFID a tokens reutilizables y un nuevo lenguaje de movimiento "táctil + papel" aplicado a toda la app. Veintiocho tareas cerradas de treinta y una, con algunas menores diferidas al siguiente sprint. Incluye además un paquete de mantenimiento final que pule gameplay, dashboards y panel de administración antes del corte v1.0.0.
+
+### Añadido
+
+#### Analytics y dashboards
+
+- **Backend de analytics expandido:** decenas de nuevos endpoints para métricas de estudiantes, distribución, tendencias, mapas de calor y rankings, con un marco de indicadores y umbrales semánticos (riesgo, promedio, bueno, excelente) y comparativa entre periodos con deltas.
+- **Suite completa de analytics frontend:** cuatro páginas y once componentes nuevos (Dashboard ampliado, Perfil Individual de Estudiante, Vista Comparativa, Insights & Reports) con el mismo marco semántico aplicado a tarjetas, gráficos y alertas.
+- **Vista comparativa de estudiantes:** tabla ordenable con filtros, exportación a CSV y navegación cruzada al perfil individual.
+- **Perfil individual de estudiante:** métricas detalladas con superposición de la media de la clase, trayectoria de aprendizaje y desglose por mecánica y contexto.
+- **Dashboard con indicadores expandidos:** ocho indicadores reales del profesor autenticado, filtros interactivos, alertas accionables y mapa de calor por día y hora con leyenda y tooltips mejorados.
+- **Componentes de UI reutilizables:** breadcrumbs, cabeceras de página y estados de error consistentes en todas las páginas nuevas.
+- **Skeletons especializados** para gráficos y rejillas de tarjetas mientras cargan datos.
+
+#### Tarjetas RFID como tokens reutilizables
+
+- Las tarjetas dejan de ser entidades preregistradas por el administrador. Ahora el profesor las asigna directamente al crear o editar un mazo, mediante escaneo en vivo. La gestión administrativa de tarjetas desaparece y las páginas correspondientes se eliminan. El gameplay no cambia: el emparejamiento por identificador de tarjeta sigue funcionando idéntico.
+
+#### Backend — fundamentos y observabilidad
+
+- **Flujo de errores centralizado:** validación, rutas no encontradas y errores asíncronos pasan por un único punto y se registran de forma estructurada.
+- **Acceso a datos consolidado:** nuevas operaciones de escritura, soporte para transacciones y mejor separación entre la base de datos y la lógica de negocio.
+- **Respuestas y filtros uniformes:** la API comparte formato de respuesta y construcción declarativa de filtros en todos los endpoints.
+- **Limitación de tráfico distribuida:** los topes por tipo de operación (autenticación, registro, creación, eventos, analytics, subidas, exportación) se aplican coherentemente entre instancias del backend gracias a Redis. Nuevos límites en pausa y reanudación de partidas.
+- **Cache de analytics:** las consultas pesadas a dashboards se sirven desde caché con tiempos de vida ajustados por endpoint y se invalidan al terminar cada partida.
+- **Cache de identidad de usuario:** cada petición autenticada deja de leer la base de datos repetidamente; los datos de sesión se cachean por unos segundos. Métricas de aciertos y fallos expuestas en el endpoint de métricas operativas.
+- **Inicio de partida idempotente:** en despliegues con varias instancias, iniciar una misma partida no genera eventos duplicados.
+- **Monitorización del rate limiter:** si Redis falla y se cae al modo en memoria, el incidente se registra en el sistema de errores y se contabiliza para alertar al equipo.
+- **Worker dedicado para tareas en background:** la limpieza programada de datos de retención corre en un contenedor separado.
+- **Límite de eventos en tiempo real distribuido:** los topes por segundo en el canal de juego se aplican coherentemente entre instancias.
+- **Modo RFID coordinado entre instancias:** el cambio de modo (juego, asignación, idle) se propaga al instante a todos los servidores conectados.
+- **Cache distribuida para mecánicas y contextos** y bloqueo atómico de tarjetas para evitar conflictos cuando varias partidas usan los mismos mazos.
+
+#### UI/UX y motion
+
+- **Lenguaje de movimiento "táctil + papel":** la interfaz comparte una identidad visual con efectos de escaneo, ilustraciones de papel que entran y salen con suavidad, modal destructivo con flip 3D, micro-flash al reanudar partida y logo con respiración suave en login y registro.
+- **Estados vacíos ilustrados, modales más expresivos y refuerzo de accesibilidad:** anuncios para lectores de pantalla, foco automático al primer error de formulario, mapa de calor navegable por teclado, iconos diferenciados para daltonismo, sidebar con etiqueta de rol y banner para super-admin.
+- **Confetti** en pantalla de fin de partida y celebración de récords con delta sobre la mejor puntuación previa.
+- **Tema visual por contexto educativo:** cada mazo y elemento adopta los colores del contexto pedagógico al que pertenece, con efecto de baraja física en las tarjetas y ondas radar en el widget de RFID.
+- **Sistema de assets multimedia mejorado:** audio vinculado a tarjetas, placeholders de baja calidad para imágenes y auditoría de UX completa.
+- **Página de privacidad para profesores** y banner de consentimiento parental visible en el alta de estudiantes.
+- **Pódium Top 5 con medallas:** el ranking de mejores alumnos se rediseña con un pódium 1-2-3 visual y degradados oro, plata y bronce, alturas escalonadas y posiciones cuatro y cinco listadas debajo.
+- **Mazos con vista previa real:** las tarjetas de mazo en "Mis Mazos" muestran un mosaico con las primeras seis miniaturas reales en lugar de un placeholder genérico. Si faltan imágenes se muestra un fallback con las iniciales del nombre del mazo.
+- **Indicador de scroll en Actividad Reciente:** aparece un chevron derecho cuando hay más actividad fuera de pantalla, con desplazamiento por tarjeta y desaparición automática al llegar al final.
+- **Confirmación al cerrar sesión:** el botón de salida del sidebar pide confirmación antes de hacer logout, evitando salidas accidentales con trabajo a medias.
+- **Mini-gráfica y última partida en cada sesión:** cada tarjeta de sesión incluye una gráfica resumida con la evolución de puntuaciones recientes y la fecha de la última partida, dando contexto rápido sin abrir el detalle.
+- **Hover unificado en tarjetas:** el comportamiento al pasar el ratón y al pulsar es consistente en mazos, contextos, alumnos y sesiones, con elevación y sombra suaves que respetan la preferencia de movimiento reducido.
+- **Saludo personalizado con nombre destacado:** el header del Dashboard muestra el nombre del profesor con un degradado, y se aplica una capitalización española correcta que respeta artículos y preposiciones.
+
+#### Tests, infraestructura y CI
+
+- **Cobertura de tests:** más de mil trescientos tests entre backend y frontend pasan en verde en CI. Suites nuevas dedicadas a caché, idempotencia, cierre robusto de modales y muchas pruebas unitarias añadidas en una sola pasada.
+- **CI más estricto:** el linter detecta vulnerabilidades de seguridad, expresiones regulares peligrosas, secretos y promesas mal formadas. Cero warnings en backend y frontend tras una pasada masiva. Resuelto un cuelgue infinito de tests frontend en CI.
+- **Despliegue endurecido:** contenedores con límites de memoria y filesystem solo lectura, autenticación obligatoria en Redis, tareas en background en contenedor separado y etiquetas de versión sincronizadas.
+
+#### Mantenimiento final pre-release
+
+- **Buscador en selectores grandes:** cuando un desplegable supera las veinte opciones aparece automáticamente un buscador con filtrado en vivo, atajo Esc para limpiar y anuncio para lectores de pantalla. Aplica a selectores de alumno en jugar, asignar estudiante, generador de informes y filtros de mazo.
+- **Aviso de espera con cuenta atrás:** cuando el sistema pide esperar entre intentos aparece un banner con barra de progreso que se vacía sola hasta liberar la acción, en lugar del aviso efímero anterior. Soporta lectores de pantalla y movimiento reducido.
+- **Confirmación visual de tap en panel táctil:** tras pulsar una carta, un overlay sutil de unos milisegundos confirma que el sistema ha registrado la acción, evitando dobles taps por ansiedad.
+- **Métrica de rescates por ventana de gracia** en el panel de métricas para administradores: cuántos escaneos se han rescatado gracias a la nueva ventana de gracia entre rondas.
+
+### Cambiado
+
+- **Datos del usuario autenticado más simples y cacheables:** los flujos que antes guardaban directamente sobre el documento de base de datos se han migrado a la nueva capa de acceso a datos, con invalidación automática del cache de identidad ante cualquier cambio de credenciales o perfil.
+- **Motor de juego modularizado:** el componente que orquesta las partidas se ha dividido en módulos especializados, mejorando la estabilidad y la observabilidad sin alterar el gameplay.
+- **Dashboards con datos reales:** se eliminan los datos simulados; todos los indicadores reflejan al profesor autenticado.
+- **Lecturas optimizadas:** consultas de listado más rápidas, índices compuestos añadidos y eliminación de efectos secundarios al servir datos.
+- **Sistema de color unificado:** alrededor de doscientos colores escritos a mano se han migrado a tokens semánticos en wizard de sesiones, gameplay, login, registro y resto de páginas, permitiendo cambios de marca o tema sin tocar componentes uno a uno.
+- **Pipeline RFID endurecido:** vigilante de actividad, latido de salud, ventana temporal configurable y validación estricta del origen de cada lectura.
+- **Mecánica de Memoria sin estados intermedios:** el tablero solo se muestra cuando el servidor confirma que está listo, evitando flashes y posiciones extrañas al iniciar.
+- **Onboarding contextual** parcialmente implementado, con el tramo final diferido al siguiente sprint.
+- **Ventana de gracia entre rondas en Asociación:** en partidas con tiempos cortos (≤15 s), los escaneos justo en el límite del temporizador ya no se descartan; el servidor da unos milisegundos extra invisibles antes de cerrar la ronda. El reloj visible para el alumno sigue marcando "0 s" cuando expira.
+- **Antirrebote diferenciado por fuente de escaneo:** el cooldown anti-duplicado deja de ser uniforme. El sensor físico mantiene un cooldown amplio (anti-rebote del hardware), mientras que el panel táctil de Asociación y los taps en cartas de Memoria tienen un cooldown corto. Memoria táctil deja de mostrar el aviso "Espera un momento" al encadenar toques rápidos legítimos.
+- **Alertas con marca de tiempo real:** cada alerta refleja el momento exacto del incidente que la disparó (última partida del estudiante, último escaneo) en lugar de la hora actual al servir la respuesta. Se acabaron las alertas todas con la misma hora.
+- **Indicadores con delta neutro cuando no hay periodo previo:** "Alumnos en Riesgo" y "Partidas Hoy" muestran un guion en lugar de una línea vacía cuando no existe periodo anterior con el que comparar, comunicando con claridad la falta de baseline.
+- **Constantes del dominio centralizadas:** los valores admitidos por la API y la base de datos viven ahora en un único lugar, con un test que detecta automáticamente desincronizaciones entre capas.
+- **Transiciones de página continuas:** el cambio de ruta deja de mostrar un frame con dos páginas solapadas o un hueco vacío entre ellas.
+- **Deltas coloreados según semántica:** las tarjetas de indicadores del Dashboard ya no pintan siempre en verde los incrementos. Métricas como "Errores" o "Abandonos" se colorean en rojo cuando suben y en verde cuando bajan.
+- **Leyenda de Curvas de Aprendizaje reubicada arriba:** ya no se solapa con el eje horizontal ni con los tooltips, dejando más espacio vertical y mejorando la lectura.
+- **Indicador "Alumnos en Riesgo" coherente con la tabla:** el contador del Dashboard y la tabla detallada usan ahora la misma fuente de datos, eliminando porcentajes a 0% pese a haber alumnos en riesgo.
+- **Pantalla de fin de partida correcta en modo táctil:** en partidas de Asociación sin sensor RFID, el resumen final dejaba de contar aciertos por una condición de carrera y por un guardia de coherencia demasiado estricto. Ambos problemas corregidos: el alumno ve el conteo real de su partida.
+- **Porcentajes con un decimal:** los porcentajes de aciertos en perfiles y comparativas pasan de cuatro decimales a uno solo, eliminando ruido visual del estilo 42,7222 %.
+- **Selección de contexto más robusta:** la creación y edición de mazos aceptan las distintas formas en que la API entrega los identificadores, evitando errores en flujos sucesivos.
+- **Redirección de la ruta antigua de alumnos:** los enlaces guardados al listado de alumnos siguen funcionando y llevan al usuario a la nueva vista comparativa.
+
+### Arreglado
+
+- **Críticos pre-release:**
+  - Las partidas con puntuación negativa (penalizaciones grandes) ya pueden guardarse correctamente; antes la base de datos las rechazaba.
+  - El asistente de creación de mazos volvía a fallar mostrando una pantalla de error tras retomar un borrador; resuelto.
+  - El listado de contextos ya no se rompe cuando un filtro deja la lista a cero resultados.
+  - Los indicadores de Informes mostraban siempre cero por una incompatibilidad interna de datos; ahora reflejan los valores reales.
+  - El eje vertical de Curvas de Aprendizaje se desbordaba en algunos casos; ahora se acota correctamente.
+- **Limitación de tráfico realmente distribuida:** los topes se aplicaban en memoria local de cada instancia por un orden incorrecto al arrancar. Tras la corrección, los contadores viven en Redis desde la primera petición.
+- **Resiliencia ante caídas momentáneas de Redis:** el backend ya no entra en ciclo de reinicio cuando Redis tiene un parón breve.
+- **Métricas operativas completas:** el endpoint de métricas expone ahora los contadores de Redis (caché de identidad y fallbacks de rate limiter).
+- **Direcciones IPv6 normalizadas** en los limiters de tráfico, agrupándolas correctamente para evitar evasiones triviales.
+- **Liberación explícita del bloqueo de inicio al terminar una partida:** si el cliente reintenta, ya no encuentra un bloqueo aún caliente.
+- **Limiters fail-open ante fallos transitorios** de Redis: la app sigue funcionando en lugar de devolver error 500.
+- **Permisos de administración corregidos** en la edición de mecánicas y rutas de assets de la mecánica de Números.
+- **Filtración de memoria en tests resuelta** y tests frontend ya no se cuelgan indefinidamente en CI.
+- **Tildes correctas en sesiones de Memoria:** nombres como "Triángulo", "Murciélago" o "Plátano" se normalizan bien y el emparejamiento de pares ya no falla por mismatch de acentos. Validación reforzada tras tres pasadas masivas en QA.
+- **Pulido visual general:** el contador "Total" en Mis Mazos ya muestra el número correcto cuando hay mazos activos, las previews de contextos son legibles, el slider de penalización refleja el sentido correcto, los emojis del gameplay se sustituyen por iconos consistentes, las alertas no duplican nombres y se han depurado textos y pistas.
+- **Crítico — el juego era inutilizable sin sensor RFID:** el servidor rechazaba los toques en el panel táctil cuando no había un lector físico conectado, dejando la app injugable en modo escritorio. Resuelto.
+- **Crítico — las tarjetas no se liberaban entre partidas:** un error en el cálculo interno de claves dejaba las reservas de tarjetas atrapadas tras cada partida, impidiendo reutilizarlas. Resuelto.
+- **Caché de alertas:** cambiar el tope de elementos (de "Top 5" a "Top 10") devolvía la lista anterior; ahora se actualiza correctamente.
+- **Confirmación al eliminar imágenes y audios:** el botón borraba sin preguntar; ahora pide confirmación como el resto de eliminaciones.
+- **Aviso de "Borrador encontrado"** al crear un mazo: ya no vuelve a aparecer tras descartarlo en el mismo asistente.
+- **Detalle de sesión** ya no carga datos por duplicado al abrirlo.
+- **Aviso 401 fugaz al iniciar sesión:** se diferencian los rechazos esperados (sesión sin refrescar) de los errores reales para no asustar al usuario al arrancar la app.
+- **Transición de páginas en la zona admin** sin solapamiento: la cabecera no se duplica al cambiar de pestaña.
+- **El recuento y URLs de los assets de un contexto** se actualizan al instante tras subir o eliminar imágenes y audios; ya no se ven datos obsoletos.
+- **Saludo del Dashboard** con la capitalización española correcta del nombre.
+- **Eventos legítimos del motor de juego ya no quedan inalcanzables vía API** por una desalineación entre validador y modelo de datos.
+- **Banner de espera en Memoria con auto-cierre:** ya no se queda visible aunque la ronda haya avanzado; se cierra solo cuando el cooldown termina.
+- **Política de evicción de Redis ajustada para no expulsar claves bajo presión de memoria:** preserva tareas programadas (limpieza diaria), tokens revocados y bloqueos de inicio de partida que dependen de existir hasta su tiempo de vida.
+- **Modales de confirmación se cierran solos al terminar la acción confirmada:** antes podían quedarse visibles bloqueando la UI tras eliminar un asset, contexto, mazo o sesión, también si la operación lanzaba un error.
+- **Consigna de Asociación con género neutro:** ya no aparecen frases incorrectas como "la Cerdo" o "la Caballo" en el fallback automático. La consigna personalizada del profesor sigue teniendo prioridad cuando se define en el wizard.
+- **El switch de Animaciones del sidebar** ya no puede disparar accidentalmente envíos de formulario.
+- **Cara trasera de las cartas en Memoria realmente oculta a lectores de pantalla:** antes algunos lectores anunciaban el nombre de la carta antes de revelarla.
+- **Fondo continuo bajo la barra lateral en páginas largas:** ya no aparece una franja de otro color al hacer scroll por debajo del primer viewport.
+- **Indicadores del perfil de alumno con alturas iguales:** las tarjetas con línea comparativa ya no rompen la rejilla.
+- **Trayectoria de Aprendizaje y Resumen del Alumno con alturas iguales** en su fila.
+- **Sin huecos verticales en el Dashboard** entre Actividad Reciente y la columna lateral.
+
+### Seguridad
+
+- **Protección de datos de menores (cumplimiento RGPD y LOPDGDD):**
+  - Auditoría completa de datos personales, registro de actividades de tratamiento y evaluación de impacto documentada.
+  - Minimización de datos: la fecha de nacimiento ya no se almacena para los estudiantes.
+  - Consentimiento parental obligatorio al crear un estudiante, gestionado y reflejado en la UI.
+  - Seudonimización en analytics y separación de datos identificativos; los logs no contienen datos personales de menores.
+  - Borrado efectivo y política de retención con plazos concretos.
+  - Endpoints para portabilidad, rectificación con audit trail y derecho de oposición a analytics comportamentales.
+  - Audit trail de acceso a datos y página de privacidad para profesores.
+  - Evaluación de riesgo de re-identificación en aulas pequeñas.
+  - Protocolo documentado de notificación de brechas.
+  - Sentry documentado como procesador internacional; cifrado en cliente planificado para producción.
+  - Centralización de operaciones de privacidad en el rol de super-admin.
+- **Endurecimiento de infraestructura:** autenticación por contraseña en Redis, filesystem solo lectura y límites de memoria en contenedores.
+- **Vulnerabilidades resueltas** en varias dependencias de backend y frontend. Dependencias actualizadas vía Dependabot.
+
+### Documentación
+
+- Decisiones de arquitectura del sprint registradas en el documento interno de decisiones: caché de analytics, caché de identidad, idempotencia de inicio de partida, observabilidad del rate limiter, accesibilidad keyboard-first, lenguaje de movimiento "táctil + papel", tarjetas como tokens reutilizables, ventana de gracia, antirrebote por fuente, política de evicción Redis y layout, entre otras.
+- Documento unificado de protección de datos de menores (auditoría, registro de tratamiento, brechas y k-anonimidad).
+- Sprint 5 cerrado con tareas y propuestas trazadas; tareas diferidas marcadas para el siguiente sprint.
+- Nuevas propuestas catalogadas tras los hallazgos de QA y planificadas para el siguiente sprint.
+- Guías técnicas actualizadas en backend (arquitectura Redis, optimizaciones, rate limiting, flujos en tiempo real, performance, seguridad, logging, analytics) y frontend (gameplay en tiempo real, antirrebote en cliente, banner de espera). Documentación de despliegue actualizada con la nueva política de evicción y el worker de tareas.
+- Memoria académica del TFG (LaTeX) en redacción paralela.
+
 ## [0.4.0] - 2026-03-22
 
 ### Añadido

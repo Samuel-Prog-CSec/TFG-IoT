@@ -429,3 +429,140 @@ node scripts/benchmark-redis-ops.js --cards=20 --iterations=100
 ### Cache-aside para entidades de alta lectura (implementado)
 
 Se implementó el patrón cache-aside para mecánicas, contextos y analytics de clase (ver **ADR-020** en `Architecture_Decisions.md`). El helper `cacheHelper.js` reutiliza la infraestructura de `redisService` con circuit breaker, definiendo tres niveles de cache con TTLs diferenciados (mecánicas 1h, contextos 30min, analytics 5min). La invalidación explícita en mutaciones garantiza frescura de datos para mecánicas y contextos, mientras que analytics se basa en expiración por TTL.
+
+### Mejoras de resiliencia Redis (Mantenimiento 2026-04-12)
+
+**Observabilidad del Circuit Breaker (ADR-040):** El `CircuitBreaker` ahora logea cada transición de estado (`closed→open→half_open→closed`). El health check (`/health`) incluye el campo `circuitBreaker` en la sección de Redis, y reporta estado `degraded` cuando el circuit breaker está abierto.
+
+**Recovery de card locks (ADR-041):** Cuando Redis reconecta tras una desconexión, el GameEngine automáticamente re-registra las reservas de tarjetas para las partidas activas en memoria. Esto usa el mecanismo `onReconnect()` de `config/redis.js` que emite un callback en el evento `ready` tras una desconexión.
+
+**Documentación de política de errores:** El handler `on('error')` de Redis en producción ahora documenta explícitamente que NO cierra el proceso (a diferencia del fallo en `connect()` inicial). El circuit breaker de `redisService` gestiona la degradación graceful.
+
+---
+
+## Mantenimiento 2026-04-20: Cobertura total cache analytics + cache auth + idempotencia distribuida
+
+Esta iteración cierra inconsistencias de cobertura y amplía el uso de Redis a dos dominios que no lo aprovechaban. Cinco mejoras integradas:
+
+### 1. Cobertura total de cache-aside en analytics (ADR-064)
+
+`analyticsController.js` tenía 9 de 11 handlers sin cache (solo `getClassroomSummary` y `getClassroomDistribution` estaban envueltos en `cacheGet`). El controller "advanced" T-066 ya cacheaba 14 de 19. Se envolvieron los 9 faltantes con claves parametrizadas por `teacherId`/`studentId` + parámetros relevantes y TTLs escalonados:
+
+| Endpoint | Key | TTL |
+|---|---|---|
+| `getStudentProgress` | `student:progress:${id}:${timeRange\|\|'30d'}` | 180s |
+| `getStudentDifficulties` | `student:difficulties:${id}` | 180s |
+| `getStudentSummary` | `student:summary:${id}:${timeRange\|\|'default'}` | 180s |
+| `getClassroomComparison` | `comparison:${teacherId}:${timeRange\|\|'default'}` | 300s |
+| `getClassroomDifficulties` | `difficulties:${teacherId}` | 300s |
+| `getClassroomTrends` | `trends:${teacherId}:${timeRange\|\|'default'}` | 300s |
+| `getClassroomHeatmap` | `heatmap:${teacherId}:${timeRange\|\|'default'}` | 300s |
+| `getClassroomRankings` | `rankings:${teacherId}:${timeRange\|\|'default'}:${limit\|\|'default'}` | 600s |
+| `getClassroomStudents` | `students:${teacherId}:${sort}:${order}:${tier}:${classroom}:${contextId}:${mechanicId}` | 120s |
+
+`getStudentsIdentity` NO se cachea por contener PII (name, avatar, profile). Comentario en el código justifica la exclusión.
+
+**Invalidación**: `GameEngine.endPlay` ejecuta `cacheInvalidateNamespace('cache:analytics').catch(...)` en fire-and-forget tras persistir la partida. Garantiza frescura inmediata en el dashboard del profesor cuando un alumno termina.
+
+### 2. Cache distribuido de slim-user en middleware auth (ADR-065)
+
+El middleware `authenticate` y el handshake Socket.IO hacían `userRepository.findById` en cada request. Se introduce `auth:user:<userId>` con TTL 60s. Dos helpers nuevos en `middlewares/auth.js`:
+
+- `fetchUserForAuth(userId, select)`: cache-aside con recuento en `runtimeMetrics.redis.authUserCacheHits/Misses`.
+- `invalidateUserCache(userId)`: purga explícita.
+
+Invalidación en 8 puntos (login, logout, updateProfile, changePassword, refreshAccessToken, updateUser, deleteUser, userService.updateUser).
+
+**Gotcha**: `req.user` pasa a ser POJO (no Mongoose doc). En el único punto donde hacíamos `req.user.save()` (logout), se migró a `userRepository.updateById` + `invalidateUserCache`. Los demás flujos del proyecto ya hacían `find + save` con una variable local, no sobre `req.user`, por lo que no hubo impacto transversal.
+
+### 3. Idempotencia distribuida de `startPlay` (ADR-066) + liberación explícita en `endPlay` (ADR-068)
+
+Nuevo namespace `play:init:<playId>` con TTL 60s. En multi-instancia (Socket.IO adapter activo), un SET NX al inicio de `startPlay` garantiza que solo una réplica ejecuta el arranque. Si Redis cae, `setIfNotExists` retorna `true` por fallback y degradamos al guard in-memory previo.
+
+`startPlay` y `endPlay` usan ahora la constante `redisService.NAMESPACES.PLAY_INIT_LOCK` en vez del literal `'play:init'` (coherencia con el resto del módulo). `endPlay` libera el lock explícitamente con `redisService.del(NAMESPACES.PLAY_INIT_LOCK, playId)` envuelto en try/catch silencioso. El TTL 60s sigue siendo la red de seguridad ante errores de Redis. Este cambio elimina el caso "abort silencioso" que se producía si el cliente intentaba reiniciar la misma partida durante esos 60 s post-endPlay (p. ej. F5 inmediato del alumno tras una partida muy corta).
+
+### 4. Hardening del fallback de rate limiter HTTP (ADR-067) + lazy promotion (ADR-068)
+
+ADR-067 (commit a52e62e) añadió observabilidad del fallback pero no resolvió la causa raíz: los limiters se anclaban a `MemoryStore` siempre al boot porque `require('./config/security')` se ejecuta antes de `await connectRedis()`. La QA del 2026-04-20 confirmó `rateLimitStoreFallbackCount == 8` y keys `rl:*` ausentes.
+
+ADR-068 (mantenimiento posterior) refactoriza la inicialización a una factory deferida: `createRateLimiter` registra la config y devuelve un middleware shim; `initRateLimiters()` instancia los 8 limiters reales con Redis store cuando se invoca desde `server.js` justo tras `await connectRedis()`. Resultados: `rateLimitStoreFallbackCount == 0` en boot normal, keys `rl:*` aparecen en Redis, y `passOnStoreError: true` evita 500s ante blips de Redis.
+
+Observabilidad existente (logs alerta + contador runtimeMetrics) se preserva.
+
+### 5. Flush opt-in de Lua scripts en deploys (sin ADR nuevo — enmienda ADR-004)
+
+Nueva env var `REDIS_FLUSH_LUA_ON_BOOT=true` en `loadLuaScripts` que ejecuta `SCRIPT FLUSH` antes de recargar. Necesario en deploys con cambios en `.lua` donde Redis en producción mantiene el script cache entre reinicios del backend. Sin esto, `EVALSHA` sigue ejecutando la versión vieja sin disparar `NOSCRIPT`. Logs con SHA completo de cada script al cargar para verificación visual en deploys.
+
+### Archivos nuevos / modificados clave
+
+- `backend/src/controllers/analyticsController.js` (9 handlers envueltos)
+- `backend/src/services/gameEngine/GameEngine.js` (invalidación en `endPlay`, lock en `startPlay`)
+- `backend/src/middlewares/auth.js` (`fetchUserForAuth`, `invalidateUserCache`)
+- `backend/src/realtime/socketHandlers.js` (handshake usa cache-aside)
+- `backend/src/controllers/authController.js`, `userController.js`, `services/userService.js` (invalidaciones)
+- `backend/src/config/security.js` (hardening fallback)
+- `backend/src/config/redis.js` (`REDIS_FLUSH_LUA_ON_BOOT`, log SHA completo)
+- `backend/src/utils/runtimeMetrics.js` (nuevas métricas `redis.*`)
+- `backend/tests/analyticsCacheCoverage.test.js`, `authCache.test.js`, `endPlayInvalidatesAnalyticsCache.test.js`, `gameEngineStartPlayIdempotency.test.js` (nuevos)
+- `backend/tests/runtimeMetrics.test.js` (extendido)
+
+### Propuestas para Sprint 6
+
+Ver sección "Mejoras Redis Sprint 6" en `documentation/propuestas-mejora.md` (PROP-59, PROP-60, PROP-62, PROP-63, PROP-64): WebSocket rate-limit distribuido, leaderboards ZSET, cola BullMQ, materialización studentMetrics, estado RFID distribuido.
+
+## Mantenimiento 2026-04-29: política de evicción `noeviction` (QA pre-release v0.5.0)
+
+### Contexto del hallazgo
+
+QA final pre-release v0.5.0 detectó que Redis arrancaba con `maxmemory-policy=allkeys-lru` en `docker-compose.yml` y `docker-compose.prod.yml`. BullMQ avisa explícitamente de este desajuste en cada conexión:
+
+```
+IMPORTANT! Eviction policy is allkeys-lru. It should be "noeviction"
+```
+
+El warning lleva en los logs de boot del backend desde la integración de BullMQ (PROP-62, ADR-077) sin que se hubiera actuado sobre él.
+
+### Diagnóstico
+
+`allkeys-lru` expulsa la clave usada hace más tiempo cuando la memoria llega al límite, dejando sitio a la nueva escritura. Es benigno mientras Redis no se llene, pero el proyecto usa Redis para datos cuya pérdida silenciosa rompe garantías:
+
+| Tipo de dato                    | Tolera evicción LRU | Riesgo si se expulsa                                                                |
+| ------------------------------- | ------------------- | ----------------------------------------------------------------------------------- |
+| `cache:analytics`, `cache:context`, `auth:user` | Sí           | Se regenera en la siguiente petición. TTL controla la frescura.                     |
+| `bull:*` (BullMQ)               | **No**              | Job perdido = cron de retención RGPD podría no ejecutarse esa noche.                |
+| `blacklist:*`                   | **No**              | Token revocado vuelve a ser válido hasta `exp` natural — agujero de seguridad.      |
+| `refresh:*`, `used:*`           | **No**              | Rotación rota: refresh válidos rechazados o reutilizables fuera de ventana.         |
+| `play:init:*`                   | **No**              | Idempotencia perdida: doble-click en "Iniciar partida" crea dos `GamePlay` distintos. |
+| `play:*`, `card:*`              | **No**              | Locks distribuidos perdidos = race conditions en motor de juego.                    |
+
+El bug es de "fallo diferido": funciona perfecto en dev (256MB nunca se llenan) pero en producción, tras horas de carga sostenida, una de las claves críticas puede desaparecer sin trace.
+
+### Cambio aplicado
+
+Dos líneas, en dos archivos:
+
+```yaml
+# docker-compose.yml (dev) y docker-compose.prod.yml (prod)
+command: >
+  redis-server
+  ...
+  --maxmemory-policy noeviction   # antes: allkeys-lru
+```
+
+Y la fila correspondiente de `docker/README.md` actualizada con la justificación.
+
+### Por qué `noeviction` es seguro
+
+`noeviction` rechaza escrituras nuevas con `OOM command not allowed when used memory > 'maxmemory'` en lugar de borrar nada. Aparenta ser más arriesgado, pero:
+
+1. Los caches descartables ya tienen **TTL explícito** (60s a 30 min según namespace), así que se vacían solos sin necesidad de evicción.
+2. **Fallo visible** (error en logs → alerta de monitorización) es preferible a **fallo silencioso** (clave de seguridad o idempotencia desaparecida que rompe invariantes días después).
+
+### Mitigación monitorizada
+
+`/api/admin/metrics` ya expone `redis.usedMemory` y `redis.maxMemory`. Conviene alertar cuando `usedMemory / maxMemory > 0.8` para escalar antes de tocar el límite. Si se llega a OOM, los caches existentes siguen sirviendo lectura — degradación parcial, no caída total.
+
+### Referencias
+
+- ADR-094 — QA final pre-release v0.5.0 (paquete fixes).
+- `backend/docs/Arquitectura_Redis.md` — sección "Política de evicción" amplía el razonamiento con la matriz completa de namespaces.

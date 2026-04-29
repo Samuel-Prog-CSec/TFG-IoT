@@ -22,6 +22,7 @@ const redisService = require('../src/services/redisService');
 const logger = require('../src/utils/logger');
 
 // Parsear argumentos
+// eslint-disable-next-line sonarjs/process-argv -- script CLI, parseo seguro de argumentos
 const args = process.argv.slice(2).reduce((acc, arg) => {
   const [key, val] = arg.replace('--', '').split('=');
   acc[key] = Number(val) || val;

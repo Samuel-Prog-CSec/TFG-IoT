@@ -1,4 +1,5 @@
 import { useState, useCallback } from 'react';
+import PropTypes from 'prop-types';
 import { useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
@@ -11,15 +12,21 @@ import {
   Plus,
   X,
   Loader2,
-  ShieldCheck
+  ShieldCheck,
+  Landmark,
+  PawPrint,
+  Hash,
+  Shapes
 } from 'lucide-react';
 import { toast } from 'sonner';
 
 import GlassCard from '../components/ui/GlassCard';
+import HoverLiftCard from '../components/ui/HoverLiftCard';
 import ButtonPremium from '../components/ui/ButtonPremium';
 import PageHeader from '../components/ui/PageHeader';
 import InputPremium from '../components/ui/InputPremium';
 import EmptyState from '../components/ui/EmptyState';
+import { EmptyContextsIllustration } from '../components/ui/illustrations';
 import ErrorState from '../components/ui/ErrorState';
 import Tooltip from '../components/ui/Tooltip';
 import { SkeletonCard } from '../components/ui/SkeletonShimmer';
@@ -29,6 +36,89 @@ import { useDocumentTitle } from '../hooks/useDocumentTitle';
 import { useAuth } from '../context/AuthContext';
 import { contextsAPI, extractData, extractErrorMessage } from '../services/api';
 import { ROUTES } from '../constants/routes';
+import ScanlineOverlay from '../components/ui/ScanlineOverlay';
+import { listContainerVariants, motionConfig, DURATION, EASING } from '../lib/utils';
+import { getContextTheme } from '../lib/contextTheme';
+
+// Resuelve un "kind" de icono a partir del contexto; el render usa un switch
+// JSX directo para evitar la regla `react-hooks/static-components` que marca
+// cualquier asignación a variable PascalCase como "componente creado en render".
+const resolveContextIconKind = context => {
+  const id = context?.contextId;
+  if (id === 'geography-europe') return 'landmark';
+  if (id === 'animals-farm') return 'pawprint';
+  if (id === 'colors-basic') return 'palette';
+  if (id === 'numbers-1-6') return 'hash';
+  if (id === 'shapes-basic') return 'shapes';
+  const name = (context?.name || '').toLowerCase();
+  if (/pa[ií]s|geograf|europ|bandera/.test(name)) return 'landmark';
+  if (/animal|granja|zoo/.test(name)) return 'pawprint';
+  if (/color/.test(name)) return 'palette';
+  if (/n[uú]mero|d[ií]gito/.test(name)) return 'hash';
+  if (/forma|geometr/.test(name)) return 'shapes';
+  return 'palette';
+};
+
+function ContextIcon({ context }) {
+  const kind = resolveContextIconKind(context);
+  const iconProps = { size: 24, className: 'text-accent-indigo' };
+  if (kind === 'landmark') return <Landmark {...iconProps} />;
+  if (kind === 'pawprint') return <PawPrint {...iconProps} />;
+  if (kind === 'hash') return <Hash {...iconProps} />;
+  if (kind === 'shapes') return <Shapes {...iconProps} />;
+  return <Palette {...iconProps} />;
+}
+ContextIcon.propTypes = {
+  context: PropTypes.shape({
+    contextId: PropTypes.string,
+    name: PropTypes.string
+  })
+};
+
+// Mapea un tema de contexto a uno de los glowTints soportados por HoverLiftCard
+// para que cada contexto tenga un hover signature propio pero dentro de la paleta.
+const CONTEXT_THEME_TO_GLOW = {
+  default: 'indigo',
+  geography: 'cyan',
+  animals: 'warning',
+  colors: 'pink',
+  numbers: 'success',
+  shapes: 'cyan',
+};
+
+const resolveContextGlow = (context) => {
+  const theme = getContextTheme(context?.contextId || context?.slug || context?.name);
+  // Derivar la key desde la primaryVar (ej: '--color-theme-animals' -> 'animals')
+  const themeKey = theme?.primaryVar?.replace('--color-theme-', '').replace('--color-accent-', '') || 'default';
+  return CONTEXT_THEME_TO_GLOW[themeKey] || 'indigo';
+};
+
+// Variants locales con settle spring en entrada y "papel volando" en exit.
+const buildContextCardVariants = (shouldReduceMotion) => {
+  if (shouldReduceMotion) {
+    return {
+      hidden: { opacity: 0 },
+      visible: { opacity: 1, transition: { duration: 0 } },
+      exit: { opacity: 0, transition: { duration: 0 } },
+    };
+  }
+  return {
+    hidden: { opacity: 0, y: -12, scale: 0.94 },
+    visible: {
+      opacity: 1,
+      y: 0,
+      scale: 1,
+      transition: motionConfig.springGame,
+    },
+    exit: {
+      opacity: 0,
+      x: -24,
+      scale: 0.92,
+      rotate: -2,
+      transition: { duration: DURATION.exit, ease: EASING.outQuart },
+    },
+  };
+};
 
 export default function ContextsPage() {
   const navigate = useNavigate();
@@ -124,8 +214,10 @@ export default function ContextsPage() {
           </GlassCard>
 
           <GlassCard className="p-4 flex items-center gap-4">
-            <div className="size-12 rounded-xl bg-warning-base/10 flex items-center justify-center">
-              <Music size={22} className="text-warning-base" />
+            {/* Tile neutro cuando no hay audios: amarillo sugiere warning y
+                aquí es solo un contador informativo (QA 22/04/2026). */}
+            <div className={`size-12 rounded-xl flex items-center justify-center ${totalAudio > 0 ? 'bg-warning-base/10' : 'bg-background-surface/60'}`}>
+              <Music size={22} className={totalAudio > 0 ? 'text-warning-base' : 'text-text-muted'} />
             </div>
             <div>
               <p className="text-2xl font-semibold text-text-primary font-display">{totalAudio}</p>
@@ -158,51 +250,68 @@ export default function ContextsPage() {
 
       {/* Contenido */}
       <div className="max-w-7xl mx-auto">
-        {loading ? (
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-            {[...Array(6)].map((_, i) => (
-              <SkeletonCard key={i} className="h-64" />
-            ))}
-          </div>
-        ) : error ? (
-          <ErrorState
-            title="Error al cargar contextos"
-            message={`${error} Pulsa Reintentar o recarga la página.`}
-            onRetry={refetch}
-            className="max-w-lg mx-auto mt-12"
-          />
-        ) : filteredContexts.length === 0 ? (
-          <EmptyState
-            title="No se encontraron contextos"
-            description={
-              searchTerm
-                ? 'Intenta usar otros términos de búsqueda.'
-                : 'Aún no hay contextos temáticos disponibles.'
-            }
-            icon={<Palette size={28} />}
-            action={
-              isSuperAdmin && !searchTerm ? (
-                <ButtonPremium onClick={() => setShowCreateModal(true)} icon={<Plus size={16} />}>
-                  Crear el primer contexto
-                </ButtonPremium>
-              ) : undefined
-            }
-          />
-        ) : (
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-            <AnimatePresence>
-              {filteredContexts.map((context, index) => (
-                <ContextCard
-                  key={context._id || context.id}
-                  context={context}
-                  index={index}
-                  reducedMotion={shouldReduceMotion}
-                  onClick={() => navigate(ROUTES.CONTEXT_DETAIL(context._id || context.id))}
-                />
+        {(() => {
+          if (loading) return (
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+              {Array.from({ length: 6 }, (_, i) => `ctx-skeleton-${i}`).map(id => (
+                <SkeletonCard key={id} className="h-64" />
               ))}
-            </AnimatePresence>
-          </div>
-        )}
+            </div>
+          );
+          if (error) return (
+            <ErrorState
+              title="Error al cargar contextos"
+              message={`${error} Pulsa Reintentar o recarga la página.`}
+              onRetry={refetch}
+              className="max-w-lg mx-auto mt-12"
+            />
+          );
+          if (filteredContexts.length === 0) return (
+            <EmptyState
+              illustration={<EmptyContextsIllustration size={180} />}
+              variant={searchTerm ? 'filtered' : 'first-use'}
+              title={searchTerm ? 'Nada coincide con tu búsqueda' : 'Aún no hay contextos'}
+              description={
+                searchTerm
+                  ? 'Prueba con otro término o limpia la búsqueda para ver todos los contextos disponibles.'
+                  : 'Los contextos agrupan tarjetas por temática (animales, países, profesiones…). Cuando haya alguno creado, lo verás aquí.'
+              }
+              action={
+                isSuperAdmin && !searchTerm ? (
+                  <ButtonPremium onClick={() => setShowCreateModal(true)} icon={<Plus size={16} />}>
+                    Crear el primer contexto
+                  </ButtonPremium>
+                ) : undefined
+              }
+            />
+          );
+          {
+            const cardVariants = buildContextCardVariants(shouldReduceMotion);
+            return (
+              <motion.div
+                className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6"
+                variants={shouldReduceMotion ? {} : listContainerVariants(0.06)}
+                initial={shouldReduceMotion ? false : "hidden"}
+                animate="visible"
+              >
+                <AnimatePresence>
+                  {filteredContexts.map((context) => (
+                    <motion.div
+                      key={context._id || context.id}
+                      variants={cardVariants}
+                      exit="exit"
+                    >
+                      <ContextCard
+                        context={context}
+                        onClick={() => navigate(ROUTES.CONTEXT_DETAIL(context._id || context.id))}
+                      />
+                    </motion.div>
+                  ))}
+                </AnimatePresence>
+              </motion.div>
+            );
+          }
+        })()}
       </div>
 
       {/* Modal crear contexto (solo super_admin) */}
@@ -222,26 +331,28 @@ export default function ContextsPage() {
 // TARJETA DE CONTEXTO
 // ============================================
 
-function ContextCard({ context, onClick, index, reducedMotion }) {
+function ContextCard({ context, onClick }) {
   const assetCount = context.assetsCount ?? context.assets?.length ?? 0;
   const imagesCount = context.imageCount ?? context.assets?.filter(a => a.imageUrl)?.length ?? 0;
   const audioCount = context.audioCount ?? context.assets?.filter(a => a.audioUrl)?.length ?? 0;
-  const previews = context.assets?.filter(a => a.display)?.slice(0, 5).map(a => a.display) || [];
+  // 3 previews (antes 5): con 5 chips + gap + badge "+N" los nombres quedaban
+  // ilegibles (cada chip recortado a 3-4 chars tipo "R... A... Ver..."). Con
+  // 3 chips y un ancho por chip mas generoso se leen palabras completas.
+  const previews = context.assets?.filter(a => a.display)?.slice(0, 3).map(a => a.display) || [];
+  const glowTint = resolveContextGlow(context);
 
   return (
-    <motion.div
-      initial={reducedMotion ? false : { opacity: 0, y: 16 }}
-      animate={{ opacity: 1, y: 0 }}
-      exit={reducedMotion ? false : { opacity: 0, scale: 0.95 }}
-      transition={{ delay: reducedMotion ? 0 : index * 0.06, duration: 0.6, ease: [0.16, 1, 0.3, 1] }}
-      whileHover={reducedMotion ? {} : { y: -4 }}
+    <HoverLiftCard
+      glowTint={glowTint}
       onClick={onClick}
-      className="group cursor-pointer"
+      className="group cursor-pointer h-full"
     >
-      <GlassCard className="h-full p-6 transition-colors hover:bg-background-elevated/40 hover:border-accent-indigo/30">
+      <GlassCard className="relative overflow-hidden h-full p-6 transition-colors hover:bg-background-elevated/40 hover:border-accent-indigo/30">
+        {/* Scanline signature con visibilidad CSS-controlled via group-hover. */}
+        <ScanlineOverlay className="opacity-0 group-hover:opacity-100 transition-opacity duration-300" />
         <div className="flex justify-between items-start mb-6">
           <div className="size-12 rounded-xl bg-accent-indigo/10 flex items-center justify-center border border-accent-indigo/20 group-hover:bg-accent-indigo/20 transition-colors">
-            <Palette size={24} className="text-accent-indigo" />
+            <ContextIcon context={context} />
           </div>
           <div className="flex items-center gap-1 text-text-muted group-hover:text-accent-indigo transition-colors">
             <span className="text-sm font-medium">Ver detalles</span>
@@ -254,9 +365,9 @@ function ContextCard({ context, onClick, index, reducedMotion }) {
         </h3>
 
         <div className="flex items-center gap-2 mb-6">
-          <span className="text-xs font-mono text-text-muted bg-background-elevated/50 px-2 py-1 rounded-md">
-            {context.contextId}
-          </span>
+          {/* Slug técnico (`geography-europe`) se mantiene solo en la vista admin
+              (`/admin/contexts`) porque es útil como identificador; en la vista
+              teacher resulta ruido visual y mezcla español con kebab-case (QA 22/04/2026). */}
           {context.isActive ? (
             <span className="text-xs font-medium text-success-base bg-success-base/10 px-2 py-1 rounded-full">
               Activo
@@ -293,23 +404,26 @@ function ContextCard({ context, onClick, index, reducedMotion }) {
 
         {previews.length > 0 && (
           <div
-            className="mt-4 flex gap-1.5 pt-4 border-t border-border-subtle overflow-hidden"
+            className="mt-4 flex items-center gap-2 pt-4 border-t border-border-subtle"
             title={context.assets?.filter(a => a.display).map(a => a.display).join(', ')}
           >
             {previews.map((preview, i) => (
-              <span key={i} className="text-2xl">
+              <span
+                key={`${preview}-${i}`}
+                className="flex-1 min-w-0 truncate rounded-full border border-border-subtle bg-background-elevated/40 px-2.5 py-1 text-xs font-medium text-text-secondary text-center"
+              >
                 {preview}
               </span>
             ))}
-            {assetCount > 5 && (
-              <div className="flex items-center justify-center size-8 rounded-full bg-background-elevated/50 text-xs text-text-muted ml-1">
-                +{assetCount - 5}
+            {assetCount > previews.length && (
+              <div className="shrink-0 flex items-center justify-center h-7 px-2 rounded-full border border-border-subtle bg-background-elevated/60 text-[11px] font-semibold text-text-muted">
+                +{assetCount - previews.length}
               </div>
             )}
           </div>
         )}
       </GlassCard>
-    </motion.div>
+    </HoverLiftCard>
   );
 }
 

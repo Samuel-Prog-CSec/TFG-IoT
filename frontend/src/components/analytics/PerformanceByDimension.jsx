@@ -44,6 +44,11 @@ function PerformanceByDimension({ title, data, dimension = 'context' }) {
         score: item.averageScore ?? item.avgScore ?? item.score ?? 0,
         gamesPlayed: item.gamesPlayed ?? item.totalGames ?? null,
       }))
+      // Filtrar items sin partidas — evita mostrar mecánicas inactivas
+      // como Secuencia ("Próximamente") con bar vacía. Solo aplica si el
+      // item tiene gamesPlayed explicito a 0; null/undefined no se filtra
+      // para mantener compatibilidad con backends que no lo envien.
+      .filter(item => item.gamesPlayed === null || item.gamesPlayed > 0)
       .sort((a, b) => b.score - a.score);
   }, [data]);
 
@@ -61,8 +66,8 @@ function PerformanceByDimension({ title, data, dimension = 'context' }) {
 
   return (
     <ChartSection title={title}>
-      <div style={{ height: chartHeight }} className="w-full mt-2">
-        <ResponsiveContainer width="100%" height="100%" minWidth={0} minHeight={0}>
+      <div style={{ height: chartHeight, minHeight: chartHeight }} className="w-full mt-2">
+        <ResponsiveContainer width="100%" height="100%" minWidth={0} minHeight={0} debounce={50}>
           <BarChart
             data={chartData}
             layout="vertical"
@@ -76,17 +81,22 @@ function PerformanceByDimension({ title, data, dimension = 'context' }) {
             <XAxis
               type="number"
               domain={[0, 100]}
+              ticks={[0, 25, 50, 75, 100]}
               tick={{ fill: 'var(--color-text-muted)', fontSize: 11 }}
               tickLine={false}
               axisLine={false}
             />
+            {/* width aumentado de 120 a 140 para que etiquetas largas como
+                "Números del 1 al 6" o "Animales de Granja" no wrapeen en dos
+                líneas y descentren la barra (QA 22/04/2026). */}
             <YAxis
               type="category"
               dataKey="name"
-              width={120}
+              width={140}
               tick={{ fill: 'var(--color-text-secondary)', fontSize: 12 }}
               tickLine={false}
               axisLine={false}
+              interval={0}
             />
             <Tooltip content={<CustomTooltip />} cursor={{ fill: 'rgba(255,255,255,0.03)' }} />
             <Bar

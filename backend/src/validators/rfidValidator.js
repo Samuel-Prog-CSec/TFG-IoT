@@ -7,6 +7,9 @@ const { z } = require('zod');
 const { uidSchema } = require('./commonValidator');
 
 const RFID_CARD_TYPES = ['MIFARE_1KB', 'MIFARE_4KB', 'NTAG', 'UNKNOWN'];
+// Fuentes válidas de scan: sensor real (web_serial) y fallbacks táctiles
+// utilizados cuando el alumno juega sin sensor conectado.
+const RFID_EVENT_SOURCES = ['web_serial', 'touch_fallback', 'touch_memory_flip'];
 const RFID_CLIENT_MAX_TIMESTAMP_SKEW_MS =
   Number.parseInt(process.env.RFID_CLIENT_MAX_TIMESTAMP_SKEW_MS, 10) || 30000;
 
@@ -19,9 +22,11 @@ const rfidClientEventSchema = z
       .trim()
       .min(1, 'sensorId inválido')
       .max(64, 'sensorId inválido')
-      .regex(/^[a-zA-Z0-9:_-]+$/, 'sensorId inválido'),
+      .regex(/^[\w:-]+$/, 'sensorId inválido'),
     timestamp: z.number().int().positive('timestamp inválido'),
-    source: z.literal('web_serial')
+    source: z.enum(RFID_EVENT_SOURCES, {
+      message: 'origen del evento RFID no válido'
+    })
   })
   .superRefine((value, ctx) => {
     if (Math.abs(Date.now() - value.timestamp) <= RFID_CLIENT_MAX_TIMESTAMP_SKEW_MS) {
@@ -40,5 +45,6 @@ const rfidClientEventSchema = z
 
 module.exports = {
   rfidClientEventSchema,
-  RFID_CARD_TYPES
+  RFID_CARD_TYPES,
+  RFID_EVENT_SOURCES
 };

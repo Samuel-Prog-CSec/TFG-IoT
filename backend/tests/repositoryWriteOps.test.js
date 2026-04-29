@@ -4,13 +4,10 @@
  * usando MongoDB real (vía test setup).
  */
 
-const request = require('supertest');
-const { app } = require('../src/server');
 const User = require('../src/models/User');
 const GameMechanic = require('../src/models/GameMechanic');
 const userRepository = require('../src/repositories/userRepository');
 const gameMechanicRepository = require('../src/repositories/gameMechanicRepository');
-const cardDeckRepository = require('../src/repositories/cardDeckRepository');
 const { applyQueryOptions } = require('../src/repositories/baseRepository');
 
 // Seed helpers

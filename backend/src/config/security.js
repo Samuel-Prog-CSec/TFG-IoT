@@ -8,6 +8,8 @@ const rateLimit = require('express-rate-limit');
 const crypto = require('node:crypto');
 const logger = require('../utils/logger');
 const { ForbiddenError } = require('../utils/errors');
+const { recordRateLimitStoreFallback } = require('../utils/runtimeMetrics');
+const { userOrIpKeyGenerator } = require('../utils/ipHelper');
 
 const isTestEnv = () => process.env.NODE_ENV === 'test' || typeof globalThis.it === 'function';
 
@@ -15,6 +17,12 @@ const isTestEnv = () => process.env.NODE_ENV === 'test' || typeof globalThis.it 
  * Crea un Redis store para express-rate-limit.
  * Usa carga lazy de rate-limit-redis y getRedis() de config/redis.
  * Si Redis no está disponible, retorna undefined para fallback a MemoryStore.
+ *
+ * IMPORTANTE: createRedisStore se invoca UNA vez por limiter al boot del servidor.
+ * Si Redis no está disponible al arrancar, el limiter queda anclado a MemoryStore
+ * incluso tras reconexión de Redis. En multi-instancia esto fragmenta el límite
+ * global (cada réplica lleva su propio contador). Se registra como evento de alerta
+ * (error + Sentry) y se incrementa un contador en runtimeMetrics para observabilidad.
  *
  * @param {string} [prefix='default'] - Prefijo para las keys de rate limiting en Redis
  * @returns {Object|undefined} RedisStore instance o undefined (fallback in-memory)
@@ -24,13 +32,30 @@ const createRedisStore = (prefix = 'default') => {
     return undefined;
   }
 
+  const reportFallback = (reason, extra = {}) => {
+    recordRateLimitStoreFallback();
+    // En producción elevamos a error con alert: true para que llegue a Sentry.
+    // En desarrollo nos basta con warn (ruido en logs aceptable).
+    const logLevel = process.env.NODE_ENV === 'production' ? 'error' : 'warn';
+    logger[logLevel](
+      {
+        alert: process.env.NODE_ENV === 'production',
+        fallback: 'memory',
+        prefix,
+        reason,
+        ...extra
+      },
+      'Rate limiter fallback a MemoryStore — límite no distribuido'
+    );
+  };
+
   try {
     // Import lazy: evita errores si Redis no está configurado
     const { getRedis } = require('./redis');
     const client = getRedis();
 
     if (!client) {
-      logger.warn('Rate limiter: Redis no disponible, usando store en memoria', { prefix });
+      reportFallback('redis_not_connected');
       return undefined;
     }
 
@@ -40,29 +65,115 @@ const createRedisStore = (prefix = 'default') => {
       prefix: `rl:${prefix}:`
     });
   } catch (error) {
-    logger.warn('Rate limiter: Error creando Redis store, fallback a memoria', {
-      prefix,
-      error: error.message
-    });
+    reportFallback('store_creation_failed', { error: error.message });
     return undefined;
   }
 };
 
 /**
- * Helper para crear rate limiters que se deshabilitan en tests
- * y usan Redis store en producción cuando está disponible.
+ * Registry interno de limiters ya inicializados con su store real.
+ * Poblado por `initRateLimiters()` tras `await connectRedis()`.
+ *
+ * @type {Record<string, Function>}
+ */
+const rateLimitersRegistry = {};
+
+/**
+ * Configuraciones declaradas por los `createRateLimiter(...)` del módulo.
+ * Guardadas aquí para que `initRateLimiters()` pueda instanciar los limiters
+ * reales una vez Redis esté listo, respetando las mismas opciones.
+ *
+ * @type {Record<string, Object>}
+ */
+const limiterConfigs = {};
+
+/**
+ * Declara un rate limiter y devuelve un middleware "shim" que delega al
+ * limiter real cuando `initRateLimiters()` haya corrido.
+ *
+ * Antes del fix: `createRateLimiter` instanciaba `rateLimit({ store: createRedisStore() })`
+ * al require-time, que ocurría ANTES de `await connectRedis()` en server.js.
+ * Redis no estaba conectado → `createRedisStore()` devolvía `undefined` → los 8
+ * limiters quedaban anclados a `MemoryStore` para siempre (rate-limit NO distribuido).
+ *
+ * Ahora: la config se registra en `limiterConfigs`, se devuelve un shim, y el
+ * limiter real se crea en `initRateLimiters()` con Redis ya disponible. El shim
+ * mantiene el contrato de export: las rutas siguen haciendo
+ * `const { authRateLimiter } = require('./security')` sin cambios.
  *
  * @param {Object} options - Opciones de express-rate-limit + { prefix } para Redis key
- * @returns {Function} Middleware de rate limiting
+ * @returns {Function} Middleware shim
  */
 const createRateLimiter = options => {
   if (isTestEnv()) {
     return (req, res, next) => next();
   }
-  const { prefix, ...rateLimitOptions } = options;
-  return rateLimit({
-    ...rateLimitOptions,
-    store: rateLimitOptions.store || createRedisStore(prefix || 'global')
+  const { prefix } = options;
+  if (!prefix) {
+    throw new Error('createRateLimiter requiere un prefix único para el registry');
+  }
+  if (limiterConfigs[prefix]) {
+    throw new Error(`createRateLimiter: prefix duplicado '${prefix}'`);
+  }
+  limiterConfigs[prefix] = options;
+
+  return (req, res, next) => {
+    const real = rateLimitersRegistry[prefix];
+    if (!real) {
+      // Boot temprano (pre-initRateLimiters) o arranque fallido: permitir paso.
+      // El resto del startup loguea advertencia si esto persiste.
+      return next();
+    }
+    return real(req, res, next);
+  };
+};
+
+/**
+ * Inicializa los limiters reales con Redis store. Debe llamarse desde
+ * `server.js` **después** de `await connectRedis()` para que el store
+ * distribuido funcione en multi-instancia. Si se invoca sin Redis, los
+ * limiters se crean con MemoryStore y `recordRateLimitStoreFallback` deja
+ * rastro en métricas.
+ *
+ * Idempotente: llamadas adicionales no duplican ni sobrescriben.
+ *
+ * @returns {void}
+ */
+const initRateLimiters = () => {
+  if (isTestEnv()) {
+    return;
+  }
+  const declaredPrefixes = Object.keys(limiterConfigs);
+  if (declaredPrefixes.length === 0) {
+    logger.warn('initRateLimiters: no hay configs registradas (¿orden de require incorrecto?)');
+    return;
+  }
+  if (declaredPrefixes.every(prefix => rateLimitersRegistry[prefix])) {
+    // Ya inicializado por completo — no-op.
+    return;
+  }
+
+  for (const prefix of declaredPrefixes) {
+    if (rateLimitersRegistry[prefix]) {
+      continue;
+    }
+    // Spread sin la clave 'prefix' (es interna del registry, no de express-rate-limit).
+    const rateLimitOptions = { ...limiterConfigs[prefix] };
+    delete rateLimitOptions.prefix;
+
+    rateLimitersRegistry[prefix] = rateLimit({
+      ...rateLimitOptions,
+      store: rateLimitOptions.store || createRedisStore(prefix),
+      // Si el store (Redis) falla mid-request, permitir el paso en vez de
+      // devolver 500: preferimos fail-open para no tirar el servicio entero
+      // durante un blip de Redis. El fallback ya quedó registrado en métricas.
+      passOnStoreError: rateLimitOptions.passOnStoreError ?? true
+    });
+  }
+
+  logger.info('Rate limiters HTTP inicializados', {
+    count: Object.keys(rateLimitersRegistry).length,
+    prefixes: Object.keys(rateLimitersRegistry)
   });
 };
 
@@ -115,9 +226,9 @@ const corsOptions = {
 
     // Validación estricta contra whitelist
     if (corsWhitelist.includes(origin)) {
-      callback(null, true);
+      return callback(null, true);
     } else {
-      callback(new Error(`Origin ${origin} no autorizado por política CORS`), false);
+      return callback(new Error(`Origin ${origin} no autorizado por política CORS`), false);
     }
   },
   credentials: true, // Permitir cookies y headers de autenticación
@@ -167,7 +278,7 @@ const ensureCsrfCookie = (req, res, next) => {
 
   const token = crypto.randomUUID();
   res.cookie(CSRF_COOKIE_NAME, token, buildCsrfCookieOptions());
-  next();
+  return next();
 };
 
 const getRequestOrigin = req => req.get('Referer') || req.get('Origin');
@@ -227,7 +338,7 @@ const csrfProtection = (req, res, next) => {
     return next(new ForbiddenError('CSRF token invalido o ausente'));
   }
 
-  next();
+  return next();
 };
 
 /**
@@ -351,11 +462,9 @@ const createResourceRateLimiter = createRateLimiter({
   },
   standardHeaders: true,
   legacyHeaders: false,
-  // Key compuesta: userId (post-auth) o IP. Evita que NAT compartido (escuelas) agote el límite.
-  keyGenerator: req => {
-    const userId = req.user?._id?.toString();
-    return userId ? `user:${userId}` : `ip:${req.ip}`;
-  }
+  // Key compuesta: userId (post-auth) o IP normalizada. Evita que NAT compartido
+  // (escuelas) agote el límite y normaliza IPv6 vía `ipKeyGenerator` del helper.
+  keyGenerator: userOrIpKeyGenerator
 });
 
 /**
@@ -374,11 +483,9 @@ const eventRateLimiter = createRateLimiter({
   },
   standardHeaders: true,
   legacyHeaders: false,
-  // Key compuesta: userId (post-auth) o IP. Evita que NAT compartido (escuelas) agote el límite.
-  keyGenerator: req => {
-    const userId = req.user?._id?.toString();
-    return userId ? `user:${userId}` : `ip:${req.ip}`;
-  }
+  // Key compuesta: userId (post-auth) o IP normalizada. Evita que NAT compartido
+  // (escuelas) agote el límite y normaliza IPv6 vía `ipKeyGenerator` del helper.
+  keyGenerator: userOrIpKeyGenerator
 });
 
 /**
@@ -398,10 +505,7 @@ const analyticsRateLimiter = createRateLimiter({
   },
   standardHeaders: true,
   legacyHeaders: false,
-  keyGenerator: req => {
-    const userId = req.user?._id?.toString();
-    return userId ? `user:${userId}` : `ip:${req.ip}`;
-  }
+  keyGenerator: userOrIpKeyGenerator
 });
 
 /**
@@ -420,11 +524,9 @@ const uploadRateLimiter = createRateLimiter({
   },
   standardHeaders: true,
   legacyHeaders: false,
-  // Key compuesta: userId (post-auth) o IP. Evita que NAT compartido (escuelas) agote el límite.
-  keyGenerator: req => {
-    const userId = req.user?._id?.toString();
-    return userId ? `user:${userId}` : `ip:${req.ip}`;
-  }
+  // Key compuesta: userId (post-auth) o IP normalizada. Evita que NAT compartido
+  // (escuelas) agote el límite y normaliza IPv6 vía `ipKeyGenerator` del helper.
+  keyGenerator: userOrIpKeyGenerator
 });
 
 // Límite estricto para exportación de datos personales (Art. 20 RGPD)
@@ -438,10 +540,7 @@ const exportDataRateLimiter = createRateLimiter({
   },
   standardHeaders: true,
   legacyHeaders: false,
-  keyGenerator: req => {
-    const userId = req.user?._id?.toString();
-    return userId ? `user:${userId}` : `ip:${req.ip}`;
-  }
+  keyGenerator: userOrIpKeyGenerator
 });
 
 module.exports = {
@@ -457,6 +556,7 @@ module.exports = {
   analyticsRateLimiter,
   uploadRateLimiter,
   exportDataRateLimiter,
+  initRateLimiters,
   corsWhitelist,
   CSRF_COOKIE_NAME,
   CSRF_HEADER_NAME

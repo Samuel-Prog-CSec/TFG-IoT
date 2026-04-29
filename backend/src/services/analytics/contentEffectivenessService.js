@@ -57,7 +57,12 @@ async function getContentEffectiveness(teacherId, { timeRange = '30d', groupBy =
     { $unwind: '$entity' },
     {
       $group: {
-        _id: { entityId: '$entity._id', entityName: '$entity.name' },
+        // Preferir displayName (user-facing) con fallback al `name` interno.
+        // Alinea la UI con el resto de la app ("Memoria" en vez de "memory").
+        _id: {
+          entityId: '$entity._id',
+          entityName: { $ifNull: ['$entity.displayName', '$entity.name'] }
+        },
         avgScore: { $avg: '$score' },
         avgAccuracy: {
           $avg: {
@@ -90,8 +95,11 @@ async function getContentEffectiveness(teacherId, { timeRange = '30d', groupBy =
         _id: 0,
         name: '$_id.entityName',
         id: '$_id.entityId',
-        avgScore: { $round: ['$avgScore', 1] },
-        avgAccuracy: { $round: ['$avgAccuracy', 1] },
+        // Salvaguarda de integridad: aunque el modelo ahora clampa score <= maxScore
+        // (ver ADR-057), las partidas historicas pre-migracion pueden tener > 100.
+        // Acotamos defensivamente aqui para que la UI nunca muestre >100%.
+        avgScore: { $min: [{ $round: ['$avgScore', 1] }, 100] },
+        avgAccuracy: { $min: [{ $round: ['$avgAccuracy', 1] }, 100] },
         totalPlays: 1,
         uniqueStudents: { $size: '$uniqueStudents' },
         avgCompletionTime: { $round: ['$avgCompletionTime', 0] },

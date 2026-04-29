@@ -202,7 +202,7 @@ const contextsData = [
         value: 'Uno',
         audioUrl: null,
         dominantColor: '#5c6bc0',
-        ...assetUrls('numbers-1-6', 'one')
+        ...assetUrls('numbers-1-15', 'one')
       },
       {
         key: 'two',
@@ -210,7 +210,7 @@ const contextsData = [
         value: 'Dos',
         audioUrl: null,
         dominantColor: '#26a69a',
-        ...assetUrls('numbers-1-6', 'two')
+        ...assetUrls('numbers-1-15', 'two')
       },
       {
         key: 'three',
@@ -218,7 +218,7 @@ const contextsData = [
         value: 'Tres',
         audioUrl: null,
         dominantColor: '#ef5350',
-        ...assetUrls('numbers-1-6', 'three')
+        ...assetUrls('numbers-1-15', 'three')
       },
       {
         key: 'four',
@@ -226,7 +226,7 @@ const contextsData = [
         value: 'Cuatro',
         audioUrl: null,
         dominantColor: '#66bb6a',
-        ...assetUrls('numbers-1-6', 'four')
+        ...assetUrls('numbers-1-15', 'four')
       },
       {
         key: 'five',
@@ -234,7 +234,7 @@ const contextsData = [
         value: 'Cinco',
         audioUrl: null,
         dominantColor: '#ffa726',
-        ...assetUrls('numbers-1-6', 'five')
+        ...assetUrls('numbers-1-15', 'five')
       },
       {
         key: 'six',
@@ -242,7 +242,7 @@ const contextsData = [
         value: 'Seis',
         audioUrl: null,
         dominantColor: '#ab47bc',
-        ...assetUrls('numbers-1-6', 'six')
+        ...assetUrls('numbers-1-15', 'six')
       }
     ]
   },
@@ -305,17 +305,44 @@ const contextsData = [
 
 /**
  * Ejecuta el seeder de contextos.
- * @returns {Promise<Array>} Array de contextos creados
+ *
+ * Los assets seedeados quedan SIEMPRE con `uploadedBy = null`. Esto refleja la
+ * decision de producto (ADR-053): los assets seed son "del sistema" — base del
+ * producto, no propiedad de un usuario. No pueden eliminarse individualmente
+ * desde la UI; solo se eliminan al borrar el contexto entero (accion exclusiva
+ * del super_admin desde /admin/contexts).
+ *
+ * Idempotente: si ya existen contextos, los devuelve sin recrearlos (evita
+ * E11000 por el indice unique en `contextId`).
+ *
+ * @returns {Promise<Array>} Array de contextos creados o preexistentes
  */
 async function seedContexts() {
   try {
-    const contexts = await GameContext.create(contextsData);
+    const existing = await GameContext.find({});
+    if (existing.length > 0) {
+      logger.info(`Contextos ya existen (${existing.length}), omitiendo creacion`);
+      return existing;
+    }
 
-    const totalAssets = contextsData.reduce((sum, ctx) => sum + ctx.assets.length, 0);
+    // Asegurar uploadedBy=null en cada asset (defensivo: el default del schema ya es null)
+    const dataWithOwnership = contextsData.map(ctx => ({
+      ...ctx,
+      assets: ctx.assets.map(asset => ({
+        ...asset,
+        uploadedBy: null
+      }))
+    }));
+
+    const contexts = await GameContext.create(dataWithOwnership);
+
+    const totalAssets = dataWithOwnership.reduce((sum, ctx) => sum + ctx.assets.length, 0);
 
     logger.info('Contextos de juego seeded exitosamente');
     logger.info(`- ${contexts.length} contextos creados`);
-    logger.info(`- ${totalAssets} assets totales (todos con imagen en Storage)`);
+    logger.info(
+      `- ${totalAssets} assets totales del sistema (uploadedBy=null, no eliminables individualmente)`
+    );
 
     return contexts;
   } catch (error) {

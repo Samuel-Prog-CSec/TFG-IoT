@@ -1,5 +1,5 @@
 import { memo, useMemo, useState, useCallback } from 'react';
-import { motion, AnimatePresence } from 'framer-motion';
+import { motion } from 'framer-motion';
 import { useNavigate } from 'react-router-dom';
 import {
   TrendingDown,
@@ -9,17 +9,22 @@ import {
   TrendingUp,
   Minus,
   XCircle,
-  CheckCircle2,
+  ChevronRight,
   Filter,
   User,
   Layers,
+  AlertOctagon,
+  Info,
 } from 'lucide-react';
 import PropTypes from 'prop-types';
-import { cn, listContainerVariants, listItemVariants, DURATION, EASING } from '../../lib/utils';
+import { cn, listContainerVariants, listItemVariants } from '../../lib/utils';
 import { useReducedMotion } from '../../hooks/useReducedMotion';
+import { formatRelativeTime } from '../../lib/dateUtils';
 import GlassCard from '../ui/GlassCard';
 import SelectPremium from '../ui/SelectPremium';
 import SkeletonShimmer from '../ui/SkeletonShimmer';
+import EmptyState from '../ui/EmptyState';
+import { EmptyAlertsIllustration } from '../ui/illustrations';
 
 /**
  * Mapeo de tipo de alerta a icono de Lucide.
@@ -57,7 +62,8 @@ const SEVERITY_STYLES = {
     bg: 'bg-error-base/10',
     border: 'border-error-base/30',
     text: 'text-error-base',
-    label: 'Criticas',
+    label: 'Críticas',
+    Icon: AlertOctagon,
   },
   warning: {
     dot: 'bg-warning-base',
@@ -65,7 +71,8 @@ const SEVERITY_STYLES = {
     bg: 'bg-warning-base/10',
     border: 'border-warning-base/30',
     text: 'text-warning-base',
-    label: 'Warning',
+    label: 'Advertencia',
+    Icon: AlertTriangle,
   },
   info: {
     dot: 'bg-info-base',
@@ -74,40 +81,31 @@ const SEVERITY_STYLES = {
     border: 'border-info-base/30',
     text: 'text-info-base',
     label: 'Info',
+    Icon: Info,
   },
 };
 
-/**
- * Formatea una fecha como texto relativo.
- */
-function formatRelativeDate(dateStr) {
-  if (!dateStr) return '';
-  const date = new Date(dateStr);
-  const now = new Date();
-  const diffMs = now - date;
-  const diffMins = Math.floor(diffMs / 60000);
-  const diffHours = Math.floor(diffMs / 3600000);
-  const diffDays = Math.floor(diffMs / 86400000);
-
-  if (diffMins < 1) return 'Hace un momento';
-  if (diffMins < 60) return `Hace ${diffMins}min`;
-  if (diffHours < 24) return `Hace ${diffHours}h`;
-  if (diffDays < 7) return `Hace ${diffDays}d`;
-  return date.toLocaleDateString('es-ES', { day: 'numeric', month: 'short' });
-}
+// Helper relativo centralizado en `lib/dateUtils.js` (P25).
+// Se importa al principio del archivo.
 
 /**
  * Tarjeta de contador de severidad.
  */
 function SeverityCounter({ severity, count }) {
   const style = SEVERITY_STYLES[severity] || SEVERITY_STYLES.info;
+  const SeverityIcon = style.Icon;
 
   return (
     <div className={cn(
       'rounded-xl border px-4 py-3 flex items-center gap-3',
       style.bg, style.border
     )}>
-      <div className={cn('size-3 rounded-full flex-shrink-0', style.dot, style.glow)} />
+      <div className={cn(
+        'size-8 rounded-lg flex items-center justify-center flex-shrink-0',
+        style.bg, style.text
+      )}>
+        <SeverityIcon size={16} aria-hidden="true" />
+      </div>
       <div>
         <p className={cn('text-xl font-bold tabular-nums font-display', style.text)}>
           {count}
@@ -127,20 +125,46 @@ function AlertCard({ alert, shouldReduceMotion }) {
   const TypeIcon = ALERT_TYPE_ICONS[alert.type] || AlertTriangle;
   const typeLabel = ALERT_TYPE_LABELS[alert.type] || alert.type;
   const isPositive = alert.type === 'improving_fast';
+  const isCritical = alert.severity === 'critical';
+
+  const handleOpenProfile = () => {
+    if (alert.studentId) navigate(`/students/${alert.studentId}`);
+  };
+  const handleKeyDown = e => {
+    if ((e.key === 'Enter' || e.key === ' ') && alert.studentId) {
+      e.preventDefault();
+      handleOpenProfile();
+    }
+  };
 
   return (
     <motion.div
       variants={shouldReduceMotion ? {} : listItemVariants}
+      whileHover={shouldReduceMotion ? undefined : { y: -2, scale: 1.005 }}
+      transition={{ type: 'spring', stiffness: 400, damping: 28 }}
+      role={alert.studentId ? 'button' : undefined}
+      tabIndex={alert.studentId ? 0 : undefined}
+      onClick={alert.studentId ? handleOpenProfile : undefined}
+      onKeyDown={alert.studentId ? handleKeyDown : undefined}
+      aria-label={alert.studentId ? `Ver perfil de ${alert.studentName || 'alumno'}` : undefined}
       className={cn(
-        'rounded-xl border p-4 transition-colors duration-200',
+        'group rounded-xl border p-4 transition-[border-color,background-color,box-shadow] duration-200',
         'bg-background-elevated/40 hover:bg-background-elevated/60',
         'border-border-subtle hover:border-border-default',
-        'focus-within:ring-1 focus-within:ring-brand-base/40'
+        'focus-within:ring-1 focus-within:ring-brand-base/40',
+        alert.studentId && 'cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-base/60',
+        // Alertas criticas respiran suavemente con pulse-glow para llamar la atencion
+        // sin saltar; respeta prefers-reduced-motion por el reset global en index.css.
+        isCritical && 'animate-pulse-glow shadow-[0_0_18px_var(--color-error-glow)]'
       )}
     >
       <div className="flex items-start gap-3">
-        {/* Severity dot */}
-        <div className={cn('size-2.5 rounded-full mt-1.5 flex-shrink-0', severity.dot, severity.glow)} />
+        {/* Severity dot — en critical, usa glow mas intenso */}
+        <div className={cn(
+          'size-2.5 rounded-full mt-1.5 flex-shrink-0',
+          severity.dot,
+          isCritical ? 'shadow-[0_0_10px_var(--color-error-glow)]' : severity.glow
+        )} />
 
         {/* Icon */}
         <div className={cn(
@@ -168,16 +192,16 @@ function AlertCard({ alert, shouldReduceMotion }) {
           </p>
           <div className="flex items-center justify-between mt-2">
             <span className="text-[10px] text-text-disabled">
-              {formatRelativeDate(alert.createdAt || alert.detectedAt)}
+              {formatRelativeTime(alert.createdAt || alert.detectedAt)}
             </span>
             {alert.studentId && (
-              <button
-                type="button"
-                onClick={() => navigate(`/students/${alert.studentId}`)}
-                className="text-[10px] font-medium text-brand-base hover:text-brand-light transition-colors"
-              >
-                Ver perfil
-              </button>
+              // Affordance de card cliqueable: chevron sutil que se revela en
+              // hover. El card entero navega al perfil (QA 22/04/2026).
+              <ChevronRight
+                size={14}
+                className="text-text-muted opacity-0 group-hover:opacity-100 transition-opacity"
+                aria-hidden="true"
+              />
             )}
           </div>
         </div>
@@ -214,8 +238,8 @@ function AlertsHub({ alerts = [], loading = false }) {
   // Opciones de filtro
   const severityOptions = useMemo(() => [
     { value: 'all', label: 'Todas' },
-    { value: 'critical', label: `Criticas (${severityCounts.critical})` },
-    { value: 'warning', label: `Warning (${severityCounts.warning})` },
+    { value: 'critical', label: `Críticas (${severityCounts.critical})` },
+    { value: 'warning', label: `Advertencia (${severityCounts.warning})` },
     { value: 'info', label: `Info (${severityCounts.info})` },
   ], [severityCounts]);
 
@@ -339,18 +363,28 @@ function AlertsHub({ alerts = [], loading = false }) {
         </div>
       </div>
 
-      {/* Empty state */}
-      {filteredAlerts.length === 0 && (
-        <GlassCard variant="default" className="text-center py-8">
-          <div className="mx-auto mb-3 flex size-12 items-center justify-center rounded-xl bg-success-base/10">
-            <CheckCircle2 size={24} className="text-success-base" aria-hidden="true" />
-          </div>
-          <p className="text-sm font-semibold text-success-base">Sin alertas activas</p>
-          <p className="text-xs text-text-muted mt-1">
-            Todos los alumnos estan dentro de los parametros esperados.
-          </p>
-        </GlassCard>
-      )}
+      {/* Empty state — variante "filtered" si hay filtros activos, si no ilustracion de calma */}
+      {filteredAlerts.length === 0 && (() => {
+        const hasFilterActive = severityFilter !== 'all' || typeFilter !== 'all';
+        if (hasFilterActive) {
+          return (
+            <EmptyState
+              variant="filtered"
+              title="Ninguna alerta coincide con los filtros"
+              description="Ajusta los filtros para ver otras alertas o limpialos para verlas todas."
+              titleLevel="h3"
+            />
+          );
+        }
+        return (
+          <EmptyState
+            illustration={<EmptyAlertsIllustration size={140} />}
+            title="Sin alertas activas"
+            description="Todos los alumnos estan dentro de los parametros esperados."
+            titleLevel="h3"
+          />
+        );
+      })()}
 
       {/* Grouped view */}
       {filteredAlerts.length > 0 && groupedAlerts && (

@@ -29,7 +29,12 @@ const buildTestApp = () => {
   app = express();
   app.use(express.json());
   app.use((req, res, next) => {
-    req.user = { _id: 'user-123' };
+    // Simulamos al usuario autenticado — toString debe coincidir con el
+    // uploadedBy de los mock assets para pasar la politica de ownership
+    // introducida en ADR-053.
+    req.user = {
+      _id: { toString: () => 'user-123' }
+    };
     next();
   });
   app.delete('/api/contexts/:id/images/:assetKey', assetController.deleteImage);
@@ -48,7 +53,9 @@ describe('Asset Controller - Delete Image', () => {
       key: 'espana',
       imageUrl: 'https://supa.base/img.png',
       thumbnailUrl: 'https://supa.base/thumb.png',
-      audioUrl: null
+      audioUrl: null,
+      // ADR-053: el asset debe pertenecer al usuario autenticado para autorizar borrado
+      uploadedBy: { toString: () => 'user-123' }
     };
 
     const mockContext = {
@@ -96,7 +103,8 @@ describe('Asset Controller - Delete Image', () => {
       key: 'espana',
       imageUrl: 'https://supa.base/img.png',
       thumbnailUrl: 'https://supa.base/thumb.png',
-      audioUrl: null
+      audioUrl: null,
+      uploadedBy: { toString: () => 'user-123' }
     };
     const mockContext = {
       _id: CONTEXT_ID,
@@ -125,7 +133,8 @@ describe('Asset Controller - Delete Audio', () => {
       key: 'espana',
       imageUrl: null,
       thumbnailUrl: null,
-      audioUrl: 'https://supa.base/audio.mp3'
+      audioUrl: 'https://supa.base/audio.mp3',
+      uploadedBy: { toString: () => 'user-123' }
     };
 
     const mockContext = {

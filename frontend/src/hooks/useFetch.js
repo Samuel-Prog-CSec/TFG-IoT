@@ -70,7 +70,7 @@ export function useFetch(fetchFn, options = {}) {
 
       return result;
     } catch (err) {
-      if (signal.aborted) return;
+      if (signal.aborted) return undefined;
       if (mountedRef.current) {
         setError(err);
         setStatus('error');

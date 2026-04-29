@@ -31,21 +31,21 @@ export default function StepReview({ sessionConfig, setSessionConfig, selectedDe
       {/* Nombre de la sesion */}
       <GlassCard className="p-6">
         <h2 className="text-lg font-semibold text-text-primary mb-4">
-          Nombre de la Sesion
+          Nombre de la Sesión
         </h2>
         <InputPremium
           value={sessionConfig.name}
           onChange={(e) => setSessionConfig(prev => ({ ...prev, name: e.target.value }))}
           placeholder="Ej: Capitales de Europa - Nivel 1"
           maxLength={100}
-          helperText="Un nombre descriptivo ayuda a identificar la sesion"
+          helperText="Un nombre descriptivo ayuda a identificar la sesión"
         />
       </GlassCard>
 
       {/* Resumen de configuracion */}
       <GlassCard className="p-6">
         <h2 className="text-lg font-semibold text-text-primary mb-4">
-          Resumen de Configuracion
+          Resumen de Configuración
         </h2>
 
         <div className="space-y-4">
@@ -58,7 +58,10 @@ export default function StepReview({ sessionConfig, setSessionConfig, selectedDe
               <p className="text-xs text-text-muted">Mazo</p>
               <p className="text-text-primary font-medium">{selectedDeck?.name || 'No seleccionado'}</p>
               <p className="text-xs text-text-muted">
-                {selectedDeck?.cards?.length || selectedDeck?.cardMappings?.length || 0} cartas {'\u2022'} {selectedDeck?.contextId?.name}
+                {selectedDeck?.cards?.length || selectedDeck?.cardMappings?.length || 0} cartas
+                {(selectedDeck?.context?.name || selectedDeck?.contextId?.name) && (
+                  <> {'\u2022'} {selectedDeck?.context?.name || selectedDeck?.contextId?.name}</>
+                )}
               </p>
               {/* Mini-galeria de assets del mazo */}
               {selectedDeck?.cardMappings?.length > 0 && (
@@ -95,7 +98,7 @@ export default function StepReview({ sessionConfig, setSessionConfig, selectedDe
               <Layers size={18} className="text-brand-light" />
             </div>
             <div>
-              <p className="text-xs text-text-muted">Mecanica</p>
+              <p className="text-xs text-text-muted">Mecánica</p>
               <p className="text-text-primary font-medium">
                 {selectedMechanic?.displayName || selectedMechanic?.name || 'No seleccionada'}
               </p>
@@ -108,7 +111,7 @@ export default function StepReview({ sessionConfig, setSessionConfig, selectedDe
               <Settings size={18} className="text-success-base" />
             </div>
             <div className="flex-1">
-              <p className="text-xs text-text-muted">Configuracion</p>
+              <p className="text-xs text-text-muted">Configuración</p>
               <div className="grid grid-cols-2 gap-2 mt-1 text-sm">
                 {isMemory ? (
                   /* Memoria: tiempo total (sin rondas) */
@@ -130,10 +133,12 @@ export default function StepReview({ sessionConfig, setSessionConfig, selectedDe
                   </>
                 )}
                 <span className="text-success-base">
-                  +{sessionConfig.config.pointsPerCorrect} pts
+                  +{sessionConfig.config.pointsPerCorrect} pts · acierto
                 </span>
                 <span className="text-error-base">
-                  {sessionConfig.config.penaltyPerError} pts
+                  {sessionConfig.config.penaltyPerError === 0
+                    ? 'Sin penalización'
+                    : `${sessionConfig.config.penaltyPerError} pts · error`}
                 </span>
               </div>
             </div>

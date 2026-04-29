@@ -1,7 +1,7 @@
-import { memo, useMemo, useEffect } from 'react';
-import { motion } from 'framer-motion';
+import { memo, useMemo, useEffect, useRef } from 'react';
+import { motion, useSpring, useTransform } from 'framer-motion';
 import PropTypes from 'prop-types';
-import { Star, Trophy, RotateCcw, Home } from 'lucide-react';
+import { Star, Trophy, RotateCcw, Home, PartyPopper, Flame, Sparkles as SparklesIcon } from 'lucide-react';
 import { cn, calculateStars } from '../../lib/utils';
 import { useReducedMotion } from '../../hooks/useReducedMotion';
 import { useConfetti } from '../../hooks/useConfetti';
@@ -44,23 +44,29 @@ function GameOverScreen({
     []
   );
 
-  // Mensajes y estilo visual segun estrellas obtenidas (4 niveles)
+  // Mensajes y estilo visual segun estrellas obtenidas (4 niveles).
+  // Usamos iconos Lucide para consistencia con el resto del design system
+  // (en vez de emojis que mezclan con la tipografía del sistema operativo).
   const tierConfig = useMemo(() => {
     switch (stars) {
       case 3: return {
-        emoji: '🏆', text: '¡INCREIBLE!', sub: '¡Eres un crack!',
+        Icon: Trophy, iconClass: 'text-warning-base drop-shadow-[0_0_18px_var(--color-warning-glow)]',
+        text: '¡INCREÍBLE!', sub: '¡Eres un crack!',
         glowA: 'bg-warning-base/25', glowB: 'bg-brand-base/25',
       };
       case 2: return {
-        emoji: '🎉', text: '¡MUY BIEN!', sub: '¡Sigue asi!',
+        Icon: PartyPopper, iconClass: 'text-success-base drop-shadow-[0_0_14px_rgba(34,197,94,0.55)]',
+        text: '¡MUY BIEN!', sub: '¡Sigue así!',
         glowA: 'bg-success-base/20', glowB: 'bg-accent-cyan/20',
       };
       case 1: return {
-        emoji: '💪', text: '¡BUEN INTENTO!', sub: '¡Vas por buen camino!',
+        Icon: Flame, iconClass: 'text-brand-base drop-shadow-[0_0_14px_rgba(139,92,246,0.5)]',
+        text: '¡BUEN INTENTO!', sub: '¡Vas por buen camino!',
         glowA: 'bg-brand-base/20', glowB: 'bg-accent-cyan/15',
       };
       default: return {
-        emoji: '💫', text: '¡NO TE RINDAS!', sub: '¡La practica hace al maestro!',
+        Icon: SparklesIcon, iconClass: 'text-accent-cyan drop-shadow-[0_0_12px_rgba(34,211,238,0.45)]',
+        text: '¡NO TE RINDAS!', sub: '¡La práctica hace al maestro!',
         glowA: 'bg-brand-base/15', glowB: 'bg-accent-cyan/10',
       };
     }
@@ -69,13 +75,41 @@ function GameOverScreen({
   const message = tierConfig;
   const scoreDelta = score - bestScore;
 
-  const { fireSuccess } = useConfetti();
+  // Counter animado para el score (0 -> score en 1.5s)
+  const springScore = useSpring(0, { stiffness: 50, damping: 20 });
+  const displayScore = useTransform(springScore, (v) => Math.round(v));
+  const scoreRef = useRef(null);
 
   useEffect(() => {
-    if (shouldReduceMotion || stars < 2) return;
-    const timer = setTimeout(() => fireSuccess(), 800);
-    return () => clearTimeout(timer);
-  }, [shouldReduceMotion, stars, fireSuccess]);
+    if (shouldReduceMotion) {
+      springScore.jump(score);
+    } else {
+      springScore.set(score);
+    }
+  }, [score, springScore, shouldReduceMotion]);
+
+  useEffect(() => {
+    return displayScore.on('change', (v) => {
+      if (scoreRef.current) scoreRef.current.textContent = v;
+    });
+  }, [displayScore]);
+
+  const { fireSuccess, fireFireworks } = useConfetti();
+
+  useEffect(() => {
+    if (shouldReduceMotion || stars < 2) return undefined;
+    // 2 estrellas (>=70%): rafagas laterales cortas.
+    // 3 estrellas (100%): rafagas + fireworks sostenidos 2s para celebracion completa.
+    const timers = [];
+    timers.push(setTimeout(() => fireSuccess(), 400));
+    if (stars === 3) {
+      // Offset sobre el fireSuccess para que se perciban en capas.
+      timers.push(setTimeout(() => fireFireworks(2000), 600));
+    }
+    return () => {
+      timers.forEach(t => clearTimeout(t));
+    };
+  }, [shouldReduceMotion, stars, fireSuccess, fireFireworks]);
 
   return (
     <motion.div
@@ -101,17 +135,17 @@ function GameOverScreen({
       >
         {/* Main card */}
         <div className="glass-card-gradient p-8 text-center">
-          {/* Celebration emoji */}
+          {/* Icono hero del tier (Lucide en vez de emoji para consistencia) */}
           <motion.div
             animate={shouldReduceMotion ? { scale: 1, rotate: 0 } : {
               scale: [1, 1.2, 1],
               rotate: [0, 5, -5, 0]
             }}
             transition={shouldReduceMotion ? { duration: 0 } : { duration: 1, repeat: 5 }}
-            className="text-7xl mb-4"
+            className="mb-4 flex items-center justify-center"
             aria-hidden="true"
           >
-            {message.emoji}
+            <tierConfig.Icon size={80} className={tierConfig.iconClass} />
           </motion.div>
 
           {/* Main message */}
@@ -138,7 +172,7 @@ function GameOverScreen({
                 <motion.div
                   key={i}
                   initial={shouldReduceMotion ? false : { scale: 0, rotate: -180 }}
-                  animate={shouldReduceMotion ? { scale: 1, rotate: 0 } : { scale: 1, rotate: 0 }}
+                  animate={{ scale: 1, rotate: 0 }}
                   transition={shouldReduceMotion ? { duration: 0 } : { delay: 0.3 + i * 0.2, type: 'spring' }}
                 >
                   <motion.div
@@ -175,7 +209,8 @@ function GameOverScreen({
             transition={{ delay: 0.5 }}
             className="bg-background-elevated/50 rounded-2xl p-6 mb-6"
           >
-            <div 
+            <div
+              ref={scoreRef}
               className="text-5xl font-bold font-display text-white mb-2 tabular-nums"
               aria-label={`Puntuación final: ${score} puntos`}
             >
@@ -193,7 +228,9 @@ function GameOverScreen({
                 role="status"
               >
                 <Trophy size={16} aria-hidden="true" />
-                ¡Nuevo récord! +{scoreDelta} puntos
+                {bestScore > 0
+                  ? `¡Nuevo récord! +${scoreDelta} pts sobre el anterior (${bestScore})`
+                  : `¡Tu primer récord! ${score} pts`}
               </motion.div>
             ) : bestScore > 0 && (
               <motion.p
@@ -207,10 +244,13 @@ function GameOverScreen({
             )}
           </motion.div>
 
-          {/* Stats */}
+          {/* Stats. En Memoria, "Total" representa parejas (no rondas como en
+              Asociación), por eso reetiquetamos para evitar confusión cuando el
+              profesor vea Errores > Total (los intentos fallidos no son rondas
+              sino taps de cartas que no emparejaron). */}
           <dl className="grid grid-cols-2 gap-4 mb-6">
             <div className="bg-success-base/10 rounded-xl p-4 border border-success-base/20">
-              <dt className="text-xs text-text-muted order-2">Correctas</dt>
+              <dt className="text-xs text-text-muted order-2">{summary?.mode === 'memory' ? 'Parejas' : 'Correctas'}</dt>
               <dd className="text-2xl font-bold font-display text-success-base">{correctAnswers}</dd>
             </div>
             <div className="bg-background-surface/30 rounded-xl p-4 border border-border-subtle">
@@ -219,37 +259,93 @@ function GameOverScreen({
             </div>
           </dl>
 
-          {/* Resumen detallado */}
-          {summary && (
-            <div className="grid grid-cols-3 gap-2 mb-8 text-xs">
-              <div className="rounded-lg bg-background-elevated/60 border border-border-subtle px-3 py-2 text-center">
-                <div className="text-text-muted">Sin completar</div>
-                <div className="text-white font-display font-semibold">{Math.max(0, totalRounds - correctAnswers)}</div>
-              </div>
-              <div className="rounded-lg bg-background-elevated/60 border border-border-subtle px-3 py-2 text-center">
-                <div className="text-text-muted">T. medio</div>
-                <div className="text-white font-display font-semibold">
-                  {/* En modo memory no hay T. medio del servidor */}
-                  {summary.averageResponseTimeMs > 0
-                    ? `${(summary.averageResponseTimeMs / 1000).toFixed(1)}s`
-                    : (summary.mode === 'memory' ? 'N/A' : '—')}
+          {/* Resumen detallado. En Asociación desglosamos "Sin completar" en
+              Incorrectas (respuestas erroneas) y Sin responder (rondas con
+              timeout) para que el profesor vea si el alumno se equivoco o se
+              quedo bloqueado. En Memoria "errors" cuenta intentos fallidos
+              individuales (no rondas), por lo que omitimos "Sin responder" y
+              etiquetamos como "Errores" para evitar mezclar ambas semanticas
+              (QA 2026-04-24 PROP-104, QA 2026-04-29 BUG-MEM-1). */}
+          {summary && (() => {
+            const errors = Number.isFinite(summary.errors) ? summary.errors : null;
+            const isMemory = summary.mode === 'memory';
+            const unanswered = errors != null && !isMemory
+              ? Math.max(0, totalRounds - correctAnswers - errors)
+              : null;
+            const avgTimeLabel = (() => {
+              if (summary.averageResponseTimeMs > 0) return `${(summary.averageResponseTimeMs / 1000).toFixed(1)}s`;
+              if (isMemory) return 'N/A';
+              return '—';
+            })();
+            const totalTimeLabel = summary.totalTimePlayed > 0
+              ? `${(summary.totalTimePlayed / (1000 * 60)).toFixed(1)} min`
+              : '—';
+            // Memoria: 3 columnas (Errores, T. medio, Tiempo) — no aplica "Sin responder".
+            // Asociación: 4 columnas (Incorrectas, Sin responder, T. medio, Tiempo).
+            // Sin summary.errors: fallback a pill unico "Sin completar" (3 columnas).
+            if (errors != null && isMemory) {
+              return (
+                <div className="grid grid-cols-3 gap-2 mb-8 text-xs">
+                  <div className="rounded-lg bg-error-base/10 border border-error-base/20 px-3 py-2 text-center" title="Intentos fallidos (parejas mal emparejadas)">
+                    <div className="text-text-muted">Errores</div>
+                    <div className="text-error-base font-display font-semibold">{errors}</div>
+                  </div>
+                  <div className="rounded-lg bg-background-elevated/60 border border-border-subtle px-3 py-2 text-center">
+                    <div className="text-text-muted">T. medio</div>
+                    <div className="text-white font-display font-semibold">{avgTimeLabel}</div>
+                  </div>
+                  <div className="rounded-lg bg-background-elevated/60 border border-border-subtle px-3 py-2 text-center">
+                    <div className="text-text-muted">Tiempo</div>
+                    <div className="text-white font-display font-semibold">{totalTimeLabel}</div>
+                  </div>
+                </div>
+              );
+            }
+            if (errors != null) {
+              return (
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 mb-8 text-xs">
+                  <div className="rounded-lg bg-error-base/10 border border-error-base/20 px-3 py-2 text-center" title="Respuestas incorrectas (tarjeta equivocada)">
+                    <div className="text-text-muted">Incorrectas</div>
+                    <div className="text-error-base font-display font-semibold">{errors}</div>
+                  </div>
+                  <div className="rounded-lg bg-background-elevated/60 border border-border-subtle px-3 py-2 text-center" title="Rondas sin respuesta (timeout)">
+                    <div className="text-text-muted">Sin responder</div>
+                    <div className="text-white font-display font-semibold">{unanswered}</div>
+                  </div>
+                  <div className="rounded-lg bg-background-elevated/60 border border-border-subtle px-3 py-2 text-center">
+                    <div className="text-text-muted">T. medio</div>
+                    <div className="text-white font-display font-semibold">{avgTimeLabel}</div>
+                  </div>
+                  <div className="rounded-lg bg-background-elevated/60 border border-border-subtle px-3 py-2 text-center">
+                    <div className="text-text-muted">Tiempo</div>
+                    <div className="text-white font-display font-semibold">{totalTimeLabel}</div>
+                  </div>
+                </div>
+              );
+            }
+            return (
+              <div className="grid grid-cols-3 gap-2 mb-8 text-xs">
+                <div className="rounded-lg bg-background-elevated/60 border border-border-subtle px-3 py-2 text-center" title="Rondas no completadas (incorrectas + sin responder)">
+                  <div className="text-text-muted">Sin completar</div>
+                  <div className="text-white font-display font-semibold">{Math.max(0, totalRounds - correctAnswers)}</div>
+                </div>
+                <div className="rounded-lg bg-background-elevated/60 border border-border-subtle px-3 py-2 text-center">
+                  <div className="text-text-muted">T. medio</div>
+                  <div className="text-white font-display font-semibold">{avgTimeLabel}</div>
+                </div>
+                <div className="rounded-lg bg-background-elevated/60 border border-border-subtle px-3 py-2 text-center">
+                  <div className="text-text-muted">Tiempo</div>
+                  <div className="text-white font-display font-semibold">{totalTimeLabel}</div>
                 </div>
               </div>
-              <div className="rounded-lg bg-background-elevated/60 border border-border-subtle px-3 py-2 text-center">
-                <div className="text-text-muted">Tiempo</div>
-                <div className="text-white font-display font-semibold">
-                  {summary.totalTimePlayed > 0
-                    ? `${(summary.totalTimePlayed / (1000 * 60)).toFixed(1)} min`
-                    : '—'}
-                </div>
-              </div>
-            </div>
-          )}
+            );
+          })()}
 
           {!summary && <div className="mb-8" />}
 
           {/* Actions */}
           <nav className="flex flex-col sm:flex-row gap-3" aria-label="Acciones de fin de juego">
+            {/* eslint-disable jsx-a11y/no-autofocus -- autoFocus intencionado: al terminar la partida, el foco debe ir al boton principal */}
             <ButtonPremium
               variant="primary"
               size="lg"
@@ -260,6 +356,7 @@ function GameOverScreen({
             >
               Jugar de Nuevo
             </ButtonPremium>
+            {/* eslint-enable jsx-a11y/no-autofocus */}
             <ButtonPremium
               variant="secondary"
               size="lg"
@@ -279,18 +376,20 @@ function GameOverScreen({
           {floatingStars.map(piece => (
             <motion.div
               key={`floating-star-${piece.id}`}
-              initial={{ 
+              initial={{
                 x: `${piece.x}%`,
                 y: '100%',
                 opacity: 0
               }}
-              animate={{ 
+              animate={{
+                x: [`${piece.x}%`, `${piece.x + 3}%`, `${piece.x}%`],
                 y: '-20%',
                 opacity: [0, 1, 0]
               }}
               transition={{
                 duration: piece.duration,
-                repeat: 1,
+                repeat: 2,
+                repeatType: 'loop',
                 delay: piece.delay,
               }}
               className="absolute text-2xl"

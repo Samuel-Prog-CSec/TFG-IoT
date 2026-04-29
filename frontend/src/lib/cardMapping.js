@@ -28,11 +28,11 @@ export function getBestAssetImageUrl(asset) {
 }
 
 export function normalizeCardMappingsFromDeck(deckData) {
-  const mappings = Array.isArray(deckData?.cardMappings)
-    ? deckData.cardMappings
-    : Array.isArray(deckData?.cards)
-      ? deckData.cards
-      : [];
+  const mappings = (() => {
+    if (Array.isArray(deckData?.cardMappings)) return deckData.cardMappings;
+    if (Array.isArray(deckData?.cards)) return deckData.cards;
+    return [];
+  })();
 
   return mappings
     .map((mapping) => {
@@ -57,6 +57,47 @@ export function normalizeCardMappingsFromDeck(deckData) {
       };
     })
     .filter(Boolean);
+}
+
+/**
+ * Pre-carga en el cache del navegador las imagenes de un array de cardMappings.
+ * Se usa al iniciar una partida para que las URLs de Supabase Storage esten
+ * calientes antes de que la UI las pinte en cada ronda. Evita los flash de
+ * bloque-de-color que aparecen cuando la red devuelve 5xx o es lenta.
+ *
+ * Es idempotente: si el navegador ya cacheo la imagen, `new Image()` no hace
+ * request de red; si hay error, registra el fallo y sigue (no bloqueante).
+ *
+ * @param {Array<{ displayData?: { imageUrl?: string, thumbnailUrl?: string } }>} cardMappings
+ * @param {(failedCount: number) => void} [onAnyFailure] - callback opcional invocado
+ *   una sola vez si al menos una imagen fallo. Permite al caller mostrar UI discreta.
+ */
+export function prefetchDeckImages(cardMappings, onAnyFailure) {
+  if (!Array.isArray(cardMappings) || cardMappings.length === 0 || typeof Image === 'undefined') {
+    return;
+  }
+
+  const urls = new Set();
+  for (const mapping of cardMappings) {
+    const data = mapping?.displayData || {};
+    if (data.thumbnailUrl) urls.add(data.thumbnailUrl);
+    if (data.imageUrl) urls.add(data.imageUrl);
+  }
+
+  let failedCount = 0;
+  let notified = false;
+  urls.forEach(url => {
+    const img = new Image();
+    img.decoding = 'async';
+    img.onerror = () => {
+      failedCount += 1;
+      if (!notified && typeof onAnyFailure === 'function') {
+        notified = true;
+        onAnyFailure(failedCount);
+      }
+    };
+    img.src = url;
+  });
 }
 
 export function buildCardMappingsPayload(selectedCards, cardAssignments) {

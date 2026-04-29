@@ -211,7 +211,10 @@ const noMotion = { hidden: {}, visible: {} };
  */
 function RevealOnScroll({ children, className = '', reduced }) {
   const ref = useRef(null);
-  const isInView = useInView(ref, { once: true, margin: '-60px' });
+  // margin amplio para considerar in-view todos los elementos dentro de ±2 viewports.
+  // Evita que secciones por debajo del fold queden con opacity:0 cuando el usuario
+  // no hace scroll (caso print/screenshot/reader que rompia el render inicial).
+  const isInView = useInView(ref, { once: true, margin: '200% 0px 200% 0px' });
 
   // Calcula el estado de animacion segun reduced motion y visibilidad
   const visible = { opacity: 1, y: 0 };

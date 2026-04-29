@@ -51,7 +51,7 @@ const REQUIRED_REDIS_IN_PRODUCTION = ['REDIS_URL'];
  * Valida que todas las variables requeridas estén configuradas.
  * @throws {Error} Si falta alguna variable crítica
  */
-// eslint-disable-next-line sonarjs/cognitive-complexity
+// eslint-disable-next-line sonarjs/cognitive-complexity, sonarjs/cyclomatic-complexity -- validacion exhaustiva de variables de entorno, la complejidad es inherente
 function validateEnv() {
   const missing = [];
   const warnings = [];
@@ -352,7 +352,7 @@ function validateJWTExpiresIn(varName, value) {
  */
 function validatePort() {
   const port = Number(process.env.PORT);
-  if (isNaN(port) || !Number.isInteger(port) || port < 1024 || port > 65535) {
+  if (Number.isNaN(port) || !Number.isInteger(port) || port < 1024 || port > 65535) {
     throw new Error(
       `PORT tiene un valor inválido: "${process.env.PORT}".\n` +
         `Debe ser un número entero entre 1024 y 65535.\n` +
@@ -367,7 +367,7 @@ function validatePort() {
  */
 function validateLogSampleRate() {
   const rate = Number(process.env.LOG_SAMPLE_RATE);
-  if (isNaN(rate) || rate < 0 || rate > 1) {
+  if (Number.isNaN(rate) || rate < 0 || rate > 1) {
     throw new Error(
       `LOG_SAMPLE_RATE tiene un valor inválido: "${process.env.LOG_SAMPLE_RATE}".\n` +
         `Debe ser un número entre 0 y 1 (inclusivo).\n` +
@@ -382,7 +382,7 @@ function validateLogSampleRate() {
  */
 function validateShutdownTimeout() {
   const timeout = Number(process.env.SHUTDOWN_TIMEOUT_MS);
-  if (isNaN(timeout) || !Number.isInteger(timeout) || timeout <= 0) {
+  if (Number.isNaN(timeout) || !Number.isInteger(timeout) || timeout <= 0) {
     throw new Error(
       `SHUTDOWN_TIMEOUT_MS tiene un valor inválido: "${process.env.SHUTDOWN_TIMEOUT_MS}".\n` +
         `Debe ser un número entero positivo.\n` +

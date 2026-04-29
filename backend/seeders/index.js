@@ -90,7 +90,8 @@ async function runSeeders() {
     }
     logger.info(`  ✓ ${mechanics.length} mecánicas creadas\n`);
 
-    // 4. Contextos de juego
+    // 4. Contextos de juego (los assets seedeados quedan como "del sistema",
+    //    sin uploadedBy: forman la base del producto y no son eliminables vía UI)
     logger.info('4️⃣  Seeding contextos de juego...');
     const contexts = await seedContexts();
     if (!contexts?.length) {
@@ -155,6 +156,7 @@ async function runSeeders() {
 async function main() {
   try {
     // Parsear argumentos de línea de comandos
+    // eslint-disable-next-line sonarjs/process-argv -- script CLI, parseo seguro de argumentos
     const args = process.argv.slice(2);
     const shouldReset = args.includes('--reset');
 

@@ -321,7 +321,7 @@ describe('Session clone endpoint (T-037)', () => {
     expect(sourceAfterClone.status).toBe('completed');
   });
 
-  it('preloads association challenge draft on clone and still requires confirmation before start', async () => {
+  it('preloads association challenge draft on clone and clone is immediately startable', async () => {
     const sourceSession = await GameSession.create({
       mechanicId: associationMechanicId,
       deckId,
@@ -353,42 +353,14 @@ describe('Session clone endpoint (T-037)', () => {
       .send({});
 
     expect(cloneRes.statusCode).toBe(201);
-    expect(cloneRes.body.message).toMatch(/precargaron los retos de asociación/i);
-    expect(cloneRes.body.data.requiresAssociationPlanConfiguration).toBe(true);
+    expect(cloneRes.body.message).toMatch(/retos de asociación se copiaron/i);
+    expect(cloneRes.body.data.requiresAssociationPlanConfiguration).toBe(false);
     expect(cloneRes.body.data.associationChallengePlan).toHaveLength(5);
     expect(cloneRes.body.data.associationChallengePlan[0].promptText).toBe('Reto original');
 
     const clonedId = cloneRes.body.data.id;
 
-    const startBlockedRes = await request(app)
-      .post(`/api/sessions/${clonedId}/start`)
-      .set({ Authorization: `Bearer ${ownerToken}`, ...fingerprintHeaders })
-      .send({});
-
-    expect(startBlockedRes.statusCode).toBe(400);
-    expect(startBlockedRes.body.message).toMatch(/configurar los retos de asociación/i);
-
-    const clonedMappings = cloneRes.body.data.cardMappings;
-    const associationChallengePlan = Array.from({ length: 5 }, (_, index) => {
-      const mapping = clonedMappings[index % clonedMappings.length];
-      return {
-        roundNumber: index + 1,
-        uid: mapping.uid,
-        assignedValue: mapping.assignedValue,
-        displayData: mapping.displayData,
-        promptText: `Reto ronda ${index + 1}`
-      };
-    });
-
-    const updateRes = await request(app)
-      .put(`/api/sessions/${clonedId}`)
-      .set({ Authorization: `Bearer ${ownerToken}`, ...fingerprintHeaders })
-      .send({ associationChallengePlan });
-
-    expect(updateRes.statusCode).toBe(200);
-    expect(updateRes.body.data.requiresAssociationPlanConfiguration).toBe(false);
-    expect(updateRes.body.data.associationChallengePlan).toHaveLength(5);
-
+    // La sesión clonada tiene el plan precargado y debe ser iniciable directamente
     const startRes = await request(app)
       .post(`/api/sessions/${clonedId}/start`)
       .set({ Authorization: `Bearer ${ownerToken}`, ...fingerprintHeaders })

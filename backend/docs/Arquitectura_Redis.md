@@ -485,12 +485,69 @@ prefijo     tipo      identificador
 | `tokenfamily` | Familias de tokens           | Set                | 7 días                                 | `tokenfamily:family-abc` |
 | `cache:mechanic` | Mecánica de juego cacheada | String (JSON)      | 1 hora                                 | `cache:mechanic:byId:{mechanicId_or_name}` |
 | `cache:context`  | Contexto temático cacheado | String (JSON)      | 30 minutos                             | `cache:context:byId:{contextId_or_mongoId}` |
-| `cache:analytics` | Resumen y distribución de clase | String (JSON) | 5 minutos                              | `cache:analytics:summary:{teacherId}` |
+| `cache:analytics` | KPIs y agregaciones de analytics (11 handlers) | String (JSON) | 2-10 minutos según granularidad    | `cache:analytics:summary:{teacherId}`, `cache:analytics:trends:{teacherId}:{timeRange}`, `cache:analytics:student:summary:{studentId}:{timeRange}`... |
+| `auth:user`      | Slim-user cacheado para middleware de autenticación | String (JSON POJO) | 60 segundos | `auth:user:{userId}` |
+| `play:init`      | Lock distribuido de idempotencia de `startPlay`     | String       | 60 segundos                  | `play:init:{playId}` |
+| `cache:context` (list) | Listados cacheados de `getContexts` por query params (ADR-074, PROP-12) | String (JSON) | 30 minutos | `cache:context:list:p1:l20:scr:od:q:a` |
+| `rl:ws:*`        | Rate limit WebSocket distribuido (ADR-075, PROP-59) | ZSET / String| Ventana × 2 (ZSET), block PX | `rl:ws:join_room:user:abc123`, `rl:ws:block:user:abc123`, `rl:ws:violations:user:abc123` |
+| `rfid:mode:*`    | Estado RFID por usuario, distribuido vía pub/sub (ADR-076, PROP-64) | String (JSON) | 1 hora                       | `rfid:mode:{userId}` |
+| `rfid:sensor:*`  | Mapeo sensor → userId                               | String       | 1 hora                       | `rfid:sensor:{sensorId}` |
+| `bull:*`         | Queues BullMQ (data-retention, gdpr-exports, notifications). ADR-077, PROP-62 | varios (jobs, stats) | gestionado por BullMQ | `bull:data-retention:{jobId}` |
 
 > **Nota sobre TTL de play/card (T-066):** Aunque antes este documento indicaba "Sin TTL*", el código
 > real aplica un TTL de 90s (`DISTRIBUTED_LOCK_TTL_SECONDS`) con un heartbeat de 30s
 > (`LOCK_HEARTBEAT_INTERVAL_MS`) que lo renueva periódicamente. Si el servidor se cae, las keys expiran
 > automáticamente en ≤90s, garantizando liberación de recursos sin intervención manual.
+
+## Política de evicción (`maxmemory-policy: noeviction`)
+
+Redis se configura con `maxmemory 256mb` (dev) / `512mb` (prod) y `maxmemory-policy noeviction`
+(ver `docker-compose.yml` y `docker-compose.prod.yml`). Esto significa que cuando la memoria llega
+al límite, las **escrituras nuevas fallan con error** (`OOM command not allowed when used memory > 'maxmemory'`)
+en lugar de expulsar claves existentes.
+
+### Por qué no `allkeys-lru`
+
+Una política de evicción tipo `allkeys-lru` (que expulsa la clave usada hace más tiempo bajo
+presión) es la elección habitual cuando Redis se usa como caché puro. Aquí **no** lo es: la
+mayoría de los namespaces almacenan datos cuya pérdida silenciosa rompe garantías del sistema.
+
+| Namespace                     | ¿Tolera evicción LRU? | Consecuencia de expulsión silenciosa                                                            |
+| ----------------------------- | --------------------- | ----------------------------------------------------------------------------------------------- |
+| `cache:analytics`             | Sí                    | Se regenera con la próxima petición. TTL 2-10 min.                                              |
+| `cache:context`, `cache:mechanic` | Sí                | Se rehidrata desde Mongo. TTL 30-60 min.                                                        |
+| `auth:user`                   | Sí                    | Se rehidrata en el siguiente `authenticate`. TTL 60s.                                           |
+| **`bull:*` (BullMQ)**         | **No**                | Job perdido = cron de retención RGPD podría no ejecutarse. BullMQ avisa explícitamente al arrancar si la policy no es `noeviction`. |
+| **`blacklist:*`**             | **No**                | Token revocado expulsado = el JWT vuelve a ser válido hasta su `exp` natural. Agujero de seguridad. |
+| **`refresh:*`, `used:*`**     | **No**                | Rotación rota: refresh tokens legítimos rechazados o reutilizables fuera de su ventana.         |
+| **`play:init:*`**             | **No**                | Idempotencia de `startPlay` rota: doble-click del profesor crea dos `GamePlay` distintos en BD. |
+| **`play:*`, `card:*`**        | **No**                | Locks distribuidos perdidos = race conditions silenciosas en el motor de juego.                 |
+| `rfid:mode:*`, `rfid:sensor:*` | Tolerable             | Pérdida puntual fuerza al cliente a rearmarse. No crítico.                                      |
+| `rl:ws:*`                     | Tolerable             | Contador de rate-limit reiniciado antes de tiempo. No crítico.                                  |
+
+La conclusión es que el "lado caché" de Redis y el "lado almacén persistente con TTL"
+**conviven en la misma instancia**. Como no podemos dar política distinta a cada namespace,
+elegimos la única que respeta a los críticos: `noeviction`.
+
+### Por qué es seguro
+
+`noeviction` parece más arriesgado a primera vista (las escrituras pueden fallar), pero los
+caches descartables ya tienen **TTL explícito** que los renueva sin necesidad de evicción
+forzada. Mientras los TTLs estén bien dimensionados, Redis no debería llegar a llenarse
+en operación normal.
+
+Es preferible:
+
+- **Fallo visible** (`OOM command not allowed` en logs → alerta) frente a
+- **Fallo silencioso** (clave de idempotencia o de blacklist desaparecida sin trace, produciendo
+  duplicados o accesos indebidos que se manifiestan días después).
+
+### Mitigación monitorizada
+
+`/api/admin/metrics` expone el bloque `redis` con `usedMemory` y `maxMemory`. Conviene alertar
+cuando `usedMemory / maxMemory > 0.8` para escalar capacidad antes de tocar el límite. Si se
+llega a OOM, las escrituras de los caches descartables fallarán pero los caches existentes
+siguen sirviendo lectura — degradación parcial, no caída total.
 
 ## ¿Por qué Tipos de Datos Diferentes?
 
@@ -1138,6 +1195,31 @@ Para **analytics**, no se realiza invalidación explícita. Los datos expiran au
 Si Redis no está disponible (circuit breaker abierto, timeout, error de conexión), `cacheGet` ejecuta directamente la función de fetch contra MongoDB sin lanzar error. El sistema opera en modo degradado (sin cache) de forma transparente para el consumidor. Cuando Redis vuelve a estar disponible, las siguientes lecturas re-poblan el cache automáticamente.
 
 Para más detalles sobre la decisión, ver **ADR-020** en `Architecture_Decisions.md`.
+
+## Cache de autenticación (`auth:user`)
+
+Desde el mantenimiento 2026-04-20, el middleware `authenticate` (HTTP) y el handshake Socket.IO comparten un cache Redis `auth:user:<userId>` con TTL 60s. Cachea un POJO "slim" del usuario con los campos que el middleware necesita (`role`, `status`, `accountStatus`, `currentSessionId`, `name`, `consent`). El helper `fetchUserForAuth` en `middlewares/auth.js` encapsula el flujo cache-aside; `invalidateUserCache(userId)` fuerza re-fetch.
+
+**Invalidación explícita** en estos puntos:
+- `authController.login` (rota `currentSessionId`)
+- `authController.changePassword` (rota `currentSessionId` + password)
+- `authController.updateProfile` (cambia `name`/`profile`)
+- `authController.refreshAccessToken` cuando asigna `currentSessionId` legacy
+- `userController.updateUser` y `userController.deleteUser`
+- `userService.updateUser`
+- `middleware/auth.logout` (tras rotar el sessionId vía `updateById`)
+
+**Ventana de staleness máxima**: 60s entre un cambio de estado y su efecto en el middleware. El `security flag` de `revokeAllUserTokens` sigue siendo inmediato porque consulta un namespace distinto (`security:<userId>`) sin pasar por este cache.
+
+Para más detalles, ver **ADR-065** en `Architecture_Decisions.md`.
+
+## Idempotencia distribuida de `startPlay` (`play:init`)
+
+En despliegues multi-instancia (con Socket.IO Redis adapter activo), dos réplicas podrían recibir concurrentemente un mismo `start_play`. Desde el mantenimiento 2026-04-20, `GameEngine.startPlay` adquiere un lock `SET NX` en `play:init:<playId>` con TTL 60s **antes** de cualquier otro registro en memoria o emisión de `new_round`. Si el lock ya existe (otra réplica lo tomó), `startPlay` retorna temprano.
+
+El lock NO se libera manualmente — el TTL lo purga. 60s cubre el peor caso de `startPlay` (<2s) con margen para GC stops y reintentos legítimos. Si Redis cae, `setIfNotExists` retorna `true` por fallback y degradamos al guard in-memory previo (aceptable porque sin Redis tampoco hay multi-instancia real).
+
+Para más detalles, ver **ADR-066** en `Architecture_Decisions.md`.
 
 ---
 

@@ -42,7 +42,7 @@ class ErrorBoundary extends Component {
   };
 
   handleGoHome = () => {
-    window.location.href = '/';
+    globalThis.location.href = '/';
   };
 
   render() {

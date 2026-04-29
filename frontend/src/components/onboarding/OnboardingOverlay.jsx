@@ -1,6 +1,15 @@
 import PropTypes from 'prop-types';
 import { motion, AnimatePresence } from 'framer-motion';
-import { ChevronLeft, ChevronRight, X, ArrowRight } from 'lucide-react';
+import {
+  ChevronLeft,
+  ChevronRight,
+  X,
+  ArrowRight,
+  GraduationCap,
+  Palette,
+  Layers,
+  Rocket,
+} from 'lucide-react';
 import { cn } from '../../lib/utils';
 import GlassCard from '../ui/GlassCard';
 import ButtonPremium from '../ui/ButtonPremium';
@@ -12,30 +21,32 @@ import { useReducedMotion } from '../../hooks/useReducedMotion';
  * Se puede omitir en cualquier momento.
  */
 
+// Iconos Lucide en lugar de emojis (BUG-1 QA pre-release v0.5.0): el resto del UI
+// ya migró a iconos vectoriales y los emojis quedaban descontextualizados.
 const STEPS = [
   {
-    emoji: '\uD83C\uDF93',
-    title: '\u00A1Bienvenido a EduPlay!',
+    icon: GraduationCap,
+    title: '¡Bienvenido a EduPlay!',
     description:
-      'EduPlay es tu plataforma de juegos educativos con tecnolog\u00EDa RFID. Crea experiencias de aprendizaje interactivas para tus alumnos de forma sencilla y divertida.',
+      'EduPlay es tu plataforma de juegos educativos con tecnología RFID. Crea experiencias de aprendizaje interactivas para tus alumnos de forma sencilla y divertida.',
   },
   {
-    emoji: '\uD83C\uDFA8',
+    icon: Palette,
     title: 'Explora los Contextos',
     description:
-      'Los contextos son los temas de tus juegos: animales, colores, n\u00FAmeros, geograf\u00EDa\u2026 Cada contexto tiene im\u00E1genes y audios que tus alumnos ver\u00E1n durante el juego.',
+      'Los contextos son los temas de tus juegos: animales, colores, números, geografía… Cada contexto tiene imágenes y audios que tus alumnos verán durante el juego.',
   },
   {
-    emoji: '\uD83C\uDCCF',
+    icon: Layers,
     title: 'Crea tu primer Mazo',
     description:
-      'Los mazos son colecciones de tarjetas RFID vinculadas a un contexto. Cada tarjeta se asocia a un contenido educativo. Escanea las tarjetas f\u00EDsicas o cr\u00E9alas manualmente.',
+      'Los mazos son colecciones de tarjetas RFID vinculadas a un contexto. Cada tarjeta se asocia a un contenido educativo. Escanea las tarjetas físicas o créalas manualmente.',
   },
   {
-    emoji: '\uD83D\uDE80',
-    title: '\u00A1Lanza una Sesi\u00F3n!',
+    icon: Rocket,
+    title: '¡Lanza una Sesión!',
     description:
-      'Configura una sesi\u00F3n de juego eligiendo un mazo, una mec\u00E1nica (asociaci\u00F3n o memoria) y las reglas. Tus alumnos jugar\u00E1n pasando tarjetas RFID por el lector. \u00A1As\u00ED de f\u00E1cil!',
+      'Configura una sesión de juego eligiendo un mazo, una mecánica (asociación o memoria) y las reglas. Tus alumnos jugarán pasando tarjetas RFID por el lector. ¡Así de fácil!',
   },
 ];
 
@@ -127,6 +138,7 @@ export default function OnboardingOverlay({
   const isLastStep = currentStep >= totalSteps - 1;
   const isFirstStep = currentStep === 0;
   const step = STEPS[currentStep] || STEPS[0];
+  const StepIcon = step.icon;
 
   // Direccion de la transicion: 1 = adelante, -1 = atras
   // Se usa como custom prop para AnimatePresence
@@ -189,7 +201,7 @@ export default function OnboardingOverlay({
                     exit="exit"
                     className="flex flex-col items-center gap-5 px-2"
                   >
-                    {/* Emoji decorativo */}
+                    {/* Icono decorativo (Lucide) */}
                     <div
                       className={cn(
                         'flex items-center justify-center',
@@ -197,11 +209,11 @@ export default function OnboardingOverlay({
                         'bg-gradient-to-br from-brand-base/20 to-accent-indigo/20',
                         'border border-brand-base/30',
                         'shadow-[0_0_30px_var(--color-brand-glow)]',
-                        'text-4xl select-none'
+                        'text-brand-base'
                       )}
                       aria-hidden="true"
                     >
-                      {step.emoji}
+                      {StepIcon ? <StepIcon size={40} strokeWidth={1.75} /> : null}
                     </div>
 
                     {/* Titulo */}
@@ -230,7 +242,7 @@ export default function OnboardingOverlay({
                     aria-selected={i === currentStep}
                     aria-label={`Paso ${i + 1} de ${totalSteps}`}
                     className={cn(
-                      'rounded-full transition-all duration-300',
+                      'rounded-full transition-[width,background-color,box-shadow] duration-300',
                       i === currentStep
                         ? 'w-8 h-2.5 bg-gradient-to-r from-brand-base to-accent-indigo shadow-[0_0_12px_var(--color-brand-glow)]'
                         : 'w-2.5 h-2.5 bg-text-disabled/40 hover:bg-text-muted/50'
@@ -251,7 +263,7 @@ export default function OnboardingOverlay({
                       icon={<ChevronLeft size={18} aria-hidden="true" />}
                       aria-label="Paso anterior"
                     >
-                      Atr\u00E1s
+                      Atrás
                     </ButtonPremium>
                   )}
                 </div>
@@ -285,7 +297,7 @@ export default function OnboardingOverlay({
 
               {/* Texto de omitir debajo */}
               <p className="text-center mt-4 text-xs text-text-disabled">
-                Puedes volver a ver este tutorial desde la configuraci\u00F3n
+                Puedes volver a ver este tutorial desde la configuración
               </p>
             </GlassCard>
           </motion.div>

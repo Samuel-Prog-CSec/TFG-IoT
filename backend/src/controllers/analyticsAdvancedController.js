@@ -33,9 +33,14 @@ exports.getAlerts = async (req, res) => {
   const teacherId = req.user._id.toString();
   const { severity, type, limit } = req.query;
 
+  // El `limit` forma parte de la cache key porque la respuesta lo aplica a la
+  // lista de alertas; sin él, el dashboard (que pide ?limit=5) y el panel de
+  // Insights (sin limit) compartían entrada de caché y se contaminaban entre sí
+  // (BUG-3 QA pre-release v0.5.0: el badge mostraba 5 cuando había 7).
+  const limitKey = limit ? String(limit) : 'all';
   const data = await cacheGet(
     'cache:analytics',
-    `alerts:${teacherId}:${severity || 'all'}:${type || 'all'}`,
+    `alerts:${teacherId}:${severity || 'all'}:${type || 'all'}:${limitKey}`,
     async () => alertsService.getAlerts(teacherId, { severity, type, limit }),
     600
   );

@@ -6,6 +6,7 @@
 
 const { z } = require('zod');
 const { objectIdSchema, userFiltersSchema } = require('./commonValidator');
+const { ROLES, USER_STATUS, CONSENT_PURPOSES } = require('../constants/enums');
 
 /**
  * Schema para validar email.
@@ -42,7 +43,7 @@ const createUserSchema = z
     password: passwordSchema.optional(),
 
     role: z
-      .enum(['super_admin', 'teacher', 'student'], {
+      .enum([...ROLES], {
         errorMap: () => ({ message: 'El rol debe ser super_admin, teacher o student' })
       })
       .default('student'),
@@ -71,7 +72,7 @@ const createUserSchema = z
       })
       .optional(),
 
-    status: z.enum(['active', 'inactive']).default('active'),
+    status: z.enum([...USER_STATUS]).default('active'),
 
     createdBy: objectIdSchema.optional()
   })
@@ -150,7 +151,7 @@ const createStudentSchema = z
         .trim()
         .min(2, 'El nombre del tutor debe tener al menos 2 caracteres')
         .max(100, 'El nombre del tutor no puede exceder 100 caracteres'),
-      purposes: z.array(z.enum(['educational_tracking', 'performance_analytics'])).optional(),
+      purposes: z.array(z.enum([...CONSENT_PURPOSES])).optional(),
       policyVersion: z.string().trim().optional()
     })
   })
@@ -210,7 +211,7 @@ const updateUserSchema = z
       })
       .optional(),
 
-    status: z.enum(['active', 'inactive']).optional()
+    status: z.enum([...USER_STATUS]).optional()
   })
   .strict();
 
@@ -285,7 +286,7 @@ const updateConsentSchema = z
       .min(2, 'El nombre del tutor debe tener al menos 2 caracteres')
       .max(100, 'El nombre del tutor no puede exceder 100 caracteres')
       .optional(),
-    purposes: z.array(z.enum(['educational_tracking', 'performance_analytics'])).optional(),
+    purposes: z.array(z.enum([...CONSENT_PURPOSES])).optional(),
     policyVersion: z.string().trim().optional()
   })
   .strict()

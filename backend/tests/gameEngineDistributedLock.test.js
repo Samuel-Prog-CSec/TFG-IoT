@@ -1,7 +1,4 @@
-jest.mock('ioredis', () => {
-  const RedisMock = require('ioredis-mock');
-  return RedisMock;
-});
+jest.mock('ioredis', () => require('ioredis-mock'));
 
 const mongoose = require('mongoose');
 const { connectRedis, disconnectRedis } = require('../src/config/redis');

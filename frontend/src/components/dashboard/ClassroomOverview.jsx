@@ -13,8 +13,8 @@ export default function ClassroomOverview({ summary, distribution }) {
     const hasDistribution = Array.isArray(distribution) && distribution.length > 0;
 
     return (
-        <ChartSection title="Distribucion de Rendimiento Global">
-            <div className="h-[200px] sm:h-[240px] w-full mt-2 -ml-4 sm:ml-0">
+        <ChartSection title="Distribución de Rendimiento Global">
+            <div className="h-[200px] sm:h-[240px] w-full mt-2 -ml-4 sm:ml-0 min-h-[200px] sm:min-h-[240px]">
                {hasDistribution ? (
                  <DistributionChart data={distribution} />
                ) : (

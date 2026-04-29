@@ -9,6 +9,7 @@ import { useState, useEffect, useRef, useCallback } from 'react';
 import PropTypes from 'prop-types';
 import { Volume2 } from 'lucide-react';
 import { cn } from '../../lib/utils';
+import { useReducedMotion } from '../../hooks/useReducedMotion';
 
 /** Mapa de tamanos: clases del contenedor y tamano del icono */
 const SIZE_MAP = {
@@ -27,6 +28,7 @@ const SIZE_MAP = {
 export default function AudioPlayBadge({ audioUrl, size = 'xs', className }) {
   const [isPlaying, setIsPlaying] = useState(false);
   const audioRef = useRef(null);
+  const { shouldReduceMotion } = useReducedMotion();
 
   const { container: sizeClass, icon: iconSize } = SIZE_MAP[size] || SIZE_MAP.xs;
 
@@ -71,6 +73,7 @@ export default function AudioPlayBadge({ audioUrl, size = 'xs', className }) {
       audio.play().then(() => {
         audioRef.current = audio;
         setIsPlaying(true);
+        return undefined;
       }).catch(() => {
         // El navegador bloqueo la reproduccion (autoplay policy)
         setIsPlaying(false);
@@ -108,7 +111,11 @@ export default function AudioPlayBadge({ audioUrl, size = 'xs', className }) {
     >
       <Volume2
         size={iconSize}
-        className={cn('text-text-primary', isPlaying && 'animate-pulse')}
+        className={cn(
+          'text-text-primary',
+          // Pulse solo si esta reproduciendo y el usuario no prefiere menos movimiento.
+          isPlaying && !shouldReduceMotion && 'animate-pulse'
+        )}
       />
     </div>
   );

@@ -323,6 +323,7 @@ function generateSessionsForTeacher(teacher, teacherDecks, mechanics, contexts) 
     }
 
     const sessionData = {
+      name: template.description,
       mechanicId: mechanic._id,
       deckId: deck._id,
       contextId: deck.contextId,
@@ -363,14 +364,22 @@ function generateSessionsForTeacher(teacher, teacherDecks, mechanics, contexts) 
 
 /**
  * Ejecuta el seeder de sesiones.
+ * Idempotente: si ya existen sesiones, las devuelve sin recrearlas.
+ *
  * @param {Object} users - Usuarios creados { teachers, students }
  * @param {Array} mechanics - Mecanicas creadas
  * @param {Array} contexts - Contextos creados
  * @param {Array} decks - Mazos creados
- * @returns {Promise<Array>} Array de sesiones creadas
+ * @returns {Promise<Array>} Array de sesiones creadas o preexistentes
  */
 async function seedSessions(users, mechanics, contexts, decks) {
   try {
+    const existing = await GameSession.find({});
+    if (existing.length > 0) {
+      logger.info(`Sesiones ya existen (${existing.length}), omitiendo creacion`);
+      return existing;
+    }
+
     const { teachers } = users;
     const allSessions = [];
 

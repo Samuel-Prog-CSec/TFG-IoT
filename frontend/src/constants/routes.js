@@ -18,7 +18,9 @@ export const ROUTES = {
 
   // Alumnos
   STUDENT_PROFILE: (studentId) => `/students/${studentId}`,
-  STUDENT_TRANSFER: '/students/transfer',
+  // Convencion unificada: rutas exclusivas de super_admin van bajo /admin/*.
+  // El path antiguo /students/transfer se mantiene como redirect en App.jsx (PROP-56).
+  STUDENT_TRANSFER: '/admin/students/transfer',
 
   // Sesiones
   SESSIONS: '/sessions',
@@ -42,6 +44,7 @@ export const ROUTES = {
   // Admin (solo super_admin)
   ADMIN_APPROVALS: '/admin/approvals',
   STUDENT_MANAGEMENT: '/admin/students',
+  ADMIN_CONTEXTS: '/admin/contexts',
 
   // Publicas
   PRIVACY: '/privacy',
@@ -106,6 +109,11 @@ export const ADMIN_NAV_ROUTES = [
     path: ROUTES.STUDENT_MANAGEMENT,
     label: 'Alumnos',
     icon: 'Users',
+  },
+  {
+    path: ROUTES.ADMIN_CONTEXTS,
+    label: 'Contextos',
+    icon: 'Palette',
   },
 ];
 

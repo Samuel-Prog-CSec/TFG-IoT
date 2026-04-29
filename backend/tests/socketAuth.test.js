@@ -62,8 +62,9 @@ const connectSocket = (port, token, options = {}) =>
     const origin = options.origin;
     const extraHeaders = origin ? { ...fingerprintHeaders, origin } : { ...fingerprintHeaders };
     const transports = options.transports || ['websocket'];
+    const namespace = options.namespace || '';
 
-    const socket = ioClient(`http://localhost:${port}`, {
+    const socket = ioClient(`http://localhost:${port}${namespace}`, {
       auth: token ? { token } : {},
       transports,
       forceNew: true,
@@ -85,12 +86,15 @@ const connectSocket = (port, token, options = {}) =>
     });
   });
 
+/** Conecta al namespace /game para tests de gameplay */
+const connectGameSocket = (port, token, options = {}) =>
+  connectSocket(port, token, { ...options, namespace: '/game' });
+
 describe('Socket.IO auth & ownership', () => {
   let port;
   let teacherOwner;
   let teacherOwnerToken;
   let teacherOtherToken;
-  let studentToken;
   let playId;
 
   beforeAll(async () => {
@@ -136,7 +140,8 @@ describe('Socket.IO auth & ownership', () => {
 
     teacherOwnerToken = (await generateTokenPair(teacherOwner, mockReq)).accessToken;
     teacherOtherToken = (await generateTokenPair(teacherOther, mockReq)).accessToken;
-    studentToken = (await generateTokenPair(student, mockReq)).accessToken;
+    // Token generado para completar el setup (no se usa directamente en los tests actuales)
+    await generateTokenPair(student, mockReq);
 
     const mechanic = await GameMechanic.create({
       name: 'socket-mechanic',
@@ -232,7 +237,7 @@ describe('Socket.IO auth & ownership', () => {
   });
 
   test('bloquea join_play si no es owner de la sesión', async () => {
-    const socket = await connectSocket(port, teacherOtherToken);
+    const socket = await connectGameSocket(port, teacherOtherToken);
 
     socket.emit('join_play', { playId });
     const errorPayload = await waitForEvent(socket, 'error');
@@ -255,7 +260,7 @@ describe('Socket.IO auth & ownership', () => {
   });
 
   test('rechaza RFID client event con UID inválido', async () => {
-    const socket = await connectSocket(port, teacherOwnerToken);
+    const socket = await connectGameSocket(port, teacherOwnerToken);
 
     socket.emit('join_card_assignment');
 
@@ -274,7 +279,7 @@ describe('Socket.IO auth & ownership', () => {
   });
 
   test('rechaza RFID client event fuera de modo permitido', async () => {
-    const socket = await connectSocket(port, teacherOwnerToken);
+    const socket = await connectGameSocket(port, teacherOwnerToken);
 
     socket.emit('rfid_scan_from_client', {
       uid: 'CC0000AA',
@@ -285,7 +290,12 @@ describe('Socket.IO auth & ownership', () => {
     });
 
     const errorPayload = await waitForEvent(socket, 'error');
-    expect(errorPayload).toEqual(expect.objectContaining({ code: 'RFID_MODE_INVALID' }));
+    // Sin modo RFID activo, el socket no tiene sesión RFID registrada
+    expect(errorPayload).toEqual(
+      expect.objectContaining({
+        code: expect.stringMatching(/^(RFID_MODE_INVALID|RFID_SOCKET_NOT_ACTIVE)$/)
+      })
+    );
 
     socket.disconnect();
   });
@@ -301,9 +311,11 @@ describe('Socket.IO auth & ownership', () => {
     });
 
     const tempTeacherToken = (await generateTokenPair(tempTeacher, mockReq)).accessToken;
-    const socket = await connectSocket(port, tempTeacherToken);
+    // Conectar a /game para gameplay + default para recibir rfid_mode_changed
+    const socket = await connectGameSocket(port, tempTeacherToken);
+    const sysSocket = await connectSocket(port, tempTeacherToken);
 
-    const modeReady = waitForMode(socket, 'card_assignment');
+    const modeReady = waitForMode(sysSocket, 'card_assignment');
     socket.emit('join_card_assignment');
     await modeReady;
 
@@ -330,6 +342,7 @@ describe('Socket.IO auth & ownership', () => {
     );
 
     socket.disconnect();
+    sysSocket.disconnect();
   });
 
   test('rechaza RFID client event con timestamp fuera de ventana permitida', async () => {
@@ -343,7 +356,7 @@ describe('Socket.IO auth & ownership', () => {
     });
     const tempToken = (await generateTokenPair(tempTeacher, mockReq)).accessToken;
 
-    const socket = await connectSocket(port, tempToken);
+    const socket = await connectGameSocket(port, tempToken);
 
     socket.emit('join_card_assignment');
 
@@ -371,7 +384,7 @@ describe('Socket.IO auth & ownership', () => {
       accountStatus: 'approved'
     });
     const tempToken = (await generateTokenPair(tempTeacher, mockReq)).accessToken;
-    const socket = await connectSocket(port, tempToken);
+    const socket = await connectGameSocket(port, tempToken);
 
     socket.emit('join_card_assignment');
     await new Promise(resolve => setTimeout(resolve, 50));
@@ -428,7 +441,7 @@ describe('Socket.IO auth & ownership', () => {
     });
     const cacheTeacherToken = (await generateTokenPair(cacheTeacher, mockReq)).accessToken;
 
-    const socket = await connectSocket(port, cacheTeacherToken);
+    const socket = await connectGameSocket(port, cacheTeacherToken);
 
     const findByIdSpy = jest.spyOn(userRepository, 'findById');
     findByIdSpy.mockClear();
@@ -447,7 +460,7 @@ describe('Socket.IO auth & ownership', () => {
   });
 
   test('usa caché TTL para ownership en comandos consecutivos del mismo play', async () => {
-    const socket = await connectSocket(port, teacherOwnerToken);
+    const socket = await connectGameSocket(port, teacherOwnerToken);
 
     const findByIdSpy = jest.spyOn(gamePlayRepository, 'findById');
     findByIdSpy.mockClear();
@@ -465,8 +478,8 @@ describe('Socket.IO auth & ownership', () => {
   });
 
   test('aplica política single-owner por usuario en modo RFID', async () => {
-    const firstSocket = await connectSocket(port, teacherOwnerToken);
-    const secondSocket = await connectSocket(port, teacherOwnerToken);
+    const firstSocket = await connectGameSocket(port, teacherOwnerToken);
+    const secondSocket = await connectGameSocket(port, teacherOwnerToken);
 
     firstSocket.emit('join_card_assignment');
     await new Promise(resolve => setTimeout(resolve, 80));
@@ -491,7 +504,7 @@ describe('Socket.IO auth & ownership', () => {
   });
 
   test('mantiene validación de sensor en gameplay tras pause/resume', async () => {
-    const socket = await connectSocket(port, teacherOwnerToken);
+    const socket = await connectGameSocket(port, teacherOwnerToken);
 
     socket.emit('join_play', { playId });
     await new Promise(resolve => setTimeout(resolve, 80));

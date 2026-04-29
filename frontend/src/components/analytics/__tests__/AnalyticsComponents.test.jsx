@@ -101,13 +101,12 @@ describe('StudentKPICard', () => {
 
   it('renderiza el sufijo cuando se proporciona', () => {
     render(<StudentKPICard label="Precision" value={88} suffix="%" />);
-    // El sufijo aparece dos veces: dentro de AnimatedValue y como span separado
-    const suffixes = screen.getAllByText('%');
-    expect(suffixes.length).toBeGreaterThanOrEqual(1);
+    // AnimatedNumber renderiza valor+sufijo juntos como "88%"
+    expect(screen.getByText('88%')).toBeTruthy();
   });
 
   it('aplica borde verde para ragStatus "green"', () => {
-    const { container } = render(
+    render(
       <StudentKPICard label="KPI" value={90} ragStatus="green" />
     );
     // El GlassCard recibe className con border-l-success-base
@@ -138,7 +137,7 @@ describe('StudentKPICard', () => {
         label="Score"
         value={85}
         comparison="vs clase: +11%"
-        comparisonPositive={true}
+        comparisonPositive
       />
     );
     expect(screen.getByText('vs clase: +11%')).toBeTruthy();
@@ -298,9 +297,9 @@ describe('NarrativeCard', () => {
   it('muestra las tres secciones de la narrativa BI', () => {
     render(<NarrativeCard interpretation={fullInterpretation} />);
     // Labels de secciones
-    expect(screen.getByText('Que paso')).toBeTruthy();
-    expect(screen.getByText('Por que importa')).toBeTruthy();
-    expect(screen.getByText('Que hacer')).toBeTruthy();
+    expect(screen.getByText('Qué pasó')).toBeTruthy();
+    expect(screen.getByText('Por qué importa')).toBeTruthy();
+    expect(screen.getByText('Qué hacer')).toBeTruthy();
     // Contenido
     expect(
       screen.getByText('El alumno mejoro un 15% en la ultima semana.')
@@ -417,14 +416,14 @@ describe('EngagementRadar', () => {
   it('muestra estado vacio cuando engagement es null', () => {
     render(<EngagementRadar engagement={null} />);
     expect(
-      screen.getByText(/Sin datos de engagement aun/)
+      screen.getByText(/Sin datos de engagement aún/)
     ).toBeTruthy();
   });
 
   it('muestra estado vacio cuando no hay componentes', () => {
     render(<EngagementRadar engagement={{}} />);
     expect(
-      screen.getByText(/Sin datos de engagement aun/)
+      screen.getByText(/Sin datos de engagement aún/)
     ).toBeTruthy();
   });
 

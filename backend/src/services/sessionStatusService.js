@@ -104,10 +104,8 @@ async function recalculateSessionStatusFromPlays(sessionId) {
       session.endedAt = undefined;
     }
 
-    if (nextStatus === 'completed') {
-      if (!session.endedAt) {
-        session.endedAt = new Date();
-      }
+    if (nextStatus === 'completed' && !session.endedAt) {
+      session.endedAt = new Date();
     }
 
     if (nextStatus === 'created') {

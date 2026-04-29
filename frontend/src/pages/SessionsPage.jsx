@@ -14,10 +14,11 @@ import {
   PlusCircle,
   Filter,
   RefreshCw,
+  Play,
   Eye,
   Pencil,
   Trash2,
-  Map,
+  LayoutGrid,
   Layers,
   Timer,
   Award,
@@ -29,18 +30,70 @@ import { sessionsAPI, mechanicsAPI, extractErrorMessage, extractData, isAbortErr
 import { useContexts } from '../hooks/useContexts';
 import { useRefetchOnFocus } from '../hooks/useRefetchOnFocus';
 import { useDocumentTitle } from '../hooks/useDocumentTitle';
+import { useReducedMotion } from '../hooks/useReducedMotion';
 import { ROUTES } from '../constants/routes';
 import ButtonPremium from '../components/ui/ButtonPremium';
 import GlassCard from '../components/ui/GlassCard';
+import HoverLiftCard from '../components/ui/HoverLiftCard';
 import SelectPremium from '../components/ui/SelectPremium';
 import StatusBadge from '../components/ui/StatusBadge';
 import { SkeletonGrid } from '../components/ui/SkeletonShimmer';
 import Tooltip from '../components/ui/Tooltip';
 import EmptyState from '../components/ui/EmptyState';
+import { EmptySessionsIllustration } from '../components/ui/illustrations';
 import ErrorState from '../components/ui/ErrorState';
+import ActiveFiltersBar from '../components/ui/ActiveFiltersBar';
 import ConfirmationModal, { useConfirmationModal } from '../components/ui/ConfirmationModal';
 import PageHeader from '../components/ui/PageHeader';
-import { crossfadeVariants } from '../lib/utils';
+import ScanlineOverlay from '../components/ui/ScanlineOverlay';
+import SessionSparkline from '../components/common/SessionSparkline';
+import { cn, listContainerVariants, motionConfig, DURATION, EASING, toTitleCaseEs } from '../lib/utils';
+import { formatRelativeTime } from '../lib/dateUtils';
+
+// Mapeo de dificultad a indicador visual lateral derecho (PROP-5).
+// Se aplica como `after:bg-*` para no chocar con el `border-l-*` que indica el estado.
+const DIFFICULTY_INDICATOR_CLASSES = {
+  easy: 'after:bg-success-base/60',
+  medium: 'after:bg-warning-base/60',
+  hard: 'after:bg-error-base/60',
+  custom: 'after:bg-brand-base/60'
+};
+
+const DIFFICULTY_LABELS_ES = {
+  easy: 'Fácil',
+  medium: 'Normal',
+  hard: 'Difícil',
+  custom: 'Personalizada'
+};
+
+// Variants locales con settle en entrada y "papel volando" en exit para reforzar
+// el leitmotiv Tactile+Paper en las tarjetas de lista.
+const buildSessionCardVariants = (shouldReduceMotion) => {
+  if (shouldReduceMotion) {
+    return {
+      hidden: { opacity: 0 },
+      visible: { opacity: 1, transition: { duration: 0 } },
+      exit: { opacity: 0, transition: { duration: 0 } },
+    };
+  }
+  return {
+    hidden: { opacity: 0, y: -12, scale: 0.94 },
+    visible: {
+      opacity: 1,
+      y: 0,
+      scale: 1,
+      transition: motionConfig.springGame,
+    },
+    exit: {
+      opacity: 0,
+      x: -24,
+      scale: 0.92,
+      rotate: -2,
+      transition: { duration: DURATION.exit, ease: EASING.outQuart },
+    },
+  };
+};
+import { getPrimaryActionForSession, getPlayRouteForSession } from '../lib/sessionHelpers';
 
 const STATUS_OPTIONS = [
   { value: '', label: 'Todas' },
@@ -85,7 +138,54 @@ const extractSessionItems = ({ payload, extracted }) => {
 const BORDER_CLASSES = {
   created: 'border-l-warning-base/70',
   active: 'border-l-success-base/70',
-  completed: 'border-l-background-surface/50',
+  completed: 'border-l-success-base/40',
+};
+
+const STATUS_CARD_CLASSES = {
+  created: 'border-dashed border-warning-base/30',
+  active: 'ring-1 ring-brand-base/30 shadow-[0_0_12px_var(--color-brand-glow)]',
+  completed: 'border-b-2 border-b-success-base/40',
+};
+
+// Bloque de stats con sparkline. Extraido para reducir la complejidad ciclomatica
+// del SessionCard (regla sonarjs/cyclomatic-complexity).
+function SessionPlayStats({ playStats }) {
+  if (!playStats || (playStats.playsCount ?? 0) <= 0) return null;
+  const playedLabel = playStats.playsCount === 1 ? 'partida jugada' : 'partidas jugadas';
+  const showSparkline =
+    Array.isArray(playStats.recentScores) && playStats.recentScores.length >= 2;
+  return (
+    <div className="flex flex-col gap-2 rounded-lg bg-background-surface/50 px-3 py-2 text-xs text-text-muted">
+      <div className="flex items-center gap-2">
+        <BarChart3 size={14} className="text-text-muted/70 flex-shrink-0" />
+        <span>
+          {playStats.playsCount} {playedLabel}
+          {playStats.averageScore != null && (
+            <> · {playStats.averageScore} pts promedio</>
+          )}
+        </span>
+      </div>
+      {/* PROP-5: tiempo desde la ultima partida en formato relativo. */}
+      {playStats.lastPlayedAt && (
+        <p className="text-[11px] text-text-muted/80">
+          Última partida: {formatRelativeTime(playStats.lastPlayedAt)}
+        </p>
+      )}
+      {/* PROP-5: sparkline solo si hay >=2 puntuaciones. */}
+      {showSparkline && (
+        <SessionSparkline data={playStats.recentScores} height={42} />
+      )}
+    </div>
+  );
+}
+
+SessionPlayStats.propTypes = {
+  playStats: PropTypes.shape({
+    playsCount: PropTypes.number,
+    averageScore: PropTypes.number,
+    lastPlayedAt: PropTypes.string,
+    recentScores: PropTypes.array
+  })
 };
 
 const SessionCard = memo(function SessionCard({
@@ -96,20 +196,59 @@ const SessionCard = memo(function SessionCard({
   onNavigate
 }) {
   const statusInfo = statusToBadge(session.status);
-  const title = session.name || session.deck?.name || 'Sesión sin mazo asignado';
+  // Normalizamos a Title Case español para que la lista sea visualmente
+  // coherente aunque el usuario/seed haya guardado nombres con casing
+  // inconsistente (QA 22/04/2026).
+  const rawTitle = session.name || session.deck?.name || 'Sesión sin mazo asignado';
+  const title = toTitleCaseEs(rawTitle);
   const mechanicLabel = session.mechanic?.displayName || session.mechanic?.name || 'Mecánica';
+  // Memoria usa parejas (no rondas independientes). Adaptamos el copy del KPI
+  // para no confundir al profesor cuando revisa sesiones guardadas.
+  const isMemoryMechanic = String(session.mechanic?.name || '').toLowerCase() === 'memory';
+  const roundsOrPairsLabel = isMemoryMechanic ? 'Parejas' : 'Rondas';
   const contextLabel = session.context?.name || 'Contexto';
   const sessionId = session.id || session._id;
   const canEdit = session.status === 'created';
   const canDelete = session.status === 'created';
   const borderClass = BORDER_CLASSES[session.status] || 'border-l-background-surface/50';
+  const primary = getPrimaryActionForSession(session);
+  // Tint del glow segun dificultad configurada. Para sesiones activas damos
+  // prioridad al tint brand (ya tienen ring-1 en STATUS_CARD_CLASSES).
+  const glowTint = (() => {
+    if (session.status === 'active') return 'brand';
+    const d = (session.difficulty || '').toLowerCase();
+    if (d === 'easy') return 'success';
+    if (d === 'hard') return 'error';
+    return 'cyan';
+  })();
+
+  // PROP-5: indicador lateral derecho que comunica la dificultad sin pelearse
+  // con el `border-l-4` que ya marca el estado de la sesión.
+  const difficultyKey = (session.difficulty || '').toLowerCase();
+  const difficultyIndicator =
+    DIFFICULTY_INDICATOR_CLASSES[difficultyKey] || 'after:bg-text-muted/30';
+  const difficultyLabel = DIFFICULTY_LABELS_ES[difficultyKey] || null;
 
   return (
-    <div>
-      <GlassCard className={`p-6 flex flex-col gap-5 hover:border-border-strong transition-[border-color] border-l-4 ${borderClass}`}>
+    <HoverLiftCard glowTint={glowTint} className="group h-full">
+      <GlassCard className={cn(
+        'relative overflow-hidden p-6 flex flex-col gap-5 h-full hover:border-border-strong transition-[border-color] border-l-4',
+        // PROP-5: pseudo-elemento derecho coloreado por dificultad (1px de ancho).
+        'after:absolute after:top-0 after:right-0 after:bottom-0 after:w-[3px] after:rounded-r',
+        borderClass,
+        difficultyIndicator,
+        STATUS_CARD_CLASSES[session.status]
+      )}
+      title={difficultyLabel ? `Dificultad: ${difficultyLabel}` : undefined}
+      >
+        {/* Scanline signature: refuerza el leitmotiv "tactile/scan" en hover.
+            Visibilidad controlada via group-hover para no necesitar state JS. */}
+        <ScanlineOverlay className="opacity-0 group-hover:opacity-100 transition-opacity duration-300" />
         <div className="flex items-start justify-between gap-3">
-          <div>
-            <h3 className="text-lg font-semibold text-text-primary">{title}</h3>
+          <div className="min-w-0">
+            {/* min-h reserva espacio para títulos de 1 o 2 líneas y mantiene la
+                altura del resto del card alineada entre items del grid (QA 22/04/2026). */}
+            <h3 className="text-lg font-semibold text-text-primary line-clamp-2 min-h-[3.5rem]">{title}</h3>
             <p className="text-sm text-text-muted">{mechanicLabel} · {contextLabel}</p>
           </div>
           <StatusBadge status={statusInfo.tone}>{statusInfo.label}</StatusBadge>
@@ -130,7 +269,7 @@ const SessionCard = memo(function SessionCard({
               <RotateCcw size={14} className="text-accent-cyan" />
             </div>
             <div>
-              <p className="text-text-muted">Rondas</p>
+              <p className="text-text-muted">{roundsOrPairsLabel}</p>
               <p className="text-text-primary font-semibold font-display">{session.config?.numberOfRounds}</p>
             </div>
           </div>
@@ -154,17 +293,7 @@ const SessionCard = memo(function SessionCard({
           </div>
         </div>
 
-        {session.playStats && session.playStats.playsCount > 0 && (
-          <div className="flex items-center gap-2 rounded-lg bg-background-surface/50 px-3 py-2 text-xs text-text-muted">
-            <BarChart3 size={14} className="text-text-muted/70 flex-shrink-0" />
-            <span>
-              {session.playStats.playsCount} {session.playStats.playsCount === 1 ? 'partida jugada' : 'partidas jugadas'}
-              {session.playStats.averageScore != null && (
-                <> {'\u00B7'} {session.playStats.averageScore} pts promedio</>
-              )}
-            </span>
-          </div>
-        )}
+        <SessionPlayStats playStats={session.playStats} />
 
         <div className="mt-auto pt-4 border-t border-border-subtle space-y-3">
           <div className="flex gap-3">
@@ -176,44 +305,60 @@ const SessionCard = memo(function SessionCard({
               <Eye size={16} />
               Ver detalle
             </ButtonPremium>
-            <ButtonPremium
-              variant="primary"
-              onClick={() => onClone(session)}
-              disabled={cloneLoading}
-              className="flex-1"
-            >
-              <RefreshCw size={16} />
-              <span className="sm:hidden">Jugar</span>
-              <span className="hidden sm:inline">Volver a jugar</span>
-            </ButtonPremium>
+            {primary.action === 'play' ? (
+              <ButtonPremium
+                variant="primary"
+                onClick={() => onNavigate(getPlayRouteForSession(session))}
+                className="flex-1"
+              >
+                <Play size={16} />
+                <span>{primary.label}</span>
+              </ButtonPremium>
+            ) : (
+              <ButtonPremium
+                variant="primary"
+                onClick={() => onClone(session)}
+                disabled={cloneLoading}
+                className="flex-1"
+              >
+                <RefreshCw size={16} />
+                <span className="sm:hidden">Clonar</span>
+                <span className="hidden sm:inline">{primary.label}</span>
+              </ButtonPremium>
+            )}
           </div>
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-1 bg-glass-bg rounded-lg p-1">
-              <Tooltip content="Ver mapping">
+              <Tooltip content="Ver tablero y mapping">
                 <ButtonPremium
                   variant="ghost"
                   size="sm"
                   onClick={() => onNavigate(ROUTES.BOARD_SETUP_WITH_ID(sessionId))}
+                  aria-label="Ver tablero y mapping de tarjetas"
                 >
-                  <Map size={14} />
+                  <LayoutGrid size={14} />
                 </ButtonPremium>
               </Tooltip>
-              <Tooltip content="Editar sesión">
+              {/* Tooltip dinamico: explica el motivo cuando los botones estan disabled
+                  para que el usuario sepa que solo las sesiones en borrador son editables. */}
+              <Tooltip content={canEdit ? 'Editar sesión' : 'Las sesiones jugadas no se pueden editar; clónala para crear una nueva en borrador'}>
                 <ButtonPremium
                   variant="ghost"
                   size="sm"
                   onClick={() => onNavigate(ROUTES.SESSION_EDIT(sessionId))}
                   disabled={!canEdit}
+                  aria-label={canEdit ? 'Editar sesión' : 'Editar sesión (deshabilitado: ya tiene partidas)'}
                 >
                   <Pencil size={14} />
                 </ButtonPremium>
               </Tooltip>
-              <Tooltip content="Eliminar sesión">
+              <Tooltip content={canDelete ? 'Eliminar sesión' : 'Las sesiones jugadas no se pueden eliminar; archivalas en su lugar'}>
                 <ButtonPremium
                   variant="ghost"
                   size="sm"
                   onClick={() => onDelete(session)}
                   disabled={!canDelete}
+                  aria-label={canDelete ? 'Eliminar sesión' : 'Eliminar sesión (deshabilitado: ya tiene partidas)'}
                 >
                   <Trash2 size={14} />
                 </ButtonPremium>
@@ -223,7 +368,7 @@ const SessionCard = memo(function SessionCard({
         </div>
 
       </GlassCard>
-    </div>
+    </HoverLiftCard>
   );
 });
 
@@ -266,7 +411,10 @@ const renderSessionsContent = ({
   navigate,
   cloneLoading,
   handleClone,
-  handleDelete
+  handleDelete,
+  hasActiveFilters,
+  clearFilters,
+  shouldReduceMotion,
 }) => {
   if (loading && sessions.length === 0) {
     return <SkeletonGrid count={6} columns={3} />;
@@ -275,34 +423,54 @@ const renderSessionsContent = ({
   if (sessions.length === 0) {
     return (
       <EmptyState
-        title="Aún no tienes sesiones"
-        description="Crea tu primera sesión de juego para que tus alumnos empiecen a aprender."
-        icon={<CalendarClock size={28} />}
-        action={(
+        illustration={<EmptySessionsIllustration size={180} />}
+        variant={hasActiveFilters ? 'filtered' : 'first-use'}
+        title={hasActiveFilters ? 'Ninguna sesión coincide con tus filtros' : 'Aún no tienes sesiones'}
+        description={
+          hasActiveFilters
+            ? 'Prueba a quitar algún filtro o amplía los criterios de búsqueda.'
+            : 'Diseña tu primera sesión, elige una mecánica y un mazo, y tus alumnos estarán listos para jugar en minutos.'
+        }
+        action={hasActiveFilters ? (
+          <ButtonPremium variant="secondary" onClick={clearFilters}>
+            Limpiar filtros
+          </ButtonPremium>
+        ) : (
           <ButtonPremium variant="primary" onClick={() => navigate(ROUTES.CREATE_SESSION)}>
             <PlusCircle size={18} />
-            Crear sesión
+            Crear mi primera sesión
           </ButtonPremium>
         )}
       />
     );
   }
 
+  const cardVariants = buildSessionCardVariants(shouldReduceMotion);
+
   return (
     <motion.div
       className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-6"
-      {...crossfadeVariants}
+      variants={listContainerVariants(0.04)}
+      initial="hidden"
+      animate="visible"
     >
-      {sessions.map((session) => (
-        <SessionCard
-          key={session.id || session._id}
-          session={session}
-          cloneLoading={cloneLoading}
-          onClone={handleClone}
-          onDelete={handleDelete}
-          onNavigate={navigate}
-        />
-      ))}
+      <AnimatePresence>
+        {sessions.map((session) => (
+          <motion.div
+            key={session.id || session._id}
+            variants={cardVariants}
+            exit="exit"
+          >
+            <SessionCard
+              session={session}
+              cloneLoading={cloneLoading}
+              onClone={handleClone}
+              onDelete={handleDelete}
+              onNavigate={navigate}
+            />
+          </motion.div>
+        ))}
+      </AnimatePresence>
     </motion.div>
   );
 };
@@ -334,6 +502,7 @@ function filtersReducer(state, action) {
 export default function SessionsPage() {
   const navigate = useNavigate();
   const { contexts } = useContexts({ autoLoad: true, onlyActive: true });
+  const { shouldReduceMotion } = useReducedMotion();
   useDocumentTitle('Sesiones');
 
   const [sessions, setSessions] = useState([]);
@@ -412,7 +581,7 @@ export default function SessionsPage() {
       }
       setError(null);
 
-      const pageToUse = reset ? 1 : (pageOverride || page);
+      const pageToUse = reset ? 1 : pageOverride;
       const params = buildParams(pageToUse);
       const response = await sessionsAPI.getSessions(params, signal ? { signal } : {});
       const payload = response?.data || {};
@@ -440,7 +609,7 @@ export default function SessionsPage() {
         setLoadingMore(false);
       }
     }
-  }, [buildParams, page]);
+  }, [buildParams]);
 
   useEffect(() => {
     mechanicsAbortRef.current?.abort();
@@ -557,13 +726,39 @@ export default function SessionsPage() {
 
   const hasActiveFilters = filters.statusFilter || filters.difficultyFilter || filters.mechanicFilter || filters.contextFilter;
 
+  const activeFilterChips = [
+    filters.statusFilter && {
+      key: 'status',
+      label: `Estado: ${STATUS_OPTIONS.find((o) => o.value === filters.statusFilter)?.label || filters.statusFilter}`,
+      onRemove: () => dispatchFilters({ type: 'SET_STATUS', payload: '' }),
+    },
+    filters.difficultyFilter && {
+      key: 'difficulty',
+      label: `Dificultad: ${DIFFICULTY_OPTIONS.find((o) => o.value === filters.difficultyFilter)?.label || filters.difficultyFilter}`,
+      onRemove: () => dispatchFilters({ type: 'SET_DIFFICULTY', payload: '' }),
+    },
+    filters.mechanicFilter && {
+      key: 'mechanic',
+      label: `Mecánica: ${mechanics.find((m) => m._id === filters.mechanicFilter)?.name || 'Desconocida'}`,
+      onRemove: () => dispatchFilters({ type: 'SET_MECHANIC', payload: '' }),
+    },
+    filters.contextFilter && {
+      key: 'context',
+      label: `Contexto: ${contexts.find((c) => c._id === filters.contextFilter)?.name || 'Desconocido'}`,
+      onRemove: () => dispatchFilters({ type: 'SET_CONTEXT', payload: '' }),
+    },
+  ].filter(Boolean);
+
   const sessionsContent = renderSessionsContent({
     loading,
     sessions,
     navigate,
     cloneLoading,
     handleClone,
-    handleDelete
+    handleDelete,
+    hasActiveFilters,
+    clearFilters,
+    shouldReduceMotion,
   });
 
   let loadMoreLabel = 'No hay más sesiones';
@@ -645,6 +840,10 @@ export default function SessionsPage() {
               </motion.div>
             )}
           </AnimatePresence>
+
+        {activeFilterChips.length > 0 && (
+          <ActiveFiltersBar filters={activeFilterChips} onClearAll={clearFilters} />
+        )}
 
         {error && (
           <ErrorState

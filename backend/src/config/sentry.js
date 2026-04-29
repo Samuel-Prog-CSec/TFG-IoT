@@ -62,11 +62,9 @@ function initSentry() {
       }
 
       // Remover información sensible de contextos adicionales
-      if (event.contexts) {
-        if (event.contexts.user) {
-          delete event.contexts.user.password;
-          delete event.contexts.user.email; // Opcional: remover email por GDPR
-        }
+      if (event.contexts?.user) {
+        delete event.contexts.user.password;
+        delete event.contexts.user.email; // Opcional: remover email por GDPR
       }
 
       // Filtrar PII de menores en breadcrumbs y extras (Art. 25 RGPD, AT-06 RAT).

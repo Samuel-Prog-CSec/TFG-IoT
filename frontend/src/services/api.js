@@ -159,12 +159,24 @@ api.interceptors.response.use(
 
     // 401 - Token expirado o inválido
     if (status === 401 && !originalRequest._retry) {
-      // Si el error es de token expirado, intentar refresh
-      if (data?.code === 'TOKEN_EXPIRED' || data?.message?.includes('expired')) {
+      // Códigos recuperables via refresh. El backend ahora anota `code`
+      // semántico; también aceptamos el mensaje en ES/EN por compatibilidad.
+      const errCode = data?.code;
+      const msg = data?.message || '';
+      const isRecoverable =
+        errCode === 'TOKEN_EXPIRED' ||
+        errCode === 'TOKEN_MISSING' ||
+        /expirado|expired/i.test(msg);
+      if (isRecoverable) {
         return handleTokenRefresh(originalRequest);
       }
 
-      // Si no hay refresh token o el refresh falló, emitir evento
+      // Si no hay refresh token o el refresh falló, emitir evento.
+      // Nota: el 401 en /auth/refresh sin tokens activos es comportamiento
+      // esperado (usuario sin sesion previa). El AuthContext usa un session
+      // marker en localStorage para evitar la llamada en ese caso, pero si
+      // por algun motivo (marker stale) se dispara, no es necesario reportar
+      // el error al captureException porque no es accionable.
       globalThis.dispatchEvent(new CustomEvent(AUTH_EVENTS.UNAUTHORIZED));
       clearTokens();
       throw error;
@@ -496,7 +508,7 @@ export const adminAPI = {
    * @param {string} reason - Razón del rechazo (opcional)
    * @returns {Promise} Respuesta de confirmación
    */
-  rejectTeacher: (userId, reason = '') => 
+  rejectTeacher: (userId, reason = '') =>
     api.post(`/admin/users/${userId}/reject`, { reason }),
 };
 

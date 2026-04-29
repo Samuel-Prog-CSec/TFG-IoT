@@ -1,10 +1,9 @@
 import { memo } from 'react';
-import { motion } from 'framer-motion';
 import { ArrowUpRight, ArrowDownRight, Minus } from 'lucide-react';
 import PropTypes from 'prop-types';
 import { cn } from '../../lib/utils';
-import { useReducedMotion } from '../../hooks/useReducedMotion';
 import GlassCard from '../ui/GlassCard';
+import AnimatedNumber from '../ui/AnimatedNumber';
 
 /**
  * Colores RAG segun estado
@@ -35,28 +34,6 @@ const RAG_STYLES = {
     text: 'text-text-muted',
   },
 };
-
-/**
- * Animacion del numero (cuenta de 0 a valor final)
- */
-function AnimatedValue({ value, suffix = '' }) {
-  const { shouldReduceMotion } = useReducedMotion();
-  const numericPart = typeof value === 'number' ? value : parseFloat(value);
-
-  if (shouldReduceMotion || isNaN(numericPart)) {
-    return <span>{value}{suffix}</span>;
-  }
-
-  return (
-    <motion.span
-      initial={{ opacity: 0 }}
-      animate={{ opacity: 1 }}
-      transition={{ duration: 0.3 }}
-    >
-      {typeof value === 'number' ? Math.round(value) : value}{suffix}
-    </motion.span>
-  );
-}
 
 /**
  * KPI Card con indicador RAG (semaforo), valor principal, comparativa con clase,
@@ -95,6 +72,11 @@ function StudentKPICard({
       className={cn(
         "p-4 border-l-4 transition-[box-shadow,border-color] duration-300",
         "hover:shadow-[0_4px_16px_rgba(0,0,0,0.2)]",
+        // h-full + flex-col para que todas las cards de la fila igualen su
+        // altura al más alto (las que tienen `comparison` llevan +1 línea).
+        // Sin esto, en el grid de KPIs hay cards más altas que otras y el
+        // resultado es visualmente irregular (QA 2026-04-29).
+        "h-full flex flex-col",
         rag.border
       )}
     >
@@ -104,10 +86,10 @@ function StudentKPICard({
             {label}
           </p>
           <div className="flex items-baseline gap-1.5">
-            <span className="text-2xl font-bold text-text-primary font-display tabular-nums">
-              <AnimatedValue value={value} suffix={suffix} />
-            </span>
-            {suffix && <span className="text-sm text-text-muted font-medium">{suffix}</span>}
+            <AnimatedNumber
+              value={`${value}${suffix}`}
+              className="text-2xl font-bold text-text-primary font-display tabular-nums"
+            />
           </div>
         </div>
 
@@ -122,10 +104,12 @@ function StudentKPICard({
         </div>
       </div>
 
-      {/* Comparison line */}
+      {/* Comparison line — anclada al fondo (`mt-auto`) para que las cards sin
+          comparison no queden con el valor "flotando" cuando la altura se iguala
+          al más alto del grid. */}
       {comparison && (
         <div className={cn(
-          "mt-2 flex items-center gap-1.5 px-2 py-1 rounded-md text-xs font-medium",
+          "mt-auto pt-2 flex items-center gap-1.5 px-2 py-1 rounded-md text-xs font-medium",
           comparisonPositive === true && 'bg-success-base/8',
           comparisonPositive === false && 'bg-error-base/8'
         )}>

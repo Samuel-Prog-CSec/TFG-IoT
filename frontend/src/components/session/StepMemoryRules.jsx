@@ -21,9 +21,9 @@ import { DIFFICULTY_VARIANT_STYLES } from './sessionHelpers';
 import { configShape } from './sessionPropTypes';
 
 const DIFFICULTIES = [
-  { id: 'easy', label: 'Facil', description: 'Mas tiempo, sin penalizacion' },
-  { id: 'medium', label: 'Normal', description: 'Configuracion equilibrada' },
-  { id: 'hard', label: 'Dificil', description: 'Menos tiempo, mas penalizacion' }
+  { id: 'easy', label: 'Fácil', description: 'Más tiempo, sin penalización' },
+  { id: 'medium', label: 'Normal', description: 'Configuración equilibrada' },
+  { id: 'hard', label: 'Difícil', description: 'Menos tiempo, más penalización' }
 ];
 
 /**
@@ -160,7 +160,7 @@ export default function StepMemoryRules({
           <div>
             <label htmlFor="memory-penalty-error" className="flex items-center gap-2 text-sm text-text-secondary mb-2">
               <AlertTriangle size={14} className="text-error-base" />
-              Penalizacion por pareja incorrecta
+              Penalización por pareja incorrecta
             </label>
             <div className="flex items-center gap-4">
               <input
@@ -171,7 +171,21 @@ export default function StepMemoryRules({
                 step={1}
                 value={config.penaltyPerError}
                 onChange={(e) => onConfigChange('penaltyPerError', Number.parseInt(e.target.value, 10))}
-                className="flex-1 accent-error-base"
+                className="flex-1 penalty-range"
+                // El accent-color nativo pinta desde min hacia value. Con rango
+                // [-15..0] eso deja la barra mas llena cuanto menor es la
+                // penalizacion (valor cercano a 0), al reves de la intuicion
+                // del profe ("mas fill = mas penalizacion"). Ocultamos el
+                // accent-color con transparent y pintamos un gradient
+                // explicito proporcional a |value| / 15 desde la izquierda.
+                style={{
+                  accentColor: 'transparent',
+                  background: `linear-gradient(to right, var(--color-error-base) 0%, var(--color-error-base) ${
+                    (Math.abs(config.penaltyPerError) / 15) * 100
+                  }%, var(--color-background-elevated) ${
+                    (Math.abs(config.penaltyPerError) / 15) * 100
+                  }%, var(--color-background-elevated) 100%)`
+                }}
               />
               <span className="w-16 text-center text-text-primary font-medium bg-background-elevated rounded-lg py-1">
                 {config.penaltyPerError}
@@ -190,7 +204,7 @@ export default function StepMemoryRules({
               Vincular Sensor RFID
             </h2>
             <p className="text-sm text-text-muted">
-              Solo se aceptaran lecturas del sensor activo cuando la sesion lo requiera.
+              Solo se aceptarán lecturas del sensor activo cuando la sesión lo requiera.
             </p>
           </div>
 
@@ -202,8 +216,11 @@ export default function StepMemoryRules({
                 </span>
                 <button
                   type="button"
+                  role="switch"
+                  aria-checked={linkSensor}
+                  aria-label="Vincular sensor RFID"
                   onClick={() => onLinkSensorChange(!linkSensor)}
-                  className="flex items-center h-6 w-12 rounded-full bg-background-surface relative p-1"
+                  className="flex items-center h-6 w-12 rounded-full bg-background-surface relative p-1 focus:outline-none focus-visible:ring-2 focus-visible:ring-accent-indigo focus-visible:ring-offset-2 focus-visible:ring-offset-background-base"
                 >
                   <motion.div
                     className={cn(

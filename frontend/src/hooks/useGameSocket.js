@@ -7,7 +7,7 @@
  */
 
 import { useState, useEffect, useCallback, useRef } from 'react';
-import { socketService, SOCKET_EVENTS } from '../services/socket';
+import { socketService, SOCKET_EVENTS, GAME_EVENTS } from '../services/socket';
 import webSerialService from '../services/webSerialService';
 import {
   sessionsAPI,
@@ -23,14 +23,53 @@ const SOCKET_ERROR_MESSAGES = {
   RFID_MODE_INVALID: 'El lector de tarjetas no está listo. Avisa al profesor.',
   RFID_SENSOR_UNAUTHORIZED: 'Este lector no está configurado para esta sesión. Avisa al profesor.',
   RFID_SENSOR_MISMATCH: 'Se detectó un cambio en el lector durante la partida.',
+  RFID_SENSOR_NOT_CONNECTED: 'El sensor RFID no está conectado. Conéctalo para continuar.',
+  RFID_SENSOR_STALE: 'El sensor no responde. Comprueba que esté encendido.',
+  RFID_DISABLED: 'El servicio RFID está desactivado por configuración del servidor.',
   PLAY_NOT_ACTIVE: 'La partida ha terminado o fue interrumpida.',
   ROUND_BLOCKED: 'Espera un momento antes de pasar la siguiente tarjeta.',
   RFID_SOCKET_NOT_ACTIVE: 'El juego se abrió en otra ventana. Cierra las demás para continuar.',
   RFID_MODE_TAKEN_OVER: 'Otra ventana tomó el control del lector. Usa solo esta ventana.',
   FORBIDDEN: 'No tienes permisos para ejecutar esta acción.',
   AUTH_REQUIRED: 'Tu sesión expiró. Inicia sesión de nuevo.',
-  ENGINE_ERROR: 'Algo salió mal. Inténtalo de nuevo o avisa al profesor.'
+  ENGINE_ERROR: 'Algo salió mal. Inténtalo de nuevo o avisa al profesor.',
+  // Codigos de socketRateLimiter — mensajes user-friendly para audiencia infantil
+  RATE_LIMITED: 'Espera un momento entre intentos.',
+  TEMP_BLOCKED: 'Has ido demasiado rápido. Espera unos segundos antes de continuar.',
+  PAYLOAD_TOO_LARGE: 'Hubo un problema con tu acción. Inténtalo de nuevo.',
+  DUPLICATE_RFID_EVENT: 'Espera un momento antes del siguiente escaneo.'
 };
+
+const SCAN_IGNORED_MESSAGES = {
+  // play_paused: NO toast — el banner de pausa ya es visible y el toast
+  // duplicaría el mensaje. Solo se anuncia para lectores de pantalla.
+  play_paused: null,
+  not_awaiting_response: 'Escaneo fuera de turno. Espera a la siguiente ronda.',
+  card_not_in_play: 'Tarjeta fuera de esta partida.',
+  uid_unknown: 'Tarjeta no registrada en el sistema.'
+};
+
+const SCAN_IGNORED_TOAST_LEVEL = {
+  // not_awaiting es informativo (timing); card_not_in_play y uid_unknown
+  // son advertencias accionables (la tarjeta no debería estar aquí).
+  not_awaiting_response: 'info',
+  card_not_in_play: 'warning',
+  uid_unknown: 'warning'
+};
+
+const SCAN_RESPONSE_TIMEOUT_MS = 3000;
+
+// PROP-90 / ADR-090: cooldown de dedupe local diferenciado por fuente del scan.
+// El sensor hardware necesita 1200-1300ms para protegerse del chattering del
+// RC522, pero los taps táctiles deben permitir secuencias rápidas. Backend
+// espeja la misma política en `socketRateLimits.rfidDedupeConfig`.
+const DEDUPE_MS_BY_SOURCE = {
+  web_serial_hardware: 1300,
+  web_serial: 1300,
+  touch_fallback: 250,
+  touch_memory_flip: 250
+};
+const DEFAULT_DEDUPE_MS = 1300;
 
 const REALTIME_STATUS_COPY = {
   connected: { label: 'Juego listo', announcement: 'El juego está conectado.' },
@@ -43,9 +82,18 @@ function resolveSocketError(payload) {
   const code = payload?.code;
   const fallbackMessage = payload?.message || 'No se pudo procesar la acción en tiempo real.';
 
+  // PROP-92: el backend incluye `retryAfterMs` en RATE_LIMITED y TEMP_BLOCKED
+  // (ver backend/src/middlewares/socketRateLimiter.js). Lo propagamos al
+  // estado para que el componente <RateLimitBanner> pinte el countdown.
+  // null si no es aplicable al código en cuestión.
+  const retryAfterMs = Number.isFinite(payload?.retryAfterMs) && payload.retryAfterMs > 0
+    ? payload.retryAfterMs
+    : null;
+
   return {
     code: code || 'UNKNOWN',
-    message: SOCKET_ERROR_MESSAGES[code] || fallbackMessage
+    message: SOCKET_ERROR_MESSAGES[code] || fallbackMessage,
+    retryAfterMs
   };
 }
 
@@ -104,6 +152,7 @@ export function useGameSocket({
   const previousRealtimeStatusRef = useRef('connecting');
   const playIdRef = useRef(null);
   const gameStateRef = useRef('waiting');
+  const pendingScanTimeoutRef = useRef(null);
 
   const RETRY_COOLDOWN_MS = 5000;
 
@@ -187,6 +236,15 @@ export function useGameSocket({
       setRealtimeError(normalized);
       onSrAnnouncement(normalized.message);
 
+      // PROP-92: cuando el error tiene retryAfterMs (RATE_LIMITED, TEMP_BLOCKED,
+      // DUPLICATE_RFID_EVENT con backend que devuelve el campo) lo presentamos
+      // mediante <RateLimitBanner> con barra de progreso, no con toast — el
+      // banner es persistente y comunica el tiempo restante mejor.
+      const banneredCodes = new Set(['RATE_LIMITED', 'TEMP_BLOCKED', 'DUPLICATE_RFID_EVENT']);
+      if (banneredCodes.has(normalized.code) && normalized.retryAfterMs) {
+        return;
+      }
+
       // Deduplicate socket error toasts — max 1 every 5 seconds
       const now = Date.now();
       if (now - lastSocketErrorToastRef.current > 5000) {
@@ -222,14 +280,68 @@ export function useGameSocket({
       }
 
       if (playIdRef.current) {
-        socketService.sendCommand(SOCKET_EVENTS.JOIN_PLAY, { playId: playIdRef.current });
+        socketService.sendGameCommand(GAME_EVENTS.JOIN_PLAY, { playId: playIdRef.current });
       }
     };
+
+    // ── Feedback para escaneos RFID ignorados ──────────────────────────
+    const cancelPendingScanTimeout = () => {
+      if (pendingScanTimeoutRef.current) {
+        clearTimeout(pendingScanTimeoutRef.current);
+        pendingScanTimeoutRef.current = null;
+      }
+    };
+
+    // Wrappers: cancelar timeout de escaneo pendiente al recibir cualquier respuesta del servidor
+    // Limpiamos el realtimeError cuando llega un evento válido del servidor
+    // (NEW_ROUND o VALIDATION_RESULT): el hint "Espera un momento entre
+    // intentos" persistía visualmente aunque el turno se hubiera completado
+    // correctamente (detectado en QA 2026-04-23).
+    const wrappedOnNewRound = data => { cancelPendingScanTimeout(); setRealtimeError(null); onNewRound(data); };
+    const wrappedOnValidationResult = data => { cancelPendingScanTimeout(); setRealtimeError(null); onValidationResult(data); };
+    const wrappedOnMemoryTurnState = data => { cancelPendingScanTimeout(); onMemoryTurnState(data); };
+    const wrappedOnGameOver = data => { cancelPendingScanTimeout(); onGameOver(data); };
+
+    const onScanIgnored = payload => {
+      cancelPendingScanTimeout();
+      const reason = payload?.reason;
+      const message = SCAN_IGNORED_MESSAGES[reason];
+      // Anuncio screen-reader siempre (incluso si no mostramos toast),
+      // para no perder accesibilidad cuando el banner de pausa ya cubre
+      // el caso visualmente.
+      const srMessage = message || (reason === 'play_paused'
+        ? 'La partida está pausada.'
+        : 'Escaneo ignorado.');
+      onSrAnnouncement?.(srMessage);
+
+      if (message === null || message === undefined) {
+        return;
+      }
+
+      const level = SCAN_IGNORED_TOAST_LEVEL[reason] || 'info';
+      const toastFn = toast[level] || toast.info;
+      toastFn(message, { id: 'scan-ignored', duration: 3000 });
+    };
+
+    // Timeout client-side: si el frontend envía un scan y no recibe respuesta en 3s
+    const handleLocalScan = () => {
+      cancelPendingScanTimeout();
+      pendingScanTimeoutRef.current = setTimeout(() => {
+        toast.warning('Tarjeta no reconocida. Verifica que pertenece a esta sesión.', {
+          id: 'scan-timeout',
+          duration: 4000
+        });
+        onSrAnnouncement?.('Tarjeta no reconocida.');
+        pendingScanTimeoutRef.current = null;
+      }, SCAN_RESPONSE_TIMEOUT_MS);
+    };
+
+    webSerialService.on('scan', handleLocalScan);
 
     const initRealtimePlay = async () => {
       // Prevenir re-inicialización cuando useEffect se re-ejecuta por cambios de dependencias
       if (initCalledRef.current) {
-        return;
+        return undefined;
       }
       initCalledRef.current = true;
 
@@ -246,18 +358,19 @@ export function useGameSocket({
         if (!socketService.isSocketConnected()) {
           await socketService.connect();
         }
-        if (controller.signal.aborted) return;
+        if (controller.signal.aborted) return undefined;
 
-        // 2. Registrar listeners (this.socket ya existe)
-        socketService.on(SOCKET_EVENTS.NEW_ROUND, onNewRound);
-        socketService.on(SOCKET_EVENTS.MEMORY_TURN_STATE, onMemoryTurnState);
-        socketService.on(SOCKET_EVENTS.VALIDATION_RESULT, onValidationResult);
-        socketService.on(SOCKET_EVENTS.GAME_OVER, onGameOver);
-        socketService.on(SOCKET_EVENTS.PLAY_PAUSED, onPlayPaused);
-        socketService.on(SOCKET_EVENTS.PLAY_RESUMED, onPlayResumed);
-        socketService.on(SOCKET_EVENTS.PLAY_STATE, onPlayState);
-        socketService.on(SOCKET_EVENTS.PLAY_INTERRUPTED, onPlayInterrupted);
-        socketService.on(SOCKET_EVENTS.ERROR, onSocketError);
+        // 2. Registrar listeners — gameplay en namespace /game, sistema en /
+        socketService.onGame(GAME_EVENTS.NEW_ROUND, wrappedOnNewRound);
+        socketService.onGame(GAME_EVENTS.MEMORY_TURN_STATE, wrappedOnMemoryTurnState);
+        socketService.onGame(GAME_EVENTS.VALIDATION_RESULT, wrappedOnValidationResult);
+        socketService.onGame(GAME_EVENTS.GAME_OVER, wrappedOnGameOver);
+        socketService.onGame(GAME_EVENTS.PLAY_PAUSED, onPlayPaused);
+        socketService.onGame(GAME_EVENTS.PLAY_RESUMED, onPlayResumed);
+        socketService.onGame(GAME_EVENTS.PLAY_STATE, onPlayState);
+        socketService.onGame(GAME_EVENTS.PLAY_INTERRUPTED, onPlayInterrupted);
+        socketService.onGame(GAME_EVENTS.SCAN_IGNORED, onScanIgnored);
+        socketService.onGame(GAME_EVENTS.ERROR, onSocketError);
         socketService.on(SOCKET_EVENTS.DISCONNECT, onSocketDisconnect);
         socketService.on(SOCKET_EVENTS.CONNECT, onSocketConnect);
 
@@ -270,7 +383,7 @@ export function useGameSocket({
         });
 
         let sessionData = extractData(response);
-        if (controller.signal.aborted) return;
+        if (controller.signal.aborted) return undefined;
 
         if (sessionData?.status === 'created') {
           const startSessionRes = await sessionsAPI.startSession(sessionId);
@@ -285,12 +398,12 @@ export function useGameSocket({
             };
           }
         }
-        if (controller.signal.aborted) return;
+        if (controller.signal.aborted) return undefined;
 
         setSession(sessionData);
 
         const resolvedPlay = await bootstrapPlay(controller.signal);
-        if (controller.signal.aborted) return;
+        if (controller.signal.aborted) return undefined;
         if (!resolvedPlay?.playId) {
           throw new Error('No se pudo inicializar una partida de juego.');
         }
@@ -302,18 +415,19 @@ export function useGameSocket({
         if (resolvedPlay.playerId) {
           playsAPI.getPlayerStats(resolvedPlay.playerId, { sessionId })
             .then(statsRes => {
-              if (controller.signal.aborted) return;
+              if (controller.signal.aborted) return undefined;
               const stats = extractData(statsRes);
               if (Number.isFinite(stats?.stats?.bestScore)) {
                 setBestScore(stats.stats.bestScore);
               }
+              return undefined;
             })
             .catch(() => { /* No bloquear gameplay si las stats fallan */ });
         }
 
-        if (controller.signal.aborted) return;
-        socketService.sendCommand(SOCKET_EVENTS.JOIN_PLAY, { playId: resolvedPlay.playId });
-        socketService.sendCommand(SOCKET_EVENTS.START_PLAY, { playId: resolvedPlay.playId });
+        if (controller.signal.aborted) return undefined;
+        socketService.sendGameCommand(GAME_EVENTS.JOIN_PLAY, { playId: resolvedPlay.playId });
+        socketService.sendGameCommand(GAME_EVENTS.START_PLAY, { playId: resolvedPlay.playId });
         // Sincronizar estado en caso de que rondas avanzaran durante la inicialización
         socketService.requestPlayStateSync(resolvedPlay.playId);
 
@@ -321,10 +435,11 @@ export function useGameSocket({
         return sessionData;
       } catch (error) {
         if (isAbortError(error)) {
-          return;
+          return undefined;
         }
 
         setSessionError(extractErrorMessage(error));
+        return undefined;
       } finally {
         if (!controller.signal.aborted) {
           setLoadingSession(false);
@@ -339,17 +454,23 @@ export function useGameSocket({
       initCalledRef.current = false;
       controller.abort();
       if (playIdRef.current) {
-        socketService.sendCommand(SOCKET_EVENTS.LEAVE_PLAY, { playId: playIdRef.current });
+        socketService.sendGameCommand(GAME_EVENTS.LEAVE_PLAY, { playId: playIdRef.current });
       }
-      socketService.off(SOCKET_EVENTS.NEW_ROUND, onNewRound);
-      socketService.off(SOCKET_EVENTS.MEMORY_TURN_STATE, onMemoryTurnState);
-      socketService.off(SOCKET_EVENTS.VALIDATION_RESULT, onValidationResult);
-      socketService.off(SOCKET_EVENTS.GAME_OVER, onGameOver);
-      socketService.off(SOCKET_EVENTS.PLAY_PAUSED, onPlayPaused);
-      socketService.off(SOCKET_EVENTS.PLAY_RESUMED, onPlayResumed);
-      socketService.off(SOCKET_EVENTS.PLAY_STATE, onPlayState);
-      socketService.off(SOCKET_EVENTS.PLAY_INTERRUPTED, onPlayInterrupted);
-      socketService.off(SOCKET_EVENTS.ERROR, onSocketError);
+      // Limpiar listeners de gameplay (namespace /game)
+      socketService.offGame(GAME_EVENTS.NEW_ROUND, wrappedOnNewRound);
+      socketService.offGame(GAME_EVENTS.MEMORY_TURN_STATE, wrappedOnMemoryTurnState);
+      socketService.offGame(GAME_EVENTS.VALIDATION_RESULT, wrappedOnValidationResult);
+      socketService.offGame(GAME_EVENTS.GAME_OVER, wrappedOnGameOver);
+      socketService.offGame(GAME_EVENTS.PLAY_PAUSED, onPlayPaused);
+      socketService.offGame(GAME_EVENTS.PLAY_RESUMED, onPlayResumed);
+      socketService.offGame(GAME_EVENTS.PLAY_STATE, onPlayState);
+      socketService.offGame(GAME_EVENTS.PLAY_INTERRUPTED, onPlayInterrupted);
+      socketService.offGame(GAME_EVENTS.SCAN_IGNORED, onScanIgnored);
+      socketService.offGame(GAME_EVENTS.ERROR, onSocketError);
+      // Limpiar listener de scan local y timeout pendiente
+      webSerialService.off('scan', handleLocalScan);
+      cancelPendingScanTimeout();
+      // Limpiar listeners de sistema (namespace /)
       socketService.off(SOCKET_EVENTS.DISCONNECT, onSocketDisconnect);
       socketService.off(SOCKET_EVENTS.CONNECT, onSocketConnect);
     };
@@ -408,7 +529,7 @@ export function useGameSocket({
 
   const emitPausePlay = useCallback(() => {
     if (!playIdRef.current) return false;
-    const sent = socketService.sendCommand(SOCKET_EVENTS.PAUSE_PLAY, { playId: playIdRef.current });
+    const sent = socketService.sendGameCommand(GAME_EVENTS.PAUSE_PLAY, { playId: playIdRef.current });
     if (sent === false) {
       setRealtimeStatus('disconnected');
       setRealtimeError({
@@ -422,7 +543,7 @@ export function useGameSocket({
 
   const emitResumePlay = useCallback(() => {
     if (!playIdRef.current) return false;
-    const sent = socketService.sendCommand(SOCKET_EVENTS.RESUME_PLAY, { playId: playIdRef.current });
+    const sent = socketService.sendGameCommand(GAME_EVENTS.RESUME_PLAY, { playId: playIdRef.current });
     if (sent === false) {
       setRealtimeStatus('disconnected');
       setRealtimeError({
@@ -434,28 +555,49 @@ export function useGameSocket({
     return sent;
   }, []);
 
+  // Guardia anti-rebote SÓLO para el path de FallbackTouchPanel y los
+  // taps en el tablero de memoria: protege contra dobles clicks rápidos
+  // del usuario sobre los botones, NO contra duplicados del sensor físico
+  // (esos los filtra `webSerialService` con su propio dedupe de 1200 ms).
+  // Diferenciación por fuente: ver constantes DEDUPE_MS_BY_SOURCE arriba.
+  const lastScanRef = useRef({ uid: null, ts: 0, source: null });
+
+  const isDuplicateScan = useCallback((uid, source) => {
+    const cooldown = DEDUPE_MS_BY_SOURCE[source] || DEFAULT_DEDUPE_MS;
+    const now = Date.now();
+    const last = lastScanRef.current;
+    // Solo dedupea cuando coincide UID + source: dos fuentes distintas no se
+    // ahogan entre sí (un tap táctil no impide la siguiente lectura del sensor).
+    if (last.uid === uid && last.source === source && now - last.ts < cooldown) {
+      return true;
+    }
+    lastScanRef.current = { uid, ts: now, source };
+    return false;
+  }, []);
+
   const emitFallbackScan = useCallback((card, sensorId) => {
     if (!playIdRef.current || !card?.uid) return false;
-    const sent = socketService.sendCommand(SOCKET_EVENTS.RFID_SCAN_FROM_CLIENT, {
+    if (isDuplicateScan(card.uid, 'touch_fallback')) return true; // silenciosamente swallow, no es un error
+    return socketService.sendGameCommand(GAME_EVENTS.RFID_SCAN_FROM_CLIENT, {
       uid: card.uid,
       type: 'UNKNOWN',
       sensorId: sensorId || 'touch_fallback_sensor',
       timestamp: Date.now(),
-      source: 'web_serial'
+      source: 'touch_fallback'
     });
-    return sent;
-  }, []);
+  }, [isDuplicateScan]);
 
   const emitMemoryCardTap = useCallback((slot, sensorId) => {
     if (!playIdRef.current || !slot?.uid) return false;
-    return socketService.sendCommand(SOCKET_EVENTS.RFID_SCAN_FROM_CLIENT, {
+    if (isDuplicateScan(slot.uid, 'touch_memory_flip')) return true;
+    return socketService.sendGameCommand(GAME_EVENTS.RFID_SCAN_FROM_CLIENT, {
       uid: slot.uid,
       type: 'UNKNOWN',
       sensorId: sensorId || 'touch_fallback_sensor',
       timestamp: Date.now(),
-      source: 'web_serial'
+      source: 'touch_memory_flip'
     });
-  }, []);
+  }, [isDuplicateScan]);
 
   const retryInit = useCallback(() => {
     const now = Date.now();
@@ -473,12 +615,12 @@ export function useGameSocket({
 
   const startPlay = useCallback(() => {
     if (!playIdRef.current) return false;
-    return socketService.sendCommand(SOCKET_EVENTS.START_PLAY, { playId: playIdRef.current });
+    return socketService.sendGameCommand(GAME_EVENTS.START_PLAY, { playId: playIdRef.current });
   }, []);
 
   const leaveAndCreateNewPlay = useCallback(async (playerId) => {
     if (playIdRef.current) {
-      socketService.sendCommand(SOCKET_EVENTS.LEAVE_PLAY, { playId: playIdRef.current });
+      socketService.sendGameCommand(GAME_EVENTS.LEAVE_PLAY, { playId: playIdRef.current });
     }
 
     const createPlayRes = await playsAPI.createPlay({ sessionId, playerId });
@@ -490,15 +632,15 @@ export function useGameSocket({
     }
 
     setPlayId(nextPlayId);
-    socketService.sendCommand(SOCKET_EVENTS.JOIN_PLAY, { playId: nextPlayId });
-    socketService.sendCommand(SOCKET_EVENTS.START_PLAY, { playId: nextPlayId });
+    socketService.sendGameCommand(GAME_EVENTS.JOIN_PLAY, { playId: nextPlayId });
+    socketService.sendGameCommand(GAME_EVENTS.START_PLAY, { playId: nextPlayId });
 
     return nextPlayId;
   }, [sessionId]);
 
   const emitBoardReady = useCallback(() => {
     if (!playIdRef.current) return false;
-    return socketService.sendCommand(SOCKET_EVENTS.BOARD_READY, { playId: playIdRef.current });
+    return socketService.sendGameCommand(GAME_EVENTS.BOARD_READY, { playId: playIdRef.current });
   }, []);
 
   return {

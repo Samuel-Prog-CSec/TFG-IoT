@@ -85,6 +85,7 @@ const getMetrics = (req, res) => {
         processed: snapshot.rfid,
         service: rfidService.getStatus()
       },
+      redis: snapshot.redis,
       memory: getMemoryUsage()
     })
   );

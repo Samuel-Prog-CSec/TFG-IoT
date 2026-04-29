@@ -24,6 +24,7 @@ import {
 import { useAuth } from '../context/AuthContext';
 import { useReducedMotion } from '../hooks/useReducedMotion';
 import { useDocumentTitle } from '../hooks/useDocumentTitle';
+import { useFormFocusFirstError } from '../hooks/useFormFocusFirstError';
 import ButtonPremium from '../components/ui/ButtonPremium';
 import InputPremium from '../components/ui/InputPremium';
 import GlassCard from '../components/ui/GlassCard';
@@ -37,7 +38,7 @@ const PASSWORD_REQUIREMENTS = [
   { id: 'length', label: 'Mínimo 8 caracteres', test: (p) => p.length >= 8 },
   { id: 'uppercase', label: 'Una letra mayúscula', test: (p) => /[A-Z]/.test(p) },
   { id: 'lowercase', label: 'Una letra minúscula', test: (p) => /[a-z]/.test(p) },
-  { id: 'number', label: 'Un número', test: (p) => /[0-9]/.test(p) },
+  { id: 'number', label: 'Un número', test: (p) => /\d/.test(p) },
 ];
 
 /**
@@ -143,6 +144,7 @@ export default function Register() {
   const [showPassword, setShowPassword] = useState(false);
   const [showConfirmPassword, setShowConfirmPassword] = useState(false);
   const [validationErrors, setValidationErrors] = useState({});
+  const formRef = useFormFocusFirstError(validationErrors);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [showRequirements, setShowRequirements] = useState(false);
 
@@ -312,7 +314,13 @@ export default function Register() {
             initial={{ scale: 0.8, opacity: 0 }}
             animate={{ scale: 1, opacity: 1 }}
             transition={{ delay: 0.1, duration: 0.4 }}
-            className="inline-flex items-center justify-center size-20 rounded-2xl bg-gradient-to-br from-accent-cyan via-accent-indigo to-brand-base mb-4 shadow-lg shadow-brand-glow"
+            className={cn(
+              'inline-flex items-center justify-center size-20 rounded-2xl mb-4',
+              'bg-gradient-to-br from-accent-cyan via-accent-indigo to-brand-base',
+              'shadow-lg shadow-brand-glow',
+              // Pulse-glow signature coherente con Login.
+              !shouldReduceMotion && 'animate-pulse-glow'
+            )}
           >
             <UserPlus className="size-10 text-text-primary" />
           </motion.div>
@@ -339,6 +347,7 @@ export default function Register() {
         {/* Card del formulario */}
         <GlassCard className="p-8" variant="solid">
           <motion.form
+            ref={formRef}
             onSubmit={handleSubmit}
             className="space-y-5"
             initial={shouldReduceMotion ? false : "hidden"}
@@ -408,13 +417,14 @@ export default function Register() {
                 <button
                   type="button"
                   onClick={() => setShowPassword(!showPassword)}
-                  className="absolute right-3 top-[38px] text-text-muted hover:text-text-primary transition-colors p-1"
-                  tabIndex={-1}
+                  className="absolute right-3 top-[38px] text-text-muted hover:text-text-primary transition-colors p-1 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-base focus-visible:ring-offset-2 focus-visible:ring-offset-background-base rounded"
+                  aria-label={showPassword ? 'Ocultar contraseña' : 'Mostrar contraseña'}
+                  aria-pressed={showPassword}
                 >
                   {showPassword ? (
-                    <EyeOff className="size-5" />
+                    <EyeOff className="size-5" aria-hidden="true" />
                   ) : (
-                    <Eye className="size-5" />
+                    <Eye className="size-5" aria-hidden="true" />
                   )}
                 </button>
               </div>
@@ -462,13 +472,14 @@ export default function Register() {
               <button
                 type="button"
                 onClick={() => setShowConfirmPassword(!showConfirmPassword)}
-                className="absolute right-3 top-[38px] text-text-muted hover:text-text-primary transition-colors p-1"
-                tabIndex={-1}
+                className="absolute right-3 top-[38px] text-text-muted hover:text-text-primary transition-colors p-1 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-base focus-visible:ring-offset-2 focus-visible:ring-offset-background-base rounded"
+                aria-label={showConfirmPassword ? 'Ocultar confirmación' : 'Mostrar confirmación'}
+                aria-pressed={showConfirmPassword}
               >
                 {showConfirmPassword ? (
-                  <EyeOff className="size-5" />
+                  <EyeOff className="size-5" aria-hidden="true" />
                 ) : (
-                  <Eye className="size-5" />
+                  <Eye className="size-5" aria-hidden="true" />
                 )}
               </button>
             </motion.div>

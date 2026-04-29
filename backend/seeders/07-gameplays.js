@@ -30,23 +30,23 @@ const logger = require('../src/utils/logger');
 const STUDENT_PROFILES = {
   high_performer: {
     label: 'Alto rendimiento estable',
-    baseSuccessProb: 0.92,
-    timeoutProb: 0.02,
-    avgSpeed: 2500,
-    // Tendencia: estable, ligera mejora
-    improvementPerGame: 0.005,
-    fatigueMultiplier: 1.15,
-    abandonProbability: 0.02
+    baseSuccessProb: 0.97,
+    timeoutProb: 0.01,
+    avgSpeed: 2200,
+    // Tendencia: estable, muy consistente — genera tier "Excelente" (90+)
+    improvementPerGame: 0.008,
+    fatigueMultiplier: 1.1,
+    abandonProbability: 0.01
   },
   improving: {
     label: 'Mejorando progresivamente',
-    baseSuccessProb: 0.45,
-    timeoutProb: 0.12,
-    avgSpeed: 6500,
-    // Tendencia: mejora clara
-    improvementPerGame: 0.04,
-    fatigueMultiplier: 1.3,
-    abandonProbability: 0.08
+    baseSuccessProb: 0.6,
+    timeoutProb: 0.08,
+    avgSpeed: 5500,
+    // Tendencia: mejora clara, termina en "Bueno" (70-89)
+    improvementPerGame: 0.045,
+    fatigueMultiplier: 1.25,
+    abandonProbability: 0.06
   },
   declining: {
     label: 'Rendimiento en descenso',
@@ -80,13 +80,13 @@ const STUDENT_PROFILES = {
   },
   average: {
     label: 'Rendimiento medio',
-    baseSuccessProb: 0.72,
-    timeoutProb: 0.06,
-    avgSpeed: 4000,
-    // Tendencia: mejora moderada
-    improvementPerGame: 0.02,
-    fatigueMultiplier: 1.25,
-    abandonProbability: 0.06
+    baseSuccessProb: 0.8,
+    timeoutProb: 0.05,
+    avgSpeed: 3500,
+    // Tendencia: mejora moderada, termina en "Bueno"
+    improvementPerGame: 0.025,
+    fatigueMultiplier: 1.2,
+    abandonProbability: 0.04
   }
 };
 
@@ -173,30 +173,50 @@ function buildRoundEvents({
   expectedMapping,
   errorMapping,
   pointsAwarded,
-  timeElapsed
+  timeElapsed,
+  isMemory
 }) {
-  return [
+  // Replica fielmente lo que emite GameEngine:
+  // 1. round_start al iniciar ronda (GameEngine.js:982)
+  // 2. En memory, card_scanned antes del outcome del par resuelto (GameEngine.js:769-777)
+  // 3. correct | error | timeout con advanceRound (GameEngine.js:793, 1175-1178, 1271)
+  // NO emite round_end: el enum lo contempla pero el engine nunca lo invoca.
+  const events = [
     {
       timestamp: new Date(roundStartTime),
       eventType: 'round_start',
       roundNumber: round
-    },
-    {
-      timestamp: new Date(roundStartTime + timeElapsed),
-      eventType,
-      cardUid: resolveCardUid(eventType, expectedMapping, errorMapping),
-      expectedValue: expectedMapping.assignedValue,
-      actualValue: resolveActualValue(eventType, expectedMapping, errorMapping),
-      pointsAwarded,
-      timeElapsed,
-      roundNumber: round
-    },
-    {
-      timestamp: new Date(roundStartTime + timeElapsed + 500),
-      eventType: 'round_end',
-      roundNumber: round
     }
   ];
+
+  if (isMemory && eventType !== 'timeout') {
+    // En memory, el first_pick se registra como card_scanned sin puntos
+    // antes de resolverse el par. timeout no genera first_pick.
+    const firstPickElapsed = Math.max(0, Math.floor(timeElapsed / 2));
+    events.push({
+      timestamp: new Date(roundStartTime + firstPickElapsed),
+      eventType: 'card_scanned',
+      cardUid: expectedMapping.uid,
+      expectedValue: expectedMapping.assignedValue,
+      actualValue: expectedMapping.assignedValue,
+      pointsAwarded: 0,
+      timeElapsed: firstPickElapsed,
+      roundNumber: round
+    });
+  }
+
+  events.push({
+    timestamp: new Date(roundStartTime + timeElapsed),
+    eventType,
+    cardUid: resolveCardUid(eventType, expectedMapping, errorMapping),
+    expectedValue: expectedMapping.assignedValue,
+    actualValue: resolveActualValue(eventType, expectedMapping, errorMapping),
+    pointsAwarded,
+    timeElapsed,
+    roundNumber: round
+  });
+
+  return events;
 }
 
 /**
@@ -208,6 +228,7 @@ function buildRoundEvents({
  * @param {Object} profile - Perfil STUDENT_PROFILES[key]
  * @param {number} gameNumber - Número de partida (para progresión)
  * @param {boolean} willAbandon - Si la partida será abandonada
+ * @param {boolean} isMemory - Si la sesión es mecánica memory (para emitir card_scanned)
  * @returns {Object} { events, score, metrics, roundsPlayed }
  */
 function generatePlayEvents(
@@ -216,7 +237,8 @@ function generatePlayEvents(
   cardMappings,
   profile,
   gameNumber,
-  willAbandon
+  willAbandon,
+  isMemory
 ) {
   const events = [];
   let score = 0;
@@ -265,9 +287,7 @@ function generatePlayEvents(
     timeoutAttempts += roundResult.counters.timeoutAttempts;
 
     score += pointsAwarded;
-    if (eventType !== 'timeout') {
-      responseTimes.push(timeElapsed);
-    }
+    responseTimes.push(timeElapsed);
 
     events.push(
       ...buildRoundEvents({
@@ -277,7 +297,8 @@ function generatePlayEvents(
         expectedMapping,
         errorMapping,
         pointsAwarded,
-        timeElapsed
+        timeElapsed,
+        isMemory
       })
     );
   }
@@ -289,14 +310,14 @@ function generatePlayEvents(
 
   return {
     events,
-    score: Math.max(0, score),
+    score,
     metrics: {
       totalAttempts: roundsToPlay,
       correctAttempts,
       errorAttempts,
       timeoutAttempts,
       averageResponseTime,
-      completionTime: roundsToPlay * 15000
+      completionTime: 0 // Se recalcula con timestamps reales en generateGamePlaysData
     },
     roundsPlayed: roundsToPlay
   };
@@ -324,7 +345,7 @@ function generateGamePlaysData(sessions, students) {
   }, {});
 
   students.forEach((student, index) => {
-    const teacherId = (student.assignedTeacher || student.createdBy || '').toString();
+    const teacherId = (student.createdBy || '').toString();
     const teacherSessions = sessionsByTeacher[teacherId] || [];
     if (teacherSessions.length === 0) {
       return;
@@ -347,6 +368,9 @@ function generateGamePlaysData(sessions, students) {
       const session = sortedSessions[i % sortedSessions.length];
       const numberOfRounds = session.config.numberOfRounds;
 
+      // Inferir si la sesión usa mecánica memory desde boardLayout (solo memory lo tiene)
+      const isMemory = Array.isArray(session.boardLayout) && session.boardLayout.length > 0;
+
       // Decidir si abandona (según perfil)
       const willAbandon = Math.random() < profile.abandonProbability;
 
@@ -356,7 +380,8 @@ function generateGamePlaysData(sessions, students) {
         session.cardMappings,
         profile,
         i,
-        willAbandon
+        willAbandon,
+        isMemory
       );
 
       // Calcular timestamp: distribuir partidas del alumno a lo largo del tiempo
@@ -389,20 +414,31 @@ function generateGamePlaysData(sessions, students) {
       const startedAt = playData.events[0].timestamp;
       const lastEventTime = playData.events[playData.events.length - 1].timestamp.getTime();
 
+      const completedAt = new Date(lastEventTime + 1000);
+
+      // P19: calcular maxScore y clamar score para integridad (nunca > maximo teorico).
+      const pointsPerCorrect = Number(session.config?.pointsPerCorrect) || 10;
+      const maxScore = Math.max(1, numberOfRounds * pointsPerCorrect);
+      const clampedScore = Math.max(0, Math.min(playData.score, maxScore));
+
       const gamePlay = {
         sessionId: session._id,
         playerId: student._id,
-        score: playData.score,
-        currentRound: willAbandon ? playData.roundsPlayed : numberOfRounds + 1,
+        score: clampedScore,
+        maxScore,
+        currentRound: willAbandon ? playData.roundsPlayed + 1 : numberOfRounds + 1,
         events: playData.events,
-        metrics: playData.metrics,
+        metrics: {
+          ...playData.metrics,
+          // Recalcular completionTime desde timestamps reales (como hace GamePlay.complete())
+          completionTime: completedAt - startedAt
+        },
         status: willAbandon ? 'abandoned' : 'completed',
-        startedAt
+        startedAt,
+        // completedAt se establece tanto para completadas como abandonadas
+        // (el modelo GameEngine también lo hace en endPlay para ambos estados)
+        completedAt
       };
-
-      // completedAt se establece tanto para completadas como abandonadas
-      // (el modelo GameEngine también lo hace en endPlay para ambos estados)
-      gamePlay.completedAt = new Date(lastEventTime + 1000);
 
       gamePlays.push(gamePlay);
     }
@@ -518,12 +554,20 @@ async function recalculateSessionStatusesFromSeededPlays() {
 
 /**
  * Ejecuta el seeder de partidas.
+ * Idempotente: si ya existen partidas, las devuelve sin regenerarlas ni
+ * recalcular métricas/estados (evita duplicados en ejecuciones repetidas).
  * @param {Array} sessions - Sesiones creadas
  * @param {Array} students - Alumnos creados
- * @returns {Promise<Array>} Array de partidas creadas
+ * @returns {Promise<Array>} Array de partidas creadas o preexistentes
  */
 async function seedGamePlays(sessions, students) {
   try {
+    const existing = await GamePlay.find({});
+    if (existing.length > 0) {
+      logger.info(`Partidas ya existen (${existing.length}), omitiendo creacion`);
+      return existing;
+    }
+
     const gamePlaysData = generateGamePlaysData(sessions, students);
     const gamePlays = await GamePlay.create(gamePlaysData);
 

@@ -1,5 +1,5 @@
 import { memo, useMemo } from 'react';
-import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, ReferenceLine } from 'recharts';
+import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
 import { TrendingUp, TrendingDown, Minus } from 'lucide-react';
 import PropTypes from 'prop-types';
 import { cn, formatDate } from '../../lib/utils';
@@ -70,16 +70,29 @@ function CustomTooltip({ active, payload, label }) {
  * @param {Array} [props.classComparison] - Datos de promedio de clase para overlay
  * @param {string} [props.title] - Titulo personalizado
  */
+// Clamp defensivo a [0, 100] para que la línea no se salga del área del chart
+// cuando el backend envía scores crudos (p. ej. maxScore sin normalizar en
+// sesiones legadas). YAxis domain=[0,100] solo oculta overflow si ademas
+// clampeamos los valores — si no, la curva monotone hace overshoot visible.
+const clampScore = value => {
+  if (value == null) return null;
+  const n = Number(value);
+  if (Number.isNaN(n)) return null;
+  return Math.max(0, Math.min(100, n));
+};
+
 function TrajectoryChart({ trajectoryData, classComparison, title = 'Trayectoria de Aprendizaje' }) {
   const chartData = useMemo(() => {
     if (!trajectoryData?.dataPoints) return [];
 
     return trajectoryData.dataPoints.map((point, index) => {
       const classPoint = classComparison?.[index];
+      const rawScore = point.avgScore ?? point.averageScore ?? point.score ?? 0;
+      const rawClass = classPoint?.avgScore ?? classPoint?.averageScore ?? classPoint?.score ?? null;
       return {
         date: (point.date || point.period) ? formatDate(new Date(point.date || point.period), 'short') : `Punto ${index + 1}`,
-        score: point.avgScore ?? point.averageScore ?? point.score ?? 0,
-        classAverage: classPoint?.avgScore ?? classPoint?.averageScore ?? classPoint?.score ?? null,
+        score: clampScore(rawScore) ?? 0,
+        classAverage: clampScore(rawClass),
       };
     });
   }, [trajectoryData, classComparison]);
@@ -90,7 +103,7 @@ function TrajectoryChart({ trajectoryData, classComparison, title = 'Trayectoria
 
   if (chartData.length === 0) {
     return (
-      <GlassCard variant="default" padding="none" className="p-5">
+      <GlassCard variant="default" padding="none" className="p-5 h-full">
         <h3 className="text-base font-bold text-text-primary font-display mb-4">{title}</h3>
         <div className="h-[250px] flex items-center justify-center px-6">
           <p className="text-text-muted text-sm text-center">
@@ -102,7 +115,7 @@ function TrajectoryChart({ trajectoryData, classComparison, title = 'Trayectoria
   }
 
   return (
-    <GlassCard variant="default" padding="none" className="p-5">
+    <GlassCard variant="default" padding="none" className="p-5 h-full">
       <div className="flex items-center justify-between mb-4">
         <h3 className="text-base font-bold text-text-primary font-display">{title}</h3>
         <div className={cn("flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-semibold", trendStyle.bg, trendStyle.color)} aria-label={`Tendencia: ${trendStyle.label}`}>
@@ -125,8 +138,8 @@ function TrajectoryChart({ trajectoryData, classComparison, title = 'Trayectoria
         )}
       </div>
 
-      <div className="h-[250px] w-full -ml-2">
-        <ResponsiveContainer width="100%" height="100%" minWidth={0} minHeight={0}>
+      <div className="h-[250px] w-full -ml-2 min-h-[250px]">
+        <ResponsiveContainer width="100%" height="100%" minWidth={0} minHeight={0} debounce={50}>
           <LineChart data={chartData} margin={{ top: 5, right: 10, left: 0, bottom: 5 }}>
             <CartesianGrid
               stroke="var(--color-border-subtle)"
@@ -141,6 +154,7 @@ function TrajectoryChart({ trajectoryData, classComparison, title = 'Trayectoria
             />
             <YAxis
               domain={[0, 100]}
+              ticks={[0, 25, 50, 75, 100]}
               tick={{ fill: 'var(--color-text-muted)', fontSize: 11 }}
               tickLine={false}
               axisLine={false}

@@ -43,6 +43,7 @@ import StepMechanic from '../components/session/StepMechanic';
 import StepMemoryRules from '../components/session/StepMemoryRules';
 import StepRules from '../components/session/StepRules';
 import StepReview from '../components/session/StepReview';
+import { getStepDescription } from '../components/session/sessionHelpers';
 
 // Configuracion del wizard (iconos resueltos en tiempo de renderizado)
 const WIZARD_STEPS = [
@@ -51,28 +52,28 @@ const WIZARD_STEPS = [
     title: 'Seleccionar Mazo',
     subtitle: 'Elige las cartas',
     icon: CreditCard,
-    description: 'El mazo define las tarjetas y assets que usaran los estudiantes'
+    description: 'El mazo define las tarjetas y assets que usarán los estudiantes'
   },
   {
     id: 'mechanic',
-    title: 'Mecanica',
+    title: 'Mecánica',
     subtitle: 'Tipo de juego',
     icon: Layers,
-    description: 'Elige como interactuaran los estudiantes con las tarjetas'
+    description: 'Elige cómo interactuarán los estudiantes con las tarjetas'
   },
   {
     id: 'rules',
     title: 'Reglas',
-    subtitle: 'Configura parametros',
+    subtitle: 'Configura parámetros',
     icon: Settings,
-    description: 'Define tiempo, puntos y numero de rondas'
+    description: 'Define tiempo, puntos y número de rondas'
   },
   {
     id: 'review',
     title: 'Crear',
     subtitle: 'Revisa y lanza',
     icon: Save,
-    description: 'Revisa la configuracion antes de crear la sesion'
+    description: 'Revisa la configuración antes de crear la sesión'
   }
 ];
 
@@ -83,10 +84,11 @@ export default function CreateSession() {
   const navigate = useNavigate();
   const { shouldReduceMotion } = useReducedMotion();
   const { fireConfetti } = useConfetti();
-  useDocumentTitle('Nueva Sesion');
+  useDocumentTitle('Nueva Sesión');
 
   // Estado del wizard
   const [currentStep, setCurrentStep] = useState(0);
+  const [stepDirection, setStepDirection] = useState(1);
   const [isSubmitting, setIsSubmitting] = useState(false);
 
   // Datos cargados (mazos, mecanicas, sensor)
@@ -116,7 +118,7 @@ export default function CreateSession() {
     handleConfigChange,
     handleLinkSensorChange,
     canProceed
-  } = useWizardConfig({ mechanics, currentStep });
+  } = useWizardConfig({ mechanics });
 
   // Dirty detection: el usuario ha empezado a configurar la sesion
   const isDirty = currentStep > 0 || selectedDeck !== null;
@@ -125,12 +127,14 @@ export default function CreateSession() {
   // Navegacion
   const goNext = () => {
     if (currentStep < WIZARD_STEPS.length - 1 && canProceed(currentStep)) {
+      setStepDirection(1);
       setCurrentStep(prev => prev + 1);
     }
   };
 
   const goBack = () => {
     if (currentStep > 0) {
+      setStepDirection(-1);
       setCurrentStep(prev => prev - 1);
     }
   };
@@ -177,10 +181,10 @@ export default function CreateSession() {
         origin: { y: 0.6 },
       });
 
-      toast.success('Sesion creada!', {
+      toast.success('¡Sesión creada!', {
         description: isMemorySelected
-          ? 'Redirigiendo a la configuracion del tablero...'
-          : 'Redirigiendo al detalle de la sesion...'
+          ? 'Redirigiendo a la configuración del tablero…'
+          : 'Redirigiendo al detalle de la sesión…'
       });
 
       // Memoria -> BoardSetup para configurar tablero, Asociacion -> Detalle de sesion
@@ -272,10 +276,10 @@ export default function CreateSession() {
         className="max-w-5xl mx-auto mb-4"
       >
         <h1 className="text-3xl font-bold text-text-primary font-display mb-2">
-          Crear Nueva Sesion
+          Crear Nueva Sesión
         </h1>
         <p className="text-text-muted">
-          {WIZARD_STEPS[currentStep].description}
+          {getStepDescription(WIZARD_STEPS[currentStep].id, selectedMechanic?.name?.toLowerCase())}
         </p>
       </motion.div>
 
@@ -287,6 +291,7 @@ export default function CreateSession() {
           reducedMotion={shouldReduceMotion}
           onStepClick={(index) => {
             if (index < currentStep) {
+              setStepDirection(index < currentStep ? -1 : 1);
               setCurrentStep(index);
             }
           }}
@@ -295,13 +300,19 @@ export default function CreateSession() {
 
       {/* Contenido */}
       <div className="max-w-5xl mx-auto mb-8">
-        <AnimatePresence mode="wait">
+        {/* mode="popLayout" permite que el paso entrante comience su enter
+            mientras el saliente aún completa su exit — elimina el flash vacío
+            de ~300ms que se veía con mode="wait" en QA 22/04/2026. La duración
+            total se acorta a 0.22s: combinada con popLayout produce una
+            transición horizontal limpia sin doble tiempo muerto. */}
+        <AnimatePresence mode="popLayout" custom={stepDirection}>
           <motion.div
             key={currentStep}
-            initial={shouldReduceMotion ? false : { opacity: 0, x: 20 }}
+            custom={stepDirection}
+            initial={shouldReduceMotion ? false : (d) => ({ opacity: 0, x: d * 24 })}
             animate={{ opacity: 1, x: 0 }}
-            exit={shouldReduceMotion ? { opacity: 0 } : { opacity: 0, x: -20 }}
-            transition={{ duration: shouldReduceMotion ? 0.15 : 0.3 }}
+            exit={shouldReduceMotion ? { opacity: 0 } : (d) => ({ opacity: 0, x: d * -18 })}
+            transition={{ duration: shouldReduceMotion ? 0.12 : 0.22, ease: [0.16, 1, 0.3, 1] }}
           >
             {renderStep()}
           </motion.div>
@@ -337,7 +348,7 @@ export default function CreateSession() {
                 loading={isSubmitting}
                 icon={<Sparkles size={18} />}
               >
-                Crear Sesion
+                Crear Sesión
               </ButtonPremium>
             ) : (
               <ButtonPremium

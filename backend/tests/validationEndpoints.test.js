@@ -193,30 +193,36 @@ describe('Validation (Zod) - All API endpoints', () => {
       expect(res.statusCode).toBe(400);
     });
 
-    it('POST /api/mechanics - invalid body', async () => {
+    it('POST /api/mechanics - bloqueado para todos los roles (405)', async () => {
       const res = await request(app)
         .post('/api/mechanics')
         .set(makeAuthHeaders(teacherToken))
-        .send({});
+        .send({ name: 'newmech', displayName: 'Nueva', description: 'Test mech' });
 
-      expect(res.statusCode).toBe(400);
+      expect(res.statusCode).toBe(405);
+      expect(res.headers.allow).toBe('GET');
+      expect(res.body.success).toBe(false);
     });
 
-    it('PUT /api/mechanics/:id - invalid params', async () => {
+    it('PUT /api/mechanics/:id - bloqueado para todos los roles (405)', async () => {
       const res = await request(app)
-        .put('/api/mechanics/invalid')
+        .put('/api/mechanics/507f1f77bcf86cd799439011')
         .set(makeAuthHeaders(teacherToken))
         .send({ displayName: 'Test' });
 
-      expect(res.statusCode).toBe(400);
+      expect(res.statusCode).toBe(405);
+      expect(res.headers.allow).toBe('GET');
+      expect(res.body.success).toBe(false);
     });
 
-    it('DELETE /api/mechanics/:id - invalid params', async () => {
+    it('DELETE /api/mechanics/:id - bloqueado para todos los roles (405)', async () => {
       const res = await request(app)
-        .delete('/api/mechanics/invalid')
+        .delete('/api/mechanics/507f1f77bcf86cd799439011')
         .set(makeAuthHeaders(teacherToken));
 
-      expect(res.statusCode).toBe(400);
+      expect(res.statusCode).toBe(405);
+      expect(res.headers.allow).toBe('GET');
+      expect(res.body.success).toBe(false);
     });
   });
 

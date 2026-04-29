@@ -24,7 +24,12 @@ function ScoreDisplay({
 }) {
   // Calcular estrellas basado en el porcentaje de respuestas correctas
   const percentage = totalQuestions > 0 ? (correctAnswers / totalQuestions) * 100 : 0;
-  const starsEarned = percentage >= 90 ? 3 : percentage >= 70 ? 2 : percentage >= 50 ? 1 : 0;
+  const starsEarned = (() => {
+    if (percentage >= 90) return 3;
+    if (percentage >= 70) return 2;
+    if (percentage >= 50) return 1;
+    return 0;
+  })();
 
   return (
     <div 
@@ -37,16 +42,16 @@ function ScoreDisplay({
         role="img"
         aria-label={`${starsEarned} estrellas de ${maxStars}`}
       >
-        {[...Array(maxStars)].map((_, i) => (
+        {Array.from({ length: maxStars }, (_, i) => ({ id: `star-${i}`, index: i })).map(star => (
           <motion.div
-            key={i}
+            key={star.id}
             initial={{ scale: 0, rotate: -180 }}
-            animate={{ 
-              scale: i < starsEarned ? 1 : 0.8,
+            animate={{
+              scale: star.index < starsEarned ? 1 : 0.8,
               rotate: 0
             }}
-            transition={{ 
-              delay: i * 0.1,
+            transition={{
+              delay: star.index * 0.1,
               type: 'spring',
               stiffness: 300,
               damping: 15
@@ -57,7 +62,7 @@ function ScoreDisplay({
               aria-hidden="true"
               className={cn(
                 "transition-colors duration-300",
-                i < starsEarned
+                star.index < starsEarned
                   ? "fill-warning-base text-warning-base drop-shadow-[0_0_10px_rgba(251,191,36,0.6)]" // TOKEN-EXCEPTION: drop-shadow filter requires direct rgba value
                   : "fill-background-surface text-text-disabled"
               )}
@@ -109,6 +114,7 @@ function ScoreDisplayCompact({ score = 0, className }) {
       return () => clearTimeout(timer);
     }
     prevScoreRef.current = score;
+    return undefined;
   }, [score]);
 
   return (

@@ -444,6 +444,7 @@ export default function SessionEdit() {
             <InputPremium
               label="Rondas"
               type="number"
+              inputMode="numeric"
               min={1}
               max={20}
               value={numberOfRounds}
@@ -453,6 +454,7 @@ export default function SessionEdit() {
             <InputPremium
               label="Tiempo por ronda (seg)"
               type="number"
+              inputMode="numeric"
               min={3}
               max={60}
               value={timeLimit}
@@ -465,6 +467,7 @@ export default function SessionEdit() {
             <InputPremium
               label="Puntos por acierto"
               type="number"
+              inputMode="numeric"
               min={1}
               value={pointsPerCorrect}
               onChange={(e) => setPointsPerCorrect(e.target.value)}
@@ -473,6 +476,7 @@ export default function SessionEdit() {
             <InputPremium
               label="Penalización"
               type="number"
+              inputMode="numeric"
               max={-1}
               value={penaltyPerError}
               onChange={(e) => setPenaltyPerError(e.target.value)}

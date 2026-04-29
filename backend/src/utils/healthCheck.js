@@ -7,6 +7,7 @@
 const mongoose = require('mongoose');
 const logger = require('./logger').child({ component: 'healthCheck' });
 const { isRedisConnected, ping: pingRedis } = require('../config/redis');
+const { getCircuitBreakerState } = require('../services/redisService');
 
 /**
  * Verifica el estado de conexión a MongoDB.
@@ -53,10 +54,22 @@ async function checkMongoDBHealth() {
  */
 async function checkRedisHealth() {
   try {
+    const circuitBreaker = getCircuitBreakerState();
+
     if (!isRedisConnected()) {
       return {
         status: 'disconnected',
-        message: 'Redis no está conectado'
+        message: 'Redis no está conectado',
+        circuitBreaker: circuitBreaker.state
+      };
+    }
+
+    // Si el circuit breaker está abierto, Redis está degradado
+    if (circuitBreaker.state === 'open') {
+      return {
+        status: 'degraded',
+        message: 'Circuit breaker abierto — operaciones Redis omitidas',
+        circuitBreaker: circuitBreaker.state
       };
     }
 
@@ -65,12 +78,14 @@ async function checkRedisHealth() {
     if (result.connected) {
       return {
         status: 'healthy',
-        responseTime: `${result.latency}ms`
+        responseTime: `${result.latency}ms`,
+        circuitBreaker: circuitBreaker.state
       };
     } else {
       return {
         status: 'unhealthy',
-        message: 'PING falló'
+        message: 'PING falló',
+        circuitBreaker: circuitBreaker.state
       };
     }
   } catch (error) {

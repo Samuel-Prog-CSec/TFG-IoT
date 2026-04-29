@@ -979,6 +979,29 @@ authChannel.onmessage = (event) => {
 | **ioredis** | Cliente Redis para Node.js | https://github.com/redis/ioredis |
 | **bcrypt** | Hashing de contraseñas | https://github.com/kelektiv/node.bcrypt.js |
 
+## Anexo: Cache de slim-user en middleware (Mantenimiento 2026-04-20, ADR-065)
+
+Desde el mantenimiento 2026-04-20, el middleware `authenticate` cachea un POJO "slim" del usuario en Redis bajo el namespace `auth:user:<userId>` con TTL de 60 segundos. Reduce drásticamente las queries a MongoDB en cada request autenticado y en cada handshake WebSocket.
+
+### Interacción con los mecanismos de seguridad de tokens
+
+- **Blacklist de access token** (`isTokenRevoked`): sigue funcionando sin cambios. Se consulta antes del user fetch en `verifyAccessToken`. Un token revocado vía `revokeToken` se rechaza inmediatamente sin pasar por el cache de user.
+- **Security flag** (`checkSecurityFlag` sobre `security:<userId>`): sigue siendo **inmediato**. El flag se consulta en `verifyAccessToken`, no pasa por el cache de user, y expira naturalmente a 1h.
+- **Single-session enforcement**: cuando `authController.login` genera un nuevo `currentSessionId`, invoca `invalidateUserCache(userId)` para forzar re-fetch. Misma lógica en `changePassword` y `logout`.
+- **Rotación de refresh token**: el flujo de `refreshAccessToken` hace `findById` explícito con select específico; solo invalida el cache en el fallback legacy cuando crea `currentSessionId` por primera vez.
+
+### Ventana de staleness
+
+**Máximo 60 segundos** entre un cambio de estado del usuario (p. ej. ban admin) y su efecto en el middleware. Aceptable para un TFG educativo — peor caso: el alumno termina la ronda en curso y es desconectado al siguiente request.
+
+**NO afecta** a la ventana de inmediatez de los mecanismos de revocación centrales: `revokeToken(jti)` y `revokeAllUserTokens(userId)` siguen siendo inmediatos (consultan blacklist / security flag Redis directos).
+
+### Defensa en profundidad
+
+- `fetchUserForAuth` elimina `password` del POJO antes de cachear, aunque el `select` ya lo excluya.
+- Si Redis cae, el helper cae a `userRepository.findById` transparentemente (sin cachear).
+- Métricas `runtimeMetrics.redis.authUserCacheHits/Misses` permiten detectar anomalías.
+
 ## Conceptos Específicos Implementados
 
 | Concepto | Fuente Principal | Notas |
@@ -988,3 +1011,32 @@ authChannel.onmessage = (event) => {
 | **Token Family (familyId)** | Auth0 Refresh Token Rotation | Innovación de Auth0 para detección de robo |
 | **Grace Period** | Auth0 Docs | Mitiga race conditions en aplicaciones multi-tab |
 | **Security Flags** | OWASP Session Management | Patrón de "invalidación por timestamp" |
+
+## Contrato de respuestas 401 con `code` semántico (ADR-071, 2026-04-22)
+
+El `errorHandler` anota un campo `code` opcional en el body JSON de cada 401
+para que el cliente distinga el motivo sin parsear el mensaje en español.
+Códigos emitidos por `middlewares/auth.js`:
+
+| code | Origen | Recuperable con refresh |
+|------|--------|-------------------------|
+| `TOKEN_EXPIRED` | Access token expirado (`TokenExpiredError`) | **Sí** |
+| `TOKEN_MISSING` | Header `Authorization` ausente | Sí |
+| `TOKEN_INVALID` | Token mal formado, tipo incorrecto o firma inválida | No |
+| `TOKEN_REVOKED` | JTI presente en la blacklist | No |
+| `TOKEN_FINGERPRINT_MISMATCH` | IP/UA difieren del fingerprint del token | No |
+| `SESSION_MISMATCH` | `sid` del token no coincide con `user.currentSessionId` | No |
+| `SESSION_REVOKED` | Security flag activo con mayor `iat` que el token | No |
+
+El interceptor del frontend considera recuperables `TOKEN_EXPIRED` y
+`TOKEN_MISSING`; cualquier otro código dispara `AUTH_EVENTS.UNAUTHORIZED` y
+logout. Por compatibilidad con tokens pre-deploy se mantiene un regex
+fallback `/expirado|expired/i` sobre `message` cuando `code` no está presente.
+
+## Guard single-flight en `checkExistingSession` (ADR-071)
+
+`AuthProvider` en dev con `React.StrictMode` ejecuta `useEffect` dos veces.
+Si ambas ejecuciones llaman a `POST /auth/refresh` en paralelo, la primera
+rota el refreshToken y la segunda recibe 401 (cookie ya inválida), lo que
+antes deslogueaba al usuario. Solución: `useRef(false)` en el hook que se
+pone a `true` al primer render y cortocircuita la segunda invocación.

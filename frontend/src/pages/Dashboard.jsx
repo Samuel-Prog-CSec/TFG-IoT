@@ -1,12 +1,15 @@
 import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Users, Gamepad2, Trophy, AlertTriangle, Calendar, CalendarClock, Layers, ChevronRight, Target, Clock, UserCheck, CheckCircle2 } from 'lucide-react';
+import { Users, Gamepad2, Trophy, AlertTriangle, Calendar, CalendarClock, Layers, ChevronRight, Target, Clock, UserCheck, CheckCircle2, Sparkles } from 'lucide-react';
 import ErrorState from '../components/ui/ErrorState';
 import { listContainerVariants, listItemVariants, crossfadeVariants, formatDate } from '../lib/utils';
+import { formatDelta } from '../lib/formatDelta';
+import { formatRelativeTime } from '../lib/dateUtils';
 import { useDocumentTitle } from '../hooks/useDocumentTitle';
 import { useRefetchOnFocus } from '../hooks/useRefetchOnFocus';
 import { useReducedMotion } from '../hooks/useReducedMotion';
+import { useHorizontalScroll } from '../hooks/useHorizontalScroll';
 import { useAuth } from '../context/AuthContext';
 import analyticsService from '../services/analytics';
 import { isAbortError, contextsAPI, mechanicsAPI } from '../services/api';
@@ -25,6 +28,7 @@ import SkeletonShimmer, { SkeletonCard, SkeletonStatCard, SkeletonChart } from '
 import SelectPremium from '../components/ui/SelectPremium';
 import ButtonPremium from '../components/ui/ButtonPremium';
 
+// eslint-disable-next-line sonarjs/cyclomatic-complexity -- dashboard principal con multiples widgets, filtros y estados de carga
 export default function Dashboard() {
   const { isSuperAdmin } = useAuth();
   const navigate = useNavigate();
@@ -44,7 +48,7 @@ export default function Dashboard() {
       contextsAPI.getContexts().catch(() => ({ data: { data: [] } })),
       mechanicsAPI.getMechanics().catch(() => ({ data: { data: [] } }))
     ]).then(([ctxRes, mechRes]) => {
-      if (cancelled) return;
+      if (cancelled) return undefined;
       const contexts = ctxRes?.data?.data || [];
       const mechanics = mechRes?.data?.data || [];
       setContextOptions([
@@ -52,10 +56,11 @@ export default function Dashboard() {
         ...contexts.map(c => ({ value: c._id, label: c.name }))
       ]);
       setMechanicOptions([
-        { value: '', label: 'Todas las mecanicas' },
+        { value: '', label: 'Todas las mecánicas' },
         ...mechanics.map(m => ({ value: m._id, label: m.displayName || m.name }))
       ]);
-    });
+      return undefined;
+    }).catch(() => { /* errores individuales ya manejados */ });
     return () => { cancelled = true; };
   }, []);
 
@@ -149,11 +154,29 @@ export default function Dashboard() {
     hasError: Boolean(error)
   });
 
-  // Extraer el cambio porcentual de un KPI por nombre
+  // Extraer el cambio porcentual de un KPI por nombre.
+  // PROP-88: si el KPI no tiene baseline (`previous` ausente, null o 0),
+  // devolvemos "—" para que StatCard pinte el pill neutro en lugar de la
+  // línea vacía que daba apariencia de bug.
   const getTrend = useCallback((kpiName) => {
     if (!trends?.kpis) return '';
     const kpi = trends.kpis.find(k => k.name === kpiName);
-    if (!kpi || kpi.changePercent === 0 || kpi.changePercent == null) return '';
+    if (!kpi) return '';
+
+    // Si el backend dice explícitamente que no hay baseline → "—"
+    if (kpi.previous === null || kpi.previous === undefined || kpi.previous === 0) {
+      return '—';
+    }
+
+    // Backend ya entrega `changePercent` redondeado; lo re-derivamos via
+    // formatDelta para que la lógica de signo/baseline esté centralizada.
+    if (kpi.current !== undefined) {
+      return formatDelta(kpi.current, kpi.previous);
+    }
+
+    // Fallback al formato legacy si por algún motivo falta `current`.
+    if (kpi.changePercent == null) return '';
+    if (kpi.changePercent === 0) return '0%';
     const sign = kpi.changePercent > 0 ? '+' : '';
     return `${sign}${kpi.changePercent}%`;
   }, [trends]);
@@ -189,6 +212,7 @@ export default function Dashboard() {
 
   // Prevenir Layout Shifts (CLS) renderizando una estructura idéntica durante la carga
   const skeletonContent = loading && !summary;
+  const motionVariants = shouldReduceMotion ? {} : crossfadeVariants;
 
   return (
     <>
@@ -196,7 +220,7 @@ export default function Dashboard() {
       {skeletonContent ? (
         <motion.section
           key="skeleton"
-          {...(shouldReduceMotion ? {} : crossfadeVariants)}
+          {...motionVariants}
           className="p-6 lg:p-8 max-w-7xl mx-auto space-y-8"
         >
           {/* Header Skeleton Mimic */}
@@ -213,8 +237,8 @@ export default function Dashboard() {
 
           {/* KPIs Skeleton */}
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 lg:gap-6">
-            {[...Array(8)].map((_, index) => (
-              <SkeletonStatCard key={`stat-skeleton-${index}`} />
+            {Array.from({ length: 8 }, (_, i) => `stat-skeleton-${i}`).map(id => (
+              <SkeletonStatCard key={id} />
             ))}
           </div>
 
@@ -233,7 +257,7 @@ export default function Dashboard() {
       ) : (
         <motion.section
           key="content"
-          {...(shouldReduceMotion ? {} : crossfadeVariants)}
+          {...motionVariants}
           className="p-6 lg:p-8 max-w-7xl mx-auto space-y-8"
           aria-label="Panel principal del dashboard"
         >
@@ -272,6 +296,7 @@ export default function Dashboard() {
               aria-labelledby="stats-heading"
             >
               <h2 id="stats-heading" className="sr-only">KPIs Principales</h2>
+              {/* KPIs primarios — metricas clave */}
               <div
                 className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 lg:gap-6"
                 role="list"
@@ -284,6 +309,8 @@ export default function Dashboard() {
                     periodLabel={periodLabel}
                     icon={<AlertTriangle className="text-white drop-shadow-sm" size={24} aria-hidden="true" />}
                     color="bg-gradient-to-br from-error-base to-error-dark"
+                    higherIsBetter={false}
+                    onClick={() => navigate('/analytics/students')}
                   />
                 </motion.div>
 
@@ -295,6 +322,7 @@ export default function Dashboard() {
                     periodLabel={periodLabel}
                     icon={<Trophy className="text-white drop-shadow-sm" size={24} aria-hidden="true" />}
                     color="bg-gradient-to-br from-success-base to-success-dark"
+                    onClick={() => navigate('/analytics/students')}
                   />
                 </motion.div>
 
@@ -306,6 +334,7 @@ export default function Dashboard() {
                     periodLabel={periodLabel}
                     icon={<Gamepad2 className="text-white drop-shadow-sm" size={24} aria-hidden="true" />}
                     color="bg-gradient-to-br from-brand-base to-accent-indigo"
+                    onClick={() => navigate('/sessions')}
                   />
                 </motion.div>
 
@@ -317,10 +346,16 @@ export default function Dashboard() {
                     periodLabel={periodLabel}
                     icon={<Users className="text-white drop-shadow-sm" size={24} aria-hidden="true" />}
                     color="bg-gradient-to-br from-info-base to-accent-cyan"
+                    onClick={() => navigate('/sessions')}
                   />
                 </motion.div>
+              </div>
 
-                {/* Fila 2: KPIs secundarios */}
+              {/* KPIs secundarios — metricas complementarias */}
+              <div
+                className="grid grid-cols-2 lg:grid-cols-4 gap-3 lg:gap-4 mt-3 opacity-90"
+                role="list"
+              >
                 <motion.div variants={shouldReduceMotion ? {} : listItemVariants} role="listitem">
                   <StatCard
                     title="Tasa de Acierto"
@@ -329,6 +364,8 @@ export default function Dashboard() {
                     periodLabel={periodLabel}
                     icon={<Target className="text-white drop-shadow-sm" size={24} aria-hidden="true" />}
                     color="bg-gradient-to-br from-accent-cyan to-info-base"
+                    compact
+                    onClick={() => navigate('/analytics/insights')}
                   />
                 </motion.div>
 
@@ -340,6 +377,9 @@ export default function Dashboard() {
                     periodLabel={periodLabel}
                     icon={<Clock className="text-white drop-shadow-sm" size={24} aria-hidden="true" />}
                     color="bg-gradient-to-br from-accent-orange to-warning-base"
+                    higherIsBetter={false}
+                    compact
+                    onClick={() => navigate('/analytics/insights')}
                   />
                 </motion.div>
 
@@ -348,9 +388,11 @@ export default function Dashboard() {
                     title="Alumnos Activos"
                     value={`${activeStudentsCount}/${totalStudents}`}
                     trend=""
-                    periodLabel="ultimos 7 dias"
+                    periodLabel="últimos 7 días"
                     icon={<UserCheck className="text-white drop-shadow-sm" size={24} aria-hidden="true" />}
                     color="bg-gradient-to-br from-brand-base to-accent-pink"
+                    compact
+                    onClick={() => navigate('/analytics/students')}
                   />
                 </motion.div>
 
@@ -362,6 +404,8 @@ export default function Dashboard() {
                     periodLabel="partidas completadas"
                     icon={<CheckCircle2 className="text-white drop-shadow-sm" size={24} aria-hidden="true" />}
                     color="bg-gradient-to-br from-success-dark to-success-base"
+                    compact
+                    onClick={() => navigate('/sessions')}
                   />
                 </motion.div>
               </div>
@@ -375,13 +419,22 @@ export default function Dashboard() {
               className="grid grid-cols-1 xl:grid-cols-3 gap-6 lg:gap-8"
               aria-label="Análisis detallado"
             >
-              {/* Columna Principal (2/3 de ancho) */}
-              <div className="xl:col-span-2 space-y-6 lg:space-y-8">
+              {/* Columna Principal (2/3 de ancho).
+                  RecentActivity se movió aquí (antes era fullwidth bajo la
+                  sección) para absorber el hueco vertical que dejaba la
+                  columna lateral cuando terminaba antes que la principal —
+                  así el grid queda balanceado sin aire muerto (QA 22/04/2026).
+                  Convertida a `flex flex-col` con `flex-1` en el último item
+                  (RecentActivity) para estirarlo y eliminar definitivamente el
+                  hueco bajo la columna principal cuando la lateral es más alta
+                  (QA 2026-04-29). */}
+              <div className="xl:col-span-2 flex flex-col gap-6 lg:gap-8">
                 <motion.div variants={shouldReduceMotion ? {} : listItemVariants}>
                   <StudentProgressChart
                     data={progressData}
                     period={timeRange}
                     onPeriodChange={setTimeRange}
+                    omitPeriodSelector
                   />
                 </motion.div>
                 <motion.div variants={shouldReduceMotion ? {} : listItemVariants}>
@@ -392,10 +445,15 @@ export default function Dashboard() {
                     <ActivityHeatmap data={heatmapData} />
                   </motion.div>
                 )}
+                {studentsData?.students?.length > 0 && (
+                  <motion.div variants={shouldReduceMotion ? {} : listItemVariants} className="flex-1 flex flex-col">
+                    <RecentActivity students={studentsData.students} />
+                  </motion.div>
+                )}
               </div>
 
               {/* Columna Lateral (1/3 de ancho) */}
-              <aside className="space-y-6 lg:space-y-8">
+              <aside className="flex flex-col gap-6 lg:gap-8">
                 <motion.div variants={shouldReduceMotion ? {} : listItemVariants}>
                   <ClassroomOverview summary={summary} distribution={distributionData} />
                 </motion.div>
@@ -410,11 +468,6 @@ export default function Dashboard() {
                 </motion.div>
               </aside>
             </motion.section>
-
-            {/* Actividad Reciente (timeline) */}
-            {studentsData?.students?.length > 0 && (
-              <RecentActivity students={studentsData.students} />
-            )}
           </div>
         </motion.section>
       )}
@@ -441,40 +494,118 @@ function Header({
   reducedMotion = false,
 }) {
   const navigate = useNavigate();
+  const { user } = useAuth();
+  const firstName = (user?.name || '').trim().split(/\s+/)[0] || '';
+  const hour = new Date().getHours();
+  let greeting = 'Buenas noches';
+  if (hour >= 6 && hour < 13) greeting = 'Buenos días';
+  else if (hour >= 13 && hour < 20) greeting = 'Buenas tardes';
   const todayRaw = formatDate(new Date(), 'long');
   // Spanish dates should only capitalize the first letter (e.g. "Jueves, 19 de marzo de 2026")
   const today = todayRaw.charAt(0).toUpperCase() + todayRaw.slice(1).toLowerCase();
 
   return (
-    <motion.header 
-      initial={reducedMotion ? false : { opacity: 0, y: -20 }}
+    <motion.header
+      initial={reducedMotion ? false : { opacity: 0, y: -16 }}
       animate={{ opacity: 1, y: 0 }}
-      className="flex flex-col sm:flex-row sm:justify-between sm:items-end gap-4 pt-14 lg:pt-0"
+      transition={{ duration: 0.4, ease: [0.16, 1, 0.3, 1] }}
+      className="flex flex-col gap-5 pt-14 lg:pt-0"
     >
-      <div>
-        <motion.h1 
-          initial={reducedMotion ? false : { opacity: 0, x: -20 }}
+      {/* Fila 1: Hero — saludo + fecha integrada (sin card aislada) */}
+      <div className="flex flex-col sm:flex-row sm:items-end sm:justify-between gap-3">
+        <div className="min-w-0">
+          <motion.h1
+            initial={reducedMotion ? false : { opacity: 0, x: -16 }}
+            animate={{ opacity: 1, x: 0 }}
+            transition={{ delay: reducedMotion ? 0 : 0.08 }}
+            className="text-3xl sm:text-4xl font-bold text-text-primary mb-1 font-display tracking-tight flex items-center gap-3"
+          >
+            <span className="truncate">
+              {greeting}
+              {firstName ? (
+                <>
+                  ,{' '}
+                  <span className="bg-gradient-to-r from-brand-light via-accent-pink to-accent-orange bg-clip-text text-transparent">
+                    {firstName}
+                  </span>
+                </>
+              ) : null}
+            </span>
+            {!reducedMotion && (
+              <motion.span
+                aria-hidden="true"
+                className="inline-flex items-center justify-center size-9 rounded-xl bg-brand-base/15 text-brand-light"
+                animate={{ rotate: [0, 8, -4, 6, 0], scale: [1, 1.05, 1, 1.03, 1] }}
+                transition={{ duration: 1.6, times: [0, 0.25, 0.5, 0.75, 1], repeat: Infinity, repeatDelay: 3.5, ease: 'easeInOut' }}
+              >
+                <Sparkles size={18} aria-hidden="true" />
+              </motion.span>
+            )}
+          </motion.h1>
+          <motion.p
+            initial={reducedMotion ? false : { opacity: 0 }}
+            animate={{ opacity: 1 }}
+            transition={{ delay: reducedMotion ? 0 : 0.16 }}
+            className="text-sm sm:text-base text-text-muted font-medium"
+          >
+            Resumen de actividad y análisis de rendimiento
+          </motion.p>
+        </div>
+
+        <motion.time
+          dateTime={new Date().toISOString().split('T')[0]}
+          initial={reducedMotion ? false : { opacity: 0, x: 8 }}
           animate={{ opacity: 1, x: 0 }}
-          transition={{ delay: reducedMotion ? 0 : 0.1 }}
-          className="text-2xl sm:text-3xl font-bold text-text-primary mb-2 font-display whitespace-nowrap"
+          transition={{ delay: reducedMotion ? 0 : 0.16 }}
+          className="flex items-center gap-2 text-sm font-medium text-text-muted shrink-0 pb-1"
         >
-          <span aria-hidden="true">¡Bienvenido de nuevo! 👋</span>
-          <span className="sr-only">¡Bienvenido de nuevo!</span>
-        </motion.h1>
-        <motion.p 
-          initial={reducedMotion ? false : { opacity: 0 }}
-          animate={{ opacity: 1 }}
-          transition={{ delay: reducedMotion ? 0 : 0.2 }}
-          className="text-text-muted font-medium"
-        >
-          Resumen de actividad y análisis de rendimiento
-        </motion.p>
+          <Calendar size={16} className="text-brand-base" aria-hidden="true" />
+          <span>{today}</span>
+        </motion.time>
       </div>
 
-      <div className="flex items-center gap-4">
-        <div className="hidden xl:flex items-center gap-2">
+      {/* Fila 2: Toolbar — filtros a la izquierda, CTAs a la derecha */}
+      <motion.div
+        initial={reducedMotion ? false : { opacity: 0, y: 8 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ delay: reducedMotion ? 0 : 0.24 }}
+        className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-3"
+      >
+        <div className="flex items-center gap-2 flex-wrap">
+          {contextOptions.length > 1 && (
+            <SelectPremium
+              value={selectedContextId}
+              onChange={(val) => setSelectedContextId(val)}
+              options={contextOptions}
+              className="w-full sm:w-52"
+              aria-label="Filtrar por contexto tematico"
+            />
+          )}
+          {mechanicOptions.length > 1 && (
+            <SelectPremium
+              value={selectedMechanicId}
+              onChange={(val) => setSelectedMechanicId(val)}
+              options={mechanicOptions}
+              className="w-full sm:w-52"
+              aria-label="Filtrar por mecanica de juego"
+            />
+          )}
+          <SelectPremium
+            value={timeRange}
+            onChange={(val) => setTimeRange(val)}
+            options={[
+              { value: '7d', label: 'Últimos 7 días' },
+              { value: '30d', label: 'Últimos 30 días' },
+              { value: '90d', label: 'Últimos 90 días' },
+            ]}
+            className="w-full sm:w-52"
+            aria-label="Filtrar por rango de tiempo"
+          />
+        </div>
+
+        <div className="flex items-center gap-2">
           <ButtonPremium
-            variant="secondary"
+            variant="primary"
             size="sm"
             onClick={() => navigate(ROUTES.CREATE_SESSION)}
           >
@@ -488,75 +619,51 @@ function Header({
             Nuevo mazo
           </ButtonPremium>
         </div>
-
-        {/* Filtros globales */}
-        <div className="flex items-center gap-2 flex-wrap">
-          {contextOptions.length > 1 && (
-            <SelectPremium
-              value={selectedContextId}
-              onChange={(val) => setSelectedContextId(val)}
-              options={contextOptions}
-              className="w-52"
-              aria-label="Filtrar por contexto tematico"
-            />
-          )}
-          {mechanicOptions.length > 1 && (
-            <SelectPremium
-              value={selectedMechanicId}
-              onChange={(val) => setSelectedMechanicId(val)}
-              options={mechanicOptions}
-              className="w-52"
-              aria-label="Filtrar por mecanica de juego"
-            />
-          )}
-          <SelectPremium
-            value={timeRange}
-            onChange={(val) => setTimeRange(val)}
-            options={[
-              { value: '7d', label: 'Ultimos 7 dias' },
-              { value: '30d', label: 'Ultimos 30 dias' },
-              { value: '90d', label: 'Ultimos 90 dias' },
-            ]}
-            className="w-52"
-            aria-label="Filtrar por rango de tiempo"
-          />
-        </div>
-
-        <motion.time 
-          dateTime={new Date().toISOString().split('T')[0]}
-          initial={reducedMotion ? false : { opacity: 0, scale: 0.9 }}
-          animate={{ opacity: 1, scale: 1 }}
-          transition={{ delay: reducedMotion ? 0 : 0.2 }}
-          className="hidden sm:flex items-center gap-2.5 text-sm font-medium text-text-muted bg-background-elevated/50 backdrop-blur-sm px-4 py-2.5 rounded-xl border border-border-subtle"
-        >
-          <Calendar size={16} className="text-brand-base" aria-hidden="true" />
-          <span>{today}</span>
-        </motion.time>
-      </div>
+      </motion.div>
     </motion.header>
   );
 }
 
 const QUICK_LINKS = [
-  { label: 'Ver todas las sesiones', route: ROUTES.SESSIONS, icon: CalendarClock },
-  { label: 'Crear nueva sesión', route: ROUTES.CREATE_SESSION, icon: Gamepad2 },
-  { label: 'Ver mazos de cartas', route: ROUTES.CARD_DECKS, icon: Layers },
+  {
+    label: 'Ver todas las sesiones',
+    route: ROUTES.SESSIONS,
+    icon: CalendarClock,
+    tintClass: 'text-brand-light',
+    tintBgClass: 'bg-brand-base/15 group-hover:bg-brand-base/25'
+  },
+  {
+    label: 'Crear nueva sesión',
+    route: ROUTES.CREATE_SESSION,
+    icon: Gamepad2,
+    tintClass: 'text-accent-cyan',
+    tintBgClass: 'bg-accent-cyan/15 group-hover:bg-accent-cyan/25'
+  },
+  {
+    label: 'Ver mazos de cartas',
+    route: ROUTES.CARD_DECKS,
+    icon: Layers,
+    tintClass: 'text-accent-pink',
+    tintBgClass: 'bg-accent-pink/15 group-hover:bg-accent-pink/25'
+  },
 ];
 
 function QuickLinks({ navigate }) {
   return (
     <div className="rounded-2xl bg-background-elevated/60 backdrop-blur-sm border border-border-default p-5">
-      <h3 className="text-lg font-bold text-text-primary mb-3 px-1 font-display">Accesos Rapidos</h3>
-      <nav className="space-y-1" aria-label="Accesos rapidos">
-        {QUICK_LINKS.map(({ label, route, icon: Icon }) => (
+      <h3 className="text-lg font-bold text-text-primary mb-3 px-1 font-display">Accesos rápidos</h3>
+      <nav className="space-y-1" aria-label="Accesos rápidos">
+        {QUICK_LINKS.map(({ label, route, icon: Icon, tintClass, tintBgClass }) => (
           <button
             key={route}
             onClick={() => navigate(route)}
-            className="flex items-center gap-3 w-full px-3 py-2.5 rounded-xl text-sm font-medium text-text-secondary hover:text-text-primary hover:bg-background-surface/60 transition-colors duration-150 group"
+            className="flex items-center gap-3 w-full px-2 py-2 rounded-xl text-sm font-medium text-text-secondary hover:text-text-primary hover:bg-background-surface/40 transition-[color,background-color,transform] duration-200 group hover:translate-x-0.5"
           >
-            <Icon size={18} className="text-text-muted group-hover:text-brand-base transition-colors" aria-hidden="true" />
+            <span className={`inline-flex items-center justify-center size-9 rounded-lg ${tintBgClass} transition-colors`} aria-hidden="true">
+              <Icon size={18} className={`${tintClass} transition-colors`} aria-hidden="true" />
+            </span>
             <span className="flex-1 text-left">{label}</span>
-            <ChevronRight size={14} className="text-text-muted/50 group-hover:text-text-muted transition-colors" aria-hidden="true" />
+            <ChevronRight size={14} className="text-text-muted/50 group-hover:text-text-muted group-hover:translate-x-0.5 transition-[color,transform]" aria-hidden="true" />
           </button>
         ))}
       </nav>
@@ -577,6 +684,10 @@ function RecentActivity({ students }) {
       .slice(0, 6);
   }, [students]);
 
+  // Hooks antes del early-return para respetar reglas de hooks de React.
+  const { ref: scrollRef, hasOverflow, canScrollRight, scrollByOne } = useHorizontalScroll();
+  const { shouldReduceMotion: reduced } = useReducedMotion();
+
   if (recentStudents.length === 0) return null;
 
   const getInitials = (name) => {
@@ -585,19 +696,12 @@ function RecentActivity({ students }) {
     return parts.length === 1 ? parts[0][0].toUpperCase() : (parts[0][0] + parts[parts.length - 1][0]).toUpperCase();
   };
 
-  const getRelativeTime = (dateStr) => {
-    const diffMs = Date.now() - new Date(dateStr).getTime();
-    const diffMins = Math.floor(diffMs / 60000);
-    if (diffMins < 60) return `Hace ${diffMins}m`;
-    const diffHours = Math.floor(diffMins / 60);
-    if (diffHours < 24) return `Hace ${diffHours}h`;
-    return `Hace ${Math.floor(diffHours / 24)}d`;
-  };
+  // getRelativeTime centralizado en lib/dateUtils.js (P25).
 
   return (
-    <section className="bg-background-elevated/40 backdrop-blur-sm rounded-2xl border border-border-subtle p-5">
+    <section className="bg-background-elevated/40 backdrop-blur-sm rounded-2xl border border-border-subtle p-5 relative overflow-hidden h-full flex flex-col">
       <h3 className="text-lg font-bold text-text-primary font-display mb-4">Actividad Reciente</h3>
-      <div className="flex gap-3 overflow-x-auto pb-2 -mx-1 px-1 custom-scrollbar">
+      <div ref={scrollRef} className="flex gap-3 overflow-x-auto pb-2 -mx-1 px-1 custom-scrollbar">
         {recentStudents.map((student, index) => (
           <div
             key={student.studentId || student._id || `recent-${index}`}
@@ -610,16 +714,38 @@ function RecentActivity({ students }) {
               <p className="text-sm font-medium text-text-primary truncate">{student.name}</p>
               <div className="flex items-center gap-2">
                 <span className="text-xs text-text-muted font-bold tabular-nums">
-                  {Math.round(student.averageScore || 0)} pts
+                  {Math.round(student.studentMetrics?.averageScore || student.averageScore || 0)} pts
                 </span>
                 <span className="text-[10px] text-text-disabled">
-                  {getRelativeTime(student.lastPlayedAt || student.studentMetrics?.lastPlayedAt)}
+                  {formatRelativeTime(student.lastPlayedAt || student.studentMetrics?.lastPlayedAt)}
                 </span>
               </div>
             </div>
           </div>
         ))}
       </div>
+
+      {/* Fade a la derecha — visible solo si todavia queda contenido por
+          scrollear (useHorizontalScroll detecta overflow real, PROP-86). */}
+      {canScrollRight && (
+        <div
+          className="pointer-events-none absolute right-0 top-[3.75rem] bottom-5 w-16 bg-gradient-to-l from-background-elevated via-background-elevated/80 to-transparent"
+          aria-hidden="true"
+        />
+      )}
+
+      {/* Chevron button: scrollea ~80% del viewport al pulsar. Desaparece
+          al llegar al final. Respeta reduced-motion. */}
+      {hasOverflow && canScrollRight && (
+        <button
+          type="button"
+          onClick={() => scrollByOne(reduced ? 'auto' : 'smooth')}
+          aria-label="Ver más actividad"
+          className="absolute right-3 top-1/2 -translate-y-1/2 size-9 rounded-full bg-background-surface/90 hover:bg-background-surface ring-1 ring-border-default backdrop-blur-sm flex items-center justify-center text-text-secondary hover:text-text-primary transition-colors shadow-lg z-10"
+        >
+          <ChevronRight size={18} aria-hidden="true" />
+        </button>
+      )}
     </section>
   );
 }

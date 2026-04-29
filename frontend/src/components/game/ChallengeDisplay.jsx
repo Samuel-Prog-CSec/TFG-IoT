@@ -80,6 +80,7 @@ const themeColors = {
  * @param {number} props.feedbackPoints - Puntos del feedback
  * @param {string} props.feedbackMessage - Mensaje del feedback
  */
+// eslint-disable-next-line sonarjs/cyclomatic-complexity -- componente de visualizacion de retos con multiples estados de feedback
 const ChallengeDisplay = function ChallengeDisplay({
   ref,
   asset,
@@ -123,6 +124,9 @@ const ChallengeDisplay = function ChallengeDisplay({
     return undefined;
   })();
 
+  // Determinar clase de borde segun estado de feedback
+  const feedbackBorderClass = isTimeout ? FEEDBACK_BORDER.timeout : FEEDBACK_BORDER[feedbackState];
+
   return (
     <motion.div
       ref={ref}
@@ -131,11 +135,13 @@ const ChallengeDisplay = function ChallengeDisplay({
       transition={shouldReduceMotion ? { duration: 0 } : { type: 'spring', stiffness: 300, damping: 20 }}
       className={cn(
         "relative flex flex-col items-center justify-center",
-        "p-8 sm:p-12",
+        // Padding ajustado para que la tarjeta no domine la pantalla y deje
+        // espacio al fallback panel y a la mascota sin necesidad de scroll.
+        "p-4 sm:p-6",
         "rounded-3xl",
         `bg-gradient-to-br ${theme.bg}`,
         "border-2 transition-[border-color,box-shadow] duration-300",
-        isIdle ? `${theme.border} shadow-2xl ${theme.glow}` : isTimeout ? FEEDBACK_BORDER.timeout : FEEDBACK_BORDER[feedbackState],
+        isIdle ? `${theme.border} shadow-2xl ${theme.glow}` : feedbackBorderClass,
         "backdrop-blur-xl",
         className
       )}
@@ -205,17 +211,19 @@ const ChallengeDisplay = function ChallengeDisplay({
       <AnimatePresence mode="wait">
         <motion.div
           key={asset?.value}
-          initial={shouldReduceMotion ? false : { y: 20, opacity: 0, scale: 0.95 }}
+          initial={shouldReduceMotion ? false : { y: 28, opacity: 0, scale: 0.85 }}
           animate={assetFeedbackAnimate || { y: 0, opacity: 1, scale: 1 }}
-          exit={shouldReduceMotion ? { opacity: 0 } : { y: -12, opacity: 0, scale: 0.95, transition: { duration: 0.2 } }}
-          transition={shouldReduceMotion ? { duration: 0 } : { type: 'spring', stiffness: 400, damping: 25 }}
+          exit={shouldReduceMotion ? { opacity: 0 } : { y: -12, opacity: 0, scale: 0.9, transition: { duration: 0.15 } }}
+          transition={shouldReduceMotion ? { duration: 0 } : { type: 'spring', stiffness: 300, damping: 20 }}
           className="relative z-10 text-center"
         >
-        {/* Emoji/Image */}
+        {/* Emoji/Image — escalada generosamente en desktop para aprovechar
+            el ancho disponible del panel de asociacion (QA 2026-04-23: antes
+            quedaba muy pequeña y con aire alrededor). */}
         {assetImageUrl && !imageError ? (
           <div
             className={cn(
-              "relative size-32 sm:size-40 mx-auto mb-4 rounded-2xl overflow-hidden",
+              "relative size-28 sm:size-40 lg:size-52 mx-auto mb-2 rounded-2xl overflow-hidden",
               // Marco tematizado: ring + shadow con color del tema
               `ring-2 ring-offset-2 ring-offset-transparent`,
               theme.border.replace('border-', 'ring-'),
@@ -231,7 +239,7 @@ const ChallengeDisplay = function ChallengeDisplay({
               src={assetImageUrl}
               alt={asset.value}
               className={cn(
-                "size-32 sm:size-40 object-contain drop-shadow-2xl transition-opacity duration-400 ease-out",
+                "size-full object-contain drop-shadow-2xl transition-opacity duration-400 ease-out",
                 imageLoading ? "opacity-0" : "opacity-100"
               )}
               animate={shouldReduceMotion ? { scale: 1 } : { scale: [1, 1.05, 1] }}
@@ -248,7 +256,7 @@ const ChallengeDisplay = function ChallengeDisplay({
           </div>
         ) : (
           <motion.div
-            className="text-8xl sm:text-9xl mb-4 select-none filter drop-shadow-lg"
+            className="text-7xl sm:text-9xl lg:text-[10rem] mb-2 select-none filter drop-shadow-lg leading-none"
             animate={shouldReduceMotion ? { scale: 1, rotate: 0 } : {
               scale: [1, 1.1, 1],
               rotate: [0, 3, -3, 0]
@@ -263,14 +271,16 @@ const ChallengeDisplay = function ChallengeDisplay({
           </motion.div>
         )}
 
-        {/* Text value */}
+        {/* Text value — el nombre del target como ayuda visual principal.
+            Escalado para desktop porque acompaña a un asset image grande
+            (QA 2026-04-23: antes quedaba pequeño junto a la imagen de 128px). */}
         {revealed && asset?.value && (
           <motion.h2
             initial={shouldReduceMotion ? false : { opacity: 0, y: 10 }}
             animate={{ opacity: 1, y: 0 }}
             transition={shouldReduceMotion ? { duration: 0 } : { delay: 0.2 }}
             className={cn(
-              "text-2xl sm:text-3xl font-bold font-display",
+              "text-2xl sm:text-3xl lg:text-4xl font-bold font-display tracking-tight",
               theme.text
             )}
           >

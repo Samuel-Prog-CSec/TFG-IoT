@@ -11,7 +11,6 @@ import {
   UserPlus,
   Search,
   GraduationCap,
-  Filter,
   ChevronLeft,
   ChevronRight,
   User,
@@ -20,12 +19,8 @@ import {
   MoreVertical,
   Edit,
   Trash2,
-  RefreshCw,
-  AlertCircle,
   ShieldCheck,
-  ShieldX,
-  Download,
-  FileText
+  Download
 } from 'lucide-react';
 import ConsentDetailPanel from './ConsentDetailPanel';
 import { motion, AnimatePresence } from 'framer-motion';
@@ -37,6 +32,7 @@ import SelectPremium from '../../components/ui/SelectPremium';
 import GlassCard from '../../components/ui/GlassCard';
 import { SkeletonCard } from '../../components/ui/SkeletonShimmer';
 import EmptyState from '../../components/ui/EmptyState';
+import { EmptyStudentsIllustration } from '../../components/ui/illustrations';
 import StatusBadge from '../../components/ui/StatusBadge';
 import Tooltip from '../../components/ui/Tooltip';
 import ConfirmationModal from '../../components/ui/ConfirmationModal';
@@ -93,7 +89,9 @@ function EditStudentModal({ isOpen, onClose, onUpdated, student }) {
       await usersAPI.updateUser(student.id || student._id, payload);
       toast.success('Alumno actualizado correctamente');
       onUpdated();
-      onClose();
+      // Pequeña pausa para que el usuario perciba el toast antes de que
+      // el modal desaparezca (evita sensación de accion "sin respuesta").
+      setTimeout(onClose, 350);
     } catch (error) {
       toast.error(extractErrorMessage(error));
     } finally {
@@ -141,6 +139,7 @@ function EditStudentModal({ isOpen, onClose, onUpdated, student }) {
               <InputPremium
                 label="Edad"
                 type="number"
+                inputMode="numeric"
                 min="3"
                 max="99"
                 placeholder="Ej: 6"
@@ -298,6 +297,7 @@ function CreateStudentModal({ isOpen, onClose, onCreated, teachers }) {
               <InputPremium
                 label="Edad"
                 type="number"
+                inputMode="numeric"
                 min="3"
                 max="99"
                 placeholder="Ej: 6"
@@ -410,10 +410,10 @@ function CreateStudentModal({ isOpen, onClose, onCreated, teachers }) {
 export default function StudentManagement() {
   useDocumentTitle('Gestión de Alumnos');
   const [students, setStudents] = useState([]);
-  const [_teachers, setTeachers] = useState([]);
+  const [, setTeachers] = useState([]);
   const [loading, setLoading] = useState(true);
-  const [_error, setError] = useState(null);
-  const [_isModalOpen, setIsModalOpen] = useState(false);
+  const [, setError] = useState(null);
+  const [, setIsModalOpen] = useState(false);
   const [isEditModalOpen, setIsEditModalOpen] = useState(false);
   const [selectedStudent, setSelectedStudent] = useState(null);
 
@@ -581,36 +581,44 @@ export default function StudentManagement() {
       </section>
 
       <AnimatePresence mode="wait">
-        {loading ? (
-          <motion.div 
-            key="loading"
-            variants={staggerContainer}
-            initial="hidden"
-            animate="show"
-            className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6"
-          >
-            {[...Array(6)].map((_, i) => (
-              <SkeletonCard key={i} className="h-48" />
-            ))}
-          </motion.div>
-        ) : students.length === 0 ? (
-          <EmptyState
-            key="empty"
-            title="No se encontraron alumnos"
-            description={searchQuery ? "Prueba con otros términos de búsqueda." : "Aún no hay alumnos registrados en el sistema."}
-            icon={<User size={48} />}
-          />
-        ) : (
-          <motion.div
-            key="list"
-            variants={staggerContainer}
-            initial="hidden"
-            animate="show"
-            className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6"
-          >
-            {students.map((student) => (
-              <motion.div key={student.id || student._id} variants={staggerItem}>
-                <GlassCard className="p-5 hover:border-brand-base/40 group transition-[border-color] duration-300 relative overflow-hidden h-full flex flex-col">
+        {(() => {
+          if (loading) return (
+            <motion.div
+              key="loading"
+              variants={staggerContainer}
+              initial="hidden"
+              animate="show"
+              className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6"
+            >
+              {Array.from({ length: 6 }, (_, i) => `student-skeleton-${i}`).map(id => (
+                <SkeletonCard key={id} className="h-48" />
+              ))}
+            </motion.div>
+          );
+          if (students.length === 0) return (
+            <EmptyState
+              key="empty"
+              illustration={<EmptyStudentsIllustration size={180} />}
+              variant={searchQuery ? 'filtered' : 'first-use'}
+              title={searchQuery ? 'Ningún alumno coincide con la búsqueda' : 'Sin alumnos registrados todavía'}
+              description={
+                searchQuery
+                  ? 'Prueba con otro nombre, aula o edad. Recuerda que los filtros acumulan criterios.'
+                  : 'Los alumnos aparecerán aquí cuando los profesores los registren. Puedes aprobar nuevas altas desde el panel de solicitudes.'
+              }
+            />
+          );
+          return (
+            <motion.div
+              key="list"
+              variants={staggerContainer}
+              initial="hidden"
+              animate="show"
+              className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6"
+            >
+              {students.map((student) => (
+                <motion.div key={student.id || student._id} variants={staggerItem}>
+                  <GlassCard className="p-5 hover:border-brand-base/40 group transition-[border-color] duration-300 relative overflow-hidden h-full flex flex-col">
                   {/* Acciones */}
                   <div className="absolute top-3 right-3 z-10">
                     <div className="relative">
@@ -694,20 +702,22 @@ export default function StudentManagement() {
                   </div>
 
                   <div className="mt-auto pt-4 border-t border-border-subtle space-y-3">
-                    <div className="flex items-center justify-between">
-                      <span className="text-xs uppercase tracking-wider text-text-muted font-bold">Profesor</span>
+                    <div className="flex items-center justify-between gap-3">
+                      <span className="text-xs uppercase tracking-wider text-text-muted font-bold shrink-0">Profesor</span>
                       <span className="text-xs text-text-primary font-medium truncate max-w-[160px]">
-                        {student.createdBy?.name || 'Sistema'}
+                        {/* createdBy puede venir poblado ({id, name}) o como string ObjectId.
+                            Si es objeto, mostramos el nombre; si es string sin populate o falta, "Sistema". */}
+                        {(typeof student.createdBy === 'object' && student.createdBy?.name) || 'Sistema'}
                       </span>
                     </div>
-                    <div className="flex items-center justify-between">
-                      <span className="text-xs uppercase tracking-wider text-text-muted font-bold">Estado</span>
+                    <div className="flex items-center justify-between gap-3">
+                      <span className="text-xs uppercase tracking-wider text-text-muted font-bold shrink-0">Estado</span>
                       <StatusBadge status={student.status === 'active' ? 'success' : 'inactive'} size="sm">
                         {student.status === 'active' ? 'Activo' : 'Inactivo'}
                       </StatusBadge>
                     </div>
-                    <div className="flex items-center justify-between">
-                      <span className="text-xs uppercase tracking-wider text-text-muted font-bold">Consentimiento</span>
+                    <div className="flex items-center justify-between gap-3">
+                      <span className="text-xs uppercase tracking-wider text-text-muted font-bold shrink-0">Consentimiento</span>
                       <StatusBadge
                         status={student.consent?.granted ? 'active' : 'error'}
                         size="sm"
@@ -720,8 +730,9 @@ export default function StudentManagement() {
                 </GlassCard>
               </motion.div>
             ))}
-          </motion.div>
-        )}
+            </motion.div>
+          );
+        })()}
       </AnimatePresence>
 
       {!loading && pagination.totalPages > 1 && (

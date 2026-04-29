@@ -5,21 +5,29 @@
  * @module services/gameEngine
  */
 
-const logger = require('../utils/logger').child({ component: 'gameEngine' });
-const gamePlayRepository = require('../repositories/gamePlayRepository');
-const gameSessionRepository = require('../repositories/gameSessionRepository');
-const userRepository = require('../repositories/userRepository');
-const redisService = require('./redisService');
-const { recalculateSessionStatusFromPlays } = require('./sessionStatusService');
-const { getMechanicStrategy } = require('../strategies/mechanics');
+const Sentry = require('@sentry/node');
+const logger = require('../../utils/logger').child({ component: 'gameEngine' });
+const userRepository = require('../../repositories/userRepository');
+const { SCAN_IGNORED_REASONS, PLAY_INTERRUPTED_REASONS } = require('../../constants/errorCodes');
+const redisService = require('../redisService');
+const { cacheInvalidateNamespace } = require('../../utils/cacheHelper');
+const { recalculateSessionStatusFromPlays } = require('../sessionStatusService');
+const { getMechanicStrategy } = require('../../strategies/mechanics');
 const {
   ensureMemoryBoardLayoutIsComplete
-} = require('../controllers/helpers/sessionValidationHelpers');
+} = require('../../controllers/helpers/sessionValidationHelpers');
+
+// Módulos extraídos del GameEngine para mejor mantenibilidad
+const timerManager = require('./timerManager');
+const stateHelpers = require('./stateHelpers');
+const recovery = require('./recovery');
 
 // Constantes de configuración
 // Umbral de alerta (soft limit) - no bloquea, solo emite warnings
 const ACTIVE_PLAYS_WARNING_THRESHOLD =
   Number.parseInt(process.env.ACTIVE_PLAYS_WARNING_THRESHOLD, 10) || 1000;
+// Límite duro de partidas activas simultáneas - protección contra OOM
+const ACTIVE_PLAYS_HARD_LIMIT = Number.parseInt(process.env.ACTIVE_PLAYS_HARD_LIMIT, 10) || 2000;
 const PLAY_TIMEOUT_MS = Number.parseInt(process.env.PLAY_TIMEOUT_MS, 10) || 3600000; // 1 hora
 const CLEANUP_INTERVAL_MS = 300000; // 5 minutos
 const PROCESS_BATCH_SIZE = Number.parseInt(process.env.GAME_ENGINE_BATCH_SIZE, 10) || 20;
@@ -32,6 +40,47 @@ const MEMORY_DEFAULT_HIDE_DELAY_MS = Number.parseInt(process.env.MEMORY_HIDE_DEL
 const MEMORY_FEEDBACK_PAUSE_MS = Number.parseInt(process.env.MEMORY_FEEDBACK_PAUSE_MS, 10) || 1400;
 const CHECKPOINT_INTERVAL_MS = Number.parseInt(process.env.CHECKPOINT_INTERVAL_MS, 10) || 120000; // 2 min
 const CHECKPOINT_EVENT_THRESHOLD = Number.parseInt(process.env.CHECKPOINT_EVENT_THRESHOLD, 10) || 5;
+
+/**
+ * Ventana de gracia post-`timeLimit` en la que el servidor sigue aceptando
+ * scans antes de marcar la ronda como timeout (PROP-79, ADR-089).
+ *
+ * Justificación: en Asociación con tiempos cortos (≤15s) la latencia de red
+ * + render del cliente puede dejar el scan en tránsito justo cuando expira el
+ * timer. Sin grace period, el backend descartaría el scan como `not_awaiting`
+ * y la ronda quedaría como "sin completar" pese al esfuerzo del jugador.
+ *
+ * El cliente sigue mostrando 0s cuando llega `timeLimit`; el buffer es
+ * imperceptible visualmente (150ms) pero captura los scans-borde.
+ *
+ * Sobrescribible vía env para QA / load testing.
+ */
+const ROUND_GRACE_PERIOD_MS = Number.parseInt(process.env.ROUND_GRACE_PERIOD_MS, 10) || 150;
+
+/**
+ * Ventana de agregación para logs de "tarjeta escaneada sin partida activa".
+ * Permite emitir un único log info por UID/ventana en lugar de spamear debug
+ * por cada scan. Síntoma típico de tarjetas mal asociadas o sensor en mal modo.
+ */
+const CARD_NOT_IN_PLAY_LOG_WINDOW_MS = 60_000;
+
+/**
+ * Umbral de alertas de contención de locks (cada N conflictos disparamos
+ * Sentry warning para detectar patrones de carga anómala).
+ */
+const LOCK_CONTENTION_ALERT_THRESHOLD = 100;
+
+/**
+ * Contador agrupado de scans `card_not_in_play` por UID en la ventana actual.
+ * Reseteado de forma perezosa cuando expira la ventana.
+ *
+ * @type {Map<string, { count: number, firstAt: number }>}
+ */
+const cardNotInPlayCounters = new Map();
+
+const resetCardNotInPlayCountersForTests = () => cardNotInPlayCounters.clear();
+
+const peekCardNotInPlayCountersForTests = () => Array.from(cardNotInPlayCounters.entries());
 
 /**
  * GameEngine - Servicio con estado para gestión de partidas en tiempo real.
@@ -118,6 +167,9 @@ class GameEngine {
       totalMemoryMatches: 0,
       averageRoundResponseTimeMs: 0,
       totalRoundResponses: 0,
+      // PROP-79 / ADR-089: cuántos scans habrían sido descartados sin la
+      // ventana de gracia post-timeout. Visible en /api/admin/metrics.
+      scansSavedByGracePeriod: 0,
       lockContention: 0,
       distributedLockLeaseRenewed: 0,
       distributedLockLeaseFailed: 0,
@@ -137,10 +189,19 @@ class GameEngine {
     if (process.env.NODE_ENV !== 'test') {
       this.startCleanupTimer();
       this.startLockHeartbeatTimer();
+
+      // Registrar callback para re-registrar card locks tras reconexión Redis.
+      // Cuando Redis se cae y vuelve, las card locks expiran. Este callback
+      // recrea las reservas de tarjetas para las partidas aún activas en memoria.
+      const { onReconnect } = require('../../config/redis');
+      onReconnect(async () => {
+        await this.reRegisterCardLocks();
+      });
     }
 
     logger.info('GameEngine inicializado', {
       activePlaysWarningThreshold: ACTIVE_PLAYS_WARNING_THRESHOLD,
+      activePlaysHardLimit: ACTIVE_PLAYS_HARD_LIMIT,
       playTimeoutMs: PLAY_TIMEOUT_MS,
       cleanupIntervalMs: CLEANUP_INTERVAL_MS,
       distributedLockTtlSeconds: DISTRIBUTED_LOCK_TTL_SECONDS,
@@ -150,124 +211,32 @@ class GameEngine {
     });
   }
 
-  /**
-   * Inicia el timer de cleanup para detectar y finalizar partidas abandonadas.
-   * Se ejecuta cada CLEANUP_INTERVAL_MS (5 minutos por defecto).
-   *
-   * @private
-   */
+  // ── Delegados a timerManager.js ──────────────────────────────────────────
   startCleanupTimer() {
-    this.cleanupInterval = setInterval(() => {
-      this.cleanupAbandonedPlays();
-    }, CLEANUP_INTERVAL_MS);
+    timerManager.startCleanupTimer(this);
   }
-
-  /**
-   * Detecta y limpia partidas que han estado activas por más tiempo del permitido.
-   * Previene memory leaks de partidas que nunca finalizaron correctamente.
-   *
-   * @private
-   */
-  async cleanupAbandonedPlays() {
-    const now = Date.now();
-    const abandonedPlays = [];
-
-    for (const [playId, playState] of this.activePlays.entries()) {
-      const timeSinceCreation = now - playState.createdAt;
-
-      if (timeSinceCreation > PLAY_TIMEOUT_MS) {
-        abandonedPlays.push(playId);
-      }
-    }
-
-    if (abandonedPlays.length > 0) {
-      logger.warn(`Detectadas ${abandonedPlays.length} partidas abandonadas, limpiando...`, {
-        playIds: abandonedPlays
-      });
-
-      await this.processInBatches(abandonedPlays, async playId => {
-        await this.endPlay(playId, { abandoned: true });
-      });
-    }
-
-    logger.debug('Cleanup ejecutado', {
-      activePlays: this.activePlays.size,
-      cardMappings: this.cardUidToPlayId.size,
-      metrics: this.metrics
-    });
-  }
-
-  /**
-   * Detiene el cleanup timer. Llamado durante el shutdown del servidor.
-   * @private
-   */
   stopCleanupTimer() {
-    if (this.cleanupInterval) {
-      clearInterval(this.cleanupInterval);
-      logger.info('Cleanup timer detenido');
-    }
+    timerManager.stopCleanupTimer(this);
   }
-
+  async cleanupAbandonedPlays() {
+    await timerManager.cleanupAbandonedPlays(this);
+  }
   startLockHeartbeatTimer() {
-    this.lockHeartbeatInterval = setInterval(() => {
-      this.refreshActivePlayLeases();
-    }, LOCK_HEARTBEAT_INTERVAL_MS);
+    timerManager.startLockHeartbeatTimer(this);
   }
-
   stopLockHeartbeatTimer() {
-    if (this.lockHeartbeatInterval) {
-      clearInterval(this.lockHeartbeatInterval);
-      logger.info('Lock heartbeat timer detenido');
-    }
+    timerManager.stopLockHeartbeatTimer(this);
   }
-
   async refreshActivePlayLeases() {
-    const activeEntries = Array.from(this.activePlays.entries());
-    if (activeEntries.length === 0) {
-      return;
-    }
-
-    await this.processInBatches(activeEntries, async ([playId, playState]) => {
-      await this.refreshPlayLease(playId, playState);
-    });
+    await timerManager.refreshActivePlayLeases(this);
+  }
+  async refreshPlayLease(playId, playState) {
+    await timerManager.refreshPlayLease(this, playId, playState);
   }
 
-  async refreshPlayLease(playId, playState) {
-    try {
-      const cardUids = (playState?.sessionDoc?.cardMappings || []).map(m => m.uid);
-
-      // Usar operación atómica Lua que renueva play key + todas las card keys en 1 EVALSHA.
-      // Con 20 tarjetas, pasa de ~61 round-trips a 1 solo comando.
-      const result = await redisService.renewLeaseAtomic(
-        redisService.NAMESPACES.PLAY,
-        playId,
-        redisService.NAMESPACES.CARD,
-        cardUids,
-        DISTRIBUTED_LOCK_TTL_SECONDS
-      );
-
-      this.metrics.luaRenewLeaseExecutions++;
-
-      if (result.playRenewed && result.cardsSkipped === 0) {
-        this.metrics.distributedLockLeaseRenewed++;
-      } else {
-        this.metrics.distributedLockLeaseFailed++;
-        if (result.cardsSkipped > 0) {
-          this.metrics.luaRenewLeasePartialFailures++;
-          logger.warn('Renovación parcial de lease: cards con owner distinto', {
-            playId,
-            cardsRenewed: result.cardsRenewed,
-            cardsSkipped: result.cardsSkipped
-          });
-        }
-      }
-    } catch (error) {
-      this.metrics.distributedLockLeaseFailed++;
-      logger.warn('No se pudo renovar lease distribuido de partida', {
-        playId,
-        error: error.message
-      });
-    }
+  // ── Delegados a recovery.js ────────────────────────────────────────────
+  async reRegisterCardLocks() {
+    await recovery.reRegisterCardLocks(this);
   }
 
   /**
@@ -283,6 +252,21 @@ class GameEngine {
 
     if (this.playLocks.has(playId) === true) {
       this.metrics.lockContention++;
+      // Alerta cada N conflictos: indica carga anómala (escaneos en cascada
+      // o muchas operaciones concurrentes sobre la misma partida).
+      if (this.metrics.lockContention % LOCK_CONTENTION_ALERT_THRESHOLD === 0) {
+        logger.warn('Alta contención de locks RFID', {
+          playId,
+          operationName,
+          contention: this.metrics.lockContention,
+          threshold: LOCK_CONTENTION_ALERT_THRESHOLD
+        });
+        Sentry.captureMessage('Lock contention spike RFID', {
+          level: 'warning',
+          tags: { module: 'gameEngine', path: 'executeWithPlayLock' },
+          extra: { playId, operationName, contention: this.metrics.lockContention }
+        });
+      }
     }
 
     const operationQueue =
@@ -415,17 +399,45 @@ class GameEngine {
     const playId = playDoc._id.toString();
 
     return this.executeWithPlayLock(playId, 'startPlay', async () => {
+      // Idempotencia distribuida: en despliegues multi-instancia con Socket.IO adapter,
+      // dos instancias pueden recibir start_play concurrentes para el mismo playId.
+      // SET NX con TTL 60s garantiza que solo una instancia ejecute el arranque.
+      // Si Redis cae, setIfNotExists retorna true → fallback al guard en memoria.
+      const acquired = await redisService.setIfNotExists(
+        redisService.NAMESPACES.PLAY_INIT_LOCK,
+        playId,
+        'initializing',
+        60
+      );
+      if (!acquired) {
+        logger.warn(
+          `Partida ${playId}: otra instancia ya está inicializando (lock distribuido activo)`
+        );
+        return;
+      }
+
       if (this.activePlays.has(playId)) {
         logger.warn(`Partida ${playId} ya estaba iniciada en memoria (idempotencia start_play)`);
         return;
       }
 
-      // 0. Verificar umbral de partidas activas (Monitorización - solo warning)
+      // 0a. Límite duro de partidas activas — protección contra OOM
+      if (this.activePlays.size >= ACTIVE_PLAYS_HARD_LIMIT) {
+        logger.error(
+          `Límite duro de partidas activas alcanzado: ${this.activePlays.size}/${ACTIVE_PLAYS_HARD_LIMIT}. Rechazando nueva partida.`
+        );
+        this.io.to(`play_${playId}`).emit('error', {
+          message:
+            'El servidor ha alcanzado el límite de partidas simultáneas. Inténtalo de nuevo más tarde.'
+        });
+        return;
+      }
+
+      // 0b. Verificar umbral de partidas activas (Monitorización - solo warning)
       if (this.activePlays.size >= ACTIVE_PLAYS_WARNING_THRESHOLD) {
         logger.warn(
           `Umbral de partidas activas alcanzado o superado: ${this.activePlays.size}/${ACTIVE_PLAYS_WARNING_THRESHOLD}`
         );
-        // Duda #21: No bloqueamos, solo alertamos
       }
 
       // 1. Bloquear las tarjetas para este juego
@@ -470,10 +482,11 @@ class GameEngine {
 
       // 3. Crear el estado en memoria
       // Garantizar que mechanicId esté poblado con su nombre
-      if (typeof sessionDoc.mechanicId !== 'object' || !sessionDoc.mechanicId?.name) {
-        if (typeof sessionDoc.populate === 'function') {
-          await sessionDoc.populate({ path: 'mechanicId', select: 'name rules' });
-        }
+      if (
+        (typeof sessionDoc.mechanicId !== 'object' || !sessionDoc.mechanicId?.name) &&
+        typeof sessionDoc.populate === 'function'
+      ) {
+        await sessionDoc.populate({ path: 'mechanicId', select: 'name rules' });
       }
       const mechanicName = sessionDoc.mechanicId?.name || null;
       if (!mechanicName) {
@@ -646,6 +659,15 @@ class GameEngine {
 
       await recalculateSessionStatusFromPlays(playState.playDoc.sessionId);
 
+      // Invalidar cache de analytics para garantizar frescura en el dashboard del profesor
+      // inmediatamente después de completar/abandonar la partida. Fire-and-forget.
+      cacheInvalidateNamespace('cache:analytics').catch(err => {
+        logger.warn('endPlay: fallo al invalidar cache:analytics (ignorado)', {
+          playId,
+          error: err.message
+        });
+      });
+
       logger.info(`Partida ${playId} guardada en BD`, {
         playId,
         score: playState.playDoc.score,
@@ -680,6 +702,20 @@ class GameEngine {
     // Limpiar de Redis
     await redisService.del(redisService.NAMESPACES.PLAY, playId);
 
+    // Liberar el lock distribuido de idempotencia. El TTL de 60s lo expiraría
+    // solo de todas formas, pero liberar explícitamente evita el caso "abort
+    // silencioso" si el cliente intenta reiniciar la misma partida justo tras
+    // un endPlay rápido (p. ej. F5 durante el finalize). Silenciamos el fallo
+    // porque el TTL es nuestra red de seguridad.
+    try {
+      await redisService.del(redisService.NAMESPACES.PLAY_INIT_LOCK, playId);
+    } catch (err) {
+      logger.warn('endPlay: fallo al liberar lock play:init (TTL lo expirará)', {
+        playId,
+        error: err.message
+      });
+    }
+
     logger.info(`Partida ${playId} finalizada y limpiada de memoria`, {
       activePlaysRemaining: this.activePlays.size
     });
@@ -689,34 +725,15 @@ class GameEngine {
   // LÓGICA DEL JUEGO
   // ============================================================================
 
+  // ── Delegados a stateHelpers.js ─────────────────────────────────────────
   isMemoryPlay(playState) {
-    return playState?.mechanicName === 'memory';
+    return stateHelpers.isMemoryPlay(playState);
   }
-
   getMemoryRemainingTimeMs(playState) {
-    if (!playState?.playEndsAt) {
-      return null;
-    }
-
-    return Math.max(0, playState.playEndsAt - Date.now());
+    return stateHelpers.getMemoryRemainingTimeMs(playState);
   }
-
   emitMemoryTurnState(playId, playState, extra = {}) {
-    const board = playState.mechanicStrategy.buildBoardForClient(playState.strategyState);
-    const matchedCount = Number(playState.strategyState?.matchedUids?.length || 0);
-    const totalCards = Number(playState.strategyState?.totalCards || board.length || 0);
-
-    this.io.to(`play_${playId}`).emit('memory_turn_state', {
-      playId,
-      board,
-      matchedCount,
-      totalCards,
-      attempts: Number(playState.strategyState?.attempts || 0),
-      remainingTimeMs: this.getMemoryRemainingTimeMs(playState),
-      awaitingResponse: Boolean(playState.awaitingResponse),
-      score: playState.playDoc.score,
-      ...extra
-    });
+    stateHelpers.emitMemoryTurnState(this, playId, playState, extra);
   }
 
   scheduleMemoryPlayTimeout(playId, playState, remainingTimeMs) {
@@ -764,6 +781,7 @@ class GameEngine {
     });
   }
 
+  // eslint-disable-next-line sonarjs/cyclomatic-complexity -- orquestacion central del juego de memoria, la complejidad es inherente al flujo
   async processMemoryScan(playId, playState, scannedCard) {
     const timeElapsed = playState.roundStartTime ? Date.now() - playState.roundStartTime : 0;
     const outcome = playState.mechanicStrategy.processScan({
@@ -785,15 +803,20 @@ class GameEngine {
     if (outcome.type === 'first_pick') {
       playState.roundStartTime = Date.now();
 
-      await playState.playDoc.addEvent({
-        eventType: 'card_scanned',
-        cardUid: scannedCard.uid,
-        expectedValue: scannedCard.assignedValue,
-        actualValue: scannedCard.assignedValue,
-        pointsAwarded: 0,
-        timeElapsed,
-        roundNumber: playState.playDoc.currentRound
-      });
+      try {
+        await playState.playDoc.addEvent({
+          eventType: 'card_scanned',
+          cardUid: scannedCard.uid,
+          expectedValue: scannedCard.assignedValue,
+          actualValue: scannedCard.assignedValue,
+          pointsAwarded: 0,
+          timeElapsed,
+          roundNumber: playState.playDoc.currentRound
+        });
+      } catch (err) {
+        await this._emitFatalScanError(playId, playState, err, 'processMemoryScan.firstPick');
+        return;
+      }
 
       this.emitMemoryTurnState(playId, playState, { phase: 'first_pick' });
       return;
@@ -816,18 +839,23 @@ class GameEngine {
     const firstCard = boardByUid.get(firstUid);
     const secondCard = boardByUid.get(secondUid);
 
-    await playState.playDoc.addEventAtomic(
-      {
-        eventType,
-        cardUid: secondUid || scannedCard.uid,
-        expectedValue: firstCard?.assignedValue,
-        actualValue: secondCard?.assignedValue,
-        pointsAwarded: Number(outcome.pointsAwarded || 0),
-        timeElapsed,
-        roundNumber: playState.playDoc.currentRound
-      },
-      { advanceRound: true }
-    );
+    try {
+      await playState.playDoc.addEventAtomic(
+        {
+          eventType,
+          cardUid: secondUid || scannedCard.uid,
+          expectedValue: firstCard?.assignedValue,
+          actualValue: secondCard?.assignedValue,
+          pointsAwarded: Number(outcome.pointsAwarded || 0),
+          timeElapsed,
+          roundNumber: playState.playDoc.currentRound
+        },
+        { advanceRound: true }
+      );
+    } catch (err) {
+      await this._emitFatalScanError(playId, playState, err, 'processMemoryScan.resolve');
+      return;
+    }
 
     await this.checkpointPlayIfNeeded(playId, playState);
 
@@ -920,6 +948,22 @@ class GameEngine {
       const remainingTimeMs = this.getMemoryRemainingTimeMs(playState);
       playState.awaitingResponse = true;
 
+      // En modo memoria el timer del backend solo arranca cuando el cliente
+      // confirma `board_ready`, por lo que `remainingTimeMs` puede ser null
+      // en este punto (al emitir el primer `new_round`). Si lo enviamos así,
+      // `Math.ceil((null||0)/1000) = 0` y el `Math.max(1, ...)` lo deja en
+      // 1 segundo, dejando la TimerBar fosilizada en `timeLimit=1` durante
+      // toda la partida (QA 26/04/2026 — el usuario reportó "la barra de
+      // tiempo no baja"). Para memoria publicamos siempre la duración total
+      // (`playDurationMs`) como `timeLimit`; el frontend la usa como
+      // `roundTime` y `useGameTimer` la sincroniza vía effect cuando el
+      // posterior `memory_turn_state` con `remainingTimeMs > 0` activa
+      // `memoryTimerArmed`.
+      const memoryTimeLimitSec = Math.max(
+        1,
+        Math.ceil((playState.playDurationMs || remainingTimeMs || 0) / 1000)
+      );
+
       this.io.to(`play_${playId}`).emit('new_round', {
         roundNumber: playState.playDoc.currentRound,
         totalRounds: Number(playState.strategyState?.totalGroups || 0),
@@ -928,7 +972,7 @@ class GameEngine {
             mode: 'memory_board'
           }
         },
-        timeLimit: Math.max(1, Math.ceil((remainingTimeMs || 0) / 1000)),
+        timeLimit: memoryTimeLimitSec,
         score: playState.playDoc.score
       });
 
@@ -994,12 +1038,15 @@ class GameEngine {
       });
     }
 
-    // 5. Emitir al cliente
+    // 5. Emitir al cliente. `promptText` opcional: en asociación el profesor
+    // puede personalizar la consigna por ronda (QA 2026-04-24, PROP-102).
+    // Si viene vacío, el cliente aplica el default "¿Dónde está <X>?".
     this.io.to(`play_${playId}`).emit('new_round', {
       roundNumber: playDoc.currentRound,
       totalRounds: sessionDoc.config.numberOfRounds,
       challenge: {
-        displayData: challengeMapping.displayData
+        displayData: challengeMapping.displayData,
+        promptText: challengeMapping.promptText || undefined
       },
       timeLimit: sessionDoc.config.timeLimit,
       score: playDoc.score
@@ -1009,10 +1056,16 @@ class GameEngine {
       `Ronda ${playDoc.currentRound} iniciada para ${playId}. Esperando tarjeta ${challengeMapping.uid}`
     );
 
-    // 6. Programar el timeout
-    playState.roundTimer = setTimeout(() => {
-      this.handleTimeout(playId);
-    }, sessionDoc.config.timeLimit * 1000);
+    // 6. Programar el timeout (con grace period — PROP-79/ADR-089).
+    // El cliente cree que el reloj llega a 0 a `timeLimit`, pero el servidor
+    // aún acepta scans durante `ROUND_GRACE_PERIOD_MS` extra. Esto evita que
+    // los scans en tránsito en el último frame se descarten como `not_awaiting`.
+    playState.roundTimer = setTimeout(
+      () => {
+        this.handleTimeout(playId);
+      },
+      sessionDoc.config.timeLimit * 1000 + ROUND_GRACE_PERIOD_MS
+    );
   }
 
   /**
@@ -1068,7 +1121,22 @@ class GameEngine {
     const playId = this.cardUidToPlayId.get(uid);
     if (!playId) {
       this.metrics.ignoredCardScans++;
-      logger.debug(`Tarjeta ${uid} escaneada, pero no pertenece a ningún juego activo.`);
+      // Agrupamos el log por UID/ventana de 60s para no inundar producción
+      // si alguien escanea repetidamente una tarjeta no registrada.
+      const existing = cardNotInPlayCounters.get(uid);
+      const now = Date.now();
+      if (!existing) {
+        cardNotInPlayCounters.set(uid, { count: 1, firstAt: now });
+      } else if (now - existing.firstAt > CARD_NOT_IN_PLAY_LOG_WINDOW_MS) {
+        logger.info('Tarjeta escaneada sin partida activa', {
+          uid,
+          occurrencesInWindow: existing.count,
+          windowMs: CARD_NOT_IN_PLAY_LOG_WINDOW_MS
+        });
+        cardNotInPlayCounters.set(uid, { count: 1, firstAt: now });
+      } else {
+        existing.count++;
+      }
       return;
     }
 
@@ -1080,6 +1148,9 @@ class GameEngine {
       if (playState?.paused || playState?.playDoc?.status === 'paused') {
         this.metrics.ignoredCardScans++;
         logger.debug(`Tarjeta ${uid} ignorada: partida ${playId} en pausa.`);
+        this.io
+          .to(`play_${playId}`)
+          .emit('scan_ignored', { uid, reason: SCAN_IGNORED_REASONS.PLAY_PAUSED });
         return;
       }
 
@@ -1089,6 +1160,9 @@ class GameEngine {
         // El juego existe, pero no está esperando una respuesta
         // (ej. escaneo demasiado rápido, o entre rondas)
         logger.debug(`Tarjeta ${uid} escaneada para ${playId}, pero no se esperaba respuesta.`);
+        this.io
+          .to(`play_${playId}`)
+          .emit('scan_ignored', { uid, reason: SCAN_IGNORED_REASONS.NOT_AWAITING });
         return;
       }
 
@@ -1100,6 +1174,9 @@ class GameEngine {
         logger.error(
           `Error CRÍTICO: ${uid} mapeado a ${playId} pero no encontrado en uidToMapping.`
         );
+        this.io
+          .to(`play_${playId}`)
+          .emit('scan_ignored', { uid, reason: SCAN_IGNORED_REASONS.CARD_NOT_IN_PLAY });
         return;
       }
 
@@ -1149,12 +1226,20 @@ class GameEngine {
     const { playDoc, sessionDoc, currentChallenge } = playState;
     const timeElapsed = Date.now() - playState.roundStartTime;
 
+    // PROP-79 / ADR-089: contar scans rescatados por la ventana de gracia.
+    // Si el tiempo transcurrido superó el `timeLimit` declarado al cliente,
+    // este scan llegó dentro del buffer extra del servidor y de no haber
+    // existido se habría descartado como `not_awaiting`.
+    const declaredLimitMs = (sessionDoc?.config?.timeLimit || 0) * 1000;
+    if (declaredLimitMs > 0 && timeElapsed > declaredLimitMs) {
+      this.metrics.scansSavedByGracePeriod++;
+    }
+
     // 1. Validar la respuesta
     const isCorrect = scannedCard.uid === currentChallenge.uid;
 
     let pointsAwarded = 0;
     let eventType;
-    const symbol = isCorrect ? '+' : '-';
 
     if (isCorrect) {
       pointsAwarded = sessionDoc.config.pointsPerCorrect;
@@ -1163,6 +1248,11 @@ class GameEngine {
       pointsAwarded = sessionDoc.config.penaltyPerError;
       eventType = 'error';
     }
+
+    // `penaltyPerError` ya viene con signo (e.g. -2), por lo que usamos el
+    // propio signo del valor en el log. El previo `symbol = '-'` producia
+    // `--2 pts` al concatenar con un valor negativo (QA 2026-04-24).
+    const symbol = pointsAwarded >= 0 ? '+' : '';
 
     // 2. Crear el evento para la BD
     const eventData = {
@@ -1175,11 +1265,14 @@ class GameEngine {
       roundNumber: playDoc.currentRound
     };
 
-    // 3. Guardar el evento y avanzar ronda en una sola operación atómica
+    // 3. Guardar el evento y avanzar ronda en una sola operación atómica.
+    //    Si falla la persistencia, interrumpimos la partida en lugar de
+    //    emitir un validation_result con score posiblemente incorrecto.
     try {
       await playDoc.addEventAtomic(eventData, { advanceRound: true });
     } catch (err) {
-      logger.error(`Error guardando evento en la BD para ${playId}: ${err.message}`);
+      await this._emitFatalScanError(playId, playState, err, 'processResponse');
+      return;
     }
 
     await this.checkpointPlayIfNeeded(playId, playState);
@@ -1257,8 +1350,15 @@ class GameEngine {
         roundNumber: playDoc.currentRound
       };
 
-      // 3. Guardar en BD y avanzar ronda en una sola operación atómica
-      await playDoc.addEventAtomic(eventData, { advanceRound: true });
+      // 3. Guardar en BD y avanzar ronda en una sola operación atómica.
+      //    Si falla la persistencia, interrumpimos la partida en lugar de
+      //    emitir un validation_result inconsistente.
+      try {
+        await playDoc.addEventAtomic(eventData, { advanceRound: true });
+      } catch (err) {
+        await this._emitFatalScanError(playId, playState, err, 'handleTimeout');
+        return;
+      }
 
       await this.checkpointPlayIfNeeded(playId, playState);
 
@@ -1283,107 +1383,59 @@ class GameEngine {
   // ============================================================================
 
   /**
-   * Obtiene el estado actual de una partida.
-   * Retorna una versión simplificada sin exponer los documentos Mongoose internos.
+   * Maneja un error fatal durante el procesamiento de un escaneo:
+   * loguea, notifica a Sentry, emite `play_interrupted` al cliente y
+   * cierra la partida de forma segura. Cualquier excepción durante
+   * `endPlay` se ignora para no escalar el fallo.
    *
-   * @param {string} playId - ID de la partida
-   * @returns {Object|null} Estado simplificado de la partida, o null si no existe
-   * @property {string} playId - ID de la partida
-   * @property {number} currentRound - Ronda actual
-   * @property {number} score - Puntuación actual
-   * @property {number} maxRounds - Total de rondas configuradas
-   */
-  getPlayState(playId) {
-    const playState = this.activePlays.get(playId);
-    if (!playState) {
-      return null;
-    }
-
-    const isMemoryMode = this.isMemoryPlay(playState);
-    const remainingTimeMs = this.getRealtimeRemainingTimeMs(playState);
-
-    const snapshot = {
-      playId: playState.playDoc._id.toString(),
-      status: playState.playDoc.status,
-      isPaused: Boolean(playState.paused || playState.playDoc?.status === 'paused'),
-      mechanicName: playState.mechanicName,
-      currentRound: playState.playDoc.currentRound,
-      score: playState.playDoc.score,
-      maxRounds: isMemoryMode
-        ? Number(playState.strategyState?.totalGroups || 0)
-        : playState.sessionDoc.config.numberOfRounds,
-      awaitingResponse: Boolean(playState.awaitingResponse),
-      remainingTimeMs,
-      timeLimitSeconds: isMemoryMode
-        ? Number(playState.playDurationMs || 0) / 1000
-        : Number(playState.sessionDoc?.config?.timeLimit || 0),
-      currentChallenge: playState.currentChallenge
-        ? {
-            uid: playState.currentChallenge.uid || null,
-            assignedValue: playState.currentChallenge.assignedValue || null,
-            displayData: playState.currentChallenge.displayData || null
-          }
-        : null
-    };
-
-    if (isMemoryMode) {
-      const board = playState.mechanicStrategy.buildBoardForClient(playState.strategyState);
-      snapshot.memoryState = {
-        board,
-        attempts: Number(playState.strategyState?.attempts || 0),
-        matchedCount: Number(playState.strategyState?.matchedUids?.length || 0),
-        totalCards: Number(playState.strategyState?.totalCards || board.length || 0)
-      };
-    }
-
-    return snapshot;
-  }
-
-  getRealtimeRemainingTimeMs(playState) {
-    if (!playState) {
-      return null;
-    }
-
-    if (this.isMemoryPlay(playState)) {
-      return this.getMemoryRemainingTimeMs(playState);
-    }
-
-    if (playState.paused || playState.playDoc?.status === 'paused') {
-      return this.getPlayRemainingTimeMs(playState);
-    }
-
-    if (
-      !playState.awaitingResponse ||
-      !playState.roundStartTime ||
-      !playState.sessionDoc?.config?.timeLimit
-    ) {
-      return null;
-    }
-
-    const totalMs = Number(playState.sessionDoc.config.timeLimit) * 1000;
-    const elapsedMs = Math.max(0, Date.now() - playState.roundStartTime);
-    return Math.max(0, totalMs - elapsedMs);
-  }
-
-  /**
-   * Obtiene contexto runtime ampliado para validaciones de seguridad socket.
    * @param {string} playId
-   * @returns {{ playId: string, sessionId: string, ownerId: string|null, sensorId: string|null, isPaused: boolean, awaitingResponse: boolean }|null}
+   * @param {Object} playState
+   * @param {Error} err
+   * @param {string} context Identificador del path (processResponse/Memory/Timeout)
    */
-  getPlayRuntimeContext(playId) {
-    const playState = this.activePlays.get(playId);
-    if (!playState) {
-      return null;
+  async _emitFatalScanError(playId, playState, err, context) {
+    const finalScore = playState?.playDoc?.score ?? 0;
+    logger.error('Fallo fatal procesando scan RFID', {
+      playId,
+      context,
+      err: err?.message,
+      stack: err?.stack
+    });
+    Sentry.captureException(err, {
+      tags: { module: 'gameEngine', path: context },
+      extra: { playId }
+    });
+    try {
+      this.io.to(`play_${playId}`).emit('play_interrupted', {
+        playId,
+        reason: PLAY_INTERRUPTED_REASONS.INTERNAL_ERROR,
+        message: 'Error interno procesando el escaneo. La partida se ha interrumpido.',
+        finalScore
+      });
+    } catch (emitErr) {
+      logger.warn('No se pudo emitir play_interrupted', {
+        playId,
+        emitErr: emitErr?.message
+      });
     }
+    try {
+      await this.endPlay(playId);
+    } catch (endErr) {
+      logger.warn('Error cerrando partida tras fallo fatal', {
+        playId,
+        endErr: endErr?.message
+      });
+    }
+  }
 
-    return {
-      playId: playState.playDoc._id.toString(),
-      sessionId: playState.sessionDoc?._id?.toString?.() || null,
-      ownerId: playState.sessionDoc?.createdBy?.toString?.() || null,
-      sensorId: playState.sessionDoc?.sensorId || null,
-      isPaused: Boolean(playState.paused || playState.playDoc?.status === 'paused'),
-      awaitingResponse: Boolean(playState.awaitingResponse)
-    };
+  getPlayState(playId) {
+    return stateHelpers.getPlayState(this, playId);
+  }
+  getRealtimeRemainingTimeMs(playState) {
+    return stateHelpers.getRealtimeRemainingTimeMs(playState);
+  }
+  getPlayRuntimeContext(playId) {
+    return stateHelpers.getPlayRuntimeContext(this, playId);
   }
 
   /**
@@ -1464,27 +1516,8 @@ class GameEngine {
     return { remainingTimeMs };
   }
 
-  /**
-   * Calcula el tiempo restante al momento de pausar.
-   */
   calculatePauseRemainingTime(playState) {
-    if (this.isMemoryPlay(playState)) {
-      return this.getMemoryRemainingTimeMs(playState);
-    }
-
-    if (
-      playState.currentChallenge &&
-      playState.roundStartTime &&
-      playState.sessionDoc?.config?.timeLimit &&
-      playState.awaitingResponse
-    ) {
-      const totalMs = playState.sessionDoc.config.timeLimit * 1000;
-      const elapsedMs = Math.max(0, Date.now() - playState.roundStartTime);
-      playState.roundElapsedBeforePauseMs = Math.min(totalMs, elapsedMs);
-      return Math.max(0, totalMs - playState.roundElapsedBeforePauseMs);
-    }
-
-    return null;
+    return stateHelpers.calculatePauseRemainingTime(playState);
   }
 
   /**
@@ -1503,68 +1536,20 @@ class GameEngine {
   }
 
   isPlayOwner(playState, requestedBy) {
-    if (!requestedBy) {
-      return true;
-    }
-
-    const ownerId =
-      playState.sessionDoc?.createdBy?.toString?.() || playState.sessionDoc?.createdBy;
-    if (!ownerId) {
-      return true;
-    }
-
-    return ownerId.toString() === requestedBy.toString();
+    return stateHelpers.isPlayOwner(playState, requestedBy);
   }
 
-  /**
-   * Programa un timer transitorio asociado al estado de una partida.
-   * Se auto-elimina del Set al dispararse y se limpia con clearPlayTimers().
-   * Uso principal: delays de ocultación de cartas en modo memory.
-   *
-   * @private
-   * @param {Object} playState - Estado de la partida
-   * @param {Function} callback - Función a ejecutar tras el delay
-   * @param {number} delayMs - Milisegundos de espera
-   * @returns {NodeJS.Timeout} Referencia al timer
-   */
   scheduleTransientTimer(playState, callback, delayMs) {
-    const timer = setTimeout(() => {
-      playState.transientTimers.delete(timer);
-      callback();
-    }, delayMs);
-    playState.transientTimers.add(timer);
-    return timer;
+    return timerManager.scheduleTransientTimer(playState, callback, delayMs);
   }
-
   clearPlayTimers(playState) {
-    if (playState.roundTimer) {
-      clearTimeout(playState.roundTimer);
-      playState.roundTimer = null;
-    }
-    if (playState.nextRoundTimer) {
-      clearTimeout(playState.nextRoundTimer);
-      playState.nextRoundTimer = null;
-    }
-    if (playState.playTimer) {
-      clearTimeout(playState.playTimer);
-      playState.playTimer = null;
-    }
-    if (playState.transientTimers) {
-      for (const timer of playState.transientTimers) {
-        clearTimeout(timer);
-      }
-      playState.transientTimers.clear();
-    }
+    timerManager.clearPlayTimers(playState);
   }
-
   getPlayRemainingTimeMs(playState) {
-    return playState.remainingTimeMs ?? playState.playDoc.remainingTime ?? null;
+    return stateHelpers.getPlayRemainingTimeMs(playState);
   }
-
   restoreRoundStartTime(playState) {
-    if (playState.currentChallenge && typeof playState.roundElapsedBeforePauseMs === 'number') {
-      playState.roundStartTime = Date.now() - playState.roundElapsedBeforePauseMs;
-    }
+    stateHelpers.restoreRoundStartTime(playState);
   }
 
   async persistPlayResumed(playId, playState) {
@@ -1603,6 +1588,15 @@ class GameEngine {
     playState.awaitingBoardReady = false;
     playState.playEndsAt = Date.now() + playState.playDurationMs;
     this.scheduleMemoryPlayTimeout(playId, playState, playState.playDurationMs);
+
+    // Re-emitir estado del tablero para que el cliente reciba ya un
+    // `remainingTimeMs > 0` y active `memoryTimerArmed`. Sin esto, el primer
+    // `memory_turn_state` (emitido al `new_round`) viajaba con
+    // `remainingTimeMs = null` (porque playEndsAt aún no estaba seteado);
+    // los `memory_turn_state` siguientes solo se emiten al levantar cartas,
+    // así que la barra del cliente no podía empezar a decrementar hasta
+    // que el alumno tocaba la primera carta (QA 26/04/2026).
+    this.emitMemoryTurnState(playId, playState, { phase: 'round_start' });
 
     logger.info('Timer de memoria iniciado tras board_ready', {
       playId,
@@ -1656,11 +1650,13 @@ class GameEngine {
       playState.pausedDuringFeedback = false;
       playState.awaitingResponse = !wasPausedDuringFeedback;
 
-      if (this.isMemoryPlay(playState)) {
-        if (typeof remainingTimeMs === 'number' && remainingTimeMs > 0) {
-          playState.playEndsAt = Date.now() + remainingTimeMs;
-          this.scheduleMemoryPlayTimeout(playId, playState, remainingTimeMs);
-        }
+      if (
+        this.isMemoryPlay(playState) &&
+        typeof remainingTimeMs === 'number' &&
+        remainingTimeMs > 0
+      ) {
+        playState.playEndsAt = Date.now() + remainingTimeMs;
+        this.scheduleMemoryPlayTimeout(playId, playState, remainingTimeMs);
       }
 
       // Persistir en BD
@@ -1694,9 +1690,10 @@ class GameEngine {
         typeof remainingTimeMs === 'number' &&
         remainingTimeMs > 0
       ) {
+        // Grace period también al reanudar tras pausa (PROP-79/ADR-089).
         playState.roundTimer = setTimeout(() => {
           this.handleTimeout(playId);
-        }, remainingTimeMs);
+        }, remainingTimeMs + ROUND_GRACE_PERIOD_MS);
       }
 
       // Si la pausa ocurrió durante el delay entre rondas, avanzar a la siguiente
@@ -1839,172 +1836,26 @@ class GameEngine {
     }
   }
 
-  /**
-   * Recupera las partidas activas de Redis y las marca como abandonadas.
-   * Este método se llama durante el arranque del servidor para limpiar
-   * partidas que quedaron huérfanas tras un reinicio.
-   *
-   * @async
-   * @returns {Promise<number>} Número de partidas recuperadas/abandonadas
-   */
+  // ── Delegados a recovery.js ──────────────────────────────────────────
   async recoverActivePlays() {
-    try {
-      const playKeys = await redisService.scanByNamespace(redisService.NAMESPACES.PLAY);
-      let recoveredCount = 0;
-
-      // 1) Recuperar partidas con estado en Redis
-      if (playKeys.length > 0) {
-        logger.info(`Recuperando ${playKeys.length} partidas de Redis...`);
-
-        const recoveredResults = [];
-        await this.processInBatches(playKeys, async key => {
-          const playId = key.replace(`${redisService.NAMESPACES.PLAY}:`, '');
-          const recovered = await this.recoverPlayFromRedis(playId);
-          recoveredResults.push(recovered);
-        });
-
-        recoveredCount = recoveredResults.filter(Boolean).length;
-      }
-
-      // 2) Recuperar partidas huérfanas en DB sin estado en Redis
-      const orphanedCount = await this.recoverOrphanedPlaysFromDB();
-      recoveredCount += orphanedCount;
-
-      if (recoveredCount > 0) {
-        logger.info(
-          `Recuperación completada: ${recoveredCount} partidas marcadas como abandonadas`
-        );
-      } else {
-        logger.info('No hay partidas activas para recuperar');
-      }
-
-      return recoveredCount;
-    } catch (error) {
-      logger.error('Error durante la recuperación de partidas:', { error: error.message });
-      return 0;
-    }
+    return recovery.recoverActivePlays(this);
   }
-
-  /**
-   * Recupera partidas atascadas en estado in-progress/paused en DB
-   * que no tienen entrada correspondiente en Redis (p.ej. tras reinicio de Redis).
-   */
   async recoverOrphanedPlaysFromDB() {
-    try {
-      const orphanedPlays = await gamePlayRepository.find({
-        status: { $in: ['in-progress', 'paused'] }
-      });
-
-      if (orphanedPlays.length === 0) {
-        return 0;
-      }
-
-      // Pipeline batch: verificar todas las plays en Redis en 1 round-trip
-      // en vez del patrón N+1 anterior (hgetall individual por partida).
-      const playIds = orphanedPlays.map(p => p._id.toString());
-      const redisStates = await redisService.hgetallMany(redisService.NAMESPACES.PLAY, playIds);
-      this.metrics.pipelineRecoveryBatchSize = playIds.length;
-
-      let count = 0;
-      for (const play of orphanedPlays) {
-        const playId = play._id.toString();
-        const redisState = redisStates.get(playId);
-        // Solo marcar como abandonada si realmente no está en Redis (huérfana)
-        if (!redisState) {
-          await this.markPlayAbandonedIfNeeded(playId, play);
-          count++;
-        }
-      }
-
-      if (count > 0) {
-        logger.info(`${count} partidas huérfanas en DB marcadas como abandonadas`);
-      }
-      return count;
-    } catch (err) {
-      logger.error('Error al recuperar partidas huérfanas de DB:', { error: err.message });
-      return 0;
-    }
+    return recovery.recoverOrphanedPlaysFromDB(this);
   }
-
   async recoverPlayFromRedis(playId) {
-    try {
-      const redisState = await redisService.hgetall(redisService.NAMESPACES.PLAY, playId);
-      if (!redisState) {
-        return false;
-      }
-
-      const playDoc = await gamePlayRepository.findById(redisState.playDocId);
-      if (!playDoc) {
-        logger.warn(`Partida ${playId} en Redis pero no en MongoDB, limpiando...`);
-        await redisService.del(redisService.NAMESPACES.PLAY, playId);
-        await this.cleanupSessionCardMappings(redisState.sessionDocId, playId);
-        return false;
-      }
-
-      const wasRecovered = await this.markPlayAbandonedIfNeeded(playId, playDoc);
-
-      await redisService.del(redisService.NAMESPACES.PLAY, playId);
-      await this.cleanupSessionCardMappings(redisState.sessionDocId, playId);
-
-      return wasRecovered;
-    } catch (err) {
-      logger.error(`Error al recuperar partida ${playId}:`, { error: err.message });
-      return false;
-    }
+    return recovery.recoverPlayFromRedis(this, playId);
   }
-
   async markPlayAbandonedIfNeeded(playId, playDoc) {
-    if (playDoc.status !== 'in-progress' && playDoc.status !== 'paused') {
-      return false;
-    }
-
-    playDoc.status = 'abandoned';
-    playDoc.completedAt = new Date();
-    playDoc.events.push({
-      timestamp: new Date(),
-      eventType: 'server_restart',
-      roundNumber: playDoc.currentRound,
-      pointsAwarded: 0
-    });
-
-    await playDoc.save();
-    await recalculateSessionStatusFromPlays(playDoc.sessionId);
-
-    logger.info(`Partida ${playId} marcada como abandonada (reinicio del servidor)`);
-
-    if (this.io) {
-      this.io.to(`play_${playId}`).emit('play_interrupted', {
-        playId,
-        reason: 'server_restart',
-        message: 'La partida fue interrumpida por un reinicio del servidor.',
-        finalScore: playDoc.score
-      });
-    }
-
-    return true;
+    return recovery.markPlayAbandonedIfNeeded(this, playId, playDoc);
   }
-
-  async cleanupSessionCardMappings(sessionDocId, playId = null) {
-    if (!sessionDocId) {
-      return;
-    }
-
-    const sessionDoc = await gameSessionRepository.findById(sessionDocId);
-    if (!sessionDoc?.cardMappings) {
-      return;
-    }
-
-    const cardUids = sessionDoc.cardMappings.map(mapping => mapping.uid);
-
-    if (playId) {
-      // Usar liberación atómica Lua (owner-aware) para consistencia
-      await this.releaseDistributedCardMappings(playId, cardUids);
-      return;
-    }
-
-    // Sin playId conocido: borrar todas las keys de card sin verificación de owner
-    await redisService.delMany(redisService.NAMESPACES.CARD, cardUids);
+  async cleanupSessionCardMappings(sessionDocId, playId) {
+    return recovery.cleanupSessionCardMappings(this, sessionDocId, playId);
   }
 }
 
 module.exports = GameEngine;
+module.exports.CARD_NOT_IN_PLAY_LOG_WINDOW_MS = CARD_NOT_IN_PLAY_LOG_WINDOW_MS;
+module.exports.LOCK_CONTENTION_ALERT_THRESHOLD = LOCK_CONTENTION_ALERT_THRESHOLD;
+module.exports.resetCardNotInPlayCountersForTests = resetCardNotInPlayCountersForTests;
+module.exports.peekCardNotInPlayCountersForTests = peekCardNotInPlayCountersForTests;

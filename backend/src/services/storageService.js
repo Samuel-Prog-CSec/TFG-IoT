@@ -131,7 +131,7 @@ class StorageService {
 
     // Sanitizar la base: solo alfanuméricos y guiones bajos
     const sanitizedBase = base
-      .replaceAll(/[^a-zA-Z0-9]/g, '_')
+      .replaceAll(/[^a-z0-9]/gi, '_')
       .replaceAll(/_+/g, '_') // Colapsar múltiples guiones bajos
       .replaceAll(/(^_)|(_$)/g, '') // Eliminar guiones al inicio/final
       .substring(0, STORAGE_CONFIG.MAX_FILENAME_LENGTH);

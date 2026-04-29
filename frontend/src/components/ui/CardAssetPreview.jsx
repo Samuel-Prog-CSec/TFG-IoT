@@ -4,6 +4,8 @@ import { CreditCard } from 'lucide-react';
 import { cn } from '../../lib/utils';
 import { getBestAssetImageUrl } from '../../lib/cardMapping';
 
+const MAX_RETRIES = 2;
+
 export default function CardAssetPreview({
   asset,
   alt,
@@ -14,29 +16,72 @@ export default function CardAssetPreview({
   fallbackClassName,
   fallbackIcon = <CreditCard size={16} className="text-text-muted" />,
   fallbackLabel,
-  showSkeleton = true
+  showSkeleton = true,
+  largeFallback = false,
+  onImageError
 }) {
   const imageUrl = getBestAssetImageUrl(asset);
   const dominantColor = asset?.dominantColor;
   const [imageError, setImageError] = useState(false);
   const [imageLoading, setImageLoading] = useState(Boolean(imageUrl));
+  // Retries permite recuperarse de fallos transitorios (red inestable, 5xx puntual).
+  // Cada retry invalida la cache del navegador con ?retry=N para forzar fetch nuevo.
+  const [retries, setRetries] = useState(0);
 
-  // Reset state when asset image URL changes
+  // Reset total cuando cambia la URL fuente (asset distinto).
   useEffect(() => {
     setImageError(false);
     setImageLoading(Boolean(imageUrl));
+    setRetries(0);
   }, [imageUrl]);
 
-  // Callback ref: detecta imágenes que ya se cargaron desde cache
-  // antes de que React adjunte el handler onLoad
+  // Callback ref: detecta imagenes que ya se cargaron desde cache antes de
+  // que React adjunte el handler onLoad. Tambien sincroniza el estado cuando
+  // un re-render reusa el mismo <img> con el mismo src (caso comun en juegos
+  // donde se barajan las cartas pero los assets se repiten entre rondas).
   const imgRef = useCallback((node) => {
-    if (node?.complete && node.naturalWidth > 0) {
+    if (!node) return;
+    if (node.complete && node.naturalWidth > 0) {
+      setImageLoading(false);
+      setImageError(false);
+    } else if (node.complete && node.naturalWidth === 0 && retries >= MAX_RETRIES) {
+      // Imagen completed sin dimensiones reales = error de carga.
+      // Solo marcamos error si ya agotamos los reintentos.
+      setImageError(true);
       setImageLoading(false);
     }
-  }, []);
+  }, [retries]);
+
+  const handleError = useCallback(() => {
+    if (retries < MAX_RETRIES) {
+      setRetries(r => r + 1);
+      setImageLoading(true);
+      return;
+    }
+    setImageError(true);
+    setImageLoading(false);
+    if (typeof onImageError === 'function') {
+      onImageError(imageUrl);
+    }
+  }, [retries, imageUrl, onImageError]);
+
+  // Cada retry añade ?retry=N al src para bypasear el cache del error.
+  let displaySrc = null;
+  if (imageUrl) {
+    if (retries > 0) {
+      const separator = imageUrl.includes('?') ? '&' : '?';
+      displaySrc = `${imageUrl}${separator}retry=${retries}`;
+    } else {
+      displaySrc = imageUrl;
+    }
+  }
 
   const shouldShowImage = Boolean(imageUrl) && !imageError;
-  const fallbackText = asset?.display || fallbackLabel;
+  // Preferimos fallbackLabel explicito del caller sobre asset.display porque
+  // el caller suele tener mejor contexto sobre que mostrar (e.g. "Vaca" vs
+  // un emoji decorativo del seeder). Si no se pasa fallbackLabel, caemos a
+  // asset.display como antes.
+  const fallbackText = fallbackLabel || asset?.display;
 
   return (
     <div
@@ -62,7 +107,7 @@ export default function CardAssetPreview({
           {/* eslint-disable-next-line jsx-a11y/no-noninteractive-element-interactions -- onLoad/onError are lifecycle events, not user interactions */}
           <img
             ref={imgRef}
-            src={imageUrl}
+            src={displaySrc}
             alt={alt || asset?.value || 'Asset'}
             className={cn(
               'w-full h-full transition-opacity duration-400 ease-out',
@@ -71,7 +116,7 @@ export default function CardAssetPreview({
               imageClassName
             )}
             onLoad={() => setImageLoading(false)}
-            onError={() => { setImageError(true); setImageLoading(false); }}
+            onError={handleError}
             loading={loading}
             decoding="async"
           />
@@ -85,11 +130,22 @@ export default function CardAssetPreview({
           title={fallbackText || undefined}
         >
           {fallbackText ? (
-            <span className={cn(
-              'select-none truncate max-w-full font-medium text-text-secondary',
-              // Base size for general use; consumers can override via fallbackClassName
-              'text-[0.65rem] leading-tight'
-            )}>{fallbackText}</span>
+            // aria-hidden defensivo cuando el consumidor pide alt="": indica que
+            // el contenido NO debe ser accesible (caso MemoryBoard cara oculta).
+            // Si el alt tiene texto el consumidor quiere que sea legible y dejamos
+            // el span sin aria-hidden para que los lectores lo expongan.
+            <span
+              aria-hidden={alt === '' ? 'true' : undefined}
+              className={cn(
+                'select-none truncate max-w-full font-medium text-text-secondary leading-tight',
+                // largeFallback: usado cuando el consumidor sabe que el fallback debe
+                // ser legible para sustituir una imagen que deberia haber cargado
+                // (caso FallbackTouchPanel). Escala con el tamaño de la tarjeta.
+                largeFallback ? 'text-sm sm:text-base font-semibold text-text-primary' : 'text-[0.65rem]'
+              )}
+            >
+              {fallbackText}
+            </span>
           ) : (
             fallbackIcon
           )}
@@ -115,5 +171,7 @@ CardAssetPreview.propTypes = {
   fallbackClassName: PropTypes.string,
   fallbackIcon: PropTypes.node,
   fallbackLabel: PropTypes.string,
-  showSkeleton: PropTypes.bool
+  showSkeleton: PropTypes.bool,
+  largeFallback: PropTypes.bool,
+  onImageError: PropTypes.func
 };

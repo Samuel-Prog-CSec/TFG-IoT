@@ -73,7 +73,12 @@ const InputPremium = ({
           id={inputId}
           type={type}
           aria-invalid={hasError}
-          aria-describedby={hasError ? `${inputId}-error` : hint ? `${inputId}-hint` : undefined}
+          aria-describedby={(() => {
+            if (hasError) return `${inputId}-error`;
+            if (hint) return `${inputId}-hint`;
+            if (helperText) return `${inputId}-helper`;
+            return undefined;
+          })()}
           className={cn(
             'w-full bg-background-elevated border rounded-xl px-4 py-3',
             'text-text-primary placeholder:text-text-muted',
@@ -100,26 +105,31 @@ const InputPremium = ({
 
       {/* Hint o Error con AnimatePresence */}
       <AnimatePresence mode="wait">
-        {hasError ? (
-          <motion.p
-            key="error"
-            initial={shouldReduceMotion ? false : { opacity: 0, y: -4, height: 0 }}
-            animate={{ opacity: 1, y: 0, height: 'auto' }}
-            exit={shouldReduceMotion ? undefined : { opacity: 0, y: -4, height: 0 }}
-            transition={{ duration: DURATION.feedback, ease: EASING.outQuart }}
-            id={`${inputId}-error`}
-            className="mt-1.5 text-sm text-error-base"
-          >
-            {error}
-          </motion.p>
-        ) : hint ? (
-          <p id={`${inputId}-hint`} className="mt-1.5 text-sm text-text-muted">
-            {hint}
-          </p>
-        ) : null}
+        {(() => {
+          if (hasError) return (
+            <motion.p
+              key="error"
+              initial={shouldReduceMotion ? false : { opacity: 0, y: -4, height: 0 }}
+              animate={{ opacity: 1, y: 0, height: 'auto' }}
+              exit={shouldReduceMotion ? undefined : { opacity: 0, y: -4, height: 0 }}
+              transition={{ duration: DURATION.feedback, ease: EASING.outQuart }}
+              id={`${inputId}-error`}
+              role="alert"
+              className="mt-1.5 text-sm text-error-base"
+            >
+              {error}
+            </motion.p>
+          );
+          if (hint) return (
+            <p id={`${inputId}-hint`} className="mt-1.5 text-sm text-text-muted">
+              {hint}
+            </p>
+          );
+          return null;
+        })()}
       </AnimatePresence>
       {helperText && !hasError && !hint && (
-        <p className="mt-1.5 text-xs text-text-muted">{helperText}</p>
+        <p id={`${inputId}-helper`} className="mt-1.5 text-xs text-text-muted">{helperText}</p>
       )}
     </div>
   );

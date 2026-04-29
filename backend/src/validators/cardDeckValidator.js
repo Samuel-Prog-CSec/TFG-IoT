@@ -8,6 +8,7 @@
 
 const { z } = require('zod');
 const { objectIdSchema, paginationSchema, uidSchema } = require('./commonValidator');
+const { DECK_STATUS } = require('../constants/enums');
 
 /**
  * Schema para un mapeo de token RFID fungible dentro de un mazo.
@@ -64,7 +65,10 @@ const createCardDeckSchema = z
       .min(2, 'Debe haber al menos 2 cardMappings')
       .max(20, 'No pueden haber más de 20 cardMappings'),
 
-    status: z.enum(['active', 'archived']).optional().default('active'),
+    status: z
+      .enum([...DECK_STATUS])
+      .optional()
+      .default('active'),
 
     createdBy: objectIdSchema.optional()
   })
@@ -77,16 +81,6 @@ const createCardDeckSchema = z
     {
       message:
         'Los UIDs en cardMappings deben ser únicos (no se puede usar la misma tarjeta dos veces)',
-      path: ['cardMappings']
-    }
-  )
-  .refine(
-    data => {
-      const assignedValues = data.cardMappings.map(m => m.assignedValue);
-      return assignedValues.length === new Set(assignedValues).size;
-    },
-    {
-      message: 'No puede haber valores asignados duplicados en cardMappings',
       path: ['cardMappings']
     }
   );
@@ -118,7 +112,7 @@ const updateCardDeckSchema = z
       .max(20, 'No pueden haber más de 20 cardMappings')
       .optional(),
 
-    status: z.enum(['active', 'archived']).optional()
+    status: z.enum([...DECK_STATUS]).optional()
   })
   .strict()
   .refine(data => Object.keys(data).length > 0, {
@@ -136,19 +130,6 @@ const updateCardDeckSchema = z
       message: 'Los UIDs en cardMappings deben ser únicos',
       path: ['cardMappings']
     }
-  )
-  .refine(
-    data => {
-      if (!data.cardMappings) {
-        return true;
-      }
-      const assignedValues = data.cardMappings.map(m => m.assignedValue);
-      return assignedValues.length === new Set(assignedValues).size;
-    },
-    {
-      message: 'No puede haber valores asignados duplicados en cardMappings',
-      path: ['cardMappings']
-    }
   );
 
 /**
@@ -159,7 +140,7 @@ const cardDeckQuerySchema = paginationSchema.extend({
 
   contextId: objectIdSchema.optional(),
 
-  status: z.enum(['active', 'archived']).optional(),
+  status: z.enum([...DECK_STATUS]).optional(),
 
   search: z.string().trim().min(1).max(100).optional()
 });

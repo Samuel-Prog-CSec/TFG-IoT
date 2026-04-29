@@ -963,3 +963,32 @@ El servidor mantiene varias estructuras de datos en memoria (Maps de JavaScript)
 | Dashboard tiempo real   | Baja      | Polling suficiente               |
 
 La implementación del sistema de modos permite que un único sensor RFID sirva múltiples propósitos de forma segura y sin conflictos.
+
+---
+
+## Notas de mantenimiento (2026-04-12)
+
+### Auth revalidation cache — ventana de 30s para tokens revocados
+
+La revalidación de JWT en eventos sensibles de Socket.IO (`join_play`, `rfid_scan_from_client`, etc.) usa un cache in-memory de 30 segundos (`AUTH_REVALIDATION_CACHE_TTL_MS`). Esto significa que un token revocado sigue siendo válido para operaciones socket hasta 30 segundos después de la revocación.
+
+**Justificación:** Para el caso de uso del proyecto (profesores en aula, decenas de usuarios), esta ventana es aceptable. La alternativa (verificar en Redis/DB en cada evento) añadiría latencia significativa a los escaneos RFID que requieren respuesta < 100ms.
+
+**Decisión:** Se implementó invalidación inmediata vía `authEventBus` para el caso de `revokeAllUserTokens()` (logout forzado, detección de robo). Las entradas del userId se purgan instantáneamente del cache. Para revocación individual, el TTL de 30s cubre el caso (impacto mínimo). Ver ADR-043.
+
+### Hard cap en caches in-memory
+
+Los caches `authRevalidationCache` y `playOwnershipCache` ahora tienen un hard cap de `CACHE_SWEEP_THRESHOLD` (default 2000 entradas). Si el cache llega al límite incluso tras un sweep de entradas expiradas, las nuevas entradas se descartan con un warning. En uso normal, los caches no superan unas pocas decenas de entradas.
+
+### Arquitectura de namespaces Socket.IO (ADR-044)
+
+El sistema utiliza dos namespaces Socket.IO:
+
+| Namespace | Propósito | Auth | Rate Limiting |
+|-----------|-----------|------|---------------|
+| `/` (default) | Sistema: connect, disconnect, session_invalidated, rfid_mode_changed | Sí (con conteo de conexiones) | No |
+| `/game` | Gameplay: join_play, start_play, rfid_scan, card_assignment, y todos los eventos de partida | Sí (sin conteo — reutiliza conexión) | Sí |
+
+**Frontend:** El `SocketService` gestiona dos conexiones multiplexadas sobre el mismo WebSocket. Métodos `on`/`emit` operan en el namespace default; `onGame`/`emitGame` operan en `/game`.
+
+**Backend:** El `GameEngine` recibe la referencia al namespace `/game` y emite gameplay events directamente. El `socketHandlers.js` registra handlers separados para cada namespace: el default maneja conexión/desconexión y RFID mode; `/game` maneja todos los comandos de juego con rate limiting.

@@ -2,11 +2,12 @@ import { useState, useEffect } from 'react';
 import PropTypes from 'prop-types';
 import { Outlet, NavLink, useLocation } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
-import { ROUTES, NAV_ROUTES, ADMIN_NAV_ROUTES } from '../../constants/routes';
+import { NAV_ROUTES, ADMIN_NAV_ROUTES } from '../../constants/routes';
 import {
   Shield, Layers, X, Menu, LogOut,
   LayoutDashboard, CalendarClock, Palette, PlusCircle,
-  UserCheck, ArrowRightLeft, Users, TrendingUp, Zap, ZapOff
+  UserCheck, ArrowRightLeft, Users, TrendingUp, Zap, ZapOff,
+  ChevronRight
 } from 'lucide-react';
 import EduPlayIcon from '../icons/EduPlayIcon';
 
@@ -23,9 +24,10 @@ const ICON_MAP = {
   TrendingUp,
 };
 import { useAuth } from '../../context/AuthContext';
-import { cn } from '../../lib/utils';
+import { cn, motionConfig } from '../../lib/utils';
 import { useIsMobile } from '../../hooks/useIsMobile';
 import { useReducedMotion } from '../../hooks/useReducedMotion';
+import ConfirmationModal, { useConfirmationModal } from '../ui/ConfirmationModal';
 
 export default function AppLayout() {
   const [sidebarOpen, setSidebarOpen] = useState(false);
@@ -33,6 +35,21 @@ export default function AppLayout() {
   const location = useLocation();
   const { user, logout, isSuperAdmin } = useAuth();
   const { shouldReduceMotion, setUserPreference, resetUserPreference } = useReducedMotion();
+  const logoutModal = useConfirmationModal();
+
+  // Confirmacion al cerrar sesion: un click accidental pierde filtros y
+  // estado de navegacion (PROP-85). Variant warning (no danger) porque es
+  // reversible — re-login recupera el acceso.
+  const handleLogoutClick = () => {
+    logoutModal.openModal({
+      title: '¿Cerrar sesión?',
+      description: 'Se cerrará tu sesión actual. Tendrás que volver a iniciar sesión para acceder de nuevo.',
+      variant: 'warning',
+      confirmText: 'Cerrar sesión',
+      cancelText: 'Cancelar',
+      onConfirm: logout,
+    });
+  };
 
   // Close sidebar on route change (mobile)
   useEffect(() => {
@@ -45,7 +62,31 @@ export default function AppLayout() {
   }
 
   return (
-    <div className="flex h-screen bg-background-base text-text-primary font-sans overflow-hidden">
+    // El scroll vive en el viewport (body/html), no en `<main>`: teclado
+    // (PageDown/End/Home), "pull to refresh" mobile y capturas fullPage de
+    // Playwright funcionan nativamente (QA 2026-04-24, PROP-100).
+    // La sidebar se pega con `sticky top-0 h-screen` en desktop; mobile mantiene
+    // `fixed` porque usa `motion.aside` con transform para abrir/cerrar.
+    <div className="flex min-h-screen bg-background-base text-text-primary font-sans relative">
+      {/* Pseudo-fondo de columna sidebar (desktop): extiende el color base + borde
+          al alto completo del flex container. Sin esto, cuando el `<main>` supera
+          la altura del viewport, la sidebar sticky (`h-screen`) deja al descubierto
+          el body por debajo, lo que produce una franja visual diferente en
+          páginas largas (Sessions, Dashboard, StudentProfile — QA 2026-04-29). */}
+      <div
+        aria-hidden="true"
+        className="hidden lg:block absolute inset-y-0 left-0 w-72 bg-background-base border-r border-border-subtle pointer-events-none z-0"
+      />
+
+      {/* Banner superior para super_admin: refuerza rol y aporta firma visual.
+          4px fijos arriba del viewport, no interactuable, gradient warning→accent. */}
+      {isSuperAdmin && (
+        <div
+          aria-hidden="true"
+          className="pointer-events-none fixed top-0 left-0 right-0 h-1 z-[55] bg-gradient-to-r from-warning-base via-accent-orange to-warning-base"
+        />
+      )}
+
       {/* Skip Link — accesibilidad WCAG 2.4.1 */}
       <a
         href="#main-content"
@@ -89,13 +130,16 @@ export default function AppLayout() {
         animate={{
           x: sidebarOffset,
         }}
-        transition={{ type: 'spring', damping: 30, stiffness: 300 }}
+        transition={motionConfig.spring}
+        aria-label="Navegación principal"
         className={cn(
-          'fixed lg:relative z-50',
-          'w-72 h-full',
+          // Mobile: `fixed` con animación de transform; desktop: `sticky top-0`
+          // para quedarse pegada mientras el body hace scroll.
+          'fixed lg:sticky lg:top-0 z-50',
+          'w-72 h-screen lg:h-screen',
           'bg-background-base/90 backdrop-blur-xl',
           'border-r border-border-subtle',
-          'flex flex-col',
+          'flex flex-col flex-shrink-0',
           'shadow-2xl shadow-black/40'
         )}
       >
@@ -111,13 +155,21 @@ export default function AppLayout() {
         {/* Logo */}
         <div className="p-6 border-b border-border-subtle">
           <div className="flex items-center gap-3">
-            <div className="size-10 rounded-xl bg-gradient-to-br from-brand-base to-accent-indigo flex items-center justify-center shadow-[0_4px_16px_var(--color-brand-glow)]">
+            <motion.div
+              className="size-10 rounded-xl bg-gradient-to-br from-brand-base to-accent-indigo flex items-center justify-center shadow-[0_4px_16px_var(--color-brand-glow)]"
+              animate={shouldReduceMotion ? undefined : { scale: [1, 1.04, 1], boxShadow: [
+                '0 4px 16px var(--color-brand-glow)',
+                '0 4px 20px var(--color-brand-glow)',
+                '0 4px 16px var(--color-brand-glow)',
+              ] }}
+              transition={shouldReduceMotion ? { duration: 0 } : { duration: 4, repeat: Infinity, ease: 'easeInOut' }}
+            >
               <EduPlayIcon size={20} className="text-white" />
-            </div>
+            </motion.div>
             <div>
-              <h1 className="text-xl font-bold gradient-text-brand font-display tracking-tight">
+              <span className="text-xl font-bold gradient-text-brand font-display tracking-tight" role="banner">
                 EduPlay
-              </h1>
+              </span>
               <p className="text-xs text-text-muted font-medium">
                 {isSuperAdmin ? 'Panel de administración' : 'Portal del profesor'}
               </p>
@@ -130,8 +182,8 @@ export default function AppLayout() {
           <div className="flex items-center gap-3">
             <div className={cn(
               "size-10 rounded-full flex items-center justify-center text-white font-bold shadow-md",
-              isSuperAdmin 
-                ? "bg-gradient-to-br from-warning-base to-accent-orange" 
+              isSuperAdmin
+                ? "bg-gradient-to-br from-warning-base to-accent-orange"
                 : "bg-gradient-to-br from-brand-base to-accent-pink"
             )}>
               {user?.name?.charAt(0)?.toUpperCase() || 'U'}
@@ -140,13 +192,25 @@ export default function AppLayout() {
               <p className="text-sm font-medium text-text-primary truncate" title={user?.name || 'Usuario'}>
                 {user?.name || 'Usuario'}
               </p>
-              <p className="text-xs text-text-muted truncate" title={user?.email || 'Sin email'}>
-                {user?.email || 'Sin email'}
-              </p>
+              <div className="flex items-center gap-1.5 mt-0.5">
+                <span
+                  className={cn(
+                    'inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md text-[10px] font-bold uppercase tracking-wider',
+                    isSuperAdmin
+                      ? 'bg-warning-base/15 text-warning-base border border-warning-base/30'
+                      : 'bg-brand-base/15 text-brand-light border border-brand-base/30'
+                  )}
+                >
+                  {isSuperAdmin ? 'Dirección' : 'Docente'}
+                </span>
+                <p className="text-[10px] text-text-muted truncate" title={user?.email || 'Sin email'}>
+                  {user?.email || 'Sin email'}
+                </p>
+              </div>
             </div>
             {isSuperAdmin && (
               <div className="flex items-center justify-center size-6 rounded-full bg-warning-base/20">
-                <Shield size={12} className="text-warning-base" />
+                <Shield size={12} className="text-warning-base" aria-hidden="true" />
               </div>
             )}
           </div>
@@ -198,8 +262,10 @@ export default function AppLayout() {
 
         {/* Footer Actions */}
         <div className="p-4 border-t border-transparent bg-gradient-to-r from-transparent via-border-default/50 to-transparent space-y-1">
-          {/* Toggle de movimiento reducido */}
+          {/* Toggle de movimiento reducido (preferencia de a11y).
+              Estilizado como switch en lugar de nav item para que se distinga de los enlaces. */}
           <button
+            type="button"
             onClick={() => {
               if (shouldReduceMotion) {
                 resetUserPreference();
@@ -207,13 +273,31 @@ export default function AppLayout() {
                 setUserPreference('reduce');
               }
             }}
-            className="flex items-center gap-3 w-full px-4 py-2.5 text-text-muted hover:text-text-primary hover:bg-white/5 rounded-xl transition-colors duration-200"
-            aria-label={shouldReduceMotion ? 'Activar animaciones' : 'Reducir animaciones'}
+            role="switch"
+            aria-checked={!shouldReduceMotion}
+            aria-label="Animaciones"
             title={shouldReduceMotion ? 'Animaciones desactivadas' : 'Animaciones activadas'}
+            className="flex items-center justify-between w-full px-4 py-2 rounded-xl text-text-muted hover:text-text-primary hover:bg-white/5 transition-colors duration-200"
           >
-            {shouldReduceMotion ? <ZapOff size={18} /> : <Zap size={18} />}
-            <span className="font-medium text-xs text-text-disabled">
-              {shouldReduceMotion ? 'Movimiento reducido' : 'Animaciones activas'}
+            <span className="flex items-center gap-3">
+              {shouldReduceMotion ? <ZapOff size={16} aria-hidden="true" /> : <Zap size={16} aria-hidden="true" />}
+              <span className="font-medium text-xs uppercase tracking-wider text-text-secondary">
+                Animaciones
+              </span>
+            </span>
+            <span
+              aria-hidden="true"
+              className={cn(
+                'relative inline-flex h-4 w-7 items-center rounded-full transition-colors',
+                shouldReduceMotion ? 'bg-background-surface/60' : 'bg-brand-base/70'
+              )}
+            >
+              <span
+                className={cn(
+                  'inline-block h-3 w-3 transform rounded-full bg-text-primary shadow transition-transform',
+                  shouldReduceMotion ? 'translate-x-0.5' : 'translate-x-3'
+                )}
+              />
             </span>
           </button>
 
@@ -225,7 +309,7 @@ export default function AppLayout() {
             <span className="font-medium text-sm">Privacidad</span>
           </NavLink>
           <button
-            onClick={logout}
+            onClick={handleLogoutClick}
             className="flex items-center gap-3 w-full px-4 py-3 text-error-base hover:bg-error-base/10 rounded-xl transition-colors duration-200"
           >
             <LogOut size={20} />
@@ -234,65 +318,98 @@ export default function AppLayout() {
         </div>
       </motion.aside>
 
-      {/* Main Content */}
-      <main id="main-content" className="flex-1 overflow-auto relative custom-scrollbar pb-16">
+      {/* Main Content — sin overflow propio, el scroll vive en body/html
+          (PROP-100). El `pb-16` sigue reservando margen bajo el widget RFID
+          flotante para que no tape la última fila de la página. */}
+      <main id="main-content" className="flex-1 relative pb-16 min-w-0">
         {/* Subtle Grid Pattern for Depth */}
         <div className="absolute inset-0 bg-grid opacity-20 pointer-events-none" />
 
-        {/* Page Content — fade-in simple sin exit animation para máxima fiabilidad */}
+        {/* Page Content — fade-in al montar sin animación de salida.
+            Se retiró AnimatePresence porque la combinación lazy-loaded Outlet +
+            Suspense fallback + popLayout dejaba el motion.div saliente
+            atascado en exit state (opacity:0) al navegar entre rutas /admin/*
+            cuando el chunk entrante tardaba en resolver (QA 22/04/2026).
+            Con key={pathname} React desmonta el motion.div anterior y monta
+            uno nuevo con initial→animate; el resultado visual es un fade-in
+            limpio sin riesgo de pantalla en blanco. */}
         <div className="relative z-10 w-full min-h-full">
           <motion.div
             key={location.pathname}
-            initial={shouldReduceMotion ? false : { opacity: 0 }}
-            animate={{ opacity: 1 }}
-            transition={{ duration: 0.2, ease: [0.16, 1, 0.3, 1] }}
+            initial={shouldReduceMotion ? false : { opacity: 0, y: 8 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.22, ease: [0.16, 1, 0.3, 1] }}
             className="w-full"
           >
             <Outlet />
           </motion.div>
         </div>
       </main>
+
+      {/* Modal de confirmacion de cierre de sesion (PROP-85) */}
+      <ConfirmationModal {...logoutModal.modalProps} />
     </div>
   );
 }
 
 function NavItem({ to, icon, label }) {
+  // Rutas "hijas" que deben activar el mismo item del sidebar.
+  // Ej: /students/:id es parte del area "Mis Alumnos" (listado en /analytics/students).
+  const location = useLocation();
+  const isParentOf = to === '/analytics/students' && location.pathname.startsWith('/students/');
+
+  // Forzar match exacto en /admin/students para que /admin/students/transfer
+  // no marque ALSO el item "Alumnos" (que comparte prefix con "Transferencias").
+  const exactMatch = to === '/admin/students';
+
   return (
     <NavLink
       to={to}
+      end={exactMatch}
       className={({ isActive }) =>
         cn(
           'flex items-center gap-3 px-4 py-3 rounded-xl transition-colors duration-200 group relative overflow-hidden',
-          isActive
+          (isActive || isParentOf)
             ? 'text-brand-light font-medium bg-brand-base/10 border border-brand-base/20'
             : 'text-text-secondary hover:text-text-primary hover:bg-background-surface/50 font-medium'
         )
       }
     >
-      {({ isActive }) => (
-        <motion.div
-          className="flex items-center gap-3 w-full"
-          whileHover={!isActive ? { x: 4 } : {}}
-          transition={{ type: 'spring', stiffness: 400, damping: 25 }}
-        >
-          {/* Active indicator bar */}
-          {isActive && (
-            <motion.div
-              layoutId="activeIndicator"
-              className="absolute left-0 top-1/2 -translate-y-1/2 w-1 h-6 bg-gradient-to-b from-brand-light to-brand-base rounded-r-full shadow-[0_0_10px_var(--color-brand-glow)]"
-              transition={{ type: 'spring', stiffness: 300, damping: 30 }}
-            />
-          )}
+      {({ isActive }) => {
+        const active = isActive || isParentOf;
+        return (
+          <motion.div
+            className="flex items-center gap-3 w-full"
+            whileHover={!active ? { x: 4 } : {}}
+            transition={motionConfig.spring}
+          >
+            {active && (
+              <motion.div
+                layoutId="activeIndicator"
+                className="absolute left-0 top-1/2 -translate-y-1/2 w-1 h-8 bg-gradient-to-b from-brand-light to-brand-base rounded-r-full shadow-[0_0_10px_var(--color-brand-glow)]"
+                transition={motionConfig.spring}
+              />
+            )}
 
-          <span className={cn(
-            'relative z-10 transition-transform duration-200',
-            isActive ? 'text-brand-light' : 'text-text-muted group-hover:text-text-primary'
-          )}>
-            {icon}
-          </span>
-          <span className="relative z-10 text-sm">{label}</span>
-        </motion.div>
-      )}
+            <span className={cn(
+              'relative z-10 transition-transform duration-200',
+              active ? 'text-brand-light' : 'text-text-muted group-hover:text-text-primary'
+            )}>
+              {icon}
+            </span>
+            <span className="relative z-10 text-sm flex-1">{label}</span>
+            <span
+              aria-hidden="true"
+              className={cn(
+                'relative z-10 text-text-muted opacity-0 -translate-x-1 transition-[opacity,transform] duration-200',
+                active ? 'opacity-60 translate-x-0 text-brand-light' : 'group-hover:opacity-70 group-hover:translate-x-0'
+              )}
+            >
+              <ChevronRight size={14} />
+            </span>
+          </motion.div>
+        );
+      }}
     </NavLink>
   );
 }

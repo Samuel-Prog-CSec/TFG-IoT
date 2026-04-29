@@ -3,11 +3,15 @@
 ## Contexto
 
 El proyecto tiene una implementacion de rate limiting dual:
-- **HTTP**: `express-rate-limit` v8.3 + `rate-limit-redis` v4.3 (7 limiters, Redis store)
-- **WebSocket**: Clase custom `SocketRateLimiter` (sliding window en memoria, no Redis)
+- **HTTP**: `express-rate-limit` v8.3 + `rate-limit-redis` v4.3 (7 limiters, Redis store).
+- **WebSocket**: Clase custom `SocketRateLimiter` con **path Redis distribuido**
+  (Lua atómico + ZSET) + fallback in-memory transparente (ADR-075, 2026-04-23).
 
 Despliegue previsto: MongoDB Atlas, backend en Heroku/fly.io, frontend en Vercel/fly.io.
-Gap principal: WebSocket rate limiting no usa Redis (no distribuido).
+
+> **Estado 2026-04-23:** los dos gaps históricos (HTTP distribuido en ADR-068 y
+> WebSocket distribuido en ADR-075) están resueltos. El proyecto puede ejecutarse
+> en N instancias con rate limit consistente.
 
 ---
 
@@ -318,3 +322,126 @@ Leer este documento con calma y decidir entre:
 - **Hibrido**: rate-limiter-flexible solo para WS + express-rate-limit para HTTP
 
 Fecha del analisis: 2026-04-03
+
+---
+
+## 8. Hardening del fallback in-memory (Mantenimiento 2026-04-20)
+
+### Decisión aplicada
+
+Tras la auditoría de la sesión de mantenimiento, se decidió:
+
+1. **Aplazar la migración WS distribuido (Opcion A) al Sprint 6** por alcance. Se documenta como PROP-59 en `documentation/propuestas-mejora.md` con estructura Redis Sorted Set + Lua detallada.
+2. **Endurecer la observabilidad del fallback in-memory de HTTP en esta iteración** (ADR-067).
+
+### Cambios implementados
+
+`config/security.js → createRedisStore`:
+
+- Cuando retorna `undefined` en `NODE_ENV==='production'`, emite `logger.error({ alert: true, fallback: 'memory', prefix, reason })` para que llegue a Sentry con tag de alerta. En desarrollo, sigue siendo `warn`.
+- Nuevo helper interno `reportFallback(reason, extra)` centraliza el reporte y el `recordRateLimitStoreFallback()` de `runtimeMetrics`.
+- Comentario de deuda técnica: la re-creación lazy del store tras reconexión de Redis queda pendiente de decisión arquitectónica en Sprint 6. Por ahora, si Redis cae al boot, los limiters quedan anclados a memoria hasta reinicio del proceso.
+
+`utils/runtimeMetrics.js`:
+
+- Nuevo contador `redis.rateLimitStoreFallbackCount` expuesto en `/api/metrics` junto con `redis.authUserCacheHits/Misses` (del ADR-065).
+- Función `recordRateLimitStoreFallback()` invocada por `createRedisStore` en cada fallback detectado.
+
+### Impacto observacional
+
+Un operador puede ahora:
+
+- Ver en Sentry cada fallback con contexto (prefix, reason, timestamp).
+- Consultar `/api/metrics` para el contador agregado desde boot.
+- Detectar la fragmentación del límite en multi-instancia por el crecimiento del contador (si todas las réplicas reportan fallback, el problema es Redis; si solo una, es una anomalía local).
+
+### Deuda técnica restante (Sprint 6)
+
+La re-creación lazy del store cuando Redis vuelve requiere reset del estado interno del limiter de forma segura. Se acota a una decisión de arquitectura propia. Hasta entonces, el operador debe reiniciar el proceso tras una recuperación de Redis para restaurar el límite distribuido.
+
+Ver también **ADR-067** en `documentation/Architecture_Decisions.md`.
+
+---
+
+## 9. Promoción lazy a Redis store — deuda técnica resuelta (Mantenimiento 2026-04-20 tarde)
+
+### Contexto
+
+La auditoría QA posterior al despliegue de ADR-067 confirmó empíricamente lo que el propio ADR anticipaba: los 8 rate limiters entraban en fallback a `MemoryStore` siempre al boot (`rateLimitStoreFallbackCount == 8`, keys `rl:*` ausentes en Redis incluso tras cientos de requests). La razón: `require('./config/security')` se ejecuta al top de `server.js`, antes de `await connectRedis()` dentro de `startServer()` (~270 ms antes). `createRedisStore()` recibía `getRedis() == null` y los limiters se anclaban a memoria para el resto de la vida del proceso.
+
+El rate-limiting distribuido del ADR-016 (T-521) era, en la práctica, **letra muerta** en cualquier despliegue multi-instancia real.
+
+### Decisión aplicada
+
+Refactor a factory deferida con middleware shim en `config/security.js`:
+
+1. `createRateLimiter(options)` ahora registra la config en `limiterConfigs` y devuelve un middleware **shim**. El shim delega al limiter real cuando éste exista en `rateLimitersRegistry`; antes de la inicialización hace `next()` (fail-open durante la ventana de boot < 2 s, siempre previa a `server.listen()`).
+2. Nueva función `initRateLimiters()` (idempotente) instancia los 8 limiters reales con `rate-limit-redis` ya operativo. Invocada desde `server.js` justo tras `await connectRedis()` en el happy path, o tras el warning dev si Redis no está disponible.
+3. `passOnStoreError: true`: si Redis cae mid-request, `express-rate-limit` deja pasar el request (fail-open) en vez de devolver 500. Evita tirar el servicio entero durante blips.
+4. Helper compartido `utils/ipHelper.js::userOrIpKeyGenerator` reemplaza los 5 `keyGenerator` inline duplicados en security.js. Usa `ipKeyGenerator` de `express-rate-limit` para normalizar IPv6 al `/64` (elimina `ValidationError: Custom keyGenerator appears to use request IP...`).
+
+El contrato público de los exports (`globalRateLimiter`, `authRateLimiter`, etc.) se preserva: las 11 rutas que los consumen no necesitan cambios.
+
+### Verificación post-despliegue
+
+- **Boot limpio**: logs muestran `Rate limiters HTTP inicializados { count: 8 }` inmediatamente después de `Redis conectado`. Sin `Rate limiter fallback a MemoryStore`.
+- **Keys en Redis**: tras el primer request, `KEYS rfid-games:rl:*` devuelve entradas por prefix (`rl:global:172.18.0.1`, `rl:auth:172.18.0.1`, `rl:analytics:user:<id>`…).
+- **Métricas**: `/api/metrics` ahora incluye `redis.rateLimitStoreFallbackCount == 0` en operación normal (antes 8 al boot). También `authUserCacheHits/Misses` visibles desde ese endpoint (resolviendo la promesa rota del commit a52e62e — ver ADR-068).
+- **Resilience**: `docker stop rfid-games-redis` + requests concurrentes → backend sigue respondiendo (HTTP 200 en `/health`, `RestartCount` del contenedor queda en 0). Antes del fix, el handler de `unhandledRejection` disparaba `gracefulShutdown` y mataba el proceso; ahora solo loguea + Sentry.
+
+### Referencias
+
+- **ADR-068** en `documentation/Architecture_Decisions.md` — decisión y trade-offs completos
+- `backend/src/config/security.js` — registry, `initRateLimiters`, `createLimiterShim`
+- `backend/src/utils/ipHelper.js` — helper compartido IPv6-safe
+- `backend/src/server.js` — invocación post-`connectRedis`
+- `backend/tests/rateLimitRedisStore.test.js` — tests del shim e idempotencia
+
+### Deuda técnica pendiente
+
+PROP-59 (migración WebSocket a Redis Sorted Set distribuido) sigue en Sprint 6. El rate-limit HTTP queda cerrado como distribuido real.
+
+---
+
+## Dedupe RFID diferenciado por `source` (PROP-90 / ADR-090)
+
+A partir del cierre de Sprint 5 el dedupe de eventos `rfid_scan_from_client` deja de aplicar un único cooldown global y pasa a discriminar según el campo `source` del payload.
+
+### Tabla de cooldowns
+
+| `source` del payload | Cooldown | Razón |
+|---|---|---|
+| `web_serial_hardware`, `web_serial` | **1200 ms** | Anti-chattering del lector RC522. Una misma tarjeta apoyada sobre el sensor puede generar dos lecturas casi consecutivas. |
+| `touch_fallback` | **250 ms** | Taps en el panel táctil que sustituye al sensor cuando no está disponible (mecánica Asociación). |
+| `touch_memory_flip` | **250 ms** | Taps sobre cartas en la mecánica Memoria — el alumno alterna entre cartas distintas y necesita poder encadenar. |
+| Cualquier otro / ausente | `defaultCooldownMs = 1200 ms` | Fallback conservador para fuentes no declaradas. |
+
+### Clave de dedupe
+
+`{rateKey}:{sensorId || 'unknown'}:{source || 'default'}`
+
+Incluir `source` en la clave evita que dos fuentes distintas se "ahoguen" mutuamente (un tap táctil no extiende el cooldown del sensor real ni viceversa).
+
+### Configuración
+
+`backend/src/config/socketRateLimits.js`:
+
+```js
+const rfidDedupeConfig = {
+  defaultCooldownMs: 1200,
+  cooldownMsBySource: {
+    web_serial_hardware: 1200,
+    web_serial: 1200,
+    touch_fallback: 250,
+    touch_memory_flip: 250
+  }
+};
+```
+
+### Cliente
+
+El frontend (`useGameSocket.js`) aplica el mismo mapa **y envía explícitamente** `source: 'touch_fallback'` desde `emitFallbackScan` y `source: 'touch_memory_flip'` desde `emitMemoryCardTap`. La política backend se mantiene como capa defensiva final.
+
+### Tests
+
+`backend/tests/socketRateLimiter.test.js` cubre los 5 escenarios principales (cooldown corto que permite, cooldown corto que bloquea, hardware mantiene su cooldown largo, fuente ausente cae en default, sources distintos no se ahogan entre sí).

@@ -1,48 +1,11 @@
-import { memo, useEffect, useRef } from 'react';
-import { motion, animate } from 'framer-motion';
-import { ArrowUpRight, ArrowDownRight } from 'lucide-react';
+import { memo } from 'react';
+import { motion } from 'framer-motion';
+import { ArrowUpRight, ArrowDownRight, ChevronRight } from 'lucide-react';
 import PropTypes from 'prop-types';
-import { cn, EASING } from '../../lib/utils';
-import { useReducedMotion } from '../../hooks/useReducedMotion';
+import { cn, motionConfig } from '../../lib/utils';
+import { isNeutralDelta } from '../../lib/formatDelta';
 import GlassCard from '../ui/GlassCard';
-
-/**
- * Componente interno para animar un numero de 0 al valor final.
- * Soporta sufijos (ej: "45%").
- * Si el valor no es numerico, lo renderiza directamente.
- */
-function AnimatedNumber({ value }) {
-  const { shouldReduceMotion } = useReducedMotion();
-  const ref = useRef(null);
-
-  // Parse numeric part and suffix
-  const strValue = String(value);
-  const match = strValue.match(/^(\d+(?:\.\d+)?)(.*)/);
-  const numericPart = match ? parseFloat(match[1]) : null;
-  const suffix = match ? match[2] : '';
-
-  useEffect(() => {
-    if (numericPart === null || shouldReduceMotion || !ref.current) return;
-
-    const controls = animate(0, numericPart, {
-      duration: 1.2,
-      ease: EASING.outExpo,
-      onUpdate(latest) {
-        if (ref.current) {
-          ref.current.textContent = `${Math.round(latest)}${suffix}`;
-        }
-      },
-    });
-
-    return () => controls.stop();
-  }, [numericPart, suffix, shouldReduceMotion]);
-
-  if (numericPart === null || shouldReduceMotion) {
-    return <span>{value}</span>;
-  }
-
-  return <span ref={ref}>0{suffix}</span>;
-}
+import AnimatedNumber from '../ui/AnimatedNumber';
 
 /**
  * Tarjeta de estadísticas del dashboard
@@ -53,17 +16,34 @@ function AnimatedNumber({ value }) {
  * @param {React.ReactNode} props.icon - Icono de la tarjeta
  * @param {string} props.color - Clase de color para el fondo del icono
  * @param {string} [props.periodLabel] - Etiqueta del periodo comparativo (ej: "vs semana pasada")
+ * @param {boolean} [props.higherIsBetter=true] - Semantica del delta. false para
+ *   metricas donde subir es peor (tiempo medio, alumnos en riesgo, abandono).
  */
-function StatCard({ title, value, trend, icon, color, periodLabel = 'vs semana pasada' }) {
-  // Determinar si el trend es positivo o negativo
-  const isPositive = !trend.startsWith('-');
-  const TrendIcon = isPositive ? ArrowUpRight : ArrowDownRight;
+function StatCard({ title, value, trend, icon, color, periodLabel = 'vs semana pasada', compact = false, onClick, higherIsBetter = true }) {
+  // Determinar si hay valor de tendencia para renderizar el pill RAG.
+  // Si trend es vacio (caso "Alumnos en Riesgo" / "Partidas Hoy" sin histórico),
+  // renderizamos un pill neutro con sólo el periodLabel para preservar la altura
+  // de la card y evitar el bug de pill verde con flecha sin valor numerico.
+  //
+  // PROP-88: cuando el helper `formatDelta` devuelve "—" (sin baseline, primer
+  // dato), tratamos el trend como un valor pero lo pintamos en pill neutro
+  // (sin verde/rojo, sin flecha) — comunica "no hay comparación posible aún"
+  // sin transmitir ni positividad ni alarma.
+  const hasTrendValue = typeof trend === 'string' && trend.length > 0;
+  const isNeutralTrend = hasTrendValue && isNeutralDelta(trend);
+  const trendGoesUp = hasTrendValue && !isNeutralTrend && !trend.startsWith('-');
+  // isPositive = delta "bueno" segun la semantica de la metrica.
+  // Para metricas donde subir es peor (tiempo medio, alumnos en riesgo),
+  // un delta positivo se pinta en rojo y uno negativo en verde.
+  const isPositive = hasTrendValue && !isNeutralTrend && (higherIsBetter ? trendGoesUp : !trendGoesUp);
+  const TrendIcon = trendGoesUp ? ArrowUpRight : ArrowDownRight;
 
   return (
     <motion.article
       whileHover={{ y: -4, scale: 1.01 }}
       whileTap={{ scale: 0.99 }}
-      transition={{ type: 'spring', stiffness: 400, damping: 25 }}
+      transition={motionConfig.spring}
+      onClick={onClick}
       aria-label={`${title}: ${value}`}
       className="group cursor-pointer relative block h-full"
     >
@@ -71,14 +51,23 @@ function StatCard({ title, value, trend, icon, color, periodLabel = 'vs semana p
         variant="default"
         padding="none"
         className={cn(
-          "h-full p-6 transition-[box-shadow,border-color] duration-300",
+          "h-full transition-[box-shadow,border-color] duration-300",
+          compact ? "p-4" : "p-6",
           "hover:shadow-[0_8px_32px_rgba(0,0,0,0.3)] hover:border-border-strong"
         )}
       >
+        {/* Indicador de navegacion (solo si la tarjeta es clickable) */}
+        {onClick && (
+          <ChevronRight
+            className="absolute top-5 right-5 size-4 text-text-muted opacity-0 group-hover:opacity-60 transition-opacity duration-200"
+            aria-hidden="true"
+          />
+        )}
+
         {/* Icon Badge */}
         <div className={cn(
-          "absolute top-5 right-5",
-          "size-12 rounded-xl",
+          compact ? "absolute top-4 right-4" : "absolute top-5 right-5",
+          compact ? "size-10 rounded-lg" : "size-12 rounded-xl",
           "flex items-center justify-center",
           "transition-transform duration-300 group-hover:scale-110 group-hover:rotate-3",
           color,
@@ -88,28 +77,48 @@ function StatCard({ title, value, trend, icon, color, periodLabel = 'vs semana p
         </div>
 
         {/* Content */}
-        <div className="relative z-10 pr-14">
-          <h3 className="text-text-muted text-sm font-semibold tracking-wide uppercase mb-2">{title}</h3>
-          <div className="text-3xl font-bold text-text-primary mb-3 font-display tracking-tight tabular-nums">
+        <div className={cn("relative z-10", compact ? "pr-12" : "pr-14")}>
+          <h3 className={cn("text-text-muted font-semibold tracking-[0.08em] uppercase", compact ? "text-[11px] mb-1" : "text-xs mb-2")}>{title}</h3>
+          <div className={cn("font-bold text-text-primary font-display tracking-tight tabular-nums leading-none", compact ? "text-2xl mb-2" : "text-5xl mb-3")}>
             <AnimatedNumber value={value} />
           </div>
-          <div className={cn(
-            "inline-flex items-center gap-1 text-sm font-semibold px-2.5 py-1 rounded-lg whitespace-nowrap",
-            isPositive
-              ? "text-success-base bg-success-base/10"
-              : "text-error-base bg-error-base/10"
-          )}>
-            <TrendIcon size={14} strokeWidth={3} />
-            <span>{trend}</span>
-            <span className="text-text-muted font-medium ml-1 text-xs">{periodLabel}</span>
-          </div>
+          {(() => {
+            if (!hasTrendValue) {
+              return (
+                <div className="inline-flex items-center text-xs font-medium text-text-muted px-2.5 py-1 rounded-lg ring-1 ring-inset ring-border-subtle">
+                  {periodLabel}
+                </div>
+              );
+            }
+            // PROP-88: pill neutro cuando el delta es "—" (sin baseline)
+            if (isNeutralTrend) {
+              return (
+                <div className="inline-flex items-center gap-1 text-sm font-semibold px-2.5 py-1 rounded-lg whitespace-nowrap ring-1 ring-inset text-text-muted bg-background-surface/40 ring-border-subtle">
+                  <span aria-label="Sin baseline disponible">—</span>
+                  <span className="text-text-muted font-medium ml-1 text-xs">{periodLabel}</span>
+                </div>
+              );
+            }
+            return (
+              <div className={cn(
+                "inline-flex items-center gap-1 text-sm font-semibold px-2.5 py-1 rounded-lg whitespace-nowrap ring-1 ring-inset",
+                isPositive
+                  ? "text-success-base bg-success-base/10 ring-success-base/20"
+                  : "text-error-base bg-error-base/10 ring-error-base/20"
+              )}>
+                <TrendIcon size={14} strokeWidth={3} />
+                <span>{trend}</span>
+                <span className="text-text-muted font-medium ml-1 text-xs">{periodLabel}</span>
+              </div>
+            );
+          })()}
         </div>
 
         {/* Glow effect fallback for visual flair */}
         <div
           className={cn(
             "absolute -bottom-16 -right-16 w-40 h-40 rounded-full blur-3xl",
-            "opacity-20 transition-[opacity,transform] duration-500 group-hover:opacity-40 group-hover:scale-110 pointer-events-none",
+            "opacity-[0.12] transition-[opacity,transform] duration-500 group-hover:opacity-30 group-hover:scale-110 pointer-events-none",
             color
           )}
           aria-hidden="true"
@@ -126,6 +135,9 @@ StatCard.propTypes = {
   icon: PropTypes.node.isRequired,
   color: PropTypes.string,
   periodLabel: PropTypes.string,
+  compact: PropTypes.bool,
+  onClick: PropTypes.func,
+  higherIsBetter: PropTypes.bool,
 };
 
 export default memo(StatCard);

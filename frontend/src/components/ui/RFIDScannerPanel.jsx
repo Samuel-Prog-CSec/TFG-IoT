@@ -22,6 +22,7 @@ const generateMockUid = () => {
   const chars = '0123456789ABCDEF';
   let uid = '';
   for (let i = 0; i < 8; i++) {
+    // eslint-disable-next-line sonarjs/pseudo-random -- generacion de UID mock para modo simulacion, no requiere seguridad criptografica
     uid += chars[Math.floor(Math.random() * chars.length)];
   }
   return uid;
@@ -191,6 +192,7 @@ export default function RFIDScannerPanel({
 
       if (availableToScan.length > 0) {
         // Seleccionar aleatoria
+        // eslint-disable-next-line sonarjs/pseudo-random -- seleccion aleatoria de carta en modo simulacion, no requiere seguridad criptografica
         const randomCard = availableToScan[Math.floor(Math.random() * availableToScan.length)];
         newCard = {
           ...randomCard,
@@ -260,7 +262,11 @@ export default function RFIDScannerPanel({
             <div>
               <h3 className="font-semibold text-text-primary">Escáner RFID</h3>
               <p className="text-xs text-text-muted">
-                {isConnected ? 'Esperando tarjetas...' : deviceState === 'initializing' ? 'Conectando sensor...' : 'Escáner desconectado'}
+                {(() => {
+                  if (isConnected) return 'Esperando tarjetas...';
+                  if (deviceState === 'initializing') return 'Conectando sensor...';
+                  return 'Escáner desconectado';
+                })()}
               </p>
             </div>
           </div>
@@ -289,9 +295,9 @@ export default function RFIDScannerPanel({
           <AnimatePresence>
             {isScanning && !prefersReducedMotion && (
               <>
-                {[...Array(3)].map((_, i) => (
+                {Array.from({ length: 3 }, (_, i) => ({ id: `radar-wave-${i}`, delay: i * 0.6 })).map(wave => (
                   <motion.div
-                    key={i}
+                    key={wave.id}
                     className="absolute size-32 rounded-full border-2 border-accent-indigo/30"
                     initial={{ scale: 0.5, opacity: 0.8 }}
                     animate={{
@@ -301,7 +307,7 @@ export default function RFIDScannerPanel({
                     transition={{
                       duration: 2,
                       repeat: Infinity,
-                      delay: i * 0.6,
+                      delay: wave.delay,
                       ease: 'easeOut',
                     }}
                   />

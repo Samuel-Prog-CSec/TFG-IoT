@@ -1,6 +1,7 @@
 import { memo } from 'react';
 import { motion } from 'framer-motion';
 import PropTypes from 'prop-types';
+import { AlarmClock } from 'lucide-react';
 import { cn } from '../../lib/utils';
 import { useReducedMotion } from '../../hooks/useReducedMotion';
 
@@ -22,20 +23,14 @@ function TimerBar({ timeLeft, timeLimit, className }) {
   const safeTimeLeft = Math.max(0, Number(timeLeft || 0));
   const percentage = (safeTimeLeft / safeTimeLimit) * 100;
   
-  // Determinar color y estado según el porcentaje (tokens semánticos)
-  let colorClass = 'from-timer-safe to-timer-safe-alt';
-  let glowColor = 'var(--color-timer-safe-glow)';
+  // Determinar estado de urgencia según el porcentaje
   let isUrgent = false;
   let isCritical = false;
 
   if (percentage <= 20) {
-    colorClass = 'from-timer-critical to-timer-critical-alt';
-    glowColor = 'var(--color-timer-critical-glow)';
     isUrgent = true;
     isCritical = true;
   } else if (percentage <= 40) {
-    colorClass = 'from-timer-warning to-timer-warning-alt';
-    glowColor = 'var(--color-timer-warning-glow)';
     isUrgent = true;
   }
 
@@ -51,24 +46,27 @@ function TimerBar({ timeLeft, timeLimit, className }) {
   return (
     <div className={cn("w-full", className)}>
       <span className="sr-only">Tiempo restante: {Math.ceil(safeTimeLeft)} segundos, estado: {timeStatus}</span>
-      {/* Timer label con icono animado */}
-      <div className="flex items-center justify-center gap-2 mb-3">
-        <motion.span
-          animate={isCritical && !shouldReduceMotion ? {
-            scale: [1, 1.15, 1],
-          } : {}}
-          transition={{ duration: 1.5, repeat: isCritical && !shouldReduceMotion ? Infinity : 0, ease: 'easeInOut' }}
-          className="text-2xl"
-          aria-hidden="true"
-        >
-          ⏰
-        </motion.span>
-        {isUrgent && (
+      {/* Timer label compacto: icono + alerta se muestran en linea con la barra
+          (inline) solo cuando es urgente, para no robar altura durante la mayor
+          parte de la partida. */}
+      {isUrgent && (
+        <div className="flex items-center justify-center gap-2 mb-1">
+          <motion.span
+            animate={isCritical && !shouldReduceMotion ? { scale: [1, 1.15, 1] } : {}}
+            transition={{ duration: 1.5, repeat: isCritical && !shouldReduceMotion ? Infinity : 0, ease: 'easeInOut' }}
+            className={cn(
+              'inline-flex items-center justify-center',
+              isCritical ? 'text-timer-critical' : 'text-timer-warning'
+            )}
+            aria-hidden="true"
+          >
+            <AlarmClock size={18} strokeWidth={2.25} />
+          </motion.span>
           <motion.span
             initial={{ opacity: 0, scale: 0 }}
             animate={{ opacity: 1, scale: 1 }}
             className={cn(
-              "text-sm font-bold px-3 py-1 rounded-full",
+              "text-xs font-bold px-2 py-0.5 rounded-full",
               isCritical
                 ? cn("bg-timer-critical/20 text-timer-critical", !shouldReduceMotion && "animate-pulse")
                 : "bg-timer-warning/20 text-timer-warning"
@@ -78,8 +76,8 @@ function TimerBar({ timeLeft, timeLimit, className }) {
           >
             {isCritical ? '¡Rápido!' : '¡Vamos!'}
           </motion.span>
-        )}
-      </div>
+        </div>
+      )}
 
       {/* Track */}
       <progress className="sr-only" max={safeTimeLimit} value={safeTimeLeft}>
@@ -88,29 +86,38 @@ function TimerBar({ timeLeft, timeLimit, className }) {
 
       <div
         className={cn(
-          "relative h-6 rounded-full overflow-hidden",
+          "relative h-4 sm:h-5 rounded-full overflow-hidden",
           "bg-background-elevated/80 backdrop-blur-sm",
-          "border-2",
+          "border",
           !isUrgent && "border-border-default",
-          isUrgent && !isCritical && "border-dashed border-timer-warning/50",
+          isUrgent && !isCritical && "border-dashed border-timer-warning/60",
           isCritical && "border-timer-critical/70",
           isCritical && !shouldReduceMotion && "animate-shake"
         )}
         aria-hidden="true"
       >
-        {/* Fill */}
-        <motion.div
-          className={cn(
-            "absolute inset-y-0 left-0 rounded-full",
-            `bg-gradient-to-r ${colorClass}`
-          )}
-          initial={{ width: '100%' }}
-          animate={{ width: `${percentage}%` }}
-          transition={{ duration: shouldReduceMotion ? 0 : 0.3, ease: 'linear' }}
-          style={{
-            boxShadow: `0 0 20px ${glowColor}`,
-          }}
-        />
+        {/* Fill — 3 capas superpuestas con crossfade de opacity para transicion suave de color */}
+        {[
+          { tier: 'safe', active: percentage > 40, gradient: 'from-timer-safe to-timer-safe-alt', glow: 'var(--color-timer-safe-glow)' },
+          { tier: 'warning', active: percentage > 20 && percentage <= 40, gradient: 'from-timer-warning to-timer-warning-alt', glow: 'var(--color-timer-warning-glow)' },
+          { tier: 'critical', active: percentage <= 20, gradient: 'from-timer-critical to-timer-critical-alt', glow: 'var(--color-timer-critical-glow)' },
+        ].map(({ tier, active, gradient, glow }) => (
+          <motion.div
+            key={tier}
+            className={cn(
+              "absolute inset-y-0 left-0 rounded-full",
+              `bg-gradient-to-r ${gradient}`,
+              "transition-opacity duration-500"
+            )}
+            initial={{ width: '100%' }}
+            animate={{ width: `${percentage}%` }}
+            transition={{ duration: shouldReduceMotion ? 0 : 0.3, ease: 'linear' }}
+            style={{
+              boxShadow: `0 0 20px ${glow}`,
+              opacity: active ? 1 : 0,
+            }}
+          />
+        ))}
 
         {/* Shimmer effect */}
         <div 

@@ -1,14 +1,18 @@
 /**
- * Hook para efectos de sonido del juego
- * Respeta soundEnabled del juego y shouldReduceMotion de accesibilidad
+ * Hook para efectos de sonido del juego.
+ *
+ * Respeta unicamente la preferencia `soundEnabled` del toggle de juego.
+ * NO se acopla a `prefers-reduced-motion`: son preferencias de accesibilidad
+ * independientes. Un niño puede preferir animaciones reducidas pero quiere
+ * seguir oyendo el feedback sonoro (al contrario, el sonido gana importancia
+ * cuando se reduce el feedback visual). WCAG 2.5 trata motion y sound como
+ * ejes separados.
  */
 import { useCallback, useEffect } from 'react';
-import { useReducedMotion } from './useReducedMotion';
 import soundEffectsService from '../services/soundEffectsService';
 
 export function useSoundEffects(soundEnabled = true) {
-  const { shouldReduceMotion } = useReducedMotion();
-  const isEnabled = soundEnabled && !shouldReduceMotion;
+  const isEnabled = soundEnabled;
 
   useEffect(() => {
     soundEffectsService.setEnabled(isEnabled);

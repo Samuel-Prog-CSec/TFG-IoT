@@ -220,6 +220,7 @@ describe('Validators', () => {
       });
 
       it('rejects student without teacherId', () => {
+        // eslint-disable-next-line sonarjs/no-unused-vars -- destructuring para omitir teacherId
         const { teacherId: _removed, ...noTeacher } = validStudent;
         expect(createStudentSchema.safeParse(noTeacher).success).toBe(false);
       });
@@ -270,10 +271,10 @@ describe('Validators', () => {
       expect(createCardDeckSchema.safeParse(deck).success).toBe(false);
     });
 
-    it('rejects deck with duplicate assignedValues', () => {
+    it('allows deck with duplicate assignedValues (memory decks need pairs)', () => {
       const deck = buildValidDeck();
       deck.cardMappings[1].assignedValue = deck.cardMappings[0].assignedValue;
-      expect(createCardDeckSchema.safeParse(deck).success).toBe(false);
+      expect(createCardDeckSchema.safeParse(deck).success).toBe(true);
     });
 
     it('rejects deck with invalid UID format', () => {

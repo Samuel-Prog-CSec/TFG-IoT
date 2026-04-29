@@ -18,8 +18,7 @@ const teachersData = [
     password: 'Test1234!',
     role: 'teacher',
     profile: {
-      avatar: null,
-      birthdate: new Date('1985-05-15')
+      avatar: null
     },
     status: 'active'
   },
@@ -29,8 +28,7 @@ const teachersData = [
     password: 'Test1234!',
     role: 'teacher',
     profile: {
-      avatar: null,
-      birthdate: new Date('1982-09-22')
+      avatar: null
     },
     status: 'active'
   }
@@ -162,21 +160,10 @@ function generateStudentsData(teacher, names, count, indexOffset) {
         grantedAt: new Date(),
         purposes: ['educational_tracking', 'performance_analytics'],
         policyVersion: '1.0',
-        withdrawnAt: null,
-        channel: 'web_form'
+        withdrawnAt: null
       },
-      consentHistory: [
-        {
-          action: 'granted',
-          grantedBy: `Tutor de ${names[nameIndex]}`,
-          timestamp: new Date(),
-          policyVersion: '1.0',
-          purposes: ['educational_tracking', 'performance_analytics']
-        }
-      ],
       status: 'active',
       createdBy: teacher._id,
-      assignedTeacher: teacher._id,
       studentMetrics: getEmptyMetrics()
     };
   });

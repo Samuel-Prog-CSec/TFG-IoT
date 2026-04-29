@@ -9,9 +9,15 @@ const storageService = require('../services/storageService.js');
 const imageProcessingService = require('../services/imageProcessingService.js');
 const audioValidationService = require('../services/audioValidationService.js');
 const logger = require('../utils/logger');
-const { NotFoundError, ValidationError, ConflictError } = require('../utils/errors');
+const {
+  NotFoundError,
+  ValidationError,
+  ConflictError,
+  ForbiddenError
+} = require('../utils/errors');
 const { toAssetDTOV1 } = require('../utils/dtos');
 const { sendSuccess, sendCreated } = require('../utils/responseHelper');
+const { invalidateContextCaches } = require('../utils/cacheInvalidators/contextCacheInvalidator');
 
 /**
  * Límite máximo de assets por contexto.
@@ -56,6 +62,37 @@ function validateUniqueKey(context, key) {
 
   if (existingAsset) {
     throw new ConflictError('Un asset con esta key ya existe en este contexto');
+  }
+}
+
+/**
+ * Politica de autorizacion para borrar/modificar un asset existente.
+ *
+ * Reglas (ver Architecture_Decisions ADR-053):
+ * - El asset solo puede gestionarlo el profesor que lo subio (asset.uploadedBy === user._id).
+ * - Assets sin uploadedBy son "del sistema" (seedeados como base del producto) y nadie
+ *   puede eliminarlos individualmente. La unica forma de eliminarlos es borrar el
+ *   contexto entero, accion exclusiva del super_admin.
+ * - El super_admin NO tiene override sobre assets individuales: su responsabilidad es
+ *   gestionar contextos como "carpetas", no gestionar el contenido subido por
+ *   profesores.
+ *
+ * @param {Object} asset - Subdocumento asset
+ * @param {Object} user - req.user
+ * @throws {ForbiddenError} Si el usuario no esta autorizado
+ */
+function assertCanManageAsset(asset, user) {
+  if (!asset.uploadedBy) {
+    throw new ForbiddenError(
+      'Este asset es parte de la base del contexto y no puede eliminarse individualmente'
+    );
+  }
+
+  // uploadedBy es un ObjectId; comparamos via toString por robustez
+  if (asset.uploadedBy.toString() !== user._id.toString()) {
+    throw new ForbiddenError(
+      'Solo el profesor que subio este asset puede eliminarlo o reemplazar su audio'
+    );
   }
 }
 
@@ -118,19 +155,26 @@ const uploadImage = async (req, res) => {
       'image/webp'
     );
 
-    // Construir nuevo asset (incluye dominantColor para LQIP en frontend)
+    // Construir nuevo asset (incluye dominantColor para LQIP en frontend
+    // y uploadedBy para la politica de gestion: solo el creador o super_admin pueden borrar)
     const newAsset = {
       key: key.toLowerCase(),
       value,
       display: display || value,
       imageUrl,
       thumbnailUrl,
-      dominantColor: metadata.dominantColor
+      dominantColor: metadata.dominantColor,
+      uploadedBy: req.user._id
     };
 
     // Guardar en MongoDB
     context.assets.push(newAsset);
     await context.save();
+
+    // Invalidar caches de detalle/lista de contextos. Sin esto, el GET
+    // /contexts/:id sigue devolviendo el snapshot Redis previo y la UI muestra
+    // "0 assets en total" hasta que el TTL expira (QA 26/04/2026).
+    await invalidateContextCaches(context._id.toString(), context.contextId);
 
     logger.info('Imagen subida exitosamente', {
       contextId: context.contextId,
@@ -213,17 +257,22 @@ const uploadAudio = async (req, res) => {
       metadata.mime
     );
 
-    // Construir nuevo asset
+    // Construir nuevo asset (uploadedBy define la politica de gestion del asset)
     const newAsset = {
       key: key.toLowerCase(),
       value,
       display: display || value,
-      audioUrl
+      audioUrl,
+      uploadedBy: req.user._id
     };
 
     // Guardar en MongoDB
     context.assets.push(newAsset);
     await context.save();
+
+    // Invalidar caches igual que en uploadImage para que el detalle del
+    // contexto refleje el nuevo audio sin esperar al TTL (QA 26/04/2026).
+    await invalidateContextCaches(context._id.toString(), context.contextId);
 
     logger.info('Audio subido exitosamente', {
       contextId: context.contextId,
@@ -287,6 +336,9 @@ const deleteImage = async (req, res) => {
 
   const asset = context.assets[assetIndex];
 
+  // Politica de ownership: solo el creador o super_admin puede borrar
+  assertCanManageAsset(asset, req.user);
+
   // Eliminar archivos de Supabase (imagen + thumbnail + audio si existe)
   if (asset.imageUrl) {
     await storageService.deleteFile(asset.imageUrl, { strict: true });
@@ -301,6 +353,8 @@ const deleteImage = async (req, res) => {
   // Eliminar asset del array (completo: imagen + audio)
   context.assets.splice(assetIndex, 1);
   await context.save();
+
+  await invalidateContextCaches(context._id.toString(), context.contextId);
 
   logger.info('Asset eliminado exitosamente (imagen + audio)', {
     contextId: context.contextId,
@@ -343,6 +397,9 @@ const deleteAudio = async (req, res) => {
 
   const asset = context.assets[assetIndex];
 
+  // Politica de ownership: solo el creador del asset o super_admin pueden borrar el audio
+  assertCanManageAsset(asset, req.user);
+
   // Eliminar archivo de audio de Supabase
   await storageService.deleteFile(asset.audioUrl, { strict: true });
 
@@ -354,6 +411,8 @@ const deleteAudio = async (req, res) => {
     asset.audioUrl = undefined;
     await context.save();
 
+    await invalidateContextCaches(context._id.toString(), context.contextId);
+
     logger.info('Audio desvinculado de asset (imagen conservada)', {
       contextId: context.contextId,
       assetKey,
@@ -364,6 +423,8 @@ const deleteAudio = async (req, res) => {
   } else {
     context.assets.splice(assetIndex, 1);
     await context.save();
+
+    await invalidateContextCaches(context._id.toString(), context.contextId);
 
     logger.info('Asset de solo-audio eliminado', {
       contextId: context.contextId,
@@ -411,14 +472,18 @@ const attachAudio = async (req, res) => {
       throw new NotFoundError('Asset');
     }
 
+    // Politica de ownership: adjuntar/reemplazar audio sigue la misma regla que borrar
+    assertCanManageAsset(asset, req.user);
+
     // Validar audio (magic bytes, tamaño, duración)
     const { buffer, metadata } = await audioValidationService.validateAudio(file);
 
-    // Si ya tiene audio, eliminar el archivo anterior de Supabase
+    // Snapshot del audio viejo antes de tocar nada. Solo lo borraremos del
+    // Storage tras persistir Mongo con éxito; así, si la subida nueva o el
+    // `context.save()` fallan, el rollback elimina solo el archivo nuevo y
+    // el asset conserva su audio antiguo (QA 26/04/2026 — antes el rollback
+    // dejaba al asset con `audioUrl` apuntando a un archivo ya borrado).
     const oldAudioUrl = asset.audioUrl;
-    if (oldAudioUrl) {
-      await storageService.deleteFile(oldAudioUrl);
-    }
 
     // Subir nuevo audio a Supabase
     newAudioUrl = await storageService.uploadFile(
@@ -429,9 +494,31 @@ const attachAudio = async (req, res) => {
       metadata.mime
     );
 
-    // Actualizar audioUrl en el subdocumento
+    // Actualizar audioUrl en el subdocumento (con el nuevo)
     asset.audioUrl = newAudioUrl;
     await context.save();
+
+    // A partir de aquí Mongo ya apunta al archivo nuevo: borramos el
+    // antiguo. Si esta limpieza fallara, el resultado funcional sigue
+    // siendo correcto (queda un archivo huérfano que se podrá purgar
+    // por el job de retención); por eso no abortamos la respuesta.
+    if (oldAudioUrl && oldAudioUrl !== newAudioUrl) {
+      try {
+        await storageService.deleteFile(oldAudioUrl);
+      } catch (cleanupErr) {
+        logger.warn('attachAudio: fallo al borrar audio antiguo', {
+          contextId: context.contextId,
+          assetKey,
+          oldAudioUrl,
+          error: cleanupErr.message
+        });
+      }
+    }
+
+    // Invalidar caches igual que en uploadImage/uploadAudio para que el
+    // detalle del contexto refleje el cambio de audio inmediatamente
+    // (QA 26/04/2026).
+    await invalidateContextCaches(context._id.toString(), context.contextId);
 
     logger.info('Audio adjuntado a asset exitosamente', {
       contextId: context.contextId,

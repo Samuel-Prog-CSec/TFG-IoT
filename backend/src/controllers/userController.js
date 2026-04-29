@@ -17,7 +17,7 @@ const userService = require('../services/userService');
 const { toUserDTOV1, toStudentDTOV1, toUserListDTOV1, toUserStatsDTOV1 } = require('../utils/dtos');
 const { sendSuccess, sendCreated, sendPaginated } = require('../utils/responseHelper');
 const { escapeRegex } = require('../utils/escapeRegex');
-const { revokeAllUserTokens } = require('../middlewares/auth');
+const { revokeAllUserTokens, invalidateUserCache } = require('../middlewares/auth');
 const { disconnectUserSockets } = require('../utils/socketUtils');
 const { getRequestContext, logSecurityEvent } = require('../utils/securityLogger');
 const { buildFilter } = require('../utils/filterBuilder');
@@ -101,14 +101,21 @@ const getUsers = async (req, res) => {
   const skip = (page - 1) * limit;
   const sortOptions = { [sortBy]: order === 'asc' ? 1 : -1 };
 
-  // Ejecutar query
+  // Ejecutar query.
+  // Para alumnos, poblamos createdBy (profesor) con su nombre/email para que la UI
+  // de admin pueda mostrar a quien pertenece cada alumno (evita el placeholder "Sistema").
+  const findOptions = {
+    sort: sortOptions,
+    limit: Number.parseInt(limit, 10),
+    skip,
+    select: '-password'
+  };
+  if (role === 'student') {
+    findOptions.populate = { path: 'createdBy', select: 'name email' };
+  }
+
   const [users, total] = await Promise.all([
-    userRepository.find(filter, {
-      sort: sortOptions,
-      limit: Number.parseInt(limit, 10),
-      skip,
-      select: '-password'
-    }),
+    userRepository.find(filter, findOptions),
     userRepository.count(filter)
   ]);
 
@@ -376,6 +383,10 @@ const updateUser = async (req, res) => {
 
   await user.save();
 
+  // Invalidar cache de slim-user: cambios en status/name/profile afectan a la
+  // entrada cacheada que consume el middleware authenticate.
+  await invalidateUserCache(user._id);
+
   if (shouldDisconnectByStatus({ status, role: user.role })) {
     await revokeAllUserTokens(user._id.toString(), 'account_inactivated', {
       ...getRequestContext(req),
@@ -428,6 +439,9 @@ const deleteUser = async (req, res) => {
   // Soft delete
   user.status = 'inactive';
   await user.save();
+
+  // Invalidar cache: status cambió de activo a inactivo.
+  await invalidateUserCache(user._id);
 
   if (['teacher', 'super_admin'].includes(user.role)) {
     await revokeAllUserTokens(user._id.toString(), 'account_deleted', {

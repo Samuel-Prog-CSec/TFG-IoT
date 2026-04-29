@@ -25,18 +25,45 @@ export function useGameTimer({
   isMemoryMode,
   memoryFeedbackActive,
   roundTime,
-  playTick
+  playTick,
+  /**
+   * Modo Memoria: senal externa que indica si el backend ha confirmado
+   * board_ready y el timer del lado servidor esta activo. Mientras sea
+   * false, NO decrementamos en el cliente para evitar el bug visual de
+   * "TimerBar vacia en bucle" que aparecia cuando el `playEndsAt` del
+   * backend aun era null (ver GameEngine.confirmBoardReady).
+   */
+  memoryTimerArmed = false
 }) {
   const [timeLeft, setTimeLeft] = useState(roundTime);
   const announcedThresholdsRef = useRef(new Set());
+  const previousRoundTimeRef = useRef(roundTime);
 
-  // Temporizador visual: decrementa cada segundo mientras se juega
+  // Sincronizar timeLeft con roundTime cada vez que el prop cambia. Casos:
+  // - Primera ronda tras cargar la sesion (stale 1s -> valor real).
+  // - Nueva ronda con distinta duracion.
+  // La version anterior solo re-sincronizaba si `prev === 0 || prev > roundTime`,
+  // dejando un timer fosilizado en 1s cuando la UI arrancaba con un valor
+  // pequeno y luego recibia el timeLimit real (QA 22/04/2026: "Quedan 1 segundos"
+  // aparecia brevemente en aria-live al entrar a la partida).
   useEffect(() => {
-    const shouldRunVisualTimer =
-      gameState === 'playing' && (isMemoryMode ? !memoryFeedbackActive : isAwaitingResponse);
+    if (previousRoundTimeRef.current !== roundTime) {
+      setTimeLeft(roundTime);
+      previousRoundTimeRef.current = roundTime;
+    }
+  }, [roundTime]);
+
+  // Temporizador visual: decrementa cada segundo mientras se juega.
+  // En Memoria esperamos ademas a que el backend haya confirmado el arranque
+  // del timer (`memoryTimerArmed`); antes de eso, la UI muestra la barra
+  // completa en lugar de contar hacia cero con un valor invalido.
+  useEffect(() => {
+    const inActivePhase = isMemoryMode ? !memoryFeedbackActive : isAwaitingResponse;
+    const memoryGatePasses = !isMemoryMode || memoryTimerArmed;
+    const shouldRunVisualTimer = gameState === 'playing' && inActivePhase && memoryGatePasses;
 
     if (!shouldRunVisualTimer) {
-      return;
+      return undefined;
     }
 
     const timer = setInterval(() => {
@@ -48,7 +75,7 @@ export function useGameTimer({
     }, 1000);
 
     return () => clearInterval(timer);
-  }, [gameState, isAwaitingResponse, isMemoryMode, memoryFeedbackActive, playTick]);
+  }, [gameState, isAwaitingResponse, isMemoryMode, memoryFeedbackActive, memoryTimerArmed, playTick, roundTime]);
 
   /**
    * Comprueba si el tiempo restante actual debe generar un anuncio de accesibilidad.

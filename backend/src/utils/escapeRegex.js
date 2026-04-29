@@ -14,7 +14,7 @@ const escapeRegex = value => {
     return '';
   }
 
-  return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  return value.replaceAll(/[.*+?^${}()|[\]\\]/g, '\\$&');
 };
 
 module.exports = {

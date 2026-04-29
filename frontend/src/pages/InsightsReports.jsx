@@ -38,8 +38,8 @@ const TABS = [
  * Opciones de rango temporal global.
  */
 const TIME_RANGE_OPTIONS = [
-  { value: '30d', label: 'Ultimos 30 dias' },
-  { value: '90d', label: 'Ultimos 90 dias' },
+  { value: '30d', label: 'Últimos 30 días' },
+  { value: '90d', label: 'Últimos 90 días' },
 ];
 
 /**
@@ -155,9 +155,13 @@ function LearningCurvesSection({ data, loading }) {
         </div>
       </div>
 
-      <div className="h-[280px] w-full -ml-2">
-        <ResponsiveContainer width="100%" height="100%" minWidth={0} minHeight={0}>
-          <AreaChart data={chartData} margin={{ top: 5, right: 10, left: 0, bottom: 5 }}>
+      {/* Altura y margenes ajustados: el label "Intento" del eje X chocaba
+          con la leyenda inferior. Solucion definitiva: leyenda arriba del
+          chart (verticalAlign top) y margin top mayor para reservarle espacio.
+          El eje X queda libre para su propio label. */}
+      <div className="h-[320px] w-full -ml-2 min-h-[320px]">
+        <ResponsiveContainer width="100%" height="100%" minWidth={0} minHeight={0} debounce={50}>
+          <AreaChart data={chartData} margin={{ top: 32, right: 10, left: 0, bottom: 28 }}>
             <defs>
               {curveNames.map((name, idx) => (
                 <linearGradient key={name} id={`gradient-${idx}`} x1="0" y1="0" x2="0" y2="1">
@@ -176,19 +180,24 @@ function LearningCurvesSection({ data, loading }) {
               tick={{ fill: 'var(--color-text-muted)', fontSize: 11 }}
               tickLine={false}
               axisLine={false}
-              label={{ value: 'Intento', position: 'insideBottom', offset: -5, fill: 'var(--color-text-muted)', fontSize: 11 }}
+              label={{ value: 'Intento', position: 'insideBottom', offset: -18, fill: 'var(--color-text-muted)', fontSize: 11 }}
             />
             <YAxis
               domain={[0, 100]}
+              allowDataOverflow
+              ticks={[0, 25, 50, 75, 100]}
               tick={{ fill: 'var(--color-text-muted)', fontSize: 11 }}
               tickLine={false}
               axisLine={false}
               width={35}
-              label={{ value: 'Puntuacion %', angle: -90, position: 'insideLeft', fill: 'var(--color-text-muted)', fontSize: 10 }}
+              label={{ value: 'Puntuación %', angle: -90, position: 'insideLeft', fill: 'var(--color-text-muted)', fontSize: 10 }}
             />
             <Tooltip content={<LearningCurveTooltip />} />
             <Legend
-              wrapperStyle={{ fontSize: '11px', color: 'var(--color-text-muted)' }}
+              verticalAlign="top"
+              align="right"
+              iconSize={10}
+              wrapperStyle={{ fontSize: '11px', color: 'var(--color-text-muted)', paddingBottom: 8 }}
             />
             {curveNames.map((name, idx) => (
               <Area
@@ -264,15 +273,17 @@ export default function InsightsReports() {
           ),
         ]);
 
-        // Merge context and mechanic data for the matrix
+        // Mantenemos las dos dimensiones por separado (no se mezclan): el componente
+        // de efectividad muestra UNA dimension a la vez (barras horizontales con RAG).
+        // Antes se mergeaba el conjunto en un solo array y la matriz cruzada acababa con
+        // valores repetidos por columna; el rediseno ya no necesita ese workaround.
         const contextItems = contextData?.items || contextData?.data || contextData || [];
         const mechanicItems = mechanicData?.items || mechanicData?.data || mechanicData || [];
-        const mergedData = [
-          ...(Array.isArray(contextItems) ? contextItems : []),
-          ...(Array.isArray(mechanicItems) ? mechanicItems : []),
-        ];
 
-        setEffectivenessData(mergedData);
+        setEffectivenessData({
+          context: Array.isArray(contextItems) ? contextItems : [],
+          mechanic: Array.isArray(mechanicItems) ? mechanicItems : []
+        });
         setLearningCurvesData(curvesData);
       } catch (err) {
         if (isAbortError(err)) return;
@@ -408,7 +419,7 @@ export default function InsightsReports() {
             Insights y Reportes
           </h1>
           <p className="text-text-muted mt-1 text-sm">
-            Analisis profundo de efectividad, alertas inteligentes e informes
+            Análisis profundo de efectividad, alertas inteligentes e informes
           </p>
         </div>
         <SelectPremium
@@ -450,10 +461,8 @@ export default function InsightsReports() {
               }}
               className={cn(
                 'relative flex items-center gap-2 px-4 py-3 text-sm font-medium transition-colors duration-200',
-                'focus-ring rounded-t-lg -mb-px',
-                isActive
-                  ? 'text-brand-base border-b-2 border-brand-base'
-                  : 'text-text-muted hover:text-text-secondary border-b-2 border-transparent'
+                'focus-ring rounded-t-lg -mb-px border-b-2 border-transparent',
+                isActive ? 'text-brand-base' : 'text-text-muted hover:text-text-secondary'
               )}
             >
               <TabIcon size={16} aria-hidden="true" />
@@ -467,6 +476,13 @@ export default function InsightsReports() {
                 )}>
                   {alertsCount}
                 </span>
+              )}
+              {isActive && (
+                <motion.div
+                  layoutId="insights-tab-indicator"
+                  className="absolute bottom-0 left-0 right-0 h-0.5 bg-brand-base rounded-full"
+                  transition={{ type: 'spring', stiffness: 400, damping: 30 }}
+                />
               )}
             </button>
           );
@@ -561,8 +577,9 @@ function EffectivenessTabContent({ effectivenessData, learningCurvesData, loadin
       animate="visible"
       className="space-y-6"
     >
-      <motion.div variants={shouldReduceMotion ? {} : listItemVariants}>
-        <ContentEffectivenessMatrix data={effectivenessData} />
+      <motion.div variants={shouldReduceMotion ? {} : listItemVariants} className="grid grid-cols-1 xl:grid-cols-2 gap-6">
+        <ContentEffectivenessMatrix data={effectivenessData?.context || []} groupBy="context" />
+        <ContentEffectivenessMatrix data={effectivenessData?.mechanic || []} groupBy="mechanic" />
       </motion.div>
       <motion.div variants={shouldReduceMotion ? {} : listItemVariants}>
         <LearningCurvesSection

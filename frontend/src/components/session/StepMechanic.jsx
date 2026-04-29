@@ -7,19 +7,20 @@
 
 import PropTypes from 'prop-types';
 import { motion } from 'framer-motion';
-import { Check } from 'lucide-react';
+import { Check, Link2, Brain, BarChart3, Gamepad2 } from 'lucide-react';
 import { cn } from '../../lib/utils';
 import GlassCard from '../ui/GlassCard';
 import { SkeletonCard } from '../ui/SkeletonShimmer';
 import { isMechanicSelectable } from './sessionHelpers';
 import { mechanicShape } from './sessionPropTypes';
 
-// Iconos para mecanicas
+// Iconos Lucide por mecánica: vectoriales, coherentes con el sistema y sin la
+// inconsistencia visual de los emojis de fuente.
 const MECHANIC_ICONS = {
-  association: '\uD83D\uDD17',
-  sequence: '\uD83D\uDCCA',
-  memory: '\uD83E\uDDE0',
-  default: '\uD83C\uDFAE'
+  association: Link2,
+  sequence: BarChart3,
+  memory: Brain,
+  default: Gamepad2
 };
 
 /**
@@ -42,16 +43,16 @@ export default function StepMechanic({ mechanics, loading, selectedMechanicId, o
     <GlassCard className="p-6">
       <div className="mb-6">
         <h2 className="text-xl font-semibold text-text-primary mb-1">
-          Selecciona la Mecanica de Juego
+          Selecciona la Mecánica de Juego
         </h2>
         <p className="text-text-muted text-sm">
-          La mecanica define como interactuaran los estudiantes con las tarjetas
+          La mecánica define cómo interactuarán los estudiantes con las tarjetas
         </p>
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
         {mechanics.map((mechanic) => {
-          const icon = MECHANIC_ICONS[mechanic.name?.toLowerCase()] || MECHANIC_ICONS.default;
+          const IconComponent = MECHANIC_ICONS[mechanic.name?.toLowerCase()] || MECHANIC_ICONS.default;
           const mechanicId = mechanic.id || mechanic._id;
           const selectable = isMechanicSelectable(mechanic);
           const selected = selectable && selectedMechanicId === mechanicId;
@@ -76,7 +77,7 @@ export default function StepMechanic({ mechanics, loading, selectedMechanicId, o
             >
               {!selectable && (
                 <span className="absolute top-3 right-3 rounded-full border border-warning-base/40 bg-warning-base/10 px-2 py-0.5 text-[11px] font-medium text-warning-base">
-                  Proximamente
+                  Próximamente
                 </span>
               )}
 
@@ -90,17 +91,27 @@ export default function StepMechanic({ mechanics, loading, selectedMechanicId, o
                 </motion.div>
               )}
 
-              <div className="text-4xl mb-4">{mechanic.icon || icon}</div>
+              <div
+                className={cn(
+                  'size-14 mb-4 rounded-xl flex items-center justify-center transition-colors',
+                  selected
+                    ? 'bg-brand-base/20 text-brand-base'
+                    : 'bg-background-elevated/80 text-text-secondary'
+                )}
+                aria-hidden="true"
+              >
+                <IconComponent size={28} strokeWidth={1.75} />
+              </div>
               <h3 className="text-lg font-semibold text-text-primary mb-2">
                 {mechanic.displayName || mechanic.name}
               </h3>
               <p className="text-sm text-text-muted line-clamp-3">
-                {mechanic.description || 'Mecanica de juego interactiva'}
+                {mechanic.description || 'Mecánica de juego interactiva'}
               </p>
 
               {!selectable && (
                 <p className="mt-3 text-xs text-warning-base/90">
-                  Esta mecanica no esta habilitada para creacion de sesiones en este entorno.
+                  Esta mecánica no está habilitada para creación de sesiones en este entorno.
                 </p>
               )}
             </motion.button>

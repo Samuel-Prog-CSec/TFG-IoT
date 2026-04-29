@@ -5,6 +5,7 @@
  */
 
 const mongoose = require('mongoose');
+const crypto = require('crypto');
 const request = require('supertest');
 const { app } = require('../src/server');
 const User = require('../src/models/User');
@@ -128,10 +129,12 @@ const createBenchmarkFixture = async benchmarkId => {
     .padEnd(6, 'A')
     .slice(0, 6);
 
+  // Password dinamico para usuario de benchmark (no se reutiliza tras la creacion).
+  const benchPassword = `Bench-${crypto.randomUUID()}A1!`;
   const teacher = await User.create({
     name: `Bench Teacher ${benchmarkId}`,
     email: `bench-session-${benchmarkId}@test.com`,
-    password: 'Password123!',
+    password: benchPassword,
     role: 'teacher',
     status: 'active',
     accountStatus: 'approved'

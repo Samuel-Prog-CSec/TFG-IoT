@@ -60,7 +60,7 @@ const imageUpload = multer({
     if (!allowedMimes.includes(file.mimetype)) {
       return cb(new Error('Formato de imagen no permitido. Usa PNG, JPG, GIF o WebP.'));
     }
-    cb(null, true);
+    return cb(null, true);
   }
 });
 
@@ -80,7 +80,7 @@ const audioUpload = multer({
     if (!allowedMimes.includes(file.mimetype)) {
       return cb(new Error('Formato de audio no permitido. Usa MP3 u OGG.'));
     }
-    cb(null, true);
+    return cb(null, true);
   }
 });
 

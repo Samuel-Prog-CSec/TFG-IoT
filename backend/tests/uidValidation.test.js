@@ -185,7 +185,7 @@ describe('createCardDeckSchema — unicidad de UIDs y assignedValues', () => {
     ).toThrow(/UIDs.*únicos/i);
   });
 
-  it('rechaza assignedValues duplicados', () => {
+  it('permite assignedValues duplicados (mazos de memoria necesitan parejas)', () => {
     expect(() =>
       createCardDeckSchema.parse(
         buildPayload([
@@ -193,7 +193,7 @@ describe('createCardDeckSchema — unicidad de UIDs y assignedValues', () => {
           { uid: 'AA000002', assignedValue: 'España' }
         ])
       )
-    ).toThrow(/duplicados/i);
+    ).not.toThrow();
   });
 
   it('rechaza menos de 2 mappings', () => {

@@ -114,6 +114,7 @@ const typeProcessors = {
 const buildFilter = (queryParams, fieldMappings, options = {}) => {
   const filter = { ...(options.baseFilter || {}) };
 
+  // eslint-disable-next-line sonarjs/too-many-break-or-continue-in-loop -- cada continue maneja un tipo de filtro diferente (range, computed, etc.)
   for (const [paramName, config] of Object.entries(fieldMappings)) {
     const value = queryParams[paramName];
 

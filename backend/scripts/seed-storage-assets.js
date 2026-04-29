@@ -66,7 +66,7 @@ const CONTEXT_ASSETS = {
       { key: 'purple', color: '#A855F7', bgColor: '#0f051a' }
     ]
   },
-  'numbers-1-6': {
+  'numbers-1-15': {
     method: 'number',
     assets: [
       { key: 'one', number: 1, color: '#F87171', bgColor: '#1c1917' },

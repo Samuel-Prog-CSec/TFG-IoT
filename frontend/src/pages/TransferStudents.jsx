@@ -88,11 +88,14 @@ export default function TransferStudents() {
     const controller = new AbortController();
 
     setLoading(true);
-    loadTeachers({ signal: controller.signal }).finally(() => {
-      if (!controller.signal.aborted) {
-        setLoading(false);
-      }
-    });
+    // eslint-disable-next-line promise/catch-or-return -- catch antes de finally, error manejado
+    loadTeachers({ signal: controller.signal })
+      .catch(() => { /* error manejado dentro de loadTeachers */ })
+      .finally(() => {
+        if (!controller.signal.aborted) {
+          setLoading(false);
+        }
+      });
 
     // No need to set sourceTeacherId based on isSuperAdmin, as this page is for admins only now.
     // The admin will explicitly select the source teacher.
@@ -101,7 +104,7 @@ export default function TransferStudents() {
   }, [loadTeachers]); // Removed currentUserId, isSuperAdmin dependencies
 
   useEffect(() => {
-    if (!sourceTeacherId) return; // Force selection of sourceTeacherId
+    if (!sourceTeacherId) return undefined; // Force selection of sourceTeacherId
     const controller = new AbortController();
 
     loadStudents(sourceTeacherId, { signal: controller.signal });

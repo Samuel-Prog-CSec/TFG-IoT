@@ -8,7 +8,7 @@ import { cn } from '../../lib/utils';
  */
 
 const badgeVariants = cva(
-  'inline-flex items-center gap-2 rounded-full font-medium border',
+  'inline-flex items-center gap-2 rounded-full font-medium border transition-[color,background-color,border-color] duration-300',
   {
     variants: {
       status: {
