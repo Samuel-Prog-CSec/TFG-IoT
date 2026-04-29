@@ -16,7 +16,6 @@ require('dotenv').config();
 // Importar seeders individuales
 const seedSuperAdmin = require('./00-super-admin');
 const seedUsers = require('./01-users');
-const seedCards = require('./02-cards');
 const seedMechanics = require('./03-mechanics');
 const seedContexts = require('./04-contexts');
 const seedCardDecks = require('./05-carddecks');
@@ -83,48 +82,41 @@ async function runSeeders() {
     logger.info(`  ✓ ${users.teachers.length} profesores creados`);
     logger.info(`  ✓ ${users.students.length} alumnos creados\n`);
 
-    // 3. Tarjetas RFID
-    logger.info('3️⃣  Seeding tarjetas RFID...');
-    const cards = await seedCards();
-    if (!cards?.length) {
-      throw new Error('Seeder falló: no se crearon tarjetas');
-    }
-    logger.info(`  ✓ ${cards.length} tarjetas creadas\n`);
-
-    // 4. Mecánicas de juego
-    logger.info('4️⃣  Seeding mecánicas de juego...');
+    // 3. Mecánicas de juego
+    logger.info('3️⃣  Seeding mecánicas de juego...');
     const mechanics = await seedMechanics();
     if (!mechanics?.length) {
       throw new Error('Seeder falló: no se crearon mecánicas');
     }
     logger.info(`  ✓ ${mechanics.length} mecánicas creadas\n`);
 
-    // 5. Contextos de juego
-    logger.info('5️⃣  Seeding contextos de juego...');
+    // 4. Contextos de juego (los assets seedeados quedan como "del sistema",
+    //    sin uploadedBy: forman la base del producto y no son eliminables vía UI)
+    logger.info('4️⃣  Seeding contextos de juego...');
     const contexts = await seedContexts();
     if (!contexts?.length) {
       throw new Error('Seeder falló: no se crearon contextos');
     }
     logger.info(`  ✓ ${contexts.length} contextos creados\n`);
 
-    // 6. Mazos de tarjetas (CardDecks)
-    logger.info('6️⃣  Seeding mazos de tarjetas...');
-    const decks = await seedCardDecks(users, contexts, cards);
+    // 5. Mazos de tarjetas (CardDecks)
+    logger.info('5️⃣  Seeding mazos de tarjetas...');
+    const decks = await seedCardDecks(users, contexts);
     if (!decks?.length) {
       throw new Error('Seeder falló: no se crearon mazos');
     }
     logger.info(`  ✓ ${decks.length} mazos creados\n`);
 
-    // 7. Sesiones de juego
-    logger.info('7️⃣  Seeding sesiones de juego...');
-    const sessions = await seedSessions(users, mechanics, contexts, cards, decks);
+    // 6. Sesiones de juego
+    logger.info('6️⃣  Seeding sesiones de juego...');
+    const sessions = await seedSessions(users, mechanics, contexts, decks);
     if (!sessions?.length) {
       throw new Error('Seeder falló: no se crearon sesiones');
     }
     logger.info(`  ✓ ${sessions.length} sesiones creadas\n`);
 
-    // 8. Partidas individuales (GamePlays)
-    logger.info('8️⃣  Seeding partidas (GamePlays)...');
+    // 7. Partidas individuales (GamePlays)
+    logger.info('7️⃣  Seeding partidas (GamePlays)...');
     const gamePlays = await seedGamePlays(sessions, users.students);
     if (!gamePlays?.length) {
       throw new Error('Seeder falló: no se crearon partidas');
@@ -136,7 +128,6 @@ async function runSeeders() {
     logger.info(`   - 1 super admin`);
     logger.info(`   - ${users.teachers.length} profesores`);
     logger.info(`   - ${users.students.length} alumnos`);
-    logger.info(`   - ${cards.length} tarjetas RFID`);
     logger.info(`   - ${mechanics.length} mecánicas de juego`);
     logger.info(`   - ${contexts.length} contextos de juego`);
     logger.info(`   - ${decks.length} mazos de tarjetas`);
@@ -165,6 +156,7 @@ async function runSeeders() {
 async function main() {
   try {
     // Parsear argumentos de línea de comandos
+    // eslint-disable-next-line sonarjs/process-argv -- script CLI, parseo seguro de argumentos
     const args = process.argv.slice(2);
     const shouldReset = args.includes('--reset');
 

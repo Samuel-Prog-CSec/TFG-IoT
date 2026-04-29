@@ -227,21 +227,43 @@ xl: 1280px  → Desktops
 2xl: 1536px → Pantallas grandes
 ```
 
-### Estrategia Mobile-First
+### Estrategia Desktop-First
+
+La aplicación se diseña para escritorio porque el hardware del TFG (lector
+RFID ESP8266) se conecta por cable USB al equipo del profesor. Tablet es
+un secundario aceptable (clase sin torre) y mobile es degradación de emergencia,
+no un destino objetivo. La prioridad de breakpoints es:
+
+1. **Desktop (`lg`+, 1024px en adelante) — objetivo principal.** Diseño,
+   densidad y flujos se validan aquí. Es donde corre una sesión real.
+2. **Tablet (`md`, 768–1023px) — adaptación útil.** Grid de 2 columnas,
+   sidebar mantenible. El sensor RFID puede no estar disponible; el
+   `FallbackTouchPanel` cubre la gameplay sin hardware.
+3. **Mobile (`<md`, <768px) — funcional pero no prioritario.** Evitamos
+   romper la app, pero no optimizamos estética ni densidad para esta
+   franja. Sidebar pasa a overlay con `motion.aside` + backdrop.
+
 ```jsx
-// Primero móvil, luego ajustar para desktop
+// Patron real: arrancamos con la densidad de desktop y degradamos hacia
+// breakpoints menores solo donde aporta (p.ej. pasar de 4 cols a 2 en
+// tablet y a 1 en mobile). No es "mobile-first" porque no rediseñamos
+// la experiencia para mobile — solo la mantenemos navegable.
 <div className="
-  grid grid-cols-1      /* Móvil: 1 columna */
-  sm:grid-cols-2        /* Tablet: 2 columnas */
-  lg:grid-cols-3        /* Desktop: 3 columnas */
+  grid grid-cols-1         /* Mobile: 1 columna (fallback) */
+  md:grid-cols-2           /* Tablet: 2 columnas */
+  lg:grid-cols-3 xl:grid-cols-4   /* Desktop: densidad prevista */
   gap-4 lg:gap-6
 ">
 ```
 
 ### Consideraciones Específicas
-- **Dashboard:** Sidebar colapsable en móvil
-- **GameSession:** Fullscreen, sin navegación visible
-- **BoardSetup:** Drag & drop con alternativa táctil
+- **Dashboard:** densidad pensada para desktop; sidebar sticky. En tablet
+  se apila a 2 columnas; en mobile pasa a 1 columna sin intentar mantener
+  la disposición visual del desktop.
+- **GameSession:** fullscreen sin navegación durante la partida en
+  cualquier viewport.
+- **BoardSetup:** drag & drop desktop como patrón nativo; `FallbackTouchPanel`
+  cubre el escenario tablet/mobile sin sensor.
 
 ---
 
@@ -418,3 +440,153 @@ Evidencia mínima requerida en la PR:
 ---
 
 *Inspiración: [Refactoring UI](https://www.refactoringui.com/), [Apple HIG](https://developer.apple.com/design/human-interface-guidelines/)*
+
+---
+
+## Accesibilidad actualizada 2026-04-21 (WCAG 2.2 AA)
+
+Tras el audit senior del 2026-04-21 (ADR-069), los siguientes patrones son baseline obligatorio para todo nuevo componente. Cualquier PR que los ignore debe justificar explícitamente por qué.
+
+### Mensajes de error en formularios
+
+Los errores de validación inline deben:
+- Usar `role="alert"` en el elemento del mensaje (ya aplicado en `InputPremium`).
+- Asociarse al input con `aria-describedby={\`${id}-error\`}` y marcar el input con `aria-invalid={true}`.
+- Respetar `prefers-reduced-motion`: la animación shake (WAAPI) no se dispara si el usuario tiene reduced-motion activado, pero el color rojo del borde se mantiene.
+
+### Focus-on-first-invalid
+
+Los formularios con validación inline de múltiples campos deben usar `useFormFocusFirstError(errors)`:
+
+```jsx
+import { useFormFocusFirstError } from '../hooks/useFormFocusFirstError';
+
+const formRef = useFormFocusFirstError(validationErrors);
+return <form ref={formRef} onSubmit={handleSubmit}>…</form>;
+```
+
+El hook observa el objeto `errors`; cuando cambia con errores nuevos, localiza el primer elemento con `aria-invalid="true"` y le transfiere el foco. No interfiere con wizards multi-paso (usa su propio stepper).
+
+### Celdas y elementos interactivos en charts
+
+Cualquier chart o heatmap con tooltip debe ser accesible por teclado:
+- Convertir las celdas en `<button type="button">`.
+- Añadir `onFocus` + `onBlur` que repliquen los handlers de `onMouseEnter` / `onMouseLeave`.
+- `aria-label` descriptivo (ej. "Lunes a las 10:00 horas, 3 partidas").
+- Focus-visible ring claro (`ring-brand-base` con offset del background).
+
+Ejemplo: `components/analytics/ActivityHeatmap.jsx`.
+
+### Alertas y estados críticos (colorblind-safe)
+
+Nunca usar color rojo (`text-error-base` / `bg-error-base`) como único indicador de error o severidad crítica. Siempre acompañar con:
+- Un icono Lucide (`AlertOctagon`, `AlertTriangle`, `XCircle`) o un patrón (líneas diagonales).
+- Texto descriptivo (no solo el número).
+
+Ver `AlertsHub.jsx` → `SeverityCounter` y `SEVERITY_STYLES`.
+
+### Target size (WCAG 2.5.8 + Apple HIG)
+
+Cualquier botón o target táctil usado por niños 4-6 años (gameplay, fallback) debe tener mínimo **56px de altura/ancho**. Para UI de profesor, WCAG 2.2 AA exige 24×24px, recomendado 44×44.
+
+### Empty states contextualizados
+
+Todo empty state debe usar `EmptyState` con prop `illustration` y prop `variant`:
+
+```jsx
+<EmptyState
+  illustration={<EmptySessionsIllustration size={180} />}
+  variant={hasActiveFilters ? 'filtered' : 'first-use'}
+  title="Aún no tienes sesiones"
+  description="Diseña tu primera sesión..."
+  action={<ButtonPremium>Crear sesión</ButtonPremium>}
+/>
+```
+
+Variantes:
+- `default`: icono/ilustración + título + descripción + CTA.
+- `filtered`: añade chip "Sin resultados para tu búsqueda" y redirige CTA a "Limpiar filtros".
+- `first-use`: habilita `secondaryAction` (ej. "Ver guía") bajo el CTA principal.
+
+Crear una ilustración nueva en `components/ui/illustrations/` si una página tiene empty state propio sin componente reutilizable aún. Seguir el patrón: SVG inline, tokens CSS (`var(--color-brand-base)`), bobbing sutil 3-4s que respeta `useReducedMotion`.
+
+### Variantes de ConfirmationModal
+
+Usar siempre el `variant` correcto:
+- `danger`: destructivo (borrar definitivo).
+- `warning`: acciones reversibles con consecuencias (desactivar algo temporalmente).
+- `archive`: archivar/desarchivar (no pérdida).
+- `info`: confirmaciones neutras.
+- `success`: acciones positivas (confirmar publicar, confirmar guardar).
+
+Cada variante tiene border, tint top gradient, glow del icono y animación del icono diferenciados (ver `ConfirmationModal.jsx:VARIANT_COLORS` y `getIconAnimation`).
+
+### `prefers-reduced-motion`
+
+Toda nueva animación (Framer Motion, CSS keyframes, `requestAnimationFrame`) debe comprobar `useReducedMotion` y desactivarse o reducir drasticamente cuando el usuario lo tiene activado. Ejemplo canónico: `components/effects/Confetti.jsx`.
+
+### Tooltip sobre iconos
+
+Si el trigger del `Tooltip` es un icono sin texto accesible, el componente promueve automáticamente el `content` (si es string) como `aria-label` del wrapper. Si el trigger es un botón con su propio `aria-label`, el tooltip actúa como `aria-describedby` adicional.
+
+---
+
+## Motion signature: Tactile RFID + Paper (ADR-070)
+
+La app adopta un leitmotiv dual para diferenciarse de dashboards SaaS genericos.
+Toda nueva signature motion debe pertenecer a una de estas dos familias.
+
+### Scanline (Tactile RFID)
+
+**Donde si**: tarjetas de listado interactivas secundarias (SessionCard, ContextCard
+y cualquier futura). Refuerza la metafora de "escaneo RFID" en hover.
+
+**Donde no**:
+- DeckCard — tiene su propio signature (`gradient-shift` en el borde).
+- Botones pequenos, inputs, badges, filas muy densas.
+- Elementos sin tamano suficiente para percibir el barrido (≥160px de alto).
+
+**Implementacion**: usar el primitivo `<ScanlineOverlay>` con visibilidad
+controlada via CSS `group-hover` (ver `01-PATRONES-DISENO.md` §14).
+
+### Blip radial (Tactile RFID)
+
+**Donde si**: `ConfirmationModal` variantes `danger` y `warning` al abrir. **Un
+unico pulso**, no infinite. Refuerza "estas tocando algo importante" en acciones
+irreversibles.
+
+**Donde no**:
+- Como feedback positivo general (confeti o toast son mas apropiados).
+- En acciones reversibles triviales (cancelar, cerrar).
+- Como decoracion continua.
+
+### Flip 3D (Paper)
+
+**Donde si**: entrada del `ConfirmationModal` variante `danger`. `rotateX: -8deg → 0`
++ scale sutil + `transformPerspective: 1000` — transmite "estas manejando un
+papel fisico, piensalo bien".
+
+**Donde no**:
+- Variantes no-danger del ConfirmationModal (usar spring estandar).
+- Tarjetas de listado (el tilt 3D de DeckCard ya cubre esa metafora en listados).
+
+### Paridad obligatoria entre tarjetas de lista
+
+`DeckCard` define el baseline de calidad visual para tarjetas de listado
+(tilt 3D, stack effect, parallax de assets, gradient-shift border). Todas las
+demas tarjetas (`SessionCard`, `ContextCard`, `AlertCard`, futuras) deben
+compartir al menos:
+
+- Lift sutil en hover (`y: -4, scale: 1.01`) via `HoverLiftCard` o equivalente.
+- Glow contextual tintado en hover (via `glowTint` prop de `HoverLiftCard`).
+- Focus-visible claro (ring o border).
+- Signature propia (scanline minimo, mascota/ilustracion para empty states).
+- Entry settle (`motionConfig.springGame`) y exit "paper flying" (rotate sutil)
+  si estan en un grid dinamico.
+
+### Entradas/salidas en grids
+
+Envolver `.map()` de tarjetas con `<AnimatePresence>` (sin `mode="popLayout"` ni
+`layout` prop por incompatibilidad con tests) y variants con hidden/visible/exit.
+Ver patron en `01-PATRONES-DISENO.md` §14.
+

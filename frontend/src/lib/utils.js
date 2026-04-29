@@ -16,27 +16,41 @@ export function cn(...inputs) {
  * Configuración de animaciones para Framer Motion
  */
 export const motionConfig = {
-  // Spring suave para interacciones
+  // Spring suave para interacciones UI generales
   spring: {
     type: 'spring',
     stiffness: 400,
     damping: 30,
   },
-  
+
+  // Spring para entradas de elementos de juego (overshoot sutil ~1.03)
+  springGame: {
+    type: 'spring',
+    stiffness: 350,
+    damping: 22,
+  },
+
+  // Spring para feedback de recompensa (bounce visible)
+  springFeedback: {
+    type: 'spring',
+    stiffness: 400,
+    damping: 18,
+  },
+
   // Transición suave estándar
   smooth: {
     type: 'tween',
     ease: [0.4, 0, 0.2, 1],
     duration: 0.3,
   },
-  
+
   // Transición rápida
   fast: {
     type: 'tween',
     ease: [0.4, 0, 0.2, 1],
     duration: 0.15,
   },
-  
+
   // Transición lenta para efectos dramáticos
   slow: {
     type: 'tween',
@@ -153,11 +167,84 @@ export const slideVariants = {
 
 /**
  * Formatea un número con separadores de miles
- * @param {number} num 
+ * @param {number} num
  * @returns {string}
  */
 export function formatNumber(num) {
   return num.toLocaleString('es-ES');
+}
+
+/**
+ * Normaliza un título en Title Case español: capitaliza la primera letra de
+ * cada palabra salvo artículos/preposiciones cortas (de, con, la, el, los,
+ * las, en, a, y, o, del, al), que quedan en minúsculas salvo si son la
+ * primera palabra del título.
+ *
+ * Solo normaliza si el texto está *enteramente en minúsculas* o *enteramente en mayúsculas*:
+ * si el autor ya tuvo intención de case mixto (p. ej. "Deck de prueba"),
+ * respeta su elección para no romper identificadores en tests o decisiones
+ * deliberadas del usuario (QA 22/04/2026).
+ *
+ * Ejemplos:
+ *   "colores básicos - repaso"      → "Colores Básicos - Repaso"
+ *   "animales de granja"            → "Animales de Granja"
+ *   "NÚMEROS 1-6 - PRIMERA SESIÓN"  → "Números 1-6 - Primera Sesión"
+ *   "Deck de prueba"                → "Deck de prueba" (respeta case mixto)
+ *
+ * @param {string} text
+ * @returns {string}
+ */
+export function toTitleCaseEs(text) {
+  if (!text || typeof text !== 'string') return text;
+  // Solo actuar sobre textos sin casing intencional (enteramente lower o enteramente upper).
+  // Los textos con mezcla de mayúsculas/minúsculas se devuelven tal cual.
+  const hasMixedCase = /[a-záéíóúñ]/.test(text) && /[A-ZÁÉÍÓÚÑ]/.test(text);
+  if (hasMixedCase) return text;
+
+  const lowerWords = new Set([
+    'de', 'del', 'al', 'a', 'la', 'el', 'los', 'las',
+    'y', 'o', 'u', 'en', 'con', 'sin', 'por', 'para'
+  ]);
+  return text
+    .toLowerCase()
+    .split(/(\s+|-|·)/)
+    .map((token, idx, arr) => {
+      if (!token.trim() || token === '-' || token === '·') return token;
+      const isFirstWord = idx === 0 || arr.slice(0, idx).every(t => !t.trim() || t === '-' || t === '·');
+      if (!isFirstWord && lowerWords.has(token)) return token;
+      return token.charAt(0).toUpperCase() + token.slice(1);
+    })
+    .join('');
+}
+
+/**
+ * Presets de formato de fecha para Intl.DateTimeFormat
+ * @type {Record<string, Intl.DateTimeFormatOptions>}
+ */
+const DATE_PRESETS = {
+  short: { day: 'numeric', month: 'short', year: 'numeric' },
+  medium: { day: 'numeric', month: 'long', year: 'numeric' },
+  long: { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' },
+  weekday: { weekday: 'short', day: 'numeric', month: 'short' },
+};
+
+/**
+ * Formatea una fecha usando Intl.DateTimeFormat con locale es-ES.
+ * Centraliza el formateo de fechas para consistencia.
+ *
+ * @param {string|number|Date} date - Fecha a formatear
+ * @param {'short'|'medium'|'long'|'weekday'} [variant='medium'] - Preset de formato
+ * @returns {string} Fecha formateada en español
+ *
+ * @example
+ * formatDate('2026-03-28')           // "28 de marzo de 2026"
+ * formatDate('2026-03-28', 'short')  // "28 mar 2026"
+ * formatDate('2026-03-28', 'long')   // "sábado, 28 de marzo de 2026"
+ */
+export function formatDate(date, variant = 'medium') {
+  const d = date instanceof Date ? date : new Date(date);
+  const options = DATE_PRESETS[variant] || DATE_PRESETS.medium;
+  return new Intl.DateTimeFormat('es-ES', options).format(d);
 }
 
 /**
@@ -177,13 +264,14 @@ export function formatTime(seconds) {
  */
 export function getRandomAccentColor() {
   const colors = [
-    'var(--primary)',
-    'var(--accent-cyan)',
-    'var(--accent-pink)',
-    'var(--accent-yellow)',
-    'var(--accent-mint)',
-    'var(--accent-orange)',
+    'var(--color-brand-base)',
+    'var(--color-accent-cyan)',
+    'var(--color-accent-pink)',
+    'var(--color-warning-base)',
+    'var(--color-success-base)',
+    'var(--color-accent-orange)',
   ];
+  // eslint-disable-next-line sonarjs/pseudo-random -- seleccion aleatoria de color visual, no requiere seguridad criptografica
   return colors[Math.floor(Math.random() * colors.length)];
 }
 
@@ -225,11 +313,11 @@ export const DURATION = {
 };
 
 // --- List stagger factory ---
-export const listContainerVariants = (staggerDelay = 0.06) => ({
+export const listContainerVariants = (staggerDelay = 0.04) => ({
   hidden: { opacity: 0 },
   visible: {
     opacity: 1,
-    transition: { staggerChildren: staggerDelay, delayChildren: 0.1 },
+    transition: { staggerChildren: staggerDelay, delayChildren: 0.05 },
   },
 });
 
@@ -265,16 +353,16 @@ export const crossfadeVariants = {
 
 // --- Page transition (para AppLayout Outlet) ---
 export const routeTransition = {
-  initial: { opacity: 0, y: 12 },
+  initial: { opacity: 0, y: 8 },
   animate: {
     opacity: 1,
     y: 0,
-    transition: { duration: DURATION.entrance, ease: EASING.outExpo },
+    transition: { duration: 0.25, ease: EASING.outExpo },
   },
   exit: {
     opacity: 0,
-    y: -8,
-    transition: { duration: DURATION.exit, ease: EASING.outQuart },
+    y: -6,
+    transition: { duration: 0.15, ease: EASING.outQuart },
   },
 };
 
@@ -283,3 +371,55 @@ export const shakeAnimation = {
   x: [-4, 4, -3, 3, -1, 1, 0],
   transition: { duration: 0.4 },
 };
+
+/**
+ * Exporta datos a CSV y descarga el archivo.
+ * Generacion client-side con Blob + URL.createObjectURL (sin dependencias externas).
+ * @param {Array<Object>} data - Array de objetos a exportar
+ * @param {string} filename - Nombre del archivo (sin extension)
+ * @param {Array<{key: string, label: string}>} columns - Columnas a incluir
+ */
+export function exportToCSV(data, filename, columns) {
+  if (!data?.length || !columns?.length) return;
+
+  const separator = ',';
+  const header = columns.map(c => `"${c.label}"`).join(separator);
+  const rows = data.map(row =>
+    columns.map(c => {
+      const val = row[c.key];
+      if (val == null) return '""';
+      const str = String(val).replace(/"/g, '""');
+      return `"${str}"`;
+    }).join(separator)
+  );
+
+  const csv = [header, ...rows].join('\n');
+  const BOM = '\uFEFF';
+  const blob = new Blob([BOM + csv], { type: 'text/csv;charset=utf-8;' });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement('a');
+  link.href = url;
+  link.download = `${filename}.csv`;
+  document.body.appendChild(link);
+  link.click();
+  document.body.removeChild(link);
+  URL.revokeObjectURL(url);
+}
+
+/**
+ * Descarga un Blob como archivo.
+ * Patron identico a exportToCSV pero para cualquier tipo de blob.
+ *
+ * @param {Blob} blob - Blob a descargar
+ * @param {string} filename - Nombre del archivo con extension
+ */
+export function downloadBlob(blob, filename) {
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement('a');
+  link.href = url;
+  link.download = filename;
+  document.body.appendChild(link);
+  link.click();
+  document.body.removeChild(link);
+  URL.revokeObjectURL(url);
+}

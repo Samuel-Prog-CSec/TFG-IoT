@@ -10,6 +10,7 @@ const router = express.Router();
 const {
   getDecks,
   getDeckById,
+  checkCard,
   createDeck,
   updateDeck,
   deleteDeck
@@ -22,9 +23,11 @@ const {
   createCardDeckSchema,
   updateCardDeckSchema,
   cardDeckQuerySchema,
-  cardDeckParamsSchema
+  cardDeckParamsSchema,
+  checkCardQuerySchema
 } = require('../validators/cardDeckValidator');
 const { emptyObjectSchema } = require('../validators/commonValidator');
+const asyncHandler = require('../utils/asyncHandler');
 
 /**
  * @route   GET /api/decks
@@ -32,7 +35,27 @@ const { emptyObjectSchema } = require('../validators/commonValidator');
  * @access  Private (Teacher)
  * @validation query: cardDeckQuerySchema
  */
-router.get('/', authenticate, requireRole('teacher'), validateQuery(cardDeckQuerySchema), getDecks);
+router.get(
+  '/',
+  authenticate,
+  requireRole('teacher'),
+  validateQuery(cardDeckQuerySchema),
+  asyncHandler(getDecks)
+);
+
+/**
+ * @route   GET /api/decks/check-card
+ * @desc    Verificar si un UID existe en otros mazos activos del profesor (ADR-022)
+ * @access  Private (Teacher)
+ * @validation query: checkCardQuerySchema
+ */
+router.get(
+  '/check-card',
+  authenticate,
+  requireRole('teacher'),
+  validateQuery(checkCardQuerySchema),
+  asyncHandler(checkCard)
+);
 
 /**
  * @route   GET /api/decks/:id
@@ -46,7 +69,7 @@ router.get(
   requireRole('teacher'),
   validateParams(cardDeckParamsSchema),
   validateQuery(emptyObjectSchema),
-  getDeckById
+  asyncHandler(getDeckById)
 );
 
 /**
@@ -62,7 +85,7 @@ router.post(
   requireRole('teacher'),
   validateQuery(emptyObjectSchema),
   validateBody(createCardDeckSchema),
-  createDeck
+  asyncHandler(createDeck)
 );
 
 /**
@@ -79,7 +102,7 @@ router.put(
   validateParams(cardDeckParamsSchema),
   validateQuery(emptyObjectSchema),
   validateBody(updateCardDeckSchema),
-  updateDeck
+  asyncHandler(updateDeck)
 );
 
 /**
@@ -95,7 +118,7 @@ router.delete(
   requireRole('teacher'),
   validateParams(cardDeckParamsSchema),
   validateQuery(emptyObjectSchema),
-  deleteDeck
+  asyncHandler(deleteDeck)
 );
 
 module.exports = router;

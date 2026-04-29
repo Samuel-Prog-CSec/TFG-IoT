@@ -14,12 +14,15 @@ import { decksAPI, extractData, extractErrorMessage, isAbortError } from '../ser
 import { ROUTES } from '../constants/routes';
 import ButtonPremium from '../components/ui/ButtonPremium';
 import CardAssetPreview from '../components/ui/CardAssetPreview';
+import AudioPlayBadge from '../components/ui/AudioPlayBadge';
 import EmptyState from '../components/ui/EmptyState';
 import GlassCard from '../components/ui/GlassCard';
 import { SkeletonCard } from '../components/ui/SkeletonShimmer';
 import StatusBadge from '../components/ui/StatusBadge';
-import { pageVariants } from '../lib/utils';
+import Breadcrumb from '../components/ui/Breadcrumb';
+import { pageVariants, formatDate } from '../lib/utils';
 import { useRefetchOnFocus } from '../hooks/useRefetchOnFocus';
+import { useDocumentTitle } from '../hooks/useDocumentTitle';
 
 function isDeckArchived(deck) {
   if (!deck) return false;
@@ -28,15 +31,15 @@ function isDeckArchived(deck) {
   return Boolean(deck.archivedAt);
 }
 
-function formatDate(value) {
+/**
+ * Wrapper local que mantiene el guard de valores nulos/inválidos
+ * y delega al formatDate centralizado.
+ */
+function formatDeckDate(value) {
   if (!value) return '—';
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return '—';
-  return date.toLocaleDateString('es-ES', {
-    year: 'numeric',
-    month: '2-digit',
-    day: '2-digit',
-  });
+  return formatDate(date);
 }
 
 function getContextName(deck) {
@@ -53,9 +56,8 @@ function getDeckCards(deck) {
 }
 
 function getCardInfo(deckCard, index) {
-  const card = deckCard?.cardId && typeof deckCard.cardId === 'object' ? deckCard.cardId : null;
-  const uid = deckCard?.uid || card?.uid || 'Sin UID';
-  const label = deckCard?.assignedValue || card?.displayName || card?.name || `Tarjeta ${index + 1}`;
+  const uid = deckCard?.uid || 'Sin UID';
+  const label = deckCard?.assignedValue || `Tarjeta ${index + 1}`;
 
   // Estructura moderna: displayData en deckCard.displayData o deckCard.assignedAsset?.displayData
   const displayData = deckCard?.displayData || deckCard?.assignedAsset?.displayData || null;
@@ -88,6 +90,7 @@ function getCardInfo(deckCard, index) {
 export default function CardDeckDetailPage() {
   const { deckId } = useParams();
   const navigate = useNavigate();
+  useDocumentTitle('Detalle del Mazo');
 
   const [deck, setDeck] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -177,16 +180,14 @@ export default function CardDeckDetailPage() {
       exit="exit"
     >
       <div className="flex flex-col gap-6">
+        <Breadcrumb items={[
+          { label: 'Mazos', to: ROUTES.CARD_DECKS },
+          { label: deck.name || 'Mazo de cartas' },
+        ]} />
         <header className="flex flex-wrap items-center justify-between gap-4">
-          <div className="flex items-center gap-3">
-            <ButtonPremium variant="ghost" onClick={() => navigate(ROUTES.CARD_DECKS)}>
-              <ArrowLeft size={16} />
-              Volver
-            </ButtonPremium>
-            <div>
-              <h1 className="text-2xl font-bold text-white font-display">{deck.name || 'Mazo de cartas'}</h1>
-              <p className="text-slate-400">{contextName}</p>
-            </div>
+          <div>
+            <h1 className="text-2xl font-bold text-text-primary font-display">{deck.name || 'Mazo de cartas'}</h1>
+            <p className="text-text-muted">{contextName}</p>
           </div>
 
           <div className="flex items-center gap-3">
@@ -203,78 +204,68 @@ export default function CardDeckDetailPage() {
           </div>
         </header>
 
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-          <GlassCard className="p-6 lg:col-span-2 space-y-5">
-            <h2 className="text-lg font-semibold text-white">Información general</h2>
+        {/* Unificado en un solo panel: antes había "Información general" (4
+            tiles) + "Resumen" (tabla key-value) que duplicaban Tarjetas/Creado/
+            Estado/Contexto. Dejamos los 4 KPIs en tiles grandes + sección de
+            metadatos (contexto, actualizado) sin repetir info. QA 22/04/2026. */}
+        <GlassCard className="p-6 space-y-5">
+          <div className="flex items-center justify-between flex-wrap gap-3">
+            <h2 className="text-lg font-semibold text-text-primary">Información general</h2>
+            <span className="text-xs text-text-muted">
+              Actualizado {formatDeckDate(deck.updatedAt)}
+            </span>
+          </div>
 
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-              <div className="bg-indigo-500/10 rounded-xl p-4">
-                <div className="flex items-center gap-2 text-slate-400">
-                  <CreditCard size={16} className="text-indigo-400" />
-                  Tarjetas
-                </div>
-                <p className="text-white text-xl font-semibold font-display mt-2">{cards.length}</p>
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+            <div className="bg-accent-indigo/10 rounded-xl p-4">
+              <div className="flex items-center gap-2 text-text-muted">
+                <CreditCard size={16} className="text-accent-indigo" />
+                Tarjetas
               </div>
-              <div className="bg-amber-500/10 rounded-xl p-4">
-                <div className="flex items-center gap-2 text-slate-400">
-                  <Calendar size={16} className="text-amber-400" />
-                  Creado
-                </div>
-                <p className="text-white text-xl font-semibold font-display mt-2">{formatDate(deck.createdAt)}</p>
-              </div>
-              <div className="bg-emerald-500/10 rounded-xl p-4">
-                <div className="flex items-center gap-2 text-slate-400">
-                  <Archive size={16} className="text-emerald-400" />
-                  Estado
-                </div>
-                <p className="text-white text-xl font-semibold font-display mt-2">{statusLabel}</p>
-              </div>
+              <p className="text-text-primary text-xl font-semibold font-display mt-2">{cards.length}</p>
             </div>
+            <div className="bg-warning-base/10 rounded-xl p-4">
+              <div className="flex items-center gap-2 text-text-muted">
+                <Calendar size={16} className="text-warning-base" />
+                Creado
+              </div>
+              <p className="text-text-primary text-xl font-semibold font-display mt-2">{formatDeckDate(deck.createdAt)}</p>
+            </div>
+            <div className="bg-success-base/10 rounded-xl p-4">
+              <div className="flex items-center gap-2 text-text-muted">
+                <Archive size={16} className="text-success-base" />
+                Estado
+              </div>
+              <p className="text-text-primary text-xl font-semibold font-display mt-2">{statusLabel}</p>
+            </div>
+            <div className="bg-brand-base/10 rounded-xl p-4">
+              <div className="flex items-center gap-2 text-text-muted">
+                <Layers size={16} className="text-brand-light" />
+                Contexto
+              </div>
+              <p className="text-text-primary text-xl font-semibold font-display mt-2 truncate" title={contextName}>
+                {contextName}
+              </p>
+            </div>
+          </div>
 
-            <div className="space-y-2">
-              <h3 className="text-sm font-medium text-slate-300">Descripción</h3>
-              <div className="rounded-xl border border-white/10 bg-slate-800/30 px-4 py-3 text-sm text-slate-300">
-                {deck.description?.trim() || 'Sin descripción'}
-              </div>
+          <div className="space-y-2">
+            <h3 className="text-sm font-medium text-text-secondary">Descripción</h3>
+            <div className="rounded-xl border border-border-default bg-background-elevated/30 px-4 py-3 text-sm text-text-secondary">
+              {deck.description?.trim() || 'Sin descripción'}
             </div>
-          </GlassCard>
-
-          <GlassCard className="p-6 space-y-4">
-            <h2 className="text-lg font-semibold text-white">Resumen</h2>
-            <div className="divide-y divide-white/5">
-              <div className="flex items-center justify-between py-3">
-                <span className="text-sm text-slate-400">Nombre</span>
-                <span className="text-sm text-white font-medium">{deck.name || '—'}</span>
-              </div>
-              <div className="flex items-center justify-between py-3">
-                <span className="text-sm text-slate-400">Contexto</span>
-                <span className="text-sm text-white font-medium">{contextName}</span>
-              </div>
-              <div className="flex items-center justify-between py-3">
-                <span className="text-sm text-slate-400">Estado</span>
-                <span className="text-sm text-white font-medium">{statusLabel}</span>
-              </div>
-              <div className="flex items-center justify-between py-3">
-                <span className="text-sm text-slate-400">Creado</span>
-                <span className="text-sm text-white font-medium">{formatDate(deck.createdAt)}</span>
-              </div>
-              <div className="flex items-center justify-between py-3">
-                <span className="text-sm text-slate-400">Actualizado</span>
-                <span className="text-sm text-white font-medium">{formatDate(deck.updatedAt)}</span>
-              </div>
-            </div>
-          </GlassCard>
-        </div>
+          </div>
+        </GlassCard>
 
         <GlassCard className="p-6">
-          <h2 className="text-lg font-semibold text-white mb-4">Tarjetas del mazo</h2>
+          <h2 className="text-lg font-semibold text-text-primary mb-4">Tarjetas del mazo</h2>
 
           {cards.length === 0 ? (
             <EmptyState
               title="Sin tarjetas asignadas"
               description="Este mazo todavía no tiene tarjetas vinculadas."
               icon={<Layers size={24} />}
-              className="bg-transparent border border-white/5"
+              className="bg-transparent border border-border-subtle"
             />
           ) : (
             <div className="space-y-3">
@@ -285,20 +276,35 @@ export default function CardDeckDetailPage() {
                 return (
                   <div
                     key={key}
-                    className="rounded-xl border border-white/10 bg-slate-800/30 px-4 py-3 flex flex-col md:flex-row md:items-center md:justify-between gap-2"
+                    className="rounded-xl border border-border-default bg-background-elevated/30 px-4 py-3 flex flex-col md:flex-row md:items-center md:justify-between gap-2"
                   >
                     <div>
-                      <p className="text-white font-medium">{label}</p>
-                      <p className="text-xs text-slate-400">UID: {uid}</p>
+                      <p className="text-text-primary font-medium">{label}</p>
+                      <p className="text-xs text-text-muted">UID: {uid}</p>
                     </div>
                     <div className="flex items-center gap-3">
                       {displayData ? (
-                        <CardAssetPreview
-                          asset={displayData}
-                          className="size-10 rounded-lg flex-shrink-0"
-                        />
+                        <div className="relative flex-shrink-0">
+                          <CardAssetPreview
+                            asset={displayData}
+                            className="size-14 rounded-lg"
+                          />
+                          {displayData.audioUrl && (
+                            <AudioPlayBadge
+                              audioUrl={displayData.audioUrl}
+                              size="xs"
+                              className="absolute -top-1 -right-1"
+                            />
+                          )}
+                        </div>
                       ) : null}
-                      <p className="text-sm text-indigo-300">{assetLabel}</p>
+                      {/* assetLabel solo se muestra cuando no repite el label principal
+                          (ej: cuando el label es genérico "Tarjeta 1" y el assetLabel
+                          aporta el nombre real). Evita triple nombre en cards como
+                          banderas donde label=`España`, assetLabel=`España` (QA 22/04/2026). */}
+                      {assetLabel && assetLabel !== label && (
+                        <p className="text-sm text-accent-indigo">{assetLabel}</p>
+                      )}
                     </div>
                   </div>
                 );

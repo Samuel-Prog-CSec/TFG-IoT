@@ -4,6 +4,8 @@
 
 Documentar el comportamiento funcional de la pantalla de partida (`GameSession`) en modo productivo, conectada por Socket.IO al backend y sin flujos simulados.
 
+> **Referencia canónica de eventos WebSocket**: Para la lista completa y actualizada de todos los eventos WebSocket, consultar [WebSockets-ExtendedUsage.md §6](../../backend/docs/WebSockets-ExtendedUsage.md#6-eventos-websocket) en la documentación del backend.
+
 ## Principios de diseño aplicados
 
 1. **Socket-first en gameplay**: las acciones de partida (`join/start/pause/resume`) se ejecutan por eventos realtime.
@@ -153,3 +155,84 @@ Escenarios cubiertos:
 npm run test
 npx eslint src/pages/GameSession.jsx src/pages/__tests__/GameSession.test.jsx vitest.config.js src/test/setup.js
 ```
+
+## Modos de interacción por mecánica (PROP-57)
+
+Cuando el lector RFID no está conectado (`!rfidConnected`), `GameSession.jsx` decide qué UI alternativa de input mostrar según la mecánica activa:
+
+- **Asociación** (`!sessionIsMemory && !rfidConnected`): renderiza `<FallbackTouchPanel>` con las cartas del mazo en una grid 3-6 cols clicables. El alumno toca la carta correcta para responder al desafío central.
+- **Memoria** (`sessionIsMemory && !rfidConnected`): **NO** renderiza `<FallbackTouchPanel>` porque el `<MemoryBoard>` ya es clicable directamente (cada celda del tablero es un botón que voltea la carta). En su lugar muestra un hint compacto en `accent-indigo`: *"Toca las cartas del tablero para jugar"*. Mostrar el FallbackTouchPanel adicional en Memoria duplicaría la interacción y confundiría al alumno (decisión documentada en QA del 19/04/2026 — PROP-57).
+
+Razón de fondo: el FallbackTouchPanel está diseñado como *panel de selección* (responder a una consigna eligiendo entre N opciones), no como *panel de revelación* (voltear cartas). Memoria usa el modelo de revelación, así que su input nativo es el propio tablero.
+
+## Resiliencia frente a recarga (snapshot sessionStorage)
+
+Para que un F5 accidental durante una partida activa no produzca un flash de "ronda 1 / score 0" mientras el servidor reconcilia, persistimos un snapshot ligero del estado coordinado del juego en `sessionStorage` por `playId` (`frontend/src/lib/sessionSnapshot.js`).
+
+- TTL: 10 min. Pasados 10 min sin actualización, preferimos pedir el estado canónico al servidor que mostrar datos obsoletos.
+- Ámbito: `sessionStorage` (no `localStorage`) — aislado por pestaña, no comparte estado entre sesiones simultáneas del profesor.
+- Esquema versionado: si cambia la forma del snapshot, se incrementa `SNAPSHOT_SCHEMA_VERSION` para invalidar snapshots antiguos.
+- Triggers de save: cualquier transición coordinada del reducer (`gameState`, `currentRound`, `score`, `correctAnswers`, `isAwaitingResponse`) — gestionado vía `useEffect` en `GameSession.jsx`.
+- Triggers de clear: `gameState === 'finished'`, unmount del componente.
+- Hidratación al montar: `loadSnapshot(playId)` antes de que el servidor responda con `play_state_sync`. Pinta UI preliminar y reconcilia cuando llega el sync canónico.
+
+Tests: `frontend/src/lib/__tests__/sessionSnapshot.test.js`.
+
+## Persistencia de pending scans en IndexedDB
+
+`webSerialService` mantiene una cola en memoria (`pendingScans[]`, max 200, TTL 30 s) para reenviar scans cuando el socket se reconecta. Tras esta versión, cada scan encolado se persiste **además** en IndexedDB (`frontend/src/lib/pendingScansStore.js`):
+
+- Best-effort: si IDB no está disponible (modo incógnito, cuota agotada), seguimos operando sólo con la cola en memoria.
+- TTL persistente: 10 min (`PENDING_SCAN_PERSISTENCE_TTL_MS`). Pasado ese tiempo, los scans se purgan al siguiente `connect()`.
+- Hydration: al conectar (`webSerialService.connect()`), `hydratePendingScansFromStorage()` mergea los scans persistidos con la cola en memoria (deduplica por `persistedId`).
+- Cleanup: cuando `flushPendingScans` envía un scan con éxito, también elimina la entrada IDB asociada.
+
+Beneficio: un F5 o crash del navegador en mitad de un periodo de desconexión socket no pierde scans que el alumno realizó.
+
+Tests: `frontend/src/lib/__tests__/pendingScansStore.test.js`.
+
+## Feedback granular de errores RFID
+
+`useGameSocket.js` mapea códigos de error RFID estables (definidos en `backend/src/constants/errorCodes.js`) a mensajes user-friendly diferenciados:
+
+| Código backend                 | Mensaje UI                                              |
+| ------------------------------ | ------------------------------------------------------- |
+| `RFID_SENSOR_STALE`            | "El sensor no responde. Comprueba que esté encendido."  |
+| `RFID_SENSOR_NOT_CONNECTED`    | "El sensor RFID no está conectado..."                   |
+| `RFID_DISABLED`                | "El servicio RFID está desactivado..."                  |
+| `RFID_SENSOR_MISMATCH`         | "Se detectó un cambio en el lector durante la partida." |
+| `RFID_MODE_INVALID`            | "El lector de tarjetas no está listo. Avisa al profesor." |
+| `RFID_MODE_TAKEN_OVER`         | "Otra ventana tomó el control del lector..."            |
+| Razón `card_not_in_play`       | (warning) "Tarjeta fuera de esta partida."              |
+| Razón `uid_unknown`            | (warning) "Tarjeta no registrada en el sistema."        |
+| Razón `play_paused`            | Sin toast (banner de pausa ya cubre visualmente)        |
+| Razón `not_awaiting_response`  | (info) "Escaneo fuera de turno. Espera a la siguiente ronda." |
+
+## Dedupe en cliente — capas y propósito
+
+Mantenemos dos capas de dedupe complementarias (NO redundantes):
+
+1. **`webSerialService`** (`DEFAULT_DEDUPE_MS = 1200`): protege contra múltiples lecturas del MISMO UID por el sensor físico cuando una tarjeta queda apoyada sobre el lector. Aplica a la fuente serial.
+2. **`useGameSocket`** (`isDuplicateScan(uid, source)` con cooldown por fuente): protege contra dobles clicks del usuario sobre los botones del FallbackTouchPanel y los taps en el `MemoryBoard`. Aplica a la fuente UI/táctil.
+
+A partir de PROP-90 / ADR-090 el cooldown se diferencia por `source` para no penalizar las mecánicas táctiles rápidas:
+
+| `source` enviado | Cooldown |
+|---|---|
+| `web_serial_hardware`, `web_serial` | 1300 ms (sensor anti-chattering) |
+| `touch_fallback` | 250 ms (panel táctil Asociación) |
+| `touch_memory_flip` | 250 ms (taps en Memoria) |
+
+`emitFallbackScan` envía `source: 'touch_fallback'`; `emitMemoryCardTap` envía `source: 'touch_memory_flip'`. El backend espeja la misma política en `socketRateLimiter.checkRfidDedupe` como capa defensiva final.
+
+## Banner `RateLimitBanner` con countdown (PROP-92 / ADR-093)
+
+Cuando el backend devuelve un error con `retryAfterMs` (`RATE_LIMITED`, `TEMP_BLOCKED`, `DUPLICATE_RFID_EVENT`), el hook `resolveSocketError(payload)` propaga el campo en el objeto `realtimeError`. `GameSession` renderiza `<RateLimitBanner>` en lugar del toast efímero:
+
+- Mensaje principal + texto "Vuelves a poder tocar en Xs".
+- Barra de progreso CSS-only que se vacía durante `retryAfterMs` (`@keyframes rate-limit-bar`).
+- Auto-dismiss tras `retryAfterMs` ms invocando `onDismiss` que limpia `realtimeError`.
+- `role="status"` + `aria-live="polite"` + `progressbar` con `aria-valuenow` actualizado.
+- Respeta `prefers-reduced-motion`: barra estática proporcional al tiempo restante en vez de animación CSS.
+
+El toast legacy se mantiene para errores sin `retryAfterMs` (mensajes informativos sin countdown).

@@ -5,10 +5,10 @@
  * @module pages/SessionEdit
  */
 
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { motion } from 'framer-motion';
-import { ArrowLeft, Save, Map as MapIcon, AlertTriangle } from 'lucide-react';
+import { Save, Map as MapIcon, AlertTriangle } from 'lucide-react';
 import { toast } from 'sonner';
 import { sessionsAPI, decksAPI, extractData, extractErrorMessage, isAbortError } from '../services/api';
 import { ROUTES } from '../constants/routes';
@@ -17,8 +17,12 @@ import GlassCard from '../components/ui/GlassCard';
 import InputPremium from '../components/ui/InputPremium';
 import SelectPremium from '../components/ui/SelectPremium';
 import StatusBadge from '../components/ui/StatusBadge';
+import Breadcrumb from '../components/ui/Breadcrumb';
 import { pageVariants } from '../lib/utils';
 import { useRefetchOnFocus } from '../hooks/useRefetchOnFocus';
+import { useUnsavedChanges } from '../hooks/useUnsavedChanges';
+import { useDocumentTitle } from '../hooks/useDocumentTitle';
+import ConfirmationModal from '../components/ui/ConfirmationModal';
 
 const statusToBadge = (status) => {
   switch (status) {
@@ -38,7 +42,6 @@ const normalizeMechanicName = value => (value || '').toString().trim().toLowerCa
 const toDeckCards = mappings =>
   Array.isArray(mappings)
     ? mappings.map(mapping => ({
-        cardId: mapping.cardId,
         uid: mapping.uid,
         assignedValue: mapping.assignedValue,
         displayData: mapping.displayData || {}
@@ -66,7 +69,6 @@ const buildAssociationPlanByRounds = ({ currentPlan, cards, numberOfRounds }) =>
 
     return {
       roundNumber,
-      cardId: card.cardId,
       uid: card.uid,
       assignedValue: card.assignedValue,
       displayData: card.displayData || {},
@@ -78,6 +80,7 @@ const buildAssociationPlanByRounds = ({ currentPlan, cards, numberOfRounds }) =>
 export default function SessionEdit() {
   const { sessionId } = useParams();
   const navigate = useNavigate();
+  useDocumentTitle('Editar Sesión');
 
   const [session, setSession] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -90,6 +93,17 @@ export default function SessionEdit() {
   const [pointsPerCorrect, setPointsPerCorrect] = useState('');
   const [penaltyPerError, setPenaltyPerError] = useState('');
   const [associationChallengePlan, setAssociationChallengePlan] = useState([]);
+
+  // Snapshot of initial values for dirty detection
+  const initialValuesRef = useRef(null);
+
+  const isDirty = useMemo(() => {
+    if (!initialValuesRef.current) return false;
+    const current = JSON.stringify({ deckId, numberOfRounds, timeLimit, pointsPerCorrect, penaltyPerError });
+    return current !== initialValuesRef.current;
+  }, [deckId, numberOfRounds, timeLimit, pointsPerCorrect, penaltyPerError]);
+
+  const { blocker, isBlocked } = useUnsavedChanges(isDirty);
 
   const loadSession = useCallback(async (signal) => {
     if (!sessionId) return;
@@ -105,6 +119,15 @@ export default function SessionEdit() {
       setPointsPerCorrect(String(data.config?.pointsPerCorrect ?? ''));
       setPenaltyPerError(String(data.config?.penaltyPerError ?? ''));
       setAssociationChallengePlan(Array.isArray(data.associationChallengePlan) ? data.associationChallengePlan : []);
+
+      // Store initial snapshot for dirty detection
+      initialValuesRef.current = JSON.stringify({
+        deckId: data.deckId || data.deck?.id || '',
+        numberOfRounds: String(data.config?.numberOfRounds ?? ''),
+        timeLimit: String(data.config?.timeLimit ?? ''),
+        pointsPerCorrect: String(data.config?.pointsPerCorrect ?? ''),
+        penaltyPerError: String(data.config?.penaltyPerError ?? '')
+      });
     } catch (err) {
       if (isAbortError(err)) {
         return;
@@ -234,7 +257,6 @@ export default function SessionEdit() {
 
       payload.associationChallengePlan = associationChallengePlan.map(item => ({
         roundNumber: item.roundNumber,
-        cardId: item.cardId,
         uid: item.uid,
         assignedValue: item.assignedValue,
         displayData: item.displayData || {},
@@ -267,7 +289,6 @@ export default function SessionEdit() {
         candidate.roundNumber === roundNumber
           ? {
               ...candidate,
-              cardId: selectedCard.cardId,
               uid: selectedCard.uid,
               assignedValue: selectedCard.assignedValue,
               displayData: selectedCard.displayData || {}
@@ -289,13 +310,13 @@ export default function SessionEdit() {
 
   if (loading && !session) {
     return (
-      <div className="p-8 text-slate-300">Cargando sesión...</div>
+      <div className="p-8 text-text-secondary">Cargando sesión...</div>
     );
   }
 
   if (!session) {
     return (
-      <div className="p-8 text-slate-300">Sesión no encontrada.</div>
+      <div className="p-8 text-text-secondary">Sesión no encontrada.</div>
     );
   }
 
@@ -308,18 +329,17 @@ export default function SessionEdit() {
       exit="exit"
     >
       <div className="flex flex-col gap-6">
+        <Breadcrumb items={[
+          { label: 'Sesiones', to: ROUTES.SESSIONS },
+          { label: session.deck?.name || 'Sesión', to: ROUTES.SESSION_DETAIL(sessionId) },
+          { label: 'Editar' },
+        ]} />
         <header className="flex flex-wrap items-center justify-between gap-4">
-          <div className="flex items-center gap-3">
-            <ButtonPremium variant="ghost" onClick={() => navigate(ROUTES.SESSION_DETAIL(sessionId))}>
-              <ArrowLeft size={16} />
-              Volver
-            </ButtonPremium>
-            <div>
-              <h1 className="text-2xl font-bold text-white font-display">Editar sesión</h1>
-              <p className="text-slate-400">
-                {session.deck?.name || 'Sesión'} · {session.context?.name}
-              </p>
-            </div>
+          <div>
+            <h1 className="text-2xl font-bold text-text-primary font-display">Editar sesión</h1>
+            <p className="text-text-muted">
+              {session.deck?.name || 'Sesión'} · {session.context?.name}
+            </p>
           </div>
           <div className="flex items-center gap-3">
             <StatusBadge status={statusInfo.tone}>{statusInfo.label}</StatusBadge>
@@ -334,21 +354,21 @@ export default function SessionEdit() {
         </header>
 
         {!canEdit && (
-          <GlassCard className="p-4 border border-amber-500/40 text-amber-300 flex items-center gap-3">
+          <GlassCard className="p-4 border border-warning-base/40 text-warning-base flex items-center gap-3">
             <AlertTriangle size={18} />
             Esta sesión ya no está en borrador y no se puede editar.
           </GlassCard>
         )}
 
         {canEdit && isAssociationSession && session.requiresAssociationPlanConfiguration && (
-          <GlassCard className="p-4 border border-amber-500/40 text-amber-300 flex items-center gap-3">
+          <GlassCard className="p-4 border border-warning-base/40 text-warning-base flex items-center gap-3">
             <AlertTriangle size={18} />
             Esta sesión clonada tiene un borrador de retos precargado. Revísalo y guarda para confirmar antes de iniciar.
           </GlassCard>
         )}
 
         {canEdit && isMemorySession && !hasMemoryBoardConfigured && (
-          <GlassCard className="p-4 border border-amber-500/40 text-amber-300 flex flex-wrap items-center justify-between gap-3">
+          <GlassCard className="p-4 border border-warning-base/40 text-warning-base flex flex-wrap items-center justify-between gap-3">
             <div className="flex items-center gap-3">
               <AlertTriangle size={18} />
               Esta sesión de memoria requiere configurar el tablero antes de iniciar.
@@ -383,16 +403,16 @@ export default function SessionEdit() {
 
           {isAssociationSession && (
             <div className="space-y-4">
-              <h2 className="text-lg font-semibold text-white">Retos de Association por ronda</h2>
+              <h2 className="text-lg font-semibold text-text-primary">Retos de Association por ronda</h2>
               {associationChallengePlan.length === 0 ? (
-                <p className="text-sm text-amber-300">
+                <p className="text-sm text-warning-base">
                   No hay retos configurables. Revisa el mazo o el número de rondas.
                 </p>
               ) : (
                 associationChallengePlan.map(item => (
                   <div
                     key={`edit-association-round-${item.roundNumber}`}
-                    className="rounded-xl border border-white/10 bg-slate-900/40 p-4 grid grid-cols-1 md:grid-cols-2 gap-4"
+                    className="rounded-xl border border-border-default bg-background-base/40 p-4 grid grid-cols-1 md:grid-cols-2 gap-4"
                   >
                     <SelectPremium
                       label={`Ronda ${item.roundNumber}: tarjeta objetivo`}
@@ -424,6 +444,7 @@ export default function SessionEdit() {
             <InputPremium
               label="Rondas"
               type="number"
+              inputMode="numeric"
               min={1}
               max={20}
               value={numberOfRounds}
@@ -433,6 +454,7 @@ export default function SessionEdit() {
             <InputPremium
               label="Tiempo por ronda (seg)"
               type="number"
+              inputMode="numeric"
               min={3}
               max={60}
               value={timeLimit}
@@ -445,6 +467,7 @@ export default function SessionEdit() {
             <InputPremium
               label="Puntos por acierto"
               type="number"
+              inputMode="numeric"
               min={1}
               value={pointsPerCorrect}
               onChange={(e) => setPointsPerCorrect(e.target.value)}
@@ -453,6 +476,7 @@ export default function SessionEdit() {
             <InputPremium
               label="Penalización"
               type="number"
+              inputMode="numeric"
               max={-1}
               value={penaltyPerError}
               onChange={(e) => setPenaltyPerError(e.target.value)}
@@ -473,11 +497,22 @@ export default function SessionEdit() {
               disabled={!canEdit || saving}
             >
               <Save size={16} />
-              {saving ? 'Guardando...' : 'Guardar cambios'}
+              {saving ? 'Guardando…' : 'Guardar cambios'}
             </ButtonPremium>
           </div>
         </GlassCard>
       </div>
+
+      <ConfirmationModal
+        open={isBlocked}
+        onConfirm={() => blocker.proceed()}
+        onClose={() => blocker.reset()}
+        title="Cambios sin guardar"
+        description="Tienes cambios sin guardar. Si sales ahora, perderás los cambios realizados."
+        variant="warning"
+        confirmText="Salir sin guardar"
+        cancelText="Seguir editando"
+      />
     </motion.div>
   );
 }

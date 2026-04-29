@@ -11,47 +11,39 @@ const {
   ConflictError,
   ValidationError
 } = require('../utils/errors');
+const { ensureResourceOwnership } = require('../utils/ownershipHelpers');
 const logger = require('../utils/logger');
 const userService = require('../services/userService');
-const {
-  toUserDTOV1,
-  toStudentDTOV1,
-  toUserListDTOV1,
-  toPaginatedDTOV1,
-  toUserStatsDTOV1
-} = require('../utils/dtos');
+const { toUserDTOV1, toStudentDTOV1, toUserListDTOV1, toUserStatsDTOV1 } = require('../utils/dtos');
+const { sendSuccess, sendCreated, sendPaginated } = require('../utils/responseHelper');
 const { escapeRegex } = require('../utils/escapeRegex');
-const { revokeAllUserTokens } = require('../middlewares/auth');
+const { revokeAllUserTokens, invalidateUserCache } = require('../middlewares/auth');
 const { disconnectUserSockets } = require('../utils/socketUtils');
 const { getRequestContext, logSecurityEvent } = require('../utils/securityLogger');
+const { buildFilter } = require('../utils/filterBuilder');
+const { pseudonymize } = require('../utils/pseudonymize');
+const dataExportService = require('../services/dataExportService');
+const { cacheInvalidateNamespace } = require('../utils/cacheHelper');
 
-const buildUsersFilter = ({ role, classroom, status, search, requester }) => {
-  const filter = {};
-
-  if (role) {
-    filter.role = role;
+/**
+ * Mappings para construir filtros de búsqueda de usuarios.
+ * Utiliza el filterBuilder genérico para reducir boilerplate.
+ * @see utils/filterBuilder.js
+ */
+const userFilterMappings = {
+  role: { field: 'role', type: 'exact' },
+  classroom: { field: 'profile.classroom', type: 'exact' },
+  status: { field: 'status', type: 'exact' },
+  search: { type: 'search', fields: ['name', 'email'] },
+  requester: {
+    type: 'computed',
+    compute: (requester, filter) => {
+      if (requester.role === 'teacher') {
+        filter.role = 'student';
+        filter.createdBy = requester._id;
+      }
+    }
   }
-  if (classroom) {
-    filter['profile.classroom'] = classroom;
-  }
-  if (status) {
-    filter.status = status;
-  }
-
-  if (search) {
-    const safeSearch = escapeRegex(search);
-    filter.$or = [
-      { name: { $regex: safeSearch, $options: 'i' } },
-      { email: { $regex: safeSearch, $options: 'i' } }
-    ];
-  }
-
-  if (requester.role === 'teacher') {
-    filter.role = 'student';
-    filter.createdBy = requester._id;
-  }
-
-  return filter;
 };
 
 const ensureSuperAdmin = user => {
@@ -88,60 +80,56 @@ const shouldDisconnectByStatus = ({ status, role }) =>
  * @param {import('express').Response} res
  * @param {import('express').NextFunction} next
  */
-const getUsers = async (req, res, next) => {
-  try {
-    const {
-      page = 1,
-      limit = 20,
-      sortBy = 'createdAt',
-      order = 'desc',
-      role,
-      classroom,
-      status,
-      search
-    } = req.query;
+const getUsers = async (req, res) => {
+  const {
+    page = 1,
+    limit = 20,
+    sortBy = 'createdAt',
+    order = 'desc',
+    role,
+    classroom,
+    status,
+    search
+  } = req.query;
 
-    const filter = buildUsersFilter({
-      role,
-      classroom,
-      status,
-      search,
-      requester: req.user
-    });
+  const filter = buildFilter(
+    { role, classroom, status, search, requester: req.user },
+    userFilterMappings
+  );
 
-    // Paginación
-    const skip = (page - 1) * limit;
-    const sortOptions = { [sortBy]: order === 'asc' ? 1 : -1 };
+  // Paginación
+  const skip = (page - 1) * limit;
+  const sortOptions = { [sortBy]: order === 'asc' ? 1 : -1 };
 
-    // Ejecutar query
-    const [users, total] = await Promise.all([
-      userRepository.find(filter, {
-        sort: sortOptions,
-        limit: Number.parseInt(limit, 10),
-        skip,
-        select: '-password'
-      }),
-      userRepository.count(filter)
-    ]);
-
-    logger.info('Lista de usuarios obtenida', {
-      requestedBy: req.user._id,
-      filters: filter,
-      resultsCount: users.length
-    });
-
-    res.json({
-      success: true,
-      ...toPaginatedDTOV1(
-        toUserListDTOV1(users),
-        Number.parseInt(page, 10),
-        Number.parseInt(limit, 10),
-        total
-      )
-    });
-  } catch (error) {
-    next(error);
+  // Ejecutar query.
+  // Para alumnos, poblamos createdBy (profesor) con su nombre/email para que la UI
+  // de admin pueda mostrar a quien pertenece cada alumno (evita el placeholder "Sistema").
+  const findOptions = {
+    sort: sortOptions,
+    limit: Number.parseInt(limit, 10),
+    skip,
+    select: '-password'
+  };
+  if (role === 'student') {
+    findOptions.populate = { path: 'createdBy', select: 'name email' };
   }
+
+  const [users, total] = await Promise.all([
+    userRepository.find(filter, findOptions),
+    userRepository.count(filter)
+  ]);
+
+  logger.info('Lista de usuarios obtenida', {
+    requestedBy: req.user._id,
+    filters: filter,
+    resultsCount: users.length
+  });
+
+  sendPaginated(res, toUserListDTOV1(users), {
+    page: Number.parseInt(page, 10),
+    limit: Number.parseInt(limit, 10),
+    total
+  });
 };
 
 /**
@@ -154,35 +142,28 @@ const getUsers = async (req, res, next) => {
  * @param {import('express').Response} res
  * @param {import('express').NextFunction} next
  */
-const getUserById = async (req, res, next) => {
-  try {
-    const { id } = req.params;
+const getUserById = async (req, res) => {
+  const { id } = req.params;
 
-    const user = await userRepository.findById(id, { select: '-password' });
+  const user = await userRepository.findById(id, { select: '-password' });
 
-    if (!user) {
-      throw new NotFoundError('Usuario');
-    }
-
-    const isSuperAdmin = req.user.role === 'super_admin';
-    if (user.role === 'student') {
-      const ownsStudent = user.createdBy?.toString() === req.user._id.toString();
-      if (!isSuperAdmin && !ownsStudent) {
-        throw new ForbiddenError('No tienes permiso para ver este alumno');
-      }
-    } else if (!isSuperAdmin && req.user._id.toString() !== id) {
-      throw new ForbiddenError('No tienes permiso para ver este usuario');
-    }
-
-    const userPayload = user.role === 'student' ? toStudentDTOV1(user) : toUserDTOV1(user);
-
-    res.json({
-      success: true,
-      data: userPayload
-    });
-  } catch (error) {
-    next(error);
+  if (!user) {
+    throw new NotFoundError('Usuario');
   }
+
+  const isSuperAdmin = req.user.role === 'super_admin';
+  if (user.role === 'student') {
+    const ownsStudent = user.createdBy?.toString() === req.user._id.toString();
+    if (!isSuperAdmin && !ownsStudent) {
+      throw new ForbiddenError('No tienes permiso para ver este alumno');
+    }
+  } else if (!isSuperAdmin && req.user._id.toString() !== id) {
+    throw new ForbiddenError('No tienes permiso para ver este usuario');
+  }
+
+  const userPayload = user.role === 'student' ? toStudentDTOV1(user) : toUserDTOV1(user);
+
+  sendSuccess(res, userPayload);
 };
 
 /**
@@ -207,7 +188,8 @@ const getUserById = async (req, res, next) => {
  * @param {import('express').Response} res
  * @param {import('express').NextFunction} next
  */
-const createUser = async (req, res, next) => {
+const createUser = async (req, res) => {
+  // Enriquece ConflictError con datos del estudiante existente para UX
   try {
     const { name, profile } = req.body;
 
@@ -223,25 +205,20 @@ const createUser = async (req, res, next) => {
       throw new ForbiddenError('Se debe especificar a qué profesor pertenece el alumno');
     }
 
+    const { consent } = req.body;
     const student = await userService.createStudent({
       name,
       profile: profile || {},
-      createdBy: teacherId
+      createdBy: teacherId,
+      consent
     });
 
     logger.info('Alumno creado por super admin', {
-      studentId: student._id,
-      studentName: student.name,
-      classroom: student.profile?.classroom,
-      createdBy: req.user._id,
-      teacherName: req.user.name
+      studentPseudoId: pseudonymize(student._id),
+      createdBy: req.user._id
     });
 
-    res.status(201).json({
-      success: true,
-      message: 'Alumno creado exitosamente',
-      data: toStudentDTOV1(student)
-    });
+    sendCreated(res, toStudentDTOV1(student), 'Alumno creado exitosamente');
   } catch (error) {
     if (error instanceof ConflictError) {
       const existingStudent = await userService.findDuplicateStudent({
@@ -253,10 +230,8 @@ const createUser = async (req, res, next) => {
       if (existingStudent) {
         logger.warn('Intento de crear alumno duplicado por admin', {
           adminId: req.user._id,
-          studentName: req.body.name,
-          classroom: req.body.profile?.classroom,
-          teacherId: req.body.teacherId,
-          existingStudentId: existingStudent._id
+          existingStudentPseudoId: pseudonymize(existingStudent._id),
+          teacherId: req.body.teacherId
         });
 
         throw new ConflictError(error.message, {
@@ -265,7 +240,7 @@ const createUser = async (req, res, next) => {
       }
     }
 
-    next(error);
+    throw error;
   }
 };
 
@@ -286,7 +261,7 @@ const createUser = async (req, res, next) => {
  * CASOS DE USO:
  * - Cambio de clase: profile.classroom
  * - Corrección de nombre: name (valida duplicados)
- * - Actualización de edad/cumpleaños: profile.age, profile.birthdate
+ * - Actualización de edad: profile.age
  *
  * @param {import('express').Request} req
  * @param {import('express').Response} res
@@ -348,68 +323,93 @@ const validateDuplicateName = async ({ user, name, profile, createdBy, updatedBy
 const buildUserPayload = user =>
   user.role === 'student' ? toStudentDTOV1(user) : toUserDTOV1(user);
 
-const updateUser = async (req, res, next) => {
-  try {
-    const { id } = req.params;
-    const { name, profile, status } = req.body;
+const updateUser = async (req, res) => {
+  const { id } = req.params;
+  const { name, profile, status } = req.body;
 
-    const user = await userRepository.findById(id);
+  const user = await userRepository.findById(id);
 
-    if (!user) {
-      throw new NotFoundError('Usuario');
+  if (!user) {
+    throw new NotFoundError('Usuario');
+  }
+
+  ensureSuperAdmin(req.user);
+
+  // ✅ VALIDAR DUPLICADOS si se cambia el nombre
+  const duplicate = await validateDuplicateName({
+    user,
+    name,
+    profile,
+    createdBy: user.createdBy,
+    updatedBy: req.user._id
+  });
+
+  if (duplicate) {
+    throw new ConflictError(duplicate.message, {
+      existingUser: toUserDTOV1(duplicate.existingUser)
+    });
+  }
+
+  // Capturar valores PII originales para audit trail de rectificación (Art. 16 RGPD)
+  const originalPII =
+    user.role === 'student'
+      ? { name: user.name, age: user.profile?.age, classroom: user.profile?.classroom }
+      : null;
+
+  updateMutableUserFields({ user, name, profile, status });
+
+  // Registrar rectificación de datos de menores si cambiaron campos PII
+  if (originalPII) {
+    const rectifiedFields = [];
+    if (name && name.trim() !== originalPII.name) {
+      rectifiedFields.push('name');
+    }
+    if (profile?.age !== undefined && profile.age !== originalPII.age) {
+      rectifiedFields.push('profile.age');
+    }
+    if (profile?.classroom !== undefined && profile.classroom !== originalPII.classroom) {
+      rectifiedFields.push('profile.classroom');
     }
 
-    ensureSuperAdmin(req.user);
+    if (rectifiedFields.length > 0) {
+      logSecurityEvent('DATA_RECTIFICATION', {
+        ...getRequestContext(req),
+        studentPseudoId: pseudonymize(user._id),
+        rectifiedFields,
+        rectifiedBy: req.user._id
+      });
+    }
+  }
 
-    // ✅ VALIDAR DUPLICADOS si se cambia el nombre
-    const duplicate = await validateDuplicateName({
-      user,
-      name,
-      profile,
-      createdBy: user.createdBy,
+  await user.save();
+
+  // Invalidar cache de slim-user: cambios en status/name/profile afectan a la
+  // entrada cacheada que consume el middleware authenticate.
+  await invalidateUserCache(user._id);
+
+  if (shouldDisconnectByStatus({ status, role: user.role })) {
+    await revokeAllUserTokens(user._id.toString(), 'account_inactivated', {
+      ...getRequestContext(req),
+      userId: user._id,
       updatedBy: req.user._id
     });
-
-    if (duplicate) {
-      throw new ConflictError(duplicate.message, {
-        existingUser: toUserDTOV1(duplicate.existingUser)
-      });
-    }
-
-    updateMutableUserFields({ user, name, profile, status });
-
-    await user.save();
-
-    if (shouldDisconnectByStatus({ status, role: user.role })) {
-      await revokeAllUserTokens(user._id.toString(), 'account_inactivated', {
-        ...getRequestContext(req),
-        userId: user._id,
-        updatedBy: req.user._id
-      });
-      const io = req.app.get('io');
-      disconnectUserSockets(io, user._id.toString(), 'ACCOUNT_INACTIVATED');
-    }
-
-    logger.info('Usuario actualizado', {
-      userId: user._id,
-      updatedBy: req.user._id,
-      changes: {
-        name: name ? 'updated' : 'unchanged',
-        profile: profile ? 'updated' : 'unchanged',
-        status: status ? 'updated' : 'unchanged'
-      }
-    });
-
-    const userPayload = buildUserPayload(user);
-
-    res.json({
-      success: true,
-      message: 'Usuario actualizado exitosamente',
-      data: userPayload
-    });
-  } catch (error) {
-    next(error);
+    const io = req.app.get('io');
+    disconnectUserSockets(io, user._id.toString(), 'ACCOUNT_INACTIVATED');
   }
+
+  logger.info('Usuario actualizado', {
+    userId: user._id,
+    updatedBy: req.user._id,
+    changes: {
+      name: name ? 'updated' : 'unchanged',
+      profile: profile ? 'updated' : 'unchanged',
+      status: status ? 'updated' : 'unchanged'
+    }
+  });
+
+  const userPayload = buildUserPayload(user);
+
+  sendSuccess(res, userPayload, 'Usuario actualizado exitosamente');
 };
 
 /**
@@ -422,47 +422,43 @@ const updateUser = async (req, res, next) => {
  * @param {import('express').Response} res
  * @param {import('express').NextFunction} next
  */
-const deleteUser = async (req, res, next) => {
-  try {
-    const { id } = req.params;
+const deleteUser = async (req, res) => {
+  const { id } = req.params;
 
-    const user = await userRepository.findById(id);
+  const user = await userRepository.findById(id);
 
-    if (!user) {
-      throw new NotFoundError('Usuario');
-    }
+  if (!user) {
+    throw new NotFoundError('Usuario');
+  }
 
-    const isSuperAdmin = req.user.role === 'super_admin';
-    if (!isSuperAdmin) {
-      throw new ForbiddenError('No tienes permiso para eliminar usuarios');
-    }
+  const isSuperAdmin = req.user.role === 'super_admin';
+  if (!isSuperAdmin) {
+    throw new ForbiddenError('No tienes permiso para eliminar usuarios');
+  }
 
-    // Soft delete
-    user.status = 'inactive';
-    await user.save();
+  // Soft delete
+  user.status = 'inactive';
+  await user.save();
 
-    if (['teacher', 'super_admin'].includes(user.role)) {
-      await revokeAllUserTokens(user._id.toString(), 'account_deleted', {
-        ...getRequestContext(req),
-        userId: user._id,
-        deletedBy: req.user._id
-      });
-      const io = req.app.get('io');
-      disconnectUserSockets(io, user._id.toString(), 'ACCOUNT_INACTIVATED');
-    }
+  // Invalidar cache: status cambió de activo a inactivo.
+  await invalidateUserCache(user._id);
 
-    logger.info('Usuario eliminado (soft delete)', {
+  if (['teacher', 'super_admin'].includes(user.role)) {
+    await revokeAllUserTokens(user._id.toString(), 'account_deleted', {
+      ...getRequestContext(req),
       userId: user._id,
       deletedBy: req.user._id
     });
-
-    res.json({
-      success: true,
-      message: 'Usuario eliminado exitosamente'
-    });
-  } catch (error) {
-    next(error);
+    const io = req.app.get('io');
+    disconnectUserSockets(io, user._id.toString(), 'ACCOUNT_INACTIVATED');
   }
+
+  logger.info('Usuario eliminado (soft delete)', {
+    userId: user._id,
+    deletedBy: req.user._id
+  });
+
+  sendSuccess(res, null, 'Usuario eliminado exitosamente');
 };
 
 /**
@@ -475,47 +471,41 @@ const deleteUser = async (req, res, next) => {
  * @param {import('express').Response} res
  * @param {import('express').NextFunction} next
  */
-const getUserStats = async (req, res, next) => {
-  try {
-    const { id } = req.params;
+const getUserStats = async (req, res) => {
+  const { id } = req.params;
 
-    const user = await userRepository.findById(id, {
-      select: 'name role studentMetrics profile createdBy'
-    });
+  const user = await userRepository.findById(id, {
+    select: 'name role studentMetrics profile createdBy'
+  });
 
-    if (!user) {
-      throw new NotFoundError('Usuario');
-    }
-
-    const isSuperAdmin = req.user.role === 'super_admin';
-    if (req.user.role === 'teacher' && user.role === 'student') {
-      if (user.createdBy?.toString() !== req.user._id.toString()) {
-        throw new ForbiddenError('No tienes permiso para ver estas estadísticas');
-      }
-    } else if (!isSuperAdmin && req.user._id.toString() !== id) {
-      throw new ForbiddenError('No tienes permiso para ver estas estadísticas');
-    }
-
-    const accuracyRate =
-      user.studentMetrics && user.studentMetrics.totalGamesPlayed > 0
-        ? (
-            (user.studentMetrics.totalCorrectAnswers /
-              (user.studentMetrics.totalCorrectAnswers + user.studentMetrics.totalErrors)) *
-            100
-          ).toFixed(2)
-        : 0;
-
-    res.json({
-      success: true,
-      data: toUserStatsDTOV1(
-        user,
-        user.studentMetrics?.toObject?.() || user.studentMetrics,
-        Number.parseFloat(accuracyRate)
-      )
-    });
-  } catch (error) {
-    next(error);
+  if (!user) {
+    throw new NotFoundError('Usuario');
   }
+
+  const isSuperAdmin = req.user.role === 'super_admin';
+  if (req.user.role === 'teacher' && user.role === 'student') {
+    ensureResourceOwnership(user, req.user._id, 'alumno');
+  } else if (!isSuperAdmin && req.user._id.toString() !== id) {
+    throw new ForbiddenError('No tienes permiso para ver estas estadísticas');
+  }
+
+  const accuracyRate =
+    user.studentMetrics && user.studentMetrics.totalGamesPlayed > 0
+      ? (
+          (user.studentMetrics.totalCorrectAnswers /
+            (user.studentMetrics.totalCorrectAnswers + user.studentMetrics.totalErrors)) *
+          100
+        ).toFixed(2)
+      : 0;
+
+  sendSuccess(
+    res,
+    toUserStatsDTOV1(
+      user,
+      user.studentMetrics?.toObject?.() || user.studentMetrics,
+      Number.parseFloat(accuracyRate)
+    )
+  );
 };
 
 /**
@@ -528,45 +518,35 @@ const getUserStats = async (req, res, next) => {
  * @param {import('express').Response} res
  * @param {import('express').NextFunction} next
  */
-const getStudentsByTeacher = async (req, res, next) => {
-  try {
-    const { teacherId } = req.params;
-    const { classroom, sortBy = 'name', order = 'asc' } = req.query;
+const getStudentsByTeacher = async (req, res) => {
+  const { teacherId } = req.params;
+  const { classroom, sortBy = 'name', order = 'asc' } = req.query;
 
-    // Verificar permisos: solo el profesor o un admin
-    // Verificar permisos: solo el profesor o un super admin
-    if (req.user._id.toString() !== teacherId && req.user.role !== 'super_admin') {
-      throw new ForbiddenError('No tienes permiso para ver estos alumnos');
-    }
-
-    // Filtro
-    const filter = {
-      role: 'student',
-      createdBy: teacherId,
-      status: 'active'
-    };
-
-    if (classroom) {
-      filter['profile.classroom'] = classroom;
-    }
-
-    const sortOptions = { [sortBy]: order === 'asc' ? 1 : -1 };
-
-    const students = await userRepository.find(filter, {
-      sort: sortOptions,
-      select: '-password'
-    });
-
-    res.json({
-      success: true,
-      data: toUserListDTOV1(students),
-      meta: {
-        count: students.length
-      }
-    });
-  } catch (error) {
-    next(error);
+  // Verificar permisos: solo el profesor o un admin
+  // Verificar permisos: solo el profesor o un super admin
+  if (req.user._id.toString() !== teacherId && req.user.role !== 'super_admin') {
+    throw new ForbiddenError('No tienes permiso para ver estos alumnos');
   }
+
+  // Filtro
+  const filter = {
+    role: 'student',
+    createdBy: teacherId,
+    status: 'active'
+  };
+
+  if (classroom) {
+    filter['profile.classroom'] = classroom;
+  }
+
+  const sortOptions = { [sortBy]: order === 'asc' ? 1 : -1 };
+
+  const students = await userRepository.find(filter, {
+    sort: sortOptions,
+    select: '-password'
+  });
+
+  sendSuccess(res, toUserListDTOV1(students));
 };
 
 /**
@@ -585,80 +565,180 @@ const getStudentsByTeacher = async (req, res, next) => {
  * @param {import('express').Response} res
  * @param {import('express').NextFunction} next
  */
-const transferStudent = async (req, res, next) => {
-  try {
-    const { id } = req.params;
-    const { newTeacherId, newClassroom, reason } = req.body;
+const transferStudent = async (req, res) => {
+  const { id } = req.params;
+  const { newTeacherId, newClassroom, reason } = req.body;
 
-    if (!newTeacherId || !newClassroom) {
-      throw new ValidationError('Se requiere newTeacherId y newClassroom');
-    }
-
-    const student = await userRepository.findById(id);
-
-    if (!student) {
-      throw new NotFoundError('Alumno');
-    }
-
-    if (student.role !== 'student') {
-      throw new ValidationError('Solo se pueden transferir usuarios con rol de alumno');
-    }
-
-    // VERIFICACIÓN DE SEGURIDAD: Solo el super admin puede transferir
-    const isSuperAdmin = req.user.role === 'super_admin';
-
-    if (!isSuperAdmin) {
-      throw new ForbiddenError('Solo los administradores pueden transferir alumnos');
-    }
-
-    // Verificar que el nuevo profesor existe y es válido
-    const newTeacher = await userRepository.findOne({
-      _id: newTeacherId,
-      role: 'teacher',
-      status: 'active'
-    });
-
-    if (!newTeacher) {
-      throw new NotFoundError('Profesor destino');
-    }
-
-    const fromTeacherId = student.createdBy;
-
-    // Registrar cambios para auditoría (log)
-    logger.info('Iniciando transferencia de alumno', {
-      studentId: student._id,
-      studentName: student.name,
-      fromTeacher: fromTeacherId,
-      toTeacher: newTeacherId,
-      initiatedBy: req.user._id,
-      reason
-    });
-
-    // Realizar transferencia
-    student.createdBy = newTeacherId;
-    student.profile.classroom = newClassroom;
-
-    await student.save();
-
-    logSecurityEvent('STUDENT_TRANSFER', {
-      ...getRequestContext(req),
-      studentId: student._id,
-      studentName: student.name,
-      fromTeacher: fromTeacherId,
-      toTeacher: newTeacherId,
-      initiatedBy: req.user._id,
-      newClassroom,
-      reason
-    });
-
-    res.json({
-      success: true,
-      message: 'Alumno transferido exitosamente',
-      data: toStudentDTOV1(student)
-    });
-  } catch (error) {
-    next(error);
+  if (!newTeacherId || !newClassroom) {
+    throw new ValidationError('Se requiere newTeacherId y newClassroom');
   }
+
+  const student = await userRepository.findById(id);
+
+  if (!student) {
+    throw new NotFoundError('Alumno');
+  }
+
+  if (student.role !== 'student') {
+    throw new ValidationError('Solo se pueden transferir usuarios con rol de alumno');
+  }
+
+  // VERIFICACIÓN DE SEGURIDAD: Solo el super admin puede transferir
+  const isSuperAdmin = req.user.role === 'super_admin';
+
+  if (!isSuperAdmin) {
+    throw new ForbiddenError('Solo los administradores pueden transferir alumnos');
+  }
+
+  // Verificar que el nuevo profesor existe y es válido
+  const newTeacher = await userRepository.findOne({
+    _id: newTeacherId,
+    role: 'teacher',
+    status: 'active'
+  });
+
+  if (!newTeacher) {
+    throw new NotFoundError('Profesor destino');
+  }
+
+  const fromTeacherId = student.createdBy;
+
+  // Registrar cambios para auditoría (log) — seudonimizado (Art. 25 RGPD)
+  logger.info('Iniciando transferencia de alumno', {
+    studentPseudoId: pseudonymize(student._id),
+    fromTeacher: fromTeacherId,
+    toTeacher: newTeacherId,
+    initiatedBy: req.user._id,
+    reason
+  });
+
+  // Realizar transferencia
+  student.createdBy = newTeacherId;
+  student.profile.classroom = newClassroom;
+
+  await student.save();
+
+  logSecurityEvent('STUDENT_TRANSFER', {
+    ...getRequestContext(req),
+    studentPseudoId: pseudonymize(student._id),
+    fromTeacher: fromTeacherId,
+    toTeacher: newTeacherId,
+    initiatedBy: req.user._id,
+    newClassroom,
+    reason
+  });
+
+  sendSuccess(res, toStudentDTOV1(student), 'Alumno transferido exitosamente');
+};
+
+/**
+ * Actualizar consentimiento parental de un estudiante.
+ * Art. 7.3 RGPD: la retirada del consentimiento debe ser tan fácil como su otorgamiento.
+ *
+ * PATCH /api/users/:id/consent
+ */
+const updateConsent = async (req, res) => {
+  const { id } = req.params;
+  const consentData = {
+    ...req.body,
+    // Metadata de canal — Art. 7.1 RGPD (demostrar consentimiento)
+    channel: 'web_form',
+    ipAddress: req.ip,
+    userAgent: req.get('user-agent')
+  };
+
+  const updatedUser = await userService.updateConsent(id, consentData, req.user);
+
+  // Si se revocó, revocar tokens Redis y desconectar WebSocket — Art. 7.3 RGPD
+  if (!consentData.granted) {
+    await revokeAllUserTokens(id, 'consent_withdrawn', getRequestContext(req));
+    const io = req.app.get('io');
+    if (io) {
+      disconnectUserSockets(io, id, 'CONSENT_WITHDRAWN');
+    }
+  }
+
+  logSecurityEvent('DATA_CONSENT_CHANGE', {
+    ...getRequestContext(req),
+    studentId: id,
+    action: consentData.granted ? 'granted' : 'withdrawn',
+    changedBy: req.user._id
+  });
+
+  // Invalidar cache de analytics para reflejar cambio de consent inmediatamente
+  await cacheInvalidateNamespace('cache:analytics');
+
+  sendSuccess(
+    res,
+    toStudentDTOV1(updatedUser),
+    consentData.granted
+      ? 'Consentimiento parental otorgado'
+      : 'Consentimiento parental revocado — estudiante desactivado'
+  );
+};
+
+/**
+ * Borrado efectivo (hard delete) de todos los datos de un estudiante.
+ * Art. 17 RGPD: derecho de supresión, especialmente Art. 17.1.f (datos de menores).
+ *
+ * DELETE /api/users/:id/data
+ */
+const hardDeleteUser = async (req, res) => {
+  const { id } = req.params;
+
+  const result = await userService.hardDeleteStudent(id, req.user);
+
+  // Revocar tokens Redis y desconectar WebSocket
+  await revokeAllUserTokens(id, 'hard_delete', getRequestContext(req));
+  const io = req.app.get('io');
+  if (io) {
+    disconnectUserSockets(io, id, 'ACCOUNT_HARD_DELETED');
+  }
+
+  logSecurityEvent('DATA_HARD_DELETE', {
+    ...getRequestContext(req),
+    deletedUserId: id,
+    deletedBy: req.user._id,
+    gamePlaysDeleted: result.gamePlaysDeleted
+  });
+
+  sendSuccess(
+    res,
+    {
+      deleted: true,
+      summary: {
+        gamePlaysDeleted: result.gamePlaysDeleted
+      }
+    },
+    'Datos del estudiante eliminados permanentemente (Art. 17 RGPD)'
+  );
+};
+
+/**
+ * Exportar datos personales de un estudiante (Art. 20 RGPD — portabilidad).
+ * Genera un paquete JSON descargable con todos los datos del estudiante.
+ *
+ * GET /api/users/:id/export-data
+ */
+const exportStudentData = async (req, res) => {
+  const { id } = req.params;
+  const data = await dataExportService.exportStudentData(id, req.user);
+
+  logSecurityEvent('DATA_EXPORT', {
+    ...getRequestContext(req),
+    studentPseudoId: pseudonymize(id),
+    exportedBy: req.user._id
+  });
+
+  const pseudoId = pseudonymize(id);
+  const date = new Date().toISOString().split('T')[0];
+
+  res.setHeader('Content-Type', 'application/json; charset=utf-8');
+  res.setHeader(
+    'Content-Disposition',
+    `attachment; filename="student-data-${pseudoId}-${date}.json"`
+  );
+  res.json(data);
 };
 
 module.exports = {
@@ -669,5 +749,8 @@ module.exports = {
   deleteUser,
   getUserStats,
   getStudentsByTeacher,
-  transferStudent
+  transferStudent,
+  updateConsent,
+  hardDeleteUser,
+  exportStudentData
 };

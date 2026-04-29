@@ -38,8 +38,7 @@ async function seedSuperAdmin() {
       role: 'super_admin',
       accountStatus: 'approved',
       profile: {
-        avatar: null,
-        birthdate: new Date('1980-01-01')
+        avatar: null
       },
       status: 'active'
     });

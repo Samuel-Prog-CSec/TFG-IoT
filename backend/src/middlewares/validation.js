@@ -1,11 +1,26 @@
 /**
  * @fileoverview Middleware de validación con Zod.
  * Valida req.body, req.query y req.params usando schemas de Zod.
+ * Los errores de validación se delegan al errorHandler centralizado
+ * mediante next(new ValidationError(...)) para garantizar logging
+ * estructurado (Pino), formato de respuesta unificado y evaluación por Sentry.
  * @module middlewares/validation
  */
 
 const { z } = require('zod');
-const logger = require('../utils/logger');
+const { ValidationError } = require('../utils/errors');
+
+/**
+ * Formatea los issues de Zod en un array de errores con campo y mensaje.
+ *
+ * @param {import('zod').ZodIssue[]} issues - Issues de validación de Zod
+ * @returns {Array<{field: string, message: string}>} Errores formateados
+ */
+const formatZodErrors = issues =>
+  issues.map(issue => ({
+    field: issue.path.join('.'),
+    message: issue.message
+  }));
 
 /**
  * Middleware para validar el body de la petición.
@@ -18,27 +33,13 @@ const logger = require('../utils/logger');
  */
 const validateBody = schema => (req, res, next) => {
   try {
-    // Validar y transformar datos
-    const validated = schema.parse(req.body);
-    req.body = validated; // Reemplazar con datos validados y transformados
-    next();
+    req.body = schema.parse(req.body);
+    return next();
   } catch (error) {
     if (error instanceof z.ZodError) {
-      // Formatear errores de Zod (usar .issues en Zod v4+)
-      const formattedErrors = error.issues.map(err => ({
-        field: err.path.join('.'),
-        message: err.message
-      }));
-
-      logger.warn('Validación de body fallida', { errors: formattedErrors, path: req.path });
-
-      return res.status(400).json({
-        success: false,
-        message: 'Error de validación',
-        errors: formattedErrors
-      });
+      return next(new ValidationError('Error de validación', formatZodErrors(error.issues)));
     }
-    next(error); // Otros errores van al errorHandler
+    return next(error);
   }
 };
 
@@ -53,26 +54,15 @@ const validateBody = schema => (req, res, next) => {
  */
 const validateQuery = schema => (req, res, next) => {
   try {
-    const validated = schema.parse(req.query);
-    req.query = validated;
-    next();
+    req.query = schema.parse(req.query);
+    return next();
   } catch (error) {
     if (error instanceof z.ZodError) {
-      // Formatear errores de Zod (usar .issues en Zod v4+)
-      const formattedErrors = error.issues.map(err => ({
-        field: err.path.join('.'),
-        message: err.message
-      }));
-
-      logger.warn('Validación de query fallida', { errors: formattedErrors, path: req.path });
-
-      return res.status(400).json({
-        success: false,
-        message: 'Parámetros de consulta inválidos',
-        errors: formattedErrors
-      });
+      return next(
+        new ValidationError('Parámetros de consulta inválidos', formatZodErrors(error.issues))
+      );
     }
-    next(error);
+    return next(error);
   }
 };
 
@@ -88,26 +78,15 @@ const validateQuery = schema => (req, res, next) => {
  */
 const validateParams = schema => (req, res, next) => {
   try {
-    const validated = schema.parse(req.params);
-    req.params = validated;
-    next();
+    req.params = schema.parse(req.params);
+    return next();
   } catch (error) {
     if (error instanceof z.ZodError) {
-      // Formatear errores de Zod (usar .issues en Zod v4+)
-      const formattedErrors = error.issues.map(err => ({
-        field: err.path.join('.'),
-        message: err.message
-      }));
-
-      logger.warn('Validación de params fallida', { errors: formattedErrors, path: req.path });
-
-      return res.status(400).json({
-        success: false,
-        message: 'Parámetros de ruta inválidos',
-        errors: formattedErrors
-      });
+      return next(
+        new ValidationError('Parámetros de ruta inválidos', formatZodErrors(error.issues))
+      );
     }
-    next(error);
+    return next(error);
   }
 };
 

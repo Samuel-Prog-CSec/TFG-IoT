@@ -23,6 +23,8 @@ import {
 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { useReducedMotion } from '../hooks/useReducedMotion';
+import { useDocumentTitle } from '../hooks/useDocumentTitle';
+import { useFormFocusFirstError } from '../hooks/useFormFocusFirstError';
 import ButtonPremium from '../components/ui/ButtonPremium';
 import InputPremium from '../components/ui/InputPremium';
 import GlassCard from '../components/ui/GlassCard';
@@ -36,7 +38,7 @@ const PASSWORD_REQUIREMENTS = [
   { id: 'length', label: 'Mínimo 8 caracteres', test: (p) => p.length >= 8 },
   { id: 'uppercase', label: 'Una letra mayúscula', test: (p) => /[A-Z]/.test(p) },
   { id: 'lowercase', label: 'Una letra minúscula', test: (p) => /[a-z]/.test(p) },
-  { id: 'number', label: 'Un número', test: (p) => /[0-9]/.test(p) },
+  { id: 'number', label: 'Un número', test: (p) => /\d/.test(p) },
 ];
 
 /**
@@ -45,7 +47,7 @@ const PASSWORD_REQUIREMENTS = [
  * @returns {boolean}
  */
 const isValidEmail = (email) => {
-  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
+  return /^[^\s@]+@[^\s@]+$/.test(email) && email.includes('.');
 };
 
 /**
@@ -108,7 +110,7 @@ function PasswordStrengthMeter({ password }) {
           <div
             key={level}
             className={cn(
-              'h-1 flex-1 rounded-full transition-all duration-300',
+              'h-1 flex-1 rounded-full transition-colors duration-300',
               level <= strength ? getColor() : 'bg-background-surface'
             )}
           />
@@ -130,6 +132,7 @@ function PasswordStrengthMeter({ password }) {
 export default function Register() {
   const { register, error, clearError, isLoading } = useAuth();
   const { shouldReduceMotion } = useReducedMotion();
+  useDocumentTitle('Registro');
 
   // Estado del formulario
   const [formData, setFormData] = useState({
@@ -141,6 +144,7 @@ export default function Register() {
   const [showPassword, setShowPassword] = useState(false);
   const [showConfirmPassword, setShowConfirmPassword] = useState(false);
   const [validationErrors, setValidationErrors] = useState({});
+  const formRef = useFormFocusFirstError(validationErrors);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [showRequirements, setShowRequirements] = useState(false);
 
@@ -248,13 +252,13 @@ export default function Register() {
         <div 
           className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[800px] h-[800px] rounded-full"
           style={{
-            background: 'radial-gradient(circle, rgba(99, 102, 241, 0.15) 0%, transparent 70%)',
+            background: 'radial-gradient(circle, color-mix(in srgb, var(--color-accent-indigo) 15%, transparent) 0%, transparent 70%)',
           }}
         />
         
         {/* Orbes decorativos */}
         <motion.div
-          className="absolute top-32 right-20 w-72 h-72 rounded-full bg-cyan-500/10 blur-3xl"
+          className="absolute top-32 right-20 w-72 h-72 rounded-full bg-accent-cyan/10 blur-3xl"
           animate={{
             scale: [1, 1.3, 1],
             opacity: [0.3, 0.5, 0.3],
@@ -262,7 +266,7 @@ export default function Register() {
           transition={{ duration: 9, repeat: Infinity, ease: 'easeInOut' }}
         />
         <motion.div
-          className="absolute bottom-32 left-20 w-64 h-64 rounded-full bg-indigo-500/10 blur-3xl"
+          className="absolute bottom-32 left-20 w-64 h-64 rounded-full bg-accent-indigo/10 blur-3xl"
           animate={{
             scale: [1.2, 1, 1.2],
             opacity: [0.4, 0.2, 0.4],
@@ -274,8 +278,8 @@ export default function Register() {
         <div 
           className="absolute inset-0 opacity-[0.02]"
           style={{
-            backgroundImage: `linear-gradient(rgba(255,255,255,0.1) 1px, transparent 1px),
-                             linear-gradient(90deg, rgba(255,255,255,0.1) 1px, transparent 1px)`,
+            backgroundImage: `linear-gradient(var(--color-border-default) 1px, transparent 1px),
+                             linear-gradient(90deg, var(--color-border-default) 1px, transparent 1px)`,
             backgroundSize: '50px 50px',
           }}
         />
@@ -310,16 +314,22 @@ export default function Register() {
             initial={{ scale: 0.8, opacity: 0 }}
             animate={{ scale: 1, opacity: 1 }}
             transition={{ delay: 0.1, duration: 0.4 }}
-            className="inline-flex items-center justify-center size-20 rounded-2xl bg-gradient-to-br from-cyan-500 via-indigo-500 to-purple-500 mb-4 shadow-lg shadow-indigo-500/30"
+            className={cn(
+              'inline-flex items-center justify-center size-20 rounded-2xl mb-4',
+              'bg-gradient-to-br from-accent-cyan via-accent-indigo to-brand-base',
+              'shadow-lg shadow-brand-glow',
+              // Pulse-glow signature coherente con Login.
+              !shouldReduceMotion && 'animate-pulse-glow'
+            )}
           >
-            <UserPlus className="size-10 text-white" />
+            <UserPlus className="size-10 text-text-primary" />
           </motion.div>
           
           <motion.h1 
             initial={{ opacity: 0, y: 10 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ delay: 0.2 }}
-            className="text-3xl font-bold font-display bg-gradient-to-r from-white via-cyan-200 to-indigo-200 bg-clip-text text-transparent"
+            className="text-3xl font-bold font-display bg-gradient-to-r from-text-primary via-accent-cyan to-accent-indigo bg-clip-text text-transparent"
           >
             Crear Cuenta
           </motion.h1>
@@ -337,6 +347,7 @@ export default function Register() {
         {/* Card del formulario */}
         <GlassCard className="p-8" variant="solid">
           <motion.form
+            ref={formRef}
             onSubmit={handleSubmit}
             className="space-y-5"
             initial={shouldReduceMotion ? false : "hidden"}
@@ -349,10 +360,10 @@ export default function Register() {
                   initial={{ opacity: 0, y: -10, height: 0 }}
                   animate={{ opacity: 1, y: 0, height: 'auto' }}
                   exit={{ opacity: 0, y: -10, height: 0 }}
-                  className="flex items-start gap-3 p-4 rounded-xl bg-rose-500/10 border border-rose-500/20"
+                  className="flex items-start gap-3 p-4 rounded-xl bg-error-base/10 border border-error-base/20"
                 >
-                  <AlertCircle className="size-5 text-rose-400 flex-shrink-0 mt-0.5" />
-                  <p className="text-rose-300 text-sm">{error}</p>
+                  <AlertCircle className="size-5 text-error-base flex-shrink-0 mt-0.5" />
+                  <p className="text-error-base text-sm">{error}</p>
                 </motion.div>
               )}
             </AnimatePresence>
@@ -384,6 +395,7 @@ export default function Register() {
                 error={validationErrors.email}
                 icon={<Mail className="size-5" />}
                 autoComplete="email"
+                spellCheck={false}
               />
             </motion.div>
 
@@ -405,13 +417,14 @@ export default function Register() {
                 <button
                   type="button"
                   onClick={() => setShowPassword(!showPassword)}
-                  className="absolute right-3 top-[38px] text-text-muted hover:text-text-primary transition-colors p-1"
-                  tabIndex={-1}
+                  className="absolute right-3 top-[38px] text-text-muted hover:text-text-primary transition-colors p-1 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-base focus-visible:ring-offset-2 focus-visible:ring-offset-background-base rounded"
+                  aria-label={showPassword ? 'Ocultar contraseña' : 'Mostrar contraseña'}
+                  aria-pressed={showPassword}
                 >
                   {showPassword ? (
-                    <EyeOff className="size-5" />
+                    <EyeOff className="size-5" aria-hidden="true" />
                   ) : (
-                    <Eye className="size-5" />
+                    <Eye className="size-5" aria-hidden="true" />
                   )}
                 </button>
               </div>
@@ -459,13 +472,14 @@ export default function Register() {
               <button
                 type="button"
                 onClick={() => setShowConfirmPassword(!showConfirmPassword)}
-                className="absolute right-3 top-[38px] text-text-muted hover:text-text-primary transition-colors p-1"
-                tabIndex={-1}
+                className="absolute right-3 top-[38px] text-text-muted hover:text-text-primary transition-colors p-1 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-base focus-visible:ring-offset-2 focus-visible:ring-offset-background-base rounded"
+                aria-label={showConfirmPassword ? 'Ocultar confirmación' : 'Mostrar confirmación'}
+                aria-pressed={showConfirmPassword}
               >
                 {showConfirmPassword ? (
-                  <EyeOff className="size-5" />
+                  <EyeOff className="size-5" aria-hidden="true" />
                 ) : (
-                  <Eye className="size-5" />
+                  <Eye className="size-5" aria-hidden="true" />
                 )}
               </button>
             </motion.div>
@@ -500,9 +514,9 @@ export default function Register() {
             </AnimatePresence>
 
             {/* Aviso de aprobación */}
-            <motion.div variants={shouldReduceMotion ? {} : formFieldVariants(4)} className="flex items-start gap-3 p-4 rounded-xl bg-indigo-500/10 border border-indigo-500/20">
-              <Shield className="size-5 text-indigo-400 flex-shrink-0 mt-0.5" />
-              <p className="text-indigo-300/90 text-sm">
+            <motion.div variants={shouldReduceMotion ? {} : formFieldVariants(4)} className="flex items-start gap-3 p-4 rounded-xl bg-accent-indigo/10 border border-accent-indigo/20">
+              <Shield className="size-5 text-accent-indigo flex-shrink-0 mt-0.5" />
+              <p className="text-accent-indigo/90 text-sm">
                 Tu cuenta requerirá <strong>aprobación de un administrador</strong> antes de poder acceder a la plataforma.
               </p>
             </motion.div>
@@ -518,7 +532,7 @@ export default function Register() {
                 disabled={isSubmitting || isLoading}
                 icon={<UserPlus className="size-5" />}
               >
-                {isSubmitting ? 'Registrando...' : 'Crear cuenta'}
+                {isSubmitting ? 'Registrando…' : 'Crear cuenta'}
               </ButtonPremium>
             </motion.div>
           </motion.form>
@@ -528,7 +542,7 @@ export default function Register() {
             ¿Ya tienes cuenta?{' '}
             <Link 
               to={ROUTES.LOGIN}
-              className="text-indigo-400 hover:text-indigo-300 transition-colors font-medium"
+              className="text-accent-indigo hover:text-accent-indigo transition-colors font-medium"
             >
               Inicia sesión
             </Link>

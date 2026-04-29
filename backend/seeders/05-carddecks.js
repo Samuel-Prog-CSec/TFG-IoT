@@ -10,28 +10,76 @@ const logger = require('../src/utils/logger');
 
 /**
  * Genera cardMappings para un mazo.
- * @param {Array} cards - Tarjetas disponibles
  * @param {Array} contextAssets - Assets del contexto
  * @param {number} count - Número de mapeos a crear
+ * @param {number} baseOffset - Offset base para generar UIDs sintéticos
  * @returns {Array} Array de cardMappings
  */
-function generateCardMappings(cards, contextAssets, count) {
-  const selectedCards = cards.slice(0, count);
+function generateCardMappings(contextAssets, count, baseOffset) {
   const selectedAssets = contextAssets.slice(0, count);
 
-  return selectedCards.map((card, index) => ({
-    cardId: card._id,
-    uid: card.uid,
-    assignedValue: selectedAssets[index].value,
+  return selectedAssets.map((asset, index) => ({
+    uid: (baseOffset + index).toString(16).toUpperCase().padStart(8, '0'),
+    assignedValue: asset.value,
     displayData: {
-      key: selectedAssets[index].key,
-      display: selectedAssets[index].display,
-      value: selectedAssets[index].value,
-      audioUrl: selectedAssets[index].audioUrl || null,
-      imageUrl: selectedAssets[index].imageUrl || null,
-      thumbnailUrl: selectedAssets[index].thumbnailUrl || null
+      key: asset.key,
+      display: asset.display,
+      value: asset.value,
+      audioUrl: asset.audioUrl || null,
+      imageUrl: asset.imageUrl || null,
+      thumbnailUrl: asset.thumbnailUrl || null,
+      dominantColor: asset.dominantColor || null
     }
   }));
+}
+
+/**
+ * Genera cardMappings para un mazo de memoria con parejas.
+ * Cada asset produce 2 tarjetas con UIDs distintos pero mismo assignedValue y displayData,
+ * resultando en 2N tarjetas para N assets.
+ *
+ * Esquema de offsets: para N assets se ocupa el rango [baseOffset, baseOffset+2N).
+ * La primera copia toma `baseOffset+i` y la segunda `baseOffset+N+i`, de forma que
+ * los UIDs son únicos dentro del mazo (requisito del modelo CardDeck) y además
+ * `currentOffset` en el caller puede avanzar +2N para el siguiente mazo sin
+ * colisionar.
+ *
+ * @param {Array} contextAssets - Assets del contexto
+ * @param {number} count - Número de assets (parejas) a usar
+ * @param {number} baseOffset - Offset base para generar UIDs sintéticos
+ * @returns {Array} Array de cardMappings (2 * count elementos)
+ */
+function generateMemoryCardMappings(contextAssets, count, baseOffset) {
+  const selectedAssets = contextAssets.slice(0, count);
+  const mappings = [];
+
+  selectedAssets.forEach((asset, index) => {
+    const displayData = {
+      key: asset.key,
+      display: asset.display,
+      value: asset.value,
+      audioUrl: asset.audioUrl || null,
+      imageUrl: asset.imageUrl || null,
+      thumbnailUrl: asset.thumbnailUrl || null,
+      dominantColor: asset.dominantColor || null
+    };
+
+    // Primera copia: offset normal
+    mappings.push({
+      uid: (baseOffset + index).toString(16).toUpperCase().padStart(8, '0'),
+      assignedValue: asset.value,
+      displayData
+    });
+
+    // Segunda copia: desplazada por `count` para garantizar unicidad de UID
+    mappings.push({
+      uid: (baseOffset + count + index).toString(16).toUpperCase().padStart(8, '0'),
+      assignedValue: asset.value,
+      displayData
+    });
+  });
+
+  return mappings;
 }
 
 /**
@@ -51,7 +99,7 @@ function findContext(contexts, contextId) {
 const deckTemplates = [
   {
     name: 'Banderas de Europa',
-    description: 'Mazo para aprender paises de Europa',
+    description: 'Mazo para aprender países de Europa',
     contextKey: 'geography-europe',
     cardCount: 6
   },
@@ -62,41 +110,60 @@ const deckTemplates = [
     cardCount: 6
   },
   {
-    name: 'Colores Basicos',
-    description: 'Mazo para aprender colores basicos',
+    name: 'Colores Básicos',
+    description: 'Mazo para aprender colores básicos',
     contextKey: 'colors-basic',
     cardCount: 6
   },
   {
-    name: 'Numeros del 1 al 6',
-    description: 'Mazo para practicar numeros del 1 al 6',
-    contextKey: 'numbers-1-15',
+    name: 'Números del 1 al 6',
+    description: 'Mazo para practicar números del 1 al 6',
+    contextKey: 'numbers-1-6',
     cardCount: 6
   },
   {
-    name: 'Formas Basicas',
-    description: 'Mazo para aprender formas basicas',
+    name: 'Formas Básicas',
+    description: 'Mazo para aprender formas básicas',
     contextKey: 'shapes-basic',
     cardCount: 6
+  },
+  {
+    name: 'Formas Memoria',
+    description: 'Mazo con parejas de formas para juegos de memoria',
+    contextKey: 'shapes-basic',
+    cardCount: 6,
+    memoryPairs: true
   }
 ];
+
+/**
+ * Calcula el numero total de tarjetas que genera un profesor,
+ * considerando que los mazos de memoria producen 2x tarjetas.
+ * @returns {number} Total de tarjetas por profesor
+ */
+function calculateCardsPerTeacher() {
+  return deckTemplates.reduce((total, t) => {
+    const multiplier = t.memoryPairs ? 2 : 1;
+    return total + t.cardCount * multiplier;
+  }, 0);
+}
 
 /**
  * Genera mazos para un profesor específico.
  * @param {Object} teacher - Documento del profesor
  * @param {Array} contexts - Contextos disponibles
- * @param {Array} cards - Tarjetas disponibles
- * @param {number} teacherIndex - Índice del profesor (para variar las tarjetas)
+ * @param {number} teacherIndex - Índice del profesor (para variar los UIDs)
  * @returns {Array} Array de datos de mazos
  */
-function generateDecksForTeacher(teacher, contexts, cards, teacherIndex) {
+function generateDecksForTeacher(teacher, contexts, teacherIndex) {
   const decks = [];
-  const cardsPerDeck = 6;
-  const decksPerTeacher = deckTemplates.length;
-  const cardsPerTeacher = decksPerTeacher * cardsPerDeck;
-  const cardOffset = teacherIndex * cardsPerTeacher;
+  const cardsPerTeacher = calculateCardsPerTeacher();
+  const uidBaseOffset = teacherIndex * cardsPerTeacher;
 
-  deckTemplates.forEach((template, templateIndex) => {
+  // Acumular offset real por mazo para evitar colisiones de UIDs
+  let currentOffset = 0;
+
+  deckTemplates.forEach(template => {
     const context = findContext(contexts, template.contextKey);
 
     if (!context) {
@@ -113,18 +180,16 @@ function generateDecksForTeacher(teacher, contexts, cards, teacherIndex) {
       return;
     }
 
-    const startCardIndex = cardOffset + templateIndex * cardsPerDeck;
-    const endCardIndex = startCardIndex + template.cardCount;
-    const selectedCards = cards.slice(startCardIndex, endCardIndex);
+    const baseOffset = uidBaseOffset + currentOffset;
 
-    if (selectedCards.length < template.cardCount) {
-      logger.warn(
-        `No hay suficientes tarjetas para el mazo '${template.name}' del profesor ${teacher.name}`
-      );
-      return;
+    let cardMappings;
+    if (template.memoryPairs) {
+      cardMappings = generateMemoryCardMappings(context.assets, template.cardCount, baseOffset);
+      currentOffset += template.cardCount * 2;
+    } else {
+      cardMappings = generateCardMappings(context.assets, template.cardCount, baseOffset);
+      currentOffset += template.cardCount;
     }
-
-    const cardMappings = generateCardMappings(selectedCards, context.assets, template.cardCount);
 
     decks.push({
       name: template.name,
@@ -141,19 +206,27 @@ function generateDecksForTeacher(teacher, contexts, cards, teacherIndex) {
 
 /**
  * Ejecuta el seeder de mazos de tarjetas.
+ * Idempotente: si ya existen mazos, los devuelve sin recrearlos (evita
+ * duplicados y posibles violaciones del indice unique {createdBy, name}).
+ *
  * @param {Object} users - Usuarios creados { teachers, students }
  * @param {Array} contexts - Contextos creados
- * @param {Array} cards - Tarjetas creadas
- * @returns {Promise<Array>} Array de mazos creados
+ * @returns {Promise<Array>} Array de mazos creados o preexistentes
  */
-async function seedCardDecks(users, contexts, cards) {
+async function seedCardDecks(users, contexts) {
   try {
+    const existing = await CardDeck.find({});
+    if (existing.length > 0) {
+      logger.info(`Mazos ya existen (${existing.length}), omitiendo creacion`);
+      return existing;
+    }
+
     const { teachers } = users;
     const allDecks = [];
 
     // Generar mazos para cada profesor
     for (const [index, teacher] of teachers.entries()) {
-      const teacherDecks = generateDecksForTeacher(teacher, contexts, cards, index);
+      const teacherDecks = generateDecksForTeacher(teacher, contexts, index);
       allDecks.push(...teacherDecks);
     }
 

@@ -11,12 +11,19 @@ const cardDeckRepository = require('../repositories/cardDeckRepository');
 const storageService = require('../services/storageService');
 const { NotFoundError, ConflictError, ValidationError } = require('../utils/errors');
 const logger = require('../utils/logger');
+const { toGameContextDetailDTOV1, toGameContextListDTOV1 } = require('../utils/dtos');
+const { sendSuccess, sendCreated, sendPaginated } = require('../utils/responseHelper');
+const { buildFilter } = require('../utils/filterBuilder');
+const { cacheGet } = require('../utils/cacheHelper');
 const {
-  toGameContextDetailDTOV1,
-  toGameContextListDTOV1,
-  toPaginatedDTOV1
-} = require('../utils/dtos');
-const { escapeRegex } = require('../utils/escapeRegex');
+  buildListCacheKey,
+  invalidateContextCaches
+} = require('../utils/cacheInvalidators/contextCacheInvalidator');
+
+const contextFilterMappings = {
+  search: { type: 'search', fields: ['contextId', 'name'] },
+  isActive: { field: 'isActive', type: 'exact' }
+};
 
 const ACTIVE_SESSION_STATUSES = ['created', 'active'];
 const ACTIVE_PLAY_STATUSES = ['in-progress', 'paused'];
@@ -61,64 +68,66 @@ const getActiveContextDependencies = async contextId => {
  * @param {import('express').Response} res
  * @param {import('express').NextFunction} next
  */
-const getContexts = async (req, res, next) => {
-  try {
-    const {
-      page = 1,
-      limit = 20,
-      sortBy = 'createdAt',
-      order = 'desc',
-      search,
-      isActive
-    } = req.query;
+const getContexts = async (req, res) => {
+  const {
+    page = 1,
+    limit = 20,
+    sortBy = 'createdAt',
+    order = 'desc',
+    search,
+    isActive
+  } = req.query;
 
-    // Construir filtro
-    const filter = {};
+  // Construir filtro
+  const filter = buildFilter({ search, isActive }, contextFilterMappings);
 
-    // Búsqueda por contextId o nombre
-    if (search) {
-      const safeSearch = escapeRegex(search);
-      filter.$or = [
-        { contextId: { $regex: safeSearch, $options: 'i' } },
-        { name: { $regex: safeSearch, $options: 'i' } }
-      ];
-    }
+  // Paginación
+  const parsedPage = Number.parseInt(page, 10);
+  const parsedLimit = Number.parseInt(limit, 10);
+  const skip = (parsedPage - 1) * parsedLimit;
+  const sortOptions = { [sortBy]: order === 'asc' ? 1 : -1 };
 
-    if (typeof isActive === 'boolean') {
-      filter.isActive = isActive;
-    }
+  // Cache de la lista: la key depende de los query params. Las mutaciones
+  // create/update/delete invalidan todas las keys `list:*` del namespace vía
+  // contextCacheInvalidator.invalidateContextCaches.
+  const listCacheKey = buildListCacheKey({
+    page: parsedPage,
+    limit: parsedLimit,
+    sortBy,
+    order,
+    search,
+    isActive
+  });
 
-    // Paginación
-    const skip = (page - 1) * limit;
-    const sortOptions = { [sortBy]: order === 'asc' ? 1 : -1 };
+  const cachedList = await cacheGet(
+    'cache:context',
+    listCacheKey,
+    async () => {
+      const [contexts, total] = await Promise.all([
+        gameContextRepository.find(filter, {
+          sort: sortOptions,
+          limit: parsedLimit,
+          skip,
+          lean: true
+        }),
+        gameContextRepository.count(filter)
+      ]);
+      return { contexts, total };
+    },
+    1800
+  );
 
-    // Ejecutar query
-    const [contexts, total] = await Promise.all([
-      gameContextRepository.find(filter, {
-        sort: sortOptions,
-        limit: Number.parseInt(limit, 10),
-        skip
-      }),
-      gameContextRepository.count(filter)
-    ]);
+  logger.info('Lista de contextos obtenida', {
+    requestedBy: req.user._id,
+    filters: filter,
+    resultsCount: cachedList.contexts.length
+  });
 
-    logger.info('Lista de contextos obtenida', {
-      requestedBy: req.user._id,
-      filters: filter,
-      resultsCount: contexts.length
-    });
-
-    res.json({
-      success: true,
-      ...toPaginatedDTOV1(toGameContextListDTOV1(contexts), {
-        page: Number.parseInt(page, 10),
-        limit: Number.parseInt(limit, 10),
-        total
-      })
-    });
-  } catch (error) {
-    next(error);
-  }
+  sendPaginated(res, toGameContextListDTOV1(cachedList.contexts), {
+    page: parsedPage,
+    limit: parsedLimit,
+    total: cachedList.total
+  });
 };
 
 /**
@@ -131,31 +140,32 @@ const getContexts = async (req, res, next) => {
  * @param {import('express').Response} res
  * @param {import('express').NextFunction} next
  */
-const getContextById = async (req, res, next) => {
-  try {
-    const { id } = req.params;
+const getContextById = async (req, res) => {
+  const { id } = req.params;
 
-    // Intentar buscar por ID de MongoDB o por contextId
-    let context;
+  // Intentar buscar por ID de MongoDB o por contextId (con cache)
+  const context = await cacheGet(
+    'cache:context',
+    `byId:${id}`,
+    async () => {
+      let result;
+      const populateOpts = { populate: { path: 'assets.uploadedBy', select: 'name email' } };
+      if (id.match(/^[0-9a-f]{24}$/i)) {
+        result = await gameContextRepository.findById(id, populateOpts);
+      } else {
+        // Buscar por contextId (ej: 'geography', 'animals')
+        result = await gameContextRepository.findOne({ contextId: id.toLowerCase() }, populateOpts);
+      }
+      return result;
+    },
+    1800
+  );
 
-    if (id.match(/^[0-9a-fA-F]{24}$/)) {
-      context = await gameContextRepository.findById(id);
-    } else {
-      // Buscar por contextId (ej: 'geography', 'animals')
-      context = await gameContextRepository.findOne({ contextId: id.toLowerCase() });
-    }
-
-    if (!context) {
-      throw new NotFoundError('Contexto de juego');
-    }
-
-    res.json({
-      success: true,
-      data: toGameContextDetailDTOV1(context)
-    });
-  } catch (error) {
-    next(error);
+  if (!context) {
+    throw new NotFoundError('Contexto de juego');
   }
+
+  sendSuccess(res, toGameContextDetailDTOV1(context));
 };
 
 /**
@@ -170,42 +180,37 @@ const getContextById = async (req, res, next) => {
  * @param {import('express').Response} res
  * @param {import('express').NextFunction} next
  */
-const createContext = async (req, res, next) => {
-  try {
-    const { contextId, name, assets } = req.body;
+const createContext = async (req, res) => {
+  const { contextId, name, assets } = req.body;
 
-    // Verificar si el contextId ya existe
-    const existingContext = await gameContextRepository.findOne({
-      contextId: contextId.toLowerCase()
-    });
+  // Verificar si el contextId ya existe
+  const existingContext = await gameContextRepository.findOne({
+    contextId: contextId.toLowerCase()
+  });
 
-    if (existingContext) {
-      throw new ConflictError('Un contexto con este ID ya existe');
-    }
-
-    // Crear contexto (assets puede ser [] — los profesores los añaden después via upload)
-    const context = await gameContextRepository.create({
-      contextId: contextId.toLowerCase(),
-      name,
-      assets: assets || []
-    });
-
-    logger.info('Contexto creado', {
-      contextId: context.contextId,
-      name: context.name,
-      assetsCount: context.assets.length,
-      createdBy: req.user._id,
-      role: req.user.role
-    });
-
-    res.status(201).json({
-      success: true,
-      message: 'Contexto creado exitosamente',
-      data: toGameContextDetailDTOV1(context)
-    });
-  } catch (error) {
-    next(error);
+  if (existingContext) {
+    throw new ConflictError('Un contexto con este ID ya existe');
   }
+
+  // Crear contexto (assets puede ser [] — los profesores los añaden después via upload)
+  const context = await gameContextRepository.create({
+    contextId: contextId.toLowerCase(),
+    name,
+    assets: assets || []
+  });
+
+  // Invalidar las listas cacheadas para que el nuevo contexto aparezca inmediatamente.
+  await invalidateContextCaches(context._id.toString(), context.contextId);
+
+  logger.info('Contexto creado', {
+    contextId: context.contextId,
+    name: context.name,
+    assetsCount: context.assets.length,
+    createdBy: req.user._id,
+    role: req.user.role
+  });
+
+  sendCreated(res, toGameContextDetailDTOV1(context), 'Contexto creado exitosamente');
 };
 
 /**
@@ -219,54 +224,48 @@ const createContext = async (req, res, next) => {
  * @param {import('express').Response} res
  * @param {import('express').NextFunction} next
  */
-const updateContext = async (req, res, next) => {
-  try {
-    const { id } = req.params;
-    const { contextId, name, assets } = req.body;
+const updateContext = async (req, res) => {
+  const { id } = req.params;
+  const { contextId, name, assets } = req.body;
 
-    const context = await gameContextRepository.findById(id);
+  const context = await gameContextRepository.findById(id);
 
-    if (!context) {
-      throw new NotFoundError('Contexto de juego');
-    }
-
-    // Validar que no se renombra contextId si hay assets con archivos en Storage
-    if (contextId && contextId.toLowerCase() !== context.contextId) {
-      const hasStorageAssets = context.assets.some(a => a.imageUrl || a.audioUrl || a.thumbnailUrl);
-      if (hasStorageAssets) {
-        throw new ValidationError(
-          'No se puede cambiar el contextId de un contexto con assets almacenados en Storage'
-        );
-      }
-    }
-
-    // Actualizar campos
-    if (contextId) {
-      context.contextId = contextId.toLowerCase();
-    }
-    if (name) {
-      context.name = name;
-    }
-    if (assets) {
-      context.assets = assets;
-    }
-
-    await context.save();
-
-    logger.info('Contexto actualizado', {
-      contextId: context.contextId,
-      name: context.name,
-      updatedBy: req.user._id
-    });
-
-    res.json({
-      success: true,
-      message: 'Contexto actualizado exitosamente',
-      data: toGameContextDetailDTOV1(context)
-    });
-  } catch (error) {
-    next(error);
+  if (!context) {
+    throw new NotFoundError('Contexto de juego');
   }
+
+  // Validar que no se renombra contextId si hay assets con archivos en Storage
+  if (contextId && contextId.toLowerCase() !== context.contextId) {
+    const hasStorageAssets = context.assets.some(a => a.imageUrl || a.audioUrl || a.thumbnailUrl);
+    if (hasStorageAssets) {
+      throw new ValidationError(
+        'No se puede cambiar el contextId de un contexto con assets almacenados en Storage'
+      );
+    }
+  }
+
+  // Actualizar campos
+  if (contextId) {
+    context.contextId = contextId.toLowerCase();
+  }
+  if (name) {
+    context.name = name;
+  }
+  if (assets) {
+    context.assets = assets;
+  }
+
+  await context.save();
+
+  await invalidateContextCaches(id, context.contextId);
+
+  logger.info('Contexto actualizado', {
+    contextId: context.contextId,
+    name: context.name,
+    updatedBy: req.user._id
+  });
+
+  sendSuccess(res, toGameContextDetailDTOV1(context), 'Contexto actualizado exitosamente');
 };
 
 /**
@@ -281,157 +280,42 @@ const updateContext = async (req, res, next) => {
  * @param {import('express').Response} res
  * @param {import('express').NextFunction} next
  */
-const deleteContext = async (req, res, next) => {
-  try {
-    const { id } = req.params;
+const deleteContext = async (req, res) => {
+  const { id } = req.params;
 
-    const context = await gameContextRepository.findById(id);
+  const context = await gameContextRepository.findById(id);
 
-    if (!context) {
-      throw new NotFoundError('Contexto de juego');
-    }
-
-    const dependencies = await getActiveContextDependencies(context._id);
-    const hasActiveDependencies =
-      dependencies.activeDecks > 0 ||
-      dependencies.activeSessions > 0 ||
-      dependencies.activePlays > 0;
-
-    if (hasActiveDependencies) {
-      throw new ConflictError(
-        'No se puede eliminar el contexto porque tiene dependencias activas (sessions/decks/plays)'
-      );
-    }
-
-    // Limpiar archivos del contexto en Supabase Storage.
-    // Hard-fail: si Supabase falla, se lanza excepción y el contexto NO se elimina de MongoDB.
-    // Única excepción: si Storage está deshabilitado intencionalmente (SUPABASE_SERVICE_KEY no configurada),
-    // se omite en silencio para compatibilidad con entornos de desarrollo locales sin Supabase.
-    await storageService.deleteFolder(context.contextId);
-
-    await context.deleteOne();
-
-    logger.info('Contexto eliminado con limpieza de Storage', {
-      contextId: context.contextId,
-      name: context.name,
-      deletedBy: req.user._id
-    });
-
-    res.json({
-      success: true,
-      message: 'Contexto eliminado exitosamente'
-    });
-  } catch (error) {
-    next(error);
+  if (!context) {
+    throw new NotFoundError('Contexto de juego');
   }
-};
 
-/**
- * Añadir un asset a un contexto existente.
- *
- * POST /api/contexts/:id/assets
- * Headers: Authorization: Bearer <token>
- * Body: { key, display, value, audioUrl?, imageUrl? }
- *
- * @param {import('express').Request} req
- * @param {import('express').Response} res
- * @param {import('express').NextFunction} next
- */
-const addAsset = async (req, res, next) => {
-  try {
-    const { id } = req.params;
-    const { key, display, value, audioUrl, imageUrl } = req.body;
+  const dependencies = await getActiveContextDependencies(context._id);
+  const hasActiveDependencies =
+    dependencies.activeDecks > 0 || dependencies.activeSessions > 0 || dependencies.activePlays > 0;
 
-    const context = await gameContextRepository.findById(id);
-
-    if (!context) {
-      throw new NotFoundError('Contexto de juego');
-    }
-
-    // Verificar que la key no exista ya
-    const existingAsset = context.assets.find(asset => asset.key === key.toLowerCase());
-
-    if (existingAsset) {
-      throw new ConflictError('Un asset con esta key ya existe en este contexto');
-    }
-
-    // Añadir asset
-    context.assets.push({
-      key: key.toLowerCase(),
-      display,
-      value,
-      audioUrl,
-      imageUrl
-    });
-
-    await context.save();
-
-    logger.info('Asset añadido al contexto', {
-      contextId: context.contextId,
-      assetKey: key,
-      addedBy: req.user._id
-    });
-
-    res.status(201).json({
-      success: true,
-      message: 'Asset añadido exitosamente',
-      data: toGameContextDetailDTOV1(context)
-    });
-  } catch (error) {
-    next(error);
+  if (hasActiveDependencies) {
+    throw new ConflictError(
+      'No se puede eliminar el contexto porque tiene dependencias activas (sessions/decks/plays)'
+    );
   }
-};
 
-/**
- * Eliminar un asset de un contexto.
- *
- * DELETE /api/contexts/:id/assets/:assetKey
- * Headers: Authorization: Bearer <token>
- *
- * @param {import('express').Request} req
- * @param {import('express').Response} res
- * @param {import('express').NextFunction} next
- */
-const removeAsset = async (req, res, next) => {
-  try {
-    const { id, assetKey } = req.params;
+  await invalidateContextCaches(id, context.contextId);
 
-    const context = await gameContextRepository.findById(id);
+  // Limpiar archivos del contexto en Supabase Storage.
+  // Hard-fail: si Supabase falla, se lanza excepción y el contexto NO se elimina de MongoDB.
+  // Única excepción: si Storage está deshabilitado intencionalmente (SUPABASE_SERVICE_KEY no configurada),
+  // se omite en silencio para compatibilidad con entornos de desarrollo locales sin Supabase.
+  await storageService.deleteFolder(context.contextId);
 
-    if (!context) {
-      throw new NotFoundError('Contexto de juego');
-    }
+  await context.deleteOne();
 
-    // Verificar que el asset exista
-    const assetIndex = context.assets.findIndex(asset => asset.key === assetKey.toLowerCase());
+  logger.info('Contexto eliminado con limpieza de Storage', {
+    contextId: context.contextId,
+    name: context.name,
+    deletedBy: req.user._id
+  });
 
-    if (assetIndex === -1) {
-      throw new NotFoundError('Asset');
-    }
-
-    // Verificar que queden al menos 2 assets después de eliminar
-    if (context.assets.length <= 2) {
-      throw new ValidationError('El contexto debe tener al menos 2 assets');
-    }
-
-    // Eliminar asset
-    context.assets.splice(assetIndex, 1);
-    await context.save();
-
-    logger.info('Asset eliminado del contexto', {
-      contextId: context.contextId,
-      assetKey,
-      deletedBy: req.user._id
-    });
-
-    res.json({
-      success: true,
-      message: 'Asset eliminado exitosamente',
-      data: toGameContextDetailDTOV1(context)
-    });
-  } catch (error) {
-    next(error);
-  }
+  sendSuccess(res, null, 'Contexto eliminado exitosamente');
 };
 
 /**
@@ -443,39 +327,28 @@ const removeAsset = async (req, res, next) => {
  * @param {import('express').Response} res
  * @param {import('express').NextFunction} next
  */
-const getContextAssets = async (req, res, next) => {
-  try {
-    const { id } = req.params;
+const getContextAssets = async (req, res) => {
+  const { id } = req.params;
 
-    let context;
+  let context;
+  const baseOpts = {
+    select: 'contextId name assets',
+    populate: { path: 'assets.uploadedBy', select: 'name email' }
+  };
 
-    if (id.match(/^[0-9a-fA-F]{24}$/)) {
-      context = await gameContextRepository.findById(id, {
-        select: 'contextId name assets'
-      });
-    } else {
-      context = await gameContextRepository.findOne(
-        { contextId: id.toLowerCase() },
-        { select: 'contextId name assets' }
-      );
-    }
-
-    if (!context) {
-      throw new NotFoundError('Contexto de juego');
-    }
-
-    const payload = toGameContextDetailDTOV1(context);
-
-    res.json({
-      success: true,
-      data: {
-        ...payload,
-        count: payload.assetsCount
-      }
-    });
-  } catch (error) {
-    next(error);
+  if (id.match(/^[0-9a-f]{24}$/i)) {
+    context = await gameContextRepository.findById(id, baseOpts);
+  } else {
+    context = await gameContextRepository.findOne({ contextId: id.toLowerCase() }, baseOpts);
   }
+
+  if (!context) {
+    throw new NotFoundError('Contexto de juego');
+  }
+
+  const payload = toGameContextDetailDTOV1(context);
+
+  sendSuccess(res, { ...payload, count: payload.assetsCount });
 };
 
 module.exports = {
@@ -484,7 +357,5 @@ module.exports = {
   createContext,
   updateContext,
   deleteContext,
-  addAsset,
-  removeAsset,
   getContextAssets
 };

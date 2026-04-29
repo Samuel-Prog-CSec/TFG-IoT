@@ -3,22 +3,47 @@
  */
 
 const CardDeck = require('../models/CardDeck');
-const { applyQueryOptions } = require('./baseRepository');
+const baseRepo = require('./baseRepository');
 
-const find = (filter = {}, options = {}) => applyQueryOptions(CardDeck.find(filter), options);
+const find = (filter = {}, options = {}) =>
+  baseRepo.applyQueryOptions(CardDeck.find(filter), options);
 
-const findById = (id, options = {}) => applyQueryOptions(CardDeck.findById(id), options);
+const findById = (id, options = {}) => baseRepo.applyQueryOptions(CardDeck.findById(id), options);
 
-const findOne = (filter = {}, options = {}) => applyQueryOptions(CardDeck.findOne(filter), options);
+const findOne = (filter = {}, options = {}) =>
+  baseRepo.applyQueryOptions(CardDeck.findOne(filter), options);
 
 const count = (filter = {}) => CardDeck.countDocuments(filter);
 
 const create = data => CardDeck.create(data);
+
+const createWithSession = (data, session) =>
+  session ? CardDeck.create([data], { session }).then(docs => docs[0]) : CardDeck.create(data);
+
+const updateById = (id, update, options = {}) => baseRepo.updateById(CardDeck, id, update, options);
+
+const updateOne = (filter, update, options = {}) =>
+  baseRepo.updateOne(CardDeck, filter, update, options);
+
+const deleteById = id => baseRepo.deleteById(CardDeck, id);
+
+const deleteMany = filter => baseRepo.deleteMany(CardDeck, filter);
+
+const insertMany = (docs, options = {}) => baseRepo.insertMany(CardDeck, docs, options);
+
+const bulkWrite = (operations, options = {}) => baseRepo.bulkWrite(CardDeck, operations, options);
 
 module.exports = {
   find,
   findById,
   findOne,
   count,
-  create
+  create,
+  createWithSession,
+  updateById,
+  updateOne,
+  deleteById,
+  deleteMany,
+  insertMany,
+  bulkWrite
 };

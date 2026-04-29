@@ -4,13 +4,11 @@
 
 const IdleState = require('./IdleState');
 const GameplayState = require('./GameplayState');
-const CardRegistrationState = require('./CardRegistrationState');
 const CardAssignmentState = require('./CardAssignmentState');
 
 const states = {
   idle: new IdleState(),
   gameplay: new GameplayState(),
-  card_registration: new CardRegistrationState(),
   card_assignment: new CardAssignmentState()
 };
 

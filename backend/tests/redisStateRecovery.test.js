@@ -7,10 +7,7 @@
  */
 
 // Mock de Redis ANTES de cualquier import que lo use
-jest.mock('ioredis', () => {
-  const RedisMock = require('ioredis-mock');
-  return RedisMock;
-});
+jest.mock('ioredis', () => require('ioredis-mock'));
 
 const mongoose = require('mongoose');
 const redisService = require('../src/services/redisService');
@@ -20,7 +17,6 @@ const GamePlay = require('../src/models/GamePlay');
 const GameSession = require('../src/models/GameSession');
 const GameMechanic = require('../src/models/GameMechanic');
 const GameContext = require('../src/models/GameContext');
-const Card = require('../src/models/Card');
 const CardDeck = require('../src/models/CardDeck');
 const User = require('../src/models/User');
 
@@ -31,7 +27,6 @@ describe('Redis State Recovery - GameEngine.recoverActivePlays()', () => {
   // Fixtures
   let teacher, student;
   let mechanic, context, deck;
-  let card1, card2;
   let session, play;
 
   beforeAll(async () => {
@@ -64,7 +59,6 @@ describe('Redis State Recovery - GameEngine.recoverActivePlays()', () => {
     await GamePlay.deleteMany({});
     await GameMechanic.deleteMany({});
     await GameContext.deleteMany({});
-    await Card.deleteMany({});
     await CardDeck.deleteMany({});
 
     // Limpiar Redis
@@ -94,7 +88,14 @@ describe('Redis State Recovery - GameEngine.recoverActivePlays()', () => {
       name: 'Test Student',
       role: 'student',
       createdBy: teacher._id,
-      status: 'active'
+      status: 'active',
+      consent: {
+        granted: true,
+        grantedBy: 'Tutor Test',
+        grantedAt: new Date(),
+        purposes: ['educational_tracking', 'performance_analytics'],
+        policyVersion: '1.0'
+      }
     });
 
     mechanic = await GameMechanic.create({
@@ -114,10 +115,6 @@ describe('Redis State Recovery - GameEngine.recoverActivePlays()', () => {
       ]
     });
 
-    card1 = await Card.create({ uid: 'AA110001', type: 'NTAG', status: 'active' });
-    card2 = await Card.create({ uid: 'AA110002', type: 'NTAG', status: 'active' });
-
-    // Crear deck con las tarjetas
     deck = await CardDeck.create({
       name: 'Recovery Test Deck',
       contextId: context._id,
@@ -125,13 +122,11 @@ describe('Redis State Recovery - GameEngine.recoverActivePlays()', () => {
       status: 'active',
       cardMappings: [
         {
-          cardId: card1._id,
           uid: 'AA110001',
           assignedValue: 'One',
           displayData: { key: 'item1', display: '1️⃣', value: 'One' }
         },
         {
-          cardId: card2._id,
           uid: 'AA110002',
           assignedValue: 'Two',
           displayData: { key: 'item2', display: '2️⃣', value: 'Two' }
@@ -157,13 +152,11 @@ describe('Redis State Recovery - GameEngine.recoverActivePlays()', () => {
       },
       cardMappings: [
         {
-          cardId: card1._id,
           uid: 'AA110001',
           assignedValue: 'One',
           displayData: { key: 'item1', display: '1️⃣', value: 'One' }
         },
         {
-          cardId: card2._id,
           uid: 'AA110002',
           assignedValue: 'Two',
           displayData: { key: 'item2', display: '2️⃣', value: 'Two' }
@@ -297,20 +290,9 @@ describe('Redis State Recovery - GameEngine.recoverActivePlays()', () => {
       const plays = [];
 
       for (let i = 0; i < 3; i++) {
-        // Crear nuevas tarjetas para cada partida (UIDs hexadecimales válidos de 8 chars)
+        // UIDs hexadecimales válidos de 8 chars para cada partida
         const uidA = `BB${i}00A0${i}`;
         const uidB = `BB${i}00B0${i}`;
-
-        const cardA = await Card.create({
-          uid: uidA,
-          type: 'NTAG',
-          status: 'active'
-        });
-        const cardB = await Card.create({
-          uid: uidB,
-          type: 'NTAG',
-          status: 'active'
-        });
 
         // Crear deck para esta sesión
         const testDeck = await CardDeck.create({
@@ -319,8 +301,8 @@ describe('Redis State Recovery - GameEngine.recoverActivePlays()', () => {
           createdBy: teacher._id,
           status: 'active',
           cardMappings: [
-            { cardId: cardA._id, uid: uidA, assignedValue: 'A' },
-            { cardId: cardB._id, uid: uidB, assignedValue: 'B' }
+            { uid: uidA, assignedValue: 'A' },
+            { uid: uidB, assignedValue: 'B' }
           ]
         });
 
@@ -336,8 +318,8 @@ describe('Redis State Recovery - GameEngine.recoverActivePlays()', () => {
             penaltyPerError: -2
           },
           cardMappings: [
-            { cardId: cardA._id, uid: uidA, assignedValue: 'A' },
-            { cardId: cardB._id, uid: uidB, assignedValue: 'B' }
+            { uid: uidA, assignedValue: 'A' },
+            { uid: uidB, assignedValue: 'B' }
           ],
           status: 'active',
           createdBy: teacher._id

@@ -1,0 +1,5522 @@
+# Registro de Decisiones de Arquitectura (ADR)
+
+Documento unificado de todas las decisiones arquitectonicas del proyecto.
+Cada ADR indica su alcance: **[Backend]**, **[Frontend]**, **[Full-stack]** o **[DevOps]**.
+
+## Indice de ADRs
+
+| ADR | Titulo | Alcance |
+|-----|--------|---------|
+| ADR-001 | Eliminación del Límite Duro de Partidas Simultáneas | Backend |
+| ADR-002 | Autenticación Obligatoria en WebSockets y Desconexión por Invalidez | Backend |
+| ADR-003 | Capa de DTOs v1 y Contrato de Respuestas | Backend |
+| ADR-004 | Locks distribuidos de UIDs con lease TTL + heartbeat | Backend |
+| ADR-005 | Persistencia atómica de eventos de partida | Backend |
+| ADR-006 | Lectura de sesiones sin mutación + caché de ownership por capas | Backend |
+| ADR-007 | Security Gate de dependencias en CI (runtime bloqueante) | DevOps |
+| ADR-008 | Gobierno de identidades centrado en Super Admin + contrato paginado explícito FE/BE | Full-stack |
+| ADR-009 | Campo `data` en errores operacionales (AppError) | Backend |
+| ADR-010 | Checkpoints periódicos de partida y resiliencia ante crash | Full-stack |
+| ADR-011 | Socket.IO Redis Adapter para escalabilidad horizontal | Backend |
+| ADR-012 | Eliminación del modelo Card — Tarjetas RFID como tokens fungibles | Full-stack |
+| ADR-013 | Flujo de Errores HTTP Centralizado | Backend |
+| ADR-014 | Utilidades centralizadas de respuesta y filtrado (responseHelper + filterBuilder) | Backend |
+| ADR-015 | Patrón Repository completo con operaciones de escritura, transacciones y batch | Backend |
+| ADR-016 | Rate Limiting con Redis Store y protección de pause/resume | Backend |
+| ADR-017 | Endpoints de Analytics expandidos para Dashboard | Backend |
+| ADR-018 | Plan de descomposicion modular de gameEngine.js | Backend |
+| ADR-019 | Optimización de queries con lean() e índices compuestos | Backend |
+| ADR-020 | Estrategia de cache Redis para entidades de alta lectura | Backend |
+| ADR-021 | Revision de patrones de diseno — ownership helpers, Service Layer y rate limiting | Backend |
+| ADR-022 | Hardening de la capa WebSocket — persistencia RFID en Redis y limite de conexiones por usuario | Full-stack |
+| ADR-023 | Unicidad cross-deck de tarjetas RFID por profesor | Full-stack |
+| ADR-024 | Mejoras del Sistema de Assets — Sharpening, LQIP y AudioMiniPlayer | Full-stack |
+| ADR-025 | Vinculación de Audio a Assets Existentes | Full-stack |
+| ADR-026 | Descomposición modular del servicio de Analytics | Backend |
+| ADR-027 | Arquitectura Frontend de Analytics — Suite de 4 Páginas | Frontend |
+| ADR-028 | Estrategia de Composición de Componentes de Analytics | Frontend |
+| ADR-029 | Consolidación de umbrales RAG y filtrado híbrido en Dashboard | Full-stack |
+| ADR-030 | Protección de datos de menores — Minimización, consentimiento y ciclo de vida | Full-stack |
+| ADR-031 | Endurecimiento del consentimiento parental — Autorización, trazabilidad y defense in depth | Full-stack |
+| ADR-032 | Centralización de operaciones RGPD en el rol Super Admin | Full-stack |
+| ADR-033 | Derecho de oposición a analytics comportamentales (Art. 21 RGPD) | Full-stack |
+| ADR-034 | Centralización de verificación de consentimiento RGPD | Backend |
+| ADR-035 | Serialización de operaciones RFID mode con mutex por usuario | Backend |
+| ADR-036 | Endpoint de métricas del sistema (/api/health/metrics) | Backend |
+| ADR-037 | Protección de estabilidad del proceso (unhandledRejection/uncaughtException) | Backend |
+| ADR-038 | Límite duro de partidas activas simultáneas | Backend |
+| ADR-039 | Timeout de queries aggregate (maxTimeMS) | Backend |
+| ADR-040 | Observabilidad del circuit breaker y health check mejorado | Backend |
+| ADR-041 | Recovery de card locks tras reconexión Redis | Backend |
+| ADR-042 | Multer memory storage como diseño aceptado | Backend |
+| ADR-043 | Invalidación inmediata de auth cache vía eventos internos | Backend |
+| ADR-044 | Migración a Socket.IO namespaces (/game) | Full-stack |
+| ADR-045 | Decomposición modular del GameEngine | Backend |
+| ADR-046 | Feedback explícito para escaneos RFID ignorados (scan_ignored) | Full-stack |
+| ADR-047 | Política de bloqueo RFID relajada para entorno educativo | Backend |
+| ADR-048 | Selección de Librería de Visualización (Recharts) | Frontend |
+| ADR-049 | Patrón de Diseño de Dashboard (Jerarquía "F") | Frontend |
+| ADR-050 | Estrategia de Fetching de Datos (On-Mount + Polling Sincronizado) | Frontend |
+| ADR-051 | Sistema de Alertas Basado en Reglas (Frontend) | Frontend |
+| ADR-052 | Mecánicas de juego inmutables en API | Backend |
+| ADR-053 | Política de ownership en assets de contextos | Full-stack |
+| ADR-054 | UI admin para CRUD de contextos con limpieza de Storage | Full-stack |
+| ADR-055 | Enum `difficulty` ampliado con `custom` y marker de sesion en cliente | Full-stack |
+| ADR-056 | AnimatePresence `mode="popLayout"` para transiciones de ruta en React 19 | Frontend |
+| ADR-057 | Integridad de scores: `maxScore` obligatorio y clamp defensivo en 3 capas | Full-stack |
+| ADR-058 | `HoverLiftCard` primitive — micro-interaccion unificada en listados | Frontend |
+| ADR-059 | Propagación explícita de variants Framer cuando hay wrapper intermedio | Frontend |
+| ADR-060 | `pointer-events: none` durante exit de AnimatePresence de ruta | Frontend |
+| ADR-061 | Tema visual por contexto de juego (signature cross-pantalla) | Frontend |
+| ADR-062..084 | Sesiones QA / Redis / UI signature consolidadas (ver cuerpo) | Varios |
+| ADR-085 | Paquete fixes QA final pre-release v0.5.0 | Full-stack |
+| ADR-086 | Decisiones SonarCloud post-release v0.4.0 — supresiones y resolución de hallazgos | DevOps |
+| ADR-087 | Paquete fixes QA senior pre-release v0.5.0 (bloqueantes y visibles) | Full-stack |
+| ADR-088 | Paquete fixes QA cierre Sprint 5 / pre-release v0.5.0 (gameplay, contextos, analytics) | Full-stack |
+
+**Leyenda de alcance:**
+- **Backend**: Cambios exclusivamente en el servidor (Node.js/Express)
+- **Frontend**: Cambios exclusivamente en el cliente (React/Vite)
+- **Full-stack**: Cambios que afectan tanto al backend como al frontend
+- **DevOps**: Cambios en CI/CD, infraestructura o tooling
+
+---
+
+## ADR-001: Eliminación del Límite Duro de Partidas Simultáneas [Backend]
+
+### Contexto (ADR-001)
+
+Inicialmente, el sistema imponía un límite duro (`MAX_ACTIVE_PLAYS`) en el número de partidas que podían ocurrir simultáneamente. Si se alcanzaba este límite, el servidor rechazaba nuevas conexiones de juego devolviendo un error.
+
+El objetivo de este límite era proteger los recursos del servidor (memoria, CPU, conexiones de base de datos) ante picos de tráfico. Sin embargo, en la fase actual de despliegue y uso (clases controladas), este límite resultaba artificial y podía bloquear lecciones legítimas innecesariamente.
+
+### Decisión (ADR-001)
+
+Se ha decidido **eliminar el bloqueo duro** para nuevas partidas.
+
+1. La variable `ACTIVE_PLAYS_WARNING_THRESHOLD` (antes `MAX_ACTIVE_PLAYS`) se mantiene como un **umbral de monitorización** (Soft Limit).
+2. Si se supera el umbral, el sistema **permite** crear la partida, pero registra un **WARNING** en los logs.
+3. Se confía en la monitorización externa y alertas (Sentry/Logs) para detectar saturación real.
+
+### Posibles Impactos
+
+#### 1. Rendimiento y Recursos (Memoria/CPU)
+
+- **Impacto**: Al no haber límite, un número masivo de partidas podría agotar la memoria del servidor (Heap de Node.js) o saturar el Event Loop.
+- **Mitigación**:
+  - Cada estado de partida en `gameEngine` es relativamente ligero (~Kb).
+  - Node.js maneja bien miles de objetos en memoria.
+  - Se mantiene el `cleanupInterval` para eliminar partidas abandonadas y evitar fugas de memoria.
+
+#### 2. Conexiones a Base de Datos
+
+- **Impacto**: Cada partida genera eventos y escrituras. Un exceso de concurrencia podría saturar el pool de conexiones de MongoDB.
+- **Mitigación**: Mongoose gestiona un pool de conexiones (default 5-10). Las peticiones se encolarán si el pool se agota, aumentando la latencia pero no tirando el servidor inmediatamente.
+
+#### 3. Experiencia de Usuario
+
+- **Positivo**: No habrá rechazos arbitrarios de servicio durante una clase.
+- **Negativo (Riesgo)**: Si el servidor se satura realmente, todos los usuarios experimentarán lentitud (lag) en lugar de que solo los nuevos sean rechazados. Se prefiere degradación de servicio a denegación de servicio en este contexto educativo.
+
+### Estado Futuro
+
+Si el sistema escala a producción masiva, se deberá reimplementar un rate-limiting más inteligente (ej. por IP o por Tenant) o escalar horizontalmente el backend (lo cual requeriría migrar el estado en memoria de `gameEngine` totalmente a Redis).
+
+---
+
+## ADR-002: Autenticación Obligatoria en WebSockets y Desconexión por Invalidez [Backend]
+
+### Contexto (ADR-002)
+
+Los eventos Socket.IO permiten controlar partidas y emitir escaneos RFID en tiempo real. Sin una autenticación obligatoria en el handshake y sin revocación activa, un socket podría continuar enviando eventos incluso después de que la cuenta sea inhabilitada o se inicie sesión en otro dispositivo.
+
+### Decisión (ADR-002)
+
+Se establece autenticación obligatoria en el handshake de Socket.IO, con validación de:
+
+1. Token JWT (access token) desde `auth.token` o header `Authorization`.
+2. Estado de cuenta (`active`) y aprobación (`approved` para docentes).
+3. Single-session (el `sid` del token debe coincidir con `currentSessionId`).
+
+Además, cuando una sesión se invalida (nuevo login) o la cuenta se desactiva/rechaza, se emite `session_invalidated` y se **desconectan** los sockets activos del usuario.
+
+### Consecuencias (ADR-002)
+
+- **Seguridad mejorada**: evita control de partidas o lecturas RFID desde sesiones inválidas.
+- **Coherencia de sesión**: garantiza que el canal en tiempo real respete single-session.
+- **Coste aceptable**: se añade una consulta de usuario en el handshake, asumible por volumen de conexiones.
+
+---
+
+## ADR-003: Capa de DTOs v1 y Contrato de Respuestas [Backend]
+
+### Contexto (ADR-003)
+
+Las respuestas de la API mezclaban documentos Mongoose crudos con DTOs parciales. Esto exponía campos internos (`__v`) y creaba inconsistencias en la paginación (a veces anidada, a veces top-level). Además, algunos endpoints devolvían estructuras pesadas (por ejemplo `events` completos en listados), afectando rendimiento y seguridad.
+
+### Decisión (ADR-003)
+
+Se adopta una **capa de DTOs v1** como funciones puras y se define un **contrato de respuestas uniforme**:
+
+1. **DTOs v1 como funciones puras** (sin clases): simples, testeables y fáciles de reutilizar.
+2. **Resumen vs detalle** para entidades con payload pesado:
+   - `GamePlay`: resumen sin `events` en listados, detalle con `events` en consulta individual.
+   - `GameSession`: resumen sin `cardMappings`, detalle con mappings completos.
+   - `GameContext` y `CardDeck`: resumen con contadores, detalle con assets/mappings.
+3. **Paginación consistente top-level** con `data` y `pagination` (sin legacy).
+4. **DTOs específicos de analytics por endpoint** para claridad semántica y estabilidad.
+5. **Omisión explícita de campos sensibles** (password, `__v`, tokens internos, datos de infraestructura).
+6. **Versión interna**: el sufijo `V1` solo existe en funciones internas, no en el payload.
+7. **Sin compatibilidad legacy**: los clientes deben usar la última versión de la API.
+
+### Contrato de Respuestas (v1)
+
+#### 1. Respuesta de listado paginado
+
+- **Formato**:
+  - `data`: array de elementos DTO v1
+  - `pagination`: objeto con metadatos
+
+Campos obligatorios en `pagination`:
+
+- `page` (number)
+- `limit` (number)
+- `total` (number)
+- `totalPages` (number)
+- `hasNext` (boolean)
+- `hasPrev` (boolean)
+
+#### 2. Respuesta de listado no paginado
+
+- **Formato**:
+  - `data`: array de elementos DTO v1
+  - `meta`: objeto con `count`
+
+#### 3. Respuesta de recurso único
+
+- **Formato**:
+  - `data`: objeto DTO v1
+
+#### 4. Campos omitidos por seguridad
+
+- `password`
+- `__v`
+- tokens internos (por ejemplo `_internal` de refresh tokens)
+- datos internos de infraestructura no requeridos por el cliente
+
+#### 5. Campos opcionales
+
+- Los campos opcionales se omiten cuando no aplican (no se envían como `null`).
+
+### Mapeo Endpoint → DTO (v1)
+
+#### Auth
+
+- `POST /api/auth/register` → `toUserDTOV1`
+- `POST /api/auth/login` → `toAuthResponseDTOV1`
+- `GET /api/auth/me` → `toUserDTOV1`
+- `PUT /api/auth/me` → `toUserDTOV1`
+
+#### Users
+
+- `GET /api/users` → `toUserListDTOV1` + `toPaginatedDTOV1`
+- `GET /api/users/:id` → `toUserDTOV1` o `toStudentDTOV1`
+- `POST /api/users` → `toStudentDTOV1`
+- `PUT /api/users/:id` → `toUserDTOV1` o `toStudentDTOV1`
+- `POST /api/users/:id/transfer` → `toStudentDTOV1`
+- `GET /api/users/:id/stats` → `toUserStatsDTOV1`
+- `GET /api/users/teacher/:teacherId/students` → `toUserListDTOV1` + `meta.count`
+
+#### Cards (eliminado — ver ADR-012)
+
+Los endpoints `/api/cards` fueron eliminados. Las tarjetas RFID se tratan como tokens fungibles sin registro en BD. Se eliminaron los DTOs: `toCardDTOV1`, `toCardListDTOV1`, `toCardStatsDTOV1`.
+
+#### Mechanics
+
+- `GET /api/mechanics` → `toGameMechanicListDTOV1` + `toPaginatedDTOV1`
+- `GET /api/mechanics/:id` → `toGameMechanicDTOV1`
+- `POST /api/mechanics` → `toGameMechanicDTOV1`
+- `PUT /api/mechanics/:id` → `toGameMechanicDTOV1`
+- `GET /api/mechanics/active` → `toGameMechanicListDTOV1` + `meta.count`
+
+#### Contexts
+
+- `GET /api/contexts` → `toGameContextListDTOV1` + `toPaginatedDTOV1`
+- `GET /api/contexts/:id` → `toGameContextDetailDTOV1`
+- `POST /api/contexts` → `toGameContextDetailDTOV1`
+- `PUT /api/contexts/:id` → `toGameContextDetailDTOV1`
+- `POST /api/contexts/:id/assets` → `toGameContextDetailDTOV1`
+- `DELETE /api/contexts/:id/assets/:assetKey` → `toGameContextDetailDTOV1`
+- `GET /api/contexts/:id/assets` → `toGameContextDetailDTOV1` + `count`
+
+#### Decks
+
+- `GET /api/decks` → `toCardDeckListDTOV1` + `toPaginatedDTOV1`
+- `GET /api/decks/:id` → `toCardDeckDetailDTOV1`
+- `POST /api/decks` → `toCardDeckDetailDTOV1`
+- `PUT /api/decks/:id` → `toCardDeckDetailDTOV1`
+
+#### Sessions
+
+- `GET /api/sessions` → `toGameSessionListDTOV1` + `toPaginatedDTOV1`
+- `GET /api/sessions/:id` → `toGameSessionDetailDTOV1`
+- `POST /api/sessions` → `toGameSessionDetailDTOV1`
+- `PUT /api/sessions/:id` → `toGameSessionDetailDTOV1`
+- `POST /api/sessions/:id/start` → `toGameSessionDetailDTOV1`
+- `POST /api/sessions/:id/pause` → `toGameSessionDetailDTOV1`
+- `POST /api/sessions/:id/end` → `toGameSessionDetailDTOV1`
+
+#### Plays
+
+- `GET /api/plays` → `toGamePlayListDTOV1` + `toPaginatedDTOV1`
+- `GET /api/plays/:id` → `toGamePlayDetailDTOV1`
+- `POST /api/plays` → `toGamePlayDetailDTOV1`
+- `POST /api/plays/:id/events` → `toGamePlayDetailDTOV1`
+- `POST /api/plays/:id/complete` → `toGamePlayDetailDTOV1` + `rating`
+- `POST /api/plays/:id/abandon` → `toGamePlayDetailDTOV1`
+- `POST /api/plays/:id/pause` → `toGamePlayDetailDTOV1`
+- `POST /api/plays/:id/resume` → `toGamePlayDetailDTOV1`
+- `GET /api/plays/stats/:playerId` → `toPlayerStatsDTOV1`
+
+#### Sistema
+
+- `GET /api/metrics` → `toSystemMetricsDTOV1` (sin envelope `success`)
+
+### Consecuencias (ADR-003)
+
+- **Seguridad mejorada**: se eliminan campos sensibles de las respuestas.
+- **Consistencia**: el frontend no necesita manejar variantes de paginación.
+- **Rendimiento**: listas más ligeras (sin eventos/mappings completos).
+- **Mantenibilidad**: DTOs v1 centralizados y testeados.
+
+---
+
+## ADR-004: Locks distribuidos de UIDs con lease TTL + heartbeat [Backend]
+
+### Contexto (ADR-004)
+
+El `gameEngine` mantiene estado en memoria (`activePlays`, `cardUidToPlayId`) pero el despliegue puede ejecutarse en más de una instancia del backend. Sin un lock distribuido, dos instancias podrían reservar el mismo UID de tarjeta para partidas distintas.
+
+### Decisión (ADR-004)
+
+1. Reservar UIDs en Redis usando claim atómico `SET NX`.
+2. Asignar TTL a claves activas (`GAME_ENGINE_LOCK_TTL_SECONDS`, default 90s).
+3. Renovar leases con heartbeat periódico (`GAME_ENGINE_LOCK_HEARTBEAT_MS`, default 30000ms).
+4. Liberar/renovar claves de tarjeta solo si el owner coincide (`value === playId`) para evitar sobrescrituras entre instancias.
+
+### Consecuencias (ADR-004)
+
+- **Consistencia multi-instancia**: evita colisiones simultáneas de tarjetas.
+- **Autorecuperación**: locks huérfanos expiran si una instancia cae.
+- **Complejidad controlada**: se mantiene el core stateful local con coordinación ligera en Redis.
+
+---
+
+## ADR-005: Persistencia atómica de eventos de partida [Backend]
+
+### Contexto (ADR-005)
+
+El flujo de ronda realizaba múltiples escrituras por iteración (`round_start`, resultado, avance de ronda), incrementando write amplification y superficie de inconsistencias bajo carga.
+
+### Decisión (ADR-005)
+
+1. Introducir `GamePlay.addEventAtomic` con update único (`$push + $inc + $slice`).
+2. Persistir resultado de ronda y avance de `currentRound` en la misma operación.
+3. Desactivar por defecto la persistencia de `round_start` para priorizar throughput (`PERSIST_ROUND_START_EVENTS=false`).
+4. Contabilizar `metrics.totalAttempts` solo para eventos de respuesta (`correct`, `error`, `timeout`).
+
+### Consecuencias (ADR-005)
+
+- **Menos escrituras por ronda** en flujos normales.
+- **Mejor coherencia** entre score/métricas/ronda por operación atómica.
+- **Trazabilidad configurable**: se puede reactivar `round_start` cuando se requiera auditoría más granular.
+
+---
+
+## ADR-006: Lectura de sesiones sin mutación + caché de ownership por capas [Backend]
+
+### Contexto (ADR-006)
+
+Los endpoints de consulta de sesiones y comandos socket de control mostraban sobrecoste evitable en lectura:
+
+1. Hidratación Mongoose completa en rutas read-heavy donde no se requiere mutación.
+2. Revalidaciones de ownership repetidas en comandos consecutivos del mismo socket/play.
+
+### Decisión (ADR-006)
+
+1. Estandarizar consultas de lectura de sesión con `lean` en endpoints `GET /api/sessions` y `GET /api/sessions/:id`.
+2. Mantener contrato estricto read-only: ningún endpoint `GET` de sesión ejecuta persistencia (`save`) como side-effect.
+3. Implementar caché de ownership en dos niveles para comandos socket:
+  - Nivel global TTL (`userId + role + playId + mode`) para reutilización transversal.
+  - Nivel local por socket para comandos consecutivos del mismo cliente.
+4. Mantener `start_play` con ruta full-runtime (`includeSessionRuntime=true`) para preservar inicialización completa del motor de juego.
+
+### Consecuencias (ADR-006)
+
+- **Menor overhead de lectura** en consultas de sesiones al evitar hidratación innecesaria.
+- **Menos consultas redundantes** de ownership en secuencias de comandos socket.
+- **Mayor mantenibilidad** al separar claramente rutas de lectura ligera y rutas que requieren contexto runtime completo.
+
+---
+
+## ADR-007: Security Gate de dependencias en CI (runtime bloqueante) [DevOps]
+
+### Contexto (ADR-013)
+
+Tras la actualización masiva de dependencias, `npm audit` completo empezó a reportar vulnerabilidades en cadenas de tooling (lint/test/build) cuya mitigación forzada mediante overrides globales podía romper `eslint` o `jest` por incompatibilidades de API.
+
+Se necesitaba una política que equilibrara seguridad efectiva en producción y estabilidad del ciclo de desarrollo.
+
+### Decisión (ADR-013)
+
+1. Definir un **gate bloqueante** en CI para dependencias de runtime:
+  - Comando: `npm run audit:prod`
+  - Alcance: backend + frontend con `--omit=dev`.
+2. Mantener un **reporte completo no bloqueante** para deuda de tooling:
+  - Comando: `npm run audit:all`
+  - Configuración CI: `continue-on-error: true`.
+3. Documentar explícitamente que las vulnerabilidades de dev tooling se tratan por roadmap de compatibilidad, no por overrides agresivos que comprometan estabilidad.
+4. Establecer una revisión operativa **mensual** de dependencias y PRs de Dependabot.
+5. No usar registro formal de excepciones; el control de deuda se realiza mediante revisión mensual + evidencia en CI.
+
+### Consecuencias (ADR-013)
+
+- **Seguridad de producción priorizada**: el merge queda condicionado a 0 vulnerabilidades runtime.
+- **Estabilidad de desarrollo preservada**: lint/tests no se rompen por forzar resoluciones transitorias incompatibles.
+- **Trazabilidad operativa**: la deuda de tooling sigue visible en CI y documentación para su remediación gradual.
+- **Disciplina de mantenimiento**: la cadencia mensual reduce carga operativa sin bloquear flujo diario.
+
+### Referencias (ADR-013)
+
+- Workflow CI: `.github/workflows/build.yml`
+- Scripts root: `package.json` (`audit:prod`, `audit:all`)
+- Política arquitectónica: `documentation/02-Patrones_Diseno.md`
+- Plan operativo: `documentation/03-Gestion_Dependencias.md`
+
+---
+
+## ADR-008: Gobierno de identidades centrado en Super Admin + contrato paginado explícito FE/BE [Full-stack]
+
+### Contexto (ADR-008)
+
+Durante la revisión de seguridad y calidad se detectó una tensión clásica entre usabilidad operativa y control de privilegios:
+
+1. Parte de la documentación histórica asumía que `teacher` podía gestionar identidad de alumnos.
+2. El código actual evolucionó a un modelo más estricto donde `super_admin` concentra acciones críticas.
+3. Existía riesgo de regresión en frontend al consumir respuestas paginadas (`data + pagination`) de forma inconsistente.
+
+En términos de TFG, esto impacta directamente en trazabilidad de decisiones, evidencia de diseño seguro y coherencia entre especificación y ejecución.
+
+### Decisión (ADR-008)
+
+Se formaliza el modelo de gobierno vigente con dos líneas de decisión:
+
+1. **Identidad crítica centralizada en `super_admin`**
+  - Crear/editar/eliminar alumnos: `super_admin`.
+  - Transferir alumnos entre docentes: `super_admin`.
+  - Aprobar/rechazar docentes: `super_admin` y solo desde `pending_approval`.
+
+2. **Contrato paginado FE/BE explícito en docs y consumo frontend**
+  - Endpoints paginados responden con `data` y `pagination` al mismo nivel.
+  - Frontend consume el envelope completo para no perder metadatos de paginación.
+
+### Alternativas consideradas
+
+#### A) Permitir gestión de alumnos por `teacher`
+
+- **Ventaja**: menor dependencia del rol administrativo.
+- **Desventaja**: mayor superficie de abuso y difuminación de responsabilidades.
+- **Motivo de descarte**: no encaja con el objetivo de control administrativo fuerte del dominio educativo.
+
+#### B) Unificar transferencia de alumno dentro de `PUT /users/:id`
+
+- **Ventaja**: menos endpoints.
+- **Desventaja**: mezcla semántica entre actualización de perfil y cambio de custodia pedagógica.
+- **Motivo de descarte**: pérdida de claridad auditiva y mayor riesgo de cambios laterales de ownership.
+
+### Consecuencias positivas
+
+1. **Seguridad**: minimiza escalada horizontal de privilegios en operaciones sensibles.
+2. **Auditoría**: decisiones críticas quedan concentradas y rastreables.
+3. **Mantenibilidad**: separa operaciones de “perfil” y “custodia” en contratos distintos.
+4. **Robustez frontend**: evita bugs por parseo parcial de respuestas paginadas.
+
+### Trade-offs asumidos
+
+1. **Mayor carga operativa para `super_admin`** en centros con alta rotación de alumnado.
+2. **Más pasos administrativos** frente a un modelo delegado al docente.
+
+Se acepta este trade-off por priorizar control, seguridad y trazabilidad institucional.
+
+### Evidencia técnica asociada
+
+- Rutas: `backend/src/routes/admin.js`, `backend/src/routes/users.js`.
+- Controladores: `backend/src/controllers/adminController.js`, `backend/src/controllers/userController.js`.
+- Validación: `backend/src/validators/userValidator.js`.
+- Frontend admin: `frontend/src/pages/admin/ApprovalPanel.jsx`, `frontend/src/pages/admin/StudentManagement.jsx`.
+- Tests de contrato y permisos: `backend/tests/superAdminApproval.test.js`, `backend/tests/users.test.js`.
+
+---
+
+## ADR-009: Campo `data` en errores operacionales (AppError) [Backend]
+
+### Contexto (ADR-009)
+
+Algunos controllers (`userController.js`) necesitaban incluir datos adicionales en respuestas de error (por ejemplo, la entidad existente en un conflicto 409 para que el frontend pueda mostrarla al usuario). Al no existir un mecanismo en `AppError` para transportar datos extra, estos controllers devolvían respuestas inline (`res.status(409).json(...)`) que bypasseaban el error handler centralizado, creando inconsistencias en el formato de respuestas de error y dificultando la observabilidad (logs, Sentry).
+
+### Decisión (ADR-009)
+
+Se extiende `AppError` con un campo opcional `data`:
+
+1. `AppError.constructor(message, statusCode, data = null)` acepta un tercer parámetro opcional.
+2. Las subclases `ConflictError` y `ValidationError` propagan `data` como segundo argumento.
+3. El `errorHandler` middleware incluye `data` en la respuesta JSON cuando está presente.
+4. Los controllers que antes devolvían respuestas inline ahora lanzan errores tipados con `data`.
+
+### Consecuencias (ADR-009)
+
+- **Consistencia**: todas las respuestas de error pasan por el error handler centralizado.
+- **Observabilidad mejorada**: todos los errores se loguean y reportan a Sentry uniformemente.
+- **Compatibilidad**: el campo `data` es opcional; los errores existentes sin datos extra no se ven afectados.
+- **Contrato de API extendido**: las respuestas de error pueden incluir un campo `data` opcional con contexto adicional.
+
+### Evidencia técnica asociada (ADR-009)
+
+- `backend/src/utils/errors.js` — campo `data` en `AppError`, `ConflictError`, `ValidationError`
+- `backend/src/middlewares/errorHandler.js` — propagación de `data` en respuesta
+- `backend/src/controllers/userController.js` — 5 respuestas inline migradas a errores tipados
+
+---
+
+## ADR-010: Checkpoints periódicos de partida y resiliencia ante crash [Full-stack]
+
+### Contexto (ADR-010)
+
+El `gameEngine` mantiene el estado completo de cada partida activa en memoria: score, ronda actual, challenge, timers, y la referencia al documento Mongoose de `GamePlay`. Durante el ciclo de vida de una partida (entre `startPlay()` y `endPlay()`), los eventos de juego se persisten individualmente en MongoDB mediante `addEventAtomic()`, pero el **estado global de la partida** (score acumulado, métricas, arrays de eventos consolidados) solo se escribía en MongoDB al finalizar la partida.
+
+Redis almacenaba un snapshot básico del estado (ronda, score, status, flags de pausa) que se sincronizaba tras cada evento, pero **no incluía** el array de eventos ni las métricas detalladas del documento `GamePlay`.
+
+#### Análisis de riesgo
+
+Si el servidor se reiniciaba o crasheaba durante una partida activa:
+
+1. **Pérdida total de progreso**: todos los eventos acumulados, el score, y las métricas de la partida se perdían porque el documento Mongoose solo existía en memoria. La única información recuperable era el snapshot parcial de Redis (ronda y score numérico) que no incluía el historial de eventos.
+2. **Experiencia del estudiante**: el alumno perdía todo el trabajo realizado sin posibilidad de recuperación, generando frustración y desconfianza en la plataforma.
+3. **Percepción del docente**: el profesor veía desaparecer los datos de progreso de sus alumnos, afectando la credibilidad del sistema como herramienta de evaluación.
+4. **Timers huérfanos**: existía un problema adicional con timers transitorios (como el delay de ocultación de cartas en modo memory). Si `endPlay()` o `pausePlay()` se ejecutaban mientras un `setTimeout` anónimo estaba pendiente, el callback podía dispararse sobre estado ya eliminado, causando errores silenciosos o comportamiento errático.
+5. **Reconexión del cliente**: si el cliente perdía la conexión WebSocket y se reconectaba, no tenía un mecanismo explícito para solicitar y rehidratar el estado actual de la partida desde el servidor.
+
+### Decisión (ADR-010)
+
+Se implementa una estrategia de resiliencia en tres capas complementarias:
+
+#### Capa 1: Checkpoints periódicos en MongoDB
+
+Se introduce el método `checkpointPlayIfNeeded()` que se invoca automáticamente después de cada `addEventAtomic()`. Este método persiste el documento `GamePlay` completo (incluyendo `events`, `metrics`, `score`) en MongoDB cuando se cumple **cualquiera** de dos umbrales:
+
+- **Umbral temporal**: han transcurrido `CHECKPOINT_INTERVAL_MS` (default 120000ms = 2 minutos) desde el último checkpoint.
+- **Umbral por eventos**: se han acumulado `CHECKPOINT_EVENT_THRESHOLD` (default 5) nuevos eventos de respuesta (`totalAttempts`) desde el último checkpoint.
+
+Cada checkpoint también sincroniza el estado con Redis (`syncPlayToRedis`).
+
+El estado de checkpoint se rastrea en el `playState`:
+
+- `lastCheckpointAt`: timestamp del último checkpoint exitoso.
+- `lastCheckpointEventCount`: valor de `metrics.totalAttempts` en el último checkpoint.
+
+#### Capa 2: Tracking de timers transitorios
+
+Se añade un `Set` llamado `transientTimers` al `playState` de cada partida. El helper `scheduleTransientTimer(playState, callback, delayMs)` registra cada timer en el Set y lo auto-elimina al dispararse. `clearPlayTimers()` ahora también itera y limpia todos los timers transitorios registrados.
+
+Esto resuelve el problema de callbacks anónimos que se disparaban sobre estado ya eliminado en `endPlay()`, `pausePlay()` o `resumePlay()`.
+
+#### Capa 3: Sincronización de estado tras reconexión del cliente
+
+Se implementa un nuevo comando Socket.IO `play_state_sync` (archivo `PlayStateSyncCommand.js`) que permite al cliente solicitar un snapshot completo del estado de la partida tras reconexión. El servidor utiliza `gameEngine.getPlayState(playId)` para devolver el estado actual.
+
+En el frontend:
+
+- El servicio de socket (`socket.js`) aumenta `reconnectionAttempts` de 5 a 15 y `reconnectionDelayMax` de 5s a 15s para tolerar mejor las desconexiones transitorias.
+- Se añade el método `requestPlayStateSync(playId)`.
+- Se emite un `CustomEvent('socket_reconnected')` en `window` al detectar reconexión.
+- `GameSession.jsx` escucha este evento y solicita automáticamente el estado actualizado de la partida.
+
+### Consecuencias (ADR-010)
+
+#### Positivas
+
+- **Ventana de pérdida de datos reducida**: de "toda la partida" a un máximo de 2 minutos o 5 eventos.
+- **Limpieza de timers garantizada**: `endPlay()` y `pausePlay()` cancelan todos los timers pendientes, incluyendo los transitorios, eliminando callbacks sobre estado stale.
+- **Reconexión transparente**: el alumno puede perder la conexión WebSocket y recuperar el estado de la partida automáticamente al reconectarse, sin intervención manual.
+- **Compatibilidad con infraestructura existente**: los checkpoints usan el mismo `playDoc.save()` y `syncPlayToRedis()` que ya existían; no requieren nuevos modelos ni esquemas.
+
+#### Negativas
+
+- **Write amplification leve**: se añade ~1 escritura adicional a MongoDB cada 2 minutos por partida activa. En un escenario típico de 20 partidas simultáneas, esto equivale a ~10 writes/minuto adicionales, un overhead negligible para MongoDB.
+- **Complejidad de estado**: se añaden 4 nuevos campos al `playState` (`lastCheckpointAt`, `lastCheckpointEventCount`, `transientTimers`, y el tracking de reconexión en frontend).
+
+### Configuración (ADR-010)
+
+| Variable de entorno | Default | Descripción |
+|---|---|---|
+| `CHECKPOINT_INTERVAL_MS` | `120000` (2 min) | Intervalo mínimo entre checkpoints |
+| `CHECKPOINT_EVENT_THRESHOLD` | `5` | Eventos de respuesta acumulados antes de forzar checkpoint |
+
+Ambos valores se pueden ajustar por entorno. Para entornos de producción de alta fiabilidad se pueden reducir (e.g., 60000ms y 3 eventos). Para entornos de desarrollo se pueden aumentar o desactivar elevando los umbrales.
+
+### Evidencia técnica asociada (ADR-010)
+
+- `backend/src/services/gameEngine.js` — `checkpointPlayIfNeeded()`, `scheduleTransientTimer()`, `clearPlayTimers()`, constantes `CHECKPOINT_INTERVAL_MS` y `CHECKPOINT_EVENT_THRESHOLD`
+- `backend/src/commands/socket/PlayStateSyncCommand.js` — comando `play_state_sync`
+- `backend/src/config/socketRateLimits.js` — rate limit de `play_state_sync` (1s, max 2)
+- `frontend/src/services/socket.js` — `requestPlayStateSync()`, `CustomEvent('socket_reconnected')`
+- `frontend/src/pages/GameSession.jsx` — listener de reconexión y rehidratación de estado
+
+### Relación con otros ADRs
+
+- **ADR-005** (Persistencia atómica de eventos): los checkpoints se invocan después de cada `addEventAtomic()`, complementando la persistencia por-evento con persistencia del estado global.
+- **ADR-004** (Locks distribuidos): los checkpoints también sincronizan con Redis, manteniendo coherencia con el snapshot de estado distribuido.
+
+---
+
+## ADR-011: Socket.IO Redis Adapter para escalabilidad horizontal [Backend]
+
+### Contexto (ADR-011)
+
+Socket.IO utiliza por defecto un adapter **in-memory** para gestionar rooms y broadcasts. Esto significa que cuando el servidor emite un evento a una room (e.g., `io.to('play_123').emit('new_round', ...)`), solo los sockets conectados a **esa misma instancia** del proceso Node.js reciben el evento.
+
+En un despliegue con una única instancia del backend, esto no presenta problemas. Sin embargo, cuando se despliegan múltiples instancias detrás de un load balancer (escalamiento horizontal), dos clientes conectados a instancias diferentes no comparten rooms ni broadcasts, rompiendo toda la funcionalidad en tiempo real: los eventos de juego, las notificaciones RFID y la invalidación de sesiones dejan de funcionar correctamente.
+
+Este problema ya se anticipaba en el **ADR-001** (sección "Estado Futuro"):
+
+> *"Si el sistema escala a producción masiva [...] escalar horizontalmente el backend (lo cual requeriría migrar el estado en memoria de `gameEngine` totalmente a Redis)."*
+
+Si bien la migración completa del `gameEngine` a Redis sigue pendiente, el problema más inmediato — rooms y broadcasts particionados por instancia — se resuelve con el Redis adapter para Socket.IO.
+
+### Decisión (ADR-011)
+
+Se instala `@socket.io/redis-adapter` y se configura **condicionalmente** durante la inicialización del servidor:
+
+1. **Si Redis está disponible**: se crean dos conexiones Redis duplicadas (`pubClient` y `subClient`) a partir de la conexión existente (`getRedis().duplicate()`) y se configura el adapter con `createAdapter(pubClient, subClient)`.
+2. **Si Redis no está disponible** (e.g., desarrollo local sin Redis, tests): se mantiene el adapter in-memory por defecto, sin error ni degradación funcional para escenarios de una sola instancia.
+
+La configuración se realiza en `server.js` dentro de un bloque `try/catch` para garantizar que un fallo en la inicialización del adapter no impida el arranque del servidor.
+
+### Funcionamiento técnico
+
+El adapter funciona mediante **pub/sub de Redis**:
+
+- Cuando una instancia emite a una room, el adapter **publica** el evento en un canal Redis.
+- Todas las instancias que tienen sockets en esa room **reciben** la publicación y la reenvían a sus sockets locales.
+- Este mecanismo es transparente para el código aplicativo: no se requiere ningún cambio en los event handlers, commands, ni en la lógica del `gameEngine`.
+
+```
+┌──────────────────────────────────────────────────────────────┐
+│                     Load Balancer                            │
+└──────────────┬───────────────────────────┬───────────────────┘
+               │                           │
+     ┌─────────▼─────────┐       ┌─────────▼─────────┐
+     │   Instancia A     │       │   Instancia B     │
+     │ Socket.IO Server  │       │ Socket.IO Server  │
+     │ (adapter Redis)   │       │ (adapter Redis)   │
+     └─────────┬─────────┘       └─────────┬─────────┘
+               │                           │
+               │   ┌───────────────────┐   │
+               └──►│   Redis (pub/sub) │◄──┘
+                   │  Canal: socket.io │
+                   └───────────────────┘
+```
+
+Cuando la instancia A ejecuta `io.to('play_123').emit('new_round', data)`:
+
+1. El adapter publica `{ room: 'play_123', event: 'new_round', data }` en Redis.
+2. La instancia B recibe la publicación y reenvía el evento a todos los sockets locales que estén en la room `play_123`.
+
+### Diferencia con el uso existente de Redis
+
+Es importante distinguir dos usos completamente independientes de Redis en la plataforma:
+
+| Aspecto | Redis para datos (gameEngine) | Redis adapter (Socket.IO) |
+|---|---|---|
+| **Propósito** | Persistir estado de partidas, locks de UIDs, token blacklist | Coordinar rooms y broadcasts entre instancias |
+| **Patrón** | `GET`/`SET`/`HSET`/`EVALSHA` (data store) | `PUBLISH`/`SUBSCRIBE` (mensajería) |
+| **Conexiones** | 1 conexión principal (gestionada por `redisService`) | 2 conexiones adicionales (`pubClient` + `subClient`) |
+| **Datos almacenados** | Sí (TTL/persistentes) | No (mensajes efímeros) |
+| **Fallback si Redis cae** | Degradación controlada (ver `Arquitectura_Redis.md`) | Adapter in-memory (solo funciona single-instance) |
+
+El adapter **no** lee ni escribe en las mismas keys que el `gameEngine`, `redisService` o el sistema de autenticación. Opera exclusivamente en canales pub/sub de Redis con prefijo propio de `@socket.io/redis-adapter`.
+
+### Consecuencias (ADR-011)
+
+#### Positivas
+
+- **Escalabilidad horizontal habilitada**: múltiples instancias del backend pueden compartir rooms y broadcasts sin cambios en el código aplicativo.
+- **Fallback seguro**: en entornos sin Redis (desarrollo, tests), el sistema funciona idénticamente con el adapter in-memory.
+- **Preparación para producción**: resuelve el requisito anticipado en ADR-001 para el canal de comunicación en tiempo real.
+- **Cero cambios en lógica de negocio**: los commands, handlers y el `gameEngine` no necesitan modificaciones.
+- **Compatibilidad con arquitectura existente**: reutiliza la conexión Redis existente sin configuración adicional.
+
+#### Negativas
+
+- **2 conexiones Redis adicionales**: cada instancia del backend mantiene 2 conexiones extra (pub + sub). Con Upstash (tier gratuito: 1000 conexiones), esto es asumible para despliegues moderados.
+- **Latencia marginal en broadcasts**: los eventos pasan por Redis antes de llegar al socket destino, añadiendo ~1-2ms de latencia. Imperceptible para la UX.
+- **Dependencia parcial en Redis para multi-instancia**: si Redis cae en un despliegue multi-instancia, las rooms se particionan por instancia. Esto se mitiga con las capacidades de reconexión automática de ioredis.
+- **No resuelve la migración completa del gameEngine**: el estado in-memory del motor de juego (`activePlays`, timers, locks) sigue siendo per-instancia. Para escalamiento horizontal completo del `gameEngine`, se necesitaría una arquitectura de sticky sessions o migración completa del estado a Redis (fuera del scope de este ADR).
+
+### Evidencia técnica asociada (ADR-011)
+
+- `backend/src/server.js` — configuración condicional del adapter en el bloque de inicialización de Socket.IO
+- `backend/package.json` — dependencia `@socket.io/redis-adapter`
+- `backend/src/config/redis.js` — `getRedis()` y `isRedisConnected()` usados para la inicialización
+
+### Relación con otros ADRs
+
+- **ADR-001** (Eliminación del límite duro): este ADR cumple parcialmente el "Estado Futuro" anticipado, habilitando la comunicación entre instancias sin migrar el `gameEngine` completo.
+- **ADR-004** (Locks distribuidos): los locks de UIDs en Redis ya proporcionan coordinación de datos entre instancias; el adapter complementa con coordinación de eventos en tiempo real.
+- **ADR-010** (Checkpoints periódicos): los checkpoints reducen la pérdida de datos si una instancia cae, complementando la resiliencia que el adapter aporta a la comunicación.
+
+---
+
+## ADR-012: Eliminación del modelo Card — Tarjetas RFID como tokens fungibles [Full-stack]
+
+### Contexto (ADR-012)
+
+#### Situación actual
+
+El sistema gestionaba las tarjetas RFID mediante un modelo `Card` en MongoDB que actuaba como registro centralizado. El flujo operativo requería tres pasos secuenciales:
+
+1. **Registro por super_admin**: un administrador escaneaba cada tarjeta física y la registraba en la colección `Card` (uid, tipo MIFARE, estado).
+2. **Creación de mazos por profesor**: el docente seleccionaba tarjetas *ya registradas* para construir un mazo (`CardDeck`), asociando cada UID a un valor semántico del contexto educativo.
+3. **Gameplay por estudiantes**: durante el juego, el motor usaba Maps en memoria (`uid → mapping`) sin consultar la colección `Card`.
+
+La validación crítica ocurría en el paso 2: `validateCardsExistAndActive()` exigía que cada tarjeta existiera en la colección `Card` con status `active`. Esto convertía al super_admin en cuello de botella obligatorio.
+
+#### Limitaciones identificadas
+
+El tutor del TFG identificó las siguientes limitaciones con este modelo durante la revisión del proyecto:
+
+1. **Cuello de botella administrativo**: el super_admin debía escanear y registrar físicamente cada tarjeta antes de que cualquier profesor pudiera usarla. En un centro educativo con múltiples aulas y profesores, esto generaba dependencia innecesaria de un único rol administrativo.
+
+2. **Fragilidad de los tokens físicos**: las tarjetas RFID son objetos físicos que se pierden, rompen, desgastan o desmagnetizan con frecuencia. Mantener un registro centralizado de ítems tan volátiles creaba gestión innecesaria: cada tarjeta perdida requería intervención del admin (marcar como `lost`, registrar el reemplazo).
+
+3. **Fungibilidad inherente de las tarjetas**: una tarjeta RFID no tiene significado propio — su UID es un identificador opaco de 8 o 14 caracteres hexadecimales. El significado semántico (ej: "España", "5", "Rojo") lo asigna el profesor en el contexto del mazo. Dos tarjetas con UIDs distintos son funcionalmente intercambiables.
+
+4. **Barrera de entrada para profesores**: un profesor nuevo que quisiera usar la plataforma no podía crear su primer mazo sin que el admin le proporcionara tarjetas pre-registradas. Esto ralentizaba la adopción y contradecía el objetivo de la plataforma: facilitar la integración de tecnología RFID en el aula.
+
+5. **Redundancia del modelo**: el campo `uid` ya existía desnormalizado en `CardDeck.cardMappings` y `GameSession.cardMappings`. El modelo `Card` aportaba únicamente el campo `type` (tipo MIFARE) y `status`, ninguno de los cuales se utilizaba durante el gameplay ni en la lógica educativa.
+
+#### Perspectiva pedagógica
+
+Desde el punto de vista del uso educativo real de la plataforma:
+
+- Los profesores necesitan **autonomía** para preparar actividades sin depender de personal técnico.
+- Las tarjetas RFID son **material fungible de aula**, equivalentes a fichas, dados o tarjetas de cartulina — no activos de inventario que requieran control centralizado.
+- La barrera entre "tengo las tarjetas físicas" y "puedo usarlas en clase" debe ser **mínima**: escanear y asignar, sin pasos previos de registro.
+- En un entorno escolar real, las tarjetas se comparten entre clases, se mezclan entre kits, y se reemplazan con frecuencia. Un sistema rígido de registro no se adapta a esta realidad operativa.
+
+### Decisión (ADR-012)
+
+Se elimina completamente el modelo `Card` y todas sus dependencias. Las tarjetas RFID pasan a tratarse como **tokens fungibles**: cualquier tarjeta física compatible puede usarse directamente en la creación de mazos sin registro previo.
+
+Cambios principales:
+
+1. **Eliminar modelo Card**: colección, repositorio, controlador, rutas, validador y seeder.
+2. **UID como único identificador**: el campo `cardId` (ObjectId, referencia a Card) se elimina de `CardDeck.cardMappings`, `GameSession.cardMappings`, `boardLayout` y `associationChallengePlan`. El `uid` (String, ya existente) pasa a ser el identificador primario.
+3. **Validación simplificada**: se mantiene validación de formato de UID (8/14 hex, Zod schema) y unicidad dentro del mazo. Se elimina toda validación contra la colección Card.
+4. **Asignación por escaneo en vivo**: el profesor entra en modo RFID de asignación (`CardAssignmentState`), selecciona un valor del contexto, y escanea la tarjeta física. El UID se captura automáticamente vía Web Serial.
+5. **Eliminar gestión de cartas del panel admin**: se eliminan las páginas de CRUD de tarjetas del super_admin.
+
+### Alternativas consideradas
+
+#### A) Deprecación gradual
+
+Hacer `cardId` opcional en los esquemas, eliminar la validación de existencia, y borrar Card en un sprint posterior.
+
+- **Ventaja**: diffs más pequeños por iteración.
+- **Desventaja**: código muerto, referencias fantasma, confusión para desarrolladores ("¿se usa cardId o no?"), dos pases de trabajo.
+- **Motivo de descarte**: estamos en fase pre-1.0.0. La complejidad incremental no se justifica cuando podemos hacer el cambio limpio de una vez.
+
+#### B) Auto-descubrimiento (Card como log automático)
+
+Cada UID escaneado se registra automáticamente en una colección Card ligera, sin intervención del admin. Mantiene la referencia ObjectId de forma transparente.
+
+- **Ventaja**: mantiene integridad referencial, permite tracking de uso.
+- **Desventaja**: complejidad innecesaria, escrituras a BD en cada escaneo, no cumple con la directriz del tutor de "sin tracking".
+- **Motivo de descarte**: el tutor determinó explícitamente que la gestión de tarjetas es innecesaria. Añadir una colección auto-poblada contradice esta decisión.
+
+### Análisis de impacto
+
+#### Lo que CAMBIA
+
+| Capa | Archivos afectados | Cambio |
+|------|-------------------|--------|
+| Modelos | CardDeck.js, GameSession.js | Eliminar campo `cardId` de subdocumentos |
+| Validadores | cardDeckValidator.js, gameSessionValidator.js | Eliminar `cardId` de schemas Zod |
+| Controllers | cardDeckController.js, gameSessionController.js | Eliminar validación contra Card collection |
+| Servicios | gameSessionService.js, sessionValidationHelpers.js | Cambiar lookups de cardId a uid |
+| DTOs | dtos.js | Eliminar DTOs de Card, strip cardId de mappings |
+| RFID States | states/rfid/index.js | Eliminar CardRegistrationState |
+| Seeders | 02-cards.js (eliminar), 05-carddecks.js, 06-sessions.js | UIDs inline |
+| API | server.js, routes/cards.js | Eliminar endpoint /api/cards |
+| Frontend | api.js, DeckCreationWizard, DeckEditPage, admin pages | Eliminar cardsAPI, card management |
+| Tests | ~12 archivos | Eliminar Card.create(), usar uid directo |
+
+#### Lo que NO cambia
+
+| Componente | Razón |
+|-----------|-------|
+| `gameEngine.js` | Ya usa Maps en memoria por uid, sin DB lookups durante gameplay |
+| Redis distributed locking | Ya usa UIDs como keys, no cardIds |
+| Web Serial service (frontend) | Ya lee UIDs del hardware RFID |
+| `CardAssignmentState` | Se mantiene: necesario para escaneo durante creación de mazos |
+| `uidSchema` (commonValidator) | Validación de formato (8/14 hex) sigue siendo necesaria |
+| GamePlay model | No almacena cardId, usa uid en eventos |
+
+### Consecuencias (ADR-012)
+
+#### Positivas
+
+1. **Autonomía del profesor**: puede crear mazos escaneando cualquier tarjeta física, sin esperar al admin.
+2. **Eliminación del cuello de botella**: el super_admin ya no es requisito previo para la preparación de actividades.
+3. **Resiliencia ante pérdida/rotura**: si una tarjeta se pierde, el profesor simplemente escanea otra para reemplazarla. Sin gestión administrativa.
+4. **Simplificación del modelo de datos**: se elimina una entidad completa (Card) y su referencia en 4 sub-schemas, reduciendo complejidad y superficie de errores.
+5. **Menor superficie de API**: se eliminan 6 endpoints (`/api/cards/*`), reduciendo mantenimiento y superficie de ataque.
+6. **Coherencia arquitectónica**: el sistema deja de mantener una colección que no se consulta durante el gameplay (uso principal de la plataforma).
+
+#### Negativas (trade-offs aceptados)
+
+1. **Sin inventario de tarjetas**: el centro educativo pierde la capacidad de consultar cuántas tarjetas RFID tiene registradas. Se acepta porque: (a) las tarjetas son material fungible de bajo coste, y (b) un inventario físico fuera del sistema es más práctico.
+2. **Sin detección de tipo MIFARE**: se pierde el tracking del tipo de tarjeta (MIFARE_1KB, 4KB, NTAG). Se acepta porque: (a) el tipo nunca se utilizó en la lógica del juego ni en la UI del profesor, y (b) Web Serial sigue detectando el tipo en el frontend si fuera necesario en el futuro.
+3. **UIDs no validados contra registro central**: dos profesores podrían asignar la misma tarjeta física en mazos distintos sin advertencia. Se acepta porque: (a) es equivalente a compartir un dado entre dos juegos de mesa, (b) el Redis distributed locking ya previene conflictos en sesiones simultáneas (ADR-004).
+
+### Implementación realizada (ADR-012)
+
+#### Estrategia de implementación
+
+La implementación se realizó en 6 fases secuenciales, siguiendo un orden de dependencias estricto que garantiza la integridad del sistema en cada etapa. Se priorizó la secuencialidad sobre el paralelismo porque cada fase modifica contratos de datos que las fases posteriores consumen: los esquemas Mongoose (Fase 1) definen la estructura que la lógica de negocio (Fase 2) manipula, que a su vez es la que los seeders (Fase 3) y tests (Fase 4) deben reproducir.
+
+Este enfoque de "contrato hacia afuera" es consistente con la recomendación de Martin Fowler para refactorizaciones de modelos de datos en sistemas con múltiples capas de consumidores.
+
+#### Fase 1 — Esquemas y validadores (fundación del cambio)
+
+Se eliminó el campo `cardId` (ObjectId, ref a Card) de los subdocumentos de `CardDeck.cardMappings`, `GameSession.cardMappings`, `GameSession.boardLayout` y `GameSession.associationChallengePlan`. El `uid` (String) pasa a ser el único identificador de una tarjeta dentro del sistema.
+
+Como mejora de ingeniería del software, se implementó **validación de defensa en profundidad** (defense-in-depth, patrón recomendado por OWASP) añadiendo un validador `match` con regex hexadecimal en los esquemas Mongoose que complementa la validación Zod existente en la boundary HTTP:
+
+```javascript
+uid: {
+  type: String,
+  required: true,
+  uppercase: true,
+  trim: true,
+  match: [/^[0-9A-F]{8}$|^[0-9A-F]{14}$/, 'UID debe ser 8 o 14 caracteres hexadecimales']
+}
+```
+
+La justificación es que la validación Zod protege la entrada HTTP, pero los seeders, scripts de migración y tests interactúan directamente con Mongoose sin pasar por la capa Zod. La validación a nivel de esquema garantiza integridad incluso en esos escenarios.
+
+Adicionalmente, se añadió un validador Mongoose de unicidad de UIDs dentro de cada mazo en `CardDeck`, cerrando la posibilidad de corrupción de datos por bypass de la boundary HTTP.
+
+Los validadores Zod de `cardDeckValidator.js` y `gameSessionValidator.js` se simplificaron: se eliminaron los campos `cardId: objectIdSchema` y los refinamientos de unicidad de cardId. La validación de unicidad de UIDs y assignedValues se mantuvo intacta, ya que es ortogonal al cambio de modelo.
+
+**Archivos modificados:** `CardDeck.js`, `GameSession.js`, `cardDeckValidator.js`, `gameSessionValidator.js`
+
+#### Fase 2 — Lógica de negocio y DTOs (propagación del cambio)
+
+Esta fase eliminó toda la lógica que validaba la existencia de tarjetas contra la colección Card, y actualizó las estructuras de datos de respuesta (DTOs) para reflejar el nuevo modelo.
+
+En `cardDeckController.js`, se eliminó la función `validateCardsExistAndActive()` de 30 líneas que realizaba tres queries al modelo Card: verificación de existencia, comprobación de estado activo, y validación de consistencia UID-cardId. Esta función representaba el cuello de botella principal del flujo anterior, ya que cada creación o actualización de mazo requería una consulta a la base de datos por cada tarjeta del mazo.
+
+En `gameSessionService.js`, se eliminó el bloque análogo de validación contra la colección Card en `syncSessionFromDeck()`, que era responsable de sincronizar sesiones con sus mazos. El filtro de `boardLayout` cambió de `mappingCardIds` (basado en ObjectId) a `mappingUids` (basado en UID), lo que simplifica la lógica y elimina una dependencia del repositorio Card.
+
+El cambio más delicado fue en `sessionValidationHelpers.js`, donde 6 funciones utilizaban Maps keyed por `cardId` para validar, normalizar y reparar boardLayouts y associationChallengePlans. Cada `mappingByCardId` se transformó en `mappingByUid`, y se eliminó el patrón de "doble resolución" (buscar primero por UID, luego por cardId como fallback) que existía como deuda técnica del modelo anterior.
+
+Los DTOs de Card (`toCardDTOV1`, `toCardListDTOV1`, `toCardStatsDTOV1`) se eliminaron completamente. Los DTOs de mappings se simplificaron: `mapCardMappingDTOV1` pasó de retornar 6 campos (incluyendo `cardId` y un objeto `card` con populate) a retornar 4 campos (`id`, `uid`, `assignedValue`, `displayData`). Este cambio reduce el payload de red y simplifica el contrato de API.
+
+**Archivos modificados:** `cardDeckController.js`, `gameSessionService.js`, `sessionValidationHelpers.js`, `gameSessionController.js`, `gameEngine.js`, `dtos.js`
+
+#### Fase 3 — Eliminación de infraestructura y actualización de seeders
+
+Se eliminaron 9 archivos del backend y 1 del frontend que constituían la infraestructura completa del modelo Card:
+
+- **Capa de datos**: `Card.js` (modelo), `cardRepository.js` (repositorio)
+- **Capa de API**: `cardController.js` (7 handlers CRUD), `cards.js` (rutas), `cardValidator.js` (schemas Zod)
+- **Capa de estado RFID**: `CardRegistrationState.js` (máquina de estados), `JoinCardRegistrationCommand.js` y `LeaveCardRegistrationCommand.js` (comandos socket)
+- **Datos de prueba**: `02-cards.js` (seeder)
+- **UI de selección**: `CardSelector.jsx` (componente frontend)
+
+Es importante notar que `CardAssignmentState`, `JoinCardAssignmentCommand` y `LeaveCardAssignmentCommand` se **mantuvieron** deliberadamente, ya que gestionan el flujo de escaneo RFID en vivo durante la creación de mazos — un flujo que sigue siendo necesario y funcional tras la refactorización.
+
+Los seeders se actualizaron para generar UIDs sintéticos hex que simulan tarjetas RFID reales (formato MIFARE de 8 caracteres hexadecimales), eliminando la dependencia del seeder `02-cards.js` y el parámetro `cards` en las funciones de generación de mazos y sesiones.
+
+Se creó un script de migración (`backend/scripts/migrate-remove-cardId.js`) idempotente con soporte `--dry-run` y logging estructurado con Pino, que permite limpiar bases de datos existentes realizando `$unset` del campo `cardId` en las colecciones `card_decks` y `game_sessions`, y opcionalmente dropeando la colección `cards`.
+
+**Archivos eliminados:** 10 (9 backend + 1 frontend)
+**Archivos modificados:** `server.js`, `states/rfid/index.js`, `commands/socket/index.js`, `realtime/socketHandlers.js`, `seeders/index.js`, `seeders/05-carddecks.js`, `seeders/06-sessions.js`
+**Archivos creados:** `backend/scripts/migrate-remove-cardId.js`
+
+#### Fase 4 — Actualización de tests
+
+Se eliminó `cards.test.js` (test de CRUD de endpoints `/api/cards` que ya no existen) y se actualizaron 13 archivos de test.
+
+Como mejora de ingeniería del software, se aplicó el **principio DRY** creando un helper centralizado `backend/tests/helpers/testFixtures.js` con la función `createTestCardMappings()`. Los 11 test files que antes duplicaban el patrón de crear documentos Card con `Card.create()` y usar `card._id` en mappings ahora utilizan este helper, que genera mappings con UIDs directos. Esto eliminó aproximadamente 40 líneas de código repetido por archivo y facilita el mantenimiento futuro: si el formato de los mappings cambia, solo hay que actualizar un archivo en lugar de 11.
+
+La actualización de `validationEndpoints.test.js` eliminó 7 test cases de endpoints de Card, y `socketAuth.test.js` se actualizó para reemplazar referencias a `join_card_registration` por `join_card_assignment`.
+
+**Archivos eliminados:** `cards.test.js`
+**Archivos modificados:** 13 test files
+**Archivos creados:** `backend/tests/helpers/testFixtures.js`
+
+#### Fase 5 — Frontend
+
+En el frontend, se eliminó el objeto `cardsAPI` de `api.js` (5 métodos de comunicación con `/api/cards`) y se reescribió `cardMapping.js` para usar `uid` como identificador primario. La función `normalizeCardMappingsFromDeck()` tenía una cadena de 4 niveles de fallback para resolver `cardId` (legado de múltiples iteraciones del backend), que se simplificó a una extracción directa de `mapping.uid`, reduciendo la complejidad ciclomática de la función.
+
+Las páginas de mazos (`DeckCreationWizard.jsx`, `DeckEditPage.jsx`) se simplificaron al eliminar la carga de tarjetas pre-registradas via `cardsAPI.getCards()`. El componente `CardSelector.jsx` (que permitía seleccionar tarjetas de una lista cargada de la BD) se eliminó completamente, ya que el escaneo RFID en vivo via `RFIDScannerPanel` es ahora el único método de asignación de tarjetas.
+
+Las páginas de sesiones (`CreateSession.jsx`, `SessionEdit.jsx`, `BoardSetup.jsx`, `GameSession.jsx`) se actualizaron para eliminar `cardId` de todos los objetos de mapping, layout y plan de asociación. Los parámetros de callbacks se renombraron de `cardId` a `uid` para reflejar la nueva semántica.
+
+**Archivos eliminados:** `CardSelector.jsx`
+**Archivos modificados:** `api.js`, `cardMapping.js`, `socket.js`, `DeckCreationWizard.jsx`, `DeckEditPage.jsx`, `CreateSession.jsx`, `SessionEdit.jsx`, `BoardSetup.jsx`, `GameSession.jsx`
+
+#### Verificación de integridad del flujo RFID
+
+Tras completar la implementación, se realizó una auditoría completa del flujo de comunicación RFID para verificar que la eliminación del modelo Card no introdujo regresiones en el canal de comunicación frontend ↔ backend.
+
+La auditoría verificó la cadena completa: hardware ESP8266 → Web Serial API → `webSerialService.js` → Socket.IO (`rfid_scan_from_client`) → `socketHandlers.js` → `rfidService.js` → `gameEngine.js`. En ningún punto de esta cadena existía dependencia del modelo Card: el payload de escaneo (`{uid, type, sensorId, timestamp, source}`) se definió originalmente con `uid` como identificador primario, y el motor de juego (`gameEngine.js`) siempre utilizó Maps en memoria indexados por UID (`uidToMapping`, `cardUidToPlayId`) sin consultas a la base de datos durante el gameplay.
+
+El contrato de validación entre frontend (payload emitido por `webSerialService`) y backend (schema `rfidClientEventSchema` en `rfidValidator.js`) se verificó campo por campo, confirmando una correspondencia exacta. El modo `CARD_ASSIGNMENT` de la máquina de estados RFID funciona correctamente sin el modelo Card, ya que su responsabilidad se limita a gestionar el estado del modo de escaneo y la pertenencia a rooms de Socket.IO.
+
+#### Resultados de verificación
+
+| Verificación | Resultado |
+|---|---|
+| `npm run lint` (backend) | 0 errores |
+| `npm test` (backend) | 33 suites, 281 tests passed |
+| `npm run lint` (frontend) | 0 errores |
+| `npm test` (frontend) | 3 suites, 17 tests passed |
+| `npm run build` (frontend) | Build exitoso |
+| Referencias a `cardId` en backend/src | 0 (solo README.md) |
+| Referencias a `cardId` en frontend/src | 0 |
+| Flujo RFID end-to-end | Auditoría aprobada |
+
+### Relación con otros ADRs
+
+- **ADR-003** (DTOs): se eliminan `toCardDTOV1`, `toCardListDTOV1`, `toCardStatsDTOV1`. Se actualizan `mapCardMappingDTOV1` y DTOs de boardLayout/associationPlan. Se eliminan los endpoints de Cards del mapeo Endpoint → DTO.
+- **ADR-004** (Locks distribuidos de UIDs): los locks ya usan UIDs como keys, no cardIds. Esta decisión valida retroactivamente la elección de ADR-004 de usar UIDs directamente.
+- **ADR-008** (Gobierno de identidades): el super_admin pierde la responsabilidad de gestionar tarjetas, lo que simplifica su carga operativa y refuerza el foco en gestión de identidades.
+
+---
+
+## ADR-013: Flujo de Errores HTTP Centralizado [Backend]
+
+### Contexto (ADR-013)
+
+La auditoría del Sprint 5 identificó **8 puntos** en el backend donde los errores HTTP se respondían directamente al cliente (`res.status().json()`) saltándose el `errorHandler` centralizado:
+
+- **3 en `middlewares/validation.js`**: Los middlewares `validateBody`, `validateQuery` y `validateParams` capturaban `ZodError` y respondían con `res.status(400).json(...)` directamente.
+- **1 en `middlewares/securityPayloadGuard.js`**: Respondía `res.status(400).json(...)` ante payloads peligrosos (NoSQL injection, prototype pollution).
+- **4 en `config/security.js` (csrfProtection)**: Respondía `res.status(403).json(...)` directamente ante errores de CSRF/Referer.
+- **1 en `middlewares/errorHandler.js` (notFoundHandler)**: Respondía `res.status(404).json(...)` directamente para rutas no encontradas.
+
+Además se identificaron dos problemas adicionales:
+
+1. **Bug del spread-operator**: `errorHandler` usaba `let error = { ...err }` que creaba un objeto plano, perdiendo la cadena de prototipos (`name`, `isOperational`, `data`, `errors`) de las clases de error personalizadas.
+2. **Doble-captura en Sentry**: `Sentry.Handlers.errorHandler()` capturaba TODOS los errores que le llegaban, Y nuestro `errorHandler` llamaba manualmente `Sentry.captureException()` para errores 500. Resultado: errores 500 se capturaban dos veces.
+3. **Boilerplate try/catch**: Los 11 controllers (~73 handlers) repetían manualmente `try { ... } catch (error) { next(error); }`, cuando Express 5.x maneja errores async nativamente.
+
+### Decisión (ADR-013)
+
+Se unifica **todo** el flujo de errores HTTP a través del `errorHandler` centralizado, con las siguientes medidas:
+
+1. **Middleware de validación**: Los 3 middlewares Zod ahora construyen `ApiValidationError` con el array de errores formateados y lo delegan via `next(error)`.
+
+2. **Security payload guard**: Construye `ApiValidationError` y delega via `next(error)`, preservando el `logSecurityEvent` para el audit trail.
+
+3. **CSRF protection**: Las 4 respuestas directas ahora usan `next(new ForbiddenError(...))`.
+
+4. **notFoundHandler**: Construye `AppError(msg, 404)` y delega via `next(error)`.
+
+5. **errorHandler refactorizado**:
+   - Eliminado el spread-operator bug — ahora usa variables independientes (`statusCode`, `message`, `errors`, `data`).
+   - Cadena `if/else if` con prioridad: errores operacionales (AppError) → Mongoose → JWT → default 500.
+   - Soporte para array `errors` en la respuesta (para errores de validación).
+   - Logging Pino: `error` level para 500+, `warn` para 4xx.
+
+6. **Sentry `shouldHandleError`**: Configurado para capturar solo errores con `statusCode >= 500` o `isOperational === false`. Eliminada la captura manual en `errorHandler`.
+
+7. **`asyncHandler` utility**: Creado `utils/asyncHandler.js` que envuelve handlers async para capturar errores síncronos y asíncronos.
+
+8. **Migración de controllers**: Los 11 controllers (~73 handlers) eliminan el try/catch boilerplate. Las rutas envuelven los handlers con `asyncHandler(handler)`.
+
+### Alternativas Consideradas
+
+1. **Mantener respuestas directas**: Rechazada porque impedía agregar comportamiento transversal (métricas, analytics) y causaba inconsistencia en formato de respuesta.
+2. **Crear un error middleware por tipo**: Rechazada por complejidad innecesaria — un único `errorHandler` con detección de tipo es suficiente.
+3. **Usar solo Express 5 native async**: Express 5 maneja errores async nativamente en route handlers, pero `asyncHandler` aporta safety net y documentación de intención.
+
+### Consecuencias
+
+**Positivas:**
+- Un único punto de logging (Pino), captura (Sentry) y formato de respuesta para TODOS los errores HTTP
+- Eliminación de la doble-captura en Sentry
+- Reducción de ~400-600 LOC de boilerplate try/catch en controllers
+- Formato de respuesta unificado: `{ success, message, errors?, data?, stack? }`
+- Las rutas 404 ahora aparecen en el logging estructurado de Pino
+- Los errores de CSRF ahora aparecen en el logging estructurado
+
+**Negativas:**
+- Latencia microscópica adicional en el path de error (un `next()` extra en middleware chain)
+- `authController.js` mantiene try/catch selectivo en handlers con security logging (register, login, refresh)
+
+### Archivos Afectados
+
+- `backend/src/utils/errors.js` — `ApiValidationError` con propiedad `errors`
+- `backend/src/utils/asyncHandler.js` — Nuevo: wrapper para handlers async
+- `backend/src/middlewares/errorHandler.js` — Refactorizado completamente
+- `backend/src/middlewares/validation.js` — Delegación via `next()`
+- `backend/src/middlewares/securityPayloadGuard.js` — Delegación via `next()`
+- `backend/src/config/security.js` — CSRF via `next(new ForbiddenError(...))`
+- `backend/src/config/sentry.js` — `shouldHandleError`
+- `backend/src/controllers/*.js` (11 archivos) — Eliminado try/catch boilerplate
+- `backend/src/routes/*.js` (10 archivos) — `asyncHandler(handler)` en todas las rutas
+- `backend/tests/errorFlow.test.js` — Tests del flujo unificado
+
+### Relación con otros ADRs
+
+- **ADR-003** (DTOs): el formato de respuesta de errores se mantiene compatible con el estándar `{ success, message, data }` definido en DTOs.
+- Esta decisión es prerequisito de **T-519** (responseHelper + filterBuilder) y **T-601** (nuevos endpoints analytics), que podrán usar el errorHandler y asyncHandler unificados.
+
+---
+
+## ADR-014: Utilidades centralizadas de respuesta y filtrado (responseHelper + filterBuilder) [Backend]
+
+### Contexto (ADR-014)
+
+La auditoría del Sprint 5 detectó dos patrones de boilerplate repetitivo en los controllers:
+
+1. **Respuestas manuales (~70 instancias)**: Cada handler construía manualmente `res.status(XXX).json({ success: true, data, message })`. Este código repetitivo dificultaba mantener el contrato de respuesta uniforme definido en ADR-003 y multiplicaba los puntos de fallo ante cambios en el formato.
+
+2. **Filtros duplicados**: Las funciones `buildUsersFilter` (userController), los filtros inline en `getMechanics` (gameMechanicController) y `getDecks` (cardDeckController) replicaban la misma lógica de conversión query params → filtros MongoDB (exact match, regex search, etc.). Esto generaba inconsistencias (unos escapaban regex, otros no) y dificultaba agregar nuevos tipos de filtro.
+
+**Tarea:** T-519 (consolida T-519 + T-530)
+
+### Decisión (ADR-014)
+
+Se crean dos utilidades centralizadas:
+
+1. **`utils/responseHelper.js`** — 4 funciones de respuesta:
+   - `sendSuccess(res, data, message?, status=200)` — Respuesta genérica exitosa
+   - `sendCreated(res, data, message?)` — Recurso creado (201)
+   - `sendPaginated(res, dtoData, { page, limit, total })` — Integra `toPaginatedDTOV1` internamente, eliminando la necesidad de importarlo en cada controller
+   - `sendNoContent(res)` — Operaciones sin respuesta (204)
+
+2. **`utils/filterBuilder.js`** — Factory genérica `buildFilter(queryParams, fieldMappings, options)` con 6 tipos de mapping:
+   - `exact`: Igualdad directa (`filter[field] = value`)
+   - `regex`: Búsqueda parcial con escape automático via `escapeRegex` (prevención ReDoS)
+   - `search`: Búsqueda multi-campo con `$or` y regex escapado
+   - `range`: Rango numérico/fecha con `$gte`/`$lte` desde params separados
+   - `in`: Lista de valores con split por comas o array directo
+   - `computed`: Lógica custom via callback `(value, filter, allParams) => void`
+
+### Alternativas Consideradas (ADR-014)
+
+1. **Clase `ApiResponse` estática**: Rechazada por inconsistencia con el estilo funcional del proyecto (sin clases en utilidades) y porque requiere importar la clase completa cuando solo se usa una función.
+2. **Middleware de respuesta automática**: Un middleware que intercepte `res.locals.data` y construya la respuesta. Rechazado por magia implícita — los controllers pierden visibilidad sobre qué se envía.
+3. **ORM-level query builder (Mongoose query helpers)**: Para filterBuilder, usar Mongoose query helpers integrados en los schemas. Rechazado porque acoplaría la lógica de filtrado al modelo, violando la separación controller/repository.
+
+### Consecuencias (ADR-014)
+
+**Positivas:**
+- Contrato de respuesta garantizado: cambiar el formato solo requiere modificar `responseHelper.js`
+- Eliminación progresiva de ~70 instancias de `{ success: true }` manual
+- filterBuilder escapa regex automáticamente, eliminando una categoría de vulnerabilidad (ReDoS)
+- El tipo `computed` permite migrar filtros complejos (como el scope de teacher → student) sin pérdida de expresividad
+- 37 tests unitarios cubren ambas utilidades
+
+**Negativas:**
+- Indirección adicional: los controllers ya no muestran el `res.json()` directamente, lo que puede dificultar la comprensión inicial del flujo
+
+### Migración Completa (Mantenimiento Sprint 5)
+
+La migración piloto inicial cubría solo 2 controllers. Durante el mantenimiento del Sprint 5 se completó la migración a todos los controllers del proyecto:
+
+**responseHelper — Migración completa (9/10 controllers):**
+
+| Controller | Calls migradas | Funciones usadas |
+|------------|---------------|-----------------|
+| adminController | 3 | sendSuccess, sendPaginated |
+| analyticsController | 5 (handlers pre-T-601) | sendSuccess |
+| authController | 6 | sendSuccess, sendCreated |
+| userController | 8 | sendSuccess, sendCreated, sendPaginated |
+| gameContextController | 6 | sendSuccess, sendCreated, sendPaginated |
+| gameMechanicController | 6 | sendSuccess, sendCreated, sendPaginated |
+| gamePlayController | 9 | sendSuccess, sendCreated, sendPaginated |
+| gameSessionController | 8 | sendSuccess, sendCreated, sendPaginated |
+| assetController | 5 | sendSuccess, sendCreated |
+| **Total** | **~56 calls migradas** | |
+
+**Exclusión documentada:** `healthController.js` no usa responseHelper porque sus endpoints de health/metrics siguen convenciones de infraestructura (formato libre, sin wrapper `{ success, data }`).
+
+**filterBuilder — Migración completa (6/10 controllers con filtros):**
+
+| Controller | Mapping declarativo | Tipos usados | Líneas eliminadas |
+|------------|-------------------|-------------|-------------------|
+| userController (piloto) | `userFilterMappings` | exact, search, computed | — (ya migrado) |
+| gamePlayController | `playFilterMappings` | exact, range | ~36 (eliminadas `buildScoreRangeFilter` y `buildPlaysFilter`) |
+| gameSessionController | `sessionFilterMappings` | exact | ~17 |
+| adminController | `pendingTeacherFilterMappings` | search (con baseFilter) | ~12 |
+| gameMechanicController | `mechanicFilterMappings` | exact, search | ~14 |
+| gameContextController | `contextFilterMappings` | search, exact | ~14 |
+
+Los 4 controllers restantes (authController, assetController, cardDeckController, healthController) no tienen endpoints de listado con filtros query-based, por lo que no aplican para filterBuilder.
+
+Imports de `escapeRegex` eliminados de adminController, gameMechanicController y gameContextController — ya no necesitan el escape manual porque filterBuilder lo aplica internamente en el tipo `search`.
+
+### Archivos Afectados
+
+- `backend/src/utils/responseHelper.js` (nuevo — 4 funciones exportadas)
+- `backend/src/utils/filterBuilder.js` (nuevo — factory genérica)
+- `backend/src/controllers/*.js` (9 controllers migrados a responseHelper, 6 a filterBuilder)
+- `backend/tests/responseHelper.test.js` (nuevo — 17 tests unitarios)
+- `backend/tests/filterBuilder.test.js` (nuevo — 20 tests unitarios)
+
+### Relación con otros ADRs
+
+- **ADR-003** (DTOs): responseHelper preserva el contrato `{ success, data, pagination }` definido en DTOs. `sendPaginated` integra `toPaginatedDTOV1` como dependencia interna.
+- **ADR-013** (Errores centralizados): Los helpers de respuesta cubren el path de éxito; el errorHandler cubre el path de error. Juntos garantizan formato uniforme en el 100% de las respuestas HTTP.
+
+---
+
+## ADR-015: Patrón Repository completo con operaciones de escritura, transacciones y batch [Backend]
+
+### Contexto (ADR-015)
+
+Los repositorios del proyecto implementaban un patrón Repository incompleto: solo exponían operaciones de lectura (`find`, `findById`, `findOne`, `count`) y creación (`create`). La auditoría identificó:
+
+- **~25 llamadas directas a `doc.save()`** en controllers y services, bypasseando la capa de abstracción
+- **Sin métodos de actualización ni eliminación** en los repositorios — los controllers usaban `Model.findByIdAndUpdate()` directamente
+- **Sin soporte de transacciones** — operaciones multi-documento no tenían garantía de atomicidad
+- **Sin operaciones batch** — la creación masiva de documentos (seeders, importaciones) usaba bucles con `create()` individual
+
+Esto violaba el principio de separación de responsabilidades: los controllers conocían detalles de Mongoose (`doc.save()`, opciones de `findByIdAndUpdate`), dificultando el testing y la eventual migración a otro ORM.
+
+**Tarea:** T-520 (consolida T-520 + T-533 + T-534)
+
+### Decisión (ADR-015)
+
+Se amplía el patrón Repository en 3 fases:
+
+**Fase A — Operaciones de escritura** en `baseRepository.js`:
+- `updateById(Model, id, update, options)` — Wrapper de `findByIdAndUpdate` con defaults seguros (`returnDocument: 'after'`, `runValidators: true`)
+- `updateOne(Model, filter, update, options)` — Wrapper de `findOneAndUpdate` con mismos defaults
+- `deleteById(Model, id)` — Wrapper de `findByIdAndDelete`
+- `deleteMany(Model, filter)` — Wrapper de `Model.deleteMany`
+
+Cada repositorio concreto (6 total) envuelve estas funciones con su Model bindeado, siguiendo el mismo patrón que `find`/`findById`:
+```js
+const updateById = (id, update, options = {}) => baseRepo.updateById(User, id, update, options);
+```
+
+**Fase B — Transacciones** con `utils/withTransaction.js`:
+- Patrón `session → startTransaction → callback(session) → commit/abort → endSession`
+- Logging automático de transacciones abortadas con Pino
+- Los métodos de `applyQueryOptions` ahora aceptan `session` como opción para pass-through a Mongoose
+
+**Fase C — Operaciones batch**:
+- `insertMany(Model, docs, options)` — Para creación masiva eficiente
+- `bulkWrite(Model, operations, options)` — Para operaciones mixtas atómicas
+- Expuestos en repositorios relevantes: `userRepository` (bulk student creation), `gamePlayRepository` (batch events), `cardDeckRepository` (batch mappings)
+
+**Decisión importante**: NO se migran controllers/services para usar los nuevos métodos en esta tarea. La migración se hará en tareas futuras para limitar el blast radius del cambio.
+
+### Alternativas Consideradas (ADR-015)
+
+1. **Clase BaseRepository con herencia**: Un `BaseRepository<T>` del que hereden los repositorios concretos. Rechazada porque el proyecto usa estilo funcional (módulos con funciones exportadas, sin clases) y la herencia añade complejidad innecesaria.
+2. **Mongoose plugins**: Registrar plugins en los schemas que expongan métodos CRUD. Rechazado porque acoplaría la lógica de repository al modelo y dificultaría el testing con mocks.
+3. **Active Record pattern (métodos en el documento)**: Ya lo hace Mongoose con `doc.save()`. Rechazado explícitamente porque queremos que el Repository sea la única puerta de acceso a datos, facilitando el testing y el audit trail.
+
+### Consecuencias (ADR-015)
+
+**Positivas:**
+- Los 6 repositorios ahora ofrecen CRUD completo + batch + transactions
+- Defaults seguros (`runValidators: true`) previenen escrituras que violen validaciones de Mongoose
+- El soporte de `session` permite transacciones sin romper la API existente (es opt-in via options)
+- Los controllers/services podrán migrar progresivamente sin breaking changes
+- `withTransaction` encapsula el boilerplate de session management (~15 LOC por transacción)
+
+**Negativas:**
+- Los métodos no se consumen aún en controllers/services (migración futura), creando API surface sin consumidores inmediatos
+- Las transacciones requieren replica set de MongoDB — en entornos standalone (desarrollo local sin Docker) no funcionarán. Se documenta el requisito y se testea con mocks
+- `returnDocument: 'after'` (Mongoose 9) reemplaza el deprecated `new: true` — los controllers que usen `findByIdAndUpdate` directamente podrían confundirse si ven ambos estilos
+
+### Archivos Afectados
+
+- `backend/src/repositories/baseRepository.js` — 7 funciones nuevas (updateById, updateOne, deleteById, deleteMany, insertMany, bulkWrite) + session support
+- `backend/src/repositories/userRepository.js` — 7 métodos nuevos expuestos
+- `backend/src/repositories/gamePlayRepository.js` — 7 métodos nuevos expuestos
+- `backend/src/repositories/gameSessionRepository.js` — 5 métodos nuevos (sin batch)
+- `backend/src/repositories/gameContextRepository.js` — 5 métodos nuevos (sin batch)
+- `backend/src/repositories/gameMechanicRepository.js` — 5 métodos nuevos (sin batch)
+- `backend/src/repositories/cardDeckRepository.js` — 7 métodos nuevos expuestos
+- `backend/src/utils/withTransaction.js` — Nuevo: utility de transacciones
+- `backend/tests/repositoryWriteOps.test.js` — Nuevo: tests de integración con MongoDB real
+- `backend/tests/withTransaction.test.js` — Nuevo: tests unitarios con mocks
+
+### Relación con otros ADRs
+
+- **ADR-005** (Persistencia atómica de eventos): `withTransaction` proporciona la infraestructura necesaria para operaciones multi-documento que ADR-005 abordaba a nivel de operador `$push + $inc`.
+- **ADR-006** (Lean reads): Los nuevos métodos de lectura heredan el soporte de `lean` existente en `applyQueryOptions`.
+
+---
+
+## ADR-016: Rate Limiting con Redis Store y protección de pause/resume [Backend]
+
+### Contexto (ADR-016)
+
+La auditoría de seguridad del Sprint 5 identificó dos problemas en el rate limiting:
+
+1. **Store en memoria inadecuado para producción**: Los 6 rate limiters existentes (global, auth, register, createResource, event, upload) usaban el `MemoryStore` por defecto de `express-rate-limit`. Esto significa que:
+   - Cada instancia del servidor mantiene contadores independientes — con N instancias, un atacante puede hacer N × limit peticiones
+   - Los contadores se reinician al reiniciar el servidor
+   - No hay visibilidad centralizada de los rate limits
+
+2. **Pause/Resume sin protección**: Las acciones `POST /api/plays/:id/pause` y `POST /api/plays/:id/resume` no tenían rate limiting, a diferencia de `/events` (que ya usaba `eventRateLimiter`). Un cliente malicioso podría hacer spam de pause/resume para degradar el rendimiento del servidor.
+
+**Tarea:** T-521
+
+### Decisión (ADR-016)
+
+1. **Redis Store factory** en `config/security.js`:
+   - Se crea `createRedisStore(prefix)` que usa `rate-limit-redis` v4 con el cliente `ioredis` v5 existente
+   - Se integra en `createRateLimiter` para que **todos** los rate limiters usen Redis automáticamente sin modificar sus definiciones individuales
+   - Import lazy: `rate-limit-redis` se importa dentro de la factory para evitar errores si Redis no está configurado
+   - Adapter ioredis: `sendCommand: (...args) => client.call(...args)` según la documentación oficial de `rate-limit-redis` para ioredis
+
+2. **Fallback graceful**: Si Redis no está disponible (no conectado, error de módulo), `createRedisStore` retorna `undefined` y `express-rate-limit` usa su `MemoryStore` por defecto. Se loguea un warning para visibilidad.
+
+3. **Protección de Pause/Resume**: Se agrega `eventRateLimiter` (120 req/min por userId, key compuesta `user:${userId}` o `ip:${req.ip}`) a ambas rutas.
+
+4. **Prefijos separados**: Cada rate limiter tiene un prefijo único en Redis para evitar colisiones de keys:
+   - `rl:global:` — Rate limiter global
+   - `rl:auth:` — Autenticación (skipSuccessfulRequests)
+   - `rl:register:` — Registro de profesores
+   - `rl:create:` — Creación de recursos
+   - `rl:event:` — Eventos de juego + pause/resume
+   - `rl:upload:` — Subida de archivos
+
+### Alternativas Consideradas (ADR-016)
+
+1. **Rate limiter dedicado para pause/resume**: Crear un rate limiter específico más restrictivo (ej: 10 req/min). Rechazado porque pause/resume son acciones del mismo flujo de juego que events, y el `eventRateLimiter` existente (120 req/min) ya es adecuado.
+2. **Redis store a nivel de proxy (Nginx)**: Mover el rate limiting a Nginx con `ngx_http_limit_req_module`. Rechazado porque:
+   - Perdemos la key compuesta `user:${userId}` (Nginx solo conoce IP)
+   - En contexto escolar, muchos estudiantes comparten la misma IP (NAT del colegio)
+   - No podemos tener `skipSuccessfulRequests` en Nginx
+3. **Sliding window algorithm**: Implementar sliding window con Redis directamente (más preciso). Rechazado por complejidad innecesaria — `express-rate-limit` con fixed window es suficiente para el caso de uso educativo.
+
+### Consecuencias (ADR-016)
+
+**Positivas:**
+- Escalabilidad horizontal: los contadores de rate limiting se comparten entre todas las instancias del servidor
+- Persistencia de contadores: los rate limits sobreviven a reinicios del servidor
+- Pause/resume protegidos contra abuse
+- Zero-config: la integración es transparente — `createRateLimiter` inyecta el store automáticamente
+- Fallback seguro: el sistema funciona con MemoryStore si Redis cae
+
+**Negativas:**
+- Dependencia adicional: `rate-limit-redis` (1 package, ~50KB)
+- Latencia marginal: cada check de rate limit requiere un round-trip a Redis (~1ms en red local)
+- En desarrollo local sin Redis, se usa MemoryStore (comportamiento diferente al de producción)
+
+### Archivos Afectados
+
+- `backend/src/config/security.js` — `createRedisStore` factory, `createRateLimiter` ampliado, prefijos en 6 rate limiters
+- `backend/src/routes/plays.js` — `eventRateLimiter` agregado a pause (línea 137) y resume (línea 150)
+- `backend/package.json` — Nueva dependencia: `rate-limit-redis` v4.x
+
+### Relación con otros ADRs
+
+- **ADR-002** (WebSocket auth): El rate limiting HTTP complementa la protección del socketRateLimiter (definido en `socketRateLimits.js`) para cubrir ambos canales de comunicación.
+- **ADR-011** (Socket.IO Redis Adapter): La infraestructura Redis ya existe para Socket.IO adapter; reutilizarla para rate limiting es coherente y no añade nueva infraestructura.
+
+---
+
+## ADR-017: Endpoints de Analytics expandidos para Dashboard [Backend]
+
+### Contexto (ADR-017)
+
+El dashboard frontend depende de datos de analytics para visualizar KPIs, distribuciones de rendimiento y progreso de estudiantes. En el estado previo, solo existían 5 endpoints básicos:
+- `/classroom/summary` — KPIs básicos (studentsInRisk, averageScore, totalGames, gamesToday)
+- `/classroom/comparison` — Promedio diario de clase por fecha
+- `/classroom/difficulties` — Error rate por contexto/mecánica
+- `/student/:id/progress` — Evolución temporal del score
+- `/student/:id/difficulties` — Dificultades individuales
+
+Estos endpoints eran insuficientes para las mejoras de dashboard planificadas (T-602 a T-606):
+- **T-602**: Necesita lista de estudiantes con métricas y tier → No existe endpoint
+- **T-603**: Necesita distribución de rendimiento → No existe endpoint
+- **T-604**: Necesita trends comparativos → No existe endpoint
+- **T-606**: Necesita resumen completo de estudiante → No existe endpoint
+
+**Tarea:** T-601
+
+### Decisión (ADR-017)
+
+Se crean **6 nuevos endpoints** de analytics, manteniendo el patrón existente (auth + role middleware, Zod validators, asyncHandler, DTOs):
+
+| Endpoint | Descripción | Datos fuente |
+|----------|-------------|--------------|
+| `GET /classroom/students` | Lista estudiantes con métricas, tier, accuracyRate | `User` (studentMetrics) |
+| `GET /classroom/distribution` | Distribución en 4 rangos | `User` (studentMetrics.averageScore) |
+| `GET /classroom/trends` | Comparación período actual vs anterior, 6 KPIs | `GamePlay` (aggregation) + `User` |
+| `GET /student/:id/summary` | Resumen completo con últimas partidas, contextos, mecánicas | `GamePlay` ($facet) + `User` |
+| `GET /classroom/heatmap` | Actividad por día de semana × hora | `GamePlay` ($dayOfWeek, $hour) |
+| `GET /classroom/rankings` | Top N contextos y mecánicas | `GamePlay` (aggregation) |
+
+**Decisiones de diseño clave:**
+
+1. **User.studentMetrics vs agregación en tiempo real**: Los endpoints de `/classroom/students` y `/classroom/distribution` usan `User.studentMetrics` (datos pre-agregados, actualizados atómicamente con `$inc` al completar cada partida). Esto evita pipelines pesados de agregación sobre la colección `gameplays` para operaciones frecuentes. Los endpoints de `/trends`, `/heatmap` y `/rankings` sí usan agregación porque sus datos son inherentemente temporales y no se pre-computan.
+
+2. **$facet para student summary**: El endpoint `/student/:id/summary` usa un pipeline con `$facet` que ejecuta 4 sub-pipelines en un solo round-trip a MongoDB (lastGames, byContext, byMechanic, overallStats). La comparativa con la clase es una query separada a `User` (simple, sin agregación). Total: 2 queries por request en vez de 5+.
+
+3. **Clasificación de tiers**: Rangos fijos basados en `averageScore`:
+   - `risk`: 0-49 (rojo) — Estudiantes que necesitan intervención
+   - `average`: 50-69 (amarillo) — Rendimiento básico
+   - `good`: 70-89 (azul) — Buen rendimiento
+   - `excellent`: 90-100 (verde) — Rendimiento excepcional
+
+   Se eligieron rangos fijos en vez de percentiles porque el profesor debe poder interpretar los tiers de forma absoluta, no relativa a la clase.
+
+4. **Endpoints extra (heatmap y rankings)**: No estaban en la especificación original pero añaden valor significativo al dashboard:
+   - Heatmap permite al profesor identificar las franjas horarias de mayor actividad → optimizar planificación
+   - Rankings permite identificar qué contenidos son más utilizados y efectivos → informar decisiones pedagógicas
+
+5. **accuracyRate calculado**: Se calcula como `totalCorrectAnswers / (totalCorrectAnswers + totalErrors) * 100`. Es un campo derivado, no almacenado, para evitar inconsistencias con los contadores atómicos.
+
+### Alternativas Consideradas (ADR-017)
+
+1. **GraphQL para analytics**: Un endpoint GraphQL que permita al frontend construir queries flexibles. Rechazado por:
+   - Añade una dependencia y paradigma nuevo al proyecto (solo REST)
+   - Los pipelines de agregación de MongoDB no se mapean bien a resolvers GraphQL
+   - Para un TFG, la complejidad no se justifica
+
+2. **Materialización en colección separada**: Pre-computar los datos de analytics en una colección `analytics_snapshots` con un cron job. Rechazado porque:
+   - Añade lag (los datos no son en tiempo real)
+   - Requiere infraestructura adicional (cron/scheduler)
+   - Los volúmenes actuales (cientos de partidas, no millones) no lo justifican
+
+3. **Calcular tiers con percentiles (curva normal)**: En vez de rangos fijos, usar percentiles de la distribución real. Rechazado porque:
+   - Con pocos estudiantes (5-30), los percentiles son inestables
+   - El profesor espera interpretar "70% = bueno" de forma absoluta
+
+### Consecuencias (ADR-017)
+
+**Positivas:**
+- Desbloquea las tareas T-602 a T-606 del dashboard frontend
+- Los endpoints usan datos pre-agregados cuando es posible, manteniendo buen rendimiento
+- El patrón $facet reduce round-trips a MongoDB
+- Validación Zod estricta en todos los endpoints (sort, order, tier, timeRange, limit)
+- Ownership check reutilizado (`ensureStudentOwnership`) para endpoints de estudiante individual
+- 16 tests de integración con supertest
+
+**Negativas:**
+- Los pipelines de agregación son complejos y difíciles de debuggear (especialmente el $facet de student summary)
+- La clasificación de tiers está hardcodeada en el service — si el profesor quiere personalizar los rangos, requiere cambio de código
+- Los endpoints de trends hacen 2 queries (aggregation + User.count para studentsInRisk), lo que podría optimizarse con un pipeline combinado
+
+### Archivos Afectados
+
+- `backend/src/services/analyticsService.js` — 6 funciones nuevas (getClassroomStudents, getClassroomDistribution, getClassroomTrends, getStudentSummary, getClassroomHeatmap, getTopContextsAndMechanics)
+- `backend/src/controllers/analyticsController.js` — 6 handlers nuevos + helper `ensureStudentOwnership`
+- `backend/src/routes/analytics.js` — 6 rutas nuevas con validators y asyncHandler
+- `backend/src/validators/analyticsValidator.js` — 6 schemas Zod nuevos
+- `backend/tests/analyticsEndpoints.test.js` — 16 tests de integración
+
+### Relación con otros ADRs
+
+- **ADR-003** (DTOs): Los nuevos endpoints usan `sendSuccess` de responseHelper (ADR-014) que preserva el contrato de DTOs.
+- **ADR-005** (Persistencia atómica): Los datos de `studentMetrics` que consumen estos endpoints son actualizados atómicamente por los operadores `$inc`/`$push` definidos en ADR-005.
+- **ADR-013** (Errores centralizados): Los handlers usan `asyncHandler` y lanzan `NotFoundError`/`ForbiddenError` que fluyen por el errorHandler centralizado.
+- **ADR-014** (responseHelper): Los nuevos controllers usan `sendSuccess` en vez de `res.json()` manual.
+
+---
+
+## ADR-018: Plan de descomposicion modular de gameEngine.js [Backend]
+
+### Contexto (ADR-018)
+
+`gameEngine.js` ha crecido hasta ~1915 lineas con ~50 funciones distribuidas en 10 grupos de responsabilidad. El archivo mezcla logica de juego, persistencia en MongoDB, coordinacion distribuida con Redis, comunicacion WebSocket y gestion de timers en una unica clase singleton.
+
+Esto genera cuatro problemas concretos:
+
+1. **Acoplamiento vertical**: Testear `processResponse` (logica de juego pura) requiere mockear Redis, MongoDB, Socket.IO y los Maps internos del motor.
+2. **Estado compartido sin encapsulacion**: `this.activePlays` (Map), `this.cardUidToPlayId` (Map) y `this.playLocks` (Map) son accesibles directamente por todos los metodos sin ninguna capa de abstraccion.
+3. **Timers anidados**: `roundTimer`, `nextRoundTimer`, `playTimer` y `transientTimers` interactuan con la logica de pausa/reanudacion que debe recalcular remaining time, generando codigo fragil.
+4. **Complejidad cognitiva**: Un desarrollador nuevo necesita leer ~1915 lineas para entender una sola responsabilidad. No existe una guia de "How to Add a New Mechanic".
+
+### Analisis de responsabilidades actuales
+
+| # | Grupo | Lineas aprox. | Metodos principales | Complejidad |
+|---|-------|---------------|---------------------|-------------|
+| 1 | Ciclo de vida | ~200 | `startPlay`, `endPlay`, `shutdown` | Alta (orquesta todo) |
+| 2 | Logica de rondas | ~370 | `sendNextRound`, `processResponse`, `handleTimeout`, `advanceToNextRound` | Alta (core del juego) |
+| 3 | Modo Memory | ~200 | `processMemoryScan`, `emitMemoryTurnState`, `handleMemoryTimeout` | Media |
+| 4 | Entrada RFID | ~65 | `handleCardScan`, `getPlayIdByCardUid` | Baja |
+| 5 | Pausa/Reanudacion | ~295 | `pausePlay`, `resumePlay`, `calculatePauseRemainingTime`, `persistPauseState` | Alta (timers + estado) |
+| 6 | Gestion de timers | ~130 | `scheduleTransientTimer`, `clearPlayTimers`, `startCleanupTimer`, `startLockHeartbeatTimer` | Media |
+| 7 | Persistencia/Sync | ~240 | `syncPlayToRedis`, `checkpointPlayIfNeeded`, `recoverActivePlays`, `recoverOrphanedPlaysFromDB` | Alta (Redis + MongoDB) |
+| 8 | Ops distribuidas Redis | ~155 | `reserveDistributedCardMappings`, `releaseDistributedCardMappings`, `refreshActivePlayLeases` | Alta |
+| 9 | Observabilidad | ~120 | `getPlayState`, `getRealtimeRemainingTimeMs`, `getPlayRuntimeContext`, `getMetrics` | Baja |
+| 10 | Control de concurrencia | ~50 | `executeWithPlayLock`, `processInBatches` | Media |
+
+### Estructuras de datos en memoria
+
+| Estructura | Tipo | Proposito | Tamano tipico |
+|---|---|---|---|
+| `this.activePlays` | `Map<playId, playState>` | Estado completo de cada partida activa | 100-500 entradas |
+| `this.cardUidToPlayId` | `Map<uid, playId>` | Busqueda O(1) inversa: UID → partida | 1500-15000 mappings |
+| `this.playLocks` | `Map<playId, Promise>` | Mutex en memoria por partida (serializa operaciones) | Partidas con operaciones en vuelo |
+| `this.metrics` | `Object` | Contadores de telemetria del motor | ~25 campos |
+
+### Decision (ADR-018)
+
+Descomponer `gameEngine.js` en **11 modulos** bajo `services/gameEngine/`, manteniendo backward compatibility via `index.js` que re-exporta la misma API publica.
+
+**Esta ADR es un plan de ejecucion futura — no se modifica codigo.**
+
+#### Estructura de modulos propuesta
+
+```
+backend/src/services/gameEngine/
+├── index.js                    # Re-export backward compatible (module.exports = GameEngine)
+├── GameEngine.js               # Orquestador: instancia managers, delega operaciones
+├── PlayStateManager.js         # Encapsula activePlays, cardUidToPlayId (CRUD + queries)
+├── RoundManager.js             # sendNextRound, processResponse, handleTimeout, advanceToNextRound
+├── MemoryGameManager.js        # processMemoryScan, emitMemoryTurnState, handleMemoryTimeout
+├── PlayPauseManager.js         # pausePlay, resumePlay, calculatePauseRemainingTime
+├── RFIDInputHandler.js         # handleCardScan, getPlayIdByCardUid
+├── PersistenceManager.js       # syncPlayToRedis, checkpoint, recoverActivePlays, recoverOrphaned
+├── DistributedLockManager.js   # reserveDistributedCardMappings, releaseDistributed, refreshLeases
+├── TimerManager.js             # Abstraccion sobre setTimeout/clearTimeout, cleanup, heartbeat
+├── MetricsCollector.js         # getPlayState, getMetrics, contadores de telemetria
+└── ConcurrencyControl.js       # executeWithPlayLock, processInBatches
+```
+
+#### Diagrama de dependencias entre modulos
+
+```
+GameEngine (orquestador)
+├── PlayStateManager          (sin dependencias externas — puro estado en memoria)
+├── TimerManager              (sin dependencias externas — wrapper de setTimeout)
+├── ConcurrencyControl        (sin dependencias externas — mutex + batching)
+├── MetricsCollector          ← PlayStateManager (lee activePlays.size para snapshots)
+├── RFIDInputHandler          ← PlayStateManager (cardUidToPlayId lookup)
+├── DistributedLockManager    ← redisService (inyectado)
+├── PersistenceManager        ← PlayStateManager, redisService, gamePlayRepository (inyectados)
+├── RoundManager              ← PlayStateManager, TimerManager, PersistenceManager, io (inyectados)
+├── MemoryGameManager         ← PlayStateManager, TimerManager, PersistenceManager, io (inyectados)
+└── PlayPauseManager          ← PlayStateManager, TimerManager, PersistenceManager, io (inyectados)
+```
+
+#### Patron de inyeccion (Constructor Dependency Injection)
+
+Cada manager recibe sus dependencias en el constructor:
+
+```javascript
+class RoundManager {
+  constructor({ playStateManager, timerManager, persistenceManager, io, logger }) {
+    this.playState = playStateManager;
+    this.timers = timerManager;
+    this.persistence = persistenceManager;
+    this.io = io;
+    this.logger = logger;
+  }
+
+  async sendNextRound(playId) {
+    const playState = this.playState.get(playId);
+    // ... logica de ronda usando this.timers, this.persistence, this.io
+  }
+}
+```
+
+El `GameEngine` orquestador instancia todos los managers y los conecta:
+
+```javascript
+class GameEngine {
+  constructor(io) {
+    this.playState = new PlayStateManager();
+    this.timers = new TimerManager();
+    this.concurrency = new ConcurrencyControl();
+    this.metrics = new MetricsCollector({ playState: this.playState });
+    this.locks = new DistributedLockManager({ redisService });
+    this.persistence = new PersistenceManager({ playState: this.playState, redisService, ... });
+    this.rounds = new RoundManager({ playState: this.playState, timers: this.timers, ... });
+    // ... etc.
+  }
+}
+```
+
+### Estrategia de migracion (3 fases)
+
+#### Fase 1 — Modulos sin dependencias externas (~4h, bajo riesgo)
+
+| Modulo | Lineas | Metodos | Riesgo | Justificacion |
+|--------|--------|---------|--------|---------------|
+| `ConcurrencyControl` | ~50 | `executeWithPlayLock`, `processInBatches` | Muy bajo | Funciones puras, sin estado compartido complejo |
+| `TimerManager` | ~130 | `scheduleTransientTimer`, `clearPlayTimers`, `startCleanupTimer`, etc. | Bajo | Wrapper sobre Node.js timers |
+| `MetricsCollector` | ~120 | `getPlayState`, `getMetrics`, contadores | Bajo | Solo lectura de estado |
+| `PlayStateManager` | ~80 | Encapsular Maps con API publica (get, set, delete, has) | Bajo | Fundamental para los demas modulos |
+
+#### Fase 2 — Modulos con dependencias simples (~8h, riesgo medio)
+
+| Modulo | Lineas | Dependencias | Riesgo | Justificacion |
+|--------|--------|-------------|--------|---------------|
+| `RFIDInputHandler` | ~65 | PlayStateManager | Bajo | Solo lookup O(1) + delegacion |
+| `DistributedLockManager` | ~155 | redisService | Medio | Operaciones Lua atomicas — tests criticos |
+| `PersistenceManager` | ~240 | PlayStateManager, redisService, repositories | Medio | I/O con dos stores — requiere tests de integracion |
+
+#### Fase 3 — Modulos complejos (~12h, riesgo alto)
+
+| Modulo | Lineas | Dependencias | Riesgo | Justificacion |
+|--------|--------|-------------|--------|---------------|
+| `RoundManager` | ~370 | PlayStateManager, TimerManager, PersistenceManager, io | Alto | Core del juego, interaccion con timers y Socket.IO |
+| `MemoryGameManager` | ~200 | PlayStateManager, TimerManager, PersistenceManager, io | Medio-Alto | Logica especifica de memoria con timers de ocultacion |
+| `PlayPauseManager` | ~295 | PlayStateManager, TimerManager, PersistenceManager, io | Alto | Remaining time gymnastics, timer freeze/restore |
+| `GameEngine.js` (refactor) | ~200 | Todos los managers | Alto | Orquestador puro — delegacion sin logica propia |
+
+**Estimacion total:** ~24h de desarrollo + ~8h de testing = ~32h
+
+### Alternativas consideradas
+
+1. **No descomponer, solo documentar**: Mantener el monolito pero añadir JSDoc extensivo y guias. Rechazado porque no resuelve el problema de testabilidad ni la complejidad cognitiva para nuevos desarrolladores.
+
+2. **Dividir en 3-4 modulos grandes** (lifecycle, gameplay, infrastructure): Mas rapido pero mantiene acoplamiento dentro de cada modulo. Rechazado porque la testabilidad apenas mejora.
+
+3. **Migrar a event-driven con EventEmitter**: Desacoplar modulos mediante eventos internos. Considerado para futuro (Sprint 6+) pero anade complejidad de indirectacion que no se justifica en el scope actual.
+
+### Consecuencias (ADR-018)
+
+**Positivas:**
+- Archivos de ~100-300 lineas en vez de uno de ~1915
+- Testing aislado por modulo (mock solo dependencias directas del manager, no toda la infra)
+- Facilita onboarding: un desarrollador nuevo puede leer `RoundManager.js` (~370 lineas) para entender la logica de rondas sin wade through 1900 lineas
+- `index.js` re-exporta la misma API publica → backward compatible para consumers (server.js, socketHandlers, commands)
+- Posibilita "How to Add a New Mechanic" como guia documental
+
+**Negativas:**
+- Esfuerzo significativo (~32h)
+- Riesgo de regresiones en logica de timers y pausa/reanudacion (Fase 3)
+- Mas archivos para navegar (11 vs 1), mitigado con buena organizacion y JSDoc
+- El patron DI requiere disciplina para no volver a acoplar
+
+**Riesgos:**
+- La logica de pausa/reanudacion con remaining time es la parte mas fragil de la Fase 3
+- Los tests de integracion existentes (`gameFlow.test.js`, `playPauseResume.test.js`, `memoryStrategy.test.js`) deben pasar sin cambios — son la red de seguridad principal
+- El `index.js` debe mantener exactamente la misma interfaz publica que `gameEngine.js` actual
+
+### Relacion con otros ADRs
+
+- **ADR-001** (Soft limit de partidas): `PlayStateManager` encapsulara el threshold warning de `ACTIVE_PLAYS_WARNING_THRESHOLD`
+- **ADR-004** (Locks distribuidos de UIDs): `DistributedLockManager` aisla las operaciones Lua de reserva/liberacion/renovacion
+- **ADR-005** (Persistencia atomica de eventos): `PersistenceManager` consolida `addEventAtomic`, `checkpointPlayIfNeeded` y `syncPlayToRedis`
+- **ADR-010** (Checkpoints periodicos): `PersistenceManager` gestiona los umbrales de checkpoint (`CHECKPOINT_INTERVAL_MS`, `CHECKPOINT_EVENT_THRESHOLD`)
+- **ADR-011** (Redis Adapter): `DistributedLockManager` mantiene compatibilidad con el Redis adapter para scaling horizontal
+
+---
+
+## ADR-019: Optimización de queries con lean() e índices compuestos [Backend]
+
+### Contexto (ADR-019)
+
+Todas las consultas de lectura de Mongoose devolvían documentos completos con getters, setters y métodos del modelo, consumiendo aproximadamente 5 veces más memoria que objetos JavaScript planos (POJOs). Este overhead era innecesario en la mayoría de endpoints de listado, donde los resultados se transforman a DTOs antes de enviarlos al cliente y nunca necesitan `.save()`.
+
+Adicionalmente, los endpoints de analytics como `classroom/students` y `student/summary` ejecutaban queries sin índices compuestos óptimos, provocando escaneos completos de colección (collection scans) que degradaban el rendimiento conforme crecía el volumen de datos.
+
+### Decisión (ADR-019)
+
+Se adoptan dos optimizaciones complementarias:
+
+1. **Aplicar `.lean()` automáticamente en `baseRepository.applyQueryOptions`** para queries de listado — aquellas que incluyen `sort`, `limit` o `skip`. Sus resultados siempre se transforman a DTOs y nunca requieren `.save()`. Para `findById` y `findOne`, lean permanece como opt-in porque muchos flujos de controllers/services siguen el patrón find → modify → `.save()`.
+
+2. **Añadir 3 índices compuestos** para las consultas más costosas:
+   - `GamePlay { playerId: 1, completedAt: -1 }` — historial de partidas por estudiante, ordenado por fecha de completado
+   - `GamePlay { status: 1, completedAt: -1 }` — agregaciones de analytics filtradas por estado
+   - `User { createdBy: 1, role: 1 }` — listados de estudiantes de un aula (teacher → students)
+
+### Alternativas Consideradas (ADR-019)
+
+1. **Lean global por defecto en todas las queries**: Rechazada porque rompería aproximadamente 30 call sites que usan `.save()` tras un find, requiriendo una refactorización masiva a patrón `updateById`. El riesgo de regresión no justificaba la ganancia.
+
+2. **Override de lean por repositorio**: Cada repositorio decidiría si aplicar lean o no. Rechazada por inconsistencia — algunos repositorios lo aplicarían y otros no, generando confusión y errores difíciles de depurar.
+
+### Consecuencias (ADR-019)
+
+**Positivas:**
+- Las queries de listado devuelven POJOs (~5x menos memoria por documento) sin cambios en controllers ni DTOs
+- Los endpoints de analytics se benefician de los índices compuestos, evitando collection scans
+- La aplicación es transparente: `applyQueryOptions` detecta automáticamente si la query tiene sort/limit/skip y aplica lean sin intervención del desarrollador
+- Los flujos de escritura (find → modify → save) no se ven afectados
+
+**Negativas:**
+- Los POJOs devueltos por lean no tienen virtuals, getters ni métodos de instancia del modelo — si algún consumidor futuro los necesita en una query de listado, deberá añadir `lean: false` explícitamente en las opciones
+- Los índices compuestos consumen espacio adicional en disco y RAM de MongoDB, aunque el impacto es mínimo para el volumen de datos actual
+
+### Relación con otros ADRs
+
+- **ADR-003** (DTOs): Los resultados lean son compatibles con la capa de DTOs porque estos solo acceden a propiedades planas del documento, no a métodos de Mongoose
+- **ADR-006** (Lecturas lean en sesiones): ADR-006 aplicó lean manualmente en endpoints de sesión como caso piloto; ADR-019 generaliza el patrón a nivel de baseRepository
+- **ADR-015** (Repository completo): La lógica lean se centraliza en `applyQueryOptions` del baseRepository, consistente con el principio de que el acceso a datos se gestiona desde la capa repository
+
+---
+
+## ADR-020: Estrategia de cache Redis para entidades de alta lectura [Backend]
+
+### Contexto (ADR-020)
+
+Las mecánicas de juego (~3 en el sistema) y los contextos temáticos (~15) se consultan en cada carga de sesión, inicio de partida y vista de dashboard, pero cambian muy raramente (solo cuando un administrador crea o edita). Los resúmenes de analytics de clase agregan datos a través de múltiples colecciones. Todas estas consultas impactan MongoDB en cada petición sin ningún tipo de cache.
+
+### Decisión (ADR-020)
+
+Se adopta el patrón **cache-aside** mediante `utils/cacheHelper.js`, reutilizando la infraestructura existente de `redisService` con circuit breaker. Se definen tres niveles de cache:
+
+1. **Mecánicas** — TTL de 1 hora. Se cachean las consultas `getById` (llamadas frecuentemente, datos estables). Los endpoints de listado quedan sin cache (se llaman raramente y tienen combinaciones variables de filtros que generarían demasiadas cache keys).
+
+2. **Contextos** — TTL de 30 minutos. Misma estrategia que mecánicas: solo `getById` cacheado. Los listados quedan sin cache por las mismas razones.
+
+3. **Analytics** — TTL de 5 minutos. TTL corto porque los datos cambian con cada partida completada. La key incluye `teacherId` para aislamiento entre profesores.
+
+4. **Invalidación**: las mutaciones (create/update/delete) invalidan explícitamente mediante `cacheInvalidate`. Analytics usa solo expiración por TTL (sin invalidación explícita necesaria).
+
+5. **Fallback**: si Redis no está disponible, `cacheGet` cae transparentemente a la función de fetch (sin cache, sin error).
+
+### Alternativas Consideradas (ADR-020)
+
+1. **Cache-through (Redis como lectura primaria)**: Rechazada. Añade complejidad y dependencia de Redis para todas las lecturas.
+
+2. **TTL global sin invalidación explícita**: Rechazada para mecánicas y contextos. Datos obsoletos durante hasta 1 hora tras ediciones es inaceptable para la experiencia del administrador.
+
+3. **Cache en endpoints de listado**: Rechazada. Las combinaciones variables de filtros, ordenamiento y paginación crean demasiadas cache keys con baja tasa de acierto.
+
+### Consecuencias (ADR-020)
+
+**Positivas:**
+- Reducción de carga en MongoDB para lecturas repetidas de mecánicas, contextos y analytics
+- Sin cambio de comportamiento para los consumidores — la interfaz de servicios permanece idéntica
+- El fallo de Redis es transparente: el sistema opera sin cache en modo degradado
+- Invalidación explícita garantiza datos frescos tras mutaciones de administrador
+
+**Negativas:**
+- Complejidad adicional en la capa de servicios para gestionar invalidación
+- Las cache keys de analytics incluyen `teacherId`, lo que limita la reutilización entre profesores (decisión deliberada por aislamiento de datos)
+
+### Relación con otros ADRs
+
+- **ADR-016** (Rate limiting Redis store): Reutiliza la misma infraestructura de `redisService` con circuit breaker. Los namespaces `CACHE_MECHANIC`, `CACHE_CONTEXT` y `CACHE_ANALYTICS` se añaden al enum `NAMESPACES`
+
+## ADR-021: Revision de patrones de diseno — ownership helpers, Service Layer y rate limiting [Backend]
+
+### Contexto (ADR-021)
+
+Una revision exhaustiva de los 13 patrones de diseno documentados revelo tres areas de mejora concreta:
+
+1. **Ownership checks duplicados**: El patron `entity.createdBy.toString() !== req.user._id.toString()` aparecia 18 veces en 5 controllers con 3 variantes distintas (simple, con bypass super_admin, teacher-student). Las variaciones sutiles (manejo de objetos populados vs ObjectId directo) aumentaban el riesgo de bugs silenciosos.
+
+2. **Service Layer incompleto**: `gameSessionController.createSession()` contenia ~120 lineas de logica de negocio (validacion de mecanica, config, boardLayout, associationChallengePlan) que deberian estar en el service, violando la regla documentada: "Controllers orquestan, no ejecutan reglas complejas."
+
+3. **Rate limiting incompleto**: Los 12 endpoints de analytics ejecutaban aggregations MongoDB costosas sin rate limiter especifico (solo el global de 100 req/15min).
+
+Adicionalmente, se identificaron 3 patrones ya implementados pero no documentados (Cache-Aside, Factory Method, Decorator) y 2 inconsistencias menores (filterBuilder no usado en cardDeckController, DRY violation en analyticsController).
+
+### Decision (ADR-021)
+
+1. **ownershipHelpers** (`utils/ownershipHelpers.js`): Tres funciones centralizadas:
+   - `ensureResourceOwnership(entity, userId, resourceName)` — check simple
+   - `ensureResourceOwnershipOrAdmin(entity, user, resourceName)` — con bypass super_admin
+   - `ensureStudentBelongsToTeacher(studentId, user, userRepository)` — relacion teacher-student
+   - `getOwnerId(entity)` — extrae createdBy manejando tanto ObjectId como objeto populado
+
+2. **createSessionFromDeck** en `gameSessionService.js`: Consolida toda la logica de creacion de sesion desde mazo. El controller queda como orquestador de ~15 lineas.
+
+3. **analyticsRateLimiter** en `config/security.js`: 30 req/min por usuario en produccion, aplicado como middleware de router en `routes/analytics.js`.
+
+4. **filterBuilder** adoptado en `cardDeckController.getDecks()` reemplazando construccion manual.
+
+5. **Documentacion**: Patrones 14 (Cache-Aside), 15 (Factory Method) y 16 (Decorator) anadidos a `02-Patrones_Diseno.md`.
+
+### Alternativas Consideradas (ADR-021)
+
+1. **Authorization Policy pattern** (politicas por entidad): Evaluado y pospuesto. El ownershipHelpers cubre el 95% de los casos. Se recomienda activar si las reglas de autorizacion crecen (sesiones compartidas entre profesores, permisos granulares).
+
+2. **Dependency Injection container**: Descartado. Node.js module system con `require()` ya actua como DI simple; un contenedor formal es excesivo para el tamano del proyecto.
+
+3. **Builder pattern** para construccion de sesiones: Descartado. Mongoose + Service Layer ya manejan la construccion; un builder aniade indirection sin beneficio real.
+
+### Consecuencias (ADR-021)
+
+**Positivas:**
+- 18 bloques de codigo duplicado eliminados de 5 controllers
+- Mensajes de error de autorizacion ahora son consistentes
+- `gameSessionController.createSession()` reducido de ~120 a ~15 lineas
+- Analytics protegidos contra abuso de aggregations costosas
+- 16 patrones documentados (vs 13 previos)
+
+**Negativas:**
+- `ownershipHelpers` introduce una dependencia transversal; cambios en la firma afectan 5 controllers
+- `createSessionFromDeck` importa helpers desde `controllers/helpers/` — inversion de dependencia atipica (service importa de controller helpers). Los helpers son funciones puras sin dependencia HTTP, pero la ubicacion es suboptima. Considerar mover a `utils/` o `services/helpers/` en futuras iteraciones
+
+## ADR-022: Hardening de la capa WebSocket — persistencia RFID en Redis y limite de conexiones por usuario [Full-stack]
+
+### Contexto (ADR-022)
+
+Una auditoria de la comunicacion frontend-backend revelo dos vulnerabilidades en la capa WebSocket:
+
+1. **Estado RFID volatil**: Los Maps en memoria `rfidModeByUserId` y `sensorIdToUserId` se pierden si el servidor se reinicia durante una partida activa. El profesor debe re-entrar al juego manualmente para restaurar el modo RFID, interrumpiendo la sesion educativa.
+
+2. **Conexiones ilimitadas por usuario**: No existia limite de conexiones WebSocket simultaneas por usuario. Un usuario (o atacante) podia abrir conexiones ilimitadas, agotando recursos del servidor.
+
+Adicionalmente, se identificaron dos bugs menores:
+- El contexto de usuario en Sentry referenciaba `socket.user` (inexistente) en lugar de `socket.data.userId`.
+- El error generico de fallo de comando no incluia codigo de error ni nombre del evento.
+
+### Decision (ADR-022)
+
+**Persistencia RFID en Redis (write-through)**:
+- Al cambiar el modo RFID (`setRfidModeState`), se escribe simultaneamente en el Map en memoria y en Redis (`rfid:mode:{userId}`, TTL 1h).
+- Al consultar el modo (`getRfidModeState`), se lee primero del Map; si esta vacio (post-reinicio), se recupera de Redis y se restaura el Map.
+- Al limpiar el modo (`clearRfidModeState`), se borra de ambos.
+- Los bindings sensor-usuario siguen el mismo patron (`rfid:sensor:{sensorId}`).
+- Las escrituras a Redis son fire-and-forget (no bloquean el flujo principal).
+- Si Redis no esta disponible, el sistema opera solo con el Map en memoria (degradacion transparente).
+
+**Limite de conexiones por usuario**:
+- Map `connectionCountByUserId` que cuenta conexiones activas por `userId`.
+- Se incrementa en el middleware de autenticacion tras validacion exitosa.
+- Se decrementa en el handler `disconnect`.
+- Limite configurable via `SOCKET_MAX_CONNECTIONS_PER_USER` (default: 5).
+- Al superar el limite: se rechaza la conexion con error `Limite de conexiones alcanzado` y se registra evento de seguridad `WS_CONNECTION_LIMIT`.
+
+**Fixes de Sentry y error de comando**:
+- Sentry usa `socket.data.userId` y `socket.data.userRole` correctamente.
+- El error generico incluye `code: 'COMMAND_ERROR'` y `event: eventName` para diagnostico.
+
+### Alternativas Consideradas (ADR-022)
+
+1. **Persistir RFID state solo en Redis (sin Map)**: Rechazada. Introduciria latencia de red en cada lectura de modo RFID, que ocurre en el path critico de cada scan.
+
+2. **Persistir todas las caches en Redis** (auth, ownership): Rechazada. Estas caches son de TTL muy corto (5-30s) y se repoblan naturalmente tras reinicio. El coste de persistencia supera el beneficio.
+
+3. **Limite de conexiones via Redis** (distribuido): No necesario en la escala actual (single server). El Map local es suficiente y no introduce dependencia de Redis para la gestion de conexiones.
+
+### Consecuencias (ADR-022)
+
+**Positivas:**
+- Tras reinicio del servidor, el modo RFID se recupera automaticamente al primer acceso — sin intervencion del profesor
+- Proteccion contra DoS via apertura masiva de conexiones WebSocket
+- Reportes de Sentry incluyen contexto de usuario para diagnostico efectivo
+- Errores de comando distinguibles por el frontend (codigo + evento)
+
+**Negativas:**
+- `getRfidModeState` pasa de sincrono a async (requiere `await` en los call sites)
+- Dependencia adicional de Redis para estado RFID (mitigado por fallback transparente)
+
+### Relacion con otros ADRs
+
+- **ADR-010** (Checkpoints de partida): Mismo patron de persistencia en Redis para recuperacion ante crash
+- **ADR-011** (Redis Adapter): Reutiliza la infraestructura de Redis ya configurada para Socket.IO
+- **ADR-016** (Rate limiting Redis store): Complementario — rate limiting protege throughput, este ADR protege recursos de conexion
+- **ADR-020** (Cache Redis): Mismo patron fire-and-forget con fallback transparente
+
+## ADR-023: Unicidad cross-deck de tarjetas RFID por profesor [Full-stack]
+
+### Contexto (ADR-023)
+
+ADR-012 elimino el modelo Card y trato las tarjetas RFID como tokens fungibles. Una consecuencia aceptada (punto 3 de "Negativas") fue que el mismo UID podia existir en multiples mazos activos del mismo profesor sin advertencia. En la practica, esto causaba confusion cuando un profesor reutilizaba una tarjeta fisica en un nuevo mazo sin darse cuenta de que ya estaba en otro, produciendo comportamiento inesperado al crear sesiones de juego.
+
+### Decision (ADR-023)
+
+Se implementa unicidad cross-deck de UIDs dentro de los mazos **activos** de un mismo profesor. El mismo UID puede existir en mazos de distintos profesores (compartir tarjetas entre aulas) y en mazos archivados.
+
+**Resolucion automatica de conflictos:**
+- Al crear o actualizar un mazo, si un UID ya existe en otro mazo activo del profesor, se elimina automaticamente del mazo anterior.
+- Si el mazo anterior queda con menos de `MIN_DECK_CARDS` (2), se archiva automaticamente.
+- La operacion es atomica (transaccion MongoDB via `withTransaction`).
+
+**Feedback al profesor (doble capa):**
+- `GET /api/decks/check-card?uid=X` — endpoint read-only para verificacion durante escaneo. El frontend muestra un toast informativo no bloqueante: "Esta tarjeta esta en el mazo X, se movera automaticamente."
+- Al crear/actualizar, la respuesta incluye campo opcional `affectedDecks` con resumen de tarjetas movidas y mazos archivados.
+
+**Service Layer para CardDeck:**
+- Se introduce `cardDeckService.js` con dos funciones:
+  - `checkCardInOtherDecks(uid, teacherId, excludeDeckId?)` — lectura para feedback inmediato
+  - `resolveCardConflicts(uids, teacherId, session, excludeDeckId?)` — resolucion atomica dentro de transaccion
+- El servicio no maneja transacciones; el controller orquesta `withTransaction` y pasa el session.
+
+**Indice compuesto:**
+- `{ createdBy: 1, status: 1, 'cardMappings.uid': 1 }` en CardDeck para busqueda eficiente de UIDs cross-deck.
+
+### Alternativas Consideradas (ADR-023)
+
+1. **Validacion sin auto-move (bloquear y avisar):** Rechazada. Obliga al profesor a ir manualmente al otro mazo, eliminar la tarjeta, volver al wizard y re-escanear. Demasiada friccion para un flujo comun.
+
+2. **Move inmediato al escanear (sin transaccion):** Rechazada. Si el profesor cancela el wizard despues de escanear, las tarjetas ya se habrian movido de los mazos originales — estado inconsistente.
+
+3. **Todo en el momento de crear (sin check previo):** Viable pero inferior. El profesor no recibe feedback hasta el final, cuando el mazo ya esta creado. El check al escanear da visibilidad inmediata.
+
+### Consecuencias (ADR-023)
+
+**Positivas:**
+1. Elimina confusion por tarjetas duplicadas entre mazos activos del mismo profesor
+2. Flujo no-destructivo hasta confirmar: si el profesor cancela, nada cambia
+3. Introduce Service Layer para CardDeck (alineado con ADR-021)
+4. Operacion atomica con transacciones MongoDB (alineado con ADR-015)
+5. UX no intrusiva: toast informativo durante escaneo, resolucion automatica al guardar
+
+**Negativas:**
+1. Creacion/actualizacion de mazos ahora puede modificar otros mazos del mismo profesor como efecto secundario
+2. El auto-archivado puede sorprender al profesor si no lee los toasts informativos
+3. Latencia adicional en creacion/actualizacion por la transaccion multi-documento (despreciable en la escala actual)
+
+### Relacion con otros ADRs
+
+- **ADR-012** (Tarjetas como tokens fungibles): Este ADR refina ADR-012 anadiendo unicidad cross-deck por profesor, manteniendo la fungibilidad cross-profesor
+- **ADR-015** (Repository pattern y transacciones): Reutiliza `withTransaction` y `createWithSession` en el repository
+- **ADR-021** (Service Layer): Sigue el patron establecido de Service Layer para logica de negocio compleja
+
+## ADR-024: Mejoras del Sistema de Assets — Sharpening, LQIP y AudioMiniPlayer [Full-stack]
+
+**Estado**: Aprobado
+**Fecha**: 30-03-2026
+
+### Contexto
+
+Los assets multimedia (imágenes y audio) de la plataforma funcionaban correctamente pero presentaban áreas de mejora en rendimiento percibido, claridad visual e integración con la UI. Las imágenes redimensionadas perdían definición, los placeholders de carga eran genéricos, el reproductor de audio era básico, y los assets se sentían "pegados" visualmente en las tarjetas y pantallas de juego.
+
+### Decisiones
+
+#### 1. Sharpening post-resize con Sharp (sigma 0.5)
+
+Tras el redimensionado de imágenes (`768x768` y `256x256`), se aplica `sharp().sharpen({ sigma: 0.5 })`. Este valor es conservador: restaura la definición de bordes sin crear artefactos de halo visibles.
+
+**Alternativas descartadas:**
+- Sigma más alto (1.0+): riesgo de artefactos, especialmente en imágenes con gradientes suaves
+- No aplicar sharpening: las imágenes redimensionadas mantienen el blur de downscale
+
+#### 2. Extracción de color dominante via Sharp `stats()`
+
+Se usa `sharp(buffer).stats()` para extraer el `{ dominant: { r, g, b } }` y almacenarlo como hex `#RRGGBB` en el campo `dominantColor` del asset.
+
+**Alternativas descartadas:**
+- `node-vibrant` / `color-thief`: dependencia externa, más lento, devuelve paletas completas innecesarias
+- Computación lazy (calcular en frontend): requeriría descargar la imagen completa antes de mostrar el placeholder
+
+**Decisión de backfill**: se creó `scripts/backfill-dominant-colors.js` para poblar assets existentes. NO se re-procesan imágenes existentes para sharpening (cambiaría URLs en Supabase, requiriendo actualizar documentos en cascada).
+
+#### 3. AudioMiniPlayer como componente standalone
+
+Se extrajo el reproductor de audio a `AudioMiniPlayer.jsx`, siguiendo el mismo patrón que `CardAssetPreview` (componente reutilizable para rendering de assets).
+
+**Alternativas descartadas:**
+- Audio inline en cada componente: duplicación, inconsistencia visual
+- Librería de audio (howler.js, react-player): sobre-ingeniería para clips de ≤45s
+
+#### 4. Thumbnail quality 80% → 85%
+
+La diferencia de tamaño entre 80% y 85% WebP es ~5-10%, pero la claridad visual mejora notablemente en thumbnails con detalles finos (texto, bordes definidos).
+
+### Consecuencias
+
+- **Positivas**: imágenes más nítidas, carga percibida más rápida (LQIP), UI más cohesiva, audio con mejor UX
+- **Negativas**: campo `dominantColor` requiere backfill para datos existentes; imágenes procesadas son ~2-5% más grandes por sharpening
+- **Retrocompatibilidad**: `dominantColor` es opcional (`|| null` en DTOs); `getBestAssetImageUrl` se mantiene como alias
+
+## ADR-025: Vinculación de Audio a Assets Existentes [Full-stack]
+
+**Estado**: Aprobado
+**Fecha**: 30-03-2026
+
+### Contexto
+
+El sistema trataba imagen y audio como assets independientes: `uploadImage` creaba un subdocumento con `imageUrl`, `uploadAudio` creaba otro con `audioUrl`. El schema permitía ambos campos en un mismo subdocumento, pero la API nunca los vinculaba. Además, `deleteAudio` eliminaba el asset completo del array, no solo el audio.
+
+### Decisiones
+
+#### 1. Audio como complemento del asset visual
+
+Se añadió `PATCH /contexts/:id/assets/:assetKey/audio` para adjuntar o reemplazar audio en un asset existente (identificado por key). El flujo natural es: crear asset con imagen, luego opcionalmente añadir audio.
+
+**Alternativa descartada**: Modal unificado donde imagen y audio se suben en un solo paso. Descartado porque el audio es opcional y frecuentemente se añade después de la imagen.
+
+#### 2. Smart delete para audio
+
+`deleteAudio` ahora solo elimina el `audioUrl` si el asset tiene imagen (conserva el asset). Si el asset solo tiene audio, elimina el asset completo.
+
+**Alternativa descartada**: Siempre eliminar solo el campo `audioUrl`. Descartado porque dejaría assets vacíos sin utilidad visual.
+
+#### 3. AudioPlayBadge vs AudioMiniPlayer en vistas de consulta
+
+Para vistas de consulta (mazos, sesiones, wizard), se usa un badge compacto (`AudioPlayBadge`, 20px) con play rápido en lugar del `AudioMiniPlayer` completo. Este último se reserva para `ContextDetailPage` (gestión) y `ChallengeDisplay` (gameplay).
+
+**Razón**: Las vistas de consulta muestran muchos assets en grids compactos. Un mini-player por cada card ocuparía demasiado espacio y añadiría ruido visual.
+
+#### 4. Limpieza de audio en deleteImage
+
+`deleteImage` ahora también elimina el archivo de audio de Supabase si el asset lo tiene, previniendo archivos huérfanos en Storage.
+
+### Consecuencias
+
+- **Positivas**: Audio vinculado al asset, gestión individual (añadir/reemplazar/eliminar), indicadores de audio cross-app, sin archivos huérfanos
+- **Negativas**: Pestaña "Audio" eliminada del UploadAssetModal (ya no se pueden crear assets solo-audio desde la UI)
+- **Retrocompatibilidad**: Assets solo-audio existentes siguen funcionando; el smart delete los elimina correctamente
+
+---
+
+## ADR-026: Descomposición modular del servicio de Analytics [Backend]
+
+**Estado**: Aprobado
+**Fecha**: 03-04-2026
+
+### Contexto (ADR-026)
+
+El servicio `analyticsService.js` alcanzó 1092 líneas con 11 funciones tras la implementación de ADR-017 (endpoints de analytics para dashboard). El Sprint 5 requiere añadir 19 nuevos endpoints analíticos que cubren trayectorias de aprendizaje, análisis de sesiones, engagement, efectividad de contenido, alertas inteligentes y datos de exportación.
+
+Añadir estas funciones al servicio monolítico lo llevaría a ~3000+ líneas, con problemas de:
+- **Mantenibilidad**: funciones de dominios distintos (alertas, engagement, contenido) en un solo archivo
+- **Testabilidad**: dificultad para testear un dominio sin cargar todo el servicio
+- **Code review**: un archivo de 3000 líneas es difícil de revisar en PRs
+- **Paralelismo de trabajo**: dos desarrolladores no pueden trabajar simultáneamente en engagement y alertas sin conflictos
+
+### Decisión (ADR-026)
+
+Se descompone la funcionalidad **nueva** en sub-servicios temáticos bajo `services/analytics/`, preservando el servicio existente intacto:
+
+```
+services/
+  analyticsService.js              ← INTACTO (11 funciones, 1092 líneas)
+  analytics/
+    analyticsHelpers.js            ← Utilidades compartidas
+    studentTrajectoryService.js    ← 4 funciones (trajectory, velocity, plateaus, evolution)
+    sessionAnalysisService.js      ← 4 funciones (rounds, cardAnalysis, struggles, fatigue)
+    engagementService.js           ← 3 funciones (student, classroom, playPatterns)
+    contentEffectivenessService.js ← 3 funciones (effectiveness, cardDifficulty, learningCurves)
+    alertsService.js               ← 2 funciones (alerts, alertsSummary)
+    reportDataService.js           ← 3 funciones (studentReport, classroomReport, exportData)
+    index.js                       ← Re-exporta todos los sub-servicios
+```
+
+**Principios clave:**
+
+1. **No se modifica `analyticsService.js`**: Las 11 funciones existentes permanecen idénticas. Zero riesgo de regresión en los endpoints actuales.
+2. **Controller separado**: Los nuevos handlers van en `analyticsAdvancedController.js`, no en el controller existente.
+3. **Helpers compartidos**: Las utilidades que usan múltiples sub-servicios (cálculo de date ranges, clasificación de tiers, constantes de performance) se extraen a `analyticsHelpers.js`.
+4. **Mismos patrones**: Los sub-servicios usan los mismos repositories, cacheHelper, ownershipHelpers y logger que el servicio original.
+
+### Alternativas Consideradas (ADR-026)
+
+1. **Ampliar el servicio monolítico**: Simplemente añadir funciones a `analyticsService.js`. Rechazado por los problemas de mantenibilidad descritos.
+
+2. **Refactorizar todo (mover funciones existentes)**: Mover las 11 funciones existentes a sub-servicios y dejar `analyticsService.js` como orquestador. Rechazado porque:
+   - Introduce riesgo de regresión innecesario en endpoints que funcionan correctamente
+   - Requiere actualizar todos los imports del controller existente
+   - No aporta beneficio inmediato (las 11 funciones existentes son un conjunto cohesivo)
+
+3. **Patrón Strategy por tipo de analytics**: Crear una interfaz `AnalyticsStrategy` con implementaciones por dominio. Rechazado porque:
+   - Sobre-ingeniería para un servicio de lectura (no hay polimorfismo real en las queries)
+   - El patrón de funciones exportadas de Node.js es más simple y directo
+
+### Consecuencias (ADR-026)
+
+**Positivas:**
+- Cada sub-servicio tiene 250-400 líneas → fácil de entender y revisar
+- Tests unitarios aislados por dominio
+- Nuevo controller dedicado evita saturar el existente (165 líneas → ~450 sería el nuevo)
+- Los imports son explícitos: `require('../services/analytics/alertsService')`
+- El servicio original sigue funcionando sin cambios para el frontend actual
+
+**Negativas:**
+- Duplicación conceptual de imports (cacheHelper, logger, repositories) en cada sub-servicio
+- 8 archivos nuevos en vez de 1
+- Si en el futuro se quiere unificar, requiere consolidación
+
+### Relación con otros ADRs
+
+- **ADR-017**: Los 11 endpoints existentes y sus funciones en `analyticsService.js` no se modifican
+- **ADR-014**: Los nuevos handlers usan `sendSuccess` de responseHelper
+- **ADR-013**: Los nuevos handlers usan `asyncHandler` del flujo de errores centralizado
+- **ADR-020**: Los nuevos endpoints usan `cacheGet` de cacheHelper con la misma estrategia de TTL
+
+### Documento de Diseño
+
+La justificación pedagógica y de Business Intelligence detallada (por qué cada endpoint, qué pregunta responde al profesor, justificación de umbrales) se documenta en `backend/docs/Analytics_Design_Rationale.md`.
+
+---
+
+## ADR-027: Arquitectura Frontend de Analytics — Suite de 4 Páginas [Frontend]
+
+### Contexto (ADR-027)
+
+El backend (ADR-017, ADR-026) dispone de 26 endpoints de analytics con framework KPI completo (RAG, narrativas What/So What/Now What, 10 KPIs con umbrales). Sin embargo, el frontend solo consumía 6 de esos 26 endpoints. El dashboard mostraba datos mock en `StudentsList`, la distribución recibía `null`, y los trends eran strings hardcodeados. Los profesores no tenían forma de hacer seguimiento individual de alumnos ni de analizar la efectividad del contenido por la dimensión mecánica × contexto.
+
+### Decisión (ADR-027)
+
+Construir una suite completa de analytics frontend con **4 páginas** y un lenguaje visual RAG uniforme:
+
+1. **Dashboard mejorado** (`/dashboard`): 8 KPIs con datos reales y trends calculados, alertas inteligentes del backend (7 tipos, 3 severidades), heatmap de actividad semanal (día × hora), timeline de actividad reciente, distribución real de rendimiento.
+
+2. **Perfil Individual de Estudiante** (`/students/:studentId`): KPIs con indicador RAG y comparativa con clase, trayectoria de aprendizaje con overlay de promedio de clase e indicador de tendencia (mejorando/estable/declinando), narrativa BI auto-generada (Qué pasó / Por qué importa / Qué hacer), rendimiento por contexto temático Y por mecánica de juego con barras coloreadas RAG, engagement score, historial de partidas, fortalezas y debilidades derivadas automáticamente.
+
+3. **Vista Comparativa** (`/analytics/students`): Tabla interactiva ordenable/filtrable con métricas, búsqueda por nombre, filtro por tier, indicadores de actividad coloreados, resumen con distribución, y exportación CSV client-side.
+
+4. **Insights y Reportes** (`/analytics/insights`): Matriz de efectividad mecánica × contexto con colores RAG, curvas de aprendizaje por contenido, hub centralizado de alertas con filtros, y generación de informes (clase/individual) con exportación.
+
+### Alternativas descartadas
+
+1. **Dashboard único con todo**: Descartado porque la sobrecarga cognitiva para profesores no técnicos es excesiva. Los profesores necesitan diferentes niveles de profundidad para diferentes tareas (visión rápida vs. seguimiento individual vs. análisis profundo).
+
+2. **Tablas sin visualización**: Descartado porque los profesores de infantil/primaria necesitan patrones visuales intuitivos (semáforos, barras de colores), no números crudos.
+
+3. **5+ páginas separadas**: Descartado para evitar fragmentación de la navegación. Los 3 aspectos de Insights (efectividad, alertas, informes) comparten contexto temporal y se resuelven mejor con tabs.
+
+### Justificación pedagógica
+
+- **Sistema RAG (semáforo)**: Lenguaje visual universal en educación — verde/ámbar/rojo se interpreta intuitivamente sin formación.
+- **Narrativas What/So What/Now What**: Framework BI que traduce datos en acciones pedagógicas concretas, reduciendo carga cognitiva del profesor.
+- **Dimensión mecánica × contexto**: Cada juego combina una mecánica (Asociación, Memoria) con un contexto temático (Animales, Números, Banderas). Sin cruzar ambas dimensiones, los promedios ocultan patrones críticos (ej: alumno domina memoria con animales pero falla en asociación con números).
+- **Comparativa con clase**: Los números aislados no tienen significado para un profesor. "82%" no dice nada; "82% (vs clase: 71%)" da contexto.
+
+### Componentes reutilizables creados
+
+| Componente | Propósito | Ubicación |
+|------------|-----------|-----------|
+| `StudentKPICard` | KPI con RAG 4 capas (valor, semáforo, comparativa, narrativa) | `components/analytics/` |
+| `TrajectoryChart` | LineChart con tendencia + overlay clase | `components/analytics/` |
+| `NarrativeCard` | What/So What/Now What | `components/analytics/` |
+| `PerformanceByDimension` | BarChart horizontal (contexto O mecánica) | `components/analytics/` |
+| `GameHistoryTable` | Tabla de historial con badge RAG | `components/analytics/` |
+| `StrengthsWeaknesses` | Fortalezas/debilidades derivadas | `components/analytics/` |
+| `ActivityHeatmap` | Grid día × hora de actividad | `components/analytics/` |
+| `ContentEffectivenessMatrix` | Grid mecánica × contexto RAG | `components/analytics/` |
+| `AlertsHub` | Hub completo de alertas con filtros | `components/analytics/` |
+| `ReportGenerator` | Interfaz de generación de informes | `components/analytics/` |
+
+### Estrategia de rendimiento
+
+- **Fetching sin waterfalls**: `Promise.all` para datos independientes. Datos secundarios (trajectory, engagement) como `.catch(() => null)` para no bloquear.
+- **Bundle optimization**: Páginas lazy-loaded con `React.lazy`. Recharts (~390KB) en chunk separado.
+- **Re-render optimization**: `memo()` en componentes de chart, `useMemo()` para derivaciones, `useCallback()` para handlers.
+- **Animaciones**: Solo donde aceleran comprensión. `prefers-reduced-motion` respetado via `useReducedMotion`.
+
+### Relación con otros ADRs
+
+- **ADR-017** y **ADR-026**: Los 26 endpoints del backend son consumidos completos por esta suite frontend
+- **ADR-003**: Los DTOs del backend se mapean directamente a props de componentes
+- **ADR-012**: Las tarjetas RFID se referencian por UID en el análisis de dificultad de tarjetas
+
+---
+
+## ADR-028: Estrategia de Composición de Componentes de Analytics [Frontend]
+
+### Contexto (ADR-028)
+
+La suite de analytics requiere 10+ componentes nuevos con patrones compartidos (RAG colors, comparativa con clase, animaciones condicionales). Sin una estrategia de composición clara, se arriesga duplicación de lógica y boolean prop proliferation.
+
+### Decisión (ADR-028)
+
+1. **Patrón RAG como elemento firma**: Cada métrica en cada página sigue el patrón de 4 capas: valor numérico + indicador RAG (borde/dot) + comparativa contextual + micro-narrativa. Implementado en `StudentKPICard` con props explícitos (`ragStatus`, `comparison`, `comparisonPositive`).
+
+2. **Explicit variants en vez de boolean props**: `PerformanceByDimension` acepta `dimension="context"` o `dimension="mechanic"` en vez de `isContext={true}`. Cada variante tiene su comportamiento explícito.
+
+3. **Datos derivados durante render**: Alertas, filtros, y fortalezas/debilidades se derivan con `useMemo` durante render, no en `useEffect`. Evita efectos secundarios innecesarios y re-renders extra.
+
+4. **Fetch strategy por página**: Cada página hace su propio fetch con `Promise.all` y `AbortController`. No hay store global de analytics — cada vista es autosuficiente.
+
+5. **Tokens RAG del design system existente**: Se reutilizan `--color-success-base`, `--color-warning-base`, `--color-error-base` de los tokens OKLCH ya definidos en `index.css`. No se crea una segunda paleta.
+
+### Consecuencias
+
+**Positivas:**
+- Componentes autocontenidos: cada uno es testeable y reutilizable
+- Sin prop drilling complejo: datos pasan directo del fetch al componente
+- Lenguaje visual consistente en toda la suite gracias al patrón RAG
+
+**Negativas:**
+- Múltiples fetches pueden hacer más peticiones al backend (mitigado por caché Redis server-side)
+- Sin store global, cambiar de página pierde el estado (comportamiento esperado — cada vista es independiente)
+
+## ADR-029: Consolidación de umbrales RAG y filtrado híbrido en Dashboard [Full-stack]
+
+**Fecha:** 2026-04-06
+**Estado:** Aceptado
+**Contexto:** ADR-026, ADR-027, ADR-028
+
+### Situación
+
+Dos problemas identificados durante la revisión de la suite de analytics:
+
+1. **Umbrales RAG duplicados**: Los mismos magic numbers de clasificación (score ≥70 → green, ≥50 → amber; score ≥90 → excellent, ≥70 → good, ≥50 → average) estaban definidos como funciones inline en 6 archivos frontend diferentes. Riesgo de divergencia y violación DRY.
+
+2. **Filtros de contenido en Dashboard**: T-604 requería filtros de contexto temático y mecánica de juego, pero `analyticsService.js` no puede modificarse (ADR-026).
+
+### Decisiones
+
+**1. Módulo compartido de umbrales:**
+- Crear `frontend/src/constants/analyticsThresholds.js` como fuente única de verdad frontend
+- Exportar funciones de clasificación: `scoreToTier()`, `scoreToRAG()`, `getRAGCSSColor()`, `scoreToRAGWithNull()`
+- Exportar constantes: `PERFORMANCE_TIERS`, `TIER_CONFIG`, `TIER_BADGE`
+- Refactorizar 5 componentes para importar desde este módulo
+
+**2. Filtrado híbrido:**
+- **Server-side** en `analyticsController.js` para `getClassroomStudents`: pre-filtra por sessionIds que coincidan con contexto/mecánica, luego filtra los estudiantes que jugaron en esas sesiones
+- **KPIs y trends sin filtrar**: muestran datos globales de clase (pedagógicamente correcto, el profesor necesita la visión general)
+- El filtrado granular por contenido permanece en `/analytics/insights` con la `ContentEffectivenessMatrix`
+
+**3. Cache ligero en Dashboard:**
+- `useRef` con timestamp de último fetch y clave de filtros
+- TTL de 60 segundos para evitar re-fetches en tab-focus
+- Reduce las 8 peticiones paralelas a solo cuando los datos están realmente obsoletos
+
+### Alternativas descartadas
+
+- **Modificar `analyticsService.js`**: Descartada por ADR-026 (zero regresión)
+- **Filtrado 100% client-side por contenido**: Los datos de estudiantes son agregados (avgScore) y no contienen desglose por contexto, por lo que filtrar no tendría sentido semántico
+- **Store global (Redux/Zustand)**: Sobreingeniería para el caso de uso — cada página es independiente
+
+### Consecuencias
+
+**Positivas:**
+- Fuente única de verdad para umbrales → eliminación de divergencia
+- Filtros funcionales sin romper ADR-026
+- Reducción de peticiones redundantes al backend
+
+**Negativas:**
+- Los umbrales frontend deben actualizarse manualmente si cambian en el backend (documentado en el header del archivo)
+- El filtro de contenido no afecta a KPIs/trends (mitigado: la página de Insights cubre este caso)
+
+## ADR-030: Protección de datos de menores — Minimización, consentimiento y ciclo de vida [Full-stack]
+
+### Contexto (ADR-030)
+
+La plataforma trata datos personales de menores de 4-8 años (colectivo especialmente protegido bajo el Considerando 38 del RGPD). La auditoría del código (T-701) identificó carencias significativas en materia de gobernanza de datos:
+
+1. Se almacenaba `profile.birthdate` (fecha de nacimiento completa) cuando solo se necesita `profile.age`, violando el principio de minimización (Art. 5.1.c RGPD).
+2. No existía mecanismo de consentimiento parental verificable, incumpliendo el Art. 8 RGPD y el Art. 7 LOPDGDD (edad mínima de 14 años en España).
+3. El borrado de estudiantes era solo soft delete (`status: 'inactive'`), insuficiente para el derecho de supresión del Art. 17 RGPD.
+4. No existía política de retención con plazos definidos (Art. 5.1.e RGPD).
+5. No existían RAT (Art. 30) ni EIPD (Art. 35) obligatorios para tratamiento de datos de menores.
+
+### Decisión (ADR-030)
+
+Se implementan tres ejes de protección:
+
+**Eje 1 — Minimización de datos (Art. 5.1.c RGPD):**
+- Eliminación de `profile.birthdate` del modelo User para estudiantes. Se conserva únicamente `profile.age`.
+- Eliminación de `lastLoginAt` para estudiantes (dato innecesario — los alumnos no inician sesión).
+- Validación en pre-save que rechaza birthdate para role `student`.
+- Script de migración `migrateBirthdate.js` para datos existentes.
+- DTOs actualizados para no exponer birthdate.
+
+**Eje 2 — Consentimiento parental (Art. 8 RGPD + Art. 7 LOPDGDD):**
+- Campo `consent` en el modelo User con: `granted`, `grantedBy`, `grantedAt`, `purposes`, `policyVersion`, `withdrawnAt`.
+- Bloqueo de creación de estudiante sin `consent.granted=true` y `consent.grantedBy`.
+- Endpoint `PATCH /api/users/:id/consent` para otorgar/revocar consentimiento.
+- La revocación desactiva automáticamente al estudiante (`status: 'inactive'`).
+- Frontend: formulario de creación con checkbox de consentimiento obligatorio y campo de nombre del tutor.
+- Evento de seguridad `DATA_CONSENT_CHANGE` para trazabilidad.
+
+**Eje 3 — Ciclo de vida de datos (Arts. 17 + 5.1.e RGPD):**
+- Endpoint `DELETE /api/users/:id/data` para borrado efectivo (hard delete) con cascada completa: User + GamePlays + tokens Redis + WebSocket.
+- Requiere `confirmDeletion: true` como confirmación explícita.
+- Solo accesible por profesor propietario (`createdBy`) o `super_admin`.
+- Script `dataRetention.js` con política de retención automática:
+  - GamePlays > 12 meses: anonimización (eliminar `playerId`, `cardUid`).
+  - Estudiantes inactivos > 24 meses: borrado efectivo.
+  - Flag `--dry-run` para previsualización.
+- Configuración centralizada en `config/dataRetention.js`.
+
+**Documentación normativa:**
+- RAT (Registro de Actividades de Tratamiento) — Art. 30 RGPD.
+- EIPD (Evaluación de Impacto en Protección de Datos) — Art. 35 RGPD.
+- Script `dataAudit.js` para auditoría automática de campos PII.
+
+### Alternativas Consideradas (ADR-030)
+
+1. **Cifrar birthdate en vez de eliminar**: Descartada. El dato no es necesario para la función educativa; cifrarlo mantendría un dato innecesario (violación de minimización) y añadiría complejidad sin beneficio.
+
+2. **Soft delete como único mecanismo de supresión**: Descartada. El soft delete no satisface el Art. 17 RGPD — los datos siguen existiendo en la base de datos. Se mantiene como mecanismo de «desactivación» (operación reversible), complementado por el hard delete como operación de supresión definitiva.
+
+3. **Consentimiento implícito por uso del sistema**: Descartada. El Art. 8 RGPD exige consentimiento explícito del titular de la patria potestad para menores, y el Art. 7.1 exige que el responsable pueda demostrar que se obtuvo. Un consentimiento implícito no cumple ninguno de los dos requisitos.
+
+4. **Separación física de PII en colección MongoDB separada**: Descartada para esta fase. Se opta por separación a nivel de DTOs (más pragmática, menor impacto en código existente). La separación física se puede implementar en fases posteriores si el análisis de riesgos lo justifica.
+
+### Consecuencias (ADR-030)
+
+**Positivas:**
+- Cumplimiento demostrable del RGPD (Arts. 5, 8, 17, 25, 30, 35) y LOPDGDD (Arts. 7, 83, 92).
+- Reducción de la superficie de datos: menos datos almacenados = menor impacto en caso de brecha.
+- Consentimiento verificable: el registro es prueba ante una inspección de la AEPD.
+- Datos más limpios: la retención evita acumulación indefinida de datos obsoletos.
+- Diferenciación académica: demuestra madurez profesional en el TFG.
+
+**Negativas:**
+- Mayor fricción en la creación de estudiantes (formulario requiere datos del tutor).
+- El borrado efectivo es irreversible — requiere confirmación explícita y comunicación clara.
+- Los tests existentes que crean estudiantes necesitan actualización (incluir `consent`).
+
+**Relaciones:**
+- **ADR-015** (Repository pattern): Los nuevos endpoints usan `userRepository` y `gamePlayRepository`.
+- **ADR-014** (responseHelper): Los nuevos handlers usan `sendSuccess` y `sendCreated`.
+- **ADR-016** (Rate limiting): Los nuevos endpoints heredan rate limiting existente.
+- **ADR-021** (Service Layer): Las funciones `updateConsent` y `hardDeleteStudent` residen en `userService`.
+
+## ADR-031: Endurecimiento del consentimiento parental — Autorización, trazabilidad y defense in depth [Full-stack]
+
+### Contexto (ADR-031)
+
+Una revisión de seguridad exhaustiva del flujo de consentimiento parental (implementado en ADR-030) identificó varias vulnerabilidades y limitaciones:
+
+1. **Falta de verificación de ownership** (SEC-01, CRÍTICO): La función `updateConsent` en `userService.js` no verificaba que el solicitante fuese el profesor creador (`createdBy`) del estudiante o `super_admin`. Cualquier teacher autenticado podía modificar el consentimiento de cualquier estudiante del sistema. Comparación directa con `hardDeleteStudent` que sí verificaba ownership, evidenciando un oversight.
+
+2. **Tokens no revocados al retirar consentimiento** (SEC-02, ALTO): Al revocar el consentimiento, se desconectaba el WebSocket pero no se revocaban los tokens JWT en Redis. Inconsistencia con `hardDeleteUser` que sí revocaba tokens. Si la revocación se completaba pero la revocación de tokens fallaba, existía una ventana de acceso indebido.
+
+3. **Sin historial de consentimiento** (SEC-03, ALTO): Al re-otorgar consentimiento, se reemplazaba todo el objeto `consent`, perdiendo la fecha de revocación anterior (`withdrawnAt`), el tutor anterior, y la cadena de otorgamiento-revocación-re-otorgamiento. El Art. 7.1 RGPD exige poder demostrar que se obtuvo consentimiento válido.
+
+4. **Sin check de consentimiento en gameplay** (SEC-04, MEDIO): El sistema dependía exclusivamente de `status: 'inactive'` para impedir partidas sin consentimiento. No existía verificación directa de `consent.granted` al crear un GamePlay.
+
+5. **Sin metadata de canal** (SEC-05, MEDIO): El registro de consentimiento no capturaba IP, user-agent ni canal de recogida en MongoDB. Esta información solo existía en los logs de Pino, dificultando la correlación en caso de disputa.
+
+6. **`classroom` no redactado en logs** (SEC-06, BAJO): El campo `classroom` combinado con edad constituye un quasi-identificador (según la propia evaluación T-714), pero no se incluía en `SENSITIVE_KEYS` del security logger.
+
+7. **Exportación incompleta** (SEC-08, BAJO): El endpoint de portabilidad (Art. 20 RGPD) omitía `totalTimeouts` y `totalAbandonedGames` del studentMetrics.
+
+### Decisión (ADR-031)
+
+Se implementan 7 mejoras para endurecer el flujo de consentimiento:
+
+**1. Verificación de ownership en `updateConsent` (SEC-01):**
+- La función recibe ahora el objeto `requestingUser` completo (antes solo el ID).
+- Se verifica `student.createdBy === requestingUser._id` o `requestingUser.role === 'super_admin'`.
+- Patrón idéntico al usado en `hardDeleteStudent` para consistencia.
+- Archivo: `services/userService.js`.
+
+**2. Revocación de tokens al retirar consentimiento (SEC-02):**
+- Se añade `revokeAllUserTokens(id, 'consent_withdrawn', requestContext)` en el controller antes de desconectar WebSocket.
+- Patrón idéntico a `hardDeleteUser`.
+- Archivo: `controllers/userController.js`.
+
+**3. Historial de consentimiento (SEC-03):**
+- Nuevo campo `consentHistory: [{ action, grantedBy, timestamp, policyVersion, purposes }]` en el schema User.
+- Cada otorgamiento o revocación genera un `$push` atómico al array.
+- El historial se incluye en el DTO de estudiante y en la exportación de datos (Art. 20 RGPD).
+- Archivos: `models/User.js`, `services/userService.js`, `utils/dtos.js`, `services/dataExportService.js`.
+
+**4. Check de consentimiento en gameplay (SEC-04):**
+- Se añade verificación `player.consent?.granted === true` en `validatePlayer()` de `gamePlayService.js`.
+- Complementa la verificación implícita vía `status: 'inactive'` con un check directo (defense in depth).
+- Archivo: `services/gamePlayService.js`.
+
+**5. Metadata de canal en consentimiento (SEC-05):**
+- Nuevos campos opcionales en el subdocumento `consent`: `channel`, `ipAddress`, `userAgent`.
+- El controller inyecta estos datos desde `req.ip` y `req.get('user-agent')` antes de pasar al service.
+- Archivos: `models/User.js`, `controllers/userController.js`, `services/userService.js`.
+
+**6. Redacción de `classroom` en logs (SEC-06):**
+- Se añade `'classroom'` a `SENSITIVE_KEYS` en `securityLogger.js`.
+- Archivo: `utils/securityLogger.js`.
+
+**7. Exportación completa de métricas (SEC-08):**
+- Se añaden `totalTimeouts` y `totalAbandonedGames` al bloque de métricas de `dataExportService.js`.
+- Archivo: `services/dataExportService.js`.
+
+### Alternativas Consideradas (ADR-031)
+
+1. **Colección separada `ConsentEvents` para historial**: Descartada. Más limpia pero añade complejidad de queries y joins. El array embebido `consentHistory` es suficiente para la escala del proyecto (un estudiante tendrá típicamente 1-3 cambios de consentimiento en su vida útil).
+
+2. **Verificación de ownership en middleware en vez de service**: Descartada. El patrón del proyecto (ADR-021) ubica las validaciones de negocio en el service layer, no en middleware. Mantener consistencia con `hardDeleteStudent`.
+
+3. **Almacenar IP hasheada en vez de en claro**: Considerada y descartada para esta fase. La IP del profesor se almacena para demostrar accountability (Art. 5.2 RGPD). Si se requiere mayor protección, se puede hashear en una fase posterior.
+
+### Consecuencias (ADR-031)
+
+**Positivas:**
+- Eliminación de vulnerabilidad crítica de autorización (SEC-01).
+- Coherencia total entre operaciones de consentimiento y borrado (mismos patrones de ownership + token revocation).
+- Trazabilidad completa del ciclo de vida del consentimiento (Art. 7.1 RGPD).
+- Defense in depth: el check de consentimiento en gameplay previene fallos en cascada si `status` no se actualiza correctamente.
+- Metadata de canal proporciona evidencia vinculada al registro de consentimiento, no solo a logs.
+
+**Negativas:**
+- El array `consentHistory` crece con cada operación (impacto negligible a la escala del proyecto).
+- La metadata de canal incluye IP en claro (aceptable para el contexto de un TFG educativo).
+
+**Relaciones:**
+- **ADR-030** (Protección de datos base): Esta ADR endurece y completa las medidas implementadas en ADR-030.
+- **ADR-021** (Service Layer): Los ownership checks siguen el patrón establecido en el service layer.
+- **ADR-016** (Rate limiting): Los endpoints afectados mantienen el rate limiting existente.
+
+## ADR-032: Centralización de operaciones RGPD en el rol Super Admin [Full-stack]
+
+### Contexto (ADR-032)
+
+La plataforma gestiona datos de menores de 4-8 años en centros educativos. Tras implementar las capacidades de consentimiento parental (ADR-030) y su endurecimiento (ADR-031), se identificó que tres endpoints RGPD permitían acceso a `teacher` además de `super_admin`:
+
+- `PATCH /api/users/:id/consent` — Otorgar/revocar consentimiento parental
+- `DELETE /api/users/:id/data` — Borrado efectivo de datos (Art. 17 RGPD)
+- `GET /api/users/:id/export-data` — Exportación de datos portables (Art. 20 RGPD)
+
+En el flujo real de un centro educativo, estas operaciones no corresponden al profesor individual sino a la **dirección del centro** (jefe de estudios, director, secretaría), que es quien:
+
+1. Recibe las solicitudes de los tutores legales (matrícula, revocación, ejercicio de derechos ARCO).
+2. Actúa como punto de contacto ante la AEPD.
+3. Es el **Responsable del Tratamiento** según el Art. 4.7 RGPD (no el profesor individual).
+
+### Decisión (ADR-032)
+
+Centralizar todas las operaciones RGPD sobre datos de estudiantes en el rol `super_admin`, dejando al `teacher` exclusivamente las funciones pedagógicas:
+
+**Rol Super Admin (dirección del centro):**
+- Crear estudiantes con consentimiento parental obligatorio (ya era así)
+- Actualizar/transferir estudiantes (ya era así)
+- Otorgar y revocar consentimiento parental
+- Ejecutar borrado efectivo de datos (Art. 17)
+- Exportar datos portables de estudiantes (Art. 20)
+- Acceder a la futura página de información de privacidad (T-710)
+
+**Rol Teacher (profesor):**
+- Gestionar contextos educativos, mazos de tarjetas y sesiones de juego
+- Lanzar y supervisar partidas en tiempo real
+- Consultar analytics y estadísticas de sus alumnos (filtrados por `createdBy`)
+- Sin acceso a operaciones de consentimiento, borrado ni exportación
+
+**Cambios técnicos realizados:**
+- `routes/users.js`: Los tres endpoints cambian `requireRole('teacher', 'super_admin')` a `requireRole('super_admin')`.
+- Los ownership checks en `userService.js` y `dataExportService.js` se mantienen como defense in depth (si en el futuro se amplía el acceso, la protección ya existe).
+- Los JSDoc de las rutas se actualizan para reflejar el nuevo nivel de acceso.
+
+### Alternativas Consideradas (ADR-032)
+
+1. **Mantener acceso de teacher con ownership check**: Descartada. Aunque técnicamente seguro (con el fix de SEC-01 en ADR-031), no refleja la realidad organizativa de un centro educativo. Los profesores no gestionan consentimiento ni ejercen derechos ARCO — eso es responsabilidad de la dirección.
+
+2. **Crear rol intermedio `data_officer`**: Descartada. Añadir un tercer rol con login para una plataforma de alcance limitado (un centro educativo) introduce complejidad sin beneficio. El `super_admin` ya cumple esta función.
+
+3. **Permitir a teachers solo exportar, no borrar ni revocar**: Descartada. La separación parcial crea ambigüedad sobre responsabilidades y dificulta explicar el modelo de acceso en la documentación de privacidad.
+
+### Consecuencias (ADR-032)
+
+**Positivas:**
+- **Principio de mínimo privilegio**: Los profesores solo acceden a lo que necesitan para enseñar.
+- **Alineación con la realidad organizativa**: Las operaciones RGPD las gestiona quien legalmente responde por ellas (la dirección del centro).
+- **Simplicidad de auditoría**: Todas las acciones sobre datos de menores las ejecuta un único rol centralizado, facilitando el audit trail.
+- **Menor superficie de ataque**: Menos usuarios con permisos sensibles = menor riesgo de uso indebido (accidental o malintencionado).
+- **Claridad para la memoria del TFG**: El modelo de roles es limpio y fácil de justificar académicamente.
+
+**Negativas:**
+- Si el super_admin no está disponible, no se puede revocar consentimiento ni exportar datos hasta que vuelva. Mitigación: en un centro real habría más de un super_admin.
+- Requiere que el centro tenga al menos una persona con rol super_admin permanentemente accesible.
+
+**Relaciones:**
+- **ADR-030** (Protección de datos base): Esta ADR restringe quién ejecuta las operaciones definidas en ADR-030.
+- **ADR-031** (Endurecimiento del consentimiento): Los ownership checks de ADR-031 se mantienen como defense in depth.
+- **ADR-008** (Gobierno de identidades centrado en Super Admin): Esta ADR extiende el principio de ADR-008 a las operaciones RGPD.
+
+## ADR-033: Derecho de oposición a analytics comportamentales (Art. 21 RGPD) [Full-stack]
+
+### Contexto (ADR-033)
+
+La plataforma procesa datos de rendimiento educativo de menores de 4-8 años con dos finalidades distintas: **seguimiento educativo** (permitir al alumno jugar y registrar partidas) y **analytics de rendimiento** (agregar métricas, generar tendencias, rankings y comparativas). El Art. 21 del RGPD otorga al interesado (el tutor legal, en este caso) el derecho a oponerse al tratamiento de sus datos con fines de análisis sin que ello impida el uso básico del servicio.
+
+Hasta ahora, el modelo de consentimiento (`consent.purposes: ['educational_tracking', 'performance_analytics']`) definía estos dos propósitos, pero no existía mecanismo para revocar uno sin revocar el otro. Al revocar el consentimiento completo (`consent.granted = false`), el alumno quedaba inactivo y no podía jugar.
+
+### Decisión (ADR-033)
+
+Implementar la revocación granular del propósito `performance_analytics` sin afectar al propósito `educational_tracking`:
+
+**En la capa de agregación de métricas (gameEngine + gamePlayService):**
+- Antes de llamar a `player.updateStudentMetrics()`, verificar si `consent.purposes` incluye `performance_analytics`.
+- Si el propósito no está activo, la partida se completa normalmente pero las métricas agregadas del alumno (`studentMetrics`) no se actualizan.
+- Se registra un log informativo para trazabilidad.
+
+**En la capa de analytics (analyticsService + analyticsController):**
+- Todas las queries que consultan estudiantes directamente (User model) añaden el filtro `{ 'consent.granted': true, 'consent.purposes': 'performance_analytics' }`.
+- Las queries basadas en GamePlay (aggregation pipelines) excluyen los `playerId` de estudiantes sin consentimiento de analytics mediante `$nin`.
+- Los endpoints de student individual verifican el consentimiento antes de servir datos y devuelven 403 con mensaje explicativo si el propósito no está activo.
+- El helper `getAnalyticsExcludedPlayerIds(teacherId)` pre-obtiene los IDs a excluir para minimizar el impacto en las pipelines existentes.
+
+**En la API de consentimiento (userService):**
+- La función `updateConsent()` ya soporta enviar `purposes` parciales. Para revocar solo analytics: `{ granted: true, grantedBy: "...", purposes: ["educational_tracking"] }`.
+- No se necesitan cambios en el validador (`updateConsentSchema` ya acepta `purposes` como array opcional).
+
+**En el frontend (ConsentDetailPanel):**
+- Sección de "Propósitos del tratamiento" con checkboxes individuales.
+- `educational_tracking` es obligatorio y no se puede desmarcar sin revocar todo el consentimiento.
+- `performance_analytics` es revocable individualmente con advertencia visual.
+- `StudentProfile` muestra un banner informativo cuando el tutor ha ejercido el derecho de oposición.
+
+### Alternativas Consideradas (ADR-033)
+
+1. **Filtrar solo en el frontend (ocultar datos)**: Descartada. Viola el principio de que el tratamiento debe cesar en la fuente (Art. 5.1.b RGPD — limitación de la finalidad). Los datos seguirían agregándose en el backend.
+
+2. **Crear un flag `analyticsOptOut` separado del consent**: Descartada. Duplicar la semántica de los purposes en un campo distinto introduce inconsistencia. El array `consent.purposes` ya modela exactamente este caso.
+
+3. **Dejar de registrar GamePlay para alumnos sin analytics**: Descartada. El GamePlay es necesario para el seguimiento educativo básico (saber que el alumno jugó, su puntuación). Solo la agregación en `studentMetrics` y la inclusión en analytics deben cesar.
+
+### Consecuencias (ADR-033)
+
+**Positivas:**
+- **Cumplimiento Art. 21 RGPD**: Los tutores pueden oponerse a analytics sin impedir la participación del alumno.
+- **Granularidad**: Dos propósitos separados permiten control fino sobre el tratamiento.
+- **Consistencia**: Usa el modelo de consent existente sin añadir campos nuevos.
+- **Transparencia**: El frontend informa claramente sobre las implicaciones de la oposición.
+- **Audit trail**: El historial de consentimiento registra los cambios de propósitos.
+
+**Negativas:**
+- Las analytics de aula excluyen a alumnos sin consent, lo que puede sesgar los promedios si una proporción significativa opta out.
+- Cada consulta de analytics tiene una query adicional para obtener IDs excluidos. Impacto negligible en escala de aula (<50 estudiantes).
+
+**Relaciones:**
+- **ADR-030** (Protección de datos base): Esta ADR materializa el derecho de oposición mencionado en ADR-030.
+- **ADR-031** (Endurecimiento del consentimiento): Los purposes se registran en `consentHistory` para trazabilidad.
+- **ADR-032** (Centralización RGPD en super_admin): Solo super_admin puede modificar propósitos de consentimiento.
+
+## ADR-034: Centralización de verificación de consentimiento RGPD [Backend]
+
+### Contexto (ADR-034)
+
+La verificación de consentimiento estaba dispersa en 3 ubicaciones (User model, analyticsController, analyticsAdvancedController) con implementaciones duplicadas. Cada una tenía su propia función `verifyAnalyticsConsent` con lógica idéntica: comprobar que el usuario tuviese `consent.granted === true` y que `consent.purposes` incluyese el propósito requerido. Esta dispersión implicaba que cualquier cambio en la lógica de verificación (por ejemplo, añadir la comprobación de `withdrawnAt`) debía replicarse manualmente en cada ubicación, con el consiguiente riesgo de inconsistencia.
+
+### Decisión (ADR-034)
+
+Crear `consentService.js` centralizado con los siguientes métodos:
+
+- **`canTrackPerformance(user)`**: Verifica si el usuario tiene consentimiento activo para `performance_analytics`. Comprueba `consent.granted`, presencia del propósito en `consent.purposes`, y ausencia de `withdrawnAt` posterior al último `grantedAt`.
+- **`canTrackEducational(user)`**: Verifica si el usuario tiene consentimiento activo para `educational_tracking`. Misma lógica de verificación que `canTrackPerformance` pero para el propósito educativo.
+- **`requireConsent(user, purpose)`**: Lanza `AppError` con código 403 si el consentimiento para el propósito indicado no está activo. Uso en controllers como guard clause.
+- **`getConsentStatus(user)`**: Devuelve un objeto resumen con el estado de cada propósito, útil para DTOs y el frontend.
+
+Se eliminan las funciones `verifyAnalyticsConsent` duplicadas en `analyticsController.js` y `analyticsAdvancedController.js`, sustituyéndolas por llamadas al servicio centralizado.
+
+### Alternativas Consideradas (ADR-034)
+
+1. **Middleware de consentimiento por ruta**: Descartada. No todas las rutas requieren el mismo propósito, y la granularidad necesaria (educational vs. performance) haría el middleware demasiado complejo.
+
+2. **Método estático en el modelo User**: Descartada. Viola la separación de responsabilidades del proyecto (ADR-021) donde la lógica de negocio reside en el service layer, no en los modelos.
+
+3. **Mantener las funciones locales y sincronizarlas manualmente**: Descartada. Exactamente el problema que motivó esta ADR: la sincronización manual es propensa a errores y dificulta la auditoría.
+
+### Consecuencias (ADR-034)
+
+**Positivas:**
+- Punto único de auditoría para compliance RGPD: toda verificación de consentimiento pasa por un solo servicio.
+- Bug fix: `hasConsentFor()` ahora verifica `withdrawnAt` (Art. 7.3 RGPD — el consentimiento puede retirarse en cualquier momento y la retirada debe ser efectiva).
+- Menor superficie de error al modificar la lógica de consentimiento.
+- Facilita la adición de nuevos propósitos de tratamiento en el futuro.
+
+**Negativas:**
+- Añade una dependencia de servicio adicional en controllers que antes eran autónomos.
+
+**Relaciones:**
+- **ADR-030** (Protección de datos base): Centraliza la verificación de consentimiento introducida en ADR-030.
+- **ADR-031** (Endurecimiento del consentimiento): El bug fix de `withdrawnAt` completa el endurecimiento de ADR-031.
+- **ADR-033** (Derecho de oposición): La verificación granular por propósito soporta directamente el mecanismo de oposición de ADR-033.
+
+## ADR-035: Serialización de operaciones RFID mode con mutex por usuario [Backend]
+
+### Contexto (ADR-035)
+
+Las funciones de gestión de modo RFID (`setRfidModeState`, `clearRfidModeState`, `setRfidSensorBinding`) operan sobre Maps en memoria sin protección contra interleaving. Aunque Node.js es single-threaded y el event loop garantiza la atomicidad de operaciones síncronas, se añade defensa en profundidad por dos motivos:
+
+1. Si en el futuro se introduce lógica asíncrona (e.g., persistencia en Redis del estado RFID, como se menciona en ADR-022), las operaciones dejarían de ser atómicas y podrían intercalarse.
+2. El patrón ya existe en el proyecto (`executeWithPlayLock` en GameEngine) y su adopción es consistente con la arquitectura establecida.
+
+### Decisión (ADR-035)
+
+Implementar `executeWithRfidLock(userId, operation)` como mutex basado en Promise chaining, siguiendo el mismo patrón que `executeWithPlayLock` en GameEngine:
+
+- Se mantiene un `Map<userId, Promise>` donde cada nueva operación se encadena a la Promise anterior del mismo usuario.
+- Los helpers expuestos a socket commands (`setRfidModeState`, `clearRfidModeState`, `setRfidSensorBinding`) wrappean internamente sus operaciones con el lock.
+- El lock se libera automáticamente al completarse la operación (tanto en éxito como en error).
+- Usuarios distintos no se bloquean entre sí (el lock es per-user, no global).
+
+### Alternativas Consideradas (ADR-035)
+
+1. **No añadir lock (confiar en single-thread)**: Descartada. Correcta para el estado actual, pero frágil ante cambios futuros. El coste del lock es negligible y la protección es preventiva.
+
+2. **Lock global para todas las operaciones RFID**: Descartada. Serializaría operaciones de usuarios independientes, introduciendo latencia innecesaria en escenarios de múltiples profesores simultáneos.
+
+3. **Mutex con semáforo explícito (`async-mutex`)**: Descartada. Añade una dependencia externa para un patrón que ya se resuelve con Promise chaining nativo en el proyecto.
+
+### Consecuencias (ADR-035)
+
+**Positivas:**
+- Previene race conditions si se añade lógica async en el futuro (defensa en profundidad).
+- Operaciones RFID del mismo usuario se serializan, garantizando consistencia del estado.
+- Overhead mínimo (~0ms) para operaciones síncronas actuales, ya que las Promises se resuelven inmediatamente.
+- Patrón consistente con `executeWithPlayLock` del GameEngine.
+
+**Negativas:**
+- Complejidad añadida para un escenario que actualmente no presenta problemas reales de concurrencia.
+- El Map de locks crece con cada usuario activo (se limpia automáticamente al completarse las operaciones).
+
+**Relaciones:**
+- **ADR-022** (Hardening WebSocket — RFID en Redis): Si se implementa persistencia RFID en Redis, el lock protegerá las operaciones async resultantes.
+- **ADR-010** (Checkpoints y resiliencia): Sigue el mismo patrón de Promise-based mutex establecido en GameEngine.
+
+## ADR-036: Endpoint de métricas del sistema (/api/health/metrics) [Backend]
+
+### Contexto (ADR-036)
+
+El endpoint `/health` solo devolvía estado básico (`status: 'ok'`, timestamp). No había visibilidad sobre el estado interno de la plataforma: partidas activas, estado de conexión a Redis y MongoDB, métricas del GameEngine, o número de clientes WebSocket conectados. Para diagnóstico y monitorización en producción, era necesario conectarse directamente al servidor o consultar logs.
+
+Las métricas del GameEngine (`activePlays`, `totalPlaysStarted`, `totalPlaysFinished`, etc.) existían como código implementado pero no expuesto — se calculaban internamente pero no había forma de consultarlas externamente.
+
+### Decisión (ADR-036)
+
+Añadir `GET /api/health/metrics` protegido por `requireRole('super_admin')` que expone métricas agregadas de los subsistemas principales:
+
+- **GameEngine**: `activePlays`, `totalPlaysStarted`, `totalPlaysFinished`, `totalErrors`, locks activos y colas pendientes.
+- **Redis**: latencia medida via `PING` (ms), estado de conexión.
+- **MongoDB**: `readyState` del driver Mongoose (0=disconnected, 1=connected, 2=connecting, 3=disconnecting).
+- **Sockets**: `clientsCount` (conexiones WebSocket activas).
+- **Runtime**: `uptime` del proceso, uso de memoria (`process.memoryUsage()`), versión de Node.js.
+
+El endpoint requiere autenticación JWT y rol `super_admin`. Devuelve 403 para cualquier otro rol.
+
+### Alternativas Consideradas (ADR-036)
+
+1. **Exponer métricas en formato Prometheus**: Descartada para esta fase. Requiere una dependencia adicional (`prom-client`) y un stack de monitorización (Prometheus + Grafana) que excede el alcance del TFG. Se puede añadir en el futuro reutilizando los mismos datos.
+
+2. **Endpoint público sin autenticación**: Descartada. Las métricas del sistema (partidas activas, estado de BD, memoria) son información sensible que podría facilitar ataques de timing o reconocimiento.
+
+3. **Logs estructurados periódicos en vez de endpoint**: Descartada. Los logs ya existen (Pino), pero no permiten consulta bajo demanda. El endpoint complementa los logs, no los sustituye.
+
+### Consecuencias (ADR-036)
+
+**Positivas:**
+- Visibilidad operacional sin herramientas externas: un super_admin puede diagnosticar problemas desde el navegador o con `curl`.
+- Solo accesible por `super_admin`, manteniendo el principio de mínimo privilegio.
+- Métricas del GameEngine que antes eran código muerto ahora se exponen y son útiles.
+- Base para futura integración con sistemas de monitorización (Prometheus, Grafana).
+
+**Negativas:**
+- El `PING` a Redis añade ~1ms de latencia al endpoint. Aceptable para un endpoint de diagnóstico que no se consulta con alta frecuencia.
+- Las métricas son un snapshot puntual, no series temporales. Para tendencias históricas se necesitaría un sistema de monitorización completo.
+
+**Relaciones:**
+- **ADR-010** (Checkpoints y resiliencia): Las métricas del GameEngine expuestas aquí incluyen los contadores de partidas gestionados por el sistema de checkpoints.
+- **ADR-016** (Rate limiting Redis): El estado de Redis verificado aquí es el mismo store usado para rate limiting.
+- **ADR-011** (Socket.IO Redis Adapter): El `clientsCount` refleja las conexiones gestionadas por el adapter.
+
+---
+
+## ADR-037: Protección de estabilidad del proceso (unhandledRejection/uncaughtException) [Backend]
+
+### Contexto (ADR-037)
+
+El servidor no disponía de handlers para `process.on('unhandledRejection')` ni `process.on('uncaughtException')`. En Node.js >=15, las promesas rechazadas sin handler crashean el proceso sin logging ni cleanup. Las excepciones síncronas fuera de try/catch tienen el mismo efecto.
+
+### Decisión (ADR-037)
+
+Se han añadido ambos handlers en `server.js` que:
+1. Loguean el error con nivel `fatal` via Pino.
+2. Reportan a Sentry con tag de origen (`unhandledRejection` / `uncaughtException`).
+3. Ejecutan `gracefulShutdown()` para cerrar conexiones ordenadamente.
+
+Adicionalmente, los timers del proceso (`setInterval` del GameEngine, `setTimeout` del shutdown) ahora llaman `.unref()` para no impedir la terminación del event loop si el shutdown handler falla.
+
+### Consecuencias (ADR-037)
+
+- Un error no capturado ya no produce un crash silencioso — siempre hay log y reporte.
+- El proceso se cierra de forma controlada incluso ante errores fatales.
+- Los timers no bloquean el apagado del proceso.
+
+---
+
+## ADR-038: Límite duro de partidas activas simultáneas [Backend]
+
+### Contexto (ADR-038)
+
+ADR-001 eliminó el límite duro de partidas, manteniendo solo un umbral de warning. Sin embargo, sin límite duro, una acumulación de partidas (por bug, abuso, o cleanup fallido) puede provocar OOM y crash del proceso.
+
+### Decisión (ADR-038)
+
+Se ha añadido `ACTIVE_PLAYS_HARD_LIMIT` (configurable via env, default 2000) que rechaza nuevas partidas cuando se alcanza. El umbral de warning existente (default 1000) se mantiene como alerta temprana. Esto complementa ADR-001 con una red de seguridad sin afectar al uso normal.
+
+### Consecuencias (ADR-038)
+
+- Protección contra OOM: el proceso nunca acumula más de `HARD_LIMIT` partidas en memoria.
+- En uso normal del aula (decenas de partidas), el límite es inalcanzable.
+- El error se comunica al cliente via Socket.IO para que el profesor pueda reintentar.
+
+---
+
+## ADR-039: Timeout de queries aggregate (maxTimeMS) [Backend]
+
+### Contexto (ADR-039)
+
+Las aggregation pipelines de MongoDB (analytics, stats) no tenían `maxTimeMS`. Un pipeline mal optimizado o sobre un dataset grande podría ejecutarse indefinidamente, bloqueando el pool de conexiones.
+
+### Decisión (ADR-039)
+
+Se ha centralizado `maxTimeMS` en los repositories (`gamePlayRepository`, `gameSessionRepository`, `userRepository`) con un default de 15 segundos (configurable via `AGGREGATE_TIMEOUT_MS`). Todos los callers heredan el timeout automáticamente, con posibilidad de override por llamada.
+
+### Consecuencias (ADR-039)
+
+- Ninguna aggregation puede bloquear el pool de conexiones indefinidamente.
+- El timeout de 15s es generoso para el volumen de datos esperado (decenas de usuarios).
+- Si un pipeline legítimo necesita más tiempo, puede pasar `{ maxTimeMS: 30000 }` como segundo argumento.
+
+---
+
+## ADR-040: Observabilidad del circuit breaker y health check mejorado [Backend]
+
+### Contexto (ADR-040)
+
+El `CircuitBreaker` (usado por Redis y Supabase Storage) cambiaba de estado sin emitir logs. El health check de Redis solo verificaba conexión, no consultaba el estado del circuit breaker.
+
+### Decisión (ADR-040)
+
+1. El `CircuitBreaker` ahora logea cada transición de estado (`closed→open`, `open→half_open`, `half_open→closed`) con nivel `warn`.
+2. El health check de Redis (`/health`) reporta el estado del circuit breaker como campo adicional.
+3. Si el circuit breaker está `open`, Redis se reporta como `degraded` en vez de `healthy`.
+
+### Consecuencias (ADR-040)
+
+- Los operadores saben inmediatamente cuándo Redis entra en degradación.
+- El health check refleja el estado real del servicio, no solo la conexión TCP.
+- No hay impacto en rendimiento (el log solo se emite en transiciones, no en cada operación).
+
+---
+
+## ADR-041: Recovery de card locks tras reconexión Redis [Backend]
+
+### Contexto (ADR-041)
+
+Si Redis se desconecta temporalmente durante partidas activas, las card locks (con TTL) expiran. Cuando Redis reconecta, las partidas siguen en memoria pero sus tarjetas ya no están reservadas, permitiendo conflictos.
+
+### Decisión (ADR-041)
+
+Se ha añadido un mecanismo de recovery que:
+1. `redis.js` emite un callback cuando el evento `ready` se dispara tras una desconexión.
+2. El `GameEngine` registra un callback en `onReconnect()` al inicializarse.
+3. Al reconectar, re-ejecuta `reserveDistributedCardMappings` para cada partida activa.
+
+### Consecuencias (ADR-041)
+
+- Las partidas activas mantienen sus reservas de tarjetas incluso tras interrupciones de Redis.
+- Si una reserva falla (conflicto con otra instancia), se logea pero la partida continúa.
+- El recovery es automático y no requiere intervención del operador.
+
+---
+
+## ADR-042: Multer memory storage como diseño aceptado [Backend]
+
+### Contexto (ADR-042)
+
+Multer usa `memoryStorage()` para almacenar uploads (imágenes ≤8MB, audio ≤5MB) en RAM antes de procesarlas con Sharp/music-metadata. Se evaluó migrar a `diskStorage` o streaming para reducir presión de memoria.
+
+### Decisión (ADR-042)
+
+**Se mantiene `memoryStorage()`.** Razones:
+1. Los límites de tamaño (8MB/5MB) protegen contra uploads abusivos.
+2. Sharp procesa buffers de forma eficiente con streaming interno.
+3. El rate limiter de uploads (20/hora por usuario) limita concurrencia.
+4. Para el caso de uso (decenas de profesores), incluso 10 uploads simultáneos = ~80MB temporal, aceptable.
+5. Migrar a disk storage requeriría cambiar el pipeline de procesamiento en `imageProcessingService` y `audioValidationService`.
+
+### Consecuencias (ADR-042)
+
+- Sin cambios de código. El pipeline actual (multer buffer → Sharp → Supabase) se mantiene.
+- Si en el futuro se necesita manejar cientos de uploads concurrentes, se debería migrar a streaming.
+
+---
+
+## ADR-043: Invalidación inmediata de auth cache vía eventos internos [Backend]
+
+### Contexto (ADR-043)
+
+El `authRevalidationCache` en Socket.IO cacheaba resultados de auth por 30 segundos. Un token revocado (logout, detección de robo) seguía siendo válido para operaciones socket durante esa ventana.
+
+### Decisión (ADR-043)
+
+Se implementó un `authEventBus` (EventEmitter interno en `utils/authEvents.js`) que comunica revocaciones de tokens del middleware de auth al layer de sockets:
+- `revokeAllUserTokens()` emite `all_tokens_revoked` → purga todas las entradas del cache de ese userId
+- `revokeToken()` emite `token_revoked` → caso individual, impacto mínimo por el TTL corto
+
+### Consecuencias (ADR-043)
+
+- La ventana de revocación para `revokeAllUserTokens` baja de 30s a ~0s.
+- Para revocación individual, se mantiene la expiración por TTL (30s) — el impacto es una sola entrada.
+- El EventEmitter es síncrono y no añade latencia al flujo de revocación.
+
+---
+
+## ADR-044: Migración a Socket.IO namespaces (/game) [Full-stack]
+
+### Contexto (ADR-044)
+
+Todos los eventos Socket.IO (sistema, gameplay, RFID) usaban el namespace por defecto `/`. Esto impedía aplicar middleware, rate limiting y auth de forma granular.
+
+### Decisión (ADR-044)
+
+Se crearon dos namespaces:
+- **`/`** (default): Eventos de sistema — `connect`, `disconnect`, `session_invalidated`, `rfid_mode_changed`. Auth middleware con conteo de conexiones.
+- **`/game`**: Eventos de gameplay — todos los comandos de partida, RFID scans, card assignment. Auth middleware sin conteo (reutiliza la conexión del namespace default). Rate limiting y payload validation solo aquí.
+
+El `GameEngine` recibe la referencia al namespace `/game` y emite gameplay events directamente. Los eventos de sistema (como `rfid_mode_changed`) se emiten en el namespace default.
+
+### Cambios (ADR-044)
+
+**Backend**: `server.js` (creación namespace), `socketHandlers.js` (auth middleware extraído, dos handlers de conexión), `gameEngine` (recibe namespace `/game`).
+
+**Frontend**: `socket.js` (dos sockets multiplexados), métodos `onGame`/`emitGame` para gameplay, `on`/`emit` para sistema. `useGameSocket.js`, `webSerialService.js` y tests actualizados.
+
+### Consecuencias (ADR-044)
+
+- Mejor separación de concerns: middleware y rate limiting solo afectan al namespace relevante.
+- El conteo de conexiones solo ocurre en el namespace default (evita doble conteo por multiplexación).
+- Los eventos de gameplay están aislados de los de sistema.
+- Socket.IO multiplexa ambos namespaces sobre la misma conexión WebSocket — sin overhead de red adicional.
+
+---
+
+## ADR-045: Decomposición modular del GameEngine [Backend]
+
+### Contexto (ADR-045)
+
+El `GameEngine` era un archivo monolítico de 2080 líneas con 48 métodos que gestionaba: lifecycle de partidas, escaneo RFID, timers, cleanup, locks distribuidos, recovery, métricas y estrategias de juego. Difícil de testear y mantener.
+
+### Decisión (ADR-045)
+
+Se descompuso en una estructura de directorio con 3 módulos extraídos:
+
+```
+services/gameEngine/
+├── index.js          — Re-exporta la clase (mismo require path para consumidores)
+├── GameEngine.js     — Clase principal (~1560 líneas, core gameplay)
+├── recovery.js       — Recovery al startup y cleanup de huérfanos (~280 líneas)
+├── timerManager.js   — Timers: cleanup, heartbeat, transient (~230 líneas)
+└── stateHelpers.js   — Getters de estado, cálculos de tiempo (~260 líneas)
+```
+
+Cada módulo exporta funciones que reciben `engine` (instancia de GameEngine) como parámetro. La clase mantiene métodos-puente de una línea que delegan al módulo. Los consumidores siguen haciendo `require('./services/gameEngine')` sin cambios.
+
+### Consecuencias (ADR-045)
+
+- El archivo principal bajó de 2080 a 1560 líneas (~25% reducción).
+- Los módulos extraídos son testeables de forma independiente con un mock de `engine`.
+- La API pública del GameEngine no cambió — transparente para los 13 archivos consumidores.
+- Los imports internos se ajustaron al nuevo path relativo (un nivel más profundo).
+
+---
+
+## ADR-046: Feedback explícito para escaneos RFID ignorados (scan_ignored) [Full-stack]
+
+### Contexto (ADR-046)
+
+El `GameEngine.handleCardScan()` ignoraba silenciosamente escaneos RFID en varios escenarios: partida pausada, entre rondas, tarjeta no reconocida. El profesor no recibía ningún feedback — simplemente no pasaba nada. Para usuarios no técnicos en un aula, esto es inaceptable.
+
+### Decisión (ADR-046)
+
+1. **Backend**: El GameEngine emite `scan_ignored` al play room con `{ uid, reason }` en 3 escenarios donde el `playId` es conocido: `play_paused`, `not_awaiting_response`, `card_not_in_play`.
+2. **Frontend**: `useGameSocket` escucha `scan_ignored` y muestra un toast informativo con mensaje en español adaptado al `reason` code. El toast usa `id: 'scan-ignored'` para deduplicar escaneos rápidos.
+3. **Timeout client-side**: Si el frontend emite un scan pero no recibe ninguna respuesta del servidor en 3 segundos, muestra un toast warning "Tarjeta no reconocida". Esto cubre el caso donde el UID no está en ninguna partida activa (el backend no puede emitir porque no conoce el playId).
+
+### Consecuencias (ADR-046)
+
+- El profesor siempre recibe feedback visible cuando un escaneo no produce efecto.
+- El volumen de `scan_ignored` está limitado por el dedup del frontend (1200ms) y el rate limiter del backend (2/3s).
+- El toast usa `toast.info` (no error) para no alarmar — indica que el sistema funciona pero el escaneo no aplica.
+
+---
+
+## ADR-047: Política de bloqueo RFID relajada para entorno educativo [Backend]
+
+### Contexto (ADR-047)
+
+La política de bloqueo temporal de Socket.IO bloqueaba un socket tras 3 violaciones de rate limit durante 60 segundos. En un entorno de aula, un profesor que accidentalmente doble-escanea una tarjeta 3 veces rápidamente quedaba bloqueado durante 1 minuto completo — frustrante e incomprensible para un usuario no técnico.
+
+### Decisión (ADR-047)
+
+Se ajustó `socketBlockConfig`:
+- `violationThreshold`: 3 → **5** (más margen para errores accidentales)
+- `blockDurationMs`: 60s → **15s** (recuperación rápida si se alcanza)
+
+### Consecuencias (ADR-047)
+
+- Un profesor necesita 5 violaciones consecutivas (no 3) para ser bloqueado.
+- Si se bloquea, se recupera en 15 segundos (no 60).
+- La protección contra abuso deliberado sigue activa — 5 violaciones seguidas no es comportamiento normal.
+- Test actualizado en `socketRateLimiter.test.js`.
+
+## ADR-048: Selección de Librería de Visualización (Recharts) [Frontend]
+
+### Contexto
+
+El dashboard requiere múltiples tipos de gráficos (áreas, mapas de calor, barras) para visualizar datos complejos de rendimiento. Necesitamos una librería que sea:
+
+1.  **React-Nativa**: Para evitar wrappers y problemas de ciclo de vida.
+2.  **Flexible**: Personalizable para adaptarse al sistema de diseño (Temas oscuros, gradientes).
+3.  **Ligera**: Para no impactar negativamente en el tiempo de carga (LCP).
+
+### Decisión
+
+Se ha seleccionado **Recharts** sobre alternativas como Chart.js o Victory.
+
+### Justificación
+
+- **Composición**: Recharts usa un modelo de composición de componentes (`<AreaChart>`, `<XAxis>`, `<Tooltip>`) que encaja perfectamente con la filosofía de React, haciendo el código más legible y mantenible.
+- **SVG**: Renderiza SVG, lo que garantiza nitidez en cualquier resolución (crucial para pantallas de retina en tablets) y facilita la animación con CSS/Framer Motion.
+- **Payload**: Es Modular, permitiendo tree-shaking efectivo (solo importamos lo que usamos).
+
+### Consecuencias
+
+- **Curva de aprendizaje**: Requiere entender el modelo de composición en lugar de pasar un gran objeto de configuración.
+- **Rendimiento**: Excelente para datasets medianos (<1000 puntos), que es nuestro caso de uso (clases de ~30 alumnos). Para Big Data habría que considerar Canvas, pero no aplica aquí.
+
+---
+
+## ADR-049: Patrón de Diseño de Dashboard (Jerarquía "F") [Frontend]
+
+### Contexto
+
+El dashboard es una herramienta de trabajo diaria para el profesor. La carga cognitiva debe ser mínima; el profesor debe poder entender el estado de la clase en segundos.
+
+### Decisión
+
+Se implementa un layout siguiendo el **Patrón de Lectura en F** y principios de Jerarquía Visual.
+
+### Detalles de Implementación
+
+1.  **Nivel Superior (Encabezado)**: Filtros globales (Contexto temporal). Afectan a toda la página.
+2.  **Nivel 1 (Izquierda Superior)**: KPIs Críticos (Estudiantes en Riesgo). Es el primer punto donde se posa la vista. Usamos colores semánticos (Rojo = Alerta).
+3.  **Nivel 2 (Centro)**: Gráfico de Tendencia. Proporciona contexto histórico inmediato.
+4.  **Nivel 3 (Inferior/Derecha)**: Detalles y listas. Información para análisis profundo, accesible tras el escaneo inicial.
+
+### Consecuencias
+
+- **Usabilidad**: Reduce el tiempo de análisis del profesor.
+- **Escalabilidad**: El layout permite añadir más "filas" de análisis verticalmente sin romper la jerarquía.
+
+---
+
+## ADR-050: Estrategia de Fetching de Datos (On-Mount + Polling Sincronizado) [Frontend]
+
+### Contexto
+
+Los datos de analíticas cambian cuando los alumnos terminan partidas. No es un sistema de trading (ms), pero tampoco puede ser estático.
+
+### Decisión
+
+Se opta por **Fetch en Paralelo al Montar** (`Promise.all`) para la carga inicial.
+
+### Justificación
+
+- **UX**: Evita el "efecto cascada" donde los gráficos van apareciendo uno a uno. El dashboard carga sus esqueletos y luego muestra todo el contenido de golpe (o con transiciones coordinadas).
+- **Separación de Responsabilidades**:
+  - `analyticsService.js`: Abstrae la lógica de llamadas HTTP.
+  - `Dashboard.jsx`: Gestiona el estado y la presentación.
+- **Simplicidad**: En esta fase, no se usan WebSockets para analíticas (solo para juego en tiempo real). La complejidad de mantener sockets para un dashboard que se consulta periódicamente no compensa el beneficio.
+
+### Futuras Mejoras
+
+- Implementar `SWR` o `TanStack Query` para revalidación automática en foco y caché inteligente, reduciendo llamadas innecesarias.
+
+---
+
+## ADR-051: Sistema de Alertas Basado en Reglas (Frontend) [Frontend]
+
+### Contexto
+
+El backend devuelve datos crudos o agregados, pero la "interpretación" pedagógica (¿es esto bueno o malo?) a veces depende del contexto del frontend o preferencias del usuario (futuro).
+
+### Decisión
+
+Se implementa un motor de reglas ligero en el cliente (`Dashboard.jsx` -> `alerts` logic) que consume los KPIs del backend.
+
+### Justificación
+
+- **Inmediatez**: Permite generar feedback visual instantáneo sin ida y vuelta al servidor para cada validación de UI.
+- **Flexibilidad**: Podemos cambiar los umbrales de "Riesgo" (ej. subir de nota 50 a 60) en el frontend rápidamente según feedback de usabilidad, sin redeploy de backend.
+
+### Consecuencias
+
+- Lógica de negocio en cliente: Debe mantenerse sincronizada con cualquier lógica crítica de backend (ej. si el backend envía emails de alerta, debe usar los mismos criterios). Para visualización, es aceptable.
+
+
+---
+
+## ADR-052: Mecánicas de juego inmutables en API [Backend]
+
+### Contexto
+
+Hasta v0.5.0 los endpoints `POST/PUT/DELETE /api/mechanics` permitían a cualquier teacher autenticado crear, modificar y desactivar mecánicas. Las mecánicas son un primitivo del producto: el modelo de juego (Asociación, Memoria, Secuencia) lo decide el equipo de desarrollo, no los profesores.
+
+### Decisión
+
+Se eliminan las operaciones de escritura en `/api/mechanics`. Los handlers POST/PUT/PATCH/DELETE devuelven 405 Method Not Allowed con `Allow: GET` y un mensaje explicando que las mecánicas se gestionan vía seeders/migraciones.
+
+### Justificación
+
+- **Integridad del producto**: las mecánicas tienen comportamiento implementado en el backend (state machines, scoring); permitir CREATE arbitrario sin código que las soporte es un footgun.
+- **Seguridad**: cierra una superficie de escritura innecesaria.
+- **Honestidad de la API**: si algo no debe modificarse en runtime, la API no debe exponerlo.
+
+### Consecuencias
+
+- Los tests del módulo (`validationEndpoints.test.js`) se actualizan para esperar 405 en POST/PUT/DELETE.
+- Frontend ya no consumía esos endpoints; no hay impacto cliente.
+- Si en el futuro se quiere "configuración fina" de una mecánica (ej. cambiar `defaults.timeLimit`), se hará vía seeders versionados o un endpoint dedicado distinto.
+
+---
+
+## ADR-053: Política de ownership en assets de contextos [Full-stack]
+
+### Contexto
+
+Los contextos temáticos (`game_contexts`) son recursos compartidos: cualquier teacher ve todos. El subdocumento `assets[]` permitía hasta v0.5.0 que cualquier teacher subiera assets, pero también que cualquier teacher eliminara assets de otros, sin trazabilidad.
+
+A nivel de producto se distinguen dos tipos de "propiedad":
+
+- **El contexto** (la "carpeta") es responsabilidad del super_admin: él lo crea, lo renombra y lo elimina (junto con todo su contenido) desde `/admin/contexts`.
+- **Los assets** dentro de un contexto son responsabilidad de los profesores: cada profesor sube los suyos para sus sesiones y solo él puede eliminarlos. El super_admin **no** tiene UI para gestionar assets individuales y **no** debe tenerla: su rol es estructural (gestión de carpetas), no editorial (contenido).
+
+### Decisión
+
+Se añade el campo `uploadedBy: ObjectId<User>` al subdocumento de asset. La política de gestión es:
+
+- **teacher**: puede gestionar (eliminar / reemplazar audio) **solo los assets que él mismo subió** (`asset.uploadedBy === user._id`).
+- **assets sin `uploadedBy`** (`null`): son "del sistema" — provienen de los seeders y forman la base del producto. No pueden eliminarse individualmente desde la UI por nadie. Se eliminan únicamente al borrar el contexto entero (acción exclusiva del super_admin desde `/admin/contexts`).
+- **super_admin**: NO tiene override sobre assets individuales. Si necesita borrar un asset seedeado, debe eliminar el contexto entero o realizar una migración/script de mantenimiento.
+
+Backend valida en `assetController.deleteImage`, `deleteAudio` y `attachAudio` mediante el helper `assertCanManageAsset`. Frontend muestra "Subido por X" / "Subido por ti" / "Asset del sistema" en cada card y deshabilita los botones con tooltip explicativo cuando el usuario no es el propietario.
+
+Para datos existentes se publica `migrate-assets-uploadedby.js` que normaliza los assets seedeados (cuya `key` está en la lista canónica del seeder) a `uploadedBy = null`. Es idempotente y respeta a los assets subidos por profesores.
+
+### Justificación
+
+- **Justicia**: refleja "el contexto es de todos, el asset es del autor".
+- **Separación de responsabilidades**: el super_admin no debe entrar en la edición de contenido ajeno; su rol es estructural.
+- **Trazabilidad**: cada asset subido por un profesor tiene autor identificable.
+- **Inmutabilidad de la base**: los assets seed son la base del producto y no se eliminan ad-hoc por error.
+
+### Consecuencias
+
+- DTO `toAssetDTOV1` normaliza `uploadedBy` a `{id, name}` cuando viene poblado, o `null` si es del sistema.
+- `getContextById` y `getContextAssets` añaden `populate({ path: 'assets.uploadedBy', select: 'name email' })`.
+- Los endpoints DELETE devuelven `403 ForbiddenError` con mensaje claro: para assets ajenos `"Solo el profesor que subió este asset puede eliminarlo o reemplazar su audio"`; para assets seed `"Este asset es parte de la base del contexto y no puede eliminarse individualmente"`.
+- `ContextDetailPage` ya no recibe `isSuperAdmin` (la ruta `/contexts/:id` está restringida a `roles="teacher"`); las modales obsoletas de Editar/Eliminar contexto se han retirado del componente para concentrar esa gestión en `/admin/contexts`.
+
+---
+
+## ADR-054: UI admin para CRUD de contextos con limpieza de Storage [Full-stack]
+
+### Contexto
+
+El backend permitía a super_admin crear/modificar/eliminar contextos enteros vía `/api/contexts`, pero no había UI: los contextos solo se creaban vía seeders. Esto convertía esos endpoints en *zombie code* y limitaba al admin a operar contra la BD directamente.
+
+### Decisión
+
+Se añade la página `/admin/contexts` (componente `AdminContexts.jsx`) con:
+
+- Listado con tarjetas (KPI de assets/imagenes/audios + estado).
+- Modal de creación (validación de slug `^[a-z0-9-]+$`).
+- Modal de edición (bloquea cambio de `contextId` si ya hay assets en Storage).
+- Modal de eliminación con doble confirmación que advierte explícitamente sobre la limpieza de Supabase Storage (carpeta `ctx-{contextId}/{image,thumbnail,audio}`).
+
+El controlador `deleteContext` ya invocaba `storageService.deleteFolder(context.contextId)` con política hard-fail (si Storage falla, no se borra de MongoDB para preservar consistencia). Se documenta y se confirma este comportamiento.
+
+### Justificación
+
+- Cierra el gap funcional: el super_admin tenía endpoints sin UI.
+- Coordina BD + Storage explícitamente, evitando assets huérfanos en Supabase.
+- La advertencia visual sobre Storage en el modal de eliminación previene errores no informados.
+
+### Consecuencias
+
+- Nueva ruta protegida `/admin/contexts` (rol super_admin) y nuevo item en `ADMIN_NAV_ROUTES`.
+- Sin cambios en backend (los endpoints ya existían).
+- El admin puede eliminar contextos siempre que no tengan dependencias activas (decks/sesiones/plays activas), respetando la regla de integridad referencial existente.
+
+---
+
+## ADR-055: Enum `difficulty` ampliado con `custom` y marker de sesion en cliente [Full-stack]
+
+**Fecha:** 2026-04-18
+**Estado:** Aprobado
+**Contexto QA:** Sesion de QA intensiva pre-release v0.5.0 (18/04/2026).
+
+### Contexto
+
+Durante la QA del 18/04 se detectaron dos bugs de impacto cliente-servidor:
+
+1. **`difficulty: 'custom'` rechazado al cargar partida.** El wizard de creacion de sesion envia `difficulty: 'custom'` cuando el profesor ajusta los sliders al margen de los presets. El validador Zod (`gameSessionValidator`) aceptaba el valor, el controller hacia `session.save({ validateBeforeSave: false })` y lo persistia. Al intentar cargar la partida despues, Mongoose validaba el documento (lectura/populate en otras rutas) y fallaba con `Error de validación: custom is not a valid enum value for path difficulty`.
+2. **Ruido `401 Unauthorized` al entrar a `/login` en navegadores sin sesion.** `AuthContext.checkExistingSession` llamaba a `/api/auth/refresh` incondicionalmente al montar la app, generando 401 ruidosos en la consola del usuario y trabajo inutil en backend.
+
+### Decision
+
+- **Backend:** ampliar el enum de `GameSession.difficulty` a `['easy', 'medium', 'hard', 'custom']` para que el modelo Mongoose sea coherente con el validador Zod. `custom` se usa como etiqueta semantica para "el profesor salio del preset" y se renderiza como "Personalizada" en el frontend.
+- **Frontend:** introducir un **session marker** en `localStorage` (`eduplay:hasSession`) que se fija al hacer login exitoso y se limpia al logout, expiracion o invalidacion de sesion. `checkExistingSession` solo dispara `/auth/refresh` si el marker esta presente. Asi los landing/login/register limpios no generan 401s.
+
+### Consecuencias
+
+- No hay migracion de datos; documentos nuevos pueden tener `difficulty: 'custom'` sin romper validaciones.
+- La UI (`SessionDetail`) ya mapea `custom → 'Personalizada'`.
+- El marker no es un canal de seguridad (solo presencia boolean), los tokens siguen siendo cookies httpOnly. El marker solo evita el request preventivo.
+- Tests backend (927) y frontend (214) pasan en verde tras el cambio.
+
+### Referencias
+
+- `backend/src/models/GameSession.js`
+- `backend/src/validators/gameSessionValidator.js`
+- `frontend/src/context/AuthContext.jsx`
+- `frontend/src/pages/SessionDetail.jsx`
+
+---
+
+## ADR-056: AnimatePresence `mode="popLayout"` para transiciones de ruta en React 19 [Frontend]
+
+**Fecha:** 2026-04-18
+**Estado:** Aprobado
+**Contexto QA:** Sesion de QA intensiva pre-release v0.5.0 (18/04/2026).
+
+### Contexto
+
+En AppLayout, las transiciones entre paginas usaban `<AnimatePresence mode="wait">` con `key={location.pathname}`. Al navegar de `/analytics/students` a `/students/:id` clicando una fila de la tabla, el `motion.div` de la nueva ruta quedaba atascado en el estado `exit` (`opacity: 0; transform: translateY(-6px)`), dejando la pantalla en blanco salvo por el sidebar. Se trata de una incompatibilidad conocida entre `mode="wait"` y el doble-mount que introduce React 19 en StrictMode.
+
+### Decision
+
+Cambiar a `<AnimatePresence mode="popLayout" initial={false}>`:
+
+- `mode="popLayout"` permite que el nuevo hijo comience su enter antes de que el viejo complete su exit. El hijo entrante nunca depende del estado final del saliente, lo que rompe el bloqueo observado.
+- `initial={false}` evita que la primera hidratacion de la app anime desde el estado `initial` (`opacity: 0`) a `animate`, reduciendo flash en carga directa.
+
+### Consecuencias
+
+- Durante SPA nav pueden coexistir dos paginas brevemente (ambas motion.div). En produccion sin StrictMode no hay duplicados. En dev StrictMode crea dos copias pero al menos una renderiza con `opacity: 1`.
+- Documentar en PROP-18 la auditoria pendiente para otros `AnimatePresence` dispersos en la app (Contextos, FallbackTouchPanel) que exhiben sintomas similares.
+- Tests existentes (17 archivos, 214 tests) no se veian afectados ya que la logica es puramente visual.
+
+### Referencias
+
+- `frontend/src/components/layout/AppLayout.jsx:263`
+- Propuesta relacionada: PROP-18 (auditoria global de AnimatePresence).
+
+---
+
+## ADR-057: Integridad de scores — `maxScore` obligatorio y clamp defensivo en 3 capas [Full-stack]
+
+**Fecha:** 2026-04-18
+**Estado:** Aprobado
+**Contexto:** Implementacion de propuesta PROP-19 tras hallazgo en QA 18/04.
+
+### Contexto
+
+En la QA intensiva pre-release v0.5.0 se detecto que el historial de partidas del alumno exponia scores 110 y 120 ("Formas Basicas 110%", "Memoria 110%" en Fortalezas), imposibles en un sistema que se supone 0-100%. Origen: el seeder y el motor de puntuacion acumulaban `score += pointsAwarded` sin cota, y no existia un campo que documentara el maximo teorico de la partida.
+
+### Decision
+
+Introducir un modelo explicito de integridad para el score en tres capas:
+
+1. **Modelo** (`backend/src/models/GamePlay.js`): nuevo campo `maxScore: Number, min: 1` obligatorio para partidas nuevas + pre-save hook que clampa `score ≤ maxScore` (con `console.warn` si se clampa) y evita `score < 0`.
+2. **Creacion** (`backend/src/services/gamePlayService.js`, `backend/seeders/07-gameplays.js`): `maxScore = numberOfRounds * pointsPerCorrect` se calcula y persiste en el momento de crear/seedear la partida. El seeder ademas clampa `score` antes de insertar.
+3. **Lectura defensiva** (`backend/src/services/analytics/contentEffectivenessService.js`): la pipeline envuelve `avgScore`/`avgAccuracy` en `$min: 100` para que, aunque datos historicos previos a la migracion esten sucios, la UI nunca reciba valores >100%.
+4. **UI defensiva** (`frontend/src/components/analytics/StrengthsWeaknesses.jsx`): los porcentajes se clampan con `Math.min(100, Math.max(0, Math.round(x)))`.
+
+Se provee script one-shot `npm run migrate:clamp-scores [--dry-run]` que recorre GamePlays legacy: establece `maxScore` inferido de la sesion cuando falta y clampa scores historicos que lo superen.
+
+### Consecuencias
+
+- No mas scores >100% en la UI.
+- El modelo ahora documenta el maximo teorico por partida (util para analytics futuras).
+- Migracion idempotente: si todo esta OK, el script es noop.
+- Tests backend (927) y frontend (214) en verde tras los cambios.
+
+### Referencias
+
+- `backend/src/models/GamePlay.js`
+- `backend/src/services/gamePlayService.js`
+- `backend/seeders/07-gameplays.js`
+- `backend/scripts/migrate-clamp-scores.js`
+- Propuesta relacionada: PROP-19.
+
+---
+
+## ADR-058: `HoverLiftCard` primitive — micro-interaccion unificada en listados [Frontend]
+
+**Fecha:** 2026-04-18
+**Estado:** Aprobado
+**Contexto:** Implementacion de propuesta PROP-14 tras hallazgo en QA 18/04.
+
+### Contexto
+
+Los tres listados principales del profesor (Sesiones, Mazos, Contextos) tenian tres comportamientos de hover distintos: `{ y: -4, scale: 1.01 }` en Sesiones, `{ z: 20 }` (3D rotation) en Mazos, y ninguno en Contextos. Esto rompia la sensacion de "todas las cards son tactiles y reaccionan igual", un polish importante para la percepcion de calidad.
+
+### Decision
+
+Crear el primitive `frontend/src/components/ui/HoverLiftCard.jsx`: un wrapper `motion.div` con `whileHover={{ y: -4, scale: 1.01 }}` + `whileTap={{ scale: 0.99 }}` + glow contextual via prop `glowTint` (brand/indigo/cyan/success/warning/error/pink). Respeta `prefers-reduced-motion`.
+
+- SessionCard: tint derivado de `difficulty` (easy=success, medium=cyan, hard=error, active=brand).
+- ContextCard: tint `indigo` (color sistema del area de contextos).
+- DeckCard: **no se migra** — mantiene su animacion 3D propia (rotateX/rotateY con mouse + perspective 1000) como signature de area. La consistencia que buscamos es "todas las cards tienen hover, no una sola forma visual" — DeckCard ya la tiene, y mas sofisticada.
+
+El diseño evita boolean-prop proliferation (siguiendo vercel-composition-patterns): `HoverLiftCard` acepta solo `glowTint` y compone, no toma `shadow`/`lift`/`scale`/`rotate`/`ripple` como booleans independientes.
+
+### Consecuencias
+
+- Consistencia visual entre Sesiones y Contextos (mas glow contextual por tipo).
+- DeckCard preservada — ningun cambio en su animacion premium.
+- Facil de extender (nuevo glowTint o nuevo componente que use el primitive).
+
+### Referencias
+
+- `frontend/src/components/ui/HoverLiftCard.jsx`
+- `frontend/src/pages/SessionsPage.jsx` (SessionCard migrada)
+- `frontend/src/pages/ContextsPage.jsx` (ContextCard migrada)
+- Propuesta relacionada: PROP-14.
+
+---
+
+## ADR-059: Propagación explícita de variants Framer cuando hay wrapper intermedio [Frontend]
+
+### Contexto
+
+En la sesión de QA intensiva del 18/04/2026 (tarde) se detectaron dos listas que aparecían completamente vacías en DOM pese a tener datos:
+
+1. **Widget "Mejores Estudiantes"** (`StudentsList.jsx`) — los 5 `<li>` existían con `style="opacity:0; transform:translateY(20px)"`.
+2. **Grid de contextos del profesor** (`ContextsPage.jsx`) — los 5 `<div>` de contextos existían con `style="opacity:0; transform:translateY(16px)"`.
+
+En ambos casos los items usaban `variants={staggerItem}` (o equivalente) pero no había un `motion.container` padre con `initial` + `animate` que disparase el estado `visible`. Los variants sin orchestrator se quedan en su estado `hidden` indefinidamente.
+
+En `ContextsPage` además había un `<AnimatePresence>` intermedio entre el `motion.div` grid y los items, que corta la propagación automática de variants por el árbol (comportamiento documentado de Framer Motion — `AnimatePresence` gestiona su propio ciclo initial/animate/exit para el enter de los hijos, y los variants heredados del parent NO se aplican).
+
+### Decisión
+
+**Regla del proyecto:** todo `motion.div` con `variants={...}` debe recibir explícitamente `initial` y `animate` (o `initial="hidden" animate="visible"` si se alimenta del variant) en uno de estos dos escenarios:
+
+1. **El padre no es un motion component** (es un `<ol>`, `<div>` o wrapper JSX normal). → el hijo debe tener init/animate directos.
+2. **Hay un `<AnimatePresence>` entre el padre y el hijo.** → el hijo debe tener init/animate directos. No confiar en la propagación del orchestrator por encima del AnimatePresence.
+
+Cuando el padre ES un `motion.div` directo con `variants` + init/animate y NO hay AnimatePresence intermedio, la propagación automática de variants por nombre sí funciona y no hace falta duplicar.
+
+### Implementación
+
+- `StudentsList.jsx`: `<ol>` → `motion.ol` con `variants={staggerContainer}` + `initial="hidden"` + `animate="show"`.
+- `ContextsPage.jsx`: se eliminó el `<AnimatePresence>` (no había animaciones de exit) y los `motion.div` hijos recibieron `initial="hidden" animate="visible"` directos para ser robustos a cualquier cambio futuro de wrapping.
+
+### Consecuencias
+
+**Positivas**
+- Ambos widgets aparecen correctamente y son resilientes a remontados.
+- Patrón aplicable y copiable a futuras listas con stagger.
+
+**Negativas**
+- Ligera duplicación entre parent.variants y child.initial/animate. Es un trade-off aceptable a cambio de robustez frente a refactorizaciones.
+
+### Referencias
+
+- `frontend/src/components/dashboard/StudentsList.jsx` (motion.ol + staggerContainer)
+- `frontend/src/pages/ContextsPage.jsx` (AnimatePresence removido)
+- Propuestas relacionadas: PROP-30, PROP-31.
+
+---
+
+## ADR-060: `pointer-events: none` durante exit de AnimatePresence de ruta [Frontend]
+
+### Contexto
+
+El ADR-056 estableció `AnimatePresence mode="popLayout" + initial={false}` en `AppLayout.jsx` para evitar que la transición de pagina dejase el `motion.div` atascado en estado exit. Sin embargo, en la sesión de QA del 18/04/2026 (tarde) se observó que bajo React 19 + StrictMode en dev, el wrapper saliente puede convivir en el DOM durante unos ms con el entrante, ambos con tamaño completo.
+
+El wrapper saliente con `style="opacity:0; transform:translateY(-6px)"` sigue recibiendo clicks del usuario porque, pese a ser invisible, `pointer-events` sigue en `auto`. Esto impedía hacer clic en el botón "Volver a jugar" de `SessionDetail` al entrar desde el listado.
+
+### Decisión
+
+Ampliar el variant del motion.div de ruta para que **exit** incluya `pointerEvents: 'none'` y **animate** reinstaure `pointerEvents: 'auto'`. Con esto, aunque el wrapper saliente quede montado durante la transición (o por StrictMode en dev), no intercepta clicks.
+
+```jsx
+animate={{ opacity: 1, y: 0, pointerEvents: 'auto' }}
+exit={shouldReduceMotion ? { pointerEvents: 'none' } : { opacity: 0, y: -6, pointerEvents: 'none' }}
+```
+
+### Consecuencias
+
+**Positivas**
+- Los clicks siempre llegan a la ruta activa, incluso si el wrapper anterior persiste.
+- Cero impacto visual (solo propiedad CSS que no afecta la animación de opacity/transform).
+- Compatible con `shouldReduceMotion` (variante reducida mantiene la protección de pointer-events sin animar nada más).
+
+**Negativas**
+- Añade una propiedad al variant que Framer debe animar (trivial en rendimiento).
+
+### Referencias
+
+- `frontend/src/components/layout/AppLayout.jsx` (Outlet wrapper)
+- ADR-056 (decisión base que este ADR complementa).
+- Propuesta relacionada: PROP-32.
+
+---
+
+## ADR-061: Tema visual por contexto de juego (signature cross-pantalla) [Frontend]
+
+### Contexto
+
+Tras una segunda pasada de QA centrada exclusivamente en UI/UX, craft y diferenciación (18/04/2026 tarde) se detectó que la app se sentía como una plantilla SaaS dashboard genérica: todos los mazos compartían el mismo icono `Layers` en gradient morado, las cards eran idénticas en cada listado, y las pantallas no reflejaban la naturaleza del producto (tarjetas físicas RFID para juegos educativos infantiles con distintos contextos temáticos — geografía, animales, colores, números, formas).
+
+El sistema de tokens ya definía paletas OKLCH por tema en `index.css` (`--color-theme-geography`, `-animals`, `-colors`, `-numbers`) pero solo se consumían en `GameBackdrop.jsx` (fondo de partida). El resto de la aplicación era ciega al contexto de los datos que mostraba.
+
+### Decisión
+
+Introducir un **helper único de tematización** que mapea un contexto (por slug o por name) a una paleta OKLCH y devuelve clases Tailwind listas para consumir en iconos, bordes y fondos sutiles.
+
+```js
+// frontend/src/lib/contextTheme.js
+export function getContextTheme(input) { /* returns { gradientClass, ringClass, textClass, glowClass } */ }
+```
+
+Aplicación inicial en `DeckCard.jsx` (icon header + subtítulo). Puede extenderse a `SessionCard`, `ContextCard`, `StudentProfile` (badges de contexto favorito), etc. sin duplicar el mapping.
+
+Paletas soportadas: `default`, `geography`, `animals`, `colors`, `numbers`, `shapes`. Resolución por prefijo del slug (`geography-europe` → `geography`) o por alias explícito en `SLUG_ALIASES`.
+
+### Consecuencias
+
+**Positivas**
+- **Diferenciación visible**: cada contexto se reconoce de un vistazo por color, sin leer el texto. Un profesor con 6 mazos distingue "Animales de Granja" de "Colores Básicos" sin esfuerzo.
+- **Consistencia cross-producto**: el tema del contexto viaja del `GameBackdrop` (durante la partida) a los listados (fuera de partida). Los niños y profesores construyen memoria espacial por color.
+- **Zero duplicación**: los tokens OKLCH ya existían; el helper solo los cablea.
+- **Extensible**: añadir un contexto nuevo = añadir vars a `index.css` + entrada al helper.
+
+**Negativas / trade-offs**
+- El consumidor del helper debe usar clases Tailwind arbitrarias (`from-[var(--color-theme-...)]`) — no falla pero obliga a Tailwind JIT a generar las clases a build. Alternativa sería un `<div style={{ background: theme.primaryVar }}>` puro CSS vars; se mantuvo el approach de clases por consistencia con el resto del proyecto.
+- `shapes` no tenía paleta dedicada en `index.css` y se mapea a `accent-cyan` / `accent-indigo` (fallback sensato). Revisar si se quiere crear `--color-theme-shapes` dedicado.
+
+### Referencias
+
+- `frontend/src/lib/contextTheme.js` (helper nuevo)
+- `frontend/src/components/ui/DeckCard.jsx` (primer consumidor)
+- `frontend/src/index.css` (paletas OKLCH preexistentes)
+- `frontend/src/components/game/GameBackdrop.jsx` (consumidor histórico)
+- Propuesta relacionada: PROP-16 (atmósferas dinámicas por contexto) y PROP-40A.
+
+---
+
+## ADR-062: Endurecimiento integral del pipeline RFID (defensas + observabilidad) [Full-stack]
+
+### Contexto
+
+Auditoría exhaustiva del pipeline de comunicación RFID (firmware → frontend → backend) detectó ~15 issues que comprometían que el sensor funcionase "al 100% desde el momento 0 en todas las situaciones". Los más críticos:
+
+1. **Leak latente de `connectionCountByUserId`** en `socketHandlers.js`: el listener de `disconnect` se registraba TRAS un `await getRfidModeState(...)` en el handler de `connection`. Si la inicialización lanzase, el listener no se registraba y el contador quedaba huérfano → tras 5 reconexiones rápidas el profesor se bloqueaba con `MAX_CONNECTIONS_EXCEEDED`.
+2. **Sin watchdog del modo RFID**: si el profesor cerraba el navegador sin disparar `leave_*`, el modo permanecía en memoria + Redis (TTL 1 h), y otro socket suyo recibía `RFID_MODE_TAKEN_OVER` en cadena durante esa hora.
+3. **Errores fatales silenciados** en `processResponse` y `processMemoryScan`: un fallo de BD se logueaba con `logger.error` y la función seguía emitiendo `validation_result` con score posiblemente desactualizado; el cliente nunca recibía `play_interrupted`.
+4. **Observabilidad pobre** del path `card_not_in_play` (`logger.debug` invisible en producción) y de la contención de locks (sin alertas).
+5. **Códigos de error como strings dispersos**: la UI no podía diferenciar "sensor roto" vs "tarjeta no reconocida" vs "tarjeta de otra sesión".
+6. **Parser Web Serial frágil**: el banner de boot del firmware contaminaba el buffer; sin validación de UID; sin timeout de línea ante firmware que emite bytes corruptos sin newline.
+7. **Reconexión Web Serial recursiva**: `attemptReconnect` se re-llamaba dentro del `setTimeout`; un `disconnect()` durante un intento podía resolver con `port.open` exitoso TRAS la desconexión explícita.
+
+El firmware (`rfid_scanner/`) lo aporta el tutor del TFG y se trata como **inmutable**: la app web compensa defensivamente cualquier limitación.
+
+### Decisión
+
+Endurecer el pipeline en una intervención integral con un único commit, agrupando 13 cambios coordinados:
+
+**Backend**
+
+- `socketHandlers.js`: helpers testables (`incrementConnectionCount`, `decrementConnectionCount`, `getConnectionCount`); listener de `disconnect` registrado ANTES de cualquier await + try/catch en init.
+- Watchdog del modo RFID con `RFID_MODE_IDLE_TIMEOUT_MS` (default 5 min), refrescado por scan válido y por evento `rfid_mode_heartbeat` desde el cliente.
+- `GameEngine._emitFatalScanError`: helper común que loguea, captura Sentry, emite `play_interrupted` y cierra la partida graceful. Aplicado en `processResponse`, `processMemoryScan` (first_pick + resolved) y `handleTimeout`.
+- Observabilidad: log info agrupado por UID/ventana de 60 s para `card_not_in_play`; alerta Sentry cuando `lockContention % 100 === 0`.
+- `backend/src/constants/errorCodes.js`: constantes `RFID_ERROR_CODES`, `SCAN_IGNORED_REASONS`, `PLAY_INTERRUPTED_REASONS` con valores estables (contrato público).
+- Endpoint `GET /api/metrics/rfid` con `health: ok|degraded|down`, contadores, scanRate 1m/5m, dedupeHits, errorsByType y snippet del `gameEngine`.
+- `rfidService` extendido: `_scanTimestamps`, `lastScanAt`, `lastErrorAt`, `errorsByType`, `recordDedupeHit()`, `getHealthSnapshot()`.
+
+**Frontend**
+
+- `webSerialService.js`: filtro explícito del banner de boot → emite `device_banner` una vez en lugar de error; validación estricta de UID hex (8 ó 14 chars); timeout de línea (2 s sin `\n` → descarta buffer).
+- Bucle de reconexión iterativo con flag `_reconnectAborted` + helper `_attemptReconnectOnce`; `_clearDeviceTimers` invocado en todos los paths.
+- `socket.js`: heartbeat `rfid_mode_heartbeat` cada 60 s en `/game` con `volatile.emit`.
+- `useGameSocket.js`: copy granular para `RFID_SENSOR_STALE`, `RFID_SENSOR_NOT_CONNECTED`, `CARD_NOT_IN_PLAY`, `UID_UNKNOWN`. `play_paused` sin toast (banner ya visible). Comentario clarificador del dedupe del fallback.
+- `RFIDConnector.jsx`: botón "Reintentar conexión" tras intento previo; preview USB vendor/product ID.
+- `FallbackTouchPanel.jsx`: orden alfabético `localeCompare('es')`.
+
+**Resiliencia**
+
+- `frontend/src/lib/sessionSnapshot.js`: snapshot del estado coordinado en `sessionStorage` por `playId` (TTL 10 min, esquema versionado). `GameSession` hidrata al montar y persiste tras cada transición relevante.
+- `frontend/src/lib/pendingScansStore.js`: wrapper IndexedDB integrado en `webSerialService`. `hydratePendingScansFromStorage()` recupera scans tras F5 o desconexión larga.
+
+### Consecuencias
+
+**Positivas**
+
+- El profesor puede reconectarse N veces sin bloquearse por `MAX_CONNECTIONS_EXCEEDED`.
+- Modos abandonados se liberan automáticamente en 5 min; otros sockets del mismo usuario no quedan bloqueados.
+- Errores fatales de BD interrumpen la partida con feedback claro al cliente, no la dejan en limbo.
+- La UI puede mostrar mensajes diferenciados gracias a códigos estables.
+- Dashboard `/api/metrics/rfid` permite monitorización externa de salud del sensor.
+- F5 accidental durante una partida activa muestra el estado previo en menos de 50 ms; el sync canónico reconcilia después.
+- Scans pendientes sobreviven a desconexiones largas y recargas de página vía IndexedDB.
+
+**Negativas / trade-offs**
+
+- Más estado en memoria (`rfidModeTimers`, `cardNotInPlayCounters`, `_scanTimestamps`) — acotado y purgado periódicamente.
+- IndexedDB añade complejidad y un punto más de fallo (degradado silenciosamente si IDB no está disponible).
+- Heartbeat cada 60 s genera tráfico WebSocket adicional, pero `volatile.emit` es barato y la carga es marginal.
+- Los códigos de error son contrato: cualquier cambio futuro requiere coordinación frontend/backend con deprecación.
+
+### Verificación
+
+- Tests Jest nuevos: `tests/realtime/connectionLifecycle.test.js`, `tests/realtime/rfidModeWatchdog.test.js`, `tests/services/gameEngineRfidErrorPaths.test.js`, `tests/services/gameEngineObservability.test.js`, `tests/controllers/metricsController.test.js`, `tests/constants/errorCodes.test.js`.
+- Tests Vitest nuevos: `webSerialService.parser.test.js`, `webSerialService.reconnect.test.js`, `sessionSnapshot.test.js`, `pendingScansStore.test.js`, `FallbackTouchPanel.test.jsx`.
+- `npm test` 966/966 backend, 246/246 frontend.
+- `npm run lint` 0 warnings ambos.
+- `npm run audit:prod` 0 vulnerabilidades.
+- Endpoint validado en Docker: `GET /api/metrics/rfid` con teacher token devuelve `health: 'ok'` y shape correcta.
+
+### Referencias
+
+- `backend/src/realtime/socketHandlers.js`, `backend/src/services/gameEngine/GameEngine.js`, `backend/src/services/rfidService.js`
+- `backend/src/constants/errorCodes.js` (nuevo)
+- `backend/src/controllers/metricsController.js`, `backend/src/routes/metrics.js` (nuevos)
+- `frontend/src/services/webSerialService.js`, `frontend/src/services/socket.js`, `frontend/src/hooks/useGameSocket.js`
+- `frontend/src/components/ui/RFIDConnector.jsx`, `frontend/src/components/game/FallbackTouchPanel.jsx`
+- `frontend/src/lib/sessionSnapshot.js`, `frontend/src/lib/pendingScansStore.js` (nuevos)
+- `frontend/src/pages/GameSession.jsx` (integración snapshot)
+- `backend/docs/RFID_Protocol.md` apéndices C/D/E
+- `backend/docs/RFID_Runtime_Flows.md` §§12-14
+- `frontend/docs/05-GAMEPLAY-REALTIME.md`
+- `documentation/Firmware_RFID_Findings.md` (propuesta para tutor sobre el firmware inmutable)
+
+---
+
+## ADR-063: Snapshot de partida en sessionStorage + queue persistente IndexedDB [Frontend]
+
+### Contexto
+
+Dos casos de uso quedaban descubiertos por el modelo "estado canónico vive en el servidor":
+
+1. **F5 accidental durante una partida**: el reconnect del Socket.IO + `play_state_sync` reconcilia en ~200-500 ms, pero el alumno ve un flash de "ronda 1 / score 0" hasta que llega el sync. Para un niño de 4-6 años bajo presión de tiempo, esos 500 ms son desconcertantes.
+2. **Desconexión socket larga (>30 s)**: la cola en memoria `pendingScans[]` (TTL 30 s) descartaba scans antiguos. Si la conexión cae 1 min en plena partida, los scans del alumno se pierden.
+
+### Decisión
+
+Persistencia local en dos niveles complementarios:
+
+1. **`sessionStorage` para snapshot del estado de juego** — `frontend/src/lib/sessionSnapshot.js`:
+   - Clave: `rfid_game_snapshot_<playId>`.
+   - TTL: 10 min (`SNAPSHOT_TTL_MS`). Snapshot más viejo se descarta al cargar.
+   - Esquema versionado (`SNAPSHOT_SCHEMA_VERSION`): si cambiamos la forma del estado guardado, incrementar para invalidar snapshots antiguos sin romper la app.
+   - API minimalista: `saveSnapshot(playId, state)`, `loadSnapshot(playId)`, `clearSnapshot(playId)`, `purgeExpiredSnapshots()`.
+   - Integración en `GameSession.jsx`: hidratación al montar (antes del sync), persistencia en cada cambio del reducer relevante, limpieza en `gameState === 'finished'` y al desmontar.
+
+2. **`IndexedDB` para scans pendientes** — `frontend/src/lib/pendingScansStore.js`:
+   - DB: `rfid_game_db`, store: `pendingScans` con `keyPath: 'id'` autoIncrement.
+   - TTL: 10 min (`DEFAULT_TTL_MS`). Purgado en `connect()` antes de hidratar.
+   - API: `add(payload)`, `getAll()`, `remove(id)`, `purgeOlderThan(ttlMs)`, `clear()`.
+   - Integración en `webSerialService`: `enqueuePendingScan` persiste además del push en memoria; `flushPendingScans` elimina al enviar; `hydratePendingScansFromStorage()` mergea persistidos al `connect()`.
+   - Best-effort: si IDB no está disponible (modo incógnito, cuota agotada), opera sólo con la cola en memoria sin lanzar.
+
+### Consecuencias
+
+**Positivas**
+
+- F5 accidental → UI vuelve al estado previo en menos de 50 ms; el sync del servidor reconcilia silenciosamente. La pantalla en blanco desaparece.
+- Scans realizados durante una desconexión larga del socket sobreviven a F5 o crash del navegador.
+- Aislamiento por pestaña (sessionStorage no localStorage) evita conflictos entre dos sesiones simultáneas del profesor.
+- Esquema versionado permite migrar la forma del snapshot sin romper sesiones en curso.
+
+**Negativas / trade-offs**
+
+- IndexedDB añade dependencia de devDep `fake-indexeddb` para tests.
+- sessionStorage write se hace en cada cambio relevante del reducer — síncrono pero rápido (menos de 1 ms para payload pequeño). Si en el futuro el snapshot crece mucho, considerar throttle.
+- Modo incógnito o navegadores con storage deshabilitado degradan a comportamiento previo (sin snapshot/persistencia) — aceptable.
+- IDB transactions tienen su propia event loop; `fake-indexeddb` colisiona con `vi.useFakeTimers` en algunos tests (workaround: TTL pequeño + `setTimeout` real).
+
+### Verificación
+
+- `frontend/src/lib/__tests__/sessionSnapshot.test.js` — 9 tests (TTL, esquema versionado, JSON corrupto, purge, multi-playId).
+- `frontend/src/lib/__tests__/pendingScansStore.test.js` — 6 tests (add/getAll/remove/purge/clear + degradación).
+- Validación manual recomendada: levantar Docker, iniciar partida, F5 mid-ronda, verificar UI restaurada inmediata; cerrar backend 30 s y reabrir, verificar que los scans realizados durante la desconexión llegan al reconectar.
+
+### Referencias
+
+- `frontend/src/lib/sessionSnapshot.js`, `frontend/src/lib/pendingScansStore.js`
+- `frontend/src/pages/GameSession.jsx` (integración snapshot)
+- `frontend/src/services/webSerialService.js` (integración IDB)
+- `frontend/docs/05-GAMEPLAY-REALTIME.md` (resiliencia + IDB)
+- ADR-062 (decisión hermana: hardening del pipeline backend)
+
+---
+
+## ADR-064: Cobertura total de cache-aside en endpoints de analytics [Backend]
+
+### Contexto
+
+ADR-020 introdujo el patrón cache-aside en Redis con tres niveles (mecánicas 1h, contextos 30min, analytics 5min) y se aplicó inicialmente a `getClassroomSummary`, `getClassroomDistribution` y a todos los endpoints "advanced" creados en T-066. Sin embargo, nueve handlers "clásicos" de `analyticsController.js` — `getStudentProgress`, `getStudentDifficulties`, `getClassroomComparison`, `getClassroomDifficulties`, `getClassroomTrends`, `getStudentSummary`, `getClassroomHeatmap`, `getClassroomRankings` y `getClassroomStudents` — seguían consultando MongoDB con aggregations complejas (varias con `$facet` y `$lookup`) en cada request. Un profesor navegando rápido por distintas pestañas del dashboard disparaba decenas de aggregations idénticas al mismo `teacherId`/`studentId`, sin beneficio respecto al primer fetch.
+
+La inconsistencia entre ambos grupos de endpoints violaba además la preferencia del proyecto por migraciones completas: si el patrón sirve para unos, debe servir para todos.
+
+### Decisión
+
+Envolver los nueve handlers restantes con `cacheGet('cache:analytics', <key>, fetchFn, <ttl>)` del helper ya existente en `backend/src/utils/cacheHelper.js`. TTLs diferenciados por volatilidad y granularidad:
+
+- **300s** para KPIs agregados de clase (comparison, difficulties, trends, heatmap).
+- **600s** para rankings de clase (contextos/mecánicas) — más estables a nivel de clase.
+- **180s** para datos individuales de un estudiante (progress, difficulties, summary).
+- **120s** para `getClassroomStudents` — incluye filtros dinámicos y k-anonimidad, cambia más frecuentemente.
+
+Las claves incluyen `teacherId` y parámetros relevantes (`timeRange`, `limit`, filtros) para evitar colisiones entre usuarios o variantes del mismo dashboard.
+
+**Exclusión explícita**: `getStudentsIdentity` NO se cachea por contener PII directa (name, avatar, profile.age, profile.classroom). El comentario en el código justifica la decisión — cachear ampliaría la superficie de exposición con beneficio marginal (query simple por createdBy + role).
+
+**Invalidación**: además del TTL natural, `GameEngine.endPlay` ejecuta `cacheInvalidateNamespace('cache:analytics').catch(...)` en fire-and-forget tras persistir la partida. Esto garantiza frescura inmediata en el dashboard del profesor cuando un alumno termina o abandona una partida. La invalidación por namespace es suficientemente barata (SCAN + DEL) y el escenario estable es que los TTL hagan el trabajo.
+
+### Consecuencias
+
+**Positivas**
+
+- Los dashboards en uso real (profesor abriendo múltiples pestañas) ejecutan 1 aggregation por namespace/parámetros en vez de N.
+- Consistencia: los 11 endpoints de analytics "clásicos" + 19 endpoints "advanced" siguen el mismo patrón de cache-aside.
+- El fallback transparente cuando Redis cae (documentado en ADR-020) sigue aplicando — cero cambios en contratos externos.
+
+**Negativas**
+
+- La invalidación por namespace en `endPlay` borra TODO `cache:analytics` (también de otros profesores). Aceptado: el re-fetch es barato, el TTL amortigua, y la alternativa (invalidación por teacherId específica) requiere mantener índices secundarios que no se justifican en v0.5.0.
+- Ventana máxima de staleness = TTL de cada key si no hay play completada mientras tanto (300-600s). Aceptable para el caso de uso educativo (no es monitorización realtime).
+
+### Verificación
+
+- `backend/tests/analyticsCacheCoverage.test.js` — 11 tests, uno por endpoint, verifican que (1) la primera llamada escribe la key esperada en `cache:analytics` con el nombre correcto y (2) la segunda llamada no invoca el service (cache HIT).
+- `backend/tests/endPlayInvalidatesAnalyticsCache.test.js` — 3 tests: completar una partida borra las keys sembradas en el namespace; abandonar una partida también; endPlay sin playState en memoria es no-op.
+- Verificación manual con Redis CLI: `redis-cli --scan --pattern 'rfid-games:cache:analytics:*' | wc -l` crece al navegar el dashboard y se limpia tras completar una partida.
+
+### Referencias
+
+- `backend/src/controllers/analyticsController.js` (9 handlers envueltos)
+- `backend/src/services/gameEngine/GameEngine.js` (invalidación fire-and-forget en `endPlay`)
+- `backend/src/utils/cacheHelper.js` (helper preexistente, sin cambios)
+- ADR-020 (decisión original de cache-aside)
+
+---
+
+## ADR-065: Cache distribuido de slim-user en middleware de autenticación [Backend]
+
+### Contexto
+
+Cada request HTTP autenticado (`middlewares/auth.authenticate`) y cada handshake WebSocket ejecutaba un `userRepository.findById(decoded.id)` sobre MongoDB para obtener `role`, `status`, `accountStatus`, `currentSessionId`, `name` y `consent`. Con 20 profesores trabajando simultáneamente (~50 req/min/u) son ~1000 lookups/min; datos que cambian con frecuencia muy baja (segundos, no milisegundos).
+
+Existía ya un cache local per-process en `socketHandlers.js` (`authRevalidationCache`, TTL 30s) que amortiguaba el impacto en Socket.IO, pero no cubría HTTP ni compartía estado entre instancias en un despliegue multi-réplica.
+
+### Decisión
+
+Introducir un cache-aside Redis en el namespace `auth:user` con TTL de 60 segundos, encapsulado en dos helpers exportados por `middlewares/auth.js`:
+
+- `fetchUserForAuth(userId, select)` — consulta Redis primero, cae a `userRepository.findById` en miss, y escribe el POJO serializado con `setWithTTL` en fire-and-forget.
+- `invalidateUserCache(userId)` — elimina la entrada para forzar re-fetch en el siguiente request.
+
+Se cachea un **slim POJO** resultante de `userDoc.toObject({ virtuals: true })`, eliminando `password` como defensa en profundidad. `authenticate` y `optionalAuth` (HTTP) y los dos puntos de verificación en `socketHandlers.js` (handshake y ownership re-check) usan el helper.
+
+**Invalidación explícita** en cuantos puntos muten los campos cacheados:
+
+- `authController.login` al rotar `currentSessionId`.
+- `authController.updateProfile` al cambiar `name` o `profile`.
+- `authController.changePassword` al rotar `currentSessionId`.
+- `authController.refreshAccessToken` si se asigna `currentSessionId` (flujo legacy).
+- `userController.updateUser` y `userController.deleteUser` (soft delete a inactive).
+- `userService.updateUser`.
+- `authenticate` (en logout): se rota `currentSessionId` via `userRepository.updateById` y se invalida el cache en lugar del antiguo `req.user.save()`.
+
+**TTL de 60 segundos** — equilibra dos fuerzas: ventana máxima de staleness tras un ban o cambio de estado (aceptable para un TFG educativo: peor caso es una ronda de partida) vs. reducción efectiva de queries (>90% en carga típica). El `security flag` de `revokeAllUserTokens` no pasa por este cache — sigue siendo inmediato porque se consulta vía `checkSecurityFlag` sobre el namespace `security:<userId>` independiente.
+
+### Consecuencias
+
+**Positivas**
+
+- Reducción drástica de queries a `users` en cada request autenticado (cache HIT rate esperado >90%).
+- `req.user` como POJO simplifica testing y DTO mappings.
+- Invalidación quirúrgica por eventos asegura que cambios críticos (role, status, sessionId) se propagan rápido.
+- Métricas nuevas en `runtimeMetrics.redis.authUserCacheHits/Misses` permiten observar la eficacia del cache.
+
+**Negativas**
+
+- `req.user` deja de ser un documento Mongoose con `.save()`. Los tres puntos que usaban `.save()` sobre `req.user` se migraron a `userRepository.updateById` + `invalidateUserCache`. El patrón general del proyecto (find explícito → save) no se ve afectado.
+- Ventana de 60s entre cambio y efecto para los campos cacheados. Documentado en `Seguridad_tokens_JWT.md`.
+- Si Redis cae, fallback transparente a MongoDB (el helper retorna el POJO de findById sin cachear) — mismo comportamiento que sin cache, sin penalización adicional.
+
+### Verificación
+
+- `backend/tests/authCache.test.js` — 9 tests sobre `fetchUserForAuth` (HIT/MISS, null user, password filtering) e `invalidateUserCache` (purge correcto, toString coerción, re-fetch post-invalidate).
+- `backend/tests/runtimeMetrics.test.js` — verifica que los contadores `authUserCacheHits/Misses` incrementan y se resetean.
+- Verificación manual: tras login, `redis-cli TTL 'rfid-games:auth:user:<userId>'` entre 0 y 60.
+
+### Referencias
+
+- `backend/src/middlewares/auth.js` (`fetchUserForAuth`, `invalidateUserCache`, integración en `authenticate` y `optionalAuth`)
+- `backend/src/realtime/socketHandlers.js` (uso de `fetchUserForAuth` en handshake y revalidación)
+- `backend/src/controllers/authController.js`, `backend/src/controllers/userController.js`, `backend/src/services/userService.js` (invalidación tras mutaciones)
+- `backend/src/utils/cacheHelper.js` (reutilización)
+- ADR-020 (patrón cache-aside base)
+- ADR-041 (recovery post-reconnect, mecanismo análogo de propagación de eventos)
+
+---
+
+## ADR-066: Idempotencia distribuida en `startPlay` mediante `SET NX` [Backend]
+
+### Contexto
+
+`GameEngine.startPlay` contaba con un guard in-memory (`this.activePlays.has(playId)`) que evitaba doble arranque en single-process, introducido en T-055. Con el Socket.IO Redis adapter activo (ADR-011) y un despliegue multi-instancia, dos réplicas podían recibir concurrentemente un `start_play` para el mismo `playId` (p.ej. un cliente que retransmite por timeout percibido). Cada réplica pasaba su guard local, ejecutaba `syncPlayToRedis`, `sendNextRound` y emitía `new_round` — duplicando tráfico al cliente y corrompiendo el estado.
+
+`reserveCardsAtomic` (ADR-004, T-066) ya protegía contra race conditions de card locks, pero no cubría `sendNextRound` ni la emisión de eventos realtime.
+
+### Decisión
+
+Añadir un lock distribuido `SET NX` con TTL 60s al inicio del cuerpo de `executeWithPlayLock('startPlay', ...)`:
+
+```js
+const acquired = await redisService.setIfNotExists('play:init', playId, 'initializing', 60);
+if (!acquired) {
+  logger.warn(`Partida ${playId}: otra instancia ya está inicializando`);
+  return;
+}
+```
+
+El lock **no se libera manualmente** — el TTL de 60s lo purga. 60s cubre con margen el peor caso de `startPlay` (<2s: populate mechanic, board layout, primera ronda) + cualquier GC stop del event loop + margen de seguridad. Si la instancia muere durante la inicialización, el TTL permite a otra instancia reintentar en ≤60s — compatible con el recovery existente.
+
+Reutiliza el namespace `play:init` (nuevo) y la función `setIfNotExists` ya implementada en `redisService.js`. Si Redis cae, `setIfNotExists` retorna `true` por fallback (ver patrón en `redisService`), lo que degrada el comportamiento al guard in-memory previo — aceptable porque sin Redis tampoco hay multi-instancia real.
+
+### Consecuencias
+
+**Positivas**
+
+- En despliegues multi-instancia, exactamente una réplica ejecuta `startPlay` por playId incluso bajo requests concurrentes.
+- Defensa en profundidad: `reserveCardsAtomic` sigue protegiendo las cards; este lock protege la inicialización completa.
+- Latencia añadida despreciable (1 EVAL Redis ~1ms).
+
+**Negativas**
+
+- TTL de 60s implica que si `startPlay` falla silenciosamente antes de registrar en `activePlays`, hay que esperar hasta 60s para reintentar. Aceptable: error log en Sentry + retry desde el cliente.
+- No libera explícitamente el lock al completar exitosamente — decisión consciente: liberarlo prematuramente permitiría re-entry malicioso o accidental.
+
+### Verificación
+
+- `backend/tests/gameEngineStartPlayIdempotency.test.js` — 3 tests: (1) con el lock pre-ocupado, startPlay aborta sin tocar `activePlays` ni emitir `new_round`; (2) sin lock previo, el spy captura la llamada a `setIfNotExists` con los parámetros exactos; (3) el TTL de la key es ≤60s.
+- Verificación manual en Docker con dos instancias simuladas (tests/gameEngineDistributedLock.test.js existente no regresó).
+
+### Referencias
+
+- `backend/src/services/gameEngine/GameEngine.js` (método `startPlay`)
+- `backend/src/services/redisService.js` (namespace `PLAY_INIT_LOCK`, `setIfNotExists` preexistente)
+- ADR-004 (locks distribuidos de UIDs con lease+heartbeat — decisión hermana)
+- ADR-011 (Socket.IO Redis adapter que habilita multi-instance)
+
+---
+
+## ADR-067: Observabilidad y endurecimiento del fallback in-memory del rate limiter HTTP [Backend]
+
+### Contexto
+
+La factory `createRedisStore` en `config/security.js` se invoca **una vez por limiter al boot del servidor**. Si Redis no está disponible en ese momento, retorna `undefined` y el limiter cae a `MemoryStore` de `express-rate-limit`. Esto tiene dos problemas:
+
+1. **No reversible**: aunque Redis vuelva segundos después, el limiter queda anclado a memoria hasta un reinicio del proceso. No hay lógica de re-intento del store.
+2. **Silencioso**: un único `logger.warn` puntual que se pierde en el ruido. En producción, un operador no se entera hasta que detecta tráfico anómalo.
+
+En multi-instancia, un limiter en `MemoryStore` fragmenta el límite global: cada réplica lleva su propio contador (N réplicas × máx = N veces el límite efectivo), anulando la protección bajo ataque coordinado.
+
+### Decisión
+
+Endurecer la observabilidad del fallback sin cambiar el comportamiento funcional:
+
+1. Reportar cada fallback con log estructurado. En `NODE_ENV==='production'`, nivel `error` con `alert: true` + `fallback: 'memory'` + `reason` para que Sentry lo ingeste y alerte. En desarrollo, nivel `warn`.
+2. Incrementar un nuevo contador `rateLimitStoreFallbackCount` en `runtimeMetrics.redis`, expuesto vía `/api/metrics` (patrón existente).
+3. Comentario visible en `createRedisStore` documentando la naturaleza one-shot del boot y la deuda técnica de la re-creación lazy (pospuesta a Sprint 6 en la propuesta PROP-59-64 de `Rate_Limiting_Analysis.md`).
+
+No se cambia la lógica de creación — una reescritura a store lazy que se re-cree ante reconexión de Redis tiene implicaciones (stateful reset del cache en memoria durante la transición) y se acota a una decisión de arquitectura propia.
+
+### Consecuencias
+
+**Positivas**
+
+- Cualquier fallback a memoria genera ahora un evento Sentry con contexto (prefix, reason) que permite al operador reaccionar (reinicio de servicio, investigación).
+- La métrica `rateLimitStoreFallbackCount` en `/api/metrics` permite dashboards y alertas automáticas.
+- Comportamiento funcional preservado: cero riesgo de regresión.
+
+**Negativas**
+
+- El problema de fragmentación del límite en multi-instancia bajo fallback sigue existiendo. Esto es deuda técnica explícita, documentada para Sprint 6.
+- Un operador humano sigue siendo necesario para reaccionar — no hay auto-recovery.
+
+### Verificación
+
+- `backend/tests/runtimeMetrics.test.js` — verifica que `recordRateLimitStoreFallback` incrementa el contador y que `reset()` lo limpia.
+- Verificación manual: bajar Redis antes de arrancar backend en modo dev → `GET /api/metrics/system` (o eq.) muestra `redis.rateLimitStoreFallbackCount >= 1` y los logs reportan el fallback.
+
+### Referencias
+
+- `backend/src/config/security.js` (`createRedisStore` con `reportFallback` helper interno)
+- `backend/src/utils/runtimeMetrics.js` (`recordRateLimitStoreFallback`, `redis.rateLimitStoreFallbackCount`)
+- `backend/docs/Rate_Limiting_Analysis.md` (deuda técnica documentada: re-creación lazy y propuestas Sprint 6)
+
+---
+
+## ADR-068: Lazy promotion de rate limiters HTTP a Redis store [Backend]
+
+### Contexto
+
+ADR-067 documentó la deuda técnica del fallback in-memory del rate limiter: los 8 limiters se creaban en el `require('./config/security')` ejecutado al top del `server.js`, antes de que `await connectRedis()` dentro de `startServer()` hubiera resuelto. `createRedisStore()` devolvía `undefined` y los limiters quedaban anclados a `MemoryStore` para toda la vida del proceso, incluso tras la conexión de Redis ~270 ms más tarde.
+
+La auditoría QA del 2026-04-20 confirmó el impacto en producción: `rateLimitStoreFallbackCount == 8` al boot, keys `rl:*` siempre vacías en Redis, rate-limit efectivamente no distribuido en multi-instancia. Esto invalidaba la promesa del ADR-016 (T-521 del Sprint 5).
+
+Además, la auditoría encontró cuatro hallazgos relacionados que se resuelven en el mismo cambio: DTO `toSystemMetricsDTOV1` no exponía el bloque `redis` pese a que `runtimeMetrics` lo recolectaba (BUG-QA-2); `unhandledRejection` ejecutaba `gracefulShutdown` y mataba el proceso ante cualquier promise rechazada (incluyendo operaciones Redis durante blips), causando reinicios del contenedor (BUG-QA-3); 5 `keyGenerator` custom usaban `req.ip` directo sin `ipKeyGenerator` helper (BUG-QA-4, posible bypass IPv6); el lock `play:init:<playId>` nunca se liberaba tras `endPlay` y dependía únicamente del TTL de 60 s (OBS-QA-1).
+
+### Decisión
+
+Refactor integral del `config/security.js` + ajustes puntuales en `server.js`, `utils/dtos.js`, `controllers/healthController.js`, `services/gameEngine/GameEngine.js` y el nuevo `utils/ipHelper.js`:
+
+1. **Factory deferida con registry interno** (BUG-QA-1):
+   - `createRateLimiter(options)` ahora registra la configuración en `limiterConfigs` y devuelve un middleware **shim** que delega al limiter real cuando éste exista en `rateLimitersRegistry`. Antes de la inicialización el shim hace `next()` (fail-open temprano).
+   - Nueva función `initRateLimiters()` (idempotente) instancia los 8 limiters reales con `createRedisStore(prefix)` ya operativo. Se llama desde `server.js` inmediatamente tras `await connectRedis()`, o en la rama de fallback dev tras el warning de Redis no disponible.
+   - Los exports (`globalRateLimiter`, `authRateLimiter`, etc.) siguen siendo funciones middleware válidas desde el require-time, preservando el contrato de las 11 rutas sin cambios.
+
+2. **Helper compartido `userOrIpKeyGenerator`** (BUG-QA-4):
+   - Nuevo `utils/ipHelper.js` con `userOrIpKeyGenerator(req)` que devuelve `user:<id>` si hay autenticación o `ip:${ipKeyGenerator(req.ip)}` en otro caso. `ipKeyGenerator` de `express-rate-limit` normaliza IPv6 al `/64` (subred /64 es la unidad mínima de asignación global), evitando bypass por prefijos dentro del mismo rango.
+   - Reemplaza 5 definiciones inline duplicadas en `config/security.js`.
+
+3. **`passOnStoreError: true` en `initRateLimiters`**: si Redis cae mid-request, `rate-limit-redis` emite error y `express-rate-limit` deja pasar el request (fail-open) en vez de devolver 500. Combinado con el punto siguiente evita tumbar el servicio durante blips de Redis.
+
+4. **`unhandledRejection` no mata el proceso** (BUG-QA-3): `server.js:439-446` solo loguea y reporta a Sentry. Recomendación oficial Node desde 2020; el estado del proceso sigue válido porque el caller que generó la rejection ya falló localmente. `uncaughtException` mantiene el shutdown (estado incierto justifica exit).
+
+5. **DTO expone bloque `redis`** (BUG-QA-2): `toSystemMetricsDTOV1` añade `redis: payload.redis` y `healthController.getMetrics` pasa `snapshot.redis`. `/api/metrics` ya muestra `authUserCacheHits/Misses` y `rateLimitStoreFallbackCount` donde prometía el commit a52e62e.
+
+6. **Liberación explícita del lock `play:init`** (OBS-QA-1): `GameEngine.endPlay` hace `redisService.del(NAMESPACES.PLAY_INIT_LOCK, playId)` tras limpiar el estado, envuelto en try/catch silencioso porque el TTL 60s ya es red de seguridad. Además `startPlay` ahora usa la constante `NAMESPACES.PLAY_INIT_LOCK` en vez del literal (coherencia con el resto del módulo).
+
+### Consecuencias
+
+**Positivas**
+
+- Rate-limit HTTP **realmente distribuido** en multi-instancia: las keys `rl:global:`, `rl:auth:`, `rl:analytics:user:<id>`… aparecen en Redis al primer request. `rateLimitStoreFallbackCount == 0` en boot normal.
+- Backend **sobrevive** caídas temporales de Redis: `RestartCount` del contenedor ya no se incrementa ante `docker stop redis` + requests.
+- Observabilidad completa: `/api/metrics` muestra hits del cache auth (~84-88 % en uso real) y cualquier incidente de fallback queda visible automáticamente en dashboards.
+- `passOnStoreError: true` garantiza que un blip de Redis no tira el servicio entero con 500s.
+- Sin IPv6 bypass: las ventanas se agrupan correctamente al /64.
+- Lock `play:init` liberado explícitamente: retries rápidos del cliente tras endPlay dejan de experimentar "abort silencioso" durante 60 s.
+
+**Negativas / trade-offs**
+
+- Durante la ventana de boot (entre `require` y `initRateLimiters()`) el shim deja pasar todos los requests. En la práctica esta ventana es < 2 s porque `initRateLimiters()` se llama inmediatamente tras `await connectRedis()` (el servidor aún no escucha en el puerto hasta `server.listen()`, 30+ líneas más abajo). Sin impacto real.
+- `unhandledRejection` sin exit puede ocultar bugs de código que dejaba promises sin `.catch()`. Mitigación: Sentry recoge cada evento; se monitoriza el ratio en la primera semana post-merge.
+- Cambio del `keyGenerator` normaliza IPv6 al /64, lo que invalida contadores previos por IP específica durante el despliegue. Aceptable (single event).
+
+### Verificación
+
+- `backend/tests/rateLimitRedisStore.test.js` extendido: idempotencia de `initRateLimiters`, shim pre-init = noop, keyGenerator IPv6 al /64, keyGenerator user:<id>.
+- `backend/tests/endPlayReleasesInitLock.test.js` (nuevo): 4 tests cubren completion, abandoned, error en `del` (no propaga), y lock no adquirido.
+- `backend/tests/metricsEndpoints.test.js` extendido: `/api/metrics` debe exponer `redis.rateLimitStoreFallbackCount`, `authUserCacheHits`, `authUserCacheMisses`.
+- Suite completa: 71 suites / 1003 tests verdes (antes 70 / 993).
+- E2E Docker: tras boot, `KEYS rfid-games:rl:*` muestra ≥ 1 key por prefix tras requests. `docker stop redis` + requests → backend `RestartCount` permanece 0.
+
+### Referencias
+
+- `backend/src/config/security.js` (registry, `initRateLimiters`, shim factory, keyGenerator compartido)
+- `backend/src/utils/ipHelper.js` (nuevo — `userOrIpKeyGenerator`)
+- `backend/src/server.js` (invocación post-connectRedis + eliminación de shutdown en unhandledRejection)
+- `backend/src/utils/dtos.js` (bloque `redis` en DTO)
+- `backend/src/controllers/healthController.js` (propaga `snapshot.redis`)
+- `backend/src/services/gameEngine/GameEngine.js` (`endPlay` libera lock; `startPlay` usa constante)
+- `memory/project_qa_2026_04_20.md` (auditoría QA que identificó los 5 defectos)
+- ADR-016 (rate limiting distribuido Sprint 5 — ahora realmente cumplido)
+- ADR-065/066/067 (ADRs previos que introdujeron las funcionalidades cuya integración se endurece aquí)
+
+---
+
+## ADR-069: Accesibilidad keyboard-first + empty states contextualizados + variantes visuales del ConfirmationModal [Frontend]
+
+**Fecha:** 2026-04-21
+
+**Estado:** Aceptado
+
+**Alcance:** Frontend
+
+### Contexto
+
+Pre-release v0.5.0, audit senior de accesibilidad (WCAG 2.2 AA) y UX para usuarios no tecnicos (profesores y jefes de estudio). El codigo ya tenia base accesible (skip link, focus-trap en modales, `useReducedMotion`, tokens OKLCH) pero presentaba tres clases de problemas:
+
+1. **Gaps de accesibilidad con impacto real para profesores**: mensajes de error de validacion sin `role="alert"`, formularios sin focus-on-first-invalid, celdas del heatmap de actividad solo accesibles por hover, alertas criticas sin icono complementario al color rojo (daltonismo ~8% hombres), etc.
+2. **Micro-UX sin pulido**: feedback tras guardar modales abrupto, indicadores de filtros activos escondidos, input numerico sin `inputMode`, toggle de animaciones ilegible.
+3. **Estetica "AI-slop" en superficies secundarias**: el ConfirmationModal trataba todas las variantes (danger/warning/success/info/archive) con identico layout y solo cambio de color de icono. El EmptyState generico fallaba en transmitir identidad de producto.
+
+### Decisiones
+
+Se toman tres decisiones arquitectonicas que conviven:
+
+**1. Patron `role="alert"` + `aria-describedby` extendido + `useFormFocusFirstError`:**
+- `InputPremium` emite `role="alert"` en el `motion.p` del error; el shake via WAAPI (ya existente) se mantiene porque respeta `prefers-reduced-motion`.
+- `aria-describedby` se extiende para cubrir tambien `helperText` (antes solo cubria error/hint).
+- Nuevo hook `useFormFocusFirstError(errors)` que devuelve un `ref` para el `<form>`; al cambiar `errors`, busca `[aria-invalid="true"]` y focusea el primero en el siguiente frame. Aplicado en Login y Register (unicos forms con validacion inline por campo; los wizards tienen su propio stepper).
+
+**2. `EmptyState` con prop `illustration` + prop `variant` ('default' | 'filtered' | 'first-use'):**
+- El componente toma una `illustration` (React node, tipicamente un SVG inline) que sustituye al contenedor circular del icono y se renderiza a ~180px.
+- La variante `filtered` muestra un chip "Sin resultados para tu busqueda" y encaminja el CTA a "Limpiar filtros". La variante `first-use` habilita un `secondaryAction`.
+- Se crean 4 SVG inline como componentes en `components/ui/illustrations/` (`EmptySessions`, `EmptyDecks`, `EmptyContexts`, `EmptyStudents`). Cada una usa tokens CSS (`var(--color-brand-base)`, `var(--color-accent-indigo)`, etc.) para coherencia con el tema, y animacion sutil (`y:[0,-3,0]` bobbing, 3-4s infinite) que respeta `prefers-reduced-motion`.
+- `title` ahora usa `<motion.h2>` (prop `titleLevel` para subir/bajar) para jerarquia semantica correcta.
+
+**Razon para SVG inline en lugar de externos:** evitar request extra por pagina, permitir tokenizar colores con CSS custom properties (dark mode nativo), y mantener el bundle por ruta (cada pagina importa solo su ilustracion). Coste: ~60 lineas SVG por componente, asumible.
+
+**3. `ConfirmationModal` con variantes visuales distintivas:**
+- Cada variante (danger/warning/archive/info/success) recibe ahora: `border-{variant}-base/30`, `tint` sutil en el top del modal (`bg-gradient-to-b from-{variant}-base/10 to-transparent`, opacidad 70% sobre 96px), `glow` en el contenedor del icono (`shadow-[0_0_24px_var(--color-{variant}-glow)]`), y `iconAnimation` especifica por tipo.
+- Animaciones por variante: `danger` pulsa infinito (1.4s), `warning` oscila 1x al entrar, `success` entra con `backOut`, `archive` desliza lateral, `info` fade sutil. Todas se apagan con `shouldReduceMotion`.
+- Se mantiene el focus-trap, Escape, aria-modal, aria-labelledby/describedby existentes, y se anade `aria-busy={loading}`.
+
+### Consecuencias
+
+**Positivas:**
+- WCAG 2.2 AA cumplido en los hallazgos criticos del audit (A4, A10, D3, A3, G2 del reporte de exploracion).
+- Percepcion de calidad visual elevada sin rediseno: el sidebar se siente vivo (logo con breathing scale), el ConfirmationModal de eliminar se siente "peligroso" sin ser agresivo, los empty states no son "pantalla vacia" sino pantalla con intencion.
+- Consistencia: patrones reutilizables (`useFormFocusFirstError`, `EmptyState variant`, `ActiveFiltersBar`) previenen que proximas features bajen el baseline.
+
+**Negativas / trade-offs:**
+- Bundle incrementado ~8KB minificado por ilustraciones SVG inline (4 componentes). Aceptable: se carga solo cuando el empty state se renderiza (paginas separadas en chunks).
+- `ConfirmationModal` con icon pulse infinito en `danger` podria distraer en pantallas muy grandes; solucion adoptada: animacion de 1.4s con easeInOut (no "frenetica") y delay 0.6s tras la entrada (da tiempo al usuario a leer primero).
+- Banner de 4px para super_admin anade una zona no-interactiva fija arriba; aceptable porque solo afecta al rol administrador (minoritario).
+
+### Alternativas consideradas
+
+- **SVG sprites externos**: descartados por no evitar el request y por complicar la tokenizacion de colores.
+- **Fondo pleno del modal tintado por variante (no solo top gradient)**: descartado por ser demasiado intrusivo en un flujo de confirmacion.
+- **Ilustraciones Lottie**: descartadas por peso y complejidad innecesaria para "bobbing sutil" que hacemos en SVG + Framer Motion en 3 lineas.
+
+### Archivos clave afectados
+
+**Nuevos:**
+- `frontend/src/hooks/useFormFocusFirstError.js`
+- `frontend/src/components/ui/ActiveFiltersBar.jsx`
+- `frontend/src/components/ui/illustrations/EmptySessionsIllustration.jsx`
+- `frontend/src/components/ui/illustrations/EmptyDecksIllustration.jsx`
+- `frontend/src/components/ui/illustrations/EmptyContextsIllustration.jsx`
+- `frontend/src/components/ui/illustrations/EmptyStudentsIllustration.jsx`
+- `frontend/src/components/ui/illustrations/index.js`
+
+**Modificados:**
+- `frontend/src/components/ui/InputPremium.jsx` — role=alert + aria-describedby extendido
+- `frontend/src/components/ui/EmptyState.jsx` — props illustration/variant/titleLevel + secondaryAction
+- `frontend/src/components/ui/ConfirmationModal.jsx` — border, tint, glow e iconAnimation por variante
+- `frontend/src/components/ui/Tooltip.jsx` — aria-label del wrapper cuando hijo no es interactivo
+- `frontend/src/components/layout/AppLayout.jsx` — aria-label del aside, banner super_admin, logo breathing, NavItem chevron reveal, badge DOCENTE/DIRECCION, toggle animaciones legible
+- `frontend/src/components/analytics/ActivityHeatmap.jsx` — celdas como button con onFocus/onBlur
+- `frontend/src/components/analytics/AlertsHub.jsx` — SeverityCounter con icono + dot
+- `frontend/src/components/game/FallbackTouchPanel.jsx` — grid md:grid-cols-6 + min-h-[56px]
+- `frontend/src/components/effects/Confetti.jsx` — useReducedMotion centralizado
+- `frontend/src/pages/Login.jsx`, `Register.jsx` — useFormFocusFirstError + password toggle aria-label
+- `frontend/src/pages/SessionEdit.jsx`, `admin/StudentManagement.jsx` — inputMode numeric + delay en success
+- `frontend/src/pages/CardDecksPage.jsx`, `SessionsPage.jsx`, `ContextsPage.jsx`, `admin/StudentManagement.jsx` — empty states con ilustracion y variante + ActiveFiltersBar
+
+### Referencias
+
+- `memory/project_a11y_ux_session_2026_04_21.md` — sesion de trabajo
+- Propuestas pendientes: PROP-65 a PROP-70 en `documentation/propuestas-mejora.md`
+- Skills usadas: `accessibility`, `ui-ux-pro-max`
+
+---
+
+## ADR-070: Sistema de motion signature "Tactile RFID + Paper" [Frontend]
+
+**Fecha:** 2026-04-21 (noche)
+**Autor:** Equipo EduPlay
+**Alcance:** Frontend
+**Estado:** Implementado
+
+### Contexto
+
+Tras las sesiones QA previas (ADRs 052-069) la app alcanzo un estado funcional y
+accesible, pero el diagnostico de motion revelo **desigualdad de calidad**: las
+signature animations (DeckCard tilt 3D, RFID radar, CharacterMascot, GameOverScreen
+score counter) conviven con tarjetas secundarias planas (SessionCard, ContextCard,
+AlertCard) y transiciones post-accion instantaneas. El riesgo era que la app se
+percibiera como "AI-slop dashboard SaaS" generico a pesar de su infraestructura
+de motion madura (tokens `DURATION`/`EASING`/`motionConfig` en `lib/utils.js`,
+reset global de `prefers-reduced-motion` en `index.css`, hook `useReducedMotion`).
+
+### Decision
+
+Se adopta un **leitmotiv dual** para toda la motion signature futura:
+
+1. **Tactile RFID** — refuerza la unicidad del producto (hardware RFID real):
+   - **Scanline** sutil barriendo top→bottom en hover de tarjetas secundarias
+     (nuevo primitivo `ScanlineOverlay`). Reservado a listados de Sesiones y
+     Contextos; NO en DeckCard (que ya tiene gradient-shift en borde).
+   - **Blip radial** unico al abrir `ConfirmationModal` variantes `danger` y
+     `warning` — marca "accion irreversible" con un anillo saliente del icono.
+   - **Pulse-glow** en logos de auth (Login/Register) y en `AlertCard` critica
+     — "respiracion" que indica atencion o actividad.
+
+2. **Paper / baraja fisica** — refuerza la metafora de objetos fisicos sobre una
+   mesa que se pueden tocar y escanear:
+   - **Entrada settle** (`motionConfig.springGame`) con scale inicial 0.94 y y
+     inicial -12px: los items caen y se asientan como papel.
+   - **Exit con rotate sutil** (-2deg) + slide izquierdo + scale 0.92: al
+     archivar/eliminar/clonar, el item "vuela" en lugar de desaparecer instantaneo.
+   - **Flip 3D** en la entrada del `ConfirmationModal` variante `danger`
+     (`rotateX: -8deg → 0`, `transformPerspective: 1000`): transmite "estas
+     tocando algo fisico, piensalo bien".
+   - **Float infinito** sobre las ilustraciones SVG de empty state: objetos que
+     reposan y flotan ligeramente en su lugar.
+
+### Implementacion
+
+**Primitivos nuevos:**
+- `frontend/src/components/ui/ScanlineOverlay.jsx` — componente reutilizable
+  que siempre renderiza la motion.span del barrido; la visibilidad se controla
+  desde fuera con utilidades Tailwind (`opacity-0 group-hover:opacity-100`).
+  Decision deliberada: **no aceptar un prop `active` JS-controlled** porque en
+  tests con `userEvent.click`, anadir `onMouseEnter/Leave` a un wrapper padre
+  (o al propio motion.div con `whileTap`) rompe la propagacion del click a los
+  buttons internos en jsdom con framer-motion 12. Toda la logica se hace via
+  CSS hover + animacion continua de la span (GPU transform, cost minimo).
+- `frontend/src/components/ui/illustrations/EmptyAlertsIllustration.jsx` —
+  quinta ilustracion inline (campana en reposo con ondas apagadas), coherente
+  con las 4 existentes. Exportada en `illustrations/index.js`.
+
+**Aplicaciones:**
+- `SessionsPage.jsx`, `ContextsPage.jsx`, `CardDecksPage.jsx` — grids envueltos
+  en `<AnimatePresence>` con variants locales `buildXxxCardVariants(shouldReduceMotion)`
+  que definen hidden/visible/exit. Entrada con `motionConfig.springGame`, exit
+  con rotate+slide+scale. Sin `mode="popLayout"` ni `layout` prop por
+  incompatibilidad con tests; el comportamiento visual restante cubre el
+  objetivo (exit animado).
+- `ContextCard` — migrada a `HoverLiftCard` sin wrapper extra; aplica
+  `resolveContextGlow(context)` para mapear el tema del contexto a un glowTint
+  de HoverLiftCard (animals→warning amber, geography→cyan, colors→pink, etc).
+- `AlertsHub` — `AlertCard` recibe `whileHover` (y=-2, scale=1.005), dot con
+  glow reforzado en critical, y `animate-pulse-glow` si severity=critical.
+  Empty state migrado a `<EmptyState illustration={<EmptyAlertsIllustration />}>`
+  con variante `filtered` vs default segun si hay filtros activos.
+- `EmptyState` — el wrapper del `illustration` recibe `animate-float` (antes
+  solo lo tenia el wrapper de `icon`); asi las 5 ilustraciones flotan.
+- `ConfirmationModal` — entrada condicional: flip 3D para `danger`, spring
+  estandar para el resto. Blip radial (`motion.span` absoluto) solo para
+  `danger|warning`. `transformPerspective: 1000` aplicado solo al `style` del
+  motion.div para no contaminar el overlay padre con class utility.
+- `GameSession` — overlay de pausa refactorizado: emoji `⏸️` → icono Lucide
+  `<Pause />` dentro de contenedor con `shadow-[0_0_32px_var(--color-brand-glow)]`,
+  titulo con `gradient-text-brand`, spring entrance. Nuevo **micro-flash**
+  `▶` (check radial verde) que aparece 420ms cuando `gameState` cambia de
+  `paused` a `playing`.
+- `Login.jsx`, `Register.jsx` — logo de marca con `animate-pulse-glow` como
+  micro-firma coherente entre las dos pantallas de auth.
+- `AudioPlayBadge` — el `animate-pulse` del icono de altavoz ahora es
+  condicional a `!shouldReduceMotion` (ademas del reset global).
+
+### Consecuencias positivas
+
+- Cohesion visual: las 4 familias de tarjetas (DeckCard, SessionCard, ContextCard,
+  AlertCard) comparten ahora un lenguaje de hover/exit consistente aunque cada
+  una conserva su propia signature (tilt 3D en DeckCard, scanline en las demas).
+- Feedback post-accion: archivar/eliminar/clonar ya no produce "pop" instantaneo.
+- Acciones criticas (danger) se sienten tactiles gracias al flip + blip radial.
+- ScanlineOverlay como primitivo reusable abre la puerta a aplicarlo en mas
+  superficies en el futuro sin reinventar la animacion.
+- 246/246 tests verdes, 0 regresiones.
+
+### Consecuencias negativas
+
+- El loop infinito del scanline corre aunque no sea visible (GPU transform, cost
+  minimo pero no nulo). Mitigacion: `prefers-reduced-motion` lo desactiva por
+  reset global + guard del componente.
+- AnimatePresence en listas no usa `mode="popLayout"` ni `layout` porque en
+  jsdom rompe tests — perdemos reflow suave cuando un item exit deja hueco.
+  Consecuencia visual minima: los items restantes saltan a su nueva posicion
+  sin animar. Aceptado como trade-off.
+
+### Alternativas consideradas
+
+- **Option "Calidez educativa"** (mascota + tint por contexto): desescalado
+  para esta fase; queda como PROP-74 para Sprint 6. Implicaria ampliar
+  CharacterMascot a mas zonas y reabrir PROP-16 (atmosferas dinamicas).
+- **CSS @keyframes para scanline** en lugar de motion.span: descartado porque
+  el primitivo debe respetar `useReducedMotion` del hook (no solo el media
+  query del sistema), y eso requiere un guard JS.
+- **Pseudo-elementos stack** (2 "papeles" detras de cada card): implementado
+  inicialmente pero revertido tras detectar que complica el DOM sin aportar
+  valor claro frente al lift + scanline. DeckCard ya tiene stack propio; para
+  las demas resultaba demasiado.
+
+### Archivos afectados
+
+- Nuevos: `frontend/src/components/ui/ScanlineOverlay.jsx`,
+  `frontend/src/components/ui/illustrations/EmptyAlertsIllustration.jsx`
+- Modificados: `frontend/src/pages/SessionsPage.jsx`, `ContextsPage.jsx`,
+  `CardDecksPage.jsx`, `Login.jsx`, `Register.jsx`, `GameSession.jsx`,
+  `frontend/src/components/ui/EmptyState.jsx`, `ConfirmationModal.jsx`,
+  `AudioPlayBadge.jsx`, `frontend/src/components/analytics/AlertsHub.jsx`,
+  `frontend/src/components/ui/illustrations/index.js`
+
+### Referencias
+
+- Plan de la sesion: `C:\Users\Samuel\.claude\plans\hola-me-gustaria-que-sequential-goblet.md`
+- Propuestas diferidas: PROP-71 a PROP-76 en `documentation/propuestas-mejora.md`
+- Skills usadas: `ui-ux-pro-max`, `animate`, `ui-animation`, `framer-motion-animator`
+
+---
+
+## ADR-071: Single-flight guard en checkExistingSession + códigos 401 semánticos [Full-stack]
+
+- **Fecha:** 2026-04-22
+- **Alcance:** Full-stack
+- **Estado:** Aceptado e implementado
+
+### Contexto
+
+En dev con `React.StrictMode`, `AuthProvider.useEffect` corría dos veces en paralelo.
+La primera invocación hacía `POST /auth/refresh` con éxito (el backend rotaba el
+refreshToken y devolvía access nuevo); la segunda llegaba con la cookie ya
+rotada y recibía 401 → `clearTokens()` + evento `UNAUTHORIZED` → logout.
+Consecuencia: cualquier request disparada justo después (`/api/contexts` al
+navegar) salía sin Bearer (`MISSING_ACCESS_TOKEN`) y el usuario era expulsado
+al login. El interceptor tampoco reconocía la expiración del access token
+(comparaba `message.includes('expired')` con el mensaje en español
+`"Access token expirado"`), por lo que un `TokenExpiredError` real también
+acababa en logout en lugar de refresh.
+
+### Decisión
+
+1. **Guardia single-flight** en `AuthContext.checkExistingSession` con
+   `useRef(false)` que se pone a `true` en la primera entrada: StrictMode no
+   vuelve a disparar el refresh duplicado.
+2. Ampliar `UnauthorizedError` para aceptar `code` opcional; el middleware de
+   auth anota códigos semánticos (`TOKEN_EXPIRED`, `TOKEN_REVOKED`,
+   `TOKEN_INVALID`, `TOKEN_MISSING`, `SESSION_MISMATCH`, `SESSION_REVOKED`,
+   `TOKEN_FINGERPRINT_MISMATCH`) en cada 401.
+3. `errorHandler` propaga `err.code` en el JSON de respuesta.
+4. El interceptor del frontend detecta recuperables con `code === 'TOKEN_EXPIRED'`
+   o `'TOKEN_MISSING'`; se mantiene un regex fallback `expirado|expired` para
+   tokens emitidos antes del despliegue.
+
+### Consecuencias
+
+- **Positivas:** dev y producción ya no pierden la sesión por timing de
+  StrictMode; los códigos semánticos permiten al cliente distinguir motivos
+  ("revocación forzada" vs "rotación normal") sin depender del texto del mensaje.
+- **Negativas:** la API pública del error 401 añade un campo `code`. Se
+  documentó en `Seguridad_tokens_JWT.md`.
+
+### Archivos afectados
+
+- `backend/src/utils/errors.js`
+- `backend/src/middlewares/auth.js`
+- `backend/src/middlewares/errorHandler.js`
+- `frontend/src/context/AuthContext.jsx`
+- `frontend/src/services/api.js`
+
+### Referencias
+
+- QA 2026-04-22 (memory/project_qa_2026_04_22.md)
+
+---
+
+## ADR-072: Retirada de AnimatePresence en el contenedor de rutas del AppLayout [Frontend]
+
+- **Fecha:** 2026-04-22
+- **Alcance:** Frontend
+- **Estado:** Aceptado e implementado (reemplaza parcialmente ADR-056)
+
+### Contexto
+
+El `AppLayout` envolvía el `<Outlet />` de React Router en un
+`<AnimatePresence mode="popLayout">` con `motion.div` keyed por `pathname`
+para producir un crossfade con slide-up. En navegación client-side entre
+rutas admin (`/admin/approvals → /admin/students`), el componente destino
+estaba lazy-loaded: durante la resolución del chunk, el `<Outlet />` renderizaba
+el `<PageLoader />` del `SuspenseWrapper`. La combinación popLayout + Suspense
+fallback dejaba intermitentemente el `motion.div` saliente con
+`opacity: 0; transform: translateY(-6px)` y no se reemplazaba por el entrante
+(observable como pantalla en blanco hasta hard reload).
+
+### Decisión
+
+Retirar el `AnimatePresence` del contenedor principal. Sustituirlo por un
+`motion.div` con `key={location.pathname}` y transición `initial → animate`
+sin `exit`. React desmonta el viejo al cambiar la key y monta el nuevo, que
+hace fade-in; el resultado visual es un crossfade limpio sin dependencia del
+ciclo de exit de Framer y sin riesgo de quedarse atascado.
+
+### Consecuencias
+
+- **Positivas:** navegación SPA sin pantallas en blanco; código del layout más
+  simple; una variable menos en el ciclo de vida (exit→enter ya no coexisten).
+- **Negativas:** se pierde la animación horizontal de salida. El trade-off se
+  considera correcto porque la de entrada sola sigue siendo perceptible como
+  transición.
+
+### Archivos afectados
+
+- `frontend/src/components/layout/AppLayout.jsx`
+
+### Referencias
+
+- ADRs relacionados: ADR-056 (popLayout), ADR-060 (pointer-events none en exit).
+- QA 2026-04-22 (memory/project_qa_2026_04_22.md)
+
+---
+
+## ADR-074: Helper centralizado de invalidación de cache de contextos + cache de listados [Backend]
+
+- **Fecha:** 2026-04-23
+- **Alcance:** Backend
+- **Estado:** Aceptado e implementado (PROP-12)
+
+### Contexto
+
+Tras D2 (UI admin de contextos del 17/04/2026) las mutaciones invalidaban manualmente
+sus dos keys `byId:<mongoId>` y `byId:<slug>`, pero la lista global `getContexts` no
+estaba cacheada. Cada nueva ronda de write/read de contextos repetía el patrón sin un
+helper común, lo que invitaba al copy-paste y al desincronizado entre namespaces.
+
+### Decisión
+
+- Cachear `getContexts()` con clave compuesta de los query params (`list:p1:l20:scr:od:q:a`)
+  y TTL 30 min.
+- Helper único `invalidateContextCaches(mongoId, slug)` que invalida ambas entradas
+  byId y todas las keys `list:*` (vía `scanByNamespace` + `delMany`).
+- Aplicar en create / update / delete de `gameContextController`.
+
+### Consecuencias
+
+- **Positivas:** consistencia garantizada entre la lista y el detalle tras cualquier
+  mutación; un único punto de cambio si añadimos nuevos cachés. La lista del listado
+  ya no golpea Mongo en cada request.
+- **Negativas:** la primera llamada tras un write paga el coste de scan + del de las
+  keys list:*. Asumido porque las mutaciones de contexto son raras (super_admin only).
+
+### Archivos afectados
+
+- `backend/src/utils/cacheInvalidators/contextCacheInvalidator.js` (nuevo)
+- `backend/src/controllers/gameContextController.js`
+- `backend/tests/contextCacheInvalidator.test.js` (10 casos)
+
+---
+
+## ADR-075: Rate limiting WebSocket distribuido con Redis Sorted Set y Lua [Backend]
+
+- **Fecha:** 2026-04-23
+- **Alcance:** Backend
+- **Estado:** Aceptado e implementado (PROP-59, gap resuelto del ADR-068)
+
+### Contexto
+
+ADR-068 dejó el rate limit HTTP distribuido pero el WebSocket seguía en memoria
+(`Map<rateKey, timestamps[]>`). En multi-instancia, un cliente podía eludir el límite
+conectándose a distintos pods por round-robin. `Rate_Limiting_Analysis.md` lo
+documenta como gap principal desde 2026-04-03.
+
+### Decisión
+
+- **Lua atómico** `checkSocketRateLimit.lua`: combina `ZREMRANGEBYSCORE` (purga
+  expirados) + `ZCARD` (cuenta) + bloqueo progresivo con `INCR violations` /
+  `SET block PX blockDurationMs`. Devuelve un JSON con `{ok, blocked, retryAfterMs,
+  violations}`. Una sola roundtrip por evento.
+- **Estructura:** `rl:ws:<event>:<rateKey>` (ZSET timestamps), `rl:ws:block:<rateKey>`
+  (TTL del bloqueo), `rl:ws:violations:<rateKey>` (counter con TTL ventana × 2).
+- **Path Redis** en `socketRateLimiter.checkRateLimitAsync`. Si Redis cae o el script
+  falla, **fallback transparente al limiter in-memory original** (insurance limiter).
+- En `NODE_ENV=test` el path Redis se desactiva por defecto (ioredis-mock no soporta EVAL).
+
+### Consecuencias
+
+- **Positivas:** rate limit consistente entre instancias. Resistente a caídas de Redis
+  (degrada al limiter local sin perder protección).
+- **Negativas:** una roundtrip Redis por evento WS aceptada (es muy rápida). Se
+  monitoriza `getFallbackCount()` para detectar Redis degradado.
+
+### Archivos afectados
+
+- `backend/src/scripts/lua/checkSocketRateLimit.lua` (nuevo)
+- `backend/src/middlewares/socketRateLimiter.js` (path async + fallback)
+
+---
+
+## ADR-076: Estado RFID mode distribuido vía Redis pub/sub [Backend]
+
+- **Fecha:** 2026-04-23
+- **Alcance:** Backend
+- **Estado:** Aceptado e implementado (PROP-64)
+
+### Contexto
+
+`socketHandlers.js` ya escribía el estado RFID a Redis (`rfid:mode:<userId>`, TTL 1 h)
+con write-through cache local, pero las constantes `REDIS_RFID_MODE_PREFIX` se usaban
+solo en una dirección. En multi-instancia, una instancia que cachea el estado en su
+Map local no se entera de cambios hechos por otra hasta el próximo cache miss.
+
+### Decisión
+
+- Publicar cambios en el canal `rfid-mode-changes` cada vez que se persiste a Redis
+  (incluyendo `userId`, `state`, `from` con el HOSTNAME para skip de mensajes propios).
+- Subscriber dedicado en `realtime/rfidModeSubscriber.js` con cliente Redis duplicado:
+  al recibir un mensaje, llama a `applyRemoteRfidModeChange(userId, state)` que
+  invalida la entrada local correspondiente.
+- Arranque automático tras `connectRedis()` en `server.js`. Cierre limpio en
+  `gracefulShutdown`.
+- Resilencia: si Redis cae, el subscriber se cierra silenciosamente y el módulo opera
+  en modo single-instance equivalente al comportamiento previo.
+
+### Consecuencias
+
+- **Positivas:** propagación de cambios en milisegundos entre instancias. La
+  infraestructura pub/sub queda preparada para futuros cambios de estado distribuido.
+- **Negativas:** un cliente Redis adicional por instancia. Mensajes duplicados si
+  HOSTNAME no se setea correctamente (el skip por `from` no funciona).
+
+### Archivos afectados
+
+- `backend/src/realtime/socketHandlers.js`
+- `backend/src/realtime/rfidModeSubscriber.js` (nuevo)
+- `backend/src/server.js` (start/stop hooks)
+
+---
+
+## ADR-077: Cola de jobs asíncronos con BullMQ + worker en contenedor separado [Backend + Infra]
+
+- **Fecha:** 2026-04-23
+- **Alcance:** Backend + Infraestructura
+- **Estado:** Aceptado e implementado (PROP-62, scope reducido a infra + retention)
+
+### Contexto
+
+Operaciones pesadas (data retention RGPD, futuro export GDPR, futuras notificaciones)
+se ejecutaban como CLI manual o no estaban implementadas. Sin scheduler robusto, los
+jobs RGPD dependían de cron externo o se omitían. En multi-instancia, ejecutar el
+mismo job desde varias réplicas duplicaba trabajo.
+
+### Decisión
+
+- Instalar `bullmq` y registrar tres queues:
+  - `data-retention` — **ACTIVA** con worker. Cron nocturno `0 3 * * *`.
+  - `gdpr-exports` — **SCAFFOLD vacío**. Pendiente de Nodemailer + signed URLs Supabase.
+  - `notifications` — **SCAFFOLD vacío**.
+- **Worker en contenedor separado** (`docker-compose.yml` → servicio `worker`).
+  Aísla jobs pesados del backend HTTP, escala independientemente.
+- **Schedule en backend startup** con `jobId` fijo → idempotente entre reinicios.
+- **Ciclo de retención** extraído a `services/dataRetentionService.js`, compartido por
+  el worker BullMQ y el script CLI `scripts/dataRetention.js` (DRY).
+- Conexión Redis dedicada para BullMQ (necesita flags distintos al cliente principal).
+- `removeOnComplete: 24h | 1000 jobs`, `removeOnFail: 7d | 5000 jobs`.
+
+### Consecuencias
+
+- **Positivas:** retention RGPD ejecutada de forma fiable cada noche. Infraestructura
+  de jobs lista para adoptar nuevas tareas sin reescribir nada. El worker aislado
+  reduce el riesgo de jobs pesados degradando la API.
+- **Negativas:** un contenedor más que orquestar (RAM ~256 MB en producción). El cron
+  schedule se inyecta desde el backend startup; si el backend está caído, el job no se
+  programa (aceptado: el backend siempre debe estar arriba en producción).
+
+### Archivos afectados
+
+- `backend/src/queues/index.js` y queues registradas (data-retention, gdpr-exports, notifications).
+- `backend/src/workers/index.js`, `backend/src/workers/dataRetentionWorker.js`.
+- `backend/src/services/dataRetentionService.js` (nuevo, lógica pura).
+- `backend/scripts/dataRetention.js` (refactor a usar el service).
+- `backend/worker.js` (entry-point del proceso worker).
+- `backend/package.json` (deps + scripts `worker` / `worker:dev`).
+- `docker-compose.yml` (servicio `worker`).
+- `backend/src/server.js` (startup + graceful shutdown).
+
+---
+
+## ADR-078: Wrapper Icon como pattern opt-in para nuevo código [Frontend]
+
+- **Fecha:** 2026-04-23
+- **Alcance:** Frontend
+- **Estado:** Aceptado parcialmente (PROP-8, scope reducido)
+
+### Contexto
+
+PROP-8 partía de la premisa de que el proyecto usaba `import * as LucideIcons` y que
+el bundle pagaba el peso de los ~70 iconos enteros. La auditoría encontró que NO existía
+ningún wildcard import — todos los archivos usaban imports nominales y el tree-shaking
+ya funcionaba. La inconsistencia real era de tamaños (`size={16}` vs
+`className="h-4 w-4"`).
+
+### Decisión
+
+- **Crear el wrapper** `components/ui/Icon.jsx` con tokens de tamaño semánticos
+  (sm=14, md=16, lg=20, xl=24) y registry centralizado de los 107 iconos actualmente
+  usados.
+- **No migrar mecánicamente** los 64 archivos existentes. Dos intentos de script
+  automatizado fallaron en imports multi-línea y casos de identificadores Lucide
+  usados como valores en objetos (ej: `SECTIONS = [{ icon: CheckCircle2 }]`). El
+  riesgo de regresión a 3 días de v1.0.0 no compensa el beneficio cosmético.
+- **El wrapper queda disponible** como pattern recomendado para código NUEVO. La
+  migración mecánica de archivos legacy se posterga.
+
+### Consecuencias
+
+- **Positivas:** catálogo central auditable (`iconRegistry.js`), tokens de tamaño
+  consistentes para cualquier nuevo componente. Tests automatizados (11) cubren el
+  wrapper y el placeholder de fallback.
+- **Negativas:** convivencia de dos patrones (wrapper + import directo) hasta que se
+  haga la migración. Documentado en `01-PATRONES-DISENO.md` como deuda técnica baja
+  con plan de adopción gradual.
+
+### Archivos afectados
+
+- `frontend/src/components/ui/Icon.jsx`, `iconRegistry.js`, `__tests__/Icon.test.jsx`
+  (nuevos).
+
+---
+
+## ADR-079: Enriquecimiento de SessionCards con sparkline + última partida + indicador de dificultad [Full-stack]
+
+- **Fecha:** 2026-04-23
+- **Alcance:** Full-stack (backend extensión de DTO + frontend)
+- **Estado:** Aceptado e implementado (PROP-5)
+
+### Contexto
+
+`/sessions` mostraba info estática (tarjetas, rondas, tiempo, puntos) sin reflejar el
+historial real de cada sesión. Profesores con 20+ sesiones no podían identificar cuáles
+estaban activas o tenían tendencia bajista sin entrar al detalle.
+
+### Decisión
+
+- **Backend:** ampliar `gamePlayService.getPlayStatsBySessionIds` con `lastPlayedAt`
+  y `recentScores` (últimas 7 puntuaciones, orden cronológico ascendente). Aditivo —
+  no rompe contratos existentes.
+- **Frontend:** nuevo componente `SessionSparkline` (Recharts ResponsiveContainer +
+  LineChart minimalista, gradient `brand → accent-indigo`, 42 px de alto, sin ejes ni
+  tooltip, `aria-hidden="true"`).
+- **SessionCard:** sub-bloque con (1) recuento + promedio, (2) "Última partida: hace X
+  días" usando `formatRelativeTime`, (3) sparkline si `recentScores.length >= 2`.
+- **Indicador de dificultad:** pseudo-elemento `after:` derecho de 3 px (verde/amarillo/
+  rojo/brand) sin chocar con el `border-l-4` que ya marca el estado de la sesión.
+
+### Consecuencias
+
+- **Positivas:** la card revela tendencia real sin más interacción. Mejora a11y con
+  info cuantitativa accesible y sparkline decorativo aria-hidden.
+- **Negativas:** una agregación adicional en el endpoint `getPlayStatsBySessionIds`.
+  Coste despreciable porque ya hace `$group` sobre el mismo match.
+
+### Archivos afectados
+
+- `backend/src/services/gamePlayService.js`
+- `frontend/src/components/common/SessionSparkline.jsx` (nuevo)
+- `frontend/src/pages/SessionsPage.jsx`
+
+---
+
+## ADR-080: Leaderboards analytics y studentMetrics materializadas — diferidos a Sprint 7 [Backend]
+
+- **Fecha:** 2026-04-23
+- **Alcance:** Backend
+- **Estado:** Diferido (PROP-60 y PROP-63), infraestructura habilitadora lista
+
+### Contexto
+
+PROP-60 propone leaderboards de contextos/mecánicas con ZSET Redis para evitar que
+`getTopContextsAndMechanics` ejecute aggregations Mongo `$lookup × 2` en cada request.
+PROP-63 propone materializar `User.studentMetrics` en un Hash Redis para acelerar la
+lectura masiva en dashboards de aula. Ambas requieren consistencia eventual + un job
+de reconciliación nocturno.
+
+### Decisión
+
+**Diferir ambas propuestas** a Sprint 7. Razones:
+
+- PROP-60 con corrección requiere buckets diarios (ZSET por día) + `ZUNIONSTORE` para
+  soportar timeRanges 7d / 30d / 90d. Una versión simplificada (un solo ZSET de 30 d)
+  no aporta valor proporcional al riesgo. Adicionalmente, el cache existente
+  (`cache:analytics`, 5 min TTL) ya absorbe la mayor parte de la carga real.
+- PROP-63 cambia el hot-path de `endPlay` con escritura dual y, si se pretende que
+  aporte valor, también el read-path en `analyticsController`. Sin job de
+  reconciliación nocturno (que requiere PROP-62 plenamente operativo más allá del
+  scaffolding actual), el riesgo de inconsistencia Redis-Mongo es alto.
+
+**Infraestructura ya disponible para cuando aterricen:**
+
+- Helpers `redisService.hgetall`, `cacheGet`, `cacheInvalidate`.
+- Scaffolding BullMQ listo para aceptar la queue `analytics-reconcile` (ADR-077).
+
+### Consecuencias
+
+- **Positivas:** v1.0.0 sale con una cadena de optimizaciones más segura. La activación
+  futura de PROP-60/PROP-63 puede entrar acompañada de su propio mecanismo de rollout
+  (env vars, despliegue progresivo) sin arrastrar deuda actual.
+- **Negativas:** se mantiene el coste actual de aggregations Mongo en analytics.
+
+### Referencias
+
+- PROP-60 y PROP-63 en `documentation/propuestas-mejora.md`.
+
+---
+
+## ADR-081: Clamping robusto de GamePlay.score para partidas con penalizaciones [Backend]
+
+**Fecha:** 2026-04-23
+**Alcance:** Backend (`backend/src/models/GamePlay.js`)
+
+### Contexto
+
+El schema de Mongoose `gamePlay.score` declara `min: 0` para reflejar que una
+partida no puede quedar con puntuación final negativa. Sin embargo el gameplay
+permite penalizaciones (`penaltyPerError` negativo) y el engine aplica cambios de
+score con un `$inc` atómico en `addEventAtomic`. En partidas con más errores que
+aciertos el score transitorio queda negativo en el documento en memoria y en BD.
+
+Cuando la lógica de negocio intenta `.save()` (al final de la partida o en los
+checkpoints periódicos), Mongoose ejecuta `pre('validate')` → validación → `pre('save')`.
+El clamp estaba en `pre('save')`, por lo que la validación `min: 0` ya había
+fallado antes de llegar al clamp. Resultado: `GamePlay validation failed: score
+(-4) is less than minimum allowed value (0)` — detectado en QA 2026-04-23
+jugando una partida de asociación con todos los intentos fallidos.
+
+La condición original del hook solo clampaba si `maxScore > 0`, lo que dejaba
+sin cubrir partidas legacy sin maxScore.
+
+### Decisión
+
+Mover el clamp a `pre('validate')` y aplicarlo siempre que el valor sea negativo
+(independientemente de si maxScore está definido). El clamp al techo (`maxScore`)
+se mantiene condicional por compatibilidad con partidas legacy.
+
+```js
+gamePlaySchema.pre('validate', function () {
+  if (typeof this.maxScore === 'number' && this.maxScore > 0 && this.score > this.maxScore) {
+    this.score = this.maxScore;
+  }
+  if (typeof this.score === 'number' && this.score < 0) {
+    this.score = 0;
+  }
+});
+```
+
+### Consecuencias
+
+- **Positivas:** las partidas con score negativo transitorio se guardan
+  correctamente con score clampeado a 0. El histórico queda consistente y el
+  profesor ve el resumen de la partida aunque el alumno solo haya fallado.
+- **Negativas:** ninguna. El valor persistido siempre cumple la invariante
+  `0 ≤ score ≤ maxScore`.
+
+### Referencias
+
+- B-12 en `qa-captures-2026-04-23/FINDINGS.md`.
+- Log del backend: `backend/src/services/gameEngine/GameEngine.js` checkpoint
+  handler.
+
+---
+
+## ADR-082: Migración emojis → Lucide en gameplay y feedback [Frontend]
+
+**Fecha:** 2026-04-23
+**Alcance:** Frontend (`frontend/src/components/game/*`)
+
+### Contexto
+
+En ADR-059 ya se decidió que los iconos estructurales de la UI deben ser
+componentes Lucide (no emojis Unicode) para evitar inconsistencias tipográficas
+entre navegadores y SO, y para poder controlar color/tamaño via design tokens.
+En el QA 2026-04-23 detectamos que la migración había sido parcial: `CurrentPlayMetrics.jsx`
+(footer de gameplay), `GameOverScreen.jsx` (icono hero) y `FeedbackOverlay.jsx`
+(icono de acierto/error) seguían usando `⭐`, `✅`, `🧠`, `🎯`, `🏆`, `💪`, `🎉`, `💫`.
+
+En navegadores con emojis del SO antiguo el renderizado era incoherente con el
+resto de la UI (que ya usa Lucide uniformemente).
+
+### Decisión
+
+Migrar los iconos estructurales de:
+
+- **`CurrentPlayMetrics`**: `Star`, `CheckCircle2`, `Brain` (memoria), `Target`
+  (asociación) con `iconClass` tonal (`text-warning-base`, `text-success-base`,
+  `text-brand-base`, `text-accent-indigo`).
+- **`GameOverScreen`** (icono hero según tier de estrellas): `Trophy` (3★),
+  `PartyPopper` (2★), `Flame` (1★), `Sparkles` (0★), con glow drop-shadow por
+  tier.
+- **`FeedbackOverlay`** (icono central tras cada respuesta): `PartyPopper` en
+  acierto, `Flame` en error.
+
+Mantenemos los emojis decorativos (confetti particles en `FeedbackOverlay`,
+estrellas flotantes en `Sparkles`, emoji base `🦉` de `CharacterMascot`) porque
+son elementos celebratorios intencionales, no iconos de sistema.
+
+### Consecuencias
+
+- **Positivas:** consistencia visual total con el resto del design system.
+  Control via `currentColor`/drop-shadow para glow tonal por estado. Escalado
+  uniforme en cualquier SO.
+- **Negativas:** los tests que buscaban el emoji exacto (`/🧠\s*Parejas/i`)
+  han tenido que relajarse para buscar solo el label (`/Parejas/i` con
+  `getAllByText` porque ahora el string "Parejas" aparece también en el header
+  dot-counter).
+
+### Referencias
+
+- ADR-059 (migración inicial emojis → Lucide, que quedó incompleta).
+- B-8 en `qa-captures-2026-04-23/FINDINGS.md`.
+
+---
+
+## ADR-083: Slider custom `.penalty-range` para inputs con rango negativo [Frontend]
+
+**Fecha:** 2026-04-23
+**Alcance:** Frontend (`frontend/src/index.css`, StepMemoryRules, StepRules)
+
+### Contexto
+
+Los sliders "Penalización por error/pareja incorrecta" del wizard usan un rango
+negativo `[-15..0]` (memoria) o `[-10..0]` (asociación). El `accent-color`
+nativo de Chrome/Firefox pinta el fill desde `min` hacia `value`, lo que con
+este rango **invierte la intuición** del profesor:
+
+- `value = 0` (sin penalización) → fill casi al 100% (confuso: parece "máximo rigor").
+- `value = -10` (penalización máxima) → fill vacío (confuso: parece "sin rigor").
+
+En el QA 2026-04-23 María describió "el slider está al revés".
+
+### Decisión
+
+Introducir una clase utility `.penalty-range` en `index.css` que:
+
+1. Aplica `appearance: none` al `<input type="range">`.
+2. Pinta el thumb con estilos explícitos en `::-webkit-slider-thumb` y
+   `::-moz-range-thumb` (círculo rojo 18px con halo glow).
+3. El componente setea `style.background` con un `linear-gradient` explícito
+   proporcional a `|value| / |min|` desde la izquierda, y
+   `style.accentColor = 'transparent'` para anular el accent nativo.
+
+La semántica pasa a ser "más fill = más penalización", alineada con la
+intuición.
+
+### Consecuencias
+
+- **Positivas:** el fill ahora comunica correctamente la intensidad de la
+  penalización. Fix aplicado a los dos sliders (memoria y asociación) con el
+  mismo patrón.
+- **Negativas:** ligero desacoplamiento visual entre thumb position (calculada
+  por el navegador desde min-max) y fill (proporcional a |value|). Es un
+  trade-off aceptable porque el usuario atiende al color y al número visible,
+  no al thumb.
+
+### Referencias
+
+- B-6 en `qa-captures-2026-04-23/FINDINGS.md`.
+
+---
+
+## ADR-084: Contextos preview — 3 chips legibles en lugar de 5 truncados [Frontend]
+
+**Fecha:** 2026-04-23
+**Alcance:** Frontend (`frontend/src/pages/ContextsPage.jsx`)
+
+### Contexto
+
+Cada card de contexto en `/contexts` mostraba hasta 5 chips con nombres de
+assets más un badge "+N". Con 5 chips en un contenedor flex limitado los
+nombres quedaban recortados a 3-4 caracteres con ellipsis: "R... A... Ver...
+Ama... Nara..." para `Colores Básicos`, "Es... Fra... It... Ale... Port..."
+para `Países de Europa`. Ilegible.
+
+### Decisión
+
+Reducir a 3 chips (suficientes para dar una pista del contexto) con más
+ancho por chip (flex-1 con `min-w-0 truncate`) y estilo pill (rounded-full,
+border, padding). El badge "+N" pasa a ser más compacto.
+
+### Consecuencias
+
+- **Positivas:** nombres completos legibles ("Rojo / Azul / Verde / +3"). La
+  card comunica mejor el contenido del contexto.
+- **Negativas:** solo se ven 3 de 6 assets (antes se intentaban 5, aunque
+  ilegiblemente). El badge "+N" y el tooltip con la lista completa compensan.
+
+### Referencias
+
+- B-3 en `qa-captures-2026-04-23/FINDINGS.md`.
+
+---
+
+## ADR-085: Paquete fixes QA final pre-release v0.5.0 [Full-stack]
+
+**Fecha:** 2026-04-24
+**Estado:** Aceptado
+**Alcance:** Full-stack
+
+### Contexto
+
+Sesión final de QA senior antes de la release v0.5.0. Se detectaron cinco
+bugs y mejoras con ROI alto / riesgo bajo que conviene consolidar antes del
+corte. Ver capturas en `qa-captures-2026-04-23-final/`.
+
+### Decisiones
+
+**1. `RevealOnScroll` en PrivacyPage — margin expansivo.**
+El wrapper usaba `useInView(ref, { once: true, margin: '-60px' })`, lo que
+obligaba a que el usuario scroleara para que secciones 3 a 7 de la política
+de privacidad pasaran de `opacity:0` a visible. En capturas full-page,
+impresión o lectores sin scroll, esas secciones quedaban en blanco.
+
+Cambio: `margin: '200% 0px 200% 0px'` — cualquier sección a ±2 viewports
+del actual se considera in-view al montar. Se preserva el stagger al hacer
+scroll y se respeta reduced-motion.
+
+**2. `StatCard` + prop `higherIsBetter`.**
+El componente pintaba verde cualquier delta positivo y rojo cualquier delta
+negativo, sin considerar la semántica de la métrica. "Tiempo Medio +14.6%"
+aparecía en verde aunque subir el tiempo es peor; "Alumnos en Riesgo" igual.
+
+Se añade `higherIsBetter` (default `true`). Con `false` se invierte el color
+del pill manteniendo la dirección de la flecha real (ArrowUp para +, Down
+para −). Dashboard pasa `higherIsBetter={false}` a "Alumnos en Riesgo" y
+"Tiempo Medio". El icono `TrendIcon` sigue reflejando la dirección real del
+delta (no mentir sobre el sentido del cambio, solo sobre si es buena noticia).
+
+**3. Pódium oro/plata/bronce en Top 5 del Dashboard.**
+Los cinco puestos usaban el mismo tratamiento violeta, perdiendo el lenguaje
+universal de rankings. Se añaden tokens CSS:
+
+- `--color-podium-gold` + glow para el #1
+- `--color-podium-silver` para el #2
+- `--color-podium-bronze` para el #3
+
+Los puestos 1-3 muestran iconos Lucide `Trophy`, `Medal`, `Award` en lugar
+del número, con `ring-1 ring-inset` del glow correspondiente. El #1 lleva
+`shadow-[0_0_18px_var(--color-podium-gold-glow)]`. Los puestos 4-5
+mantienen el tratamiento neutro actual.
+
+**4. Preview de 6 miniaturas en `DeckCard` + DTO del backend.**
+Las cards de mazo mostraban 4 de 6 miniaturas (ej: Banderas de Europa sin
+Portugal ni Grecia). El frontend recortaba en 4 y el DTO `toCardDeckDTOV1`
+también limitaba a 4. Se actualizan ambos límites a 6 (`cardMappings.slice(0, 6)`)
+para que el contrato visual iguale al conteo real. Stagger de entrada baja
+de 0.1s a 0.06s por ítem para mantener el total ≈ 360ms.
+
+**5. Leyenda del chart "Curvas de Aprendizaje" al top.**
+El label "Intento" del `XAxis` (position insideBottom) chocaba con la
+`Legend` inferior en viewports 1280–1920px incluso tras el fix del QA 22/04.
+Se mueve la leyenda a `verticalAlign="top" align="right"` con
+`paddingBottom: 8`; `margin.top` del chart sube a 32 para reservar espacio.
+El eje X queda libre para su label y los datos quedan sin cambios.
+
+**6. Redirect `/students` → `/analytics/students`.**
+Usuarios que tipean la URL o llegan desde bookmarks antiguos a `/students`
+sin `studentId` caían en 404. Se añade `<Route path="students" element={<Navigate to="/analytics/students" replace />} />`
+antes de la ruta dinámica `students/:studentId` para que el path limpio
+redirija al listado.
+
+**7. Confirmación modal al cerrar sesión (PROP-85).**
+El botón "Cerrar Sesión" del sidebar disparaba `logout()` instantáneo; un
+click accidental perdía filtros, estado de navegación y rutas en curso.
+Se añade `useConfirmationModal` + `<ConfirmationModal>` en `AppLayout.jsx`
+con `variant="warning"` (logout reversible, no destructivo — color ámbar,
+no rojo sangre), título "¿Cerrar sesión?" y copy breve. `onConfirm` llama
+al `logout` existente del `AuthContext` (sin cambios en la función).
+
+**8. `useHorizontalScroll` + chevron en "Actividad Reciente" (PROP-86).**
+Nuevo hook `hooks/useHorizontalScroll.js` detecta overflow horizontal real
+con `ResizeObserver` + `scroll` listener, exponiendo `hasOverflow`,
+`canScrollRight` y `scrollByOne(behavior)`. El widget "Actividad Reciente"
+del Dashboard lo usa para mostrar:
+- Gradient fade a la derecha (ensanchado a `w-16` con stop intermedio) solo
+  cuando `canScrollRight === true`.
+- Chevron button (`rounded-full`, `z-10`) que scrollea ~80% del ancho del
+  contenedor al pulsar, respetando `prefers-reduced-motion` (scroll `auto`
+  en ese caso).
+Ambos affordances desaparecen al llegar al final del scroll — honesto con
+el estado real. Reemplaza la heurística frágil `recentStudents.length > 3`
+usada hasta ahora.
+
+### Consecuencias
+
+- **Positivas:**
+  - PrivacyPage se imprime, se hace screenshot y se lee sin hacer scroll.
+  - Los KPIs del Dashboard no mienten sobre si un delta es buena noticia.
+  - El Top 5 tiene jerarquía visual reconocible de un vistazo.
+  - Los mazos muestran su inventario real — contrato honesto con el conteo.
+  - El chart Curvas de Aprendizaje es legible en todos los viewports
+    objetivo.
+  - Menos 404 innecesarios.
+  - Logout seguro ante clicks accidentales sin bloquear el flujo.
+  - Affordance real en el carrusel de Actividad Reciente — el usuario sabe
+    que hay más contenido y tiene cómo pedirlo.
+
+- **Negativas / riesgos:**
+  - `cardMappings.slice(0, 6)` duplica el payload de la lista de mazos
+    por deck. Impacto real con 50 mazos × 6 mappings vs 4 mappings: ~300
+    bytes extra por deck (insignificante).
+  - El prop `higherIsBetter` es viral a largo plazo — cada KPI nuevo tiene
+    que considerarlo. Se documenta el default `true` para que el 90% de
+    casos siga siendo trivial.
+  - `useHorizontalScroll` usa `ResizeObserver` (soportado en todos los
+    browsers target; fallback silencioso si falta). El chevron dispara
+    un re-render al cambiar `canScrollRight` — mínimo, dentro del widget.
+
+### Tests
+
+- Backend: `1034/1034 passed` (DTOs 29/29).
+- Frontend: `257/257 passed` (sin ajustes de snapshots necesarios).
+- Lint: 0 errores en ambos.
+
+### Referencias
+
+- Capturas before/after en `qa-captures-2026-04-23-final/` (fix-01 a fix-05).
+- Memory: `memory/project_qa_final_2026_04_24.md`.
+
+---
+
+## ADR-086: Decisiones SonarCloud post-release v0.4.0 — supresiones y resolución de hallazgos [DevOps]
+
+**Fecha:** 2026-04-24
+**Estado:** Aceptado
+**Alcance:** DevOps (configuración de análisis estático) con impacto en backend + frontend
+
+### Contexto
+
+El último análisis SonarCloud disponible es el del merge a `main` para la
+release v0.4.0 (commit `839a53c`). La cuenta gratuita de SonarCloud solo
+analiza en merges a main, así que entre releases la información no se actualiza.
+El reporte: **404 issues** (1 bug, 0 vulnerabilidades, 403 code smells) y
+**27 security hotspots**. Quality Gate en `ERROR` por tres condiciones en new
+code: `new_reliability_rating=3` (el bug único), `new_coverage=28.9%` (<80%),
+y `new_security_hotspots_reviewed=0%`.
+
+El análisis por facetas mostraba que **una sola regla `javascript:S6774`
+("PropTypes should be defined") representaba el 58% del total** (233 issues).
+Esta regla choca con la decisión arquitectónica del proyecto (JS puro sin
+PropTypes ni TypeScript — ver CLAUDE.md: "No usamos TypeScript"). Aplicarla
+exigiría mantener PropTypes en ~200 `.jsx` sin beneficio runtime: la validación
+de entrada se hace en la frontera del backend con Zod.
+
+De manera análoga, `javascript:S3776` (Cognitive Complexity) concentraba los
+10 CRITICAL en 10 ficheros orquestadores (Dashboard, GameSession, ChallengeDisplay,
+RFIDConnector, RFIDScannerPanel, SelectPremium, redisService, FeedbackOverlay,
+ContextsPage, feedbackMessages) donde la complejidad es inherente al dominio.
+
+Adicionalmente, el branch `Maintenance` ha refactorizado ampliamente el código
+desde v0.4.0 (sesiones QA intensivas 17-24 abril, ADRs 055-085) — muchos
+issues reportados estaban **ya resueltos** por simplificaciones, eliminaciones
+de código muerto y extracciones realizadas. Un agente delegado para verificar
+42 fixes mecánicos encontró que **solo 5 seguían vigentes**; el resto se había
+cerrado orgánicamente.
+
+### Decisiones
+
+**1. Supresión project-wide de `javascript:S6774` en `.jsx`.**
+
+Añadido a `sonar-project.properties` (patrón multicriteria):
+```
+sonar.issue.ignore.multicriteria.noproptypes.ruleKey=javascript:S6774
+sonar.issue.ignore.multicriteria.noproptypes.resourceKey=**/*.jsx
+```
+
+Justificación: decisión arquitectónica documentada — JS puro sin PropTypes ni
+TypeScript. Aplicar la regla generaría 233 issues sin beneficio de mantenibilidad
+o seguridad; solo ruido que oculta issues reales.
+
+**2. Supresión puntual de `javascript:S3776` en 9 ficheros orquestadores.**
+
+Dashboard.jsx, GameSession.jsx, ContextsPage.jsx, ChallengeDisplay.jsx,
+FeedbackOverlay.jsx, RFIDConnector.jsx, RFIDScannerPanel.jsx, SelectPremium.jsx,
+redisService.js — cada uno con su entrada `cog1..cog9` en multicriteria.
+
+Dos de ellos (Dashboard, ChallengeDisplay) ya tenían `eslint-disable-next-line
+sonarjs/cyclomatic-complexity` con justificación local; el resto comparten el
+patrón: orquestación stateful con muchos estados reales y fallbacks defensivos,
+no complejidad accidental. Refactorizar añadiría indirección (sub-componentes,
+hooks custom) sin mejora real — trade-off explícito del proyecto.
+
+**3. Refactor de `selectFeedbackMessage` en `feedbackMessages.js` (overshoot 23→3).**
+
+Único S3776 donde el refactor aportaba valor real: la función tenía 2 branches
+externos (acierto/error) y 10 branches internos encadenados con if/else. Se
+aplica split en dos helpers privados `selectSuccessPool` y `selectErrorPool`
+con destructuring específico por rama. La función pública queda en 3 líneas
+con API idéntica. Sin cambios de comportamiento — full suite sigue pasando
+257/257 (sin tests unitarios previos para este módulo, se verifica vía tests
+de integración que lo consumen).
+
+**4. Resolución vía API de 26 hotspots como SAFE + 1 como FIXED.**
+
+Todos los 27 security hotspots se cierran sin cambios de código excepto uno:
+
+- **16× S2245 `Math.random()`** (Confetti ×11, RFIDScannerPanel ×2,
+  feedbackMessages, utils, webSerialService): uso exclusivamente visual/UX/mock;
+  los ficheros ya tenían `eslint-disable sonarjs/pseudo-random` con justificación
+  inline.
+- **2× S5852 regex ReDoS** en Login.jsx y Register.jsx: regex
+  `/^[^\s@]+@[^\s@]+$/` sin cuantificadores anidados ni alternación ambigua
+  → backtracking lineal O(n), no vulnerable.
+- **4× S6505 `npm ci --ignore-scripts`**: rompe paquetes legítimos con
+  postinstall (sharp, esbuild); mitigación por `package-lock.json` con
+  integridad verificada + `npm audit --omit=dev` estricto en CI.
+- **1× S4507 `ENV NODE_ENV=development`**: está en stage `development` del
+  Dockerfile, no en `production`. docker-compose.prod.yml usa `target=production`.
+- **1× S6470 `COPY . .`** en builder: mitigado por `frontend/.dockerignore`
+  (excluye node_modules, .env, .git, tests, docs); la imagen final solo copia
+  `/app/dist`, no los fuentes.
+- **1× S6471 nginx como root**: contenedor aislado sirviendo solo estáticos,
+  tras reverse proxy con TLS aguas arriba. Migración a
+  `nginxinc/nginx-unprivileged` considerada para futura release.
+- **1× S5725 falta de SRI en Google Fonts**: Google sirve CSS dinámico según
+  User-Agent; aplicar `integrity` rompería carga en navegadores con subsets
+  distintos. Alternativa self-hosting considerada para futura release.
+- **1× S2068 password hardcoded** en `backend/scripts/benchmark-session-reads.js`:
+  **FIX real** — sustituido `'Password123!'` por template dinámico con
+  `crypto.randomUUID()` (el user de benchmark se destruye tras el run en
+  `cleanupFixture`, password no reutilizable).
+
+**5. Resolución vía API de 2 `javascript:S4123` como FALSE-POSITIVE.**
+
+`backend/scripts/seed-storage-assets.js:304, 309` awaitean `uploadToStorage()`,
+que es `async function` retornando Promise desde v0.4.0 (verificado con
+`git show 839a53c`). La inferencia de tipos de SonarCloud no resuelve el
+retorno de `supabase.storage.upload` a través del wrapper async — falso
+positivo claro. `await` correcto y necesario.
+
+**6. Fixes mecánicos puntuales que sí persistían.**
+
+Tras verificación sistemática, estos issues del 0.4.0 seguían vigentes en el
+código actual y se aplican:
+
+- **Backend:**
+  - `envValidator.js`: 3× `isNaN(x)` → `Number.isNaN(x)` (S7773).
+  - `redis.js`: `require('fs'|'path')` → `require('node:fs'|'node:path')` (S7772).
+  - `drop-db.js`: `require('readline')` → `require('node:readline')` (S7772).
+  - `logger.js`, `escapeRegex.js`: `String#replace(/g, ...)` → `replaceAll()` (S7781).
+  - `benchmark-session-reads.js`: password dinámico (S2068, descrito arriba).
+
+- **Frontend:**
+  - `sentry.js`: `replace` → `replaceAll` (S7781).
+  - `ErrorBoundary.jsx`: `window.X` → `globalThis.X` (S7764).
+  - `StudentManagement.jsx`: 3 vars con prefijo `_` en useState convertidas a
+    `const [, setX] = useState(...)` (S1481).
+
+Las otras categorías reportadas (S3358 nested ternaries ×24, S7735 negated
+else ×22, S7781/S7764 restantes, S1128 unused imports, etc.) **se
+verificaron como ya resueltas en el código actual**. No se aplica fix
+porque el patrón ya no existe en las líneas reportadas; SonarCloud las
+cerrará automáticamente al reanalizar.
+
+### Consecuencias
+
+- **Positivas:**
+  - El Quality Gate pasará a verde en 2 de 3 condiciones: el único Bug
+    (S3923 en GameOverScreen) ya se arregló por refactor previo; los
+    27 hotspots cerrados suben `security_hotspots_reviewed` a 100%. La
+    tercera condición (coverage <80%) queda como debt explícita.
+  - El count de issues baja de 404 a un estimado de ~40-60 reales tras el
+    próximo análisis (suprimir S6774 elimina 233, los refactors de Maintenance
+    cerrarán otros tantos al reanalizar).
+  - La deuda técnica visible en SonarCloud reflejará trabajo real del
+    proyecto, no ruido de reglas que chocan con decisiones arquitectónicas.
+  - 2/10 ficheros complejos ya tenían `eslint-disable` con justificación
+    local — la supresión en Sonar solo alinea herramientas.
+
+- **Negativas / riesgos:**
+  - 9 ficheros quedan exentos de S3776: si en el futuro se añade complejidad
+    a esos ficheros, SonarCloud no alertará. Mitigación: eslint-plugin-sonarjs
+    sigue activo localmente (`cognitive-complexity` rule) y PR review revisa
+    la complejidad manualmente.
+  - S6774 suprimida en todos los `.jsx`: si el proyecto migra a TS o añade
+    PropTypes, habrá que revisar la entrada multicriteria. Documentado en el
+    comentario del propio fichero de config.
+  - El marcaje de hotspots como SAFE persiste en SonarCloud. Mitigación
+    natural: Sonar reabre hotspots si la línea/texto cambia de forma
+    sustancial entre análisis.
+  - Cobertura del 28.9% → debt documentada como fuera del scope de esta
+    sesión; requiere campaña dedicada de testing unitario (se deja para
+    post-v0.5.0).
+
+### Tests
+
+- Backend: `1034/1034 passed` (88.9s) tras cambios en envValidator, redis,
+  logger, escapeRegex, drop-db, benchmark-session-reads.
+- Frontend: `257/257 passed` (24s) tras refactor feedbackMessages +
+  edits en sentry.js, ErrorBoundary.jsx, StudentManagement.jsx.
+- Lint: 0 errores backend, 0 errores frontend (15 warnings preexistentes
+  sin relación con esta sesión).
+
+### Referencias
+
+- `sonar-project.properties` — configuración multicriteria aplicada.
+- SonarCloud project: https://sonarcloud.io/project/overview?id=Samuel-Prog-CSec_TFG-IoT
+- Commit analizado: `839a53c` (release v0.4.0, 2026-03-19).
+- Token SonarCloud usado para las APIs de `hotspots/change_status`,
+  `issues/do_transition`, `issues/add_comment` — rotado tras la sesión.
+
+## ADR-087: Paquete fixes QA senior pre-release v0.5.0 (bloqueantes y visibles) [Full-stack]
+
+### Fecha
+
+2026-04-24
+
+### Contexto
+
+Última sesión QA antes de cerrar Sprint 5 y publicar la release v0.5.0.
+Recorrido completo con Playwright a 1920x1080: auth, dashboard, wizard
+memoria, partida memoria 6/6, wizard asociación, partida asociación con
+aciertos y fallos, mazos, sesiones, contextos (incluyendo crear/borrar
+contexto en Supabase Storage como super_admin). Ningún sensor físico
+disponible durante la sesión.
+
+Durante la auditoría aparecieron dos fallos **bloqueantes** que rompían
+flujos críticos vía `ErrorBoundary`, un fallo **alto** que entregaba
+KPIs vacíos en un reporte ya expuesto en producción, y varios defectos
+menores visibles (typo, eje del gráfico que desbordaba el 100%,
+etiquetas inconsistentes entre mecánicas).
+
+### Decisiones
+
+**1) Contrato del hook `useDeckWizardDraft` — alias retrocompatibles.**
+`DeckCreationWizard.jsx` importaba `{ draft, saveDraft, draftTimestamp }`,
+pero el hook exportaba `{ state, setState, updateField, draftDate, ... }`
+tras un refactor previo. Al añadir la 2.ª carta el efecto del wizard
+invocaba `saveDraft(...)` con `undefined` → `TypeError` → pantalla de
+error crashea todo el flujo de creación de mazos.
+
+Optamos por **exponer ambas superficies en el hook**:
+`saveDraft` pasa a ser público (ya existía internamente), `draftTimestamp`
+es un alias de `draftDate`, y `draft` lee perezosamente el borrador de
+`localStorage` para consumidores que mantienen su estado local.
+Alternativa rechazada: refactorizar el wizard a `setState`/`updateField`
+(trabajo amplio, riesgo de regresión antes de release).
+
+**2) `EmptyState` recibe elementos, no componentes.**
+`AdminContexts.jsx` pasaba `icon={AlertTriangle}`/`icon={Palette}` al
+`EmptyState`, que renderiza `{icon}` directamente. React 19 lanza
+`Objects are not valid as a React child (found: object with keys
+{$$typeof, render})` al ver el objeto forwardRef. El crash aparecía
+cada vez que el filtro dejaba la lista vacía o el endpoint fallaba.
+Fix mínimo: envolver con `<Icon size={48} className="..."/>`
+siguiendo la convención del resto de la app (`CardDecksPage`,
+`SessionsPage`, etc.).
+
+**3) Adaptador `ReportGenerator ⇄ reportDataService`.**
+El backend devuelve la jerarquía
+`{ overview, distribution: { distribution }, studentSummaries, summary: { avgScore: { value } } }`,
+pero el componente leía `{ kpis, distribution[], topStudents, bottomStudents }`,
+por lo que todos los KPIs salían a `0` / `-` pese a tener 201 partidas.
+Añadimos adaptadores defensivos que aceptan ambas formas (forma actual
+del servicio y forma histórica / de mocks), normalizando `summary.avgScore.value`
+a un número plano y derivando `topStudents` / `bottomStudents` por slice
+de `studentSummaries` cuando no vienen pre-calculados. También
+aceptamos `tier.label` del backend para pintar etiquetas humanas.
+
+**4) Eje Y de Curvas de Aprendizaje con clamp duro.**
+Recharts extiende el dominio cuando los datos rozan el máximo
+(`106.4` visible cuando tocan 100). Añadimos `allowDataOverflow`
+y `ticks=[0,25,50,75,100]` para forzar la rejilla fija. El clamp en
+persistencia ya venía de ADR-081; esto resuelve sólo el render.
+
+**5) `INCREÍBLE` con tilde en GameOverScreen.**
+`CharacterMascot.jsx` tenía la ortografía correcta; `GameOverScreen.jsx`
+no. Revelado por la captura del fin de partida de memoria.
+
+**6) Etiqueta `Rondas` vs `Parejas` según mecánica.**
+Mostrar `Rondas N` en una sesión de memoria confunde: la memoria usa
+parejas (6 pares = 12 cartas), no rondas independientes. `SessionsPage`
+y `SessionDetail` ahora consultan `session.mechanic?.name === 'memory'`
+y cambian el copy a `Parejas` / `Tiempo total` en esa rama, dejando
+`Rondas` / `Tiempo por ronda` intacto para asociación.
+
+### Verificación
+
+- Frontend: `257/257` Vitest en verde tras los cambios.
+- Backend: `1034/1034` Jest en verde.
+- Lint: 0 errores (6 warnings preexistentes de complejidad/ternarios
+  anidados en ficheros ya fuera de este alcance).
+- Regresión manual con Playwright:
+  - Wizard de mazos: el modal "Borrador encontrado" aparece al
+    re-entrar con datos guardados, ya no crashea al añadir cartas.
+  - Admin contexts: filtro que deja la lista vacía pinta EmptyState
+    con icono Palette; crear contexto `qa-test-final-v050` y borrar
+    con limpieza de carpeta Supabase Storage (`ctx-qa-test-final-v050`).
+
+### Ampliación — fixes adicionales aplicados en la misma sesión
+
+Tras el primer pase se consolidaron también los hallazgos que originalmente
+iban a diferirse a Sprint 6. La razón fue hacer la release lo más limpia
+posible evitando arrastrar bugs conocidos aunque fueran menores.
+
+**7) Scroll del layout en `<body>` (PROP-100, hereda PROP-77).**
+`AppLayout` tenía `overflow-hidden` en el wrapper + `overflow-auto` en
+`<main>`, creando un scroll anidado que rompía `PageDown`, `End`, `Home`,
+"pull to refresh" mobile y `fullPage: true` de Playwright. Cambio:
+- Wrapper: `min-h-screen` (fuera `h-screen overflow-hidden`).
+- Sidebar desktop: `sticky top-0 h-screen` (mobile mantiene `fixed`
+  porque usa `motion.aside` con `transform` para abrir/cerrar).
+- `<main>` sin `overflow` propio; el scroll vive en el viewport.
+
+**8) Radar Engagement degradación explícita (PROP-101).**
+El fallback antiguo solo saltaba con `zeroAxes >= 3`, pero el backend
+devuelve ruido residual (2-5) en ejes sin datos, así que la condición
+no se disparaba y el radar salía como pajita visual. Nueva lógica:
+`signalAxes < 3` (menos de 3 ejes con valor > 15) → fallback. En el
+fallback se muestra además el badge RAG (`Alto/Medio/Bajo`) porque el
+profesor sigue necesitando la lectura global aunque el desglose por
+ejes no sea visualizable.
+
+**9) Consigna personalizada del wizard de asociación (PROP-102).**
+`AssociationStrategy.resolvePlannedChallenge` ya incluía `promptText`,
+pero `GameEngine._emitNewRound` no lo montaba en el payload emitido al
+cliente, así que la partida siempre pintaba el default. Fix: añadir
+`promptText` al objeto `challenge` del evento `new_round` y propagarlo
+en `normalizeChallenge` del frontend. `GameSession` ahora prioriza
+`challenge.promptText` si existe; si no, cae al default `¿Dónde está
+la <X>?` con artículo añadido (BUG-A12 del QA colateral).
+
+**10) A11y del toggle "Vincular Sensor RFID" (PROP-103).**
+`StepRules.jsx` y `StepMemoryRules.jsx` tenían un `<button>` plano para
+vincular/desvincular sensor. Añadido `role="switch"`, `aria-checked`
+dinámico, `aria-label` contextual y estilos de `focus-visible` ring
+consistentes con el resto de switches del sidebar.
+
+**11) Resumen de partida asociación desglosado (PROP-104).**
+"Sin completar: 4" mezclaba timeouts y respuestas incorrectas. En
+`GameOverScreen` ahora, cuando `summary.errors` está disponible,
+renderizamos un grid de 4 columnas:
+- `Incorrectas` (summary.errors, rojo)
+- `Sin responder` (totalRounds − correctas − incorrectas)
+- `T. medio`
+- `Tiempo`
+Fallback a 3 columnas con `Sin completar` si no hay desglose.
+
+**12) Log `gameEngine` sin doble signo (PROP-105).**
+`penaltyPerError` ya viene con signo (`-2`), así que el literal
+`symbol = '-'` producía `--2 pts`. Cambio: `symbol = pointsAwarded >= 0
+? '+' : ''` y dejamos que el propio valor aporte el signo negativo.
+
+### Referencias
+
+- `frontend/src/hooks/useDeckWizardDraft.js` — alias `saveDraft/draft/draftTimestamp` añadidos.
+- `frontend/src/pages/admin/AdminContexts.jsx` — EmptyState con `<Icon>`.
+- `frontend/src/components/analytics/ReportGenerator.jsx` — adaptadores de forma de datos.
+- `frontend/src/components/game/GameOverScreen.jsx` — tilde en "INCREÍBLE" + desglose stats (PROP-104).
+- `frontend/src/pages/InsightsReports.jsx` — YAxis `allowDataOverflow` + ticks fijos.
+- `frontend/src/pages/SessionsPage.jsx`, `frontend/src/pages/SessionDetail.jsx` — etiqueta dinámica memoria/asociación.
+- `frontend/src/components/layout/AppLayout.jsx` — scroll en body + sidebar sticky (PROP-100).
+- `frontend/src/components/analytics/EngagementRadar.jsx` — fallback por signalAxes < 3 (PROP-101).
+- `backend/src/services/gameEngine/GameEngine.js` — `promptText` en `new_round` + log signo natural (PROP-102, PROP-105).
+- `frontend/src/pages/GameSession.jsx` — `normalizeChallenge` con promptText + artículo "la" en default (PROP-102, BUG-A12).
+- `frontend/src/components/session/StepRules.jsx`, `StepMemoryRules.jsx` — switch a11y (PROP-103).
+- Capturas de la sesión: `qa-capturas-v0.5.0-final/` (01–66).
+
+
+---
+
+## ADR-088: Paquete fixes QA cierre Sprint 5 / pre-release v0.5.0 (gameplay, contextos, analytics) [Full-stack]
+
+**Estado**: Aprobado · 2026-04-26
+**Alcance**: Full-stack
+**Contexto**: Última sesión de QA antes de cerrar el Sprint 5 y la release
+v0.5.0. Auditoría exhaustiva por la app completa (perfil profesor + super
+admin) en viewport por defecto, jugando una partida de memorización y otra
+de asociación desde cero, ejercitando wizards, contextos, asset upload,
+Supabase Storage y administración. Se buscan únicamente bugs y errores; toda
+incidencia detectada se corrige aquí.
+
+**Decisión**: Aplicar 8 fixes coordinados que cierran 8 bugs reales detectados
+en flujos críticos:
+
+**1) Selección de contexto en wizard de mazos no funcionaba (todos seleccionados).**
+`toGameContextDTOV1` expone `id` (no `_id`), pero `DeckCreationWizard` usaba
+solo `selectedContext?._id === context._id`. Como ambos eran `undefined`,
+`undefined === undefined` evaluaba a `true` y todos los contextos aparecían
+con check de "seleccionado" + el `contextId` enviado al crear mazo era
+`undefined`. Fix: aceptar `_id || id` en `DeckCreationWizard`,
+`DeckEditPage` y `useContexts.findContextById` para tolerar ambos contratos.
+
+**2) Modal "Borrador encontrado" reaparecía tras descartar.**
+`useEffect([hasDraft, showDraftModal])` reabría el modal cada vez que el
+hook `useDeckWizardDraft` volvía a poner `hasDraft=true` al guardar el
+primer dato significativo del mazo nuevo. Fix: ref
+`draftDecisionTakenRef` que registra que el usuario ya tomó decisión, y la
+condición del effect lo respeta.
+
+**3) Modo táctil de asociación: respuestas correctas se contaban como fallo.**
+`ensureRfidSensorConsistency` rechazaba scans con sensorId distinto al
+bindeado en `modeState.sensorId`. Tras simular escaneos en el wizard de
+mazos quedaba el `sensor-<uuid>` pegado, y los toques sucesivos del
+`FallbackTouchPanel` enviaban `touch_fallback_sensor` → mismatch →
+RFID_SENSOR_MISMATCH → la respuesta no se contabilizaba. Fix: aceptar
+`payload.sensorId` que empiece por `touch_fallback` como excepción al
+mismatch, y nunca persistir un binding de `touch_fallback_sensor` (de lo
+contrario, bloquearía al sensor físico al volver). Coherente con la
+excepción ya presente en `validateRfidSensorAuthorization`.
+
+**4) Race entre `game_over` y `response_*` mostraba conteo incorrecto.**
+`normalizeFinalSummary` calculaba `errors = totalAttempts - correctAnswers`
+usando el `correctAnswers` del reducer local. Si `game_over` llegaba antes
+de procesar el último `response_correct`, ese contador iba 1 unidad por
+debajo y "Incorrectas" mostraba números absurdos (5 fallos en una partida
+de 4 aciertos + 1 fallo). Fix: el backend ya envía `metrics.correctAttempts`
+y `metrics.errorAttempts` en `play.metrics`; `normalizeFinalSummary` los usa
+como fuente de verdad y solo cae al cálculo derivado cuando faltan. El
+`GameOverScreen` recibe `playSummary?.correctAnswers ?? correctAnswers` para
+que la cifra sincronizada con el backend prevalezca.
+
+**5) Floats sin redondear en `Mis Alumnos`.**
+La columna Score mostraba `42.7222222222222%` para alumnos cuyo
+`averageScore` viene de un `$avg` de Mongo sin redondear. Fix doble:
+backend `analyticsService.listStudents` redondea a 1 decimal antes de
+enviar; frontend `StudentsAnalytics` añade helper `formatPercent()` que
+elimina decimales sobrantes (1 decimal solo si el valor no es entero).
+
+**6) "Alumnos en Riesgo" en informes mostraba 0% para todos.**
+`reportDataService.getClassroomReport` devuelve
+`studentSummaries[].engagementScore`. `ReportGenerator.bottomStudents`
+fallback hacía `s.averageScore ?? s.score ?? 0`, sin contemplar
+`engagementScore` (que sí estaba en el bloque de "Mejores Alumnos"). Fix:
+añadir `s.engagementScore` al fallback de bottomStudents.
+
+**7) Subida de asset al contexto fallaba con 400 "ID de MongoDB inválido".**
+`UploadAssetModal` usaba `context._id || context.contextId`. Como el DTO no
+expone `_id`, fallback al slug → backend rechaza porque la ruta
+`/contexts/:id/images` espera ObjectId. Fix: cadena `_id || id || contextId`
+(orden mantiene compat con admin que sí trabaja con `_id` crudo en algunos
+flujos legacy).
+
+**8) Tras subir/eliminar asset, el detalle mostraba "0 assets" hasta TTL.**
+`assetController.uploadImage`, `uploadAudio`, `deleteImage` y `deleteAudio`
+modifican `game_contexts` directamente vía `context.save()` y NO invocaban
+`invalidateContextCaches`. La cache Redis del detalle/lista seguía
+sirviendo el snapshot previo durante 60–300s. Fix: invalidar caches al
+final de cada handler con `(_id, contextId)` igual que en
+`gameContextController`. Se importa el helper `contextCacheInvalidator`
+en `assetController`.
+
+**9) Barra de progreso del `WizardStepper` no llegaba al círculo activo.**
+La línea de fondo se posicionaba con `left-5 right-5` (20px desde los
+bordes) asumiendo que los círculos quedaban exactamente a 20px del
+contenedor; pero los items usaban `flex justify-between` con labels y
+descripciones de ancho variable, que desplazaban el centro del primer y
+último círculo (medido: 58.84px y 984px en un viewport de 1024px). La
+barra de progreso, anclada al borde de la línea de fondo, terminaba a
+~28px del centro del segundo círculo en el step 2. Fix doble:
+1. Cambiar el contenedor de pasos a
+   `grid-template-columns: repeat(N, 1fr)` para que cada item ocupe una
+   fracción igual y los centros queden equidistantes (medido tras fix:
+   `[128, 384, 640, 896]` para N=4).
+2. Anclar la línea de fondo a `left/right: 50/N %` (12.5% para N=4) en
+   lugar de `left-5/right-5`, para que coincida exactamente con los
+   centros del primer y último círculo.
+Verificado con `getBoundingClientRect`: el final de la barra de progreso
+en step 2 cae en pixel 384 = centro exacto del segundo círculo
+(delta = 0). Afecta a `DeckCreationWizard` y `CreateSession` (ambos
+usan el mismo `WizardStepper`).
+
+**11) Duplicación de eventos en `GamePlay.events` por interacción
+`addEventAtomic` × `save()` posterior.**
+`addEventAtomic` ejecuta dos pasos: (a) `Model.updateOne` con `$push` del
+evento y `$inc` de las métricas, (b) `applyEventToDocState` que muta el
+doc en memoria (`doc.events.push`, `doc.metrics.totalAttempts += 1`,
+etc.) para que los callers puedan leer el estado actualizado sin un
+round-trip. El paso (b) deja al array `events` marcado por Mongoose como
+*modified* con un atomic op `$push` pendiente. Cuando el flujo posterior
+ejecuta `playDoc.save()` (p. ej. en `complete()`, `persistPlayPaused`,
+`persistPlayResumed` o `checkpointPlayIfNeeded`), Mongoose vuelve a
+aplicar ese `$push`, duplicando cada evento ya persistido por (a).
+Detectado en QA 26/04/2026: una partida de memoria con 7 pares
+evaluados (6 correct + 1 error) mostraba 28 entradas en `events` (cada
+par almacenado dos veces — 14 → 28). `metrics.totalAttempts` no se
+ve afectado porque los `$inc` no se duplican igual que `$push` (el `+= 1`
+en memoria converge al mismo valor que `$inc` aplicado, y `save()` no
+re-incrementa). Pero los analytics que recorren `events` (averageResponseTime
+ya correcto porque promedia, pero contadores derivados sí podían verse
+afectados) y los logs de auditoría sí veían el array corrupto.
+
+**Fix**: tras `applyEventToDocState`, llamar a `this.$__reset()` para
+limpiar el tracking de modificaciones de Mongoose. Los `$push`/`$inc` ya
+los hizo `updateOne` y los siguientes `save()` solo persistirán campos
+modificados *después* de este `addEventAtomic` (status, completedAt,
+etc.). Test suite completa (1034/1034) verde tras el cambio.
+
+**13) Barra de tiempo en partida memoria fosilizada en `timeLimit=1s`.**
+En memoria el `playEndsAt` del backend solo se setea cuando el cliente
+confirma `board_ready` (el timer no debe arrancar antes de que el alumno
+vea el tablero). El método que emite `new_round` calculaba
+`timeLimit = Math.max(1, Math.ceil((remainingTimeMs || 0) / 1000))`, lo
+que devolvía **1** cuando `remainingTimeMs` era `null` (porque
+`playEndsAt` aún no estaba seteado). El frontend recibía `timeLimit=1`
+en el evento `new_round`, lo aplicaba con `setRoundTime(1)` y la barra
+quedaba clavada en 1/1 (100%) durante toda la partida, sin contar.
+Además, tras `confirmBoardReady`, el GameEngine seteaba `playEndsAt`
+pero NO re-emitía `memory_turn_state`, por lo que el cliente nunca
+recibía un `remainingTimeMs > 0` que activase `memoryTimerArmed`. El
+backend sí terminaba la partida al cumplirse los 300 s reales (tested:
+`completionTime=300054 ms`), pero el alumno veía la barra "muerta" al
+100% hasta el game over.
+
+**Fix doble**:
+1. En `_emitNewRound` (rama memoria), publicar `timeLimit` calculado
+   desde `playState.playDurationMs` directamente, no desde el
+   `remainingTimeMs` que aún es null. El `useGameTimer` del cliente
+   sigue esperando a `memoryTimerArmed=true` para empezar a decrementar
+   localmente, así que no hay riesgo de adelantarse al backend.
+2. En `confirmBoardReady`, llamar a `emitMemoryTurnState(...)` después
+   de setear `playEndsAt`, para que el cliente reciba un
+   `remainingTimeMs > 0` y arranque el decremento visual.
+
+**Verificado E2E** con sesión de memoria de 300 s: la barra arranca con
+`max=300, value≈300` y decrementa visualmente (`283` → `269` tras 5 s
+reales, sincronizando con el `memory_turn_state` que el backend va
+emitiendo).
+
+**12) Banner "Pausar para revisar sensor" en `FallbackTouchPanel` mal
+posicionado y con copy ambiguo.**
+El botón estaba alineado al inicio (debajo del primer asset del grid)
+y su texto sugería revisar un sensor que en ese flow está
+deliberadamente ausente (el panel táctil aparece precisamente porque no
+hay sensor RFID). Fix: envolverlo en `flex justify-center` para
+centrarlo bajo el grid y cambiar el copy a "Pausar partida".
+
+**10) `attachAudio` (PATCH /assets/:assetKey/audio) no invalidaba caches
+y tenía rollback parcial.**
+Auditoría posterior del flujo Supabase Storage detectó dos defectos en el
+endpoint de adjuntar/reemplazar audio sobre un asset existente:
+1. Tras `context.save()` no se llamaba a `invalidateContextCaches`,
+   igual que ocurría en los otros 4 handlers ya corregidos en el fix #8.
+   Fix: añadir la invalidación.
+2. La secuencia era *(a) borrar audio viejo del Storage → (b) subir
+   nuevo → (c) persistir Mongo*. Si (b) o (c) fallaban, el rollback
+   eliminaba el archivo nuevo pero el viejo ya había desaparecido del
+   bucket: el asset quedaba en Mongo con `audioUrl` apuntando a un
+   archivo eliminado. Fix: invertir el orden a *(a) subir nuevo
+   → (b) persistir Mongo con la URL nueva → (c) borrar el viejo*. Si
+   (a) o (b) fallan, el catch borra solo el archivo nuevo y el viejo se
+   conserva intacto. La limpieza final del audio antiguo se envuelve en
+   try/catch para que un fallo de red al borrar no rompa la respuesta
+   (deja un huérfano que el job de retención purgará).
+
+**Verificación**:
+- Backend: 1034/1034 tests verdes. Lint backend: 0 errores.
+- Frontend: 257/257 tests verdes. Lint frontend: 0 errores (8 warnings
+  conocidos, todos no bloqueantes — complejidad ciclomática ya presente
+  antes de la sesión).
+- E2E manual con Playwright: jugada partida memoria completa
+  (50 pts, 3 estrellas, 6/6 parejas, 1 fallo) y partida asociación
+  completa post-fix (38 pts, 2 estrellas, 4/5 + 1 fallo, "Incorrectas: 1"
+  correcto). Subida de imagen 300×300 a contexto QA temporal funciona,
+  asset visible en Supabase Storage `ctx-qa-test-context-v050/image/`,
+  borrado del contexto limpia tanto Mongo como Storage.
+
+### Referencias
+
+- `frontend/src/pages/DeckCreationWizard.jsx` — `_id || id` + `useRef` para draft modal.
+- `frontend/src/pages/DeckEditPage.jsx` — mismo fallback en cambio de contexto y guardado.
+- `frontend/src/hooks/useContexts.js` — `findContextById` lee ambos.
+- `backend/src/realtime/socketHandlers.js` — excepción `touch_fallback*` en `ensureRfidSensorConsistency` + no bindear nunca el fallback.
+- `frontend/src/pages/GameSession.jsx` — `normalizeFinalSummary` lee `metrics.correctAttempts/errorAttempts`; `GameOverScreen` recibe `playSummary?.correctAnswers`.
+- `frontend/src/pages/StudentsAnalytics.jsx` — helper `formatPercent`.
+- `backend/src/services/analyticsService.js` — round 1 dec en `studentMetrics.averageScore`.
+- `frontend/src/components/analytics/ReportGenerator.jsx` — `engagementScore` en bottom.
+- `frontend/src/pages/ContextDetailPage.jsx` — `_id || id || contextId` en uploadImage.
+- `backend/src/controllers/assetController.js` — `invalidateContextCaches` tras upload/delete (image y audio).
+- `frontend/src/components/ui/WizardStepper.jsx` — grid de columnas iguales + línea anclada al centro de los círculos extremos.
+- Capturas: `qa-capturas-v0.5.0-final-2026-04-26/` (01–66).
+
+---
+
+## ADR-089: Ventana de gracia 150 ms en transición de ronda Asociación [Backend]
+
+### Contexto
+
+QA del 23/04/2026 con la mecánica Asociación a `timeLimit=15s` reveló que
+varios scans del jugador llegaban al backend justo después de que el
+servidor disparase `handleTimeout`, generando rondas marcadas como "sin
+completar" pese a que el alumno había tocado la carta correcta. La causa
+es una carrera entre el `setTimeout(handleTimeout, timeLimit*1000)`, la
+emisión socket del scan, el viaje por la red y la deserialización. En
+partidas con tiempos cortos (≤15 s) — el caso de aulas con ritmo rápido —
+unos pocos ms de latencia generan un pico de "errores" que NO son del
+jugador: son del sistema.
+
+### Decisión
+
+Añadir una ventana de **gracia post-`timeLimit` de 150 ms** durante la cual
+el servidor sigue aceptando scans antes de marcar la ronda como timeout.
+El cliente sigue mostrando "0 s" cuando expira el contador visible (no se
+extiende el reloj UI), pero el servidor concede ese buffer transparente
+para capturar los scans en tránsito.
+
+Implementación:
+
+- Constante `ROUND_GRACE_PERIOD_MS = 150` (configurable vía env `ROUND_GRACE_PERIOD_MS`).
+- Los dos `setTimeout` que arman el timer de ronda (start y resume tras pausa) suman `ROUND_GRACE_PERIOD_MS` a `timeLimit * 1000`.
+- Métrica `metrics.scansSavedByGracePeriod` que se incrementa en `processResponse` cuando el `timeElapsed` supera el `timeLimit` declarado. Visible en `/api/admin/metrics` para detectar si el buffer se está consumiendo de forma anormal.
+
+### Alternativas consideradas
+
+- **Buffer post-timeout retroactivo**: aceptar el scan tras `handleTimeout` y revertir el evento `validation_result {timeout: true}`. Descartada por invariantes rotas (la ronda ya avanzó, race con `next_round`, UI ya pintó el resultado de timeout).
+- **Telemetría sin actuar**: solo contar y dejar que el alumno pierda el acierto. Descartada porque pide al jugador asumir un coste de un bug del sistema.
+
+### Consecuencias
+
+- Las partidas en Asociación con tiempos cortos cuentan correctamente los scans del último frame del temporizador.
+- El reloj visible al cliente NO se extiende — se mantiene la UX honesta: "0 s" sigue siendo "0 s" para el jugador.
+- 150 ms es invisible para el usuario pero suficiente para absorber la latencia típica de localhost + producción cloud.
+- Métrica `scansSavedByGracePeriod` permite detectar regresiones (si crece desproporcionadamente, indica problema de latencia o de timing UI).
+
+### Frontend complementario
+
+`FallbackTouchPanel` muestra un overlay sutil "Procesando…" durante 200 ms tras el tap del jugador para confirmar visualmente que el scan se ha registrado, evitando dobles taps por ansiedad de UX.
+
+### Tests
+
+`backend/tests/services/gameEngineObservability.test.js` — 3 cases (inicialización en 0, incremento cuando `timeElapsed > timeLimit`, NO incremento cuando llega antes).
+
+### Referencias
+
+- `backend/src/services/gameEngine/GameEngine.js` — constante, setTimeouts y `processResponse`.
+- `frontend/src/components/game/FallbackTouchPanel.jsx` — overlay "Procesando…".
+
+---
+
+## ADR-090: Dedupe de scans WebSocket diferenciado por `source` [Backend]
+
+### Contexto
+
+El `socketRateLimiter` aplicaba un único cooldown de **1200 ms** para todos los `rfid_scan_from_client`, indiferente de la fuente. Ese cooldown está pensado para protegerse del *chattering* del lector RC522 hardware, donde un mismo tag puede generar dos lecturas en menos de 1 s. **Pero las mecánicas táctiles** (panel fallback de Asociación, taps en cartas de Memoria) usan el mismo evento socket y heredaban el cooldown largo, provocando falsos positivos: tocar dos cartas distintas en sucesión rápida disparaba `DUPLICATE_RFID_EVENT` aunque los UIDs no coincidiesen y el flujo educativo lo justificase plenamente.
+
+### Decisión
+
+Diferenciar el cooldown por el campo `source` del payload del scan, espejando la política en backend y frontend:
+
+- `web_serial_hardware` y `web_serial`: 1200 ms (sensor RC522, anti-chattering).
+- `touch_fallback`: 250 ms (taps en panel táctil de Asociación).
+- `touch_memory_flip`: 250 ms (taps sobre cartas de Memoria).
+- Cualquier otro `source` o ausente: `defaultCooldownMs = 1200 ms`.
+
+Además, la `dedupeKey` incluye `source` para que dos fuentes distintas no se "ahoguen" entre sí (un tap táctil no afecta al cooldown del sensor real ni viceversa).
+
+### Implementación
+
+- `backend/src/config/socketRateLimits.js` — `rfidDedupeConfig` ya no es un número plano sino `{ defaultCooldownMs, cooldownMsBySource: {...} }`.
+- `backend/src/middlewares/socketRateLimiter.js` — `checkRfidDedupe()` lee `payload.source` y resuelve el cooldown apropiado.
+- `frontend/src/hooks/useGameSocket.js` — constantes `DEDUPE_MS_BY_SOURCE` y `DEFAULT_DEDUPE_MS` extraídas del módulo, `isDuplicateScan(uid, source)` aplica el cooldown según fuente, `emitFallbackScan` envía `source: 'touch_fallback'`, `emitMemoryCardTap` envía `source: 'touch_memory_flip'`.
+
+### Tests
+
+`backend/tests/socketRateLimiter.test.js` — 5 cases nuevos:
+
+- `touch_memory_flip` permite dos scans del mismo UID a 300 ms.
+- `touch_memory_flip` bloquea dos scans del mismo UID a 200 ms.
+- `web_serial_hardware` mantiene el cooldown largo (800 ms < 1200 ms → dedupe).
+- `source` ausente cae en `defaultCooldownMs`.
+- Mismo UID con sources distintos NO se ahogan entre sí.
+
+### Consecuencias
+
+- La mecánica Memoria táctil deja de provocar el banner "Espera un momento" innecesariamente cuando el alumno encadena taps rápidos (el flow esperado del juego).
+- El sensor hardware mantiene su protección anti-chattering intacta.
+- La política está centralizada en una sola estructura, fácil de extender con nuevas fuentes (Bluetooth, Zigbee, etc.) sin tocar la lógica.
+
+### Referencias
+
+- `backend/src/config/socketRateLimits.js`
+- `backend/src/middlewares/socketRateLimiter.js`
+- `frontend/src/hooks/useGameSocket.js`
+
+---
+
+## ADR-092: Centralización de enums Zod ↔ Mongoose en `constants/enums.js` [Backend]
+
+### Contexto
+
+Los enums compartidos entre validators Zod (frontera HTTP) y schemas Mongoose (frontera de persistencia) estaban duplicados como literales en ambas capas. La auditoría de PROP-27 detectó **un mismatch real**: `GamePlay.events.eventType` en Mongoose incluía `'server_restart'` pero el `z.enum([...])` del validator NO. Resultado: un evento legítimo emitido por el GameEngine podía persistirse pero no se podía consultar a través de los endpoints que validan respuesta. Mismatches similares eran un riesgo presente en cada nueva edición (status, role, difficulty, purposes, etc.).
+
+### Decisión
+
+Centralizar los enums duales en `backend/src/constants/enums.js` como arrays congelados (`Object.freeze`) y migrar todos los validators Zod y schemas Mongoose a importar desde ahí. El test `backend/tests/constants/enums.test.js` verifica que cada `Model.schema.path(field).enumValues` coincide exactamente con la constante — un cambio en una capa sin actualizar la otra rompe el test inmediatamente.
+
+Enums centralizados (11 constantes):
+
+- `DIFFICULTY`, `SESSION_STATUS`, `PLAY_STATUS`, `EVENT_TYPE`
+- `ROLES`, `USER_STATUS`, `ACCOUNT_STATUS`
+- `DECK_STATUS`
+- `CONSENT_PURPOSES`, `CONSENT_CHANNEL`, `CONSENT_ACTION`
+
+### Implementación
+
+Touchpoints (5 validators + 4 models):
+
+- `backend/src/validators/{gameSession,gamePlay,user,common,cardDeck}Validator.js`
+- `backend/src/models/{GameSession,GamePlay,User,CardDeck}.js`
+
+En Zod se usa `z.enum([...DIFFICULTY])` (spread para evitar problemas de mutabilidad en plugins). En Mongoose se pasa el array directo (`enum: DIFFICULTY`).
+
+### Tests
+
+`backend/tests/constants/enums.test.js` — 11 cases:
+
+- Sanity: arrays no vacíos, strings únicos, congelados.
+- Valores literales preservados (contrato público con frontend).
+- Coherencia Mongoose ↔ constante para cada path.
+
+### Consecuencias
+
+- Mismatch resuelto: `EVENT_TYPE` ahora incluye `'server_restart'` en ambas capas.
+- Cualquier edición futura de un enum se refleja automáticamente en las dos capas o el test falla.
+- La protección estructural Zod ↔ Mongoose no requiere disciplina manual ni revisión cruzada.
+
+### Referencias
+
+- `backend/src/constants/enums.js`
+- `backend/tests/constants/enums.test.js`
+
+---
+
+## ADR-093: Cierre Sprint 5 — paquete fixes 15 propuestas pre-release v0.5.0 [Full-stack]
+
+### Contexto
+
+Sesión final de cierre de Sprint 5 que aborda las **15 propuestas [MANT]** pendientes en `documentation/propuestas-mejora.md`. Auditoría inicial reveló que **6 ya estaban implementadas** tras las pasadas QA del 21–26/04/2026 y solo requerían verificación visual en navegador. Las **9 restantes** se han implementado en esta sesión con tests automatizados añadidos para cada cambio.
+
+### Resumen de cambios
+
+| PROP | Tipo | Resumen |
+|---|---|---|
+| **21** | Verificación | `ContextsPage` y `StudentManagement` renderizan listados por defecto. |
+| **27** | Backend | Centralización enums Zod ↔ Mongoose (ver ADR-092). |
+| **47** | Backend | Alertas usan `detectedAt` del evento subyacente (no `Date.now()` al servir). |
+| **70+84** | Frontend | `searchable: 'auto'` en `SelectPremium` (>20 items activa input filtrado, sticky, aria-live). |
+| **77** | Verificación | `<main>` ya sin `overflow-auto` (scroll en body). |
+| **79** | Full-stack | Grace period 150 ms en Asociación (ver ADR-089) + overlay "Procesando…" en `FallbackTouchPanel`. |
+| **80** | Verificación | `PODIUM_STYLES` con tokens `--color-podium-{gold,silver,bronze}` en Top 5. |
+| **83** | Verificación | Backend rellena días vacíos con `null` (variante C de la propuesta). |
+| **87** | Verificación | Margin top 32 + bottom 28 + Legend top en Curvas de Aprendizaje. |
+| **88** | Frontend | Helper `formatDelta` + `StatCard` muestra "—" neutro cuando no hay baseline. |
+| **89** | Verificación | `slice(0, 6)` + badge "+N" en `DeckCard`. |
+| **90** | Full-stack | Dedupe WebSocket diferenciado por `source` (ver ADR-090). |
+| **92** | Frontend | `RateLimitBanner` con countdown + auto-dismiss + `aria-live`. |
+
+### Verificación
+
+- **Backend: 1056/1056 tests verdes** (74 suites). +22 tests sobre la base 1034: 14 (PROP-27 enums coherence), 3 (PROP-79 grace period), 5 (PROP-90 dedupe per source).
+- **Frontend: 287/287 tests verdes** (26 suites). +30 tests sobre la base 257: 17 (PROP-88 formatDelta), 8 (PROP-70/84 SelectPremium searchable), 5 (PROP-92 RateLimitBanner). Tests previos actualizados: 1 (`source: 'web_serial'` → `'touch_fallback'` en GameSession test por PROP-90).
+- **Lint: 0 errores en ambos** (warnings heredados, no introducidos).
+- **QA browser** con Docker dev stack:
+  - Dashboard: KPIs muestran "—" en "Alumnos en Riesgo" / "Partidas Hoy", podio oro/plata/bronce en Top 5, gráfica StudentProgress con gaps.
+  - `/decks`: 6 mazos con 6 miniaturas cada uno + bandera Portugal/Grecia visibles en Banderas de Europa.
+  - `/contexts`: 5 cards visibles por defecto sin scroll.
+  - `/analytics/insights` → Alertas: 5 alertas con timestamps distintos coherentes (11h, 12h, 8h, 10h, 8h — antes todas eran "Hace 7 min").
+  - `/analytics/insights` → Efectividad: Curvas de Aprendizaje sin solapamiento label/leyenda.
+- Capturas en `qa-sprint5/` (7 imágenes representativas).
+
+### Referencias
+
+- ADR-089 — Ventana de gracia 150 ms en Asociación.
+- ADR-090 — Dedupe WebSocket diferenciado por source.
+- ADR-092 — Centralización de enums.
+- `documentation/propuestas-mejora.md` — sección `[MANT] Mantenimiento Sprint 5` eliminada tras esta sesión.
+
+
+## ADR-094: QA final pre-release v0.5.0 — paquete fixes (Redis policy, modal lifecycle, gramática consigna, a11y MemoryBoard) [Full-stack]
+
+**Estado**: Aceptado · 2026-04-29 · Revisión QA exhaustiva
+
+### Contexto
+
+Última pasada de QA antes del corte v0.5.0. Sesión completa con perfiles profesor y super_admin: dashboard, mazos, sesiones, wizard de creación, partida memoria + asociación con fallback táctil (sin sensor disponible), gestión de contextos por admin, ciclo completo de upload/delete de assets en Supabase Storage. Se buscaron exclusivamente bugs y deficiencias funcionales — sin propuestas diferidas a Sprint 6.
+
+### Hallazgos
+
+| ID  | Severidad | Descripción                                                                                                                                                                                                |
+| --- | --------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 1   | ALTA      | Redis arrancaba con `maxmemory-policy=allkeys-lru` en `docker-compose.yml` y `docker-compose.prod.yml`. Bajo presión de memoria expulsaba claves de BullMQ (data-retention diaria), JWT blacklist (tokens revocados podían reaparecer) e idempotencia de `startPlay` (claves `play:init:*`).         |
+| 2   | CRÍTICA   | `useConfirmationModal` no cerraba el modal tras `onConfirm` exitoso. El consumidor podía cerrarlo manualmente con `close()`, pero `ContextDetailPage` y otros omitían esa llamada — el modal quedaba visible bloqueando la UI tras eliminar/archivar.        |
+| 3   | ALTA      | Concordancia gramatical "la {value}" hardcoded en `GameSession.jsx`. Producía frases incorrectas con sustantivos masculinos ("la Cerdo", "la Caballo", "la Pato"). |
+| 4   | MEDIA     | Switch "Animaciones" del sidebar usaba `<button>` sin `type` explícito → `type="submit"` por defecto. Submit accidental si en algún momento queda dentro de un `<form>`. |
+| 5   | MEDIA     | `CardAssetPreview` renderizaba el nombre del asset en un `<span>` sin `aria-hidden` cuando se mostraba como fallback (sin imagen). En la cara trasera del `MemoryBoard`, esto permitía a los lectores de pantalla revelar el contenido de cartas que deberían estar ocultas, "haciendo trampa" en la mecánica de memoria. |
+| 6   | BAJA      | Emoji 🔎 en consigna de Asociación. Inconsistente con la convención del resto de la app (iconos Lucide). |
+
+### Decisión
+
+**1. Redis `maxmemory-policy: noeviction`** — Los caches con datos descartables (analytics, contextos, slim-user) ya tienen TTL explícito; el resto (BullMQ, blacklist, idempotencia, distributed locks) requiere persistencia hasta vencimiento natural. `docker/README.md` actualizado con la justificación.
+
+**2. `useConfirmationModal` con auto-cierre** — El hook envuelve `onConfirm` en un wrapper `try/finally`:
+
+```js
+const handleConfirm = useCallback(async () => {
+  try {
+    if (typeof config.onConfirm === 'function') {
+      await config.onConfirm();
+    }
+  } finally {
+    setIsOpen(false);
+  }
+}, [config]);
+```
+
+El modal se cierra automáticamente al confirmar, incluso si el callback lanza una excepción (no se atrapa al usuario en un modal "muerto"). Los consumidores que ya llamaban a `close()` manualmente (CardDecksPage, DeckEditPage, SessionDetail, SessionsPage) siguen funcionando — `setIsOpen(false)` es idempotente.
+
+**3. Consigna sin artículo en Asociación** — `🔎 ¿Dónde está la {value}?` → `<Search /> Encuentra: {value}`. La frase pasa a ser neutra de género gramatical. Si el profesor define `promptText` personalizado en el wizard, ese texto sigue teniendo prioridad. Emoji 🔎 reemplazado por icono Lucide `Search` para alinearse con el resto de la app.
+
+**4. `type="button"` explícito en botón switch** — Evita el comportamiento por defecto `type="submit"` heredado de HTML.
+
+**5. `aria-hidden` defensivo en `CardAssetPreview` fallback** — El span del fallback aplica `aria-hidden="true"` cuando el consumidor pasa `alt=""`, lo que indica que el contenido no debe ser accesible (caso MemoryBoard cara oculta). En contextos donde el alt tiene valor (FallbackTouchPanel) el span sigue siendo accesible normalmente.
+
+### Consecuencias
+
+**Positivas**:
+
+- **Operativas**: BullMQ ya no pierde jobs bajo presión de memoria. Tokens revocados de la JWT blacklist son verdaderamente revocados hasta TTL natural. Idempotencia de `startPlay` garantizada.
+- **UX**: Confirmaciones de modal ya no bloquean la UI. Mensajes gramaticalmente correctos en todas las consignas de Asociación. Mecánica de memoria con accesibilidad reforzada (un screen reader ya no puede "leer la trampa").
+- **Consistencia**: Iconografía Lucide unificada (no más emojis huérfanos).
+- **Robustez**: El switch de animaciones es seguro frente a futuros wraps en `<form>`.
+
+**Riesgos asumidos**:
+
+- Cambio de `noeviction` requiere monitorización: si Redis llena su memoria de 256MB (dev) / 512MB (prod), las nuevas operaciones de escritura fallarán en lugar de sobrescribir. Mitigación: TTL explícito en todos los caches no críticos + alarma en `/api/admin/metrics` cuando `usedMemory > 80%`.
+
+### Verificación
+
+- **Tests backend**: 1032/1032 verdes (73 suites).
+- **Tests frontend**: 289/289 verdes (26 suites). +2 nuevos en `ConfirmationModal.test.jsx` (auto-close al confirmar, auto-close si callback lanza).
+- **Lint**: 0 errores en backend y frontend.
+- **Build production frontend**: OK, sin warnings.
+- **QA browser** con Docker dev stack a 1920x1080:
+  - Login profesor + admin verificados.
+  - Wizard de creación de sesión memoria desde 0 → partida con varias parejas + fallo intencional → game over con stats correctos.
+  - Wizard de creación de sesión asociación desde 0 → 5 rondas (4 aciertos, 1 fallo) → consigna ahora dice "Encuentra: Cerdo" / "Encuentra: Caballo" / "Encuentra: Pato" sin error gramatical.
+  - Crear/editar/eliminar contexto admin con verificación en Supabase Storage (subida de imagen, eliminación de asset, eliminación de contexto y limpieza de carpeta `ctx-*`).
+  - Modal "Eliminar asset" cierra automáticamente tras confirmar.
+  - Modal "Archivar mazo" cierra automáticamente tras confirmar.
+  - Capturas en `qa-capturas-v0.5.0-final-release/` (58 imágenes representativas).
+
+### Referencias
+
+- BUG report en sesión `project_qa_release_2026_04_29.md` (memoria del proyecto).
+- ADR-088 — Paquete fixes anterior cierre Sprint 5.
+- ADR-093 — Cierre Sprint 5 paquete consolidado.
+
+
+## ADR-095: Layout — sidebar bg extendido y grids con alturas uniformes [Frontend]
+
+**Estado**: Aceptado · 2026-04-29 · QA visual final pre-release v0.5.0
+
+### Contexto
+
+Tras los fixes funcionales del ADR-094, una pasada visual final a 1920×1080 reveló tres patrones de "fragmentación visual" que se repetían en varias pantallas:
+
+1. **Bloque de fondo "roto" debajo de la sidebar** en páginas largas (Sessions, Dashboard, StudentProfile). La sidebar `<aside>` con `sticky top-0 h-screen` solo ocupa el viewport (1080px); cuando `<main>` supera esa altura, debajo del aside queda visible el body crudo. Como el aside lleva `bg-background-base/90 backdrop-blur-xl shadow-2xl` y el body solo `bg-background-base`, el cambio se percibe como una franja de otro color.
+
+2. **Cards de KPI con alturas desiguales** en el perfil de estudiante. De las 6 cards superiores, dos llevan línea `comparison` ("Mejor: 120 pts", "Sin abandonos") y son ~14px más altas que las otras cuatro, rompiendo la rejilla.
+
+3. **Huecos verticales en grids con columnas asimétricas**. En "Trayectoria + Resumen del Alumno" (StudentProfile), un chart de 350px convive con un panel de 200px. En el Dashboard, la columna principal (StudentProgressChart + heatmaps + RecentActivity) termina antes que la lateral (ClassroomOverview + Alerts + Top 5 + QuickLinks), dejando ~250px de aire muerto bajo "Actividad Reciente".
+
+### Decisión
+
+**1. Pseudo-fondo de columna sidebar en `AppLayout`.** El flex container exterior recibe `relative` y se le añade un `<div aria-hidden>` con `absolute inset-y-0 left-0 w-72 bg-background-base border-r border-border-subtle pointer-events-none z-0`, oculto en mobile (`hidden lg:block`). Este div cubre toda la altura del flex (no solo el viewport), pintando la columna sidebar con el color base sólido. La sidebar real `motion.aside` con sticky+blur+shadow se renderiza por encima (z-50) y mantiene su efecto visual; al scrollear, lo que queda debajo del aside ya no es body crudo sino el pseudo-fondo, así que la transición se vuelve invisible.
+
+**2. KPI cards con `h-full flex flex-col` y `mt-auto` en la línea opcional.** `StudentKPICard` aplica `h-full flex flex-col` a su `GlassCard`, lo que permite al grid `align-items: stretch` (default) igualar alturas. La línea `comparison` lleva `mt-auto pt-2` para anclarse al fondo cuando existe; las cards sin comparison quedan con espacio en blanco abajo (uniforme con las que sí tienen). Los `motion.div` wrappers en `StudentProfile` reciben `className="h-full"` para que el motion no compita con el stretch.
+
+**3. Grids con `h-full` en cada celda y los componentes hijos.** En "Trayectoria + Resumen": tanto `TrajectoryChart` como `NarrativeCard` aplican `h-full` a su `GlassCard`, y los wrappers `lg:col-span-3` / `lg:col-span-2` también — la fila iguala alturas. En el Dashboard: la columna principal pasa de `space-y-6` a `flex flex-col gap-6` con `flex-1 flex flex-col` en el wrapper de `RecentActivity`. Esto fuerza al último bloque a estirarse hasta alinearse con el fondo de la columna lateral. `RecentActivity` lleva `h-full flex flex-col` para aceptar el estiramiento sin alterar su scroll horizontal interno.
+
+### Consecuencias
+
+**Positivas**:
+
+- En cualquier página donde `<main>` supere el viewport, el fondo de la sidebar es continuo. El usuario percibe un layout coherente en lugar de "el menú se acaba aquí, debajo es otra cosa".
+- Las rejillas de KPI quedan visualmente uniformes — sin la cards saltarinas que rompían la simetría.
+- Las filas asimétricas (chart + texto) se ven equilibradas con paneles del mismo alto.
+- La columna principal del Dashboard ya no tiene aire muerto bajo "Actividad Reciente" cuando la lateral es más alta.
+
+**Riesgos asumidos**:
+
+- El pseudo-fondo añade un `<div>` decorativo extra al árbol DOM (mínimo overhead, sin pointer-events ni listeners).
+- `h-full` en cada wrapper requiere disciplina: si en futuro se añaden filas con un único componente que no acepta estiramiento, conviene evaluar caso por caso. La política para KPI / chart cards de `analytics/` es: aceptan `h-full` y pintan bien.
+
+### Verificación
+
+- **QA browser** a 1920×1080:
+  - `/dashboard`: scroll vertical hasta el final → sidebar y body se ven con un único color base. "Actividad Reciente" alineada al bottom de "Accesos rápidos" (sin hueco).
+  - `/students/:id`: 6 KPI cards con altura uniforme. "Trayectoria de Aprendizaje" (350px) y "Resumen del Alumno" misma altura.
+  - `/sessions`: sidebar bg continuo hasta el footer en pantallas con 9+ sesiones.
+- **Tests**: 289/289 frontend + 1032/1032 backend.
+- **Lint**: 0 errores en backend y frontend.
+- Capturas en `qa-capturas-v0.5.0-final-release/`: 100→105 (antes), 111→115 (después).
+
+### Archivos modificados
+
+- `frontend/src/components/layout/AppLayout.jsx` — pseudo-fondo de columna sidebar.
+- `frontend/src/components/analytics/StudentKPICard.jsx` — `h-full flex flex-col` + `mt-auto` en comparison.
+- `frontend/src/components/analytics/TrajectoryChart.jsx` — `h-full` en GlassCard.
+- `frontend/src/components/analytics/NarrativeCard.jsx` — `h-full` en GlassCard.
+- `frontend/src/pages/StudentProfile.jsx` — `h-full` en motion wrappers de KPI y celdas de Trayectoria.
+- `frontend/src/pages/Dashboard.jsx` — `flex flex-col` con `flex-1` en último item de columna principal; `h-full flex flex-col` en `RecentActivity`.
+
+### Referencias
+
+- ADR-094 — Paquete fixes funcionales QA pre-release (Redis policy, modal lifecycle, gramática consigna, a11y MemoryBoard).
+
+
+## ADR-096: QA pre-release v0.5.0 — paquete fixes (métricas Memoria, ranking informe, copy admin contextos, KPI Parejas, export CSV informe) [Full-stack]
+
+**Estado**: Aceptado · 2026-04-29 · QA exhaustivo final pre-release v0.5.0
+
+### Contexto
+
+Una sesión QA completa con Playwright en viewport 1920×1080 cubriendo perfil teacher (maria@test.com), perfil super_admin (admin@test.com), creación de partida desde wizard (Memoria + Asociación), gameplay completo con aciertos y fallos, gestión de contextos (CRUD con Supabase Storage), Insights/Reportes y Mis Alumnos detectó cuatro inconsistencias dignas de fix:
+
+1. **Métricas inconsistentes en GameOver de Memoria.** El componente `GameOverScreen` mostraba "Correctas: 4 / Total: 6 / Incorrectas: 4 / Sin responder: 0" en una partida de Memoria. La aritmética 4 + 4 + 0 = 8 ≠ 6 sugería un bug de cálculo. La causa real era semántica: en Asociación, "Total" representa rondas y `errors` rondas falladas → la suma cuadra; en Memoria, "Total" representa parejas y `errors` cuenta intentos individuales fallidos (cada par mal volteado), por lo que `correctas + errors` puede superar `total` perfectamente. La UI no diferenciaba ambas semánticas y confundía al profesor.
+
+2. **Rankings divergentes entre tabla "Mis Alumnos" y "Mejores/En Riesgo" del Informe.** La tabla `/analytics/students` ordenaba alumnos por `studentMetrics.averageScore` (Isabella Pérez 71% como #1). El informe `/analytics/insights → Informes` los ordenaba por `engagementScore` calculado a partir de frecuencia de juego, regularidad y completion rate (Daniel Navarro 50% como #1, Isabella aparecía como #2 con 48%). El profesor recibía dos listas con la palabra "ranking" pero números y orden distintos sin explicación visible.
+
+3. **Typos sin tildes en modales de admin contextos** ("creara vacio", "anaden despues", "podra cambiarse", "imagenes", "operacion se rechazara") que afeaban una pantalla crítica del super_admin.
+
+4. **KPIs "Aciertos" y "Parejas" duplicados durante gameplay Memoria.** El footer de juego mostraba `Aciertos: 2 / Parejas: 2` en Memoria — dos pills con exactamente el mismo valor, vs Asociación donde "Progreso" mostraba `2 de 5`. No había forma de distinguir el progreso del total objetivo en Memoria.
+
+5. **Export CSV del informe con cabeceras `0,1,2,...`.** El endpoint `/api/analytics/reports/classroom/export` devuelve `{ headers: ['Nombre', 'Aula', ...], rows: [['Daniel', 'Aula 1', ...], ...] }` — `rows` es array de **arrays** y las cabeceras viajan en `headers`. El frontend (`ReportGenerator.handleExportCSV`) asumía `rows` como array de objetos y hacía `Object.keys(rows[0])` para derivar columnas, lo que produce `["0", "1", "2", ...]` cuando `rows[0]` es un array. El CSV resultante tenía datos correctos pero cabeceras numéricas inútiles para el profesor.
+
+### Decisión
+
+**1. GameOverScreen consciente del modo de juego.** Cuando `summary.mode === 'memory'`:
+- La etiqueta superior pasa de "Correctas" a "Parejas" (clarifica que `correctAnswers` cuenta parejas, no intentos individuales).
+- El desglose detallado pasa de 4 columnas (Incorrectas / Sin responder / T. medio / Tiempo) a 3 columnas (Errores / T. medio / Tiempo) — `Sin responder` no aplica a Memoria porque la mecánica no tiene rondas con timeout individual; el cálculo `unanswered = max(0, total - correctas - errors)` daba 0 forzado por el clamp en cuanto `errors > total - correctas`, lo que es engañoso.
+- El pill rojo se reetiqueta como "Errores" con el title `"Intentos fallidos (parejas mal emparejadas)"`, semánticamente correcto vs. el ambiguo "Incorrectas" anterior.
+- Asociación mantiene las 4 columnas originales sin cambios.
+
+**2. `studentSummaries` del informe enriquecido con `averageScore` y ordenado por él.** En `reportDataService.getClassroomReport`, tras obtener los students del `engagementService` se hace una segunda consulta a `userRepository` (`select: '_id studentMetrics.averageScore'`) y se mergea el campo. El array final se ordena `desc` por `averageScore` para que `topStudents = summaries.slice(0, 5)` produzca el mismo Top 5 que la tabla "Mis Alumnos". El frontend (`ReportGenerator.jsx`) ya tenía un fallback `s.averageScore ?? s.score ?? s.engagementScore` — ahora la primera entrada del fallback se rellena correctamente. `engagementScore` y `completionRate` siguen viajando en el DTO para usos futuros (vista detallada, exportación CSV).
+
+**3. Tildes corregidas en `AdminContexts.jsx`** (4 strings, todos visibles al super_admin en los modales Crear y Eliminar contexto).
+
+**4. `CurrentPlayMetrics` muestra siempre "X de Y" en el pill final.** El template literal anterior `isMemory ? \`${correctAnswers}\` : \`${correctAnswers} de ${totalRounds}\`` se reduce a `\`${correctAnswers} de ${totalRounds}\``. En Memoria el pill ahora muestra `Parejas: 2 de 6`, idéntico en estructura al `Progreso: 2 de 5` de Asociación, dejando "Aciertos: 2" como un valor distinto y útil (el contador de respuestas correctas absolutas, sin contexto de máximo).
+
+**5. `ReportGenerator.handleExportCSV` consume `data.headers` cuando llega con el DTO.** Si `data.headers` viene en la respuesta y `rows[0]` es un array, mapeamos cada fila a un objeto `{header: value}` antes de pasar a `exportToCSV`. Las columnas se derivan de `headers` (no de `Object.keys(rows[0])`). Mantenemos un fallback al patrón anterior para mocks legacy o respuestas con `rows` como array de objetos (defensa por si el endpoint cambia).
+
+### Consecuencias
+
+**Positivas**:
+
+- El profesor ya no ve aritmética que no cuadra en Memoria. Las métricas de fin de partida son legibles y semánticamente coherentes con la mecánica.
+- El Top 5 / Bottom 5 del informe coincide con la tabla "Mis Alumnos" — la palabra "ranking" significa lo mismo en toda la app.
+- Los textos de admin contextos quedan correctos. Es un fix barato pero relevante para la calidad percibida.
+- "Aciertos" y "Parejas" ya no son dos pills idénticos; cada uno aporta información distinta (absoluta vs. progreso relativo al total).
+
+**Riesgos asumidos**:
+
+- Una llamada adicional a Mongo en `getClassroomReport` para obtener `averageScore`. El impacto es mínimo: una sola query con `_id IN (…)` y `select` muy reducido, sobre el mismo dataset que ya se trajo en otras llamadas paralelas. Si en el futuro se nota latencia, el `averageScore` puede inyectarse desde `engagementService` para evitar el round-trip.
+- El cache Redis de analytics (TTL 120-600s) requiere `FLUSHDB` o esperar la expiración tras el deploy para que los rankings cambien en clientes activos. En el caso de upgrade en producción, el primer cliente tras el flush ve los nuevos números.
+
+### Verificación
+
+- **QA browser** a 1920×1080:
+  - GameOver Memoria muestra `Parejas: 4` arriba, `Errores: 4 / T. medio / Tiempo` abajo (3 columnas, sin "Sin responder").
+  - GameOver Asociación mantiene 4 columnas (Incorrectas / Sin responder / T. medio / Tiempo).
+  - `CurrentPlayMetrics` en Memoria activa muestra `Parejas: 0 de 6`.
+  - Informe `/analytics/insights → Informes`: tras `FLUSHDB` de Redis, "Mejores Alumnos" muestra Isabella Pérez 71%, Diego Sánchez 69%, Martina Jiménez 68%, Nicolás Moreno 68%, Sofía García 60% — idéntico al Top de la tabla `/analytics/students`.
+  - Modales `Crear/Editar/Eliminar contexto` con todas las tildes ("creará vacío", "se añaden después", "podrá cambiarse después", "imágenes", "operación se rechazará").
+  - **Export CSV `Mis Alumnos`** (client-side, `alumnos_2026-04-29.csv`): cabeceras `Nombre,Aula,Partidas,Puntuación,Tasa Acierto,Tiempo Respuesta,Última Actividad,Nivel`, BOM UTF-8, tildes correctas (Pérez, Sánchez, Sofía).
+  - **Export CSV `Informe`** (server-side, `informe-classroom-30d.csv`) tras fix: cabeceras `Nombre,Aula,Edad,Partidas Jugadas,Puntuación Media,Mejor Puntuación,Precisión (%),Tiempo Respuesta (ms),Nivel,Última Actividad` — antes mostraba `0,1,2,...,9`.
+- **Tests**: 1032/1032 backend (incluye 298/298 reportDataService) + 289/289 frontend.
+- **Lint**: 0 errores en backend y frontend.
+- **Supabase E2E**: creación + eliminación de contexto `qa-test-context` desde admin verificada con `mcp__plugin_supabase_supabase__execute_sql` consultando `storage.objects` (sin objetos residuales).
+
+### Archivos modificados
+
+- `frontend/src/components/game/GameOverScreen.jsx` — modo-aware (Memoria/Asociación), 3 vs 4 columnas, etiquetas semánticas.
+- `frontend/src/components/game/CurrentPlayMetrics.jsx` — pill "Parejas" siempre con formato `X de Y`.
+- `backend/src/services/analytics/reportDataService.js` — enriquecer `studentSummaries` con `averageScore` y ordenar por él.
+- `frontend/src/components/analytics/ReportGenerator.jsx` — comentarios actualizados (la fuente de orden es `averageScore`, no `engagementScore`); `handleExportCSV` consume `data.headers` con fallback robusto.
+- `frontend/src/pages/admin/AdminContexts.jsx` — 4 typos corregidos en modales Crear/Eliminar contexto.
+
+### Referencias
+
+- ADR-094 — Paquete fixes funcionales QA pre-release v0.5.0 (modal lifecycle, gramática consigna, Redis policy).
+- ADR-095 — Layout sidebar bg + grids alturas uniformes pre-release v0.5.0.
+- ADR-088 — QA Sprint 5 fixes (métricas backend formatPercent, modal asociación táctil).
+- BUG report en sesión `project_qa_pre_release_2026_04_29.md` (memoria del proyecto).

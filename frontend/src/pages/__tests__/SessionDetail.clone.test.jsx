@@ -35,13 +35,18 @@ vi.mock('react-router-dom', async () => {
   };
 });
 
+vi.mock('../../context/AuthContext', () => ({
+  useAuth: () => ({ user: { id: 'teacher-1', role: 'teacher' } })
+}));
+
 vi.mock('framer-motion', () => ({
   motion: new Proxy(
     {},
     {
       get: () => ({ children, ...props }) => <div {...props}>{children}</div>
     }
-  )
+  ),
+  AnimatePresence: ({ children }) => <>{children}</>
 }));
 
 vi.mock('../../hooks/useRefetchOnFocus', () => ({
@@ -110,11 +115,36 @@ vi.mock('../../components/ui/ConfirmationModal', async () => {
   };
 });
 
+vi.mock('../../components/ui/SelectPremium', () => ({
+  default: ({ options, value, onChange, placeholder, label, ...props }) => (
+    <select
+      data-testid="select-premium"
+      value={value}
+      onChange={(e) => onChange?.(e.target.value)}
+      aria-label={label || placeholder}
+      {...props}
+    >
+      <option value="">{placeholder}</option>
+      {(options || []).map((opt) => (
+        <option key={opt.value} value={opt.value}>{opt.label}</option>
+      ))}
+    </select>
+  )
+}));
+
 vi.mock('../../services/api', () => ({
   sessionsAPI: {
     getSessionById: vi.fn(),
     cloneSession: vi.fn(async () => ({ data: { id: 'clone-9' } })),
     deleteSession: vi.fn()
+  },
+  usersAPI: {
+    getStudentsByTeacher: vi.fn(async () => ({
+      data: [
+        { id: 'student-1', name: 'Alumno 1' },
+        { id: 'student-2', name: 'Alumno 2' }
+      ]
+    }))
   },
   extractData: response => response?.data,
   extractErrorMessage: error => error?.message || 'error',
@@ -131,6 +161,10 @@ describe('SessionDetail clone action', () => {
 
   it('clones session from detail view and redirects to cloned detail', async () => {
     const user = userEvent.setup();
+
+    sessionsAPI.getSessionById.mockResolvedValueOnce({
+      data: buildSessionDetailResponse({ status: 'completed' })
+    });
 
     render(
       <MemoryRouter>

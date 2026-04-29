@@ -7,32 +7,8 @@
  */
 
 import { useState, useCallback, useRef } from 'react';
-import confetti from 'canvas-confetti';
 import { selectFeedbackMessage } from '../lib/feedbackMessages';
-
-/**
- * Dispara confetti desde el centro de un elemento DOM.
- * @param {HTMLElement} element
- */
-function fireConfettiFromElement(element) {
-  if (!element) return;
-
-  const rect = element.getBoundingClientRect();
-  const x = (rect.left + rect.width / 2) / globalThis.innerWidth;
-  const y = (rect.top + rect.height / 2) / globalThis.innerHeight;
-
-  confetti({
-    particleCount: 25,
-    spread: 55,
-    origin: { x, y },
-    colors: ['#8b5cf6', '#22d3ee', '#f472b6', '#facc15', '#4ade80'],
-    ticks: 80,
-    gravity: 1.2,
-    scalar: 0.9,
-    shapes: ['circle', 'square'],
-    disableForReducedMotion: true,
-  });
-}
+import { useConfetti } from './useConfetti';
 
 /**
  * @param {Object} options
@@ -49,6 +25,7 @@ export function useGameFeedback({ isMemoryMode = false, shouldReduceMotion = fal
   const [streak, setStreak] = useState(0);
   const [totalErrors, setTotalErrors] = useState(0);
 
+  const { fireFromElement } = useConfetti();
   const recentMessagesRef = useRef(new Set());
   const challengeRef = useRef(null);
   const streakRef = useRef(0);
@@ -105,11 +82,15 @@ export function useGameFeedback({ isMemoryMode = false, shouldReduceMotion = fal
 
     // Fire canvas-confetti for association success
     if (isCorrect && !isMemoryMode && !shouldReduceMotion && challengeRef.current) {
-      fireConfettiFromElement(challengeRef.current);
+      fireFromElement(challengeRef.current, {
+        ticks: 80,
+        scalar: 0.9,
+        shapes: ['circle', 'square'],
+      });
     }
 
     return { isCorrect, points, message };
-  }, [isMemoryMode, shouldReduceMotion]);
+  }, [isMemoryMode, shouldReduceMotion, fireFromElement]);
 
   const clearFeedback = useCallback(() => {
     setFeedbackState('idle');

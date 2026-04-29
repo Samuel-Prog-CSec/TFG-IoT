@@ -11,6 +11,7 @@ import { ArrowRightLeft, User, Users, School, AlertTriangle } from 'lucide-react
 import { toast } from 'sonner';
 import { useAuth } from '../context/AuthContext';
 import { useRefetchOnFocus } from '../hooks/useRefetchOnFocus';
+import { useDocumentTitle } from '../hooks/useDocumentTitle';
 import { usersAPI, extractData, extractErrorMessage, isAbortError } from '../services/api';
 import ButtonPremium from '../components/ui/ButtonPremium';
 import GlassCard from '../components/ui/GlassCard';
@@ -21,6 +22,7 @@ import { cn, pageVariants } from '../lib/utils';
 
 export default function TransferStudents() {
   const { user } = useAuth(); // Removed isSuperAdmin as it's no longer needed for conditional logic here
+  useDocumentTitle('Transferir Alumnos');
   const [students, setStudents] = useState([]);
   const [teachers, setTeachers] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -86,11 +88,14 @@ export default function TransferStudents() {
     const controller = new AbortController();
 
     setLoading(true);
-    loadTeachers({ signal: controller.signal }).finally(() => {
-      if (!controller.signal.aborted) {
-        setLoading(false);
-      }
-    });
+    // eslint-disable-next-line promise/catch-or-return -- catch antes de finally, error manejado
+    loadTeachers({ signal: controller.signal })
+      .catch(() => { /* error manejado dentro de loadTeachers */ })
+      .finally(() => {
+        if (!controller.signal.aborted) {
+          setLoading(false);
+        }
+      });
 
     // No need to set sourceTeacherId based on isSuperAdmin, as this page is for admins only now.
     // The admin will explicitly select the source teacher.
@@ -99,7 +104,7 @@ export default function TransferStudents() {
   }, [loadTeachers]); // Removed currentUserId, isSuperAdmin dependencies
 
   useEffect(() => {
-    if (!sourceTeacherId) return; // Force selection of sourceTeacherId
+    if (!sourceTeacherId) return undefined; // Force selection of sourceTeacherId
     const controller = new AbortController();
 
     loadStudents(sourceTeacherId, { signal: controller.signal });
@@ -187,15 +192,15 @@ export default function TransferStudents() {
 
   if (loading) {
     return (
-      <div className="min-h-screen p-8">
-        <div className="text-slate-300">Cargando transferencia...</div>
+      <div className="min-h-full p-8">
+        <div className="text-text-secondary">Cargando transferencia...</div>
       </div>
     );
   }
 
   return (
     <motion.div
-      className="min-h-screen p-6 lg:p-10"
+      className="min-h-full p-6 lg:p-10"
       variants={pageVariants}
       initial="initial"
       animate="animate"
@@ -267,7 +272,7 @@ export default function TransferStudents() {
             <div className="pt-2">
               <InputPremium
                 label="Motivo de la Transferencia (Opcional)"
-                placeholder="Ej: Cambio de ciclo, refuerzo educativo..."
+                placeholder="Ej: Cambio de ciclo, refuerzo educativo…"
                 value={reason}
                 onChange={(e) => setReason(e.target.value)}
               />
@@ -309,7 +314,7 @@ export default function TransferStudents() {
             </ul>
 
             <div className={cn(
-              'rounded-xl border p-5 text-sm transition-all duration-300',
+              'rounded-xl border p-5 text-sm transition-colors duration-300',
               selectedStudent 
                 ? 'bg-brand-base/5 border-brand-base/20 text-text-primary' 
                 : 'bg-background-elevated/30 border-border-subtle text-text-muted'

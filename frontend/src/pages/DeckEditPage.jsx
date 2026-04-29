@@ -8,9 +8,8 @@
 import { useState, useEffect, useCallback, useMemo, useReducer } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
-import confetti from 'canvas-confetti';
+import { useConfetti } from '../hooks/useConfetti';
 import {
-  ArrowLeft,
   Eye,
   Save,
   Layers,
@@ -33,16 +32,19 @@ import GlassCard from '../components/ui/GlassCard';
 import InputPremium from '../components/ui/InputPremium';
 import AssetSelector from '../components/ui/AssetSelector';
 import CardAssetPreview from '../components/ui/CardAssetPreview';
-import CardSelector from '../components/ui/CardSelector';
 import RFIDScannerPanel from '../components/ui/RFIDScannerPanel';
 import { SkeletonCard } from '../components/ui/SkeletonShimmer';
 import ConfirmationModal, { useConfirmationModal } from '../components/ui/ConfirmationModal';
 import { useContexts } from '../hooks/useContexts';
 import { useRefetchOnFocus } from '../hooks/useRefetchOnFocus';
-import { decksAPI, cardsAPI, extractData, extractErrorMessage, isAbortError } from '../services/api';
+import { useUnsavedChanges } from '../hooks/useUnsavedChanges';
+import { useDocumentTitle } from '../hooks/useDocumentTitle';
+import { decksAPI, extractData, extractErrorMessage, isAbortError } from '../services/api';
 import { ROUTES } from '../constants/routes';
 import { GAME_CONFIG } from '../constants/gameConfig';
 import { toast } from 'sonner';
+import Breadcrumb from '../components/ui/Breadcrumb';
+import Tooltip from '../components/ui/Tooltip';
 
 const { MIN_CARDS, MAX_CARDS } = GAME_CONFIG;
 
@@ -50,7 +52,7 @@ const uiInitialState = {
   activeTab: 'cards',
   showAddCards: false,
   captureMode: 'manual',
-  activeCardId: null,
+  activeUid: null,
 };
 
 function uiReducer(state, action) {
@@ -66,20 +68,14 @@ function uiReducer(state, action) {
     case 'SET_CAPTURE_MODE':
       return { ...state, captureMode: action.payload };
     case 'SET_ACTIVE_CARD':
-      return { ...state, activeCardId: action.payload };
+      return { ...state, activeUid: action.payload };
     default:
       return state;
   }
 }
 
 const buildUpdatedCardMappings = (cards, assignments) => {
-  const mappings = buildCardMappingsPayload(cards, assignments);
-  const cardsById = new Map(cards.map((card) => [card._id, card]));
-
-  return mappings.map((mapping) => ({
-    ...mapping,
-    cardId: cardsById.get(mapping.cardId) || mapping.cardId,
-  }));
+  return buildCardMappingsPayload(cards, assignments);
 };
 
 /**
@@ -88,7 +84,9 @@ const buildUpdatedCardMappings = (cards, assignments) => {
 export default function DeckEditPage() {
   const { deckId } = useParams();
   const navigate = useNavigate();
-  
+  useDocumentTitle('Editar Mazo');
+  const { fireConfetti } = useConfetti();
+
   // Estados de carga
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -108,7 +106,6 @@ export default function DeckEditPage() {
   });
   
   // Datos auxiliares
-  const [availableCards, setAvailableCards] = useState([]);
   
   // UI states (agrupados con useReducer)
   const [ui, dispatchUI] = useReducer(uiReducer, uiInitialState);
@@ -129,14 +126,10 @@ export default function DeckEditPage() {
       setLoading(true);
       setError(null);
 
-      // Cargar mazo y cartas en paralelo (contextos ya se cargan con useContexts)
-      const [deckRes, cardsRes] = await Promise.all([
-        decksAPI.getDeckById(deckId, signal ? { signal } : {}),
-        cardsAPI.getCards({ status: 'active', limit: 100 }, signal ? { signal } : {})
-      ]);
+      // Cargar mazo (contextos ya se cargan con useContexts)
+      const deckRes = await decksAPI.getDeckById(deckId, signal ? { signal } : {});
 
       const deckData = extractData(deckRes);
-      const cardsData = extractData(cardsRes)?.data || [];
 
       if (!deckData) {
         throw new Error('Mazo no encontrado');
@@ -144,27 +137,28 @@ export default function DeckEditPage() {
 
       setDeck(deckData);
       setDeckName(deckData.name);
-      setAvailableCards(cardsData);
 
-      const normalizedMappings = normalizeCardMappingsFromDeck(deckData, cardsData);
+      const normalizedMappings = normalizeCardMappingsFromDeck(deckData);
 
       if (normalizedMappings.length > 0) {
-        const cards = normalizedMappings
-          .map((mapping) => cardsData.find(c => c._id === mapping.cardId))
-          .filter(Boolean);
+        // Build card objects from mappings using uid
+        const cards = normalizedMappings.map((mapping) => ({
+          uid: mapping.uid,
+          type: 'RFID'
+        }));
 
         setSelectedCards(cards);
 
         const assignments = {};
         normalizedMappings.forEach((mapping) => {
           if (mapping.displayData) {
-            assignments[mapping.cardId] = mapping.displayData;
+            assignments[mapping.uid] = mapping.displayData;
           }
         });
         setCardAssignments(assignments);
 
         if (cards.length > 0) {
-          dispatchUI({ type: 'SET_ACTIVE_CARD', payload: cards[0]._id });
+          dispatchUI({ type: 'SET_ACTIVE_CARD', payload: cards[0].uid });
         }
       }
     } catch (err) {
@@ -201,8 +195,8 @@ export default function DeckEditPage() {
 
     const originalName = deck.name;
     const originalContext = deck.contextId?._id || deck.contextId;
-    const originalCardIds = (deck.cardMappings || []).map(c => c.cardId?._id || c.cardId).sort();
-    const currentCardIds = selectedCards.map(c => c._id).sort();
+    const originalCardIds = (deck.cardMappings || []).map(c => c.uid).filter(Boolean).sort();
+    const currentCardIds = selectedCards.map(c => c.uid).sort();
 
     const nameChanged = deckName !== originalName;
     const contextChanged = effectiveContext?._id !== originalContext;
@@ -213,6 +207,8 @@ export default function DeckEditPage() {
     return nameChanged || contextChanged || cardsChanged || assignmentsChanged;
   }, [deck, deckName, effectiveContext, selectedCards, cardAssignments]);
 
+  const { blocker, isBlocked } = useUnsavedChanges(hasChanges);
+
   // Handlers
   const handleAddCard = useCallback((card) => {
     if (selectedCards.length >= MAX_CARDS) {
@@ -220,49 +216,66 @@ export default function DeckEditPage() {
       return;
     }
     
-    if (selectedCards.some((c) => c._id === card._id)) {
+    if (selectedCards.some((c) => c.uid === card.uid)) {
       toast.info('Esta carta ya está en el mazo');
       return;
     }
-    
-    setSelectedCards(prev => [...prev, card]);
-    dispatchUI({ type: 'SET_ACTIVE_CARD', payload: card._id });
-    toast.success(`Carta ${card.uid} añadida`);
-  }, [selectedCards]);
 
-  const handleRemoveCard = useCallback((cardId) => {
+    setSelectedCards(prev => [...prev, card]);
+    dispatchUI({ type: 'SET_ACTIVE_CARD', payload: card.uid });
+    toast.success(`Carta ${card.uid} añadida`);
+
+    // Check cross-deck: verificar si la tarjeta está en otro mazo activo (ADR-022)
+    decksAPI.checkCard(card.uid, deckId).then(res => {
+      const result = res.data?.data;
+      if (result?.found) {
+        toast.warning('Tarjeta en otro mazo', {
+          description: `La tarjeta ${card.uid} está en el mazo "${result.deck.name}". Se moverá automáticamente al guardar.`
+        });
+      }
+      return undefined;
+    }).catch(() => {
+      // Silencioso: el check es informativo, no crítico
+    });
+  }, [selectedCards, deckId]);
+
+  const handleRemoveCard = useCallback((uid) => {
     if (selectedCards.length <= MIN_CARDS) {
       toast.warning(`Mínimo ${MIN_CARDS} cartas por mazo`);
       return;
     }
-    
-    setSelectedCards(prev => prev.filter(c => c._id !== cardId));
+
+    setSelectedCards(prev => prev.filter(c => c.uid !== uid));
     setCardAssignments(prev => {
       const next = { ...prev };
-      delete next[cardId];
+      delete next[uid];
       return next;
     });
-    
+
     // Si era la carta activa, seleccionar otra
-    if (ui.activeCardId === cardId) {
-      const nextActiveCard = selectedCards.find((c) => c._id !== cardId);
-      dispatchUI({ type: 'SET_ACTIVE_CARD', payload: nextActiveCard?._id || null });
+    if (ui.activeUid === uid) {
+      const nextActiveCard = selectedCards.find((c) => c.uid !== uid);
+      dispatchUI({ type: 'SET_ACTIVE_CARD', payload: nextActiveCard?.uid || null });
     }
-  }, [selectedCards, ui.activeCardId]);
+  }, [selectedCards, ui.activeUid]);
 
   const handleContextChange = useCallback((context) => {
-    if (effectiveContext?._id === context._id) return;
-    
+    // El DTO toGameContextDTOV1 expone `id`; mantenemos compat con `_id` por
+    // si llegase un documento Mongoose crudo desde otro consumidor.
+    const incomingKey = context?._id || context?.id;
+    const currentKey = effectiveContext?._id || effectiveContext?.id;
+    if (incomingKey && incomingKey === currentKey) return;
+
     setSelectedContext(context);
     // Limpiar asignaciones al cambiar contexto
     setCardAssignments({});
     toast.info('Contexto cambiado. Reasigna los assets.');
   }, [effectiveContext]);
 
-  const handleAssignAsset = useCallback((cardId, asset) => {
+  const handleAssignAsset = useCallback((uid, asset) => {
     setCardAssignments(prev => ({
       ...prev,
-      [cardId]: asset
+      [uid]: asset
     }));
   }, []);
 
@@ -285,7 +298,7 @@ export default function DeckEditPage() {
     }
     
     // Verificar que todas las cartas tengan asignación
-    const unassigned = selectedCards.filter(c => !cardAssignments[c._id]);
+    const unassigned = selectedCards.filter(c => !cardAssignments[c.uid]);
     if (unassigned.length > 0) {
       toast.error(`Hay ${unassigned.length} carta(s) sin asignar`);
       dispatchUI({ type: 'SET_ACTIVE_TAB', payload: 'assign' });
@@ -297,20 +310,30 @@ export default function DeckEditPage() {
     try {
       const updateData = {
         name: deckName.trim(),
-        contextId: effectiveContext._id,
+        contextId: effectiveContext._id || effectiveContext.id,
         cardMappings: buildCardMappingsPayload(selectedCards, cardAssignments)
       };
       
-      await decksAPI.updateDeck(deckId, updateData);
-      
-      confetti({
+      const response = await decksAPI.updateDeck(deckId, updateData);
+      const responseData = response.data?.data;
+
+      fireConfetti({
         particleCount: 100,
         spread: 60,
         origin: { y: 0.6 },
-        colors: ['#10b981', '#059669', '#34d399']
       });
-      
+
       toast.success('Mazo actualizado');
+
+      // Resumen de tarjetas movidas cross-deck (ADR-022)
+      if (responseData?.affectedDecks?.movedCards?.length > 0) {
+        const { movedCards, archivedDecks } = responseData.affectedDecks;
+        let description = `${movedCards.length} tarjeta(s) movida(s) desde otros mazos.`;
+        if (archivedDecks?.length > 0) {
+          description += ` ${archivedDecks.length} mazo(s) archivado(s) por quedar con pocas cartas.`;
+        }
+        toast.info('Tarjetas reorganizadas', { description, duration: 6000 });
+      }
 
       const updatedCardMappings = buildUpdatedCardMappings(selectedCards, cardAssignments);
       
@@ -318,7 +341,7 @@ export default function DeckEditPage() {
       setDeck(prev => ({
         ...prev,
         name: deckName.trim(),
-        contextId: effectiveContext._id,
+        contextId: effectiveContext._id || effectiveContext.id,
         cardMappings: updatedCardMappings
       }));
       
@@ -351,10 +374,10 @@ export default function DeckEditPage() {
   // Loading state
   if (loading) {
     return (
-      <div className="min-h-screen bg-slate-950 p-4 lg:p-8">
+      <div className="min-h-full bg-background-deep p-4 lg:p-8">
         <div className="max-w-5xl mx-auto">
-          <div className="h-8 w-32 bg-slate-800 rounded animate-pulse mb-6" />
-          <div className="h-12 w-64 bg-slate-800 rounded animate-pulse mb-8" />
+          <div className="h-8 w-32 bg-background-elevated rounded animate-pulse mb-6" />
+          <div className="h-12 w-64 bg-background-elevated rounded animate-pulse mb-8" />
           <SkeletonCard className="h-96" />
         </div>
       </div>
@@ -364,11 +387,11 @@ export default function DeckEditPage() {
   // Error state
   if (error) {
     return (
-      <div className="min-h-screen bg-slate-950 p-4 lg:p-8 flex items-center justify-center">
+      <div className="min-h-full bg-background-deep p-4 lg:p-8 flex items-center justify-center">
         <GlassCard className="p-8 max-w-md text-center">
-          <AlertTriangle size={48} className="text-rose-400 mx-auto mb-4" />
-          <h2 className="text-xl font-semibold text-white mb-2">Error</h2>
-          <p className="text-slate-400 mb-6">{error}</p>
+          <AlertTriangle size={48} className="text-error-base mx-auto mb-4" />
+          <h2 className="text-xl font-semibold text-text-primary mb-2">Error</h2>
+          <p className="text-text-muted mb-6">{error}</p>
           <div className="flex flex-col sm:flex-row gap-3 justify-center">
             <ButtonPremium
               variant="primary"
@@ -390,33 +413,34 @@ export default function DeckEditPage() {
   }
 
   const assignedCount = Object.keys(cardAssignments).length;
-  const assignedAssetKeys = Object.values(cardAssignments).map(a => a?.key);
+  const assetUsageCounts = Object.values(cardAssignments).reduce((acc, asset) => {
+    if (asset?.key) acc.set(asset.key, (acc.get(asset.key) || 0) + 1);
+    return acc;
+  }, new Map());
   const currentDeckId = deck?.id || deck?._id || deckId;
 
   return (
-    <div className="min-h-screen bg-slate-950 p-4 lg:p-8">
+    <div className="min-h-full bg-background-deep p-4 lg:p-8">
       {/* Header */}
       <motion.div
         initial={{ opacity: 0, y: -20 }}
         animate={{ opacity: 1, y: 0 }}
         className="max-w-5xl mx-auto mb-6"
       >
-        <button
-          onClick={() => navigate(ROUTES.CARD_DECKS)}
-          className="flex items-center gap-2 text-slate-400 hover:text-white transition-colors mb-4"
-        >
-          <ArrowLeft size={18} />
-          Volver a Mis Mazos
-        </button>
-        
+        <Breadcrumb items={[
+          { label: 'Mazos', to: ROUTES.CARD_DECKS },
+          { label: deck?.name || 'Mazo', to: ROUTES.CARD_DECKS_DETAIL(deckId) },
+          { label: 'Editar' },
+        ]} />
+
         <div className="flex items-start justify-between gap-4">
           <div className="flex items-center gap-4">
-            <div className="size-12 rounded-xl bg-gradient-to-br from-indigo-500 to-purple-600 flex items-center justify-center">
-              <Layers size={24} className="text-white" />
+            <div className="size-12 rounded-xl bg-gradient-to-br from-accent-indigo to-brand-base flex items-center justify-center">
+              <Layers size={24} className="text-text-primary" />
             </div>
             <div>
-              <h1 className="text-2xl font-bold text-white">Editar Mazo</h1>
-              <p className="text-slate-400 text-sm">
+              <h1 className="text-2xl font-bold text-text-primary">Editar Mazo</h1>
+              <p className="text-text-muted text-sm">
                 {deck?.name}
               </p>
             </div>
@@ -435,7 +459,7 @@ export default function DeckEditPage() {
               variant="ghost"
               onClick={() => deleteModal.open()}
               icon={<Trash2 size={16} />}
-              className="text-rose-400 hover:text-rose-300"
+              className="text-error-base hover:text-error-base/80"
             >
               Archivar
             </ButtonPremium>
@@ -466,7 +490,7 @@ export default function DeckEditPage() {
 
       {/* Tabs */}
       <div className="max-w-5xl mx-auto mb-6">
-        <div className="flex bg-slate-800/50 rounded-xl p-1 w-fit">
+        <div className="flex bg-background-elevated/50 rounded-xl p-1 w-fit">
           {[
             { id: 'cards', label: 'Cartas', icon: CreditCard, count: selectedCards.length },
             { id: 'context', label: 'Contexto', icon: Palette },
@@ -476,10 +500,10 @@ export default function DeckEditPage() {
               key={tab.id}
               onClick={() => dispatchUI({ type: 'SET_ACTIVE_TAB', payload: tab.id })}
               className={cn(
-                'flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-all',
+                'flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-colors',
                 ui.activeTab === tab.id
-                  ? 'bg-indigo-500 text-white'
-                  : 'text-slate-400 hover:text-white'
+                  ? 'bg-accent-indigo text-text-primary'
+                  : 'text-text-muted hover:text-text-primary'
               )}
             >
               <tab.icon size={16} />
@@ -487,7 +511,7 @@ export default function DeckEditPage() {
               {tab.count && (
                 <span className={cn(
                   'text-xs px-1.5 py-0.5 rounded-full',
-                  ui.activeTab === tab.id ? 'bg-white/20' : 'bg-slate-700'
+                  ui.activeTab === tab.id ? 'bg-border-strong' : 'bg-background-surface'
                 )}>
                   {tab.count}
                 </span>
@@ -510,8 +534,8 @@ export default function DeckEditPage() {
               <GlassCard className="p-6">
                 <div className="flex items-center justify-between mb-4">
                   <div>
-                    <h2 className="text-lg font-semibold text-white">Cartas del mazo</h2>
-                    <p className="text-sm text-slate-400">
+                    <h2 className="text-lg font-semibold text-text-primary">Cartas del mazo</h2>
+                    <p className="text-sm text-text-muted">
                       {selectedCards.length} de {MIN_CARDS}-{MAX_CARDS} cartas
                     </p>
                   </div>
@@ -528,28 +552,30 @@ export default function DeckEditPage() {
                 <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
                   {selectedCards.map((card) => (
                     <motion.div
-                      key={card._id}
+                      key={card.uid}
                       layout
-                      className="relative p-4 rounded-xl bg-slate-800/50 border border-white/10 group"
+                      className="relative p-4 rounded-xl bg-background-elevated/50 border border-border-default group"
                     >
-                      <button
-                        onClick={() => handleRemoveCard(card._id)}
-                        disabled={selectedCards.length <= MIN_CARDS}
-                        className={cn(
-                          'absolute -top-2 -right-2 size-6 rounded-full',
-                          'bg-rose-500 text-white flex items-center justify-center',
-                          'opacity-0 group-hover:opacity-100 transition-opacity',
-                          'hover:bg-rose-400 disabled:opacity-50 disabled:cursor-not-allowed'
-                        )}
-                      >
-                        <X size={12} />
-                      </button>
+                      <Tooltip content="Quitar carta">
+                        <button
+                          onClick={() => handleRemoveCard(card.uid)}
+                          disabled={selectedCards.length <= MIN_CARDS}
+                          className={cn(
+                            'absolute -top-2 -right-2 size-6 rounded-full',
+                            'bg-error-base text-text-primary flex items-center justify-center',
+                            'opacity-0 group-hover:opacity-100 transition-opacity',
+                            'hover:bg-error-base/80 disabled:opacity-50 disabled:cursor-not-allowed'
+                          )}
+                        >
+                          <X size={12} />
+                        </button>
+                      </Tooltip>
                       
-                      <div className="size-10 rounded-lg bg-gradient-to-br from-indigo-500/20 to-purple-500/20 flex items-center justify-center mb-2">
-                        <CreditCard size={18} className="text-indigo-400" />
+                      <div className="size-10 rounded-lg bg-gradient-to-br from-accent-indigo/20 to-brand-base/20 flex items-center justify-center mb-2">
+                        <CreditCard size={18} className="text-accent-indigo" />
                       </div>
-                      <p className="text-sm font-mono text-white">{card.uid}</p>
-                      <p className="text-xs text-slate-500">{card.type || 'RFID'}</p>
+                      <p className="text-sm font-mono text-text-primary">{card.uid}</p>
+                      <p className="text-xs text-text-muted">{card.type || 'RFID'}</p>
                     </motion.div>
                   ))}
                 </div>
@@ -566,8 +592,8 @@ export default function DeckEditPage() {
             >
               <GlassCard className="p-6">
                 <div className="mb-4">
-                  <h2 className="text-lg font-semibold text-white">Contexto temático</h2>
-                  <p className="text-sm text-slate-400">
+                  <h2 className="text-lg font-semibold text-text-primary">Contexto temático</h2>
+                  <p className="text-sm text-text-muted">
                     Cambiar el contexto reseteará las asignaciones de assets
                   </p>
                 </div>
@@ -577,29 +603,33 @@ export default function DeckEditPage() {
                     {[1, 2, 3, 4, 5, 6].map((slot) => (
                       <div 
                         key={`context-skeleton-${slot}`} 
-                        className="p-4 rounded-xl border-2 border-white/5 bg-slate-800/30 animate-pulse"
+                        className="p-4 rounded-xl border-2 border-border-subtle bg-background-elevated/30 animate-pulse"
                       >
                         <div className="flex gap-1.5 mb-3 h-10">
                           {[1, 2, 3, 4].map((assetSlot) => (
-                            <div key={`asset-skeleton-${slot}-${assetSlot}`} className="size-8 rounded bg-slate-700" />
+                            <div key={`asset-skeleton-${slot}-${assetSlot}`} className="size-8 rounded bg-background-surface" />
                           ))}
                         </div>
-                        <div className="h-5 w-24 bg-slate-700 rounded mb-2" />
-                        <div className="h-3 w-16 bg-slate-700/50 rounded" />
+                        <div className="h-5 w-24 bg-background-surface rounded mb-2" />
+                        <div className="h-3 w-16 bg-background-surface/50 rounded" />
                       </div>
                     ))}
                   </div>
                 ) : (
                   <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
-                    {contexts.map((context) => (
+                    {contexts.map((context) => {
+                      const ctxKey = context._id || context.id;
+                      const effectiveKey = effectiveContext?._id || effectiveContext?.id;
+                      const isSelected = Boolean(effectiveKey) && effectiveKey === ctxKey;
+                      return (
                       <motion.button
-                        key={context._id}
+                        key={ctxKey}
                         onClick={() => handleContextChange(context)}
                         className={cn(
-                          'relative p-4 rounded-xl border-2 transition-all text-left',
-                          effectiveContext?._id === context._id
-                            ? 'border-indigo-500 bg-indigo-500/10'
-                            : 'border-white/10 bg-slate-800/30 hover:border-white/20'
+                          'relative p-4 rounded-xl border-2 transition-[border-color,background-color] text-left',
+                          isSelected
+                            ? 'border-accent-indigo bg-accent-indigo/10'
+                            : 'border-border-default bg-background-elevated/30 hover:border-border-strong'
                         )}
                         whileHover={{ scale: 1.02 }}
                         whileTap={{ scale: 0.98 }}
@@ -607,19 +637,20 @@ export default function DeckEditPage() {
                         <div className="flex flex-wrap gap-1.5 mb-3 h-10 overflow-hidden">
                           {context.assets?.slice(0, 6).map((asset) => (
                             <span
-                              key={asset?.key || asset?.value || asset?.id || asset?.display || `${context._id}-asset`}
+                              key={asset?.key || asset?.value || asset?.id || asset?.display || `${ctxKey}-asset`}
                               className="text-2xl"
                             >
                               {asset.display || '📦'}
                             </span>
                           ))}
                         </div>
-                        <h3 className="font-medium text-white mb-1">{context.name}</h3>
-                        <p className="text-xs text-slate-400">
+                        <h3 className="font-medium text-text-primary mb-1">{context.name}</h3>
+                        <p className="text-xs text-text-muted">
                           {context.assets?.length || 0} assets
                         </p>
                       </motion.button>
-                    ))}
+                      );
+                    })}
                   </div>
                 )}
               </GlassCard>
@@ -636,43 +667,43 @@ export default function DeckEditPage() {
               <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
                 {/* Lista de cartas */}
                 <GlassCard className="p-4">
-                  <h3 className="font-medium text-white mb-3">Cartas</h3>
+                  <h3 className="font-medium text-text-primary mb-3">Cartas</h3>
                   <div className="space-y-2 max-h-[400px] overflow-y-auto">
                     {selectedCards.map((card) => {
-                      const isAssigned = !!cardAssignments[card._id];
-                      const isActive = ui.activeCardId === card._id;
-                      
+                      const isAssigned = !!cardAssignments[card.uid];
+                      const isActive = ui.activeUid === card.uid;
+
                       return (
                         <button
-                          key={card._id}
-                          onClick={() => dispatchUI({ type: 'SET_ACTIVE_CARD', payload: card._id })}
+                          key={card.uid}
+                          onClick={() => dispatchUI({ type: 'SET_ACTIVE_CARD', payload: card.uid })}
                           className={cn(
-                            'w-full flex items-center gap-3 p-3 rounded-xl border transition-all text-left',
+                            'w-full flex items-center gap-3 p-3 rounded-xl border transition-colors text-left',
                             isActive
-                              ? 'border-indigo-500 bg-indigo-500/10'
-                              : 'border-white/10 bg-slate-800/30 hover:border-white/20'
+                              ? 'border-accent-indigo bg-accent-indigo/10'
+                              : 'border-border-default bg-background-elevated/30 hover:border-border-strong'
                           )}
                         >
                           <div className={cn(
                             'size-8 rounded-lg flex items-center justify-center text-lg overflow-hidden',
-                            isAssigned ? 'bg-green-500/20' : 'bg-slate-700'
+                            isAssigned ? 'bg-success-base/20' : 'bg-background-surface'
                           )}>
                             {isAssigned ? (
                               <CardAssetPreview
-                                asset={cardAssignments[card._id]}
+                                asset={cardAssignments[card.uid]}
                                 alt={`Asset asignado a ${card.uid}`}
                                 className="w-full h-full rounded-lg"
                                 fit="cover"
                                 fallbackLabel="📎"
                               />
                             ) : (
-                              <CreditCard size={16} className="text-slate-400" />
+                              <CreditCard size={16} className="text-text-muted" />
                             )}
                           </div>
                           <div className="flex-1 min-w-0">
-                            <p className="text-sm font-medium text-white truncate">{card.uid}</p>
-                            <p className="text-xs text-slate-500 truncate">
-                              {isAssigned ? cardAssignments[card._id]?.value : 'Sin asignar'}
+                            <p className="text-sm font-medium text-text-primary truncate">{card.uid}</p>
+                            <p className="text-xs text-text-muted truncate">
+                              {isAssigned ? cardAssignments[card.uid]?.value : 'Sin asignar'}
                             </p>
                           </div>
                         </button>
@@ -683,20 +714,21 @@ export default function DeckEditPage() {
 
                 {/* Selector de assets */}
                 <GlassCard className="p-4 lg:col-span-2">
-                  {ui.activeCardId ? (
+                  {ui.activeUid ? (
                     <>
-                      <h3 className="font-medium text-white mb-3">
+                      <h3 className="font-medium text-text-primary mb-3">
                         Assets de &quot;{effectiveContext?.name}&quot;
                       </h3>
                       <AssetSelector
                         assets={effectiveContext?.assets || []}
-                        selectedAssetKey={cardAssignments[ui.activeCardId]?.key}
-                        assignedAssets={assignedAssetKeys}
-                        onSelect={(asset) => handleAssignAsset(ui.activeCardId, asset)}
+                        selectedAssetKey={cardAssignments[ui.activeUid]?.key}
+                        assignedAssets={[]}
+                        assetUsageCounts={assetUsageCounts}
+                        onSelect={(asset) => handleAssignAsset(ui.activeUid, asset)}
                       />
                     </>
                   ) : (
-                    <div className="flex items-center justify-center h-64 text-slate-400">
+                    <div className="flex items-center justify-center h-64 text-text-muted">
                       Selecciona una carta
                     </div>
                   )}
@@ -722,61 +754,26 @@ export default function DeckEditPage() {
               animate={{ scale: 1, opacity: 1 }}
               exit={{ scale: 0.9, opacity: 0 }}
               onClick={(e) => e.stopPropagation()}
-              className="bg-slate-900 border border-white/10 rounded-2xl p-6 max-w-3xl w-full max-h-[80vh] overflow-y-auto"
+              className="bg-background-base border border-border-default rounded-2xl p-6 max-w-3xl w-full max-h-[80vh] overflow-y-auto"
             >
               <div className="flex items-center justify-between mb-4">
-                <h3 className="text-lg font-semibold text-white">Añadir cartas</h3>
-                <button
-                  onClick={() => dispatchUI({ type: 'HIDE_ADD_CARDS' })}
-                  className="p-2 rounded-lg hover:bg-white/10 transition-colors"
-                >
-                  <X size={20} className="text-slate-400" />
-                </button>
+                <h3 className="text-lg font-semibold text-text-primary">Añadir cartas</h3>
+                <Tooltip content="Cerrar">
+                  <button
+                    onClick={() => dispatchUI({ type: 'HIDE_ADD_CARDS' })}
+                    className="p-2 rounded-lg hover:bg-border-default transition-colors"
+                  >
+                    <X size={20} className="text-text-muted" />
+                  </button>
+                </Tooltip>
               </div>
 
-              {/* Toggle modo */}
-              <div className="flex bg-slate-800/50 rounded-xl p-1 mb-4 w-fit">
-                <button
-                  onClick={() => dispatchUI({ type: 'SET_CAPTURE_MODE', payload: 'manual' })}
-                  className={cn(
-                    'px-4 py-2 rounded-lg text-sm font-medium transition-all',
-                    ui.captureMode === 'manual'
-                      ? 'bg-indigo-500 text-white'
-                      : 'text-slate-400 hover:text-white'
-                  )}
-                >
-                  Selección Manual
-                </button>
-                <button
-                  onClick={() => dispatchUI({ type: 'SET_CAPTURE_MODE', payload: 'rfid' })}
-                  className={cn(
-                    'px-4 py-2 rounded-lg text-sm font-medium transition-all',
-                    ui.captureMode === 'rfid'
-                      ? 'bg-indigo-500 text-white'
-                      : 'text-slate-400 hover:text-white'
-                  )}
-                >
-                  Escaneo RFID
-                </button>
-              </div>
-
-              {ui.captureMode === 'manual' ? (
-                <CardSelector
-                  cards={availableCards.filter((c) => !selectedCards.some((sc) => sc._id === c._id))}
-                  selectedCards={[]}
-                  onChange={(cards) => {
-                    cards.forEach(handleAddCard);
-                  }}
-                  maxCards={MAX_CARDS - selectedCards.length}
-                />
-              ) : (
-                <RFIDScannerPanel
-                  onCardScanned={handleAddCard}
-                  scannedCards={[]}
-                  maxCards={MAX_CARDS - selectedCards.length}
-                  showMockButton={import.meta.env.MODE === 'development'}
-                />
-              )}
+              <RFIDScannerPanel
+                onCardScanned={handleAddCard}
+                scannedCards={[]}
+                maxCards={MAX_CARDS - selectedCards.length}
+                showMockButton={import.meta.env.MODE === 'development'}
+              />
             </motion.div>
           </motion.div>
         )}
@@ -791,7 +788,7 @@ export default function DeckEditPage() {
         description={
           <>
             ¿Estás seguro de archivar{' '}
-            <strong className="text-white">&quot;{deckName}&quot;</strong>?
+            <strong className="text-text-primary">&quot;{deckName}&quot;</strong>?
             El mazo dejará de aparecer en tu lista de mazos activos.
           </>
         }
@@ -809,9 +806,9 @@ export default function DeckEditPage() {
             exit={{ opacity: 0, y: 50 }}
             className="fixed bottom-6 left-1/2 -translate-x-1/2 z-40"
           >
-            <div className="flex items-center gap-3 px-4 py-3 rounded-xl bg-amber-500/20 border border-amber-500/50 backdrop-blur-lg">
-              <AlertTriangle size={18} className="text-amber-400" />
-              <span className="text-sm text-amber-200">Tienes cambios sin guardar</span>
+            <div className="flex items-center gap-3 px-4 py-3 rounded-xl bg-warning-base/20 border border-warning-base/50 backdrop-blur-lg">
+              <AlertTriangle size={18} className="text-warning-base" />
+              <span className="text-sm text-warning-base/80">Tienes cambios sin guardar</span>
               <ButtonPremium
                 size="sm"
                 onClick={handleSave}
@@ -824,6 +821,17 @@ export default function DeckEditPage() {
           </motion.div>
         )}
       </AnimatePresence>
+
+      <ConfirmationModal
+        open={isBlocked}
+        onConfirm={() => blocker.proceed()}
+        onClose={() => blocker.reset()}
+        title="Cambios sin guardar"
+        description="Tienes cambios sin guardar. Si sales ahora, perderás los cambios realizados."
+        variant="warning"
+        confirmText="Salir sin guardar"
+        cancelText="Seguir editando"
+      />
     </div>
   );
 }

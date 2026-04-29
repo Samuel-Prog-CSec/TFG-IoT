@@ -57,7 +57,22 @@ const NAMESPACES = {
   SECURITY: 'security',
 
   /** Familias de tokens por usuario */
-  TOKEN_FAMILY: 'tokenfamily'
+  TOKEN_FAMILY: 'tokenfamily',
+
+  /** Cache de mecánicas de juego (TTL: 1h) */
+  CACHE_MECHANIC: 'cache:mechanic',
+
+  /** Cache de contextos temáticos (TTL: 30min) */
+  CACHE_CONTEXT: 'cache:context',
+
+  /** Cache de analytics de clase (TTL: 5min) */
+  CACHE_ANALYTICS: 'cache:analytics',
+
+  /** Cache de slim-user para middleware de autenticación (TTL: 60s) */
+  AUTH_USER: 'auth:user',
+
+  /** Lock distribuido de idempotencia para startPlay (TTL: 60s) */
+  PLAY_INIT_LOCK: 'play:init'
 };
 
 /**
@@ -1050,12 +1065,14 @@ const reserveCardsAtomic = async (namespace, entries = [], ttlSeconds = 0) => {
     return { ok: true, conflicts: [] };
   }
 
-  const prefix = getKeyPrefix();
   const playId = entries[0].value;
 
   try {
-    // Construir KEYS con prefijo (Lua recibe keys completas, sin keyPrefix de ioredis)
-    const keys = entries.map(e => `${prefix}${buildKey(namespace, e.id)}`);
+    // ioredis aplica `keyPrefix` automáticamente a las KEYS de EVAL/EVALSHA, así
+    // que aquí construimos solo el sufijo "namespace:id"; el cliente añade el
+    // prefijo de la instancia. Si añadiéramos el prefijo manualmente quedaría
+    // duplicado tanto en Redis como en el listado de conflictos.
+    const keys = entries.map(e => buildKey(namespace, e.id));
 
     const rawResult = await evalLuaScript(
       'reserveCards',
@@ -1069,8 +1086,9 @@ const reserveCardsAtomic = async (namespace, entries = [], ttlSeconds = 0) => {
     redisBreaker.recordSuccess();
 
     if (!result.ok) {
-      // Extraer UIDs de los conflictos (quitar prefijo+namespace para consistencia)
-      const conflictPrefix = `${prefix}${namespace}:`;
+      // Extraer UIDs de los conflictos: la Lua devuelve las KEYS tal y como se
+      // las pasamos, así que el namespace ya viene como "namespace:uid".
+      const conflictPrefix = `${namespace}:`;
       result.conflicts = result.conflicts.map(k =>
         k.startsWith(conflictPrefix) ? k.slice(conflictPrefix.length) : k
       );
@@ -1106,11 +1124,11 @@ const releaseCardsAtomic = async (namespace, entries = []) => {
     return { ok: true, deletedCount: 0 };
   }
 
-  const prefix = getKeyPrefix();
   const expectedPlayId = entries[0].expectedValue;
 
   try {
-    const keys = entries.map(e => `${prefix}${buildKey(namespace, e.id)}`);
+    // ioredis añade `keyPrefix` automáticamente a las KEYS de EVAL/EVALSHA.
+    const keys = entries.map(e => buildKey(namespace, e.id));
 
     const deletedCount = await evalLuaScript('releaseCards', keys.length, ...keys, expectedPlayId);
 
@@ -1151,12 +1169,11 @@ const renewLeaseAtomic = async (
     return { ok: true, playRenewed: true, cardsRenewed: 0, cardsSkipped: 0 };
   }
 
-  const prefix = getKeyPrefix();
-
   try {
+    // ioredis añade `keyPrefix` automáticamente a las KEYS de EVAL/EVALSHA.
     // KEYS = [playKey, cardKey1, cardKey2, ...]
-    const playKey = `${prefix}${buildKey(playNamespace, playId)}`;
-    const cardKeys = cardUids.map(uid => `${prefix}${buildKey(cardNamespace, uid)}`);
+    const playKey = buildKey(playNamespace, playId);
+    const cardKeys = cardUids.map(uid => buildKey(cardNamespace, uid));
     const allKeys = [playKey, ...cardKeys];
 
     const rawResult = await evalLuaScript(
@@ -1384,5 +1401,8 @@ module.exports = {
 
   // Pipeline batch operations
   existsMany,
-  hgetallMany
+  hgetallMany,
+
+  // Diagnóstico
+  getCircuitBreakerState: () => redisBreaker.getState()
 };

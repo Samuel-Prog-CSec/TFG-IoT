@@ -3,7 +3,6 @@ const { app } = require('../src/server');
 const User = require('../src/models/User');
 const GameMechanic = require('../src/models/GameMechanic');
 const GameContext = require('../src/models/GameContext');
-const Card = require('../src/models/Card');
 const CardDeck = require('../src/models/CardDeck');
 const GameSession = require('../src/models/GameSession');
 
@@ -25,7 +24,6 @@ describe('Session mechanic availability (Sprint 4)', () => {
   const buildMemoryBoardLayout = cards =>
     cards.map((card, slotIndex) => ({
       slotIndex,
-      cardId: card.cardId,
       uid: card.uid,
       assignedValue: card.assignedValue,
       displayData: card.displayData
@@ -35,7 +33,6 @@ describe('Session mechanic availability (Sprint 4)', () => {
     await Promise.all([
       GameSession.deleteMany({}),
       CardDeck.deleteMany({}),
-      Card.deleteMany({}),
       GameContext.deleteMany({}),
       GameMechanic.deleteMany({}),
       User.deleteMany({})
@@ -124,35 +121,24 @@ describe('Session mechanic availability (Sprint 4)', () => {
       ]
     });
 
-    const [cardOne, cardTwo, cardThree, cardFour] = await Promise.all([
-      Card.create({ uid: 'AB12CD34', type: 'NTAG', status: 'active' }),
-      Card.create({ uid: 'EF56AB78', type: 'NTAG', status: 'active' }),
-      Card.create({ uid: 'CD34EF56', type: 'NTAG', status: 'active' }),
-      Card.create({ uid: '7856ABCD', type: 'NTAG', status: 'active' })
-    ]);
-
     const deckMappings = [
       {
-        cardId: cardOne._id,
-        uid: cardOne.uid,
+        uid: 'AB12CD34',
         assignedValue: 'A',
         displayData: { value: 'A', display: 'A' }
       },
       {
-        cardId: cardTwo._id,
-        uid: cardTwo.uid,
+        uid: 'EF56AB78',
         assignedValue: 'A',
         displayData: { value: 'A', display: 'A' }
       },
       {
-        cardId: cardThree._id,
-        uid: cardThree.uid,
+        uid: 'CD34EF56',
         assignedValue: 'B',
         displayData: { value: 'B', display: 'B' }
       },
       {
-        cardId: cardFour._id,
-        uid: cardFour.uid,
+        uid: '7856ABCD',
         assignedValue: 'B',
         displayData: { value: 'B', display: 'B' }
       }
@@ -177,7 +163,7 @@ describe('Session mechanic availability (Sprint 4)', () => {
     }
   });
 
-  it('rejects non-enabled mechanics by feature flag', async () => {
+  it('rejects non-enabled mechanics by SESSION_ENABLED_MECHANICS env var', async () => {
     process.env.SESSION_ENABLED_MECHANICS = 'association,memory';
 
     const res = await request(app)
@@ -205,7 +191,6 @@ describe('Session mechanic availability (Sprint 4)', () => {
       const mapping = cardMappings[index % cardMappings.length];
       return {
         roundNumber: index + 1,
-        cardId: mapping.cardId,
         uid: mapping.uid,
         assignedValue: mapping.assignedValue,
         displayData: mapping.displayData,
@@ -256,10 +241,11 @@ describe('Session mechanic availability (Sprint 4)', () => {
     expect(res.statusCode).toBe(201);
     expect(res.body.data.config.timeLimit).toBe(300);
     expect(Array.isArray(res.body.data.boardLayout)).toBe(true);
-    expect(res.body.data.boardLayout).toHaveLength(4);
+    const deckForAssert = await CardDeck.findById(deckId).lean();
+    expect(res.body.data.boardLayout).toHaveLength((deckForAssert.cardMappings || []).length);
   });
 
-  it('rejects memory session creation without boardLayout', async () => {
+  it('allows memory session creation without boardLayout (validated at startPlay)', async () => {
     process.env.SESSION_ENABLED_MECHANICS = 'association,memory';
 
     const res = await request(app)
@@ -276,8 +262,9 @@ describe('Session mechanic availability (Sprint 4)', () => {
         }
       });
 
-    expect(res.statusCode).toBe(400);
-    expect(res.body.message).toMatch(/boardLayout es obligatorio/i);
+    // La validación de boardLayout se ha movido a startPlay para permitir
+    // el flujo frontend donde la sesión se crea primero y boardLayout se configura después
+    expect(res.statusCode).toBe(201);
   });
 
   it('rejects memory sessions with timeLimit above mechanic max', async () => {

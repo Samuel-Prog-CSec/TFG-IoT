@@ -23,6 +23,7 @@
  */
 
 const mongoose = require('mongoose');
+const { SESSION_STATUS, DIFFICULTY } = require('../constants/enums');
 
 /**
  * Calcula la dificultad del juego basándose en el número de tarjetas.
@@ -71,9 +72,8 @@ const calculateDifficulty = numberOfCards => {
  * @property {Date} updatedAt - Fecha de última actualización
  *
  * @typedef {Object} CardMapping
- * @property {ObjectId} cardId - Referencia al documento de la tarjeta RFID
- * @property {string} uid - UID de la tarjeta (denormalizado para búsquedas rápidas - duda #14)
- * @property {string} assignedValue - Valor asignado a esta tarjeta para el juego (dudas #3, #10)
+ * @property {string} uid - UID físico de la tarjeta RFID (token fungible, 8 o 14 hex)
+ * @property {string} assignedValue - Valor asignado a esta tarjeta para el juego
  * @property {Mixed} displayData - Datos de visualización para el frontend (flexible)
  */
 const gameSessionSchema = new mongoose.Schema(
@@ -96,6 +96,11 @@ const gameSessionSchema = new mongoose.Schema(
     sensorId: {
       type: String,
       trim: true
+    },
+    name: {
+      type: String,
+      trim: true,
+      maxlength: 100
     },
     config: {
       numberOfCards: {
@@ -137,16 +142,12 @@ const gameSessionSchema = new mongoose.Schema(
     },
     cardMappings: [
       {
-        cardId: {
-          type: mongoose.Schema.Types.ObjectId,
-          ref: 'Card',
-          required: true
-        },
         uid: {
           type: String,
           required: true,
           uppercase: true,
-          trim: true
+          trim: true,
+          match: [/^[0-9A-F]{8}$|^[0-9A-F]{14}$/, 'UID debe ser 8 o 14 caracteres hexadecimales']
         },
         assignedValue: {
           type: String,
@@ -162,16 +163,12 @@ const gameSessionSchema = new mongoose.Schema(
           required: true,
           min: 0
         },
-        cardId: {
-          type: mongoose.Schema.Types.ObjectId,
-          ref: 'Card',
-          required: true
-        },
         uid: {
           type: String,
           required: true,
           uppercase: true,
-          trim: true
+          trim: true,
+          match: [/^[0-9A-F]{8}$|^[0-9A-F]{14}$/, 'UID debe ser 8 o 14 caracteres hexadecimales']
         },
         assignedValue: {
           type: String,
@@ -187,16 +184,12 @@ const gameSessionSchema = new mongoose.Schema(
           required: true,
           min: 1
         },
-        cardId: {
-          type: mongoose.Schema.Types.ObjectId,
-          ref: 'Card',
-          required: true
-        },
         uid: {
           type: String,
           required: true,
           uppercase: true,
-          trim: true
+          trim: true,
+          match: [/^[0-9A-F]{8}$|^[0-9A-F]{14}$/, 'UID debe ser 8 o 14 caracteres hexadecimales']
         },
         assignedValue: {
           type: String,
@@ -218,14 +211,14 @@ const gameSessionSchema = new mongoose.Schema(
       type: String,
       lowercase: true,
       trim: true,
-      enum: ['created', 'active', 'completed'],
+      enum: SESSION_STATUS,
       default: 'created'
     },
     difficulty: {
       type: String,
       lowercase: true,
       trim: true,
-      enum: ['easy', 'medium', 'hard'],
+      enum: DIFFICULTY,
       default: 'medium'
     },
     startedAt: Date,
@@ -327,18 +320,16 @@ gameSessionSchema.path('boardLayout').validate(function (value) {
     return false;
   }
 
-  const cardIds = value.map(item => item.cardId?.toString?.()).filter(Boolean);
-  const uniqueCardIds = new Set(cardIds);
-  if (uniqueCardIds.size !== cardIds.length) {
+  const uids = value.map(item => item.uid).filter(Boolean);
+  const uniqueUids = new Set(uids);
+  if (uniqueUids.size !== uids.length) {
     return false;
   }
 
-  const mappingCardIds = new Set(
-    (this.cardMappings || []).map(mapping => mapping.cardId?.toString?.())
-  );
-  const hasUnknownCard = cardIds.some(cardId => !mappingCardIds.has(cardId));
+  const mappingUids = new Set((this.cardMappings || []).map(mapping => mapping.uid));
+  const hasUnknownUid = uids.some(uid => !mappingUids.has(uid));
 
-  if (hasUnknownCard) {
+  if (hasUnknownUid) {
     return false;
   }
 
@@ -377,6 +368,18 @@ gameSessionSchema.index({ createdBy: 1, createdAt: -1 });
  * Cubre consultas como: sesiones activas de un profesor específico.
  */
 gameSessionSchema.index({ createdBy: 1, status: 1 });
+
+/**
+ * Índice compuesto para lookups de contenido por profesor y contexto.
+ * Caso de uso: análisis de tarjetas, efectividad de contenido (E06, E12-E14).
+ */
+gameSessionSchema.index({ createdBy: 1, contextId: 1 });
+
+/**
+ * Índice compuesto para lookups de analytics por profesor y mecánica.
+ * Caso de uso: efectividad de contenido, fatiga, engagement (E06, E08, E12-E14).
+ */
+gameSessionSchema.index({ createdBy: 1, mechanicId: 1 });
 
 const GameSession = mongoose.model('GameSession', gameSessionSchema);
 

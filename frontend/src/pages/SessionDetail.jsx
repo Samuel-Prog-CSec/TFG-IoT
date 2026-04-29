@@ -7,7 +7,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
-import { motion } from 'framer-motion';
+import { motion, AnimatePresence } from 'framer-motion';
 import {
   ArrowLeft,
   Pencil,
@@ -24,21 +24,28 @@ import {
   Gamepad2,
   FolderOpen,
   CreditCard,
-  Calendar
+  Calendar,
+  Users,
+  X
 } from 'lucide-react';
 import { toast } from 'sonner';
-import { sessionsAPI, extractData, extractErrorMessage, isAbortError } from '../services/api';
+import { sessionsAPI, usersAPI, extractData, extractErrorMessage, isAbortError } from '../services/api';
 import { ROUTES } from '../constants/routes';
+import { useAuth } from '../context/AuthContext';
 import ButtonPremium from '../components/ui/ButtonPremium';
 import GlassCard from '../components/ui/GlassCard';
 import StatusBadge from '../components/ui/StatusBadge';
 import CardAssetPreview from '../components/ui/CardAssetPreview';
+import AudioPlayBadge from '../components/ui/AudioPlayBadge';
+import SelectPremium from '../components/ui/SelectPremium';
 import { SkeletonCard } from '../components/ui/SkeletonShimmer';
 import EmptyState from '../components/ui/EmptyState';
+import Breadcrumb from '../components/ui/Breadcrumb';
 import Tooltip from '../components/ui/Tooltip';
 import ConfirmationModal, { useConfirmationModal } from '../components/ui/ConfirmationModal';
-import { cn, pageVariants } from '../lib/utils';
+import { cn, pageVariants, formatDate } from '../lib/utils';
 import { useRefetchOnFocus } from '../hooks/useRefetchOnFocus';
+import { useDocumentTitle } from '../hooks/useDocumentTitle';
 
 const statusToBadge = (status) => {
   switch (status) {
@@ -53,16 +60,25 @@ const statusToBadge = (status) => {
   }
 };
 
+// eslint-disable-next-line sonarjs/cyclomatic-complexity -- pagina de detalle con multiples secciones, modales y estados
 export default function SessionDetail() {
   const { sessionId } = useParams();
   const navigate = useNavigate();
+  const { user } = useAuth();
   const deleteModal = useConfirmationModal();
   const cloneModal = useConfirmationModal();
+  useDocumentTitle('Detalle de Sesión');
 
   const [session, setSession] = useState(null);
   const [loading, setLoading] = useState(true);
   const [deleteLoading, setDeleteLoading] = useState(false);
   const [cloneLoading, setCloneLoading] = useState(false);
+
+  // Estado para el modal de seleccion de alumno antes de jugar
+  const [playerModalOpen, setPlayerModalOpen] = useState(false);
+  const [availableStudents, setAvailableStudents] = useState([]);
+  const [selectedStudentId, setSelectedStudentId] = useState('');
+  const [loadingStudents, setLoadingStudents] = useState(false);
 
   const loadSession = useCallback(async (signal) => {
     if (!sessionId) return;
@@ -147,9 +163,47 @@ export default function SessionDetail() {
     }
   };
 
+  const handleOpenPlayerModal = useCallback(async () => {
+    setPlayerModalOpen(true);
+    setSelectedStudentId('');
+
+    const teacherId = user?.id || user?._id;
+    if (!teacherId) {
+      toast.error('No se pudo determinar el profesor.');
+      return;
+    }
+
+    setLoadingStudents(true);
+    try {
+      const studentsRes = await usersAPI.getStudentsByTeacher(teacherId, {
+        sortBy: 'name',
+        order: 'asc'
+      });
+      const students = extractData(studentsRes) || [];
+      setAvailableStudents(Array.isArray(students) ? students : []);
+    } catch (err) {
+      toast.error('No se pudieron cargar los alumnos', {
+        description: extractErrorMessage(err)
+      });
+    } finally {
+      setLoadingStudents(false);
+    }
+  }, [user]);
+
+  const handleStartWithPlayer = useCallback(() => {
+    if (!selectedStudentId) {
+      toast.warning('Selecciona un alumno antes de iniciar.');
+      return;
+    }
+    const sid = session?.id || session?._id;
+    setPlayerModalOpen(false);
+    navigate(`${ROUTES.GAME(sid)}?playerId=${encodeURIComponent(selectedStudentId)}`);
+  }, [selectedStudentId, session, navigate]);
+
   const statusInfo = statusToBadge(session?.status);
   const canEdit = session?.status === 'created';
   const canDelete = session?.status === 'created';
+  const canPlayDirectly = session?.status === 'created' || session?.status === 'active';
   const isAssociationSession = (session?.mechanic?.name || '').toString().toLowerCase() === 'association';
   const isMemorySession = (session?.mechanic?.name || '').toString().toLowerCase() === 'memory';
   const hasMemoryBoardConfigured = Array.isArray(session?.boardLayout) && session.boardLayout.length > 0;
@@ -196,20 +250,18 @@ export default function SessionDetail() {
       exit="exit"
     >
       <div className="flex flex-col gap-6">
+        <Breadcrumb items={[
+          { label: 'Sesiones', to: ROUTES.SESSIONS },
+          { label: session.name || session.deck?.name || 'Sesión de juego' },
+        ]} />
         <header className="flex flex-wrap items-center justify-between gap-4">
-          <div className="flex items-center gap-3">
-            <ButtonPremium variant="ghost" onClick={() => navigate(ROUTES.SESSIONS)}>
-              <ArrowLeft size={16} />
-              Volver
-            </ButtonPremium>
-            <div>
-              <h1 className="text-2xl font-bold text-white font-display">
-                {session.deck?.name || 'Sesión de juego'}
-              </h1>
-              <p className="text-slate-400">
-                {session.mechanic?.displayName || session.mechanic?.name} · {session.context?.name}
-              </p>
-            </div>
+          <div>
+            <h1 className="text-2xl font-bold text-text-primary font-display">
+              {session.name || session.deck?.name || 'Sesión de juego'}
+            </h1>
+            <p className="text-text-muted">
+              {session.mechanic?.displayName || session.mechanic?.name} · {session.context?.name}
+            </p>
           </div>
           <div className="flex items-center gap-3">
             <StatusBadge status={statusInfo.tone}>{statusInfo.label}</StatusBadge>
@@ -220,24 +272,45 @@ export default function SessionDetail() {
               <Map size={16} />
               Ver mapping
             </ButtonPremium>
-            <ButtonPremium
-              variant="primary"
-              onClick={cloneModal.open}
-              disabled={cloneLoading}
-            >
-              <Timer size={16} />
-              Volver a jugar
-            </ButtonPremium>
-            <div className="border-l border-white/10 h-8 mx-1" />
-            <div className="flex items-center gap-1 bg-white/5 rounded-lg p-1">
+            {/* Botón de juego: navegar directamente si no se ha jugado, clonar si ya finalizó */}
+            {canPlayDirectly ? (
               <ButtonPremium
-                variant="ghost"
-                size="sm"
-                onClick={() => navigate(ROUTES.SESSION_EDIT(session.id || session._id))}
-                disabled={!canEdit}
+                variant="primary"
+                onClick={() => {
+                  const sid = session.id || session._id;
+                  if (isMemorySession) {
+                    navigate(ROUTES.BOARD_SETUP_WITH_ID(sid));
+                  } else {
+                    handleOpenPlayerModal();
+                  }
+                }}
               >
-                <Pencil size={14} />
+                <Gamepad2 size={16} />
+                Jugar
               </ButtonPremium>
+            ) : (
+              <ButtonPremium
+                variant="primary"
+                onClick={cloneModal.open}
+                disabled={cloneLoading}
+              >
+                <Timer size={16} />
+                <span className="sm:hidden">Clonar</span>
+                <span className="hidden sm:inline">Volver a jugar</span>
+              </ButtonPremium>
+            )}
+            <div className="border-l border-border-default h-8 mx-1" />
+            <div className="flex items-center gap-1 bg-glass-bg rounded-lg p-1">
+              <Tooltip content="Editar sesión">
+                <ButtonPremium
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => navigate(ROUTES.SESSION_EDIT(session.id || session._id))}
+                  disabled={!canEdit}
+                >
+                  <Pencil size={14} />
+                </ButtonPremium>
+              </Tooltip>
               <Tooltip content="Eliminar sesión">
                 <ButtonPremium
                   variant="ghost"
@@ -253,14 +326,14 @@ export default function SessionDetail() {
         </header>
 
         {canEdit && isAssociationSession && session.requiresAssociationPlanConfiguration && (
-          <GlassCard className="p-4 border border-amber-500/40 text-amber-300 flex items-center gap-3">
+          <GlassCard className="p-4 border border-warning-base/40 text-warning-base flex items-center gap-3">
             <AlertTriangle size={18} />
             Esta sesión es un clon con borrador de retos precargado. Revísalo y guarda la configuración antes de iniciar.
           </GlassCard>
         )}
 
         {canEdit && isMemorySession && !hasMemoryBoardConfigured && (
-          <GlassCard className="p-4 border border-amber-500/40 text-amber-300 flex flex-wrap items-center justify-between gap-3">
+          <GlassCard className="p-4 border border-warning-base/40 text-warning-base flex flex-wrap items-center justify-between gap-3">
             <div className="flex items-center gap-3">
               <AlertTriangle size={18} />
               Esta sesión de memoria requiere configurar el tablero antes de iniciar.
@@ -276,110 +349,111 @@ export default function SessionDetail() {
         )}
 
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-          <GlassCard className="p-6 lg:col-span-2 space-y-5">
-            <h2 className="text-lg font-semibold text-white">Configuración</h2>
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-              <div className="bg-indigo-500/10 rounded-xl p-4">
-                <div className="flex items-center gap-2 text-slate-400">
-                  <Layers size={16} className="text-indigo-400" />
-                  Tarjetas
+          <GlassCard className="p-6 lg:col-span-2">
+            <div className="h-full flex flex-col gap-5">
+            <h2 className="text-lg font-semibold text-text-primary">Configuración</h2>
+            <div className="flex-1 flex items-center">
+            <div className="grid grid-cols-2 md:grid-cols-3 gap-4 w-full">
+              <div className="bg-accent-indigo/10 rounded-xl p-4">
+                <div className="flex items-center gap-2 text-sm text-text-muted">
+                  <Layers size={15} className="text-accent-indigo shrink-0" />
+                  <span>Tarjetas</span>
                 </div>
-                <p className="text-white text-xl font-semibold font-display mt-2">
+                <p className="text-text-primary text-xl font-semibold font-display mt-2">
                   {session.config?.numberOfCards}
                 </p>
               </div>
-              <div className="bg-amber-500/10 rounded-xl p-4">
-                <div className="flex items-center gap-2 text-slate-400">
-                  <Timer size={16} className="text-amber-400" />
-                  Tiempo por ronda
+              <div className="bg-warning-base/10 rounded-xl p-4">
+                <div className="flex items-center gap-2 text-sm text-text-muted">
+                  <Timer size={15} className="text-warning-base shrink-0" />
+                  <span>{String(session.mechanic?.name || '').toLowerCase() === 'memory' ? 'Tiempo total' : 'Tiempo por ronda'}</span>
                 </div>
-                <p className="text-white text-xl font-semibold font-display mt-2">
+                <p className="text-text-primary text-xl font-semibold font-display mt-2">
                   {session.config?.timeLimit}s
                 </p>
               </div>
-              <div className="bg-emerald-500/10 rounded-xl p-4">
-                <div className="flex items-center gap-2 text-slate-400">
-                  <Award size={16} className="text-emerald-400" />
-                  Puntos por acierto
+              <div className="bg-success-base/10 rounded-xl p-4">
+                <div className="flex items-center gap-2 text-sm text-text-muted">
+                  <Award size={15} className="text-success-base shrink-0" />
+                  <span>Puntos por acierto</span>
                 </div>
-                <p className="text-white text-xl font-semibold font-display mt-2">
+                <p className="text-text-primary text-xl font-semibold font-display mt-2">
                   +{session.config?.pointsPerCorrect}
                 </p>
               </div>
-            </div>
-
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-              <div className="bg-cyan-500/10 rounded-xl p-4">
-                <div className="flex items-center gap-2 text-slate-400">
-                  <RotateCcw size={16} className="text-cyan-400" />
-                  Rondas
+              <div className="bg-accent-cyan/10 rounded-xl p-4">
+                <div className="flex items-center gap-2 text-sm text-text-muted">
+                  <RotateCcw size={15} className="text-accent-cyan shrink-0" />
+                  <span>{String(session.mechanic?.name || '').toLowerCase() === 'memory' ? 'Parejas' : 'Rondas'}</span>
                 </div>
-                <p className="text-white text-xl font-semibold font-display mt-2">
+                <p className="text-text-primary text-xl font-semibold font-display mt-2">
                   {session.config?.numberOfRounds}
                 </p>
               </div>
-              <div className="bg-rose-500/10 rounded-xl p-4">
-                <div className="flex items-center gap-2 text-slate-400">
-                  <Minus size={16} className="text-rose-400" />
-                  Penalización
+              <div className="bg-error-base/10 rounded-xl p-4">
+                <div className="flex items-center gap-2 text-sm text-text-muted">
+                  <Minus size={15} className="text-error-base shrink-0" />
+                  <span>Penalización</span>
                 </div>
-                <p className="text-white text-xl font-semibold font-display mt-2">
+                <p className="text-text-primary text-xl font-semibold font-display mt-2">
                   {session.config?.penaltyPerError}
                 </p>
               </div>
-              <div className="bg-purple-500/10 rounded-xl p-4">
-                <div className="flex items-center gap-2 text-slate-400">
-                  <Gauge size={16} className="text-purple-400" />
-                  Dificultad
+              <div className="bg-brand-base/10 rounded-xl p-4">
+                <div className="flex items-center gap-2 text-sm text-text-muted">
+                  <Gauge size={15} className="text-brand-base shrink-0" />
+                  <span>Dificultad</span>
                 </div>
-                <p className="text-white text-xl font-semibold font-display mt-2">
-                  {{ easy: 'Fácil', medium: 'Media', hard: 'Difícil' }[session.difficulty] || session.difficulty}
+                <p className="text-text-primary text-xl font-semibold font-display mt-2">
+                  {{ easy: 'Fácil', medium: 'Media', hard: 'Difícil', custom: 'Personalizada' }[session.difficulty] || session.difficulty}
                 </p>
               </div>
+            </div>
+            </div>
             </div>
           </GlassCard>
 
           <GlassCard className="p-6 space-y-4">
-            <h2 className="text-lg font-semibold text-white">Resumen</h2>
-            <div className="divide-y divide-white/5">
+            <h2 className="text-lg font-semibold text-text-primary">Resumen</h2>
+            <div className="divide-y divide-border-subtle">
               <div className="flex items-center justify-between py-3">
-                <span className="text-sm text-slate-400 flex items-center gap-2">
+                <span className="text-sm text-text-muted flex items-center gap-2">
                   <Info size={14} />
                   Estado
                 </span>
                 <StatusBadge status={statusInfo.tone} size="sm">{statusInfo.label}</StatusBadge>
               </div>
               <div className="flex items-center justify-between py-3">
-                <span className="text-sm text-slate-400 flex items-center gap-2">
+                <span className="text-sm text-text-muted flex items-center gap-2">
                   <Gamepad2 size={14} />
                   Mecánica
                 </span>
-                <span className="text-sm text-white font-medium">{session.mechanic?.displayName}</span>
+                <span className="text-sm text-text-primary font-medium">{session.mechanic?.displayName}</span>
               </div>
               <div className="flex items-center justify-between py-3">
-                <span className="text-sm text-slate-400 flex items-center gap-2">
+                <span className="text-sm text-text-muted flex items-center gap-2">
                   <FolderOpen size={14} />
                   Contexto
                 </span>
-                <span className="text-sm text-white font-medium">{session.context?.name}</span>
+                <span className="text-sm text-text-primary font-medium">{session.context?.name}</span>
               </div>
               <div className="flex items-center justify-between py-3">
-                <span className="text-sm text-slate-400 flex items-center gap-2">
+                <span className="text-sm text-text-muted flex items-center gap-2">
                   <CreditCard size={14} />
                   Mazo
                 </span>
-                <span className="text-sm text-white font-medium">{session.deck?.name}</span>
+                <span className="text-sm text-text-primary font-medium">{session.deck?.name}</span>
               </div>
               <div className="flex items-center justify-between py-3">
-                <span className="text-sm text-slate-400 flex items-center gap-2">
+                <span className="text-sm text-text-muted flex items-center gap-2">
                   <Calendar size={14} />
                   Creada
                 </span>
-                <span className="text-sm text-white font-medium">{new Date(session.createdAt).toLocaleDateString()}</span>
+                <span className="text-sm text-text-primary font-medium">{formatDate(session.createdAt, 'short')}</span>
               </div>
             </div>
             {!canEdit && (
-              <div className="text-xs text-slate-500 border border-white/10 rounded-lg p-3">
+              <div className="text-xs text-text-muted border border-border-default rounded-lg p-3">
                 Solo las sesiones en borrador pueden editarse o eliminarse.
               </div>
             )}
@@ -387,13 +461,13 @@ export default function SessionDetail() {
         </div>
 
         <GlassCard className="p-6">
-          <h2 className="text-lg font-semibold text-white mb-4">Mapping de tarjetas</h2>
+          <h2 className="text-lg font-semibold text-text-primary mb-4">Mapping de tarjetas</h2>
           {mappingCards.length === 0 ? (
             <EmptyState
               title="Sin tarjetas asignadas"
               description="Aún no hay tarjetas vinculadas a esta sesión."
               icon={<Layers size={26} />}
-              className="bg-transparent border border-white/5"
+              className="bg-transparent border border-border-subtle"
             />
           ) : (
             <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
@@ -404,21 +478,30 @@ export default function SessionDetail() {
                   <motion.div
                     key={mapping.id || mapping.uid}
                     className={cn(
-                      'rounded-2xl border border-indigo-500/15 p-4 bg-white/5',
+                      'group rounded-2xl border border-accent-indigo/15 p-4 bg-glass-bg',
                       'flex flex-col items-center justify-center gap-2 text-center'
                     )}
                     whileHover={{ scale: 1.04, y: -2 }}
                     transition={{ type: 'spring', stiffness: 400, damping: 25 }}
                   >
-                    <CardAssetPreview
-                      asset={mapping.displayData}
-                      alt={label}
-                      className="w-14 h-14 rounded-xl"
-                      fit="cover"
-                      fallbackLabel={display}
-                    />
-                    <p className="text-sm text-white font-semibold">{label}</p>
-                    <p className="text-xs text-slate-400">{mapping.uid}</p>
+                    <div className="relative">
+                      <CardAssetPreview
+                        asset={mapping.displayData}
+                        alt={label}
+                        className="w-14 h-14 rounded-xl"
+                        fit="cover"
+                        fallbackLabel={display}
+                      />
+                      {mapping.displayData?.audioUrl && (
+                        <AudioPlayBadge
+                          audioUrl={mapping.displayData.audioUrl}
+                          size="xs"
+                          className="absolute -top-1 -right-1"
+                        />
+                      )}
+                    </div>
+                    <p className="text-sm text-text-primary font-semibold">{label}</p>
+                    <p className="text-xs text-text-muted font-mono" title={mapping.uid}>{mapping.uid}</p>
                   </motion.div>
                 );
               })}
@@ -450,6 +533,92 @@ export default function SessionDetail() {
         variant="danger"
         loading={deleteLoading}
       />
+
+      {/* Modal de seleccion de alumno antes de iniciar partida */}
+      <AnimatePresence>
+        {playerModalOpen && (
+          <motion.div
+            className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm"
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            onClick={() => setPlayerModalOpen(false)}
+          >
+            <motion.div
+              className="bg-background-elevated border border-border-default rounded-2xl shadow-xl w-full max-w-md mx-4 p-6"
+              initial={{ scale: 0.95, opacity: 0, y: 10 }}
+              animate={{ scale: 1, opacity: 1, y: 0 }}
+              exit={{ scale: 0.95, opacity: 0, y: 10 }}
+              transition={{ type: 'spring', stiffness: 400, damping: 30 }}
+              onClick={(e) => e.stopPropagation()}
+            >
+              <div className="flex items-center justify-between mb-5">
+                <div className="flex items-center gap-3">
+                  <div className="p-2 rounded-xl bg-accent-indigo/10">
+                    <Users size={20} className="text-accent-indigo" />
+                  </div>
+                  <div>
+                    <h3 className="text-lg font-semibold text-text-primary font-display">
+                      Seleccionar alumno
+                    </h3>
+                    <p className="text-sm text-text-muted">
+                      Elige quién va a jugar esta partida.
+                    </p>
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setPlayerModalOpen(false)}
+                  className="p-1.5 rounded-lg text-text-muted hover:text-text-primary hover:bg-glass-bg transition-colors"
+                >
+                  <X size={18} />
+                </button>
+              </div>
+
+              {loadingStudents && (
+                <div className="flex items-center justify-center py-8 text-text-muted text-sm">
+                  Cargando alumnos...
+                </div>
+              )}
+              {!loadingStudents && availableStudents.length === 0 && (
+                <div className="text-center py-6 text-text-muted text-sm">
+                  No hay alumnos asignados. Crea o asigna alumnos desde el panel de administracion.
+                </div>
+              )}
+              {!loadingStudents && availableStudents.length > 0 && (
+                <SelectPremium
+                  value={selectedStudentId}
+                  onChange={(val) => setSelectedStudentId(val)}
+                  placeholder="Seleccionar alumno..."
+                  label="Alumno"
+                  options={availableStudents.map(student => ({
+                    value: student.id || student._id,
+                    label: student.name
+                  }))}
+                  className="w-full"
+                />
+              )}
+
+              <div className="flex justify-end gap-3 mt-6">
+                <ButtonPremium
+                  variant="secondary"
+                  onClick={() => setPlayerModalOpen(false)}
+                >
+                  Cancelar
+                </ButtonPremium>
+                <ButtonPremium
+                  variant="primary"
+                  onClick={handleStartWithPlayer}
+                  disabled={!selectedStudentId || loadingStudents}
+                >
+                  <Gamepad2 size={16} />
+                  Iniciar partida
+                </ButtonPremium>
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
     </motion.div>
   );
 }

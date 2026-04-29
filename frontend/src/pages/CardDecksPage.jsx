@@ -9,18 +9,48 @@
 import { useState, useEffect, useCallback, useReducer, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
-import { 
-  Plus, 
-  Search, 
-  Filter, 
-  Layers, 
+import {
+  Plus,
+  Search,
+  Filter,
+  Layers,
+  Archive,
+  CreditCard,
   AlertCircle,
-  RefreshCw,
   X
 } from 'lucide-react';
-import { cn, listContainerVariants, listItemVariants } from '../lib/utils';
+import { cn, listContainerVariants, motionConfig, DURATION, EASING } from '../lib/utils';
+
+// Variants locales con settle en entrada y "papel volando" en exit, coherente
+// con SessionsPage / ContextsPage para toda la familia de tarjetas de lista.
+const buildDeckCardWrapperVariants = (shouldReduceMotion) => {
+  if (shouldReduceMotion) {
+    return {
+      hidden: { opacity: 0 },
+      visible: { opacity: 1, transition: { duration: 0 } },
+      exit: { opacity: 0, transition: { duration: 0 } },
+    };
+  }
+  return {
+    hidden: { opacity: 0, y: -12, scale: 0.94 },
+    visible: {
+      opacity: 1,
+      y: 0,
+      scale: 1,
+      transition: motionConfig.springGame,
+    },
+    exit: {
+      opacity: 0,
+      x: -24,
+      scale: 0.92,
+      rotate: -2,
+      transition: { duration: DURATION.exit, ease: EASING.outQuart },
+    },
+  };
+};
 import { decksAPI, extractErrorMessage, isAbortError } from '../services/api';
-import DeckCard, { DeckCardSkeleton } from '../components/ui/DeckCard';
+import DeckCard from '../components/ui/DeckCard';
+import { SkeletonGrid } from '../components/ui/SkeletonShimmer';
 import ButtonPremium from '../components/ui/ButtonPremium';
 import GlassCard from '../components/ui/GlassCard';
 import SelectPremium from '../components/ui/SelectPremium';
@@ -28,7 +58,13 @@ import ConfirmationModal, { useConfirmationModal } from '../components/ui/Confir
 import { useContexts } from '../hooks/useContexts';
 import { useRefetchOnFocus } from '../hooks/useRefetchOnFocus';
 import { useReducedMotion } from '../hooks/useReducedMotion';
+import { useDocumentTitle } from '../hooks/useDocumentTitle';
 import { ROUTES } from '../constants/routes';
+import PageHeader from '../components/ui/PageHeader';
+import ErrorState from '../components/ui/ErrorState';
+import ActiveFiltersBar from '../components/ui/ActiveFiltersBar';
+import EmptyState from '../components/ui/EmptyState';
+import { EmptyDecksIllustration } from '../components/ui/illustrations';
 import { toast } from 'sonner';
 
 // Límite de mazos por profesor (sincronizado con backend)
@@ -44,142 +80,78 @@ const buildDeckQueryParams = ({ page, statusFilter, searchQuery, contextFilter }
   order: 'desc',
 });
 
-const shouldUsePaginationCount = ({ statusFilter, searchQuery, contextFilter, pagination }) =>
-  statusFilter === 'active' && !searchQuery && !contextFilter && pagination.total !== undefined;
-
 const mergeDecks = ({ previousDecks, newDecks, resetPage }) =>
   resetPage ? newDecks : [...previousDecks, ...newDecks];
 
-const resolveDeckCount = async ({
-  skipCount,
-  statusFilter,
-  searchQuery,
-  contextFilter,
-  pagination,
-  signal
-}) => {
+const resolveDeckCount = async ({ skipCount, signal }) => {
   if (skipCount) {
     return null;
   }
 
-  if (shouldUsePaginationCount({ statusFilter, searchQuery, contextFilter, pagination })) {
-    return { active: pagination.total };
-  }
-
+  // Siempre pedimos el recuento completo {active, archived, total} para que
+  // los KPIs "ACTIVOS / ARCHIVADOS / TOTAL" sean siempre coherentes. El atajo
+  // anterior (reutilizar pagination.total cuando estabamos en "active") dejaba
+  // `total=0` aunque hubiera 6 activos (detectado en QA 2026-04-23).
   return decksAPI.getDecksCount(signal ? { signal } : {});
 };
 
-const renderDecksGrid = ({ decks, shouldReduceMotion, handleViewDeck, handleEditDeck, handleArchiveDeck }) => (
-  <motion.div
-    className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6"
-    initial={shouldReduceMotion ? false : "hidden"}
-    animate="visible"
-    variants={listContainerVariants(0.05)}
-  >
-    {decks.map((deck) => {
-      const deckId = deck.id || deck._id;
-      return (
-        <motion.div
-          key={deckId}
-          variants={shouldReduceMotion ? {} : listItemVariants}
-        >
-          <DeckCard
-            deck={deck}
-            onView={handleViewDeck}
-            onEdit={handleEditDeck}
-            onDelete={handleArchiveDeck}
-            reducedMotion={shouldReduceMotion}
-          />
-        </motion.div>
-      );
-    })}
-  </motion.div>
-);
-
-const renderDecksErrorState = ({ error, shouldReduceMotion, loadDecks }) => (
-  <motion.div
-    initial={shouldReduceMotion ? false : { opacity: 0 }}
-    animate={{ opacity: 1 }}
-    className="flex flex-col items-center justify-center py-16"
-  >
-    <div className="size-16 rounded-full bg-rose-500/20 flex items-center justify-center mb-4">
-      <AlertCircle className="text-rose-400" size={32} />
-    </div>
-    <p className="text-slate-400 mb-4">{error}</p>
-    <ButtonPremium
-      variant="secondary"
-      onClick={() => loadDecks({ resetPage: true })}
-      icon={<RefreshCw size={16} />}
-    >
-      Reintentar
-    </ButtonPremium>
-  </motion.div>
-);
-
-const renderDecksLoadingState = ({ shouldReduceMotion }) => (
-  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
-    {[1, 2, 3, 4, 5, 6].map((slot) => (
-      <motion.div
-        key={`deck-skeleton-${slot}`}
-        initial={shouldReduceMotion ? false : { opacity: 0, y: 20 }}
-        animate={{ opacity: 1, y: 0 }}
-        transition={{ delay: shouldReduceMotion ? 0 : slot * 0.1 }}
-      >
-        <DeckCardSkeleton />
-      </motion.div>
-    ))}
-  </div>
-);
-
-const renderDecksEmptyState = ({ shouldReduceMotion, hasActiveFilters, clearFilters, handleCreateDeck }) => (
-  <motion.div
-    initial={shouldReduceMotion ? false : { opacity: 0, y: 20 }}
-    animate={{ opacity: 1, y: 0 }}
-    className="flex flex-col items-center justify-center py-16"
-  >
+const renderDecksGrid = ({ decks, shouldReduceMotion, handleViewDeck, handleEditDeck, handleArchiveDeck }) => {
+  const wrapperVariants = buildDeckCardWrapperVariants(shouldReduceMotion);
+  return (
     <motion.div
-      className="size-32 mb-6 relative"
-      animate={shouldReduceMotion ? { y: 0 } : { y: [0, -10, 0] }}
-      transition={shouldReduceMotion ? { duration: 0 } : { duration: 3, repeat: Infinity, ease: 'easeInOut' }}
+      className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6"
+      variants={shouldReduceMotion ? {} : listContainerVariants(0.04)}
+      initial={shouldReduceMotion ? false : "hidden"}
+      animate="visible"
     >
-      <svg viewBox="0 0 100 100" className="w-full h-full">
-        <motion.rect
-          x="15" y="25" width="35" height="50" rx="4"
-          fill="none" stroke="#6366f1" strokeWidth="2"
-          initial={{ rotate: -15, opacity: 0.5 }}
-          animate={shouldReduceMotion ? { rotate: -15, opacity: 0.7 } : { rotate: [-15, -10, -15], opacity: [0.5, 0.8, 0.5] }}
-          transition={shouldReduceMotion ? { duration: 0 } : { duration: 2, repeat: Infinity }}
-          style={{ transformOrigin: '32px 50px' }}
-        />
-        <motion.rect
-          x="32" y="20" width="35" height="50" rx="4"
-          fill="none" stroke="#8b5cf6" strokeWidth="2"
-          initial={{ rotate: 0 }}
-          animate={shouldReduceMotion ? { rotate: 0 } : { rotate: [0, 5, 0] }}
-          transition={shouldReduceMotion ? { duration: 0 } : { duration: 2, repeat: Infinity, delay: 0.3 }}
-          style={{ transformOrigin: '50px 45px' }}
-        />
-        <motion.rect
-          x="50" y="25" width="35" height="50" rx="4"
-          fill="none" stroke="#a855f7" strokeWidth="2"
-          initial={{ rotate: 15, opacity: 0.5 }}
-          animate={shouldReduceMotion ? { rotate: 15, opacity: 0.7 } : { rotate: [15, 10, 15], opacity: [0.5, 0.8, 0.5] }}
-          transition={shouldReduceMotion ? { duration: 0 } : { duration: 2, repeat: Infinity, delay: 0.6 }}
-          style={{ transformOrigin: '68px 50px' }}
-        />
-      </svg>
+      <AnimatePresence>
+        {decks.map((deck) => {
+          const deckId = deck.id || deck._id;
+          return (
+            <motion.div
+              key={deckId}
+              variants={wrapperVariants}
+              exit="exit"
+            >
+              <DeckCard
+                deck={deck}
+                onView={handleViewDeck}
+                onEdit={handleEditDeck}
+                onDelete={handleArchiveDeck}
+                reducedMotion={shouldReduceMotion}
+              />
+            </motion.div>
+          );
+        })}
+      </AnimatePresence>
     </motion.div>
+  );
+};
 
-    <h3 className="text-xl font-semibold text-white mb-2">
-      {hasActiveFilters ? 'No hay resultados' : 'Crea tu primer mazo'}
-    </h3>
-    <p className="text-slate-400 text-center max-w-md mb-6">
-      {hasActiveFilters
-        ? 'Intenta con otros filtros o términos de búsqueda'
-        : 'Los mazos te permiten reutilizar configuraciones de tarjetas en múltiples sesiones de juego'}
-    </p>
+const renderDecksErrorState = ({ error, loadDecks }) => (
+  <ErrorState
+    title="Error al cargar mazos"
+    message={`${error} Pulsa Reintentar o recarga la página.`}
+    icon={<AlertCircle size={28} />}
+    onRetry={() => loadDecks({ resetPage: true })}
+  />
+);
 
-    {hasActiveFilters ? (
+const renderDecksLoadingState = () => (
+  <SkeletonGrid count={6} columns={3} />
+);
+
+const renderDecksEmptyState = ({ hasActiveFilters, clearFilters, handleCreateDeck }) => (
+  <EmptyState
+    illustration={<EmptyDecksIllustration size={180} />}
+    variant={hasActiveFilters ? 'filtered' : 'first-use'}
+    title={hasActiveFilters ? 'Prueba con otro filtro' : 'Crea tu primer mazo'}
+    description={
+      hasActiveFilters
+        ? 'No encontramos mazos con esos criterios. Limpia los filtros o prueba con otra búsqueda.'
+        : 'Los mazos te permiten reutilizar un conjunto de tarjetas RFID en varias sesiones. Configura uno, asígnalo a sesiones y ahorra tiempo.'
+    }
+    action={hasActiveFilters ? (
       <ButtonPremium variant="secondary" onClick={clearFilters}>
         Limpiar filtros
       </ButtonPremium>
@@ -188,7 +160,7 @@ const renderDecksEmptyState = ({ shouldReduceMotion, hasActiveFilters, clearFilt
         Crear mi primer mazo
       </ButtonPremium>
     )}
-  </motion.div>
+  />
 );
 
 const renderDecksState = ({
@@ -209,11 +181,11 @@ const renderDecksState = ({
   }
 
   if (loading && decks.length === 0) {
-    return renderDecksLoadingState({ shouldReduceMotion });
+    return renderDecksLoadingState();
   }
 
   if (decks.length === 0) {
-    return renderDecksEmptyState({ shouldReduceMotion, hasActiveFilters, clearFilters, handleCreateDeck });
+    return renderDecksEmptyState({ hasActiveFilters, clearFilters, handleCreateDeck });
   }
 
   return renderDecksGrid({ decks, shouldReduceMotion, handleViewDeck, handleEditDeck, handleArchiveDeck });
@@ -242,10 +214,12 @@ function filtersReducer(state, action) {
 /**
  * Página principal de gestión de mazos
  */
+// eslint-disable-next-line sonarjs/cyclomatic-complexity -- pagina principal orquesta filtros, modals, CRUD y estados de carga (ver ADR-086 patron similar)
 export default function CardDecksPage() {
   const navigate = useNavigate();
   const { shouldReduceMotion } = useReducedMotion();
-  
+  useDocumentTitle('Mis Mazos');
+
   // Estados
   const [decks, setDecks] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -300,17 +274,8 @@ export default function CardDecksPage() {
 
       setHasMore(pagination.page < pagination.totalPages);
 
-      const countData = await resolveDeckCount({
-        skipCount,
-        statusFilter: filters.statusFilter,
-        searchQuery: filters.searchQuery,
-        contextFilter: filters.contextFilter,
-        pagination,
-        signal
-      });
-      if (countData?.active !== undefined && countData?.total === undefined) {
-        setDeckCount(prev => ({ ...prev, active: countData.active }));
-      } else if (countData) {
+      const countData = await resolveDeckCount({ skipCount, signal });
+      if (countData) {
         setDeckCount(countData);
       }
 
@@ -431,6 +396,28 @@ export default function CardDecksPage() {
 
   const hasActiveFilters = filters.searchQuery || filters.statusFilter !== 'active' || filters.contextFilter;
 
+  // Chips de filtros activos para la barra visible sobre la lista
+  const activeFilterChips = [
+    filters.searchQuery && {
+      key: 'search',
+      label: `Búsqueda: "${filters.searchQuery}"`,
+      onRemove: () => dispatchFilters({ type: 'SET_SEARCH', payload: '' }),
+    },
+    filters.statusFilter !== 'active' && {
+      key: 'status',
+      label: filters.statusFilter === 'archived' ? 'Estado: Archivados' : `Estado: ${filters.statusFilter}`,
+      onRemove: () => dispatchFilters({ type: 'SET_STATUS', payload: 'active' }),
+    },
+    filters.contextFilter && {
+      key: 'context',
+      label: (() => {
+        const ctx = contexts.find((c) => c._id === filters.contextFilter);
+        return `Contexto: ${ctx?.name || 'Desconocido'}`;
+      })(),
+      onRemove: () => dispatchFilters({ type: 'SET_CONTEXT', payload: '' }),
+    },
+  ].filter(Boolean);
+
   const decksStateContent = renderDecksState({
     error,
     loading,
@@ -447,55 +434,91 @@ export default function CardDecksPage() {
 
   return (
     <div className="p-6 lg:p-8 max-w-7xl mx-auto">
-      {/* Header */}
-      <motion.div
-        initial={shouldReduceMotion ? false : { opacity: 0, y: -20 }}
-        animate={{ opacity: 1, y: 0 }}
-        className="mb-8"
-      >
-        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
-          <div>
-            <h1 className="text-3xl font-bold text-white font-display flex items-center gap-3">
-              <div className="size-10 rounded-xl bg-gradient-to-br from-indigo-500 to-purple-600 flex items-center justify-center">
-                <Layers size={20} className="text-white" />
-              </div>
-              Mis Mazos
-            </h1>
-            <p className="text-slate-400 mt-1">
-              Gestiona tus mazos de cartas RFID para las sesiones de juego
-            </p>
-          </div>
-
-          {/* Contador y botón crear */}
-          <div className="flex items-center gap-4">
-            {/* Contador de mazos */}
-            <motion.div
-              className={cn(
-                'px-4 py-2 rounded-xl text-sm font-medium',
-                'bg-slate-800/50 border border-white/10',
-                deckCount.active >= MAX_DECKS && 'border-amber-500/50 bg-amber-500/10'
-              )}
-              initial={shouldReduceMotion ? false : { scale: 0.9, opacity: 0 }}
-              animate={{ scale: 1, opacity: 1 }}
-              transition={{ delay: shouldReduceMotion ? 0 : 0.2 }}
-            >
+      <PageHeader
+        icon={<Layers size={20} />}
+        iconClassName="size-10 bg-gradient-to-br from-accent-indigo to-brand-base text-text-primary"
+        title="Mis Mazos"
+        subtitle="Gestiona tus mazos de cartas RFID para las sesiones de juego"
+        actions={<>
+          {/* Pill de uso ampliado con barra de progreso sutil para que el
+              usuario perciba cuán cerca está del tope; con Nuevo Mazo al lado
+              para que la acción y su contexto cuantitativo estén unidos (QA 22/04/2026). */}
+          <motion.div
+            className={cn(
+              'px-4 py-2 rounded-xl text-sm font-medium min-w-[140px]',
+              'bg-background-elevated/60 border border-border-default',
+              deckCount.active >= MAX_DECKS && 'border-warning-base/50 bg-warning-base/10'
+            )}
+            initial={shouldReduceMotion ? false : { scale: 0.9, opacity: 0 }}
+            animate={{ scale: 1, opacity: 1 }}
+            transition={{ delay: shouldReduceMotion ? 0 : 0.2 }}
+          >
+            <div className="flex items-baseline gap-1">
               <span className={cn(
-                deckCount.active >= MAX_DECKS ? 'text-amber-400' : 'text-indigo-400'
+                'text-lg font-display font-semibold tabular-nums',
+                deckCount.active >= MAX_DECKS ? 'text-warning-base' : 'text-accent-indigo'
               )}>
                 {deckCount.active}
               </span>
-              <span className="text-slate-500">/{MAX_DECKS} mazos</span>
-            </motion.div>
+              <span className="text-text-muted text-xs">/ {MAX_DECKS} mazos</span>
+            </div>
+            <div className="mt-1.5 h-1 rounded-full bg-background-surface/70 overflow-hidden">
+              <div
+                className={cn(
+                  'h-full rounded-full transition-all',
+                  deckCount.active >= MAX_DECKS ? 'bg-warning-base' : 'bg-gradient-to-r from-accent-indigo to-brand-base'
+                )}
+                style={{ width: `${Math.min(100, (deckCount.active / MAX_DECKS) * 100)}%` }}
+              />
+            </div>
+          </motion.div>
+          <ButtonPremium
+            onClick={handleCreateDeck}
+            disabled={deckCount.active >= MAX_DECKS}
+            icon={<Plus size={18} />}
+          >
+            Nuevo Mazo
+          </ButtonPremium>
+        </>}
+        className="mb-8"
+      />
 
-            <ButtonPremium
-              onClick={handleCreateDeck}
-              disabled={deckCount.active >= MAX_DECKS}
-              icon={<Plus size={18} />}
-            >
-              Nuevo Mazo
-            </ButtonPremium>
+      {/* KPIs resumen — coherente con la vista de Contextos, da contexto
+          numérico inmediato (Activos / Archivados / Total) sin tener que
+          ir a filtros (QA 22/04/2026). */}
+      <motion.div
+        initial={shouldReduceMotion ? false : { opacity: 0, y: 10 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ delay: shouldReduceMotion ? 0 : 0.08 }}
+        className="grid grid-cols-3 gap-3 mb-5"
+      >
+        <GlassCard className="p-3 flex items-center gap-3">
+          <div className="size-9 rounded-lg bg-accent-indigo/15 flex items-center justify-center">
+            <Layers size={16} className="text-accent-indigo" />
           </div>
-        </div>
+          <div>
+            <p className="text-xl font-semibold text-text-primary font-display tabular-nums">{deckCount.active}</p>
+            <p className="text-[10px] text-text-muted font-medium uppercase tracking-wider">Activos</p>
+          </div>
+        </GlassCard>
+        <GlassCard className="p-3 flex items-center gap-3">
+          <div className="size-9 rounded-lg bg-background-surface/60 flex items-center justify-center">
+            <Archive size={16} className="text-text-muted" />
+          </div>
+          <div>
+            <p className="text-xl font-semibold text-text-primary font-display tabular-nums">{deckCount.archived}</p>
+            <p className="text-[10px] text-text-muted font-medium uppercase tracking-wider">Archivados</p>
+          </div>
+        </GlassCard>
+        <GlassCard className="p-3 flex items-center gap-3">
+          <div className="size-9 rounded-lg bg-brand-base/15 flex items-center justify-center">
+            <CreditCard size={16} className="text-brand-light" />
+          </div>
+          <div>
+            <p className="text-xl font-semibold text-text-primary font-display tabular-nums">{deckCount.total}</p>
+            <p className="text-[10px] text-text-muted font-medium uppercase tracking-wider">Total</p>
+          </div>
+        </GlassCard>
       </motion.div>
 
       {/* Barra de búsqueda y filtros */}
@@ -509,21 +532,21 @@ export default function CardDecksPage() {
           <div className="flex flex-col sm:flex-row gap-4">
             {/* Búsqueda */}
             <div className="relative flex-1">
-              <Search 
-                className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-500" 
-                size={18} 
+              <Search
+                className="absolute left-3 top-1/2 -translate-y-1/2 text-text-muted"
+                size={18}
               />
               <input
                 type="text"
                 value={filters.searchQuery}
                 onChange={(e) => dispatchFilters({ type: 'SET_SEARCH', payload: e.target.value })}
-                placeholder="Buscar mazos..."
+                placeholder="Buscar mazos…"
                 className={cn(
                   'w-full pl-10 pr-4 py-2.5 rounded-xl',
-                  'bg-slate-800/50 border border-white/10',
-                  'text-white placeholder-slate-500',
-                  'focus:outline-none focus:border-indigo-500/50 focus:ring-2 focus:ring-indigo-500/20',
-                  'transition-all duration-300'
+                  'bg-background-elevated/50 border border-border-default',
+                  'text-text-primary placeholder-text-muted',
+                  'focus:outline-none focus:border-accent-indigo/50 focus:ring-2 focus:ring-accent-indigo/20',
+                  'transition-[color,border-color,box-shadow] duration-300'
                 )}
               />
             </div>
@@ -532,16 +555,16 @@ export default function CardDecksPage() {
             <button
               onClick={() => setShowFilters(!showFilters)}
               className={cn(
-                'flex items-center gap-2 px-4 py-2.5 rounded-xl border transition-all',
+                'flex items-center gap-2 px-4 py-2.5 rounded-xl border transition-colors',
                 showFilters || hasActiveFilters
-                  ? 'bg-indigo-500/20 border-indigo-500/50 text-indigo-300'
-                  : 'bg-slate-800/50 border-white/10 text-slate-400 hover:border-white/20'
+                  ? 'bg-accent-indigo/20 border-accent-indigo/50 text-accent-indigo'
+                  : 'bg-background-elevated/50 border-border-default text-text-muted hover:border-border-strong'
               )}
             >
               <Filter size={18} />
               Filtros
               {hasActiveFilters && (
-                <span className="size-2 rounded-full bg-indigo-500" />
+                <span className="size-2 rounded-full bg-accent-indigo" />
               )}
             </button>
           </div>
@@ -553,7 +576,7 @@ export default function CardDecksPage() {
                 initial={shouldReduceMotion ? false : { opacity: 0, height: 0 }}
                 animate={{ opacity: 1, height: 'auto' }}
                 exit={{ opacity: 0, height: 0 }}
-                className="mt-4 pt-4 border-t border-white/5 overflow-hidden"
+                className="mt-4 pt-4 border-t border-border-subtle overflow-hidden"
               >
                 <div className="flex flex-wrap gap-4">
                   {/* Filtro por estado */}
@@ -589,7 +612,7 @@ export default function CardDecksPage() {
                   {hasActiveFilters && (
                     <button
                       onClick={clearFilters}
-                      className="self-end px-3 py-2 rounded-lg text-slate-400 hover:text-white hover:bg-white/5 transition-colors text-sm flex items-center gap-1.5"
+                      className="self-end px-3 py-2 rounded-lg text-text-muted hover:text-text-primary hover:bg-glass-bg transition-colors text-sm flex items-center gap-1.5"
                     >
                       <X size={14} />
                       Limpiar
@@ -602,9 +625,15 @@ export default function CardDecksPage() {
         </GlassCard>
       </motion.div>
 
+      {activeFilterChips.length > 0 && (
+        <div className="mb-4">
+          <ActiveFiltersBar filters={activeFilterChips} onClearAll={clearFilters} />
+        </div>
+      )}
+
       {loading && decks.length > 0 && (
-        <div className="mb-4 bg-slate-800/50 border border-white/10 text-slate-300 px-4 py-2 rounded-xl text-sm">
-          Actualizando mazos...
+        <div className="mb-4 bg-background-elevated/50 border border-border-default text-text-secondary px-4 py-2 rounded-xl text-sm">
+          Actualizando mazos…
         </div>
       )}
 
@@ -636,7 +665,7 @@ export default function CardDecksPage() {
         description={
           <>
             ¿Estás seguro de que quieres archivar{' '}
-            <strong className="text-white">&quot;{archivingDeck?.name}&quot;</strong>?
+            <strong className="text-text-primary">&quot;{archivingDeck?.name}&quot;</strong>?
             El mazo no se eliminará, pero no aparecerá en tus mazos activos.
           </>
         }

@@ -42,10 +42,12 @@ class AppError extends Error {
 class ApiValidationError extends AppError {
   /**
    * @param {string} message - Descripción de la validación fallida
+   * @param {Array<{field: string, message: string}>} [errors=[]] - Errores detallados por campo
    * @param {Object|null} [data=null] - Datos adicionales de contexto
    */
-  constructor(message, data = null) {
+  constructor(message, errors = [], data = null) {
     super(message, 400, data);
+    this.errors = errors;
   }
 }
 
@@ -82,9 +84,13 @@ class NotFoundError extends AppError {
 class UnauthorizedError extends AppError {
   /**
    * @param {string} [message='No autorizado'] - Mensaje de error personalizado
+   * @param {string|null} [code=null] - Código semántico para el cliente (ej: TOKEN_EXPIRED, TOKEN_REVOKED)
    */
-  constructor(message = 'No autorizado') {
+  constructor(message = 'No autorizado', code = null) {
     super(message, 401);
+    if (code) {
+      this.code = code;
+    }
   }
 }
 

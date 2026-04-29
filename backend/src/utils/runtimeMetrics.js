@@ -36,6 +36,14 @@ const state = {
     authCacheMisses: 0,
     byEvent: {},
     lastEventAt: null
+  },
+  redis: {
+    // Número de veces que un rate limiter ha caído a MemoryStore por ausencia de Redis.
+    // En multi-instancia esto fragmenta el límite global, es una señal de alerta.
+    rateLimitStoreFallbackCount: 0,
+    // Hits/misses del cache de slim-user usado por el middleware de autenticación.
+    authUserCacheHits: 0,
+    authUserCacheMisses: 0
   }
 };
 
@@ -121,6 +129,28 @@ function recordSocketAuthCache(outcome) {
 }
 
 /**
+ * Incrementa el contador de fallback a MemoryStore del rate limiter HTTP.
+ * @param {string} [prefix] - Nombre del limiter que hizo fallback (para logging)
+ */
+function recordRateLimitStoreFallback() {
+  state.redis.rateLimitStoreFallbackCount += 1;
+}
+
+/**
+ * Registra uso del cache de slim-user del middleware de autenticación.
+ * @param {'hit'|'miss'} outcome
+ */
+function recordAuthUserCache(outcome) {
+  if (outcome === 'hit') {
+    state.redis.authUserCacheHits += 1;
+    return;
+  }
+  if (outcome === 'miss') {
+    state.redis.authUserCacheMisses += 1;
+  }
+}
+
+/**
  * Snapshot de métricas runtime.
  * @returns {Object}
  */
@@ -139,6 +169,9 @@ function getSnapshot() {
     },
     websocket: {
       ...state.websocket
+    },
+    redis: {
+      ...state.redis
     }
   };
 }
@@ -170,6 +203,10 @@ function reset() {
   state.websocket.authCacheMisses = 0;
   state.websocket.byEvent = {};
   state.websocket.lastEventAt = null;
+
+  state.redis.rateLimitStoreFallbackCount = 0;
+  state.redis.authUserCacheHits = 0;
+  state.redis.authUserCacheMisses = 0;
 }
 
 module.exports = {
@@ -177,6 +214,8 @@ module.exports = {
   recordRfidEvent,
   recordWebsocketEvent,
   recordSocketAuthCache,
+  recordRateLimitStoreFallback,
+  recordAuthUserCache,
   getSnapshot,
   reset
 };

@@ -35,7 +35,7 @@ function ChartSection({ title, children, className, period = '7d', onPeriodChang
                 aria-label="Filtro de período de tiempo"
                 value={period}
                 onChange={(event) => onPeriodChange(event.target.value)}
-                className="bg-background-surface/80 border border-border-default text-text-secondary text-sm font-medium rounded-xl px-4 py-2 outline-none focus:border-brand-base focus:ring-2 focus:ring-brand-base/20 transition-all cursor-pointer hover:bg-background-elevated"
+                className="bg-background-surface/80 border border-border-default text-text-secondary text-sm font-medium rounded-xl px-4 py-2 outline-none focus:border-brand-base focus:ring-2 focus:ring-brand-base/20 transition-[color,background-color,border-color,box-shadow] cursor-pointer hover:bg-background-elevated"
               >
                 {resolvedPeriodOptions.map((option) => (
                   <option key={option.value} value={option.value}>{option.label}</option>

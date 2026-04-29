@@ -1,7 +1,9 @@
 const request = require('supertest');
 
 const CONTEXT_ID = '507f1f77bcf86cd799439011';
-const describeSupabase = process.env.RUN_SUPABASE_TESTS === 'true' ? describe : describe.skip;
+
+// Estos tests mockean completamente storageService y gameContextRepository.
+// No requieren credenciales reales de Supabase — se ejecutan siempre.
 
 let app;
 let storageService;
@@ -27,7 +29,12 @@ const buildTestApp = () => {
   app = express();
   app.use(express.json());
   app.use((req, res, next) => {
-    req.user = { _id: 'user-123' };
+    // Simulamos al usuario autenticado — toString debe coincidir con el
+    // uploadedBy de los mock assets para pasar la politica de ownership
+    // introducida en ADR-053.
+    req.user = {
+      _id: { toString: () => 'user-123' }
+    };
     next();
   });
   app.delete('/api/contexts/:id/images/:assetKey', assetController.deleteImage);
@@ -35,7 +42,7 @@ const buildTestApp = () => {
   app.use(errorHandler);
 };
 
-describeSupabase('Asset Controller - Delete Image', () => {
+describe('Asset Controller - Delete Image', () => {
   beforeEach(() => {
     buildTestApp();
     jest.clearAllMocks();
@@ -46,7 +53,9 @@ describeSupabase('Asset Controller - Delete Image', () => {
       key: 'espana',
       imageUrl: 'https://supa.base/img.png',
       thumbnailUrl: 'https://supa.base/thumb.png',
-      audioUrl: null
+      audioUrl: null,
+      // ADR-053: el asset debe pertenecer al usuario autenticado para autorizar borrado
+      uploadedBy: { toString: () => 'user-123' }
     };
 
     const mockContext = {
@@ -94,7 +103,8 @@ describeSupabase('Asset Controller - Delete Image', () => {
       key: 'espana',
       imageUrl: 'https://supa.base/img.png',
       thumbnailUrl: 'https://supa.base/thumb.png',
-      audioUrl: null
+      audioUrl: null,
+      uploadedBy: { toString: () => 'user-123' }
     };
     const mockContext = {
       _id: CONTEXT_ID,
@@ -112,7 +122,7 @@ describeSupabase('Asset Controller - Delete Image', () => {
   });
 });
 
-describeSupabase('Asset Controller - Delete Audio', () => {
+describe('Asset Controller - Delete Audio', () => {
   beforeEach(() => {
     buildTestApp();
     jest.clearAllMocks();
@@ -123,7 +133,8 @@ describeSupabase('Asset Controller - Delete Audio', () => {
       key: 'espana',
       imageUrl: null,
       thumbnailUrl: null,
-      audioUrl: 'https://supa.base/audio.mp3'
+      audioUrl: 'https://supa.base/audio.mp3',
+      uploadedBy: { toString: () => 'user-123' }
     };
 
     const mockContext = {

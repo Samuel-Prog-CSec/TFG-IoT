@@ -1,6 +1,6 @@
 {
   "name": "rfid-games-backend",
-  "version": "0.4.0",
+  "version": "0.5.0",
   "description": "Backend server for RFID educational games - MERN stack",
   "main": "src/server.js",
   "scripts": {
@@ -11,6 +11,15 @@
     "seed:if-empty": "node scripts/seed-if-empty.js",
     "seed:storage": "node scripts/seed-storage-assets.js",
     "migrate:sessions": "node scripts/migrate-session-status.js",
+    "migrate:dominant-colors": "node scripts/backfill-dominant-colors.js",
+    "migrate:birthdate": "node scripts/migrateBirthdate.js",
+    "migrate:assets-uploadedby": "node scripts/migrate-assets-uploadedby.js",
+    "migrate:clamp-scores": "node scripts/migrate-clamp-scores.js",
+    "data:audit": "node scripts/dataAudit.js",
+    "data:retention": "node scripts/dataRetention.js",
+    "data:retention:dry-run": "node scripts/dataRetention.js --dry-run",
+    "worker": "node worker.js",
+    "worker:dev": "nodemon worker.js",
     "bench:sessions": "node scripts/benchmark-session-reads.js",
     "drop-db": "node scripts/drop-db.js",
     "lint": "eslint .",
@@ -43,29 +52,30 @@
   ],
   "author": "Samuel Blanchart Pérez",
   "dependencies": {
-    "@sentry/node": "9.47.1",
-    "@sentry/profiling-node": "9.47.1",
-    "@sentry/react": "^10.42.0",
+    "@sentry/node": "^10.48.0",
+    "@sentry/profiling-node": "^10.48.0",
     "@socket.io/redis-adapter": "^8.3.0",
-    "@supabase/supabase-js": "^2.98.0",
+    "@supabase/supabase-js": "^2.103.1",
     "bcrypt": "^6.0.0",
+    "bullmq": "^5.75.1",
     "compression": "^1.8.1",
     "cookie-parser": "^1.4.7",
     "cors": "^2.8.6",
-    "dotenv": "^17.3.1",
+    "dotenv": "^17.4.2",
     "express": "^5.2.1",
-    "express-rate-limit": "^8.3.0",
+    "express-rate-limit": "^8.3.2",
     "file-type": "^21.3.4",
     "helmet": "^8.1.0",
     "hpp": "^0.2.3",
-    "ioredis": "^5.10.0",
+    "ioredis": "^5.10.1",
     "jsonwebtoken": "^9.0.3",
-    "mongoose": "^9.2.4",
+    "mongoose": "^9.4.1",
     "multer": "^2.1.1",
-    "music-metadata": "^11.12.1",
+    "music-metadata": "^11.12.3",
     "pino": "^10.3.1",
     "pino-http": "^11.0.0",
     "pino-pretty": "^13.1.3",
+    "rate-limit-redis": "^4.3.1",
     "sharp": "^0.34.5",
     "socket.io": "^4.8.3",
     "zod": "^4.3.6"
@@ -75,28 +85,26 @@
     "cross-env": "^10.1.0",
     "eslint": "^9.39.4",
     "eslint-config-prettier": "^10.1.8",
+    "eslint-plugin-no-secrets": "^2.3.3",
     "eslint-plugin-prettier": "^5.5.5",
+    "eslint-plugin-promise": "^7.2.1",
+    "eslint-plugin-regexp": "^3.1.0",
     "eslint-plugin-security": "^3.0.1",
-    "eslint-plugin-sonarjs": "^4.0.1",
-    "globals": "^17.4.0",
+    "eslint-plugin-sonarjs": "^4.0.2",
+    "globals": "^17.5.0",
     "ioredis-mock": "^8.13.1",
-    "jest": "^30.2.0",
+    "jest": "^30.3.0",
     "nodemon": "^3.1.14",
-    "prettier": "^3.8.1",
+    "prettier": "^3.8.3",
     "socket.io-client": "^4.8.3",
     "supertest": "^7.2.2",
-    "ts-api-utils": "^2.4.0"
+    "ts-api-utils": "^2.5.0"
   },
   "overrides": {
-    "@sentry/node": {
-      "minimatch": "^10.2.1"
-    },
-    "@sentry/profiling-node": {
-      "minimatch": "^10.2.1"
-    },
+    "brace-expansion": ">=5.0.5",
     "socket.io-parser": "^4.2.6"
   },
   "engines": {
-    "node": ">=24.12.0"
+    "node": ">=18.0.0"
   }
 }

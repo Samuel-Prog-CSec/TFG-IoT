@@ -13,8 +13,8 @@
  */
 
 const Redis = require('ioredis');
-const fs = require('fs');
-const path = require('path');
+const fs = require('node:fs');
+const path = require('node:path');
 const logger = require('../utils/logger');
 
 /**
@@ -28,6 +28,13 @@ let redisClient = null;
  * @type {boolean}
  */
 let isConnected = false;
+
+/**
+ * Callback invocado cuando Redis reconecta tras una desconexión.
+ * Permite al GameEngine re-registrar card locks de partidas activas.
+ * @type {Function|null}
+ */
+let onReconnectCallback = null;
 
 /**
  * Prefijo para todas las keys del proyecto.
@@ -69,6 +76,21 @@ const loadLuaScripts = async () => {
       return;
     }
 
+    // Flush opcional del script cache de Redis antes de recargar.
+    // Necesario en deploys donde hemos modificado scripts .lua y Redis (p. ej. Upstash
+    // o Docker volume persistente) mantiene el script cache entre reinicios del backend.
+    // Sin esto, EVALSHA seguiría ejecutando la versión vieja sin disparar NOSCRIPT.
+    if (process.env.REDIS_FLUSH_LUA_ON_BOOT === 'true') {
+      try {
+        await redisClient.script('FLUSH');
+        logger.info('Redis: Lua script cache flushed antes de recargar (REDIS_FLUSH_LUA_ON_BOOT)');
+      } catch (flushErr) {
+        logger.warn('Redis: SCRIPT FLUSH falló, continuando con SCRIPT LOAD', {
+          error: flushErr.message
+        });
+      }
+    }
+
     const luaFiles = fs.readdirSync(luaDir).filter(f => f.endsWith('.lua'));
 
     for (const file of luaFiles) {
@@ -77,7 +99,8 @@ const loadLuaScripts = async () => {
       const scriptContent = fs.readFileSync(path.join(luaDir, file), 'utf8');
       const sha = await redisClient.script('LOAD', scriptContent);
       luaScriptSHAs.set(scriptName, sha);
-      logger.info(`Redis: Lua script '${scriptName}' cargado (SHA: ${sha.slice(0, 8)}...)`);
+      // Log con SHA completo a nivel info para facilitar verificación visual en logs de deploy
+      logger.info(`Redis: Lua script '${scriptName}' cargado`, { scriptName, sha });
     }
 
     logger.info(`Redis: ${luaScriptSHAs.size} Lua scripts cargados exitosamente`);
@@ -184,18 +207,32 @@ const connectRedis = async () => {
   });
 
   redisClient.on('ready', () => {
+    const wasDisconnected = !isConnected;
     isConnected = true;
     logger.info('Redis: Cliente listo para recibir comandos');
+
+    // Si Redis reconecta tras una desconexión, emitir evento para que
+    // el GameEngine pueda re-registrar card locks de partidas activas.
+    if (wasDisconnected && onReconnectCallback) {
+      logger.info('Redis: Reconexión detectada, ejecutando callback de recovery');
+      onReconnectCallback().catch(err => {
+        logger.error('Redis: Error en callback de reconexión', { error: err.message });
+      });
+    }
   });
 
   redisClient.on('error', error => {
     isConnected = false;
     logger.error('Redis: Error de conexión', { error: error.message });
 
-    // En producción, un fallo de Redis es crítico
+    // POLÍTICA DE ERRORES EN RUNTIME:
+    // No cerramos el proceso. El circuit breaker de redisService se encarga de
+    // degradar gracefully (omitir operaciones Redis) hasta que la conexión se
+    // restablezca. El health check (/health) reportará estado 'degraded'.
+    // Esto difiere del fallo en connect() inicial, que SÍ lanza en producción
+    // porque sin conexión inicial Redis no puede cargar scripts Lua ni validar PING.
     if (process.env.NODE_ENV === 'production') {
-      logger.error('Redis: Error crítico en producción');
-      // No cerramos el proceso, pero marcamos como no saludable
+      logger.error('Redis: Error en runtime — servicio degradado, circuit breaker activo');
     }
   });
 
@@ -316,6 +353,16 @@ const ping = async () => {
   }
 };
 
+/**
+ * Registra un callback que se ejecutará cuando Redis reconecte tras una desconexión.
+ * Útil para que el GameEngine re-registre card locks de partidas activas.
+ *
+ * @param {Function} callback - Función async a ejecutar en reconexión
+ */
+const onReconnect = callback => {
+  onReconnectCallback = callback;
+};
+
 module.exports = {
   connectRedis,
   disconnectRedis,
@@ -325,5 +372,6 @@ module.exports = {
   ping,
   getLuaScriptSHA,
   getLuaScriptSource,
-  loadLuaScripts
+  loadLuaScripts,
+  onReconnect
 };

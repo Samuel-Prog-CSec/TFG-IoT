@@ -31,6 +31,7 @@ const {
   playerStatsParamsSchema
 } = require('../validators/gamePlayValidator');
 const { emptyObjectSchema } = require('../validators/commonValidator');
+const asyncHandler = require('../utils/asyncHandler');
 
 // Todas las rutas requieren profesor o super_admin
 router.use(authenticate, requireRole('teacher', 'super_admin'));
@@ -45,7 +46,7 @@ router.get(
   '/stats/:playerId',
   validateParams(playerStatsParamsSchema),
   validateQuery(playerStatsQuerySchema),
-  getPlayerStats
+  asyncHandler(getPlayerStats)
 );
 
 /**
@@ -54,7 +55,7 @@ router.get(
  * @access  Private
  * @validation query: gamePlayQuerySchema
  */
-router.get('/', validateQuery(gamePlayQuerySchema), getPlays);
+router.get('/', validateQuery(gamePlayQuerySchema), asyncHandler(getPlays));
 
 /**
  * @route   GET /api/plays/:id
@@ -66,7 +67,7 @@ router.get(
   '/:id',
   validateParams(gamePlayParamsSchema),
   validateQuery(emptyObjectSchema),
-  getPlayById
+  asyncHandler(getPlayById)
 );
 
 /**
@@ -80,7 +81,7 @@ router.post(
   createResourceRateLimiter, // Rate limiting para prevenir spam
   validateQuery(emptyObjectSchema),
   validateBody(createGamePlaySchema),
-  createPlay
+  asyncHandler(createPlay)
 );
 
 /**
@@ -95,7 +96,7 @@ router.post(
   validateParams(gamePlayParamsSchema),
   validateQuery(emptyObjectSchema),
   validateBody(addEventSchema),
-  addEvent
+  asyncHandler(addEvent)
 );
 
 /**
@@ -109,7 +110,7 @@ router.post(
   validateParams(gamePlayParamsSchema),
   validateQuery(emptyObjectSchema),
   validateBody(emptyObjectSchema),
-  completePlay
+  asyncHandler(completePlay)
 );
 
 /**
@@ -123,7 +124,7 @@ router.post(
   validateParams(gamePlayParamsSchema),
   validateQuery(emptyObjectSchema),
   validateBody(emptyObjectSchema),
-  abandonPlay
+  asyncHandler(abandonPlay)
 );
 
 /**
@@ -134,10 +135,11 @@ router.post(
  */
 router.post(
   '/:id/pause',
+  eventRateLimiter, // Rate limiting para prevenir abuso en pause/resume
   validateParams(gamePlayParamsSchema),
   validateQuery(emptyObjectSchema),
   validateBody(emptyObjectSchema),
-  pausePlay
+  asyncHandler(pausePlay)
 );
 
 /**
@@ -148,10 +150,11 @@ router.post(
  */
 router.post(
   '/:id/resume',
+  eventRateLimiter, // Rate limiting para prevenir abuso en pause/resume
   validateParams(gamePlayParamsSchema),
   validateQuery(emptyObjectSchema),
   validateBody(emptyObjectSchema),
-  resumePlay
+  asyncHandler(resumePlay)
 );
 
 module.exports = router;

@@ -152,3 +152,71 @@ Antes de procesar la subida, el **UploadAssetModal** realiza validaciones locale
 ```
 
 _`imageUrl` original y optimizada en 1920px. `thumbnailUrl` en 256px de calidad comprimida._
+
+---
+
+## Mejoras de Rendering y Experiencia Visual (Sprint 5)
+
+### LQIP con Color Dominante
+
+El backend extrae el color dominante de cada imagen procesada (`dominantColor`, campo hex `#RRGGBB`). El componente `CardAssetPreview` utiliza este color como fondo del contenedor mientras la imagen carga, reemplazando el skeleton shimmer genérico para assets que disponen de este dato.
+
+**Beneficio**: transición visual más orgánica y personalizada, ya que el placeholder coincide cromáticamente con la imagen final. Los assets sin `dominantColor` (legacy) mantienen el shimmer como fallback.
+
+### Selección Contextual de URL de Imagen
+
+Se añadió `getAssetImageUrl(asset, { preferFull })` en `lib/cardMapping.js`:
+
+- **`preferFull: false` (default)**: devuelve `thumbnailUrl` > `imageUrl`. Usado en grids, cards de mazos y selectores de assets (displays < 128px CSS).
+- **`preferFull: true`**: devuelve `imageUrl` > `thumbnailUrl`. Usado en `ChallengeDisplay` (128-160px CSS = 256-320px en retina 2x), donde el thumbnail de 256x256 queda corto para retina.
+
+`getBestAssetImageUrl` se mantiene como alias retrocompatible de `getAssetImageUrl(asset)`.
+
+### Componente AudioMiniPlayer
+
+Nuevo componente `components/ui/AudioMiniPlayer.jsx` que reemplaza los botones básicos de audio:
+
+- **Tamaños**: `sm` (ChallengeDisplay) y `md` (ContextDetailPage, con botón de volumen)
+- **Variantes**: `glass` (glassmorphism) y `solid` (fondo sólido)
+- **Funcionalidades**: play/pause con animación, barra de progreso clickable para seek, indicador de duración `M:SS`, toggle de mute (solo `md`), soporte teclado
+- **Accesibilidad**: `aria-label` en botones, `role="progressbar"` con `aria-valuenow`/`aria-valuemax`
+
+### Profundidad Visual en Assets
+
+Se aplicaron mejoras de profundidad para que los assets se sientan integrados ("incrustados") en vez de "pegados":
+
+- **`CardAssetPreview`**: sombra interior `shadow-[inset_0_2px_8px_rgba(0,0,0,0.25)]` cuando hay imagen, fade-in de 400ms ease-out
+- **`DeckCard` mini-previews**: `shadow-[inset_0_1px_4px_rgba(0,0,0,0.3)]` + `ring-1 ring-white/5`, fondo con `dominantColor` del asset
+- **`ChallengeDisplay`**: marco tematizado con `ring-2 ring-offset-2` usando el color del tema del contexto, sombra interior, fondo con `dominantColor`
+- **`AssetCard` (ContextDetailPage)**: glow hover con CSS variable `--card-glow` derivada del `dominantColor` del asset
+
+## Gestión de Audio en Assets (Sprint 5)
+
+### Flujo de Gestión de Audio
+
+El audio es un complemento opcional del asset visual. El flujo es:
+
+1. **Crear asset**: Profesor sube imagen via `UploadAssetModal` (solo imagen)
+2. **Añadir audio**: Via botón "Añadir audio" en el `AssetCard` → abre `AudioUploadModal`
+3. **Reemplazar audio**: Via botón "Reemplazar" en el `AssetCard` → misma modal con audio actual
+4. **Eliminar audio**: Via botón "Eliminar Audio" en el `AssetCard` → solo elimina audio, conserva imagen
+5. **Eliminar asset completo**: Via botón trash → elimina imagen + audio
+
+### Componentes Nuevos
+
+#### AudioUploadModal
+Modal dedicado para adjuntar/reemplazar audio en un asset existente. Dropzone con validación client-side (MP3/OGG, max 5MB). Llama a `PATCH /contexts/:id/assets/:assetKey/audio`.
+
+#### AudioPlayBadge
+Badge circular compacto (20-24px) que indica presencia de audio y permite reproducción rápida con un click. Usado en:
+- `CardDeckDetailPage` — grid de cards del mazo
+- `SessionDetail` — grid de mapping de sesión
+- `AssetSelector` — selector de assets (reemplaza badge estático)
+- `DeckCreationWizard` — paso 4 (confirmación)
+- `CreateSession` — paso de revisión
+
+### API Frontend
+```javascript
+contextsAPI.attachAudio(contextMongoId, assetKey, formData)
+// PATCH /contexts/:id/assets/:assetKey/audio
+```

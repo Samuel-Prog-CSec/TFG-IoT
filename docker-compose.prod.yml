@@ -83,10 +83,11 @@ services:
       --appendonly yes
       --appendfsync everysec
       --maxmemory 512mb
-      --maxmemory-policy allkeys-lru
+      --maxmemory-policy noeviction
       --tcp-keepalive 60
       --timeout 300
       --loglevel warning
+      --requirepass ${REDIS_PASSWORD}
     deploy:
       resources:
         limits:

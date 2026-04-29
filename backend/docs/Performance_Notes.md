@@ -260,3 +260,113 @@ Estos datos se devuelven en formato legible (MB) a través de `toSystemMetricsDT
 4. El componente rehidrata su estado con `handlePlayState()`.
 
 **Impacto**: reconexión más robusta y recuperación automática del estado de juego sin intervención del usuario. Para más detalles sobre el comando `play_state_sync`, ver `WebSockets-ExtendedUsage.md`.
+
+## Mantenimiento Sprint 5 — Optimización de Queries Mongoose
+
+### 1. Aplicación automática de `.lean()` en queries de listado
+
+Mongoose devuelve por defecto documentos completos con getters, setters, virtuals y métodos de instancia (`.save()`, `.validate()`, etc.). Estos documentos hidratados consumen aproximadamente 5 veces más memoria que un objeto JavaScript plano (POJO) equivalente. Para endpoints de listado que transforman resultados a DTOs antes de enviarlos, esta hidratación es overhead innecesario.
+
+**Implementación**: se modificó `baseRepository.applyQueryOptions()` para aplicar `.lean()` automáticamente cuando la query incluye opciones de paginación/ordenamiento (`sort`, `limit` o `skip`). Estas queries siempre corresponden a listados cuyo resultado se pasa directamente a funciones DTO — nunca se invoca `.save()` sobre ellos.
+
+**Por qué no se aplicó globalmente**: los métodos `findById` y `findOne` no aplican lean por defecto porque existen aproximadamente 30 flujos en controllers y services que siguen el patrón `find → modify → .save()`. Forzar lean en estas rutas rompería todas esas llamadas a `.save()` (que no existe en POJOs), requiriendo una refactorización masiva a patrón `updateById`. El lean en `findById`/`findOne` permanece disponible como opción explícita para casos de solo lectura.
+
+**Resultado**: las queries de listado devuelven POJOs con ~5x menos consumo de memoria por documento, sin cambios en la interfaz pública del repository ni en los DTOs consumidores.
+
+### 2. Índices compuestos para queries de analytics
+
+Se añadieron 3 índices compuestos en los modelos para optimizar las consultas más frecuentes de los endpoints de analytics:
+
+| Índice | Modelo | Campos | Caso de uso |
+|--------|--------|--------|-------------|
+| `playerId_completedAt` | GamePlay | `{ playerId: 1, completedAt: -1 }` | Historial de partidas de un estudiante, ordenado por fecha. Usado en `GET /api/analytics/student/:id/summary` y listados de plays por jugador. |
+| `status_completedAt` | GamePlay | `{ status: 1, completedAt: -1 }` | Agregaciones de analytics que filtran por estado (completed, abandoned) y ordenan por fecha. Usado en `GET /api/analytics/distribution`, `trends`, `rankings`. |
+| `createdBy_role` | User | `{ createdBy: 1, role: 1 }` | Listado de estudiantes de un profesor. Usado en `GET /api/analytics/classroom/students` y filtros de usuario por rol dentro de un aula. |
+
+Sin estos índices, las queries realizaban collection scans completos, lo cual degradaría progresivamente el rendimiento conforme crece el volumen de datos en GamePlay y User.
+
+Para más contexto sobre la decisión, ver **ADR-019** en `Architecture_Decisions.md`.
+
+### Cache Redis para Entidades Core
+
+Se implementó el patrón **cache-aside** mediante `utils/cacheHelper.js` para reducir la carga de lecturas repetidas a MongoDB en entidades que cambian con poca frecuencia. Se definen tres niveles de cache con TTLs diferenciados según la volatilidad de los datos:
+
+| Nivel | Entidad | TTL | Justificación |
+|-------|---------|-----|---------------|
+| **Tier 1** | Mecánicas de juego | 1 hora | ~3 mecánicas en el sistema, cambian solo por acción de administrador |
+| **Tier 2** | Contextos temáticos | 30 minutos | ~15 contextos, cambian solo por acción de administrador |
+| **Tier 3** | Analytics de clase | 5 minutos | Cambian con cada partida completada, TTL corto para balance frescura/rendimiento |
+
+**Patrón cache-aside**: el servicio intenta leer de Redis primero. En caso de cache miss, consulta MongoDB, almacena el resultado en Redis con el TTL correspondiente, y lo devuelve al consumidor. Las lecturas posteriores dentro del TTL se sirven directamente desde Redis.
+
+**Invalidación explícita en mutaciones**: las operaciones de create, update y delete en mecánicas y contextos invocan `cacheInvalidate` para eliminar la entrada de Redis inmediatamente. Esto garantiza que la siguiente lectura obtenga datos frescos. Analytics no requiere invalidación explícita — el TTL de 5 minutos proporciona un balance adecuado.
+
+**Fallback transparente**: si Redis no está disponible (circuit breaker abierto o error de conexión), `cacheGet` ejecuta directamente la función de fetch contra MongoDB sin lanzar error. El sistema opera en modo degradado sin cache, y re-puebla automáticamente cuando Redis vuelve a estar disponible.
+
+Solo se cachean endpoints `getById` (llamados frecuentemente con datos estables). Los endpoints de listado quedan sin cache porque las combinaciones variables de filtros, ordenamiento y paginación generarían demasiadas cache keys con baja tasa de acierto.
+
+Para más contexto sobre la decisión, ver **ADR-020** en `Architecture_Decisions.md`.
+
+---
+
+## Mejoras de rendimiento y estabilidad (Mantenimiento 2026-04-12)
+
+### maxTimeMS en aggregations (ADR-039)
+
+Todas las aggregation pipelines ahora tienen un timeout por defecto de 15 segundos, centralizado en los repositories (`gamePlayRepository`, `gameSessionRepository`, `userRepository`). Esto evita que un pipeline lento bloquee el pool de conexiones de Mongoose indefinidamente. Configurable via `AGGREGATE_TIMEOUT_MS`.
+
+### Hard cap en caches in-memory de Socket.IO
+
+Los caches `authRevalidationCache` y `playOwnershipCache` en `socketHandlers.js` ahora tienen un hard cap basado en `CACHE_SWEEP_THRESHOLD` (default 2000). Si el cache supera el umbral tras un sweep completo, las nuevas entradas se descartan. Esto previene acumulación de memoria por ráfagas de conexiones.
+
+### Fix: TTL fallback en cacheGet
+
+El fallback de TTL en `cacheHelper.js` ahora resuelve correctamente el namespace (`cache:analytics` → `analytics` → 300s) en vez de buscar por key (que nunca matcheaba). Los callers que pasan TTL explícito no se ven afectados.
+
+### Fix: cacheInvalidateNamespace implementado
+
+La función `cacheInvalidateNamespace` en `cacheHelper.js` ahora delega a `redisService.flushNamespace()` (SCAN + DEL) en vez de ser un no-op. Se usa en `userController` para invalidar analytics tras un cambio de consentimiento RGPD.
+
+### Lógica de aggregation extraída a services
+
+Las aggregation pipelines que estaban en `gamePlayController` y `gameSessionController` se han movido a los services correspondientes (`gamePlayService.getPlayerStats`, `gamePlayService.getPlayStatsBySessionIds`), manteniendo los controllers como orquestadores delgados.
+
+---
+
+## Mantenimiento 2026-04-20 — Cobertura total cache analytics + cache auth + idempotencia
+
+### Cobertura total de cache-aside en analytics (ADR-064)
+
+Los 9 handlers de `analyticsController.js` que seguían consultando Mongo en cada request ahora pasan por `cacheGet('cache:analytics', ...)`. TTLs escalonados (120-600s) según granularidad. `GameEngine.endPlay` invalida el namespace en fire-and-forget tras cada partida para garantizar frescura en el dashboard del profesor.
+
+Impacto esperado en p95 de endpoints cacheados: reducción de ~150-400ms (cold aggregate) a <10ms (warm cache hit).
+
+### Cache slim-user en middleware auth (ADR-065)
+
+Nuevo cache `auth:user:<userId>` con TTL 60s que evita el `userRepository.findById` de cada request autenticado (HTTP + WebSocket handshake). Invalidación explícita en login/logout/updateProfile/changePassword y en mutaciones de `userController`/`userService`. Métricas `runtimeMetrics.redis.authUserCacheHits/Misses` permiten observar la efectividad.
+
+`req.user` pasa a ser POJO (no Mongoose doc); los flujos afectados se migraron a `userRepository.updateById` + `invalidateUserCache`.
+
+### Idempotencia distribuida de startPlay (ADR-066)
+
+SET NX en `play:init:<playId>` con TTL 60s al inicio de `GameEngine.startPlay`. Previene duplicación de `new_round` emit y `syncPlayToRedis` en despliegues multi-instancia con Socket.IO adapter activo. Complementa el `reserveCardsAtomic` (ADR-004) que ya protegía los card locks.
+
+### Hardening fallback rate-limit + Lua flush opt-in
+
+- `config/security.createRedisStore`: fallback a memoria reporta a Sentry con `alert: true` en producción, incrementa `runtimeMetrics.redis.rateLimitStoreFallbackCount`, y deja documentada la deuda técnica de re-creación lazy (ver ADR-067).
+- `config/redis.loadLuaScripts`: nueva env var `REDIS_FLUSH_LUA_ON_BOOT=true` ejecuta `SCRIPT FLUSH` antes de recargar — necesaria en deploys con cambios en `.lua` si Redis mantiene el script cache entre reinicios. Log con SHA completo de cada script al cargar.
+
+### Lazy promotion del rate limiter HTTP a Redis store (ADR-068)
+
+Refactor posterior a ADR-067 que resuelve la causa raíz del fallback sistemático al boot: los 8 limiters se registran ahora lazy en un `rateLimitersRegistry` y se instancian con Redis store por `initRateLimiters()` invocado desde `server.js` tras `await connectRedis()`. Los exports (`globalRateLimiter`, etc.) son middleware shims que delegan al limiter real cuando existe.
+
+Configuración adicional al crear los limiters: `passOnStoreError: true` — si Redis cae mid-request, `express-rate-limit` deja pasar el request (fail-open) en lugar de devolver 500. Criterio: preferible tolerar un pico de tráfico ante blip de Redis que tirar el servicio entero con errores. El blip queda visible vía `runtimeMetrics.redis` + Sentry (desde ADR-067). Helper compartido `utils/ipHelper.js::userOrIpKeyGenerator` usa `ipKeyGenerator` para normalizar IPv6 al /64, eliminando warnings de `express-rate-limit` y cerrando un potencial bypass por prefijos IPv6 del mismo rango.
+
+Además, el handler `unhandledRejection` en `server.js` ya no ejecuta `gracefulShutdown` — solo loguea y reporta a Sentry. Esto evita el ciclo de reinicios del contenedor que se observaba durante blips de Redis cuando alguna promise Redis pendiente rechazaba. `uncaughtException` mantiene el shutdown (estado del proceso realmente incierto).
+
+Impacto medido tras despliegue: `rateLimitStoreFallbackCount == 0` en boot normal (antes 8), keys `rl:*` presentes en Redis desde el primer request, `RestartCount` del contenedor permanece 0 tras `docker stop redis` + requests concurrentes.
+
+### Tests nuevos (993 verde tras los cambios)
+
+- `analyticsCacheCoverage.test.js`, `authCache.test.js`, `endPlayInvalidatesAnalyticsCache.test.js`, `gameEngineStartPlayIdempotency.test.js` (4 nuevos).
+- `runtimeMetrics.test.js` extendido con 3 nuevos casos para `redis.*`.

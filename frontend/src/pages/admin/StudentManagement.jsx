@@ -6,13 +6,12 @@
  */
 
 import { useState, useEffect, useCallback, useDeferredValue } from 'react';
-import { 
-  Users, 
-  UserPlus, 
-  Search, 
-  GraduationCap, 
-  Filter, 
-  ChevronLeft, 
+import {
+  Users,
+  UserPlus,
+  Search,
+  GraduationCap,
+  ChevronLeft,
   ChevronRight,
   User,
   School,
@@ -20,9 +19,10 @@ import {
   MoreVertical,
   Edit,
   Trash2,
-  RefreshCw,
-  AlertCircle
+  ShieldCheck,
+  Download
 } from 'lucide-react';
+import ConsentDetailPanel from './ConsentDetailPanel';
 import { motion, AnimatePresence } from 'framer-motion';
 import { toast } from 'sonner';
 import { usersAPI, extractErrorMessage, isAbortError } from '../../services/api';
@@ -32,9 +32,12 @@ import SelectPremium from '../../components/ui/SelectPremium';
 import GlassCard from '../../components/ui/GlassCard';
 import { SkeletonCard } from '../../components/ui/SkeletonShimmer';
 import EmptyState from '../../components/ui/EmptyState';
+import { EmptyStudentsIllustration } from '../../components/ui/illustrations';
 import StatusBadge from '../../components/ui/StatusBadge';
+import Tooltip from '../../components/ui/Tooltip';
 import ConfirmationModal from '../../components/ui/ConfirmationModal';
 import { useRefetchOnFocus } from '../../hooks/useRefetchOnFocus';
+import { useDocumentTitle } from '../../hooks/useDocumentTitle';
 import { cn, pageVariants, staggerContainer, staggerItem } from '../../lib/utils';
 
 /**
@@ -86,7 +89,9 @@ function EditStudentModal({ isOpen, onClose, onUpdated, student }) {
       await usersAPI.updateUser(student.id || student._id, payload);
       toast.success('Alumno actualizado correctamente');
       onUpdated();
-      onClose();
+      // Pequeña pausa para que el usuario perciba el toast antes de que
+      // el modal desaparezca (evita sensación de accion "sin respuesta").
+      setTimeout(onClose, 350);
     } catch (error) {
       toast.error(extractErrorMessage(error));
     } finally {
@@ -134,6 +139,7 @@ function EditStudentModal({ isOpen, onClose, onUpdated, student }) {
               <InputPremium
                 label="Edad"
                 type="number"
+                inputMode="numeric"
                 min="3"
                 max="99"
                 placeholder="Ej: 6"
@@ -187,12 +193,21 @@ function CreateStudentModal({ isOpen, onClose, onCreated, teachers }) {
     name: '',
     age: '',
     classroom: '',
-    teacherId: ''
+    teacherId: '',
+    consentGranted: false,
+    consentGrantedBy: ''
   });
 
   useEffect(() => {
     if (!isOpen) {
-      setFormData({ name: '', age: '', classroom: '', teacherId: '' });
+      setFormData({
+        name: '',
+        age: '',
+        classroom: '',
+        teacherId: '',
+        consentGranted: false,
+        consentGrantedBy: ''
+      });
     }
   }, [isOpen]);
 
@@ -207,6 +222,14 @@ function CreateStudentModal({ isOpen, onClose, onCreated, teachers }) {
       toast.error('La edad debe estar entre 3 y 99 años');
       return;
     }
+    if (!formData.consentGranted) {
+      toast.error('El consentimiento parental es obligatorio (Art. 8 RGPD)');
+      return;
+    }
+    if (!formData.consentGrantedBy.trim()) {
+      toast.error('Debe indicar el nombre del tutor/a legal');
+      return;
+    }
 
     setLoading(true);
     try {
@@ -216,7 +239,11 @@ function CreateStudentModal({ isOpen, onClose, onCreated, teachers }) {
           age: parsedAge,
           classroom: formData.classroom.trim() || undefined
         },
-        teacherId: formData.teacherId
+        teacherId: formData.teacherId,
+        consent: {
+          granted: true,
+          grantedBy: formData.consentGrantedBy.trim()
+        }
       };
 
       await usersAPI.createUser(payload);
@@ -270,6 +297,7 @@ function CreateStudentModal({ isOpen, onClose, onCreated, teachers }) {
               <InputPremium
                 label="Edad"
                 type="number"
+                inputMode="numeric"
                 min="3"
                 max="99"
                 placeholder="Ej: 6"
@@ -299,6 +327,55 @@ function CreateStudentModal({ isOpen, onClose, onCreated, teachers }) {
                 onChange={(val) => setFormData(prev => ({ ...prev, teacherId: val }))}
                 required
               />
+
+              {/* Consentimiento parental — Art. 8 RGPD + Art. 7 LOPDGDD */}
+              <div className="rounded-xl border border-brand-base/30 bg-brand-base/5 p-4 space-y-4">
+                <div className="flex items-center gap-2 text-brand-base">
+                  <ShieldCheck size={20} />
+                  <span className="font-semibold text-sm">Consentimiento Parental</span>
+                </div>
+                <p className="text-xs text-text-muted leading-relaxed">
+                  De acuerdo con el Art. 8 del RGPD y el Art. 7 de la LOPDGDD,
+                  el tratamiento de datos de menores de 14 a{'\u00F1'}os requiere
+                  el consentimiento del titular de la patria potestad o tutela.
+                </p>
+
+                <label className="flex items-start gap-3 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={formData.consentGranted}
+                    onChange={(e) =>
+                      setFormData(prev => ({
+                        ...prev,
+                        consentGranted: e.target.checked
+                      }))
+                    }
+                    className="mt-1 size-4 rounded border-border-primary text-brand-base
+                      focus:ring-brand-base focus:ring-offset-0"
+                  />
+                  <span className="text-sm text-text-primary leading-relaxed">
+                    Confirmo que el tutor/a legal ha otorgado consentimiento
+                    expreso para el tratamiento de datos con fines de
+                    seguimiento educativo y an{'\u00E1'}lisis de rendimiento.
+                  </span>
+                </label>
+
+                {formData.consentGranted && (
+                  <InputPremium
+                    label="Nombre del tutor/a legal"
+                    placeholder="Ej: Ana Garc\u00EDa L\u00F3pez"
+                    value={formData.consentGrantedBy}
+                    onChange={(e) =>
+                      setFormData(prev => ({
+                        ...prev,
+                        consentGrantedBy: e.target.value
+                      }))
+                    }
+                    icon={<ShieldCheck size={18} />}
+                    required
+                  />
+                )}
+              </div>
 
               <div className="flex gap-3 pt-4">
                 <ButtonPremium
@@ -331,17 +408,21 @@ function CreateStudentModal({ isOpen, onClose, onCreated, teachers }) {
  * Componente principal de gestión de alumnos
  */
 export default function StudentManagement() {
+  useDocumentTitle('Gestión de Alumnos');
   const [students, setStudents] = useState([]);
-  const [_teachers, setTeachers] = useState([]);
+  const [, setTeachers] = useState([]);
   const [loading, setLoading] = useState(true);
-  const [_error, setError] = useState(null);
-  const [_isModalOpen, setIsModalOpen] = useState(false);
+  const [, setError] = useState(null);
+  const [, setIsModalOpen] = useState(false);
   const [isEditModalOpen, setIsEditModalOpen] = useState(false);
-  const [isDeleteModalOpen, setIsDeleteModalOpen] = useState(false);
   const [selectedStudent, setSelectedStudent] = useState(null);
-  const [isDeleting, setIsDeleting] = useState(false);
-  
-  // Menú de acciones por alumno
+
+  // Panel de consentimiento y acciones RGPD (ADR-031/032)
+  const [isConsentPanelOpen, setIsConsentPanelOpen] = useState(false);
+  const [isHardDeleteModalOpen, setIsHardDeleteModalOpen] = useState(false);
+  const [isHardDeleting, setIsHardDeleting] = useState(false);
+
+  // Menu de acciones por alumno
   const [activeMenuId, setActiveMenuId] = useState(null);
   
   // Filtros
@@ -378,7 +459,9 @@ export default function StudentManagement() {
     } catch (err) {
       if (!isAbortError(err)) {
         setError(extractErrorMessage(err));
-        toast.error('Error al cargar datos');
+        toast.error('Error al cargar datos', {
+          description: 'Recarga la página o inténtalo de nuevo en unos segundos.'
+        });
       }
     } finally {
       setLoading(false);
@@ -401,25 +484,48 @@ export default function StudentManagement() {
     setActiveMenuId(null);
   };
 
-  const handleDeleteClick = (student) => {
+  // --- Handlers RGPD (ADR-031/032) ---
+
+  const handleConsentClick = (student) => {
     setSelectedStudent(student);
-    setIsDeleteModalOpen(true);
+    setIsConsentPanelOpen(true);
     setActiveMenuId(null);
   };
 
-  const handleDeleteConfirm = async () => {
-    if (!selectedStudent || isDeleting) return;
-
-    setIsDeleting(true);
+  const handleExportClick = async (student) => {
+    const studentId = student.id || student._id;
+    setActiveMenuId(null);
     try {
-      await usersAPI.deleteUser(selectedStudent.id || selectedStudent._id);
-      toast.success('Alumno eliminado correctamente');
+      const res = await usersAPI.exportStudentData(studentId);
+      const date = new Date().toISOString().split('T')[0];
+      const filename = `datos-alumno-${student.name.replace(/\s+/g, '-')}-${date}.json`;
+      const { downloadBlob } = await import('../../lib/utils');
+      downloadBlob(res.data, filename);
+      toast.success('Datos exportados correctamente');
+    } catch (err) {
+      toast.error(extractErrorMessage(err));
+    }
+  };
+
+  const handleHardDeleteClick = (student) => {
+    setSelectedStudent(student);
+    setIsHardDeleteModalOpen(true);
+    setActiveMenuId(null);
+  };
+
+  const handleHardDeleteConfirm = async () => {
+    if (!selectedStudent || isHardDeleting) return;
+
+    setIsHardDeleting(true);
+    try {
+      await usersAPI.hardDeleteUser(selectedStudent.id || selectedStudent._id);
+      toast.success('Datos del alumno eliminados permanentemente (Art. 17 RGPD)');
       fetchInitialData(pagination.page);
-      setIsDeleteModalOpen(false);
+      setIsHardDeleteModalOpen(false);
     } catch (err) {
       toast.error(extractErrorMessage(err));
     } finally {
-      setIsDeleting(false);
+      setIsHardDeleting(false);
       setSelectedStudent(null);
     }
   };
@@ -465,7 +571,7 @@ export default function StudentManagement() {
 
         <div className="md:col-span-3">
           <InputPremium
-            placeholder="Buscar por nombre o clase..."
+            placeholder="Buscar por nombre o clase…"
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
             icon={<Search size={20} className={cn(searchQuery !== deferredSearch && "animate-pulse")} />}
@@ -475,48 +581,59 @@ export default function StudentManagement() {
       </section>
 
       <AnimatePresence mode="wait">
-        {loading ? (
-          <motion.div 
-            key="loading"
-            variants={staggerContainer}
-            initial="hidden"
-            animate="show"
-            className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6"
-          >
-            {[...Array(6)].map((_, i) => (
-              <SkeletonCard key={i} className="h-48" />
-            ))}
-          </motion.div>
-        ) : students.length === 0 ? (
-          <EmptyState
-            key="empty"
-            title="No se encontraron alumnos"
-            description={searchQuery ? "Prueba con otros términos de búsqueda." : "Aún no hay alumnos registrados en el sistema."}
-            icon={<User size={48} />}
-          />
-        ) : (
-          <motion.div
-            key="list"
-            variants={staggerContainer}
-            initial="hidden"
-            animate="show"
-            className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6"
-          >
-            {students.map((student) => (
-              <motion.div key={student.id || student._id} variants={staggerItem}>
-                <GlassCard className="p-5 hover:border-brand-base/40 group transition-all duration-300 relative overflow-hidden h-full flex flex-col">
+        {(() => {
+          if (loading) return (
+            <motion.div
+              key="loading"
+              variants={staggerContainer}
+              initial="hidden"
+              animate="show"
+              className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6"
+            >
+              {Array.from({ length: 6 }, (_, i) => `student-skeleton-${i}`).map(id => (
+                <SkeletonCard key={id} className="h-48" />
+              ))}
+            </motion.div>
+          );
+          if (students.length === 0) return (
+            <EmptyState
+              key="empty"
+              illustration={<EmptyStudentsIllustration size={180} />}
+              variant={searchQuery ? 'filtered' : 'first-use'}
+              title={searchQuery ? 'Ningún alumno coincide con la búsqueda' : 'Sin alumnos registrados todavía'}
+              description={
+                searchQuery
+                  ? 'Prueba con otro nombre, aula o edad. Recuerda que los filtros acumulan criterios.'
+                  : 'Los alumnos aparecerán aquí cuando los profesores los registren. Puedes aprobar nuevas altas desde el panel de solicitudes.'
+              }
+            />
+          );
+          return (
+            <motion.div
+              key="list"
+              variants={staggerContainer}
+              initial="hidden"
+              animate="show"
+              className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6"
+            >
+              {students.map((student) => (
+                <motion.div key={student.id || student._id} variants={staggerItem}>
+                  <GlassCard className="p-5 hover:border-brand-base/40 group transition-[border-color] duration-300 relative overflow-hidden h-full flex flex-col">
                   {/* Acciones */}
                   <div className="absolute top-3 right-3 z-10">
                     <div className="relative">
-                      <button 
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          setActiveMenuId(activeMenuId === (student.id || student._id) ? null : (student.id || student._id));
-                        }}
-                        className="p-1.5 rounded-lg text-text-muted hover:text-text-primary hover:bg-white/5 transition-colors"
-                      >
-                        <MoreVertical size={16} />
-                      </button>
+                      <Tooltip content="Acciones">
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setActiveMenuId(activeMenuId === (student.id || student._id) ? null : (student.id || student._id));
+                          }}
+                          className="p-1.5 rounded-lg text-text-muted hover:text-text-primary hover:bg-white/5 transition-colors"
+                          aria-label="Acciones"
+                        >
+                          <MoreVertical size={16} />
+                        </button>
+                      </Tooltip>
                       
                       <AnimatePresence>
                         {activeMenuId === (student.id || student._id) && (
@@ -533,19 +650,32 @@ export default function StudentManagement() {
                               initial={{ opacity: 0, scale: 0.95, y: -10 }}
                               animate={{ opacity: 1, scale: 1, y: 0 }}
                               exit={{ opacity: 0, scale: 0.95, y: -10 }}
-                              className="absolute right-0 mt-2 w-40 bg-background-elevated border border-border-subtle rounded-xl shadow-xl z-20 py-1 overflow-hidden"
+                              className="absolute right-0 mt-2 w-48 bg-background-elevated border border-border-subtle rounded-xl shadow-xl z-20 py-1 overflow-hidden"
                             >
-                              <button 
+                              <button
                                 onClick={() => handleEditClick(student)}
                                 className="w-full px-4 py-2 text-left text-sm text-text-primary hover:bg-white/5 flex items-center gap-2 transition-colors"
                               >
                                 <Edit size={14} /> Editar
                               </button>
-                              <button 
-                                onClick={() => handleDeleteClick(student)}
+                              <button
+                                onClick={() => handleConsentClick(student)}
+                                className="w-full px-4 py-2 text-left text-sm text-text-primary hover:bg-white/5 flex items-center gap-2 transition-colors"
+                              >
+                                <ShieldCheck size={14} /> Consentimiento
+                              </button>
+                              <button
+                                onClick={() => handleExportClick(student)}
+                                className="w-full px-4 py-2 text-left text-sm text-text-primary hover:bg-white/5 flex items-center gap-2 transition-colors"
+                              >
+                                <Download size={14} /> Exportar datos
+                              </button>
+                              <hr className="my-1 border-border-subtle" />
+                              <button
+                                onClick={() => handleHardDeleteClick(student)}
                                 className="w-full px-4 py-2 text-left text-sm text-error-base hover:bg-error-base/10 flex items-center gap-2 transition-colors"
                               >
-                                <Trash2 size={14} /> Eliminar
+                                <Trash2 size={14} /> Eliminar datos
                               </button>
                             </motion.div>
                           </>
@@ -572,24 +702,37 @@ export default function StudentManagement() {
                   </div>
 
                   <div className="mt-auto pt-4 border-t border-border-subtle space-y-3">
-                    <div className="flex items-center justify-between">
-                      <span className="text-xs uppercase tracking-wider text-text-muted font-bold">Profesor</span>
+                    <div className="flex items-center justify-between gap-3">
+                      <span className="text-xs uppercase tracking-wider text-text-muted font-bold shrink-0">Profesor</span>
                       <span className="text-xs text-text-primary font-medium truncate max-w-[160px]">
-                        {student.createdBy?.name || 'Sistema'}
+                        {/* createdBy puede venir poblado ({id, name}) o como string ObjectId.
+                            Si es objeto, mostramos el nombre; si es string sin populate o falta, "Sistema". */}
+                        {(typeof student.createdBy === 'object' && student.createdBy?.name) || 'Sistema'}
                       </span>
                     </div>
-                    <div className="flex items-center justify-between">
-                      <span className="text-xs uppercase tracking-wider text-text-muted font-bold">Estado</span>
-                      <StatusBadge status={student.status === 'active' ? 'success' : 'neutral'} size="sm">
+                    <div className="flex items-center justify-between gap-3">
+                      <span className="text-xs uppercase tracking-wider text-text-muted font-bold shrink-0">Estado</span>
+                      <StatusBadge status={student.status === 'active' ? 'success' : 'inactive'} size="sm">
                         {student.status === 'active' ? 'Activo' : 'Inactivo'}
+                      </StatusBadge>
+                    </div>
+                    <div className="flex items-center justify-between gap-3">
+                      <span className="text-xs uppercase tracking-wider text-text-muted font-bold shrink-0">Consentimiento</span>
+                      <StatusBadge
+                        status={student.consent?.granted ? 'active' : 'error'}
+                        size="sm"
+                        pulse={student.consent?.granted === false}
+                      >
+                        {student.consent?.granted ? 'Activo' : 'Revocado'}
                       </StatusBadge>
                     </div>
                   </div>
                 </GlassCard>
               </motion.div>
             ))}
-          </motion.div>
-        )}
+            </motion.div>
+          );
+        })()}
       </AnimatePresence>
 
       {!loading && pagination.totalPages > 1 && (
@@ -629,18 +772,30 @@ export default function StudentManagement() {
         student={selectedStudent}
       />
 
-      <ConfirmationModal
-        open={isDeleteModalOpen}
+      {/* Panel de consentimiento RGPD (ADR-031/032) */}
+      <ConsentDetailPanel
+        isOpen={isConsentPanelOpen}
         onClose={() => {
-          setIsDeleteModalOpen(false);
+          setIsConsentPanelOpen(false);
           setSelectedStudent(null);
         }}
-        onConfirm={handleDeleteConfirm}
-        title="Eliminar Alumno"
-        description={`¿Estás seguro de que deseas eliminar a ${selectedStudent?.name}? Esta acción no se puede deshacer y se borrarán todos sus registros de juego asociados.`}
+        student={selectedStudent}
+        onConsentChanged={() => fetchInitialData(pagination.page)}
+      />
+
+      {/* Modal de borrado efectivo Art. 17 RGPD */}
+      <ConfirmationModal
+        open={isHardDeleteModalOpen}
+        onClose={() => {
+          setIsHardDeleteModalOpen(false);
+          setSelectedStudent(null);
+        }}
+        onConfirm={handleHardDeleteConfirm}
+        title="Eliminar datos permanentemente"
+        description={`Esta acción eliminará de forma irreversible TODOS los datos de ${selectedStudent?.name}: perfil, historial de partidas, métricas y registros de consentimiento. Cumple con el Art. 17 RGPD (derecho de supresión). No se puede deshacer.`}
         confirmText="Eliminar permanentemente"
         variant="error"
-        loading={isDeleting}
+        loading={isHardDeleting}
       />
     </motion.div>
   );

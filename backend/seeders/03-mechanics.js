@@ -20,8 +20,8 @@ const mechanicsData = [
     name: 'association',
     displayName: 'Asociación',
     description:
-      'Se muestra en pantalla una consigna o elemento visual y el alumno debe escanear la tarjeta física correcta en el sensor.',
-    icon: 'association',
+      'El alumno ve una consigna en pantalla y debe encontrar la tarjeta física correcta.',
+    icon: '🔗',
     rules: {
       // Configuración por defecto
       defaults: {
@@ -53,44 +53,11 @@ const mechanicsData = [
     isActive: true
   },
   {
-    name: 'sequence',
-    displayName: 'Secuencia',
-    description:
-      'El alumno debe escanear las tarjetas en un orden específico. ' +
-      'Por ejemplo: ordenar los números del 1 al 5, o los días de la semana.',
-    icon: 'sequence',
-    rules: {
-      defaults: {
-        numberOfCards: 5,
-        numberOfRounds: 3,
-        timeLimit: 30,
-        pointsPerCorrect: 15,
-        penaltyPerError: -5
-      },
-      limits: {
-        minCards: 3,
-        maxCards: 10,
-        minRounds: 1,
-        maxRounds: 10,
-        minTimeLimit: 10,
-        maxTimeLimit: 120
-      },
-      behavior: {
-        availability: 'coming_soon',
-        strictOrder: true, // Debe ser en orden exacto
-        allowSkip: false, // No puede saltarse elementos
-        showProgress: true, // Mostrar progreso (ej: "3 de 5")
-        resetOnError: false // Si se equivoca, ¿reinicia la secuencia?
-      }
-    },
-    isActive: true
-  },
-  {
     name: 'memory',
     displayName: 'Memoria',
     description:
-      'Las cartas se muestran en tablero boca abajo. Al escanear, se revela su contenido; al formar parejas iguales se mantienen visibles y al fallar se vuelven a ocultar.',
-    icon: 'memory',
+      'Tablero de cartas boca abajo: el alumno las voltea por parejas para encontrar todas las iguales.',
+    icon: '🧠',
     rules: {
       defaults: {
         numberOfCards: 6,
@@ -123,10 +90,18 @@ const mechanicsData = [
 
 /**
  * Ejecuta el seeder de mecánicas.
- * @returns {Promise<Array>} Array de mecánicas creadas
+ * Idempotente: si ya existen mecánicas en la base de datos, las devuelve sin
+ * volver a crearlas (evita E11000 por el índice unique en `name`).
+ * @returns {Promise<Array>} Array de mecánicas creadas o preexistentes
  */
 async function seedMechanics() {
   try {
+    const existing = await GameMechanic.find({});
+    if (existing.length > 0) {
+      logger.info(`Mecánicas ya existen (${existing.length}), omitiendo creacion`);
+      return existing;
+    }
+
     const mechanics = await GameMechanic.create(mechanicsData);
 
     const active = mechanics.filter(m => m.isActive).length;

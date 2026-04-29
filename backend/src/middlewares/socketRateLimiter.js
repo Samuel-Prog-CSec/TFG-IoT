@@ -1,6 +1,13 @@
 /**
  * @fileoverview Rate limiting y control de payload para eventos Socket.IO.
  * Implementa ventana deslizante, bloqueo temporal y dedupe para RFID.
+ *
+ * ADR-072 (PROP-59): añade un path distribuido vía Lua script + Redis ZSET
+ * para que el rate limit sea consistente entre múltiples instancias del backend.
+ * El estado in-memory original (`rateState` Map) sigue presente como
+ * "insurance limiter": si Redis cae o el script falla, no se pierde la
+ * protección — el limiter funciona localmente como antes.
+ *
  * @module middlewares/socketRateLimiter
  */
 
@@ -15,12 +22,20 @@ const {
   rfidDedupeConfig,
   socketStateCleanup
 } = require('../config/socketRateLimits');
+const redisService = require('../services/redisService');
+const { getRedis, getKeyPrefix, getLuaScriptSHA, getLuaScriptSource } = require('../config/redis');
+
+const LUA_SCRIPT_NAME = 'checkSocketRateLimit';
+const ZSET_PREFIX = 'rl:ws:';
+const BLOCK_PREFIX = 'rl:ws:block:';
+const VIOLATIONS_PREFIX = 'rl:ws:violations:';
 
 class SocketRateLimiter {
   /**
    * @param {Object} options - Opciones de configuración.
    * @param {Function} [options.nowProvider] - Función para obtener tiempo actual (ms).
    * @param {import('winston').Logger} [options.logger] - Logger opcional.
+   * @param {boolean} [options.useRedis] - Activa el path distribuido (default: auto).
    */
   constructor(options = {}) {
     this.nowProvider = options.nowProvider || (() => Date.now());
@@ -28,6 +43,14 @@ class SocketRateLimiter {
     this.rateState = new Map();
     this.rfidDedupeState = new Map();
     this.cleanupTimer = null;
+    // Si el caller no fuerza el modo, lo decidimos en ejecución según el
+    // estado de Redis. En NODE_ENV=test forzamos `false` para no tirar de
+    // ioredis-mock (que no soporta scripting Lua).
+    this.useRedis =
+      options.useRedis !== undefined ? options.useRedis : process.env.NODE_ENV !== 'test';
+    // Log periódico de fallback a in-memory cuando Redis falla, para que se
+    // vea en métricas.
+    this.fallbackCount = 0;
   }
 
   /**
@@ -120,16 +143,24 @@ class SocketRateLimiter {
       return { allowed: true };
     }
 
-    const { uid, sensorId } = payload || {};
+    const { uid, sensorId, source } = payload || {};
     if (!uid) {
       return { allowed: true };
     }
 
+    // PROP-90 / ADR-090: cooldown diferenciado por `source` del payload. Un tap
+    // sobre la mecánica Memoria no debe heredar el cooldown largo del sensor
+    // RFID hardware (que existe para protegerse del chattering del RC522).
+    const cooldownMs =
+      rfidDedupeConfig.cooldownMsBySource?.[source] || rfidDedupeConfig.defaultCooldownMs;
+
     const now = this.nowProvider();
-    const dedupeKey = `${rateKey}:${sensorId || 'unknown'}`;
+    // La clave de dedupe incluye `source` para que las distintas fuentes no
+    // se "ahoguen" entre sí (un tap táctil no afecta al cooldown del sensor).
+    const dedupeKey = `${rateKey}:${sensorId || 'unknown'}:${source || 'default'}`;
     const last = this.rfidDedupeState.get(dedupeKey);
 
-    if (last && last.uid === uid && now - last.timestamp < rfidDedupeConfig.cooldownMs) {
+    if (last && last.uid === uid && now - last.timestamp < cooldownMs) {
       return { allowed: false, reason: 'DUPLICATE_RFID_EVENT' };
     }
 
@@ -182,7 +213,7 @@ class SocketRateLimiter {
     }
 
     for (const [key, state] of this.rfidDedupeState.entries()) {
-      if (now - state.timestamp > rfidDedupeConfig.cooldownMs * 5) {
+      if (now - state.timestamp > rfidDedupeConfig.defaultCooldownMs * 5) {
         this.rfidDedupeState.delete(key);
       }
     }
@@ -287,6 +318,104 @@ class SocketRateLimiter {
   }
 
   /**
+   * Versión distribuida: ejecuta el script Lua `checkSocketRateLimit` para
+   * que múltiples instancias del backend compartan estado vía Redis ZSET.
+   *
+   * Si Redis no está disponible o el script falla, cae al limiter in-memory
+   * (`checkRateLimit`). El llamante no necesita saber qué path se usó.
+   *
+   * @param {string} rateKey
+   * @param {string} eventName
+   * @returns {Promise<{allowed:boolean, retryAfterMs:number, blocked:boolean}>}
+   */
+  async checkRateLimitAsync(rateKey, eventName) {
+    if (!this.useRedis || !redisService.checkRedisAvailable()) {
+      return this.checkRateLimit(rateKey, eventName);
+    }
+
+    const redis = getRedis();
+    if (!redis) {
+      this.fallbackCount += 1;
+      return this.checkRateLimit(rateKey, eventName);
+    }
+
+    const limit = this.getLimit(eventName);
+    const now = this.nowProvider();
+    const prefix = getKeyPrefix();
+
+    // Las KEYS del script Lua llevan el keyPrefix del cliente (porque ioredis
+    // sólo aplica el prefijo en operaciones simples, no dentro de EVAL).
+    const zsetKey = `${prefix}${ZSET_PREFIX}${eventName}:${rateKey}`;
+    const blockKey = `${prefix}${BLOCK_PREFIX}${rateKey}`;
+    const violationsKey = `${prefix}${VIOLATIONS_PREFIX}${rateKey}`;
+
+    try {
+      const sha = getLuaScriptSHA(LUA_SCRIPT_NAME);
+      const args = [
+        3,
+        zsetKey,
+        blockKey,
+        violationsKey,
+        String(now),
+        String(limit.windowMs),
+        String(limit.max),
+        String(socketBlockConfig.blockDurationMs),
+        String(socketBlockConfig.violationThreshold)
+      ];
+
+      let raw;
+      if (sha) {
+        try {
+          raw = await redis.evalsha(sha, ...args);
+        } catch (error) {
+          // Flatten de control flow: re-lanzar pronto si no es recuperable, en
+          // vez de anidar if/if dentro del catch (regla sonarjs/nested-control-flow).
+          if (!error?.message?.includes?.('NOSCRIPT')) {
+            throw error;
+          }
+          const source = getLuaScriptSource(LUA_SCRIPT_NAME);
+          if (!source) {
+            throw error;
+          }
+          raw = await redis.eval(source, ...args);
+        }
+      } else {
+        const source = getLuaScriptSource(LUA_SCRIPT_NAME);
+        if (!source) {
+          throw new Error(`Lua script ${LUA_SCRIPT_NAME} no disponible`);
+        }
+        raw = await redis.eval(source, ...args);
+      }
+
+      const result = JSON.parse(raw);
+      return {
+        allowed: result.ok === 1,
+        retryAfterMs: Number(result.retryAfterMs) || 0,
+        blocked: result.blocked === 1
+      };
+    } catch (error) {
+      // Fallback transparente al limiter in-memory. Loggeamos como debug para
+      // no inundar el log si Redis está offline una temporada larga.
+      this.fallbackCount += 1;
+      this.logger?.debug?.('socketRateLimiter Redis path falló, fallback in-memory', {
+        eventName,
+        rateKey,
+        error: error.message
+      });
+      return this.checkRateLimit(rateKey, eventName);
+    }
+  }
+
+  /**
+   * Diagnóstico: cuenta de fallbacks acumulados desde el arranque.
+   * Útil en métricas y health-check para detectar si Redis está degradado.
+   * @returns {number}
+   */
+  getFallbackCount() {
+    return this.fallbackCount;
+  }
+
+  /**
    * Wrapper para aplicar rate limiting y validaciones a un handler de Socket.IO.
    * @param {import('socket.io').Socket} socket
    * @param {string} eventName
@@ -320,7 +449,7 @@ class SocketRateLimiter {
           eventName,
           outcome: 'payload_rejected'
         });
-        return;
+        return undefined;
       }
 
       const dedupeCheck = this.checkRfidDedupe(eventName, payload, rateKey);
@@ -342,10 +471,16 @@ class SocketRateLimiter {
           eventName,
           outcome: 'deduped'
         });
-        return;
+        // Contador específico del servicio RFID para el endpoint de salud.
+        try {
+          require('../services/rfidService').recordDedupeHit();
+        } catch {
+          // Best effort: si rfidService no está disponible (tests aislados), ignorar.
+        }
+        return undefined;
       }
 
-      const rateResult = this.checkRateLimit(rateKey, eventName);
+      const rateResult = await this.checkRateLimitAsync(rateKey, eventName);
       if (!rateResult.allowed) {
         const errorCode = rateResult.blocked ? 'TEMP_BLOCKED' : 'RATE_LIMITED';
 
@@ -371,7 +506,7 @@ class SocketRateLimiter {
           eventName,
           outcome: rateResult.blocked ? 'blocked' : 'rate_limited'
         });
-        return;
+        return undefined;
       }
 
       runtimeMetrics.recordWebsocketEvent({

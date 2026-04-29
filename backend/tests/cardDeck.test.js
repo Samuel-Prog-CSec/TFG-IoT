@@ -7,7 +7,6 @@
 const request = require('supertest');
 const { app } = require('../src/server');
 const User = require('../src/models/User');
-const Card = require('../src/models/Card');
 const CardDeck = require('../src/models/CardDeck');
 const GameContext = require('../src/models/GameContext');
 const { generateTokenPair } = require('../src/middlewares/auth');
@@ -16,7 +15,6 @@ describe('CardDeck Management Endpoints', () => {
   let teacherUser;
   let teacherToken;
   let testContext;
-  let testCards;
 
   const fingerprintHeaders = {
     'User-Agent': 'jest-test',
@@ -34,12 +32,7 @@ describe('CardDeck Management Endpoints', () => {
 
   beforeEach(async () => {
     // Limpiar colecciones
-    await Promise.all([
-      User.deleteMany({}),
-      Card.deleteMany({}),
-      CardDeck.deleteMany({}),
-      GameContext.deleteMany({})
-    ]);
+    await Promise.all([User.deleteMany({}), CardDeck.deleteMany({}), GameContext.deleteMany({})]);
 
     // Crear profesor
     teacherUser = await User.create({
@@ -64,14 +57,6 @@ describe('CardDeck Management Endpoints', () => {
         { key: 'italy', value: 'Italia', display: '🇮🇹' }
       ]
     });
-
-    // Crear tarjetas de prueba
-    testCards = await Card.insertMany([
-      { uid: 'AA000001', type: 'NTAG', status: 'active' },
-      { uid: 'AA000002', type: 'NTAG', status: 'active' },
-      { uid: 'AA000003', type: 'MIFARE_1KB', status: 'active' },
-      { uid: 'AA000004', type: 'MIFARE_1KB', status: 'active' }
-    ]);
   });
 
   // ===========================================================================
@@ -85,8 +70,8 @@ describe('CardDeck Management Endpoints', () => {
         description: 'Países europeos',
         contextId: testContext._id.toString(),
         cardMappings: [
-          { cardId: testCards[0]._id.toString(), uid: 'AA000001', assignedValue: 'España' },
-          { cardId: testCards[1]._id.toString(), uid: 'AA000002', assignedValue: 'Francia' }
+          { uid: 'AA000001', assignedValue: 'España' },
+          { uid: 'AA000002', assignedValue: 'Francia' }
         ]
       };
 
@@ -107,9 +92,7 @@ describe('CardDeck Management Endpoints', () => {
       const deckData = {
         name: 'Mazo Pequeño',
         contextId: testContext._id.toString(),
-        cardMappings: [
-          { cardId: testCards[0]._id.toString(), uid: 'AA000001', assignedValue: 'España' }
-        ]
+        cardMappings: [{ uid: 'AA000001', assignedValue: 'España' }]
       };
 
       const res = await request(app)
@@ -126,8 +109,8 @@ describe('CardDeck Management Endpoints', () => {
         name: 'Mazo Duplicado',
         contextId: testContext._id.toString(),
         cardMappings: [
-          { cardId: testCards[0]._id.toString(), uid: 'AA000001', assignedValue: 'España' },
-          { cardId: testCards[1]._id.toString(), uid: 'AA000001', assignedValue: 'Francia' }
+          { uid: 'AA000001', assignedValue: 'España' },
+          { uid: 'AA000001', assignedValue: 'Francia' }
         ]
       };
 
@@ -145,8 +128,8 @@ describe('CardDeck Management Endpoints', () => {
         name: 'Mazo Inválido',
         contextId: testContext._id.toString(),
         cardMappings: [
-          { cardId: testCards[0]._id.toString(), uid: 'AA000001', assignedValue: 'España' },
-          { cardId: testCards[1]._id.toString(), uid: 'AA000002', assignedValue: 'Portugal' } // No existe en contexto
+          { uid: 'AA000001', assignedValue: 'España' },
+          { uid: 'AA000002', assignedValue: 'Portugal' } // No existe en contexto
         ]
       };
 
@@ -166,8 +149,8 @@ describe('CardDeck Management Endpoints', () => {
         name: 'Mazo Único',
         contextId: testContext._id,
         cardMappings: [
-          { cardId: testCards[0]._id, uid: 'AA000001', assignedValue: 'España' },
-          { cardId: testCards[1]._id, uid: 'AA000002', assignedValue: 'Francia' }
+          { uid: 'AA000001', assignedValue: 'España' },
+          { uid: 'AA000002', assignedValue: 'Francia' }
         ],
         createdBy: teacherUser._id
       });
@@ -181,8 +164,8 @@ describe('CardDeck Management Endpoints', () => {
           name: 'Mazo Único',
           contextId: testContext._id.toString(),
           cardMappings: [
-            { cardId: testCards[2]._id.toString(), uid: 'AA000003', assignedValue: 'Alemania' },
-            { cardId: testCards[3]._id.toString(), uid: 'AA000004', assignedValue: 'Italia' }
+            { uid: 'AA000003', assignedValue: 'Alemania' },
+            { uid: 'AA000004', assignedValue: 'Italia' }
           ]
         });
 
@@ -200,8 +183,8 @@ describe('CardDeck Management Endpoints', () => {
         name: 'Mazo A',
         contextId: testContext._id,
         cardMappings: [
-          { cardId: testCards[0]._id, uid: 'AA000001', assignedValue: 'España' },
-          { cardId: testCards[1]._id, uid: 'AA000002', assignedValue: 'Francia' }
+          { uid: 'AA000001', assignedValue: 'España' },
+          { uid: 'AA000002', assignedValue: 'Francia' }
         ],
         createdBy: teacherUser._id
       });
@@ -210,8 +193,8 @@ describe('CardDeck Management Endpoints', () => {
         name: 'Mazo B',
         contextId: testContext._id,
         cardMappings: [
-          { cardId: testCards[2]._id, uid: 'AA000003', assignedValue: 'Alemania' },
-          { cardId: testCards[3]._id, uid: 'AA000004', assignedValue: 'Italia' }
+          { uid: 'AA000003', assignedValue: 'Alemania' },
+          { uid: 'AA000004', assignedValue: 'Italia' }
         ],
         createdBy: teacherUser._id
       });
@@ -272,8 +255,8 @@ describe('CardDeck Management Endpoints', () => {
         name: 'Mazo Detalle',
         contextId: testContext._id,
         cardMappings: [
-          { cardId: testCards[0]._id, uid: 'AA000001', assignedValue: 'España' },
-          { cardId: testCards[1]._id, uid: 'AA000002', assignedValue: 'Francia' }
+          { uid: 'AA000001', assignedValue: 'España' },
+          { uid: 'AA000002', assignedValue: 'Francia' }
         ],
         createdBy: teacherUser._id
       });
@@ -333,8 +316,8 @@ describe('CardDeck Management Endpoints', () => {
         name: 'Mazo Original',
         contextId: testContext._id,
         cardMappings: [
-          { cardId: testCards[0]._id, uid: 'AA000001', assignedValue: 'España' },
-          { cardId: testCards[1]._id, uid: 'AA000002', assignedValue: 'Francia' }
+          { uid: 'AA000001', assignedValue: 'España' },
+          { uid: 'AA000002', assignedValue: 'Francia' }
         ],
         createdBy: teacherUser._id
       });
@@ -370,8 +353,8 @@ describe('CardDeck Management Endpoints', () => {
         .set(fingerprintHeaders)
         .send({
           cardMappings: [
-            { cardId: testCards[2]._id.toString(), uid: 'AA000003', assignedValue: 'Alemania' },
-            { cardId: testCards[3]._id.toString(), uid: 'AA000004', assignedValue: 'Italia' }
+            { uid: 'AA000003', assignedValue: 'Alemania' },
+            { uid: 'AA000004', assignedValue: 'Italia' }
           ]
         });
 
@@ -393,8 +376,8 @@ describe('CardDeck Management Endpoints', () => {
         name: 'Mazo a Eliminar',
         contextId: testContext._id,
         cardMappings: [
-          { cardId: testCards[0]._id, uid: 'AA000001', assignedValue: 'España' },
-          { cardId: testCards[1]._id, uid: 'AA000002', assignedValue: 'Francia' }
+          { uid: 'AA000001', assignedValue: 'España' },
+          { uid: 'AA000002', assignedValue: 'Francia' }
         ],
         createdBy: teacherUser._id
       });
@@ -439,8 +422,8 @@ describe('CardDeck Management Endpoints', () => {
           name: 'Mazo Test',
           contextId: 'invalid-id',
           cardMappings: [
-            { cardId: testCards[0]._id.toString(), uid: 'AA000001', assignedValue: 'España' },
-            { cardId: testCards[1]._id.toString(), uid: 'AA000002', assignedValue: 'Francia' }
+            { uid: 'AA000001', assignedValue: 'España' },
+            { uid: 'AA000002', assignedValue: 'Francia' }
           ]
         });
 
@@ -457,8 +440,8 @@ describe('CardDeck Management Endpoints', () => {
           name: 'A', // Mínimo 2 caracteres
           contextId: testContext._id.toString(),
           cardMappings: [
-            { cardId: testCards[0]._id.toString(), uid: 'AA000001', assignedValue: 'España' },
-            { cardId: testCards[1]._id.toString(), uid: 'AA000002', assignedValue: 'Francia' }
+            { uid: 'AA000001', assignedValue: 'España' },
+            { uid: 'AA000002', assignedValue: 'Francia' }
           ]
         });
 
@@ -474,8 +457,8 @@ describe('CardDeck Management Endpoints', () => {
           name: 'Mazo Test',
           contextId: testContext._id.toString(),
           cardMappings: [
-            { cardId: testCards[0]._id.toString(), uid: 'INVALID', assignedValue: 'España' },
-            { cardId: testCards[1]._id.toString(), uid: 'AA000002', assignedValue: 'Francia' }
+            { uid: 'INVALID', assignedValue: 'España' },
+            { uid: 'AA000002', assignedValue: 'Francia' }
           ]
         });
 

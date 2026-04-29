@@ -89,9 +89,25 @@ Todas las imágenes se convierten a formato **WebP** con calidad del **85%**. Es
 - **Transparencia** (soporta canal alpha)
 - **Calidad consistente** en todos los assets
 
-#### 4. Generación de Thumbnails
+#### 4. Sharpening Post-Resize
 
-Se genera automáticamente un thumbnail de 256×256 px para cada imagen, útil para:
+Tras el redimensionado, se aplica un filtro de enfoque (`sharp.sharpen({ sigma: 0.5 })`) tanto a la imagen principal como al thumbnail. Esto compensa la pérdida natural de definición que ocurre al reducir el tamaño de la imagen (downscale blur).
+
+- **Sigma 0.5**: valor conservador que restaura bordes sin crear artefactos de halo
+- Se aplica **después** del resize y **antes** de la conversión a WebP
+
+#### 5. Extracción de Color Dominante
+
+Se extrae automáticamente el color dominante de la imagen procesada mediante `sharp(buffer).stats()`. Este color se almacena como string hexadecimal (`#RRGGBB`) en el campo `dominantColor` del asset.
+
+**Uso en frontend**: el color dominante sirve como placeholder LQIP (Low Quality Image Placeholder). Mientras la imagen carga, el contenedor muestra este color de fondo, creando una transición visual más orgánica que un skeleton shimmer genérico.
+
+- **Sin dependencias adicionales**: usa la API de estadísticas de Sharp (ya cargado)
+- **Se ejecuta sobre la imagen procesada** (post-resize, post-sharpen), para que el color represente fielmente lo que el usuario ve
+
+#### 6. Generación de Thumbnails
+
+Se genera automáticamente un thumbnail de 256×256 px (WebP, calidad 85%) con sharpening post-resize para cada imagen, útil para:
 
 - Previsualizaciones en listas
 - Carga rápida en el juego
@@ -281,6 +297,8 @@ SUPABASE_BUCKET=game-assets
   OUTPUT_MAX_HEIGHT: 768,
   THUMBNAIL_WIDTH: 256,
   THUMBNAIL_HEIGHT: 256,
+  THUMBNAIL_QUALITY: 85,           // Calidad del thumbnail (antes 80)
+  SHARPEN_SIGMA: 0.5,              // Sigma para sharpening post-resize
   MAX_INPUT_SIZE: 8 * 1024 * 1024  // 8MB
 }
 ```
@@ -343,7 +361,8 @@ curl -X POST \
     "value": "España",
     "display": "🇪🇸",
     "imageUrl": "https://xxx.supabase.co/.../espana_main.webp",
-    "thumbnailUrl": "https://xxx.supabase.co/.../espana_thumb.webp"
+    "thumbnailUrl": "https://xxx.supabase.co/.../espana_thumb.webp",
+    "dominantColor": "#2d5016"
   }
 }
 ```
@@ -418,6 +437,7 @@ sequenceDiagram
     I->>I: validateMagicBytes()
     I->>I: getAndValidateMetadata()
     I->>I: createMainImage() → WebP
+    I->>I: extractDominantColor() → hex
     I->>I: createThumbnail() → WebP
     I-->>C: {mainImage, thumbnail, metadata}
     C->>S: uploadFile(mainImage)
@@ -431,4 +451,36 @@ sequenceDiagram
 
 ---
 
-*Última actualización: 26-02-2026*
+## Gestión de Audio Vinculado a Assets
+
+### Endpoint: Adjuntar/Reemplazar Audio
+
+```
+PATCH /api/contexts/:id/assets/:assetKey/audio
+```
+
+Permite añadir o reemplazar un archivo de audio en un asset existente. Si el asset ya tiene audio, elimina el archivo anterior de Supabase antes de subir el nuevo.
+
+**Middleware**: `uploadRateLimiter`, `authenticate`, `requireRole('teacher', 'super_admin')`, `audioUpload.single('file')`
+
+**Flujo**:
+1. Validar contexto y asset existen
+2. Validar archivo de audio (magic bytes, duración, tamaño)
+3. Si ya tiene `audioUrl`: eliminar archivo anterior de Supabase
+4. Subir nuevo audio a Supabase
+5. Actualizar `audioUrl` en el subdocumento del asset
+
+### Eliminación Inteligente de Audio
+
+`DELETE /api/contexts/:id/audio/:assetKey` ahora implementa "smart delete":
+
+- Si el asset tiene **imagen + audio**: solo elimina el audio (conserva imagen)
+- Si el asset tiene **solo audio**: elimina el asset completo del array
+
+### Limpieza de Audio en deleteImage
+
+`DELETE /api/contexts/:id/images/:assetKey` ahora también limpia el archivo de audio de Supabase si el asset tiene `audioUrl`, previniendo archivos huérfanos.
+
+---
+
+*Última actualización: 30-03-2026*

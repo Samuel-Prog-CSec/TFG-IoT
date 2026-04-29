@@ -159,12 +159,24 @@ api.interceptors.response.use(
 
     // 401 - Token expirado o inválido
     if (status === 401 && !originalRequest._retry) {
-      // Si el error es de token expirado, intentar refresh
-      if (data?.code === 'TOKEN_EXPIRED' || data?.message?.includes('expired')) {
+      // Códigos recuperables via refresh. El backend ahora anota `code`
+      // semántico; también aceptamos el mensaje en ES/EN por compatibilidad.
+      const errCode = data?.code;
+      const msg = data?.message || '';
+      const isRecoverable =
+        errCode === 'TOKEN_EXPIRED' ||
+        errCode === 'TOKEN_MISSING' ||
+        /expirado|expired/i.test(msg);
+      if (isRecoverable) {
         return handleTokenRefresh(originalRequest);
       }
 
-      // Si no hay refresh token o el refresh falló, emitir evento
+      // Si no hay refresh token o el refresh falló, emitir evento.
+      // Nota: el 401 en /auth/refresh sin tokens activos es comportamiento
+      // esperado (usuario sin sesion previa). El AuthContext usa un session
+      // marker en localStorage para evitar la llamada en ese caso, pero si
+      // por algun motivo (marker stale) se dispara, no es necesario reportar
+      // el error al captureException porque no es accionable.
       globalThis.dispatchEvent(new CustomEvent(AUTH_EVENTS.UNAUTHORIZED));
       clearTokens();
       throw error;
@@ -183,7 +195,7 @@ api.interceptors.response.use(
     }
 
     // 429 - Rate limit excedido
-    if (status === 429 && !originalRequest._rateLimitRetry) {
+    if (status === 429 && (originalRequest._rateLimitRetryCount || 0) < RATE_LIMIT_MAX_RETRIES) {
       return handleRateLimitError(error, originalRequest);
     }
 
@@ -356,13 +368,10 @@ async function handleRateLimitError(error, originalRequest) {
     );
   }
 
-  originalRequest._rateLimitRetry = true;
   originalRequest._rateLimitRetryCount = retryCount + 1;
 
   await new Promise((resolve) => setTimeout(resolve, waitMs));
 
-  // Permitir que el siguiente intento también sea interceptado si recibe 429
-  originalRequest._rateLimitRetry = false;
   return api(originalRequest);
 }
 
@@ -499,7 +508,7 @@ export const adminAPI = {
    * @param {string} reason - Razón del rechazo (opcional)
    * @returns {Promise} Respuesta de confirmación
    */
-  rejectTeacher: (userId, reason = '') => 
+  rejectTeacher: (userId, reason = '') =>
     api.post(`/admin/users/${userId}/reject`, { reason }),
 };
 
@@ -566,6 +575,19 @@ export const usersAPI = {
    */
   transferStudent: (studentId, payload) =>
     api.post(`/users/${studentId}/transfer`, payload),
+
+  // Operaciones RGPD — solo super_admin (ADR-032)
+
+  /** Actualizar consentimiento parental (PATCH /api/users/:id/consent) */
+  updateConsent: (userId, data) => api.patch(`/users/${userId}/consent`, data),
+
+  /** Borrado efectivo Art. 17 RGPD (DELETE /api/users/:id/data) */
+  hardDeleteUser: (userId) =>
+    api.delete(`/users/${userId}/data`, { data: { confirmDeletion: true } }),
+
+  /** Exportar datos Art. 20 RGPD (GET /api/users/:id/export-data) */
+  exportStudentData: (userId) =>
+    api.get(`/users/${userId}/export-data`, { responseType: 'blob' }),
 };
 
 // ============================================
@@ -622,8 +644,18 @@ export const decksAPI = {
    * @param {string} deckId - ID del mazo
    * @returns {Promise} Respuesta de confirmación
    */
-  deleteDeck: (deckId) => 
+  deleteDeck: (deckId) =>
     api.delete(`/decks/${deckId}`),
+
+  /**
+   * Verificar si un UID de tarjeta RFID existe en otros mazos activos del profesor (ADR-022).
+   * Usado durante el escaneo para dar feedback inmediato al profesor.
+   * @param {string} uid - UID de la tarjeta RFID
+   * @param {string} [excludeDeckId] - ID de mazo a excluir (para edición)
+   * @returns {Promise} Respuesta con { found: boolean, deck?: { id, name, cardsCount } }
+   */
+  checkCard: (uid, excludeDeckId) =>
+    api.get('/decks/check-card', { params: { uid, ...(excludeDeckId && { excludeDeckId }) } }),
 
   /**
    * Obtener contador de mazos activos del profesor
@@ -729,6 +761,18 @@ export const contextsAPI = {
     api.delete(`/contexts/${contextMongoId}`),
 
   /**
+   * Adjuntar o reemplazar audio en un asset existente
+   * @param {string} contextMongoId - MongoDB _id del contexto
+   * @param {string} assetKey - Key del asset destino
+   * @param {FormData} formData - Datos con archivo de audio (file)
+   * @returns {Promise} Asset actualizado con audioUrl
+   */
+  attachAudio: (contextMongoId, assetKey, formData) =>
+    api.patch(`/contexts/${contextMongoId}/assets/${assetKey}/audio`, formData, {
+      headers: { 'Content-Type': 'multipart/form-data' }
+    }),
+
+  /**
    * Eliminar la imagen de un asset (y el registro del asset completo)
    * @param {string} contextMongoId - MongoDB _id del contexto
    * @param {string} assetKey - Key del asset a eliminar
@@ -745,54 +789,6 @@ export const contextsAPI = {
    */
   deleteAudio: (contextMongoId, assetKey) =>
     api.delete(`/contexts/${contextMongoId}/audio/${assetKey}`),
-};
-
-// ============================================
-// API ENDPOINTS - CARDS (Tarjetas RFID)
-// ============================================
-
-export const cardsAPI = {
-  /**
-   * Obtener lista de tarjetas del profesor
-   * @param {Object} params - Parámetros de búsqueda y paginación
-   * @param {string} [params.status='active'] - Filtrar por estado
-   * @returns {Promise} Respuesta con lista paginada de tarjetas
-   */
-  getCards: (params = {}, config = {}) => 
-    api.get('/cards', { params, ...config }),
-
-  /**
-   * Obtener tarjetas disponibles (activas) para crear mazos
-   * @returns {Promise} Respuesta con lista de tarjetas activas
-   */
-  getAvailableCards: (config = {}) => 
-    api.get('/cards', { params: { status: 'active', limit: 100 }, ...config }),
-
-  /**
-   * Obtener tarjeta por ID
-   * @param {string} cardId - ID de la tarjeta
-   * @returns {Promise} Respuesta con datos de la tarjeta
-   */
-  getCardById: (cardId, config = {}) => 
-    api.get(`/cards/${cardId}`, config),
-
-  /**
-   * Buscar tarjeta por UID
-   * @param {string} uid - UID de la tarjeta RFID
-   * @returns {Promise} Respuesta con datos de la tarjeta
-   */
-  getCardByUid: (uid, config = {}) => 
-    api.get('/cards', { params: { uid: uid.toUpperCase(), limit: 1 }, ...config }),
-
-  /**
-   * Crear nueva tarjeta
-   * @param {Object} data - Datos de la tarjeta
-   * @param {string} data.uid - UID de la tarjeta (8 o 14 hex)
-   * @param {string} [data.type] - Tipo de tarjeta
-   * @returns {Promise} Respuesta con tarjeta creada
-   */
-  createCard: (data) => 
-    api.post('/cards', data),
 };
 
 // ============================================

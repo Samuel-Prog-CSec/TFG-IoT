@@ -11,6 +11,7 @@
  */
 
 const mongoose = require('mongoose');
+const { PLAY_STATUS, EVENT_TYPE } = require('../constants/enums');
 
 const MAX_EVENTS_PER_PLAY = 500;
 
@@ -135,7 +136,16 @@ const gamePlaySchema = new mongoose.Schema(
     },
     score: {
       type: Number,
-      default: 0
+      default: 0,
+      min: 0
+    },
+    // maxScore guardado para auditoria e integridad. Calculado al crear la partida
+    // como numberOfRounds * pointsPerCorrect. Hace imposible que el score supere el
+    // maximo teorico de la sesion, incluso si llegan eventos duplicados.
+    maxScore: {
+      type: Number,
+      default: null,
+      min: 1
     },
     currentRound: {
       type: Number,
@@ -152,15 +162,7 @@ const gamePlaySchema = new mongoose.Schema(
           lowercase: true,
           required: true,
           trim: true,
-          enum: [
-            'card_scanned',
-            'correct',
-            'error',
-            'timeout',
-            'round_start',
-            'round_end',
-            'server_restart'
-          ]
+          enum: EVENT_TYPE
         },
         cardUid: String,
         expectedValue: String,
@@ -203,7 +205,7 @@ const gamePlaySchema = new mongoose.Schema(
       type: String,
       lowercase: true,
       trim: true,
-      enum: ['in-progress', 'completed', 'abandoned', 'paused'],
+      enum: PLAY_STATUS,
       default: 'in-progress'
     },
     pausedAt: {
@@ -259,6 +261,21 @@ gamePlaySchema.methods.addEventAtomic = async function (eventData, options = {})
   await this.constructor.updateOne({ _id: this._id }, update);
   applyEventToDocState(this, normalizedEventData, options);
 
+  // El `$push` de events y los `$inc` de metrics/score/currentRound ya están
+  // persistidos por updateOne. La mutación adicional sobre `this` que hace
+  // `applyEventToDocState` mantiene el doc en memoria sincronizado para los
+  // callers que leen `playDoc.metrics.*` justo después, pero deja a Mongoose
+  // tracking esos cambios como modificaciones pendientes. Si más tarde se
+  // invoca `playDoc.save()` (p. ej. en `complete()`, `persistPause/Resume` o
+  // `checkpointPlayIfNeeded`), Mongoose vuelve a aplicar el `$push` del array
+  // y los $inc, duplicando eventos en BD (QA 26/04/2026: partida de memoria
+  // de 7 pares mostraba 28 entradas en events). $__reset() limpia el
+  // tracking interno para que los siguientes save() solo persistan campos
+  // realmente modificados después de este addEventAtomic.
+  if (typeof this.$__reset === 'function') {
+    this.$__reset();
+  }
+
   return this;
 };
 
@@ -301,8 +318,39 @@ gamePlaySchema.methods.complete = function () {
       responseTimes.reduce((a, b) => a + b, 0) / responseTimes.length;
   }
 
+  // Salvaguarda de integridad: clampar score al maximo teorico.
+  // Pre-save hook tambien valida, pero lo hacemos explicito aqui para que
+  // quede en logs de auditoria antes de delegar al hook.
+  if (typeof this.maxScore === 'number' && this.score > this.maxScore) {
+    this.score = this.maxScore;
+  }
+
   return this.save();
 };
+
+/**
+ * Hook pre-validate: garantiza score ∈ [0, maxScore] ANTES de que Mongoose
+ * aplique el validator `min: 0` del schema.
+ *
+ * Se ejecuta en validate (no en save) porque en Mongoose ≥7 la cadena es:
+ * pre('validate') → validate() → pre('save') → save(). Si clampásemos en
+ * pre('save'), el validator `min: 0` ya habría rechazado el documento cuando
+ * una partida acumula más penalizaciones que aciertos (`$inc` deja score<0
+ * transitoriamente en BD/memoria y el save final falla — detectado en QA
+ * 2026-04-23 con score=-4 en asociación).
+ */
+gamePlaySchema.pre('validate', function () {
+  if (typeof this.maxScore === 'number' && this.maxScore > 0 && this.score > this.maxScore) {
+    // eslint-disable-next-line no-console -- hook Mongoose sin acceso al logger Pino
+    console.warn(
+      `[GamePlay] Score ${this.score} excede maxScore ${this.maxScore} en partida ${this._id}. Clampeado.`
+    );
+    this.score = this.maxScore;
+  }
+  if (typeof this.score === 'number' && this.score < 0) {
+    this.score = 0;
+  }
+});
 
 /**
  * Índice compuesto para búsquedas eficientes en el GameEngine.
@@ -321,5 +369,31 @@ gamePlaySchema.index({ playerId: 1 });
  * Índice para listar todas las partidas de una sesión (Dashboard del profesor).
  */
 gamePlaySchema.index({ sessionId: 1 });
+
+/**
+ * Índice compuesto para analytics: historial de un jugador ordenado por fecha.
+ * Caso de uso: GET /api/analytics/student/:id/summary (últimas N partidas).
+ */
+gamePlaySchema.index({ playerId: 1, completedAt: -1 });
+
+/**
+ * Índice compuesto para analytics: partidas completadas ordenadas por fecha.
+ * Caso de uso: agregaciones de rendimiento en classroom trends/distribution.
+ */
+gamePlaySchema.index({ status: 1, completedAt: -1 });
+
+/**
+ * Índice compuesto para analytics de engagement: queries que necesitan
+ * partidas abandonadas y completadas de un jugador ordenadas por fecha.
+ * Caso de uso: engagement score, análisis de abandono (E09, E10).
+ */
+gamePlaySchema.index({ playerId: 1, status: 1, startedAt: -1 });
+
+/**
+ * Índice compuesto para analytics de sesión: queries que filtran partidas
+ * por sesión, estado y fecha de completado.
+ * Caso de uso: análisis de rondas, tarjetas, fatiga (E05-E08).
+ */
+gamePlaySchema.index({ sessionId: 1, status: 1, completedAt: -1 });
 
 module.exports = mongoose.model('GamePlay', gamePlaySchema);

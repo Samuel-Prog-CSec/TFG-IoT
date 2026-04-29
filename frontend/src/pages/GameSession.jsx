@@ -1,76 +1,68 @@
-import { useState, useEffect, useCallback, useRef, memo } from 'react';
+import { useState, useReducer, useEffect, useCallback, useRef, useMemo } from 'react';
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Wifi, WifiOff, Pause, Play, Volume2, VolumeX, AlertTriangle } from 'lucide-react';
-import PropTypes from 'prop-types';
-import { cn } from '../lib/utils';
+import { Wifi, WifiOff, Pause, Play, Volume2, VolumeX, AlertTriangle, Hand, Search } from 'lucide-react';
+import { cn, calculateStars, EASING } from '../lib/utils';
 import { useReducedMotion } from '../hooks/useReducedMotion';
 import { useAuth } from '../context/AuthContext';
 import RFIDConnector from '../components/ui/RFIDConnector';
-import webSerialService from '../services/webSerialService';
-import { socketService, SOCKET_EVENTS } from '../services/socket';
-import {
-  sessionsAPI,
-  usersAPI,
-  playsAPI,
-  extractData,
-  extractErrorMessage,
-  isAbortError
-} from '../services/api';
+import { extractErrorMessage } from '../services/api';
 import { ROUTES } from '../constants/routes';
 import { toast } from 'sonner';
 import ErrorBoundary from '../components/common/ErrorBoundary';
-import ChallengeDisplay from '../components/game/ChallengeDisplay';
+import Tooltip from '../components/ui/Tooltip';
 import TimerBar from '../components/game/TimerBar';
 import { ScoreDisplayCompactMemo as ScoreDisplayCompact } from '../components/game/ScoreDisplay';
-import FloatingPointsBadge from '../components/game/FloatingPointsBadge';
 import GameOverScreen from '../components/game/GameOverScreen';
 import CharacterMascot from '../components/game/CharacterMascot';
-import CardAssetPreview from '../components/ui/CardAssetPreview';
+import AssociationGameplayPanel from '../components/game/AssociationGameplayPanel';
+import { resolveAssociationTheme } from '../components/game/associationTheme';
+import MemoryGameplayPanel from '../components/game/MemoryGameplayPanel';
+import GameBackdrop from '../components/game/GameBackdrop';
+import FallbackTouchPanel from '../components/game/FallbackTouchPanel';
+import RateLimitBanner from '../components/game/RateLimitBanner';
+import { prefetchDeckImages } from '../lib/cardMapping';
+import CurrentPlayMetrics from '../components/game/CurrentPlayMetrics';
 import { useGameFeedback } from '../hooks/useGameFeedback';
+import { useDocumentTitle } from '../hooks/useDocumentTitle';
+import { useSoundEffects } from '../hooks/useSoundEffects';
+import { useGameTimer } from '../hooks/useGameTimer';
+import { useGameSocket } from '../hooks/useGameSocket';
+import { saveSnapshot, loadSnapshot, clearSnapshot, purgeExpiredSnapshots } from '../lib/sessionSnapshot';
 
-const SOCKET_ERROR_MESSAGES = {
-  RFID_MODE_INVALID: 'El lector de tarjetas no está listo. Avisa al profesor.',
-  RFID_SENSOR_UNAUTHORIZED: 'Este lector no está configurado para esta sesión. Avisa al profesor.',
-  RFID_SENSOR_MISMATCH: 'Se detectó un cambio en el lector durante la partida.',
-  PLAY_NOT_ACTIVE: 'La partida ha terminado o fue interrumpida.',
-  ROUND_BLOCKED: 'Espera un momento antes de pasar la siguiente tarjeta.',
-  RFID_SOCKET_NOT_ACTIVE: 'El juego se abrió en otra ventana. Cierra las demás para continuar.',
-  RFID_MODE_TAKEN_OVER: 'Otra ventana tomó el control del lector. Usa solo esta ventana.',
-  FORBIDDEN: 'No tienes permisos para ejecutar esta acción.',
-  AUTH_REQUIRED: 'Tu sesión expiró. Inicia sesión de nuevo.',
-  ENGINE_ERROR: 'Algo salió mal. Inténtalo de nuevo o avisa al profesor.'
-};
+const FLOAT_DELAY_STYLE = { animationDelay: '1s' };
+const FLOAT_DELAY_NONE = { animationDelay: '0s' };
 
-const REALTIME_STATUS_COPY = {
-  connected: { label: 'Juego listo', announcement: 'El juego está conectado.' },
-  reconnecting: { label: 'Reconectando', announcement: 'Reconectando el juego.' },
-  disconnected: { label: 'Sin conexión', announcement: 'Se perdió la conexión del juego.' },
-  connecting: { label: 'Conectando', announcement: 'Conectando el juego.' }
-};
-
-const TIMER_ANNOUNCEMENT_THRESHOLDS = new Set([10, 5, 3, 2, 1, 0]);
-
-function resolveSocketError(payload) {
-  const code = payload?.code;
-  const fallbackMessage = payload?.message || 'No se pudo procesar la acción en tiempo real.';
-
-  return {
-    code: code || 'UNKNOWN',
-    message: SOCKET_ERROR_MESSAGES[code] || fallbackMessage
-  };
-}
-
-function normalizeFinalSummary(rawMetrics, score, correctAnswers, isMemoryMode) {
+function normalizeFinalSummary(rawMetrics, score, correctAnswers, isMemoryMode, gameStartTime) {
   const metrics = rawMetrics && typeof rawMetrics === 'object' ? rawMetrics : {};
   const totalAttempts = Number(metrics.totalAttempts || 0);
   const averageResponseTimeMs = Number(metrics.averageResponseTime || 0);
-  const totalTimePlayed = Number(metrics.totalTimePlayed || 0);
+  const rawTotalTime = Number(metrics.totalTimePlayed || metrics.playDuration || 0);
+
+  // Si no hay tiempo del servidor, calcular a partir del inicio local (en ms)
+  const elapsedMs = gameStartTime ? Date.now() - gameStartTime : 0;
+  const totalTimePlayed = rawTotalTime > 0 ? rawTotalTime : elapsedMs;
+
+  // Errors y timeouts vienen desglosados desde el backend cuando estan
+  // disponibles. Antes calculabamos errors = totalAttempts - correctAnswers,
+  // pero el `correctAnswers` del reducer local puede llegar desincronizado
+  // si el evento `game_over` se procesa antes que el ultimo `response_*`
+  // (race entre eventos del socket). Usar `metrics.errorAttempts` como fuente
+  // de verdad evita falsos positivos como "Incorrectas: 5" en una partida
+  // de 4 aciertos + 1 fallo (QA 26/04/2026).
+  const errorAttempts = metrics.errorAttempts !== undefined ? Number(metrics.errorAttempts) : null;
+  const correctAttempts = metrics.correctAttempts !== undefined
+    ? Number(metrics.correctAttempts)
+    : null;
+  const errors = Number.isFinite(errorAttempts)
+    ? Math.max(0, errorAttempts)
+    : Math.max(0, totalAttempts - correctAnswers);
+  const finalCorrect = Number.isFinite(correctAttempts) ? correctAttempts : correctAnswers;
 
   return {
     score,
-    correctAnswers,
-    errors: Math.max(0, totalAttempts - correctAnswers),
+    correctAnswers: finalCorrect,
+    errors,
     attempts: totalAttempts,
     averageResponseTimeMs: Number.isFinite(averageResponseTimeMs) ? averageResponseTimeMs : 0,
     totalTimePlayed: Number.isFinite(totalTimePlayed) ? totalTimePlayed : 0,
@@ -78,74 +70,190 @@ function normalizeFinalSummary(rawMetrics, score, correctAnswers, isMemoryMode) 
   };
 }
 
+// Estado inicial del juego (campos coordinados que deben transicionar atómicamente)
+const INITIAL_GAME_STATE = {
+  gameState: 'waiting',      // 'waiting' | 'playing' | 'paused' | 'finished'
+  currentRound: 1,
+  score: 0,
+  correctAnswers: 0,
+  isAwaitingResponse: false,
+};
+
 /**
- * Pantalla principal de juego para niños de 4-8 años
- * Diseño colorido, amigable y sin texto complejo
+ * Reducer para estado coordinado del juego.
+ * Garantiza transiciones atómicas entre estados y evita desincronización
+ * cuando eventos de socket y timeouts llegan simultáneamente.
  */
-export default function GameSession() { // NOSONAR
+function gameReducer(state, action) {
+  switch (action.type) {
+    case 'SET_GAME_STATE':
+      return { ...state, gameState: action.value };
+    case 'SET_SCORE':
+      return { ...state, score: action.value };
+    case 'SET_ROUND':
+      return { ...state, currentRound: action.value };
+    case 'AWAIT_RESPONSE':
+      return { ...state, isAwaitingResponse: action.value };
+    case 'ANSWER_CORRECT':
+      return {
+        ...state,
+        score: action.score,
+        correctAnswers: state.correctAnswers + 1,
+        isAwaitingResponse: false,
+      };
+    case 'ANSWER_INCORRECT':
+      return {
+        ...state,
+        score: action.score,
+        isAwaitingResponse: false,
+      };
+    case 'NEW_ROUND':
+      return {
+        ...state,
+        gameState: 'playing',
+        currentRound: action.round,
+        score: action.score,
+        isAwaitingResponse: true,
+      };
+    case 'PAUSE':
+      return { ...state, gameState: 'paused', isAwaitingResponse: false };
+    case 'RESUME':
+      return { ...state, gameState: 'playing', isAwaitingResponse: true };
+    case 'FINISH':
+      return { ...state, gameState: 'finished', isAwaitingResponse: false, score: action.score };
+    case 'PLAY_STATE_SYNC': {
+      // Sincronización parcial desde el servidor: solo actualiza campos presentes
+      const next = { ...state };
+      if (action.gameState !== undefined) next.gameState = action.gameState;
+      if (action.currentRound !== undefined) next.currentRound = action.currentRound;
+      if (action.score !== undefined) next.score = action.score;
+      if (action.isAwaitingResponse !== undefined) next.isAwaitingResponse = action.isAwaitingResponse;
+      return next;
+    }
+    case 'RESET':
+      return { ...INITIAL_GAME_STATE };
+    default:
+      return state;
+  }
+}
+
+/**
+ * Pantalla principal de juego para niños de 4-8 años.
+ * Diseño colorido, amigable y sin texto complejo.
+ */
+/* eslint-disable-next-line sonarjs/cyclomatic-complexity, sonarjs/cognitive-complexity --
+   pantalla de juego con multiples fases (waiting/playing/paused/ended), modos (association/memory),
+   handlers de socket y renderizado condicional por estado. La logica esta partida en hooks
+   (useGameSocket, useGameTimer, useGameFeedback) pero la coordinacion visual reside aqui. */
+export default function GameSession() {
   const { sessionId } = useParams();
   const [searchParams] = useSearchParams();
   const navigate = useNavigate();
   const { user } = useAuth();
   const ROUND_TIME = 15;
   const { shouldReduceMotion } = useReducedMotion();
+  useDocumentTitle('Partida');
+
+  // --- Refs ---
   const pendingTimeoutRef = useRef([]);
-  const playIdRef = useRef(null);
-  const roundTimeRef = useRef(ROUND_TIME);
-  const totalRoundsRef = useRef(5);
-  const announcedThresholdsRef = useRef(new Set());
-  const previousRealtimeStatusRef = useRef('connecting');
   const previousFocusRef = useRef(null);
   const pauseButtonRef = useRef(null);
   const continueButtonRef = useRef(null);
-  const initCalledRef = useRef(false);
-  const lastSocketErrorToastRef = useRef(0);
-  const lastRetryAtRef = useRef(0);
-  const RETRY_COOLDOWN_MS = 5000;
+  const gameStartTimeRef = useRef(null);
+  const boardReadyEmittedRef = useRef(false);
+  const totalRoundsRef = useRef(5);
+  const roundTimeRef = useRef(ROUND_TIME);
+  const socketSessionRef = useRef(null); // Ref al objeto session del socket hook
 
-  // Game state
-  const [gameState, setGameState] = useState('waiting'); // waiting, playing, paused, finished
-  const [currentRound, setCurrentRound] = useState(1);
-  const [timeLeft, setTimeLeft] = useState(ROUND_TIME);
-  const [score, setScore] = useState(0);
-  const [correctAnswers, setCorrectAnswers] = useState(0);
-  // feedback and mascotMood are now managed by useGameFeedback hook
+  // --- Estado coordinado del juego (reducer) ---
+  const [game, dispatch] = useReducer(gameReducer, INITIAL_GAME_STATE);
+  const { gameState, currentRound, score, correctAnswers, isAwaitingResponse } = game;
+
+  // Flash "Seguimos" al reanudar partida: captura el cambio paused -> playing
+  // para mostrar un micro-feedback visual que confirma la accion del usuario.
+  const prevGameStateRef = useRef(gameState);
+  const [showResumeFlash, setShowResumeFlash] = useState(false);
+  useEffect(() => {
+    if (prevGameStateRef.current === 'paused' && gameState === 'playing') {
+      setShowResumeFlash(true);
+      const timer = globalThis.setTimeout(() => setShowResumeFlash(false), 420);
+      prevGameStateRef.current = gameState;
+      return () => globalThis.clearTimeout(timer);
+    }
+    prevGameStateRef.current = gameState;
+    return undefined;
+  }, [gameState]);
+
   const [soundEnabled, setSoundEnabled] = useState(true);
-  const [rfidConnected, setRfidConnected] = useState(false);
-  const [loadingSession, setLoadingSession] = useState(true);
-  const [sessionError, setSessionError] = useState(null);
-  const [session, setSession] = useState(null);
-  const [playId, setPlayId] = useState(null);
-  const [selectedPlayerId, setSelectedPlayerId] = useState(null);
-  const [isAwaitingResponse, setIsAwaitingResponse] = useState(false);
+  const { playCorrect, playIncorrect, playTick, playRoundStart, playGameOver, playSuccess } = useSoundEffects(soundEnabled);
   const [totalRounds, setTotalRounds] = useState(5);
   const [roundTime, setRoundTime] = useState(ROUND_TIME);
-  const [bootstrappingPlay, setBootstrappingPlay] = useState(true);
-  const [realtimeStatus, setRealtimeStatus] = useState('connecting');
-  const [realtimeError, setRealtimeError] = useState(null);
   const [playSummary, setPlaySummary] = useState(null);
   const [memoryStats, setMemoryStats] = useState({ attempts: 0, matchedCount: 0, totalCards: 0 });
   const [memoryFeedbackActive, setMemoryFeedbackActive] = useState(false);
-  const [bestScore, setBestScore] = useState(0);
   const [srAnnouncement, setSrAnnouncement] = useState('');
   const [showPreCelebration, setShowPreCelebration] = useState(false);
   const [retryKey, setRetryKey] = useState(0);
-  const gameStateRef = useRef('waiting');
-
+  const [shakeError, setShakeError] = useState(false);
   const [challenge, setChallenge] = useState(null);
   const [memoryBoard, setMemoryBoard] = useState([]);
-  const fallbackCards = Array.isArray(session?.cardMappings) ? session.cardMappings : [];
-  const roundIndicators = [];
-  for (let roundNumber = 1; roundNumber <= totalRounds; roundNumber += 1) {
-    roundIndicators.push(roundNumber);
-  }
+  // Hint "Toca las cartas del tablero" solo util antes del primer tap; se oculta
+  // al primer tap para no ruido visual durante el resto de la partida (QA 22/04/2026).
+  const [hasTappedBoardOnce, setHasTappedBoardOnce] = useState(false);
+  // isMemoryMode se resuelve como derivado tras obtener session del socket hook
+  const [sessionIsMemory, setSessionIsMemory] = useState(false);
+  // Flag para el hook de timer: en Memoria, solo empieza a decrementar cuando
+  // el backend ha confirmado board_ready (playEndsAt establecido). Antes de
+  // eso mostramos la barra llena y estatica, evitando el visual "bucle vacio".
+  const [memoryTimerArmed, setMemoryTimerArmed] = useState(false);
 
+  // --- Hooks de feedback y sonido ---
+  const gameFeedback = useGameFeedback({ isMemoryMode: sessionIsMemory, shouldReduceMotion });
+  const {
+    clearFeedback,
+    processValidationResult,
+    resetForNewPlay,
+    feedbackState,
+    feedbackPoints,
+    feedbackMessage,
+    isTimeout: feedbackIsTimeout,
+    mascotMood,
+    mascotMessage,
+  } = gameFeedback;
+
+  // --- Timer hook (instanciado antes de callbacks para que setTimeLeft esté disponible) ---
+  const {
+    timeLeft, setTimeLeft,
+    announceTimerThreshold, clearAnnouncedThresholds
+  } = useGameTimer({
+    gameState,
+    isAwaitingResponse,
+    isMemoryMode: sessionIsMemory,
+    memoryFeedbackActive,
+    memoryTimerArmed,
+    roundTime,
+    playTick
+  });
+
+  // Sincronizar refs
   useEffect(() => {
-    playIdRef.current = playId;
-    roundTimeRef.current = roundTime;
     totalRoundsRef.current = totalRounds;
-    gameStateRef.current = gameState;
-  }, [playId, roundTime, totalRounds, gameState]);
+    roundTimeRef.current = roundTime;
+  }, [totalRounds, roundTime]);
+
+  // --- Utilidades internas ---
+
+  const clearPendingTimeouts = useCallback(() => {
+    pendingTimeoutRef.current.forEach(timeoutId => globalThis.clearTimeout(timeoutId));
+    pendingTimeoutRef.current = [];
+  }, []);
+
+  const scheduleFeedbackClear = useCallback((delayMs = 1400) => {
+    const timeoutId = globalThis.setTimeout(() => {
+      clearFeedback();
+    }, delayMs);
+    pendingTimeoutRef.current.push(timeoutId);
+  }, [clearFeedback]);
 
   const normalizeChallenge = useCallback(rawChallenge => {
     const displayData = rawChallenge?.displayData || rawChallenge || {};
@@ -155,71 +263,74 @@ export default function GameSession() { // NOSONAR
     }
 
     return {
-      id: rawChallenge?.cardId || rawChallenge?.uid || displayData?.key || displayData?.value,
+      id: rawChallenge?.uid || displayData?.key || displayData?.value,
       uid: rawChallenge?.uid,
       key: displayData?.key || '',
       value: displayData?.value || rawChallenge?.assignedValue || '---',
-      display: displayData?.display || '🎴',
+      display: displayData?.display || '?',
       imageUrl: displayData?.imageUrl || null,
       thumbnailUrl: displayData?.thumbnailUrl || null,
-      audioUrl: displayData?.audioUrl || null
+      audioUrl: displayData?.audioUrl || null,
+      // Consigna personalizada opcional definida por el profesor en el
+      // wizard de creación de sesión (PROP-102). El backend la emite en
+      // el challenge del evento `new_round` / `game_state_update`.
+      promptText: rawChallenge?.promptText || displayData?.promptText || null
     };
   }, []);
 
-  const isMemoryMode = session?.mechanic?.name === 'memory';
-
-  const gameFeedback = useGameFeedback({ isMemoryMode, shouldReduceMotion });
-
-  const clearPendingTimeouts = useCallback(() => {
-    pendingTimeoutRef.current.forEach(timeoutId => globalThis.clearTimeout(timeoutId));
-    pendingTimeoutRef.current = [];
-  }, []);
-
-  const scheduleFeedbackClear = useCallback((delayMs = 1400) => {
-    const timeoutId = globalThis.setTimeout(() => {
-      gameFeedback.clearFeedback();
-    }, delayMs);
-    pendingTimeoutRef.current.push(timeoutId);
-  }, [gameFeedback]);
+  // --- Callbacks para eventos del socket ---
 
   const handleValidationResult = useCallback(
     payload => {
       const feedbackDelayMs = Number(payload?.feedbackDelayMs || 1400);
 
       const gameContext = {
-        currentRound, totalRounds, timeLeft, timeLimit: roundTime,
+        currentRound, totalRounds, timeLeft,
+        timeLimit: roundTime,
         matchedCount: memoryStats.matchedCount,
         totalCards: memoryStats.totalCards,
         attempts: memoryStats.attempts,
       };
 
-      const { isCorrect } = gameFeedback.processValidationResult(payload, gameContext);
+      const { isCorrect } = processValidationResult(payload, gameContext);
 
-      setScore(Number.isFinite(payload?.newScore) ? payload.newScore : 0);
-      setIsAwaitingResponse(false);
-      if (isMemoryMode) {
+      // Feedback sonoro inmediato
+      if (isCorrect) { playCorrect(); } else { playIncorrect(); }
+
+      const newScore = Number.isFinite(payload?.newScore) ? payload.newScore : 0;
+      if (isCorrect) {
+        dispatch({ type: 'ANSWER_CORRECT', score: newScore });
+      } else {
+        dispatch({ type: 'ANSWER_INCORRECT', score: newScore });
+        setShakeError(true);
+        globalThis.setTimeout(() => setShakeError(false), 600);
+      }
+      if (socketSessionRef.current?.mechanic?.name === 'memory') {
         setMemoryFeedbackActive(true);
       }
-      announcedThresholdsRef.current.clear();
+      clearAnnouncedThresholds();
 
-      if (isCorrect) {
-        setCorrectAnswers(prev => prev + 1);
-      }
+      setSrAnnouncement(`Ronda ${currentRound}: respuesta ${isCorrect ? 'correcta' : 'incorrecta'}. Puntuación: ${newScore}.`);
 
       scheduleFeedbackClear(
         Number.isFinite(feedbackDelayMs) && feedbackDelayMs > 0 ? feedbackDelayMs : 1400
       );
     },
-    [isMemoryMode, scheduleFeedbackClear, gameFeedback, currentRound, totalRounds, timeLeft, roundTime, memoryStats]
+    [scheduleFeedbackClear, processValidationResult, currentRound, totalRounds, timeLeft, roundTime, memoryStats, playCorrect, playIncorrect, clearAnnouncedThresholds]
   );
 
   const handleNewRound = useCallback(
     payload => {
-      announcedThresholdsRef.current.clear();
+      clearAnnouncedThresholds();
       clearPendingTimeouts();
-      gameFeedback.clearFeedback();
-      setGameState('playing');
-      setCurrentRound(Number(payload?.roundNumber || 1));
+      clearFeedback();
+      if (!gameStartTimeRef.current) {
+        gameStartTimeRef.current = Date.now();
+      }
+
+      const roundNumber = Number(payload?.roundNumber || 1);
+      const roundScore = Number.isFinite(payload?.score) ? payload.score : 0;
+      dispatch({ type: 'NEW_ROUND', round: roundNumber, score: roundScore });
 
       const payloadTotalRounds = Number(payload?.totalRounds);
       const nextTotalRounds = Number.isFinite(payloadTotalRounds) && payloadTotalRounds > 0
@@ -234,44 +345,39 @@ export default function GameSession() { // NOSONAR
       setTotalRounds(nextTotalRounds);
       setRoundTime(nextTimeLimit);
       setTimeLeft(nextTimeLimit);
-      setScore(Number.isFinite(payload?.score) ? payload.score : 0);
       setChallenge(normalizeChallenge(payload?.challenge));
-      setIsAwaitingResponse(true);
-      setSrAnnouncement(`Ronda ${Number(payload?.roundNumber || 1)} iniciada.`);
+      playRoundStart();
+      setSrAnnouncement(`Ronda ${Number(payload?.roundNumber || 1)} de ${nextTotalRounds} iniciada.`);
     },
-    [clearPendingTimeouts, normalizeChallenge, gameFeedback]
+    [clearPendingTimeouts, normalizeChallenge, clearFeedback, playRoundStart, setTimeLeft, clearAnnouncedThresholds]
   );
 
   const handlePlayPaused = useCallback(payload => {
     const remaining = Number(payload?.remainingTimeMs);
-    setGameState('paused');
-    gameFeedback.clearFeedback();  // reset to idle includes thinking-like state for pause
-    setIsAwaitingResponse(false);
+    dispatch({ type: 'PAUSE' });
+    clearFeedback();
     setSrAnnouncement('Partida en pausa.');
 
     if (Number.isFinite(remaining) && remaining >= 0) {
       setTimeLeft(Math.max(0, Math.ceil(remaining / 1000)));
     }
-  // eslint-disable-next-line react-hooks/exhaustive-deps -- gameFeedback is not referentially stable
-  }, []);
+  }, [clearFeedback, setTimeLeft]);
 
   const handlePlayResumed = useCallback(
     payload => {
       const remaining = Number(payload?.remainingTimeMs);
-      setGameState('playing');
-      gameFeedback.clearFeedback();
+      dispatch({ type: 'RESUME' });
+      clearFeedback();
       if (payload?.challenge) {
         setChallenge(normalizeChallenge(payload.challenge));
       }
       if (Number.isFinite(remaining) && remaining >= 0) {
         setTimeLeft(Math.max(1, Math.ceil(remaining / 1000)));
       }
-      setIsAwaitingResponse(true);
-      announcedThresholdsRef.current.clear();
+      clearAnnouncedThresholds();
       setSrAnnouncement('Partida reanudada.');
     },
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- gameFeedback is not referentially stable
-    [normalizeChallenge]
+    [normalizeChallenge, clearFeedback, setTimeLeft, clearAnnouncedThresholds]
   );
 
   const handlePlayState = useCallback(payload => {
@@ -279,28 +385,30 @@ export default function GameSession() { // NOSONAR
       return;
     }
 
+    // Construir actualización atómica del estado coordinado
+    const syncAction = { type: 'PLAY_STATE_SYNC' };
     if (payload?.status === 'paused' || payload?.isPaused) {
-      setGameState('paused');
+      syncAction.gameState = 'paused';
     } else if (payload?.status === 'in-progress') {
-      setGameState('playing');
+      syncAction.gameState = 'playing';
     }
-
     if (Number.isFinite(payload?.currentRound)) {
-      setCurrentRound(payload.currentRound);
+      syncAction.currentRound = payload.currentRound;
     }
     if (Number.isFinite(payload?.score)) {
-      setScore(payload.score);
+      syncAction.score = payload.score;
     }
+    if (typeof payload?.awaitingResponse === 'boolean') {
+      syncAction.isAwaitingResponse = payload.awaitingResponse;
+    }
+    dispatch(syncAction);
+
     if (Number.isFinite(payload?.maxRounds)) {
       setTotalRounds(payload.maxRounds);
     }
 
     if (Number.isFinite(payload?.remainingTimeMs) && payload.remainingTimeMs >= 0) {
       setTimeLeft(Math.max(0, Math.ceil(payload.remainingTimeMs / 1000)));
-    }
-
-    if (typeof payload?.awaitingResponse === 'boolean') {
-      setIsAwaitingResponse(payload.awaitingResponse);
     }
 
     if (payload?.currentChallenge) {
@@ -315,7 +423,7 @@ export default function GameSession() { // NOSONAR
         totalCards: Number(payload.memoryState.totalCards || 0)
       });
     }
-  }, [normalizeChallenge]);
+  }, [normalizeChallenge, setTimeLeft]);
 
   const handleMemoryTurnState = useCallback(payload => {
     const phase = payload?.phase;
@@ -328,17 +436,26 @@ export default function GameSession() { // NOSONAR
     });
 
     const remainingMs = Number(payload?.remainingTimeMs);
-    if (Number.isFinite(remainingMs) && remainingMs >= 0) {
+    if (Number.isFinite(remainingMs) && remainingMs > 0) {
       setTimeLeft(Math.max(0, Math.ceil(remainingMs / 1000)));
+      // El backend ha armado el timer (playEndsAt != null). Senalamos al hook
+      // de timer que ya puede decrementar: hasta ahora la UI mostraba la barra
+      // completa sin moverse para evitar el bucle de "vacia" prematuro.
+      setMemoryTimerArmed(true);
     }
 
+    // Actualización atómica de campos coordinados
+    const syncAction = { type: 'PLAY_STATE_SYNC' };
     if (Number.isFinite(payload?.score)) {
-      setScore(payload.score);
+      syncAction.score = payload.score;
     }
-
     if (typeof payload?.awaitingResponse === 'boolean') {
-      setIsAwaitingResponse(payload.awaitingResponse);
+      syncAction.isAwaitingResponse = payload.awaitingResponse;
     }
+    if (Number.isFinite(payload?.attempts)) {
+      syncAction.currentRound = Math.max(1, payload.attempts + 1);
+    }
+    dispatch(syncAction);
 
     if (phase === 'match' || phase === 'mismatch') {
       setMemoryFeedbackActive(true);
@@ -353,352 +470,233 @@ export default function GameSession() { // NOSONAR
     ) {
       setMemoryFeedbackActive(false);
     }
-
-    if (Number.isFinite(payload?.attempts)) {
-      setCurrentRound(Math.max(1, payload.attempts + 1));
-    }
-  }, []);
+  }, [setTimeLeft]);
 
   const handleGameOver = useCallback(payload => {
+    playGameOver();
     clearPendingTimeouts();
-    setIsAwaitingResponse(false);
     setMemoryFeedbackActive(false);
-    gameFeedback.clearFeedback();
-    setRealtimeError(null);
+    clearFeedback();
 
     const finalScore = Number.isFinite(payload?.finalScore) ? payload.finalScore : 0;
-    setScore(finalScore);
     setSrAnnouncement('Partida finalizada.');
     setPlaySummary(
-      normalizeFinalSummary(payload?.metrics, finalScore, correctAnswers, isMemoryMode)
+      normalizeFinalSummary(payload?.metrics, finalScore, correctAnswers, socketSessionRef.current?.mechanic?.name === 'memory', gameStartTimeRef.current)
     );
 
-    // Brief celebration before showing game over screen (skip if reduced motion)
     if (shouldReduceMotion) {
-      setGameState('finished');
+      dispatch({ type: 'FINISH', score: finalScore });
     } else {
+      dispatch({ type: 'AWAIT_RESPONSE', value: false });
+      dispatch({ type: 'SET_SCORE', value: finalScore });
       setShowPreCelebration(true);
       const celebrationTimeout = globalThis.setTimeout(() => {
         setShowPreCelebration(false);
-        setGameState('finished');
+        dispatch({ type: 'FINISH', score: finalScore });
       }, 1200);
       pendingTimeoutRef.current.push(celebrationTimeout);
     }
-  // eslint-disable-next-line react-hooks/exhaustive-deps -- gameFeedback is not referentially stable
-  }, [clearPendingTimeouts, correctAnswers, isMemoryMode, shouldReduceMotion]);
+  }, [clearPendingTimeouts, clearFeedback, correctAnswers, shouldReduceMotion, playGameOver]);
 
   const handlePlayInterrupted = useCallback(payload => {
     clearPendingTimeouts();
-    gameFeedback.clearFeedback();
+    clearFeedback();
     setMemoryFeedbackActive(false);
-    setIsAwaitingResponse(false);
-    setGameState('finished');
 
     const finalScore = Number.isFinite(payload?.finalScore) ? payload.finalScore : score;
-    setScore(finalScore);
+    dispatch({ type: 'FINISH', score: finalScore });
 
     const interruptionMessage =
       payload?.message ||
       'La partida se interrumpió por un reinicio o problema del servidor. Consulta al docente.';
 
-    setRealtimeError({
-      code: 'PLAY_INTERRUPTED',
-      message: interruptionMessage
-    });
     setSrAnnouncement('La partida fue interrumpida.');
     toast.warning(interruptionMessage);
-  // eslint-disable-next-line react-hooks/exhaustive-deps -- gameFeedback is not referentially stable
-  }, [clearPendingTimeouts, score]);
+  }, [clearPendingTimeouts, clearFeedback, score]);
 
-  const resolvePlayerId = useCallback(async () => {
-    const explicitPlayerId = searchParams.get('playerId');
-    if (explicitPlayerId) {
-      return explicitPlayerId;
+  const handleSrAnnouncement = useCallback((msg) => {
+    setSrAnnouncement(msg);
+  }, []);
+
+  // --- Socket hook ---
+
+  const socket = useGameSocket({
+    sessionId,
+    retryKey,
+    user,
+    searchParamsPlayerId: searchParams.get('playerId'),
+    callbacks: {
+      onNewRound: handleNewRound,
+      onValidationResult: handleValidationResult,
+      onGameOver: handleGameOver,
+      onPlayPaused: handlePlayPaused,
+      onPlayResumed: handlePlayResumed,
+      onPlayState: handlePlayState,
+      onMemoryTurnState: handleMemoryTurnState,
+      onPlayInterrupted: handlePlayInterrupted,
+      onSrAnnouncement: handleSrAnnouncement
     }
+  });
 
-    const teacherId = user?.id || user?._id;
-    if (!teacherId) {
-      throw new Error('No se pudo determinar el profesor para crear la partida.');
+  const {
+    realtimeStatus, realtimeError, bootstrappingPlay,
+    session, playId, selectedPlayerId,
+    loadingSession, sessionError,
+    rfidConnected, bestScore,
+    setRealtimeError,
+    syncGameState,
+    REALTIME_STATUS_COPY,
+    emitPausePlay, emitResumePlay,
+    emitFallbackScan, emitMemoryCardTap,
+    retryInit, startPlay, leaveAndCreateNewPlay,
+    emitBoardReady
+  } = socket;
+
+  // Sincronizar socketSessionRef y sessionIsMemory cuando la sesión cargue
+  useEffect(() => {
+    socketSessionRef.current = session;
+    setSessionIsMemory(session?.mechanic?.name === 'memory');
+  }, [session]);
+
+  // --- Snapshot de partida en sessionStorage (resiliencia a F5) ---
+  // Limpiamos snapshots vencidos al montar para no acumular basura.
+  useEffect(() => {
+    purgeExpiredSnapshots();
+  }, []);
+
+  // Hidratar UI desde snapshot local si existe, mientras el servidor
+  // reconcilia el estado canónico vía PLAY_STATE_SYNC.
+  const snapshotHydratedRef = useRef(false);
+  useEffect(() => {
+    if (!playId || snapshotHydratedRef.current) return;
+    const snapshot = loadSnapshot(playId);
+    if (snapshot) {
+      dispatch({ type: 'PLAY_STATE_SYNC', ...snapshot });
+      if (snapshot.score !== undefined) {
+        // No reconstruimos challenge/board (el server los aportará); sólo
+        // los contadores que evitan el flash de "ronda 1 / score 0".
+      }
     }
+    snapshotHydratedRef.current = true;
+  }, [playId]);
 
-    const studentsRes = await usersAPI.getStudentsByTeacher(teacherId, {
-      limit: 1,
-      sortBy: 'createdAt',
-      order: 'asc'
+  // Persistir snapshot tras cada transición relevante. Se ejecuta en cada
+  // cambio del estado coordinado del juego — sessionStorage write es
+  // síncrono pero rápido (<1ms para payload pequeño).
+  useEffect(() => {
+    if (!playId || gameState === 'finished') return;
+    saveSnapshot(playId, {
+      gameState,
+      currentRound,
+      score,
+      correctAnswers,
+      isAwaitingResponse
     });
-    const students = extractData(studentsRes) || [];
+  }, [playId, gameState, currentRound, score, correctAnswers, isAwaitingResponse]);
 
-    const firstStudentId = students?.[0]?.id || students?.[0]?._id;
-    if (!firstStudentId) {
-      throw new Error('No hay alumnos disponibles para iniciar la partida.');
-    }
-
-    return firstStudentId;
-  }, [searchParams, user]);
-
-  const bootstrapPlay = useCallback(async (signal) => {
-    const inProgressRes = await playsAPI.getPlays({ sessionId, status: 'in-progress', limit: 1 }, { signal });
-    const inProgressPlays = extractData(inProgressRes) || [];
-    const foundInProgress = inProgressPlays?.[0];
-    if (foundInProgress?.id || foundInProgress?._id) {
-      return {
-        playId: foundInProgress.id || foundInProgress._id,
-        playerId: foundInProgress.playerId || foundInProgress.player?.id || foundInProgress.player?._id
-      };
-    }
-
-    const pausedRes = await playsAPI.getPlays({ sessionId, status: 'paused', limit: 1 }, { signal });
-    const pausedPlays = extractData(pausedRes) || [];
-    const foundPaused = pausedPlays?.[0];
-    if (foundPaused?.id || foundPaused?._id) {
-      return {
-        playId: foundPaused.id || foundPaused._id,
-        playerId: foundPaused.playerId || foundPaused.player?.id || foundPaused.player?._id
-      };
-    }
-
-    const playerId = await resolvePlayerId();
-    const createPlayRes = await playsAPI.createPlay({ sessionId, playerId });
-    const createdPlay = extractData(createPlayRes);
-
-    return {
-      playId: createdPlay?.id || createdPlay?._id,
-      playerId
-    };
-  }, [resolvePlayerId, sessionId]);
-
+  // Limpiar snapshot al cerrar la partida o desmontar el componente.
   useEffect(() => {
-    const controller = new AbortController();
+    if (gameState === 'finished' && playId) {
+      clearSnapshot(playId);
+    }
+  }, [gameState, playId]);
 
-    const onSocketError = payload => {
-      const normalized = resolveSocketError(payload);
-      setRealtimeError(normalized);
-      setSrAnnouncement(normalized.message);
+  useEffect(() => () => {
+    if (playId) {
+      // Al desmontar (navegación fuera de la pantalla), limpiamos para
+      // no resucitar la partida si el usuario vuelve a una distinta.
+      clearSnapshot(playId);
+    }
+  }, [playId]);
 
-      // Deduplicate socket error toasts — max 1 every 5 seconds
-      const now = Date.now();
-      if (now - lastSocketErrorToastRef.current > 5000) {
-        lastSocketErrorToastRef.current = now;
-        toast.warning(normalized.message, { id: 'socket-error' });
-      }
-    };
-
-    const onSocketDisconnect = reason => {
-      if (gameStateRef.current === 'finished') {
-        return;
-      }
-
-      setRealtimeStatus('reconnecting');
-      setRealtimeError({
-        code: 'SOCKET_DISCONNECTED',
-        message: 'Conexión en tiempo real perdida. Intentando reconectar…'
-      });
-      setSrAnnouncement('Conexión en tiempo real perdida. Intentando reconectar.');
-
-      if (reason === 'io server disconnect') {
-        toast.warning('La conexión fue reiniciada por el servidor. Reconectando…');
-      }
-    };
-
-    const onSocketConnect = () => {
-      setRealtimeStatus('connected');
-      setRealtimeError(null);
-      setSrAnnouncement('Conexión en tiempo real restablecida.');
-
-      if (typeof webSerialService.flushPendingScans === 'function') {
-        webSerialService.flushPendingScans();
-      }
-
-      if (playIdRef.current) {
-        socketService.sendCommand(SOCKET_EVENTS.JOIN_PLAY, { playId: playIdRef.current });
-      }
-    };
-
-    const initRealtimePlay = async () => {
-      // Prevent re-initialization when useEffect re-runs due to dependency changes
-      if (initCalledRef.current) {
-        return;
-      }
-      initCalledRef.current = true;
-
-      try {
-        if (!sessionId) {
-          throw new Error('No se ha indicado una sesión válida.');
-        }
-
-        setLoadingSession(true);
-        setBootstrappingPlay(true);
-        setSessionError(null);
-
-        // 1. Conectar socket primero (crea this.socket si no existe)
-        if (!socketService.isSocketConnected()) {
-          await socketService.connect();
-        }
-        if (controller.signal.aborted) return;
-
-        // 2. Registrar listeners (this.socket ya existe)
-        socketService.on(SOCKET_EVENTS.NEW_ROUND, handleNewRound);
-        socketService.on(SOCKET_EVENTS.MEMORY_TURN_STATE, handleMemoryTurnState);
-        socketService.on(SOCKET_EVENTS.VALIDATION_RESULT, handleValidationResult);
-        socketService.on(SOCKET_EVENTS.GAME_OVER, handleGameOver);
-        socketService.on(SOCKET_EVENTS.PLAY_PAUSED, handlePlayPaused);
-        socketService.on(SOCKET_EVENTS.PLAY_RESUMED, handlePlayResumed);
-        socketService.on(SOCKET_EVENTS.PLAY_STATE, handlePlayState);
-        socketService.on(SOCKET_EVENTS.PLAY_INTERRUPTED, handlePlayInterrupted);
-        socketService.on(SOCKET_EVENTS.ERROR, onSocketError);
-        socketService.on(SOCKET_EVENTS.DISCONNECT, onSocketDisconnect);
-        socketService.on(SOCKET_EVENTS.CONNECT, onSocketConnect);
-
-        setRealtimeStatus(socketService.isSocketConnected() ? 'connected' : 'connecting');
-        setRealtimeError(null);
-
-        // 3. API calls después de que socket y listeners estén listos
-        const response = await sessionsAPI.getSessionById(sessionId, {
-          signal: controller.signal
-        });
-
-        let sessionData = extractData(response);
-        if (controller.signal.aborted) return;
-
-        if (sessionData?.status === 'created') {
-          const startSessionRes = await sessionsAPI.startSession(sessionId);
-          sessionData = extractData(startSessionRes) || sessionData;
-        }
-        if (controller.signal.aborted) return;
-
-        setSession(sessionData);
-
-        const configuredRounds = Number(sessionData?.config?.numberOfRounds);
-        setTotalRounds(Number.isFinite(configuredRounds) && configuredRounds > 0 ? configuredRounds : 5);
-
-        const configuredTime = Number(sessionData?.config?.timeLimit);
-        setRoundTime(Number.isFinite(configuredTime) && configuredTime > 0 ? configuredTime : ROUND_TIME);
-
-        const resolvedPlay = await bootstrapPlay(controller.signal);
-        if (controller.signal.aborted) return;
-        if (!resolvedPlay?.playId) {
-          throw new Error('No se pudo inicializar una partida de juego.');
-        }
-
-        setPlayId(resolvedPlay.playId);
-        setSelectedPlayerId(resolvedPlay.playerId || null);
-
-        // Obtener mejor puntuación histórica del jugador en esta sesión
-        if (resolvedPlay.playerId) {
-          playsAPI.getPlayerStats(resolvedPlay.playerId, { sessionId })
-            .then(statsRes => {
-              if (controller.signal.aborted) return;
-              const stats = extractData(statsRes);
-              if (Number.isFinite(stats?.stats?.bestScore)) {
-                setBestScore(stats.stats.bestScore);
-              }
-            })
-            .catch(() => { /* No bloquear gameplay si las stats fallan */ });
-        }
-
-        if (controller.signal.aborted) return;
-        socketService.sendCommand(SOCKET_EVENTS.JOIN_PLAY, { playId: resolvedPlay.playId });
-        socketService.sendCommand(SOCKET_EVENTS.START_PLAY, { playId: resolvedPlay.playId });
-        // Sincronizar estado en caso de que rondas avanzaran durante la inicialización
-        socketService.requestPlayStateSync(resolvedPlay.playId);
-      } catch (error) {
-        if (isAbortError(error)) {
-          return;
-        }
-
-        setSessionError(extractErrorMessage(error));
-      } finally {
-        if (!controller.signal.aborted) {
-          setLoadingSession(false);
-          setBootstrappingPlay(false);
-        }
-      }
-    };
-
-    initRealtimePlay();
-
-    return () => {
-      initCalledRef.current = false;
-      controller.abort();
-      if (playIdRef.current) {
-        socketService.sendCommand(SOCKET_EVENTS.LEAVE_PLAY, { playId: playIdRef.current });
-      }
-      socketService.off(SOCKET_EVENTS.NEW_ROUND, handleNewRound);
-      socketService.off(SOCKET_EVENTS.MEMORY_TURN_STATE, handleMemoryTurnState);
-      socketService.off(SOCKET_EVENTS.VALIDATION_RESULT, handleValidationResult);
-      socketService.off(SOCKET_EVENTS.GAME_OVER, handleGameOver);
-      socketService.off(SOCKET_EVENTS.PLAY_PAUSED, handlePlayPaused);
-      socketService.off(SOCKET_EVENTS.PLAY_RESUMED, handlePlayResumed);
-      socketService.off(SOCKET_EVENTS.PLAY_STATE, handlePlayState);
-      socketService.off(SOCKET_EVENTS.PLAY_INTERRUPTED, handlePlayInterrupted);
-      socketService.off(SOCKET_EVENTS.ERROR, onSocketError);
-      socketService.off(SOCKET_EVENTS.DISCONNECT, onSocketDisconnect);
-      socketService.off(SOCKET_EVENTS.CONNECT, onSocketConnect);
-      clearPendingTimeouts();
-    };
-  // eslint-disable-next-line react-hooks/exhaustive-deps -- init effect must run once per sessionId/retry; handlers use refs for current state
-  }, [sessionId, retryKey]);
-
+  // Configurar totalRounds y roundTime cuando la sesión carga
   useEffect(() => {
-    if (gameFeedback.feedbackState === 'idle') {
-      setMemoryFeedbackActive(false);
-    }
-  }, [gameFeedback.feedbackState]);
+    if (!session) return;
 
-  // Timer effect
+    const configuredRounds = Number(session?.config?.numberOfRounds);
+    if (Number.isFinite(configuredRounds) && configuredRounds > 0) {
+      setTotalRounds(configuredRounds);
+    }
+
+    const configuredTime = Number(session?.config?.timeLimit);
+    if (Number.isFinite(configuredTime) && configuredTime > 0) {
+      setRoundTime(configuredTime);
+    }
+  }, [session]);
+
+  // Prefetch de todas las imagenes del mazo al recibir la sesion para
+  // calentar el cache del navegador y evitar flash de bloque-de-color entre
+  // rondas (problema detectado en QA 18/04/2026 con FallbackTouchPanel).
+  const prefetchNotifiedRef = useRef(false);
   useEffect(() => {
-    const shouldRunVisualTimer =
-      gameState === 'playing' && (isMemoryMode ? !memoryFeedbackActive : isAwaitingResponse);
+    const mappings = session?.cardMappings;
+    if (!Array.isArray(mappings) || mappings.length === 0) return;
+    prefetchDeckImages(mappings, () => {
+      if (prefetchNotifiedRef.current) return;
+      prefetchNotifiedRef.current = true;
+      console.warn('[GameSession] Alguna imagen del mazo fallo al precargar. Se mostrara el nombre como fallback.');
+    });
+  }, [session?.cardMappings]);
 
-    if (!shouldRunVisualTimer) {
-      return;
-    }
-
-    const timer = setInterval(() => {
-      setTimeLeft(prev => Math.max(0, prev - 1));
-    }, 1000);
-
-    return () => clearInterval(timer);
-  }, [gameState, isAwaitingResponse, isMemoryMode, memoryFeedbackActive]);
-
+  // Sincronizar gameState con el socket hook
   useEffect(() => {
-    const shouldRunVisualTimer =
-      gameState === 'playing' && (isMemoryMode ? !memoryFeedbackActive : isAwaitingResponse);
+    syncGameState(gameState);
+  }, [gameState, syncGameState]);
 
-    if (!shouldRunVisualTimer) {
-      return;
-    }
-
-    if (!TIMER_ANNOUNCEMENT_THRESHOLDS.has(timeLeft)) {
-      return;
-    }
-
-    if (announcedThresholdsRef.current.has(timeLeft)) {
-      return;
-    }
-
-    announcedThresholdsRef.current.add(timeLeft);
-
-    if (timeLeft === 0) {
-      setSrAnnouncement('Tiempo agotado.');
-      return;
-    }
-
-    setSrAnnouncement(`Quedan ${timeLeft} segundos.`);
-  }, [gameState, isAwaitingResponse, isMemoryMode, memoryFeedbackActive, timeLeft]);
-
+  // Anunciar umbrales de tiempo
   useEffect(() => {
-    if (realtimeStatus === previousRealtimeStatusRef.current) {
-      return;
-    }
-
-    previousRealtimeStatusRef.current = realtimeStatus;
-    const announcement = REALTIME_STATUS_COPY[realtimeStatus]?.announcement;
+    const announcement = announceTimerThreshold();
     if (announcement) {
       setSrAnnouncement(announcement);
     }
-  }, [realtimeStatus]);
+  }, [announceTimerThreshold]);
 
+  // --- Datos derivados ---
+
+  const shuffledFallbackCards = useMemo(() => {
+    const cards = Array.isArray(session?.cardMappings) ? [...session.cardMappings] : [];
+    for (let i = cards.length - 1; i > 0; i--) {
+      const j = Math.abs((i * ((currentRound || 1) + 7) * 13) % (i + 1));
+      [cards[i], cards[j]] = [cards[j], cards[i]];
+    }
+    return cards;
+  }, [session?.cardMappings, currentRound]);
+
+  // --- Efectos secundarios ---
+
+  // Limpiar memoryFeedbackActive cuando feedback vuelve a idle
+  useEffect(() => {
+    if (feedbackState === 'idle') {
+      setMemoryFeedbackActive(false);
+    }
+  }, [feedbackState]);
+
+  // Confirmar que el tablero de memoria está visible para iniciar el timer
+  useEffect(() => {
+    if (
+      sessionIsMemory &&
+      gameState === 'playing' &&
+      memoryBoard.length > 0 &&
+      playId &&
+      !boardReadyEmittedRef.current
+    ) {
+      boardReadyEmittedRef.current = true;
+      emitBoardReady();
+    }
+  }, [sessionIsMemory, gameState, memoryBoard, playId, emitBoardReady]);
+
+  // Sonido de victoria cuando la partida termina con buen resultado (>=2 estrellas)
+  useEffect(() => {
+    if (gameState !== 'finished') return undefined;
+    const percentage = totalRounds > 0 ? (correctAnswers / totalRounds) * 100 : 0;
+    if (calculateStars(percentage) >= 2) {
+      const timer = globalThis.setTimeout(() => playSuccess(), 600);
+      return () => globalThis.clearTimeout(timer);
+    }
+    return undefined;
+  }, [gameState, correctAnswers, totalRounds, playSuccess]);
+
+  // Gestión de foco en pausa
   useEffect(() => {
     if (gameState === 'paused') {
       previousFocusRef.current = document.activeElement;
@@ -716,94 +714,46 @@ export default function GameSession() { // NOSONAR
     return undefined;
   }, [gameState]);
 
+  // Limpieza de timeouts pendientes al desmontar
   useEffect(() => {
     return () => {
       clearPendingTimeouts();
     };
   }, [clearPendingTimeouts]);
 
-  // Recuperar estado del juego tras reconexión del socket.
-  // Envía play_state_sync (fire-and-forget); el listener de play_state (línea ~560)
-  // maneja la respuesta del servidor y actualiza el estado local automáticamente.
-  useEffect(() => {
-    const handleSocketReconnected = () => {
-      const currentPlayId = playIdRef.current;
-      if (!currentPlayId || gameStateRef.current === 'finished') {
-        return;
-      }
+  // --- Acciones del juego ---
 
-      const sent = socketService.requestPlayStateSync(currentPlayId);
-      if (sent) {
-        toast.success('Reconectado', {
-          description: 'Sincronizando estado del juego...'
-        });
-      }
-    };
-
-    window.addEventListener('socket_reconnected', handleSocketReconnected);
-    return () => {
-      window.removeEventListener('socket_reconnected', handleSocketReconnected);
-    };
-  }, []);
-
-  useEffect(() => {
-    const handleDeviceStateChange = (payload) => {
-      setRfidConnected(payload?.state === 'ready');
-    };
-
-    webSerialService.on('device_state_change', handleDeviceStateChange);
-
-    return () => {
-      webSerialService.off('device_state_change', handleDeviceStateChange);
-    };
-  }, []);
-
-  // Start game
   const startGame = () => {
     if (!playId) {
       toast.error('La partida aún no está lista. Espera un momento.');
       return;
     }
 
-    if (!socketService.sendCommand(SOCKET_EVENTS.START_PLAY, { playId })) {
+    if (startPlay() === false) {
       toast.error('No se puede iniciar: se perdió la conexión.');
       return;
     }
 
-    setGameState('playing');
-    gameFeedback.clearFeedback();
+    dispatch({ type: 'SET_GAME_STATE', value: 'playing' });
+    clearFeedback();
     setRealtimeError(null);
+    // Resetear la senal del timer de Memoria: se rearma cuando llegue el
+    // primer memory_turn_state con remainingTimeMs valido tras board_ready.
+    setMemoryTimerArmed(false);
     setSrAnnouncement('Partida iniciada.');
   };
 
-  // Toggle pause
-  const togglePause = async () => {
-    if (!playId) {
-      return;
-    }
+  const togglePause = () => {
+    if (!playId) return;
 
     if (gameState === 'playing') {
-      const sent = socketService.sendCommand(SOCKET_EVENTS.PAUSE_PLAY, { playId });
-      if (sent === false) {
-        setRealtimeStatus('disconnected');
-        setRealtimeError({
-          code: 'SOCKET_REQUIRED',
-          message: 'Se requiere conexión en tiempo real para pausar/reanudar.'
-        });
-        toast.error('No se puede pausar: se perdió la conexión. Inténtalo de nuevo.');
-      } else {
+      const sent = emitPausePlay();
+      if (sent !== false) {
         setSrAnnouncement('Solicitando pausa de la partida.');
       }
     } else if (gameState === 'paused') {
-      const sent = socketService.sendCommand(SOCKET_EVENTS.RESUME_PLAY, { playId });
-      if (sent === false) {
-        setRealtimeStatus('disconnected');
-        setRealtimeError({
-          code: 'SOCKET_REQUIRED',
-          message: 'Se requiere conexión en tiempo real para pausar/reanudar.'
-        });
-        toast.error('No se puede reanudar: se perdió la conexión. Inténtalo de nuevo.');
-      } else {
+      const sent = emitResumePlay();
+      if (sent !== false) {
         setSrAnnouncement('Solicitando reanudación de la partida.');
       }
     }
@@ -822,20 +772,12 @@ export default function GameSession() { // NOSONAR
     }
   };
 
-  const emitFallbackCardScan = useCallback(
+  const handleFallbackCardScan = useCallback(
     card => {
-      if (!playId || !card?.uid || gameState !== 'playing') {
-        return;
-      }
+      if (gameState !== 'playing') return;
 
       const sensorId = session?.sensorId || 'touch_fallback_sensor';
-      const sent = socketService.sendCommand(SOCKET_EVENTS.RFID_SCAN_FROM_CLIENT, {
-        uid: card.uid,
-        type: 'UNKNOWN',
-        sensorId,
-        timestamp: Date.now(),
-        source: 'web_serial'
-      });
+      const sent = emitFallbackScan(card, sensorId);
 
       if (sent === false) {
         toast.error('No se pudo enviar la respuesta. Comprueba la conexión.');
@@ -844,10 +786,19 @@ export default function GameSession() { // NOSONAR
 
       setSrAnnouncement(`Carta ${card?.assignedValue || card?.uid} seleccionada.`);
     },
-    [gameState, playId, session?.sensorId]
+    [gameState, session?.sensorId, emitFallbackScan]
   );
 
-  // Play again
+  const handleMemoryCardTap = useCallback(
+    slot => {
+      if (gameState !== 'playing' || !slot?.uid) return;
+      setHasTappedBoardOnce(true);
+      const sensorId = session?.sensorId || 'touch_fallback_sensor';
+      emitMemoryCardTap(slot, sensorId);
+    },
+    [gameState, session?.sensorId, emitMemoryCardTap]
+  );
+
   const playAgain = async () => {
     if (!selectedPlayerId) {
       toast.error('No se pudo determinar el alumno para una nueva partida.');
@@ -855,87 +806,63 @@ export default function GameSession() { // NOSONAR
     }
 
     try {
-      const createPlayRes = await playsAPI.createPlay({ sessionId, playerId: selectedPlayerId });
-      const newPlay = extractData(createPlayRes);
-      const nextPlayId = newPlay?.id || newPlay?._id;
+      await leaveAndCreateNewPlay(selectedPlayerId);
 
-      if (!nextPlayId) {
-        throw new Error('No se pudo crear una nueva partida.');
-      }
-
-      if (playId) {
-        socketService.sendCommand(SOCKET_EVENTS.LEAVE_PLAY, { playId });
-      }
-
-      setPlayId(nextPlayId);
-      setGameState('waiting');
+      dispatch({ type: 'RESET' });
       setShowPreCelebration(false);
-      setCurrentRound(1);
-      setScore(0);
-      setCorrectAnswers(0);
       setChallenge(null);
       setMemoryBoard([]);
-      gameFeedback.resetForNewPlay();
-      setIsAwaitingResponse(false);
+      setHasTappedBoardOnce(false);
+      resetForNewPlay();
       setPlaySummary(null);
       setMemoryStats({ attempts: 0, matchedCount: 0, totalCards: 0 });
       setRealtimeError(null);
-
-      socketService.sendCommand(SOCKET_EVENTS.JOIN_PLAY, { playId: nextPlayId });
-      socketService.sendCommand(SOCKET_EVENTS.START_PLAY, { playId: nextPlayId });
     } catch (error) {
       toast.error(extractErrorMessage(error));
     }
   };
 
-  // Go home
   const goHome = () => {
     navigate(ROUTES.DASHBOARD);
   };
 
+  // --- Render ---
+
   if (loadingSession) {
     return (
       <div className="game-bg min-h-screen flex flex-col items-center justify-center gap-6 p-8">
-        <div className="size-20 rounded-2xl bg-purple-500/20 animate-pulse" />
+        <div className="size-20 rounded-2xl bg-brand-base/20 animate-pulse" />
         <div className="space-y-3 w-full max-w-xs">
-          <div className="h-4 rounded-full bg-white/10 animate-pulse" />
-          <div className="h-4 rounded-full bg-white/10 animate-pulse w-3/4 mx-auto" />
+          <div className="h-4 rounded-full bg-border-default animate-pulse" />
+          <div className="h-4 rounded-full bg-border-default animate-pulse w-3/4 mx-auto" />
         </div>
-        <p className="text-slate-400 text-sm">Preparando la sesión de juego…</p>
+        <p className="text-text-muted text-sm">Preparando la sesión de juego…</p>
       </div>
     );
   }
 
   if (sessionError) {
     return (
-      <div className="min-h-screen bg-slate-950 text-white p-8 flex flex-col items-center justify-center gap-6 text-center">
-        <div className="size-16 rounded-full bg-rose-500/20 flex items-center justify-center">
-          <AlertTriangle size={32} className="text-rose-400" />
+      <div className="min-h-screen bg-background-deep text-text-primary p-8 flex flex-col items-center justify-center gap-6 text-center">
+        <div className="size-16 rounded-full bg-error-base/20 flex items-center justify-center">
+          <AlertTriangle size={32} className="text-error-base" />
         </div>
         <h1 className="text-2xl font-bold">No se pudo cargar la sesión</h1>
-        <p className="text-slate-400 max-w-md">{sessionError}</p>
+        <p className="text-text-muted max-w-md">{sessionError}</p>
         <div className="flex gap-3">
           <button
             onClick={() => {
-              const now = Date.now();
-              const elapsed = now - lastRetryAtRef.current;
-              if (elapsed < RETRY_COOLDOWN_MS) {
-                const remaining = Math.ceil((RETRY_COOLDOWN_MS - elapsed) / 1000);
-                toast.info(`Espera ${remaining}s antes de reintentar.`, { id: 'retry-cooldown' });
-                return;
+              if (retryInit()) {
+                setRetryKey(prev => prev + 1);
               }
-              lastRetryAtRef.current = now;
-              initCalledRef.current = false;
-              setSessionError(null);
-              setRetryKey(prev => prev + 1);
             }}
-            className="px-5 py-3 rounded-xl bg-purple-500 hover:bg-purple-400 transition-colors"
+            className="px-5 py-3 rounded-xl bg-brand-base hover:bg-brand-light transition-colors"
           >
             Reintentar
           </button>
           <button
             onClick={goHome}
-            className="px-5 py-3 rounded-xl bg-slate-700 hover:bg-slate-600 transition-colors"
+            className="px-5 py-3 rounded-xl bg-background-surface hover:bg-background-elevated transition-colors"
           >
             Volver al Dashboard
           </button>
@@ -944,19 +871,16 @@ export default function GameSession() { // NOSONAR
     );
   }
 
-  const playAttempts = isMemoryMode ? memoryStats.attempts : Math.max(0, currentRound - 1);
-  const playErrors = Math.max(0, playAttempts - correctAnswers);
-
   return (
     <ErrorBoundary
       fallback={
         <div className="game-bg min-h-screen flex flex-col items-center justify-center gap-4 p-8 text-center">
           <div className="text-6xl">😵</div>
-          <h1 className="text-2xl font-bold text-white">Algo salió mal en el juego</h1>
-          <p className="text-slate-400 max-w-md">Ocurrió un error inesperado durante la partida.</p>
+          <h1 className="text-2xl font-bold text-text-primary">Algo salió mal en el juego</h1>
+          <p className="text-text-muted max-w-md">Ocurrió un error inesperado durante la partida.</p>
           <button
             onClick={goHome}
-            className="px-5 py-3 rounded-xl bg-indigo-500 hover:bg-indigo-400 transition-colors text-white"
+            className="px-5 py-3 rounded-xl bg-accent-indigo hover:bg-accent-indigo/80 transition-colors text-text-primary"
           >
             Volver al Dashboard
           </button>
@@ -967,69 +891,122 @@ export default function GameSession() { // NOSONAR
       <output className="sr-only" aria-live="polite" aria-atomic="true">
         {srAnnouncement}
       </output>
-      {/* Animated background elements */}
-      <div className="absolute inset-0 overflow-hidden pointer-events-none">
-        <div className={cn('absolute top-20 left-10 w-64 h-64 bg-purple-500/10 rounded-full blur-[100px]', !shouldReduceMotion && 'animate-float')} />
-        <div className={cn('absolute bottom-20 right-10 w-80 h-80 bg-cyan-500/10 rounded-full blur-[100px]', !shouldReduceMotion && 'animate-float')} style={{ animationDelay: shouldReduceMotion ? '0s' : '1s' }} />
-        <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[600px] h-[600px] bg-pink-500/5 rounded-full blur-[120px]" />
-      </div>
+      {/* Backdrop tematizado por contexto: gradient mesh + patron de puntos +
+          iconos decorativos. Sustituye los orbes neutros anteriores para que
+          cada contexto (geografia/animales/colores/numeros) tenga atmosfera
+          propia y se distinga visualmente del resto de la app admin. */}
+      <GameBackdrop
+        theme={resolveAssociationTheme(
+          challenge?.value || session?.context?.name || session?.deck?.name
+        )}
+      />
 
-      {/* Top HUD */}
-      <header className="relative z-10 p-2 sm:p-3 shrink-0">
+      {/* Top HUD — z-index ligeramente por encima de los wrappers hermanos
+          (TimerBar / banners realtime, todos a z-10) para que los tooltips de
+          los botones del HUD (Silenciar, Pausar) no queden tapados por la
+          barra de tiempo cuando se renderizan en el lado bottom. Se mantiene
+          por debajo del overlay de pausa (z-20) para que la pausa siga
+          ocultando el HUD durante el dialog modal. */}
+      <header className="relative z-[15] p-2 sm:p-3 shrink-0">
         <div className="glass rounded-2xl p-2.5 sm:p-3 flex items-center justify-between gap-3">
-          {/* Round indicator */}
+          {/* Indicador de progreso — dots visuales para niños (en vez de "3 de 6").
+              - Asociacion: 1 dot por ronda; el actual pulsa y los completados estan llenos
+              - Memoria: 1 dot por pareja; se iluminan a medida que se emparejan */}
           <div className="flex items-center gap-3">
-            <motion.div
-              key={currentRound}
-              initial={shouldReduceMotion ? false : { scale: 0 }}
-              animate={{ scale: 1 }}
-              className="size-12 rounded-xl bg-gradient-to-br from-purple-500 to-indigo-600 flex items-center justify-center shadow-lg shadow-purple-500/30"
+            <div
+              className="flex items-center gap-1.5"
+              role="progressbar"
+              aria-label={sessionIsMemory ? 'Progreso de parejas' : 'Progreso de rondas'}
+              aria-valuenow={sessionIsMemory ? Math.floor((memoryStats.matchedCount || 0) / 2) : currentRound}
+              aria-valuemin={0}
+              aria-valuemax={sessionIsMemory ? Math.floor((memoryStats.totalCards || 0) / 2) : totalRounds}
             >
-              <span className="text-2xl font-bold font-display text-white">{currentRound}</span>
-            </motion.div>
-            <div className="hidden sm:block">
-              <div className="text-xs text-slate-500 uppercase tracking-wider">Ronda</div>
-              <div className="text-sm text-white font-medium">{currentRound} de {totalRounds}</div>
+              {(() => {
+                const total = sessionIsMemory
+                  ? Math.floor((memoryStats.totalCards || 0) / 2)
+                  : totalRounds;
+                const current = sessionIsMemory
+                  ? Math.floor((memoryStats.matchedCount || 0) / 2)
+                  : currentRound;
+                return Array.from({ length: Math.max(1, total) }).map((_, i) => {
+                  const isCompleted = i + 1 < current;
+                  const isCurrent = i + 1 === current;
+                  return (
+                    <motion.span
+                      key={`round-dot-${i}`}
+                      className={cn(
+                        'block h-2.5 rounded-full transition-[background-color,width]',
+                        isCurrent && 'w-6 bg-gradient-to-r from-brand-base to-accent-indigo shadow-[0_0_8px_var(--color-brand-glow)]',
+                        isCompleted && 'w-2.5 bg-success-base/80',
+                        !isCurrent && !isCompleted && 'w-2.5 bg-background-surface/60'
+                      )}
+                      animate={
+                        isCurrent && !shouldReduceMotion
+                          ? { opacity: [1, 0.6, 1], scale: [1, 1.12, 1] }
+                          : { opacity: 1, scale: 1 }
+                      }
+                      transition={{ duration: 1.4, repeat: isCurrent ? Infinity : 0, ease: 'easeInOut' }}
+                      aria-hidden="true"
+                    />
+                  );
+                });
+              })()}
             </div>
+            {sessionIsMemory ? (
+              <div className="hidden sm:block">
+                <div className="text-[10px] text-text-disabled uppercase tracking-wider">Parejas</div>
+                <div className="text-sm text-text-primary font-bold font-display">
+                  {Math.floor((memoryStats.matchedCount || 0) / 2)}
+                  <span className="text-text-muted font-normal"> / {Math.floor((memoryStats.totalCards || 0) / 2)}</span>
+                </div>
+              </div>
+            ) : (
+              <div className="hidden sm:block">
+                <div className="text-[10px] text-text-disabled uppercase tracking-wider">Ronda</div>
+                <div className="text-sm text-text-primary font-bold font-display">
+                  {currentRound}
+                  <span className="text-text-muted font-normal"> / {totalRounds}</span>
+                </div>
+              </div>
+            )}
           </div>
 
-          {/* Center - Score */}
+          {/* Centro - Puntuación */}
           <ScoreDisplayCompact score={score} />
 
-          {/* Right - Controls */}
+          {/* Derecha - Controles */}
           <div className="flex items-center gap-2 sm:gap-3">
-            {/* Sound toggle */}
-            <button
-              onClick={() => setSoundEnabled(!soundEnabled)}
-              className={cn(
-                "p-2.5 min-w-10 min-h-10 rounded-lg transition-all active:scale-95",
-                soundEnabled ? "bg-white/10 text-white" : "bg-white/5 text-slate-500"
-              )}
-              aria-pressed={soundEnabled}
-              aria-label={soundEnabled ? 'Silenciar' : 'Activar sonido'}
-              title={soundEnabled ? 'Silenciar' : 'Activar sonido'}
-            >
-              {soundEnabled ? <Volume2 size={20} /> : <VolumeX size={20} />}
-            </button>
-
-            {/* Pause button */}
-            {gameState === 'playing' || gameState === 'paused' ? (
+            <Tooltip content={soundEnabled ? 'Silenciar' : 'Activar sonido'}>
               <button
-                onClick={togglePause}
-                ref={pauseButtonRef}
-                className="p-2.5 min-w-10 min-h-10 rounded-lg bg-white/10 text-white hover:bg-white/20 active:scale-95 active:bg-white/25 transition-all"
-                aria-pressed={gameState === 'paused'}
-                aria-label={gameState === 'paused' ? 'Reanudar' : 'Pausar'}
-                title={gameState === 'paused' ? 'Reanudar' : 'Pausar'}
+                onClick={() => setSoundEnabled(!soundEnabled)}
+                className={cn(
+                  "p-2.5 min-w-10 min-h-10 rounded-lg transition-[background-color,color,transform] active:scale-95",
+                  soundEnabled ? "bg-border-default text-text-primary" : "bg-border-subtle text-text-disabled"
+                )}
+                aria-pressed={soundEnabled}
+                aria-label={soundEnabled ? 'Silenciar' : 'Activar sonido'}
               >
-                {gameState === 'paused' ? <Play size={20} /> : <Pause size={20} />}
+                {soundEnabled ? <Volume2 size={20} /> : <VolumeX size={20} />}
               </button>
+            </Tooltip>
+
+            {gameState === 'playing' || gameState === 'paused' ? (
+              <Tooltip content={gameState === 'paused' ? 'Reanudar' : 'Pausar'}>
+                <button
+                  onClick={togglePause}
+                  ref={pauseButtonRef}
+                  className="p-2.5 min-w-10 min-h-10 rounded-lg bg-border-default text-text-primary hover:bg-border-strong active:scale-95 active:bg-border-strong transition-[background-color,color,transform]"
+                  aria-pressed={gameState === 'paused'}
+                  aria-label={gameState === 'paused' ? 'Reanudar' : 'Pausar'}
+                >
+                  {gameState === 'paused' ? <Play size={20} /> : <Pause size={20} />}
+                </button>
+              </Tooltip>
             ) : null}
 
-            {/* RFID status */}
             <div className={cn(
               "p-2 rounded-lg",
-              rfidConnected ? "bg-emerald-500/20 text-emerald-400" : "bg-rose-500/20 text-rose-400"
+              rfidConnected ? "bg-success-base/20 text-success-base" : "bg-error-base/20 text-error-base"
             )}>
               <output className="sr-only" aria-live="polite">
                 {rfidConnected ? 'Sensor RFID conectado' : 'Sensor RFID desconectado'}
@@ -1037,21 +1014,61 @@ export default function GameSession() { // NOSONAR
               {rfidConnected ? <Wifi size={20} /> : <WifiOff size={20} />}
             </div>
 
+            {/* Chip de estado: durante la partida cambia de "Juego listo" a
+                "Jugando" con pulso verde para reforzar que la partida esta
+                activa (feedback ambiental para niño y profesor). Durante la
+                pausa mostramos "Pausado" para coherencia con el overlay y
+                evitar el confuso "Juego listo" que el usuario interpreta
+                como "ya puedes jugar". */}
             <div className={cn(
-              'px-3 py-1.5 rounded-lg text-xs font-semibold uppercase tracking-wide',
-              realtimeStatus === 'connected' && 'bg-emerald-500/20 text-emerald-300',
-              realtimeStatus === 'reconnecting' && 'bg-amber-500/20 text-amber-300',
-              realtimeStatus === 'disconnected' && 'bg-rose-500/20 text-rose-300',
-              realtimeStatus === 'connecting' && 'bg-slate-700/70 text-slate-200'
+              'px-3 py-1.5 rounded-lg text-xs font-semibold uppercase tracking-wide inline-flex items-center gap-1.5',
+              realtimeStatus === 'connected' && gameState === 'paused' && 'bg-warning-base/20 text-warning-base',
+              realtimeStatus === 'connected' && gameState !== 'paused' && 'bg-success-base/20 text-success-base',
+              realtimeStatus === 'reconnecting' && 'bg-warning-base/20 text-warning-base',
+              realtimeStatus === 'disconnected' && 'bg-error-base/20 text-error-base',
+              realtimeStatus === 'connecting' && 'bg-background-surface/70 text-text-secondary'
             )}>
               <output className="sr-only" aria-live="polite" aria-atomic="true">
-                {REALTIME_STATUS_COPY[realtimeStatus]?.announcement || 'Conectando el juego.'}
+                {gameState === 'paused'
+                  ? 'Partida pausada.'
+                  : (REALTIME_STATUS_COPY[realtimeStatus]?.announcement || 'Conectando el juego.')}
               </output>
-              {realtimeStatus === 'connected' && '✅ '}
-              {realtimeStatus === 'reconnecting' && '⏳ '}
-              {realtimeStatus === 'disconnected' && '❌ '}
-              {realtimeStatus === 'connecting' && '⏳ '}
-              {REALTIME_STATUS_COPY[realtimeStatus]?.label || 'Conectando'}
+              {(() => {
+                if (realtimeStatus === 'connected' && gameState === 'playing') {
+                  return (
+                    <>
+                      <motion.span
+                        aria-hidden="true"
+                        className="inline-block size-2 rounded-full bg-success-base"
+                        animate={
+                          shouldReduceMotion
+                            ? undefined
+                            : { opacity: [1, 0.35, 1], scale: [1, 1.3, 1] }
+                        }
+                        transition={{ duration: 1.2, repeat: Infinity, ease: 'easeInOut' }}
+                      />
+                      Jugando
+                    </>
+                  );
+                }
+                if (realtimeStatus === 'connected' && gameState === 'paused') {
+                  return (
+                    <>
+                      <span aria-hidden="true" className="inline-block size-2 rounded-full bg-warning-base" />
+                      Pausado
+                    </>
+                  );
+                }
+                return (
+                  <>
+                    {realtimeStatus === 'connected' && '✅ '}
+                    {realtimeStatus === 'reconnecting' && '⏳ '}
+                    {realtimeStatus === 'disconnected' && '❌ '}
+                    {realtimeStatus === 'connecting' && '⏳ '}
+                    {REALTIME_STATUS_COPY[realtimeStatus]?.label || 'Conectando…'}
+                  </>
+                );
+              })()}
             </div>
           </div>
         </div>
@@ -1065,23 +1082,32 @@ export default function GameSession() { // NOSONAR
 
       {realtimeError && (
         <div className="relative z-10 px-3 sm:px-4 mt-1 shrink-0">
-          <div className="max-w-4xl mx-auto rounded-lg border border-amber-400/30 bg-amber-500/10 px-3 py-2 text-xs text-amber-100">
-            {realtimeError.message}
-          </div>
+          {realtimeError.retryAfterMs ? (
+            // PROP-92: rate-limit / dedupe → banner con countdown que se vacía solo.
+            <RateLimitBanner
+              retryAfterMs={realtimeError.retryAfterMs}
+              message={realtimeError.message}
+              onDismiss={() => setRealtimeError(null)}
+            />
+          ) : (
+            <div className="max-w-4xl mx-auto rounded-lg border border-warning-base/30 bg-warning-base/10 px-3 py-2 text-xs text-warning-base">
+              {realtimeError.message}
+            </div>
+          )}
         </div>
       )}
 
-      {/* Timer Bar */}
       {(gameState === 'playing' || gameState === 'paused') && (
         <div className="relative z-10 px-3 sm:px-4 mb-1 shrink-0">
-          <TimerBar timeLeft={timeLeft} timeLimit={roundTime} shouldReduceMotion={shouldReduceMotion} />
+          <TimerBar timeLeft={timeLeft} timeLimit={roundTime} />
         </div>
       )}
 
-      {/* Main Game Area */}
-      <main className="flex-1 min-h-0 relative z-10 flex items-center justify-center p-2 sm:p-4 overflow-y-auto">
+      {/* Área principal del juego — sin scroll: el contenido entero debe caber en la ventana.
+          Si el contenido se comprime por pantalla pequeña, el ChallengeDisplay
+          y el FallbackTouchPanel usan min-h-0 y tamaños relativos para adaptarse. */}
+      <main className="flex-1 min-h-0 relative z-10 flex items-center justify-center px-2 py-1 sm:px-4 sm:py-2 overflow-hidden">
         <AnimatePresence mode="wait">
-          {/* Waiting screen */}
           {gameState === 'waiting' && (
             <motion.div
               key="waiting"
@@ -1100,7 +1126,7 @@ export default function GameSession() { // NOSONAR
               <h1 className="text-4xl sm:text-5xl font-bold font-display gradient-text-brand mb-4">
                 ¡Hora de Jugar!
               </h1>
-              <p className="text-slate-400 mb-8 text-lg">
+              <p className="text-text-muted mb-8 text-lg">
                 {session?.deck?.name
                   ? `Busca la tarjeta amiga en ${session.deck.name}`
                   : 'Encuentra la tarjeta amiga'}
@@ -1118,76 +1144,116 @@ export default function GameSession() { // NOSONAR
             </motion.div>
           )}
 
-          {/* Playing / Paused screen */}
           {(gameState === 'playing' || gameState === 'paused') && (
             <motion.div
               key="playing"
               initial={shouldReduceMotion ? false : { opacity: 0 }}
               animate={{ opacity: 1 }}
               exit={{ opacity: 0 }}
-              className="w-full max-w-2xl flex flex-col items-center"
+              className={cn(
+                // Memoria necesita mas ancho para el grid de 4 cols; asociacion
+                // tambien aprovecha anchura para que consigna y grid de respuestas
+                // sean mas legibles (antes con max-w-2xl quedaba mucho aire
+                // lateral, detectado en QA 2026-04-23).
+                // Ambas mecanicas usan h-full para que su contenido pueda ocupar
+                // el alto disponible y se evite scroll durante la partida.
+                'w-full flex flex-col items-center h-full',
+                sessionIsMemory ? 'max-w-5xl' : 'max-w-4xl justify-center gap-4',
+                shakeError && 'animate-shake'
+              )}
             >
-              {/* Challenge display */}
-              {isMemoryMode ? (
+              {sessionIsMemory ? (
                 <MemoryGameplayPanel
                   board={memoryBoard}
                   attempts={memoryStats.attempts}
                   matchedCount={memoryStats.matchedCount}
                   totalCards={memoryStats.totalCards}
-                  feedbackState={gameFeedback.feedbackState}
-                  feedbackPoints={gameFeedback.feedbackPoints}
-                  feedbackMessage={gameFeedback.feedbackMessage}
-                  shouldReduceMotion={shouldReduceMotion}
+                  feedbackState={feedbackState}
+                  feedbackPoints={feedbackPoints}
+                  feedbackMessage={feedbackMessage}
+                  onCardTap={handleMemoryCardTap}
                 />
               ) : (
                 <AssociationGameplayPanel
                   ref={gameFeedback.challengeRef}
                   challenge={challenge}
                   paused={gameState === 'paused'}
-                  feedbackState={gameFeedback.feedbackState}
-                  feedbackPoints={gameFeedback.feedbackPoints}
-                  feedbackMessage={gameFeedback.feedbackMessage}
-                  isTimeout={gameFeedback.isTimeout}
-                  shouldReduceMotion={shouldReduceMotion}
+                  feedbackState={feedbackState}
+                  feedbackPoints={feedbackPoints}
+                  feedbackMessage={feedbackMessage}
+                  isTimeout={feedbackIsTimeout}
                 />
               )}
 
-              {/* Instruction text */}
               <motion.p
                 initial={shouldReduceMotion ? false : { opacity: 0, y: 20 }}
                 animate={{ opacity: 1, y: 0 }}
                 transition={{ delay: shouldReduceMotion ? 0 : 0.3 }}
-                className="mt-3 text-center text-slate-200 text-base font-semibold"
+                className="mt-2 text-center text-text-secondary text-sm sm:text-base font-semibold"
               >
-                {isMemoryMode ? (
-                  <>Encuentra las parejas antes de que se termine el tiempo.</>
-                ) : (
-                  <>
-                    Busca <span className="text-white font-bold">{challenge?.value || 'la tarjeta correcta'}</span>
-                  </>
-                )}
+                {(() => {
+                  if (sessionIsMemory) {
+                    return <>¡Encuentra las parejas antes de que se acabe el tiempo!</>;
+                  }
+                  // Consigna personalizada del profesor si la definió en el wizard.
+                  if (challenge?.promptText) {
+                    return (
+                      <>
+                        <Search className="inline mr-1 -mt-0.5" size={16} aria-hidden="true" />
+                        {challenge.promptText}
+                      </>
+                    );
+                  }
+                  // Frase neutra sin artículo: el español requiere concordancia
+                  // de género (el/la) que depende de la palabra; usar "la" hardcoded
+                  // produce "la Cerdo", "la Caballo", "la Pato" (QA v0.5.0).
+                  return (
+                    <>
+                      <Search className="inline mr-1 -mt-0.5" size={16} aria-hidden="true" />
+                      Encuentra: <span className="text-text-primary font-bold">{challenge?.value || 'tarjeta correcta'}</span>
+                    </>
+                  );
+                })()}
               </motion.p>
 
-              {!rfidConnected && (
+              {!rfidConnected && !sessionIsMemory && (
                 <FallbackTouchPanel
-                  cards={fallbackCards}
-                  onSelectCard={emitFallbackCardScan}
+                  cards={shuffledFallbackCards}
+                  round={currentRound}
+                  onSelectCard={handleFallbackCardScan}
                   onPauseRequest={togglePause}
                   canPause={gameState === 'playing'}
                 />
+              )}
+
+              {!rfidConnected && sessionIsMemory && !hasTappedBoardOnce && (
+                <motion.div
+                  className="mt-2 rounded-lg border border-accent-indigo/25 bg-accent-indigo/5 px-3 py-1.5"
+                  initial={shouldReduceMotion ? false : { opacity: 0, y: 4 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  exit={shouldReduceMotion ? { opacity: 0 } : { opacity: 0, y: -4 }}
+                  transition={{ duration: 0.2 }}
+                >
+                  <div className="flex items-center gap-2 text-text-secondary">
+                    <Hand size={14} className="shrink-0 text-accent-indigo" aria-hidden="true" />
+                    <p className="text-xs font-medium">Toca las cartas del tablero para jugar</p>
+                  </div>
+                </motion.div>
               )}
             </motion.div>
           )}
         </AnimatePresence>
 
-        {/* Paused overlay */}
+        {/* Overlay de pausa — diseno mas expresivo con icono Lucide, vignette y
+            spring entry + micro-flash "Seguimos" al reanudar que confirma la accion. */}
         <AnimatePresence>
           {gameState === 'paused' && (
             <motion.div
               initial={shouldReduceMotion ? false : { opacity: 0 }}
               animate={{ opacity: 1 }}
               exit={{ opacity: 0 }}
-              className="absolute inset-0 bg-slate-900/80 backdrop-blur-md flex items-center justify-center z-20"
+              transition={{ duration: 0.2, ease: 'easeOut' }}
+              className="absolute inset-0 bg-background-deep/85 backdrop-blur-md flex items-center justify-center z-20"
               role="dialog"
               aria-modal="true"
               aria-labelledby="pause-title"
@@ -1195,13 +1261,27 @@ export default function GameSession() { // NOSONAR
               onKeyDown={handlePauseDialogKeyDown}
             >
               <motion.div
-                initial={shouldReduceMotion ? false : { scale: 0.9 }}
-                animate={{ scale: 1 }}
-                className="text-center"
+                initial={shouldReduceMotion ? false : { scale: 0.92, y: 8, opacity: 0 }}
+                animate={{ scale: 1, y: 0, opacity: 1 }}
+                transition={{ type: 'spring', stiffness: 340, damping: 24 }}
+                className="text-center px-6"
               >
-                <div className="text-6xl mb-4">⏸️</div>
-                <h2 id="pause-title" className="text-3xl font-bold text-white mb-2">Juego pausado</h2>
-                <p id="pause-description" className="text-slate-300 mb-4">Pulsa continuar para volver al juego.</p>
+                <div className={cn(
+                  'mx-auto mb-5 flex size-20 items-center justify-center rounded-2xl',
+                  'bg-brand-base/15 border border-brand-base/30',
+                  'shadow-[0_0_32px_var(--color-brand-glow)]'
+                )}>
+                  <Pause size={44} className="text-brand-light" aria-hidden="true" />
+                </div>
+                <h2
+                  id="pause-title"
+                  className="text-3xl font-bold font-display gradient-text-brand mb-2 tracking-tight"
+                >
+                  Juego pausado
+                </h2>
+                <p id="pause-description" className="text-text-secondary mb-6">
+                  Pulsa continuar para volver al juego.
+                </p>
                 <motion.button
                   whileHover={shouldReduceMotion ? {} : { scale: 1.05 }}
                   whileTap={shouldReduceMotion ? {} : { scale: 0.95 }}
@@ -1216,60 +1296,71 @@ export default function GameSession() { // NOSONAR
             </motion.div>
           )}
         </AnimatePresence>
+
+        {/* Micro-flash al reanudar: feedback breve de que la accion se aplico. */}
+        <AnimatePresence>
+          {showResumeFlash && !shouldReduceMotion && (
+            <motion.div
+              aria-hidden="true"
+              className="pointer-events-none absolute inset-0 z-20 flex items-center justify-center"
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              transition={{ duration: 0.12, ease: 'easeOut' }}
+            >
+              <motion.div
+                initial={{ scale: 0.8, opacity: 0 }}
+                animate={{ scale: 1, opacity: 1 }}
+                exit={{ scale: 1.15, opacity: 0 }}
+                transition={{ duration: 0.35, ease: EASING.outExpo }}
+                className={cn(
+                  'flex size-20 items-center justify-center rounded-full',
+                  'bg-success-base/20 border-2 border-success-base/60',
+                  'shadow-[0_0_28px_var(--color-success-glow)]'
+                )}
+              >
+                <Play size={36} className="text-success-base" aria-hidden="true" fill="currentColor" />
+              </motion.div>
+            </motion.div>
+          )}
+        </AnimatePresence>
       </main>
 
-      {/* Character Mascot */}
-      <div className="fixed bottom-4 left-3 sm:left-6 z-20 scale-90 origin-bottom-left">
+      {/* Mascota — elevada sobre el footer con `bottom-24` para quedar siempre
+          visible independientemente de la altura del footer de métricas
+          (detectado en QA 2026-04-23: con `bottom-4` la mascota colisionaba
+          con el footer en viewports pequeños y se percibía como "desaparecida").
+          Scale completo ahora que tiene espacio reservado. */}
+      <div className="fixed bottom-24 left-4 sm:left-6 z-20 origin-bottom-left pointer-events-none">
         <CharacterMascot
-          mood={gameFeedback.mascotMood}
-          message={gameFeedback.mascotMessage || undefined}
+          mood={mascotMood}
+          message={mascotMessage || undefined}
           position="left"
-          shouldReduceMotion={shouldReduceMotion}
         />
       </div>
 
-      {/* Round progress dots */}
+      {/* Footer: solo metricas — el progreso de rondas vive en el header como
+          dots (ver header). Eliminamos el indicador redundante del footer y la
+          barra secundaria para dejar que el gameplay ocupe el espacio vertical. */}
       {(gameState === 'playing' || gameState === 'paused') && (
-        <footer className="relative z-10 px-3 py-2 sm:px-4 sm:py-2 shrink-0">
+        <footer className="relative z-10 px-3 py-1.5 sm:px-4 shrink-0">
           <CurrentPlayMetrics
-            mode={isMemoryMode ? 'memory' : 'association'}
+            mode={sessionIsMemory ? 'memory' : 'association'}
             score={score}
             correctAnswers={correctAnswers}
-            errors={playErrors}
-            attempts={playAttempts}
+            totalRounds={totalRounds}
           />
-          <div
-            className="flex justify-center items-center gap-2"
-            aria-label={`Progreso: ronda ${currentRound} de ${totalRounds}`}
-          >
-            {roundIndicators.map(roundNumber => (
-              <motion.div
-                key={`round-${roundNumber}`}
-                initial={shouldReduceMotion ? false : { scale: 0 }}
-                animate={{ scale: 1 }}
-                transition={{ delay: shouldReduceMotion ? 0 : (roundNumber - 1) * 0.05 }}
-                className={cn(
-                  "size-3.5 rounded-full transition-all duration-300",
-                  roundNumber < currentRound && "bg-emerald-500 shadow-lg shadow-emerald-500/50",
-                  roundNumber === currentRound && "bg-purple-500 shadow-lg shadow-purple-500/50 scale-125",
-                  roundNumber > currentRound && "bg-slate-700"
-                )}
-              />
-            ))}
-          </div>
         </footer>
       )}
 
-      {/* Feedback is now rendered inline in ChallengeDisplay / MemoryBoard */}
-
-      {/* Pre-GameOver celebration */}
+      {/* Celebración previa a GameOver */}
       <AnimatePresence>
         {showPreCelebration && (
           <motion.div
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
-            className="fixed inset-0 z-40 flex items-center justify-center bg-slate-900/60 backdrop-blur-sm"
+            className="fixed inset-0 z-40 flex items-center justify-center bg-background-base/60 backdrop-blur-sm"
           >
             <motion.div
               initial={{ scale: 0.5, opacity: 0 }}
@@ -1288,7 +1379,7 @@ export default function GameSession() { // NOSONAR
                 initial={{ opacity: 0, y: 20 }}
                 animate={{ opacity: 1, y: 0 }}
                 transition={{ delay: 0.3 }}
-                className="text-3xl font-bold text-white font-display"
+                className="text-3xl font-bold text-text-primary font-display"
               >
                 ¡Partida completada!
               </motion.p>
@@ -1297,360 +1388,22 @@ export default function GameSession() { // NOSONAR
         )}
       </AnimatePresence>
 
-      {/* Game Over Screen */}
+      {/* Pantalla de fin de partida. Usamos el `correctAnswers` del summary
+          (origen backend cuando esta disponible) en lugar del estado local
+          del reducer, para eludir el race entre `response_*` y `game_over`
+          que dejaba ese contador 1 unidad por debajo del valor real. */}
       {gameState === 'finished' && (
         <GameOverScreen
           score={score}
-          correctAnswers={correctAnswers}
+          correctAnswers={playSummary?.correctAnswers ?? correctAnswers}
           totalRounds={totalRounds}
           bestScore={bestScore}
           summary={playSummary}
           onPlayAgain={playAgain}
           onGoHome={goHome}
-          shouldReduceMotion={shouldReduceMotion}
         />
       )}
     </div>
     </ErrorBoundary>
   );
 }
-
-const AssociationGameplayPanel = memo(function AssociationGameplayPanel({
-  ref, challenge, paused, feedbackState, feedbackPoints, feedbackMessage, isTimeout, shouldReduceMotion
-}) {
-  const resolveAssociationTheme = challengeValue => {
-    const challengeKey = (challengeValue || '').toLowerCase();
-
-    if (challengeKey.includes('animal')) {
-      return 'animals';
-    }
-
-    if (challengeKey.includes('color')) {
-      return 'colors';
-    }
-
-    if (challengeKey.includes('número') || challengeKey.includes('numero')) {
-      return 'numbers';
-    }
-
-    return 'default';
-  };
-
-  const challengeKey = (challenge?.key || challenge?.value || '').toLowerCase();
-  const contextTheme = resolveAssociationTheme(challengeKey);
-
-  return (
-    <ChallengeDisplay
-      ref={ref}
-      asset={challenge}
-      revealed={!paused}
-      contextTheme={contextTheme}
-      feedbackState={feedbackState}
-      feedbackPoints={feedbackPoints}
-      feedbackMessage={feedbackMessage}
-      isTimeout={isTimeout}
-      className="w-full"
-      shouldReduceMotion={shouldReduceMotion}
-    />
-  );
-});
-
-AssociationGameplayPanel.propTypes = {
-  challenge: PropTypes.object,
-  paused: PropTypes.bool,
-  feedbackState: PropTypes.oneOf(['idle', 'success', 'error']),
-  feedbackPoints: PropTypes.number,
-  feedbackMessage: PropTypes.string,
-  isTimeout: PropTypes.bool,
-  shouldReduceMotion: PropTypes.bool
-};
-
-const MemoryGameplayPanel = memo(function MemoryGameplayPanel({
-  board, attempts, matchedCount, totalCards,
-  feedbackState, feedbackPoints, feedbackMessage, shouldReduceMotion
-}) {
-  const totalPairs = Math.max(1, Math.ceil(Number(totalCards || 0) / 2));
-  const matchedPairs = Math.max(0, Math.floor(Number(matchedCount || 0) / 2));
-  const isSuccess = feedbackState === 'success';
-  const isError = feedbackState === 'error';
-
-  return (
-    <div className="w-full space-y-4 relative">
-      {/* Stats bar with reactive feedback */}
-      <div className="mx-auto max-w-4xl rounded-xl border border-white/10 bg-slate-900/40 px-4 py-3 text-sm text-slate-200 flex flex-wrap items-center justify-between gap-3">
-        <motion.span
-          animate={isError ? { color: ['#e2e8f0', '#fb7185', '#e2e8f0'] } : {}}
-          transition={{ duration: 0.6 }}
-        >
-          Intentos: <strong>{attempts}</strong>
-        </motion.span>
-        <motion.span
-          animate={isSuccess ? { color: ['#e2e8f0', '#34d399', '#e2e8f0'] } : {}}
-          transition={{ duration: 0.6 }}
-        >
-          Parejas encontradas: <strong>{matchedPairs}/{totalPairs}</strong>
-        </motion.span>
-      </div>
-      <MemoryBoard
-        board={board}
-        feedbackState={feedbackState}
-        feedbackPoints={feedbackPoints}
-        feedbackMessage={feedbackMessage}
-        shouldReduceMotion={shouldReduceMotion}
-      />
-    </div>
-  );
-});
-
-MemoryGameplayPanel.propTypes = {
-  board: PropTypes.array,
-  attempts: PropTypes.number,
-  matchedCount: PropTypes.number,
-  totalCards: PropTypes.number,
-  feedbackState: PropTypes.oneOf(['idle', 'success', 'error']),
-  feedbackPoints: PropTypes.number,
-  feedbackMessage: PropTypes.string,
-  shouldReduceMotion: PropTypes.bool
-};
-
-const CurrentPlayMetrics = memo(function CurrentPlayMetrics({ mode, score, correctAnswers, errors, attempts }) {
-  const safeAttempts = Math.max(1, attempts || 0);
-
-  return (
-    <div className="mb-1.5 max-w-4xl mx-auto rounded-lg border border-white/10 bg-slate-900/30 px-3 py-1.5">
-      <div className="grid grid-cols-3 gap-2 text-xs">
-        <MetricPill label="⭐ Puntos" value={score} />
-        <MetricPill label="✅ Aciertos" value={correctAnswers} />
-        <MetricPill
-          label={mode === 'memory' ? '🧠 Parejas' : '🎯 Intentos'}
-          value={mode === 'memory' ? `${correctAnswers}` : `${safeAttempts - errors}/${safeAttempts}`}
-        />
-      </div>
-    </div>
-  );
-});
-
-CurrentPlayMetrics.propTypes = {
-  mode: PropTypes.string,
-  score: PropTypes.number,
-  correctAnswers: PropTypes.number,
-  errors: PropTypes.number,
-  attempts: PropTypes.number
-};
-
-function MetricPill({ label, value }) {
-  return (
-    <div className="rounded-md bg-slate-800/60 border border-white/5 px-2 py-1">
-      <div className="text-[11px] tracking-wide text-slate-300">{label}</div>
-      <div className="text-white text-sm font-semibold">{value}</div>
-    </div>
-  );
-}
-
-MetricPill.propTypes = {
-  label: PropTypes.string,
-  value: PropTypes.oneOfType([PropTypes.string, PropTypes.number])
-};
-
-function resolveMemoryColumns(totalCards) {
-  if (totalCards <= 6) {
-    return 3;
-  }
-
-  if (totalCards <= 12) {
-    return 4;
-  }
-
-  return 5;
-}
-
-function getMemorySlotClasses(isMatched, isOpen) {
-  if (isMatched) {
-    return 'border-emerald-500/70 bg-emerald-500/20';
-  }
-
-  if (isOpen) {
-    return 'border-indigo-400/60 bg-indigo-500/20';
-  }
-
-  return 'border-slate-700 bg-slate-800/60';
-}
-
-function MemoryBoard({ board, feedbackState, feedbackPoints, feedbackMessage, shouldReduceMotion }) {
-  const safeBoard = Array.isArray(board) ? [...board].sort((a, b) => a.slotIndex - b.slotIndex) : [];
-  const total = safeBoard.length;
-  const columns = resolveMemoryColumns(total);
-  const [prevBoard, setPrevBoard] = useState([]);
-
-  // Detect which slots just changed (newly matched or revealed for feedback)
-  const feedbackSlots = new Set();
-  if (feedbackState !== 'idle') {
-    for (const slot of safeBoard) {
-      const prev = prevBoard.find(p => p.slotIndex === slot.slotIndex);
-      if (!prev) continue;
-      // Newly matched
-      if (slot.isMatched && !prev.isMatched) {
-        feedbackSlots.add(slot.slotIndex);
-      }
-      // Newly revealed (for mismatch shake)
-      if (feedbackState === 'error' && slot.isRevealed && !slot.isMatched) {
-        feedbackSlots.add(slot.slotIndex);
-      }
-    }
-  }
-
-  // Actualizar snapshot del board anterior tras cada cambio de board
-  useEffect(() => {
-    setPrevBoard(safeBoard.map(s => ({ slotIndex: s.slotIndex, isMatched: s.isMatched, isRevealed: s.isRevealed })));
-  }, [board]); // eslint-disable-line react-hooks/exhaustive-deps
-
-  const isSuccess = feedbackState === 'success';
-
-  return (
-    <div className="w-full max-w-4xl rounded-2xl border border-white/10 bg-slate-900/30 p-4 sm:p-6 relative">
-      <div className="mb-4 text-center text-sm text-slate-400">Tablero de Memoria</div>
-
-      {/* Floating badge for match */}
-      {isSuccess && (
-        <div className="absolute -top-5 left-1/2 -translate-x-1/2 z-30">
-          <FloatingPointsBadge
-            type="success"
-            points={feedbackPoints}
-            message={feedbackMessage}
-            shouldReduceMotion={shouldReduceMotion}
-          />
-        </div>
-      )}
-
-      <div
-        className="grid gap-3"
-        style={{ gridTemplateColumns: `repeat(${columns}, minmax(0, 1fr))` }}
-        role="grid"
-        aria-label="Tablero de memoria"
-      >
-        {safeBoard.map(slot => {
-          const isOpen = Boolean(slot.isRevealed || slot.isMatched);
-          const slotClasses = getMemorySlotClasses(slot.isMatched, isOpen);
-          const matchedSuffix = slot.isMatched ? ' — emparejada' : '';
-          const slotLabel = isOpen
-            ? `Carta ${slot.assignedValue || ''}${matchedSuffix}`.trim()
-            : 'Carta oculta';
-          const isInFeedback = feedbackSlots.has(slot.slotIndex);
-          const isMatchFeedback = isInFeedback && feedbackState === 'success';
-          const isMismatchFeedback = isInFeedback && feedbackState === 'error';
-
-          return (
-            <motion.div
-              key={`memory-slot-${slot.slotIndex}`}
-              className={cn(
-                'aspect-square rounded-xl border transition-all memory-card-flip',
-                slotClasses,
-                isMatchFeedback && 'shadow-[0_0_20px] shadow-emerald-500/40',
-                isMismatchFeedback && 'border-rose-400/60'
-              )}
-              animate={
-                shouldReduceMotion ? {} :
-                isMatchFeedback ? { scale: [1, 1.1, 1], transition: { duration: 0.4 } } :
-                isMismatchFeedback ? { x: [-3, 3, -2, 2, 0], transition: { duration: 0.4 } } :
-                {}
-              }
-              role="gridcell"
-              aria-label={slotLabel}
-            >
-              <div className={cn(
-                'relative w-full h-full memory-card-inner',
-                isOpen && 'memory-card-flipped'
-              )}>
-                {/* Cara trasera (oculta) */}
-                <div className="memory-card-face w-full h-full rounded-lg bg-slate-700/60 flex items-center justify-center text-slate-300 text-2xl font-bold select-none">
-                  ?
-                </div>
-                {/* Cara frontal (contenido) */}
-                <div className="memory-card-back w-full h-full rounded-lg p-2 flex items-center justify-center bg-slate-800/40">
-                  <CardAssetPreview
-                    asset={slot.displayData || { display: slot.assignedValue || '🎴' }}
-                    className="w-full h-full rounded-lg"
-                    loading="eager"
-                    fallbackLabel={slot.displayData?.display || slot.assignedValue || '🎴'}
-                  />
-                </div>
-              </div>
-            </motion.div>
-          );
-        })}
-      </div>
-    </div>
-  );
-}
-
-MemoryBoard.propTypes = {
-  board: PropTypes.arrayOf(
-    PropTypes.shape({
-      slotIndex: PropTypes.number,
-      isMatched: PropTypes.bool,
-      isRevealed: PropTypes.bool,
-      assignedValue: PropTypes.string,
-      displayData: PropTypes.object
-    })
-  ),
-  feedbackState: PropTypes.oneOf(['idle', 'success', 'error']),
-  feedbackPoints: PropTypes.number,
-  feedbackMessage: PropTypes.string,
-  shouldReduceMotion: PropTypes.bool
-};
-
-function FallbackTouchPanel({ cards, onSelectCard, onPauseRequest, canPause }) {
-  const visibleCards = Array.isArray(cards) ? cards.slice(0, 12) : [];
-
-  return (
-    <div className="mt-3 w-full max-w-3xl rounded-xl border border-amber-400/30 bg-amber-500/10 p-2.5">
-      <div className="flex items-center gap-2 text-amber-100">
-        <AlertTriangle size={14} className="shrink-0" />
-        <p className="text-xs font-semibold">Sin sensor RFID — toca una carta para responder</p>
-      </div>
-
-      {visibleCards.length > 0 && (
-        <fieldset
-          className="mt-2 grid grid-cols-3 sm:grid-cols-6 gap-1.5 border-0 p-0 m-0"
-          aria-label="Cartas disponibles para selección táctil"
-        >
-          {visibleCards.map(card => (
-            <motion.button
-              key={`fallback-card-${card.uid}`}
-              type="button"
-              onClick={() => onSelectCard(card)}
-              whileTap={{ scale: 0.92, backgroundColor: 'rgba(99, 102, 241, 0.2)' }}
-              aria-label={`Seleccionar carta: ${card.assignedValue || card.uid}`}
-              className="rounded-lg border border-white/10 bg-slate-900/40 p-1.5 text-center hover:bg-slate-900/60 transition-colors focus-visible:ring-2 focus-visible:ring-indigo-400"
-            >
-              <CardAssetPreview
-                asset={card.displayData || { display: card.assignedValue || card.uid }}
-                className="h-14 w-full rounded"
-                fit="contain"
-                loading="eager"
-                fallbackLabel={card.assignedValue || card.uid}
-              />
-            </motion.button>
-          ))}
-        </fieldset>
-      )}
-
-      {canPause && (
-        <button
-          type="button"
-          onClick={onPauseRequest}
-          className="mt-2 text-[10px] px-2 py-1 rounded bg-slate-900/60 text-slate-300 border border-white/5 hover:bg-slate-900/80 transition-colors"
-        >
-          Pausar para revisar sensor
-        </button>
-      )}
-    </div>
-  );
-}
-
-FallbackTouchPanel.propTypes = {
-  cards: PropTypes.array,
-  onSelectCard: PropTypes.func.isRequired,
-  onPauseRequest: PropTypes.func.isRequired,
-  canPause: PropTypes.bool
-};

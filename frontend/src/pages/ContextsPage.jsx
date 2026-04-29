@@ -1,4 +1,5 @@
 import { useState, useCallback } from 'react';
+import PropTypes from 'prop-types';
 import { useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
@@ -11,25 +12,119 @@ import {
   Plus,
   X,
   Loader2,
-  ShieldCheck
+  ShieldCheck,
+  Landmark,
+  PawPrint,
+  Hash,
+  Shapes
 } from 'lucide-react';
 import { toast } from 'sonner';
 
 import GlassCard from '../components/ui/GlassCard';
+import HoverLiftCard from '../components/ui/HoverLiftCard';
 import ButtonPremium from '../components/ui/ButtonPremium';
+import PageHeader from '../components/ui/PageHeader';
 import InputPremium from '../components/ui/InputPremium';
 import EmptyState from '../components/ui/EmptyState';
+import { EmptyContextsIllustration } from '../components/ui/illustrations';
+import ErrorState from '../components/ui/ErrorState';
+import Tooltip from '../components/ui/Tooltip';
 import { SkeletonCard } from '../components/ui/SkeletonShimmer';
 import { useContexts } from '../hooks/useContexts';
 import { useReducedMotion } from '../hooks/useReducedMotion';
+import { useDocumentTitle } from '../hooks/useDocumentTitle';
 import { useAuth } from '../context/AuthContext';
 import { contextsAPI, extractData, extractErrorMessage } from '../services/api';
 import { ROUTES } from '../constants/routes';
+import ScanlineOverlay from '../components/ui/ScanlineOverlay';
+import { listContainerVariants, motionConfig, DURATION, EASING } from '../lib/utils';
+import { getContextTheme } from '../lib/contextTheme';
+
+// Resuelve un "kind" de icono a partir del contexto; el render usa un switch
+// JSX directo para evitar la regla `react-hooks/static-components` que marca
+// cualquier asignación a variable PascalCase como "componente creado en render".
+const resolveContextIconKind = context => {
+  const id = context?.contextId;
+  if (id === 'geography-europe') return 'landmark';
+  if (id === 'animals-farm') return 'pawprint';
+  if (id === 'colors-basic') return 'palette';
+  if (id === 'numbers-1-6') return 'hash';
+  if (id === 'shapes-basic') return 'shapes';
+  const name = (context?.name || '').toLowerCase();
+  if (/pa[ií]s|geograf|europ|bandera/.test(name)) return 'landmark';
+  if (/animal|granja|zoo/.test(name)) return 'pawprint';
+  if (/color/.test(name)) return 'palette';
+  if (/n[uú]mero|d[ií]gito/.test(name)) return 'hash';
+  if (/forma|geometr/.test(name)) return 'shapes';
+  return 'palette';
+};
+
+function ContextIcon({ context }) {
+  const kind = resolveContextIconKind(context);
+  const iconProps = { size: 24, className: 'text-accent-indigo' };
+  if (kind === 'landmark') return <Landmark {...iconProps} />;
+  if (kind === 'pawprint') return <PawPrint {...iconProps} />;
+  if (kind === 'hash') return <Hash {...iconProps} />;
+  if (kind === 'shapes') return <Shapes {...iconProps} />;
+  return <Palette {...iconProps} />;
+}
+ContextIcon.propTypes = {
+  context: PropTypes.shape({
+    contextId: PropTypes.string,
+    name: PropTypes.string
+  })
+};
+
+// Mapea un tema de contexto a uno de los glowTints soportados por HoverLiftCard
+// para que cada contexto tenga un hover signature propio pero dentro de la paleta.
+const CONTEXT_THEME_TO_GLOW = {
+  default: 'indigo',
+  geography: 'cyan',
+  animals: 'warning',
+  colors: 'pink',
+  numbers: 'success',
+  shapes: 'cyan',
+};
+
+const resolveContextGlow = (context) => {
+  const theme = getContextTheme(context?.contextId || context?.slug || context?.name);
+  // Derivar la key desde la primaryVar (ej: '--color-theme-animals' -> 'animals')
+  const themeKey = theme?.primaryVar?.replace('--color-theme-', '').replace('--color-accent-', '') || 'default';
+  return CONTEXT_THEME_TO_GLOW[themeKey] || 'indigo';
+};
+
+// Variants locales con settle spring en entrada y "papel volando" en exit.
+const buildContextCardVariants = (shouldReduceMotion) => {
+  if (shouldReduceMotion) {
+    return {
+      hidden: { opacity: 0 },
+      visible: { opacity: 1, transition: { duration: 0 } },
+      exit: { opacity: 0, transition: { duration: 0 } },
+    };
+  }
+  return {
+    hidden: { opacity: 0, y: -12, scale: 0.94 },
+    visible: {
+      opacity: 1,
+      y: 0,
+      scale: 1,
+      transition: motionConfig.springGame,
+    },
+    exit: {
+      opacity: 0,
+      x: -24,
+      scale: 0.92,
+      rotate: -2,
+      transition: { duration: DURATION.exit, ease: EASING.outQuart },
+    },
+  };
+};
 
 export default function ContextsPage() {
   const navigate = useNavigate();
   const { shouldReduceMotion } = useReducedMotion();
   const { isSuperAdmin } = useAuth();
+  useDocumentTitle('Contextos');
 
   // Super_admin ve todos los contextos (activos e inactivos)
   const { contexts, loading, error, refetch } = useContexts({
@@ -72,28 +167,19 @@ export default function ContextsPage() {
   );
 
   return (
-    <div className="min-h-screen bg-slate-950 p-4 lg:p-8">
+    <div className="min-h-full bg-background-deep p-4 lg:p-8">
       {/* Header y Stats */}
       <motion.div
         initial={shouldReduceMotion ? false : { opacity: 0, y: -20 }}
         animate={{ opacity: 1, y: 0 }}
         className="max-w-7xl mx-auto mb-8"
       >
-        <div className="flex flex-col md:flex-row md:items-end justify-between gap-6 mb-8">
-          <div className="flex items-center gap-4">
-            <div className="size-14 rounded-2xl bg-gradient-to-br from-indigo-500 to-purple-600 flex items-center justify-center shadow-lg shadow-indigo-500/20">
-              <Palette size={28} className="text-white" />
-            </div>
-            <div>
-              <h1 className="text-3xl font-bold text-white tracking-tight">Contextos Temáticos</h1>
-              <p className="text-slate-400 mt-1">
-                Explora y gestiona los recursos multimedia para los juegos
-              </p>
-            </div>
-          </div>
-
-          {/* Botón crear — solo super_admin */}
-          {isSuperAdmin && (
+        <PageHeader
+          icon={<Palette size={28} />}
+          iconClassName="size-14 bg-gradient-to-br from-accent-indigo to-brand-base shadow-lg shadow-accent-indigo/20 text-text-primary"
+          title="Contextos Temáticos"
+          subtitle="Explora y gestiona los recursos multimedia para los juegos"
+          actions={isSuperAdmin ? (
             <ButtonPremium
               onClick={() => setShowCreateModal(true)}
               icon={<Plus size={18} />}
@@ -101,48 +187,51 @@ export default function ContextsPage() {
             >
               Nuevo Contexto
             </ButtonPremium>
-          )}
-        </div>
+          ) : undefined}
+          className="mb-8"
+        />
 
         {/* Stats globales */}
         <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-8">
           <GlassCard className="p-4 flex items-center gap-4">
-            <div className="size-12 rounded-xl bg-indigo-500/10 flex items-center justify-center">
-              <Palette size={22} className="text-indigo-400" />
+            <div className="size-12 rounded-xl bg-accent-indigo/10 flex items-center justify-center">
+              <Palette size={22} className="text-accent-indigo" />
             </div>
             <div>
-              <p className="text-2xl font-semibold text-white font-display">{contexts.length}</p>
-              <p className="text-xs text-slate-400 font-medium uppercase tracking-wider">Contextos</p>
+              <p className="text-2xl font-semibold text-text-primary font-display">{contexts.length}</p>
+              <p className="text-xs text-text-muted font-medium uppercase tracking-wider">Contextos</p>
             </div>
           </GlassCard>
 
           <GlassCard className="p-4 flex items-center gap-4">
-            <div className="size-12 rounded-xl bg-emerald-500/10 flex items-center justify-center">
-              <ImageIcon size={22} className="text-emerald-400" />
+            <div className="size-12 rounded-xl bg-success-base/10 flex items-center justify-center">
+              <ImageIcon size={22} className="text-success-base" />
             </div>
             <div>
-              <p className="text-2xl font-semibold text-white font-display">{totalImages}</p>
-              <p className="text-xs text-slate-400 font-medium uppercase tracking-wider">Imágenes</p>
+              <p className="text-2xl font-semibold text-text-primary font-display">{totalImages}</p>
+              <p className="text-xs text-text-muted font-medium uppercase tracking-wider">Imágenes</p>
             </div>
           </GlassCard>
 
           <GlassCard className="p-4 flex items-center gap-4">
-            <div className="size-12 rounded-xl bg-amber-500/10 flex items-center justify-center">
-              <Music size={22} className="text-amber-400" />
+            {/* Tile neutro cuando no hay audios: amarillo sugiere warning y
+                aquí es solo un contador informativo (QA 22/04/2026). */}
+            <div className={`size-12 rounded-xl flex items-center justify-center ${totalAudio > 0 ? 'bg-warning-base/10' : 'bg-background-surface/60'}`}>
+              <Music size={22} className={totalAudio > 0 ? 'text-warning-base' : 'text-text-muted'} />
             </div>
             <div>
-              <p className="text-2xl font-semibold text-white font-display">{totalAudio}</p>
-              <p className="text-xs text-slate-400 font-medium uppercase tracking-wider">Audios</p>
+              <p className="text-2xl font-semibold text-text-primary font-display">{totalAudio}</p>
+              <p className="text-xs text-text-muted font-medium uppercase tracking-wider">Audios</p>
             </div>
           </GlassCard>
 
           <GlassCard className="p-4 flex items-center gap-4">
-            <div className="size-12 rounded-xl bg-purple-500/10 flex items-center justify-center">
-              <ImageIcon size={22} className="text-purple-400" />
+            <div className="size-12 rounded-xl bg-brand-base/10 flex items-center justify-center">
+              <ImageIcon size={22} className="text-brand-light" />
             </div>
             <div>
-              <p className="text-2xl font-semibold text-white font-display">{totalAssets}</p>
-              <p className="text-xs text-slate-400 font-medium uppercase tracking-wider">Assets totales</p>
+              <p className="text-2xl font-semibold text-text-primary font-display">{totalAssets}</p>
+              <p className="text-xs text-text-muted font-medium uppercase tracking-wider">Assets totales</p>
             </div>
           </GlassCard>
         </div>
@@ -150,7 +239,7 @@ export default function ContextsPage() {
         {/* Filtros */}
         <div className="flex flex-col sm:flex-row gap-4">
           <InputPremium
-            placeholder="Buscar por nombre o ID..."
+            placeholder="Buscar por nombre o ID…"
             value={searchTerm}
             onChange={e => setSearchTerm(e.target.value)}
             icon={<Search size={18} />}
@@ -161,53 +250,68 @@ export default function ContextsPage() {
 
       {/* Contenido */}
       <div className="max-w-7xl mx-auto">
-        {loading ? (
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-            {[...Array(6)].map((_, i) => (
-              <SkeletonCard key={i} className="h-64" />
-            ))}
-          </div>
-        ) : error ? (
-          <GlassCard className="p-8 text-center max-w-lg mx-auto mt-12">
-            <AlertTriangle size={48} className="mx-auto text-rose-500 mb-4" />
-            <h3 className="text-xl font-medium text-white mb-2">Error al cargar contextos</h3>
-            <p className="text-slate-400 mb-6">{error}</p>
-            <ButtonPremium onClick={refetch} variant="secondary">
-              Reintentar
-            </ButtonPremium>
-          </GlassCard>
-        ) : filteredContexts.length === 0 ? (
-          <EmptyState
-            title="No se encontraron contextos"
-            description={
-              searchTerm
-                ? 'Intenta usar otros términos de búsqueda.'
-                : 'Aún no hay contextos temáticos disponibles.'
-            }
-            icon={<Palette size={28} />}
-            action={
-              isSuperAdmin && !searchTerm ? (
-                <ButtonPremium onClick={() => setShowCreateModal(true)} icon={<Plus size={16} />}>
-                  Crear el primer contexto
-                </ButtonPremium>
-              ) : undefined
-            }
-          />
-        ) : (
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-            <AnimatePresence>
-              {filteredContexts.map((context, index) => (
-                <ContextCard
-                  key={context._id || context.id}
-                  context={context}
-                  index={index}
-                  reducedMotion={shouldReduceMotion}
-                  onClick={() => navigate(ROUTES.CONTEXT_DETAIL(context._id || context.id))}
-                />
+        {(() => {
+          if (loading) return (
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+              {Array.from({ length: 6 }, (_, i) => `ctx-skeleton-${i}`).map(id => (
+                <SkeletonCard key={id} className="h-64" />
               ))}
-            </AnimatePresence>
-          </div>
-        )}
+            </div>
+          );
+          if (error) return (
+            <ErrorState
+              title="Error al cargar contextos"
+              message={`${error} Pulsa Reintentar o recarga la página.`}
+              onRetry={refetch}
+              className="max-w-lg mx-auto mt-12"
+            />
+          );
+          if (filteredContexts.length === 0) return (
+            <EmptyState
+              illustration={<EmptyContextsIllustration size={180} />}
+              variant={searchTerm ? 'filtered' : 'first-use'}
+              title={searchTerm ? 'Nada coincide con tu búsqueda' : 'Aún no hay contextos'}
+              description={
+                searchTerm
+                  ? 'Prueba con otro término o limpia la búsqueda para ver todos los contextos disponibles.'
+                  : 'Los contextos agrupan tarjetas por temática (animales, países, profesiones…). Cuando haya alguno creado, lo verás aquí.'
+              }
+              action={
+                isSuperAdmin && !searchTerm ? (
+                  <ButtonPremium onClick={() => setShowCreateModal(true)} icon={<Plus size={16} />}>
+                    Crear el primer contexto
+                  </ButtonPremium>
+                ) : undefined
+              }
+            />
+          );
+          {
+            const cardVariants = buildContextCardVariants(shouldReduceMotion);
+            return (
+              <motion.div
+                className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6"
+                variants={shouldReduceMotion ? {} : listContainerVariants(0.06)}
+                initial={shouldReduceMotion ? false : "hidden"}
+                animate="visible"
+              >
+                <AnimatePresence>
+                  {filteredContexts.map((context) => (
+                    <motion.div
+                      key={context._id || context.id}
+                      variants={cardVariants}
+                      exit="exit"
+                    >
+                      <ContextCard
+                        context={context}
+                        onClick={() => navigate(ROUTES.CONTEXT_DETAIL(context._id || context.id))}
+                      />
+                    </motion.div>
+                  ))}
+                </AnimatePresence>
+              </motion.div>
+            );
+          }
+        })()}
       </div>
 
       {/* Modal crear contexto (solo super_admin) */}
@@ -227,85 +331,99 @@ export default function ContextsPage() {
 // TARJETA DE CONTEXTO
 // ============================================
 
-function ContextCard({ context, onClick, index, reducedMotion }) {
+function ContextCard({ context, onClick }) {
   const assetCount = context.assetsCount ?? context.assets?.length ?? 0;
   const imagesCount = context.imageCount ?? context.assets?.filter(a => a.imageUrl)?.length ?? 0;
   const audioCount = context.audioCount ?? context.assets?.filter(a => a.audioUrl)?.length ?? 0;
-  const previews = context.assets?.filter(a => a.display)?.slice(0, 5).map(a => a.display) || [];
+  // 3 previews (antes 5): con 5 chips + gap + badge "+N" los nombres quedaban
+  // ilegibles (cada chip recortado a 3-4 chars tipo "R... A... Ver..."). Con
+  // 3 chips y un ancho por chip mas generoso se leen palabras completas.
+  const previews = context.assets?.filter(a => a.display)?.slice(0, 3).map(a => a.display) || [];
+  const glowTint = resolveContextGlow(context);
 
   return (
-    <motion.div
-      initial={reducedMotion ? false : { opacity: 0, y: 16 }}
-      animate={{ opacity: 1, y: 0 }}
-      exit={reducedMotion ? false : { opacity: 0, scale: 0.95 }}
-      transition={{ delay: reducedMotion ? 0 : index * 0.06, duration: 0.6, ease: [0.16, 1, 0.3, 1] }}
-      whileHover={reducedMotion ? {} : { y: -4 }}
+    <HoverLiftCard
+      glowTint={glowTint}
       onClick={onClick}
-      className="group cursor-pointer"
+      className="group cursor-pointer h-full"
     >
-      <GlassCard className="h-full p-6 transition-colors hover:bg-slate-800/40 hover:border-indigo-500/30">
+      <GlassCard className="relative overflow-hidden h-full p-6 transition-colors hover:bg-background-elevated/40 hover:border-accent-indigo/30">
+        {/* Scanline signature con visibilidad CSS-controlled via group-hover. */}
+        <ScanlineOverlay className="opacity-0 group-hover:opacity-100 transition-opacity duration-300" />
         <div className="flex justify-between items-start mb-6">
-          <div className="size-12 rounded-xl bg-indigo-500/10 flex items-center justify-center border border-indigo-500/20 group-hover:bg-indigo-500/20 transition-colors">
-            <Palette size={24} className="text-indigo-400" />
+          <div className="size-12 rounded-xl bg-accent-indigo/10 flex items-center justify-center border border-accent-indigo/20 group-hover:bg-accent-indigo/20 transition-colors">
+            <ContextIcon context={context} />
           </div>
-          <div className="flex items-center gap-1 text-slate-500 group-hover:text-indigo-400 transition-colors">
+          <div className="flex items-center gap-1 text-text-muted group-hover:text-accent-indigo transition-colors">
             <span className="text-sm font-medium">Ver detalles</span>
             <ChevronRight size={16} />
           </div>
         </div>
 
-        <h3 className="text-xl font-semibold text-white tracking-tight mb-2 line-clamp-1">
+        <h3 className="text-xl font-semibold text-text-primary tracking-tight mb-2 line-clamp-1">
           {context.name}
         </h3>
 
         <div className="flex items-center gap-2 mb-6">
-          <span className="text-xs font-mono text-slate-500 bg-slate-800/50 px-2 py-1 rounded-md">
-            {context.contextId}
-          </span>
+          {/* Slug técnico (`geography-europe`) se mantiene solo en la vista admin
+              (`/admin/contexts`) porque es útil como identificador; en la vista
+              teacher resulta ruido visual y mezcla español con kebab-case (QA 22/04/2026). */}
           {context.isActive ? (
-            <span className="text-xs font-medium text-emerald-400 bg-emerald-400/10 px-2 py-1 rounded-full">
+            <span className="text-xs font-medium text-success-base bg-success-base/10 px-2 py-1 rounded-full">
               Activo
             </span>
           ) : (
-            <span className="text-xs font-medium text-slate-400 bg-slate-800/80 px-2 py-1 rounded-full">
+            <span className="text-xs font-medium text-text-muted bg-background-elevated/80 px-2 py-1 rounded-full">
               Inactivo
             </span>
           )}
         </div>
 
-        <div className="flex items-center justify-between mt-auto pt-4 border-t border-white/5">
-          <div className="flex items-center gap-3 text-sm text-slate-400">
-            <div className="flex items-center gap-1.5" title="Total Assets">
-              <span className="font-medium text-slate-300">{assetCount}</span> total
-            </div>
-            <div className="size-1 rounded-full bg-slate-700" />
-            <div className="flex items-center gap-1.5" title="Imágenes">
-              <ImageIcon size={14} className="text-slate-500" />
-              <span>{imagesCount}</span>
-            </div>
-            <div className="flex items-center gap-1.5" title="Audios">
-              <Music size={14} className="text-slate-500" />
-              <span>{audioCount}</span>
-            </div>
+        <div className="flex items-center justify-between mt-auto pt-4 border-t border-border-subtle">
+          <div className="flex items-center gap-3 text-sm text-text-muted">
+            <Tooltip content="Total Assets">
+              <div className="flex items-center gap-1.5">
+                <span className="font-medium text-text-secondary">{assetCount}</span> total
+              </div>
+            </Tooltip>
+            <div className="size-1 rounded-full bg-background-surface" />
+            <Tooltip content="Imágenes">
+              <div className="flex items-center gap-1.5">
+                <ImageIcon size={14} className="text-text-muted" />
+                <span>{imagesCount}</span>
+              </div>
+            </Tooltip>
+            <Tooltip content="Audios">
+              <div className="flex items-center gap-1.5">
+                <Music size={14} className="text-text-muted" />
+                <span>{audioCount}</span>
+              </div>
+            </Tooltip>
           </div>
         </div>
 
         {previews.length > 0 && (
-          <div className="mt-4 flex gap-1.5 pt-4 border-t border-white/5 overflow-hidden">
+          <div
+            className="mt-4 flex items-center gap-2 pt-4 border-t border-border-subtle"
+            title={context.assets?.filter(a => a.display).map(a => a.display).join(', ')}
+          >
             {previews.map((preview, i) => (
-              <span key={i} className="text-2xl">
+              <span
+                key={`${preview}-${i}`}
+                className="flex-1 min-w-0 truncate rounded-full border border-border-subtle bg-background-elevated/40 px-2.5 py-1 text-xs font-medium text-text-secondary text-center"
+              >
                 {preview}
               </span>
             ))}
-            {assetCount > 5 && (
-              <div className="flex items-center justify-center size-8 rounded-full bg-slate-800/50 text-xs text-slate-400 ml-1">
-                +{assetCount - 5}
+            {assetCount > previews.length && (
+              <div className="shrink-0 flex items-center justify-center h-7 px-2 rounded-full border border-border-subtle bg-background-elevated/60 text-[11px] font-semibold text-text-muted">
+                +{assetCount - previews.length}
               </div>
             )}
           </div>
         )}
       </GlassCard>
-    </motion.div>
+    </HoverLiftCard>
   );
 }
 
@@ -391,23 +509,23 @@ function CreateContextModal({ onClose, onSuccess }) {
         initial={{ scale: 0.9, opacity: 0 }}
         animate={{ scale: 1, opacity: 1 }}
         exit={{ scale: 0.9, opacity: 0 }}
-        className="bg-slate-900 border border-white/10 rounded-2xl w-full max-w-md shadow-2xl"
+        className="bg-background-base border border-border-default rounded-2xl w-full max-w-md shadow-2xl"
       >
         {/* Header */}
-        <div className="flex items-center justify-between p-6 border-b border-white/5">
+        <div className="flex items-center justify-between p-6 border-b border-border-subtle">
           <div className="flex items-center gap-3">
-            <div className="size-10 rounded-xl bg-indigo-500/20 flex items-center justify-center">
-              <ShieldCheck size={20} className="text-indigo-400" />
+            <div className="size-10 rounded-xl bg-accent-indigo/20 flex items-center justify-center">
+              <ShieldCheck size={20} className="text-accent-indigo" />
             </div>
             <div>
-              <h3 className="text-lg font-semibold text-white">Nuevo Contexto</h3>
-              <p className="text-xs text-slate-500">Los assets se añaden después</p>
+              <h3 className="text-lg font-semibold text-text-primary">Nuevo Contexto</h3>
+              <p className="text-xs text-text-muted">Los assets se añaden después</p>
             </div>
           </div>
           <button
             onClick={onClose}
             disabled={isSubmitting}
-            className="p-2 rounded-lg hover:bg-white/10 transition-colors text-slate-400 disabled:opacity-50"
+            className="p-2 rounded-lg hover:bg-border-default transition-colors text-text-muted disabled:opacity-50"
           >
             <X size={20} />
           </button>
@@ -436,15 +554,15 @@ function CreateContextModal({ onClose, onSuccess }) {
               info="Solo minúsculas, números, guiones y guiones bajos. Se genera automáticamente desde el nombre."
             />
             {contextId && (
-              <p className="text-xs text-slate-500 mt-1 font-mono">
-                Ruta: <span className="text-indigo-400">/contexts/{contextId}</span>
+              <p className="text-xs text-text-muted mt-1 font-mono">
+                Ruta: <span className="text-accent-indigo">/contexts/{contextId}</span>
               </p>
             )}
           </div>
 
-          <div className="bg-amber-500/10 border border-amber-500/20 rounded-xl p-3 flex gap-3">
-            <AlertTriangle size={16} className="text-amber-400 flex-shrink-0 mt-0.5" />
-            <p className="text-xs text-amber-300">
+          <div className="bg-warning-base/10 border border-warning-base/20 rounded-xl p-3 flex gap-3">
+            <AlertTriangle size={16} className="text-warning-base flex-shrink-0 mt-0.5" />
+            <p className="text-xs text-warning-base">
               El contexto se creará vacío. Los profesores podrán añadir imágenes y audios desde la
               página de detalle del contexto.
             </p>

@@ -1,82 +1,60 @@
 const userRepository = require('../src/repositories/userRepository');
-const cardRepository = require('../src/repositories/cardRepository');
 const User = require('../src/models/User');
-const Card = require('../src/models/Card');
 
-describe('Repository Layer', () => {
-  const createdUserIds = [];
-  const createdCardIds = [];
+describe('Repository Layer — Read Operations', () => {
+  let testUser;
+  const uniqueSuffix = Date.now().toString(36);
+  const testEmail = `repo-test-${uniqueSuffix}@test.com`;
 
-  afterEach(async () => {
-    if (createdUserIds.length > 0) {
-      await User.deleteMany({ _id: { $in: createdUserIds } });
-      createdUserIds.length = 0;
-    }
-
-    if (createdCardIds.length > 0) {
-      await Card.deleteMany({ _id: { $in: createdCardIds } });
-      createdCardIds.length = 0;
-    }
-  });
-
-  it('creates and queries users with query options', async () => {
-    const uniqueSuffix = Date.now().toString(36);
-    const email = `repo-test-${uniqueSuffix}@test.com`;
-
-    const createdUser = await userRepository.create({
+  beforeAll(async () => {
+    testUser = await userRepository.create({
       name: 'Repo Test Teacher',
-      email,
+      email: testEmail,
       password: 'Password123',
       role: 'teacher',
       status: 'active'
     });
+  });
 
-    createdUserIds.push(createdUser._id);
+  afterAll(async () => {
+    await User.deleteMany({ _id: testUser._id });
+  });
 
-    const foundUser = await userRepository.findOne(
-      { email },
-      { select: 'email name role', sort: { createdAt: -1 } }
-    );
+  it('creates a document and returns it with an _id', () => {
+    expect(testUser).not.toBeNull();
+    expect(testUser._id).toBeDefined();
+    expect(testUser.email).toBe(testEmail);
+  });
 
-    expect(foundUser).not.toBeNull();
-    expect(foundUser.email).toBe(email);
-    expect(foundUser.name).toBe('Repo Test Teacher');
-    expect(foundUser.role).toBe('teacher');
-    expect(foundUser.password).toBeUndefined();
+  it('findOne applies select projection to exclude fields', async () => {
+    const found = await userRepository.findOne({ email: testEmail }, { select: 'email name role' });
 
+    expect(found).not.toBeNull();
+    expect(found.email).toBe(testEmail);
+    expect(found.name).toBe('Repo Test Teacher');
+    expect(found.role).toBe('teacher');
+    expect(found.password).toBeUndefined();
+  });
+
+  it('count returns the number of matching documents', async () => {
     const teachersCount = await userRepository.count({ role: 'teacher' });
-    expect(teachersCount).toBeGreaterThanOrEqual(1);
 
-    const latestTeachers = await userRepository.find(
+    expect(teachersCount).toBeGreaterThanOrEqual(1);
+  });
+
+  it('find with sort and limit returns the expected subset', async () => {
+    const results = await userRepository.find(
       { role: 'teacher' },
       { select: 'email role', sort: { createdAt: -1 }, limit: 1 }
     );
 
-    expect(latestTeachers.length).toBe(1);
-    expect(latestTeachers[0].email).toBe(email);
+    expect(results).toHaveLength(1);
+    expect(results[0].email).toBe(testEmail);
   });
 
-  it('aggregates card status counts', async () => {
-    const uidBase = Date.now().toString(16).toUpperCase().slice(-6).padStart(6, '0');
-    const cards = await cardRepository.insertMany([
-      { uid: `AA${uidBase}`, type: 'NTAG', status: 'active' },
-      { uid: `AB${uidBase}`, type: 'NTAG', status: 'active' },
-      { uid: `AC${uidBase}`, type: 'UNKNOWN', status: 'inactive' }
-    ]);
+  it('findOne returns null when no document matches', async () => {
+    const found = await userRepository.findOne({ email: 'nonexistent@test.com' });
 
-    cards.forEach(card => createdCardIds.push(card._id));
-
-    const results = await cardRepository.aggregate([
-      { $match: { uid: { $in: cards.map(card => card.uid) } } },
-      { $group: { _id: '$status', total: { $sum: 1 } } }
-    ]);
-
-    const counts = results.reduce((acc, item) => {
-      acc[item._id] = item.total;
-      return acc;
-    }, {});
-
-    expect(counts.active).toBe(2);
-    expect(counts.inactive).toBe(1);
+    expect(found).toBeNull();
   });
 });

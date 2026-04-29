@@ -41,17 +41,23 @@ function getTeacherDecks(decks, teacherId) {
 
 /**
  * Busca un mazo por contextId dentro de los mazos de un profesor.
+ * Opcionalmente filtra por nombre del mazo cuando hay varios mazos con el mismo contexto.
  * @param {Array} teacherDecks - Mazos del profesor
  * @param {Array} contexts - Contextos disponibles
  * @param {string} contextKey - Key del contexto (ej: 'colors-basic')
+ * @param {string} [deckName] - Nombre del mazo para desambiguar
  * @returns {Object|undefined} Mazo encontrado
  */
-function findDeckByContext(teacherDecks, contexts, contextKey) {
+function findDeckByContext(teacherDecks, contexts, contextKey, deckName) {
   const context = findContext(contexts, contextKey);
   if (!context) {
     return undefined;
   }
-  return teacherDecks.find(d => d.contextId.toString() === context._id.toString());
+  const candidates = teacherDecks.filter(d => d.contextId.toString() === context._id.toString());
+  if (deckName) {
+    return candidates.find(d => d.name === deckName) || candidates[0];
+  }
+  return candidates[0];
 }
 
 /**
@@ -73,8 +79,8 @@ function generateAssociationPlan(cardMappings, numberOfRounds) {
       // Despues de agotar todas, ciclar evitando repeticion inmediata
       index = (round - 1) % cardMappings.length;
       if (plan.length > 0) {
-        const prevCardId = plan[plan.length - 1].cardId.toString();
-        if (cardMappings[index].cardId.toString() === prevCardId) {
+        const prevUid = plan[plan.length - 1].uid;
+        if (cardMappings[index].uid === prevUid) {
           index = (index + 1) % cardMappings.length;
         }
       }
@@ -83,7 +89,6 @@ function generateAssociationPlan(cardMappings, numberOfRounds) {
     const mapping = cardMappings[index];
     plan.push({
       roundNumber: round,
-      cardId: mapping.cardId,
       uid: mapping.uid,
       assignedValue: mapping.assignedValue,
       displayData: mapping.displayData
@@ -95,29 +100,28 @@ function generateAssociationPlan(cardMappings, numberOfRounds) {
 
 /**
  * Genera un boardLayout para sesiones de mecanica 'memory'.
- * Duplica las tarjetas (parejas) y las baraja de forma determinista.
- * @param {Array} cardMappings - Mapeos de tarjetas de la sesion
- * @param {number} numberOfCards - Numero de tarjetas unicas (las parejas son el doble)
+ * Usa todos los cardMappings del mazo (que ya contienen 2N tarjetas con parejas)
+ * y los baraja de forma determinista. Cada tarjeta ocupa su propio slot con UID unico.
+ * @param {Array} cardMappings - Mapeos de tarjetas de la sesion (ya con parejas, 2N)
  * @returns {Array} Layout del tablero
  */
-function generateBoardLayout(cardMappings, numberOfCards) {
-  // Para memoria, el tablero contiene cada tarjeta una vez con su posicion
+function generateBoardLayout(cardMappings) {
+  const totalCards = cardMappings.length;
   const layout = [];
 
   // Baraja determinista basada en indice (Fisher-Yates con seed fija)
-  const indices = Array.from({ length: numberOfCards }, (_, i) => i);
+  const indices = Array.from({ length: totalCards }, (_, i) => i);
   for (let i = indices.length - 1; i > 0; i--) {
     // Intercambio determinista basado en posicion
     const j = (i * 7 + 3) % (i + 1);
     [indices[i], indices[j]] = [indices[j], indices[i]];
   }
 
-  for (let slot = 0; slot < numberOfCards; slot++) {
+  for (let slot = 0; slot < totalCards; slot++) {
     const mappingIndex = indices[slot];
     const mapping = cardMappings[mappingIndex];
     layout.push({
       slotIndex: slot,
-      cardId: mapping.cardId,
       uid: mapping.uid,
       assignedValue: mapping.assignedValue,
       displayData: mapping.displayData
@@ -132,72 +136,146 @@ function generateBoardLayout(cardMappings, numberOfCards) {
  * Cada template define que tipo de sesion crear.
  * Incluye variedad de estados para datos mas realistas.
  */
+/**
+ * Templates de sesiones distribuidas en 60 días para alimentar analytics avanzados.
+ * Incluye variedad temporal, mecánicas y estados (completed, created).
+ * El seeder de gameplays (07) generará partidas para las sesiones completed.
+ *
+ * Criterios BI:
+ * - Suficientes sesiones para trends de 7d, 30d y 90d
+ * - Múltiples contextos y mecánicas para content-effectiveness
+ * - Distribución temporal para heatmaps y trayectorias
+ * - Sesiones recientes y antiguas para detección de tendencias
+ */
 const sessionTemplates = [
+  // ─── Semana 8-9 (hace ~56-60 días) — inicio del periodo ───
   {
     contextKey: 'geography-europe',
     mechanicName: 'association',
-    config: {
-      numberOfRounds: 6,
-      timeLimit: 20,
-      pointsPerCorrect: 10,
-      penaltyPerError: -2
-    },
+    config: { numberOfRounds: 6, timeLimit: 20, pointsPerCorrect: 10, penaltyPerError: -2 },
     status: 'completed',
-    description: 'Asociacion con paises de Europa',
-    daysAgo: 10
-  },
-  {
-    contextKey: 'animals-farm',
-    mechanicName: 'association',
-    config: {
-      numberOfRounds: 6,
-      timeLimit: 15,
-      pointsPerCorrect: 10,
-      penaltyPerError: -3
-    },
-    status: 'completed',
-    description: 'Animales de granja - repaso',
-    daysAgo: 8
+    description: 'Geografía Europa - sesión inicial',
+    daysAgo: 58
   },
   {
     contextKey: 'colors-basic',
     mechanicName: 'association',
-    config: {
-      numberOfRounds: 6,
-      timeLimit: 12,
-      pointsPerCorrect: 10,
-      penaltyPerError: -2
-    },
+    config: { numberOfRounds: 5, timeLimit: 12, pointsPerCorrect: 10, penaltyPerError: -2 },
     status: 'completed',
-    description: 'Colores basicos - practica',
-    daysAgo: 6
+    description: 'Colores básicos - primera sesión',
+    daysAgo: 55
+  },
+  // ─── Semana 6-7 (hace ~42-49 días) ───
+  {
+    contextKey: 'animals-farm',
+    mechanicName: 'association',
+    config: { numberOfRounds: 6, timeLimit: 15, pointsPerCorrect: 10, penaltyPerError: -3 },
+    status: 'completed',
+    description: 'Animales de granja - introducción',
+    daysAgo: 47
   },
   {
-    contextKey: 'numbers-1-15',
+    contextKey: 'geography-europe',
     mechanicName: 'association',
-    config: {
-      numberOfRounds: 5,
-      timeLimit: 25,
-      pointsPerCorrect: 15,
-      penaltyPerError: -5
-    },
-    // Sesion recien creada, aun sin iniciar
-    status: 'created',
-    description: 'Numeros del 1 al 6 - asociacion',
-    daysAgo: 1
+    config: { numberOfRounds: 6, timeLimit: 20, pointsPerCorrect: 10, penaltyPerError: -2 },
+    status: 'completed',
+    description: 'Geografía Europa - repaso 1',
+    daysAgo: 42
+  },
+  // ─── Semana 4-5 (hace ~28-35 días) ───
+  {
+    contextKey: 'numbers-1-6',
+    mechanicName: 'association',
+    config: { numberOfRounds: 5, timeLimit: 25, pointsPerCorrect: 15, penaltyPerError: -5 },
+    status: 'completed',
+    description: 'Números 1-6 - primera sesión',
+    daysAgo: 33
+  },
+  {
+    contextKey: 'colors-basic',
+    mechanicName: 'association',
+    config: { numberOfRounds: 6, timeLimit: 12, pointsPerCorrect: 10, penaltyPerError: -2 },
+    status: 'completed',
+    description: 'Colores básicos - repaso',
+    daysAgo: 28
   },
   {
     contextKey: 'shapes-basic',
+    deckName: 'Formas Memoria',
     mechanicName: 'memory',
-    config: {
-      numberOfRounds: 5,
-      timeLimit: 20,
-      pointsPerCorrect: 20,
-      penaltyPerError: -3
-    },
+    config: { numberOfRounds: 5, timeLimit: 20, pointsPerCorrect: 20, penaltyPerError: -3 },
     status: 'completed',
-    description: 'Memoria con formas basicas',
-    daysAgo: 2
+    description: 'Memoria con formas - introducción',
+    daysAgo: 26
+  },
+  // ─── Semana 3 (hace ~18-22 días) ───
+  {
+    contextKey: 'animals-farm',
+    mechanicName: 'association',
+    config: { numberOfRounds: 6, timeLimit: 15, pointsPerCorrect: 10, penaltyPerError: -3 },
+    status: 'completed',
+    description: 'Animales de granja - repaso',
+    daysAgo: 21
+  },
+  {
+    contextKey: 'geography-europe',
+    mechanicName: 'association',
+    config: { numberOfRounds: 6, timeLimit: 18, pointsPerCorrect: 12, penaltyPerError: -3 },
+    status: 'completed',
+    description: 'Geografía Europa - repaso 2',
+    daysAgo: 18
+  },
+  // ─── Semana 2 (hace ~10-14 días) ───
+  {
+    contextKey: 'numbers-1-6',
+    mechanicName: 'association',
+    config: { numberOfRounds: 6, timeLimit: 20, pointsPerCorrect: 15, penaltyPerError: -5 },
+    status: 'completed',
+    description: 'Números 1-6 - repaso',
+    daysAgo: 12
+  },
+  {
+    contextKey: 'shapes-basic',
+    deckName: 'Formas Memoria',
+    mechanicName: 'memory',
+    config: { numberOfRounds: 6, timeLimit: 18, pointsPerCorrect: 20, penaltyPerError: -3 },
+    status: 'completed',
+    description: 'Memoria con formas - repaso',
+    daysAgo: 10
+  },
+  {
+    contextKey: 'colors-basic',
+    mechanicName: 'association',
+    config: { numberOfRounds: 6, timeLimit: 12, pointsPerCorrect: 10, penaltyPerError: -2 },
+    status: 'completed',
+    description: 'Colores - práctica avanzada',
+    daysAgo: 8
+  },
+  // ─── Semana 1 (hace ~3-6 días) — más reciente ───
+  {
+    contextKey: 'animals-farm',
+    mechanicName: 'association',
+    config: { numberOfRounds: 6, timeLimit: 15, pointsPerCorrect: 10, penaltyPerError: -3 },
+    status: 'completed',
+    description: 'Animales de granja - evaluación',
+    daysAgo: 5
+  },
+  {
+    contextKey: 'geography-europe',
+    mechanicName: 'association',
+    config: { numberOfRounds: 6, timeLimit: 18, pointsPerCorrect: 12, penaltyPerError: -3 },
+    status: 'completed',
+    description: 'Geografía Europa - evaluación final',
+    daysAgo: 3
+  },
+  // ─── Sesiones pendientes (para testing de estados) ───
+  {
+    contextKey: 'numbers-1-6',
+    mechanicName: 'association',
+    config: { numberOfRounds: 5, timeLimit: 25, pointsPerCorrect: 15, penaltyPerError: -5 },
+    status: 'created',
+    description: 'Números 1-6 - sesión programada',
+    daysAgo: 0
   }
 ];
 
@@ -214,7 +292,7 @@ function generateSessionsForTeacher(teacher, teacherDecks, mechanics, contexts) 
 
   sessionTemplates.forEach(template => {
     const mechanic = findMechanic(mechanics, template.mechanicName);
-    const deck = findDeckByContext(teacherDecks, contexts, template.contextKey);
+    const deck = findDeckByContext(teacherDecks, contexts, template.contextKey, template.deckName);
 
     if (!mechanic) {
       logger.warn(`Mecanica '${template.mechanicName}' no encontrada, saltando sesion`);
@@ -229,7 +307,6 @@ function generateSessionsForTeacher(teacher, teacherDecks, mechanics, contexts) 
 
     // Construir cardMappings copiados desde el mazo (como hace el controller real)
     const cardMappings = deck.cardMappings.map(mapping => ({
-      cardId: mapping.cardId,
       uid: mapping.uid,
       assignedValue: mapping.assignedValue,
       displayData: mapping.displayData
@@ -246,6 +323,7 @@ function generateSessionsForTeacher(teacher, teacherDecks, mechanics, contexts) 
     }
 
     const sessionData = {
+      name: template.description,
       mechanicId: mechanic._id,
       deckId: deck._id,
       contextId: deck.contextId,
@@ -275,7 +353,7 @@ function generateSessionsForTeacher(teacher, teacherDecks, mechanics, contexts) 
 
     // Generar boardLayout para mecanica 'memory'
     if (template.mechanicName === 'memory') {
-      sessionData.boardLayout = generateBoardLayout(cardMappings, numberOfCards);
+      sessionData.boardLayout = generateBoardLayout(cardMappings);
     }
 
     sessions.push(sessionData);
@@ -286,15 +364,22 @@ function generateSessionsForTeacher(teacher, teacherDecks, mechanics, contexts) 
 
 /**
  * Ejecuta el seeder de sesiones.
+ * Idempotente: si ya existen sesiones, las devuelve sin recrearlas.
+ *
  * @param {Object} users - Usuarios creados { teachers, students }
  * @param {Array} mechanics - Mecanicas creadas
  * @param {Array} contexts - Contextos creados
- * @param {Array} cards - Tarjetas creadas (no usado directamente, viene del mazo)
  * @param {Array} decks - Mazos creados
- * @returns {Promise<Array>} Array de sesiones creadas
+ * @returns {Promise<Array>} Array de sesiones creadas o preexistentes
  */
-async function seedSessions(users, mechanics, contexts, cards, decks) {
+async function seedSessions(users, mechanics, contexts, decks) {
   try {
+    const existing = await GameSession.find({});
+    if (existing.length > 0) {
+      logger.info(`Sesiones ya existen (${existing.length}), omitiendo creacion`);
+      return existing;
+    }
+
     const { teachers } = users;
     const allSessions = [];
 

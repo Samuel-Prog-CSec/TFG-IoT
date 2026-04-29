@@ -1,7 +1,9 @@
 const request = require('supertest');
 
 const CONTEXT_ID = '507f1f77bcf86cd799439011';
-const describeSupabase = process.env.RUN_SUPABASE_TESTS === 'true' ? describe : describe.skip;
+
+// Estos tests mockean completamente storageService, imageProcessingService y audioValidationService.
+// No requieren credenciales reales de Supabase — se ejecutan siempre.
 
 let app;
 let storageService;
@@ -65,7 +67,7 @@ const buildTestApp = () => {
   app.use(errorHandler);
 };
 
-describeSupabase('Asset Controller - Image Upload', () => {
+describe('Asset Controller - Image Upload', () => {
   beforeEach(() => {
     buildTestApp();
     jest.clearAllMocks();
@@ -189,7 +191,7 @@ describeSupabase('Asset Controller - Image Upload', () => {
   });
 });
 
-describeSupabase('Asset Controller - Audio Upload', () => {
+describe('Asset Controller - Audio Upload', () => {
   beforeEach(() => {
     buildTestApp();
     jest.clearAllMocks();

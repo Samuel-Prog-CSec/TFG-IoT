@@ -52,7 +52,7 @@ export default function SpotlightCard({
         'relative overflow-hidden rounded-2xl',
         'bg-background-elevated/40 backdrop-blur-md',
         'border border-border-subtle',
-        'transition-all duration-300',
+        'transition-[border-color] duration-300',
         'hover:border-border-default',
         className
       )}

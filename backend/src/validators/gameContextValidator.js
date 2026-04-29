@@ -211,15 +211,6 @@ const gameContextAssetParamsSchema = z
   })
   .strict();
 
-/**
- * Schema para añadir un asset a un contexto existente.
- *
- * @example
- * POST /contexts/:id/assets
- * { key: 'italy', display: '🇮🇹', value: 'Italia' }
- */
-const addAssetSchema = assetSchema;
-
 module.exports = {
   createGameContextSchema,
   updateGameContextSchema,
@@ -227,7 +218,6 @@ module.exports = {
   gameContextParamsSchema,
   gameContextIdParamsSchema,
   gameContextAssetParamsSchema,
-  addAssetSchema,
   uploadAssetMetaSchema,
   contextIdSchema,
   assetSchema

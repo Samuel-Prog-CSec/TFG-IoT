@@ -1,7 +1,7 @@
-import { act, render, screen, waitFor } from '@testing-library/react';
+import { act, cleanup, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { MemoryRouter, Route, Routes } from 'react-router-dom';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { toast } from 'sonner';
 import GameSession from '../GameSession';
 import { socketService, SOCKET_EVENTS } from '../../services/socket';
@@ -75,53 +75,59 @@ vi.mock('sonner', () => ({
 
 vi.mock('../../services/socket', () => {
   let connected = false;
+  // Listeners compartidos: los tests emiten eventos sin distinción de namespace,
+  // así que sistema y juego comparten el mismo mapa para simplificar.
   const listeners = new Map();
+  const gameListeners = new Map();
 
-  const addListener = (event, callback) => {
-    if (!listeners.has(event)) {
-      listeners.set(event, new Set());
+  const addListener = (map) => (event, callback) => {
+    if (!map.has(event)) {
+      map.set(event, new Set());
     }
-    listeners.get(event).add(callback);
+    map.get(event).add(callback);
   };
 
-  const removeListener = (event, callback) => {
-    if (!listeners.has(event)) {
+  const removeListener = (map) => (event, callback) => {
+    if (!map.has(event)) {
       return;
     }
     if (!callback) {
-      listeners.delete(event);
+      map.delete(event);
       return;
     }
-    listeners.get(event).delete(callback);
+    map.get(event).delete(callback);
   };
 
+  // __emit busca en ambos mapas para que los tests existentes sigan funcionando
   const emitEvent = (event, payload) => {
-    const callbacks = listeners.get(event);
-    if (!callbacks) {
-      return;
+    for (const map of [listeners, gameListeners]) {
+      const callbacks = map.get(event);
+      if (callbacks) {
+        callbacks.forEach(cb => cb(payload));
+      }
     }
-    callbacks.forEach(cb => cb(payload));
   };
 
-  const SOCKET_EVENTS = {
+  const SYSTEM_EVENTS = {
     CONNECT: 'connect',
     DISCONNECT: 'disconnect',
     CONNECT_ERROR: 'connect_error',
     SESSION_INVALIDATED: 'session_invalidated',
-    RFID_EVENT: 'rfid_event',
-    RFID_STATUS: 'rfid_status',
     RFID_MODE_CHANGED: 'rfid_mode_changed',
-    RFID_SCAN_FROM_CLIENT: 'rfid_scan_from_client',
+  };
+
+  const GAME_EVENTS = {
     JOIN_PLAY: 'join_play',
     LEAVE_PLAY: 'leave_play',
     START_PLAY: 'start_play',
     PAUSE_PLAY: 'pause_play',
     RESUME_PLAY: 'resume_play',
     NEXT_ROUND: 'next_round',
-    JOIN_CARD_REGISTRATION: 'join_card_registration',
-    LEAVE_CARD_REGISTRATION: 'leave_card_registration',
+    PLAY_STATE_SYNC: 'play_state_sync',
+    BOARD_READY: 'board_ready',
     JOIN_CARD_ASSIGNMENT: 'join_card_assignment',
     LEAVE_CARD_ASSIGNMENT: 'leave_card_assignment',
+    RFID_SCAN_FROM_CLIENT: 'rfid_scan_from_client',
     PLAY_STATE: 'play_state',
     NEW_ROUND: 'new_round',
     MEMORY_TURN_STATE: 'memory_turn_state',
@@ -130,10 +136,17 @@ vi.mock('../../services/socket', () => {
     PLAY_INTERRUPTED: 'play_interrupted',
     PLAY_PAUSED: 'play_paused',
     PLAY_RESUMED: 'play_resumed',
-    ERROR: 'error'
+    SCAN_IGNORED: 'scan_ignored',
+    RFID_EVENT: 'rfid_event',
+    RFID_STATUS: 'rfid_status',
+    ERROR: 'error',
   };
 
+  const SOCKET_EVENTS = { ...SYSTEM_EVENTS, ...GAME_EVENTS };
+
   return {
+    SYSTEM_EVENTS,
+    GAME_EVENTS,
     SOCKET_EVENTS,
     socketService: {
       connect: vi.fn(async () => {
@@ -143,10 +156,18 @@ vi.mock('../../services/socket', () => {
         connected = false;
       }),
       isSocketConnected: vi.fn(() => connected),
-      on: vi.fn(addListener),
-      off: vi.fn(removeListener),
+      isGameSocketConnected: vi.fn(() => connected),
+      // Namespace de sistema
+      on: vi.fn(addListener(listeners)),
+      off: vi.fn(removeListener(listeners)),
       sendCommand: vi.fn(() => true),
+      // Namespace de juego
+      onGame: vi.fn(addListener(gameListeners)),
+      offGame: vi.fn(removeListener(gameListeners)),
+      sendGameCommand: vi.fn(() => true),
+      emitGameFireAndForget: vi.fn(),
       requestPlayStateSync: vi.fn(() => true),
+      // Helpers de test
       __emit: emitEvent,
       __setConnected: (value) => {
         connected = value;
@@ -221,6 +242,10 @@ function renderGameSession() {
 }
 
 describe('GameSession realtime gameplay', () => {
+  afterEach(() => {
+    cleanup();
+  });
+
   beforeEach(() => {
     vi.clearAllMocks();
 
@@ -238,7 +263,7 @@ describe('GameSession realtime gameplay', () => {
     };
 
     socketService.__setConnected(false);
-    socketService.sendCommand.mockReturnValue(true);
+    socketService.sendGameCommand.mockReturnValue(true);
   });
 
   it('renders association gameplay and updates round event in realtime', async () => {
@@ -261,7 +286,7 @@ describe('GameSession realtime gameplay', () => {
       });
     });
 
-    expect(await screen.findByText(/^Busca$/i)).toBeInTheDocument();
+    expect(await screen.findByText(/Encuentra:/i)).toBeInTheDocument();
     expect(screen.getByText(/Puntos/i)).toBeInTheDocument();
   });
 
@@ -305,12 +330,18 @@ describe('GameSession realtime gameplay', () => {
       });
     });
 
-    expect(await screen.findByText(/Parejas encontradas/i)).toBeInTheDocument();
-    expect(screen.getByText(/1\s*\/\s*2/)).toBeInTheDocument();
-    expect(screen.getByText(/🧠\s*Parejas/i)).toBeInTheDocument();
+    // La barra textual "Parejas encontradas: X/Y" se eliminó del panel para
+    // liberar altura vertical (el mismo dato esta en los dots del header y en
+    // los corazones superiores del tablero). Los asserts ahora verifican el
+    // contador "1 / 2" del header y la metric pill "Parejas" del footer
+    // (el icono Brain es un SVG hermano del texto tras la migración de emojis
+    // a Lucide en QA 2026-04-23; "Parejas" aparece tanto en el mini-dot del
+    // header como en la pill del footer, de ahí el getAllByText).
+    expect(await screen.findByText((_content, el) => /1\s*\/\s*2/.test(el?.textContent || '') && el?.tagName === 'DIV' && el?.className?.includes('font-display'))).toBeInTheDocument();
+    expect(screen.getAllByText(/Parejas/i).length).toBeGreaterThan(0);
   });
 
-  it('maps realtime backend error codes to specific UX messages', async () => {
+  it('suppresses RFID_SENSOR_UNAUTHORIZED in touch fallback mode', async () => {
     renderGameSession();
     await screen.findByRole('button', { name: /empezar/i });
 
@@ -321,14 +352,13 @@ describe('GameSession realtime gameplay', () => {
       });
     });
 
-    await waitFor(() => {
-      expect(toast.warning).toHaveBeenCalled();
-    });
+    // RFID_SENSOR_UNAUTHORIZED se suprime en modo fallback táctil (Fix 2D)
+    expect(toast.warning).not.toHaveBeenCalled();
   });
 
   it('requires realtime socket to pause or resume gameplay', async () => {
     const user = userEvent.setup();
-    socketService.sendCommand.mockReturnValue(false);
+    socketService.sendGameCommand.mockReturnValue(false);
 
     renderGameSession();
     await screen.findByRole('button', { name: /empezar/i });
@@ -351,7 +381,7 @@ describe('GameSession realtime gameplay', () => {
     const pauseButton = await screen.findByLabelText('Pausar');
     await user.click(pauseButton);
 
-    expect(socketService.sendCommand).toHaveBeenCalledWith(SOCKET_EVENTS.PAUSE_PLAY, {
+    expect(socketService.sendGameCommand).toHaveBeenCalledWith(SOCKET_EVENTS.PAUSE_PLAY, {
       playId: 'play-1'
     });
     await waitFor(() => {
@@ -408,8 +438,7 @@ describe('GameSession realtime gameplay', () => {
       });
     });
 
-    expect(await screen.findByText(/Parejas encontradas/i)).toBeInTheDocument();
-    expect(screen.getByText(/1\s*\/\s*2/)).toBeInTheDocument();
+    expect(await screen.findByText((_content, el) => /1\s*\/\s*2/.test(el?.textContent || '') && el?.tagName === 'DIV' && el?.className?.includes('font-display'))).toBeInTheDocument();
   });
 
   it('handles play_interrupted event with warning feedback', async () => {
@@ -479,12 +508,15 @@ describe('GameSession realtime gameplay', () => {
     const cardButton = await screen.findByRole('button', { name: /perro/i });
     await user.click(cardButton);
 
-    expect(socketService.sendCommand).toHaveBeenCalledWith(SOCKET_EVENTS.RFID_SCAN_FROM_CLIENT, {
+    // PROP-90 / ADR-090: el fallback táctil ahora envía source='touch_fallback'
+    // para que el backend aplique el cooldown corto (250ms) en vez del cooldown
+    // largo del sensor hardware (1200ms).
+    expect(socketService.sendGameCommand).toHaveBeenCalledWith(SOCKET_EVENTS.RFID_SCAN_FROM_CLIENT, {
       uid: 'AA11',
       type: 'UNKNOWN',
       sensorId: 'sensor-class-1',
       timestamp: expect.any(Number),
-      source: 'web_serial'
+      source: 'touch_fallback'
     });
   });
 
@@ -495,8 +527,8 @@ describe('GameSession realtime gameplay', () => {
 
     expect(sessionsAPI.getSessionById).toHaveBeenCalledWith('session-1', expect.any(Object));
     expect(playsAPI.createPlay).toHaveBeenCalledWith({ sessionId: 'session-1', playerId: 'student-1' });
-    expect(socketService.sendCommand).toHaveBeenCalledWith(SOCKET_EVENTS.JOIN_PLAY, { playId: 'play-1' });
-    expect(socketService.sendCommand).toHaveBeenCalledWith(SOCKET_EVENTS.START_PLAY, { playId: 'play-1' });
+    expect(socketService.sendGameCommand).toHaveBeenCalledWith(SOCKET_EVENTS.JOIN_PLAY, { playId: 'play-1' });
+    expect(socketService.sendGameCommand).toHaveBeenCalledWith(SOCKET_EVENTS.START_PLAY, { playId: 'play-1' });
   });
 
   it('announces round start in the live status region for screen readers', async () => {
@@ -599,6 +631,6 @@ describe('GameSession realtime gameplay', () => {
 
     await user.keyboard('{Escape}');
 
-    expect(socketService.sendCommand).toHaveBeenCalledWith(SOCKET_EVENTS.RESUME_PLAY, { playId: 'play-1' });
+    expect(socketService.sendGameCommand).toHaveBeenCalledWith(SOCKET_EVENTS.RESUME_PLAY, { playId: 'play-1' });
   });
 });

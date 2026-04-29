@@ -1,6 +1,16 @@
 /**
  * @fileoverview Seeder de partidas individuales (GamePlay).
- * Crea partidas de ejemplo con eventos y métricas para testing.
+ * Genera partidas con eventos y métricas realistas para alimentar 30 endpoints de analytics.
+ *
+ * Mejoras sobre versión anterior:
+ * - Rango temporal: 60 días (antes: 10 días)
+ * - Partidas por alumno: 8-15 (antes: 2-5)
+ * - Estados: completed + abandoned (antes: solo completed)
+ * - Re-intentos: misma sesión jugada múltiples veces
+ * - Patrones temporales: variabilidad entre días
+ * - Fatiga simulada: tiempos crecientes en rondas finales
+ *
+ * Ver backend/docs/Analytics_Design_Rationale.md para contexto de BI.
  * @module seeders/07-gameplays
  */
 
@@ -9,37 +19,107 @@ const GameSession = require('../src/models/GameSession');
 const User = require('../src/models/User');
 const logger = require('../src/utils/logger');
 
-function getProfileConfig(studentProfile, round, numberOfRounds) {
-  if (studentProfile === 'high_performer') {
-    return {
-      successProb: 0.95,
-      timeoutProb: 0.01,
-      avgSpeed: 2500
-    };
-  }
+// ══════════════════════════════════════════════════════════════════════
+// Perfiles de estudiante con soporte para evolución temporal
+// ══════════════════════════════════════════════════════════════════════
 
-  if (studentProfile === 'struggling') {
-    return {
-      successProb: 0.4,
-      timeoutProb: 0.15,
-      avgSpeed: 8000
-    };
-  }
-
-  if (studentProfile === 'improving') {
-    const progress = round / numberOfRounds;
-    return {
-      successProb: 0.3 + progress * 0.6,
-      timeoutProb: 0.2 - progress * 0.15,
-      avgSpeed: 8000 - progress * 4000
-    };
-  }
-
-  return {
-    successProb: 0.78,
+/**
+ * Perfiles de estudiante extendidos para analytics avanzados.
+ * Cada perfil define cómo varía el rendimiento en el tiempo.
+ */
+const STUDENT_PROFILES = {
+  high_performer: {
+    label: 'Alto rendimiento estable',
+    baseSuccessProb: 0.97,
+    timeoutProb: 0.01,
+    avgSpeed: 2200,
+    // Tendencia: estable, muy consistente — genera tier "Excelente" (90+)
+    improvementPerGame: 0.008,
+    fatigueMultiplier: 1.1,
+    abandonProbability: 0.01
+  },
+  improving: {
+    label: 'Mejorando progresivamente',
+    baseSuccessProb: 0.6,
+    timeoutProb: 0.08,
+    avgSpeed: 5500,
+    // Tendencia: mejora clara, termina en "Bueno" (70-89)
+    improvementPerGame: 0.045,
+    fatigueMultiplier: 1.25,
+    abandonProbability: 0.06
+  },
+  declining: {
+    label: 'Rendimiento en descenso',
+    baseSuccessProb: 0.75,
+    timeoutProb: 0.05,
+    avgSpeed: 3500,
+    // Tendencia: empeora
+    improvementPerGame: -0.025,
+    fatigueMultiplier: 1.4,
+    abandonProbability: 0.12
+  },
+  plateau: {
+    label: 'Estancado',
+    baseSuccessProb: 0.65,
     timeoutProb: 0.06,
-    avgSpeed: 4000
-  };
+    avgSpeed: 4500,
+    // Tendencia: estable sin mejora
+    improvementPerGame: 0.002,
+    fatigueMultiplier: 1.2,
+    abandonProbability: 0.05
+  },
+  struggling: {
+    label: 'Con dificultades',
+    baseSuccessProb: 0.35,
+    timeoutProb: 0.18,
+    avgSpeed: 8000,
+    // Tendencia: ligera mejora pero lenta
+    improvementPerGame: 0.015,
+    fatigueMultiplier: 1.5,
+    abandonProbability: 0.15
+  },
+  average: {
+    label: 'Rendimiento medio',
+    baseSuccessProb: 0.8,
+    timeoutProb: 0.05,
+    avgSpeed: 3500,
+    // Tendencia: mejora moderada, termina en "Bueno"
+    improvementPerGame: 0.025,
+    fatigueMultiplier: 1.2,
+    abandonProbability: 0.04
+  }
+};
+
+const PROFILE_NAMES = Object.keys(STUDENT_PROFILES);
+
+// ══════════════════════════════════════════════════════════════════════
+// Funciones de generación de eventos
+// ══════════════════════════════════════════════════════════════════════
+
+/**
+ * Genera la configuración de rendimiento para una ronda específica,
+ * considerando el perfil del alumno, su progresión y la fatiga.
+ *
+ * @param {Object} profile - Perfil STUDENT_PROFILES[key]
+ * @param {number} gameNumber - Número de partida (para progresión temporal)
+ * @param {number} round - Ronda actual
+ * @param {number} numberOfRounds - Total de rondas
+ * @returns {Object} { successProb, timeoutProb, avgSpeed }
+ */
+function getProfileConfig(profile, gameNumber, round, numberOfRounds) {
+  // Progresión temporal: el alumno mejora/empeora con cada partida
+  const progression = Math.min(gameNumber * profile.improvementPerGame, 0.3);
+  const successProb = Math.max(0.1, Math.min(0.98, profile.baseSuccessProb + progression));
+  const timeoutProb = Math.max(0.01, profile.timeoutProb - progression * 0.3);
+
+  // Fatiga: los tiempos aumentan en las rondas finales
+  const roundProgress = round / numberOfRounds;
+  const fatigueEffect =
+    roundProgress > 0.5 ? 1 + (roundProgress - 0.5) * (profile.fatigueMultiplier - 1) * 2 : 1;
+
+  const avgSpeed = profile.avgSpeed * fatigueEffect;
+
+  return { successProb, timeoutProb, avgSpeed };
 }
 
 function resolveRoundResult({ random, successProb, timeoutProb, finalSpeed, config }) {
@@ -73,11 +153,9 @@ function resolveCardUid(eventType, expectedMapping, errorMapping) {
   if (eventType === 'error') {
     return errorMapping.uid;
   }
-
   if (eventType === 'correct') {
     return expectedMapping.uid;
   }
-
   return undefined;
 }
 
@@ -85,7 +163,6 @@ function resolveActualValue(eventType, expectedMapping, errorMapping) {
   if (eventType === 'correct') {
     return expectedMapping.assignedValue;
   }
-
   return errorMapping.assignedValue;
 }
 
@@ -96,15 +173,39 @@ function buildRoundEvents({
   expectedMapping,
   errorMapping,
   pointsAwarded,
-  timeElapsed
+  timeElapsed,
+  isMemory
 }) {
-  const roundStartEvent = {
-    timestamp: new Date(roundStartTime),
-    eventType: 'round_start',
-    roundNumber: round
-  };
+  // Replica fielmente lo que emite GameEngine:
+  // 1. round_start al iniciar ronda (GameEngine.js:982)
+  // 2. En memory, card_scanned antes del outcome del par resuelto (GameEngine.js:769-777)
+  // 3. correct | error | timeout con advanceRound (GameEngine.js:793, 1175-1178, 1271)
+  // NO emite round_end: el enum lo contempla pero el engine nunca lo invoca.
+  const events = [
+    {
+      timestamp: new Date(roundStartTime),
+      eventType: 'round_start',
+      roundNumber: round
+    }
+  ];
 
-  const resultEvent = {
+  if (isMemory && eventType !== 'timeout') {
+    // En memory, el first_pick se registra como card_scanned sin puntos
+    // antes de resolverse el par. timeout no genera first_pick.
+    const firstPickElapsed = Math.max(0, Math.floor(timeElapsed / 2));
+    events.push({
+      timestamp: new Date(roundStartTime + firstPickElapsed),
+      eventType: 'card_scanned',
+      cardUid: expectedMapping.uid,
+      expectedValue: expectedMapping.assignedValue,
+      actualValue: expectedMapping.assignedValue,
+      pointsAwarded: 0,
+      timeElapsed: firstPickElapsed,
+      roundNumber: round
+    });
+  }
+
+  events.push({
     timestamp: new Date(roundStartTime + timeElapsed),
     eventType,
     cardUid: resolveCardUid(eventType, expectedMapping, errorMapping),
@@ -113,25 +214,32 @@ function buildRoundEvents({
     pointsAwarded,
     timeElapsed,
     roundNumber: round
-  };
+  });
 
-  const roundEndEvent = {
-    timestamp: new Date(roundStartTime + timeElapsed + 500),
-    eventType: 'round_end',
-    roundNumber: round
-  };
-
-  return [roundStartEvent, resultEvent, roundEndEvent];
+  return events;
 }
 
 /**
- * Genera eventos coherentes para una partida simulando diferentes perfiles de estudiante.
- * @param {number} numberOfRounds - Número de rondas
+ * Genera eventos para una partida.
+ *
+ * @param {number} numberOfRounds - Rondas de la sesión
  * @param {Object} config - Configuración de la sesión
- * @param {string} studentProfile - Perfil del alumno ('high_performer', 'struggling', 'improving', 'average')
- * @returns {Object} Objeto con eventos y métricas
+ * @param {Array} cardMappings - Mapeos de tarjetas
+ * @param {Object} profile - Perfil STUDENT_PROFILES[key]
+ * @param {number} gameNumber - Número de partida (para progresión)
+ * @param {boolean} willAbandon - Si la partida será abandonada
+ * @param {boolean} isMemory - Si la sesión es mecánica memory (para emitir card_scanned)
+ * @returns {Object} { events, score, metrics, roundsPlayed }
  */
-function generatePlayEvents(numberOfRounds, config, cardMappings, studentProfile = 'average') {
+function generatePlayEvents(
+  numberOfRounds,
+  config,
+  cardMappings,
+  profile,
+  gameNumber,
+  willAbandon,
+  isMemory
+) {
   const events = [];
   let score = 0;
   let correctAttempts = 0;
@@ -139,22 +247,25 @@ function generatePlayEvents(numberOfRounds, config, cardMappings, studentProfile
   let timeoutAttempts = 0;
   const responseTimes = [];
 
-  // Jitter determinista basado en el numero de rondas
-  const jitter = (numberOfRounds * 7919) % 60000;
+  // Si abandona, jugar solo una parte de las rondas
+  const roundsToPlay = willAbandon
+    ? Math.max(1, Math.floor(numberOfRounds * (0.3 + Math.random() * 0.4)))
+    : numberOfRounds;
+
+  const jitter = (numberOfRounds * 7919 + gameNumber * 1237) % 60000;
   const startTime = Date.now() - numberOfRounds * 20000 - jitter;
 
-  for (let round = 1; round <= numberOfRounds; round++) {
+  for (let round = 1; round <= roundsToPlay; round++) {
     const roundStartTime = startTime + (round - 1) * 15000;
 
     const { successProb, timeoutProb, avgSpeed } = getProfileConfig(
-      studentProfile,
+      profile,
+      gameNumber,
       round,
       numberOfRounds
     );
 
     const random = Math.random();
-
-    // Simular variabilidad en el tiempo de respuesta
     const speedJitter = Math.random() * 2000 - 1000;
     const finalSpeed = Math.max(1000, avgSpeed + speedJitter);
 
@@ -176,24 +287,22 @@ function generatePlayEvents(numberOfRounds, config, cardMappings, studentProfile
     timeoutAttempts += roundResult.counters.timeoutAttempts;
 
     score += pointsAwarded;
-    if (eventType !== 'timeout') {
-      responseTimes.push(timeElapsed);
-    }
+    responseTimes.push(timeElapsed);
 
-    const roundEvents = buildRoundEvents({
-      roundStartTime,
-      round,
-      eventType,
-      expectedMapping,
-      errorMapping,
-      pointsAwarded,
-      timeElapsed
-    });
-
-    events.push(...roundEvents);
+    events.push(
+      ...buildRoundEvents({
+        roundStartTime,
+        round,
+        eventType,
+        expectedMapping,
+        errorMapping,
+        pointsAwarded,
+        timeElapsed,
+        isMemory
+      })
+    );
   }
 
-  // Calcular métricas
   const averageResponseTime =
     responseTimes.length > 0
       ? Math.round(responseTimes.reduce((a, b) => a + b, 0) / responseTimes.length)
@@ -201,23 +310,26 @@ function generatePlayEvents(numberOfRounds, config, cardMappings, studentProfile
 
   return {
     events,
-    score: Math.max(0, score),
+    score,
     metrics: {
-      totalAttempts: numberOfRounds,
+      totalAttempts: roundsToPlay,
       correctAttempts,
       errorAttempts,
       timeoutAttempts,
       averageResponseTime,
-      completionTime: numberOfRounds * 15000
-    }
+      completionTime: 0 // Se recalcula con timestamps reales en generateGamePlaysData
+    },
+    roundsPlayed: roundsToPlay
   };
 }
 
+// ══════════════════════════════════════════════════════════════════════
+// Generación de partidas con distribución temporal realista
+// ══════════════════════════════════════════════════════════════════════
+
 /**
- * Genera partidas para las sesiones activas.
- * @param {Array} sessions - Sesiones creadas
- * @param {Array} students - Alumnos creados
- * @returns {Array} Array de datos de partidas
+ * Genera partidas distribuidas temporalmente para analytics avanzados.
+ * Cada alumno recibe 8-15 partidas distribuidas en 60 días.
  */
 function generateGamePlaysData(sessions, students) {
   const gamePlays = [];
@@ -232,54 +344,112 @@ function generateGamePlaysData(sessions, students) {
     return acc;
   }, {});
 
-  const profiles = ['high_performer', 'average', 'struggling', 'improving', 'average'];
-
   students.forEach((student, index) => {
-    const teacherId = (student.assignedTeacher || student.createdBy || '').toString();
+    const teacherId = (student.createdBy || '').toString();
     const teacherSessions = sessionsByTeacher[teacherId] || [];
     if (teacherSessions.length === 0) {
       return;
     }
 
-    // Determinista: 2-5 partidas por alumno segun su indice
-    const playsCount = (index % 4) + 2;
+    // Asignar perfil determinista: cicla por los 6 perfiles
+    const profileName = PROFILE_NAMES[index % PROFILE_NAMES.length];
+    const profile = STUDENT_PROFILES[profileName];
+
+    // 8-15 partidas por alumno (determinista, más que antes)
+    const playsCount = 8 + (index % 8);
+
+    // Ordenar sesiones por fecha para distribuir partidas temporalmente
+    const sortedSessions = [...teacherSessions].sort(
+      (a, b) => (a.startedAt || a.createdAt) - (b.startedAt || b.createdAt)
+    );
+
     for (let i = 0; i < playsCount; i++) {
-      const session = teacherSessions[(index + i) % teacherSessions.length];
+      // Distribuir entre sesiones (con re-intentos — misma sesión jugada varias veces)
+      const session = sortedSessions[i % sortedSessions.length];
       const numberOfRounds = session.config.numberOfRounds;
-      const profile = profiles[(index + i) % profiles.length];
+
+      // Inferir si la sesión usa mecánica memory desde boardLayout (solo memory lo tiene)
+      const isMemory = Array.isArray(session.boardLayout) && session.boardLayout.length > 0;
+
+      // Decidir si abandona (según perfil)
+      const willAbandon = Math.random() < profile.abandonProbability;
+
       const playData = generatePlayEvents(
         numberOfRounds,
         session.config,
         session.cardMappings,
-        profile
+        profile,
+        i,
+        willAbandon,
+        isMemory
       );
 
-      const sessionStart = session.startedAt || new Date();
-      const timeShift = sessionStart.getTime() - playData.events[0].timestamp.getTime();
+      // Calcular timestamp: distribuir partidas del alumno a lo largo del tiempo
+      // Las últimas 3 partidas de cada alumno se ubican en los últimos 7 días
+      // para que las métricas de "Partidas Hoy" y "Alumnos Activos" muestren datos
+      const isRecentPlay = i >= playsCount - 3;
+      let baseTime;
+
+      if (isRecentPlay) {
+        // Partidas recientes: hoy y últimos días (horario escolar 8:00-14:00)
+        const daysAgo = playsCount - 1 - i; // 2, 1, 0 (hoy la última)
+        const recentDate = new Date();
+        recentDate.setDate(recentDate.getDate() - daysAgo);
+        recentDate.setHours(9 + ((index * 3 + i) % 5), (index * 11 + i * 13) % 60, 0, 0);
+        baseTime = recentDate.getTime();
+      } else {
+        // Partidas históricas: distribuidas en los últimos 60 días
+        const sessionStart = session.startedAt || session.createdAt || new Date();
+        const hourOffset = ((index * 3 + i * 7) % 6) * 60 * 60 * 1000;
+        const minuteOffset = ((index * 11 + i * 13) % 60) * 60 * 1000;
+        baseTime = sessionStart.getTime() + hourOffset + minuteOffset;
+      }
+
+      // Ajustar timestamps de eventos relativos a esta base
+      const timeShift = baseTime - playData.events[0].timestamp.getTime();
       playData.events.forEach(e => {
         e.timestamp = new Date(e.timestamp.getTime() + timeShift);
       });
 
-      const completedAt = new Date(
-        playData.events[playData.events.length - 1].timestamp.getTime() + 1000
-      );
+      const startedAt = playData.events[0].timestamp;
+      const lastEventTime = playData.events[playData.events.length - 1].timestamp.getTime();
 
-      gamePlays.push({
+      const completedAt = new Date(lastEventTime + 1000);
+
+      // P19: calcular maxScore y clamar score para integridad (nunca > maximo teorico).
+      const pointsPerCorrect = Number(session.config?.pointsPerCorrect) || 10;
+      const maxScore = Math.max(1, numberOfRounds * pointsPerCorrect);
+      const clampedScore = Math.max(0, Math.min(playData.score, maxScore));
+
+      const gamePlay = {
         sessionId: session._id,
         playerId: student._id,
-        score: playData.score,
-        currentRound: numberOfRounds + 1,
+        score: clampedScore,
+        maxScore,
+        currentRound: willAbandon ? playData.roundsPlayed + 1 : numberOfRounds + 1,
         events: playData.events,
-        metrics: playData.metrics,
-        status: 'completed',
-        startedAt: playData.events[0].timestamp,
+        metrics: {
+          ...playData.metrics,
+          // Recalcular completionTime desde timestamps reales (como hace GamePlay.complete())
+          completionTime: completedAt - startedAt
+        },
+        status: willAbandon ? 'abandoned' : 'completed',
+        startedAt,
+        // completedAt se establece tanto para completadas como abandonadas
+        // (el modelo GameEngine también lo hace en endPlay para ambos estados)
         completedAt
-      });
+      };
+
+      gamePlays.push(gamePlay);
     }
   });
 
   return gamePlays;
 }
+
+// ══════════════════════════════════════════════════════════════════════
+// Agregación de métricas y ejecución
+// ══════════════════════════════════════════════════════════════════════
 
 function aggregateStudentMetrics(gamePlays) {
   const metricsByStudent = new Map();
@@ -292,22 +462,33 @@ function aggregateStudentMetrics(gamePlays) {
       bestScore: 0,
       totalCorrectAnswers: 0,
       totalErrors: 0,
+      totalTimeouts: 0,
+      totalAbandonedGames: 0,
       totalResponseTime: 0,
       totalResponses: 0,
       lastPlayedAt: null
     };
 
-    entry.totalGamesPlayed += 1;
-    entry.totalScore += play.score;
-    entry.bestScore = Math.max(entry.bestScore, play.score);
-    entry.totalCorrectAnswers += play.metrics.correctAttempts;
-    entry.totalErrors += play.metrics.errorAttempts;
-    const responses = play.metrics.correctAttempts + play.metrics.errorAttempts;
-    entry.totalResponses += responses;
-    entry.totalResponseTime += play.metrics.averageResponseTime * responses;
+    if (play.status === 'abandoned') {
+      // Las partidas abandonadas solo incrementan el contador de abandonos
+      entry.totalAbandonedGames += 1;
+    } else if (play.status === 'completed') {
+      // Las partidas completadas contribuyen a todas las métricas de rendimiento
+      entry.totalGamesPlayed += 1;
+      entry.totalScore += play.score;
+      entry.bestScore = Math.max(entry.bestScore, play.score);
+      entry.totalCorrectAnswers += play.metrics.correctAttempts;
+      entry.totalErrors += play.metrics.errorAttempts;
+      entry.totalTimeouts += play.metrics.timeoutAttempts;
+      const responses = play.metrics.correctAttempts + play.metrics.errorAttempts;
+      entry.totalResponses += responses;
+      entry.totalResponseTime += play.metrics.averageResponseTime * responses;
+    }
 
-    if (!entry.lastPlayedAt || play.completedAt > entry.lastPlayedAt) {
-      entry.lastPlayedAt = play.completedAt;
+    // lastPlayedAt se actualiza con cualquier partida (completada o abandonada)
+    const playDate = play.completedAt || play.startedAt;
+    if (playDate && (!entry.lastPlayedAt || playDate > entry.lastPlayedAt)) {
+      entry.lastPlayedAt = playDate;
     }
 
     metricsByStudent.set(studentId, entry);
@@ -321,11 +502,9 @@ async function recalculateSessionStatusesFromSeededPlays() {
     if (counters.activeOrPausedPlays > 0) {
       return 'active';
     }
-
     if (counters.totalPlays > 0) {
       return 'completed';
     }
-
     return 'created';
   };
 
@@ -369,19 +548,26 @@ async function recalculateSessionStatusesFromSeededPlays() {
     }
 
     applySessionStatus(session, nextStatus);
-
     await session.save();
   }
 }
 
 /**
  * Ejecuta el seeder de partidas.
+ * Idempotente: si ya existen partidas, las devuelve sin regenerarlas ni
+ * recalcular métricas/estados (evita duplicados en ejecuciones repetidas).
  * @param {Array} sessions - Sesiones creadas
  * @param {Array} students - Alumnos creados
- * @returns {Promise<Array>} Array de partidas creadas
+ * @returns {Promise<Array>} Array de partidas creadas o preexistentes
  */
 async function seedGamePlays(sessions, students) {
   try {
+    const existing = await GamePlay.find({});
+    if (existing.length > 0) {
+      logger.info(`Partidas ya existen (${existing.length}), omitiendo creacion`);
+      return existing;
+    }
+
     const gamePlaysData = generateGamePlaysData(sessions, students);
     const gamePlays = await GamePlay.create(gamePlaysData);
 
@@ -407,6 +593,8 @@ async function seedGamePlays(sessions, students) {
               'studentMetrics.bestScore': metrics.bestScore,
               'studentMetrics.totalCorrectAnswers': metrics.totalCorrectAnswers,
               'studentMetrics.totalErrors': metrics.totalErrors,
+              'studentMetrics.totalTimeouts': metrics.totalTimeouts,
+              'studentMetrics.totalAbandonedGames': metrics.totalAbandonedGames,
               'studentMetrics.averageResponseTime': averageResponseTime,
               'studentMetrics.lastPlayedAt': metrics.lastPlayedAt
             }
@@ -418,14 +606,19 @@ async function seedGamePlays(sessions, students) {
     await Promise.all(updatePromises);
     await recalculateSessionStatusesFromSeededPlays();
 
-    // Contar por estado
+    // Estadísticas de lo generado
     const byStatus = gamePlays.reduce((acc, gp) => {
       acc[gp.status] = (acc[gp.status] || 0) + 1;
       return acc;
     }, {});
 
+    const uniqueStudents = new Set(gamePlays.map(gp => gp.playerId.toString())).size;
+    const uniqueSessions = new Set(gamePlays.map(gp => gp.sessionId.toString())).size;
+
     logger.info('Partidas (GamePlays) seeded exitosamente');
     logger.info(`- ${gamePlays.length} partidas totales`);
+    logger.info(`- ${uniqueStudents} estudiantes con partidas`);
+    logger.info(`- ${uniqueSessions} sesiones utilizadas`);
     Object.entries(byStatus).forEach(([status, count]) => {
       logger.info(`- ${count} partidas en estado "${status}"`);
     });

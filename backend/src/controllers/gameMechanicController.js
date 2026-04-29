@@ -1,14 +1,25 @@
 /**
- * @fileoverview Controller para gestión CRUD de mecánicas de juego.
- * Maneja las diferentes mecánicas disponibles (association, sequence, memory, etc.).
+ * @fileoverview Controller de mecánicas de juego (solo lectura).
+ *
+ * Las mecánicas son inmutables a nivel de API: solo los desarrolladores
+ * las definen mediante seeders y migraciones. Por tanto, este controller
+ * únicamente expone operaciones de lectura.
+ *
  * @module controllers/gameMechanicController
  */
 
 const gameMechanicRepository = require('../repositories/gameMechanicRepository');
-const { NotFoundError, ConflictError } = require('../utils/errors');
+const { NotFoundError } = require('../utils/errors');
 const logger = require('../utils/logger');
-const { toGameMechanicDTOV1, toGameMechanicListDTOV1, toPaginatedDTOV1 } = require('../utils/dtos');
-const { escapeRegex } = require('../utils/escapeRegex');
+const { toGameMechanicDTOV1, toGameMechanicListDTOV1 } = require('../utils/dtos');
+const { sendSuccess, sendPaginated } = require('../utils/responseHelper');
+const { buildFilter } = require('../utils/filterBuilder');
+const { cacheGet } = require('../utils/cacheHelper');
+
+const mechanicFilterMappings = {
+  isActive: { field: 'isActive', type: 'exact' },
+  search: { type: 'search', fields: ['name', 'displayName'] }
+};
 
 /**
  * Obtener lista de mecánicas con paginación y filtros.
@@ -18,66 +29,42 @@ const { escapeRegex } = require('../utils/escapeRegex');
  *
  * @param {import('express').Request} req
  * @param {import('express').Response} res
- * @param {import('express').NextFunction} next
  */
-const getMechanics = async (req, res, next) => {
-  try {
-    const {
-      page = 1,
-      limit = 20,
-      sortBy = 'createdAt',
-      order = 'desc',
-      isActive,
-      search
-    } = req.query;
+const getMechanics = async (req, res) => {
+  const {
+    page = 1,
+    limit = 20,
+    sortBy = 'createdAt',
+    order = 'desc',
+    isActive,
+    search
+  } = req.query;
 
-    // Construir filtro
-    const filter = {};
+  const filter = buildFilter({ isActive, search }, mechanicFilterMappings);
 
-    if (isActive !== undefined) {
-      filter.isActive = isActive;
-    }
+  const skip = (page - 1) * limit;
+  const sortOptions = { [sortBy]: order === 'asc' ? 1 : -1 };
 
-    // Búsqueda por nombre o displayName
-    if (search) {
-      const safeSearch = escapeRegex(search);
-      filter.$or = [
-        { name: { $regex: safeSearch, $options: 'i' } },
-        { displayName: { $regex: safeSearch, $options: 'i' } }
-      ];
-    }
+  const [mechanics, total] = await Promise.all([
+    gameMechanicRepository.find(filter, {
+      sort: sortOptions,
+      limit: Number.parseInt(limit, 10),
+      skip
+    }),
+    gameMechanicRepository.count(filter)
+  ]);
 
-    // Paginación
-    const skip = (page - 1) * limit;
-    const sortOptions = { [sortBy]: order === 'asc' ? 1 : -1 };
+  logger.info('Lista de mecánicas obtenida', {
+    requestedBy: req.user._id,
+    filters: filter,
+    resultsCount: mechanics.length
+  });
 
-    // Ejecutar query
-    const [mechanics, total] = await Promise.all([
-      gameMechanicRepository.find(filter, {
-        sort: sortOptions,
-        limit: Number.parseInt(limit, 10),
-        skip
-      }),
-      gameMechanicRepository.count(filter)
-    ]);
-
-    logger.info('Lista de mecánicas obtenida', {
-      requestedBy: req.user._id,
-      filters: filter,
-      resultsCount: mechanics.length
-    });
-
-    res.json({
-      success: true,
-      ...toPaginatedDTOV1(toGameMechanicListDTOV1(mechanics), {
-        page: Number.parseInt(page, 10),
-        limit: Number.parseInt(limit, 10),
-        total
-      })
-    });
-  } catch (error) {
-    next(error);
-  }
+  sendPaginated(res, toGameMechanicListDTOV1(mechanics), {
+    page: Number.parseInt(page, 10),
+    limit: Number.parseInt(limit, 10),
+    total
+  });
 };
 
 /**
@@ -88,181 +75,30 @@ const getMechanics = async (req, res, next) => {
  *
  * @param {import('express').Request} req
  * @param {import('express').Response} res
- * @param {import('express').NextFunction} next
  */
-const getMechanicById = async (req, res, next) => {
-  try {
-    const { id } = req.params;
+const getMechanicById = async (req, res) => {
+  const { id } = req.params;
 
-    // Intentar buscar por ID de MongoDB o por nombre
-    let mechanic;
+  const mechanic = await cacheGet(
+    'cache:mechanic',
+    `byId:${id}`,
+    async () => {
+      let result;
+      if (id.match(/^[0-9a-f]{24}$/i)) {
+        result = await gameMechanicRepository.findById(id);
+      } else {
+        result = await gameMechanicRepository.findOne({ name: id.toLowerCase() });
+      }
+      return result;
+    },
+    3600
+  );
 
-    if (id.match(/^[0-9a-fA-F]{24}$/)) {
-      mechanic = await gameMechanicRepository.findById(id);
-    } else {
-      // Buscar por nombre (ej: 'association', 'sequence')
-      mechanic = await gameMechanicRepository.findOne({ name: id.toLowerCase() });
-    }
-
-    if (!mechanic) {
-      throw new NotFoundError('Mecánica de juego');
-    }
-
-    res.json({
-      success: true,
-      data: toGameMechanicDTOV1(mechanic)
-    });
-  } catch (error) {
-    next(error);
+  if (!mechanic) {
+    throw new NotFoundError('Mecánica de juego');
   }
-};
 
-/**
- * Crear una nueva mecánica de juego.
- * Solo profesores pueden crear mecánicas.
- *
- * POST /api/mechanics
- * Headers: Authorization: Bearer <token>
- * Body: { name, displayName, description, icon?, rules?, isActive? }
- *
- * @param {import('express').Request} req
- * @param {import('express').Response} res
- * @param {import('express').NextFunction} next
- */
-const createMechanic = async (req, res, next) => {
-  try {
-    const { name, displayName, description, icon, rules, isActive } = req.body;
-
-    // Verificar si el nombre ya existe
-    const existingMechanic = await gameMechanicRepository.findOne({ name: name.toLowerCase() });
-
-    if (existingMechanic) {
-      throw new ConflictError('Una mecánica con este nombre ya existe');
-    }
-
-    // Crear mecánica
-    const mechanic = await gameMechanicRepository.create({
-      name: name.toLowerCase(),
-      displayName,
-      description,
-      icon: icon || '🎮',
-      rules: rules || {},
-      isActive: isActive !== undefined ? isActive : true
-    });
-
-    logger.info('Mecánica creada', {
-      mechanicId: mechanic._id,
-      name: mechanic.name,
-      createdBy: req.user._id
-    });
-
-    res.status(201).json({
-      success: true,
-      message: 'Mecánica creada exitosamente',
-      data: toGameMechanicDTOV1(mechanic)
-    });
-  } catch (error) {
-    next(error);
-  }
-};
-
-/**
- * Actualizar una mecánica existente.
- *
- * PUT /api/mechanics/:id
- * Headers: Authorization: Bearer <token>
- * Body: { displayName?, description?, icon?, rules?, isActive? }
- *
- * NOTA: El nombre no se puede modificar para mantener consistencia.
- *
- * @param {import('express').Request} req
- * @param {import('express').Response} res
- * @param {import('express').NextFunction} next
- */
-const updateMechanic = async (req, res, next) => {
-  try {
-    const { id } = req.params;
-    const { displayName, description, icon, rules, isActive } = req.body;
-
-    const mechanic = await gameMechanicRepository.findById(id);
-
-    if (!mechanic) {
-      throw new NotFoundError('Mecánica de juego');
-    }
-
-    // Actualizar campos permitidos (name es inmutable)
-    if (displayName) {
-      mechanic.displayName = displayName;
-    }
-    if (description) {
-      mechanic.description = description;
-    }
-    if (icon) {
-      mechanic.icon = icon;
-    }
-    if (rules) {
-      mechanic.rules = { ...mechanic.rules, ...rules };
-    }
-    if (isActive !== undefined) {
-      mechanic.isActive = isActive;
-    }
-
-    await mechanic.save();
-
-    logger.info('Mecánica actualizada', {
-      mechanicId: mechanic._id,
-      name: mechanic.name,
-      updatedBy: req.user._id
-    });
-
-    res.json({
-      success: true,
-      message: 'Mecánica actualizada exitosamente',
-      data: toGameMechanicDTOV1(mechanic)
-    });
-  } catch (error) {
-    next(error);
-  }
-};
-
-/**
- * Eliminar (desactivar) una mecánica.
- * Soft delete cambiando isActive a false.
- *
- * DELETE /api/mechanics/:id
- * Headers: Authorization: Bearer <token>
- *
- * @param {import('express').Request} req
- * @param {import('express').Response} res
- * @param {import('express').NextFunction} next
- */
-const deleteMechanic = async (req, res, next) => {
-  try {
-    const { id } = req.params;
-
-    const mechanic = await gameMechanicRepository.findById(id);
-
-    if (!mechanic) {
-      throw new NotFoundError('Mecánica de juego');
-    }
-
-    // Soft delete
-    mechanic.isActive = false;
-    await mechanic.save();
-
-    logger.info('Mecánica desactivada', {
-      mechanicId: mechanic._id,
-      name: mechanic.name,
-      deletedBy: req.user._id
-    });
-
-    res.json({
-      success: true,
-      message: 'Mecánica desactivada exitosamente'
-    });
-  } catch (error) {
-    next(error);
-  }
+  sendSuccess(res, toGameMechanicDTOV1(mechanic));
 };
 
 /**
@@ -273,32 +109,18 @@ const deleteMechanic = async (req, res, next) => {
  *
  * @param {import('express').Request} req
  * @param {import('express').Response} res
- * @param {import('express').NextFunction} next
  */
-const getActiveMechanics = async (req, res, next) => {
-  try {
-    const mechanics = await gameMechanicRepository.find(
-      { isActive: true },
-      { sort: { name: 1 }, select: '-__v' }
-    );
+const getActiveMechanics = async (req, res) => {
+  const mechanics = await gameMechanicRepository.find(
+    { isActive: true },
+    { sort: { name: 1 }, select: '-__v' }
+  );
 
-    res.json({
-      success: true,
-      data: toGameMechanicListDTOV1(mechanics),
-      meta: {
-        count: mechanics.length
-      }
-    });
-  } catch (error) {
-    next(error);
-  }
+  sendSuccess(res, toGameMechanicListDTOV1(mechanics));
 };
 
 module.exports = {
   getMechanics,
   getMechanicById,
-  createMechanic,
-  updateMechanic,
-  deleteMechanic,
   getActiveMechanics
 };

@@ -3,8 +3,8 @@
 Proyecto: Plataforma de Juegos Educativos con RFID (TFG)
 
 Estado: Activo
-Version: 1.1
-Ultima actualizacion: 2026-02-19
+Version: 1.2
+Ultima actualizacion: 2026-03-28
 
 ## Proposito
 
@@ -70,6 +70,9 @@ Este documento describe de forma profesional y detallada los patrones de diseno 
 - State: modos RFID como estados explicitos
 - Command: ejecucion de eventos Socket.IO
 - Circuit Breaker: tolerancia a fallos externos
+- Cache-Aside: cache transparente con Redis
+- Factory Method: creacion centralizada por tipo
+- Decorator: envolturas funcionales transversales
 
 ## Patrones actualmente en uso
 
@@ -366,6 +369,77 @@ Este documento describe de forma profesional y detallada los patrones de diseno 
 **Riesgos**
 - Configuracion agresiva puede ocultar fallos reales.
 
+### 14) Cache-Aside (Cache lateral con Redis)
+
+**Intencion**
+- Reducir la carga en MongoDB cacheando resultados de queries frecuentes en Redis con TTL configurable y fallback transparente.
+
+**Implementacion en el proyecto**
+- Helper generico en [backend/src/utils/cacheHelper.js](backend/src/utils/cacheHelper.js) con `cacheGet`, `cacheInvalidate`, `cacheInvalidateNamespace`.
+- Usado en [backend/src/controllers/analyticsController.js](backend/src/controllers/analyticsController.js) (summary, distribution), [backend/src/controllers/gameContextController.js](backend/src/controllers/gameContextController.js) y [backend/src/controllers/gameMechanicController.js](backend/src/controllers/gameMechanicController.js).
+- TTLs por tipo: mecanicas 1h, contextos 30min, analytics 5min.
+
+**Reglas de consistencia**
+- Si Redis no esta disponible, `cacheGet` ejecuta `fetchFn` directamente (bypass transparente).
+- Las escrituras al cache son fire-and-forget (no bloquean la respuesta).
+- Invalidacion explicita en operaciones de escritura (create/update).
+
+**Beneficios**
+- Reduce queries repetitivas a MongoDB en endpoints de lectura frecuente.
+- Latencia menor para dashboards de analytics.
+
+**Riesgos**
+- Datos stale si el TTL es demasiado largo sin invalidacion explicita.
+
+---
+
+### 15) Factory Method (Creacion centralizada por tipo)
+
+**Intencion**
+- Centralizar la creacion de instancias por tipo (mecanica, estado RFID, comando Socket.IO), normalizar nombres y proporcionar fallbacks controlados.
+
+**Implementacion en el proyecto**
+- `getMechanicStrategy(name)` en [backend/src/strategies/mechanics/index.js](backend/src/strategies/mechanics/index.js): normaliza el nombre de mecanica y retorna la estrategia correcta, con FallbackStrategy si no existe.
+- `getRfidState(mode)` en [backend/src/states/rfid/index.js](backend/src/states/rfid/index.js): normaliza el modo y retorna el estado RFID, con IdleState como fallback.
+- `getSocketCommand(eventName)` en [backend/src/commands/socket/index.js](backend/src/commands/socket/index.js): busca el comando registrado por nombre de evento.
+
+**Reglas de consistencia**
+- Cada factory normaliza su input (toLowerCase, trim).
+- Todas proporcionan un fallback seguro o retornan null.
+- Las instancias son singletons (creadas una vez, reutilizadas).
+
+**Beneficios**
+- Elimina condicionales dispersos para seleccionar implementaciones.
+- Punto unico de registro para nuevas variantes.
+
+**Riesgos**
+- Si el fallback oculta un error de configuracion, el comportamiento puede ser silenciosamente incorrecto.
+
+---
+
+### 16) Decorator (Envolturas funcionales)
+
+**Intencion**
+- Anadir comportamiento transversal (error handling, rate limiting, telemetria) a funciones existentes sin modificarlas, mediante composicion funcional.
+
+**Implementacion en el proyecto**
+- `asyncHandler` en [backend/src/utils/asyncHandler.js](backend/src/utils/asyncHandler.js): envuelve controllers async con catch automatico que delega errores al middleware central.
+- `socketRateLimiter.wrap()` en [backend/src/middlewares/socketRateLimiter.js](backend/src/middlewares/socketRateLimiter.js): decora handlers de Socket.IO con rate limiting, validacion de payload y deduplicacion RFID.
+- Sentry wraps en [backend/src/server.js](backend/src/server.js): `Sentry.Handlers.requestHandler()` y `Sentry.Handlers.errorHandler()` decoran la pipeline HTTP con captura de excepciones.
+
+**Reglas de consistencia**
+- Los decorators no modifican la firma de la funcion original.
+- El error handling del decorator no debe ocultar errores; debe propagarlos o delegarlos.
+
+**Beneficios**
+- Anade comportamiento sin modificar el codigo original (OCP).
+- Reutilizable en multiples puntos (todos los controllers, todos los handlers Socket.IO).
+
+**Riesgos**
+- Exceso de anidamiento dificulta debugging del stack trace.
+
+---
+
 ## Decisiones documentadas y justificacion
 
 ### Repositorios en la capa realtime
@@ -424,6 +498,30 @@ Este documento describe de forma profesional y detallada los patrones de diseno 
 **Razon**
 - Evita duplicacion entre controllers y services, y mantiene reglas coherentes en un unico punto.
 
+### Centralizacion de ownership checks
+
+**Decision**
+- Centralizar las verificaciones de propiedad de recursos en `utils/ownershipHelpers.js` con tres variantes: simple, con bypass admin, y student-teacher.
+
+**Razon**
+- El patron `entity.createdBy.toString() !== req.user._id.toString()` aparecia 18 veces en 5 controllers con variaciones sutiles. La duplicacion aumentaba el riesgo de inconsistencias y dificultaba el testing.
+
+### Extraccion de createSession a Service Layer
+
+**Decision**
+- Mover la logica de creacion de sesiones desde `gameSessionController.createSession()` a `gameSessionService.createSessionFromDeck()`.
+
+**Razon**
+- El controller contenia ~120 lineas de logica de negocio (validacion de mecanica, config, boardLayout, associationChallengePlan), violando la regla del proyecto: "Controllers orquestan, no ejecutan reglas complejas."
+
+### Rate limiting para analytics
+
+**Decision**
+- Aplicar un rate limiter especifico a los endpoints de analytics (30 req/min por usuario en produccion).
+
+**Razon**
+- Los 12 endpoints de analytics ejecutan aggregations MongoDB costosas pero solo contaban con el rate limiter global (100 req/15min). La proteccion especifica previene abuso sin afectar el uso normal del dashboard.
+
 ### Circuit Breaker para dependencias externas
 
 **Decision**
@@ -441,7 +539,13 @@ Este documento describe de forma profesional y detallada los patrones de diseno 
 
 ## Patrones recomendados para incorporar
 
-Actualmente no hay patrones pendientes. Nuevas propuestas se documentaran aqui.
+### Authorization Policy (evaluado, pospuesto)
+
+**Contexto**: Se evaluo implementar politicas de autorizacion por entidad (`SessionPolicy.canUpdate()`, `DeckPolicy.canDelete()`) para centralizar toda la logica de permisos.
+
+**Decision**: Pospuesto. El `ownershipHelpers` cubre el 95% de los casos actuales. El patron Policy se justificaria si las reglas de autorizacion crecen en complejidad (ej: sesiones compartidas entre profesores, permisos granulares por rol).
+
+**Criterio de activacion**: Cuando un controller necesite mas de 2 condiciones distintas de autorizacion para una misma operacion.
 
 ## Patrones de Observabilidad y Telemetría
 

@@ -72,7 +72,7 @@ export default defineConfig(({ mode }) => {
     },
     build: {
       sourcemap: true, // Fundamental para trazar source maps en Sentry
-      rollupOptions: {
+      rolldownOptions: {
         output: {
           manualChunks: getChunkName
         }

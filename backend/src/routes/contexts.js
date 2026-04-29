@@ -14,14 +14,13 @@ const {
   createContext,
   updateContext,
   deleteContext,
-  addAsset,
-  removeAsset,
   getContextAssets
 } = require('../controllers/gameContextController');
 
 const {
   uploadImage,
   uploadAudio,
+  attachAudio,
   deleteImage,
   deleteAudio,
   getUploadConfig
@@ -37,10 +36,10 @@ const {
   gameContextParamsSchema,
   gameContextIdParamsSchema,
   gameContextAssetParamsSchema,
-  addAssetSchema,
   uploadAssetMetaSchema
 } = require('../validators/gameContextValidator');
 const { emptyObjectSchema } = require('../validators/commonValidator');
+const asyncHandler = require('../utils/asyncHandler');
 
 const { IMAGE_CONFIG } = require('../services/imageProcessingService');
 const { AUDIO_CONFIG } = require('../services/audioValidationService');
@@ -61,7 +60,7 @@ const imageUpload = multer({
     if (!allowedMimes.includes(file.mimetype)) {
       return cb(new Error('Formato de imagen no permitido. Usa PNG, JPG, GIF o WebP.'));
     }
-    cb(null, true);
+    return cb(null, true);
   }
 });
 
@@ -81,7 +80,7 @@ const audioUpload = multer({
     if (!allowedMimes.includes(file.mimetype)) {
       return cb(new Error('Formato de audio no permitido. Usa MP3 u OGG.'));
     }
-    cb(null, true);
+    return cb(null, true);
   }
 });
 
@@ -96,7 +95,7 @@ router.get(
   authenticate,
   requireRole('teacher', 'super_admin'),
   validateQuery(gameContextQuerySchema),
-  getContexts
+  asyncHandler(getContexts)
 );
 
 /**
@@ -125,7 +124,7 @@ router.get(
   requireRole('teacher', 'super_admin'),
   validateParams(gameContextParamsSchema),
   validateQuery(emptyObjectSchema),
-  getContextById
+  asyncHandler(getContextById)
 );
 
 /**
@@ -140,7 +139,7 @@ router.get(
   requireRole('teacher', 'super_admin'),
   validateParams(gameContextParamsSchema),
   validateQuery(emptyObjectSchema),
-  getContextAssets
+  asyncHandler(getContextAssets)
 );
 
 /**
@@ -156,24 +155,7 @@ router.post(
   requireRole('super_admin'),
   validateQuery(emptyObjectSchema),
   validateBody(createGameContextSchema),
-  createContext
-);
-
-/**
- * @route   POST /api/contexts/:id/assets
- * @desc    Añadir asset a un contexto (sin archivo, solo metadatos)
- * @access  Private (Teacher / Super_Admin)
- * @deprecated Usa POST /api/contexts/:id/images o /audio para subir con archivo
- * @validation params: gameContextIdParamsSchema | body: addAssetSchema | query: emptyObjectSchema
- */
-router.post(
-  '/:id/assets',
-  authenticate,
-  requireRole('teacher', 'super_admin'),
-  validateParams(gameContextIdParamsSchema),
-  validateQuery(emptyObjectSchema),
-  validateBody(addAssetSchema),
-  addAsset
+  asyncHandler(createContext)
 );
 
 /**
@@ -192,7 +174,7 @@ router.post(
   validateQuery(emptyObjectSchema),
   imageUpload.single('file'),
   validateBody(uploadAssetMetaSchema),
-  uploadImage
+  asyncHandler(uploadImage)
 );
 
 /**
@@ -211,7 +193,25 @@ router.post(
   validateQuery(emptyObjectSchema),
   audioUpload.single('file'),
   validateBody(uploadAssetMetaSchema),
-  uploadAudio
+  asyncHandler(uploadAudio)
+);
+
+/**
+ * @route   PATCH /api/contexts/:id/assets/:assetKey/audio
+ * @desc    Adjuntar o reemplazar audio en un asset existente
+ * @access  Private (Teacher / Super_Admin)
+ * @body    multipart/form-data { file }
+ * @validation params: gameContextAssetParamsSchema | query: emptyObjectSchema
+ */
+router.patch(
+  '/:id/assets/:assetKey/audio',
+  uploadRateLimiter,
+  authenticate,
+  requireRole('teacher', 'super_admin'),
+  validateParams(gameContextAssetParamsSchema),
+  validateQuery(emptyObjectSchema),
+  audioUpload.single('file'),
+  asyncHandler(attachAudio)
 );
 
 /**
@@ -227,7 +227,7 @@ router.put(
   validateParams(gameContextIdParamsSchema),
   validateQuery(emptyObjectSchema),
   validateBody(updateGameContextSchema),
-  updateContext
+  asyncHandler(updateContext)
 );
 
 /**
@@ -242,23 +242,7 @@ router.delete(
   requireRole('super_admin'),
   validateParams(gameContextIdParamsSchema),
   validateQuery(emptyObjectSchema),
-  deleteContext
-);
-
-/**
- * @route   DELETE /api/contexts/:id/assets/:assetKey
- * @desc    Eliminar asset de un contexto (genérico, legacy)
- * @access  Private (Teacher / Super_Admin)
- * @deprecated Usa DELETE /api/contexts/:id/images/:assetKey o /audio/:assetKey
- * @validation params: gameContextAssetParamsSchema | query: emptyObjectSchema
- */
-router.delete(
-  '/:id/assets/:assetKey',
-  authenticate,
-  requireRole('teacher', 'super_admin'),
-  validateParams(gameContextAssetParamsSchema),
-  validateQuery(emptyObjectSchema),
-  removeAsset
+  asyncHandler(deleteContext)
 );
 
 /**
@@ -273,7 +257,7 @@ router.delete(
   requireRole('teacher', 'super_admin'),
   validateParams(gameContextAssetParamsSchema),
   validateQuery(emptyObjectSchema),
-  deleteImage
+  asyncHandler(deleteImage)
 );
 
 /**
@@ -288,7 +272,7 @@ router.delete(
   requireRole('teacher', 'super_admin'),
   validateParams(gameContextAssetParamsSchema),
   validateQuery(emptyObjectSchema),
-  deleteAudio
+  asyncHandler(deleteAudio)
 );
 
 module.exports = router;

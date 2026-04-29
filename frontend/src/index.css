@@ -1,15 +1,19 @@
-@import url("https://fonts.googleapis.com/css2?family=Outfit:wght@100..900&family=Inter:wght@400;500;600;700&display=swap");
 @import "tailwindcss";
 
 /* ============================================
    🎨 SISTEMA DE DISEÑO "EDUPLAY" - TAILWIND V4
    ============================================ */
 @theme {
-  /* ===== TIPOGRAFÍA ===== */
+  /* ===== TIPOGRAFÍA =====
+     Sans: Inter Tight (cuerpo y UI), variante "Tight" con tracking más ajustado
+     que el Inter clásico — mejor jerarquia visual y menos "anodino".
+     Display: Bricolage Grotesque, fuente variable con axes opsz/wdth, calida y
+     contemporanea. Da personalidad sin ser infantil — encaja con un producto
+     educativo serio pero amable. */
   --font-sans:
-    "Inter", system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto,
+    "Inter Tight", system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto,
     "Helvetica Neue", Arial, sans-serif;
-  --font-display: "Outfit", var(--font-sans);
+  --font-display: "Bricolage Grotesque", "Inter Tight", var(--font-sans);
 
   /* ===== COLORES SEMÁNTICOS (OKLCH) ===== */
   /* Backgrounds: Fríos, profundos, con sutiles matices morados/azules */
@@ -73,6 +77,16 @@
   --color-theme-numbers-alt: oklch(70% 0.12 183);
   --color-theme-numbers-text: oklch(82% 0.14 158);
 
+  /* Podium rankings (Top 3) — lenguaje universal oro/plata/bronce
+     usado en widgets de rankings. Mantiene coherencia con warning-base
+     pero con saturacion mayor para el dorado y tonos tierra para bronce. */
+  --color-podium-gold: oklch(82% 0.16 85);
+  --color-podium-gold-glow: oklch(82% 0.16 85 / 0.35);
+  --color-podium-silver: oklch(80% 0.02 260);
+  --color-podium-silver-glow: oklch(80% 0.02 260 / 0.3);
+  --color-podium-bronze: oklch(65% 0.12 45);
+  --color-podium-bronze-glow: oklch(65% 0.12 45 / 0.3);
+
   /* Timer States */
   --color-timer-safe: oklch(77% 0.16 156);
   --color-timer-safe-alt: oklch(79% 0.11 215);
@@ -113,6 +127,7 @@
   --animate-spin-slow: spin-slow 10s linear infinite;
   --animate-pulse-glow: pulse-glow 3s ease-in-out infinite;
   --animate-float: float 6s ease-in-out infinite;
+  --animate-shake: shake 0.4s ease-out;
 
   @keyframes fade-in-up {
     from {
@@ -194,11 +209,13 @@
     100% {
       transform: translateX(0);
     }
-    25% {
-      transform: translateX(-2px);
+    20%,
+    60% {
+      transform: translateX(-6px);
     }
-    75% {
-      transform: translateX(2px);
+    40%,
+    80% {
+      transform: translateX(6px);
     }
   }
 }
@@ -219,6 +236,40 @@
     color: var(--color-text-primary);
     min-height: 100vh;
     overflow-x: hidden;
+  }
+
+  /* Elimina delay de 300ms por double-tap zoom en tablets y móviles */
+  button,
+  a,
+  [role="button"],
+  input,
+  select,
+  textarea {
+    touch-action: manipulation;
+  }
+
+  /* Equilibra el wrap de headings y aplica tracking optico para look editorial.
+     Bricolage Grotesque tiene mejor presencia con tracking ligeramente negativo
+     en tamaños grandes (h1/h2) y neutro/positivo en h3/h4. */
+  h1, h2, h3, h4 {
+    text-wrap: balance;
+  }
+  h1 {
+    letter-spacing: -0.025em;
+  }
+  h2 {
+    letter-spacing: -0.02em;
+  }
+  h3 {
+    letter-spacing: -0.01em;
+  }
+
+  /* Antialiasing y kerning de calidad tipografica para body */
+  html {
+    text-rendering: optimizeLegibility;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    font-feature-settings: "kern", "liga", "calt", "ss01";
   }
 
   /* Focus outline de accesibilidad global */
@@ -302,45 +353,10 @@
 }
 
 /* ============================================
-   💬 TOOLTIP SYSTEM
+   💬 TOOLTIP SYSTEM (posicionamiento vía JS en Tooltip.jsx)
    ============================================ */
 @utility tooltip-anchor {
   @apply relative inline-flex;
-
-  & .tooltip-content {
-    @apply invisible opacity-0 absolute z-50 px-2.5 py-1.5 rounded-lg text-xs font-medium whitespace-nowrap pointer-events-none;
-    @apply bg-background-elevated text-text-primary border border-border-default shadow-lg;
-    transition: opacity 0.15s ease, visibility 0.15s ease;
-  }
-
-  &:hover .tooltip-content,
-  &:focus-within .tooltip-content {
-    @apply visible opacity-100;
-  }
-}
-
-@utility tooltip-top {
-  bottom: calc(100% + 6px);
-  left: 50%;
-  transform: translateX(-50%);
-}
-
-@utility tooltip-bottom {
-  top: calc(100% + 6px);
-  left: 50%;
-  transform: translateX(-50%);
-}
-
-@utility tooltip-left {
-  right: calc(100% + 6px);
-  top: 50%;
-  transform: translateY(-50%);
-}
-
-@utility tooltip-right {
-  left: calc(100% + 6px);
-  top: 50%;
-  transform: translateY(-50%);
 }
 
 /* Gradientes Textuales Reutilizables */
@@ -364,7 +380,7 @@
   @apply inline-flex items-center justify-center gap-3 px-8 py-4 rounded-2xl font-bold font-display text-white tracking-wide;
   @apply bg-gradient-to-br from-brand-base to-accent-indigo;
   @apply shadow-[0_0_20px_var(--color-brand-glow),0_4px_16px_rgba(0,0,0,0.3)];
-  @apply transition-all duration-200;
+  @apply transition-[color,box-shadow,transform,border-color] duration-200;
   @apply hover:shadow-[0_0_30px_var(--color-brand-glow),0_6px_24px_rgba(0,0,0,0.4)];
   @apply active:scale-95;
   @apply disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:shadow-none;
@@ -379,6 +395,19 @@
 @utility glass-card-gradient {
   @apply bg-background-elevated/60 border border-border-subtle backdrop-blur-xl rounded-3xl;
   @apply shadow-[0_8px_40px_rgba(0,0,0,0.4),inset_0_1px_0_rgba(255,255,255,0.08)];
+}
+
+/* Patrón rayas diagonales sutiles para celdas "sin datos" en heatmaps (PROP-38).
+ * Se diferencia visualmente de celdas activas con datos sin necesidad de
+ * cambiar el color principal del fondo, evitando confusión con valores RAG. */
+@utility bg-stripe-diagonal {
+  background-image: repeating-linear-gradient(
+    45deg,
+    transparent,
+    transparent 4px,
+    rgba(255, 255, 255, 0.04) 4px,
+    rgba(255, 255, 255, 0.04) 8px
+  );
 }
 
 /* Gameplay: Card flip animation para tablero de memoria */
@@ -432,4 +461,54 @@
     opacity: 0;
     transform: scale(0.96) translateY(-4px);
   }
+}
+
+/* ------------------------------------------------------------------
+ * Slider custom para "penalización" (rango negativo [-N..0])
+ *
+ * El accent-color nativo pinta desde min hacia value, lo que con un
+ * rango negativo invierte la intuicion del profesor ("mas fill = mas
+ * penalizacion"). `.penalty-range` usa appearance:none y un
+ * linear-gradient explicito en `style` inline, para que el fill
+ * corresponda con |value|/|min| desde la izquierda. Los estilos del
+ * thumb aqui mantienen la firma rojo/error del resto de la UI.
+ * ------------------------------------------------------------------ */
+.penalty-range {
+  -webkit-appearance: none;
+  appearance: none;
+  height: 0.5rem; /* 8px — match accent-* inputs */
+  border-radius: 9999px;
+  outline: none;
+}
+
+.penalty-range::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 18px;
+  height: 18px;
+  border-radius: 9999px;
+  background: var(--color-error-base);
+  border: 2px solid var(--color-background-base);
+  box-shadow: 0 0 0 1px var(--color-error-base), 0 2px 8px rgba(239, 68, 68, 0.35);
+  cursor: grab;
+  transition: transform 120ms ease-out;
+}
+
+.penalty-range::-webkit-slider-thumb:active {
+  cursor: grabbing;
+  transform: scale(1.1);
+}
+
+.penalty-range::-moz-range-thumb {
+  width: 18px;
+  height: 18px;
+  border-radius: 9999px;
+  background: var(--color-error-base);
+  border: 2px solid var(--color-background-base);
+  box-shadow: 0 0 0 1px var(--color-error-base), 0 2px 8px rgba(239, 68, 68, 0.35);
+  cursor: grab;
+}
+
+.penalty-range:focus-visible {
+  box-shadow: 0 0 0 3px rgba(239, 68, 68, 0.3);
 }

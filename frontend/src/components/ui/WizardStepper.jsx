@@ -9,7 +9,6 @@
 import { motion, AnimatePresence } from 'framer-motion';
 import { Check } from 'lucide-react';
 import { cn } from '../../lib/utils';
-import confetti from 'canvas-confetti';
 import { memo, useEffect, useMemo, useRef } from 'react';
 import PropTypes from 'prop-types';
 
@@ -40,12 +39,12 @@ const getStepState = ({ index, currentStep, allowNavigation }) => {
 const getStepButtonClassName = ({ isActive, isCompleted, isClickable }) =>
   cn(
     'size-10 rounded-full flex items-center justify-center',
-    'transition-all duration-300 border-2 relative z-10',
-    'focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-900',
-    isActive && 'bg-indigo-600 border-indigo-400 text-white shadow-lg shadow-indigo-500/40',
-    isCompleted && 'bg-emerald-500 border-emerald-400 text-white',
-    !isActive && !isCompleted && 'bg-slate-900 border-slate-700 text-slate-500',
-    isClickable && 'cursor-pointer hover:scale-110 hover:shadow-emerald-500/30 hover:shadow-lg',
+    'transition-[color,background-color,border-color,box-shadow,transform] duration-300 border-2 relative z-10',
+    'focus:outline-none focus-visible:ring-2 focus-visible:ring-accent-indigo focus-visible:ring-offset-2 focus-visible:ring-offset-background-base',
+    isActive && 'bg-accent-indigo border-accent-indigo text-text-primary shadow-lg shadow-accent-indigo/40',
+    isCompleted && 'bg-success-base border-success-base text-text-primary',
+    !isActive && !isCompleted && 'bg-background-base border-background-surface text-text-disabled',
+    isClickable && 'cursor-pointer hover:scale-110 hover:shadow-success-base/30 hover:shadow-lg',
     !isClickable && !isActive && 'cursor-default'
   );
 
@@ -56,6 +55,7 @@ const getStepPulseAnimation = ({ reducedMotion, isActive }) => {
 
   return {
     scale: [1, 1.05, 1],
+    // TOKEN-EXCEPTION: Framer Motion boxShadow interpolation requires direct color values
     boxShadow: [
       '0 0 0 0 rgba(99, 102, 241, 0)',
       '0 0 20px 4px rgba(99, 102, 241, 0.4)',
@@ -79,9 +79,9 @@ const getStepPulseTransition = ({ reducedMotion, isActive }) => {
 const getStepLabelClassName = ({ isActive, isCompleted }) =>
   cn(
     'text-xs font-medium uppercase tracking-wider transition-colors duration-300',
-    isActive && 'text-indigo-400',
-    isCompleted && 'text-emerald-400',
-    !isActive && !isCompleted && 'text-slate-500'
+    isActive && 'text-accent-indigo',
+    isCompleted && 'text-success-base',
+    !isActive && !isCompleted && 'text-text-disabled'
   );
 
 function WizardStepItem({
@@ -113,6 +113,7 @@ function WizardStepItem({
       transition={{ delay: reducedMotion ? 0 : index * 0.1 }}
     >
       <motion.button
+        type="button"
         onClick={handleStepClick}
         disabled={!isClickable}
         className={getStepButtonClassName({ isActive, isCompleted, isClickable })}
@@ -154,7 +155,7 @@ function WizardStepItem({
             {PARTICLE_VECTORS.map((vector, particleIndex) => (
               <motion.div
                 key={`${step.id}-${particleIndex}`}
-                className="absolute size-1.5 bg-indigo-400 rounded-full"
+                className="absolute size-1.5 bg-accent-indigo rounded-full"
                 style={{ top: '50%', left: '50%' }}
                 animate={{
                   x: [0, vector.x * 20],
@@ -183,7 +184,7 @@ function WizardStepItem({
       </motion.span>
 
       {step.description && (
-        <span className="text-[10px] text-slate-600 max-w-[80px] text-center hidden sm:block">
+        <span className="text-[10px] text-text-disabled max-w-[80px] text-center hidden sm:block">
           {step.description}
         </span>
       )}
@@ -244,46 +245,60 @@ const WizardStepper = memo(function WizardStepper({
   const isLastStep = currentStep >= steps.length - 1;
   const wasLastStep = useRef(false);
 
-  // Efecto de confetti al llegar al último paso
+  // Track último paso para posible uso futuro (confetti movido al callback de éxito real)
   useEffect(() => {
-    if (!reducedMotion && isLastStep && !wasLastStep.current) {
-      // Mini confetti celebration
-      confetti({
-        particleCount: 50,
-        spread: 60,
-        origin: { y: 0.3 },
-        colors: ['#8b5cf6', '#6366f1', '#a855f7', '#c084fc'],
-        scalar: 0.8,
-        gravity: 1.2,
-      });
+    if (isLastStep) {
       wasLastStep.current = true;
     }
     if (!isLastStep) {
       wasLastStep.current = false;
     }
-  }, [isLastStep, reducedMotion]);
+  }, [isLastStep]);
 
   // Calcular progreso
   const totalSteps = useMemo(() => Math.max(steps.length - 1, 1), [steps.length]);
   const progress = useMemo(() => (currentStep / totalSteps) * 100, [currentStep, totalSteps]);
 
+  // Cada item ocupa una fracción igual del contenedor (`grid` en lugar de
+  // `flex justify-between`). Eso garantiza que los centros de los círculos
+  // queden equidistantes y que la línea de fondo + progreso, anclados a los
+  // centros del primer y último botón, coincidan exactamente con cada
+  // círculo intermedio (QA 26/04/2026: antes la línea se quedaba ~28px corta
+  // del segundo círculo porque `left-5/right-5` asumía que los items
+  // extremos no tenían labels más anchos que el icono).
+  // `halfStepPercent = 50 / N` deja al primer círculo a `50/N %` desde el
+  // borde izquierdo del contenedor (centro de su columna), y al último a la
+  // misma distancia del borde derecho.
+  const halfStepPercent = useMemo(() => 50 / Math.max(steps.length, 1), [steps.length]);
+  const lineInset = `${halfStepPercent}%`;
+  const stepsGridStyle = useMemo(
+    () => ({ gridTemplateColumns: `repeat(${steps.length}, minmax(0, 1fr))` }),
+    [steps.length]
+  );
+
   const handleStepClick = (stepIndex) => onStepClick?.(stepIndex);
 
   return (
     <div className={cn('relative', className)}>
-      {/* Línea de fondo */}
-      <div className="absolute top-5 left-5 right-5 h-1 bg-slate-800/60 rounded-full overflow-hidden">
+      {/* Línea de fondo. `left/right` se calcula dinámicamente para anclar
+          la línea al centro del primer/último círculo (no al borde del
+          contenedor), de modo que `width: progress%` aterrice exactamente
+          en cada círculo intermedio. */}
+      <div
+        className="absolute top-5 h-1 bg-background-elevated/60 rounded-full overflow-hidden"
+        style={{ left: lineInset, right: lineInset }}
+      >
         {/* Línea de progreso con efecto de fluido */}
         <motion.div
           className="h-full rounded-full relative"
           initial={false}
           animate={{ width: `${progress}%` }}
-          transition={{ 
+          transition={{
             duration: reducedMotion ? 0.15 : 0.25,
             ease: [0.32, 0.72, 0, 1],
           }}
           style={{
-            background: 'linear-gradient(90deg, #6366f1 0%, #8b5cf6 50%, #a855f7 100%)',
+            background: 'linear-gradient(90deg, var(--color-accent-indigo) 0%, var(--color-brand-base) 50%, var(--color-accent-pink) 100%)',
           }}
         >
           {/* Efecto de brillo que se mueve */}
@@ -306,8 +321,8 @@ const WizardStepper = memo(function WizardStepper({
         </motion.div>
       </div>
 
-      {/* Steps */}
-      <div className="flex justify-between relative">
+      {/* Steps en grid de columnas iguales para asegurar equidistancia. */}
+      <div className="grid relative" style={stepsGridStyle}>
         {steps.map((step, index) => {
           return (
             <WizardStepItem
@@ -352,10 +367,10 @@ export function WizardStepperCompact({ steps, currentStep, className }) {
             <motion.div
               className={cn(
                 'size-8 rounded-full flex items-center justify-center text-xs font-bold',
-                'transition-all duration-300',
-                isActive && 'bg-indigo-600 text-white',
-                isCompleted && 'bg-emerald-500 text-white',
-                !isActive && !isCompleted && 'bg-slate-800 text-slate-500'
+                'transition-colors duration-300',
+                isActive && 'bg-accent-indigo text-text-primary',
+                isCompleted && 'bg-success-base text-text-primary',
+                !isActive && !isCompleted && 'bg-background-elevated text-text-disabled'
               )}
               animate={isActive ? { scale: [1, 1.1, 1] } : {}}
               transition={{ duration: 1.5, repeat: Infinity }}
@@ -366,7 +381,7 @@ export function WizardStepperCompact({ steps, currentStep, className }) {
               <div 
                 className={cn(
                   'w-8 h-0.5 mx-1',
-                  isCompleted ? 'bg-emerald-500' : 'bg-slate-700'
+                  isCompleted ? 'bg-success-base' : 'bg-background-surface'
                 )}
               />
             )}

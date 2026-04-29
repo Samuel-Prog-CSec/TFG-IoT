@@ -8,13 +8,14 @@
 
 const { z } = require('zod');
 const { objectIdSchema, paginationSchema, uidSchema } = require('./commonValidator');
+const { DECK_STATUS } = require('../constants/enums');
 
 /**
- * Schema para un mapeo de tarjeta dentro de un mazo.
+ * Schema para un mapeo de token RFID fungible dentro de un mazo.
+ * La tarjeta se identifica únicamente por su UID físico (ADR-012).
  *
  * @example
  * {
- *   cardId: '507f1f77bcf86cd799439011',
  *   uid: '32B8FA05',
  *   assignedValue: 'España',
  *   displayData: { display: '🇪🇸', audioUrl: '...' }
@@ -22,8 +23,6 @@ const { objectIdSchema, paginationSchema, uidSchema } = require('./commonValidat
  */
 const cardDeckMappingSchema = z
   .object({
-    cardId: objectIdSchema,
-
     uid: uidSchema,
 
     assignedValue: z
@@ -32,7 +31,7 @@ const cardDeckMappingSchema = z
       .max(200, 'El valor asignado no puede exceder 200 caracteres')
       .trim(),
 
-    displayData: z.record(z.any()).optional().default({})
+    displayData: z.record(z.string(), z.any()).optional().default({})
   })
   .strict();
 
@@ -43,7 +42,7 @@ const cardDeckMappingSchema = z
  * - Un mazo pertenece a un profesor (createdBy se infiere del JWT, por eso es opcional aquí)
  * - Un mazo se asocia a un contexto (contextId)
  * - Debe contener entre 2 y 20 cardMappings
- * - No puede repetir la misma tarjeta (uid/cardId) ni el mismo assignedValue dentro del mazo
+ * - No puede repetir el mismo UID ni el mismo assignedValue dentro del mazo
  */
 const createCardDeckSchema = z
   .object({
@@ -66,7 +65,10 @@ const createCardDeckSchema = z
       .min(2, 'Debe haber al menos 2 cardMappings')
       .max(20, 'No pueden haber más de 20 cardMappings'),
 
-    status: z.enum(['active', 'archived']).optional().default('active'),
+    status: z
+      .enum([...DECK_STATUS])
+      .optional()
+      .default('active'),
 
     createdBy: objectIdSchema.optional()
   })
@@ -79,26 +81,6 @@ const createCardDeckSchema = z
     {
       message:
         'Los UIDs en cardMappings deben ser únicos (no se puede usar la misma tarjeta dos veces)',
-      path: ['cardMappings']
-    }
-  )
-  .refine(
-    data => {
-      const cardIds = data.cardMappings.map(m => m.cardId);
-      return cardIds.length === new Set(cardIds).size;
-    },
-    {
-      message: 'Los cardIds en cardMappings deben ser únicos',
-      path: ['cardMappings']
-    }
-  )
-  .refine(
-    data => {
-      const assignedValues = data.cardMappings.map(m => m.assignedValue);
-      return assignedValues.length === new Set(assignedValues).size;
-    },
-    {
-      message: 'No puede haber valores asignados duplicados en cardMappings',
       path: ['cardMappings']
     }
   );
@@ -130,7 +112,7 @@ const updateCardDeckSchema = z
       .max(20, 'No pueden haber más de 20 cardMappings')
       .optional(),
 
-    status: z.enum(['active', 'archived']).optional()
+    status: z.enum([...DECK_STATUS]).optional()
   })
   .strict()
   .refine(data => Object.keys(data).length > 0, {
@@ -148,32 +130,6 @@ const updateCardDeckSchema = z
       message: 'Los UIDs en cardMappings deben ser únicos',
       path: ['cardMappings']
     }
-  )
-  .refine(
-    data => {
-      if (!data.cardMappings) {
-        return true;
-      }
-      const cardIds = data.cardMappings.map(m => m.cardId);
-      return cardIds.length === new Set(cardIds).size;
-    },
-    {
-      message: 'Los cardIds en cardMappings deben ser únicos',
-      path: ['cardMappings']
-    }
-  )
-  .refine(
-    data => {
-      if (!data.cardMappings) {
-        return true;
-      }
-      const assignedValues = data.cardMappings.map(m => m.assignedValue);
-      return assignedValues.length === new Set(assignedValues).size;
-    },
-    {
-      message: 'No puede haber valores asignados duplicados en cardMappings',
-      path: ['cardMappings']
-    }
   );
 
 /**
@@ -184,7 +140,7 @@ const cardDeckQuerySchema = paginationSchema.extend({
 
   contextId: objectIdSchema.optional(),
 
-  status: z.enum(['active', 'archived']).optional(),
+  status: z.enum([...DECK_STATUS]).optional(),
 
   search: z.string().trim().min(1).max(100).optional()
 });
@@ -198,6 +154,17 @@ const cardDeckParamsSchema = z
   })
   .strict();
 
+/**
+ * Schema para verificar si un UID existe en otros mazos activos (ADR-022).
+ * Usado en GET /api/decks/check-card?uid=...
+ */
+const checkCardQuerySchema = z
+  .object({
+    uid: uidSchema,
+    excludeDeckId: objectIdSchema.optional()
+  })
+  .strict();
+
 module.exports = {
   objectIdSchema,
   uidSchema,
@@ -205,5 +172,6 @@ module.exports = {
   createCardDeckSchema,
   updateCardDeckSchema,
   cardDeckQuerySchema,
-  cardDeckParamsSchema
+  cardDeckParamsSchema,
+  checkCardQuerySchema
 };

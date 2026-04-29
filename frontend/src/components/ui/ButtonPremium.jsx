@@ -1,6 +1,6 @@
 import { motion } from 'framer-motion';
 import { cva } from 'class-variance-authority';
-import { cn } from '../../lib/utils';
+import { cn, motionConfig } from '../../lib/utils';
 
 /**
  * @fileoverview Componente ButtonPremium
@@ -12,7 +12,7 @@ import { cn } from '../../lib/utils';
 const buttonVariants = cva(
   [
     'relative inline-flex items-center justify-center whitespace-nowrap',
-    'transition-all duration-300',
+    'transition-[color,background-color,box-shadow,border-color] duration-300',
     'focus-ring',
     'disabled:opacity-50 disabled:pointer-events-none'
   ],
@@ -97,7 +97,7 @@ const ButtonPremium = ({
       ref={ref}
       whileHover={!isDisabled ? { scale: 1.02, y: -2 } : {}}
       whileTap={!isDisabled ? { scale: 0.98 } : {}}
-      transition={{ type: 'spring', stiffness: 400, damping: 25 }}
+      transition={motionConfig.spring}
       disabled={isDisabled}
       className={cn(buttonVariants({ variant, size, className }))}
       {...props}
@@ -127,5 +127,7 @@ const ButtonPremium = ({
     </motion.button>
   );
 };
+
+ButtonPremium.displayName = 'ButtonPremium';
 
 export default ButtonPremium;

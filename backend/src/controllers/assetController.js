@@ -9,8 +9,15 @@ const storageService = require('../services/storageService.js');
 const imageProcessingService = require('../services/imageProcessingService.js');
 const audioValidationService = require('../services/audioValidationService.js');
 const logger = require('../utils/logger');
-const { NotFoundError, ValidationError, ConflictError } = require('../utils/errors');
+const {
+  NotFoundError,
+  ValidationError,
+  ConflictError,
+  ForbiddenError
+} = require('../utils/errors');
 const { toAssetDTOV1 } = require('../utils/dtos');
+const { sendSuccess, sendCreated } = require('../utils/responseHelper');
+const { invalidateContextCaches } = require('../utils/cacheInvalidators/contextCacheInvalidator');
 
 /**
  * Límite máximo de assets por contexto.
@@ -59,6 +66,37 @@ function validateUniqueKey(context, key) {
 }
 
 /**
+ * Politica de autorizacion para borrar/modificar un asset existente.
+ *
+ * Reglas (ver Architecture_Decisions ADR-053):
+ * - El asset solo puede gestionarlo el profesor que lo subio (asset.uploadedBy === user._id).
+ * - Assets sin uploadedBy son "del sistema" (seedeados como base del producto) y nadie
+ *   puede eliminarlos individualmente. La unica forma de eliminarlos es borrar el
+ *   contexto entero, accion exclusiva del super_admin.
+ * - El super_admin NO tiene override sobre assets individuales: su responsabilidad es
+ *   gestionar contextos como "carpetas", no gestionar el contenido subido por
+ *   profesores.
+ *
+ * @param {Object} asset - Subdocumento asset
+ * @param {Object} user - req.user
+ * @throws {ForbiddenError} Si el usuario no esta autorizado
+ */
+function assertCanManageAsset(asset, user) {
+  if (!asset.uploadedBy) {
+    throw new ForbiddenError(
+      'Este asset es parte de la base del contexto y no puede eliminarse individualmente'
+    );
+  }
+
+  // uploadedBy es un ObjectId; comparamos via toString por robustez
+  if (asset.uploadedBy.toString() !== user._id.toString()) {
+    throw new ForbiddenError(
+      'Solo el profesor que subio este asset puede eliminarlo o reemplazar su audio'
+    );
+  }
+}
+
+/**
  * Sube una nueva imagen y la vincula a un contexto existente.
  * Procesa la imagen: valida, convierte a WebP, redimensiona y genera thumbnail.
  *
@@ -71,10 +109,11 @@ function validateUniqueKey(context, key) {
  * @param {import('express').Response} res
  * @param {import('express').NextFunction} next
  */
-const uploadImage = async (req, res, next) => {
+const uploadImage = async (req, res) => {
   let imageUrl = null;
   let thumbnailUrl = null;
 
+  // Rollback: elimina archivos subidos en caso de fallo posterior
   try {
     const { id } = req.params;
     const { key, value, display } = req.body;
@@ -116,18 +155,26 @@ const uploadImage = async (req, res, next) => {
       'image/webp'
     );
 
-    // Construir nuevo asset
+    // Construir nuevo asset (incluye dominantColor para LQIP en frontend
+    // y uploadedBy para la politica de gestion: solo el creador o super_admin pueden borrar)
     const newAsset = {
       key: key.toLowerCase(),
       value,
       display: display || value,
       imageUrl,
-      thumbnailUrl
+      thumbnailUrl,
+      dominantColor: metadata.dominantColor,
+      uploadedBy: req.user._id
     };
 
     // Guardar en MongoDB
     context.assets.push(newAsset);
     await context.save();
+
+    // Invalidar caches de detalle/lista de contextos. Sin esto, el GET
+    // /contexts/:id sigue devolviendo el snapshot Redis previo y la UI muestra
+    // "0 assets en total" hasta que el TTL expira (QA 26/04/2026).
+    await invalidateContextCaches(context._id.toString(), context.contextId);
 
     logger.info('Imagen subida exitosamente', {
       contextId: context.contextId,
@@ -136,18 +183,18 @@ const uploadImage = async (req, res, next) => {
       metadata
     });
 
-    res.status(201).json({
-      success: true,
-      message: 'Imagen subida y procesada correctamente',
-      data: {
+    sendCreated(
+      res,
+      {
         asset: toAssetDTOV1(newAsset),
         processing: {
           originalDimensions: `${metadata.originalWidth}x${metadata.originalHeight}`,
           format: metadata.format,
           quality: metadata.quality
         }
-      }
-    });
+      },
+      'Imagen subida y procesada correctamente'
+    );
   } catch (error) {
     // Rollback: eliminar archivos subidos si falló algo después
     if (imageUrl) {
@@ -157,7 +204,7 @@ const uploadImage = async (req, res, next) => {
       await storageService.deleteFile(thumbnailUrl);
     }
 
-    next(error);
+    throw error;
   }
 };
 
@@ -174,9 +221,10 @@ const uploadImage = async (req, res, next) => {
  * @param {import('express').Response} res
  * @param {import('express').NextFunction} next
  */
-const uploadAudio = async (req, res, next) => {
+const uploadAudio = async (req, res) => {
   let audioUrl = null;
 
+  // Rollback: elimina archivos subidos en caso de fallo posterior
   try {
     const { id } = req.params;
     const { key, value, display } = req.body;
@@ -209,17 +257,22 @@ const uploadAudio = async (req, res, next) => {
       metadata.mime
     );
 
-    // Construir nuevo asset
+    // Construir nuevo asset (uploadedBy define la politica de gestion del asset)
     const newAsset = {
       key: key.toLowerCase(),
       value,
       display: display || value,
-      audioUrl
+      audioUrl,
+      uploadedBy: req.user._id
     };
 
     // Guardar en MongoDB
     context.assets.push(newAsset);
     await context.save();
+
+    // Invalidar caches igual que en uploadImage para que el detalle del
+    // contexto refleje el nuevo audio sin esperar al TTL (QA 26/04/2026).
+    await invalidateContextCaches(context._id.toString(), context.contextId);
 
     logger.info('Audio subido exitosamente', {
       contextId: context.contextId,
@@ -230,25 +283,25 @@ const uploadAudio = async (req, res, next) => {
       durationSeconds: metadata.durationSeconds
     });
 
-    res.status(201).json({
-      success: true,
-      message: 'Audio subido y vinculado correctamente',
-      data: {
+    sendCreated(
+      res,
+      {
         asset: toAssetDTOV1(newAsset),
         metadata: {
           format: metadata.formatName,
           size: `${(metadata.size / 1024).toFixed(1)} KB`,
           durationSeconds: metadata.durationSeconds
         }
-      }
-    });
+      },
+      'Audio subido y vinculado correctamente'
+    );
   } catch (error) {
     // Rollback: eliminar archivo si falló después de subir
     if (audioUrl) {
       await storageService.deleteFile(audioUrl);
     }
 
-    next(error);
+    throw error;
   }
 };
 
@@ -263,52 +316,54 @@ const uploadAudio = async (req, res, next) => {
  * @param {import('express').Response} res
  * @param {import('express').NextFunction} next
  */
-const deleteImage = async (req, res, next) => {
-  try {
-    const { id: contextId, assetKey } = req.params;
+const deleteImage = async (req, res) => {
+  const { id: contextId, assetKey } = req.params;
 
-    const context = await gameContextRepository.findById(contextId);
+  const context = await gameContextRepository.findById(contextId);
 
-    if (!context) {
-      throw new NotFoundError('Contexto de juego');
-    }
-
-    // Buscar asset por key
-    const assetIndex = context.assets.findIndex(
-      asset => asset.key === assetKey.toLowerCase() && asset.imageUrl
-    );
-
-    if (assetIndex === -1) {
-      throw new NotFoundError('Asset de imagen');
-    }
-
-    const asset = context.assets[assetIndex];
-
-    // Eliminar archivos de Supabase
-    if (asset.imageUrl) {
-      await storageService.deleteFile(asset.imageUrl, { strict: true });
-    }
-    if (asset.thumbnailUrl) {
-      await storageService.deleteFile(asset.thumbnailUrl, { strict: true });
-    }
-
-    // Eliminar asset del array
-    context.assets.splice(assetIndex, 1);
-    await context.save();
-
-    logger.info('Imagen eliminada exitosamente', {
-      contextId: context.contextId,
-      assetKey,
-      deletedBy: req.user._id
-    });
-
-    res.json({
-      success: true,
-      message: 'Imagen eliminada correctamente'
-    });
-  } catch (error) {
-    next(error);
+  if (!context) {
+    throw new NotFoundError('Contexto de juego');
   }
+
+  // Buscar asset por key
+  const assetIndex = context.assets.findIndex(
+    asset => asset.key === assetKey.toLowerCase() && asset.imageUrl
+  );
+
+  if (assetIndex === -1) {
+    throw new NotFoundError('Asset de imagen');
+  }
+
+  const asset = context.assets[assetIndex];
+
+  // Politica de ownership: solo el creador o super_admin puede borrar
+  assertCanManageAsset(asset, req.user);
+
+  // Eliminar archivos de Supabase (imagen + thumbnail + audio si existe)
+  if (asset.imageUrl) {
+    await storageService.deleteFile(asset.imageUrl, { strict: true });
+  }
+  if (asset.thumbnailUrl) {
+    await storageService.deleteFile(asset.thumbnailUrl, { strict: true });
+  }
+  if (asset.audioUrl) {
+    await storageService.deleteFile(asset.audioUrl, { strict: true });
+  }
+
+  // Eliminar asset del array (completo: imagen + audio)
+  context.assets.splice(assetIndex, 1);
+  await context.save();
+
+  await invalidateContextCaches(context._id.toString(), context.contextId);
+
+  logger.info('Asset eliminado exitosamente (imagen + audio)', {
+    contextId: context.contextId,
+    assetKey,
+    hadAudio: Boolean(asset.audioUrl),
+    deletedBy: req.user._id
+  });
+
+  sendSuccess(res, null, 'Asset eliminado correctamente');
 };
 
 /**
@@ -322,48 +377,178 @@ const deleteImage = async (req, res, next) => {
  * @param {import('express').Response} res
  * @param {import('express').NextFunction} next
  */
-const deleteAudio = async (req, res, next) => {
-  try {
-    const { id: contextId, assetKey } = req.params;
+const deleteAudio = async (req, res) => {
+  const { id: contextId, assetKey } = req.params;
 
-    const context = await gameContextRepository.findById(contextId);
+  const context = await gameContextRepository.findById(contextId);
 
-    if (!context) {
-      throw new NotFoundError('Contexto de juego');
-    }
+  if (!context) {
+    throw new NotFoundError('Contexto de juego');
+  }
 
-    // Buscar asset por key
-    const assetIndex = context.assets.findIndex(
-      asset => asset.key === assetKey.toLowerCase() && asset.audioUrl
-    );
+  // Buscar asset por key que tenga audio
+  const assetIndex = context.assets.findIndex(
+    asset => asset.key === assetKey.toLowerCase() && asset.audioUrl
+  );
 
-    if (assetIndex === -1) {
-      throw new NotFoundError('Asset de audio');
-    }
+  if (assetIndex === -1) {
+    throw new NotFoundError('Asset de audio');
+  }
 
-    const asset = context.assets[assetIndex];
+  const asset = context.assets[assetIndex];
 
-    // Eliminar archivo de Supabase
-    if (asset.audioUrl) {
-      await storageService.deleteFile(asset.audioUrl, { strict: true });
-    }
+  // Politica de ownership: solo el creador del asset o super_admin pueden borrar el audio
+  assertCanManageAsset(asset, req.user);
 
-    // Eliminar asset del array
-    context.assets.splice(assetIndex, 1);
+  // Eliminar archivo de audio de Supabase
+  await storageService.deleteFile(asset.audioUrl, { strict: true });
+
+  // Smart delete: si el asset tiene imagen, solo eliminar audioUrl (conservar asset)
+  // Si el asset NO tiene imagen, eliminar el asset completo del array
+  const hasImage = Boolean(asset.imageUrl || asset.thumbnailUrl);
+
+  if (hasImage) {
+    asset.audioUrl = undefined;
     await context.save();
 
-    logger.info('Audio eliminado exitosamente', {
+    await invalidateContextCaches(context._id.toString(), context.contextId);
+
+    logger.info('Audio desvinculado de asset (imagen conservada)', {
       contextId: context.contextId,
       assetKey,
       deletedBy: req.user._id
     });
 
-    res.json({
-      success: true,
-      message: 'Audio eliminado correctamente'
+    sendSuccess(res, { asset: toAssetDTOV1(asset) }, 'Audio eliminado del asset');
+  } else {
+    context.assets.splice(assetIndex, 1);
+    await context.save();
+
+    await invalidateContextCaches(context._id.toString(), context.contextId);
+
+    logger.info('Asset de solo-audio eliminado', {
+      contextId: context.contextId,
+      assetKey,
+      deletedBy: req.user._id
     });
+
+    sendSuccess(res, null, 'Asset de audio eliminado correctamente');
+  }
+};
+
+/**
+ * Adjunta o reemplaza un archivo de audio en un asset existente.
+ * Si el asset ya tiene audio, elimina el archivo anterior de Supabase antes de subir el nuevo.
+ *
+ * PATCH /api/contexts/:id/assets/:assetKey/audio
+ * Headers: Authorization: Bearer <token>
+ * Body: multipart/form-data { file }
+ *
+ * @async
+ * @param {import('express').Request} req
+ * @param {import('express').Response} res
+ */
+const attachAudio = async (req, res) => {
+  let newAudioUrl = null;
+
+  try {
+    const { id, assetKey } = req.params;
+    const file = req.file;
+
+    if (!file) {
+      throw new ValidationError('No se ha subido ningún archivo de audio');
+    }
+
+    const context = await gameContextRepository.findById(id);
+
+    if (!context) {
+      throw new NotFoundError('Contexto de juego');
+    }
+
+    // Buscar asset existente por key
+    const asset = context.assets.find(a => a.key === assetKey.toLowerCase());
+
+    if (!asset) {
+      throw new NotFoundError('Asset');
+    }
+
+    // Politica de ownership: adjuntar/reemplazar audio sigue la misma regla que borrar
+    assertCanManageAsset(asset, req.user);
+
+    // Validar audio (magic bytes, tamaño, duración)
+    const { buffer, metadata } = await audioValidationService.validateAudio(file);
+
+    // Snapshot del audio viejo antes de tocar nada. Solo lo borraremos del
+    // Storage tras persistir Mongo con éxito; así, si la subida nueva o el
+    // `context.save()` fallan, el rollback elimina solo el archivo nuevo y
+    // el asset conserva su audio antiguo (QA 26/04/2026 — antes el rollback
+    // dejaba al asset con `audioUrl` apuntando a un archivo ya borrado).
+    const oldAudioUrl = asset.audioUrl;
+
+    // Subir nuevo audio a Supabase
+    newAudioUrl = await storageService.uploadFile(
+      buffer,
+      context.contextId,
+      'audio',
+      `${assetKey}.${metadata.format}`,
+      metadata.mime
+    );
+
+    // Actualizar audioUrl en el subdocumento (con el nuevo)
+    asset.audioUrl = newAudioUrl;
+    await context.save();
+
+    // A partir de aquí Mongo ya apunta al archivo nuevo: borramos el
+    // antiguo. Si esta limpieza fallara, el resultado funcional sigue
+    // siendo correcto (queda un archivo huérfano que se podrá purgar
+    // por el job de retención); por eso no abortamos la respuesta.
+    if (oldAudioUrl && oldAudioUrl !== newAudioUrl) {
+      try {
+        await storageService.deleteFile(oldAudioUrl);
+      } catch (cleanupErr) {
+        logger.warn('attachAudio: fallo al borrar audio antiguo', {
+          contextId: context.contextId,
+          assetKey,
+          oldAudioUrl,
+          error: cleanupErr.message
+        });
+      }
+    }
+
+    // Invalidar caches igual que en uploadImage/uploadAudio para que el
+    // detalle del contexto refleje el cambio de audio inmediatamente
+    // (QA 26/04/2026).
+    await invalidateContextCaches(context._id.toString(), context.contextId);
+
+    logger.info('Audio adjuntado a asset exitosamente', {
+      contextId: context.contextId,
+      assetKey,
+      replaced: Boolean(oldAudioUrl),
+      uploadedBy: req.user._id,
+      format: metadata.formatName,
+      durationSeconds: metadata.durationSeconds
+    });
+
+    sendSuccess(
+      res,
+      {
+        asset: toAssetDTOV1(asset),
+        metadata: {
+          format: metadata.formatName,
+          size: `${(metadata.size / 1024).toFixed(1)} KB`,
+          durationSeconds: metadata.durationSeconds,
+          replaced: Boolean(oldAudioUrl)
+        }
+      },
+      oldAudioUrl ? 'Audio reemplazado correctamente' : 'Audio adjuntado correctamente'
+    );
   } catch (error) {
-    next(error);
+    // Rollback: eliminar archivo nuevo si falló después de subir
+    if (newAudioUrl) {
+      await storageService.deleteFile(newAudioUrl);
+    }
+
+    throw error;
   }
 };
 
@@ -378,20 +563,18 @@ const deleteAudio = async (req, res, next) => {
  * @param {import('express').Response} res
  */
 const getUploadConfig = (req, res) => {
-  res.json({
-    success: true,
-    data: {
-      image: imageProcessingService.getConfig(),
-      audio: audioValidationService.getConfig(),
-      maxAssetsPerContext: MAX_ASSETS_PER_CONTEXT,
-      storageEnabled: storageService.isEnabled()
-    }
+  sendSuccess(res, {
+    image: imageProcessingService.getConfig(),
+    audio: audioValidationService.getConfig(),
+    maxAssetsPerContext: MAX_ASSETS_PER_CONTEXT,
+    storageEnabled: storageService.isEnabled()
   });
 };
 
 module.exports = {
   uploadImage,
   uploadAudio,
+  attachAudio,
   deleteImage,
   deleteAudio,
   getUploadConfig,

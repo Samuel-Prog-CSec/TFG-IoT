@@ -6,6 +6,7 @@
 
 const { z } = require('zod');
 const { objectIdSchema, userFiltersSchema } = require('./commonValidator');
+const { ROLES, USER_STATUS, CONSENT_PURPOSES } = require('../constants/enums');
 
 /**
  * Schema para validar email.
@@ -42,7 +43,7 @@ const createUserSchema = z
     password: passwordSchema.optional(),
 
     role: z
-      .enum(['super_admin', 'teacher', 'student'], {
+      .enum([...ROLES], {
         errorMap: () => ({ message: 'El rol debe ser super_admin, teacher o student' })
       })
       .default('student'),
@@ -66,10 +67,12 @@ const createUserSchema = z
           .datetime({ message: 'Fecha de nacimiento inválida' })
           .or(z.date())
           .optional()
+        // Nota: birthdate solo se mantiene como opcional para profesores.
+        // Para alumnos, el modelo User.js lo rechaza en pre-save (Art. 5.1.c RGPD)
       })
       .optional(),
 
-    status: z.enum(['active', 'inactive']).default('active'),
+    status: z.enum([...USER_STATUS]).default('active'),
 
     createdBy: objectIdSchema.optional()
   })
@@ -127,15 +130,30 @@ const createStudentSchema = z
         .string()
         .trim()
         .max(50, 'El nombre de la clase no puede exceder 50 caracteres')
-        .optional(),
-      birthdate: z
-        .string()
-        .datetime({ message: 'Fecha de nacimiento inválida' })
-        .or(z.date())
         .optional()
+      // birthdate ELIMINADO: Art. 5.1.c RGPD (minimización de datos).
+      // La fecha de nacimiento completa tiene alto potencial identificativo
+      // y no aporta valor pedagógico respecto a profile.age.
     }),
 
-    teacherId: objectIdSchema
+    teacherId: objectIdSchema,
+
+    // Consentimiento parental — Art. 8 RGPD + Art. 7 LOPDGDD
+    consent: z.object({
+      granted: z.literal(true, {
+        errorMap: () => ({
+          message:
+            'El consentimiento parental debe ser otorgado para crear un alumno (Art. 8 RGPD + Art. 7 LOPDGDD)'
+        })
+      }),
+      grantedBy: z
+        .string()
+        .trim()
+        .min(2, 'El nombre del tutor debe tener al menos 2 caracteres')
+        .max(100, 'El nombre del tutor no puede exceder 100 caracteres'),
+      purposes: z.array(z.enum([...CONSENT_PURPOSES])).optional(),
+      policyVersion: z.string().trim().optional()
+    })
   })
   .strict(); // Rechaza campos extra como email/password
 
@@ -188,12 +206,12 @@ const updateUserSchema = z
       .object({
         avatar: z.string().url('URL de avatar inválida').optional(),
         age: z.number().int().min(3).max(99).optional(),
-        classroom: z.string().trim().max(50).optional(),
-        birthdate: z.string().datetime().or(z.date()).optional()
+        classroom: z.string().trim().max(50).optional()
+        // birthdate ELIMINADO: Art. 5.1.c RGPD (minimización)
       })
       .optional(),
 
-    status: z.enum(['active', 'inactive']).optional()
+    status: z.enum([...USER_STATUS]).optional()
   })
   .strict();
 
@@ -255,6 +273,42 @@ const teacherStudentsQuerySchema = z
   })
   .strict();
 
+/**
+ * Schema para actualizar consentimiento parental (PATCH /api/users/:id/consent).
+ * Art. 7.3 RGPD: la retirada del consentimiento debe ser tan fácil como su otorgamiento.
+ */
+const updateConsentSchema = z
+  .object({
+    granted: z.boolean(),
+    grantedBy: z
+      .string()
+      .trim()
+      .min(2, 'El nombre del tutor debe tener al menos 2 caracteres')
+      .max(100, 'El nombre del tutor no puede exceder 100 caracteres')
+      .optional(),
+    purposes: z.array(z.enum([...CONSENT_PURPOSES])).optional(),
+    policyVersion: z.string().trim().optional()
+  })
+  .strict()
+  .refine(data => !(data.granted === true && !data.grantedBy), {
+    message: 'Se requiere el nombre del tutor cuando se otorga el consentimiento',
+    path: ['grantedBy']
+  });
+
+/**
+ * Schema para borrado efectivo de datos de estudiante (DELETE /api/users/:id/data).
+ * Art. 17 RGPD: derecho de supresión. Requiere confirmación explícita.
+ */
+const hardDeleteSchema = z
+  .object({
+    confirmDeletion: z.literal(true, {
+      errorMap: () => ({
+        message: 'Debe confirmar la eliminación permanente con confirmDeletion: true'
+      })
+    })
+  })
+  .strict();
+
 module.exports = {
   createUserSchema,
   createStudentSchema,
@@ -266,6 +320,8 @@ module.exports = {
   userIdParamsSchema,
   teacherIdParamsSchema,
   teacherStudentsQuerySchema,
+  updateConsentSchema,
+  hardDeleteSchema,
   emailSchema,
   passwordSchema,
   objectIdSchema

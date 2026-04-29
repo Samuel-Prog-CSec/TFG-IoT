@@ -8,11 +8,18 @@
 const gameSessionRepository = require('../repositories/gameSessionRepository');
 const gameMechanicRepository = require('../repositories/gameMechanicRepository');
 const gameContextRepository = require('../repositories/gameContextRepository');
-const cardRepository = require('../repositories/cardRepository');
 const cardDeckRepository = require('../repositories/cardDeckRepository');
 const gamePlayRepository = require('../repositories/gamePlayRepository');
 const mongoose = require('mongoose');
 const { NotFoundError, ValidationError, ForbiddenError } = require('../utils/errors');
+const {
+  normalizeMechanicName,
+  isMechanicEnabledForSessionCreation,
+  validateConfigAgainstMechanicRules,
+  normalizeBoardLayout,
+  validateBoardLayoutAgainstMappings,
+  validateAssociationChallengePlanAgainstMappings
+} = require('../controllers/helpers/sessionValidationHelpers');
 const logger = require('../utils/logger').child({ component: 'gameSessionService' });
 
 const MIN_DECK_CARDS = 2;
@@ -21,7 +28,6 @@ function normalizeSessionMappingsFromDeck(deck) {
   const mappings = Array.isArray(deck.cardMappings) ? deck.cardMappings : [];
 
   return mappings.map(m => ({
-    cardId: m.cardId,
     uid: (m.uid || '').toString().trim().toUpperCase(),
     assignedValue: (m.assignedValue || '').toString().trim(),
     displayData: m.displayData
@@ -60,30 +66,6 @@ async function syncSessionFromDeck(session, { deckId, userId }) {
     );
   }
 
-  const cardIds = cardMappings.map(m => m.cardId);
-  const cards = await cardRepository.find({ _id: { $in: cardIds } });
-  if (cards.length !== cardIds.length) {
-    throw new ValidationError('Una o más tarjetas no existen');
-  }
-
-  const inactiveCards = cards.filter(card => card.status !== 'active');
-  if (inactiveCards.length > 0) {
-    throw new ValidationError(
-      `Las siguientes tarjetas no están activas: ${inactiveCards.map(c => c.uid).join(', ')}`
-    );
-  }
-
-  const cardById = new Map(cards.map(c => [c._id.toString(), c]));
-  const mismatch = cardMappings.filter(m => {
-    const card = cardById.get(m.cardId.toString());
-    return !card || card.uid !== m.uid;
-  });
-  if (mismatch.length > 0) {
-    throw new ValidationError(
-      `UID no coincide con la tarjeta para: ${mismatch.map(m => m.uid).join(', ')}`
-    );
-  }
-
   session.deckId = deck._id;
   session.contextId = deck.contextId;
   session.cardMappings = cardMappings;
@@ -93,10 +75,8 @@ async function syncSessionFromDeck(session, { deckId, userId }) {
   };
 
   if (Array.isArray(session.boardLayout) && session.boardLayout.length > 0) {
-    const mappingCardIds = new Set(cardMappings.map(mapping => mapping.cardId?.toString?.()));
-    session.boardLayout = session.boardLayout.filter(slot =>
-      mappingCardIds.has(slot.cardId?.toString?.())
-    );
+    const mappingUids = new Set(cardMappings.map(mapping => mapping.uid));
+    session.boardLayout = session.boardLayout.filter(slot => mappingUids.has(slot.uid));
   }
 
   return { deck, context, cardMappings };
@@ -129,6 +109,7 @@ async function cloneSessionFromExisting({ sourceSession, userId }) {
     mechanicId: sourceSession.mechanicId,
     deckId: sourceSession.deckId,
     sensorId: sourceSession.sensorId,
+    name: sourceSession.name || undefined,
     config: normalizeSessionConfig(sourceSession.config),
     status: 'created',
     createdBy: userId
@@ -194,33 +175,8 @@ async function validateContext(contextId, requiredAssets) {
 }
 
 /**
- * Valida que las tarjetas existan y estén activas.
- *
- * @param {Array<string>} cardIds - Array de IDs de tarjetas
- * @returns {Promise<Array>} Tarjetas validadas
- * @throws {ValidationError} Si alguna tarjeta no existe o no está activa
- */
-async function validateCards(cardIds) {
-  const cards = await cardRepository.find({ _id: { $in: cardIds } });
-
-  if (cards.length !== cardIds.length) {
-    throw new ValidationError('Una o más tarjetas no existen');
-  }
-
-  const inactiveCards = cards.filter(card => card.status !== 'active');
-
-  if (inactiveCards.length > 0) {
-    throw new ValidationError(
-      `Las siguientes tarjetas no están activas: ${inactiveCards.map(c => c.uid).join(', ')}`
-    );
-  }
-
-  return cards;
-}
-
-/**
  * Valida la estructura de cardMappings.
- * Verifica que no haya duplicados de cardId o assignedValue.
+ * Verifica que no haya duplicados de UID o assignedValue.
  *
  * @param {Array} cardMappings - Array de mapeos de tarjetas
  * @param {number} numberOfCards - Número esperado de tarjetas
@@ -233,11 +189,11 @@ function validateCardMappings(cardMappings, numberOfCards) {
     );
   }
 
-  // Verificar duplicados en cardId
-  const cardIds = cardMappings.map(m => m.cardId.toString());
-  const uniqueCardIds = [...new Set(cardIds)];
+  // Verificar duplicados en UID
+  const uids = cardMappings.map(m => m.uid);
+  const uniqueUids = [...new Set(uids)];
 
-  if (cardIds.length !== uniqueCardIds.length) {
+  if (uids.length !== uniqueUids.length) {
     throw new ValidationError('No puede haber tarjetas duplicadas en cardMappings');
   }
 
@@ -278,10 +234,6 @@ async function createSession({
 
   // Validar estructura de cardMappings
   validateCardMappings(cardMappings, config.numberOfCards);
-
-  // Validar tarjetas
-  const cardIds = cardMappings.map(mapping => mapping.cardId);
-  await validateCards(cardIds);
 
   // Crear sesión
   const session = await gameSessionRepository.create({
@@ -418,15 +370,126 @@ async function getSessionStats(sessionId) {
   );
 }
 
+/**
+ * Crea una sesión de juego a partir de un mazo (flujo actual).
+ * Consolida toda la lógica de negocio: validación de mecánica, config,
+ * sincronización con mazo, boardLayout y associationChallengePlan.
+ *
+ * @param {Object} params - Parámetros de creación
+ * @param {string} params.mechanicId - ID de la mecánica
+ * @param {string} params.deckId - ID del mazo
+ * @param {string} [params.sensorId] - ID del sensor RFID
+ * @param {Object} [params.config={}] - Configuración de la sesión
+ * @param {string} [params.contextId] - ID explícito del contexto (debe coincidir con el del mazo)
+ * @param {Array} [params.boardLayout] - Layout del tablero (mecánica memory)
+ * @param {Array} [params.associationChallengePlan] - Plan de retos (mecánica association)
+ * @param {string} params.createdBy - ID del profesor creador
+ * @returns {Promise<Object>} Sesión creada y populada
+ */
+async function createSessionFromDeck({
+  mechanicId,
+  deckId,
+  sensorId,
+  name,
+  config = {},
+  contextId,
+  boardLayout,
+  associationChallengePlan,
+  createdBy
+}) {
+  // Validar mecánica
+  const mechanic = await validateMechanic(mechanicId);
+  const mechanicName = normalizeMechanicName(mechanic.name);
+
+  if (!isMechanicEnabledForSessionCreation(mechanic)) {
+    throw new ValidationError(
+      'La mecánica seleccionada no está habilitada para creación de sesiones en el entorno actual.'
+    );
+  }
+
+  validateConfigAgainstMechanicRules({ mechanic, config });
+
+  // Construir sesión a partir del mazo
+  const session = gameSessionRepository.build({
+    mechanicId,
+    deckId,
+    contextId: contextId || undefined,
+    sensorId,
+    name: name || undefined,
+    config: { ...config },
+    status: 'created',
+    createdBy
+  });
+
+  const {
+    deck,
+    context,
+    cardMappings: syncedMappings
+  } = await syncSessionFromDeck(session, { deckId, userId: createdBy });
+
+  // BoardLayout (mecánica memory)
+  if (boardLayout !== undefined) {
+    validateBoardLayoutAgainstMappings(boardLayout, syncedMappings);
+    session.boardLayout = normalizeBoardLayout(boardLayout);
+  }
+
+  // AssociationChallengePlan (mecánica association)
+  if (mechanicName === 'association') {
+    const normalizedPlan = validateAssociationChallengePlanAgainstMappings({
+      associationChallengePlan,
+      cardMappings: syncedMappings,
+      numberOfRounds: Number(session.config?.numberOfRounds)
+    });
+    session.associationChallengePlan = normalizedPlan;
+    session.requiresAssociationPlanConfiguration = false;
+  } else {
+    session.associationChallengePlan = [];
+    session.requiresAssociationPlanConfiguration = false;
+  }
+
+  // Verificar consistencia de contextId explícito
+  if (contextId && deck.contextId.toString() !== contextId.toString()) {
+    throw new ValidationError('contextId no coincide con el contexto del mazo');
+  }
+
+  // Verificar consistencia de numberOfCards explícito
+  if (config.numberOfCards !== undefined && config.numberOfCards !== syncedMappings.length) {
+    throw new ValidationError(
+      `config.numberOfCards (${config.numberOfCards}) no coincide con el número de cardMappings del mazo (${syncedMappings.length})`
+    );
+  }
+
+  // Persistir (la dificultad se auto-calcula en el modelo)
+  await session.save();
+
+  await session.populate([
+    { path: 'mechanicId', select: 'name displayName icon' },
+    { path: 'contextId', select: 'contextId name' },
+    { path: 'createdBy', select: 'name email' }
+  ]);
+
+  logger.info('Sesión creada desde mazo', {
+    sessionId: session._id,
+    mechanicId: mechanicName,
+    contextId: context.contextId,
+    cardsCount: syncedMappings.length,
+    deckId,
+    sensorId,
+    createdBy
+  });
+
+  return session;
+}
+
 module.exports = {
   syncSessionFromDeck,
   cloneSessionFromExisting,
   createSession,
+  createSessionFromDeck,
   updateSession,
   validateSessionDeletion,
   getSessionStats,
   validateMechanic,
   validateContext,
-  validateCards,
   validateCardMappings
 };

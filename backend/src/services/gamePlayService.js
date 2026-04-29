@@ -54,6 +54,13 @@ async function validatePlayer(playerId, sessionId) {
     throw new ValidationError('Solo los estudiantes pueden jugar partidas');
   }
 
+  // Defense in depth: verificar consentimiento activo — Art. 6.1 RGPD (licitud del tratamiento)
+  if (!player.consent?.granted) {
+    throw new ValidationError(
+      'El estudiante no tiene consentimiento parental activo. No puede participar en partidas.'
+    );
+  }
+
   // Verificar partida activa existente
   const existingPlay = await gamePlayRepository.findOne({
     sessionId,
@@ -91,19 +98,27 @@ async function createPlay({ sessionId, playerId, creatorId }) {
   // Validar jugador
   await validatePlayer(playerId, sessionId);
 
+  // Calcular maxScore teorico para integridad de puntuaciones (P19).
+  // Evita que el score acumulado supere el maximo posible ante eventos duplicados
+  // o bugs en el motor de puntuacion.
+  const rounds = Number(session.config?.numberOfRounds) || 1;
+  const points = Number(session.config?.pointsPerCorrect) || 10;
+  const maxScore = Math.max(1, rounds * points);
+
   // Crear partida
   const play = await gamePlayRepository.create({
     sessionId,
     playerId,
     status: 'in-progress',
     score: 0,
+    maxScore,
     currentRound: 1
   });
 
-  // Populate para respuesta completa
+  // Populate para respuesta completa (RGPD data minimization: solo campos necesarios del perfil)
   await play.populate([
     { path: 'sessionId', select: 'mechanicId contextId config difficulty' },
-    { path: 'playerId', select: 'name profile' }
+    { path: 'playerId', select: 'name profile.classroom profile.age' }
   ]);
 
   logger.info('Partida creada via service', {
@@ -184,13 +199,18 @@ async function completePlay(playId) {
   await play.complete();
 
   // Actualizar métricas del estudiante
+  // Solo si el tutor no ha ejercido el derecho de oposición a analytics (Art. 21 RGPD)
   const player = await userRepository.findById(play.playerId._id);
-  await player.updateStudentMetrics({
-    score: play.score,
-    correctAttempts: play.metrics.correctAttempts,
-    errorAttempts: play.metrics.errorAttempts,
-    averageResponseTime: play.metrics.averageResponseTime
-  });
+
+  if (player.hasConsentFor('performance_analytics')) {
+    await player.updateStudentMetrics({
+      score: play.score,
+      correctAttempts: play.metrics.correctAttempts,
+      errorAttempts: play.metrics.errorAttempts,
+      timeoutAttempts: play.metrics.timeoutAttempts,
+      averageResponseTime: play.metrics.averageResponseTime
+    });
+  }
 
   // Calcular rating
   const rating = calculateRating(
@@ -301,11 +321,87 @@ async function getPlayerStats(playerId, sessionId = null) {
   };
 }
 
+/**
+ * Calcula estadísticas de partidas agrupadas por sesión, incluyendo:
+ *   - `playsCount` y `averageScore` (uso histórico).
+ *   - `lastPlayedAt`: fecha de la última partida completada (para PROP-5,
+ *     "hace X días" en SessionCard).
+ *   - `recentScores`: hasta 7 últimas puntuaciones, ordenadas cronológicamente
+ *     ascendente (para sparkline en SessionCard, PROP-5).
+ *
+ * Devuelve un Map sessionId → stats. Solo considera plays con `status: 'completed'`.
+ *
+ * @param {Array<string|ObjectId>} sessionIds - IDs de sesiones
+ * @returns {Promise<Object>} Mapa sessionId → stats
+ */
+async function getPlayStatsBySessionIds(sessionIds) {
+  if (!sessionIds || sessionIds.length === 0) {
+    return {};
+  }
+
+  const playStatsAgg = await gamePlayRepository.aggregate([
+    { $match: { sessionId: { $in: sessionIds }, status: 'completed' } },
+    { $sort: { completedAt: -1 } },
+    {
+      $group: {
+        _id: '$sessionId',
+        playsCount: { $sum: 1 },
+        averageScore: { $avg: '$score' },
+        lastPlayedAt: { $max: '$completedAt' },
+        // Toma las primeras 7 entradas tras el sort desc → últimas 7 partidas.
+        recentScoresDesc: {
+          $push: { score: '$score', completedAt: '$completedAt' }
+        }
+      }
+    },
+    {
+      $project: {
+        playsCount: 1,
+        averageScore: 1,
+        lastPlayedAt: 1,
+        // Limitar a 7 elementos y revertir para orden cronológico ascendente.
+        recentScores: {
+          $reverseArray: { $slice: ['$recentScoresDesc', 7] }
+        }
+      }
+    }
+  ]);
+
+  const statsMap = {};
+  for (const stat of playStatsAgg) {
+    statsMap[stat._id.toString()] = {
+      playsCount: stat.playsCount,
+      averageScore: Math.round(stat.averageScore ?? 0),
+      lastPlayedAt: stat.lastPlayedAt || null,
+      recentScores: (stat.recentScores || []).map(s => ({
+        score: Math.round(s.score ?? 0),
+        completedAt: s.completedAt
+      }))
+    };
+  }
+  return statsMap;
+}
+
+/**
+ * Verifica si una sesión tiene partidas activas (in-progress o paused).
+ *
+ * @param {string|ObjectId} sessionId - ID de la sesión
+ * @returns {Promise<number>} Número de partidas activas
+ */
+async function countActivePlays(sessionId) {
+  return gamePlayRepository.count({
+    sessionId,
+    status: { $in: ['in-progress', 'paused'] }
+  });
+}
+
 module.exports = {
   createPlay,
   addEventToPlay,
   completePlay,
   getPlayerStats,
+  getPlayStatsBySessionIds,
+  countActivePlays,
   validateGameSession,
   validatePlayer,
   calculateRating

@@ -1,0 +1,74 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 630" fill="none">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1200" y2="630" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#0f172a"/>
+      <stop offset="0.5" stop-color="#1e1b4b"/>
+      <stop offset="1" stop-color="#0f172a"/>
+    </linearGradient>
+    <linearGradient id="iconBg" x1="80" y1="140" x2="240" y2="490" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#a78bfa"/>
+      <stop offset="1" stop-color="#7c3aed"/>
+    </linearGradient>
+    <linearGradient id="textGrad" x1="340" y1="200" x2="900" y2="420" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#c4b5fd"/>
+      <stop offset="1" stop-color="#a78bfa"/>
+    </linearGradient>
+    <filter id="glow">
+      <feGaussianBlur stdDeviation="40" result="blur"/>
+      <feMerge>
+        <feMergeNode in="blur"/>
+        <feMergeNode in="SourceGraphic"/>
+      </feMerge>
+    </filter>
+    <filter id="shadow">
+      <feDropShadow dx="3" dy="4" stdDeviation="6" flood-color="#4c1d95" flood-opacity="0.4"/>
+    </filter>
+  </defs>
+
+  <!-- Background -->
+  <rect width="1200" height="630" fill="url(#bg)"/>
+
+  <!-- Decorative blurs -->
+  <circle cx="200" cy="315" r="250" fill="#7c3aed" opacity="0.08" filter="url(#glow)"/>
+  <circle cx="900" cy="315" r="300" fill="#6366f1" opacity="0.05" filter="url(#glow)"/>
+
+  <!-- Grid pattern overlay -->
+  <pattern id="grid" width="40" height="40" patternUnits="userSpaceOnUse">
+    <path d="M 40 0 L 0 0 0 40" fill="none" stroke="white" stroke-width="0.5" opacity="0.04"/>
+  </pattern>
+  <rect width="1200" height="630" fill="url(#grid)"/>
+
+  <!-- Icon -->
+  <g transform="translate(100, 165)">
+    <rect width="300" height="300" rx="60" fill="url(#iconBg)"/>
+    <!-- Card shadow -->
+    <rect x="50" y="55" width="140" height="180" rx="16" fill="#4c1d95" opacity="0.3"/>
+    <!-- Card -->
+    <rect x="44" y="48" width="140" height="180" rx="16" fill="white" filter="url(#shadow)"/>
+    <!-- Chip -->
+    <rect x="72" y="82" width="52" height="36" rx="6" fill="#8b5cf6" opacity="0.22"/>
+    <line x1="98" y1="82" x2="98" y2="118" stroke="#8b5cf6" stroke-width="2" opacity="0.15"/>
+    <line x1="72" y1="100" x2="124" y2="100" stroke="#8b5cf6" stroke-width="2" opacity="0.15"/>
+    <!-- Card lines -->
+    <rect x="72" y="140" width="84" height="6" rx="3" fill="#8b5cf6" opacity="0.12"/>
+    <rect x="72" y="158" width="60" height="6" rx="3" fill="#8b5cf6" opacity="0.08"/>
+    <!-- Signals -->
+    <path d="M208 110a36 36 0 010 56" stroke="white" stroke-width="12" stroke-linecap="round"/>
+    <path d="M235 86a64 64 0 010 104" stroke="white" stroke-width="10" stroke-linecap="round" opacity="0.5"/>
+    <path d="M258 66a88 88 0 010 144" stroke="white" stroke-width="8" stroke-linecap="round" opacity="0.25"/>
+    <!-- Signal origin -->
+    <circle cx="196" cy="138" r="6" fill="white" opacity="0.7"/>
+  </g>
+
+  <!-- Text -->
+  <text x="460" y="290" font-family="system-ui, -apple-system, sans-serif" font-weight="800" font-size="96" fill="url(#textGrad)">EduPlay</text>
+  <text x="460" y="360" font-family="system-ui, -apple-system, sans-serif" font-weight="500" font-size="32" fill="#94a3b8">Juegos Educativos con RFID</text>
+
+  <!-- Subtitle detail -->
+  <line x1="460" y1="390" x2="750" y2="390" stroke="#7c3aed" stroke-width="2" opacity="0.4"/>
+  <text x="460" y="430" font-family="system-ui, -apple-system, sans-serif" font-weight="400" font-size="22" fill="#64748b">Aprendizaje interactivo para los mas pequenos</text>
+
+  <!-- Border accent -->
+  <rect x="0" y="0" width="1200" height="4" fill="url(#iconBg)"/>
+  <rect x="0" y="626" width="1200" height="4" fill="url(#iconBg)"/>
+</svg>

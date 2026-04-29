@@ -1,40 +1,79 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { DndContext, DragOverlay, useSensor, useSensors, PointerSensor, defaultDropAnimationSideEffects, useDroppable } from '@dnd-kit/core';
-import { SortableContext, useSortable } from '@dnd-kit/sortable';
+import { useSortable } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Layers, RotateCcw, Play, CheckCircle } from 'lucide-react';
+import { Layers, RotateCcw, Play, Shuffle, Info, X } from 'lucide-react';
 import clsx from 'clsx';
-import confetti from 'canvas-confetti';
+import { useConfetti } from '../hooks/useConfetti';
 import { toast } from 'sonner';
 import { sessionsAPI, usersAPI, extractData, extractErrorMessage, isAbortError } from '../services/api';
 import { captureException } from '../lib/sentry';
 import { useAuth } from '../context/AuthContext';
 import { useRefetchOnFocus } from '../hooks/useRefetchOnFocus';
 import { ROUTES } from '../constants/routes';
+import { useDocumentTitle } from '../hooks/useDocumentTitle';
 import CardAssetPreview from '../components/ui/CardAssetPreview';
 import SelectPremium from '../components/ui/SelectPremium';
 import ButtonPremium from '../components/ui/ButtonPremium';
 import Tooltip from '../components/ui/Tooltip';
 
+/** Fisher-Yates shuffle — returns a new shuffled copy of the array */
+function shuffleArray(array) {
+  const shuffled = [...array];
+  for (let i = shuffled.length - 1; i > 0; i--) {
+    // eslint-disable-next-line sonarjs/pseudo-random -- Fisher-Yates shuffle para UI, no requiere seguridad criptografica
+    const j = Math.floor(Math.random() * (i + 1));
+    [shuffled[i], shuffled[j]] = [shuffled[j], shuffled[i]];
+  }
+  return shuffled;
+}
+
 export default function BoardSetup() {
   const { sessionId } = useParams();
   const navigate = useNavigate();
     const { user } = useAuth();
+  useDocumentTitle('Configurar Tablero');
+  const { fireBurst } = useConfetti();
   const [loading, setLoading] = useState(true);
   
   // Game Data
   const [session, setSession] = useState(null);
   const [availableCards, setAvailableCards] = useState([]); // All cards in session
   const [availableStudents, setAvailableStudents] = useState([]);
-  
+
   // Board State
   // Map<SlotId, Card>
-  const [slots, setSlots] = useState({}); 
+  const [slots, setSlots] = useState({});
   const [activeId, setActiveId] = useState(null); // For DragOverlay
   const [selectedStudentId, setSelectedStudentId] = useState('');
     const [savingBoard, setSavingBoard] = useState(false);
+
+  // Banner de onboarding la primera vez que se entra a BoardSetup (PROP-39).
+  // Se persiste en localStorage para no mostrarlo en visitas posteriores.
+  const HINT_KEY = 'eduplay:hasSeenBoardSetupHint';
+  const [showOnboardingHint, setShowOnboardingHint] = useState(() => {
+    try { return globalThis.localStorage?.getItem(HINT_KEY) !== '1'; }
+    catch { return false; }
+  });
+  const dismissHint = useCallback(() => {
+    try { globalThis.localStorage?.setItem(HINT_KEY, '1'); }
+    catch { /* noop */ }
+    setShowOnboardingHint(false);
+  }, []);
+
+  // Scroll-top automatico al montar (PROP-39): evita que el usuario llegue
+  // a media altura tras navegar desde Crear Sesion en pantallas con scroll
+  // residual del main del layout.
+  const rootRef = useRef(null);
+  useEffect(() => {
+    // El layout principal usa main con overflow-auto; resetear su scroll
+    // ademas del window para cubrir ambos casos.
+    const main = document.querySelector('main');
+    if (main) main.scrollTop = 0;
+    globalThis.scrollTo?.({ top: 0, behavior: 'instant' });
+  }, []);
 
     const init = useCallback((signal) => {
         const run = async () => {
@@ -49,8 +88,9 @@ export default function BoardSetup() {
                         setSession(currentSession);
 
                         const teacherId = user?.id || user?._id;
+                        const requestOptions = signal ? { signal } : {};
                         const studentsResponse = teacherId
-                            ? await usersAPI.getStudentsByTeacher(teacherId, { sortBy: 'name', order: 'asc' }, signal ? { signal } : {})
+                            ? await usersAPI.getStudentsByTeacher(teacherId, { sortBy: 'name', order: 'asc' }, requestOptions)
                             : { data: { data: [] } };
 
                         const students = extractData(studentsResponse) || [];
@@ -65,7 +105,7 @@ export default function BoardSetup() {
                             const assetKey = mapping.displayData?.key;
 
                             return {
-                                id: mapping.cardId || mapping.id || mapping.uid,
+                                id: mapping.uid,
                                 uid: mapping.uid,
                                 label: displayValue || `Tarjeta ${mapping.uid}`,
                                 icon: displayIcon,
@@ -138,7 +178,6 @@ export default function BoardSetup() {
 
                 return {
                     slotIndex,
-                    cardId: card.id,
                     uid: card.uid,
                     assignedValue: card.assignedValue || card.label || card.uid,
                     displayData: card.displayData || card.asset || {}
@@ -147,6 +186,25 @@ export default function BoardSetup() {
             .filter(Boolean)
             .sort((a, b) => a.slotIndex - b.slotIndex);
     }, [slots]);
+
+    const handleRandomize = useCallback(() => {
+        if (!session?.cardMappings?.length) return;
+        const shuffled = shuffleArray(session.cardMappings);
+        const newSlots = {};
+        shuffled.forEach((card, index) => {
+            newSlots[`slot_${index}`] = {
+                id: card.uid,
+                uid: card.uid,
+                assignedValue: card.assignedValue,
+                displayData: card.displayData || {},
+                label: card.assignedValue,
+                asset: card.displayData || null,
+                icon: card.displayData?.display || null
+            };
+        });
+        setSlots(newSlots);
+        toast.success('Tablero distribuido aleatoriamente');
+    }, [session?.cardMappings]);
 
     const handleStartPlay = useCallback(async () => {
         if (!canStart || savingBoard) {
@@ -225,26 +283,55 @@ export default function BoardSetup() {
         newSlots[targetSlotId] = activeCard;
         setSlots(newSlots);
 
-        // 🎉 Confetti effect for feedback
-        confetti({
+        // Confetti effect for feedback
+        fireBurst({
             particleCount: 30,
             spread: 50,
             origin: { y: 0.7 },
-            colors: ['#6366f1', '#8b5cf6', '#a855f7'],
-            disableForReducedMotion: true
         });
     }
   };
 
-  if (loading) return <div className="text-white p-8">Cargando tablero...</div>;
+  if (loading) return <div className="text-text-primary p-8">Cargando tablero...</div>;
 
   return (
     <DndContext sensors={sensors} onDragStart={handleDragStart} onDragEnd={handleDragEnd}>
-        <div className="h-screen flex flex-col p-6 bg-slate-900 overflow-hidden">
+        <div ref={rootRef} className="h-screen flex flex-col p-6 bg-background-base overflow-hidden">
+            {/* Banner de onboarding (primera visita). Sale del flow para no
+                desplazar el header. PROP-39 — explicar drag-and-drop + Aleatorio. */}
+            <AnimatePresence>
+              {showOnboardingHint && (
+                <motion.div
+                  initial={{ opacity: 0, y: -8 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  exit={{ opacity: 0, y: -8 }}
+                  transition={{ duration: 0.2 }}
+                  className="mb-4 shrink-0 flex items-start gap-3 rounded-xl border border-accent-indigo/30 bg-accent-indigo/10 px-4 py-3 text-sm text-text-secondary"
+                  role="status"
+                >
+                  <Info size={18} className="shrink-0 text-accent-indigo mt-0.5" aria-hidden="true" />
+                  <p className="flex-1">
+                    Arrastra las tarjetas de la librería a los huecos del tablero, o pulsa
+                    <strong className="text-text-primary mx-1">Aleatorio</strong>
+                    para distribuirlas automáticamente. Cuando todas estén colocadas y hayas elegido un alumno, podrás
+                    <strong className="text-text-primary mx-1">Iniciar Partida</strong>.
+                  </p>
+                  <button
+                    type="button"
+                    onClick={dismissHint}
+                    className="shrink-0 rounded-lg p-1 text-text-muted hover:text-text-primary hover:bg-white/5 transition-colors"
+                    aria-label="Cerrar instrucciones"
+                  >
+                    <X size={16} />
+                  </button>
+                </motion.div>
+              )}
+            </AnimatePresence>
+
             <header className="flex justify-between items-center mb-6 shrink-0">
                 <div>
-                    <h1 className="text-2xl font-bold text-white font-display">Configuración del Tablero</h1>
-                    <p className="text-slate-400">Arrastra las tarjetas a los huecos para configurar la partida.</p>
+                    <h1 className="text-2xl font-bold text-text-primary font-display">Configuración del Tablero</h1>
+                    <p className="text-text-muted">Arrastra las tarjetas a los huecos para configurar la partida.</p>
                 </div>
                 <div className="flex gap-3 items-center">
                     <SelectPremium
@@ -258,6 +345,16 @@ export default function BoardSetup() {
                         className="w-64"
                     />
 
+                    <Tooltip content="Distribuir aleatoriamente">
+                        <button
+                            type="button"
+                            onClick={handleRandomize}
+                            className="flex items-center gap-2 rounded-lg border border-accent-indigo/30 bg-accent-indigo/10 px-4 py-2 text-sm font-medium text-accent-indigo hover:bg-accent-indigo/20 transition-colors"
+                        >
+                            <Shuffle size={16} />
+                            Aleatorio
+                        </button>
+                    </Tooltip>
                     <Tooltip content="Resetear Tablero">
                         <ButtonPremium
                             variant="ghost"
@@ -270,9 +367,9 @@ export default function BoardSetup() {
                         variant="success"
                         onClick={handleStartPlay}
                         disabled={!canStart || savingBoard}
-                        className="shadow-lg shadow-emerald-500/20"
+                        className="shadow-lg shadow-success-base/20"
                     >
-                        <Play size={20} /> {savingBoard ? 'Guardando tablero...' : 'Iniciar Partida'}
+                        <Play size={20} /> {savingBoard ? 'Guardando tablero…' : 'Iniciar Partida'}
                     </ButtonPremium>
                 </div>
             </header>
@@ -282,11 +379,11 @@ export default function BoardSetup() {
                 <LibraryDroppable cards={cardsInLibrary} />
 
                 {/* BOARD AREA */}
-                <div className="flex-1 bg-slate-800/20 rounded-3xl border-2 border-dashed border-white/5 flex flex-col items-center justify-center relative p-8">
-                     <div className="absolute top-4 left-4 text-slate-500 font-mono text-xs">TABLERO VIRTUAL</div>
+                <div className="flex-1 bg-background-elevated/20 rounded-3xl border-2 border-dashed border-border-subtle flex flex-col items-center justify-center relative p-8">
+                     <div className="absolute top-4 left-4 text-text-muted font-mono text-xs">TABLERO VIRTUAL</div>
                      
                      <div className="w-full h-full overflow-y-auto flex items-center justify-center p-8 custom-scrollbar">
-                         <div className="grid grid-cols-5 gap-6 max-w-6xl">
+                         <div className="grid gap-6 max-w-6xl" style={{ gridTemplateColumns: `repeat(${Math.ceil(Math.sqrt(totalSlots))}, 1fr)` }}>
                             {Array.from({ length: totalSlots }).map((_, idx) => {
                                 const slotId = `slot_${idx}`;
                                 const card = slots[slotId];
@@ -333,12 +430,12 @@ function LibraryDroppable({ cards }) {
             animate={{ x: 0, opacity: 1 }}
             ref={setNodeRef}
             className={clsx(
-                "w-80 bg-slate-800/40 backdrop-blur-md rounded-2xl border p-4 flex flex-col transition-colors",
-                isOver ? "border-indigo-500 bg-indigo-500/10" : "border-white/5"
+                "w-80 bg-background-elevated/40 backdrop-blur-md rounded-2xl border p-4 flex flex-col transition-colors",
+                isOver ? "border-accent-indigo bg-accent-indigo/10" : "border-border-subtle"
             )}
         >
-            <h2 className="text-lg font-bold text-white mb-4 flex items-center gap-2">
-                <Layers size={18} className="text-indigo-400"/> Librería ({cards.length})
+            <h2 className="text-lg font-bold text-text-primary mb-4 flex items-center gap-2">
+                <Layers size={18} className="text-accent-indigo"/> Librería ({cards.length})
             </h2>
             <div className="flex-1 overflow-y-auto pr-2 space-y-3 custom-scrollbar">
                 <AnimatePresence>
@@ -346,7 +443,7 @@ function LibraryDroppable({ cards }) {
                         <DraggableCard key={card.id} card={card} />
                     ))}
                     {cards.length === 0 && (
-                        <div className="text-center text-slate-500 py-8 text-sm italic">
+                        <div className="text-center text-text-muted py-8 text-sm italic">
                             Todas las tarjetas están colocadas.
                         </div>
                     )}
@@ -363,12 +460,15 @@ function Slot({ id, card, index }) {
         <div 
             ref={setNodeRef}
             className={clsx(
-                "size-32 rounded-xl border-2 border-dashed transition-all flex items-center justify-center relative",
-                isOver ? "border-indigo-400 bg-indigo-400/10 scale-105" : 
-                card ? "border-indigo-500/30 bg-indigo-500/5 shadow-inner" : "border-slate-700 bg-slate-900/20"
+                "size-32 rounded-xl border-2 border-dashed transition-[transform,border-color,background-color] flex items-center justify-center relative",
+                (() => {
+                    if (isOver) return "border-accent-indigo bg-accent-indigo/10 scale-105";
+                    if (card) return "border-accent-indigo/30 bg-accent-indigo/5 shadow-inner";
+                    return "border-background-surface bg-background-base/20";
+                })()
             )}
         >
-            {!card && <span className="absolute top-2 left-2 text-xs font-mono text-slate-600">#{index + 1}</span>}
+            {!card && <span className="absolute top-2 left-2 text-xs font-mono text-text-disabled">#{index + 1}</span>}
             {card && <DraggableCard card={card} variant="slot" />}
         </div>
     )
@@ -395,37 +495,37 @@ function CardView({ card, isOverlay, variant = 'default' }) {
         return (
              <div className={clsx(
                  "w-full h-full flex flex-col items-center justify-center p-2 cursor-grab active:cursor-grabbing rounded-xl",
-                 isOverlay && "bg-slate-800/90 border border-indigo-400 shadow-xl" // Overlay needs bg
+                 isOverlay && "bg-background-elevated/90 border border-accent-indigo shadow-xl" // Overlay needs bg
              )}>
                   <CardAssetPreview
                     asset={card.asset}
-                    alt={`Carta ${card.uid}`}
+                    alt={card.label || 'Carta'}
                     className="size-16 rounded-xl mb-2"
                     fit="cover"
                     fallbackClassName="text-4xl"
-                    fallbackLabel={card.icon || '🎴'}
+                    fallbackLabel={card.icon || card.label?.charAt(0)?.toUpperCase() || '?'}
                   />
-                  <div className="text-white font-bold text-xs text-center leading-tight bg-slate-900/50 px-2 py-1 rounded-full">{card.label}</div>
+                  <div className="text-text-primary font-bold text-xs text-center leading-tight bg-background-base/50 px-2 py-1 rounded-full">{card.label}</div>
              </div>
         )
     }
 
     return (
         <div className={clsx(
-            "p-3 rounded-xl border bg-slate-800 flex items-center gap-3 cursor-grab active:cursor-grabbing",
-            isOverlay ? "border-indigo-400 shadow-2xl scale-105" : "border-white/10 hover:border-white/30 shadow-sm"
+            "group p-3 rounded-xl border bg-background-elevated flex items-center gap-3 cursor-grab active:cursor-grabbing",
+            isOverlay ? "border-accent-indigo shadow-2xl scale-105" : "border-border-default hover:border-border-strong shadow-sm"
         )}>
             <CardAssetPreview
               asset={card.asset}
-              alt={`Carta ${card.uid}`}
-              className="size-10 rounded border border-indigo-500/30"
+              alt={card.label || 'Carta'}
+              className="size-10 rounded border border-accent-indigo/30"
               fit="cover"
-              fallbackClassName="bg-indigo-500/20 text-xl font-bold"
+              fallbackClassName="bg-accent-indigo/20 text-xl font-bold"
               fallbackLabel={card.icon || '#'}
             />
             <div>
-                <div className="text-white font-bold text-sm leading-tight">{card.label}</div>
-                <div className="text-slate-500 text-xs font-mono">{card.uid}</div>
+                <div className="text-text-primary font-bold text-sm leading-tight">{card.label}</div>
+                <div className="text-text-muted text-xs font-mono" title={card.uid}>{card.uid}</div>
             </div>
         </div>
     )

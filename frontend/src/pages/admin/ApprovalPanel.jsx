@@ -22,7 +22,6 @@ import {
   XCircle,
   ChevronLeft,
   ChevronRight,
-  Inbox,
   Shield
 } from 'lucide-react';
 import { toast } from 'sonner';
@@ -34,7 +33,8 @@ import StatusBadge from '../../components/ui/StatusBadge';
 import { SkeletonCard } from '../../components/ui/SkeletonShimmer';
 import EmptyState from '../../components/ui/EmptyState';
 import { useRefetchOnFocus } from '../../hooks/useRefetchOnFocus';
-import { cn } from '../../lib/utils';
+import { useDocumentTitle } from '../../hooks/useDocumentTitle';
+import { cn, formatDate } from '../../lib/utils';
 
 /**
  * Modal de confirmación para aprobar/rechazar
@@ -62,7 +62,7 @@ function ConfirmationModal({
 
   // Focus trap y manejo de Escape
   useEffect(() => {
-    if (!isOpen) return;
+    if (!isOpen) return undefined;
 
     // Guardar el elemento que tenía el foco antes de abrir el modal
     const previouslyFocused = document.activeElement;
@@ -176,7 +176,7 @@ function ConfirmationModal({
               {/* Info del usuario */}
               <div className="bg-background-elevated rounded-xl p-4 mb-4 border border-border-subtle">
                 <div className="flex items-center gap-3">
-                  <div className="size-10 rounded-full bg-gradient-to-br from-brand-base to-brand-dark flex items-center justify-center text-white font-semibold">
+                  <div className="size-10 rounded-full bg-gradient-to-br from-brand-base to-brand-dark flex items-center justify-center text-text-primary font-semibold">
                     {user?.name?.charAt(0)?.toUpperCase() || '?'}
                   </div>
                   <div>
@@ -191,7 +191,7 @@ function ConfirmationModal({
                 <div className="mb-4">
                   <InputPremium
                     label="Razón del rechazo (opcional)"
-                    placeholder="Ej: Información incompleta..."
+                    placeholder="Ej: Información incompleta…"
                     value={reason}
                     onChange={(e) => setReason(e.target.value)}
                   />
@@ -246,11 +246,7 @@ ConfirmationModal.propTypes = {
  * Card de profesor pendiente
  */
 function PendingTeacherCard({ teacher, onApprove, onReject }) {
-  const createdAt = new Date(teacher.createdAt).toLocaleDateString('es-ES', {
-    day: 'numeric',
-    month: 'short',
-    year: 'numeric',
-  });
+  const createdAt = formatDate(teacher.createdAt, 'short');
 
   return (
     <motion.div
@@ -259,11 +255,11 @@ function PendingTeacherCard({ teacher, onApprove, onReject }) {
       exit={{ opacity: 0, y: -20 }}
       layout
     >
-      <GlassCard className="p-5 hover:border-brand-base/40 hover:shadow-lg hover:shadow-brand-base/10 transition-all duration-300">
+      <GlassCard className="p-5 hover:border-brand-base/40 hover:shadow-lg hover:shadow-brand-base/10 transition-[box-shadow,border-color] duration-300">
         <div className="flex flex-col lg:flex-row lg:items-center gap-4">
           {/* Avatar y nombre */}
           <div className="flex items-center gap-4 flex-1 min-w-0">
-            <div className="size-14 rounded-xl bg-gradient-to-br from-brand-base via-brand-base/80 to-brand-dark flex items-center justify-center text-white text-xl font-bold shadow-lg shadow-brand-base/20 flex-shrink-0">
+            <div className="size-14 rounded-xl bg-gradient-to-br from-brand-base via-brand-base/80 to-brand-dark flex items-center justify-center text-text-primary text-xl font-bold shadow-lg shadow-brand-base/20 flex-shrink-0">
               {teacher.name?.charAt(0)?.toUpperCase() || '?'}
             </div>
             
@@ -344,6 +340,7 @@ function LoadingSkeleton() {
  * Panel de Aprobación de Profesores
  */
 export default function ApprovalPanel() {
+  useDocumentTitle('Aprobaciones');
   // Estado
   const [teachers, setTeachers] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -405,7 +402,9 @@ export default function ApprovalPanel() {
       }
       const message = extractErrorMessage(err);
       setError(message);
-      toast.error('Error al cargar las solicitudes');
+      toast.error('Error al cargar las solicitudes', {
+        description: 'Recarga la página o inténtalo de nuevo en unos segundos.'
+      });
     } finally {
       if (!controller.signal.aborted) {
         setLoading(false);
@@ -462,12 +461,12 @@ export default function ApprovalPanel() {
       if (type === 'approve') {
         await adminAPI.approveTeacher(user._id || user.id);
         toast.success(`${user.name} ha sido aprobado correctamente`, {
-          icon: <CheckCircle className="size-5 text-emerald-400" />,
+          icon: <CheckCircle className="size-5 text-success-base" />,
         });
       } else {
         await adminAPI.rejectTeacher(user._id || user.id, reason);
         toast.success(`${user.name} ha sido rechazado`, {
-          icon: <XCircle className="size-5 text-rose-400" />,
+          icon: <XCircle className="size-5 text-error-base" />,
         });
       }
 
@@ -509,7 +508,7 @@ export default function ApprovalPanel() {
         >
           <div className="flex items-center gap-4 mb-2">
             <div className="size-12 rounded-xl bg-gradient-to-br from-warning-base to-warning-dark flex items-center justify-center shadow-lg shadow-warning-base/20">
-              <Shield className="size-6 text-white" />
+              <Shield className="size-6 text-text-primary" />
             </div>
             <div>
               <h1 className="text-2xl sm:text-3xl font-bold font-display text-text-primary">
@@ -562,7 +561,8 @@ export default function ApprovalPanel() {
           className="mb-6 relative"
         >
           <InputPremium
-            placeholder="Buscar por nombre o email..."
+            aria-label="Buscar profesores por nombre o email"
+            placeholder="Buscar por nombre o email…"
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
             icon={<Search className={cn('size-5', isSearchPending && 'animate-pulse')} />}
@@ -600,29 +600,31 @@ export default function ApprovalPanel() {
           animate={{ opacity: 1 }}
           transition={{ delay: 0.3 }}
         >
-          {loading ? (
-            <LoadingSkeleton />
-          ) : filteredTeachers.length === 0 ? (
-            <EmptyState
-              title="No hay solicitudes pendientes"
-              description="Todas las solicitudes de profesores han sido procesadas. Vuelve más tarde para revisar nuevas solicitudes."
-              icon={<Inbox className="size-10" />}
-              className="bg-transparent"
-            />
-          ) : (
-            <div className="space-y-4">
-              <AnimatePresence mode="popLayout">
-                {filteredTeachers.map((teacher) => (
-                  <PendingTeacherCard
-                    key={teacher._id || teacher.id}
-                    teacher={teacher}
-                    onApprove={() => openModal('approve', teacher)}
-                    onReject={() => openModal('reject', teacher)}
-                  />
-                ))}
-              </AnimatePresence>
-            </div>
-          )}
+          {(() => {
+            if (loading) return <LoadingSkeleton />;
+            if (filteredTeachers.length === 0) return (
+              <EmptyState
+                title="Todo al día"
+                description="No hay solicitudes pendientes. Cuando nuevos profesores se registren, aparecerán aquí para tu aprobación."
+                icon={<CheckCircle className="size-10 text-success-base" />}
+                className="bg-transparent"
+              />
+            );
+            return (
+              <div className="space-y-4">
+                <AnimatePresence mode="popLayout">
+                  {filteredTeachers.map((teacher) => (
+                    <PendingTeacherCard
+                      key={teacher._id || teacher.id}
+                      teacher={teacher}
+                      onApprove={() => openModal('approve', teacher)}
+                      onReject={() => openModal('reject', teacher)}
+                    />
+                  ))}
+                </AnimatePresence>
+              </div>
+            );
+          })()}
         </motion.div>
 
         {/* Paginación */}

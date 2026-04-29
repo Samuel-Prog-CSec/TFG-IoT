@@ -1,7 +1,60 @@
-import { motion } from 'framer-motion';
+import { motion, AnimatePresence } from 'framer-motion';
+import { useRef, useMemo } from 'react';
 import PropTypes from 'prop-types';
-import { cn } from '../../lib/utils';
+import { cn, EASING } from '../../lib/utils';
+import { useReducedMotion } from '../../hooks/useReducedMotion';
 import MascotAccessory from './MascotAccessory';
+
+const bodyAnimation = {
+  float: {
+    y: [0, -8, 0],
+    transition: { duration: 2, repeat: Infinity, ease: 'easeInOut' }
+  },
+  bounce: {
+    y: [0, -15, 0],
+    scale: [1, 1.1, 1],
+    transition: { duration: 0.5, repeat: Infinity }
+  },
+  jump: {
+    y: [0, -30, 0],
+    rotate: [0, 10, -10, 0],
+    transition: { duration: 0.6, repeat: Infinity }
+  },
+  nod: {
+    rotate: [0, 5, -5, 0],
+    transition: { duration: 1, repeat: Infinity }
+  },
+  tilt: {
+    rotate: [0, 15, 0],
+    transition: { duration: 2, repeat: Infinity, ease: 'easeInOut' }
+  },
+  sway: {
+    x: [-5, 5, -5],
+    transition: { duration: 2, repeat: Infinity, ease: 'easeInOut' }
+  },
+};
+
+const expressions = {
+  idle: { bodyAnim: 'float' },
+  happy: { bodyAnim: 'bounce' },
+  encouraging: { bodyAnim: 'nod' },
+  celebrating: { bodyAnim: 'jump' },
+  thinking: { bodyAnim: 'tilt' },
+  sad: { bodyAnim: 'sway' },
+};
+
+// Mensajes revisados para vocabulario de 4-6 anos: frases cortas, directas,
+// con interrogaciones y exclamaciones claras. Se eliminan giros sintacticos
+// complejos como "Tu siguiente sera mejor" o "Todos nos equivocamos" y se
+// sustituyen por expresiones infantiles mas calidas.
+const messagePool = {
+  idle: ['¡Hola!', '¿Jugamos?', '¡Vamos!'],
+  happy: ['¡Muy bien!', '¡Eres genial!', '¡Así se hace!', '¡Qué bien!', '¡Bravo!'],
+  encouraging: ['¡Tú puedes!', '¡Ánimo!', '¡La próxima lo clavas!', '¡Sigue!'],
+  celebrating: ['¡GENIAL!', '¡INCREÍBLE!', '¡ERES UNA ESTRELLA!'],
+  thinking: ['Piensa bien…', 'Tómate tu tiempo', '¿Cuál será?'],
+  sad: ['¡Casi! 💪', '¡Otra vez!', '¡No pasa nada!'],
+};
 
 /**
  * Mascota animada híbrida (emoji 🦉 + accesorios SVG) que acompaña al niño durante el juego.
@@ -17,59 +70,27 @@ export default function CharacterMascot({
   mood = 'idle',
   message,
   position = 'left',
-  shouldReduceMotion = false,
   className
 }) {
-  const expressions = {
-    idle: { bodyAnim: 'float' },
-    happy: { bodyAnim: 'bounce' },
-    encouraging: { bodyAnim: 'nod' },
-    celebrating: { bodyAnim: 'jump' },
-    thinking: { bodyAnim: 'tilt' },
-    sad: { bodyAnim: 'sway' },
-  };
-
-  const defaultMessages = {
-    idle: '¡Hola, amigo!',
-    happy: '¡Muy bien hecho!',
-    encouraging: '¡Venga, tú puedes!',
-    celebrating: '¡GENIAL, CAMPEÓN!',
-    thinking: 'Piensa bien...',
-    sad: '¡Otra vez, tú puedes!',
-  };
+  const { shouldReduceMotion } = useReducedMotion();
+  const lastMsgRef = useRef(-1);
 
   const expr = expressions[mood];
-  const displayMessage = message || defaultMessages[mood];
 
-  // Animaciones según el estado
-  const bodyAnimation = {
-    float: {
-      y: [0, -8, 0],
-      transition: { duration: 2, repeat: Infinity, ease: 'easeInOut' }
-    },
-    bounce: {
-      y: [0, -15, 0],
-      scale: [1, 1.1, 1],
-      transition: { duration: 0.5, repeat: Infinity }
-    },
-    jump: {
-      y: [0, -30, 0],
-      rotate: [0, 10, -10, 0],
-      transition: { duration: 0.6, repeat: Infinity }
-    },
-    nod: {
-      rotate: [0, 5, -5, 0],
-      transition: { duration: 1, repeat: Infinity }
-    },
-    tilt: {
-      rotate: [0, 15, 0],
-      transition: { duration: 2, repeat: Infinity, ease: 'easeInOut' }
-    },
-    sway: {
-      x: [-5, 5, -5],
-      transition: { duration: 2, repeat: Infinity, ease: 'easeInOut' }
-    },
-  };
+  // Selecciona mensaje rotativo evitando repetir el ultimo — memoizado por mood
+  const rotatingMessage = useMemo(() => {
+    const pool = messagePool[mood] || messagePool.idle;
+    if (pool.length <= 1) return pool[0];
+    let idx;
+    do {
+      // eslint-disable-next-line sonarjs/pseudo-random -- seleccion aleatoria de mensaje visual, no requiere seguridad criptografica
+      idx = Math.floor(Math.random() * pool.length);
+    } while (idx === lastMsgRef.current && pool.length > 1);
+    lastMsgRef.current = idx;
+    return pool[idx];
+  }, [mood]);
+
+  const displayMessage = message || rotatingMessage;
 
   return (
     <div className={cn(
@@ -78,30 +99,34 @@ export default function CharacterMascot({
       className
     )}>
       {/* Speech bubble */}
-      {displayMessage && (
-        <motion.div
-          initial={shouldReduceMotion ? false : { opacity: 0, scale: 0, y: 10 }}
-          animate={{ opacity: 1, scale: 1, y: 0 }}
-          key={displayMessage}
-          className={cn(
-            "absolute -top-16 max-w-48",
-            "bg-white/10 backdrop-blur-sm",
-            "px-3 py-1.5 rounded-2xl",
-            "border border-white/20",
-            "text-white text-sm font-medium",
-            position === 'left' ? 'left-0' : 'right-0'
-          )}
-        >
-          {displayMessage}
-          {/* Bubble tail */}
-          <div className={cn(
-            "absolute -bottom-2 size-4",
-            "bg-white/10 border-l border-b border-white/20",
-            "rotate-[-45deg]",
-            position === 'left' ? 'left-4' : 'right-4'
-          )} />
-        </motion.div>
-      )}
+      <AnimatePresence>
+        {displayMessage && (
+          <motion.div
+            key={displayMessage}
+            initial={shouldReduceMotion ? false : { opacity: 0, scale: 0, y: 10 }}
+            animate={{ opacity: 1, scale: 1, y: 0 }}
+            exit={shouldReduceMotion ? { opacity: 0 } : { opacity: 0, scale: 0.8, y: 6 }}
+            transition={shouldReduceMotion ? { duration: 0 } : { duration: 0.25, ease: EASING.outQuart }}
+            className={cn(
+              "absolute -top-20 max-w-48 z-10",
+              "bg-glass-bg backdrop-blur-sm",
+              "px-3 py-1.5 rounded-2xl",
+              "border border-glass-border",
+              "text-text-primary text-sm font-medium",
+              position === 'left' ? 'left-0' : 'right-0'
+            )}
+          >
+            {displayMessage}
+            {/* Bubble tail */}
+            <div className={cn(
+              "absolute -bottom-2 size-4",
+              "bg-glass-bg border-l border-b border-glass-border",
+              "rotate-[-45deg]",
+              position === 'left' ? 'left-4' : 'right-4'
+            )} />
+          </motion.div>
+        )}
+      </AnimatePresence>
 
       {/* Mascot container */}
       <motion.div
@@ -111,24 +136,35 @@ export default function CharacterMascot({
         {/* Glow effect */}
         <div className={cn(
           "absolute inset-0 rounded-full blur-xl",
-          mood === 'celebrating' && "bg-amber-400/30",
-          mood === 'happy' && "bg-emerald-400/20",
-          mood === 'encouraging' && "bg-purple-400/20",
-          (mood === 'idle' || mood === 'thinking') && "bg-slate-400/10"
+          mood === 'celebrating' && "bg-warning-base/30",
+          mood === 'happy' && "bg-success-base/20",
+          mood === 'encouraging' && "bg-brand-light/20",
+          (mood === 'idle' || mood === 'thinking') && "bg-text-muted/10"
         )} />
 
         {/* Mascot emoji — always 🦉 for identity consistency */}
-        <motion.div
-          className="relative text-6xl select-none filter drop-shadow-lg"
-          animate={!shouldReduceMotion && (mood === 'happy' || mood === 'celebrating') ? {
-            scale: [1, 1.1, 1],
-          } : { scale: 1 }}
-          transition={{ duration: 0.5, repeat: !shouldReduceMotion && (mood === 'happy' || mood === 'celebrating') ? Infinity : 0 }}
-        >
-          🦉
-          {/* SVG accessory overlay */}
-          <MascotAccessory mood={mood} shouldReduceMotion={shouldReduceMotion} />
-        </motion.div>
+        <AnimatePresence mode="wait">
+          <motion.div
+            key={mood}
+            initial={shouldReduceMotion ? false : { opacity: 0, scale: 0.8 }}
+            animate={{
+              opacity: 1,
+              scale: !shouldReduceMotion && (mood === 'happy' || mood === 'celebrating')
+                ? [1, 1.1, 1]
+                : 1,
+            }}
+            exit={shouldReduceMotion ? { opacity: 0 } : { opacity: 0, scale: 0.8 }}
+            transition={shouldReduceMotion
+              ? { duration: 0 }
+              : { duration: 0.5, repeat: (mood === 'happy' || mood === 'celebrating') ? Infinity : 0 }
+            }
+            className="relative text-6xl select-none filter drop-shadow-lg"
+          >
+            🦉
+            {/* SVG accessory overlay */}
+            <MascotAccessory mood={mood} />
+          </motion.div>
+        </AnimatePresence>
 
         {/* Extra decorations for celebrating */}
         {mood === 'celebrating' && !shouldReduceMotion && (
@@ -163,6 +199,5 @@ CharacterMascot.propTypes = {
   mood: PropTypes.oneOf(['idle', 'happy', 'encouraging', 'celebrating', 'thinking', 'sad']),
   message: PropTypes.string,
   position: PropTypes.oneOf(['left', 'right']),
-  shouldReduceMotion: PropTypes.bool,
   className: PropTypes.string
 };

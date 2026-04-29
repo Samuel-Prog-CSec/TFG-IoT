@@ -16,6 +16,7 @@ const {
 const { validateParams, validateQuery } = require('../middlewares/validation');
 const { userIdParamsSchema } = require('../validators/userValidator');
 const { emptyObjectSchema, paginationSchema } = require('../validators/commonValidator');
+const asyncHandler = require('../utils/asyncHandler');
 
 // Todas las rutas de admin requieren autenticación + rol super_admin
 router.use(authenticate, requireRole('super_admin'));
@@ -26,7 +27,7 @@ router.use(authenticate, requireRole('super_admin'));
  * @access  Private (super_admin)
  * @validation query: paginationSchema
  */
-router.get('/pending', validateQuery(paginationSchema), getPendingTeachers);
+router.get('/pending', validateQuery(paginationSchema), asyncHandler(getPendingTeachers));
 
 /**
  * @route   POST /api/admin/users/:id/approve
@@ -38,7 +39,7 @@ router.post(
   '/users/:id/approve',
   validateParams(userIdParamsSchema),
   validateQuery(emptyObjectSchema),
-  approveTeacher
+  asyncHandler(approveTeacher)
 );
 
 /**
@@ -51,7 +52,7 @@ router.post(
   '/users/:id/reject',
   validateParams(userIdParamsSchema),
   validateQuery(emptyObjectSchema),
-  rejectTeacher
+  asyncHandler(rejectTeacher)
 );
 
 module.exports = router;

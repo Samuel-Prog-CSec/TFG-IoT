@@ -6,6 +6,7 @@
 
 const { z } = require('zod');
 const { objectIdSchema, paginationSchema, uidSchema } = require('./commonValidator');
+const { PLAY_STATUS, EVENT_TYPE } = require('../constants/enums');
 
 /**
  * Schema para un evento individual en la partida.
@@ -26,7 +27,7 @@ const gameEventSchema = z
   .object({
     timestamp: z.date().default(() => new Date()),
 
-    eventType: z.enum(['card_scanned', 'correct', 'error', 'timeout', 'round_start', 'round_end']),
+    eventType: z.enum([...EVENT_TYPE]),
 
     cardUid: uidSchema.optional(),
 
@@ -106,7 +107,7 @@ const createGamePlaySchema = z
  */
 const updateGamePlaySchema = z
   .object({
-    status: z.enum(['in-progress', 'completed', 'abandoned', 'paused']).optional(),
+    status: z.enum([...PLAY_STATUS]).optional(),
 
     score: z.number().int('El score debe ser un número entero').optional(),
 
@@ -163,7 +164,7 @@ const gamePlayQuerySchema = paginationSchema.extend({
 
   playerId: objectIdSchema.optional(),
 
-  status: z.enum(['in-progress', 'completed', 'abandoned', 'paused']).optional(),
+  status: z.enum([...PLAY_STATUS]).optional(),
 
   minScore: z
     .string()

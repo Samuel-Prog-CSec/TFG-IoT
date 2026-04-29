@@ -7,17 +7,19 @@
  */
 
 import { motion, AnimatePresence } from 'framer-motion';
-import { Volume2, VolumeX } from 'lucide-react';
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useState } from 'react';
 import PropTypes from 'prop-types';
 import { cn } from '../../lib/utils';
+import { useReducedMotion } from '../../hooks/useReducedMotion';
+import { getAssetImageUrl } from '../../lib/cardMapping';
+import AudioMiniPlayer from '../ui/AudioMiniPlayer';
 import FloatingPointsBadge from './FloatingPointsBadge';
 
 const FEEDBACK_BORDER = {
   idle: '',
-  success: 'border-emerald-500 shadow-[0_0_40px] shadow-emerald-500/30',
-  error: 'border-rose-500/70 shadow-[0_0_20px] shadow-rose-500/20',
-  timeout: 'border-amber-500/70 shadow-[0_0_20px] shadow-amber-500/20',
+  success: 'border-success-base shadow-[0_0_40px] shadow-success-glow',
+  error: 'border-error-base/70 shadow-[0_0_20px] shadow-error-glow',
+  timeout: 'border-warning-base/70 shadow-[0_0_20px] shadow-warning-glow',
 };
 
 const SHAKE_ANIMATION = {
@@ -77,8 +79,8 @@ const themeColors = {
  * @param {'idle'|'success'|'error'} props.feedbackState - Estado de feedback actual
  * @param {number} props.feedbackPoints - Puntos del feedback
  * @param {string} props.feedbackMessage - Mensaje del feedback
- * @param {boolean} props.shouldReduceMotion - Respetar prefers-reduced-motion
  */
+// eslint-disable-next-line sonarjs/cyclomatic-complexity -- componente de visualizacion de retos con multiples estados de feedback
 const ChallengeDisplay = function ChallengeDisplay({
   ref,
   asset,
@@ -88,50 +90,24 @@ const ChallengeDisplay = function ChallengeDisplay({
   feedbackPoints = 0,
   feedbackMessage = '',
   isTimeout = false,
-  shouldReduceMotion = false,
   className
 }) {
-  const [audioPlaying, setAudioPlaying] = useState(false);
+  const { shouldReduceMotion } = useReducedMotion();
   const [imageError, setImageError] = useState(false);
   const [imageLoading, setImageLoading] = useState(false);
-  const audioRef = useRef(null);
+
+  // Usar imagen completa para el display grande (768x768 para retina 2x a 160px CSS)
+  const assetImageUrl = getAssetImageUrl(asset, { preferFull: true });
 
   useEffect(() => {
     setImageError(false);
-    setImageLoading(Boolean(asset?.thumbnailUrl || asset?.imageUrl));
-  }, [asset?.imageUrl, asset?.thumbnailUrl]);
-
-  useEffect(() => {
-    return () => {
-      if (audioRef.current) {
-        audioRef.current.pause();
-        audioRef.current = null;
-      }
-    };
-  }, []);
+    setImageLoading(Boolean(assetImageUrl));
+  }, [assetImageUrl]);
 
   const theme = themeColors[contextTheme] || themeColors.default;
   const isIdle = feedbackState === 'idle';
   const isSuccess = feedbackState === 'success';
   const isError = feedbackState === 'error';
-
-  const playAudio = () => {
-    if (!asset?.audioUrl) return;
-
-    if (audioRef.current) {
-      audioRef.current.pause();
-      audioRef.current.currentTime = 0;
-    }
-
-    setAudioPlaying(true);
-    const audio = new Audio(asset.audioUrl);
-    audio.preload = 'auto';
-    audioRef.current = audio;
-    audio.play().catch(() => {
-      setAudioPlaying(false);
-    });
-    audio.onended = () => setAudioPlaying(false);
-  };
 
   // Determine card-level animation based on feedback
   const cardAnimate = (() => {
@@ -148,6 +124,9 @@ const ChallengeDisplay = function ChallengeDisplay({
     return undefined;
   })();
 
+  // Determinar clase de borde segun estado de feedback
+  const feedbackBorderClass = isTimeout ? FEEDBACK_BORDER.timeout : FEEDBACK_BORDER[feedbackState];
+
   return (
     <motion.div
       ref={ref}
@@ -156,11 +135,13 @@ const ChallengeDisplay = function ChallengeDisplay({
       transition={shouldReduceMotion ? { duration: 0 } : { type: 'spring', stiffness: 300, damping: 20 }}
       className={cn(
         "relative flex flex-col items-center justify-center",
-        "p-8 sm:p-12",
+        // Padding ajustado para que la tarjeta no domine la pantalla y deje
+        // espacio al fallback panel y a la mascota sin necesidad de scroll.
+        "p-4 sm:p-6",
         "rounded-3xl",
         `bg-gradient-to-br ${theme.bg}`,
         "border-2 transition-[border-color,box-shadow] duration-300",
-        isIdle ? `${theme.border} shadow-2xl ${theme.glow}` : isTimeout ? FEEDBACK_BORDER.timeout : FEEDBACK_BORDER[feedbackState],
+        isIdle ? `${theme.border} shadow-2xl ${theme.glow}` : feedbackBorderClass,
         "backdrop-blur-xl",
         className
       )}
@@ -173,16 +154,54 @@ const ChallengeDisplay = function ChallengeDisplay({
               type={feedbackState}
               points={feedbackPoints}
               message={feedbackMessage}
-              shouldReduceMotion={shouldReduceMotion}
             />
           )}
         </AnimatePresence>
       </div>
 
+      {/* Error flash overlay */}
+      {isError && !shouldReduceMotion && (
+        <motion.div
+          initial={{ opacity: 0 }}
+          animate={{ opacity: [0, 0.12, 0] }}
+          transition={{ duration: 0.3 }}
+          className="absolute inset-0 rounded-3xl bg-error-base pointer-events-none z-20"
+        />
+      )}
+
+      {/* Success particles */}
+      {isSuccess && !shouldReduceMotion && (
+        <div className="absolute inset-0 pointer-events-none z-20 overflow-visible">
+          {Array.from({ length: 6 }).map((_, i) => {
+            const angle = (i / 6) * Math.PI * 2;
+            const distance = 80 + (i % 3) * 20;
+            return (
+              <motion.div
+                key={`particle-${i}`}
+                initial={{ x: 0, y: 0, opacity: 1, scale: 1 }}
+                animate={{
+                  x: Math.cos(angle) * distance,
+                  y: Math.sin(angle) * distance,
+                  opacity: 0,
+                  scale: 0,
+                }}
+                transition={{ duration: 0.6, ease: 'easeOut' }}
+                className={cn(
+                  'absolute left-1/2 top-1/2 size-3 rounded-full -translate-x-1/2 -translate-y-1/2',
+                  i % 3 === 0 && 'bg-success-base',
+                  i % 3 === 1 && 'bg-accent-cyan',
+                  i % 3 === 2 && 'bg-warning-base'
+                )}
+              />
+            );
+          })}
+        </div>
+      )}
+
       {/* Decorative rings */}
       <div className="absolute inset-0 rounded-3xl overflow-hidden pointer-events-none">
-        <div className="absolute inset-4 rounded-2xl border border-white/5" />
-        <div className="absolute inset-8 rounded-xl border border-white/5" />
+        <div className="absolute inset-4 rounded-2xl border border-border-subtle" />
+        <div className="absolute inset-8 rounded-xl border border-border-subtle" />
       </div>
 
       {/* Pulsing glow effect */}
@@ -192,23 +211,35 @@ const ChallengeDisplay = function ChallengeDisplay({
       <AnimatePresence mode="wait">
         <motion.div
           key={asset?.value}
-          initial={shouldReduceMotion ? false : { y: 20, opacity: 0, scale: 0.95 }}
+          initial={shouldReduceMotion ? false : { y: 28, opacity: 0, scale: 0.85 }}
           animate={assetFeedbackAnimate || { y: 0, opacity: 1, scale: 1 }}
-          exit={shouldReduceMotion ? { opacity: 0 } : { y: -12, opacity: 0, scale: 0.95, transition: { duration: 0.2 } }}
-          transition={shouldReduceMotion ? { duration: 0 } : { type: 'spring', stiffness: 400, damping: 25 }}
+          exit={shouldReduceMotion ? { opacity: 0 } : { y: -12, opacity: 0, scale: 0.9, transition: { duration: 0.15 } }}
+          transition={shouldReduceMotion ? { duration: 0 } : { type: 'spring', stiffness: 300, damping: 20 }}
           className="relative z-10 text-center"
         >
-        {/* Emoji/Image */}
-        {(asset?.thumbnailUrl || asset?.imageUrl) && !imageError ? (
-          <div className="relative size-32 sm:size-40 mx-auto mb-4">
-            {imageLoading && (
+        {/* Emoji/Image — escalada generosamente en desktop para aprovechar
+            el ancho disponible del panel de asociacion (QA 2026-04-23: antes
+            quedaba muy pequeña y con aire alrededor). */}
+        {assetImageUrl && !imageError ? (
+          <div
+            className={cn(
+              "relative size-28 sm:size-40 lg:size-52 mx-auto mb-2 rounded-2xl overflow-hidden",
+              // Marco tematizado: ring + shadow con color del tema
+              `ring-2 ring-offset-2 ring-offset-transparent`,
+              theme.border.replace('border-', 'ring-'),
+              // Sombra interior para profundidad
+              "shadow-[inset_0_2px_6px_rgba(0,0,0,0.3)]"
+            )}
+            style={asset?.dominantColor ? { backgroundColor: asset.dominantColor } : undefined}
+          >
+            {imageLoading && !asset?.dominantColor && (
               <div className="absolute inset-0 rounded-2xl border border-white/10 bg-white/5 animate-pulse" />
             )}
             <motion.img
-              src={asset.thumbnailUrl || asset.imageUrl}
+              src={assetImageUrl}
               alt={asset.value}
               className={cn(
-                "size-32 sm:size-40 object-contain mx-auto mb-4 drop-shadow-2xl transition-opacity duration-500",
+                "size-full object-contain drop-shadow-2xl transition-opacity duration-400 ease-out",
                 imageLoading ? "opacity-0" : "opacity-100"
               )}
               animate={shouldReduceMotion ? { scale: 1 } : { scale: [1, 1.05, 1] }}
@@ -225,7 +256,7 @@ const ChallengeDisplay = function ChallengeDisplay({
           </div>
         ) : (
           <motion.div
-            className="text-8xl sm:text-9xl mb-4 select-none filter drop-shadow-lg"
+            className="text-7xl sm:text-9xl lg:text-[10rem] mb-2 select-none filter drop-shadow-lg leading-none"
             animate={shouldReduceMotion ? { scale: 1, rotate: 0 } : {
               scale: [1, 1.1, 1],
               rotate: [0, 3, -3, 0]
@@ -240,14 +271,16 @@ const ChallengeDisplay = function ChallengeDisplay({
           </motion.div>
         )}
 
-        {/* Text value */}
+        {/* Text value — el nombre del target como ayuda visual principal.
+            Escalado para desktop porque acompaña a un asset image grande
+            (QA 2026-04-23: antes quedaba pequeño junto a la imagen de 128px). */}
         {revealed && asset?.value && (
           <motion.h2
             initial={shouldReduceMotion ? false : { opacity: 0, y: 10 }}
             animate={{ opacity: 1, y: 0 }}
             transition={shouldReduceMotion ? { duration: 0 } : { delay: 0.2 }}
             className={cn(
-              "text-2xl sm:text-3xl font-bold font-display",
+              "text-2xl sm:text-3xl lg:text-4xl font-bold font-display tracking-tight",
               theme.text
             )}
           >
@@ -257,31 +290,16 @@ const ChallengeDisplay = function ChallengeDisplay({
         </motion.div>
       </AnimatePresence>
 
-      {/* Audio button */}
+      {/* Audio mini-player */}
       {asset?.audioUrl && (
-        <motion.button
-          initial={shouldReduceMotion ? false : { opacity: 0, scale: 0 }}
-          animate={{ opacity: 1, scale: 1 }}
+        <motion.div
+          initial={shouldReduceMotion ? false : { opacity: 0, y: 10 }}
+          animate={{ opacity: 1, y: 0 }}
           transition={shouldReduceMotion ? { duration: 0 } : { delay: 0.3 }}
-          onClick={playAudio}
-          disabled={audioPlaying}
-          className={cn(
-            "mt-6 p-4 rounded-full",
-            "bg-white/10 hover:bg-white/20",
-            "border border-white/20",
-            "transition-all duration-300",
-            !shouldReduceMotion && "hover:scale-110",
-            audioPlaying && "animate-pulse"
-          )}
-          aria-label="Reproducir audio"
-          title="Escuchar pista"
+          className="mt-6 w-full max-w-xs"
         >
-          {audioPlaying ? (
-            <Volume2 className="size-8 text-white animate-bounce" />
-          ) : (
-            <VolumeX className="size-8 text-white/60" />
-          )}
-        </motion.button>
+          <AudioMiniPlayer audioUrl={asset.audioUrl} size="sm" variant="glass" />
+        </motion.div>
       )}
 
       {/* Sparkles decoration */}
@@ -333,7 +351,6 @@ ChallengeDisplay.propTypes = {
   feedbackPoints: PropTypes.number,
   feedbackMessage: PropTypes.string,
   isTimeout: PropTypes.bool,
-  shouldReduceMotion: PropTypes.bool,
   className: PropTypes.string
 };
 

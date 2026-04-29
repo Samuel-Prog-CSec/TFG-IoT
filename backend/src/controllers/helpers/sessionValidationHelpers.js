@@ -110,6 +110,7 @@ const ensureMemoryBoardLayoutIsComplete = ({ mechanic, boardLayout, cardMappings
     DEFAULT_MEMORY_MATCHING_GROUP_SIZE,
     Number(mechanic?.rules?.behavior?.matchingGroupSize) || DEFAULT_MEMORY_MATCHING_GROUP_SIZE
   );
+
   const valuesCount = boardLayout.reduce((acc, slot) => {
     const value = (slot?.assignedValue || '').toString();
     if (!value) {
@@ -135,7 +136,6 @@ const normalizeBoardLayout = (layout = []) => {
 
   return layout.map(item => ({
     slotIndex: item.slotIndex,
-    cardId: item.cardId,
     uid: item.uid,
     assignedValue: item.assignedValue,
     displayData: item.displayData || {}
@@ -149,7 +149,6 @@ const buildBoardLayoutFromMappings = cardMappings => {
 
   return cardMappings.map((mapping, slotIndex) => ({
     slotIndex,
-    cardId: mapping.cardId,
     uid: mapping.uid,
     assignedValue: mapping.assignedValue,
     displayData: mapping.displayData || {}
@@ -162,20 +161,14 @@ const validateBoardLayoutAgainstMappings = (boardLayout, cardMappings) => {
   }
 
   const normalizedLayout = normalizeBoardLayout(boardLayout);
-  const mappingByCardId = new Map(
-    (cardMappings || []).map(mapping => [normalizeObjectId(mapping.cardId), mapping])
-  );
+  const mappingByUid = new Map((cardMappings || []).map(mapping => [mapping.uid, mapping]));
 
   for (const slot of normalizedLayout) {
-    const mapping = mappingByCardId.get(normalizeObjectId(slot.cardId));
+    const mapping = mappingByUid.get(slot.uid);
     if (!mapping) {
       throw new ValidationError(
         'boardLayout contiene una tarjeta que no pertenece al mazo de la sesión'
       );
-    }
-
-    if (slot.uid !== mapping.uid) {
-      throw new ValidationError('boardLayout tiene uid inconsistente para una tarjeta del mazo');
     }
 
     if (slot.assignedValue !== mapping.assignedValue) {
@@ -194,7 +187,6 @@ const normalizeAssociationChallengePlan = (plan = []) => {
   return [...plan]
     .map(item => ({
       roundNumber: Number(item.roundNumber),
-      cardId: item.cardId,
       uid: item.uid,
       assignedValue: item.assignedValue,
       displayData: item.displayData || {},
@@ -214,7 +206,6 @@ const buildAssociationFallbackPlan = ({ cardMappings, numberOfRounds }) => {
     const mapping = mappings[index % mappings.length];
     return {
       roundNumber: index + 1,
-      cardId: mapping.cardId,
       uid: mapping.uid,
       assignedValue: mapping.assignedValue,
       displayData: mapping.displayData || {}
@@ -249,9 +240,6 @@ const validateAssociationChallengePlanAgainstMappings = ({
   }
 
   const mappingByUid = new Map((cardMappings || []).map(mapping => [mapping.uid, mapping]));
-  const mappingByCardId = new Map(
-    (cardMappings || []).map(mapping => [normalizeObjectId(mapping.cardId), mapping])
-  );
 
   normalizedPlan.forEach((item, index) => {
     const expectedRound = index + 1;
@@ -261,9 +249,7 @@ const validateAssociationChallengePlanAgainstMappings = ({
       );
     }
 
-    const mappingByUidMatch = mappingByUid.get(item.uid);
-    const mappingByCardIdMatch = mappingByCardId.get(normalizeObjectId(item.cardId));
-    const resolved = mappingByUidMatch || mappingByCardIdMatch;
+    const resolved = mappingByUid.get(item.uid);
 
     if (!resolved) {
       throw new ValidationError(
@@ -290,9 +276,6 @@ const repairAssociationChallengePlanAgainstMappings = ({
   const existingPlan = normalizeAssociationChallengePlan(associationChallengePlan);
 
   const mappingByUid = new Map(mappings.map(mapping => [mapping.uid, mapping]));
-  const mappingByCardId = new Map(
-    mappings.map(mapping => [normalizeObjectId(mapping.cardId), mapping])
-  );
   const mappingByAssignedValue = new Map(mappings.map(mapping => [mapping.assignedValue, mapping]));
 
   const repairedPlan = [];
@@ -305,7 +288,6 @@ const repairAssociationChallengePlanAgainstMappings = ({
     if (existing) {
       resolved =
         mappingByUid.get(existing.uid) ||
-        mappingByCardId.get(normalizeObjectId(existing.cardId)) ||
         mappingByAssignedValue.get(existing.assignedValue) ||
         null;
     }
@@ -317,7 +299,6 @@ const repairAssociationChallengePlanAgainstMappings = ({
 
     repairedPlan.push({
       roundNumber: round,
-      cardId: resolved.cardId,
       uid: resolved.uid,
       assignedValue: resolved.assignedValue,
       displayData:
@@ -452,7 +433,7 @@ const applyCloneMechanicState = ({
       cardMappings,
       numberOfRounds: Number(clonedSession.config?.numberOfRounds || 0)
     });
-    clonedSession.requiresAssociationPlanConfiguration = true;
+    clonedSession.requiresAssociationPlanConfiguration = false;
     return;
   }
 
@@ -485,7 +466,7 @@ const buildCloneSuccessMessage = mechanicName => {
   }
 
   if (mechanicName === 'association') {
-    return 'Sesión clonada exitosamente. Se precargaron los retos de asociación como borrador; revísalos y confirma antes de iniciar.';
+    return 'Sesión clonada exitosamente. Los retos de asociación se copiaron de la sesión original.';
   }
 
   return 'Sesión clonada exitosamente';

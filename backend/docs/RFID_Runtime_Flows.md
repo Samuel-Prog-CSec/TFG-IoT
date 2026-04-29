@@ -42,7 +42,7 @@ Objetivo: eliminar conflictos multi-tab y lecturas duplicadas o inconsistentes.
 ## 3.1 Frontend (navegador del profesor)
 
 - Lee datos del sensor vía Web Serial.
-- Emite comandos socket de intención (`join_card_registration`, `join_card_assignment`, `join_play`, etc.).
+- Emite comandos socket de intención (`join_card_assignment`, `join_play`, etc.).
 - Envía scans con `rfid_scan_from_client`.
 - Escucha `rfid_mode_changed` y actualiza UI global de modo.
 
@@ -74,7 +74,7 @@ Evento servidor → cliente:
 
 Payload:
 
-- `mode`: `idle | gameplay | card_registration | card_assignment`
+- `mode`: `idle | gameplay | card_assignment`
 - `sensorId`: sensor ligado al modo actual (o `null`)
 - `metadata`: contexto adicional (por ejemplo `playId` en gameplay)
 - `socketId`: socket owner activo
@@ -102,8 +102,7 @@ Semántica:
 4. `RFIDService` emite `rfid_event` interno.
 5. Socket layer enruta por modo:
    - gameplay: room de play,
-   - card_assignment: room de asignación del usuario,
-   - card_registration: room de registro del usuario.
+   - card_assignment: room de asignación del usuario.
 6. En gameplay, GameEngine consume scan y emite eventos de juego.
 
 ---
@@ -119,24 +118,7 @@ Estado de reposo.
 
 Uso típico: sin operación RFID activa, o tras `leave_*` / cierre de contexto.
 
-## 6.2 Card Registration
-
-Inicio:
-
-1. Frontend emite `join_card_registration`.
-2. Backend valida rol profesor/admin.
-3. Backend une socket a `card_registration_<userId>`.
-4. Backend fija modo `card_registration` y emite `rfid_mode_changed`.
-
-Operación:
-
-- Scan válido se ingesta y reenvía como `rfid_event` al room de registro del usuario.
-
-Salida:
-
-- `leave_card_registration` limpia estado y retorna a `idle`.
-
-## 6.3 Card Assignment
+## 6.2 Card Assignment
 
 Inicio:
 
@@ -153,7 +135,7 @@ Salida:
 
 - `leave_card_assignment` limpia estado y retorna a `idle`.
 
-## 6.4 Gameplay
+## 6.3 Gameplay
 
 Inicio:
 
@@ -199,6 +181,8 @@ Objetivo:
 
 ## 8. Errores esperados (guardrails, no bugs)
 
+> **Catálogo completo de códigos de error**: Ver [WebSockets-ExtendedUsage.md §6.2](WebSockets-ExtendedUsage.md#62-códigos-de-error) para la lista consolidada de todos los códigos de error WebSocket.
+
 Estos códigos representan **rechazos de control intencionales** del contrato:
 
 - `RFID_MODE_INVALID`: scan fuera de modo/room permitidos.
@@ -221,7 +205,6 @@ Interpretación operativa:
 
 | Acción | Actor que inicia | Backend valida | Backend decide estado | Backend emite | Frontend reacciona |
 | --- | --- | --- | --- | --- | --- |
-| Entrar registro | Frontend profesor | rol + auth | `card_registration` | `rfid_mode_changed` | UI modo registro |
 | Entrar asignación | Frontend profesor | rol + auth | `card_assignment` | `rfid_mode_changed` | UI modo asignación |
 | Entrar gameplay | Frontend juego | ownership + auth | `gameplay` + `playId` | `rfid_mode_changed` | UI en juego activo |
 | Enviar scan | Frontend profesor | modo/room/owner/sensor | aceptar/rechazar | `rfid_event` o `error` | feedback/flujo |
@@ -249,3 +232,107 @@ Interpretación operativa:
 4. Comprobar consistencia/autorización de `sensorId`.
 5. En gameplay, verificar `metadata.playId` y runtime activo del play.
 6. Revisar código de error recibido antes de asumir bug de infraestructura.
+
+---
+
+## 12. Watchdog del modo RFID y heartbeat (auto-cleanup)
+
+### 12.1 Motivación
+
+Antes del watchdog, si un profesor cerraba el navegador sin disparar `leave_*`, el modo RFID quedaba "stuck" en memoria + Redis hasta el TTL de 1 h. Cualquier otro socket del mismo usuario recibía `RFID_MODE_TAKEN_OVER` en cadena durante todo ese tiempo.
+
+### 12.2 Funcionamiento
+
+- Constante: `RFID_MODE_IDLE_TIMEOUT_MS` (env, default 300000 ms = 5 min).
+- Estructura: `Map<userId, NodeJS.Timeout>` (`rfidModeTimers` en `socketHandlers.js`).
+- Refresco: `refreshRfidModeActivity(userId, socketId)` actualiza `updatedAt` en memoria y reprograma el timer. Se invoca desde:
+  - `handleRfidScanFromClient` tras pasar todas las validaciones.
+  - Handler `rfid_mode_heartbeat` (emitido por el cliente cada 60 s en `/game`).
+- Cancelación: `clearRfidModeTimer(userId)` se llama en `clearRfidModeState` y al cambiar el modo a IDLE.
+- Disparo: tras `RFID_MODE_IDLE_TIMEOUT_MS` sin actividad, el callback ejecuta `clearRfidModeState` y emite `rfid_mode_changed { mode: 'idle' }`. Log estructurado:
+  ```
+  WARN  Modo RFID auto-limpiado por inactividad { userId, mode, socketId, idleMs: 300000 }
+  ```
+
+### 12.3 Heartbeat cliente → servidor
+
+Frontend (`socket.js`): tras conectar el namespace `/game`, arranca `setInterval(() => gameSocket.volatile.emit('rfid_mode_heartbeat'), 60_000)`. `volatile` evita encolar si el socket cae justo entre intervals.
+
+---
+
+## 13. Disconnect del namespace por defecto y leak de connectionCountByUserId
+
+El middleware de auth (default namespace) incrementa `connectionCountByUserId[userId]` para enforcement de `MAX_CONNECTIONS_PER_USER`. El listener de `disconnect` decrementa de forma correlativa.
+
+**Cambio crítico (2026-04-20)**: el listener de `disconnect` se registra ANTES de cualquier `await` en el handler de `connection`. Si la inicialización (`await getRfidModeState`) lanzase, el listener no se registraría y el contador quedaría huérfano (leak → bloqueo del usuario tras MAX reconexiones rápidas). El init del modo va dentro de `try/catch` con captura Sentry para evitar promesas no manejadas.
+
+Helpers expuestos para tests:
+
+- `incrementConnectionCount(userId)` / `decrementConnectionCount(userId)` / `getConnectionCount(userId)`
+- `resetConnectionCountsForTests()`
+
+Ver `backend/tests/realtime/connectionLifecycle.test.js`.
+
+---
+
+## 14. Path `play_interrupted` por error fatal
+
+Cuando un escaneo encuentra un error irrecuperable durante la persistencia (`addEvent`/`addEventAtomic`), `GameEngine._emitFatalScanError` se encarga de:
+
+1. Loguear con `logger.error` (contexto: playId, path, stack).
+2. Capturar la excepción en Sentry (`tags: { module: 'gameEngine', path }`).
+3. Emitir al cliente:
+   ```json
+   {
+     "playId": "...",
+     "reason": "internal_error",
+     "message": "Error interno procesando el escaneo. La partida se ha interrumpido.",
+     "finalScore": <score actual>
+   }
+   ```
+4. Llamar `this.endPlay(playId)` graceful (capturando errores propios para no escalar).
+
+Llamadores:
+
+- `processResponse` (modo asociación) — fallo de `addEventAtomic`.
+- `processMemoryScan` (modo memoria) — fallo de `addEvent` o `addEventAtomic`.
+- `handleTimeout` — fallo de `addEventAtomic` al registrar el timeout.
+
+Tests: `backend/tests/services/gameEngineRfidErrorPaths.test.js`.
+
+---
+
+## Ventana de gracia en transición de ronda (Asociación) — PROP-79 / ADR-089
+
+### Problema
+
+En partidas de Asociación con `timeLimit ≤ 15s` los scans del jugador llegaban al backend justo después de que el `setTimeout(handleTimeout, timeLimit*1000)` se hubiera disparado. El servidor marcaba la ronda como timeout y rechazaba el scan como `not_awaiting_response`, generando rondas "sin completar" pese a que el alumno había tocado la carta correcta dentro del tiempo visible.
+
+### Solución
+
+El `setTimeout` que arma el timer de timeout suma **`ROUND_GRACE_PERIOD_MS = 150`** al `timeLimit * 1000`. El cliente sigue mostrando "0 s" cuando expira el contador visible, pero el servidor concede 150 ms extra invisibles para absorber la latencia.
+
+```
+ronda inicia → cliente pinta timer (timeLimit s) → reloj llega a 0
+                                                 │
+                                  +150 ms grace ─┤ el server acepta scans
+                                                 │
+                                                 ▼
+                                       handleTimeout dispara → ronda cerrada
+```
+
+### Métrica
+
+`metrics.scansSavedByGracePeriod` cuenta los scans que llegaron en el buffer (entre `timeLimit` y `timeLimit + 150ms`) y por tanto habrían sido descartados sin la ventana. Visible vía `/api/admin/metrics`. Un crecimiento desproporcionado indica problema de latencia (red lenta) o de timing UI.
+
+### Configuración
+
+Variable de entorno `ROUND_GRACE_PERIOD_MS` (default `150`).
+
+### Tests
+
+`backend/tests/services/gameEngineObservability.test.js` — 3 cases (inicialización, incremento dentro del grace, NO incremento dentro del límite).
+
+### Frontend complementario
+
+`FallbackTouchPanel` muestra un overlay sutil "Procesando…" durante 200 ms tras cada tap del jugador para confirmar visualmente que el scan se ha registrado, evitando dobles taps por ansiedad.

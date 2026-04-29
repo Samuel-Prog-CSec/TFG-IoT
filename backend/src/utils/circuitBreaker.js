@@ -1,6 +1,10 @@
 /**
  * @fileoverview Implementacion simple de Circuit Breaker.
+ * Protege contra fallos en cascada de servicios externos (Redis, Supabase).
+ * Registra transiciones de estado para facilitar la observabilidad.
  */
+
+const logger = require('./logger').child({ component: 'circuitBreaker' });
 
 class CircuitBreaker {
   constructor({
@@ -20,10 +24,25 @@ class CircuitBreaker {
     this.halfOpenInFlight = false;
   }
 
+  /** @private */
+  _transition(newState) {
+    const prevState = this.state;
+    if (prevState === newState) {
+      return;
+    }
+    this.state = newState;
+    logger.warn(`Circuit breaker [${this.name}]: ${prevState} → ${newState}`, {
+      breaker: this.name,
+      from: prevState,
+      to: newState,
+      failureCount: this.failureCount
+    });
+  }
+
   canRequest() {
     if (this.state === 'open') {
       if (this.lastFailureAt && Date.now() - this.lastFailureAt >= this.resetTimeoutMs) {
-        this.state = 'half_open';
+        this._transition('half_open');
         this.halfOpenInFlight = false;
         this.successCount = 0;
         return true;
@@ -47,7 +66,7 @@ class CircuitBreaker {
       this.successCount += 1;
       this.halfOpenInFlight = false;
       if (this.successCount >= this.successThreshold) {
-        this.state = 'closed';
+        this._transition('closed');
         this.failureCount = 0;
         this.successCount = 0;
         this.lastFailureAt = null;
@@ -60,7 +79,7 @@ class CircuitBreaker {
 
   recordFailure() {
     if (this.state === 'half_open') {
-      this.state = 'open';
+      this._transition('open');
       this.lastFailureAt = Date.now();
       this.failureCount = this.failureThreshold;
       this.halfOpenInFlight = false;
@@ -71,7 +90,7 @@ class CircuitBreaker {
     this.lastFailureAt = Date.now();
 
     if (this.failureCount >= this.failureThreshold) {
-      this.state = 'open';
+      this._transition('open');
     }
   }
 

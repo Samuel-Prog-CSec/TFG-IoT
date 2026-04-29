@@ -6,6 +6,7 @@
 
 const { z } = require('zod');
 const { objectIdSchema, paginationSchema, uidSchema } = require('./commonValidator');
+const { DIFFICULTY, SESSION_STATUS } = require('../constants/enums');
 
 /**
  * Schema para configuración de la sesión.
@@ -46,12 +47,11 @@ const sessionConfigSchema = z.object({
 });
 
 /**
- * Schema para mapeo de tarjeta a valor de juego.
- * Relaciona una tarjeta RFID física con un valor específico del contexto.
+ * Schema para mapeo de token RFID fungible a valor de juego.
+ * Relaciona una tarjeta RFID (identificada por UID) con un valor del contexto (ADR-012).
  *
  * @example
  * {
- *   cardId: '507f1f77bcf86cd799439011',
  *   uid: '32B8FA05',
  *   assignedValue: 'España',
  *   displayData: { emoji: '🇪🇸', audioUrl: '...', color: 'red' }
@@ -59,8 +59,6 @@ const sessionConfigSchema = z.object({
  */
 const cardMappingSchema = z
   .object({
-    cardId: objectIdSchema,
-
     uid: uidSchema,
 
     assignedValue: z
@@ -101,9 +99,9 @@ const cardMappingSchema = z
  *     penaltyPerError: -2
  *   },
  *   cardMappings: [
- *     { cardId: '...', uid: '32B8FA05', assignedValue: 'España', displayData: {...} },
- *     { cardId: '...', uid: 'A1B2C3D4', assignedValue: 'Francia', displayData: {...} },
- *     { cardId: '...', uid: 'E5F6G7H8', assignedValue: 'Italia', displayData: {...} }
+ *     { uid: '32B8FA05', assignedValue: 'España', displayData: {...} },
+ *     { uid: 'A1B2C3D4', assignedValue: 'Francia', displayData: {...} },
+ *     { uid: 'E5F60708', assignedValue: 'Italia', displayData: {...} }
  *   ],
  *   difficulty: 'medium',
  *   createdBy: '507f1f77bcf86cd799439013'
@@ -117,7 +115,6 @@ const boardLayoutItemSchema = z
       .number()
       .int('slotIndex debe ser un número entero')
       .min(0, 'slotIndex no puede ser negativo'),
-    cardId: objectIdSchema,
     uid: uidSchema,
     assignedValue: z
       .string()
@@ -144,9 +141,9 @@ const boardLayoutSchema = z
       return true;
     }
 
-    const cardSet = new Set(layout.map(item => item.cardId.toString()));
-    return cardSet.size === layout.length;
-  }, 'No puede haber tarjetas duplicadas en boardLayout');
+    const uidSet = new Set(layout.map(item => item.uid));
+    return uidSet.size === layout.length;
+  }, 'No puede haber UIDs duplicados en boardLayout');
 
 const associationChallengeItemSchema = z
   .object({
@@ -154,7 +151,6 @@ const associationChallengeItemSchema = z
       .number()
       .int('roundNumber debe ser un número entero')
       .min(1, 'roundNumber debe ser >= 1'),
-    cardId: objectIdSchema,
     uid: uidSchema,
     assignedValue: z
       .string()
@@ -188,6 +184,10 @@ const createGameSessionSchema = z
 
     sensorId: z.string().max(100, 'sensorId no puede exceder 100 caracteres').trim().optional(),
 
+    name: z.string().max(100, 'El nombre no puede exceder 100 caracteres').trim().optional(),
+
+    difficulty: z.enum([...DIFFICULTY]).optional(),
+
     config: sessionConfigInputSchema.optional(),
 
     boardLayout: boardLayoutSchema,
@@ -212,13 +212,15 @@ const updateGameSessionSchema = z
 
     sensorId: z.string().max(100, 'sensorId no puede exceder 100 caracteres').trim().optional(),
 
+    name: z.string().max(100, 'El nombre no puede exceder 100 caracteres').trim().optional(),
+
     config: sessionConfigInputSchema.optional(),
 
     boardLayout: boardLayoutSchema,
 
     associationChallengePlan: associationChallengePlanSchema,
 
-    difficulty: z.enum(['easy', 'medium', 'hard']).optional()
+    difficulty: z.enum([...DIFFICULTY]).optional()
   })
   .strict()
   .refine(data => Object.keys(data).length > 0, {
@@ -248,9 +250,9 @@ const gameSessionQuerySchema = paginationSchema.extend({
 
   contextId: objectIdSchema.optional(),
 
-  status: z.enum(['created', 'active', 'completed']).optional(),
+  status: z.enum([...SESSION_STATUS]).optional(),
 
-  difficulty: z.enum(['easy', 'medium', 'hard']).optional(),
+  difficulty: z.enum([...DIFFICULTY]).optional(),
 
   createdBy: objectIdSchema.optional()
 });

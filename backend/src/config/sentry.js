@@ -16,7 +16,7 @@ let isSentryEnabled = false;
 
 /**
  * Inicializa Sentry con la configuración apropiada según el entorno.
- * Actualizado para Sentry v10+ con nueva API de integraciones.
+ * Sentry v10: auto-instrumentación via OpenTelemetry v2, sin Handlers legacy.
  *
  * @returns {void}
  */
@@ -62,10 +62,31 @@ function initSentry() {
       }
 
       // Remover información sensible de contextos adicionales
-      if (event.contexts) {
-        if (event.contexts.user) {
-          delete event.contexts.user.password;
-          delete event.contexts.user.email; // Opcional: remover email por GDPR
+      if (event.contexts?.user) {
+        delete event.contexts.user.password;
+        delete event.contexts.user.email; // Opcional: remover email por GDPR
+      }
+
+      // Filtrar PII de menores en breadcrumbs y extras (Art. 25 RGPD, AT-06 RAT).
+      // Sentry es procesador internacional (Art. 28): minimizar datos transferidos.
+      const piiKeys = ['studentName', 'playerName', 'name', 'classroom'];
+      if (event.breadcrumbs) {
+        for (const bc of event.breadcrumbs) {
+          if (bc.data) {
+            for (const key of piiKeys) {
+              delete bc.data[key];
+            }
+          }
+        }
+      }
+      if (event.extra) {
+        for (const key of piiKeys) {
+          delete event.extra[key];
+        }
+      }
+      if (event.tags) {
+        for (const key of piiKeys) {
+          delete event.tags[key];
         }
       }
 
@@ -78,31 +99,27 @@ function initSentry() {
 }
 
 /**
- * Middleware dummy que no hace nada (usado cuando Sentry está deshabilitado)
- * @param {import('express').Request} req
- * @param {import('express').Response} res
- * @param {import('express').NextFunction} next
+ * Registra el error handler de Sentry en la app Express.
+ * En Sentry v10+ requestHandler/tracingHandler ya no existen;
+ * la auto-instrumentación de OpenTelemetry los reemplaza.
+ * Solo queda setupExpressErrorHandler para capturar errores.
+ *
+ * @param {import('express').Application} app
  */
-const noopMiddleware = (req, res, next) => next();
+function setupSentryErrorHandler(app) {
+  if (!isSentryEnabled) {
+    return;
+  }
 
-/**
- * Middleware de error dummy (usado cuando Sentry está deshabilitado)
- * @param {Error} err
- * @param {import('express').Request} req
- * @param {import('express').Response} res
- * @param {import('express').NextFunction} next
- */
-const noopErrorMiddleware = (err, req, res, next) => next(err);
-
-/**
- * Objeto que envuelve los Handlers de Sentry con fallback cuando está deshabilitado.
- * En Sentry v10+ los handlers están directamente en Sentry.
- */
-const SentryHandlers = {
-  requestHandler: () => (isSentryEnabled ? Sentry.Handlers.requestHandler() : noopMiddleware),
-  tracingHandler: () => (isSentryEnabled ? Sentry.Handlers.tracingHandler() : noopMiddleware),
-  errorHandler: () => (isSentryEnabled ? Sentry.Handlers.errorHandler() : noopErrorMiddleware)
-};
+  Sentry.setupExpressErrorHandler(app, {
+    shouldHandleError(error) {
+      // Solo capturar errores no-operacionales o con status >= 500.
+      // Errores 4xx operacionales (validación, 404, CSRF, auth) no van a Sentry.
+      const status = error.statusCode || error.status || 500;
+      return status >= 500 || error.isOperational === false;
+    }
+  });
+}
 
 /**
  * Wrapper para captureException que no hace nada si Sentry está deshabilitado
@@ -128,9 +145,9 @@ const captureMessage = (message, hint) => {
 
 module.exports = {
   initSentry,
+  setupSentryErrorHandler,
   Sentry: {
     ...Sentry,
-    Handlers: SentryHandlers,
     captureException,
     captureMessage
   }

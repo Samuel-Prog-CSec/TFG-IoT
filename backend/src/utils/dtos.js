@@ -5,6 +5,8 @@
  * @module utils/dtos
  */
 
+const { pseudonymize } = require('./pseudonymize');
+
 const toPlainObject = value =>
   value && typeof value.toObject === 'function' ? value.toObject() : value;
 
@@ -35,6 +37,22 @@ const toPopulated = (value, mapper) => {
     return mapper(value);
   }
   return undefined;
+};
+
+/**
+ * Normaliza el campo createdBy de un user. Si viene poblado (objeto con name),
+ * devuelve {id, name}; si solo es ObjectId/string, devuelve el id en string.
+ * Permite que el frontend muestre el nombre del profesor que creo a un alumno
+ * sin tener que cargar otro endpoint.
+ */
+const mapCreatedBy = createdBy => {
+  if (!createdBy) {
+    return undefined;
+  }
+  if (typeof createdBy === 'object' && (createdBy._id || createdBy.id) && createdBy.name) {
+    return { id: toId(createdBy), name: createdBy.name };
+  }
+  return toId(createdBy);
 };
 
 const mapStudentMetrics = metrics => {
@@ -107,12 +125,12 @@ const toUserDTOV1 = user => {
       ? {
           avatar: userData.profile.avatar,
           age: userData.profile.age,
-          classroom: userData.profile.classroom,
-          birthdate: userData.profile.birthdate
+          classroom: userData.profile.classroom
+          // birthdate ELIMINADO: Art. 5.1.c RGPD (minimización)
         }
       : undefined,
-    createdBy: toId(userData.createdBy),
-    lastLoginAt: userData.lastLoginAt,
+    createdBy: mapCreatedBy(userData.createdBy),
+    lastLoginAt: hasLogin ? userData.lastLoginAt : undefined,
     createdAt: userData.createdAt,
     updatedAt: userData.updatedAt
     // NO incluir: password, __v, tokens internos
@@ -134,7 +152,26 @@ const toStudentDTOV1 = user => {
   const userData = toPlainObject(user);
   return {
     ...base,
-    studentMetrics: mapStudentMetrics(userData.studentMetrics)
+    studentMetrics: mapStudentMetrics(userData.studentMetrics),
+    consent: userData.consent
+      ? {
+          granted: userData.consent.granted,
+          grantedBy: userData.consent.grantedBy,
+          grantedAt: userData.consent.grantedAt,
+          purposes: userData.consent.purposes,
+          policyVersion: userData.consent.policyVersion,
+          withdrawnAt: userData.consent.withdrawnAt
+        }
+      : undefined,
+    consentHistory: Array.isArray(userData.consentHistory)
+      ? userData.consentHistory.map(entry => ({
+          action: entry.action,
+          grantedBy: entry.grantedBy,
+          timestamp: entry.timestamp,
+          policyVersion: entry.policyVersion,
+          purposes: entry.purposes
+        }))
+      : []
   };
 };
 
@@ -163,7 +200,8 @@ const toUserSummaryDTOV1 = user => {
           classroom: userData.profile.classroom
         }
       : undefined,
-    createdBy: toId(userData.createdBy),
+    consent: userData.consent ? { granted: userData.consent.granted } : undefined,
+    createdBy: mapCreatedBy(userData.createdBy),
     createdAt: userData.createdAt,
     updatedAt: userData.updatedAt
   };
@@ -290,20 +328,12 @@ const toUserRefDTOV1 = user =>
 
 const mapCardMappingDTOV1 = mapping => {
   const mappingData = toPlainObject(mapping);
-  const cardRef = toPopulated(mappingData.cardId, card => ({
-    id: toId(card),
-    uid: card.uid,
-    type: card.type,
-    status: card.status
-  }));
 
   return {
     id: toId(mappingData),
-    cardId: toId(mappingData.cardId),
     uid: mappingData.uid,
     assignedValue: mappingData.assignedValue,
-    displayData: mappingData.displayData,
-    card: cardRef
+    displayData: mappingData.displayData
   };
 };
 
@@ -312,7 +342,6 @@ const mapBoardLayoutItemDTOV1 = layoutItem => {
 
   return {
     slotIndex: itemData.slotIndex,
-    cardId: toId(itemData.cardId),
     uid: itemData.uid,
     assignedValue: itemData.assignedValue,
     displayData: itemData.displayData
@@ -324,7 +353,6 @@ const mapAssociationChallengeItemDTOV1 = challengeItem => {
 
   return {
     roundNumber: itemData.roundNumber,
-    cardId: toId(itemData.cardId),
     uid: itemData.uid,
     assignedValue: itemData.assignedValue,
     displayData: itemData.displayData,
@@ -347,6 +375,7 @@ const toGameSessionDTOV1 = session => {
 
   return {
     id: toId(sessionData),
+    name: sessionData.name || null,
     mechanicId: toId(sessionData.mechanicId),
     deckId: toId(sessionData.deckId),
     contextId: toId(sessionData.contextId),
@@ -376,6 +405,8 @@ const toGameSessionDTOV1 = session => {
     requiresAssociationPlanConfiguration: Boolean(sessionData.requiresAssociationPlanConfiguration),
     status: sessionData.status,
     difficulty: sessionData.difficulty,
+    // Play stats (attached externally by controller when listing sessions)
+    playStats: sessionData.playStats || null,
     startedAt: sessionData.startedAt,
     endedAt: sessionData.endedAt,
     createdAt: sessionData.createdAt,
@@ -413,38 +444,6 @@ const toGameSessionDetailDTOV1 = session => {
  */
 const toGameSessionListDTOV1 = sessions =>
   Array.isArray(sessions) ? sessions.map(toGameSessionDTOV1).filter(Boolean) : [];
-
-/**
- * DTO v1 para Card (tarjeta RFID).
- *
- * @param {Object} card - Documento Card de Mongoose
- * @returns {Object|null} Tarjeta transformada o null si no existe
- */
-const toCardDTOV1 = card => {
-  if (!card) {
-    return null;
-  }
-
-  const cardData = toPlainObject(card);
-
-  return {
-    id: toId(cardData),
-    uid: cardData.uid,
-    type: cardData.type,
-    status: cardData.status,
-    createdAt: cardData.createdAt,
-    updatedAt: cardData.updatedAt
-  };
-};
-
-/**
- * DTO v1 para array de Cards.
- *
- * @param {Array} cards - Array de documentos Card
- * @returns {Array} Array de tarjetas transformadas
- */
-const toCardListDTOV1 = cards =>
-  Array.isArray(cards) ? cards.map(toCardDTOV1).filter(Boolean) : [];
 
 /**
  * DTO v1 para GameMechanic.
@@ -500,6 +499,7 @@ const toGameContextDTOV1 = context => {
     contextId: contextData.contextId,
     name: contextData.name,
     isActive: contextData.isActive,
+    assets: assets.map(toAssetDTOV1),
     assetsCount: assets.length,
     imageCount: assets.filter(a => a.imageUrl).length,
     audioCount: assets.filter(a => a.audioUrl).length,
@@ -521,13 +521,29 @@ const toAssetDTOV1 = asset => {
 
   const assetData = toPlainObject(asset);
 
+  // uploadedBy puede venir poblado (objeto User) o solo como ObjectId/string.
+  // Normalizamos a {id, name} cuando hay populate, o a {id} cuando no.
+  let uploadedBy = null;
+  if (assetData.uploadedBy) {
+    if (typeof assetData.uploadedBy === 'object' && assetData.uploadedBy._id) {
+      uploadedBy = {
+        id: assetData.uploadedBy._id.toString(),
+        name: assetData.uploadedBy.name || null
+      };
+    } else {
+      uploadedBy = { id: toId(assetData.uploadedBy), name: null };
+    }
+  }
+
   return {
     key: assetData.key,
     display: assetData.display,
     value: assetData.value,
     audioUrl: assetData.audioUrl,
     imageUrl: assetData.imageUrl,
-    thumbnailUrl: assetData.thumbnailUrl
+    thumbnailUrl: assetData.thumbnailUrl,
+    dominantColor: assetData.dominantColor || null,
+    uploadedBy
   };
 };
 
@@ -581,6 +597,11 @@ const toCardDeckDTOV1 = deck => {
     context: toContextRefDTOV1(deckData.contextId),
     status: deckData.status,
     cardsCount: Array.isArray(deckData.cardMappings) ? deckData.cardMappings.length : 0,
+    // Preview de hasta 6 mappings — coincide con el mazo estandar (6 cartas
+    // unicas) para que la card del deck muestre todas las miniaturas.
+    cardMappings: Array.isArray(deckData.cardMappings)
+      ? deckData.cardMappings.slice(0, 6).map(mapCardMappingDTOV1)
+      : [],
     createdBy: toId(deckData.createdBy),
     creator: toUserRefDTOV1(deckData.createdBy),
     createdAt: deckData.createdAt,
@@ -668,23 +689,6 @@ const toAuthResponseDTOV1 = (user, tokens) => ({
 });
 
 /**
- * DTO v1 para estadísticas de tarjetas.
- *
- * @param {Object} stats - Estadísticas agregadas
- * @returns {Object} Estadísticas normalizadas
- */
-const toCardStatsDTOV1 = stats => ({
-  total: stats.total,
-  active: stats.active,
-  inactive: stats.inactive,
-  lost: stats.lost,
-  mifare1kb: stats.mifare1kb,
-  mifare4kb: stats.mifare4kb,
-  ntag: stats.ntag,
-  unknown: stats.unknown
-});
-
-/**
  * DTO v1 para estadísticas de alumno.
  *
  * @param {Object} user - Documento User
@@ -753,8 +757,67 @@ const toSystemMetricsDTOV1 = payload => ({
   websocket: payload.websocket,
   gameEngine: payload.gameEngine,
   rfid: payload.rfid,
+  // Bloque con métricas de Redis: hits/misses del cache de slim-user en auth,
+  // y contador acumulado de fallbacks del rate limiter HTTP a MemoryStore.
+  // Clave para detectar en producción si el cache y el rate-limit distribuidos
+  // están operativos.
+  redis: payload.redis,
   memory: payload.memory
 });
+
+/**
+ * DTO para analytics seudonimizado (Art. 25 RGPD).
+ * Expone pseudoId en vez de id/name para separar PII de datos analíticos.
+ *
+ * @param {Object} user - Documento User de Mongoose
+ * @returns {Object|null} Datos analíticos sin PII directa
+ */
+const toStudentAnalyticsDTOV1 = user => {
+  if (!user) {
+    return null;
+  }
+
+  const userData = toPlainObject(user);
+  return {
+    pseudoId: pseudonymize(userData._id || userData.id),
+    profile: {
+      age: userData.profile?.age,
+      classroom: userData.profile?.classroom
+    },
+    studentMetrics: mapStudentMetrics(userData.studentMetrics),
+    consent: userData.consent
+      ? {
+          granted: userData.consent.granted,
+          purposes: userData.consent.purposes
+        }
+      : undefined
+  };
+};
+
+/**
+ * DTO para resolución de identidad (endpoint dedicado).
+ * Vincula pseudoId con datos identificativos — solo accesible por el profesor propietario.
+ *
+ * @param {Object} user - Documento User de Mongoose
+ * @returns {Object|null} Mapeo pseudoId → identidad
+ */
+const toStudentIdentityDTOV1 = user => {
+  if (!user) {
+    return null;
+  }
+
+  const userData = toPlainObject(user);
+  return {
+    pseudoId: pseudonymize(userData._id || userData.id),
+    id: toId(userData),
+    name: userData.name,
+    profile: {
+      avatar: userData.profile?.avatar,
+      age: userData.profile?.age,
+      classroom: userData.profile?.classroom
+    }
+  };
+};
 
 module.exports = {
   // Users
@@ -772,10 +835,6 @@ module.exports = {
   toGameSessionDTOV1,
   toGameSessionDetailDTOV1,
   toGameSessionListDTOV1,
-
-  // Cards
-  toCardDTOV1,
-  toCardListDTOV1,
 
   // Mechanics
   toGameMechanicDTOV1,
@@ -799,8 +858,11 @@ module.exports = {
   toAuthResponseDTOV1,
 
   // Analytics
-  toCardStatsDTOV1,
   toUserStatsDTOV1,
   toPlayerStatsDTOV1,
-  toSystemMetricsDTOV1
+  toSystemMetricsDTOV1,
+
+  // Analytics seudonimizados (Art. 25 RGPD)
+  toStudentAnalyticsDTOV1,
+  toStudentIdentityDTOV1
 };

@@ -35,4 +35,35 @@ describe('runtimeMetrics', () => {
     expect(snap.websocket.authCacheMisses).toBe(1);
     expect(snap.websocket.authCacheHits).toBe(2);
   });
+
+  it('tracks rate limit MemoryStore fallback count', () => {
+    runtimeMetrics.recordRateLimitStoreFallback();
+    runtimeMetrics.recordRateLimitStoreFallback();
+    runtimeMetrics.recordRateLimitStoreFallback();
+
+    const snap = runtimeMetrics.getSnapshot();
+    expect(snap.redis.rateLimitStoreFallbackCount).toBe(3);
+  });
+
+  it('tracks slim-user cache hits and misses in auth middleware', () => {
+    runtimeMetrics.recordAuthUserCache('miss');
+    runtimeMetrics.recordAuthUserCache('hit');
+    runtimeMetrics.recordAuthUserCache('hit');
+    runtimeMetrics.recordAuthUserCache('hit');
+
+    const snap = runtimeMetrics.getSnapshot();
+    expect(snap.redis.authUserCacheMisses).toBe(1);
+    expect(snap.redis.authUserCacheHits).toBe(3);
+  });
+
+  it('reset() limpia también los contadores redis', () => {
+    runtimeMetrics.recordRateLimitStoreFallback();
+    runtimeMetrics.recordAuthUserCache('hit');
+    runtimeMetrics.reset();
+
+    const snap = runtimeMetrics.getSnapshot();
+    expect(snap.redis.rateLimitStoreFallbackCount).toBe(0);
+    expect(snap.redis.authUserCacheHits).toBe(0);
+    expect(snap.redis.authUserCacheMisses).toBe(0);
+  });
 });

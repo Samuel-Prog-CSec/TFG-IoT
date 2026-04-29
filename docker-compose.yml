@@ -27,11 +27,20 @@ services:
         - VITE_API_URL=http://localhost/api
     container_name: rfid-games-frontend
     restart: unless-stopped
+    read_only: true
+    tmpfs:
+      - /var/cache/nginx
+      - /var/run
+      - /tmp
     ports:
       - "80:80"
     depends_on:
       backend:
         condition: service_healthy
+    deploy:
+      resources:
+        limits:
+          memory: 128M
     networks:
       - rfid-games-network
     labels:
@@ -51,13 +60,20 @@ services:
     build: ./backend
     container_name: rfid-games-backend
     restart: unless-stopped
+    read_only: true
+    tmpfs:
+      - /tmp
     ports:
       - "5000:5000"
+    deploy:
+      resources:
+        limits:
+          memory: 512M
     environment:
       - PORT=5000
       - NODE_ENV=${NODE_ENV:-development}
-      # Conexión interna a servicios Docker
-      - REDIS_URL=redis://redis:6379
+      # Conexión interna a servicios Docker (incluye password de Redis)
+      - REDIS_URL=redis://:${REDIS_PASSWORD:-devRedis123!}@redis:6379
       - MONGO_URI=mongodb://mongo:27017/rfid_games_db
     env_file:
       - .env
@@ -81,12 +97,49 @@ services:
       start_period: 15s
 
   # ============================================
+  # WORKER (BullMQ - data retention y jobs asíncronos, ADR-071)
+  # Proceso separado del backend para que jobs pesados no bloqueen HTTP.
+  # ============================================
+  worker:
+    build: ./backend
+    container_name: rfid-games-worker
+    restart: unless-stopped
+    read_only: true
+    tmpfs:
+      - /tmp
+    deploy:
+      resources:
+        limits:
+          memory: 256M
+    environment:
+      - NODE_ENV=${NODE_ENV:-development}
+      - REDIS_URL=redis://:${REDIS_PASSWORD:-devRedis123!}@redis:6379
+      - MONGO_URI=mongodb://mongo:27017/rfid_games_db
+    env_file:
+      - .env
+    depends_on:
+      redis:
+        condition: service_healthy
+      mongo:
+        condition: service_healthy
+    command: ["node", "worker.js"]
+    networks:
+      - rfid-games-network
+    labels:
+      - "com.rfid-games.service=worker"
+      - "com.rfid-games.description=BullMQ worker for async jobs (data retention, GDPR)"
+
+  # ============================================
   # BASE DE DATOS (MongoDB Local)
   # ============================================
   mongo:
     image: mongo:7
     container_name: rfid-games-mongo
     restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          memory: 1G
     ports:
       - "${MONGO_PORT:-27017}:27017"
     volumes:
@@ -110,6 +163,11 @@ services:
     image: redis:7-alpine
     container_name: rfid-games-redis
     restart: unless-stopped
+    read_only: true
+    deploy:
+      resources:
+        limits:
+          memory: 300M
     ports:
       - "${REDIS_PORT:-6379}:6379"
     volumes:
@@ -119,17 +177,18 @@ services:
       --appendonly yes
       --appendfsync everysec
       --maxmemory 256mb
-      --maxmemory-policy allkeys-lru
+      --maxmemory-policy noeviction
       --tcp-keepalive 60
       --timeout 0
       --loglevel notice
+      --requirepass ${REDIS_PASSWORD:-devRedis123!}
     networks:
       - rfid-games-network
     labels:
       - "com.rfid-games.service=cache"
       - "com.rfid-games.description=Redis cache and session store"
     healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
+      test: ["CMD", "redis-cli", "-a", "${REDIS_PASSWORD:-devRedis123!}", "--no-auth-warning", "ping"]
       interval: 10s
       timeout: 5s
       retries: 5
@@ -146,7 +205,7 @@ services:
     ports:
       - "${REDIS_COMMANDER_PORT:-8081}:8081"
     environment:
-      - REDIS_HOSTS=local:redis:6379
+      - REDIS_HOSTS=local:redis:6379:0:${REDIS_PASSWORD:-devRedis123!}
     depends_on:
       redis:
         condition: service_healthy

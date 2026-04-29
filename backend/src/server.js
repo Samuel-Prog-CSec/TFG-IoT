@@ -24,7 +24,7 @@ const pinoHttp = require('pino-http');
 const { Server } = require('socket.io');
 const { connectDB, disconnectDB } = require('./config/database');
 const { connectRedis, disconnectRedis } = require('./config/redis');
-const { initSentry, Sentry } = require('./config/sentry');
+const { initSentry, setupSentryErrorHandler } = require('./config/sentry');
 const { socketPayloadLimits } = require('./config/socketRateLimits');
 const {
   corsOptions,
@@ -32,33 +32,34 @@ const {
   csrfProtection, // Middleware CSRF
   helmetOptions,
   globalRateLimiter,
-  authRateLimiter
+  authRateLimiter,
+  initRateLimiters
 } = require('./config/security');
 const rfidService = require('./services/rfidService');
 const GameEngine = require('./services/gameEngine');
 const logger = require('./utils/logger');
-const { authenticate, requireRole } = require('./middlewares/auth');
 const { errorHandler, notFoundHandler } = require('./middlewares/errorHandler');
 const { createSocketRateLimiter } = require('./middlewares/socketRateLimiter');
 const { securityPayloadGuard } = require('./middlewares/securityPayloadGuard');
-const { getHealthStatus, getMemoryUsage } = require('./utils/healthCheck');
 const runtimeMetrics = require('./utils/runtimeMetrics');
-const { toSystemMetricsDTOV1 } = require('./utils/dtos');
 const { validateQuery } = require('./middlewares/validation');
 const { emptyObjectSchema } = require('./validators/commonValidator');
+const { healthCheck, getApiInfo } = require('./controllers/healthController');
+const asyncHandler = require('./utils/asyncHandler');
 const { registerSocketHandlers, registerRfidHandlers, stopCacheCleanup } = require('./realtime');
 
 // Importar rutas
 const authRoutes = require('./routes/auth');
 const userRoutes = require('./routes/users');
-const cardRoutes = require('./routes/cards');
 const mechanicRoutes = require('./routes/mechanics');
 const contextRoutes = require('./routes/contexts');
 const sessionRoutes = require('./routes/sessions');
 const playRoutes = require('./routes/plays');
 const deckRoutes = require('./routes/decks');
 const adminRoutes = require('./routes/admin');
+const metricsRoutes = require('./routes/metrics');
 const analyticsRoutes = require('./routes/analytics');
+const healthRoutes = require('./routes/health');
 
 // Crear aplicación Express
 const app = express();
@@ -80,12 +81,15 @@ const io = new Server(server, {
   allowEIO3: false // Solo usar Engine.IO v4
 });
 
+// Namespace para eventos de gameplay (partidas, RFID scans, card assignment)
+const gameNsp = io.of('/game');
+
 /**
- * Instancia del motor de juego con Socket.IO inyectado.
+ * Instancia del motor de juego con namespace /game inyectado.
  * Gestiona todas las partidas activas del sistema.
  * @type {GameEngine}
  */
-const gameEngine = new GameEngine(io);
+const gameEngine = new GameEngine(gameNsp);
 
 // Rate limiting para WebSockets (instancia única compartida)
 const socketRateLimiter = createSocketRateLimiter({ logger });
@@ -93,18 +97,16 @@ if (process.env.NODE_ENV !== 'test') {
   socketRateLimiter.startCleanupTimer();
 }
 
-// Exponer el gameEngine a controllers (REST) sin imports circulares.
+// Exponer servicios a controllers (REST) sin imports circulares.
 app.set('gameEngine', gameEngine);
-// Exponer io a controllers para notificaciones (e.g. session_invalidated)
 app.set('io', io);
+app.set('gameNsp', gameNsp);
+app.set('rfidService', rfidService);
+app.set('runtimeMetrics', runtimeMetrics);
 
 // ============================================================================
 // MIDDLEWARE
 // ============================================================================
-
-// Sentry request handler (DEBE ser el primero)
-app.use(Sentry.Handlers.requestHandler());
-app.use(Sentry.Handlers.tracingHandler());
 
 // Security headers con Helmet (configuración centralizada)
 app.use(helmet(helmetOptions));
@@ -189,7 +191,8 @@ app.use(
       userRole: req.user?.role
     }),
     autoLogging: {
-      ignore: req => req.url === '/health' || req.url === '/api/health'
+      // Usar originalUrl (no url) para que funcione con rutas montadas en routers
+      ignore: req => req.originalUrl === '/health' || req.originalUrl === '/api/health'
     }
   })
 );
@@ -233,9 +236,6 @@ app.use('/api/auth', authRateLimiter, authRoutes);
 // Rutas de gestión de usuarios
 app.use('/api/users', userRoutes);
 
-// Rutas de gestión de tarjetas RFID
-app.use('/api/cards', cardRoutes);
-
 // Rutas de mecánicas de juego
 app.use('/api/mechanics', mechanicRoutes);
 
@@ -257,107 +257,24 @@ app.use('/api/admin', adminRoutes);
 // Rutas de analíticas
 app.use('/api/analytics', analyticsRoutes);
 
-/**
- * Endpoint de salud del servidor con información detallada.
- * @route GET /api/health
- * @returns {Object} 200 - Estado completo del servidor, MongoDB y RFID
- */
-app.get('/api/health', validateQuery(emptyObjectSchema), async (req, res) => {
-  try {
-    const healthStatus = await getHealthStatus(rfidService);
-    const httpStatus = ['healthy', 'degraded'].includes(healthStatus.status) ? 200 : 503;
-    res.status(httpStatus).json(healthStatus);
-  } catch (error) {
-    logger.error('Error en health check:', error);
-    res.status(500).json({
-      status: 'error',
-      message: 'Health check failed',
-      error: error.message
-    });
-  }
-});
+// Rutas de métricas de dominio (salud RFID, etc.)
+app.use('/api/metrics', metricsRoutes);
 
-/**
- * Alias del health check para herramientas externas.
- * @route GET /health
- */
-app.get('/health', validateQuery(emptyObjectSchema), async (req, res) => {
-  try {
-    const healthStatus = await getHealthStatus(rfidService);
-    const httpStatus = ['healthy', 'degraded'].includes(healthStatus.status) ? 200 : 503;
-    res.status(httpStatus).json(healthStatus);
-  } catch (error) {
-    logger.error('Error en health check:', error);
-    res.status(500).json({
-      status: 'error',
-      message: 'Health check failed',
-      error: error.message
-    });
-  }
-});
+// Rutas de salud, metricas e informacion del sistema
+app.use('/api', healthRoutes);
 
-/**
- * Endpoint de métricas del sistema (solo para desarrollo).
- * @route GET /api/metrics
- * @returns {Object} 200 - Métricas del gameEngine y rfidService
- */
-app.get(
-  '/api/metrics',
-  authenticate,
-  requireRole('teacher', 'super_admin'),
-  validateQuery(emptyObjectSchema),
-  (req, res) => {
-    const snapshot = runtimeMetrics.getSnapshot();
+// Alias /health sin prefijo /api (Docker, k8s, load balancers)
+app.get('/health', validateQuery(emptyObjectSchema), asyncHandler(healthCheck));
 
-    res.json(
-      toSystemMetricsDTOV1({
-        timestamp: new Date().toISOString(),
-        http: snapshot.http,
-        websocket: {
-          connectedClients: io?.engine?.clientsCount ?? 0,
-          events: snapshot.websocket
-        },
-        gameEngine: gameEngine.getMetrics(),
-        rfid: {
-          processed: snapshot.rfid,
-          service: rfidService.getStatus()
-        },
-        memory: getMemoryUsage()
-      })
-    );
-  }
-);
-
-/**
- * Endpoint raíz de la API.
- * @route GET /
- * @returns {Object} 200 - Información general de la API
- */
-app.get('/', validateQuery(emptyObjectSchema), (req, res) => {
-  res.json({
-    message: 'API REST de Juegos RFID',
-    version: require('../package.json').version,
-    endpoints: {
-      auth: '/api/auth',
-      users: '/api/users',
-      cards: '/api/cards',
-      mechanics: '/api/mechanics',
-      contexts: '/api/contexts',
-      sessions: '/api/sessions',
-      plays: '/api/plays',
-      decks: '/api/decks',
-      health: '/api/health'
-    },
-    documentation: 'Ver README.md para documentación completa'
-  });
-});
+// Endpoint raiz de la API
+app.get('/', validateQuery(emptyObjectSchema), getApiInfo);
 
 // ============================================================================
 // MANEJO DE ERRORES
 // ============================================================================
 
 // Sentry error handler (ANTES del errorHandler personalizado)
-app.use(Sentry.Handlers.errorHandler());
+setupSentryErrorHandler(app);
 
 // Manejador 404 para rutas no encontradas
 app.use(notFoundHandler);
@@ -371,6 +288,7 @@ app.use(errorHandler);
 
 registerSocketHandlers({
   io,
+  gameNsp,
   gameEngine,
   rfidService,
   socketRateLimiter,
@@ -379,6 +297,7 @@ registerSocketHandlers({
 
 registerRfidHandlers({
   io,
+  gameNsp,
   gameEngine,
   rfidService,
   logger
@@ -408,6 +327,12 @@ const startServer = async () => {
       await connectRedis();
       logger.info('Redis conectado');
 
+      // Inicializar los rate limiters HTTP con Redis store distribuido.
+      // Debe ocurrir DESPUÉS de connectRedis() para que createRedisStore()
+      // obtenga un cliente válido (sin esto los limiters caen a MemoryStore
+      // al boot y el rate-limit distribuido queda inutilizado).
+      initRateLimiters();
+
       // Configurar Socket.IO Redis adapter para escalabilidad horizontal
       try {
         const { isRedisConnected, getRedis } = require('./config/redis');
@@ -433,6 +358,29 @@ const startServer = async () => {
       if (recoveredCount > 0) {
         logger.info(`${recoveredCount} partidas recuperadas y marcadas como abandonadas`);
       }
+
+      // ADR-077 (PROP-64): subscriber pub/sub de cambios RFID mode entre
+      // instancias del backend. Si Redis no está, queda en no-op (modo
+      // single-instance equivalente al comportamiento previo).
+      try {
+        const { startRfidModeSubscriber } = require('./realtime/rfidModeSubscriber');
+        await startRfidModeSubscriber();
+      } catch (subErr) {
+        logger.warn('rfidModeSubscriber: no se pudo iniciar', { error: subErr.message });
+      }
+
+      // ADR-071 (PROP-62): programar el cron de retención RGPD vía BullMQ.
+      // El job se procesa en el contenedor `worker` (proceso separado),
+      // pero el SCHEDULING vive en el backend para que esté garantizado
+      // siempre que la API esté arriba. Idempotente por jobId.
+      try {
+        const { scheduleDataRetentionCron } = require('./queues');
+        await scheduleDataRetentionCron();
+      } catch (cronErr) {
+        logger.warn('queues: no se pudo programar el cron de retención', {
+          error: cronErr.message
+        });
+      }
     } catch (redisError) {
       // En desarrollo, continuar sin Redis con warning
       if (process.env.NODE_ENV === 'production') {
@@ -441,6 +389,9 @@ const startServer = async () => {
       logger.warn('Redis no disponible, continuando sin persistencia de estado:', {
         error: redisError.message
       });
+      // Inicializar los limiters igualmente para que existan; caerán a MemoryStore
+      // y `recordRateLimitStoreFallback` dejará rastro en runtimeMetrics.redis.
+      initRateLimiters();
     }
 
     logger.info('Iniciando servicio RFID en modo cliente...');
@@ -484,6 +435,22 @@ const gracefulShutdown = async signal => {
       // 3. Cerrar conexión RFID
       rfidService.stop();
 
+      // 4a. Cerrar el subscriber pub/sub de RFID mode (si activo)
+      try {
+        const { stopRfidModeSubscriber } = require('./realtime/rfidModeSubscriber');
+        await stopRfidModeSubscriber();
+      } catch (subErr) {
+        logger.warn('rfidModeSubscriber: error al cerrar', { error: subErr.message });
+      }
+
+      // 4b. Cerrar las queues BullMQ (libera conexiones Redis dedicadas)
+      try {
+        const { closeAllQueues } = require('./queues');
+        await closeAllQueues();
+      } catch (qErr) {
+        logger.warn('queues: error al cerrar', { error: qErr.message });
+      }
+
       // 4. Desconectar de Redis
       await disconnectRedis();
       logger.info('Redis desconectado');
@@ -503,11 +470,47 @@ const gracefulShutdown = async signal => {
   setTimeout(() => {
     logger.error(`Forzando shutdown tras timeout de ${shutdownTimeoutMs}ms`);
     process.exit(1);
-  }, shutdownTimeoutMs);
+  }, shutdownTimeoutMs).unref();
 };
 
 process.on('SIGTERM', () => gracefulShutdown('SIGTERM'));
 process.on('SIGINT', () => gracefulShutdown('SIGINT')); // Ctrl+C
+
+// ============================================================================
+// MANEJO DE ERRORES NO CAPTURADOS
+// ============================================================================
+
+/**
+ * Captura promesas rechazadas que no tienen .catch().
+ * Registra el error y lo reporta a Sentry, pero NO termina el proceso: el
+ * caller que generó la rejection ya falló localmente, el resto del proceso
+ * sigue válido (práctica oficial recomendada por Node desde 2020). Matar el
+ * proceso aquí causaba reinicios en cadena ante blips de Redis que degradaban
+ * el servicio en vez de tolerarlos. Para fallos realmente fatales (estado
+ * corrupto) existe el handler de `uncaughtException` más abajo.
+ */
+process.on('unhandledRejection', (reason, promise) => {
+  logger.fatal({ err: reason, promise: String(promise) }, 'Unhandled Promise Rejection detectada');
+  const { Sentry } = require('./config/sentry');
+  Sentry.captureException(reason instanceof Error ? reason : new Error(String(reason)), {
+    tags: { source: 'unhandledRejection' }
+  });
+});
+
+/**
+ * Captura excepciones síncronas que escapan fuera de try/catch.
+ * Logea el error, lo reporta a Sentry y fuerza shutdown inmediato
+ * ya que el estado del proceso puede estar corrupto.
+ */
+process.on('uncaughtException', error => {
+  logger.fatal({ err: error }, 'Uncaught Exception detectada');
+  const { Sentry } = require('./config/sentry');
+  Sentry.captureException(error, {
+    tags: { source: 'uncaughtException' }
+  });
+  // Tras uncaughtException el estado del proceso es incierto — shutdown inmediato
+  gracefulShutdown('uncaughtException');
+});
 
 // Iniciar el servidor
 // Iniciar el servidor solo si se ejecuta directamente
@@ -515,4 +518,4 @@ if (require.main === module) {
   startServer();
 }
 
-module.exports = { app, server, io, gameEngine };
+module.exports = { app, server, io, gameNsp, gameEngine };

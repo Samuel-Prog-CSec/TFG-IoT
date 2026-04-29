@@ -1,7 +1,4 @@
-jest.mock('ioredis', () => {
-  const RedisMock = require('ioredis-mock');
-  return RedisMock;
-});
+jest.mock('ioredis', () => require('ioredis-mock'));
 
 const mongoose = require('mongoose');
 const { connectRedis, disconnectRedis } = require('../src/config/redis');
@@ -12,7 +9,6 @@ const GameSession = require('../src/models/GameSession');
 const GamePlay = require('../src/models/GamePlay');
 const GameMechanic = require('../src/models/GameMechanic');
 const GameContext = require('../src/models/GameContext');
-const Card = require('../src/models/Card');
 const CardDeck = require('../src/models/CardDeck');
 
 describe('GameEngine distributed UID lock', () => {
@@ -53,7 +49,6 @@ describe('GameEngine distributed UID lock', () => {
     await GamePlay.deleteMany({});
     await GameMechanic.deleteMany({});
     await GameContext.deleteMany({});
-    await Card.deleteMany({});
     await CardDeck.deleteMany({});
 
     for (const namespace of Object.values(redisService.NAMESPACES)) {
@@ -86,14 +81,28 @@ describe('GameEngine distributed UID lock', () => {
       name: 'Student One',
       role: 'student',
       createdBy: teacher._id,
-      status: 'active'
+      status: 'active',
+      consent: {
+        granted: true,
+        grantedBy: 'Tutor Test',
+        grantedAt: new Date(),
+        purposes: ['educational_tracking', 'performance_analytics'],
+        policyVersion: '1.0'
+      }
     });
 
     student2 = await User.create({
       name: 'Student Two',
       role: 'student',
       createdBy: teacher._id,
-      status: 'active'
+      status: 'active',
+      consent: {
+        granted: true,
+        grantedBy: 'Tutor Test',
+        grantedAt: new Date(),
+        purposes: ['educational_tracking', 'performance_analytics'],
+        policyVersion: '1.0'
+      }
     });
 
     const mechanic = await GameMechanic.create({
@@ -113,9 +122,6 @@ describe('GameEngine distributed UID lock', () => {
       ]
     });
 
-    const card1 = await Card.create({ uid: 'CC110001', type: 'NTAG', status: 'active' });
-    const card2 = await Card.create({ uid: 'CC110002', type: 'NTAG', status: 'active' });
-
     const deck = await CardDeck.create({
       name: 'Lock Deck',
       contextId: context._id,
@@ -123,13 +129,11 @@ describe('GameEngine distributed UID lock', () => {
       status: 'active',
       cardMappings: [
         {
-          cardId: card1._id,
           uid: 'CC110001',
           assignedValue: 'One',
           displayData: { key: 'one', display: 'One', value: 'One' }
         },
         {
-          cardId: card2._id,
           uid: 'CC110002',
           assignedValue: 'Two',
           displayData: { key: 'two', display: 'Two', value: 'Two' }

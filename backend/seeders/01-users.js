@@ -18,8 +18,7 @@ const teachersData = [
     password: 'Test1234!',
     role: 'teacher',
     profile: {
-      avatar: null,
-      birthdate: new Date('1985-05-15')
+      avatar: null
     },
     status: 'active'
   },
@@ -29,15 +28,14 @@ const teachersData = [
     password: 'Test1234!',
     role: 'teacher',
     profile: {
-      avatar: null,
-      birthdate: new Date('1982-09-22')
+      avatar: null
     },
     status: 'active'
   }
 ];
 
 const studentFirstNames = [
-  'Sofia',
+  'Sofía',
   'Lucas',
   'Valentina',
   'Mateo',
@@ -46,48 +44,48 @@ const studentFirstNames = [
   'Isabella',
   'Santiago',
   'Camila',
-  'Sebastian',
+  'Sebastián',
   'Victoria',
-  'Nicolas',
+  'Nicolás',
   'Martina',
-  'Benjamin',
+  'Benjamín',
   'Luciana',
   'Daniel',
   'Emilia',
-  'Joaquin',
+  'Joaquín',
   'Julieta',
   'Gabriel',
   'Paula',
   'Hugo',
   'Carla',
-  'Adrian',
+  'Adrián',
   'Elena',
   'Leo',
   'Claudia',
-  'Alvaro',
+  'Álvaro',
   'Irene',
   'Bruno'
 ];
 
 const studentLastNames = [
-  'Garcia',
-  'Martin',
-  'Lopez',
-  'Fernandez',
-  'Rodriguez',
-  'Sanchez',
-  'Perez',
-  'Gomez',
-  'Diaz',
+  'García',
+  'Martín',
+  'López',
+  'Fernández',
+  'Rodríguez',
+  'Sánchez',
+  'Pérez',
+  'Gómez',
+  'Díaz',
   'Torres',
   'Ruiz',
   'Moreno',
-  'Jimenez',
-  'Alvarez',
+  'Jiménez',
+  'Álvarez',
   'Romero',
   'Navarro',
-  'Dominguez',
-  'Vazquez',
+  'Domínguez',
+  'Vázquez',
   'Ramos',
   'Molina'
 ];
@@ -124,6 +122,8 @@ function getEmptyMetrics() {
     bestScore: 0,
     totalCorrectAnswers: 0,
     totalErrors: 0,
+    totalTimeouts: 0,
+    totalAbandonedGames: 0,
     averageResponseTime: 0,
     lastPlayedAt: null
   };
@@ -144,12 +144,7 @@ function generateStudentsData(teacher, names, count, indexOffset) {
   return Array.from({ length: count }, (_, i) => {
     const nameIndex = (indexOffset + i) % names.length;
     const age = ages[i % ages.length];
-
-    // Calcular fecha de nacimiento determinista basada en indice
-    const currentYear = new Date().getFullYear();
-    const birthYear = currentYear - age;
-    const birthMonth = (i * 3 + indexOffset) % 12;
-    const birthDay = ((i * 7) % 28) + 1;
+    // birthdate ELIMINADO: Art. 5.1.c RGPD (minimización de datos)
 
     return {
       name: names[nameIndex],
@@ -157,12 +152,18 @@ function generateStudentsData(teacher, names, count, indexOffset) {
       profile: {
         age,
         classroom: classrooms[i % classrooms.length],
-        avatar: null,
-        birthdate: new Date(birthYear, birthMonth, birthDay)
+        avatar: null
+      },
+      consent: {
+        granted: true,
+        grantedBy: `Tutor de ${names[nameIndex]}`,
+        grantedAt: new Date(),
+        purposes: ['educational_tracking', 'performance_analytics'],
+        policyVersion: '1.0',
+        withdrawnAt: null
       },
       status: 'active',
       createdBy: teacher._id,
-      assignedTeacher: teacher._id,
       studentMetrics: getEmptyMetrics()
     };
   });
@@ -175,9 +176,17 @@ function generateStudentsData(teacher, names, count, indexOffset) {
 async function seedUsers() {
   try {
     // Crear profesores (usar create/save para aplicar hooks de password)
+    // Verificar existencia antes de insertar para evitar E11000 duplicate key
     const teachers = [];
     for (const teacherData of teachersData) {
-      // Asegurar que quedan aprobados en seed
+      const existing = await User.findOne({ email: teacherData.email });
+
+      if (existing) {
+        logger.info(`Profesor ya existe, omitiendo creacion: ${teacherData.email}`);
+        teachers.push(existing);
+        continue;
+      }
+
       const teacher = await User.create({
         ...teacherData,
         role: 'teacher',
@@ -187,9 +196,22 @@ async function seedUsers() {
       teachers.push(teacher);
     }
 
-    // Crear 15-20 alumnos por cada profesor
+    // Crear 18 alumnos por cada profesor (omitir si ya existen)
     const studentsArrays = [];
     for (const [index, teacher] of teachers.entries()) {
+      const existingStudents = await User.find({
+        createdBy: teacher._id,
+        role: 'student'
+      });
+
+      if (existingStudents.length > 0) {
+        logger.info(
+          `Profesor ${teacher.email} ya tiene ${existingStudents.length} alumnos, omitiendo creacion`
+        );
+        studentsArrays.push(existingStudents);
+        continue;
+      }
+
       const studentsCount = 18;
       const studentNames = buildStudentNames(studentsCount, index * studentsCount);
       const studentsData = generateStudentsData(teacher, studentNames, studentsCount, 0);

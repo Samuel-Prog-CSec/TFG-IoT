@@ -6,16 +6,14 @@
 
 const cardDeckRepository = require('../repositories/cardDeckRepository');
 const gameContextRepository = require('../repositories/gameContextRepository');
-const cardRepository = require('../repositories/cardRepository');
-const {
-  NotFoundError,
-  ConflictError,
-  ValidationError,
-  ForbiddenError
-} = require('../utils/errors');
+const cardDeckService = require('../services/cardDeckService');
+const { NotFoundError, ConflictError, ValidationError } = require('../utils/errors');
 const logger = require('../utils/logger');
-const { toCardDeckDetailDTOV1, toCardDeckListDTOV1, toPaginatedDTOV1 } = require('../utils/dtos');
-const { escapeRegex } = require('../utils/escapeRegex');
+const { toCardDeckDetailDTOV1, toCardDeckListDTOV1 } = require('../utils/dtos');
+const { sendSuccess, sendCreated, sendPaginated } = require('../utils/responseHelper');
+const { buildFilter } = require('../utils/filterBuilder');
+const { ensureResourceOwnership } = require('../utils/ownershipHelpers');
+const { withTransaction } = require('../utils/withTransaction');
 
 /**
  * Límites de configuración para mazos de cartas.
@@ -30,6 +28,12 @@ const MAX_DECK_CARDS = 20;
 const MIN_DECK_CARDS = 2;
 const MAX_DECKS_PER_TEACHER = 50;
 
+const deckFilterMappings = {
+  contextId: { field: 'contextId', type: 'exact' },
+  status: { field: 'status', type: 'exact' },
+  search: { type: 'search', fields: ['name', 'description'] }
+};
+
 function validateDeckMappingsStructure(cardMappings) {
   if (!Array.isArray(cardMappings)) {
     throw new ValidationError('cardMappings debe ser un array');
@@ -41,14 +45,10 @@ function validateDeckMappingsStructure(cardMappings) {
   }
 
   const uids = cardMappings.map(m => (m.uid || '').toString().trim().toUpperCase());
-  const cardIds = cardMappings.map(m => m.cardId?.toString());
   const assignedValues = cardMappings.map(m => (m.assignedValue || '').toString().trim());
 
   if (uids.some(uid => !uid)) {
     throw new ValidationError('Todos los mapeos deben incluir uid');
-  }
-  if (cardIds.some(id => !id)) {
-    throw new ValidationError('Todos los mapeos deben incluir cardId');
   }
   if (assignedValues.some(v => !v)) {
     throw new ValidationError('Todos los mapeos deben incluir assignedValue');
@@ -56,9 +56,6 @@ function validateDeckMappingsStructure(cardMappings) {
 
   if (new Set(uids).size !== uids.length) {
     throw new ValidationError('Los UIDs en cardMappings deben ser únicos');
-  }
-  if (new Set(cardIds).size !== cardIds.length) {
-    throw new ValidationError('Los cardIds en cardMappings deben ser únicos');
   }
   if (new Set(assignedValues).size !== assignedValues.length) {
     throw new ValidationError('No puede haber valores asignados duplicados en cardMappings');
@@ -91,138 +88,88 @@ async function validateContextAndAssignedValues(contextId, cardMappings) {
   return context;
 }
 
-async function validateCardsExistAndActive(cardMappings) {
-  const cardIds = cardMappings.map(m => m.cardId);
-  const cards = await cardRepository.find({ _id: { $in: cardIds } });
-
-  if (cards.length !== cardIds.length) {
-    throw new ValidationError('Una o más tarjetas no existen');
-  }
-
-  const inactiveCards = cards.filter(card => card.status !== 'active');
-  if (inactiveCards.length > 0) {
-    throw new ValidationError(
-      `Las siguientes tarjetas no están activas: ${inactiveCards.map(c => c.uid).join(', ')}`
-    );
-  }
-
-  // Validar consistencia uid declarado vs uid de la tarjeta
-  const cardById = new Map(cards.map(c => [c._id.toString(), c]));
-  const mismatch = cardMappings.filter(m => {
-    const card = cardById.get(m.cardId.toString());
-    return !card || card.uid !== m.uid;
-  });
-
-  if (mismatch.length > 0) {
-    throw new ValidationError(
-      `UID no coincide con la tarjeta para: ${mismatch.map(m => m.uid).join(', ')}`
-    );
-  }
-
-  return cards;
-}
-
 /**
  * GET /api/decks
  */
-const getDecks = async (req, res, next) => {
-  try {
-    const {
-      page = 1,
-      limit = 20,
-      sortBy = 'createdAt',
-      order = 'desc',
-      contextId,
-      status,
-      search
-    } = req.query;
+const getDecks = async (req, res) => {
+  const {
+    page = 1,
+    limit = 20,
+    sortBy = 'createdAt',
+    order = 'desc',
+    contextId,
+    status,
+    search
+  } = req.query;
 
-    const filter = { createdBy: req.user._id };
+  const filter = buildFilter({ contextId, status, search }, deckFilterMappings, {
+    baseFilter: { createdBy: req.user._id }
+  });
 
-    if (contextId) {
-      filter.contextId = contextId;
-    }
+  const skip = (page - 1) * limit;
+  const sortOptions = { [sortBy]: order === 'asc' ? 1 : -1 };
 
-    if (status) {
-      filter.status = status;
-    }
+  const [decks, total] = await Promise.all([
+    cardDeckRepository.find(filter, {
+      populate: { path: 'contextId', select: 'contextId name' },
+      sort: sortOptions,
+      limit: Number.parseInt(limit, 10),
+      skip
+    }),
+    cardDeckRepository.count(filter)
+  ]);
 
-    if (search) {
-      const safeSearch = escapeRegex(search);
-      filter.$or = [
-        { name: { $regex: safeSearch, $options: 'i' } },
-        { description: { $regex: safeSearch, $options: 'i' } }
-      ];
-    }
+  logger.info('Lista de mazos obtenida', {
+    requestedBy: req.user._id,
+    filters: { ...filter, ...(search ? { search } : {}) },
+    resultsCount: decks.length
+  });
 
-    const skip = (page - 1) * limit;
-    const sortOptions = { [sortBy]: order === 'asc' ? 1 : -1 };
-
-    const [decks, total] = await Promise.all([
-      cardDeckRepository.find(filter, {
-        populate: { path: 'contextId', select: 'contextId name' },
-        sort: sortOptions,
-        limit: Number.parseInt(limit, 10),
-        skip
-      }),
-      cardDeckRepository.count(filter)
-    ]);
-
-    logger.info('Lista de mazos obtenida', {
-      requestedBy: req.user._id,
-      filters: { ...filter, ...(search ? { search } : {}) },
-      resultsCount: decks.length
-    });
-
-    res.json({
-      success: true,
-      ...toPaginatedDTOV1(toCardDeckListDTOV1(decks), {
-        page: Number.parseInt(page, 10),
-        limit: Number.parseInt(limit, 10),
-        total
-      })
-    });
-  } catch (error) {
-    next(error);
-  }
+  sendPaginated(res, toCardDeckListDTOV1(decks), {
+    page: Number.parseInt(page, 10),
+    limit: Number.parseInt(limit, 10),
+    total
+  });
 };
 
 /**
  * GET /api/decks/:id
  */
-const getDeckById = async (req, res, next) => {
-  try {
-    const { id } = req.params;
+const getDeckById = async (req, res) => {
+  const { id } = req.params;
 
-    const deck = await cardDeckRepository.findById(id, {
-      populate: [
-        { path: 'contextId', select: 'contextId name assets' },
-        { path: 'createdBy', select: 'name email' },
-        { path: 'cardMappings.cardId', select: 'uid type status metadata' }
-      ]
-    });
+  const deck = await cardDeckRepository.findById(id, {
+    populate: [
+      { path: 'contextId', select: 'contextId name assets' },
+      { path: 'createdBy', select: 'name email' }
+    ]
+  });
 
-    if (!deck) {
-      throw new NotFoundError('Mazo');
-    }
-
-    if (deck.createdBy._id.toString() !== req.user._id.toString()) {
-      throw new ForbiddenError('No tienes permiso para ver este mazo');
-    }
-
-    res.json({
-      success: true,
-      data: toCardDeckDetailDTOV1(deck)
-    });
-  } catch (error) {
-    next(error);
+  if (!deck) {
+    throw new NotFoundError('Mazo');
   }
+
+  ensureResourceOwnership(deck, req.user._id, 'mazo');
+
+  sendSuccess(res, toCardDeckDetailDTOV1(deck));
+};
+
+/**
+ * GET /api/decks/check-card
+ * Verifica si un UID existe en otros mazos activos del profesor (ADR-022).
+ * Endpoint read-only para feedback inmediato durante el escaneo de tarjetas.
+ */
+const checkCard = async (req, res) => {
+  const { uid, excludeDeckId } = req.query;
+  const result = await cardDeckService.checkCardInOtherDecks(uid, req.user._id, excludeDeckId);
+  sendSuccess(res, result);
 };
 
 /**
  * POST /api/decks
  */
-const createDeck = async (req, res, next) => {
+const createDeck = async (req, res) => {
+  // Captura MongoDB error 11000 (unique index) para lanzar ConflictError de dominio
   try {
     const { name, description, contextId, cardMappings, status } = req.body;
 
@@ -252,16 +199,25 @@ const createDeck = async (req, res, next) => {
     // Validar contexto y que assignedValue pertenece al contexto
     await validateContextAndAssignedValues(contextId, normalizedMappings);
 
-    // Validar tarjetas
-    await validateCardsExistAndActive(normalizedMappings);
+    // Crear mazo con resolución atómica de conflictos cross-deck (ADR-022)
+    const uids = normalizedMappings.map(m => m.uid);
 
-    const deck = await cardDeckRepository.create({
-      name: name.trim(),
-      description: description ? description.trim() : undefined,
-      contextId,
-      cardMappings: normalizedMappings,
-      status: status || 'active',
-      createdBy: req.user._id
+    const { deck, conflictSummary } = await withTransaction(async session => {
+      const summary = await cardDeckService.resolveCardConflicts(uids, req.user._id, session);
+
+      const createdDeck = await cardDeckRepository.createWithSession(
+        {
+          name: name.trim(),
+          description: description ? description.trim() : undefined,
+          contextId,
+          cardMappings: normalizedMappings,
+          status: status || 'active',
+          createdBy: req.user._id
+        },
+        session
+      );
+
+      return { deck: createdDeck, conflictSummary: summary };
     });
 
     await deck.populate([{ path: 'contextId', select: 'contextId name' }]);
@@ -271,20 +227,23 @@ const createDeck = async (req, res, next) => {
       name: deck.name,
       contextId: deck.contextId,
       cardsCount: deck.cardMappings.length,
-      createdBy: req.user._id
+      createdBy: req.user._id,
+      movedCards: conflictSummary.movedCards.length,
+      archivedDecks: conflictSummary.archivedDecks.length
     });
 
-    res.status(201).json({
-      success: true,
-      message: 'Mazo creado exitosamente',
-      data: toCardDeckDetailDTOV1(deck)
-    });
+    const responseData = toCardDeckDetailDTOV1(deck);
+    if (conflictSummary.movedCards.length > 0) {
+      responseData.affectedDecks = conflictSummary;
+    }
+
+    sendCreated(res, responseData, 'Mazo creado exitosamente');
   } catch (error) {
     // Duplicado por índice único (createdBy + name)
     if (error?.code === 11000) {
-      return next(new ConflictError('Ya existe un mazo con ese nombre'));
+      throw new ConflictError('Ya existe un mazo con ese nombre');
     }
-    next(error);
+    throw error;
   }
 };
 
@@ -347,7 +306,6 @@ const applyDeckMappingUpdates = async (deck, { contextId, cardMappings }) => {
   if (hasCardMappingsUpdate) {
     const normalizedMappings = validateDeckMappingsStructure(cardMappings);
     await validateContextAndAssignedValues(finalContextId, normalizedMappings);
-    await validateCardsExistAndActive(normalizedMappings);
     deck.cardMappings = normalizedMappings;
     return;
   }
@@ -357,7 +315,8 @@ const applyDeckMappingUpdates = async (deck, { contextId, cardMappings }) => {
   }
 };
 
-const updateDeck = async (req, res, next) => {
+const updateDeck = async (req, res) => {
+  // Captura MongoDB error 11000 (unique index) para lanzar ConflictError de dominio
   try {
     const { id } = req.params;
     const { name, description, contextId, cardMappings, status } = req.body;
@@ -368,31 +327,46 @@ const updateDeck = async (req, res, next) => {
       throw new NotFoundError('Mazo');
     }
 
-    if (deck.createdBy.toString() !== req.user._id.toString()) {
-      throw new ForbiddenError('No tienes permiso para actualizar este mazo');
-    }
+    ensureResourceOwnership(deck, req.user._id, 'mazo');
 
     applyDeckFieldUpdates(deck, { name, description, status });
     await applyDeckMappingUpdates(deck, { contextId, cardMappings });
 
-    await deck.save();
+    // Si se actualizan cardMappings, resolver conflictos cross-deck atómicamente (ADR-022)
+    let conflictSummary = { movedCards: [], archivedDecks: [] };
+
+    if (cardMappings !== undefined) {
+      const uids = deck.cardMappings.map(m => m.uid);
+
+      conflictSummary = await withTransaction(async session => {
+        const summary = await cardDeckService.resolveCardConflicts(uids, req.user._id, session, id);
+        await deck.save(session ? { session } : {});
+        return summary;
+      });
+    } else {
+      await deck.save();
+    }
+
     await deck.populate([{ path: 'contextId', select: 'contextId name' }]);
 
     logger.info('Mazo actualizado', {
       deckId: deck._id,
-      updatedBy: req.user._id
+      updatedBy: req.user._id,
+      movedCards: conflictSummary.movedCards.length,
+      archivedDecks: conflictSummary.archivedDecks.length
     });
 
-    res.json({
-      success: true,
-      message: 'Mazo actualizado exitosamente',
-      data: toCardDeckDetailDTOV1(deck)
-    });
+    const responseData = toCardDeckDetailDTOV1(deck);
+    if (conflictSummary.movedCards.length > 0) {
+      responseData.affectedDecks = conflictSummary;
+    }
+
+    sendSuccess(res, responseData, 'Mazo actualizado exitosamente');
   } catch (error) {
     if (error?.code === 11000) {
-      return next(new ConflictError('Ya existe un mazo con ese nombre'));
+      throw new ConflictError('Ya existe un mazo con ese nombre');
     }
-    next(error);
+    throw error;
   }
 };
 
@@ -400,40 +374,32 @@ const updateDeck = async (req, res, next) => {
  * DELETE /api/decks/:id
  * Soft delete: archiva el mazo.
  */
-const deleteDeck = async (req, res, next) => {
-  try {
-    const { id } = req.params;
+const deleteDeck = async (req, res) => {
+  const { id } = req.params;
 
-    const deck = await cardDeckRepository.findById(id);
+  const deck = await cardDeckRepository.findById(id);
 
-    if (!deck) {
-      throw new NotFoundError('Mazo');
-    }
-
-    if (deck.createdBy.toString() !== req.user._id.toString()) {
-      throw new ForbiddenError('No tienes permiso para eliminar este mazo');
-    }
-
-    deck.status = 'archived';
-    await deck.save();
-
-    logger.info('Mazo archivado', {
-      deckId: deck._id,
-      archivedBy: req.user._id
-    });
-
-    res.json({
-      success: true,
-      message: 'Mazo eliminado (archivado) exitosamente'
-    });
-  } catch (error) {
-    next(error);
+  if (!deck) {
+    throw new NotFoundError('Mazo');
   }
+
+  ensureResourceOwnership(deck, req.user._id, 'mazo');
+
+  deck.status = 'archived';
+  await deck.save();
+
+  logger.info('Mazo archivado', {
+    deckId: deck._id,
+    archivedBy: req.user._id
+  });
+
+  sendSuccess(res, null, 'Mazo eliminado (archivado) exitosamente');
 };
 
 module.exports = {
   getDecks,
   getDeckById,
+  checkCard,
   createDeck,
   updateDeck,
   deleteDeck

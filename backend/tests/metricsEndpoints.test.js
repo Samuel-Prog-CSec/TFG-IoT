@@ -57,6 +57,12 @@ describe('System Endpoints (/health, /api/metrics)', () => {
       expect(res.body.rfid.processed).toHaveProperty('totalEventsProcessed');
       expect(res.body.rfid).toHaveProperty('service');
       expect(res.body.rfid.service).toHaveProperty('metrics');
+      // Fix BUG-QA-2: el DTO debe incluir el bloque redis con contadores del
+      // cache de auth y del fallback de rate limiter.
+      expect(res.body).toHaveProperty('redis');
+      expect(res.body.redis).toHaveProperty('rateLimitStoreFallbackCount');
+      expect(res.body.redis).toHaveProperty('authUserCacheHits');
+      expect(res.body.redis).toHaveProperty('authUserCacheMisses');
     });
   });
 
@@ -69,6 +75,43 @@ describe('System Endpoints (/health, /api/metrics)', () => {
       expect(res.body.services).toHaveProperty('mongodb');
       expect(res.body.services).toHaveProperty('redis');
       expect(res.body.services).toHaveProperty('rfid');
+    });
+
+    it('should include backend version in health response', async () => {
+      const res = await request(app).get('/api/health');
+      expect([200, 503]).toContain(res.statusCode);
+      expect(res.body).toHaveProperty('version');
+      expect(res.body.version).toBe(require('../package.json').version);
+    });
+
+    it('should return same structure on /health and /api/health', async () => {
+      const [res1, res2] = await Promise.all([
+        request(app).get('/health'),
+        request(app).get('/api/health')
+      ]);
+      expect(res1.statusCode).toBe(res2.statusCode);
+      expect(Object.keys(res1.body).sort()).toEqual(Object.keys(res2.body).sort());
+    });
+  });
+
+  describe('GET /api/info', () => {
+    it('should return API information with version and endpoints', async () => {
+      const res = await request(app).get('/api/info');
+      expect(res.statusCode).toBe(200);
+      expect(res.body).toHaveProperty('version');
+      expect(res.body.version).toBe(require('../package.json').version);
+      expect(res.body).toHaveProperty('endpoints');
+      expect(res.body.endpoints).toHaveProperty('health', '/api/health');
+      expect(res.body.endpoints).toHaveProperty('auth', '/api/auth');
+    });
+  });
+
+  describe('GET /', () => {
+    it('should return API root info (same as /api/info)', async () => {
+      const res = await request(app).get('/');
+      expect(res.statusCode).toBe(200);
+      expect(res.body).toHaveProperty('message', 'API REST de Juegos RFID');
+      expect(res.body).toHaveProperty('version');
     });
   });
 });

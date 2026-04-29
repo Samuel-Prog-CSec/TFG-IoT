@@ -1,5 +1,4 @@
 const request = require('supertest');
-const mongoose = require('mongoose');
 const { app } = require('../src/server');
 const User = require('../src/models/User');
 const GameContext = require('../src/models/GameContext');
@@ -60,13 +59,11 @@ describe('Context deletion integrity', () => {
       createdBy: teacher._id,
       cardMappings: [
         {
-          cardId: new mongoose.Types.ObjectId(),
           uid: 'AA000001',
           assignedValue: 'Valor 1',
           displayData: { key: 'asset1', value: 'Valor 1' }
         },
         {
-          cardId: new mongoose.Types.ObjectId(),
           uid: 'AA000002',
           assignedValue: 'Valor 2',
           displayData: { key: 'asset2', value: 'Valor 2' }
@@ -101,13 +98,11 @@ describe('Context deletion integrity', () => {
       createdBy: teacher._id,
       cardMappings: [
         {
-          cardId: new mongoose.Types.ObjectId(),
           uid: 'BB000001',
           assignedValue: 'Valor 1',
           displayData: { key: 'asset1', value: 'Valor 1' }
         },
         {
-          cardId: new mongoose.Types.ObjectId(),
           uid: 'BB000002',
           assignedValue: 'Valor 2',
           displayData: { key: 'asset2', value: 'Valor 2' }

@@ -9,7 +9,7 @@ import PropTypes from 'prop-types';
  */
 function DistributionChart({ data }) {
   return (
-    <ResponsiveContainer width="100%" height="100%">
+    <ResponsiveContainer width="100%" height="100%" minWidth={0} minHeight={0} debounce={50}>
       <BarChart data={data} barSize={40} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
         <CartesianGrid strokeDasharray="3 3" stroke="var(--color-border-subtle)" vertical={false} />
         <XAxis 
@@ -39,10 +39,14 @@ function DistributionChart({ data }) {
           formatter={(value) => [`${value} Estudiantes`, 'Cantidad']}
         />
         <Bar dataKey="count" radius={[6, 6, 0, 0]}>
-          {data.map((entry, index) => (
-            <Cell 
-              key={`cell-${index}`} 
-              fill={entry.range === '0-49' ? 'var(--color-error-base)' : entry.range === '90-100' ? 'var(--color-success-base)' : 'var(--color-brand-base)'} 
+          {data.map((entry) => (
+            <Cell
+              key={`cell-${entry.range}`}
+              fill={(() => {
+                if (entry.range === '0-49') return 'var(--color-error-base)';
+                if (entry.range === '90-100') return 'var(--color-success-base)';
+                return 'var(--color-brand-base)';
+              })()}
               fillOpacity={0.9}
             />
           ))}

@@ -30,8 +30,10 @@ const socketRateLimits = {
  * Política de bloqueo temporal tras abuso.
  */
 const socketBlockConfig = {
-  violationThreshold: 3,
-  blockDurationMs: 60 * 1000
+  // Relajado para entorno educativo: profesores pueden doble-escanear accidentalmente
+  // sin quedar bloqueados durante una clase (ver ADR-047)
+  violationThreshold: 5,
+  blockDurationMs: 15 * 1000
 };
 
 /**
@@ -46,9 +48,34 @@ const socketPayloadLimits = {
 
 /**
  * Dedupe/cooldown adicional para eventos RFID del cliente.
+ *
+ * PROP-90 / ADR-090: el cooldown se diferencia por `source` del payload para
+ * no penalizar mecánicas táctiles rápidas. El sensor RFID físico (RC522) puede
+ * leer el mismo tag dos veces por chattering en ~1s, pero un tap táctil sobre
+ * dos cartas distintas en memoria no comparte UID — el dedupe largo causaba
+ * falsos positivos. Cada fuente tiene su propio cooldown:
+ *
+ *  - `web_serial_hardware` (default si falta `source`): 1200ms — protege contra
+ *    el chattering del sensor.
+ *  - `touch_fallback`: 250ms — fallback táctil del panel de Asociación.
+ *  - `touch_memory_flip`: 250ms — taps sobre cartas en mecánica Memoria.
  */
 const rfidDedupeConfig = {
-  cooldownMs: 1200
+  defaultCooldownMs: 1200,
+  cooldownMsBySource: {
+    web_serial_hardware: 1200,
+    web_serial: 1200,
+    touch_fallback: 250,
+    touch_memory_flip: 250
+  }
+};
+
+/**
+ * Límite máximo de conexiones WebSocket simultáneas por usuario.
+ * Previene agotamiento de recursos por apertura masiva de conexiones.
+ */
+const socketConnectionLimits = {
+  maxConnectionsPerUser: Number.parseInt(process.env.SOCKET_MAX_CONNECTIONS_PER_USER, 10) || 5
 };
 
 /**
@@ -64,5 +91,6 @@ module.exports = {
   socketBlockConfig,
   socketPayloadLimits,
   rfidDedupeConfig,
+  socketConnectionLimits,
   socketStateCleanup
 };

@@ -32,6 +32,14 @@
 
 const mongoose = require('mongoose');
 const bcrypt = require('bcrypt');
+const {
+  ROLES,
+  USER_STATUS,
+  ACCOUNT_STATUS,
+  CONSENT_PURPOSES,
+  CONSENT_CHANNEL,
+  CONSENT_ACTION
+} = require('../constants/enums');
 
 const hasLoginRole = role => role === 'teacher' || role === 'super_admin';
 
@@ -57,6 +65,30 @@ const validateStudentRequirements = user => {
   }
   if (!user.createdBy && user.isNew) {
     throw new Error('Los alumnos deben ser creados por un profesor (campo createdBy requerido)');
+  }
+  // Minimización de datos — Art. 5.1.c RGPD: la fecha de nacimiento completa
+  // tiene alto potencial identificativo y no aporta valor pedagógico respecto a la edad simple
+  if (user.profile?.birthdate) {
+    throw new Error(
+      'Los alumnos NO deben tener fecha de nacimiento (principio de minimización, Art. 5.1.c RGPD). Usar profile.age en su lugar.'
+    );
+  }
+  // Consentimiento parental obligatorio — Art. 8 RGPD + Art. 7 LOPDGDD
+  if (user.isNew) {
+    if (!user.consent?.granted) {
+      throw new Error(
+        'El consentimiento parental es obligatorio para crear alumnos (Art. 8 RGPD + Art. 7 LOPDGDD)'
+      );
+    }
+    if (!user.consent?.grantedBy) {
+      throw new Error('Se requiere el nombre del tutor que otorga el consentimiento');
+    }
+    if (!user.consent.grantedAt) {
+      user.consent.grantedAt = new Date();
+    }
+    if (!user.consent.purposes || user.consent.purposes.length === 0) {
+      user.consent.purposes = ['educational_tracking', 'performance_analytics'];
+    }
   }
 };
 
@@ -115,7 +147,7 @@ const userSchema = new mongoose.Schema(
       lowercase: true,
       unique: true,
       sparse: true, // Permite múltiples documentos con email undefined (para alumnos)
-      match: [/^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$/, 'El email no es válido']
+      match: [/^[\w.%+-]+@[a-z0-9.-]+\.[a-z]{2,}$/i, 'El email no es válido']
     },
     password: {
       type: String,
@@ -126,7 +158,7 @@ const userSchema = new mongoose.Schema(
       lowercase: true,
       trim: true,
       enum: {
-        values: ['super_admin', 'teacher', 'student'],
+        values: ROLES,
         message: 'El rol debe ser super_admin, teacher o student'
       },
       required: [true, 'El rol es obligatorio'],
@@ -136,7 +168,7 @@ const userSchema = new mongoose.Schema(
       type: String,
       lowercase: true,
       trim: true,
-      enum: ['pending_approval', 'approved', 'rejected'],
+      enum: ACCOUNT_STATUS,
       default: 'approved'
     },
     profile: {
@@ -189,13 +221,23 @@ const userSchema = new mongoose.Schema(
         default: 0,
         min: 0
       },
+      totalTimeouts: {
+        type: Number,
+        default: 0,
+        min: 0
+      },
+      totalAbandonedGames: {
+        type: Number,
+        default: 0,
+        min: 0
+      },
       lastPlayedAt: Date
     },
     status: {
       type: String,
       lowercase: true,
       trim: true,
-      enum: ['active', 'inactive'],
+      enum: USER_STATUS,
       default: 'active'
     },
     createdBy: {
@@ -206,6 +248,75 @@ const userSchema = new mongoose.Schema(
       type: mongoose.Schema.Types.ObjectId,
       ref: 'User'
     },
+    // Consentimiento parental — Art. 8 RGPD + Art. 7 LOPDGDD
+    // Obligatorio para estudiantes menores de 14 años.
+    // Registra quién otorgó el consentimiento, cuándo, para qué finalidades y bajo qué versión de la política.
+    consent: {
+      granted: {
+        type: Boolean,
+        default: false
+      },
+      grantedBy: {
+        type: String,
+        trim: true,
+        maxlength: [100, 'El nombre del tutor no puede exceder 100 caracteres']
+      },
+      grantedAt: {
+        type: Date
+      },
+      purposes: [
+        {
+          type: String,
+          enum: CONSENT_PURPOSES
+        }
+      ],
+      policyVersion: {
+        type: String,
+        trim: true,
+        default: '1.0'
+      },
+      withdrawnAt: {
+        type: Date,
+        default: null
+      },
+      // Metadata del canal de recogida — Art. 7.1 RGPD (demostrar consentimiento)
+      channel: {
+        type: String,
+        trim: true,
+        enum: CONSENT_CHANNEL,
+        default: 'web_form'
+      },
+      ipAddress: {
+        type: String,
+        trim: true
+      },
+      userAgent: {
+        type: String,
+        trim: true
+      }
+    },
+    // Historial de cambios de consentimiento — Art. 7.1 RGPD (demostrar consentimiento)
+    // Cada otorgamiento o revocación se registra para trazabilidad completa.
+    consentHistory: [
+      {
+        action: {
+          type: String,
+          enum: CONSENT_ACTION
+        },
+        grantedBy: String,
+        timestamp: {
+          type: Date,
+          default: Date.now
+        },
+        policyVersion: String,
+        purposes: [
+          {
+            type: String,
+            enum: CONSENT_PURPOSES
+          }
+        ]
+      }
+    ],
     currentSessionId: {
       type: String,
       default: null,
@@ -281,6 +392,7 @@ userSchema.methods.updateLastLogin = function () {
  * @param {number} playResults.score - Puntuación obtenida en la partida
  * @param {number} playResults.correctAttempts - Cantidad de respuestas correctas
  * @param {number} playResults.errorAttempts - Cantidad de errores
+ * @param {number} [playResults.timeoutAttempts=0] - Cantidad de timeouts
  * @param {number} playResults.averageResponseTime - Tiempo medio de respuesta en ms
  * @returns {Promise<User>} Promesa que resuelve con el documento actualizado
  * @example
@@ -288,6 +400,7 @@ userSchema.methods.updateLastLogin = function () {
  *   score: 50,
  *   correctAttempts: 8,
  *   errorAttempts: 2,
+ *   timeoutAttempts: 1,
  *   averageResponseTime: 3500
  * });
  */
@@ -311,9 +424,10 @@ userSchema.methods.updateStudentMetrics = function (playResults) {
     this.studentMetrics.bestScore = playResults.score;
   }
 
-  // Actualizar contadores de aciertos y errores
+  // Actualizar contadores de aciertos, errores y timeouts
   this.studentMetrics.totalCorrectAnswers += playResults.correctAttempts;
   this.studentMetrics.totalErrors += playResults.errorAttempts;
+  this.studentMetrics.totalTimeouts += playResults.timeoutAttempts || 0;
 
   // Recalcular tiempo medio de respuesta (promedio ponderado)
   const totalAttempts = this.studentMetrics.totalCorrectAnswers + this.studentMetrics.totalErrors;
@@ -331,6 +445,42 @@ userSchema.methods.updateStudentMetrics = function (playResults) {
   this.studentMetrics.lastPlayedAt = new Date();
 
   return this.save();
+};
+
+/**
+ * Registra una partida abandonada en las métricas del alumno.
+ * No afecta al averageScore (las abandonadas no cuentan para la media).
+ * Solo incrementa el contador de abandonos y actualiza lastPlayedAt.
+ *
+ * @instance
+ * @memberof User
+ * @returns {Promise<User>} Promesa que resuelve con el documento actualizado
+ */
+userSchema.methods.recordAbandonedGame = function () {
+  if (this.role !== 'student') {
+    throw new Error('Solo los alumnos tienen métricas de juego');
+  }
+
+  this.studentMetrics.totalAbandonedGames += 1;
+  this.studentMetrics.lastPlayedAt = new Date();
+
+  return this.save();
+};
+
+/**
+ * Verifica si el estudiante tiene consentimiento activo para un propósito específico.
+ *
+ * @instance
+ * @memberof User
+ * @param {string} purpose - Propósito a verificar ('educational_tracking' o 'performance_analytics')
+ * @returns {boolean} true si el consentimiento está activo y el propósito incluido
+ */
+userSchema.methods.hasConsentFor = function (purpose) {
+  return (
+    this.consent?.granted === true &&
+    !this.consent?.withdrawnAt &&
+    this.consent?.purposes?.includes(purpose)
+  );
 };
 
 /**
@@ -414,5 +564,11 @@ userSchema.index({ role: 1, 'profile.classroom': 1 });
  * Permite a un profesor ver todos sus alumnos.
  */
 userSchema.index({ createdBy: 1 });
+
+/**
+ * Índice compuesto para analytics de clase: estudiantes de un profesor por rol.
+ * Caso de uso: GET /api/analytics/classroom/students (lista filtrada por profesor).
+ */
+userSchema.index({ createdBy: 1, role: 1 });
 
 module.exports = mongoose.model('User', userSchema);

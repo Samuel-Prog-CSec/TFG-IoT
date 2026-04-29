@@ -28,14 +28,15 @@ const assetUrls = (contextId, key) => ({
 const contextsData = [
   {
     contextId: 'geography-europe',
-    name: 'Paises de Europa',
+    name: 'Países de Europa',
     isActive: true,
     assets: [
       {
         key: 'spain',
-        display: 'Espana',
-        value: 'Espana',
+        display: 'España',
+        value: 'España',
         audioUrl: null,
+        dominantColor: '#c60b1e',
         ...assetUrls('geography-europe', 'spain')
       },
       {
@@ -43,6 +44,7 @@ const contextsData = [
         display: 'Francia',
         value: 'Francia',
         audioUrl: null,
+        dominantColor: '#002395',
         ...assetUrls('geography-europe', 'france')
       },
       {
@@ -50,6 +52,7 @@ const contextsData = [
         display: 'Italia',
         value: 'Italia',
         audioUrl: null,
+        dominantColor: '#008c45',
         ...assetUrls('geography-europe', 'italy')
       },
       {
@@ -57,6 +60,7 @@ const contextsData = [
         display: 'Alemania',
         value: 'Alemania',
         audioUrl: null,
+        dominantColor: '#000000',
         ...assetUrls('geography-europe', 'germany')
       },
       {
@@ -64,6 +68,7 @@ const contextsData = [
         display: 'Portugal',
         value: 'Portugal',
         audioUrl: null,
+        dominantColor: '#006600',
         ...assetUrls('geography-europe', 'portugal')
       },
       {
@@ -71,6 +76,7 @@ const contextsData = [
         display: 'Grecia',
         value: 'Grecia',
         audioUrl: null,
+        dominantColor: '#0d5eaf',
         ...assetUrls('geography-europe', 'greece')
       }
     ]
@@ -85,6 +91,7 @@ const contextsData = [
         display: 'Vaca',
         value: 'Vaca',
         audioUrl: null,
+        dominantColor: '#8b6914',
         ...assetUrls('animals-farm', 'cow')
       },
       {
@@ -92,6 +99,7 @@ const contextsData = [
         display: 'Cerdo',
         value: 'Cerdo',
         audioUrl: null,
+        dominantColor: '#f4a7bb',
         ...assetUrls('animals-farm', 'pig')
       },
       {
@@ -99,6 +107,7 @@ const contextsData = [
         display: 'Gallina',
         value: 'Gallina',
         audioUrl: null,
+        dominantColor: '#e8a317',
         ...assetUrls('animals-farm', 'chicken')
       },
       {
@@ -106,6 +115,7 @@ const contextsData = [
         display: 'Caballo',
         value: 'Caballo',
         audioUrl: null,
+        dominantColor: '#6b3a2a',
         ...assetUrls('animals-farm', 'horse')
       },
       {
@@ -113,6 +123,7 @@ const contextsData = [
         display: 'Pato',
         value: 'Pato',
         audioUrl: null,
+        dominantColor: '#f5c71a',
         ...assetUrls('animals-farm', 'duck')
       },
       {
@@ -120,13 +131,14 @@ const contextsData = [
         display: 'Gato',
         value: 'Gato',
         audioUrl: null,
+        dominantColor: '#d4883a',
         ...assetUrls('animals-farm', 'cat')
       }
     ]
   },
   {
     contextId: 'colors-basic',
-    name: 'Colores Basicos',
+    name: 'Colores Básicos',
     isActive: true,
     assets: [
       {
@@ -134,6 +146,7 @@ const contextsData = [
         display: 'Rojo',
         value: 'Rojo',
         audioUrl: null,
+        dominantColor: '#e53935',
         ...assetUrls('colors-basic', 'red')
       },
       {
@@ -141,6 +154,7 @@ const contextsData = [
         display: 'Azul',
         value: 'Azul',
         audioUrl: null,
+        dominantColor: '#1e88e5',
         ...assetUrls('colors-basic', 'blue')
       },
       {
@@ -148,6 +162,7 @@ const contextsData = [
         display: 'Verde',
         value: 'Verde',
         audioUrl: null,
+        dominantColor: '#43a047',
         ...assetUrls('colors-basic', 'green')
       },
       {
@@ -155,6 +170,7 @@ const contextsData = [
         display: 'Amarillo',
         value: 'Amarillo',
         audioUrl: null,
+        dominantColor: '#fdd835',
         ...assetUrls('colors-basic', 'yellow')
       },
       {
@@ -162,6 +178,7 @@ const contextsData = [
         display: 'Naranja',
         value: 'Naranja',
         audioUrl: null,
+        dominantColor: '#fb8c00',
         ...assetUrls('colors-basic', 'orange')
       },
       {
@@ -169,13 +186,14 @@ const contextsData = [
         display: 'Morado',
         value: 'Morado',
         audioUrl: null,
+        dominantColor: '#8e24aa',
         ...assetUrls('colors-basic', 'purple')
       }
     ]
   },
   {
-    contextId: 'numbers-1-15',
-    name: 'Numeros del 1 al 6',
+    contextId: 'numbers-1-6',
+    name: 'Números del 1 al 6',
     isActive: true,
     assets: [
       {
@@ -183,6 +201,7 @@ const contextsData = [
         display: 'Uno',
         value: 'Uno',
         audioUrl: null,
+        dominantColor: '#5c6bc0',
         ...assetUrls('numbers-1-15', 'one')
       },
       {
@@ -190,6 +209,7 @@ const contextsData = [
         display: 'Dos',
         value: 'Dos',
         audioUrl: null,
+        dominantColor: '#26a69a',
         ...assetUrls('numbers-1-15', 'two')
       },
       {
@@ -197,6 +217,7 @@ const contextsData = [
         display: 'Tres',
         value: 'Tres',
         audioUrl: null,
+        dominantColor: '#ef5350',
         ...assetUrls('numbers-1-15', 'three')
       },
       {
@@ -204,6 +225,7 @@ const contextsData = [
         display: 'Cuatro',
         value: 'Cuatro',
         audioUrl: null,
+        dominantColor: '#66bb6a',
         ...assetUrls('numbers-1-15', 'four')
       },
       {
@@ -211,6 +233,7 @@ const contextsData = [
         display: 'Cinco',
         value: 'Cinco',
         audioUrl: null,
+        dominantColor: '#ffa726',
         ...assetUrls('numbers-1-15', 'five')
       },
       {
@@ -218,20 +241,22 @@ const contextsData = [
         display: 'Seis',
         value: 'Seis',
         audioUrl: null,
+        dominantColor: '#ab47bc',
         ...assetUrls('numbers-1-15', 'six')
       }
     ]
   },
   {
     contextId: 'shapes-basic',
-    name: 'Formas Basicas',
+    name: 'Formas Básicas',
     isActive: true,
     assets: [
       {
         key: 'circle',
-        display: 'Circulo',
-        value: 'Circulo',
+        display: 'Círculo',
+        value: 'Círculo',
         audioUrl: null,
+        dominantColor: '#42a5f5',
         ...assetUrls('shapes-basic', 'circle')
       },
       {
@@ -239,13 +264,15 @@ const contextsData = [
         display: 'Cuadrado',
         value: 'Cuadrado',
         audioUrl: null,
+        dominantColor: '#66bb6a',
         ...assetUrls('shapes-basic', 'square')
       },
       {
         key: 'triangle',
-        display: 'Triangulo',
-        value: 'Triangulo',
+        display: 'Triángulo',
+        value: 'Triángulo',
         audioUrl: null,
+        dominantColor: '#ffa726',
         ...assetUrls('shapes-basic', 'triangle')
       },
       {
@@ -253,13 +280,15 @@ const contextsData = [
         display: 'Estrella',
         value: 'Estrella',
         audioUrl: null,
+        dominantColor: '#ffee58',
         ...assetUrls('shapes-basic', 'star')
       },
       {
         key: 'heart',
-        display: 'Corazon',
-        value: 'Corazon',
+        display: 'Corazón',
+        value: 'Corazón',
         audioUrl: null,
+        dominantColor: '#ef5350',
         ...assetUrls('shapes-basic', 'heart')
       },
       {
@@ -267,6 +296,7 @@ const contextsData = [
         display: 'Rombo',
         value: 'Rombo',
         audioUrl: null,
+        dominantColor: '#ab47bc',
         ...assetUrls('shapes-basic', 'diamond')
       }
     ]
@@ -275,17 +305,44 @@ const contextsData = [
 
 /**
  * Ejecuta el seeder de contextos.
- * @returns {Promise<Array>} Array de contextos creados
+ *
+ * Los assets seedeados quedan SIEMPRE con `uploadedBy = null`. Esto refleja la
+ * decision de producto (ADR-053): los assets seed son "del sistema" — base del
+ * producto, no propiedad de un usuario. No pueden eliminarse individualmente
+ * desde la UI; solo se eliminan al borrar el contexto entero (accion exclusiva
+ * del super_admin desde /admin/contexts).
+ *
+ * Idempotente: si ya existen contextos, los devuelve sin recrearlos (evita
+ * E11000 por el indice unique en `contextId`).
+ *
+ * @returns {Promise<Array>} Array de contextos creados o preexistentes
  */
 async function seedContexts() {
   try {
-    const contexts = await GameContext.create(contextsData);
+    const existing = await GameContext.find({});
+    if (existing.length > 0) {
+      logger.info(`Contextos ya existen (${existing.length}), omitiendo creacion`);
+      return existing;
+    }
 
-    const totalAssets = contextsData.reduce((sum, ctx) => sum + ctx.assets.length, 0);
+    // Asegurar uploadedBy=null en cada asset (defensivo: el default del schema ya es null)
+    const dataWithOwnership = contextsData.map(ctx => ({
+      ...ctx,
+      assets: ctx.assets.map(asset => ({
+        ...asset,
+        uploadedBy: null
+      }))
+    }));
+
+    const contexts = await GameContext.create(dataWithOwnership);
+
+    const totalAssets = dataWithOwnership.reduce((sum, ctx) => sum + ctx.assets.length, 0);
 
     logger.info('Contextos de juego seeded exitosamente');
     logger.info(`- ${contexts.length} contextos creados`);
-    logger.info(`- ${totalAssets} assets totales (todos con imagen en Storage)`);
+    logger.info(
+      `- ${totalAssets} assets totales del sistema (uploadedBy=null, no eliminables individualmente)`
+    );
 
     return contexts;
   } catch (error) {

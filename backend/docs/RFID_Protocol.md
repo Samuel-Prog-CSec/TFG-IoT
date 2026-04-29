@@ -26,7 +26,6 @@
 > | Procesamiento de Escaneo | [rfid_card_scan_processing.puml](diagrams/rfid_card_scan_processing.puml) |
 > | Flujo de Gameplay        | [rfid_gameplay_sequence.puml](diagrams/rfid_gameplay_sequence.puml)       |
 > | Inicialización           | [rfid_init_sequence.puml](diagrams/rfid_init_sequence.puml)               |
-> | Registro de Tarjetas     | [rfid_card_registration.puml](diagrams/rfid_card_registration.puml)       |
 >
 > Para generar imágenes: `plantuml diagrams/*.puml`
 
@@ -47,7 +46,6 @@ El sistema RFID permite:
 
 - **Interacción física**: Los alumnos responden a desafíos escaneando tarjetas físicas
 - **Retroalimentación inmediata**: El sistema valida respuestas en tiempo real
-- **Registro de tarjetas**: Los profesores pueden registrar nuevas tarjetas en el sistema
 - **Asignación dinámica**: Las tarjetas se asignan a conceptos educativos por sesión de juego
 
 ### 1.2 Componentes Principales
@@ -86,7 +84,7 @@ El sistema RFID está compuesto por tres capas principales:
 
 - Pantalla del alumno (visualización de desafíos y feedback)
 - Dashboard del profesor (monitoreo y control)
-- Panel de configuración (registro y asignación de tarjetas)
+- Panel de configuración (asignación de tarjetas)
 
 ### 2.2 Flujo de Datos
 
@@ -413,12 +411,11 @@ El sensor RFID es un recurso compartido que puede operar en diferentes modos seg
 
 ### 6.1 Modos Disponibles
 
-| Modo                | Descripción               | Acción al Escanear                         |
-| ------------------- | ------------------------- | ------------------------------------------ |
-| `idle`              | Sin operación activa      | Broadcast informativo a todos los clientes |
-| `gameplay`          | Partida en curso          | Validar respuesta en GameEngine            |
-| `card_registration` | Registrando nueva tarjeta | Enviar UID al cliente solicitante          |
-| `card_assignment`   | Asignando tarjeta a asset | Enviar UID + assetKey al cliente           |
+| Modo              | Descripción               | Acción al Escanear                         |
+| ----------------- | ------------------------- | ------------------------------------------ |
+| `idle`            | Sin operación activa      | Broadcast informativo a todos los clientes |
+| `gameplay`        | Partida en curso          | Validar respuesta en GameEngine            |
+| `card_assignment` | Asignando tarjeta a asset | Enviar UID + assetKey al cliente           |
 
 ### 6.2 Diagrama de Estados de Modos
 
@@ -430,16 +427,13 @@ El sensor RFID es un recurso compartido que puede operar en diferentes modos seg
 
 - **`gameplay`**: Se activa cuando hay una partida en curso. Los escaneos se procesan en `GameEngine` para validar respuestas. Este modo **coexiste** con los demás (no bloquea otras operaciones).
 
-- **`card_registration`**: Se activa cuando un profesor inicia el registro de una nueva tarjeta. El primer escaneo se envía únicamente al cliente que solicitó el modo. Tiene un timeout de 30 segundos.
+- **`card_assignment`**: Se usa para asignar una tarjeta a un asset específico (ej: "España" → UID). Incluye el `assetKey` en la respuesta. Timeout de 60 segundos.
 
-- **`card_assignment`**: Similar a registro, pero se usa para asignar una tarjeta existente a un asset específico (ej: "España" → UID). Incluye el `assetKey` en la respuesta. Timeout de 60 segundos.
-
-**Decisión de diseño**: El modo `gameplay` coexiste con otros modos para permitir que las partidas no bloqueen operaciones administrativas como el registro de tarjetas. Sin embargo, si hay una partida activa que utiliza una tarjeta específica, esa tarjeta está "bloqueada" y no puede ser re-asignada.
+**Decisión de diseño**: El modo `gameplay` coexiste con otros modos para permitir que las partidas no bloqueen operaciones administrativas como la asignación de tarjetas. Sin embargo, si hay una partida activa que utiliza una tarjeta específica, esa tarjeta está "bloqueada" y no puede ser re-asignada.
 
 ### 6.3 Reglas de Transición
 
 - ✅ `idle` → cualquier modo: **Permitido**
-- ✅ `card_registration` → `idle`: **Permitido** (tras escaneo o cancelación)
 - ✅ `card_assignment` → `idle`: **Permitido** (tras escaneo o cancelación)
 - ❌ `gameplay` → otro modo: **Bloqueado** (partidas tienen prioridad)
 - ✅ cualquier modo → `gameplay`: **Permitido** (iniciar partida)
@@ -449,7 +443,7 @@ El sensor RFID es un recurso compartido que puede operar en diferentes modos seg
 - Cada modo tiene un "dueño" (el socket que lo solicitó)
 - Solo el dueño puede cancelar el modo
 - Si el dueño se desconecta, el modo se resetea automáticamente
-- Timeout configurable (30s para registro, 60s para asignación)
+- Timeout configurable (60s para asignación)
 
 ---
 
@@ -524,6 +518,8 @@ Cuando un alumno escanea una tarjeta durante una partida:
 
 ## 8. Eventos WebSocket
 
+> **Referencia canónica de eventos WebSocket**: Para la lista completa y actualizada de todos los eventos WebSocket (cliente→servidor y servidor→cliente), consultar [WebSockets-ExtendedUsage.md §6](WebSockets-ExtendedUsage.md#6-eventos-websocket). Esta sección solo documenta los eventos específicos del protocolo RFID.
+
 ### 8.1 Eventos Cliente → Servidor
 
 | Evento | Payload | Descripción |
@@ -534,8 +530,6 @@ Cuando un alumno escanea una tarjeta durante una partida:
 | `resume_play` | `{ playId }` | Reanudar partida (solo profesor) |
 | `leave_play` | `{ playId }` | Abandonar la sala de una partida |
 | `next_round` | `{ playId }` | Solicitar siguiente ronda manualmente |
-| `join_card_registration` | `{}` | Activar modo registro de tarjetas (room por usuario) |
-| `leave_card_registration` | `{}` | Salir de modo registro |
 | `join_card_assignment` | `{}` | Activar modo asignación (room por usuario) |
 | `leave_card_assignment` | `{}` | Salir de modo asignación |
 | `rfid_scan_from_client` | `{ uid, type, sensorId, ... }` | Evento RFID desde Web Serial |
@@ -557,6 +551,7 @@ Cuando un alumno escanea una tarjeta durante una partida:
 | `play_state`        | `{ playId, currentRound, score, maxRounds }`                         | Estado actual de la partida                  |
 | `new_round`         | `{ roundNumber, totalRounds, challenge, timeLimit, score }`          | Nueva ronda/desafío                          |
 | `validation_result` | `{ isCorrect, expected, actual, pointsAwarded, newScore, timeout? }` | Resultado de escaneo                         |
+| `scan_ignored`      | `{ uid, reason }` reason: `play_paused` \| `not_awaiting_response` \| `card_not_in_play` | Escaneo ignorado (ADR-046) |
 | `game_over`         | `{ finalScore, metrics }`                                            | Fin de partida                               |
 | `play_paused`       | `{ playId, currentRound, remainingTimeMs }`                          | Partida pausada                              |
 | `play_resumed`      | `{ playId, currentRound, remainingTimeMs, challenge? }`              | Partida reanudada                            |
@@ -568,7 +563,6 @@ Cuando un alumno escanea una tarjeta durante una partida:
 
 | Evento | Payload | Descripción |
 | --- | --- | --- |
-| `rfid_event` (room `card_registration_<userId>`) | `{ event, uid, type, sensorId, ... }` | Evento RFID en modo registro |
 | `rfid_event` (room `card_assignment_<userId>`) | `{ event, uid, type, sensorId, ... }` | Evento RFID en modo asignación |
 
 ---
@@ -677,20 +671,126 @@ Endpoint: `GET /api/metrics` (requiere autenticación de profesor)
 
 ## Apéndice B: Códigos de Error
 
+> **Catálogo completo**: Para la lista consolidada de todos los códigos de error WebSocket (autenticación, RFID, gameplay, rate limiting), consultar [WebSockets-ExtendedUsage.md §6.2](WebSockets-ExtendedUsage.md#62-códigos-de-error). Esta sección solo lista los códigos específicos del protocolo hardware RFID.
+
 | Código                | Descripción                               | HTTP Status |
 | --------------------- | ----------------------------------------- | ----------- |
 | `MODE_BLOCKED`        | No se puede activar modo (partida activa) | -           |
 | `INVALID_DATA`        | Faltan datos requeridos                   | 400         |
 | `NOT_OWNER`           | No eres el dueño del modo                 | 403         |
-| `CARD_EXISTS`         | Tarjeta ya registrada                     | 409         |
-| `CARD_NOT_FOUND`      | Tarjeta no en BD                          | 404         |
-| `CARD_INACTIVE`       | Tarjeta desactivada                       | 400         |
 | `SENSOR_DISCONNECTED` | Sensor RFID no conectado                  | 503         |
+
+---
+
+## Apéndice C: Constantes de error y razones (`backend/src/constants/errorCodes.js`)
+
+Centralizamos los strings que viajan en eventos `error`, `scan_ignored` y `play_interrupted` para que el frontend pueda ofrecer feedback granular consumiendo las mismas constantes.
+
+### `RFID_ERROR_CODES`
+
+| Constante                 | Valor                       | Uso                                                                     |
+| ------------------------- | --------------------------- | ----------------------------------------------------------------------- |
+| `SENSOR_DISABLED`         | `RFID_DISABLED`             | Servicio RFID off por configuración (`RFID_SOURCE=disabled`).           |
+| `SENSOR_MISMATCH`         | `RFID_SENSOR_MISMATCH`      | El sensorId del payload no coincide con el ligado al modo.              |
+| `SENSOR_UNAUTHORIZED`     | `RFID_SENSOR_UNAUTHORIZED`  | Sensor no autorizado para esta sesión.                                  |
+| `MODE_TAKEN_OVER`         | `RFID_MODE_TAKEN_OVER`      | Otro socket del usuario tomó el control del modo.                       |
+| `MODE_INVALID`            | `RFID_MODE_INVALID`         | El modo solicitado no es válido o no coincide con el room actual.       |
+| `SOCKET_NOT_ACTIVE`       | `RFID_SOCKET_NOT_ACTIVE`    | El socket no está marcado como dueño activo del modo.                   |
+
+### `SCAN_IGNORED_REASONS`
+
+Valores que viajan en el campo `reason` del evento `scan_ignored`:
+
+| Constante           | Valor                  | Cuándo se emite                                                  |
+| ------------------- | ---------------------- | ---------------------------------------------------------------- |
+| `PLAY_PAUSED`       | `play_paused`          | Partida pausada; el scan se descarta sin penalizar.              |
+| `NOT_AWAITING`      | `not_awaiting_response`| Scan llegó entre rondas, sin respuesta esperada.                 |
+| `CARD_NOT_IN_PLAY`  | `card_not_in_play`     | UID mapeado a la partida pero no encontrado en `uidToMapping`.   |
+| `UID_UNKNOWN`       | `uid_unknown`          | UID no asociado a ninguna partida activa (tarjeta desconocida).  |
+
+### `PLAY_INTERRUPTED_REASONS`
+
+| Constante                 | Valor                       | Cuándo se emite                                                       |
+| ------------------------- | --------------------------- | --------------------------------------------------------------------- |
+| `INTERNAL_ERROR`          | `internal_error`            | Error fatal procesando un scan (BD caída, excepción inesperada).      |
+| `RECONCILIATION_FAILED`   | `reconciliation_failed`     | Restauración tras reinicio del servidor sin estado recuperable.       |
+
+> Estos VALORES son **contrato público** y no deben cambiar tras el primer despliegue. Si hace falta deprecar uno, añadir uno nuevo y mantener el antiguo durante una versión.
+
+---
+
+## Apéndice D: Endpoint de salud `GET /api/metrics/rfid`
+
+Exposición granular de la salud del sensor para dashboards y monitorización externa, separada de las métricas runtime generales (`/api/metrics`).
+
+**Acceso**: `Authorization: Bearer <token>` con role `teacher` o `super_admin`.
+
+**Respuesta** (`200 OK`):
+
+```json
+{
+  "success": true,
+  "data": {
+    "service": { "status": "client_ready", "source": "client" },
+    "health": "ok",
+    "counters": {
+      "totalEvents": 1284,
+      "totalScans": 612,
+      "totalErrors": 3,
+      "dedupeHits": 47,
+      "errorsByType": { "read_failure": 2, "init_failure": 1 }
+    },
+    "rates": {
+      "scanRate1m": 24,
+      "scanRate5m": 113
+    },
+    "timestamps": {
+      "lastScanAt": 1776640000000,
+      "lastErrorAt": 1776630000000,
+      "lastEventAt": 1776640012345,
+      "connectedAt": 1776600000000
+    },
+    "gameEngine": {
+      "activePlays": 3,
+      "totalCardScans": 2150,
+      "ignoredCardScans": 12,
+      "ignoredScanRatioPct": 0.6,
+      "lockContention": 0
+    },
+    "timestamp": "2026-04-19T23:18:34.862Z"
+  }
+}
+```
+
+**Campos `health`**:
+
+- `ok` — servicio activo, último scan dentro de la ventana de 90 s.
+- `degraded` — servicio activo pero sin scans en los últimos 90 s.
+- `down` — servicio detenido / deshabilitado / mal configurado.
+
+---
+
+## Apéndice E: Watchdog del modo RFID (auto-cleanup)
+
+Para evitar que un modo activo (gameplay o card_assignment) quede "stuck" cuando el profesor cierra el navegador sin disparar `leave_*`, el backend programa un watchdog de **5 minutos** por usuario que se refresca con cada actividad legítima:
+
+1. **Scan RFID válido** (`rfid_scan_from_client`): tras pasar todas las validaciones, `refreshRfidModeActivity` actualiza `updatedAt` y reprograma el timer.
+2. **Heartbeat explícito**: el frontend emite `rfid_mode_heartbeat` cada 60 s en el namespace `/game`.
+3. **Reasignación de modo** (`setRfidModeState`): cualquier nuevo `setRfidModeState` cancela y reprograma.
+
+Si transcurre `RFID_MODE_IDLE_TIMEOUT_MS` (env `RFID_MODE_IDLE_TIMEOUT_MS`, default 300000 ms) sin ninguna señal, el watchdog dispara `clearRfidModeState`. La UI se entera vía `rfid_mode_changed` con `mode=idle` y el log estructurado emite:
+
+```
+WARN  Modo RFID auto-limpiado por inactividad { userId, mode, socketId, idleMs: 300000 }
+```
+
+Implementación en `backend/src/realtime/socketHandlers.js` (helpers `scheduleRfidModeWatchdog`, `clearRfidModeTimer`, `refreshRfidModeActivity`).
 
 ---
 
 ## Changelog
 
-| Versión | Fecha      | Cambios                        |
-| ------- | ---------- | ------------------------------ |
-| 1.0.0   | 2026-01-06 | Documentación inicial completa |
+| Versión | Fecha      | Cambios                                                              |
+| ------- | ---------- | -------------------------------------------------------------------- |
+| 1.1.0   | 2026-04-20 | Apéndices C/D/E: códigos error granulares, endpoint métricas, watchdog |
+| 1.0.0   | 2026-01-06 | Documentación inicial completa                                       |

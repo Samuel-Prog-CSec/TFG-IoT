@@ -7,6 +7,7 @@
 
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { captureException } from '../lib/sentry';
+import { formatDate } from '../lib/utils';
 
 const STORAGE_KEY = 'deck_wizard_draft';
 const DEBOUNCE_MS = 500;
@@ -189,14 +190,46 @@ export default function useDeckWizardDraft() {
     setStateInternal(INITIAL_STATE);
   }, []);
 
-  // Limpiar debounce al desmontar
+  // Ref sincronizada con el estado más reciente (para flush en cleanup)
+  const stateRef = useRef(state);
+  useEffect(() => {
+    stateRef.current = state;
+  }, [state]);
+
+  // Flush del borrador pendiente y limpieza al desmontar
   useEffect(() => {
     return () => {
       if (debounceRef.current) {
         clearTimeout(debounceRef.current);
+        // Flush: guardar inmediatamente si hay datos significativos pendientes
+        const { current } = stateRef;
+        if (
+          current.scannedCards?.length > 0 ||
+          current.contextId ||
+          current.name ||
+          Object.keys(current.cardMappings || {}).length > 0
+        ) {
+          try {
+            const toSave = { ...current, lastUpdated: Date.now() };
+            localStorage.setItem(STORAGE_KEY, JSON.stringify(toSave));
+          } catch {
+            // Error al guardar, ignorar
+          }
+        }
       }
     };
   }, []);
+
+  // Lectura diferida del borrador almacenado, para consumidores que mantienen su
+  // propio estado local y necesitan acceso al payload guardado tras restaurar.
+  const draft = (() => {
+    try {
+      const stored = localStorage.getItem(STORAGE_KEY);
+      return stored ? JSON.parse(stored) : null;
+    } catch {
+      return null;
+    }
+  })();
 
   return {
     state,
@@ -204,11 +237,16 @@ export default function useDeckWizardDraft() {
     updateField,
     hasDraft,
     draftDate,
+    draftTimestamp: draftDate,
     isRestored,
     restoreDraft,
     discardDraft,
     clearDraft,
     resetState,
+    // Alias de compatibilidad: consumidores con estado externo (p. ej. DeckCreationWizard)
+    // invocan saveDraft(payload) directamente en lugar de pasar por setState/updateField.
+    saveDraft,
+    draft,
   };
 }
 
@@ -231,10 +269,5 @@ export function formatDraftDate(date) {
   if (hours < 24) return `hace ${hours} hora${hours !== 1 ? 's' : ''}`;
   if (days < 7) return `hace ${days} día${days !== 1 ? 's' : ''}`;
   
-  return date.toLocaleDateString('es-ES', {
-    day: 'numeric',
-    month: 'short',
-    hour: '2-digit',
-    minute: '2-digit',
-  });
+  return formatDate(date, 'short');
 }

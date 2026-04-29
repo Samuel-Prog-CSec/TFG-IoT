@@ -104,4 +104,4 @@ npm --prefix frontend run audit:prod:json
 - Dependabot: `.github/dependabot.yml`
 - Politica de seguridad: `documentation/Security_Maintenance.md`
 - Arquitectura: `documentation/02-Patrones_Diseno.md`
-- ADR de dependencias: `backend/docs/Architecture_Decisions.md`
+- ADR de dependencias: `documentation/Architecture_Decisions.md`

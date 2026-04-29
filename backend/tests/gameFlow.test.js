@@ -5,14 +5,13 @@ const GameSession = require('../src/models/GameSession');
 const GamePlay = require('../src/models/GamePlay');
 const GameMechanic = require('../src/models/GameMechanic');
 const GameContext = require('../src/models/GameContext');
-const Card = require('../src/models/Card');
 const CardDeck = require('../src/models/CardDeck');
 const { generateTokenPair } = require('../src/middlewares/auth');
 
 describe('Game Full Flow', () => {
   let teacherUser, teacherToken;
   let studentId;
-  let mechanicId, contextId, cardId1, cardId2, deckId;
+  let mechanicId, contextId, deckId;
   let sessionId, playId;
 
   const fingerprintHeaders = {
@@ -35,7 +34,6 @@ describe('Game Full Flow', () => {
     await GamePlay.deleteMany({});
     await GameMechanic.deleteMany({});
     await GameContext.deleteMany({});
-    await Card.deleteMany({});
     await CardDeck.deleteMany({});
 
     // 1. Setup Data
@@ -52,7 +50,14 @@ describe('Game Full Flow', () => {
       name: 'Game Student',
       role: 'student',
       createdBy: teacherUser._id,
-      status: 'active'
+      status: 'active',
+      consent: {
+        granted: true,
+        grantedBy: 'Tutor Test',
+        grantedAt: new Date(),
+        purposes: ['educational_tracking', 'performance_analytics'],
+        policyVersion: '1.0'
+      }
     });
     studentId = student._id;
 
@@ -64,12 +69,6 @@ describe('Game Full Flow', () => {
       rules: {}
     });
     mechanicId = mechanic._id;
-
-    // Cards
-    const card1 = await Card.create({ uid: 'AA000001', type: 'NTAG', status: 'active' });
-    const card2 = await Card.create({ uid: 'AA000002', type: 'NTAG', status: 'active' });
-    cardId1 = card1._id;
-    cardId2 = card2._id;
 
     // Context
     const context = await GameContext.create({
@@ -93,13 +92,11 @@ describe('Game Full Flow', () => {
       status: 'active',
       cardMappings: [
         {
-          cardId: cardId1,
           uid: 'AA000001',
           assignedValue: 'A',
           displayData: { key: 'asset1', display: 'A1', value: 'A' }
         },
         {
-          cardId: cardId2,
           uid: 'AA000002',
           assignedValue: 'B',
           displayData: { key: 'asset2', display: 'A2', value: 'B' }

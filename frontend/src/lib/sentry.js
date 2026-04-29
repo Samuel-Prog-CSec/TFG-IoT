@@ -51,7 +51,7 @@ export function initSentry() {
       if (event.breadcrumbs) {
         event.breadcrumbs.forEach(breadcrumb => {
           if (breadcrumb.data && breadcrumb.data.url) {
-            breadcrumb.data.url = breadcrumb.data.url.replace(/token=([^&]+)/g, 'token=HIDDEN');
+            breadcrumb.data.url = breadcrumb.data.url.replaceAll(/token=([^&]+)/g, 'token=HIDDEN');
           }
         });
       }
