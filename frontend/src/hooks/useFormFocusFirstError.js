@@ -28,7 +28,7 @@ export function useFormFocusFirstError(errors) {
     const activeErrorKeys = Object.entries(errors)
       .filter(([, value]) => Boolean(value))
       .map(([key]) => key)
-      .sort();
+      .sort((a, b) => a.localeCompare(b));
 
     if (activeErrorKeys.length === 0) {
       lastFocusedSignature.current = '';

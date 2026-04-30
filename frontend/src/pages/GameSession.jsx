@@ -141,7 +141,7 @@ function gameReducer(state, action) {
  * Pantalla principal de juego para niños de 4-8 años.
  * Diseño colorido, amigable y sin texto complejo.
  */
-/* eslint-disable-next-line sonarjs/cyclomatic-complexity, sonarjs/cognitive-complexity --
+/* eslint-disable-next-line sonarjs/cyclomatic-complexity --
    pantalla de juego con multiples fases (waiting/playing/paused/ended), modos (association/memory),
    handlers de socket y renderizado condicional por estado. La logica esta partida en hooks
    (useGameSocket, useGameTimer, useGameFeedback) pero la coordinacion visual reside aqui. */
@@ -913,14 +913,23 @@ export default function GameSession() {
               - Asociacion: 1 dot por ronda; el actual pulsa y los completados estan llenos
               - Memoria: 1 dot por pareja; se iluminan a medida que se emparejan */}
           <div className="flex items-center gap-3">
-            <div
-              className="flex items-center gap-1.5"
-              role="progressbar"
-              aria-label={sessionIsMemory ? 'Progreso de parejas' : 'Progreso de rondas'}
-              aria-valuenow={sessionIsMemory ? Math.floor((memoryStats.matchedCount || 0) / 2) : currentRound}
-              aria-valuemin={0}
-              aria-valuemax={sessionIsMemory ? Math.floor((memoryStats.totalCards || 0) / 2) : totalRounds}
-            >
+            {(() => {
+              const totalProgress = sessionIsMemory
+                ? Math.floor((memoryStats.totalCards || 0) / 2)
+                : totalRounds;
+              const currentProgress = sessionIsMemory
+                ? Math.floor((memoryStats.matchedCount || 0) / 2)
+                : currentRound;
+              const progressLabel = sessionIsMemory
+                ? `Pareja ${currentProgress} de ${totalProgress}`
+                : `Ronda ${currentProgress} de ${totalProgress}`;
+              return (
+                <output className="sr-only" aria-live="polite">
+                  {progressLabel}
+                </output>
+              );
+            })()}
+            <div className="flex items-center gap-1.5" aria-hidden="true">
               {(() => {
                 const total = sessionIsMemory
                   ? Math.floor((memoryStats.totalCards || 0) / 2)
@@ -928,12 +937,16 @@ export default function GameSession() {
                 const current = sessionIsMemory
                   ? Math.floor((memoryStats.matchedCount || 0) / 2)
                   : currentRound;
-                return Array.from({ length: Math.max(1, total) }).map((_, i) => {
-                  const isCompleted = i + 1 < current;
-                  const isCurrent = i + 1 === current;
+                const dots = Array.from({ length: Math.max(1, total) }, (_, i) => ({
+                  id: `round-dot-${i}`,
+                  position: i + 1
+                }));
+                return dots.map(dot => {
+                  const isCompleted = dot.position < current;
+                  const isCurrent = dot.position === current;
                   return (
                     <motion.span
-                      key={`round-dot-${i}`}
+                      key={dot.id}
                       className={cn(
                         'block h-2.5 rounded-full transition-[background-color,width]',
                         isCurrent && 'w-6 bg-gradient-to-r from-brand-base to-accent-indigo shadow-[0_0_8px_var(--color-brand-glow)]',
@@ -1047,7 +1060,7 @@ export default function GameSession() {
                         }
                         transition={{ duration: 1.2, repeat: Infinity, ease: 'easeInOut' }}
                       />
-                      Jugando
+                      <span>Jugando</span>
                     </>
                   );
                 }
@@ -1055,7 +1068,7 @@ export default function GameSession() {
                   return (
                     <>
                       <span aria-hidden="true" className="inline-block size-2 rounded-full bg-warning-base" />
-                      Pausado
+                      <span>Pausado</span>
                     </>
                   );
                 }

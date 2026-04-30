@@ -355,7 +355,7 @@ async function getLearningCurves(teacherId, { timeRange = '90d', contextId, mech
   const curves = Object.values(contextMap).map(ctx => {
     const dataPoints = Object.entries(ctx.playNumberScores)
       .map(([pn, scores]) => ({
-        playNumber: parseInt(pn, 10),
+        playNumber: Number.parseInt(pn, 10),
         avgScore: Math.round((scores.reduce((a, b) => a + b, 0) / scores.length) * 10) / 10,
         sampleSize: scores.length
       }))

@@ -107,15 +107,16 @@ describe('utils', () => {
       globalThis.URL.revokeObjectURL = vi.fn();
 
       const mockClick = vi.fn();
+      const mockRemove = vi.fn();
       const mockLink = {
         href: '',
         download: '',
-        click: mockClick
+        click: mockClick,
+        remove: mockRemove
       };
 
       vi.spyOn(document, 'createElement').mockReturnValue(mockLink);
       vi.spyOn(document.body, 'appendChild').mockImplementation(() => {});
-      vi.spyOn(document.body, 'removeChild').mockImplementation(() => {});
 
       const blob = new Blob(['test data'], { type: 'application/json' });
       downloadBlob(blob, 'test-file.json');
@@ -125,7 +126,7 @@ describe('utils', () => {
       expect(mockClick).toHaveBeenCalled();
       expect(globalThis.URL.revokeObjectURL).toHaveBeenCalledWith(mockUrl);
       expect(document.body.appendChild).toHaveBeenCalled();
-      expect(document.body.removeChild).toHaveBeenCalled();
+      expect(mockRemove).toHaveBeenCalled();
 
       // Restaurar
       globalThis.URL.createObjectURL = originalCreateObjectURL;

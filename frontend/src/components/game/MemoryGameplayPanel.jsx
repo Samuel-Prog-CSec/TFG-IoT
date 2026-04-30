@@ -18,17 +18,16 @@ import MemoryBoard from './MemoryBoard';
  * aparezca en blanco (QA 22/04/2026).
  */
 function MemoryBoardSkeleton() {
-  const slots = Array.from({ length: 12 }, (_, i) => i);
+  const slots = Array.from({ length: 12 }, (_, i) => `mem-skeleton-slot-${i}`);
   return (
-    <div
-      className="w-full h-full flex flex-col items-center justify-center"
-      role="status"
+    <output
+      className="block w-full h-full flex flex-col items-center justify-center"
       aria-label="Preparando tablero de memoria"
     >
       <div className="grid grid-cols-4 gap-3 w-full max-w-2xl">
-        {slots.map((i) => (
+        {slots.map((slotKey) => (
           <div
-            key={i}
+            key={slotKey}
             className="aspect-square rounded-xl bg-gradient-to-br from-brand-base/10 to-accent-indigo/10 border border-border-subtle relative overflow-hidden"
           >
             <div className="absolute inset-0 bg-gradient-to-r from-transparent via-text-primary/5 to-transparent animate-[shimmer_2s_infinite]" />
@@ -36,7 +35,7 @@ function MemoryBoardSkeleton() {
         ))}
       </div>
       <p className="mt-4 text-sm text-text-muted">Preparando cartas…</p>
-    </div>
+    </output>
   );
 }
 

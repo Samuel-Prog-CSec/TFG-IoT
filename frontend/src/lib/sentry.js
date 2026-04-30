@@ -42,7 +42,7 @@ export function initSentry() {
 
     beforeSend(event) {
       // Remove any sensitive headers that might get captured by default
-      if (event.request && event.request.headers) {
+      if (event.request?.headers) {
         delete event.request.headers['Authorization'];
         delete event.request.headers['X-CSRF-Token'];
       }
@@ -50,7 +50,7 @@ export function initSentry() {
       // Limit breadcrumb URLs if they contain sensitive tokens in query params/paths
       if (event.breadcrumbs) {
         event.breadcrumbs.forEach(breadcrumb => {
-          if (breadcrumb.data && breadcrumb.data.url) {
+          if (breadcrumb.data?.url) {
             breadcrumb.data.url = breadcrumb.data.url.replaceAll(/token=([^&]+)/g, 'token=HIDDEN');
           }
         });

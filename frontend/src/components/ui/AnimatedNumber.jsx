@@ -31,7 +31,7 @@ export default function AnimatedNumber({
   const strValue = String(value);
   // eslint-disable-next-line security/detect-unsafe-regex -- regex simple para parsear valor numérico + sufijo
   const match = strValue.match(/^(\d+(?:\.\d+)?)(.*)/);
-  const numericPart = match ? parseFloat(match[1]) : null;
+  const numericPart = match ? Number.parseFloat(match[1]) : null;
   const suffix = match ? match[2] : '';
   const hasDecimals = match ? match[1].includes('.') : false;
 

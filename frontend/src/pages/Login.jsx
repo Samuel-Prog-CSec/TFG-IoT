@@ -318,7 +318,7 @@ export default function Login() {
               { Icon: ShieldCheck, tint: 'text-accent-pink', text: 'Protección de datos de menores (RGPD / LOPDGDD)' },
             ].map(({ Icon, tint, text }, i) => (
               <motion.div
-                key={i}
+                key={text}
                 initial={{ opacity: 0, x: -20 }}
                 animate={{ opacity: 1, x: 0 }}
                 transition={{ delay: 0.3 + i * 0.1 }}

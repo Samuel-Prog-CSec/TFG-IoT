@@ -198,7 +198,7 @@ const scheduleRfidModeWatchdog = (userId, socketId) => {
     rfidModeTimers.delete(userId);
     const state = rfidModeByUserId.get(userId);
     // Si el dueño cambió o el modo ya se limpió, no actuar.
-    if (!state || state.socketId !== socketId) {
+    if (state?.socketId !== socketId) {
       return;
     }
     logger.warn('Modo RFID auto-limpiado por inactividad', {
@@ -227,7 +227,7 @@ const refreshRfidModeActivity = (userId, socketId) => {
     return;
   }
   const state = rfidModeByUserId.get(userId);
-  if (!state || state.socketId !== socketId) {
+  if (state?.socketId !== socketId) {
     return;
   }
   state.updatedAt = Date.now();

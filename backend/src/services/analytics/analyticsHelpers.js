@@ -274,7 +274,7 @@ const generateAlertId = (type, studentId, dateStr) => {
   for (let i = 0; i < raw.length; i++) {
     const chr = raw.charCodeAt(i);
     hash = (hash << 5) - hash + chr;
-    hash |= 0;
+    hash = Math.trunc(hash);
   }
   return `alert_${Math.abs(hash).toString(36)}`;
 };
@@ -415,14 +415,12 @@ const classifyRAG = (kpiKey, value) => {
     } else {
       status = RAG.AMBER;
     }
+  } else if (value <= def.green) {
+    status = RAG.GREEN;
+  } else if (value > def.red) {
+    status = RAG.RED;
   } else {
-    if (value <= def.green) {
-      status = RAG.GREEN;
-    } else if (value > def.red) {
-      status = RAG.RED;
-    } else {
-      status = RAG.AMBER;
-    }
+    status = RAG.AMBER;
   }
 
   return {
