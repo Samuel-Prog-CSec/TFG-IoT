@@ -297,11 +297,10 @@ export default function Dashboard() {
             >
               <h2 id="stats-heading" className="sr-only">KPIs Principales</h2>
               {/* KPIs primarios — metricas clave */}
-              <div
-                className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 lg:gap-6"
-                role="list"
+              <ul
+                className="list-none p-0 m-0 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 lg:gap-6"
               >
-                <motion.div variants={shouldReduceMotion ? {} : listItemVariants} role="listitem">
+                <motion.li variants={shouldReduceMotion ? {} : listItemVariants}>
                   <StatCard
                     title="Alumnos en Riesgo"
                     value={summary?.studentsInRisk || 0}
@@ -312,9 +311,9 @@ export default function Dashboard() {
                     higherIsBetter={false}
                     onClick={() => navigate('/analytics/students')}
                   />
-                </motion.div>
+                </motion.li>
 
-                <motion.div variants={shouldReduceMotion ? {} : listItemVariants} role="listitem">
+                <motion.li variants={shouldReduceMotion ? {} : listItemVariants}>
                   <StatCard
                     title="Puntuación Media"
                     value={`${summary?.averageScore || 0}%`}
@@ -324,9 +323,9 @@ export default function Dashboard() {
                     color="bg-gradient-to-br from-success-base to-success-dark"
                     onClick={() => navigate('/analytics/students')}
                   />
-                </motion.div>
+                </motion.li>
 
-                <motion.div variants={shouldReduceMotion ? {} : listItemVariants} role="listitem">
+                <motion.li variants={shouldReduceMotion ? {} : listItemVariants}>
                   <StatCard
                     title="Partidas Hoy"
                     value={summary?.gamesToday || 0}
@@ -336,9 +335,9 @@ export default function Dashboard() {
                     color="bg-gradient-to-br from-brand-base to-accent-indigo"
                     onClick={() => navigate('/sessions')}
                   />
-                </motion.div>
+                </motion.li>
 
-                <motion.div variants={shouldReduceMotion ? {} : listItemVariants} role="listitem">
+                <motion.li variants={shouldReduceMotion ? {} : listItemVariants}>
                   <StatCard
                     title="Partidas Totales"
                     value={summary?.totalGames || 0}
@@ -348,15 +347,14 @@ export default function Dashboard() {
                     color="bg-gradient-to-br from-info-base to-accent-cyan"
                     onClick={() => navigate('/sessions')}
                   />
-                </motion.div>
-              </div>
+                </motion.li>
+              </ul>
 
               {/* KPIs secundarios — metricas complementarias */}
-              <div
-                className="grid grid-cols-2 lg:grid-cols-4 gap-3 lg:gap-4 mt-3 opacity-90"
-                role="list"
+              <ul
+                className="list-none p-0 m-0 grid grid-cols-2 lg:grid-cols-4 gap-3 lg:gap-4 mt-3 opacity-90"
               >
-                <motion.div variants={shouldReduceMotion ? {} : listItemVariants} role="listitem">
+                <motion.li variants={shouldReduceMotion ? {} : listItemVariants}>
                   <StatCard
                     title="Tasa de Acierto"
                     value={`${getKPIValue('averageAccuracy') ?? summary?.averageAccuracy ?? 0}%`}
@@ -367,9 +365,9 @@ export default function Dashboard() {
                     compact
                     onClick={() => navigate('/analytics/insights')}
                   />
-                </motion.div>
+                </motion.li>
 
-                <motion.div variants={shouldReduceMotion ? {} : listItemVariants} role="listitem">
+                <motion.li variants={shouldReduceMotion ? {} : listItemVariants}>
                   <StatCard
                     title="Tiempo Medio"
                     value={`${(getKPIValue('averageResponseTime') ?? summary?.averageResponseTime ?? 0) / 1000}s`}
@@ -381,9 +379,9 @@ export default function Dashboard() {
                     compact
                     onClick={() => navigate('/analytics/insights')}
                   />
-                </motion.div>
+                </motion.li>
 
-                <motion.div variants={shouldReduceMotion ? {} : listItemVariants} role="listitem">
+                <motion.li variants={shouldReduceMotion ? {} : listItemVariants}>
                   <StatCard
                     title="Alumnos Activos"
                     value={`${activeStudentsCount}/${totalStudents}`}
@@ -394,9 +392,9 @@ export default function Dashboard() {
                     compact
                     onClick={() => navigate('/analytics/students')}
                   />
-                </motion.div>
+                </motion.li>
 
-                <motion.div variants={shouldReduceMotion ? {} : listItemVariants} role="listitem">
+                <motion.li variants={shouldReduceMotion ? {} : listItemVariants}>
                   <StatCard
                     title="Tasa Completado"
                     value={`${100 - (summary?.abandonmentRate || 0)}%`}
@@ -407,8 +405,8 @@ export default function Dashboard() {
                     compact
                     onClick={() => navigate('/sessions')}
                   />
-                </motion.div>
-              </div>
+                </motion.li>
+              </ul>
             </motion.section>
 
             {/* Grid Principal: Gráficos y Listas */}

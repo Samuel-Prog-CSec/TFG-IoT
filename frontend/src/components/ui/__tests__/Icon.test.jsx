@@ -36,7 +36,7 @@ describe('Icon wrapper', () => {
     it('permite listar los nombres registrados (ordenados)', () => {
       const names = listRegisteredIconNames();
       expect(names.length).toBeGreaterThan(80);
-      const sorted = [...names].sort();
+      const sorted = [...names].sort((a, b) => a.localeCompare(b));
       expect(names).toEqual(sorted);
     });
 

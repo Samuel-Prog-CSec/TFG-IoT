@@ -242,22 +242,22 @@ function validateJWTSecrets() {
   }
 
   // Validar que no sean valores por defecto conocidos
-  const insecureDefaults = [
+  const insecureDefaults = new Set([
     'dev-secret-change-in-production',
     'dev-refresh-secret-change-in-production',
     'secret',
     'mysecret',
     'changeme',
     'your-secret-here'
-  ];
+  ]);
 
-  if (insecureDefaults.includes(jwtSecret.toLowerCase())) {
+  if (insecureDefaults.has(jwtSecret.toLowerCase())) {
     throw new Error(
       `JWT_SECRET contiene un valor por defecto inseguro.\n` + `Genera un secret aleatorio único.`
     );
   }
 
-  if (insecureDefaults.includes(jwtRefreshSecret.toLowerCase())) {
+  if (insecureDefaults.has(jwtRefreshSecret.toLowerCase())) {
     throw new Error(
       `JWT_REFRESH_SECRET contiene un valor por defecto inseguro.\n` +
         `Genera un secret aleatorio único.`

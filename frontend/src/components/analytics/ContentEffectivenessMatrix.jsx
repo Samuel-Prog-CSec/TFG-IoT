@@ -112,15 +112,15 @@ function ContentEffectivenessMatrix({ data, groupBy = 'context' }) {
         <div className="flex items-center gap-3 text-xs text-text-muted">
           <span className="flex items-center gap-1.5">
             <span className="inline-block w-3 h-3 rounded bg-success-base/40" aria-hidden="true" />
-            {'>'}70% (Alto)
+            <span>{'>'}70% (Alto)</span>
           </span>
           <span className="flex items-center gap-1.5">
             <span className="inline-block w-3 h-3 rounded bg-warning-base/40" aria-hidden="true" />
-            50-69% (Medio)
+            <span>50-69% (Medio)</span>
           </span>
           <span className="flex items-center gap-1.5">
             <span className="inline-block w-3 h-3 rounded bg-error-base/40" aria-hidden="true" />
-            {'<'}50% (Bajo)
+            <span>{'<'}50% (Bajo)</span>
           </span>
         </div>
       </div>

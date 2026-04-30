@@ -48,6 +48,8 @@ const getActivityColor = (dateStr) => {
   return 'bg-error-base';
 };
 
+const STUDENT_PROFILE_STAT_KEYS = ['stat-a', 'stat-b', 'stat-c', 'stat-d', 'stat-e', 'stat-f'];
+
 const getInitials = (name) => {
   if (!name) return '?';
   const parts = name.trim().split(/\s+/);
@@ -149,7 +151,7 @@ export default function StudentProfile() {
           </div>
         </div>
         <div className="grid grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-3">
-          {[...Array(6)].map((_, i) => <SkeletonStatCard key={i} />)}
+          {STUDENT_PROFILE_STAT_KEYS.map(key => <SkeletonStatCard key={key} />)}
         </div>
         <div className="grid grid-cols-1 lg:grid-cols-5 gap-6">
           <SkeletonChart height={310} className="lg:col-span-3" />

@@ -17,7 +17,7 @@ import AudioMiniPlayer from './AudioMiniPlayer';
 import { contextsAPI, extractData, extractErrorMessage } from '../../services/api';
 
 /** Tipos MIME de audio aceptados */
-const ACCEPTED_MIME_TYPES = ['audio/mpeg', 'audio/mp3', 'audio/ogg'];
+const ACCEPTED_MIME_TYPES = new Set(['audio/mpeg', 'audio/mp3', 'audio/ogg']);
 
 /** Tamano maximo por defecto en bytes (5 MB) */
 const DEFAULT_MAX_SIZE = 5 * 1024 * 1024;
@@ -103,7 +103,7 @@ export default function AudioUploadModal({
   // --- Validacion del archivo ---
   const validateFile = useCallback(
     (candidate) => {
-      if (!ACCEPTED_MIME_TYPES.includes(candidate.type)) {
+      if (!ACCEPTED_MIME_TYPES.has(candidate.type)) {
         toast.error('Formato no soportado', {
           description: 'Solo se permiten archivos MP3 y OGG.',
         });
@@ -328,7 +328,7 @@ export default function AudioUploadModal({
           accept="audio/mpeg,audio/mp3,audio/ogg,.mp3,.ogg"
           onChange={handleFileChange}
           className="hidden"
-          aria-hidden="true"
+          tabIndex={-1}
         />
 
         {/* Info del archivo seleccionado */}

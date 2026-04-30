@@ -442,8 +442,8 @@ export default function PrivacyPage() {
                 />
 
                 <ul className="space-y-5">
-                  {LEGAL_BASES.map((basis, i) => (
-                    <li key={i} className="flex items-start gap-3">
+                  {LEGAL_BASES.map((basis) => (
+                    <li key={basis.text} className="flex items-start gap-3">
                       <span className="mt-1.5 size-1.5 rounded-full bg-brand-base flex-shrink-0" />
                       <div>
                         {basis.reference && (
@@ -472,9 +472,9 @@ export default function PrivacyPage() {
                 />
 
                 <ul className="space-y-5">
-                  {RETENTION_PERIODS.map((period, i) => (
+                  {RETENTION_PERIODS.map((period) => (
                     <li
-                      key={i}
+                      key={period}
                       className="flex items-start gap-3 text-text-secondary text-sm leading-relaxed"
                     >
                       <span className="mt-1.5 size-1.5 rounded-full bg-brand-base flex-shrink-0" />

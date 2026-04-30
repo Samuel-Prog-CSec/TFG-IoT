@@ -85,7 +85,12 @@ function GameBackdrop({ theme = 'default' }) {
 
   // Estabilizar seleccion de iconos para el tema sin aleatoriedad entre renders
   const floatingIcons = useMemo(
-    () => FLOATING_POSITIONS.map((pos, i) => ({ ...pos, icon: icons[i % icons.length] })),
+    () =>
+      FLOATING_POSITIONS.map((pos, i) => ({
+        ...pos,
+        icon: icons[i % icons.length],
+        keyId: `backdrop-icon-${pos.top ?? 'b'}-${pos.left ?? pos.right ?? 'r'}`
+      })),
     [icons]
   );
 
@@ -141,9 +146,9 @@ function GameBackdrop({ theme = 'default' }) {
       />
 
       {/* Iconos decorativos flotantes — solo 4, muy sutiles (opacity 0.12) */}
-      {floatingIcons.map((f, idx) => (
+      {floatingIcons.map(f => (
         <motion.span
-          key={`backdrop-icon-${idx}`}
+          key={f.keyId}
           className="absolute text-4xl select-none opacity-[0.12]"
           style={{
             top: f.top,

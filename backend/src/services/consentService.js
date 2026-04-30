@@ -72,7 +72,7 @@ async function requireConsent(userId, purpose) {
     select: 'consent'
   });
 
-  if (!user || !user.hasConsentFor(purpose)) {
+  if (!user?.hasConsentFor(purpose)) {
     logger.info('Acceso denegado por falta de consentimiento', {
       userId,
       purpose

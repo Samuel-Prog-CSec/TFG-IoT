@@ -638,11 +638,10 @@ export default function StudentManagement() {
                       <AnimatePresence>
                         {activeMenuId === (student.id || student._id) && (
                           <>
-                            <div
-                              role="button"
-                              tabIndex={0}
+                            <button
+                              type="button"
                               aria-label="Cerrar menú"
-                              className="fixed inset-0 z-10"
+                              className="fixed inset-0 z-10 cursor-default border-0 bg-transparent p-0"
                               onClick={() => setActiveMenuId(null)}
                               onKeyDown={(e) => { if (e.key === 'Escape' || e.key === 'Enter') setActiveMenuId(null); }}
                             />

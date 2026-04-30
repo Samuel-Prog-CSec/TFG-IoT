@@ -171,14 +171,18 @@ export function SkeletonGrid({ count = 6, columns = 3, className }) {
     4: 'sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4',
   };
 
+  // Generamos keys estables a partir del count (re-creadas si count cambia, no
+  // re-renderizadas innecesariamente) — evitamos usar el indice de array como key.
+  const keys = Array.from({ length: count }, (_, i) => `sk-card-${i}`);
+
   return (
     <div className={cn(
       'grid grid-cols-1 gap-4',
       gridCols[columns] || gridCols[3],
       className
     )}>
-      {Array.from({ length: count }).map((_, i) => (
-        <SkeletonCard key={i} />
+      {keys.map(key => (
+        <SkeletonCard key={key} />
       ))}
     </div>
   );

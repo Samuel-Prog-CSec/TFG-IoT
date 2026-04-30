@@ -366,7 +366,7 @@ const expireIfValueMatches = async (namespace, id, expectedValue, ttlSeconds) =>
  * @param {number} ttlSeconds - TTL en segundos.
  * @returns {Promise<{ok:boolean, renewedIds:string[], skippedIds:string[]}>}
  */
-const expireManyIfValueMatches = async (namespace, entries = [], ttlSeconds) => {
+const expireManyIfValueMatches = async (namespace, entries, ttlSeconds) => {
   if (!checkRedisAvailable()) {
     return { ok: true, renewedIds: [], skippedIds: [] };
   }
@@ -1027,7 +1027,7 @@ const evalLuaScript = async (scriptName, numKeys, ...args) => {
       return await redis.evalsha(sha, numKeys, ...args);
     } catch (error) {
       // NOSCRIPT = el SHA no está en caché del servidor (p.ej. tras restart Redis)
-      if (error.message && error.message.includes('NOSCRIPT')) {
+      if (error.message?.includes('NOSCRIPT')) {
         logger.warn(`Redis: EVALSHA NOSCRIPT para '${scriptName}', reintentando con EVAL`);
       } else {
         throw error;
@@ -1158,13 +1158,7 @@ const releaseCardsAtomic = async (namespace, entries = []) => {
  * @param {number} ttlSeconds - TTL en segundos.
  * @returns {Promise<{ok:boolean, playRenewed:boolean, cardsRenewed:number, cardsSkipped:number}>}
  */
-const renewLeaseAtomic = async (
-  playNamespace,
-  playId,
-  cardNamespace,
-  cardUids = [],
-  ttlSeconds
-) => {
+const renewLeaseAtomic = async (playNamespace, playId, cardNamespace, cardUids, ttlSeconds) => {
   if (!checkRedisAvailable()) {
     return { ok: true, playRenewed: true, cardsRenewed: 0, cardsSkipped: 0 };
   }

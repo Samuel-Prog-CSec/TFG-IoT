@@ -197,11 +197,9 @@ export default function ConfirmationModal({
           e.preventDefault();
           lastEl.focus();
         }
-      } else {
-        if (document.activeElement === lastEl) {
-          e.preventDefault();
-          firstEl.focus();
-        }
+      } else if (document.activeElement === lastEl) {
+        e.preventDefault();
+        firstEl.focus();
       }
     }
   }, [onClose, loading]);

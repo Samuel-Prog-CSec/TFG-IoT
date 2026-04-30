@@ -38,6 +38,15 @@ const TIMEOUT_ANIMATION = {
   transition: { duration: 0.6 },
 };
 
+// Particulas de feedback de acierto: precomputadas para no recalcular angulos
+// y distancias en cada render, y para tener keys estables sin usar el indice.
+const SUCCESS_PARTICLES = Array.from({ length: 6 }, (_, i) => ({
+  id: `particle-${i}`,
+  index: i,
+  angle: (i / 6) * Math.PI * 2,
+  distance: 80 + (i % 3) * 20
+}));
+
 const themeColors = {
   default: {
     bg: 'from-theme-default/20 to-theme-default-alt/20',
@@ -172,12 +181,11 @@ const ChallengeDisplay = function ChallengeDisplay({
       {/* Success particles */}
       {isSuccess && !shouldReduceMotion && (
         <div className="absolute inset-0 pointer-events-none z-20 overflow-visible">
-          {Array.from({ length: 6 }).map((_, i) => {
-            const angle = (i / 6) * Math.PI * 2;
-            const distance = 80 + (i % 3) * 20;
+          {SUCCESS_PARTICLES.map(particle => {
+            const { index: i, angle, distance } = particle;
             return (
               <motion.div
-                key={`particle-${i}`}
+                key={particle.id}
                 initial={{ x: 0, y: 0, opacity: 1, scale: 1 }}
                 animate={{
                   x: Math.cos(angle) * distance,

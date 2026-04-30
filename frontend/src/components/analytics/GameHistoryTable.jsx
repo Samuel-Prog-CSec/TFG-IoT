@@ -50,7 +50,7 @@ function GameHistoryTable({ games, initialCount = 10 }) {
   // Si ninguna partida trae completionTime, oculta la columna Duración para no
   // mostrar una retahila de "—". Backend todavia no persiste este campo en
   // todas las partidas (QA 22/04/2026).
-  const hasAnyDuration = games.some(g => g && g.completionTime != null);
+  const hasAnyDuration = games.some(g => g?.completionTime != null);
 
   return (
     <GlassCard variant="default" padding="none" className="p-5">

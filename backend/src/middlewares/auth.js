@@ -894,7 +894,7 @@ const optionalAuth = async (req, res, next) => {
     const decoded = await verifyAccessToken(token, req);
     const user = await fetchUserForAuth(decoded.id, '-password');
 
-    if (user && user.status === 'active') {
+    if (user?.status === 'active') {
       req.user = user;
       req.tokenJti = decoded.jti;
       Sentry.setUser({ id: user._id.toString(), role: user.role });
