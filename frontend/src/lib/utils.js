@@ -402,7 +402,7 @@ export function exportToCSV(data, filename, columns) {
   link.download = `${filename}.csv`;
   document.body.appendChild(link);
   link.click();
-  document.body.removeChild(link);
+  link.remove();
   URL.revokeObjectURL(url);
 }
 
@@ -420,6 +420,6 @@ export function downloadBlob(blob, filename) {
   link.download = filename;
   document.body.appendChild(link);
   link.click();
-  document.body.removeChild(link);
+  link.remove();
   URL.revokeObjectURL(url);
 }

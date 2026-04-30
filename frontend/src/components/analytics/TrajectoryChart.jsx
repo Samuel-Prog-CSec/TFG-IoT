@@ -38,7 +38,7 @@ function CustomTooltip({ active, payload, label }) {
       <p className="text-text-muted text-xs mb-2">{label}</p>
       {studentScore && (
         <p className="text-text-primary flex items-center gap-1.5">
-          Alumno:
+          <span>Alumno:</span>
           <span className={cn('inline-block w-2 h-2 rounded-full', RAG_DOT_COLORS[scoreToRAG(studentScore.value)])} />
           <span className="font-bold tabular-nums">{Math.round(studentScore.value)}</span>
         </p>

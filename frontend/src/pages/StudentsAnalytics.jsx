@@ -92,9 +92,14 @@ function getRelativeTime(dateStr) {
  * @returns {string} Formato "X.Xs"
  */
 function formatResponseTime(ms) {
-  if (ms == null || isNaN(ms)) return '-';
+  if (ms == null || Number.isNaN(ms)) return '-';
   return `${(ms / 1000).toFixed(1)}s`;
 }
+
+const STUDENTS_KPI_SKELETON_KEYS = ['kpi-a', 'kpi-b', 'kpi-c', 'kpi-d'];
+const STUDENTS_ROW_SKELETON_KEYS = [
+  'row-a', 'row-b', 'row-c', 'row-d', 'row-e', 'row-f', 'row-g', 'row-h'
+];
 
 /**
  * Formatea un porcentaje (0-100) eliminando decimales sobrantes.
@@ -359,8 +364,8 @@ export default function StudentsAnalytics() {
 
           {/* Summary KPIs skeleton */}
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 lg:gap-6">
-            {[...Array(4)].map((_, i) => (
-              <SkeletonStatCard key={`stat-sk-${i}`} />
+            {STUDENTS_KPI_SKELETON_KEYS.map(key => (
+              <SkeletonStatCard key={key} />
             ))}
           </div>
 
@@ -376,8 +381,8 @@ export default function StudentsAnalytics() {
           {/* Table skeleton */}
           <GlassCard padding="none">
             <div className="p-4 space-y-3">
-              {[...Array(8)].map((_, i) => (
-                <SkeletonShimmer key={`row-sk-${i}`} className="h-14 w-full rounded-lg" />
+              {STUDENTS_ROW_SKELETON_KEYS.map(key => (
+                <SkeletonShimmer key={key} className="h-14 w-full rounded-lg" />
               ))}
             </div>
           </GlassCard>
@@ -451,8 +456,8 @@ export default function StudentsAnalytics() {
               aria-labelledby="kpis-heading"
             >
               <h2 id="kpis-heading" className="sr-only">Indicadores clave</h2>
-              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 lg:gap-6" role="list">
-                <motion.div variants={shouldReduceMotion ? {} : listItemVariants} role="listitem">
+              <ul className="list-none p-0 m-0 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 lg:gap-6">
+                <motion.li variants={shouldReduceMotion ? {} : listItemVariants}>
                   <GlassCard padding="sm">
                     <div className="flex items-center gap-3">
                       <div className="flex items-center justify-center size-10 rounded-xl bg-gradient-to-br from-brand-base to-accent-indigo shadow-[0_2px_8px_var(--color-brand-glow)]">
@@ -464,9 +469,9 @@ export default function StudentsAnalytics() {
                       </div>
                     </div>
                   </GlassCard>
-                </motion.div>
+                </motion.li>
 
-                <motion.div variants={shouldReduceMotion ? {} : listItemVariants} role="listitem">
+                <motion.li variants={shouldReduceMotion ? {} : listItemVariants}>
                   <GlassCard padding="sm">
                     <div className="flex items-center gap-3">
                       <div className="flex items-center justify-center size-10 rounded-xl bg-gradient-to-br from-success-base to-success-dark shadow-[0_2px_8px_var(--color-success-glow)]">
@@ -478,9 +483,9 @@ export default function StudentsAnalytics() {
                       </div>
                     </div>
                   </GlassCard>
-                </motion.div>
+                </motion.li>
 
-                <motion.div variants={shouldReduceMotion ? {} : listItemVariants} role="listitem">
+                <motion.li variants={shouldReduceMotion ? {} : listItemVariants}>
                   <GlassCard padding="sm">
                     <div className="flex items-center gap-3">
                       <div className="flex items-center justify-center size-10 rounded-xl bg-gradient-to-br from-error-base to-error-dark shadow-[0_2px_8px_var(--color-error-glow)]">
@@ -492,9 +497,9 @@ export default function StudentsAnalytics() {
                       </div>
                     </div>
                   </GlassCard>
-                </motion.div>
+                </motion.li>
 
-                <motion.div variants={shouldReduceMotion ? {} : listItemVariants} role="listitem">
+                <motion.li variants={shouldReduceMotion ? {} : listItemVariants}>
                   <GlassCard padding="sm">
                     <div className="flex items-center gap-3">
                       <div className="flex items-center justify-center size-10 rounded-xl bg-gradient-to-br from-brand-base to-accent-pink shadow-[0_2px_8px_var(--color-brand-glow)]">
@@ -508,8 +513,8 @@ export default function StudentsAnalytics() {
                       </div>
                     </div>
                   </GlassCard>
-                </motion.div>
-              </div>
+                </motion.li>
+              </ul>
             </motion.section>
           )}
 

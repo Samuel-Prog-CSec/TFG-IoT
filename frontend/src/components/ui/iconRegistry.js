@@ -257,6 +257,7 @@ export const ICON_REGISTRY = Object.freeze({
  *
  * @returns {string[]}
  */
-export const listRegisteredIconNames = () => Object.keys(ICON_REGISTRY).sort();
+export const listRegisteredIconNames = () =>
+  Object.keys(ICON_REGISTRY).sort((a, b) => a.localeCompare(b));
 
 export default ICON_REGISTRY;

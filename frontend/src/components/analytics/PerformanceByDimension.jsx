@@ -105,8 +105,8 @@ function PerformanceByDimension({ title, data, dimension = 'context' }) {
               barSize={20}
               aria-label={`Rendimiento por ${dimension === 'context' ? 'contexto' : 'mecanica'}`}
             >
-              {chartData.map((entry, index) => (
-                <Cell key={`cell-${index}`} fill={getRAGColor(entry.score)} />
+              {chartData.map(entry => (
+                <Cell key={`cell-${entry.name}`} fill={getRAGColor(entry.score)} />
               ))}
             </Bar>
           </BarChart>

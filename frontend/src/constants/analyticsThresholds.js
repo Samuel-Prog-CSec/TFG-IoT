@@ -90,7 +90,7 @@ export function getRAGCSSColor(score) {
  * @returns {'green'|'amber'|'red'|'gray'}
  */
 export function scoreToRAGWithNull(score) {
-  if (score == null || isNaN(score)) return 'gray';
+  if (score == null || Number.isNaN(score)) return 'gray';
   if (score >= 70) return 'green';
   if (score >= 50) return 'amber';
   return 'red';

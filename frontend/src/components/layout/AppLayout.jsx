@@ -167,7 +167,7 @@ export default function AppLayout() {
               <EduPlayIcon size={20} className="text-white" />
             </motion.div>
             <div>
-              <span className="text-xl font-bold gradient-text-brand font-display tracking-tight" role="banner">
+              <span className="text-xl font-bold gradient-text-brand font-display tracking-tight">
                 EduPlay
               </span>
               <p className="text-xs text-text-muted font-medium">

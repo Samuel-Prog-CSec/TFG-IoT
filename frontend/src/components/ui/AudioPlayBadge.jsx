@@ -93,14 +93,13 @@ export default function AudioPlayBadge({ audioUrl, size = 'xs', className }) {
   );
 
   return (
-    <div
-      role="button"
-      tabIndex={0}
+    <button
+      type="button"
       aria-label={isPlaying ? 'Detener audio' : 'Reproducir audio'}
       onClick={handleToggle}
       onKeyDown={handleKeyDown}
       className={cn(
-        'rounded-full flex items-center justify-center cursor-pointer shadow-sm backdrop-blur-sm',
+        'rounded-full flex items-center justify-center cursor-pointer shadow-sm backdrop-blur-sm border-0',
         'transition-colors duration-200',
         sizeClass,
         isPlaying
@@ -117,7 +116,7 @@ export default function AudioPlayBadge({ audioUrl, size = 'xs', className }) {
           isPlaying && !shouldReduceMotion && 'animate-pulse'
         )}
       />
-    </div>
+    </button>
   );
 }
 

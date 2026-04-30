@@ -89,7 +89,7 @@ function ReportKPI({ label, value, suffix, icon: Icon, ragColor }) {
 function resolveAverageScoreValue(kpis) {
   if (kpis.averageScore != null) return Math.round(kpis.averageScore);
   if (kpis.avgScore != null) return Math.round(kpis.avgScore);
-  return '-';
+  return null;
 }
 
 function resolveCompletionRateValue(kpis) {
@@ -97,7 +97,20 @@ function resolveCompletionRateValue(kpis) {
   if (kpis.totalStudents && kpis.classEngagementScore != null) {
     return Math.round(kpis.classEngagementScore);
   }
-  return '-';
+  return null;
+}
+
+// Deriva una key estable para items de fortalezas/debilidades, que pueden
+// venir del backend como string o como objeto con name/context.
+function getInsightKey(item, prefix) {
+  if (typeof item === 'string') return `${prefix}-${item}`;
+  return `${prefix}-${item.name || item.context || item.id || JSON.stringify(item)}`;
+}
+
+// Deriva una key estable para recomendaciones (string o {message|description}).
+function getRecommendationKey(rec) {
+  if (typeof rec === 'string') return `rec-${rec}`;
+  return `rec-${rec.id || rec.message || rec.description || JSON.stringify(rec)}`;
 }
 
 const RANKING_TONE_CLASSES = {
@@ -343,8 +356,11 @@ function StudentReportView({ data }) {
             <div className="rounded-xl border border-success-base/20 bg-success-base/5 p-4">
               <h4 className="text-sm font-bold text-success-base mb-2">Fortalezas</h4>
               <ul className="space-y-1">
-                {performance.strengths.map((item, idx) => (
-                  <li key={idx} className="text-xs text-text-secondary flex items-start gap-1.5">
+                {performance.strengths.map(item => (
+                  <li
+                    key={getInsightKey(item, 'strength')}
+                    className="text-xs text-text-secondary flex items-start gap-1.5"
+                  >
                     <TrendingUp size={12} className="text-success-base mt-0.5 flex-shrink-0" aria-hidden="true" />
                     {typeof item === 'string' ? item : item.name || item.context || 'N/A'}
                   </li>
@@ -356,8 +372,11 @@ function StudentReportView({ data }) {
             <div className="rounded-xl border border-error-base/20 bg-error-base/5 p-4">
               <h4 className="text-sm font-bold text-error-base mb-2">Areas de Mejora</h4>
               <ul className="space-y-1">
-                {performance.weaknesses.map((item, idx) => (
-                  <li key={idx} className="text-xs text-text-secondary flex items-start gap-1.5">
+                {performance.weaknesses.map(item => (
+                  <li
+                    key={getInsightKey(item, 'weakness')}
+                    className="text-xs text-text-secondary flex items-start gap-1.5"
+                  >
                     <AlertTriangle size={12} className="text-error-base mt-0.5 flex-shrink-0" aria-hidden="true" />
                     {typeof item === 'string' ? item : item.name || item.context || 'N/A'}
                   </li>
@@ -373,9 +392,9 @@ function StudentReportView({ data }) {
         <div>
           <h4 className="text-sm font-bold text-text-primary mb-2">Recomendaciones</h4>
           <ul className="space-y-2">
-            {recommendations.map((rec, idx) => (
+            {recommendations.map(rec => (
               <li
-                key={idx}
+                key={getRecommendationKey(rec)}
                 className="text-xs text-text-secondary bg-background-elevated/30 rounded-lg border border-border-subtle px-3 py-2"
               >
                 {typeof rec === 'string' ? rec : rec.message || rec.description || 'N/A'}

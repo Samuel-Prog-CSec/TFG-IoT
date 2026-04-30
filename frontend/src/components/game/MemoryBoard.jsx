@@ -4,7 +4,7 @@
  * feedback visual de acierto/error y accesibilidad.
  */
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { motion } from 'framer-motion';
 import PropTypes from 'prop-types';
 import { cn } from '../../lib/utils';
@@ -78,6 +78,14 @@ export default function MemoryBoard({ board, feedbackState, feedbackPoints, feed
 
   const pairsFound = safeBoard.filter(s => s.isMatched).length / 2;
   const pairsTotal = total > 0 ? total / 2 : 0;
+  const pairMarkers = useMemo(
+    () =>
+      Array.from({ length: Math.round(pairsTotal) }, (_, idx) => ({
+        id: `pair-marker-${idx}`,
+        position: idx
+      })),
+    [pairsTotal]
+  );
 
   return (
     <div className="w-full h-full max-w-5xl mx-auto rounded-2xl border border-border-default bg-background-base/30 p-3 sm:p-4 relative flex flex-col">
@@ -85,16 +93,15 @@ export default function MemoryBoard({ board, feedbackState, feedbackPoints, feed
           encontrar cada pareja. Sustituye al texto "Tablero de Memoria" (que era
           redundante) y da un goalpost visible sin ocupar espacio extra. */}
       {pairsTotal > 0 && (
-        <div
+        <output
           className="mb-3 flex items-center justify-center gap-2 shrink-0"
-          role="status"
           aria-label={`Parejas encontradas: ${pairsFound} de ${pairsTotal}`}
         >
-          {Array.from({ length: Math.round(pairsTotal) }).map((_, idx) => {
-            const isFound = idx < pairsFound;
+          {pairMarkers.map(marker => {
+            const isFound = marker.position < pairsFound;
             return (
               <motion.span
-                key={`pair-marker-${idx}`}
+                key={marker.id}
                 className={cn(
                   'inline-block text-lg sm:text-xl transition-[transform,opacity,filter]',
                   isFound ? 'opacity-100' : 'opacity-30 grayscale'
@@ -111,7 +118,7 @@ export default function MemoryBoard({ board, feedbackState, feedbackPoints, feed
               </motion.span>
             );
           })}
-        </div>
+        </output>
       )}
 
       {/* Badge flotante para acierto */}

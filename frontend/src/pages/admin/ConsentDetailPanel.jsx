@@ -35,6 +35,8 @@ import SkeletonShimmer from '../../components/ui/SkeletonShimmer';
 // Constantes
 // ---------------------------------------------------------------------------
 
+const SKELETON_INFO_KEYS = ['info-a', 'info-b', 'info-c', 'info-d'];
+
 /** Mapa de etiquetas legibles para las finalidades del consentimiento */
 const PURPOSE_LABELS = {
   educational_tracking: 'Seguimiento educativo',
@@ -142,8 +144,8 @@ function PanelSkeleton() {
       <SkeletonShimmer className="h-8 w-48" />
       {/* Grid de info */}
       <div className="space-y-3">
-        {Array.from({ length: 4 }).map((_, i) => (
-          <div key={i} className="flex items-center gap-3">
+        {SKELETON_INFO_KEYS.map(key => (
+          <div key={key} className="flex items-center gap-3">
             <SkeletonShimmer variant="circle" className="size-5 shrink-0" />
             <div className="flex-1 space-y-1">
               <SkeletonShimmer className="h-3 w-20" />

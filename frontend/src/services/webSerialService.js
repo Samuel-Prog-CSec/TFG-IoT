@@ -564,7 +564,7 @@ class WebSerialService {
   }
 
   handleRawEvent(event) {
-    if (!event || !event.event) {
+    if (!event?.event) {
       return;
     }
 

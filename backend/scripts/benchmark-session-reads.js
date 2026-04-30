@@ -5,7 +5,7 @@
  */
 
 const mongoose = require('mongoose');
-const crypto = require('crypto');
+const crypto = require('node:crypto');
 const request = require('supertest');
 const { app } = require('../src/server');
 const User = require('../src/models/User');

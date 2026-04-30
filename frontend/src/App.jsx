@@ -65,9 +65,8 @@ const PrivacyPage = lazy(() => import('./pages/PrivacyPage'));
  */
 function PageLoader() {
   return (
-    <div 
-      className="min-h-screen flex items-center justify-center bg-background-base transition-colors duration-500"
-      role="status"
+    <output
+      className="block min-h-screen flex items-center justify-center bg-background-base transition-colors duration-500"
       aria-label="Cargando página"
     >
       <div className="flex flex-col items-center gap-4">
@@ -85,7 +84,7 @@ function PageLoader() {
         </div>
         <p className="text-text-muted text-sm font-medium animate-pulse">Cargando sección...</p>
       </div>
-    </div>
+    </output>
   );
 }
 

@@ -94,9 +94,8 @@ export const loadSnapshot = (playId) => {
     if (!raw) return null;
     const parsed = JSON.parse(raw);
     if (
-      !parsed ||
-      parsed.schemaVersion !== SNAPSHOT_SCHEMA_VERSION ||
-      typeof parsed.savedAt !== 'number'
+      parsed?.schemaVersion !== SNAPSHOT_SCHEMA_VERSION ||
+      typeof parsed?.savedAt !== 'number'
     ) {
       storage.removeItem(buildKey(playId));
       return null;
@@ -141,14 +140,13 @@ export const purgeExpiredSnapshots = () => {
   try {
     for (let i = 0; i < storage.length; i += 1) {
       const key = storage.key(i);
-      if (!key || !key.startsWith(KEY_PREFIX)) continue;
+      if (!key?.startsWith(KEY_PREFIX)) continue;
       try {
         const raw = storage.getItem(key);
         const parsed = raw ? JSON.parse(raw) : null;
         if (
-          !parsed ||
-          parsed.schemaVersion !== SNAPSHOT_SCHEMA_VERSION ||
-          typeof parsed.savedAt !== 'number' ||
+          parsed?.schemaVersion !== SNAPSHOT_SCHEMA_VERSION ||
+          typeof parsed?.savedAt !== 'number' ||
           Date.now() - parsed.savedAt > SNAPSHOT_TTL_MS
         ) {
           keysToRemove.push(key);

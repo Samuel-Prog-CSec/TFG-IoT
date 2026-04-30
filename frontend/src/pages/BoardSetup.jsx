@@ -311,9 +311,9 @@ export default function BoardSetup() {
                 >
                   <Info size={18} className="shrink-0 text-accent-indigo mt-0.5" aria-hidden="true" />
                   <p className="flex-1">
-                    Arrastra las tarjetas de la librería a los huecos del tablero, o pulsa
-                    <strong className="text-text-primary mx-1">Aleatorio</strong>
-                    para distribuirlas automáticamente. Cuando todas estén colocadas y hayas elegido un alumno, podrás
+                    Arrastra las tarjetas de la librería a los huecos del tablero, o pulsa{' '}
+                    <strong className="text-text-primary mx-1">Aleatorio</strong>{' '}
+                    para distribuirlas automáticamente. Cuando todas estén colocadas y hayas elegido un alumno, podrás{' '}
                     <strong className="text-text-primary mx-1">Iniciar Partida</strong>.
                   </p>
                   <button

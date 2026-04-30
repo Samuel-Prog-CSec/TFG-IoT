@@ -39,6 +39,8 @@ import { cn, formatDate } from '../../lib/utils';
 
 const CONTEXT_ID_REGEX = /^[a-z0-9-]+$/;
 
+const ADMIN_CONTEXTS_SKELETON_KEYS = ['ctx-sk-a', 'ctx-sk-b', 'ctx-sk-c', 'ctx-sk-d', 'ctx-sk-e', 'ctx-sk-f'];
+
 /**
  * Modal compartido para crear o editar un contexto.
  *
@@ -279,8 +281,8 @@ function renderContextsSection({
   if (loading) {
     return (
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-        {Array.from({ length: 6 }).map((_, i) => (
-          <SkeletonCard key={i} />
+        {ADMIN_CONTEXTS_SKELETON_KEYS.map(key => (
+          <SkeletonCard key={key} />
         ))}
       </div>
     );
