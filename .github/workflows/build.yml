@@ -346,7 +346,7 @@ jobs:
 
       - name: SonarCloud Scan
         id: sonar_scan
-        uses: sonarsource/sonarqube-scan-action@v7
+        uses: sonarsource/sonarqube-scan-action@v8
         with:
           args: >-
             -Dsonar.token=${{ secrets.SONAR_TOKEN }}
