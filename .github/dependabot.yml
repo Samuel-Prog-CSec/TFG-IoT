@@ -99,6 +99,12 @@ updates:
     commit-message:
       prefix: "npm-front"
       prefix-development: "npm-front-dev"
+    # eslint-plugin-sonarjs 4.0.3 introduce un bug en la regla S125 que crashea
+    # el lint con "AST is missing the tokens array". Se ignora hasta que el
+    # proyecto upstream publique 4.0.4 con el fix.
+    ignore:
+      - dependency-name: "eslint-plugin-sonarjs"
+        versions: ["4.0.3"]
     groups:
       safe-updates:
         patterns:
