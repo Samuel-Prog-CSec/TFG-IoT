@@ -133,10 +133,14 @@ export default defineConfig([
       // ==========================================
       'react-hooks/rules-of-hooks': 'error',
       'react-hooks/exhaustive-deps': 'warn',
+      // Familia de reglas dependientes de React Compiler: el proyecto usa
+      // @vitejs/plugin-react-swc sin Compiler, por lo que se desactivan
+      // explicitamente para evitar falsos positivos.
       'react-hooks/purity': 'off',
       'react-hooks/immutability': 'off',
       'react-hooks/set-state-in-effect': 'off',
       'react-hooks/refs': 'off',
+      'react-hooks/preserve-manual-memoization': 'off',
       'react-compiler/react-compiler': 'off',
 
       // ==========================================
