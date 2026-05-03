@@ -422,18 +422,34 @@ const applyCloneMechanicState = ({
   if (mechanicName === 'memory') {
     clonedSession.boardLayout = [];
     clonedSession.associationChallengePlan = [];
+    clonedSession.sequencePlan = [];
     clonedSession.requiresAssociationPlanConfiguration = false;
     return;
   }
 
   if (mechanicName === 'association') {
     clonedSession.boardLayout = [];
+    clonedSession.sequencePlan = [];
     clonedSession.associationChallengePlan = buildAssociationCloneDraftPlan({
       sourceSession,
       cardMappings,
       numberOfRounds: Number(clonedSession.config?.numberOfRounds || 0)
     });
     clonedSession.requiresAssociationPlanConfiguration = false;
+    return;
+  }
+
+  if (mechanicName === 'sequence') {
+    clonedSession.boardLayout = [];
+    clonedSession.associationChallengePlan = [];
+    clonedSession.requiresAssociationPlanConfiguration = false;
+    clonedSession.sequencePlan = buildSequenceClonePlan({
+      sourceSession,
+      cardMappings,
+      numberOfRounds: Number(clonedSession.config?.numberOfRounds || 0),
+      sequenceConfig: clonedSession.sequenceConfig,
+      userId
+    });
     return;
   }
 
@@ -458,6 +474,67 @@ const applyCloneMechanicState = ({
   }
 
   clonedSession.boardLayout = buildBoardLayoutFromMappings(cardMappings);
+};
+
+/**
+ * Construye el `sequencePlan` para una sesión clonada de Secuencia. Si el
+ * plan original sigue siendo compatible con el mazo y la config actuales,
+ * lo preservamos para mantener la fidelidad pedagógica de la sesión; en
+ * caso contrario lo regeneramos a partir de cardMappings (BUG QA
+ * 03/05/2026: el clon nunca copiaba el plan y entrar a jugar mostraba
+ * "La sesión de Secuencia no tiene un plan válido").
+ */
+const buildSequenceClonePlan = ({
+  sourceSession,
+  cardMappings,
+  numberOfRounds,
+  sequenceConfig,
+  userId
+}) => {
+  // Lazy require para evitar ciclo: services/* depende de helpers/*.
+  const {
+    generateSequencePlan,
+    isPlanCompatible
+  } = require('../../services/sequencePlanGenerator');
+
+  const cfg = sequenceConfig || {};
+  const minLength = Number(cfg.minSequenceLength) || 3;
+  const maxLength = Number(cfg.maxSequenceLength) || minLength;
+  const sourcePlan = Array.isArray(sourceSession.sequencePlan)
+    ? sourceSession.sequencePlan.map(round => ({
+        roundNumber: round.roundNumber,
+        length: round.length,
+        sequence: (round.sequence || []).map(item => ({
+          uid: item.uid,
+          assignedValue: item.assignedValue,
+          displayData: item.displayData ? { ...item.displayData } : {}
+        }))
+      }))
+    : [];
+
+  if (
+    sourcePlan.length > 0 &&
+    isPlanCompatible(sourcePlan, cardMappings, {
+      numberOfRounds,
+      minLength,
+      maxLength
+    })
+  ) {
+    return sourcePlan;
+  }
+
+  if (sourcePlan.length > 0) {
+    logger.warn('sequencePlan original no compatible tras resincronizar mazo; se regenera plan', {
+      sessionId: sourceSession._id,
+      clonedBy: userId
+    });
+  }
+
+  return generateSequencePlan(cardMappings, {
+    numberOfRounds,
+    minLength,
+    maxLength
+  });
 };
 
 const buildCloneSuccessMessage = mechanicName => {

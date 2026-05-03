@@ -23,7 +23,7 @@
  * locales (countdown del display, transición entre fases) que necesitan
  * sincronía con la animación.
  */
-import { memo, useEffect, useRef } from 'react';
+import { memo, useEffect, useRef, useState } from 'react';
 import PropTypes from 'prop-types';
 import { motion, AnimatePresence, useReducedMotion as useFramerReducedMotion } from 'framer-motion';
 import SequenceCard from './SequenceCard';
@@ -131,6 +131,23 @@ function SequenceBoard({
     lastRoundRef.current = roundNumber;
   }, [roundNumber]);
 
+  // Overlay de transición memorizing → reproducing: aparece 2.4s y se
+  // cierra solo (BUG QA 03/05/2026: con la condición "isReproducing &&
+  // cursor === 0 && cardStatuses vacío" el overlay se quedaba fijo en
+  // pantalla bloqueando al alumno).
+  const [showOverlay, setShowOverlay] = useState(false);
+  useEffect(() => {
+    if (!isReproducing) {
+      setShowOverlay(false);
+      return undefined;
+    }
+    setShowOverlay(true);
+    const timer = setTimeout(() => setShowOverlay(false), 2400);
+    return () => clearTimeout(timer);
+    // Re-disparamos el overlay al cambiar de ronda (cada vez que pasamos
+    // a reproducing una nueva), por eso `roundNumber` está en deps.
+  }, [isReproducing, roundNumber]);
+
   const variants = reduceMotion ? reducedDealVariants : dealVariants;
 
   return (
@@ -156,10 +173,7 @@ function SequenceBoard({
       </header>
 
       <div className="relative w-full">
-        <PhaseTransitionOverlay
-          visible={isReproducing && cursor === 0 && Object.keys(cardStatuses).length === 0}
-          reduceMotion={reduceMotion}
-        />
+        <PhaseTransitionOverlay visible={showOverlay} reduceMotion={reduceMotion} />
 
         <ol
           className={cn(

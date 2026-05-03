@@ -60,23 +60,29 @@ function SequenceCard({
 
   return (
     <div className="relative w-full aspect-square">
-      <motion.div
+      <div
         className={cn(
           'memory-card-flip h-full w-full',
-          isRevealed && 'memory-card-flipped',
           highlightOrder != null && !reduceMotion && 'sequence-card-highlight'
         )}
       >
-        <div className="memory-card-inner">
-          {/* Cara oculta (back) */}
-          <div className="memory-card-back rounded-xl bg-gradient-to-br from-brand-base/20 to-accent-cyan/15 border-2 border-border-default flex items-center justify-center text-text-muted/40 font-display text-3xl">
+        {/* `memory-card-flipped` debe ir en el inner: es quien tiene
+            transform-style: preserve-3d, así sus dos caras pivotan juntas.
+            Las caras (face/back) son `position: absolute; inset: 0`, por lo
+            que el inner necesita tamaño explícito (`w-full h-full`) o
+            colapsa a 0×0 y las cartas no se ven en pantalla. */}
+        <div className={cn('relative w-full h-full memory-card-inner', isRevealed && 'memory-card-flipped')}>
+          {/* Cara cubierta (dorso decorativo): por convención CSS la `face`
+              queda al frente sin rotación, así se ve cuando NO flipped. */}
+          <div className="memory-card-face rounded-xl bg-gradient-to-br from-brand-base/20 to-accent-cyan/15 border-2 border-border-default flex items-center justify-center text-text-muted/40 font-display text-3xl">
             ?
           </div>
 
-          {/* Cara visible */}
+          {/* Cara revelada (con la imagen + estado): la `back` está rotada
+              180° por defecto, queda al frente cuando se aplica flipped. */}
           <div
             className={cn(
-              'memory-card-face rounded-xl bg-background-base/80 border-2 overflow-hidden relative',
+              'memory-card-back rounded-xl bg-background-base/80 border-2 overflow-hidden',
               statusConfig?.border || 'border-border-default'
             )}
           >
@@ -109,7 +115,7 @@ function SequenceCard({
             )}
           </div>
         </div>
-      </motion.div>
+      </div>
 
       {/* Numerito de orden durante memorizing */}
       <AnimatePresence>

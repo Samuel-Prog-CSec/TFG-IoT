@@ -122,6 +122,22 @@ async function cloneSessionFromExisting({ sourceSession, userId }) {
     userId
   });
 
+  // Para Secuencia preservamos también el `sequenceConfig` aquí: el helper
+  // `applyCloneMechanicState` usará ese config para validar el plan o
+  // regenerarlo. Sin esto, el config queda con los defaults del schema y
+  // un plan compatible se descarta innecesariamente.
+  if ((mechanic?.name || '').toLowerCase() === 'sequence' && sourceSession.sequenceConfig) {
+    const sourceCfg =
+      typeof sourceSession.sequenceConfig.toObject === 'function'
+        ? sourceSession.sequenceConfig.toObject()
+        : sourceSession.sequenceConfig;
+    clonedSession.sequenceConfig = {
+      minSequenceLength: sourceCfg.minSequenceLength,
+      maxSequenceLength: sourceCfg.maxSequenceLength,
+      displaySeconds: sourceCfg.displaySeconds
+    };
+  }
+
   return {
     clonedSession,
     mechanic,

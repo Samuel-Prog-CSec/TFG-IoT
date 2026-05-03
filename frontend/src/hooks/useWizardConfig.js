@@ -186,13 +186,18 @@ export function useWizardConfig({ mechanics }) {
   const handleConfigChange = useCallback((key, value) => {
     setSessionConfig(prev => ({
       ...prev,
-      difficulty: 'custom',
+      // En Secuencia, la dificultad (easy/medium/hard) controla los intentos
+      // por carta y las pistas — son reglas de juego independientes de los
+      // sliders de tiempo/rondas. NO debe cambiarse a 'custom' al ajustar
+      // un slider (BUG-QA-14, QA pasada 2). En Asociación/Memoria sí, ya
+      // que su preset incluye los sliders.
+      difficulty: isSequenceSelected ? prev.difficulty : 'custom',
       config: {
         ...prev.config,
         [key]: value
       }
     }));
-  }, []);
+  }, [isSequenceSelected]);
 
   const handleLinkSensorChange = useCallback((val) => {
     setSessionConfig(prev => ({ ...prev, linkSensor: val }));

@@ -11,7 +11,16 @@
 const logger = require('../../utils/logger').child({ component: 'sequenceFlow' });
 const { SEQUENCE_PHASE } = require('../../constants/enums');
 
-const FEEDBACK_PAUSE_MS = 600;
+// Tiempo entre que se cierra una ronda (`sequence_round_result`) y el
+// arranque de la siguiente. Da margen al cliente para mostrar las cartas
+// reveladas en su estado final (verde/rojo/ámbar) y reproducir las dos
+// animaciones signature de "crupier": pausa de revelado (~800ms) +
+// recogida (~640ms con stagger 70ms × 5 cartas + 320ms ease) + un
+// instante de respiro antes del reparto. Con 600ms (valor anterior) el
+// cliente apenas tenía tiempo a iniciar la recogida antes de empezar la
+// siguiente memorización: las animaciones se solapaban y el alumno
+// percibía un cambio brusco (BUG QA 03/05/2026).
+const FEEDBACK_PAUSE_MS = 1700;
 
 /**
  * Devuelve la duración (ms) de la fase de memorización para la ronda actual.

@@ -576,6 +576,10 @@ export default function GameSession() {
   const handleSequencePhaseMemorizing = useCallback(payload => {
     if (sequenceCollectTimerRef.current) clearTimeout(sequenceCollectTimerRef.current);
     if (sequenceHintTimerRef.current) clearTimeout(sequenceHintTimerRef.current);
+
+    const roundNumber = Number(payload?.roundNumber) || 1;
+    const totalRoundsPayload = Number(payload?.totalRounds);
+
     setSequenceState({
       sequence: payload?.sequence || [],
       length: payload?.length || (payload?.sequence?.length ?? 0),
@@ -584,14 +588,28 @@ export default function GameSession() {
       cardStatuses: {},
       highlightIndex: null,
       displaySeconds: payload?.displaySeconds || 3,
-      roundNumber: payload?.roundNumber || 1,
+      roundNumber,
       hint: null,
       isCollecting: false
     });
+
+    // Sincronizar header de la partida (ronda actual / total) — el backend
+    // de Secuencia no emite `new_round`, así que lo hacemos a mano aquí.
+    dispatch({ type: 'SET_ROUND', value: roundNumber });
+    if (Number.isFinite(totalRoundsPayload) && totalRoundsPayload > 0) {
+      setTotalRounds(totalRoundsPayload);
+    }
     if (typeof payload?.score === 'number') {
       dispatch({ type: 'SET_SCORE', value: payload.score });
     }
-  }, []);
+
+    // Durante la memorización el timer del cliente NO debe correr (el
+    // backend ni siquiera ha armado `roundTimer` aún) — pintar la barra
+    // llena y desactivar isAwaitingResponse para detener `useGameTimer`.
+    dispatch({ type: 'AWAIT_RESPONSE', value: false });
+    clearAnnouncedThresholds();
+    setTimeLeft(roundTimeRef.current || ROUND_TIME);
+  }, [setTimeLeft, clearAnnouncedThresholds]);
 
   const handleSequencePhaseReproducing = useCallback(payload => {
     setSequenceState(prev => ({
@@ -600,8 +618,22 @@ export default function GameSession() {
       cursor: 0,
       length: typeof payload?.length === 'number' ? payload.length : prev.length
     }));
+
+    // Reiniciar la barra a la duración real de esta ronda. El backend acaba
+    // de armar un `roundTimer` nuevo en sequenceFlow.enterReproducingPhase;
+    // sin esto la barra continuaba la cuenta de la ronda anterior (BUG QA
+    // 03/05/2026: "el tiempo se aplica al total de rondas y no se reinicia").
+    const timeLimitMs = Number(payload?.timeLimitMs);
+    if (Number.isFinite(timeLimitMs) && timeLimitMs > 0) {
+      const seconds = Math.max(1, Math.ceil(timeLimitMs / 1000));
+      setRoundTime(seconds);
+      setTimeLeft(seconds);
+    } else {
+      setTimeLeft(roundTimeRef.current || ROUND_TIME);
+    }
+    clearAnnouncedThresholds();
     dispatch({ type: 'AWAIT_RESPONSE', value: true });
-  }, []);
+  }, [setTimeLeft, clearAnnouncedThresholds]);
 
   const handleSequenceCardResult = useCallback(payload => {
     const TYPE_TO_STATUS = {
@@ -657,13 +689,22 @@ export default function GameSession() {
       });
       return { ...prev, phase: 'completed', cardStatuses: finalStatuses };
     });
+    // La ronda ha terminado: paramos el timer del cliente para que la
+    // barra no siga decrementando durante el respiro entre rondas (el
+    // backend ya canceló su `roundTimer` en finalizeSequenceRound).
+    dispatch({ type: 'AWAIT_RESPONSE', value: false });
     if (payload?.completed) {
       playSuccess();
     }
     if (sequenceCollectTimerRef.current) clearTimeout(sequenceCollectTimerRef.current);
+    // Mostrar las cartas reveladas (verde/rojo/ámbar) durante 800ms antes de
+    // arrancar la animación de recogida; el backend espera 1700ms entre
+    // `sequence_round_result` y el siguiente `sequence_phase_memorizing`,
+    // por lo que el collect tiene ~640ms para completarse y queda un
+    // pequeño respiro antes del reparto de la nueva ronda.
     sequenceCollectTimerRef.current = setTimeout(() => {
       setSequenceState(prev => ({ ...prev, isCollecting: true }));
-    }, 500);
+    }, 800);
   }, [playSuccess]);
 
   const socket = useGameSocket({
