@@ -261,8 +261,13 @@ describe('sequenceFlow.buildSequenceFinalSummary', () => {
     expect(summary.sequencesCompleted).toBe(1); // round 1 todas correctas
     expect(summary.sequencesBlocked).toBe(1); // round 2
     expect(summary.sequencesTimedOut).toBe(1); // round 3
-    expect(summary.maxSequenceLengthAchieved).toBe(3); // sólo el round 1 cuenta
-    expect(summary.partialReproductions).toBe(3 + 3 + 1); // 7
+    // max(correctCount) en cualquier ronda; round 1 (3) y round 2 (3) empatan.
+    expect(summary.maxSequenceLengthAchieved).toBe(3);
+    expect(summary.partialReproductions).toBe(3 + 3 + 1); // total cartas correctas
+    // Rondas con aciertos pero sin completar la secuencia entera:
+    // round 1 (3/3 → completa, no cuenta), round 2 (3/4 → parcial),
+    // round 3 (1/3 → parcial). Total: 2.
+    expect(summary.partialRounds).toBe(2);
     expect(summary.blockedCardsTotal).toBe(1);
     expect(summary.hintsUsed).toBe(2);
   });

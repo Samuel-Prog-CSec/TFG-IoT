@@ -208,6 +208,10 @@ const gamePlaySchema = new mongoose.Schema(
       sequencesTimedOut: { type: Number, default: undefined },
       maxSequenceLengthAchieved: { type: Number, default: undefined },
       partialReproductions: { type: Number, default: undefined },
+      // Rondas con al menos un acierto pero sin completar la secuencia
+      // (T-921 QA 03/05/2026). Sustituye en el UI a `partialReproductions`,
+      // que duplicaba el total de "Cartas acertadas" del bloque superior.
+      partialRounds: { type: Number, default: undefined },
       averageReproductionTimeMs: { type: Number, default: undefined },
       blockedCardsTotal: { type: Number, default: undefined },
       hintsUsed: { type: Number, default: undefined }

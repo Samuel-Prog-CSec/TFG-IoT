@@ -19,7 +19,10 @@ function GameOverStatsSequence({ summary }) {
   const sequencesBlocked = Number(summary?.sequencesBlocked || 0);
   const sequencesTimedOut = Number(summary?.sequencesTimedOut || 0);
   const maxLength = Number(summary?.maxSequenceLengthAchieved || 0);
-  const partialReproductions = Number(summary?.partialReproductions || 0);
+  // `partialRounds` (rondas con aciertos pero sin completar la secuencia)
+  // sustituye a `partialReproductions` en el UI desde QA 03/05/2026:
+  // el campo anterior duplicaba "Cartas acertadas" del bloque superior.
+  const partialRounds = Number(summary?.partialRounds || 0);
   const hintsUsed = Number(summary?.hintsUsed || 0);
   const avgReprodMs = Number(summary?.averageReproductionTimeMs || 0);
   // El backend persiste el tiempo total como `completionTime` (estándar
@@ -90,9 +93,12 @@ function GameOverStatsSequence({ summary }) {
 
       {/* Banda inferior con métricas continuas */}
       <div className="grid grid-cols-3 gap-2 text-xs">
-        <div className="rounded-lg bg-background-elevated/60 border border-border-subtle px-3 py-2 text-center" title="Cartas correctas antes de cualquier fallo">
-          <div className="text-text-muted">Aciertos parciales</div>
-          <div className="text-white font-display font-semibold">{partialReproductions}</div>
+        <div
+          className="rounded-lg bg-background-elevated/60 border border-border-subtle px-3 py-2 text-center"
+          title="Rondas en las que el alumno acertó alguna carta pero no completó la secuencia entera"
+        >
+          <div className="text-text-muted">Casi lo logra</div>
+          <div className="text-white font-display font-semibold">{partialRounds}</div>
         </div>
         <div className="rounded-lg bg-background-elevated/60 border border-border-subtle px-3 py-2 text-center">
           <div className="text-text-muted flex items-center justify-center gap-1">

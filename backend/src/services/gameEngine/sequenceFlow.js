@@ -361,6 +361,7 @@ function buildSequenceFinalSummary(playState) {
       sequencesTimedOut: 0,
       maxSequenceLengthAchieved: 0,
       partialReproductions: 0,
+      partialRounds: 0,
       averageReproductionTimeMs: 0,
       blockedCardsTotal: 0,
       hintsUsed: Number(playState?.strategyState?.hintsConsumed || 0)
@@ -376,7 +377,12 @@ function buildSequenceFinalSummary(playState) {
   // aciertos parciales (BUG QA 03/05/2026: pantalla final mostraba 0 a
   // pesar de haber 9 cartas correctas en cuatro rondas).
   let maxLength = 0;
+  // `partialReproductions` (cartas correctas totales) se mantiene por
+  // compatibilidad con datos históricos en analytics. El UI usa el nuevo
+  // `partialRounds` — número de rondas con al menos un acierto pero sin
+  // completar la secuencia. Más informativo: refleja "casi lo logra".
   let partialReproductions = 0;
+  let partialRounds = 0;
   let totalDuration = 0;
   let blockedCardsTotal = 0;
 
@@ -391,6 +397,10 @@ function buildSequenceFinalSummary(playState) {
       sequencesTimedOut += 1;
     } else if (hadBlocked) {
       sequencesBlocked += 1;
+    }
+
+    if (correctCount > 0 && correctCount < round.length) {
+      partialRounds += 1;
     }
 
     maxLength = Math.max(maxLength, correctCount);
@@ -411,6 +421,7 @@ function buildSequenceFinalSummary(playState) {
     sequencesTimedOut,
     maxSequenceLengthAchieved: maxLength,
     partialReproductions,
+    partialRounds,
     averageReproductionTimeMs,
     blockedCardsTotal,
     hintsUsed: Number(playState?.strategyState?.hintsConsumed || 0)

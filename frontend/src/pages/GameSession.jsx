@@ -86,6 +86,7 @@ function normalizeFinalSummary(rawMetrics, score, correctAnswers, mechanicMode, 
     summary.sequencesTimedOut = Number(metrics.sequencesTimedOut || 0);
     summary.maxSequenceLengthAchieved = Number(metrics.maxSequenceLengthAchieved || 0);
     summary.partialReproductions = Number(metrics.partialReproductions || 0);
+    summary.partialRounds = Number(metrics.partialRounds || 0);
     summary.averageReproductionTimeMs = Number(metrics.averageReproductionTimeMs || 0);
     summary.blockedCardsTotal = Number(metrics.blockedCardsTotal || 0);
     summary.hintsUsed = Number(metrics.hintsUsed || 0);
