@@ -488,3 +488,49 @@ Los umbrales de clasificación RAG (score ≥70 → green, ≥50 → amber, <50 
 ### 4.9. Cache ligero en Dashboard
 
 El Dashboard realiza 8 peticiones paralelas en cada carga. Para evitar re-fetches innecesarios (ej. al volver a la pestaña), se implementó un cache en memoria con `useRef` que almacena el timestamp del último fetch junto con la clave de filtros (`timeRange:contextId:mechanicId`). Si los datos tienen menos de 60 segundos y los filtros no han cambiado, se reutilizan los datos existentes sin hacer nuevas peticiones.
+
+---
+
+## 5. Mecánica Secuencia (T-921 / T-923)
+
+La tercera mecánica añade KPIs propios que no encajan en el esquema común de Asociación/Memoria. La filosofía de diseño es la misma: el alumno juega, el backend persiste métricas crudas en `GamePlay.metrics`, y el `analyticsService` agrega esas métricas en bloques específicos por mecánica que el frontend consume sin necesidad de filtros.
+
+### 5.1. KPIs específicos persistidos en `GamePlay.metrics`
+
+| Campo | Tipo | Significado |
+|---|---|---|
+| `sequencesCompleted` | int | Rondas terminadas con todas las cartas correctas. |
+| `sequencesBlocked` | int | Rondas con al menos una carta bloqueada por fallos. |
+| `sequencesTimedOut` | int | Rondas que no se completaron a tiempo. |
+| `maxSequenceLengthAchieved` | int | Longitud máxima reproducida correctamente. **Mejor indicador de la "memoria de trabajo" del alumno.** |
+| `partialReproductions` | int | Cartas correctas acumuladas antes del primer fallo en cada ronda. |
+| `averageReproductionTimeMs` | int | Tiempo medio de la fase reproducing (no incluye memorización). |
+| `blockedCardsTotal` | int | Total de cartas bloqueadas por fallos en la partida. |
+| `hintsUsed` | int | Pistas entregadas (sólo aplica en dificultad easy). |
+
+### 5.2. Agregación: `analyticsService.getStudentSummary().bySequence`
+
+Pipeline `$facet` con un nuevo branch `sequenceStats` que filtra por `mechanic.name === 'sequence'` y produce los mismos campos sumados/máximos sobre el rango temporal. `null` si no hay partidas Secuencia.
+
+### 5.3. Lectura pedagógica para el profesor
+
+- **`maxSequenceLengthAchieved` creciente en el tiempo** → el alumno está mejorando su capacidad de retención visoespacial.
+- **`partialReproductions` alto pero `sequencesCompleted` bajo** → "memoria de comienzo" buena pero pierde foco a mitad. Ajustar `displaySeconds` o reducir `maxSequenceLength`.
+- **`sequencesBlocked >> sequencesTimedOut`** → el problema es de identificación de carta, no de tiempo. Considerar revisar el orden mostrado o subir dificultad.
+- **`sequencesTimedOut >> sequencesBlocked`** → el alumno acierta cuando llega pero no llega. Subir `timeLimit`.
+- **`hintsUsed > 0` con dificultad ≠ easy** → no debería ocurrir; señal de bug.
+
+### 5.4. Matriz mecánica × KPI
+
+| KPI | Asociación | Memoria | Secuencia |
+|---|:---:|:---:|:---:|
+| `correctAttempts` | ✅ | ✅ | ✅ (cartas correctas) |
+| `errorAttempts` | ✅ | ✅ | ✅ (incluye blocked + timedOut individuales) |
+| `timeoutAttempts` | ✅ | — | ✅ (cartas timed out) |
+| `averageResponseTime` | ✅ | ✅ | ✅ |
+| `sequencesCompleted` | — | — | ✅ |
+| `maxSequenceLengthAchieved` | — | — | ✅ |
+| `partialReproductions` | — | — | ✅ |
+| `hintsUsed` | — | — | ✅ |
+
+Los `—` significan que el campo no aplica y queda `undefined` en el documento (no `0`); el DTO los omite del payload público.

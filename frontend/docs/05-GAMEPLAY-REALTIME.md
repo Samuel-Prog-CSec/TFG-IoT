@@ -236,3 +236,41 @@ Cuando el backend devuelve un error con `retryAfterMs` (`RATE_LIMITED`, `TEMP_BL
 - Respeta `prefers-reduced-motion`: barra estática proporcional al tiempo restante en vez de animación CSS.
 
 El toast legacy se mantiene para errores sin `retryAfterMs` (mensajes informativos sin countdown).
+
+---
+
+## Mecánica Secuencia (T-921 / T-922)
+
+La tercera mecánica usa eventos socket dedicados en lugar del `validation_result` genérico. La razón: una ronda se compone de dos fases con timings y semántica distintas, y la lógica de scan responde con tipos compuestos (correct, incorrect, incorrect_with_hint, blocked, timedOut).
+
+### Eventos del namespace `/game` para Secuencia
+
+| Evento | Dirección | Payload (campos relevantes) |
+|---|---|---|
+| `sequence_phase_memorizing` | server → cliente | `{ playId, roundNumber, totalRounds, sequence, length, displaySeconds, score }` |
+| `sequence_phase_reproducing` | server → cliente | `{ playId, roundNumber, length, timeLimitMs }` |
+| `sequence_card_result` | server → cliente | `{ type, uid, expectedUid, hint?, attemptsForCurrent, cursor, length, score, points }` |
+| `sequence_round_result` | server → cliente | `{ playId, roundNumber, length, results, durationMs, completed, timedOut, score }` |
+
+`type` en `sequence_card_result` puede ser `correct`, `incorrect`, `incorrect_with_hint`, `blocked` o `timedOut`. La pista (`hint`) sólo viaja cuando `type === 'incorrect_with_hint'` y tiene la forma `{ type: 'partial' | 'full', text }`.
+
+### Orquestación cliente (`SequenceGameplayPanel`)
+
+- Mantiene `sequence`, `length`, `phase`, `cursor`, `cardStatuses`, `highlightIndex`, `displaySeconds` y `roundNumber` como estado local.
+- Al recibir `sequence_phase_memorizing`: muestra el board, dispara la animación signature de reparto (stagger 90 ms con spring), arranca el "highlight numerado" 1, 2, 3... y reproduce SFX `cardDeal` en cada aterrizaje.
+- Al recibir `sequence_phase_reproducing`: oculta los números, abre la espera de scans, muestra el `PhaseTransitionOverlay` con cuenta atrás 2 s ("Reproduce la secuencia").
+- Al recibir `sequence_card_result`: actualiza `cardStatuses[uid]` (correct/blocked/timedOut), avanza el `cursor`, muestra toast de pista si `hint` viene.
+- Al recibir `sequence_round_result`: aplica los status finales, dispara la animación de recogida (stagger inverso) tras 500 ms, reproduce `cardSweep`, y espera a que el backend envíe el siguiente `sequence_phase_memorizing` o `game_over`.
+
+### FallbackTouchPanelSequence
+
+Cuando no hay sensor RFID, el alumno ve un panel táctil con todas las cartas del mazo (no se reordenan entre rondas — la pista espacial es importante). El cooldown anti-spam es de 250 ms, alineado con `useGameSocket.DEDUPE_MS_BY_SOURCE.touch_fallback`. El feedback visual de scan correcto / fallo se muestra en el board (no en el panel) cuando llega `sequence_card_result`.
+
+### Reduced motion
+
+El `SequenceBoard` consulta `useReducedMotion` y reemplaza:
+- Reparto crupier → fade en cascada (50 ms stagger).
+- Recogida crupier → fade salida directa.
+- Highlight numerado animado → cambio de borde sin scale/pulse.
+
+Los SFX se mantienen siempre (sound y motion son ejes a11y independientes según WCAG 2.5).

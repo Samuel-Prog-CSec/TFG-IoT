@@ -5520,3 +5520,132 @@ Una sesión QA completa con Playwright en viewport 1920×1080 cubriendo perfil t
 - ADR-095 — Layout sidebar bg + grids alturas uniformes pre-release v0.5.0.
 - ADR-088 — QA Sprint 5 fixes (métricas backend formatPercent, modal asociación táctil).
 - BUG report en sesión `project_qa_pre_release_2026_04_29.md` (memoria del proyecto).
+
+---
+
+## ADR-102: Mecánica Secuencia — estado intra-ronda, validación ordenada y dificultades [Full-stack]
+
+**Fecha:** 2026-05-03
+**Sprint/Origen:** Sprint 6, T-921 (Backend mecánica Secuencia)
+**Estado:** Aprobado (`feature/sequence-mechanic`)
+**Alcance:** Backend (modelo, validador, strategy, gameEngine, sockets, DTOs, analytics)
+
+### Contexto
+
+La mecánica Secuencia era la tercera del proyecto y estaba bloqueada como "Próximamente". Las dos primeras (Asociación, Memoria) llevan operativas desde Sprint 4 con un patrón Strategy bien establecido en `backend/src/strategies/mechanics/`. El reto de Secuencia añade dos requisitos al gameEngine:
+
+1. **Estado de fase intra-ronda** — cada ronda tiene dos fases (`memorizing` → `reproducing`) con timings independientes.
+2. **Validación ordenada** — los scans de la ronda se comparan contra una posición concreta del array; el orden importa, no sólo la cara de la carta.
+
+El usuario definió explícitamente que **las cartas bloqueadas por fallos NO reinician la secuencia**: el cursor avanza a la siguiente posición y la carta queda marcada como fallada para estadística. Decisión pedagógica para evitar frustración acumulativa cuando se juegan varias rondas.
+
+### Decisión
+
+1. **Strategy** (`SequenceStrategy.js`) con: `initialize`, `selectChallenge`, `processScan`, `enterReproducingPhase`, `forceTimeoutCurrentRound`, `recordRoundCompletion`. Estado interno: `{ plan, phase, currentRoundIndex, expectedSequence, cursor, attempts, blocked, hintsConsumed, roundResults }`.
+2. **GameEngine wiring** vía nuevo módulo `services/gameEngine/sequenceFlow.js` que aísla la lógica de fases y eventos socket. El GameEngine principal sólo añade branch en `sendNextRound`, `handleCardScan`, `executePause`, `resumePlayInternal` y `endPlay`.
+3. **Modelo `GameSession`** extendido con `sequencePlan[]` y `sequenceConfig{minSequenceLength, maxSequenceLength, displaySeconds}` paralelos a `boardLayout` y `associationChallengePlan`.
+4. **Dificultades** centralizadas en `SEQUENCE_DIFFICULTY_RULES`:
+   - `easy`: 3 intentos por carta; pistas progresivas (parcial → completa).
+   - `medium`: 2 intentos; sin pistas.
+   - `hard`: 1 intento; sin pistas.
+5. **Sistema de pistas progresivo en easy** (decisión del usuario):
+   - 1ª pista (tras fallo 1): *parcial* — palabra con caracteres ocultos por `?`. Algoritmo en `utils/sequenceHints.js` mantiene primera letra + vocales acentuadas si las hay; resto reemplazado por `?`. Ej: `León` → `L?ó?`. Sin tildes, se preservan los caracteres en índices pares (cada 2 chars), `Caballo` → `C?b?l?o`.
+   - 2ª pista (tras fallo 2): *completa* — la palabra tal cual.
+   - 3º fallo: bloquea, cursor avanza, `blocked.push(uid)`.
+6. **DTOs**: `mapGamePlayMetrics` expone los 8 campos Secuencia sólo cuando vienen presentes (no contamina Asociación/Memoria). `toGameSessionDTOV1` añade `sequencePlan` y `sequenceConfig`.
+7. **`User.studentMetrics.maxSequenceLengthAchieved`** — récord histórico monótono actualizado en `updateStudentMetrics` cuando aplica.
+8. **`analyticsService.getStudentSummary`** añade bloque `bySequence` con agregación específica por mecánica.
+9. **Mecánica habilitada** en seeder `03-mechanics.js` con `availability: 'available'` y catálogo de dificultades.
+
+### Eventos socket nuevos (server → cliente)
+
+- `sequence_phase_memorizing` — `{ playId, roundNumber, totalRounds, sequence, length, displaySeconds, score }`.
+- `sequence_phase_reproducing` — `{ playId, roundNumber, length, timeLimitMs }`.
+- `sequence_card_result` — `{ type, uid, expectedUid, hint?, attemptsForCurrent, cursor, length, score, points }`.
+- `sequence_round_result` — `{ playId, roundNumber, length, results, durationMs, completed, timedOut, score }`.
+
+`validation_result` se conserva sólo para Asociación/Memoria; Secuencia usa eventos propios.
+
+### Métricas persistidas en `GamePlay.metrics` (Secuencia)
+
+`sequencesCompleted`, `sequencesBlocked`, `sequencesTimedOut`, `maxSequenceLengthAchieved`, `partialReproductions`, `averageReproductionTimeMs`, `blockedCardsTotal`, `hintsUsed`.
+
+### Verificación
+
+- Tests: `sequenceMechanic.test.js` (19), `sequenceFlow.test.js` (8), `sequenceHints.test.js` (20), `sequencePlanGenerator.test.js` (13), `gameSessionValidatorSequence.test.js` (17). Suite total backend: 1100/1100 verdes.
+- `npm run lint` — 0 errores en backend.
+
+### Riesgos asumidos
+
+- **`processScan` Secuencia es hot path**: el state usa `Set` para `blocked` y objeto-mapa para `attempts` (O(1)). El plan se materializa una vez al `initialize` y se mantiene en RAM (`playState.strategyState`).
+- **Payload de `sequence_phase_memorizing`** emite la secuencia completa al cliente. Para 7 cartas con `displayData` rico, son ~10-15 KB por evento; aceptable para WebSocket. La fase reproducing emite sólo `length` (ofuscación).
+
+---
+
+## ADR-103: Refactor `sessionIsMemory` → `mechanicMode` y compositor `GameOverStats` [Frontend]
+
+**Fecha:** 2026-05-03
+**Sprint/Origen:** Sprint 6, T-922 (Frontend mecánica Secuencia)
+**Estado:** Aprobado (`feature/sequence-mechanic`)
+**Alcance:** Frontend (`pages/GameSession.jsx`, `components/game/GameOverScreen.jsx`)
+
+### Contexto
+
+`GameSession.jsx` venía usando un boolean `sessionIsMemory` que ramificaba todo el render entre Memoria y "no-memoria" (asumiendo Asociación por defecto). Ese patrón funcionaba con dos mecánicas pero no escala a tres: añadir un tercer boolean `sessionIsSequence` produce una matriz combinatoria de condicionales.
+
+`GameOverScreen.jsx` tenía dos IIFE encadenados con cuatro modos implícitos. Añadir Secuencia con sus 8 métricas específicas hubiera duplicado el archivo a >600 líneas.
+
+### Decisión
+
+1. **`mechanicMode = 'association' | 'memory' | 'sequence'`** como derived state en GameSession. Los aliases `sessionIsMemory` y `sessionIsSequence` se mantienen como variables locales derivadas sólo para legibilidad; el source of truth es `mechanicMode`.
+2. **`final_summary` del backend incluye `mode`** (T-921 fase E). El frontend usa el `mode` que viene en el payload, con fallback defensivo.
+3. **`GameOverStats` (compositor)** en `components/game/gameover/`:
+   - `GameOverStats.jsx` — switch sobre `summary.mode`.
+   - `GameOverStatsAssociation.jsx` — 4 columnas (Incorrectas/Sin responder/T. medio/Tiempo).
+   - `GameOverStatsMemory.jsx` — 3 columnas (Errores/T. medio/Tiempo).
+   - `GameOverStatsSequence.jsx` — diseño dedicado: hero metric `maxSequenceLengthAchieved` + 4 pills (Completas/Bloqueadas/Sin tiempo/Pistas) + banda inferior.
+4. **`GameOverScreen.jsx`** mantiene la celebración común (estrellas, score animado, confetti, botones) y delega el bloque de stats al compositor.
+
+### Consecuencias
+
+**Positivas**: Cada mecánica define sus métricas e iconos sin contaminar las demás. Añadir una cuarta mecánica significa crear un nuevo `GameOverStatsXXX` y un branch en el compositor — sin tocar las existentes.
+
+**Riesgos asumidos**: Para minimizar el blast radius, mantenemos `sessionIsMemory` y `sessionIsSequence` como aliases derivados durante esta release. En la siguiente iteración mayor pueden eliminarse.
+
+---
+
+## ADR-104: Animaciones signature crupier para Secuencia [Frontend, UX]
+
+**Fecha:** 2026-05-03
+**Sprint/Origen:** Sprint 6, T-922 fase A
+**Estado:** Aprobado (`feature/sequence-mechanic`)
+**Alcance:** Frontend (`components/game/sequence/SequenceBoard.jsx`)
+
+### Contexto
+
+El usuario solicitó explícitamente "dos animaciones bellas que sean dos detalles buenos del proyecto" para la entrada y salida de las cartas en cada ronda Secuencia, evocando el gesto del crupier de un casino. Esto añade personalidad a la mecánica y refuerza el leitmotiv tactile establecido en ADR-070.
+
+### Decisión
+
+1. **Reparto (entrada, fase memorizing)**:
+   - Stagger de 90 ms por carta (`DEAL_STAGGER_MS`).
+   - Cada carta entra desde `(x: -180, y: -120, rotate: -25, scale: 0.6, opacity: 0)` hasta su posición final con spring `{stiffness: 220, damping: 20}`.
+   - SFX `cardDeal` por aterrizaje (Web Audio API: tono `square 280Hz 0.05s` + click `sine 900Hz 0.03s`).
+   - Tras todas en posición, ráfaga de "highlight numerado" 1, 2, 3... cada 600 ms con `scale [1, 1.15, 1]` y un dot ámbar sobre la carta resaltada.
+
+2. **Recogida (salida, tras `sequence_round_result`)**:
+   - Stagger inverso de 70 ms (`COLLECT_STAGGER_MS`).
+   - Cada carta sale a `(x: 220 + i*18, y: -200, rotate: 18, scale: 0.8, opacity: 0)` con `cubic-bezier(0.32, 0.72, 0, 1)` (curva drawer iOS-like) sobre 320 ms.
+   - SFX `cardSweep` al iniciar (silbido descendente 700→500→350 Hz).
+
+3. **Reduced motion** (`prefers-reduced-motion: reduce`):
+   - Reparto reemplazado por fade en cascada (50 ms stagger). Los números 1, 2, 3 se siguen mostrando estáticos.
+   - Recogida directa sin stagger (sólo opacity).
+   - Highlight: cambio de borde sin scale/pulse.
+   - SFX siempre activos: el sonido es eje a11y independiente del visual (WCAG 2.5).
+
+### Consecuencias
+
+**Positivas**: Detalle distintivo del proyecto. Sólo `transform` y `opacity` (GPU-acelerados); 60 fps en monitores 4K. SFX vía Web Audio API — sin assets externos.
+
+**Riesgos asumidos**: Animación "ping" de highlight numerado puede saturar si `displaySeconds` es muy bajo. Mitigado: `HIGHLIGHT_INTERVAL_MS = 600 ms` fijo; si la fase termina antes del último ping, el componente lo cancela en cleanup.

@@ -323,6 +323,72 @@ function generatePlayEvents(
   };
 }
 
+/**
+ * Deriva métricas específicas de la mecánica Secuencia (T-921 fase E) para
+ * un alumno+sesión a partir del perfil. Devuelve un objeto con los campos
+ * que persistimos en `GamePlay.metrics.sequencesCompleted`,
+ * `maxSequenceLengthAchieved`, `partialReproductions`, etc.
+ *
+ * No es una simulación exacta del flujo runtime — es suficiente para que
+ * los analytics (`bySequence`, charts) muestren datos realistas.
+ */
+function deriveSequenceMetricsFromProfile({ profile, session, roundsPlayed, willAbandon }) {
+  const plan = Array.isArray(session.sequencePlan) ? session.sequencePlan : [];
+  const playedRounds = Math.min(roundsPlayed, plan.length);
+  const successRate = Math.max(0, Math.min(1, profile?.successRate ?? 0.7));
+  const speedFactor = Number(profile?.speedFactor || 1);
+
+  let sequencesCompleted = 0;
+  let sequencesBlocked = 0;
+  let sequencesTimedOut = 0;
+  let maxLength = 0;
+  let partialReproductions = 0;
+  let blockedCardsTotal = 0;
+  let totalDuration = 0;
+  let hintsUsed = 0;
+
+  for (let i = 0; i < playedRounds; i += 1) {
+    const round = plan[i];
+    const len = Number(round?.length) || 3;
+    const seedHash = (i + 1) * 7919 + len * 31;
+    const random = (seedHash % 100) / 100;
+
+    if (random < successRate) {
+      sequencesCompleted += 1;
+      partialReproductions += len;
+      maxLength = Math.max(maxLength, len);
+    } else if (random < successRate + (1 - successRate) * 0.6) {
+      sequencesBlocked += 1;
+      partialReproductions += Math.floor(len * 0.5);
+      blockedCardsTotal += Math.max(1, Math.floor(len * 0.3));
+    } else {
+      sequencesTimedOut += 1;
+      partialReproductions += Math.floor(len * 0.2);
+    }
+
+    if ((session.difficulty || 'medium') === 'easy') {
+      hintsUsed += sequencesBlocked + sequencesTimedOut;
+    }
+
+    totalDuration += Math.round(1500 * len * (1 / speedFactor));
+  }
+
+  if (willAbandon) {
+    sequencesTimedOut += plan.length - playedRounds;
+  }
+
+  return {
+    sequencesCompleted,
+    sequencesBlocked,
+    sequencesTimedOut,
+    maxSequenceLengthAchieved: maxLength,
+    partialReproductions,
+    averageReproductionTimeMs: playedRounds > 0 ? Math.round(totalDuration / playedRounds) : 0,
+    blockedCardsTotal,
+    hintsUsed
+  };
+}
+
 // ══════════════════════════════════════════════════════════════════════
 // Generación de partidas con distribución temporal realista
 // ══════════════════════════════════════════════════════════════════════
@@ -370,6 +436,8 @@ function generateGamePlaysData(sessions, students) {
 
       // Inferir si la sesión usa mecánica memory desde boardLayout (solo memory lo tiene)
       const isMemory = Array.isArray(session.boardLayout) && session.boardLayout.length > 0;
+      // Inferir Secuencia desde la presencia de sequencePlan (T-921 fase G).
+      const isSequence = Array.isArray(session.sequencePlan) && session.sequencePlan.length > 0;
 
       // Decidir si abandona (según perfil)
       const willAbandon = Math.random() < profile.abandonProbability;
@@ -421,6 +489,17 @@ function generateGamePlaysData(sessions, students) {
       const maxScore = Math.max(1, numberOfRounds * pointsPerCorrect);
       const clampedScore = Math.max(0, Math.min(playData.score, maxScore));
 
+      // Para Secuencia: derivar métricas específicas del perfil del alumno.
+      // (Idempotente: undefined para Asociación/Memoria, no contamina el doc.)
+      const sequenceMetrics = isSequence
+        ? deriveSequenceMetricsFromProfile({
+            profile,
+            session,
+            roundsPlayed: playData.roundsPlayed,
+            willAbandon
+          })
+        : null;
+
       const gamePlay = {
         sessionId: session._id,
         playerId: student._id,
@@ -431,7 +510,8 @@ function generateGamePlaysData(sessions, students) {
         metrics: {
           ...playData.metrics,
           // Recalcular completionTime desde timestamps reales (como hace GamePlay.complete())
-          completionTime: completedAt - startedAt
+          completionTime: completedAt - startedAt,
+          ...(sequenceMetrics || {})
         },
         status: willAbandon ? 'abandoned' : 'completed',
         startedAt,
@@ -466,6 +546,7 @@ function aggregateStudentMetrics(gamePlays) {
       totalAbandonedGames: 0,
       totalResponseTime: 0,
       totalResponses: 0,
+      maxSequenceLengthAchieved: 0,
       lastPlayedAt: null
     };
 
@@ -483,6 +564,11 @@ function aggregateStudentMetrics(gamePlays) {
       const responses = play.metrics.correctAttempts + play.metrics.errorAttempts;
       entry.totalResponses += responses;
       entry.totalResponseTime += play.metrics.averageResponseTime * responses;
+      // T-921: actualizar récord histórico de longitud de secuencia.
+      const seqLen = Number(play.metrics.maxSequenceLengthAchieved || 0);
+      if (seqLen > entry.maxSequenceLengthAchieved) {
+        entry.maxSequenceLengthAchieved = seqLen;
+      }
     }
 
     // lastPlayedAt se actualiza con cualquier partida (completada o abandonada)
@@ -596,6 +682,7 @@ async function seedGamePlays(sessions, students) {
               'studentMetrics.totalTimeouts': metrics.totalTimeouts,
               'studentMetrics.totalAbandonedGames': metrics.totalAbandonedGames,
               'studentMetrics.averageResponseTime': averageResponseTime,
+              'studentMetrics.maxSequenceLengthAchieved': metrics.maxSequenceLengthAchieved,
               'studentMetrics.lastPlayedAt': metrics.lastPlayedAt
             }
           }

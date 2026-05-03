@@ -276,6 +276,59 @@ const sessionTemplates = [
     status: 'created',
     description: 'Números 1-6 - sesión programada',
     daysAgo: 0
+  },
+  // ─── Mecánica Secuencia (T-921/T-922/T-923) ───
+  // Cubre las 3 dificultades + estados completed/created en distintos
+  // contextos para alimentar analytics (heatmap, trends, rankings).
+  {
+    contextKey: 'animals-farm',
+    mechanicName: 'sequence',
+    difficulty: 'easy',
+    config: { numberOfRounds: 4, timeLimit: 30, pointsPerCorrect: 15, penaltyPerError: -3 },
+    sequenceConfig: { minSequenceLength: 3, maxSequenceLength: 4, displaySeconds: 4 },
+    status: 'completed',
+    description: 'Secuencia animales - introducción',
+    daysAgo: 30
+  },
+  {
+    contextKey: 'colors-basic',
+    mechanicName: 'sequence',
+    difficulty: 'medium',
+    config: { numberOfRounds: 5, timeLimit: 30, pointsPerCorrect: 15, penaltyPerError: -3 },
+    sequenceConfig: { minSequenceLength: 3, maxSequenceLength: 5, displaySeconds: 3 },
+    status: 'completed',
+    description: 'Secuencia colores - intermedio',
+    daysAgo: 14
+  },
+  {
+    contextKey: 'numbers-1-6',
+    mechanicName: 'sequence',
+    difficulty: 'hard',
+    config: { numberOfRounds: 5, timeLimit: 25, pointsPerCorrect: 20, penaltyPerError: -4 },
+    sequenceConfig: { minSequenceLength: 4, maxSequenceLength: 6, displaySeconds: 2 },
+    status: 'completed',
+    description: 'Secuencia números - desafío',
+    daysAgo: 7
+  },
+  {
+    contextKey: 'geography-europe',
+    mechanicName: 'sequence',
+    difficulty: 'medium',
+    config: { numberOfRounds: 6, timeLimit: 35, pointsPerCorrect: 18, penaltyPerError: -3 },
+    sequenceConfig: { minSequenceLength: 3, maxSequenceLength: 5, displaySeconds: 3 },
+    status: 'completed',
+    description: 'Secuencia geografía - práctica',
+    daysAgo: 2
+  },
+  {
+    contextKey: 'colors-basic',
+    mechanicName: 'sequence',
+    difficulty: 'easy',
+    config: { numberOfRounds: 4, timeLimit: 30, pointsPerCorrect: 15, penaltyPerError: -2 },
+    sequenceConfig: { minSequenceLength: 3, maxSequenceLength: 4, displaySeconds: 4 },
+    status: 'created',
+    description: 'Secuencia colores - próxima sesión',
+    daysAgo: 0
   }
 ];
 
@@ -336,7 +389,9 @@ function generateSessionsForTeacher(teacher, teacherDecks, mechanics, contexts) 
       },
       cardMappings,
       status: template.status,
-      // difficulty se calcula automaticamente por el pre-save hook del modelo
+      // difficulty se calcula automaticamente por el pre-save hook del modelo,
+      // pero permitimos override explícito en templates (Secuencia define easy/medium/hard).
+      ...(template.difficulty ? { difficulty: template.difficulty } : {}),
       createdBy: teacher._id,
       startedAt,
       endedAt
@@ -354,6 +409,23 @@ function generateSessionsForTeacher(teacher, teacherDecks, mechanics, contexts) 
     // Generar boardLayout para mecanica 'memory'
     if (template.mechanicName === 'memory') {
       sessionData.boardLayout = generateBoardLayout(cardMappings);
+    }
+
+    // Generar sequencePlan + sequenceConfig para mecanica 'sequence'
+    if (template.mechanicName === 'sequence') {
+      const { generateSequencePlan } = require('../src/services/sequencePlanGenerator');
+      const cfg = template.sequenceConfig || {
+        minSequenceLength: 3,
+        maxSequenceLength: 5,
+        displaySeconds: 3
+      };
+      sessionData.sequenceConfig = cfg;
+      sessionData.sequencePlan = generateSequencePlan(cardMappings, {
+        numberOfRounds: template.config.numberOfRounds,
+        minLength: cfg.minSequenceLength,
+        maxLength: cfg.maxSequenceLength,
+        seed: 1234 + template.daysAgo // determinista por template
+      });
     }
 
     sessions.push(sessionData);

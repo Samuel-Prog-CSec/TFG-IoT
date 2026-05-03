@@ -718,7 +718,7 @@ Tres tareas de cierre y housekeeping: documento `Free_Tier_Budget.md` con todos 
 
 ---
 
-### T-921: 🎮 Backend mecánica Secuencia (modelo + gameEngine + sockets + DTOs + tests) 📋
+### T-921: 🎮 Backend mecánica Secuencia (modelo + gameEngine + sockets + DTOs + tests) ✅
 
 **Prioridad:** P0 | **Tamaño:** XL (> 2 días) | **Dependencias:** Ninguna
 **Origen:** Cierre del alcance gameplay del TFG — la mecánica Secuencia está hoy bloqueada como "Próximamente" en `SESSION_ENABLED_MECHANICS`
@@ -809,7 +809,7 @@ Asociación y Memoria ya están operativas desde Sprint 4 (`gameMechanics/associ
 
 ---
 
-### T-922: 🎮 Frontend mecánica Secuencia + analytics específicas 📋
+### T-922: 🎮 Frontend mecánica Secuencia + analytics específicas ✅
 
 **Prioridad:** P0 | **Tamaño:** L (1-2 días) | **Dependencias:** T-921
 **Origen:** Sin componente UI de gameplay para Secuencia, la mecánica del backend no es jugable
@@ -882,7 +882,7 @@ Componente de gameplay frontend para la mecánica Secuencia: vista de **memoriza
 
 ---
 
-### T-923: 🎮 Auditoría integral de estadísticas y visualizaciones con mecánica Secuencia 📋
+### T-923: 🎮 Auditoría integral de estadísticas y visualizaciones con mecánica Secuencia ✅
 
 **Prioridad:** P0 | **Tamaño:** L (1-2 días) | **Dependencias:** T-921, T-922
 **Origen:** Las fases analytics dentro de T-921/T-922 sólo cubren lo evidente (DTOs y un chart nuevo); el resto del área analytics queda sin auditar y arriesga romperse o silenciarse con datos `mechanicType: 'sequence'`
