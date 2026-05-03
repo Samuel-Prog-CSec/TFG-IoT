@@ -28,6 +28,20 @@ export function useSoundEffects(soundEnabled = true) {
   const playRoundStart = useCallback(() => soundEffectsService.playRoundStart(), []);
   const playGameOver = useCallback(() => soundEffectsService.playGameOver(), []);
   const playSuccess = useCallback(() => soundEffectsService.playSuccess(), []);
+  const playCardDeal = useCallback(() => soundEffectsService.playCardDeal(), []);
+  const playCardSweep = useCallback(() => soundEffectsService.playCardSweep(), []);
+  const playSequenceComplete = useCallback(() => soundEffectsService.playSequenceComplete(), []);
 
-  return { playCorrect, playIncorrect, playTick, playRoundStart, playGameOver, playSuccess, isEnabled };
+  return {
+    playCorrect,
+    playIncorrect,
+    playTick,
+    playRoundStart,
+    playGameOver,
+    playSuccess,
+    playCardDeal,
+    playCardSweep,
+    playSequenceComplete,
+    isEnabled
+  };
 }

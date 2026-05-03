@@ -6,6 +6,7 @@ import { cn, calculateStars } from '../../lib/utils';
 import { useReducedMotion } from '../../hooks/useReducedMotion';
 import { useConfetti } from '../../hooks/useConfetti';
 import ButtonPremium from '../ui/ButtonPremium';
+import GameOverStats from './gameover/GameOverStats';
 
 /**
  * Pantalla de fin de juego
@@ -244,13 +245,20 @@ function GameOverScreen({
             )}
           </motion.div>
 
-          {/* Stats. En Memoria, "Total" representa parejas (no rondas como en
-              Asociación), por eso reetiquetamos para evitar confusión cuando el
-              profesor vea Errores > Total (los intentos fallidos no son rondas
-              sino taps de cartas que no emparejaron). */}
+          {/* Hero metric superior: en Asociación es "Correctas / Total" de
+              rondas; en Memoria es "Parejas / Total". En Secuencia mostramos
+              el contador de cartas acertadas frente al total acumulado de la
+              partida — el detalle por tipo de evento se muestra abajo en
+              GameOverStatsSequence. */}
           <dl className="grid grid-cols-2 gap-4 mb-6">
             <div className="bg-success-base/10 rounded-xl p-4 border border-success-base/20">
-              <dt className="text-xs text-text-muted order-2">{summary?.mode === 'memory' ? 'Parejas' : 'Correctas'}</dt>
+              <dt className="text-xs text-text-muted order-2">
+                {(() => {
+                  if (summary?.mode === 'memory') return 'Parejas';
+                  if (summary?.mode === 'sequence') return 'Cartas acertadas';
+                  return 'Correctas';
+                })()}
+              </dt>
               <dd className="text-2xl font-bold font-display text-success-base">{correctAnswers}</dd>
             </div>
             <div className="bg-background-surface/30 rounded-xl p-4 border border-border-subtle">
@@ -259,89 +267,10 @@ function GameOverScreen({
             </div>
           </dl>
 
-          {/* Resumen detallado. En Asociación desglosamos "Sin completar" en
-              Incorrectas (respuestas erroneas) y Sin responder (rondas con
-              timeout) para que el profesor vea si el alumno se equivoco o se
-              quedo bloqueado. En Memoria "errors" cuenta intentos fallidos
-              individuales (no rondas), por lo que omitimos "Sin responder" y
-              etiquetamos como "Errores" para evitar mezclar ambas semanticas
-              (QA 2026-04-24 PROP-104, QA 2026-04-29 BUG-MEM-1). */}
-          {summary && (() => {
-            const errors = Number.isFinite(summary.errors) ? summary.errors : null;
-            const isMemory = summary.mode === 'memory';
-            const unanswered = errors != null && !isMemory
-              ? Math.max(0, totalRounds - correctAnswers - errors)
-              : null;
-            const avgTimeLabel = (() => {
-              if (summary.averageResponseTimeMs > 0) return `${(summary.averageResponseTimeMs / 1000).toFixed(1)}s`;
-              if (isMemory) return 'N/A';
-              return '—';
-            })();
-            const totalTimeLabel = summary.totalTimePlayed > 0
-              ? `${(summary.totalTimePlayed / (1000 * 60)).toFixed(1)} min`
-              : '—';
-            // Memoria: 3 columnas (Errores, T. medio, Tiempo) — no aplica "Sin responder".
-            // Asociación: 4 columnas (Incorrectas, Sin responder, T. medio, Tiempo).
-            // Sin summary.errors: fallback a pill unico "Sin completar" (3 columnas).
-            if (errors != null && isMemory) {
-              return (
-                <div className="grid grid-cols-3 gap-2 mb-8 text-xs">
-                  <div className="rounded-lg bg-error-base/10 border border-error-base/20 px-3 py-2 text-center" title="Intentos fallidos (parejas mal emparejadas)">
-                    <div className="text-text-muted">Errores</div>
-                    <div className="text-error-base font-display font-semibold">{errors}</div>
-                  </div>
-                  <div className="rounded-lg bg-background-elevated/60 border border-border-subtle px-3 py-2 text-center">
-                    <div className="text-text-muted">T. medio</div>
-                    <div className="text-white font-display font-semibold">{avgTimeLabel}</div>
-                  </div>
-                  <div className="rounded-lg bg-background-elevated/60 border border-border-subtle px-3 py-2 text-center">
-                    <div className="text-text-muted">Tiempo</div>
-                    <div className="text-white font-display font-semibold">{totalTimeLabel}</div>
-                  </div>
-                </div>
-              );
-            }
-            if (errors != null) {
-              return (
-                <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 mb-8 text-xs">
-                  <div className="rounded-lg bg-error-base/10 border border-error-base/20 px-3 py-2 text-center" title="Respuestas incorrectas (tarjeta equivocada)">
-                    <div className="text-text-muted">Incorrectas</div>
-                    <div className="text-error-base font-display font-semibold">{errors}</div>
-                  </div>
-                  <div className="rounded-lg bg-background-elevated/60 border border-border-subtle px-3 py-2 text-center" title="Rondas sin respuesta (timeout)">
-                    <div className="text-text-muted">Sin responder</div>
-                    <div className="text-white font-display font-semibold">{unanswered}</div>
-                  </div>
-                  <div className="rounded-lg bg-background-elevated/60 border border-border-subtle px-3 py-2 text-center">
-                    <div className="text-text-muted">T. medio</div>
-                    <div className="text-white font-display font-semibold">{avgTimeLabel}</div>
-                  </div>
-                  <div className="rounded-lg bg-background-elevated/60 border border-border-subtle px-3 py-2 text-center">
-                    <div className="text-text-muted">Tiempo</div>
-                    <div className="text-white font-display font-semibold">{totalTimeLabel}</div>
-                  </div>
-                </div>
-              );
-            }
-            return (
-              <div className="grid grid-cols-3 gap-2 mb-8 text-xs">
-                <div className="rounded-lg bg-background-elevated/60 border border-border-subtle px-3 py-2 text-center" title="Rondas no completadas (incorrectas + sin responder)">
-                  <div className="text-text-muted">Sin completar</div>
-                  <div className="text-white font-display font-semibold">{Math.max(0, totalRounds - correctAnswers)}</div>
-                </div>
-                <div className="rounded-lg bg-background-elevated/60 border border-border-subtle px-3 py-2 text-center">
-                  <div className="text-text-muted">T. medio</div>
-                  <div className="text-white font-display font-semibold">{avgTimeLabel}</div>
-                </div>
-                <div className="rounded-lg bg-background-elevated/60 border border-border-subtle px-3 py-2 text-center">
-                  <div className="text-text-muted">Tiempo</div>
-                  <div className="text-white font-display font-semibold">{totalTimeLabel}</div>
-                </div>
-              </div>
-            );
-          })()}
-
-          {!summary && <div className="mb-8" />}
+          {/* Bloque de stats delegado por mecánica (T-922 fase D, ADR-103). */}
+          {summary
+            ? <GameOverStats summary={summary} totalRounds={totalRounds} correctAnswers={correctAnswers} />
+            : <div className="mb-8" />}
 
           {/* Actions */}
           <nav className="flex flex-col sm:flex-row gap-3" aria-label="Acciones de fin de juego">

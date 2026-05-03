@@ -18,6 +18,7 @@ import CharacterMascot from '../components/game/CharacterMascot';
 import AssociationGameplayPanel from '../components/game/AssociationGameplayPanel';
 import { resolveAssociationTheme } from '../components/game/associationTheme';
 import MemoryGameplayPanel from '../components/game/MemoryGameplayPanel';
+import SequenceGameplayPanel from '../components/game/SequenceGameplayPanel';
 import GameBackdrop from '../components/game/GameBackdrop';
 import FallbackTouchPanel from '../components/game/FallbackTouchPanel';
 import RateLimitBanner from '../components/game/RateLimitBanner';
@@ -33,7 +34,7 @@ import { saveSnapshot, loadSnapshot, clearSnapshot, purgeExpiredSnapshots } from
 const FLOAT_DELAY_STYLE = { animationDelay: '1s' };
 const FLOAT_DELAY_NONE = { animationDelay: '0s' };
 
-function normalizeFinalSummary(rawMetrics, score, correctAnswers, isMemoryMode, gameStartTime) {
+function normalizeFinalSummary(rawMetrics, score, correctAnswers, mechanicMode, gameStartTime) {
   const metrics = rawMetrics && typeof rawMetrics === 'object' ? rawMetrics : {};
   const totalAttempts = Number(metrics.totalAttempts || 0);
   const averageResponseTimeMs = Number(metrics.averageResponseTime || 0);
@@ -51,23 +52,39 @@ function normalizeFinalSummary(rawMetrics, score, correctAnswers, isMemoryMode, 
   // de verdad evita falsos positivos como "Incorrectas: 5" en una partida
   // de 4 aciertos + 1 fallo (QA 26/04/2026).
   const errorAttempts = metrics.errorAttempts !== undefined ? Number(metrics.errorAttempts) : null;
-  const correctAttempts = metrics.correctAttempts !== undefined
-    ? Number(metrics.correctAttempts)
-    : null;
+  const correctAttempts =
+    metrics.correctAttempts !== undefined ? Number(metrics.correctAttempts) : null;
   const errors = Number.isFinite(errorAttempts)
     ? Math.max(0, errorAttempts)
     : Math.max(0, totalAttempts - correctAnswers);
   const finalCorrect = Number.isFinite(correctAttempts) ? correctAttempts : correctAnswers;
 
-  return {
+  // Resumen base común a todas las mecánicas. Las métricas específicas de
+  // Secuencia (sequencesCompleted, maxSequenceLengthAchieved, ...) se
+  // mergean tal cual desde `metrics` para que el sub-componente de stats
+  // (`GameOverStatsSequence`) las consuma.
+  const summary = {
     score,
     correctAnswers: finalCorrect,
     errors,
     attempts: totalAttempts,
     averageResponseTimeMs: Number.isFinite(averageResponseTimeMs) ? averageResponseTimeMs : 0,
     totalTimePlayed: Number.isFinite(totalTimePlayed) ? totalTimePlayed : 0,
-    mode: isMemoryMode ? 'memory' : 'association'
+    mode: mechanicMode || 'association'
   };
+
+  if (mechanicMode === 'sequence') {
+    summary.sequencesCompleted = Number(metrics.sequencesCompleted || 0);
+    summary.sequencesBlocked = Number(metrics.sequencesBlocked || 0);
+    summary.sequencesTimedOut = Number(metrics.sequencesTimedOut || 0);
+    summary.maxSequenceLengthAchieved = Number(metrics.maxSequenceLengthAchieved || 0);
+    summary.partialReproductions = Number(metrics.partialReproductions || 0);
+    summary.averageReproductionTimeMs = Number(metrics.averageReproductionTimeMs || 0);
+    summary.blockedCardsTotal = Number(metrics.blockedCardsTotal || 0);
+    summary.hintsUsed = Number(metrics.hintsUsed || 0);
+  }
+
+  return summary;
 }
 
 // Estado inicial del juego (campos coordinados que deben transicionar atómicamente)
@@ -200,8 +217,13 @@ export default function GameSession() {
   // Hint "Toca las cartas del tablero" solo util antes del primer tap; se oculta
   // al primer tap para no ruido visual durante el resto de la partida (QA 22/04/2026).
   const [hasTappedBoardOnce, setHasTappedBoardOnce] = useState(false);
-  // isMemoryMode se resuelve como derivado tras obtener session del socket hook
-  const [sessionIsMemory, setSessionIsMemory] = useState(false);
+  // mechanicMode se resuelve como derivado tras obtener session del socket hook.
+  // Mantenemos `sessionIsMemory` y `sessionIsSequence` como aliases derivados
+  // para legibilidad de los branches existentes; cuando entre una cuarta
+  // mecánica conviene ya tener un único `mechanicMode` como source of truth.
+  const [mechanicMode, setMechanicMode] = useState('association');
+  const sessionIsMemory = mechanicMode === 'memory';
+  const sessionIsSequence = mechanicMode === 'sequence';
   // Flag para el hook de timer: en Memoria, solo empieza a decrementar cuando
   // el backend ha confirmado board_ready (playEndsAt establecido). Antes de
   // eso mostramos la barra llena y estatica, evitando el visual "bucle vacio".
@@ -481,7 +503,15 @@ export default function GameSession() {
     const finalScore = Number.isFinite(payload?.finalScore) ? payload.finalScore : 0;
     setSrAnnouncement('Partida finalizada.');
     setPlaySummary(
-      normalizeFinalSummary(payload?.metrics, finalScore, correctAnswers, socketSessionRef.current?.mechanic?.name === 'memory', gameStartTimeRef.current)
+      normalizeFinalSummary(
+        payload?.metrics,
+        finalScore,
+        correctAnswers,
+        // El backend emite `payload.mode` directamente (memory|association|sequence)
+        // desde T-921; usamos esa fuente y caemos a inferencia local sólo si falta.
+        payload?.mode || socketSessionRef.current?.mechanic?.name || 'association',
+        gameStartTimeRef.current
+      )
     );
 
     if (shouldReduceMotion) {
@@ -552,10 +582,11 @@ export default function GameSession() {
     emitBoardReady
   } = socket;
 
-  // Sincronizar socketSessionRef y sessionIsMemory cuando la sesión cargue
+  // Sincronizar socketSessionRef y mechanicMode cuando la sesión cargue
   useEffect(() => {
     socketSessionRef.current = session;
-    setSessionIsMemory(session?.mechanic?.name === 'memory');
+    const name = (session?.mechanic?.name || 'association').toString().toLowerCase();
+    setMechanicMode(name === 'memory' || name === 'sequence' ? name : 'association');
   }, [session]);
 
   // --- Snapshot de partida en sessionStorage (resiliencia a F5) ---
@@ -1175,28 +1206,50 @@ export default function GameSession() {
                 shakeError && 'animate-shake'
               )}
             >
-              {sessionIsMemory ? (
-                <MemoryGameplayPanel
-                  board={memoryBoard}
-                  attempts={memoryStats.attempts}
-                  matchedCount={memoryStats.matchedCount}
-                  totalCards={memoryStats.totalCards}
-                  feedbackState={feedbackState}
-                  feedbackPoints={feedbackPoints}
-                  feedbackMessage={feedbackMessage}
-                  onCardTap={handleMemoryCardTap}
-                />
-              ) : (
-                <AssociationGameplayPanel
-                  ref={gameFeedback.challengeRef}
-                  challenge={challenge}
-                  paused={gameState === 'paused'}
-                  feedbackState={feedbackState}
-                  feedbackPoints={feedbackPoints}
-                  feedbackMessage={feedbackMessage}
-                  isTimeout={feedbackIsTimeout}
-                />
-              )}
+              {(() => {
+                if (sessionIsMemory) {
+                  return (
+                    <MemoryGameplayPanel
+                      board={memoryBoard}
+                      attempts={memoryStats.attempts}
+                      matchedCount={memoryStats.matchedCount}
+                      totalCards={memoryStats.totalCards}
+                      feedbackState={feedbackState}
+                      feedbackPoints={feedbackPoints}
+                      feedbackMessage={feedbackMessage}
+                      onCardTap={handleMemoryCardTap}
+                    />
+                  );
+                }
+                if (sessionIsSequence) {
+                  return (
+                    <SequenceGameplayPanel
+                      totalRounds={totalRounds}
+                      cardMappings={session?.cardMappings || []}
+                      rfidConnected={rfidConnected}
+                      soundEnabled={soundEnabled}
+                      onScoreUpdate={(newScore, isCorrect) => {
+                        dispatch({
+                          type: isCorrect ? 'ANSWER_CORRECT' : 'ANSWER_INCORRECT',
+                          score: newScore
+                        });
+                      }}
+                      onCorrectAnswer={() => playCorrect()}
+                    />
+                  );
+                }
+                return (
+                  <AssociationGameplayPanel
+                    ref={gameFeedback.challengeRef}
+                    challenge={challenge}
+                    paused={gameState === 'paused'}
+                    feedbackState={feedbackState}
+                    feedbackPoints={feedbackPoints}
+                    feedbackMessage={feedbackMessage}
+                    isTimeout={feedbackIsTimeout}
+                  />
+                );
+              })()}
 
               <motion.p
                 initial={shouldReduceMotion ? false : { opacity: 0, y: 20 }}

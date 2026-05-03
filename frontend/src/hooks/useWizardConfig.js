@@ -34,11 +34,19 @@ export function useWizardConfig({ mechanics }) {
   const [selectedDeck, setSelectedDeck] = useState(null);
   const [selectedMechanic, setSelectedMechanic] = useState(null);
   const [associationChallengePlan, setAssociationChallengePlan] = useState([]);
+  // Estado específico de Secuencia: plan + config (T-921/T-922).
+  const [sequencePlan, setSequencePlan] = useState([]);
+  const [sequenceConfig, setSequenceConfig] = useState({
+    minSequenceLength: 3,
+    maxSequenceLength: 5,
+    displaySeconds: 3
+  });
 
   // Derivados de la mecanica seleccionada
   const selectedMechanicName = resolveMechanicName(selectedMechanic);
   const isMemorySelected = selectedMechanicName === 'memory';
   const isAssociationSelected = selectedMechanicName === 'association';
+  const isSequenceSelected = selectedMechanicName === 'sequence';
 
   // Cartas del mazo seleccionado
   const deckCards = useMemo(() => toDeckCardMappings(selectedDeck), [selectedDeck]);
@@ -209,11 +217,31 @@ export function useWizardConfig({ mechanics }) {
           );
         }
 
+        if (isSequenceSelected) {
+          const rounds = Number(sessionConfig.config.numberOfRounds);
+          if (!Number.isFinite(rounds) || rounds < 1) {
+            return false;
+          }
+          return (
+            Array.isArray(sequencePlan) &&
+            sequencePlan.length === rounds &&
+            sequencePlan.every(round => Array.isArray(round?.sequence) && round.sequence.length > 0)
+          );
+        }
+
         return true;
       case 3: return sessionConfig.name.trim().length >= 3;
       default: return false;
     }
-  }, [sessionConfig, isMemorySelected, isAssociationSelected, memoryPairValidation, associationChallengePlan]);
+  }, [
+    sessionConfig,
+    isMemorySelected,
+    isAssociationSelected,
+    isSequenceSelected,
+    memoryPairValidation,
+    associationChallengePlan,
+    sequencePlan
+  ]);
 
   return {
     sessionConfig,
@@ -222,9 +250,14 @@ export function useWizardConfig({ mechanics }) {
     selectedMechanic,
     associationChallengePlan,
     setAssociationChallengePlan,
+    sequencePlan,
+    setSequencePlan,
+    sequenceConfig,
+    setSequenceConfig,
     deckCards,
     isMemorySelected,
     isAssociationSelected,
+    isSequenceSelected,
     memoryPairValidation,
     handleSelectDeck,
     handleSelectMechanic,

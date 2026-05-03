@@ -7,21 +7,13 @@
 
 import PropTypes from 'prop-types';
 import { motion } from 'framer-motion';
-import { Check, Link2, Brain, BarChart3, Gamepad2 } from 'lucide-react';
+import { Check } from 'lucide-react';
 import { cn } from '../../lib/utils';
 import GlassCard from '../ui/GlassCard';
 import { SkeletonCard } from '../ui/SkeletonShimmer';
 import { isMechanicSelectable } from './sessionHelpers';
 import { mechanicShape } from './sessionPropTypes';
-
-// Iconos Lucide por mecánica: vectoriales, coherentes con el sistema y sin la
-// inconsistencia visual de los emojis de fuente.
-const MECHANIC_ICONS = {
-  association: Link2,
-  sequence: BarChart3,
-  memory: Brain,
-  default: Gamepad2
-};
+import { getMechanicMeta } from '../../constants/mechanicLabels';
 
 /**
  * Paso 2: Seleccionar Mecanica
@@ -52,7 +44,8 @@ export default function StepMechanic({ mechanics, loading, selectedMechanicId, o
 
       <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
         {mechanics.map((mechanic) => {
-          const IconComponent = MECHANIC_ICONS[mechanic.name?.toLowerCase()] || MECHANIC_ICONS.default;
+          const meta = getMechanicMeta(mechanic.name);
+          const IconComponent = meta.icon;
           const mechanicId = mechanic.id || mechanic._id;
           const selectable = isMechanicSelectable(mechanic);
           const selected = selectable && selectedMechanicId === mechanicId;

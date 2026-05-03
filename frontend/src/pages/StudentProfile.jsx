@@ -19,6 +19,8 @@ import TrajectoryChart from '../components/analytics/TrajectoryChart';
 import NarrativeCard from '../components/analytics/NarrativeCard';
 import PerformanceByDimension from '../components/analytics/PerformanceByDimension';
 import GameHistoryTable from '../components/analytics/GameHistoryTable';
+import SequenceProgressChart from '../components/analytics/SequenceProgressChart';
+import SequenceHighlightCard from '../components/analytics/SequenceHighlightCard';
 import StrengthsWeaknesses from '../components/analytics/StrengthsWeaknesses';
 import EngagementRadar from '../components/analytics/EngagementRadar';
 import ScrollRevealSection from '../components/ui/ScrollRevealSection';
@@ -395,6 +397,29 @@ export default function StudentProfile() {
           />
         </div>
       </ScrollRevealSection>
+
+      {/* ═══════ Evolución en Secuencia (T-922 fase D) ═══════
+          Sólo se renderiza si el alumno ha jugado al menos una partida
+          de Secuencia en el rango temporal. El bloque bySequence viene
+          de analyticsService.getStudentSummary (T-921 fase F). */}
+      {summary?.bySequence?.totalGames > 0 && (
+        <ScrollRevealSection delay={0.12}>
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+            <div className="lg:col-span-2">
+              <SequenceProgressChart
+                data={(summary.lastGames || [])
+                  .filter(g => (g.mechanic || '').toLowerCase() === 'secuencia')
+                  .map(g => ({
+                    completedAt: g.completedAt,
+                    maxLength: g.maxLength || summary.bySequence.maxSequenceLengthAchieved,
+                    sequencesCompleted: g.sequencesCompleted
+                  }))}
+              />
+            </div>
+            <SequenceHighlightCard summary={summary.bySequence} />
+          </div>
+        </ScrollRevealSection>
+      )}
 
       {/* ═══════ Historial de Partidas ═══════ */}
       <ScrollRevealSection delay={0.15}>

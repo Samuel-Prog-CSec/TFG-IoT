@@ -42,6 +42,7 @@ import StepDeck from '../components/session/StepDeck';
 import StepMechanic from '../components/session/StepMechanic';
 import StepMemoryRules from '../components/session/StepMemoryRules';
 import StepRules from '../components/session/StepRules';
+import StepSequenceRules from '../components/session/StepSequenceRules';
 import StepReview from '../components/session/StepReview';
 import { getStepDescription } from '../components/session/sessionHelpers';
 
@@ -108,9 +109,14 @@ export default function CreateSession() {
     selectedMechanic,
     associationChallengePlan,
     setAssociationChallengePlan,
+    sequencePlan,
+    setSequencePlan,
+    sequenceConfig,
+    setSequenceConfig,
     deckCards,
     isMemorySelected,
     isAssociationSelected,
+    isSequenceSelected,
     memoryPairValidation,
     handleSelectDeck,
     handleSelectMechanic,
@@ -168,6 +174,18 @@ export default function CreateSession() {
               promptText: item.promptText || undefined
             }))
           : undefined,
+        sequencePlan: isSequenceSelected
+          ? sequencePlan.map(round => ({
+              roundNumber: round.roundNumber,
+              length: round.length,
+              sequence: round.sequence.map(item => ({
+                uid: item.uid,
+                assignedValue: item.assignedValue,
+                displayData: item.displayData || {}
+              }))
+            }))
+          : undefined,
+        sequenceConfig: isSequenceSelected ? sequenceConfig : undefined,
         sensorId: sessionConfig.linkSensor ? currentSensorId : undefined
       };
 
@@ -227,17 +245,34 @@ export default function CreateSession() {
           />
         );
       case 2:
-        return isMemorySelected ? (
-          <StepMemoryRules
-            config={sessionConfig.config}
-            difficulty={sessionConfig.difficulty}
-            onDifficultyChange={handleDifficultyChange}
-            onConfigChange={handleConfigChange}
-            linkSensor={sessionConfig.linkSensor}
-            onLinkSensorChange={handleLinkSensorChange}
-            currentSensorId={currentSensorId}
-          />
-        ) : (
+        if (isMemorySelected) {
+          return (
+            <StepMemoryRules
+              config={sessionConfig.config}
+              difficulty={sessionConfig.difficulty}
+              onDifficultyChange={handleDifficultyChange}
+              onConfigChange={handleConfigChange}
+              linkSensor={sessionConfig.linkSensor}
+              onLinkSensorChange={handleLinkSensorChange}
+              currentSensorId={currentSensorId}
+            />
+          );
+        }
+        if (isSequenceSelected) {
+          return (
+            <StepSequenceRules
+              config={sessionConfig.config}
+              difficulty={sessionConfig.difficulty}
+              onDifficultyChange={handleDifficultyChange}
+              onConfigChange={handleConfigChange}
+              sequenceConfig={sequenceConfig}
+              onSequenceConfigChange={setSequenceConfig}
+              onSequencePlanChange={setSequencePlan}
+              cards={deckCards}
+            />
+          );
+        }
+        return (
           <StepRules
             config={sessionConfig.config}
             difficulty={sessionConfig.difficulty}
