@@ -174,6 +174,99 @@ const associationChallengePlanSchema = z
     return roundSet.size === plan.length;
   }, 'No puede haber rondas duplicadas en associationChallengePlan');
 
+/**
+ * Schema para un item individual dentro de la secuencia de una ronda.
+ */
+const sequenceItemSchema = z
+  .object({
+    uid: uidSchema,
+    assignedValue: z
+      .string()
+      .min(1, 'assignedValue es requerido en sequencePlan')
+      .max(200, 'assignedValue en sequencePlan no puede exceder 200 caracteres')
+      .trim(),
+    displayData: z.record(z.string(), z.any()).optional().default({})
+  })
+  .strict();
+
+/**
+ * Schema para una ronda completa del plan de secuencias.
+ * - sequence con al menos 1 elemento, sin UIDs duplicados.
+ * - length coincide con sequence.length.
+ */
+const sequencePlanRoundSchema = z
+  .object({
+    roundNumber: z
+      .number()
+      .int('roundNumber debe ser un número entero')
+      .min(1, 'roundNumber debe ser >= 1'),
+    length: z
+      .number()
+      .int('length debe ser un número entero')
+      .min(1, 'length debe ser >= 1')
+      .max(12, 'length no puede exceder 12'),
+    sequence: z.array(sequenceItemSchema).min(1, 'La secuencia debe tener al menos 1 elemento')
+  })
+  .strict()
+  .refine(round => round.length === round.sequence.length, {
+    message: 'length debe coincidir con sequence.length'
+  })
+  .refine(round => {
+    const uids = round.sequence.map(item => item.uid);
+    return new Set(uids).size === uids.length;
+  }, 'No puede haber UIDs duplicados dentro de una secuencia');
+
+const sequencePlanSchema = z
+  .array(sequencePlanRoundSchema)
+  .optional()
+  .refine(plan => {
+    if (!Array.isArray(plan) || plan.length === 0) {
+      return true;
+    }
+    const roundSet = new Set(plan.map(item => item.roundNumber));
+    return roundSet.size === plan.length;
+  }, 'No puede haber rondas duplicadas en sequencePlan');
+
+/**
+ * Schema para la configuración específica de Secuencia.
+ * `minSequenceLength <= maxSequenceLength` se valida al final con superRefine
+ * para que el mensaje de error sea más claro que un refine genérico.
+ */
+const sequenceConfigSchema = z
+  .object({
+    minSequenceLength: z
+      .number()
+      .int('minSequenceLength debe ser un número entero')
+      .min(1, 'minSequenceLength debe ser >= 1')
+      .max(12, 'minSequenceLength no puede exceder 12')
+      .optional(),
+    maxSequenceLength: z
+      .number()
+      .int('maxSequenceLength debe ser un número entero')
+      .min(1, 'maxSequenceLength debe ser >= 1')
+      .max(12, 'maxSequenceLength no puede exceder 12')
+      .optional(),
+    displaySeconds: z
+      .number()
+      .int('displaySeconds debe ser un número entero')
+      .min(2, 'displaySeconds debe ser >= 2')
+      .max(8, 'displaySeconds no puede exceder 8')
+      .optional()
+  })
+  .strict()
+  .refine(
+    cfg => {
+      if (cfg.minSequenceLength === undefined || cfg.maxSequenceLength === undefined) {
+        return true;
+      }
+      return cfg.minSequenceLength <= cfg.maxSequenceLength;
+    },
+    {
+      message: 'minSequenceLength debe ser <= maxSequenceLength',
+      path: ['minSequenceLength']
+    }
+  );
+
 const createGameSessionSchema = z
   .object({
     mechanicId: objectIdSchema,
@@ -192,7 +285,11 @@ const createGameSessionSchema = z
 
     boardLayout: boardLayoutSchema,
 
-    associationChallengePlan: associationChallengePlanSchema
+    associationChallengePlan: associationChallengePlanSchema,
+
+    sequencePlan: sequencePlanSchema,
+
+    sequenceConfig: sequenceConfigSchema.optional()
   })
   .strict()
   .refine(data => Object.keys(data).length > 0, {
@@ -219,6 +316,10 @@ const updateGameSessionSchema = z
     boardLayout: boardLayoutSchema,
 
     associationChallengePlan: associationChallengePlanSchema,
+
+    sequencePlan: sequencePlanSchema,
+
+    sequenceConfig: sequenceConfigSchema.optional(),
 
     difficulty: z.enum([...DIFFICULTY]).optional()
   })
@@ -291,5 +392,9 @@ module.exports = {
   cloneSessionParamsSchema,
   sessionConfigSchema,
   sessionConfigInputSchema,
-  cardMappingSchema
+  cardMappingSchema,
+  sequencePlanSchema,
+  sequenceConfigSchema,
+  sequenceItemSchema,
+  sequencePlanRoundSchema
 };

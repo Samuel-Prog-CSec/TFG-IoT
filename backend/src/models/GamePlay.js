@@ -199,7 +199,18 @@ const gamePlaySchema = new mongoose.Schema(
       completionTime: {
         type: Number,
         default: 0
-      }
+      },
+      // Métricas específicas de la mecánica Secuencia (T-921). Sólo se
+      // persisten cuando la partida es de tipo 'sequence'; para Asociación
+      // y Memoria quedan undefined y el DTO las omite del payload público.
+      sequencesCompleted: { type: Number, default: undefined },
+      sequencesBlocked: { type: Number, default: undefined },
+      sequencesTimedOut: { type: Number, default: undefined },
+      maxSequenceLengthAchieved: { type: Number, default: undefined },
+      partialReproductions: { type: Number, default: undefined },
+      averageReproductionTimeMs: { type: Number, default: undefined },
+      blockedCardsTotal: { type: Number, default: undefined },
+      hintsUsed: { type: Number, default: undefined }
     },
     status: {
       type: String,

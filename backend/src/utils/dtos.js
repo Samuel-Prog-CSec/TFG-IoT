@@ -67,7 +67,11 @@ const mapStudentMetrics = metrics => {
     totalCorrectAnswers: metrics.totalCorrectAnswers,
     totalErrors: metrics.totalErrors,
     averageResponseTime: metrics.averageResponseTime,
-    lastPlayedAt: metrics.lastPlayedAt
+    lastPlayedAt: metrics.lastPlayedAt,
+    // Mejor longitud de secuencia alcanzada en cualquier partida (mecánica
+    // Secuencia). `undefined` para alumnos que no han jugado todavía o
+    // documentos previos a T-921.
+    maxSequenceLengthAchieved: metrics.maxSequenceLengthAchieved
   };
 };
 
@@ -75,7 +79,7 @@ const mapGamePlayMetrics = metrics => {
   if (!metrics) {
     return undefined;
   }
-  return {
+  const base = {
     totalAttempts: metrics.totalAttempts,
     correctAttempts: metrics.correctAttempts,
     errorAttempts: metrics.errorAttempts,
@@ -83,6 +87,26 @@ const mapGamePlayMetrics = metrics => {
     averageResponseTime: metrics.averageResponseTime,
     completionTime: metrics.completionTime
   };
+
+  // Métricas específicas de Secuencia. Se exponen sólo si están presentes
+  // en el documento (no se inicializan a 0 para evitar contaminar plays de
+  // Asociación/Memoria con campos no aplicables).
+  const sequenceFields = [
+    'sequencesCompleted',
+    'sequencesBlocked',
+    'sequencesTimedOut',
+    'maxSequenceLengthAchieved',
+    'partialReproductions',
+    'averageReproductionTimeMs',
+    'blockedCardsTotal',
+    'hintsUsed'
+  ];
+  for (const key of sequenceFields) {
+    if (metrics[key] !== undefined) {
+      base[key] = metrics[key];
+    }
+  }
+  return base;
 };
 
 const mapGamePlayEvents = events =>
@@ -360,6 +384,36 @@ const mapAssociationChallengeItemDTOV1 = challengeItem => {
   };
 };
 
+const mapSequenceItemDTOV1 = item => {
+  const itemData = toPlainObject(item);
+  return {
+    uid: itemData.uid,
+    assignedValue: itemData.assignedValue,
+    displayData: itemData.displayData
+  };
+};
+
+const mapSequencePlanRoundDTOV1 = round => {
+  const roundData = toPlainObject(round);
+  return {
+    roundNumber: roundData.roundNumber,
+    length: roundData.length,
+    sequence: Array.isArray(roundData.sequence) ? roundData.sequence.map(mapSequenceItemDTOV1) : []
+  };
+};
+
+const mapSequenceConfigDTOV1 = config => {
+  if (!config) {
+    return undefined;
+  }
+  const cfg = toPlainObject(config);
+  return {
+    minSequenceLength: cfg.minSequenceLength,
+    maxSequenceLength: cfg.maxSequenceLength,
+    displaySeconds: cfg.displaySeconds
+  };
+};
+
 /**
  * DTO v1 para GameSession (resumen sin cardMappings).
  *
@@ -402,6 +456,10 @@ const toGameSessionDTOV1 = session => {
     associationChallengePlan: Array.isArray(sessionData.associationChallengePlan)
       ? sessionData.associationChallengePlan.map(mapAssociationChallengeItemDTOV1)
       : [],
+    sequencePlan: Array.isArray(sessionData.sequencePlan)
+      ? sessionData.sequencePlan.map(mapSequencePlanRoundDTOV1)
+      : [],
+    sequenceConfig: mapSequenceConfigDTOV1(sessionData.sequenceConfig),
     requiresAssociationPlanConfiguration: Boolean(sessionData.requiresAssociationPlanConfiguration),
     status: sessionData.status,
     difficulty: sessionData.difficulty,

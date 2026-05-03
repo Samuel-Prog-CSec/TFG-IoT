@@ -946,6 +946,63 @@ async function getStudentSummary(studentId, timeRange = '30d') {
               avgResponseTime: { $avg: '$metrics.averageResponseTime' }
             }
           }
+        ],
+        // Métricas específicas de la mecánica Secuencia. Se agregan los
+        // campos persistidos por GameEngine.endPlay (T-921 fase E):
+        // sequencesCompleted, maxSequenceLengthAchieved, partialReproductions,
+        // averageReproductionTimeMs, hintsUsed, blockedCardsTotal.
+        sequenceStats: [
+          {
+            $lookup: {
+              from: 'game_sessions',
+              localField: 'sessionId',
+              foreignField: '_id',
+              as: 'session'
+            }
+          },
+          { $unwind: '$session' },
+          {
+            $lookup: {
+              from: 'game_mechanics',
+              localField: 'session.mechanicId',
+              foreignField: '_id',
+              as: 'mechanic'
+            }
+          },
+          { $unwind: { path: '$mechanic', preserveNullAndEmptyArrays: true } },
+          { $match: { 'mechanic.name': 'sequence' } },
+          {
+            $group: {
+              _id: null,
+              totalGames: { $sum: 1 },
+              sequencesCompleted: { $sum: { $ifNull: ['$metrics.sequencesCompleted', 0] } },
+              sequencesBlocked: { $sum: { $ifNull: ['$metrics.sequencesBlocked', 0] } },
+              sequencesTimedOut: { $sum: { $ifNull: ['$metrics.sequencesTimedOut', 0] } },
+              maxSequenceLengthAchieved: {
+                $max: { $ifNull: ['$metrics.maxSequenceLengthAchieved', 0] }
+              },
+              partialReproductions: { $sum: { $ifNull: ['$metrics.partialReproductions', 0] } },
+              avgReproductionTimeMs: {
+                $avg: { $ifNull: ['$metrics.averageReproductionTimeMs', 0] }
+              },
+              blockedCardsTotal: { $sum: { $ifNull: ['$metrics.blockedCardsTotal', 0] } },
+              hintsUsed: { $sum: { $ifNull: ['$metrics.hintsUsed', 0] } }
+            }
+          },
+          {
+            $project: {
+              _id: 0,
+              totalGames: 1,
+              sequencesCompleted: 1,
+              sequencesBlocked: 1,
+              sequencesTimedOut: 1,
+              maxSequenceLengthAchieved: 1,
+              partialReproductions: 1,
+              averageReproductionTimeMs: { $round: ['$avgReproductionTimeMs', 0] },
+              blockedCardsTotal: 1,
+              hintsUsed: 1
+            }
+          }
         ]
       }
     }
@@ -953,6 +1010,7 @@ async function getStudentSummary(studentId, timeRange = '30d') {
 
   const [result] = await gamePlayRepository.aggregate(pipeline);
   const overall = result.overallStats[0] || {};
+  const sequenceSummary = result.sequenceStats?.[0] || null;
 
   // Datos del estudiante
   const student = await userRepository.findById(studentId, {
@@ -1006,6 +1064,21 @@ async function getStudentSummary(studentId, timeRange = '30d') {
       difference:
         Math.round(((student?.studentMetrics?.averageScore || 0) - classAvgScore) * 10) / 10
     },
+    // Resumen de la mecánica Secuencia (T-921). null si el alumno no ha
+    // jugado ninguna partida de Secuencia en el rango temporal.
+    bySequence: sequenceSummary
+      ? {
+          totalGames: sequenceSummary.totalGames || 0,
+          sequencesCompleted: sequenceSummary.sequencesCompleted || 0,
+          sequencesBlocked: sequenceSummary.sequencesBlocked || 0,
+          sequencesTimedOut: sequenceSummary.sequencesTimedOut || 0,
+          maxSequenceLengthAchieved: sequenceSummary.maxSequenceLengthAchieved || 0,
+          partialReproductions: sequenceSummary.partialReproductions || 0,
+          averageReproductionTimeMs: sequenceSummary.averageReproductionTimeMs || 0,
+          blockedCardsTotal: sequenceSummary.blockedCardsTotal || 0,
+          hintsUsed: sequenceSummary.hintsUsed || 0
+        }
+      : null,
     timeRange
   };
 }

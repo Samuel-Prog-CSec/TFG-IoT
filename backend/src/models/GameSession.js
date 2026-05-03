@@ -207,6 +207,71 @@ const gameSessionSchema = new mongoose.Schema(
       type: Boolean,
       default: false
     },
+    /**
+     * Plan de secuencias para la mecánica Secuencia.
+     * Cada ronda contiene una secuencia ordenada de cartas que el alumno
+     * debe memorizar y reproducir. Se persiste para que todos los alumnos
+     * asignados a la sesión jueguen las mismas secuencias.
+     */
+    sequencePlan: [
+      {
+        roundNumber: {
+          type: Number,
+          required: true,
+          min: 1
+        },
+        length: {
+          type: Number,
+          required: true,
+          min: 1,
+          max: 12
+        },
+        sequence: [
+          {
+            uid: {
+              type: String,
+              required: true,
+              uppercase: true,
+              trim: true,
+              match: [
+                /^[0-9A-F]{8}$|^[0-9A-F]{14}$/,
+                'UID debe ser 8 o 14 caracteres hexadecimales'
+              ]
+            },
+            assignedValue: {
+              type: String,
+              required: true
+            },
+            displayData: mongoose.Schema.Types.Mixed
+          }
+        ]
+      }
+    ],
+    /**
+     * Configuración específica de la mecánica Secuencia. Persiste los
+     * parámetros que el profesor define en el wizard (longitud min/max
+     * de las secuencias y duración del display de memorización).
+     */
+    sequenceConfig: {
+      minSequenceLength: {
+        type: Number,
+        min: 1,
+        max: 12,
+        default: 3
+      },
+      maxSequenceLength: {
+        type: Number,
+        min: 1,
+        max: 12,
+        default: 5
+      },
+      displaySeconds: {
+        type: Number,
+        min: 2,
+        max: 8,
+        default: 3
+      }
+    },
     status: {
       type: String,
       lowercase: true,
@@ -335,6 +400,67 @@ gameSessionSchema.path('boardLayout').validate(function (value) {
 
   return true;
 }, 'boardLayout no es válido: revisa slots duplicados o tarjetas fuera del mazo.');
+
+/**
+ * Validador del plan de secuencias.
+ * - roundNumbers únicos
+ * - cada secuencia con al menos 1 elemento y sin UIDs duplicados
+ * - todos los UIDs presentes en cardMappings
+ * - length coincide con sequence.length
+ */
+gameSessionSchema.path('sequencePlan').validate(function (value) {
+  if (!Array.isArray(value) || value.length === 0) {
+    return true;
+  }
+
+  const roundNumbers = value.map(item => item.roundNumber);
+  if (new Set(roundNumbers).size !== roundNumbers.length) {
+    return false;
+  }
+
+  const mappingUids = new Set((this.cardMappings || []).map(mapping => mapping.uid));
+
+  for (const round of value) {
+    if (!Array.isArray(round.sequence) || round.sequence.length === 0) {
+      return false;
+    }
+    if (Number(round.length) !== round.sequence.length) {
+      return false;
+    }
+    const uids = round.sequence.map(item => item.uid).filter(Boolean);
+    if (uids.length !== round.sequence.length) {
+      return false;
+    }
+    if (new Set(uids).size !== uids.length) {
+      return false;
+    }
+    if (uids.some(uid => !mappingUids.has(uid))) {
+      return false;
+    }
+  }
+
+  return true;
+}, 'sequencePlan no es válido: revisa rondas duplicadas, UIDs duplicados o tarjetas fuera del mazo.');
+
+/**
+ * Validación de sequenceConfig: minSequenceLength <= maxSequenceLength.
+ * Implementada como middleware pre('validate') porque Mongoose no expone
+ * la validación de subdocumentos definidos inline mediante `.path()`.
+ */
+gameSessionSchema.pre('validate', function () {
+  const cfg = this.sequenceConfig;
+  if (!cfg) {
+    return;
+  }
+  const min = Number(cfg.minSequenceLength);
+  const max = Number(cfg.maxSequenceLength);
+  if (Number.isFinite(min) && Number.isFinite(max) && min > max) {
+    this.invalidate(
+      'sequenceConfig.minSequenceLength',
+      'minSequenceLength debe ser <= maxSequenceLength'
+    );
+  }
+});
 
 /**
  * Índice para búsqueda de sesiones por estado.

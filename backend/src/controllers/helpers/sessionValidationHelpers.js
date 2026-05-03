@@ -469,11 +469,117 @@ const buildCloneSuccessMessage = mechanicName => {
     return 'Sesión clonada exitosamente. Los retos de asociación se copiaron de la sesión original.';
   }
 
+  if (mechanicName === 'sequence') {
+    return 'Sesión clonada exitosamente. El plan de secuencias se copió de la sesión original.';
+  }
+
   return 'Sesión clonada exitosamente';
+};
+
+// =====================================================================
+// Helpers de la mecánica Secuencia
+// =====================================================================
+
+const DEFAULT_SEQUENCE_CONFIG = Object.freeze({
+  minSequenceLength: 3,
+  maxSequenceLength: 5,
+  displaySeconds: 3
+});
+
+/**
+ * Aplica la configuración Secuencia a la sesión, asegurando defaults sensatos
+ * y validando `min <= max`.
+ */
+const applySequenceConfigForCreate = ({ session, sequenceConfig }) => {
+  const provided = sequenceConfig || {};
+  const min = Number.isFinite(Number(provided.minSequenceLength))
+    ? Number(provided.minSequenceLength)
+    : DEFAULT_SEQUENCE_CONFIG.minSequenceLength;
+  const max = Number.isFinite(Number(provided.maxSequenceLength))
+    ? Number(provided.maxSequenceLength)
+    : DEFAULT_SEQUENCE_CONFIG.maxSequenceLength;
+  const displaySeconds = Number.isFinite(Number(provided.displaySeconds))
+    ? Number(provided.displaySeconds)
+    : DEFAULT_SEQUENCE_CONFIG.displaySeconds;
+
+  if (min > max) {
+    throw new ValidationError(
+      'La longitud mínima de secuencia debe ser menor o igual a la longitud máxima'
+    );
+  }
+
+  session.sequenceConfig = { minSequenceLength: min, maxSequenceLength: max, displaySeconds };
+};
+
+/**
+ * Genera o valida el plan de secuencias para una sesión Secuencia.
+ *
+ * - Si el cliente no envía `sequencePlan`, se genera automáticamente con
+ *   `sequencePlanGenerator` usando el `sequenceConfig` ya aplicado.
+ * - Si el cliente envía un plan, se valida contra el mazo y los rangos.
+ */
+const applySequencePlanForCreate = ({ session, sequencePlan, cardMappings, numberOfRounds }) => {
+  const {
+    generateSequencePlan,
+    isPlanCompatible
+  } = require('../../services/sequencePlanGenerator');
+
+  const cfg = session.sequenceConfig || DEFAULT_SEQUENCE_CONFIG;
+  const opts = {
+    numberOfRounds,
+    minLength: cfg.minSequenceLength,
+    maxLength: cfg.maxSequenceLength
+  };
+
+  if (!Array.isArray(sequencePlan) || sequencePlan.length === 0) {
+    session.sequencePlan = generateSequencePlan(cardMappings, opts);
+    return;
+  }
+
+  if (!isPlanCompatible(sequencePlan, cardMappings, opts)) {
+    throw new ValidationError(
+      'sequencePlan no es válido para el mazo o configuración seleccionados'
+    );
+  }
+
+  session.sequencePlan = sequencePlan.map(round => ({
+    roundNumber: Number(round.roundNumber),
+    length: Number(round.length),
+    sequence: round.sequence.map(item => ({
+      uid: item.uid,
+      assignedValue: item.assignedValue,
+      displayData: item.displayData ? { ...item.displayData } : {}
+    }))
+  }));
+};
+
+/**
+ * Regenera el plan de secuencias si la configuración cambia (al editar).
+ * Mantiene el plan vigente si sigue siendo compatible.
+ */
+const applySequencePlanOnUpdate = ({ session, mechanicName, sequencePlan, sequenceConfig }) => {
+  if (mechanicName !== 'sequence') {
+    session.sequencePlan = [];
+    session.sequenceConfig = undefined;
+    return;
+  }
+
+  if (sequenceConfig !== undefined) {
+    applySequenceConfigForCreate({ session, sequenceConfig });
+  }
+
+  const numberOfRounds = Number(session.config?.numberOfRounds || 0);
+  applySequencePlanForCreate({
+    session,
+    sequencePlan,
+    cardMappings: session.cardMappings,
+    numberOfRounds
+  });
 };
 
 module.exports = {
   DEFAULT_MEMORY_MATCHING_GROUP_SIZE,
+  DEFAULT_SEQUENCE_CONFIG,
   normalizeObjectId,
   normalizeMechanicName,
   getEnabledSessionMechanics,
@@ -491,5 +597,8 @@ module.exports = {
   ensureAssociationPlanReadyForStart,
   buildAssociationCloneDraftPlan,
   applyCloneMechanicState,
-  buildCloneSuccessMessage
+  buildCloneSuccessMessage,
+  applySequenceConfigForCreate,
+  applySequencePlanForCreate,
+  applySequencePlanOnUpdate
 };

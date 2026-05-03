@@ -18,7 +18,9 @@ const {
   validateConfigAgainstMechanicRules,
   normalizeBoardLayout,
   validateBoardLayoutAgainstMappings,
-  validateAssociationChallengePlanAgainstMappings
+  validateAssociationChallengePlanAgainstMappings,
+  applySequenceConfigForCreate,
+  applySequencePlanForCreate
 } = require('../controllers/helpers/sessionValidationHelpers');
 const logger = require('../utils/logger').child({ component: 'gameSessionService' });
 
@@ -395,6 +397,8 @@ async function createSessionFromDeck({
   contextId,
   boardLayout,
   associationChallengePlan,
+  sequencePlan,
+  sequenceConfig,
   createdBy
 }) {
   // Validar mecánica
@@ -445,6 +449,20 @@ async function createSessionFromDeck({
   } else {
     session.associationChallengePlan = [];
     session.requiresAssociationPlanConfiguration = false;
+  }
+
+  // SequencePlan + SequenceConfig (mecánica sequence)
+  if (mechanicName === 'sequence') {
+    applySequenceConfigForCreate({ session, sequenceConfig });
+    applySequencePlanForCreate({
+      session,
+      sequencePlan,
+      cardMappings: syncedMappings,
+      numberOfRounds: Number(session.config?.numberOfRounds)
+    });
+  } else {
+    session.sequencePlan = [];
+    session.sequenceConfig = undefined;
   }
 
   // Verificar consistencia de contextId explícito
