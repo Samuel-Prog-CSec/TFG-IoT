@@ -166,13 +166,22 @@ export function useWizardConfig({ mechanics }) {
   // sugerencia automática.
 
   const handleDifficultyChange = useCallback((difficulty) => {
+    // En Secuencia (T-921), la dificultad controla los intentos por carta y
+    // la disponibilidad de pistas — NO los parámetros numéricos del juego
+    // (rondas, tiempo, puntos), que se gestionan en StepSequenceRules.
+    // Pisarlos aquí causaba que cambiar a Fácil resetee el slider de
+    // numberOfRounds y la penalización (BUG-QA-3, BUG-QA-10 QA 03/05/2026).
+    if (isSequenceSelected) {
+      setSessionConfig(prev => ({ ...prev, difficulty }));
+      return;
+    }
     const presets = isMemorySelected ? MEMORY_DIFFICULTY_PRESETS : DIFFICULTY_PRESETS;
     setSessionConfig(prev => ({
       ...prev,
       difficulty,
       config: presets[difficulty]
     }));
-  }, [isMemorySelected]);
+  }, [isMemorySelected, isSequenceSelected]);
 
   const handleConfigChange = useCallback((key, value) => {
     setSessionConfig(prev => ({

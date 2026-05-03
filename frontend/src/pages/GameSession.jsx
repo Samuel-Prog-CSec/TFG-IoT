@@ -224,6 +224,26 @@ export default function GameSession() {
   const [mechanicMode, setMechanicMode] = useState('association');
   const sessionIsMemory = mechanicMode === 'memory';
   const sessionIsSequence = mechanicMode === 'sequence';
+
+  // Estado intra-ronda de la mecánica Secuencia (T-921). Vive aquí (no en
+  // SequenceGameplayPanel) para que los listeners de useGameSocket se
+  // registren ANTES de que el componente Secuencia se monte por
+  // mechanicMode resolver — sin esto, el primer sequence_phase_memorizing
+  // emitido por el backend al `start_play` se perdería (BUG-QA-6, QA 03/05/2026).
+  const [sequenceState, setSequenceState] = useState({
+    sequence: [],
+    length: 0,
+    phase: 'memorizing',
+    cursor: 0,
+    cardStatuses: {},
+    highlightIndex: null,
+    displaySeconds: 3,
+    roundNumber: 1,
+    hint: null,
+    isCollecting: false
+  });
+  const sequenceCollectTimerRef = useRef(null);
+  const sequenceHintTimerRef = useRef(null);
   // Flag para el hook de timer: en Memoria, solo empieza a decrementar cuando
   // el backend ha confirmado board_ready (playEndsAt establecido). Antes de
   // eso mostramos la barra llena y estatica, evitando el visual "bucle vacio".
@@ -550,6 +570,102 @@ export default function GameSession() {
 
   // --- Socket hook ---
 
+  // Handlers para los eventos socket de Secuencia (T-921). Se registran en
+  // useGameSocket (no en SequenceGameplayPanel) para que estén activos antes
+  // del primer evento del backend.
+  const handleSequencePhaseMemorizing = useCallback(payload => {
+    if (sequenceCollectTimerRef.current) clearTimeout(sequenceCollectTimerRef.current);
+    if (sequenceHintTimerRef.current) clearTimeout(sequenceHintTimerRef.current);
+    setSequenceState({
+      sequence: payload?.sequence || [],
+      length: payload?.length || (payload?.sequence?.length ?? 0),
+      phase: 'memorizing',
+      cursor: 0,
+      cardStatuses: {},
+      highlightIndex: null,
+      displaySeconds: payload?.displaySeconds || 3,
+      roundNumber: payload?.roundNumber || 1,
+      hint: null,
+      isCollecting: false
+    });
+    if (typeof payload?.score === 'number') {
+      dispatch({ type: 'SET_SCORE', value: payload.score });
+    }
+  }, []);
+
+  const handleSequencePhaseReproducing = useCallback(payload => {
+    setSequenceState(prev => ({
+      ...prev,
+      phase: 'reproducing',
+      cursor: 0,
+      length: typeof payload?.length === 'number' ? payload.length : prev.length
+    }));
+    dispatch({ type: 'AWAIT_RESPONSE', value: true });
+  }, []);
+
+  const handleSequenceCardResult = useCallback(payload => {
+    const TYPE_TO_STATUS = {
+      correct: 'correct',
+      blocked: 'blocked',
+      timedOut: 'timedOut',
+      timeout: 'timedOut'
+    };
+    const status = TYPE_TO_STATUS[payload?.type];
+    setSequenceState(prev => {
+      const nextStatuses = { ...prev.cardStatuses };
+      if (status && payload?.expectedUid) nextStatuses[payload.expectedUid] = status;
+      return {
+        ...prev,
+        cardStatuses: nextStatuses,
+        cursor: typeof payload?.cursor === 'number' ? payload.cursor : prev.cursor,
+        hint: payload?.hint?.text ? payload.hint : prev.hint
+      };
+    });
+    if (payload?.type === 'correct') {
+      dispatch({ type: 'ANSWER_CORRECT', score: payload.score ?? 0 });
+      // En Secuencia, una carta correcta no termina la ronda salvo que sea la última;
+      // mantenemos awaitingResponse=true para que sigan pasando los siguientes scans.
+      dispatch({ type: 'AWAIT_RESPONSE', value: true });
+      playCorrect();
+    } else if (
+      payload?.type === 'blocked' ||
+      payload?.type === 'incorrect' ||
+      payload?.type === 'incorrect_with_hint'
+    ) {
+      dispatch({ type: 'ANSWER_INCORRECT', score: payload.score ?? 0 });
+      dispatch({ type: 'AWAIT_RESPONSE', value: true });
+      playIncorrect();
+    }
+    if (payload?.hint?.text) {
+      if (sequenceHintTimerRef.current) clearTimeout(sequenceHintTimerRef.current);
+      sequenceHintTimerRef.current = setTimeout(() => {
+        setSequenceState(prev => ({ ...prev, hint: null }));
+      }, 3500);
+    }
+  }, [playCorrect, playIncorrect]);
+
+  const handleSequenceRoundResult = useCallback(payload => {
+    const TYPE_TO_STATUS = {
+      correct: 'correct',
+      blocked: 'blocked',
+      timedOut: 'timedOut'
+    };
+    setSequenceState(prev => {
+      const finalStatuses = { ...prev.cardStatuses };
+      (payload?.results || []).forEach(item => {
+        finalStatuses[item.uid] = TYPE_TO_STATUS[item.status] || 'correct';
+      });
+      return { ...prev, phase: 'completed', cardStatuses: finalStatuses };
+    });
+    if (payload?.completed) {
+      playSuccess();
+    }
+    if (sequenceCollectTimerRef.current) clearTimeout(sequenceCollectTimerRef.current);
+    sequenceCollectTimerRef.current = setTimeout(() => {
+      setSequenceState(prev => ({ ...prev, isCollecting: true }));
+    }, 500);
+  }, [playSuccess]);
+
   const socket = useGameSocket({
     sessionId,
     retryKey,
@@ -564,7 +680,11 @@ export default function GameSession() {
       onPlayState: handlePlayState,
       onMemoryTurnState: handleMemoryTurnState,
       onPlayInterrupted: handlePlayInterrupted,
-      onSrAnnouncement: handleSrAnnouncement
+      onSrAnnouncement: handleSrAnnouncement,
+      onSequencePhaseMemorizing: handleSequencePhaseMemorizing,
+      onSequencePhaseReproducing: handleSequencePhaseReproducing,
+      onSequenceCardResult: handleSequenceCardResult,
+      onSequenceRoundResult: handleSequenceRoundResult
     }
   });
 
@@ -1171,9 +1291,21 @@ export default function GameSession() {
                 ¡Hora de Jugar!
               </h1>
               <p className="text-text-muted mb-8 text-lg">
-                {session?.deck?.name
-                  ? `Busca la tarjeta amiga en ${session.deck.name}`
-                  : 'Encuentra la tarjeta amiga'}
+                {(() => {
+                  if (sessionIsSequence) {
+                    return session?.deck?.name
+                      ? `Memoriza el orden de las cartas en ${session.deck.name}`
+                      : 'Memoriza el orden de las cartas';
+                  }
+                  if (sessionIsMemory) {
+                    return session?.deck?.name
+                      ? `Empareja las cartas iguales en ${session.deck.name}`
+                      : 'Empareja las cartas iguales';
+                  }
+                  return session?.deck?.name
+                    ? `Busca la tarjeta amiga en ${session.deck.name}`
+                    : 'Encuentra la tarjeta amiga';
+                })()}
               </p>
               <motion.button
                 whileHover={shouldReduceMotion ? {} : { scale: 1.05 }}
@@ -1228,13 +1360,8 @@ export default function GameSession() {
                       cardMappings={session?.cardMappings || []}
                       rfidConnected={rfidConnected}
                       soundEnabled={soundEnabled}
-                      onScoreUpdate={(newScore, isCorrect) => {
-                        dispatch({
-                          type: isCorrect ? 'ANSWER_CORRECT' : 'ANSWER_INCORRECT',
-                          score: newScore
-                        });
-                      }}
-                      onCorrectAnswer={() => playCorrect()}
+                      sequenceState={sequenceState}
+                      onCardTap={emitFallbackScan}
                     />
                   );
                 }
@@ -1251,6 +1378,7 @@ export default function GameSession() {
                 );
               })()}
 
+              {!sessionIsSequence && (
               <motion.p
                 initial={shouldReduceMotion ? false : { opacity: 0, y: 20 }}
                 animate={{ opacity: 1, y: 0 }}
@@ -1281,8 +1409,9 @@ export default function GameSession() {
                   );
                 })()}
               </motion.p>
+              )}
 
-              {!rfidConnected && !sessionIsMemory && (
+              {!rfidConnected && !sessionIsMemory && !sessionIsSequence && (
                 <FallbackTouchPanel
                   cards={shuffledFallbackCards}
                   round={currentRound}
@@ -1411,7 +1540,7 @@ export default function GameSession() {
       {(gameState === 'playing' || gameState === 'paused') && (
         <footer className="relative z-10 px-3 py-1.5 sm:px-4 shrink-0">
           <CurrentPlayMetrics
-            mode={sessionIsMemory ? 'memory' : 'association'}
+            mode={mechanicMode}
             score={score}
             correctAnswers={correctAnswers}
             totalRounds={totalRounds}

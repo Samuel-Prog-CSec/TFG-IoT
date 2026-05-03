@@ -130,7 +130,11 @@ export function useGameSocket({
     onPlayState,
     onMemoryTurnState,
     onPlayInterrupted,
-    onSrAnnouncement
+    onSrAnnouncement,
+    onSequencePhaseMemorizing,
+    onSequencePhaseReproducing,
+    onSequenceCardResult,
+    onSequenceRoundResult
   } = callbacks;
 
   // Estados propios del hook
@@ -371,6 +375,23 @@ export function useGameSocket({
         socketService.onGame(GAME_EVENTS.PLAY_INTERRUPTED, onPlayInterrupted);
         socketService.onGame(GAME_EVENTS.SCAN_IGNORED, onScanIgnored);
         socketService.onGame(GAME_EVENTS.ERROR, onSocketError);
+        // Mecánica Secuencia (T-921): listeners registrados aquí para garantizar
+        // que están activos ANTES del primer evento del backend (se emiten en
+        // start_play, antes de que el panel de Secuencia se monte por
+        // mechanicMode resolver). Sin esto se pierde el sequence_phase_memorizing
+        // inicial y el board queda vacío (QA 2026-05-03 BUG-QA-6).
+        if (typeof onSequencePhaseMemorizing === 'function') {
+          socketService.onGame(GAME_EVENTS.SEQUENCE_PHASE_MEMORIZING, onSequencePhaseMemorizing);
+        }
+        if (typeof onSequencePhaseReproducing === 'function') {
+          socketService.onGame(GAME_EVENTS.SEQUENCE_PHASE_REPRODUCING, onSequencePhaseReproducing);
+        }
+        if (typeof onSequenceCardResult === 'function') {
+          socketService.onGame(GAME_EVENTS.SEQUENCE_CARD_RESULT, onSequenceCardResult);
+        }
+        if (typeof onSequenceRoundResult === 'function') {
+          socketService.onGame(GAME_EVENTS.SEQUENCE_ROUND_RESULT, onSequenceRoundResult);
+        }
         socketService.on(SOCKET_EVENTS.DISCONNECT, onSocketDisconnect);
         socketService.on(SOCKET_EVENTS.CONNECT, onSocketConnect);
 
@@ -467,6 +488,18 @@ export function useGameSocket({
       socketService.offGame(GAME_EVENTS.PLAY_INTERRUPTED, onPlayInterrupted);
       socketService.offGame(GAME_EVENTS.SCAN_IGNORED, onScanIgnored);
       socketService.offGame(GAME_EVENTS.ERROR, onSocketError);
+      if (typeof onSequencePhaseMemorizing === 'function') {
+        socketService.offGame(GAME_EVENTS.SEQUENCE_PHASE_MEMORIZING, onSequencePhaseMemorizing);
+      }
+      if (typeof onSequencePhaseReproducing === 'function') {
+        socketService.offGame(GAME_EVENTS.SEQUENCE_PHASE_REPRODUCING, onSequencePhaseReproducing);
+      }
+      if (typeof onSequenceCardResult === 'function') {
+        socketService.offGame(GAME_EVENTS.SEQUENCE_CARD_RESULT, onSequenceCardResult);
+      }
+      if (typeof onSequenceRoundResult === 'function') {
+        socketService.offGame(GAME_EVENTS.SEQUENCE_ROUND_RESULT, onSequenceRoundResult);
+      }
       // Limpiar listener de scan local y timeout pendiente
       webSerialService.off('scan', handleLocalScan);
       cancelPendingScanTimeout();
