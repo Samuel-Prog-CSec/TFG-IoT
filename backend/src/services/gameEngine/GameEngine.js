@@ -620,9 +620,8 @@ class GameEngine {
     }
 
     // 2. Guardar el estado final en la BD
+    const playDuration = Date.now() - playState.createdAt;
     try {
-      const playDuration = Date.now() - playState.createdAt;
-
       if (abandoned) {
         // Partida abandonada: marcar status y registrar evento
         playState.playDoc.status = 'abandoned';
@@ -731,6 +730,14 @@ class GameEngine {
 
     if (mode === 'sequence') {
       Object.assign(finalMetrics, sequenceFlow.buildSequenceFinalSummary(playState));
+    }
+
+    // Garantizar `completionTime` en el payload — `playDoc.complete()`
+    // lo escribe en el documento, pero si el path falla o llega al
+    // toObject anterior antes del save, el frontend mostraba "—" en
+    // "Tiempo total" del GameOver de Secuencia (BUG QA 03/05/2026).
+    if (!Number.isFinite(Number(finalMetrics.completionTime)) || finalMetrics.completionTime <= 0) {
+      finalMetrics.completionTime = playDuration;
     }
 
     this.io.to(`play_${playId}`).emit('game_over', {

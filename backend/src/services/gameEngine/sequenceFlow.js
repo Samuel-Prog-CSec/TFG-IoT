@@ -370,6 +370,11 @@ function buildSequenceFinalSummary(playState) {
   let sequencesCompleted = 0;
   let sequencesBlocked = 0;
   let sequencesTimedOut = 0;
+  // Mayor longitud alcanzada por el alumno en cualquier ronda — incluye
+  // rondas no completadas. Antes sólo contábamos secuencias completas, lo
+  // que dejaba `maxSequenceLengthAchieved=0` en partidas con muchos
+  // aciertos parciales (BUG QA 03/05/2026: pantalla final mostraba 0 a
+  // pesar de haber 9 cartas correctas en cuatro rondas).
   let maxLength = 0;
   let partialReproductions = 0;
   let totalDuration = 0;
@@ -382,20 +387,23 @@ function buildSequenceFinalSummary(playState) {
 
     if (correctCount === round.length) {
       sequencesCompleted += 1;
-      maxLength = Math.max(maxLength, round.length);
     } else if (hadTimedOut) {
       sequencesTimedOut += 1;
     } else if (hadBlocked) {
       sequencesBlocked += 1;
     }
 
+    maxLength = Math.max(maxLength, correctCount);
     partialReproductions += correctCount;
     blockedCardsTotal += round.results.filter(r => r.status === 'blocked').length;
     totalDuration += Number(round.durationMs || 0);
   }
 
+  // Media de duración por ronda — siempre calculable, no sólo cuando hay
+  // secuencias completas. Un alumno con 5 rondas que se quedan sin tiempo
+  // sigue teniendo un T. medio significativo (cuánto duró el intento).
   const averageReproductionTimeMs =
-    sequencesCompleted > 0 ? Math.round(totalDuration / rounds.length) : 0;
+    rounds.length > 0 ? Math.round(totalDuration / rounds.length) : 0;
 
   return {
     sequencesCompleted,

@@ -38,7 +38,14 @@ function normalizeFinalSummary(rawMetrics, score, correctAnswers, mechanicMode, 
   const metrics = rawMetrics && typeof rawMetrics === 'object' ? rawMetrics : {};
   const totalAttempts = Number(metrics.totalAttempts || 0);
   const averageResponseTimeMs = Number(metrics.averageResponseTime || 0);
-  const rawTotalTime = Number(metrics.totalTimePlayed || metrics.playDuration || 0);
+  // El backend persiste el tiempo total como `completionTime` (estándar
+  // del modelo GamePlay). Aceptamos también `totalTimePlayed`/`playDuration`
+  // como alias por compatibilidad. Sin esta lectura, en Secuencia el
+  // gameStartTimeRef nunca se setea (no emite `new_round`) y el cálculo
+  // local fallaba a 0 → "Tiempo total: —" en GameOver.
+  const rawTotalTime = Number(
+    metrics.completionTime || metrics.totalTimePlayed || metrics.playDuration || 0
+  );
 
   // Si no hay tiempo del servidor, calcular a partir del inicio local (en ms)
   const elapsedMs = gameStartTime ? Date.now() - gameStartTime : 0;

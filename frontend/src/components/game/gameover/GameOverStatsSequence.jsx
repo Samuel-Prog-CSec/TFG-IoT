@@ -22,10 +22,19 @@ function GameOverStatsSequence({ summary }) {
   const partialReproductions = Number(summary?.partialReproductions || 0);
   const hintsUsed = Number(summary?.hintsUsed || 0);
   const avgReprodMs = Number(summary?.averageReproductionTimeMs || 0);
-  const totalTimeMs = Number(summary?.totalTimePlayed || 0);
+  // El backend persiste el tiempo total como `completionTime` (estándar
+  // del modelo GamePlay); aceptamos también el alias `totalTimePlayed`
+  // por compatibilidad histórica.
+  const totalTimeMs = Number(summary?.completionTime || summary?.totalTimePlayed || 0);
 
   const avgTimeLabel = avgReprodMs > 0 ? `${(avgReprodMs / 1000).toFixed(1)}s` : '—';
-  const totalTimeLabel = totalTimeMs > 0 ? `${(totalTimeMs / (1000 * 60)).toFixed(1)} min` : '—';
+  // Por debajo de 60 segundos mostramos en segundos para que no salga
+  // "0.5 min" — más legible para un alumno o profesor mirando el resumen.
+  const totalTimeLabel = (() => {
+    if (!Number.isFinite(totalTimeMs) || totalTimeMs <= 0) return '—';
+    if (totalTimeMs < 60_000) return `${Math.round(totalTimeMs / 1000)}s`;
+    return `${(totalTimeMs / 60_000).toFixed(1)} min`;
+  })();
 
   return (
     <div className="space-y-3 mb-8">
@@ -40,8 +49,8 @@ function GameOverStatsSequence({ summary }) {
             <ListOrdered size={20} className="text-accent-amber" />
           </div>
           <div className="text-left">
-            <p className="text-xs uppercase tracking-wider text-text-muted">Mejor secuencia</p>
-            <p className="text-sm text-text-secondary">Cartas memorizadas en orden de un tirón</p>
+            <p className="text-xs uppercase tracking-wider text-text-muted">Mejor racha</p>
+            <p className="text-sm text-text-secondary">Cartas correctas seguidas en una ronda</p>
           </div>
         </div>
         <p className="text-3xl font-bold font-display text-accent-amber tabular-nums">{maxLength}</p>
