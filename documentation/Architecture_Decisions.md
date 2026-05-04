@@ -5649,3 +5649,175 @@ El usuario solicitó explícitamente "dos animaciones bellas que sean dos detall
 **Positivas**: Detalle distintivo del proyecto. Sólo `transform` y `opacity` (GPU-acelerados); 60 fps en monitores 4K. SFX vía Web Audio API — sin assets externos.
 
 **Riesgos asumidos**: Animación "ping" de highlight numerado puede saturar si `displaySeconds` es muy bajo. Mitigado: `HIGHLIGHT_INTERVAL_MS = 600 ms` fijo; si la fase termina antes del último ping, el componente lo cancela en cleanup.
+
+---
+
+## ADR-105: Métricas específicas por mecánica en `GamePlay.metrics` [Backend]
+
+**Fecha:** 2026-05-04
+**Sprint/Origen:** Sesión de pulido senior 3 mecánicas
+**Estado:** Aprobado (`feature/sequence-mechanic`)
+**Alcance:** Backend (`models/GamePlay.js`, `utils/dtos.js`)
+
+### Contexto
+
+Hasta esta sesión, sólo Secuencia tenía métricas dedicadas en `GamePlay.metrics` (`sequencesCompleted`, `maxSequenceLengthAchieved`, `partialRounds`, etc.). Memoria y Asociación compartían las métricas genéricas (`totalAttempts`, `correctAttempts`, `errorAttempts`), perdiendo señal pedagógica clave: "mejor racha", "tiempo medio por pareja", "categoría dominante" o "acierto más rápido".
+
+### Decisión
+
+1. Añadir sub-objetos opcionales `metrics.memory` y `metrics.association` con `default: undefined` (mismo patrón que los campos sequence existentes). Mongoose los serializa solo cuando el play correspondiente los persiste.
+2. **Memory**: `groupsMatched`, `peakStreak`, `averageMatchTimeMs`, `attemptsToFirstMatch`, `groupSize`.
+3. **Association**: `peakStreak`, `quickestCorrectMs`, `slowestCorrectMs`, `byValueAccuracy` (Mixed map slug → {correct,total}), `categoryDominance`.
+4. El DTO `mapGamePlayMetrics` expone los sub-objetos solo si están presentes en el documento (no se serializan campos `undefined` para evitar contaminar plays de otras mecánicas).
+
+### Alternativas rechazadas
+
+- **Sub-objeto polimórfico `metrics.byMechanic`**: rompe queries existentes y agregaciones que ya leen `metrics.totalAttempts` directamente. Requeriría migrar todos los analytics.
+- **Persistir todos los campos siempre con default 0**: contamina plays de otras mecánicas con campos sin sentido y dificulta agregaciones por mecánica.
+
+### Consecuencias
+
+**Positivas**: campos exactos para cada mecánica → GameOver con métricas accionables, dashboards del profesor con `MemoryHighlightCard` / `AssociationHighlightCard` paralelos a `SequenceHighlightCard`. Compatibilidad hacia atrás (plays antiguos siguen siendo válidos).
+
+**Riesgos asumidos**: El campo `byValueAccuracy` es Mongoose `Mixed`, no queryable directamente. Aceptable porque sólo se lee en el endpoint summary y en el GameOver — no participa en agregaciones de Mongo.
+
+---
+
+## ADR-106: Builder unificado `finalSummary.js` por factory [Backend]
+
+**Fecha:** 2026-05-04
+**Sprint/Origen:** Sesión de pulido senior 3 mecánicas
+**Estado:** Aprobado (`feature/sequence-mechanic`)
+**Alcance:** Backend (`services/gameEngine/finalSummary.js`, `services/gameEngine/GameEngine.js`, `strategies/mechanics/*`)
+
+### Contexto
+
+El `endPlay` del `GameEngine` ensamblaba a mano el `final_summary` para Secuencia (vía `sequenceFlow.buildSequenceFinalSummary`) y dejaba a Memoria/Asociación sin builder específico. Ese tratamiento asimétrico bloqueaba la extensión a métricas pedagógicas para las otras dos mecánicas.
+
+### Decisión
+
+1. Nuevo módulo `services/gameEngine/finalSummary.js` con factory `buildFinalSummary(mechanicType, playState)` y builders dedicados (`buildMemoryFinalSummary`, `buildAssociationFinalSummary`, `buildSequenceFinalSummary`).
+2. `BaseMechanicStrategy` gana hook opcional `recordScanResult({ isCorrect, scannedCard, currentChallenge, timeElapsed, strategyState, sessionDoc })`. `MemoryStrategy` y `AssociationStrategy` lo sobreescriben para mantener bookkeeping running (`currentStreak`, `peakStreak`, `byValueAccuracy`, etc.) en `strategyState`.
+3. `GameEngine.processMemoryScan` y `GameEngine.processResponse` invocan el hook tras evaluar `isCorrect` y antes de `addEventAtomic`.
+4. `endPlay` deja de llamar a `sequenceFlow.buildSequenceFinalSummary` directamente: ahora llama a `finalSummary.buildFinalSummary(playState.mechanicName, playState)`. Memoria persiste el resultado en `metrics.memory`, Asociación en `metrics.association`, Secuencia mantiene serialización flat (compat).
+5. El payload `game_over` enriquece con `mechanicType` (alias semántico claro de `mode`), `metrics.memory`/`metrics.association`/campos sequence, y `streak`/`peakStreak` para la mascota viva (ADR-108).
+
+### Consecuencias
+
+**Positivas**: una única puerta para enriquecer las métricas finales. Adding un nuevo cuarto modo de juego sería: nuevo strategy + builder + alta en factory. Tests de finalSummary cubren factory + 3 builders + edge cases (0 rondas, todos timeouts).
+
+**Riesgos asumidos**: hook `recordScanResult` es opcional → strategies que lo olvidan no rompen nada pero pierden bookkeeping. Mitigado con tests por mecánica que validan que el bookkeeping crece tras cada acierto.
+
+---
+
+## ADR-107: Tema visual canónico por mecánica `mechanicTheme.js` [Frontend, UX]
+
+**Fecha:** 2026-05-04
+**Sprint/Origen:** Sesión de pulido senior 3 mecánicas
+**Estado:** Aprobado (`feature/sequence-mechanic`)
+**Alcance:** Frontend (`lib/mechanicTheme.js`, `components/game/GameBackdrop.jsx`, `pages/GameSession.jsx`)
+
+### Contexto
+
+Solo Asociación tenía tema visual (`associationTheme.js`, contexto-aware). Memoria y Secuencia se renderizaban con la paleta neutral del producto, lo que las hacía indistinguibles a un vistazo y rompía el "signal" cognitivo "estoy en X mecánica".
+
+### Decisión
+
+1. Nuevo módulo `lib/mechanicTheme.js` con un tema por mecánica:
+   - **Memoria** → `--color-accent-indigo` + `Brain` icon + headline "Encuentra las parejas".
+   - **Asociación** → `--color-accent-cyan` + `Link2` icon + headline "Encuentra la respuesta correcta".
+   - **Secuencia** → `--color-accent-orange` + `ListOrdered` icon + headline "Sigue la secuencia".
+2. Cada tema expone clases Tailwind preconfiguradas (`accentClass`, `accentBgSoftClass`, `accentBorderClass`, `accentRingClass`, `glowClass`, `backdropTintClass`) y un `accentVar` para que estilos inline (color-mix) accedan al token CSS sin string concatenation.
+3. Aplicado en cabecera de juego como **badge** con icono + nombre legible (visible desde `sm:` para no saturar pantallas estrechas) y en `GameBackdrop` como **halo radial sutil** (max 18% opacity) en una esquina distinta por mecánica.
+4. `associationTheme.js` (contexto-aware) se mantiene: theme de mecánica y theme de contexto son ortogonales y coexisten.
+
+### Consecuencias
+
+**Positivas**: identificación inmediata de la mecánica activa, sin texto. La signature visual atraviesa cabecera, backdrop, mascota (glow), GameOver (hero metrics) y analytics (highlight cards) — coherencia top-to-bottom.
+
+**Riesgos asumidos**: si en el futuro se añade una cuarta mecánica con accent similar a una existente, se pierde diferenciación. Mitigado con un test que verifica que los `accentVar` son distintos entre las 3 mecánicas actuales.
+
+---
+
+## ADR-108: Mascota viva por mecánica × evento × tier [Frontend, UX]
+
+**Fecha:** 2026-05-04
+**Sprint/Origen:** Sesión de pulido senior 3 mecánicas
+**Estado:** Aprobado (`feature/sequence-mechanic`)
+**Alcance:** Frontend (`lib/mascotDialog.js`, `hooks/useMascotReactions.js`, `hooks/useGameFeedback.js`, `components/game/CharacterMascot.jsx`)
+
+### Contexto
+
+`CharacterMascot` recibía `mood` plano y elegía la frase de un pool agnóstico a la mecánica. La mascota decía exactamente lo mismo cuando el alumno acertaba una pareja (Memoria), atinaba la respuesta (Asociación) o completaba una secuencia (Secuencia). El usuario describió la mascota como "buena pero predecible y básica".
+
+### Decisión
+
+1. Nuevo diccionario `lib/mascotDialog.js` con frases por **mecánica × evento × tier**: `correctAnswer`, `errorAnswer`, `timeout`, `streakReached`, `roundStart`, `gameOverHigh/Mid/Low`. 4–8 frases por evento × 3 mecánicas. Vocabulario 4–6 años, sin emojis.
+2. Nuevo hook `hooks/useMascotReactions.js` que consume `lastEvent` y devuelve `{ mood, message }`. Reglas:
+   - Cooldown 1.2 s entre cambios para evitar epilepsia visual con scans rápidos.
+   - Promoción a `streakReached` (mood `celebrating`) cuando `streak >= 3`.
+   - Inactivity timeout 7 s vuelve a `idle`.
+3. `useGameFeedback` acepta ahora `mechanicType` y delega en `pickMascotMessage` para construir mood + message, manteniendo compat con callers históricos (sin `mechanicType` el comportamiento previo se preserva).
+4. `CharacterMascot` acepta prop opcional `mechanicType` y tinta el glow pasivo (estados `idle`/`thinking`) con el accent de la mecánica activa (color-mix 22%). Mood expresivos (happy/celebrating/encouraging/sad) mantienen sus glows propios.
+
+### Consecuencias
+
+**Positivas**: la mascota deja de ser agnóstica. Una racha de 3 aciertos en Secuencia dispara "¡SIGUES EL RITMO!"; en Memoria, "¡MEMORIA TOP!". El glow tintado pasivo refuerza la identidad cromática del badge (ADR-107). Cobertura: 6 tests para el hook (cooldown, streak promotion, timeouts) + 10 para el dictionary.
+
+**Riesgos asumidos**: aumento del bundle por strings adicionales (~300 frases). Despreciable (<3 KB). Si en un futuro se internacionaliza el copy, este módulo es el punto único a traducir.
+
+---
+
+## ADR-109: Tier por mecánica + endpoint `/student/:id/summary` simétrico [Backend]
+
+**Fecha:** 2026-05-04
+**Sprint/Origen:** Sesión de pulido senior 3 mecánicas
+**Estado:** Aprobado (`feature/sequence-mechanic`)
+**Alcance:** Backend (`services/analyticsService.js`)
+
+### Contexto
+
+`getClassroomStudents` calculaba el tier (`risk/average/good/excellent`) a partir de `studentMetrics.averageScore` lifetime, agregado entre todas las mecánicas. Un alumno con 45% en Secuencia y 85% en Memoria aparecía como tier "riesgo" global, ocultando su fortaleza específica. Análogamente, `/student/:id/summary` exponía `bySequence` pero no `byMemory` ni `byAssociation` — asimétrico para el frontend.
+
+### Decisión
+
+1. Nuevo helper privado `getStudentsTiersByMechanic(studentIds)` con pipeline aggregate Mongo: `match` por `{ playerId in studentIds, status: completed }`, `lookup` a `gamesessions` y `gamemechanics`, project de `accuracyPct = score/maxScore × 100`, `group` por `{ playerId, mechanicName }` con `$avg`. Devuelve `Map<studentId, { mechanicName: { averageScore, tier, gamesPlayed } }>`.
+2. `getClassroomStudents` añade campo `tiersByMechanic` al output de cada alumno (no rompe el campo `tier` global, que se mantiene).
+3. `/student/:id/summary` añade dos nuevos facets en su pipeline: `memoryStats` y `associationStats`. El response gana `byMemory` y `byAssociation` simétricos a `bySequence`.
+
+### Consecuencias
+
+**Positivas**: el frontend puede pintar chips "MEMORIA: bueno · ASOCIACIÓN: riesgo" en la tabla de alumnos sin endpoint adicional. `MemoryHighlightCard` y `AssociationHighlightCard` (ADR-110) consumen `byMemory`/`byAssociation` directamente.
+
+**Riesgos asumidos**: pipeline extra en `getClassroomStudents` añade ~50 ms en aulas grandes (50+ alumnos × 100 partidas). Mitigado: un solo `lookup`+`group`, no N+1. Si se vuelve cuello, se pasa a materializar el tier por mecánica en `User.studentMetrics.byMechanic`.
+
+---
+
+## ADR-110: `MetricPill` reutilizable + microcopy contextual GameOver [Frontend, UX]
+
+**Fecha:** 2026-05-04
+**Sprint/Origen:** Sesión de pulido senior 3 mecánicas
+**Estado:** Aprobado (`feature/sequence-mechanic`)
+**Alcance:** Frontend (`components/ui/MetricPill.jsx`, `lib/gameOverCopy.js`, `components/game/gameover/*`, `components/game/GameOverScreen.jsx`)
+
+### Contexto
+
+Los 3 sub-componentes `GameOverStats*` (Memory/Association/Sequence) duplicaban el patrón de "pill" (label + value + tone + icon + tooltip) con HTML idéntico. Cualquier cambio estético implicaba tocar 3 archivos. Además, el título y subtítulo del `GameOverScreen` eran fijos por número de estrellas, sin diferenciación por mecánica.
+
+### Decisión
+
+1. Nuevo primitivo `components/ui/MetricPill.jsx`:
+   - Props: `label`, `value`, `tone` (`success/error/amber/brand/indigo/cyan/neutral`), `icon` (Lucide), `tooltip`, `delta` (numérico → flecha+signo, string → libre), `align` (center/left).
+   - `min-h` reservado para alinear con hero metrics superiores sin descuelgue.
+2. Refactor de los 3 `GameOverStats*` para consumir `MetricPill`:
+   - **Memory**: hero "Mejor racha" (`peakStreak`) + 3 cols (Errores / T. medio / Tiempo). Etiqueta "parejas" o "tríos" según `groupSize`.
+   - **Association**: hero opcional "Tu categoría más fuerte" (`categoryDominance`) + 4 cols (Incorrectas / Sin responder / T. medio / Tiempo) o 3 cols fallback.
+   - **Sequence**: mismo diseño que antes pero adopta `MetricPill` global (elimina su `StatPill` interno).
+3. Nuevo módulo `lib/gameOverCopy.js` con mapa `(stars × mechanic) → { title, subtitle }`. Un 3⭐ en Memoria dice "MEMORIA DE ELEFANTE", en Asociación "CONEXIÓN PERFECTA", en Secuencia "SIGUES EL RITMO". Fallback al copy genérico si la mecánica no se reconoce.
+4. Nuevos componentes `MemoryHighlightCard` / `AssociationHighlightCard` (paralelos a `SequenceHighlightCard`) consumen también `MetricPill` para consistencia.
+
+### Consecuencias
+
+**Positivas**: futuro tuneado del estilo de pills se hace en un solo sitio. El copy del GameOver refuerza la signature por mecánica del leitmotiv del producto. Cobertura: 9 tests para `MetricPill`, 7 para `gameOverCopy`.
+
+**Riesgos asumidos**: `MetricPill` introduce un wrapper más en el árbol de render → en gridviews con 50+ pills (no aplica hoy) podría costar. Mitigado con `memo()`.
