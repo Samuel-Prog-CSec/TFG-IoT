@@ -3,6 +3,7 @@ import { useRef, useMemo } from 'react';
 import PropTypes from 'prop-types';
 import { cn, EASING } from '../../lib/utils';
 import { useReducedMotion } from '../../hooks/useReducedMotion';
+import { getMechanicTheme } from '../../lib/mechanicTheme';
 import MascotAccessory from './MascotAccessory';
 
 const bodyAnimation = {
@@ -70,12 +71,25 @@ export default function CharacterMascot({
   mood = 'idle',
   message,
   position = 'left',
+  mechanicType = null,
   className
 }) {
   const { shouldReduceMotion } = useReducedMotion();
   const lastMsgRef = useRef(-1);
 
   const expr = expressions[mood];
+
+  // ADR-D: cuando la mecánica está disponible, el glow se tinta con su
+  // accent color en estados pasivos (idle/thinking) para mantener la
+  // identidad por mecánica incluso entre rondas. Para los estados
+  // expresivos (happy/celebrating/encouraging/sad) el glow propio del
+  // mood manda — son momentos de "celebración" o "consuelo" donde la
+  // mecánica pasa a segundo plano.
+  const mechanicGlowVar = mechanicType
+    ? getMechanicTheme(mechanicType).accentVar
+    : null;
+  const useMechanicTintForGlow =
+    mechanicGlowVar && (mood === 'idle' || mood === 'thinking');
 
   // Selecciona mensaje rotativo evitando repetir el ultimo — memoizado por mood
   const rotatingMessage = useMemo(() => {
@@ -134,13 +148,26 @@ export default function CharacterMascot({
         className="relative"
       >
         {/* Glow effect */}
-        <div className={cn(
-          "absolute inset-0 rounded-full blur-xl",
-          mood === 'celebrating' && "bg-warning-base/30",
-          mood === 'happy' && "bg-success-base/20",
-          mood === 'encouraging' && "bg-brand-light/20",
-          (mood === 'idle' || mood === 'thinking') && "bg-text-muted/10"
-        )} />
+        <div
+          className={cn(
+            'absolute inset-0 rounded-full blur-xl',
+            mood === 'celebrating' && 'bg-warning-base/30',
+            mood === 'happy' && 'bg-success-base/20',
+            mood === 'encouraging' && 'bg-brand-light/20',
+            !useMechanicTintForGlow &&
+              (mood === 'idle' || mood === 'thinking') &&
+              'bg-text-muted/10'
+          )}
+          style={
+            useMechanicTintForGlow
+              ? {
+                  // Halo tintado con el accent de la mecánica (ADR-D).
+                  // ~22% opacity con color-mix para que respete tema oscuro.
+                  backgroundColor: `color-mix(in oklab, var(${mechanicGlowVar}) 22%, transparent)`
+                }
+              : undefined
+          }
+        />
 
         {/* Mascot emoji — always 🦉 for identity consistency */}
         <AnimatePresence mode="wait">
@@ -199,5 +226,8 @@ CharacterMascot.propTypes = {
   mood: PropTypes.oneOf(['idle', 'happy', 'encouraging', 'celebrating', 'thinking', 'sad']),
   message: PropTypes.string,
   position: PropTypes.oneOf(['left', 'right']),
+  // Mecánica activa para tintar el halo en estados pasivos (ADR-D).
+  // null/undefined mantiene el comportamiento histórico (gris neutro).
+  mechanicType: PropTypes.oneOf(['memory', 'association', 'sequence', null]),
   className: PropTypes.string
 };

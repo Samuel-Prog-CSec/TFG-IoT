@@ -17,6 +17,7 @@ import GameOverScreen from '../components/game/GameOverScreen';
 import CharacterMascot from '../components/game/CharacterMascot';
 import AssociationGameplayPanel from '../components/game/AssociationGameplayPanel';
 import { resolveAssociationTheme } from '../components/game/associationTheme';
+import { getMechanicTheme } from '../lib/mechanicTheme';
 import MemoryGameplayPanel from '../components/game/MemoryGameplayPanel';
 import SequenceGameplayPanel from '../components/game/SequenceGameplayPanel';
 import GameBackdrop from '../components/game/GameBackdrop';
@@ -258,7 +259,12 @@ export default function GameSession() {
   const [memoryTimerArmed, setMemoryTimerArmed] = useState(false);
 
   // --- Hooks de feedback y sonido ---
-  const gameFeedback = useGameFeedback({ isMemoryMode: sessionIsMemory, shouldReduceMotion });
+  const gameFeedback = useGameFeedback({
+    isMemoryMode: sessionIsMemory,
+    shouldReduceMotion,
+    // ADR-D: la mascota usa el diccionario por mecánica.
+    mechanicType: mechanicMode
+  });
   const {
     clearFeedback,
     processValidationResult,
@@ -1099,6 +1105,7 @@ export default function GameSession() {
         theme={resolveAssociationTheme(
           challenge?.value || session?.context?.name || session?.deck?.name
         )}
+        mechanicType={mechanicMode}
       />
 
       {/* Top HUD — z-index ligeramente por encima de los wrappers hermanos
@@ -1113,6 +1120,35 @@ export default function GameSession() {
               - Asociacion: 1 dot por ronda; el actual pulsa y los completados estan llenos
               - Memoria: 1 dot por pareja; se iluminan a medida que se emparejan */}
           <div className="flex items-center gap-3">
+            {/* Badge canónico de mecánica (ADR-C). Identifica la mecánica
+                a un vistazo con icono Lucide signature + nombre legible
+                pintado con el accent color del theme. Visible desde sm+ para
+                no saturar pantallas estrechas. */}
+            {(() => {
+              const theme = getMechanicTheme(mechanicMode);
+              const ThemeIcon = theme.icon;
+              return (
+                <div
+                  className={cn(
+                    'hidden sm:flex items-center gap-2 px-2.5 py-1.5 rounded-xl border',
+                    theme.accentBgSoftClass,
+                    theme.accentBorderClass
+                  )}
+                  title={theme.headline}
+                  aria-label={`Mecánica: ${theme.label}`}
+                >
+                  <ThemeIcon size={16} className={theme.accentClass} aria-hidden="true" />
+                  <span
+                    className={cn(
+                      'text-xs font-semibold uppercase tracking-wider',
+                      theme.accentClass
+                    )}
+                  >
+                    {theme.label}
+                  </span>
+                </div>
+              );
+            })()}
             {(() => {
               const totalProgress = sessionIsMemory
                 ? Math.floor((memoryStats.totalCards || 0) / 2)
@@ -1580,6 +1616,7 @@ export default function GameSession() {
           mood={mascotMood}
           message={mascotMessage || undefined}
           position="left"
+          mechanicType={mechanicMode}
         />
       </div>
 
