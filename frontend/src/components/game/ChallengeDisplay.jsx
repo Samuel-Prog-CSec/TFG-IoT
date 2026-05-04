@@ -240,8 +240,28 @@ const ChallengeDisplay = function ChallengeDisplay({
             )}
             style={asset?.dominantColor ? { backgroundColor: asset.dominantColor } : undefined}
           >
-            {imageLoading && !asset?.dominantColor && (
+            {/* Placeholder shimmer SIEMPRE visible durante el loading,
+                independientemente de si hay dominantColor (QA 04/05 BUG-A1:
+                la card quedaba VACÍA durante la transición entre rondas en
+                Asociación porque la nueva imagen tarda 1-2s en cargar). */}
+            {imageLoading && (
               <div className="absolute inset-0 rounded-2xl border border-white/10 bg-white/5 animate-pulse" />
+            )}
+            {/* Fallback textual: muestra el `value` del asset durante el
+                loading. Cuando la imagen carga, se oculta vía opacity. Esto
+                evita frame vacío y da feedback inmediato al alumno. */}
+            {imageLoading && asset?.value && (
+              <div
+                aria-hidden="true"
+                className={cn(
+                  'absolute inset-0 flex items-center justify-center text-center px-2',
+                  'font-display font-bold text-3xl sm:text-4xl lg:text-5xl tracking-tight',
+                  'transition-opacity duration-300',
+                  theme.text
+                )}
+              >
+                {asset.value}
+              </div>
             )}
             <motion.img
               src={assetImageUrl}

@@ -28,6 +28,7 @@ const {
   normalizeBoardLayout,
   validateBoardLayoutAgainstMappings,
   applyAssociationPlanOnUpdate,
+  applySequencePlanOnUpdate,
   ensureAssociationPlanReadyForStart,
   applyCloneMechanicState,
   buildCloneSuccessMessage
@@ -186,7 +187,9 @@ const createSession = async (req, res) => {
     difficulty,
     cardMappings,
     boardLayout,
-    associationChallengePlan
+    associationChallengePlan,
+    sequencePlan,
+    sequenceConfig
   } = req.body;
 
   if (cardMappings) {
@@ -207,6 +210,8 @@ const createSession = async (req, res) => {
     contextId,
     boardLayout,
     associationChallengePlan,
+    sequencePlan,
+    sequenceConfig,
     createdBy: req.user._id
   });
 
@@ -232,8 +237,17 @@ const createSession = async (req, res) => {
  */
 const updateSession = async (req, res) => {
   const { id } = req.params;
-  const { deckId, sensorId, name, config, difficulty, boardLayout, associationChallengePlan } =
-    req.body;
+  const {
+    deckId,
+    sensorId,
+    name,
+    config,
+    difficulty,
+    boardLayout,
+    associationChallengePlan,
+    sequencePlan,
+    sequenceConfig
+  } = req.body;
 
   const session = await gameSessionRepository.findById(id);
 
@@ -298,6 +312,13 @@ const updateSession = async (req, res) => {
     session,
     associationChallengePlan,
     mechanicName
+  });
+
+  applySequencePlanOnUpdate({
+    session,
+    mechanicName,
+    sequencePlan,
+    sequenceConfig
   });
 
   ensureMemoryBoardLayoutIsComplete({

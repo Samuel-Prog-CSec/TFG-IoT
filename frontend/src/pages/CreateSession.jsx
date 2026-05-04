@@ -19,7 +19,7 @@ import {
   ChevronRight,
   ChevronLeft,
   CreditCard,
-  Layers,
+  Gamepad2,
   Settings,
   Save,
   Sparkles
@@ -42,6 +42,7 @@ import StepDeck from '../components/session/StepDeck';
 import StepMechanic from '../components/session/StepMechanic';
 import StepMemoryRules from '../components/session/StepMemoryRules';
 import StepRules from '../components/session/StepRules';
+import StepSequenceRules from '../components/session/StepSequenceRules';
 import StepReview from '../components/session/StepReview';
 import { getStepDescription } from '../components/session/sessionHelpers';
 
@@ -56,9 +57,12 @@ const WIZARD_STEPS = [
   },
   {
     id: 'mechanic',
+    // Paso 2: ícono Gamepad2 en vez del Layers que ya usa el paso 1
+    // (QA 04/05 — ambos iconos eran iguales y no diferenciaban visualmente
+    // los pasos del stepper).
     title: 'Mecánica',
     subtitle: 'Tipo de juego',
-    icon: Layers,
+    icon: Gamepad2,
     description: 'Elige cómo interactuarán los estudiantes con las tarjetas'
   },
   {
@@ -66,7 +70,9 @@ const WIZARD_STEPS = [
     title: 'Reglas',
     subtitle: 'Configura parámetros',
     icon: Settings,
-    description: 'Define tiempo, puntos y número de rondas'
+    // Descripción genérica — Memoria no tiene "número de rondas", el plan de
+    // retos lo aporta cada mecánica con sus propios sliders.
+    description: 'Configura las reglas del juego'
   },
   {
     id: 'review',
@@ -108,9 +114,14 @@ export default function CreateSession() {
     selectedMechanic,
     associationChallengePlan,
     setAssociationChallengePlan,
+    sequencePlan,
+    setSequencePlan,
+    sequenceConfig,
+    setSequenceConfig,
     deckCards,
     isMemorySelected,
     isAssociationSelected,
+    isSequenceSelected,
     memoryPairValidation,
     handleSelectDeck,
     handleSelectMechanic,
@@ -168,6 +179,18 @@ export default function CreateSession() {
               promptText: item.promptText || undefined
             }))
           : undefined,
+        sequencePlan: isSequenceSelected
+          ? sequencePlan.map(round => ({
+              roundNumber: round.roundNumber,
+              length: round.length,
+              sequence: round.sequence.map(item => ({
+                uid: item.uid,
+                assignedValue: item.assignedValue,
+                displayData: item.displayData || {}
+              }))
+            }))
+          : undefined,
+        sequenceConfig: isSequenceSelected ? sequenceConfig : undefined,
         sensorId: sessionConfig.linkSensor ? currentSensorId : undefined
       };
 
@@ -227,17 +250,34 @@ export default function CreateSession() {
           />
         );
       case 2:
-        return isMemorySelected ? (
-          <StepMemoryRules
-            config={sessionConfig.config}
-            difficulty={sessionConfig.difficulty}
-            onDifficultyChange={handleDifficultyChange}
-            onConfigChange={handleConfigChange}
-            linkSensor={sessionConfig.linkSensor}
-            onLinkSensorChange={handleLinkSensorChange}
-            currentSensorId={currentSensorId}
-          />
-        ) : (
+        if (isMemorySelected) {
+          return (
+            <StepMemoryRules
+              config={sessionConfig.config}
+              difficulty={sessionConfig.difficulty}
+              onDifficultyChange={handleDifficultyChange}
+              onConfigChange={handleConfigChange}
+              linkSensor={sessionConfig.linkSensor}
+              onLinkSensorChange={handleLinkSensorChange}
+              currentSensorId={currentSensorId}
+            />
+          );
+        }
+        if (isSequenceSelected) {
+          return (
+            <StepSequenceRules
+              config={sessionConfig.config}
+              difficulty={sessionConfig.difficulty}
+              onDifficultyChange={handleDifficultyChange}
+              onConfigChange={handleConfigChange}
+              sequenceConfig={sequenceConfig}
+              onSequenceConfigChange={setSequenceConfig}
+              onSequencePlanChange={setSequencePlan}
+              cards={deckCards}
+            />
+          );
+        }
+        return (
           <StepRules
             config={sessionConfig.config}
             difficulty={sessionConfig.difficulty}

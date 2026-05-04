@@ -76,6 +76,11 @@ export const GAME_EVENTS = {
   RFID_EVENT: 'rfid_event',
   RFID_STATUS: 'rfid_status',
   ERROR: 'error',
+  // Mecánica Secuencia (T-921). Server → cliente.
+  SEQUENCE_PHASE_MEMORIZING: 'sequence_phase_memorizing',
+  SEQUENCE_PHASE_REPRODUCING: 'sequence_phase_reproducing',
+  SEQUENCE_CARD_RESULT: 'sequence_card_result',
+  SEQUENCE_ROUND_RESULT: 'sequence_round_result',
 };
 
 /** Merge de ambos para retrocompatibilidad */

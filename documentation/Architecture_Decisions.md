@@ -5520,3 +5520,356 @@ Una sesión QA completa con Playwright en viewport 1920×1080 cubriendo perfil t
 - ADR-095 — Layout sidebar bg + grids alturas uniformes pre-release v0.5.0.
 - ADR-088 — QA Sprint 5 fixes (métricas backend formatPercent, modal asociación táctil).
 - BUG report en sesión `project_qa_pre_release_2026_04_29.md` (memoria del proyecto).
+
+---
+
+## ADR-102: Mecánica Secuencia — estado intra-ronda, validación ordenada y dificultades [Full-stack]
+
+**Fecha:** 2026-05-03
+**Sprint/Origen:** Sprint 6, T-921 (Backend mecánica Secuencia)
+**Estado:** Aprobado (`feature/sequence-mechanic`)
+**Alcance:** Backend (modelo, validador, strategy, gameEngine, sockets, DTOs, analytics)
+
+### Contexto
+
+La mecánica Secuencia era la tercera del proyecto y estaba bloqueada como "Próximamente". Las dos primeras (Asociación, Memoria) llevan operativas desde Sprint 4 con un patrón Strategy bien establecido en `backend/src/strategies/mechanics/`. El reto de Secuencia añade dos requisitos al gameEngine:
+
+1. **Estado de fase intra-ronda** — cada ronda tiene dos fases (`memorizing` → `reproducing`) con timings independientes.
+2. **Validación ordenada** — los scans de la ronda se comparan contra una posición concreta del array; el orden importa, no sólo la cara de la carta.
+
+El usuario definió explícitamente que **las cartas bloqueadas por fallos NO reinician la secuencia**: el cursor avanza a la siguiente posición y la carta queda marcada como fallada para estadística. Decisión pedagógica para evitar frustración acumulativa cuando se juegan varias rondas.
+
+### Decisión
+
+1. **Strategy** (`SequenceStrategy.js`) con: `initialize`, `selectChallenge`, `processScan`, `enterReproducingPhase`, `forceTimeoutCurrentRound`, `recordRoundCompletion`. Estado interno: `{ plan, phase, currentRoundIndex, expectedSequence, cursor, attempts, blocked, hintsConsumed, roundResults }`.
+2. **GameEngine wiring** vía nuevo módulo `services/gameEngine/sequenceFlow.js` que aísla la lógica de fases y eventos socket. El GameEngine principal sólo añade branch en `sendNextRound`, `handleCardScan`, `executePause`, `resumePlayInternal` y `endPlay`.
+3. **Modelo `GameSession`** extendido con `sequencePlan[]` y `sequenceConfig{minSequenceLength, maxSequenceLength, displaySeconds}` paralelos a `boardLayout` y `associationChallengePlan`.
+4. **Dificultades** centralizadas en `SEQUENCE_DIFFICULTY_RULES`:
+   - `easy`: 3 intentos por carta; pistas progresivas (parcial → completa).
+   - `medium`: 2 intentos; sin pistas.
+   - `hard`: 1 intento; sin pistas.
+5. **Sistema de pistas progresivo en easy** (decisión del usuario):
+   - 1ª pista (tras fallo 1): *parcial* — palabra con caracteres ocultos por `?`. Algoritmo en `utils/sequenceHints.js` mantiene primera letra + vocales acentuadas si las hay; resto reemplazado por `?`. Ej: `León` → `L?ó?`. Sin tildes, se preservan los caracteres en índices pares (cada 2 chars), `Caballo` → `C?b?l?o`.
+   - 2ª pista (tras fallo 2): *completa* — la palabra tal cual.
+   - 3º fallo: bloquea, cursor avanza, `blocked.push(uid)`.
+6. **DTOs**: `mapGamePlayMetrics` expone los 8 campos Secuencia sólo cuando vienen presentes (no contamina Asociación/Memoria). `toGameSessionDTOV1` añade `sequencePlan` y `sequenceConfig`.
+7. **`User.studentMetrics.maxSequenceLengthAchieved`** — récord histórico monótono actualizado en `updateStudentMetrics` cuando aplica.
+8. **`analyticsService.getStudentSummary`** añade bloque `bySequence` con agregación específica por mecánica.
+9. **Mecánica habilitada** en seeder `03-mechanics.js` con `availability: 'available'` y catálogo de dificultades.
+
+### Eventos socket nuevos (server → cliente)
+
+- `sequence_phase_memorizing` — `{ playId, roundNumber, totalRounds, sequence, length, displaySeconds, score }`.
+- `sequence_phase_reproducing` — `{ playId, roundNumber, length, timeLimitMs }`.
+- `sequence_card_result` — `{ type, uid, expectedUid, hint?, attemptsForCurrent, cursor, length, score, points }`.
+- `sequence_round_result` — `{ playId, roundNumber, length, results, durationMs, completed, timedOut, score }`.
+
+`validation_result` se conserva sólo para Asociación/Memoria; Secuencia usa eventos propios.
+
+### Métricas persistidas en `GamePlay.metrics` (Secuencia)
+
+`sequencesCompleted`, `sequencesBlocked`, `sequencesTimedOut`, `maxSequenceLengthAchieved`, `partialReproductions`, `averageReproductionTimeMs`, `blockedCardsTotal`, `hintsUsed`.
+
+### Verificación
+
+- Tests: `sequenceMechanic.test.js` (19), `sequenceFlow.test.js` (8), `sequenceHints.test.js` (20), `sequencePlanGenerator.test.js` (13), `gameSessionValidatorSequence.test.js` (17). Suite total backend: 1100/1100 verdes.
+- `npm run lint` — 0 errores en backend.
+
+### Riesgos asumidos
+
+- **`processScan` Secuencia es hot path**: el state usa `Set` para `blocked` y objeto-mapa para `attempts` (O(1)). El plan se materializa una vez al `initialize` y se mantiene en RAM (`playState.strategyState`).
+- **Payload de `sequence_phase_memorizing`** emite la secuencia completa al cliente. Para 7 cartas con `displayData` rico, son ~10-15 KB por evento; aceptable para WebSocket. La fase reproducing emite sólo `length` (ofuscación).
+
+---
+
+## ADR-103: Refactor `sessionIsMemory` → `mechanicMode` y compositor `GameOverStats` [Frontend]
+
+**Fecha:** 2026-05-03
+**Sprint/Origen:** Sprint 6, T-922 (Frontend mecánica Secuencia)
+**Estado:** Aprobado (`feature/sequence-mechanic`)
+**Alcance:** Frontend (`pages/GameSession.jsx`, `components/game/GameOverScreen.jsx`)
+
+### Contexto
+
+`GameSession.jsx` venía usando un boolean `sessionIsMemory` que ramificaba todo el render entre Memoria y "no-memoria" (asumiendo Asociación por defecto). Ese patrón funcionaba con dos mecánicas pero no escala a tres: añadir un tercer boolean `sessionIsSequence` produce una matriz combinatoria de condicionales.
+
+`GameOverScreen.jsx` tenía dos IIFE encadenados con cuatro modos implícitos. Añadir Secuencia con sus 8 métricas específicas hubiera duplicado el archivo a >600 líneas.
+
+### Decisión
+
+1. **`mechanicMode = 'association' | 'memory' | 'sequence'`** como derived state en GameSession. Los aliases `sessionIsMemory` y `sessionIsSequence` se mantienen como variables locales derivadas sólo para legibilidad; el source of truth es `mechanicMode`.
+2. **`final_summary` del backend incluye `mode`** (T-921 fase E). El frontend usa el `mode` que viene en el payload, con fallback defensivo.
+3. **`GameOverStats` (compositor)** en `components/game/gameover/`:
+   - `GameOverStats.jsx` — switch sobre `summary.mode`.
+   - `GameOverStatsAssociation.jsx` — 4 columnas (Incorrectas/Sin responder/T. medio/Tiempo).
+   - `GameOverStatsMemory.jsx` — 3 columnas (Errores/T. medio/Tiempo).
+   - `GameOverStatsSequence.jsx` — diseño dedicado: hero metric `maxSequenceLengthAchieved` + 4 pills (Completas/Bloqueadas/Sin tiempo/Pistas) + banda inferior.
+4. **`GameOverScreen.jsx`** mantiene la celebración común (estrellas, score animado, confetti, botones) y delega el bloque de stats al compositor.
+
+### Consecuencias
+
+**Positivas**: Cada mecánica define sus métricas e iconos sin contaminar las demás. Añadir una cuarta mecánica significa crear un nuevo `GameOverStatsXXX` y un branch en el compositor — sin tocar las existentes.
+
+**Riesgos asumidos**: Para minimizar el blast radius, mantenemos `sessionIsMemory` y `sessionIsSequence` como aliases derivados durante esta release. En la siguiente iteración mayor pueden eliminarse.
+
+---
+
+## ADR-104: Animaciones signature crupier para Secuencia [Frontend, UX]
+
+**Fecha:** 2026-05-03
+**Sprint/Origen:** Sprint 6, T-922 fase A
+**Estado:** Aprobado (`feature/sequence-mechanic`)
+**Alcance:** Frontend (`components/game/sequence/SequenceBoard.jsx`)
+
+### Contexto
+
+El usuario solicitó explícitamente "dos animaciones bellas que sean dos detalles buenos del proyecto" para la entrada y salida de las cartas en cada ronda Secuencia, evocando el gesto del crupier de un casino. Esto añade personalidad a la mecánica y refuerza el leitmotiv tactile establecido en ADR-070.
+
+### Decisión
+
+1. **Reparto (entrada, fase memorizing)**:
+   - Stagger de 90 ms por carta (`DEAL_STAGGER_MS`).
+   - Cada carta entra desde `(x: -180, y: -120, rotate: -25, scale: 0.6, opacity: 0)` hasta su posición final con spring `{stiffness: 220, damping: 20}`.
+   - SFX `cardDeal` por aterrizaje (Web Audio API: tono `square 280Hz 0.05s` + click `sine 900Hz 0.03s`).
+   - Tras todas en posición, ráfaga de "highlight numerado" 1, 2, 3... cada 600 ms con `scale [1, 1.15, 1]` y un dot ámbar sobre la carta resaltada.
+
+2. **Recogida (salida, tras `sequence_round_result`)**:
+   - Stagger inverso de 70 ms (`COLLECT_STAGGER_MS`).
+   - Cada carta sale a `(x: 220 + i*18, y: -200, rotate: 18, scale: 0.8, opacity: 0)` con `cubic-bezier(0.32, 0.72, 0, 1)` (curva drawer iOS-like) sobre 320 ms.
+   - SFX `cardSweep` al iniciar (silbido descendente 700→500→350 Hz).
+
+3. **Reduced motion** (`prefers-reduced-motion: reduce`):
+   - Reparto reemplazado por fade en cascada (50 ms stagger). Los números 1, 2, 3 se siguen mostrando estáticos.
+   - Recogida directa sin stagger (sólo opacity).
+   - Highlight: cambio de borde sin scale/pulse.
+   - SFX siempre activos: el sonido es eje a11y independiente del visual (WCAG 2.5).
+
+### Consecuencias
+
+**Positivas**: Detalle distintivo del proyecto. Sólo `transform` y `opacity` (GPU-acelerados); 60 fps en monitores 4K. SFX vía Web Audio API — sin assets externos.
+
+**Riesgos asumidos**: Animación "ping" de highlight numerado puede saturar si `displaySeconds` es muy bajo. Mitigado: `HIGHLIGHT_INTERVAL_MS = 600 ms` fijo; si la fase termina antes del último ping, el componente lo cancela en cleanup.
+
+---
+
+## ADR-105: Métricas específicas por mecánica en `GamePlay.metrics` [Backend]
+
+**Fecha:** 2026-05-04
+**Sprint/Origen:** Sesión de pulido senior 3 mecánicas
+**Estado:** Aprobado (`feature/sequence-mechanic`)
+**Alcance:** Backend (`models/GamePlay.js`, `utils/dtos.js`)
+
+### Contexto
+
+Hasta esta sesión, sólo Secuencia tenía métricas dedicadas en `GamePlay.metrics` (`sequencesCompleted`, `maxSequenceLengthAchieved`, `partialRounds`, etc.). Memoria y Asociación compartían las métricas genéricas (`totalAttempts`, `correctAttempts`, `errorAttempts`), perdiendo señal pedagógica clave: "mejor racha", "tiempo medio por pareja", "categoría dominante" o "acierto más rápido".
+
+### Decisión
+
+1. Añadir sub-objetos opcionales `metrics.memory` y `metrics.association` con `default: undefined` (mismo patrón que los campos sequence existentes). Mongoose los serializa solo cuando el play correspondiente los persiste.
+2. **Memory**: `groupsMatched`, `peakStreak`, `averageMatchTimeMs`, `attemptsToFirstMatch`, `groupSize`.
+3. **Association**: `peakStreak`, `quickestCorrectMs`, `slowestCorrectMs`, `byValueAccuracy` (Mixed map slug → {correct,total}), `categoryDominance`.
+4. El DTO `mapGamePlayMetrics` expone los sub-objetos solo si están presentes en el documento (no se serializan campos `undefined` para evitar contaminar plays de otras mecánicas).
+
+### Alternativas rechazadas
+
+- **Sub-objeto polimórfico `metrics.byMechanic`**: rompe queries existentes y agregaciones que ya leen `metrics.totalAttempts` directamente. Requeriría migrar todos los analytics.
+- **Persistir todos los campos siempre con default 0**: contamina plays de otras mecánicas con campos sin sentido y dificulta agregaciones por mecánica.
+
+### Consecuencias
+
+**Positivas**: campos exactos para cada mecánica → GameOver con métricas accionables, dashboards del profesor con `MemoryHighlightCard` / `AssociationHighlightCard` paralelos a `SequenceHighlightCard`. Compatibilidad hacia atrás (plays antiguos siguen siendo válidos).
+
+**Riesgos asumidos**: El campo `byValueAccuracy` es Mongoose `Mixed`, no queryable directamente. Aceptable porque sólo se lee en el endpoint summary y en el GameOver — no participa en agregaciones de Mongo.
+
+---
+
+## ADR-106: Builder unificado `finalSummary.js` por factory [Backend]
+
+**Fecha:** 2026-05-04
+**Sprint/Origen:** Sesión de pulido senior 3 mecánicas
+**Estado:** Aprobado (`feature/sequence-mechanic`)
+**Alcance:** Backend (`services/gameEngine/finalSummary.js`, `services/gameEngine/GameEngine.js`, `strategies/mechanics/*`)
+
+### Contexto
+
+El `endPlay` del `GameEngine` ensamblaba a mano el `final_summary` para Secuencia (vía `sequenceFlow.buildSequenceFinalSummary`) y dejaba a Memoria/Asociación sin builder específico. Ese tratamiento asimétrico bloqueaba la extensión a métricas pedagógicas para las otras dos mecánicas.
+
+### Decisión
+
+1. Nuevo módulo `services/gameEngine/finalSummary.js` con factory `buildFinalSummary(mechanicType, playState)` y builders dedicados (`buildMemoryFinalSummary`, `buildAssociationFinalSummary`, `buildSequenceFinalSummary`).
+2. `BaseMechanicStrategy` gana hook opcional `recordScanResult({ isCorrect, scannedCard, currentChallenge, timeElapsed, strategyState, sessionDoc })`. `MemoryStrategy` y `AssociationStrategy` lo sobreescriben para mantener bookkeeping running (`currentStreak`, `peakStreak`, `byValueAccuracy`, etc.) en `strategyState`.
+3. `GameEngine.processMemoryScan` y `GameEngine.processResponse` invocan el hook tras evaluar `isCorrect` y antes de `addEventAtomic`.
+4. `endPlay` deja de llamar a `sequenceFlow.buildSequenceFinalSummary` directamente: ahora llama a `finalSummary.buildFinalSummary(playState.mechanicName, playState)`. Memoria persiste el resultado en `metrics.memory`, Asociación en `metrics.association`, Secuencia mantiene serialización flat (compat).
+5. El payload `game_over` enriquece con `mechanicType` (alias semántico claro de `mode`), `metrics.memory`/`metrics.association`/campos sequence, y `streak`/`peakStreak` para la mascota viva (ADR-108).
+
+### Consecuencias
+
+**Positivas**: una única puerta para enriquecer las métricas finales. Adding un nuevo cuarto modo de juego sería: nuevo strategy + builder + alta en factory. Tests de finalSummary cubren factory + 3 builders + edge cases (0 rondas, todos timeouts).
+
+**Riesgos asumidos**: hook `recordScanResult` es opcional → strategies que lo olvidan no rompen nada pero pierden bookkeeping. Mitigado con tests por mecánica que validan que el bookkeeping crece tras cada acierto.
+
+---
+
+## ADR-107: Tema visual canónico por mecánica `mechanicTheme.js` [Frontend, UX]
+
+**Fecha:** 2026-05-04
+**Sprint/Origen:** Sesión de pulido senior 3 mecánicas
+**Estado:** Aprobado (`feature/sequence-mechanic`)
+**Alcance:** Frontend (`lib/mechanicTheme.js`, `components/game/GameBackdrop.jsx`, `pages/GameSession.jsx`)
+
+### Contexto
+
+Solo Asociación tenía tema visual (`associationTheme.js`, contexto-aware). Memoria y Secuencia se renderizaban con la paleta neutral del producto, lo que las hacía indistinguibles a un vistazo y rompía el "signal" cognitivo "estoy en X mecánica".
+
+### Decisión
+
+1. Nuevo módulo `lib/mechanicTheme.js` con un tema por mecánica:
+   - **Memoria** → `--color-accent-indigo` + `Brain` icon + headline "Encuentra las parejas".
+   - **Asociación** → `--color-accent-cyan` + `Link2` icon + headline "Encuentra la respuesta correcta".
+   - **Secuencia** → `--color-accent-orange` + `ListOrdered` icon + headline "Sigue la secuencia".
+2. Cada tema expone clases Tailwind preconfiguradas (`accentClass`, `accentBgSoftClass`, `accentBorderClass`, `accentRingClass`, `glowClass`, `backdropTintClass`) y un `accentVar` para que estilos inline (color-mix) accedan al token CSS sin string concatenation.
+3. Aplicado en cabecera de juego como **badge** con icono + nombre legible (visible desde `sm:` para no saturar pantallas estrechas) y en `GameBackdrop` como **halo radial sutil** (max 18% opacity) en una esquina distinta por mecánica.
+4. `associationTheme.js` (contexto-aware) se mantiene: theme de mecánica y theme de contexto son ortogonales y coexisten.
+
+### Consecuencias
+
+**Positivas**: identificación inmediata de la mecánica activa, sin texto. La signature visual atraviesa cabecera, backdrop, mascota (glow), GameOver (hero metrics) y analytics (highlight cards) — coherencia top-to-bottom.
+
+**Riesgos asumidos**: si en el futuro se añade una cuarta mecánica con accent similar a una existente, se pierde diferenciación. Mitigado con un test que verifica que los `accentVar` son distintos entre las 3 mecánicas actuales.
+
+---
+
+## ADR-108: Mascota viva por mecánica × evento × tier [Frontend, UX]
+
+**Fecha:** 2026-05-04
+**Sprint/Origen:** Sesión de pulido senior 3 mecánicas
+**Estado:** Aprobado (`feature/sequence-mechanic`)
+**Alcance:** Frontend (`lib/mascotDialog.js`, `hooks/useMascotReactions.js`, `hooks/useGameFeedback.js`, `components/game/CharacterMascot.jsx`)
+
+### Contexto
+
+`CharacterMascot` recibía `mood` plano y elegía la frase de un pool agnóstico a la mecánica. La mascota decía exactamente lo mismo cuando el alumno acertaba una pareja (Memoria), atinaba la respuesta (Asociación) o completaba una secuencia (Secuencia). El usuario describió la mascota como "buena pero predecible y básica".
+
+### Decisión
+
+1. Nuevo diccionario `lib/mascotDialog.js` con frases por **mecánica × evento × tier**: `correctAnswer`, `errorAnswer`, `timeout`, `streakReached`, `roundStart`, `gameOverHigh/Mid/Low`. 4–8 frases por evento × 3 mecánicas. Vocabulario 4–6 años, sin emojis.
+2. Nuevo hook `hooks/useMascotReactions.js` que consume `lastEvent` y devuelve `{ mood, message }`. Reglas:
+   - Cooldown 1.2 s entre cambios para evitar epilepsia visual con scans rápidos.
+   - Promoción a `streakReached` (mood `celebrating`) cuando `streak >= 3`.
+   - Inactivity timeout 7 s vuelve a `idle`.
+3. `useGameFeedback` acepta ahora `mechanicType` y delega en `pickMascotMessage` para construir mood + message, manteniendo compat con callers históricos (sin `mechanicType` el comportamiento previo se preserva).
+4. `CharacterMascot` acepta prop opcional `mechanicType` y tinta el glow pasivo (estados `idle`/`thinking`) con el accent de la mecánica activa (color-mix 22%). Mood expresivos (happy/celebrating/encouraging/sad) mantienen sus glows propios.
+
+### Consecuencias
+
+**Positivas**: la mascota deja de ser agnóstica. Una racha de 3 aciertos en Secuencia dispara "¡SIGUES EL RITMO!"; en Memoria, "¡MEMORIA TOP!". El glow tintado pasivo refuerza la identidad cromática del badge (ADR-107). Cobertura: 6 tests para el hook (cooldown, streak promotion, timeouts) + 10 para el dictionary.
+
+**Riesgos asumidos**: aumento del bundle por strings adicionales (~300 frases). Despreciable (<3 KB). Si en un futuro se internacionaliza el copy, este módulo es el punto único a traducir.
+
+---
+
+## ADR-109: Tier por mecánica + endpoint `/student/:id/summary` simétrico [Backend]
+
+**Fecha:** 2026-05-04
+**Sprint/Origen:** Sesión de pulido senior 3 mecánicas
+**Estado:** Aprobado (`feature/sequence-mechanic`)
+**Alcance:** Backend (`services/analyticsService.js`)
+
+### Contexto
+
+`getClassroomStudents` calculaba el tier (`risk/average/good/excellent`) a partir de `studentMetrics.averageScore` lifetime, agregado entre todas las mecánicas. Un alumno con 45% en Secuencia y 85% en Memoria aparecía como tier "riesgo" global, ocultando su fortaleza específica. Análogamente, `/student/:id/summary` exponía `bySequence` pero no `byMemory` ni `byAssociation` — asimétrico para el frontend.
+
+### Decisión
+
+1. Nuevo helper privado `getStudentsTiersByMechanic(studentIds)` con pipeline aggregate Mongo: `match` por `{ playerId in studentIds, status: completed }`, `lookup` a `gamesessions` y `gamemechanics`, project de `accuracyPct = score/maxScore × 100`, `group` por `{ playerId, mechanicName }` con `$avg`. Devuelve `Map<studentId, { mechanicName: { averageScore, tier, gamesPlayed } }>`.
+2. `getClassroomStudents` añade campo `tiersByMechanic` al output de cada alumno (no rompe el campo `tier` global, que se mantiene).
+3. `/student/:id/summary` añade dos nuevos facets en su pipeline: `memoryStats` y `associationStats`. El response gana `byMemory` y `byAssociation` simétricos a `bySequence`.
+
+### Consecuencias
+
+**Positivas**: el frontend puede pintar chips "MEMORIA: bueno · ASOCIACIÓN: riesgo" en la tabla de alumnos sin endpoint adicional. `MemoryHighlightCard` y `AssociationHighlightCard` (ADR-110) consumen `byMemory`/`byAssociation` directamente.
+
+**Riesgos asumidos**: pipeline extra en `getClassroomStudents` añade ~50 ms en aulas grandes (50+ alumnos × 100 partidas). Mitigado: un solo `lookup`+`group`, no N+1. Si se vuelve cuello, se pasa a materializar el tier por mecánica en `User.studentMetrics.byMechanic`.
+
+---
+
+## ADR-110: `MetricPill` reutilizable + microcopy contextual GameOver [Frontend, UX]
+
+**Fecha:** 2026-05-04
+**Sprint/Origen:** Sesión de pulido senior 3 mecánicas
+**Estado:** Aprobado (`feature/sequence-mechanic`)
+**Alcance:** Frontend (`components/ui/MetricPill.jsx`, `lib/gameOverCopy.js`, `components/game/gameover/*`, `components/game/GameOverScreen.jsx`)
+
+### Contexto
+
+Los 3 sub-componentes `GameOverStats*` (Memory/Association/Sequence) duplicaban el patrón de "pill" (label + value + tone + icon + tooltip) con HTML idéntico. Cualquier cambio estético implicaba tocar 3 archivos. Además, el título y subtítulo del `GameOverScreen` eran fijos por número de estrellas, sin diferenciación por mecánica.
+
+### Decisión
+
+1. Nuevo primitivo `components/ui/MetricPill.jsx`:
+   - Props: `label`, `value`, `tone` (`success/error/amber/brand/indigo/cyan/neutral`), `icon` (Lucide), `tooltip`, `delta` (numérico → flecha+signo, string → libre), `align` (center/left).
+   - `min-h` reservado para alinear con hero metrics superiores sin descuelgue.
+2. Refactor de los 3 `GameOverStats*` para consumir `MetricPill`:
+   - **Memory**: hero "Mejor racha" (`peakStreak`) + 3 cols (Errores / T. medio / Tiempo). Etiqueta "parejas" o "tríos" según `groupSize`.
+   - **Association**: hero opcional "Tu categoría más fuerte" (`categoryDominance`) + 4 cols (Incorrectas / Sin responder / T. medio / Tiempo) o 3 cols fallback.
+   - **Sequence**: mismo diseño que antes pero adopta `MetricPill` global (elimina su `StatPill` interno).
+3. Nuevo módulo `lib/gameOverCopy.js` con mapa `(stars × mechanic) → { title, subtitle }`. Un 3⭐ en Memoria dice "MEMORIA DE ELEFANTE", en Asociación "CONEXIÓN PERFECTA", en Secuencia "SIGUES EL RITMO". Fallback al copy genérico si la mecánica no se reconoce.
+4. Nuevos componentes `MemoryHighlightCard` / `AssociationHighlightCard` (paralelos a `SequenceHighlightCard`) consumen también `MetricPill` para consistencia.
+
+### Consecuencias
+
+**Positivas**: futuro tuneado del estilo de pills se hace en un solo sitio. El copy del GameOver refuerza la signature por mecánica del leitmotiv del producto. Cobertura: 9 tests para `MetricPill`, 7 para `gameOverCopy`.
+
+**Riesgos asumidos**: `MetricPill` introduce un wrapper más en el árbol de render → en gridviews con 50+ pills (no aplica hoy) podría costar. Mitigado con `memo()`.
+
+---
+
+## ADR-111: QA exhaustivo 3 mecánicas + pulido UI/UX [Frontend, UX]
+
+**Fecha:** 2026-05-04
+**Sprint/Origen:** Sesión QA intensiva de las 3 mecánicas (Memoria/Asociación/Secuencia)
+**Estado:** Aprobado (`feature/sequence-mechanic`)
+**Alcance:** Frontend (routing, wizard, gameplay HUD/tablero, GameOver, mascota, scoring)
+
+### Contexto
+
+Sesión QA senior con viewport 1920×1080 que jugó las 3 mecánicas de extremo a extremo (wizard → board-setup → partida → summary → dashboard) con las skills `ui-ux-pro-max`, `frontend-design`, `animate`, `framer-motion-animator` y `web-design-guidelines` activas. Se detectaron 9 problemas de severidad ALTA/MEDIA y un puñado de pulidos de identidad visual que el codebase ya tenía resueltos solo a medias (mechanicTheme aplicado en partida y dashboards, pero no en el wizard de creación).
+
+### Hallazgos resueltos en esta sesión
+
+| Código | Severidad | Síntoma observado | Fix aplicado |
+|---|---|---|---|
+| BUG-1 (routing) | ALTA | `/sessions/new` (URL intuitiva) caía en `SessionDetail` con error 400 "Parámetros de ruta inválidos" porque el patrón `/sessions/:sessionId` capturaba `new` como id | `App.jsx` añade redirect `<Route path="sessions/new" element={<Navigate to="/create-session" replace />} />` antes del catch-all `:sessionId` |
+| BUG-S4 (score UI negativo) | ALTA | Durante Secuencia el score llegó a mostrar `-2` en pantalla porque los eventos socket de penalización emitían el valor pre-clamp y el modelo Mongoose solo clampa en `pre('validate')` | `ScoreDisplayCompact` y `CurrentPlayMetrics` clampan a `Math.max(0, score)` antes de pintar, en defensa de la UI |
+| BUG-S7 (stars Secuencia incoherentes) | ALTA | GameOver Secuencia mostraba 3⭐ "¡SIGUES EL RITMO! / ¡Secuencia perfecta!" con 0 rondas completas, 1 bloqueada y 2 sin tiempo, porque `correctAnswers / totalRounds` cuenta cartas individuales (no rondas) | `GameOverScreen` calcula `percentage` mecánica-aware: en Secuencia usa `summary.sequencesCompleted / totalRounds`; en Memoria/Asociación se mantiene la fórmula histórica |
+| BUG-A1 (frame vacío Asociación) | ALTA | Tras acertar una ronda, la card grande de la siguiente quedaba **vacía 1-2s** mientras se descargaba la nueva imagen del asset; solo aparecía "Encuentra: X" debajo del frame | `ChallengeDisplay` muestra el `value` del asset como texto centrado durante `imageLoading`, y reactiva el shimmer/pulse aunque haya `dominantColor`. Nunca hay frame vacío |
+| UX-emoji-1 (corazones Memoria) | MEDIA | Indicador de progreso "parejas encontradas" usaba emojis 🤍/💚 que dependen del SO (en Windows el corazón blanco se ve plano y desaturado vs. el verde lima saturado) | `MemoryBoard` usa `Heart` de Lucide con `fill-success-base` cuando `isFound` y `text-text-disabled/50` cuando no |
+| UX-emoji-2 (mascota mensaje) | BAJA | Pool `sad` incluía "¡Casi! 💪" — emoji decorativo en cadena de texto | Eliminado el emoji del mensaje sin perder calidez |
+| UX-emoji-3 (¡Hora de jugar!) | BAJA | El icono de la pantalla de bienvenida de la partida era el emoji 🎮 | Sustituido por `Gamepad2` Lucide tintado con `mechanicTheme.accentClass` (Memoria=indigo, Asociación=cyan, Secuencia=ámbar) |
+| UI-1 (HUD top-left solapamiento) | MEDIA | El pill de mecánica (`MEMORIA`/`ASOCIACIÓN`/`SECUENCIA`) y el contador de rondas/parejas se veían pegados visualmente en `glass` header con `gap-3` (12 px) | Header pasa a `gap-4` (16 px) — separación legible incluso con la pill verde de racha intermedia |
+| UI-2 (cards mecánica wizard) | MEDIA | Las 3 cards del paso 2 del wizard (`StepMechanic`) usaban un mismo morado (`brand-base`) al seleccionarse — perdían la personalidad cromática que `mechanicTheme` ya define para el resto de la app | Cada card seleccionada usa su `theme.accentBorderClass` + `theme.accentBgSoftClass` + `theme.accentClass` (Memoria=indigo, Asociación=cyan, Secuencia=ámbar). Check icon también tintado |
+| UI-4 (stepper paso 2 icono) | BAJA | El paso 1 (Mazo) y el paso 2 (Mecánica) del `WIZARD_STEPS` usaban el mismo icono `Layers`, sin diferenciación visual | Paso 2 pasa a `Gamepad2`. Icono coherente con la pantalla "¡Hora de jugar!" |
+| UI-5 (descripción paso 3 genérica) | BAJA | El stepper paso 3 decía "Define tiempo, puntos y **número de rondas**" — Memoria no tiene rondas, sólo parejas | Cambiada a "Configura las reglas del juego" |
+
+### Hallazgos investigados pero descartados como falsos positivos
+
+- **BUG-S1 (cartas no aparecen en memorizing)**: Durante la primera pasada se observó "Memoriza el orden — 5s" con el área central vacía. La re-verificación con `displaySeconds=8s` confirma que las cartas SÍ se renderizan correctamente con la animación crupier (deal stagger 90 ms × N + spring). El issue inicial fue un timing del screenshot tras la fade-out, no un bug de código.
+
+### Hallazgos no aplicados (diferidos)
+
+- **AppLayout en GameOver** (UI-3): el `GameOverScreen` es `position: fixed inset-0` y oculta el sidebar. Es un patrón modal-fullscreen válido (hay botones "Jugar de Nuevo" y "Salir") y el usuario no se queda atrapado. No bloquea, dejado como está.
+- **Mascota celebrando en GameOver** (UI-6): la mascota desaparece en GameOver. El confeti + estrellas flotantes ya celebran. Mantener mascota requeriría rework del overlay; pendiente para una sesión específica de motion polish.
+
+### Consecuencias
+
+**Positivas**:
+- Todas las 3 mecánicas tienen su signature visual (color, icono Lucide) consistente desde el wizard hasta el GameOver.
+- El score nunca aparece negativo en la UI, aunque los eventos socket transitorios lo muestren.
+- `/sessions/new` ya no es una "URL trampa" que confunde al docente.
+- 0 emojis estructurales en componentes de gameplay (la mascota 🦉 sigue siendo emoji por ser personaje gráfico, no icono estructural — coherente con CLAUDE.md).
+
+**Riesgos asumidos**:
+- El cambio de cálculo de stars en Secuencia puede sorprender a docentes que ya tenían intuición del sistema antiguo. Mitigación: el copy del GameOver explica el porqué ("Memoriza la secuencia paso a paso" para 1⭐).
+- El placeholder textual de `ChallengeDisplay` durante `imageLoading` añade un re-render extra, pero es despreciable (un solo div con clases estáticas).
+
+**Suite verificada**: 1129/1129 backend + 329/329 frontend, lint frontend 0 errors. E2E con Playwright cubrió las 3 mecánicas (creación + partida + summary).

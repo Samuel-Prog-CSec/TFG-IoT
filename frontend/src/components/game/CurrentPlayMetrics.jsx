@@ -29,16 +29,25 @@ MetricPill.propTypes = {
 
 const CurrentPlayMetrics = memo(function CurrentPlayMetrics({ mode, score, correctAnswers, totalRounds }) {
   const isMemory = mode === 'memory';
+  const isSequence = mode === 'sequence';
+  // Clamp UI a 0 — los eventos socket pueden traer score negativo entre
+  // emisión de la penalización y el clamp del modelo Mongoose. QA 04/05.
+  const displayScore = Math.max(0, Number(score) || 0);
   return (
     <div className="mb-1.5 max-w-4xl mx-auto rounded-lg border border-border-default bg-background-base/30 px-3 py-1.5">
       <div className="grid grid-cols-3 gap-2 text-xs">
-        <MetricPill icon={Star} iconClass="text-warning-base" label="Puntos" value={score} />
-        <MetricPill icon={CheckCircle2} iconClass="text-success-base" label="Aciertos" value={correctAnswers} />
+        <MetricPill icon={Star} iconClass="text-warning-base" label="Puntos" value={displayScore} />
+        <MetricPill
+          icon={CheckCircle2}
+          iconClass="text-success-base"
+          label={isSequence ? 'Cartas correctas' : 'Aciertos'}
+          value={correctAnswers}
+        />
         <MetricPill
           icon={isMemory ? Brain : Target}
-          iconClass={isMemory ? 'text-brand-base' : 'text-accent-indigo'}
-          label={isMemory ? 'Parejas' : 'Progreso'}
-          value={`${correctAnswers} de ${totalRounds}`}
+          iconClass={isMemory ? 'text-brand-base' : isSequence ? 'text-accent-amber' : 'text-accent-indigo'}
+          label={isMemory ? 'Parejas' : isSequence ? 'Ronda' : 'Progreso'}
+          value={isSequence ? `${correctAnswers} aciertos` : `${correctAnswers} de ${totalRounds}`}
         />
       </div>
     </div>

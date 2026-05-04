@@ -8,14 +8,25 @@
 
 import { useState, useCallback, useRef } from 'react';
 import { selectFeedbackMessage } from '../lib/feedbackMessages';
+import { pickMascotMessage } from '../lib/mascotDialog';
 import { useConfetti } from './useConfetti';
+
+const MASCOT_STREAK_THRESHOLD = 3;
 
 /**
  * @param {Object} options
  * @param {boolean} options.isMemoryMode
  * @param {boolean} options.shouldReduceMotion
+ * @param {string}  [options.mechanicType] - 'memory' | 'association' | 'sequence'
+ *   (ADR-D). Si se proporciona, la mascota usa frases del diccionario por
+ *   mecánica de `mascotDialog.js`; si no, mantiene el mensaje genérico
+ *   producido por `selectFeedbackMessage` (compat. con tests previos).
  */
-export function useGameFeedback({ isMemoryMode = false, shouldReduceMotion = false } = {}) {
+export function useGameFeedback({
+  isMemoryMode = false,
+  shouldReduceMotion = false,
+  mechanicType = null
+} = {}) {
   const [feedbackState, setFeedbackState] = useState('idle');
   const [feedbackPoints, setFeedbackPoints] = useState(0);
   const [feedbackMessage, setFeedbackMessage] = useState('');
@@ -77,8 +88,39 @@ export function useGameFeedback({ isMemoryMode = false, shouldReduceMotion = fal
     setFeedbackPoints(points);
     setFeedbackMessage(message);
     setIsTimeout(isTimeoutResult);
-    setMascotMood(isCorrect ? 'celebrating' : 'encouraging');
-    setMascotMessage(message);
+
+    // ADR-D: mood + frase de la mascota se calculan ahora a partir del
+    // diccionario por mecánica. Reglas:
+    //   - Acierto con racha alta → 'celebrating' + frases streakReached.
+    //   - Acierto normal         → 'happy' + frases correctAnswer.
+    //   - Timeout                → 'sad' + frases timeout.
+    //   - Error                  → 'encouraging' + frases errorAnswer.
+    // Si `mechanicType` no está definido (caller histórico), conservamos
+    // el comportamiento previo: 'celebrating'/'encouraging' + el mensaje
+    // de `selectFeedbackMessage`.
+    let nextMood;
+    let nextMessage = message;
+    if (isTimeoutResult) {
+      nextMood = mechanicType ? 'sad' : 'encouraging';
+      if (mechanicType) {
+        nextMessage = pickMascotMessage(mechanicType, 'timeout') || message;
+      }
+    } else if (isCorrect) {
+      const reachedStreak = streakRef.current >= MASCOT_STREAK_THRESHOLD;
+      nextMood = reachedStreak ? 'celebrating' : mechanicType ? 'happy' : 'celebrating';
+      if (mechanicType) {
+        nextMessage =
+          pickMascotMessage(mechanicType, reachedStreak ? 'streakReached' : 'correctAnswer') ||
+          message;
+      }
+    } else {
+      nextMood = 'encouraging';
+      if (mechanicType) {
+        nextMessage = pickMascotMessage(mechanicType, 'errorAnswer') || message;
+      }
+    }
+    setMascotMood(nextMood);
+    setMascotMessage(nextMessage);
 
     // Fire canvas-confetti for association success
     if (isCorrect && !isMemoryMode && !shouldReduceMotion && challengeRef.current) {

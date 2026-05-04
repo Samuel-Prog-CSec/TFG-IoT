@@ -177,6 +177,16 @@ function isMemoryPlay(playState) {
 }
 
 /**
+ * Comprueba si una partida usa la mecánica de secuencia.
+ *
+ * @param {Object} playState - Estado de la partida
+ * @returns {boolean}
+ */
+function isSequencePlay(playState) {
+  return playState?.mechanicName === 'sequence';
+}
+
+/**
  * Emite el estado del tablero de memoria al cliente vía Socket.IO.
  *
  * @param {import('../gameEngine')} engine - Instancia del GameEngine
@@ -256,6 +266,7 @@ module.exports = {
   getMemoryRemainingTimeMs,
   restoreRoundStartTime,
   isMemoryPlay,
+  isSequencePlay,
   emitMemoryTurnState,
   isPlayOwner,
   calculatePauseRemainingTime

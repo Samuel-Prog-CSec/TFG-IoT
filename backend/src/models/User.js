@@ -231,6 +231,14 @@ const userSchema = new mongoose.Schema(
         default: 0,
         min: 0
       },
+      // Mejor longitud de secuencia alcanzada en cualquier partida (mecánica
+      // Secuencia). Se actualiza monótonicamente en updateStudentMetrics si
+      // la partida actual supera el récord histórico del alumno.
+      maxSequenceLengthAchieved: {
+        type: Number,
+        default: 0,
+        min: 0
+      },
       lastPlayedAt: Date
     },
     status: {
@@ -443,6 +451,17 @@ userSchema.methods.updateStudentMetrics = function (playResults) {
 
   // Actualizar última fecha de juego
   this.studentMetrics.lastPlayedAt = new Date();
+
+  // Si la partida es de Secuencia y trae un nuevo récord de longitud, lo
+  // persistimos. Idempotente: si maxSequenceLengthAchieved no viene en
+  // playResults (Asociación / Memoria), no se modifica nada.
+  if (Number.isFinite(Number(playResults.maxSequenceLengthAchieved))) {
+    const candidate = Number(playResults.maxSequenceLengthAchieved);
+    const current = Number(this.studentMetrics.maxSequenceLengthAchieved || 0);
+    if (candidate > current) {
+      this.studentMetrics.maxSequenceLengthAchieved = candidate;
+    }
+  }
 
   return this.save();
 };

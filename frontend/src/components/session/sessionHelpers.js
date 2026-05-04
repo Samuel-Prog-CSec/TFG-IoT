@@ -116,7 +116,7 @@ export const DIFFICULTY_VARIANT_STYLES = {
   }
 };
 
-const DEFAULT_ENABLED_MECHANICS = ['association', 'memory'];
+const DEFAULT_ENABLED_MECHANICS = ['association', 'memory', 'sequence'];
 
 const parseEnabledMechanics = () => {
   const raw = import.meta.env.VITE_ENABLED_SESSION_MECHANICS;

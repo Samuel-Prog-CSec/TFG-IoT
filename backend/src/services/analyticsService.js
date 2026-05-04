@@ -462,6 +462,116 @@ const calcAccuracyRate = (correct, errors) => {
 };
 
 /**
+ * Calcula tiers de rendimiento desglosados por mecánica para una lista de
+ * alumnos (ADR-E). Devuelve un Map<studentId, Record<mechanicName, {…}>>.
+ *
+ * Lógica: agrupa los `GamePlay` completados por (playerId, mechanicName)
+ * y promedia el porcentaje `score / maxScore × 100` (mismo % que se usa
+ * en `studentMetrics.averageScore`). Pasa cada promedio por
+ * `classifyTier` para devolver la etiqueta semántica.
+ *
+ * @param {Array<string|ObjectId>} studentIds
+ * @returns {Promise<Map<string, Record<string, {averageScore:number, tier:string, gamesPlayed:number}>>>}
+ * @private
+ */
+async function getStudentsTiersByMechanic(studentIds = []) {
+  if (!Array.isArray(studentIds) || studentIds.length === 0) {
+    return new Map();
+  }
+
+  const objectIds = studentIds
+    .map(id => {
+      try {
+        return new mongoose.Types.ObjectId(id);
+      } catch {
+        return null;
+      }
+    })
+    .filter(Boolean);
+
+  if (objectIds.length === 0) {
+    return new Map();
+  }
+
+  const pipeline = [
+    {
+      $match: {
+        playerId: { $in: objectIds },
+        status: 'completed'
+      }
+    },
+    {
+      // Las collections del proyecto usan snake_case explícito en
+      // GameSession.collection ('game_sessions') y GameMechanic.collection
+      // ('game_mechanics') — el plural automático de Mongoose
+      // ('gamesessions') NO aplica. Sin esto el lookup devolvía vacío y
+      // el mapa tiersByMechanic quedaba como {} para todos los alumnos.
+      $lookup: {
+        from: 'game_sessions',
+        localField: 'sessionId',
+        foreignField: '_id',
+        as: 'session'
+      }
+    },
+    { $unwind: '$session' },
+    {
+      $lookup: {
+        from: 'game_mechanics',
+        localField: 'session.mechanicId',
+        foreignField: '_id',
+        as: 'mechanic'
+      }
+    },
+    { $unwind: '$mechanic' },
+    {
+      $project: {
+        playerId: 1,
+        mechanicName: '$mechanic.name',
+        accuracyPct: {
+          $cond: [
+            { $gt: ['$maxScore', 0] },
+            { $multiply: [{ $divide: ['$score', '$maxScore'] }, 100] },
+            0
+          ]
+        }
+      }
+    },
+    {
+      $group: {
+        _id: { playerId: '$playerId', mechanicName: '$mechanicName' },
+        averageScore: { $avg: '$accuracyPct' },
+        gamesPlayed: { $sum: 1 }
+      }
+    }
+  ];
+
+  const rows = await gamePlayRepository.aggregate(pipeline);
+
+  const byPlayer = new Map();
+  for (const row of rows) {
+    const playerId = row._id.playerId.toString();
+    const mechanicName = row._id.mechanicName;
+    if (!mechanicName) {
+      continue;
+    }
+    if (!byPlayer.has(playerId)) {
+      byPlayer.set(playerId, {});
+    }
+    const playerData = byPlayer.get(playerId);
+    const averageScore = Number.isFinite(row.averageScore)
+      ? Math.round(row.averageScore * 10) / 10
+      : 0;
+    playerData[mechanicName] = {
+      averageScore,
+      tier: classifyTier(averageScore),
+      gamesPlayed: Number(row.gamesPlayed || 0)
+    };
+  }
+
+  return byPlayer;
+}
+
+/**
  * Lista de estudiantes del profesor con métricas agregadas.
  *
  * @param {string} teacherId - ID del profesor
@@ -491,10 +601,18 @@ async function getClassroomStudents(
     select: 'name profile.avatar profile.classroom profile.age studentMetrics status'
   });
 
+  // Calcular tiers por mecánica una sola vez (ADR-E). Una pipeline
+  // agregada cuesta menos que N+1 lookups y permite que la UI muestre
+  // chips "MEMORIA: bueno · ASOCIACIÓN: riesgo" en la tabla de alumnos
+  // sin perder el tier global.
+  const studentIds = students.map(s => s._id.toString());
+  const tiersByMechanicMap = await getStudentsTiersByMechanic(studentIds);
+
   let mapped = students.map(student => {
     const metrics = student.studentMetrics || {};
     const accuracyRate = calcAccuracyRate(metrics.totalCorrectAnswers, metrics.totalErrors);
     const studentTier = classifyTier(metrics.averageScore);
+    const tiersByMechanic = tiersByMechanicMap.get(student._id.toString()) || {};
 
     return {
       id: student._id.toString(),
@@ -505,6 +623,11 @@ async function getClassroomStudents(
       age: student.profile?.age || null,
       status: student.status,
       tier: studentTier,
+      // Map<mechanicName, {averageScore, tier, gamesPlayed}>. Las mecánicas
+      // que el alumno no haya jugado simplemente no aparecen — el frontend
+      // pinta "—" o las oculta. Permite descubrir alumno fuerte en
+      // Memoria y débil en Secuencia con el mismo dataset.
+      tiersByMechanic,
       accuracyRate,
       studentMetrics: {
         totalGamesPlayed: metrics.totalGamesPlayed || 0,
@@ -946,6 +1069,152 @@ async function getStudentSummary(studentId, timeRange = '30d') {
               avgResponseTime: { $avg: '$metrics.averageResponseTime' }
             }
           }
+        ],
+        // Métricas específicas de la mecánica Memoria (ADR-A/B, sesión
+        // 04/05/2026). Agrega los campos persistidos por GameEngine.endPlay
+        // dentro del sub-objeto `metrics.memory`. `null` si el alumno no
+        // jugó Memoria en el rango temporal — el frontend muestra
+        // `MemoryHighlightCard` solo cuando hay datos.
+        memoryStats: [
+          {
+            $lookup: {
+              from: 'game_sessions',
+              localField: 'sessionId',
+              foreignField: '_id',
+              as: 'session'
+            }
+          },
+          { $unwind: '$session' },
+          {
+            $lookup: {
+              from: 'game_mechanics',
+              localField: 'session.mechanicId',
+              foreignField: '_id',
+              as: 'mechanic'
+            }
+          },
+          { $unwind: { path: '$mechanic', preserveNullAndEmptyArrays: true } },
+          { $match: { 'mechanic.name': 'memory' } },
+          {
+            $group: {
+              _id: null,
+              totalGames: { $sum: 1 },
+              groupsMatched: { $sum: { $ifNull: ['$metrics.memory.groupsMatched', 0] } },
+              peakStreak: { $max: { $ifNull: ['$metrics.memory.peakStreak', 0] } },
+              averageMatchTimeMs: { $avg: { $ifNull: ['$metrics.memory.averageMatchTimeMs', 0] } },
+              groupSize: { $max: { $ifNull: ['$metrics.memory.groupSize', 2] } }
+            }
+          },
+          {
+            $project: {
+              _id: 0,
+              totalGames: 1,
+              groupsMatched: 1,
+              peakStreak: 1,
+              averageMatchTimeMs: { $round: ['$averageMatchTimeMs', 0] },
+              groupSize: 1
+            }
+          }
+        ],
+        // Métricas específicas de la mecánica Asociación (ADR-A/B). El
+        // map `byValueAccuracy` no se agrega aquí (sería complejo con
+        // claves dinámicas); el frontend lo muestra a partir de la última
+        // partida en `lastGames` cuando lo necesita.
+        associationStats: [
+          {
+            $lookup: {
+              from: 'game_sessions',
+              localField: 'sessionId',
+              foreignField: '_id',
+              as: 'session'
+            }
+          },
+          { $unwind: '$session' },
+          {
+            $lookup: {
+              from: 'game_mechanics',
+              localField: 'session.mechanicId',
+              foreignField: '_id',
+              as: 'mechanic'
+            }
+          },
+          { $unwind: { path: '$mechanic', preserveNullAndEmptyArrays: true } },
+          { $match: { 'mechanic.name': 'association' } },
+          {
+            $group: {
+              _id: null,
+              totalGames: { $sum: 1 },
+              peakStreak: { $max: { $ifNull: ['$metrics.association.peakStreak', 0] } },
+              quickestCorrectMs: { $min: '$metrics.association.quickestCorrectMs' },
+              slowestCorrectMs: { $max: '$metrics.association.slowestCorrectMs' }
+            }
+          },
+          {
+            $project: {
+              _id: 0,
+              totalGames: 1,
+              peakStreak: 1,
+              quickestCorrectMs: 1,
+              slowestCorrectMs: 1
+            }
+          }
+        ],
+        // Métricas específicas de la mecánica Secuencia. Se agregan los
+        // campos persistidos por GameEngine.endPlay (T-921 fase E):
+        // sequencesCompleted, maxSequenceLengthAchieved, partialReproductions,
+        // averageReproductionTimeMs, hintsUsed, blockedCardsTotal.
+        sequenceStats: [
+          {
+            $lookup: {
+              from: 'game_sessions',
+              localField: 'sessionId',
+              foreignField: '_id',
+              as: 'session'
+            }
+          },
+          { $unwind: '$session' },
+          {
+            $lookup: {
+              from: 'game_mechanics',
+              localField: 'session.mechanicId',
+              foreignField: '_id',
+              as: 'mechanic'
+            }
+          },
+          { $unwind: { path: '$mechanic', preserveNullAndEmptyArrays: true } },
+          { $match: { 'mechanic.name': 'sequence' } },
+          {
+            $group: {
+              _id: null,
+              totalGames: { $sum: 1 },
+              sequencesCompleted: { $sum: { $ifNull: ['$metrics.sequencesCompleted', 0] } },
+              sequencesBlocked: { $sum: { $ifNull: ['$metrics.sequencesBlocked', 0] } },
+              sequencesTimedOut: { $sum: { $ifNull: ['$metrics.sequencesTimedOut', 0] } },
+              maxSequenceLengthAchieved: {
+                $max: { $ifNull: ['$metrics.maxSequenceLengthAchieved', 0] }
+              },
+              partialReproductions: { $sum: { $ifNull: ['$metrics.partialReproductions', 0] } },
+              avgReproductionTimeMs: {
+                $avg: { $ifNull: ['$metrics.averageReproductionTimeMs', 0] }
+              },
+              blockedCardsTotal: { $sum: { $ifNull: ['$metrics.blockedCardsTotal', 0] } },
+              hintsUsed: { $sum: { $ifNull: ['$metrics.hintsUsed', 0] } }
+            }
+          },
+          {
+            $project: {
+              _id: 0,
+              totalGames: 1,
+              sequencesCompleted: 1,
+              sequencesBlocked: 1,
+              sequencesTimedOut: 1,
+              maxSequenceLengthAchieved: 1,
+              partialReproductions: 1,
+              averageReproductionTimeMs: { $round: ['$avgReproductionTimeMs', 0] },
+              blockedCardsTotal: 1,
+              hintsUsed: 1
+            }
+          }
         ]
       }
     }
@@ -953,6 +1222,9 @@ async function getStudentSummary(studentId, timeRange = '30d') {
 
   const [result] = await gamePlayRepository.aggregate(pipeline);
   const overall = result.overallStats[0] || {};
+  const memorySummary = result.memoryStats?.[0] || null;
+  const associationSummary = result.associationStats?.[0] || null;
+  const sequenceSummary = result.sequenceStats?.[0] || null;
 
   // Datos del estudiante
   const student = await userRepository.findById(studentId, {
@@ -1006,6 +1278,43 @@ async function getStudentSummary(studentId, timeRange = '30d') {
       difference:
         Math.round(((student?.studentMetrics?.averageScore || 0) - classAvgScore) * 10) / 10
     },
+    // Resumen de la mecánica Memoria (ADR-A/B, sesión 04/05/2026). null
+    // si el alumno no ha jugado Memoria en el rango temporal — el frontend
+    // muestra `MemoryHighlightCard` sólo cuando este campo es truthy.
+    byMemory: memorySummary
+      ? {
+          totalGames: memorySummary.totalGames || 0,
+          groupsMatched: memorySummary.groupsMatched || 0,
+          peakStreak: memorySummary.peakStreak || 0,
+          averageMatchTimeMs: memorySummary.averageMatchTimeMs || 0,
+          groupSize: memorySummary.groupSize || 2
+        }
+      : null,
+    // Resumen de la mecánica Asociación (ADR-A/B). El frontend usa
+    // `peakStreak` y los tiempos como cabecera de `AssociationHighlightCard`.
+    byAssociation: associationSummary
+      ? {
+          totalGames: associationSummary.totalGames || 0,
+          peakStreak: associationSummary.peakStreak || 0,
+          quickestCorrectMs: associationSummary.quickestCorrectMs ?? null,
+          slowestCorrectMs: associationSummary.slowestCorrectMs ?? null
+        }
+      : null,
+    // Resumen de la mecánica Secuencia (T-921). null si el alumno no ha
+    // jugado ninguna partida de Secuencia en el rango temporal.
+    bySequence: sequenceSummary
+      ? {
+          totalGames: sequenceSummary.totalGames || 0,
+          sequencesCompleted: sequenceSummary.sequencesCompleted || 0,
+          sequencesBlocked: sequenceSummary.sequencesBlocked || 0,
+          sequencesTimedOut: sequenceSummary.sequencesTimedOut || 0,
+          maxSequenceLengthAchieved: sequenceSummary.maxSequenceLengthAchieved || 0,
+          partialReproductions: sequenceSummary.partialReproductions || 0,
+          averageReproductionTimeMs: sequenceSummary.averageReproductionTimeMs || 0,
+          blockedCardsTotal: sequenceSummary.blockedCardsTotal || 0,
+          hintsUsed: sequenceSummary.hintsUsed || 0
+        }
+      : null,
     timeRange
   };
 }

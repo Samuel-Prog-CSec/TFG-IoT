@@ -1,0 +1,141 @@
+/**
+ * @fileoverview Diccionario de diálogo de la mascota por mecánica × evento
+ * × tier (ADR-D, sesión 04/05/2026).
+ *
+ * Hasta esta sesión la mascota usaba un único pool de frases definido
+ * dentro del propio `CharacterMascot.jsx`, agnóstico a la mecánica del
+ * juego. Ese pool decía exactamente lo mismo cuando el alumno acertaba
+ * una pareja (Memoria), atinaba la respuesta (Asociación) o completaba
+ * una secuencia (Secuencia) — perdía oportunidad pedagógica.
+ *
+ * Este módulo expone:
+ *   - `MASCOT_DIALOG[mechanic][event]` — array de frases (`mood`-aware).
+ *   - `pickMascotMessage(mechanic, event, tier?)` — función pura para
+ *     seleccionar una frase aleatoria evitando repetir la última.
+ *
+ * El consumidor canónico es `useMascotReactions` (hook), que añade
+ * cooldown entre eventos y mapea `event → mood`. Aquí solo vivimos las
+ * frases. Reglas para añadir nuevas:
+ *   - Vocabulario 4–6 años: corto, sin subordinadas, mayúsculas para
+ *     celebracion. Evitar imperativos negativos crudos.
+ *   - 4–8 frases por evento — suficiente variedad sin que se note el
+ *     loop, pero pequeño para que no consuma bundle.
+ *   - Sin emojis dentro del texto (la mascota ya tiene accesorios SVG;
+ *     mezclar emojis en frases satura QA visual).
+ *
+ * @module lib/mascotDialog
+ */
+
+const MEMORY_DIALOG = Object.freeze({
+  roundStart: ['¡A recordar!', '¿Lista para parejas?', '¡Concéntrate!', '¡Vamos!'],
+  correctAnswer: [
+    '¡Pareja!',
+    '¡Lo recordaste!',
+    '¡Memoria fina!',
+    '¡Otro match!',
+    '¡Genial!'
+  ],
+  errorAnswer: [
+    'Mira otra vez',
+    'Casi…',
+    'Recuerda dónde está',
+    '¡Tranqui!',
+    'La próxima'
+  ],
+  timeout: ['¡Inténtalo!', 'Sigue mirando…'],
+  streakReached: ['¡MEMORIA TOP!', '¡Imparable!', '¡Cerebro al 100%!', '¡Eres un crack!'],
+  gameOverHigh: ['¡INCREÍBLE!', '¡MEMORIA DE ELEFANTE!', '¡PERFECTO!'],
+  gameOverMid: ['¡Muy bien!', '¡Sigue así!', '¡Buen trabajo!'],
+  gameOverLow: ['Otra y mejoras', 'No te rindas', 'La práctica suma']
+});
+
+const ASSOCIATION_DIALOG = Object.freeze({
+  roundStart: ['¡A asociar!', '¿Cuál será?', '¡Buscando!', '¡Atento!'],
+  correctAnswer: [
+    '¡Esa es!',
+    '¡Bien asociado!',
+    '¡Crack!',
+    '¡Eso es!',
+    '¡Genial!'
+  ],
+  errorAnswer: [
+    'Lee la pista',
+    'Casi…',
+    'Otra es',
+    '¡Tranqui!',
+    'Mira de nuevo'
+  ],
+  timeout: ['¡A elegir!', '¡Decídete!', '¿Cuál es?'],
+  streakReached: ['¡CONEXIÓN TOTAL!', '¡IMPARABLE!', '¡Genio!', '¡Tú mandas!'],
+  gameOverHigh: ['¡INCREÍBLE!', '¡CONEXIÓN PERFECTA!', '¡ERES UN GENIO!'],
+  gameOverMid: ['¡Muy bien!', '¡Sigue así!', '¡Vas creciendo!'],
+  gameOverLow: ['Otra y mejoras', 'No te rindas', 'A practicar']
+});
+
+const SEQUENCE_DIALOG = Object.freeze({
+  roundStart: ['¡Memoriza!', '¿Listo?', '¡Atento al orden!', '¡Vamos!'],
+  correctAnswer: [
+    '¡Sigue!',
+    '¡Vas perfecto!',
+    '¡Otro paso!',
+    '¡Esa es!',
+    '¡Genial!'
+  ],
+  errorAnswer: [
+    'Recuerda el orden',
+    'Casi…',
+    '¡Tranqui!',
+    'Otra ronda',
+    'Mira otra vez'
+  ],
+  timeout: ['¡Tu turno!', '¡Reproduce!', '¡Vamos!'],
+  streakReached: ['¡SIGUES EL RITMO!', '¡SECUENCIA EPICA!', '¡Imparable!', '¡Tú mandas!'],
+  gameOverHigh: ['¡SECUENCIA PERFECTA!', '¡INCREÍBLE!', '¡RITMO TOTAL!'],
+  gameOverMid: ['¡Muy bien!', '¡Cada vez mejor!', '¡Buen trabajo!'],
+  gameOverLow: ['Otra y mejoras', 'No te rindas', 'La práctica suma']
+});
+
+export const MASCOT_DIALOG = Object.freeze({
+  memory: MEMORY_DIALOG,
+  association: ASSOCIATION_DIALOG,
+  sequence: SEQUENCE_DIALOG
+});
+
+const FALLBACK_DIALOG = MEMORY_DIALOG;
+
+const VALID_TIERS = new Set(['high', 'mid', 'low']);
+
+/**
+ * Selecciona una frase aleatoria del pool correspondiente a (mechanic,
+ * event), opcionalmente afinada por tier para `gameOver`. Es una función
+ * pura — el consumidor (hook) gestiona el estado de "última frase" para
+ * evitar repeticiones consecutivas.
+ *
+ * @param {string} mechanic - 'memory' | 'association' | 'sequence'
+ * @param {string} event    - Una clave de event ('roundStart', 'correctAnswer', …)
+ * @param {string} [tier]   - Solo aplica a `gameOver`: 'high' | 'mid' | 'low'.
+ * @param {number} [seed]   - Semilla numérica (test-friendly). Si se omite,
+ *                            usa Math.random().
+ * @returns {string|null} La frase elegida, o `null` si no hay pool.
+ */
+export function pickMascotMessage(mechanic, event, tier, seed) {
+  const dialog = MASCOT_DIALOG[mechanic] || FALLBACK_DIALOG;
+  const resolvedEvent = event === 'gameOver' && VALID_TIERS.has(tier)
+    ? `gameOver${tier.charAt(0).toUpperCase()}${tier.slice(1)}`
+    : event;
+  const pool = dialog[resolvedEvent];
+  if (!Array.isArray(pool) || pool.length === 0) {
+    return null;
+  }
+  if (pool.length === 1) {
+    return pool[0];
+  }
+  const random =
+    typeof seed === 'number' && Number.isFinite(seed)
+      ? Math.abs(seed) % pool.length
+      : // eslint-disable-next-line sonarjs/pseudo-random -- selección visual de mensaje, no requiere CSPRNG
+        Math.floor(Math.random() * pool.length);
+  return pool[random];
+}
+
+export default MASCOT_DIALOG;

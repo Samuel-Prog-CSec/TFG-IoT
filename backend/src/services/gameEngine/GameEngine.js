@@ -21,6 +21,8 @@ const {
 const timerManager = require('./timerManager');
 const stateHelpers = require('./stateHelpers');
 const recovery = require('./recovery');
+const sequenceFlow = require('./sequenceFlow');
+const finalSummary = require('./finalSummary');
 
 // Constantes de configuración
 // Umbral de alerta (soft limit) - no bloquea, solo emite warnings
@@ -500,6 +502,25 @@ class GameEngine {
         cardMappings: sessionDoc.cardMappings
       });
 
+      // Validar sequencePlan para sesiones Secuencia antes de iniciar.
+      if (mechanicName === 'sequence') {
+        const plan = Array.isArray(sessionDoc.sequencePlan) ? sessionDoc.sequencePlan : [];
+        const expectedRounds = Number(sessionDoc.config?.numberOfRounds || 0);
+        if (plan.length === 0 || plan.length !== expectedRounds) {
+          this.io.to(`play_${playId}`).emit('error', {
+            message: 'La sesión de Secuencia no tiene un plan válido. Reconfigúrala antes de jugar.'
+          });
+          await this.releaseDistributedCardMappings(
+            playId,
+            sessionDoc.cardMappings.map(m => m.uid)
+          );
+          for (const mapping of sessionDoc.cardMappings) {
+            this.cardUidToPlayId.delete(mapping.uid);
+          }
+          return;
+        }
+      }
+
       const mechanicStrategy = getMechanicStrategy(mechanicName, logger);
       const strategyState = mechanicStrategy.initialize({ sessionDoc, playDoc });
 
@@ -600,9 +621,8 @@ class GameEngine {
     }
 
     // 2. Guardar el estado final en la BD
+    const playDuration = Date.now() - playState.createdAt;
     try {
-      const playDuration = Date.now() - playState.createdAt;
-
       if (abandoned) {
         // Partida abandonada: marcar status y registrar evento
         playState.playDoc.status = 'abandoned';
@@ -624,6 +644,42 @@ class GameEngine {
 
         this.metrics.totalPlaysCancelled++;
       } else {
+        // Construye el final summary específico de la mecánica y lo
+        // persiste ANTES de complete() para que cualquier agregación de
+        // analytics posterior vea peakStreak / categoryDominance /
+        // maxSequenceLength etc.  ADR-B unifica el camino: factory
+        // `buildFinalSummary(mechanicType, playState)` decide qué builder
+        // ejecutar según mecánica; Sequence sigue serializando flat (los
+        // campos viven directamente bajo `metrics.*`), Memoria/Asociación
+        // se aíslan en sub-objetos `metrics.memory` / `metrics.association`.
+        const persistedSummary = finalSummary.buildFinalSummary(playState.mechanicName, playState);
+        let didModifyMetrics = false;
+        if (playState.mechanicName === 'sequence') {
+          if (!playState.playDoc.metrics) {
+            playState.playDoc.metrics = {};
+          }
+          Object.assign(playState.playDoc.metrics, persistedSummary);
+          didModifyMetrics = true;
+        } else if (playState.mechanicName === 'memory') {
+          if (!playState.playDoc.metrics) {
+            playState.playDoc.metrics = {};
+          }
+          playState.playDoc.metrics.memory = persistedSummary;
+          didModifyMetrics = true;
+        } else if (playState.mechanicName === 'association') {
+          if (!playState.playDoc.metrics) {
+            playState.playDoc.metrics = {};
+          }
+          playState.playDoc.metrics.association = persistedSummary;
+          didModifyMetrics = true;
+        }
+        // `markModified` solo existe en documentos Mongoose. Los tests
+        // unitarios pasan plain objects en `playDoc`, así que el guard
+        // evita que la rama Memoria/Asociación rompa esos tests.
+        if (didModifyMetrics && typeof playState.playDoc.markModified === 'function') {
+          playState.playDoc.markModified('metrics');
+        }
+
         // Partida completada normalmente
         await playState.playDoc.complete();
 
@@ -637,7 +693,11 @@ class GameEngine {
               correctAttempts: playState.playDoc.metrics.correctAttempts,
               errorAttempts: playState.playDoc.metrics.errorAttempts,
               timeoutAttempts: playState.playDoc.metrics.timeoutAttempts,
-              averageResponseTime: playState.playDoc.metrics.averageResponseTime
+              averageResponseTime: playState.playDoc.metrics.averageResponseTime,
+              maxSequenceLengthAchieved:
+                playState.mechanicName === 'sequence'
+                  ? persistedSummary.maxSequenceLengthAchieved
+                  : undefined
             });
           } else {
             logger.info(
@@ -678,10 +738,49 @@ class GameEngine {
       logger.error(`Error al guardar partida final ${playId}: ${err.message}`);
     }
 
-    // 3. Emitir evento final al cliente
+    // 3. Emitir evento final al cliente.
+    // Construimos `finalMetrics` desde el documento persistido (que ya
+    // incluye los sub-objetos memory/association tras la rama no abandonada)
+    // y volvemos a fusionar el summary específico para garantizar que el
+    // frontend recibe datos frescos incluso si la persistencia anterior
+    // falló de forma silenciosa (defense-in-depth).
+    const finalMetrics = playState.playDoc.metrics?.toObject
+      ? playState.playDoc.metrics.toObject()
+      : { ...(playState.playDoc.metrics || {}) };
+    const mode =
+      playState.mechanicName === 'memory'
+        ? 'memory'
+        : playState.mechanicName === 'sequence'
+          ? 'sequence'
+          : 'association';
+
+    const emittedSummary = finalSummary.buildFinalSummary(playState.mechanicName, playState);
+    if (mode === 'sequence') {
+      Object.assign(finalMetrics, emittedSummary);
+    } else if (mode === 'memory') {
+      finalMetrics.memory = emittedSummary;
+    } else if (mode === 'association') {
+      finalMetrics.association = emittedSummary;
+    }
+
+    // Garantizar `completionTime` en el payload — `playDoc.complete()`
+    // lo escribe en el documento, pero si el path falla o llega al
+    // toObject anterior antes del save, el frontend mostraba "—" en
+    // "Tiempo total" del GameOver de Secuencia (BUG QA 03/05/2026).
+    if (!Number.isFinite(Number(finalMetrics.completionTime)) || finalMetrics.completionTime <= 0) {
+      finalMetrics.completionTime = playDuration;
+    }
+
     this.io.to(`play_${playId}`).emit('game_over', {
       finalScore: playState.playDoc.score,
-      metrics: playState.playDoc.metrics,
+      metrics: finalMetrics,
+      // `mode` se mantiene por compatibilidad con el frontend actual
+      // (`GameOverStats` delega por `summary.mode`). `mechanicType` añade
+      // el mismo valor con un nombre más explícito de cara a futuro
+      // (mascota, tema visual, charts del profesor) — ADR-D/E/F lo usan
+      // como propagación canónica.
+      mode,
+      mechanicType: playState.mechanicName,
       abandoned
     });
 
@@ -729,6 +828,16 @@ class GameEngine {
   isMemoryPlay(playState) {
     return stateHelpers.isMemoryPlay(playState);
   }
+
+  /**
+   * Comprueba si una partida usa la mecánica Secuencia.
+   *
+   * @param {Object} playState
+   * @returns {boolean}
+   */
+  isSequencePlay(playState) {
+    return stateHelpers.isSequencePlay(playState);
+  }
   getMemoryRemainingTimeMs(playState) {
     return stateHelpers.getMemoryRemainingTimeMs(playState);
   }
@@ -774,7 +883,10 @@ class GameEngine {
         isCorrect: false,
         timeout: true,
         pointsAwarded: 0,
-        newScore: playState.playDoc.score
+        newScore: playState.playDoc.score,
+        mechanicType: playState.mechanicName,
+        streak: 0,
+        peakStreak: Number(playState.strategyState?.peakStreak || 0)
       });
 
       await this.endPlay(playId);
@@ -839,6 +951,21 @@ class GameEngine {
     const firstCard = boardByUid.get(firstUid);
     const secondCard = boardByUid.get(secondUid);
 
+    // Bookkeeping para `finalSummary.buildMemoryFinalSummary` (ADR-A/B).
+    // Mantiene streak, peakStreak, tiempo medio por pareja y primera
+    // pareja acertada en el strategyState — sin tocarlo, el GameOver
+    // mostraría ceros para Memoria.
+    if (typeof playState.mechanicStrategy.recordScanResult === 'function') {
+      playState.mechanicStrategy.recordScanResult({
+        isCorrect: outcome.isCorrect,
+        scannedCard,
+        currentChallenge: secondCard || firstCard || null,
+        timeElapsed,
+        strategyState: playState.strategyState,
+        sessionDoc: playState.sessionDoc
+      });
+    }
+
     try {
       await playState.playDoc.addEventAtomic(
         {
@@ -883,7 +1010,13 @@ class GameEngine {
       pointsAwarded: Number(outcome.pointsAwarded || 0),
       newScore: playState.playDoc.score,
       feedbackDelayMs,
-      remainingTimeMs: this.getMemoryRemainingTimeMs(playState)
+      remainingTimeMs: this.getMemoryRemainingTimeMs(playState),
+      // Contexto de mecánica + racha para la mascota viva (ADR-D). El
+      // frontend usa estos campos en `useMascotReactions` para escoger
+      // diccionario y emoción.
+      mechanicType: 'memory',
+      streak: Number(playState.strategyState?.currentStreak || 0),
+      peakStreak: Number(playState.strategyState?.peakStreak || 0)
     });
 
     this.emitMemoryTurnState(playId, playState, {
@@ -981,6 +1114,52 @@ class GameEngine {
       if (!playState.awaitingBoardReady) {
         this.scheduleMemoryPlayTimeout(playId, playState, remainingTimeMs);
       }
+      return;
+    }
+
+    // Branch Secuencia: la mecánica tiene su propio flujo (memorizing → reproducing)
+    // gestionado por sequenceFlow. selectChallenge poblará la secuencia y luego
+    // startSequenceMemorizingPhase emitirá el evento + programará la transición.
+    if (this.isSequencePlay(playState)) {
+      const { playDoc: seqPlayDoc, sessionDoc: seqSessionDoc } = playState;
+      if (seqPlayDoc.currentRound > seqSessionDoc.config.numberOfRounds) {
+        await this.endPlay(playId);
+        return;
+      }
+
+      if (playState.roundTimer) {
+        clearTimeout(playState.roundTimer);
+      }
+      if (playState.nextRoundTimer) {
+        clearTimeout(playState.nextRoundTimer);
+        playState.nextRoundTimer = null;
+      }
+
+      const challenge = playState.mechanicStrategy.selectChallenge({
+        playDoc: seqPlayDoc,
+        sessionDoc: seqSessionDoc,
+        playState
+      });
+
+      if (!challenge) {
+        logger.error('No se pudo generar la secuencia de la ronda', {
+          playId,
+          mechanicName: playState.mechanicName
+        });
+        this.io.to(`play_${playId}`).emit('error', {
+          message: 'No se pudo generar la secuencia'
+        });
+        await this.endPlay(playId);
+        return;
+      }
+
+      playState.currentChallenge = {
+        uid: null,
+        assignedValue: null,
+        displayData: challenge.displayData
+      };
+
+      sequenceFlow.startSequenceMemorizingPhase(this, playId);
       return;
     }
 
@@ -1180,16 +1359,20 @@ class GameEngine {
         return;
       }
 
-      // 4. Respuesta recibida → limpiar el timer
-      if (!this.isMemoryPlay(playState)) {
+      // 4. Respuesta recibida → limpiar el timer (no aplica a memoria, que
+      // tiene su propio playTimer; tampoco a Secuencia, que mantiene el timer
+      // de ronda hasta que se complete o expire la fase reproducing).
+      if (!this.isMemoryPlay(playState) && !this.isSequencePlay(playState)) {
         clearTimeout(playState.roundTimer);
         playState.roundTimer = null;
         playState.awaitingResponse = false;
       }
 
-      // 5. Procesar la respuesta
+      // 5. Procesar la respuesta según mecánica
       if (this.isMemoryPlay(playState)) {
         await this.processMemoryScan(playId, playState, scannedCardMapping);
+      } else if (this.isSequencePlay(playState)) {
+        await sequenceFlow.processSequenceScan(this, playId, playState, scannedCardMapping);
       } else {
         await this.processResponse(playId, playState, scannedCardMapping);
       }
@@ -1249,6 +1432,21 @@ class GameEngine {
       eventType = 'error';
     }
 
+    // Bookkeeping para `finalSummary.buildAssociationFinalSummary`
+    // (ADR-A/B): peakStreak, quickestCorrectMs, byValueAccuracy. Sin esta
+    // llamada el GameOver de Asociación seguiría sin métrica "categoría
+    // dominante" ni racha, perdiendo señal pedagógica clave.
+    if (typeof playState.mechanicStrategy?.recordScanResult === 'function') {
+      playState.mechanicStrategy.recordScanResult({
+        isCorrect,
+        scannedCard,
+        currentChallenge,
+        timeElapsed,
+        strategyState: playState.strategyState,
+        sessionDoc
+      });
+    }
+
     // `penaltyPerError` ya viene con signo (e.g. -2), por lo que usamos el
     // propio signo del valor en el log. El previo `symbol = '-'` producia
     // `--2 pts` al concatenar con un valor negativo (QA 2026-04-24).
@@ -1285,7 +1483,13 @@ class GameEngine {
         value: scannedCard.assignedValue
       },
       pointsAwarded,
-      newScore: playDoc.score
+      newScore: playDoc.score,
+      // Contexto para la mascota viva y para que el frontend pueda
+      // resaltar visualmente picos de racha (ADR-D). En Asociación la
+      // racha se rompe con cualquier fallo.
+      mechanicType: 'association',
+      streak: Number(playState.strategyState?.currentStreak || 0),
+      peakStreak: Number(playState.strategyState?.peakStreak || 0)
     });
 
     logger.info(
@@ -1368,7 +1572,10 @@ class GameEngine {
         timeout: true,
         expected: currentChallenge.displayData,
         pointsAwarded: 0,
-        newScore: playDoc.score
+        newScore: playDoc.score,
+        mechanicType: playState.mechanicName,
+        streak: 0,
+        peakStreak: Number(playState.strategyState?.peakStreak || 0)
       });
 
       // 5. Pasar a la siguiente ronda
@@ -1489,11 +1696,20 @@ class GameEngine {
    * Ejecuta la lógica de pausa una vez validados permisos y estado.
    */
   async executePause(playId, playState) {
+    // En Secuencia, capturamos el tiempo restante de la fase memorizing antes
+    // de limpiar timers para reanudarla con precisión tras el resume.
+    if (this.isSequencePlay(playState)) {
+      sequenceFlow.pauseMemorizingPhase(playState);
+    }
+
     this.clearPlayTimers(playState);
 
     const remainingTimeMs = this.calculatePauseRemainingTime(playState);
     const pausedDuringFeedback =
-      !this.isMemoryPlay(playState) && !playState.awaitingResponse && remainingTimeMs === null;
+      !this.isMemoryPlay(playState) &&
+      !this.isSequencePlay(playState) &&
+      !playState.awaitingResponse &&
+      remainingTimeMs === null;
 
     playState.paused = true;
     playState.pausedAt = Date.now();
@@ -1682,9 +1898,11 @@ class GameEngine {
         this.emitMemoryTurnState(playId, playState, { phase: 'resumed' });
       }
 
-      // Rearmar timer con el tiempo restante (si aplica)
+      // Rearmar timer con el tiempo restante (si aplica). Excluye Memoria (su
+      // timer es global y se rearma arriba) y Secuencia (gestión propia).
       if (
         !this.isMemoryPlay(playState) &&
+        !this.isSequencePlay(playState) &&
         !wasPausedDuringFeedback &&
         playState.currentChallenge &&
         typeof remainingTimeMs === 'number' &&
@@ -1696,8 +1914,30 @@ class GameEngine {
         }, remainingTimeMs + ROUND_GRACE_PERIOD_MS);
       }
 
+      // Secuencia: si pausamos en memorizing, reanudamos esa fase con el
+      // tiempo restante; si pausamos en reproducing, rearmamos el roundTimer.
+      if (this.isSequencePlay(playState)) {
+        const phase = playState.strategyState?.phase;
+        if (phase === 'memorizing') {
+          sequenceFlow.resumeMemorizingPhase(this, playId);
+        } else if (
+          phase === 'reproducing' &&
+          typeof remainingTimeMs === 'number' &&
+          remainingTimeMs > 0
+        ) {
+          playState.roundTimer = setTimeout(() => {
+            sequenceFlow.handleSequenceRoundTimeout(this, playId);
+          }, remainingTimeMs + ROUND_GRACE_PERIOD_MS);
+        }
+      }
+
       // Si la pausa ocurrió durante el delay entre rondas, avanzar a la siguiente
-      if (wasPausedDuringFeedback && !this.isMemoryPlay(playState)) {
+      // (no aplica a Memoria ni a Secuencia, que tienen su propio flujo).
+      if (
+        wasPausedDuringFeedback &&
+        !this.isMemoryPlay(playState) &&
+        !this.isSequencePlay(playState)
+      ) {
         await this.sendNextRound(playId);
       }
 

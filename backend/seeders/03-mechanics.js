@@ -85,6 +85,49 @@ const mechanicsData = [
       }
     },
     isActive: true
+  },
+  {
+    name: 'sequence',
+    displayName: 'Secuencia',
+    description:
+      'El alumno memoriza una secuencia ordenada de cartas y debe reproducirla escaneándolas en el mismo orden.',
+    icon: '🔢',
+    rules: {
+      defaults: {
+        numberOfCards: 6,
+        numberOfRounds: 5,
+        timeLimit: 30,
+        pointsPerCorrect: 15,
+        penaltyPerError: -3,
+        minSequenceLength: 3,
+        maxSequenceLength: 5,
+        displaySeconds: 3
+      },
+      limits: {
+        minCards: 3,
+        maxCards: 20,
+        minRounds: 1,
+        maxRounds: 20,
+        minTimeLimit: 5,
+        maxTimeLimit: 180,
+        minSequenceLength: 3,
+        maxSequenceLength: 7,
+        minDisplaySeconds: 2,
+        maxDisplaySeconds: 8
+      },
+      behavior: {
+        availability: 'available',
+        flowMode: 'memorize_then_reproduce',
+        difficulties: {
+          easy: { maxAttemptsPerCard: 3, hintsEnabled: true, hintLevels: ['partial', 'full'] },
+          medium: { maxAttemptsPerCard: 2, hintsEnabled: false },
+          hard: { maxAttemptsPerCard: 1, hintsEnabled: false }
+        },
+        blockOnFailure: true,
+        keepRevealedAfterScan: true
+      }
+    },
+    isActive: true
   }
 ];
 

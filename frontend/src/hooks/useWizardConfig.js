@@ -34,11 +34,19 @@ export function useWizardConfig({ mechanics }) {
   const [selectedDeck, setSelectedDeck] = useState(null);
   const [selectedMechanic, setSelectedMechanic] = useState(null);
   const [associationChallengePlan, setAssociationChallengePlan] = useState([]);
+  // Estado específico de Secuencia: plan + config (T-921/T-922).
+  const [sequencePlan, setSequencePlan] = useState([]);
+  const [sequenceConfig, setSequenceConfig] = useState({
+    minSequenceLength: 3,
+    maxSequenceLength: 5,
+    displaySeconds: 3
+  });
 
   // Derivados de la mecanica seleccionada
   const selectedMechanicName = resolveMechanicName(selectedMechanic);
   const isMemorySelected = selectedMechanicName === 'memory';
   const isAssociationSelected = selectedMechanicName === 'association';
+  const isSequenceSelected = selectedMechanicName === 'sequence';
 
   // Cartas del mazo seleccionado
   const deckCards = useMemo(() => toDeckCardMappings(selectedDeck), [selectedDeck]);
@@ -158,24 +166,38 @@ export function useWizardConfig({ mechanics }) {
   // sugerencia automática.
 
   const handleDifficultyChange = useCallback((difficulty) => {
+    // En Secuencia (T-921), la dificultad controla los intentos por carta y
+    // la disponibilidad de pistas — NO los parámetros numéricos del juego
+    // (rondas, tiempo, puntos), que se gestionan en StepSequenceRules.
+    // Pisarlos aquí causaba que cambiar a Fácil resetee el slider de
+    // numberOfRounds y la penalización (BUG-QA-3, BUG-QA-10 QA 03/05/2026).
+    if (isSequenceSelected) {
+      setSessionConfig(prev => ({ ...prev, difficulty }));
+      return;
+    }
     const presets = isMemorySelected ? MEMORY_DIFFICULTY_PRESETS : DIFFICULTY_PRESETS;
     setSessionConfig(prev => ({
       ...prev,
       difficulty,
       config: presets[difficulty]
     }));
-  }, [isMemorySelected]);
+  }, [isMemorySelected, isSequenceSelected]);
 
   const handleConfigChange = useCallback((key, value) => {
     setSessionConfig(prev => ({
       ...prev,
-      difficulty: 'custom',
+      // En Secuencia, la dificultad (easy/medium/hard) controla los intentos
+      // por carta y las pistas — son reglas de juego independientes de los
+      // sliders de tiempo/rondas. NO debe cambiarse a 'custom' al ajustar
+      // un slider (BUG-QA-14, QA pasada 2). En Asociación/Memoria sí, ya
+      // que su preset incluye los sliders.
+      difficulty: isSequenceSelected ? prev.difficulty : 'custom',
       config: {
         ...prev.config,
         [key]: value
       }
     }));
-  }, []);
+  }, [isSequenceSelected]);
 
   const handleLinkSensorChange = useCallback((val) => {
     setSessionConfig(prev => ({ ...prev, linkSensor: val }));
@@ -209,11 +231,31 @@ export function useWizardConfig({ mechanics }) {
           );
         }
 
+        if (isSequenceSelected) {
+          const rounds = Number(sessionConfig.config.numberOfRounds);
+          if (!Number.isFinite(rounds) || rounds < 1) {
+            return false;
+          }
+          return (
+            Array.isArray(sequencePlan) &&
+            sequencePlan.length === rounds &&
+            sequencePlan.every(round => Array.isArray(round?.sequence) && round.sequence.length > 0)
+          );
+        }
+
         return true;
       case 3: return sessionConfig.name.trim().length >= 3;
       default: return false;
     }
-  }, [sessionConfig, isMemorySelected, isAssociationSelected, memoryPairValidation, associationChallengePlan]);
+  }, [
+    sessionConfig,
+    isMemorySelected,
+    isAssociationSelected,
+    isSequenceSelected,
+    memoryPairValidation,
+    associationChallengePlan,
+    sequencePlan
+  ]);
 
   return {
     sessionConfig,
@@ -222,9 +264,14 @@ export function useWizardConfig({ mechanics }) {
     selectedMechanic,
     associationChallengePlan,
     setAssociationChallengePlan,
+    sequencePlan,
+    setSequencePlan,
+    sequenceConfig,
+    setSequenceConfig,
     deckCards,
     isMemorySelected,
     isAssociationSelected,
+    isSequenceSelected,
     memoryPairValidation,
     handleSelectDeck,
     handleSelectMechanic,

@@ -7,6 +7,7 @@
 import { useState, useEffect, useMemo } from 'react';
 import { motion } from 'framer-motion';
 import PropTypes from 'prop-types';
+import { Heart } from 'lucide-react';
 import { cn } from '../../lib/utils';
 import { useReducedMotion } from '../../hooks/useReducedMotion';
 import FloatingPointsBadge from './FloatingPointsBadge';
@@ -102,9 +103,13 @@ export default function MemoryBoard({ board, feedbackState, feedbackPoints, feed
             return (
               <motion.span
                 key={marker.id}
+                // Sustituye emoji 🤍/💚 por Lucide Heart con tinte (QA 04/05):
+                // los emojis dependen del SO/font del navegador y se ven feos
+                // en Windows (heart blanco vs verde lima saturado), aparte de
+                // contrar el patrón "no emoji como icono" del proyecto.
                 className={cn(
-                  'inline-block text-lg sm:text-xl transition-[transform,opacity,filter]',
-                  isFound ? 'opacity-100' : 'opacity-30 grayscale'
+                  'inline-flex items-center justify-center transition-[transform,opacity]',
+                  isFound ? 'text-success-base' : 'text-text-disabled/50'
                 )}
                 animate={
                   isFound && !shouldReduceMotion
@@ -114,7 +119,14 @@ export default function MemoryBoard({ board, feedbackState, feedbackPoints, feed
                 transition={{ duration: 0.5, ease: 'easeOut' }}
                 aria-hidden="true"
               >
-                {isFound ? '💚' : '🤍'}
+                <Heart
+                  size={20}
+                  strokeWidth={2}
+                  className={cn(
+                    'transition-[fill,color]',
+                    isFound && 'fill-success-base'
+                  )}
+                />
               </motion.span>
             );
           })}
@@ -173,12 +185,24 @@ export default function MemoryBoard({ board, feedbackState, feedbackPoints, feed
                 if (shouldReduceMotion) return {};
                 if (isMatchFeedback) return { scale: [1, 1.12, 1], transition: { duration: 0.4 } };
                 if (isMismatchFeedback) return { x: [-3, 3, -2, 2, 0], transition: { duration: 0.4 } };
-                // Cartas emparejadas: respiracion sutil (scale loop) en lugar
-                // de atenuar. Celebra el logro en vez de "apagarla".
+                // Cartas emparejadas: signature "peeking" — respiración
+                // sutil (scale 1→1.02) + wobble de 0.6° con jitter por
+                // slotIndex (ADR-D, sesión 04/05/2026). Cada carta tiene
+                // duración ligeramente distinta (2.6–4.4s) para que el
+                // tablero no respire al unísono.
                 if (slot.isMatched) {
+                  const idx = Number(slot.slotIndex || 0);
+                  const period = 2.6 + (idx % 5) * 0.45;
+                  const phase = (idx % 4) * 0.4;
                   return {
                     scale: [1, 1.02, 1],
-                    transition: { duration: 2.4, repeat: Infinity, ease: 'easeInOut' }
+                    rotate: [0, 0.6, -0.6, 0],
+                    transition: {
+                      duration: period,
+                      delay: phase,
+                      repeat: Infinity,
+                      ease: 'easeInOut'
+                    }
                   };
                 }
                 return {};

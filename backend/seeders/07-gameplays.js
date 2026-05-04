@@ -323,13 +323,212 @@ function generatePlayEvents(
   };
 }
 
+/**
+ * Deriva métricas específicas de la mecánica Memoria (ADR-A/B). Genera un
+ * objeto plano que se persiste en `GamePlay.metrics.memory` para que los
+ * highlight cards y el GameOver del cierre tengan datos realistas.
+ */
+function deriveMemoryMetricsFromProfile({ profile, session, gameNumber, willAbandon }) {
+  const totalCards = Array.isArray(session.boardLayout) ? session.boardLayout.length : 0;
+  const groupSize = Number(session.mechanicId?.rules?.behavior?.matchingGroupSize) || 2;
+  const totalGroups = totalCards > 0 ? Math.floor(totalCards / groupSize) : 0;
+
+  // Probabilidad de completar grupos basada en perfil + progresión.
+  const progression = Math.min(gameNumber * profile.improvementPerGame, 0.3);
+  const completionRate = Math.max(0.2, Math.min(1, profile.baseSuccessProb + progression));
+  // Si abandona, juega solo una fracción de los grupos.
+  const completed = willAbandon
+    ? Math.floor(totalGroups * 0.3)
+    : Math.floor(totalGroups * completionRate);
+
+  // Mejor racha: 70% del completado en perfiles altos, 40% en struggling.
+  const streakRatio = profile.baseSuccessProb > 0.8 ? 0.7 : 0.4;
+  const peakStreak = Math.max(1, Math.round(completed * streakRatio));
+
+  // Tiempo medio por grupo: avgSpeed × fatiga moderada.
+  const averageMatchTimeMs = Math.round(profile.avgSpeed * 1.15);
+
+  // Primer match: alumnos con baseSuccessProb alto lo pillan en el 1er-2º
+  // intento; struggling tarda 4-6.
+  const attemptsToFirstMatch =
+    completed > 0 ? Math.max(1, Math.round((1 - profile.baseSuccessProb) * 6) + 1) : null;
+
+  return {
+    groupsMatched: completed,
+    peakStreak: completed > 0 ? peakStreak : 0,
+    averageMatchTimeMs: completed > 0 ? averageMatchTimeMs : 0,
+    attemptsToFirstMatch,
+    groupSize
+  };
+}
+
+/**
+ * Deriva métricas específicas de la mecánica Asociación (ADR-A/B). El mapa
+ * `byValueAccuracy` se construye con los `assignedValue` reales del mazo
+ * para que el GameOver y el `categoryDominance` aparezcan creíbles.
+ */
+function deriveAssociationMetricsFromProfile({ profile, session, roundsPlayed, willAbandon }) {
+  const mappings = Array.isArray(session.cardMappings) ? session.cardMappings : [];
+  const progression = Math.min((profile.improvementPerGame || 0) * 5, 0.2);
+  const successRate = Math.max(0.2, Math.min(0.98, profile.baseSuccessProb + progression));
+
+  const byValueAccuracy = {};
+  let peakStreak = 0;
+  let currentStreak = 0;
+  let quickestCorrectMs = null;
+  let slowestCorrectMs = null;
+  let correctCount = 0;
+
+  // Distribuye `roundsPlayed` rondas entre los mappings de forma cíclica
+  // (el plan de Asociación elige por roundNumber).
+  const rounds = willAbandon ? Math.floor(roundsPlayed * 0.6) : roundsPlayed;
+  for (let i = 0; i < rounds && mappings.length > 0; i += 1) {
+    const mapping = mappings[i % mappings.length];
+    const value = mapping?.assignedValue || `__unknown_${i}__`;
+    if (!byValueAccuracy[value]) {
+      byValueAccuracy[value] = { correct: 0, total: 0 };
+    }
+    byValueAccuracy[value].total += 1;
+
+    // Pseudo-aleatoriedad determinista (round * mapping hash).
+    const seed = ((i + 1) * 7919 + value.length * 31) % 1000;
+    const isCorrect = seed / 1000 < successRate;
+
+    if (isCorrect) {
+      byValueAccuracy[value].correct += 1;
+      correctCount += 1;
+      currentStreak += 1;
+      peakStreak = Math.max(peakStreak, currentStreak);
+      const elapsedMs = Math.round(profile.avgSpeed * (0.7 + (seed % 60) / 100));
+      quickestCorrectMs =
+        quickestCorrectMs === null ? elapsedMs : Math.min(quickestCorrectMs, elapsedMs);
+      slowestCorrectMs =
+        slowestCorrectMs === null ? elapsedMs : Math.max(slowestCorrectMs, elapsedMs);
+    } else {
+      currentStreak = 0;
+    }
+  }
+
+  // categoryDominance: el slug con mejor ratio (correct/total) entre los
+  // que tienen total >= 1. Idéntico al builder runtime.
+  let bestSlug = null;
+  let bestRatio = -1;
+  for (const slug of Object.keys(byValueAccuracy).sort()) {
+    const stats = byValueAccuracy[slug];
+    if (stats.total <= 0) {
+      continue;
+    }
+    const ratio = stats.correct / stats.total;
+    if (ratio > bestRatio) {
+      bestRatio = ratio;
+      bestSlug = slug;
+    }
+  }
+
+  return {
+    peakStreak,
+    quickestCorrectMs,
+    slowestCorrectMs,
+    byValueAccuracy,
+    categoryDominance: correctCount > 0 ? bestSlug : null
+  };
+}
+
+/**
+ * Deriva métricas específicas de la mecánica Secuencia (T-921 fase E) para
+ * un alumno+sesión a partir del perfil. Devuelve un objeto con los campos
+ * que persistimos en `GamePlay.metrics.sequencesCompleted`,
+ * `maxSequenceLengthAchieved`, `partialReproductions`, etc.
+ *
+ * No es una simulación exacta del flujo runtime — es suficiente para que
+ * los analytics (`bySequence`, charts) muestren datos realistas.
+ */
+function deriveSequenceMetricsFromProfile({ profile, session, roundsPlayed, willAbandon }) {
+  const plan = Array.isArray(session.sequencePlan) ? session.sequencePlan : [];
+  const playedRounds = Math.min(roundsPlayed, plan.length);
+  const successRate = Math.max(0, Math.min(1, profile?.successRate ?? 0.7));
+  const speedFactor = Number(profile?.speedFactor || 1);
+
+  let sequencesCompleted = 0;
+  let sequencesBlocked = 0;
+  let sequencesTimedOut = 0;
+  let maxLength = 0;
+  let partialReproductions = 0;
+  let blockedCardsTotal = 0;
+  let totalDuration = 0;
+  let hintsUsed = 0;
+
+  for (let i = 0; i < playedRounds; i += 1) {
+    const round = plan[i];
+    const len = Number(round?.length) || 3;
+    const seedHash = (i + 1) * 7919 + len * 31;
+    const random = (seedHash % 100) / 100;
+
+    if (random < successRate) {
+      sequencesCompleted += 1;
+      partialReproductions += len;
+      maxLength = Math.max(maxLength, len);
+    } else if (random < successRate + (1 - successRate) * 0.6) {
+      sequencesBlocked += 1;
+      partialReproductions += Math.floor(len * 0.5);
+      blockedCardsTotal += Math.max(1, Math.floor(len * 0.3));
+    } else {
+      sequencesTimedOut += 1;
+      partialReproductions += Math.floor(len * 0.2);
+    }
+
+    if ((session.difficulty || 'medium') === 'easy') {
+      hintsUsed += sequencesBlocked + sequencesTimedOut;
+    }
+
+    totalDuration += Math.round(1500 * len * (1 / speedFactor));
+  }
+
+  if (willAbandon) {
+    sequencesTimedOut += plan.length - playedRounds;
+  }
+
+  return {
+    sequencesCompleted,
+    sequencesBlocked,
+    sequencesTimedOut,
+    maxSequenceLengthAchieved: maxLength,
+    partialReproductions,
+    averageReproductionTimeMs: playedRounds > 0 ? Math.round(totalDuration / playedRounds) : 0,
+    blockedCardsTotal,
+    hintsUsed
+  };
+}
+
 // ══════════════════════════════════════════════════════════════════════
 // Generación de partidas con distribución temporal realista
 // ══════════════════════════════════════════════════════════════════════
 
 /**
+ * Clasifica la mecánica de una sesión a partir de su shape persistido.
+ * (No populamos `mechanicId` en el seeder para evitar lookup extra).
+ */
+function classifySessionMechanic(session) {
+  if (Array.isArray(session.boardLayout) && session.boardLayout.length > 0) {
+    return 'memory';
+  }
+  if (Array.isArray(session.sequencePlan) && session.sequencePlan.length > 0) {
+    return 'sequence';
+  }
+  return 'association';
+}
+
+/**
  * Genera partidas distribuidas temporalmente para analytics avanzados.
- * Cada alumno recibe 8-15 partidas distribuidas en 60 días.
+ * Cada alumno recibe 8-15 partidas distribuidas en 60 días, **garantizando
+ * cobertura por mecánica**: si el profesor tiene sesiones de las 3
+ * mecánicas, el alumno juega al menos 2 partidas de cada (ADR-A/B).
+ *
+ * Sin esta cobertura forzada, el ciclado puro por `sortedSessions[i %
+ * length]` deja alumnos sin partidas en alguna mecánica, lo que rompe la
+ * densidad de los charts del profesor (`MemoryAccuracyChart`,
+ * `AssociationContextChart`, `SequenceProgressChart`) y los highlight
+ * cards.
  */
 function generateGamePlaysData(sessions, students) {
   const gamePlays = [];
@@ -363,13 +562,43 @@ function generateGamePlaysData(sessions, students) {
       (a, b) => (a.startedAt || a.createdAt) - (b.startedAt || b.createdAt)
     );
 
+    // Agrupar sesiones del profesor por mecánica para garantizar cobertura.
+    const sessionsByMechanic = { memory: [], association: [], sequence: [] };
+    for (const sess of sortedSessions) {
+      const m = classifySessionMechanic(sess);
+      sessionsByMechanic[m].push(sess);
+    }
+    const availableMechanics = ['memory', 'association', 'sequence'].filter(
+      m => sessionsByMechanic[m].length > 0
+    );
+
+    // Construir un plan ordenado de sesiones a jugar:
+    //  - Las primeras 2*N partidas (N = número de mecánicas con sesión)
+    //    rotan por mecánica para garantizar 2 partidas en cada una.
+    //  - Las restantes ciclan por todas las sesiones del profesor (mismo
+    //    comportamiento histórico) para mantener el patrón temporal.
+    const playPlan = [];
+    if (availableMechanics.length > 0) {
+      const guaranteedRounds = Math.min(playsCount, availableMechanics.length * 2);
+      for (let g = 0; g < guaranteedRounds; g += 1) {
+        const mech = availableMechanics[g % availableMechanics.length];
+        const list = sessionsByMechanic[mech];
+        playPlan.push(list[Math.floor(g / availableMechanics.length) % list.length]);
+      }
+    }
+    while (playPlan.length < playsCount) {
+      playPlan.push(sortedSessions[playPlan.length % sortedSessions.length]);
+    }
+
     for (let i = 0; i < playsCount; i++) {
-      // Distribuir entre sesiones (con re-intentos — misma sesión jugada varias veces)
-      const session = sortedSessions[i % sortedSessions.length];
+      // Distribuir entre sesiones (con cobertura garantizada por mecánica).
+      const session = playPlan[i];
       const numberOfRounds = session.config.numberOfRounds;
 
       // Inferir si la sesión usa mecánica memory desde boardLayout (solo memory lo tiene)
       const isMemory = Array.isArray(session.boardLayout) && session.boardLayout.length > 0;
+      // Inferir Secuencia desde la presencia de sequencePlan (T-921 fase G).
+      const isSequence = Array.isArray(session.sequencePlan) && session.sequencePlan.length > 0;
 
       // Decidir si abandona (según perfil)
       const willAbandon = Math.random() < profile.abandonProbability;
@@ -421,6 +650,50 @@ function generateGamePlaysData(sessions, students) {
       const maxScore = Math.max(1, numberOfRounds * pointsPerCorrect);
       const clampedScore = Math.max(0, Math.min(playData.score, maxScore));
 
+      // Métricas específicas por mecánica (ADR-A/B). Cada builder es
+      // idempotente — si la sesión no es de su mecánica no se invoca y el
+      // sub-objeto no se persiste, manteniendo el contrato "sólo aparece
+      // cuando es relevante" que aplican los DTOs.
+      const sequenceMetrics = isSequence
+        ? deriveSequenceMetricsFromProfile({
+            profile,
+            session,
+            roundsPlayed: playData.roundsPlayed,
+            willAbandon
+          })
+        : null;
+      const memoryMetrics = isMemory
+        ? deriveMemoryMetricsFromProfile({
+            profile,
+            session,
+            gameNumber: i,
+            willAbandon
+          })
+        : null;
+      // Asociación se infiere por exclusión: ni boardLayout ni sequencePlan.
+      const isAssociation = !isMemory && !isSequence;
+      const associationMetrics = isAssociation
+        ? deriveAssociationMetricsFromProfile({
+            profile,
+            session,
+            roundsPlayed: playData.roundsPlayed,
+            willAbandon
+          })
+        : null;
+
+      const baseMetrics = {
+        ...playData.metrics,
+        // Recalcular completionTime desde timestamps reales (como hace GamePlay.complete())
+        completionTime: completedAt - startedAt,
+        ...(sequenceMetrics || {})
+      };
+      if (memoryMetrics) {
+        baseMetrics.memory = memoryMetrics;
+      }
+      if (associationMetrics) {
+        baseMetrics.association = associationMetrics;
+      }
+
       const gamePlay = {
         sessionId: session._id,
         playerId: student._id,
@@ -428,11 +701,7 @@ function generateGamePlaysData(sessions, students) {
         maxScore,
         currentRound: willAbandon ? playData.roundsPlayed + 1 : numberOfRounds + 1,
         events: playData.events,
-        metrics: {
-          ...playData.metrics,
-          // Recalcular completionTime desde timestamps reales (como hace GamePlay.complete())
-          completionTime: completedAt - startedAt
-        },
+        metrics: baseMetrics,
         status: willAbandon ? 'abandoned' : 'completed',
         startedAt,
         // completedAt se establece tanto para completadas como abandonadas
@@ -466,6 +735,7 @@ function aggregateStudentMetrics(gamePlays) {
       totalAbandonedGames: 0,
       totalResponseTime: 0,
       totalResponses: 0,
+      maxSequenceLengthAchieved: 0,
       lastPlayedAt: null
     };
 
@@ -483,6 +753,11 @@ function aggregateStudentMetrics(gamePlays) {
       const responses = play.metrics.correctAttempts + play.metrics.errorAttempts;
       entry.totalResponses += responses;
       entry.totalResponseTime += play.metrics.averageResponseTime * responses;
+      // T-921: actualizar récord histórico de longitud de secuencia.
+      const seqLen = Number(play.metrics.maxSequenceLengthAchieved || 0);
+      if (seqLen > entry.maxSequenceLengthAchieved) {
+        entry.maxSequenceLengthAchieved = seqLen;
+      }
     }
 
     // lastPlayedAt se actualiza con cualquier partida (completada o abandonada)
@@ -596,6 +871,7 @@ async function seedGamePlays(sessions, students) {
               'studentMetrics.totalTimeouts': metrics.totalTimeouts,
               'studentMetrics.totalAbandonedGames': metrics.totalAbandonedGames,
               'studentMetrics.averageResponseTime': averageResponseTime,
+              'studentMetrics.maxSequenceLengthAchieved': metrics.maxSequenceLengthAchieved,
               'studentMetrics.lastPlayedAt': metrics.lastPlayedAt
             }
           }

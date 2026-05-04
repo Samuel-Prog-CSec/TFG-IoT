@@ -18,7 +18,9 @@ const {
   validateConfigAgainstMechanicRules,
   normalizeBoardLayout,
   validateBoardLayoutAgainstMappings,
-  validateAssociationChallengePlanAgainstMappings
+  validateAssociationChallengePlanAgainstMappings,
+  applySequenceConfigForCreate,
+  applySequencePlanForCreate
 } = require('../controllers/helpers/sessionValidationHelpers');
 const logger = require('../utils/logger').child({ component: 'gameSessionService' });
 
@@ -119,6 +121,22 @@ async function cloneSessionFromExisting({ sourceSession, userId }) {
     deckId: sourceSession.deckId,
     userId
   });
+
+  // Para Secuencia preservamos también el `sequenceConfig` aquí: el helper
+  // `applyCloneMechanicState` usará ese config para validar el plan o
+  // regenerarlo. Sin esto, el config queda con los defaults del schema y
+  // un plan compatible se descarta innecesariamente.
+  if ((mechanic?.name || '').toLowerCase() === 'sequence' && sourceSession.sequenceConfig) {
+    const sourceCfg =
+      typeof sourceSession.sequenceConfig.toObject === 'function'
+        ? sourceSession.sequenceConfig.toObject()
+        : sourceSession.sequenceConfig;
+    clonedSession.sequenceConfig = {
+      minSequenceLength: sourceCfg.minSequenceLength,
+      maxSequenceLength: sourceCfg.maxSequenceLength,
+      displaySeconds: sourceCfg.displaySeconds
+    };
+  }
 
   return {
     clonedSession,
@@ -395,6 +413,8 @@ async function createSessionFromDeck({
   contextId,
   boardLayout,
   associationChallengePlan,
+  sequencePlan,
+  sequenceConfig,
   createdBy
 }) {
   // Validar mecánica
@@ -445,6 +465,20 @@ async function createSessionFromDeck({
   } else {
     session.associationChallengePlan = [];
     session.requiresAssociationPlanConfiguration = false;
+  }
+
+  // SequencePlan + SequenceConfig (mecánica sequence)
+  if (mechanicName === 'sequence') {
+    applySequenceConfigForCreate({ session, sequenceConfig });
+    applySequencePlanForCreate({
+      session,
+      sequencePlan,
+      cardMappings: syncedMappings,
+      numberOfRounds: Number(session.config?.numberOfRounds)
+    });
+  } else {
+    session.sequencePlan = [];
+    session.sequenceConfig = undefined;
   }
 
   // Verificar consistencia de contextId explícito

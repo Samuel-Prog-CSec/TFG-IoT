@@ -101,9 +101,16 @@ async function createPlay({ sessionId, playerId, creatorId }) {
   // Calcular maxScore teorico para integridad de puntuaciones (P19).
   // Evita que el score acumulado supere el maximo posible ante eventos duplicados
   // o bugs en el motor de puntuacion.
+  // En Secuencia (T-921) cada carta correcta da puntos, no cada ronda. Por
+  // eso maxScore = sum(length de cada ronda) * pointsPerCorrect.
   const rounds = Number(session.config?.numberOfRounds) || 1;
   const points = Number(session.config?.pointsPerCorrect) || 10;
-  const maxScore = Math.max(1, rounds * points);
+  const sequencePlan = Array.isArray(session.sequencePlan) ? session.sequencePlan : [];
+  const totalSequenceCards = sequencePlan.reduce((acc, r) => acc + (Number(r.length) || 0), 0);
+  const maxScore =
+    totalSequenceCards > 0
+      ? Math.max(1, totalSequenceCards * points)
+      : Math.max(1, rounds * points);
 
   // Crear partida
   const play = await gamePlayRepository.create({

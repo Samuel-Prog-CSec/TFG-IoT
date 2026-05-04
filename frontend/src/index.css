@@ -55,6 +55,12 @@
   --color-accent-cyan: oklch(80% 0.14 200);
   --color-accent-pink: oklch(75% 0.16 340);
   --color-accent-orange: oklch(75% 0.16 50);
+  /* Amber: tono ámbar para signature de Secuencia (ADR-107) y hero
+     "Mejor racha" del GameOver. Antes de definirlo aquí, las clases
+     `bg-accent-amber/*`, `text-accent-amber`, etc. compilaban como
+     transparente porque el token nunca existió en `@theme` (QA
+     04/05/2026). Mantiene el lenguaje de "atardecer" del proyecto. */
+  --color-accent-amber: oklch(82% 0.16 75);
 
   /* Gameplay Context Themes */
   --color-theme-default: oklch(55% 0.24 297);

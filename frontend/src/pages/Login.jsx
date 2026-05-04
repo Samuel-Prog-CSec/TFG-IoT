@@ -313,7 +313,7 @@ export default function Login() {
           </p>
           <div className="space-y-4">
             {[
-              { Icon: Target, tint: 'text-accent-indigo', text: 'Mecánicas de asociación y memoria adaptadas por edades' },
+              { Icon: Target, tint: 'text-accent-indigo', text: 'Mecánicas de asociación, memoria y secuencia adaptadas por edades' },
               { Icon: BarChart3, tint: 'text-brand-light', text: 'Analytics en tiempo real del progreso de cada alumno' },
               { Icon: ShieldCheck, tint: 'text-accent-pink', text: 'Protección de datos de menores (RGPD / LOPDGDD)' },
             ].map(({ Icon, tint, text }, i) => (

@@ -194,6 +194,10 @@ function clearPlayTimers(playState) {
     clearTimeout(playState.playTimer);
     playState.playTimer = null;
   }
+  if (playState.sequenceMemorizingTimer) {
+    clearTimeout(playState.sequenceMemorizingTimer);
+    playState.sequenceMemorizingTimer = null;
+  }
   if (playState.transientTimers) {
     for (const timer of playState.transientTimers) {
       clearTimeout(timer);

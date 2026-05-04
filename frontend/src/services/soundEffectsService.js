@@ -115,6 +115,31 @@ class SoundEffectsService {
     ], 0.3);
   }
 
+  /** Aterrizaje de una carta del crupier durante el reparto. Click corto. */
+  playCardDeal() {
+    this._playTone(280, 0.05, 'square', 0.12);
+    // pequeño "tac" agudo encima para que evoque pulgar+carta
+    this._playTone(900, 0.03, 'sine', 0.08);
+  }
+
+  /** Inicio de la animación de recogida — silbido corto descendente. */
+  playCardSweep() {
+    this._playSequence([
+      { freq: 700, dur: 0.06, type: 'sine' },
+      { freq: 500, dur: 0.08, type: 'sine' },
+      { freq: 350, dur: 0.1, type: 'sine' }
+    ], 0.18);
+  }
+
+  /** Secuencia completada correctamente. Acorde ascendente alegre. */
+  playSequenceComplete() {
+    this._playSequence([
+      { freq: 523, dur: 0.08 },   // C5
+      { freq: 659, dur: 0.08 },   // E5
+      { freq: 784, dur: 0.12 }    // G5
+    ], 0.25);
+  }
+
   dispose() {
     if (this._ctx) {
       this._ctx.close();

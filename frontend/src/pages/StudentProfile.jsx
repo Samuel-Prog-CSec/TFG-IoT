@@ -19,6 +19,10 @@ import TrajectoryChart from '../components/analytics/TrajectoryChart';
 import NarrativeCard from '../components/analytics/NarrativeCard';
 import PerformanceByDimension from '../components/analytics/PerformanceByDimension';
 import GameHistoryTable from '../components/analytics/GameHistoryTable';
+import SequenceProgressChart from '../components/analytics/SequenceProgressChart';
+import SequenceHighlightCard from '../components/analytics/SequenceHighlightCard';
+import MemoryHighlightCard from '../components/analytics/MemoryHighlightCard';
+import AssociationHighlightCard from '../components/analytics/AssociationHighlightCard';
 import StrengthsWeaknesses from '../components/analytics/StrengthsWeaknesses';
 import EngagementRadar from '../components/analytics/EngagementRadar';
 import ScrollRevealSection from '../components/ui/ScrollRevealSection';
@@ -395,6 +399,49 @@ export default function StudentProfile() {
           />
         </div>
       </ScrollRevealSection>
+
+      {/* ═══════ Evolución en Secuencia (T-922 fase D) ═══════
+          Sólo se renderiza si el alumno ha jugado al menos una partida
+          de Secuencia en el rango temporal. El bloque bySequence viene
+          de analyticsService.getStudentSummary (T-921 fase F). */}
+      {summary?.bySequence?.totalGames > 0 && (
+        <ScrollRevealSection delay={0.12}>
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+            <div className="lg:col-span-2">
+              <SequenceProgressChart
+                data={(summary.lastGames || [])
+                  .filter(g => (g.mechanic || '').toLowerCase() === 'secuencia')
+                  .map(g => ({
+                    completedAt: g.completedAt,
+                    maxLength: g.maxLength || summary.bySequence.maxSequenceLengthAchieved,
+                    sequencesCompleted: g.sequencesCompleted
+                  }))}
+              />
+            </div>
+            <SequenceHighlightCard summary={summary.bySequence} />
+          </div>
+        </ScrollRevealSection>
+      )}
+
+      {/* ═══════ Highlights por mecánica (ADR-F, sesión 04/05/2026) ═══════
+          Renderiza MemoryHighlightCard y AssociationHighlightCard en paralelo
+          al SequenceHighlightCard cuando el alumno ha jugado al menos una
+          partida de esa mecánica en el rango temporal. Cada card muestra
+          una hero metric (peakStreak) y 3 filas de detalle. Los datos vienen
+          de los nuevos campos `byMemory` / `byAssociation` del endpoint
+          `/student/:id/summary` (analyticsService A9). */}
+      {(summary?.byMemory?.totalGames > 0 || summary?.byAssociation?.totalGames > 0) && (
+        <ScrollRevealSection delay={0.13}>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+            {summary?.byMemory?.totalGames > 0 && (
+              <MemoryHighlightCard summary={summary.byMemory} />
+            )}
+            {summary?.byAssociation?.totalGames > 0 && (
+              <AssociationHighlightCard summary={summary.byAssociation} />
+            )}
+          </div>
+        </ScrollRevealSection>
+      )}
 
       {/* ═══════ Historial de Partidas ═══════ */}
       <ScrollRevealSection delay={0.15}>

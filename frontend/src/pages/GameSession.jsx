@@ -1,7 +1,7 @@
 import { useState, useReducer, useEffect, useCallback, useRef, useMemo } from 'react';
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Wifi, WifiOff, Pause, Play, Volume2, VolumeX, AlertTriangle, Hand, Search } from 'lucide-react';
+import { Wifi, WifiOff, Pause, Play, Volume2, VolumeX, AlertTriangle, Hand, Search, Gamepad2 } from 'lucide-react';
 import { cn, calculateStars, EASING } from '../lib/utils';
 import { useReducedMotion } from '../hooks/useReducedMotion';
 import { useAuth } from '../context/AuthContext';
@@ -17,7 +17,9 @@ import GameOverScreen from '../components/game/GameOverScreen';
 import CharacterMascot from '../components/game/CharacterMascot';
 import AssociationGameplayPanel from '../components/game/AssociationGameplayPanel';
 import { resolveAssociationTheme } from '../components/game/associationTheme';
+import { getMechanicTheme } from '../lib/mechanicTheme';
 import MemoryGameplayPanel from '../components/game/MemoryGameplayPanel';
+import SequenceGameplayPanel from '../components/game/SequenceGameplayPanel';
 import GameBackdrop from '../components/game/GameBackdrop';
 import FallbackTouchPanel from '../components/game/FallbackTouchPanel';
 import RateLimitBanner from '../components/game/RateLimitBanner';
@@ -33,11 +35,18 @@ import { saveSnapshot, loadSnapshot, clearSnapshot, purgeExpiredSnapshots } from
 const FLOAT_DELAY_STYLE = { animationDelay: '1s' };
 const FLOAT_DELAY_NONE = { animationDelay: '0s' };
 
-function normalizeFinalSummary(rawMetrics, score, correctAnswers, isMemoryMode, gameStartTime) {
+function normalizeFinalSummary(rawMetrics, score, correctAnswers, mechanicMode, gameStartTime) {
   const metrics = rawMetrics && typeof rawMetrics === 'object' ? rawMetrics : {};
   const totalAttempts = Number(metrics.totalAttempts || 0);
   const averageResponseTimeMs = Number(metrics.averageResponseTime || 0);
-  const rawTotalTime = Number(metrics.totalTimePlayed || metrics.playDuration || 0);
+  // El backend persiste el tiempo total como `completionTime` (estándar
+  // del modelo GamePlay). Aceptamos también `totalTimePlayed`/`playDuration`
+  // como alias por compatibilidad. Sin esta lectura, en Secuencia el
+  // gameStartTimeRef nunca se setea (no emite `new_round`) y el cálculo
+  // local fallaba a 0 → "Tiempo total: —" en GameOver.
+  const rawTotalTime = Number(
+    metrics.completionTime || metrics.totalTimePlayed || metrics.playDuration || 0
+  );
 
   // Si no hay tiempo del servidor, calcular a partir del inicio local (en ms)
   const elapsedMs = gameStartTime ? Date.now() - gameStartTime : 0;
@@ -51,23 +60,69 @@ function normalizeFinalSummary(rawMetrics, score, correctAnswers, isMemoryMode, 
   // de verdad evita falsos positivos como "Incorrectas: 5" en una partida
   // de 4 aciertos + 1 fallo (QA 26/04/2026).
   const errorAttempts = metrics.errorAttempts !== undefined ? Number(metrics.errorAttempts) : null;
-  const correctAttempts = metrics.correctAttempts !== undefined
-    ? Number(metrics.correctAttempts)
-    : null;
+  const correctAttempts =
+    metrics.correctAttempts !== undefined ? Number(metrics.correctAttempts) : null;
   const errors = Number.isFinite(errorAttempts)
     ? Math.max(0, errorAttempts)
     : Math.max(0, totalAttempts - correctAnswers);
   const finalCorrect = Number.isFinite(correctAttempts) ? correctAttempts : correctAnswers;
 
-  return {
+  // Resumen base común a todas las mecánicas. Las métricas específicas de
+  // Secuencia (sequencesCompleted, maxSequenceLengthAchieved, ...) se
+  // mergean tal cual desde `metrics` para que el sub-componente de stats
+  // (`GameOverStatsSequence`) las consuma.
+  const summary = {
     score,
     correctAnswers: finalCorrect,
     errors,
     attempts: totalAttempts,
     averageResponseTimeMs: Number.isFinite(averageResponseTimeMs) ? averageResponseTimeMs : 0,
     totalTimePlayed: Number.isFinite(totalTimePlayed) ? totalTimePlayed : 0,
-    mode: isMemoryMode ? 'memory' : 'association'
+    mode: mechanicMode || 'association'
   };
+
+  if (mechanicMode === 'sequence') {
+    summary.sequencesCompleted = Number(metrics.sequencesCompleted || 0);
+    summary.sequencesBlocked = Number(metrics.sequencesBlocked || 0);
+    summary.sequencesTimedOut = Number(metrics.sequencesTimedOut || 0);
+    summary.maxSequenceLengthAchieved = Number(metrics.maxSequenceLengthAchieved || 0);
+    summary.partialReproductions = Number(metrics.partialReproductions || 0);
+    summary.partialRounds = Number(metrics.partialRounds || 0);
+    summary.averageReproductionTimeMs = Number(metrics.averageReproductionTimeMs || 0);
+    summary.blockedCardsTotal = Number(metrics.blockedCardsTotal || 0);
+    summary.hintsUsed = Number(metrics.hintsUsed || 0);
+  } else if (mechanicMode === 'memory' && metrics.memory && typeof metrics.memory === 'object') {
+    // Sub-objeto Memory persistido en GameEngine.endPlay (ADR-A/B). El
+    // hero "Mejor racha" del GameOver lo lee desde aquí.
+    summary.memory = {
+      groupsMatched: Number(metrics.memory.groupsMatched || 0),
+      peakStreak: Number(metrics.memory.peakStreak || 0),
+      averageMatchTimeMs: Number(metrics.memory.averageMatchTimeMs || 0),
+      attemptsToFirstMatch: metrics.memory.attemptsToFirstMatch ?? null,
+      groupSize: Number(metrics.memory.groupSize || 2)
+    };
+  } else if (
+    mechanicMode === 'association' &&
+    metrics.association &&
+    typeof metrics.association === 'object'
+  ) {
+    // Sub-objeto Association persistido (ADR-A/B). El hero "Tu categoría
+    // más fuerte" usa categoryDominance; los pills inferiores ya consumen
+    // los campos `errors`/`averageResponseTimeMs` del summary base.
+    summary.association = {
+      peakStreak: Number(metrics.association.peakStreak || 0),
+      quickestCorrectMs: metrics.association.quickestCorrectMs ?? null,
+      slowestCorrectMs: metrics.association.slowestCorrectMs ?? null,
+      byValueAccuracy:
+        metrics.association.byValueAccuracy &&
+        typeof metrics.association.byValueAccuracy === 'object'
+          ? metrics.association.byValueAccuracy
+          : {},
+      categoryDominance: metrics.association.categoryDominance ?? null
+    };
+  }
+
+  return summary;
 }
 
 // Estado inicial del juego (campos coordinados que deben transicionar atómicamente)
@@ -200,15 +255,45 @@ export default function GameSession() {
   // Hint "Toca las cartas del tablero" solo util antes del primer tap; se oculta
   // al primer tap para no ruido visual durante el resto de la partida (QA 22/04/2026).
   const [hasTappedBoardOnce, setHasTappedBoardOnce] = useState(false);
-  // isMemoryMode se resuelve como derivado tras obtener session del socket hook
-  const [sessionIsMemory, setSessionIsMemory] = useState(false);
+  // mechanicMode se resuelve como derivado tras obtener session del socket hook.
+  // Mantenemos `sessionIsMemory` y `sessionIsSequence` como aliases derivados
+  // para legibilidad de los branches existentes; cuando entre una cuarta
+  // mecánica conviene ya tener un único `mechanicMode` como source of truth.
+  const [mechanicMode, setMechanicMode] = useState('association');
+  const sessionIsMemory = mechanicMode === 'memory';
+  const sessionIsSequence = mechanicMode === 'sequence';
+
+  // Estado intra-ronda de la mecánica Secuencia (T-921). Vive aquí (no en
+  // SequenceGameplayPanel) para que los listeners de useGameSocket se
+  // registren ANTES de que el componente Secuencia se monte por
+  // mechanicMode resolver — sin esto, el primer sequence_phase_memorizing
+  // emitido por el backend al `start_play` se perdería (BUG-QA-6, QA 03/05/2026).
+  const [sequenceState, setSequenceState] = useState({
+    sequence: [],
+    length: 0,
+    phase: 'memorizing',
+    cursor: 0,
+    cardStatuses: {},
+    highlightIndex: null,
+    displaySeconds: 3,
+    roundNumber: 1,
+    hint: null,
+    isCollecting: false
+  });
+  const sequenceCollectTimerRef = useRef(null);
+  const sequenceHintTimerRef = useRef(null);
   // Flag para el hook de timer: en Memoria, solo empieza a decrementar cuando
   // el backend ha confirmado board_ready (playEndsAt establecido). Antes de
   // eso mostramos la barra llena y estatica, evitando el visual "bucle vacio".
   const [memoryTimerArmed, setMemoryTimerArmed] = useState(false);
 
   // --- Hooks de feedback y sonido ---
-  const gameFeedback = useGameFeedback({ isMemoryMode: sessionIsMemory, shouldReduceMotion });
+  const gameFeedback = useGameFeedback({
+    isMemoryMode: sessionIsMemory,
+    shouldReduceMotion,
+    // ADR-D: la mascota usa el diccionario por mecánica.
+    mechanicType: mechanicMode
+  });
   const {
     clearFeedback,
     processValidationResult,
@@ -481,7 +566,15 @@ export default function GameSession() {
     const finalScore = Number.isFinite(payload?.finalScore) ? payload.finalScore : 0;
     setSrAnnouncement('Partida finalizada.');
     setPlaySummary(
-      normalizeFinalSummary(payload?.metrics, finalScore, correctAnswers, socketSessionRef.current?.mechanic?.name === 'memory', gameStartTimeRef.current)
+      normalizeFinalSummary(
+        payload?.metrics,
+        finalScore,
+        correctAnswers,
+        // El backend emite `payload.mode` directamente (memory|association|sequence)
+        // desde T-921; usamos esa fuente y caemos a inferencia local sólo si falta.
+        payload?.mode || socketSessionRef.current?.mechanic?.name || 'association',
+        gameStartTimeRef.current
+      )
     );
 
     if (shouldReduceMotion) {
@@ -520,6 +613,143 @@ export default function GameSession() {
 
   // --- Socket hook ---
 
+  // Handlers para los eventos socket de Secuencia (T-921). Se registran en
+  // useGameSocket (no en SequenceGameplayPanel) para que estén activos antes
+  // del primer evento del backend.
+  const handleSequencePhaseMemorizing = useCallback(payload => {
+    if (sequenceCollectTimerRef.current) clearTimeout(sequenceCollectTimerRef.current);
+    if (sequenceHintTimerRef.current) clearTimeout(sequenceHintTimerRef.current);
+
+    const roundNumber = Number(payload?.roundNumber) || 1;
+    const totalRoundsPayload = Number(payload?.totalRounds);
+
+    setSequenceState({
+      sequence: payload?.sequence || [],
+      length: payload?.length || (payload?.sequence?.length ?? 0),
+      phase: 'memorizing',
+      cursor: 0,
+      cardStatuses: {},
+      highlightIndex: null,
+      displaySeconds: payload?.displaySeconds || 3,
+      roundNumber,
+      hint: null,
+      isCollecting: false
+    });
+
+    // Sincronizar header de la partida (ronda actual / total) — el backend
+    // de Secuencia no emite `new_round`, así que lo hacemos a mano aquí.
+    dispatch({ type: 'SET_ROUND', value: roundNumber });
+    if (Number.isFinite(totalRoundsPayload) && totalRoundsPayload > 0) {
+      setTotalRounds(totalRoundsPayload);
+    }
+    if (typeof payload?.score === 'number') {
+      dispatch({ type: 'SET_SCORE', value: payload.score });
+    }
+
+    // Durante la memorización el timer del cliente NO debe correr (el
+    // backend ni siquiera ha armado `roundTimer` aún) — pintar la barra
+    // llena y desactivar isAwaitingResponse para detener `useGameTimer`.
+    dispatch({ type: 'AWAIT_RESPONSE', value: false });
+    clearAnnouncedThresholds();
+    setTimeLeft(roundTimeRef.current || ROUND_TIME);
+  }, [setTimeLeft, clearAnnouncedThresholds]);
+
+  const handleSequencePhaseReproducing = useCallback(payload => {
+    setSequenceState(prev => ({
+      ...prev,
+      phase: 'reproducing',
+      cursor: 0,
+      length: typeof payload?.length === 'number' ? payload.length : prev.length
+    }));
+
+    // Reiniciar la barra a la duración real de esta ronda. El backend acaba
+    // de armar un `roundTimer` nuevo en sequenceFlow.enterReproducingPhase;
+    // sin esto la barra continuaba la cuenta de la ronda anterior (BUG QA
+    // 03/05/2026: "el tiempo se aplica al total de rondas y no se reinicia").
+    const timeLimitMs = Number(payload?.timeLimitMs);
+    if (Number.isFinite(timeLimitMs) && timeLimitMs > 0) {
+      const seconds = Math.max(1, Math.ceil(timeLimitMs / 1000));
+      setRoundTime(seconds);
+      setTimeLeft(seconds);
+    } else {
+      setTimeLeft(roundTimeRef.current || ROUND_TIME);
+    }
+    clearAnnouncedThresholds();
+    dispatch({ type: 'AWAIT_RESPONSE', value: true });
+  }, [setTimeLeft, clearAnnouncedThresholds]);
+
+  const handleSequenceCardResult = useCallback(payload => {
+    const TYPE_TO_STATUS = {
+      correct: 'correct',
+      blocked: 'blocked',
+      timedOut: 'timedOut',
+      timeout: 'timedOut'
+    };
+    const status = TYPE_TO_STATUS[payload?.type];
+    setSequenceState(prev => {
+      const nextStatuses = { ...prev.cardStatuses };
+      if (status && payload?.expectedUid) nextStatuses[payload.expectedUid] = status;
+      return {
+        ...prev,
+        cardStatuses: nextStatuses,
+        cursor: typeof payload?.cursor === 'number' ? payload.cursor : prev.cursor,
+        hint: payload?.hint?.text ? payload.hint : prev.hint
+      };
+    });
+    if (payload?.type === 'correct') {
+      dispatch({ type: 'ANSWER_CORRECT', score: payload.score ?? 0 });
+      // En Secuencia, una carta correcta no termina la ronda salvo que sea la última;
+      // mantenemos awaitingResponse=true para que sigan pasando los siguientes scans.
+      dispatch({ type: 'AWAIT_RESPONSE', value: true });
+      playCorrect();
+    } else if (
+      payload?.type === 'blocked' ||
+      payload?.type === 'incorrect' ||
+      payload?.type === 'incorrect_with_hint'
+    ) {
+      dispatch({ type: 'ANSWER_INCORRECT', score: payload.score ?? 0 });
+      dispatch({ type: 'AWAIT_RESPONSE', value: true });
+      playIncorrect();
+    }
+    if (payload?.hint?.text) {
+      if (sequenceHintTimerRef.current) clearTimeout(sequenceHintTimerRef.current);
+      sequenceHintTimerRef.current = setTimeout(() => {
+        setSequenceState(prev => ({ ...prev, hint: null }));
+      }, 3500);
+    }
+  }, [playCorrect, playIncorrect]);
+
+  const handleSequenceRoundResult = useCallback(payload => {
+    const TYPE_TO_STATUS = {
+      correct: 'correct',
+      blocked: 'blocked',
+      timedOut: 'timedOut'
+    };
+    setSequenceState(prev => {
+      const finalStatuses = { ...prev.cardStatuses };
+      (payload?.results || []).forEach(item => {
+        finalStatuses[item.uid] = TYPE_TO_STATUS[item.status] || 'correct';
+      });
+      return { ...prev, phase: 'completed', cardStatuses: finalStatuses };
+    });
+    // La ronda ha terminado: paramos el timer del cliente para que la
+    // barra no siga decrementando durante el respiro entre rondas (el
+    // backend ya canceló su `roundTimer` en finalizeSequenceRound).
+    dispatch({ type: 'AWAIT_RESPONSE', value: false });
+    if (payload?.completed) {
+      playSuccess();
+    }
+    if (sequenceCollectTimerRef.current) clearTimeout(sequenceCollectTimerRef.current);
+    // Mostrar las cartas reveladas (verde/rojo/ámbar) durante 800ms antes de
+    // arrancar la animación de recogida; el backend espera 1700ms entre
+    // `sequence_round_result` y el siguiente `sequence_phase_memorizing`,
+    // por lo que el collect tiene ~640ms para completarse y queda un
+    // pequeño respiro antes del reparto de la nueva ronda.
+    sequenceCollectTimerRef.current = setTimeout(() => {
+      setSequenceState(prev => ({ ...prev, isCollecting: true }));
+    }, 800);
+  }, [playSuccess]);
+
   const socket = useGameSocket({
     sessionId,
     retryKey,
@@ -534,7 +764,11 @@ export default function GameSession() {
       onPlayState: handlePlayState,
       onMemoryTurnState: handleMemoryTurnState,
       onPlayInterrupted: handlePlayInterrupted,
-      onSrAnnouncement: handleSrAnnouncement
+      onSrAnnouncement: handleSrAnnouncement,
+      onSequencePhaseMemorizing: handleSequencePhaseMemorizing,
+      onSequencePhaseReproducing: handleSequencePhaseReproducing,
+      onSequenceCardResult: handleSequenceCardResult,
+      onSequenceRoundResult: handleSequenceRoundResult
     }
   });
 
@@ -552,10 +786,20 @@ export default function GameSession() {
     emitBoardReady
   } = socket;
 
-  // Sincronizar socketSessionRef y sessionIsMemory cuando la sesión cargue
+  // Memoiza la lista de cardMappings de la sesión para que SequenceGameplayPanel
+  // no re-renderice en cada cambio del padre — sin esto, el `|| []` inline
+  // creaba una referencia nueva por cada render del GameSession (Bloque G,
+  // sesión 04/05/2026).
+  const sequenceCardMappings = useMemo(
+    () => session?.cardMappings || [],
+    [session?.cardMappings]
+  );
+
+  // Sincronizar socketSessionRef y mechanicMode cuando la sesión cargue
   useEffect(() => {
     socketSessionRef.current = session;
-    setSessionIsMemory(session?.mechanic?.name === 'memory');
+    const name = (session?.mechanic?.name || 'association').toString().toLowerCase();
+    setMechanicMode(name === 'memory' || name === 'sequence' ? name : 'association');
   }, [session]);
 
   // --- Snapshot de partida en sessionStorage (resiliencia a F5) ---
@@ -899,6 +1143,7 @@ export default function GameSession() {
         theme={resolveAssociationTheme(
           challenge?.value || session?.context?.name || session?.deck?.name
         )}
+        mechanicType={mechanicMode}
       />
 
       {/* Top HUD — z-index ligeramente por encima de los wrappers hermanos
@@ -911,8 +1156,39 @@ export default function GameSession() {
         <div className="glass rounded-2xl p-2.5 sm:p-3 flex items-center justify-between gap-3">
           {/* Indicador de progreso — dots visuales para niños (en vez de "3 de 6").
               - Asociacion: 1 dot por ronda; el actual pulsa y los completados estan llenos
-              - Memoria: 1 dot por pareja; se iluminan a medida que se emparejan */}
-          <div className="flex items-center gap-3">
+              - Memoria: 1 dot por pareja; se iluminan a medida que se emparejan
+              gap-4 (16px) en vez de gap-3 — QA 04/05: el pill de mecánica
+              quedaba pegado a los dots/texto y se solapaba visualmente. */}
+          <div className="flex items-center gap-4">
+            {/* Badge canónico de mecánica (ADR-C). Identifica la mecánica
+                a un vistazo con icono Lucide signature + nombre legible
+                pintado con el accent color del theme. Visible desde sm+ para
+                no saturar pantallas estrechas. */}
+            {(() => {
+              const theme = getMechanicTheme(mechanicMode);
+              const ThemeIcon = theme.icon;
+              return (
+                <div
+                  className={cn(
+                    'hidden sm:flex items-center gap-2 px-2.5 py-1.5 rounded-xl border',
+                    theme.accentBgSoftClass,
+                    theme.accentBorderClass
+                  )}
+                  title={theme.headline}
+                  aria-label={`Mecánica: ${theme.label}`}
+                >
+                  <ThemeIcon size={16} className={theme.accentClass} aria-hidden="true" />
+                  <span
+                    className={cn(
+                      'text-xs font-semibold uppercase tracking-wider',
+                      theme.accentClass
+                    )}
+                  >
+                    {theme.label}
+                  </span>
+                </div>
+              );
+            })()}
             {(() => {
               const totalProgress = sessionIsMemory
                 ? Math.floor((memoryStats.totalCards || 0) / 2)
@@ -1129,20 +1405,41 @@ export default function GameSession() {
               exit={shouldReduceMotion ? { opacity: 0 } : { opacity: 0, scale: 0.9 }}
               className="text-center"
             >
+              {/* Icono Gamepad2 Lucide tinted con accent del tema mecánico
+                  (QA 04/05) — sustituye al emoji 🎮 que dependía del SO/font.
+                  Tinta dinámica: si la sesión es Memoria/Asociación/Secuencia,
+                  el icono adopta el accent canónico de la mecánica para
+                  reforzar identidad visual. */}
               <motion.div
                 animate={shouldReduceMotion ? { scale: 1 } : { scale: [1, 1.1, 1] }}
                 transition={shouldReduceMotion ? { duration: 0 } : { duration: 2, repeat: Infinity }}
-                className="text-8xl mb-6"
+                className={cn(
+                  'mb-6 mx-auto inline-flex items-center justify-center',
+                  getMechanicTheme(mechanicMode).accentClass
+                )}
+                aria-hidden="true"
               >
-                🎮
+                <Gamepad2 size={96} strokeWidth={1.5} />
               </motion.div>
               <h1 className="text-4xl sm:text-5xl font-bold font-display gradient-text-brand mb-4">
                 ¡Hora de Jugar!
               </h1>
               <p className="text-text-muted mb-8 text-lg">
-                {session?.deck?.name
-                  ? `Busca la tarjeta amiga en ${session.deck.name}`
-                  : 'Encuentra la tarjeta amiga'}
+                {(() => {
+                  if (sessionIsSequence) {
+                    return session?.deck?.name
+                      ? `Memoriza el orden de las cartas en ${session.deck.name}`
+                      : 'Memoriza el orden de las cartas';
+                  }
+                  if (sessionIsMemory) {
+                    return session?.deck?.name
+                      ? `Empareja las cartas iguales en ${session.deck.name}`
+                      : 'Empareja las cartas iguales';
+                  }
+                  return session?.deck?.name
+                    ? `Busca la tarjeta amiga en ${session.deck.name}`
+                    : 'Encuentra la tarjeta amiga';
+                })()}
               </p>
               <motion.button
                 whileHover={shouldReduceMotion ? {} : { scale: 1.05 }}
@@ -1175,29 +1472,47 @@ export default function GameSession() {
                 shakeError && 'animate-shake'
               )}
             >
-              {sessionIsMemory ? (
-                <MemoryGameplayPanel
-                  board={memoryBoard}
-                  attempts={memoryStats.attempts}
-                  matchedCount={memoryStats.matchedCount}
-                  totalCards={memoryStats.totalCards}
-                  feedbackState={feedbackState}
-                  feedbackPoints={feedbackPoints}
-                  feedbackMessage={feedbackMessage}
-                  onCardTap={handleMemoryCardTap}
-                />
-              ) : (
-                <AssociationGameplayPanel
-                  ref={gameFeedback.challengeRef}
-                  challenge={challenge}
-                  paused={gameState === 'paused'}
-                  feedbackState={feedbackState}
-                  feedbackPoints={feedbackPoints}
-                  feedbackMessage={feedbackMessage}
-                  isTimeout={feedbackIsTimeout}
-                />
-              )}
+              {(() => {
+                if (sessionIsMemory) {
+                  return (
+                    <MemoryGameplayPanel
+                      board={memoryBoard}
+                      attempts={memoryStats.attempts}
+                      matchedCount={memoryStats.matchedCount}
+                      totalCards={memoryStats.totalCards}
+                      feedbackState={feedbackState}
+                      feedbackPoints={feedbackPoints}
+                      feedbackMessage={feedbackMessage}
+                      onCardTap={handleMemoryCardTap}
+                    />
+                  );
+                }
+                if (sessionIsSequence) {
+                  return (
+                    <SequenceGameplayPanel
+                      totalRounds={totalRounds}
+                      cardMappings={sequenceCardMappings}
+                      rfidConnected={rfidConnected}
+                      soundEnabled={soundEnabled}
+                      sequenceState={sequenceState}
+                      onCardTap={emitFallbackScan}
+                    />
+                  );
+                }
+                return (
+                  <AssociationGameplayPanel
+                    ref={gameFeedback.challengeRef}
+                    challenge={challenge}
+                    paused={gameState === 'paused'}
+                    feedbackState={feedbackState}
+                    feedbackPoints={feedbackPoints}
+                    feedbackMessage={feedbackMessage}
+                    isTimeout={feedbackIsTimeout}
+                  />
+                );
+              })()}
 
+              {!sessionIsSequence && (
               <motion.p
                 initial={shouldReduceMotion ? false : { opacity: 0, y: 20 }}
                 animate={{ opacity: 1, y: 0 }}
@@ -1228,8 +1543,9 @@ export default function GameSession() {
                   );
                 })()}
               </motion.p>
+              )}
 
-              {!rfidConnected && !sessionIsMemory && (
+              {!rfidConnected && !sessionIsMemory && !sessionIsSequence && (
                 <FallbackTouchPanel
                   cards={shuffledFallbackCards}
                   round={currentRound}
@@ -1349,6 +1665,7 @@ export default function GameSession() {
           mood={mascotMood}
           message={mascotMessage || undefined}
           position="left"
+          mechanicType={mechanicMode}
         />
       </div>
 
@@ -1358,7 +1675,7 @@ export default function GameSession() {
       {(gameState === 'playing' || gameState === 'paused') && (
         <footer className="relative z-10 px-3 py-1.5 sm:px-4 shrink-0">
           <CurrentPlayMetrics
-            mode={sessionIsMemory ? 'memory' : 'association'}
+            mode={mechanicMode}
             score={score}
             correctAnswers={correctAnswers}
             totalRounds={totalRounds}
