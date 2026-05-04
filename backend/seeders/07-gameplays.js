@@ -505,8 +505,30 @@ function deriveSequenceMetricsFromProfile({ profile, session, roundsPlayed, will
 // ══════════════════════════════════════════════════════════════════════
 
 /**
+ * Clasifica la mecánica de una sesión a partir de su shape persistido.
+ * (No populamos `mechanicId` en el seeder para evitar lookup extra).
+ */
+function classifySessionMechanic(session) {
+  if (Array.isArray(session.boardLayout) && session.boardLayout.length > 0) {
+    return 'memory';
+  }
+  if (Array.isArray(session.sequencePlan) && session.sequencePlan.length > 0) {
+    return 'sequence';
+  }
+  return 'association';
+}
+
+/**
  * Genera partidas distribuidas temporalmente para analytics avanzados.
- * Cada alumno recibe 8-15 partidas distribuidas en 60 días.
+ * Cada alumno recibe 8-15 partidas distribuidas en 60 días, **garantizando
+ * cobertura por mecánica**: si el profesor tiene sesiones de las 3
+ * mecánicas, el alumno juega al menos 2 partidas de cada (ADR-A/B).
+ *
+ * Sin esta cobertura forzada, el ciclado puro por `sortedSessions[i %
+ * length]` deja alumnos sin partidas en alguna mecánica, lo que rompe la
+ * densidad de los charts del profesor (`MemoryAccuracyChart`,
+ * `AssociationContextChart`, `SequenceProgressChart`) y los highlight
+ * cards.
  */
 function generateGamePlaysData(sessions, students) {
   const gamePlays = [];
@@ -540,9 +562,37 @@ function generateGamePlaysData(sessions, students) {
       (a, b) => (a.startedAt || a.createdAt) - (b.startedAt || b.createdAt)
     );
 
+    // Agrupar sesiones del profesor por mecánica para garantizar cobertura.
+    const sessionsByMechanic = { memory: [], association: [], sequence: [] };
+    for (const sess of sortedSessions) {
+      const m = classifySessionMechanic(sess);
+      sessionsByMechanic[m].push(sess);
+    }
+    const availableMechanics = ['memory', 'association', 'sequence'].filter(
+      m => sessionsByMechanic[m].length > 0
+    );
+
+    // Construir un plan ordenado de sesiones a jugar:
+    //  - Las primeras 2*N partidas (N = número de mecánicas con sesión)
+    //    rotan por mecánica para garantizar 2 partidas en cada una.
+    //  - Las restantes ciclan por todas las sesiones del profesor (mismo
+    //    comportamiento histórico) para mantener el patrón temporal.
+    const playPlan = [];
+    if (availableMechanics.length > 0) {
+      const guaranteedRounds = Math.min(playsCount, availableMechanics.length * 2);
+      for (let g = 0; g < guaranteedRounds; g += 1) {
+        const mech = availableMechanics[g % availableMechanics.length];
+        const list = sessionsByMechanic[mech];
+        playPlan.push(list[Math.floor(g / availableMechanics.length) % list.length]);
+      }
+    }
+    while (playPlan.length < playsCount) {
+      playPlan.push(sortedSessions[playPlan.length % sortedSessions.length]);
+    }
+
     for (let i = 0; i < playsCount; i++) {
-      // Distribuir entre sesiones (con re-intentos — misma sesión jugada varias veces)
-      const session = sortedSessions[i % sortedSessions.length];
+      // Distribuir entre sesiones (con cobertura garantizada por mecánica).
+      const session = playPlan[i];
       const numberOfRounds = session.config.numberOfRounds;
 
       // Inferir si la sesión usa mecánica memory desde boardLayout (solo memory lo tiene)
