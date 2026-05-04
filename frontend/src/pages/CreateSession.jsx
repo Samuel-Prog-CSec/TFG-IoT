@@ -19,7 +19,7 @@ import {
   ChevronRight,
   ChevronLeft,
   CreditCard,
-  Layers,
+  Gamepad2,
   Settings,
   Save,
   Sparkles
@@ -57,9 +57,12 @@ const WIZARD_STEPS = [
   },
   {
     id: 'mechanic',
+    // Paso 2: ícono Gamepad2 en vez del Layers que ya usa el paso 1
+    // (QA 04/05 — ambos iconos eran iguales y no diferenciaban visualmente
+    // los pasos del stepper).
     title: 'Mecánica',
     subtitle: 'Tipo de juego',
-    icon: Layers,
+    icon: Gamepad2,
     description: 'Elige cómo interactuarán los estudiantes con las tarjetas'
   },
   {
@@ -67,7 +70,9 @@ const WIZARD_STEPS = [
     title: 'Reglas',
     subtitle: 'Configura parámetros',
     icon: Settings,
-    description: 'Define tiempo, puntos y número de rondas'
+    // Descripción genérica — Memoria no tiene "número de rondas", el plan de
+    // retos lo aporta cada mecánica con sus propios sliders.
+    description: 'Configura las reglas del juego'
   },
   {
     id: 'review',

@@ -1,7 +1,7 @@
 import { useState, useReducer, useEffect, useCallback, useRef, useMemo } from 'react';
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Wifi, WifiOff, Pause, Play, Volume2, VolumeX, AlertTriangle, Hand, Search } from 'lucide-react';
+import { Wifi, WifiOff, Pause, Play, Volume2, VolumeX, AlertTriangle, Hand, Search, Gamepad2 } from 'lucide-react';
 import { cn, calculateStars, EASING } from '../lib/utils';
 import { useReducedMotion } from '../hooks/useReducedMotion';
 import { useAuth } from '../context/AuthContext';
@@ -1156,8 +1156,10 @@ export default function GameSession() {
         <div className="glass rounded-2xl p-2.5 sm:p-3 flex items-center justify-between gap-3">
           {/* Indicador de progreso — dots visuales para niños (en vez de "3 de 6").
               - Asociacion: 1 dot por ronda; el actual pulsa y los completados estan llenos
-              - Memoria: 1 dot por pareja; se iluminan a medida que se emparejan */}
-          <div className="flex items-center gap-3">
+              - Memoria: 1 dot por pareja; se iluminan a medida que se emparejan
+              gap-4 (16px) en vez de gap-3 — QA 04/05: el pill de mecánica
+              quedaba pegado a los dots/texto y se solapaba visualmente. */}
+          <div className="flex items-center gap-4">
             {/* Badge canónico de mecánica (ADR-C). Identifica la mecánica
                 a un vistazo con icono Lucide signature + nombre legible
                 pintado con el accent color del theme. Visible desde sm+ para
@@ -1403,12 +1405,21 @@ export default function GameSession() {
               exit={shouldReduceMotion ? { opacity: 0 } : { opacity: 0, scale: 0.9 }}
               className="text-center"
             >
+              {/* Icono Gamepad2 Lucide tinted con accent del tema mecánico
+                  (QA 04/05) — sustituye al emoji 🎮 que dependía del SO/font.
+                  Tinta dinámica: si la sesión es Memoria/Asociación/Secuencia,
+                  el icono adopta el accent canónico de la mecánica para
+                  reforzar identidad visual. */}
               <motion.div
                 animate={shouldReduceMotion ? { scale: 1 } : { scale: [1, 1.1, 1] }}
                 transition={shouldReduceMotion ? { duration: 0 } : { duration: 2, repeat: Infinity }}
-                className="text-8xl mb-6"
+                className={cn(
+                  'mb-6 mx-auto inline-flex items-center justify-center',
+                  getMechanicTheme(mechanicMode).accentClass
+                )}
+                aria-hidden="true"
               >
-                🎮
+                <Gamepad2 size={96} strokeWidth={1.5} />
               </motion.div>
               <h1 className="text-4xl sm:text-5xl font-bold font-display gradient-text-brand mb-4">
                 ¡Hora de Jugar!

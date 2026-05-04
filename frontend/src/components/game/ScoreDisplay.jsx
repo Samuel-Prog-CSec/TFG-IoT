@@ -102,35 +102,40 @@ ScoreDisplay.propTypes = {
  * Versión compacta del ScoreDisplay para el HUD
  */
 function ScoreDisplayCompact({ score = 0, className }) {
-  const prevScoreRef = useRef(score);
+  // Clamp UI a 0 — el backend reduce score con penalizaciones y, aunque hay
+  // un clamp en el modelo Mongoose, durante la transición de eventos socket
+  // (incorrect → score actualizado) la UI puede recibir valores negativos
+  // intermedios. QA 04/05 vio "-2" en pantalla durante Secuencia.
+  const displayScore = Math.max(0, score);
+  const prevScoreRef = useRef(displayScore);
   const [scoreDelta, setScoreDelta] = useState(null);
 
   useEffect(() => {
-    const delta = score - prevScoreRef.current;
+    const delta = displayScore - prevScoreRef.current;
     if (delta > 0) {
       setScoreDelta(delta);
       const timer = setTimeout(() => setScoreDelta(null), 1200);
-      prevScoreRef.current = score;
+      prevScoreRef.current = displayScore;
       return () => clearTimeout(timer);
     }
-    prevScoreRef.current = score;
+    prevScoreRef.current = displayScore;
     return undefined;
-  }, [score]);
+  }, [displayScore]);
 
   return (
     <motion.div
-      key={score}
+      key={displayScore}
       initial={{ scale: 1.2 }}
       animate={{ scale: 1 }}
       className={cn("flex items-center gap-2 relative", className)}
-      aria-label={`Puntuación: ${score} puntos`}
+      aria-label={`Puntuación: ${displayScore} puntos`}
     >
       <Star size={20} className="fill-warning-base text-warning-base" aria-hidden="true" />
-      <span className="text-2xl font-bold font-display text-text-primary tabular-nums">{score}</span>
+      <span className="text-2xl font-bold font-display text-text-primary tabular-nums">{displayScore}</span>
       <AnimatePresence>
         {scoreDelta !== null && (
           <motion.span
-            key={`delta-${score}`}
+            key={`delta-${displayScore}`}
             initial={{ opacity: 1, y: 0 }}
             animate={{ opacity: 0, y: -24 }}
             exit={{ opacity: 0 }}

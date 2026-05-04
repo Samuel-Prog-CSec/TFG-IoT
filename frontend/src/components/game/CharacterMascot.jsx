@@ -54,7 +54,9 @@ const messagePool = {
   encouraging: ['¡Tú puedes!', '¡Ánimo!', '¡La próxima lo clavas!', '¡Sigue!'],
   celebrating: ['¡GENIAL!', '¡INCREÍBLE!', '¡ERES UNA ESTRELLA!'],
   thinking: ['Piensa bien…', 'Tómate tu tiempo', '¿Cuál será?'],
-  sad: ['¡Casi! 💪', '¡Otra vez!', '¡No pasa nada!'],
+  // Mensaje de aliento sin emoji — el icono "💪" rompe el look y depende
+  // de fuente del SO; el texto solo es ya cálido para 4-6 años.
+  sad: ['¡Casi!', '¡Otra vez!', '¡No pasa nada!'],
 };
 
 /**

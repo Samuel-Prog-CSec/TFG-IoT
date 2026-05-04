@@ -14,6 +14,7 @@ import { SkeletonCard } from '../ui/SkeletonShimmer';
 import { isMechanicSelectable } from './sessionHelpers';
 import { mechanicShape } from './sessionPropTypes';
 import { getMechanicMeta } from '../../constants/mechanicLabels';
+import { getMechanicTheme } from '../../lib/mechanicTheme';
 
 /**
  * Paso 2: Seleccionar Mecanica
@@ -49,6 +50,11 @@ export default function StepMechanic({ mechanics, loading, selectedMechanicId, o
           const mechanicId = mechanic.id || mechanic._id;
           const selectable = isMechanicSelectable(mechanic);
           const selected = selectable && selectedMechanicId === mechanicId;
+          // Tema canónico de la mecánica para tintar la card seleccionada con
+          // su color signature (Memoria=indigo, Asociación=cyan, Secuencia=ámbar).
+          // Antes todas las cards seleccionadas usaban brand-base (morado) y
+          // perdían la personalidad cromática de la mecánica.
+          const theme = getMechanicTheme(mechanic.name);
 
           return (
             <motion.button
@@ -58,11 +64,11 @@ export default function StepMechanic({ mechanics, loading, selectedMechanicId, o
               className={cn(
                 'relative p-6 rounded-xl border-2 text-left transition-[border-color,background-color]',
                 selectable
-                  ? 'hover:border-brand-base/50 hover:bg-brand-base/5'
+                  ? !selected && `hover:${theme.accentBorderClass} hover:${theme.accentBgSoftClass}`
                   : 'opacity-70 cursor-not-allowed border-border-default bg-background-base/40',
                 selected
-                  ? 'border-brand-base bg-brand-base/10'
-                  : 'border-border-default bg-background-elevated/30'
+                  ? cn(theme.accentBorderClass, theme.accentBgSoftClass, 'border-2')
+                  : selectable && 'border-border-default bg-background-elevated/30'
               )}
               aria-pressed={selected}
               whileHover={selectable ? { scale: 1.03, y: -4 } : undefined}
@@ -78,9 +84,12 @@ export default function StepMechanic({ mechanics, loading, selectedMechanicId, o
                 <motion.div
                   initial={{ scale: 0 }}
                   animate={{ scale: 1 }}
-                  className="absolute top-3 right-3 size-7 rounded-full bg-brand-base flex items-center justify-center shadow-lg shadow-brand-glow"
+                  className={cn(
+                    'absolute top-3 right-3 size-7 rounded-full flex items-center justify-center shadow-lg',
+                    theme.accentBgClass
+                  )}
                 >
-                  <Check size={14} className="text-text-primary" />
+                  <Check size={14} className={theme.accentClass} />
                 </motion.div>
               )}
 
@@ -88,7 +97,7 @@ export default function StepMechanic({ mechanics, loading, selectedMechanicId, o
                 className={cn(
                   'size-14 mb-4 rounded-xl flex items-center justify-center transition-colors',
                   selected
-                    ? 'bg-brand-base/20 text-brand-base'
+                    ? cn(theme.accentBgClass, theme.accentClass)
                     : 'bg-background-elevated/80 text-text-secondary'
                 )}
                 aria-hidden="true"

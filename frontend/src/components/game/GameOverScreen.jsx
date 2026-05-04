@@ -31,7 +31,20 @@ function GameOverScreen({
   onGoHome,
 }) {
   const { shouldReduceMotion } = useReducedMotion();
-  const percentage = totalRounds > 0 ? (correctAnswers / totalRounds) * 100 : 0;
+  // Cálculo del porcentaje sensible a la mecánica:
+  //  - Secuencia: `correctAnswers` son cartas individuales acertadas, no
+  //    rondas; usar ese ratio inflaba estrellas (3⭐ "¡Secuencia perfecta!"
+  //    con 0 rondas completas y 3 perdidas — QA 04/05 BUG-S7). Para Secuencia
+  //    medimos % de rondas completadas (`sequencesCompleted / totalRounds`).
+  //  - Memoria/Asociación: comportamiento histórico (`correctAnswers / totalRounds`).
+  const percentage = (() => {
+    if (totalRounds <= 0) return 0;
+    if (summary?.mode === 'sequence') {
+      const completed = Number(summary?.sequencesCompleted || 0);
+      return (completed / totalRounds) * 100;
+    }
+    return (correctAnswers / totalRounds) * 100;
+  })();
   const stars = calculateStars(percentage);
   const isNewBest = score > bestScore;
   const floatingStars = useMemo(
@@ -346,9 +359,11 @@ GameOverScreen.propTypes = {
   totalRounds: PropTypes.number,
   bestScore: PropTypes.number,
   summary: PropTypes.shape({
+    mode: PropTypes.string,
     errors: PropTypes.number,
     averageResponseTimeMs: PropTypes.number,
     totalTimePlayed: PropTypes.number,
+    sequencesCompleted: PropTypes.number,
   }),
   onPlayAgain: PropTypes.func.isRequired,
   onGoHome: PropTypes.func.isRequired,

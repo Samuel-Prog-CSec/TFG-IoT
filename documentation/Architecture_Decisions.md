@@ -5821,3 +5821,55 @@ Los 3 sub-componentes `GameOverStats*` (Memory/Association/Sequence) duplicaban 
 **Positivas**: futuro tuneado del estilo de pills se hace en un solo sitio. El copy del GameOver refuerza la signature por mecánica del leitmotiv del producto. Cobertura: 9 tests para `MetricPill`, 7 para `gameOverCopy`.
 
 **Riesgos asumidos**: `MetricPill` introduce un wrapper más en el árbol de render → en gridviews con 50+ pills (no aplica hoy) podría costar. Mitigado con `memo()`.
+
+---
+
+## ADR-111: QA exhaustivo 3 mecánicas + pulido UI/UX [Frontend, UX]
+
+**Fecha:** 2026-05-04
+**Sprint/Origen:** Sesión QA intensiva de las 3 mecánicas (Memoria/Asociación/Secuencia)
+**Estado:** Aprobado (`feature/sequence-mechanic`)
+**Alcance:** Frontend (routing, wizard, gameplay HUD/tablero, GameOver, mascota, scoring)
+
+### Contexto
+
+Sesión QA senior con viewport 1920×1080 que jugó las 3 mecánicas de extremo a extremo (wizard → board-setup → partida → summary → dashboard) con las skills `ui-ux-pro-max`, `frontend-design`, `animate`, `framer-motion-animator` y `web-design-guidelines` activas. Se detectaron 9 problemas de severidad ALTA/MEDIA y un puñado de pulidos de identidad visual que el codebase ya tenía resueltos solo a medias (mechanicTheme aplicado en partida y dashboards, pero no en el wizard de creación).
+
+### Hallazgos resueltos en esta sesión
+
+| Código | Severidad | Síntoma observado | Fix aplicado |
+|---|---|---|---|
+| BUG-1 (routing) | ALTA | `/sessions/new` (URL intuitiva) caía en `SessionDetail` con error 400 "Parámetros de ruta inválidos" porque el patrón `/sessions/:sessionId` capturaba `new` como id | `App.jsx` añade redirect `<Route path="sessions/new" element={<Navigate to="/create-session" replace />} />` antes del catch-all `:sessionId` |
+| BUG-S4 (score UI negativo) | ALTA | Durante Secuencia el score llegó a mostrar `-2` en pantalla porque los eventos socket de penalización emitían el valor pre-clamp y el modelo Mongoose solo clampa en `pre('validate')` | `ScoreDisplayCompact` y `CurrentPlayMetrics` clampan a `Math.max(0, score)` antes de pintar, en defensa de la UI |
+| BUG-S7 (stars Secuencia incoherentes) | ALTA | GameOver Secuencia mostraba 3⭐ "¡SIGUES EL RITMO! / ¡Secuencia perfecta!" con 0 rondas completas, 1 bloqueada y 2 sin tiempo, porque `correctAnswers / totalRounds` cuenta cartas individuales (no rondas) | `GameOverScreen` calcula `percentage` mecánica-aware: en Secuencia usa `summary.sequencesCompleted / totalRounds`; en Memoria/Asociación se mantiene la fórmula histórica |
+| BUG-A1 (frame vacío Asociación) | ALTA | Tras acertar una ronda, la card grande de la siguiente quedaba **vacía 1-2s** mientras se descargaba la nueva imagen del asset; solo aparecía "Encuentra: X" debajo del frame | `ChallengeDisplay` muestra el `value` del asset como texto centrado durante `imageLoading`, y reactiva el shimmer/pulse aunque haya `dominantColor`. Nunca hay frame vacío |
+| UX-emoji-1 (corazones Memoria) | MEDIA | Indicador de progreso "parejas encontradas" usaba emojis 🤍/💚 que dependen del SO (en Windows el corazón blanco se ve plano y desaturado vs. el verde lima saturado) | `MemoryBoard` usa `Heart` de Lucide con `fill-success-base` cuando `isFound` y `text-text-disabled/50` cuando no |
+| UX-emoji-2 (mascota mensaje) | BAJA | Pool `sad` incluía "¡Casi! 💪" — emoji decorativo en cadena de texto | Eliminado el emoji del mensaje sin perder calidez |
+| UX-emoji-3 (¡Hora de jugar!) | BAJA | El icono de la pantalla de bienvenida de la partida era el emoji 🎮 | Sustituido por `Gamepad2` Lucide tintado con `mechanicTheme.accentClass` (Memoria=indigo, Asociación=cyan, Secuencia=ámbar) |
+| UI-1 (HUD top-left solapamiento) | MEDIA | El pill de mecánica (`MEMORIA`/`ASOCIACIÓN`/`SECUENCIA`) y el contador de rondas/parejas se veían pegados visualmente en `glass` header con `gap-3` (12 px) | Header pasa a `gap-4` (16 px) — separación legible incluso con la pill verde de racha intermedia |
+| UI-2 (cards mecánica wizard) | MEDIA | Las 3 cards del paso 2 del wizard (`StepMechanic`) usaban un mismo morado (`brand-base`) al seleccionarse — perdían la personalidad cromática que `mechanicTheme` ya define para el resto de la app | Cada card seleccionada usa su `theme.accentBorderClass` + `theme.accentBgSoftClass` + `theme.accentClass` (Memoria=indigo, Asociación=cyan, Secuencia=ámbar). Check icon también tintado |
+| UI-4 (stepper paso 2 icono) | BAJA | El paso 1 (Mazo) y el paso 2 (Mecánica) del `WIZARD_STEPS` usaban el mismo icono `Layers`, sin diferenciación visual | Paso 2 pasa a `Gamepad2`. Icono coherente con la pantalla "¡Hora de jugar!" |
+| UI-5 (descripción paso 3 genérica) | BAJA | El stepper paso 3 decía "Define tiempo, puntos y **número de rondas**" — Memoria no tiene rondas, sólo parejas | Cambiada a "Configura las reglas del juego" |
+
+### Hallazgos investigados pero descartados como falsos positivos
+
+- **BUG-S1 (cartas no aparecen en memorizing)**: Durante la primera pasada se observó "Memoriza el orden — 5s" con el área central vacía. La re-verificación con `displaySeconds=8s` confirma que las cartas SÍ se renderizan correctamente con la animación crupier (deal stagger 90 ms × N + spring). El issue inicial fue un timing del screenshot tras la fade-out, no un bug de código.
+
+### Hallazgos no aplicados (diferidos)
+
+- **AppLayout en GameOver** (UI-3): el `GameOverScreen` es `position: fixed inset-0` y oculta el sidebar. Es un patrón modal-fullscreen válido (hay botones "Jugar de Nuevo" y "Salir") y el usuario no se queda atrapado. No bloquea, dejado como está.
+- **Mascota celebrando en GameOver** (UI-6): la mascota desaparece en GameOver. El confeti + estrellas flotantes ya celebran. Mantener mascota requeriría rework del overlay; pendiente para una sesión específica de motion polish.
+
+### Consecuencias
+
+**Positivas**:
+- Todas las 3 mecánicas tienen su signature visual (color, icono Lucide) consistente desde el wizard hasta el GameOver.
+- El score nunca aparece negativo en la UI, aunque los eventos socket transitorios lo muestren.
+- `/sessions/new` ya no es una "URL trampa" que confunde al docente.
+- 0 emojis estructurales en componentes de gameplay (la mascota 🦉 sigue siendo emoji por ser personaje gráfico, no icono estructural — coherente con CLAUDE.md).
+
+**Riesgos asumidos**:
+- El cambio de cálculo de stars en Secuencia puede sorprender a docentes que ya tenían intuición del sistema antiguo. Mitigación: el copy del GameOver explica el porqué ("Memoriza la secuencia paso a paso" para 1⭐).
+- El placeholder textual de `ChallengeDisplay` durante `imageLoading` añade un re-render extra, pero es despreciable (un solo div con clases estáticas).
+
+**Suite verificada**: 1129/1129 backend + 329/329 frontend, lint frontend 0 errors. E2E con Playwright cubrió las 3 mecánicas (creación + partida + summary).
