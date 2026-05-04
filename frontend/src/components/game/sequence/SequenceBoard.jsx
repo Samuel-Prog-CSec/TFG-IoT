@@ -261,7 +261,7 @@ function CardCellButton({ item, onCardTap, isInteractive, isFaceUp, reduceMotion
       type="button"
       onClick={() => onCardTap?.(item)}
       className="block w-full focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-amber focus-visible:ring-offset-2 focus-visible:ring-offset-background-base rounded-xl"
-      aria-label={`Seleccionar carta ${item.assignedValue || item.uid}`}
+      aria-label={`Seleccionar carta: ${item.assignedValue || item.uid}`}
     >
       <SequenceCard
         uid={item.uid}

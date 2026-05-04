@@ -201,51 +201,19 @@ const gamePlaySchema = new mongoose.Schema(
         default: 0
       },
       // Métricas específicas de la mecánica Memoria (ADR-A, sesión 04/05/2026).
-      // Sólo se persisten cuando la partida es de tipo 'memory'; el DTO las
-      // omite del payload público para Asociación y Secuencia.
-      memory: {
-        type: {
-          // Parejas/grupos completados durante la partida (incremental).
-          groupsMatched: { type: Number, default: 0 },
-          // Mejor racha de aciertos consecutivos sin error/timeout. Es la
-          // métrica "hero" del GameOver de Memoria.
-          peakStreak: { type: Number, default: 0 },
-          // Tiempo medio entre la primera y la segunda carta de un grupo
-          // emparejado correctamente. Refleja velocidad cognitiva.
-          averageMatchTimeMs: { type: Number, default: 0 },
-          // Intentos (resoluciones de grupo, correctos o no) hasta que el
-          // alumno acertó la primera pareja. `null` si nunca acertó.
-          attemptsToFirstMatch: { type: Number, default: null },
-          // Snapshot de `mechanicId.rules.behavior.matchingGroupSize` al
-          // arrancar la partida (2 = parejas, 3 = tríos…). Permite que el
-          // GameOver muestre "parejas" o "tríos" sin acoplar el frontend a
-          // la mecánica actual de la sesión.
-          groupSize: { type: Number, default: 2 }
-        },
-        default: undefined
-      },
-      // Métricas específicas de la mecánica Asociación (ADR-A, sesión
-      // 04/05/2026). Sólo se persisten para partidas 'association'.
-      association: {
-        type: {
-          // Mejor racha de aciertos consecutivos.
-          peakStreak: { type: Number, default: 0 },
-          // Acierto más rápido (ms desde inicio de ronda). Útil como
-          // métrica de "fluidez" en Asociación.
-          quickestCorrectMs: { type: Number, default: null },
-          // Acierto más lento. Permite ver el espectro de tiempos.
-          slowestCorrectMs: { type: Number, default: null },
-          // Mapa de accuracy por valor asignado (slug del contexto/concepto
-          // que aparece en cada ronda). Forma:
-          //   { 'cerdo': { correct: 3, total: 4 }, 'caballo': … }
-          // Mongoose tipa Mixed para no rigidizar las claves dinámicas.
-          byValueAccuracy: { type: mongoose.Schema.Types.Mixed, default: {} },
-          // Slug del contexto/valor con mejor accuracy. Calculado al cierre
-          // a partir de byValueAccuracy. "—" si no se puede determinar.
-          categoryDominance: { type: String, default: null }
-        },
-        default: undefined
-      },
+      // Persisten como Mixed para evitar el comportamiento de Mongoose con
+      // sub-schemas typed + `default: undefined` que en QA 04/05/2026
+      // resultó en métricas no persistidas tras `playDoc.complete()`. El
+      // shape se documenta aquí para referencia y se valida en `dtos.js`.
+      // Forma: { groupsMatched, peakStreak, averageMatchTimeMs,
+      //          attemptsToFirstMatch, groupSize }.
+      memory: { type: mongoose.Schema.Types.Mixed, default: undefined },
+      // Métricas específicas de la mecánica Asociación (ADR-A). Mixed por
+      // la misma razón que `memory`. Forma:
+      //   { peakStreak, quickestCorrectMs, slowestCorrectMs,
+      //     byValueAccuracy: { '<slug>': { correct, total } },
+      //     categoryDominance }.
+      association: { type: mongoose.Schema.Types.Mixed, default: undefined },
       // Métricas específicas de la mecánica Secuencia (T-921). Sólo se
       // persisten cuando la partida es de tipo 'sequence'; para Asociación
       // y Memoria quedan undefined y el DTO las omite del payload público.

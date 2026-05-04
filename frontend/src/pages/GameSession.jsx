@@ -91,6 +91,35 @@ function normalizeFinalSummary(rawMetrics, score, correctAnswers, mechanicMode, 
     summary.averageReproductionTimeMs = Number(metrics.averageReproductionTimeMs || 0);
     summary.blockedCardsTotal = Number(metrics.blockedCardsTotal || 0);
     summary.hintsUsed = Number(metrics.hintsUsed || 0);
+  } else if (mechanicMode === 'memory' && metrics.memory && typeof metrics.memory === 'object') {
+    // Sub-objeto Memory persistido en GameEngine.endPlay (ADR-A/B). El
+    // hero "Mejor racha" del GameOver lo lee desde aquí.
+    summary.memory = {
+      groupsMatched: Number(metrics.memory.groupsMatched || 0),
+      peakStreak: Number(metrics.memory.peakStreak || 0),
+      averageMatchTimeMs: Number(metrics.memory.averageMatchTimeMs || 0),
+      attemptsToFirstMatch: metrics.memory.attemptsToFirstMatch ?? null,
+      groupSize: Number(metrics.memory.groupSize || 2)
+    };
+  } else if (
+    mechanicMode === 'association' &&
+    metrics.association &&
+    typeof metrics.association === 'object'
+  ) {
+    // Sub-objeto Association persistido (ADR-A/B). El hero "Tu categoría
+    // más fuerte" usa categoryDominance; los pills inferiores ya consumen
+    // los campos `errors`/`averageResponseTimeMs` del summary base.
+    summary.association = {
+      peakStreak: Number(metrics.association.peakStreak || 0),
+      quickestCorrectMs: metrics.association.quickestCorrectMs ?? null,
+      slowestCorrectMs: metrics.association.slowestCorrectMs ?? null,
+      byValueAccuracy:
+        metrics.association.byValueAccuracy &&
+        typeof metrics.association.byValueAccuracy === 'object'
+          ? metrics.association.byValueAccuracy
+          : {},
+      categoryDominance: metrics.association.categoryDominance ?? null
+    };
   }
 
   return summary;
