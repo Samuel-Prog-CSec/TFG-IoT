@@ -501,8 +501,13 @@ async function getStudentsTiersByMechanic(studentIds = []) {
       }
     },
     {
+      // Las collections del proyecto usan snake_case explícito en
+      // GameSession.collection ('game_sessions') y GameMechanic.collection
+      // ('game_mechanics') — el plural automático de Mongoose
+      // ('gamesessions') NO aplica. Sin esto el lookup devolvía vacío y
+      // el mapa tiersByMechanic quedaba como {} para todos los alumnos.
       $lookup: {
-        from: 'gamesessions',
+        from: 'game_sessions',
         localField: 'sessionId',
         foreignField: '_id',
         as: 'session'
@@ -511,7 +516,7 @@ async function getStudentsTiersByMechanic(studentIds = []) {
     { $unwind: '$session' },
     {
       $lookup: {
-        from: 'gamemechanics',
+        from: 'game_mechanics',
         localField: 'session.mechanicId',
         foreignField: '_id',
         as: 'mechanic'
