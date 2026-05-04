@@ -173,12 +173,24 @@ export default function MemoryBoard({ board, feedbackState, feedbackPoints, feed
                 if (shouldReduceMotion) return {};
                 if (isMatchFeedback) return { scale: [1, 1.12, 1], transition: { duration: 0.4 } };
                 if (isMismatchFeedback) return { x: [-3, 3, -2, 2, 0], transition: { duration: 0.4 } };
-                // Cartas emparejadas: respiracion sutil (scale loop) en lugar
-                // de atenuar. Celebra el logro en vez de "apagarla".
+                // Cartas emparejadas: signature "peeking" — respiración
+                // sutil (scale 1→1.02) + wobble de 0.6° con jitter por
+                // slotIndex (ADR-D, sesión 04/05/2026). Cada carta tiene
+                // duración ligeramente distinta (2.6–4.4s) para que el
+                // tablero no respire al unísono.
                 if (slot.isMatched) {
+                  const idx = Number(slot.slotIndex || 0);
+                  const period = 2.6 + (idx % 5) * 0.45;
+                  const phase = (idx % 4) * 0.4;
                   return {
                     scale: [1, 1.02, 1],
-                    transition: { duration: 2.4, repeat: Infinity, ease: 'easeInOut' }
+                    rotate: [0, 0.6, -0.6, 0],
+                    transition: {
+                      duration: period,
+                      delay: phase,
+                      repeat: Infinity,
+                      ease: 'easeInOut'
+                    }
                   };
                 }
                 return {};

@@ -5,6 +5,7 @@ import { Star, Trophy, RotateCcw, Home, PartyPopper, Flame, Sparkles as Sparkles
 import { cn, calculateStars } from '../../lib/utils';
 import { useReducedMotion } from '../../hooks/useReducedMotion';
 import { useConfetti } from '../../hooks/useConfetti';
+import { getGameOverCopy } from '../../lib/gameOverCopy';
 import ButtonPremium from '../ui/ButtonPremium';
 import GameOverStats from './gameover/GameOverStats';
 
@@ -48,30 +49,35 @@ function GameOverScreen({
   // Mensajes y estilo visual segun estrellas obtenidas (4 niveles).
   // Usamos iconos Lucide para consistencia con el resto del design system
   // (en vez de emojis que mezclan con la tipografía del sistema operativo).
+  // ADR-F: el título y subtítulo se delegan a `gameOverCopy.js` para que
+  // varíen por mecánica (un 3⭐ en Memoria dice "MEMORIA DE ELEFANTE";
+  // un 3⭐ en Secuencia dice "SIGUES EL RITMO"). Aquí se conserva la
+  // configuración visual (Icon + glow) por número de estrellas.
   const tierConfig = useMemo(() => {
+    const { title, subtitle } = getGameOverCopy(stars, summary?.mode);
     switch (stars) {
       case 3: return {
         Icon: Trophy, iconClass: 'text-warning-base drop-shadow-[0_0_18px_var(--color-warning-glow)]',
-        text: '¡INCREÍBLE!', sub: '¡Eres un crack!',
+        text: title, sub: subtitle,
         glowA: 'bg-warning-base/25', glowB: 'bg-brand-base/25',
       };
       case 2: return {
         Icon: PartyPopper, iconClass: 'text-success-base drop-shadow-[0_0_14px_rgba(34,197,94,0.55)]',
-        text: '¡MUY BIEN!', sub: '¡Sigue así!',
+        text: title, sub: subtitle,
         glowA: 'bg-success-base/20', glowB: 'bg-accent-cyan/20',
       };
       case 1: return {
         Icon: Flame, iconClass: 'text-brand-base drop-shadow-[0_0_14px_rgba(139,92,246,0.5)]',
-        text: '¡BUEN INTENTO!', sub: '¡Vas por buen camino!',
+        text: title, sub: subtitle,
         glowA: 'bg-brand-base/20', glowB: 'bg-accent-cyan/15',
       };
       default: return {
         Icon: SparklesIcon, iconClass: 'text-accent-cyan drop-shadow-[0_0_12px_rgba(34,211,238,0.45)]',
-        text: '¡NO TE RINDAS!', sub: '¡La práctica hace al maestro!',
+        text: title, sub: subtitle,
         glowA: 'bg-brand-base/15', glowB: 'bg-accent-cyan/10',
       };
     }
-  }, [stars]);
+  }, [stars, summary?.mode]);
 
   const message = tierConfig;
   const scoreDelta = score - bestScore;

@@ -13,6 +13,7 @@ import { memo } from 'react';
 import PropTypes from 'prop-types';
 import { motion } from 'framer-motion';
 import { ListOrdered, CheckCircle2, XCircle, Clock3, Sparkles, Hourglass } from 'lucide-react';
+import MetricPill from '../../ui/MetricPill';
 
 function GameOverStatsSequence({ summary }) {
   const sequencesCompleted = Number(summary?.sequencesCompleted || 0);
@@ -59,30 +60,31 @@ function GameOverStatsSequence({ summary }) {
         <p className="text-3xl font-bold font-display text-accent-amber tabular-nums">{maxLength}</p>
       </motion.div>
 
-      {/* 4 columnas con desglose por estado */}
-      <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-xs">
-        <StatPill
+      {/* 4 columnas con desglose por estado — usan MetricPill global
+          para mantener consistencia con Memoria y Asociación (ADR-F). */}
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+        <MetricPill
           icon={CheckCircle2}
           tone="success"
           label="Completas"
           value={sequencesCompleted}
           tooltip="Secuencias reproducidas correctamente al completo"
         />
-        <StatPill
+        <MetricPill
           icon={XCircle}
           tone="error"
           label="Bloqueadas"
           value={sequencesBlocked}
           tooltip="Secuencias con al menos una carta bloqueada por fallos"
         />
-        <StatPill
+        <MetricPill
           icon={Clock3}
           tone="amber"
           label="Sin tiempo"
           value={sequencesTimedOut}
           tooltip="Secuencias que no se acabaron a tiempo"
         />
-        <StatPill
+        <MetricPill
           icon={Sparkles}
           tone="brand"
           label="Pistas usadas"
@@ -92,56 +94,19 @@ function GameOverStatsSequence({ summary }) {
       </div>
 
       {/* Banda inferior con métricas continuas */}
-      <div className="grid grid-cols-3 gap-2 text-xs">
-        <div
-          className="rounded-lg bg-background-elevated/60 border border-border-subtle px-3 py-2 text-center"
-          title="Rondas en las que el alumno acertó alguna carta pero no completó la secuencia entera"
-        >
-          <div className="text-text-muted">Casi lo logra</div>
-          <div className="text-white font-display font-semibold">{partialRounds}</div>
-        </div>
-        <div className="rounded-lg bg-background-elevated/60 border border-border-subtle px-3 py-2 text-center">
-          <div className="text-text-muted flex items-center justify-center gap-1">
-            <Hourglass size={11} aria-hidden="true" />
-            T. medio
-          </div>
-          <div className="text-white font-display font-semibold">{avgTimeLabel}</div>
-        </div>
-        <div className="rounded-lg bg-background-elevated/60 border border-border-subtle px-3 py-2 text-center">
-          <div className="text-text-muted">Tiempo total</div>
-          <div className="text-white font-display font-semibold">{totalTimeLabel}</div>
-        </div>
+      <div className="grid grid-cols-3 gap-2">
+        <MetricPill
+          tone="neutral"
+          label="Casi lo logra"
+          value={partialRounds}
+          tooltip="Rondas con al menos un acierto pero sin completar la secuencia"
+        />
+        <MetricPill icon={Hourglass} tone="neutral" label="T. medio" value={avgTimeLabel} />
+        <MetricPill icon={Clock3} tone="neutral" label="Tiempo total" value={totalTimeLabel} />
       </div>
     </div>
   );
 }
-
-const TONE_CLASSES = {
-  success: 'bg-success-base/10 border-success-base/20 text-success-base',
-  error: 'bg-error-base/10 border-error-base/20 text-error-base',
-  amber: 'bg-accent-amber/10 border-accent-amber/20 text-accent-amber',
-  brand: 'bg-brand-base/10 border-brand-base/20 text-brand-base'
-};
-
-function StatPill({ icon: IconComponent, tone, label, value, tooltip }) {
-  return (
-    <div className={`rounded-lg border px-3 py-2 text-center ${TONE_CLASSES[tone]}`} title={tooltip}>
-      <div className="text-text-muted flex items-center justify-center gap-1">
-        <IconComponent size={11} aria-hidden="true" />
-        {label}
-      </div>
-      <div className="font-display font-semibold tabular-nums">{value}</div>
-    </div>
-  );
-}
-
-StatPill.propTypes = {
-  icon: PropTypes.elementType.isRequired,
-  tone: PropTypes.oneOf(['success', 'error', 'amber', 'brand']).isRequired,
-  label: PropTypes.string.isRequired,
-  value: PropTypes.number.isRequired,
-  tooltip: PropTypes.string
-};
 
 GameOverStatsSequence.propTypes = {
   summary: PropTypes.object
