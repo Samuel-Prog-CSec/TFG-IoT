@@ -10,7 +10,64 @@ class AssociationStrategy extends BaseMechanicStrategy {
   }
 
   initialize() {
-    return { lastUid: null };
+    return {
+      lastUid: null,
+      // Bookkeeping para finalSummary (ADR-A, ADR-B). Estas métricas no son
+      // incrementales (peakStreak, max/min, mapa por valor) y no se pueden
+      // derivar de forma fiable a partir de `events` post-truncado, así
+      // que se acumulan aquí durante la partida.
+      currentStreak: 0,
+      peakStreak: 0,
+      quickestCorrectMs: null,
+      slowestCorrectMs: null,
+      // Mapa { assignedValue → { correct, total } }. Usamos el valor
+      // semántico de la carta (lo que el alumno está aprendiendo) en vez
+      // del slug del contexto, porque una sesión Asociación trabaja un
+      // único contextId — sería un mapa de un solo elemento. El
+      // assignedValue refleja "qué concepto domina mejor".
+      byValueAccuracy: {}
+    };
+  }
+
+  /**
+   * Bookkeeping de Asociación tras evaluar el scan del jugador.
+   * `currentChallenge.assignedValue` identifica el concepto preguntado
+   * en la ronda; agregamos correct/total por valor para que el summary
+   * final pueda decidir la `categoryDominance`.
+   */
+  recordScanResult({ isCorrect, currentChallenge, timeElapsed, strategyState } = {}) {
+    if (!strategyState) {
+      return;
+    }
+    const value = currentChallenge?.assignedValue || '__unknown__';
+    if (!strategyState.byValueAccuracy || typeof strategyState.byValueAccuracy !== 'object') {
+      strategyState.byValueAccuracy = {};
+    }
+    if (!strategyState.byValueAccuracy[value]) {
+      strategyState.byValueAccuracy[value] = { correct: 0, total: 0 };
+    }
+    strategyState.byValueAccuracy[value].total += 1;
+
+    if (isCorrect) {
+      strategyState.byValueAccuracy[value].correct += 1;
+      const newStreak = Number(strategyState.currentStreak || 0) + 1;
+      strategyState.currentStreak = newStreak;
+      strategyState.peakStreak = Math.max(Number(strategyState.peakStreak || 0), newStreak);
+
+      const elapsed = Number(timeElapsed || 0);
+      if (elapsed > 0) {
+        strategyState.quickestCorrectMs =
+          strategyState.quickestCorrectMs === null || strategyState.quickestCorrectMs === undefined
+            ? elapsed
+            : Math.min(Number(strategyState.quickestCorrectMs), elapsed);
+        strategyState.slowestCorrectMs =
+          strategyState.slowestCorrectMs === null || strategyState.slowestCorrectMs === undefined
+            ? elapsed
+            : Math.max(Number(strategyState.slowestCorrectMs), elapsed);
+      }
+    } else {
+      strategyState.currentStreak = 0;
+    }
   }
 
   resolvePlannedChallenge({ sessionDoc, playDoc }) {

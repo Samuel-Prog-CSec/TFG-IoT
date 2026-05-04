@@ -41,8 +41,142 @@ describe('AssociationStrategy', () => {
       expect(strategy.getName()).toBe('association');
     });
 
-    it('initialize returns state with lastUid null', () => {
-      expect(strategy.initialize()).toEqual({ lastUid: null });
+    it('initialize returns state with lastUid null and bookkeeping defaults', () => {
+      // Tras ADR-A (sesión 04/05/2026) `initialize` también siembra el
+      // bookkeeping de `recordScanResult` para que `finalSummary` pueda
+      // derivar peakStreak / quickestCorrectMs / categoryDominance.
+      const state = strategy.initialize();
+      expect(state.lastUid).toBeNull();
+      expect(state.currentStreak).toBe(0);
+      expect(state.peakStreak).toBe(0);
+      expect(state.quickestCorrectMs).toBeNull();
+      expect(state.slowestCorrectMs).toBeNull();
+      expect(state.byValueAccuracy).toEqual({});
+    });
+  });
+
+  describe('recordScanResult bookkeeping', () => {
+    it('aciertos consecutivos incrementan currentStreak y peakStreak', () => {
+      const strategyState = strategy.initialize();
+      strategy.recordScanResult({
+        isCorrect: true,
+        currentChallenge: { assignedValue: 'cat' },
+        timeElapsed: 1500,
+        strategyState
+      });
+      strategy.recordScanResult({
+        isCorrect: true,
+        currentChallenge: { assignedValue: 'cat' },
+        timeElapsed: 900,
+        strategyState
+      });
+      expect(strategyState.currentStreak).toBe(2);
+      expect(strategyState.peakStreak).toBe(2);
+    });
+
+    it('un fallo rompe currentStreak pero conserva peakStreak', () => {
+      const strategyState = strategy.initialize();
+      strategy.recordScanResult({
+        isCorrect: true,
+        currentChallenge: { assignedValue: 'cat' },
+        timeElapsed: 1500,
+        strategyState
+      });
+      strategy.recordScanResult({
+        isCorrect: false,
+        currentChallenge: { assignedValue: 'cat' },
+        timeElapsed: 1200,
+        strategyState
+      });
+      expect(strategyState.currentStreak).toBe(0);
+      expect(strategyState.peakStreak).toBe(1);
+      expect(strategyState.byValueAccuracy.cat).toEqual({ correct: 1, total: 2 });
+    });
+
+    it('actualiza quickestCorrectMs y slowestCorrectMs con sólo aciertos', () => {
+      const strategyState = strategy.initialize();
+      strategy.recordScanResult({
+        isCorrect: true,
+        currentChallenge: { assignedValue: 'cat' },
+        timeElapsed: 2400,
+        strategyState
+      });
+      strategy.recordScanResult({
+        isCorrect: true,
+        currentChallenge: { assignedValue: 'cat' },
+        timeElapsed: 800,
+        strategyState
+      });
+      strategy.recordScanResult({
+        isCorrect: true,
+        currentChallenge: { assignedValue: 'cat' },
+        timeElapsed: 1500,
+        strategyState
+      });
+      expect(strategyState.quickestCorrectMs).toBe(800);
+      expect(strategyState.slowestCorrectMs).toBe(2400);
+    });
+
+    it('agrupa accuracy por assignedValue para calcular categoryDominance', () => {
+      const strategyState = strategy.initialize();
+      // dog: 2/3, cat: 1/2, bird: 0/1
+      strategy.recordScanResult({
+        isCorrect: true,
+        currentChallenge: { assignedValue: 'dog' },
+        timeElapsed: 1000,
+        strategyState
+      });
+      strategy.recordScanResult({
+        isCorrect: true,
+        currentChallenge: { assignedValue: 'dog' },
+        timeElapsed: 1000,
+        strategyState
+      });
+      strategy.recordScanResult({
+        isCorrect: false,
+        currentChallenge: { assignedValue: 'dog' },
+        timeElapsed: 1500,
+        strategyState
+      });
+      strategy.recordScanResult({
+        isCorrect: true,
+        currentChallenge: { assignedValue: 'cat' },
+        timeElapsed: 1100,
+        strategyState
+      });
+      strategy.recordScanResult({
+        isCorrect: false,
+        currentChallenge: { assignedValue: 'cat' },
+        timeElapsed: 1700,
+        strategyState
+      });
+      strategy.recordScanResult({
+        isCorrect: false,
+        currentChallenge: { assignedValue: 'bird' },
+        timeElapsed: 2100,
+        strategyState
+      });
+      expect(strategyState.byValueAccuracy).toEqual({
+        dog: { correct: 2, total: 3 },
+        cat: { correct: 1, total: 2 },
+        bird: { correct: 0, total: 1 }
+      });
+    });
+
+    it('fallback a __unknown__ cuando assignedValue es null o undefined', () => {
+      const strategyState = strategy.initialize();
+      strategy.recordScanResult({
+        isCorrect: true,
+        currentChallenge: {},
+        timeElapsed: 500,
+        strategyState
+      });
+      expect(strategyState.byValueAccuracy.__unknown__).toEqual({ correct: 1, total: 1 });
+    });
+
+    it('es noop si strategyState es null', () => {
+      // Documenta que el contrato es seguro frente a llamadas sin estado.
+      expect(() => strategy.recordScanResult({ isCorrect: true })).not.toThrow();
     });
   });
 

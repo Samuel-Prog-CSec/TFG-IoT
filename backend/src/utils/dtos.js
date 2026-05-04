@@ -97,6 +97,7 @@ const mapGamePlayMetrics = metrics => {
     'sequencesTimedOut',
     'maxSequenceLengthAchieved',
     'partialReproductions',
+    'partialRounds',
     'averageReproductionTimeMs',
     'blockedCardsTotal',
     'hintsUsed'
@@ -106,6 +107,52 @@ const mapGamePlayMetrics = metrics => {
       base[key] = metrics[key];
     }
   }
+
+  // Métricas específicas de Memoria (ADR-A). Sólo aparecen para plays
+  // 'memory'; en otros tipos el sub-objeto queda undefined y se omite.
+  if (metrics.memory) {
+    const m =
+      typeof metrics.memory.toObject === 'function' ? metrics.memory.toObject() : metrics.memory;
+    base.memory = {
+      groupsMatched: Number.isFinite(Number(m.groupsMatched)) ? Number(m.groupsMatched) : 0,
+      peakStreak: Number.isFinite(Number(m.peakStreak)) ? Number(m.peakStreak) : 0,
+      averageMatchTimeMs: Number.isFinite(Number(m.averageMatchTimeMs))
+        ? Number(m.averageMatchTimeMs)
+        : 0,
+      attemptsToFirstMatch: m.attemptsToFirstMatch ?? null,
+      groupSize: Number.isFinite(Number(m.groupSize)) ? Number(m.groupSize) : 2
+    };
+  }
+
+  // Métricas específicas de Asociación (ADR-A). El mapa byValueAccuracy se
+  // serializa a objeto plano para que el frontend pueda mapearlo sin saber
+  // de Mongoose. categoryDominance se incluye sólo si hay un slug claro.
+  if (metrics.association) {
+    const a =
+      typeof metrics.association.toObject === 'function'
+        ? metrics.association.toObject()
+        : metrics.association;
+    const byValueAccuracy =
+      a.byValueAccuracy && typeof a.byValueAccuracy === 'object'
+        ? Object.fromEntries(
+            Object.entries(a.byValueAccuracy).map(([key, value]) => [
+              key,
+              {
+                correct: Number(value?.correct || 0),
+                total: Number(value?.total || 0)
+              }
+            ])
+          )
+        : {};
+    base.association = {
+      peakStreak: Number.isFinite(Number(a.peakStreak)) ? Number(a.peakStreak) : 0,
+      quickestCorrectMs: a.quickestCorrectMs ?? null,
+      slowestCorrectMs: a.slowestCorrectMs ?? null,
+      byValueAccuracy,
+      categoryDominance: a.categoryDominance ?? null
+    };
+  }
+
   return base;
 };
 

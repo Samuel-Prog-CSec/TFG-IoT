@@ -237,7 +237,10 @@ async function processSequenceScan(engine, playId, playState, scannedCardMapping
     cursor: result.cursor,
     length: result.length,
     score: playState.playDoc.score,
-    points
+    points,
+    // Contexto canónico de mecánica para la mascota viva (ADR-D). El
+    // `cursor` actúa como "streak" dentro de una secuencia.
+    mechanicType: 'sequence'
   });
 
   if (result.type === 'correct') {
@@ -300,7 +303,10 @@ async function finalizeSequenceRound(engine, playId, { timedOut }) {
     durationMs: summary.durationMs,
     completed: summary.completed,
     timedOut: Boolean(timedOut),
-    score: playState.playDoc.score
+    score: playState.playDoc.score,
+    // Contexto canónico para la mascota (ADR-D). El frontend escucha este
+    // evento y dispara reacciones distintas según `completed`/`timedOut`.
+    mechanicType: 'sequence'
   });
 
   await playState.playDoc.addEventAtomic({

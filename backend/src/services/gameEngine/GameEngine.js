@@ -22,6 +22,7 @@ const timerManager = require('./timerManager');
 const stateHelpers = require('./stateHelpers');
 const recovery = require('./recovery');
 const sequenceFlow = require('./sequenceFlow');
+const finalSummary = require('./finalSummary');
 
 // Constantes de configuración
 // Umbral de alerta (soft limit) - no bloquea, solo emite warnings
@@ -643,15 +644,39 @@ class GameEngine {
 
         this.metrics.totalPlaysCancelled++;
       } else {
-        // Para Secuencia, persistimos las métricas específicas en el GamePlay
-        // ANTES de complete() para que queden incluidas en cualquier agregación
-        // posterior de analytics.
+        // Construye el final summary específico de la mecánica y lo
+        // persiste ANTES de complete() para que cualquier agregación de
+        // analytics posterior vea peakStreak / categoryDominance /
+        // maxSequenceLength etc.  ADR-B unifica el camino: factory
+        // `buildFinalSummary(mechanicType, playState)` decide qué builder
+        // ejecutar según mecánica; Sequence sigue serializando flat (los
+        // campos viven directamente bajo `metrics.*`), Memoria/Asociación
+        // se aíslan en sub-objetos `metrics.memory` / `metrics.association`.
+        const persistedSummary = finalSummary.buildFinalSummary(playState.mechanicName, playState);
+        let didModifyMetrics = false;
         if (playState.mechanicName === 'sequence') {
-          const summary = sequenceFlow.buildSequenceFinalSummary(playState);
           if (!playState.playDoc.metrics) {
             playState.playDoc.metrics = {};
           }
-          Object.assign(playState.playDoc.metrics, summary);
+          Object.assign(playState.playDoc.metrics, persistedSummary);
+          didModifyMetrics = true;
+        } else if (playState.mechanicName === 'memory') {
+          if (!playState.playDoc.metrics) {
+            playState.playDoc.metrics = {};
+          }
+          playState.playDoc.metrics.memory = persistedSummary;
+          didModifyMetrics = true;
+        } else if (playState.mechanicName === 'association') {
+          if (!playState.playDoc.metrics) {
+            playState.playDoc.metrics = {};
+          }
+          playState.playDoc.metrics.association = persistedSummary;
+          didModifyMetrics = true;
+        }
+        // `markModified` solo existe en documentos Mongoose. Los tests
+        // unitarios pasan plain objects en `playDoc`, así que el guard
+        // evita que la rama Memoria/Asociación rompa esos tests.
+        if (didModifyMetrics && typeof playState.playDoc.markModified === 'function') {
           playState.playDoc.markModified('metrics');
         }
 
@@ -663,17 +688,16 @@ class GameEngine {
         const player = await userRepository.findById(playState.playDoc.playerId);
         if (player) {
           if (player.hasConsentFor('performance_analytics')) {
-            const sequenceMetrics =
-              playState.mechanicName === 'sequence'
-                ? sequenceFlow.buildSequenceFinalSummary(playState)
-                : null;
             await player.updateStudentMetrics({
               score: playState.playDoc.score,
               correctAttempts: playState.playDoc.metrics.correctAttempts,
               errorAttempts: playState.playDoc.metrics.errorAttempts,
               timeoutAttempts: playState.playDoc.metrics.timeoutAttempts,
               averageResponseTime: playState.playDoc.metrics.averageResponseTime,
-              maxSequenceLengthAchieved: sequenceMetrics?.maxSequenceLengthAchieved
+              maxSequenceLengthAchieved:
+                playState.mechanicName === 'sequence'
+                  ? persistedSummary.maxSequenceLengthAchieved
+                  : undefined
             });
           } else {
             logger.info(
@@ -715,9 +739,11 @@ class GameEngine {
     }
 
     // 3. Emitir evento final al cliente.
-    // Para Secuencia, calculamos métricas específicas (sequencesCompleted,
-    // maxSequenceLengthAchieved, etc.) y las mergeamos en el payload sin
-    // mutar el documento persistido para no contaminar otras agregaciones.
+    // Construimos `finalMetrics` desde el documento persistido (que ya
+    // incluye los sub-objetos memory/association tras la rama no abandonada)
+    // y volvemos a fusionar el summary específico para garantizar que el
+    // frontend recibe datos frescos incluso si la persistencia anterior
+    // falló de forma silenciosa (defense-in-depth).
     const finalMetrics = playState.playDoc.metrics?.toObject
       ? playState.playDoc.metrics.toObject()
       : { ...(playState.playDoc.metrics || {}) };
@@ -728,8 +754,13 @@ class GameEngine {
           ? 'sequence'
           : 'association';
 
+    const emittedSummary = finalSummary.buildFinalSummary(playState.mechanicName, playState);
     if (mode === 'sequence') {
-      Object.assign(finalMetrics, sequenceFlow.buildSequenceFinalSummary(playState));
+      Object.assign(finalMetrics, emittedSummary);
+    } else if (mode === 'memory') {
+      finalMetrics.memory = emittedSummary;
+    } else if (mode === 'association') {
+      finalMetrics.association = emittedSummary;
     }
 
     // Garantizar `completionTime` en el payload — `playDoc.complete()`
@@ -743,7 +774,13 @@ class GameEngine {
     this.io.to(`play_${playId}`).emit('game_over', {
       finalScore: playState.playDoc.score,
       metrics: finalMetrics,
+      // `mode` se mantiene por compatibilidad con el frontend actual
+      // (`GameOverStats` delega por `summary.mode`). `mechanicType` añade
+      // el mismo valor con un nombre más explícito de cara a futuro
+      // (mascota, tema visual, charts del profesor) — ADR-D/E/F lo usan
+      // como propagación canónica.
       mode,
+      mechanicType: playState.mechanicName,
       abandoned
     });
 
@@ -846,7 +883,10 @@ class GameEngine {
         isCorrect: false,
         timeout: true,
         pointsAwarded: 0,
-        newScore: playState.playDoc.score
+        newScore: playState.playDoc.score,
+        mechanicType: playState.mechanicName,
+        streak: 0,
+        peakStreak: Number(playState.strategyState?.peakStreak || 0)
       });
 
       await this.endPlay(playId);
@@ -911,6 +951,21 @@ class GameEngine {
     const firstCard = boardByUid.get(firstUid);
     const secondCard = boardByUid.get(secondUid);
 
+    // Bookkeeping para `finalSummary.buildMemoryFinalSummary` (ADR-A/B).
+    // Mantiene streak, peakStreak, tiempo medio por pareja y primera
+    // pareja acertada en el strategyState — sin tocarlo, el GameOver
+    // mostraría ceros para Memoria.
+    if (typeof playState.mechanicStrategy.recordScanResult === 'function') {
+      playState.mechanicStrategy.recordScanResult({
+        isCorrect: outcome.isCorrect,
+        scannedCard,
+        currentChallenge: secondCard || firstCard || null,
+        timeElapsed,
+        strategyState: playState.strategyState,
+        sessionDoc: playState.sessionDoc
+      });
+    }
+
     try {
       await playState.playDoc.addEventAtomic(
         {
@@ -955,7 +1010,13 @@ class GameEngine {
       pointsAwarded: Number(outcome.pointsAwarded || 0),
       newScore: playState.playDoc.score,
       feedbackDelayMs,
-      remainingTimeMs: this.getMemoryRemainingTimeMs(playState)
+      remainingTimeMs: this.getMemoryRemainingTimeMs(playState),
+      // Contexto de mecánica + racha para la mascota viva (ADR-D). El
+      // frontend usa estos campos en `useMascotReactions` para escoger
+      // diccionario y emoción.
+      mechanicType: 'memory',
+      streak: Number(playState.strategyState?.currentStreak || 0),
+      peakStreak: Number(playState.strategyState?.peakStreak || 0)
     });
 
     this.emitMemoryTurnState(playId, playState, {
@@ -1371,6 +1432,21 @@ class GameEngine {
       eventType = 'error';
     }
 
+    // Bookkeeping para `finalSummary.buildAssociationFinalSummary`
+    // (ADR-A/B): peakStreak, quickestCorrectMs, byValueAccuracy. Sin esta
+    // llamada el GameOver de Asociación seguiría sin métrica "categoría
+    // dominante" ni racha, perdiendo señal pedagógica clave.
+    if (typeof playState.mechanicStrategy?.recordScanResult === 'function') {
+      playState.mechanicStrategy.recordScanResult({
+        isCorrect,
+        scannedCard,
+        currentChallenge,
+        timeElapsed,
+        strategyState: playState.strategyState,
+        sessionDoc
+      });
+    }
+
     // `penaltyPerError` ya viene con signo (e.g. -2), por lo que usamos el
     // propio signo del valor en el log. El previo `symbol = '-'` producia
     // `--2 pts` al concatenar con un valor negativo (QA 2026-04-24).
@@ -1407,7 +1483,13 @@ class GameEngine {
         value: scannedCard.assignedValue
       },
       pointsAwarded,
-      newScore: playDoc.score
+      newScore: playDoc.score,
+      // Contexto para la mascota viva y para que el frontend pueda
+      // resaltar visualmente picos de racha (ADR-D). En Asociación la
+      // racha se rompe con cualquier fallo.
+      mechanicType: 'association',
+      streak: Number(playState.strategyState?.currentStreak || 0),
+      peakStreak: Number(playState.strategyState?.peakStreak || 0)
     });
 
     logger.info(
@@ -1490,7 +1572,10 @@ class GameEngine {
         timeout: true,
         expected: currentChallenge.displayData,
         pointsAwarded: 0,
-        newScore: playDoc.score
+        newScore: playDoc.score,
+        mechanicType: playState.mechanicName,
+        streak: 0,
+        peakStreak: Number(playState.strategyState?.peakStreak || 0)
       });
 
       // 5. Pasar a la siguiente ronda

@@ -87,8 +87,57 @@ class MemoryStrategy extends BaseMechanicStrategy {
       totalGroups,
       totalCards: layout.length,
       attempts: 0,
-      lastRevealedUid: null
+      lastRevealedUid: null,
+      // Bookkeeping para finalSummary (ADR-A, ADR-B). Mantenemos contadores
+      // running en strategyState porque varias métricas (peakStreak, tiempo
+      // medio por pareja, primera pareja acertada) no se pueden derivar
+      // post-hoc de los `events` sin perder precisión cuando la partida
+      // sufre `complete()` con $slice -500.
+      currentStreak: 0,
+      peakStreak: 0,
+      totalMatches: 0,
+      totalMatchTimeMs: 0,
+      firstMatchAtAttempt: null
     };
+  }
+
+  /**
+   * Actualiza el bookkeeping de Memoria tras evaluar un grupo seleccionado.
+   * El GameEngine invoca este hook con `isCorrect`, `timeElapsed` (ms desde
+   * que el alumno levantó la primera carta del grupo) y `strategyState`
+   * mutable.
+   *
+   * Reglas:
+   *  - Acierto: incrementa streak, recalcula peakStreak, suma timeElapsed
+   *    al acumulador y registra el número de intento del primer match.
+   *  - Fallo: rompe el streak (vuelve a 0). El attempts ya lo incrementa
+   *    `processScan` antes de devolver `resolved`.
+   */
+  recordScanResult({ isCorrect, timeElapsed, strategyState } = {}) {
+    if (!strategyState) {
+      return;
+    }
+    if (isCorrect) {
+      const currentStreak = Number(strategyState.currentStreak || 0) + 1;
+      strategyState.currentStreak = currentStreak;
+      strategyState.peakStreak = Math.max(Number(strategyState.peakStreak || 0), currentStreak);
+      strategyState.totalMatches = Number(strategyState.totalMatches || 0) + 1;
+      const elapsed = Number(timeElapsed || 0);
+      if (elapsed > 0) {
+        strategyState.totalMatchTimeMs = Number(strategyState.totalMatchTimeMs || 0) + elapsed;
+      }
+      if (
+        strategyState.firstMatchAtAttempt === null ||
+        strategyState.firstMatchAtAttempt === undefined
+      ) {
+        // `attempts` ya se incrementó en processScan antes de devolver
+        // 'resolved', por lo que registra el ordinal exacto del primer
+        // acierto (1, 2, 3, …).
+        strategyState.firstMatchAtAttempt = Number(strategyState.attempts || 1);
+      }
+    } else {
+      strategyState.currentStreak = 0;
+    }
   }
 
   selectChallenge({ playState }) {
