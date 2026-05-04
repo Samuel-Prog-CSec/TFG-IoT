@@ -757,6 +757,15 @@ export default function GameSession() {
     emitBoardReady
   } = socket;
 
+  // Memoiza la lista de cardMappings de la sesión para que SequenceGameplayPanel
+  // no re-renderice en cada cambio del padre — sin esto, el `|| []` inline
+  // creaba una referencia nueva por cada render del GameSession (Bloque G,
+  // sesión 04/05/2026).
+  const sequenceCardMappings = useMemo(
+    () => session?.cardMappings || [],
+    [session?.cardMappings]
+  );
+
   // Sincronizar socketSessionRef y mechanicMode cuando la sesión cargue
   useEffect(() => {
     socketSessionRef.current = session;
@@ -1442,7 +1451,7 @@ export default function GameSession() {
                   return (
                     <SequenceGameplayPanel
                       totalRounds={totalRounds}
-                      cardMappings={session?.cardMappings || []}
+                      cardMappings={sequenceCardMappings}
                       rfidConnected={rfidConnected}
                       soundEnabled={soundEnabled}
                       sequenceState={sequenceState}

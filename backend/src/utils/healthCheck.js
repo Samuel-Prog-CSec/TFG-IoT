@@ -146,6 +146,45 @@ function getMemoryUsage() {
   };
 }
 
+// Snapshot del último cpuUsage acumulado y momento en que se midió. Permite
+// devolver el delta de microsegundos de CPU sobre el intervalo desde la
+// última llamada (Bloque G, sesión 04/05/2026). Es el mecanismo recomendado
+// por Node.js — `process.cpuUsage()` devuelve acumulados desde el arranque
+// del proceso, por lo que sólo el delta es interpretable.
+let lastCpuSnapshot = process.cpuUsage();
+let lastCpuTimestamp = Date.now();
+
+/**
+ * Calcula el porcentaje de CPU consumido por el proceso desde la última
+ * vez que se invocó esta función. La primera invocación devuelve 0%
+ * (no hay ventana sobre la que calcular). Es lo bastante preciso para
+ * dashboards y picos de carga, pero no sustituye a un APM.
+ *
+ * @returns {Object} { user, system, percent, intervalMs }
+ */
+function getCpuUsage() {
+  const now = Date.now();
+  const elapsedMs = Math.max(1, now - lastCpuTimestamp);
+  const delta = process.cpuUsage(lastCpuSnapshot);
+  lastCpuSnapshot = process.cpuUsage();
+  lastCpuTimestamp = now;
+
+  // delta.user/system vienen en microsegundos (1µs = 1e-3 ms).
+  const userMs = delta.user / 1000;
+  const systemMs = delta.system / 1000;
+  // Porcentaje aprox: (CPU consumida) / (tiempo wall-clock) — puede pasar
+  // de 100 si hay varios cores ocupados (lo dejamos sin clamp para que el
+  // operador note picos multi-core).
+  const percent = Math.round(((userMs + systemMs) / elapsedMs) * 100);
+
+  return {
+    user: `${userMs.toFixed(1)} ms`,
+    system: `${systemMs.toFixed(1)} ms`,
+    percent: `${percent}%`,
+    intervalMs: elapsedMs
+  };
+}
+
 /**
  * Calcula el uptime del proceso en formato legible.
  * @returns {string} Uptime formateado
@@ -169,6 +208,7 @@ async function getHealthStatus(rfidService = null) {
 
   const rfidHealth = checkRFIDHealth(rfidService);
   const memory = getMemoryUsage();
+  const cpu = getCpuUsage();
   const uptime = getUptime();
 
   // Determinar estado general.
@@ -218,6 +258,9 @@ async function getHealthStatus(rfidService = null) {
     },
     system: {
       memory,
+      // CPU delta desde la última invocación (Bloque G). Útil para picos
+      // de carga visibles en /api/health y para dashboards.
+      cpu,
       pid: process.pid,
       platform: process.platform,
       arch: process.arch
