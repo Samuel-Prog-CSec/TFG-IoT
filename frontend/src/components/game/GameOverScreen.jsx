@@ -222,7 +222,11 @@ function GameOverScreen({
             })}
           </div>
 
-          {/* Score display */}
+          {/* Score display — con maxScore (ADR-114) para dar contexto.
+              "32 / 50 puntos · 64%" comunica al alumno qué % del techo
+              de la partida logró, en lugar de un score absoluto sin
+              referencia. Si el backend no emite maxScore (sesión
+              antigua o fallback), caemos a la presentación clásica. */}
           <motion.div
             initial={{ opacity: 0, scale: 0.5 }}
             animate={{ opacity: 1, scale: 1 }}
@@ -232,11 +236,29 @@ function GameOverScreen({
             <div
               ref={scoreRef}
               className="text-5xl font-bold font-display text-white mb-2 tabular-nums"
-              aria-label={`Puntuación final: ${score} puntos`}
+              aria-label={
+                summary?.maxScore
+                  ? `Puntuación final: ${score} de ${summary.maxScore} puntos`
+                  : `Puntuación final: ${score} puntos`
+              }
             >
               {score}
             </div>
-            <div className="text-text-muted">puntos</div>
+            {summary?.maxScore ? (
+              <div className="text-text-muted text-sm">
+                <span className="tabular-nums text-text-secondary font-semibold">
+                  / {summary.maxScore}
+                </span>
+                {' '}puntos
+                {Number(summary.maxScore) > 0 && (
+                  <span className="ml-2 inline-flex items-center px-2 py-0.5 rounded-full bg-background-surface/60 text-text-primary text-xs font-medium tabular-nums">
+                    {Math.round((Number(score) / Number(summary.maxScore)) * 100)}%
+                  </span>
+                )}
+              </div>
+            ) : (
+              <div className="text-text-muted">puntos</div>
+            )}
 
             {/* New best badge */}
             {isNewBest ? (
@@ -360,6 +382,7 @@ GameOverScreen.propTypes = {
   bestScore: PropTypes.number,
   summary: PropTypes.shape({
     mode: PropTypes.string,
+    maxScore: PropTypes.number,
     errors: PropTypes.number,
     averageResponseTimeMs: PropTypes.number,
     totalTimePlayed: PropTypes.number,

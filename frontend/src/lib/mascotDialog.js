@@ -58,8 +58,12 @@ const ASSOCIATION_DIALOG = Object.freeze({
     '¡Eso es!',
     '¡Genial!'
   ],
+  // No incluir frases que prometan "pista": en Asociación NO hay sistema de
+  // pistas (eso solo existe en Secuencia con dificultad fácil). La frase
+  // "Lee la pista" se eliminó tras QA 2026-05-06: prometía algo que la
+  // mecánica no entrega y rompía la confianza del alumno con la mascota.
   errorAnswer: [
-    'Lee la pista',
+    'Fíjate bien',
     'Casi…',
     'Otra es',
     '¡Tranqui!',

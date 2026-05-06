@@ -14,7 +14,7 @@
 import { useEffect } from 'react';
 import PropTypes from 'prop-types';
 import { motion } from 'framer-motion';
-import { Check, Clock, Target, Eye, Sparkles, Hourglass, Shuffle } from 'lucide-react';
+import { Check, Clock, Target, Eye, Sparkles, Hourglass, Shuffle, Zap, AlertTriangle } from 'lucide-react';
 import { cn } from '../../lib/utils';
 import GlassCard from '../ui/GlassCard';
 import {
@@ -195,6 +195,34 @@ export default function StepSequenceRules({
             value={timeLimit}
             onChange={v => onConfigChange?.('timeLimit', v)}
             display={`${timeLimit}s`}
+          />
+
+          {/* Puntos por carta correcta — antes hardcoded a 10 (ADR-114).
+              Rango unificado 5-15 entre las 3 mecánicas para evitar que un
+              docente ajuste valores extremos que distorsionen el ranking. */}
+          <SliderRow
+            id="seq-points-correct"
+            icon={<Zap size={14} className="text-success-base" />}
+            label="Puntos por carta correcta"
+            min={5}
+            max={15}
+            step={5}
+            value={config?.pointsPerCorrect ?? 10}
+            onChange={v => onConfigChange?.('pointsPerCorrect', v)}
+            display={`+${config?.pointsPerCorrect ?? 10}`}
+          />
+
+          {/* Penalización por carta incorrecta — antes 0 fijo (ADR-114). */}
+          <SliderRow
+            id="seq-penalty-error"
+            icon={<AlertTriangle size={14} className="text-error-base" />}
+            label="Penalización por error"
+            min={-5}
+            max={0}
+            step={1}
+            value={config?.penaltyPerError ?? -2}
+            onChange={v => onConfigChange?.('penaltyPerError', v)}
+            display={`${config?.penaltyPerError ?? -2}`}
           />
         </div>
       </GlassCard>

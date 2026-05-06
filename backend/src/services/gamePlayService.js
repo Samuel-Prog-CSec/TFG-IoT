@@ -18,7 +18,14 @@ const logger = require('../utils/logger').child({ component: 'gamePlayService' }
  * @param {string} sessionId - ID de la sesión
  * @returns {Promise<Object>} Sesión validada
  * @throws {NotFoundError} Si la sesión no existe
- * @throws {ValidationError} Si la sesión no está activa
+ *
+ * QA 2026-05-06 (ADR-113): aceptamos también `status === 'completed'`. Una
+ * sesión "completada" no es una sesión cerrada — significa que todas las
+ * plays previas terminaron y nadie está jugando ahora mismo. Permitir una
+ * nueva play en ese estado es el caso de uso real de "Jugar de Nuevo": el
+ * `recalculateSessionStatusFromPlays` la pondrá de vuelta en `'active'` al
+ * insertar la play. Antes esta validación rechazaba con "La sesión no
+ * está activa" y bloqueaba el botón Jugar de Nuevo en GameOver.
  */
 async function validateGameSession(sessionId) {
   const session = await gameSessionRepository.findById(sessionId);
@@ -27,8 +34,13 @@ async function validateGameSession(sessionId) {
     throw new NotFoundError('Sesión de juego');
   }
 
-  if (!session.isActive()) {
-    throw new ValidationError('La sesión no está activa');
+  // Estados aceptables para crear plays: 'created' (primera vez), 'active'
+  // (otra play en curso), 'completed' (replay tras terminar las anteriores).
+  // Si en el futuro se introduce un estado terminal real (`archived`),
+  // hay que rechazarlo explícitamente aquí.
+  const ACCEPTABLE_STATUSES = new Set(['created', 'active', 'completed']);
+  if (!ACCEPTABLE_STATUSES.has(session.status)) {
+    throw new ValidationError('La sesión no admite nuevas partidas');
   }
 
   return session;
@@ -98,19 +110,39 @@ async function createPlay({ sessionId, playerId, creatorId }) {
   // Validar jugador
   await validatePlayer(playerId, sessionId);
 
-  // Calcular maxScore teorico para integridad de puntuaciones (P19).
-  // Evita que el score acumulado supere el maximo posible ante eventos duplicados
-  // o bugs en el motor de puntuacion.
-  // En Secuencia (T-921) cada carta correcta da puntos, no cada ronda. Por
-  // eso maxScore = sum(length de cada ronda) * pointsPerCorrect.
+  // Calcular maxScore teórico para integridad de puntuaciones (P19, ADR-114).
+  // Cada mecánica tiene su fórmula propia y se detecta por la "huella" de
+  // datos que persiste:
+  //  - Secuencia: tiene `sequencePlan` con N rondas, cada una de longitud
+  //    variable. maxScore = Σ longitud × pointsPerCorrect.
+  //  - Memoria: tiene `boardLayout` con todas las cartas en grid 2D.
+  //    maxScore = (boardLayout.length / 2) × pointsPerCorrect (asumiendo
+  //    parejas; si en futuro se introduce groupSize parametrizable, hay que
+  //    propagarlo aquí).
+  //  - Asociación / fallback: maxScore = numberOfRounds × pointsPerCorrect.
+  //
+  // Este maxScore es el techo absoluto del score: pre-validate del modelo
+  // GamePlay clampa cualquier $inc que lo supere (defensa ante eventos
+  // duplicados).
   const rounds = Number(session.config?.numberOfRounds) || 1;
   const points = Number(session.config?.pointsPerCorrect) || 10;
   const sequencePlan = Array.isArray(session.sequencePlan) ? session.sequencePlan : [];
+  const boardLayout = Array.isArray(session.boardLayout) ? session.boardLayout : [];
   const totalSequenceCards = sequencePlan.reduce((acc, r) => acc + (Number(r.length) || 0), 0);
-  const maxScore =
-    totalSequenceCards > 0
-      ? Math.max(1, totalSequenceCards * points)
-      : Math.max(1, rounds * points);
+
+  let maxScore;
+  if (totalSequenceCards > 0) {
+    // Secuencia
+    maxScore = Math.max(1, totalSequenceCards * points);
+  } else if (boardLayout.length > 0) {
+    // Memoria: parejas presentes en el tablero.
+    const MEMORY_GROUP_SIZE = 2;
+    const numberOfPairs = Math.max(1, Math.floor(boardLayout.length / MEMORY_GROUP_SIZE));
+    maxScore = Math.max(1, numberOfPairs * points);
+  } else {
+    // Asociación o fallback genérico.
+    maxScore = Math.max(1, rounds * points);
+  }
 
   // Crear partida
   const play = await gamePlayRepository.create({

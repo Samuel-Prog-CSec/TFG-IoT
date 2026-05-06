@@ -5873,3 +5873,355 @@ Sesión QA senior con viewport 1920×1080 que jugó las 3 mecánicas de extremo 
 - El placeholder textual de `ChallengeDisplay` durante `imageLoading` añade un re-render extra, pero es despreciable (un solo div con clases estáticas).
 
 **Suite verificada**: 1129/1129 backend + 329/329 frontend, lint frontend 0 errors. E2E con Playwright cubrió las 3 mecánicas (creación + partida + summary).
+
+---
+
+## ADR-112: Reducción de latencia táctil en Asociación, simulación de sensor y resiliencia Web Serial [Backend, Frontend, UX]
+
+**Fecha:** 2026-05-06
+**Sprint/Origen:** Sesión QA senior post-merge de `feature/sequence-mechanic` en `develop`. Auditoría exhaustiva de las 3 mecánicas, fallback táctil, Web Serial y motor de juego.
+**Estado:** Aprobado (`develop`)
+**Alcance:** Backend (`services/gameEngine/GameEngine.js`), Frontend (`components/game/FallbackTouchPanel.jsx`, `pages/GameSession.jsx`, `services/webSerialService.js`).
+
+### Contexto
+
+El merge de la mecánica Secuencia (PR #315) incorporó las 3 mecánicas a producción, pero el QA en frío detectó tres problemas reales que afectaban directamente la experiencia del alumno y la capacidad del equipo de probar el sistema sin hardware:
+
+1. **Latencia táctil percibida en Asociación.** El `FallbackTouchPanel` reportado por el usuario quedaba "pillado" 1-2 s tras cada respuesta. La causa raíz no era el cliente, sino un `setTimeout(advanceToNextRound, 4000)` en `GameEngine.processResponse` (línea histórica 1508) que pausaba 4 segundos completos entre `validation_result` y `new_round`. Como el panel táctil libera `tappedUid` solamente cuando llega `new_round` (intencional, evita scans `not_awaiting_response` durante la ventana de feedback), todas las cards permanecían bloqueadas con un overlay "Procesando…" durante esos 4 s. El alumno veía el bounce del target arriba (~600 ms), seguido de 3,4 s de pantalla muerta hasta la siguiente ronda. Memoria no sufría el bug (no usa `nextRoundTimer`) y Secuencia tampoco (cooldown local 250 ms sin bloqueo global, ya en `FallbackTouchPanelSequence`). Adicionalmente el delay para `handleTimeout` era 2000 ms — más razonable pero inconsistente con el `FEEDBACK_PAUSE_MS = 1700` de `sequenceFlow.js`.
+
+2. **Imposibilidad de probar el flujo sensor sin hardware.** El sensor RC522 del usuario está en reparación. El único camino para validar el path completo era usar el panel táctil, pero ese path tiene su propia rama (`source: 'touch_fallback'`) y no ejercita la pipeline real (lectura de líneas serie, parser JSON, dedupe por UID, persistencia IDB de scans pendientes, forwarding por socket). Una sesión QA realista requería poder inyectar eventos en el mismo punto que el firmware.
+
+3. **Fragilidad del decoder Web Serial ante bytes inválidos.** `webSerialService.startReading` instanciaba `new TextDecoderStream()` sin opciones, lo que en `Encoding API` por defecto monta el decodificador con `fatal: true`. Un único byte UTF-8 inválido (boot ruidoso, fluctuación eléctrica, cable mal aislado) hacía explotar la pipeline entera y obligaba al alumno a reconectar el sensor manualmente.
+
+### Decisión
+
+#### 1. Pacing post-respuesta en Asociación parametrizado y alineado entre mecánicas
+
+`GameEngine.js` declara dos constantes con override por env:
+
+```js
+const ASSOCIATION_NEXT_ROUND_DELAY_MS =
+  Number.parseInt(process.env.ASSOCIATION_NEXT_ROUND_DELAY_MS, 10) || 1500;
+const ASSOCIATION_TIMEOUT_NEXT_ROUND_DELAY_MS =
+  Number.parseInt(process.env.ASSOCIATION_TIMEOUT_NEXT_ROUND_DELAY_MS, 10) || 1500;
+```
+
+`processResponse` y `handleTimeout` consumen las constantes en lugar de literales. 1500 ms es coherente con `sequenceFlow.FEEDBACK_PAUSE_MS = 1700`, y deja margen para que el alumno vea el bounce del `ChallengeDisplay` (`SUCCESS_BOUNCE` 600 ms), el `FloatingPointsBadge`, el cambio de mood de la mascota y la racha actualizada antes de pasar a la siguiente ronda. La sensación de "muerta" se reduce a ~700 ms — perceptible pero no incómodo. La env var habilita pacing especial para QA o presentaciones.
+
+#### 2. Feedback contextual sobre la card tapeada (no sólo en el target)
+
+`FallbackTouchPanel` recibe ahora una prop opcional `feedbackState` (`idle | success | error`) que reemplaza el spinner "Procesando…" por un indicador visual sobre la propia card seleccionada cuando llega `validation_result`:
+
+- **`idle`** (entre tap y respuesta): `Loader2` indigo + "Procesando…" — comportamiento previo (PROP-79).
+- **`success`**: `CheckCircle2` verde + "¡Bien!" + border verde + glow `shadow-[0_0_20px_var(--color-success-glow)]`.
+- **`error`**: `XCircle` roja + "Otra vez" + border rojo + leve shake `x: [-3,3,-2,2,0]` 350 ms.
+
+Las cards no tapeadas pasan de `opacity-40` a `opacity-60`: siguen claramente bloqueadas pero el contraste anterior parecía un error de la app, no un estado de espera.
+
+El cambio conecta visualmente el tap del alumno con la respuesta del backend: antes el bounce/error aparecía sólo arriba (en `ChallengeDisplay`), creando una desconexión cognitiva con el panel inferior.
+
+#### 3. `gameStartTimeRef` también en sesiones reanudadas
+
+`GameSession.handlePlayState` inicializa `gameStartTimeRef.current = Date.now()` cuando llega un payload con `status: 'in-progress'` y la ref está vacía. La mecánica Secuencia arranca con `sequence_phase_memorizing` (no con `new_round`), de modo que un alumno que reanuda una partida en Secuencia tenía `gameStartTimeRef = null` y el GameOver mostraba "Tiempo total: —". El backend `completionTime` sigue teniendo precedencia en `normalizeFinalSummary`; la inicialización es un fallback conservador para no perder la métrica visible.
+
+#### 4. Decoder Web Serial resiliente
+
+`startReading` pasa a `new TextDecoderStream('utf-8', { fatal: false })`. Un byte inválido inserta `U+FFFD` (replacement character) en lugar de tirar la pipeline; el parser de líneas descarta la línea si el JSON resultante no parsea, y el siguiente JSON válido se procesa con normalidad. El sensor sobrevive a glitches de cable o boot ruidoso sin reconexión manual.
+
+#### 5. Hook de simulación `window.__rfidSim` (sólo en builds no-production)
+
+`webSerialService.js` expone, al final del módulo y bajo guarda `import.meta.env.MODE !== 'production'`, un objeto congelado en `window.__rfidSim` con cuatro métodos:
+
+- `init()` — emula el handshake `{ event: 'init', status: 'success', version: 'sim-1.0' }`.
+- `detect(uid, type = 'MIFARE_1KB')` — emite `{ event: 'card_detected', uid, type }` por el mismo punto que el firmware real (`webSerialService.handleRawEvent`). Pasa por validación de UID, dedupe, persistencia IDB y forwarding por socket.
+- `removed(uid)` — emite `{ event: 'card_removed', uid }`.
+- `heartbeat()` — emite `{ event: 'status', uptime, cards_detected, free_heap }` para mantener el watchdog vivo.
+
+Es el camino menos invasivo y más fiel al flujo real: el código de gameplay no se entera de que el sensor es ficticio. En production no se monta el hook (no hay vector de inyección).
+
+### Alternativas consideradas y rechazadas
+
+- **Endpoint backend `POST /dev/rfid/simulate`**: probaba el server-side pero saltaba todo el pipeline cliente (parser, dedupe, IDB). Útil para tests de carga pero no para QA UX.
+- **Mock de `webSerialService` con `vi.mock`**: requería reescribir el sistema de emisión de eventos para inyección estilo IoC. Cambio invasivo para un caso de uso exclusivamente de desarrollo.
+- **Reducir el delay backend a 0 ms**: rompería la animación de feedback (bounce + score badge) y haría que la siguiente carta apareciese antes de que el alumno entienda que ha respondido.
+- **Quitar el bloqueo `disabled` global del FallbackTouchPanel** (sugerencia inicial del agente frontend): permitiría al alumno tocar otra card durante la ventana de feedback, pero el backend (que ya tiene `awaitingResponse=false` durante esos 1,5 s) lo rechazaría con `not_awaiting_response`, generando toast informativo ruidoso. Peor UX neta.
+- **Ampliar el cooldown `lastTapRef` (estilo Secuencia) a Asociación**: no aplica — Asociación es 1 carta = 1 ronda, no acepta múltiples taps consecutivos como Secuencia.
+
+### Consecuencias
+
+**Positivas**:
+- Latencia táctil percibida en Asociación cae de **4,0 s → 1,5 s** (62 % menos pantalla muerta). El alumno ve resultado claro (check/X sobre su card) durante la ventana, no sólo un loader genérico.
+- QA / docentes pueden probar el flujo sensor completo sin hardware, en cualquier máquina, con `__rfidSim.init()` + `__rfidSim.detect('UID')` desde DevTools.
+- El sensor real sobrevive a bytes inválidos sin obligar al alumno a reconectar (relevante en aulas con cables largos USB de baja calidad).
+- El GameOver de Secuencia muestra "Tiempo total" correcto incluso en sesiones reanudadas tras crash del navegador.
+
+**Riesgos asumidos**:
+- 1500 ms puede sentirse "demasiado rápido" para profesores acostumbrados al pacing histórico de 4 s. Mitigación: la env var `ASSOCIATION_NEXT_ROUND_DELAY_MS` permite alargarlo en aulas concretas sin redeploy.
+- `window.__rfidSim` es un vector de inyección teórico en builds no-production. Mitigación: la guarda `import.meta.env.MODE !== 'production'` se evalúa en build time; production strips el bloque entero por dead-code elimination de Vite.
+- `fatal: false` permite que llegue basura al parser JSON. Mitigación: el `try/catch` en `processBuffer` ya silencia JSON inválidos; el watchdog de buffer (`LINE_TIMEOUT_MS = 2000`) limpia fragmentos huérfanos.
+
+### Implementación
+
+**Backend** (`services/gameEngine/GameEngine.js`):
+- Constantes `ASSOCIATION_NEXT_ROUND_DELAY_MS` y `ASSOCIATION_TIMEOUT_NEXT_ROUND_DELAY_MS` (ambas 1500 ms por defecto, override env).
+- `processResponse` y `handleTimeout` usan las constantes en sus `setTimeout(advanceToNextRound, ...)`.
+
+**Frontend**:
+- `components/game/FallbackTouchPanel.jsx`: nueva prop `feedbackState`, micro-feedback `success/error` con `CheckCircle2`/`XCircle`, opacity bloqueo 40 → 60.
+- `pages/GameSession.jsx`: pasa `feedbackState` al panel; `handlePlayState` inicializa `gameStartTimeRef` para sesiones reanudadas.
+- `services/webSerialService.js`: `TextDecoderStream('utf-8', { fatal: false })`; expone `window.__rfidSim` bajo guarda no-production.
+
+**Suite verificada**: 1129/1129 backend + 329/329 frontend. Lint backend 0 errors, lint frontend 0 errors.
+
+---
+
+## ADR-113: Pulido pacing Secuencia, contextualización mascota y desbloqueo "Jugar de Nuevo" [Backend, Frontend, UX]
+
+**Fecha:** 2026-05-06
+**Sprint/Origen:** Continuación de la sesión QA del ADR-112. Tras validar el fix de latencia táctil de Asociación con Playwright, el usuario detectó tres problemas adicionales jugando Secuencia y observando el flujo completo de partida.
+**Estado:** Aprobado (`develop`)
+**Alcance:** Backend (`services/gameEngine/sequenceFlow.js`, `services/gamePlayService.js`); Frontend (`pages/GameSession.jsx`, `hooks/useGameFeedback.js`, `lib/mascotDialog.js`, `lib/gameOverCopy.js`, `lib/mechanicTheme.js`, `components/game/RFIDModeHandler.jsx`, `services/webSerialService.js`).
+
+### Contexto
+
+Después del ADR-112, el QA en frío con Playwright dejó tres frentes con problemas reales que afectan directamente la pedagogía y la fluidez de la partida:
+
+1. **Tiempo de respuesta de Secuencia injusto.** El backend (`sequenceFlow.enterSequenceReproducingPhase`) armaba el `roundTimer` instantáneamente al transicionar de `memorizing` a `reproducing`, mientras el frontend mostraba `PhaseTransitionOverlay` durante 2400 ms con un countdown "Reproduce la secuencia · ¡Ya!". El alumno literalmente no podía responder durante esos 2,4 s (overlay opaco), pero el cronómetro de la ronda ya descontaba — con `timeLimit = 30 s` configurados, el alumno tenía sólo 27,6 s reales. Adicionalmente, la `TimerBar` del cliente decrementaba durante el overlay, dando un feedback contradictorio.
+
+2. **Cierre de ronda demasiado abrupto.** Tras `sequence_round_result`, las cartas se volteaban con su estado final (verde / rojo / ámbar) durante apenas 800 ms antes de arrancar la animación signature de "recogida del crupier". El alumno no tenía tiempo de asimilar cómo le fue la ronda; la siguiente memorización empezaba antes de que pudiera ver "qué pasó". Comentarios del usuario: "todo pasa demasiado deprisa, el niño no puede ver cómo le fue, satura". El backend espejaba el problema con `FEEDBACK_PAUSE_MS = 1700 ms` entre rondas — apenas 800 ms de revelado + 640 ms de animación + un instante minúsculo de respiro.
+
+3. **Mascota descontextualizada.** Tres ubicaciones en el cliente prometían al alumno una "pista" que la mecánica nunca entrega:
+   - `mascotDialog.js`: la frase `'Lee la pista'` figuraba en el pool `ASSOCIATION_DIALOG.errorAnswer`. Asociación NO tiene sistema de pistas — eso solo existe en Secuencia con dificultad fácil.
+   - `gameOverCopy.js`: el subtítulo de Asociación 1⭐ era `'Lee la pista con calma'`. Mismo problema.
+   - `mechanicTheme.js`: el `intro` de Asociación decía `'Lee bien la pista y elige la tarjeta que toca.'`. También induce a error.
+   - Adicionalmente, durante el QA con Playwright se observó que la mascota mostraba la frase `'Otra es'` (pool de Asociación) jugando una sesión de Secuencia. Causa raíz: `useCallback` de `processValidationResult` en `useGameFeedback` no tenía `mechanicType` en su array de dependencias, por lo que el closure capturaba el valor del primer render (típicamente `'association'` por default) y nunca se actualizaba al cambiar la mecánica activa.
+
+Otros dos hallazgos diferidos del ADR-112 también se resuelven aquí:
+
+4. **`RFIDModeHandler` mostraba "Inactivo" como subtítulo aunque el sensor estuviera conectado.** El widget lee `mode` del `RfidModeContext`, que solo se actualiza ante eventos socket `rfid_mode_changed`. En la ventana entre `device_state_change: ready` y la primera transición a `gameplay`, el copy "Inactivo" daba falso negativo al docente.
+
+5. **Botón "Jugar de Nuevo" del GameOver fallaba con toast `La sesión no está activa`.** Tras terminar todas las plays de una sesión, `recalculateSessionStatusFromPlays` la pasa a status `'completed'`. `validateGameSession` en `gamePlayService` aceptaba sólo `'active'` (vía `session.isActive()`) y rechazaba la creación de nuevas plays, bloqueando el caso de uso central de "Jugar de Nuevo".
+
+Y un último ítem operativo:
+
+6. **`__rfidSim.detect` "no parecía hacer nada"** cuando se invocaba sin haber llamado antes a `__rfidSim.init()`: el scan se encolaba silenciosamente en `pendingScans` sin feedback al QA.
+
+### Decisión
+
+#### 1. Grace period en Secuencia entre `reproducing` y timer real
+
+`sequenceFlow.js` define la constante `SEQUENCE_REPRODUCE_GRACE_MS = 2400` (sincronizada con la duración del `PhaseTransitionOverlay` del cliente). En `enterSequenceReproducingPhase`:
+
+- El `roundTimer` se arma con `setTimeout(handleSequenceRoundTimeout, timeLimitMs + SEQUENCE_REPRODUCE_GRACE_MS + 150)` en lugar de sólo `timeLimitMs + 150`. El alumno dispone del tiempo configurado de respuesta REAL, sin contar el countdown.
+- El evento `sequence_phase_reproducing` lleva ahora el campo `gracePeriodMs` para que el cliente sepa cuánto postponer su `awaitingResponse`.
+- Si el alumno tap durante el overlay, sus scans se procesan con normalidad porque `awaitingResponse` ya es `true` desde el momento de la transición.
+
+`GameSession.handleSequencePhaseReproducing` lee `gracePeriodMs` y postpone el `dispatch({ type: 'AWAIT_RESPONSE', value: true })` con un `setTimeout` cuya referencia se guarda en `sequenceGraceTimerRef`. El timer se cancela en `handleSequencePhaseMemorizing` y `handleSequenceRoundResult` para evitar carry-over entre rondas o estados de pause/resume. La `TimerBar` permanece llena durante el overlay y empieza a decrementar exactamente cuando el alumno puede responder.
+
+#### 2. Pacing post-ronda 800 → 2400 ms en cliente, 1700 → 3500 ms en backend
+
+`GameSession.handleSequenceRoundResult` cambia el `setTimeout(setIsCollecting, 800)` a `2400` ms. `sequenceFlow.FEEDBACK_PAUSE_MS` pasa de `1700` a `3500` ms. La nueva distribución del tiempo entre rondas:
+
+- 0 – 2400 ms: cartas reveladas con verde/rojo/ámbar y dots actualizados. El alumno asimila cómo le fue.
+- 2400 – 3040 ms: animación de recogida del crupier (stagger 70 ms × N + 320 ms ease).
+- 3040 – 3500 ms: respiro antes del reparto de la siguiente ronda.
+
+El usuario describió este timing como "respira mejor, deja ver cómo ha ido la ronda".
+
+#### 3. Mascota y copy contextualizado a la mecánica
+
+- `mascotDialog.js` reemplaza `'Lee la pista'` por `'Fíjate bien'` en `ASSOCIATION_DIALOG.errorAnswer`.
+- `gameOverCopy.js` reemplaza `'Lee la pista con calma'` por `'Mira con calma y elige bien'` en `ASSOCIATION_COPY[1]`.
+- `mechanicTheme.js` reemplaza el `intro` de Asociación por `'Observa el objetivo y elige la tarjeta que le corresponde.'`.
+- `useGameFeedback.js` añade `mechanicType` al array de dependencias de `useCallback` de `processValidationResult`. Sin esto, el closure capturaba el `mechanicType` del primer render y la mascota usaba el diccionario equivocado durante toda la sesión cuando la mecánica activa no era la default.
+
+#### 4. `RFIDModeHandler` con copy "Listo para escanear" cuando hay sensor
+
+Nuevo entry `idle_connected` en `MODES_CONFIG`. El componente resuelve `resolvedMode = effectiveMode === 'idle' && isConnected ? 'idle_connected' : effectiveMode` y pinta:
+
+- Etiqueta: "Listo para escanear" (en lugar de "Inactivo").
+- Descripción: "El sensor está conectado y esperando a su turno".
+- Icono: `Activity` con tonos `success`.
+
+Cuando el backend confirme modo `gameplay` o `card_assignment`, los entries existentes toman precedencia.
+
+#### 5. `validateGameSession` acepta `'completed'` además de `'active'`
+
+`gamePlayService.validateGameSession` reemplaza la comprobación binaria `session.isActive()` por una whitelist `{ 'created', 'active', 'completed' }`. Una sesión "completada" no es una sesión cerrada — significa que las plays previas terminaron pero la sesión sigue siendo válida. El `recalculateSessionStatusFromPlays` la devolverá automáticamente a `'active'` al insertar la nueva play. Si en el futuro se introdujera un estado terminal real (`archived` / `deleted`), debería rechazarse explícitamente.
+
+#### 6. `__rfidSim` con warning previo y método `status()`
+
+`webSerialService.js`:
+
+- `__rfidSim.detect` emite `console.warn` si `webSerialService.deviceState !== 'ready'` (típicamente porque el QA olvidó `__rfidSim.init()` antes). El scan se sigue intentando — solo se avisa al QA.
+- Nuevo `__rfidSim.status()` devuelve `{ deviceState, pendingScans, sensorId, firmwareVersion }` para diagnóstico rápido cuando un detect "no parece hacer nada".
+
+### Alternativas consideradas y rechazadas
+
+- **Cancelar el `roundTimer` durante la grace y rearmarlo después**: equivalente al fix aplicado, pero más frágil ante pause/resume durante el grace. El cálculo upfront `timeLimitMs + grace + 150` es atómico.
+- **Reducir el `PhaseTransitionOverlay` a 1 s para ganar segundos de juego**: rompía la signature visual del producto (countdown de "crupier") y degradaba la accesibilidad del cambio de fase.
+- **Aumentar `FEEDBACK_PAUSE_MS` a 5 s**: demasiada pausa entre rondas — el alumno se distrae. 3,5 s es el equilibrio entre asimilación y ritmo.
+- **Borrar la frase "Lee la pista" también del pool de Secuencia**: es válida ahí (las pistas existen en dificultad fácil), pero idealmente sólo cuando hay una pista activa. Por ahora la dejamos en `SEQUENCE_DIALOG.errorAnswer` y, si en QA futuro se detecta el mismo desencaje, se moverá a un evento dedicado `hintShown`.
+- **Bloquear el botón "Jugar de Nuevo" cuando la sesión está `completed`**: empeora la UX. Permitir replay y dejar que el `recalculateSessionStatusFromPlays` reactive el estado es lo natural.
+
+### Consecuencias
+
+**Positivas**:
+- Secuencia ahora regala los segundos de respuesta configurados al alumno: con `timeLimit = 30 s`, dispone de 30 s reales para tap su primera carta, no 27,6 s.
+- La pausa post-ronda da margen real para que el alumno entienda qué pasó (verde / rojo / ámbar legible), reduciendo la sensación de "satura".
+- La mascota deja de prometer mecánicas inexistentes; el alumno deja de buscar una "pista" que nunca llega.
+- El bug del `useCallback` sin `mechanicType` deja la mascota correcta independientemente de la mecánica activa — afectaba a las tres mecánicas, no solo Secuencia.
+- "Jugar de Nuevo" funciona en el caso de uso central post-GameOver.
+- El widget RFID deja de dar falso negativo al docente cuando hay sensor en stand-by.
+
+**Riesgos asumidos**:
+- 3,5 s entre rondas puede sentirse "lento" para alumnos avanzados que ya tienen el tic-tac mental. Si analytics futura muestra abandono entre rondas o quejas docentes, se puede parametrizar el `FEEDBACK_PAUSE_MS` por dificultad (`hard` → 2500 ms, `easy` → 4000 ms).
+- Aceptar `'completed'` en `validateGameSession` permite que un alumno re-juegue indefinidamente la misma sesión. Eso ya era posible jugando antes de que terminara la última play, así que no introduce un vector nuevo. El docente sigue controlando la session via wizard si desea cerrarla formalmente.
+
+### Implementación
+
+**Backend**:
+- `services/gameEngine/sequenceFlow.js`: constantes `FEEDBACK_PAUSE_MS = 3500` y nueva `SEQUENCE_REPRODUCE_GRACE_MS = 2400`. `enterSequenceReproducingPhase` envía `gracePeriodMs` en el evento y arma el `roundTimer` con `timeLimitMs + grace + 150`.
+- `services/gamePlayService.js`: `validateGameSession` con whitelist de estados aceptables.
+
+**Frontend**:
+- `pages/GameSession.jsx`: nuevo `sequenceGraceTimerRef`, lectura de `payload.gracePeriodMs`, postpone de `AWAIT_RESPONSE`, cleanup en memorizing/round-result. Ajuste de `setTimeout(setIsCollecting, 2400)` en `handleSequenceRoundResult`.
+- `hooks/useGameFeedback.js`: `mechanicType` añadido a deps del `useCallback` de `processValidationResult`.
+- `lib/mascotDialog.js`, `lib/gameOverCopy.js`, `lib/mechanicTheme.js`: copy contextualizado.
+- `components/game/RFIDModeHandler.jsx`: nuevo entry `idle_connected` y resolución `resolvedMode`.
+- `services/webSerialService.js`: warning previo en `__rfidSim.detect` + nuevo `__rfidSim.status()`.
+
+**Suite verificada**: 1129/1129 backend + 329/329 frontend. Lint backend 0 errors, lint frontend 0 errors. Validación E2E con Playwright: `PhaseTransitionOverlay` con TimerBar congelada al 95 % durante el grace, mascota correcta tras taps en Secuencia.
+
+---
+
+## ADR-114: Reglas canónicas de puntuación + reorganización mecánica-aware del detalle de sesión [Backend, Frontend, UX]
+
+**Fecha:** 2026-05-06
+**Sprint/Origen:** Sesión QA tras los ADR-112 / ADR-113. El usuario pidió aclarar dos frentes: (1) cuántos puntos vale una estrella y cuántos puntos máximos se pueden sacar por partida, "para que no se desvirtúen rankings"; (2) la ventana de detalle de sesión muestra "configurar mapping" para todas las mecánicas y no refleja los atributos específicos de cada wizard.
+**Estado:** Aprobado (`develop`)
+**Alcance:** Backend (`models/GameSession.js`, `models/GamePlay.js`, `validators/gameSessionValidator.js`, `services/gamePlayService.js`, `services/gameEngine/GameEngine.js`, `utils/dtos.js`, `seeders/06-sessions.js`); Frontend (`components/session/StepRules.jsx`, `StepMemoryRules.jsx`, `StepSequenceRules.jsx`, `pages/SessionsPage.jsx`, `pages/SessionDetail.jsx`, `components/game/GameOverScreen.jsx`, `pages/GameSession.jsx`, nuevos paneles en `components/session/detail/`).
+
+### Contexto
+
+El sistema de puntuación tenía tres deformaciones operativas que el QA acabó destapando:
+
+1. **Rangos `pointsPerCorrect` heterogéneos** entre mecánicas: el wizard permitía 5-25 en Asociación, 5-30 en Memoria, y dejaba Secuencia hardcoded a 10 sin slider. Una sesión `pointsPerCorrect=30 × numberOfRounds=20` producía un techo absoluto de 600 puntos; otra `pointsPerCorrect=5 × numberOfRounds=3` producía 15. Comparar score absoluto entre alumnos que jugaron sesiones distintas no tenía sentido.
+2. **`maxScore` invisible para el alumno**: la métrica existía en el modelo `GamePlay` y se calculaba en `gamePlayService.createPlay`, pero no se exponía en el DTO ni se enviaba en el evento `game_over`. El GameOverScreen mostraba "32 puntos" sin referencia, dejando al alumno sin contexto de qué % del techo había logrado.
+3. **`maxScore` mal calculado en Memoria**: la fórmula histórica `numberOfRounds × pointsPerCorrect` aplicaba a Asociación pero no a Memoria, donde `numberOfRounds` no representa rondas sino una cantidad genérica que coexiste con `boardLayout.length / 2` (parejas reales).
+
+A nivel UX, el detalle de sesión (`SessionDetail.jsx`) era genérico:
+
+4. El botón "Ver tablero y mapping" aparecía para las tres mecánicas, pero el concepto de "mapping" (layout 2D del tablero) sólo aplica a Memoria. En Asociación las cartas no tienen posición espacial, y en Secuencia el orden lo define el `sequencePlan`, no la disposición del tablero.
+5. La página no mostraba los atributos específicos de cada mecánica:
+   - Asociación: el `associationChallengePlan` (qué carta toca en cada ronda + `promptText`) sólo se podía revisar editando.
+   - Secuencia: el `sequencePlan` y `sequenceConfig` (min/max length, displaySeconds, reglas de dificultad) no aparecían.
+   - Memoria: no había visualización del `boardLayout`.
+
+### Decisión
+
+#### Bloque A — Rangos canónicos y `pointsPerCorrect` editable en Secuencia
+
+`gameSessionValidator.js` y `models/GameSession.js` aplican constraints unificados a las tres mecánicas:
+
+- `pointsPerCorrect`: integer en `[5, 15]` (default 10).
+- `penaltyPerError`: integer en `[-5, 0]` (default -2).
+
+Los wizards `StepRules.jsx` (Asociación), `StepMemoryRules.jsx` y `StepSequenceRules.jsx` reflejan los nuevos rangos en sus sliders. Secuencia añade los dos sliders nuevos (`pointsPerCorrect` y `penaltyPerError`) que antes no eran configurables — el alumno o el docente no tenían forma de ajustar el peso de los aciertos en Secuencia. El seeder `06-sessions.js` se actualiza para que ningún preset histórico exceda los nuevos límites (18 → 15, 20 → 15).
+
+Los rangos elegidos son lo suficientemente estrechos para evitar deformaciones de ranking pero lo suficientemente amplios para diferenciar dificultad: una sesión "easy" puede usar 5 pts × 3 rondas = 15 pts máx., una "hard" 15 pts × 15 rondas = 225 pts máx.
+
+#### Bloque B — `maxScore` calculado, persistido, expuesto y visible
+
+`gamePlayService.createPlay` ya calculaba `maxScore` y lo persistía en `GamePlay` desde antes (P19), pero la fórmula no distinguía Memoria. La nueva implementación detecta la mecánica por la "huella" de datos persistida en la sesión:
+
+- **Secuencia**: `Σ(longitud de cada ronda) × pointsPerCorrect` (lee `sequencePlan`).
+- **Memoria**: `(boardLayout.length / 2) × pointsPerCorrect` (asume groupSize = 2, parejas).
+- **Asociación / fallback**: `numberOfRounds × pointsPerCorrect`.
+
+El backend ahora propaga `maxScore` en tres niveles:
+
+1. `utils/dtos.js` — el DTO `toGamePlayDTOV1` incluye `maxScore` para que cualquier consumidor frontend lo vea.
+2. `services/gameEngine/GameEngine.endPlay` — el evento `game_over` lleva `maxScore` al cliente para el GameOverScreen.
+3. `frontend/src/pages/GameSession.jsx` — `normalizeFinalSummary` acepta `maxScore` y lo deja en el `summary` que recibe el GameOverScreen.
+
+`GameOverScreen` pinta ahora `score / maxScore (Z%)` debajo del número grande del score: el alumno ve "32 / 50 puntos · 64%" en lugar de "32 puntos" sin contexto. Si el backend no lo emite (sesión histórica), el componente cae al texto clásico.
+
+**Las estrellas no cambian**: siguen calculándose por % de aciertos (`correctAnswers / totalRounds × 100` para Memoria/Asociación, `sequencesCompleted / totalRounds × 100` para Secuencia, umbral 90/70/50 → 3/2/1⭐). Los tests existentes y la UX del cliente siguen intactos. `maxScore` añade una capa informativa sin romper nada.
+
+#### Bloque C — Detalle de sesión reorganizado con tabs mecánica-aware
+
+`SessionDetail.jsx` se reorganiza con un sistema de tabs ligero (state local, sin librería):
+
+- **Resumen**: vista rápida con KPIs principales (Tarjetas, Tiempo, Rondas/Parejas, Score máximo teórico) + bloque de info estática (Mecánica, Contexto, Mazo, Estado, Creada).
+- **Configuración**: KPIs detallados de la config completa (incluye `maxScore` teórico calculado en cliente con la misma fórmula que el backend) + nota explicativa de que las estrellas se basan en % aciertos y no en score absoluto.
+- **Tablero / Plan de retos / Plan de secuencias** (dinámico según mecánica):
+  - Memoria → `SessionDetailMemoryPanel` con visualización del `boardLayout` en grid 2D (4-6 columnas según total) o EmptyState con botón "Configurar tablero" si está vacío.
+  - Asociación → `SessionDetailAssociationPanel` con lista de rondas mostrando carta + asset + `promptText` (o "Sin consigna" como hint si está vacío) + UID en font monospace.
+  - Secuencia → `SessionDetailSequencePanel` con `sequenceConfig` (min/max len, displaySeconds, total cartas), reglas de dificultad explicadas (intentos por carta + disponibilidad de pistas) y plan visualizado por rondas con cada secuencia ordenada (cards con número de orden 1..N).
+- **Tarjetas del mazo**: inventario de las cards de la sesión (común a las tres mecánicas), con texto explicativo de que el orden / consigna se define en la pestaña específica.
+
+El botón "Ver mapping" del header sólo aparece para Memoria (donde el concepto aplica). En `SessionsPage.jsx` el botón "Ver tablero y mapping" del SessionCard también se filtra por `isMemoryMechanic`.
+
+### Alternativas consideradas y rechazadas
+
+- **Score normalizado a 0-100**: cambiar el `score` interno para que siempre fuese un porcentaje. Demasiado invasivo (rompe partidas históricas, métricas de analytics, integración con `studentMetrics.averageScore`). Mantener score absoluto + mostrar `maxScore` da el mismo contexto sin migración.
+- **Estrellas por `score / maxScore`**: cambiaría la UX establecida (90/70/50 ya está validado en QA y memoria del usuario) y rompería tests. La métrica "% aciertos" es robusta y suficiente.
+- **Eliminar `pointsPerCorrect` configurable** y dejarlo fijo en 10 para todas las mecánicas: perdería expresividad pedagógica (un docente que quiere reforzar aciertos rápidos puede subir el score). Mantenerlo en `[5, 15]` da margen sin permitir extremos.
+- **SessionDetail con sub-páginas en lugar de tabs**: navegación más pesada para el docente que quiere comparar resumen y plan; las tabs in-place son más rápidas en este flujo.
+
+### Consecuencias
+
+**Positivas**:
+- Rankings y comparaciones de score absoluto entre sesiones tienen sentido: el ratio score/maxScore es comparable, y maxScore varía menos (rango pedagógico estrecho).
+- El alumno ve su % de logro directamente en el GameOver.
+- Secuencia gana expresividad pedagógica con `pointsPerCorrect` y `penaltyPerError` editables.
+- El docente revisa el plan de retos / secuencias / tablero sin entrar en modo edición.
+- La pestaña "Configuración" hace transparente cuál es el techo de puntos de la sesión, eliminando la sensación de "por qué saqué 32 si la cosa está rara".
+
+**Riesgos asumidos**:
+- Sesiones históricas con `pointsPerCorrect > 15` ya en BD siguen siendo válidas (la validación se aplica solo a creación / edición); el ranking entre alumnos con sesiones nuevas y antiguas no es directamente comparable, pero `score/maxScore` lo corrige.
+- `maxScore` en Memoria asume `groupSize = 2`. Si en el futuro se introduce `groupSize` parametrizable (tríos, cuartetos), el cálculo en `gamePlayService` y en el `theoreticalMaxScore` del SessionDetail debe leerlo del schema.
+- Los nuevos paneles de detalle (Memoria/Asociación/Secuencia) renderizan datos opcionales (boardLayout, plan, config) que no siempre existen para sesiones in-progress sin todos los pasos completados; los EmptyStates cubren el caso pero hay que mantenerlos sincronizados con el wizard.
+
+### Implementación
+
+**Backend**:
+- `validators/gameSessionValidator.js` — `pointsPerCorrect.min(5).max(15)`, `penaltyPerError.min(-5).max(0)`.
+- `models/GameSession.js` — mismos límites en el subschema `config`.
+- `services/gamePlayService.js` — `maxScore` con detección por mecánica (Secuencia / Memoria / Asociación).
+- `utils/dtos.js` — `maxScore` en `toGamePlayDTOV1`.
+- `services/gameEngine/GameEngine.js` — `maxScore` en payload `game_over`.
+- `seeders/06-sessions.js` — `pointsPerCorrect: 18 → 15`, `pointsPerCorrect: 20 → 15`.
+
+**Frontend**:
+- `components/session/StepRules.jsx`, `StepMemoryRules.jsx` — sliders ajustados a 5-15 / -5..0.
+- `components/session/StepSequenceRules.jsx` — añadidos sliders `pointsPerCorrect` y `penaltyPerError`.
+- `pages/GameSession.jsx` — `normalizeFinalSummary` acepta y propaga `maxScore`.
+- `components/game/GameOverScreen.jsx` — pinta `score / maxScore (Z%)`.
+- `pages/SessionsPage.jsx` — botón mapping filtrado por `isMemoryMechanic`.
+- `pages/SessionDetail.jsx` — reorganización completa con tabs mecánica-aware, helpers locales `SummaryKpi`, `SummaryRow`, `ConfigCell`.
+- `components/session/detail/SessionDetailMemoryPanel.jsx` — nuevo, visualiza tablero 2D.
+- `components/session/detail/SessionDetailAssociationPanel.jsx` — nuevo, lista de rondas con carta + consigna.
+- `components/session/detail/SessionDetailSequencePanel.jsx` — nuevo, plan de secuencias + sequenceConfig + reglas de dificultad.
+
+**Suite verificada**: tests + lint backend y frontend tras los cambios (ver memoria de sesión).
+
+### Sincronización de los seeders (continuación tras revisión del usuario)
+
+Cualquier cambio en validadores/schema sin actualizar los seeders deja la BD inicial fuera del nuevo contrato y rompe `seed:reset`. Auditados los 4 seeders relevantes:
+
+- **`seeders/03-mechanics.js`**: `MemoryMechanic.rules.defaults.pointsPerCorrect: 20 → 15` (fuera del rango unificado 5-15). Añadidos `minPointsPerCorrect`/`maxPointsPerCorrect`/`minPenaltyPerError`/`maxPenaltyPerError` a los `limits` de las 3 mecánicas para que tooling admin pueda leer los rangos pedagógicos directamente del modelo.
+- **`seeders/06-sessions.js`**: `pointsPerCorrect: 12 → 10` (válido en backend pero saltaba el step 5 del wizard al re-editar la sesión). Cambios previos en esta sesión ya habían normalizado 18/20 → 15.
+- **`seeders/07-gameplays.js`**: el cálculo de `maxScore` usaba la fórmula vieja `numberOfRounds × pointsPerCorrect` para todas las mecánicas. Ahora replica la lógica del backend en runtime detectando por huella de datos:
+  - Secuencia: `Σ(longitud ronda) × pointsPerCorrect` (lee `sequencePlan`).
+  - Memoria: `(boardLayout.length / 2) × pointsPerCorrect` (asume groupSize=2).
+  - Asociación / fallback: `numberOfRounds × pointsPerCorrect`.
+
+Sin esta alineación, los rankings normalizados (`score / maxScore`) entre datos sembrados y datos en vivo eran incomparables (en Secuencia el seeder calculaba `maxScore=75` para `numberOfRounds=5`, pero el backend al jugar calculaba `Σ(4+5+3+5+4)=21 × 15 = 315`, deformando todo dashboard que comparase ambos).
+
+Validación E2E: `seed:reset` en Docker creó **40 sesiones + 406 plays** sin errores de validación. Aggregate query Mongo confirmó:
+- `pointsPerCorrect ∈ [10, 15]` y `penaltyPerError ∈ [-5, -2]` en todas las sesiones.
+- Todas las plays tienen `maxScore` (0 nulos), 0 plays con `score > maxScore`.
+- `maxScore` por mecánica coherente: Memoria 90 (6 parejas × 15), Asociación 50-90, Secuencia 210-420.
+

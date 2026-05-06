@@ -329,16 +329,23 @@ const SessionCard = memo(function SessionCard({
           </div>
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-1 bg-glass-bg rounded-lg p-1">
-              <Tooltip content="Ver tablero y mapping">
-                <ButtonPremium
-                  variant="ghost"
-                  size="sm"
-                  onClick={() => onNavigate(ROUTES.BOARD_SETUP_WITH_ID(sessionId))}
-                  aria-label="Ver tablero y mapping de tarjetas"
-                >
-                  <LayoutGrid size={14} />
-                </ButtonPremium>
-              </Tooltip>
+              {/* QA 2026-05-06 (ADR-114): el "tablero / mapping" sólo aplica
+                  a Memoria, donde simula el orden físico de las tarjetas en
+                  el tablero digital. En Asociación y Secuencia no hay
+                  posición espacial relevante (Asociación elige una respuesta;
+                  Secuencia sigue un plan). Mostrarlo confundía al docente. */}
+              {isMemoryMechanic && (
+                <Tooltip content="Ver tablero y mapping">
+                  <ButtonPremium
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => onNavigate(ROUTES.BOARD_SETUP_WITH_ID(sessionId))}
+                    aria-label="Ver tablero y mapping de tarjetas"
+                  >
+                    <LayoutGrid size={14} />
+                  </ButtonPremium>
+                </Tooltip>
+              )}
               {/* Tooltip dinamico: explica el motivo cuando los botones estan disabled
                   para que el usuario sepa que solo las sesiones en borrador son editables. */}
               <Tooltip content={canEdit ? 'Editar sesión' : 'Las sesiones jugadas no se pueden editar; clónala para crear una nueva en borrador'}>

@@ -203,7 +203,7 @@ const sessionTemplates = [
     contextKey: 'shapes-basic',
     deckName: 'Formas Memoria',
     mechanicName: 'memory',
-    config: { numberOfRounds: 5, timeLimit: 20, pointsPerCorrect: 20, penaltyPerError: -3 },
+    config: { numberOfRounds: 5, timeLimit: 20, pointsPerCorrect: 15, penaltyPerError: -3 },
     status: 'completed',
     description: 'Memoria con formas - introducción',
     daysAgo: 26
@@ -220,7 +220,7 @@ const sessionTemplates = [
   {
     contextKey: 'geography-europe',
     mechanicName: 'association',
-    config: { numberOfRounds: 6, timeLimit: 18, pointsPerCorrect: 12, penaltyPerError: -3 },
+    config: { numberOfRounds: 6, timeLimit: 18, pointsPerCorrect: 10, penaltyPerError: -3 },
     status: 'completed',
     description: 'Geografía Europa - repaso 2',
     daysAgo: 18
@@ -238,7 +238,7 @@ const sessionTemplates = [
     contextKey: 'shapes-basic',
     deckName: 'Formas Memoria',
     mechanicName: 'memory',
-    config: { numberOfRounds: 6, timeLimit: 18, pointsPerCorrect: 20, penaltyPerError: -3 },
+    config: { numberOfRounds: 6, timeLimit: 18, pointsPerCorrect: 15, penaltyPerError: -3 },
     status: 'completed',
     description: 'Memoria con formas - repaso',
     daysAgo: 10
@@ -263,7 +263,7 @@ const sessionTemplates = [
   {
     contextKey: 'geography-europe',
     mechanicName: 'association',
-    config: { numberOfRounds: 6, timeLimit: 18, pointsPerCorrect: 12, penaltyPerError: -3 },
+    config: { numberOfRounds: 6, timeLimit: 18, pointsPerCorrect: 10, penaltyPerError: -3 },
     status: 'completed',
     description: 'Geografía Europa - evaluación final',
     daysAgo: 3
@@ -304,7 +304,7 @@ const sessionTemplates = [
     contextKey: 'numbers-1-6',
     mechanicName: 'sequence',
     difficulty: 'hard',
-    config: { numberOfRounds: 5, timeLimit: 25, pointsPerCorrect: 20, penaltyPerError: -4 },
+    config: { numberOfRounds: 5, timeLimit: 25, pointsPerCorrect: 15, penaltyPerError: -4 },
     sequenceConfig: { minSequenceLength: 4, maxSequenceLength: 6, displaySeconds: 2 },
     status: 'completed',
     description: 'Secuencia números - desafío',
@@ -314,7 +314,7 @@ const sessionTemplates = [
     contextKey: 'geography-europe',
     mechanicName: 'sequence',
     difficulty: 'medium',
-    config: { numberOfRounds: 6, timeLimit: 35, pointsPerCorrect: 18, penaltyPerError: -3 },
+    config: { numberOfRounds: 6, timeLimit: 35, pointsPerCorrect: 15, penaltyPerError: -3 },
     sequenceConfig: { minSequenceLength: 3, maxSequenceLength: 5, displaySeconds: 3 },
     status: 'completed',
     description: 'Secuencia geografía - práctica',

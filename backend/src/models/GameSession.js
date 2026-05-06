@@ -121,9 +121,12 @@ const gameSessionSchema = new mongoose.Schema(
         max: 300,
         default: 15
       },
+      // ADR-114: rangos unificados entre mecánicas para evitar deformación
+      // del ranking. 5-15 / -5..0 son los rangos pedagógicos válidos.
       pointsPerCorrect: {
         type: Number,
-        min: [1, 'Los puntos por acierto deben ser mayores que 0'],
+        min: [5, 'Los puntos por acierto deben ser al menos 5'],
+        max: [15, 'Los puntos por acierto no pueden exceder 15'],
         default: 10,
         validate: {
           validator: Number.isInteger,
@@ -132,6 +135,7 @@ const gameSessionSchema = new mongoose.Schema(
       },
       penaltyPerError: {
         type: Number,
+        min: [-5, 'La penalización por error no puede ser inferior a -5'],
         max: [0, 'Los puntos por error deben ser cero o negativos'],
         default: -2,
         validate: {

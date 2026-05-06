@@ -469,7 +469,13 @@ class WebSerialService {
     this._armInitTimeout();
     this._armLineTimeoutWatchdog();
 
-    const textDecoder = new TextDecoderStream();
+    // `fatal: false` evita que un byte UTF-8 inválido del firmware (boot
+    // ruidoso, fluctuación eléctrica) tire toda la pipeline de lectura.
+    // En su lugar, el decodificador inserta U+FFFD y seguimos leyendo;
+    // el parser de líneas descarta el fragmento corrupto y conserva el
+    // siguiente JSON válido. Sin este flag, una sola excepción hacía
+    // necesario reconectar el sensor manualmente.
+    const textDecoder = new TextDecoderStream('utf-8', { fatal: false });
     const readableStreamClosed = this.port.readable.pipeTo(textDecoder.writable);
     this.reader = textDecoder.readable.getReader();
 
@@ -817,3 +823,69 @@ class WebSerialService {
 
 export const webSerialService = new WebSerialService();
 export default webSerialService;
+
+// ---------------------------------------------------------------------------
+// Helper de simulación para QA / desarrollo sin sensor físico
+// ---------------------------------------------------------------------------
+// Expone `window.__rfidSim` que inyecta eventos en el mismo punto que el
+// firmware real (`handleRawEvent`), de modo que recorran el pipeline
+// completo (validación de UID, dedupe, persistencia IDB, forwarding a
+// socket). Sólo se monta en builds no-production para no exponer un canal
+// de inyección en producción.
+//
+// Uso desde DevTools:
+//   __rfidSim.init();                          // emula el handshake del sensor
+//   __rfidSim.detect('04A1B2C3', 'MIFARE_1KB'); // emula card_detected
+//   __rfidSim.heartbeat();                     // mantiene deviceState='ready'
+//   __rfidSim.removed('04A1B2C3');             // emula card_removed
+if (typeof globalThis !== 'undefined' && typeof window !== 'undefined') {
+  const env = (import.meta?.env?.MODE || import.meta?.env?.NODE_ENV || 'development').toLowerCase();
+  if (env !== 'production') {
+    window.__rfidSim = Object.freeze({
+      init() {
+        webSerialService.handleRawEvent({ event: 'init', status: 'success', version: 'sim-1.0' });
+      },
+      detect(uid, type = 'MIFARE_1KB') {
+        const normalizedUid = String(uid || '').trim().toUpperCase();
+        if (!normalizedUid) {
+          throw new Error('uid requerido');
+        }
+        // QA 2026-05-06: si `init()` no se llamó previamente o el sensor
+        // está en estado distinto de 'ready', el `_handleCardDetected` no
+        // forwardea el scan al socket (queda encolado en `pendingScans`).
+        // Avisamos al QA en consola para evitar la confusión "el detect no
+        // hace nada" — antes había que adivinarlo del flujo.
+        if (webSerialService.deviceState !== 'ready') {
+          console.warn(
+            '[__rfidSim] El sensor simulado no está en estado "ready". Llama __rfidSim.init() antes de detect(), o el scan se encolará en pendingScans.'
+          );
+        }
+        webSerialService.handleRawEvent({ event: 'card_detected', uid: normalizedUid, type });
+      },
+      removed(uid) {
+        webSerialService.handleRawEvent({
+          event: 'card_removed',
+          uid: String(uid || '').trim().toUpperCase()
+        });
+      },
+      heartbeat() {
+        webSerialService.handleRawEvent({
+          event: 'status',
+          uptime: Date.now(),
+          cards_detected: 0,
+          free_heap: 32768
+        });
+      },
+      // Devuelve un snapshot del estado interno para diagnóstico — útil
+      // cuando un detect "no parece hacer nada" (encolado vs forwardado).
+      status() {
+        return {
+          deviceState: webSerialService.deviceState,
+          pendingScans: webSerialService.pendingScans.length,
+          sensorId: webSerialService.sensorId,
+          firmwareVersion: webSerialService.firmwareVersion
+        };
+      }
+    });
+  }
+}

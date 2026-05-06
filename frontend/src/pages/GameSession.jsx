@@ -35,7 +35,7 @@ import { saveSnapshot, loadSnapshot, clearSnapshot, purgeExpiredSnapshots } from
 const FLOAT_DELAY_STYLE = { animationDelay: '1s' };
 const FLOAT_DELAY_NONE = { animationDelay: '0s' };
 
-function normalizeFinalSummary(rawMetrics, score, correctAnswers, mechanicMode, gameStartTime) {
+function normalizeFinalSummary(rawMetrics, score, correctAnswers, mechanicMode, gameStartTime, maxScore = null) {
   const metrics = rawMetrics && typeof rawMetrics === 'object' ? rawMetrics : {};
   const totalAttempts = Number(metrics.totalAttempts || 0);
   const averageResponseTimeMs = Number(metrics.averageResponseTime || 0);
@@ -71,8 +71,14 @@ function normalizeFinalSummary(rawMetrics, score, correctAnswers, mechanicMode, 
   // Secuencia (sequencesCompleted, maxSequenceLengthAchieved, ...) se
   // mergean tal cual desde `metrics` para que el sub-componente de stats
   // (`GameOverStatsSequence`) las consuma.
+  // ADR-114: `maxScore` viene del backend (calculado en GamePlay al crear
+  // la partida con fórmula propia de cada mecánica). El GameOverScreen
+  // lo usa para pintar `score / maxScore (Z%)` y dar contexto al alumno.
+  const numericMaxScore = Number(maxScore);
+  const safeMaxScore = Number.isFinite(numericMaxScore) && numericMaxScore > 0 ? numericMaxScore : null;
   const summary = {
     score,
+    maxScore: safeMaxScore,
     correctAnswers: finalCorrect,
     errors,
     attempts: totalAttempts,
@@ -282,6 +288,10 @@ export default function GameSession() {
   });
   const sequenceCollectTimerRef = useRef(null);
   const sequenceHintTimerRef = useRef(null);
+  // QA 2026-05-06 (ADR-113): timer del grace period entre overlay
+  // "Reproduce la secuencia" y `AWAIT_RESPONSE=true` real. Ver
+  // `handleSequencePhaseReproducing`.
+  const sequenceGraceTimerRef = useRef(null);
   // Flag para el hook de timer: en Memoria, solo empieza a decrementar cuando
   // el backend ha confirmado board_ready (playEndsAt establecido). Antes de
   // eso mostramos la barra llena y estatica, evitando el visual "bucle vacio".
@@ -488,6 +498,17 @@ export default function GameSession() {
     }
     dispatch(syncAction);
 
+    // Sesión reanudada: si no llega un `new_round` (la mecánica Secuencia
+    // arranca con `sequence_phase_memorizing`, sin `new_round`) y la sesión
+    // ya estaba en curso, gameStartTimeRef quedaría null y el resumen
+    // final mostraría "Tiempo total: —". Lo inicializamos aquí como
+    // fallback conservador (puede infraestimar el tiempo real si la
+    // sesión llevaba ya un rato, pero el backend `completionTime` toma
+    // precedencia en `normalizeFinalSummary`).
+    if (payload?.status === 'in-progress' && !gameStartTimeRef.current) {
+      gameStartTimeRef.current = Date.now();
+    }
+
     if (Number.isFinite(payload?.maxRounds)) {
       setTotalRounds(payload.maxRounds);
     }
@@ -573,7 +594,10 @@ export default function GameSession() {
         // El backend emite `payload.mode` directamente (memory|association|sequence)
         // desde T-921; usamos esa fuente y caemos a inferencia local sólo si falta.
         payload?.mode || socketSessionRef.current?.mechanic?.name || 'association',
-        gameStartTimeRef.current
+        gameStartTimeRef.current,
+        // ADR-114: maxScore viaja en el payload de game_over para que el
+        // GameOverScreen pueda mostrar `score / maxScore (Z%)`.
+        payload?.maxScore
       )
     );
 
@@ -619,6 +643,12 @@ export default function GameSession() {
   const handleSequencePhaseMemorizing = useCallback(payload => {
     if (sequenceCollectTimerRef.current) clearTimeout(sequenceCollectTimerRef.current);
     if (sequenceHintTimerRef.current) clearTimeout(sequenceHintTimerRef.current);
+    // Cancelar grace timer pendiente (en caso de transición rápida tras
+    // pause/resume o reanudación de partida).
+    if (sequenceGraceTimerRef.current) {
+      clearTimeout(sequenceGraceTimerRef.current);
+      sequenceGraceTimerRef.current = null;
+    }
 
     const roundNumber = Number(payload?.roundNumber) || 1;
     const totalRoundsPayload = Number(payload?.totalRounds);
@@ -675,7 +705,27 @@ export default function GameSession() {
       setTimeLeft(roundTimeRef.current || ROUND_TIME);
     }
     clearAnnouncedThresholds();
-    dispatch({ type: 'AWAIT_RESPONSE', value: true });
+
+    // QA 2026-05-06: el backend nos envía `gracePeriodMs` (2400ms por
+    // defecto) que coincide con la duración del `PhaseTransitionOverlay`.
+    // Postponemos `AWAIT_RESPONSE=true` hasta tras el overlay para que la
+    // `TimerBar` no decremente durante el countdown — antes el alumno
+    // "perdía" 2-3s de su tiempo configurado mientras leía "¡Ya!". El
+    // `roundTimer` del backend ya está calibrado al período total
+    // (grace + timeLimit + 150ms), así que ambos lados quedan sincronizados.
+    const gracePeriodMs = Number(payload?.gracePeriodMs) || 0;
+    if (sequenceGraceTimerRef.current) {
+      clearTimeout(sequenceGraceTimerRef.current);
+      sequenceGraceTimerRef.current = null;
+    }
+    if (gracePeriodMs > 0) {
+      sequenceGraceTimerRef.current = setTimeout(() => {
+        dispatch({ type: 'AWAIT_RESPONSE', value: true });
+        sequenceGraceTimerRef.current = null;
+      }, gracePeriodMs);
+    } else {
+      dispatch({ type: 'AWAIT_RESPONSE', value: true });
+    }
   }, [setTimeLeft, clearAnnouncedThresholds]);
 
   const handleSequenceCardResult = useCallback(payload => {
@@ -702,6 +752,20 @@ export default function GameSession() {
       // mantenemos awaitingResponse=true para que sigan pasando los siguientes scans.
       dispatch({ type: 'AWAIT_RESPONSE', value: true });
       playCorrect();
+      // ADR-D / ADR-112: la mascota debe reaccionar igual que en
+      // Asociación/Memoria. Sin esta llamada se quedaba en mood `idle` con
+      // "¿Jugamos?" durante toda la partida porque `useGameFeedback` solo
+      // procesaba `validation_result`. `challengeRef` es null en Secuencia
+      // (no se renderiza `ChallengeDisplay`), por lo que `processValidationResult`
+      // no dispara confetti en este path; mantenemos el `playSuccess` para la
+      // ronda completa (`handleSequenceRoundResult`).
+      processValidationResult({
+        isCorrect: true,
+        timeout: false,
+        pointsAwarded: payload?.points ?? 0,
+        newScore: payload?.score ?? 0,
+        mechanicType: 'sequence'
+      }, { currentRound, totalRounds });
     } else if (
       payload?.type === 'blocked' ||
       payload?.type === 'incorrect' ||
@@ -710,6 +774,13 @@ export default function GameSession() {
       dispatch({ type: 'ANSWER_INCORRECT', score: payload.score ?? 0 });
       dispatch({ type: 'AWAIT_RESPONSE', value: true });
       playIncorrect();
+      processValidationResult({
+        isCorrect: false,
+        timeout: false,
+        pointsAwarded: payload?.points ?? 0,
+        newScore: payload?.score ?? 0,
+        mechanicType: 'sequence'
+      }, { currentRound, totalRounds });
     }
     if (payload?.hint?.text) {
       if (sequenceHintTimerRef.current) clearTimeout(sequenceHintTimerRef.current);
@@ -717,7 +788,7 @@ export default function GameSession() {
         setSequenceState(prev => ({ ...prev, hint: null }));
       }, 3500);
     }
-  }, [playCorrect, playIncorrect]);
+  }, [playCorrect, playIncorrect, processValidationResult, currentRound, totalRounds]);
 
   const handleSequenceRoundResult = useCallback(payload => {
     const TYPE_TO_STATUS = {
@@ -738,17 +809,37 @@ export default function GameSession() {
     dispatch({ type: 'AWAIT_RESPONSE', value: false });
     if (payload?.completed) {
       playSuccess();
+    } else if (payload?.timedOut) {
+      // ADR-112: timeout de ronda completa → mascota a 'sad' con frase
+      // de timeout específica de Secuencia. Sin esto la mascota mantenía
+      // el mood happy/encouraging del último card_result.
+      processValidationResult({
+        isCorrect: false,
+        timeout: true,
+        pointsAwarded: 0,
+        newScore: payload?.score ?? 0,
+        mechanicType: 'sequence'
+      }, { currentRound, totalRounds });
     }
     if (sequenceCollectTimerRef.current) clearTimeout(sequenceCollectTimerRef.current);
-    // Mostrar las cartas reveladas (verde/rojo/ámbar) durante 800ms antes de
-    // arrancar la animación de recogida; el backend espera 1700ms entre
-    // `sequence_round_result` y el siguiente `sequence_phase_memorizing`,
-    // por lo que el collect tiene ~640ms para completarse y queda un
-    // pequeño respiro antes del reparto de la nueva ronda.
+    // Si la ronda terminó dentro del grace period (alumno muy rápido), el
+    // grace timer aún estaba pendiente — al pasar a "completed" deja de
+    // tener sentido. Lo cancelamos aquí; el siguiente memorizing volverá
+    // a activarlo si procede.
+    if (sequenceGraceTimerRef.current) {
+      clearTimeout(sequenceGraceTimerRef.current);
+      sequenceGraceTimerRef.current = null;
+    }
+    // QA 2026-05-06: dejamos las cartas reveladas (verde/rojo/ámbar) 2400ms
+    // antes de arrancar la recogida, para que el alumno asimile cómo le fue
+    // (antes 800ms se sentía abrupto y la partida "saturaba"). El backend
+    // espera FEEDBACK_PAUSE_MS=3500 entre `sequence_round_result` y el
+    // siguiente `sequence_phase_memorizing`: 2400ms reveal + ~640ms collect
+    // anim + ~460ms respiro antes del reparto.
     sequenceCollectTimerRef.current = setTimeout(() => {
       setSequenceState(prev => ({ ...prev, isCollecting: true }));
-    }, 800);
-  }, [playSuccess]);
+    }, 2400);
+  }, [playSuccess, processValidationResult, currentRound, totalRounds]);
 
   const socket = useGameSocket({
     sessionId,
@@ -1552,6 +1643,7 @@ export default function GameSession() {
                   onSelectCard={handleFallbackCardScan}
                   onPauseRequest={togglePause}
                   canPause={gameState === 'playing'}
+                  feedbackState={feedbackState}
                 />
               )}
 

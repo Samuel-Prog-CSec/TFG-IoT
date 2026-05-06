@@ -326,6 +326,10 @@ const toGamePlayDTOV1 = gameplay => {
     playerId: toId(playData.playerId),
     player: playerRef,
     score: playData.score,
+    // ADR-114: techo absoluto de la partida — el frontend lo usa para
+    // pintar `score / maxScore (Z%)` en el GameOver y dar contexto al
+    // alumno y al docente sobre qué % de lo posible se logró.
+    maxScore: playData.maxScore ?? null,
     currentRound: playData.currentRound,
     status: playData.status,
     pausedAt: playData.pausedAt,

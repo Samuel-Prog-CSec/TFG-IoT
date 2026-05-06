@@ -38,7 +38,9 @@ const MEMORY_COPY = Object.freeze({
 const ASSOCIATION_COPY = Object.freeze({
   3: { title: '¡CONEXIÓN PERFECTA!', subtitle: '¡Eres un genio!' },
   2: { title: '¡MUY BIEN ASOCIADO!', subtitle: '¡Sigue conectando!' },
-  1: { title: '¡BUEN INTENTO!', subtitle: 'Lee la pista con calma' },
+  // QA 2026-05-06: Asociación no tiene pistas; el subtitle anterior
+  // "Lee la pista con calma" prometía algo que la mecánica no entrega.
+  1: { title: '¡BUEN INTENTO!', subtitle: 'Mira con calma y elige bien' },
   0: { title: '¡NO TE RINDAS!', subtitle: 'Cada error enseña algo' }
 });
 

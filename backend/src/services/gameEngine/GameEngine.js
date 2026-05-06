@@ -40,6 +40,22 @@ const LOCK_HEARTBEAT_INTERVAL_MS =
   Number.parseInt(process.env.GAME_ENGINE_LOCK_HEARTBEAT_MS, 10) || 30000;
 const MEMORY_DEFAULT_HIDE_DELAY_MS = Number.parseInt(process.env.MEMORY_HIDE_DELAY_MS, 10) || 1200;
 const MEMORY_FEEDBACK_PAUSE_MS = Number.parseInt(process.env.MEMORY_FEEDBACK_PAUSE_MS, 10) || 1400;
+
+// Pausa entre `validation_result` y `new_round` en Asociación. El valor
+// histórico era 4000 ms, lo que bloqueaba el panel táctil (las cards
+// permanecen `disabled` hasta que llega `new_round`) y producía la
+// sensación de UI "pillada" tras cada respuesta. 1500 ms da margen
+// suficiente para que el alumno vea el bounce del target (~600 ms),
+// el badge de puntos y la mascota reaccionando, y se alinea con
+// `sequenceFlow.FEEDBACK_PAUSE_MS` (1700 ms) para coherencia entre
+// mecánicas. Sobrescribible vía env para QA / pacing especial.
+const ASSOCIATION_NEXT_ROUND_DELAY_MS =
+  Number.parseInt(process.env.ASSOCIATION_NEXT_ROUND_DELAY_MS, 10) || 1500;
+// Pausa post-timeout: igual que tras respuesta para pacing predecible
+// (antes 2000 ms, inconsistente con la pausa post-respuesta).
+const ASSOCIATION_TIMEOUT_NEXT_ROUND_DELAY_MS =
+  Number.parseInt(process.env.ASSOCIATION_TIMEOUT_NEXT_ROUND_DELAY_MS, 10) || 1500;
+
 const CHECKPOINT_INTERVAL_MS = Number.parseInt(process.env.CHECKPOINT_INTERVAL_MS, 10) || 120000; // 2 min
 const CHECKPOINT_EVENT_THRESHOLD = Number.parseInt(process.env.CHECKPOINT_EVENT_THRESHOLD, 10) || 5;
 
@@ -773,6 +789,12 @@ class GameEngine {
 
     this.io.to(`play_${playId}`).emit('game_over', {
       finalScore: playState.playDoc.score,
+      // ADR-114: enviamos `maxScore` para que el GameOver del cliente
+      // pinte `score / maxScore (Z%)` y el alumno vea el techo absoluto
+      // de la partida (no sólo cuántos puntos sacó). Persistido en
+      // `GamePlay.maxScore` al crear la partida con la fórmula propia
+      // de cada mecánica (ver gamePlayService.createPlay).
+      maxScore: Number(playState.playDoc.maxScore) || null,
       metrics: finalMetrics,
       // `mode` se mantiene por compatibilidad con el frontend actual
       // (`GameOverStats` delega por `summary.mode`). `mechanicType` añade
@@ -1502,10 +1524,14 @@ class GameEngine {
         timeElapsed) /
       this.metrics.totalRoundResponses;
 
-    // 5. Pasar a la siguiente ronda (tras un breve delay para feedback)
+    // 5. Pasar a la siguiente ronda tras la pausa de feedback. El valor
+    //    está parametrizado en `ASSOCIATION_NEXT_ROUND_DELAY_MS` para que
+    //    el pacing sea coherente con el resto de mecánicas y para
+    //    desbloquear el panel táctil (que reabre cards al cambiar `round`)
+    //    en un tiempo razonable.
     playState.nextRoundTimer = setTimeout(() => {
       this.advanceToNextRound(playId);
-    }, 4000); // Delay de 4s para que el jugador vea el resultado
+    }, ASSOCIATION_NEXT_ROUND_DELAY_MS);
   }
 
   /**
@@ -1578,10 +1604,11 @@ class GameEngine {
         peakStreak: Number(playState.strategyState?.peakStreak || 0)
       });
 
-      // 5. Pasar a la siguiente ronda
+      // 5. Pasar a la siguiente ronda — alineado con la pausa post-respuesta
+      //    para ofrecer pacing predecible al alumno.
       playState.nextRoundTimer = setTimeout(() => {
         this.advanceToNextRound(playId);
-      }, 2000); // Delay reducido para timeouts
+      }, ASSOCIATION_TIMEOUT_NEXT_ROUND_DELAY_MS);
     });
   }
 

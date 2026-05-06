@@ -135,6 +135,7 @@ export default function StepMemoryRules({
             </div>
           </div>
 
+          {/* Puntos por pareja — rango unificado 5-15 (ADR-114) */}
           <div>
             <label htmlFor="memory-points-correct" className="flex items-center gap-2 text-sm text-text-secondary mb-2">
               <Zap size={14} className="text-success-base" />
@@ -145,7 +146,7 @@ export default function StepMemoryRules({
                 id="memory-points-correct"
                 type="range"
                 min={5}
-                max={30}
+                max={15}
                 step={5}
                 value={config.pointsPerCorrect}
                 onChange={(e) => onConfigChange('pointsPerCorrect', Number.parseInt(e.target.value, 10))}
@@ -157,6 +158,7 @@ export default function StepMemoryRules({
             </div>
           </div>
 
+          {/* Penalización por error — rango unificado -5..0 (ADR-114) */}
           <div>
             <label htmlFor="memory-penalty-error" className="flex items-center gap-2 text-sm text-text-secondary mb-2">
               <AlertTriangle size={14} className="text-error-base" />
@@ -166,24 +168,24 @@ export default function StepMemoryRules({
               <input
                 id="memory-penalty-error"
                 type="range"
-                min={-15}
+                min={-5}
                 max={0}
                 step={1}
                 value={config.penaltyPerError}
                 onChange={(e) => onConfigChange('penaltyPerError', Number.parseInt(e.target.value, 10))}
                 className="flex-1 penalty-range"
                 // El accent-color nativo pinta desde min hacia value. Con rango
-                // [-15..0] eso deja la barra mas llena cuanto menor es la
-                // penalizacion (valor cercano a 0), al reves de la intuicion
-                // del profe ("mas fill = mas penalizacion"). Ocultamos el
+                // negativo eso deja la barra más llena cuanto menor es la
+                // penalización (valor cercano a 0), al revés de la intuición
+                // del profe ("más fill = más penalización"). Ocultamos el
                 // accent-color con transparent y pintamos un gradient
-                // explicito proporcional a |value| / 15 desde la izquierda.
+                // explícito proporcional a |value| / 5 desde la izquierda.
                 style={{
                   accentColor: 'transparent',
                   background: `linear-gradient(to right, var(--color-error-base) 0%, var(--color-error-base) ${
-                    (Math.abs(config.penaltyPerError) / 15) * 100
+                    (Math.abs(config.penaltyPerError) / 5) * 100
                   }%, var(--color-background-elevated) ${
-                    (Math.abs(config.penaltyPerError) / 15) * 100
+                    (Math.abs(config.penaltyPerError) / 5) * 100
                   }%, var(--color-background-elevated) 100%)`
                 }}
               />

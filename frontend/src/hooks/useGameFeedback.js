@@ -132,7 +132,13 @@ export function useGameFeedback({
     }
 
     return { isCorrect, points, message };
-  }, [isMemoryMode, shouldReduceMotion, fireFromElement]);
+    // QA 2026-05-06: añadido `mechanicType` a deps. Sin él, el closure
+    // capturaba el valor del PRIMER render (típicamente 'association' por
+    // default) y la mascota usaba el diccionario equivocado durante toda
+    // la partida — síntoma observado: "Otra es" (Asociación) saliendo en
+    // partidas de Secuencia. Al añadirlo, el hook se recrea cuando el
+    // GameSession actualiza `mechanicMode` tras cargar la session.
+  }, [isMemoryMode, shouldReduceMotion, fireFromElement, mechanicType]);
 
   const clearFeedback = useCallback(() => {
     setFeedbackState('idle');

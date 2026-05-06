@@ -33,16 +33,24 @@ const sessionConfigSchema = z.object({
     .max(300, 'El límite de tiempo no puede exceder 300 segundos')
     .default(15),
 
+  // QA 2026-05-06 (ADR-114): rangos unificados entre las 3 mecánicas para
+  // evitar deformación del ranking. `pointsPerCorrect` 5-15 y
+  // `penaltyPerError` -5..0 son los rangos pedagógicos válidos. Sin esta
+  // restricción el wizard permitía ratios extremos (Asociación 5-25,
+  // Memoria 5-30) que producían maxScores 6× más altos en una mecánica
+  // que en otra para el mismo número de aciertos.
   pointsPerCorrect: z
     .number()
     .int('pointsPerCorrect debe ser un número entero')
-    .positive('Los puntos por respuesta correcta deben ser positivos')
+    .min(5, 'Los puntos por acierto deben ser al menos 5')
+    .max(15, 'Los puntos por acierto no pueden exceder 15')
     .default(10),
 
   penaltyPerError: z
     .number()
     .int('penaltyPerError debe ser un número entero')
-    .nonpositive('La penalización debe ser cero o un número negativo')
+    .min(-5, 'La penalización por error no puede ser inferior a -5')
+    .max(0, 'La penalización debe ser cero o negativa')
     .default(-2)
 });
 

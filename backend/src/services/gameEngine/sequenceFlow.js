@@ -12,15 +12,26 @@ const logger = require('../../utils/logger').child({ component: 'sequenceFlow' }
 const { SEQUENCE_PHASE } = require('../../constants/enums');
 
 // Tiempo entre que se cierra una ronda (`sequence_round_result`) y el
-// arranque de la siguiente. Da margen al cliente para mostrar las cartas
-// reveladas en su estado final (verde/rojo/ámbar) y reproducir las dos
-// animaciones signature de "crupier": pausa de revelado (~800ms) +
-// recogida (~640ms con stagger 70ms × 5 cartas + 320ms ease) + un
-// instante de respiro antes del reparto. Con 600ms (valor anterior) el
-// cliente apenas tenía tiempo a iniciar la recogida antes de empezar la
-// siguiente memorización: las animaciones se solapaban y el alumno
-// percibía un cambio brusco (BUG QA 03/05/2026).
-const FEEDBACK_PAUSE_MS = 1700;
+// arranque de la siguiente. Reparto:
+//   1. 2400ms revelado de las cartas con su estado final (verde/rojo/ámbar)
+//      → el alumno necesita ese tiempo para asimilar cómo le fue, sin que
+//      la siguiente animación pise visualmente la anterior.
+//   2. ~640ms recogida (stagger 70ms × 5 cartas + 320ms ease).
+//   3. ~460ms de respiro antes del reparto de la siguiente ronda.
+//
+// Antes (1700ms) el alumno solo veía 800ms las cartas reveladas y la
+// partida saturaba (QA 2026-05-06: "todo pasa demasiado deprisa, el niño
+// no puede ver cómo le fue").
+const FEEDBACK_PAUSE_MS = 3500;
+
+// Margen entre que el frontend muestra el `PhaseTransitionOverlay` (countdown
+// "Reproduce la secuencia" 2400ms) y el momento en que el alumno realmente
+// puede responder. Antes (QA 2026-05-06) el `roundTimer` se armaba
+// instantáneamente al transicionar a reproducing y el countdown del
+// overlay consumía 2400ms del tiempo jugable — el alumno empezaba la
+// ronda con menos tiempo del configurado. Con la grace, el `roundTimer`
+// real arranca tras el overlay.
+const SEQUENCE_REPRODUCE_GRACE_MS = 2400;
 
 /**
  * Devuelve la duración (ms) de la fase de memorización para la ronda actual.
@@ -173,21 +184,35 @@ function enterSequenceReproducingPhase(engine, playId) {
     playId,
     roundNumber: playState.playDoc.currentRound,
     length: expected.length,
-    timeLimitMs
+    timeLimitMs,
+    // QA 2026-05-06: el frontend muestra `PhaseTransitionOverlay` con
+    // countdown 2400ms ("Reproduce la secuencia"). Le comunicamos el grace
+    // para que postponga `awaitingResponse=true` (TimerBar congelada
+    // durante el overlay) y para sincronizarse con el `roundTimer` real.
+    gracePeriodMs: SEQUENCE_REPRODUCE_GRACE_MS
   });
 
   logger.debug('Fase reproducing iniciada', {
     playId,
     roundNumber: playState.playDoc.currentRound,
-    timeLimitMs
+    timeLimitMs,
+    gracePeriodMs: SEQUENCE_REPRODUCE_GRACE_MS
   });
 
   if (playState.roundTimer) {
     clearTimeout(playState.roundTimer);
   }
-  playState.roundTimer = setTimeout(() => {
-    handleSequenceRoundTimeout(engine, playId);
-  }, timeLimitMs + 150); // Reusa el ROUND_GRACE_PERIOD_MS
+  // El `roundTimer` se calibra a `grace + timeLimit + 150` (ROUND_GRACE_PERIOD_MS)
+  // para que el alumno tenga el tiempo configurado de respuesta REAL — antes
+  // perdía 2400ms de tiempo jugable durante el countdown del overlay.
+  // Si el alumno responde dentro del overlay (tap muy rápido), sus scans se
+  // procesan normal porque `awaitingResponse` ya es true desde aquí.
+  playState.roundTimer = setTimeout(
+    () => {
+      handleSequenceRoundTimeout(engine, playId);
+    },
+    timeLimitMs + SEQUENCE_REPRODUCE_GRACE_MS + 150
+  );
 }
 
 /**

@@ -167,7 +167,7 @@ export default function StepRules({
             </div>
           </div>
 
-          {/* Puntos por acierto */}
+          {/* Puntos por acierto — rango unificado 5-15 (ADR-114) */}
           <div>
             <label htmlFor="assoc-points-correct" className="flex items-center gap-2 text-sm text-text-secondary mb-2">
               <Zap size={14} className="text-success-base" />
@@ -178,7 +178,7 @@ export default function StepRules({
                 id="assoc-points-correct"
                 type="range"
                 min={5}
-                max={25}
+                max={15}
                 step={5}
                 value={config.pointsPerCorrect}
                 onChange={(e) => onConfigChange('pointsPerCorrect', Number.parseInt(e.target.value, 10))}
@@ -190,7 +190,7 @@ export default function StepRules({
             </div>
           </div>
 
-          {/* Penalizacion por error */}
+          {/* Penalizacion por error — rango unificado -5..0 (ADR-114) */}
           <div>
             <label htmlFor="assoc-penalty-error" className="flex items-center gap-2 text-sm text-text-secondary mb-2">
               <AlertTriangle size={14} className="text-error-base" />
@@ -200,7 +200,7 @@ export default function StepRules({
               <input
                 id="assoc-penalty-error"
                 type="range"
-                min={-10}
+                min={-5}
                 max={0}
                 value={config.penaltyPerError}
                 onChange={(e) => onConfigChange('penaltyPerError', Number.parseInt(e.target.value, 10))}
@@ -208,13 +208,13 @@ export default function StepRules({
                 // Ver nota en StepMemoryRules.jsx: con rango negativo el fill
                 // nativo del accent-color va al reves de lo intuitivo.
                 // Ocultamos el accent-color con transparent y pintamos un
-                // gradient explicito proporcional a |value| / 10.
+                // gradient explicito proporcional a |value| / 5.
                 style={{
                   accentColor: 'transparent',
                   background: `linear-gradient(to right, var(--color-error-base) 0%, var(--color-error-base) ${
-                    (Math.abs(config.penaltyPerError) / 10) * 100
+                    (Math.abs(config.penaltyPerError) / 5) * 100
                   }%, var(--color-background-elevated) ${
-                    (Math.abs(config.penaltyPerError) / 10) * 100
+                    (Math.abs(config.penaltyPerError) / 5) * 100
                   }%, var(--color-background-elevated) 100%)`
                 }}
               />

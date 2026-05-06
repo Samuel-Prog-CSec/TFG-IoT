@@ -27,6 +27,16 @@ const MODES_CONFIG = {
     iconContainerClass: 'bg-background-surface/20 text-text-muted',
     description: 'El sensor no está procesando tarjetas'
   },
+  // QA 2026-05-06: cuando el sensor está físicamente conectado pero el
+  // backend todavía no ha cambiado a modo gameplay/card_assignment, el
+  // copy "Inactivo" daba falso negativo (el alumno cree que algo va mal).
+  // Sustituimos por un copy explícito de "stand-by listo".
+  idle_connected: {
+    label: 'Listo para escanear',
+    icon: Activity,
+    iconContainerClass: 'bg-success-base/20 text-success-base',
+    description: 'El sensor está conectado y esperando a su turno'
+  },
   gameplay: {
     label: 'Modo Juego',
     icon: Gamepad2,
@@ -48,7 +58,13 @@ export default function RFIDModeHandler({ currentMode = 'idle', className }) {
   const [deviceHealth, setDeviceHealth] = useState(null);
   const [expanded, setExpanded] = useState(false);
   const effectiveMode = mode || currentMode;
-  const modeInfo = MODES_CONFIG[effectiveMode] || MODES_CONFIG.idle;
+  // QA 2026-05-06 (BUG-G4): sin esta resolución contextual, un sensor
+  // conectado en stand-by mostraba "Inactivo" como descripción — daba
+  // falso negativo al docente. `idle_connected` aplica solo cuando hay
+  // sensor `ready` y el modo backend aún es `idle`.
+  const isConnected = deviceState === 'ready';
+  const resolvedMode = effectiveMode === 'idle' && isConnected ? 'idle_connected' : effectiveMode;
+  const modeInfo = MODES_CONFIG[resolvedMode] || MODES_CONFIG.idle;
   const Icon = modeInfo.icon;
 
   useEffect(() => {
@@ -67,7 +83,6 @@ export default function RFIDModeHandler({ currentMode = 'idle', className }) {
     };
   }, []);
 
-  const isConnected = deviceState === 'ready';
   // Mostrar expandido si está conectado, o si el usuario hizo click
   const showExpanded = isConnected || expanded;
 

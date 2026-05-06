@@ -645,9 +645,28 @@ function generateGamePlaysData(sessions, students) {
 
       const completedAt = new Date(lastEventTime + 1000);
 
-      // P19: calcular maxScore y clamar score para integridad (nunca > maximo teorico).
+      // P19 / ADR-114: maxScore se calcula con la MISMA fórmula que el
+      // backend usa en runtime (`gamePlayService.createPlay`). Sin esta
+      // alineación, el seeder produce maxScores con una regla y las plays
+      // nuevas con otra — los rankings normalizados (`score / maxScore`)
+      // quedan incomparables entre datos sembrados y datos en vivo.
+      //   - Secuencia: Σ longitud rondas × pointsPerCorrect
+      //   - Memoria: (boardLayout.length / 2) × pointsPerCorrect
+      //   - Asociación / fallback: numberOfRounds × pointsPerCorrect
       const pointsPerCorrect = Number(session.config?.pointsPerCorrect) || 10;
-      const maxScore = Math.max(1, numberOfRounds * pointsPerCorrect);
+      let maxScore;
+      if (isSequence) {
+        const totalSeqCards = session.sequencePlan.reduce(
+          (acc, r) => acc + (Number(r?.length) || 0),
+          0
+        );
+        maxScore = Math.max(1, totalSeqCards * pointsPerCorrect);
+      } else if (isMemory) {
+        const numberOfPairs = Math.max(1, Math.floor(session.boardLayout.length / 2));
+        maxScore = Math.max(1, numberOfPairs * pointsPerCorrect);
+      } else {
+        maxScore = Math.max(1, numberOfRounds * pointsPerCorrect);
+      }
       const clampedScore = Math.max(0, Math.min(playData.score, maxScore));
 
       // Métricas específicas por mecánica (ADR-A/B). Cada builder es

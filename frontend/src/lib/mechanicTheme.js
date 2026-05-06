@@ -65,7 +65,10 @@ const ASSOCIATION_THEME = Object.freeze({
     'bg-[radial-gradient(circle_at_80%_15%,color-mix(in_oklab,var(--color-accent-cyan)_16%,transparent),transparent_60%)]',
   icon: Link2,
   headline: 'Encuentra la respuesta correcta',
-  intro: 'Lee bien la pista y elige la tarjeta que toca.',
+  // QA 2026-05-06: Asociación no tiene sistema de pistas (es un mecanismo
+  // exclusivo de Secuencia en dificultad fácil). El intro anterior
+  // "Lee bien la pista..." inducía a error a profesores nuevos.
+  intro: 'Observa el objetivo y elige la tarjeta que le corresponde.',
   unitSingular: 'respuesta',
   unitPlural: 'respuestas'
 });
