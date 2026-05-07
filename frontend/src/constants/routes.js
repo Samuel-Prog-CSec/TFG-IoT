@@ -58,36 +58,43 @@ export const NAV_ROUTES = [
     path: ROUTES.DASHBOARD,
     label: 'Dashboard',
     icon: 'LayoutDashboard',
+    dataTour: 'dashboard',
   },
   {
     path: ROUTES.STUDENTS_ANALYTICS,
     label: 'Mis Alumnos',
     icon: 'Users',
+    dataTour: 'my-students',
   },
   {
     path: ROUTES.INSIGHTS,
     label: 'Insights',
     icon: 'TrendingUp',
+    dataTour: 'insights',
   },
   {
     path: ROUTES.SESSIONS,
     label: 'Sesiones',
     icon: 'CalendarClock',
+    dataTour: 'sessions',
   },
   {
     path: ROUTES.CONTEXTS,
     label: 'Contextos',
     icon: 'Palette',
+    dataTour: 'contexts',
   },
   {
     path: ROUTES.CARD_DECKS,
     label: 'Mis Mazos',
     icon: 'Layers',
+    dataTour: 'my-decks',
   },
   {
     path: ROUTES.CREATE_SESSION,
     label: 'Nueva Sesión',
     icon: 'PlusCircle',
+    dataTour: 'new-session',
   },
 ];
 
@@ -99,21 +106,25 @@ export const ADMIN_NAV_ROUTES = [
     path: ROUTES.ADMIN_APPROVALS,
     label: 'Aprobaciones',
     icon: 'UserCheck',
+    dataTour: 'approvals',
   },
   {
     path: ROUTES.STUDENT_TRANSFER,
     label: 'Transferencias',
     icon: 'ArrowRightLeft',
+    dataTour: 'admin-transfers',
   },
   {
     path: ROUTES.STUDENT_MANAGEMENT,
     label: 'Alumnos',
     icon: 'Users',
+    dataTour: 'admin-students',
   },
   {
     path: ROUTES.ADMIN_CONTEXTS,
     label: 'Contextos',
     icon: 'Palette',
+    dataTour: 'admin-contexts',
   },
 ];
 

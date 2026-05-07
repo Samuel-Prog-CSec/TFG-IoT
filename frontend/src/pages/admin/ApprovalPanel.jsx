@@ -512,10 +512,10 @@ export default function ApprovalPanel() {
             </div>
             <div>
               <h1 className="text-2xl sm:text-3xl font-bold font-display text-text-primary">
-                Panel de Administración
+                Panel de dirección
               </h1>
               <p className="text-text-muted">
-                Gestiona las solicitudes de nuevos profesores
+                Aprueba o rechaza las solicitudes de nuevos docentes del centro
               </p>
             </div>
           </div>

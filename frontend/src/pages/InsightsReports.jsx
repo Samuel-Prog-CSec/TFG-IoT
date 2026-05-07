@@ -193,11 +193,20 @@ function LearningCurvesSection({ data, loading }) {
               label={{ value: 'Puntuación %', angle: -90, position: 'insideLeft', fill: 'var(--color-text-muted)', fontSize: 10 }}
             />
             <Tooltip content={<LearningCurveTooltip />} />
+            {/* Leyenda centrada arriba — antes estaba `align="right"` y a 1920px
+                la fila de 5 mecánicas casi rozaba el borde derecho del card; en
+                viewports menores la leyenda solapaba con el área del chart
+                (QA 2026-05-07). Centro + flex-wrap habilita wrap multi-línea. */}
             <Legend
               verticalAlign="top"
-              align="right"
+              align="center"
               iconSize={10}
-              wrapperStyle={{ fontSize: '11px', color: 'var(--color-text-muted)', paddingBottom: 8 }}
+              wrapperStyle={{
+                fontSize: '11px',
+                color: 'var(--color-text-muted)',
+                paddingBottom: 12,
+                lineHeight: 1.6,
+              }}
             />
             {curveNames.map((name, idx) => (
               <Area

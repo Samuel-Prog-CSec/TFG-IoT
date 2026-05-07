@@ -10,6 +10,7 @@ import { lazy, Suspense, memo } from 'react';
 import PropTypes from 'prop-types';
 import { Toaster } from 'sonner';
 import { AuthProvider, useAuth } from './context/AuthContext';
+import { ThemeProvider, useTheme } from './context/ThemeContext';
 import ProtectedRoute from './components/auth/ProtectedRoute';
 import GuestRoute from './components/auth/GuestRoute';
 import RequireRole from './components/auth/RequireRole';
@@ -191,31 +192,46 @@ function AppContent() {
 }
 
 /**
+ * Toaster envuelto que consume el tema actual para que las notificaciones
+ * Sonner se rendericen en claro u oscuro según la elección del usuario.
+ * Sin esto, los toasts aparecían siempre con fondo oscuro encima del
+ * tema claro y rompían la coherencia (T-951 Fase 1).
+ */
+function ThemeAwareToaster() {
+  const { resolvedTheme } = useTheme();
+  // El "background" se delega a Sonner según el tema. Mantenemos una
+  // ligera personalización (border y blur) que aplica en ambos.
+  return (
+    <Toaster
+      position="top-right"
+      expand={false}
+      richColors
+      closeButton
+      theme={resolvedTheme}
+      toastOptions={{
+        duration: 4000,
+        style: {
+          backdropFilter: 'blur(8px)',
+        },
+      }}
+    />
+  );
+}
+
+/**
  * Componente raíz de la aplicación
  */
 export default function App() {
   return (
-    <BrowserRouter>
-      <AuthProvider>
-        <RfidModeProvider>
-          <AppContent />
-          <Toaster
-            position="top-right"
-            expand={false}
-            richColors
-            closeButton
-            theme="dark"
-            toastOptions={{
-              duration: 4000,
-              style: {
-                background: 'rgba(30, 41, 59, 0.95)',
-                border: '1px solid rgba(255, 255, 255, 0.1)',
-                backdropFilter: 'blur(8px)',
-              },
-            }}
-          />
-        </RfidModeProvider>
-      </AuthProvider>
-    </BrowserRouter>
+    <ThemeProvider>
+      <BrowserRouter>
+        <AuthProvider>
+          <RfidModeProvider>
+            <AppContent />
+            <ThemeAwareToaster />
+          </RfidModeProvider>
+        </AuthProvider>
+      </BrowserRouter>
+    </ThemeProvider>
   );
 }

@@ -15,8 +15,8 @@ import analyticsService from '../services/analytics';
 import { isAbortError, contextsAPI, mechanicsAPI } from '../services/api';
 import { captureException } from '../lib/sentry';
 import { ROUTES } from '../constants/routes';
-import { useOnboarding } from '../hooks/useOnboarding';
-import OnboardingOverlay from '../components/onboarding/OnboardingOverlay';
+// El onboarding se monta a nivel de AppLayout para cubrir teacher y
+// super_admin desde cualquier ruta autenticada (T-951 Fase 4).
 import StatCard from '../components/dashboard/StatCard';
 import StudentProgressChart from '../components/dashboard/StudentProgressChart';
 import ClassroomOverview from '../components/dashboard/ClassroomOverview';
@@ -34,7 +34,6 @@ export default function Dashboard() {
   const navigate = useNavigate();
   useDocumentTitle('Dashboard');
   const { shouldReduceMotion } = useReducedMotion();
-  const onboarding = useOnboarding();
   const [timeRange, setTimeRange] = useState('7d');
   const [selectedContextId, setSelectedContextId] = useState('');
   const [selectedMechanicId, setSelectedMechanicId] = useState('');
@@ -471,15 +470,6 @@ export default function Dashboard() {
       )}
     </AnimatePresence>
 
-    <OnboardingOverlay
-      isVisible={onboarding.isVisible}
-      currentStep={onboarding.currentStep}
-      totalSteps={onboarding.totalSteps}
-      onNext={onboarding.nextStep}
-      onPrev={onboarding.prevStep}
-      onComplete={onboarding.completeOnboarding}
-      onSkip={onboarding.skipOnboarding}
-    />
     </>
   );
 }

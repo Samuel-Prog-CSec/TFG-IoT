@@ -741,6 +741,64 @@ const exportStudentData = async (req, res) => {
   res.json(data);
 };
 
+/**
+ * Actualizar el progreso del onboarding interactivo del propio usuario.
+ * Acepta cualquier subset de los campos editables; el resto se conserva.
+ * Endpoint protegido por `authenticate` — el id se toma de `req.user`.
+ *
+ * PATCH /api/users/me/onboarding (T-951 PROP-13)
+ */
+const updateMyOnboarding = async (req, res) => {
+  const userId = req.user._id;
+  const payload = req.body;
+
+  // Construimos el set parcial sólo con los campos enviados, manteniendo
+  // intacto el resto de `profile.onboarding` (Mongoose `$set` con dot
+  // notation evita pisar la subdoc completa).
+  const update = { 'profile.onboarding.lastSeenAt': new Date() };
+  if (payload.currentStep !== undefined) {
+    update['profile.onboarding.currentStep'] = payload.currentStep;
+  }
+  if (payload.currentTrack !== undefined) {
+    update['profile.onboarding.currentTrack'] = payload.currentTrack;
+  }
+  if (payload.teacherCompleted !== undefined) {
+    update['profile.onboarding.teacherCompleted'] = payload.teacherCompleted;
+  }
+  if (payload.superAdminCompleted !== undefined) {
+    update['profile.onboarding.superAdminCompleted'] = payload.superAdminCompleted;
+  }
+
+  const updated = await userRepository.updateById(
+    userId,
+    { $set: update },
+    {
+      new: true,
+      runValidators: true
+    }
+  );
+
+  if (!updated) {
+    throw new NotFoundError('Usuario no encontrado');
+  }
+
+  // Devolvemos el subdocumento de onboarding plano para que el cliente
+  // pueda hidratar su estado sin reparsear el DTO completo del usuario.
+  const onboarding = updated.profile?.onboarding ?? {};
+  sendSuccess(
+    res,
+    {
+      teacherCompleted: !!onboarding.teacherCompleted,
+      superAdminCompleted: !!onboarding.superAdminCompleted,
+      currentStep: onboarding.currentStep ?? 0,
+      currentTrack: onboarding.currentTrack ?? null,
+      version: onboarding.version ?? 1,
+      lastSeenAt: onboarding.lastSeenAt ?? null
+    },
+    'Progreso del onboarding actualizado'
+  );
+};
+
 module.exports = {
   getUsers,
   getUserById,
@@ -752,5 +810,6 @@ module.exports = {
   transferStudent,
   updateConsent,
   hardDeleteUser,
-  exportStudentData
+  exportStudentData,
+  updateMyOnboarding
 };

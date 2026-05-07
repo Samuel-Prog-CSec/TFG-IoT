@@ -8,19 +8,23 @@
 import { useState, useEffect, useMemo } from 'react';
 import { Link } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
-import { 
-  UserPlus, 
-  Mail, 
-  Lock, 
-  Eye, 
-  EyeOff, 
-  AlertCircle, 
+import {
+  UserPlus,
+  Mail,
+  Lock,
+  Eye,
+  EyeOff,
+  AlertCircle,
   User,
   Check,
   X,
   ArrowLeft,
-  Shield
+  Shield,
+  Heart,
+  GraduationCap,
+  Building2,
 } from 'lucide-react';
+import EduPlayIcon from '../components/icons/EduPlayIcon';
 import { useAuth } from '../context/AuthContext';
 import { useReducedMotion } from '../hooks/useReducedMotion';
 import { useDocumentTitle } from '../hooks/useDocumentTitle';
@@ -28,6 +32,7 @@ import { useFormFocusFirstError } from '../hooks/useFormFocusFirstError';
 import ButtonPremium from '../components/ui/ButtonPremium';
 import InputPremium from '../components/ui/InputPremium';
 import GlassCard from '../components/ui/GlassCard';
+import ThemeToggle from '../components/ui/ThemeToggle';
 import { ROUTES } from '../constants/routes';
 import { cn, formFieldVariants } from '../lib/utils';
 
@@ -245,107 +250,210 @@ export default function Register() {
   };
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-background-deep p-4 relative overflow-hidden">
-      {/* Fondo con efectos */}
-      <div className="absolute inset-0 overflow-hidden pointer-events-none">
-        {/* Gradiente radial principal */}
-        <div 
-          className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[800px] h-[800px] rounded-full"
-          style={{
-            background: 'radial-gradient(circle, color-mix(in srgb, var(--color-accent-indigo) 15%, transparent) 0%, transparent 70%)',
-          }}
+    <div className="min-h-screen flex bg-background-base relative overflow-hidden">
+      {/* Aurora background con tokens semánticos por tema */}
+      <div
+        className="aurora-layer fixed inset-0 pointer-events-none overflow-hidden opacity-40"
+        aria-hidden="true"
+      >
+        <div
+          className="absolute -top-32 -right-20 w-[40rem] h-[40rem] rounded-full blur-[140px] opacity-80"
+          style={{ backgroundColor: 'var(--color-aurora-2)' }}
         />
-        
-        {/* Orbes decorativos */}
-        <motion.div
-          className="absolute top-32 right-20 w-72 h-72 rounded-full bg-accent-cyan/10 blur-3xl"
-          animate={{
-            scale: [1, 1.3, 1],
-            opacity: [0.3, 0.5, 0.3],
-          }}
-          transition={{ duration: 9, repeat: Infinity, ease: 'easeInOut' }}
+        <div
+          className="absolute -bottom-32 -left-20 w-[36rem] h-[36rem] rounded-full blur-[140px] opacity-70"
+          style={{ backgroundColor: 'var(--color-aurora-3)' }}
         />
-        <motion.div
-          className="absolute bottom-32 left-20 w-64 h-64 rounded-full bg-accent-indigo/10 blur-3xl"
-          animate={{
-            scale: [1.2, 1, 1.2],
-            opacity: [0.4, 0.2, 0.4],
-          }}
-          transition={{ duration: 11, repeat: Infinity, ease: 'easeInOut' }}
-        />
-        
-        {/* Grid pattern */}
-        <div 
-          className="absolute inset-0 opacity-[0.02]"
-          style={{
-            backgroundImage: `linear-gradient(var(--color-border-default) 1px, transparent 1px),
-                             linear-gradient(90deg, var(--color-border-default) 1px, transparent 1px)`,
-            backgroundSize: '50px 50px',
-          }}
+        <div
+          className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[50rem] h-[50rem] rounded-full blur-[160px] opacity-50"
+          style={{ backgroundColor: 'var(--color-aurora-1)' }}
         />
       </div>
 
-      {/* Contenido principal */}
+      {/* Grid pattern sutil */}
+      <div
+        className="absolute inset-0 opacity-[0.06] pointer-events-none"
+        style={{
+          backgroundImage:
+            'linear-gradient(var(--color-border-default) 1px, transparent 1px), linear-gradient(90deg, var(--color-border-default) 1px, transparent 1px)',
+          backgroundSize: '64px 64px',
+        }}
+        aria-hidden="true"
+      />
+
+      {/* Theme toggle flotante en esquina inferior derecha (QA 2026-05-07).
+          El top-right está reservado a los toasts Sonner — al completar el
+          registro el toast "¡Cuenta creada!" tapaba el toggle. */}
+      <div className="absolute bottom-6 right-6 z-30">
+        <ThemeToggle />
+      </div>
+
+      {/* Panel de branding (desktop) — al revés que Login: hero a la
+          DERECHA y formulario a la izquierda. Refuerza la signature de
+          ser una pantalla "complementaria" al login. */}
+      <motion.aside
+        initial={{ opacity: 0, x: 30 }}
+        animate={{ opacity: 1, x: 0 }}
+        transition={{ duration: 0.6, ease: [0.22, 1, 0.36, 1] }}
+        className="hidden lg:flex lg:w-1/2 lg:order-2 relative z-10 flex-col justify-center px-12 xl:px-20 2xl:px-28"
+      >
+        <div className="max-w-xl">
+          {/* Logo + tagline */}
+          <div className="flex items-center gap-3 mb-10">
+            <div
+              className={cn(
+                'inline-flex items-center justify-center size-14 rounded-2xl',
+                'bg-gradient-to-br from-accent-cyan via-accent-indigo to-brand-base',
+                'shadow-[0_0_28px_var(--color-brand-glow)]',
+                !shouldReduceMotion && 'animate-pulse-glow',
+              )}
+            >
+              <EduPlayIcon size={28} className="text-white" />
+            </div>
+            <div>
+              <span className="block text-xl font-bold font-display gradient-text-brand tracking-tight">
+                Únete al claustro
+              </span>
+              <span className="block text-xs text-text-muted uppercase tracking-widest">
+                Cuenta de docente · 2026
+              </span>
+            </div>
+          </div>
+
+          {/* Headline */}
+          <h1 className="text-4xl xl:text-5xl 2xl:text-6xl font-bold font-display text-text-primary leading-[1.1] mb-6">
+            Crea sesiones que tu alumnado{' '}
+            <span className="bg-gradient-to-r from-accent-cyan via-accent-indigo to-brand-base bg-clip-text text-transparent">
+              recordará
+            </span>
+          </h1>
+
+          <p className="text-lg text-text-secondary leading-relaxed mb-10 max-w-lg">
+            Tu primer mazo en cinco minutos. La dirección del centro
+            aprobará tu cuenta y empezarás a crear partidas educativas con
+            tarjetas RFID.
+          </p>
+
+          {/* Pasos del registro */}
+          <ol className="space-y-5">
+            {[
+              {
+                Icon: UserPlus,
+                tint: 'text-accent-cyan',
+                bg: 'bg-accent-cyan/10',
+                title: '1. Rellena tus datos',
+                detail: 'Email del centro y contraseña segura',
+              },
+              {
+                Icon: Building2,
+                tint: 'text-accent-indigo',
+                bg: 'bg-accent-indigo/10',
+                title: '2. La dirección revisa tu solicitud',
+                detail: 'Suele tardar menos de un día',
+              },
+              {
+                Icon: GraduationCap,
+                tint: 'text-brand-base',
+                bg: 'bg-brand-base/10',
+                title: '3. Empieza a jugar con tu clase',
+                detail: 'Recibirás un correo cuando estés listo',
+              },
+            ].map(({ Icon, tint, bg, title, detail }, i) => (
+              <motion.li
+                key={title}
+                initial={{ opacity: 0, x: 16 }}
+                animate={{ opacity: 1, x: 0 }}
+                transition={{ delay: 0.3 + i * 0.08, ease: [0.22, 1, 0.36, 1] }}
+                className="flex items-start gap-4"
+              >
+                <span
+                  className={cn(
+                    'flex-shrink-0 mt-0.5 inline-flex size-10 items-center justify-center rounded-xl',
+                    'border border-border-default backdrop-blur-sm',
+                    bg,
+                    tint,
+                  )}
+                  aria-hidden="true"
+                >
+                  <Icon className="size-5" strokeWidth={1.75} />
+                </span>
+                <div className="min-w-0">
+                  <p className="text-text-primary font-medium leading-snug">{title}</p>
+                  <p className="text-text-muted text-sm leading-relaxed mt-0.5">
+                    {detail}
+                  </p>
+                </div>
+              </motion.li>
+            ))}
+          </ol>
+
+          {/* Aviso pie del panel */}
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            transition={{ delay: 0.7 }}
+            className="mt-12 pt-8 border-t border-border-subtle flex items-center gap-2 text-text-muted text-xs"
+          >
+            <Heart size={14} aria-hidden="true" className="text-accent-pink" />
+            <span>Diseñado con cariño para infantil y primer ciclo de primaria</span>
+          </motion.div>
+        </div>
+      </motion.aside>
+
+      {/* Panel del formulario */}
       <motion.div
         initial={{ opacity: 0, y: 20 }}
         animate={{ opacity: 1, y: 0 }}
         transition={{ duration: 0.5 }}
-        className="w-full max-w-md relative z-10"
+        className="w-full lg:w-1/2 lg:order-1 flex items-center justify-center p-4 lg:p-12 relative z-10"
       >
-        {/* Botón volver */}
-        <motion.div
-          initial={{ opacity: 0, x: -20 }}
-          animate={{ opacity: 1, x: 0 }}
-          transition={{ delay: 0.1 }}
-          className="mb-6"
-        >
-          <Link 
-            to={ROUTES.LOGIN}
-            className="inline-flex items-center gap-2 text-text-muted hover:text-text-primary transition-colors text-sm group"
-          >
-            <ArrowLeft className="size-4 transition-transform group-hover:-translate-x-1" />
-            Volver al inicio de sesión
-          </Link>
-        </motion.div>
-
-        {/* Logo y título */}
-        <div className="text-center mb-8">
+        <div className="w-full max-w-md">
+          {/* Botón volver al login */}
           <motion.div
-            initial={{ scale: 0.8, opacity: 0 }}
-            animate={{ scale: 1, opacity: 1 }}
-            transition={{ delay: 0.1, duration: 0.4 }}
-            className={cn(
-              'inline-flex items-center justify-center size-20 rounded-2xl mb-4',
-              'bg-gradient-to-br from-accent-cyan via-accent-indigo to-brand-base',
-              'shadow-lg shadow-brand-glow',
-              // Pulse-glow signature coherente con Login.
-              !shouldReduceMotion && 'animate-pulse-glow'
-            )}
+            initial={{ opacity: 0, x: -20 }}
+            animate={{ opacity: 1, x: 0 }}
+            transition={{ delay: 0.1 }}
+            className="mb-6"
           >
-            <UserPlus className="size-10 text-text-primary" />
+            <Link
+              to={ROUTES.LOGIN}
+              className="inline-flex items-center gap-2 text-text-muted hover:text-text-primary transition-colors text-sm group"
+            >
+              <ArrowLeft className="size-4 transition-transform group-hover:-translate-x-1" />
+              Volver al inicio de sesión
+            </Link>
           </motion.div>
-          
-          <motion.h1 
-            initial={{ opacity: 0, y: 10 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ delay: 0.2 }}
-            className="text-3xl font-bold font-display bg-gradient-to-r from-text-primary via-accent-cyan to-accent-indigo bg-clip-text text-transparent"
-          >
-            Crear Cuenta
-          </motion.h1>
-          
-          <motion.p
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            transition={{ delay: 0.3 }}
-            className="text-text-muted mt-2"
-          >
-            Regístrate como profesor en EduPlay
-          </motion.p>
-        </div>
 
-        {/* Card del formulario */}
-        <GlassCard className="p-8" variant="solid">
+          {/* Logo compacto en mobile */}
+          <div className="lg:hidden text-center mb-6">
+            <motion.div
+              initial={{ scale: 0.8, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              transition={{ delay: 0.1, duration: 0.4 }}
+              className={cn(
+                'inline-flex items-center justify-center size-14 rounded-2xl mb-3',
+                'bg-gradient-to-br from-accent-cyan via-accent-indigo to-brand-base',
+                'shadow-[0_0_24px_var(--color-brand-glow)]',
+                !shouldReduceMotion && 'animate-pulse-glow',
+              )}
+            >
+              <EduPlayIcon size={28} className="text-white" />
+            </motion.div>
+            <h1 className="text-2xl font-bold font-display gradient-text-brand">
+              Únete al claustro
+            </h1>
+          </div>
+
+          {/* Card del formulario */}
+          <GlassCard className="p-8 lg:p-10" variant="solid">
+          <div className="mb-6">
+            <h2 className="text-2xl font-bold font-display text-text-primary">
+              Crear cuenta de docente
+            </h2>
+            <p className="text-text-muted text-sm mt-1.5">
+              Tu solicitud llegará a la dirección del centro para revisión.
+            </p>
+          </div>
           <motion.form
             ref={formRef}
             onSubmit={handleSubmit}
@@ -540,9 +648,9 @@ export default function Register() {
           {/* Link a login */}
           <p className="text-center text-text-muted text-sm mt-6">
             ¿Ya tienes cuenta?{' '}
-            <Link 
+            <Link
               to={ROUTES.LOGIN}
-              className="text-accent-indigo hover:text-accent-indigo transition-colors font-medium"
+              className="text-brand-base hover:text-brand-light transition-colors font-medium"
             >
               Inicia sesión
             </Link>
@@ -554,10 +662,11 @@ export default function Register() {
           initial={{ opacity: 0 }}
           animate={{ opacity: 1 }}
           transition={{ delay: 0.5 }}
-          className="text-center text-text-disabled text-sm mt-6"
+          className="text-center text-text-muted text-xs mt-6"
         >
           © {new Date().getFullYear()} EduPlay RFID · Proyecto TFG
         </motion.p>
+        </div>
       </motion.div>
     </div>
   );

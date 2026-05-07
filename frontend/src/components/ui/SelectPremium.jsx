@@ -268,7 +268,8 @@ export default function SelectPremium({
               'absolute z-40 w-full mt-2',
               'bg-background-elevated/95 backdrop-blur-xl',
               'border border-border-default rounded-xl',
-              'shadow-xl shadow-black/30',
+              // Sombra del dropdown semántica por tema (T-951 Fase 1).
+              'shadow-[var(--shadow-lg)]',
               'overflow-hidden'
             )}
           >

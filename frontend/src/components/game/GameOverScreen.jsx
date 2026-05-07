@@ -235,7 +235,11 @@ function GameOverScreen({
           >
             <div
               ref={scoreRef}
-              className="text-5xl font-bold font-display text-white mb-2 tabular-nums"
+              // text-text-primary en lugar de text-white: el primer token se
+              // resuelve a oklch 98% en dark (≈blanco) y a oklch 20% en light
+              // (gris oscuro). El text-white hardcoded dejaba el "75" en blanco
+              // sobre la card translúcida claro = invisible (QA 2026-05-07).
+              className="text-5xl font-bold font-display text-text-primary mb-2 tabular-nums"
               aria-label={
                 summary?.maxScore
                   ? `Puntuación final: ${score} de ${summary.maxScore} puntos`
@@ -270,9 +274,15 @@ function GameOverScreen({
                 role="status"
               >
                 <Trophy size={16} aria-hidden="true" />
+                {/* "Récord" es por sesión específica (useGameSocket consulta
+                    `getPlayerStats(playerId, { sessionId })`). Antes el copy
+                    decía "Tu primer récord" sin más, lo que confundía: el
+                    alumno con partidas previas en otras sesiones lo veía cada
+                    vez que estrenaba una nueva sesión. Ahora se aclara el
+                    alcance "en esta sesión" (QA 2026-05-07). */}
                 {bestScore > 0
-                  ? `¡Nuevo récord! +${scoreDelta} pts sobre el anterior (${bestScore})`
-                  : `¡Tu primer récord! ${score} pts`}
+                  ? `¡Nuevo récord en esta sesión! +${scoreDelta} pts sobre tu marca (${bestScore})`
+                  : `¡Primer récord en esta sesión! ${score} pts`}
               </motion.div>
             ) : bestScore > 0 && (
               <motion.p

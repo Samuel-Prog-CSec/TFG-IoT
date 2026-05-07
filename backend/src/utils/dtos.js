@@ -196,8 +196,21 @@ const toUserDTOV1 = user => {
       ? {
           avatar: userData.profile.avatar,
           age: userData.profile.age,
-          classroom: userData.profile.classroom
+          classroom: userData.profile.classroom,
           // birthdate ELIMINADO: Art. 5.1.c RGPD (minimización)
+          // Onboarding interactivo (T-951 PROP-13). Se expone al cliente
+          // para que `useOnboarding` pueda hidratar su estado y NO mostrar
+          // el tour a usuarios que ya lo completaron.
+          onboarding: userData.profile.onboarding
+            ? {
+                teacherCompleted: !!userData.profile.onboarding.teacherCompleted,
+                superAdminCompleted: !!userData.profile.onboarding.superAdminCompleted,
+                currentStep: userData.profile.onboarding.currentStep ?? 0,
+                currentTrack: userData.profile.onboarding.currentTrack ?? null,
+                version: userData.profile.onboarding.version ?? 1,
+                lastSeenAt: userData.profile.onboarding.lastSeenAt ?? null
+              }
+            : undefined
         }
       : undefined,
     createdBy: mapCreatedBy(userData.createdBy),

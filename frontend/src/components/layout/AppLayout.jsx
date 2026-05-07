@@ -1,13 +1,13 @@
 import { useState, useEffect } from 'react';
 import PropTypes from 'prop-types';
-import { Outlet, NavLink, useLocation } from 'react-router-dom';
+import { Outlet, NavLink, useLocation, useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
-import { NAV_ROUTES, ADMIN_NAV_ROUTES } from '../../constants/routes';
+import { NAV_ROUTES, ADMIN_NAV_ROUTES, ROUTES } from '../../constants/routes';
 import {
   Shield, Layers, X, Menu, LogOut,
   LayoutDashboard, CalendarClock, Palette, PlusCircle,
   UserCheck, ArrowRightLeft, Users, TrendingUp, Zap, ZapOff,
-  ChevronRight
+  ChevronRight, GraduationCap
 } from 'lucide-react';
 import EduPlayIcon from '../icons/EduPlayIcon';
 
@@ -28,7 +28,14 @@ import { cn, motionConfig } from '../../lib/utils';
 import { useIsMobile } from '../../hooks/useIsMobile';
 import { useReducedMotion } from '../../hooks/useReducedMotion';
 import ConfirmationModal, { useConfirmationModal } from '../ui/ConfirmationModal';
+import ThemeToggle from '../ui/ThemeToggle';
+import OnboardingOverlay from '../onboarding/OnboardingOverlay';
+import { useOnboarding } from '../../hooks/useOnboarding';
+import { getTrackForRole } from '../../constants/onboardingTracks';
+import KeyboardShortcutsOverlay from '../ui/KeyboardShortcutsOverlay';
+import { useKeyboardShortcuts } from '../../hooks/useKeyboardShortcuts';
 
+// eslint-disable-next-line sonarjs/cyclomatic-complexity -- layout principal con sidebar, hooks de tema, atajos, onboarding, modal y mascota
 export default function AppLayout() {
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const isMobile = useIsMobile(1024);
@@ -36,6 +43,71 @@ export default function AppLayout() {
   const { user, logout, isSuperAdmin } = useAuth();
   const { shouldReduceMotion, setUserPreference, resetUserPreference } = useReducedMotion();
   const logoutModal = useConfirmationModal();
+
+  // Onboarding interactivo (T-951 Fase 4). El track se selecciona por
+  // rol — devuelve null para roles sin tour disponible (ej. estudiante).
+  // El hook se sincroniza con backend (profile.onboarding) y migra el
+  // flag legacy localStorage automáticamente al primer mount.
+  const onboardingTrack = getTrackForRole(user?.role);
+  const onboarding = useOnboarding({ totalSteps: onboardingTrack?.length ?? 0 });
+
+  // Atajos globales (T-951 Fase 5). Definidos por rol — el super_admin
+  // tiene `g x` para Aprobaciones, el teacher tiene navegación interna.
+  // El overlay de ayuda se muestra con Shift+? — bloquear los atajos
+  // mientras está abierto evita que `Esc` cierre el modal y a la vez
+  // dispare otra acción.
+  const navigate = useNavigate();
+  const [shortcutsOpen, setShortcutsOpen] = useState(false);
+
+  const shortcutSections = isSuperAdmin
+    ? [
+        {
+          title: 'Navegación (dirección del centro)',
+          shortcuts: [
+            { key: 'g x', description: 'Ir a Aprobaciones', handler: () => navigate(ROUTES.ADMIN_APPROVALS) },
+            { key: 'g a', description: 'Ir al alumnado del centro', handler: () => navigate(ROUTES.STUDENT_MANAGEMENT) },
+            { key: 'g c', description: 'Ir a Contextos', handler: () => navigate(ROUTES.ADMIN_CONTEXTS) },
+          ],
+        },
+        {
+          title: 'Sistema',
+          shortcuts: [
+            { key: 'Shift+?', description: 'Mostrar atajos de teclado', handler: () => setShortcutsOpen(true) },
+            { key: 'Escape', description: 'Cerrar diálogos abiertos', handler: () => setShortcutsOpen(false), allowInInput: true },
+          ],
+        },
+      ]
+    : [
+        {
+          title: 'Navegación',
+          shortcuts: [
+            { key: 'g d', description: 'Ir al Dashboard', handler: () => navigate(ROUTES.DASHBOARD) },
+            { key: 'g s', description: 'Ir a Sesiones', handler: () => navigate(ROUTES.SESSIONS) },
+            { key: 'g m', description: 'Ir a Mis Mazos', handler: () => navigate(ROUTES.CARD_DECKS) },
+            { key: 'g a', description: 'Ir a Mis Alumnos', handler: () => navigate(ROUTES.STUDENTS_ANALYTICS) },
+            { key: 'g c', description: 'Ir a Contextos', handler: () => navigate(ROUTES.CONTEXTS) },
+            { key: 'g i', description: 'Ir a Insights', handler: () => navigate(ROUTES.INSIGHTS) },
+          ],
+        },
+        {
+          title: 'Acciones',
+          shortcuts: [
+            { key: 'Shift+N', description: 'Nueva sesión', handler: () => navigate(ROUTES.CREATE_SESSION) },
+          ],
+        },
+        {
+          title: 'Sistema',
+          shortcuts: [
+            { key: 'Shift+?', description: 'Mostrar atajos de teclado', handler: () => setShortcutsOpen(true) },
+            { key: 'Escape', description: 'Cerrar diálogos abiertos', handler: () => setShortcutsOpen(false), allowInInput: true },
+          ],
+        },
+      ];
+
+  // Aplana las definiciones para el hook — el overlay agrupa por
+  // sección, pero el listener trabaja con la lista plana.
+  const flatShortcuts = shortcutSections.flatMap((section) => section.shortcuts);
+  useKeyboardShortcuts(flatShortcuts);
 
   // Confirmacion al cerrar sesion: un click accidental pierde filtros y
   // estado de navegacion (PROP-85). Variant warning (no danger) porque es
@@ -95,11 +167,24 @@ export default function AppLayout() {
         Ir al contenido principal
       </a>
 
-      {/* Aurora Background Effect — opacidad reducida para mejor contraste de texto */}
-      <div className="fixed inset-0 pointer-events-none overflow-hidden mix-blend-screen opacity-25">
-        <div className="absolute top-0 left-1/4 w-96 h-96 bg-brand-base/20 rounded-full blur-[128px]" />
-        <div className="absolute bottom-0 right-1/4 w-96 h-96 bg-accent-cyan/15 rounded-full blur-[128px]" />
-        <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[600px] h-[600px] bg-accent-indigo/10 rounded-full blur-[150px]" />
+      {/* Aurora Background Effect — los colores y el mix-blend cambian por
+          tema (T-951 Fase 1). Las orbes consumen los tokens semánticos
+          `--color-aurora-{1,2,3}` y la clase `.aurora-layer` aplica el
+          modo de mezcla correcto: `screen` en dark, `multiply` en light
+          (evita las manchas grises del screen sobre fondo claro). */}
+      <div className="aurora-layer fixed inset-0 pointer-events-none overflow-hidden opacity-25">
+        <div
+          className="absolute top-0 left-1/4 w-96 h-96 rounded-full blur-[128px] opacity-80"
+          style={{ backgroundColor: 'var(--color-aurora-1)' }}
+        />
+        <div
+          className="absolute bottom-0 right-1/4 w-96 h-96 rounded-full blur-[128px] opacity-60"
+          style={{ backgroundColor: 'var(--color-aurora-2)' }}
+        />
+        <div
+          className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[600px] h-[600px] rounded-full blur-[150px] opacity-50"
+          style={{ backgroundColor: 'var(--color-aurora-3)' }}
+        />
       </div>
 
       {/* Mobile Menu Button */}
@@ -140,7 +225,10 @@ export default function AppLayout() {
           'bg-background-base/90 backdrop-blur-xl',
           'border-r border-border-subtle',
           'flex flex-col flex-shrink-0',
-          'shadow-2xl shadow-black/40'
+          // Sombra semántica por tema. En light, --shadow-lg es alpha
+          // 10% sobre fondo blanco — la sidebar deja de "flotar" sobre el
+          // papel marfil y queda apoyada con sutil profundidad.
+          'shadow-[var(--shadow-lg)]'
         )}
       >
         {/* Mobile Close Button */}
@@ -171,7 +259,9 @@ export default function AppLayout() {
                 EduPlay
               </span>
               <p className="text-xs text-text-muted font-medium">
-                {isSuperAdmin ? 'Panel de administración' : 'Portal del profesor'}
+                {isSuperAdmin
+                  ? 'Panel de dirección'
+                  : `Aula de ${user?.name?.split(' ')[0] ?? 'EduPlay'}`}
               </p>
             </div>
           </div>
@@ -222,16 +312,17 @@ export default function AppLayout() {
           {isSuperAdmin && (
             <>
               <p className="px-4 py-2 mt-2 text-[11px] font-semibold text-warning-base uppercase tracking-widest flex items-center gap-2">
-                <Shield size={10} /> Administración
+                <Shield size={10} /> Gestión del centro
               </p>
               {ADMIN_NAV_ROUTES.map((route) => {
                 const Icon = ICON_MAP[route.icon] || Shield;
                 return (
-                  <NavItem 
-                    key={route.path} 
-                    to={route.path} 
-                    icon={<Icon size={20} />} 
-                    label={route.label} 
+                  <NavItem
+                    key={route.path}
+                    to={route.path}
+                    icon={<Icon size={20} />}
+                    label={route.label}
+                    dataTour={route.dataTour}
                   />
                 );
               })}
@@ -253,6 +344,7 @@ export default function AppLayout() {
                     to={route.path}
                     icon={<Icon size={20} />}
                     label={route.label}
+                    dataTour={route.dataTour}
                   />
                 );
               })}
@@ -262,6 +354,18 @@ export default function AppLayout() {
 
         {/* Footer Actions */}
         <div className="p-4 border-t border-transparent bg-gradient-to-r from-transparent via-border-default/50 to-transparent space-y-1">
+          {/* Selector de tema — segmented Auto/Claro/Oscuro (T-951 Fase 2,
+              ajustado post-QA). Layout vertical: label arriba en su
+              propia línea + control compact (solo iconos) debajo. Antes
+              el segmented con texto se desbordaba del ancho de la
+              sidebar de 288px. */}
+          <div className="px-4 py-2">
+            <span className="block mb-2 font-medium text-[11px] uppercase tracking-widest text-text-muted">
+              Tema
+            </span>
+            <ThemeToggle compact />
+          </div>
+
           {/* Toggle de movimiento reducido (preferencia de a11y).
               Estilizado como switch en lugar de nav item para que se distinga de los enlaces. */}
           <button
@@ -276,7 +380,7 @@ export default function AppLayout() {
             role="switch"
             aria-checked={!shouldReduceMotion}
             aria-label="Animaciones"
-            title={shouldReduceMotion ? 'Animaciones desactivadas' : 'Animaciones activadas'}
+            title={shouldReduceMotion ? 'Activar animaciones' : 'Reducir animaciones'}
             className="flex items-center justify-between w-full px-4 py-2 rounded-xl text-text-muted hover:text-text-primary hover:bg-white/5 transition-colors duration-200"
           >
             <span className="flex items-center gap-3">
@@ -300,6 +404,21 @@ export default function AppLayout() {
               />
             </span>
           </button>
+
+          {/* Reanudar el tutorial — solo si el rol del usuario tiene
+              tour disponible (T-951 Fase 4). El hook se encarga de
+              resetear paso y mostrar el overlay. */}
+          {onboardingTrack && (
+            <button
+              type="button"
+              onClick={onboarding.resetOnboarding}
+              className="flex items-center gap-3 w-full px-4 py-3 text-text-muted hover:text-text-primary hover:bg-white/5 rounded-xl transition-colors duration-200"
+              title="Vuelve a ver el tutorial desde el principio"
+            >
+              <GraduationCap size={20} />
+              <span className="font-medium text-sm">Ver tutorial</span>
+            </button>
+          )}
 
           <NavLink
             to="/privacy"
@@ -348,11 +467,35 @@ export default function AppLayout() {
 
       {/* Modal de confirmacion de cierre de sesion (PROP-85) */}
       <ConfirmationModal {...logoutModal.modalProps} />
+
+      {/* Onboarding interactivo (T-951 Fase 4) — montado a nivel de
+          AppLayout para cubrir teacher y super_admin desde cualquier
+          ruta autenticada. El track viene del rol del usuario; si es
+          null, no se renderiza nada. */}
+      {onboardingTrack && (
+        <OnboardingOverlay
+          isVisible={onboarding.isVisible}
+          currentStep={onboarding.currentStep}
+          track={onboardingTrack}
+          onNext={onboarding.nextStep}
+          onPrev={onboarding.prevStep}
+          onComplete={onboarding.completeOnboarding}
+          onSkip={onboarding.skipOnboarding}
+        />
+      )}
+
+      {/* Overlay de atajos de teclado (T-951 Fase 5). Accesible vía
+          Shift+? globalmente. */}
+      <KeyboardShortcutsOverlay
+        isOpen={shortcutsOpen}
+        onClose={() => setShortcutsOpen(false)}
+        sections={shortcutSections}
+      />
     </div>
   );
 }
 
-function NavItem({ to, icon, label }) {
+function NavItem({ to, icon, label, dataTour }) {
   // Rutas "hijas" que deben activar el mismo item del sidebar.
   // Ej: /students/:id es parte del area "Mis Alumnos" (listado en /analytics/students).
   const location = useLocation();
@@ -366,6 +509,7 @@ function NavItem({ to, icon, label }) {
     <NavLink
       to={to}
       end={exactMatch}
+      data-tour={dataTour}
       className={({ isActive }) =>
         cn(
           'flex items-center gap-3 px-4 py-3 rounded-xl transition-colors duration-200 group relative overflow-hidden',
@@ -418,4 +562,5 @@ NavItem.propTypes = {
   to: PropTypes.string.isRequired,
   icon: PropTypes.node.isRequired,
   label: PropTypes.string.isRequired,
+  dataTour: PropTypes.string,
 };

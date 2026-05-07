@@ -309,6 +309,38 @@ const hardDeleteSchema = z
   })
   .strict();
 
+/**
+ * Schema para actualizar el progreso del onboarding interactivo
+ * (PATCH /api/users/me/onboarding — T-951 PROP-13).
+ *
+ * El cliente puede enviar cualquier subset: paso actual, marca de
+ * completado, o reset (currentStep=0 + completed=false). Usamos `partial`
+ * sobre los campos editables, refinando que al menos uno esté presente.
+ */
+const updateOnboardingSchema = z
+  .object({
+    currentStep: z
+      .number()
+      .int('El paso actual debe ser un número entero')
+      .min(0, 'El paso actual no puede ser negativo')
+      .max(50, 'El paso actual excede el rango razonable')
+      .optional(),
+    currentTrack: z
+      .enum(['teacher', 'super_admin'], {
+        errorMap: () => ({
+          message: 'El track del onboarding debe ser teacher o super_admin'
+        })
+      })
+      .nullable()
+      .optional(),
+    teacherCompleted: z.boolean().optional(),
+    superAdminCompleted: z.boolean().optional()
+  })
+  .strict()
+  .refine(data => Object.keys(data).length > 0, {
+    message: 'Debes incluir al menos un campo a actualizar'
+  });
+
 module.exports = {
   createUserSchema,
   createStudentSchema,
@@ -322,6 +354,7 @@ module.exports = {
   teacherStudentsQuerySchema,
   updateConsentSchema,
   hardDeleteSchema,
+  updateOnboardingSchema,
   emailSchema,
   passwordSchema,
   objectIdSchema

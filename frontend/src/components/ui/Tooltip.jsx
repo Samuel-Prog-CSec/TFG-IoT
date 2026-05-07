@@ -201,7 +201,9 @@ export default function Tooltip({
               // Glassmorphism con saturacion para coherencia con resto de UI
               'bg-background-elevated/95 backdrop-blur-md text-text-primary',
               'border border-border-default',
-              'shadow-[0_8px_24px_rgba(0,0,0,0.4),inset_0_1px_0_rgba(255,255,255,0.06)]',
+              // Tokens por tema — en light el tooltip no flota con sombra
+              // negra agresiva sobre el papel marfil (T-951 Fase 1).
+              'shadow-[var(--shadow-lg),var(--shadow-inset-card)]',
               positionClasses[effectiveSide]
             )}
           >

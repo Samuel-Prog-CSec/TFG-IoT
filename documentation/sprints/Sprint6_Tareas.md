@@ -1306,11 +1306,12 @@ Tres ampliaciones del área analytics que aportan valor pedagógico real:
 
 ---
 
-### T-951: ⚛️ Tema claro/oscuro + atajos de teclado globales + onboarding interactivo 📋
+### T-951: ⚛️ Tema claro/oscuro + atajos de teclado globales + onboarding interactivo ✅
 
 **Consolida:** PROP-4 + PROP-9 + PROP-13 + PROP-17 + PROP-68
 **Prioridad:** P2 | **Tamaño:** XL (> 2 días) | **Dependencias:** Ninguna
 **Origen:** App solo dark, atajos de teclado inexistentes, onboarding actual es informativo no guiado
+**Estado:** Implementado en `feature/ui-features-and-signature` (2026-05-06). Alcance ampliado a múltiples mejoras transversales sobre el plan original: paleta light "Cuaderno marfil + tinta púrpura", onboarding interactivo multi-track (teacher 6 pasos + super_admin 5 pasos), atajos globales con overlay `Shift+?`, microcopy quick wins. Entregables y referencia: ADR-115, `documentation/T951_Audit.md`, `Theme_Color_Pairs.md`, `Onboarding_Tracks.md`, `Keyboard_Shortcuts.md`, `Microcopy_Style_Guide.md`. QA Fase 7 con Docker + Playwright en proceso (`T951_QA_Findings.md`).
 
 **Descripción:**
 Tres sistemas de personalización y productividad para el profesor:

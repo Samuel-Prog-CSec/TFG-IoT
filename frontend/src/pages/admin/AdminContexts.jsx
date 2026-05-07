@@ -268,12 +268,20 @@ function renderContextsSection({
   onDeleteRequest
 }) {
   if (error) {
+    // EmptyState espera `action` como nodo (JSX), NO como objeto `{label, onClick}`.
+    // El props.node se renderiza directo con `{action}` en EmptyState.jsx, así que
+    // pasar un objeto plano lanzaba "Objects are not valid as a React child" y
+    // disparaba el ErrorBoundary (QA 2026-05-07).
     return (
       <EmptyState
         icon={<AlertTriangle size={48} className="text-error-base" />}
         title="Error al cargar contextos"
         description={error}
-        action={{ label: 'Reintentar', onClick: loadContexts }}
+        action={
+          <ButtonPremium variant="primary" onClick={loadContexts}>
+            <RefreshCw size={14} className="mr-1" /> Reintentar
+          </ButtonPremium>
+        }
       />
     );
   }

@@ -15,11 +15,19 @@
     "Helvetica Neue", Arial, sans-serif;
   --font-display: "Bricolage Grotesque", "Inter Tight", var(--font-sans);
 
-  /* ===== COLORES SEMÁNTICOS (OKLCH) ===== */
+  /* ===== COLORES SEMÁNTICOS (OKLCH) =====
+     Estos valores son la paleta DARK por defecto. La paleta LIGHT vive en
+     [data-theme="light"] al final del archivo y redefine los mismos tokens
+     por cascada CSS — la utilidad de Tailwind lee el valor actual de la
+     custom property, así que la cascada hace todo el trabajo sin necesidad
+     de duplicar reglas (T-951, ADR de tema). */
   /* Backgrounds: Fríos, profundos, con sutiles matices morados/azules */
   --color-background-deep: oklch(18% 0.02 260); /* #0a0a0f eq */
   --color-background-base: oklch(21% 0.03 260); /* #0f172a eq */
-  --color-background-elevated: oklch(27% 0.04 260); /* #1e293b eq */
+  /* Cards/superficies elevadas: 30% L (antes 27%). Sube 9 puntos sobre
+     background-base (vs 6 antes) para que el squint test detecte la
+     elevación claramente sin caer en glassmorphism barato (T-951 Fase 1). */
+  --color-background-elevated: oklch(30% 0.04 260); /* #2c3a52 aprox */
   --color-background-surface: oklch(35% 0.04 260); /* #334155 eq */
 
   /* Text: Jerarquía de 4 niveles para lectura perfecta */
@@ -39,9 +47,12 @@
   --color-success-dark: oklch(60% 0.15 150);
   --color-success-glow: oklch(75% 0.15 150 / 0.4);
 
-  --color-warning-base: oklch(85% 0.15 80); /* Amber/Yellow */
-  --color-warning-dark: oklch(70% 0.15 80);
-  --color-warning-glow: oklch(85% 0.15 80 / 0.4);
+  /* Warning: 78% L (antes 85%). El amarillo a 85% L producía contraste 1.6:1
+     con texto blanco — ilegible. 78% sigue siendo ámbar cálido pero con
+     contraste accesible WCAG 2.2 AA contra texto sobre superficie warning. */
+  --color-warning-base: oklch(78% 0.16 80); /* Amber/Yellow */
+  --color-warning-dark: oklch(64% 0.16 80);
+  --color-warning-glow: oklch(78% 0.16 80 / 0.4);
 
   --color-error-base: oklch(65% 0.18 25); /* Rose/Red */
   --color-error-dark: oklch(50% 0.18 25);
@@ -116,8 +127,27 @@
 
   /* Glassmorphism primitives */
   --color-glass-bg: oklch(100% 0 0 / 0.07);
-  --color-glass-solid: oklch(27% 0.04 260 / 0.8);
+  --color-glass-solid: oklch(30% 0.04 260 / 0.8);
   --color-glass-border: oklch(100% 0 0 / 0.08);
+
+  /* Aurora del fondo (AppLayout + GameSession). En dark se mezclan con
+     `mix-blend-screen`; en light el bloque [data-theme="light"] las
+     redefine y se cambia a `mix-blend-multiply` para evitar manchas
+     grises sobre el papel marfil (T-951 Fase 1). */
+  --color-aurora-1: oklch(65% 0.18 300); /* brand-base */
+  --color-aurora-2: oklch(80% 0.14 200); /* accent-cyan */
+  --color-aurora-3: oklch(60% 0.16 270); /* accent-indigo */
+
+  /* ===== SOMBRAS SEMÁNTICAS =====
+     Sustituyen las shadows literales `shadow-[0_4px_16px_rgba(0,0,0,0.4)]`
+     repartidas por la app. Son TOKENS por tema: en light el bloque
+     [data-theme="light"] reduce drásticamente el alpha para que las cards
+     no parezcan flotar con sombra negra pesada sobre fondo blanco. */
+  --shadow-sm: 0 1px 2px oklch(0% 0 0 / 0.30);
+  --shadow-md: 0 4px 16px oklch(0% 0 0 / 0.35);
+  --shadow-lg: 0 12px 40px oklch(0% 0 0 / 0.45);
+  --shadow-glow: 0 0 24px var(--color-brand-glow);
+  --shadow-inset-card: inset 0 1px 0 oklch(100% 0 0 / 0.06);
 
   /* ===== RADIUS ===== */
   --radius-sm: 0.5rem; /* 8px */
@@ -227,14 +257,36 @@
 }
 
 /* ============================================
+   🌗 VARIANTES DE TEMA (Tailwind v4)
+   --------------------------------------------
+   `@custom-variant light` permite escribir clases como `light:bg-white`
+   condicionales al tema. La mayoría de componentes NO necesitan esta
+   variante — basta con que consuman tokens semánticos (`bg-background-base`),
+   y la cascada CSS desde `[data-theme="light"]` cambia su valor.
+   La variante queda como escape hatch para casos donde un componente
+   necesite condicionales sin token equivalente (T-951 Fase 1). */
+@custom-variant light (&:where([data-theme="light"], [data-theme="light"] *));
+
+/* ============================================
    📱 BASE Y RESETS
    ============================================ */
 @layer base {
   :root {
-    color-scheme: dark;
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
     text-rendering: optimizeLegibility;
+  }
+
+  /* `color-scheme` dinámico por tema — afecta a inputs nativos, scrollbars
+     de Firefox, autofill de Chrome y la selección de texto por defecto.
+     Si quedaba hardcoded a `dark`, los inputs de fecha/hora y la barra de
+     scroll seguirían oscuros en modo claro (T-951 Fase 1). */
+  [data-theme="dark"] {
+    color-scheme: dark;
+  }
+
+  [data-theme="light"] {
+    color-scheme: light;
   }
 
   body {
@@ -242,6 +294,13 @@
     color: var(--color-text-primary);
     min-height: 100vh;
     overflow-x: hidden;
+    /* Transición suave SOLO en body — la cascada de custom properties es
+       instantánea, esto fundeo de la pintura del fondo entre temas. No
+       aplicamos a `*` para evitar repaints masivos del árbol al togglear
+       tema (T-951 Fase 1). */
+    transition:
+      background-color 200ms cubic-bezier(0.16, 1, 0.3, 1),
+      color 200ms cubic-bezier(0.16, 1, 0.3, 1);
   }
 
   /* Elimina delay de 300ms por double-tap zoom en tablets y móviles */
@@ -442,6 +501,191 @@
   transform: rotateY(180deg);
   position: absolute;
   inset: 0;
+}
+
+/* ============================================
+   ☀️ TEMA CLARO — "Cuaderno marfil + tinta púrpura"
+   --------------------------------------------
+   Redefine las custom properties OKLCH del @theme para que cualquier
+   utilidad de Tailwind las consuma automáticamente sin reescribir
+   componentes. La metáfora es la de un cuaderno escolar: papel marfil
+   sutilísimo como fondo, blanco puro para los cards (la "página dentro
+   del cuaderno") y la tinta púrpura del brand mantenida como signature
+   identitaria (T-951 Fase 1).
+
+   Pares contraste verificados WCAG 2.2 AA (≥4.5:1 sobre background-base):
+   text-primary 20% L → 14.6:1, text-secondary 32% → 8.7:1,
+   text-muted 48% → 4.7:1, brand-base 55% → 4.6:1, error-base 50% → 5.0:1.
+   ============================================ */
+[data-theme="light"] {
+  /* Backgrounds — papel marfil → blanco puro */
+  --color-background-deep: oklch(96% 0.008 80);
+  --color-background-base: oklch(98% 0.005 80);
+  --color-background-elevated: oklch(99.5% 0 0);
+  --color-background-surface: oklch(94% 0.012 80);
+
+  /* Texto — tinta gris-azulada profunda */
+  --color-text-primary: oklch(20% 0.025 260);
+  --color-text-secondary: oklch(32% 0.025 260);
+  --color-text-muted: oklch(48% 0.025 260);
+  --color-text-disabled: oklch(70% 0.015 260);
+
+  /* Brand — tinta púrpura vibrante (un punto más oscuro y saturado que dark) */
+  --color-brand-light: oklch(70% 0.15 300);
+  --color-brand-base: oklch(55% 0.20 300);
+  --color-brand-dark: oklch(42% 0.20 300);
+  --color-brand-glow: oklch(55% 0.20 300 / 0.18);
+
+  /* Semantic feedback — más oscuros para alcanzar 4.5:1 sobre fondo claro */
+  --color-success-base: oklch(50% 0.16 150);
+  --color-success-dark: oklch(38% 0.15 150);
+  --color-success-glow: oklch(50% 0.16 150 / 0.18);
+
+  --color-warning-base: oklch(60% 0.18 70);
+  --color-warning-dark: oklch(48% 0.18 70);
+  --color-warning-glow: oklch(60% 0.18 70 / 0.18);
+
+  --color-error-base: oklch(50% 0.20 25);
+  --color-error-dark: oklch(38% 0.20 25);
+  --color-error-glow: oklch(50% 0.20 25 / 0.18);
+
+  --color-info-base: oklch(50% 0.16 230);
+  --color-info-dark: oklch(38% 0.16 230);
+
+  /* Accents secundarios — saturación ajustada para fondo claro */
+  --color-accent-indigo: oklch(50% 0.20 270);
+  --color-accent-cyan: oklch(58% 0.13 200);
+  --color-accent-pink: oklch(60% 0.20 340);
+  --color-accent-orange: oklch(60% 0.18 50);
+  --color-accent-amber: oklch(62% 0.16 75);
+
+  /* Contextos de juego — tonos un peldaño más oscuros para legibilidad */
+  --color-theme-default: oklch(48% 0.22 297);
+  --color-theme-default-alt: oklch(50% 0.18 277);
+  --color-theme-default-text: oklch(40% 0.18 301);
+
+  --color-theme-geography: oklch(48% 0.16 255);
+  --color-theme-geography-alt: oklch(55% 0.13 210);
+  --color-theme-geography-text: oklch(38% 0.14 256);
+
+  --color-theme-animals: oklch(60% 0.16 70);
+  --color-theme-animals-alt: oklch(58% 0.16 48);
+  --color-theme-animals-text: oklch(45% 0.16 85);
+
+  --color-theme-colors: oklch(55% 0.20 343);
+  --color-theme-colors-alt: oklch(54% 0.19 18);
+  --color-theme-colors-text: oklch(45% 0.16 343);
+
+  --color-theme-numbers: oklch(55% 0.16 162);
+  --color-theme-numbers-alt: oklch(55% 0.13 183);
+  --color-theme-numbers-text: oklch(42% 0.14 158);
+
+  /* Podium — dorado/plateado/bronce sobre papel claro */
+  --color-podium-gold: oklch(65% 0.18 85);
+  --color-podium-gold-glow: oklch(65% 0.18 85 / 0.30);
+  --color-podium-silver: oklch(60% 0.02 260);
+  --color-podium-silver-glow: oklch(60% 0.02 260 / 0.25);
+  --color-podium-bronze: oklch(48% 0.14 45);
+  --color-podium-bronze-glow: oklch(48% 0.14 45 / 0.28);
+
+  /* Timer — los del dark son fluorescentes; en light bajamos saturación
+     para que en estados normales no irriten la vista, manteniendo el
+     escalado emocional safe→warning→critical. */
+  --color-timer-safe: oklch(55% 0.16 156);
+  --color-timer-safe-alt: oklch(55% 0.13 215);
+  --color-timer-safe-glow: oklch(55% 0.16 156 / 0.25);
+
+  --color-timer-warning: oklch(60% 0.18 80);
+  --color-timer-warning-alt: oklch(58% 0.16 55);
+  --color-timer-warning-glow: oklch(60% 0.18 80 / 0.30);
+
+  --color-timer-critical: oklch(50% 0.20 25);
+  --color-timer-critical-alt: oklch(48% 0.22 18);
+  --color-timer-critical-glow: oklch(50% 0.20 25 / 0.40);
+
+  /* Bordes — alpha sobre NEGRO en lugar de blanco. En light el borde
+     debe sustraer luminosidad del papel, no añadir. Refinamiento QA:
+     subimos alpha (0.06→0.12, 0.10→0.18, 0.18→0.28) para que los
+     límites de cards e inputs se vean claramente sin necesidad de
+     sombras pesadas. */
+  --color-border-subtle: oklch(20% 0.02 260 / 0.10);
+  --color-border-default: oklch(20% 0.02 260 / 0.16);
+  --color-border-strong: oklch(20% 0.02 260 / 0.26);
+
+  /* Backdrop / scrim — más suave que en dark; tinte azulado sutil para
+     mantener la atmósfera "tinta púrpura" sin escurrir hacia gris. */
+  --color-backdrop: oklch(15% 0.02 260 / 0.50);
+
+  /* Glassmorphism — vidrio oscuro mínimo (4-6% sobre claro). Borde alpha
+     negro porque sobre papel claro el borde blanco translúcido del dark
+     quedaría invisible. */
+  --color-glass-bg: oklch(20% 0.02 260 / 0.06);
+  --color-glass-solid: oklch(99% 0.003 80 / 0.88);
+  --color-glass-border: oklch(20% 0.02 260 / 0.10);
+
+  /* Aurora light — orbes pastel para `mix-blend-multiply`. Refinamiento
+     QA: bajamos L (94→88) y subimos chroma (0.04→0.10) para que el
+     papel se sienta orgánicamente teñido en lugar de plano. Sigue
+     respetando la metáfora "cuaderno" sin saturar la vista. */
+  --color-aurora-1: oklch(88% 0.10 300);
+  --color-aurora-2: oklch(89% 0.09 200);
+  --color-aurora-3: oklch(90% 0.08 30);
+
+  /* Sombras light — refinamiento QA: subimos alpha para que las cards
+     "floten" visualmente sobre el papel marfil. Antes las sombras eran
+     casi imperceptibles y los elementos parecían pegados a la página.
+     Mantenemos el cariz suave (no shadow-XL agresivo) pero con
+     definición clara. */
+  --shadow-sm: 0 1px 3px oklch(20% 0.02 260 / 0.10);
+  --shadow-md: 0 4px 14px oklch(20% 0.02 260 / 0.14),
+               0 1px 3px oklch(20% 0.02 260 / 0.08);
+  --shadow-lg: 0 14px 40px oklch(20% 0.02 260 / 0.18),
+               0 4px 12px oklch(20% 0.02 260 / 0.10);
+  --shadow-glow: 0 0 28px var(--color-brand-glow);
+  --shadow-inset-card: inset 0 1px 0 oklch(100% 0 0 / 0.7);
+}
+
+/* Aurora con `mix-blend` distinto por tema. La clase no usa prefijo `bg-`
+   para no chocar con la convención de utilidades Tailwind. La capa
+   `multiply` en light tiñe el papel sin generar manchas grises (defecto
+   del `mix-blend-screen` sobre fondo claro).
+   Refinamiento QA 2026-05-07: bajamos la opacidad del wrapper en light
+   (0.25 → 0.16) porque el `multiply` con orbes pastel sobre papel marfil
+   producía zonas demasiado oscuras y, sobre todo, se filtraba por el
+   `backdrop-filter: blur(24px)` del sidebar haciendo que la barra se
+   percibiera con un wash púrpura/oliva. En light, además, anulamos
+   completamente el backdrop-blur del sidebar (la franja sólida sobre
+   papel comunica mejor el lenguaje "cuaderno" que un cristal difuso). */
+[data-theme="light"] .aurora-layer {
+  mix-blend-mode: multiply;
+  opacity: 0.16;
+}
+
+[data-theme="dark"] .aurora-layer {
+  mix-blend-mode: screen;
+}
+
+/* Sidebar opaco y sin backdrop-blur en light: evita que la aurora-multiply
+   se cuele a través del cristal y empuje la barra a un tono apagado. En
+   dark se mantiene el glass effect (la aurora con `screen` ilumina y se
+   integra bien). */
+[data-theme="light"] aside.lg\:sticky {
+  background-color: var(--color-background-base);
+  backdrop-filter: none;
+}
+
+/* `game-bg` con variante light — el dark usa gradient negro→morado oscuro;
+   el light usa gradient cielo-amanecer (marfil→lavanda muy diluido) que
+   conserva el dramatismo del juego sin caer en negro o blanco crudo. */
+[data-theme="light"] .bg-game,
+[data-theme="light"] .game-bg {
+  background: linear-gradient(
+    135deg,
+    oklch(97% 0.01 60) 0%,
+    oklch(95% 0.025 280) 40%,
+    oklch(94% 0.02 240) 70%,
+    oklch(96% 0.012 80) 100%
+  );
 }
 
 /* ============================================

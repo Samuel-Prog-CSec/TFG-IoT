@@ -320,7 +320,10 @@ function DeckCardView({
           'border border-border-default',
           'backdrop-blur-xl',
           'transition-shadow duration-300',
-          isHovered && 'shadow-2xl shadow-accent-indigo/20',
+          // Sombra hover delegada al token --shadow-lg (variante por tema).
+          // Mantiene el tinte indigo del original con un ring extra cuando
+          // tiene foco/hover en lugar de shadow-2xl negra (T-951 Fase 1).
+          isHovered && 'shadow-[var(--shadow-lg)] ring-1 ring-accent-indigo/20',
           selected && 'ring-2 ring-brand-base ring-offset-2 ring-offset-background-deep',
           selectable && 'hover:ring-2 hover:ring-brand-base/50 focus-ring'
         )}
@@ -552,7 +555,7 @@ function DeckPreviewAssets({
         return (
           <motion.div
             key={mapping._id || index}
-            className="size-10 rounded-lg border border-border-default flex items-center justify-center text-lg overflow-hidden shadow-[inset_0_1px_4px_rgba(0,0,0,0.3)] ring-1 ring-white/5"
+            className="size-10 rounded-lg border border-border-default flex items-center justify-center text-lg overflow-hidden shadow-[var(--shadow-inset-card)] ring-1 ring-border-subtle"
             initial={{ opacity: 0, scale: 0.8 }}
             animate={{ opacity: 1, scale: 1 }}
             transition={{ delay: index * 0.06 }}
@@ -655,7 +658,7 @@ function DeckHoverActions({ selectable, showActions, deck, onView, onEdit, onDel
         <ActionButton
           icon={Trash2}
           label="Archivar"
-          variant="warning"
+          variant="subtle"
           onClick={(event) => {
             event.stopPropagation();
             onDelete?.(deck);
@@ -711,7 +714,7 @@ function AnimateMenu({ isOpen, onView, onEdit, onDelete }) {
     >
       <button onClick={onView} className="w-full text-left px-2.5 py-2 rounded-lg text-sm text-text-secondary hover:bg-border-default transition-colors">Ver</button>
       <button onClick={onEdit} className="w-full text-left px-2.5 py-2 rounded-lg text-sm text-text-secondary hover:bg-border-default transition-colors">Editar</button>
-      <button onClick={onDelete} className="w-full text-left px-2.5 py-2 rounded-lg text-sm text-warning-base hover:bg-warning-base/15 transition-colors">Archivar</button>
+      <button onClick={onDelete} className="w-full text-left px-2.5 py-2 rounded-lg text-sm text-text-secondary hover:bg-warning-base/15 hover:text-warning-base transition-colors">Archivar</button>
     </motion.div>
   );
 }
@@ -725,6 +728,12 @@ function ActionButton({ icon: Icon, label, onClick, variant = 'default' }) {
       className={cn(
         'flex items-center gap-1.5 px-3 py-2 rounded-lg text-xs font-medium transition-colors',
         variant === 'default' && 'bg-border-default text-text-primary hover:bg-border-strong',
+        // 'subtle' (Archivar): reposo neutro tipo ghost; warning solo en hover.
+        // Antes "Archivar" pintaba en warning sólido (ring + bg) en reposo y se
+        // confundía con destructive — pero archivar es reversible (no borra el
+        // mazo). El reposo neutro comunica la naturaleza menos drástica de la
+        // acción y deja warning para "casi destructivo" (QA 2026-05-07).
+        variant === 'subtle' && 'bg-background-surface/40 text-text-secondary hover:bg-warning-base/15 hover:text-warning-base',
         variant === 'warning' && 'bg-warning-base/15 text-warning-base hover:bg-warning-base/25 ring-1 ring-inset ring-warning-base/20',
         variant === 'danger' && 'bg-error-base/20 text-error-base hover:bg-error-base/30'
       )}
@@ -743,7 +752,7 @@ ActionButton.propTypes = {
   icon: PropTypes.elementType.isRequired,
   label: PropTypes.string.isRequired,
   onClick: PropTypes.func.isRequired,
-  variant: PropTypes.oneOf(['default', 'warning', 'danger']),
+  variant: PropTypes.oneOf(['default', 'subtle', 'warning', 'danger']),
 };
 
 DeckCard.propTypes = {

@@ -185,7 +185,9 @@ export default function DifficultyHeatmap({ data }) {
                         isDimmed && 'opacity-40'
                       )}
                     >
-                      {hasData ? `${errorRate}%` : '—'}
+                      {/* Sin datos: solo stripe diagonal sin texto. El em-dash
+                          previo se confundía con valor cero (QA 2026-05-07). */}
+                      {hasData ? `${errorRate}%` : ''}
                       {isHovered && hasData && (
                         <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 bg-background-elevated/95 backdrop-blur-md border border-border-default rounded-lg shadow-xl px-3 py-2 text-xs whitespace-nowrap z-20 pointer-events-none">
                           <p className="font-semibold text-text-primary mb-0.5">{ctx} + {formatMechanicName(m)}</p>

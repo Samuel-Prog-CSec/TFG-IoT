@@ -6225,3 +6225,139 @@ Validación E2E: `seed:reset` en Docker creó **40 sesiones + 406 plays** sin er
 - Todas las plays tienen `maxScore` (0 nulos), 0 plays con `score > maxScore`.
 - `maxScore` por mecánica coherente: Memoria 90 (6 parejas × 15), Asociación 50-90, Secuencia 210-420.
 
+---
+
+## ADR-115: Tema light + onboarding interactivo multi-track + atajos globales (T-951) [Full-stack, UX]
+
+**Fecha:** 2026-05-06
+**Sprint/Origen:** T-951 del Sprint 6 (consolida PROP-4, PROP-9, PROP-13, PROP-17, PROP-68). Alcance ampliado por petición del usuario: tema claro completo, onboarding interactivo también para super_admin (perfil no técnico) y mejora de microcopy.
+**Estado:** Aprobado (`feature/ui-features-and-signature`)
+**Alcance:**
+- Frontend: `index.css` (CSS-first theming), `index.html` (script FOUC), nuevos `context/ThemeContext.jsx`, `components/ui/ThemeToggle.jsx`, `components/ui/KeyboardShortcutsOverlay.jsx`, `hooks/useKeyboardShortcuts.js`, `constants/onboardingTracks.js`, `constants/microcopy.js`, `constants/theme.js`. Reescritura de `components/onboarding/OnboardingOverlay.jsx` y `hooks/useOnboarding.js`. Refactor de sombras en `components/ui/{GlassCard,Tooltip,SelectPremium}.jsx`, `components/ui/DeckCard.jsx`, `components/dashboard/StatCard.jsx`, `components/layout/AppLayout.jsx`. Microcopy quick wins en `AppLayout.jsx`. Toaster Sonner adaptativo en `App.jsx`.
+- Backend: `models/User.js` (subdoc `profile.onboarding`), `validators/userValidator.js` (`updateOnboardingSchema`), `controllers/userController.js` (`updateMyOnboarding`), `routes/users.js` (`PATCH /api/users/me/onboarding`).
+- Documentación: `documentation/{T951_Audit,Theme_Color_Pairs,Microcopy_Style_Guide,Onboarding_Tracks,Keyboard_Shortcuts,T951_QA_Findings}.md`.
+
+### Contexto
+
+EduPlay 0.5.0 sólo ofrecía tema oscuro y un onboarding informativo de 4 pasos (modal estático, sólo para profesores, persistencia en `localStorage['eduplay:onboarding-completed']`). El super_admin (jefe de estudios — perfil no técnico) entraba directamente al panel de aprobaciones sin contexto. No existían atajos de teclado globales y el microcopy mezclaba registros tras tres pasadas masivas de tildes que no contemplaron voz/tono.
+
+Tres síntomas concretos en QA:
+
+1. *"En aulas con luz fuerte el modo oscuro cansa la vista"* (PROP-4/9 reabiertas en QA 17/04/2026).
+2. *"El director del centro no sabe por dónde empezar y no se atreve a tocar nada"* (PROP-13).
+3. *"Tengo que llevar el ratón hasta la sidebar para cambiar de pestaña aunque sé exactamente a dónde voy"* (PROP-17/68).
+
+T-951 ataca los tres frentes en una sola tarea, con soporte para WCAG 2.2 AA en ambos temas y persistencia híbrida (local + backend) para que el progreso del onboarding sobreviva al cambio de dispositivo — crítico para super_admins que entran desde su laptop personal y desde el PC del centro.
+
+### Decisión
+
+#### Bloque A — Sistema de tema CSS-first (Tailwind v4)
+
+**Patrón canónico v4**: `@theme { … }` mantiene los tokens dark como default. Un selector `[data-theme="light"]` redefine los mismos tokens OKLCH por cascada CSS estándar (Tailwind genera utilidades leyendo el valor actual de la custom property — la cascada hace el trabajo). Se declara `@custom-variant light (&:where([data-theme="light"], [data-theme="light"] *))` para los casos puntuales en que un componente necesite condicionales sin token equivalente, pero el 95% de los componentes consumen utilidades semánticas y se adaptan automáticamente.
+
+**Paleta light "Cuaderno marfil + tinta púrpura"**:
+
+- Backgrounds — papel marfil `oklch(98% 0.005 80)` → cards en blanco puro `oklch(99.5% 0 0)` (la "página dentro del cuaderno").
+- Texto — tinta gris-azulada profunda `oklch(20% 0.025 260)` (no negro puro: tiene tinte sutil del fondo dark).
+- Brand — púrpura vibrante `oklch(55% 0.20 300)` (un peldaño más oscuro que en dark, mantiene saturación 0.20 para no "diluir la tinta").
+- Borders — alpha sobre **negro** (no blanco): `oklch(0% 0 0 / 0.06-0.18)`.
+- Aurora — orbes pastel `oklch(94% 0.04 hue)` con `mix-blend-multiply` (la clase `.aurora-layer` aplica el blend correcto por tema). Sin esto, el aurora original con `mix-blend-screen` producía manchas grises en light.
+
+**`color-scheme` dinámico**: se mueve de `:root { color-scheme: dark }` a `[data-theme="dark"] { color-scheme: dark }` y `[data-theme="light"] { color-scheme: light }` para que inputs nativos, scrollbars Firefox y autofill Chrome respeten el tema.
+
+**FOUC prevention**: bloque `<script>` inline en `frontend/index.html` que lee `localStorage['eduplay:theme']`, resuelve `auto` con `matchMedia('(prefers-color-scheme: light)')` y aplica `document.documentElement.dataset.theme`. Bajo 250 bytes; ejecuta antes del primer paint (FOUC < 50ms).
+
+**ThemeContext** (`context/ThemeContext.jsx`): tres modos `auto | light | dark`. El modo `auto` sigue al SO via `matchMedia`. Listener `change` propaga sin recarga. Persistencia `localStorage['eduplay:theme']`. Hook `useTheme()` expone `{mode, resolvedTheme, isLight, isDark, setMode}`. Provider envuelve `<App>` antes del `BrowserRouter`. La meta `theme-color` de `<head>` se actualiza dinámicamente para que la barra de direcciones del navegador y la status bar de la PWA se adapten.
+
+**ThemeToggle** (`components/ui/ThemeToggle.jsx`): segmented control de 3 estados con thumb deslizante via Framer Motion `layoutId`. ARIA `role="radiogroup"` + cada item `role="radio" aria-checked`. Iconos Lucide `Monitor`, `Sun`, `Moon`. Respeta `prefers-reduced-motion`.
+
+**Refinamientos del dark**: `--color-background-elevated` 27%→30% L (squint test detectaba elevación insuficiente) y `--color-warning-base` 85%→78% L (ratio texto-blanco a 1.6:1 ilegible).
+
+**Sombras semánticas**: tokens nuevos `--shadow-{sm,md,lg,glow,inset-card}` con valores rgba diferentes por tema. En light, los alpha pasan de 0.30-0.45 (dark) a 0.06-0.10 — el papel marfil no tolera sombras agresivas. Se refactorizan 6 componentes prioritarios.
+
+#### Bloque B — Onboarding interactivo multi-track
+
+**Backend** `User.profile.onboarding`: `{teacherCompleted, superAdminCompleted, currentStep, currentTrack, version, lastSeenAt}`. Endpoint nuevo `PATCH /api/users/me/onboarding` (Zod `updateOnboardingSchema`, validación strict, exige al menos un campo).
+
+**Frontend rewrite**:
+
+- **`useOnboarding(user)`**: depende de `useAuth`, hidrata desde `user.profile.onboarding` en `useEffect` (no estado inicial — el bug previo evaluaba antes de tener `user`). Selecciona track según rol con `getTrackForRole(role)`. Sincroniza paso a paso con PATCH debounced 500ms. **Migración legacy**: si detecta `localStorage['eduplay:onboarding-completed'] === 'true'`, hace PATCH `teacherCompleted: true` al backend y borra el flag local en el primer mount.
+- **`OnboardingOverlay`**: soporta dos tipos de paso (`'modal'` / `'spotlight'`). El spotlight usa portal con 4 overlays absolutos rodeando el rect del target (CSS-only) + ring `brand-base/glow`. Si el target no se encuentra, fallback automático a `'modal'`. Esc salta el tour.
+- **Tracks** (`constants/onboardingTracks.js`): `TEACHER_TRACK` (6 pasos: Bienvenida → Mazos → Contextos → Sesiones → Jugar → Analytics) y `SUPER_ADMIN_TRACK` (5 pasos: Bienvenida [Shield warning] → Aprobaciones → Alumnado → Contextos → Cómo volver). El track del super_admin diseñado contra los **tres miedos del jefe de estudios no técnico**: (1) "voy a romper algo del centro", (2) "no entiendo esta métrica", (3) "no sé dónde está la cosa que necesito".
+- **`data-tour="<key>"`**: contrato UI ↔ track. Se añade al campo `dataTour` de cada item en `NAV_ROUTES` y `ADMIN_NAV_ROUTES` (`constants/routes.js`); `AppLayout.jsx` lo propaga al atributo HTML del `NavLink`.
+- **Reanudar**: nuevo botón "Ver tutorial" (icono `GraduationCap`) en el footer del sidebar. Click → `resetOnboarding()` reabre el overlay del rol actual desde paso 0.
+- **Refactor de Dashboard**: el OnboardingOverlay y el `useOnboarding` se quitan del Dashboard y se montan a nivel de AppLayout para que el super_admin (que NO ve Dashboard) también vea su tour al primer login.
+
+#### Bloque C — Atajos de teclado globales
+
+**Hook genérico** `useKeyboardShortcuts(shortcuts, options)`:
+- Soporta atajos directos (`Shift+?`, `Escape`) y chords (`g s`) con buffer interno + timeout 1500ms entre teclas.
+- Guard automático: `event.target.closest('input, textarea, select, [contenteditable], [role="textbox"]')` → return early. Atajos con `allowInInput: true` se disparan también dentro de inputs.
+
+**Mapa global** registrado en AppLayout, con dos sets — uno para teacher, otro para super_admin. Documentado en `Keyboard_Shortcuts.md`.
+
+**Decisiones de teclado explícitas**:
+
+- `Shift+?` (no `?` solo): en QWERTY ES `?` requiere `Shift+'`.
+- `Shift+N` (no `n` solo): evita disparos accidentales al escribir notas.
+- No hay `/` para focus búsqueda: en T-951 no existe búsqueda global. Se reserva para una tarea futura.
+
+#### Bloque D — Microcopy quick wins
+
+Sin esperar a la migración masiva de T-959, T-951 aplica los cambios de mayor visibilidad y crea el esqueleto de `frontend/src/constants/microcopy.js`. Cambios visibles:
+
+- "Panel de administración" (super_admin) → "**Panel de dirección**".
+- "Portal del profesor" → "**Aula de [Nombre]**" (refuerzo de pertenencia inmediato).
+- Sidebar header del super_admin: "Administración" → "**Gestión del centro**".
+- Toggle Animaciones: `title` describe acción ("Reducir animaciones" / "Activar animaciones").
+- Toaster Sonner: `theme="dark"` hardcoded → `theme={resolvedTheme}` adaptativo.
+
+### Consecuencias
+
+**Positivas**:
+
+- Tema light totalmente funcional con paleta signature. Pares contraste verificados WCAG 2.2 AA en `Theme_Color_Pairs.md`.
+- Onboarding adaptado al rol — el super_admin recibe orientación específica contra los tres miedos del jefe de estudios.
+- Atajos globales con guard contra inputs y overlay autodescriptivo.
+- Persistencia híbrida del onboarding sobrevive al cambio de dispositivo.
+- 29 tests nuevos (9 ThemeContext + 8 useOnboarding + 7 useKeyboardShortcuts + 5 backend).
+
+**Riesgos** (mitigados en Fase 7 QA):
+
+- Regresión visual del dark con las dos mejoras (`background-elevated` 27→30% L, `warning-base` 85→78% L).
+- Aurora gameplay light: `mix-blend-multiply` con orbes acumuladas puede dar matiz mostaza si los hue se mezclan mal.
+- Spotlight onboarding: si el target del spotlight está fuera de viewport, fallback a modal — dependencia de selectores estables `data-tour` que cualquier refactor futuro debe preservar.
+- Bundle: `index.js` 118.35 KB → ~120 KB (+1.65 KB). Dentro del presupuesto.
+
+**Trade-offs**:
+
+- OnboardingOverlay montado en AppLayout (no en cada página): permite que el super_admin vea el tour al primer login sin pasar por Dashboard.
+- Recharts no migrado: 0 hex hardcoded, los charts ya consumen tokens semánticos via clases Tailwind y siguen funcionando tras el cambio de tema.
+- Modo `auto` implica un listener `matchMedia` activo durante toda la sesión. Cleanup correcto, 0-1 re-renders por sesión.
+
+### Migración
+
+Centros existentes con usuarios que completaron el onboarding antiguo:
+
+1. Al primer login post-deploy, `useOnboarding` detecta `localStorage['eduplay:onboarding-completed'] === 'true'`.
+2. Hace `PATCH /api/users/me/onboarding { teacherCompleted: true }`.
+3. Borra el flag local.
+4. El usuario no vuelve a ver el tour automáticamente. Si quiere repasarlo, el botón "Ver tutorial" del sidebar siempre está disponible.
+
+### Verificación
+
+- Frontend: 353 tests verdes (338 + 15 nuevos).
+- Backend: 1134 tests verdes (1129 + 5 nuevos del endpoint).
+- Lint: 0 errores frontend + backend. 11 warnings frontend (10 baseline + 1 esperado del AppLayout, justificado).
+- Build: 2.13s, bundle entry +1.65 KB.
+- E2E (Fase 7, en proceso): Docker dev + Playwright sobre 10 pestañas en ambos temas. Findings en `T951_QA_Findings.md`.
+
+### Referencias
+
+- `documentation/T951_Audit.md` — auditoría inicial (Fase 0).
+- `documentation/Theme_Color_Pairs.md` — pares contraste WCAG 2.2 AA por tema.
+- `documentation/Onboarding_Tracks.md` — árbol de los 11 pasos + selectores `data-tour`.
+- `documentation/Keyboard_Shortcuts.md` — tabla por rol.
+- `documentation/Microcopy_Style_Guide.md` — 7 principios + ejemplos.
+- ADR-069 (a11y crítica), ADR-070 (motion signature Tactile + Paper), ADR-088 (cuarto bloque QA pre-v0.5.0) — bases sobre las que T-951 construye.
+

@@ -588,6 +588,15 @@ export const usersAPI = {
   /** Exportar datos Art. 20 RGPD (GET /api/users/:id/export-data) */
   exportStudentData: (userId) =>
     api.get(`/users/${userId}/export-data`, { responseType: 'blob' }),
+
+  /**
+   * Actualizar el progreso del onboarding interactivo del propio usuario
+   * (T-951 PROP-13). Acepta cualquier subset de los campos editables.
+   * @param {Object} payload - Subset { currentStep?, currentTrack?, teacherCompleted?, superAdminCompleted? }
+   * @returns {Promise} Respuesta con el subdocumento de onboarding actualizado.
+   */
+  updateMyOnboarding: (payload) =>
+    api.patch('/users/me/onboarding', payload),
 };
 
 // ============================================
