@@ -138,6 +138,36 @@
   --color-aurora-2: oklch(80% 0.14 200); /* accent-cyan */
   --color-aurora-3: oklch(60% 0.16 270); /* accent-indigo */
 
+  /* ===== CHART GRADIENTS — STOPS POR TEMA (T-952 Fase 0.B) =====
+     En dark los gradients horizontales van de "base" (tono medio) a
+     "light" (más claro): sobre fondo oscuro, el extremo más claro se ve
+     bien y crea sensación de "lectura izquierda → derecha". En light, ese
+     mismo `brand-light` (70% L) queda CASI invisible sobre marfil 98% L
+     — el gradient se desvanece y la línea pierde contraste. Resolvemos
+     mapeando `--chart-stop-*` por tema: en dark `start=base, end=light`;
+     en light `start=base, end=dark`. La cascada hace el resto: charts
+     solo consumen `stop-color: var(--chart-stop-X)`. */
+  --chart-stop-brand-start: var(--color-brand-base);
+  --chart-stop-brand-end: var(--color-brand-light);
+
+  --chart-stop-memory-start: var(--color-accent-indigo);
+  --chart-stop-memory-end: var(--color-accent-indigo);
+
+  --chart-stop-association-start: var(--color-accent-cyan);
+  --chart-stop-association-end: var(--color-accent-cyan);
+
+  --chart-stop-sequence-start: var(--color-accent-amber);
+  --chart-stop-sequence-end: var(--color-accent-amber);
+
+  --chart-stop-success-start: var(--color-success-base);
+  --chart-stop-success-end: var(--color-success-dark);
+
+  --chart-stop-warning-start: var(--color-warning-base);
+  --chart-stop-warning-end: var(--color-warning-dark);
+
+  --chart-stop-error-start: var(--color-error-base);
+  --chart-stop-error-end: var(--color-error-dark);
+
   /* ===== SOMBRAS SEMÁNTICAS =====
      Sustituyen las shadows literales `shadow-[0_4px_16px_rgba(0,0,0,0.4)]`
      repartidas por la app. Son TOKENS por tema: en light el bloque
@@ -330,10 +360,60 @@
     /* Transición suave SOLO en body — la cascada de custom properties es
        instantánea, esto fundeo de la pintura del fondo entre temas. No
        aplicamos a `*` para evitar repaints masivos del árbol al togglear
-       tema (T-951 Fase 1). */
+       tema (T-951 Fase 1). T-952 Fase 1 añade arriba el cross-fade nativo
+       con View Transition API; este transition sigue cubriendo el caso
+       en que el cambio venga de fuera de toggleTheme (e.g. cambio de
+       prefers-color-scheme del SO en modo auto). */
     transition:
       background-color 200ms cubic-bezier(0.16, 1, 0.3, 1),
       color 200ms cubic-bezier(0.16, 1, 0.3, 1);
+  }
+
+  /* Cross-fade del cambio de tema mediante View Transition API
+     (T-952 Fase 1). El navegador captura un snapshot del DOM antes de
+     que `setMode` aplique el nuevo `data-theme` y otro después; luego
+     interpola entre ambos. Esto reemplaza el "fogonazo" instantáneo de
+     toda la paleta por una transición percibida como una sola animación
+     cinematográfica de ~320ms — funciona en CUALQUIER ruta (Login,
+     Register, AppLayout, GameLayout) porque opera sobre la raíz.
+     Chrome/Edge ≥111, Safari ≥18. Firefox y Safari <18 caen al fallback
+     `[data-theme-switching]` definido más abajo. */
+  ::view-transition-old(root),
+  ::view-transition-new(root) {
+    animation-duration: 320ms;
+    animation-timing-function: cubic-bezier(0.22, 1, 0.36, 1);
+    mix-blend-mode: normal;
+  }
+
+  ::view-transition-old(root) {
+    animation-name: theme-fade-out;
+  }
+  ::view-transition-new(root) {
+    animation-name: theme-fade-in;
+  }
+
+  @keyframes theme-fade-out {
+    from { opacity: 1; }
+    to { opacity: 0; }
+  }
+  @keyframes theme-fade-in {
+    from { opacity: 0; }
+    to { opacity: 1; }
+  }
+
+  /* Fallback CSS para Firefox y Safari <18 (sin View Transition API).
+     `toggleTheme` aplica `data-theme-switching` en <html> durante 280ms;
+     mientras esté presente, propiedades clave (bg/color/border/fill/stroke)
+     interpolan en lugar de saltar. Se desactiva automáticamente al quitar
+     el atributo, así que NO impacta el resto de animaciones de la app. */
+  html[data-theme-switching] body,
+  html[data-theme-switching] body *:not(svg):not(svg *) {
+    transition:
+      background-color 250ms cubic-bezier(0.22, 1, 0.36, 1),
+      color 250ms cubic-bezier(0.22, 1, 0.36, 1),
+      border-color 250ms cubic-bezier(0.22, 1, 0.36, 1),
+      fill 200ms ease,
+      stroke 200ms ease !important;
   }
 
   /* Elimina delay de 300ms por double-tap zoom en tablets y móviles */
@@ -392,6 +472,20 @@
       animation-iteration-count: 1 !important;
       transition-duration: 0.01ms !important;
       scroll-behavior: auto !important;
+    }
+
+    /* Reforzamos que el cross-fade del View Transition también queda
+       desactivado para usuarios con motion reducido. `toggleTheme` ya
+       evita disparar `startViewTransition` en este caso, pero si el
+       navegador es estricto y siempre captura snapshot, esto garantiza
+       que el cambio sea instantáneo. Mismo trato para el fallback. */
+    ::view-transition-old(root),
+    ::view-transition-new(root) {
+      animation: none !important;
+    }
+    html[data-theme-switching] body,
+    html[data-theme-switching] body *:not(svg):not(svg *) {
+      transition: none !important;
     }
   }
 }
@@ -663,6 +757,34 @@
   --color-aurora-1: oklch(88% 0.10 300);
   --color-aurora-2: oklch(89% 0.09 200);
   --color-aurora-3: oklch(90% 0.08 30);
+
+  /* ===== CHART GRADIENT STOPS — Refinamiento light (T-952 Fase 0.B) =====
+     En dark el "end" del gradient horizontal usa la variante CLARA del
+     color para crear lectura visual; en light, esa variante clara
+     (`brand-light` 70% L) desaparece sobre el marfil 98% L. Aquí
+     invertimos el sentido del gradient: "start" sigue siendo el tono
+     medio (visible), "end" pasa a ser el tono OSCURO (contraste real).
+     Resultado: una línea con cuerpo en ambos temas, siempre legible. */
+  --chart-stop-brand-start: var(--color-brand-base);
+  --chart-stop-brand-end: var(--color-brand-dark);
+
+  --chart-stop-memory-start: var(--color-accent-indigo);
+  --chart-stop-memory-end: var(--color-accent-indigo);
+
+  --chart-stop-association-start: var(--color-accent-cyan);
+  --chart-stop-association-end: var(--color-accent-cyan);
+
+  --chart-stop-sequence-start: var(--color-accent-amber);
+  --chart-stop-sequence-end: var(--color-accent-amber);
+
+  --chart-stop-success-start: var(--color-success-base);
+  --chart-stop-success-end: var(--color-success-dark);
+
+  --chart-stop-warning-start: var(--color-warning-base);
+  --chart-stop-warning-end: var(--color-warning-dark);
+
+  --chart-stop-error-start: var(--color-error-base);
+  --chart-stop-error-end: var(--color-error-dark);
 
   /* Sombras light — refinamiento QA: subimos alpha para que las cards
      "floten" visualmente sobre el papel marfil. Antes las sombras eran

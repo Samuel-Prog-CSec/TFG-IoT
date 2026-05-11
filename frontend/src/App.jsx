@@ -11,6 +11,7 @@ import PropTypes from 'prop-types';
 import { Toaster } from 'sonner';
 import { AuthProvider, useAuth } from './context/AuthContext';
 import { ThemeProvider, useTheme } from './context/ThemeContext';
+import { ShortcutRegistryProvider } from './context/ShortcutRegistryContext';
 import ProtectedRoute from './components/auth/ProtectedRoute';
 import GuestRoute from './components/auth/GuestRoute';
 import RequireRole from './components/auth/RequireRole';
@@ -21,6 +22,7 @@ import { ROUTES } from './constants/routes';
 import RFIDModeHandler from './components/game/RFIDModeHandler';
 import TopProgressBar from './components/ui/TopProgressBar';
 import { RfidModeProvider } from './context/RfidModeContext';
+import GlobalShortcuts from './components/system/GlobalShortcuts';
 
 // Lazy loaded pages for better performance
 const Dashboard = lazy(() => import('./pages/Dashboard'));
@@ -235,8 +237,18 @@ export default function App() {
       <BrowserRouter>
         <AuthProvider>
           <RfidModeProvider>
-            <AppContent />
-            <ThemeAwareToaster />
+            {/* ShortcutRegistry centraliza secciones de atajos para que el
+                overlay `Shift+?` agregue global + contextuales. GlobalShortcuts
+                vive dentro del registry para registrar la sección "Sistema"
+                (Shift+T, Shift+?, Escape) y poner UN ÚNICO listener keydown
+                que escucha cualquier atajo de cualquier fuente — funciona en
+                Login, Register, AppLayout y GameLayout sin acoplarse a un
+                layout concreto. */}
+            <ShortcutRegistryProvider>
+              <GlobalShortcuts />
+              <AppContent />
+              <ThemeAwareToaster />
+            </ShortcutRegistryProvider>
           </RfidModeProvider>
         </AuthProvider>
       </BrowserRouter>

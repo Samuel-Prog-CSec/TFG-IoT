@@ -19,6 +19,7 @@ import { cn, formatDate } from '../../lib/utils';
 import { getContextTheme } from '../../lib/contextTheme';
 import Tooltip from './Tooltip';
 import CardAssetPreview from './CardAssetPreview';
+import InlineEditableText from './InlineEditableText';
 
 const formatDeckDate = (dateString) => formatDate(dateString, 'short');
 
@@ -186,6 +187,7 @@ export default function DeckCard({
   onView,
   onEdit,
   onDelete,
+  onRename,
   onSelect,
   selectable = false,
   selected = false,
@@ -244,6 +246,7 @@ export default function DeckCard({
       onView={onView}
       onEdit={onEdit}
       onDelete={onDelete}
+      onRename={onRename}
       previewAssets={previewAssets}
       remainingCount={remainingCount}
       assetX={assetX}
@@ -275,6 +278,7 @@ function DeckCardView({
   onView,
   onEdit,
   onDelete,
+  onRename,
   previewAssets,
   remainingCount,
   assetX,
@@ -363,6 +367,7 @@ function DeckCardView({
             onView={onView}
             onEdit={onEdit}
             onDelete={onDelete}
+            onRename={onRename}
           />
 
           {deck.description && (
@@ -428,6 +433,7 @@ DeckCardView.propTypes = {
   onView: PropTypes.func,
   onEdit: PropTypes.func,
   onDelete: PropTypes.func,
+  onRename: PropTypes.func,
   previewAssets: PropTypes.arrayOf(cardMappingShape).isRequired,
   remainingCount: PropTypes.number.isRequired,
   assetX: PropTypes.oneOfType([PropTypes.number, PropTypes.object]).isRequired,
@@ -444,7 +450,8 @@ function DeckCardHeader({
   setIsMenuOpen,
   onView,
   onEdit,
-  onDelete
+  onDelete,
+  onRename,
 }) {
   const contextRef = deck.context || deck.contextId;
   const theme = getContextTheme(contextRef?.slug || contextRef?.name);
@@ -463,9 +470,28 @@ function DeckCardHeader({
           <Layers className="text-text-primary drop-shadow-sm" size={22} strokeWidth={2.25} />
         </div>
         <div className="min-w-0">
-          <h3 className="font-bold text-text-primary text-lg leading-tight line-clamp-1 font-display truncate" title={deck.name}>
-            {deck.name}
-          </h3>
+          {onRename && !selectable ? (
+            <InlineEditableText
+              value={deck.name}
+              onSave={onRename}
+              validate={(v) => {
+                const trimmed = (v || '').trim();
+                if (!trimmed) return 'El nombre no puede estar vacío.';
+                if (trimmed.length > 80) return 'Máximo 80 caracteres.';
+                return null;
+              }}
+              ariaLabel={`nombre del mazo ${deck.name}`}
+              maxLength={80}
+              className="block w-full"
+              textClassName="font-bold text-text-primary text-lg leading-tight line-clamp-1 font-display truncate block"
+              inputClassName="text-lg font-bold font-display w-full"
+              as="h3"
+            />
+          ) : (
+            <h3 className="font-bold text-text-primary text-lg leading-tight line-clamp-1 font-display truncate" title={deck.name}>
+              {deck.name}
+            </h3>
+          )}
           <span className={cn('text-xs font-medium truncate block', theme.textClass)}>
             {contextRef?.name || 'Sin contexto'}
           </span>
@@ -524,6 +550,7 @@ DeckCardHeader.propTypes = {
   onView: PropTypes.func,
   onEdit: PropTypes.func,
   onDelete: PropTypes.func,
+  onRename: PropTypes.func,
 };
 
 function DeckPreviewAssets({
@@ -764,6 +791,7 @@ DeckCard.propTypes = {
   onView: PropTypes.func,
   onEdit: PropTypes.func,
   onDelete: PropTypes.func,
+  onRename: PropTypes.func,
   onSelect: PropTypes.func,
   selectable: PropTypes.bool,
   selected: PropTypes.bool,

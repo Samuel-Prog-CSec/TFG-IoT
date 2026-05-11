@@ -3,7 +3,14 @@ import { RadarChart, Radar, PolarGrid, PolarAngleAxis, PolarRadiusAxis, Responsi
 import PropTypes from 'prop-types';
 import { cn } from '../../lib/utils';
 import GlassCard from '../ui/GlassCard';
-import { ChartsThemeDefs, ThemedTooltipCard, chartColors, chartTokens } from './ChartsTheme';
+import {
+  ChartsThemeDefs,
+  ThemedTooltipCard,
+  chartColors,
+  chartTokens,
+  useChartMotion,
+} from './ChartsTheme';
+import ThemedChartContainer from './ThemedChartContainer';
 
 /**
  * Labels en espanol para los componentes de engagement
@@ -55,6 +62,8 @@ function CustomTooltip({ active, payload }) {
  * @param {Object} [props.engagement] - Datos del endpoint /student/:id/engagement
  */
 function EngagementRadar({ engagement }) {
+  const motion = useChartMotion();
+
   const chartData = useMemo(() => {
     if (!engagement?.components) return [];
 
@@ -111,16 +120,40 @@ function EngagementRadar({ engagement }) {
     );
   }
 
+  // Resumen accesible: score global + desglose por eje. Sustituye el
+  // anuncio pobre del SVG ("group radar polygon").
+  const accessibleSummary = (() => {
+    const parts = [`Engagement global: ${Math.round(score)} de 100`];
+    if (rag) parts.push(`categoría ${rag.label}`);
+    if (chartData.length > 0) {
+      const desglose = chartData
+        .map((d) => `${d.label} ${Math.round(d.value)}%`)
+        .join(', ');
+      parts.push(`desglose: ${desglose}`);
+    }
+    return parts.join('. ') + '.';
+  })();
+
+  const accessibleDataTable = chartData.map((d) => ({
+    label: d.label,
+    value: `${Math.round(d.value)}%`,
+  }));
+
   return (
     <GlassCard variant="default" padding="none" className="p-5">
-      <div className="flex items-center justify-between mb-2">
-        <h3 className="text-base font-bold text-text-primary font-display">Engagement</h3>
-        {rag && (
-          <div className={cn("flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-semibold", rag.bg, rag.color)}>
-            {Math.round(score)} — {rag.label}
-          </div>
-        )}
-      </div>
+      <ThemedChartContainer
+        title="Engagement"
+        summary={accessibleSummary}
+        dataTable={accessibleDataTable}
+        dataTableCaption="Desglose del engagement por componente"
+        headerExtra={
+          rag ? (
+            <div className={cn("flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-semibold", rag.bg, rag.color)}>
+              {Math.round(score)} — {rag.label}
+            </div>
+          ) : null
+        }
+      >
 
       <div className="aspect-square w-full max-h-[360px] min-h-[220px]">
         <ResponsiveContainer width="100%" height="100%" minWidth={0} minHeight={0} debounce={50}>
@@ -149,10 +182,12 @@ function EngagementRadar({ engagement }) {
               fill={chartColors.byMechanic.association.fill}
               fillOpacity={0.2}
               strokeWidth={2}
+              {...motion()}
             />
           </RadarChart>
         </ResponsiveContainer>
       </div>
+      </ThemedChartContainer>
     </GlassCard>
   );
 }

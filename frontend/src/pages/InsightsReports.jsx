@@ -24,6 +24,7 @@ import ErrorState from '../components/ui/ErrorState';
 import ContentEffectivenessMatrix from '../components/analytics/ContentEffectivenessMatrix';
 import AlertsHub from '../components/analytics/AlertsHub';
 import ReportGenerator from '../components/analytics/ReportGenerator';
+import { useChartMotion } from '../components/analytics/ChartsTheme';
 
 /**
  * Definicion de tabs disponibles.
@@ -76,6 +77,7 @@ const CURVE_COLORS = [
  * Seccion de curvas de aprendizaje con Recharts AreaChart.
  */
 function LearningCurvesSection({ data, loading }) {
+  const motion = useChartMotion();
   const chartData = useMemo(() => {
     if (!data?.curves && !data?.learningCurves && !Array.isArray(data)) return [];
 
@@ -219,6 +221,7 @@ function LearningCurvesSection({ data, loading }) {
                 dot={{ r: 3, strokeWidth: 0, fill: CURVE_COLORS[idx % CURVE_COLORS.length] }}
                 activeDot={{ r: 5, stroke: CURVE_COLORS[idx % CURVE_COLORS.length], strokeWidth: 2 }}
                 connectNulls
+                {...motion(idx)}
               />
             ))}
           </AreaChart>

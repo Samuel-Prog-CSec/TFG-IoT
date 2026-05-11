@@ -32,7 +32,22 @@ function isTypingTarget(target) {
 
 /**
  * Normaliza una combinación a la forma canónica usada en `key`.
- * Ej: { shift: true, key: '?' } → 'Shift+?'.
+ *
+ * Casos cubiertos:
+ *   - Letras sin Shift: lowercase. `g` → `'g'`.
+ *   - Letras con Shift: UPPERCASE preservado. `Shift+T` → `'Shift+T'`.
+ *   - Caracteres especiales con Shift (?, /, etc.): el carácter ya viene
+ *     shifteado, prefijamos `Shift+` para forma canónica explícita.
+ *     `Shift+?` → `'Shift+?'`.
+ *   - Combinaciones con otros modificadores se prefijan como
+ *     `Ctrl+`, `Meta+`, `Alt+`.
+ *
+ * Bug histórico corregido en T-952: la versión anterior NO añadía
+ * `Shift+` cuando la tecla era una letra, lo que hacía que atajos como
+ * `Shift+T` o `Shift+N` quedaran canonical = `'t'` / `'n'` y nunca
+ * se disparaban. La regla ahora distingue letras (que ya cambian de
+ * caso con Shift, así que NO bajamos a minúscula) de caracteres
+ * especiales.
  */
 function eventToCanonical(event) {
   // Tecla principal — preferimos `event.key` (representación lógica del
@@ -40,16 +55,18 @@ function eventToCanonical(event) {
   let { key } = event;
   if (!key) return null;
 
-  // Para letras simples, normalizamos a minúscula salvo que requieran
-  // shift explícito (e.g. shift+? en QWERTY ES requiere Shift).
   const isLetter = /^[a-zA-Z]$/.test(key);
-  if (isLetter) key = key.toLowerCase();
+  // Si es una letra SIN shift, normalizamos a minúscula para que el
+  // canonical sea estable (`'g'` independientemente de Caps Lock). Si hay
+  // Shift, preservamos la mayúscula que ya viene de event.key para que el
+  // canonical termine como `'Shift+T'` y no `'Shift+t'`.
+  if (isLetter && !event.shiftKey) key = key.toLowerCase();
 
   const parts = [];
   if (event.ctrlKey) parts.push('Ctrl');
   if (event.metaKey) parts.push('Meta');
   if (event.altKey) parts.push('Alt');
-  if (event.shiftKey && !isLetter) parts.push('Shift');
+  if (event.shiftKey) parts.push('Shift');
   parts.push(key);
 
   return parts.join('+');

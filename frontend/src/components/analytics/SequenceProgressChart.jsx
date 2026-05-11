@@ -29,7 +29,9 @@ import {
   chartTokens,
   commonAxisProps,
   commonGridProps,
+  useChartMotion,
 } from './ChartsTheme';
+import ThemedChartContainer from './ThemedChartContainer';
 
 const formatShortDate = iso => {
   if (!iso) return '';
@@ -66,6 +68,7 @@ CustomTooltip.propTypes = {
 };
 
 function SequenceProgressChart({ data = [], height = 240, showLegend = true, title = 'Evolución en Secuencia' }) {
+  const motion = useChartMotion();
   const points = (Array.isArray(data) ? data : []).map(item => ({
     date: formatShortDate(item.date || item.completedAt),
     maxLength: Number(item.maxLength || item.maxSequenceLengthAchieved || 0),
@@ -87,12 +90,30 @@ function SequenceProgressChart({ data = [], height = 240, showLegend = true, tit
     );
   }
 
+  // Resumen accesible: máximo histórico + última partida + nº de partidas.
+  const maxLengths = points.map((p) => p.maxLength).filter((n) => n > 0);
+  const bestEver = maxLengths.length ? Math.max(...maxLengths) : 0;
+  const lastLength = points[points.length - 1]?.maxLength ?? 0;
+  const accessibleSummary =
+    points.length > 0
+      ? `Mejor longitud histórica: ${bestEver} cartas. Última partida: ${lastLength} cartas en ${points.length} partidas registradas.`
+      : 'Sin partidas de Secuencia registradas.';
+  const accessibleDataTable = points.map((p) => ({
+    label: p.date,
+    value: `${p.maxLength} cartas`,
+  }));
+
   return (
     <GlassCard className="p-4">
-      <div className="flex items-center gap-2 mb-2">
-        <ListOrdered size={16} className="text-accent-amber" aria-hidden="true" />
-        <h3 className="font-semibold text-text-primary text-sm">{title}</h3>
-      </div>
+      <ThemedChartContainer
+        title={title}
+        summary={accessibleSummary}
+        dataTable={accessibleDataTable}
+        dataTableCaption="Longitud máxima por partida de Secuencia"
+        headerExtra={
+          <ListOrdered size={16} className="text-accent-amber" aria-hidden="true" />
+        }
+      >
       <div style={{ width: '100%', height }}>
         <ResponsiveContainer>
           <LineChart data={points} margin={{ top: 10, right: 16, left: 0, bottom: 0 }}>
@@ -114,10 +135,12 @@ function SequenceProgressChart({ data = [], height = 240, showLegend = true, tit
               strokeWidth={2.5}
               dot={{ r: 3, fill: chartColors.byMechanic.sequence.fill }}
               activeDot={{ r: 5 }}
+              {...motion()}
             />
           </LineChart>
         </ResponsiveContainer>
       </div>
+      </ThemedChartContainer>
     </GlassCard>
   );
 }

@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import PropTypes from 'prop-types';
 import { Outlet, NavLink, useLocation, useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
@@ -33,8 +33,7 @@ import ThemeToggle from '../ui/ThemeToggle';
 import OnboardingOverlay from '../onboarding/OnboardingOverlay';
 import { useOnboarding } from '../../hooks/useOnboarding';
 import { getTrackForRole } from '../../constants/onboardingTracks';
-import KeyboardShortcutsOverlay from '../ui/KeyboardShortcutsOverlay';
-import { useKeyboardShortcuts } from '../../hooks/useKeyboardShortcuts';
+import { useRegisterShortcutSource } from '../../context/ShortcutRegistryContext';
 
 // eslint-disable-next-line sonarjs/cyclomatic-complexity -- layout principal con sidebar, hooks de tema, atajos, onboarding, modal y mascota
 export default function AppLayout() {
@@ -55,65 +54,75 @@ export default function AppLayout() {
   const onboardingTrack = getTrackForRole(user?.role);
   const onboarding = useOnboarding({ totalSteps: onboardingTrack?.length ?? 0 });
 
-  // Atajos globales (T-951 Fase 5). Definidos por rol — el super_admin
-  // tiene `g x` para Aprobaciones, el teacher tiene navegación interna.
-  // El overlay de ayuda se muestra con Shift+? — bloquear los atajos
-  // mientras está abierto evita que `Esc` cierre el modal y a la vez
-  // dispare otra acción.
+  // Atajos contextuales del layout (T-952 Fase 1). Los atajos verdaderamente
+  // globales (Shift+T tema, Shift+? overlay, Escape) los gestiona
+  // <GlobalShortcuts /> montado en App.jsx, para que funcionen también en
+  // Login/Register/GameLayout. Aquí solo registramos los que dependen del
+  // sidebar y de la sesión autenticada (navegación interna, nueva sesión,
+  // toggle del tamaño de la sidebar).
   const navigate = useNavigate();
-  const [shortcutsOpen, setShortcutsOpen] = useState(false);
 
-  const shortcutSections = isSuperAdmin
-    ? [
-        {
-          title: 'Navegación (dirección del centro)',
-          shortcuts: [
-            { key: 'g x', description: 'Ir a Aprobaciones', handler: () => navigate(ROUTES.ADMIN_APPROVALS) },
-            { key: 'g a', description: 'Ir al alumnado del centro', handler: () => navigate(ROUTES.STUDENT_MANAGEMENT) },
-            { key: 'g c', description: 'Ir a Contextos', handler: () => navigate(ROUTES.ADMIN_CONTEXTS) },
+  // Importante: el dep array debe incluir solo `sidebar.toggle` (estable
+  // useCallback) y NO el objeto `sidebar` completo, porque
+  // `useSidebarMode` retorna un nuevo objeto wrapper en cada render — si
+  // dependiéramos del objeto, useMemo se invalidaría siempre y el effect
+  // del ShortcutRegistry haría setSources continuamente → "Maximum update
+  // depth exceeded".
+  const sidebarToggle = sidebar.toggle;
+  const layoutShortcutSections = useMemo(
+    () =>
+      isSuperAdmin
+        ? [
+            {
+              title: 'Navegación (dirección del centro)',
+              shortcuts: [
+                { key: 'g x', description: 'Ir a Aprobaciones', handler: () => navigate(ROUTES.ADMIN_APPROVALS) },
+                { key: 'g a', description: 'Ir al alumnado del centro', handler: () => navigate(ROUTES.STUDENT_MANAGEMENT) },
+                { key: 'g c', description: 'Ir a Contextos', handler: () => navigate(ROUTES.ADMIN_CONTEXTS) },
+              ],
+            },
+            {
+              title: 'Vista',
+              shortcuts: [
+                { key: '[', description: 'Alternar tamaño de la sidebar', handler: () => sidebarToggle() },
+              ],
+            },
+          ]
+        : [
+            {
+              title: 'Navegación',
+              shortcuts: [
+                { key: 'g d', description: 'Ir al Dashboard', handler: () => navigate(ROUTES.DASHBOARD) },
+                { key: 'g s', description: 'Ir a Sesiones', handler: () => navigate(ROUTES.SESSIONS) },
+                { key: 'g m', description: 'Ir a Mis Mazos', handler: () => navigate(ROUTES.CARD_DECKS) },
+                { key: 'g a', description: 'Ir a Mis Alumnos', handler: () => navigate(ROUTES.STUDENTS_ANALYTICS) },
+                { key: 'g c', description: 'Ir a Contextos', handler: () => navigate(ROUTES.CONTEXTS) },
+                { key: 'g i', description: 'Ir a Insights', handler: () => navigate(ROUTES.INSIGHTS) },
+              ],
+            },
+            {
+              title: 'Acciones',
+              shortcuts: [
+                { key: 'Shift+N', description: 'Nueva sesión', handler: () => navigate(ROUTES.CREATE_SESSION) },
+              ],
+            },
+            {
+              title: 'Vista',
+              shortcuts: [
+                { key: '[', description: 'Alternar tamaño de la sidebar', handler: () => sidebarToggle() },
+              ],
+            },
           ],
-        },
-        {
-          title: 'Sistema',
-          shortcuts: [
-            { key: '[', description: 'Alternar tamaño de la sidebar', handler: () => sidebar.toggle() },
-            { key: 'Shift+?', description: 'Mostrar atajos de teclado', handler: () => setShortcutsOpen(true) },
-            { key: 'Escape', description: 'Cerrar diálogos abiertos', handler: () => setShortcutsOpen(false), allowInInput: true },
-          ],
-        },
-      ]
-    : [
-        {
-          title: 'Navegación',
-          shortcuts: [
-            { key: 'g d', description: 'Ir al Dashboard', handler: () => navigate(ROUTES.DASHBOARD) },
-            { key: 'g s', description: 'Ir a Sesiones', handler: () => navigate(ROUTES.SESSIONS) },
-            { key: 'g m', description: 'Ir a Mis Mazos', handler: () => navigate(ROUTES.CARD_DECKS) },
-            { key: 'g a', description: 'Ir a Mis Alumnos', handler: () => navigate(ROUTES.STUDENTS_ANALYTICS) },
-            { key: 'g c', description: 'Ir a Contextos', handler: () => navigate(ROUTES.CONTEXTS) },
-            { key: 'g i', description: 'Ir a Insights', handler: () => navigate(ROUTES.INSIGHTS) },
-          ],
-        },
-        {
-          title: 'Acciones',
-          shortcuts: [
-            { key: 'Shift+N', description: 'Nueva sesión', handler: () => navigate(ROUTES.CREATE_SESSION) },
-          ],
-        },
-        {
-          title: 'Sistema',
-          shortcuts: [
-            { key: '[', description: 'Alternar tamaño de la sidebar', handler: () => sidebar.toggle() },
-            { key: 'Shift+?', description: 'Mostrar atajos de teclado', handler: () => setShortcutsOpen(true) },
-            { key: 'Escape', description: 'Cerrar diálogos abiertos', handler: () => setShortcutsOpen(false), allowInInput: true },
-          ],
-        },
-      ];
+    [isSuperAdmin, navigate, sidebarToggle],
+  );
 
-  // Aplana las definiciones para el hook — el overlay agrupa por
-  // sección, pero el listener trabaja con la lista plana.
-  const flatShortcuts = shortcutSections.flatMap((section) => section.shortcuts);
-  useKeyboardShortcuts(flatShortcuts);
+  // Registra esta fuente de atajos en el ShortcutRegistry. GlobalShortcuts
+  // consume el registro entero y mantiene UN único listener keydown; el
+  // overlay Shift+? agrega todas las secciones en orden estable.
+  useRegisterShortcutSource(
+    isSuperAdmin ? 'app-layout-admin' : 'app-layout-teacher',
+    layoutShortcutSections,
+  );
 
   // Confirmacion al cerrar sesion: un click accidental pierde filtros y
   // estado de navegacion (PROP-85). Variant warning (no danger) porque es
@@ -532,13 +541,9 @@ export default function AppLayout() {
         />
       )}
 
-      {/* Overlay de atajos de teclado (T-951 Fase 5). Accesible vía
-          Shift+? globalmente. */}
-      <KeyboardShortcutsOverlay
-        isOpen={shortcutsOpen}
-        onClose={() => setShortcutsOpen(false)}
-        sections={shortcutSections}
-      />
+      {/* El overlay de atajos de teclado vive en <GlobalShortcuts /> (App.jsx)
+          para estar disponible también en Login/Register/GameLayout. Este
+          layout sólo aporta sus secciones contextuales vía el ShortcutRegistry. */}
     </div>
   );
 }

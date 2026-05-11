@@ -6794,3 +6794,207 @@ Forward (PUSH) entra desde la derecha (+12px), back (POP atrás) entra desde la 
 - ADR-070 (Motion signature Tactile+Paper).
 - ADR-119 (Responsive overhaul) — sidebar rail compatible con `useNavigationDirection`.
 - QA: `qa-tarea-final/FINAL-v2-login-dark.png`, `FINAL-v2-register-dark.png`, `FINAL-v2-privacy-dark.png`.
+
+---
+
+## ADR-122: Charts a11y + reduced-motion + light gradient rebase + patterns RAG + migración ActivityHeatmap/ContentEffectivenessMatrix/AlertsHub (T-952 Fase 0) [Frontend, UX, A11y]
+
+**Estado:** Aceptado.
+**Sprint/Origen:** T-952 sesión 2026-05-11. Fase 0 retake sobre los charts paleta de marca entregados en ADR-117 (T-953). Auditoría reveló cinco gaps: (a) ningún chart respeta `prefers-reduced-motion`; (b) gradients horizontales `brand-light→transparent` casi invisibles sobre marfil en light; (c) tooltips sin keyboard nav ni resumen sr-only para lector de pantalla; (d) BarChart/RadarChart sin patterns colorblind-safe; (e) ActivityHeatmap, ContentEffectivenessMatrix y AlertsHub no migrados al theme.
+
+### Contexto
+
+ADR-117 entregó `ChartsTheme.jsx` con gradients y patterns base, y los aplicó en TrajectoryChart, SequenceProgressChart, EngagementRadar y PerformanceByDimension. Quedaron pendientes los puntos arriba. T-952 cierra esa deuda como pre-requisito del polish v1.0.0.
+
+### Decisión
+
+**A11y + reduced-motion:**
+
+- Hook `useChartMotion()` en `ChartsTheme.jsx` que devuelve `{ isAnimationActive, animationDuration, animationBegin }` consumido por todos los charts Recharts. Internamente lee `useReducedMotion`: con motion reducido → `{ false, 0, 0 }`; default → `{ true, 700, idx * 80 }` (cascada escalonada por seriesIndex).
+- Componente `<ThemedChartContainer>` wrapper con `role="figure"`, `aria-label` con resumen accesible compuesto `${title}. ${summary}`, slot opcional `dataTable` que renderiza una `<table class="sr-only">` con label/value por punto. Aplicado en TrajectoryChart, SequenceProgressChart, EngagementRadar, PerformanceByDimension, StudentProgressChart, ActivityHeatmap, ContentEffectivenessMatrix.
+
+**Light mode gradient rebase:**
+
+- Variables semánticas nuevas en `index.css` `@theme` y bloque `[data-theme="light"]`:
+  - `--chart-stop-brand-{start,end}`, `--chart-stop-{memory,association,sequence}-{start,end}`, `--chart-stop-{success,warning,error}-{start,end}`.
+- En dark, `end` apunta a la variante CLARA (`brand-light`); en light, `end` apunta a la variante OSCURA (`brand-dark`). Los gradients horizontales mantienen contraste visible en ambos temas.
+- `ChartsTheme.jsx` consume las CSS vars en lugar de hex hardcoded — la cascada hace todo el trabajo.
+
+**Patterns colorblind-safe en Bar:**
+
+- Tres `<pattern>` nuevos en `<defs>` (`chart-rag-green`, `chart-rag-amber`, `chart-rag-red`) con color de fondo + textura única (dots / diagonal / dashed).
+- Helper `getRAGPatternFill(score)` devuelve el id correcto según el rango RAG.
+- Aplicado en `PerformanceByDimension` (cada `<Cell>` recibe `fill=url(#chart-rag-X)` en lugar de color sólido).
+
+**Migración ActivityHeatmap/ContentEffectivenessMatrix/AlertsHub:**
+
+- ActivityHeatmap: celdas `value=0` usan utility CSS `bg-stripe-diagonal` (equivalente del SVG `chart-pattern-empty`) en lugar de un fondo tenue indistinguible. Envuelto en `<ThemedChartContainer>` con summary "pico de actividad: día/hora".
+- ContentEffectivenessMatrix: cada fila gana icono Lucide (`CircleCheck`/`CircleAlert`/`CircleX`/`Circle`) según RAG, además del color. La leyenda usa los mismos iconos. Wrapper `<ThemedChartContainer>` con `summary` y tabla sr-only.
+- AlertsHub: `<div>` raíz → `<section>` con `role="region"` y `aria-label` que resume contadores por severidad. Cada `SeverityCounter` ya tenía icono propio (`AlertOctagon`, `AlertTriangle`, `Info`).
+
+### Archivos clave
+
+- `frontend/src/components/analytics/ChartsTheme.jsx` (`useChartMotion`, patterns RAG, helper `getRAGPatternFill`, gradients via CSS vars).
+- `frontend/src/components/analytics/ThemedChartContainer.jsx` (nuevo).
+- `frontend/src/components/analytics/TrajectoryChart.jsx`, `EngagementRadar.jsx`, `SequenceProgressChart.jsx`, `PerformanceByDimension.jsx`, `ActivityHeatmap.jsx`, `ContentEffectivenessMatrix.jsx`, `AlertsHub.jsx`.
+- `frontend/src/components/dashboard/StudentProgressChart.jsx`, `DistributionChart.jsx`.
+- `frontend/src/pages/InsightsReports.jsx` (motion en AreaChart de Curvas de Aprendizaje).
+- `frontend/src/index.css` (variables `--chart-stop-*` por tema).
+
+### Consecuencias
+
+- Charts respetan `prefers-reduced-motion` (WCAG 2.3.3). Verificado en hook unitario.
+- Light mode: líneas legibles con buen contraste (verificado visualmente en QA Playwright Fase 5).
+- Bar chart RAG distinguible por daltonismo (color + textura, WCAG 1.4.1).
+- Tres charts adicionales coherentes con el theme system.
+- Sr-only summaries permiten a lectores de pantalla anunciar la insight clave sin recorrer cada punto.
+
+### Referencias
+
+- ADR-117 (ChartsTheme base) — esta ADR cierra los gaps de su entrega.
+- WCAG 2.2 §1.4.1 (Use of Color), §2.3.3 (Reduced Motion), §1.1.1 (Non-text Content).
+- QA: `frontend/qa-capturas-T952/15-student-profile-dark-charts.png` + `16-student-profile-light-charts.png`.
+
+---
+
+## ADR-123: Atajo `Shift+T` global + animación View Transition API para toggle de tema + `<GlobalShortcuts />` y `ShortcutRegistry` (T-952 Fase 1) [Frontend, A11y]
+
+**Estado:** Aceptado.
+**Sprint/Origen:** T-952 sesión 2026-05-11. Petición explícita del usuario: añadir atajo de teclado para cambiar tema + animación de transición suave en cualquier ventana de la app (Login, Register, AppLayout, GameLayout).
+
+### Contexto
+
+T-951 (ADR-115) entregó tema claro/oscuro + sistema de atajos globales montados en AppLayout. Faltaba:
+
+1. Atajo dedicado para toggle de tema.
+2. Animación cinematográfica al cambiar tema (la transition 200ms en `body` existente era plana).
+3. Que los atajos del sistema (`Shift+?`, `Escape`) funcionen FUERA de AppLayout (en Login/Register/GameLayout) — el usuario lo pidió expresamente.
+
+### Decisión
+
+**Animación con View Transition API + fallback CSS:**
+
+- `ThemeContext.toggleTheme()` detecta `document.startViewTransition` y `prefers-reduced-motion`:
+  - VT API + sin reduce-motion → `document.startViewTransition(() => setMode(next))` para cross-fade nativo.
+  - Sin VT API (Firefox/Safari<18) → `data-theme-switching` en `<html>` durante 280ms, con CSS expandida (`background-color`, `color`, `border-color`, `fill`, `stroke`) en `body *:not(svg):not(svg *)`.
+  - Reduce-motion → cambio instantáneo sin animación.
+- Keyframes `theme-fade-out`/`theme-fade-in` con `cubic-bezier(0.22, 1, 0.36, 1)` y duración 320ms en `::view-transition-old/new(root)`.
+- Bloque `@media (prefers-reduced-motion: reduce)` desactiva ambos caminos.
+
+**Atajos verdaderamente globales con registry:**
+
+- Componente nuevo `<GlobalShortcuts />` montado en `<App>` dentro de los Providers (`ThemeProvider` > `BrowserRouter` > `AuthProvider` > `RfidModeProvider` > `ShortcutRegistryProvider` > `GlobalShortcuts`).
+- `GlobalShortcuts` registra la sección "Sistema" (Shift+T tema, Shift+? overlay, Escape close) y aloja UN ÚNICO listener `keydown` que consume `registry.flatShortcuts` (incluye global + cualquier fuente contextual).
+- `ShortcutRegistryContext.jsx` expone `registerSource(id, sections)` y `unregisterSource(id)`. Layouts hijos (`AppLayout` teacher/admin) registran sus secciones contextuales (`Navegación g+...`, `Acciones Shift+N`, `Vista [`) con `useRegisterShortcutSource('app-layout-...', sections)` y se limpian al desmontar.
+- `KeyboardShortcutsOverlay` consume `registry.sections` y renderiza solo lo aplicable al layout activo. En Login/Register el overlay muestra solo "Sistema"; en AppLayout muestra "Sistema + Navegación + Acciones + Vista".
+
+**Fix BUG-1 (descubierto en QA):**
+
+`useKeyboardShortcuts.js` no canonizaba `Shift+letra` (devolvía `'t'` en lugar de `'Shift+T'` porque la condición original `!isLetter && shiftKey` excluía letras del prefijo Shift). Fix: dejar la mayúscula nativa de event.key cuando hay Shift, y siempre prefijar `'Shift+'`. Test añadido cubriendo `Shift+T` y `Shift+N`.
+
+**Fix BUG-2 (descubierto en QA):**
+
+`useMemo` de `layoutShortcutSections` dependía de `sidebar` (objeto retornado por `useSidebarMode` — fresco en cada render aunque sus métodos sean estables). El effect del registry se re-disparaba en cada render → infinite loop. Fix: depender solo de `sidebar.toggle` (estable useCallback).
+
+### Archivos clave
+
+- `frontend/src/context/ThemeContext.jsx` (toggleTheme con View Transition).
+- `frontend/src/context/ShortcutRegistryContext.jsx` (nuevo).
+- `frontend/src/components/system/GlobalShortcuts.jsx` (nuevo).
+- `frontend/src/components/layout/AppLayout.jsx` (eliminar registro local de Shift+?/Escape; registrar solo contextuales).
+- `frontend/src/index.css` (`::view-transition-*`, `[data-theme-switching]`, keyframes, reduced-motion).
+- `frontend/src/hooks/useKeyboardShortcuts.js` (canonical Shift+letra fix).
+- `frontend/src/App.jsx` (montar `<ShortcutRegistryProvider>` y `<GlobalShortcuts />`).
+
+### Consecuencias
+
+- Atajos `Shift+T` y `Shift+?` operativos en Login, Register, AppLayout (teacher + admin) y GameLayout (las 3 mecánicas) sin acoplamiento a layout.
+- Animación cinematográfica nativa en Chromium ≥111 y Safari ≥18; fallback CSS en Firefox y Safari<18.
+- `<KeyboardShortcutsOverlay>` muestra solo atajos aplicables al layout activo.
+- `Shift+letra` queda canónicamente correcto para todos los atajos (Shift+N también beneficiado).
+
+### Referencias
+
+- ADR-115 (Tema light + atajos T-951) — esta ADR extiende su entrega.
+- View Transition API: https://developer.mozilla.org/en-US/docs/Web/API/View_Transitions_API
+- WCAG 2.2 §2.3.3 (Three Flashes or Below Threshold) + §2.1.1 (Keyboard).
+- QA: `frontend/qa-capturas-T952/02-login-light-shift-t.png`, `03-login-light.png`, `05-dashboard-light.png`, `08-shortcuts-overlay-dark.png`.
+
+---
+
+## ADR-124: `usePaginatedList` + `useVirtualizedList` con `@tanstack/react-virtual` (T-952 Fase B) [Frontend]
+
+**Estado:** Aceptado.
+**Sprint/Origen:** T-952 sesión 2026-05-11. Tres listados (SessionsPage, CardDecksPage, StudentManagement) replicaban el mismo patrón de fetch paginado con AbortController + debounce de búsqueda + reset de página al cambiar filtros.
+
+### Decisión
+
+- Hook `usePaginatedList({ fetcher, initialPage, initialLimit, initialFilters, initialSortBy, initialOrder, searchDebounceMs, enabled, onError })` que:
+  - Normaliza dos formas de envelope del backend (`{ data, pagination }` y `{ data: { data, pagination } }`).
+  - Estado: `items`, `pagination`, `page`, `limit`, `filters`, `search`, `sortBy`, `order`, `isLoading`, `error`.
+  - Setters resetean page=1 al cambiar (`setFilters`, `setSearch`, `setSort`, `setLimit`).
+  - AbortController interno cancela fetches en flight cuando los params cambian.
+  - Debounce de search configurable (default 300ms).
+- Hook `useVirtualizedList({ count, enableAt = 50, estimateSize = 80, overscan = 8 })` wrapper de `useVirtualizer` con threshold opcional. Si `count < enableAt`, devuelve `shouldVirtualize=false` y el consumidor renderiza la lista normal.
+- Aplicado en StudentManagement: cuando `students.length >= 50` el grid CSS clásica se sustituye por una lista vertical virtualizada (`maxHeight: 70vh`, `overflow-y: auto`). Para listados pequeños (la mayoría de aulas) el grid se mantiene.
+- 6 tests Vitest unitarios para `usePaginatedList` cubren: primer fetch + normalización A/B, cambio de página, reset al filtrar, debounce de search, error handling.
+
+SessionsPage y CardDecksPage NO se migraron al hook por usar un patrón distinto (infinite scroll con `hasMore`). Documentado como deuda opcional — el hook está disponible para nuevos listados.
+
+### Archivos clave
+
+- `frontend/src/hooks/usePaginatedList.js` (nuevo).
+- `frontend/src/hooks/useVirtualizedList.js` (nuevo).
+- `frontend/src/hooks/__tests__/usePaginatedList.test.js` (nuevo, 6 tests).
+- `frontend/src/pages/admin/StudentManagement.jsx` (integración virtualización + extracción `renderStudentCard`).
+- `frontend/package.json` (+ `@tanstack/react-virtual` ~6KB gzip).
+
+### Consecuencias
+
+- StudentManagement escala a 1000+ alumnos manteniendo scroll fluido (~10 filas en pantalla, render constante).
+- Hooks reutilizables para futuros listados (admin de contextos, historial de partidas, etc.).
+- Sin regresión en flujos existentes (SessionsPage/CardDecksPage siguen idénticos visualmente).
+
+### Referencias
+
+- `@tanstack/react-virtual`: https://tanstack.com/virtual/latest
+
+---
+
+## ADR-125: Inline editing pattern (`useInlineEdit` + `<InlineEditableText>`) en DeckCard y SessionCard (T-952 Fase C) [Frontend, UX]
+
+**Estado:** Aceptado.
+**Sprint/Origen:** T-952. Renombrar mazos/sesiones requería navegar al detalle/edit page; el usuario pidió edición inline al hover/click sobre el nombre.
+
+### Decisión
+
+- Hook `useInlineEdit({ value, onSave, validate, debounceMs = 800, autosave = true })`:
+  - Estados: `draft`, `isEditing`, `isSaving`, `error`.
+  - Triggers: `start()`, `cancel()`, `commit()`, `setDraft(v)`.
+  - Autosave debounced (con guard `draft !== value` para no cerrar el editor automáticamente al entrar sin cambios — bug detectado en QA, fix BUG-3).
+- Componente `<InlineEditableText value onSave validate trigger="hover-pencil" maxLength as="h3" ... />`:
+  - Estado idle: muestra texto como `<h3 role="button" tabindex=0 aria-label="Editar X">` + botón `Pencil` que aparece on-hover (`opacity-0 group-hover:opacity-100`).
+  - Estado editing: `<input>` con autofocus, Enter commitea, Escape cancela, blur también commitea (salvo si hay error).
+  - Estado saving: spinner `Loader2` junto al input.
+  - Estado error: borde rojo + `<span role="alert" aria-live="polite">` con el mensaje.
+- Aplicado en `DeckCard.jsx` (prop nueva `onRename`) y `SessionCard.jsx` (prop nueva `onRename`; solo activa cuando `session.status === 'created'`, las activas/completas mantienen `<h3>` estático).
+- Handlers `handleRenameDeck(deck)` en CardDecksPage y `handleRenameSession(session)` en SessionsPage con **optimistic update + rollback** en caso de error backend.
+
+### Archivos clave
+
+- `frontend/src/hooks/useDebounce.js` (nuevo — utility genérico).
+- `frontend/src/hooks/useInlineEdit.js` (nuevo).
+- `frontend/src/components/ui/InlineEditableText.jsx` (nuevo).
+- `frontend/src/components/ui/DeckCard.jsx`, `frontend/src/pages/SessionsPage.jsx` (integración).
+- `frontend/src/pages/CardDecksPage.jsx` (handler `handleRenameDeck`).
+
+### Consecuencias
+
+- UX más fluida: el usuario renombra sin navegar a edit page (~3 clicks ahorrados por rename).
+- Pattern reutilizable: `<InlineEditableText>` aplicable a nombres de contexto, descripciones cortas, alias, etc.
+- Validación inline (no vacío + maxLength) consistente con backend Zod.
+
+### Referencias
+
+- WCAG 2.2 §3.3.1 (Error Identification) — el `<span role="alert">` cumple.
+- QA: `frontend/qa-capturas-T952/12-deck-inline-edit-active.png`.

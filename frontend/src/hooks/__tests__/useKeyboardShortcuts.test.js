@@ -47,6 +47,26 @@ describe('useKeyboardShortcuts', () => {
     expect(handler).toHaveBeenCalledTimes(1);
   });
 
+  it('dispara Shift+letra preservando la mayúscula en el canonical (T-952 fix)', () => {
+    const themeHandler = vi.fn();
+    const sessionHandler = vi.fn();
+    renderHook(() =>
+      useKeyboardShortcuts([
+        { key: 'Shift+T', description: 'tema', handler: themeHandler },
+        { key: 'Shift+N', description: 'nueva sesión', handler: sessionHandler },
+      ]),
+    );
+
+    // event.key='T' cuando se pulsa Shift+t en QWERTY (la letra ya
+    // viene en mayúscula del navegador).
+    dispatchKey({ key: 'T', shiftKey: true });
+    expect(themeHandler).toHaveBeenCalledTimes(1);
+    expect(sessionHandler).not.toHaveBeenCalled();
+
+    dispatchKey({ key: 'N', shiftKey: true });
+    expect(sessionHandler).toHaveBeenCalledTimes(1);
+  });
+
   it('dispara un chord g s tras pulsar las dos teclas en ventana', () => {
     const handler = vi.fn();
     renderHook(() =>

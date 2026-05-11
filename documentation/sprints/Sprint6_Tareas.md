@@ -1361,11 +1361,12 @@ Tres sistemas de personalización y productividad para el profesor:
 
 ---
 
-### T-952: ⚛️ Auditoría AnimatePresence + paginación/virtualización + inline editing 📋
+### T-952: ⚛️ Auditoría AnimatePresence + paginación/virtualización + inline editing + Fase 0 charts retake + Shift+T global ✅
 
 **Consolida:** PROP-18 + PROP-65 + PROP-69
 **Prioridad:** P2 | **Tamaño:** XL (> 2 días) | **Dependencias:** Ninguna
 **Origen:** AnimatePresence con motion.div atascados en exit (QA 18/04), listados grandes sin paginación, edición de nombre requiere ir al detalle
+**Estado:** Implementado en `feature/ui-features-and-signature` (2026-05-11). Alcance ampliado por petición del usuario: **Fase 0** (retake charts T-953 con motion + light gradient rebase + a11y + patterns RAG + migración 3 charts no migrados) y **Fase 1** (atajo global `Shift+T` para toggle de tema + animación View Transition API + fallback CSS + `<GlobalShortcuts />` y `ShortcutRegistry` para que `Shift+T`/`Shift+?`/`Escape` funcionen en Login, Register, AppLayout y GameLayout). QA navegado por mí con Docker dev + Playwright detectó y corrigió en vivo: BUG-1 (`Shift+letra` canonical roto), BUG-2 (infinite loop por dependencia inestable de `sidebar`), BUG-3 (autosave inline edit cerraba editor sin cambios). Entregables: ADRs 122-125, `frontend/T952_QA_Findings.md`, `frontend/docs/AnimatePresence_Audit_2026-05-11.md`, 16 capturas en `frontend/qa-capturas-T952/`. **Tests: 362/362 verdes. Lint: 0 errores. Build: OK.**
 
 **Descripción:**
 Tres mejoras transversales de UX en listados y transiciones:

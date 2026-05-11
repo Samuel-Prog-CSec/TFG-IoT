@@ -2,8 +2,15 @@ import { memo, useMemo } from 'react';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Cell } from 'recharts';
 import PropTypes from 'prop-types';
 import ChartSection from '../dashboard/ChartSection';
-import { getRAGCSSColor as getRAGColor } from '../../constants/analyticsThresholds';
-import { ChartsThemeDefs, ThemedTooltipCard, commonAxisProps, commonGridProps } from './ChartsTheme';
+import {
+  ChartsThemeDefs,
+  ThemedTooltipCard,
+  commonAxisProps,
+  commonGridProps,
+  useChartMotion,
+  getRAGPatternFill,
+} from './ChartsTheme';
+import ThemedChartContainer from './ThemedChartContainer';
 
 /**
  * Tooltip personalizado para el chart
@@ -37,6 +44,7 @@ function CustomTooltip({ active, payload }) {
  * @param {string} [props.dimension] - 'context' | 'mechanic' (para aria labels)
  */
 function PerformanceByDimension({ title, data, dimension = 'context' }) {
+  const motion = useChartMotion();
   const chartData = useMemo(() => {
     if (!Array.isArray(data) || data.length === 0) return [];
     return data
@@ -65,8 +73,28 @@ function PerformanceByDimension({ title, data, dimension = 'context' }) {
 
   const chartHeight = Math.max(160, chartData.length * 44 + 20);
 
+  // Resumen accesible: mejor/peor + total. La tabla sr-only ofrece datos
+  // completos para el usuario que use lector de pantalla.
+  const dimensionLabel = dimension === 'context' ? 'contexto' : 'mecánica';
+  const top = chartData[0];
+  const bottom = chartData[chartData.length - 1];
+  const accessibleSummary =
+    chartData.length === 1
+      ? `Único ${dimensionLabel}: ${top.name} con ${Math.round(top.score)}%.`
+      : `Mejor ${dimensionLabel}: ${top.name} (${Math.round(top.score)}%). Peor: ${bottom.name} (${Math.round(bottom.score)}%). Total: ${chartData.length} ${dimensionLabel}s.`;
+  const accessibleDataTable = chartData.map((item) => ({
+    label: item.name,
+    value: `${Math.round(item.score)}%`,
+  }));
+
   return (
     <ChartSection title={title}>
+      <ThemedChartContainer
+        title={null}
+        summary={accessibleSummary}
+        dataTable={accessibleDataTable}
+        dataTableCaption={`Rendimiento por ${dimensionLabel}`}
+      >
       <div style={{ height: chartHeight, minHeight: chartHeight }} className="w-full mt-2">
         <ResponsiveContainer width="100%" height="100%" minWidth={0} minHeight={0} debounce={50}>
           <BarChart
@@ -99,14 +127,20 @@ function PerformanceByDimension({ title, data, dimension = 'context' }) {
               radius={[0, 6, 6, 0]}
               barSize={20}
               aria-label={`Rendimiento por ${dimension === 'context' ? 'contexto' : 'mecanica'}`}
+              {...motion()}
             >
+              {/* Cada celda usa pattern RAG (color + textura distintiva)
+                  para que daltonismo rojo-verde distinga el estado sin
+                  depender solo del color: verde con puntos, ámbar con
+                  diagonales, rojo con guiones (T-952 Fase 0.D). */}
               {chartData.map(entry => (
-                <Cell key={`cell-${entry.name}`} fill={getRAGColor(entry.score)} />
+                <Cell key={`cell-${entry.name}`} fill={getRAGPatternFill(entry.score)} />
               ))}
             </Bar>
           </BarChart>
         </ResponsiveContainer>
       </div>
+      </ThemedChartContainer>
     </ChartSection>
   );
 }

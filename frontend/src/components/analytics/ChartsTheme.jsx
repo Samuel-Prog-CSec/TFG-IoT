@@ -39,8 +39,10 @@
  * @module components/analytics/ChartsTheme
  */
 
+import { useMemo } from 'react';
 import PropTypes from 'prop-types';
 import { cn } from '../../lib/utils';
+import { useReducedMotion } from '../../hooks/useReducedMotion';
 
 /**
  * Paletas de color por mecánica de juego. Coherentes con
@@ -161,42 +163,49 @@ export const commonGridProps = Object.freeze({
 export function ChartsThemeDefs() {
   return (
     <defs>
-      {/* Gradients horizontales 0% (full saturation) → 100% (60% opacity).
-          Útil para `stroke="url(#id)"` en líneas. */}
+      {/* Gradients horizontales 0% (full saturation) → 100% (subtone).
+          Consumen variables semánticas `--chart-stop-X-start/end` que se
+          redefinen por tema en index.css (T-952 Fase 0.B): en dark el
+          extremo va a la variante CLARA, en light a la variante OSCURA.
+          Mantenemos opacities altas y similares para que la línea tenga
+          el mismo peso visual en ambos temas. */}
       <linearGradient id="chart-gradient-brand" x1="0" y1="0" x2="1" y2="0">
-        <stop offset="0%" stopColor="var(--color-brand-base)" stopOpacity={0.95} />
-        <stop offset="100%" stopColor="var(--color-brand-light)" stopOpacity={0.6} />
+        <stop offset="0%" stopColor="var(--chart-stop-brand-start)" stopOpacity={0.95} />
+        <stop offset="100%" stopColor="var(--chart-stop-brand-end)" stopOpacity={0.85} />
       </linearGradient>
       <linearGradient id="chart-gradient-memory" x1="0" y1="0" x2="1" y2="0">
-        <stop offset="0%" stopColor="var(--color-accent-indigo)" stopOpacity={0.95} />
-        <stop offset="100%" stopColor="var(--color-accent-indigo)" stopOpacity={0.6} />
+        <stop offset="0%" stopColor="var(--chart-stop-memory-start)" stopOpacity={0.95} />
+        <stop offset="100%" stopColor="var(--chart-stop-memory-end)" stopOpacity={0.75} />
       </linearGradient>
       <linearGradient id="chart-gradient-association" x1="0" y1="0" x2="1" y2="0">
-        <stop offset="0%" stopColor="var(--color-accent-cyan)" stopOpacity={0.95} />
-        <stop offset="100%" stopColor="var(--color-accent-cyan)" stopOpacity={0.6} />
+        <stop offset="0%" stopColor="var(--chart-stop-association-start)" stopOpacity={0.95} />
+        <stop offset="100%" stopColor="var(--chart-stop-association-end)" stopOpacity={0.75} />
       </linearGradient>
       <linearGradient id="chart-gradient-sequence" x1="0" y1="0" x2="1" y2="0">
-        <stop offset="0%" stopColor="var(--color-accent-amber)" stopOpacity={0.95} />
-        <stop offset="100%" stopColor="var(--color-accent-amber)" stopOpacity={0.6} />
+        <stop offset="0%" stopColor="var(--chart-stop-sequence-start)" stopOpacity={0.95} />
+        <stop offset="100%" stopColor="var(--chart-stop-sequence-end)" stopOpacity={0.75} />
       </linearGradient>
       <linearGradient id="chart-gradient-success" x1="0" y1="0" x2="0" y2="1">
-        <stop offset="0%" stopColor="var(--color-success-base)" stopOpacity={0.95} />
-        <stop offset="100%" stopColor="var(--color-success-dark)" stopOpacity={0.7} />
+        <stop offset="0%" stopColor="var(--chart-stop-success-start)" stopOpacity={0.95} />
+        <stop offset="100%" stopColor="var(--chart-stop-success-end)" stopOpacity={0.75} />
       </linearGradient>
       <linearGradient id="chart-gradient-warning" x1="0" y1="0" x2="0" y2="1">
-        <stop offset="0%" stopColor="var(--color-warning-base)" stopOpacity={0.95} />
-        <stop offset="100%" stopColor="var(--color-warning-dark)" stopOpacity={0.7} />
+        <stop offset="0%" stopColor="var(--chart-stop-warning-start)" stopOpacity={0.95} />
+        <stop offset="100%" stopColor="var(--chart-stop-warning-end)" stopOpacity={0.75} />
       </linearGradient>
       <linearGradient id="chart-gradient-error" x1="0" y1="0" x2="0" y2="1">
-        <stop offset="0%" stopColor="var(--color-error-base)" stopOpacity={0.95} />
-        <stop offset="100%" stopColor="var(--color-error-dark)" stopOpacity={0.7} />
+        <stop offset="0%" stopColor="var(--chart-stop-error-start)" stopOpacity={0.95} />
+        <stop offset="100%" stopColor="var(--chart-stop-error-end)" stopOpacity={0.75} />
       </linearGradient>
 
       {/* Gradient vertical para "área bajo la curva" — útil cuando un
-          LineChart quiere fade hacia abajo (Trayectoria, Sparklines). */}
+          LineChart quiere fade hacia abajo (Trayectoria, Sparklines).
+          El extremo superior usa el "start" del brand (tonalidad media)
+          y el inferior siempre se desvanece a transparente, así que no
+          necesita variante por tema. */}
       <linearGradient id="chart-area-brand" x1="0" y1="0" x2="0" y2="1">
-        <stop offset="0%" stopColor="var(--color-brand-base)" stopOpacity={0.35} />
-        <stop offset="100%" stopColor="var(--color-brand-base)" stopOpacity={0.02} />
+        <stop offset="0%" stopColor="var(--chart-stop-brand-start)" stopOpacity={0.35} />
+        <stop offset="100%" stopColor="var(--chart-stop-brand-start)" stopOpacity={0.02} />
       </linearGradient>
 
       {/* Patterns colorblind-safe para heatmaps. Tres formas distintas
@@ -261,6 +270,57 @@ export function ChartsThemeDefs() {
           strokeOpacity="0.4"
         />
       </pattern>
+
+      {/* Patterns "RAG con textura" — color sólido + overlay de textura
+          distintiva para que daltonismo rojo-verde distinga estados sin
+          depender solo del color (T-952 Fase 0.D, WCAG 2.2 §1.4.1 Use of
+          Color). Cada celda rinde el rect de fondo (color RAG) y una
+          forma única encima (dots/diagonal/dashed). */}
+      <pattern
+        id="chart-rag-green"
+        width="8"
+        height="8"
+        patternUnits="userSpaceOnUse"
+      >
+        <rect width="8" height="8" fill="var(--color-success-base)" />
+        <circle cx="2" cy="2" r="1.1" fill="white" fillOpacity="0.35" />
+        <circle cx="6" cy="6" r="1.1" fill="white" fillOpacity="0.35" />
+      </pattern>
+      <pattern
+        id="chart-rag-amber"
+        width="8"
+        height="8"
+        patternUnits="userSpaceOnUse"
+        patternTransform="rotate(45)"
+      >
+        <rect width="8" height="8" fill="var(--color-warning-base)" />
+        <line
+          x1="0"
+          y1="0"
+          x2="0"
+          y2="8"
+          stroke="white"
+          strokeWidth="1.5"
+          strokeOpacity="0.35"
+        />
+      </pattern>
+      <pattern
+        id="chart-rag-red"
+        width="10"
+        height="8"
+        patternUnits="userSpaceOnUse"
+      >
+        <rect width="10" height="8" fill="var(--color-error-base)" />
+        <line
+          x1="0"
+          y1="4"
+          x2="6"
+          y2="4"
+          stroke="white"
+          strokeWidth="1.5"
+          strokeOpacity="0.40"
+        />
+      </pattern>
     </defs>
   );
 }
@@ -305,6 +365,59 @@ ThemedTooltipCard.propTypes = {
 export function getChartPalette(key) {
   if (!key) return bySemantic.brand;
   return byMechanic[key] || bySemantic[key] || bySemantic.brand;
+}
+
+/**
+ * Devuelve el `fill="url(#...)"` apropiado para una celda RAG: color
+ * semántico + textura única (dots/diagonal/dashed) para que daltonismo
+ * rojo-verde distinga estados sin depender del color (T-952 Fase 0.D).
+ *
+ * @param {number} score 0-100
+ * @returns {string} ej "url(#chart-rag-green)"
+ */
+export function getRAGPatternFill(score) {
+  if (score >= 70) return 'url(#chart-rag-green)';
+  if (score >= 40) return 'url(#chart-rag-amber)';
+  return 'url(#chart-rag-red)';
+}
+
+/**
+ * Duración base de la animación de entrada de Recharts. Match con la
+ * familia "Move" del sistema de motion (200-300ms ease-out) — sin caer en
+ * el "demo bouncy" típico de dashboards genéricos. Cada serie escalonada
+ * suma 80ms (`animationBegin = seriesIndex * 80`) para que las líneas
+ * múltiples no entren a la vez.
+ */
+const CHART_ANIMATION_BASE_MS = 700;
+const CHART_ANIMATION_STAGGER_MS = 80;
+
+/**
+ * Hook que devuelve los flags de animación coherentes con la preferencia
+ * de motion del usuario (T-952 Fase 0.A). Aplica en cualquier chart
+ * Recharts (LineChart, BarChart, RadarChart, AreaChart, PieChart, …):
+ *
+ *   const motion = useChartMotion();
+ *   <Line {...motion(0)} />
+ *   <Line {...motion(1)} /> // segunda serie entra 80ms después
+ *
+ * En `prefers-reduced-motion: reduce` o cuando el usuario haya pulsado
+ * el toggle de Animaciones del sidebar, los charts pintan en su estado
+ * final SIN animación (Recharts respeta `isAnimationActive={false}`).
+ *
+ * @returns {(seriesIndex?: number) => { isAnimationActive: boolean, animationDuration: number, animationBegin: number }}
+ */
+export function useChartMotion() {
+  const { shouldReduceMotion } = useReducedMotion();
+  return useMemo(() => {
+    if (shouldReduceMotion) {
+      return () => ({ isAnimationActive: false, animationDuration: 0, animationBegin: 0 });
+    }
+    return (seriesIndex = 0) => ({
+      isAnimationActive: true,
+      animationDuration: CHART_ANIMATION_BASE_MS,
+      animationBegin: Math.max(0, seriesIndex) * CHART_ANIMATION_STAGGER_MS,
+    });
+  }, [shouldReduceMotion]);
 }
 
 export default ChartsThemeDefs;

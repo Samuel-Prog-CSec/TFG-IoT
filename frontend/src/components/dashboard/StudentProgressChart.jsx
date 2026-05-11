@@ -3,6 +3,11 @@ import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContai
 import ChartSection from './ChartSection';
 import EmptyState from '../ui/EmptyState';
 import { formatDate } from '../../lib/utils';
+import { useChartMotion } from '../analytics/ChartsTheme';
+import ThemedChartContainer, {
+  buildTrendSummary,
+  buildTrendDataTable,
+} from '../analytics/ThemedChartContainer';
 
 const PERIOD_OPTIONS = [
   { value: '7d', label: 'Últimos 7 días' },
@@ -16,6 +21,7 @@ export default function StudentProgressChart({ data, period = '7d', onPeriodChan
   // omitimos el selector interno para evitar duplicar el control
   // ("Ultimos 7 dias" mostrado dos veces — bug PROP-37 / fix PROP-43).
   const sectionPeriodChange = omitPeriodSelector ? undefined : onPeriodChange;
+  const motion = useChartMotion();
 
   // PROP-83: el backend devuelve N días aunque solo los últimos tengan partidas.
   // Antes, `connectNulls={false}` dejaba la línea "flotando al final" como si
@@ -49,8 +55,24 @@ export default function StudentProgressChart({ data, period = '7d', onPeriodChan
     );
   }
 
+  const accessibleSummary = buildTrendSummary(trimmedData, {
+    subject: 'La clase',
+    metric: 'rendimiento medio',
+  });
+  const accessibleDataTable = buildTrendDataTable(trimmedData, {
+    dateKey: '_id',
+    valueKey: 'score',
+    valueSuffix: '%',
+  });
+
   return (
     <ChartSection title="Rendimiento de Clase (Tendencia)" period={period} onPeriodChange={sectionPeriodChange} periodOptions={PERIOD_OPTIONS}>
+      <ThemedChartContainer
+        title={null}
+        summary={accessibleSummary}
+        dataTable={accessibleDataTable}
+        dataTableCaption="Rendimiento medio diario de la clase"
+      >
       <div className="h-[clamp(220px,30vh,360px)] w-full -ml-4 sm:ml-0 min-h-[220px]">
         <ResponsiveContainer width="100%" height="100%" minWidth={0} minHeight={0} debounce={50}>
           <AreaChart data={trimmedData} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
@@ -117,6 +139,7 @@ export default function StudentProgressChart({ data, period = '7d', onPeriodChan
               activeDot={false}
               dot={false}
               connectNulls={false}
+              {...motion(0)}
             />
             <Area
               type="monotone"
@@ -128,6 +151,7 @@ export default function StudentProgressChart({ data, period = '7d', onPeriodChan
               dot={{ r: 3, fill: 'var(--color-brand-base)', stroke: 'var(--color-background-elevated)', strokeWidth: 2 }}
               activeDot={{ r: 6, fill: 'var(--color-brand-light)', stroke: 'var(--color-background-elevated)', strokeWidth: 2 }}
               connectNulls={false}
+              {...motion(1)}
             />
           </AreaChart>
         </ResponsiveContainer>
@@ -135,6 +159,7 @@ export default function StudentProgressChart({ data, period = '7d', onPeriodChan
       <p className="text-xs text-text-muted mt-6 text-center font-medium">
         Promedio diario de puntuación basado en las últimas sesiones jugadas.
       </p>
+      </ThemedChartContainer>
     </ChartSection>
   );
 }

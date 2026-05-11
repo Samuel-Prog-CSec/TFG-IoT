@@ -15,11 +15,36 @@
  * del primer paint (FOUC < 50ms). Aquí solo se sincroniza el estado
  * React con esa fuente de verdad.
  */
-import { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react';
+import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
 import PropTypes from 'prop-types';
 import { THEME_STORAGE_KEY, THEME_MODES, META_THEME_COLOR } from '../constants/theme';
 
 const ThemeContext = createContext(null);
+
+const REDUCED_MOTION_STORAGE_KEY = 'eduplay:reduced-motion';
+const FALLBACK_TRANSITION_MS = 280;
+
+/**
+ * Lectura síncrona de la preferencia de reduced-motion para uso fuera de
+ * hooks (toggleTheme se llama desde atajos de teclado). Replica la lógica
+ * del hook `useReducedMotion`: preferencia explícita del usuario en
+ * localStorage > preferencia del sistema operativo. Si el documento no
+ * está disponible (SSR), por defecto no se reduce el motion.
+ */
+function readReducedMotionPreference() {
+  try {
+    const stored = globalThis.localStorage?.getItem(REDUCED_MOTION_STORAGE_KEY);
+    if (stored === 'reduce') return true;
+    if (stored === 'no-preference') return false;
+  } catch {
+    // localStorage puede estar deshabilitado (modo privado Safari). Caemos al
+    // valor del sistema sin interrumpir el toggle.
+  }
+  if (typeof globalThis !== 'undefined' && typeof globalThis.matchMedia === 'function') {
+    return globalThis.matchMedia('(prefers-reduced-motion: reduce)').matches;
+  }
+  return false;
+}
 
 /**
  * Resuelve el tema efectivo desde un modo + la preferencia del sistema.
@@ -61,6 +86,14 @@ function applyThemeAttribute(theme) {
 export function ThemeProvider({ children }) {
   const [mode, setModeState] = useState(readStoredMode);
   const [systemPrefersLight, setSystemPrefersLight] = useState(readSystemPrefersLight);
+  // Guard de re-entrada para `toggleTheme`. React 19 StrictMode en dev monta
+  // los efectos dos veces, lo que puede provocar que un `keydown` se
+  // procese por dos listeners superpuestos durante un instante; sin este
+  // ref, cada Shift+T dispararía dos `startViewTransition` simultáneos.
+  // El ref se levanta antes de programar la transición y se baja en cuanto
+  // ésta termina (o tras 350ms si el navegador no soporta promesa
+  // `finished`). En producción no aplica StrictMode y es un no-op.
+  const isTogglingRef = useRef(false);
 
   const resolvedTheme = useMemo(
     () => resolveTheme(mode, systemPrefersLight),
@@ -107,16 +140,91 @@ export function ThemeProvider({ children }) {
     }
   }, []);
 
+  /**
+   * Alterna entre claro y oscuro. El atajo `Shift+T` y el toggle visual lo
+   * usan indistintamente. Si el modo actual es `auto`, salta al opuesto del
+   * tema resuelto — así un clic siempre produce un cambio visible.
+   *
+   * Camino preferido: View Transition API (Chrome/Edge ≥111, Safari ≥18).
+   * Genera un cross-fade nativo entre snapshots del DOM (CSS en
+   * `index.css` controla la duración y easing). Camino fallback: aplica el
+   * atributo `data-theme-switching` durante 280ms para que la transición
+   * CSS expandida (bg/color/border/fill/stroke) cubra el cambio sin
+   * fogonazo. Si el usuario tiene `prefers-reduced-motion: reduce`, no se
+   * dispara ninguna animación — sólo se cambia el tema.
+   */
+  const toggleTheme = useCallback(() => {
+    // Guard: si una transición está en curso, ignorar nuevas llamadas. Esto
+    // suprime el double-fire de React StrictMode (dev) y evita que un
+    // usuario que mantiene pulsado Shift+T encadene transiciones solapadas.
+    if (isTogglingRef.current) return;
+    isTogglingRef.current = true;
+
+    const nextTheme = resolvedTheme === 'light' ? 'dark' : 'light';
+    // El callback del View Transition es síncrono y el navegador necesita
+    // el DOM ya actualizado para capturar el "next snapshot". Si solo
+    // hacemos `setMode(nextTheme)`, React programa el re-render
+    // asíncronamente y la VT API se queda esperando que React commitee
+    // — en páginas pesadas (Dashboard) esto añade ~1s de "freeze"
+    // antes de que el cross-fade visible empiece.
+    //
+    // Aplicamos el atributo `data-theme` y la meta theme-color
+    // SÍNCRONAMENTE dentro del callback (las CSS vars resuelven
+    // inmediatamente, no requieren re-render de React). El `setMode`
+    // sigue ejecutándose para sincronizar el state de los consumidores
+    // de `useTheme()` (ThemeToggle, ThemeAwareToaster), pero ya no es
+    // bloqueante para la animación.
+    const apply = () => {
+      applyThemeAttribute(nextTheme);
+      setMode(nextTheme);
+    };
+    const release = () => {
+      isTogglingRef.current = false;
+    };
+
+    const reduceMotion = readReducedMotionPreference();
+
+    if (typeof document === 'undefined' || reduceMotion) {
+      apply();
+      release();
+      return;
+    }
+
+    if (typeof document.startViewTransition === 'function') {
+      // El navegador captura snapshot antes/después y cross-fadea según el
+      // CSS de ::view-transition-old/new(root) declarado en index.css.
+      const transition = document.startViewTransition(apply);
+      // `finished` resuelve cuando la animación termina o se cancela. Soltamos
+      // el lock ahí; si por alguna razón nunca resuelve (caso patológico),
+      // un timer de seguridad libera a los 500ms.
+      transition.finished.then(release, release);
+      globalThis.setTimeout(release, 500);
+      return;
+    }
+
+    // Fallback CSS para Firefox y Safari <18: marca el documento con
+    // `data-theme-switching` para que la regla en index.css active una
+    // transition expandida (background-color/color/border-color/fill/stroke).
+    const root = document.documentElement;
+    root.dataset.themeSwitching = '';
+    apply();
+    globalThis.setTimeout(() => {
+      delete root.dataset.themeSwitching;
+      release();
+    }, FALLBACK_TRANSITION_MS);
+  }, [resolvedTheme, setMode]);
+
   const value = useMemo(
     () => ({
       mode,
       resolvedTheme,
       systemPrefersLight,
       setMode,
+      toggleTheme,
       isLight: resolvedTheme === 'light',
       isDark: resolvedTheme === 'dark',
     }),
-    [mode, resolvedTheme, systemPrefersLight, setMode],
+    [mode, resolvedTheme, systemPrefersLight, setMode, toggleTheme],
   );
 
   return <ThemeContext.Provider value={value}>{children}</ThemeContext.Provider>;

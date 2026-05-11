@@ -95,7 +95,7 @@ const resolveDeckCount = async ({ skipCount, signal }) => {
   return decksAPI.getDecksCount(signal ? { signal } : {});
 };
 
-const renderDecksGrid = ({ decks, shouldReduceMotion, handleViewDeck, handleEditDeck, handleArchiveDeck }) => {
+const renderDecksGrid = ({ decks, shouldReduceMotion, handleViewDeck, handleEditDeck, handleArchiveDeck, handleRenameDeck }) => {
   const wrapperVariants = buildDeckCardWrapperVariants(shouldReduceMotion);
   return (
     <motion.div
@@ -104,12 +104,16 @@ const renderDecksGrid = ({ decks, shouldReduceMotion, handleViewDeck, handleEdit
       initial={shouldReduceMotion ? false : "hidden"}
       animate="visible"
     >
-      <AnimatePresence>
+      {/* mode="popLayout" — al archivar/borrar un mazo, el item sale
+          de flujo y los hermanos reflowan via animación de layout sin
+          saltar a la nueva posición instantáneamente (T-952 Fase 2). */}
+      <AnimatePresence mode="popLayout">
         {decks.map((deck) => {
           const deckId = deck.id || deck._id;
           return (
             <motion.div
               key={deckId}
+              layout
               variants={wrapperVariants}
               exit="exit"
             >
@@ -118,6 +122,7 @@ const renderDecksGrid = ({ decks, shouldReduceMotion, handleViewDeck, handleEdit
                 onView={handleViewDeck}
                 onEdit={handleEditDeck}
                 onDelete={handleArchiveDeck}
+                onRename={handleRenameDeck ? handleRenameDeck(deck) : undefined}
                 reducedMotion={shouldReduceMotion}
               />
             </motion.div>
@@ -175,6 +180,7 @@ const renderDecksState = ({
   handleViewDeck,
   handleEditDeck,
   handleArchiveDeck,
+  handleRenameDeck,
 }) => {
   if (error) {
     return renderDecksErrorState({ error, shouldReduceMotion, loadDecks });
@@ -188,7 +194,7 @@ const renderDecksState = ({
     return renderDecksEmptyState({ hasActiveFilters, clearFilters, handleCreateDeck });
   }
 
-  return renderDecksGrid({ decks, shouldReduceMotion, handleViewDeck, handleEditDeck, handleArchiveDeck });
+  return renderDecksGrid({ decks, shouldReduceMotion, handleViewDeck, handleEditDeck, handleArchiveDeck, handleRenameDeck });
 };
 const filtersInitialState = {
   searchQuery: '',
@@ -365,6 +371,42 @@ export default function CardDecksPage() {
     archiveModal.open();
   };
 
+  // Inline rename: el InlineEditableText commitea (o autoguarda
+  // debounced) y dispara este handler. Actualiza optimistamente la
+  // lista local para que el cambio sea instantáneo; si la API falla,
+  // refresca desde backend para revertir.
+  const handleRenameDeck = useCallback(
+    (deck) => async (newName) => {
+      const deckId = deck.id || deck._id;
+      if (!deckId) return;
+      const previousName = deck.name;
+      const trimmed = (newName || '').trim();
+      if (!trimmed || trimmed === previousName) return;
+      setDecks((current) =>
+        current.map((d) => ((d.id || d._id) === deckId ? { ...d, name: trimmed } : d)),
+      );
+      try {
+        await decksAPI.updateDeck(deckId, { name: trimmed });
+        toast.success('Nombre guardado', {
+          description: `Renombrado a "${trimmed}".`,
+        });
+      } catch (err) {
+        // Revertir y avisar — el optimistic update permitió ver el cambio,
+        // pero el backend lo rechazó; volvemos al estado previo.
+        setDecks((current) =>
+          current.map((d) =>
+            (d.id || d._id) === deckId ? { ...d, name: previousName } : d,
+          ),
+        );
+        toast.error('No se pudo guardar el nombre', {
+          description: extractErrorMessage(err),
+        });
+        throw err;
+      }
+    },
+    [],
+  );
+
   const confirmArchive = async () => {
     if (!archivingDeck) return;
     
@@ -430,6 +472,7 @@ export default function CardDecksPage() {
     handleViewDeck,
     handleEditDeck,
     handleArchiveDeck,
+    handleRenameDeck,
   });
 
   return (

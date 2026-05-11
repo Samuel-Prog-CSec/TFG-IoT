@@ -47,6 +47,7 @@ import ConfirmationModal, { useConfirmationModal } from '../components/ui/Confir
 import PageHeader from '../components/ui/PageHeader';
 import ScanlineOverlay from '../components/ui/ScanlineOverlay';
 import SessionSparkline from '../components/common/SessionSparkline';
+import InlineEditableText from '../components/ui/InlineEditableText';
 import { cn, listContainerVariants, motionConfig, DURATION, EASING, toTitleCaseEs } from '../lib/utils';
 import { formatRelativeTime } from '../lib/dateUtils';
 
@@ -193,7 +194,8 @@ const SessionCard = memo(function SessionCard({
   cloneLoading,
   onClone,
   onDelete,
-  onNavigate
+  onNavigate,
+  onRename,
 }) {
   const statusInfo = statusToBadge(session.status);
   // Normalizamos a Title Case español para que la lista sea visualmente
@@ -247,8 +249,32 @@ const SessionCard = memo(function SessionCard({
         <div className="flex items-start justify-between gap-3">
           <div className="min-w-0">
             {/* min-h reserva espacio para títulos de 1 o 2 líneas y mantiene la
-                altura del resto del card alineada entre items del grid (QA 22/04/2026). */}
-            <h3 className="text-lg font-semibold text-text-primary line-clamp-2 min-h-[3.5rem]">{title}</h3>
+                altura del resto del card alineada entre items del grid (QA 22/04/2026).
+                Las sesiones en estado `created` admiten rename inline (T-952 Fase C);
+                las activas/completas mantienen el h3 estático para evitar editar
+                un nombre que ya está referenciado en partidas en curso. */}
+            {onRename && session.status === 'created' ? (
+              <div className="min-h-[3.5rem]">
+                <InlineEditableText
+                  value={session.name || session.deck?.name || ''}
+                  onSave={onRename}
+                  validate={(v) => {
+                    const trimmed = (v || '').trim();
+                    if (!trimmed) return 'El nombre no puede estar vacío.';
+                    if (trimmed.length > 100) return 'Máximo 100 caracteres.';
+                    return null;
+                  }}
+                  ariaLabel={`nombre de la sesión ${title}`}
+                  maxLength={100}
+                  className="block w-full"
+                  textClassName="text-lg font-semibold text-text-primary line-clamp-2 block"
+                  inputClassName="text-lg font-semibold w-full"
+                  as="h3"
+                />
+              </div>
+            ) : (
+              <h3 className="text-lg font-semibold text-text-primary line-clamp-2 min-h-[3.5rem]">{title}</h3>
+            )}
             <p className="text-sm text-text-muted">{mechanicLabel} · {contextLabel}</p>
           </div>
           <StatusBadge status={statusInfo.tone}>{statusInfo.label}</StatusBadge>
@@ -410,6 +436,7 @@ SessionCard.propTypes = {
   onClone: PropTypes.func.isRequired,
   onDelete: PropTypes.func.isRequired,
   onNavigate: PropTypes.func.isRequired,
+  onRename: PropTypes.func,
 };
 
 const renderSessionsContent = ({
@@ -419,6 +446,7 @@ const renderSessionsContent = ({
   cloneLoading,
   handleClone,
   handleDelete,
+  handleRename,
   hasActiveFilters,
   clearFilters,
   shouldReduceMotion,
@@ -461,10 +489,14 @@ const renderSessionsContent = ({
       initial="hidden"
       animate="visible"
     >
-      <AnimatePresence>
+      {/* mode="popLayout" elimina el reflow del exit cuando se borra
+          una sesión: el item saliente sale de flujo inmediatamente, los
+          hermanos colapsan vía animación de layout sin saltar (T-952 Fase 2). */}
+      <AnimatePresence mode="popLayout">
         {sessions.map((session) => (
           <motion.div
             key={session.id || session._id}
+            layout
             variants={cardVariants}
             exit="exit"
           >
@@ -474,6 +506,7 @@ const renderSessionsContent = ({
               onClone={handleClone}
               onDelete={handleDelete}
               onNavigate={navigate}
+              onRename={handleRename ? handleRename(session) : undefined}
             />
           </motion.div>
         ))}
@@ -671,6 +704,42 @@ export default function SessionsPage() {
     cloneModal.open();
   }, [cloneModal]);
 
+  // Inline rename — solo aplicable a sesiones en estado `created`. El
+  // InlineEditableText commitea (o autoguarda debounced) y dispara este
+  // handler. Optimistic update + rollback en error para que el usuario
+  // vea el cambio instantáneamente.
+  const handleRename = useCallback(
+    (session) => async (newName) => {
+      const sessionId = session.id || session._id;
+      if (!sessionId) return;
+      const previousName = session.name || session.deck?.name || '';
+      const trimmed = (newName || '').trim();
+      if (!trimmed || trimmed === previousName) return;
+      setSessions((current) =>
+        current.map((s) =>
+          (s.id || s._id) === sessionId ? { ...s, name: trimmed } : s,
+        ),
+      );
+      try {
+        await sessionsAPI.updateSession(sessionId, { name: trimmed });
+        toast.success('Nombre guardado', {
+          description: `Renombrada a "${trimmed}".`,
+        });
+      } catch (err) {
+        setSessions((current) =>
+          current.map((s) =>
+            (s.id || s._id) === sessionId ? { ...s, name: previousName } : s,
+          ),
+        );
+        toast.error('No se pudo guardar el nombre', {
+          description: extractErrorMessage(err),
+        });
+        throw err;
+      }
+    },
+    [],
+  );
+
   const confirmDelete = async () => {
     if (!selectedSession) return;
 
@@ -763,6 +832,7 @@ export default function SessionsPage() {
     cloneLoading,
     handleClone,
     handleDelete,
+    handleRename,
     hasActiveFilters,
     clearFilters,
     shouldReduceMotion,
