@@ -100,8 +100,8 @@ function ActivityHeatmap({ data }) {
         </div>
       </div>
 
-      <div className="overflow-x-auto -mx-2">
-        <div className="min-w-[400px] px-2">
+      <div className="overflow-x-auto custom-scrollbar -mx-2">
+        <div className="min-w-[320px] px-2">
           {/* Hours header */}
           <div className="flex gap-0.5 ml-10 mb-1">
             {HOURS.map(h => (

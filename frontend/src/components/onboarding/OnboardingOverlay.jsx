@@ -7,6 +7,7 @@ import { cn } from '../../lib/utils';
 import GlassCard from '../ui/GlassCard';
 import ButtonPremium from '../ui/ButtonPremium';
 import { useReducedMotion } from '../../hooks/useReducedMotion';
+import CharacterMascot from '../game/CharacterMascot';
 
 /**
  * @fileoverview Overlay de onboarding multi-track (T-951 Fase 4).
@@ -216,8 +217,35 @@ NavButtons.propTypes = {
   onComplete: PropTypes.func.isRequired,
 };
 
+/**
+ * Calcula `mood` y `message` de la mascota para un paso del tour.
+ * Reglas:
+ *  - Step 1 (modal de bienvenida) → `idle` con `isFirstAppearance` y
+ *    saludo "¡Bienvenido!".
+ *  - Último step → `celebrating` con "¡A jugar!".
+ *  - Resto modales narrativos → `pointing` apuntando al texto del step,
+ *    con un fragmento corto del título como burbuja.
+ */
+function mascotForStep(step, currentStep, totalSteps) {
+  const isFirst = currentStep === 0;
+  const isLast = currentStep === totalSteps - 1;
+  if (isFirst) {
+    return { mood: 'idle', message: '¡Hola!', isFirstAppearance: true };
+  }
+  if (isLast) {
+    return { mood: 'celebrating', message: '¡Vamos!', isFirstAppearance: false };
+  }
+  // Para steps intermedios usamos un fragmento del título cuando es
+  // breve, si no, una frase neutra. Evita que la burbuja recorte
+  // títulos largos como "Tres mecánicas, tres asistentes".
+  const title = step?.title || '';
+  const message = title.length > 0 && title.length <= 22 ? title : 'Mira aquí';
+  return { mood: 'pointing', message, isFirstAppearance: false };
+}
+
 function ModalStep({ step, currentStep, totalSteps, isFirstStep, isLastStep, onPrev, onNext, onComplete, onSkip, shouldReduceMotion }) {
   const variants = shouldReduceMotion ? reducedVariants : panelVariants;
+  const mascotConfig = mascotForStep(step, currentStep, totalSteps);
   return (
     <motion.div
       key="onboarding-backdrop"
@@ -279,6 +307,25 @@ function ModalStep({ step, currentStep, totalSteps, isFirstStep, isLastStep, onP
           <p className="text-center mt-4 text-xs text-text-disabled">
             Puedes volver a ver el tutorial desde la barra lateral en cualquier momento.
           </p>
+
+          {/* Mascota guía (T-953 Fase 2.9) — esquina inferior izquierda
+              del card. NO compite con el StepIcon hero porque vive
+              fuera del flow vertical principal y a tamaño reducido.
+              `aria-hidden` para que VoiceOver no anuncie dos veces el
+              mismo título (la mascota repite con la burbuja). */}
+          <div
+            aria-hidden="true"
+            className="absolute -left-2 -bottom-4 sm:-left-6 sm:-bottom-8 pointer-events-none"
+          >
+            <div className="scale-75 sm:scale-90 origin-bottom-left">
+              <CharacterMascot
+                mood={mascotConfig.mood}
+                message={mascotConfig.message}
+                position="left"
+                isFirstAppearance={mascotConfig.isFirstAppearance}
+              />
+            </div>
+          </div>
         </GlassCard>
       </motion.div>
     </motion.div>

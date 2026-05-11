@@ -367,7 +367,7 @@ export default function CreateSession() {
         className="max-w-5xl mx-auto"
       >
         <GlassCard className="p-4">
-          <div className="flex items-center justify-between">
+          <div className="flex flex-wrap items-center justify-between gap-3">
             <ButtonPremium
               variant="ghost"
               onClick={goBack}
@@ -377,7 +377,7 @@ export default function CreateSession() {
               Anterior
             </ButtonPremium>
 
-            <div className="flex items-center gap-2 text-sm text-text-muted">
+            <div className="flex items-center gap-2 text-sm text-text-muted order-last sm:order-none w-full sm:w-auto justify-center">
               Paso {currentStep + 1} de {WIZARD_STEPS.length}
             </div>
 

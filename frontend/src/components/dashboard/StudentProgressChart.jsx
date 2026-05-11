@@ -51,16 +51,21 @@ export default function StudentProgressChart({ data, period = '7d', onPeriodChan
 
   return (
     <ChartSection title="Rendimiento de Clase (Tendencia)" period={period} onPeriodChange={sectionPeriodChange} periodOptions={PERIOD_OPTIONS}>
-      <div className="h-[300px] w-full -ml-4 sm:ml-0 min-h-[300px]">
+      <div className="h-[clamp(220px,30vh,360px)] w-full -ml-4 sm:ml-0 min-h-[220px]">
         <ResponsiveContainer width="100%" height="100%" minWidth={0} minHeight={0} debounce={50}>
           <AreaChart data={trimmedData} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
             <defs>
+              {/* Fill area: en light el papel marfil "absorbe" mucha
+                  saturación, así que subimos el offset de inicio a 0.55
+                  para que el área se sienta tangible (el dark sigue bien
+                  porque el fondo elevado deja respirar el morado). */}
               <linearGradient id="colorScore" x1="0" y1="0" x2="0" y2="1">
-                <stop offset="5%" stopColor="var(--color-brand-base)" stopOpacity={0.4} />
-                <stop offset="95%" stopColor="var(--color-brand-base)" stopOpacity={0} />
+                <stop offset="0%" stopColor="var(--color-brand-base)" stopOpacity={0.55} />
+                <stop offset="55%" stopColor="var(--color-brand-base)" stopOpacity={0.18} />
+                <stop offset="100%" stopColor="var(--color-brand-base)" stopOpacity={0} />
               </linearGradient>
               <linearGradient id="colorClass" x1="0" y1="0" x2="0" y2="1">
-                <stop offset="5%" stopColor="var(--color-text-muted)" stopOpacity={0.15} />
+                <stop offset="5%" stopColor="var(--color-text-muted)" stopOpacity={0.18} />
                 <stop offset="95%" stopColor="var(--color-text-muted)" stopOpacity={0} />
               </linearGradient>
             </defs>
@@ -90,6 +95,7 @@ export default function StudentProgressChart({ data, period = '7d', onPeriodChan
                 boxShadow: '0 8px 32px rgba(0,0,0,0.4)',
                 backdropFilter: 'blur(16px)'
               }}
+              wrapperStyle={{ maxWidth: '90vw' }}
               itemStyle={{ color: 'var(--color-text-primary)' }}
               labelStyle={{ color: 'var(--color-text-muted)', fontWeight: 600, marginBottom: '8px' }}
               // Cuando el dia no tiene datos (PROP-26), score y classAverage

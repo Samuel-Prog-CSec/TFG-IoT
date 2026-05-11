@@ -1,7 +1,8 @@
 /**
  * @fileoverview Página de inicio de sesión
- * Diseño premium con validación, estados de carga, manejo de errores
- * y rate limiting para protección contra fuerza bruta.
+ * Layout 5/7 con escena signature `AuthBackground` (constelación de
+ * tarjetas RFID + scanline + wave). Form en card propia con borde
+ * superior de marca.
  *
  * @module pages/Login
  */
@@ -11,7 +12,7 @@ import { useLocation, useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
   LogIn, Mail, Lock, Eye, EyeOff, AlertCircle, CheckCircle, Info, Clock,
-  Target, BarChart3, ShieldCheck, Sparkles, ArrowRight,
+  ShieldCheck, ArrowRight, Sparkles, Wifi,
 } from 'lucide-react';
 import EduPlayIcon from '../components/icons/EduPlayIcon';
 import { useAuth } from '../context/AuthContext';
@@ -21,8 +22,8 @@ import { useFormFocusFirstError } from '../hooks/useFormFocusFirstError';
 import { cn, formFieldVariants } from '../lib/utils';
 import ButtonPremium from '../components/ui/ButtonPremium';
 import InputPremium from '../components/ui/InputPremium';
-import GlassCard from '../components/ui/GlassCard';
 import ThemeToggle from '../components/ui/ThemeToggle';
+import AuthBackground from '../components/auth/AuthBackground';
 import { ROUTES } from '../constants/routes';
 
 // ============================================
@@ -73,28 +74,13 @@ const recordFailedAttempt = () => {
 
 const resetRateLimit = () => sessionStorage.removeItem(RATE_LIMIT_KEY);
 
-const FEATURES = [
-  {
-    Icon: Target,
-    tint: 'text-accent-indigo',
-    bg: 'bg-accent-indigo/10',
-    text: 'Tres mecánicas adaptables',
-    detail: 'Asociación, memoria y secuencia para edades 4-8 años',
-  },
-  {
-    Icon: BarChart3,
-    tint: 'text-brand-base',
-    bg: 'bg-brand-base/10',
-    text: 'Análisis pedagógico en tiempo real',
-    detail: 'Aciertos, ritmo y rondas por alumno tras cada partida',
-  },
-  {
-    Icon: ShieldCheck,
-    tint: 'text-success-base',
-    bg: 'bg-success-base/10',
-    text: 'Datos de menores protegidos',
-    detail: 'Cumplimiento RGPD Art. 8 y LOPDGDD Art. 7',
-  },
+// Tres "proof points" cortos para el hero. Antes era una lista
+// descriptiva con 3 features detallados; ahora son chips comprimidos
+// que dejan el protagonismo a la constelación visual.
+const PROOF_POINTS = [
+  { Icon: Wifi, label: 'Lectura RFID instantánea' },
+  { Icon: Sparkles, label: '3 mecánicas adaptables' },
+  { Icon: ShieldCheck, label: 'RGPD · datos de menores' },
 ];
 
 export default function Login() {
@@ -204,370 +190,333 @@ export default function Login() {
 
   return (
     <div className="min-h-screen flex bg-background-base relative overflow-hidden">
-      {/* Aurora background (consume tokens semánticos --color-aurora-*) */}
-      <div
-        className="aurora-layer fixed inset-0 pointer-events-none overflow-hidden opacity-40"
-        aria-hidden="true"
-      >
-        <div
-          className="absolute -top-32 -left-20 w-[40rem] h-[40rem] rounded-full blur-[140px] opacity-80"
-          style={{ backgroundColor: 'var(--color-aurora-1)' }}
-        />
-        <div
-          className="absolute -bottom-32 -right-20 w-[36rem] h-[36rem] rounded-full blur-[140px] opacity-70"
-          style={{ backgroundColor: 'var(--color-aurora-2)' }}
-        />
-        <div
-          className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[50rem] h-[50rem] rounded-full blur-[160px] opacity-50"
-          style={{ backgroundColor: 'var(--color-aurora-3)' }}
-        />
+      {/* Escena signature: constelación de tarjetas RFID + scanline + wave.
+          Substituye el aurora-de-tres-orbes genérico anterior. */}
+      <AuthBackground variant="login" />
+
+      {/* Theme toggle flotante en esquina superior derecha — el primer
+          golpe de vista del docente al entrar. Wrapper card sólido para
+          destacar sobre la escena AuthBackground.
+
+          Fix QA 2026-05-10: antes vivía en bottom-right pero el usuario
+          no lo veía. El toaster Sonner se movió a bottom-right en App.jsx
+          para liberar este espacio. El top-right queda como ubicación
+          natural ("ajustes globales") sin competir con el form. */}
+      <div className="absolute top-6 right-6 z-30">
+        <div className="rounded-2xl bg-background-elevated/90 backdrop-blur-md border border-border-default shadow-[var(--shadow-md)] px-2 py-1.5">
+          <ThemeToggle />
+        </div>
       </div>
 
-      {/* Grid pattern sutil — más visible en light gracias al borde 0.16 */}
-      <div
-        className="absolute inset-0 opacity-[0.06] pointer-events-none"
-        style={{
-          backgroundImage:
-            'linear-gradient(var(--color-border-default) 1px, transparent 1px), linear-gradient(90deg, var(--color-border-default) 1px, transparent 1px)',
-          backgroundSize: '64px 64px',
-        }}
-        aria-hidden="true"
-      />
-
-      {/* Theme toggle flotante en esquina inferior derecha — permite al
-          usuario elegir tema antes incluso de hacer login. Reposicionado
-          desde top-right (QA 2026-05-07): los toasts Sonner viven en
-          `top-right` por 4 s y tapaban el toggle al hacer login fallido
-          o tras un registro completado. Bottom-right libera la zona de
-          notificaciones y se mantiene fuera del flujo central del form. */}
-      <div className="absolute bottom-6 right-6 z-30">
-        <ThemeToggle />
-      </div>
-
-      {/* Panel de branding (desktop) */}
-      <motion.aside
-        initial={{ opacity: 0, x: -30 }}
-        animate={{ opacity: 1, x: 0 }}
-        transition={{ duration: 0.6, ease: [0.22, 1, 0.36, 1] }}
-        className="hidden lg:flex lg:w-1/2 relative z-10 flex-col justify-center px-12 xl:px-20 2xl:px-28"
-      >
-        <div className="max-w-xl">
-          {/* Logo + tagline */}
-          <div className="flex items-center gap-3 mb-10">
-            <div className="inline-flex items-center justify-center size-14 rounded-2xl bg-gradient-to-br from-accent-indigo via-brand-base to-accent-pink shadow-[0_0_28px_var(--color-brand-glow)]">
-              <EduPlayIcon size={28} className="text-white" />
+      {/* Wrapper centrador con dos columnas en lg+ — 7/5 hero/form para que
+          el form no se sienta perdido y el hero respire mejor. */}
+      <div className="relative z-10 w-full mx-auto grid lg:grid-cols-12 items-center gap-0 max-w-[1500px] px-6 lg:px-12 xl:px-16 py-10">
+        {/* Panel hero — sólo desktop. Mantiene la silueta lateral pero
+            usa el espacio para narrativa breve y proof points concisos. */}
+        <motion.aside
+          initial={{ opacity: 0, x: -30 }}
+          animate={{ opacity: 1, x: 0 }}
+          transition={{ duration: 0.6, ease: [0.22, 1, 0.36, 1] }}
+          className="hidden lg:flex lg:col-span-7 flex-col justify-center pr-8 xl:pr-16"
+        >
+          {/* Eyebrow + logo en línea — brevedad por encima del headline */}
+          <div className="flex items-center gap-3 mb-8">
+            <div className="inline-flex items-center justify-center size-12 rounded-2xl bg-gradient-to-br from-accent-indigo via-brand-base to-accent-pink shadow-[0_0_28px_var(--color-brand-glow)]">
+              <EduPlayIcon size={24} className="text-white" />
             </div>
-            <div>
-              <span className="block text-xl font-bold font-display gradient-text-brand tracking-tight">
+            <div className="flex flex-col">
+              <span className="text-base font-bold font-display gradient-text-brand tracking-tight leading-none">
                 EduPlay RFID
               </span>
-              <span className="block text-xs text-text-muted uppercase tracking-widest">
-                Proyecto TFG · 2026
+              <span className="text-[10px] text-text-muted uppercase tracking-[0.18em] mt-1">
+                Plataforma educativa · TFG 2026
               </span>
             </div>
           </div>
 
-          {/* Tagline principal */}
-          <h1 className="text-4xl xl:text-5xl 2xl:text-6xl font-bold font-display text-text-primary leading-[1.1] mb-6">
-            Aprende jugando con{' '}
-            <span className="bg-gradient-to-r from-brand-base via-accent-indigo to-accent-pink bg-clip-text text-transparent">
-              tarjetas RFID
+          {/* Headline más vertical — apoya en la constelación visual */}
+          <h1 className="font-display font-bold text-text-primary leading-[1.05] mb-6"
+              style={{ fontSize: 'var(--text-fluid-hero)' }}>
+            Acerca el cartón.
+            <br />
+            <span className="bg-gradient-to-br from-brand-light via-brand-base to-accent-pink bg-clip-text text-transparent">
+              Suceden cosas.
             </span>
           </h1>
 
-          <p className="text-lg text-text-secondary leading-relaxed mb-10 max-w-lg">
-            Diseña juegos educativos con tarjetas físicas. Tu alumnado aprende
-            tocando; tú obtienes su progreso al instante.
+          <p className="text-text-secondary leading-relaxed mb-10 max-w-md"
+             style={{ fontSize: 'var(--text-fluid-base)' }}>
+            Diseña juegos educativos con tarjetas RFID que tu alumnado
+            de 4 a 8 años toca con sus manos. Tú ves el progreso al instante.
           </p>
 
-          {/* Lista de features con iconos coloreados por contexto */}
-          <ul className="space-y-5">
-            {FEATURES.map(({ Icon, tint, bg, text, detail }, i) => (
+          {/* Proof points como chips horizontales — denso, no listón vertical */}
+          <ul className="flex flex-wrap gap-2.5">
+            {PROOF_POINTS.map(({ Icon, label }, i) => (
               <motion.li
-                key={text}
-                initial={{ opacity: 0, x: -16 }}
-                animate={{ opacity: 1, x: 0 }}
-                transition={{ delay: 0.3 + i * 0.08, ease: [0.22, 1, 0.36, 1] }}
-                className="flex items-start gap-4"
+                key={label}
+                initial={{ opacity: 0, y: 8 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ delay: 0.4 + i * 0.07, ease: [0.22, 1, 0.36, 1] }}
+                className={cn(
+                  'inline-flex items-center gap-2 px-3 py-1.5 rounded-full',
+                  'bg-background-elevated/60 backdrop-blur-md',
+                  'border border-border-default text-text-secondary text-sm',
+                )}
               >
-                <span
-                  className={cn(
-                    'flex-shrink-0 mt-0.5 inline-flex size-10 items-center justify-center rounded-xl',
-                    'border border-border-default backdrop-blur-sm',
-                    bg,
-                    tint,
-                  )}
-                  aria-hidden="true"
-                >
-                  <Icon className="size-5" strokeWidth={1.75} />
-                </span>
-                <div className="min-w-0">
-                  <p className="text-text-primary font-medium leading-snug">{text}</p>
-                  <p className="text-text-muted text-sm leading-relaxed mt-0.5">
-                    {detail}
-                  </p>
-                </div>
+                <Icon size={14} className="text-brand-base" strokeWidth={1.75} />
+                {label}
               </motion.li>
             ))}
           </ul>
+        </motion.aside>
 
-          {/* Pie del panel hero */}
-          <motion.div
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            transition={{ delay: 0.7 }}
-            className="mt-12 pt-8 border-t border-border-subtle flex items-center gap-2 text-text-muted text-xs"
-          >
-            <Sparkles size={14} aria-hidden="true" className="text-brand-base" />
-            <span>Compatible con cualquier lector RFID conectado por USB</span>
-          </motion.div>
-        </div>
-      </motion.aside>
-
-      {/* Panel del formulario */}
-      <motion.div
-        initial={{ opacity: 0, y: 20 }}
-        animate={{ opacity: 1, y: 0 }}
-        transition={{ duration: 0.5 }}
-        className="w-full lg:w-1/2 flex items-center justify-center p-4 lg:p-12 relative z-10"
-      >
-        <div className="w-full max-w-md">
-          {/* Logo compacto solo en mobile */}
-          <div className="lg:hidden text-center mb-8">
-            <motion.div
-              initial={{ scale: 0.8, opacity: 0 }}
-              animate={{ scale: 1, opacity: 1 }}
-              transition={{ delay: 0.1, duration: 0.4 }}
-              className={cn(
-                'inline-flex items-center justify-center size-14 rounded-2xl mb-3',
-                'bg-gradient-to-br from-accent-indigo via-brand-base to-accent-pink',
-                'shadow-[0_0_24px_var(--color-brand-glow)]',
-                !shouldReduceMotion && 'animate-pulse-glow',
-              )}
-            >
-              <EduPlayIcon size={28} className="text-white" />
-            </motion.div>
-            <h1 className="text-2xl font-bold font-display gradient-text-brand">
-              EduPlay RFID
-            </h1>
-          </div>
-
-          {/* Alertas de estado */}
-          <AnimatePresence>
-            {registrationSuccess && (
+        {/* Panel form */}
+        <motion.div
+          initial={{ opacity: 0, y: 20 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.5 }}
+          className="lg:col-span-5 w-full flex justify-center"
+        >
+          <div className="w-full max-w-md">
+            {/* Logo compacto solo en mobile */}
+            <div className="lg:hidden text-center mb-8">
               <motion.div
-                initial={{ opacity: 0, y: -10, height: 0 }}
-                animate={{ opacity: 1, y: 0, height: 'auto' }}
-                exit={{ opacity: 0, y: -10, height: 0 }}
-                className="mb-4"
-              >
-                <div className="flex items-start gap-3 p-4 rounded-xl bg-success-base/10 border border-success-base/30">
-                  <CheckCircle className="size-5 text-success-base flex-shrink-0 mt-0.5" />
-                  <div>
-                    <p className="text-success-base font-medium text-sm">
-                      ¡Registro exitoso!
-                    </p>
-                    <p className="text-text-secondary text-sm mt-1">
-                      Tu cuenta está pendiente de aprobación. La dirección del centro la revisará pronto.
-                    </p>
-                  </div>
-                </div>
-              </motion.div>
-            )}
-
-            {sessionInvalidated && (
-              <motion.div
-                initial={{ opacity: 0, y: -10, height: 0 }}
-                animate={{ opacity: 1, y: 0, height: 'auto' }}
-                exit={{ opacity: 0, y: -10, height: 0 }}
-                className="mb-4"
-              >
-                <div className="flex items-start gap-3 p-4 rounded-xl bg-warning-base/10 border border-warning-base/30">
-                  <Info className="size-5 text-warning-base flex-shrink-0 mt-0.5" />
-                  <div>
-                    <p className="text-warning-base font-medium text-sm">Sesión cerrada</p>
-                    <p className="text-text-secondary text-sm mt-1">
-                      Tu sesión se cerró porque iniciaste sesión en otro dispositivo.
-                    </p>
-                  </div>
-                </div>
-              </motion.div>
-            )}
-
-            {isLocked && (
-              <motion.div
-                initial={{ opacity: 0, y: -10, height: 0 }}
-                animate={{ opacity: 1, y: 0, height: 'auto' }}
-                exit={{ opacity: 0, y: -10, height: 0 }}
-                className="mb-4"
-              >
-                <div className="flex items-start gap-3 p-4 rounded-xl bg-error-base/10 border border-error-base/30">
-                  <Clock className="size-5 text-error-base flex-shrink-0 mt-0.5" />
-                  <div>
-                    <p className="text-error-base font-medium text-sm">
-                      Demasiados intentos fallidos
-                    </p>
-                    <p className="text-text-secondary text-sm mt-1">
-                      Por seguridad, espera {countdown} segundo{countdown === 1 ? '' : 's'} antes de volver a intentarlo.
-                    </p>
-                  </div>
-                </div>
-              </motion.div>
-            )}
-          </AnimatePresence>
-
-          {/* Card del formulario */}
-          <GlassCard className="p-8 lg:p-10" variant="solid">
-            <motion.form
-              ref={formRef}
-              onSubmit={handleSubmit}
-              className="space-y-6"
-              initial={shouldReduceMotion ? false : 'hidden'}
-              animate="visible"
-            >
-              {/* Título del formulario */}
-              <motion.div
-                variants={shouldReduceMotion ? {} : formFieldVariants(0)}
-                className="mb-2"
-              >
-                <h2 className="text-2xl font-bold font-display text-text-primary">
-                  Iniciar sesión
-                </h2>
-                <p className="text-text-muted text-sm mt-1.5">
-                  Bienvenido de nuevo. Accede para gestionar tu aula.
-                </p>
-              </motion.div>
-
-              {/* Error general */}
-              <AnimatePresence>
-                {error && (
-                  <motion.div
-                    initial={{ opacity: 0, y: -10, height: 0 }}
-                    animate={{ opacity: 1, y: 0, height: 'auto' }}
-                    exit={{ opacity: 0, y: -10, height: 0 }}
-                    className="flex items-start gap-3 p-3.5 rounded-xl bg-error-base/10 border border-error-base/30"
-                  >
-                    <AlertCircle className="size-5 text-error-base flex-shrink-0 mt-0.5" />
-                    <p className="text-error-base text-sm">{error}</p>
-                  </motion.div>
+                initial={{ scale: 0.8, opacity: 0 }}
+                animate={{ scale: 1, opacity: 1 }}
+                transition={{ delay: 0.1, duration: 0.4 }}
+                className={cn(
+                  'inline-flex items-center justify-center size-14 rounded-2xl mb-3',
+                  'bg-gradient-to-br from-accent-indigo via-brand-base to-accent-pink',
+                  'shadow-[0_0_24px_var(--color-brand-glow)]',
+                  !shouldReduceMotion && 'animate-pulse-glow',
                 )}
-              </AnimatePresence>
-
-              {/* Campo Email */}
-              <motion.div variants={shouldReduceMotion ? {} : formFieldVariants(1)}>
-                <InputPremium
-                  label="Email"
-                  name="email"
-                  type="email"
-                  placeholder="tu@email.com"
-                  value={formData.email}
-                  onChange={handleChange}
-                  error={validationErrors.email}
-                  icon={<Mail className="size-5" />}
-                  autoComplete="email"
-                  spellCheck={false}
-                />
-              </motion.div>
-
-              {/* Campo Contraseña */}
-              <motion.div
-                variants={shouldReduceMotion ? {} : formFieldVariants(2)}
-                className="relative"
               >
-                <InputPremium
-                  label="Contraseña"
-                  name="password"
-                  type={showPassword ? 'text' : 'password'}
-                  placeholder="••••••••"
-                  value={formData.password}
-                  onChange={handleChange}
-                  error={validationErrors.password}
-                  icon={<Lock className="size-5" />}
-                  autoComplete="current-password"
-                />
-                <button
-                  type="button"
-                  onClick={() => setShowPassword(!showPassword)}
-                  className="absolute right-3 top-[38px] text-text-muted hover:text-text-primary transition-colors p-1 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-base focus-visible:ring-offset-2 focus-visible:ring-offset-background-base rounded"
-                  aria-label={showPassword ? 'Ocultar contraseña' : 'Mostrar contraseña'}
-                  aria-pressed={showPassword}
-                >
-                  {showPassword ? (
-                    <EyeOff className="size-5" aria-hidden="true" />
-                  ) : (
-                    <Eye className="size-5" aria-hidden="true" />
-                  )}
-                </button>
+                <EduPlayIcon size={28} className="text-white" />
               </motion.div>
-
-              {/* Botón submit */}
-              <motion.div variants={shouldReduceMotion ? {} : formFieldVariants(3)}>
-                <ButtonPremium
-                  type="submit"
-                  variant="primary"
-                  size="lg"
-                  className="w-full"
-                  loading={isSubmitting || isLoading}
-                  disabled={isSubmitting || isLoading || isLocked}
-                  icon={<LogIn className="size-5" />}
-                >
-                  {isSubmitting ? 'Iniciando sesión…' : 'Iniciar sesión'}
-                </ButtonPremium>
-              </motion.div>
-            </motion.form>
-
-            {/* Separador */}
-            <div className="relative my-7">
-              <div className="absolute inset-0 flex items-center">
-                <div className="w-full border-t border-border-subtle" />
-              </div>
-              <div className="relative flex justify-center text-xs">
-                <span className="px-3 bg-background-elevated text-text-muted uppercase tracking-widest">
-                  o
-                </span>
-              </div>
+              <h1 className="text-2xl font-bold font-display gradient-text-brand">
+                EduPlay RFID
+              </h1>
             </div>
 
-            {/* Link a registro */}
-            <button
-              type="button"
-              onClick={() => navigate(ROUTES.REGISTER)}
-              className={cn(
-                'w-full flex items-center justify-center gap-2 px-4 py-3 rounded-xl',
-                'border border-border-default bg-background-base/30 hover:bg-background-surface/40',
-                'text-text-primary font-medium text-sm',
-                'transition-colors duration-200',
-                'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-base focus-visible:ring-offset-2 focus-visible:ring-offset-background-base',
+            {/* Alertas de estado */}
+            <AnimatePresence>
+              {registrationSuccess && (
+                <motion.div
+                  initial={{ opacity: 0, y: -10, height: 0 }}
+                  animate={{ opacity: 1, y: 0, height: 'auto' }}
+                  exit={{ opacity: 0, y: -10, height: 0 }}
+                  className="mb-4"
+                >
+                  <div className="flex items-start gap-3 p-4 rounded-xl bg-success-base/10 border border-success-base/30">
+                    <CheckCircle className="size-5 text-success-base flex-shrink-0 mt-0.5" />
+                    <div>
+                      <p className="text-success-base font-medium text-sm">
+                        ¡Registro exitoso!
+                      </p>
+                      <p className="text-text-secondary text-sm mt-1">
+                        Tu cuenta está pendiente de aprobación. La dirección del centro la revisará pronto.
+                      </p>
+                    </div>
+                  </div>
+                </motion.div>
               )}
-            >
-              <span>¿Aún no tienes cuenta?</span>
-              <span className="text-brand-base inline-flex items-center gap-1">
-                Crear cuenta de docente
-                <ArrowRight className="size-3.5" aria-hidden="true" />
-              </span>
-            </button>
-          </GlassCard>
 
-          {/* Footer */}
-          <motion.div
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            transition={{ delay: 0.5 }}
-            className="text-center mt-6"
-          >
-            <p className="text-text-muted text-xs">
-              © {new Date().getFullYear()} EduPlay RFID · Proyecto TFG ·{' '}
+              {sessionInvalidated && (
+                <motion.div
+                  initial={{ opacity: 0, y: -10, height: 0 }}
+                  animate={{ opacity: 1, y: 0, height: 'auto' }}
+                  exit={{ opacity: 0, y: -10, height: 0 }}
+                  className="mb-4"
+                >
+                  <div className="flex items-start gap-3 p-4 rounded-xl bg-warning-base/10 border border-warning-base/30">
+                    <Info className="size-5 text-warning-base flex-shrink-0 mt-0.5" />
+                    <div>
+                      <p className="text-warning-base font-medium text-sm">Sesión cerrada</p>
+                      <p className="text-text-secondary text-sm mt-1">
+                        Tu sesión se cerró porque iniciaste sesión en otro dispositivo.
+                      </p>
+                    </div>
+                  </div>
+                </motion.div>
+              )}
+
+              {isLocked && (
+                <motion.div
+                  initial={{ opacity: 0, y: -10, height: 0 }}
+                  animate={{ opacity: 1, y: 0, height: 'auto' }}
+                  exit={{ opacity: 0, y: -10, height: 0 }}
+                  className="mb-4"
+                >
+                  <div className="flex items-start gap-3 p-4 rounded-xl bg-error-base/10 border border-error-base/30">
+                    <Clock className="size-5 text-error-base flex-shrink-0 mt-0.5" />
+                    <div>
+                      <p className="text-error-base font-medium text-sm">
+                        Demasiados intentos fallidos
+                      </p>
+                      <p className="text-text-secondary text-sm mt-1">
+                        Por seguridad, espera {countdown} segundo{countdown === 1 ? '' : 's'} antes de volver a intentarlo.
+                      </p>
+                    </div>
+                  </div>
+                </motion.div>
+              )}
+            </AnimatePresence>
+
+            {/* Card del formulario — auth-form-card aporta la barra superior
+                de marca y sombras tematizadas. */}
+            <div className="auth-form-card p-8 lg:p-10">
+              <motion.form
+                ref={formRef}
+                onSubmit={handleSubmit}
+                className="space-y-6"
+                initial={shouldReduceMotion ? false : 'hidden'}
+                animate="visible"
+              >
+                {/* Título del formulario */}
+                <motion.div
+                  variants={shouldReduceMotion ? {} : formFieldVariants(0)}
+                  className="mb-2"
+                >
+                  <h2 className="text-2xl font-bold font-display text-text-primary">
+                    Iniciar sesión
+                  </h2>
+                  <p className="text-text-muted text-sm mt-1.5">
+                    Bienvenido de nuevo. Accede para gestionar tu aula.
+                  </p>
+                </motion.div>
+
+                {/* Error general */}
+                <AnimatePresence>
+                  {error && (
+                    <motion.div
+                      initial={{ opacity: 0, y: -10, height: 0 }}
+                      animate={{ opacity: 1, y: 0, height: 'auto' }}
+                      exit={{ opacity: 0, y: -10, height: 0 }}
+                      className="flex items-start gap-3 p-3.5 rounded-xl bg-error-base/10 border border-error-base/30"
+                    >
+                      <AlertCircle className="size-5 text-error-base flex-shrink-0 mt-0.5" />
+                      <p className="text-error-base text-sm">{error}</p>
+                    </motion.div>
+                  )}
+                </AnimatePresence>
+
+                {/* Campo Email */}
+                <motion.div variants={shouldReduceMotion ? {} : formFieldVariants(1)}>
+                  <InputPremium
+                    label="Email"
+                    name="email"
+                    type="email"
+                    placeholder="tu@email.com"
+                    value={formData.email}
+                    onChange={handleChange}
+                    error={validationErrors.email}
+                    icon={<Mail className="size-5" />}
+                    autoComplete="email"
+                    spellCheck={false}
+                  />
+                </motion.div>
+
+                {/* Campo Contraseña */}
+                <motion.div
+                  variants={shouldReduceMotion ? {} : formFieldVariants(2)}
+                  className="relative"
+                >
+                  <InputPremium
+                    label="Contraseña"
+                    name="password"
+                    type={showPassword ? 'text' : 'password'}
+                    placeholder="••••••••"
+                    value={formData.password}
+                    onChange={handleChange}
+                    error={validationErrors.password}
+                    icon={<Lock className="size-5" />}
+                    autoComplete="current-password"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowPassword(!showPassword)}
+                    className="absolute right-3 top-[38px] text-text-muted hover:text-text-primary transition-colors p-1 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-base focus-visible:ring-offset-2 focus-visible:ring-offset-background-base rounded"
+                    aria-label={showPassword ? 'Ocultar contraseña' : 'Mostrar contraseña'}
+                    aria-pressed={showPassword}
+                  >
+                    {showPassword ? (
+                      <EyeOff className="size-5" aria-hidden="true" />
+                    ) : (
+                      <Eye className="size-5" aria-hidden="true" />
+                    )}
+                  </button>
+                </motion.div>
+
+                {/* Botón submit */}
+                <motion.div variants={shouldReduceMotion ? {} : formFieldVariants(3)}>
+                  <ButtonPremium
+                    type="submit"
+                    variant="primary"
+                    size="lg"
+                    className="w-full"
+                    loading={isSubmitting || isLoading}
+                    disabled={isSubmitting || isLoading || isLocked}
+                    icon={<LogIn className="size-5" />}
+                  >
+                    {isSubmitting ? 'Iniciando sesión…' : 'Iniciar sesión'}
+                  </ButtonPremium>
+                </motion.div>
+              </motion.form>
+
+              {/* Separador */}
+              <div className="relative my-7">
+                <div className="absolute inset-0 flex items-center">
+                  <div className="w-full border-t border-border-subtle" />
+                </div>
+                <div className="relative flex justify-center text-xs">
+                  <span className="px-3 bg-background-elevated text-text-muted uppercase tracking-widest">
+                    o
+                  </span>
+                </div>
+              </div>
+
+              {/* Link a registro */}
               <button
                 type="button"
-                onClick={() => navigate('/privacy')}
-                className="text-text-secondary hover:text-text-primary transition-colors underline-offset-2 hover:underline"
+                onClick={() => navigate(ROUTES.REGISTER)}
+                className={cn(
+                  'w-full flex items-center justify-center gap-2 px-4 py-3 rounded-xl',
+                  'border border-border-default bg-background-base/30 hover:bg-background-surface/40',
+                  'text-text-primary font-medium text-sm',
+                  'transition-colors duration-200',
+                  'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-base focus-visible:ring-offset-2 focus-visible:ring-offset-background-base',
+                )}
               >
-                Política de privacidad
+                <span>¿Aún no tienes cuenta?</span>
+                <span className="text-brand-base inline-flex items-center gap-1">
+                  Crear cuenta de docente
+                  <ArrowRight className="size-3.5" aria-hidden="true" />
+                </span>
               </button>
-            </p>
-          </motion.div>
-        </div>
-      </motion.div>
+            </div>
+
+            {/* Footer */}
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              transition={{ delay: 0.5 }}
+              className="text-center mt-6"
+            >
+              <p className="text-text-muted text-xs">
+                © {new Date().getFullYear()} EduPlay RFID · Proyecto TFG ·{' '}
+                <button
+                  type="button"
+                  onClick={() => navigate('/privacy')}
+                  className="text-text-secondary hover:text-text-primary transition-colors underline-offset-2 hover:underline"
+                >
+                  Política de privacidad
+                </button>
+              </p>
+            </motion.div>
+          </div>
+        </motion.div>
+      </div>
     </div>
   );
 }

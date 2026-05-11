@@ -487,7 +487,7 @@ export default function DeckCreationWizard() {
         className="max-w-5xl mx-auto"
       >
         <GlassCard className="p-4">
-          <div className="flex items-center justify-between">
+          <div className="flex flex-wrap items-center justify-between gap-3">
             <ButtonPremium
               variant="ghost"
               onClick={goBack}
@@ -497,7 +497,7 @@ export default function DeckCreationWizard() {
               Anterior
             </ButtonPremium>
 
-            <div className="flex items-center gap-2 text-sm text-text-muted">
+            <div className="flex items-center gap-2 text-sm text-text-muted order-last sm:order-none w-full sm:w-auto justify-center">
               <span>Paso {currentStep + 1} de {WIZARD_STEPS.length}</span>
             </div>
 
@@ -773,7 +773,7 @@ function StepContext({
   if (loadingContexts) {
     return (
       <GlassCard className="p-6">
-        <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
+        <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-3 gap-[var(--space-fluid-gutter)]">
           {Array.from({ length: 6 }, (_, i) => `ctx-wizard-skeleton-${i}`).map(id => (
             <div
               key={id}
@@ -794,7 +794,7 @@ function StepContext({
         </p>
       </div>
 
-      <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
+      <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-3 gap-[var(--space-fluid-gutter)]">
         {contexts.map((context) => {
           // El DTO toGameContextDTOV1 expone `id`; mantenemos compat con `_id`
           // por si en algun consumidor el documento Mongoose llega crudo.
@@ -937,7 +937,7 @@ function StepAssign({
         </motion.div>
       )}
 
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+      <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-[var(--space-fluid-gutter)]">
         {/* Lista de cartas */}
         <GlassCard className="p-4 lg:col-span-1">
           <div className="mb-4">
@@ -1106,7 +1106,7 @@ function StepConfirm({
   cardAssignments
 }) {
   return (
-    <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+    <div className="grid grid-cols-1 md:grid-cols-2 gap-[var(--space-fluid-gutter)]">
       {/* Nombre del mazo */}
       <GlassCard className="p-6">
         <h2 className="text-lg font-semibold text-text-primary mb-4">Nombre del mazo</h2>

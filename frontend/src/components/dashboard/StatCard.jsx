@@ -55,7 +55,12 @@ function StatCard({ title, value, trend, icon, color, periodLabel = 'vs semana p
           compact ? "p-4" : "p-6",
           // Hover usa --shadow-lg (token por tema) para que en light no
           // aparezca una sombra negra agresiva sobre fondo blanco.
-          "hover:shadow-[var(--shadow-lg)] hover:border-border-strong"
+          "hover:shadow-[var(--shadow-lg)] hover:border-border-strong",
+          // Sweep RFID en hover — refuerza la firma del producto (lector
+          // de tarjetas) en cada KPI sin invadir el resto del componente.
+          // La utility `.rfid-hover` vive en index.css y respeta
+          // prefers-reduced-motion.
+          "rfid-hover"
         )}
       >
         {/* Indicador de navegacion (solo si la tarjeta es clickable) */}

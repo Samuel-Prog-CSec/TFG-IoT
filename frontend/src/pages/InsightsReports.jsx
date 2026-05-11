@@ -417,7 +417,7 @@ export default function InsightsReports() {
       initial={shouldReduceMotion ? false : { opacity: 0, y: 12 }}
       animate={{ opacity: 1, y: 0 }}
       transition={{ duration: DURATION.entrance, ease: EASING.outExpo }}
-      className="p-6 lg:p-8 max-w-7xl mx-auto space-y-6"
+      className="page-container py-[var(--space-fluid-section)] space-y-6"
       aria-label="Insights y Reportes"
     >
       <ChartErrorBoundary>

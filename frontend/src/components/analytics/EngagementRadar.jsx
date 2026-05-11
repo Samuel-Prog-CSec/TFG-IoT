@@ -3,6 +3,7 @@ import { RadarChart, Radar, PolarGrid, PolarAngleAxis, PolarRadiusAxis, Responsi
 import PropTypes from 'prop-types';
 import { cn } from '../../lib/utils';
 import GlassCard from '../ui/GlassCard';
+import { ChartsThemeDefs, ThemedTooltipCard, chartColors, chartTokens } from './ChartsTheme';
 
 /**
  * Labels en espanol para los componentes de engagement
@@ -31,10 +32,10 @@ function CustomTooltip({ active, payload }) {
   if (!active || !payload?.[0]) return null;
   const data = payload[0].payload;
   return (
-    <div className="bg-background-elevated border border-border-default rounded-lg p-2.5 shadow-xl text-sm">
+    <ThemedTooltipCard className="text-sm py-2.5 px-2.5">
       <p className="text-text-primary font-medium">{data.label}</p>
       <p className="text-text-muted tabular-nums">{Math.round(data.value)}%</p>
-    </div>
+    </ThemedTooltipCard>
   );
 }
 
@@ -121,30 +122,31 @@ function EngagementRadar({ engagement }) {
         )}
       </div>
 
-      <div className="h-[300px] w-full min-h-[300px]">
+      <div className="aspect-square w-full max-h-[360px] min-h-[220px]">
         <ResponsiveContainer width="100%" height="100%" minWidth={0} minHeight={0} debounce={50}>
           {/* outerRadius=80% para aprovechar el alto extra del contenedor;
               el radar se veia demasiado pequeno a 70% en 1920px (QA 22/04/2026). */}
           <RadarChart cx="50%" cy="50%" outerRadius="80%" data={chartData}>
+            <ChartsThemeDefs />
             <PolarGrid
-              stroke="var(--color-border-subtle)"
+              stroke={chartTokens.gridStroke}
               gridType="polygon"
             />
             <PolarAngleAxis
               dataKey="label"
-              tick={{ fill: 'var(--color-text-muted)', fontSize: 11 }}
+              tick={{ fill: chartTokens.axisTickFill, fontSize: chartTokens.axisTickFontSize }}
             />
             <PolarRadiusAxis
               domain={[0, 100]}
               tick={false}
               axisLine={false}
             />
-            <Tooltip content={<CustomTooltip />} />
+            <Tooltip content={<CustomTooltip />} wrapperStyle={{ maxWidth: '90vw' }} />
             <Radar
               name="Engagement"
               dataKey="value"
-              stroke="var(--color-accent-cyan)"
-              fill="var(--color-accent-cyan)"
+              stroke={chartColors.byMechanic.association.stroke}
+              fill={chartColors.byMechanic.association.fill}
               fillOpacity={0.2}
               strokeWidth={2}
             />

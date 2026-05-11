@@ -30,7 +30,7 @@ Todos los keys viven en `frontend/src/constants/routes.js` (campo `dataTour` de 
 | `admin-students` | NavItem admin "Alumnos" |
 | `admin-contexts` | NavItem admin "Contextos" |
 
-## Track docente — `TEACHER_TRACK` (6 pasos)
+## Track docente — `TEACHER_TRACK` (7 pasos)
 
 El profesor abre EduPlay por primera vez, normalmente en el aula con su clase ya esperando. El tour está pensado para enseñarle el flujo "crear contenido → jugar → analizar" sin interrumpir su día.
 
@@ -40,8 +40,9 @@ El profesor abre EduPlay por primera vez, normalmente en el aula con su clase ya
 | 2 | spotlight | `Layers` | Crea tu primer mazo | `data-tour="my-decks"` |
 | 3 | spotlight | `Palette` | Elige un contexto | `data-tour="contexts"` |
 | 4 | spotlight | `Rocket` | Configura una sesión | `data-tour="sessions"` |
-| 5 | modal | `Gamepad2` | ¡A jugar! (RFID + táctil) | — |
-| 6 | spotlight | `TrendingUp` | Analiza los resultados | `data-tour="my-students"` |
+| 5 | modal | `Wand2` | Tres mecánicas, tres asistentes | — |
+| 6 | modal | `Gamepad2` | ¡A jugar! (RFID + táctil) | — |
+| 7 | spotlight | `TrendingUp` | Analiza los resultados | `data-tour="my-students"` |
 
 ## Track dirección — `SUPER_ADMIN_TRACK` (5 pasos)
 

@@ -23,7 +23,7 @@ export default function StepMechanic({ mechanics, loading, selectedMechanicId, o
   if (loading) {
     return (
       <GlassCard className="p-6">
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+        <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-[var(--space-fluid-gutter)]">
           {['mechanic-skeleton-1', 'mechanic-skeleton-2', 'mechanic-skeleton-3'].map((skeletonKey) => (
             <SkeletonCard key={skeletonKey} className="h-48" />
           ))}

@@ -1,6 +1,7 @@
 import { motion, AnimatePresence } from 'framer-motion';
 import { useRef, useMemo } from 'react';
 import PropTypes from 'prop-types';
+import { Star, Sparkles } from 'lucide-react';
 import { cn, EASING } from '../../lib/utils';
 import { useReducedMotion } from '../../hooks/useReducedMotion';
 import { getMechanicTheme } from '../../lib/mechanicTheme';
@@ -33,6 +34,30 @@ const bodyAnimation = {
     x: [-5, 5, -5],
     transition: { duration: 2, repeat: Infinity, ease: 'easeInOut' }
   },
+  // T-953 Fase 2.2 — nuevos moods.
+  // `pointRight`: gestura indexadora (subir y rotate-y), tilt-right ligero
+  // para que se sienta "señalando" sin caer en cliché de mano levantada.
+  pointRight: {
+    rotate: [0, 5, 8, 5, 0],
+    x: [0, 4, 6, 4, 0],
+    transition: { duration: 1.6, repeat: Infinity, ease: 'easeInOut' }
+  },
+  // `wobble`: oscilación micro X + opacity para "preocupación contenida".
+  // No usamos shake para no parecer error de validación.
+  wobble: {
+    x: [0, -2, 2, -2, 0],
+    opacity: [1, 0.85, 1, 0.85, 1],
+    transition: { duration: 2.4, repeat: Infinity, ease: 'easeInOut' }
+  },
+  // `pop`: respuesta de sorpresa puntual. NO usa repeat:Infinity porque
+  // el "asombro" decae rápido en la realidad — repetir lo convierte en
+  // tic visual molesto. Se reproduce una vez al cambio de mood y luego
+  // se queda quieto hasta el siguiente trigger.
+  pop: {
+    scale: [1, 1.3, 0.95, 1.05, 1],
+    rotate: [0, -4, 4, -2, 0],
+    transition: { duration: 0.7, ease: 'easeOut' }
+  },
 };
 
 const expressions = {
@@ -42,22 +67,23 @@ const expressions = {
   celebrating: { bodyAnim: 'jump' },
   thinking: { bodyAnim: 'tilt' },
   sad: { bodyAnim: 'sway' },
+  // T-953 Fase 2.2: 3 moods nuevos para más expresividad.
+  pointing: { bodyAnim: 'pointRight' },
+  worried: { bodyAnim: 'wobble' },
+  surprised: { bodyAnim: 'pop' },
 };
 
-// Mensajes revisados para vocabulario de 4-6 anos: frases cortas, directas,
-// con interrogaciones y exclamaciones claras. Se eliminan giros sintacticos
-// complejos como "Tu siguiente sera mejor" o "Todos nos equivocamos" y se
-// sustituyen por expresiones infantiles mas calidas.
-const messagePool = {
-  idle: ['¡Hola!', '¿Jugamos?', '¡Vamos!'],
-  happy: ['¡Muy bien!', '¡Eres genial!', '¡Así se hace!', '¡Qué bien!', '¡Bravo!'],
-  encouraging: ['¡Tú puedes!', '¡Ánimo!', '¡La próxima lo clavas!', '¡Sigue!'],
-  celebrating: ['¡GENIAL!', '¡INCREÍBLE!', '¡ERES UNA ESTRELLA!'],
-  thinking: ['Piensa bien…', 'Tómate tu tiempo', '¿Cuál será?'],
-  // Mensaje de aliento sin emoji — el icono "💪" rompe el look y depende
-  // de fuente del SO; el texto solo es ya cálido para 4-6 años.
-  sad: ['¡Casi!', '¡Otra vez!', '¡No pasa nada!'],
-};
+// Pool minimal de "greeting" — solo se usa cuando NO se pasa `message`
+// como prop. Esto solo ocurre en el primer render antes del primer
+// validation_result (la mascota saluda al alumno) o en las pocas
+// pantallas donde se monta sin hook (por ahora ninguna). Para los moods
+// expresivos (happy/encouraging/celebrating/sad/thinking/pointing/
+// worried/surprised), el `message` viene siempre desde
+// `useGameFeedback` con la frase de `mascotDialog.js` por mecánica
+// (T-953 Fase 2.1, sesión 2026-05-09). Mantener pools genéricos por
+// mood era código muerto: el hook ya decide la frase y nunca deja
+// `message` vacío en esos casos.
+const greetingPool = ['¡Hola!', '¿Jugamos?', '¡Vamos!'];
 
 /**
  * Mascota animada híbrida (emoji 🦉 + accesorios SVG) que acompaña al niño durante el juego.
@@ -65,15 +91,24 @@ const messagePool = {
  * La expresividad se logra con accesorios SVG superpuestos y animaciones corporales.
  *
  * @param {Object} props
- * @param {'idle' | 'happy' | 'encouraging' | 'celebrating' | 'thinking' | 'sad'} props.mood
+ * @param {'idle'|'happy'|'encouraging'|'celebrating'|'thinking'|'sad'|'pointing'|'worried'|'surprised'} props.mood
  * @param {string} props.message - Mensaje contextual en burbuja de diálogo
  * @param {'left' | 'right'} props.position
+ * @param {'memory'|'association'|'sequence'|null} props.mechanicType
+ *   Mecánica activa. Tinta el halo en estados pasivos (idle/thinking) y
+ *   selecciona el accesorio SVG mecánica-aware en estados expresivos
+ *   (thinking, celebrating).
+ * @param {boolean} [props.isFirstAppearance=false]
+ *   Cuando es true, la mascota entra deslizando lateralmente en lugar
+ *   del fade-scale habitual. Útil al montarse en GameSession por primera
+ *   vez para que el alumno note el "saludo" sin necesidad de mood nuevo.
  */
 export default function CharacterMascot({
   mood = 'idle',
   message,
   position = 'left',
   mechanicType = null,
+  isFirstAppearance = false,
   className
 }) {
   const { shouldReduceMotion } = useReducedMotion();
@@ -81,29 +116,35 @@ export default function CharacterMascot({
 
   const expr = expressions[mood];
 
-  // ADR-D: cuando la mecánica está disponible, el glow se tinta con su
-  // accent color en estados pasivos (idle/thinking) para mantener la
-  // identidad por mecánica incluso entre rondas. Para los estados
-  // expresivos (happy/celebrating/encouraging/sad) el glow propio del
-  // mood manda — son momentos de "celebración" o "consuelo" donde la
-  // mecánica pasa a segundo plano.
+  // ADR-D + T-953 Fase 2.2: cuando la mecánica está disponible, el glow
+  // se tinta con su accent color en estados pasivos (idle, thinking,
+  // pointing) para mantener la identidad por mecánica incluso entre
+  // rondas. Para los estados expresivos (happy/celebrating/encouraging/
+  // sad/worried/surprised) el glow propio del mood manda — son momentos
+  // de celebración, consuelo o sorpresa donde la mecánica pasa a
+  // segundo plano (la emoción es lo que importa).
   const mechanicGlowVar = mechanicType
     ? getMechanicTheme(mechanicType).accentVar
     : null;
   const useMechanicTintForGlow =
-    mechanicGlowVar && (mood === 'idle' || mood === 'thinking');
+    mechanicGlowVar && (mood === 'idle' || mood === 'thinking' || mood === 'pointing');
 
-  // Selecciona mensaje rotativo evitando repetir el ultimo — memoizado por mood
+  // Selecciona una frase de "greeting" rotativa SOLO cuando el caller no
+  // pasa `message` y el mood es idle. En el resto de moods, si no hay
+  // `message`, no mostramos burbuja (el hook es la fuente canónica de
+  // frases — `mascotDialog.js`). Esto evita el "AI slop" de mostrar
+  // mensajes genéricos descontextualizados cuando la mascota está en
+  // happy/encouraging/sad pero el caller olvidó pasar message.
   const rotatingMessage = useMemo(() => {
-    const pool = messagePool[mood] || messagePool.idle;
-    if (pool.length <= 1) return pool[0];
+    if (mood !== 'idle') return null;
+    if (greetingPool.length <= 1) return greetingPool[0];
     let idx;
     do {
       // eslint-disable-next-line sonarjs/pseudo-random -- seleccion aleatoria de mensaje visual, no requiere seguridad criptografica
-      idx = Math.floor(Math.random() * pool.length);
-    } while (idx === lastMsgRef.current && pool.length > 1);
+      idx = Math.floor(Math.random() * greetingPool.length);
+    } while (idx === lastMsgRef.current && greetingPool.length > 1);
     lastMsgRef.current = idx;
-    return pool[idx];
+    return greetingPool[idx];
   }, [mood]);
 
   const displayMessage = message || rotatingMessage;
@@ -144,20 +185,46 @@ export default function CharacterMascot({
         )}
       </AnimatePresence>
 
-      {/* Mascot container */}
+      {/* Mascot container — `isFirstAppearance` añade un slide lateral
+          (desde la izquierda si position=left, de la derecha si right)
+          al primer mount, para que la mascota se sienta "saludando" en
+          lugar de aparecer de la nada. Después la animación pasa al
+          loop bodyAnimation normal. */}
       <motion.div
-        animate={shouldReduceMotion ? { x: 0, y: 0, scale: 1, rotate: 0 } : bodyAnimation[expr.bodyAnim]}
+        initial={
+          shouldReduceMotion || !isFirstAppearance
+            ? false
+            : { x: position === 'right' ? 60 : -60, opacity: 0 }
+        }
+        animate={
+          shouldReduceMotion
+            ? { x: 0, y: 0, scale: 1, rotate: 0 }
+            : bodyAnimation[expr.bodyAnim]
+        }
+        transition={
+          isFirstAppearance && !shouldReduceMotion
+            ? { x: { duration: 0.6, ease: [0.16, 1, 0.3, 1] }, opacity: { duration: 0.4 } }
+            : undefined
+        }
         className="relative"
       >
-        {/* Glow effect */}
+        {/* Glow effect — un color por familia de mood:
+            celebrating/happy → warmth (warning/success),
+            encouraging      → brand soft (acompañamiento),
+            sad/worried      → warning soft / error soft (atención),
+            surprised        → accent-pink (chispa de sorpresa),
+            idle/thinking/pointing → tint mecánica si hay, gris neutro si no. */}
         <div
           className={cn(
             'absolute inset-0 rounded-full blur-xl',
             mood === 'celebrating' && 'bg-warning-base/30',
             mood === 'happy' && 'bg-success-base/20',
             mood === 'encouraging' && 'bg-brand-light/20',
+            mood === 'sad' && 'bg-warning-base/15',
+            mood === 'worried' && 'bg-error-base/15',
+            mood === 'surprised' && 'bg-accent-pink/25',
             !useMechanicTintForGlow &&
-              (mood === 'idle' || mood === 'thinking') &&
+              (mood === 'idle' || mood === 'thinking' || mood === 'pointing') &&
               'bg-text-muted/10'
           )}
           style={
@@ -190,32 +257,36 @@ export default function CharacterMascot({
             className="relative text-6xl select-none filter drop-shadow-lg"
           >
             🦉
-            {/* SVG accessory overlay */}
-            <MascotAccessory mood={mood} />
+            {/* SVG accessory overlay — mecánica-aware en `thinking`. */}
+            <MascotAccessory mood={mood} mechanicType={mechanicType} />
           </motion.div>
         </AnimatePresence>
 
-        {/* Extra decorations for celebrating */}
+        {/* Extra decorations for celebrating — antes emojis ⭐✨, ahora
+            Lucide Star/Sparkles para coherencia con el resto del design
+            system y para que el color rote con --color-warning-base. */}
         {mood === 'celebrating' && !shouldReduceMotion && (
           <>
             <motion.span
-              className="absolute -top-2 -right-2 text-xl"
+              className="absolute -top-2 -right-2 text-warning-base drop-shadow-[0_0_8px_var(--color-warning-glow)]"
               animate={{
                 scale: [0, 1, 0],
                 rotate: [0, 180, 360]
               }}
               transition={{ duration: 1, repeat: Infinity }}
+              aria-hidden="true"
             >
-              ⭐
+              <Star size={20} fill="currentColor" strokeWidth={1.25} />
             </motion.span>
             <motion.span
-              className="absolute -top-1 -left-2 text-lg"
+              className="absolute -top-1 -left-2 text-brand-light drop-shadow-[0_0_6px_var(--color-brand-glow)]"
               animate={{
                 scale: [0, 1, 0],
               }}
               transition={{ duration: 1, repeat: Infinity, delay: 0.3 }}
+              aria-hidden="true"
             >
-              ✨
+              <Sparkles size={18} fill="currentColor" strokeWidth={1.25} />
             </motion.span>
           </>
         )}
@@ -225,11 +296,16 @@ export default function CharacterMascot({
 }
 
 CharacterMascot.propTypes = {
-  mood: PropTypes.oneOf(['idle', 'happy', 'encouraging', 'celebrating', 'thinking', 'sad']),
+  mood: PropTypes.oneOf([
+    'idle', 'happy', 'encouraging', 'celebrating', 'thinking', 'sad',
+    'pointing', 'worried', 'surprised'
+  ]),
   message: PropTypes.string,
   position: PropTypes.oneOf(['left', 'right']),
   // Mecánica activa para tintar el halo en estados pasivos (ADR-D).
   // null/undefined mantiene el comportamiento histórico (gris neutro).
   mechanicType: PropTypes.oneOf(['memory', 'association', 'sequence', null]),
+  // Slide-in lateral en el primer mount (T-953 Fase 2.2).
+  isFirstAppearance: PropTypes.bool,
   className: PropTypes.string
 };

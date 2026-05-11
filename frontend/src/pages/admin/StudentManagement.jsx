@@ -531,8 +531,8 @@ export default function StudentManagement() {
   };
 
   return (
-    <motion.div 
-      className="p-6 lg:p-10 max-w-7xl mx-auto"
+    <motion.div
+      className="page-container py-[var(--space-fluid-section)]"
       variants={pageVariants}
       initial="initial"
       animate="animate"
@@ -558,7 +558,7 @@ export default function StudentManagement() {
         </ButtonPremium>
       </header>
 
-      <section className="grid grid-cols-1 md:grid-cols-4 gap-6 mb-8 items-stretch">
+      <section className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 xl:grid-cols-4 gap-[var(--space-fluid-gutter)] mb-8 items-stretch">
         <GlassCard className="p-4 flex items-center gap-4">
           <div className="size-12 rounded-xl bg-brand-base/10 text-brand-base flex items-center justify-center">
             <Users size={24} />
@@ -588,7 +588,7 @@ export default function StudentManagement() {
               variants={staggerContainer}
               initial="hidden"
               animate="show"
-              className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6"
+              className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-[var(--space-fluid-gutter)]"
             >
               {Array.from({ length: 6 }, (_, i) => `student-skeleton-${i}`).map(id => (
                 <SkeletonCard key={id} className="h-48" />
@@ -614,7 +614,7 @@ export default function StudentManagement() {
               variants={staggerContainer}
               initial="hidden"
               animate="show"
-              className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6"
+              className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-[var(--space-fluid-gutter)]"
             >
               {students.map((student) => (
                 <motion.div key={student.id || student._id} variants={staggerItem}>

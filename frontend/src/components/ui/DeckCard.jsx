@@ -349,7 +349,11 @@ function DeckCardView({
           />
         </div>
 
-        <div className="relative p-5 z-10">
+        {/* pb-20 reserva 80px al fondo para que el overlay absoluto
+            DeckHoverActions (Ver/Editar/Archivar) no tape DeckStats
+            (`X tarjetas · fecha`). El overlay aparece encima sin solaparse
+            con texto vivo (HF-2 QA 2026-05-09). */}
+        <div className="relative p-5 pb-20 z-10">
           <DeckCardHeader
             deck={deck}
             selectable={selectable}
@@ -447,10 +451,10 @@ function DeckCardHeader({
 
   return (
     <div className="flex items-start justify-between mb-4">
-      <div className="flex items-center gap-3">
+      <div className="flex items-center gap-3 min-w-0">
         <div
           className={cn(
-            'size-12 rounded-xl flex items-center justify-center bg-gradient-to-br ring-1 ring-inset',
+            'size-12 rounded-xl flex items-center justify-center bg-gradient-to-br ring-1 ring-inset flex-shrink-0',
             theme.gradientClass,
             theme.ringClass,
             theme.glowClass
@@ -458,11 +462,11 @@ function DeckCardHeader({
         >
           <Layers className="text-text-primary drop-shadow-sm" size={22} strokeWidth={2.25} />
         </div>
-        <div>
-          <h3 className="font-bold text-text-primary text-lg leading-tight line-clamp-1 font-display" title={deck.name}>
+        <div className="min-w-0">
+          <h3 className="font-bold text-text-primary text-lg leading-tight line-clamp-1 font-display truncate" title={deck.name}>
             {deck.name}
           </h3>
-          <span className={cn('text-xs font-medium', theme.textClass)}>
+          <span className={cn('text-xs font-medium truncate block', theme.textClass)}>
             {contextRef?.name || 'Sin contexto'}
           </span>
         </div>

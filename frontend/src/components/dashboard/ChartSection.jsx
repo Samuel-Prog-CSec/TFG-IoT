@@ -45,8 +45,10 @@ function ChartSection({ title, children, className, period = '7d', onPeriodChang
           )}
         </header>
         
-        {/* Chart Content */}
-        <figure aria-label={`Gráfico de ${title}`} className="flex-1 relative z-10">
+        {/* Chart Content — `min-h-0` permite que ResponsiveContainer
+            contraiga dentro del flex en alturas limitadas (evita que el
+            chart fuerce su tamaño y rompa el layout en 1366×768). */}
+        <figure aria-label={`Gráfico de ${title}`} className="flex-1 min-h-0 relative z-10">
           {children}
         </figure>
       </GlassCard>

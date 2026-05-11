@@ -146,7 +146,7 @@ export default function StudentProfile() {
   // Skeleton loading
   if (loading && !summary) {
     return (
-      <main className="p-6 lg:p-8 max-w-7xl mx-auto space-y-6">
+      <main className="page-container py-[var(--space-fluid-section)] space-y-6">
         <div className="flex items-center gap-4 pt-14 lg:pt-0">
           <SkeletonShimmer className="h-14 w-14 rounded-full" />
           <div className="space-y-2">
@@ -154,7 +154,7 @@ export default function StudentProfile() {
             <SkeletonShimmer className="h-4 w-36 rounded-md" />
           </div>
         </div>
-        <div className="grid grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-3">
+        <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-6 gap-[var(--space-fluid-gutter)]">
           {STUDENT_PROFILE_STAT_KEYS.map(key => <SkeletonStatCard key={key} />)}
         </div>
         <div className="grid grid-cols-1 lg:grid-cols-5 gap-6">
@@ -167,7 +167,7 @@ export default function StudentProfile() {
 
   if (error && !summary) {
     return (
-      <main className="p-6 lg:p-8 max-w-7xl mx-auto">
+      <main className="page-container py-[var(--space-fluid-section)]">
         <ErrorState title="Error al cargar perfil" message={error} onRetry={fetchData} />
       </main>
     );
@@ -176,7 +176,7 @@ export default function StudentProfile() {
   // Art. 21 RGPD — el tutor ha ejercido su derecho de oposición a analytics
   if (analyticsDisabled) {
     return (
-      <main className="p-6 lg:p-8 max-w-7xl mx-auto">
+      <main className="page-container py-[var(--space-fluid-section)]">
         <ButtonPremium
           variant="ghost"
           size="sm"
@@ -207,7 +207,7 @@ export default function StudentProfile() {
 
   if (!student) {
     return (
-      <main className="p-6 lg:p-8 max-w-7xl mx-auto text-center py-20">
+      <main className="page-container py-20 text-center">
         <User size={48} className="text-text-muted mx-auto mb-4" />
         <h1 className="text-xl font-bold text-text-primary">Estudiante no encontrado</h1>
         <p className="text-text-muted mt-2">No se encontraron datos para este estudiante.</p>
@@ -227,7 +227,7 @@ export default function StudentProfile() {
   return (
     <motion.section
       {...(shouldReduceMotion ? {} : crossfadeVariants)}
-      className="p-6 lg:p-8 max-w-7xl mx-auto space-y-6"
+      className="page-container py-[var(--space-fluid-section)] space-y-6"
     >
       <ChartErrorBoundary>
       {/* ═══════ HEADER ═══════ */}
@@ -280,7 +280,7 @@ export default function StudentProfile() {
         animate="visible"
         aria-label="KPIs del estudiante"
       >
-        <div className="grid grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-3 lg:gap-4">
+        <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-6 gap-[var(--space-fluid-gutter)]">
           <motion.div variants={shouldReduceMotion ? {} : listItemVariants} className="h-full">
             <StudentKPICard
               label="Puntuación Media"

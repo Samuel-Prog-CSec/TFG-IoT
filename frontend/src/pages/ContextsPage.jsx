@@ -172,7 +172,7 @@ export default function ContextsPage() {
       <motion.div
         initial={shouldReduceMotion ? false : { opacity: 0, y: -20 }}
         animate={{ opacity: 1, y: 0 }}
-        className="max-w-7xl mx-auto mb-8"
+        className="page-container mb-8"
       >
         <PageHeader
           icon={<Palette size={28} />}
@@ -192,7 +192,7 @@ export default function ContextsPage() {
         />
 
         {/* Stats globales */}
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-8">
+        <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-[var(--space-fluid-gutter)] mb-8">
           <GlassCard className="p-4 flex items-center gap-4">
             <div className="size-12 rounded-xl bg-accent-indigo/10 flex items-center justify-center">
               <Palette size={22} className="text-accent-indigo" />
@@ -249,7 +249,7 @@ export default function ContextsPage() {
       </motion.div>
 
       {/* Contenido */}
-      <div className="max-w-7xl mx-auto">
+      <div className="page-container">
         {(() => {
           if (loading) return (
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
@@ -360,7 +360,7 @@ function ContextCard({ context, onClick }) {
           </div>
         </div>
 
-        <h3 className="text-xl font-semibold text-text-primary tracking-tight mb-2 line-clamp-1">
+        <h3 className="text-xl font-semibold text-text-primary tracking-tight mb-2 line-clamp-1 truncate" title={context.name}>
           {context.name}
         </h3>
 

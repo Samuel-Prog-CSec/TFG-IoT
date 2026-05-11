@@ -3,6 +3,7 @@ import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContaine
 import PropTypes from 'prop-types';
 import ChartSection from '../dashboard/ChartSection';
 import { getRAGCSSColor as getRAGColor } from '../../constants/analyticsThresholds';
+import { ChartsThemeDefs, ThemedTooltipCard, commonAxisProps, commonGridProps } from './ChartsTheme';
 
 /**
  * Tooltip personalizado para el chart
@@ -12,7 +13,7 @@ function CustomTooltip({ active, payload }) {
   const data = payload[0].payload;
 
   return (
-    <div className="bg-background-elevated border border-border-default rounded-lg p-3 shadow-xl text-sm">
+    <ThemedTooltipCard>
       <p className="font-semibold text-text-primary mb-1">{data.name}</p>
       <p className="text-text-secondary">
         Score: <span className="font-bold tabular-nums">{Math.round(data.score)}%</span>
@@ -22,7 +23,7 @@ function CustomTooltip({ active, payload }) {
           {data.gamesPlayed ?? data.totalGames} {(data.gamesPlayed ?? data.totalGames) === 1 ? 'partida' : 'partidas'}
         </p>
       )}
-    </div>
+    </ThemedTooltipCard>
   );
 }
 
@@ -73,18 +74,13 @@ function PerformanceByDimension({ title, data, dimension = 'context' }) {
             layout="vertical"
             margin={{ top: 0, right: 20, left: 0, bottom: 0 }}
           >
-            <CartesianGrid
-              horizontal={false}
-              stroke="var(--color-border-subtle)"
-              strokeDasharray="3 3"
-            />
+            <ChartsThemeDefs />
+            <CartesianGrid {...commonGridProps} horizontal={false} />
             <XAxis
               type="number"
               domain={[0, 100]}
               ticks={[0, 25, 50, 75, 100]}
-              tick={{ fill: 'var(--color-text-muted)', fontSize: 11 }}
-              tickLine={false}
-              axisLine={false}
+              {...commonAxisProps}
             />
             {/* width aumentado de 120 a 140 para que etiquetas largas como
                 "Números del 1 al 6" o "Animales de Granja" no wrapeen en dos
@@ -93,9 +89,8 @@ function PerformanceByDimension({ title, data, dimension = 'context' }) {
               type="category"
               dataKey="name"
               width={140}
+              {...commonAxisProps}
               tick={{ fill: 'var(--color-text-secondary)', fontSize: 12 }}
-              tickLine={false}
-              axisLine={false}
               interval={0}
             />
             <Tooltip content={<CustomTooltip />} cursor={{ fill: 'rgba(255,255,255,0.03)' }} />

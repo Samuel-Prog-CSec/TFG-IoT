@@ -111,3 +111,46 @@ GameSession.jsx → useGameFeedback hook
 - Reduced motion: solo cambios de color
 - Screen reader: resultado anunciado via aria-live
 - Rachas 3+/5+: mensajes específicos de racha
+
+---
+
+## T-953 — Mascota emocional ampliada por mecánica + GameOver tier-aware (2026-05-09)
+
+Documentado en ADR-118. Resumen de cómo la sesión 2026-05-09 amplía este sistema:
+
+**Moods activos** (9 total, antes 6):
+- Existentes: `idle`, `happy`, `encouraging`, `celebrating`, `thinking`, `sad`.
+- Nuevos: `pointing` (gesto indexador), `worried` (oscilación + opacity, 5+ errores), `surprised` (pop one-shot, racha rota).
+- "Greeting" se reusa de `idle` con prop `isFirstAppearance` (slide-in lateral 600ms).
+
+**Accesorios SVG** (todos inline, ~3KB cada uno):
+- Universales: PartyHat (celebrating), SparkleEyes (happy), CheerPom (encouraging), Bandage (sad), PointFinger (pointing), WorryDrop (worried), SurpriseExclaim (surprised), Glasses (thinking fallback).
+- Mecánica-aware en `thinking`:
+  - Memory → `BookGlasses` (gafas indigo + libro).
+  - Association → `LinkPendant` (cadena cyan + eslabones).
+  - Sequence → `RhythmHeadphones` (auriculares amber + notas).
+
+**Diccionario por mecánica × evento** (`mascotDialog.js`):
+- Eventos existentes: `roundStart`, `correctAnswer`, `errorAnswer`, `timeout`, `streakReached`, `gameOverHigh|Mid|Low`.
+- Eventos nuevos: `streakBroken` (3 frases por mecánica), `worriedRebound` (3 frases), `greeting` (3 frases).
+- Memory.timeout balanceado de 2 a 3 frases.
+
+**Mecánicas de disparo en `useGameFeedback`**:
+- Acierto + streak ≥ 3 → `celebrating` + `streakReached`.
+- Acierto normal → `happy` + `correctAnswer`.
+- Error con racha previa ≥ 3 → `surprised` + `streakBroken`.
+- Error con totalErrors ≥ 5 y streak=0 → `worried` + `worriedRebound` (cooldown 8s).
+- Error puntual → `encouraging` + `errorAnswer`.
+- Timeout → `sad` + `timeout`.
+- **Micro-celebración**: cada 5 aciertos consecutivos → burst tintado mecánica sin cambiar mood.
+
+**Fix QA crítico**: `mechanicType` se lee vía `mechanicTypeRef.current` dentro del callback. Antes los listeners de socket Secuencia capturaban el `mechanicType: 'association'` inicial.
+
+**GameOver tier-aware**: la mascota se renderiza grande (escala 1.4x) en bottom-left del overlay con mood + frase derivados del tier de estrellas. El backdrop `glowB` se tinta con el accent de la mecánica (excepción: Sequence + 3⭐ usa `accent-orange` para no chocar con warning-amber del Trophy).
+
+**FeedbackOverlay per-mecánica**: copy ("¡Pareja!", "¡Conexión!", "¡Ritmo!"), iconos Lucide hero (Brain/Link2/ListOrdered), particles tintados con `accentHexFallback`. Floating elements migrados de emojis Unicode a iconos Lucide.
+
+**Sound effects** (Web Audio nativo, 0KB extra):
+- `playMascotChirp()` — pajarito greeting (E6/G6).
+- `playStreakSparkle()` — arpegio C6→C7.
+- `playGameOverFanfare(stars)` — escalado 0⭐ silencio / 1⭐ pop / 2⭐ arpegio / 3⭐ fanfare 1.5s.

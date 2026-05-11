@@ -1071,11 +1071,12 @@ Subir cobertura de tests del proyecto desde 28.9% (backend ~30%, frontend ~25%) 
 
 ---
 
-### T-953: ⚛️ Charts paleta de marca + mascota emocional ampliada + GameOver expresivo 📋
+### T-953: ⚛️ Charts paleta de marca + mascota emocional ampliada + GameOver expresivo ✅
 
 **Consolida:** PROP-66 + PROP-67 + PROP-74
 **Prioridad:** P1 | **Tamaño:** XL (> 2 días) | **Dependencias:** Ninguna
 **Origen:** Charts genéricos (anti-AI-slop), GameOver funcional pero no emocional, mascota ya existe pero infrautilizada (solo GameOver actual)
+**Estado:** Implementado en `feature/ui-features-and-signature` (2026-05-09). Audit T-951 previo cerrado en `T951_Audit.md` (ADR-116). Implementación T-953 documentada en ADRs 117 (ChartsTheme) y 118 (mascota max craft + GameOver expresivo + FeedbackOverlay per-mecánica). Sesión QA navegada por la IA con Docker + Playwright detectó y corrigió en vivo el closure stale de `mechanicType` en listeners socket (B-1, fix con `mechanicTypeRef`). 355/355 tests frontend, 0 lint errors. Capturas: `frontend/qa-capturas-T951-audit/` (19) + `frontend/qa-capturas-T953/` (18). Findings: `T953_QA_Findings.md`.
 
 **Descripción:**
 Tres mejoras de signature visual y feedback emocional que aprovechan la mascota ya existente (`CharacterMascot.jsx`, `MascotAccessory.jsx`):

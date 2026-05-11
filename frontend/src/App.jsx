@@ -15,6 +15,7 @@ import ProtectedRoute from './components/auth/ProtectedRoute';
 import GuestRoute from './components/auth/GuestRoute';
 import RequireRole from './components/auth/RequireRole';
 import AppLayout from './components/layout/AppLayout';
+import GameLayout from './components/layout/GameLayout';
 import ErrorBoundary from './components/common/ErrorBoundary';
 import { ROUTES } from './constants/routes';
 import RFIDModeHandler from './components/game/RFIDModeHandler';
@@ -179,7 +180,9 @@ function AppContent() {
         </Route>
 
         {/* RUTAS DE JUEGO */}
-        <Route path="/game/:sessionId" element={<ProtectedRoute><SuspenseWrapper><GameSession /></SuspenseWrapper></ProtectedRoute>} />
+        <Route path="/game" element={<ProtectedRoute><GameLayout /></ProtectedRoute>}>
+          <Route path=":sessionId" element={<SuspenseWrapper><GameSession /></SuspenseWrapper>} />
+        </Route>
 
         {/* FALLBACK — 404 standalone para usuarios sin sesión.
             Los catch-all dentro de los layouts protegidos cubren a los autenticados. */}
@@ -203,7 +206,12 @@ function ThemeAwareToaster() {
   // ligera personalización (border y blur) que aplica en ambos.
   return (
     <Toaster
-      position="top-right"
+      // bottom-right libera el top-right para el ThemeToggle de auth
+      // (Login, Register) que necesita estar visible en el primer
+      // plano de visión del usuario al entrar a la app — fix QA
+      // 2026-05-10. El bottom-right también queda fuera del flujo de
+      // lectura del docente y reserva el área principal a contenido.
+      position="bottom-right"
       expand={false}
       richColors
       closeButton

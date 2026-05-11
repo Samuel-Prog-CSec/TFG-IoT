@@ -254,6 +254,39 @@
       transform: translateX(6px);
     }
   }
+
+  /* === TIPOGRAFÍA FLUIDA (clamp(min, vw, max)) ===
+     Tokens nuevos consumibles como text-fluid-*. Coexisten con text-Nxl
+     de Tailwind para no obligar a migrar todo el código. Solo se usan en
+     sitios que escalan agresivamente (heroes, scores, page titles). */
+  --text-fluid-xs:   clamp(0.75rem,  0.7rem  + 0.25vw, 0.875rem);
+  --text-fluid-sm:   clamp(0.875rem, 0.82rem + 0.3vw,  1rem);
+  --text-fluid-base: clamp(1rem,     0.94rem + 0.3vw,  1.125rem);
+  --text-fluid-lg:   clamp(1.125rem, 1.04rem + 0.4vw,  1.375rem);
+  --text-fluid-xl:   clamp(1.375rem, 1.2rem  + 0.7vw,  1.875rem);
+  --text-fluid-2xl:  clamp(1.625rem, 1.35rem + 1.2vw,  2.5rem);
+  --text-fluid-3xl:  clamp(1.875rem, 1.45rem + 1.8vw,  3.5rem);
+  --text-fluid-hero: clamp(2.25rem,  1.5rem  + 3vw,    5rem);
+
+  /* === SPACING FLUIDO (containers, gaps grandes) ===
+     Solo para márgenes/padding de página y gaps de grids principales.
+     Spacing pequeño (gap-2/gap-3) se mantiene Tailwind. */
+  --space-fluid-section: clamp(1rem,    0.5rem + 2vw,   2rem);
+  --space-fluid-gutter:  clamp(0.75rem, 0.4rem + 1.5vw, 1.5rem);
+
+  /* === ALTURAS DE CHROME (gameplay) ===
+     Fórmulas con pendiente aditiva para que escalen suave dentro del
+     rango típico de portátiles (768-1080px alto, 1366-1920px ancho).
+     Sin la pendiente, el clamp quedaba siempre en el mínimo a 1366×768. */
+  --game-hud-height:  clamp(56px, 4vh + 24px, 80px);
+  --game-mascot-size: clamp(72px, 6vw + 32px, 128px);
+
+  /* === DEFENSIVOS === */
+  --min-touch-target: 44px;
+
+  /* === SIDEBAR (consumido por AppLayout y pseudo-fondo) === */
+  --sidebar-w-expanded: 18rem; /* 288px (w-72 actual) */
+  --sidebar-w-rail: 4.5rem;    /* 72px */
 }
 
 /* ============================================
@@ -674,6 +707,80 @@
   backdrop-filter: none;
 }
 
+/* Signature de cuaderno en la sidebar (light): línea roja vertical en
+   el borde izquierdo recordando el margen del cuaderno escolar — es la
+   misma firma que usa la AuthBackground.
+
+   Sólo en light, sólo en sidebar expanded (>w-rail) y solo desktop
+   (≥lg). En modo rail (~72px ancho), la línea distrae más que aporta
+   y se anula. */
+[data-theme="light"] aside.lg\:sticky::after {
+  content: '';
+  position: absolute;
+  top: 24px;
+  bottom: 24px;
+  left: 0;
+  width: 2px;
+  background: linear-gradient(
+    180deg,
+    transparent 0%,
+    oklch(45% 0.18 25 / 0.30) 12%,
+    oklch(45% 0.18 25 / 0.45) 50%,
+    oklch(45% 0.18 25 / 0.30) 88%,
+    transparent 100%
+  );
+  pointer-events: none;
+}
+
+/* Cuando la sidebar está en modo rail (compact), no queremos la línea */
+[data-theme="light"] aside.lg\:sticky[style*="4.5rem"]::after {
+  display: none;
+}
+
+/* Cards de la app en light: por defecto los `bg-background-elevated` van
+   sobre fondo papel marfil y el contraste es bajo. Subimos la sombra
+   inset y añadimos una micro-banda inferior degradada para reforzar la
+   sensación de "carta de papel" sin necesidad de cambiar todos los
+   componentes. Sólo se aplica a clases con `glass-card-gradient` o que
+   tengan la utility `auth-card`. */
+
+/* Hover sweep sutil para KPI cards y otros elementos clickables — un
+   "scanline" rápido que simula el barrido del lector RFID. Opt-in con
+   la clase `.rfid-hover` para no aplicarlo en cualquier card. */
+.rfid-hover {
+  position: relative;
+  overflow: hidden;
+}
+
+.rfid-hover::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: -100%;
+  width: 60%;
+  height: 100%;
+  background: linear-gradient(
+    90deg,
+    transparent 0%,
+    color-mix(in oklab, var(--color-brand-base) 18%, transparent) 50%,
+    transparent 100%
+  );
+  pointer-events: none;
+  transition: left 0.6s cubic-bezier(0.22, 1, 0.36, 1);
+  z-index: 1;
+}
+
+.rfid-hover:hover::before {
+  left: 140%;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .rfid-hover::before {
+    transition: none !important;
+    display: none;
+  }
+}
+
 /* `game-bg` con variante light — el dark usa gradient negro→morado oscuro;
    el light usa gradient cielo-amanecer (marfil→lavanda muy diluido) que
    conserva el dramatismo del juego sin caer en negro o blanco crudo. */
@@ -711,6 +818,16 @@
     opacity: 0;
     transform: scale(0.96) translateY(-4px);
   }
+}
+
+/* Container estándar de página: ancho útil sin tocar bordes, padding fluido.
+   Sustituye usos previos de `max-w-7xl mx-auto px-6 py-8` repetidos. */
+@utility page-container {
+  /* max-width descuenta los dos paddings fluidos para evitar bleed.
+     A 360px viewport: 360 - 2*16 = 328px útiles (padding 16px lado).
+     A 1920px viewport: 1920 - 2*32 = 1856px (cap 1600px). */
+  @apply mx-auto w-full px-[var(--space-fluid-section)];
+  max-width: min(1600px, calc(100vw - 2 * var(--space-fluid-section)));
 }
 
 /* ------------------------------------------------------------------
@@ -761,4 +878,328 @@
 
 .penalty-range:focus-visible {
   box-shadow: 0 0 0 3px rgba(239, 68, 68, 0.3);
+}
+
+/* ============================================
+   🪪 AUTH BACKGROUND — Constelación de tarjetas RFID
+   --------------------------------------------
+   Escena visual signature de Login y Register. Dos estéticas
+   completamente distintas por tema (no son "swap de colores"):
+
+   - Dark = "Sala de control" del docente: rejilla técnica,
+     glow cromático, scanline barrida cada 7 s, tarjetas
+     glass con borde de marca.
+   - Light = "Mesa del aula": papel marfil con margen de
+     cuaderno, tarjetas como recortes de cartulina con
+     sombras de papel y washi-tape, cero scanline.
+
+   Las custom properties --card-tint y --card-tint-alt vienen
+   inline desde el componente — aquí se usan para personalizar
+   borde/glow por contexto pedagógico (Geo, Numbers, etc).
+   ============================================ */
+
+/* Capa 1 — Atmósfera base */
+.auth-bg-base {
+  background: radial-gradient(
+    ellipse 80% 60% at 30% 30%,
+    var(--color-background-elevated) 0%,
+    var(--color-background-base) 70%
+  );
+}
+
+[data-theme="light"] .auth-bg-base {
+  background:
+    /* mancha de tinta (top-right) */
+    radial-gradient(
+      ellipse 35% 45% at 80% 20%,
+      oklch(60% 0.16 300 / 0.07) 0%,
+      transparent 60%
+    ),
+    /* base papel marfil */
+    linear-gradient(
+      180deg,
+      var(--color-background-deep) 0%,
+      var(--color-background-base) 100%
+    );
+}
+
+/* Capa 2 — Rejilla técnica (dark) o líneas de cuaderno (light) */
+.auth-bg-grid {
+  background-image:
+    linear-gradient(var(--color-border-default) 1px, transparent 1px),
+    linear-gradient(90deg, var(--color-border-default) 1px, transparent 1px);
+  background-size: 64px 64px;
+  opacity: 0.08;
+  mask-image: radial-gradient(
+    ellipse 90% 70% at 50% 40%,
+    black 0%,
+    transparent 75%
+  );
+}
+
+[data-theme="light"] .auth-bg-grid {
+  /* En light, las líneas de cuaderno son más visibles y horizontales,
+     reforzando la metáfora de papel rayado. La línea vertical de
+     margen (la del cuaderno escolar) sólo aparece a la izquierda. */
+  background-image:
+    linear-gradient(
+      to bottom,
+      transparent 0,
+      transparent 31px,
+      oklch(50% 0.06 260 / 0.06) 31px,
+      oklch(50% 0.06 260 / 0.06) 32px
+    );
+  background-size: 32px 32px;
+  opacity: 1;
+  mask-image: linear-gradient(180deg, transparent 0%, black 12%, black 88%, transparent 100%);
+}
+
+[data-theme="light"] .auth-bg-grid::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 84px;
+  width: 1.5px;
+  background: oklch(45% 0.18 25 / 0.18); /* línea de margen rojo cuaderno */
+}
+
+/* Capa 3 — Aurora glow (orbes contextuales) */
+.auth-bg-glow-orb {
+  position: absolute;
+  border-radius: 9999px;
+  filter: blur(120px);
+  opacity: 0.45;
+  mix-blend-mode: screen;
+}
+
+.auth-bg-glow-orb-1 {
+  width: 36rem;
+  height: 36rem;
+  top: -8rem;
+  left: -6rem;
+}
+
+.auth-bg-glow-orb-2 {
+  width: 28rem;
+  height: 28rem;
+  bottom: -6rem;
+  right: -4rem;
+  opacity: 0.35;
+}
+
+.auth-bg-glow-orb-3 {
+  width: 20rem;
+  height: 20rem;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  opacity: 0.18;
+}
+
+[data-theme="light"] .auth-bg-glow-orb {
+  filter: blur(140px);
+  opacity: 0.18;
+  mix-blend-mode: multiply;
+}
+
+[data-theme="light"] .auth-bg-glow-orb-1 {
+  opacity: 0.22;
+}
+
+[data-theme="light"] .auth-bg-glow-orb-2 {
+  opacity: 0.14;
+}
+
+[data-theme="light"] .auth-bg-glow-orb-3 {
+  opacity: 0.10;
+}
+
+/* Capa 4 — Tarjetas individuales de la constelación */
+.auth-card {
+  background: linear-gradient(
+    155deg,
+    color-mix(in oklab, var(--card-tint) 18%, var(--color-background-elevated)) 0%,
+    var(--color-background-elevated) 60%
+  );
+  border: 1px solid color-mix(in oklab, var(--card-tint) 35%, var(--color-border-default));
+  box-shadow:
+    0 12px 32px oklch(0% 0 0 / 0.45),
+    0 0 24px color-mix(in oklab, var(--card-tint) 25%, transparent),
+    inset 0 1px 0 oklch(100% 0 0 / 0.08);
+  /* Sutil scanline interno propio de cada tarjeta */
+  position: relative;
+  overflow: hidden;
+}
+
+.auth-card::after {
+  /* Scanline propio que pasa cada 5 s — refuerza la firma
+     "Tactile RFID" sin animar layout. */
+  content: '';
+  position: absolute;
+  left: -10%;
+  right: -10%;
+  height: 22%;
+  top: -22%;
+  background: linear-gradient(
+    180deg,
+    transparent 0%,
+    color-mix(in oklab, var(--card-tint) 25%, transparent) 50%,
+    transparent 100%
+  );
+  pointer-events: none;
+  animation: auth-card-scan 5s ease-in-out infinite;
+}
+
+.auth-card-tape {
+  position: absolute;
+  top: -4px;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 60px;
+  height: 12px;
+  background: color-mix(in oklab, var(--card-tint) 70%, transparent);
+  border-radius: 2px;
+  box-shadow: inset 0 -2px 4px oklch(0% 0 0 / 0.18);
+  opacity: 0.0; /* sólo light */
+}
+
+[data-theme="light"] .auth-card {
+  background: oklch(99.5% 0.005 80);
+  border: 1px solid color-mix(in oklab, var(--card-tint) 30%, oklch(20% 0.02 260 / 0.16));
+  box-shadow:
+    0 6px 18px color-mix(in oklab, var(--card-tint) 18%, oklch(20% 0.02 260 / 0.10)),
+    0 2px 6px oklch(20% 0.02 260 / 0.06);
+}
+
+[data-theme="light"] .auth-card::after {
+  display: none; /* sin scanline en light — papel mate */
+}
+
+[data-theme="light"] .auth-card-tape {
+  opacity: 0.85; /* washi-tape sólo en light */
+}
+
+@keyframes auth-card-scan {
+  0% { transform: translateY(0); opacity: 0; }
+  20% { opacity: 0.7; }
+  80% { opacity: 0.7; }
+  100% { transform: translateY(700%); opacity: 0; }
+}
+
+/* Capa 5 — Scanline horizontal global (sólo dark) */
+.auth-bg-scanline {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background: linear-gradient(
+    180deg,
+    transparent 0%,
+    color-mix(in oklab, var(--color-brand-base) 20%, transparent) 50%,
+    transparent 100%
+  );
+  height: 8%;
+  opacity: 0;
+  animation: auth-scanline-sweep 8s ease-in-out infinite;
+}
+
+[data-theme="light"] .auth-bg-scanline {
+  display: none; /* fuera del lenguaje "papel" */
+}
+
+@keyframes auth-scanline-sweep {
+  0% { top: -10%; opacity: 0; }
+  10% { opacity: 0.45; }
+  90% { opacity: 0.45; }
+  100% { top: 110%; opacity: 0; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .auth-bg-scanline,
+  .auth-card::after {
+    animation: none !important;
+    opacity: 0 !important;
+  }
+}
+
+/* Capa 6 — RFID wave en footer (concéntricas) */
+.auth-bg-wave {
+  position: absolute;
+  left: 50%;
+  bottom: -12rem;
+  width: 24rem;
+  height: 24rem;
+  transform: translateX(-50%);
+  pointer-events: none;
+  background:
+    radial-gradient(circle at center,
+      transparent 38%,
+      color-mix(in oklab, var(--color-brand-base) 22%, transparent) 39%,
+      transparent 41%
+    ),
+    radial-gradient(circle at center,
+      transparent 52%,
+      color-mix(in oklab, var(--color-accent-cyan) 18%, transparent) 53%,
+      transparent 55%
+    ),
+    radial-gradient(circle at center,
+      transparent 66%,
+      color-mix(in oklab, var(--color-accent-indigo) 14%, transparent) 67%,
+      transparent 69%
+    );
+  filter: blur(0.4px);
+  opacity: 0.7;
+}
+
+[data-theme="light"] .auth-bg-wave {
+  opacity: 0.35;
+}
+
+/* ============================================
+   🪪 AUTH FORM CARD — borde superior con tinte de marca
+   --------------------------------------------
+   Sustituye el GlassCard genérico de Login/Register por un
+   contenedor con identidad: una "barra de marca" arriba
+   (signature visual) y una sombra mejorada por tema.
+   ============================================ */
+.auth-form-card {
+  position: relative;
+  border-radius: 1.5rem;
+  background: var(--color-background-elevated);
+  border: 1px solid var(--color-border-default);
+  box-shadow:
+    var(--shadow-lg),
+    inset 0 1px 0 oklch(100% 0 0 / 0.06);
+  overflow: hidden;
+}
+
+.auth-form-card::before {
+  /* Barra superior con gradient de marca — la "tinta púrpura" del producto */
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 3px;
+  background: linear-gradient(
+    90deg,
+    var(--color-accent-cyan) 0%,
+    var(--color-brand-base) 35%,
+    var(--color-accent-pink) 75%,
+    var(--color-accent-amber) 100%
+  );
+  opacity: 0.95;
+}
+
+[data-theme="light"] .auth-form-card {
+  background: oklch(100% 0 0);
+  border: 1px solid color-mix(in oklab, var(--color-brand-base) 12%, var(--color-border-default));
+  box-shadow:
+    0 18px 50px oklch(20% 0.02 260 / 0.16),
+    0 4px 14px oklch(20% 0.02 260 / 0.08);
+}
+
+[data-theme="light"] .auth-form-card::before {
+  height: 4px;
+  opacity: 0.85;
 }

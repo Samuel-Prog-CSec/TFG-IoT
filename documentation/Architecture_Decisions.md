@@ -6361,3 +6361,436 @@ Centros existentes con usuarios que completaron el onboarding antiguo:
 - `documentation/Microcopy_Style_Guide.md` — 7 principios + ejemplos.
 - ADR-069 (a11y crítica), ADR-070 (motion signature Tactile + Paper), ADR-088 (cuarto bloque QA pre-v0.5.0) — bases sobre las que T-951 construye.
 
+## ADR-116: Audit T-951 pre-T-953 + corrección de doc Onboarding [Frontend, UX, Docs]
+
+**Contexto**: T-951 (tema light/dark, atajos, onboarding) quedó marcada como completada pero sin auditoría formal. Antes de T-953 (charts theme + mascota max craft + GameOver expresivo) — que construye encima de la mascota y el sistema de tema — se ejecutó auditoría navegada por la IA (no delegada) en Docker + Playwright a 1920×1080 cubriendo las 12 pantallas clave en LIGHT y DARK por separado, con la premisa: "light y dark son dos UIs distintas, no variantes".
+
+**Decisiones**:
+- **0 críticos / 0 serios encontrados.** Theme switching, atajos, onboarding y privacy se comportan según ADR-115.
+- **D-1 corregido inline**: `documentation/Onboarding_Tracks.md` decía 6 pasos teacher pero código tiene 7 (paso `Wand2 - Tres mecánicas, tres asistentes` añadido entre 4 y 5). Doc actualizada.
+- **V-1, V-2 diferidas a T-953**: heatmaps con celdas vacías sin patrón (`bg-stripe-diagonal` ya existe pero no se usa), Distribución de Rendimiento con tiers vacíos sin label "0". Se incorporan al plan T-953 cuando se toque charts/heatmaps, no como re-trabajo de T-951.
+- **V-3, V-4 aceptadas como decisión de diseño**: aurora light intencionalmente sutil (opacity 0.16 + multiply blend para no saturar el papel marfil), sombras light sutiles (alpha 10/14/18% coherente con metáfora "papel").
+- **FP-1 descartado**: el "0" entre el botón y el link de registro en Login era la letra "o" del separador "o" con `font-display tracking-widest text-xs` — confusión tipográfica, no bug.
+
+**Riesgos**: ninguno bloqueante para T-953.
+
+**Verificación**: `documentation/T951_Audit.md` con 19 capturas en `frontend/qa-capturas-T951-audit/` (login, dashboard, sessions, decks, contexts, insights, students, atajos overlay, onboarding 3 pasos, privacy, ambos temas).
+
+---
+
+## ADR-117: Sistema de tema canónico para charts Recharts (`ChartsTheme`) [Frontend]
+
+**Contexto**: cada chart de la app definía sus propios `<defs>`, gradients, tooltips inline y tokens de ejes. La consecuencia era inconsistencia visual sutil (tooltips ligeramente distintos por chart, ejes con tipografía dispar) y cero patterns colorblind-safe en heatmaps. T-953 Fase A pide un sistema unificado para charts.
+
+**Decisiones**:
+- Nuevo módulo `frontend/src/components/analytics/ChartsTheme.jsx` con cinco primitivos:
+  1. **`<ChartsThemeDefs />`** — componente que dropa `<defs>` global con 7 gradients (brand, memory, association, sequence, success, warning, error + área brand vertical) y 3 patterns colorblind-safe (diagonal, dots, dashed) + pattern para celdas "sin datos" en heatmaps.
+  2. **`chartColors`** — paletas tokenizadas por mecánica (`memory/association/sequence`) y por semántica (`brand/success/warning/error/info/muted`) que resuelven a `var(--color-*)` y exponen `{stroke, fill, gradientId}`.
+  3. **`chartTokens`** — tokens compartidos para grid, ejes, tooltip bg y patterns.
+  4. **`<ThemedTooltipCard>`** — wrapper canónico con `bg-background-elevated/95 border border-border-default rounded-lg shadow-xl backdrop-blur` reutilizable por todos los charts.
+  5. **`commonAxisProps` y `commonGridProps`** — props pre-spread para `<XAxis>`, `<YAxis>`, `<CartesianGrid>`.
+- **Migración de 4 charts** a este sistema sin tocar la UI de los componentes contenedores: `TrajectoryChart`, `EngagementRadar`, `SequenceProgressChart`, `PerformanceByDimension`. `TrajectoryChart` ahora usa `url(#chart-gradient-brand)` para que la línea progreso suba de izquierda a derecha visualmente.
+- **2 charts nuevos pequeños creados**:
+  - `StudentProgressSparkline` (~80px alto, sin ejes ni tooltip, sólo tendencia) para incrustar en cards densas.
+  - `DifficultyBar` (CSS puro, no Recharts) con barra horizontal + RAG color + `bg-stripe-diagonal` colorblind-safe en valores `<50%`.
+- Los 4 charts no migrados (`ContentEffectivenessMatrix`, `ActivityHeatmap`, `AlertsHub`, `LearningCurvesSection`) son CSS-based o tienen su propio sistema; se mantendrán como están salvo demanda futura.
+
+**Riesgos**: la migración cambia el `gradient-id` consumido — si código externo referenciaba el viejo `#sequenceLine`, fallará. **Mitigación**: ese id era exclusivo del propio `SequenceProgressChart`, no se usa fuera.
+
+**Verificación**:
+- `npm test --run`: 355/355 frontend OK.
+- `npm run lint`: 0 errors.
+- Visual: TrajectoryChart en LIGHT con gradient brand purple visible (cap. 21 audit T-951), `EngagementRadar` con accent-cyan en LIGHT y DARK.
+
+---
+
+## ADR-118: Mascota max craft (T-953 Fases B + C) — moods nuevos, dialect por mecánica, GameOver tier-aware, FeedbackOverlay per-mecánica [Frontend, UX]
+
+**Contexto**: T-953 amplía la mascota como signature emocional del producto antes del freeze v1.0.0. Las metas (decididas con el usuario):
+- Mascota más expresiva por mecánica (gestos + estados + frases).
+- GameOver con escalera 1/2/3 estrellas que acopla mood + frase + tinte mecánica.
+- FeedbackOverlay per-mecánica con copy/iconos/colores propios.
+- "Light y dark son dos UIs distintas" — toda decisión de signature se valida en ambos temas.
+
+**Decisiones**:
+
+### B.1 — Limpieza de deuda
+
+- **Borrado**: `frontend/src/hooks/useMascotReactions.js` y su test — hook completo y testeado pero **nunca consumido** en producción. Era código muerto que duplicaba la API de mascota con `useGameFeedback`. Plan agent R1.
+- **Limpieza**: 3 ocurrencias de `mechanicType: 'sequence'` en payload de `processValidationResult` desde `GameSession.jsx` (Secuencia) — el closure del hook ya tiene `mechanicType` por prop, era redundante (Plan agent R5).
+- **Cleanup `messagePool`**: el dict interno de `CharacterMascot.jsx` solo conserva `greetingPool` (3 frases idle). Si el caller no pasa `message` y mood ≠ idle, no se muestra burbuja — el hook es la fuente canónica de frases.
+
+### B.2 — 3 nuevos moods + greeting via trigger
+
+- **`pointing`**: gestura indexadora (`pointRight` keyframe: rotate + x oscilando). Glow tintado mecánica (idle/thinking/pointing comparten esta excepción).
+- **`worried`**: oscilación micro x + opacity (`wobble` keyframe). Glow `bg-error-base/15`.
+- **`surprised`**: pop one-shot (`pop` keyframe: scale [1, 1.3, 0.95, 1.05, 1]). Glow `bg-accent-pink/25`. NO `repeat: Infinity` — el "asombro" decae rápido en la realidad.
+- **`greeting`**: NO mood nuevo. Reusa `idle` con prop `isFirstAppearance` que añade slide-in lateral 600ms al primer mount (mascota saludando).
+
+### B.3 — Accesorios SVG mecánica-aware en `thinking`
+
+- `BookGlasses` (Memory): gafas indigo + libro abierto debajo.
+- `LinkPendant` (Association): cadena cyan con eslabones entrelazados + animación rotate.
+- `RhythmHeadphones` (Sequence): auriculares amber + notas musicales saltando.
+- Para `pointing/worried/surprised` — accesorios universales nuevos: `PointFinger`, `WorryDrop` (gota azul info), `SurpriseExclaim` (signo exclamación pink).
+- Implementación: `getAccessory(mood, mechanicType)` se reescribió como `renderAccessory()` que devuelve JSX directamente para evitar la regla lint `react-hooks/static-components`.
+
+### B.4 — `mascotDialog.js` ampliado
+
+- Nueva clave por mecánica: `streakBroken` (3 frases) — para mood `surprised` cuando una racha >=3 se rompe.
+- Nueva clave: `worriedRebound` (3 frases) — para mood `worried` cuando totalErrors >=5 y streak=0.
+- Nueva clave: `greeting` (3 frases) — disponible para callers que quieran disparar saludo explícito.
+- **Balance**: `MEMORY_DIALOG.timeout` pasa de 2 a 3 frases para no saturar el loop visual.
+
+### B.5 — `useGameFeedback.js` extendido + fix QA
+
+- Detección de `surprised`: `previousStreak >= 3 && !isCorrect && !isTimeoutResult` → mood `surprised` + frase `streakBroken`.
+- Detección de `worried`: `totalErrors >= 5 && streak === 0` con cooldown 8s para no saturar.
+- **Micro-celebraciones**: cada 5 aciertos consecutivos (sin reset) dispara `fireBurst({ colors: mechanicTheme.accentHexFallback })` SIN cambiar mood. Skip si `streak === 3` (no duplicar con el confetti grande de `streakReached`).
+- **Fix QA crítico (B-1 en T953_QA_Findings)**: `mechanicType` se lee ahora vía `mechanicTypeRef.current` dentro del callback. Sin esto, los listeners de socket de Secuencia capturaban el `mechanicType: 'association'` inicial (default de `useState` en `GameSession.jsx`) y la mascota hablaba con el diccionario equivocado durante toda la partida — síntoma observado: "¡Decídete!" (Asociación) en partidas de Secuencia.
+
+### B.6 — Sound effects kid-friendly
+
+- `playMascotChirp()` — dos picos cortos agudos (E6/G6) que evocan un pajarito (la mascota es 🦉).
+- `playStreakSparkle()` — arpegio rápido C6-E6-G6-C7.
+- `playGameOverFanfare(stars)` — escalado: 0⭐ silencio, 1⭐ 2 notas, 2⭐ arpegio C-E-G-C, 3⭐ fanfare completa C-E-G-C-E-G-C.
+- Cero dependencias nuevas: extiende `soundEffectsService.js` (Web Audio API nativo) — Plan agent R2.
+
+### B.7 — Mascota en EmptyState + Onboarding
+
+- **`EmptyState`**: nueva prop opcional `mascot?: ReactNode` (mutuamente exclusiva con `illustration`/`icon`). Renderizada en bloque hero centrado con altura reservada para que la burbuja no se recorte.
+- **`OnboardingOverlay`**: en `ModalStep` se incrusta `<CharacterMascot>` en bottom-left del card con mood derivado del paso (`mascotForStep`):
+  - Step 1 (bienvenida) → `idle` con `isFirstAppearance: true` y burbuja "¡Hola!".
+  - Último step → `celebrating` con "¡Vamos!".
+  - Resto modales → `pointing` con fragmento del título (≤ 22 chars) o "Mira aquí".
+- En `SpotlightStep` no se añade mascota — el tooltip apuntador ya cumple la función "mira aquí".
+
+### C.1 — `GameOverScreen` integración mascota tier-aware (Plan agent R3 + R6)
+
+- Mapping tier → mood + tier para `pickMascotMessage`:
+  - 0⭐ → `worried` + frase `gameOverLow`.
+  - 1⭐ → `encouraging` + frase `gameOverMid`.
+  - 2⭐ → `happy` + frase `gameOverMid` (el mood diferencia los dos tiers).
+  - 3⭐ → `celebrating` + frase `gameOverHigh`.
+- **Tinte mecánica solo en `glowB` del backdrop** (no en Icon/star color, que siguen `tier`):
+  - Memory → `--color-accent-indigo` 22% color-mix in oklab.
+  - Association → `--color-accent-cyan`.
+  - Sequence → `--color-accent-orange`.
+  - **Excepción**: Sequence + 3⭐ → forzamos `--color-accent-orange` (en vez de amber) para alejar visualmente del Trophy warning amarillo.
+- **Confetti tintado por mecánica**: `fireSuccess({ colors })` y `fireFireworks(2000, { colors })` reciben `[hex, '#ffffff', hex]` derivado de `mechanicTheme.accentHexFallback`.
+- **Fanfare audible**: `playGameOverFanfare(stars)` se dispara con timeout 250ms.
+- **A11y (Plan agent R6)**: la mascota grande tiene `aria-hidden="true"` para que VoiceOver no anuncie dos veces el mismo título; el dialog mantiene `aria-labelledby` y `aria-describedby`. Posicionada bottom-left del overlay (no del card) con escala 1.4x. Solo visible `>=md` (no satura mobile).
+
+### C.2 — `useConfetti` acepta `colors` por llamada (Plan agent R4)
+
+- `fireSuccess(options)`, `fireFireworks(durationMs, options)`, `fireBurst(options)` y `fireFromElement(element, options)` aceptan ahora `colors` opcional. Default sigue siendo `BRAND_COLORS`.
+- Memoización de la paleta en el caller (con `useMemo`) evita invalidar deps del callback al cambiar mecánica.
+
+### C.3 — `FeedbackOverlay` per-mecánica (Fase 3)
+
+- Nueva prop `mechanicType` opcional. Tabla `MECHANIC_FEEDBACK[mechanicType]` selecciona icono Lucide hero (Brain/Link2/ListOrdered en success por mecánica), copy ("¡Pareja!", "¡Conexión!", "¡Ritmo!") y `textClass` por accent.
+- Fallback genérico (PartyPopper/Flame) cuando no hay mechanicType.
+- Particles tintadas por mecánica via `fireBurst({ colors: [hex, '#ffffff'] })`.
+- **Floating elements**: emojis Unicode (`⭐`, `🌟`, `✨`, `💫`, `🎊`) reemplazados por iconos Lucide (`Sparkles`, `Star`) tintados con `textClass`. Coherente con design system, sin dependencia de fuentes del SO.
+
+**Riesgos** (mitigados):
+- R1 (deuda muerta): borrar `useMascotReactions` no rompe nada — confirmado vía grep + tests.
+- R2 (sound libs): extender Web Audio existente, cero deps nuevas.
+- R3 (colisión color): excepción Sequence 3⭐ documentada.
+- R4 (colors prop): pasa por parámetro, no por hook.
+- R5 (`mechanicType` redundante): limpiado.
+- R6 (a11y double-announce): mascota `aria-hidden`.
+- **Bundle**: ~+27KB de SVG inline si todos los accesorios cargan a la vez. Conditional render por mecánica activa mitiga.
+
+**Verificación**:
+- `npm test --run`: **355/355 frontend OK** (33 test files iniciales + 1 nuevo de tests T-953 al validar; -2 por borrar `useMascotReactions.test.js`).
+- `npm run lint`: **0 errors**, 23 warnings preexistentes.
+- **QA navegada por la IA** (`T953_QA_Findings.md`): bug crítico B-1 detectado y corregido durante la sesión, 18 capturas en `frontend/qa-capturas-T953/`. Asociación in-game + GameOver tier 0 verificados con mascota worried + WorryDrop + frases del pool nuevo. Secuencia post-fix muestra "¡Tu turno!" del pool correcto.
+
+### Referencias
+
+- `documentation/T953_QA_Findings.md` — sesión QA navegada con 18 capturas y triaje de findings.
+- ADR-105 (mascota viva), ADR-D (glow tintado por mecánica), ADR-115 (T-951 base).
+- Plan agent risks R1-R6 (`C:\Users\Samuel\.claude\plans\hola-estamos-en-la-magical-wilkes.md`).
+
+---
+
+## ADR-119: Sistema responsive — fluid scaling, sidebar rail y GameLayout [Frontend]
+
+- **Fecha**: 2026-05-09
+- **Estado**: Aceptado
+- **Alcance**: Frontend.
+
+### Contexto
+
+La app se desarrolló desktop-first asumiendo viewports ≥1920px (BenQ RD280U 4K del usuario). Al desplegarla en portátiles (1366×768 típico del tribunal del TFG) la UI se rompía:
+
+- Sidebar de 288px ahogaba el contenido (~21% del ancho útil ocupado por navegación).
+- Grids saltaban de 2 a 4 columnas sin paso intermedio (Dashboard `lg:grid-cols-4`).
+- `GameOverScreen` con `text-5xl` (64px) ocupaba ~100px de altura, modal `max-w-md` rígido.
+- `GameSession` con `h-dvh overflow-hidden` ignoraba viewport real (~640px alto útil tras cromo del navegador).
+- `MemoryGameplayPanel` skeleton `grid-cols-4` fijo.
+- `ActivityHeatmap` con `min-w-[400px]` forzaba scroll horizontal sin wrapper visible.
+- `StudentProfile` con `xl:grid-cols-6` quedaba a ~140px por celda en 1366px.
+
+El tribunal del TFG va a probar la app en sus portátiles. Una primera impresión rota es inaceptable.
+
+### Decisión
+
+1. **Resoluciones objetivo**: 1366×768 (mínimo) → 4K. Mobile <640px fuera de alcance (sensor RFID por USB).
+2. **Estrategia técnica**: tokens fluidos `clamp()` en `index.css` (`@theme`) + breakpoints discretos para layout. Tokens nuevos:
+   - `--text-fluid-{xs,sm,base,lg,xl,2xl,3xl,hero}` con `clamp(min, vw, max)`.
+   - `--space-fluid-{section,gutter}` con `clamp()` para padding y gap principales.
+   - `--game-hud-height: clamp(56px, 4vh + 24px, 80px)`, `--game-mascot-size: clamp(72px, 6vw + 32px, 128px)`.
+   - `--sidebar-w-{expanded,rail}` (18rem / 4.5rem).
+3. **Sidebar 3 estados** controlados por hook `useSidebarMode`:
+   - `<lg` (≤1023px) → drawer animado.
+   - `lg-xl` (1024-1439px) → rail 72px con tooltips.
+   - `≥xl` (≥1440px) → expandida 288px.
+   - Toggle manual con tecla `[` y botón `PanelLeft`/`PanelLeftClose`. Persistencia en `localStorage` (`sidebar:mode = auto|compact|expanded`).
+4. **`GameLayout` independiente**: rutas `/game/*` montan `GameLayout` (`h-[100dvh] w-screen overflow-hidden bg-game`) en lugar de `AppLayout`. Sin sidebar, botón "X" arriba-derecha + tecla `Escape` con confirmación si `globalThis.__gameActive` está activo.
+5. **Escalera estándar de grids**:
+   - KPIs/cards principales: `grid-cols-1 sm:grid-cols-2 md:grid-cols-3 xl:grid-cols-4`.
+   - Layouts de detalle (sidebar + main): `grid-cols-1 lg:grid-cols-2 xl:grid-cols-3`.
+   - Galerías de assets: `grid-cols-3 sm:grid-cols-4 md:grid-cols-5 lg:grid-cols-6`.
+6. **Utility `page-container`** en `index.css`:
+   ```css
+   @utility page-container {
+     @apply mx-auto w-full px-[var(--space-fluid-section)];
+     max-width: min(1600px, calc(100vw - 2 * var(--space-fluid-section)));
+   }
+   ```
+   Aplicada a 8 páginas teacher principales (Dashboard, Sessions, Decks, Students, etc.).
+7. **Migración tipográfica selectiva**: heroes y page titles (`Login`, `Register`, `Dashboard greeting`, `GameSession "¡Hora de Jugar!"`, `GameOverScreen score`) migrados a `text-fluid-*`. El resto de tipografía permanece en clases Tailwind discretas.
+8. **Charts Recharts** estandarizados: alturas con `clamp(220px, 30vh, 360px)`, `<Tooltip wrapperStyle={{ maxWidth: '90vw' }}/>`, `EngagementRadar` con `aspect-square`. `ChartSection` con `min-h-0` para que `ResponsiveContainer` contraiga.
+9. **`ConfirmationModal`** con `max-w-[min(560px,92vw)] max-h-[88dvh] overflow-y-auto custom-scrollbar`.
+10. **`ActivityHeatmap`**: wrapper con `overflow-x-auto custom-scrollbar` y `min-w-[320px]` (antes 400px).
+
+### Consecuencias
+
+**Positivas:**
+- En 1366×768 con sidebar rail, el contenido pasa de ~1078px → ~1294px de ancho útil (+216px, +20%).
+- Tipografía y spacing escalan suavemente entre 1366 y 1920+ sin saltos bruscos.
+- Gameplay maximiza superficie visible para el alumno (sin sidebar/topbar robando espacio).
+- 8 páginas principales centralizadas en `page-container` simplifican mantenimiento.
+- Sistema de tokens fluidos disponible para futuras pantallas sin re-trabajo.
+
+**Limitaciones/aprendizajes:**
+- **Tailwind v4 NO permite override de breakpoints vía custom property en `@theme`**: declarar `--breakpoint-md: 900px` no genera la media query con 900px (Tailwind v4 los compila en build time, no en runtime). Mantenidos los breakpoints default de Tailwind. La escalera `1→sm:2→md:3→xl:4` con `md=768` sigue siendo correcta.
+- El umbral de la sidebar `auto→expanded` quedó en 1440px (no 1280px del plan inicial) para que 1366×768 vea rail. Documentado en `useSidebarMode.js`.
+- `useIsMobile(1024)` permanece para componentes legacy que solo necesitan binario mobile/desktop. Convivirá con `useSidebarMode` hasta su deprecación natural.
+
+### Referencias
+
+- Spec: `docs/superpowers/specs/2026-05-09-responsive-overhaul-design.md`.
+- Plan: `docs/superpowers/plans/2026-05-09-responsive-overhaul.md`.
+- Memoria: `feedback_desktop_first.md`, `feedback_light_dark_two_aesthetics.md`, `feedback_qa_session_self_navigated.md`, `feedback_branch_grouping.md`, `feedback_skip_baseline_preflight.md`.
+- QA: `qa-capturas-responsive-overhaul/HALLAZGOS.md` + capturas (1366×768 y 1920×1080, ambos temas).
+- ADR-069 (a11y), ADR-070 (motion signature), ADRs 085-088 (refinamientos UI previos).
+
+
+## ADR-120: Rediseño Login + Register con escena signature "Constelación de tarjetas RFID" [Frontend, UX]
+
+**Fecha:** 2026-05-10
+**Estado:** Aprobado · implementado en `feature/ui-features-and-signature`
+**Alcance:** Frontend (Login, Register, AuthBackground, index.css)
+
+### Contexto
+
+Tras la sesión QA `feature/ui-features-and-signature` (2026-05-10) la pantalla de Login y Register seguía siendo el punto más débil de la calidad UI/UX:
+
+1. Layout 50/50 plano hero/form con aurora de tres orbes que aparecía en AppLayout, GameSession y aquí — no era una "firma de auth", era un patrón global poco distintivo (anti-AI-slop pendiente).
+2. En monitores 1920+/4K, el espacio entre logo, headline, lista de features y form se sentía vacío. El form ocupaba <300px de altura en una columna de 800px+ → "white space sin propósito".
+3. Light y dark eran prácticamente la misma estética con paleta intercambiada. La promesa "dos UIs distintas, no un toggle de color" (memoria `feedback_light_dark_two_aesthetics.md`) no se cumplía aquí.
+4. Cero firma identitaria: cualquier app de auth genérica hubiera servido. Ningún elemento decía "esta es la app de tarjetas RFID para profesores de infantil/primer ciclo de primaria".
+
+### Decisión
+
+Reemplazar el aurora-layer + grid genérico por una nueva escena visual **`AuthBackground`** con dos estéticas radicalmente distintas por tema y una metáfora central: las tarjetas RFID que el alumnado tocará en clase.
+
+#### Componente nuevo: `AuthBackground.jsx`
+
+Vive en `frontend/src/components/auth/AuthBackground.jsx`. Renderiza seis capas superpuestas:
+
+1. **Atmósfera base** (`auth-bg-base`): radial gradient de elevation en dark; en light es papel marfil con una mancha de tinta púrpura sutil en la esquina superior derecha.
+2. **Rejilla técnica** (`auth-bg-grid`): grid 64×64 puntos con mask radial en dark; en light se transforma en líneas horizontales de cuaderno escolar (32px) con una **línea de margen rojo** vertical a 84px del borde — la firma del cuaderno español de toda la vida.
+3. **Aurora glow** (`auth-bg-glow`): tres orbes contextuales con tints de los temas pedagógicos (Geo, Colors, Numbers). Mix-blend `screen` en dark, `multiply` en light para evitar manchas grises.
+4. **Constelación de tarjetas** (`ConstellationCard`): cinco tarjetas RFID con icono Lucide del contexto (Globe2, Shapes, Dog, Hash, Palette), drift suave (translateY ±12px loop 9s) y rotación leve (-16° a +10°). En dark son glass con scanline propio cada 5s; en light son **cartulina con washi-tape** arriba (truco visual: span absoluto con `box-shadow inset` que sólo aparece via CSS en `[data-theme="light"]`).
+5. **Scanline horizontal global** (`auth-bg-scanline`): banda fina con gradient brand que barre el viewport cada 8s — sólo en dark. `prefers-reduced-motion: reduce` la anula completamente.
+6. **RFID wave footer** (`auth-bg-wave`): tres anillos concéntricos tenues en el centro inferior — refuerza la firma del lector.
+
+La variant `register` flippea horizontalmente la constelación (`scale-x-[-1]`) para que Login y Register se sientan como "dos páginas de un mismo libro".
+
+#### Refactor Login.jsx + Register.jsx
+
+- **Layout**: 50/50 → **7/5** (`grid-cols-12` con hero `col-span-7` y form `col-span-5`). El hero tiene más respiro y el form deja de sentirse perdido en una columna gigante.
+- **Hero**: lista vertical de 3 features → tres **chips horizontales** con icono Lucide que ocupan menos espacio vertical. El protagonismo pasa al headline tipográfico fluido (`var(--text-fluid-hero)`, clamp(2.25rem, 1.5rem + 3vw, 5rem)) con dos líneas de impacto: "Acerca el cartón. Suceden cosas." (Login) y "Tu primer mazo, en cinco minutos." (Register).
+- **Form card**: `<GlassCard>` → **`auth-form-card`** (utility nueva), con una **barra superior de marca** (cyan→brand→pink→amber) de 3-4px que actúa como firma visual del producto en el contenedor.
+- **`Register`** mantiene el orden "form a la izquierda, hero a la derecha" via `lg:order-1/2` para que el cerebro del docente recuerde el cambio espacial entre las dos pantallas. Los pasos numerados ("Rellena tus datos / La dirección revisa / Empieza a jugar") usan un **número grande tipográfico** (3xl tabular-nums) en lugar de círculo numerado, reforzando el lenguaje editorial.
+
+#### Utility CSS nueva: `.rfid-hover`
+
+Sweep de "scanline" sobre cualquier elemento clickable: un gradient horizontal con `color-mix(in oklab, brand-base 18%, transparent)` que cruza el contenedor en hover (600ms ease-out). Aplicada inicialmente a `StatCard` (KPIs del Dashboard) — es el guiño "este es un lector RFID, todo se siente táctil" en cards no relacionados directamente con gameplay.
+
+#### Sidebar light: línea de margen rojo
+
+`[data-theme="light"] aside.lg\:sticky::after` añade una línea vertical de 2px en el borde izquierdo con gradient rojo (`oklch(45% 0.18 25 / 0.30→0.45→0.30`). Es el mismo motivo del cuaderno escolar de la `AuthBackground` — extiende la firma "papel" al resto de la app cuando el usuario está autenticado en light. Se anula automáticamente en modo rail (sidebar contraída) porque distrae más que aporta.
+
+#### Charts visibility: `StudentProgressChart` light fix
+
+El gradient `colorScore` del Area chart usaba `0.4 → 0` que sobre papel marfil quedaba lavado y casi invisible. Migrado a tres stops: `0.55 → 0.18 → 0`. En dark el área se sigue percibiendo similar (porque el background-elevated absorbe la diferencia); en light gana presencia tangible.
+
+#### Anti-AI-slop: GameOverScreen sin emojis
+
+`floatingStars` usaba estrellas-emoji (dependientes de la fuente del SO, mezclando estilos de Apple/Microsoft/Noto). Migrado a Lucide `Star`, `Sparkles`, `Sparkle` con `fill="currentColor"` y rotación en animate (90°/-90°). Coherencia con resto del design system.
+
+### Consecuencias
+
+**Positivas:**
+- Login y Register comunican **lo que hace EduPlay** sin necesidad de leer la tagline. Las cinco tarjetas RFID con sus iconos de contexto son la firma que ningún clon de auth genérico tendría.
+- Dark = "sala de control del docente" (técnico, scanline, glow); Light = "mesa del aula" (papel marfil, washi-tape, línea roja de margen). Cumple `feedback_light_dark_two_aesthetics.md`.
+- El espacio en monitores grandes deja de sentirse vacío: hero crece a 7/12 cols con headline fluido grande, las tarjetas pueblan los rincones evitando el centro despejado para texto, los chips compactan los proof points.
+- A 1366×768 sigue funcionando: tarjetas escaladas con `clamp(100px, 8vw, 140px)`, hero columna no toca form, breakpoint `lg` pasa a stack mobile sin romper nada.
+- `prefers-reduced-motion: reduce` desactiva drift de tarjetas, scanline global y sweep `.rfid-hover` — accesibilidad WCAG 2.3.3 cubierta.
+- `.rfid-hover` y la línea de margen `aside::after` son hooks de firma reusables: cualquier card o componente puede sumarse al lenguaje sin reescribirse.
+- 0 errores lint, 355/355 tests frontend, build OK (24 chunks, mismos tamaños — Login y Register son lazy-loaded, no impactan al index).
+
+**Limitaciones / aprendizajes:**
+- Las tarjetas de la constelación se posicionan por % del viewport; cuando la columna hero es muy alta (>1200px) las tarjetas inferiores pueden quedar parcialmente fuera de viewport. Aceptado: la composición prioriza monitores estándar 1366-1920px de alto.
+- En Playwright, `localStorage.removeItem` previo a `goto` puede hacer que el script-inline de boot lea `auto` y aplique tema según `prefers-color-scheme` del browser — capturas iniciales se tomaron en light por accidente. Documentado.
+- `auth-card-tape` (washi-tape de light) es opacity 0 en dark: la banda existe en todos los temas pero sólo se activa visualmente en light. Trade-off para no duplicar markup.
+
+### Archivos afectados
+
+**Nuevos:**
+- `frontend/src/components/auth/AuthBackground.jsx` — escena signature.
+
+**Modificados:**
+- `frontend/src/pages/Login.jsx` — refactor completo del layout, headline, proof points, form card.
+- `frontend/src/pages/Register.jsx` — espejo simétrico con pasos numerados.
+- `frontend/src/index.css` — utilities `auth-bg-*`, `auth-card`, `auth-card-tape`, `auth-form-card`, `.rfid-hover`, sidebar light `::after`.
+- `frontend/src/components/dashboard/StatCard.jsx` — añade clase `rfid-hover`.
+- `frontend/src/components/dashboard/StudentProgressChart.jsx` — gradient fill multi-stop para visibilidad en light.
+- `frontend/src/components/game/GameOverScreen.jsx` — emojis estrella → Lucide Star/Sparkles/Sparkle.
+
+### Referencias
+
+- Memoria: `feedback_desktop_first.md`, `feedback_light_dark_two_aesthetics.md`, `feedback_qa_session_self_navigated.md`.
+- ADR-070 (Motion signature Tactile+Paper) — leitmotiv que aquí se materializa con la escena auth.
+- ADR-115 (Tema light + onboarding T-951) — base de tokens light que esta ADR explota.
+- ADR-119 (Responsive overhaul) — sidebar rail y tokens fluidos consumidos.
+- QA: `qa-tarea-final/FINAL-login-{dark,light}.png`, `qa-tarea-final/FINAL-register-{dark,light}.png`, `qa-tarea-final/01-08-*` (capturas previas al rediseño para comparativa).
+
+## ADR-121: Polish post-rediseño Login/Register + page transitions direccionales + anti-AI-slop gameplay [Frontend, UX]
+
+**Fecha:** 2026-05-10
+**Estado:** Aprobado · implementado en `feature/ui-features-and-signature`
+**Alcance:** Frontend (AuthBackground, Login, Register, PrivacyPage, AppLayout, MemoryBoard, ChallengeDisplay, CharacterMascot, useNavigationDirection)
+
+### Contexto
+
+Tras ADR-120 (rediseño Login/Register con escena `AuthBackground`), el usuario reportó tres bugs visibles + dos work items diferidos que pidió cerrar antes de mover.
+
+**Bugs encontrados:**
+1. **Login** — la animación de "scan ring" alrededor de la tarjeta Geo aparecía descuadrada respecto al icono Globe2 (las ondas pulsaban en una posición distinta al centro de la tierra).
+2. **Register** — la constelación de tarjetas estaba flippeada con `scale-x-[-1]` lo que también invertía el contenido (logo, label, chip RFID), dejándolos ilegibles.
+3. **PrivacyPage** — el `ThemeToggle` desapareció (nunca lo tuvo, pero el usuario lo esperaba por paridad con Login/Register tras T-951).
+
+**Diferidos cerrados:**
+4. Polish 3 mecánicas (Memoria, Asociación, Secuencia) — anti-AI-slop pendiente.
+5. Page transitions con direccionalidad — la transición fade-up actual no comunicaba dirección espacial.
+
+### Decisión
+
+#### Bug 1 — Scan ring del Login alineado al icono
+
+`ScanRing` ahora recibe la `position` exacta de la tarjeta Geo (variant-aware: en register usa `right` en lugar de `left`) y centra los anillos sobre el icono Globe2 mediante un wrapper interno con `left:50% top:50% transform:translate(-50%,-50%)`. Los anillos pulsan con `scale: 0.85 → 1.4 → 1.8` y opacidad `0 → 0.55 → 0` sobre 3 segundos × 3 anillos staggerados a 1s. El borderColor consume `var(--color-theme-geography)` para tema-aware.
+
+#### Bug 2 — Register sin flip que invierte texto
+
+Reemplazado `<div className={flipped ? 'scale-x-[-1]' : ''}>` por una transformación de coordenadas en runtime:
+
+```jsx
+const mirroredStyle = flipped
+  ? { top: card.style.top, right: card.style.left }
+  : card.style;
+const mirroredRotate = flipped ? -card.rotate : card.rotate;
+```
+
+Las tarjetas viven en el lado opuesto del viewport (left ↔ right) y la rotación se invierte signo (-8° pasa a +8°), pero su contenido (icono, label, chip, washi-tape) sigue legible normalmente. La sensación visual de "espejo" se mantiene; la legibilidad se recupera.
+
+#### Bug 3 — ThemeToggle en Privacy + más prominente en Login/Register
+
+- **PrivacyPage**: añadido `<ThemeToggle compact />` al header sticky junto al link "Iniciar sesion". El header pasó a `gap-3` y el copy "Iniciar sesion" se oculta en breakpoint `<sm` para evitar wrap.
+- **Login + Register**: el `<ThemeToggle />` flotante en `bottom-6 right-6` se envolvió en un wrapper sólido (`bg-background-elevated/85 backdrop-blur-md border border-border-default shadow-md rounded-2xl px-2 py-1.5`). Antes era un control transparente sobre la escena AuthBackground y se confundía con el fondo — el usuario lo percibió como "removido". Ahora destaca como una card claramente actionable.
+- **Test**: `PrivacyPage.test.jsx` mockea `useTheme` para que el render no requiera envolver con `ThemeProvider` en cada test.
+
+#### Item 4 — Anti-AI-slop en gameplay
+
+Sustituidos restos de Unicode/emoji por iconos Lucide:
+- **`MemoryBoard.jsx`** — el `<span>✦</span>` (Unicode "Black Four Pointed Star") en la cara trasera de las cartas pasa a `<Sparkle size={28} fill-white/30 strokeWidth=1.5/>` (Lucide). Mantiene el estilo "logo de baraja" pero con tinte controlado.
+- **`ChallengeDisplay.jsx`** — el placeholder `'❓'` cuando no hay imagen se sustituye por `<HelpCircle/>` con el color del tema activo. El `<span>✨</span>` decorativo de las cuatro esquinas se cambia por `<Sparkles size={20} fill="currentColor"/>` con `text-brand-light/70`.
+- **`CharacterMascot.jsx`** — los emojis `⭐` y `✨` en la decoración de `mood='celebrating'` migran a `<Star fill="currentColor"/>` con `text-warning-base drop-shadow-warning-glow` y `<Sparkles fill="currentColor"/>` con `text-brand-light drop-shadow-brand-glow`.
+- **`GameBackdrop.jsx`** — se mantiene con emojis (decisión documentada: cross-platform consistency + 0 bytes bundle, decoración no semántica de fondo, usuarios reconocen 🌍🐾 etc por contexto pedagógico).
+
+#### Item 5 — Page transitions direccionales
+
+Nuevo hook `frontend/src/hooks/useNavigationDirection.js`:
+
+- Lee `useNavigationType()` de React Router 7 — distingue `PUSH` / `REPLACE` / `POP`.
+- Mantiene un stack de `pathname+search` en `sessionStorage` (max 16 entradas).
+- Si la nueva ruta coincide con el penúltimo elemento del stack durante un `POP` → `'back'`. En cualquier otro caso → `'forward'`. `REPLACE` se trata como `'replace'` (sin desplazamiento).
+- Primer mount siempre devuelve `'forward'` para no animar el fade-in inicial como retroceso.
+
+`AppLayout.jsx` consume el hook y modifica el `initial` del `motion.div` que envuelve `<Outlet/>`:
+
+```jsx
+initial={(() => {
+  if (shouldReduceMotion) return false;
+  if (navDirection === 'back')    return { opacity: 0, x: -12, y: 4 };
+  if (navDirection === 'replace') return { opacity: 0, y: 4 };
+  return /* forward */            { opacity: 0, x: 12, y: 4 };
+})()}
+animate={{ opacity: 1, x: 0, y: 0 }}
+```
+
+Forward (PUSH) entra desde la derecha (+12px), back (POP atrás) entra desde la izquierda (-12px), replace solo fadea. El offset es pequeño (12px, no 100%) para que no compita con la lectura — sólo refuerza la dirección espacial. Wrapper con `overflow-x-clip` evita scroll horizontal durante la transición.
+
+### Consecuencias
+
+**Positivas:**
+- El scan ring del Login cae sobre la tierra; ya no parece un bug visual.
+- Register se lee perfectamente; la simetría con Login se mantiene gracias a la inversión de coordenadas y rotación.
+- ThemeToggle deja de ser invisible: el wrapper card en auth + el placement en header de Privacy lo elevan visualmente.
+- Anti-AI-slop sigue progresando: el design system se aproxima a "0 emojis decorativos en chrome" (excepción consciente: GameBackdrop por trade-off bundle/identidad).
+- Page transitions direccionales dan **lectura espacial** al docente: ir hacia `/sessions/:id` desde lista parece "entrar"; volver al listado parece "salir". El offset es discreto pero el cerebro lo percibe.
+- `useNavigationDirection` queda como hook reutilizable para futuras transiciones más expresivas (ej: shared element transitions, parallax scroll).
+- Tests: 355/355 pasan tras añadir mock de `useTheme` en `PrivacyPage.test.jsx`. Lint 0 errores. Build OK.
+
+**Limitaciones / aprendizajes:**
+- `useNavigationType` no puede distinguir POP-atrás de POP-adelante perfectamente; si el usuario hace forward via botón del navegador y la ruta nueva no estaba en el stack, se trata como forward (correcto la mayoría del tiempo).
+- El stack en `sessionStorage` se pierde al cerrar pestaña — la primera transición tras reabrir no tendrá histórico. Aceptable: es un nice-to-have, no crítico.
+- `scale-x-[-1]` para flippear escenas con texto es un anti-patrón — apuntar en docs internas que se prefiere mirroring de coordenadas.
+
+### Archivos afectados
+
+**Nuevos:**
+- `frontend/src/hooks/useNavigationDirection.js`.
+
+**Modificados:**
+- `frontend/src/components/auth/AuthBackground.jsx` — ScanRing alineado, Register sin flip.
+- `frontend/src/pages/Login.jsx` — wrapper card del ThemeToggle.
+- `frontend/src/pages/Register.jsx` — wrapper card del ThemeToggle.
+- `frontend/src/pages/PrivacyPage.jsx` — import + render `<ThemeToggle compact/>` en header.
+- `frontend/src/pages/__tests__/PrivacyPage.test.jsx` — mock de `useTheme`.
+- `frontend/src/components/layout/AppLayout.jsx` — import + uso de `useNavigationDirection` para `initial` del Outlet.
+- `frontend/src/components/game/MemoryBoard.jsx` — `✦` → Lucide `Sparkle`.
+- `frontend/src/components/game/ChallengeDisplay.jsx` — `❓` → Lucide `HelpCircle`, `✨` → Lucide `Sparkles`.
+- `frontend/src/components/game/CharacterMascot.jsx` — `⭐ ✨` (mood celebrating) → Lucide `Star`/`Sparkles`.
+
+### Referencias
+
+- ADR-120 (rediseño base Login/Register) — esta ADR cierra los bugs de su entrega.
+- ADR-070 (Motion signature Tactile+Paper).
+- ADR-119 (Responsive overhaul) — sidebar rail compatible con `useNavigationDirection`.
+- QA: `qa-tarea-final/FINAL-v2-login-dark.png`, `FINAL-v2-register-dark.png`, `FINAL-v2-privacy-dark.png`.

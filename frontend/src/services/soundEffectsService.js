@@ -140,6 +140,79 @@ class SoundEffectsService {
     ], 0.25);
   }
 
+  // ============================================================
+  // T-953 Fase 2.6 — sonidos kid-friendly de la mascota
+  // ============================================================
+
+  /**
+   * "Chirp" de la mascota cuando saluda al alumno o aparece en la UI
+   * (greeting, primer mount). Dos picos cortos y agudos que evocan un
+   * pajarito (la mascota es un búho 🦉 y el sonido refuerza la
+   * identidad sin necesidad de voz humana grabada).
+   */
+  playMascotChirp() {
+    this._playSequence([
+      { freq: 1320, dur: 0.06, type: 'sine' }, // E6
+      { freq: 1568, dur: 0.08, type: 'sine' }, // G6
+    ], 0.15);
+  }
+
+  /**
+   * "Sparkle" cuando se alcanza una racha o se desbloquea una
+   * micro-celebración (cada 5 aciertos consecutivos). Arpegio rápido
+   * en escala mayor para reforzar el "subiendo".
+   */
+  playStreakSparkle() {
+    this._playSequence([
+      { freq: 1047, dur: 0.05, type: 'sine' }, // C6
+      { freq: 1319, dur: 0.05, type: 'sine' }, // E6
+      { freq: 1568, dur: 0.05, type: 'sine' }, // G6
+      { freq: 2093, dur: 0.08, type: 'sine' }, // C7
+    ], 0.18);
+  }
+
+  /**
+   * Fanfare de fin de juego escalado según estrellas obtenidas. La
+   * intensidad y duración crecen con el tier para que la pantalla
+   * GameOver suene proporcional al rendimiento del alumno.
+   *
+   *  - 0⭐ → silencio (no celebrar fracasos).
+   *  - 1⭐ → pop suave de un par de notas.
+   *  - 2⭐ → arpegio C-E-G-C de duración media.
+   *  - 3⭐ → fanfare completa C-E-G-C-E-G-C ascendente y final largo.
+   *
+   * @param {number} stars — 0..3
+   */
+  playGameOverFanfare(stars) {
+    if (!this._enabled || !Number.isFinite(stars) || stars <= 0) return;
+    if (stars === 1) {
+      this._playSequence([
+        { freq: 523, dur: 0.12 },  // C5
+        { freq: 659, dur: 0.18 },  // E5
+      ], 0.22);
+      return;
+    }
+    if (stars === 2) {
+      this._playSequence([
+        { freq: 523, dur: 0.1 },   // C5
+        { freq: 659, dur: 0.1 },   // E5
+        { freq: 784, dur: 0.1 },   // G5
+        { freq: 1047, dur: 0.2 },  // C6
+      ], 0.28);
+      return;
+    }
+    // 3 estrellas — fanfare más rica.
+    this._playSequence([
+      { freq: 523, dur: 0.08 },    // C5
+      { freq: 659, dur: 0.08 },    // E5
+      { freq: 784, dur: 0.08 },    // G5
+      { freq: 1047, dur: 0.08 },   // C6
+      { freq: 1319, dur: 0.1 },    // E6
+      { freq: 1568, dur: 0.1 },    // G6
+      { freq: 2093, dur: 0.3 },    // C7 (largo final)
+    ], 0.32);
+  }
+
   dispose() {
     if (this._ctx) {
       this._ctx.close();

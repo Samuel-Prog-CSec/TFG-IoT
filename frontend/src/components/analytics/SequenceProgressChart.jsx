@@ -22,6 +22,14 @@ import {
 } from 'recharts';
 import { ListOrdered } from 'lucide-react';
 import GlassCard from '../ui/GlassCard';
+import {
+  ChartsThemeDefs,
+  ThemedTooltipCard,
+  chartColors,
+  chartTokens,
+  commonAxisProps,
+  commonGridProps,
+} from './ChartsTheme';
 
 const formatShortDate = iso => {
   if (!iso) return '';
@@ -37,7 +45,7 @@ function CustomTooltip({ active, payload, label }) {
   if (!active || !payload || payload.length === 0) return null;
   const point = payload[0].payload;
   return (
-    <div className="rounded-lg bg-background-elevated/95 border border-border-default px-3 py-2 text-xs shadow-lg backdrop-blur">
+    <ThemedTooltipCard className="text-xs">
       <p className="font-semibold text-text-primary">{label}</p>
       <p className="text-accent-amber font-display">
         Mejor secuencia: <span className="font-bold">{point.maxLength}</span> cartas
@@ -47,7 +55,7 @@ function CustomTooltip({ active, payload, label }) {
           Completadas: <span className="text-text-primary">{point.sequencesCompleted}</span>
         </p>
       )}
-    </div>
+    </ThemedTooltipCard>
   );
 }
 
@@ -88,29 +96,23 @@ function SequenceProgressChart({ data = [], height = 240, showLegend = true, tit
       <div style={{ width: '100%', height }}>
         <ResponsiveContainer>
           <LineChart data={points} margin={{ top: 10, right: 16, left: 0, bottom: 0 }}>
-            <defs>
-              <linearGradient id="sequenceLine" x1="0" y1="0" x2="1" y2="0">
-                <stop offset="0%" stopColor="var(--color-accent-amber, #f59e0b)" stopOpacity={0.9} />
-                <stop offset="100%" stopColor="var(--color-accent-amber, #f59e0b)" stopOpacity={0.6} />
-              </linearGradient>
-            </defs>
-            <CartesianGrid stroke="var(--color-border-subtle, rgba(255,255,255,0.08))" strokeDasharray="3 3" />
-            <XAxis dataKey="date" stroke="var(--color-text-muted, #94a3b8)" tick={{ fontSize: 11 }} />
+            <ChartsThemeDefs />
+            <CartesianGrid {...commonGridProps} />
+            <XAxis dataKey="date" {...commonAxisProps} />
             <YAxis
-              stroke="var(--color-text-muted, #94a3b8)"
-              tick={{ fontSize: 11 }}
+              {...commonAxisProps}
               allowDecimals={false}
               domain={[0, 'auto']}
             />
             <Tooltip content={<CustomTooltip />} />
-            {showLegend && <Legend wrapperStyle={{ fontSize: 11, color: 'var(--color-text-muted, #94a3b8)' }} />}
+            {showLegend && <Legend wrapperStyle={{ fontSize: chartTokens.axisTickFontSize, color: chartTokens.legendFill }} />}
             <Line
               type="monotone"
               dataKey="maxLength"
               name="Longitud máxima"
-              stroke="url(#sequenceLine)"
+              stroke={`url(#${chartColors.byMechanic.sequence.gradientId})`}
               strokeWidth={2.5}
-              dot={{ r: 3, fill: 'var(--color-accent-amber, #f59e0b)' }}
+              dot={{ r: 3, fill: chartColors.byMechanic.sequence.fill }}
               activeDot={{ r: 5 }}
             />
           </LineChart>

@@ -777,7 +777,7 @@ export default function SessionsPage() {
 
   return (
     <div
-      className="p-6 lg:p-8 max-w-7xl mx-auto"
+      className="page-container py-[var(--space-fluid-section)]"
     >
       <div className="flex flex-col gap-6">
         <PageHeader

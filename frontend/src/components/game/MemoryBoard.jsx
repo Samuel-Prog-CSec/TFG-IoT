@@ -7,7 +7,7 @@
 import { useState, useEffect, useMemo } from 'react';
 import { motion } from 'framer-motion';
 import PropTypes from 'prop-types';
-import { Heart } from 'lucide-react';
+import { Heart, Sparkle } from 'lucide-react';
 import { cn } from '../../lib/utils';
 import { useReducedMotion } from '../../hooks/useReducedMotion';
 import FloatingPointsBadge from './FloatingPointsBadge';
@@ -243,13 +243,15 @@ export default function MemoryBoard({ board, feedbackState, feedbackPoints, feed
                   />
                   {/* Marco interno decorativo */}
                   <div className="absolute inset-1.5 rounded-md border border-white/20" aria-hidden="true" />
-                  {/* Marca central sutil */}
-                  <span
-                    className="relative text-2xl font-display font-bold text-white/80 drop-shadow-[0_1px_3px_rgba(0,0,0,0.4)]"
+                  {/* Marca central sutil — Lucide Sparkle (antes Unicode ✦
+                      que dependía de la fuente del SO). El fill+stroke white
+                      con drop-shadow le da peso de "logo de baraja". */}
+                  <Sparkle
+                    size={28}
+                    strokeWidth={1.5}
+                    className="relative text-white/85 drop-shadow-[0_1px_3px_rgba(0,0,0,0.4)] fill-white/30"
                     aria-hidden="true"
-                  >
-                    ✦
-                  </span>
+                  />
                 </div>
                 {/* Cara frontal (contenido).
                     aria-hidden cuando la carta NO esta abierta para evitar que el

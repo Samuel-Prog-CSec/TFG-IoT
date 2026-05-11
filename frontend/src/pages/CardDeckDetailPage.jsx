@@ -145,7 +145,7 @@ export default function CardDeckDetailPage() {
     return (
       <div className="p-6 lg:p-8 max-w-6xl mx-auto space-y-6">
         <SkeletonCard className="h-28" />
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+        <div className="grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-3 gap-[var(--space-fluid-gutter)]">
           <SkeletonCard className="lg:col-span-2 h-64" />
           <SkeletonCard className="h-64" />
         </div>
@@ -216,7 +216,7 @@ export default function CardDeckDetailPage() {
             </span>
           </div>
 
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-[var(--space-fluid-gutter)]">
             <div className="bg-accent-indigo/10 rounded-xl p-4">
               <div className="flex items-center gap-2 text-text-muted">
                 <CreditCard size={16} className="text-accent-indigo" />

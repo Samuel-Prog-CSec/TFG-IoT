@@ -99,7 +99,7 @@ const renderDecksGrid = ({ decks, shouldReduceMotion, handleViewDeck, handleEdit
   const wrapperVariants = buildDeckCardWrapperVariants(shouldReduceMotion);
   return (
     <motion.div
-      className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6"
+      className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-[var(--space-fluid-gutter)]"
       variants={shouldReduceMotion ? {} : listContainerVariants(0.04)}
       initial={shouldReduceMotion ? false : "hidden"}
       animate="visible"
@@ -433,7 +433,7 @@ export default function CardDecksPage() {
   });
 
   return (
-    <div className="p-6 lg:p-8 max-w-7xl mx-auto">
+    <div className="page-container py-[var(--space-fluid-section)]">
       <PageHeader
         icon={<Layers size={20} />}
         iconClassName="size-10 bg-gradient-to-br from-accent-indigo to-brand-base text-text-primary"
@@ -490,7 +490,7 @@ export default function CardDecksPage() {
         initial={shouldReduceMotion ? false : { opacity: 0, y: 10 }}
         animate={{ opacity: 1, y: 0 }}
         transition={{ delay: shouldReduceMotion ? 0 : 0.08 }}
-        className="grid grid-cols-3 gap-3 mb-5"
+        className="grid grid-cols-2 sm:grid-cols-3 gap-3 mb-5"
       >
         <GlassCard className="p-3 flex items-center gap-3">
           <div className="size-9 rounded-lg bg-accent-indigo/15 flex items-center justify-center">
