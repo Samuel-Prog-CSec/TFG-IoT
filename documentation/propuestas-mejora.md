@@ -14,10 +14,12 @@
 
 ## Clasificacion de propuestas abiertas (planificacion 2026-04-26)
 
-Las **68 propuestas abiertas** se reparten en dos categorias segun el
-momento en que se abordaran. Esta seccion es el indice maestro; los
-headings individuales se mantienen sin etiqueta para no saturar el
-formato. **Consultar esta tabla antes de atacar cualquier PROP.**
+Las **65 propuestas abiertas + 3 descartadas** (PROP-2, PROP-6,
+PROP-11 — cerradas con T-956 el 2026-05-13) se reparten en dos
+categorias segun el momento en que se abordaran. Esta seccion es el
+indice maestro; los headings individuales se mantienen sin etiqueta
+para no saturar el formato. **Consultar esta tabla antes de atacar
+cualquier PROP.**
 
 > **Cierre de Sprint 5 (2026-04-26)**: las 15 propuestas `[MANT]` que
 > figuraban aquí (PROP-21, 27, 47, 70, 77, 79, 80, 81, 83, 84, 87, 88,
@@ -32,7 +34,7 @@ formato. **Consultar esta tabla antes de atacar cualquier PROP.**
   pre-Sprint-6 entra en esta lista: las importantes se absorbieron
   durante las sesiones QA de 2026-04-21..24 y las restantes son
   features grandes o refactors amplios que no bloquean la release.
-- **[FUT] Futuro — backlog post-v1.0.0 (43)** — features grandes
+- **[FUT] Futuro — backlog post-v1.0.0 (40)** — features grandes
   (mascots, dashboards admin, leaderboards ZSET, OpenAPI, release
   automation), refactors amplios, y mejoras "nice-to-have" que pueden o
   no implementarse tras la entrega TFG segun tiempo disponible. **Para
@@ -76,26 +78,31 @@ Todas son PROP-95 a PROP-133 (nuevas de la planificacion 2026-04-24).
 
 ---
 
-### [FUT] Futuro — backlog post-v1.0.0 (43)
+### [FUT] Futuro — backlog post-v1.0.0 (40)
 
 No se planifican. Se documentan para trazabilidad. Pueden graduar a
 Sprint 7+ tras la release si el proyecto continua post-entrega TFG.
 
-**Pre-Sprint-6 (29):**
+**Pre-Sprint-6 (26):**
 
-PROP-1 (notificaciones tiempo real), 2 (modo demo profesor), 4 (tema
-claro), 6 (export/import sesiones), 9 (tema claro revision), 10 (vista
-cruzada mecanica × contexto), 11 (modo demo sin RFID revision), 13
-(onboarding interactivo), 16 (atmosferas dinamicas contexto), 17
-(atajos teclado), 18 (audit AnimatePresence), 60 (leaderboards ZSET),
-63 (studentMetrics Redis Hash), 65 (paginacion/virtualizacion listados),
-66 (charts paleta marca), 67 (GameOver emocional + mascot), 68 (atajos
-teclado ampliacion), 69 (inline editing listados), 71 (hero transition
+PROP-1 (notificaciones tiempo real), 4 (tema claro), 9 (tema claro
+revision), 10 (vista cruzada mecanica × contexto), 13 (onboarding
+interactivo), 16 (atmosferas dinamicas contexto), 17 (atajos teclado),
+18 (audit AnimatePresence), 60 (leaderboards ZSET), 63 (studentMetrics
+Redis Hash), 65 (paginacion/virtualizacion listados), 66 (charts paleta
+marca), 67 (GameOver emocional + mascot), 68 (atajos teclado
+ampliacion), 69 (inline editing listados), 71 (hero transition
 DeckCard), 72 (navegacion direccional), 73 (scroll parallax), 74
 (mascota extendida), 75 (atmosferas reapertura), 76 (inline success
 badges), 78 (persistencia alertas con lifecycle), 82 (dashboard admin
 global), 91 (Informes como zona funcional), 93 (logout undo), 94
 (campaña cobertura SonarCloud 80%).
+
+**Descartadas con T-956 (2026-05-13) — 3:** PROP-2 (modo demo
+profesor), PROP-6 (export/import sesiones), PROP-11 (modo demo sin
+RFID revision). Detalle en `documentation/sprints/Sprint6_Tareas.md`
+(sección T-956). PROP-6 reabrible post-v1.0.0 si se solicita
+explícitamente.
 
 **Nuevas Sprint 6 deferidas (14):**
 
@@ -112,7 +119,8 @@ automatizado).
 propuestas [MANT] y [SP6] son compromiso firme; las [FUT] son
 opcionales.
 
-**Total:** 25 + 43 = 68 propuestas abiertas.
+**Total:** 25 + 40 = 65 propuestas abiertas (+ 3 descartadas con
+T-956: PROP-2, PROP-6, PROP-11).
 
 ---
 
@@ -131,6 +139,8 @@ opcionales.
 ---
 
 ## PROP-2: Vista previa / modo demo de juego para el profesor
+
+**Estado:** ❌ Descartada con cierre de T-956 (2026-05-13). El `FallbackTouchPanel` ya cubre el flujo sin sensor (pulido en QAs recientes: cooldown, feedback `CheckCircle2/XCircle`, target size, latencia 1500ms) y `window.__rfidSim` cubre simulación en QA. Detalle en `documentation/sprints/Sprint6_Tareas.md` (sección T-956).
 
 **Descripcion:** Permitir al profesor simular una partida completa desde el detalle de una sesion sin necesitar hardware RFID fisico. Un modo demo con tarjetas virtuales que se pueden "escanear" haciendo clic.
 
@@ -158,6 +168,8 @@ opcionales.
 ---
 
 ## PROP-6: Export/Import de sesiones y mazos
+
+**Estado:** ❌ Descartada con cierre de T-956 (2026-05-13) para v1.0.0. Feature de productividad real pero independiente y no bloqueante. **Reabrible post-v1.0.0** como tarea aislada (no en rama UI/UX) si se solicita explícitamente para colaboración entre profesores. Detalle en `documentation/sprints/Sprint6_Tareas.md` (sección T-956).
 
 **Descripcion:** Permitir exportar sesiones y mazos como archivo JSON descargable, e importarlos en otra cuenta o instancia de la plataforma.
 
@@ -195,6 +207,8 @@ opcionales.
 ---
 
 ## PROP-11: Modo demo / vista previa de partida sin RFID (revision PROP-2)
+
+**Estado:** ❌ Descartada con cierre de T-956 (2026-05-13). El motivo original (bug del FallbackTouchPanel) fue corregido en QAs posteriores; el panel táctil es ahora estable y constituye la vía oficial para jugar sin sensor. Detalle en `documentation/sprints/Sprint6_Tareas.md` (sección T-956).
 
 **Descripcion:** Reapertura formal de PROP-2 con prioridad alta tras detectar en QA del 17/04 que el bug del FallbackTouchPanel (imagenes que desaparecen + duplicados) hace que la unica forma de probar el flujo de partida sin hardware RFID sea fragil.
 

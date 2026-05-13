@@ -541,7 +541,7 @@ export default function CardDecksPage() {
           </div>
           <div>
             <p className="text-xl font-semibold text-text-primary font-display tabular-nums">{deckCount.active}</p>
-            <p className="text-[10px] text-text-muted font-medium uppercase tracking-wider">Activos</p>
+            <p className="text-xs text-text-secondary font-medium uppercase tracking-wider">Activos</p>
           </div>
         </GlassCard>
         <GlassCard className="p-3 flex items-center gap-3">
@@ -550,7 +550,7 @@ export default function CardDecksPage() {
           </div>
           <div>
             <p className="text-xl font-semibold text-text-primary font-display tabular-nums">{deckCount.archived}</p>
-            <p className="text-[10px] text-text-muted font-medium uppercase tracking-wider">Archivados</p>
+            <p className="text-xs text-text-secondary font-medium uppercase tracking-wider">Archivados</p>
           </div>
         </GlassCard>
         <GlassCard className="p-3 flex items-center gap-3">
@@ -559,7 +559,7 @@ export default function CardDecksPage() {
           </div>
           <div>
             <p className="text-xl font-semibold text-text-primary font-display tabular-nums">{deckCount.total}</p>
-            <p className="text-[10px] text-text-muted font-medium uppercase tracking-wider">Total</p>
+            <p className="text-xs text-text-secondary font-medium uppercase tracking-wider">Total</p>
           </div>
         </GlassCard>
       </motion.div>

@@ -99,6 +99,26 @@ const SEQUENCE_PHASE = Object.freeze(['memorizing', 'reproducing', 'completed'])
 /** Resultado de una carta dentro de una ronda Secuencia. */
 const SEQUENCE_CARD_STATUS = Object.freeze(['correct', 'blocked', 'timedOut']);
 
+/**
+ * Tipos canónicos de notificación (T-955 / v1.0.0).
+ *
+ * - `play_completed`: un alumno termina una partida → notif al docente que creó la sesión.
+ * - `registration_pending`: un profesor solicita acceso → notif a super_admin del centro.
+ * - `student_at_risk`: alertService detecta drop de rendimiento → notif al docente del alumno.
+ * - `context_shared`: super_admin publica un contexto/asset compartido → notif a docentes.
+ * - `system_announcement`: anuncio del sistema (mantenimiento, despliegue). Service-only en v1.
+ */
+const NOTIFICATION_TYPES = Object.freeze([
+  'play_completed',
+  'registration_pending',
+  'student_at_risk',
+  'context_shared',
+  'system_announcement'
+]);
+
+/** Prioridad visual y de orden de la notificación. */
+const NOTIFICATION_PRIORITIES = Object.freeze(['info', 'warning', 'critical']);
+
 module.exports = {
   DIFFICULTY,
   SESSION_STATUS,
@@ -114,5 +134,7 @@ module.exports = {
   SEQUENCE_DIFFICULTY_RULES,
   SEQUENCE_HINT_TYPES,
   SEQUENCE_PHASE,
-  SEQUENCE_CARD_STATUS
+  SEQUENCE_CARD_STATUS,
+  NOTIFICATION_TYPES,
+  NOTIFICATION_PRIORITIES
 };

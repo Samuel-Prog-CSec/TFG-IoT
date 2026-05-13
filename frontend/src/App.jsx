@@ -11,6 +11,7 @@ import PropTypes from 'prop-types';
 import { Toaster } from 'sonner';
 import { AuthProvider, useAuth } from './context/AuthContext';
 import { ThemeProvider, useTheme } from './context/ThemeContext';
+import { AtmosphereProvider } from './context/AtmosphereContext';
 import { ShortcutRegistryProvider } from './context/ShortcutRegistryContext';
 import ProtectedRoute from './components/auth/ProtectedRoute';
 import GuestRoute from './components/auth/GuestRoute';
@@ -234,24 +235,26 @@ function ThemeAwareToaster() {
 export default function App() {
   return (
     <ThemeProvider>
-      <BrowserRouter>
-        <AuthProvider>
-          <RfidModeProvider>
-            {/* ShortcutRegistry centraliza secciones de atajos para que el
-                overlay `Shift+?` agregue global + contextuales. GlobalShortcuts
-                vive dentro del registry para registrar la sección "Sistema"
-                (Shift+T, Shift+?, Escape) y poner UN ÚNICO listener keydown
-                que escucha cualquier atajo de cualquier fuente — funciona en
-                Login, Register, AppLayout y GameLayout sin acoplarse a un
-                layout concreto. */}
-            <ShortcutRegistryProvider>
-              <GlobalShortcuts />
-              <AppContent />
-              <ThemeAwareToaster />
-            </ShortcutRegistryProvider>
-          </RfidModeProvider>
-        </AuthProvider>
-      </BrowserRouter>
+      <AtmosphereProvider>
+        <BrowserRouter>
+          <AuthProvider>
+            <RfidModeProvider>
+              {/* ShortcutRegistry centraliza secciones de atajos para que el
+                  overlay `Shift+?` agregue global + contextuales. GlobalShortcuts
+                  vive dentro del registry para registrar la sección "Sistema"
+                  (Shift+T, Shift+?, Escape) y poner UN ÚNICO listener keydown
+                  que escucha cualquier atajo de cualquier fuente — funciona en
+                  Login, Register, AppLayout y GameLayout sin acoplarse a un
+                  layout concreto. */}
+              <ShortcutRegistryProvider>
+                <GlobalShortcuts />
+                <AppContent />
+                <ThemeAwareToaster />
+              </ShortcutRegistryProvider>
+            </RfidModeProvider>
+          </AuthProvider>
+        </BrowserRouter>
+      </AtmosphereProvider>
     </ThemeProvider>
   );
 }

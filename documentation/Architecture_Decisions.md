@@ -6998,3 +6998,248 @@ SessionsPage y CardDecksPage NO se migraron al hook por usar un patrón distinto
 
 - WCAG 2.2 §3.3.1 (Error Identification) — el `<span role="alert">` cumple.
 - QA: `frontend/qa-capturas-T952/12-deck-inline-edit-active.png`.
+
+---
+
+## ADR-130: Atmósferas dinámicas por contexto + scroll parallax aurora (T-954) [Frontend, UX]
+
+**Status:** ✅ Implementado · **Scope:** Frontend · **Fecha:** 2026-05-12
+
+### Decisión
+
+Vincular el aurora del fondo, el gradient primary de los botones y el glow de las cards al contexto pedagógico activo (Geografía, Animales, Colores, Números, Formas). El cambio se hace via CSS variables y el atributo `[data-atmosphere]` en `<html>`, igual patrón que el theme switch — sin re-render React de los consumidores.
+
+### Diseño técnico
+
+- **Tokens base** `--color-atmosphere-aurora-{1,2,3}`, `--color-atmosphere-primary`, `--color-atmosphere-primary-alt`, `--color-atmosphere-glow` declarados en `:root` con fallback al aurora neutro y al brand.
+- **Selector `:root[data-atmosphere="key"]`** mapea los tokens a `--color-theme-{key}*` de `contextTheme.js`. Light mode usa variantes soft (`color-mix(in oklab, var(--color-theme-X) 28%, var(--color-background-base))`) para que el blend `multiply` no oscurezca el papel marfil.
+- **AtmosphereContext** ligero: solo escribe el atributo `data-atmosphere` y expone `{ atmosphereKey, setAtmosphere(slug), clearAtmosphere() }`.
+- **`useRouteAtmosphere`** resuelve la atmósfera leyendo el recurso de la URL (`/decks/:id` → deck.context.contextId; idem session y context). Cache en memoria por `${type}:${id}` para evitar refetch.
+- **Crossfade** 400ms en `--color-atmosphere-*` con `transition` CSS, suspendido durante `[data-theme-switching]` para no chocar con el View Transition API del tema.
+- **Scroll parallax** en AppLayout via `useScroll()` + `useTransform(scrollY, [0,800], [0,-Y])` stratified (3 velocidades distintas para los 3 orbes). Reduced-motion lo desactiva.
+
+### Archivos clave
+
+- `frontend/src/context/AtmosphereContext.jsx` (nuevo)
+- `frontend/src/hooks/useRouteAtmosphere.js` (nuevo)
+- `frontend/src/index.css` (CSS vars + mappings light/dark)
+- `frontend/src/components/layout/AppLayout.jsx` (aurora consume tokens + parallax)
+- `frontend/src/components/layout/GameLayout.jsx` (mount `useRouteAtmosphere` para gameplay)
+- `frontend/src/components/ui/ButtonPremium.jsx` (variant primary lee tokens atmósfera)
+
+### Consecuencias
+
+- Cada combinación mecánica × contexto se siente única durante la partida (e.g. Memoria + Animales ≠ Memoria + Geografía).
+- Anti-AI-slop: el aurora deja de ser uniforme entre páginas.
+- Riesgo conocido: si el recurso de la URL no resuelve contextId en el primer paint, la atmósfera arranca en default. El crossfade 400ms suaviza la transición.
+
+---
+
+## ADR-131: Sistema de notificaciones tiempo real persistidas (T-955) [Full-stack]
+
+**Status:** ✅ Implementado · **Scope:** Backend + Frontend · **Fecha:** 2026-05-12
+
+### Decisión
+
+Canal de notificaciones tiempo real persistido (`Notification` model + endpoint REST + room Socket.IO `user_<id>`) con 5 tipos canónicos: `play_completed`, `registration_pending`, `student_at_risk`, `context_shared`, `system_announcement`.
+
+### Diseño técnico (backend)
+
+- Modelo Mongoose `Notification` con indexes compuestos `{ userId, createdAt:-1 }` + `{ userId, read }` y TTL 90d (compatible con la política `data:retention`).
+- `notificationService` con `createNotification`, `listForUser` (cursor pagination), `markRead`, `markAllRead`, `countUnread` y helper `notify(...)` que silencia errores (los triggers de dominio no pueden bloquear endPlay/registro).
+- **Dedup window 60s** en Redis (`SET NX` con TTL) por `(userId, type, hash(metadata.resourceId|priorityHint))` para absorber duplicados consecutivos.
+- Inyección de `io` vía `setSocketServer(io)` desde `server.js` tras `registerSocketHandlers`.
+- Triggers reales:
+  - `gamePlayService.completePlay` → `play_completed` al docente que creó la sesión.
+  - `gamePlayService.completePlay` → `student_at_risk` al docente cuando avg cruza < 50 desde un valor previo ≥ 50.
+  - `authController.register` → `registration_pending` a todos los super_admin del centro.
+  - `gameContextController.createContext` → `context_shared` a todos los docentes activos.
+  - `system_announcement` service-only en v1.0.0 (sin endpoint expuesto).
+- Endpoints REST `/api/notifications` (list cursor, unread-count, mark-read, mark-all-read).
+- DTO V1 `toNotificationDTOV1` en `utils/dtos.js`.
+
+### Diseño técnico (frontend)
+
+- `useNotifications` hook con state local + suscripción Socket.IO `notification:created` + paginación cursor.
+- `<NotificationBell />` con badge contador, pulse subtle on unread, micro-celebración (scale+rotate) cuando llega `play_completed` con 3⭐ (Phase 7 polish).
+- `<NotificationsPanel />` popover con focus trap, ESC cierre, IntersectionObserver para infinite scroll, empty state signature SVG (sobre de papel cerrado).
+- `<NotificationItem />` con icono por tipo (Trophy, UserPlus, AlertTriangle, Layers, Megaphone), timestamp relativo (`useRelativeTime`), dot unread.
+- Atajo `Shift+B` toggle panel (registrado en `ShortcutRegistry` para descubribilidad en `Shift+?`).
+- Microcopy conversacional: "{studentName} ha completado una partida · 3 estrellas · ¡Trabajo redondo!"
+
+### Archivos clave
+
+- Backend: `models/Notification.js`, `services/notificationService.js`, `controllers/notificationController.js`, `routes/notifications.js`, `validators/notificationValidator.js`, `utils/dtos.js` (extensión), `constants/enums.js` (extensión).
+- Frontend: `hooks/useNotifications.js`, `components/notifications/{NotificationBell,NotificationsPanel,NotificationItem,EmptyNotificationsIllustration}.jsx`, `services/api.js` (extensión `notificationsAPI`).
+
+### Consecuencias
+
+- El docente recibe feedback push sin refrescar la página.
+- El super_admin se entera al instante de nuevas solicitudes de registro.
+- La dedup window evita spam si un alumno completa 3 partidas seguidas.
+- TTL 90d cumple política RGPD de retención mínima.
+
+---
+
+## ADR-132: InlineSuccessBadge como complemento de Sonner toast [Frontend, UX]
+
+**Status:** ✅ Implementado · **Scope:** Frontend · **Fecha:** 2026-05-12
+
+### Decisión
+
+Para confirmaciones de **éxito** comunes (guardar mazo, sesión, contexto), mostrar un micro-badge `✓ Guardado` adyacente al botón que disparó la acción y desaparecer en 2s. El toast Sonner queda reservado para errores y destructivos confirmados.
+
+### Diseño técnico
+
+- Hook `useInlineSuccess({ duration = 2000 })` → `{ visible, trigger() }` con auto-hide y cancel de timer previo (anti-flicker en doble-click).
+- Componente `<InlineSuccessBadge visible label placement showIcon />` con scale 0.85→1 + fade-in 160ms / fade-out 220ms (asimétrico), `role="status"` + `aria-live="polite"` para screen readers.
+- Integrado en 6 formularios: `CreateSession`, `SessionEdit`, `DeckCreationWizard`, `DeckEditPage`, `AdminContexts`, `ContextsPage`.
+- En modales que cierran tras save (AdminContexts, ContextsPage), retrasamos el cierre 1.1s para que el badge sea perceptible.
+
+### Consecuencias
+
+- Feedback de éxito sin alejar la mirada del usuario hacia el toaster.
+- Coexiste con toast: errors siguen siendo Sonner.
+- Para wizards que navegan inmediatamente (CreateSession, DeckCreationWizard), el badge convive con el confetti existente.
+
+---
+
+## ADR-133: Divergencia formal Light / Dark — aurora, atmósferas, sombras [Frontend, UX]
+
+**Status:** ✅ Implementado · **Scope:** Frontend · **Fecha:** 2026-05-12
+
+### Decisión
+
+Formalizar la regla de que **light y dark son dos diseños distintos**, no variantes de un tema. Documentar los puntos donde la implementación diverge.
+
+### Decisiones específicas
+
+- **Aurora blend-mode**: `screen` en dark (los orbes "iluminan" el fondo oscuro), `multiply` en light (los orbes "tiñen" el papel marfil).
+- **Aurora atmosphere keys**: dark usa los colores OKLCH canónicos de cada contexto; light usa variantes soft `color-mix(in oklab, color 28%, --color-background-base)` para evitar que el `multiply` produzca manchas oscuras.
+- **Sidebar backdrop**: en light se anula el `backdrop-filter: blur` y el aside usa `background-color` opaco (`--color-background-base`) — el efecto "cristal difuso" no aporta sobre papel.
+- **Sombras (`--shadow-*`)**: light usa alpha ~0.08-0.12, dark usa alpha ~0.30-0.45. Las cards no "flotan con sombra negra pesada" sobre fondo blanco.
+- **Borders**: light usa borders con alpha negro bajo, dark usa borders con alpha blanco bajo. Token `--color-border-default` se redefine en `[data-theme="light"]`.
+
+### Consecuencias
+
+- Cumple regla del proyecto declarada en MEMORY (`feedback_light_dark_two_aesthetics.md`).
+- Auditar light + dark como UIs separadas en cada release.
+- Cuando un componente nuevo se introduzca, el contributor debe probar explícitamente light y dark.
+
+---
+
+## ADR-134: Hero transitions reusables (`useSharedLayoutTransition`) [Frontend, UX]
+
+**Status:** ✅ Implementado · **Scope:** Frontend · **Fecha:** 2026-05-12
+
+### Decisión
+
+Hook `useSharedLayoutTransition(kind, id)` que devuelve un `layoutId` estable (`${kind}-${id}`) o `undefined` cuando `prefers-reduced-motion`. Aplicado en las 3 parejas: `DeckCard ↔ CardDeckDetailPage`, `SessionCard ↔ SessionDetail`, `ContextCard ↔ ContextDetailPage`.
+
+### Diseño técnico
+
+- El `motion.div` raíz (o el wrapper de cada item en una lista) recibe `layoutId` igual al del destino.
+- `AnimatePresence` en las páginas listado usa `mode="popLayout"` para que el item saliente no provoque reflow durante la animación shared.
+- Suspense lazy (todas las páginas son lazy) coexiste con `mode="popLayout"`: el destino monta antes de que el origen termine de desmontar.
+- Reduced-motion: el `layoutId` se vuelve `undefined` y las páginas hacen fade-only sin layout shared.
+
+### Limitaciones conocidas
+
+- Tests con jsdom no validan `layoutId` (incompatibilidad conocida de framer-motion con jsdom). Los tests son skipped para esta parte; QA visual cubre la regresión.
+- En grids con 50+ items (CardDecksPage), la prop `reducedMotion` ya existente baja la calidad de las micro-animaciones internas (tilt 3D) pero el hero transition sigue activo.
+
+### Archivos clave
+
+- `frontend/src/hooks/useSharedLayoutTransition.js` (nuevo)
+- `frontend/src/components/ui/DeckCard.jsx`, `pages/CardDeckDetailPage.jsx`
+- `frontend/src/pages/SessionsPage.jsx`, `pages/SessionDetail.jsx`
+- `frontend/src/pages/ContextsPage.jsx`, `pages/ContextDetailPage.jsx`
+
+### Consecuencias
+
+- Anti-AI-slop: el viaje card→detalle deja de ser un teleport.
+- El hook centraliza la decisión "shared-layout o no", facilitando aplicar el patrón a futuras parejas (e.g. StudentCard → StudentProfile).
+
+---
+
+## ADR-135: Fixes QA intensiva — Tooltip motion.button, CategoryDominance, copy mascota [Full-stack]
+
+**Fecha**: 2026-05-12  
+**Estado**: Implementado  
+**Alcance**: Backend (computeCategoryDominance), Frontend (Tooltip, CardDecksPage, StepRules, mascotDialog)
+
+### Contexto
+
+Sesión QA intensiva pre-Sprint 6 sobre rama `feature/ui-features-and-signature` con perfil "QA / Revisión UI-UX". Se levantó Docker (frontend + backend + Mongo + Redis) y se navegó la app con Playwright en viewport 1920×1080 cubriendo: Auth (Login, Register, theme toggle), Dashboard profesor + super_admin, Mis Alumnos, Insights (3 tabs), Sesiones (lista + detalle 4 tabs), Contextos (lista + detalle), Mis Mazos (lista + detalle), 3 mecánicas de gameplay completas (Memoria 240s ganada 60/60 3⭐ — Asociación 60s/ronda — Secuencia 90s 5 rondas), Notificaciones, Super Admin (Aprobaciones, Contextos, Alumnos, Transferencias), Privacidad y Onboarding.
+
+### Hallazgos críticos y fixes
+
+#### BUG-1 (a11y) — Tooltip anida span[role=button] sobre motion.button
+
+**Síntoma**: en `DeckCard`, el botón "Opciones" se renderizaba como `<span role="button" tabindex="0" aria-label="Opciones"><button aria-label="Opciones para mazo X">…</button></span>` — HTML semánticamente inválido (rol button anidado), confuso para screen readers (anuncia "Opciones" → enter en el inner button → vuelve a anunciar "Opciones para mazo X").
+
+**Causa**: `Tooltip.isChildInteractive` detectaba `<button>` HTML y `Component.displayName.includes('Button')`, pero Framer Motion 11 expone `motion.button` con displayName literal `"motion.button"` (con **punto**, no `motion(button)` como era en versiones anteriores). La detección no matcheaba.
+
+**Fix**: `frontend/src/components/ui/Tooltip.jsx` — regex actualizada a `/^motion[.(](button|a|input|select|textarea)\)?$/i` que cubre ambas notaciones (la moderna con punto y la legacy con paréntesis).
+
+**Cobertura**: `frontend/src/components/ui/__tests__/Tooltip.test.jsx` (nuevo, 6 casos).
+
+#### BUG-3 (lógica pedagógica) — Asociación GameOver muestra "Categoría más fuerte" arbitraria con 0 aciertos
+
+**Síntoma**: tras una partida Asociación con `correctAttempts=0`, el GameOver mostraba "TU CATEGORÍA MÁS FUERTE: Pato" (o cualquier slug alfabéticamente primero). El alumno sin aciertos veía una "fortaleza" inventada que rompía la confianza pedagógica de la mascota y el screen.
+
+**Causa**: `backend/src/services/gameEngine/finalSummary.js::computeCategoryDominance` inicializaba `bestRatio = -1` y consideraba cualquier slug con `total > 0` (incluso `correct=0`). Cuando todas las accuracies eran 0/N, `ratio=0 > -1=bestRatio` → la primera clave alfabética ganaba.
+
+**Fix**: descartar también `correct <= 0` antes de evaluar ratio. Si el alumno no acertó NADA en ningún slug, `categoryDominance` devuelve `null`. El frontend (`GameOverStatsAssociation`) ya esconde el hero block cuando `categoryDominance` es `null` — no requirió cambios.
+
+**Cobertura**: test existente `devuelve null cuando todas las accuracies son 0` actualizado para reflejar el nuevo comportamiento correcto (antes esperaba 'cat', documentando el bug; ahora espera `null`).
+
+#### BUG-2 (copy mascota) — "Otra y mejoras" gramaticalmente incorrecto
+
+**Síntoma**: tras un GameOver con score bajo, la mascota mostraba "Otra y mejoras". "Mejoras" sustantivo (las mejoras) o segunda persona indicativo presente no encaja en imperativo motivacional infantil.
+
+**Fix**: `frontend/src/lib/mascotDialog.js` — 3 ocurrencias (`MEMORY_DIALOG.gameOverLow`, `ASSOCIATION_DIALOG.gameOverLow`, `SEQUENCE_DIALOG.gameOverLow`) cambiadas a "**Otra y mejorarás**" (segunda persona indicativo futuro), prometiendo crecimiento al alumno.
+
+#### BUG-5 (UI/contraste) — KPIs hero Mis Mazos casi invisibles
+
+**Síntoma**: las cards de stat hero "ACTIVOS / ARCHIVADOS / TOTAL" en `/decks` mostraban los labels con `text-[10px] text-text-muted` — muy pequeños y con contraste insuficiente sobre el fondo elevado, especialmente en tema oscuro.
+
+**Fix**: `frontend/src/pages/CardDecksPage.jsx` — 3 labels cambiados a `text-xs text-text-secondary` (12px en lugar de 10px, color secundario en lugar de muted). Mantiene `font-medium uppercase tracking-wider` para coherencia con el resto de stat cards.
+
+#### M-1 (UX) — Slider tiempo por ronda Asociación: 60s → 180s
+
+**Justificación**: el rango actual 5–60s era restrictivo para sesiones donde el profesor da consignas orales o trabaja con alumnos que necesitan tiempo de procesamiento. El backend ya aceptaba hasta 300s (`gameSessionValidator.js::timeLimit.max(300)`), pero el slider del wizard tapaba el rango.
+
+**Fix**: `frontend/src/components/session/StepRules.jsx` — `max={60}` → `max={180}`. Permite configurar 3 minutos por ronda sin tocar el rango máximo del validador.
+
+### Hallazgos descartados como NO bugs
+
+- **MemoryBoard cards aria-hidden**: el `textContent` recoge el valor real ("Rombo", "Cuadrado") aunque la carta esté boca abajo, pero el contenedor visual interno (`.memory-card-back`) tiene correctamente `aria-hidden="true"` cuando la carta no está abierta. Screen readers respetan `aria-hidden`; el textContent del DOM no es relevante para a11y tree.
+- **Login/Register theme toggle en top-right**: posición intencional (comentario en código del 2026-05-10). El toaster Sonner está en bottom-right; mover el toggle también allí colisionaría.
+- **Sliders sin aria-label literal**: tienen `<label htmlFor>` correctamente vinculados, lo cual es semánticamente equivalente.
+
+### Verificación
+
+- Tests backend: **1145/1145 verde**.
+- Tests frontend: **377/377 verde** (+6 nuevos para Tooltip).
+- Lint: 0 errores nuevos. Los 2 errores preexistentes (`useVirtualizer` en `useVirtualizedList.js` y `prettier/prettier` en `notificationService.test.js`) no son de esta sesión.
+- E2E con Playwright + Docker:
+  - `/decks` confirmado: 0 spans con `role="button"` envolviendo botones reales. Los 6 botones "Opciones para mazo" son `<button>` simples.
+  - KPIs hero Mis Mazos: labels visibles tras el cambio de contraste.
+
+### Archivos modificados
+
+- `backend/src/services/gameEngine/finalSummary.js` (computeCategoryDominance)
+- `backend/tests/finalSummary.test.js` (test actualizado)
+- `frontend/src/components/ui/Tooltip.jsx` (regex motion.button)
+- `frontend/src/components/ui/__tests__/Tooltip.test.jsx` (nuevo, 6 tests)
+- `frontend/src/components/session/StepRules.jsx` (max slider 60→180)
+- `frontend/src/lib/mascotDialog.js` (3 strings "Otra y mejorarás")
+- `frontend/src/pages/CardDecksPage.jsx` (3 KPI labels contraste)
+- `documentation/Architecture_Decisions.md` (este ADR)
+
+### Consecuencias
+
+- Anti-AI-slop: el wrapper Tooltip ya no genera HTML anidado inválido cuando se usa con Framer Motion (caso muy común en este codebase con `whileHover`/`whileTap`).
+- Pedagogía: la mascota ya no inventa fortalezas en alumnos sin aciertos — comunicación coherente con el feedback que el alumno ve.
+- Configurabilidad: los profesores que necesiten Asociación con tiempos largos (lectura, deliberación grupal) ya pueden alcanzar hasta 180s sin recurrir a editar la sesión vía API.

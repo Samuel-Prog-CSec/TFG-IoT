@@ -9,6 +9,7 @@ const gamePlayRepository = require('../repositories/gamePlayRepository');
 const gameSessionRepository = require('../repositories/gameSessionRepository');
 const userRepository = require('../repositories/userRepository');
 const { recalculateSessionStatusFromPlays } = require('./sessionStatusService');
+const notificationService = require('./notificationService');
 const { NotFoundError, ValidationError, ForbiddenError } = require('../utils/errors');
 const logger = require('../utils/logger').child({ component: 'gamePlayService' });
 
@@ -240,6 +241,12 @@ async function completePlay(playId) {
   // Actualizar métricas del estudiante
   // Solo si el tutor no ha ejercido el derecho de oposición a analytics (Art. 21 RGPD)
   const player = await userRepository.findById(play.playerId._id);
+  // Snapshot del rendimiento previo para detectar transición a "en riesgo"
+  // tras la actualización de métricas (T-955 trigger: student_at_risk).
+  const prevAverage =
+    typeof player?.studentMetrics?.averageScore === 'number'
+      ? player.studentMetrics.averageScore
+      : null;
 
   if (player.hasConsentFor('performance_analytics')) {
     await player.updateStudentMetrics({
@@ -248,6 +255,16 @@ async function completePlay(playId) {
       errorAttempts: play.metrics.errorAttempts,
       timeoutAttempts: play.metrics.timeoutAttempts,
       averageResponseTime: play.metrics.averageResponseTime
+    });
+
+    // Tras actualizar la media, comprobar si el alumno acaba de cruzar el
+    // umbral 50 hacia abajo. La dedup window 60s del notificationService
+    // evita spam si dos partidas seguidas vuelven a cruzar el umbral.
+    await notifyStudentAtRiskIfTransition(player._id, prevAverage).catch(err => {
+      logger.warn('Trigger notify student_at_risk ignorado', {
+        playerId: player._id,
+        error: err?.message
+      });
     });
   }
 
@@ -267,7 +284,146 @@ async function completePlay(playId) {
 
   await recalculateSessionStatusFromPlays(play.sessionId._id);
 
+  // Notificación al docente que creó la sesión (T-955 trigger: play_completed).
+  // Tono conversacional (Microcopy_Style_Guide). El microcopy y los 3 niveles
+  // de praise dependen del porcentaje de aciertos canónico (90/70/50 — mismo
+  // umbral que calculateStars del frontend, lib/utils.js).
+  await notifyTeacherPlayCompleted(play).catch(err => {
+    // notify() ya captura sus propios errores; este catch es defensa por si
+    // fallara el cálculo de microcopy. Nunca debe bloquear el flujo.
+    logger.warn('Trigger notify play_completed ignorado por error', {
+      playId: play._id,
+      error: err?.message
+    });
+  });
+
   return { play, rating };
+}
+
+/**
+ * Calcula el número de estrellas (0-3) a partir del porcentaje de aciertos.
+ * Mismos umbrales que el frontend (lib/utils.js calculateStars).
+ *
+ * @param {number} score
+ * @param {number} pointsPerCorrect
+ * @param {number} rounds
+ * @returns {number} 0..3
+ */
+function calculateStarsServerSide(score, pointsPerCorrect, rounds) {
+  const safeRounds = Number.isInteger(rounds) && rounds > 0 ? rounds : 1;
+  const maxScore = (pointsPerCorrect || 10) * safeRounds;
+  const percentage = maxScore > 0 ? (Number(score) / maxScore) * 100 : 0;
+  if (percentage >= 90) {
+    return 3;
+  }
+  if (percentage >= 70) {
+    return 2;
+  }
+  if (percentage >= 50) {
+    return 1;
+  }
+  return 0;
+}
+
+/**
+ * Frase de elogio asociada al número de estrellas conseguidas.
+ * Mantener tono docente conversacional, sin tecnicismos.
+ *
+ * @param {number} stars - 0..3
+ * @returns {string}
+ */
+function getPraiseForStars(stars) {
+  if (stars >= 3) {
+    return '¡Trabajo redondo!';
+  }
+  if (stars === 2) {
+    return '¡Buen ritmo!';
+  }
+  if (stars === 1) {
+    return 'Sigue así.';
+  }
+  return 'Toca repasar — vuelve a intentarlo.';
+}
+
+/**
+ * Detecta la transición a "en riesgo" del alumno (avg score cae bajo 50)
+ * y notifica al docente que lo creó. T-955 / student_at_risk.
+ *
+ * Solo dispara cuando la media previa era >= 50 y la media nueva es < 50.
+ * Re-cae a refetch del documento para leer la media recalculada.
+ *
+ * @param {import('mongoose').Types.ObjectId|string} playerId
+ * @param {number|null} prevAverage - Media antes de aplicar la última partida.
+ * @returns {Promise<void>}
+ */
+async function notifyStudentAtRiskIfTransition(playerId, prevAverage) {
+  if (prevAverage === null || !Number.isFinite(prevAverage)) {
+    return;
+  }
+  if (prevAverage < 50) {
+    return;
+  }
+  const refreshed = await userRepository.findById(playerId);
+  const newAverage = refreshed?.studentMetrics?.averageScore;
+  if (typeof newAverage !== 'number' || newAverage >= 50) {
+    return;
+  }
+  const teacherId = refreshed?.createdBy?.toString?.();
+  if (!teacherId) {
+    return;
+  }
+  await notificationService.notify({
+    userId: teacherId,
+    type: 'student_at_risk',
+    priority: 'warning',
+    title: 'Un alumno necesita refuerzo',
+    body: `${refreshed.name || 'Un alumno'} ha bajado su rendimiento al ${Math.round(newAverage)}%. Revisa su progreso.`,
+    link: `/students/${refreshed._id}`,
+    metadata: {
+      studentId: refreshed._id.toString(),
+      prevAverage: Math.round(prevAverage),
+      newAverage: Math.round(newAverage)
+    }
+  });
+}
+
+/**
+ * Dispara la notificación `play_completed` al docente que creó la sesión.
+ * No bloquea el flujo de dominio (errores ignorados por notify()).
+ *
+ * @param {object} play - GamePlay populado con playerId y sessionId.
+ * @returns {Promise<void>}
+ */
+async function notifyTeacherPlayCompleted(play) {
+  const teacherId = play?.sessionId?.createdBy?.toString?.();
+  if (!teacherId) {
+    return;
+  }
+  const studentName = play.playerId?.name || 'Un alumno';
+  const sessionName = play.sessionId?.name || 'una sesión';
+  const stars = calculateStarsServerSide(
+    play.score,
+    play.sessionId.config?.pointsPerCorrect,
+    play.sessionId.config?.numberOfRounds
+  );
+  const praise = getPraiseForStars(stars);
+  const starsLabel = stars === 1 ? '1 estrella' : `${stars} estrellas`;
+
+  await notificationService.notify({
+    userId: teacherId,
+    type: 'play_completed',
+    priority: 'info',
+    title: `${studentName} ha completado una partida`,
+    body: `${sessionName} · ${starsLabel} · ${praise}`,
+    link: `/sessions/${play.sessionId._id}`,
+    metadata: {
+      playId: play._id.toString(),
+      sessionId: play.sessionId._id.toString(),
+      studentId: play.playerId._id.toString(),
+      score: play.score,
+      stars
+    }
+  });
 }
 
 /**

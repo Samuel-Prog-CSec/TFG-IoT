@@ -27,7 +27,15 @@ const sequenceFlow = require('./sequenceFlow');
 /**
  * Determina el slug de mayor accuracy a partir del mapa byValueAccuracy
  * generado por la AssociationStrategy. Sólo considera entradas con
- * `total > 0`. Empate: la primera clave en orden alfabético gana.
+ * `total > 0` Y `correct > 0` — si el alumno no acertó ninguna tarjeta de
+ * ese slug, no es su "categoría más fuerte". Empate: la primera clave en
+ * orden alfabético gana.
+ *
+ * Fix QA 2026-05-12: antes la función devolvía la primera clave alfabética
+ * cuando todas tenían ratio=0 (correct=0). El GameOver mostraba entonces
+ * una "categoría más fuerte" arbitraria al alumno sin aciertos — confuso
+ * pedagógicamente. Ahora sólo se considera dominante un slug si fue
+ * realmente acertado al menos una vez.
  *
  * @param {Object<string, {correct:number,total:number}>} byValueAccuracy
  * @returns {string|null}
@@ -48,6 +56,10 @@ function computeCategoryDominance(byValueAccuracy) {
       continue;
     }
     const correct = Number(stats.correct || 0);
+    if (correct <= 0) {
+      // Sin aciertos en esta categoria: no puede ser "la mas fuerte".
+      continue;
+    }
     const ratio = correct / total;
     if (ratio > bestRatio) {
       bestRatio = ratio;

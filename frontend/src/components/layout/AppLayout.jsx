@@ -1,7 +1,7 @@
 import { useState, useEffect, useMemo } from 'react';
 import PropTypes from 'prop-types';
 import { Outlet, NavLink, useLocation, useNavigate } from 'react-router-dom';
-import { motion, AnimatePresence } from 'framer-motion';
+import { motion, AnimatePresence, useScroll, useTransform } from 'framer-motion';
 import { NAV_ROUTES, ADMIN_NAV_ROUTES, ROUTES } from '../../constants/routes';
 import {
   Shield, Layers, X, Menu, LogOut,
@@ -28,8 +28,10 @@ import { cn, motionConfig } from '../../lib/utils';
 import { useSidebarMode } from '../../hooks/useSidebarMode';
 import { useReducedMotion } from '../../hooks/useReducedMotion';
 import { useNavigationDirection } from '../../hooks/useNavigationDirection';
+import { useRouteAtmosphere } from '../../hooks/useRouteAtmosphere';
 import ConfirmationModal, { useConfirmationModal } from '../ui/ConfirmationModal';
 import ThemeToggle from '../ui/ThemeToggle';
+import NotificationBell from '../notifications/NotificationBell';
 import OnboardingOverlay from '../onboarding/OnboardingOverlay';
 import { useOnboarding } from '../../hooks/useOnboarding';
 import { getTrackForRole } from '../../constants/onboardingTracks';
@@ -45,6 +47,20 @@ export default function AppLayout() {
   const { user, logout, isSuperAdmin } = useAuth();
   const { shouldReduceMotion, setUserPreference, resetUserPreference } = useReducedMotion();
   const navDirection = useNavigationDirection();
+  // T-954 Fase A: sincroniza la atmósfera del contexto activo con
+  // `<html data-atmosphere>`. El hook resuelve el contexto del recurso de
+  // la URL (deck/session/context) y empuja la atmósfera al provider.
+  useRouteAtmosphere();
+  // T-954 Fase D: scroll parallax sobre el aurora. Cada orbe se desplaza
+  // verticalmente a una velocidad distinta cuando el scroll avanza,
+  // generando profundidad sin animar layout (sólo transform). En
+  // reduced-motion el desplazamiento queda anclado a 0. El scroll vive en
+  // body/html (PROP-100), por eso `useScroll()` sin container hace lo
+  // correcto: lee `window.scrollY` directamente.
+  const { scrollY } = useScroll();
+  const auroraOffset1 = useTransform(scrollY, [0, 800], [0, -60]);
+  const auroraOffset2 = useTransform(scrollY, [0, 800], [0, -40]);
+  const auroraOffset3 = useTransform(scrollY, [0, 800], [0, -90]);
   const logoutModal = useConfirmationModal();
 
   // Onboarding interactivo (T-951 Fase 4). El track se selecciona por
@@ -82,6 +98,15 @@ export default function AppLayout() {
               ],
             },
             {
+              title: 'Notificaciones',
+              // Shift+B y Shift+G se manejan dentro del NotificationBell con un
+              // listener `window.keydown`. Esta entrada sirve solo para que el
+              // overlay Shift+? los muestre como atajos disponibles. T-955.
+              shortcuts: [
+                { key: 'Shift+B', description: 'Abrir notificaciones', handler: () => {} },
+              ],
+            },
+            {
               title: 'Vista',
               shortcuts: [
                 { key: '[', description: 'Alternar tamaño de la sidebar', handler: () => sidebarToggle() },
@@ -104,6 +129,14 @@ export default function AppLayout() {
               title: 'Acciones',
               shortcuts: [
                 { key: 'Shift+N', description: 'Nueva sesión', handler: () => navigate(ROUTES.CREATE_SESSION) },
+              ],
+            },
+            {
+              title: 'Notificaciones',
+              // Shift+B se enlaza dentro del NotificationBell. Esta sección
+              // existe solo para descubribilidad en el overlay Shift+?. T-955.
+              shortcuts: [
+                { key: 'Shift+B', description: 'Abrir notificaciones', handler: () => {} },
               ],
             },
             {
@@ -184,22 +217,34 @@ export default function AppLayout() {
       </a>
 
       {/* Aurora Background Effect — los colores y el mix-blend cambian por
-          tema (T-951 Fase 1). Las orbes consumen los tokens semánticos
-          `--color-aurora-{1,2,3}` y la clase `.aurora-layer` aplica el
-          modo de mezcla correcto: `screen` en dark, `multiply` en light
-          (evita las manchas grises del screen sobre fondo claro). */}
+          tema (T-951 Fase 1). Desde T-954 las orbes consumen los tokens
+          atmosféricos `--color-atmosphere-aurora-{1,2,3}`, que por defecto
+          apuntan a `--color-aurora-*` y se reescriben cuando el `<html>`
+          tiene `[data-atmosphere="geography|animals|colors|numbers|shapes"]`.
+          La clase `.aurora-layer` aplica el modo de mezcla correcto: `screen`
+          en dark, `multiply` en light (evita las manchas grises del screen
+          sobre fondo claro). */}
       <div className="aurora-layer fixed inset-0 pointer-events-none overflow-hidden opacity-25">
-        <div
+        <motion.div
           className="absolute top-0 left-1/4 w-96 h-96 rounded-full blur-[128px] opacity-80"
-          style={{ backgroundColor: 'var(--color-aurora-1)' }}
+          style={{
+            backgroundColor: 'var(--color-atmosphere-aurora-1)',
+            y: shouldReduceMotion ? 0 : auroraOffset1
+          }}
         />
-        <div
+        <motion.div
           className="absolute bottom-0 right-1/4 w-96 h-96 rounded-full blur-[128px] opacity-60"
-          style={{ backgroundColor: 'var(--color-aurora-2)' }}
+          style={{
+            backgroundColor: 'var(--color-atmosphere-aurora-2)',
+            y: shouldReduceMotion ? 0 : auroraOffset2
+          }}
         />
-        <div
+        <motion.div
           className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 rounded-full blur-[150px] opacity-50 w-[clamp(320px,40vw,600px)] h-[clamp(320px,40vw,600px)]"
-          style={{ backgroundColor: 'var(--color-aurora-3)' }}
+          style={{
+            backgroundColor: 'var(--color-atmosphere-aurora-3)',
+            y: shouldReduceMotion ? 0 : auroraOffset3
+          }}
         />
       </div>
 
@@ -280,18 +325,41 @@ export default function AppLayout() {
           </div>
         </div>
 
-        {/* Toggle expand/compact (solo visible en ≥lg, no en drawer) */}
+        {/* Toggle expand/compact (solo visible en ≥lg, no en drawer).
+            QA 2026-05-12: en modo expandido el boton vivia como fila propia
+            entre Logo y User Info, desplazando todo el contenido hacia
+            abajo. Ahora flota absolutamente sobre el borde derecho del
+            sidebar (alineado con el centro vertical del logo) — no roba
+            espacio al flujo vertical. En modo compact se mantiene como
+            item de rail centrado para no romper la geometria del rail. */}
         <button
           type="button"
           onClick={sidebar.toggle}
           title={`Sidebar: ${sidebar.preference} (clic o tecla [ para alternar)`}
           aria-label="Alternar tamaño de sidebar"
-          className="hidden lg:flex items-center justify-center mx-3 mt-2 mb-1 p-2 rounded-lg text-text-muted hover:text-text-primary hover:bg-background-surface/50 transition-colors"
+          className={cn(
+            'hidden lg:flex items-center justify-center text-text-muted hover:text-text-primary transition-colors',
+            isCompact
+              ? 'mx-3 mt-2 mb-1 p-2 rounded-lg hover:bg-background-surface/50'
+              : cn(
+                  // Floating: pegado al borde derecho del sidebar, centrado
+                  // sobre la linea del borde (translate-x-1/2 le hace
+                  // sobresalir mitad-mitad). z alto para vencer el card
+                  // user-info adyacente. Tamano sm + circulo para que se
+                  // lea como "control de panel" y no como item de menu.
+                  'absolute top-7 right-0 translate-x-1/2 z-30',
+                  'size-7 rounded-full bg-background-elevated',
+                  'border border-border-default shadow-[var(--shadow-md)]',
+                  'hover:bg-background-surface hover:border-border-emphasis'
+                )
+          )}
         >
-          {isCompact ? <PanelLeft size={16} /> : <PanelLeftClose size={16} />}
+          {isCompact ? <PanelLeft size={16} /> : <PanelLeftClose size={14} />}
         </button>
 
-        {/* User Info — oculto en rail (modo compact) */}
+        {/* User Info — oculto en rail (modo compact). Incluye NotificationBell
+            a la derecha del bloque (T-955). En rail, el bell vive en su
+            propio item bajo el toggle de sidebar — ver más abajo. */}
         {!isCompact && (
           <div className="p-4 mx-4 mt-4 rounded-xl bg-background-elevated border border-border-default shadow-sm">
             <div className="flex items-center gap-3">
@@ -323,12 +391,20 @@ export default function AppLayout() {
                   </p>
                 </div>
               </div>
+              <NotificationBell />
               {isSuperAdmin && (
-                <div className="flex items-center justify-center size-6 rounded-full bg-warning-base/20">
-                  <Shield size={12} className="text-warning-base" aria-hidden="true" />
+                <div className="flex items-center justify-center size-6 rounded-full bg-warning-base/20" aria-hidden="true">
+                  <Shield size={12} className="text-warning-base" />
                 </div>
               )}
             </div>
+          </div>
+        )}
+
+        {/* Bell aislado en modo rail (la card de usuario está oculta). */}
+        {isCompact && (
+          <div className="flex justify-center mt-3 mb-1">
+            <NotificationBell compact />
           </div>
         )}
 

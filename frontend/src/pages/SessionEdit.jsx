@@ -18,10 +18,12 @@ import InputPremium from '../components/ui/InputPremium';
 import SelectPremium from '../components/ui/SelectPremium';
 import StatusBadge from '../components/ui/StatusBadge';
 import Breadcrumb from '../components/ui/Breadcrumb';
+import InlineSuccessBadge from '../components/ui/InlineSuccessBadge';
 import { pageVariants } from '../lib/utils';
 import { useRefetchOnFocus } from '../hooks/useRefetchOnFocus';
 import { useUnsavedChanges } from '../hooks/useUnsavedChanges';
 import { useDocumentTitle } from '../hooks/useDocumentTitle';
+import useInlineSuccess from '../hooks/useInlineSuccess';
 import ConfirmationModal from '../components/ui/ConfirmationModal';
 
 const statusToBadge = (status) => {
@@ -81,6 +83,9 @@ export default function SessionEdit() {
   const { sessionId } = useParams();
   const navigate = useNavigate();
   useDocumentTitle('Editar Sesión');
+  // Inline success badge: aparece junto al botón Guardar y queda visible
+  // 1.2s antes de navegar al detalle de la sesión. T-955.
+  const saveBadge = useInlineSuccess();
 
   const [session, setSession] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -267,8 +272,11 @@ export default function SessionEdit() {
     try {
       setSaving(true);
       await sessionsAPI.updateSession(sessionId, payload);
+      saveBadge.trigger();
       toast.success('Sesión actualizada');
-      navigate(ROUTES.SESSION_DETAIL(sessionId));
+      // Pequeño respiro para que el badge inline sea perceptible antes de
+      // navegar. Si reducedMotion el toast sigue siendo informativo.
+      setTimeout(() => navigate(ROUTES.SESSION_DETAIL(sessionId)), 900);
     } catch (err) {
       toast.error('No se pudo guardar', {
         description: extractErrorMessage(err)
@@ -491,14 +499,17 @@ export default function SessionEdit() {
             >
               Cancelar
             </ButtonPremium>
-            <ButtonPremium
-              variant="primary"
-              onClick={handleSave}
-              disabled={!canEdit || saving}
-            >
-              <Save size={16} />
-              {saving ? 'Guardando…' : 'Guardar cambios'}
-            </ButtonPremium>
+            <div className="relative">
+              <ButtonPremium
+                variant="primary"
+                onClick={handleSave}
+                disabled={!canEdit || saving}
+              >
+                <Save size={16} />
+                {saving ? 'Guardando…' : 'Guardar cambios'}
+              </ButtonPremium>
+              <InlineSuccessBadge visible={saveBadge.visible} label="Sesión guardada" placement="left" />
+            </div>
           </div>
         </GlassCard>
       </div>

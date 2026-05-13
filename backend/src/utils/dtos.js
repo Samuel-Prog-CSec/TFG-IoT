@@ -941,6 +941,33 @@ const toStudentIdentityDTOV1 = user => {
   };
 };
 
+/**
+ * DTO v1 para Notification (T-955). Serializa el documento Mongoose a un
+ * objeto plano apto para enviar por HTTP y por Socket.IO `notification:created`.
+ *
+ * @param {Object} doc - Documento Notification de Mongoose o plain object.
+ * @returns {Object|null}
+ */
+const toNotificationDTOV1 = doc => {
+  if (!doc) {
+    return null;
+  }
+  const data = toPlainObject(doc);
+  return {
+    id: toId(data),
+    type: data.type,
+    priority: data.priority || 'info',
+    title: data.title,
+    body: data.body || '',
+    link: data.link || null,
+    metadata: data.metadata && typeof data.metadata === 'object' ? { ...data.metadata } : {},
+    read: !!data.read,
+    readAt: data.readAt || null,
+    createdAt: data.createdAt,
+    updatedAt: data.updatedAt
+  };
+};
+
 module.exports = {
   // Users
   toUserDTOV1,
@@ -986,5 +1013,8 @@ module.exports = {
 
   // Analytics seudonimizados (Art. 25 RGPD)
   toStudentAnalyticsDTOV1,
-  toStudentIdentityDTOV1
+  toStudentIdentityDTOV1,
+
+  // Notifications (T-955)
+  toNotificationDTOV1
 };

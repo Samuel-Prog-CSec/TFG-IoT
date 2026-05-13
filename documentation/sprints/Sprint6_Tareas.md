@@ -1411,7 +1411,7 @@ Tres mejoras transversales de UX en listados y transiciones:
 
 ---
 
-### T-955: ⚛️ Notificaciones tiempo real + inline success badges 📋
+### T-955: ⚛️ Notificaciones tiempo real + inline success badges ✅
 
 **Consolida:** PROP-1 + PROP-76
 **Prioridad:** P2 | **Tamaño:** XL (> 2 días) | **Dependencias:** Ninguna
@@ -1562,7 +1562,7 @@ Cinco frentes de pulido agrupados por afinidad temática, todos con foco en elev
 
 ## P3 — Prioridad Baja
 
-### T-954: ⚛️ Atmósferas dinámicas por contexto + hero transitions + navegación direccional + scroll parallax 📋
+### T-954: ⚛️ Atmósferas dinámicas por contexto + hero transitions + navegación direccional + scroll parallax ✅
 
 **Consolida:** PROP-16 + PROP-71 + PROP-72 + PROP-73 + PROP-75
 **Prioridad:** P3 | **Tamaño:** XL (> 2 días) | **Dependencias:** T-953 (signature visual base)
@@ -1619,13 +1619,24 @@ Paquete de motion signature ampliada que continúa la línea "Tactile RFID + Pap
 
 ---
 
-### T-956: ⚛️ Modo demo profesor (sin RFID) + Export/Import sesiones y mazos 📋
+### T-956: ❌ CERRADA — Modo demo profesor (sin RFID) + Export/Import sesiones y mazos
 
-**Consolida:** PROP-2 + PROP-6 + PROP-11
-**Prioridad:** P3 | **Tamaño:** XL (> 2 días) | **Dependencias:** Ninguna
-**Origen:** Profesor sin lector RFID no puede validar sesiones; sin export/import no hay colaboración entre profesores
+**Estado:** ❌ Cerrada (no se hará) — decisión 2026-05-13
+**Consolida:** PROP-2 + PROP-6 + PROP-11 → todas descartadas para v1.0.0
+**Prioridad original:** P3 | **Tamaño:** XL (> 2 días) | **Dependencias:** Ninguna
 
-**Descripción:**
+**Decisión de cierre (2026-05-13):**
+
+Tras revisar el alcance se concluye que **ninguna de las dos fases aporta valor incremental suficiente para v1.0.0**:
+
+- **Fase A (Modo demo sin RFID):** redundante. El `FallbackTouchPanel` ya cubre el flujo sin sensor y ha sido pulido a fondo en QA recientes (cooldown, feedback contextual `CheckCircle2/XCircle`, target size, latencia táctil 1500ms). Además `window.__rfidSim` cubre simulación en QA. La única diferencia funcional real del "Modo Demo" sería el flag `isDemo: true` para no contaminar analytics; si la necesidad surge, se resuelve con un cambio quirúrgico (checkbox "esto es prueba" o filtrar plays cuyo `student === teacher`), no con UI paralela completa.
+- **Fase B (Export/Import de mazos y sesiones):** feature de productividad real para colaboración entre profesores, pero independiente y no bloqueante para el corte v1.0.0. Si vuelve a ser prioritaria, se reabrirá como tarea aislada (no en rama UI/UX) post-release.
+
+**Propuestas descartadas:** PROP-2, PROP-6, PROP-11 (3/68 del backlog absorbido). PROP-6 queda como candidata a `propuestas-mejora.md` post-v1.0.0 si se solicita explícitamente.
+
+---
+
+**Descripción (alcance original, conservado para trazabilidad):**
 Dos features de productividad para el profesor que extienden el alcance de la plataforma:
 
 1. Modo demo / vista previa de partida sin RFID (PROP-2 + PROP-11): permite simular una partida completa con tarjetas virtuales clicables. UI dedicada (no fallback de emergencia), pensada para preview con visual diferenciado.
@@ -1725,7 +1736,7 @@ T-951 (tema + atajos + onboarding) — independiente
 T-952 (animatepresence + paginación + inline editing) — independiente
 T-955 (notificaciones + inline success) — independiente
 T-957 (logout undo) — independiente
-T-956 (modo demo + export/import) — independiente
+T-956 (modo demo + export/import) — ❌ CERRADA (no se hará, ver decisión en su sección)
 
 T-951, T-952, T-953, T-954 ──► T-958 (audit final coherencia + WCAG + responsive tablet,
                                        requiere todas las piezas integradas)
@@ -1764,8 +1775,8 @@ La **ruta crítica del sprint es la cadena T-901 → T-902 → T-903 → T-908**
 | **P0 (Crítica/Bloqueante v1.0.0)** | 13 tareas (T-901~T-910, T-921, T-922, T-923) | ~32-43 días |
 | **P1 (Alta)** | 4 tareas (T-941, T-943, T-953, T-958) | ~8-12 días |
 | **P2 (Media)** | 7 tareas (T-931, T-942, T-951, T-952, T-955, T-957, T-959) | ~16-23 días |
-| **P3 (Baja)** | 2 tareas (T-954, T-956) | ~4-6 días |
-| **Total** | **26 tareas** | **~60-84 días** |
+| **P3 (Baja)** | 1 tarea (T-954) | ~2-3 días |
+| **Total** | **25 tareas activas** (+ T-956 cerrada) | **~58-81 días** |
 
 ### Por Área
 
@@ -1775,7 +1786,7 @@ La **ruta crítica del sprint es la cadena T-901 → T-902 → T-903 → T-908**
 | 🎮 Mecánica Secuencia | T-921, T-922, T-923 (3 tareas) | ~11% |
 | 🔧 Backend / Redis | T-931 (1 tarea) | ~5% |
 | 📊 Analytics & Alertas | T-941, T-942, T-943 (3 tareas) | ~14% |
-| ⚛️ UI/UX & Motion Signature | T-951~T-959 (9 tareas) | ~26% |
+| ⚛️ UI/UX & Motion Signature | T-951~T-959 excluyendo T-956 (8 tareas activas) | ~24% |
 
 ### Tabla de Consolidación (Trazabilidad propuestas → tareas)
 
@@ -1803,13 +1814,13 @@ La **ruta crítica del sprint es la cadena T-901 → T-902 → T-903 → T-908**
 | **T-953** | PROP-66 + PROP-67 + PROP-74 |
 | **T-954** | PROP-16 + PROP-71 + PROP-72 + PROP-73 + PROP-75 |
 | **T-955** | PROP-1 + PROP-76 |
-| **T-956** | PROP-2 + PROP-6 + PROP-11 |
+| ~~**T-956**~~ | ❌ CERRADA 2026-05-13 — PROP-2 + PROP-6 + PROP-11 descartadas (ver decisión en su sección) |
 | **T-957** | PROP-93 |
 | **T-958** | (nueva — Audit final coherencia visual + WCAG 2.2 AA + responsive tablet) |
 | **T-959** | (nueva — Polish flujos críticos profesor + área admin + extras) |
 
-**Total propuestas absorbidas: 68/68** (todas las propuestas pendientes en `propuestas-mejora.md`).
-**Total tareas: 26** (21 consolidadas desde propuestas + 3 nuevas de mecánica Secuencia: backend, frontend+analytics, auditoría integral + 2 nuevas de polish UI: audit final coherencia/WCAG y polish flujos críticos).
+**Total propuestas absorbidas: 65/68** (3 descartadas con el cierre de T-956: PROP-2, PROP-6, PROP-11).
+**Total tareas activas: 25** (20 consolidadas desde propuestas + 3 nuevas de mecánica Secuencia: backend, frontend+analytics, auditoría integral + 2 nuevas de polish UI: audit final coherencia/WCAG y polish flujos críticos). **T-956 cerrada** sin implementación (ver decisión de cierre en su sección).
 
 ---
 

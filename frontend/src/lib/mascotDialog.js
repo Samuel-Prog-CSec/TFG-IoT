@@ -55,7 +55,7 @@ const MEMORY_DIALOG = Object.freeze({
   greeting: ['¡Hola crack!', '¿Listo para parejas?', '¡Vamos a recordar!'],
   gameOverHigh: ['¡INCREÍBLE!', '¡MEMORIA DE ELEFANTE!', '¡PERFECTO!'],
   gameOverMid: ['¡Muy bien!', '¡Sigue así!', '¡Buen trabajo!'],
-  gameOverLow: ['Otra y mejoras', 'No te rindas', 'La práctica suma']
+  gameOverLow: ['Otra y mejorarás', 'No te rindas', 'La práctica suma']
 });
 
 const ASSOCIATION_DIALOG = Object.freeze({
@@ -85,7 +85,7 @@ const ASSOCIATION_DIALOG = Object.freeze({
   greeting: ['¡Hola crack!', '¿Listo para asociar?', '¡A conectar!'],
   gameOverHigh: ['¡INCREÍBLE!', '¡CONEXIÓN PERFECTA!', '¡ERES UN GENIO!'],
   gameOverMid: ['¡Muy bien!', '¡Sigue así!', '¡Vas creciendo!'],
-  gameOverLow: ['Otra y mejoras', 'No te rindas', 'A practicar']
+  gameOverLow: ['Otra y mejorarás', 'No te rindas', 'A practicar']
 });
 
 const SEQUENCE_DIALOG = Object.freeze({
@@ -111,7 +111,7 @@ const SEQUENCE_DIALOG = Object.freeze({
   greeting: ['¡Hola crack!', '¿Listo para el ritmo?', '¡Vamos a memorizar!'],
   gameOverHigh: ['¡SECUENCIA PERFECTA!', '¡INCREÍBLE!', '¡RITMO TOTAL!'],
   gameOverMid: ['¡Muy bien!', '¡Cada vez mejor!', '¡Buen trabajo!'],
-  gameOverLow: ['Otra y mejoras', 'No te rindas', 'La práctica suma']
+  gameOverLow: ['Otra y mejorarás', 'No te rindas', 'La práctica suma']
 });
 
 export const MASCOT_DIALOG = Object.freeze({

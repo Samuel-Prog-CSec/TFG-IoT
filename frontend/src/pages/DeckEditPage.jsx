@@ -35,6 +35,8 @@ import CardAssetPreview from '../components/ui/CardAssetPreview';
 import RFIDScannerPanel from '../components/ui/RFIDScannerPanel';
 import { SkeletonCard } from '../components/ui/SkeletonShimmer';
 import ConfirmationModal, { useConfirmationModal } from '../components/ui/ConfirmationModal';
+import InlineSuccessBadge from '../components/ui/InlineSuccessBadge';
+import useInlineSuccess from '../hooks/useInlineSuccess';
 import { useContexts } from '../hooks/useContexts';
 import { useRefetchOnFocus } from '../hooks/useRefetchOnFocus';
 import { useUnsavedChanges } from '../hooks/useUnsavedChanges';
@@ -86,6 +88,10 @@ export default function DeckEditPage() {
   const navigate = useNavigate();
   useDocumentTitle('Editar Mazo');
   const { fireConfetti } = useConfetti();
+  // Micro-confirmación inline tras guardar (T-955). Coexiste con el toast,
+  // pero el badge vive junto al botón Save para que el docente registre el
+  // éxito sin recorrer la pantalla.
+  const saveBadge = useInlineSuccess();
 
   // Estados de carga
   const [loading, setLoading] = useState(true);
@@ -323,6 +329,7 @@ export default function DeckEditPage() {
         origin: { y: 0.6 },
       });
 
+      saveBadge.trigger();
       toast.success('Mazo actualizado');
 
       // Resumen de tarjetas movidas cross-deck (ADR-022)
@@ -463,14 +470,17 @@ export default function DeckEditPage() {
             >
               Archivar
             </ButtonPremium>
-            <ButtonPremium
-              onClick={handleSave}
-              disabled={!hasChanges || saving}
-              loading={saving}
-              icon={<Save size={16} />}
-            >
-              Guardar Cambios
-            </ButtonPremium>
+            <div className="relative">
+              <ButtonPremium
+                onClick={handleSave}
+                disabled={!hasChanges || saving}
+                loading={saving}
+                icon={<Save size={16} />}
+              >
+                Guardar Cambios
+              </ButtonPremium>
+              <InlineSuccessBadge visible={saveBadge.visible} label="Guardado" placement="left" />
+            </div>
           </div>
         </div>
       </motion.div>

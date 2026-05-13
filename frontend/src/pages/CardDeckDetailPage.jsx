@@ -23,6 +23,7 @@ import Breadcrumb from '../components/ui/Breadcrumb';
 import { pageVariants, formatDate } from '../lib/utils';
 import { useRefetchOnFocus } from '../hooks/useRefetchOnFocus';
 import { useDocumentTitle } from '../hooks/useDocumentTitle';
+import { useSharedLayoutTransition } from '../hooks/useSharedLayoutTransition';
 
 function isDeckArchived(deck) {
   if (!deck) return false;
@@ -91,6 +92,8 @@ export default function CardDeckDetailPage() {
   const { deckId } = useParams();
   const navigate = useNavigate();
   useDocumentTitle('Detalle del Mazo');
+  // T-954 Fase B: receptor del shared layout id emitido por DeckCard.
+  const heroLayoutId = useSharedLayoutTransition('deck', deckId);
 
   const [deck, setDeck] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -173,6 +176,10 @@ export default function CardDeckDetailPage() {
 
   return (
     <motion.div
+      // El hero transition aterriza en el motion.div principal de la
+      // página: cuando DeckCard pulsa, su layoutId hace que Framer
+      // anime el rectángulo de la card hasta el contenedor del detalle.
+      layoutId={heroLayoutId}
       className="p-6 lg:p-8 max-w-6xl mx-auto"
       variants={pageVariants}
       initial="initial"

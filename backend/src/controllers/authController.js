@@ -131,12 +131,54 @@ const register = async (req, res) => {
     email: teacher.email
   });
 
+  // Notificar a todos los super_admin del centro (T-955 trigger:
+  // registration_pending). No bloquea la respuesta — fire & forget.
+  notifyPendingRegistration(teacher).catch(err => {
+    // Defensa adicional, notify() ya silencia errores propios.
+    require('../utils/logger').warn?.('notifyPendingRegistration ignorado', {
+      error: err?.message
+    });
+  });
+
   sendCreated(
     res,
     { user: toUserDTOV1(teacher) },
     'Profesor registrado. Cuenta pendiente de aprobación por Super Admin.'
   );
 };
+
+/**
+ * Notifica a todos los super_admin que hay un nuevo profesor pendiente
+ * de aprobación. T-955 / registration_pending.
+ *
+ * @param {object} teacher - documento User recién creado.
+ */
+async function notifyPendingRegistration(teacher) {
+  const notificationService = require('../services/notificationService');
+  const admins = await userRepository.find(
+    { role: 'super_admin', status: 'active' },
+    { select: '_id', lean: true }
+  );
+  if (!Array.isArray(admins) || admins.length === 0) {
+    return;
+  }
+  await Promise.all(
+    admins.map(admin =>
+      notificationService.notify({
+        userId: admin._id.toString(),
+        type: 'registration_pending',
+        priority: 'warning',
+        title: 'Nueva solicitud de acceso',
+        body: `${teacher.name || 'Un docente'} quiere unirse al centro. Aprueba o rechaza desde Aprobaciones.`,
+        link: '/admin/approvals',
+        metadata: {
+          teacherId: teacher._id.toString(),
+          teacherEmail: teacher.email
+        }
+      })
+    )
+  );
+}
 
 const assertAccountApprovedForLogin = user => {
   if (!['teacher', 'super_admin'].includes(user.role)) {

@@ -2,6 +2,7 @@ import { useEffect, useState, useCallback } from 'react';
 import { Outlet, useNavigate, useLocation } from 'react-router-dom';
 import { X } from 'lucide-react';
 import ConfirmationModal, { useConfirmationModal } from '../ui/ConfirmationModal';
+import { useRouteAtmosphere } from '../../hooks/useRouteAtmosphere';
 
 /**
  * Layout fullscreen para rutas de gameplay (/game/:sessionId).
@@ -20,6 +21,11 @@ export default function GameLayout() {
   const location = useLocation();
   const exitModal = useConfirmationModal();
   const [hasActiveGame, setHasActiveGame] = useState(false);
+  // T-954 Fase A + Phase 7 polish: durante la partida la atmósfera se tinta
+  // al contexto de la sesión (Memoria/Asociación/Secuencia × Geografía…).
+  // Lo combina con `mechanicTheme.backdropTintClass` aplicado por GameSession
+  // para producir un fondo único por combinación mecánica × contexto.
+  useRouteAtmosphere();
 
   // GameSession setea window.__gameActive=true al startPlay y false al endPlay,
   // y dispara `gameactive:change` para notificar a este layout sin polling.

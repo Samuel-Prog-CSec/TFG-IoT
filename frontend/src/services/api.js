@@ -949,4 +949,45 @@ export const playsAPI = {
     api.get(`/plays/stats/${playerId}`, { params })
 };
 
+/**
+ * API de notificaciones tiempo real (T-955).
+ *
+ * Los endpoints viven bajo /api/notifications. El bell del frontend
+ * consume estos endpoints para hidratar el estado inicial y para acciones
+ * de read/markAllRead; las notificaciones nuevas llegan vía Socket.IO
+ * (`notification:created`) y se prependen al listado cacheado.
+ */
+export const notificationsAPI = {
+  /**
+   * Lista paginada de notificaciones del usuario autenticado.
+   * @param {Object} params
+   * @param {number} [params.limit=20] - Tamaño de la página (1-100).
+   * @param {string} [params.before] - ISO date string como cursor.
+   * @param {Object} [config] - Axios config extra.
+   * @returns {Promise} { data: { items, nextCursor } }
+   */
+  list: (params = {}, config = {}) =>
+    api.get('/notifications', { params, ...config }),
+
+  /**
+   * Contador de notificaciones no leídas del usuario.
+   * @param {Object} [config]
+   * @returns {Promise} { data: { count } }
+   */
+  unreadCount: (config = {}) => api.get('/notifications/unread-count', config),
+
+  /**
+   * Marca una notificación específica como leída.
+   * @param {string} id
+   * @returns {Promise}
+   */
+  markRead: (id) => api.patch(`/notifications/${id}/read`, {}),
+
+  /**
+   * Marca todas las notificaciones del usuario como leídas.
+   * @returns {Promise} { data: { modified } }
+   */
+  markAllRead: () => api.post('/notifications/mark-all-read', {})
+};
+
 export default api;

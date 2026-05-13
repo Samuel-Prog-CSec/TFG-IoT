@@ -30,6 +30,8 @@ import { EmptyContextsIllustration } from '../components/ui/illustrations';
 import ErrorState from '../components/ui/ErrorState';
 import Tooltip from '../components/ui/Tooltip';
 import { SkeletonCard } from '../components/ui/SkeletonShimmer';
+import InlineSuccessBadge from '../components/ui/InlineSuccessBadge';
+import useInlineSuccess from '../hooks/useInlineSuccess';
 import { useContexts } from '../hooks/useContexts';
 import { useReducedMotion } from '../hooks/useReducedMotion';
 import { useDocumentTitle } from '../hooks/useDocumentTitle';
@@ -295,18 +297,24 @@ export default function ContextsPage() {
                 animate="visible"
               >
                 <AnimatePresence>
-                  {filteredContexts.map((context) => (
-                    <motion.div
-                      key={context._id || context.id}
-                      variants={cardVariants}
-                      exit="exit"
-                    >
-                      <ContextCard
-                        context={context}
-                        onClick={() => navigate(ROUTES.CONTEXT_DETAIL(context._id || context.id))}
-                      />
-                    </motion.div>
-                  ))}
+                  {filteredContexts.map((context) => {
+                    const contextResId = context._id || context.id;
+                    return (
+                      <motion.div
+                        key={contextResId}
+                        // T-954 Fase B: shared layout id para hero
+                        // transition al detalle del contexto.
+                        layoutId={`context-${contextResId}`}
+                        variants={cardVariants}
+                        exit="exit"
+                      >
+                        <ContextCard
+                          context={context}
+                          onClick={() => navigate(ROUTES.CONTEXT_DETAIL(contextResId))}
+                        />
+                      </motion.div>
+                    );
+                  })}
                 </AnimatePresence>
               </motion.div>
             );
@@ -452,6 +460,9 @@ function CreateContextModal({ onClose, onSuccess }) {
   const [contextId, setContextId] = useState('');
   const [contextIdManuallyEdited, setContextIdManuallyEdited] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  // T-955: feedback inline. El modal queda visible 1.1s tras el éxito para
+  // que el badge sea perceptible antes de cerrar y refrescar el grid.
+  const saveBadge = useInlineSuccess({ duration: 1500 });
 
   const handleNameChange = e => {
     const newName = e.target.value;
@@ -487,8 +498,10 @@ function CreateContextModal({ onClose, onSuccess }) {
         contextId: contextId.trim()
       });
       const created = extractData(response);
+      saveBadge.trigger();
       toast.success(`Contexto "${name}" creado correctamente`);
-      onSuccess(created);
+      // Pequeño respiro para mostrar el badge antes de cerrar el modal.
+      setTimeout(() => onSuccess(created), 1100);
     } catch (err) {
       const msg = extractErrorMessage(err);
       if (msg?.toLowerCase().includes('ya existe')) {
@@ -577,14 +590,17 @@ function CreateContextModal({ onClose, onSuccess }) {
             >
               Cancelar
             </ButtonPremium>
-            <ButtonPremium
-              type="submit"
-              loading={isSubmitting}
-              disabled={!name.trim() || !contextId.trim() || contextId.length < 2}
-              icon={isSubmitting ? <Loader2 size={16} className="animate-spin" /> : <Plus size={16} />}
-            >
-              Crear Contexto
-            </ButtonPremium>
+            <div className="relative">
+              <ButtonPremium
+                type="submit"
+                loading={isSubmitting}
+                disabled={!name.trim() || !contextId.trim() || contextId.length < 2}
+                icon={isSubmitting ? <Loader2 size={16} className="animate-spin" /> : <Plus size={16} />}
+              >
+                Crear Contexto
+              </ButtonPremium>
+              <InlineSuccessBadge visible={saveBadge.visible} label="Contexto creado" placement="left" />
+            </div>
           </div>
         </form>
       </motion.div>

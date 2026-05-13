@@ -17,6 +17,7 @@ import { Layers, Edit2, Trash2, Eye, MoreVertical, Calendar, CreditCard } from '
 import PropTypes from 'prop-types';
 import { cn, formatDate } from '../../lib/utils';
 import { getContextTheme } from '../../lib/contextTheme';
+import { useSharedLayoutTransition } from '../../hooks/useSharedLayoutTransition';
 import Tooltip from './Tooltip';
 import CardAssetPreview from './CardAssetPreview';
 import InlineEditableText from './InlineEditableText';
@@ -216,6 +217,13 @@ export default function DeckCard({
     onSelect,
     deck
   });
+  // T-954 Fase B: shared element transition al detalle. Sólo cuando el
+  // mazo NO está en modo selectable (selección dentro del wizard) — en
+  // ese flujo no hay navegación al detalle, así que no aplica el hero.
+  const heroLayoutId = useSharedLayoutTransition(
+    selectable ? null : 'deck',
+    deck?._id || deck?.id
+  );
 
   // Obtener preview de assets (primeros 6, que coincide con el mazo estandar
   // de 6 cartas unicas). Asi el contrato visual iguala al conteo real.
@@ -253,6 +261,7 @@ export default function DeckCard({
       assetY={assetY}
       cardsCount={cardsCount}
       showActions={showActions}
+      heroLayoutId={heroLayoutId}
     />
   );
 }
@@ -284,11 +293,16 @@ function DeckCardView({
   assetX,
   assetY,
   cardsCount,
-  showActions
+  showActions,
+  heroLayoutId
 }) {
   return (
     <motion.div
       ref={cardRef}
+      // T-954 Fase B: layoutId compartido para hero transition al detalle.
+      // Undefined cuando reduced-motion o cuando la card está en modo
+      // selectable (wizard, sin navegación al detalle).
+      layoutId={heroLayoutId}
       className={cn(
         'relative group cursor-pointer perspective-1000',
         className
@@ -325,9 +339,11 @@ function DeckCardView({
           'backdrop-blur-xl',
           'transition-shadow duration-300',
           // Sombra hover delegada al token --shadow-lg (variante por tema).
-          // Mantiene el tinte indigo del original con un ring extra cuando
-          // tiene foco/hover en lugar de shadow-2xl negra (T-951 Fase 1).
-          isHovered && 'shadow-[var(--shadow-lg)] ring-1 ring-accent-indigo/20',
+          // El ring se tinta con `--color-atmosphere-primary` (T-954): si hay
+          // contexto activo (Geografía, Animales…) el ring hereda el tinte;
+          // sin contexto el token apunta al brand y se mantiene el aspecto
+          // anterior (T-951 Fase 1).
+          isHovered && 'shadow-[var(--shadow-lg)] ring-1 ring-[color-mix(in_oklab,var(--color-atmosphere-primary)_30%,transparent)]',
           selected && 'ring-2 ring-brand-base ring-offset-2 ring-offset-background-deep',
           selectable && 'hover:ring-2 hover:ring-brand-base/50 focus-ring'
         )}
@@ -440,6 +456,7 @@ DeckCardView.propTypes = {
   assetY: PropTypes.oneOfType([PropTypes.number, PropTypes.object]).isRequired,
   cardsCount: PropTypes.number.isRequired,
   showActions: PropTypes.bool.isRequired,
+  heroLayoutId: PropTypes.string,
 };
 
 function DeckCardHeader({

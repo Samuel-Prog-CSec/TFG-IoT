@@ -53,6 +53,7 @@ import ConfirmationModal, { useConfirmationModal } from '../components/ui/Confir
 import { cn, pageVariants, formatDate } from '../lib/utils';
 import { useRefetchOnFocus } from '../hooks/useRefetchOnFocus';
 import { useDocumentTitle } from '../hooks/useDocumentTitle';
+import { useSharedLayoutTransition } from '../hooks/useSharedLayoutTransition';
 import SessionDetailMemoryPanel from '../components/session/detail/SessionDetailMemoryPanel';
 import SessionDetailAssociationPanel from '../components/session/detail/SessionDetailAssociationPanel';
 import SessionDetailSequencePanel from '../components/session/detail/SessionDetailSequencePanel';
@@ -154,6 +155,8 @@ export default function SessionDetail() {
   const deleteModal = useConfirmationModal();
   const cloneModal = useConfirmationModal();
   useDocumentTitle('Detalle de Sesión');
+  // T-954 Fase B: receptor del shared layout id emitido por SessionCard.
+  const heroLayoutId = useSharedLayoutTransition('session', sessionId);
 
   const [session, setSession] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -369,6 +372,7 @@ export default function SessionDetail() {
 
   return (
     <motion.div
+      layoutId={heroLayoutId}
       className="p-6 lg:p-8 max-w-6xl mx-auto"
       variants={pageVariants}
       initial="initial"

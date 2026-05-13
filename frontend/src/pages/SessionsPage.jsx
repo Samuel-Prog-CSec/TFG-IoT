@@ -493,23 +493,30 @@ const renderSessionsContent = ({
           una sesión: el item saliente sale de flujo inmediatamente, los
           hermanos colapsan vía animación de layout sin saltar (T-952 Fase 2). */}
       <AnimatePresence mode="popLayout">
-        {sessions.map((session) => (
-          <motion.div
-            key={session.id || session._id}
-            layout
-            variants={cardVariants}
-            exit="exit"
-          >
-            <SessionCard
-              session={session}
-              cloneLoading={cloneLoading}
-              onClone={handleClone}
-              onDelete={handleDelete}
-              onNavigate={navigate}
-              onRename={handleRename ? handleRename(session) : undefined}
-            />
-          </motion.div>
-        ))}
+        {sessions.map((session) => {
+          const sessionId = session.id || session._id;
+          return (
+            <motion.div
+              key={sessionId}
+              // T-954 Fase B: shared layout id para hero transition al detalle.
+              // Sólo en sessions navegables (status `created` o `active`).
+              // El receptor está en SessionDetail.jsx con el mismo prefix.
+              layoutId={`session-${sessionId}`}
+              layout
+              variants={cardVariants}
+              exit="exit"
+            >
+              <SessionCard
+                session={session}
+                cloneLoading={cloneLoading}
+                onClone={handleClone}
+                onDelete={handleDelete}
+                onNavigate={navigate}
+                onRename={handleRename ? handleRename(session) : undefined}
+              />
+            </motion.div>
+          );
+        })}
       </AnimatePresence>
     </motion.div>
   );

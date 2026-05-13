@@ -27,6 +27,8 @@ import {
 import { sessionsAPI, extractData, extractErrorMessage } from '../services/api';
 import WizardStepper from '../components/ui/WizardStepper';
 import ButtonPremium from '../components/ui/ButtonPremium';
+import InlineSuccessBadge from '../components/ui/InlineSuccessBadge';
+import useInlineSuccess from '../hooks/useInlineSuccess';
 import GlassCard from '../components/ui/GlassCard';
 import { ROUTES } from '../constants/routes';
 import { useReducedMotion } from '../hooks/useReducedMotion';
@@ -91,6 +93,9 @@ export default function CreateSession() {
   const { shouldReduceMotion } = useReducedMotion();
   const { fireConfetti } = useConfetti();
   useDocumentTitle('Nueva Sesión');
+  // T-955: badge inline tras crear la sesión, antes de navegar al destino
+  // (BoardSetup en Memoria o SessionDetail en Asociación/Secuencia).
+  const saveBadge = useInlineSuccess();
 
   // Estado del wizard
   const [currentStep, setCurrentStep] = useState(0);
@@ -197,12 +202,13 @@ export default function CreateSession() {
       const response = await sessionsAPI.createSession(payload);
       const newSession = extractData(response);
 
-      // Celebracion
+      // Celebracion + micro-confirmación inline.
       fireConfetti({
         particleCount: 150,
         spread: 80,
         origin: { y: 0.6 },
       });
+      saveBadge.trigger();
 
       toast.success('¡Sesión creada!', {
         description: isMemorySelected
@@ -382,14 +388,17 @@ export default function CreateSession() {
             </div>
 
             {currentStep === WIZARD_STEPS.length - 1 ? (
-              <ButtonPremium
-                onClick={handleCreateSession}
-                disabled={!canProceed(currentStep) || isSubmitting}
-                loading={isSubmitting}
-                icon={<Sparkles size={18} />}
-              >
-                Crear Sesión
-              </ButtonPremium>
+              <div className="relative">
+                <ButtonPremium
+                  onClick={handleCreateSession}
+                  disabled={!canProceed(currentStep) || isSubmitting}
+                  loading={isSubmitting}
+                  icon={<Sparkles size={18} />}
+                >
+                  Crear Sesión
+                </ButtonPremium>
+                <InlineSuccessBadge visible={saveBadge.visible} label="Sesión creada" placement="left" />
+              </div>
             ) : (
               <ButtonPremium
                 onClick={goNext}

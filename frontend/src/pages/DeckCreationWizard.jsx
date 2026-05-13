@@ -40,6 +40,8 @@ import AssetSelector from '../components/ui/AssetSelector';
 import CardAssetPreview from '../components/ui/CardAssetPreview';
 import AudioPlayBadge from '../components/ui/AudioPlayBadge';
 import ButtonPremium from '../components/ui/ButtonPremium';
+import InlineSuccessBadge from '../components/ui/InlineSuccessBadge';
+import useInlineSuccess from '../hooks/useInlineSuccess';
 import GlassCard from '../components/ui/GlassCard';
 import InputPremium from '../components/ui/InputPremium';
 import ConfirmationModal, { useConfirmationModal } from '../components/ui/ConfirmationModal';
@@ -112,6 +114,10 @@ export default function DeckCreationWizard() {
   const { shouldReduceMotion } = useReducedMotion();
   const { fireConfetti } = useConfetti();
   useDocumentTitle('Crear Mazo');
+  // T-955: confirmación inline tras crear el mazo, justo antes de navegar
+  // de vuelta a "Mis Mazos". Coexiste con el confetti y el toast: el badge
+  // es el ancla visual junto al botón "Crear Mazo".
+  const saveBadge = useInlineSuccess();
 
   // Estado del wizard
   const [currentStep, setCurrentStep] = useState(0);
@@ -336,12 +342,13 @@ export default function DeckCreationWizard() {
       // Limpiar borrador
       clearDraft();
 
-      // Celebración
+      // Celebración + micro-confirmación inline.
       fireConfetti({
         particleCount: 150,
         spread: 80,
         origin: { y: 0.6 },
       });
+      saveBadge.trigger();
 
       toast.success('¡Mazo creado!', {
         description: `"${deckName}" está listo para usar`
@@ -502,14 +509,17 @@ export default function DeckCreationWizard() {
             </div>
 
             {currentStep === WIZARD_STEPS.length - 1 ? (
-              <ButtonPremium
-                onClick={handleCreateDeck}
-                disabled={!canProceed() || isSubmitting}
-                loading={isSubmitting}
-                icon={<Sparkles size={18} />}
-              >
-                Crear Mazo
-              </ButtonPremium>
+              <div className="relative">
+                <ButtonPremium
+                  onClick={handleCreateDeck}
+                  disabled={!canProceed() || isSubmitting}
+                  loading={isSubmitting}
+                  icon={<Sparkles size={18} />}
+                >
+                  Crear Mazo
+                </ButtonPremium>
+                <InlineSuccessBadge visible={saveBadge.visible} label="Mazo creado" placement="left" />
+              </div>
             ) : (
               <ButtonPremium
                 onClick={goNext}
