@@ -7243,3 +7243,115 @@ Sesión QA intensiva pre-Sprint 6 sobre rama `feature/ui-features-and-signature`
 - Anti-AI-slop: el wrapper Tooltip ya no genera HTML anidado inválido cuando se usa con Framer Motion (caso muy común en este codebase con `whileHover`/`whileTap`).
 - Pedagogía: la mascota ya no inventa fortalezas en alumnos sin aciertos — comunicación coherente con el feedback que el alumno ve.
 - Configurabilidad: los profesores que necesiten Asociación con tiempos largos (lectura, deliberación grupal) ya pueden alcanzar hasta 180s sin recurrir a editar la sesión vía API.
+
+## ADR-136: Logout con undo (toast persistente) + helper `confirmExit` para wizards (T-957) [Full-stack, UX]
+
+**Fecha:** 2026-05-14
+**Estado:** Aceptado
+**Tarea:** T-957 (Sprint 6) — *Logout con confirmación + undo (toast persistente)*
+
+### Contexto
+
+PROP-85 (Sprint 5) había añadido un `ConfirmationModal` warning para evitar el cierre de sesión accidental con un click. Cumplía su función (red de seguridad), pero rompía el flujo del docente con un modal extra cada vez que terminaba la jornada — un coste de fricción que, además, hace que el usuario aprenda a despachar el modal de un click sin leer, perdiendo precisamente la protección que pretendía dar.
+
+La auditoría adicional al preparar T-957 también identificó:
+
+1. `ContextDetailPage.jsx` invocaba el modal con `variant: 'destructive'`, una variante que **no existe** en `VARIANT_COLORS` del componente. El fallback silencioso convertía la acción a `warning`, perdiendo el flip 3D + blip radial + icono `Trash2` previstos para acciones irreversibles.
+2. `DeckCreationWizard.handleDiscardDraft` descartaba el borrador del wizard (10-15 min de captura RFID + asignaciones) sin segunda confirmación — un click accidental en "Descartar" del modal "Borrador encontrado" tiraba todo el trabajo.
+3. El hook `useUnsavedChanges` cubría `beforeunload` (refresh / cierre de pestaña) pero **no** la navegación in-app. Los wizards (`DeckEditPage`, `SessionEdit`, `CreateSession`, `DeckCreationWizard`) tenían un patrón de modal blocker manual cableado a `isBlocked`/`blocker.proceed`/`blocker.reset` del `useBlocker` de React Router 7 — pero el comentario del propio hook ya advertía que el blocker queda como stub en BrowserRouter clásico, por lo que esos modales **nunca se mostraban**. El usuario podía pulsar "Volver" / "Cancelar" / "Ver detalle" / "Ver mapping" en plena edición y perder cambios sin warning.
+
+### Decisión
+
+**Bloque 1 — Logout con ventana de undo (5 s)**
+
+Sustituir el `ConfirmationModal` de PROP-85 por un toast persistente con acción "Deshacer". Mecánica frontend-driven, **sin cambios en backend**:
+
+- `AuthContext` expone tres APIs nuevas:
+  - `deferLogout({ delayMs = 5000 })`: programa el cierre real con `setTimeout`, marca `isLoggingOut = true`, registra un listener `pagehide` que dispara `fetch keepalive: true` contra `/api/auth/logout` para que el cierre de pestaña dentro de la ventana también revoque tokens.
+  - `undoLogout()`: cancela el timeout, desregistra el `pagehide`, deja todo el estado intacto. Devuelve `false` si no había logout pendiente.
+  - `isLoggingOut`: boolean expuesto al UI para deshabilitar el botón durante la cuenta atrás.
+- Mientras la ventana está abierta no se limpian tokens ni `sessionMarker`, por lo que un **refresh de pestaña dentro de los 5 s no desloguea** — el flujo init de `AuthContext` restaura sesión.
+- `AppLayout.handleLogoutClick` ahora llama `deferLogout` + `toast.success('Sesión cerrada', { action: { label: 'Deshacer', onClick: undoLogout }, duration: 5000 })`.
+- El método `logout()` original se conserva como **logout inmediato administrativo** (lo usan los handlers de `SESSION_EXPIRED`, `SESSION_INVALIDATED`, `UNAUTHORIZED` y futuros casos donde la ventana de undo no aplique).
+- Cleanup defensivo: `useEffect` en `AuthProvider` desregistra el `pagehide` al desmontar (importante para tests con remounts y hot-reload de Vite — en producción el evento se dispara antes del unmount, así que el beacon sigue funcionando).
+
+**Bloque 2 — Bug fix variant destructive**
+
+`ContextDetailPage.jsx`: `variant: 'destructive'` → `variant: 'danger'` en `deleteAsset` y `deleteAudio`. Activa la animación canónica para acciones irreversibles.
+
+**Bloque 3 — Confirmación danger antes de descartar borrador**
+
+`DeckCreationWizard.handleDiscardDraft` envuelto con `useConfirmationModal({ variant: 'danger', confirmText: 'Descartar borrador' })`. El click accidental en "Descartar" del modal "Borrador encontrado" ahora exige un segundo step con flip 3D que rompe el patrón muscular.
+
+**Bloque 4 — Hook `useUnsavedChanges` con helper `confirmExit`**
+
+Refactor del hook para devolver además de `blocker`/`isBlocked` (mantenidos como stubs por retrocompatibilidad):
+
+```js
+const { confirmExit, confirmExitModalProps } = useUnsavedChanges(isDirty);
+// En el JSX:
+<ConfirmationModal {...confirmExitModalProps} />
+// En handlers programáticos:
+const handleBack = () => confirmExit(() => navigate(ROUTES.LIST));
+```
+
+`confirmExit(callback)` ejecuta el callback inmediatamente si no hay cambios; si los hay, abre el modal warning con el callback como `onConfirm`. El modal se cierra automáticamente tras confirmar/cancelar (lo gestiona `useConfirmationModal`). Integrado en:
+
+- `DeckCreationWizard.handleExitWizard` (reemplaza al `exitConfirmation` manual, ganando beforeunload de paso).
+- `DeckEditPage`: botón "Ver detalle".
+- `SessionEdit`: botones "Ver mapping", "Configurar tablero", "Cancelar".
+- `CreateSession`: modal montado, listo para nuevos puntos de salida (el wizard actual solo expone "Anterior"/"Siguiente"/"Crear", todos internos).
+
+### Alternativas consideradas
+
+- **Backend con flag `deferInvalidationMs`**: el endpoint marca el logout como pendiente en Redis con TTL 5 s y un job lo materializa. Más robusto frente a cierre de pestaña sin `sendBeacon`, pero exige nuevos endpoints (`/logout/cancel`) y keyspace en Redis. Descartado: la red de seguridad de `fetch keepalive: true` en `pagehide` cubre el caso de cierre de pestaña sin coste de infra extra.
+- **`navigator.sendBeacon`**: POST-only, garantizado en `pagehide`, pero **no admite headers personalizados** y nuestro endpoint requiere `Authorization: Bearer`. Habría que aceptar el access token vía body en el controller (cambio en backend). Descartado a favor de `fetch keepalive: true`, soportado por todos los navegadores que cumplen el criterio de Web Serial del proyecto.
+- **Migrar a `createBrowserRouter`** para habilitar `useBlocker` real de React Router 7: cobertura completa de navegación in-app (incluyendo `<Link>` del sidebar/breadcrumb). Descartado para T-957: cambio de gran alcance que toca todo el App. Documentado como **gap conocido** y candidato a PROP futura — la cobertura actual de `confirmExit` cubre los botones programáticos críticos.
+
+### Cobertura efectiva del helper `confirmExit`
+
+| Escenario | ¿Protege? |
+|---|---|
+| Refresh / cerrar pestaña | ✅ `beforeunload` |
+| Click en "Volver" / "Cancelar" / "Ver detalle" / "X" del wizard | ✅ `confirmExit(callback)` |
+| Click en `<Link>` / `<NavLink>` del sidebar o breadcrumb | ❌ requiere Data Router |
+
+### Verificación
+
+- Tests Vitest: **396/396 passing** (+19 nuevos: `useUnsavedChanges.test.jsx` con 11 + `AuthContext.logout-undo.test.jsx` con 8 — cubren `deferLogout`/`undoLogout`/`pagehide beacon`/idempotencia/`confirmExit` con isDirty true y false).
+- Tests Jest backend: **1145/1145 passing** (0 cambios en backend).
+- Lint frontend y backend: 0 errors.
+- E2E manual recomendado (Docker + Playwright):
+  - Caso A — Deshacer: click logout → toast con "Deshacer" → pulsar → sigue en `/decks` sin desloguearse, sin llamada HTTP de logout.
+  - Caso B — Timeout completo: click logout → esperar 5 s → redirect a `/login`, 1 POST `/api/auth/logout` con 200.
+  - Caso C — Refresh durante undo: click logout → F5 dentro de los 5 s → vuelve a `/decks` logueado (cookies y session marker intactos).
+  - Caso D — Cierre de pestaña durante undo: click logout → cerrar pestaña → reabrir → pide login (beacon revocó tokens; verificable en logs Pino del backend).
+  - Caso E — Wizards: editar campo en `/decks/:id/edit` → pulsar "Ver detalle" → modal warning. Idem en `/sessions/:id/edit` con "Cancelar".
+
+### Archivos modificados
+
+**Frontend:**
+- `frontend/src/services/api.js` (exporta `API_BASE_URL` para el beacon).
+- `frontend/src/context/AuthContext.jsx` (`deferLogout`, `undoLogout`, `isLoggingOut`, `finalizeLogout`, cleanup useEffect).
+- `frontend/src/components/layout/AppLayout.jsx` (toast con action, deshabilita botón durante isLoggingOut, elimina `ConfirmationModal` de logout).
+- `frontend/src/pages/ContextDetailPage.jsx` (variant `destructive` → `danger`).
+- `frontend/src/pages/DeckCreationWizard.jsx` (`discardConfirmation` para handleDiscardDraft + integración `useUnsavedChanges` + `confirmExit`).
+- `frontend/src/hooks/useUnsavedChanges.js` (refactor: añade `confirmExit` + `confirmExitModalProps`).
+- `frontend/src/pages/DeckEditPage.jsx` (botón "Ver detalle" con `confirmExit`).
+- `frontend/src/pages/SessionEdit.jsx` (botones "Cancelar", "Ver mapping", "Configurar tablero" con `confirmExit`).
+- `frontend/src/pages/CreateSession.jsx` (montaje del modal `confirmExitModalProps`).
+- `frontend/src/context/__tests__/AuthContext.logout-undo.test.jsx` (nuevo — 8 tests).
+- `frontend/src/hooks/__tests__/useUnsavedChanges.test.jsx` (nuevo — 11 tests).
+
+**Documentación:**
+- `documentation/Architecture_Decisions.md` (este ADR).
+- `documentation/sprints/Sprint6_Tareas.md` (T-957 marcada como completada con sub-tareas refinadas).
+- `frontend/docs/01-PATRONES-DISENO.md` (sección "Acción destructiva con undo vs ConfirmationModal" añadida).
+
+### Consecuencias
+
+- **UX docente más fluida**: cierre de sesión sin fricción al final de la jornada, con red de seguridad real (los 5 s permiten recuperar de cualquier mis-click sin pedir credenciales de nuevo).
+- **Cobertura de protección extendida**: los wizards y editores que antes confiaban en `useBlocker` (que era stub) ahora muestran modal warning correcto al usar botones programáticos. El borrador del wizard de mazos exige doble confirmación para descartarse.
+- **Anti-AI-slop**: la variante `danger` aplica donde antes había fallback silencioso a `warning` — la animación visual ahora coincide con la severidad real.
+- **Gap conocido documentado**: navegación in-app vía `<Link>` sigue sin bloquearse. La PROP futura de migración a Data Router lo resolverá globalmente.
+- **Sin cambios en backend**: `/api/auth/logout` sigue revocando tokens igual; los 1145 tests Jest existentes confirman cero regresiones.

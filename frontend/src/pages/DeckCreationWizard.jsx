@@ -51,6 +51,7 @@ import { useContexts } from '../hooks/useContexts';
 import { useRefetchOnFocus } from '../hooks/useRefetchOnFocus';
 import { useReducedMotion } from '../hooks/useReducedMotion';
 import { useDocumentTitle } from '../hooks/useDocumentTitle';
+import { useUnsavedChanges } from '../hooks/useUnsavedChanges';
 import { ROUTES } from '../constants/routes';
 import { GAME_CONFIG } from '../constants/gameConfig';
 import { toast } from 'sonner';
@@ -149,11 +150,23 @@ export default function DeckCreationWizard() {
   const [showDraftModal, setShowDraftModal] = useState(false);
   const draftDecisionTakenRef = useRef(false);
   
-  // Modal de confirmación para salir
-  const exitConfirmation = useConfirmationModal();
-  
+  // T-957: confirmación danger antes de descartar el borrador. El click
+  // accidental en "Descartar" del modal "Borrador encontrado" perdía
+  // 10-15 min de trabajo sin red de seguridad — ahora pedimos una segunda
+  // confirmación con el flip 3D de variant 'danger'.
+  const discardConfirmation = useConfirmationModal();
+
   // Verificar si hay datos sin guardar
   const hasUnsavedData = selectedCards.length > 0 || selectedContext !== null || Object.keys(cardAssignments).length > 0 || deckName.trim() !== '';
+
+  // T-957: hook unificado de cambios sin guardar — beforeunload (cierre
+  // pestaña/refresh) + confirmExit (botones programáticos de navegación).
+  // Reemplaza al `exitConfirmation` anterior, que era el mismo patrón
+  // hecho a mano sin protección de refresh.
+  const { confirmExit, confirmExitModalProps } = useUnsavedChanges(
+    hasUnsavedData,
+    'Tienes cambios sin guardar. El borrador se mantendrá guardado automáticamente. ¿Seguro que quieres salir?'
+  );
   
   // Hook de persistencia de borrador
   const { 
@@ -209,29 +222,35 @@ export default function DeckCreationWizard() {
     setShowDraftModal(false);
   }, [draft, restoreDraft]);
 
-  // Descartar borrador
+  // Descartar borrador (T-957: requiere confirmación danger explícita
+  // — el borrador puede contener 10-15 min de captura RFID + asignaciones).
   const handleDiscardDraft = useCallback(() => {
-    discardDraft();
-    draftDecisionTakenRef.current = true;
-    setShowDraftModal(false);
-  }, [discardDraft]);
+    discardConfirmation.openModal({
+      title: 'Descartar borrador',
+      description: 'Se perderá el progreso guardado del wizard (cartas escaneadas, contexto y asignaciones). Esta acción no se puede deshacer.',
+      variant: 'danger',
+      confirmText: 'Descartar borrador',
+      cancelText: 'Conservar',
+      onConfirm: () => {
+        discardDraft();
+        draftDecisionTakenRef.current = true;
+        setShowDraftModal(false);
+      },
+    });
+  }, [discardDraft, discardConfirmation]);
 
-  // Handler para salir del wizard con confirmación
+  // Handler para salir del wizard con confirmación (T-957: usa confirmExit
+  // del hook useUnsavedChanges, que añade además protección beforeunload).
   const handleExitWizard = useCallback(() => {
-    if (hasUnsavedData) {
-      exitConfirmation.openModal({
+    confirmExit(
+      () => navigate(ROUTES.CARD_DECKS),
+      {
         title: 'Salir sin guardar',
-        message: 'Tienes cambios sin guardar. El borrador se mantendrá guardado automáticamente. ¿Seguro que quieres salir?',
+        description: 'Tienes cambios sin guardar. El borrador se mantendrá guardado automáticamente. ¿Seguro que quieres salir?',
         confirmText: 'Salir',
-        variant: 'warning',
-        onConfirm: () => {
-          navigate(ROUTES.CARD_DECKS);
-        }
-      });
-    } else {
-      navigate(ROUTES.CARD_DECKS);
-    }
-  }, [hasUnsavedData, navigate, exitConfirmation]);
+      }
+    );
+  }, [navigate, confirmExit]);
 
   // Handler para escaneo RFID
   const handleRFIDScan = useCallback((card) => {
@@ -585,8 +604,12 @@ export default function DeckCreationWizard() {
         )}
       </AnimatePresence>
 
-      {/* Modal de confirmación para salir */}
-      <ConfirmationModal {...exitConfirmation.modalProps} />
+      {/* T-957: modal "cambios sin guardar" (sustituye al antiguo
+          exitConfirmation; ahora gestionado por useUnsavedChanges). */}
+      <ConfirmationModal {...confirmExitModalProps} />
+
+      {/* T-957: modal de confirmación al descartar borrador. */}
+      <ConfirmationModal {...discardConfirmation.modalProps} />
     </div>
   );
 }

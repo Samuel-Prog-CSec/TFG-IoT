@@ -6,20 +6,27 @@
  * @module context/AuthContext
  */
 
-import { createContext, useContext, useReducer, useEffect, useCallback, useRef, useMemo } from 'react';
+import { createContext, useContext, useReducer, useEffect, useCallback, useRef, useState, useMemo } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { toast } from 'sonner';
-import { 
-  authAPI, 
-  setTokens, 
+import {
+  authAPI,
+  setTokens,
   clearTokens,
-  extractData, 
+  getAccessToken,
+  extractData,
   extractErrorMessage,
-  AUTH_EVENTS 
+  API_BASE_URL,
+  AUTH_EVENTS
 } from '../services/api';
 import { socketService } from '../services/socket';
 import { ROUTES } from '../constants/routes';
 import { setUserContext, captureException } from '../lib/sentry';
+
+// T-957: ventana de cortesía del logout con undo. El cliente espera este
+// número de ms antes de invalidar tokens en el backend; si el usuario pulsa
+// "Deshacer" en el toast antes del timeout, todo el estado queda intacto.
+const DEFAULT_LOGOUT_UNDO_MS = 5000;
 
 // ============================================
 // TIPOS Y CONSTANTES
@@ -140,6 +147,14 @@ export function AuthProvider({ children }) {
   // refreshToken en cada POST /auth/refresh, así que la segunda llamada
   // recibe 401 con la cookie ya inválida y provocaba logout espurio.
   const didCheckSessionRef = useRef(false);
+  // T-957: estado del logout diferido (toast con "Deshacer").
+  // pendingLogoutRef guarda { timeoutId } cuando hay un logout planificado.
+  // pageHideHandlerRef guarda la referencia al listener de `pagehide` que
+  // dispara el beacon — necesaria para poder hacer removeEventListener si
+  // el usuario pulsa "Deshacer" antes de que la pestaña se cierre.
+  const pendingLogoutRef = useRef(null);
+  const pageHideHandlerRef = useRef(null);
+  const [isLoggingOut, setIsLoggingOut] = useState(false);
 
   // ============================================
   // FUNCIONES AUXILIARES
@@ -418,9 +433,42 @@ export function AuthProvider({ children }) {
   }, [navigate]);
 
   /**
-   * Cerrar sesión
+   * Limpia cualquier listener de `pagehide` registrado por `deferLogout`.
+   * Idempotente: si no había handler, no hace nada.
+   * @private
    */
-  const logout = useCallback(async () => {
+  const clearPageHideHandler = useCallback(() => {
+    if (pageHideHandlerRef.current) {
+      window.removeEventListener('pagehide', pageHideHandlerRef.current);
+      pageHideHandlerRef.current = null;
+    }
+  }, []);
+
+  // T-957: al desmontar el provider, garantiza que no quede un listener
+  // de `pagehide` colgando (importante en tests con re-mounts y en
+  // hot-reload de Vite). El `pagehide` real del cierre de pestaña se
+  // dispara ANTES del unmount, por lo que el beacon sigue funcionando
+  // en producción.
+  useEffect(() => () => clearPageHideHandler(), [clearPageHideHandler]);
+
+  /**
+   * Ejecuta el cierre de sesión real: revoca tokens en backend, limpia
+   * estado local, desconecta socket y navega a /login. Esta función es la
+   * que materializa el logout — la usan tanto `logout` (inmediato) como
+   * `deferLogout` (al expirar la ventana de 5 s).
+   *
+   * Idempotente respecto al listener de `pagehide`: si había uno
+   * registrado, se desregistra antes de hacer la petición HTTP normal.
+   */
+  const finalizeLogout = useCallback(async () => {
+    // Cancelar timeout pendiente y listener de pagehide si los había.
+    if (pendingLogoutRef.current) {
+      clearTimeout(pendingLogoutRef.current.timeoutId);
+      pendingLogoutRef.current = null;
+    }
+    clearPageHideHandler();
+    setIsLoggingOut(false);
+
     try {
       await authAPI.logout();
     } catch (error) {
@@ -432,7 +480,7 @@ export function AuthProvider({ children }) {
     if (refreshTimeoutRef.current) {
       clearTimeout(refreshTimeoutRef.current);
     }
-    
+
     clearTokens();
     clearSessionMarker();
     socketService.disconnect();
@@ -440,7 +488,86 @@ export function AuthProvider({ children }) {
 
     toast.info('Sesión cerrada correctamente');
     navigate(ROUTES.LOGIN, { replace: true });
-  }, [navigate]);
+  }, [navigate, clearPageHideHandler]);
+
+  /**
+   * Cierre de sesión inmediato (sin ventana de undo).
+   *
+   * Conservado para casos administrativos o flujos automáticos donde no
+   * tiene sentido ofrecer "Deshacer": expiración de sesión gestionada por
+   * el backend, force-logout por single-session collision, errores de
+   * autorización irrecuperables, tests. Para el cierre voluntario desde
+   * la UI usar `deferLogout` (T-957).
+   */
+  const logout = useCallback(() => finalizeLogout(), [finalizeLogout]);
+
+  /**
+   * T-957: cierre de sesión con ventana de undo.
+   *
+   * Planifica el logout real dentro de `delayMs` y registra un listener
+   * `pagehide` que dispara `fetch keepalive: true` contra `/auth/logout`
+   * para garantizar la revocación incluso si el usuario cierra la pestaña
+   * antes de que la cuenta atrás expire.
+   *
+   * Mientras la ventana está abierta:
+   * - `isLoggingOut === true` (la UI puede deshabilitar el botón).
+   * - El estado de auth permanece intacto (`isAuthenticated`, tokens en
+   *   memoria, cookies, sessionMarker) — un refresh de pestaña dentro
+   *   de esos segundos NO desloguea al usuario.
+   *
+   * Idempotente: clicks repetidos durante el periodo abierto son no-op.
+   *
+   * @param {{ delayMs?: number }} [options]
+   * @returns {boolean} true si se programó, false si ya había uno pendiente.
+   */
+  const deferLogout = useCallback(({ delayMs = DEFAULT_LOGOUT_UNDO_MS } = {}) => {
+    if (pendingLogoutRef.current) return false;
+    setIsLoggingOut(true);
+
+    const beaconHandler = () => {
+      // Red de seguridad: si la pestaña se cierra antes del timeout, el
+      // backend recibe la petición igualmente. `keepalive: true` deja la
+      // request en vuelo aunque el documento se descargue. No leemos la
+      // respuesta (estamos saliendo); cualquier excepción se ignora.
+      try {
+        const accessToken = getAccessToken();
+        fetch(`${API_BASE_URL}/auth/logout`, {
+          method: 'POST',
+          credentials: 'include',
+          keepalive: true,
+          headers: accessToken
+            ? { Authorization: `Bearer ${accessToken}` }
+            : {}
+        }).catch(() => {});
+      } catch {
+        /* silencioso: la pestaña ya se está cerrando */
+      }
+    };
+    pageHideHandlerRef.current = beaconHandler;
+    window.addEventListener('pagehide', beaconHandler);
+
+    const timeoutId = setTimeout(() => {
+      finalizeLogout();
+    }, delayMs);
+    pendingLogoutRef.current = { timeoutId };
+    return true;
+  }, [finalizeLogout]);
+
+  /**
+   * T-957: cancela un logout planificado por `deferLogout`. No-op si no
+   * había uno pendiente. Tras invocarse, el usuario permanece autenticado
+   * con todos sus tokens y sesión socket intactos.
+   *
+   * @returns {boolean} true si se canceló, false si no había logout pendiente.
+   */
+  const undoLogout = useCallback(() => {
+    if (!pendingLogoutRef.current) return false;
+    clearTimeout(pendingLogoutRef.current.timeoutId);
+    pendingLogoutRef.current = null;
+    clearPageHideHandler();
+    setIsLoggingOut(false);
+    return true;
+  }, [clearPageHideHandler]);
 
   /**
    * Limpiar errores
@@ -467,15 +594,21 @@ export function AuthProvider({ children }) {
     isAuthenticated: state.isAuthenticated,
     isLoading: state.isLoading,
     error: state.error,
-    
+    // T-957: true entre el click en "Cerrar sesión" y la materialización
+    // efectiva del logout (5 s después o al pulsar Deshacer). La UI lo usa
+    // para deshabilitar el botón y evitar dobles clicks.
+    isLoggingOut,
+
     // Helpers
     isTeacher: state.user?.role === 'teacher',
     isSuperAdmin: state.user?.role === 'super_admin',
-    
+
     // Acciones
     login,
     register,
-    logout,
+    logout,           // cierre inmediato (administrativo / expirados)
+    deferLogout,      // T-957: cierre con ventana de undo (5 s)
+    undoLogout,       // T-957: cancela un deferLogout en curso
     clearError,
     updateUser,
   }), [
@@ -483,9 +616,12 @@ export function AuthProvider({ children }) {
     state.isAuthenticated,
     state.isLoading,
     state.error,
+    isLoggingOut,
     login,
     register,
     logout,
+    deferLogout,
+    undoLogout,
     clearError,
     updateUser,
   ]);

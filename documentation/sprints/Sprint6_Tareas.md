@@ -1454,31 +1454,53 @@ Dos sistemas de feedback en tiempo real:
 
 ---
 
-### T-957: ⚛️ Logout con confirmación + undo (toast persistente) 📋
+### T-957: ⚛️ Logout con confirmación + undo (toast persistente) ✅
 
 **Consolida:** PROP-93
-**Prioridad:** P2 | **Tamaño:** S-M (2-4h) | **Dependencias:** Ninguna
+**Prioridad:** P2 | **Tamaño:** S-M (2-4h, real ~3h) | **Dependencias:** Ninguna
 **Origen:** Click accidental en "Cerrar Sesión" sin red de seguridad — refinamiento sobre el ConfirmationModal de PROP-85 (ya implementado en Sprint 5)
+**ADR asociado:** ADR-136 ([2026-05-14](../Architecture_Decisions.md))
 
 **Descripción:**
-UX moderna: el click logout cierra sesión inmediatamente pero un toast persistente durante 5s muestra "Sesión cerrada. [Deshacer]". Si el usuario pulsa deshacer antes de 5s, se re-autentica con el refresh token que todavía está válido. Más fluido que el modal y conserva la red de seguridad.
+UX moderna: el click logout aparenta cerrar la sesión inmediatamente vía toast persistente durante 5s con acción "Deshacer", pero la invalidación real en backend se difiere. Si el usuario pulsa Deshacer antes de los 5s, el estado queda intacto sin pedir credenciales. Frontend-driven (sin cambios en backend) + `fetch keepalive: true` en `pagehide` como red de seguridad si la pestaña se cierra durante la ventana.
 
-**Sub-tareas:**
+**Alcance ampliado** (decidido con el usuario antes de implementar): aprovechar la sesión para cerrar otros huecos de confirmación detectados durante la auditoría — bug del variant en `ContextDetailPage`, descarte de borrador en `DeckCreationWizard` sin confirmar, y gap del hook `useUnsavedChanges` que solo cubría `beforeunload`.
 
-1. `toast.success` persistente con action `Deshacer` (Sonner soporta este patrón).
-2. Logout diferido: borrar access token en memoria pero conservar refresh 5s más antes de invalidarlo en backend; si el usuario pulsa deshacer, re-crear sesión desde refresh token.
-3. Backend: endpoint `POST /api/auth/logout` con flag `defer_invalidation_ms` (default 5000) que retrasa la invalidación del refresh.
-4. Test concurrency: refrescar pestaña durante los 5s no debe desloguear.
+**Sub-tareas (refinadas y ejecutadas):**
+
+1. `AuthContext.deferLogout({ delayMs })` + `undoLogout()` + estado `isLoggingOut`. Cleanup useEffect para evitar leak del listener `pagehide`.
+2. Listener `pagehide` con `fetch keepalive: true` contra `/api/auth/logout` (red de seguridad si la pestaña se cierra dentro de los 5s).
+3. `AppLayout.handleLogoutClick`: toast Sonner con `action: { label: 'Deshacer', onClick: undoLogout }` + botón disabled durante `isLoggingOut`. Elimina modal de PROP-85.
+4. `logout()` original conservado para casos administrativos (SESSION_EXPIRED, SESSION_INVALIDATED, UNAUTHORIZED).
+5. **Bug fix**: `ContextDetailPage.jsx` `variant: 'destructive'` → `'danger'` (deleteAsset + deleteAudio). La variante 'destructive' no existía en VARIANT_COLORS — fallback silencioso a warning antes del fix.
+6. **DeckCreationWizard**: `handleDiscardDraft` envuelto con nuevo `discardConfirmation` modal danger antes de invocar `discardDraft()` (evita perder 10-15 min de captura RFID con un click accidental).
+7. **Refactor `useUnsavedChanges`**: hook devuelve además `confirmExit(callback, options?)` + `confirmExitModalProps`. Integrado en `DeckCreationWizard.handleExitWizard` (reemplaza al exitConfirmation manual), `DeckEditPage` (botón "Ver detalle"), `SessionEdit` (botones "Cancelar", "Ver mapping", "Configurar tablero"), `CreateSession` (modal montado para futuro uso).
+8. Tests Vitest nuevos: `AuthContext.logout-undo.test.jsx` (8 tests) + `useUnsavedChanges.test.jsx` (11 tests).
+9. ADR-136 documentado + actualización del catálogo.
 
 **Criterios de Aceptación:**
 
-- [ ] Click logout → toast persistente con "Deshacer" durante 5s
-- [ ] Pulsar "Deshacer" antes de 5s → sesión recuperada sin pedir credenciales
-- [ ] Tras 5s sin acción → refresh token invalidado en backend, logout completo
-- [ ] Refresh de pestaña durante los 5s no desloguea
-- [ ] Tests pasando (frontend + backend)
+- [x] Click logout → toast `Sesión cerrada` con "Deshacer" durante 5s; sin modal.
+- [x] Pulsar "Deshacer" antes de 5s → toast `Sigues conectado`, sesión intacta, sin re-autenticación.
+- [x] Tras 5s sin acción → POST `/api/auth/logout` (tokens revocados), navega a `/login`.
+- [x] Refresh de pestaña durante los 5s no desloguea (tokens no revocados; AuthContext init restaura).
+- [x] Cierre de pestaña durante los 5s → beacon `fetch keepalive` revoca tokens.
+- [x] Segundo click en logout durante el undo es no-op (botón disabled + idempotencia).
+- [x] `ContextDetailPage` modal con animación canónica danger (flip 3D + Trash2 + botón rojo).
+- [x] `DeckCreationWizard` "Descartar borrador" requiere segunda confirmación danger.
+- [x] Wizards (`DeckEditPage`, `SessionEdit`) con botones de navegación programática → modal warning si hay cambios sin guardar.
+- [x] Tests pasando: **frontend 396/396** (+19 nuevos) y **backend 1145/1145** (0 regresiones).
+- [x] Lint frontend y backend sin errores nuevos.
+- [x] ADR-136 añadido + Sprint6 actualizado.
 
-**Archivos afectados:** `frontend/src/components/auth/LogoutButton.jsx` o equivalente, `frontend/src/services/authService.js`, `backend/src/controllers/authController.js`, `backend/src/services/authService.js`, tests asociados.
+**Gap conocido documentado:** el click en un `<Link>` del sidebar o breadcrumb sigue sin bloquearse cuando hay cambios sin guardar (requiere migrar a `createBrowserRouter` para habilitar el `useBlocker` real de React Router 7). Candidato a PROP futura.
+
+**Archivos afectados:**
+
+- Frontend: `services/api.js`, `context/AuthContext.jsx`, `components/layout/AppLayout.jsx`, `pages/ContextDetailPage.jsx`, `pages/DeckCreationWizard.jsx`, `pages/DeckEditPage.jsx`, `pages/SessionEdit.jsx`, `pages/CreateSession.jsx`, `hooks/useUnsavedChanges.js`.
+- Tests: `context/__tests__/AuthContext.logout-undo.test.jsx` (nuevo), `hooks/__tests__/useUnsavedChanges.test.jsx` (nuevo).
+- Backend: **sin cambios** (decisión: frontend-driven + sendBeacon equivalente con `fetch keepalive`).
+- Docs: `documentation/Architecture_Decisions.md` (ADR-136), este archivo, `frontend/docs/01-PATRONES-DISENO.md`.
 
 ---
 

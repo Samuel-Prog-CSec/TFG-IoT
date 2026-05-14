@@ -138,7 +138,13 @@ export default function CreateSession() {
 
   // Dirty detection: el usuario ha empezado a configurar la sesion
   const isDirty = currentStep > 0 || selectedDeck !== null;
-  const { blocker, isBlocked } = useUnsavedChanges(isDirty);
+  // T-957: el hook protege contra cierre de pestaña / refresh vía
+  // beforeunload mientras isDirty sea true. El wizard de CreateSession no
+  // tiene actualmente puntos de salida programáticos (solo "Anterior",
+  // "Siguiente", "Crear"), por lo que no usamos `confirmExit` aquí — el
+  // modal del hook queda montado pero inerte salvo que el usuario añada
+  // un nuevo botón "Cancelar wizard" que lo invoque.
+  const { confirmExitModalProps } = useUnsavedChanges(isDirty);
 
   // Navegacion
   const goNext = () => {
@@ -413,16 +419,11 @@ export default function CreateSession() {
         </GlassCard>
       </motion.div>
 
-      <ConfirmationModal
-        open={isBlocked}
-        onConfirm={() => blocker.proceed()}
-        onClose={() => blocker.reset()}
-        title="Cambios sin guardar"
-        description="Tienes cambios sin guardar. Si sales ahora, perderas los cambios realizados."
-        variant="warning"
-        confirmText="Salir sin guardar"
-        cancelText="Seguir editando"
-      />
+      {/* T-957: modal de confirmación al salir con cambios sin guardar.
+          Hoy solo se renderiza inerte (no hay botón que invoque
+          confirmExit), pero queda preparado para nuevos puntos de salida
+          programáticos sin tener que volver a cablearlo. */}
+      <ConfirmationModal {...confirmExitModalProps} />
     </div>
   );
 }

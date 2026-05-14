@@ -392,4 +392,78 @@ Referencias: ADR-070, skill `framer-motion-animator`.
 
 ---
 
+## 15. Acción destructiva con undo vs `ConfirmationModal` (ADR-136)
+
+Decidir entre **toast persistente con "Deshacer"** y `ConfirmationModal` para acciones potencialmente destructivas. No son intercambiables — cada uno encaja en un patrón de uso distinto.
+
+### Usar **toast + undo** cuando
+
+- La acción es **reversible en una ventana corta** (≤ 5-10 s).
+- Se ejecuta **con frecuencia** y el modal introduce fricción que el usuario aprende a despachar sin leer (pérdida de la protección).
+- El estado a restaurar **vive 100% en cliente** (refs, contextos in-memory) o el backend acepta diferir la materialización.
+- Ejemplos en el proyecto: cierre de sesión (`AppLayout` → `deferLogout` + toast con action — ADR-136).
+
+```jsx
+// AuthContext expone deferLogout/undoLogout; AppLayout solo orquesta el toast.
+const { deferLogout, undoLogout, isLoggingOut } = useAuth();
+
+const handleLogoutClick = () => {
+  if (isLoggingOut) return;
+  if (!deferLogout({ delayMs: 5000 })) return;
+  toast.success('Sesión cerrada', {
+    description: 'Volverás al login en unos segundos.',
+    duration: 5000,
+    action: { label: 'Deshacer', onClick: () => undoLogout() && toast.success('Sigues conectado') },
+  });
+};
+```
+
+Patrón clave: el contexto (AuthContext) encapsula el `setTimeout` + cleanup + listener `pagehide` con `fetch keepalive: true` (red de seguridad si la pestaña se cierra durante la ventana). El componente UI **solo orquesta el toast** y deshabilita el botón con `isLoggingOut`.
+
+### Usar **`ConfirmationModal`** cuando
+
+- La acción es **irreversible** una vez ejecutada (eliminación física en backend, borrado de assets en Storage, anonimización RGPD Art. 17).
+- El usuario debe **revisar contexto antes** (qué se va a borrar, qué dependencias afecta).
+- La acción es **poco frecuente** — el coste de fricción del modal no se acumula.
+- Ejemplos: eliminar contexto (`AdminContexts`), eliminar asset/audio (`ContextDetailPage`), borrado RGPD (`ConsentDetailPanel`, `StudentManagement`), descartar borrador del wizard (`DeckCreationWizard.handleDiscardDraft` — ADR-136).
+
+Variantes del componente: `danger` para irreversibles (animación flip 3D + blip radial + icono `Trash2`), `warning` para cambios sin guardar, `archive` para soft-delete, `info` para confirmación neutra.
+
+### Patrón híbrido: `useUnsavedChanges` + `confirmExit` (ADR-136)
+
+Para wizards y editores que persisten cambios solo al pulsar "Guardar", el hook `useUnsavedChanges` combina:
+
+- `beforeunload` (cierre de pestaña / refresh).
+- `confirmExit(callback, options?)`: ejecuta el callback inmediato si no hay cambios; si los hay, abre un `ConfirmationModal` warning con el callback como `onConfirm`.
+
+```jsx
+const { confirmExit, confirmExitModalProps } = useUnsavedChanges(isDirty);
+
+// Botón "Volver" / "Cancelar" / "X" / etc.
+<ButtonPremium onClick={() => confirmExit(() => navigate(ROUTES.LIST))}>
+  Cancelar
+</ButtonPremium>
+
+// En el JSX, al final del componente:
+<ConfirmationModal {...confirmExitModalProps} />
+```
+
+**Cobertura actual** (sin migrar a Data Router):
+
+| Escenario | ¿Bloquea? |
+|---|---|
+| Refresh / cerrar pestaña | ✅ `beforeunload` |
+| Botón programático que llama `navigate()` (Volver, Cancelar, X) | ✅ `confirmExit(callback)` |
+| Click en `<Link>` / `<NavLink>` (sidebar, breadcrumb) | ❌ requiere `createBrowserRouter` |
+
+El gap del `<Link>` está documentado en ADR-136 como candidato a PROP futura. La cobertura actual cubre todos los flujos críticos de los 4 wizards/editores principales (`DeckCreationWizard`, `DeckEditPage`, `SessionEdit`, `CreateSession`).
+
+### Antipatrón: modal de confirmación para cierre de sesión cotidiano
+
+PROP-85 (Sprint 5) había añadido un modal warning para evitar logout accidental. Cumplía pero introducía fricción innecesaria al final de la jornada. Tras unas semanas, el usuario aprende a despachar el modal sin leer — perdiendo la protección que pretendía dar. T-957 (ADR-136) lo sustituye por **toast + undo**, manteniendo la red de seguridad sin coste de fricción.
+
+Referencias: ADR-136, ADR-070, ADR-069, skill `frontend-design`.
+
+---
+
 *Referencia: [React Patterns](https://reactpatterns.com/)*

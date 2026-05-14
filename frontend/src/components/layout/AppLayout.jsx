@@ -2,6 +2,7 @@ import { useState, useEffect, useMemo } from 'react';
 import PropTypes from 'prop-types';
 import { Outlet, NavLink, useLocation, useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence, useScroll, useTransform } from 'framer-motion';
+import { toast } from 'sonner';
 import { NAV_ROUTES, ADMIN_NAV_ROUTES, ROUTES } from '../../constants/routes';
 import {
   Shield, Layers, X, Menu, LogOut,
@@ -29,7 +30,6 @@ import { useSidebarMode } from '../../hooks/useSidebarMode';
 import { useReducedMotion } from '../../hooks/useReducedMotion';
 import { useNavigationDirection } from '../../hooks/useNavigationDirection';
 import { useRouteAtmosphere } from '../../hooks/useRouteAtmosphere';
-import ConfirmationModal, { useConfirmationModal } from '../ui/ConfirmationModal';
 import ThemeToggle from '../ui/ThemeToggle';
 import NotificationBell from '../notifications/NotificationBell';
 import OnboardingOverlay from '../onboarding/OnboardingOverlay';
@@ -44,7 +44,7 @@ export default function AppLayout() {
   const isDrawer = sidebar.layout === 'drawer';
   const isCompact = sidebar.layout === 'rail';
   const location = useLocation();
-  const { user, logout, isSuperAdmin } = useAuth();
+  const { user, deferLogout, undoLogout, isLoggingOut, isSuperAdmin } = useAuth();
   const { shouldReduceMotion, setUserPreference, resetUserPreference } = useReducedMotion();
   const navDirection = useNavigationDirection();
   // T-954 Fase A: sincroniza la atmósfera del contexto activo con
@@ -61,7 +61,6 @@ export default function AppLayout() {
   const auroraOffset1 = useTransform(scrollY, [0, 800], [0, -60]);
   const auroraOffset2 = useTransform(scrollY, [0, 800], [0, -40]);
   const auroraOffset3 = useTransform(scrollY, [0, 800], [0, -90]);
-  const logoutModal = useConfirmationModal();
 
   // Onboarding interactivo (T-951 Fase 4). El track se selecciona por
   // rol — devuelve null para roles sin tour disponible (ej. estudiante).
@@ -157,17 +156,28 @@ export default function AppLayout() {
     layoutShortcutSections,
   );
 
-  // Confirmacion al cerrar sesion: un click accidental pierde filtros y
-  // estado de navegacion (PROP-85). Variant warning (no danger) porque es
-  // reversible — re-login recupera el acceso.
+  // T-957: cierre de sesión con "Deshacer" en lugar de modal de confirmación.
+  // Filosofía: el modal de PROP-85 protegía contra clics accidentales pero
+  // rompía el flujo del docente con una pregunta cada vez. Un toast
+  // persistente durante 5 s ofrece la misma red de seguridad sin interrumpir.
+  // Mientras `isLoggingOut === true` el botón queda deshabilitado para evitar
+  // disparar varios deferLogout en paralelo (el hook ya es idempotente, pero
+  // el feedback visual ayuda).
   const handleLogoutClick = () => {
-    logoutModal.openModal({
-      title: '¿Cerrar sesión?',
-      description: 'Se cerrará tu sesión actual. Tendrás que volver a iniciar sesión para acceder de nuevo.',
-      variant: 'warning',
-      confirmText: 'Cerrar sesión',
-      cancelText: 'Cancelar',
-      onConfirm: logout,
+    if (isLoggingOut) return;
+    const scheduled = deferLogout({ delayMs: 5000 });
+    if (!scheduled) return;
+    toast.success('Sesión cerrada', {
+      description: 'Volverás al login en unos segundos.',
+      duration: 5000,
+      action: {
+        label: 'Deshacer',
+        onClick: () => {
+          if (undoLogout()) {
+            toast.success('Sigues conectado');
+          }
+        },
+      },
     });
   };
 
@@ -553,14 +563,21 @@ export default function AppLayout() {
           </NavLink>
           <button
             onClick={handleLogoutClick}
-            title="Cerrar sesión"
+            disabled={isLoggingOut}
+            aria-busy={isLoggingOut}
+            title={isLoggingOut ? 'Cerrando sesión…' : 'Cerrar sesión'}
             className={cn(
               'flex items-center w-full px-4 py-3 text-error-base hover:bg-error-base/10 rounded-xl transition-colors duration-200',
-              isCompact ? 'justify-center' : 'gap-3'
+              isCompact ? 'justify-center' : 'gap-3',
+              isLoggingOut && 'opacity-60 cursor-not-allowed pointer-events-none'
             )}
           >
             <LogOut size={20} />
-            {!isCompact && <span className="font-medium text-sm">Cerrar Sesión</span>}
+            {!isCompact && (
+              <span className="font-medium text-sm">
+                {isLoggingOut ? 'Cerrando sesión…' : 'Cerrar Sesión'}
+              </span>
+            )}
           </button>
         </div>
       </motion.aside>
@@ -597,9 +614,6 @@ export default function AppLayout() {
           </motion.div>
         </div>
       </main>
-
-      {/* Modal de confirmacion de cierre de sesion (PROP-85) */}
-      <ConfirmationModal {...logoutModal.modalProps} />
 
       {/* Onboarding interactivo (T-951 Fase 4) — montado a nivel de
           AppLayout para cubrir teacher y super_admin desde cualquier

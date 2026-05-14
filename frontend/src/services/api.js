@@ -13,7 +13,10 @@ import { captureException } from '../lib/sentry';
 // CONFIGURACIÓN
 // ============================================
 
-const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:5000/api';
+// Exportado para que el AuthContext pueda construir el beacon de logout
+// diferido (T-957) usando fetch nativo con `keepalive: true` — axios no
+// soporta esa flag y el beacon debe sobrevivir al cierre de la pestaña.
+export const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:5000/api';
 const TIMEOUT = 10000; // 10 segundos
 const MAX_RETRIES = 3;
 const RETRY_DELAY = 1000; // 1 segundo base para exponential backoff

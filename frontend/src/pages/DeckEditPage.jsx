@@ -213,7 +213,11 @@ export default function DeckEditPage() {
     return nameChanged || contextChanged || cardsChanged || assignmentsChanged;
   }, [deck, deckName, effectiveContext, selectedCards, cardAssignments]);
 
-  const { blocker, isBlocked } = useUnsavedChanges(hasChanges);
+  // T-957: confirmExit envuelve callbacks programáticos de navegación
+  // (botones "Ver detalle", "Volver", etc.) con un modal warning cuando
+  // hay cambios sin guardar. El `blocker`/`isBlocked` queda como stub
+  // hasta una eventual migración a Data Router.
+  const { confirmExit, confirmExitModalProps } = useUnsavedChanges(hasChanges);
 
   // Handlers
   const handleAddCard = useCallback((card) => {
@@ -456,7 +460,10 @@ export default function DeckEditPage() {
           <div className="flex items-center gap-3">
             <ButtonPremium
               variant="secondary"
-              onClick={() => currentDeckId && navigate(ROUTES.CARD_DECKS_DETAIL(currentDeckId))}
+              onClick={() =>
+                currentDeckId &&
+                confirmExit(() => navigate(ROUTES.CARD_DECKS_DETAIL(currentDeckId)))
+              }
               disabled={!currentDeckId}
               icon={<Eye size={16} />}
             >
@@ -832,16 +839,11 @@ export default function DeckEditPage() {
         )}
       </AnimatePresence>
 
-      <ConfirmationModal
-        open={isBlocked}
-        onConfirm={() => blocker.proceed()}
-        onClose={() => blocker.reset()}
-        title="Cambios sin guardar"
-        description="Tienes cambios sin guardar. Si sales ahora, perderás los cambios realizados."
-        variant="warning"
-        confirmText="Salir sin guardar"
-        cancelText="Seguir editando"
-      />
+      {/* T-957: modal de confirmación al salir con cambios sin guardar
+          (botones programáticos via confirmExit). Cubre "Ver detalle" y
+          otros navigate() del wizard; los <Link> de breadcrumb/sidebar
+          siguen sin bloquearse hasta migrar a Data Router. */}
+      <ConfirmationModal {...confirmExitModalProps} />
     </div>
   );
 }

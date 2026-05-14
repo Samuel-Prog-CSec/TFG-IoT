@@ -108,7 +108,7 @@ export default function ContextDetailPage() {
       description: `Vas a eliminar "${asset.value}" (${asset.key}). Se borrará la imagen, los audios asociados y los archivos en Supabase Storage. Si está en uso por un mazo activo, la operación se rechazará.`,
       confirmText: 'Eliminar definitivamente',
       cancelText: 'Cancelar',
-      variant: 'destructive',
+      variant: 'danger',
       onConfirm: () => performDeleteAsset(asset),
     });
   };
@@ -135,7 +135,7 @@ export default function ContextDetailPage() {
       description: `Se eliminará el audio asociado a "${asset.value}". La imagen se mantiene.`,
       confirmText: 'Eliminar audio',
       cancelText: 'Cancelar',
-      variant: 'destructive',
+      variant: 'danger',
       onConfirm: () => performDeleteAudio(asset),
     });
   };

@@ -108,7 +108,10 @@ export default function SessionEdit() {
     return current !== initialValuesRef.current;
   }, [deckId, numberOfRounds, timeLimit, pointsPerCorrect, penaltyPerError]);
 
-  const { blocker, isBlocked } = useUnsavedChanges(isDirty);
+  // T-957: confirmExit envuelve callbacks de navegación programática
+  // (botones "Cancelar", "Ver mapping", "Configurar tablero") con un
+  // modal warning cuando hay cambios sin guardar.
+  const { confirmExit, confirmExitModalProps } = useUnsavedChanges(isDirty);
 
   const loadSession = useCallback(async (signal) => {
     if (!sessionId) return;
@@ -353,7 +356,9 @@ export default function SessionEdit() {
             <StatusBadge status={statusInfo.tone}>{statusInfo.label}</StatusBadge>
             <ButtonPremium
               variant="secondary"
-              onClick={() => navigate(ROUTES.BOARD_SETUP_WITH_ID(sessionId))}
+              onClick={() =>
+                confirmExit(() => navigate(ROUTES.BOARD_SETUP_WITH_ID(sessionId)))
+              }
             >
               <MapIcon size={16} />
               Ver mapping
@@ -383,7 +388,9 @@ export default function SessionEdit() {
             </div>
             <ButtonPremium
               variant="secondary"
-              onClick={() => navigate(ROUTES.BOARD_SETUP_WITH_ID(sessionId))}
+              onClick={() =>
+                confirmExit(() => navigate(ROUTES.BOARD_SETUP_WITH_ID(sessionId)))
+              }
             >
               <MapIcon size={16} />
               Configurar tablero
@@ -495,7 +502,9 @@ export default function SessionEdit() {
           <div className="flex flex-wrap justify-end gap-3">
             <ButtonPremium
               variant="secondary"
-              onClick={() => navigate(ROUTES.SESSION_DETAIL(sessionId))}
+              onClick={() =>
+                confirmExit(() => navigate(ROUTES.SESSION_DETAIL(sessionId)))
+              }
             >
               Cancelar
             </ButtonPremium>
@@ -514,16 +523,9 @@ export default function SessionEdit() {
         </GlassCard>
       </div>
 
-      <ConfirmationModal
-        open={isBlocked}
-        onConfirm={() => blocker.proceed()}
-        onClose={() => blocker.reset()}
-        title="Cambios sin guardar"
-        description="Tienes cambios sin guardar. Si sales ahora, perderás los cambios realizados."
-        variant="warning"
-        confirmText="Salir sin guardar"
-        cancelText="Seguir editando"
-      />
+      {/* T-957: modal de confirmación al salir con cambios sin guardar
+          (botones "Cancelar", "Ver mapping", "Configurar tablero"). */}
+      <ConfirmationModal {...confirmExitModalProps} />
     </motion.div>
   );
 }
