@@ -210,8 +210,48 @@ const createContext = async (req, res) => {
     role: req.user.role
   });
 
+  // Notificar a todos los docentes del centro (T-955 trigger: context_shared).
+  // Fire-and-forget; los errores los silencia notify() internamente.
+  notifyTeachersContextShared(context).catch(() => {
+    // notify() ya hace logging. Aquí solo evitamos unhandled rejection.
+  });
+
   sendCreated(res, toGameContextDetailDTOV1(context), 'Contexto creado exitosamente');
 };
+
+/**
+ * Notifica a todos los docentes activos del centro que hay un nuevo
+ * contexto compartido disponible. T-955 / context_shared.
+ *
+ * @param {object} context - Documento GameContext recién creado.
+ */
+async function notifyTeachersContextShared(context) {
+  const userRepository = require('../repositories/userRepository');
+  const notificationService = require('../services/notificationService');
+  const teachers = await userRepository.find(
+    { role: 'teacher', status: 'active', accountStatus: 'approved' },
+    { select: '_id', lean: true }
+  );
+  if (!Array.isArray(teachers) || teachers.length === 0) {
+    return;
+  }
+  await Promise.all(
+    teachers.map(t =>
+      notificationService.notify({
+        userId: t._id.toString(),
+        type: 'context_shared',
+        priority: 'info',
+        title: 'Nuevo contexto disponible',
+        body: `Ya puedes usar **${context.name}** para crear mazos y sesiones en tu aula.`,
+        link: `/contexts/${context._id}`,
+        metadata: {
+          contextId: context._id.toString(),
+          contextSlug: context.contextId
+        }
+      })
+    )
+  );
+}
 
 /**
  * Actualizar un contexto existente.

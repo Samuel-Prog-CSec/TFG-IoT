@@ -95,21 +95,25 @@ const resolveDeckCount = async ({ skipCount, signal }) => {
   return decksAPI.getDecksCount(signal ? { signal } : {});
 };
 
-const renderDecksGrid = ({ decks, shouldReduceMotion, handleViewDeck, handleEditDeck, handleArchiveDeck }) => {
+const renderDecksGrid = ({ decks, shouldReduceMotion, handleViewDeck, handleEditDeck, handleArchiveDeck, handleRenameDeck }) => {
   const wrapperVariants = buildDeckCardWrapperVariants(shouldReduceMotion);
   return (
     <motion.div
-      className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6"
+      className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-[var(--space-fluid-gutter)]"
       variants={shouldReduceMotion ? {} : listContainerVariants(0.04)}
       initial={shouldReduceMotion ? false : "hidden"}
       animate="visible"
     >
-      <AnimatePresence>
+      {/* mode="popLayout" — al archivar/borrar un mazo, el item sale
+          de flujo y los hermanos reflowan via animación de layout sin
+          saltar a la nueva posición instantáneamente (T-952 Fase 2). */}
+      <AnimatePresence mode="popLayout">
         {decks.map((deck) => {
           const deckId = deck.id || deck._id;
           return (
             <motion.div
               key={deckId}
+              layout
               variants={wrapperVariants}
               exit="exit"
             >
@@ -118,6 +122,7 @@ const renderDecksGrid = ({ decks, shouldReduceMotion, handleViewDeck, handleEdit
                 onView={handleViewDeck}
                 onEdit={handleEditDeck}
                 onDelete={handleArchiveDeck}
+                onRename={handleRenameDeck ? handleRenameDeck(deck) : undefined}
                 reducedMotion={shouldReduceMotion}
               />
             </motion.div>
@@ -175,6 +180,7 @@ const renderDecksState = ({
   handleViewDeck,
   handleEditDeck,
   handleArchiveDeck,
+  handleRenameDeck,
 }) => {
   if (error) {
     return renderDecksErrorState({ error, shouldReduceMotion, loadDecks });
@@ -188,7 +194,7 @@ const renderDecksState = ({
     return renderDecksEmptyState({ hasActiveFilters, clearFilters, handleCreateDeck });
   }
 
-  return renderDecksGrid({ decks, shouldReduceMotion, handleViewDeck, handleEditDeck, handleArchiveDeck });
+  return renderDecksGrid({ decks, shouldReduceMotion, handleViewDeck, handleEditDeck, handleArchiveDeck, handleRenameDeck });
 };
 const filtersInitialState = {
   searchQuery: '',
@@ -365,6 +371,42 @@ export default function CardDecksPage() {
     archiveModal.open();
   };
 
+  // Inline rename: el InlineEditableText commitea (o autoguarda
+  // debounced) y dispara este handler. Actualiza optimistamente la
+  // lista local para que el cambio sea instantáneo; si la API falla,
+  // refresca desde backend para revertir.
+  const handleRenameDeck = useCallback(
+    (deck) => async (newName) => {
+      const deckId = deck.id || deck._id;
+      if (!deckId) return;
+      const previousName = deck.name;
+      const trimmed = (newName || '').trim();
+      if (!trimmed || trimmed === previousName) return;
+      setDecks((current) =>
+        current.map((d) => ((d.id || d._id) === deckId ? { ...d, name: trimmed } : d)),
+      );
+      try {
+        await decksAPI.updateDeck(deckId, { name: trimmed });
+        toast.success('Nombre guardado', {
+          description: `Renombrado a "${trimmed}".`,
+        });
+      } catch (err) {
+        // Revertir y avisar — el optimistic update permitió ver el cambio,
+        // pero el backend lo rechazó; volvemos al estado previo.
+        setDecks((current) =>
+          current.map((d) =>
+            (d.id || d._id) === deckId ? { ...d, name: previousName } : d,
+          ),
+        );
+        toast.error('No se pudo guardar el nombre', {
+          description: extractErrorMessage(err),
+        });
+        throw err;
+      }
+    },
+    [],
+  );
+
   const confirmArchive = async () => {
     if (!archivingDeck) return;
     
@@ -430,10 +472,11 @@ export default function CardDecksPage() {
     handleViewDeck,
     handleEditDeck,
     handleArchiveDeck,
+    handleRenameDeck,
   });
 
   return (
-    <div className="p-6 lg:p-8 max-w-7xl mx-auto">
+    <div className="page-container py-[var(--space-fluid-section)]">
       <PageHeader
         icon={<Layers size={20} />}
         iconClassName="size-10 bg-gradient-to-br from-accent-indigo to-brand-base text-text-primary"
@@ -490,7 +533,7 @@ export default function CardDecksPage() {
         initial={shouldReduceMotion ? false : { opacity: 0, y: 10 }}
         animate={{ opacity: 1, y: 0 }}
         transition={{ delay: shouldReduceMotion ? 0 : 0.08 }}
-        className="grid grid-cols-3 gap-3 mb-5"
+        className="grid grid-cols-2 sm:grid-cols-3 gap-3 mb-5"
       >
         <GlassCard className="p-3 flex items-center gap-3">
           <div className="size-9 rounded-lg bg-accent-indigo/15 flex items-center justify-center">
@@ -498,7 +541,7 @@ export default function CardDecksPage() {
           </div>
           <div>
             <p className="text-xl font-semibold text-text-primary font-display tabular-nums">{deckCount.active}</p>
-            <p className="text-[10px] text-text-muted font-medium uppercase tracking-wider">Activos</p>
+            <p className="text-xs text-text-secondary font-medium uppercase tracking-wider">Activos</p>
           </div>
         </GlassCard>
         <GlassCard className="p-3 flex items-center gap-3">
@@ -507,7 +550,7 @@ export default function CardDecksPage() {
           </div>
           <div>
             <p className="text-xl font-semibold text-text-primary font-display tabular-nums">{deckCount.archived}</p>
-            <p className="text-[10px] text-text-muted font-medium uppercase tracking-wider">Archivados</p>
+            <p className="text-xs text-text-secondary font-medium uppercase tracking-wider">Archivados</p>
           </div>
         </GlassCard>
         <GlassCard className="p-3 flex items-center gap-3">
@@ -516,7 +559,7 @@ export default function CardDecksPage() {
           </div>
           <div>
             <p className="text-xl font-semibold text-text-primary font-display tabular-nums">{deckCount.total}</p>
-            <p className="text-[10px] text-text-muted font-medium uppercase tracking-wider">Total</p>
+            <p className="text-xs text-text-secondary font-medium uppercase tracking-wider">Total</p>
           </div>
         </GlassCard>
       </motion.div>

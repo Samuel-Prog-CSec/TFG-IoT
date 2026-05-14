@@ -24,6 +24,7 @@ import ErrorState from '../components/ui/ErrorState';
 import ContentEffectivenessMatrix from '../components/analytics/ContentEffectivenessMatrix';
 import AlertsHub from '../components/analytics/AlertsHub';
 import ReportGenerator from '../components/analytics/ReportGenerator';
+import { useChartMotion } from '../components/analytics/ChartsTheme';
 
 /**
  * Definicion de tabs disponibles.
@@ -76,6 +77,7 @@ const CURVE_COLORS = [
  * Seccion de curvas de aprendizaje con Recharts AreaChart.
  */
 function LearningCurvesSection({ data, loading }) {
+  const motion = useChartMotion();
   const chartData = useMemo(() => {
     if (!data?.curves && !data?.learningCurves && !Array.isArray(data)) return [];
 
@@ -193,11 +195,20 @@ function LearningCurvesSection({ data, loading }) {
               label={{ value: 'Puntuación %', angle: -90, position: 'insideLeft', fill: 'var(--color-text-muted)', fontSize: 10 }}
             />
             <Tooltip content={<LearningCurveTooltip />} />
+            {/* Leyenda centrada arriba — antes estaba `align="right"` y a 1920px
+                la fila de 5 mecánicas casi rozaba el borde derecho del card; en
+                viewports menores la leyenda solapaba con el área del chart
+                (QA 2026-05-07). Centro + flex-wrap habilita wrap multi-línea. */}
             <Legend
               verticalAlign="top"
-              align="right"
+              align="center"
               iconSize={10}
-              wrapperStyle={{ fontSize: '11px', color: 'var(--color-text-muted)', paddingBottom: 8 }}
+              wrapperStyle={{
+                fontSize: '11px',
+                color: 'var(--color-text-muted)',
+                paddingBottom: 12,
+                lineHeight: 1.6,
+              }}
             />
             {curveNames.map((name, idx) => (
               <Area
@@ -210,6 +221,7 @@ function LearningCurvesSection({ data, loading }) {
                 dot={{ r: 3, strokeWidth: 0, fill: CURVE_COLORS[idx % CURVE_COLORS.length] }}
                 activeDot={{ r: 5, stroke: CURVE_COLORS[idx % CURVE_COLORS.length], strokeWidth: 2 }}
                 connectNulls
+                {...motion(idx)}
               />
             ))}
           </AreaChart>
@@ -408,7 +420,7 @@ export default function InsightsReports() {
       initial={shouldReduceMotion ? false : { opacity: 0, y: 12 }}
       animate={{ opacity: 1, y: 0 }}
       transition={{ duration: DURATION.entrance, ease: EASING.outExpo }}
-      className="p-6 lg:p-8 max-w-7xl mx-auto space-y-6"
+      className="page-container py-[var(--space-fluid-section)] space-y-6"
       aria-label="Insights y Reportes"
     >
       <ChartErrorBoundary>

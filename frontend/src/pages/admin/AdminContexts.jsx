@@ -31,10 +31,12 @@ import GlassCard from '../../components/ui/GlassCard';
 import StatusBadge from '../../components/ui/StatusBadge';
 import { SkeletonCard } from '../../components/ui/SkeletonShimmer';
 import EmptyState from '../../components/ui/EmptyState';
+import InlineSuccessBadge from '../../components/ui/InlineSuccessBadge';
 import ConfirmationModal, {
   useConfirmationModal
 } from '../../components/ui/ConfirmationModal';
 import { useDocumentTitle } from '../../hooks/useDocumentTitle';
+import useInlineSuccess from '../../hooks/useInlineSuccess';
 import { cn, formatDate } from '../../lib/utils';
 
 const CONTEXT_ID_REGEX = /^[a-z0-9-]+$/;
@@ -48,7 +50,7 @@ const ADMIN_CONTEXTS_SKELETON_KEYS = ['ctx-sk-a', 'ctx-sk-b', 'ctx-sk-c', 'ctx-s
  * El backend impide cambiar `contextId` si ya hay assets en Storage,
  * por lo que en modo edicion el campo se desactiva en esa situacion.
  */
-function ContextFormModal({ open, mode, initialContext, onClose, onSubmit, isLoading }) {
+function ContextFormModal({ open, mode, initialContext, onClose, onSubmit, isLoading, successVisible = false }) {
   const [contextId, setContextId] = useState('');
   const [name, setName] = useState('');
   const [errors, setErrors] = useState({});
@@ -174,9 +176,16 @@ function ContextFormModal({ open, mode, initialContext, onClose, onSubmit, isLoa
           <ButtonPremium type="button" variant="secondary" onClick={onClose} disabled={isLoading}>
             Cancelar
           </ButtonPremium>
-          <ButtonPremium type="submit" variant="primary" loading={isLoading}>
-            {isEdit ? 'Guardar cambios' : 'Crear contexto'}
-          </ButtonPremium>
+          <div className="relative">
+            <ButtonPremium type="submit" variant="primary" loading={isLoading}>
+              {isEdit ? 'Guardar cambios' : 'Crear contexto'}
+            </ButtonPremium>
+            <InlineSuccessBadge
+              visible={successVisible}
+              label={isEdit ? 'Cambios guardados' : 'Contexto creado'}
+              placement="left"
+            />
+          </div>
         </div>
       </motion.form>
     </div>
@@ -268,12 +277,20 @@ function renderContextsSection({
   onDeleteRequest
 }) {
   if (error) {
+    // EmptyState espera `action` como nodo (JSX), NO como objeto `{label, onClick}`.
+    // El props.node se renderiza directo con `{action}` en EmptyState.jsx, así que
+    // pasar un objeto plano lanzaba "Objects are not valid as a React child" y
+    // disparaba el ErrorBoundary (QA 2026-05-07).
     return (
       <EmptyState
         icon={<AlertTriangle size={48} className="text-error-base" />}
         title="Error al cargar contextos"
         description={error}
-        action={{ label: 'Reintentar', onClick: loadContexts }}
+        action={
+          <ButtonPremium variant="primary" onClick={loadContexts}>
+            <RefreshCw size={14} className="mr-1" /> Reintentar
+          </ButtonPremium>
+        }
       />
     );
   }
@@ -330,6 +347,9 @@ export default function AdminContexts() {
   const [submitting, setSubmitting] = useState(false);
   const [pendingDeleteId, setPendingDeleteId] = useState(null);
   const deleteModal = useConfirmationModal();
+  // T-955: feedback inline tras crear/editar contexto. El modal queda
+  // abierto ~1.1s para que el badge sea perceptible antes del cierre.
+  const saveBadge = useInlineSuccess({ duration: 1500 });
 
   const loadContexts = useCallback(async () => {
     setLoading(true);
@@ -381,8 +401,13 @@ export default function AdminContexts() {
         await contextsAPI.createContext(payload);
         toast.success(`Contexto "${payload.name}" creado.`);
       }
-      closeForm();
-      await loadContexts();
+      // Disparamos el inline success y dejamos el modal abierto un instante
+      // para que el badge sea perceptible. Tras 1.1s cerramos y refrescamos.
+      saveBadge.trigger();
+      setTimeout(() => {
+        closeForm();
+        loadContexts();
+      }, 1100);
     } catch (err) {
       toast.error(extractErrorMessage(err) || 'No se pudo guardar el contexto.');
     } finally {
@@ -489,6 +514,7 @@ export default function AdminContexts() {
         onClose={closeForm}
         onSubmit={handleSubmit}
         isLoading={submitting}
+        successVisible={saveBadge.visible}
       />
 
       <ConfirmationModal

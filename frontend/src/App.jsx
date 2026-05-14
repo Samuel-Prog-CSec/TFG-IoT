@@ -10,15 +10,20 @@ import { lazy, Suspense, memo } from 'react';
 import PropTypes from 'prop-types';
 import { Toaster } from 'sonner';
 import { AuthProvider, useAuth } from './context/AuthContext';
+import { ThemeProvider, useTheme } from './context/ThemeContext';
+import { AtmosphereProvider } from './context/AtmosphereContext';
+import { ShortcutRegistryProvider } from './context/ShortcutRegistryContext';
 import ProtectedRoute from './components/auth/ProtectedRoute';
 import GuestRoute from './components/auth/GuestRoute';
 import RequireRole from './components/auth/RequireRole';
 import AppLayout from './components/layout/AppLayout';
+import GameLayout from './components/layout/GameLayout';
 import ErrorBoundary from './components/common/ErrorBoundary';
 import { ROUTES } from './constants/routes';
 import RFIDModeHandler from './components/game/RFIDModeHandler';
 import TopProgressBar from './components/ui/TopProgressBar';
 import { RfidModeProvider } from './context/RfidModeContext';
+import GlobalShortcuts from './components/system/GlobalShortcuts';
 
 // Lazy loaded pages for better performance
 const Dashboard = lazy(() => import('./pages/Dashboard'));
@@ -178,7 +183,9 @@ function AppContent() {
         </Route>
 
         {/* RUTAS DE JUEGO */}
-        <Route path="/game/:sessionId" element={<ProtectedRoute><SuspenseWrapper><GameSession /></SuspenseWrapper></ProtectedRoute>} />
+        <Route path="/game" element={<ProtectedRoute><GameLayout /></ProtectedRoute>}>
+          <Route path=":sessionId" element={<SuspenseWrapper><GameSession /></SuspenseWrapper>} />
+        </Route>
 
         {/* FALLBACK — 404 standalone para usuarios sin sesión.
             Los catch-all dentro de los layouts protegidos cubren a los autenticados. */}
@@ -191,31 +198,63 @@ function AppContent() {
 }
 
 /**
+ * Toaster envuelto que consume el tema actual para que las notificaciones
+ * Sonner se rendericen en claro u oscuro según la elección del usuario.
+ * Sin esto, los toasts aparecían siempre con fondo oscuro encima del
+ * tema claro y rompían la coherencia (T-951 Fase 1).
+ */
+function ThemeAwareToaster() {
+  const { resolvedTheme } = useTheme();
+  // El "background" se delega a Sonner según el tema. Mantenemos una
+  // ligera personalización (border y blur) que aplica en ambos.
+  return (
+    <Toaster
+      // bottom-right libera el top-right para el ThemeToggle de auth
+      // (Login, Register) que necesita estar visible en el primer
+      // plano de visión del usuario al entrar a la app — fix QA
+      // 2026-05-10. El bottom-right también queda fuera del flujo de
+      // lectura del docente y reserva el área principal a contenido.
+      position="bottom-right"
+      expand={false}
+      richColors
+      closeButton
+      theme={resolvedTheme}
+      toastOptions={{
+        duration: 4000,
+        style: {
+          backdropFilter: 'blur(8px)',
+        },
+      }}
+    />
+  );
+}
+
+/**
  * Componente raíz de la aplicación
  */
 export default function App() {
   return (
-    <BrowserRouter>
-      <AuthProvider>
-        <RfidModeProvider>
-          <AppContent />
-          <Toaster
-            position="top-right"
-            expand={false}
-            richColors
-            closeButton
-            theme="dark"
-            toastOptions={{
-              duration: 4000,
-              style: {
-                background: 'rgba(30, 41, 59, 0.95)',
-                border: '1px solid rgba(255, 255, 255, 0.1)',
-                backdropFilter: 'blur(8px)',
-              },
-            }}
-          />
-        </RfidModeProvider>
-      </AuthProvider>
-    </BrowserRouter>
+    <ThemeProvider>
+      <AtmosphereProvider>
+        <BrowserRouter>
+          <AuthProvider>
+            <RfidModeProvider>
+              {/* ShortcutRegistry centraliza secciones de atajos para que el
+                  overlay `Shift+?` agregue global + contextuales. GlobalShortcuts
+                  vive dentro del registry para registrar la sección "Sistema"
+                  (Shift+T, Shift+?, Escape) y poner UN ÚNICO listener keydown
+                  que escucha cualquier atajo de cualquier fuente — funciona en
+                  Login, Register, AppLayout y GameLayout sin acoplarse a un
+                  layout concreto. */}
+              <ShortcutRegistryProvider>
+                <GlobalShortcuts />
+                <AppContent />
+                <ThemeAwareToaster />
+              </ShortcutRegistryProvider>
+            </RfidModeProvider>
+          </AuthProvider>
+        </BrowserRouter>
+      </AtmosphereProvider>
+    </ThemeProvider>
   );
 }

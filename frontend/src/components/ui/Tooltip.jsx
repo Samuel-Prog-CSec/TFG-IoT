@@ -134,6 +134,11 @@ export default function Tooltip({
   const variants = getMotionVariants(effectiveSide);
 
   // Detectar si el hijo ya es un elemento interactivo (evitar anidamiento button>button, a>button, etc.)
+  // QA 2026-05-12: Antes no detectaba `motion.button` / `motion.a` porque
+  // Framer Motion no expone "Button" en displayName, generando un wrapper
+  // span[role=button] anidado con el button real — HTML semánticamente
+  // invalido y mal en screen readers. Ahora reconocemos los motion(X) de
+  // tags interactivos y delegamos en su tag base.
   const isChildInteractive = (() => {
     if (!isValidElement(children)) return false;
     const tagType = children.type;
@@ -143,9 +148,22 @@ export default function Tooltip({
     }
     // Componentes con role="button"
     if (children.props?.role === 'button') return true;
+    // motion.button, motion.a, motion.input, motion.select, motion.textarea
+    // Framer Motion 11+ expone el componente con displayName literal
+    // `"motion.button"` (con punto). Antes el wrapper Tooltip aplicaba
+    // role=button + tabIndex al span externo, generando anidamiento
+    // span[role=button] > button — HTML invalido. Ahora detectamos la
+    // notacion `motion.<tag>` ademas de la forma legacy `motion(<tag>)`.
+    const motionDisplay =
+      tagType?.displayName ||
+      tagType?.render?.displayName ||
+      tagType?.name ||
+      '';
+    if (/^motion[.(](?:button|a|input|select|textarea)\)?$/i.test(motionDisplay)) {
+      return true;
+    }
     // Componentes cuyo nombre contiene "Button" (ej: ButtonPremium)
-    const componentName = tagType?.displayName || tagType?.name || '';
-    if (componentName.includes('Button')) return true;
+    if (motionDisplay.includes('Button')) return true;
     return false;
   })();
 
@@ -201,7 +219,9 @@ export default function Tooltip({
               // Glassmorphism con saturacion para coherencia con resto de UI
               'bg-background-elevated/95 backdrop-blur-md text-text-primary',
               'border border-border-default',
-              'shadow-[0_8px_24px_rgba(0,0,0,0.4),inset_0_1px_0_rgba(255,255,255,0.06)]',
+              // Tokens por tema — en light el tooltip no flota con sombra
+              // negra agresiva sobre el papel marfil (T-951 Fase 1).
+              'shadow-[var(--shadow-lg),var(--shadow-inset-card)]',
               positionClasses[effectiveSide]
             )}
           >

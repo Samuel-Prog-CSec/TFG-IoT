@@ -230,6 +230,18 @@ export default function GameSession() {
   const [game, dispatch] = useReducer(gameReducer, INITIAL_GAME_STATE);
   const { gameState, currentRound, score, correctAnswers, isAwaitingResponse } = game;
 
+  // Señaliza al GameLayout que hay una partida activa para que la salida
+  // pida confirmación. Se limpia al desmontar la página. El custom event
+  // `gameactive:change` evita que GameLayout tenga que hacer polling.
+  useEffect(() => {
+    globalThis.__gameActive = true;
+    globalThis.dispatchEvent(new CustomEvent('gameactive:change'));
+    return () => {
+      globalThis.__gameActive = false;
+      globalThis.dispatchEvent(new CustomEvent('gameactive:change'));
+    };
+  }, []);
+
   // Flash "Seguimos" al reanudar partida: captura el cambio paused -> playing
   // para mostrar un micro-feedback visual que confirma la accion del usuario.
   const prevGameStateRef = useRef(gameState);
@@ -759,12 +771,13 @@ export default function GameSession() {
       // (no se renderiza `ChallengeDisplay`), por lo que `processValidationResult`
       // no dispara confetti en este path; mantenemos el `playSuccess` para la
       // ronda completa (`handleSequenceRoundResult`).
+      // `mechanicType` ya viaja por el closure del hook (línea ~301):
+      // dejarlo en el payload era redundante (Plan agent R5, 2026-05-09).
       processValidationResult({
         isCorrect: true,
         timeout: false,
         pointsAwarded: payload?.points ?? 0,
-        newScore: payload?.score ?? 0,
-        mechanicType: 'sequence'
+        newScore: payload?.score ?? 0
       }, { currentRound, totalRounds });
     } else if (
       payload?.type === 'blocked' ||
@@ -778,8 +791,7 @@ export default function GameSession() {
         isCorrect: false,
         timeout: false,
         pointsAwarded: payload?.points ?? 0,
-        newScore: payload?.score ?? 0,
-        mechanicType: 'sequence'
+        newScore: payload?.score ?? 0
       }, { currentRound, totalRounds });
     }
     if (payload?.hint?.text) {
@@ -817,8 +829,7 @@ export default function GameSession() {
         isCorrect: false,
         timeout: true,
         pointsAwarded: 0,
-        newScore: payload?.score ?? 0,
-        mechanicType: 'sequence'
+        newScore: payload?.score ?? 0
       }, { currentRound, totalRounds });
     }
     if (sequenceCollectTimerRef.current) clearTimeout(sequenceCollectTimerRef.current);
@@ -1222,7 +1233,7 @@ export default function GameSession() {
         </div>
       }
     >
-    <div className="game-bg h-dvh flex flex-col relative overflow-hidden">
+    <div className="game-bg h-full flex flex-col relative overflow-hidden p-[var(--space-fluid-section)]">
       <output className="sr-only" aria-live="polite" aria-atomic="true">
         {srAnnouncement}
       </output>
@@ -1478,7 +1489,12 @@ export default function GameSession() {
       )}
 
       {(gameState === 'playing' || gameState === 'paused') && (
-        <div className="relative z-10 px-3 sm:px-4 mb-1 shrink-0">
+        // mb-3 (antes mb-1) — el `box-shadow: 0 0 20px ...glow` del TimerBar
+        // proyecta luminosidad ~20px hacia abajo. Con `mb-1` (4px) el glow
+        // se solapaba visualmente con el header del SequenceBoard
+        // ("Tu turno: escanea las cartas en orden") en 1366×768
+        // (HF-3 QA 2026-05-09).
+        <div className="relative z-10 px-3 sm:px-4 mb-3 shrink-0">
           <TimerBar timeLeft={timeLeft} timeLimit={roundTime} />
         </div>
       )}
@@ -1512,7 +1528,7 @@ export default function GameSession() {
               >
                 <Gamepad2 size={96} strokeWidth={1.5} />
               </motion.div>
-              <h1 className="text-4xl sm:text-5xl font-bold font-display gradient-text-brand mb-4">
+              <h1 className="text-[var(--text-fluid-3xl)] font-bold font-display gradient-text-brand mb-4">
                 ¡Hora de Jugar!
               </h1>
               <p className="text-text-muted mb-8 text-lg">

@@ -155,7 +155,7 @@ export default function StepRules({
                 id="assoc-time-limit"
                 type="range"
                 min={5}
-                max={60}
+                max={180}
                 step={5}
                 value={config.timeLimit}
                 onChange={(e) => onConfigChange('timeLimit', Number.parseInt(e.target.value, 10))}

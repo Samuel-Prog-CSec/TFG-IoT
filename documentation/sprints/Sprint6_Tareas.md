@@ -1071,11 +1071,12 @@ Subir cobertura de tests del proyecto desde 28.9% (backend ~30%, frontend ~25%) 
 
 ---
 
-### T-953: ⚛️ Charts paleta de marca + mascota emocional ampliada + GameOver expresivo 📋
+### T-953: ⚛️ Charts paleta de marca + mascota emocional ampliada + GameOver expresivo ✅
 
 **Consolida:** PROP-66 + PROP-67 + PROP-74
 **Prioridad:** P1 | **Tamaño:** XL (> 2 días) | **Dependencias:** Ninguna
 **Origen:** Charts genéricos (anti-AI-slop), GameOver funcional pero no emocional, mascota ya existe pero infrautilizada (solo GameOver actual)
+**Estado:** Implementado en `feature/ui-features-and-signature` (2026-05-09). Audit T-951 previo cerrado en `T951_Audit.md` (ADR-116). Implementación T-953 documentada en ADRs 117 (ChartsTheme) y 118 (mascota max craft + GameOver expresivo + FeedbackOverlay per-mecánica). Sesión QA navegada por la IA con Docker + Playwright detectó y corrigió en vivo el closure stale de `mechanicType` en listeners socket (B-1, fix con `mechanicTypeRef`). 355/355 tests frontend, 0 lint errors. Capturas: `frontend/qa-capturas-T951-audit/` (19) + `frontend/qa-capturas-T953/` (18). Findings: `T953_QA_Findings.md`.
 
 **Descripción:**
 Tres mejoras de signature visual y feedback emocional que aprovechan la mascota ya existente (`CharacterMascot.jsx`, `MascotAccessory.jsx`):
@@ -1306,11 +1307,12 @@ Tres ampliaciones del área analytics que aportan valor pedagógico real:
 
 ---
 
-### T-951: ⚛️ Tema claro/oscuro + atajos de teclado globales + onboarding interactivo 📋
+### T-951: ⚛️ Tema claro/oscuro + atajos de teclado globales + onboarding interactivo ✅
 
 **Consolida:** PROP-4 + PROP-9 + PROP-13 + PROP-17 + PROP-68
 **Prioridad:** P2 | **Tamaño:** XL (> 2 días) | **Dependencias:** Ninguna
 **Origen:** App solo dark, atajos de teclado inexistentes, onboarding actual es informativo no guiado
+**Estado:** Implementado en `feature/ui-features-and-signature` (2026-05-06). Alcance ampliado a múltiples mejoras transversales sobre el plan original: paleta light "Cuaderno marfil + tinta púrpura", onboarding interactivo multi-track (teacher 6 pasos + super_admin 5 pasos), atajos globales con overlay `Shift+?`, microcopy quick wins. Entregables y referencia: ADR-115, `documentation/T951_Audit.md`, `Theme_Color_Pairs.md`, `Onboarding_Tracks.md`, `Keyboard_Shortcuts.md`, `Microcopy_Style_Guide.md`. QA Fase 7 con Docker + Playwright en proceso (`T951_QA_Findings.md`).
 
 **Descripción:**
 Tres sistemas de personalización y productividad para el profesor:
@@ -1359,11 +1361,12 @@ Tres sistemas de personalización y productividad para el profesor:
 
 ---
 
-### T-952: ⚛️ Auditoría AnimatePresence + paginación/virtualización + inline editing 📋
+### T-952: ⚛️ Auditoría AnimatePresence + paginación/virtualización + inline editing + Fase 0 charts retake + Shift+T global ✅
 
 **Consolida:** PROP-18 + PROP-65 + PROP-69
 **Prioridad:** P2 | **Tamaño:** XL (> 2 días) | **Dependencias:** Ninguna
 **Origen:** AnimatePresence con motion.div atascados en exit (QA 18/04), listados grandes sin paginación, edición de nombre requiere ir al detalle
+**Estado:** Implementado en `feature/ui-features-and-signature` (2026-05-11). Alcance ampliado por petición del usuario: **Fase 0** (retake charts T-953 con motion + light gradient rebase + a11y + patterns RAG + migración 3 charts no migrados) y **Fase 1** (atajo global `Shift+T` para toggle de tema + animación View Transition API + fallback CSS + `<GlobalShortcuts />` y `ShortcutRegistry` para que `Shift+T`/`Shift+?`/`Escape` funcionen en Login, Register, AppLayout y GameLayout). QA navegado por mí con Docker dev + Playwright detectó y corrigió en vivo: BUG-1 (`Shift+letra` canonical roto), BUG-2 (infinite loop por dependencia inestable de `sidebar`), BUG-3 (autosave inline edit cerraba editor sin cambios). Entregables: ADRs 122-125, `frontend/T952_QA_Findings.md`, `frontend/docs/AnimatePresence_Audit_2026-05-11.md`, 16 capturas en `frontend/qa-capturas-T952/`. **Tests: 362/362 verdes. Lint: 0 errores. Build: OK.**
 
 **Descripción:**
 Tres mejoras transversales de UX en listados y transiciones:
@@ -1408,7 +1411,7 @@ Tres mejoras transversales de UX en listados y transiciones:
 
 ---
 
-### T-955: ⚛️ Notificaciones tiempo real + inline success badges 📋
+### T-955: ⚛️ Notificaciones tiempo real + inline success badges ✅
 
 **Consolida:** PROP-1 + PROP-76
 **Prioridad:** P2 | **Tamaño:** XL (> 2 días) | **Dependencias:** Ninguna
@@ -1451,31 +1454,53 @@ Dos sistemas de feedback en tiempo real:
 
 ---
 
-### T-957: ⚛️ Logout con confirmación + undo (toast persistente) 📋
+### T-957: ⚛️ Logout con confirmación + undo (toast persistente) ✅
 
 **Consolida:** PROP-93
-**Prioridad:** P2 | **Tamaño:** S-M (2-4h) | **Dependencias:** Ninguna
+**Prioridad:** P2 | **Tamaño:** S-M (2-4h, real ~3h) | **Dependencias:** Ninguna
 **Origen:** Click accidental en "Cerrar Sesión" sin red de seguridad — refinamiento sobre el ConfirmationModal de PROP-85 (ya implementado en Sprint 5)
+**ADR asociado:** ADR-136 ([2026-05-14](../Architecture_Decisions.md))
 
 **Descripción:**
-UX moderna: el click logout cierra sesión inmediatamente pero un toast persistente durante 5s muestra "Sesión cerrada. [Deshacer]". Si el usuario pulsa deshacer antes de 5s, se re-autentica con el refresh token que todavía está válido. Más fluido que el modal y conserva la red de seguridad.
+UX moderna: el click logout aparenta cerrar la sesión inmediatamente vía toast persistente durante 5s con acción "Deshacer", pero la invalidación real en backend se difiere. Si el usuario pulsa Deshacer antes de los 5s, el estado queda intacto sin pedir credenciales. Frontend-driven (sin cambios en backend) + `fetch keepalive: true` en `pagehide` como red de seguridad si la pestaña se cierra durante la ventana.
 
-**Sub-tareas:**
+**Alcance ampliado** (decidido con el usuario antes de implementar): aprovechar la sesión para cerrar otros huecos de confirmación detectados durante la auditoría — bug del variant en `ContextDetailPage`, descarte de borrador en `DeckCreationWizard` sin confirmar, y gap del hook `useUnsavedChanges` que solo cubría `beforeunload`.
 
-1. `toast.success` persistente con action `Deshacer` (Sonner soporta este patrón).
-2. Logout diferido: borrar access token en memoria pero conservar refresh 5s más antes de invalidarlo en backend; si el usuario pulsa deshacer, re-crear sesión desde refresh token.
-3. Backend: endpoint `POST /api/auth/logout` con flag `defer_invalidation_ms` (default 5000) que retrasa la invalidación del refresh.
-4. Test concurrency: refrescar pestaña durante los 5s no debe desloguear.
+**Sub-tareas (refinadas y ejecutadas):**
+
+1. `AuthContext.deferLogout({ delayMs })` + `undoLogout()` + estado `isLoggingOut`. Cleanup useEffect para evitar leak del listener `pagehide`.
+2. Listener `pagehide` con `fetch keepalive: true` contra `/api/auth/logout` (red de seguridad si la pestaña se cierra dentro de los 5s).
+3. `AppLayout.handleLogoutClick`: toast Sonner con `action: { label: 'Deshacer', onClick: undoLogout }` + botón disabled durante `isLoggingOut`. Elimina modal de PROP-85.
+4. `logout()` original conservado para casos administrativos (SESSION_EXPIRED, SESSION_INVALIDATED, UNAUTHORIZED).
+5. **Bug fix**: `ContextDetailPage.jsx` `variant: 'destructive'` → `'danger'` (deleteAsset + deleteAudio). La variante 'destructive' no existía en VARIANT_COLORS — fallback silencioso a warning antes del fix.
+6. **DeckCreationWizard**: `handleDiscardDraft` envuelto con nuevo `discardConfirmation` modal danger antes de invocar `discardDraft()` (evita perder 10-15 min de captura RFID con un click accidental).
+7. **Refactor `useUnsavedChanges`**: hook devuelve además `confirmExit(callback, options?)` + `confirmExitModalProps`. Integrado en `DeckCreationWizard.handleExitWizard` (reemplaza al exitConfirmation manual), `DeckEditPage` (botón "Ver detalle"), `SessionEdit` (botones "Cancelar", "Ver mapping", "Configurar tablero"), `CreateSession` (modal montado para futuro uso).
+8. Tests Vitest nuevos: `AuthContext.logout-undo.test.jsx` (8 tests) + `useUnsavedChanges.test.jsx` (11 tests).
+9. ADR-136 documentado + actualización del catálogo.
 
 **Criterios de Aceptación:**
 
-- [ ] Click logout → toast persistente con "Deshacer" durante 5s
-- [ ] Pulsar "Deshacer" antes de 5s → sesión recuperada sin pedir credenciales
-- [ ] Tras 5s sin acción → refresh token invalidado en backend, logout completo
-- [ ] Refresh de pestaña durante los 5s no desloguea
-- [ ] Tests pasando (frontend + backend)
+- [x] Click logout → toast `Sesión cerrada` con "Deshacer" durante 5s; sin modal.
+- [x] Pulsar "Deshacer" antes de 5s → toast `Sigues conectado`, sesión intacta, sin re-autenticación.
+- [x] Tras 5s sin acción → POST `/api/auth/logout` (tokens revocados), navega a `/login`.
+- [x] Refresh de pestaña durante los 5s no desloguea (tokens no revocados; AuthContext init restaura).
+- [x] Cierre de pestaña durante los 5s → beacon `fetch keepalive` revoca tokens.
+- [x] Segundo click en logout durante el undo es no-op (botón disabled + idempotencia).
+- [x] `ContextDetailPage` modal con animación canónica danger (flip 3D + Trash2 + botón rojo).
+- [x] `DeckCreationWizard` "Descartar borrador" requiere segunda confirmación danger.
+- [x] Wizards (`DeckEditPage`, `SessionEdit`) con botones de navegación programática → modal warning si hay cambios sin guardar.
+- [x] Tests pasando: **frontend 396/396** (+19 nuevos) y **backend 1145/1145** (0 regresiones).
+- [x] Lint frontend y backend sin errores nuevos.
+- [x] ADR-136 añadido + Sprint6 actualizado.
 
-**Archivos afectados:** `frontend/src/components/auth/LogoutButton.jsx` o equivalente, `frontend/src/services/authService.js`, `backend/src/controllers/authController.js`, `backend/src/services/authService.js`, tests asociados.
+**Gap conocido documentado:** el click en un `<Link>` del sidebar o breadcrumb sigue sin bloquearse cuando hay cambios sin guardar (requiere migrar a `createBrowserRouter` para habilitar el `useBlocker` real de React Router 7). Candidato a PROP futura.
+
+**Archivos afectados:**
+
+- Frontend: `services/api.js`, `context/AuthContext.jsx`, `components/layout/AppLayout.jsx`, `pages/ContextDetailPage.jsx`, `pages/DeckCreationWizard.jsx`, `pages/DeckEditPage.jsx`, `pages/SessionEdit.jsx`, `pages/CreateSession.jsx`, `hooks/useUnsavedChanges.js`.
+- Tests: `context/__tests__/AuthContext.logout-undo.test.jsx` (nuevo), `hooks/__tests__/useUnsavedChanges.test.jsx` (nuevo).
+- Backend: **sin cambios** (decisión: frontend-driven + sendBeacon equivalente con `fetch keepalive`).
+- Docs: `documentation/Architecture_Decisions.md` (ADR-136), este archivo, `frontend/docs/01-PATRONES-DISENO.md`.
 
 ---
 
@@ -1559,7 +1584,7 @@ Cinco frentes de pulido agrupados por afinidad temática, todos con foco en elev
 
 ## P3 — Prioridad Baja
 
-### T-954: ⚛️ Atmósferas dinámicas por contexto + hero transitions + navegación direccional + scroll parallax 📋
+### T-954: ⚛️ Atmósferas dinámicas por contexto + hero transitions + navegación direccional + scroll parallax ✅
 
 **Consolida:** PROP-16 + PROP-71 + PROP-72 + PROP-73 + PROP-75
 **Prioridad:** P3 | **Tamaño:** XL (> 2 días) | **Dependencias:** T-953 (signature visual base)
@@ -1616,13 +1641,24 @@ Paquete de motion signature ampliada que continúa la línea "Tactile RFID + Pap
 
 ---
 
-### T-956: ⚛️ Modo demo profesor (sin RFID) + Export/Import sesiones y mazos 📋
+### T-956: ❌ CERRADA — Modo demo profesor (sin RFID) + Export/Import sesiones y mazos
 
-**Consolida:** PROP-2 + PROP-6 + PROP-11
-**Prioridad:** P3 | **Tamaño:** XL (> 2 días) | **Dependencias:** Ninguna
-**Origen:** Profesor sin lector RFID no puede validar sesiones; sin export/import no hay colaboración entre profesores
+**Estado:** ❌ Cerrada (no se hará) — decisión 2026-05-13
+**Consolida:** PROP-2 + PROP-6 + PROP-11 → todas descartadas para v1.0.0
+**Prioridad original:** P3 | **Tamaño:** XL (> 2 días) | **Dependencias:** Ninguna
 
-**Descripción:**
+**Decisión de cierre (2026-05-13):**
+
+Tras revisar el alcance se concluye que **ninguna de las dos fases aporta valor incremental suficiente para v1.0.0**:
+
+- **Fase A (Modo demo sin RFID):** redundante. El `FallbackTouchPanel` ya cubre el flujo sin sensor y ha sido pulido a fondo en QA recientes (cooldown, feedback contextual `CheckCircle2/XCircle`, target size, latencia táctil 1500ms). Además `window.__rfidSim` cubre simulación en QA. La única diferencia funcional real del "Modo Demo" sería el flag `isDemo: true` para no contaminar analytics; si la necesidad surge, se resuelve con un cambio quirúrgico (checkbox "esto es prueba" o filtrar plays cuyo `student === teacher`), no con UI paralela completa.
+- **Fase B (Export/Import de mazos y sesiones):** feature de productividad real para colaboración entre profesores, pero independiente y no bloqueante para el corte v1.0.0. Si vuelve a ser prioritaria, se reabrirá como tarea aislada (no en rama UI/UX) post-release.
+
+**Propuestas descartadas:** PROP-2, PROP-6, PROP-11 (3/68 del backlog absorbido). PROP-6 queda como candidata a `propuestas-mejora.md` post-v1.0.0 si se solicita explícitamente.
+
+---
+
+**Descripción (alcance original, conservado para trazabilidad):**
 Dos features de productividad para el profesor que extienden el alcance de la plataforma:
 
 1. Modo demo / vista previa de partida sin RFID (PROP-2 + PROP-11): permite simular una partida completa con tarjetas virtuales clicables. UI dedicada (no fallback de emergencia), pensada para preview con visual diferenciado.
@@ -1722,7 +1758,7 @@ T-951 (tema + atajos + onboarding) — independiente
 T-952 (animatepresence + paginación + inline editing) — independiente
 T-955 (notificaciones + inline success) — independiente
 T-957 (logout undo) — independiente
-T-956 (modo demo + export/import) — independiente
+T-956 (modo demo + export/import) — ❌ CERRADA (no se hará, ver decisión en su sección)
 
 T-951, T-952, T-953, T-954 ──► T-958 (audit final coherencia + WCAG + responsive tablet,
                                        requiere todas las piezas integradas)
@@ -1761,8 +1797,8 @@ La **ruta crítica del sprint es la cadena T-901 → T-902 → T-903 → T-908**
 | **P0 (Crítica/Bloqueante v1.0.0)** | 13 tareas (T-901~T-910, T-921, T-922, T-923) | ~32-43 días |
 | **P1 (Alta)** | 4 tareas (T-941, T-943, T-953, T-958) | ~8-12 días |
 | **P2 (Media)** | 7 tareas (T-931, T-942, T-951, T-952, T-955, T-957, T-959) | ~16-23 días |
-| **P3 (Baja)** | 2 tareas (T-954, T-956) | ~4-6 días |
-| **Total** | **26 tareas** | **~60-84 días** |
+| **P3 (Baja)** | 1 tarea (T-954) | ~2-3 días |
+| **Total** | **25 tareas activas** (+ T-956 cerrada) | **~58-81 días** |
 
 ### Por Área
 
@@ -1772,7 +1808,7 @@ La **ruta crítica del sprint es la cadena T-901 → T-902 → T-903 → T-908**
 | 🎮 Mecánica Secuencia | T-921, T-922, T-923 (3 tareas) | ~11% |
 | 🔧 Backend / Redis | T-931 (1 tarea) | ~5% |
 | 📊 Analytics & Alertas | T-941, T-942, T-943 (3 tareas) | ~14% |
-| ⚛️ UI/UX & Motion Signature | T-951~T-959 (9 tareas) | ~26% |
+| ⚛️ UI/UX & Motion Signature | T-951~T-959 excluyendo T-956 (8 tareas activas) | ~24% |
 
 ### Tabla de Consolidación (Trazabilidad propuestas → tareas)
 
@@ -1800,13 +1836,13 @@ La **ruta crítica del sprint es la cadena T-901 → T-902 → T-903 → T-908**
 | **T-953** | PROP-66 + PROP-67 + PROP-74 |
 | **T-954** | PROP-16 + PROP-71 + PROP-72 + PROP-73 + PROP-75 |
 | **T-955** | PROP-1 + PROP-76 |
-| **T-956** | PROP-2 + PROP-6 + PROP-11 |
+| ~~**T-956**~~ | ❌ CERRADA 2026-05-13 — PROP-2 + PROP-6 + PROP-11 descartadas (ver decisión en su sección) |
 | **T-957** | PROP-93 |
 | **T-958** | (nueva — Audit final coherencia visual + WCAG 2.2 AA + responsive tablet) |
 | **T-959** | (nueva — Polish flujos críticos profesor + área admin + extras) |
 
-**Total propuestas absorbidas: 68/68** (todas las propuestas pendientes en `propuestas-mejora.md`).
-**Total tareas: 26** (21 consolidadas desde propuestas + 3 nuevas de mecánica Secuencia: backend, frontend+analytics, auditoría integral + 2 nuevas de polish UI: audit final coherencia/WCAG y polish flujos críticos).
+**Total propuestas absorbidas: 65/68** (3 descartadas con el cierre de T-956: PROP-2, PROP-6, PROP-11).
+**Total tareas activas: 25** (20 consolidadas desde propuestas + 3 nuevas de mecánica Secuencia: backend, frontend+analytics, auditoría integral + 2 nuevas de polish UI: audit final coherencia/WCAG y polish flujos críticos). **T-956 cerrada** sin implementación (ver decisión de cierre en su sección).
 
 ---
 

@@ -445,7 +445,7 @@ export default function StudentsAnalytics() {
         <motion.section
           key="skeleton"
           {...motionVariants}
-          className="p-6 lg:p-8 max-w-7xl mx-auto space-y-8"
+          className="page-container py-[var(--space-fluid-section)] space-y-8"
         >
           {/* Header skeleton */}
           <div className="flex flex-col sm:flex-row sm:items-end sm:justify-between gap-4 pt-14 lg:pt-0">
@@ -485,7 +485,7 @@ export default function StudentsAnalytics() {
         <motion.section
           key="content"
           {...motionVariants}
-          className="p-6 lg:p-8 max-w-7xl mx-auto space-y-8"
+          className="page-container py-[var(--space-fluid-section)] space-y-8"
           aria-label="Pagina de analisis de alumnos"
         >
           <ChartErrorBoundary>
@@ -919,7 +919,7 @@ function StudentRow({ student, navigate }) {
           {student.tiersByMechanic &&
           Object.keys(student.tiersByMechanic).length > 0 ? (
             <div
-              className="flex items-center gap-1"
+              className="flex flex-wrap items-center gap-1"
               aria-label="Niveles por mecánica"
             >
               {MECHANIC_KEYS.map((key) => (

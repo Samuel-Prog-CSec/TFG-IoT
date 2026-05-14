@@ -29,6 +29,7 @@ import { useAuth } from '../context/AuthContext';
 import { contextsAPI, extractData, extractErrorMessage } from '../services/api';
 import { ROUTES } from '../constants/routes';
 import { useDocumentTitle } from '../hooks/useDocumentTitle';
+import { useSharedLayoutTransition } from '../hooks/useSharedLayoutTransition';
 import Breadcrumb from '../components/ui/Breadcrumb';
 
 const TAB_BUTTON_VARIANTS = {
@@ -46,6 +47,8 @@ export default function ContextDetailPage() {
   const navigate = useNavigate();
   const { user: currentUser } = useAuth();
   useDocumentTitle('Detalle del Contexto');
+  // T-954 Fase B: receptor del shared layout id emitido por ContextCard.
+  const heroLayoutId = useSharedLayoutTransition('context', contextId);
 
   const [context, setContext] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -105,7 +108,7 @@ export default function ContextDetailPage() {
       description: `Vas a eliminar "${asset.value}" (${asset.key}). Se borrará la imagen, los audios asociados y los archivos en Supabase Storage. Si está en uso por un mazo activo, la operación se rechazará.`,
       confirmText: 'Eliminar definitivamente',
       cancelText: 'Cancelar',
-      variant: 'destructive',
+      variant: 'danger',
       onConfirm: () => performDeleteAsset(asset),
     });
   };
@@ -132,7 +135,7 @@ export default function ContextDetailPage() {
       description: `Se eliminará el audio asociado a "${asset.value}". La imagen se mantiene.`,
       confirmText: 'Eliminar audio',
       cancelText: 'Cancelar',
-      variant: 'destructive',
+      variant: 'danger',
       onConfirm: () => performDeleteAudio(asset),
     });
   };
@@ -175,8 +178,9 @@ export default function ContextDetailPage() {
 
   return (
     <div className="min-h-full bg-background-deep p-4 lg:p-8">
-      {/* Header */}
+      {/* Header — recibe el hero transition desde ContextCard. */}
       <motion.div
+        layoutId={heroLayoutId}
         initial={{ opacity: 0, y: -20 }}
         animate={{ opacity: 1, y: 0 }}
         className="max-w-5xl mx-auto mb-8"

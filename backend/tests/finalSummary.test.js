@@ -117,7 +117,7 @@ describe('finalSummary.buildAssociationFinalSummary', () => {
     expect(finalSummary.buildAssociationFinalSummary(playState).categoryDominance).toBe('cat');
   });
 
-  it('devuelve null cuando todas las accuracies son 0', () => {
+  it('devuelve null cuando todas las accuracies son 0 (BUG-3 QA 2026-05-12)', () => {
     const playState = {
       strategyState: {
         byValueAccuracy: {
@@ -126,8 +126,10 @@ describe('finalSummary.buildAssociationFinalSummary', () => {
         }
       }
     };
-    // Empate técnico (ambos 0/total). El primer slug en orden alfabético gana.
-    expect(finalSummary.buildAssociationFinalSummary(playState).categoryDominance).toBe('cat');
+    // Si el alumno no acertó NADA, no hay categoría "más fuerte". Antes
+    // devolvía la primera alfabética con ratio=0, lo que mostraba en el
+    // GameOver una categoría arbitraria y confundía pedagógicamente.
+    expect(finalSummary.buildAssociationFinalSummary(playState).categoryDominance).toBeNull();
   });
 
   it('clona el mapa byValueAccuracy para no exponer referencias mutables', () => {

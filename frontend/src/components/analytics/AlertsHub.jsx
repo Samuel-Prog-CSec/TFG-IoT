@@ -303,9 +303,14 @@ function AlertsHub({ alerts = [], loading = false }) {
   }
 
   return (
-    <div className="space-y-5">
-      {/* Severity counters */}
-      <div className="grid grid-cols-3 gap-3">
+    <section
+      className="space-y-5"
+      aria-label={`Centro de alertas: ${severityCounts.critical} críticas, ${severityCounts.warning} advertencias, ${severityCounts.info} informativas`}
+    >
+      {/* Severity counters — cada uno incluye icono Lucide propio de su
+          severidad (AlertOctagon/AlertTriangle/Info) para distinguir
+          estado sin depender del color (WCAG 1.4.1). */}
+      <div className="grid grid-cols-3 gap-3" role="group" aria-label="Resumen por severidad">
         <SeverityCounter severity="critical" count={severityCounts.critical} />
         <SeverityCounter severity="warning" count={severityCounts.warning} />
         <SeverityCounter severity="info" count={severityCounts.info} />
@@ -438,7 +443,7 @@ function AlertsHub({ alerts = [], loading = false }) {
           ))}
         </motion.div>
       )}
-    </div>
+    </section>
   );
 }
 

@@ -13,7 +13,10 @@ import { captureException } from '../lib/sentry';
 // CONFIGURACIÓN
 // ============================================
 
-const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:5000/api';
+// Exportado para que el AuthContext pueda construir el beacon de logout
+// diferido (T-957) usando fetch nativo con `keepalive: true` — axios no
+// soporta esa flag y el beacon debe sobrevivir al cierre de la pestaña.
+export const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:5000/api';
 const TIMEOUT = 10000; // 10 segundos
 const MAX_RETRIES = 3;
 const RETRY_DELAY = 1000; // 1 segundo base para exponential backoff
@@ -588,6 +591,15 @@ export const usersAPI = {
   /** Exportar datos Art. 20 RGPD (GET /api/users/:id/export-data) */
   exportStudentData: (userId) =>
     api.get(`/users/${userId}/export-data`, { responseType: 'blob' }),
+
+  /**
+   * Actualizar el progreso del onboarding interactivo del propio usuario
+   * (T-951 PROP-13). Acepta cualquier subset de los campos editables.
+   * @param {Object} payload - Subset { currentStep?, currentTrack?, teacherCompleted?, superAdminCompleted? }
+   * @returns {Promise} Respuesta con el subdocumento de onboarding actualizado.
+   */
+  updateMyOnboarding: (payload) =>
+    api.patch('/users/me/onboarding', payload),
 };
 
 // ============================================
@@ -938,6 +950,47 @@ export const playsAPI = {
    */
   getPlayerStats: (playerId, params = {}) =>
     api.get(`/plays/stats/${playerId}`, { params })
+};
+
+/**
+ * API de notificaciones tiempo real (T-955).
+ *
+ * Los endpoints viven bajo /api/notifications. El bell del frontend
+ * consume estos endpoints para hidratar el estado inicial y para acciones
+ * de read/markAllRead; las notificaciones nuevas llegan vía Socket.IO
+ * (`notification:created`) y se prependen al listado cacheado.
+ */
+export const notificationsAPI = {
+  /**
+   * Lista paginada de notificaciones del usuario autenticado.
+   * @param {Object} params
+   * @param {number} [params.limit=20] - Tamaño de la página (1-100).
+   * @param {string} [params.before] - ISO date string como cursor.
+   * @param {Object} [config] - Axios config extra.
+   * @returns {Promise} { data: { items, nextCursor } }
+   */
+  list: (params = {}, config = {}) =>
+    api.get('/notifications', { params, ...config }),
+
+  /**
+   * Contador de notificaciones no leídas del usuario.
+   * @param {Object} [config]
+   * @returns {Promise} { data: { count } }
+   */
+  unreadCount: (config = {}) => api.get('/notifications/unread-count', config),
+
+  /**
+   * Marca una notificación específica como leída.
+   * @param {string} id
+   * @returns {Promise}
+   */
+  markRead: (id) => api.patch(`/notifications/${id}/read`, {}),
+
+  /**
+   * Marca todas las notificaciones del usuario como leídas.
+   * @returns {Promise} { data: { modified } }
+   */
+  markAllRead: () => api.post('/notifications/mark-all-read', {})
 };
 
 export default api;

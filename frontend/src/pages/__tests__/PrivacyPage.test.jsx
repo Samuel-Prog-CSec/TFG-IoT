@@ -36,6 +36,21 @@ vi.mock('../../hooks/useReducedMotion', () => ({
   useReducedMotion: () => ({ shouldReduceMotion: false })
 }));
 
+// Mock de useTheme — PrivacyPage ahora monta ThemeToggle (fix QA 2026-05-10
+// para paridad con Login/Register), que requiere contexto. Stubear el hook
+// evita tener que envolver con ThemeProvider en cada test.
+vi.mock('../../context/ThemeContext', () => ({
+  useTheme: () => ({
+    mode: 'auto',
+    resolvedTheme: 'dark',
+    systemPrefersLight: false,
+    setMode: vi.fn(),
+    isLight: false,
+    isDark: true,
+  }),
+  ThemeProvider: ({ children }) => children,
+}));
+
 import PrivacyPage from '../PrivacyPage';
 
 const renderPage = () =>

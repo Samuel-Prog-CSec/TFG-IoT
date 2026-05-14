@@ -2,7 +2,15 @@ import { memo, useMemo } from 'react';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Cell } from 'recharts';
 import PropTypes from 'prop-types';
 import ChartSection from '../dashboard/ChartSection';
-import { getRAGCSSColor as getRAGColor } from '../../constants/analyticsThresholds';
+import {
+  ChartsThemeDefs,
+  ThemedTooltipCard,
+  commonAxisProps,
+  commonGridProps,
+  useChartMotion,
+  getRAGPatternFill,
+} from './ChartsTheme';
+import ThemedChartContainer from './ThemedChartContainer';
 
 /**
  * Tooltip personalizado para el chart
@@ -12,7 +20,7 @@ function CustomTooltip({ active, payload }) {
   const data = payload[0].payload;
 
   return (
-    <div className="bg-background-elevated border border-border-default rounded-lg p-3 shadow-xl text-sm">
+    <ThemedTooltipCard>
       <p className="font-semibold text-text-primary mb-1">{data.name}</p>
       <p className="text-text-secondary">
         Score: <span className="font-bold tabular-nums">{Math.round(data.score)}%</span>
@@ -22,7 +30,7 @@ function CustomTooltip({ active, payload }) {
           {data.gamesPlayed ?? data.totalGames} {(data.gamesPlayed ?? data.totalGames) === 1 ? 'partida' : 'partidas'}
         </p>
       )}
-    </div>
+    </ThemedTooltipCard>
   );
 }
 
@@ -36,6 +44,7 @@ function CustomTooltip({ active, payload }) {
  * @param {string} [props.dimension] - 'context' | 'mechanic' (para aria labels)
  */
 function PerformanceByDimension({ title, data, dimension = 'context' }) {
+  const motion = useChartMotion();
   const chartData = useMemo(() => {
     if (!Array.isArray(data) || data.length === 0) return [];
     return data
@@ -64,8 +73,28 @@ function PerformanceByDimension({ title, data, dimension = 'context' }) {
 
   const chartHeight = Math.max(160, chartData.length * 44 + 20);
 
+  // Resumen accesible: mejor/peor + total. La tabla sr-only ofrece datos
+  // completos para el usuario que use lector de pantalla.
+  const dimensionLabel = dimension === 'context' ? 'contexto' : 'mecánica';
+  const top = chartData[0];
+  const bottom = chartData[chartData.length - 1];
+  const accessibleSummary =
+    chartData.length === 1
+      ? `Único ${dimensionLabel}: ${top.name} con ${Math.round(top.score)}%.`
+      : `Mejor ${dimensionLabel}: ${top.name} (${Math.round(top.score)}%). Peor: ${bottom.name} (${Math.round(bottom.score)}%). Total: ${chartData.length} ${dimensionLabel}s.`;
+  const accessibleDataTable = chartData.map((item) => ({
+    label: item.name,
+    value: `${Math.round(item.score)}%`,
+  }));
+
   return (
     <ChartSection title={title}>
+      <ThemedChartContainer
+        title={null}
+        summary={accessibleSummary}
+        dataTable={accessibleDataTable}
+        dataTableCaption={`Rendimiento por ${dimensionLabel}`}
+      >
       <div style={{ height: chartHeight, minHeight: chartHeight }} className="w-full mt-2">
         <ResponsiveContainer width="100%" height="100%" minWidth={0} minHeight={0} debounce={50}>
           <BarChart
@@ -73,18 +102,13 @@ function PerformanceByDimension({ title, data, dimension = 'context' }) {
             layout="vertical"
             margin={{ top: 0, right: 20, left: 0, bottom: 0 }}
           >
-            <CartesianGrid
-              horizontal={false}
-              stroke="var(--color-border-subtle)"
-              strokeDasharray="3 3"
-            />
+            <ChartsThemeDefs />
+            <CartesianGrid {...commonGridProps} horizontal={false} />
             <XAxis
               type="number"
               domain={[0, 100]}
               ticks={[0, 25, 50, 75, 100]}
-              tick={{ fill: 'var(--color-text-muted)', fontSize: 11 }}
-              tickLine={false}
-              axisLine={false}
+              {...commonAxisProps}
             />
             {/* width aumentado de 120 a 140 para que etiquetas largas como
                 "Números del 1 al 6" o "Animales de Granja" no wrapeen en dos
@@ -93,9 +117,8 @@ function PerformanceByDimension({ title, data, dimension = 'context' }) {
               type="category"
               dataKey="name"
               width={140}
+              {...commonAxisProps}
               tick={{ fill: 'var(--color-text-secondary)', fontSize: 12 }}
-              tickLine={false}
-              axisLine={false}
               interval={0}
             />
             <Tooltip content={<CustomTooltip />} cursor={{ fill: 'rgba(255,255,255,0.03)' }} />
@@ -104,14 +127,20 @@ function PerformanceByDimension({ title, data, dimension = 'context' }) {
               radius={[0, 6, 6, 0]}
               barSize={20}
               aria-label={`Rendimiento por ${dimension === 'context' ? 'contexto' : 'mecanica'}`}
+              {...motion()}
             >
+              {/* Cada celda usa pattern RAG (color + textura distintiva)
+                  para que daltonismo rojo-verde distinga el estado sin
+                  depender solo del color: verde con puntos, ámbar con
+                  diagonales, rojo con guiones (T-952 Fase 0.D). */}
               {chartData.map(entry => (
-                <Cell key={`cell-${entry.name}`} fill={getRAGColor(entry.score)} />
+                <Cell key={`cell-${entry.name}`} fill={getRAGPatternFill(entry.score)} />
               ))}
             </Bar>
           </BarChart>
         </ResponsiveContainer>
       </div>
+      </ThemedChartContainer>
     </ChartSection>
   );
 }

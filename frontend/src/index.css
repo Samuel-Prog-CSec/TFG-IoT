@@ -15,11 +15,19 @@
     "Helvetica Neue", Arial, sans-serif;
   --font-display: "Bricolage Grotesque", "Inter Tight", var(--font-sans);
 
-  /* ===== COLORES SEMÁNTICOS (OKLCH) ===== */
+  /* ===== COLORES SEMÁNTICOS (OKLCH) =====
+     Estos valores son la paleta DARK por defecto. La paleta LIGHT vive en
+     [data-theme="light"] al final del archivo y redefine los mismos tokens
+     por cascada CSS — la utilidad de Tailwind lee el valor actual de la
+     custom property, así que la cascada hace todo el trabajo sin necesidad
+     de duplicar reglas (T-951, ADR de tema). */
   /* Backgrounds: Fríos, profundos, con sutiles matices morados/azules */
   --color-background-deep: oklch(18% 0.02 260); /* #0a0a0f eq */
   --color-background-base: oklch(21% 0.03 260); /* #0f172a eq */
-  --color-background-elevated: oklch(27% 0.04 260); /* #1e293b eq */
+  /* Cards/superficies elevadas: 30% L (antes 27%). Sube 9 puntos sobre
+     background-base (vs 6 antes) para que el squint test detecte la
+     elevación claramente sin caer en glassmorphism barato (T-951 Fase 1). */
+  --color-background-elevated: oklch(30% 0.04 260); /* #2c3a52 aprox */
   --color-background-surface: oklch(35% 0.04 260); /* #334155 eq */
 
   /* Text: Jerarquía de 4 niveles para lectura perfecta */
@@ -39,9 +47,12 @@
   --color-success-dark: oklch(60% 0.15 150);
   --color-success-glow: oklch(75% 0.15 150 / 0.4);
 
-  --color-warning-base: oklch(85% 0.15 80); /* Amber/Yellow */
-  --color-warning-dark: oklch(70% 0.15 80);
-  --color-warning-glow: oklch(85% 0.15 80 / 0.4);
+  /* Warning: 78% L (antes 85%). El amarillo a 85% L producía contraste 1.6:1
+     con texto blanco — ilegible. 78% sigue siendo ámbar cálido pero con
+     contraste accesible WCAG 2.2 AA contra texto sobre superficie warning. */
+  --color-warning-base: oklch(78% 0.16 80); /* Amber/Yellow */
+  --color-warning-dark: oklch(64% 0.16 80);
+  --color-warning-glow: oklch(78% 0.16 80 / 0.4);
 
   --color-error-base: oklch(65% 0.18 25); /* Rose/Red */
   --color-error-dark: oklch(50% 0.18 25);
@@ -116,8 +127,72 @@
 
   /* Glassmorphism primitives */
   --color-glass-bg: oklch(100% 0 0 / 0.07);
-  --color-glass-solid: oklch(27% 0.04 260 / 0.8);
+  --color-glass-solid: oklch(30% 0.04 260 / 0.8);
   --color-glass-border: oklch(100% 0 0 / 0.08);
+
+  /* Aurora del fondo (AppLayout + GameSession). En dark se mezclan con
+     `mix-blend-screen`; en light el bloque [data-theme="light"] las
+     redefine y se cambia a `mix-blend-multiply` para evitar manchas
+     grises sobre el papel marfil (T-951 Fase 1). */
+  --color-aurora-1: oklch(65% 0.18 300); /* brand-base */
+  --color-aurora-2: oklch(80% 0.14 200); /* accent-cyan */
+  --color-aurora-3: oklch(60% 0.16 270); /* accent-indigo */
+
+  /* === ATMÓSFERAS DINÁMICAS POR CONTEXTO (T-954 Fase A) ============
+     Aurora + acentos cambian de tinte cuando la página activa pertenece
+     a un contexto pedagógico (Geografía, Animales, Colores, Números…).
+     Los tokens base apuntan al aurora neutro y al brand; cada
+     `[data-atmosphere="key"]` los reescribe en cascada hacia el contexto
+     correspondiente. Si el atributo no está presente, todo cae al
+     comportamiento previo a T-954.
+     ──────────────────────────────────────────────────────────────── */
+  --color-atmosphere-aurora-1: var(--color-aurora-1);
+  --color-atmosphere-aurora-2: var(--color-aurora-2);
+  --color-atmosphere-aurora-3: var(--color-aurora-3);
+  --color-atmosphere-primary: var(--color-brand-base);
+  --color-atmosphere-primary-alt: var(--color-accent-indigo);
+  --color-atmosphere-glow: var(--color-brand-glow);
+
+  /* ===== CHART GRADIENTS — STOPS POR TEMA (T-952 Fase 0.B) =====
+     En dark los gradients horizontales van de "base" (tono medio) a
+     "light" (más claro): sobre fondo oscuro, el extremo más claro se ve
+     bien y crea sensación de "lectura izquierda → derecha". En light, ese
+     mismo `brand-light` (70% L) queda CASI invisible sobre marfil 98% L
+     — el gradient se desvanece y la línea pierde contraste. Resolvemos
+     mapeando `--chart-stop-*` por tema: en dark `start=base, end=light`;
+     en light `start=base, end=dark`. La cascada hace el resto: charts
+     solo consumen `stop-color: var(--chart-stop-X)`. */
+  --chart-stop-brand-start: var(--color-brand-base);
+  --chart-stop-brand-end: var(--color-brand-light);
+
+  --chart-stop-memory-start: var(--color-accent-indigo);
+  --chart-stop-memory-end: var(--color-accent-indigo);
+
+  --chart-stop-association-start: var(--color-accent-cyan);
+  --chart-stop-association-end: var(--color-accent-cyan);
+
+  --chart-stop-sequence-start: var(--color-accent-amber);
+  --chart-stop-sequence-end: var(--color-accent-amber);
+
+  --chart-stop-success-start: var(--color-success-base);
+  --chart-stop-success-end: var(--color-success-dark);
+
+  --chart-stop-warning-start: var(--color-warning-base);
+  --chart-stop-warning-end: var(--color-warning-dark);
+
+  --chart-stop-error-start: var(--color-error-base);
+  --chart-stop-error-end: var(--color-error-dark);
+
+  /* ===== SOMBRAS SEMÁNTICAS =====
+     Sustituyen las shadows literales `shadow-[0_4px_16px_rgba(0,0,0,0.4)]`
+     repartidas por la app. Son TOKENS por tema: en light el bloque
+     [data-theme="light"] reduce drásticamente el alpha para que las cards
+     no parezcan flotar con sombra negra pesada sobre fondo blanco. */
+  --shadow-sm: 0 1px 2px oklch(0% 0 0 / 0.30);
+  --shadow-md: 0 4px 16px oklch(0% 0 0 / 0.35);
+  --shadow-lg: 0 12px 40px oklch(0% 0 0 / 0.45);
+  --shadow-glow: 0 0 24px var(--color-brand-glow);
+  --shadow-inset-card: inset 0 1px 0 oklch(100% 0 0 / 0.06);
 
   /* ===== RADIUS ===== */
   --radius-sm: 0.5rem; /* 8px */
@@ -224,17 +299,137 @@
       transform: translateX(6px);
     }
   }
+
+  /* === TIPOGRAFÍA FLUIDA (clamp(min, vw, max)) ===
+     Tokens nuevos consumibles como text-fluid-*. Coexisten con text-Nxl
+     de Tailwind para no obligar a migrar todo el código. Solo se usan en
+     sitios que escalan agresivamente (heroes, scores, page titles). */
+  --text-fluid-xs:   clamp(0.75rem,  0.7rem  + 0.25vw, 0.875rem);
+  --text-fluid-sm:   clamp(0.875rem, 0.82rem + 0.3vw,  1rem);
+  --text-fluid-base: clamp(1rem,     0.94rem + 0.3vw,  1.125rem);
+  --text-fluid-lg:   clamp(1.125rem, 1.04rem + 0.4vw,  1.375rem);
+  --text-fluid-xl:   clamp(1.375rem, 1.2rem  + 0.7vw,  1.875rem);
+  --text-fluid-2xl:  clamp(1.625rem, 1.35rem + 1.2vw,  2.5rem);
+  --text-fluid-3xl:  clamp(1.875rem, 1.45rem + 1.8vw,  3.5rem);
+  --text-fluid-hero: clamp(2.25rem,  1.5rem  + 3vw,    5rem);
+
+  /* === SPACING FLUIDO (containers, gaps grandes) ===
+     Solo para márgenes/padding de página y gaps de grids principales.
+     Spacing pequeño (gap-2/gap-3) se mantiene Tailwind. */
+  --space-fluid-section: clamp(1rem,    0.5rem + 2vw,   2rem);
+  --space-fluid-gutter:  clamp(0.75rem, 0.4rem + 1.5vw, 1.5rem);
+
+  /* === ALTURAS DE CHROME (gameplay) ===
+     Fórmulas con pendiente aditiva para que escalen suave dentro del
+     rango típico de portátiles (768-1080px alto, 1366-1920px ancho).
+     Sin la pendiente, el clamp quedaba siempre en el mínimo a 1366×768. */
+  --game-hud-height:  clamp(56px, 4vh + 24px, 80px);
+  --game-mascot-size: clamp(72px, 6vw + 32px, 128px);
+
+  /* === DEFENSIVOS === */
+  --min-touch-target: 44px;
+
+  /* === SIDEBAR (consumido por AppLayout y pseudo-fondo) === */
+  --sidebar-w-expanded: 18rem; /* 288px (w-72 actual) */
+  --sidebar-w-rail: 4.5rem;    /* 72px */
 }
+
+/* ============================================
+   🌈 ATMÓSFERAS DINÁMICAS POR CONTEXTO (T-954)
+   --------------------------------------------
+   `[data-atmosphere="key"]` reescribe los tokens `--color-atmosphere-*`
+   cuando la página activa pertenece a un contexto pedagógico. El
+   `useRouteAtmosphere` aplica el atributo en `<html>` y la cascada hace
+   el resto: aurora, ButtonPremium primary y header consumen los tokens
+   atmosféricos sin re-render.
+
+   Los valores DARK saturados se mezclan en light contra el fondo marfil
+   con `color-mix` para que el blend `multiply` no produzca manchas
+   oscuras (ver bloque `[data-theme="light"]`).
+   ============================================ */
+:root[data-atmosphere="geography"] {
+  --color-atmosphere-aurora-1: var(--color-theme-geography);
+  --color-atmosphere-aurora-2: var(--color-theme-geography-alt);
+  --color-atmosphere-aurora-3: var(--color-accent-cyan);
+  --color-atmosphere-primary: var(--color-theme-geography);
+  --color-atmosphere-primary-alt: var(--color-theme-geography-alt);
+  --color-atmosphere-glow: color-mix(in oklab, var(--color-theme-geography) 45%, transparent);
+}
+:root[data-atmosphere="animals"] {
+  --color-atmosphere-aurora-1: var(--color-theme-animals);
+  --color-atmosphere-aurora-2: var(--color-theme-animals-alt);
+  --color-atmosphere-aurora-3: var(--color-accent-orange);
+  --color-atmosphere-primary: var(--color-theme-animals);
+  --color-atmosphere-primary-alt: var(--color-theme-animals-alt);
+  --color-atmosphere-glow: color-mix(in oklab, var(--color-theme-animals) 45%, transparent);
+}
+:root[data-atmosphere="colors"] {
+  --color-atmosphere-aurora-1: var(--color-theme-colors);
+  --color-atmosphere-aurora-2: var(--color-theme-colors-alt);
+  --color-atmosphere-aurora-3: var(--color-accent-pink);
+  --color-atmosphere-primary: var(--color-theme-colors);
+  --color-atmosphere-primary-alt: var(--color-theme-colors-alt);
+  --color-atmosphere-glow: color-mix(in oklab, var(--color-theme-colors) 45%, transparent);
+}
+:root[data-atmosphere="numbers"] {
+  --color-atmosphere-aurora-1: var(--color-theme-numbers);
+  --color-atmosphere-aurora-2: var(--color-theme-numbers-alt);
+  --color-atmosphere-aurora-3: var(--color-accent-indigo);
+  --color-atmosphere-primary: var(--color-theme-numbers);
+  --color-atmosphere-primary-alt: var(--color-theme-numbers-alt);
+  --color-atmosphere-glow: color-mix(in oklab, var(--color-theme-numbers) 45%, transparent);
+}
+:root[data-atmosphere="shapes"] {
+  --color-atmosphere-aurora-1: var(--color-accent-cyan);
+  --color-atmosphere-aurora-2: var(--color-accent-indigo);
+  --color-atmosphere-aurora-3: var(--color-accent-pink);
+  --color-atmosphere-primary: var(--color-accent-cyan);
+  --color-atmosphere-primary-alt: var(--color-accent-indigo);
+  --color-atmosphere-glow: color-mix(in oklab, var(--color-accent-cyan) 45%, transparent);
+}
+
+/* Crossfade entre atmósferas. Se suspende durante un cambio de tema (cuando
+   `[data-theme-switching]` está presente) para no encadenar dos transiciones
+   solapadas y para respetar el cross-fade nativo del View Transition API. */
+:root:not([data-theme-switching]) .aurora-layer > * {
+  transition:
+    background-color 400ms cubic-bezier(0.16, 1, 0.3, 1);
+}
+@media (prefers-reduced-motion: reduce) {
+  :root .aurora-layer > * { transition: none; }
+}
+
+/* ============================================
+   🌗 VARIANTES DE TEMA (Tailwind v4)
+   --------------------------------------------
+   `@custom-variant light` permite escribir clases como `light:bg-white`
+   condicionales al tema. La mayoría de componentes NO necesitan esta
+   variante — basta con que consuman tokens semánticos (`bg-background-base`),
+   y la cascada CSS desde `[data-theme="light"]` cambia su valor.
+   La variante queda como escape hatch para casos donde un componente
+   necesite condicionales sin token equivalente (T-951 Fase 1). */
+@custom-variant light (&:where([data-theme="light"], [data-theme="light"] *));
 
 /* ============================================
    📱 BASE Y RESETS
    ============================================ */
 @layer base {
   :root {
-    color-scheme: dark;
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
     text-rendering: optimizeLegibility;
+  }
+
+  /* `color-scheme` dinámico por tema — afecta a inputs nativos, scrollbars
+     de Firefox, autofill de Chrome y la selección de texto por defecto.
+     Si quedaba hardcoded a `dark`, los inputs de fecha/hora y la barra de
+     scroll seguirían oscuros en modo claro (T-951 Fase 1). */
+  [data-theme="dark"] {
+    color-scheme: dark;
+  }
+
+  [data-theme="light"] {
+    color-scheme: light;
   }
 
   body {
@@ -242,6 +437,63 @@
     color: var(--color-text-primary);
     min-height: 100vh;
     overflow-x: hidden;
+    /* Transición suave SOLO en body — la cascada de custom properties es
+       instantánea, esto fundeo de la pintura del fondo entre temas. No
+       aplicamos a `*` para evitar repaints masivos del árbol al togglear
+       tema (T-951 Fase 1). T-952 Fase 1 añade arriba el cross-fade nativo
+       con View Transition API; este transition sigue cubriendo el caso
+       en que el cambio venga de fuera de toggleTheme (e.g. cambio de
+       prefers-color-scheme del SO en modo auto). */
+    transition:
+      background-color 200ms cubic-bezier(0.16, 1, 0.3, 1),
+      color 200ms cubic-bezier(0.16, 1, 0.3, 1);
+  }
+
+  /* Cross-fade del cambio de tema mediante View Transition API
+     (T-952 Fase 1). El navegador captura un snapshot del DOM antes de
+     que `setMode` aplique el nuevo `data-theme` y otro después; luego
+     interpola entre ambos. Esto reemplaza el "fogonazo" instantáneo de
+     toda la paleta por una transición percibida como una sola animación
+     cinematográfica de ~320ms — funciona en CUALQUIER ruta (Login,
+     Register, AppLayout, GameLayout) porque opera sobre la raíz.
+     Chrome/Edge ≥111, Safari ≥18. Firefox y Safari <18 caen al fallback
+     `[data-theme-switching]` definido más abajo. */
+  ::view-transition-old(root),
+  ::view-transition-new(root) {
+    animation-duration: 320ms;
+    animation-timing-function: cubic-bezier(0.22, 1, 0.36, 1);
+    mix-blend-mode: normal;
+  }
+
+  ::view-transition-old(root) {
+    animation-name: theme-fade-out;
+  }
+  ::view-transition-new(root) {
+    animation-name: theme-fade-in;
+  }
+
+  @keyframes theme-fade-out {
+    from { opacity: 1; }
+    to { opacity: 0; }
+  }
+  @keyframes theme-fade-in {
+    from { opacity: 0; }
+    to { opacity: 1; }
+  }
+
+  /* Fallback CSS para Firefox y Safari <18 (sin View Transition API).
+     `toggleTheme` aplica `data-theme-switching` en <html> durante 280ms;
+     mientras esté presente, propiedades clave (bg/color/border/fill/stroke)
+     interpolan en lugar de saltar. Se desactiva automáticamente al quitar
+     el atributo, así que NO impacta el resto de animaciones de la app. */
+  html[data-theme-switching] body,
+  html[data-theme-switching] body *:not(svg):not(svg *) {
+    transition:
+      background-color 250ms cubic-bezier(0.22, 1, 0.36, 1),
+      color 250ms cubic-bezier(0.22, 1, 0.36, 1),
+      border-color 250ms cubic-bezier(0.22, 1, 0.36, 1),
+      fill 200ms ease,
+      stroke 200ms ease !important;
   }
 
   /* Elimina delay de 300ms por double-tap zoom en tablets y móviles */
@@ -300,6 +552,20 @@
       animation-iteration-count: 1 !important;
       transition-duration: 0.01ms !important;
       scroll-behavior: auto !important;
+    }
+
+    /* Reforzamos que el cross-fade del View Transition también queda
+       desactivado para usuarios con motion reducido. `toggleTheme` ya
+       evita disparar `startViewTransition` en este caso, pero si el
+       navegador es estricto y siempre captura snapshot, esto garantiza
+       que el cambio sea instantáneo. Mismo trato para el fallback. */
+    ::view-transition-old(root),
+    ::view-transition-new(root) {
+      animation: none !important;
+    }
+    html[data-theme-switching] body,
+    html[data-theme-switching] body *:not(svg):not(svg *) {
+      transition: none !important;
     }
   }
 }
@@ -370,15 +636,34 @@
   @apply bg-gradient-to-br from-brand-light via-brand-base to-accent-indigo bg-clip-text text-transparent;
 }
 
-/* Gameplay: Fondo inmersivo de juego con gradientes animados */
+/* Gameplay: Fondo inmersivo de juego con gradientes animados.
+   T-954 (Phase 7): superpone radial-gradients con el color atmósfera del
+   contexto activo. Cuando `<html data-atmosphere>` está presente, los
+   tokens `--color-atmosphere-aurora-*` apuntan a la paleta del contexto;
+   sin contexto activo apuntan al aurora neutro y el efecto es invisible.
+   La opacidad se controla en `color-mix` (12-15%) para no competir con
+   el board ni romper el dramatismo del fondo dark. */
 @utility game-bg {
-  background: linear-gradient(
-    135deg,
-    var(--color-background-deep) 0%,
-    oklch(20% 0.04 280) 40%,
-    oklch(18% 0.03 240) 70%,
-    var(--color-background-deep) 100%
-  );
+  background-color: var(--color-background-deep);
+  background-image:
+    radial-gradient(
+      ellipse at 20% 15%,
+      color-mix(in oklab, var(--color-atmosphere-aurora-1) 18%, transparent),
+      transparent 55%
+    ),
+    radial-gradient(
+      ellipse at 80% 85%,
+      color-mix(in oklab, var(--color-atmosphere-aurora-3) 15%, transparent),
+      transparent 60%
+    ),
+    linear-gradient(
+      135deg,
+      var(--color-background-deep) 0%,
+      oklch(20% 0.04 280) 40%,
+      oklch(18% 0.03 240) 70%,
+      var(--color-background-deep) 100%
+    );
+  background-attachment: fixed;
 }
 
 /* Gameplay: Botón principal de juego */
@@ -445,6 +730,347 @@
 }
 
 /* ============================================
+   ☀️ TEMA CLARO — "Cuaderno marfil + tinta púrpura"
+   --------------------------------------------
+   Redefine las custom properties OKLCH del @theme para que cualquier
+   utilidad de Tailwind las consuma automáticamente sin reescribir
+   componentes. La metáfora es la de un cuaderno escolar: papel marfil
+   sutilísimo como fondo, blanco puro para los cards (la "página dentro
+   del cuaderno") y la tinta púrpura del brand mantenida como signature
+   identitaria (T-951 Fase 1).
+
+   Pares contraste verificados WCAG 2.2 AA (≥4.5:1 sobre background-base):
+   text-primary 20% L → 14.6:1, text-secondary 32% → 8.7:1,
+   text-muted 48% → 4.7:1, brand-base 55% → 4.6:1, error-base 50% → 5.0:1.
+   ============================================ */
+[data-theme="light"] {
+  /* Backgrounds — papel marfil → blanco puro */
+  --color-background-deep: oklch(96% 0.008 80);
+  --color-background-base: oklch(98% 0.005 80);
+  --color-background-elevated: oklch(99.5% 0 0);
+  --color-background-surface: oklch(94% 0.012 80);
+
+  /* Texto — tinta gris-azulada profunda */
+  --color-text-primary: oklch(20% 0.025 260);
+  --color-text-secondary: oklch(32% 0.025 260);
+  --color-text-muted: oklch(48% 0.025 260);
+  --color-text-disabled: oklch(70% 0.015 260);
+
+  /* Brand — tinta púrpura vibrante (un punto más oscuro y saturado que dark) */
+  --color-brand-light: oklch(70% 0.15 300);
+  --color-brand-base: oklch(55% 0.20 300);
+  --color-brand-dark: oklch(42% 0.20 300);
+  --color-brand-glow: oklch(55% 0.20 300 / 0.18);
+
+  /* Semantic feedback — más oscuros para alcanzar 4.5:1 sobre fondo claro */
+  --color-success-base: oklch(50% 0.16 150);
+  --color-success-dark: oklch(38% 0.15 150);
+  --color-success-glow: oklch(50% 0.16 150 / 0.18);
+
+  --color-warning-base: oklch(60% 0.18 70);
+  --color-warning-dark: oklch(48% 0.18 70);
+  --color-warning-glow: oklch(60% 0.18 70 / 0.18);
+
+  --color-error-base: oklch(50% 0.20 25);
+  --color-error-dark: oklch(38% 0.20 25);
+  --color-error-glow: oklch(50% 0.20 25 / 0.18);
+
+  --color-info-base: oklch(50% 0.16 230);
+  --color-info-dark: oklch(38% 0.16 230);
+
+  /* Accents secundarios — saturación ajustada para fondo claro */
+  --color-accent-indigo: oklch(50% 0.20 270);
+  --color-accent-cyan: oklch(58% 0.13 200);
+  --color-accent-pink: oklch(60% 0.20 340);
+  --color-accent-orange: oklch(60% 0.18 50);
+  --color-accent-amber: oklch(62% 0.16 75);
+
+  /* Contextos de juego — tonos un peldaño más oscuros para legibilidad */
+  --color-theme-default: oklch(48% 0.22 297);
+  --color-theme-default-alt: oklch(50% 0.18 277);
+  --color-theme-default-text: oklch(40% 0.18 301);
+
+  --color-theme-geography: oklch(48% 0.16 255);
+  --color-theme-geography-alt: oklch(55% 0.13 210);
+  --color-theme-geography-text: oklch(38% 0.14 256);
+
+  --color-theme-animals: oklch(60% 0.16 70);
+  --color-theme-animals-alt: oklch(58% 0.16 48);
+  --color-theme-animals-text: oklch(45% 0.16 85);
+
+  --color-theme-colors: oklch(55% 0.20 343);
+  --color-theme-colors-alt: oklch(54% 0.19 18);
+  --color-theme-colors-text: oklch(45% 0.16 343);
+
+  --color-theme-numbers: oklch(55% 0.16 162);
+  --color-theme-numbers-alt: oklch(55% 0.13 183);
+  --color-theme-numbers-text: oklch(42% 0.14 158);
+
+  /* Podium — dorado/plateado/bronce sobre papel claro */
+  --color-podium-gold: oklch(65% 0.18 85);
+  --color-podium-gold-glow: oklch(65% 0.18 85 / 0.30);
+  --color-podium-silver: oklch(60% 0.02 260);
+  --color-podium-silver-glow: oklch(60% 0.02 260 / 0.25);
+  --color-podium-bronze: oklch(48% 0.14 45);
+  --color-podium-bronze-glow: oklch(48% 0.14 45 / 0.28);
+
+  /* Timer — los del dark son fluorescentes; en light bajamos saturación
+     para que en estados normales no irriten la vista, manteniendo el
+     escalado emocional safe→warning→critical. */
+  --color-timer-safe: oklch(55% 0.16 156);
+  --color-timer-safe-alt: oklch(55% 0.13 215);
+  --color-timer-safe-glow: oklch(55% 0.16 156 / 0.25);
+
+  --color-timer-warning: oklch(60% 0.18 80);
+  --color-timer-warning-alt: oklch(58% 0.16 55);
+  --color-timer-warning-glow: oklch(60% 0.18 80 / 0.30);
+
+  --color-timer-critical: oklch(50% 0.20 25);
+  --color-timer-critical-alt: oklch(48% 0.22 18);
+  --color-timer-critical-glow: oklch(50% 0.20 25 / 0.40);
+
+  /* Bordes — alpha sobre NEGRO en lugar de blanco. En light el borde
+     debe sustraer luminosidad del papel, no añadir. Refinamiento QA:
+     subimos alpha (0.06→0.12, 0.10→0.18, 0.18→0.28) para que los
+     límites de cards e inputs se vean claramente sin necesidad de
+     sombras pesadas. */
+  --color-border-subtle: oklch(20% 0.02 260 / 0.10);
+  --color-border-default: oklch(20% 0.02 260 / 0.16);
+  --color-border-strong: oklch(20% 0.02 260 / 0.26);
+
+  /* Backdrop / scrim — más suave que en dark; tinte azulado sutil para
+     mantener la atmósfera "tinta púrpura" sin escurrir hacia gris. */
+  --color-backdrop: oklch(15% 0.02 260 / 0.50);
+
+  /* Glassmorphism — vidrio oscuro mínimo (4-6% sobre claro). Borde alpha
+     negro porque sobre papel claro el borde blanco translúcido del dark
+     quedaría invisible. */
+  --color-glass-bg: oklch(20% 0.02 260 / 0.06);
+  --color-glass-solid: oklch(99% 0.003 80 / 0.88);
+  --color-glass-border: oklch(20% 0.02 260 / 0.10);
+
+  /* Aurora light — orbes pastel para `mix-blend-multiply`. Refinamiento
+     QA: bajamos L (94→88) y subimos chroma (0.04→0.10) para que el
+     papel se sienta orgánicamente teñido en lugar de plano. Sigue
+     respetando la metáfora "cuaderno" sin saturar la vista. */
+  --color-aurora-1: oklch(88% 0.10 300);
+  --color-aurora-2: oklch(89% 0.09 200);
+  --color-aurora-3: oklch(90% 0.08 30);
+
+  /* Tokens atmósfera neutros — re-apuntan al aurora pastel light. Las
+     atmósferas específicas se sobreescriben más abajo con variantes soft
+     (color-mix con marfil) para no romper el blend `multiply`. */
+  --color-atmosphere-aurora-1: var(--color-aurora-1);
+  --color-atmosphere-aurora-2: var(--color-aurora-2);
+  --color-atmosphere-aurora-3: var(--color-aurora-3);
+
+  /* ===== CHART GRADIENT STOPS — Refinamiento light (T-952 Fase 0.B) =====
+     En dark el "end" del gradient horizontal usa la variante CLARA del
+     color para crear lectura visual; en light, esa variante clara
+     (`brand-light` 70% L) desaparece sobre el marfil 98% L. Aquí
+     invertimos el sentido del gradient: "start" sigue siendo el tono
+     medio (visible), "end" pasa a ser el tono OSCURO (contraste real).
+     Resultado: una línea con cuerpo en ambos temas, siempre legible. */
+  --chart-stop-brand-start: var(--color-brand-base);
+  --chart-stop-brand-end: var(--color-brand-dark);
+
+  --chart-stop-memory-start: var(--color-accent-indigo);
+  --chart-stop-memory-end: var(--color-accent-indigo);
+
+  --chart-stop-association-start: var(--color-accent-cyan);
+  --chart-stop-association-end: var(--color-accent-cyan);
+
+  --chart-stop-sequence-start: var(--color-accent-amber);
+  --chart-stop-sequence-end: var(--color-accent-amber);
+
+  --chart-stop-success-start: var(--color-success-base);
+  --chart-stop-success-end: var(--color-success-dark);
+
+  --chart-stop-warning-start: var(--color-warning-base);
+  --chart-stop-warning-end: var(--color-warning-dark);
+
+  --chart-stop-error-start: var(--color-error-base);
+  --chart-stop-error-end: var(--color-error-dark);
+
+  /* Sombras light — refinamiento QA: subimos alpha para que las cards
+     "floten" visualmente sobre el papel marfil. Antes las sombras eran
+     casi imperceptibles y los elementos parecían pegados a la página.
+     Mantenemos el cariz suave (no shadow-XL agresivo) pero con
+     definición clara. */
+  --shadow-sm: 0 1px 3px oklch(20% 0.02 260 / 0.10);
+  --shadow-md: 0 4px 14px oklch(20% 0.02 260 / 0.14),
+               0 1px 3px oklch(20% 0.02 260 / 0.08);
+  --shadow-lg: 0 14px 40px oklch(20% 0.02 260 / 0.18),
+               0 4px 12px oklch(20% 0.02 260 / 0.10);
+  --shadow-glow: 0 0 28px var(--color-brand-glow);
+  --shadow-inset-card: inset 0 1px 0 oklch(100% 0 0 / 0.7);
+}
+
+/* Aurora con `mix-blend` distinto por tema. La clase no usa prefijo `bg-`
+   para no chocar con la convención de utilidades Tailwind. La capa
+   `multiply` en light tiñe el papel sin generar manchas grises (defecto
+   del `mix-blend-screen` sobre fondo claro).
+   Refinamiento QA 2026-05-07: bajamos la opacidad del wrapper en light
+   (0.25 → 0.16) porque el `multiply` con orbes pastel sobre papel marfil
+   producía zonas demasiado oscuras y, sobre todo, se filtraba por el
+   `backdrop-filter: blur(24px)` del sidebar haciendo que la barra se
+   percibiera con un wash púrpura/oliva. En light, además, anulamos
+   completamente el backdrop-blur del sidebar (la franja sólida sobre
+   papel comunica mejor el lenguaje "cuaderno" que un cristal difuso). */
+[data-theme="light"] .aurora-layer {
+  mix-blend-mode: multiply;
+  opacity: 0.16;
+}
+
+[data-theme="dark"] .aurora-layer {
+  mix-blend-mode: screen;
+}
+
+/* === ATMÓSFERAS — variantes SOFT para LIGHT (T-954 Fase A) ============
+   En light el blend `multiply` toma los colores saturados de las paletas
+   de contexto y los empuja a tono oscuro/gris sobre el papel marfil. Las
+   variantes soft mezclan cada color con el `--color-background-base` para
+   subir la luminancia a ~85-90% manteniendo la tinta del contexto.
+   Cumple regla del proyecto: light y dark son dos diseños bien
+   diferenciados, no variantes de tema (ADR-061).
+   ===================================================================== */
+[data-theme="light"][data-atmosphere="geography"] {
+  --color-atmosphere-aurora-1: color-mix(in oklab, var(--color-theme-geography) 28%, var(--color-background-base));
+  --color-atmosphere-aurora-2: color-mix(in oklab, var(--color-theme-geography-alt) 28%, var(--color-background-base));
+  --color-atmosphere-aurora-3: color-mix(in oklab, var(--color-accent-cyan) 25%, var(--color-background-base));
+}
+[data-theme="light"][data-atmosphere="animals"] {
+  --color-atmosphere-aurora-1: color-mix(in oklab, var(--color-theme-animals) 30%, var(--color-background-base));
+  --color-atmosphere-aurora-2: color-mix(in oklab, var(--color-theme-animals-alt) 30%, var(--color-background-base));
+  --color-atmosphere-aurora-3: color-mix(in oklab, var(--color-accent-orange) 22%, var(--color-background-base));
+}
+[data-theme="light"][data-atmosphere="colors"] {
+  --color-atmosphere-aurora-1: color-mix(in oklab, var(--color-theme-colors) 28%, var(--color-background-base));
+  --color-atmosphere-aurora-2: color-mix(in oklab, var(--color-theme-colors-alt) 28%, var(--color-background-base));
+  --color-atmosphere-aurora-3: color-mix(in oklab, var(--color-accent-pink) 25%, var(--color-background-base));
+}
+[data-theme="light"][data-atmosphere="numbers"] {
+  --color-atmosphere-aurora-1: color-mix(in oklab, var(--color-theme-numbers) 30%, var(--color-background-base));
+  --color-atmosphere-aurora-2: color-mix(in oklab, var(--color-theme-numbers-alt) 30%, var(--color-background-base));
+  --color-atmosphere-aurora-3: color-mix(in oklab, var(--color-accent-indigo) 22%, var(--color-background-base));
+}
+[data-theme="light"][data-atmosphere="shapes"] {
+  --color-atmosphere-aurora-1: color-mix(in oklab, var(--color-accent-cyan) 28%, var(--color-background-base));
+  --color-atmosphere-aurora-2: color-mix(in oklab, var(--color-accent-indigo) 28%, var(--color-background-base));
+  --color-atmosphere-aurora-3: color-mix(in oklab, var(--color-accent-pink) 25%, var(--color-background-base));
+}
+
+/* Sidebar opaco y sin backdrop-blur en light: evita que la aurora-multiply
+   se cuele a través del cristal y empuje la barra a un tono apagado. En
+   dark se mantiene el glass effect (la aurora con `screen` ilumina y se
+   integra bien). */
+[data-theme="light"] aside.lg\:sticky {
+  background-color: var(--color-background-base);
+  backdrop-filter: none;
+}
+
+/* Signature de cuaderno en la sidebar (light): línea roja vertical en
+   el borde izquierdo recordando el margen del cuaderno escolar — es la
+   misma firma que usa la AuthBackground.
+
+   Sólo en light, sólo en sidebar expanded (>w-rail) y solo desktop
+   (≥lg). En modo rail (~72px ancho), la línea distrae más que aporta
+   y se anula. */
+[data-theme="light"] aside.lg\:sticky::after {
+  content: '';
+  position: absolute;
+  top: 24px;
+  bottom: 24px;
+  left: 0;
+  width: 2px;
+  background: linear-gradient(
+    180deg,
+    transparent 0%,
+    oklch(45% 0.18 25 / 0.30) 12%,
+    oklch(45% 0.18 25 / 0.45) 50%,
+    oklch(45% 0.18 25 / 0.30) 88%,
+    transparent 100%
+  );
+  pointer-events: none;
+}
+
+/* Cuando la sidebar está en modo rail (compact), no queremos la línea */
+[data-theme="light"] aside.lg\:sticky[style*="4.5rem"]::after {
+  display: none;
+}
+
+/* Cards de la app en light: por defecto los `bg-background-elevated` van
+   sobre fondo papel marfil y el contraste es bajo. Subimos la sombra
+   inset y añadimos una micro-banda inferior degradada para reforzar la
+   sensación de "carta de papel" sin necesidad de cambiar todos los
+   componentes. Sólo se aplica a clases con `glass-card-gradient` o que
+   tengan la utility `auth-card`. */
+
+/* Hover sweep sutil para KPI cards y otros elementos clickables — un
+   "scanline" rápido que simula el barrido del lector RFID. Opt-in con
+   la clase `.rfid-hover` para no aplicarlo en cualquier card. */
+.rfid-hover {
+  position: relative;
+  overflow: hidden;
+}
+
+.rfid-hover::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: -100%;
+  width: 60%;
+  height: 100%;
+  background: linear-gradient(
+    90deg,
+    transparent 0%,
+    color-mix(in oklab, var(--color-brand-base) 18%, transparent) 50%,
+    transparent 100%
+  );
+  pointer-events: none;
+  transition: left 0.6s cubic-bezier(0.22, 1, 0.36, 1);
+  z-index: 1;
+}
+
+.rfid-hover:hover::before {
+  left: 140%;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .rfid-hover::before {
+    transition: none !important;
+    display: none;
+  }
+}
+
+/* `game-bg` con variante light — el dark usa gradient negro→morado oscuro;
+   el light usa gradient cielo-amanecer (marfil→lavanda muy diluido) que
+   conserva el dramatismo del juego sin caer en negro o blanco crudo. */
+[data-theme="light"] .bg-game,
+[data-theme="light"] .game-bg {
+  background-color: oklch(97% 0.01 60);
+  background-image:
+    radial-gradient(
+      ellipse at 20% 15%,
+      color-mix(in oklab, var(--color-atmosphere-aurora-1) 32%, transparent),
+      transparent 55%
+    ),
+    radial-gradient(
+      ellipse at 80% 85%,
+      color-mix(in oklab, var(--color-atmosphere-aurora-3) 28%, transparent),
+      transparent 60%
+    ),
+    linear-gradient(
+      135deg,
+      oklch(97% 0.01 60) 0%,
+      oklch(95% 0.025 280) 40%,
+      oklch(94% 0.02 240) 70%,
+      oklch(96% 0.012 80) 100%
+    );
+  background-attachment: fixed;
+}
+
+/* ============================================
    ⚡ TRANSICIONES DE INTERFAZ (Nativo)
    ============================================ */
 /* Utilidades nativas para @starting-style de Popovers o Dialogos */
@@ -467,6 +1093,16 @@
     opacity: 0;
     transform: scale(0.96) translateY(-4px);
   }
+}
+
+/* Container estándar de página: ancho útil sin tocar bordes, padding fluido.
+   Sustituye usos previos de `max-w-7xl mx-auto px-6 py-8` repetidos. */
+@utility page-container {
+  /* max-width descuenta los dos paddings fluidos para evitar bleed.
+     A 360px viewport: 360 - 2*16 = 328px útiles (padding 16px lado).
+     A 1920px viewport: 1920 - 2*32 = 1856px (cap 1600px). */
+  @apply mx-auto w-full px-[var(--space-fluid-section)];
+  max-width: min(1600px, calc(100vw - 2 * var(--space-fluid-section)));
 }
 
 /* ------------------------------------------------------------------
@@ -517,4 +1153,328 @@
 
 .penalty-range:focus-visible {
   box-shadow: 0 0 0 3px rgba(239, 68, 68, 0.3);
+}
+
+/* ============================================
+   🪪 AUTH BACKGROUND — Constelación de tarjetas RFID
+   --------------------------------------------
+   Escena visual signature de Login y Register. Dos estéticas
+   completamente distintas por tema (no son "swap de colores"):
+
+   - Dark = "Sala de control" del docente: rejilla técnica,
+     glow cromático, scanline barrida cada 7 s, tarjetas
+     glass con borde de marca.
+   - Light = "Mesa del aula": papel marfil con margen de
+     cuaderno, tarjetas como recortes de cartulina con
+     sombras de papel y washi-tape, cero scanline.
+
+   Las custom properties --card-tint y --card-tint-alt vienen
+   inline desde el componente — aquí se usan para personalizar
+   borde/glow por contexto pedagógico (Geo, Numbers, etc).
+   ============================================ */
+
+/* Capa 1 — Atmósfera base */
+.auth-bg-base {
+  background: radial-gradient(
+    ellipse 80% 60% at 30% 30%,
+    var(--color-background-elevated) 0%,
+    var(--color-background-base) 70%
+  );
+}
+
+[data-theme="light"] .auth-bg-base {
+  background:
+    /* mancha de tinta (top-right) */
+    radial-gradient(
+      ellipse 35% 45% at 80% 20%,
+      oklch(60% 0.16 300 / 0.07) 0%,
+      transparent 60%
+    ),
+    /* base papel marfil */
+    linear-gradient(
+      180deg,
+      var(--color-background-deep) 0%,
+      var(--color-background-base) 100%
+    );
+}
+
+/* Capa 2 — Rejilla técnica (dark) o líneas de cuaderno (light) */
+.auth-bg-grid {
+  background-image:
+    linear-gradient(var(--color-border-default) 1px, transparent 1px),
+    linear-gradient(90deg, var(--color-border-default) 1px, transparent 1px);
+  background-size: 64px 64px;
+  opacity: 0.08;
+  mask-image: radial-gradient(
+    ellipse 90% 70% at 50% 40%,
+    black 0%,
+    transparent 75%
+  );
+}
+
+[data-theme="light"] .auth-bg-grid {
+  /* En light, las líneas de cuaderno son más visibles y horizontales,
+     reforzando la metáfora de papel rayado. La línea vertical de
+     margen (la del cuaderno escolar) sólo aparece a la izquierda. */
+  background-image:
+    linear-gradient(
+      to bottom,
+      transparent 0,
+      transparent 31px,
+      oklch(50% 0.06 260 / 0.06) 31px,
+      oklch(50% 0.06 260 / 0.06) 32px
+    );
+  background-size: 32px 32px;
+  opacity: 1;
+  mask-image: linear-gradient(180deg, transparent 0%, black 12%, black 88%, transparent 100%);
+}
+
+[data-theme="light"] .auth-bg-grid::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 84px;
+  width: 1.5px;
+  background: oklch(45% 0.18 25 / 0.18); /* línea de margen rojo cuaderno */
+}
+
+/* Capa 3 — Aurora glow (orbes contextuales) */
+.auth-bg-glow-orb {
+  position: absolute;
+  border-radius: 9999px;
+  filter: blur(120px);
+  opacity: 0.45;
+  mix-blend-mode: screen;
+}
+
+.auth-bg-glow-orb-1 {
+  width: 36rem;
+  height: 36rem;
+  top: -8rem;
+  left: -6rem;
+}
+
+.auth-bg-glow-orb-2 {
+  width: 28rem;
+  height: 28rem;
+  bottom: -6rem;
+  right: -4rem;
+  opacity: 0.35;
+}
+
+.auth-bg-glow-orb-3 {
+  width: 20rem;
+  height: 20rem;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  opacity: 0.18;
+}
+
+[data-theme="light"] .auth-bg-glow-orb {
+  filter: blur(140px);
+  opacity: 0.18;
+  mix-blend-mode: multiply;
+}
+
+[data-theme="light"] .auth-bg-glow-orb-1 {
+  opacity: 0.22;
+}
+
+[data-theme="light"] .auth-bg-glow-orb-2 {
+  opacity: 0.14;
+}
+
+[data-theme="light"] .auth-bg-glow-orb-3 {
+  opacity: 0.10;
+}
+
+/* Capa 4 — Tarjetas individuales de la constelación */
+.auth-card {
+  background: linear-gradient(
+    155deg,
+    color-mix(in oklab, var(--card-tint) 18%, var(--color-background-elevated)) 0%,
+    var(--color-background-elevated) 60%
+  );
+  border: 1px solid color-mix(in oklab, var(--card-tint) 35%, var(--color-border-default));
+  box-shadow:
+    0 12px 32px oklch(0% 0 0 / 0.45),
+    0 0 24px color-mix(in oklab, var(--card-tint) 25%, transparent),
+    inset 0 1px 0 oklch(100% 0 0 / 0.08);
+  /* Sutil scanline interno propio de cada tarjeta */
+  position: relative;
+  overflow: hidden;
+}
+
+.auth-card::after {
+  /* Scanline propio que pasa cada 5 s — refuerza la firma
+     "Tactile RFID" sin animar layout. */
+  content: '';
+  position: absolute;
+  left: -10%;
+  right: -10%;
+  height: 22%;
+  top: -22%;
+  background: linear-gradient(
+    180deg,
+    transparent 0%,
+    color-mix(in oklab, var(--card-tint) 25%, transparent) 50%,
+    transparent 100%
+  );
+  pointer-events: none;
+  animation: auth-card-scan 5s ease-in-out infinite;
+}
+
+.auth-card-tape {
+  position: absolute;
+  top: -4px;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 60px;
+  height: 12px;
+  background: color-mix(in oklab, var(--card-tint) 70%, transparent);
+  border-radius: 2px;
+  box-shadow: inset 0 -2px 4px oklch(0% 0 0 / 0.18);
+  opacity: 0.0; /* sólo light */
+}
+
+[data-theme="light"] .auth-card {
+  background: oklch(99.5% 0.005 80);
+  border: 1px solid color-mix(in oklab, var(--card-tint) 30%, oklch(20% 0.02 260 / 0.16));
+  box-shadow:
+    0 6px 18px color-mix(in oklab, var(--card-tint) 18%, oklch(20% 0.02 260 / 0.10)),
+    0 2px 6px oklch(20% 0.02 260 / 0.06);
+}
+
+[data-theme="light"] .auth-card::after {
+  display: none; /* sin scanline en light — papel mate */
+}
+
+[data-theme="light"] .auth-card-tape {
+  opacity: 0.85; /* washi-tape sólo en light */
+}
+
+@keyframes auth-card-scan {
+  0% { transform: translateY(0); opacity: 0; }
+  20% { opacity: 0.7; }
+  80% { opacity: 0.7; }
+  100% { transform: translateY(700%); opacity: 0; }
+}
+
+/* Capa 5 — Scanline horizontal global (sólo dark) */
+.auth-bg-scanline {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background: linear-gradient(
+    180deg,
+    transparent 0%,
+    color-mix(in oklab, var(--color-brand-base) 20%, transparent) 50%,
+    transparent 100%
+  );
+  height: 8%;
+  opacity: 0;
+  animation: auth-scanline-sweep 8s ease-in-out infinite;
+}
+
+[data-theme="light"] .auth-bg-scanline {
+  display: none; /* fuera del lenguaje "papel" */
+}
+
+@keyframes auth-scanline-sweep {
+  0% { top: -10%; opacity: 0; }
+  10% { opacity: 0.45; }
+  90% { opacity: 0.45; }
+  100% { top: 110%; opacity: 0; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .auth-bg-scanline,
+  .auth-card::after {
+    animation: none !important;
+    opacity: 0 !important;
+  }
+}
+
+/* Capa 6 — RFID wave en footer (concéntricas) */
+.auth-bg-wave {
+  position: absolute;
+  left: 50%;
+  bottom: -12rem;
+  width: 24rem;
+  height: 24rem;
+  transform: translateX(-50%);
+  pointer-events: none;
+  background:
+    radial-gradient(circle at center,
+      transparent 38%,
+      color-mix(in oklab, var(--color-brand-base) 22%, transparent) 39%,
+      transparent 41%
+    ),
+    radial-gradient(circle at center,
+      transparent 52%,
+      color-mix(in oklab, var(--color-accent-cyan) 18%, transparent) 53%,
+      transparent 55%
+    ),
+    radial-gradient(circle at center,
+      transparent 66%,
+      color-mix(in oklab, var(--color-accent-indigo) 14%, transparent) 67%,
+      transparent 69%
+    );
+  filter: blur(0.4px);
+  opacity: 0.7;
+}
+
+[data-theme="light"] .auth-bg-wave {
+  opacity: 0.35;
+}
+
+/* ============================================
+   🪪 AUTH FORM CARD — borde superior con tinte de marca
+   --------------------------------------------
+   Sustituye el GlassCard genérico de Login/Register por un
+   contenedor con identidad: una "barra de marca" arriba
+   (signature visual) y una sombra mejorada por tema.
+   ============================================ */
+.auth-form-card {
+  position: relative;
+  border-radius: 1.5rem;
+  background: var(--color-background-elevated);
+  border: 1px solid var(--color-border-default);
+  box-shadow:
+    var(--shadow-lg),
+    inset 0 1px 0 oklch(100% 0 0 / 0.06);
+  overflow: hidden;
+}
+
+.auth-form-card::before {
+  /* Barra superior con gradient de marca — la "tinta púrpura" del producto */
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 3px;
+  background: linear-gradient(
+    90deg,
+    var(--color-accent-cyan) 0%,
+    var(--color-brand-base) 35%,
+    var(--color-accent-pink) 75%,
+    var(--color-accent-amber) 100%
+  );
+  opacity: 0.95;
+}
+
+[data-theme="light"] .auth-form-card {
+  background: oklch(100% 0 0);
+  border: 1px solid color-mix(in oklab, var(--color-brand-base) 12%, var(--color-border-default));
+  box-shadow:
+    0 18px 50px oklch(20% 0.02 260 / 0.16),
+    0 4px 14px oklch(20% 0.02 260 / 0.08);
+}
+
+[data-theme="light"] .auth-form-card::before {
+  height: 4px;
+  opacity: 0.85;
 }

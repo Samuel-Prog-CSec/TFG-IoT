@@ -271,8 +271,10 @@ export default function ConfirmationModal({
             style={useFlipEntry ? { transformStyle: 'preserve-3d', transformPerspective: 1000 } : undefined}
             onClick={(e) => e.stopPropagation()}
             className={cn(
-              'relative bg-background-base border rounded-2xl p-6 max-w-md w-full shadow-2xl overscroll-contain',
-              'overflow-hidden',
+              'relative bg-background-base border rounded-2xl p-6 w-full shadow-2xl overscroll-contain',
+              // Modal fluido: ancho responde al viewport (cap 560px), alto cap
+              // 88dvh con scroll interno cuando el contenido excede (1366×768).
+              'max-w-[min(560px,92vw)] max-h-[88dvh] overflow-y-auto custom-scrollbar',
               variantConfig.border
             )}
           >

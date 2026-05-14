@@ -25,6 +25,7 @@ import {
 import { ROUTES } from '../constants/routes';
 import { useReducedMotion } from '../hooks/useReducedMotion';
 import { useDocumentTitle } from '../hooks/useDocumentTitle';
+import ThemeToggle from '../components/ui/ThemeToggle';
 
 // ============================================
 // CONSTANTES DE CONTENIDO
@@ -296,7 +297,7 @@ export default function PrivacyPage() {
           MINI HEADER — sticky, backdrop blur
           ================================================ */}
       <header className="sticky top-0 z-30 border-b border-border-default bg-background-deep/80 backdrop-blur-lg">
-        <div className="max-w-3xl mx-auto px-4 sm:px-6 flex items-center justify-between h-16">
+        <div className="max-w-3xl mx-auto px-4 sm:px-6 flex items-center justify-between h-16 gap-3">
           <Link
             to={ROUTES.HOME}
             className="font-display text-2xl font-bold gradient-text-brand select-none"
@@ -304,13 +305,19 @@ export default function PrivacyPage() {
             EduPlay
           </Link>
 
-          <Link
-            to={ROUTES.LOGIN}
-            className="inline-flex items-center gap-2 text-sm font-medium text-text-secondary hover:text-text-primary transition-colors"
-          >
-            <ArrowLeft className="size-4" />
-            Iniciar sesion
-          </Link>
+          <div className="flex items-center gap-3">
+            {/* Theme toggle compacto en el header — aprovecha el espacio
+                disponible y permite al lector cambiar de tema sin volver
+                al login (T-951 paridad con auth screens, fix QA 2026-05-10). */}
+            <ThemeToggle compact />
+            <Link
+              to={ROUTES.LOGIN}
+              className="inline-flex items-center gap-2 text-sm font-medium text-text-secondary hover:text-text-primary transition-colors"
+            >
+              <ArrowLeft className="size-4" />
+              <span className="hidden sm:inline">Iniciar sesion</span>
+            </Link>
+          </div>
         </div>
       </header>
 
@@ -338,7 +345,7 @@ export default function PrivacyPage() {
             initial={reduced ? false : { opacity: 0, y: 12 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ duration: 0.45, delay: reduced ? 0 : 0.2 }}
-            className="text-3xl sm:text-4xl font-bold font-display text-text-primary mb-4"
+            className="text-[var(--text-fluid-2xl)] font-bold font-display text-text-primary mb-4"
           >
             Politica de Privacidad y Proteccion de Datos
           </motion.h1>

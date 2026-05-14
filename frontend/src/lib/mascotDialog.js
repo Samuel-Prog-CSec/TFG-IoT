@@ -42,11 +42,20 @@ const MEMORY_DIALOG = Object.freeze({
     '¡Tranqui!',
     'La próxima'
   ],
-  timeout: ['¡Inténtalo!', 'Sigue mirando…'],
+  // Balanceado a 3 frases (T-953 Fase 2.4): antes solo había 2,
+  // saturando el loop visual cuando el alumno se quedaba en blanco.
+  timeout: ['¡Inténtalo!', 'Sigue mirando…', 'Tu turno, ánimo'],
   streakReached: ['¡MEMORIA TOP!', '¡Imparable!', '¡Cerebro al 100%!', '¡Eres un crack!'],
+  // T-953 Fase 2.4 — eventos nuevos:
+  // - `streakBroken`: cuando una racha >=3 se rompe; mascota `surprised`.
+  // - `worriedRebound`: tras 5+ errores sin acierto; mascota `worried`.
+  // - `greeting`: primer saludo al montar la mascota en gameplay.
+  streakBroken: ['¡Ay!', '¡Casi seguías!', 'Vuelves a empezar'],
+  worriedRebound: ['Respira y mira', 'Vamos paso a paso', 'Un match cada vez'],
+  greeting: ['¡Hola crack!', '¿Listo para parejas?', '¡Vamos a recordar!'],
   gameOverHigh: ['¡INCREÍBLE!', '¡MEMORIA DE ELEFANTE!', '¡PERFECTO!'],
   gameOverMid: ['¡Muy bien!', '¡Sigue así!', '¡Buen trabajo!'],
-  gameOverLow: ['Otra y mejoras', 'No te rindas', 'La práctica suma']
+  gameOverLow: ['Otra y mejorarás', 'No te rindas', 'La práctica suma']
 });
 
 const ASSOCIATION_DIALOG = Object.freeze({
@@ -71,9 +80,12 @@ const ASSOCIATION_DIALOG = Object.freeze({
   ],
   timeout: ['¡A elegir!', '¡Decídete!', '¿Cuál es?'],
   streakReached: ['¡CONEXIÓN TOTAL!', '¡IMPARABLE!', '¡Genio!', '¡Tú mandas!'],
+  streakBroken: ['¡Casi seguías!', 'Vuelve a conectar', '¡Otra ronda!'],
+  worriedRebound: ['Respira, hay tiempo', 'Mira con calma', 'Una a una'],
+  greeting: ['¡Hola crack!', '¿Listo para asociar?', '¡A conectar!'],
   gameOverHigh: ['¡INCREÍBLE!', '¡CONEXIÓN PERFECTA!', '¡ERES UN GENIO!'],
   gameOverMid: ['¡Muy bien!', '¡Sigue así!', '¡Vas creciendo!'],
-  gameOverLow: ['Otra y mejoras', 'No te rindas', 'A practicar']
+  gameOverLow: ['Otra y mejorarás', 'No te rindas', 'A practicar']
 });
 
 const SEQUENCE_DIALOG = Object.freeze({
@@ -94,9 +106,12 @@ const SEQUENCE_DIALOG = Object.freeze({
   ],
   timeout: ['¡Tu turno!', '¡Reproduce!', '¡Vamos!'],
   streakReached: ['¡SIGUES EL RITMO!', '¡SECUENCIA EPICA!', '¡Imparable!', '¡Tú mandas!'],
+  streakBroken: ['¡Vaya!', 'Se rompió el ritmo', 'A retomar el compás'],
+  worriedRebound: ['Respira, escucha', 'Una a una', 'Recupera el orden'],
+  greeting: ['¡Hola crack!', '¿Listo para el ritmo?', '¡Vamos a memorizar!'],
   gameOverHigh: ['¡SECUENCIA PERFECTA!', '¡INCREÍBLE!', '¡RITMO TOTAL!'],
   gameOverMid: ['¡Muy bien!', '¡Cada vez mejor!', '¡Buen trabajo!'],
-  gameOverLow: ['Otra y mejoras', 'No te rindas', 'La práctica suma']
+  gameOverLow: ['Otra y mejorarás', 'No te rindas', 'La práctica suma']
 });
 
 export const MASCOT_DIALOG = Object.freeze({

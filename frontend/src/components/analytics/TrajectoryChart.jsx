@@ -5,6 +5,18 @@ import PropTypes from 'prop-types';
 import { cn, formatDate } from '../../lib/utils';
 import { scoreToRAG } from '../../constants/analyticsThresholds';
 import GlassCard from '../ui/GlassCard';
+import {
+  ChartsThemeDefs,
+  ThemedTooltipCard,
+  chartColors,
+  commonAxisProps,
+  commonGridProps,
+  useChartMotion,
+} from './ChartsTheme';
+import ThemedChartContainer, {
+  buildTrendSummary,
+  buildTrendDataTable,
+} from './ThemedChartContainer';
 
 /**
  * Colores CSS del indicador RAG para el tooltip
@@ -34,7 +46,7 @@ function CustomTooltip({ active, payload, label }) {
   const classScore = payload.find(p => p.dataKey === 'classAverage');
 
   return (
-    <div className="bg-background-elevated border border-border-default rounded-lg p-3 shadow-xl text-sm">
+    <ThemedTooltipCard>
       <p className="text-text-muted text-xs mb-2">{label}</p>
       {studentScore && (
         <p className="text-text-primary flex items-center gap-1.5">
@@ -57,7 +69,7 @@ function CustomTooltip({ active, payload, label }) {
           {Math.round(studentScore.value - classScore.value)} vs clase
         </p>
       )}
-    </div>
+    </ThemedTooltipCard>
   );
 }
 
@@ -82,6 +94,8 @@ const clampScore = value => {
 };
 
 function TrajectoryChart({ trajectoryData, classComparison, title = 'Trayectoria de Aprendizaje' }) {
+  const motion = useChartMotion();
+
   const chartData = useMemo(() => {
     if (!trajectoryData?.dataPoints) return [];
 
@@ -101,6 +115,18 @@ function TrajectoryChart({ trajectoryData, classComparison, title = 'Trayectoria
   const trendStyle = TREND_STYLES[trendDirection] || TREND_STYLES.stable;
   const TrendIcon = trendStyle.icon;
 
+  // Resumen accesible (sr-only) y tabla de datos (sr-only). Permiten a un
+  // lector de pantalla anunciar el contenido del chart sin tener que
+  // interpretar el SVG punto a punto. WCAG 2.2 §1.1.1 + §1.3.1.
+  const accessibleSummary = useMemo(
+    () => buildTrendSummary(chartData, { subject: 'Alumno', metric: 'puntuación' }),
+    [chartData],
+  );
+  const accessibleDataTable = useMemo(
+    () => buildTrendDataTable(chartData, { dateKey: 'date', valueKey: 'score', valueSuffix: ' puntos' }),
+    [chartData],
+  );
+
   if (chartData.length === 0) {
     return (
       <GlassCard variant="default" padding="none" className="p-5 h-full">
@@ -116,13 +142,18 @@ function TrajectoryChart({ trajectoryData, classComparison, title = 'Trayectoria
 
   return (
     <GlassCard variant="default" padding="none" className="p-5 h-full">
-      <div className="flex items-center justify-between mb-4">
-        <h3 className="text-base font-bold text-text-primary font-display">{title}</h3>
-        <div className={cn("flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-semibold", trendStyle.bg, trendStyle.color)} aria-label={`Tendencia: ${trendStyle.label}`}>
-          <TrendIcon size={14} aria-hidden="true" />
-          {trendStyle.label}
-        </div>
-      </div>
+      <ThemedChartContainer
+        title={title}
+        summary={accessibleSummary}
+        dataTable={accessibleDataTable}
+        dataTableCaption={`Detalle de la trayectoria del alumno por fecha`}
+        headerExtra={
+          <div className={cn("flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-semibold", trendStyle.bg, trendStyle.color)} aria-label={`Tendencia: ${trendStyle.label}`}>
+            <TrendIcon size={14} aria-hidden="true" />
+            {trendStyle.label}
+          </div>
+        }
+      >
 
       {/* Leyenda */}
       <div className="flex items-center gap-4 mb-3">
@@ -138,52 +169,49 @@ function TrajectoryChart({ trajectoryData, classComparison, title = 'Trayectoria
         )}
       </div>
 
-      <div className="h-[250px] w-full -ml-2 min-h-[250px]">
+      <div className="h-[clamp(220px,30vh,320px)] w-full -ml-2 min-h-[220px]">
         <ResponsiveContainer width="100%" height="100%" minWidth={0} minHeight={0} debounce={50}>
           <LineChart data={chartData} margin={{ top: 5, right: 10, left: 0, bottom: 5 }}>
-            <CartesianGrid
-              stroke="var(--color-border-subtle)"
-              strokeDasharray="3 3"
-              vertical={false}
-            />
-            <XAxis
-              dataKey="date"
-              tick={{ fill: 'var(--color-text-muted)', fontSize: 11 }}
-              tickLine={false}
-              axisLine={false}
-            />
+            <ChartsThemeDefs />
+            <CartesianGrid {...commonGridProps} vertical={false} />
+            <XAxis dataKey="date" {...commonAxisProps} />
             <YAxis
+              {...commonAxisProps}
               domain={[0, 100]}
               ticks={[0, 25, 50, 75, 100]}
-              tick={{ fill: 'var(--color-text-muted)', fontSize: 11 }}
-              tickLine={false}
-              axisLine={false}
               width={35}
             />
-            <Tooltip content={<CustomTooltip />} />
+            <Tooltip content={<CustomTooltip />} wrapperStyle={{ maxWidth: '90vw' }} />
 
-            {/* Class average (dashed line) */}
+            {/* Class average (dashed line) — entra primero (seriesIndex=0)
+                para que el ojo establezca el baseline de la clase antes de
+                ver la curva del alumno. */}
             {classComparison && (
               <Line
                 type="monotone"
                 dataKey="classAverage"
-                stroke="var(--color-text-muted)"
+                stroke={chartColors.bySemantic.muted.stroke}
                 strokeDasharray="6 4"
                 strokeWidth={1.5}
                 dot={false}
                 connectNulls
+                {...motion(0)}
               />
             )}
 
-            {/* Student score (solid line) */}
+            {/* Student score (solid line) — gradient brand para que el ojo
+                lea el progreso de izquierda a derecha en lugar de un color
+                plano. Permite también que light/dark resuelva via tokens.
+                Entra 80ms después que la línea de clase. */}
             <Line
               type="monotone"
               dataKey="score"
-              stroke="var(--color-brand-base)"
+              stroke={`url(#${chartColors.bySemantic.brand.gradientId})`}
               strokeWidth={2.5}
-              dot={{ fill: 'var(--color-brand-base)', r: 3, strokeWidth: 0 }}
+              dot={{ fill: chartColors.bySemantic.brand.fill, r: 3, strokeWidth: 0 }}
               activeDot={{ r: 5, stroke: 'var(--color-brand-glow)', strokeWidth: 2 }}
               connectNulls
+              {...motion(1)}
             />
           </LineChart>
         </ResponsiveContainer>
@@ -196,6 +224,7 @@ function TrajectoryChart({ trajectoryData, classComparison, title = 'Trayectoria
           {trajectoryData.trend.dataPoints && ` (${trajectoryData.trend.dataPoints} puntos)`}
         </p>
       )}
+      </ThemedChartContainer>
     </GlassCard>
   );
 }

@@ -37,23 +37,28 @@ export function useConfetti() {
     });
   }, [shouldReduceMotion]);
 
-  const fireSuccess = useCallback(() => {
+  // T-953 Fase 2.11: aceptar `colors` por llamada (paleta de mecánica
+  // en GameOver tier 2). Default sigue siendo BRAND_COLORS.
+  const fireSuccess = useCallback((options = {}) => {
     if (shouldReduceMotion) return;
+    const { colors, ...rest } = options;
     confetti({
       particleCount: 30,
       angle: 60,
       spread: 55,
       origin: { x: 0, y: 0.6 },
-      colors: BRAND_COLORS,
+      colors: colors || BRAND_COLORS,
       disableForReducedMotion: true,
+      ...rest,
     });
     confetti({
       particleCount: 30,
       angle: 120,
       spread: 55,
       origin: { x: 1, y: 0.6 },
-      colors: BRAND_COLORS,
+      colors: colors || BRAND_COLORS,
       disableForReducedMotion: true,
+      ...rest,
     });
   }, [shouldReduceMotion]);
 
@@ -78,8 +83,12 @@ export function useConfetti() {
    * Pensado para celebrar score perfecto (100%) en la pantalla post-partida.
    * Respeta reduced-motion: no dispara nada si el usuario lo prefiere.
    */
-  const fireFireworks = useCallback((durationMs = 1800) => {
+  // T-953 Fase 2.11: acepta `options` con `colors` opcional para tintar
+  // los fireworks con la paleta de la mecánica (3⭐ GameOver). Sin
+  // `colors`, mantiene la paleta brand.
+  const fireFireworks = useCallback((durationMs = 1800, options = {}) => {
     if (shouldReduceMotion) return () => {};
+    const palette = options?.colors || BRAND_COLORS;
     const end = Date.now() + durationMs;
     const interval = setInterval(() => {
       if (Date.now() > end) {
@@ -101,7 +110,7 @@ export function useConfetti() {
         spread: 360,
         ticks: 60,
         origin: { x: leftX, y: leftY },
-        colors: BRAND_COLORS,
+        colors: palette,
         shapes: ['star', 'circle'],
         disableForReducedMotion: true,
       });
@@ -111,7 +120,7 @@ export function useConfetti() {
         spread: 360,
         ticks: 60,
         origin: { x: rightX, y: rightY },
-        colors: BRAND_COLORS,
+        colors: palette,
         shapes: ['star', 'circle'],
         disableForReducedMotion: true,
       });

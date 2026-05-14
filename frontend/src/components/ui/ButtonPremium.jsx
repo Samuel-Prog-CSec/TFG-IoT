@@ -19,12 +19,16 @@ const buttonVariants = cva(
   {
     variants: {
       variant: {
+        // T-954 Fase A: el gradient primary lee los tokens atmosféricos.
+        // Por defecto apuntan a brand→accent-indigo (mismo aspecto previo).
+        // Cuando hay `[data-atmosphere="key"]` activo, ambos extremos del
+        // gradient se tintan al contexto sin cambiar el componente.
         primary: [
-          'bg-gradient-to-r from-brand-base to-accent-indigo',
           'text-white font-semibold',
           'border border-white/10',
-          'shadow-[0_4px_16px_var(--color-brand-glow)]',
-          'hover:shadow-[0_4px_24px_var(--color-brand-glow),_inset_0_1px_0_rgba(255,255,255,0.2)]'
+          'bg-[linear-gradient(to_right,var(--color-atmosphere-primary),var(--color-atmosphere-primary-alt))]',
+          'shadow-[0_4px_16px_var(--color-atmosphere-glow)]',
+          'hover:shadow-[0_4px_24px_var(--color-atmosphere-glow),_inset_0_1px_0_rgba(255,255,255,0.2)]'
         ],
         secondary: [
           'bg-background-elevated/80 backdrop-blur-sm',

@@ -145,10 +145,10 @@ export default function AssetSelector({
       <motion.div
         className={cn(
           'grid gap-3',
-          columns === 3 && 'grid-cols-3',
+          columns === 3 && 'grid-cols-2 sm:grid-cols-3',
           columns === 4 && 'grid-cols-2 sm:grid-cols-3 md:grid-cols-4',
-          columns === 5 && 'grid-cols-2 sm:grid-cols-3 md:grid-cols-5',
-          columns === 6 && 'grid-cols-3 sm:grid-cols-4 md:grid-cols-6',
+          columns === 5 && 'grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5',
+          columns === 6 && 'grid-cols-3 sm:grid-cols-4 md:grid-cols-5 lg:grid-cols-6',
         )}
         variants={containerVariants}
         initial="hidden"

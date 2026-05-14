@@ -21,6 +21,10 @@ const TINT_GLOW = {
   // Glows pensados para dark theme con tokens OKLCH del sistema.
   // Cada uno es sutil (alpha 0.25-0.35) para no competir con el contenido.
   brand: 'hover:shadow-[0_14px_38px_-14px_var(--color-brand-glow)]',
+  // `atmosphere` lee el glow del contexto pedagógico activo
+  // (`--color-atmosphere-glow`). Cuando no hay contexto activo el token
+  // cae al brand y el resultado es idéntico a `glowTint="brand"`. T-954.
+  atmosphere: 'hover:shadow-[0_14px_38px_-14px_var(--color-atmosphere-glow)]',
   indigo: 'hover:shadow-[0_14px_38px_-14px_rgba(99,102,241,0.45)]',
   cyan: 'hover:shadow-[0_14px_38px_-14px_rgba(34,211,238,0.4)]',
   success: 'hover:shadow-[0_14px_38px_-14px_rgba(74,222,128,0.4)]',
@@ -32,7 +36,7 @@ const TINT_GLOW = {
 /**
  * @param {Object} props
  * @param {React.ReactNode} props.children
- * @param {'brand'|'indigo'|'cyan'|'success'|'warning'|'error'|'pink'} [props.glowTint='brand']
+ * @param {'brand'|'atmosphere'|'indigo'|'cyan'|'success'|'warning'|'error'|'pink'} [props.glowTint='brand']
  * @param {string} [props.className]
  * @param {Function} [props.onClick]
  * @param {string} [props.ariaLabel]
@@ -69,7 +73,7 @@ export default function HoverLiftCard({
 
 HoverLiftCard.propTypes = {
   children: PropTypes.node.isRequired,
-  glowTint: PropTypes.oneOf(['brand', 'indigo', 'cyan', 'success', 'warning', 'error', 'pink']),
+  glowTint: PropTypes.oneOf(['brand', 'atmosphere', 'indigo', 'cyan', 'success', 'warning', 'error', 'pink']),
   className: PropTypes.string,
   onClick: PropTypes.func,
   ariaLabel: PropTypes.string

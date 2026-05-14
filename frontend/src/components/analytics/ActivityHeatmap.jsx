@@ -2,6 +2,7 @@ import { memo, useState, useMemo } from 'react';
 import PropTypes from 'prop-types';
 import { cn } from '../../lib/utils';
 import GlassCard from '../ui/GlassCard';
+import ThemedChartContainer from './ThemedChartContainer';
 
 /**
  * Dias de la semana en espanol (abreviados con tildes)
@@ -14,13 +15,22 @@ const DAYS = ['Lun', 'Mar', 'Mié', 'Jue', 'Vie', 'Sáb', 'Dom'];
 const HOURS = [8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18];
 
 /**
- * Calcula la intensidad de color basada en el valor relativo al maximo
+ * Calcula la intensidad de color basada en el valor relativo al maximo.
+ * Las celdas value=0 reciben el patrón "empty" (utility CSS equivalente a
+ * `chartTokens.emptyPatternId` definido en ChartsTheme.jsx) — comunica
+ * "sin datos" de forma colorblind-safe en lugar de un color tenue
+ * indistinguible (T-952 Fase 0.D/E). El resto de niveles usa
+ * `--color-brand-base` con alpha creciente; como la variable se
+ * redefine en light, los tonos siguen siendo legibles en ambos temas.
+ *
  * @param {number} value - Numero de partidas en esa celda
  * @param {number} max - Maximo valor del heatmap completo
  * @returns {string} Clase de Tailwind para el color de fondo
  */
 const getIntensityClass = (value, max) => {
-  if (!value || value === 0) return 'bg-background-surface/20 ring-1 ring-inset ring-border-subtle/30';
+  if (!value || value === 0) {
+    return 'bg-stripe-diagonal bg-background-surface/30 ring-1 ring-inset ring-border-subtle/30';
+  }
   const ratio = value / max;
   if (ratio >= 0.75) return 'bg-brand-base/60';
   if (ratio >= 0.5) return 'bg-brand-base/40';
@@ -83,25 +93,57 @@ function ActivityHeatmap({ data }) {
     );
   }
 
+  // Resumen accesible: pico de actividad (día+hora con max) + total
+  // partidas. Permite que un lector de pantalla anuncie de un vistazo
+  // "cuándo se concentra el juego" en lugar de tener que recorrer 77
+  // celdas (7 días × 11 horas).
+  const peakInfo = (() => {
+    let peakDay = -1;
+    let peakHour = -1;
+    let total = 0;
+    for (let d = 0; d < grid.length; d++) {
+      for (let h = 0; h < (grid[d] || []).length; h++) {
+        const v = grid[d][h] || 0;
+        total += v;
+        if (v === maxValue) {
+          peakDay = d;
+          peakHour = h;
+        }
+      }
+    }
+    return { peakDay, peakHour, total };
+  })();
+  const accessibleSummary =
+    peakInfo.peakDay >= 0 && peakInfo.peakHour >= 0
+      ? `Mapa de actividad semanal. Total de ${peakInfo.total} partidas. Pico de actividad: ${DAYS[peakInfo.peakDay]} a las ${peakInfo.peakHour}:00 horas con ${maxValue} partidas.`
+      : 'Mapa de actividad semanal sin datos suficientes.';
+
   return (
     <GlassCard variant="default" padding="none" className="p-5">
-      <div className="flex items-center justify-between mb-4">
-        <h3 className="text-base font-bold text-text-primary font-display">Actividad Semanal</h3>
-        <div className="flex items-center gap-2 text-[10px] text-text-muted">
-          <span>Menos</span>
-          <div className="flex gap-0.5">
-            <div className="size-3 rounded-sm bg-background-surface/20 ring-1 ring-inset ring-border-subtle/30" />
-            <div className="size-3 rounded-sm bg-brand-base/12" />
-            <div className="size-3 rounded-sm bg-brand-base/25" />
-            <div className="size-3 rounded-sm bg-brand-base/40" />
-            <div className="size-3 rounded-sm bg-brand-base/60" />
+      <ThemedChartContainer
+        title="Actividad Semanal"
+        summary={accessibleSummary}
+        focusable={false}
+        headerExtra={
+          <div className="flex items-center gap-2 text-[10px] text-text-muted">
+            <span>Menos</span>
+            <div className="flex gap-0.5">
+              {/* La primera swatch usa el mismo patrón "empty" que las
+                  celdas value=0, para que el usuario asocie visualmente
+                  "sin datos" con la textura diagonal. */}
+              <div className="size-3 rounded-sm bg-stripe-diagonal bg-background-surface/30 ring-1 ring-inset ring-border-subtle/30" />
+              <div className="size-3 rounded-sm bg-brand-base/12" />
+              <div className="size-3 rounded-sm bg-brand-base/25" />
+              <div className="size-3 rounded-sm bg-brand-base/40" />
+              <div className="size-3 rounded-sm bg-brand-base/60" />
+            </div>
+            <span>Más</span>
           </div>
-          <span>Mas</span>
-        </div>
-      </div>
+        }
+      >
 
-      <div className="overflow-x-auto -mx-2">
-        <div className="min-w-[400px] px-2">
+      <div className="overflow-x-auto custom-scrollbar -mx-2 mt-1">
+        <div className="min-w-[320px] px-2">
           {/* Hours header */}
           <div className="flex gap-0.5 ml-10 mb-1">
             {HOURS.map(h => (
@@ -164,6 +206,7 @@ function ActivityHeatmap({ data }) {
           </div>
         </div>
       </div>
+      </ThemedChartContainer>
     </GlassCard>
   );
 }

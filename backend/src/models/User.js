@@ -186,7 +186,34 @@ const userSchema = new mongoose.Schema(
         trim: true,
         maxlength: [50, 'El nombre de la clase no puede exceder 50 caracteres']
       },
-      birthdate: Date
+      birthdate: Date,
+      // Estado del onboarding interactivo (T-951 PROP-13). Se persiste
+      // en backend en lugar de solo localStorage para que el progreso
+      // sobreviva al cambio de dispositivo — crítico para super_admin
+      // que entra desde su laptop y desde el PC del centro.
+      onboarding: {
+        teacherCompleted: { type: Boolean, default: false },
+        superAdminCompleted: { type: Boolean, default: false },
+        currentStep: {
+          type: Number,
+          default: 0,
+          min: [0, 'El paso del onboarding no puede ser negativo']
+        },
+        currentTrack: {
+          type: String,
+          enum: {
+            values: ['teacher', 'super_admin', null],
+            message: 'El track del onboarding debe ser teacher o super_admin'
+          },
+          default: null
+        },
+        // Versión del tour: si se publican nuevos pasos relevantes en el
+        // futuro, basta con incrementar la versión del cliente y el
+        // backend invalidará el "completed" para forzar la repetición
+        // del tour modificado (sin perder el flag legacy).
+        version: { type: Number, default: 1 },
+        lastSeenAt: { type: Date, default: null }
+      }
     },
     studentMetrics: {
       totalGamesPlayed: {

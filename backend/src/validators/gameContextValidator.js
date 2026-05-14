@@ -7,18 +7,27 @@
 const { z } = require('zod');
 const { objectIdSchema, paginationSchema } = require('./commonValidator');
 
-const booleanQuerySchema = z.preprocess(val => {
-  if (typeof val === 'string') {
-    const normalized = val.trim().toLowerCase();
-    if (normalized === 'true') {
-      return true;
+// Zod 4 cambió la semántica de `z.preprocess(fn, schema.optional())`: el
+// preprocess se invoca incluso cuando el valor entrante es `undefined` y
+// pasa el resultado al schema interno, que termina rechazando el undefined
+// con "expected nonoptional, received undefined". El patrón recomendado en
+// Zod 4 es envolver todo el preprocess en `.optional()` para que el outer
+// `ZodOptional` cortocircuite cuando el query param no viene presente
+// (QA 2026-05-07: panel /admin/contexts crasheaba con 400 al cargar).
+const booleanQuerySchema = z
+  .preprocess(val => {
+    if (typeof val === 'string') {
+      const normalized = val.trim().toLowerCase();
+      if (normalized === 'true') {
+        return true;
+      }
+      if (normalized === 'false') {
+        return false;
+      }
     }
-    if (normalized === 'false') {
-      return false;
-    }
-  }
-  return val;
-}, z.boolean().optional());
+    return val;
+  }, z.boolean())
+  .optional();
 
 /**
  * Schema para un asset individual dentro del contexto.

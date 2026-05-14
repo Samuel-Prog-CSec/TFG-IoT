@@ -15,8 +15,8 @@ import analyticsService from '../services/analytics';
 import { isAbortError, contextsAPI, mechanicsAPI } from '../services/api';
 import { captureException } from '../lib/sentry';
 import { ROUTES } from '../constants/routes';
-import { useOnboarding } from '../hooks/useOnboarding';
-import OnboardingOverlay from '../components/onboarding/OnboardingOverlay';
+// El onboarding se monta a nivel de AppLayout para cubrir teacher y
+// super_admin desde cualquier ruta autenticada (T-951 Fase 4).
 import StatCard from '../components/dashboard/StatCard';
 import StudentProgressChart from '../components/dashboard/StudentProgressChart';
 import ClassroomOverview from '../components/dashboard/ClassroomOverview';
@@ -34,7 +34,6 @@ export default function Dashboard() {
   const navigate = useNavigate();
   useDocumentTitle('Dashboard');
   const { shouldReduceMotion } = useReducedMotion();
-  const onboarding = useOnboarding();
   const [timeRange, setTimeRange] = useState('7d');
   const [selectedContextId, setSelectedContextId] = useState('');
   const [selectedMechanicId, setSelectedMechanicId] = useState('');
@@ -221,7 +220,7 @@ export default function Dashboard() {
         <motion.section
           key="skeleton"
           {...motionVariants}
-          className="p-6 lg:p-8 max-w-7xl mx-auto space-y-8"
+          className="page-container py-[var(--space-fluid-section)] space-y-8"
         >
           {/* Header Skeleton Mimic */}
           <div className="flex flex-col sm:flex-row sm:items-end sm:justify-between gap-4 pt-4 lg:pt-0">
@@ -236,14 +235,14 @@ export default function Dashboard() {
           </div>
 
           {/* KPIs Skeleton */}
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 lg:gap-6">
+          <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 xl:grid-cols-4 gap-[var(--space-fluid-gutter)]">
             {Array.from({ length: 8 }, (_, i) => `stat-skeleton-${i}`).map(id => (
               <SkeletonStatCard key={id} />
             ))}
           </div>
 
           {/* Main Visualizations Skeleton Grid */}
-          <div className="grid grid-cols-1 xl:grid-cols-3 gap-6 lg:gap-8">
+          <div className="grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-3 gap-[var(--space-fluid-gutter)]">
             <div className="xl:col-span-2 space-y-6">
               <SkeletonChart height={384} />
               <SkeletonChart height={320} />
@@ -258,7 +257,7 @@ export default function Dashboard() {
         <motion.section
           key="content"
           {...motionVariants}
-          className="p-6 lg:p-8 max-w-7xl mx-auto space-y-8"
+          className="page-container py-[var(--space-fluid-section)] space-y-8"
           aria-label="Panel principal del dashboard"
         >
           <Header
@@ -298,7 +297,7 @@ export default function Dashboard() {
               <h2 id="stats-heading" className="sr-only">KPIs Principales</h2>
               {/* KPIs primarios — metricas clave */}
               <ul
-                className="list-none p-0 m-0 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 lg:gap-6"
+                className="list-none p-0 m-0 grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 xl:grid-cols-4 gap-[var(--space-fluid-gutter)]"
               >
                 <motion.li variants={shouldReduceMotion ? {} : listItemVariants}>
                   <StatCard
@@ -352,7 +351,7 @@ export default function Dashboard() {
 
               {/* KPIs secundarios — metricas complementarias */}
               <ul
-                className="list-none p-0 m-0 grid grid-cols-2 lg:grid-cols-4 gap-3 lg:gap-4 mt-3 opacity-90"
+                className="list-none p-0 m-0 grid grid-cols-2 md:grid-cols-4 gap-3 lg:gap-4 mt-3 opacity-90"
               >
                 <motion.li variants={shouldReduceMotion ? {} : listItemVariants}>
                   <StatCard
@@ -414,7 +413,7 @@ export default function Dashboard() {
               variants={listContainerVariants(0.05)}
               initial={shouldReduceMotion ? false : "hidden"}
               animate="visible"
-              className="grid grid-cols-1 xl:grid-cols-3 gap-6 lg:gap-8"
+              className="grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-3 gap-[var(--space-fluid-gutter)]"
               aria-label="Análisis detallado"
             >
               {/* Columna Principal (2/3 de ancho).
@@ -471,15 +470,6 @@ export default function Dashboard() {
       )}
     </AnimatePresence>
 
-    <OnboardingOverlay
-      isVisible={onboarding.isVisible}
-      currentStep={onboarding.currentStep}
-      totalSteps={onboarding.totalSteps}
-      onNext={onboarding.nextStep}
-      onPrev={onboarding.prevStep}
-      onComplete={onboarding.completeOnboarding}
-      onSkip={onboarding.skipOnboarding}
-    />
     </>
   );
 }
@@ -516,7 +506,7 @@ function Header({
             initial={reducedMotion ? false : { opacity: 0, x: -16 }}
             animate={{ opacity: 1, x: 0 }}
             transition={{ delay: reducedMotion ? 0 : 0.08 }}
-            className="text-3xl sm:text-4xl font-bold text-text-primary mb-1 font-display tracking-tight flex items-center gap-3"
+            className="text-[var(--text-fluid-2xl)] sm:text-[var(--text-fluid-3xl)] font-bold text-text-primary mb-1 font-display tracking-tight flex items-center gap-3"
           >
             <span className="truncate">
               {greeting}

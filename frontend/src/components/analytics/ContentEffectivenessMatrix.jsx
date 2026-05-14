@@ -1,36 +1,43 @@
 import { memo, useMemo } from 'react';
 import { motion } from 'framer-motion';
-import { BarChart3, Gamepad2, TrendingUp } from 'lucide-react';
+import { BarChart3, Gamepad2, TrendingUp, CircleCheck, CircleAlert, CircleX, Circle } from 'lucide-react';
 import PropTypes from 'prop-types';
 import { cn, DURATION, EASING } from '../../lib/utils';
 import { useReducedMotion } from '../../hooks/useReducedMotion';
 import GlassCard from '../ui/GlassCard';
 import { scoreToRAGWithNull as getRAGColor } from '../../constants/analyticsThresholds';
 import { formatMechanicName } from '../../lib/mechanicNames';
+import ThemedChartContainer from './ThemedChartContainer';
 
 /**
- * Estilos de fondo y texto segun color RAG.
+ * Estilos de fondo, texto e icono segun color RAG. El icono cubre WCAG
+ * 1.4.1 (Use of Color) — daltonismo rojo-verde distingue estado por
+ * forma (check / alert / X) además de color.
  */
 const RAG_STYLES = {
   green: {
     bar: 'bg-success-base/70',
     text: 'text-success-base',
-    border: 'border-success-base/40'
+    border: 'border-success-base/40',
+    icon: CircleCheck,
   },
   amber: {
     bar: 'bg-warning-base/70',
     text: 'text-warning-base',
-    border: 'border-warning-base/40'
+    border: 'border-warning-base/40',
+    icon: CircleAlert,
   },
   red: {
     bar: 'bg-error-base/70',
     text: 'text-error-base',
-    border: 'border-error-base/40'
+    border: 'border-error-base/40',
+    icon: CircleX,
   },
   gray: {
     bar: 'bg-background-surface/40',
     text: 'text-text-muted',
-    border: 'border-border-subtle'
+    border: 'border-border-subtle',
+    icon: Circle,
   }
 };
 
@@ -93,36 +100,48 @@ function ContentEffectivenessMatrix({ data, groupBy = 'context' }) {
     );
   }
 
+  // Resumen accesible: mejor y peor + total. Permite a lector de
+  // pantalla anunciar el panorama global sin recorrer cada item.
+  const top = items[0];
+  const bottom = items[items.length - 1];
+  const accessibleSummary =
+    items.length === 1
+      ? `${dimensionLabel} único: ${top.name} con ${Math.round(top.score)}% en ${top.totalPlays} partidas.`
+      : `${items.length} ${dimensionLabel.toLowerCase()}s analizados. Mejor: ${top.name} (${Math.round(top.score)}%). Peor: ${bottom.name} (${Math.round(bottom.score)}%).`;
+  const accessibleDataTable = items.map((item) => ({
+    label: item.name,
+    value: `${Math.round(item.score)}% en ${item.totalPlays} partidas`,
+  }));
+
   return (
     <GlassCard variant="default" padding="none" className="p-5">
-      <div className="flex items-center justify-between mb-4 flex-wrap gap-3">
-        <div className="flex items-center gap-3">
-          <div className="p-2 rounded-lg bg-brand-base/10">
-            <BarChart3 size={20} className="text-brand-base" aria-hidden="true" />
+      <ThemedChartContainer
+        title={`Efectividad por ${dimensionLabel}`}
+        summary={accessibleSummary}
+        dataTable={accessibleDataTable}
+        dataTableCaption={`Efectividad agrupada por ${dimensionLabel.toLowerCase()}`}
+        focusable={false}
+        headerExtra={
+          <div className="flex items-center gap-3 text-xs text-text-muted">
+            {/* Leyenda con color + icono — no depende solo de color (WCAG 1.4.1). */}
+            <span className="flex items-center gap-1">
+              <CircleCheck size={12} className="text-success-base" aria-hidden="true" />
+              <span>{'>'}70%</span>
+            </span>
+            <span className="flex items-center gap-1">
+              <CircleAlert size={12} className="text-warning-base" aria-hidden="true" />
+              <span>50-69%</span>
+            </span>
+            <span className="flex items-center gap-1">
+              <CircleX size={12} className="text-error-base" aria-hidden="true" />
+              <span>{'<'}50%</span>
+            </span>
           </div>
-          <div>
-            <h3 className="text-base font-bold text-text-primary font-display">
-              Efectividad por {dimensionLabel}
-            </h3>
-            <p className="text-xs text-text-muted mt-0.5">
-              Puntuación media de las partidas agrupadas por {dimensionLabel.toLowerCase()}.
-            </p>
-          </div>
-        </div>
-        <div className="flex items-center gap-3 text-xs text-text-muted">
-          <span className="flex items-center gap-1.5">
-            <span className="inline-block w-3 h-3 rounded bg-success-base/40" aria-hidden="true" />
-            <span>{'>'}70% (Alto)</span>
-          </span>
-          <span className="flex items-center gap-1.5">
-            <span className="inline-block w-3 h-3 rounded bg-warning-base/40" aria-hidden="true" />
-            <span>50-69% (Medio)</span>
-          </span>
-          <span className="flex items-center gap-1.5">
-            <span className="inline-block w-3 h-3 rounded bg-error-base/40" aria-hidden="true" />
-            <span>{'<'}50% (Bajo)</span>
-          </span>
-        </div>
+        }
+      >
+      <div className="flex items-center gap-2 mb-3 text-xs text-text-muted">
+        <BarChart3 size={14} className="text-brand-base" aria-hidden="true" />
+        <span>Puntuación media de las partidas agrupadas por {dimensionLabel.toLowerCase()}.</span>
       </div>
 
       <ul className="space-y-2.5">
@@ -143,7 +162,10 @@ function ContentEffectivenessMatrix({ data, groupBy = 'context' }) {
               )}
             >
               <div className="flex items-center justify-between gap-3 text-sm">
-                <span className="font-medium text-text-primary truncate">{item.name}</span>
+                <span className="font-medium text-text-primary truncate flex items-center gap-2">
+                  <styles.icon size={14} className={cn('flex-shrink-0', styles.text)} aria-hidden="true" />
+                  {item.name}
+                </span>
                 <div className="flex items-center gap-3 flex-shrink-0">
                   <span className="flex items-center gap-1 text-xs text-text-muted">
                     <Gamepad2 size={12} aria-hidden="true" /> {item.totalPlays}
@@ -179,6 +201,7 @@ function ContentEffectivenessMatrix({ data, groupBy = 'context' }) {
           );
         })}
       </ul>
+      </ThemedChartContainer>
     </GlassCard>
   );
 }

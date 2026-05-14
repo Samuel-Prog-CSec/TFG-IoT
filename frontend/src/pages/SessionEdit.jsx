@@ -18,10 +18,12 @@ import InputPremium from '../components/ui/InputPremium';
 import SelectPremium from '../components/ui/SelectPremium';
 import StatusBadge from '../components/ui/StatusBadge';
 import Breadcrumb from '../components/ui/Breadcrumb';
+import InlineSuccessBadge from '../components/ui/InlineSuccessBadge';
 import { pageVariants } from '../lib/utils';
 import { useRefetchOnFocus } from '../hooks/useRefetchOnFocus';
 import { useUnsavedChanges } from '../hooks/useUnsavedChanges';
 import { useDocumentTitle } from '../hooks/useDocumentTitle';
+import useInlineSuccess from '../hooks/useInlineSuccess';
 import ConfirmationModal from '../components/ui/ConfirmationModal';
 
 const statusToBadge = (status) => {
@@ -81,6 +83,9 @@ export default function SessionEdit() {
   const { sessionId } = useParams();
   const navigate = useNavigate();
   useDocumentTitle('Editar Sesión');
+  // Inline success badge: aparece junto al botón Guardar y queda visible
+  // 1.2s antes de navegar al detalle de la sesión. T-955.
+  const saveBadge = useInlineSuccess();
 
   const [session, setSession] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -103,7 +108,10 @@ export default function SessionEdit() {
     return current !== initialValuesRef.current;
   }, [deckId, numberOfRounds, timeLimit, pointsPerCorrect, penaltyPerError]);
 
-  const { blocker, isBlocked } = useUnsavedChanges(isDirty);
+  // T-957: confirmExit envuelve callbacks de navegación programática
+  // (botones "Cancelar", "Ver mapping", "Configurar tablero") con un
+  // modal warning cuando hay cambios sin guardar.
+  const { confirmExit, confirmExitModalProps } = useUnsavedChanges(isDirty);
 
   const loadSession = useCallback(async (signal) => {
     if (!sessionId) return;
@@ -267,8 +275,11 @@ export default function SessionEdit() {
     try {
       setSaving(true);
       await sessionsAPI.updateSession(sessionId, payload);
+      saveBadge.trigger();
       toast.success('Sesión actualizada');
-      navigate(ROUTES.SESSION_DETAIL(sessionId));
+      // Pequeño respiro para que el badge inline sea perceptible antes de
+      // navegar. Si reducedMotion el toast sigue siendo informativo.
+      setTimeout(() => navigate(ROUTES.SESSION_DETAIL(sessionId)), 900);
     } catch (err) {
       toast.error('No se pudo guardar', {
         description: extractErrorMessage(err)
@@ -345,7 +356,9 @@ export default function SessionEdit() {
             <StatusBadge status={statusInfo.tone}>{statusInfo.label}</StatusBadge>
             <ButtonPremium
               variant="secondary"
-              onClick={() => navigate(ROUTES.BOARD_SETUP_WITH_ID(sessionId))}
+              onClick={() =>
+                confirmExit(() => navigate(ROUTES.BOARD_SETUP_WITH_ID(sessionId)))
+              }
             >
               <MapIcon size={16} />
               Ver mapping
@@ -375,7 +388,9 @@ export default function SessionEdit() {
             </div>
             <ButtonPremium
               variant="secondary"
-              onClick={() => navigate(ROUTES.BOARD_SETUP_WITH_ID(sessionId))}
+              onClick={() =>
+                confirmExit(() => navigate(ROUTES.BOARD_SETUP_WITH_ID(sessionId)))
+              }
             >
               <MapIcon size={16} />
               Configurar tablero
@@ -487,32 +502,30 @@ export default function SessionEdit() {
           <div className="flex flex-wrap justify-end gap-3">
             <ButtonPremium
               variant="secondary"
-              onClick={() => navigate(ROUTES.SESSION_DETAIL(sessionId))}
+              onClick={() =>
+                confirmExit(() => navigate(ROUTES.SESSION_DETAIL(sessionId)))
+              }
             >
               Cancelar
             </ButtonPremium>
-            <ButtonPremium
-              variant="primary"
-              onClick={handleSave}
-              disabled={!canEdit || saving}
-            >
-              <Save size={16} />
-              {saving ? 'Guardando…' : 'Guardar cambios'}
-            </ButtonPremium>
+            <div className="relative">
+              <ButtonPremium
+                variant="primary"
+                onClick={handleSave}
+                disabled={!canEdit || saving}
+              >
+                <Save size={16} />
+                {saving ? 'Guardando…' : 'Guardar cambios'}
+              </ButtonPremium>
+              <InlineSuccessBadge visible={saveBadge.visible} label="Sesión guardada" placement="left" />
+            </div>
           </div>
         </GlassCard>
       </div>
 
-      <ConfirmationModal
-        open={isBlocked}
-        onConfirm={() => blocker.proceed()}
-        onClose={() => blocker.reset()}
-        title="Cambios sin guardar"
-        description="Tienes cambios sin guardar. Si sales ahora, perderás los cambios realizados."
-        variant="warning"
-        confirmText="Salir sin guardar"
-        cancelText="Seguir editando"
-      />
+      {/* T-957: modal de confirmación al salir con cambios sin guardar
+          (botones "Cancelar", "Ver mapping", "Configurar tablero"). */}
+      <ConfirmationModal {...confirmExitModalProps} />
     </motion.div>
   );
 }

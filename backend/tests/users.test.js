@@ -394,4 +394,75 @@ describe('User Management Endpoints', () => {
       expect(res.statusCode).toEqual(403);
     });
   });
+
+  describe('PATCH /api/users/me/onboarding (T-951 PROP-13)', () => {
+    const baseHeaders = {
+      'User-Agent': 'jest-test',
+      'Accept-Language': 'en',
+      'Accept-Encoding': 'gzip'
+    };
+
+    it('persiste el paso actual del tour del profesor', async () => {
+      const res = await request(app)
+        .patch('/api/users/me/onboarding')
+        .set('Authorization', `Bearer ${teacherToken}`)
+        .set(baseHeaders)
+        .send({ currentStep: 3, currentTrack: 'teacher' });
+
+      expect(res.statusCode).toEqual(200);
+      expect(res.body.success).toBe(true);
+      expect(res.body.data.currentStep).toBe(3);
+      expect(res.body.data.currentTrack).toBe('teacher');
+      expect(res.body.data.teacherCompleted).toBe(false);
+      expect(res.body.data.lastSeenAt).toBeTruthy();
+
+      const refreshed = await User.findById(teacherUser._id).lean();
+      expect(refreshed.profile.onboarding.currentStep).toBe(3);
+      expect(refreshed.profile.onboarding.currentTrack).toBe('teacher');
+    });
+
+    it('marca el tour del super_admin como completado', async () => {
+      const res = await request(app)
+        .patch('/api/users/me/onboarding')
+        .set('Authorization', `Bearer ${adminToken}`)
+        .set(baseHeaders)
+        .send({ superAdminCompleted: true, currentStep: 0, currentTrack: null });
+
+      expect(res.statusCode).toEqual(200);
+      expect(res.body.data.superAdminCompleted).toBe(true);
+      expect(res.body.data.currentTrack).toBeNull();
+
+      const refreshed = await User.findById(adminUser._id).lean();
+      expect(refreshed.profile.onboarding.superAdminCompleted).toBe(true);
+    });
+
+    it('rechaza payloads con campos no permitidos', async () => {
+      const res = await request(app)
+        .patch('/api/users/me/onboarding')
+        .set('Authorization', `Bearer ${teacherToken}`)
+        .set(baseHeaders)
+        .send({ teacherCompleted: true, role: 'super_admin' });
+
+      expect(res.statusCode).toEqual(400);
+    });
+
+    it('rechaza payloads vacíos', async () => {
+      const res = await request(app)
+        .patch('/api/users/me/onboarding')
+        .set('Authorization', `Bearer ${teacherToken}`)
+        .set(baseHeaders)
+        .send({});
+
+      expect(res.statusCode).toEqual(400);
+    });
+
+    it('exige autenticación', async () => {
+      const res = await request(app)
+        .patch('/api/users/me/onboarding')
+        .set(baseHeaders)
+        .send({ currentStep: 1 });
+
+      expect(res.statusCode).toEqual(401);
+    });
+  });
 });

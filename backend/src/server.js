@@ -60,6 +60,7 @@ const adminRoutes = require('./routes/admin');
 const metricsRoutes = require('./routes/metrics');
 const analyticsRoutes = require('./routes/analytics');
 const healthRoutes = require('./routes/health');
+const notificationRoutes = require('./routes/notifications');
 
 // Crear aplicación Express
 const app = express();
@@ -260,6 +261,9 @@ app.use('/api/analytics', analyticsRoutes);
 // Rutas de métricas de dominio (salud RFID, etc.)
 app.use('/api/metrics', metricsRoutes);
 
+// Rutas de notificaciones tiempo real (T-955)
+app.use('/api/notifications', notificationRoutes);
+
 // Rutas de salud, metricas e informacion del sistema
 app.use('/api', healthRoutes);
 
@@ -294,6 +298,12 @@ registerSocketHandlers({
   socketRateLimiter,
   logger
 });
+
+// Inyectar el server Socket.IO en el notificationService para que pueda emitir
+// `notification:created` al room `user_<id>` de cada destinatario (T-955).
+// Antes de esta línea las llamadas a notify() persisten pero no emiten en
+// tiempo real; el cliente recibe igualmente la notif al refrescar /api/notifications.
+require('./services/notificationService').setSocketServer(io);
 
 registerRfidHandlers({
   io,

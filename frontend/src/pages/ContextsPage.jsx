@@ -30,6 +30,8 @@ import { EmptyContextsIllustration } from '../components/ui/illustrations';
 import ErrorState from '../components/ui/ErrorState';
 import Tooltip from '../components/ui/Tooltip';
 import { SkeletonCard } from '../components/ui/SkeletonShimmer';
+import InlineSuccessBadge from '../components/ui/InlineSuccessBadge';
+import useInlineSuccess from '../hooks/useInlineSuccess';
 import { useContexts } from '../hooks/useContexts';
 import { useReducedMotion } from '../hooks/useReducedMotion';
 import { useDocumentTitle } from '../hooks/useDocumentTitle';
@@ -172,7 +174,7 @@ export default function ContextsPage() {
       <motion.div
         initial={shouldReduceMotion ? false : { opacity: 0, y: -20 }}
         animate={{ opacity: 1, y: 0 }}
-        className="max-w-7xl mx-auto mb-8"
+        className="page-container mb-8"
       >
         <PageHeader
           icon={<Palette size={28} />}
@@ -192,7 +194,7 @@ export default function ContextsPage() {
         />
 
         {/* Stats globales */}
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-8">
+        <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-[var(--space-fluid-gutter)] mb-8">
           <GlassCard className="p-4 flex items-center gap-4">
             <div className="size-12 rounded-xl bg-accent-indigo/10 flex items-center justify-center">
               <Palette size={22} className="text-accent-indigo" />
@@ -249,7 +251,7 @@ export default function ContextsPage() {
       </motion.div>
 
       {/* Contenido */}
-      <div className="max-w-7xl mx-auto">
+      <div className="page-container">
         {(() => {
           if (loading) return (
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
@@ -295,18 +297,24 @@ export default function ContextsPage() {
                 animate="visible"
               >
                 <AnimatePresence>
-                  {filteredContexts.map((context) => (
-                    <motion.div
-                      key={context._id || context.id}
-                      variants={cardVariants}
-                      exit="exit"
-                    >
-                      <ContextCard
-                        context={context}
-                        onClick={() => navigate(ROUTES.CONTEXT_DETAIL(context._id || context.id))}
-                      />
-                    </motion.div>
-                  ))}
+                  {filteredContexts.map((context) => {
+                    const contextResId = context._id || context.id;
+                    return (
+                      <motion.div
+                        key={contextResId}
+                        // T-954 Fase B: shared layout id para hero
+                        // transition al detalle del contexto.
+                        layoutId={`context-${contextResId}`}
+                        variants={cardVariants}
+                        exit="exit"
+                      >
+                        <ContextCard
+                          context={context}
+                          onClick={() => navigate(ROUTES.CONTEXT_DETAIL(contextResId))}
+                        />
+                      </motion.div>
+                    );
+                  })}
                 </AnimatePresence>
               </motion.div>
             );
@@ -360,7 +368,7 @@ function ContextCard({ context, onClick }) {
           </div>
         </div>
 
-        <h3 className="text-xl font-semibold text-text-primary tracking-tight mb-2 line-clamp-1">
+        <h3 className="text-xl font-semibold text-text-primary tracking-tight mb-2 line-clamp-1 truncate" title={context.name}>
           {context.name}
         </h3>
 
@@ -452,6 +460,9 @@ function CreateContextModal({ onClose, onSuccess }) {
   const [contextId, setContextId] = useState('');
   const [contextIdManuallyEdited, setContextIdManuallyEdited] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  // T-955: feedback inline. El modal queda visible 1.1s tras el éxito para
+  // que el badge sea perceptible antes de cerrar y refrescar el grid.
+  const saveBadge = useInlineSuccess({ duration: 1500 });
 
   const handleNameChange = e => {
     const newName = e.target.value;
@@ -487,8 +498,10 @@ function CreateContextModal({ onClose, onSuccess }) {
         contextId: contextId.trim()
       });
       const created = extractData(response);
+      saveBadge.trigger();
       toast.success(`Contexto "${name}" creado correctamente`);
-      onSuccess(created);
+      // Pequeño respiro para mostrar el badge antes de cerrar el modal.
+      setTimeout(() => onSuccess(created), 1100);
     } catch (err) {
       const msg = extractErrorMessage(err);
       if (msg?.toLowerCase().includes('ya existe')) {
@@ -577,14 +590,17 @@ function CreateContextModal({ onClose, onSuccess }) {
             >
               Cancelar
             </ButtonPremium>
-            <ButtonPremium
-              type="submit"
-              loading={isSubmitting}
-              disabled={!name.trim() || !contextId.trim() || contextId.length < 2}
-              icon={isSubmitting ? <Loader2 size={16} className="animate-spin" /> : <Plus size={16} />}
-            >
-              Crear Contexto
-            </ButtonPremium>
+            <div className="relative">
+              <ButtonPremium
+                type="submit"
+                loading={isSubmitting}
+                disabled={!name.trim() || !contextId.trim() || contextId.length < 2}
+                icon={isSubmitting ? <Loader2 size={16} className="animate-spin" /> : <Plus size={16} />}
+              >
+                Crear Contexto
+              </ButtonPremium>
+              <InlineSuccessBadge visible={saveBadge.visible} label="Contexto creado" placement="left" />
+            </div>
           </div>
         </form>
       </motion.div>

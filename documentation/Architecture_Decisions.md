@@ -6225,3 +6225,1133 @@ Validación E2E: `seed:reset` en Docker creó **40 sesiones + 406 plays** sin er
 - Todas las plays tienen `maxScore` (0 nulos), 0 plays con `score > maxScore`.
 - `maxScore` por mecánica coherente: Memoria 90 (6 parejas × 15), Asociación 50-90, Secuencia 210-420.
 
+---
+
+## ADR-115: Tema light + onboarding interactivo multi-track + atajos globales (T-951) [Full-stack, UX]
+
+**Fecha:** 2026-05-06
+**Sprint/Origen:** T-951 del Sprint 6 (consolida PROP-4, PROP-9, PROP-13, PROP-17, PROP-68). Alcance ampliado por petición del usuario: tema claro completo, onboarding interactivo también para super_admin (perfil no técnico) y mejora de microcopy.
+**Estado:** Aprobado (`feature/ui-features-and-signature`)
+**Alcance:**
+- Frontend: `index.css` (CSS-first theming), `index.html` (script FOUC), nuevos `context/ThemeContext.jsx`, `components/ui/ThemeToggle.jsx`, `components/ui/KeyboardShortcutsOverlay.jsx`, `hooks/useKeyboardShortcuts.js`, `constants/onboardingTracks.js`, `constants/microcopy.js`, `constants/theme.js`. Reescritura de `components/onboarding/OnboardingOverlay.jsx` y `hooks/useOnboarding.js`. Refactor de sombras en `components/ui/{GlassCard,Tooltip,SelectPremium}.jsx`, `components/ui/DeckCard.jsx`, `components/dashboard/StatCard.jsx`, `components/layout/AppLayout.jsx`. Microcopy quick wins en `AppLayout.jsx`. Toaster Sonner adaptativo en `App.jsx`.
+- Backend: `models/User.js` (subdoc `profile.onboarding`), `validators/userValidator.js` (`updateOnboardingSchema`), `controllers/userController.js` (`updateMyOnboarding`), `routes/users.js` (`PATCH /api/users/me/onboarding`).
+- Documentación: `documentation/{T951_Audit,Theme_Color_Pairs,Microcopy_Style_Guide,Onboarding_Tracks,Keyboard_Shortcuts,T951_QA_Findings}.md`.
+
+### Contexto
+
+EduPlay 0.5.0 sólo ofrecía tema oscuro y un onboarding informativo de 4 pasos (modal estático, sólo para profesores, persistencia en `localStorage['eduplay:onboarding-completed']`). El super_admin (jefe de estudios — perfil no técnico) entraba directamente al panel de aprobaciones sin contexto. No existían atajos de teclado globales y el microcopy mezclaba registros tras tres pasadas masivas de tildes que no contemplaron voz/tono.
+
+Tres síntomas concretos en QA:
+
+1. *"En aulas con luz fuerte el modo oscuro cansa la vista"* (PROP-4/9 reabiertas en QA 17/04/2026).
+2. *"El director del centro no sabe por dónde empezar y no se atreve a tocar nada"* (PROP-13).
+3. *"Tengo que llevar el ratón hasta la sidebar para cambiar de pestaña aunque sé exactamente a dónde voy"* (PROP-17/68).
+
+T-951 ataca los tres frentes en una sola tarea, con soporte para WCAG 2.2 AA en ambos temas y persistencia híbrida (local + backend) para que el progreso del onboarding sobreviva al cambio de dispositivo — crítico para super_admins que entran desde su laptop personal y desde el PC del centro.
+
+### Decisión
+
+#### Bloque A — Sistema de tema CSS-first (Tailwind v4)
+
+**Patrón canónico v4**: `@theme { … }` mantiene los tokens dark como default. Un selector `[data-theme="light"]` redefine los mismos tokens OKLCH por cascada CSS estándar (Tailwind genera utilidades leyendo el valor actual de la custom property — la cascada hace el trabajo). Se declara `@custom-variant light (&:where([data-theme="light"], [data-theme="light"] *))` para los casos puntuales en que un componente necesite condicionales sin token equivalente, pero el 95% de los componentes consumen utilidades semánticas y se adaptan automáticamente.
+
+**Paleta light "Cuaderno marfil + tinta púrpura"**:
+
+- Backgrounds — papel marfil `oklch(98% 0.005 80)` → cards en blanco puro `oklch(99.5% 0 0)` (la "página dentro del cuaderno").
+- Texto — tinta gris-azulada profunda `oklch(20% 0.025 260)` (no negro puro: tiene tinte sutil del fondo dark).
+- Brand — púrpura vibrante `oklch(55% 0.20 300)` (un peldaño más oscuro que en dark, mantiene saturación 0.20 para no "diluir la tinta").
+- Borders — alpha sobre **negro** (no blanco): `oklch(0% 0 0 / 0.06-0.18)`.
+- Aurora — orbes pastel `oklch(94% 0.04 hue)` con `mix-blend-multiply` (la clase `.aurora-layer` aplica el blend correcto por tema). Sin esto, el aurora original con `mix-blend-screen` producía manchas grises en light.
+
+**`color-scheme` dinámico**: se mueve de `:root { color-scheme: dark }` a `[data-theme="dark"] { color-scheme: dark }` y `[data-theme="light"] { color-scheme: light }` para que inputs nativos, scrollbars Firefox y autofill Chrome respeten el tema.
+
+**FOUC prevention**: bloque `<script>` inline en `frontend/index.html` que lee `localStorage['eduplay:theme']`, resuelve `auto` con `matchMedia('(prefers-color-scheme: light)')` y aplica `document.documentElement.dataset.theme`. Bajo 250 bytes; ejecuta antes del primer paint (FOUC < 50ms).
+
+**ThemeContext** (`context/ThemeContext.jsx`): tres modos `auto | light | dark`. El modo `auto` sigue al SO via `matchMedia`. Listener `change` propaga sin recarga. Persistencia `localStorage['eduplay:theme']`. Hook `useTheme()` expone `{mode, resolvedTheme, isLight, isDark, setMode}`. Provider envuelve `<App>` antes del `BrowserRouter`. La meta `theme-color` de `<head>` se actualiza dinámicamente para que la barra de direcciones del navegador y la status bar de la PWA se adapten.
+
+**ThemeToggle** (`components/ui/ThemeToggle.jsx`): segmented control de 3 estados con thumb deslizante via Framer Motion `layoutId`. ARIA `role="radiogroup"` + cada item `role="radio" aria-checked`. Iconos Lucide `Monitor`, `Sun`, `Moon`. Respeta `prefers-reduced-motion`.
+
+**Refinamientos del dark**: `--color-background-elevated` 27%→30% L (squint test detectaba elevación insuficiente) y `--color-warning-base` 85%→78% L (ratio texto-blanco a 1.6:1 ilegible).
+
+**Sombras semánticas**: tokens nuevos `--shadow-{sm,md,lg,glow,inset-card}` con valores rgba diferentes por tema. En light, los alpha pasan de 0.30-0.45 (dark) a 0.06-0.10 — el papel marfil no tolera sombras agresivas. Se refactorizan 6 componentes prioritarios.
+
+#### Bloque B — Onboarding interactivo multi-track
+
+**Backend** `User.profile.onboarding`: `{teacherCompleted, superAdminCompleted, currentStep, currentTrack, version, lastSeenAt}`. Endpoint nuevo `PATCH /api/users/me/onboarding` (Zod `updateOnboardingSchema`, validación strict, exige al menos un campo).
+
+**Frontend rewrite**:
+
+- **`useOnboarding(user)`**: depende de `useAuth`, hidrata desde `user.profile.onboarding` en `useEffect` (no estado inicial — el bug previo evaluaba antes de tener `user`). Selecciona track según rol con `getTrackForRole(role)`. Sincroniza paso a paso con PATCH debounced 500ms. **Migración legacy**: si detecta `localStorage['eduplay:onboarding-completed'] === 'true'`, hace PATCH `teacherCompleted: true` al backend y borra el flag local en el primer mount.
+- **`OnboardingOverlay`**: soporta dos tipos de paso (`'modal'` / `'spotlight'`). El spotlight usa portal con 4 overlays absolutos rodeando el rect del target (CSS-only) + ring `brand-base/glow`. Si el target no se encuentra, fallback automático a `'modal'`. Esc salta el tour.
+- **Tracks** (`constants/onboardingTracks.js`): `TEACHER_TRACK` (6 pasos: Bienvenida → Mazos → Contextos → Sesiones → Jugar → Analytics) y `SUPER_ADMIN_TRACK` (5 pasos: Bienvenida [Shield warning] → Aprobaciones → Alumnado → Contextos → Cómo volver). El track del super_admin diseñado contra los **tres miedos del jefe de estudios no técnico**: (1) "voy a romper algo del centro", (2) "no entiendo esta métrica", (3) "no sé dónde está la cosa que necesito".
+- **`data-tour="<key>"`**: contrato UI ↔ track. Se añade al campo `dataTour` de cada item en `NAV_ROUTES` y `ADMIN_NAV_ROUTES` (`constants/routes.js`); `AppLayout.jsx` lo propaga al atributo HTML del `NavLink`.
+- **Reanudar**: nuevo botón "Ver tutorial" (icono `GraduationCap`) en el footer del sidebar. Click → `resetOnboarding()` reabre el overlay del rol actual desde paso 0.
+- **Refactor de Dashboard**: el OnboardingOverlay y el `useOnboarding` se quitan del Dashboard y se montan a nivel de AppLayout para que el super_admin (que NO ve Dashboard) también vea su tour al primer login.
+
+#### Bloque C — Atajos de teclado globales
+
+**Hook genérico** `useKeyboardShortcuts(shortcuts, options)`:
+- Soporta atajos directos (`Shift+?`, `Escape`) y chords (`g s`) con buffer interno + timeout 1500ms entre teclas.
+- Guard automático: `event.target.closest('input, textarea, select, [contenteditable], [role="textbox"]')` → return early. Atajos con `allowInInput: true` se disparan también dentro de inputs.
+
+**Mapa global** registrado en AppLayout, con dos sets — uno para teacher, otro para super_admin. Documentado en `Keyboard_Shortcuts.md`.
+
+**Decisiones de teclado explícitas**:
+
+- `Shift+?` (no `?` solo): en QWERTY ES `?` requiere `Shift+'`.
+- `Shift+N` (no `n` solo): evita disparos accidentales al escribir notas.
+- No hay `/` para focus búsqueda: en T-951 no existe búsqueda global. Se reserva para una tarea futura.
+
+#### Bloque D — Microcopy quick wins
+
+Sin esperar a la migración masiva de T-959, T-951 aplica los cambios de mayor visibilidad y crea el esqueleto de `frontend/src/constants/microcopy.js`. Cambios visibles:
+
+- "Panel de administración" (super_admin) → "**Panel de dirección**".
+- "Portal del profesor" → "**Aula de [Nombre]**" (refuerzo de pertenencia inmediato).
+- Sidebar header del super_admin: "Administración" → "**Gestión del centro**".
+- Toggle Animaciones: `title` describe acción ("Reducir animaciones" / "Activar animaciones").
+- Toaster Sonner: `theme="dark"` hardcoded → `theme={resolvedTheme}` adaptativo.
+
+### Consecuencias
+
+**Positivas**:
+
+- Tema light totalmente funcional con paleta signature. Pares contraste verificados WCAG 2.2 AA en `Theme_Color_Pairs.md`.
+- Onboarding adaptado al rol — el super_admin recibe orientación específica contra los tres miedos del jefe de estudios.
+- Atajos globales con guard contra inputs y overlay autodescriptivo.
+- Persistencia híbrida del onboarding sobrevive al cambio de dispositivo.
+- 29 tests nuevos (9 ThemeContext + 8 useOnboarding + 7 useKeyboardShortcuts + 5 backend).
+
+**Riesgos** (mitigados en Fase 7 QA):
+
+- Regresión visual del dark con las dos mejoras (`background-elevated` 27→30% L, `warning-base` 85→78% L).
+- Aurora gameplay light: `mix-blend-multiply` con orbes acumuladas puede dar matiz mostaza si los hue se mezclan mal.
+- Spotlight onboarding: si el target del spotlight está fuera de viewport, fallback a modal — dependencia de selectores estables `data-tour` que cualquier refactor futuro debe preservar.
+- Bundle: `index.js` 118.35 KB → ~120 KB (+1.65 KB). Dentro del presupuesto.
+
+**Trade-offs**:
+
+- OnboardingOverlay montado en AppLayout (no en cada página): permite que el super_admin vea el tour al primer login sin pasar por Dashboard.
+- Recharts no migrado: 0 hex hardcoded, los charts ya consumen tokens semánticos via clases Tailwind y siguen funcionando tras el cambio de tema.
+- Modo `auto` implica un listener `matchMedia` activo durante toda la sesión. Cleanup correcto, 0-1 re-renders por sesión.
+
+### Migración
+
+Centros existentes con usuarios que completaron el onboarding antiguo:
+
+1. Al primer login post-deploy, `useOnboarding` detecta `localStorage['eduplay:onboarding-completed'] === 'true'`.
+2. Hace `PATCH /api/users/me/onboarding { teacherCompleted: true }`.
+3. Borra el flag local.
+4. El usuario no vuelve a ver el tour automáticamente. Si quiere repasarlo, el botón "Ver tutorial" del sidebar siempre está disponible.
+
+### Verificación
+
+- Frontend: 353 tests verdes (338 + 15 nuevos).
+- Backend: 1134 tests verdes (1129 + 5 nuevos del endpoint).
+- Lint: 0 errores frontend + backend. 11 warnings frontend (10 baseline + 1 esperado del AppLayout, justificado).
+- Build: 2.13s, bundle entry +1.65 KB.
+- E2E (Fase 7, en proceso): Docker dev + Playwright sobre 10 pestañas en ambos temas. Findings en `T951_QA_Findings.md`.
+
+### Referencias
+
+- `documentation/T951_Audit.md` — auditoría inicial (Fase 0).
+- `documentation/Theme_Color_Pairs.md` — pares contraste WCAG 2.2 AA por tema.
+- `documentation/Onboarding_Tracks.md` — árbol de los 11 pasos + selectores `data-tour`.
+- `documentation/Keyboard_Shortcuts.md` — tabla por rol.
+- `documentation/Microcopy_Style_Guide.md` — 7 principios + ejemplos.
+- ADR-069 (a11y crítica), ADR-070 (motion signature Tactile + Paper), ADR-088 (cuarto bloque QA pre-v0.5.0) — bases sobre las que T-951 construye.
+
+## ADR-116: Audit T-951 pre-T-953 + corrección de doc Onboarding [Frontend, UX, Docs]
+
+**Contexto**: T-951 (tema light/dark, atajos, onboarding) quedó marcada como completada pero sin auditoría formal. Antes de T-953 (charts theme + mascota max craft + GameOver expresivo) — que construye encima de la mascota y el sistema de tema — se ejecutó auditoría navegada por la IA (no delegada) en Docker + Playwright a 1920×1080 cubriendo las 12 pantallas clave en LIGHT y DARK por separado, con la premisa: "light y dark son dos UIs distintas, no variantes".
+
+**Decisiones**:
+- **0 críticos / 0 serios encontrados.** Theme switching, atajos, onboarding y privacy se comportan según ADR-115.
+- **D-1 corregido inline**: `documentation/Onboarding_Tracks.md` decía 6 pasos teacher pero código tiene 7 (paso `Wand2 - Tres mecánicas, tres asistentes` añadido entre 4 y 5). Doc actualizada.
+- **V-1, V-2 diferidas a T-953**: heatmaps con celdas vacías sin patrón (`bg-stripe-diagonal` ya existe pero no se usa), Distribución de Rendimiento con tiers vacíos sin label "0". Se incorporan al plan T-953 cuando se toque charts/heatmaps, no como re-trabajo de T-951.
+- **V-3, V-4 aceptadas como decisión de diseño**: aurora light intencionalmente sutil (opacity 0.16 + multiply blend para no saturar el papel marfil), sombras light sutiles (alpha 10/14/18% coherente con metáfora "papel").
+- **FP-1 descartado**: el "0" entre el botón y el link de registro en Login era la letra "o" del separador "o" con `font-display tracking-widest text-xs` — confusión tipográfica, no bug.
+
+**Riesgos**: ninguno bloqueante para T-953.
+
+**Verificación**: `documentation/T951_Audit.md` con 19 capturas en `frontend/qa-capturas-T951-audit/` (login, dashboard, sessions, decks, contexts, insights, students, atajos overlay, onboarding 3 pasos, privacy, ambos temas).
+
+---
+
+## ADR-117: Sistema de tema canónico para charts Recharts (`ChartsTheme`) [Frontend]
+
+**Contexto**: cada chart de la app definía sus propios `<defs>`, gradients, tooltips inline y tokens de ejes. La consecuencia era inconsistencia visual sutil (tooltips ligeramente distintos por chart, ejes con tipografía dispar) y cero patterns colorblind-safe en heatmaps. T-953 Fase A pide un sistema unificado para charts.
+
+**Decisiones**:
+- Nuevo módulo `frontend/src/components/analytics/ChartsTheme.jsx` con cinco primitivos:
+  1. **`<ChartsThemeDefs />`** — componente que dropa `<defs>` global con 7 gradients (brand, memory, association, sequence, success, warning, error + área brand vertical) y 3 patterns colorblind-safe (diagonal, dots, dashed) + pattern para celdas "sin datos" en heatmaps.
+  2. **`chartColors`** — paletas tokenizadas por mecánica (`memory/association/sequence`) y por semántica (`brand/success/warning/error/info/muted`) que resuelven a `var(--color-*)` y exponen `{stroke, fill, gradientId}`.
+  3. **`chartTokens`** — tokens compartidos para grid, ejes, tooltip bg y patterns.
+  4. **`<ThemedTooltipCard>`** — wrapper canónico con `bg-background-elevated/95 border border-border-default rounded-lg shadow-xl backdrop-blur` reutilizable por todos los charts.
+  5. **`commonAxisProps` y `commonGridProps`** — props pre-spread para `<XAxis>`, `<YAxis>`, `<CartesianGrid>`.
+- **Migración de 4 charts** a este sistema sin tocar la UI de los componentes contenedores: `TrajectoryChart`, `EngagementRadar`, `SequenceProgressChart`, `PerformanceByDimension`. `TrajectoryChart` ahora usa `url(#chart-gradient-brand)` para que la línea progreso suba de izquierda a derecha visualmente.
+- **2 charts nuevos pequeños creados**:
+  - `StudentProgressSparkline` (~80px alto, sin ejes ni tooltip, sólo tendencia) para incrustar en cards densas.
+  - `DifficultyBar` (CSS puro, no Recharts) con barra horizontal + RAG color + `bg-stripe-diagonal` colorblind-safe en valores `<50%`.
+- Los 4 charts no migrados (`ContentEffectivenessMatrix`, `ActivityHeatmap`, `AlertsHub`, `LearningCurvesSection`) son CSS-based o tienen su propio sistema; se mantendrán como están salvo demanda futura.
+
+**Riesgos**: la migración cambia el `gradient-id` consumido — si código externo referenciaba el viejo `#sequenceLine`, fallará. **Mitigación**: ese id era exclusivo del propio `SequenceProgressChart`, no se usa fuera.
+
+**Verificación**:
+- `npm test --run`: 355/355 frontend OK.
+- `npm run lint`: 0 errors.
+- Visual: TrajectoryChart en LIGHT con gradient brand purple visible (cap. 21 audit T-951), `EngagementRadar` con accent-cyan en LIGHT y DARK.
+
+---
+
+## ADR-118: Mascota max craft (T-953 Fases B + C) — moods nuevos, dialect por mecánica, GameOver tier-aware, FeedbackOverlay per-mecánica [Frontend, UX]
+
+**Contexto**: T-953 amplía la mascota como signature emocional del producto antes del freeze v1.0.0. Las metas (decididas con el usuario):
+- Mascota más expresiva por mecánica (gestos + estados + frases).
+- GameOver con escalera 1/2/3 estrellas que acopla mood + frase + tinte mecánica.
+- FeedbackOverlay per-mecánica con copy/iconos/colores propios.
+- "Light y dark son dos UIs distintas" — toda decisión de signature se valida en ambos temas.
+
+**Decisiones**:
+
+### B.1 — Limpieza de deuda
+
+- **Borrado**: `frontend/src/hooks/useMascotReactions.js` y su test — hook completo y testeado pero **nunca consumido** en producción. Era código muerto que duplicaba la API de mascota con `useGameFeedback`. Plan agent R1.
+- **Limpieza**: 3 ocurrencias de `mechanicType: 'sequence'` en payload de `processValidationResult` desde `GameSession.jsx` (Secuencia) — el closure del hook ya tiene `mechanicType` por prop, era redundante (Plan agent R5).
+- **Cleanup `messagePool`**: el dict interno de `CharacterMascot.jsx` solo conserva `greetingPool` (3 frases idle). Si el caller no pasa `message` y mood ≠ idle, no se muestra burbuja — el hook es la fuente canónica de frases.
+
+### B.2 — 3 nuevos moods + greeting via trigger
+
+- **`pointing`**: gestura indexadora (`pointRight` keyframe: rotate + x oscilando). Glow tintado mecánica (idle/thinking/pointing comparten esta excepción).
+- **`worried`**: oscilación micro x + opacity (`wobble` keyframe). Glow `bg-error-base/15`.
+- **`surprised`**: pop one-shot (`pop` keyframe: scale [1, 1.3, 0.95, 1.05, 1]). Glow `bg-accent-pink/25`. NO `repeat: Infinity` — el "asombro" decae rápido en la realidad.
+- **`greeting`**: NO mood nuevo. Reusa `idle` con prop `isFirstAppearance` que añade slide-in lateral 600ms al primer mount (mascota saludando).
+
+### B.3 — Accesorios SVG mecánica-aware en `thinking`
+
+- `BookGlasses` (Memory): gafas indigo + libro abierto debajo.
+- `LinkPendant` (Association): cadena cyan con eslabones entrelazados + animación rotate.
+- `RhythmHeadphones` (Sequence): auriculares amber + notas musicales saltando.
+- Para `pointing/worried/surprised` — accesorios universales nuevos: `PointFinger`, `WorryDrop` (gota azul info), `SurpriseExclaim` (signo exclamación pink).
+- Implementación: `getAccessory(mood, mechanicType)` se reescribió como `renderAccessory()` que devuelve JSX directamente para evitar la regla lint `react-hooks/static-components`.
+
+### B.4 — `mascotDialog.js` ampliado
+
+- Nueva clave por mecánica: `streakBroken` (3 frases) — para mood `surprised` cuando una racha >=3 se rompe.
+- Nueva clave: `worriedRebound` (3 frases) — para mood `worried` cuando totalErrors >=5 y streak=0.
+- Nueva clave: `greeting` (3 frases) — disponible para callers que quieran disparar saludo explícito.
+- **Balance**: `MEMORY_DIALOG.timeout` pasa de 2 a 3 frases para no saturar el loop visual.
+
+### B.5 — `useGameFeedback.js` extendido + fix QA
+
+- Detección de `surprised`: `previousStreak >= 3 && !isCorrect && !isTimeoutResult` → mood `surprised` + frase `streakBroken`.
+- Detección de `worried`: `totalErrors >= 5 && streak === 0` con cooldown 8s para no saturar.
+- **Micro-celebraciones**: cada 5 aciertos consecutivos (sin reset) dispara `fireBurst({ colors: mechanicTheme.accentHexFallback })` SIN cambiar mood. Skip si `streak === 3` (no duplicar con el confetti grande de `streakReached`).
+- **Fix QA crítico (B-1 en T953_QA_Findings)**: `mechanicType` se lee ahora vía `mechanicTypeRef.current` dentro del callback. Sin esto, los listeners de socket de Secuencia capturaban el `mechanicType: 'association'` inicial (default de `useState` en `GameSession.jsx`) y la mascota hablaba con el diccionario equivocado durante toda la partida — síntoma observado: "¡Decídete!" (Asociación) en partidas de Secuencia.
+
+### B.6 — Sound effects kid-friendly
+
+- `playMascotChirp()` — dos picos cortos agudos (E6/G6) que evocan un pajarito (la mascota es 🦉).
+- `playStreakSparkle()` — arpegio rápido C6-E6-G6-C7.
+- `playGameOverFanfare(stars)` — escalado: 0⭐ silencio, 1⭐ 2 notas, 2⭐ arpegio C-E-G-C, 3⭐ fanfare completa C-E-G-C-E-G-C.
+- Cero dependencias nuevas: extiende `soundEffectsService.js` (Web Audio API nativo) — Plan agent R2.
+
+### B.7 — Mascota en EmptyState + Onboarding
+
+- **`EmptyState`**: nueva prop opcional `mascot?: ReactNode` (mutuamente exclusiva con `illustration`/`icon`). Renderizada en bloque hero centrado con altura reservada para que la burbuja no se recorte.
+- **`OnboardingOverlay`**: en `ModalStep` se incrusta `<CharacterMascot>` en bottom-left del card con mood derivado del paso (`mascotForStep`):
+  - Step 1 (bienvenida) → `idle` con `isFirstAppearance: true` y burbuja "¡Hola!".
+  - Último step → `celebrating` con "¡Vamos!".
+  - Resto modales → `pointing` con fragmento del título (≤ 22 chars) o "Mira aquí".
+- En `SpotlightStep` no se añade mascota — el tooltip apuntador ya cumple la función "mira aquí".
+
+### C.1 — `GameOverScreen` integración mascota tier-aware (Plan agent R3 + R6)
+
+- Mapping tier → mood + tier para `pickMascotMessage`:
+  - 0⭐ → `worried` + frase `gameOverLow`.
+  - 1⭐ → `encouraging` + frase `gameOverMid`.
+  - 2⭐ → `happy` + frase `gameOverMid` (el mood diferencia los dos tiers).
+  - 3⭐ → `celebrating` + frase `gameOverHigh`.
+- **Tinte mecánica solo en `glowB` del backdrop** (no en Icon/star color, que siguen `tier`):
+  - Memory → `--color-accent-indigo` 22% color-mix in oklab.
+  - Association → `--color-accent-cyan`.
+  - Sequence → `--color-accent-orange`.
+  - **Excepción**: Sequence + 3⭐ → forzamos `--color-accent-orange` (en vez de amber) para alejar visualmente del Trophy warning amarillo.
+- **Confetti tintado por mecánica**: `fireSuccess({ colors })` y `fireFireworks(2000, { colors })` reciben `[hex, '#ffffff', hex]` derivado de `mechanicTheme.accentHexFallback`.
+- **Fanfare audible**: `playGameOverFanfare(stars)` se dispara con timeout 250ms.
+- **A11y (Plan agent R6)**: la mascota grande tiene `aria-hidden="true"` para que VoiceOver no anuncie dos veces el mismo título; el dialog mantiene `aria-labelledby` y `aria-describedby`. Posicionada bottom-left del overlay (no del card) con escala 1.4x. Solo visible `>=md` (no satura mobile).
+
+### C.2 — `useConfetti` acepta `colors` por llamada (Plan agent R4)
+
+- `fireSuccess(options)`, `fireFireworks(durationMs, options)`, `fireBurst(options)` y `fireFromElement(element, options)` aceptan ahora `colors` opcional. Default sigue siendo `BRAND_COLORS`.
+- Memoización de la paleta en el caller (con `useMemo`) evita invalidar deps del callback al cambiar mecánica.
+
+### C.3 — `FeedbackOverlay` per-mecánica (Fase 3)
+
+- Nueva prop `mechanicType` opcional. Tabla `MECHANIC_FEEDBACK[mechanicType]` selecciona icono Lucide hero (Brain/Link2/ListOrdered en success por mecánica), copy ("¡Pareja!", "¡Conexión!", "¡Ritmo!") y `textClass` por accent.
+- Fallback genérico (PartyPopper/Flame) cuando no hay mechanicType.
+- Particles tintadas por mecánica via `fireBurst({ colors: [hex, '#ffffff'] })`.
+- **Floating elements**: emojis Unicode (`⭐`, `🌟`, `✨`, `💫`, `🎊`) reemplazados por iconos Lucide (`Sparkles`, `Star`) tintados con `textClass`. Coherente con design system, sin dependencia de fuentes del SO.
+
+**Riesgos** (mitigados):
+- R1 (deuda muerta): borrar `useMascotReactions` no rompe nada — confirmado vía grep + tests.
+- R2 (sound libs): extender Web Audio existente, cero deps nuevas.
+- R3 (colisión color): excepción Sequence 3⭐ documentada.
+- R4 (colors prop): pasa por parámetro, no por hook.
+- R5 (`mechanicType` redundante): limpiado.
+- R6 (a11y double-announce): mascota `aria-hidden`.
+- **Bundle**: ~+27KB de SVG inline si todos los accesorios cargan a la vez. Conditional render por mecánica activa mitiga.
+
+**Verificación**:
+- `npm test --run`: **355/355 frontend OK** (33 test files iniciales + 1 nuevo de tests T-953 al validar; -2 por borrar `useMascotReactions.test.js`).
+- `npm run lint`: **0 errors**, 23 warnings preexistentes.
+- **QA navegada por la IA** (`T953_QA_Findings.md`): bug crítico B-1 detectado y corregido durante la sesión, 18 capturas en `frontend/qa-capturas-T953/`. Asociación in-game + GameOver tier 0 verificados con mascota worried + WorryDrop + frases del pool nuevo. Secuencia post-fix muestra "¡Tu turno!" del pool correcto.
+
+### Referencias
+
+- `documentation/T953_QA_Findings.md` — sesión QA navegada con 18 capturas y triaje de findings.
+- ADR-105 (mascota viva), ADR-D (glow tintado por mecánica), ADR-115 (T-951 base).
+- Plan agent risks R1-R6 (`C:\Users\Samuel\.claude\plans\hola-estamos-en-la-magical-wilkes.md`).
+
+---
+
+## ADR-119: Sistema responsive — fluid scaling, sidebar rail y GameLayout [Frontend]
+
+- **Fecha**: 2026-05-09
+- **Estado**: Aceptado
+- **Alcance**: Frontend.
+
+### Contexto
+
+La app se desarrolló desktop-first asumiendo viewports ≥1920px (BenQ RD280U 4K del usuario). Al desplegarla en portátiles (1366×768 típico del tribunal del TFG) la UI se rompía:
+
+- Sidebar de 288px ahogaba el contenido (~21% del ancho útil ocupado por navegación).
+- Grids saltaban de 2 a 4 columnas sin paso intermedio (Dashboard `lg:grid-cols-4`).
+- `GameOverScreen` con `text-5xl` (64px) ocupaba ~100px de altura, modal `max-w-md` rígido.
+- `GameSession` con `h-dvh overflow-hidden` ignoraba viewport real (~640px alto útil tras cromo del navegador).
+- `MemoryGameplayPanel` skeleton `grid-cols-4` fijo.
+- `ActivityHeatmap` con `min-w-[400px]` forzaba scroll horizontal sin wrapper visible.
+- `StudentProfile` con `xl:grid-cols-6` quedaba a ~140px por celda en 1366px.
+
+El tribunal del TFG va a probar la app en sus portátiles. Una primera impresión rota es inaceptable.
+
+### Decisión
+
+1. **Resoluciones objetivo**: 1366×768 (mínimo) → 4K. Mobile <640px fuera de alcance (sensor RFID por USB).
+2. **Estrategia técnica**: tokens fluidos `clamp()` en `index.css` (`@theme`) + breakpoints discretos para layout. Tokens nuevos:
+   - `--text-fluid-{xs,sm,base,lg,xl,2xl,3xl,hero}` con `clamp(min, vw, max)`.
+   - `--space-fluid-{section,gutter}` con `clamp()` para padding y gap principales.
+   - `--game-hud-height: clamp(56px, 4vh + 24px, 80px)`, `--game-mascot-size: clamp(72px, 6vw + 32px, 128px)`.
+   - `--sidebar-w-{expanded,rail}` (18rem / 4.5rem).
+3. **Sidebar 3 estados** controlados por hook `useSidebarMode`:
+   - `<lg` (≤1023px) → drawer animado.
+   - `lg-xl` (1024-1439px) → rail 72px con tooltips.
+   - `≥xl` (≥1440px) → expandida 288px.
+   - Toggle manual con tecla `[` y botón `PanelLeft`/`PanelLeftClose`. Persistencia en `localStorage` (`sidebar:mode = auto|compact|expanded`).
+4. **`GameLayout` independiente**: rutas `/game/*` montan `GameLayout` (`h-[100dvh] w-screen overflow-hidden bg-game`) en lugar de `AppLayout`. Sin sidebar, botón "X" arriba-derecha + tecla `Escape` con confirmación si `globalThis.__gameActive` está activo.
+5. **Escalera estándar de grids**:
+   - KPIs/cards principales: `grid-cols-1 sm:grid-cols-2 md:grid-cols-3 xl:grid-cols-4`.
+   - Layouts de detalle (sidebar + main): `grid-cols-1 lg:grid-cols-2 xl:grid-cols-3`.
+   - Galerías de assets: `grid-cols-3 sm:grid-cols-4 md:grid-cols-5 lg:grid-cols-6`.
+6. **Utility `page-container`** en `index.css`:
+   ```css
+   @utility page-container {
+     @apply mx-auto w-full px-[var(--space-fluid-section)];
+     max-width: min(1600px, calc(100vw - 2 * var(--space-fluid-section)));
+   }
+   ```
+   Aplicada a 8 páginas teacher principales (Dashboard, Sessions, Decks, Students, etc.).
+7. **Migración tipográfica selectiva**: heroes y page titles (`Login`, `Register`, `Dashboard greeting`, `GameSession "¡Hora de Jugar!"`, `GameOverScreen score`) migrados a `text-fluid-*`. El resto de tipografía permanece en clases Tailwind discretas.
+8. **Charts Recharts** estandarizados: alturas con `clamp(220px, 30vh, 360px)`, `<Tooltip wrapperStyle={{ maxWidth: '90vw' }}/>`, `EngagementRadar` con `aspect-square`. `ChartSection` con `min-h-0` para que `ResponsiveContainer` contraiga.
+9. **`ConfirmationModal`** con `max-w-[min(560px,92vw)] max-h-[88dvh] overflow-y-auto custom-scrollbar`.
+10. **`ActivityHeatmap`**: wrapper con `overflow-x-auto custom-scrollbar` y `min-w-[320px]` (antes 400px).
+
+### Consecuencias
+
+**Positivas:**
+- En 1366×768 con sidebar rail, el contenido pasa de ~1078px → ~1294px de ancho útil (+216px, +20%).
+- Tipografía y spacing escalan suavemente entre 1366 y 1920+ sin saltos bruscos.
+- Gameplay maximiza superficie visible para el alumno (sin sidebar/topbar robando espacio).
+- 8 páginas principales centralizadas en `page-container` simplifican mantenimiento.
+- Sistema de tokens fluidos disponible para futuras pantallas sin re-trabajo.
+
+**Limitaciones/aprendizajes:**
+- **Tailwind v4 NO permite override de breakpoints vía custom property en `@theme`**: declarar `--breakpoint-md: 900px` no genera la media query con 900px (Tailwind v4 los compila en build time, no en runtime). Mantenidos los breakpoints default de Tailwind. La escalera `1→sm:2→md:3→xl:4` con `md=768` sigue siendo correcta.
+- El umbral de la sidebar `auto→expanded` quedó en 1440px (no 1280px del plan inicial) para que 1366×768 vea rail. Documentado en `useSidebarMode.js`.
+- `useIsMobile(1024)` permanece para componentes legacy que solo necesitan binario mobile/desktop. Convivirá con `useSidebarMode` hasta su deprecación natural.
+
+### Referencias
+
+- Spec: `docs/superpowers/specs/2026-05-09-responsive-overhaul-design.md`.
+- Plan: `docs/superpowers/plans/2026-05-09-responsive-overhaul.md`.
+- Memoria: `feedback_desktop_first.md`, `feedback_light_dark_two_aesthetics.md`, `feedback_qa_session_self_navigated.md`, `feedback_branch_grouping.md`, `feedback_skip_baseline_preflight.md`.
+- QA: `qa-capturas-responsive-overhaul/HALLAZGOS.md` + capturas (1366×768 y 1920×1080, ambos temas).
+- ADR-069 (a11y), ADR-070 (motion signature), ADRs 085-088 (refinamientos UI previos).
+
+
+## ADR-120: Rediseño Login + Register con escena signature "Constelación de tarjetas RFID" [Frontend, UX]
+
+**Fecha:** 2026-05-10
+**Estado:** Aprobado · implementado en `feature/ui-features-and-signature`
+**Alcance:** Frontend (Login, Register, AuthBackground, index.css)
+
+### Contexto
+
+Tras la sesión QA `feature/ui-features-and-signature` (2026-05-10) la pantalla de Login y Register seguía siendo el punto más débil de la calidad UI/UX:
+
+1. Layout 50/50 plano hero/form con aurora de tres orbes que aparecía en AppLayout, GameSession y aquí — no era una "firma de auth", era un patrón global poco distintivo (anti-AI-slop pendiente).
+2. En monitores 1920+/4K, el espacio entre logo, headline, lista de features y form se sentía vacío. El form ocupaba <300px de altura en una columna de 800px+ → "white space sin propósito".
+3. Light y dark eran prácticamente la misma estética con paleta intercambiada. La promesa "dos UIs distintas, no un toggle de color" (memoria `feedback_light_dark_two_aesthetics.md`) no se cumplía aquí.
+4. Cero firma identitaria: cualquier app de auth genérica hubiera servido. Ningún elemento decía "esta es la app de tarjetas RFID para profesores de infantil/primer ciclo de primaria".
+
+### Decisión
+
+Reemplazar el aurora-layer + grid genérico por una nueva escena visual **`AuthBackground`** con dos estéticas radicalmente distintas por tema y una metáfora central: las tarjetas RFID que el alumnado tocará en clase.
+
+#### Componente nuevo: `AuthBackground.jsx`
+
+Vive en `frontend/src/components/auth/AuthBackground.jsx`. Renderiza seis capas superpuestas:
+
+1. **Atmósfera base** (`auth-bg-base`): radial gradient de elevation en dark; en light es papel marfil con una mancha de tinta púrpura sutil en la esquina superior derecha.
+2. **Rejilla técnica** (`auth-bg-grid`): grid 64×64 puntos con mask radial en dark; en light se transforma en líneas horizontales de cuaderno escolar (32px) con una **línea de margen rojo** vertical a 84px del borde — la firma del cuaderno español de toda la vida.
+3. **Aurora glow** (`auth-bg-glow`): tres orbes contextuales con tints de los temas pedagógicos (Geo, Colors, Numbers). Mix-blend `screen` en dark, `multiply` en light para evitar manchas grises.
+4. **Constelación de tarjetas** (`ConstellationCard`): cinco tarjetas RFID con icono Lucide del contexto (Globe2, Shapes, Dog, Hash, Palette), drift suave (translateY ±12px loop 9s) y rotación leve (-16° a +10°). En dark son glass con scanline propio cada 5s; en light son **cartulina con washi-tape** arriba (truco visual: span absoluto con `box-shadow inset` que sólo aparece via CSS en `[data-theme="light"]`).
+5. **Scanline horizontal global** (`auth-bg-scanline`): banda fina con gradient brand que barre el viewport cada 8s — sólo en dark. `prefers-reduced-motion: reduce` la anula completamente.
+6. **RFID wave footer** (`auth-bg-wave`): tres anillos concéntricos tenues en el centro inferior — refuerza la firma del lector.
+
+La variant `register` flippea horizontalmente la constelación (`scale-x-[-1]`) para que Login y Register se sientan como "dos páginas de un mismo libro".
+
+#### Refactor Login.jsx + Register.jsx
+
+- **Layout**: 50/50 → **7/5** (`grid-cols-12` con hero `col-span-7` y form `col-span-5`). El hero tiene más respiro y el form deja de sentirse perdido en una columna gigante.
+- **Hero**: lista vertical de 3 features → tres **chips horizontales** con icono Lucide que ocupan menos espacio vertical. El protagonismo pasa al headline tipográfico fluido (`var(--text-fluid-hero)`, clamp(2.25rem, 1.5rem + 3vw, 5rem)) con dos líneas de impacto: "Acerca el cartón. Suceden cosas." (Login) y "Tu primer mazo, en cinco minutos." (Register).
+- **Form card**: `<GlassCard>` → **`auth-form-card`** (utility nueva), con una **barra superior de marca** (cyan→brand→pink→amber) de 3-4px que actúa como firma visual del producto en el contenedor.
+- **`Register`** mantiene el orden "form a la izquierda, hero a la derecha" via `lg:order-1/2` para que el cerebro del docente recuerde el cambio espacial entre las dos pantallas. Los pasos numerados ("Rellena tus datos / La dirección revisa / Empieza a jugar") usan un **número grande tipográfico** (3xl tabular-nums) en lugar de círculo numerado, reforzando el lenguaje editorial.
+
+#### Utility CSS nueva: `.rfid-hover`
+
+Sweep de "scanline" sobre cualquier elemento clickable: un gradient horizontal con `color-mix(in oklab, brand-base 18%, transparent)` que cruza el contenedor en hover (600ms ease-out). Aplicada inicialmente a `StatCard` (KPIs del Dashboard) — es el guiño "este es un lector RFID, todo se siente táctil" en cards no relacionados directamente con gameplay.
+
+#### Sidebar light: línea de margen rojo
+
+`[data-theme="light"] aside.lg\:sticky::after` añade una línea vertical de 2px en el borde izquierdo con gradient rojo (`oklch(45% 0.18 25 / 0.30→0.45→0.30`). Es el mismo motivo del cuaderno escolar de la `AuthBackground` — extiende la firma "papel" al resto de la app cuando el usuario está autenticado en light. Se anula automáticamente en modo rail (sidebar contraída) porque distrae más que aporta.
+
+#### Charts visibility: `StudentProgressChart` light fix
+
+El gradient `colorScore` del Area chart usaba `0.4 → 0` que sobre papel marfil quedaba lavado y casi invisible. Migrado a tres stops: `0.55 → 0.18 → 0`. En dark el área se sigue percibiendo similar (porque el background-elevated absorbe la diferencia); en light gana presencia tangible.
+
+#### Anti-AI-slop: GameOverScreen sin emojis
+
+`floatingStars` usaba estrellas-emoji (dependientes de la fuente del SO, mezclando estilos de Apple/Microsoft/Noto). Migrado a Lucide `Star`, `Sparkles`, `Sparkle` con `fill="currentColor"` y rotación en animate (90°/-90°). Coherencia con resto del design system.
+
+### Consecuencias
+
+**Positivas:**
+- Login y Register comunican **lo que hace EduPlay** sin necesidad de leer la tagline. Las cinco tarjetas RFID con sus iconos de contexto son la firma que ningún clon de auth genérico tendría.
+- Dark = "sala de control del docente" (técnico, scanline, glow); Light = "mesa del aula" (papel marfil, washi-tape, línea roja de margen). Cumple `feedback_light_dark_two_aesthetics.md`.
+- El espacio en monitores grandes deja de sentirse vacío: hero crece a 7/12 cols con headline fluido grande, las tarjetas pueblan los rincones evitando el centro despejado para texto, los chips compactan los proof points.
+- A 1366×768 sigue funcionando: tarjetas escaladas con `clamp(100px, 8vw, 140px)`, hero columna no toca form, breakpoint `lg` pasa a stack mobile sin romper nada.
+- `prefers-reduced-motion: reduce` desactiva drift de tarjetas, scanline global y sweep `.rfid-hover` — accesibilidad WCAG 2.3.3 cubierta.
+- `.rfid-hover` y la línea de margen `aside::after` son hooks de firma reusables: cualquier card o componente puede sumarse al lenguaje sin reescribirse.
+- 0 errores lint, 355/355 tests frontend, build OK (24 chunks, mismos tamaños — Login y Register son lazy-loaded, no impactan al index).
+
+**Limitaciones / aprendizajes:**
+- Las tarjetas de la constelación se posicionan por % del viewport; cuando la columna hero es muy alta (>1200px) las tarjetas inferiores pueden quedar parcialmente fuera de viewport. Aceptado: la composición prioriza monitores estándar 1366-1920px de alto.
+- En Playwright, `localStorage.removeItem` previo a `goto` puede hacer que el script-inline de boot lea `auto` y aplique tema según `prefers-color-scheme` del browser — capturas iniciales se tomaron en light por accidente. Documentado.
+- `auth-card-tape` (washi-tape de light) es opacity 0 en dark: la banda existe en todos los temas pero sólo se activa visualmente en light. Trade-off para no duplicar markup.
+
+### Archivos afectados
+
+**Nuevos:**
+- `frontend/src/components/auth/AuthBackground.jsx` — escena signature.
+
+**Modificados:**
+- `frontend/src/pages/Login.jsx` — refactor completo del layout, headline, proof points, form card.
+- `frontend/src/pages/Register.jsx` — espejo simétrico con pasos numerados.
+- `frontend/src/index.css` — utilities `auth-bg-*`, `auth-card`, `auth-card-tape`, `auth-form-card`, `.rfid-hover`, sidebar light `::after`.
+- `frontend/src/components/dashboard/StatCard.jsx` — añade clase `rfid-hover`.
+- `frontend/src/components/dashboard/StudentProgressChart.jsx` — gradient fill multi-stop para visibilidad en light.
+- `frontend/src/components/game/GameOverScreen.jsx` — emojis estrella → Lucide Star/Sparkles/Sparkle.
+
+### Referencias
+
+- Memoria: `feedback_desktop_first.md`, `feedback_light_dark_two_aesthetics.md`, `feedback_qa_session_self_navigated.md`.
+- ADR-070 (Motion signature Tactile+Paper) — leitmotiv que aquí se materializa con la escena auth.
+- ADR-115 (Tema light + onboarding T-951) — base de tokens light que esta ADR explota.
+- ADR-119 (Responsive overhaul) — sidebar rail y tokens fluidos consumidos.
+- QA: `qa-tarea-final/FINAL-login-{dark,light}.png`, `qa-tarea-final/FINAL-register-{dark,light}.png`, `qa-tarea-final/01-08-*` (capturas previas al rediseño para comparativa).
+
+## ADR-121: Polish post-rediseño Login/Register + page transitions direccionales + anti-AI-slop gameplay [Frontend, UX]
+
+**Fecha:** 2026-05-10
+**Estado:** Aprobado · implementado en `feature/ui-features-and-signature`
+**Alcance:** Frontend (AuthBackground, Login, Register, PrivacyPage, AppLayout, MemoryBoard, ChallengeDisplay, CharacterMascot, useNavigationDirection)
+
+### Contexto
+
+Tras ADR-120 (rediseño Login/Register con escena `AuthBackground`), el usuario reportó tres bugs visibles + dos work items diferidos que pidió cerrar antes de mover.
+
+**Bugs encontrados:**
+1. **Login** — la animación de "scan ring" alrededor de la tarjeta Geo aparecía descuadrada respecto al icono Globe2 (las ondas pulsaban en una posición distinta al centro de la tierra).
+2. **Register** — la constelación de tarjetas estaba flippeada con `scale-x-[-1]` lo que también invertía el contenido (logo, label, chip RFID), dejándolos ilegibles.
+3. **PrivacyPage** — el `ThemeToggle` desapareció (nunca lo tuvo, pero el usuario lo esperaba por paridad con Login/Register tras T-951).
+
+**Diferidos cerrados:**
+4. Polish 3 mecánicas (Memoria, Asociación, Secuencia) — anti-AI-slop pendiente.
+5. Page transitions con direccionalidad — la transición fade-up actual no comunicaba dirección espacial.
+
+### Decisión
+
+#### Bug 1 — Scan ring del Login alineado al icono
+
+`ScanRing` ahora recibe la `position` exacta de la tarjeta Geo (variant-aware: en register usa `right` en lugar de `left`) y centra los anillos sobre el icono Globe2 mediante un wrapper interno con `left:50% top:50% transform:translate(-50%,-50%)`. Los anillos pulsan con `scale: 0.85 → 1.4 → 1.8` y opacidad `0 → 0.55 → 0` sobre 3 segundos × 3 anillos staggerados a 1s. El borderColor consume `var(--color-theme-geography)` para tema-aware.
+
+#### Bug 2 — Register sin flip que invierte texto
+
+Reemplazado `<div className={flipped ? 'scale-x-[-1]' : ''}>` por una transformación de coordenadas en runtime:
+
+```jsx
+const mirroredStyle = flipped
+  ? { top: card.style.top, right: card.style.left }
+  : card.style;
+const mirroredRotate = flipped ? -card.rotate : card.rotate;
+```
+
+Las tarjetas viven en el lado opuesto del viewport (left ↔ right) y la rotación se invierte signo (-8° pasa a +8°), pero su contenido (icono, label, chip, washi-tape) sigue legible normalmente. La sensación visual de "espejo" se mantiene; la legibilidad se recupera.
+
+#### Bug 3 — ThemeToggle en Privacy + más prominente en Login/Register
+
+- **PrivacyPage**: añadido `<ThemeToggle compact />` al header sticky junto al link "Iniciar sesion". El header pasó a `gap-3` y el copy "Iniciar sesion" se oculta en breakpoint `<sm` para evitar wrap.
+- **Login + Register**: el `<ThemeToggle />` flotante en `bottom-6 right-6` se envolvió en un wrapper sólido (`bg-background-elevated/85 backdrop-blur-md border border-border-default shadow-md rounded-2xl px-2 py-1.5`). Antes era un control transparente sobre la escena AuthBackground y se confundía con el fondo — el usuario lo percibió como "removido". Ahora destaca como una card claramente actionable.
+- **Test**: `PrivacyPage.test.jsx` mockea `useTheme` para que el render no requiera envolver con `ThemeProvider` en cada test.
+
+#### Item 4 — Anti-AI-slop en gameplay
+
+Sustituidos restos de Unicode/emoji por iconos Lucide:
+- **`MemoryBoard.jsx`** — el `<span>✦</span>` (Unicode "Black Four Pointed Star") en la cara trasera de las cartas pasa a `<Sparkle size={28} fill-white/30 strokeWidth=1.5/>` (Lucide). Mantiene el estilo "logo de baraja" pero con tinte controlado.
+- **`ChallengeDisplay.jsx`** — el placeholder `'❓'` cuando no hay imagen se sustituye por `<HelpCircle/>` con el color del tema activo. El `<span>✨</span>` decorativo de las cuatro esquinas se cambia por `<Sparkles size={20} fill="currentColor"/>` con `text-brand-light/70`.
+- **`CharacterMascot.jsx`** — los emojis `⭐` y `✨` en la decoración de `mood='celebrating'` migran a `<Star fill="currentColor"/>` con `text-warning-base drop-shadow-warning-glow` y `<Sparkles fill="currentColor"/>` con `text-brand-light drop-shadow-brand-glow`.
+- **`GameBackdrop.jsx`** — se mantiene con emojis (decisión documentada: cross-platform consistency + 0 bytes bundle, decoración no semántica de fondo, usuarios reconocen 🌍🐾 etc por contexto pedagógico).
+
+#### Item 5 — Page transitions direccionales
+
+Nuevo hook `frontend/src/hooks/useNavigationDirection.js`:
+
+- Lee `useNavigationType()` de React Router 7 — distingue `PUSH` / `REPLACE` / `POP`.
+- Mantiene un stack de `pathname+search` en `sessionStorage` (max 16 entradas).
+- Si la nueva ruta coincide con el penúltimo elemento del stack durante un `POP` → `'back'`. En cualquier otro caso → `'forward'`. `REPLACE` se trata como `'replace'` (sin desplazamiento).
+- Primer mount siempre devuelve `'forward'` para no animar el fade-in inicial como retroceso.
+
+`AppLayout.jsx` consume el hook y modifica el `initial` del `motion.div` que envuelve `<Outlet/>`:
+
+```jsx
+initial={(() => {
+  if (shouldReduceMotion) return false;
+  if (navDirection === 'back')    return { opacity: 0, x: -12, y: 4 };
+  if (navDirection === 'replace') return { opacity: 0, y: 4 };
+  return /* forward */            { opacity: 0, x: 12, y: 4 };
+})()}
+animate={{ opacity: 1, x: 0, y: 0 }}
+```
+
+Forward (PUSH) entra desde la derecha (+12px), back (POP atrás) entra desde la izquierda (-12px), replace solo fadea. El offset es pequeño (12px, no 100%) para que no compita con la lectura — sólo refuerza la dirección espacial. Wrapper con `overflow-x-clip` evita scroll horizontal durante la transición.
+
+### Consecuencias
+
+**Positivas:**
+- El scan ring del Login cae sobre la tierra; ya no parece un bug visual.
+- Register se lee perfectamente; la simetría con Login se mantiene gracias a la inversión de coordenadas y rotación.
+- ThemeToggle deja de ser invisible: el wrapper card en auth + el placement en header de Privacy lo elevan visualmente.
+- Anti-AI-slop sigue progresando: el design system se aproxima a "0 emojis decorativos en chrome" (excepción consciente: GameBackdrop por trade-off bundle/identidad).
+- Page transitions direccionales dan **lectura espacial** al docente: ir hacia `/sessions/:id` desde lista parece "entrar"; volver al listado parece "salir". El offset es discreto pero el cerebro lo percibe.
+- `useNavigationDirection` queda como hook reutilizable para futuras transiciones más expresivas (ej: shared element transitions, parallax scroll).
+- Tests: 355/355 pasan tras añadir mock de `useTheme` en `PrivacyPage.test.jsx`. Lint 0 errores. Build OK.
+
+**Limitaciones / aprendizajes:**
+- `useNavigationType` no puede distinguir POP-atrás de POP-adelante perfectamente; si el usuario hace forward via botón del navegador y la ruta nueva no estaba en el stack, se trata como forward (correcto la mayoría del tiempo).
+- El stack en `sessionStorage` se pierde al cerrar pestaña — la primera transición tras reabrir no tendrá histórico. Aceptable: es un nice-to-have, no crítico.
+- `scale-x-[-1]` para flippear escenas con texto es un anti-patrón — apuntar en docs internas que se prefiere mirroring de coordenadas.
+
+### Archivos afectados
+
+**Nuevos:**
+- `frontend/src/hooks/useNavigationDirection.js`.
+
+**Modificados:**
+- `frontend/src/components/auth/AuthBackground.jsx` — ScanRing alineado, Register sin flip.
+- `frontend/src/pages/Login.jsx` — wrapper card del ThemeToggle.
+- `frontend/src/pages/Register.jsx` — wrapper card del ThemeToggle.
+- `frontend/src/pages/PrivacyPage.jsx` — import + render `<ThemeToggle compact/>` en header.
+- `frontend/src/pages/__tests__/PrivacyPage.test.jsx` — mock de `useTheme`.
+- `frontend/src/components/layout/AppLayout.jsx` — import + uso de `useNavigationDirection` para `initial` del Outlet.
+- `frontend/src/components/game/MemoryBoard.jsx` — `✦` → Lucide `Sparkle`.
+- `frontend/src/components/game/ChallengeDisplay.jsx` — `❓` → Lucide `HelpCircle`, `✨` → Lucide `Sparkles`.
+- `frontend/src/components/game/CharacterMascot.jsx` — `⭐ ✨` (mood celebrating) → Lucide `Star`/`Sparkles`.
+
+### Referencias
+
+- ADR-120 (rediseño base Login/Register) — esta ADR cierra los bugs de su entrega.
+- ADR-070 (Motion signature Tactile+Paper).
+- ADR-119 (Responsive overhaul) — sidebar rail compatible con `useNavigationDirection`.
+- QA: `qa-tarea-final/FINAL-v2-login-dark.png`, `FINAL-v2-register-dark.png`, `FINAL-v2-privacy-dark.png`.
+
+---
+
+## ADR-122: Charts a11y + reduced-motion + light gradient rebase + patterns RAG + migración ActivityHeatmap/ContentEffectivenessMatrix/AlertsHub (T-952 Fase 0) [Frontend, UX, A11y]
+
+**Estado:** Aceptado.
+**Sprint/Origen:** T-952 sesión 2026-05-11. Fase 0 retake sobre los charts paleta de marca entregados en ADR-117 (T-953). Auditoría reveló cinco gaps: (a) ningún chart respeta `prefers-reduced-motion`; (b) gradients horizontales `brand-light→transparent` casi invisibles sobre marfil en light; (c) tooltips sin keyboard nav ni resumen sr-only para lector de pantalla; (d) BarChart/RadarChart sin patterns colorblind-safe; (e) ActivityHeatmap, ContentEffectivenessMatrix y AlertsHub no migrados al theme.
+
+### Contexto
+
+ADR-117 entregó `ChartsTheme.jsx` con gradients y patterns base, y los aplicó en TrajectoryChart, SequenceProgressChart, EngagementRadar y PerformanceByDimension. Quedaron pendientes los puntos arriba. T-952 cierra esa deuda como pre-requisito del polish v1.0.0.
+
+### Decisión
+
+**A11y + reduced-motion:**
+
+- Hook `useChartMotion()` en `ChartsTheme.jsx` que devuelve `{ isAnimationActive, animationDuration, animationBegin }` consumido por todos los charts Recharts. Internamente lee `useReducedMotion`: con motion reducido → `{ false, 0, 0 }`; default → `{ true, 700, idx * 80 }` (cascada escalonada por seriesIndex).
+- Componente `<ThemedChartContainer>` wrapper con `role="figure"`, `aria-label` con resumen accesible compuesto `${title}. ${summary}`, slot opcional `dataTable` que renderiza una `<table class="sr-only">` con label/value por punto. Aplicado en TrajectoryChart, SequenceProgressChart, EngagementRadar, PerformanceByDimension, StudentProgressChart, ActivityHeatmap, ContentEffectivenessMatrix.
+
+**Light mode gradient rebase:**
+
+- Variables semánticas nuevas en `index.css` `@theme` y bloque `[data-theme="light"]`:
+  - `--chart-stop-brand-{start,end}`, `--chart-stop-{memory,association,sequence}-{start,end}`, `--chart-stop-{success,warning,error}-{start,end}`.
+- En dark, `end` apunta a la variante CLARA (`brand-light`); en light, `end` apunta a la variante OSCURA (`brand-dark`). Los gradients horizontales mantienen contraste visible en ambos temas.
+- `ChartsTheme.jsx` consume las CSS vars en lugar de hex hardcoded — la cascada hace todo el trabajo.
+
+**Patterns colorblind-safe en Bar:**
+
+- Tres `<pattern>` nuevos en `<defs>` (`chart-rag-green`, `chart-rag-amber`, `chart-rag-red`) con color de fondo + textura única (dots / diagonal / dashed).
+- Helper `getRAGPatternFill(score)` devuelve el id correcto según el rango RAG.
+- Aplicado en `PerformanceByDimension` (cada `<Cell>` recibe `fill=url(#chart-rag-X)` en lugar de color sólido).
+
+**Migración ActivityHeatmap/ContentEffectivenessMatrix/AlertsHub:**
+
+- ActivityHeatmap: celdas `value=0` usan utility CSS `bg-stripe-diagonal` (equivalente del SVG `chart-pattern-empty`) en lugar de un fondo tenue indistinguible. Envuelto en `<ThemedChartContainer>` con summary "pico de actividad: día/hora".
+- ContentEffectivenessMatrix: cada fila gana icono Lucide (`CircleCheck`/`CircleAlert`/`CircleX`/`Circle`) según RAG, además del color. La leyenda usa los mismos iconos. Wrapper `<ThemedChartContainer>` con `summary` y tabla sr-only.
+- AlertsHub: `<div>` raíz → `<section>` con `role="region"` y `aria-label` que resume contadores por severidad. Cada `SeverityCounter` ya tenía icono propio (`AlertOctagon`, `AlertTriangle`, `Info`).
+
+### Archivos clave
+
+- `frontend/src/components/analytics/ChartsTheme.jsx` (`useChartMotion`, patterns RAG, helper `getRAGPatternFill`, gradients via CSS vars).
+- `frontend/src/components/analytics/ThemedChartContainer.jsx` (nuevo).
+- `frontend/src/components/analytics/TrajectoryChart.jsx`, `EngagementRadar.jsx`, `SequenceProgressChart.jsx`, `PerformanceByDimension.jsx`, `ActivityHeatmap.jsx`, `ContentEffectivenessMatrix.jsx`, `AlertsHub.jsx`.
+- `frontend/src/components/dashboard/StudentProgressChart.jsx`, `DistributionChart.jsx`.
+- `frontend/src/pages/InsightsReports.jsx` (motion en AreaChart de Curvas de Aprendizaje).
+- `frontend/src/index.css` (variables `--chart-stop-*` por tema).
+
+### Consecuencias
+
+- Charts respetan `prefers-reduced-motion` (WCAG 2.3.3). Verificado en hook unitario.
+- Light mode: líneas legibles con buen contraste (verificado visualmente en QA Playwright Fase 5).
+- Bar chart RAG distinguible por daltonismo (color + textura, WCAG 1.4.1).
+- Tres charts adicionales coherentes con el theme system.
+- Sr-only summaries permiten a lectores de pantalla anunciar la insight clave sin recorrer cada punto.
+
+### Referencias
+
+- ADR-117 (ChartsTheme base) — esta ADR cierra los gaps de su entrega.
+- WCAG 2.2 §1.4.1 (Use of Color), §2.3.3 (Reduced Motion), §1.1.1 (Non-text Content).
+- QA: `frontend/qa-capturas-T952/15-student-profile-dark-charts.png` + `16-student-profile-light-charts.png`.
+
+---
+
+## ADR-123: Atajo `Shift+T` global + animación View Transition API para toggle de tema + `<GlobalShortcuts />` y `ShortcutRegistry` (T-952 Fase 1) [Frontend, A11y]
+
+**Estado:** Aceptado.
+**Sprint/Origen:** T-952 sesión 2026-05-11. Petición explícita del usuario: añadir atajo de teclado para cambiar tema + animación de transición suave en cualquier ventana de la app (Login, Register, AppLayout, GameLayout).
+
+### Contexto
+
+T-951 (ADR-115) entregó tema claro/oscuro + sistema de atajos globales montados en AppLayout. Faltaba:
+
+1. Atajo dedicado para toggle de tema.
+2. Animación cinematográfica al cambiar tema (la transition 200ms en `body` existente era plana).
+3. Que los atajos del sistema (`Shift+?`, `Escape`) funcionen FUERA de AppLayout (en Login/Register/GameLayout) — el usuario lo pidió expresamente.
+
+### Decisión
+
+**Animación con View Transition API + fallback CSS:**
+
+- `ThemeContext.toggleTheme()` detecta `document.startViewTransition` y `prefers-reduced-motion`:
+  - VT API + sin reduce-motion → `document.startViewTransition(() => setMode(next))` para cross-fade nativo.
+  - Sin VT API (Firefox/Safari<18) → `data-theme-switching` en `<html>` durante 280ms, con CSS expandida (`background-color`, `color`, `border-color`, `fill`, `stroke`) en `body *:not(svg):not(svg *)`.
+  - Reduce-motion → cambio instantáneo sin animación.
+- Keyframes `theme-fade-out`/`theme-fade-in` con `cubic-bezier(0.22, 1, 0.36, 1)` y duración 320ms en `::view-transition-old/new(root)`.
+- Bloque `@media (prefers-reduced-motion: reduce)` desactiva ambos caminos.
+
+**Atajos verdaderamente globales con registry:**
+
+- Componente nuevo `<GlobalShortcuts />` montado en `<App>` dentro de los Providers (`ThemeProvider` > `BrowserRouter` > `AuthProvider` > `RfidModeProvider` > `ShortcutRegistryProvider` > `GlobalShortcuts`).
+- `GlobalShortcuts` registra la sección "Sistema" (Shift+T tema, Shift+? overlay, Escape close) y aloja UN ÚNICO listener `keydown` que consume `registry.flatShortcuts` (incluye global + cualquier fuente contextual).
+- `ShortcutRegistryContext.jsx` expone `registerSource(id, sections)` y `unregisterSource(id)`. Layouts hijos (`AppLayout` teacher/admin) registran sus secciones contextuales (`Navegación g+...`, `Acciones Shift+N`, `Vista [`) con `useRegisterShortcutSource('app-layout-...', sections)` y se limpian al desmontar.
+- `KeyboardShortcutsOverlay` consume `registry.sections` y renderiza solo lo aplicable al layout activo. En Login/Register el overlay muestra solo "Sistema"; en AppLayout muestra "Sistema + Navegación + Acciones + Vista".
+
+**Fix BUG-1 (descubierto en QA):**
+
+`useKeyboardShortcuts.js` no canonizaba `Shift+letra` (devolvía `'t'` en lugar de `'Shift+T'` porque la condición original `!isLetter && shiftKey` excluía letras del prefijo Shift). Fix: dejar la mayúscula nativa de event.key cuando hay Shift, y siempre prefijar `'Shift+'`. Test añadido cubriendo `Shift+T` y `Shift+N`.
+
+**Fix BUG-2 (descubierto en QA):**
+
+`useMemo` de `layoutShortcutSections` dependía de `sidebar` (objeto retornado por `useSidebarMode` — fresco en cada render aunque sus métodos sean estables). El effect del registry se re-disparaba en cada render → infinite loop. Fix: depender solo de `sidebar.toggle` (estable useCallback).
+
+### Archivos clave
+
+- `frontend/src/context/ThemeContext.jsx` (toggleTheme con View Transition).
+- `frontend/src/context/ShortcutRegistryContext.jsx` (nuevo).
+- `frontend/src/components/system/GlobalShortcuts.jsx` (nuevo).
+- `frontend/src/components/layout/AppLayout.jsx` (eliminar registro local de Shift+?/Escape; registrar solo contextuales).
+- `frontend/src/index.css` (`::view-transition-*`, `[data-theme-switching]`, keyframes, reduced-motion).
+- `frontend/src/hooks/useKeyboardShortcuts.js` (canonical Shift+letra fix).
+- `frontend/src/App.jsx` (montar `<ShortcutRegistryProvider>` y `<GlobalShortcuts />`).
+
+### Consecuencias
+
+- Atajos `Shift+T` y `Shift+?` operativos en Login, Register, AppLayout (teacher + admin) y GameLayout (las 3 mecánicas) sin acoplamiento a layout.
+- Animación cinematográfica nativa en Chromium ≥111 y Safari ≥18; fallback CSS en Firefox y Safari<18.
+- `<KeyboardShortcutsOverlay>` muestra solo atajos aplicables al layout activo.
+- `Shift+letra` queda canónicamente correcto para todos los atajos (Shift+N también beneficiado).
+
+### Referencias
+
+- ADR-115 (Tema light + atajos T-951) — esta ADR extiende su entrega.
+- View Transition API: https://developer.mozilla.org/en-US/docs/Web/API/View_Transitions_API
+- WCAG 2.2 §2.3.3 (Three Flashes or Below Threshold) + §2.1.1 (Keyboard).
+- QA: `frontend/qa-capturas-T952/02-login-light-shift-t.png`, `03-login-light.png`, `05-dashboard-light.png`, `08-shortcuts-overlay-dark.png`.
+
+---
+
+## ADR-124: `usePaginatedList` + `useVirtualizedList` con `@tanstack/react-virtual` (T-952 Fase B) [Frontend]
+
+**Estado:** Aceptado.
+**Sprint/Origen:** T-952 sesión 2026-05-11. Tres listados (SessionsPage, CardDecksPage, StudentManagement) replicaban el mismo patrón de fetch paginado con AbortController + debounce de búsqueda + reset de página al cambiar filtros.
+
+### Decisión
+
+- Hook `usePaginatedList({ fetcher, initialPage, initialLimit, initialFilters, initialSortBy, initialOrder, searchDebounceMs, enabled, onError })` que:
+  - Normaliza dos formas de envelope del backend (`{ data, pagination }` y `{ data: { data, pagination } }`).
+  - Estado: `items`, `pagination`, `page`, `limit`, `filters`, `search`, `sortBy`, `order`, `isLoading`, `error`.
+  - Setters resetean page=1 al cambiar (`setFilters`, `setSearch`, `setSort`, `setLimit`).
+  - AbortController interno cancela fetches en flight cuando los params cambian.
+  - Debounce de search configurable (default 300ms).
+- Hook `useVirtualizedList({ count, enableAt = 50, estimateSize = 80, overscan = 8 })` wrapper de `useVirtualizer` con threshold opcional. Si `count < enableAt`, devuelve `shouldVirtualize=false` y el consumidor renderiza la lista normal.
+- Aplicado en StudentManagement: cuando `students.length >= 50` el grid CSS clásica se sustituye por una lista vertical virtualizada (`maxHeight: 70vh`, `overflow-y: auto`). Para listados pequeños (la mayoría de aulas) el grid se mantiene.
+- 6 tests Vitest unitarios para `usePaginatedList` cubren: primer fetch + normalización A/B, cambio de página, reset al filtrar, debounce de search, error handling.
+
+SessionsPage y CardDecksPage NO se migraron al hook por usar un patrón distinto (infinite scroll con `hasMore`). Documentado como deuda opcional — el hook está disponible para nuevos listados.
+
+### Archivos clave
+
+- `frontend/src/hooks/usePaginatedList.js` (nuevo).
+- `frontend/src/hooks/useVirtualizedList.js` (nuevo).
+- `frontend/src/hooks/__tests__/usePaginatedList.test.js` (nuevo, 6 tests).
+- `frontend/src/pages/admin/StudentManagement.jsx` (integración virtualización + extracción `renderStudentCard`).
+- `frontend/package.json` (+ `@tanstack/react-virtual` ~6KB gzip).
+
+### Consecuencias
+
+- StudentManagement escala a 1000+ alumnos manteniendo scroll fluido (~10 filas en pantalla, render constante).
+- Hooks reutilizables para futuros listados (admin de contextos, historial de partidas, etc.).
+- Sin regresión en flujos existentes (SessionsPage/CardDecksPage siguen idénticos visualmente).
+
+### Referencias
+
+- `@tanstack/react-virtual`: https://tanstack.com/virtual/latest
+
+---
+
+## ADR-125: Inline editing pattern (`useInlineEdit` + `<InlineEditableText>`) en DeckCard y SessionCard (T-952 Fase C) [Frontend, UX]
+
+**Estado:** Aceptado.
+**Sprint/Origen:** T-952. Renombrar mazos/sesiones requería navegar al detalle/edit page; el usuario pidió edición inline al hover/click sobre el nombre.
+
+### Decisión
+
+- Hook `useInlineEdit({ value, onSave, validate, debounceMs = 800, autosave = true })`:
+  - Estados: `draft`, `isEditing`, `isSaving`, `error`.
+  - Triggers: `start()`, `cancel()`, `commit()`, `setDraft(v)`.
+  - Autosave debounced (con guard `draft !== value` para no cerrar el editor automáticamente al entrar sin cambios — bug detectado en QA, fix BUG-3).
+- Componente `<InlineEditableText value onSave validate trigger="hover-pencil" maxLength as="h3" ... />`:
+  - Estado idle: muestra texto como `<h3 role="button" tabindex=0 aria-label="Editar X">` + botón `Pencil` que aparece on-hover (`opacity-0 group-hover:opacity-100`).
+  - Estado editing: `<input>` con autofocus, Enter commitea, Escape cancela, blur también commitea (salvo si hay error).
+  - Estado saving: spinner `Loader2` junto al input.
+  - Estado error: borde rojo + `<span role="alert" aria-live="polite">` con el mensaje.
+- Aplicado en `DeckCard.jsx` (prop nueva `onRename`) y `SessionCard.jsx` (prop nueva `onRename`; solo activa cuando `session.status === 'created'`, las activas/completas mantienen `<h3>` estático).
+- Handlers `handleRenameDeck(deck)` en CardDecksPage y `handleRenameSession(session)` en SessionsPage con **optimistic update + rollback** en caso de error backend.
+
+### Archivos clave
+
+- `frontend/src/hooks/useDebounce.js` (nuevo — utility genérico).
+- `frontend/src/hooks/useInlineEdit.js` (nuevo).
+- `frontend/src/components/ui/InlineEditableText.jsx` (nuevo).
+- `frontend/src/components/ui/DeckCard.jsx`, `frontend/src/pages/SessionsPage.jsx` (integración).
+- `frontend/src/pages/CardDecksPage.jsx` (handler `handleRenameDeck`).
+
+### Consecuencias
+
+- UX más fluida: el usuario renombra sin navegar a edit page (~3 clicks ahorrados por rename).
+- Pattern reutilizable: `<InlineEditableText>` aplicable a nombres de contexto, descripciones cortas, alias, etc.
+- Validación inline (no vacío + maxLength) consistente con backend Zod.
+
+### Referencias
+
+- WCAG 2.2 §3.3.1 (Error Identification) — el `<span role="alert">` cumple.
+- QA: `frontend/qa-capturas-T952/12-deck-inline-edit-active.png`.
+
+---
+
+## ADR-130: Atmósferas dinámicas por contexto + scroll parallax aurora (T-954) [Frontend, UX]
+
+**Status:** ✅ Implementado · **Scope:** Frontend · **Fecha:** 2026-05-12
+
+### Decisión
+
+Vincular el aurora del fondo, el gradient primary de los botones y el glow de las cards al contexto pedagógico activo (Geografía, Animales, Colores, Números, Formas). El cambio se hace via CSS variables y el atributo `[data-atmosphere]` en `<html>`, igual patrón que el theme switch — sin re-render React de los consumidores.
+
+### Diseño técnico
+
+- **Tokens base** `--color-atmosphere-aurora-{1,2,3}`, `--color-atmosphere-primary`, `--color-atmosphere-primary-alt`, `--color-atmosphere-glow` declarados en `:root` con fallback al aurora neutro y al brand.
+- **Selector `:root[data-atmosphere="key"]`** mapea los tokens a `--color-theme-{key}*` de `contextTheme.js`. Light mode usa variantes soft (`color-mix(in oklab, var(--color-theme-X) 28%, var(--color-background-base))`) para que el blend `multiply` no oscurezca el papel marfil.
+- **AtmosphereContext** ligero: solo escribe el atributo `data-atmosphere` y expone `{ atmosphereKey, setAtmosphere(slug), clearAtmosphere() }`.
+- **`useRouteAtmosphere`** resuelve la atmósfera leyendo el recurso de la URL (`/decks/:id` → deck.context.contextId; idem session y context). Cache en memoria por `${type}:${id}` para evitar refetch.
+- **Crossfade** 400ms en `--color-atmosphere-*` con `transition` CSS, suspendido durante `[data-theme-switching]` para no chocar con el View Transition API del tema.
+- **Scroll parallax** en AppLayout via `useScroll()` + `useTransform(scrollY, [0,800], [0,-Y])` stratified (3 velocidades distintas para los 3 orbes). Reduced-motion lo desactiva.
+
+### Archivos clave
+
+- `frontend/src/context/AtmosphereContext.jsx` (nuevo)
+- `frontend/src/hooks/useRouteAtmosphere.js` (nuevo)
+- `frontend/src/index.css` (CSS vars + mappings light/dark)
+- `frontend/src/components/layout/AppLayout.jsx` (aurora consume tokens + parallax)
+- `frontend/src/components/layout/GameLayout.jsx` (mount `useRouteAtmosphere` para gameplay)
+- `frontend/src/components/ui/ButtonPremium.jsx` (variant primary lee tokens atmósfera)
+
+### Consecuencias
+
+- Cada combinación mecánica × contexto se siente única durante la partida (e.g. Memoria + Animales ≠ Memoria + Geografía).
+- Anti-AI-slop: el aurora deja de ser uniforme entre páginas.
+- Riesgo conocido: si el recurso de la URL no resuelve contextId en el primer paint, la atmósfera arranca en default. El crossfade 400ms suaviza la transición.
+
+---
+
+## ADR-131: Sistema de notificaciones tiempo real persistidas (T-955) [Full-stack]
+
+**Status:** ✅ Implementado · **Scope:** Backend + Frontend · **Fecha:** 2026-05-12
+
+### Decisión
+
+Canal de notificaciones tiempo real persistido (`Notification` model + endpoint REST + room Socket.IO `user_<id>`) con 5 tipos canónicos: `play_completed`, `registration_pending`, `student_at_risk`, `context_shared`, `system_announcement`.
+
+### Diseño técnico (backend)
+
+- Modelo Mongoose `Notification` con indexes compuestos `{ userId, createdAt:-1 }` + `{ userId, read }` y TTL 90d (compatible con la política `data:retention`).
+- `notificationService` con `createNotification`, `listForUser` (cursor pagination), `markRead`, `markAllRead`, `countUnread` y helper `notify(...)` que silencia errores (los triggers de dominio no pueden bloquear endPlay/registro).
+- **Dedup window 60s** en Redis (`SET NX` con TTL) por `(userId, type, hash(metadata.resourceId|priorityHint))` para absorber duplicados consecutivos.
+- Inyección de `io` vía `setSocketServer(io)` desde `server.js` tras `registerSocketHandlers`.
+- Triggers reales:
+  - `gamePlayService.completePlay` → `play_completed` al docente que creó la sesión.
+  - `gamePlayService.completePlay` → `student_at_risk` al docente cuando avg cruza < 50 desde un valor previo ≥ 50.
+  - `authController.register` → `registration_pending` a todos los super_admin del centro.
+  - `gameContextController.createContext` → `context_shared` a todos los docentes activos.
+  - `system_announcement` service-only en v1.0.0 (sin endpoint expuesto).
+- Endpoints REST `/api/notifications` (list cursor, unread-count, mark-read, mark-all-read).
+- DTO V1 `toNotificationDTOV1` en `utils/dtos.js`.
+
+### Diseño técnico (frontend)
+
+- `useNotifications` hook con state local + suscripción Socket.IO `notification:created` + paginación cursor.
+- `<NotificationBell />` con badge contador, pulse subtle on unread, micro-celebración (scale+rotate) cuando llega `play_completed` con 3⭐ (Phase 7 polish).
+- `<NotificationsPanel />` popover con focus trap, ESC cierre, IntersectionObserver para infinite scroll, empty state signature SVG (sobre de papel cerrado).
+- `<NotificationItem />` con icono por tipo (Trophy, UserPlus, AlertTriangle, Layers, Megaphone), timestamp relativo (`useRelativeTime`), dot unread.
+- Atajo `Shift+B` toggle panel (registrado en `ShortcutRegistry` para descubribilidad en `Shift+?`).
+- Microcopy conversacional: "{studentName} ha completado una partida · 3 estrellas · ¡Trabajo redondo!"
+
+### Archivos clave
+
+- Backend: `models/Notification.js`, `services/notificationService.js`, `controllers/notificationController.js`, `routes/notifications.js`, `validators/notificationValidator.js`, `utils/dtos.js` (extensión), `constants/enums.js` (extensión).
+- Frontend: `hooks/useNotifications.js`, `components/notifications/{NotificationBell,NotificationsPanel,NotificationItem,EmptyNotificationsIllustration}.jsx`, `services/api.js` (extensión `notificationsAPI`).
+
+### Consecuencias
+
+- El docente recibe feedback push sin refrescar la página.
+- El super_admin se entera al instante de nuevas solicitudes de registro.
+- La dedup window evita spam si un alumno completa 3 partidas seguidas.
+- TTL 90d cumple política RGPD de retención mínima.
+
+---
+
+## ADR-132: InlineSuccessBadge como complemento de Sonner toast [Frontend, UX]
+
+**Status:** ✅ Implementado · **Scope:** Frontend · **Fecha:** 2026-05-12
+
+### Decisión
+
+Para confirmaciones de **éxito** comunes (guardar mazo, sesión, contexto), mostrar un micro-badge `✓ Guardado` adyacente al botón que disparó la acción y desaparecer en 2s. El toast Sonner queda reservado para errores y destructivos confirmados.
+
+### Diseño técnico
+
+- Hook `useInlineSuccess({ duration = 2000 })` → `{ visible, trigger() }` con auto-hide y cancel de timer previo (anti-flicker en doble-click).
+- Componente `<InlineSuccessBadge visible label placement showIcon />` con scale 0.85→1 + fade-in 160ms / fade-out 220ms (asimétrico), `role="status"` + `aria-live="polite"` para screen readers.
+- Integrado en 6 formularios: `CreateSession`, `SessionEdit`, `DeckCreationWizard`, `DeckEditPage`, `AdminContexts`, `ContextsPage`.
+- En modales que cierran tras save (AdminContexts, ContextsPage), retrasamos el cierre 1.1s para que el badge sea perceptible.
+
+### Consecuencias
+
+- Feedback de éxito sin alejar la mirada del usuario hacia el toaster.
+- Coexiste con toast: errors siguen siendo Sonner.
+- Para wizards que navegan inmediatamente (CreateSession, DeckCreationWizard), el badge convive con el confetti existente.
+
+---
+
+## ADR-133: Divergencia formal Light / Dark — aurora, atmósferas, sombras [Frontend, UX]
+
+**Status:** ✅ Implementado · **Scope:** Frontend · **Fecha:** 2026-05-12
+
+### Decisión
+
+Formalizar la regla de que **light y dark son dos diseños distintos**, no variantes de un tema. Documentar los puntos donde la implementación diverge.
+
+### Decisiones específicas
+
+- **Aurora blend-mode**: `screen` en dark (los orbes "iluminan" el fondo oscuro), `multiply` en light (los orbes "tiñen" el papel marfil).
+- **Aurora atmosphere keys**: dark usa los colores OKLCH canónicos de cada contexto; light usa variantes soft `color-mix(in oklab, color 28%, --color-background-base)` para evitar que el `multiply` produzca manchas oscuras.
+- **Sidebar backdrop**: en light se anula el `backdrop-filter: blur` y el aside usa `background-color` opaco (`--color-background-base`) — el efecto "cristal difuso" no aporta sobre papel.
+- **Sombras (`--shadow-*`)**: light usa alpha ~0.08-0.12, dark usa alpha ~0.30-0.45. Las cards no "flotan con sombra negra pesada" sobre fondo blanco.
+- **Borders**: light usa borders con alpha negro bajo, dark usa borders con alpha blanco bajo. Token `--color-border-default` se redefine en `[data-theme="light"]`.
+
+### Consecuencias
+
+- Cumple regla del proyecto declarada en MEMORY (`feedback_light_dark_two_aesthetics.md`).
+- Auditar light + dark como UIs separadas en cada release.
+- Cuando un componente nuevo se introduzca, el contributor debe probar explícitamente light y dark.
+
+---
+
+## ADR-134: Hero transitions reusables (`useSharedLayoutTransition`) [Frontend, UX]
+
+**Status:** ✅ Implementado · **Scope:** Frontend · **Fecha:** 2026-05-12
+
+### Decisión
+
+Hook `useSharedLayoutTransition(kind, id)` que devuelve un `layoutId` estable (`${kind}-${id}`) o `undefined` cuando `prefers-reduced-motion`. Aplicado en las 3 parejas: `DeckCard ↔ CardDeckDetailPage`, `SessionCard ↔ SessionDetail`, `ContextCard ↔ ContextDetailPage`.
+
+### Diseño técnico
+
+- El `motion.div` raíz (o el wrapper de cada item en una lista) recibe `layoutId` igual al del destino.
+- `AnimatePresence` en las páginas listado usa `mode="popLayout"` para que el item saliente no provoque reflow durante la animación shared.
+- Suspense lazy (todas las páginas son lazy) coexiste con `mode="popLayout"`: el destino monta antes de que el origen termine de desmontar.
+- Reduced-motion: el `layoutId` se vuelve `undefined` y las páginas hacen fade-only sin layout shared.
+
+### Limitaciones conocidas
+
+- Tests con jsdom no validan `layoutId` (incompatibilidad conocida de framer-motion con jsdom). Los tests son skipped para esta parte; QA visual cubre la regresión.
+- En grids con 50+ items (CardDecksPage), la prop `reducedMotion` ya existente baja la calidad de las micro-animaciones internas (tilt 3D) pero el hero transition sigue activo.
+
+### Archivos clave
+
+- `frontend/src/hooks/useSharedLayoutTransition.js` (nuevo)
+- `frontend/src/components/ui/DeckCard.jsx`, `pages/CardDeckDetailPage.jsx`
+- `frontend/src/pages/SessionsPage.jsx`, `pages/SessionDetail.jsx`
+- `frontend/src/pages/ContextsPage.jsx`, `pages/ContextDetailPage.jsx`
+
+### Consecuencias
+
+- Anti-AI-slop: el viaje card→detalle deja de ser un teleport.
+- El hook centraliza la decisión "shared-layout o no", facilitando aplicar el patrón a futuras parejas (e.g. StudentCard → StudentProfile).
+
+---
+
+## ADR-135: Fixes QA intensiva — Tooltip motion.button, CategoryDominance, copy mascota [Full-stack]
+
+**Fecha**: 2026-05-12  
+**Estado**: Implementado  
+**Alcance**: Backend (computeCategoryDominance), Frontend (Tooltip, CardDecksPage, StepRules, mascotDialog)
+
+### Contexto
+
+Sesión QA intensiva pre-Sprint 6 sobre rama `feature/ui-features-and-signature` con perfil "QA / Revisión UI-UX". Se levantó Docker (frontend + backend + Mongo + Redis) y se navegó la app con Playwright en viewport 1920×1080 cubriendo: Auth (Login, Register, theme toggle), Dashboard profesor + super_admin, Mis Alumnos, Insights (3 tabs), Sesiones (lista + detalle 4 tabs), Contextos (lista + detalle), Mis Mazos (lista + detalle), 3 mecánicas de gameplay completas (Memoria 240s ganada 60/60 3⭐ — Asociación 60s/ronda — Secuencia 90s 5 rondas), Notificaciones, Super Admin (Aprobaciones, Contextos, Alumnos, Transferencias), Privacidad y Onboarding.
+
+### Hallazgos críticos y fixes
+
+#### BUG-1 (a11y) — Tooltip anida span[role=button] sobre motion.button
+
+**Síntoma**: en `DeckCard`, el botón "Opciones" se renderizaba como `<span role="button" tabindex="0" aria-label="Opciones"><button aria-label="Opciones para mazo X">…</button></span>` — HTML semánticamente inválido (rol button anidado), confuso para screen readers (anuncia "Opciones" → enter en el inner button → vuelve a anunciar "Opciones para mazo X").
+
+**Causa**: `Tooltip.isChildInteractive` detectaba `<button>` HTML y `Component.displayName.includes('Button')`, pero Framer Motion 11 expone `motion.button` con displayName literal `"motion.button"` (con **punto**, no `motion(button)` como era en versiones anteriores). La detección no matcheaba.
+
+**Fix**: `frontend/src/components/ui/Tooltip.jsx` — regex actualizada a `/^motion[.(](button|a|input|select|textarea)\)?$/i` que cubre ambas notaciones (la moderna con punto y la legacy con paréntesis).
+
+**Cobertura**: `frontend/src/components/ui/__tests__/Tooltip.test.jsx` (nuevo, 6 casos).
+
+#### BUG-3 (lógica pedagógica) — Asociación GameOver muestra "Categoría más fuerte" arbitraria con 0 aciertos
+
+**Síntoma**: tras una partida Asociación con `correctAttempts=0`, el GameOver mostraba "TU CATEGORÍA MÁS FUERTE: Pato" (o cualquier slug alfabéticamente primero). El alumno sin aciertos veía una "fortaleza" inventada que rompía la confianza pedagógica de la mascota y el screen.
+
+**Causa**: `backend/src/services/gameEngine/finalSummary.js::computeCategoryDominance` inicializaba `bestRatio = -1` y consideraba cualquier slug con `total > 0` (incluso `correct=0`). Cuando todas las accuracies eran 0/N, `ratio=0 > -1=bestRatio` → la primera clave alfabética ganaba.
+
+**Fix**: descartar también `correct <= 0` antes de evaluar ratio. Si el alumno no acertó NADA en ningún slug, `categoryDominance` devuelve `null`. El frontend (`GameOverStatsAssociation`) ya esconde el hero block cuando `categoryDominance` es `null` — no requirió cambios.
+
+**Cobertura**: test existente `devuelve null cuando todas las accuracies son 0` actualizado para reflejar el nuevo comportamiento correcto (antes esperaba 'cat', documentando el bug; ahora espera `null`).
+
+#### BUG-2 (copy mascota) — "Otra y mejoras" gramaticalmente incorrecto
+
+**Síntoma**: tras un GameOver con score bajo, la mascota mostraba "Otra y mejoras". "Mejoras" sustantivo (las mejoras) o segunda persona indicativo presente no encaja en imperativo motivacional infantil.
+
+**Fix**: `frontend/src/lib/mascotDialog.js` — 3 ocurrencias (`MEMORY_DIALOG.gameOverLow`, `ASSOCIATION_DIALOG.gameOverLow`, `SEQUENCE_DIALOG.gameOverLow`) cambiadas a "**Otra y mejorarás**" (segunda persona indicativo futuro), prometiendo crecimiento al alumno.
+
+#### BUG-5 (UI/contraste) — KPIs hero Mis Mazos casi invisibles
+
+**Síntoma**: las cards de stat hero "ACTIVOS / ARCHIVADOS / TOTAL" en `/decks` mostraban los labels con `text-[10px] text-text-muted` — muy pequeños y con contraste insuficiente sobre el fondo elevado, especialmente en tema oscuro.
+
+**Fix**: `frontend/src/pages/CardDecksPage.jsx` — 3 labels cambiados a `text-xs text-text-secondary` (12px en lugar de 10px, color secundario en lugar de muted). Mantiene `font-medium uppercase tracking-wider` para coherencia con el resto de stat cards.
+
+#### M-1 (UX) — Slider tiempo por ronda Asociación: 60s → 180s
+
+**Justificación**: el rango actual 5–60s era restrictivo para sesiones donde el profesor da consignas orales o trabaja con alumnos que necesitan tiempo de procesamiento. El backend ya aceptaba hasta 300s (`gameSessionValidator.js::timeLimit.max(300)`), pero el slider del wizard tapaba el rango.
+
+**Fix**: `frontend/src/components/session/StepRules.jsx` — `max={60}` → `max={180}`. Permite configurar 3 minutos por ronda sin tocar el rango máximo del validador.
+
+### Hallazgos descartados como NO bugs
+
+- **MemoryBoard cards aria-hidden**: el `textContent` recoge el valor real ("Rombo", "Cuadrado") aunque la carta esté boca abajo, pero el contenedor visual interno (`.memory-card-back`) tiene correctamente `aria-hidden="true"` cuando la carta no está abierta. Screen readers respetan `aria-hidden`; el textContent del DOM no es relevante para a11y tree.
+- **Login/Register theme toggle en top-right**: posición intencional (comentario en código del 2026-05-10). El toaster Sonner está en bottom-right; mover el toggle también allí colisionaría.
+- **Sliders sin aria-label literal**: tienen `<label htmlFor>` correctamente vinculados, lo cual es semánticamente equivalente.
+
+### Verificación
+
+- Tests backend: **1145/1145 verde**.
+- Tests frontend: **377/377 verde** (+6 nuevos para Tooltip).
+- Lint: 0 errores nuevos. Los 2 errores preexistentes (`useVirtualizer` en `useVirtualizedList.js` y `prettier/prettier` en `notificationService.test.js`) no son de esta sesión.
+- E2E con Playwright + Docker:
+  - `/decks` confirmado: 0 spans con `role="button"` envolviendo botones reales. Los 6 botones "Opciones para mazo" son `<button>` simples.
+  - KPIs hero Mis Mazos: labels visibles tras el cambio de contraste.
+
+### Archivos modificados
+
+- `backend/src/services/gameEngine/finalSummary.js` (computeCategoryDominance)
+- `backend/tests/finalSummary.test.js` (test actualizado)
+- `frontend/src/components/ui/Tooltip.jsx` (regex motion.button)
+- `frontend/src/components/ui/__tests__/Tooltip.test.jsx` (nuevo, 6 tests)
+- `frontend/src/components/session/StepRules.jsx` (max slider 60→180)
+- `frontend/src/lib/mascotDialog.js` (3 strings "Otra y mejorarás")
+- `frontend/src/pages/CardDecksPage.jsx` (3 KPI labels contraste)
+- `documentation/Architecture_Decisions.md` (este ADR)
+
+### Consecuencias
+
+- Anti-AI-slop: el wrapper Tooltip ya no genera HTML anidado inválido cuando se usa con Framer Motion (caso muy común en este codebase con `whileHover`/`whileTap`).
+- Pedagogía: la mascota ya no inventa fortalezas en alumnos sin aciertos — comunicación coherente con el feedback que el alumno ve.
+- Configurabilidad: los profesores que necesiten Asociación con tiempos largos (lectura, deliberación grupal) ya pueden alcanzar hasta 180s sin recurrir a editar la sesión vía API.
+
+## ADR-136: Logout con undo (toast persistente) + helper `confirmExit` para wizards (T-957) [Full-stack, UX]
+
+**Fecha:** 2026-05-14
+**Estado:** Aceptado
+**Tarea:** T-957 (Sprint 6) — *Logout con confirmación + undo (toast persistente)*
+
+### Contexto
+
+PROP-85 (Sprint 5) había añadido un `ConfirmationModal` warning para evitar el cierre de sesión accidental con un click. Cumplía su función (red de seguridad), pero rompía el flujo del docente con un modal extra cada vez que terminaba la jornada — un coste de fricción que, además, hace que el usuario aprenda a despachar el modal de un click sin leer, perdiendo precisamente la protección que pretendía dar.
+
+La auditoría adicional al preparar T-957 también identificó:
+
+1. `ContextDetailPage.jsx` invocaba el modal con `variant: 'destructive'`, una variante que **no existe** en `VARIANT_COLORS` del componente. El fallback silencioso convertía la acción a `warning`, perdiendo el flip 3D + blip radial + icono `Trash2` previstos para acciones irreversibles.
+2. `DeckCreationWizard.handleDiscardDraft` descartaba el borrador del wizard (10-15 min de captura RFID + asignaciones) sin segunda confirmación — un click accidental en "Descartar" del modal "Borrador encontrado" tiraba todo el trabajo.
+3. El hook `useUnsavedChanges` cubría `beforeunload` (refresh / cierre de pestaña) pero **no** la navegación in-app. Los wizards (`DeckEditPage`, `SessionEdit`, `CreateSession`, `DeckCreationWizard`) tenían un patrón de modal blocker manual cableado a `isBlocked`/`blocker.proceed`/`blocker.reset` del `useBlocker` de React Router 7 — pero el comentario del propio hook ya advertía que el blocker queda como stub en BrowserRouter clásico, por lo que esos modales **nunca se mostraban**. El usuario podía pulsar "Volver" / "Cancelar" / "Ver detalle" / "Ver mapping" en plena edición y perder cambios sin warning.
+
+### Decisión
+
+**Bloque 1 — Logout con ventana de undo (5 s)**
+
+Sustituir el `ConfirmationModal` de PROP-85 por un toast persistente con acción "Deshacer". Mecánica frontend-driven, **sin cambios en backend**:
+
+- `AuthContext` expone tres APIs nuevas:
+  - `deferLogout({ delayMs = 5000 })`: programa el cierre real con `setTimeout`, marca `isLoggingOut = true`, registra un listener `pagehide` que dispara `fetch keepalive: true` contra `/api/auth/logout` para que el cierre de pestaña dentro de la ventana también revoque tokens.
+  - `undoLogout()`: cancela el timeout, desregistra el `pagehide`, deja todo el estado intacto. Devuelve `false` si no había logout pendiente.
+  - `isLoggingOut`: boolean expuesto al UI para deshabilitar el botón durante la cuenta atrás.
+- Mientras la ventana está abierta no se limpian tokens ni `sessionMarker`, por lo que un **refresh de pestaña dentro de los 5 s no desloguea** — el flujo init de `AuthContext` restaura sesión.
+- `AppLayout.handleLogoutClick` ahora llama `deferLogout` + `toast.success('Sesión cerrada', { action: { label: 'Deshacer', onClick: undoLogout }, duration: 5000 })`.
+- El método `logout()` original se conserva como **logout inmediato administrativo** (lo usan los handlers de `SESSION_EXPIRED`, `SESSION_INVALIDATED`, `UNAUTHORIZED` y futuros casos donde la ventana de undo no aplique).
+- Cleanup defensivo: `useEffect` en `AuthProvider` desregistra el `pagehide` al desmontar (importante para tests con remounts y hot-reload de Vite — en producción el evento se dispara antes del unmount, así que el beacon sigue funcionando).
+
+**Bloque 2 — Bug fix variant destructive**
+
+`ContextDetailPage.jsx`: `variant: 'destructive'` → `variant: 'danger'` en `deleteAsset` y `deleteAudio`. Activa la animación canónica para acciones irreversibles.
+
+**Bloque 3 — Confirmación danger antes de descartar borrador**
+
+`DeckCreationWizard.handleDiscardDraft` envuelto con `useConfirmationModal({ variant: 'danger', confirmText: 'Descartar borrador' })`. El click accidental en "Descartar" del modal "Borrador encontrado" ahora exige un segundo step con flip 3D que rompe el patrón muscular.
+
+**Bloque 4 — Hook `useUnsavedChanges` con helper `confirmExit`**
+
+Refactor del hook para devolver además de `blocker`/`isBlocked` (mantenidos como stubs por retrocompatibilidad):
+
+```js
+const { confirmExit, confirmExitModalProps } = useUnsavedChanges(isDirty);
+// En el JSX:
+<ConfirmationModal {...confirmExitModalProps} />
+// En handlers programáticos:
+const handleBack = () => confirmExit(() => navigate(ROUTES.LIST));
+```
+
+`confirmExit(callback)` ejecuta el callback inmediatamente si no hay cambios; si los hay, abre el modal warning con el callback como `onConfirm`. El modal se cierra automáticamente tras confirmar/cancelar (lo gestiona `useConfirmationModal`). Integrado en:
+
+- `DeckCreationWizard.handleExitWizard` (reemplaza al `exitConfirmation` manual, ganando beforeunload de paso).
+- `DeckEditPage`: botón "Ver detalle".
+- `SessionEdit`: botones "Ver mapping", "Configurar tablero", "Cancelar".
+- `CreateSession`: modal montado, listo para nuevos puntos de salida (el wizard actual solo expone "Anterior"/"Siguiente"/"Crear", todos internos).
+
+### Alternativas consideradas
+
+- **Backend con flag `deferInvalidationMs`**: el endpoint marca el logout como pendiente en Redis con TTL 5 s y un job lo materializa. Más robusto frente a cierre de pestaña sin `sendBeacon`, pero exige nuevos endpoints (`/logout/cancel`) y keyspace en Redis. Descartado: la red de seguridad de `fetch keepalive: true` en `pagehide` cubre el caso de cierre de pestaña sin coste de infra extra.
+- **`navigator.sendBeacon`**: POST-only, garantizado en `pagehide`, pero **no admite headers personalizados** y nuestro endpoint requiere `Authorization: Bearer`. Habría que aceptar el access token vía body en el controller (cambio en backend). Descartado a favor de `fetch keepalive: true`, soportado por todos los navegadores que cumplen el criterio de Web Serial del proyecto.
+- **Migrar a `createBrowserRouter`** para habilitar `useBlocker` real de React Router 7: cobertura completa de navegación in-app (incluyendo `<Link>` del sidebar/breadcrumb). Descartado para T-957: cambio de gran alcance que toca todo el App. Documentado como **gap conocido** y candidato a PROP futura — la cobertura actual de `confirmExit` cubre los botones programáticos críticos.
+
+### Cobertura efectiva del helper `confirmExit`
+
+| Escenario | ¿Protege? |
+|---|---|
+| Refresh / cerrar pestaña | ✅ `beforeunload` |
+| Click en "Volver" / "Cancelar" / "Ver detalle" / "X" del wizard | ✅ `confirmExit(callback)` |
+| Click en `<Link>` / `<NavLink>` del sidebar o breadcrumb | ❌ requiere Data Router |
+
+### Verificación
+
+- Tests Vitest: **396/396 passing** (+19 nuevos: `useUnsavedChanges.test.jsx` con 11 + `AuthContext.logout-undo.test.jsx` con 8 — cubren `deferLogout`/`undoLogout`/`pagehide beacon`/idempotencia/`confirmExit` con isDirty true y false).
+- Tests Jest backend: **1145/1145 passing** (0 cambios en backend).
+- Lint frontend y backend: 0 errors.
+- E2E manual recomendado (Docker + Playwright):
+  - Caso A — Deshacer: click logout → toast con "Deshacer" → pulsar → sigue en `/decks` sin desloguearse, sin llamada HTTP de logout.
+  - Caso B — Timeout completo: click logout → esperar 5 s → redirect a `/login`, 1 POST `/api/auth/logout` con 200.
+  - Caso C — Refresh durante undo: click logout → F5 dentro de los 5 s → vuelve a `/decks` logueado (cookies y session marker intactos).
+  - Caso D — Cierre de pestaña durante undo: click logout → cerrar pestaña → reabrir → pide login (beacon revocó tokens; verificable en logs Pino del backend).
+  - Caso E — Wizards: editar campo en `/decks/:id/edit` → pulsar "Ver detalle" → modal warning. Idem en `/sessions/:id/edit` con "Cancelar".
+
+### Archivos modificados
+
+**Frontend:**
+- `frontend/src/services/api.js` (exporta `API_BASE_URL` para el beacon).
+- `frontend/src/context/AuthContext.jsx` (`deferLogout`, `undoLogout`, `isLoggingOut`, `finalizeLogout`, cleanup useEffect).
+- `frontend/src/components/layout/AppLayout.jsx` (toast con action, deshabilita botón durante isLoggingOut, elimina `ConfirmationModal` de logout).
+- `frontend/src/pages/ContextDetailPage.jsx` (variant `destructive` → `danger`).
+- `frontend/src/pages/DeckCreationWizard.jsx` (`discardConfirmation` para handleDiscardDraft + integración `useUnsavedChanges` + `confirmExit`).
+- `frontend/src/hooks/useUnsavedChanges.js` (refactor: añade `confirmExit` + `confirmExitModalProps`).
+- `frontend/src/pages/DeckEditPage.jsx` (botón "Ver detalle" con `confirmExit`).
+- `frontend/src/pages/SessionEdit.jsx` (botones "Cancelar", "Ver mapping", "Configurar tablero" con `confirmExit`).
+- `frontend/src/pages/CreateSession.jsx` (montaje del modal `confirmExitModalProps`).
+- `frontend/src/context/__tests__/AuthContext.logout-undo.test.jsx` (nuevo — 8 tests).
+- `frontend/src/hooks/__tests__/useUnsavedChanges.test.jsx` (nuevo — 11 tests).
+
+**Documentación:**
+- `documentation/Architecture_Decisions.md` (este ADR).
+- `documentation/sprints/Sprint6_Tareas.md` (T-957 marcada como completada con sub-tareas refinadas).
+- `frontend/docs/01-PATRONES-DISENO.md` (sección "Acción destructiva con undo vs ConfirmationModal" añadida).
+
+### Consecuencias
+
+- **UX docente más fluida**: cierre de sesión sin fricción al final de la jornada, con red de seguridad real (los 5 s permiten recuperar de cualquier mis-click sin pedir credenciales de nuevo).
+- **Cobertura de protección extendida**: los wizards y editores que antes confiaban en `useBlocker` (que era stub) ahora muestran modal warning correcto al usar botones programáticos. El borrador del wizard de mazos exige doble confirmación para descartarse.
+- **Anti-AI-slop**: la variante `danger` aplica donde antes había fallback silencioso a `warning` — la animación visual ahora coincide con la severidad real.
+- **Gap conocido documentado**: navegación in-app vía `<Link>` sigue sin bloquearse. La PROP futura de migración a Data Router lo resolverá globalmente.
+- **Sin cambios en backend**: `/api/auth/logout` sigue revocando tokens igual; los 1145 tests Jest existentes confirman cero regresiones.

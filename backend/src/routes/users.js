@@ -18,7 +18,8 @@ const {
   transferStudent,
   updateConsent,
   hardDeleteUser,
-  exportStudentData
+  exportStudentData,
+  updateMyOnboarding
 } = require('../controllers/userController');
 
 const { authenticate, requireRole } = require('../middlewares/auth');
@@ -33,7 +34,8 @@ const {
   teacherIdParamsSchema,
   teacherStudentsQuerySchema,
   updateConsentSchema,
-  hardDeleteSchema
+  hardDeleteSchema,
+  updateOnboardingSchema
 } = require('../validators/userValidator');
 const { emptyObjectSchema } = require('../validators/commonValidator');
 const asyncHandler = require('../utils/asyncHandler');
@@ -50,6 +52,21 @@ router.get(
   requireRole('teacher', 'super_admin'),
   validateQuery(userQuerySchema),
   asyncHandler(getUsers)
+);
+
+/**
+ * @route   PATCH /api/users/me/onboarding
+ * @desc    Actualizar el progreso del onboarding interactivo del usuario autenticado
+ * @access  Private (cualquier rol autenticado — el id sale de req.user)
+ * @validation body: updateOnboardingSchema | query: emptyObjectSchema
+ * @reference T-951 PROP-13 — onboarding interactivo multi-track
+ */
+router.patch(
+  '/me/onboarding',
+  authenticate,
+  validateQuery(emptyObjectSchema),
+  validateBody(updateOnboardingSchema),
+  asyncHandler(updateMyOnboarding)
 );
 
 /**

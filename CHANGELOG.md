@@ -7,6 +7,34 @@ y este proyecto adhiere a [Semantic Versioning](https://semver.org/spec/v2.0.0.h
 
 ## [Unreleased] - Sprint 6
 
+### Motion signature ampliada (T-954) + Notificaciones tiempo real (T-955)
+
+Cierre del paquete UI/UX iniciado en T-951…T-953. Dos pilares para v1.0.0:
+
+#### Añadido
+
+- **Atmósferas dinámicas por contexto:** el aurora del fondo, el gradient primary de `ButtonPremium` y el glow de las cards se tintan al contexto pedagógico activo (Geografía, Animales, Colores, Números, Formas). Funciona via CSS vars + atributo `[data-atmosphere]` en `<html>`. Crossfade 400ms entre rutas. Light mode usa variantes soft mezcladas con marfil para no romper el blend `multiply`.
+- **Hero transitions** en las 3 parejas `DeckCard ↔ CardDeckDetailPage`, `SessionCard ↔ SessionDetail`, `ContextCard ↔ ContextDetailPage` con `useSharedLayoutTransition` (respeta reduced-motion).
+- **Scroll parallax aurora** en AppLayout: los 3 orbes se desplazan a velocidades distintas (`useScroll + useTransform`) cuando el usuario hace scroll. Reduced-motion lo desactiva.
+- **Sistema de notificaciones tiempo real persistidas** con 5 tipos canónicos (`play_completed`, `registration_pending`, `student_at_risk`, `context_shared`, `system_announcement`). Backend completo: modelo Mongoose con TTL 90d, dedup window 60s en Redis, service + controller + routes (`/api/notifications`), DTO V1, emisión Socket.IO al room `user_<id>`. Triggers reales desde `gamePlayService.completePlay`, `authController.register` y `gameContextController.createContext`.
+- **NotificationBell + Panel** en la sidebar con badge contador, pulse subtle on unread, micro-celebración (scale+rotate) al recibir `play_completed` con 3⭐, panel popover con focus trap, infinite scroll cursor, empty state signature (sobre de papel cerrado SVG inline). Atajo `Shift+B`.
+- **InlineSuccessBadge** + hook `useInlineSuccess` para confirmaciones de éxito (✓ Guardado) adyacentes al botón Save. Integrado en `CreateSession`, `SessionEdit`, `DeckCreationWizard`, `DeckEditPage`, `AdminContexts`, `ContextsPage`. Sonner toast queda reservado para errores y destructivos.
+- **Atmósfera + mecánica en GameSession:** el fondo de la partida combina `mechanicTheme.backdropTintClass` con la atmósfera del contexto, generando un fondo único por cada combinación.
+
+#### Cambiado
+
+- `ButtonPremium` variant primary lee `--color-atmosphere-primary` / `--color-atmosphere-primary-alt` / `--color-atmosphere-glow` con fallback al brand cuando no hay atmósfera activa.
+- AppLayout aurora consume `--color-atmosphere-aurora-{1,2,3}` en lugar de `--color-aurora-*` directos.
+- `socket.join('user_'+userId)` confirmado en el authMiddleware de Socket.IO para que las notificaciones lleguen al cliente correcto.
+
+#### ADRs
+
+- ADR-130 — Atmósferas dinámicas por contexto + scroll parallax aurora.
+- ADR-131 — Sistema de notificaciones tiempo real persistidas.
+- ADR-132 — InlineSuccessBadge como complemento de Sonner toast.
+- ADR-133 — Divergencia formal Light / Dark (aurora, atmósferas, sombras).
+- ADR-134 — Hero transitions reusables (`useSharedLayoutTransition`).
+
 ### Mecánica Secuencia (T-921 + T-922 + T-923)
 
 Tercera y última mecánica del proyecto. El alumno memoriza una secuencia ordenada de N cartas (3 a 7 según configuración) durante unos segundos definidos por el profesor; tras un flip de "vuelta a boca abajo" debe reproducirla escaneando las tarjetas en el mismo orden. Tres dificultades (fácil con pistas progresivas, medio con segundo intento, difícil one-shot) y un sistema de bloqueo de carta que **avanza el cursor sin reiniciar la secuencia** — decisión pedagógica para evitar frustración acumulativa.

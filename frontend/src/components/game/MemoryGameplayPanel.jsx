@@ -24,7 +24,7 @@ function MemoryBoardSkeleton() {
       className="block w-full h-full flex flex-col items-center justify-center"
       aria-label="Preparando tablero de memoria"
     >
-      <div className="grid grid-cols-4 gap-3 w-full max-w-2xl">
+      <div className="grid grid-cols-3 sm:grid-cols-4 gap-3 w-full max-w-2xl auto-rows-fr">
         {slots.map((slotKey) => (
           <div
             key={slotKey}

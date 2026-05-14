@@ -196,8 +196,21 @@ const toUserDTOV1 = user => {
       ? {
           avatar: userData.profile.avatar,
           age: userData.profile.age,
-          classroom: userData.profile.classroom
+          classroom: userData.profile.classroom,
           // birthdate ELIMINADO: Art. 5.1.c RGPD (minimización)
+          // Onboarding interactivo (T-951 PROP-13). Se expone al cliente
+          // para que `useOnboarding` pueda hidratar su estado y NO mostrar
+          // el tour a usuarios que ya lo completaron.
+          onboarding: userData.profile.onboarding
+            ? {
+                teacherCompleted: !!userData.profile.onboarding.teacherCompleted,
+                superAdminCompleted: !!userData.profile.onboarding.superAdminCompleted,
+                currentStep: userData.profile.onboarding.currentStep ?? 0,
+                currentTrack: userData.profile.onboarding.currentTrack ?? null,
+                version: userData.profile.onboarding.version ?? 1,
+                lastSeenAt: userData.profile.onboarding.lastSeenAt ?? null
+              }
+            : undefined
         }
       : undefined,
     createdBy: mapCreatedBy(userData.createdBy),
@@ -928,6 +941,33 @@ const toStudentIdentityDTOV1 = user => {
   };
 };
 
+/**
+ * DTO v1 para Notification (T-955). Serializa el documento Mongoose a un
+ * objeto plano apto para enviar por HTTP y por Socket.IO `notification:created`.
+ *
+ * @param {Object} doc - Documento Notification de Mongoose o plain object.
+ * @returns {Object|null}
+ */
+const toNotificationDTOV1 = doc => {
+  if (!doc) {
+    return null;
+  }
+  const data = toPlainObject(doc);
+  return {
+    id: toId(data),
+    type: data.type,
+    priority: data.priority || 'info',
+    title: data.title,
+    body: data.body || '',
+    link: data.link || null,
+    metadata: data.metadata && typeof data.metadata === 'object' ? { ...data.metadata } : {},
+    read: !!data.read,
+    readAt: data.readAt || null,
+    createdAt: data.createdAt,
+    updatedAt: data.updatedAt
+  };
+};
+
 module.exports = {
   // Users
   toUserDTOV1,
@@ -973,5 +1013,8 @@ module.exports = {
 
   // Analytics seudonimizados (Art. 25 RGPD)
   toStudentAnalyticsDTOV1,
-  toStudentIdentityDTOV1
+  toStudentIdentityDTOV1,
+
+  // Notifications (T-955)
+  toNotificationDTOV1
 };

@@ -1,13 +1,34 @@
 import { memo, useMemo, useEffect, useRef } from 'react';
 import { motion, useSpring, useTransform } from 'framer-motion';
 import PropTypes from 'prop-types';
-import { Star, Trophy, RotateCcw, Home, PartyPopper, Flame, Sparkles as SparklesIcon } from 'lucide-react';
+import { Star, Trophy, RotateCcw, Home, PartyPopper, Flame, Sparkles as SparklesIcon, Sparkle } from 'lucide-react';
 import { cn, calculateStars } from '../../lib/utils';
 import { useReducedMotion } from '../../hooks/useReducedMotion';
 import { useConfetti } from '../../hooks/useConfetti';
 import { getGameOverCopy } from '../../lib/gameOverCopy';
+import { getMechanicTheme } from '../../lib/mechanicTheme';
+import { pickMascotMessage } from '../../lib/mascotDialog';
+import soundEffectsService from '../../services/soundEffectsService';
 import ButtonPremium from '../ui/ButtonPremium';
+import CharacterMascot from './CharacterMascot';
 import GameOverStats from './gameover/GameOverStats';
+
+/**
+ * T-953 Fase 2.10 — mapeo tier → mood + tier para `pickMascotMessage`.
+ *  - 0⭐ → `worried` + frase gameOverLow.
+ *  - 1⭐ → `encouraging` + frase gameOverMid.
+ *  - 2⭐ → `happy` + frase gameOverMid (rota distinta a 1⭐ por
+ *    aleatoriedad del pool — visualmente la mascota salta de forma
+ *    distinta y la frase es la misma categoría pero la animación
+ *    diferencia los dos tiers).
+ *  - 3⭐ → `celebrating` + frase gameOverHigh.
+ */
+function tierToMascot(stars) {
+  if (stars >= 3) return { mood: 'celebrating', tier: 'high' };
+  if (stars === 2) return { mood: 'happy', tier: 'mid' };
+  if (stars === 1) return { mood: 'encouraging', tier: 'mid' };
+  return { mood: 'worried', tier: 'low' };
+}
 
 /**
  * Pantalla de fin de juego
@@ -47,6 +68,11 @@ function GameOverScreen({
   })();
   const stars = calculateStars(percentage);
   const isNewBest = score > bestScore;
+  // Floating stars: usamos Lucide Star/Sparkle/SparklesIcon en lugar de
+  // emojis ⭐✨🌟 — los emojis dependían de la fuente del SO (Apple,
+  // Microsoft Segoe, Noto…) y mezclaban varios estilos visuales en la
+  // misma escena. Lucide nos da control sobre tamaño, color (warning
+  // base) y trazo, manteniendo coherencia con el resto del design system.
   const floatingStars = useMemo(
     () =>
       Array.from({ length: 12 }, (_, index) => ({
@@ -54,7 +80,8 @@ function GameOverScreen({
         x: 5 + index * (90 / 12) + (index % 3) * 2,
         delay: 0.3 + (index % 5) * 0.4,
         duration: 2.5 + (index % 3) * 0.5,
-        symbol: ['⭐', '✨', '🌟'][index % 3]
+        IconComponent: [Star, SparklesIcon, Sparkle][index % 3],
+        size: [16, 20, 14][index % 3],
       })),
     []
   );
@@ -66,31 +93,56 @@ function GameOverScreen({
   // varíen por mecánica (un 3⭐ en Memoria dice "MEMORIA DE ELEFANTE";
   // un 3⭐ en Secuencia dice "SIGUES EL RITMO"). Aquí se conserva la
   // configuración visual (Icon + glow) por número de estrellas.
+  // T-953 Fase 2.10: el `glowB` (orbe secundario del backdrop) se tinta
+  // ahora con el accent de la mecánica activa para reforzar la firma
+  // mecánica sin chocar con el color del tier (Icon y estrellas siguen
+  // usando warning/success/brand). Excepción Sequence 3⭐: el accent
+  // amber colisiona con el warning del Trophy → usamos el orange como
+  // accent específico para mantener la diferencia.
+  const mechanicAccentVar = useMemo(() => {
+    if (!summary?.mode) return null;
+    const theme = getMechanicTheme(summary.mode);
+    // En Secuencia + 3⭐ → forzamos `--color-accent-orange` para alejar
+    // del amarillo del Trophy. En el resto, usamos `accentVar` directo.
+    if (summary.mode === 'sequence' && stars === 3) {
+      return '--color-accent-orange';
+    }
+    return theme.accentVar;
+  }, [summary?.mode, stars]);
+
+  const mechanicGlowB = mechanicAccentVar
+    ? `bg-[color-mix(in_oklab,var(${mechanicAccentVar})_22%,transparent)]`
+    : null;
+
   const tierConfig = useMemo(() => {
     const { title, subtitle } = getGameOverCopy(stars, summary?.mode);
     switch (stars) {
       case 3: return {
         Icon: Trophy, iconClass: 'text-warning-base drop-shadow-[0_0_18px_var(--color-warning-glow)]',
         text: title, sub: subtitle,
-        glowA: 'bg-warning-base/25', glowB: 'bg-brand-base/25',
+        glowA: 'bg-warning-base/25',
+        glowB: mechanicGlowB || 'bg-brand-base/25',
       };
       case 2: return {
         Icon: PartyPopper, iconClass: 'text-success-base drop-shadow-[0_0_14px_rgba(34,197,94,0.55)]',
         text: title, sub: subtitle,
-        glowA: 'bg-success-base/20', glowB: 'bg-accent-cyan/20',
+        glowA: 'bg-success-base/20',
+        glowB: mechanicGlowB || 'bg-accent-cyan/20',
       };
       case 1: return {
         Icon: Flame, iconClass: 'text-brand-base drop-shadow-[0_0_14px_rgba(139,92,246,0.5)]',
         text: title, sub: subtitle,
-        glowA: 'bg-brand-base/20', glowB: 'bg-accent-cyan/15',
+        glowA: 'bg-brand-base/20',
+        glowB: mechanicGlowB || 'bg-accent-cyan/15',
       };
       default: return {
         Icon: SparklesIcon, iconClass: 'text-accent-cyan drop-shadow-[0_0_12px_rgba(34,211,238,0.45)]',
         text: title, sub: subtitle,
-        glowA: 'bg-brand-base/15', glowB: 'bg-accent-cyan/10',
+        glowA: 'bg-brand-base/15',
+        glowB: mechanicGlowB || 'bg-accent-cyan/10',
       };
     }
-  }, [stars, summary?.mode]);
+  }, [stars, summary?.mode, mechanicGlowB]);
 
   const message = tierConfig;
   const scoreDelta = score - bestScore;
@@ -116,20 +168,48 @@ function GameOverScreen({
 
   const { fireSuccess, fireFireworks } = useConfetti();
 
+  // T-953 Fase 2.10: paleta de confetti tintada con el color de la
+  // mecánica. Se mezcla con el accent (~70%) y un toque más claro para
+  // que las particulas no se vean planas. En modo `null` (legacy) se
+  // mantiene la paleta brand del hook.
+  const confettiColors = useMemo(() => {
+    if (!summary?.mode) return undefined;
+    const theme = getMechanicTheme(summary.mode);
+    const hex = theme.accentHexFallback;
+    if (!hex) return undefined;
+    return [hex, '#ffffff', hex];
+  }, [summary?.mode]);
+
+  // T-953 Fase 2.10: mascota acoplada al tier + frase tier-aware.
+  // El mood cambia con las estrellas; la frase se elige del pool por
+  // mecánica × tier (`gameOverHigh|Mid|Low`) en `mascotDialog.js`.
+  const mascotConfig = useMemo(() => {
+    const { mood, tier } = tierToMascot(stars);
+    const message = pickMascotMessage(summary?.mode, 'gameOver', tier) || null;
+    return { mood, message };
+  }, [stars, summary?.mode]);
+
   useEffect(() => {
     if (shouldReduceMotion || stars < 2) return undefined;
     // 2 estrellas (>=70%): rafagas laterales cortas.
     // 3 estrellas (100%): rafagas + fireworks sostenidos 2s para celebracion completa.
     const timers = [];
-    timers.push(setTimeout(() => fireSuccess(), 400));
+    timers.push(setTimeout(() => fireSuccess({ colors: confettiColors }), 400));
     if (stars === 3) {
       // Offset sobre el fireSuccess para que se perciban en capas.
-      timers.push(setTimeout(() => fireFireworks(2000), 600));
+      timers.push(setTimeout(() => fireFireworks(2000, { colors: confettiColors }), 600));
     }
     return () => {
       timers.forEach(t => clearTimeout(t));
     };
-  }, [shouldReduceMotion, stars, fireSuccess, fireFireworks]);
+  }, [shouldReduceMotion, stars, fireSuccess, fireFireworks, confettiColors]);
+
+  // Sound effect proporcional al tier (silencio si 0⭐).
+  useEffect(() => {
+    if (shouldReduceMotion) return;
+    const t = setTimeout(() => soundEffectsService.playGameOverFanfare(stars), 250);
+    return () => clearTimeout(t);
+  }, [stars, shouldReduceMotion]);
 
   return (
     <motion.div
@@ -151,7 +231,7 @@ function GameOverScreen({
         initial={shouldReduceMotion ? false : { scale: 0.8, y: 50 }}
         animate={{ scale: 1, y: 0 }}
         transition={shouldReduceMotion ? { duration: 0 } : { type: 'spring', stiffness: 300, damping: 25 }}
-        className="relative max-w-md w-full"
+        className="relative w-full max-w-[min(720px,92vw)] max-h-[92dvh] overflow-y-auto custom-scrollbar"
       >
         {/* Main card */}
         <div className="glass-card-gradient p-8 text-center">
@@ -174,7 +254,7 @@ function GameOverScreen({
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ delay: 0.2 }}
-            className="text-4xl font-bold font-display gradient-text-brand mb-2"
+            className="text-[var(--text-fluid-2xl)] font-bold font-display gradient-text-brand mb-2"
           >
             {message.text}
           </motion.h1>
@@ -235,7 +315,11 @@ function GameOverScreen({
           >
             <div
               ref={scoreRef}
-              className="text-5xl font-bold font-display text-white mb-2 tabular-nums"
+              // text-text-primary en lugar de text-white: el primer token se
+              // resuelve a oklch 98% en dark (≈blanco) y a oklch 20% en light
+              // (gris oscuro). El text-white hardcoded dejaba el "75" en blanco
+              // sobre la card translúcida claro = invisible (QA 2026-05-07).
+              className="text-[var(--text-fluid-3xl)] font-bold font-display text-text-primary mb-2 tabular-nums"
               aria-label={
                 summary?.maxScore
                   ? `Puntuación final: ${score} de ${summary.maxScore} puntos`
@@ -270,9 +354,15 @@ function GameOverScreen({
                 role="status"
               >
                 <Trophy size={16} aria-hidden="true" />
+                {/* "Récord" es por sesión específica (useGameSocket consulta
+                    `getPlayerStats(playerId, { sessionId })`). Antes el copy
+                    decía "Tu primer récord" sin más, lo que confundía: el
+                    alumno con partidas previas en otras sesiones lo veía cada
+                    vez que estrenaba una nueva sesión. Ahora se aclara el
+                    alcance "en esta sesión" (QA 2026-05-07). */}
                 {bestScore > 0
-                  ? `¡Nuevo récord! +${scoreDelta} pts sobre el anterior (${bestScore})`
-                  : `¡Tu primer récord! ${score} pts`}
+                  ? `¡Nuevo récord en esta sesión! +${scoreDelta} pts sobre tu marca (${bestScore})`
+                  : `¡Primer récord en esta sesión! ${score} pts`}
               </motion.div>
             ) : bestScore > 0 && (
               <motion.p
@@ -314,7 +404,7 @@ function GameOverScreen({
             : <div className="mb-8" />}
 
           {/* Actions */}
-          <nav className="flex flex-col sm:flex-row gap-3" aria-label="Acciones de fin de juego">
+          <nav className="flex flex-wrap gap-3 justify-center" aria-label="Acciones de fin de juego">
             {/* eslint-disable jsx-a11y/no-autofocus -- autoFocus intencionado: al terminar la partida, el foco debe ir al boton principal */}
             <ButtonPremium
               variant="primary"
@@ -343,34 +433,63 @@ function GameOverScreen({
       {/* Floating stars decoration */}
           {!shouldReduceMotion && (
         <div className="absolute inset-0 pointer-events-none overflow-hidden" aria-hidden="true">
-          {floatingStars.map(piece => (
-            <motion.div
-              key={`floating-star-${piece.id}`}
-              initial={{
-                x: `${piece.x}%`,
-                y: '100%',
-                opacity: 0
-              }}
-              animate={{
-                x: [`${piece.x}%`, `${piece.x + 3}%`, `${piece.x}%`],
-                y: '-20%',
-                opacity: [0, 1, 0]
-              }}
-              transition={{
-                duration: piece.duration,
-                repeat: 2,
-                repeatType: 'loop',
-                delay: piece.delay,
-              }}
-              className="absolute text-2xl"
-            >
-              {piece.symbol}
-            </motion.div>
-          ))}
+          {floatingStars.map((piece) => {
+            const { IconComponent } = piece;
+            return (
+              <motion.div
+                key={`floating-star-${piece.id}`}
+                initial={{
+                  x: `${piece.x}%`,
+                  y: '100%',
+                  opacity: 0,
+                  rotate: 0,
+                }}
+                animate={{
+                  x: [`${piece.x}%`, `${piece.x + 3}%`, `${piece.x}%`],
+                  y: '-20%',
+                  opacity: [0, 1, 0],
+                  rotate: piece.id % 2 === 0 ? 90 : -90,
+                }}
+                transition={{
+                  duration: piece.duration,
+                  repeat: 2,
+                  repeatType: 'loop',
+                  delay: piece.delay,
+                }}
+                className="absolute text-warning-base drop-shadow-[0_0_8px_var(--color-warning-glow)]"
+              >
+                <IconComponent
+                  size={piece.size}
+                  fill="currentColor"
+                  strokeWidth={1.25}
+                />
+              </motion.div>
+            );
+          })}
         </div>
       )}
 
       {/* Confetti ahora se dispara via useConfetti hook (useEffect arriba) */}
+
+      {/* Mascota tier-aware (T-953 Fase 2.10). Posicionada en la esquina
+          inferior izquierda del overlay (fuera del card para no competir
+          con el scoreboard), escalada 1.4x. Solo visible >=md para no
+          saturar pantallas pequeñas. `aria-hidden` porque el dialog ya
+          comunica todo lo importante (`aria-labelledby`/`aria-describedby`)
+          y la mascota duplicaría con la burbuja. */}
+      <div
+        aria-hidden="true"
+        className="hidden md:block absolute bottom-16 left-16 pointer-events-none"
+      >
+        <div className="scale-[1.4] origin-bottom-left">
+          <CharacterMascot
+            mood={mascotConfig.mood}
+            message={mascotConfig.message}
+            mechanicType={summary?.mode}
+            position="left"
+          />
+        </div>
+      </div>
     </motion.div>
   );
 }

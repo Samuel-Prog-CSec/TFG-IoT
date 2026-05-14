@@ -40,6 +40,8 @@ import AssetSelector from '../components/ui/AssetSelector';
 import CardAssetPreview from '../components/ui/CardAssetPreview';
 import AudioPlayBadge from '../components/ui/AudioPlayBadge';
 import ButtonPremium from '../components/ui/ButtonPremium';
+import InlineSuccessBadge from '../components/ui/InlineSuccessBadge';
+import useInlineSuccess from '../hooks/useInlineSuccess';
 import GlassCard from '../components/ui/GlassCard';
 import InputPremium from '../components/ui/InputPremium';
 import ConfirmationModal, { useConfirmationModal } from '../components/ui/ConfirmationModal';
@@ -49,6 +51,7 @@ import { useContexts } from '../hooks/useContexts';
 import { useRefetchOnFocus } from '../hooks/useRefetchOnFocus';
 import { useReducedMotion } from '../hooks/useReducedMotion';
 import { useDocumentTitle } from '../hooks/useDocumentTitle';
+import { useUnsavedChanges } from '../hooks/useUnsavedChanges';
 import { ROUTES } from '../constants/routes';
 import { GAME_CONFIG } from '../constants/gameConfig';
 import { toast } from 'sonner';
@@ -112,6 +115,10 @@ export default function DeckCreationWizard() {
   const { shouldReduceMotion } = useReducedMotion();
   const { fireConfetti } = useConfetti();
   useDocumentTitle('Crear Mazo');
+  // T-955: confirmación inline tras crear el mazo, justo antes de navegar
+  // de vuelta a "Mis Mazos". Coexiste con el confetti y el toast: el badge
+  // es el ancla visual junto al botón "Crear Mazo".
+  const saveBadge = useInlineSuccess();
 
   // Estado del wizard
   const [currentStep, setCurrentStep] = useState(0);
@@ -143,11 +150,23 @@ export default function DeckCreationWizard() {
   const [showDraftModal, setShowDraftModal] = useState(false);
   const draftDecisionTakenRef = useRef(false);
   
-  // Modal de confirmación para salir
-  const exitConfirmation = useConfirmationModal();
-  
+  // T-957: confirmación danger antes de descartar el borrador. El click
+  // accidental en "Descartar" del modal "Borrador encontrado" perdía
+  // 10-15 min de trabajo sin red de seguridad — ahora pedimos una segunda
+  // confirmación con el flip 3D de variant 'danger'.
+  const discardConfirmation = useConfirmationModal();
+
   // Verificar si hay datos sin guardar
   const hasUnsavedData = selectedCards.length > 0 || selectedContext !== null || Object.keys(cardAssignments).length > 0 || deckName.trim() !== '';
+
+  // T-957: hook unificado de cambios sin guardar — beforeunload (cierre
+  // pestaña/refresh) + confirmExit (botones programáticos de navegación).
+  // Reemplaza al `exitConfirmation` anterior, que era el mismo patrón
+  // hecho a mano sin protección de refresh.
+  const { confirmExit, confirmExitModalProps } = useUnsavedChanges(
+    hasUnsavedData,
+    'Tienes cambios sin guardar. El borrador se mantendrá guardado automáticamente. ¿Seguro que quieres salir?'
+  );
   
   // Hook de persistencia de borrador
   const { 
@@ -203,29 +222,35 @@ export default function DeckCreationWizard() {
     setShowDraftModal(false);
   }, [draft, restoreDraft]);
 
-  // Descartar borrador
+  // Descartar borrador (T-957: requiere confirmación danger explícita
+  // — el borrador puede contener 10-15 min de captura RFID + asignaciones).
   const handleDiscardDraft = useCallback(() => {
-    discardDraft();
-    draftDecisionTakenRef.current = true;
-    setShowDraftModal(false);
-  }, [discardDraft]);
+    discardConfirmation.openModal({
+      title: 'Descartar borrador',
+      description: 'Se perderá el progreso guardado del wizard (cartas escaneadas, contexto y asignaciones). Esta acción no se puede deshacer.',
+      variant: 'danger',
+      confirmText: 'Descartar borrador',
+      cancelText: 'Conservar',
+      onConfirm: () => {
+        discardDraft();
+        draftDecisionTakenRef.current = true;
+        setShowDraftModal(false);
+      },
+    });
+  }, [discardDraft, discardConfirmation]);
 
-  // Handler para salir del wizard con confirmación
+  // Handler para salir del wizard con confirmación (T-957: usa confirmExit
+  // del hook useUnsavedChanges, que añade además protección beforeunload).
   const handleExitWizard = useCallback(() => {
-    if (hasUnsavedData) {
-      exitConfirmation.openModal({
+    confirmExit(
+      () => navigate(ROUTES.CARD_DECKS),
+      {
         title: 'Salir sin guardar',
-        message: 'Tienes cambios sin guardar. El borrador se mantendrá guardado automáticamente. ¿Seguro que quieres salir?',
+        description: 'Tienes cambios sin guardar. El borrador se mantendrá guardado automáticamente. ¿Seguro que quieres salir?',
         confirmText: 'Salir',
-        variant: 'warning',
-        onConfirm: () => {
-          navigate(ROUTES.CARD_DECKS);
-        }
-      });
-    } else {
-      navigate(ROUTES.CARD_DECKS);
-    }
-  }, [hasUnsavedData, navigate, exitConfirmation]);
+      }
+    );
+  }, [navigate, confirmExit]);
 
   // Handler para escaneo RFID
   const handleRFIDScan = useCallback((card) => {
@@ -336,12 +361,13 @@ export default function DeckCreationWizard() {
       // Limpiar borrador
       clearDraft();
 
-      // Celebración
+      // Celebración + micro-confirmación inline.
       fireConfetti({
         particleCount: 150,
         spread: 80,
         origin: { y: 0.6 },
       });
+      saveBadge.trigger();
 
       toast.success('¡Mazo creado!', {
         description: `"${deckName}" está listo para usar`
@@ -487,7 +513,7 @@ export default function DeckCreationWizard() {
         className="max-w-5xl mx-auto"
       >
         <GlassCard className="p-4">
-          <div className="flex items-center justify-between">
+          <div className="flex flex-wrap items-center justify-between gap-3">
             <ButtonPremium
               variant="ghost"
               onClick={goBack}
@@ -497,19 +523,22 @@ export default function DeckCreationWizard() {
               Anterior
             </ButtonPremium>
 
-            <div className="flex items-center gap-2 text-sm text-text-muted">
+            <div className="flex items-center gap-2 text-sm text-text-muted order-last sm:order-none w-full sm:w-auto justify-center">
               <span>Paso {currentStep + 1} de {WIZARD_STEPS.length}</span>
             </div>
 
             {currentStep === WIZARD_STEPS.length - 1 ? (
-              <ButtonPremium
-                onClick={handleCreateDeck}
-                disabled={!canProceed() || isSubmitting}
-                loading={isSubmitting}
-                icon={<Sparkles size={18} />}
-              >
-                Crear Mazo
-              </ButtonPremium>
+              <div className="relative">
+                <ButtonPremium
+                  onClick={handleCreateDeck}
+                  disabled={!canProceed() || isSubmitting}
+                  loading={isSubmitting}
+                  icon={<Sparkles size={18} />}
+                >
+                  Crear Mazo
+                </ButtonPremium>
+                <InlineSuccessBadge visible={saveBadge.visible} label="Mazo creado" placement="left" />
+              </div>
             ) : (
               <ButtonPremium
                 onClick={goNext}
@@ -575,8 +604,12 @@ export default function DeckCreationWizard() {
         )}
       </AnimatePresence>
 
-      {/* Modal de confirmación para salir */}
-      <ConfirmationModal {...exitConfirmation.modalProps} />
+      {/* T-957: modal "cambios sin guardar" (sustituye al antiguo
+          exitConfirmation; ahora gestionado por useUnsavedChanges). */}
+      <ConfirmationModal {...confirmExitModalProps} />
+
+      {/* T-957: modal de confirmación al descartar borrador. */}
+      <ConfirmationModal {...discardConfirmation.modalProps} />
     </div>
   );
 }
@@ -773,7 +806,7 @@ function StepContext({
   if (loadingContexts) {
     return (
       <GlassCard className="p-6">
-        <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
+        <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-3 gap-[var(--space-fluid-gutter)]">
           {Array.from({ length: 6 }, (_, i) => `ctx-wizard-skeleton-${i}`).map(id => (
             <div
               key={id}
@@ -794,7 +827,7 @@ function StepContext({
         </p>
       </div>
 
-      <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
+      <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-3 gap-[var(--space-fluid-gutter)]">
         {contexts.map((context) => {
           // El DTO toGameContextDTOV1 expone `id`; mantenemos compat con `_id`
           // por si en algun consumidor el documento Mongoose llega crudo.
@@ -937,7 +970,7 @@ function StepAssign({
         </motion.div>
       )}
 
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+      <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-[var(--space-fluid-gutter)]">
         {/* Lista de cartas */}
         <GlassCard className="p-4 lg:col-span-1">
           <div className="mb-4">
@@ -1106,7 +1139,7 @@ function StepConfirm({
   cardAssignments
 }) {
   return (
-    <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+    <div className="grid grid-cols-1 md:grid-cols-2 gap-[var(--space-fluid-gutter)]">
       {/* Nombre del mazo */}
       <GlassCard className="p-6">
         <h2 className="text-lg font-semibold text-text-primary mb-4">Nombre del mazo</h2>

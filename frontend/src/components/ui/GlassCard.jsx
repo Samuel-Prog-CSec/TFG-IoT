@@ -16,17 +16,19 @@ const cardVariants = cva(
   {
     variants: {
       variant: {
-        // Por defecto: superficie ligeramente elevada del fondo principal
+        // Por defecto: superficie ligeramente elevada del fondo principal.
+        // Las shadows se delegan a los tokens semánticos `--shadow-*` que
+        // varían por tema (en dark son negras al 35%, en light al 8%).
         default: [
           'bg-background-elevated/40 backdrop-blur-xl saturate-150',
           'border border-border-subtle',
-          'shadow-[0_4px_24px_rgba(0,0,0,0.15),inset_0_1px_0_rgba(255,255,255,0.05)]'
+          'shadow-[var(--shadow-md),var(--shadow-inset-card)]'
         ],
         // Para contenidos que necesitan destacar fuertemente
         solid: [
           'bg-background-surface/80 backdrop-blur-2xl',
           'border border-border-default',
-          'shadow-[0_8px_32px_rgba(0,0,0,0.2),inset_0_1px_0_rgba(255,255,255,0.1)]'
+          'shadow-[var(--shadow-lg),var(--shadow-inset-card)]'
         ],
         // Para "vacíos" o espacios contenedores secundarios
         subtle: [
@@ -37,7 +39,7 @@ const cardVariants = cva(
         gradient: [
           'bg-background-surface/60 backdrop-blur-xl',
           'border border-brand-base/30',
-          'shadow-[0_4px_24px_var(--color-brand-glow)]'
+          'shadow-[var(--shadow-glow)]'
         ]
       },
       padding: {
@@ -55,8 +57,10 @@ const cardVariants = cva(
         false: ''
       },
       glow: {
-        // Solo aplica en hover si es interactive, o siempre si queremos que brille fijo
-        true: 'hover:shadow-[0_0_30px_var(--color-brand-glow),inset_0_1px_0_rgba(255,255,255,0.2)]',
+        // Solo aplica en hover si es interactive, o siempre si queremos que brille fijo.
+        // El glow grande usa el token --shadow-glow (24px brand-glow) y
+        // refuerza con un inset card sutil para sensación de "lift" táctil.
+        true: 'hover:shadow-[var(--shadow-glow),var(--shadow-inset-card)]',
         false: ''
       }
     },

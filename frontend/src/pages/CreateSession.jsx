@@ -27,6 +27,8 @@ import {
 import { sessionsAPI, extractData, extractErrorMessage } from '../services/api';
 import WizardStepper from '../components/ui/WizardStepper';
 import ButtonPremium from '../components/ui/ButtonPremium';
+import InlineSuccessBadge from '../components/ui/InlineSuccessBadge';
+import useInlineSuccess from '../hooks/useInlineSuccess';
 import GlassCard from '../components/ui/GlassCard';
 import { ROUTES } from '../constants/routes';
 import { useReducedMotion } from '../hooks/useReducedMotion';
@@ -91,6 +93,9 @@ export default function CreateSession() {
   const { shouldReduceMotion } = useReducedMotion();
   const { fireConfetti } = useConfetti();
   useDocumentTitle('Nueva Sesión');
+  // T-955: badge inline tras crear la sesión, antes de navegar al destino
+  // (BoardSetup en Memoria o SessionDetail en Asociación/Secuencia).
+  const saveBadge = useInlineSuccess();
 
   // Estado del wizard
   const [currentStep, setCurrentStep] = useState(0);
@@ -133,7 +138,13 @@ export default function CreateSession() {
 
   // Dirty detection: el usuario ha empezado a configurar la sesion
   const isDirty = currentStep > 0 || selectedDeck !== null;
-  const { blocker, isBlocked } = useUnsavedChanges(isDirty);
+  // T-957: el hook protege contra cierre de pestaña / refresh vía
+  // beforeunload mientras isDirty sea true. El wizard de CreateSession no
+  // tiene actualmente puntos de salida programáticos (solo "Anterior",
+  // "Siguiente", "Crear"), por lo que no usamos `confirmExit` aquí — el
+  // modal del hook queda montado pero inerte salvo que el usuario añada
+  // un nuevo botón "Cancelar wizard" que lo invoque.
+  const { confirmExitModalProps } = useUnsavedChanges(isDirty);
 
   // Navegacion
   const goNext = () => {
@@ -197,12 +208,13 @@ export default function CreateSession() {
       const response = await sessionsAPI.createSession(payload);
       const newSession = extractData(response);
 
-      // Celebracion
+      // Celebracion + micro-confirmación inline.
       fireConfetti({
         particleCount: 150,
         spread: 80,
         origin: { y: 0.6 },
       });
+      saveBadge.trigger();
 
       toast.success('¡Sesión creada!', {
         description: isMemorySelected
@@ -367,7 +379,7 @@ export default function CreateSession() {
         className="max-w-5xl mx-auto"
       >
         <GlassCard className="p-4">
-          <div className="flex items-center justify-between">
+          <div className="flex flex-wrap items-center justify-between gap-3">
             <ButtonPremium
               variant="ghost"
               onClick={goBack}
@@ -377,19 +389,22 @@ export default function CreateSession() {
               Anterior
             </ButtonPremium>
 
-            <div className="flex items-center gap-2 text-sm text-text-muted">
+            <div className="flex items-center gap-2 text-sm text-text-muted order-last sm:order-none w-full sm:w-auto justify-center">
               Paso {currentStep + 1} de {WIZARD_STEPS.length}
             </div>
 
             {currentStep === WIZARD_STEPS.length - 1 ? (
-              <ButtonPremium
-                onClick={handleCreateSession}
-                disabled={!canProceed(currentStep) || isSubmitting}
-                loading={isSubmitting}
-                icon={<Sparkles size={18} />}
-              >
-                Crear Sesión
-              </ButtonPremium>
+              <div className="relative">
+                <ButtonPremium
+                  onClick={handleCreateSession}
+                  disabled={!canProceed(currentStep) || isSubmitting}
+                  loading={isSubmitting}
+                  icon={<Sparkles size={18} />}
+                >
+                  Crear Sesión
+                </ButtonPremium>
+                <InlineSuccessBadge visible={saveBadge.visible} label="Sesión creada" placement="left" />
+              </div>
             ) : (
               <ButtonPremium
                 onClick={goNext}
@@ -404,16 +419,11 @@ export default function CreateSession() {
         </GlassCard>
       </motion.div>
 
-      <ConfirmationModal
-        open={isBlocked}
-        onConfirm={() => blocker.proceed()}
-        onClose={() => blocker.reset()}
-        title="Cambios sin guardar"
-        description="Tienes cambios sin guardar. Si sales ahora, perderas los cambios realizados."
-        variant="warning"
-        confirmText="Salir sin guardar"
-        cancelText="Seguir editando"
-      />
+      {/* T-957: modal de confirmación al salir con cambios sin guardar.
+          Hoy solo se renderiza inerte (no hay botón que invoque
+          confirmExit), pero queda preparado para nuevos puntos de salida
+          programáticos sin tener que volver a cablearlo. */}
+      <ConfirmationModal {...confirmExitModalProps} />
     </div>
   );
 }

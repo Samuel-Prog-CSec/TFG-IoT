@@ -9,6 +9,7 @@
 import { motion, AnimatePresence } from 'framer-motion';
 import { useEffect, useState } from 'react';
 import PropTypes from 'prop-types';
+import { HelpCircle, Sparkles } from 'lucide-react';
 import { cn } from '../../lib/utils';
 import { useReducedMotion } from '../../hooks/useReducedMotion';
 import { getAssetImageUrl } from '../../lib/cardMapping';
@@ -284,7 +285,7 @@ const ChallengeDisplay = function ChallengeDisplay({
           </div>
         ) : (
           <motion.div
-            className="text-7xl sm:text-9xl lg:text-[10rem] mb-2 select-none filter drop-shadow-lg leading-none"
+            className="text-7xl sm:text-9xl lg:text-[10rem] mb-2 select-none filter drop-shadow-lg leading-none flex items-center justify-center"
             animate={shouldReduceMotion ? { scale: 1, rotate: 0 } : {
               scale: [1, 1.1, 1],
               rotate: [0, 3, -3, 0]
@@ -295,7 +296,17 @@ const ChallengeDisplay = function ChallengeDisplay({
               ease: "easeInOut"
             }}
           >
-            {revealed ? asset?.display : '❓'}
+            {revealed && asset?.display ? (
+              asset.display
+            ) : (
+              // Antes era el emoji '❓' (helado por SO/font). Lucide HelpCircle
+              // mantiene el ratio visual y se tiñe con el color tema actual.
+              <HelpCircle
+                className={cn('size-[0.9em]', theme.text)}
+                strokeWidth={1.5}
+                aria-hidden="true"
+              />
+            )}
           </motion.div>
         )}
 
@@ -346,7 +357,12 @@ const ChallengeDisplay = function ChallengeDisplay({
 function ChallengeSparkle({ className, delay = 0 }) {
   return (
     <motion.div
-      className={cn("text-2xl pointer-events-none select-none", className)}
+      className={cn(
+        // Antes era emoji ✨ (text-2xl). Migrado a Lucide Sparkles con
+        // tono brand-light para coherencia con el resto del design system.
+        'pointer-events-none select-none text-brand-light/70',
+        className,
+      )}
       initial={{ opacity: 0, scale: 0 }}
       animate={{
         opacity: [0, 1, 0],
@@ -360,7 +376,7 @@ function ChallengeSparkle({ className, delay = 0 }) {
         ease: "easeInOut"
       }}
     >
-      ✨
+      <Sparkles size={20} strokeWidth={1.5} fill="currentColor" aria-hidden="true" />
     </motion.div>
   );
 }

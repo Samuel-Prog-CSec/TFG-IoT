@@ -590,3 +590,161 @@ Envolver `.map()` de tarjetas con `<AnimatePresence>` (sin `mode="popLayout"` ni
 `layout` prop por incompatibilidad con tests) y variants con hidden/visible/exit.
 Ver patron en `01-PATRONES-DISENO.md` §14.
 
+---
+
+## T-953 — ChartsTheme + Mascota expresiva (2026-05-09)
+
+Documentado en ADRs 117 y 118.
+
+### ChartsTheme — sistema unificado para Recharts
+
+Ubicación: `frontend/src/components/analytics/ChartsTheme.jsx`. Exports:
+
+- `<ChartsThemeDefs />` — componente que dropa `<defs>` global (gradients por mecánica + por semántica + área brand vertical + 3 patterns colorblind-safe + pattern para celdas "sin datos"). Se monta DENTRO del `<ResponsiveContainer>` de cada chart.
+- `chartColors.byMechanic.{memory,association,sequence}.{stroke,fill,gradientId}` — paletas por mecánica.
+- `chartColors.bySemantic.{brand,success,warning,error,info,muted}` — paletas semánticas.
+- `chartTokens.{gridStroke,axisTickFill,axisTickFontSize,tooltipBg,tooltipBorder,legendFill,emptyPatternId}` — tokens compartidos.
+- `<ThemedTooltipCard>` — wrapper canónico de tooltip (`bg-background-elevated/95 border border-border-default rounded-lg shadow-xl backdrop-blur`).
+- `commonAxisProps` y `commonGridProps` — props pre-spread para `<XAxis>`/`<YAxis>`/`<CartesianGrid>`.
+- `getChartPalette(key)` — helper que resuelve `'memory'|'association'|'sequence'|'brand'|...` a una paleta.
+
+**Reglas para añadir colores**: solo tokens `var(--color-*)` del `index.css`. Nada hex hardcoded. Si un chart necesita un color one-off, debe pasar por `chartColors` como entrada nueva, no inline.
+
+**Charts migrados**: `TrajectoryChart`, `EngagementRadar`, `SequenceProgressChart`, `PerformanceByDimension`. Charts CSS-based o con su propio sistema (`ContentEffectivenessMatrix`, `ActivityHeatmap`, `AlertsHub`, `LearningCurvesSection`) NO se migraron.
+
+**Charts nuevos pequeños**: `StudentProgressSparkline` (~80px alto, sin ejes ni tooltip, solo tendencia) y `DifficultyBar` (CSS puro, RAG color + `bg-stripe-diagonal` colorblind-safe en valores `<50%`).
+
+### Mascota expresiva
+
+Ver `Gameplay_Feedback_Design.md` § "T-953" para detalle. Resumen rápido:
+
+- 9 moods (3 nuevos: `pointing`, `worried`, `surprised`).
+- Accesorios mecánica-aware en `thinking` (BookGlasses/LinkPendant/RhythmHeadphones).
+- `mascotDialog.js` con eventos nuevos: `streakBroken`, `worriedRebound`, `greeting`.
+- GameOver con mascota tier-aware en bottom-left (escala 1.4x, `aria-hidden`).
+- FeedbackOverlay per-mecánica con iconos Lucide (no emojis Unicode).
+- Sound effects nuevos en `soundEffectsService.js` (Web Audio nativo).
+- **Fix crítico**: `mechanicTypeRef.current` dentro de `useGameFeedback.processValidationResult` para que los listeners de socket no capturen el valor stale.
+
+### Empty states con mascota
+
+`<EmptyState>` ahora acepta prop `mascot?: ReactNode` (mutuamente exclusiva con `illustration`/`icon`). La mascota se renderiza en el bloque hero centrado con altura reservada para que la burbuja no se recorte.
+
+### Onboarding modal con mascota guía
+
+`OnboardingOverlay.ModalStep` incrusta `<CharacterMascot>` en bottom-left con mood derivado del paso:
+- Step 1 → `idle` con `isFirstAppearance: true` y "¡Hola!".
+- Último step → `celebrating` + "¡Vamos!".
+- Resto modales → `pointing` con fragmento del título.
+- Steps tipo `'spotlight'` NO añaden mascota — el tooltip apuntador ya cumple.
+
+---
+
+## Sistema responsive (2026-05-09, ADR-119)
+
+### Resoluciones objetivo
+- **Mínimo soportado**: 1366×768 (peor caso de portátiles del tribunal del TFG).
+- **Óptimo**: 1920×1080 (FHD, escenario habitual de despliegue en aulas).
+- **Escalado fluido** hasta 4K (3840×2160).
+- **Fuera de alcance**: mobile <640px (sensor RFID por USB hace inviable la mecánica).
+
+### Tokens fluidos (en `index.css` `@theme`)
+La tipografía y los spacings principales escalan con `clamp()`. Tokens disponibles:
+
+```css
+/* Tipografía fluida — usar como var(--text-fluid-*) */
+--text-fluid-xs:   clamp(0.75rem,  0.7rem  + 0.25vw, 0.875rem);
+--text-fluid-sm:   clamp(0.875rem, 0.82rem + 0.3vw,  1rem);
+--text-fluid-base: clamp(1rem,     0.94rem + 0.3vw,  1.125rem);
+--text-fluid-lg:   clamp(1.125rem, 1.04rem + 0.4vw,  1.375rem);
+--text-fluid-xl:   clamp(1.375rem, 1.2rem  + 0.7vw,  1.875rem);
+--text-fluid-2xl:  clamp(1.625rem, 1.35rem + 1.2vw,  2.5rem);
+--text-fluid-3xl:  clamp(1.875rem, 1.45rem + 1.8vw,  3.5rem);
+--text-fluid-hero: clamp(2.25rem,  1.5rem  + 3vw,    5rem);
+
+/* Spacing fluido — para padding de página y gaps de grids principales */
+--space-fluid-section: clamp(1rem,    0.5rem + 2vw,   2rem);
+--space-fluid-gutter:  clamp(0.75rem, 0.4rem + 1.5vw, 1.5rem);
+
+/* Gameplay — alturas de chrome con pendiente aditiva */
+--game-hud-height:  clamp(56px, 4vh + 24px, 80px);
+--game-mascot-size: clamp(72px, 6vw + 32px, 128px);
+
+/* Sidebar — anchos por modo */
+--sidebar-w-expanded: 18rem; /* 288px */
+--sidebar-w-rail:     4.5rem; /* 72px */
+```
+
+**Uso**: `className="text-[var(--text-fluid-2xl)]"` o `className="gap-[var(--space-fluid-gutter)]"`.
+
+**Convivencia con clases discretas**: las clases `text-Nxl`/`gap-N` de Tailwind siguen funcionando y NO necesitan migrarse. Solo se usa fluid en sitios que escalan agresivamente (heroes, scores, page titles, gaps de grids principales).
+
+### Breakpoints
+Defaults de Tailwind v4 (no se sobreescriben — Tailwind v4 NO permite override vía `@theme` de `--breakpoint-*` en runtime):
+
+- `sm: 640px`
+- `md: 768px`
+- `lg: 1024px`
+- `xl: 1280px`
+- `2xl: 1536px`
+
+### Escalera estándar de grids
+- **KPIs/cards principales**: `grid-cols-1 sm:grid-cols-2 md:grid-cols-3 xl:grid-cols-4`.
+- **Layouts de detalle (sidebar+main)**: `grid-cols-1 lg:grid-cols-2 xl:grid-cols-3`.
+- **Stats/chips densos**: `grid-cols-2 md:grid-cols-4`.
+- **Galerías de assets**: `grid-cols-3 sm:grid-cols-4 md:grid-cols-5 lg:grid-cols-6` con `aspect-square`.
+
+Anti-patrón: NO usar `grid-cols-1 lg:grid-cols-N` (salto sin paso intermedio en md). Insertar siempre `md:` o `sm:`.
+
+### Sidebar (3 estados)
+Hook `useSidebarMode` coordina:
+- `<lg` (≤1023px): drawer animado con hamburguesa.
+- `lg` a `<xl-grande` (1024-1439px): rail 72px con tooltips. Caso del tribunal con 1366×768.
+- `≥1440px`: expandida 288px.
+
+**Toggle**: tecla `[` global o botón `PanelLeftClose`/`PanelLeft` en sidebar header. Cicla `auto → compact → expanded`. Persistencia en `localStorage` (`sidebar:mode`).
+
+**NavItem `compact` mode**: solo icono 24px, label/description en tooltip nativo, indicador activo lateral (barra vertical 3px).
+
+### GameLayout fullscreen
+Las rutas `/game/*` montan `<GameLayout>` (no `<AppLayout>`). Ocupa `100dvh × 100vw`, sin sidebar ni topbar. Salida con botón "X" (top-right) o tecla `Escape`. Si hay partida activa (`globalThis.__gameActive=true`), pide confirmación antes de salir.
+
+`GameSession` señaliza `__gameActive` en `useEffect`:
+```javascript
+useEffect(() => {
+  globalThis.__gameActive = true;
+  return () => { globalThis.__gameActive = false; };
+}, []);
+```
+
+### Container estándar de página
+Utility `page-container` para el wrapper raíz de cada página:
+```css
+@utility page-container {
+  @apply mx-auto w-full px-[var(--space-fluid-section)];
+  max-width: min(1600px, calc(100vw - 2 * var(--space-fluid-section)));
+}
+```
+
+Aplicado en: Dashboard, Sessions, Decks, Students, Insights, Contexts, StudentManagement (admin), StudentProfile, StudentsAnalytics. Páginas con `max-w-5xl`/`max-w-6xl` (wizards de creación, detalle de mazo) conservan su ancho específico.
+
+### Anti-overflow defensivo en cards
+Cards con texto que puede crecer (nombres, descripciones):
+- `min-w-0` al hijo `flex` que contiene texto largo (clave para que `truncate` funcione dentro de flex).
+- `truncate` o `line-clamp-N` con atributo `title` para tooltip nativo.
+- Iconos/badges del header con `flex-shrink-0`.
+
+Aplicado en: `DeckCard`, `ContextsPage` cards, `SessionsPage` cards (ya cumplía).
+
+### Charts Recharts
+- Heights: `h-[clamp(220px,30vh,360px)]` (no `h-[300px]` fijo).
+- Radar: `aspect-square w-full max-h-[360px] min-h-[220px]`.
+- Tooltip: `<Tooltip wrapperStyle={{ maxWidth: '90vw' }}/>` para evitar desbordes.
+- `ChartSection` con `min-h-0` en el wrapper del chart (permite contraer dentro de flex).
+- `ActivityHeatmap`: wrapper con `overflow-x-auto custom-scrollbar`, `min-w-[320px]`.
+
+### Modales
+`ConfirmationModal` usa `max-w-[min(560px,92vw)] max-h-[88dvh] overflow-y-auto custom-scrollbar` para ser fluido y permitir scroll interno cuando el contenido excede el viewport.
+
+`GameOverScreen` usa `max-w-[min(720px,92vw)] max-h-[92dvh]` con tipografía `text-fluid-3xl` (score) y `text-fluid-2xl` (título). Botones del footer con `flex-wrap`.
+

@@ -108,7 +108,8 @@ Estructura principal de la aplicación.
 
 | Archivo | Propósito |
 |---------|-----------|
-| `AppLayout.jsx` | Layout con sidebar, header, contenido |
+| `AppLayout.jsx` | Layout con sidebar 3 estados (drawer/rail/expanded), topbar, contenido. Usa `useSidebarMode`. |
+| `GameLayout.jsx` | Layout fullscreen para rutas `/game/*` (sin sidebar). Salida con X/Esc + confirmación si partida activa (ADR-119). |
 
 ---
 
@@ -117,7 +118,8 @@ Custom hooks para lógica reutilizable.
 
 | Hook | Propósito | Retorna |
 |------|-----------|---------|
-| `useIsMobile` | Detectar viewport móvil | `boolean` |
+| `useIsMobile` | Detectar viewport móvil binario (legacy) | `boolean` |
+| `useSidebarMode` | Coordinar estado de la sidebar (drawer/rail/expanded) con persistencia | `{ preference, layout, setPreference, toggle }` |
 | `useDocumentTitle` | Cambiar título de página | `void` |
 | `useGameTimer` | Temporizador del juego | `{ timeLeft, pause, resume, reset }` |
 | `useFetch` | Peticiones HTTP | `{ data, loading, error, refetch }` |

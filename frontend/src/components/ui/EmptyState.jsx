@@ -15,10 +15,18 @@ import GlassCard from './GlassCard';
  *   - `first-use`   -> igual + CTA secundario opcional "Ver guia"
  *   - `filtered`    -> etiqueta visible "Sin resultados" y CTA orientado a limpiar filtros
  *
- * La prop `illustration` tiene prioridad sobre `icon`. Cuando se pasa una
- * ilustracion SVG (por ejemplo una de las del directorio `illustrations/`), esta
- * sustituye al contenedor circular del icono y se renderiza a tamaño completo
- * (hasta ~180px) para reforzar la identidad de la pagina.
+ * Slots para el "héroe" visual (mutuamente exclusivos, en orden de
+ * precedencia): `illustration` > `mascot` > `icon`.
+ *
+ *   - `illustration` — SVG ilustración a tamaño completo (~180px),
+ *     refuerza la identidad de la página (`EmptySessionsIllustration`,
+ *     `EmptyDecksIllustration`, …).
+ *   - `mascot` — `<CharacterMascot />` o un nodo equivalente (T-953
+ *     Fase 2.8). Útil en empty states donde queremos darle voz a la
+ *     mascota ("Crea tu primer mazo y empezamos a jugar"). Se renderiza
+ *     en el bloque hero con un float coordinado.
+ *   - `icon` — fallback discreto para cards densas; contenedor circular
+ *     con tinte glass.
  */
 export default function EmptyState({
   title,
@@ -26,6 +34,7 @@ export default function EmptyState({
   description,
   icon,
   illustration,
+  mascot,
   action,
   secondaryAction,
   variant = 'default',
@@ -63,6 +72,18 @@ export default function EmptyState({
           )}
         >
           {illustration}
+        </motion.div>
+      ) : mascot ? (
+        <motion.div
+          initial={shouldReduceMotion ? false : { opacity: 0, scale: 0.85, y: 8 }}
+          animate={{ opacity: 1, scale: 1, y: 0 }}
+          transition={{ duration: DURATION.entrance, ease: EASING.outExpo, delay: 0.05 }}
+          // Bloque hero de mascota: alto reservado para que la burbuja
+          // de diálogo no recorte sobre el título. La mascota ya tiene
+          // su propio float interno, no aplicamos animate-float aquí.
+          className="relative mx-auto mb-7 flex h-32 items-end justify-center"
+        >
+          {mascot}
         </motion.div>
       ) : icon && (
         <motion.div
@@ -121,6 +142,7 @@ EmptyState.propTypes = {
   description: PropTypes.node,
   icon: PropTypes.node,
   illustration: PropTypes.node,
+  mascot: PropTypes.node,
   action: PropTypes.node,
   secondaryAction: PropTypes.node,
   variant: PropTypes.oneOf(['default', 'first-use', 'filtered']),
