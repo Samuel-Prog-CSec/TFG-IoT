@@ -103,12 +103,14 @@ const ButtonPremium = ({
       whileTap={!isDisabled ? { scale: 0.98 } : {}}
       transition={motionConfig.spring}
       disabled={isDisabled}
+      aria-disabled={isDisabled || undefined}
+      aria-busy={loading || undefined}
       className={cn(buttonVariants({ variant, size, className }))}
       {...props}
     >
       {loading && (
         <svg 
-          className="animate-spin h-5 w-5 mr-2" 
+          className="animate-spin size-5 mr-2"
           xmlns="http://www.w3.org/2000/svg" 
           fill="none" 
           viewBox="0 0 24 24"

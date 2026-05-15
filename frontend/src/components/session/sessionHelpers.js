@@ -124,10 +124,10 @@ const parseEnabledMechanics = () => {
     return new Set(DEFAULT_ENABLED_MECHANICS);
   }
 
-  const parsed = raw
-    .split(',')
-    .map(item => item.trim().toLowerCase())
-    .filter(Boolean);
+  const parsed = raw.split(',').flatMap(item => {
+    const trimmed = item.trim().toLowerCase();
+    return trimmed ? [trimmed] : [];
+  });
 
   return new Set(parsed.length > 0 ? parsed : DEFAULT_ENABLED_MECHANICS);
 };

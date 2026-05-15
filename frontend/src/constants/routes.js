@@ -128,4 +128,3 @@ export const ADMIN_NAV_ROUTES = [
   },
 ];
 
-export default ROUTES;

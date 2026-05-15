@@ -180,20 +180,22 @@ export default function TransferStudents() {
 
   const teacherOptions = useMemo(
     () =>
-      teachers
-        .filter(teacher => (teacher.id || teacher._id) !== sourceTeacherId)
-        .map(teacher => ({
-          value: teacher.id || teacher._id,
+      teachers.flatMap(teacher => {
+        const id = teacher.id || teacher._id;
+        if (id === sourceTeacherId) return [];
+        return [{
+          value: id,
           label: teacher.name || teacher.email,
           icon: <Users size={18} />
-        })),
+        }];
+      }),
     [teachers, sourceTeacherId]
   );
 
   if (loading) {
     return (
       <div className="min-h-full p-8">
-        <div className="text-text-secondary">Cargando transferencia...</div>
+        <div className="text-text-secondary">Cargando transferencia…</div>
       </div>
     );
   }
@@ -220,7 +222,7 @@ export default function TransferStudents() {
         </header>
 
         <div className="grid grid-cols-1 lg:grid-cols-[2fr,1fr] gap-6">
-          <GlassCard className="p-6 space-y-6">
+          <GlassCard className="p-6 space-y-6 order-2 lg:order-1">
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6 pb-4 border-b border-border-subtle/50">
               <SelectPremium
                 label="Profesor Origen"
@@ -293,9 +295,13 @@ export default function TransferStudents() {
             </div>
           </GlassCard>
 
-          <GlassCard className="p-6 space-y-4">
+          {/* order-1 lg:order-2: en mobile el resumen sube antes del form
+              para que el docente vea el contexto del cambio mientras rellena
+              campos (antes quedaba al pie tras stackearse). En lg vuelve a
+              su lugar lateral. */}
+          <GlassCard className="p-6 space-y-4 order-1 lg:order-2">
             <div className="flex items-center gap-3 text-warning-base">
-              <AlertTriangle size={20} />
+              <AlertTriangle size={20} aria-hidden="true" />
               <h2 className="text-lg font-bold">Impacto del Cambio</h2>
             </div>
             <ul className="text-sm text-text-muted space-y-3">

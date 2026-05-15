@@ -8,16 +8,42 @@ class SoundEffectsService {
   constructor() {
     this._ctx = null;
     this._enabled = true;
+    // BUG-AUDIO-1 (QA 2026-05-14): unlock al primer gesture del usuario
+    // (click/keydown/touchstart). Antes el AudioContext se creaba en el
+    // primer _playTone aunque no hubiera habido interacción, lo que disparaba
+    // el warning "AudioContext was not allowed to start" en Chrome y dejaba
+    // el ctx en estado 'suspended' hasta el siguiente reproducir.
+    this._unlocked = false;
+    if (typeof window !== 'undefined') {
+      const unlock = () => {
+        this._unlocked = true;
+        // Si por alguna razón ya existía el ctx, lo despertamos.
+        if (this._ctx && this._ctx.state === 'suspended') {
+          this._ctx.resume().catch(() => { /* ignorar */ });
+        }
+        window.removeEventListener('pointerdown', unlock);
+        window.removeEventListener('keydown', unlock);
+        window.removeEventListener('touchstart', unlock);
+      };
+      window.addEventListener('pointerdown', unlock, { once: true, passive: true });
+      window.addEventListener('keydown', unlock, { once: true });
+      window.addEventListener('touchstart', unlock, { once: true, passive: true });
+    }
   }
 
   // Lazy init para evitar autoplay policy
   _getContext() {
+    if (!this._unlocked) {
+      // Aún no hubo gesture: no crear el ctx para no disparar el warning
+      // del autoplay policy. La primera llamada útil ocurrirá tras click/key.
+      return null;
+    }
     if (!this._ctx) {
       this._ctx = new (window.AudioContext || window.webkitAudioContext)();
     }
     // Resume si esta suspendido (autoplay policy)
     if (this._ctx.state === 'suspended') {
-      this._ctx.resume();
+      this._ctx.resume().catch(() => { /* ignorar */ });
     }
     return this._ctx;
   }
@@ -30,6 +56,7 @@ class SoundEffectsService {
     if (!this._enabled) return;
     try {
       const ctx = this._getContext();
+      if (!ctx) return;
       const osc = ctx.createOscillator();
       const gain = ctx.createGain();
       osc.type = type;
@@ -48,6 +75,7 @@ class SoundEffectsService {
     if (!this._enabled) return;
     try {
       const ctx = this._getContext();
+      if (!ctx) return;
       let time = ctx.currentTime;
       for (const { freq, dur, type = 'sine' } of notes) {
         const osc = ctx.createOscillator();

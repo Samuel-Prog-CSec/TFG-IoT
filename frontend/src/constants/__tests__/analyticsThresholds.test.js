@@ -28,7 +28,7 @@ describe('PERFORMANCE_TIERS', () => {
   });
 
   it('debe cubrir el rango completo 0-100 sin huecos', () => {
-    const sorted = [...PERFORMANCE_TIERS].sort((a, b) => a.min - b.min);
+    const sorted = PERFORMANCE_TIERS.toSorted((a, b) => a.min - b.min);
 
     expect(sorted[0].min).toBe(0);
     expect(sorted[sorted.length - 1].max).toBe(100);

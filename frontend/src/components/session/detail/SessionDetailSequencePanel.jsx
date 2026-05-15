@@ -25,7 +25,7 @@ function SessionDetailSequencePanel({ session }) {
   const plan = useMemo(
     () =>
       Array.isArray(session?.sequencePlan)
-        ? [...session.sequencePlan].sort(
+        ? session.sequencePlan.toSorted(
             (a, b) => Number(a.roundNumber) - Number(b.roundNumber)
           )
         : [],

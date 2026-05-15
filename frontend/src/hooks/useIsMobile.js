@@ -29,4 +29,3 @@ export function useIsMobile(breakpoint = 1024) {
   return isMobile;
 }
 
-export default useIsMobile;

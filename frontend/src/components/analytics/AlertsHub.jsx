@@ -217,7 +217,9 @@ function AlertCard({ alert, shouldReduceMotion }) {
  * @param {Array} props.alerts - Array de alertas del API
  * @param {boolean} props.loading - Estado de carga
  */
-function AlertsHub({ alerts = [], loading = false }) {
+const EMPTY_ALERTS = [];
+
+function AlertsHub({ alerts = EMPTY_ALERTS, loading = false }) {
   const { shouldReduceMotion } = useReducedMotion();
   const [severityFilter, setSeverityFilter] = useState('all');
   const [typeFilter, setTypeFilter] = useState('all');

@@ -181,6 +181,10 @@ export default function Login() {
       if (result.lockoutUntil) {
         setCountdown(Math.ceil(LOCKOUT_DURATION / 1000));
       }
+      // BUG-LOGIN-1 (QA 2026-05-14): tras un fallo, preservar el email para
+      // que el usuario sólo reescriba la contraseña; limpiar la contraseña
+      // por seguridad y para enfocar la corrección.
+      setFormData((prev) => ({ ...prev, password: '' }));
     } finally {
       setIsSubmitting(false);
     }

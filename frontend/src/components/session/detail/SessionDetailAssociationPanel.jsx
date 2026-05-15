@@ -23,7 +23,7 @@ function SessionDetailAssociationPanel({ session }) {
   const plan = useMemo(
     () =>
       Array.isArray(session?.associationChallengePlan)
-        ? [...session.associationChallengePlan].sort(
+        ? session.associationChallengePlan.toSorted(
             (a, b) => Number(a.roundNumber) - Number(b.roundNumber)
           )
         : [],
@@ -98,7 +98,7 @@ function SessionDetailAssociationPanel({ session }) {
                   </p>
                 ) : (
                   <p className="text-[11px] text-text-muted/70 italic mt-1">
-                    Sin consigna personalizada — la app mostrará &quot;Encuentra: {label}&quot;.
+                    Sin consigna personalizada: la app mostrará &quot;Encuentra: {label}&quot;.
                   </p>
                 )}
                 <p className="text-[10px] text-text-muted/60 font-mono mt-1" title={round.uid}>

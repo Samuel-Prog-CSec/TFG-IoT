@@ -21,8 +21,10 @@ const SEARCHABLE_AUTO_THRESHOLD = 20;
  *   interno. Por defecto 'auto': se activa cuando hay más de 20 opciones.
  *   `true` lo fuerza siempre, `false` lo desactiva (PROP-70/84).
  */
+const EMPTY_OPTIONS = [];
+
 export default function SelectPremium({
-  options = [],
+  options = EMPTY_OPTIONS,
   value,
   onChange,
   placeholder = 'Seleccionar…',

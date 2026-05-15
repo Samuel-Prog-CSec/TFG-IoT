@@ -289,7 +289,11 @@ describe('Dashboard — integracion analytics', () => {
     expect(mariaElements.length).toBeGreaterThanOrEqual(1);
   });
 
-  it('no muestra actividad reciente cuando ningun estudiante tiene partidas', async () => {
+  it('muestra empty state en actividad reciente cuando ningun estudiante tiene partidas', async () => {
+    // Sesion pulido UI/UX final: el slot "Actividad Reciente" ahora siempre
+    // queda visible para mantener la simetría del grid; cuando no hay
+    // partidas se muestra un copy explicativo en lugar de desaparecer
+    // dejando hueco vertical.
     mockAnalyticsService.getClassroomStudents.mockResolvedValue({
       students: [
         { _id: 's1', name: 'Ana', averageScore: 50, lastPlayedAt: null },
@@ -303,7 +307,8 @@ describe('Dashboard — integracion analytics', () => {
       expect(screen.getByText('Alumnos en Riesgo')).toBeInTheDocument();
     });
 
-    expect(screen.queryByText('Actividad Reciente')).not.toBeInTheDocument();
+    expect(screen.getByText('Actividad Reciente')).toBeInTheDocument();
+    expect(screen.getByText(/Aún no hay partidas/i)).toBeInTheDocument();
   });
 
   it('maneja el caso de datos parciales sin crash', async () => {

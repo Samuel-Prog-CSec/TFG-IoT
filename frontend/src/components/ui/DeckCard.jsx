@@ -505,7 +505,7 @@ function DeckCardHeader({
               as="h3"
             />
           ) : (
-            <h3 className="font-bold text-text-primary text-lg leading-tight line-clamp-1 font-display truncate" title={deck.name}>
+            <h3 className="font-semibold text-text-primary text-lg leading-tight line-clamp-1 font-display truncate" title={deck.name}>
               {deck.name}
             </h3>
           )}

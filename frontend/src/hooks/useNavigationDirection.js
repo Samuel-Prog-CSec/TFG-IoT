@@ -100,4 +100,3 @@ export function useNavigationDirection() {
   return direction;
 }
 
-export default useNavigationDirection;

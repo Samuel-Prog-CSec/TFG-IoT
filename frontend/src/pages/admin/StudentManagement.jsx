@@ -480,6 +480,9 @@ export default function StudentManagement() {
     }
   }, [deferredSearch, pagination.limit]);
 
+  // En React StrictMode (dev) este effect se monta dos veces y dispara
+  // dos fetchs idénticos a /api/users. En producción ocurre una sola vez.
+  // No hay bug funcional, es el comportamiento documentado de StrictMode.
   useEffect(() => {
     fetchInitialData();
   }, [fetchInitialData]);
@@ -620,7 +623,7 @@ export default function StudentManagement() {
           )}
         </div>
         <div className="min-w-0 flex-1">
-          <h3 className="font-bold text-text-primary truncate">{student.name}</h3>
+          <h3 className="font-semibold text-text-primary truncate">{student.name}</h3>
           <div className="flex items-center gap-1.5 text-text-muted text-xs">
             <School size={12} />
             <span className="truncate">{student.profile?.classroom || 'Sin clase'}</span>
@@ -683,7 +686,10 @@ export default function StudentManagement() {
         </ButtonPremium>
       </header>
 
-      <section className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 xl:grid-cols-4 gap-[var(--space-fluid-gutter)] mb-8 items-stretch">
+      {/* Grid md:4 (antes md:3): el input search ocupa col-span-2 + selector
+          col-span-1 + KPI col-span-1 = 4 cols, no 3. Con md:3 había
+          desbordamiento visual del selector en breakpoints intermedios. */}
+      <section className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-[var(--space-fluid-gutter)] mb-8 items-stretch">
         <GlassCard className="p-4 flex items-center gap-4">
           <div className="size-12 rounded-xl bg-brand-base/10 text-brand-base flex items-center justify-center">
             <Users size={24} />

@@ -117,7 +117,7 @@ function ContextFormModal({ open, mode, initialContext, onClose, onSubmit, isLoa
         className="relative z-10 w-full max-w-lg rounded-2xl border border-border-default bg-background-elevated p-6 shadow-2xl"
       >
         <div className="mb-4 flex items-center gap-3">
-          <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-brand-base/15 text-brand-base">
+          <div className="flex size-10 items-center justify-center rounded-xl bg-brand-base/15 text-brand-base">
             <Palette size={20} aria-hidden="true" />
           </div>
           <div>
@@ -158,7 +158,7 @@ function ContextFormModal({ open, mode, initialContext, onClose, onSubmit, isLoa
               <p className="mt-1 flex items-start gap-1.5 text-xs text-warning-base">
                 <AlertTriangle size={12} className="mt-0.5 flex-shrink-0" aria-hidden="true" />
                 <span>
-                  No se puede cambiar el identificador porque ya hay archivos en Supabase Storage
+                  No se puede cambiar el identificador porque ya hay archivos en el almacenamiento
                   bajo <code className="rounded bg-background-base/60 px-1">ctx-{initialContext?.contextId}</code>.
                 </span>
               </p>
@@ -204,11 +204,11 @@ function AdminContextCard({ context, onEdit, onDelete }) {
     <article className="flex flex-col gap-4 rounded-2xl border border-border-default bg-background-elevated/60 p-5">
       <header className="flex items-start justify-between gap-3">
         <div className="flex min-w-0 items-start gap-3">
-          <div className="flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-xl bg-brand-base/15 text-brand-base">
+          <div className="flex size-10 flex-shrink-0 items-center justify-center rounded-xl bg-brand-base/15 text-brand-base">
             <Palette size={18} aria-hidden="true" />
           </div>
           <div className="min-w-0">
-            <h3 className="truncate text-base font-bold text-text-primary">{context.name}</h3>
+            <h3 className="truncate text-base font-semibold text-text-primary">{context.name}</h3>
             <div className="mt-0.5 flex flex-wrap items-center gap-2">
               <code className="rounded bg-background-base/60 px-1.5 py-0.5 text-[11px] text-text-muted">
                 {context.contextId}
@@ -224,19 +224,19 @@ function AdminContextCard({ context, onEdit, onDelete }) {
       <dl className="grid grid-cols-3 gap-2 text-center text-xs">
         <div className="rounded-lg border border-border-subtle bg-background-base/40 p-2">
           <dt className="text-text-muted">Assets</dt>
-          <dd className="text-base font-bold text-text-primary">{totalAssets}</dd>
+          <dd className="text-base font-bold text-text-primary tabular-nums">{totalAssets}</dd>
         </div>
         <div className="rounded-lg border border-border-subtle bg-background-base/40 p-2">
           <dt className="flex items-center justify-center gap-1 text-text-muted">
             <ImageIcon size={11} aria-hidden="true" /> Imágenes
           </dt>
-          <dd className="text-base font-bold text-text-primary">{imagesCount}</dd>
+          <dd className="text-base font-bold text-text-primary tabular-nums">{imagesCount}</dd>
         </div>
         <div className="rounded-lg border border-border-subtle bg-background-base/40 p-2">
           <dt className="flex items-center justify-center gap-1 text-text-muted">
             <Music size={11} aria-hidden="true" /> Audios
           </dt>
-          <dd className="text-base font-bold text-text-primary">{audiosCount}</dd>
+          <dd className="text-base font-bold text-text-primary tabular-nums">{audiosCount}</dd>
         </div>
       </dl>
 
@@ -434,7 +434,7 @@ export default function AdminContexts() {
               <AlertTriangle size={12} className="mt-0.5 flex-shrink-0 text-error-base" aria-hidden="true" />
               <span>
                 Se elimina la carpeta <code className="rounded bg-background-base/60 px-1">ctx-{ctx.contextId}</code>{' '}
-                de Supabase Storage (image, thumbnail y audio).
+                del almacenamiento del centro (imagen, miniatura y audio).
               </span>
             </li>
             <li className="flex items-start gap-2">
@@ -466,14 +466,17 @@ export default function AdminContexts() {
   return (
     <main className="mx-auto max-w-7xl space-y-6 px-4 py-6 sm:px-6 lg:px-8">
       <header className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-        <div className="flex items-start gap-3">
-          <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-brand-base/15 text-brand-base">
+        <div className="flex items-start gap-4">
+          <div className="flex size-12 items-center justify-center rounded-xl bg-gradient-to-br from-brand-base to-accent-pink text-white shadow-lg shadow-brand-base/20">
             <Palette size={24} aria-hidden="true" />
           </div>
           <div>
-            <h1 className="text-2xl font-bold text-text-primary">Gestión de Contextos</h1>
+            {/* Eyebrow "BIBLIOTECA" — signature de página admin alineada
+                con ApprovalPanel ("DIRECCIÓN") y StudentManagement. */}
+            <p className="text-[11px] uppercase tracking-[0.18em] text-brand-base font-bold mb-0.5">Biblioteca</p>
+            <h1 className="text-2xl sm:text-3xl font-bold font-display text-text-primary leading-tight">Contextos del centro</h1>
             <p className="text-sm text-text-muted">
-              Crea, edita y elimina contextos temáticos. Las eliminaciones también limpian Supabase Storage.
+              Crea y mantiene los temas (Geografía, Animales, Colores…) que los docentes usan en sus mazos.
             </p>
           </div>
         </div>

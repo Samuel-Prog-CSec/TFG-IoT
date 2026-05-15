@@ -349,9 +349,13 @@ export default function Dashboard() {
                 </motion.li>
               </ul>
 
-              {/* KPIs secundarios — metricas complementarias */}
+              {/* KPIs secundarios — metricas complementarias. Sin opacity:
+                  los cards siguen siendo interactivos y la atenuación previa
+                  no tenía función real (UI-B audit). La jerarquía respecto
+                  a los KPIs primarios la da el tamaño compacto (prop
+                  `compact`) y la altura menor, no la opacidad. */}
               <ul
-                className="list-none p-0 m-0 grid grid-cols-2 md:grid-cols-4 gap-3 lg:gap-4 mt-3 opacity-90"
+                className="list-none p-0 m-0 grid grid-cols-2 md:grid-cols-4 gap-3 lg:gap-4 mt-3"
               >
                 <motion.li variants={shouldReduceMotion ? {} : listItemVariants}>
                   <StatCard
@@ -639,13 +643,13 @@ const QUICK_LINKS = [
 function QuickLinks({ navigate }) {
   return (
     <div className="rounded-2xl bg-background-elevated/60 backdrop-blur-sm border border-border-default p-5">
-      <h3 className="text-lg font-bold text-text-primary mb-3 px-1 font-display">Accesos rápidos</h3>
+      <h3 className="text-lg font-semibold text-text-primary mb-3 px-1 font-display">Accesos rápidos</h3>
       <nav className="space-y-1" aria-label="Accesos rápidos">
         {QUICK_LINKS.map(({ label, route, icon: Icon, tintClass, tintBgClass }) => (
           <button
             key={route}
             onClick={() => navigate(route)}
-            className="flex items-center gap-3 w-full px-2 py-2 rounded-xl text-sm font-medium text-text-secondary hover:text-text-primary hover:bg-background-surface/40 transition-[color,background-color,transform] duration-200 group hover:translate-x-0.5"
+            className="flex items-center gap-3 w-full p-2 rounded-xl text-sm font-medium text-text-secondary hover:text-text-primary hover:bg-background-surface/40 transition-[color,background-color,transform] duration-200 group hover:translate-x-0.5"
           >
             <span className={`inline-flex items-center justify-center size-9 rounded-lg ${tintBgClass} transition-colors`} aria-hidden="true">
               <Icon size={18} className={`${tintClass} transition-colors`} aria-hidden="true" />
@@ -676,7 +680,21 @@ function RecentActivity({ students }) {
   const { ref: scrollRef, hasOverflow, canScrollRight, scrollByOne } = useHorizontalScroll();
   const { shouldReduceMotion: reduced } = useReducedMotion();
 
-  if (recentStudents.length === 0) return null;
+  // Empty state integrado: el slot queda visible aunque no haya datos, así
+  // se mantiene la simetría del grid del dashboard (antes desaparecía y la
+  // columna lateral quedaba con un hueco vertical irregular).
+  if (recentStudents.length === 0) {
+    return (
+      <section className="bg-background-elevated/40 backdrop-blur-sm rounded-2xl border border-border-subtle p-5 h-full flex flex-col">
+        <h3 className="text-lg font-semibold text-text-primary font-display mb-4">Actividad Reciente</h3>
+        <div className="flex-1 flex items-center justify-center text-center py-6">
+          <p className="text-sm text-text-muted max-w-[20rem]">
+            Aún no hay partidas. Cuando tus alumnos jueguen, aparecerán aquí sus últimas sesiones.
+          </p>
+        </div>
+      </section>
+    );
+  }
 
   const getInitials = (name) => {
     if (!name) return '?';
@@ -688,7 +706,7 @@ function RecentActivity({ students }) {
 
   return (
     <section className="bg-background-elevated/40 backdrop-blur-sm rounded-2xl border border-border-subtle p-5 relative overflow-hidden h-full flex flex-col">
-      <h3 className="text-lg font-bold text-text-primary font-display mb-4">Actividad Reciente</h3>
+      <h3 className="text-lg font-semibold text-text-primary font-display mb-4">Actividad Reciente</h3>
       <div ref={scrollRef} className="flex gap-3 overflow-x-auto pb-2 -mx-1 px-1 custom-scrollbar">
         {recentStudents.map((student, index) => (
           <div

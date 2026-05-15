@@ -39,7 +39,7 @@ function CustomTooltip({ active, payload }) {
   if (!active || !payload?.[0]) return null;
   const data = payload[0].payload;
   return (
-    <ThemedTooltipCard className="text-sm py-2.5 px-2.5">
+    <ThemedTooltipCard className="text-sm p-2.5">
       <p className="text-text-primary font-medium">{data.label}</p>
       <p className="text-text-muted tabular-nums">{Math.round(data.value)}%</p>
     </ThemedTooltipCard>
@@ -99,13 +99,13 @@ function EngagementRadar({ engagement }) {
     return (
       <GlassCard variant="default" padding="none" className="p-5">
         <div className="flex items-center justify-between mb-4">
-          <h3 className="text-base font-bold text-text-primary font-display">Engagement</h3>
+          <h3 className="text-base font-semibold text-text-primary font-display">Engagement</h3>
           {/* Pintamos el RAG aunque el radar sea degenerado: el profesor
               sigue necesitando saber si el score global es Alto/Medio/Bajo
               aunque el desglose por ejes no sea visualizable. */}
           {rag && hasInsufficientData && (
             <div className={cn("flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-semibold", rag.bg, rag.color)}>
-              {Math.round(score)} — {rag.label}
+              {Math.round(score)} · {rag.label}
             </div>
           )}
         </div>
@@ -149,7 +149,7 @@ function EngagementRadar({ engagement }) {
         headerExtra={
           rag ? (
             <div className={cn("flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-semibold", rag.bg, rag.color)}>
-              {Math.round(score)} — {rag.label}
+              {Math.round(score)} · {rag.label}
             </div>
           ) : null
         }

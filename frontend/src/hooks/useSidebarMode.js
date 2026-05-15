@@ -66,4 +66,3 @@ export function useSidebarMode() {
   return { preference, layout: computeLayout(preference, width), setPreference, toggle };
 }
 
-export default useSidebarMode;

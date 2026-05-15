@@ -573,7 +573,7 @@ function ReportGenerator() {
             <FileText size={20} className="text-brand-base" aria-hidden="true" />
           </div>
           <div>
-            <h3 className="text-base font-bold text-text-primary font-display">Generar Informe</h3>
+            <h3 className="text-base font-semibold text-text-primary font-display">Generar Informe</h3>
             <p className="text-xs text-text-muted mt-0.5">Configura los parámetros del reporte</p>
           </div>
         </div>
@@ -691,7 +691,7 @@ function ReportGenerator() {
           >
             <GlassCard variant="solid">
               <div className="flex items-center justify-between mb-5">
-                <h3 className="text-base font-bold text-text-primary font-display">
+                <h3 className="text-base font-semibold text-text-primary font-display">
                   Vista Previa del Informe
                 </h3>
                 <span className="text-xs text-text-muted px-2 py-1 rounded-lg bg-background-surface/50 border border-border-subtle">

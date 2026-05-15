@@ -63,7 +63,7 @@ function ScoreDisplay({
               className={cn(
                 "transition-colors duration-300",
                 star.index < starsEarned
-                  ? "fill-warning-base text-warning-base drop-shadow-[0_0_10px_rgba(251,191,36,0.6)]" // TOKEN-EXCEPTION: drop-shadow filter requires direct rgba value
+                  ? "fill-warning-base text-warning-base drop-shadow-[0_0_10px_var(--color-warning-glow)]"
                   : "fill-background-surface text-text-disabled"
               )}
             />

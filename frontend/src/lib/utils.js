@@ -241,10 +241,19 @@ const DATE_PRESETS = {
  * formatDate('2026-03-28', 'short')  // "28 mar 2026"
  * formatDate('2026-03-28', 'long')   // "sábado, 28 de marzo de 2026"
  */
+// Cache por variante: cada `new Intl.DateTimeFormat` reserva docenas de
+// objetos, asi que cacheamos la instancia por variant (medium/short/long).
+const DATE_FMT_CACHE = new Map();
+
 export function formatDate(date, variant = 'medium') {
   const d = date instanceof Date ? date : new Date(date);
   const options = DATE_PRESETS[variant] || DATE_PRESETS.medium;
-  return new Intl.DateTimeFormat('es-ES', options).format(d);
+  let fmt = DATE_FMT_CACHE.get(variant);
+  if (!fmt) {
+    fmt = new Intl.DateTimeFormat('es-ES', options);
+    DATE_FMT_CACHE.set(variant, fmt);
+  }
+  return fmt.format(d);
 }
 
 /**

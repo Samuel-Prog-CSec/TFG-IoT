@@ -46,11 +46,13 @@ import AudioPlayBadge from './AudioPlayBadge';
  * />
  * ```
  */
+const EMPTY_ARRAY = [];
+
 export default function AssetSelector({
-  assets = [],
+  assets = EMPTY_ARRAY,
   selectedAssetKey,
   onSelect,
-  assignedAssets = [],
+  assignedAssets = EMPTY_ARRAY,
   assetUsageCounts = null,
   showSearch = true,
   placeholder = 'Buscar asset...',
@@ -335,10 +337,10 @@ export default function AssetSelector({
  * AssetSelectorCompact - Versión compacta para espacios reducidos
  */
 export function AssetSelectorCompact({
-  assets = [],
+  assets = EMPTY_ARRAY,
   selectedAssetKey,
   onSelect,
-  assignedAssets = [],
+  assignedAssets = EMPTY_ARRAY,
   className,
 }) {
   const assignedSet = useMemo(() => {

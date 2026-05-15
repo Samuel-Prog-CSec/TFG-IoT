@@ -359,7 +359,7 @@ export default function StudentsAnalytics() {
     }
 
     // Apply sorting
-    return [...filtered].sort((a, b) => {
+    return filtered.toSorted((a, b) => {
       let aVal = a[sortField];
       let bVal = b[sortField];
 
@@ -529,7 +529,7 @@ export default function StudentsAnalytics() {
             {/* ─── Refreshing indicator ───────────────────────────── */}
             {loading && students ? (
               <div className="bg-background-elevated/50 border border-border-default text-text-muted px-4 py-2 rounded-xl text-sm font-medium animate-pulse">
-                Actualizando datos...
+                Actualizando datos…
               </div>
             ) : null}
 
@@ -553,7 +553,10 @@ export default function StudentsAnalytics() {
                 <h2 id="kpis-heading" className="sr-only">
                   Indicadores clave
                 </h2>
-                <ul className="list-none p-0 m-0 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 lg:gap-6">
+                {/* items-stretch evita que un KPI con valor más largo (p.ej.
+                    "23/45") tire del alto del grid y deje desalineados los
+                    otros 3 cards en el mismo row. */}
+                <ul className="list-none p-0 m-0 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 lg:gap-6 items-stretch">
                   <motion.li
                     variants={shouldReduceMotion ? {} : listItemVariants}
                   >
@@ -661,7 +664,7 @@ export default function StudentsAnalytics() {
                 transition={{ delay: shouldReduceMotion ? 0 : 0.2 }}
               >
                 <GlassCard>
-                  <h3 className="text-lg font-bold text-text-primary font-display mb-4">
+                  <h3 className="text-lg font-semibold text-text-primary font-display mb-4">
                     Distribución de Rendimiento
                   </h3>
                   <div className="h-48">
@@ -846,7 +849,6 @@ function StudentRow({ student, navigate }) {
         }
       }}
       tabIndex={0}
-      role="row"
       className="border-b border-border-subtle/50 last:border-b-0 hover:bg-background-surface/40 cursor-pointer transition-colors duration-150 focus:outline-none focus:bg-background-surface/40 focus:ring-1 focus:ring-brand-base/30 focus:ring-inset"
     >
       {/* Avatar + Name */}

@@ -85,7 +85,7 @@ function ActivityHeatmap({ data }) {
   if (!grid || maxValue === 0) {
     return (
       <GlassCard variant="default" padding="none" className="p-5">
-        <h3 className="text-base font-bold text-text-primary font-display mb-4">Actividad Semanal</h3>
+        <h3 className="text-base font-semibold text-text-primary font-display mb-4">Actividad Semanal</h3>
         <div className="py-6 text-center">
           <p className="text-sm text-text-muted">No hay datos de actividad disponibles.</p>
         </div>

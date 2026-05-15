@@ -53,7 +53,7 @@ export function useSessionWizardData() {
 
         const decksData = extractData(decksRes) || [];
         const mechsData = extractData(mechsRes) || [];
-        const orderedMechanics = [...mechsData].sort((a, b) => {
+        const orderedMechanics = mechsData.toSorted((a, b) => {
           const aSelectable = isMechanicSelectable(a) ? 1 : 0;
           const bSelectable = isMechanicSelectable(b) ? 1 : 0;
           return bSelectable - aSelectable;
@@ -103,4 +103,3 @@ export function useSessionWizardData() {
   };
 }
 
-export default useSessionWizardData;

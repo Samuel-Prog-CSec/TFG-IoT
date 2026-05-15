@@ -22,10 +22,13 @@ import { useRfidMode } from '../../context/RfidModeContext';
 
 const MODES_CONFIG = {
   idle: {
-    label: 'Inactivo',
+    // "Sensor desconectado" (antes "Inactivo"): explicita el estado para
+    // que el docente sepa que tiene que enchufar el lector, no que la app
+    // está rota.
+    label: 'Sensor desconectado',
     icon: WifiOff,
     iconContainerClass: 'bg-background-surface/20 text-text-muted',
-    description: 'El sensor no está procesando tarjetas'
+    description: 'Conecta el lector RFID para empezar a escanear tarjetas'
   },
   // QA 2026-05-06: cuando el sensor está físicamente conectado pero el
   // backend todavía no ha cambiado a modo gameplay/card_assignment, el
@@ -38,10 +41,10 @@ const MODES_CONFIG = {
     description: 'El sensor está conectado y esperando a su turno'
   },
   gameplay: {
-    label: 'Modo Juego',
+    label: 'Leyendo tarjetas',
     icon: Gamepad2,
     iconContainerClass: 'bg-success-base/20 text-success-base',
-    description: 'Escaneando respuestas de los estudiantes'
+    description: 'Recibiendo respuestas de los alumnos en directo'
   },
   card_assignment: {
     label: 'Asignación',

@@ -99,7 +99,7 @@ function StudentsList({ students }) {
       <div className="absolute inset-x-0 top-0 h-px bg-gradient-to-r from-transparent via-white/10 to-transparent" aria-hidden="true" />
 
       <header className="flex items-center justify-between mb-6">
-        <h3 id="students-list-title" className="text-xl font-bold text-text-primary font-display">Mejores Estudiantes</h3>
+        <h3 id="students-list-title" className="text-xl font-semibold text-text-primary font-display">Mejores Estudiantes</h3>
         <span className="text-xs text-text-muted bg-background-surface/50 px-2 py-1 rounded-lg" aria-label={`Mostrando top ${topStudents.length}`}>
           Top {topStudents.length}
         </span>

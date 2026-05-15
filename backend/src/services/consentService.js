@@ -18,48 +18,6 @@ const { ForbiddenError } = require('../utils/errors');
 const logger = require('../utils/logger').child({ component: 'consentService' });
 
 /**
- * Verifica si el usuario tiene consentimiento activo para performance_analytics.
- *
- * @param {string} userId - ID del usuario a verificar
- * @returns {Promise<boolean>} true si el consentimiento está activo para performance_analytics
- */
-async function canTrackPerformance(userId) {
-  const user = await userRepository.findById(userId, {
-    select: 'consent'
-  });
-
-  if (!user) {
-    logger.warn('Usuario no encontrado al verificar consentimiento de performance_analytics', {
-      userId
-    });
-    return false;
-  }
-
-  return user.hasConsentFor('performance_analytics');
-}
-
-/**
- * Verifica si el usuario tiene consentimiento activo para educational_tracking.
- *
- * @param {string} userId - ID del usuario a verificar
- * @returns {Promise<boolean>} true si el consentimiento está activo para educational_tracking
- */
-async function canTrackEducational(userId) {
-  const user = await userRepository.findById(userId, {
-    select: 'consent'
-  });
-
-  if (!user) {
-    logger.warn('Usuario no encontrado al verificar consentimiento de educational_tracking', {
-      userId
-    });
-    return false;
-  }
-
-  return user.hasConsentFor('educational_tracking');
-}
-
-/**
  * Exige consentimiento activo para un propósito específico.
  * Lanza ForbiddenError si el consentimiento no está otorgado.
  *
@@ -84,36 +42,6 @@ async function requireConsent(userId, purpose) {
   }
 }
 
-/**
- * Obtiene el estado completo de consentimiento de un usuario.
- *
- * @param {string} userId - ID del usuario
- * @returns {Promise<{granted: boolean, purposes: string[], grantedAt: Date|null, withdrawnAt: Date|null}|null>}
- *   Objeto con el estado de consentimiento, o null si el usuario no existe
- */
-async function getConsentStatus(userId) {
-  const user = await userRepository.findById(userId, {
-    select: 'consent'
-  });
-
-  if (!user) {
-    logger.warn('Usuario no encontrado al obtener estado de consentimiento', { userId });
-    return null;
-  }
-
-  const consent = user.consent || {};
-
-  return {
-    granted: consent.granted || false,
-    purposes: consent.purposes || [],
-    grantedAt: consent.grantedAt || null,
-    withdrawnAt: consent.withdrawnAt || null
-  };
-}
-
 module.exports = {
-  canTrackPerformance,
-  canTrackEducational,
-  requireConsent,
-  getConsentStatus
+  requireConsent
 };

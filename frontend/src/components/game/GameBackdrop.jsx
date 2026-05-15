@@ -124,7 +124,7 @@ function GameBackdrop({ theme = 'default', mechanicType = null }) {
     >
       {/* Orbe principal (top-left): color primario del tema */}
       <motion.div
-        className="absolute -top-32 -left-32 h-[60vh] w-[60vh] rounded-full blur-[120px] opacity-30"
+        className="absolute -top-32 -left-32 size-[60vh] rounded-full blur-[120px] opacity-30"
         style={{ backgroundColor: orbs.primary }}
         animate={
           shouldReduceMotion
@@ -136,7 +136,7 @@ function GameBackdrop({ theme = 'default', mechanicType = null }) {
 
       {/* Orbe secundario (bottom-right): color alt del tema */}
       <motion.div
-        className="absolute -bottom-40 -right-40 h-[70vh] w-[70vh] rounded-full blur-[140px] opacity-25"
+        className="absolute -bottom-40 -right-40 size-[70vh] rounded-full blur-[140px] opacity-25"
         style={{ backgroundColor: orbs.alt }}
         animate={
           shouldReduceMotion
@@ -148,7 +148,7 @@ function GameBackdrop({ theme = 'default', mechanicType = null }) {
 
       {/* Orbe tercero (centro-izquierda): primary con opacity muy baja */}
       <motion.div
-        className="absolute top-1/3 -left-20 h-[35vh] w-[35vh] rounded-full blur-[100px] opacity-20"
+        className="absolute top-1/3 -left-20 size-[35vh] rounded-full blur-[100px] opacity-20"
         style={{ backgroundColor: orbs.primary }}
         animate={
           shouldReduceMotion

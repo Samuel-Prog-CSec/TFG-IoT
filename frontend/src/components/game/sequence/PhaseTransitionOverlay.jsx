@@ -49,7 +49,7 @@ function PhaseTransitionOverlay({ visible, label = 'Reproduce la secuencia', red
             <Eye size={40} className="text-accent-amber" aria-hidden="true" />
           </motion.div>
           <p className="text-2xl font-bold font-display gradient-text-brand">{label}</p>
-          <p className="text-text-muted text-sm">Empieza por la primera carta</p>
+          <p className="text-text-muted text-sm">Reproduce la secuencia · empieza por la primera carta</p>
           <div
             className="text-5xl font-bold font-display text-text-primary tabular-nums"
             aria-hidden="true"

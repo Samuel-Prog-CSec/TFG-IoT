@@ -131,4 +131,3 @@ export const MECHANIC_KEYS = Object.freeze(['memory', 'association', 'sequence']
 
 export { MECHANIC_THEMES };
 
-export default getMechanicTheme;

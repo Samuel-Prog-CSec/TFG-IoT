@@ -153,4 +153,3 @@ export function useInlineEdit({
   };
 }
 
-export default useInlineEdit;

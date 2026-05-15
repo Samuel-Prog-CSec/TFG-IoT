@@ -236,8 +236,10 @@ const ChallengeDisplay = function ChallengeDisplay({
               // Marco tematizado: ring + shadow con color del tema
               `ring-2 ring-offset-2 ring-offset-transparent`,
               theme.border.replace('border-', 'ring-'),
-              // Sombra interior para profundidad
-              "shadow-[inset_0_2px_6px_rgba(0,0,0,0.3)]"
+              // Sombra interior para profundidad (token-aware: en light el
+              // negro hardcoded ahogaba el marco; color-mix adapta el alpha
+              // al tema activo).
+              "shadow-[inset_0_2px_6px_color-mix(in_oklab,var(--color-text-primary)_30%,transparent)]"
             )}
             style={asset?.dominantColor ? { backgroundColor: asset.dominantColor } : undefined}
           >

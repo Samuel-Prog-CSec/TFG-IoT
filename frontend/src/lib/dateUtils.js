@@ -86,8 +86,16 @@ export function formatRelativeTime(input, options = {}) {
   }
 
   // Fecha absoluta para >1 ano
-  if (typeof Intl !== 'undefined' && Intl.DateTimeFormat) {
-    return new Intl.DateTimeFormat('es-ES', { day: 'numeric', month: 'short', year: 'numeric' }).format(date);
+  if (ABSOLUTE_DATE_FMT) {
+    return ABSOLUTE_DATE_FMT.format(date);
   }
   return date.toLocaleDateString('es-ES');
 }
+
+// Cacheado a nivel modulo: cada `new Intl.DateTimeFormat` reserva
+// docenas de objetos en cada llamada, asi que para fechas absolutas
+// (caso comun en listados densos) reutilizamos la instancia.
+const ABSOLUTE_DATE_FMT =
+  typeof Intl !== 'undefined' && Intl.DateTimeFormat
+    ? new Intl.DateTimeFormat('es-ES', { day: 'numeric', month: 'short', year: 'numeric' })
+    : null;

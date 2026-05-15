@@ -168,9 +168,10 @@ export function buildTrendSummary(dataPoints, { subject = 'El alumno', metric = 
   if (!Array.isArray(dataPoints) || dataPoints.length === 0) {
     return `${subject} no tiene datos de ${metric} en este periodo.`;
   }
-  const values = dataPoints
-    .map((p) => Number(p?.score))
-    .filter((n) => Number.isFinite(n));
+  const values = dataPoints.flatMap((p) => {
+    const n = Number(p?.score);
+    return Number.isFinite(n) ? [n] : [];
+  });
   if (values.length === 0) {
     return `${subject} no tiene datos de ${metric} en este periodo.`;
   }
@@ -192,10 +193,11 @@ export function buildTrendSummary(dataPoints, { subject = 'El alumno', metric = 
  */
 export function buildTrendDataTable(dataPoints, { dateKey = 'date', valueKey = 'score', valueSuffix = '' } = {}) {
   if (!Array.isArray(dataPoints)) return [];
-  return dataPoints
-    .filter((p) => p?.[valueKey] != null)
-    .map((p) => ({
+  return dataPoints.flatMap((p) => {
+    if (p?.[valueKey] == null) return [];
+    return [{
       label: String(p?.[dateKey] ?? 'sin fecha'),
       value: `${Math.round(Number(p[valueKey]))}${valueSuffix}`,
-    }));
+    }];
+  });
 }

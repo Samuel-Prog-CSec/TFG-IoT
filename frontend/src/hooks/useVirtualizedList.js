@@ -90,4 +90,3 @@ export function useVirtualizedList({
   };
 }
 
-export default useVirtualizedList;

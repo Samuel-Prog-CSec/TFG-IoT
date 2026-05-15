@@ -82,7 +82,7 @@ export default function RFIDConnector({
   const [deviceState, setDeviceState] = useState(webSerialService.deviceState || 'unknown');
   const [fwVersion, setFwVersion] = useState(webSerialService.firmwareVersion);
   const [error, setError] = useState(null);
-  const [isSupported, setIsSupported] = useState(webSerialService.isSupported());
+  const [isSupported, setIsSupported] = useState(() => webSerialService.isSupported());
   const [hasAttempted, setHasAttempted] = useState(false);
   const [portInfo, setPortInfo] = useState({ usbVendorId: null, usbProductId: null });
   const errorTimeoutRef = useRef(null);

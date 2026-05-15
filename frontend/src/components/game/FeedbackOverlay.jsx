@@ -13,24 +13,26 @@ import { getMechanicTheme } from '../../lib/mechanicTheme';
  * texto. La paleta de partículas se calcula aparte vía
  * `getMechanicTheme(...).accentHexFallback`.
  */
+// Glow ahora vía tokens `--color-accent-*-glow` y `--color-*-glow`, así
+// el drop-shadow respeta light/dark sin hex hardcoded en componentes.
 const MECHANIC_FEEDBACK = Object.freeze({
   memory: Object.freeze({
-    success: { Icon: Brain, label: '¡Pareja!', textClass: 'text-accent-indigo', glow: 'drop-shadow-[0_0_24px_rgba(124,124,240,0.55)]' },
-    error: { Icon: Flame, label: 'Otra vez', textClass: 'text-error-base', glow: 'drop-shadow-[0_0_18px_rgba(239,68,68,0.45)]' },
+    success: { Icon: Brain, label: '¡Pareja!', textClass: 'text-accent-indigo', glow: 'drop-shadow-[0_0_24px_var(--color-accent-indigo-glow)]' },
+    error: { Icon: Flame, label: 'Otra vez', textClass: 'text-error-base', glow: 'drop-shadow-[0_0_18px_var(--color-error-glow)]' },
   }),
   association: Object.freeze({
-    success: { Icon: Link2, label: '¡Conexión!', textClass: 'text-accent-cyan', glow: 'drop-shadow-[0_0_22px_rgba(95,203,232,0.55)]' },
-    error: { Icon: Flame, label: 'Mira de nuevo', textClass: 'text-error-base', glow: 'drop-shadow-[0_0_18px_rgba(239,68,68,0.45)]' },
+    success: { Icon: Link2, label: '¡Conexión!', textClass: 'text-accent-cyan', glow: 'drop-shadow-[0_0_22px_var(--color-accent-cyan-glow)]' },
+    error: { Icon: Flame, label: 'Mira de nuevo', textClass: 'text-error-base', glow: 'drop-shadow-[0_0_18px_var(--color-error-glow)]' },
   }),
   sequence: Object.freeze({
-    success: { Icon: ListOrdered, label: '¡Ritmo!', textClass: 'text-accent-amber', glow: 'drop-shadow-[0_0_22px_rgba(244,178,106,0.55)]' },
-    error: { Icon: Flame, label: 'Otra ronda', textClass: 'text-error-base', glow: 'drop-shadow-[0_0_18px_rgba(239,68,68,0.45)]' },
+    success: { Icon: ListOrdered, label: '¡Ritmo!', textClass: 'text-accent-amber', glow: 'drop-shadow-[0_0_22px_var(--color-accent-amber-glow)]' },
+    error: { Icon: Flame, label: 'Otra ronda', textClass: 'text-error-base', glow: 'drop-shadow-[0_0_18px_var(--color-error-glow)]' },
   }),
 });
 
 const FALLBACK_FEEDBACK = Object.freeze({
-  success: { Icon: PartyPopper, label: '¡Genial!', textClass: 'text-success-base', glow: 'drop-shadow-[0_0_24px_rgba(34,197,94,0.55)]' },
-  error: { Icon: Flame, label: '¡Sigue intentando!', textClass: 'text-error-base', glow: 'drop-shadow-[0_0_18px_rgba(239,68,68,0.45)]' },
+  success: { Icon: PartyPopper, label: '¡Genial!', textClass: 'text-success-base', glow: 'drop-shadow-[0_0_24px_var(--color-success-glow)]' },
+  error: { Icon: Flame, label: '¡Sigue intentando!', textClass: 'text-error-base', glow: 'drop-shadow-[0_0_18px_var(--color-error-glow)]' },
 });
 
 function getFeedbackConfig(type, mechanicType) {

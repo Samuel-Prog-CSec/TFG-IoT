@@ -61,4 +61,3 @@ export function useRefetchOnFocus({
   }, [enabled, refetch, isLoading, hasData, hasError, minIntervalMs]);
 }
 
-export default useRefetchOnFocus;

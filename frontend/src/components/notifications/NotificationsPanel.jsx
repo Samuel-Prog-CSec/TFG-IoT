@@ -21,7 +21,8 @@
  * @module components/notifications/NotificationsPanel
  */
 
-import { useCallback, useEffect, useRef } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import PropTypes from 'prop-types';
 import { motion, AnimatePresence } from 'framer-motion';
 import { CheckCheck, X } from 'lucide-react';
@@ -29,6 +30,14 @@ import { cn, EASING } from '../../lib/utils';
 import { useReducedMotion } from '../../hooks/useReducedMotion';
 import NotificationItem from './NotificationItem';
 import EmptyNotificationsIllustration from './EmptyNotificationsIllustration';
+
+// Anchura del panel en px — coincide con la clase Tailwind
+// `w-[min(360px,calc(100vw-24px))]` debajo, replicada aquí para el cálculo
+// de posicionamiento fixed del Portal (BUG-NOTIF-1: antes era `absolute
+// right-0` dentro del sidebar de 288px y el panel quedaba cortado dentro
+// del aside).
+const PANEL_TARGET_WIDTH_PX = 360;
+const PANEL_VIEWPORT_MARGIN_PX = 12;
 
 export default function NotificationsPanel({
   isOpen,
@@ -45,6 +54,32 @@ export default function NotificationsPanel({
   const panelRef = useRef(null);
   const sentinelRef = useRef(null);
   const firstFocusableRef = useRef(null);
+
+  // Coords del Portal: posicionamos el panel `fixed` justo debajo del bell
+  // trigger (data-attribute en NotificationBell) en lugar de `absolute` dentro
+  // del sidebar. Reaccionamos a resize/scroll para mantener la posición.
+  const [anchorRect, setAnchorRect] = useState(null);
+
+  useEffect(() => {
+    if (!isOpen) {
+      setAnchorRect(null);
+      return undefined;
+    }
+    const updateAnchor = () => {
+      const trigger = document.querySelector('[data-notification-bell="trigger"]');
+      if (trigger) {
+        const rect = trigger.getBoundingClientRect();
+        setAnchorRect({ top: rect.bottom, right: rect.right, left: rect.left });
+      }
+    };
+    updateAnchor();
+    window.addEventListener('resize', updateAnchor);
+    window.addEventListener('scroll', updateAnchor, true);
+    return () => {
+      window.removeEventListener('resize', updateAnchor);
+      window.removeEventListener('scroll', updateAnchor, true);
+    };
+  }, [isOpen]);
 
   // Click fuera cierra el panel.
   useEffect(() => {
@@ -111,9 +146,34 @@ export default function NotificationsPanel({
 
   const showEmpty = !isLoading && notifications.length === 0;
 
-  return (
+  // Posición fixed del Portal. Si el ancho disponible a la derecha del bell
+  // no llega al ancho objetivo (típicamente porque el bell vive en un
+  // sidebar estrecho), movemos el panel para que su borde izquierdo
+  // arranque desde la derecha del sidebar (anchorRect.right) en lugar de
+  // alinearlo a la derecha del propio bell. Si tampoco cabe (viewport muy
+  // estrecho), lo pegamos al borde izquierdo del viewport con margen.
+  const portalStyle = anchorRect
+    ? (() => {
+        const top = anchorRect.top + 12;
+        const viewportWidth =
+          typeof window !== 'undefined' ? window.innerWidth : PANEL_TARGET_WIDTH_PX;
+        const idealLeft = anchorRect.right + 12;
+        const fitsRight = idealLeft + PANEL_TARGET_WIDTH_PX <= viewportWidth - PANEL_VIEWPORT_MARGIN_PX;
+        if (fitsRight) {
+          return { position: 'fixed', top, left: idealLeft };
+        }
+        // Fallback: alinea el panel al borde derecho del viewport con margen.
+        return { position: 'fixed', top, right: PANEL_VIEWPORT_MARGIN_PX };
+      })()
+    : null;
+
+  if (typeof document === 'undefined') {
+    return null;
+  }
+
+  return createPortal(
     <AnimatePresence>
-      {isOpen && (
+      {isOpen && portalStyle && (
         <motion.aside
           ref={panelRef}
           role="dialog"
@@ -122,9 +182,9 @@ export default function NotificationsPanel({
           animate={{ opacity: 1, scale: 1, y: 0 }}
           exit={shouldReduceMotion ? { opacity: 0 } : { opacity: 0, scale: 0.96, y: -4 }}
           transition={{ duration: 0.22, ease: EASING.outExpo }}
-          style={{ transformOrigin: 'top right' }}
+          style={{ ...portalStyle, transformOrigin: 'top left' }}
           className={cn(
-            'absolute right-0 mt-3 z-50',
+            'z-50',
             // U-3: responsive width — fluid en pantallas estrechas (clamp
             // entre 280px y 360px), nunca desborda el viewport (ajusta a
             // 100vw-24px en mobile). Max-height 70vh para no taparla con
@@ -212,7 +272,8 @@ export default function NotificationsPanel({
           )}
         </motion.aside>
       )}
-    </AnimatePresence>
+    </AnimatePresence>,
+    document.body
   );
 }
 

@@ -282,4 +282,3 @@ export function useWizardConfig({ mechanics }) {
   };
 }
 
-export default useWizardConfig;

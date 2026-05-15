@@ -8,6 +8,7 @@
 
 import { memo } from 'react';
 import PropTypes from 'prop-types';
+import { Loader2 } from 'lucide-react';
 import MemoryBoard from './MemoryBoard';
 
 /**
@@ -34,7 +35,10 @@ function MemoryBoardSkeleton() {
           </div>
         ))}
       </div>
-      <p className="mt-4 text-sm text-text-muted">Preparando cartas…</p>
+      <p className="mt-4 flex items-center gap-2 text-sm text-text-muted">
+        <Loader2 size={14} className="animate-spin text-accent-indigo" aria-hidden="true" />
+        Preparando cartas…
+      </p>
     </output>
   );
 }

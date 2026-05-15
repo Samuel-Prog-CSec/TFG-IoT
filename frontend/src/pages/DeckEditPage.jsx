@@ -201,14 +201,32 @@ export default function DeckEditPage() {
 
     const originalName = deck.name;
     const originalContext = deck.contextId?._id || deck.contextId;
-    const originalCardIds = (deck.cardMappings || []).map(c => c.uid).filter(Boolean).sort();
+    const originalCardIds = (deck.cardMappings || []).flatMap(c => c.uid ? [c.uid] : []).sort();
     const currentCardIds = selectedCards.map(c => c.uid).sort();
 
     const nameChanged = deckName !== originalName;
     const contextChanged = effectiveContext?._id !== originalContext;
     const cardsChanged = JSON.stringify(originalCardIds) !== JSON.stringify(currentCardIds);
-    // Simplificado: cualquier cambio en asignaciones
-    const assignmentsChanged = Object.keys(cardAssignments).length > 0;
+
+    // BUG-DECK-2 (QA 2026-05-14): comparar el assignment ACTUAL contra el del
+    // mazo cargado del backend, no contra `{}` vacío. Antes se marcaba dirty
+    // desde mount porque la carga inicial pre-rellena cardAssignments con los
+    // displayData de cada mapping.
+    const originalAssignments = (deck.cardMappings || []).reduce((acc, mapping) => {
+      const key = mapping?.displayData?.key;
+      if (mapping?.uid && key) {
+        acc[mapping.uid] = key;
+      }
+      return acc;
+    }, {});
+    const currentAssignments = Object.entries(cardAssignments).reduce((acc, [uid, asset]) => {
+      if (asset?.key) {
+        acc[uid] = asset.key;
+      }
+      return acc;
+    }, {});
+    const assignmentsChanged =
+      JSON.stringify(originalAssignments) !== JSON.stringify(currentAssignments);
 
     return nameChanged || contextChanged || cardsChanged || assignmentsChanged;
   }, [deck, deckName, effectiveContext, selectedCards, cardAssignments]);

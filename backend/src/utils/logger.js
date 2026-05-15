@@ -23,17 +23,27 @@ if (isSilentInTest) {
   logLevel = isProduction ? 'info' : 'debug';
 }
 
-const transport =
-  !isProduction && !isTest
-    ? pino.transport({
-        target: 'pino-pretty',
-        options: {
-          colorize: true,
-          translateTime: 'SYS:standard',
-          ignore: 'pid,hostname'
-        }
-      })
-    : undefined;
+// Si pino-pretty no está disponible (p.ej., contenedor production con
+// `npm ci --only=production`), caemos a transport undefined (JSON a stdout)
+// en lugar de crashear en bucle. Antes el worker compose `production` con
+// NODE_ENV=development entraba en restart loop al no resolver `pino-pretty`.
+let transport;
+if (!isProduction && !isTest) {
+  try {
+    require.resolve('pino-pretty');
+    transport = pino.transport({
+      target: 'pino-pretty',
+      options: {
+        colorize: true,
+        translateTime: 'SYS:standard',
+        ignore: 'pid,hostname'
+      }
+    });
+  } catch {
+    // pino-pretty no instalado en este entorno; fallback a logs JSON.
+    transport = undefined;
+  }
+}
 
 const redactPaths = [
   'req.headers.authorization',

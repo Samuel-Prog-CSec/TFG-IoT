@@ -47,7 +47,7 @@ function getMemorySlotClasses(isMatched, isOpen) {
 
 export default function MemoryBoard({ board, feedbackState, feedbackPoints, feedbackMessage, onCardTap }) {
   const { shouldReduceMotion } = useReducedMotion();
-  const safeBoard = Array.isArray(board) ? [...board].sort((a, b) => a.slotIndex - b.slotIndex) : [];
+  const safeBoard = Array.isArray(board) ? board.toSorted((a, b) => a.slotIndex - b.slotIndex) : [];
   const total = safeBoard.length;
   const columns = resolveMemoryColumns(total);
   const gridStyle = GRID_STYLES[columns] || GRID_STYLES[3];
@@ -56,8 +56,9 @@ export default function MemoryBoard({ board, feedbackState, feedbackPoints, feed
   // Detectar qué celdas acaban de cambiar (recién emparejadas o reveladas para feedback)
   const feedbackSlots = new Set();
   if (feedbackState !== 'idle') {
+    const prevBySlotIndex = new Map(prevBoard.map(p => [p.slotIndex, p]));
     for (const slot of safeBoard) {
-      const prev = prevBoard.find(p => p.slotIndex === slot.slotIndex);
+      const prev = prevBySlotIndex.get(slot.slotIndex);
       if (!prev) continue;
       // Recién emparejada
       if (slot.isMatched && !prev.isMatched) {
@@ -249,7 +250,7 @@ export default function MemoryBoard({ board, feedbackState, feedbackPoints, feed
                   <Sparkle
                     size={28}
                     strokeWidth={1.5}
-                    className="relative text-white/85 drop-shadow-[0_1px_3px_rgba(0,0,0,0.4)] fill-white/30"
+                    className="relative text-white/85 drop-shadow-[var(--shadow-card-sparkle)] fill-white/30"
                     aria-hidden="true"
                   />
                 </div>

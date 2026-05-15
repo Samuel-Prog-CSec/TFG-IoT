@@ -21,6 +21,7 @@ import GlassCard from '../ui/GlassCard';
 import AssociationChallengeComposer from './AssociationChallengeComposer';
 import { DIFFICULTY_VARIANT_STYLES } from './sessionHelpers';
 import { configShape, cardMappingShape, challengePlanItemShape } from './sessionPropTypes';
+import { ASSOCIATION_LIMITS } from '../../constants/associationConfig';
 
 const DIFFICULTIES = [
   { id: 'easy', label: 'Fácil', description: 'Más tiempo, sin penalización' },
@@ -154,8 +155,8 @@ export default function StepRules({
               <input
                 id="assoc-time-limit"
                 type="range"
-                min={5}
-                max={180}
+                min={ASSOCIATION_LIMITS.minTimeLimit}
+                max={ASSOCIATION_LIMITS.maxTimeLimit}
                 step={5}
                 value={config.timeLimit}
                 onChange={(e) => onConfigChange('timeLimit', Number.parseInt(e.target.value, 10))}

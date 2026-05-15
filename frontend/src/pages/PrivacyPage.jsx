@@ -605,7 +605,7 @@ export default function PrivacyPage() {
       <footer className="border-t border-border-default py-10">
         <div className="max-w-3xl mx-auto px-4 sm:px-6 text-center space-y-2">
           <p className="text-text-muted text-sm font-medium">
-            EduPlay — Plataforma de Juegos Educativos con RFID
+            EduPlay · Plataforma de Juegos Educativos con RFID
           </p>
           <p className="text-text-muted/60 text-xs">
             Politica de privacidad &middot; Version 1.0 &middot; Actualizada el

@@ -32,6 +32,7 @@ import GlassCard from '../../components/ui/GlassCard';
 import StatusBadge from '../../components/ui/StatusBadge';
 import { SkeletonCard } from '../../components/ui/SkeletonShimmer';
 import EmptyState from '../../components/ui/EmptyState';
+import EmptyAlertsIllustration from '../../components/ui/illustrations/EmptyAlertsIllustration';
 import { useRefetchOnFocus } from '../../hooks/useRefetchOnFocus';
 import { useDocumentTitle } from '../../hooks/useDocumentTitle';
 import { cn, formatDate } from '../../lib/utils';
@@ -264,7 +265,7 @@ function PendingTeacherCard({ teacher, onApprove, onReject }) {
             </div>
             
             <div className="min-w-0 flex-1">
-              <h3 className="text-text-primary font-bold truncate text-lg">
+              <h3 className="text-text-primary font-semibold truncate text-lg">
                 {teacher.name}
               </h3>
               <div className="flex items-center gap-2 text-text-muted text-sm">
@@ -489,18 +490,30 @@ export default function ApprovalPanel() {
 
   return (
     <div className="p-4 sm:p-6 lg:p-8">
-      {/* Fondo decorativo */}
-      <div className="fixed inset-0 overflow-hidden pointer-events-none z-0">
-        <div 
-          className="absolute top-0 right-0 w-[600px] h-[600px] rounded-full"
+      {/* Fondo decorativo — antes hex rgba hardcoded (invisible en dark, sin
+          identidad en light). Ahora consume el token de atmósfera con dos
+          orbes radiales suaves: uno warning (dirección) arriba a la derecha
+          y otro brand más sutil abajo a la izquierda. Mantiene firma propia
+          sin gritar. */}
+      <div className="fixed inset-0 overflow-hidden pointer-events-none z-0" aria-hidden="true">
+        <div
+          className="absolute -top-32 -right-32 size-[640px] rounded-full blur-3xl"
           style={{
-            background: 'radial-gradient(circle, rgba(139, 92, 246, 0.08) 0%, transparent 70%)',
+            background: 'radial-gradient(circle, color-mix(in oklab, var(--color-warning-base) 18%, transparent) 0%, transparent 65%)',
+          }}
+        />
+        <div
+          className="absolute -bottom-40 -left-40 size-[520px] rounded-full blur-3xl opacity-60"
+          style={{
+            background: 'radial-gradient(circle, color-mix(in oklab, var(--color-atmosphere-aurora-3) 14%, transparent) 0%, transparent 70%)',
           }}
         />
       </div>
 
       <div className="max-w-5xl mx-auto relative z-10">
-        {/* Header */}
+        {/* Header — eyebrow "DIRECCIÓN" da el sello visual del rol antes
+            del título (firma signature consistente con el resto de páginas
+            admin). El icono Shield mantiene el tono warning. */}
         <motion.div
           initial={{ opacity: 0, y: -20 }}
           animate={{ opacity: 1, y: 0 }}
@@ -508,14 +521,15 @@ export default function ApprovalPanel() {
         >
           <div className="flex items-center gap-4 mb-2">
             <div className="size-12 rounded-xl bg-gradient-to-br from-warning-base to-warning-dark flex items-center justify-center shadow-lg shadow-warning-base/20">
-              <Shield className="size-6 text-text-primary" />
+              <Shield className="size-6 text-text-primary" aria-hidden="true" />
             </div>
             <div>
-              <h1 className="text-2xl sm:text-3xl font-bold font-display text-text-primary">
-                Panel de dirección
+              <p className="text-[11px] uppercase tracking-[0.18em] text-warning-base font-bold mb-0.5">Dirección</p>
+              <h1 className="text-2xl sm:text-3xl font-bold font-display text-text-primary leading-tight">
+                Solicitudes de docentes
               </h1>
               <p className="text-text-muted">
-                Aprueba o rechaza las solicitudes de nuevos docentes del centro
+                Revisa el alta de nuevos profesores y dale paso a las cuentas verificadas.
               </p>
             </div>
           </div>
@@ -605,8 +619,8 @@ export default function ApprovalPanel() {
             if (filteredTeachers.length === 0) return (
               <EmptyState
                 title="Todo al día"
-                description="No hay solicitudes pendientes. Cuando nuevos profesores se registren, aparecerán aquí para tu aprobación."
-                icon={<CheckCircle className="size-10 text-success-base" />}
+                description="No hay solicitudes pendientes. Cuando nuevos profesores se registren, aparecerán aquí para que les des paso."
+                illustration={<EmptyAlertsIllustration size={180} />}
                 className="bg-transparent"
               />
             );

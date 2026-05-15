@@ -147,9 +147,7 @@ export const purgeOlderThan = async (ttlMs = DEFAULT_TTL_MS) => {
   const cutoff = Date.now() - ttlMs;
   const entries = await getAll();
   const old = entries.filter((entry) => entry.queuedAt < cutoff);
-  for (const entry of old) {
-    await remove(entry.id);
-  }
+  await Promise.all(old.map((entry) => remove(entry.id)));
   return old.length;
 };
 

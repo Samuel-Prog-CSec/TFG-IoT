@@ -55,7 +55,7 @@ export default function AlertsPanel({ alerts }) {
   return (
     <div className="space-y-4">
       <header className="flex items-center justify-between px-1">
-        <h3 className="text-lg font-bold text-text-primary font-display">Alertas Inteligentes</h3>
+        <h3 className="text-lg font-semibold text-text-primary font-display">Alertas Inteligentes</h3>
         {hasAlerts && (
           <button
             onClick={() => navigate('/analytics/insights')}

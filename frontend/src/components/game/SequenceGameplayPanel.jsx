@@ -25,9 +25,11 @@ import { useReducedMotion } from '../../hooks/useReducedMotion';
 
 const HIGHLIGHT_INTERVAL_MS = 600;
 
+const EMPTY_CARD_MAPPINGS = [];
+
 function SequenceGameplayPanel({
   totalRounds,
-  cardMappings = [],
+  cardMappings = EMPTY_CARD_MAPPINGS,
   rfidConnected,
   soundEnabled = true,
   sequenceState,

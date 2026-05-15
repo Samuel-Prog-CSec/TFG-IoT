@@ -321,7 +321,7 @@ export default function SessionEdit() {
 
   if (loading && !session) {
     return (
-      <div className="p-8 text-text-secondary">Cargando sesión...</div>
+      <div className="p-8 text-text-secondary">Cargando sesión…</div>
     );
   }
 

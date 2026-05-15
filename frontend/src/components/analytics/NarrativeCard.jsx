@@ -54,7 +54,7 @@ function NarrativeCard({ interpretation, title = 'Resumen del Alumno' }) {
     <GlassCard variant="default" padding="none" className="p-5 h-full">
       <div className="flex items-center gap-2 mb-4">
         <MessageSquare size={18} className="text-brand-light" aria-hidden="true" />
-        <h3 className="text-base font-bold text-text-primary font-display">{title}</h3>
+        <h3 className="text-base font-semibold text-text-primary font-display">{title}</h3>
       </div>
 
       {hasData ? (

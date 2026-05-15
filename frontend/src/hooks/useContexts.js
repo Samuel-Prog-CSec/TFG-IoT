@@ -158,4 +158,3 @@ export function useContexts({ autoLoad = true, onlyActive = true, showInactive =
   };
 }
 
-export default useContexts;

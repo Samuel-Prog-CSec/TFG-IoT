@@ -74,4 +74,3 @@ export function getGameOverCopy(stars, mechanic) {
 
 export const COPY_FALLBACK = FALLBACK_COPY;
 
-export default getGameOverCopy;

@@ -4,13 +4,16 @@ import { useReducedMotion } from '../../hooks/useReducedMotion';
 
 /* eslint-disable sonarjs/pseudo-random -- Math.random para efectos visuales (confetti), no para seguridad */
 
+// Tokens de paleta — antes hex hardcoded. Al usar `var(...)` el confetti
+// adopta la atmósfera del contexto activo (Geografía azul, Animales
+// ámbar, etc.) y se mantiene en sintonía con el tema (light/dark).
 const CONFETTI_COLORS = [
-  '#8b5cf6', // Purple
-  '#22d3ee', // Cyan
-  '#f472b6', // Pink
-  '#facc15', // Yellow
-  '#4ade80', // Green
-  '#fb923c', // Orange
+  'var(--color-accent-indigo)',
+  'var(--color-accent-cyan)',
+  'var(--color-accent-pink)',
+  'var(--color-warning-base)',
+  'var(--color-success-base)',
+  'var(--color-accent-orange)',
 ];
 
 /**

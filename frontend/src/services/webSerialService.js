@@ -775,7 +775,7 @@ class WebSerialService {
       await pendingScansStore.purgeOlderThan(PENDING_SCAN_PERSISTENCE_TTL_MS);
       const persisted = await pendingScansStore.getAll();
       const knownIds = new Set(
-        this.pendingScans.map(p => p.persistedId).filter(id => id !== null && id !== undefined)
+        this.pendingScans.flatMap(p => p.persistedId !== null && p.persistedId !== undefined ? [p.persistedId] : [])
       );
       let added = 0;
       for (const entry of persisted) {

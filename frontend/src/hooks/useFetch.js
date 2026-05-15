@@ -107,4 +107,3 @@ export function useFetch(fetchFn, options = {}) {
   };
 }
 
-export default useFetch;

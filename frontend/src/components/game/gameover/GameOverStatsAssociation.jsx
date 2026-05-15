@@ -74,7 +74,7 @@ function GameOverStatsAssociation({ summary, totalRounds, correctAnswers }) {
           <MetricPill
             icon={XCircle}
             tone="neutral"
-            label="Sin completar"
+            label="Incompletas"
             value={Math.max(0, totalRounds - correctAnswers)}
             tooltip="Rondas no completadas (incorrectas + sin responder)"
           />

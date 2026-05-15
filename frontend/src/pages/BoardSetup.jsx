@@ -292,7 +292,7 @@ export default function BoardSetup() {
     }
   };
 
-  if (loading) return <div className="text-text-primary p-8">Cargando tablero...</div>;
+  if (loading) return <div className="text-text-primary p-8">Cargando tablero…</div>;
 
   return (
     <DndContext sensors={sensors} onDragStart={handleDragStart} onDragEnd={handleDragEnd}>
@@ -328,12 +328,16 @@ export default function BoardSetup() {
               )}
             </AnimatePresence>
 
-            <header className="flex justify-between items-center mb-6 shrink-0">
+            {/* flex-wrap evita que en viewports <1366px (peor caso del
+                tribunal del TFG) las 4 acciones compriman el título o
+                empujen el selector fuera de pantalla — bajan a una segunda
+                línea respetando el aire del header. */}
+            <header className="flex flex-wrap justify-between items-center gap-y-3 mb-6 shrink-0">
                 <div>
                     <h1 className="text-2xl font-bold text-text-primary font-display">Configuración del Tablero</h1>
                     <p className="text-text-muted">Arrastra las tarjetas a los huecos para configurar la partida.</p>
                 </div>
-                <div className="flex gap-3 items-center">
+                <div className="flex flex-wrap gap-3 items-center">
                     <SelectPremium
                         value={selectedStudentId}
                         onChange={(val) => setSelectedStudentId(val)}

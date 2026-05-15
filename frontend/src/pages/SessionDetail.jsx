@@ -680,7 +680,7 @@ export default function SessionDetail() {
                         <CardAssetPreview
                           asset={mapping.displayData}
                           alt={label}
-                          className="w-14 h-14 rounded-xl"
+                          className="size-14 rounded-xl"
                           fit="cover"
                           fallbackLabel={display}
                         />
@@ -770,7 +770,7 @@ export default function SessionDetail() {
 
               {loadingStudents && (
                 <div className="flex items-center justify-center py-8 text-text-muted text-sm">
-                  Cargando alumnos...
+                  Cargando alumnos…
                 </div>
               )}
               {!loadingStudents && availableStudents.length === 0 && (

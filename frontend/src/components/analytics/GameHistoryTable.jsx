@@ -35,7 +35,7 @@ function GameHistoryTable({ games, initialCount = 10 }) {
   if (!Array.isArray(games) || games.length === 0) {
     return (
       <GlassCard variant="default" padding="none" className="p-5">
-        <h3 className="text-base font-bold text-text-primary font-display mb-4">Historial de Partidas</h3>
+        <h3 className="text-base font-semibold text-text-primary font-display mb-4">Historial de Partidas</h3>
         <div className="py-6 text-center">
           <Clock size={24} className="text-text-muted mx-auto mb-2" aria-hidden="true" />
           <p className="text-sm text-text-muted">Este alumno aun no tiene partidas registradas.</p>
@@ -55,7 +55,7 @@ function GameHistoryTable({ games, initialCount = 10 }) {
   return (
     <GlassCard variant="default" padding="none" className="p-5">
       <div className="flex items-center justify-between mb-4">
-        <h3 className="text-base font-bold text-text-primary font-display">Historial de Partidas</h3>
+        <h3 className="text-base font-semibold text-text-primary font-display">Historial de Partidas</h3>
         <span className="text-xs text-text-muted bg-background-surface/50 px-2 py-1 rounded-lg">
           {games.length} partidas
         </span>

@@ -236,21 +236,21 @@ export default function AppLayout() {
           sobre fondo claro). */}
       <div className="aurora-layer fixed inset-0 pointer-events-none overflow-hidden opacity-25">
         <motion.div
-          className="absolute top-0 left-1/4 w-96 h-96 rounded-full blur-[128px] opacity-80"
+          className="absolute top-0 left-1/4 size-96 rounded-full blur-[128px] opacity-80"
           style={{
             backgroundColor: 'var(--color-atmosphere-aurora-1)',
             y: shouldReduceMotion ? 0 : auroraOffset1
           }}
         />
         <motion.div
-          className="absolute bottom-0 right-1/4 w-96 h-96 rounded-full blur-[128px] opacity-60"
+          className="absolute bottom-0 right-1/4 size-96 rounded-full blur-[128px] opacity-60"
           style={{
             backgroundColor: 'var(--color-atmosphere-aurora-2)',
             y: shouldReduceMotion ? 0 : auroraOffset2
           }}
         />
         <motion.div
-          className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 rounded-full blur-[150px] opacity-50 w-[clamp(320px,40vw,600px)] h-[clamp(320px,40vw,600px)]"
+          className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 rounded-full blur-[150px] opacity-50 size-[clamp(320px,40vw,600px)]"
           style={{
             backgroundColor: 'var(--color-atmosphere-aurora-3)',
             y: shouldReduceMotion ? 0 : auroraOffset3

@@ -1443,6 +1443,22 @@ class GameEngine {
     // 1. Validar la respuesta
     const isCorrect = scannedCard.uid === currentChallenge.uid;
 
+    // Logging defensivo (QA 2026-05-14): cuando un scan se marca como error
+    // queremos saber el par scannedUid vs expectedUid y la fuente para
+    // diagnosticar BUG-FALLBACK-1 (touch panel marcando aciertos como errores
+    // en algunos flujos). En aciertos no logueamos para no inundar.
+    if (!isCorrect) {
+      logger.info('Asociación: scan incorrecto', {
+        playId,
+        round: playDoc?.currentRound,
+        scannedUid: scannedCard?.uid,
+        scannedValue: scannedCard?.assignedValue,
+        expectedUid: currentChallenge?.uid,
+        expectedValue: currentChallenge?.assignedValue,
+        timeElapsedMs: timeElapsed
+      });
+    }
+
     let pointsAwarded = 0;
     let eventType;
 

@@ -30,7 +30,7 @@ const deriveStrengthsWeaknesses = (performanceByContext = [], performanceByMecha
     })),
   ].filter(item => item.gamesPlayed > 0);
 
-  const sorted = [...allItems].sort((a, b) => b.score - a.score);
+  const sorted = allItems.toSorted((a, b) => b.score - a.score);
 
   return {
     strengths: sorted.slice(0, count),
@@ -59,7 +59,7 @@ function StrengthsWeaknesses({ performanceByContext, performanceByMechanic }) {
 
   return (
     <GlassCard variant="default" padding="none" className="p-5">
-      <h3 className="text-base font-bold text-text-primary font-display mb-4">Fortalezas y Debilidades</h3>
+      <h3 className="text-base font-semibold text-text-primary font-display mb-4">Fortalezas y Debilidades</h3>
 
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
         {/* Strengths */}

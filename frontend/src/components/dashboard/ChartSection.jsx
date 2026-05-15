@@ -25,7 +25,7 @@ function ChartSection({ title, children, className, period = '7d', onPeriodChang
       >
         {/* Header */}
         <header className="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-4 mb-6 relative z-10">
-          <h3 id={titleId} className="text-xl font-bold text-text-primary font-display">{title}</h3>
+          <h3 id={titleId} className="text-xl font-semibold text-text-primary font-display">{title}</h3>
           
           {onPeriodChange && (
             <>

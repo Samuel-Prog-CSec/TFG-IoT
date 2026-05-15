@@ -6,7 +6,7 @@
  */
 
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
-import { lazy, Suspense, memo } from 'react';
+import { lazy, Suspense, memo, useEffect, useState } from 'react';
 import PropTypes from 'prop-types';
 import { Toaster } from 'sonner';
 import { AuthProvider, useAuth } from './context/AuthContext';
@@ -66,28 +66,62 @@ const AdminContexts = lazy(() => import('./pages/admin/AdminContexts'));
 const PrivacyPage = lazy(() => import('./pages/PrivacyPage'));
 
 /**
- * Loading fallback component con spinner animado
+ * Loading fallback con delay anti-flash + skeleton estructurado.
+ *
+ * Antes era un spinner full-screen que aparecía instantáneamente; en chunks
+ * cacheados (carga <200ms) producía un "flash" molesto, y en chunks frescos
+ * el "Cargando sección..." sobre fondo vacío se sentía lento y genérico.
+ *
+ * Ahora: durante los primeros 220ms no renderiza nada (suprime el flash en
+ * navegaciones rápidas). A partir de 220ms muestra un skeleton estructural
+ * (header + grid de cards + chart) que reserva el espacio sin gritar
+ * "espera", reduciendo la percepción de latencia.
  */
 function PageLoader() {
+  const [visible, setVisible] = useState(false);
+
+  useEffect(() => {
+    const t = setTimeout(() => setVisible(true), 220);
+    return () => clearTimeout(t);
+  }, []);
+
+  if (!visible) return null;
+
   return (
     <output
-      className="block min-h-screen flex items-center justify-center bg-background-base transition-colors duration-500"
+      className="block w-full p-6 lg:p-8 space-y-6"
       aria-label="Cargando página"
     >
-      <div className="flex flex-col items-center gap-4">
-        <div className="relative">
-          <div 
-            className="size-16 rounded-full border-4 border-brand-base/20 animate-spin" 
-            style={{ borderTopColor: 'var(--color-brand-base)' }}
-            aria-hidden="true"
-          />
-          <div 
-            className="absolute inset-0 size-16 rounded-full border-4 border-transparent animate-ping"
-            style={{ borderTopColor: 'var(--color-brand-base)', opacity: 0.3 }}
-            aria-hidden="true"
-          />
+      {/* Header skeleton */}
+      <div className="flex items-center gap-4">
+        <div className="size-12 rounded-xl bg-background-elevated/40 animate-pulse" aria-hidden="true" />
+        <div className="space-y-2 flex-1 max-w-md">
+          <div className="h-3 w-24 rounded-full bg-background-elevated/40 animate-pulse" aria-hidden="true" />
+          <div className="h-6 w-64 rounded-md bg-background-elevated/40 animate-pulse" aria-hidden="true" />
         </div>
-        <p className="text-text-muted text-sm font-medium animate-pulse">Cargando sección...</p>
+      </div>
+
+      {/* KPI grid skeleton */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+        {[0, 1, 2, 3].map(i => (
+          <div
+            key={`pl-kpi-${i}`}
+            className="h-24 rounded-2xl bg-background-elevated/30 border border-border-subtle/40 animate-pulse"
+            aria-hidden="true"
+          />
+        ))}
+      </div>
+
+      {/* Content skeleton */}
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+        <div
+          className="lg:col-span-2 h-64 rounded-2xl bg-background-elevated/30 border border-border-subtle/40 animate-pulse"
+          aria-hidden="true"
+        />
+        <div
+          className="h-64 rounded-2xl bg-background-elevated/30 border border-border-subtle/40 animate-pulse"
+          aria-hidden="true"
+        />
       </div>
     </output>
   );
@@ -174,6 +208,9 @@ function AppContent() {
 
         {/* RUTAS DE ADMIN */}
         <Route path="/admin" element={<ProtectedRoute><RequireRole roles="super_admin"><AppLayout /></RequireRole></ProtectedRoute>}>
+          {/* /admin sin sub-ruta redirige a Aprobaciones (BUG-ADMIN-1: antes el
+              main quedaba en blanco porque no había index ni redirect). */}
+          <Route index element={<Navigate to="/admin/approvals" replace />} />
           <Route path="approvals" element={<SuspenseWrapper><ApprovalPanel /></SuspenseWrapper>} />
           <Route path="students" element={<SuspenseWrapper><StudentManagement /></SuspenseWrapper>} />
           <Route path="students/transfer" element={<SuspenseWrapper><TransferStudents /></SuspenseWrapper>} />

@@ -20,7 +20,9 @@ import { useReducedMotion } from '../../hooks/useReducedMotion';
  *     onClearAll={() => resetFilters()}
  *   />
  */
-export default function ActiveFiltersBar({ filters = [], onClearAll, className }) {
+const EMPTY_FILTERS = [];
+
+export default function ActiveFiltersBar({ filters = EMPTY_FILTERS, onClearAll, className }) {
   const { shouldReduceMotion } = useReducedMotion();
   const visible = filters.filter(Boolean);
   if (visible.length === 0) return null;

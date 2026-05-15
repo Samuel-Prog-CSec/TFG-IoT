@@ -33,7 +33,10 @@
   /* Text: Jerarquía de 4 niveles para lectura perfecta */
   --color-text-primary: oklch(98% 0.01 260); /* Blanco casi puro */
   --color-text-secondary: oklch(88% 0.02 260); /* Gris muy claro */
-  --color-text-muted: oklch(65% 0.03 260); /* Slate / Gris medio */
+  /* Muted dark a 70% L (antes 65%): sobre background-elevated/40 el 65%
+     rendía ~3.2:1 — bajo WCAG AA 4.5:1 para texto pequeño. 70% L mantiene
+     la jerarquía visual respecto a secondary (88%) sin sacrificar a11y. */
+  --color-text-muted: oklch(70% 0.03 260);
   --color-text-disabled: oklch(45% 0.03 260); /* Gris oscuro */
 
   /* Primary Brand (Purples) */
@@ -72,6 +75,21 @@
      transparente porque el token nunca existió en `@theme` (QA
      04/05/2026). Mantiene el lenguaje de "atardecer" del proyecto. */
   --color-accent-amber: oklch(82% 0.16 75);
+
+  /* Glows accent — FeedbackOverlay y celebraciones por mecánica leían
+     rgba hardcoded para los drop-shadow. Los tokens dejan que dark/light
+     diverjan su intensidad sin tocar los componentes. */
+  --color-accent-indigo-glow: oklch(60% 0.16 270 / 0.45);
+  --color-accent-cyan-glow: oklch(80% 0.14 200 / 0.45);
+  --color-accent-pink-glow: oklch(75% 0.16 340 / 0.45);
+  --color-accent-orange-glow: oklch(75% 0.16 50 / 0.45);
+  --color-accent-amber-glow: oklch(82% 0.16 75 / 0.45);
+
+  /* Sombra suave para sparkles/marcas decorativas sobre cards y
+     superficies oscuras. Migrado de drop-shadow-[0_1px_3px_rgba(0,0,0,0.4)]
+     hardcoded en MemoryBoard y similares; light la rebaja a alpha 0.18
+     para no aplastar la sombra sobre marfil. */
+  --shadow-card-sparkle: 0 1px 3px oklch(0% 0 0 / 0.4);
 
   /* Gameplay Context Themes */
   --color-theme-default: oklch(55% 0.24 297);
@@ -784,6 +802,19 @@
   --color-accent-pink: oklch(60% 0.20 340);
   --color-accent-orange: oklch(60% 0.18 50);
   --color-accent-amber: oklch(62% 0.16 75);
+
+  /* Glows accent en light — alpha más bajo (0.20) para no aplastar el
+     drop-shadow sobre marfil 98% L. La saturación viene del accent ya
+     desaturado en este bloque. */
+  --color-accent-indigo-glow: oklch(50% 0.20 270 / 0.20);
+  --color-accent-cyan-glow: oklch(58% 0.13 200 / 0.20);
+  --color-accent-pink-glow: oklch(60% 0.20 340 / 0.20);
+  --color-accent-orange-glow: oklch(60% 0.18 50 / 0.20);
+  --color-accent-amber-glow: oklch(62% 0.16 75 / 0.20);
+
+  /* Sparkle shadow en light: el alpha 0.4 oscuro hardcoded aplastaba la
+     mark sobre marfil. 0.18 mantiene profundidad sin manchar. */
+  --shadow-card-sparkle: 0 1px 3px oklch(0% 0 0 / 0.18);
 
   /* Contextos de juego — tonos un peldaño más oscuros para legibilidad */
   --color-theme-default: oklch(48% 0.22 297);

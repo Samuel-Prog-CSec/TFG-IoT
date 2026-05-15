@@ -74,7 +74,7 @@ function TimerBar({ timeLeft, timeLimit, className }) {
             role="status"
             aria-live="polite"
           >
-            {isCritical ? '¡Rápido!' : '¡Vamos!'}
+            {isCritical ? '¡Deprisa!' : '¡Vamos!'}
           </motion.span>
         </div>
       )}

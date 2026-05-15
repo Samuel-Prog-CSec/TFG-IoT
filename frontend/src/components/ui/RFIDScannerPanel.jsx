@@ -59,15 +59,17 @@ const generateMockUid = () => {
  * />
  * ```
  */
+const EMPTY_ARRAY = [];
+
 export default function RFIDScannerPanel({
-  scannedCards = [],
+  scannedCards = EMPTY_ARRAY,
   onCardScanned,
   onCardRemoved,
   minCards = 2,
   maxCards = 20,
   allowDuplicates = false,
   showMockButton = true,
-  availableCards = [], // Cartas reales disponibles para simular
+  availableCards = EMPTY_ARRAY, // Cartas reales disponibles para simular
   className,
 }) {
   const [isScanning, setIsScanning] = useState(false);

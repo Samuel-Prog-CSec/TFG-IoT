@@ -130,7 +130,7 @@ function TrajectoryChart({ trajectoryData, classComparison, title = 'Trayectoria
   if (chartData.length === 0) {
     return (
       <GlassCard variant="default" padding="none" className="p-5 h-full">
-        <h3 className="text-base font-bold text-text-primary font-display mb-4">{title}</h3>
+        <h3 className="text-base font-semibold text-text-primary font-display mb-4">{title}</h3>
         <div className="h-[250px] flex items-center justify-center px-6">
           <p className="text-text-muted text-sm text-center">
             No hay partidas en este periodo. Cambia el rango de tiempo o espera a nuevas partidas.

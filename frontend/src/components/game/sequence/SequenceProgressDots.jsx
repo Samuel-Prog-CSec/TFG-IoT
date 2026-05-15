@@ -18,7 +18,9 @@ const STATUS_COLORS = {
   pending: 'bg-background-elevated border border-border-default'
 };
 
-export default function SequenceProgressDots({ length, statuses = [], cursor = 0, reduceMotion = false }) {
+const EMPTY_STATUSES = [];
+
+export default function SequenceProgressDots({ length, statuses = EMPTY_STATUSES, cursor = 0, reduceMotion = false }) {
   const dots = Array.from({ length }, (_, index) => {
     if (statuses[index]) return statuses[index];
     if (index === cursor) return 'current';

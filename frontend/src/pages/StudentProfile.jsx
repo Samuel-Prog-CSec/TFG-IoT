@@ -148,7 +148,7 @@ export default function StudentProfile() {
     return (
       <main className="page-container py-[var(--space-fluid-section)] space-y-6">
         <div className="flex items-center gap-4 pt-14 lg:pt-0">
-          <SkeletonShimmer className="h-14 w-14 rounded-full" />
+          <SkeletonShimmer className="size-14 rounded-full" />
           <div className="space-y-2">
             <SkeletonShimmer className="h-7 w-52 rounded-md" />
             <SkeletonShimmer className="h-4 w-36 rounded-md" />
@@ -409,13 +409,14 @@ export default function StudentProfile() {
           <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
             <div className="lg:col-span-2">
               <SequenceProgressChart
-                data={(summary.lastGames || [])
-                  .filter(g => (g.mechanic || '').toLowerCase() === 'secuencia')
-                  .map(g => ({
+                data={(summary.lastGames || []).flatMap(g => {
+                  if ((g.mechanic || '').toLowerCase() !== 'secuencia') return [];
+                  return [{
                     completedAt: g.completedAt,
                     maxLength: g.maxLength || summary.bySequence.maxSequenceLengthAchieved,
                     sequencesCompleted: g.sequencesCompleted
-                  }))}
+                  }];
+                })}
               />
             </div>
             <SequenceHighlightCard summary={summary.bySequence} />

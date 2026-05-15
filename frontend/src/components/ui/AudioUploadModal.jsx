@@ -377,7 +377,7 @@ export default function AudioUploadModal({
             {isSubmitting ? (
               <>
                 <Loader2 size={16} className="animate-spin" />
-                Subiendo...
+                Subiendo…
               </>
             ) : (
               <>

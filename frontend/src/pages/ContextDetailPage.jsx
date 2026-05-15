@@ -105,7 +105,7 @@ export default function ContextDetailPage() {
   const handleDeleteAsset = (asset) => {
     deleteAssetConfirm.openModal({
       title: 'Eliminar asset',
-      description: `Vas a eliminar "${asset.value}" (${asset.key}). Se borrará la imagen, los audios asociados y los archivos en Supabase Storage. Si está en uso por un mazo activo, la operación se rechazará.`,
+      description: `Vas a eliminar "${asset.value}" (${asset.key}). Se borrará la imagen, los audios asociados y los archivos del almacenamiento del centro. Si está en uso por un mazo activo, la operación se rechazará.`,
       confirmText: 'Eliminar definitivamente',
       cancelText: 'Cancelar',
       variant: 'danger',

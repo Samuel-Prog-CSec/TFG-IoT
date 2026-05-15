@@ -85,12 +85,15 @@ function getGridCols(length) {
   return 'grid-cols-4 md:grid-cols-7';
 }
 
+const EMPTY_SEQUENCE = [];
+const EMPTY_CARD_STATUSES = {};
+
 function SequenceBoard({
-  sequence = [],
+  sequence = EMPTY_SEQUENCE,
   length = 0,
   phase = SEQUENCE_PHASES.MEMORIZING,
   cursor = 0,
-  cardStatuses = {},
+  cardStatuses = EMPTY_CARD_STATUSES,
   highlightIndex = null,
   displaySeconds = 3,
   roundNumber = 1,

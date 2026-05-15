@@ -57,8 +57,6 @@ Primitivos de UI del design system.
 | `InputPremium.jsx` | Input con estilos premium |
 | `SelectPremium.jsx` | Select estilizado |
 | `GlassCard.jsx` | Card con efecto glassmorphism |
-| `SpotlightCard.jsx` | Card con efecto spotlight hover |
-| `ProgressBarPremium.jsx` | Barra de progreso animada |
 | `SkeletonShimmer.jsx` | Skeleton loading |
 | `StatusBadge.jsx` | Badge de estado (activo, inactivo) |
 

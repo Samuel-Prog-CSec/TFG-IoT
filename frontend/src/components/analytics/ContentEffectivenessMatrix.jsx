@@ -89,7 +89,7 @@ function ContentEffectivenessMatrix({ data, groupBy = 'context' }) {
           <div className="p-2 rounded-lg bg-brand-base/10">
             <BarChart3 size={20} className="text-brand-base" aria-hidden="true" />
           </div>
-          <h3 className="text-base font-bold text-text-primary font-display">Efectividad por {dimensionLabel}</h3>
+          <h3 className="text-base font-semibold text-text-primary font-display">Efectividad por {dimensionLabel}</h3>
         </div>
         <div className="h-40 flex items-center justify-center">
           <p className="text-sm text-text-muted text-center">

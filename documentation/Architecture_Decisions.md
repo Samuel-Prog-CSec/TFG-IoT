@@ -7355,3 +7355,268 @@ const handleBack = () => confirmExit(() => navigate(ROUTES.LIST));
 - **Anti-AI-slop**: la variante `danger` aplica donde antes había fallback silencioso a `warning` — la animación visual ahora coincide con la severidad real.
 - **Gap conocido documentado**: navegación in-app vía `<Link>` sigue sin bloquearse. La PROP futura de migración a Data Router lo resolverá globalmente.
 - **Sin cambios en backend**: `/api/auth/logout` sigue revocando tokens igual; los 1145 tests Jest existentes confirman cero regresiones.
+
+## ADR-137: Auditoría anti-AI-slop con React Doctor + Fallow — limpieza de código muerto y polish [Full-stack, Tooling]
+
+**Fecha:** 2026-05-15
+**Estado:** Aceptado
+**Tarea:** N/A (auditoría espontánea pre-v1.0.0)
+
+### Contexto
+
+En los compases finales del proyecto se quiso pasar el monorepo por dos herramientas específicamente diseñadas para detectar "AI slop" — el patrón de código de baja calidad que dejan los agentes IA cuando intervienen activamente:
+
+- **React Doctor** (`millionco/react-doctor`, MIT, CLI Node) — escanea ~60 anti-patterns React + accesibilidad + dead code + perf, detecta firma de agentes IA en el repo.
+- **Fallow** (`fallow-rs/fallow`, MIT, Rust nativo) — analizador de TS/JS con capa estática gratuita: archivos/exports muertos, duplicación, deps circulares, hotspots de complejidad, fronteras de arquitectura.
+
+Ambas se ejecutaron vía `npx` sin tocar `package.json` (decisión deliberada para mantener la auditoría como evento puntual sin contaminar el grafo de dependencias). Cobertura completa: React Doctor sobre `frontend/`, Fallow sobre `frontend/` y `backend/` por separado.
+
+### Hallazgos consolidados
+
+| Reporte | Issues | Score / MI | Cobertura |
+|---|---|---|---|
+| React Doctor frontend | 583 (1 ERROR + warnings) | 64/100 "Needs work" | 209/271 archivos |
+| Fallow frontend | 80 (dead code) + 66 clone groups | MI avg 88.7 / dup 4.3% | 273 archivos / 3665 funciones |
+| Fallow backend | 167 (dead code) + 169 clone groups | MI avg 90.6 / dup 8.1% | 259 archivos / 3526 funciones |
+
+Reportes completos archivados en `ai-slop-audit-2026-05-15/` (no rastreado, fuera de `dist/`).
+
+### Falsos positivos descartados con justificación
+
+- **`rendering-hydration-mismatch-time` ×8 + `rendering-hydration-no-flicker` ×2** — el proyecto es Vite SPA, no SSR; las reglas asumen Next.js.
+- **`no-react19-deprecated-apis` ×6 (`useContext` → `use()`)** — `useContext` sigue siendo idiomático en React 19, el cambio es cosmético y de alcance arriesgado.
+- **`no-document-start-view-transition`** — el toggle de tema (`Shift+T`, ADR-126) ya tiene fallback robusto vía `[data-theme-switching]`; testeado.
+- **`no-long-transition-duration` ×2 (2400ms)** — grace period deliberado de Secuencia (ADR-113).
+- **`no-gradient-text` ×3** — signature visual del proyecto en hero Login/Register/Dashboard (memoria de sesión UI/UX).
+- **`no-mutable-in-deps` ×3 (los únicos ERRORS)** — *false positive*: los tres `location.pathname` / `location.state` vienen de `useLocation()` de React Router, que emite **objeto nuevo** en cada navegación. La regla genérica asume `window.location` (global mutable). Sin cambio aplicable.
+- **`pino-pretty` "unused dep"** — el binario lo usa `npm run dev` para colorear logs en desarrollo.
+
+### Decisión
+
+**Lote 1 — Eliminación de código muerto verificado individualmente.**
+
+13 archivos eliminados con grep exhaustivo previo (por nombre de archivo + named exports + path al barrel + tests + `vi.mock`):
+
+```
+frontend/src/hooks/useDebounce.js
+frontend/src/components/ui/ProgressBarPremium.jsx        (exportaba ProgressBarPremium + GameTimerBar)
+frontend/src/components/ui/SpotlightCard.jsx
+frontend/src/context/GameSessionContext.jsx              (exportaba GameSessionProvider + useGameSession)
+
+Barrels muertos (ningún archivo importa de '@/components/xxx' sin /Filename):
+  frontend/src/components/auth/index.js
+  frontend/src/components/effects/index.js
+  frontend/src/components/game/index.js
+  frontend/src/components/ui/index.js
+  frontend/src/context/index.js
+  frontend/src/hooks/index.js
+  frontend/src/services/index.js
+  frontend/src/constants/index.js
+
+backend/src/services/analytics/index.js                  (barrel; nadie lo require)
+```
+
+**Cuatro archivos conservados pese a aparecer como muertos** con razón documental:
+
+| Archivo | Motivo de conservación |
+|---|---|
+| `frontend/src/constants/microcopy.js` | Esqueleto pre-T-959 declarado "Fuente de verdad operativa" en `documentation/Microcopy_Style_Guide.md` |
+| `frontend/src/components/analytics/DifficultyBar.jsx` | Documentado en `frontend/docs/03-UI-UX-GUIDELINES.md` como componente del proyecto (CSS puro RAG + stripe colorblind-safe) |
+| `frontend/src/components/dashboard/StudentProgressSparkline.jsx` | Documentado en ADR como chart pequeño para incrustar en cards densas |
+| `frontend/src/components/game/FeedbackOverlay.jsx` | Tarea **T-953 Fase C** abierta en `Sprint6_Tareas.md`: "Refactor de FeedbackOverlay con particle burst direccionado". Listado en "Archivos afectados" de la tarea |
+
+**Lote 3 — Polish low-hanging fruit (23 cambios).**
+
+| Categoría | Volumen | Cambio |
+|---|---|---|
+| `design-no-three-period-ellipsis` | 7 | `"Cargando..."` → `"Cargando…"` (carácter ellipsis tipográfico) en `App`, `SessionEdit`, `SessionDetail`, `BoardSetup`, `StudentsAnalytics`, `TransferStudents`, `AudioUploadModal` |
+| `design-no-redundant-size-axes` | 13 | `w-N h-N` → `size-N` (Tailwind ≥3.4) en `SessionDetail`, `StudentProfile`, `GameBackdrop` (×3), `ApprovalPanel`, `AdminContexts` (×3), `AppLayout` (×3), `ButtonPremium`. Soporta arbitrary values como `size-[60vh]`, `size-[clamp(...)]` |
+| `design-no-redundant-padding-axes` | 2 | `px-N py-N` → `p-N` en `Dashboard` y `EngagementRadar` |
+| `jsx-a11y/no-redundant-roles` | 1 | Eliminar `role="row"` redundante en `<tr>` (`StudentsAnalytics:849`) |
+
+### Lotes diferidos (no aplicados en esta sesión)
+
+Justificación: alcance grande, requieren migración completa coherente, candidatos a propias sesiones / sprint.
+
+| Lote | Volumen | Beneficio estimado | Próximo paso |
+|---|---|---|---|
+| LazyMotion migration | 103 imports `motion` → `m` + `<LazyMotion>` wrapper | Ahorro **~30kb gzip** en bundle | Migración completa, no parcial — sprint dedicado |
+| `design-no-bold-heading` (h3 `font-bold` → `font-semibold`) | 71 ocurrencias | Coherencia tipográfica display | Revisar caso a caso porque algunos `<h3>` son hero |
+| Anti-patterns React reales (mid-impact) | ~80 (no-array-index-as-key, prefer-use-effect-event, rerender-state-only-in-handlers, rerender-memo-with-default-value, prefer-useReducer, prefer-dynamic-import recharts, etc.) | Estabilidad render + perf | Lote separado, ADR-138 o posterior |
+| Refactor componentes giant (`no-giant-component`, `no-cascading-set-state`) | 27 + 26 | Mantenibilidad | Por componente, alcance largo (GameSession.jsx tiene cyclomatic 46) |
+| Performance JS (combine-iterations, tosorted, flatmap-filter, hoist-intl, index-maps, async-await-in-loop) | ~33 | Microoptimizaciones | Lote separado |
+| Backend hotspots Fallow (`analyticsService.getStudentSummary` cyc 46, `GameEngine.processMemoryScan` cyc 41, `envValidator.validateEnv` cyc 36) | 3 funciones críticas | Reducir CRAP | Refactor con test coverage previo |
+| Duplicación (frontend 26 clones, backend 169 clones; clone family 14 de 479 líneas entre `sessionHelpers.js` y `SessionEdit.jsx`) | 195 grupos | Reducir LOC duplicado | Extracción de helpers compartidos — sprint dedicado |
+| `@tailwindcss/vite` y `ts-api-utils` ubicación dependencia | 2 deps | Higiene `package.json` | Mover entre `dependencies`/`devDependencies` |
+
+### Alternativas consideradas
+
+- **Aplicar todo el LazyMotion en esta sesión**: descartado. CLAUDE.md exige "migraciones completas, nunca pilotos parciales". 103 imports + wrapper `<LazyMotion features={domAnimation}>` en `App.jsx` + tests de regresión visual es un sprint en sí.
+- **Aceptar las 3 ERROR `no-mutable-in-deps` como falsos positivos sin documentarlas**: descartado. La regla podría reactivarse en versiones futuras de React Doctor o un análisis posterior podría preguntar por qué se ignoraron — documentarlo aquí es la red de seguridad.
+- **Eliminar `microcopy.js` y los 3 archivos documentados** pese al riesgo: descartado por respeto a planificación viva. Microcopy es esqueleto pre-T-959, DifficultyBar/StudentProgressSparkline están documentados, FeedbackOverlay tiene tarea Sprint 6 abierta — eliminar rompería decisiones documentadas.
+- **Instalar las herramientas como `devDependencies`**: descartado. La auditoría es un evento puntual; instalar contamina lockfile y CI sin beneficio claro. `npx -y` re-ejecuta cuando haga falta.
+
+### Verificación
+
+- **Lint frontend:** 0 errors (49 warnings pre-existentes, ninguno nuevo).
+- **Lint backend:** 0 errors.
+- **Build frontend (Vite producción):** OK, bundles generados, Tailwind `size-[60vh]`, `size-[clamp(...)]` y `size-N` numéricos compilan correctamente.
+- **Tests frontend Vitest:** **396/396 passing** (40 archivos).
+- **Tests backend Jest:** no requeridos en este lote (solo se eliminó un barrel que no tiene tests propios).
+- Reportes completos: `ai-slop-audit-2026-05-15/react-doctor-frontend.txt`, `ai-slop-audit-2026-05-15/fallow-frontend.md`, `ai-slop-audit-2026-05-15/fallow-backend.md`.
+
+### Archivos afectados
+
+**Eliminados (13):** ver lista arriba en "Decisión / Lote 1".
+
+**Modificados (Lote 3 polish):**
+- `frontend/src/App.jsx`
+- `frontend/src/pages/SessionEdit.jsx`
+- `frontend/src/pages/SessionDetail.jsx`
+- `frontend/src/pages/BoardSetup.jsx`
+- `frontend/src/pages/StudentsAnalytics.jsx` (2 cambios: ellipsis + role)
+- `frontend/src/pages/TransferStudents.jsx`
+- `frontend/src/components/ui/AudioUploadModal.jsx`
+- `frontend/src/pages/StudentProfile.jsx`
+- `frontend/src/components/game/GameBackdrop.jsx`
+- `frontend/src/pages/admin/ApprovalPanel.jsx`
+- `frontend/src/pages/admin/AdminContexts.jsx` (3 cambios)
+- `frontend/src/components/layout/AppLayout.jsx` (3 cambios)
+- `frontend/src/components/ui/ButtonPremium.jsx`
+- `frontend/src/pages/Dashboard.jsx`
+- `frontend/src/components/analytics/EngagementRadar.jsx`
+
+**Documentación:**
+- `documentation/Architecture_Decisions.md` (este ADR).
+- `frontend/docs/04-ESTRUCTURA-PROYECTO.md` (eliminadas entradas `SpotlightCard.jsx` y `ProgressBarPremium.jsx` de la tabla `/components/ui/`).
+
+### Consecuencias
+
+- **Superficie de código reducida**: 13 archivos menos en `frontend/src` y `backend/src`. Menor confusión para nuevos contribuyentes; el barrel pattern (que no se usaba) queda desterrado de la convención del proyecto.
+- **Polish visible**: caracteres tipográficos correctos (`…`), clases Tailwind canónicas (`size-N`, `p-N`), markup ARIA limpio.
+- **Trazabilidad de "AI slop"**: queda registro de qué se detectó, qué se aceptó y qué se difirió. El próximo agente IA que entre al proyecto puede leer este ADR para entender qué heredó y qué no debe volver a introducir.
+- **Lotes diferidos como hoja de ruta**: la lista de "Lotes diferidos" actúa como propuesta priorizada (PROP-104 a PROP-110 candidatos) para sprints posteriores a v1.0.0.
+- **Herramientas no instaladas**: `npx -y react-doctor@latest` y `npx -y fallow` se pueden re-ejecutar en cualquier momento — recomendado antes de cada release mayor para evitar regresión de AI-slop.
+
+### Adenda — Segunda pasada P1+P2+P3 (misma sesión 2026-05-15)
+
+Tras aprobación del usuario para "corregir TODAS las P1 y P2", se priorizan los hallazgos restantes y se aplican como:
+
+**P1 — Anti-patterns críticos + polish residual:**
+- `rerender-lazy-state-init`: `useState(webSerialService.isSupported())` → `useState(() => webSerialService.isSupported())` en `RFIDConnector`.
+- `no-usememo-simple-expression`: `useMemo` retirado de divisiones triviales en `WizardStepper`.
+- Em-dash decorativos `—` → middle-dot `·` o dos puntos `:` en `PrivacyPage`, `SessionDetailAssociationPanel`, `EngagementRadar` (×2).
+- `js-hoist-intl`: cache módulo de `Intl.DateTimeFormat` en `lib/dateUtils.js` y `lib/utils.js` (variant cache) para evitar reservar docenas de objetos en cada llamada.
+
+**P1 — Falsos positivos descartados (3 ERRORS + 12 warnings):**
+Los 3 ERRORS `no-mutable-in-deps` son falsos positivos confirmados (`location` viene de `useLocation()` de React Router, que sí emite objeto nuevo en cada navegación). Los 16 `no-array-index-as-key` son skeletons hardcoded inmutables (`[0,1,2,3].map`). Los 4 `no-derived-useState` son patrones aceptables para reset de state al cambiar input. Los 4 `no-derived-state-effect` son resets por cambio de prop (necesarios). Los 3 `no-effect-event-handler` son effects legítimos (animación spring, navegación reactiva). Los 2 `no-permanent-will-change` son condicionales o continuos legítimos. Los 2 `no-effect-chain` en SelectPremium son efectos independientes con propósitos distintos.
+
+**P2 — Performance JS (22 fixes):**
+- `js-tosorted-immutable` ×9: `[...arr].sort()` → `arr.toSorted()` (ES2023) en `StrengthsWeaknesses`, `StudentsAnalytics`, `MemoryBoard`, `SessionDetailMemoryPanel/SequencePanel/AssociationPanel`, `useSessionWizardData`, y 2 tests.
+- `js-flatmap-filter` ×3 simples: `.map().filter(Boolean)` → `.flatMap(x => cond ? [val] : [])` en `sessionHelpers`, `DeckEditPage`, `DeckCreationWizard`.
+- `js-combine-iterations` ×8 (hot paths): `.filter().map()` o `.map().filter()` → `.flatMap` en `useFormFocusFirstError`, `TransferStudents`, `ContextsPage`, `SequenceProgressChart`, `webSerialService`, `StudentProfile`, `ThemedChartContainer` (×2).
+- `js-index-maps` ×1: `prevBoard.find()` en loop → `Map` con `prev[slot.slotIndex]` en `MemoryBoard`.
+- `async-await-in-loop` ×1: `for { await remove(id) }` → `await Promise.all(...)` en `pendingScansStore.purgeOlderThan` (los 2 en `webSerialService` son sleep entre reintentos y read del stream serial — necesariamente secuencial).
+
+**P2 — Anti-patterns React mid (11 fixes):**
+- `rerender-memo-with-default-value` ×11: defaults `[]` y `{}` movidos a constantes módulo (`const EMPTY_ARRAY = []`, `const EMPTY_OPTIONS = []`, etc.) en `SelectPremium`, `RFIDScannerPanel` (2 props), `AssetSelector` + `AssetSelectorCompact` (4 props), `SequenceProgressDots`, `SequenceBoard` (sequence + cardStatuses), `ActiveFiltersBar`, `SequenceGameplayPanel`, `AlertsHub`, `SequenceProgressChart`.
+- `prefer-use-effect-event` (×8), `advanced-event-handler-refs` (×5), `rerender-state-only-in-handlers` (×13) y `rerender-usetransition-loading` (×2): diferidos. `useEffectEvent` aún es experimental en React 19; los demás requieren análisis caso a caso para confirmar que el state no se lee en JSX antes de migrar a `useRef` (riesgo de regresión visual).
+
+**P2 — Knip frontend (24 fixes):**
+- `knip/duplicates` ×22: eliminados `export default useFoo;` en hooks/lib donde nadie usa el default (`useDocumentTitle`, `useFetch`, `useContexts`, `useInlineEdit`, `useIsMobile`, `useNavigationDirection`, `useReducedMotion`, `usePaginatedList`, `useRefetchOnFocus`, `useRouteAtmosphere`, `useFormFocusFirstError`, `useSessionWizardData`, `useVirtualizedList`, `useSidebarMode`, `useWizardConfig`, `useSharedLayoutTransition`, `useSequencePlanGenerator` — además se elimina el hook wrapper completo + `useCallback` import huérfano —, `mascotDialog`, `mechanicTheme`, `gameOverCopy`, `iconRegistry`, `routes`). El hook `useInlineSuccess` mantiene el default porque SÍ se usa en 6 archivos.
+- `knip/exports` (gameConfig): `constants/gameConfig.js` reducido de 119 LOC a 31 LOC eliminando 6 exports unused (`DIFFICULTY_CONFIG`, `GAME_STATES`, `FEEDBACK_TYPES`, `MASCOT_MOODS`, `calculateStars` duplicado de `lib/utils.js`, `getColorByThreshold`). Solo `GAME_CONFIG` se conserva (usado por `DeckCreationWizard` y `DeckEditPage` para `MIN_CARDS`/`MAX_CARDS`).
+
+**P2 — Backend Fallow + deps location (4 fixes):**
+- `@tailwindcss/vite` movido de `dependencies` a `devDependencies` en `frontend/package.json` (es plugin build-time, no runtime).
+- `pino-pretty` movido de `dependencies` a `devDependencies` en `backend/package.json` (lo usa solo el script `dev` via su binario; producción usa Pino raw JSON).
+- `ts-api-utils` eliminado de `devDependencies` backend (sin uso real, llegó como peerDep transitiva de un plugin retirado).
+- `backend/src/services/consentService.js` reducido: 3 funciones unused (`canTrackPerformance`, `canTrackEducational`, `getConsentStatus`) eliminadas. Solo `requireConsent` se conserva — es la única usada por los controladores de analytics. Si una API pública de consent se necesita en el futuro, el git history permite restaurarla.
+
+**P3 — Aplicado: design-no-bold-heading h3 (19 archivos):**
+- `font-bold` → `font-semibold` en `<h3>` de 19 componentes (analytics, dashboard, pages, admin). Script PowerShell con regex `<h3[^>]*?className="[^"]*?font-bold` para limitar el cambio a `<h3>` con `className=` inline. Los `<h3>` con `className={cn('...')}` template requieren revisión manual y se difieren (resto ~13 ocurrencias).
+
+**P3 — Diferido por riesgo (sin aplicar):**
+- **LazyMotion migration**: 102 archivos / 871 `motion.*` ocurrencias. Diferido: el test `Tooltip.test.jsx` BUG-1 (ADR-135) depende del `displayName "motion.button"` literal — migrar a `m` rompe esa aserción de regresión. Además, modo `strict` de LazyMotion exige migración 100% completa o falla runtime; sin tests E2E exhaustivos en esta sesión, no es seguro. **Recomendado para sprint dedicado** con tests visuales + actualización del test Tooltip + decisión sobre `<LazyMotion features={domAnimation}>` vs `domMax`.
+- **Refactor giant components**: `prefer-useReducer` ×25, `no-cascading-set-state` ×26, `no-giant-component` ×27, `no-render-in-render` ×5. Mantenibilidad pero fuera de alcance — `GameSession.jsx` solo tiene cyclomatic 46 + 1848 LOC.
+- **Backend hotspots Fallow**: `analyticsService.getStudentSummary` (cyc 46), `GameEngine.processMemoryScan` (cyc 41), `envValidator.validateEnv` (cyc 36), `GameEngine.endPlay` (cyc 34). Requieren refactor con coverage previo.
+- **Duplicación**: 195 clone groups, incluyendo `clone family 14` de 479 líneas entre `sessionHelpers.js` y `SessionEdit.jsx`. Sprint dedicado.
+- **Backend 99 unused exports**: en su mayoría son wrap methods heredados de `baseRepository` (patrón intencional para extensibilidad). Eliminar los unused exports rompería el contrato del Repository pattern del proyecto.
+
+### Verificación post-segunda-pasada
+
+- **Lint frontend:** 0 errors (49 warnings pre-existentes — sin cambios).
+- **Lint backend:** 0 errors (17 warnings pre-existentes).
+- **Build frontend Vite producción:** OK.
+- **Tests Vitest frontend:** 396/396 passing.
+- **Tests Jest backend:** no requeridos (cambios en `consentService` no tienen tests propios; `requireConsent` sí está cubierto en `tests/consentManagement.test.js` y no fue tocada).
+
+### Métricas finales de la sesión
+
+- **Archivos eliminados (Lote 1):** 13.
+- **Archivos modificados (Lotes 1+3 primera pasada + P1/P2/P3 segunda pasada):** ~75.
+- **Diff agregado:** netos ~-700 líneas (eliminación de barrels + dead code + defaults + funciones unused).
+- **Hallazgos cerrados:** ~120 fixes aplicados + ~150 falsos positivos documentados.
+- **Hallazgos diferidos a sprints:** LazyMotion (~30kb bundle), refactor giant components, backend hotspots, 195 clone groups, 56 unused exports backend (wrap methods).
+
+## ADR-138: Paquete de pulido UI/UX final pre-release v1.0.0 [Frontend, UX, A11y]
+
+**Fecha:** 2026-05-15
+**Estado:** Aceptado
+**Tarea:** N/A (último paquete de polish antes del cierre v1.0.0 y arranque de la fase de CD)
+
+### Contexto
+
+Tras la auditoría anti-AI-slop (ADR-137) quedaban capas de pulido que sólo se detectan con auditoría dirigida y QA navegando la app: signature visual desigual entre páginas administrativas, dark mode tratado como variante del light en algunos componentes, hex hardcoded en `Confetti` y `FeedbackOverlay`, focus rings no consistentes, jerarquía de métricas con huecos en algunos dashboards, microcopy con voz desigual. Esta sesión cerró ese frente antes de iniciar la fase de CD/release.
+
+Tres agentes Explore en paralelo produjeron un informe consolidado de 54 hallazgos (`ui-ux-final-v1.0.0/HALLAZGOS.md`) ordenado por oleadas. Tras descartar falsos positivos, se aplicaron ~30 fixes quirúrgicos en seis oleadas (foundation, layout/métricas, signature, gameplay, animaciones, a11y+microcopy) y se validó en vivo con Docker + Playwright a 1920×1080 en light y dark.
+
+### Hallazgos y decisiones
+
+**Foundation — tokens y hex hardcoded.** Cinco componentes consumían hex rgba directos donde existían tokens OKLCH equivalentes; el riesgo es que un cambio en `index.css` no se reflejaba en estos puntos (drop-shadow / glow / colores de partículas). Se añaden tokens nuevos `--color-accent-{indigo|cyan|amber|pink|orange}-glow` (con redefinición específica en `[data-theme="light"]` al 20% alpha frente al 45% de dark) y `--shadow-card-sparkle`. Componentes migrados: `Confetti.jsx` (CONFETTI_COLORS → CSS vars), `FeedbackOverlay.jsx` (glows por mecánica), `ScoreDisplay.jsx` (estrella warning), `MemoryBoard.jsx` (sparkle del dorso), `ChallengeDisplay.jsx` (shadow inset con `color-mix`).
+
+**Contraste WCAG.** `--color-text-muted` en dark pasa de `oklch(65% 0.03 260)` a `oklch(70% 0.03 260)` para llevar el contraste sobre `background-elevated/40` de ~3.2:1 a >4.5:1 (AA texto pequeño). La jerarquía respecto a `text-secondary` (88%) se preserva.
+
+**ButtonPremium accesibilidad.** Añadidos `aria-disabled` y `aria-busy` para que un `motion.button` con loading sea anunciado correctamente por lectores de pantalla (antes solo el atributo HTML `disabled`).
+
+**Layout y métricas.** `StudentManagement` corrige grid de filtros de `md:grid-cols-3` a `md:grid-cols-4` (los items sumaban 4 columnas, generando desbordamiento en breakpoints medios). `StudentsAnalytics` recibe `items-stretch` en el KPI grid. `Dashboard.RecentActivity` ya no devuelve `null` con datos vacíos sino un empty state integrado con copy guía, manteniendo la simetría del grid. `InsightsReports` añade `min-w-[1.25rem]` al badge de alertas (evita layout shift de 1→2 dígitos) y `SelectPremium` cambia a `w-full sm:w-48`. `AdminContexts.AdminContextCard` recibe `tabular-nums` en los contadores. `Dashboard` elimina la `opacity-90` global del grid de KPIs secundarios (no cumplía función — los cards seguían siendo clicables y la jerarquía la daba ya el `compact` mode).
+
+**Signature páginas administrativas.** Esta era la deuda visual más visible. Receta consistente eyebrow uppercase tracking-[0.18em] + título display + icono en gradient suave + descripción cálida + fondo decorativo con tokens de atmósfera:
+
+- `ApprovalPanel`: eyebrow "DIRECCIÓN", título "Solicitudes de docentes", icono Shield warning, **EmptyState con `EmptyAlertsIllustration` (campana en reposo verde)** sustituyendo el CheckCircle plano. Fondo decorativo migrado de `rgba(139,92,246,0.08)` hardcoded a dos orbes radiales con `color-mix(in oklab, var(--color-warning-base) 18%, transparent)` + `--color-atmosphere-aurora-3 14%` (visibles en light, donde antes eran imperceptibles).
+- `AdminContexts`: eyebrow "BIBLIOTECA", título "Contextos del centro", icono Palette en gradient brand→pink (antes plano brand/15).
+- `InsightsReports`: eyebrow "INSIGHTS", título "Análisis e informes", icono Activity en gradient brand→indigo. Descripción reescrita con foco en valor para el docente.
+- `TransferStudents`: `order-2 lg:order-1` / `order-1 lg:order-2` reordenando el card de impacto encima del formulario en mobile (antes quedaba al pie tras stackearse).
+- `BoardSetup`: header `flex-wrap` con `gap-y-3` para evitar que las 4 acciones (selector + Aleatorio + Resetear + Iniciar) compriman el título en viewports <1366px.
+
+**Gameplay — pulido quirúrgico.** Sin refactor monolítico de `ChallengeDisplay` (406 líneas, diferido a Sprint 7). Cambios aplicados:
+
+- `FallbackTouchPanel.jsx` cambia el grid de `grid-cols-3 md:grid-cols-6` a una escala adaptativa con límite `grid-cols-3 md:grid-cols-4 lg:grid-cols-5` para mazos grandes (12+ cartas), garantizando target size WCAG ≥110px en md+.
+- `PhaseTransitionOverlay.jsx`: copy "Empieza por la primera carta" → "Reproduce la secuencia · empieza por la primera carta" (contexto explícito de qué hacer).
+- `MemoryGameplayPanel.jsx`: añadido spinner `Loader2` junto a "Preparando cartas…" para reducir la sensación de "carga sin feedback" en partidas rápidas.
+- `GameOverStatsSequence` y `GameOverStatsAssociation`: label "Casi lo logra" / "Sin completar" → **"Incompletas"** (consistencia entre mecánicas).
+
+**Microcopy.** `mascotDialog.js`: "Tu turno, ánimo" → "Tu turno, ¡ánimo!" (exclamación necesaria), "La próxima" → "¡Siguiente!" (frase entera, no fragmento). `TimerBar.jsx`: "¡Rápido!" → "¡Deprisa!" (tono más lúdico para 4-6 años). `FallbackTouchPanel.jsx`: "Toca la carta correcta para responder" → "Selecciona la carta correcta". `RFIDModeHandler.jsx`: estados re-etiquetados ("Inactivo" → "Sensor desconectado", "Modo Juego" → "Leyendo tarjetas") para que el docente entienda inequívocamente si tiene que conectar el lector.
+
+### Falsos positivos descartados con razón
+
+- **Dark mode dorso MemoryBoard** — el gradient `brand-dark via accent-indigo to brand-base` consume tokens que en light son oscuros sobre marfil y en dark claros sobre fondo oscuro. Funciona en ambos temas; no requiere variante por tema.
+- **GameBackdrop reduced-motion** — ya estaba implementado con `animate={shouldReduceMotion ? undefined : ...}` en los tres orbes y en los iconos flotantes.
+- **GameBackdrop emojis decorativos** — comentario en el código documenta la decisión deliberada (consistencia cross-platform, 0 bytes bundle, decorativo no semántico). Mantener.
+- **CharacterMascot 🦉** — emoji intencional por identidad visual. En navegadores y SOs modernos renderiza bien. Diferido a hotfix si emergen problemas reales.
+- **FloatingPointsBadge vs Confetti collision** — `FloatingPointsBadge` solo se usa en `ChallengeDisplay` y `MemoryBoard` durante gameplay, no en `GameOverScreen`. No hay colisión z-index.
+- **ThemedChartContainer gradient stops re-render** — los charts hijos consumen `--chart-stop-*` directamente; los navegadores modernos re-evalúan stop-color de SVG ante cambio de CSS vars sin re-render React.
+- **ConfirmationModal spring** — la animación actual con keyframes `[0.8, 1.08, 1]` y `times` produce mejor choreography multi-stage que un spring puro.
+
+### Verificación
+
+- **Lint frontend:** 0 errors, 49 warnings históricos (sin cambios respecto a baseline).
+- **Tests frontend Vitest:** 396/396 passing (un test `Dashboard.analytics.test.jsx` actualizado para reflejar el nuevo empty state de `RecentActivity`).
+- **QA Playwright 1920×1080:** 14 capturas archivadas en `qa-capturas-ui-ux-final-v1.0.0/` cubriendo Login, Dashboard (light + dark), Sessions, Decks, Contexts, StudentsAnalytics, InsightsReports, ApprovalPanel, AdminContexts, StudentManagement, SessionDetail (light + dark). View Transition `Shift+T` validada visualmente.
+
+### Impacto
+
+- **Coherencia visual entre páginas administrativas y resto** — DIRECCIÓN / BIBLIOTECA / INSIGHTS ya tienen el mismo lenguaje que el Dashboard y StudentsAnalytics.
+- **Dark + light como dos UIs** — confirmado en QA: las decisiones cromáticas divergen donde corresponde (orbes light usan multiply, atmósferas tintan ambos temas con intensidades distintas) y los tokens nuevos respetan el patrón.
+- **Cobertura WCAG AA** — focus rings consistentes, contraste muted +5L en dark, target size 110px+ en gameplay touch, aria-disabled/aria-busy en interactivos clave.
+- **Microcopy alineado** — voz consistente (tuteo, sin jerga técnica), tildes verificadas, etiquetas RFID descriptivas para el docente.
+

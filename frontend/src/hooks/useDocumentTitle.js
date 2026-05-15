@@ -24,4 +24,3 @@ export function useDocumentTitle(title, restoreOnUnmount = true) {
   }, [restoreOnUnmount]);
 }
 
-export default useDocumentTitle;

@@ -67,7 +67,9 @@ CustomTooltip.propTypes = {
   label: PropTypes.string
 };
 
-function SequenceProgressChart({ data = [], height = 240, showLegend = true, title = 'Evolución en Secuencia' }) {
+const EMPTY_DATA = [];
+
+function SequenceProgressChart({ data = EMPTY_DATA, height = 240, showLegend = true, title = 'Evolución en Secuencia' }) {
   const motion = useChartMotion();
   const points = (Array.isArray(data) ? data : []).map(item => ({
     date: formatShortDate(item.date || item.completedAt),
@@ -91,7 +93,7 @@ function SequenceProgressChart({ data = [], height = 240, showLegend = true, tit
   }
 
   // Resumen accesible: máximo histórico + última partida + nº de partidas.
-  const maxLengths = points.map((p) => p.maxLength).filter((n) => n > 0);
+  const maxLengths = points.flatMap((p) => p.maxLength > 0 ? [p.maxLength] : []);
   const bestEver = maxLengths.length ? Math.max(...maxLengths) : 0;
   const lastLength = points[points.length - 1]?.maxLength ?? 0;
   const accessibleSummary =

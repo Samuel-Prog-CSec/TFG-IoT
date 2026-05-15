@@ -26,8 +26,7 @@ export function useFormFocusFirstError(errors) {
     if (!errors || typeof errors !== 'object') return undefined;
 
     const activeErrorKeys = Object.entries(errors)
-      .filter(([, value]) => Boolean(value))
-      .map(([key]) => key)
+      .flatMap(([key, value]) => (value ? [key] : []))
       .sort((a, b) => a.localeCompare(b));
 
     if (activeErrorKeys.length === 0) {
@@ -55,4 +54,3 @@ export function useFormFocusFirstError(errors) {
   return formRef;
 }
 
-export default useFormFocusFirstError;

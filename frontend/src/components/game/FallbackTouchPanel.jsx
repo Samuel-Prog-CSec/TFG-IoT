@@ -77,14 +77,19 @@ export default function FallbackTouchPanel({
     const n = visibleCards.length;
     if (n <= 3) return 'grid-cols-3';
     if (n <= 4) return 'grid-cols-4';
-    return 'grid-cols-3 md:grid-cols-6';
+    // Límite lg:5 (antes md:6): con 6 cols en mazos grandes (12+ cartas)
+    // los botones se aplastaban a < 96px de lado en md (640-1024px),
+    // sacrificando target size WCAG. 3/4/5 garantiza >=110px en cualquier
+    // viewport >=md y mantiene la cuadrícula legible.
+    if (n <= 8) return 'grid-cols-2 sm:grid-cols-4';
+    return 'grid-cols-3 md:grid-cols-4 lg:grid-cols-5';
   })();
 
   return (
     <div className="mt-2 w-full max-w-5xl rounded-2xl border border-accent-indigo/25 bg-accent-indigo/5 p-3 sm:p-4">
       <div className="flex items-center justify-center gap-2 text-text-secondary mb-3">
         <Hand size={14} className="shrink-0 text-accent-indigo" aria-hidden="true" />
-        <p className="text-xs font-medium">Toca la carta correcta para responder</p>
+        <p className="text-xs font-medium">Selecciona la carta correcta</p>
       </div>
 
       {visibleCards.length > 0 && (

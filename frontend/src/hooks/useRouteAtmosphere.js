@@ -148,4 +148,3 @@ export function useRouteAtmosphere() {
   }, [location.pathname, setAtmosphere, clearAtmosphere]);
 }
 
-export default useRouteAtmosphere;

@@ -11,8 +11,6 @@
  * usar la misma semilla que el backend; basta con producir un plan válido.
  */
 
-import { useCallback } from 'react';
-
 const shuffle = (list, rng) => {
   const copy = [...list];
   for (let i = copy.length - 1; i > 0; i -= 1) {
@@ -49,8 +47,3 @@ export function generateSequencePlan(cardMappings, options = {}) {
   });
 }
 
-export function useSequencePlanGenerator() {
-  return useCallback((cardMappings, options) => generateSequencePlan(cardMappings, options), []);
-}
-
-export default useSequencePlanGenerator;

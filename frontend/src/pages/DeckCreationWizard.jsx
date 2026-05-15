@@ -922,7 +922,7 @@ function StepAssign({
   );
 
   const assignedAssetKeys = useMemo(
-    () => new Set(Object.values(cardAssignments).map(a => a?.key).filter(Boolean)),
+    () => new Set(Object.values(cardAssignments).flatMap(a => a?.key ? [a.key] : [])),
     [cardAssignments]
   );
 
@@ -938,8 +938,8 @@ function StepAssign({
     for (let i = 0; i < count; i++) {
       onAssignAsset(unassignedCards[i].uid, unassignedAssets[i]);
     }
-    toast.success('Auto-asignacion completada', {
-      description: `${count} carta(s) asignada(s) automaticamente`
+    toast.success('Auto-asignación completada', {
+      description: `${count} carta(s) asignada(s) automáticamente`
     });
   }, [unassignedCards, unassignedAssets, onAssignAsset]);
 

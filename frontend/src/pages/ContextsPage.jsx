@@ -413,7 +413,7 @@ function ContextCard({ context, onClick }) {
         {previews.length > 0 && (
           <div
             className="mt-4 flex items-center gap-2 pt-4 border-t border-border-subtle"
-            title={context.assets?.filter(a => a.display).map(a => a.display).join(', ')}
+            title={context.assets?.flatMap(a => a.display ? [a.display] : []).join(', ')}
           >
             {previews.map((preview, i) => (
               <span

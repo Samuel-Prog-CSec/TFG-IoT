@@ -40,11 +40,11 @@ const MEMORY_DIALOG = Object.freeze({
     'Casi…',
     'Recuerda dónde está',
     '¡Tranqui!',
-    'La próxima'
+    '¡Siguiente!'
   ],
   // Balanceado a 3 frases (T-953 Fase 2.4): antes solo había 2,
   // saturando el loop visual cuando el alumno se quedaba en blanco.
-  timeout: ['¡Inténtalo!', 'Sigue mirando…', 'Tu turno, ánimo'],
+  timeout: ['¡Inténtalo!', 'Sigue mirando…', 'Tu turno, ¡ánimo!'],
   streakReached: ['¡MEMORIA TOP!', '¡Imparable!', '¡Cerebro al 100%!', '¡Eres un crack!'],
   // T-953 Fase 2.4 — eventos nuevos:
   // - `streakBroken`: cuando una racha >=3 se rompe; mascota `surprised`.
@@ -157,4 +157,3 @@ export function pickMascotMessage(mechanic, event, tier, seed) {
   return pool[random];
 }
 
-export default MASCOT_DIALOG;

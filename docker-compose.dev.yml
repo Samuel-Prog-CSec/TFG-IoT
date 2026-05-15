@@ -63,3 +63,18 @@ services:
     ports:
       - "5000:5000"
       - "9229:9229"  # Puerto de debug Node.js
+
+  # ============================================
+  # WORKER - Override dev stage para incluir pino-pretty
+  # ============================================
+  # En el stage `production` del Dockerfile se ejecuta `npm ci --only=production`
+  # → `pino-pretty` (dev dependency) NO se instala. Cuando el worker arranca con
+  # NODE_ENV=development, `utils/logger.js` intenta cargar el transport
+  # `pino-pretty` y falla en bucle. En dev forzamos `target: development` que sí
+  # instala las devDependencies.
+  worker:
+    build:
+      context: ./backend
+      target: development
+    environment:
+      - NODE_ENV=development

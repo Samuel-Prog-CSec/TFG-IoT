@@ -498,7 +498,7 @@ function SpotlightStep({ step, currentStep, totalSteps, isFirstStep, isLastStep,
                   <step.icon size={20} strokeWidth={1.75} />
                 </div>
               )}
-              <h3 className="text-base font-bold text-text-primary font-display leading-tight">
+              <h3 className="text-base font-semibold text-text-primary font-display leading-tight">
                 {step.title}
               </h3>
             </div>

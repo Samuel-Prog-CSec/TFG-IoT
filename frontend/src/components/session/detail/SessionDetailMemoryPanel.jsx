@@ -27,7 +27,7 @@ function SessionDetailMemoryPanel({ session }) {
     [session]
   );
   const sortedSlots = useMemo(
-    () => [...boardLayout].sort((a, b) => Number(a.slotIndex) - Number(b.slotIndex)),
+    () => boardLayout.toSorted((a, b) => Number(a.slotIndex) - Number(b.slotIndex)),
     [boardLayout]
   );
 

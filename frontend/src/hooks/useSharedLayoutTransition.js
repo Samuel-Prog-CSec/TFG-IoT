@@ -41,4 +41,3 @@ export function sharedLayoutId(kind, id) {
   return `${kind}-${id}`;
 }
 
-export default useSharedLayoutTransition;

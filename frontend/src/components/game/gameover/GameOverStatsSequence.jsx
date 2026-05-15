@@ -97,7 +97,7 @@ function GameOverStatsSequence({ summary }) {
       <div className="grid grid-cols-3 gap-2">
         <MetricPill
           tone="neutral"
-          label="Casi lo logra"
+          label="Incompletas"
           value={partialRounds}
           tooltip="Rondas con al menos un acierto pero sin completar la secuencia"
         />

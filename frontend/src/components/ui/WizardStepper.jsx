@@ -256,8 +256,8 @@ const WizardStepper = memo(function WizardStepper({
   }, [isLastStep]);
 
   // Calcular progreso
-  const totalSteps = useMemo(() => Math.max(steps.length - 1, 1), [steps.length]);
-  const progress = useMemo(() => (currentStep / totalSteps) * 100, [currentStep, totalSteps]);
+  const totalSteps = Math.max(steps.length - 1, 1);
+  const progress = (currentStep / totalSteps) * 100;
 
   // Cada item ocupa una fracción igual del contenedor (`grid` en lugar de
   // `flex justify-between`). Eso garantiza que los centros de los círculos

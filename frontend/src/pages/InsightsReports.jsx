@@ -4,6 +4,7 @@ import {
   AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend,
 } from 'recharts';
 import {
+  Activity,
   BarChart3,
   Bell,
   FileText,
@@ -128,7 +129,7 @@ function LearningCurvesSection({ data, loading }) {
           <div className="p-2 rounded-lg bg-brand-base/10">
             <TrendingUp size={20} className="text-brand-base" aria-hidden="true" />
           </div>
-          <h3 className="text-base font-bold text-text-primary font-display">
+          <h3 className="text-base font-semibold text-text-primary font-display">
             Curvas de Aprendizaje
           </h3>
         </div>
@@ -148,7 +149,7 @@ function LearningCurvesSection({ data, loading }) {
           <TrendingUp size={20} className="text-brand-base" aria-hidden="true" />
         </div>
         <div>
-          <h3 className="text-base font-bold text-text-primary font-display">
+          <h3 className="text-base font-semibold text-text-primary font-display">
             Curvas de Aprendizaje
           </h3>
           <p className="text-xs text-text-muted mt-0.5">
@@ -424,21 +425,29 @@ export default function InsightsReports() {
       aria-label="Insights y Reportes"
     >
       <ChartErrorBoundary>
-      {/* Header */}
+      {/* Header — eyebrow + título con icono signature aligned con resto de
+          páginas analíticas (Dashboard, StudentsAnalytics). El icono Activity
+          en gradient brand→indigo aporta firma sin ruido. */}
       <header className="flex flex-col sm:flex-row sm:items-end sm:justify-between gap-4 pt-14 lg:pt-0">
-        <div>
-          <h1 className="text-2xl sm:text-3xl font-bold text-text-primary font-display">
-            Insights y Reportes
-          </h1>
-          <p className="text-text-muted mt-1 text-sm">
-            Análisis profundo de efectividad, alertas inteligentes e informes
-          </p>
+        <div className="flex items-start gap-4">
+          <div className="flex size-12 items-center justify-center rounded-xl bg-gradient-to-br from-brand-base to-accent-indigo text-white shadow-lg shadow-brand-base/20 mt-1">
+            <Activity size={24} aria-hidden="true" />
+          </div>
+          <div>
+            <p className="text-[11px] uppercase tracking-[0.18em] text-brand-base font-bold mb-0.5">Insights</p>
+            <h1 className="text-2xl sm:text-3xl font-bold text-text-primary font-display leading-tight">
+              Análisis e informes
+            </h1>
+            <p className="text-text-muted mt-1 text-sm max-w-2xl">
+              Detecta patrones, identifica alertas tempranas y genera informes detallados sobre el progreso del aula.
+            </p>
+          </div>
         </div>
         <SelectPremium
           value={timeRange}
           onChange={setTimeRange}
           options={TIME_RANGE_OPTIONS}
-          className="w-48"
+          className="w-full sm:w-48"
         />
       </header>
 
@@ -481,7 +490,10 @@ export default function InsightsReports() {
               <span>{tab.label}</span>
               {showBadge && (
                 <span className={cn(
-                  'ml-1 px-1.5 py-0.5 text-[10px] font-bold rounded-full tabular-nums',
+                  // min-w-[1.25rem] + text-center fija el ancho del badge
+                  // para evitar layout shift cuando el conteo pasa de 1 a 2
+                  // o más dígitos durante re-renders.
+                  'ml-1 inline-flex items-center justify-center min-w-[1.25rem] px-1.5 py-0.5 text-[10px] font-bold rounded-full tabular-nums',
                   isActive
                     ? 'bg-brand-base/20 text-brand-base'
                     : 'bg-error-base/20 text-error-base'
