@@ -7860,3 +7860,195 @@ docker compose logs backend | tail -30
 - **`server_shutdown` emit puede fallar** si Redis adapter cae primero (sockets distribuidos). Mitigado con try/catch — la emit es best-effort.
 - **Jobs BullMQ >25s** se interrumpen forzosamente. BullMQ los marca como `stalled` y reintentará en el nuevo proceso tras el lock TTL (30s default). Para el job de retención RGPD (~5s en cluster pequeño) no es un problema; si emergen jobs largos en el futuro, ampliar `SHUTDOWN_TIMEOUT_MS` con conocimiento del límite de Koyeb.
 
+## ADR-143: CD pipeline — staging on push + production on tag con approval gate [DevOps]
+
+**Fecha:** 2026-05-16
+**Estado:** Aceptado
+**Tarea:** T-903 (Sprint 6)
+
+### Contexto
+
+Hasta ahora el repo tenía un único workflow CI (`build.yml`) que ejecuta lint, audit, tests, build y SonarCloud, pero **no desplegaba nada**. Cada release requería entrar manualmente al dashboard de Koyeb y darle a "Redeploy". Para v1.0.0 y en adelante necesitamos:
+
+1. **Staging predecible**: cualquier cambio mergado a `Maintenance` debe llegar a `api-staging` sin intervención humana, condicionado a que el CI esté verde.
+2. **Producción segura**: el deploy a prod sólo debe ocurrir cuando alguien con autoridad lo apruebe explícitamente, y debe haber un paso atrás trivial si algo va mal.
+3. **Trazabilidad**: cada deploy debe quedar registrado (qué tag, qué commit, qué reviewer aprobó, qué resultado del smoke test).
+4. **Sin Dockerfiles**: Koyeb usa Nixpacks para detectar Node 24 y armar el container; no queremos mantener Dockerfile.prod en paralelo al Dockerfile dev del repo.
+
+### Decisión
+
+**Tres workflows nuevos** (todos en `.github/workflows/`), encadenados:
+
+```
+push a Maintenance
+    │
+    ▼
+build.yml (CI)  ── lint, audit, tests, build, SonarCloud
+    │ verde
+    ▼
+deploy-staging.yml (workflow_run trigger)
+    │
+    ▼
+redeploy api-staging + worker-staging  (paralelo)
+    │
+    ▼
+smoke test /health/ready × 8 (cada 15s)
+    │
+    └── ≥3 verdes → ✅
+    └── <3 verdes → koyeb services rollback
+
+
+push de tag v*
+    │
+    ▼
+deploy-production.yml
+    │
+    ├─ validate-tag (semver regex)
+    │
+    ▼
+environment: production  (approval gate manual)
+    │
+    ▼
+redeploy api-prod + worker-prod  (paralelo)
+    │
+    ▼
+smoke test /health/ready × 8 (cada 15s)
+    │
+    └── <5 fallos → ✅ + gh release create/edit
+    └── ≥5 fallos → koyeb services rollback (ADR-144)
+```
+
+### Detalles técnicos
+
+- **Trigger staging** vía `workflow_run` para encadenar después del CI: `if: github.event.workflow_run.conclusion == 'success' && head_branch == 'Maintenance'`. Esto evita disparar deploys cuando los tests rompen.
+- **Trigger producción** vía push de tag `v*`. Ningún path-filter — los tags se reactionan siempre. `workflow_dispatch` también está disponible para deploys manuales fuera de banda.
+- **Approval gate**: GitHub Environments `production` con required reviewers. Configuración manual en repo Settings → Environments. Pendiente: configurar "Deployment branches" → tag pattern `v*` para que sólo se pueda usar este environment con un tag semver.
+- **Sin secret duplicado**: KOYEB_API_TOKEN es el mismo para los tres workflows; los nombres de servicio van por secrets separados (`KOYEB_API_STAGING_NAME`, `KOYEB_API_PROD_NAME`, ...) para poder renombrar sin tocar workflows.
+- **Concurrency**: staging tiene `cancel-in-progress: true` (un deploy nuevo cancela el anterior — tienen los últimos cambios); producción tiene `cancel-in-progress: false` (deploys de prod son FIFO).
+
+### Justificación frente a alternativas
+
+- **Koyeb Auto-deploy** (activable en cada servicio desde el dashboard): redeploya en cada push sin pasar por CI. **Descartado** — queremos garantizar que un fallo de tests bloquea el deploy.
+- **Single workflow** que detecta tag vs push y ramifica: **descartado** por complejidad — tres workflows separados son más legibles y tienen permisos mínimos cada uno.
+- **`koyeb-community/koyeb-actions@v1`**: action de terceros. **Descartado** por dependencia externa; usar la CLI oficial vía install script da más control y depende sólo de Koyeb.
+
+### Verificación
+
+- Push a `Maintenance` con tests verdes → `deploy-staging.yml` corre → `curl https://api-staging-<org>.koyeb.app/health/ready` devuelve 200.
+- `git tag v1.0.0 && git push --tags` → `deploy-production.yml` espera approval → tras approval, redeploy + smoke test OK.
+
+## ADR-144: Auto-rollback en cloud por smoke test post-deploy [DevOps]
+
+**Fecha:** 2026-05-16
+**Estado:** Aceptado
+**Tarea:** T-903 (Sprint 6)
+
+### Contexto
+
+Aunque ADR-141 separó `/health/ready` y el CD pipeline (ADR-143) hace un smoke test tras cada deploy, hace falta una regla clara para decidir **cuándo el deploy es lo bastante malo como para revertirlo automáticamente** en lugar de dejar al operador depurar.
+
+Criterios deseados:
+- **No revertir por blip**. Un 503 puntual durante el reroute del load balancer (1-2 intentos) es normal.
+- **Revertir si la nueva versión está claramente rota**. Una mayoría sostenida de 503 indica que el container arrancó mal (env var faltante, breaking change en Mongo, etc.) y reiniciar a la versión anterior es la mejor primera acción.
+- **No revertir por timeout del runner**. Si GitHub Actions queda colgado en `curl`, la fall-safe debe ser "no hacer nada" (volver a la versión anterior es seguro, sí, pero requiere certeza de que la nueva versión es la causa).
+
+### Decisión
+
+**Polling 8 × 15 segundos** tras el redeploy, contando 200s vs no-200s, con dos umbrales asimétricos según el entorno:
+
+| Entorno | Considerar éxito | Considerar fallo (rollback) |
+|---|---|---|
+| **staging** (`deploy-staging.yml`) | ≥3 de 8 intentos `200` | <3 de 8 intentos verdes |
+| **producción** (`deploy-production.yml`) | ≥4 de 8 intentos verdes | ≥5 de 8 fallos (no-200) |
+
+**Por qué umbrales diferentes:**
+- En staging toleramos un poco más de fragilidad — es donde queremos detectar problemas antes de producción y el coste de un rollback es bajo.
+- En producción, la regla "≥5/8 fallos" es más conservadora: requiere mayoría clara de fallos, no sólo "no la mayoría de éxitos". Esto evita rollback por una caída transitoria de Atlas durante el deploy.
+
+**Mecánica del rollback** (script Bash en el workflow):
+
+```bash
+if [ "$FAIL" -ge 5 ]; then
+  echo "::error::Smoke test fallido — rollback"
+  exit 1   # marca el step como failed → dispara el step "Auto-rollback"
+fi
+```
+
+```yaml
+- name: Auto-rollback si smoke test falla
+  if: failure() && steps.smoke.outcome == 'failure'
+  run: |
+    koyeb services rollback "$API_NAME" --token "$KOYEB_TOKEN" || true
+    koyeb services rollback "$WORKER_NAME" --token "$KOYEB_TOKEN" || true
+```
+
+Koyeb mantiene las últimas 5 revisiones por servicio gratis; `koyeb services rollback` apunta a la anterior sin pedir más confirmación.
+
+### Riesgos asumidos
+
+- **Falso negativo (rollback de un deploy bueno por blip largo)**: si Atlas tiene una caída de 2 minutos coincidiendo con el deploy, el smoke test verá 8/8 fallos y revertirá. Mitigación: tras el rollback, el operador puede re-deploy manual con `workflow_dispatch` cuando Atlas vuelva.
+- **Falso positivo (no rollback de un deploy malo intermitente)**: si la nueva versión tiene un 50% de error rate, smoke verá ~4/8 fallos y no revertirá. Mitigación: las alertas de Sentry capturarán el error rate y dispararán notificación; el operador puede hacer rollback manual desde el dashboard de Koyeb.
+- **`koyeb services rollback` sin "última estable"**: si las 5 últimas revisiones están todas rotas, el rollback rebota a una versión también rota. Mitigación: el dashboard de Koyeb permite "Deploy from commit SHA" para casos extremos.
+
+### Verificación
+
+Tras una sesión de validación E2E (T-902 completada), introducir intencionalmente un breaking change que falle el smoke test (ej. setear `MONGO_URI` inválido en el servicio Koyeb) y verificar que:
+1. `deploy-staging.yml` detecta los 503.
+2. El step "Auto-rollback" se ejecuta.
+3. La revisión activa vuelve a la anterior.
+4. `curl /health/ready` vuelve a 200.
+
+## ADR-145: release-please con manifest 1.0.0 + Conventional Commits para versionado [DevOps]
+
+**Fecha:** 2026-05-16
+**Estado:** Aceptado
+**Tarea:** T-903 (Sprint 6)
+
+### Contexto
+
+El proyecto ha versionado a mano hasta ahora (`backend/package.json` y `frontend/package.json` con 0.5.1 sincronizado manualmente, sin tags semver en el repo). Para v1.0.0 y la fase de mantenimiento posterior necesitamos:
+
+- **Bump automático** según el tipo de commits desde el último tag (Conventional Commits → semver).
+- **CHANGELOG generado** sin escribirlo a mano cada release.
+- **Tags vX.Y.Z** consistentes para que `deploy-production.yml` se pueda atar al evento de tag.
+- **No introducir herramientas adicionales en local** — el contributor sigue trabajando con `git commit` y nada más; toda la magia ocurre en CI.
+
+### Decisión
+
+**`googleapis/release-please-action@v4`** como bot que mantiene un PR "chore: release vX.Y.Z" abierto contra `main`:
+
+1. Cada push a `main` re-evalúa el PR. Si hay commits nuevos desde el último release, actualiza:
+   - `CHANGELOG.md` (entry nueva con sección agrupada por tipo de commit).
+   - `package.json`, `backend/package.json`, `frontend/package.json` (campo `version`).
+   - `.release-please-manifest.json` (la versión actual canónica).
+2. Cuando el PR se mergea, release-please **crea el tag `vX.Y.Z` automáticamente**, que dispara `deploy-production.yml`.
+
+**Configuración**:
+
+- `release-please-config.json`: `release-type: simple` (monorepo sincronizado, no per-package). `include-v-in-tag: true` para tags `v1.0.0` que coincidan con el trigger del workflow de producción. `extra-files` para que el bump propague a `backend/` y `frontend/`.
+- `.release-please-manifest.json`: `{ ".": "1.0.0" }` para forzar que el **primer release sea v1.0.0** directamente (no v0.5.2 incremental sobre la versión actual). Cuando este PR se mergee, marcará el "fin de pre-release" y el inicio de la línea de releases oficiales.
+- `changelog-sections`: ocultar `test`, `ci`, `build`, `style` en el CHANGELOG (ruido para el usuario final); el resto sí aparece.
+
+**Token**: usa `GITHUB_TOKEN` por defecto. Si en el futuro queremos que el tag creado por release-please dispare `deploy-production.yml` reactivamente (hoy no lo hace porque GITHUB_TOKEN no dispara workflows reactivos por seguridad), reemplazar por `RELEASE_PLEASE_TOKEN` con un PAT que tenga `contents:write`.
+
+### Estrategia frente a alternativas
+
+- **`semantic-release`**: más feature-rich (publica a npm, Docker Hub, etc.) pero overkill para nuestro caso. release-please es más ligero y específico para repos GitHub-only.
+- **Versionado manual**: descartado — propenso a olvidos y a divergencia entre `backend/package.json` y `frontend/package.json`.
+- **`commit-and-tag-version`** (npm script local): obliga al contributor a correr el script antes de pushear, lo que tiende a olvidarse. release-please mueve la responsabilidad al CI.
+
+### Verificación
+
+Tras el merge de esta PR a `main`:
+1. `release-please.yml` corre.
+2. Abre un PR "chore: release v1.0.0" con CHANGELOG retroactivo (todos los commits del repo).
+3. Editar manualmente el CHANGELOG para resumir los sprints previos en una sección "Pre-release history" (parte de T-909).
+4. Aprobar y mergear el PR.
+5. Tag `v1.0.0` aparece en el repo → dispara `deploy-production.yml` → approval gate → deploy.
+
+### Riesgos asumidos
+
+- **Primer CHANGELOG ruidoso**: todo el historial del repo aparece. Mitigación: edición manual antes del merge (T-909).
+- **Conflicts del PR de release con cambios concurrentes**: si se mergan features mientras el PR de release está abierto, release-please rebase-eará el PR. Si hay conflictos en `CHANGELOG.md`, hay que resolver a mano (raro).
+- **Commits sin Conventional Commit format** son ignorados en el bump (no aparecen en CHANGELOG, no bump-ean). El commitlint del repo ya bloquea estos en pre-commit hook.
+

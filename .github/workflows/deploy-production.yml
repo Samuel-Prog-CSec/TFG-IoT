@@ -1,0 +1,163 @@
+name: Deploy Production
+
+# Dispara el redeploy de api-prod + worker-prod en Koyeb cuando se publica
+# un tag con formato semver `v*` (`v1.0.0`, `v1.0.1`, etc.). El environment
+# `production` añade un approval gate manual: alguien con permiso debe
+# aprobar el deploy desde la UI de GitHub antes de que continúe.
+#
+# Auto-rollback: si /health/ready devuelve 503 en al menos 5 de 8 intentos
+# tras el redeploy, ejecuta `koyeb services rollback` para volver a la
+# revisión anterior.
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Tag a desplegar (ej. v1.0.0)"
+        required: true
+        type: string
+
+permissions:
+  contents: write
+  actions: read
+
+concurrency:
+  # Sin cancel-in-progress: un deploy a prod no se cancela por uno nuevo
+  # — si llegan dos tags seguidos, se procesan en orden FIFO.
+  group: deploy-production
+  cancel-in-progress: false
+
+jobs:
+  validate-tag:
+    name: Validar tag semver
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+
+    outputs:
+      version: ${{ steps.parse.outputs.version }}
+
+    steps:
+      - name: Parsear y validar tag
+        id: parse
+        run: |
+          TAG="${{ github.event.inputs.tag || github.ref_name }}"
+          if ! echo "$TAG" | grep -qE '^v[0-9]+\.[0-9]+\.[0-9]+(-[a-zA-Z0-9.-]+)?$'; then
+            echo "::error::Tag '$TAG' no cumple semver vMAJOR.MINOR.PATCH(-prerelease)"
+            exit 1
+          fi
+          VERSION="${TAG#v}"
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "Tag válido: $TAG (versión: $VERSION)"
+
+  deploy:
+    name: Redeploy a Koyeb (production)
+    needs: validate-tag
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    # Environment con approval gate. Configurar required reviewers
+    # en repo Settings → Environments → production.
+    environment:
+      name: production
+      url: ${{ secrets.KOYEB_PROD_URL }}
+
+    steps:
+      - name: Verificar secrets requeridos
+        env:
+          KOYEB_API_TOKEN: ${{ secrets.KOYEB_API_TOKEN }}
+          KOYEB_API_PROD_NAME: ${{ secrets.KOYEB_API_PROD_NAME }}
+          KOYEB_WORKER_PROD_NAME: ${{ secrets.KOYEB_WORKER_PROD_NAME }}
+          KOYEB_PROD_URL: ${{ secrets.KOYEB_PROD_URL }}
+        run: |
+          set -e
+          for var in KOYEB_API_TOKEN KOYEB_API_PROD_NAME KOYEB_WORKER_PROD_NAME KOYEB_PROD_URL; do
+            if [ -z "${!var}" ]; then
+              echo "::error::Secret $var no está configurado"
+              exit 1
+            fi
+          done
+
+      - name: Instalar Koyeb CLI
+        run: |
+          curl -fsSL https://raw.githubusercontent.com/koyeb/koyeb-cli/master/install.sh | sh
+          echo "$HOME/.koyeb/bin" >> "$GITHUB_PATH"
+
+      - name: Redeploy api-prod + worker-prod (paralelo)
+        env:
+          KOYEB_TOKEN: ${{ secrets.KOYEB_API_TOKEN }}
+        run: |
+          set -e
+          API_NAME="${{ secrets.KOYEB_API_PROD_NAME }}"
+          WORKER_NAME="${{ secrets.KOYEB_WORKER_PROD_NAME }}"
+          koyeb services redeploy "$API_NAME" --token "$KOYEB_TOKEN" &
+          koyeb services redeploy "$WORKER_NAME" --token "$KOYEB_TOKEN" &
+          wait
+          echo "Redeploy disparado para $API_NAME y $WORKER_NAME"
+
+      - name: Smoke test /health/ready (8 intentos × 15s)
+        id: smoke
+        env:
+          PROD_URL: ${{ secrets.KOYEB_PROD_URL }}
+        run: |
+          set +e
+          OK=0
+          FAIL=0
+          for i in $(seq 1 8); do
+            sleep 15
+            HTTP_CODE=$(curl -sS -o /tmp/health.json -w "%{http_code}" "${PROD_URL}/health/ready" || echo "000")
+            echo "Intento $i: HTTP $HTTP_CODE"
+            if [ "$HTTP_CODE" = "200" ]; then
+              OK=$((OK + 1))
+            else
+              FAIL=$((FAIL + 1))
+            fi
+          done
+          echo "ok_count=$OK" >> "$GITHUB_OUTPUT"
+          echo "fail_count=$FAIL" >> "$GITHUB_OUTPUT"
+          # Criterio de rollback: 5 o más fallos de 8 = deploy roto.
+          if [ "$FAIL" -ge 5 ]; then
+            echo "::error::Smoke test fallido: $FAIL/8 intentos devolvieron != 200 → rollback"
+            exit 1
+          fi
+          echo "Smoke test OK: $OK/8 intentos verdes"
+
+      - name: Auto-rollback si smoke test falla
+        if: failure() && steps.smoke.outcome == 'failure'
+        env:
+          KOYEB_TOKEN: ${{ secrets.KOYEB_API_TOKEN }}
+        run: |
+          set +e
+          API_NAME="${{ secrets.KOYEB_API_PROD_NAME }}"
+          WORKER_NAME="${{ secrets.KOYEB_WORKER_PROD_NAME }}"
+          echo "::warning::Disparando rollback automático en $API_NAME y $WORKER_NAME"
+          koyeb services rollback "$API_NAME" --token "$KOYEB_TOKEN" || true
+          koyeb services rollback "$WORKER_NAME" --token "$KOYEB_TOKEN" || true
+
+      - name: Crear GitHub Release
+        if: success()
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          TAG="${{ github.event.inputs.tag || github.ref_name }}"
+          # Si la release ya existe (creada por release-please), no fallamos
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            echo "Release $TAG ya existe — actualizando con notas de despliegue"
+            gh release edit "$TAG" --notes-append $'\n\n**Desplegado a producción:** '$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+          else
+            gh release create "$TAG" --title "$TAG" --generate-notes
+          fi
+
+      - name: Resumen del despliegue
+        if: always()
+        run: |
+          {
+            echo "## Deploy a producción"
+            echo "- Tag: ${{ github.event.inputs.tag || github.ref_name }}"
+            echo "- Versión: ${{ needs.validate-tag.outputs.version }}"
+            echo "- API: ${{ secrets.KOYEB_API_PROD_NAME }}"
+            echo "- Worker: ${{ secrets.KOYEB_WORKER_PROD_NAME }}"
+            echo "- /health/ready 200 hits: ${{ steps.smoke.outputs.ok_count }}/8"
+            echo "- /health/ready fallos: ${{ steps.smoke.outputs.fail_count }}/8"
+            echo "- Outcome smoke test: ${{ steps.smoke.outcome }}"
+          } >> "$GITHUB_STEP_SUMMARY"
