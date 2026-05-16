@@ -20,6 +20,8 @@ const router = express.Router();
 const { authenticate, requireRole } = require('../middlewares/auth');
 const {
   healthCheck,
+  livenessCheck,
+  readinessCheck,
   getMetrics,
   getSystemMetrics,
   getApiInfo
@@ -27,6 +29,25 @@ const {
 const { validateQuery } = require('../middlewares/validation');
 const { emptyObjectSchema } = require('../validators/commonValidator');
 const asyncHandler = require('../utils/asyncHandler');
+
+/**
+ * @route   GET /api/health/live
+ * @desc    Liveness probe — proceso vivo, 200 sin tocar dependencias
+ * @access  Public
+ * @validation query: emptyObjectSchema
+ *
+ * NOTA: la ruta /health/live se registra ANTES que /health para que Express
+ * no intente matchear /health/* contra la handler de /health.
+ */
+router.get('/health/live', validateQuery(emptyObjectSchema), livenessCheck);
+
+/**
+ * @route   GET /api/health/ready
+ * @desc    Readiness probe — listo para tráfico (Mongo + Redis + no shutdown)
+ * @access  Public
+ * @validation query: emptyObjectSchema
+ */
+router.get('/health/ready', validateQuery(emptyObjectSchema), readinessCheck);
 
 /**
  * @route   GET /api/health

@@ -44,9 +44,15 @@ const { securityPayloadGuard } = require('./middlewares/securityPayloadGuard');
 const runtimeMetrics = require('./utils/runtimeMetrics');
 const { validateQuery } = require('./middlewares/validation');
 const { emptyObjectSchema } = require('./validators/commonValidator');
-const { healthCheck, getApiInfo } = require('./controllers/healthController');
+const {
+  healthCheck,
+  livenessCheck,
+  readinessCheck,
+  getApiInfo
+} = require('./controllers/healthController');
 const asyncHandler = require('./utils/asyncHandler');
 const { registerSocketHandlers, registerRfidHandlers, stopCacheCleanup } = require('./realtime');
+const { setReady, setShuttingDown, getIsShuttingDown } = require('./utils/serverState');
 
 // Importar rutas
 const authRoutes = require('./routes/auth');
@@ -277,7 +283,11 @@ app.use('/api/notifications', notificationRoutes);
 // Rutas de salud, metricas e informacion del sistema
 app.use('/api', healthRoutes);
 
-// Alias /health sin prefijo /api (Docker, k8s, load balancers)
+// Aliases sin prefijo /api para load balancers (Koyeb, Docker, k8s, UptimeRobot).
+// /health/live se registra ANTES que /health para que la primera coincidencia
+// gane y no caiga al handler general de /health (que verifica dependencias).
+app.get('/health/live', validateQuery(emptyObjectSchema), livenessCheck);
+app.get('/health/ready', validateQuery(emptyObjectSchema), readinessCheck);
 app.get('/health', validateQuery(emptyObjectSchema), asyncHandler(healthCheck));
 
 // Endpoint raiz de la API
@@ -436,65 +446,136 @@ const startServer = async () => {
 
 /**
  * Manejador de señal SIGTERM para cierre controlado del servidor.
- * Cierra conexiones a BD, sensor RFID y servidor HTTP de forma ordenada.
+ *
+ * Secuencia (Koyeb manda SIGKILL a los 30s, terminamos en 25s):
+ *   1. Marcar isReady=false e isShuttingDown=true. El probe /health/ready
+ *      empieza a devolver 503 y Koyeb deja de enrutar conexiones nuevas.
+ *   2. Drenar 5s (DRAIN_BEFORE_CLOSE_MS) para que los clientes en flight
+ *      reciban respuesta antes de cerrar el listener.
+ *   3. Emitir `server_shutdown` por Socket.IO para que los clientes ya
+ *      conocidos planifiquen reconexión con backoff.
+ *   4. server.close() (deja de aceptar conexiones HTTP).
+ *   5. gameEngine.shutdown(), RFID stop, rfidModeSubscriber stop.
+ *   6. BullMQ queues close.
+ *   7. Mongoose disconnect + Redis disconnect.
+ *   8. Sentry flush (best-effort 2s).
+ *   9. process.exit(0).
+ *
+ * @param {string} signal - SIGTERM, SIGINT, uncaughtException, etc.
  */
+const DRAIN_BEFORE_CLOSE_MS = 5000;
+const SENTRY_FLUSH_MS = 2000;
+
 const gracefulShutdown = async signal => {
-  logger.info(`Recibido ${signal}, cerrando el servidor de manera controlada...`);
+  // Idempotente: si llegan SIGTERM y SIGINT seguidos, sólo procesa el primero.
+  if (getIsShuttingDown()) {
+    logger.info(`Recibido ${signal} pero ya estamos en shutdown — ignorando`);
+    return;
+  }
+  setShuttingDown(true);
+  setReady(false);
 
-  // 1. Detener el servidor HTTP (no acepta más conexiones)
-  server.close(async () => {
+  logger.info(`Recibido ${signal}, iniciando shutdown controlado...`);
+
+  // 1. Notificar a clientes Socket.IO antes de cerrar.
+  //    Emitimos a TODOS los namespaces — los clientes reciben `server_shutdown`
+  //    y planifican reconexión con backoff. Si la emisión falla (Redis adapter
+  //    caído, sockets ya descolgados) lo ignoramos: el cliente reconectará
+  //    igual cuando vea `disconnect`.
+  try {
+    io.emit('server_shutdown', { reason: signal, ts: Date.now() });
+    gameNsp.emit('server_shutdown', { reason: signal, ts: Date.now() });
+  } catch (notifyErr) {
+    logger.warn('shutdown: error notificando a Socket.IO', { error: notifyErr.message });
+  }
+
+  // 2. Drain — esperamos a que las requests in-flight terminen antes de cerrar.
+  await new Promise(resolve => setTimeout(resolve, DRAIN_BEFORE_CLOSE_MS));
+
+  // 3. Cerrar el listener HTTP (no acepta nuevas conexiones).
+  //    server.close() llama al callback cuando todas las conexiones existentes
+  //    se han cerrado naturalmente. No esperamos aquí — paralelo con el resto.
+  server.close(() => {
     logger.info('Servidor HTTP cerrado');
-
-    try {
-      socketRateLimiter.stopCleanupTimer();
-      stopCacheCleanup();
-
-      // 2. Detener el motor de juego y finalizar partidas activas
-      await gameEngine.shutdown();
-
-      // 3. Cerrar conexión RFID
-      rfidService.stop();
-
-      // 4a. Cerrar el subscriber pub/sub de RFID mode (si activo)
-      try {
-        const { stopRfidModeSubscriber } = require('./realtime/rfidModeSubscriber');
-        await stopRfidModeSubscriber();
-      } catch (subErr) {
-        logger.warn('rfidModeSubscriber: error al cerrar', { error: subErr.message });
-      }
-
-      // 4b. Cerrar las queues BullMQ (libera conexiones Redis dedicadas)
-      try {
-        const { closeAllQueues } = require('./queues');
-        await closeAllQueues();
-      } catch (qErr) {
-        logger.warn('queues: error al cerrar', { error: qErr.message });
-      }
-
-      // 4. Desconectar de Redis
-      await disconnectRedis();
-      logger.info('Redis desconectado');
-
-      // 5. Desconectar de la base de datos
-      await disconnectDB();
-
-      logger.info('Shutdown completo. Saliendo...');
-      process.exit(0);
-    } catch (error) {
-      logger.error(`Error durante shutdown: ${error.message}`);
-      process.exit(1);
-    }
   });
 
-  const shutdownTimeoutMs = Number.parseInt(process.env.SHUTDOWN_TIMEOUT_MS, 10) || 30000;
+  try {
+    socketRateLimiter.stopCleanupTimer();
+    stopCacheCleanup();
+
+    // 4. Detener el motor de juego (cancela timers y persiste estado).
+    await gameEngine.shutdown();
+
+    // 5. Cerrar conexión RFID local.
+    rfidService.stop();
+
+    // 6a. Cerrar el subscriber pub/sub de RFID mode (si activo).
+    try {
+      const { stopRfidModeSubscriber } = require('./realtime/rfidModeSubscriber');
+      await stopRfidModeSubscriber();
+    } catch (subErr) {
+      logger.warn('rfidModeSubscriber: error al cerrar', { error: subErr.message });
+    }
+
+    // 6b. Cerrar el server de Socket.IO. Espera a que los sockets cuelguen.
+    await new Promise(resolve => {
+      io.close(() => {
+        logger.info('Socket.IO cerrado');
+        resolve();
+      });
+    });
+
+    // 7. Cerrar las queues BullMQ (libera conexiones Redis dedicadas).
+    try {
+      const { closeAllQueues } = require('./queues');
+      await closeAllQueues();
+    } catch (qErr) {
+      logger.warn('queues: error al cerrar', { error: qErr.message });
+    }
+
+    // 8. Desconectar Redis.
+    await disconnectRedis();
+    logger.info('Redis desconectado');
+
+    // 9. Desconectar Mongo.
+    await disconnectDB();
+
+    // 10. Flush de Sentry — best effort 2s. Si tarda más, lo dejamos.
+    try {
+      const { Sentry } = require('./config/sentry');
+      await Sentry.flush(SENTRY_FLUSH_MS);
+    } catch (sentryErr) {
+      logger.warn('Sentry flush: error o timeout', { error: sentryErr.message });
+    }
+
+    logger.info('Shutdown completo. Saliendo...');
+    process.exit(0);
+  } catch (error) {
+    logger.error(`Error durante shutdown: ${error.message}`);
+    process.exit(1);
+  }
+};
+
+// Timeout duro: si gracefulShutdown no termina en 25s, forzamos exit(1).
+// Koyeb envía SIGKILL a los 30s; queremos terminar antes para que el log
+// `process.exit(1)` se persista y Sentry capture el shutdown abortado.
+const shutdownTimeoutMs = Number.parseInt(process.env.SHUTDOWN_TIMEOUT_MS, 10) || 25000;
+
+const installShutdownTimeout = signal => {
   setTimeout(() => {
-    logger.error(`Forzando shutdown tras timeout de ${shutdownTimeoutMs}ms`);
+    logger.error(`Forzando shutdown tras timeout de ${shutdownTimeoutMs}ms (signal=${signal})`);
     process.exit(1);
   }, shutdownTimeoutMs).unref();
 };
 
-process.on('SIGTERM', () => gracefulShutdown('SIGTERM'));
-process.on('SIGINT', () => gracefulShutdown('SIGINT')); // Ctrl+C
+process.on('SIGTERM', () => {
+  installShutdownTimeout('SIGTERM');
+  gracefulShutdown('SIGTERM');
+});
+process.on('SIGINT', () => {
+  installShutdownTimeout('SIGINT');
+  gracefulShutdown('SIGINT'); // Ctrl+C en dev
+});
 
 // ============================================================================
 // MANEJO DE ERRORES NO CAPTURADOS
@@ -529,6 +610,8 @@ process.on('uncaughtException', error => {
     tags: { source: 'uncaughtException' }
   });
   // Tras uncaughtException el estado del proceso es incierto — shutdown inmediato
+  // con timeout duro por si gracefulShutdown se cuelga.
+  installShutdownTimeout('uncaughtException');
   gracefulShutdown('uncaughtException');
 });
 

@@ -992,3 +992,47 @@ El sistema utiliza dos namespaces Socket.IO:
 **Frontend:** El `SocketService` gestiona dos conexiones multiplexadas sobre el mismo WebSocket. Métodos `on`/`emit` operan en el namespace default; `onGame`/`emitGame` operan en `/game`.
 
 **Backend:** El `GameEngine` recibe la referencia al namespace `/game` y emite gameplay events directamente. El `socketHandlers.js` registra handlers separados para cada namespace: el default maneja conexión/desconexión y RFID mode; `/game` maneja todos los comandos de juego con rate limiting.
+
+## Timeouts y reconexión cloud (ADR-141, ADR-142)
+
+### Configuración server
+
+`backend/src/server.js` (líneas 78-83) crea el Socket.IO server con:
+
+```js
+const io = new Server(server, {
+  pingTimeout: 60000,      // 60s sin pong → cliente considerado caído
+  pingInterval: 25000,     // 25s entre pings server → cliente
+  maxHttpBufferSize: socketPayloadLimits.globalBytes,
+  transports: ['websocket', 'polling'],
+  allowEIO3: false
+});
+```
+
+Estos valores son holgados a propósito: navegadores y proxies pueden tardar 5-10s en confirmar un pong cuando hay congestión de red. Bajar pingTimeout a 20s (como recomienda el plan original de cloud) desconecta a usuarios legítimos cuyo navegador estaba minimizado.
+
+### Configuración cliente
+
+`frontend/src/services/socket.js`:
+
+| Constante | Valor | Razón |
+|---|---|---|
+| `RECONNECTION_ATTEMPTS` | 15 | 15 intentos × 5s ≈ 75s de window de reconexión |
+| `RECONNECTION_DELAY` | 1000ms | primer reintento rápido tras desconexión normal |
+| `RECONNECTION_DELAY_MAX` | 5000ms | tope del backoff exponencial — bajado de 15s para cloud |
+| `CONNECTION_TIMEOUT` | 10000ms | timeout para la conexión inicial (cold start Koyeb) |
+
+### Evento `server_shutdown` (nuevo en ADR-142)
+
+Durante el graceful shutdown del backend, `server.js` emite `server_shutdown` a **ambos namespaces** (`/` y `/game`) ANTES de cerrar el server:
+
+```js
+io.emit('server_shutdown', { reason: signal, ts: Date.now() });
+gameNsp.emit('server_shutdown', { reason: signal, ts: Date.now() });
+```
+
+El frontend no lo escucha explícitamente (depende del manejo nativo de `disconnect` de Socket.IO), pero queda disponible para una mejora futura: los clientes podrían anticipar el deploy y mostrar "Conectando con nueva versión…" en lugar del genérico "Desconectado".
+
+### Idle timeout Koyeb
+
+Por defecto Koyeb cierra conexiones idle a los 60s. Para soportar partidas en pausa o pestañas en background, configurar `idle_timeout` en el servicio Koyeb a **120s o más** (settings → Networking).

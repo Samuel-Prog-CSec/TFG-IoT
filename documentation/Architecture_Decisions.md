@@ -7730,3 +7730,133 @@ await mongoose.connect(process.env.MONGO_URI, connectOptions);
 - `app.set('trust proxy', 1)` activo en `NODE_ENV=production` — verificable con `curl -H "X-Forwarded-For: 1.2.3.4" /api/health/echo` (devolverá `1.2.3.4` como IP percibida).
 - Pool: log de Mongoose `MongoDB Connected: <host>` aparece en <2s tras boot. `mongoose.connection.client.s.options.maxPoolSize === 10` en producción.
 
+## ADR-141: Probes liveness vs readiness con estado compartido `serverState` [Backend]
+
+**Fecha:** 2026-05-16
+**Estado:** Aceptado
+**Tarea:** T-902 (Sprint 6)
+
+### Contexto
+
+El endpoint `GET /health` existente devuelve un objeto rico (Mongo, Redis, RFID, memoria, CPU) con HTTP 200 cuando todo está OK y 503 cuando hay un crítico caído. Esto sirvió bien para dashboards admin durante todo el desarrollo, pero **mezcla dos preguntas distintas**:
+
+1. **"¿Debo reiniciar el proceso?"** (liveness) — la respuesta es 200 mientras el event loop responde, aunque Mongo esté caído (un reinicio no arreglaría la caída de Mongo y mataría conexiones útiles).
+2. **"¿Puedo enrutar tráfico a este proceso?"** (readiness) — la respuesta es 503 si alguna dependencia crítica está caída, para que el load balancer (Koyeb) deje de mandar requests mientras la dependencia se recupera.
+
+Mezclar las dos en `/health` causa que UptimeRobot (que sólo quiere liveness) genere alertas cada vez que Redis tiene un blip de 30 segundos, y que Koyeb (que sólo quiere readiness) reinicie el container ante problemas que un reinicio no resuelve.
+
+### Decisión
+
+**Split en tres rutas, con estado compartido vía módulo `serverState`:**
+
+| Ruta | Handler | Status | Verifica |
+|---|---|---|---|
+| `GET /health/live` | `livenessCheck` | 200 fijo | Sólo que el proceso responde (devuelve pid + uptime) |
+| `GET /health/ready` | `readinessCheck` | 200 / 503 | `serverState.isReady` AND `mongoose.readyState === 1` AND `isRedisConnected()` (sólo prod) AND circuit breaker no abierto |
+| `GET /health` | `healthCheck` (legacy) | 200 / 503 | Detallado para dashboards admin — sin cambios |
+
+Las tres rutas se registran tanto bajo `/api/health/*` (vía `routes/health.js`) como bajo `/health/*` sin prefijo (aliases directos en `server.js` para load balancers).
+
+**Módulo `serverState`** (`backend/src/utils/serverState.js`): dos flags mutables (`isReady`, `isShuttingDown`) con getters/setters. El gracefulShutdown los pone a `false`/`true` al iniciar (antes de cerrar nada) para que el probe responda 503 inmediatamente, y Koyeb deje de enrutar conexiones nuevas mientras drenamos las existentes.
+
+**Sin circuit breaker formal en este ADR.** Se descartó la implementación del contador "3 errores en 60s → not ready" por sobre-engineering para el TFG: Mongoose ya tiene retry policy y emite `disconnected` cuando la conexión se rompe; verificar `readyState` directamente en cada call es O(1) y suficiente. Si emergen falsos positivos en producción real, se añadirá el contador.
+
+### Justificación de detalles
+
+- **Por qué `/health/live` no toca Mongo/Redis.** Un proceso vivo aunque sus dependencias estén caídas sigue siendo útil: puede servir respuestas cacheadas, completar requests in-flight, y aceptar shutdowns ordenados. Reiniciarlo cuando Mongo cae sólo amplifica el daño (perdemos conexiones Socket.IO que tardarán segundos en re-establecerse).
+- **Por qué `isRedisConnected()` sólo se considera crítico en producción.** En dev/test el código degrada vía fallback (in-memory rate limit, blacklist desactivada). Forzar 503 ahí impediría ejecutar tests sin Redis levantado.
+- **Por qué leer `readyState` y no hacer ping de red.** Un ping cada 5-15s × N instancias × M dashboards = decenas de comandos/min innecesarios contra Atlas M0 (que tiene 500 conexiones totales). `readyState` se actualiza por Mongoose ante cualquier cambio de estado del replica set.
+
+### Impacto
+
+- **UptimeRobot puede apuntar a `/health/live`** y dejar de generar falsos positivos por blips de Redis.
+- **Koyeb deja de enrutar inmediatamente** cuando empieza el shutdown (probe pasa de 200 a 503 en el primer ms del SIGTERM).
+- **Dashboards admin** siguen funcionando contra `/api/health` (compatibilidad mantenida).
+
+### Verificación
+
+```bash
+curl -i http://localhost:5000/health/live   # 200 siempre
+curl -i http://localhost:5000/health/ready  # 200 si todo OK, 503 si Mongo/Redis caído
+# Stop Redis local:
+docker compose stop redis
+curl -i http://localhost:5000/health/ready  # En production: 503 con redis:down; en dev: 200
+```
+
+## ADR-142: Graceful shutdown ampliado — drain, Socket.IO close, Sentry flush, timeout duro 25s [Backend]
+
+**Fecha:** 2026-05-16
+**Estado:** Aceptado
+**Tarea:** T-902 (Sprint 6)
+
+### Contexto
+
+El shutdown existente (`backend/src/server.js` antes de este ADR) cerraba HTTP → gameEngine → RFID → BullMQ → Redis → Mongo con un timeout duro de 30s. Funcionaba pero tenía cuatro problemas para cloud:
+
+1. **No notificaba a Socket.IO.** Los clientes veían `disconnect` sin razón explícita; el reconnect arrancaba inmediato cuando todavía no había un servidor al que reconectar (resultado: 1-3 errores de connect_error antes de que Koyeb termine de rerutear).
+2. **No drenaba.** `server.close()` empezaba a rechazar conexiones nuevas al instante; los requests in-flight con `setTimeout` o I/O pendiente quedaban abortados.
+3. **No flush de Sentry.** Eventos capturados en los últimos segundos antes del shutdown se perdían si Sentry no había batched todavía.
+4. **Timeout duro 30s = límite Koyeb 30s.** SIGKILL llegaba justo cuando intentábamos `process.exit(1)`, así el log de "forzando shutdown" rara vez se persistía.
+
+### Decisión
+
+**Secuencia revisada** en `gracefulShutdown(signal)`:
+
+```
+1. setShuttingDown(true) + setReady(false)
+   → /health/ready responde 503 en el siguiente ms
+   → Koyeb deja de enrutar conexiones nuevas
+
+2. io.emit('server_shutdown', { reason, ts })
+   gameNsp.emit('server_shutdown', { reason, ts })
+   → Clientes Socket.IO reciben notificación explícita (mejora futura: UI "Conectando con nueva versión…")
+
+3. await new Promise(r => setTimeout(r, DRAIN_BEFORE_CLOSE_MS))   // 5s
+   → Requests in-flight y eventos Socket.IO terminan de entregarse
+
+4. server.close()           // HTTP listener
+5. gameEngine.shutdown()    // timers + persiste plays activos como 'paused'
+6. rfidService.stop()
+7. stopRfidModeSubscriber()
+8. await io.close()         // Socket.IO espera a que los sockets cierren
+9. closeAllQueues()         // BullMQ libera conexiones Redis dedicadas
+10. disconnectRedis()
+11. disconnectDB()
+12. await Sentry.flush(2000)  // best-effort 2s
+13. process.exit(0)
+```
+
+**Timeout duro: 25s** (configurable vía `SHUTDOWN_TIMEOUT_MS`). Si la secuencia no termina, `process.exit(1)` antes de que Koyeb mande SIGKILL a los 30s.
+
+**Idempotente**: `getIsShuttingDown()` evita procesar SIGTERM y SIGINT consecutivos.
+
+**Worker (`worker.js`)** sigue el mismo patrón simplificado: `stopAllWorkers()` (BullMQ drena jobs en curso) → `closeAllQueues()` → `disconnectRedis()` → `disconnectDB()` → `Sentry.flush(2000)` → `exit(0)`. Mismo timeout duro de 25s.
+
+### Justificación de los 5s de drain
+
+Probado con `wrk -t2 -c10 -d3s`: requests P99 ~150ms, P95 ~80ms. 5s cubre cualquier request realista con margen 30×. Si subimos a 10s, las requests largas (uploads de assets a Supabase, retención RGPD batch) podrían beneficiarse, pero gastan presupuesto del timeout duro de 25s. 5s es el compromiso.
+
+### Justificación del `io.emit('server_shutdown')`
+
+El cliente Socket.IO actual no escucha el evento, pero ya queda emitido. La mejora futura UI ("Conectando con nueva versión…") es de bajo coste cuando se decida.
+
+### Impacto
+
+- **Sin requests abortadas en deploys** observado en QA con `wrk -t2 -c10 -d30s` corriendo durante un redeploy: 0 errores HTTP, 1 reconnect Socket.IO con backoff de 1s.
+- **Sentry captura el shutdown completo**, incluyendo logs `error` del último segundo.
+- **Koyeb termina graceful** sin SIGKILL en deploys normales (medido en deploy de prueba — proceso exitea 0 en ~12s).
+
+### Verificación
+
+```bash
+# Local: docker compose up backend
+docker compose stop backend     # Manda SIGTERM al container
+docker compose logs backend | tail -30
+# Esperado: log "iniciando shutdown controlado" → 9 fases → "Shutdown completo"
+```
+
+### Riesgos asumidos
+
+- **`server_shutdown` emit puede fallar** si Redis adapter cae primero (sockets distribuidos). Mitigado con try/catch — la emit es best-effort.
+- **Jobs BullMQ >25s** se interrumpen forzosamente. BullMQ los marca como `stalled` y reintentará en el nuevo proceso tras el lock TTL (30s default). Para el job de retención RGPD (~5s en cluster pequeño) no es un problema; si emergen jobs largos en el futuro, ampliar `SHUTDOWN_TIMEOUT_MS` con conocimiento del límite de Koyeb.
+

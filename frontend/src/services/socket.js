@@ -15,7 +15,9 @@ import { getAccessToken, AUTH_EVENTS } from './api';
 const SOCKET_URL = import.meta.env.VITE_SOCKET_URL || 'http://localhost:5000';
 const RECONNECTION_ATTEMPTS = 15;
 const RECONNECTION_DELAY = 1000;
-const RECONNECTION_DELAY_MAX = 15000;
+// Tope del backoff: bajado de 15s a 5s para reaccionar antes a redeploys cloud.
+// 15 intentos × 5s ≈ 1 minuto de window de reconexión, cubre rolling deploys Koyeb.
+const RECONNECTION_DELAY_MAX = 5000;
 const CONNECTION_TIMEOUT = 10000; // 10 segundos timeout para conexión inicial
 /**
  * Intervalo del heartbeat de modo RFID. El backend lo usa para refrescar

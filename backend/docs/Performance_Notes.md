@@ -370,3 +370,35 @@ Impacto medido tras despliegue: `rateLimitStoreFallbackCount == 0` en boot norma
 
 - `analyticsCacheCoverage.test.js`, `authCache.test.js`, `endPlayInvalidatesAnalyticsCache.test.js`, `gameEngineStartPlayIdempotency.test.js` (4 nuevos).
 - `runtimeMetrics.test.js` extendido con 3 nuevos casos para `redis.*`.
+
+## Pool Mongoose para Atlas M0 (ADR-140)
+
+En producción (`NODE_ENV=production`) se aplican opciones explícitas a `mongoose.connect()` tuneadas para el free tier compartido de Atlas M0:
+
+| Opción | Valor | Razón |
+|---|---|---|
+| `maxPoolSize` | 10 | 1 instancia api Eco free aforra ~200 RPS con 10 conexiones |
+| `minPoolSize` | 2 | mantiene 2 conexiones calientes — evita TLS handshake tras idle 10min |
+| `serverSelectionTimeoutMS` | 10s | tolera cold start de M0 sin tapar errores reales |
+| `socketTimeoutMS` | 45s | corta queries colgadas sin matar la conexión |
+| `heartbeatFrequencyMS` | 30s | detecta failover sin saturar Atlas con pings |
+| `retryReads` / `retryWrites` | true | requiere replica set (Atlas siempre lo tiene) |
+| `w` | `'majority'` | durabilidad fuerte — la escritura confirma cuando la mayoría del replica la tiene |
+
+En `development` y `test` se omiten — `mongodb-memory-server` y MongoDB local single-node pueden no soportar `w: 'majority'`.
+
+## Probes liveness vs readiness (ADR-141)
+
+Tres rutas:
+
+| Endpoint | Verifica | Status code | Audiencia |
+|---|---|---|---|
+| `GET /health/live` | Sólo que el proceso responde | 200 fijo | UptimeRobot, GCP/k8s liveness |
+| `GET /health/ready` | Mongoose readyState + Redis circuit breaker + flag `isReady` | 200 / 503 | Koyeb routing, k8s readiness |
+| `GET /health` (legacy) | Health detallado (Mongo + Redis + RFID + memoria + CPU) | 200 / 503 | Dashboards admin |
+
+El handler `readinessCheck` lee `serverState.getIsReady()` (flag que el shutdown pone a `false` al iniciar) y verifica vivamente `mongoose.connection.readyState === 1` + `isRedisConnected()` + circuit breaker no abierto. No hace ping de red — leer estado en memoria es O(1) y evita generar tráfico cada 5-15s.
+
+## Trust proxy detrás de Koyeb (ADR-140)
+
+`app.set('trust proxy', 1)` se activa cuando `NODE_ENV=production` o `TRUST_PROXY=true`. Sin esto, `req.ip` es la del proxy de Koyeb y los rate limiters bloquean a todos los clientes con una única IP. En desarrollo se omite a propósito: confiar en `X-Forwarded-For` sin proxy real abre la puerta a bypass.

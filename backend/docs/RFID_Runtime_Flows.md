@@ -336,3 +336,25 @@ Variable de entorno `ROUND_GRACE_PERIOD_MS` (default `150`).
 ### Frontend complementario
 
 `FallbackTouchPanel` muestra un overlay sutil "Procesando…" durante 200 ms tras cada tap del jugador para confirmar visualmente que el scan se ha registrado, evitando dobles taps por ansiedad.
+
+## Graceful shutdown e impacto en partidas RFID (ADR-142)
+
+Cuando Koyeb manda `SIGTERM` (rolling deploy, scale down, restart) el backend ejecuta una secuencia ordenada en `gracefulShutdown` (`backend/src/server.js`). Para partidas RFID en curso:
+
+1. **`isReady = false` inmediato** — `/health/ready` empieza a devolver 503 y Koyeb deja de enrutar conexiones nuevas a esta instancia. Los clientes ya conectados siguen.
+2. **`server_shutdown` emit por Socket.IO** — todos los sockets (default y `/game`) reciben el evento con razón y timestamp. El frontend lo recibe pero no lo trata explícitamente (TODO mejora futura: mostrar UI "Conectando con nueva versión…").
+3. **Drain de 5s** — Tiempo para que los requests HTTP en vuelo terminen y los eventos Socket.IO se entreguen.
+4. **`gameEngine.shutdown()`** — Cancela timers de ronda, persiste `GamePlay` con `status='paused'` para los plays activos (recovery posterior en el próximo boot).
+5. **`rfidService.stop()`** — Cierra la conexión Web Serial (en el navegador cliente esto se traduce en pérdida del puerto; el frontend abrirá un nuevo prompt al reconectar).
+6. **`rfidModeSubscriber` stop + BullMQ queues close**.
+7. **`io.close()`** — Espera a que todos los sockets cierren.
+8. **Mongo + Redis disconnect**.
+9. **Sentry flush 2s** — para no perder eventos del último minuto.
+
+Si la secuencia tarda más de 25s (`SHUTDOWN_TIMEOUT_MS`), un timeout duro fuerza `exit(1)` antes de que Koyeb envíe SIGKILL a los 30s.
+
+**Impacto observable para el jugador:**
+- Una partida activa pasa a `paused` automáticamente.
+- Tras el deploy (~30-60s en Koyeb), el frontend reconecta y emite `play_state_sync`.
+- `gameEngine.recoverActivePlays()` en el boot del nuevo proceso restaura los plays pausados.
+- El docente ve "Partida reanudada" sin pérdida de progreso (excepto el último scan in-flight).
