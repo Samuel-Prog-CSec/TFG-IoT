@@ -75,33 +75,60 @@ Tests: 1145/1145                      # prohibido
 ## Flujo de ramas
 
 ```
-main         ── rama protegida, estado de producción. Sólo recibe merges
-                desde PRs aprobados o desde el PR que abre release-please.
-                Un tag `v*` empujado a main dispara deploy-production.yml.
+main         ── Estado de producción. Sólo recibe merges desde el PR que abre
+                release-please con la promoción de Maintenance ya validada.
+                Un tag `v*` empujado dispara deploy-production.yml (con
+                approval gate manual).
 
-Maintenance  ── rama estable de mantenimiento (hotfixes, parches). Cada
-                push verde en CI dispara deploy-staging.yml para validar
-                en entorno staging antes de cherry-pick a main.
+Maintenance  ── Rama de validación pre-release. Aquí se hace QA, se aplican
+                fixes detectados al integrar y se pulen detalles. Cada push
+                verde en CI dispara deploy-staging.yml para validar el
+                comportamiento contra Koyeb + Atlas + Upstash reales.
+                Cuando está estable, se mergea a main para release.
 
-develop      ── rama de integración para features grandes. No despliega
-                automáticamente; se merge a Maintenance o a main vía PR
-                cuando una feature está lista.
+develop      ── Rama de integración. Recibe los PRs de las features y es
+                el origen para crear nuevas ramas de feature. No despliega.
+                Periódicamente se promueve a Maintenance para entrar en
+                ciclo de validación. Tras un release o hotfix, recibe el
+                back-merge desde main para mantenerse sincronizada.
 
-feature/*    ── ramas de feature (ej. `feature/cloud-foundation-and-cd`).
-                Se mergean a develop o directamente a main según alcance.
-                Si la variable `PREVIEW_DEPLOYS_ENABLED=true` está activa
-                en el repo, cada PR genera un preview backend en Koyeb.
+feature/*    ── Ramas de feature (ej. `feature/cloud-foundation-and-cd`).
+                Parten de `develop` y vuelven a `develop` vía PR. Si la
+                variable `PREVIEW_DEPLOYS_ENABLED=true` está activa, cada
+                PR genera un preview backend efímero en Koyeb.
+
+Testing      ── Rama auxiliar para desarrollar/refactorizar suites de tests.
+                No participa en CI/CD — los tests se ejecutan en local
+                durante el desarrollo y al mergear a develop el CI los
+                valida en bloque.
+```
+
+Resumen del ciclo end-to-end:
+
+```
+develop ──► feature/* ──PR──► develop ──► Maintenance ──► (staging deploy)
+                                                │
+                                                │ QA + fixes
+                                                │
+                                                └──► main ──tag v*──► (prod deploy con approval)
+                                                       │
+                                                       └──► develop (back-merge)
 ```
 
 ### Workflow recomendado para un cambio
 
-1. Sincroniza `main` localmente: `git checkout main && git pull`.
-2. Crea una rama de feature: `git checkout -b feature/<descripción-corta>`.
+1. Sincroniza `develop` localmente: `git checkout develop && git pull`.
+2. Crea una rama de feature desde `develop`: `git checkout -b feature/<descripción-corta>`.
 3. Implementa con commits frecuentes y mensajes conventional.
-4. Lanza tests y lint local: `npm test && npm run lint` en `backend/` y `frontend/`.
-5. Abre PR a `main` (cambios pequeños/aislados) o a `develop` (features grandes).
-6. CI verde + revisión + merge.
-7. release-please mantiene un PR "chore: release vX.Y.Z" con el CHANGELOG; cuando se mergea, crea el tag y dispara deploy-production.
+4. Lanza tests y lint en local: `npm test && npm run lint` en `backend/` y `frontend/`.
+5. Abre PR a `develop`. CI verde + (opcional) review + merge.
+6. Cuando `develop` acumula un bloque listo para validar, se promueve a `Maintenance` (PR develop → Maintenance, o merge directo si es un set pequeño y aislado).
+7. El push a `Maintenance` dispara `deploy-staging.yml` automáticamente — el código ya está corriendo en `api-staging.koyeb.app`. Aprovecha para QA en cloud real.
+8. Si durante la QA en `Maintenance` aparecen fixes, commit allí y vuelven a `develop` vía back-merge (PR o merge directo).
+9. Cuando `Maintenance` está estable, mergéala a `main` (PR Maintenance → main).
+10. `release-please` actualizará automáticamente su PR "chore: release vX.Y.Z" con el CHANGELOG generado desde los commits.
+11. Al mergear ese PR de release, se crea el tag `v*` que dispara `deploy-production.yml` → approval gate → producción.
+12. Si hay hotfixes en `main` que no estaban en `develop`, hacer back-merge `main → develop` para mantener las ramas sincronizadas.
 
 ---
 
@@ -243,7 +270,7 @@ Si abusas del `--no-verify`, el CI te lo recordará: lint + tests + CodeQL + git
 
 ## Referencias
 
-- **ADR-139..145** en [`documentation/Architecture_Decisions.md`](documentation/Architecture_Decisions.md): decisiones de stack cloud y CD.
+- **ADR-139..147** en [`documentation/Architecture_Decisions.md`](documentation/Architecture_Decisions.md): decisiones de stack cloud, CD, hardening CI y OpenAPI.
 - **[`documentation/Deploy_Koyeb.md`](documentation/Deploy_Koyeb.md)**: aprovisionamiento desde cero.
 - **[`documentation/Secrets_Rotation.md`](documentation/Secrets_Rotation.md)**: política rotación.
 - **Conventional Commits**: https://www.conventionalcommits.org/
