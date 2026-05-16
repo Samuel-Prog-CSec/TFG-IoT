@@ -236,7 +236,7 @@ const TABLE_COLUMNS = [
   { key: "averageScore", label: "Score", sortable: true },
   { key: "accuracyRate", label: "Tasa Acierto", sortable: true },
   { key: "avgResponseTime", label: "Tiempo Resp", sortable: true },
-  { key: "lastPlayedAt", label: "Ultima Actividad", sortable: true },
+  { key: "lastPlayedAt", label: "Última Actividad", sortable: true },
   { key: "tier", label: "Nivel", sortable: true },
 ];
 
@@ -486,7 +486,7 @@ export default function StudentsAnalytics() {
           key="content"
           {...motionVariants}
           className="page-container py-[var(--space-fluid-section)] space-y-8"
-          aria-label="Pagina de analisis de alumnos"
+          aria-label="Página de análisis de alumnos"
         >
           <ChartErrorBoundary>
             {/* ─── Header ─────────────────────────────────────────── */}
@@ -681,7 +681,7 @@ export default function StudentsAnalytics() {
                 animate={{ opacity: 1, y: 0 }}
                 transition={{ delay: shouldReduceMotion ? 0 : 0.25 }}
                 className="flex flex-col sm:flex-row gap-4"
-                aria-label="Filtros de busqueda"
+                aria-label="Filtros de búsqueda"
               >
                 {/* Search input */}
                 <div className="relative flex-1">
@@ -955,7 +955,7 @@ function EmptyState({ shouldReduceMotion }) {
         transition={{ delay: 0.1 }}
         className="text-text-primary text-lg font-semibold"
       >
-        Aun no tienes alumnos registrados
+        Aún no tienes alumnos registrados
       </motion.p>
       <motion.p
         initial={shouldReduceMotion ? false : { opacity: 0, y: 8 }}

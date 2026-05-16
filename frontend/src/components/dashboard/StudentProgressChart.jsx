@@ -48,7 +48,7 @@ export default function StudentProgressChart({ data, period = '7d', onPeriodChan
       <ChartSection title="Rendimiento de Clase (Tendencia)" period={period} onPeriodChange={sectionPeriodChange} periodOptions={PERIOD_OPTIONS}>
         <EmptyState
           title="Sin datos disponibles"
-          description="No hay datos de rendimiento para el periodo seleccionado."
+          description="No hay datos de rendimiento para el período seleccionado."
           className="shadow-none border-none bg-transparent"
         />
       </ChartSection>

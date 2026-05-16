@@ -570,7 +570,7 @@ function Header({
               onChange={(val) => setSelectedContextId(val)}
               options={contextOptions}
               className="w-full sm:w-52"
-              aria-label="Filtrar por contexto tematico"
+              aria-label="Filtrar por contexto temático"
             />
           )}
           {mechanicOptions.length > 1 && (
@@ -579,7 +579,7 @@ function Header({
               onChange={(val) => setSelectedMechanicId(val)}
               options={mechanicOptions}
               className="w-full sm:w-52"
-              aria-label="Filtrar por mecanica de juego"
+              aria-label="Filtrar por mecánica de juego"
             />
           )}
           <SelectPremium

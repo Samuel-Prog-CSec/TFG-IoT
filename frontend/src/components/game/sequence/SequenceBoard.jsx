@@ -259,12 +259,20 @@ function CardCellButton({ item, onCardTap, isInteractive, isFaceUp, reduceMotion
       />
     );
   }
+  // A11y: durante la fase de reproducción las cartas están boca abajo
+  // (isFaceUp=false) y NO debemos revelar `assignedValue` en el aria-label
+  // — equivaldría a hacer trampa a un alumno que use lector de pantalla.
+  // Sólo exponemos el valor cuando la carta está visible.
+  const positionLabel = `posición ${(item.index ?? 0) + 1}`;
+  const ariaLabel = isFaceUp
+    ? `Seleccionar carta: ${item.assignedValue || item.uid}`
+    : `Carta oculta en ${positionLabel}`;
   return (
     <button
       type="button"
       onClick={() => onCardTap?.(item)}
       className="block w-full focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-amber focus-visible:ring-offset-2 focus-visible:ring-offset-background-base rounded-xl"
-      aria-label={`Seleccionar carta: ${item.assignedValue || item.uid}`}
+      aria-label={ariaLabel}
     >
       <SequenceCard
         uid={item.uid}

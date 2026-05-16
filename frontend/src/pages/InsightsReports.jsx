@@ -135,7 +135,7 @@ function LearningCurvesSection({ data, loading }) {
         </div>
         <div className="h-[200px] flex items-center justify-center">
           <p className="text-sm text-text-muted text-center">
-            Se necesitan mas datos de partidas repetidas para generar las curvas de aprendizaje.
+            Se necesitan más datos de partidas repetidas para generar las curvas de aprendizaje.
           </p>
         </div>
       </GlassCard>
@@ -153,7 +153,7 @@ function LearningCurvesSection({ data, loading }) {
             Curvas de Aprendizaje
           </h3>
           <p className="text-xs text-text-muted mt-0.5">
-            Mejora del rendimiento con la repeticion
+            Mejora del rendimiento con la repetición
           </p>
         </div>
       </div>

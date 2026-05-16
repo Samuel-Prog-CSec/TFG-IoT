@@ -126,7 +126,7 @@ function PerformanceByDimension({ title, data, dimension = 'context' }) {
               dataKey="score"
               radius={[0, 6, 6, 0]}
               barSize={20}
-              aria-label={`Rendimiento por ${dimension === 'context' ? 'contexto' : 'mecanica'}`}
+              aria-label={`Rendimiento por ${dimension === 'context' ? 'contexto' : 'mecánica'}`}
               {...motion()}
             >
               {/* Cada celda usa pattern RAG (color + textura distintiva)

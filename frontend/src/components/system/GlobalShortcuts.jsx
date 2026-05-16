@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useState } from 'react';
+import { useMemo } from 'react';
 import { useTheme } from '../../context/ThemeContext';
 import {
   useShortcutRegistry,
@@ -31,10 +31,7 @@ import KeyboardShortcutsOverlay from '../ui/KeyboardShortcutsOverlay';
 export default function GlobalShortcuts() {
   const { toggleTheme } = useTheme();
   const registry = useShortcutRegistry();
-  const [shortcutsOpen, setShortcutsOpen] = useState(false);
-
-  const openShortcutsOverlay = useCallback(() => setShortcutsOpen(true), []);
-  const closeShortcutsOverlay = useCallback(() => setShortcutsOpen(false), []);
+  const { shortcutsOpen, openShortcuts, closeShortcuts } = registry;
 
   // Sección "Sistema": disponible en cualquier pantalla. El handler de
   // `Escape` se marca `allowInInput: true` para que cierre el overlay
@@ -53,18 +50,18 @@ export default function GlobalShortcuts() {
           {
             key: 'Shift+?',
             description: 'Mostrar atajos de teclado',
-            handler: openShortcutsOverlay,
+            handler: openShortcuts,
           },
           {
             key: 'Escape',
             description: 'Cerrar diálogos abiertos',
-            handler: closeShortcutsOverlay,
+            handler: closeShortcuts,
             allowInInput: true,
           },
         ],
       },
     ],
-    [toggleTheme, openShortcutsOverlay, closeShortcutsOverlay],
+    [toggleTheme, openShortcuts, closeShortcuts],
   );
 
   useRegisterShortcutSource('global', systemSections);
@@ -76,7 +73,7 @@ export default function GlobalShortcuts() {
   return (
     <KeyboardShortcutsOverlay
       isOpen={shortcutsOpen}
-      onClose={closeShortcutsOverlay}
+      onClose={closeShortcuts}
       sections={registry.sections}
     />
   );

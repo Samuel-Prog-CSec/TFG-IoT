@@ -129,10 +129,14 @@ export default function Login() {
     return () => clearInterval(interval);
   }, [rateLimitState.lockoutUntil]);
 
-  useEffect(() => {
-    if (error) clearError();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [formData.email, formData.password]);
+  // BUG (QA 2026-05-16): este efecto borraba el error de credenciales
+  // inmediatamente después del fallo, porque el handler de submit limpia
+  // `formData.password` para forzar al usuario a reescribirla (BUG-LOGIN-1)
+  // y eso disparaba el efecto, ejecutando clearError() antes de que el
+  // mensaje "Credenciales inválidas" llegara a renderizarse al usuario.
+  // El comportamiento deseado es limpiar el error sólo cuando el usuario
+  // edita el campo manualmente — ahora lo hacemos desde `handleChange`
+  // que sólo se invoca en eventos de teclado, no en resets programáticos.
 
   useEffect(() => {
     if (registrationSuccess || sessionInvalidated) {
@@ -160,6 +164,9 @@ export default function Login() {
     if (validationErrors[name]) {
       setValidationErrors((prev) => ({ ...prev, [name]: null }));
     }
+    // Limpiar el error general sólo cuando el usuario edita manualmente
+    // — los resets programáticos (catch del submit) no deben borrarlo.
+    if (error) clearError();
   };
 
   const handleSubmit = async (e) => {

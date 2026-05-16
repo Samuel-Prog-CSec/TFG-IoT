@@ -8,7 +8,7 @@ import {
   Shield, Layers, X, Menu, LogOut,
   LayoutDashboard, CalendarClock, Palette, PlusCircle,
   UserCheck, ArrowRightLeft, Users, TrendingUp, Zap, ZapOff,
-  ChevronRight, GraduationCap, PanelLeftClose, PanelLeft
+  ChevronRight, GraduationCap, PanelLeftClose, PanelLeft, Keyboard
 } from 'lucide-react';
 import EduPlayIcon from '../icons/EduPlayIcon';
 
@@ -35,7 +35,7 @@ import NotificationBell from '../notifications/NotificationBell';
 import OnboardingOverlay from '../onboarding/OnboardingOverlay';
 import { useOnboarding } from '../../hooks/useOnboarding';
 import { getTrackForRole } from '../../constants/onboardingTracks';
-import { useRegisterShortcutSource } from '../../context/ShortcutRegistryContext';
+import { useRegisterShortcutSource, useShortcutRegistry } from '../../context/ShortcutRegistryContext';
 
 // eslint-disable-next-line sonarjs/cyclomatic-complexity -- layout principal con sidebar, hooks de tema, atajos, onboarding, modal y mascota
 export default function AppLayout() {
@@ -84,6 +84,9 @@ export default function AppLayout() {
   // del ShortcutRegistry haría setSources continuamente → "Maximum update
   // depth exceeded".
   const sidebarToggle = sidebar.toggle;
+  // T-952 Fase 1bis: el state del overlay vive en el contexto para que el
+  // botón "Atajos" del sidebar pueda abrirlo sin depender del atajo Shift+?.
+  const { openShortcuts } = useShortcutRegistry();
   const layoutShortcutSections = useMemo(
     () =>
       isSuperAdmin
@@ -502,12 +505,27 @@ export default function AppLayout() {
             aria-label="Animaciones"
             title={shouldReduceMotion ? 'Activar animaciones' : 'Reducir animaciones'}
             className={cn(
-              'flex items-center w-full px-4 py-2 rounded-xl text-text-muted hover:text-text-primary hover:bg-white/5 transition-colors duration-200',
+              // py-3 (antes py-2) para igualar la altura visual del resto de
+              // items del footer (Tutorial, Atajos, Privacidad, Cerrar
+              // sesión). Sin esto, en modo rail el toggle queda más bajo y
+              // su icono se ve "minúsculo" al lado del resto (QA 2026-05-16).
+              'flex items-center w-full px-4 py-3 rounded-xl text-text-muted hover:text-text-primary hover:bg-white/5 transition-colors duration-200',
               isCompact ? 'justify-center' : 'justify-between'
             )}
           >
             <span className={cn('flex items-center', isCompact ? '' : 'gap-3')}>
-              {shouldReduceMotion ? <ZapOff size={16} aria-hidden="true" /> : <Zap size={16} aria-hidden="true" />}
+              {/* size=20 alinea con GraduationCap/Keyboard/Shield/LogOut
+                  del resto de items del footer. Antes era 16 → se veía
+                  "minúsculo" en modo rail (QA 2026-05-16). */}
+              {/* `shrink-0` evita que el SVG se aplaste cuando es hijo
+                  directo de un contenedor flex sin texto al lado (modo rail).
+                  Sin esto, el icono renderizaba a 7px de ancho en lugar de
+                  20px porque flex-shrink default lo encogía (QA 2026-05-16). */}
+              {shouldReduceMotion ? (
+                <ZapOff size={20} aria-hidden="true" className="shrink-0" />
+              ) : (
+                <Zap size={20} aria-hidden="true" className="shrink-0" />
+              )}
               {!isCompact && (
                 <span className="font-medium text-xs uppercase tracking-wider text-text-secondary">
                   Animaciones
@@ -545,10 +563,40 @@ export default function AppLayout() {
                 isCompact ? 'justify-center' : 'gap-3'
               )}
             >
-              <GraduationCap size={20} />
+              <GraduationCap size={20} className="shrink-0" />
               {!isCompact && <span className="font-medium text-sm">Ver tutorial</span>}
             </button>
           )}
+
+          {/* Atajos de teclado — botón visible para descubribilidad (T-952
+              Fase 1bis). El overlay también se abre con Shift+?. Las
+              secciones que muestra dependen del rol porque `AppLayout`
+              registra distintos `sourceId` (app-layout-admin vs
+              app-layout-teacher) en `ShortcutRegistry`; un super_admin no
+              ve los atajos `g s`/`g m`/Shift+N del docente y viceversa. */}
+          <button
+            type="button"
+            onClick={openShortcuts}
+            title="Ver lista de atajos de teclado (Shift + ?)"
+            aria-haspopup="dialog"
+            className={cn(
+              'flex items-center w-full px-4 py-3 text-text-muted hover:text-text-primary hover:bg-white/5 rounded-xl transition-colors duration-200',
+              isCompact ? 'justify-center' : 'gap-3'
+            )}
+          >
+            <Keyboard size={20} className="shrink-0" />
+            {!isCompact && (
+              <span className="flex items-center justify-between flex-1">
+                <span className="font-medium text-sm">Atajos de teclado</span>
+                <kbd
+                  className="ml-2 hidden md:inline-flex items-center px-1.5 py-0.5 rounded-md border border-border-default bg-background-elevated/60 font-mono text-[10px] text-text-muted"
+                  aria-hidden="true"
+                >
+                  ⇧?
+                </kbd>
+              </span>
+            )}
+          </button>
 
           <NavLink
             to="/privacy"
@@ -558,7 +606,7 @@ export default function AppLayout() {
               isCompact ? 'justify-center' : 'gap-3'
             )}
           >
-            <Shield size={20} />
+            <Shield size={20} className="shrink-0" />
             {!isCompact && <span className="font-medium text-sm">Privacidad</span>}
           </NavLink>
           <button
@@ -572,7 +620,7 @@ export default function AppLayout() {
               isLoggingOut && 'opacity-60 cursor-not-allowed pointer-events-none'
             )}
           >
-            <LogOut size={20} />
+            <LogOut size={20} className="shrink-0" />
             {!isCompact && (
               <span className="font-medium text-sm">
                 {isLoggingOut ? 'Cerrando sesión…' : 'Cerrar Sesión'}

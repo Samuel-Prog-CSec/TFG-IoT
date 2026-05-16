@@ -312,7 +312,7 @@ function renderContextsSection({
         title={search ? 'Sin resultados' : 'No hay contextos'}
         description={
           search
-            ? 'Prueba con otros terminos de busqueda.'
+            ? 'Prueba con otros términos de búsqueda.'
             : 'Crea el primer contexto para empezar.'
         }
       />

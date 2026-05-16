@@ -335,7 +335,7 @@ const csrfProtection = (req, res, next) => {
   }
 
   if (!hasValidCsrf(req)) {
-    return next(new ForbiddenError('CSRF token invalido o ausente'));
+    return next(new ForbiddenError('CSRF token inválido o ausente'));
   }
 
   return next();

@@ -38,7 +38,7 @@ function GameHistoryTable({ games, initialCount = 10 }) {
         <h3 className="text-base font-semibold text-text-primary font-display mb-4">Historial de Partidas</h3>
         <div className="py-6 text-center">
           <Clock size={24} className="text-text-muted mx-auto mb-2" aria-hidden="true" />
-          <p className="text-sm text-text-muted">Este alumno aun no tiene partidas registradas.</p>
+          <p className="text-sm text-text-muted">Este alumno aún no tiene partidas registradas.</p>
         </div>
       </GlassCard>
     );
@@ -106,7 +106,7 @@ function GameHistoryTable({ games, initialCount = 10 }) {
                       {game.mechanicName || game.mechanic || '—'}
                     </td>
                     <td className="py-2.5 pr-3 text-right">
-                      <span className={cn("text-xs font-semibold px-1.5 py-0.5 rounded-md inline-block", badge.className)} aria-label={`Puntuacion ${Math.round(game.score ?? 0)}, nivel ${badge.label}`}>
+                      <span className={cn("text-xs font-semibold px-1.5 py-0.5 rounded-md inline-block", badge.className)} aria-label={`Puntuación ${Math.round(game.score ?? 0)}, nivel ${badge.label}`}>
                         {Math.round(game.score ?? 0)}
                       </span>
                     </td>

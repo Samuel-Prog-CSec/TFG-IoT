@@ -93,7 +93,7 @@ function ContentEffectivenessMatrix({ data, groupBy = 'context' }) {
         </div>
         <div className="h-40 flex items-center justify-center">
           <p className="text-sm text-text-muted text-center">
-            Aun no hay suficientes partidas completadas para calcular la efectividad.
+            Aún no hay suficientes partidas completadas para calcular la efectividad.
           </p>
         </div>
       </GlassCard>
@@ -104,10 +104,13 @@ function ContentEffectivenessMatrix({ data, groupBy = 'context' }) {
   // pantalla anunciar el panorama global sin recorrer cada item.
   const top = items[0];
   const bottom = items[items.length - 1];
+  const isFeminine = groupBy === 'mechanic';
+  const uniqueLabel = isFeminine ? 'única' : 'único';
+  const analyzedLabel = isFeminine ? 'analizadas' : 'analizados';
   const accessibleSummary =
     items.length === 1
-      ? `${dimensionLabel} único: ${top.name} con ${Math.round(top.score)}% en ${top.totalPlays} partidas.`
-      : `${items.length} ${dimensionLabel.toLowerCase()}s analizados. Mejor: ${top.name} (${Math.round(top.score)}%). Peor: ${bottom.name} (${Math.round(bottom.score)}%).`;
+      ? `${dimensionLabel} ${uniqueLabel}: ${top.name} con ${Math.round(top.score)}% en ${top.totalPlays} partidas.`
+      : `${items.length} ${dimensionLabel.toLowerCase()}s ${analyzedLabel}. Mejor: ${top.name} (${Math.round(top.score)}%). Peor: ${bottom.name} (${Math.round(bottom.score)}%).`;
   const accessibleDataTable = items.map((item) => ({
     label: item.name,
     value: `${Math.round(item.score)}% en ${item.totalPlays} partidas`,
@@ -193,7 +196,7 @@ function ContentEffectivenessMatrix({ data, groupBy = 'context' }) {
                 aria-valuenow={Math.round(item.score)}
                 aria-valuemin={0}
                 aria-valuemax={100}
-                aria-label={`Puntuacion media de ${item.name}: ${Math.round(item.score)}%`}
+                aria-label={`Puntuación media de ${item.name}: ${Math.round(item.score)}%`}
               >
                 <div className={cn('h-full transition-[width] duration-500', styles.bar)} style={{ width: `${widthPct}%` }} />
               </div>

@@ -720,7 +720,7 @@ const validatePlayId = (socket, playId, eventName) => {
 
   socket.emit('error', {
     code: 'VALIDATION_ERROR',
-    message: 'playId invalido'
+    message: 'playId inválido'
   });
   logSocketSecurityEvent('SECURITY_SOCKET_EVENT_INVALID', socket, {
     eventName,
@@ -732,7 +732,7 @@ const validatePlayId = (socket, playId, eventName) => {
 
 const requireSocketRole = (socket, allowedRoles, eventName) => {
   if (!socket?.data?.userId) {
-    socket.emit('error', { code: 'AUTH_REQUIRED', message: 'Autenticacion requerida' });
+    socket.emit('error', { code: 'AUTH_REQUIRED', message: 'Autenticación requerida' });
     logSocketSecurityEvent('AUTHZ_ACCESS_DENIED', socket, {
       eventName,
       reason: 'AUTH_REQUIRED'
@@ -756,7 +756,7 @@ const requireSocketRole = (socket, allowedRoles, eventName) => {
 const revalidateSocketAuth = async (socket, eventName) => {
   const accessToken = socket.data.accessToken;
   if (!accessToken) {
-    socket.emit('error', { code: 'AUTH_REQUIRED', message: 'Autenticacion requerida' });
+    socket.emit('error', { code: 'AUTH_REQUIRED', message: 'Autenticación requerida' });
     logSocketSecurityEvent('AUTHZ_ACCESS_DENIED', socket, {
       eventName,
       reason: 'TOKEN_MISSING'
@@ -801,7 +801,7 @@ const revalidateSocketAuth = async (socket, eventName) => {
     }
 
     if (decoded.sid && user.currentSessionId && decoded.sid !== user.currentSessionId) {
-      throw new Error('Sesion invalida');
+      throw new Error('Sesión inválida');
     }
 
     socket.data.userId = user._id.toString();
@@ -816,7 +816,7 @@ const revalidateSocketAuth = async (socket, eventName) => {
 
     return true;
   } catch (error) {
-    socket.emit('error', { code: 'AUTH_INVALID', message: 'Autenticacion invalida' });
+    socket.emit('error', { code: 'AUTH_INVALID', message: 'Autenticación inválida' });
     logSocketSecurityEvent('WS_AUTH_FAILED', socket, {
       eventName,
       reason: error.message
@@ -830,7 +830,7 @@ const requirePlayOwnership = async (socket, playId, eventName, options = {}) => 
   const includeSessionRuntime = options.includeSessionRuntime === true;
 
   if (!socket?.data?.userId) {
-    socket.emit('error', { code: 'AUTH_REQUIRED', message: 'Autenticacion requerida' });
+    socket.emit('error', { code: 'AUTH_REQUIRED', message: 'Autenticación requerida' });
     logSocketSecurityEvent('AUTHZ_ACCESS_DENIED', socket, {
       playId,
       eventName,
@@ -929,7 +929,7 @@ const parseRfidClientPayload = (socket, data) => {
   const firstError = parsed.error.issues?.[0];
   socket.emit('error', {
     code: 'VALIDATION_ERROR',
-    message: firstError?.message || 'Payload RFID invalido'
+    message: firstError?.message || 'Payload RFID inválido'
   });
   logSocketSecurityEvent('SECURITY_RFID_EVENT_INVALID', socket, {
     eventName: 'rfid_scan_from_client',
@@ -1172,7 +1172,7 @@ const createAuthMiddleware =
           reason: 'TOKEN_INVALID',
           tokenSource
         });
-        return next(new Error('Token invalido'));
+        return next(new Error('Token inválido'));
       }
 
       // Cache-aside Redis (slim-user, TTL 60s) en el handshake de Socket.IO.
@@ -1220,7 +1220,7 @@ const createAuthMiddleware =
           tokenSource,
           userId: user._id
         });
-        return next(new Error('Sesion invalida'));
+        return next(new Error('Sesión inválida'));
       }
 
       const userId = user._id.toString();
@@ -1236,7 +1236,7 @@ const createAuthMiddleware =
             currentCount,
             limit: socketConnectionLimits.maxConnectionsPerUser
           });
-          return next(new Error('Limite de conexiones alcanzado'));
+          return next(new Error('Límite de conexiones alcanzado'));
         }
         incrementConnectionCount(userId);
       }
@@ -1254,7 +1254,7 @@ const createAuthMiddleware =
       logSocketSecurityEvent('WS_AUTH_FAILED', socket, {
         reason: error.message
       });
-      return next(new Error('Autenticacion invalida'));
+      return next(new Error('Autenticación inválida'));
     }
   };
 

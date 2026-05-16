@@ -38,6 +38,13 @@ export function ShortcutRegistryProvider({ children }) {
   // sentido natural (sistema → navegación específica).
   const [sources, setSources] = useState(() => new Map());
 
+  // Estado del overlay de atajos. Antes vivía localmente en
+  // `<GlobalShortcuts />`, pero al subirlo al contexto cualquier consumidor
+  // (botón del sidebar, NotificationBell, NotFound…) puede abrirlo sin
+  // necesidad de un atajo de teclado, mejorando descubribilidad para
+  // alumnos/profesores que usan ratón.
+  const [shortcutsOpen, setShortcutsOpen] = useState(false);
+
   // Mantenemos la lista plana de definiciones (key + handler + allowInInput)
   // que `useKeyboardShortcuts` necesita. Esto evita que los consumidores
   // tengan que enganchar otro `useKeyboardShortcuts` cada uno con su
@@ -65,6 +72,10 @@ export function ShortcutRegistryProvider({ children }) {
     });
   }, []);
 
+  const openShortcuts = useCallback(() => setShortcutsOpen(true), []);
+  const closeShortcuts = useCallback(() => setShortcutsOpen(false), []);
+  const toggleShortcuts = useCallback(() => setShortcutsOpen((prev) => !prev), []);
+
   const value = useMemo(() => {
     const sectionsBySource = Array.from(sources.entries());
     // Aplanamos para tener todas las secciones del overlay en orden estable.
@@ -76,8 +87,12 @@ export function ShortcutRegistryProvider({ children }) {
       flatShortcuts,
       registerSource,
       unregisterSource,
+      shortcutsOpen,
+      openShortcuts,
+      closeShortcuts,
+      toggleShortcuts,
     };
-  }, [sources, registerSource, unregisterSource]);
+  }, [sources, registerSource, unregisterSource, shortcutsOpen, openShortcuts, closeShortcuts, toggleShortcuts]);
 
   return (
     <ShortcutRegistryContext.Provider value={value}>

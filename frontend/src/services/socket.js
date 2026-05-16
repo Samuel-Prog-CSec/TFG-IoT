@@ -106,6 +106,13 @@ class SocketService {
     this._wasConnected = false;
     /** Timer del heartbeat de modo RFID (refresca watchdog del backend). */
     this._rfidHeartbeatTimerId = null;
+    /**
+     * Promise del `connect()` en vuelo. Evita handshakes paralelos cuando
+     * dos llamadores casi-simultáneos invocan connect() (ej. login +
+     * useGameSocket inmediatamente después de la redirección post-login).
+     * Ver BUG-WS-1 en memoria del proyecto.
+     */
+    this._connectPromise = null;
   }
 
   /**
@@ -143,14 +150,23 @@ class SocketService {
   // ============================================
 
   /**
-   * Genera las opciones de conexión compartidas entre namespaces
-   * @param {string} token - Token de autenticación
+   * Genera las opciones de conexión compartidas entre namespaces.
+   *
+   * BUG-WS-1 (~0.6 reconexiones/navegación documentadas en memoria 2026-05-14):
+   * `auth` se entrega como **función** en lugar de objeto estático para que
+   * socket.io-client llame a `getAccessToken()` en CADA intento de handshake
+   * (conexión inicial y cada reconexión). Antes, con `{ token }` estático,
+   * tras un `/auth/refresh` el access token rotaba pero el socket usaba
+   * el token original en sus reconnects → `SESSION_MISMATCH` server-side →
+   * `io server disconnect` → reconexión forzada. Con la forma funcional el
+   * socket nunca queda "anclado" a un token caducado.
+   *
    * @returns {Object}
    * @private
    */
-  _connectionOptions(token) {
+  _connectionOptions() {
     return {
-      auth: { token },
+      auth: cb => cb({ token: getAccessToken() }),
       reconnection: true,
       reconnectionAttempts: RECONNECTION_ATTEMPTS,
       reconnectionDelay: RECONNECTION_DELAY,
@@ -166,6 +182,14 @@ class SocketService {
   /**
    * Conectar ambos namespaces (sistema y juego) al servidor WebSocket.
    * La promesa se resuelve cuando AMBOS están conectados.
+   *
+   * Idempotencia (BUG-WS-1): si ya hay un `connect()` en vuelo, devolvemos
+   * la promesa existente en lugar de crear handshakes paralelos. Antes, dos
+   * llamadores casi-simultáneos (ej. AuthContext.login + useGameSocket al
+   * mismo tiempo durante la navegación post-login) abrían dos handshakes,
+   * el server cerraba uno por SESSION_MISMATCH y veíamos `io server
+   * disconnect` + reconexión inmediata.
+   *
    * @returns {Promise<void>}
    */
   connect() {
@@ -174,8 +198,13 @@ class SocketService {
       return Promise.resolve();
     }
 
-    const token = getAccessToken();
-    const opts = this._connectionOptions(token);
+    // Si hay un connect() en vuelo, devolverlo: evita handshakes duplicados
+    // que provocan SESSION_MISMATCH server-side.
+    if (this._connectPromise) {
+      return this._connectPromise;
+    }
+
+    const opts = this._connectionOptions();
 
     // --- Socket de sistema (namespace /) ---
     const systemPromise = this._connectNamespace('system', SOCKET_URL, opts);
@@ -183,7 +212,12 @@ class SocketService {
     // --- Socket de juego (namespace /game) ---
     const gamePromise = this._connectNamespace('game', `${SOCKET_URL  }/game`, opts);
 
-    return Promise.all([systemPromise, gamePromise]).then(() => undefined);
+    this._connectPromise = Promise.all([systemPromise, gamePromise])
+      .then(() => undefined)
+      .finally(() => {
+        this._connectPromise = null;
+      });
+    return this._connectPromise;
   }
 
   /**
@@ -206,9 +240,10 @@ class SocketService {
         return;
       }
 
-      // Reconectar socket existente o crear uno nuevo
+      // Reconectar socket existente o crear uno nuevo. Con `auth` funcional
+      // (BUG-WS-1) no necesitamos asignar `sock.auth` manualmente: socket.io
+      // llama al resolver en cada handshake.
       if (this[prop]) {
-        this[prop].auth = { token: opts.auth.token };
         this[prop].connect();
       } else {
         this[prop] = io(url, opts);
@@ -351,6 +386,7 @@ class SocketService {
 
     this.isConnected = false;
     this._wasConnected = false;
+    this._connectPromise = null;
   }
 
   /**
@@ -363,18 +399,27 @@ class SocketService {
    * del listener previo (QA 22/04/2026).
    */
   updateAuth(token) {
-    const applyToNamespace = (sock) => {
-      if (!sock) return;
-      const previousToken = sock.auth?.token;
-      sock.auth = { token };
-      const tokenChanged = previousToken !== token;
-      if (tokenChanged && sock.connected) {
-        sock.disconnect();
-        sock.connect();
-      }
-    };
-    applyToNamespace(this.socket);
-    applyToNamespace(this.gameSocket);
+    // Con el `auth: cb => cb({ token: getAccessToken() })` funcional del
+    // `_connectionOptions()`, el socket resuelve el token dinámicamente en
+    // cada handshake — ya no es necesario sobreescribir `sock.auth` ni
+    // forzar disconnect+connect aquí. `setTokens(token)` (caller anterior)
+    // ya actualizó el getter al token nuevo, y cualquier reconnect futuro
+    // lo usará automáticamente.
+    //
+    // Esta función queda como hook de cara a observabilidad (logging, métricas)
+    // y para mantener su semántica explícita: "el token ha rotado". Si el
+    // socket no estaba conectado, la próxima conexión usará el nuevo.
+    //
+    // Cuando el token cambia Y el socket está conectado, dejamos que el
+    // server invalide vía SESSION_INVALIDATED o que el siguiente refresh
+    // del backend acepte el sid actual; no forzamos disconnect — antes era
+    // la causa del flicker conectado→desconectado→reconectado tras login.
+    if (!this.socket && !this.gameSocket) {
+      return;
+    }
+    socketLog('info', '[Socket] Token actualizado (auth dinámico)', {
+      hasToken: Boolean(token),
+    });
   }
 
   // ============================================
