@@ -34,10 +34,21 @@ const RECOMMENDED_ENV_VARS = [
   'JWT_REFRESH_EXPIRES_IN',
   'PORT',
   'NODE_ENV',
+  'APP_ENV',
   'REDIS_URL',
   'REDIS_KEY_PREFIX',
   'SUPABASE_BUCKET'
 ];
+
+/**
+ * Valores permitidos para APP_ENV (separa "entorno cloud" de NODE_ENV).
+ * - development: dev local
+ * - staging: deploy automatico desde Maintenance (datos de prueba)
+ * - production: deploy desde tag v* (datos reales)
+ *
+ * @type {string[]}
+ */
+const ALLOWED_APP_ENVS = ['development', 'staging', 'production'];
 
 /**
  * Variables REQUERIDAS en producción para Redis.
@@ -207,6 +218,16 @@ function validateEnv() {
   // Validar formato de SHUTDOWN_TIMEOUT_MS
   if (process.env.SHUTDOWN_TIMEOUT_MS) {
     validateShutdownTimeout();
+  }
+
+  // Validar APP_ENV si está definido (separado de NODE_ENV)
+  if (process.env.APP_ENV) {
+    validateAppEnv();
+  }
+
+  // Validar SEED_ON_BOOT si está definido (true|false)
+  if (process.env.SEED_ON_BOOT) {
+    validateSeedOnBoot();
   }
 
   // Warnings para recomendadas
@@ -387,6 +408,50 @@ function validateShutdownTimeout() {
       `SHUTDOWN_TIMEOUT_MS tiene un valor inválido: "${process.env.SHUTDOWN_TIMEOUT_MS}".\n` +
         `Debe ser un número entero positivo.\n` +
         `Ejemplo: 10000`
+    );
+  }
+}
+
+/**
+ * Valida que APP_ENV (cuando está definido) sea uno de los valores permitidos.
+ * APP_ENV identifica el entorno cloud (staging|production) sin depender de NODE_ENV,
+ * que en cloud siempre debería ser "production" para optimizaciones de runtime.
+ * @throws {Error} Si APP_ENV tiene un valor no permitido
+ */
+function validateAppEnv() {
+  const appEnv = process.env.APP_ENV.trim().toLowerCase();
+  if (!ALLOWED_APP_ENVS.includes(appEnv)) {
+    throw new Error(
+      `APP_ENV tiene un valor inválido: "${process.env.APP_ENV}".\n` +
+        `Valores permitidos: ${ALLOWED_APP_ENVS.join(', ')}`
+    );
+  }
+  process.env.APP_ENV = appEnv;
+}
+
+/**
+ * Valida que SEED_ON_BOOT (cuando está definido) sea "true" o "false".
+ * Sólo se debería activar en el servicio api-staging para auto-poblar datos
+ * tras un reset del cluster. En producción siempre "false" o ausente.
+ * @throws {Error} Si SEED_ON_BOOT tiene un valor no booleano
+ */
+function validateSeedOnBoot() {
+  const value = process.env.SEED_ON_BOOT.trim().toLowerCase();
+  if (value !== 'true' && value !== 'false') {
+    throw new Error(
+      `SEED_ON_BOOT tiene un valor inválido: "${process.env.SEED_ON_BOOT}".\n` +
+        `Debe ser "true" o "false".`
+    );
+  }
+  process.env.SEED_ON_BOOT = value;
+
+  // Guardrail: si APP_ENV=production y SEED_ON_BOOT=true, advertir.
+  // No bloqueamos por si el usuario sabe lo que hace (reset programado de prod),
+  // pero queda en el log para revisar.
+  if (process.env.APP_ENV === 'production' && value === 'true') {
+    logger.warn(
+      'SEED_ON_BOOT=true en APP_ENV=production: se ejecutará seed:if-empty contra ' +
+        'la base de datos productiva. Revisar que es el comportamiento deseado.'
     );
   }
 }

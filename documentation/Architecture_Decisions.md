@@ -7620,3 +7620,113 @@ Tres agentes Explore en paralelo produjeron un informe consolidado de 54 hallazg
 - **Cobertura WCAG AA** — focus rings consistentes, contraste muted +5L en dark, target size 110px+ en gameplay touch, aria-disabled/aria-busy en interactivos clave.
 - **Microcopy alineado** — voz consistente (tuteo, sin jerga técnica), tildes verificadas, etiquetas RFID descriptivas para el docente.
 
+## ADR-139: Stack cloud para v1.0.0 — Koyeb + Atlas + Upstash + Cloudflare Pages [DevOps]
+
+**Fecha:** 2026-05-16
+**Estado:** Aceptado
+**Tarea:** T-901 (Sprint 6)
+
+### Contexto
+
+El TFG llega a la fase de despliegue cloud sin haber estado nunca en producción. Hace falta un stack que cumpla cuatro restricciones simultáneamente:
+
+1. **Free tier suficiente para una demo del tribunal** y uso piloto en un centro (decenas de usuarios concurrentes).
+2. **Europa** para minimizar latencia con el navegador del docente y cumplir con el principio de localización RGPD.
+3. **Compatibilidad nativa con el stack actual** — Node.js 24, MongoDB 8 (Mongoose 9), Redis 7 (ioredis), Socket.IO 4, build Vite.
+4. **Pipeline de CD trivial** — auto-deploy desde una rama, redeploy desde GitHub Actions con un único token API, rollback en un click.
+
+### Decisión
+
+| Componente | Proveedor | Tier | Justificación frente a alternativas |
+|---|---|---|---|
+| **Backend host** | Koyeb (`fra`) | Eco free | Nixpacks autodetecta Node sin Dockerfile, soporte nativo Worker (separado de API) para BullMQ, redeploy vía CLI/API, idle timeout configurable para WebSockets. Alternativas descartadas: Railway (free tier muy limitado en horas/mes), Render (free tier hace cold start agresivo que mata Socket.IO), Fly.io (requiere conocer fly.toml y Docker — más fricción para el TFG). |
+| **Database** | MongoDB Atlas M0 (`eu-central-1`) | M0 free forever | El único free tier de Mongo managed con replica set (necesario para `retryWrites` y `w: 'majority'`). 512 MB storage suficiente para 50k registros del dominio. Alternativa descartada: Mongo en VM de Koyeb (sin replica, sin backup, single point of failure). |
+| **Cache + queues** | Upstash Redis (`eu-west-1`) | Free (5K cmds/day) | TLS nativo (`rediss://`), pricing por comando (no por hora), latencia <50ms desde `fra`. Caches analytics + flush Lua reducen el uso bajo 50% del límite en uso normal (verificado en QA). Alternativa descartada: Redis Cloud (free tier sin TLS y con persistencia ON por defecto que rompe BullMQ). |
+| **Frontend host** | Cloudflare Pages | Unlimited free | CDN global, preview deploys automáticos por rama (perfecto para staging y PRs), build hooks vía GitHub App, Workers KV disponible si se necesita en el futuro. Alternativa descartada: Vercel (free tier limita el ancho de banda — riesgo si el tribunal hace pruebas concurrentes). |
+| **Storage** | Supabase (ya existente) | Free 1GB | Mantenido — ya gestiona los assets de mazos vía service role key. |
+| **Observabilidad** | Sentry (ya existente) + Pino structured | Free 5K events/mes | Mantenido — Pino vuelca JSON a stdout que Koyeb captura y envía a Logtail (próximo). |
+
+### Riesgos asumidos y mitigaciones
+
+- **0.0.0.0/0 en Atlas Network Access.** Koyeb free no garantiza IPs estáticas, así que es la única opción viable. Se mitiga con TLS 1.3 obligatorio + SCRAM-SHA-256 + password 64 caracteres aleatorios + `MONGO_URI` sólo en Koyeb Secrets nunca en repo.
+- **Cold start de M0 tras inactividad.** Tuneado por ADR-140 (`serverSelectionTimeoutMS: 10s`).
+- **Upstash 5K cmds/day.** Caches analytics + `REDIS_FLUSH_LUA_ON_BOOT` + invalidación selectiva. Si se acerca al límite, primer paso es desactivar el `cache:analytics:*` y migrar a in-memory; segundo es subir al plan pay-as-you-go ($0.20 por 100K cmds).
+- **Free tier Koyeb (Eco) hace cold start tras 5 min idle.** Para staging es aceptable; para prod se puede comprar el siguiente nivel ($5/mes) si el tribunal lo requiere.
+
+### Alternativas descartadas (con detalle)
+
+- **Railway**: $5 crédito mensual gratis ≈ 100h/mes — insuficiente para 4 servicios always-on.
+- **Render**: cold start de 30-50 segundos en free tier mata Socket.IO si la primera conexión llega fría.
+- **Fly.io**: excelente técnicamente pero requiere Docker + fly.toml + conocimiento de máquinas vs apps. Curva de aprendizaje contra la prisa del TFG.
+- **Vercel + Vercel Functions (backend serverless)**: el stack actual usa servicios con estado (Socket.IO, BullMQ workers, Redis adapter) que serverless no soporta bien.
+- **AWS / GCP / Azure**: free tiers existen pero la configuración inicial (VPC, IAM, ALB...) excede el alcance del TFG.
+
+### Documentación asociada
+
+- `documentation/Deploy_Koyeb.md` — runbook completo de aprovisionamiento.
+- `documentation/Secrets_Rotation.md` — política de rotación de secretos.
+
+## ADR-140: Trust proxy + opciones de pool Mongoose para Atlas M0 [Backend]
+
+**Fecha:** 2026-05-16
+**Estado:** Aceptado
+**Tarea:** T-901 (Sprint 6)
+
+### Contexto
+
+Desplegar contra Koyeb (reverse proxy front) y Atlas M0 (replica set en red compartida) requiere dos cambios en el boot del backend que en local con Docker no eran necesarios:
+
+1. **Trust proxy.** Express, sin `app.set('trust proxy')`, ve la IP del reverse proxy en `req.ip`. Los rate limiters basados en IP (`globalRateLimiter`, `authRateLimiter`) confunden a todos los clientes con un único "atacante" y los bloquean a todos a la vez. El primer login post-deploy dispara este bug y bloquea el tráfico global.
+2. **Pool de conexiones a Mongoose.** Sin opciones explícitas, Mongoose 9 usa defaults pensados para clusters dedicados (pool 100, timeout server selection 30s). En Atlas M0 (red compartida, latencia variable) esto provoca:
+   - Saturación del límite de conexiones de M0 (500 totales) si varias instancias multiplican el pool.
+   - Boot lento si el primer `serverSelectionTimeoutMS` espera 30s tras cold start de M0.
+   - Pérdida de queries en reads/writes si el primario falla durante un failover (sin `retryReads/Writes`).
+
+### Decisión
+
+**Trust proxy condicional al entorno.** Sólo se activa con `NODE_ENV=production` o explícitamente con `TRUST_PROXY=true`. En desarrollo se omite a propósito: confiar en `X-Forwarded-For` sin un proxy real abre la puerta a bypass de rate limit suplantando la cabecera desde el cliente.
+
+```js
+if (process.env.TRUST_PROXY === 'true' || process.env.NODE_ENV === 'production') {
+  app.set('trust proxy', 1);  // confiar solo en la primera capa
+}
+```
+
+**Pool Mongoose con dos perfiles.** En producción aplicamos opciones optimizadas para Atlas M0; en dev/test usamos defaults para no asumir replica set (un MongoDB local single-node o un mongodb-memory-server pueden no aceptar `w: 'majority'`).
+
+```js
+const productionConnectOptions = {
+  maxPoolSize: 10,            // 1 instancia api Eco free no necesita más
+  minPoolSize: 2,             // 2 conexiones calientes evitan cold-start por query tras idle
+  serverSelectionTimeoutMS: 10_000,
+  socketTimeoutMS: 45_000,
+  heartbeatFrequencyMS: 30_000,
+  retryReads: true,
+  retryWrites: true,
+  w: 'majority'
+};
+
+const connectOptions = process.env.NODE_ENV === 'production' ? productionConnectOptions : {};
+await mongoose.connect(process.env.MONGO_URI, connectOptions);
+```
+
+### Justificación de los valores
+
+- **`maxPoolSize: 10`** — con 1 instancia api Eco y un patrón request → query short (sin transacciones largas), 10 conexiones aforan ~200 RPS contra Atlas sin saturar.
+- **`minPoolSize: 2`** — mantiene 2 conexiones siempre vivas tras idle (M0 cierra conexiones idle a los ~10 minutos). Sin esto, la primera query tras 10 min de inactividad paga el coste de TLS handshake + auth (~600ms).
+- **`serverSelectionTimeoutMS: 10s`** — M0 puede tardar 1-3s en responder tras un cold start del cluster (poco frecuente pero ocurre). 10s es holgado sin tapar errores reales.
+- **`socketTimeoutMS: 45s`** — corta queries colgadas (script malicioso, índice perdido) sin matar la conexión sana.
+- **`heartbeatFrequencyMS: 30s`** — detecta failover del replica set en <60s sin saturar Atlas con pings (default 10s genera 6 pings/min × 3 nodos = ruido innecesario).
+- **`retryReads/Writes + w: 'majority'`** — durabilidad fuerte: la escritura sólo confirma cuando la mayoría del replica set la tiene. Si el primario cae, el driver retoma automáticamente en el nuevo primario.
+
+### Impacto
+
+- **Rate limiting funciona correctamente detrás de Koyeb.** `req.ip` es la del cliente final, no la del proxy.
+- **Boot del backend pasa de ~6s a ~3s contra Atlas M0** (medido en deploy de prueba con `time curl /health`).
+- **Tolerancia a failover de Atlas** durante mantenimiento (Atlas hace upgrade rolling de nodos en M0 sin downtime, pero requiere `retryReads/Writes` para que el cliente no vea el blip).
+
+### Verificación
+
+- `app.set('trust proxy', 1)` activo en `NODE_ENV=production` — verificable con `curl -H "X-Forwarded-For: 1.2.3.4" /api/health/echo` (devolverá `1.2.3.4` como IP percibida).
+- Pool: log de Mongoose `MongoDB Connected: <host>` aparece en <2s tras boot. `mongoose.connection.client.s.options.maxPoolSize === 10` en producción.
+

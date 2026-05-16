@@ -65,6 +65,16 @@ const notificationRoutes = require('./routes/notifications');
 // Crear aplicación Express
 const app = express();
 app.set('etag', false);
+
+// Trust proxy en producción (Koyeb antepone un reverse proxy a cada servicio).
+// Sin esto, Express ve la IP del proxy en `req.ip` y los rate limiters basados
+// en IP confunden a todos los clientes con un único "atacante". En desarrollo
+// se omite a propósito: confiar en `X-Forwarded-For` sin proxy real abre la
+// puerta a bypass de rate limit suplantando la cabecera desde el cliente.
+if (process.env.TRUST_PROXY === 'true' || process.env.NODE_ENV === 'production') {
+  app.set('trust proxy', 1);
+}
+
 const server = http.createServer(app);
 server.keepAliveTimeout = Number.parseInt(process.env.KEEP_ALIVE_TIMEOUT_MS, 10) || 65000;
 server.headersTimeout = Number.parseInt(process.env.HEADERS_TIMEOUT_MS, 10) || 66000;

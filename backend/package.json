@@ -5,6 +5,8 @@
   "main": "src/server.js",
   "scripts": {
     "start": "node src/server.js",
+    "start:prod": "cross-env NODE_ENV=production node src/server.js",
+    "bootstrap": "node scripts/bootstrap.js",
     "dev": "nodemon src/server.js",
     "seed": "node seeders/index.js",
     "seed:reset": "node seeders/index.js --reset",
