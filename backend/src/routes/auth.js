@@ -29,20 +29,34 @@ const {
 const asyncHandler = require('../utils/asyncHandler');
 
 /**
- * @route   POST /api/auth/register
- * @desc    Registrar nuevo PROFESOR (solo profesores, endpoint público)
- * @access  Public
- * IMPORTANTE: Los alumnos NO se registran aquí, son creados en POST /api/users
- * @validation body: registerTeacherSchema | query: emptyObjectSchema
+ * @openapi
+ * /auth/register:
+ *   post:
+ *     tags: [Auth]
+ *     summary: Registrar nuevo docente
+ *     description: |
+ *       Crea una cuenta de docente con estado `pending` (requiere aprobación del super admin).
+ *       Los alumnos NO se registran aquí — los crea el docente via `POST /api/users`.
+ *     security: []
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required: [email, password, firstName, lastName]
+ *             properties:
+ *               email: { type: string, format: email }
+ *               password: { type: string, minLength: 8 }
+ *               firstName: { type: string }
+ *               lastName: { type: string }
+ *               organization: { type: string }
+ *     responses:
+ *       201: { description: Cuenta creada en estado `pending` }
+ *       400: { $ref: '#/components/responses/ValidationError' }
+ *       409: { description: Email ya registrado }
+ *       429: { $ref: '#/components/responses/RateLimitError' }
  */
-
-/**
- * @route   POST /api/auth/login
- * @desc    Login de profesor (solo teachers)
- * @access  Public
- * @validation body: loginSchema | query: emptyObjectSchema
- */
-
 router.post(
   '/register',
   registerRateLimiter,
@@ -51,6 +65,36 @@ router.post(
   asyncHandler(register)
 );
 
+/**
+ * @openapi
+ * /auth/login:
+ *   post:
+ *     tags: [Auth]
+ *     summary: Login (docente o super admin)
+ *     description: |
+ *       Devuelve `accessToken` (JWT 15min) y `refreshToken` (JWT 7d) como cookies HttpOnly +
+ *       cuerpo de respuesta. La cookie CSRF se setea automáticamente para los siguientes requests.
+ *     security: []
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required: [email, password]
+ *             properties:
+ *               email: { type: string, format: email }
+ *               password: { type: string }
+ *     responses:
+ *       200:
+ *         description: Login exitoso
+ *         headers:
+ *           Set-Cookie:
+ *             description: accessToken + refreshToken + xsrf-token
+ *             schema: { type: string }
+ *       401: { description: Credenciales inválidas o cuenta no aprobada }
+ *       429: { $ref: '#/components/responses/RateLimitError' }
+ */
 router.post(
   '/login',
   validateQuery(emptyObjectSchema),
@@ -59,10 +103,17 @@ router.post(
 );
 
 /**
- * @route   GET /api/auth/me
- * @desc    Obtener perfil del usuario autenticado
- * @access  Private
- * @validation query: emptyObjectSchema
+ * @openapi
+ * /auth/me:
+ *   get:
+ *     tags: [Auth]
+ *     summary: Perfil del usuario autenticado
+ *     security:
+ *       - bearerAuth: []
+ *       - cookieAuth: []
+ *     responses:
+ *       200: { description: Perfil del usuario }
+ *       401: { $ref: '#/components/responses/UnauthorizedError' }
  */
 router.get('/me', authenticate, validateQuery(emptyObjectSchema), asyncHandler(getProfile));
 

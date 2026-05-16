@@ -139,12 +139,17 @@ jobs:
           }
 
           # ───── Backend ─────
-          # Exclusión documentada (no alcanzable en nuestra cadena de dependencias):
+          # Exclusiones documentadas (no alcanzables en nuestra cadena de dependencias):
           # - GHSA-w5hq-g745-h8pq: uuid <14.0.0 buffer bounds check en v3/v5/v6 cuando se pasa `buf`.
           #   Único consumidor transitivo es bullmq, que solo invoca uuid.v4() sin `buf`.
           #   No podemos forzar uuid@14+ via overrides: v12 eliminó soporte CommonJS y bullmq (CJS)
           #   fallaría en runtime. A la espera de que bullmq actualice su peer deps.
-          BACKEND_EXCLUDED="GHSA-w5hq-g745-h8pq"
+          # - GHSA-v2v4-37r5-5v8g: ip-address <=10.1.0 XSS en métodos Address6 HTML-emitting.
+          #   Único consumidor transitivo es express-rate-limit@8.4.1 (rango vulnerable 8.0.1-8.5.0).
+          #   express-rate-limit usa ip-address para parsear/normalizar IPv6 al /64 (helper interno),
+          #   nunca invoca los métodos HTML-emitting. Fix upstream en express-rate-limit@8.5.1+,
+          #   bloqueado actualmente por el date-lock de npm en el snapshot del proyecto.
+          BACKEND_EXCLUDED="GHSA-w5hq-g745-h8pq,GHSA-v2v4-37r5-5v8g"
           audit_with_exceptions backend "$BACKEND_EXCLUDED" "Backend"
 
           # ───── Frontend ─────

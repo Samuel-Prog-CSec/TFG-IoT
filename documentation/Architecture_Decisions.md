@@ -8052,3 +8052,58 @@ Tras el merge de esta PR a `main`:
 - **Conflicts del PR de release con cambios concurrentes**: si se mergan features mientras el PR de release está abierto, release-please rebase-eará el PR. Si hay conflictos en `CHANGELOG.md`, hay que resolver a mano (raro).
 - **Commits sin Conventional Commit format** son ignorados en el bump (no aparecen en CHANGELOG, no bump-ean). El commitlint del repo ya bloquea estos en pre-commit hook.
 
+## ADR-146: OpenAPI 3.1 publicado vía swagger-ui-express + swagger-jsdoc [Backend, Docs]
+
+**Fecha:** 2026-05-16
+**Estado:** Aceptado
+**Tarea:** T-909 (Sprint 6)
+
+### Contexto
+
+La API REST del proyecto tiene 11 routers (auth, users, mechanics, contexts, sessions, plays, decks, admin, analytics, metrics, notifications) con ~50 endpoints documentados de forma libre en `backend/docs/API_v0.5.0.md`. Mantener un Markdown sincronizado con cambios en código a mano se ha demostrado inviable: tres veces durante el Sprint 5 el doc estuvo desincronizado con la firma real de respuesta.
+
+Para v1.0.0 queremos:
+
+1. **Una fuente de verdad** que viva junto al código (cambios al endpoint y a su doc en el mismo commit).
+2. **Spec descargable** (`openapi.json`) para que cualquier cliente — frontend, generadores de SDK, herramientas de testing — pueda consumirla sin parsear Markdown.
+3. **UI interactiva** para que el contributor pueda explorar la API sin tener que leer toda la doc.
+4. **Diferenciación staging/prod** — en staging la UI es pública (facilita demo y onboarding); en producción requiere super_admin (no exponer la superficie completa a bots/escáneres).
+
+### Decisión
+
+- **`swagger-jsdoc@6.2.8`** extrae anotaciones `@openapi` desde JSDoc en `routes/*.js` y `controllers/*.js`. La spec base (info, servers, tags, components.securitySchemes, components.responses) vive en `backend/src/config/swagger.js`; los endpoints se anotan progresivamente.
+- **`swagger-ui-express@5.0.1`** sirve la UI en `/api/docs`. La spec se sirve también en `/api/openapi.json` para descarga.
+- **Stub mínimo viable**: en v1.0.0 sólo `auth` y `health` están anotados. El resto de routers tendrá `@openapi` en sprints posteriores. El estado actual es suficiente para que el lector entienda la estructura general y pueda explorar la spec.
+- **Diferenciación entorno**: `requiresAuthForDocs()` devuelve `true` cuando `APP_ENV=production`. En ese caso, el router `/api/docs` se monta detrás de `authenticate + requireRole('super_admin')`. El JSON spec (`/api/openapi.json`) sí queda público — sólo es la spec, no permite ejecutar nada.
+
+```js
+if (requiresAuthForDocs()) {
+  app.use('/api/docs', authenticate, requireRole('super_admin'), swaggerUi.serve, swaggerUi.setup(spec));
+} else {
+  app.use('/api/docs', swaggerUi.serve, swaggerUi.setup(spec));
+}
+```
+
+### Alternativas consideradas
+
+- **Mantener el `API_v0.5.0.md` manual**: descartado — el síndrome de "doc fuera de sync con código" ya causó tres bugs.
+- **Generar spec desde Zod schemas** (`@asteasolutions/zod-to-openapi`): tentador porque ya validamos con Zod, pero requiere reescribir todas las definiciones de schemas. Demasiado overhead para v1.0.0; reconsiderar en Sprint 7.
+- **Postman collection en lugar de OpenAPI**: descartado — OpenAPI 3.1 es estándar, Postman es vendor-locked.
+
+### Riesgos asumidos
+
+- **Anotaciones incompletas** en v1.0.0: sólo auth y health. Mitigación: el resto se completa en Sprint 7+ con un patrón ya establecido.
+- **Stub de spec puede engañar** a un consumidor que la trate como contrato completo. Mitigación: nota explícita en `info.description` apuntando a `Architecture_Decisions.md` para convenciones de respuesta.
+
+### Verificación
+
+```bash
+cd backend && npm run dev
+# Abrir en navegador
+# http://localhost:5000/api/docs        → Swagger UI con auth + health
+# http://localhost:5000/api/openapi.json → JSON descargable
+```
+
+En staging deploy: `https://api-staging-<org>.koyeb.app/api/docs` accesible públicamente.
+En prod deploy: `https://api-<org>.koyeb.app/api/docs` requiere login super_admin.
+

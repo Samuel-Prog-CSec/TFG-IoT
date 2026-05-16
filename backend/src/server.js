@@ -53,6 +53,9 @@ const {
 const asyncHandler = require('./utils/asyncHandler');
 const { registerSocketHandlers, registerRfidHandlers, stopCacheCleanup } = require('./realtime');
 const { setReady, setShuttingDown, getIsShuttingDown } = require('./utils/serverState');
+const swaggerUi = require('swagger-ui-express');
+const { swaggerSpec, requiresAuthForDocs } = require('./config/swagger');
+const { authenticate, requireRole } = require('./middlewares/auth');
 
 // Importar rutas
 const authRoutes = require('./routes/auth');
@@ -279,6 +282,27 @@ app.use('/api/metrics', metricsRoutes);
 
 // Rutas de notificaciones tiempo real (T-955)
 app.use('/api/notifications', notificationRoutes);
+
+// OpenAPI 3.1 (ADR-146)
+// - /api/openapi.json: spec descargable (siempre publico — útil para clientes generados)
+// - /api/docs: UI interactiva (publica en staging, auth super_admin en produccion)
+app.get('/api/openapi.json', (_req, res) => res.json(swaggerSpec));
+
+if (requiresAuthForDocs()) {
+  app.use(
+    '/api/docs',
+    authenticate,
+    requireRole('super_admin'),
+    swaggerUi.serve,
+    swaggerUi.setup(swaggerSpec, { customSiteTitle: 'EduPlay API — Docs' })
+  );
+} else {
+  app.use(
+    '/api/docs',
+    swaggerUi.serve,
+    swaggerUi.setup(swaggerSpec, { customSiteTitle: 'EduPlay API — Docs' })
+  );
+}
 
 // Rutas de salud, metricas e informacion del sistema
 app.use('/api', healthRoutes);
