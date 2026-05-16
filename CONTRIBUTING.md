@@ -143,9 +143,19 @@ git push -u origin fix/hotfix-descripcion
 
 ## CI/CD overview
 
+### Quality / Security workflows (corren en cada push y PR)
+
+| Workflow | Trigger | Hace | Bloquea |
+|---|---|---|---|
+| `build.yml` (CI) | Push/PR en `main`, `develop`, `Maintenance` | Lint, audit, tests, build, SonarCloud, **coverage gate (≥50% backend, ≥30% frontend)**, **bundle size budget (≤8 MB dist, ≤1.5 MB JS gzipped)** | Sí |
+| `codeql.yml` (SAST) | Push/PR + schedule semanal (lunes 06:00 UTC) | Análisis estático GitHub CodeQL (queries security-and-quality) sobre código JS/TS — detecta inyecciones, XSS, vulns de JWT, regex DoS | Sí (en PRs) |
+| `gitleaks.yml` | Push/PR + schedule semanal (domingo 05:00 UTC) | Escanea historial git por tokens y secretos accidentales. Allowlist en `.gitleaks.toml` | Sí |
+| `dependency-review.yml` | Sólo en PRs | Bloquea PRs que introducen deps con vulns ≥moderate o licencias GPL/AGPL/MPL/EUPL | Sí (sólo en PRs) |
+
+### Deploy workflows
+
 | Workflow | Trigger | Hace |
 |---|---|---|
-| `build.yml` (CI) | Push/PR en `main`, `develop`, `Maintenance` | Lint, audit, tests, build, SonarCloud |
 | `deploy-staging.yml` | `workflow_run` con CI verde en `Maintenance` | Redeploy api-staging + worker-staging en Koyeb |
 | `deploy-production.yml` | Push de tag `v*` o `workflow_dispatch` | Redeploy api-prod + worker-prod con approval gate |
 | `release-please.yml` | Push a `main` | Mantiene PR de release con CHANGELOG |
@@ -203,7 +213,21 @@ npm run lint
 npm run audit:prod    # en root corre backend + frontend
 ```
 
-Los hooks de husky corren `lint:staged` + tests relacionados en cada commit. Si fallan, el commit no se completa.
+Los hooks de husky corren:
+
+- **`pre-commit`** → `lint-staged` (lint del backend + tests `--findRelatedTests` para archivos modificados del backend; lint del frontend).
+- **`commit-msg`** → `commitlint` valida el formato Conventional Commits.
+- **`pre-push`** → lint completo + tests completos del backend y frontend (~2 min). Garantiza que no llegue al CI nada que ya rompa en local.
+
+Skips legítimos:
+
+```bash
+git commit --no-verify         # salta pre-commit y commit-msg (no abusar)
+git push --no-verify           # salta pre-push (emergencias)
+SKIP_PREPUSH=1 git push        # alias documentado para pre-push
+```
+
+Si abusas del `--no-verify`, el CI te lo recordará: lint + tests + CodeQL + gitleaks + dependency-review se ejecutan en GitHub Actions y bloquean el merge.
 
 ---
 

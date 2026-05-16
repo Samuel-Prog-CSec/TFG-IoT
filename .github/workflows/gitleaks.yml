@@ -1,0 +1,53 @@
+name: Gitleaks
+
+# Escanea el historial git en busca de tokens, secretos y credenciales
+# accidentalmente commiteados. Bloquea push/PR si encuentra match.
+#
+# Coste: gratis para repos personales (incluye GitHub Free).
+# Para organizaciones, requiere GITLEAKS_LICENSE secret.
+#
+# Si quieres ignorar un match conocido (ej. un placeholder en .env.example),
+# añadirlo a `.gitleaks.toml` con un allowlist regex documentado.
+
+on:
+  push:
+    branches: [main, develop, Maintenance]
+  pull_request:
+    branches: [main, develop, Maintenance]
+  schedule:
+    # Domingo 05:00 UTC: scan completo del historial por si se filtró algo
+    # en una rama que no pasó por PR (ej. cherry-pick manual).
+    - cron: "0 5 * * 0"
+
+permissions:
+  contents: read
+  pull-requests: write
+  security-events: write
+
+concurrency:
+  group: gitleaks-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  scan:
+    name: Scan secrets
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          # fetch-depth: 0 trae todo el historial — necesario para que
+          # gitleaks escanee también commits antiguos en cada run.
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Gitleaks scan
+        uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # GITLEAKS_ENABLE_COMMENTS=false silencia el comentario "Found secret"
+          # en PRs (lo dejamos en true para que el reviewer lo vea claro).
+          GITLEAKS_ENABLE_COMMENTS: true
+          # GITLEAKS_NOTIFY_USER_LIST: cuentas a notificar via mention en el PR.
+          # GITLEAKS_LICENSE: ${{ secrets.GITLEAKS_LICENSE }}  # sólo para orgs

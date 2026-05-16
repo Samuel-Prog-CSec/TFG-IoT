@@ -307,6 +307,73 @@ jobs:
         env:
           NODE_ENV: production
 
+      - name: Bundle size budget
+        # Umbrales en KB. Si el bundle frontend crece por encima, el CI falla.
+        # Ajustar aquí cuando se añadan dependencias grandes con justificación.
+        #
+        # MAX_DIST_KB: total del directorio dist/ (incluye HTML, CSS, JS, assets, fuentes).
+        # MAX_JS_GZIP_KB: suma de los .js minified + gzipped — la métrica que
+        #   más impacta el tiempo de carga real para el usuario.
+        env:
+          MAX_DIST_KB: 8192       # 8 MB total
+          MAX_JS_GZIP_KB: 1536    # 1.5 MB gzipped (JS chunks)
+        run: |
+          set -e
+          cd frontend/dist
+
+          # Tamaño total del directorio dist (en KB)
+          DIST_KB=$(du -sk . | awk '{print $1}')
+
+          # JS gzipped: sumamos el size gzipped de cada .js bajo assets/
+          # gzip -c imprime a stdout, wc -c cuenta bytes, dividimos a KB
+          JS_GZIP_BYTES=0
+          while IFS= read -r -d '' f; do
+            BYTES=$(gzip -c "$f" | wc -c)
+            JS_GZIP_BYTES=$((JS_GZIP_BYTES + BYTES))
+          done < <(find . -type f -name "*.js" -print0)
+          JS_GZIP_KB=$((JS_GZIP_BYTES / 1024))
+
+          echo "### Bundle Size Budget (frontend)" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "| Métrica | Valor actual | Umbral | Estado |" >> $GITHUB_STEP_SUMMARY
+          echo "|---------|--------------|--------|--------|" >> $GITHUB_STEP_SUMMARY
+
+          FAILED=0
+
+          if [ "$DIST_KB" -gt "$MAX_DIST_KB" ]; then
+            echo "| dist/ total | ${DIST_KB} KB | ${MAX_DIST_KB} KB | ❌ Excede |" >> $GITHUB_STEP_SUMMARY
+            echo "::error::frontend/dist es de ${DIST_KB} KB (umbral ${MAX_DIST_KB} KB)"
+            FAILED=1
+          else
+            PCT=$((DIST_KB * 100 / MAX_DIST_KB))
+            echo "| dist/ total | ${DIST_KB} KB | ${MAX_DIST_KB} KB | ✅ ${PCT}% del budget |" >> $GITHUB_STEP_SUMMARY
+          fi
+
+          if [ "$JS_GZIP_KB" -gt "$MAX_JS_GZIP_KB" ]; then
+            echo "| JS gzipped | ${JS_GZIP_KB} KB | ${MAX_JS_GZIP_KB} KB | ❌ Excede |" >> $GITHUB_STEP_SUMMARY
+            echo "::error::JS bundle gzipped ${JS_GZIP_KB} KB (umbral ${MAX_JS_GZIP_KB} KB)"
+            FAILED=1
+          else
+            PCT=$((JS_GZIP_KB * 100 / MAX_JS_GZIP_KB))
+            echo "| JS gzipped | ${JS_GZIP_KB} KB | ${MAX_JS_GZIP_KB} KB | ✅ ${PCT}% del budget |" >> $GITHUB_STEP_SUMMARY
+          fi
+
+          # Top 10 archivos más pesados (sin gzip) para investigación rápida.
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "<details><summary>Top 10 archivos más pesados</summary>" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
+          find . -type f \( -name "*.js" -o -name "*.css" -o -name "*.woff2" \) -exec du -k {} + | sort -rn | head -10 >> $GITHUB_STEP_SUMMARY
+          echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "</details>" >> $GITHUB_STEP_SUMMARY
+
+          if [ "$FAILED" -eq 1 ]; then
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "> Si el aumento es justificado (nueva librería pesada), sube los umbrales en \`.github/workflows/build.yml\` con justificación en el PR." >> $GITHUB_STEP_SUMMARY
+            exit 1
+          fi
+
   # ──────────────────────────────────────────────
   # Job 5: SonarCloud (informativo, no bloquea CI)
   # ──────────────────────────────────────────────
@@ -434,3 +501,68 @@ jobs:
           echo "|-----|--------|" >> $GITHUB_STEP_SUMMARY
           echo "| Backend Tests | ${{ needs.backend-tests.result == 'success' && '✅ Passed' || '❌ Failed' }} |" >> $GITHUB_STEP_SUMMARY
           echo "| Frontend Tests & Build | ${{ needs.frontend-checks.result == 'success' && '✅ Passed' || '❌ Failed' }} |" >> $GITHUB_STEP_SUMMARY
+
+      - name: Coverage gate
+        # Umbrales mínimos de cobertura. Si bajan, el job (y por tanto el CI) falla.
+        # Ajustar aquí cuando se introduzcan tests nuevos masivos (subir baseline)
+        # o cuando se decida relajar (ej. refactor masivo en sprint específico).
+        #
+        # No correr si los tests originales fallaron — sólo evaluamos cobertura
+        # sobre runs verdes (no queremos doble-fallar el CI por la misma causa).
+        if: needs.backend-tests.result == 'success' && needs.frontend-checks.result == 'success'
+        env:
+          BACKEND_MIN_COVERAGE: 50
+          FRONTEND_MIN_COVERAGE: 30
+        run: |
+          set -e
+
+          compute_pct() {
+            local file="$1"
+            if [ ! -f "$file" ]; then
+              echo "missing"
+              return
+            fi
+            local lh=$(awk -F: '/^LH:/{s+=$2} END{print s+0}' "$file")
+            local lf=$(awk -F: '/^LF:/{s+=$2} END{print s+0}' "$file")
+            if [ "$lf" -eq 0 ]; then
+              echo "0"
+              return
+            fi
+            echo $((lh * 100 / lf))
+          }
+
+          BACKEND_PCT=$(compute_pct "backend/coverage/lcov.info")
+          FRONTEND_PCT=$(compute_pct "frontend/coverage/lcov.info")
+
+          echo "### Coverage Gate" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "| Workspace | Cobertura | Umbral mínimo | Estado |" >> $GITHUB_STEP_SUMMARY
+          echo "|-----------|-----------|---------------|--------|" >> $GITHUB_STEP_SUMMARY
+
+          FAILED=0
+
+          if [ "$BACKEND_PCT" = "missing" ]; then
+            echo "| Backend | sin LCOV | ${BACKEND_MIN_COVERAGE}% | ⚠️ Sin datos |" >> $GITHUB_STEP_SUMMARY
+          elif [ "$BACKEND_PCT" -lt "$BACKEND_MIN_COVERAGE" ]; then
+            echo "| Backend | ${BACKEND_PCT}% | ${BACKEND_MIN_COVERAGE}% | ❌ Por debajo |" >> $GITHUB_STEP_SUMMARY
+            echo "::error::Backend coverage ${BACKEND_PCT}% < ${BACKEND_MIN_COVERAGE}% (umbral mínimo)"
+            FAILED=1
+          else
+            echo "| Backend | ${BACKEND_PCT}% | ${BACKEND_MIN_COVERAGE}% | ✅ |" >> $GITHUB_STEP_SUMMARY
+          fi
+
+          if [ "$FRONTEND_PCT" = "missing" ]; then
+            echo "| Frontend | sin LCOV | ${FRONTEND_MIN_COVERAGE}% | ⚠️ Sin datos |" >> $GITHUB_STEP_SUMMARY
+          elif [ "$FRONTEND_PCT" -lt "$FRONTEND_MIN_COVERAGE" ]; then
+            echo "| Frontend | ${FRONTEND_PCT}% | ${FRONTEND_MIN_COVERAGE}% | ❌ Por debajo |" >> $GITHUB_STEP_SUMMARY
+            echo "::error::Frontend coverage ${FRONTEND_PCT}% < ${FRONTEND_MIN_COVERAGE}% (umbral mínimo)"
+            FAILED=1
+          else
+            echo "| Frontend | ${FRONTEND_PCT}% | ${FRONTEND_MIN_COVERAGE}% | ✅ |" >> $GITHUB_STEP_SUMMARY
+          fi
+
+          if [ "$FAILED" -eq 1 ]; then
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "> Sube la cobertura añadiendo tests o ajusta el umbral en \`.github/workflows/build.yml\` con justificación." >> $GITHUB_STEP_SUMMARY
+            exit 1
+          fi

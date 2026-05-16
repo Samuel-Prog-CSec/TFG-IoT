@@ -8107,3 +8107,95 @@ cd backend && npm run dev
 En staging deploy: `https://api-staging-<org>.koyeb.app/api/docs` accesible públicamente.
 En prod deploy: `https://api-<org>.koyeb.app/api/docs` requiere login super_admin.
 
+## ADR-147: Hardening pipeline CI — SAST, secrets scanning, dep review, coverage gate y bundle budget [DevOps]
+
+**Fecha:** 2026-05-16
+**Estado:** Aceptado
+**Tarea:** Cerrar etapa CI antes del deploy
+
+### Contexto
+
+El pipeline CI (`build.yml`) cubría lint, audit, tests y build, pero faltaban cuatro capas que se vuelven críticas cuando el repositorio empieza a hacer deploys automáticos a cloud:
+
+1. **SAST**: análisis estático del propio código (no de dependencias) para detectar inyecciones, XSS, regex DoS, manejo inseguro de JWT/cookies. `npm audit` sólo cubre vulnerabilidades de dependencias, no de código nuestro.
+2. **Secrets scanning**: detectar tokens, credenciales o URIs con password commiteadas accidentalmente. Particularmente importante ahora que el operador maneja `KOYEB_API_TOKEN`, `MONGO_URI` y `JWT_SECRET` reales.
+3. **Dependency review en PRs**: dependabot abre PRs nocturnos, pero un PR humano que añade `npm install <pkg-vulnerable>` no se detectaba hasta el siguiente audit. La GitHub Action `dependency-review-action` analiza el diff del PR contra base branch y bloquea inmediatamente.
+4. **Coverage gate**: SonarCloud reportaba cobertura pero el job estaba en `continue-on-error: true`. Un PR que tirara cobertura en 20 puntos pasaba CI igual.
+5. **Bundle size budget**: ningún check sobre el tamaño del bundle frontend. Una librería pesada añadida sin querer (ej. `moment` en lugar de date-fns) inflaría el bundle sin alerta.
+
+Además, el `pre-commit` corría sólo lint-staged + tests relacionados — un commit con cambios masivos pasaba pre-commit pero rompía CI por tests del workspace que `--findRelatedTests` no detectaba (ej. cambio de schema Mongoose que rompe tests de controller).
+
+### Decisión
+
+**Cuatro workflows nuevos + dos checks añadidos al CI existente + un hook husky nuevo.**
+
+#### Workflows nuevos
+
+| Workflow | Tooling | Tirado por | Bloqueante |
+|---|---|---|---|
+| `codeql.yml` | `github/codeql-action@v3` con queries `security-and-quality` | Push/PR + schedule lunes 06:00 UTC | Sí (branch protection) |
+| `gitleaks.yml` | `gitleaks/gitleaks-action@v2` | Push/PR + schedule domingo 05:00 UTC | Sí |
+| `dependency-review.yml` | `actions/dependency-review-action@v4` | Sólo PRs | Sí (con `fail-on-severity: moderate`) |
+
+`.gitleaks.toml` (root) con allowlist para placeholders documentados (`.env.example`, docs, seeders) y credenciales de seed conocidas (`Admin1234!`, `Test1234!`, etc.) — así el scan no marca falsos positivos en cada commit.
+
+`dependency-review-action` configurado con licencias permitidas (MIT, Apache, BSD, ISC, 0BSD, etc.) y prohibidas (GPL-2.0, GPL-3.0, AGPL, MPL, EUPL). Las advisories `GHSA-w5hq-g745-h8pq` y `GHSA-v2v4-37r5-5v8g` están en `allow-ghsas` (ya documentadas en `build.yml` como no alcanzables).
+
+#### Checks añadidos al CI existente
+
+- **Coverage gate** en el job `quality-report`: parsea LCOV de backend y frontend, calcula cobertura global, **falla** si baja de `BACKEND_MIN_COVERAGE=50%` o `FRONTEND_MIN_COVERAGE=30%`. Sólo se evalúa si los tests originales pasaron (no doble-fallar por la misma causa).
+- **Bundle size budget** en el job `frontend-checks` tras `npm run build`: mide `frontend/dist` total y suma gzip de los `.js`. Falla si excede `MAX_DIST_KB=8192` (8 MB) o `MAX_JS_GZIP_KB=1536` (1.5 MB). Reporta top 10 archivos más pesados como detalle expandible para investigación rápida.
+
+#### Hook husky nuevo
+
+`.husky/pre-push`: corre lint completo y `npm test` completo en backend y frontend (~2 min total). Bypass documentado con `git push --no-verify`, `SKIP_PREPUSH=1`, o cuando `$CI=true` (skip automático en GitHub Actions).
+
+### Justificación de umbrales y tradeoffs
+
+- **Coverage 50%/30%** son baselines actuales (medidos en el último run de develop). Pretenden ser un *no-regression gate*: si bajas, has perdido cobertura sin justificación. Para subir el listón, primero sube el baseline con tests nuevos y luego sube el umbral en un PR dedicado.
+- **Bundle 8 MB / 1.5 MB gzipped** son ~3× del actual (deja margen para crecer un par de sprints). Si el bundle se duplica de golpe, casi siempre es por una dep nueva pesada que se puede sustituir o cargar lazy.
+- **CodeQL `security-and-quality`** incluye reglas de calidad además de seguridad — genera más alertas que `security-extended`, pero el ratio señal/ruido es bueno en código JS pequeño-mediano. Cambiar a `security-extended` si emerge ruido.
+- **Pre-push 2 min** es asumible para el flujo de TFG (commits frecuentes pero pushes menos frecuentes). Para PRs grandes con muchos commits intermedios, los pushes pueden lanzarse con `--no-verify` y dejar que CI haga la validación.
+- **Gitleaks personal vs org**: el `GITLEAKS_LICENSE` secret sólo se requiere para repos de organización. El repo del TFG está en cuenta personal — la action es gratis.
+
+### Alternativas consideradas
+
+- **`semgrep` en vez de CodeQL**: más rules custom y más rápido en CI, pero requiere mantenimiento de reglas. CodeQL es zero-config para JS/TS.
+- **`trufflehog` en vez de gitleaks**: ambos son válidos. gitleaks tiene mejor UX para `.toml` config y se integra mejor en PR comments.
+- **`bundlesize` o `size-limit` npm packages** en vez de script bash: descartado por no añadir más deps al proyecto; el script de 30 líneas hace lo mismo con `du` + `gzip` builtin del runner.
+- **Coverage gate vía SonarCloud Quality Gate (required check)**: dependería de configuración externa en sonarcloud.io. Hacerlo en el propio workflow lo hace versionable y reproducible.
+
+### Verificación
+
+```bash
+# Validar sintaxis YAML local antes de pushear
+npx js-yaml .github/workflows/codeql.yml > /dev/null
+npx js-yaml .github/workflows/gitleaks.yml > /dev/null
+npx js-yaml .github/workflows/dependency-review.yml > /dev/null
+npx js-yaml .github/workflows/build.yml > /dev/null
+
+# Probar pre-push hook
+git push --dry-run                     # debe correr lint + tests
+SKIP_PREPUSH=1 git push --dry-run      # debe saltarlos
+
+# Tras el push, verificar en GitHub Actions:
+# - codeql.yml ejecuta y sube resultados a Security → Code scanning
+# - gitleaks.yml escanea historial
+# - dependency-review.yml sólo aparece en PRs
+# - build.yml ahora tiene "Coverage gate" y "Bundle size budget" en su summary
+```
+
+### Branch protection — pasos en GitHub
+
+Para que estos workflows realmente bloqueen merges, configurar en repo Settings → Branches → Branch protection rule (en `main` y `Maintenance`):
+
+- ✅ Require status checks to pass before merging
+- ✅ Status checks required:
+  - `CI / Lint`
+  - `CI / Backend Tests`
+  - `CI / Frontend Tests & Build`
+  - `CI / Quality Report` (incluye coverage gate)
+  - `CodeQL / Analyze JavaScript/TypeScript`
+  - `Gitleaks / Scan secrets`
+  - `Dependency Review / Dependency Review` (sólo en PRs)
+

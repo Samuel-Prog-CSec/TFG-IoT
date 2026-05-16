@@ -1,0 +1,53 @@
+name: Dependency Review
+
+# Analiza el diff de dependencias del PR contra la base branch.
+# Bloquea PRs que:
+#   - introducen deps con vulnerabilidades de severidad >= 'moderate'
+#   - introducen licencias prohibidas (GPL, AGPL — incompatibles con MIT)
+#
+# Complementa a npm audit + dependabot: audit corre nocturno y dependabot
+# crea PRs, pero un PR humano que añade `npm install <pkg>` con vulns nuevas
+# sólo lo captura este workflow.
+#
+# Docs: https://docs.github.com/en/code-security/supply-chain-security/understanding-your-software-supply-chain/about-dependency-review
+
+on:
+  pull_request:
+    branches: [main, develop, Maintenance]
+
+permissions:
+  contents: read
+  pull-requests: write
+
+concurrency:
+  group: dependency-review-pr-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  review:
+    name: Dependency Review
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+
+      - name: Dependency Review
+        uses: actions/dependency-review-action@v4
+        with:
+          # Cualquier vuln moderate o mayor introducida en el PR falla el check.
+          # 'low' es ruidoso; 'high' deja pasar moderates que son frecuentes.
+          fail-on-severity: moderate
+          # Licencias permitidas (open-source compatibles con MIT/Apache).
+          # Si necesitas añadir una, justifícalo en el PR description.
+          allow-licenses: MIT, Apache-2.0, BSD-2-Clause, BSD-3-Clause, ISC, 0BSD, CC0-1.0, Unlicense, Python-2.0, BlueOak-1.0.0
+          # Licencias explícitamente prohibidas (copyleft fuerte).
+          deny-licenses: GPL-2.0, GPL-3.0, AGPL-1.0, AGPL-3.0, LGPL-3.0, EUPL-1.2, MPL-2.0
+          # Comentar el resumen en el PR para visibilidad rápida.
+          comment-summary-in-pr: on-failure
+          # Permitir que el dependency advisory `GHSA-w5hq-g745-h8pq` y
+          # `GHSA-v2v4-37r5-5v8g` no bloqueen el PR — ya están documentados
+          # en build.yml como no alcanzables en nuestro código.
+          allow-ghsas: GHSA-w5hq-g745-h8pq, GHSA-v2v4-37r5-5v8g

@@ -1,0 +1,64 @@
+#!/usr/bin/env sh
+# pre-push: bloquea cualquier push si lint o tests no pasan.
+#
+# Filosofía: tu CI tarda ~9 minutos. Mejor pagar ~2 minutos en local antes
+# del push que arrancar el CI y descubrir el fallo después. Más importante
+# ahora que hay deploys automáticos a staging tras push a Maintenance: un
+# push verde en local maximiza la probabilidad de un deploy limpio.
+#
+# Skip estándar para emergencias documentadas:
+#   git push --no-verify
+# (úsalo sólo si sabes lo que haces — el CI no perdona)
+#
+# Variables de escape adicionales para no romper flujos automáticos:
+#   - $CI=true (siempre seteado por GitHub Actions): skip
+#   - $HUSKY=0 (forzar bypass): skip
+#   - $SKIP_PREPUSH=1 (alias documentado): skip
+
+if [ "$CI" = "true" ] || [ "$HUSKY" = "0" ] || [ "$SKIP_PREPUSH" = "1" ]; then
+  echo "pre-push: skipped (CI/HUSKY/SKIP_PREPUSH)"
+  exit 0
+fi
+
+cd "$(git rev-parse --show-toplevel)" || exit 1
+
+echo ""
+echo "─── pre-push: lint + tests completos ────────────────────────────"
+echo "  (skip con: git push --no-verify)"
+echo ""
+
+# Backend: lint primero (rápido), después tests
+echo "▶ Backend lint..."
+if ! npm --prefix backend run lint; then
+  echo ""
+  echo "❌ Backend lint falló — corrige antes de pushear."
+  exit 1
+fi
+
+echo ""
+echo "▶ Backend tests (Jest, ~90s)..."
+if ! npm --prefix backend test -- --coverage=false --silent; then
+  echo ""
+  echo "❌ Backend tests fallaron — corrige antes de pushear."
+  exit 1
+fi
+
+# Frontend: lint primero, después tests
+echo ""
+echo "▶ Frontend lint..."
+if ! npm --prefix frontend run lint; then
+  echo ""
+  echo "❌ Frontend lint falló — corrige antes de pushear."
+  exit 1
+fi
+
+echo ""
+echo "▶ Frontend tests (Vitest, ~40s)..."
+if ! npm --prefix frontend test -- --run --coverage=false; then
+  echo ""
+  echo "❌ Frontend tests fallaron — corrige antes de pushear."
+  exit 1
+fi
+
+echo ""
+echo "✓ pre-push verde — pushing..."
