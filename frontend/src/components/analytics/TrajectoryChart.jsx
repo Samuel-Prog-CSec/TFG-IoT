@@ -146,7 +146,7 @@ function TrajectoryChart({ trajectoryData, classComparison, title = 'Trayectoria
         title={title}
         summary={accessibleSummary}
         dataTable={accessibleDataTable}
-        dataTableCaption={`Detalle de la trayectoria del alumno por fecha`}
+        dataTableCaption="Detalle de la trayectoria del alumno por fecha"
         headerExtra={
           <div className={cn("flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-semibold", trendStyle.bg, trendStyle.color)} aria-label={`Tendencia: ${trendStyle.label}`}>
             <TrendIcon size={14} aria-hidden="true" />

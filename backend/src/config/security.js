@@ -256,7 +256,12 @@ const corsOptions = {
  */
 const CSRF_COOKIE_NAME = 'csrfToken';
 const CSRF_HEADER_NAME = 'x-csrf-token';
-const skipPaths = new Set(['/api/auth/login', '/api/auth/register', '/api/auth/refresh']);
+const skipPaths = new Set([
+  '/api/auth/login',
+  '/api/auth/register',
+  '/api/auth/refresh',
+  '/api/csp-report' // T-905 B5: navegador envía sin cookies/headers de auth
+]);
 const writeMethods = new Set(['POST', 'PUT', 'DELETE', 'PATCH']);
 
 const buildCsrfCookieOptions = () => {
@@ -342,44 +347,112 @@ const csrfProtection = (req, res, next) => {
 };
 
 /**
- * Opciones de Helmet para security headers.
- * Configura CSP restrictivo adaptado al proyecto.
+ * Construye las opciones de Helmet diferenciadas por entorno (T-905 B5).
  *
- * @type {import('helmet').HelmetOptions}
+ * Las diferencias clave entre dev y prod:
+ * - **scriptSrc**: prod añade `https://*.sentry.io` + `https://challenges.cloudflare.com`
+ *   (Turnstile, B6); dev mantiene solo `'self'` y permite HMR si fuese necesario.
+ * - **connectSrc**: prod incluye dominio WSS de producción (variable `WSS_DOMAIN`).
+ * - **HSTS**: prod usa `maxAge: 63072000` (2 años) para inclusión en hstspreload.org.
+ * - **reportUri**: prod reporta violaciones a `/api/csp-report` (Sentry vía backend).
+ * - **CSP_REPORT_ONLY=true**: opcional para staging — recolecta violaciones sin bloquear,
+ *   útil tras cambios importantes en la política antes de hacer enforce.
+ *
+ * NOTA: `styleSrc` mantiene `'unsafe-inline'` por compromiso pragmático: Tailwind v4
+ * con `@layer` y Framer Motion inyectan inline styles dinámicos. CSP estricta en
+ * `scriptSrc` (el vector XSS real) sigue intacta — la justificación está documentada
+ * en ADR-149 (T-905).
+ *
+ * @param {string} env - Valor de NODE_ENV o equivalente.
+ * @returns {import('helmet').HelmetOptions}
  */
-const helmetOptions = {
-  contentSecurityPolicy: {
-    directives: {
-      defaultSrc: ["'self'"],
-      baseUri: ["'self'"],
-      fontSrc: ["'self'", 'https:', 'data:'],
-      formAction: ["'self'"],
-      frameAncestors: ["'none'"], // Prevenir clickjacking
-      imgSrc: ["'self'", 'data:', 'https:'], // Permitir imágenes de Supabase
-      scriptSrc: ["'self'"],
-      scriptSrcAttr: ["'none'"],
-      styleSrc: ["'self'", 'https:', "'unsafe-inline'"], // Tailwind requiere unsafe-inline
-      upgradeInsecureRequests: [], // Forzar HTTPS en producción
-      mediaSrc: ["'self'", 'https:'], // Permitir audios de Supabase
-      connectSrc: [
-        "'self'",
-        'https://api.sentry.io', // Sentry
-        process.env.SUPABASE_URL || '' // Supabase Storage
-      ].filter(Boolean)
+const buildHelmetOptions = (env = process.env.NODE_ENV) => {
+  const isProd = env === 'production';
+  const supabaseHost = process.env.SUPABASE_URL || '';
+  const wssDomain = process.env.WSS_DOMAIN || ''; // p. ej. wss://api-prod.koyeb.app
+  const turnstile = 'https://challenges.cloudflare.com'; // B6 CAPTCHA
+
+  // scriptSrc: en prod añadimos Sentry + Turnstile (Cloudflare CAPTCHA, B6).
+  // NUNCA añadir 'unsafe-inline' o 'unsafe-eval' a scriptSrc — es el vector XSS principal.
+  const scriptSrc = ["'self'"];
+  if (isProd) {
+    scriptSrc.push('https://*.sentry.io', turnstile);
+  }
+
+  // connectSrc: backend XHR, WS, Sentry ingest, Supabase Storage, Turnstile siteverify.
+  const connectSrc = ["'self'", 'https://*.sentry.io', 'https://challenges.cloudflare.com'];
+  if (supabaseHost) {
+    connectSrc.push(supabaseHost);
+  }
+  if (isProd && wssDomain) {
+    connectSrc.push(wssDomain);
+  } else if (!isProd) {
+    // dev: permitir cualquier WS local (Vite, Socket.IO local)
+    connectSrc.push('ws:', 'wss:');
+  }
+
+  // imgSrc + mediaSrc: Supabase Storage tiene dominio variable según proyecto.
+  const supabaseDomain = supabaseHost || 'https://*.supabase.co';
+  const imgSrc = ["'self'", 'data:', supabaseDomain];
+  if (!isProd) {
+    imgSrc.push('https:'); // dev: permitir cualquier imagen externa (placeholder, etc.)
+  }
+
+  const cspDirectives = {
+    defaultSrc: ["'self'"],
+    baseUri: ["'self'"],
+    fontSrc: ["'self'", 'https://fonts.gstatic.com', 'data:'],
+    formAction: ["'self'"],
+    frameAncestors: ["'none'"], // Prevenir clickjacking
+    frameSrc: ["'self'", turnstile], // Turnstile widget se renderiza en iframe
+    imgSrc,
+    scriptSrc,
+    scriptSrcAttr: ["'none'"],
+    styleSrc: ["'self'", "'unsafe-inline'", 'https://fonts.googleapis.com'], // Tailwind v4 + Framer
+    upgradeInsecureRequests: isProd ? [] : null, // Solo en prod (HTTPS forzado)
+    mediaSrc: ["'self'", supabaseDomain],
+    workerSrc: ["'self'", 'blob:'], // service workers / web workers locales
+    connectSrc
+  };
+
+  // Endpoint de reportes para violaciones CSP (B5). En prod siempre, en dev opcional
+  // para no contaminar logs con cosas que se sabe que no aplican.
+  if (isProd) {
+    cspDirectives.reportUri = ['/api/csp-report'];
+  }
+
+  // Limpia directivas con valor null para no enviarlas (upgradeInsecureRequests).
+  for (const key of Object.keys(cspDirectives)) {
+    if (cspDirectives[key] === null) {
+      delete cspDirectives[key];
     }
-  },
-  crossOriginEmbedderPolicy: false, // Necesario para audio/video cross-origin
-  crossOriginResourcePolicy: { policy: 'cross-origin' }, // Permitir recursos de Supabase
-  xPoweredBy: false, // Ocultar tecnología del servidor
-  hsts: {
-    maxAge: 31536000, // 1 año
-    includeSubDomains: true,
-    preload: true
-  },
-  noSniff: true, // X-Content-Type-Options
-  xssFilter: true, // X-XSS-Protection
-  referrerPolicy: { policy: 'strict-origin-when-cross-origin' }
+  }
+
+  return {
+    contentSecurityPolicy: {
+      directives: cspDirectives,
+      // CSP_REPORT_ONLY=true: recolecta violaciones sin bloquear contenido. Útil al
+      // promover una política nueva a staging durante 1 semana antes de enforce.
+      reportOnly: process.env.CSP_REPORT_ONLY === 'true'
+    },
+    crossOriginEmbedderPolicy: false, // Audio/video cross-origin requieren COEP off
+    crossOriginResourcePolicy: { policy: 'cross-origin' }, // Recursos de Supabase
+    xPoweredBy: false,
+    hsts: {
+      // T-905 B5: 2 años en prod para hstspreload.org (requisito de inclusión).
+      maxAge: isProd ? 63072000 : 31536000,
+      includeSubDomains: true,
+      preload: true
+    },
+    noSniff: true,
+    xssFilter: true,
+    referrerPolicy: { policy: 'strict-origin-when-cross-origin' }
+  };
 };
+
+// Mantener export compatible con consumidores existentes — referencia evaluada al
+// require-time del módulo (NODE_ENV ya está fijado cuando server.js arranca).
+const helmetOptions = buildHelmetOptions();
 
 /**
  * Rate limiter global para prevenir ataques DoS.
@@ -389,9 +462,11 @@ const helmetOptions = {
  */
 const isDev = process.env.NODE_ENV === 'development';
 const globalWindowMs = Number.parseInt(process.env.RATE_LIMIT_WINDOW_MS, 10) || 15 * 60 * 1000;
+// T-905 B4: recalibrado a 1000 req/15min en prod para 10-30 docentes activos + picos
+// de 100 alumnos. El valor antiguo (100) provocaba 429 con uso normal en clase.
 const globalMax = isDev
   ? Number.parseInt(process.env.RATE_LIMIT_MAX_REQUESTS_DEV, 10) || 2000
-  : Number.parseInt(process.env.RATE_LIMIT_MAX_REQUESTS, 10) || 100;
+  : Number.parseInt(process.env.RATE_LIMIT_MAX_REQUESTS, 10) || 1000;
 
 const globalRateLimiter = createRateLimiter({
   prefix: 'global',
@@ -429,6 +504,32 @@ const authRateLimiter = createRateLimiter({
 });
 
 /**
+ * Rate limiter "loose" para endpoints de auth menos sensibles que login.
+ * Pensado para `POST /api/auth/refresh` y `GET /api/auth/me`, que se invocan
+ * con cierta frecuencia legítima durante una sesión activa (refresh ~5min,
+ * me en muchos pages). 20/15min es suficiente para uso normal y bloquea
+ * sondeos abusivos. Login y register siguen con sus limiters más estrictos.
+ *
+ * T-905 B4.
+ *
+ * @type {import('express-rate-limit').RateLimitRequestHandler}
+ */
+const authLooseRateLimiter = createRateLimiter({
+  prefix: 'auth-loose',
+  windowMs: Number.parseInt(process.env.RATE_LIMIT_AUTH_LOOSE_WINDOW_MS, 10) || 15 * 60 * 1000,
+  max: isDev
+    ? Number.parseInt(process.env.RATE_LIMIT_AUTH_LOOSE_MAX_DEV, 10) || 2000
+    : Number.parseInt(process.env.RATE_LIMIT_AUTH_LOOSE_MAX, 10) || 20,
+  message: {
+    success: false,
+    message: 'Demasiadas peticiones de auth, por favor intenta más tarde'
+  },
+  standardHeaders: true,
+  legacyHeaders: false,
+  keyGenerator: userOrIpKeyGenerator
+});
+
+/**
  * Rate limiter específico para registro de profesores.
  * Muy restrictivo para reducir bots.
  *
@@ -452,10 +553,13 @@ const registerRateLimiter = createRateLimiter({
  *
  * @type {import('express-rate-limit').RateLimitRequestHandler}
  */
+// T-905 B4: creationLimiter recalibrado de 10/min → 50/hora. Un docente activo
+// puede crear varios mazos+sesiones por hora durante preparación de clases; el
+// límite por minuto antiguo era restrictivo y producía 429 en ráfagas de trabajo.
 const createResourceRateLimiter = createRateLimiter({
   prefix: 'create',
-  windowMs: Number.parseInt(process.env.RATE_LIMIT_CREATE_WINDOW_MS, 10) || 60 * 1000,
-  max: Number.parseInt(process.env.RATE_LIMIT_CREATE_MAX_REQUESTS, 10) || (isDev ? 200 : 10),
+  windowMs: Number.parseInt(process.env.RATE_LIMIT_CREATE_WINDOW_MS, 10) || 60 * 60 * 1000,
+  max: Number.parseInt(process.env.RATE_LIMIT_CREATE_MAX_REQUESTS, 10) || (isDev ? 500 : 50),
   message: {
     success: false,
     message: 'Demasiadas operaciones de creación, espera un momento'
@@ -548,8 +652,10 @@ module.exports = {
   ensureCsrfCookie,
   csrfProtection,
   helmetOptions,
+  buildHelmetOptions,
   globalRateLimiter,
   authRateLimiter,
+  authLooseRateLimiter,
   registerRateLimiter,
   createResourceRateLimiter,
   eventRateLimiter,

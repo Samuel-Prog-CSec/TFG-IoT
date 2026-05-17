@@ -244,7 +244,7 @@ async function markRead(userId, notificationId) {
   const doc = await Notification.findOneAndUpdate(
     { _id: notificationId, userId },
     { $set: { read: true, readAt: new Date() } },
-    { new: true }
+    { returnDocument: 'after' }
   );
 
   if (!doc) {

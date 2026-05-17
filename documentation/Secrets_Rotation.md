@@ -19,6 +19,13 @@
 | `KOYEB_API_TOKEN` | Koyeb + GitHub Secrets | CD deploy desde Actions | **6 meses** |
 | `CLOUDFLARE_API_TOKEN` (si se usa) | Cloudflare + GitHub Secrets | Build hook manual | **12 meses** |
 | `SUPER_ADMIN_PASSWORD` | Seed + Koyeb env | Bootstrap del primer super admin | Cambiar tras primer login |
+| `JWT_MFA_SECRET` (T-905 B7) | Koyeb Secrets (`api-*`) | Firma de MFA tokens cortos (5min) | **6 meses** (mismo ciclo que JWT_SECRET) |
+| `MFA_ENCRYPTION_KEY` (T-905 B7) | Koyeb Secrets (`api-*`) | Cifra/descifra TOTP secrets en BD AES-256-GCM | **12 meses** o ante incidente. ⚠️ Rotar invalida `mfa.secret` cifrados — super_admins deben re-setup MFA |
+| `RFID_HMAC_SECRET` (T-905 B8) | Koyeb Secrets + PlatformIO build env | Firma HMAC del UID en firmware y validación backend | **On-firmware-update** (re-flashear sensores) |
+| `TURNSTILE_SECRET` (T-905 B6) | Cloudflare + Koyeb Secrets | CAPTCHA siteverify backend | **12 meses** o ante incidente |
+| `VITE_TURNSTILE_SITEKEY` (T-905 B6) | Cloudflare + frontend build env | Render del widget Turnstile | Junto al secret (no rota independiente) |
+| `CSP_REPORT_ONLY` (T-905 B5) | Koyeb env | Feature flag para CSP gradual rollout | No es secret, control operativo |
+| `ACCOUNT_LOCKOUT_*` (T-905 B1) | Koyeb env | Config thresholds lockout per-user | No es secret, ajuste fino |
 
 > ⚠️ Estas periodicidades aplican en condiciones normales. **Ante cualquier incidente (commit con credenciales, fuga sospechada, leak de logs)**, rota inmediatamente sin esperar a la fecha programada.
 

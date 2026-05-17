@@ -24,6 +24,7 @@ const {
 
 const { authenticate, requireRole } = require('../middlewares/auth');
 const { createResourceRateLimiter, exportDataRateLimiter } = require('../config/security');
+const { requireMfa } = require('../middlewares/requireMfa');
 const { validateBody, validateQuery, validateParams } = require('../middlewares/validation');
 const {
   createStudentSchema,
@@ -221,6 +222,7 @@ router.delete(
   '/:id/data',
   authenticate,
   requireRole('super_admin'),
+  requireMfa, // T-905 B7: hard delete RGPD requiere MFA reciente
   validateParams(userIdParamsSchema),
   validateQuery(emptyObjectSchema),
   validateBody(hardDeleteSchema),

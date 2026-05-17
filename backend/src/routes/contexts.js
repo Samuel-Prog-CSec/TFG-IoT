@@ -43,6 +43,10 @@ const asyncHandler = require('../utils/asyncHandler');
 
 const { IMAGE_CONFIG } = require('../services/imageProcessingService');
 const { AUDIO_CONFIG } = require('../services/audioValidationService');
+const {
+  validateImageMagicBytes,
+  validateAudioMagicBytes
+} = require('../middlewares/fileValidation');
 
 /**
  * Configuración de Multer para imágenes.
@@ -173,6 +177,7 @@ router.post(
   validateParams(gameContextIdParamsSchema),
   validateQuery(emptyObjectSchema),
   imageUpload.single('file'),
+  validateImageMagicBytes, // T-905 B3: defense in depth contra MIME spoofing
   validateBody(uploadAssetMetaSchema),
   asyncHandler(uploadImage)
 );
@@ -192,6 +197,7 @@ router.post(
   validateParams(gameContextIdParamsSchema),
   validateQuery(emptyObjectSchema),
   audioUpload.single('file'),
+  validateAudioMagicBytes, // T-905 B3: defense in depth contra MIME spoofing
   validateBody(uploadAssetMetaSchema),
   asyncHandler(uploadAudio)
 );
@@ -211,6 +217,7 @@ router.patch(
   validateParams(gameContextAssetParamsSchema),
   validateQuery(emptyObjectSchema),
   audioUpload.single('file'),
+  validateAudioMagicBytes, // T-905 B3: defense in depth contra MIME spoofing
   asyncHandler(attachAudio)
 );
 

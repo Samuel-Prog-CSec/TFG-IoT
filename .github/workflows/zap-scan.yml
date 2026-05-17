@@ -1,0 +1,92 @@
+name: OWASP ZAP Baseline Scan
+
+# T-905 B10: scan pasivo de OWASP ZAP para detectar vulnerabilidades comunes
+# en la aplicación corriendo. NO bloquea CI (es informativo, on-demand).
+#
+# Disparo:
+#   - workflow_dispatch (manual) con `target_url` configurable.
+#   - schedule mensual (día 1 a las 04:00 UTC) contra staging si está disponible.
+#
+# Output: report HTML/JSON subido como artifact + opcionalmente issue auto-creado.
+#
+# Ejecución local (sin GitHub Actions):
+#   docker compose up -d
+#   docker run --rm -v "$(pwd)/zap-report:/zap/wrk/:rw" -t ghcr.io/zaproxy/zaproxy:stable \
+#     zap-baseline.py -t http://host.docker.internal:80 -r report.html
+#
+# Triage: ver documentation/SECURITY.md sección "OWASP ZAP procedure".
+
+on:
+  workflow_dispatch:
+    inputs:
+      target_url:
+        description: 'URL del target a escanear (default: staging)'
+        required: false
+        default: 'https://eduplay-staging.koyeb.app'
+      fail_on_warnings:
+        description: '¿Fallar el workflow si hay warnings (no solo fail)?'
+        required: false
+        type: boolean
+        default: false
+  schedule:
+    # Día 1 de cada mes a las 04:00 UTC (06:00 Europe/Madrid en verano)
+    - cron: '0 4 1 * *'
+
+permissions:
+  contents: read
+  issues: write
+  security-events: write
+
+jobs:
+  zap-baseline:
+    name: ZAP Baseline scan
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 1
+
+      - name: Resolver target URL
+        id: target
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            echo "url=${{ inputs.target_url }}" >> $GITHUB_OUTPUT
+          else
+            echo "url=https://eduplay-staging.koyeb.app" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Verificar que el target responde
+        run: |
+          set -e
+          echo "Comprobando ${{ steps.target.outputs.url }}/health…"
+          curl -fsSL --max-time 30 "${{ steps.target.outputs.url }}/health" || {
+            echo "::warning::Target no responde — scan abortado"
+            exit 1
+          }
+
+      - name: ZAP Baseline Scan
+        uses: zaproxy/action-baseline@v0.13.0
+        with:
+          target: ${{ steps.target.outputs.url }}
+          # Reglas a silenciar (false positives conocidos):
+          rules_file_name: '.zap/rules.tsv'
+          # Comando ZAP: -j habilita JSON output, -m 5 spider máx 5min, -T 5 active timeout 5min
+          cmd_options: '-J zap-report.json -j -m 5 -T 5'
+          # No fallar si solo hay warnings; sí fallar si hay errores reales
+          fail_action: ${{ inputs.fail_on_warnings || false }}
+          issue_title: 'OWASP ZAP scan findings — ${{ github.run_id }}'
+          allow_issue_writing: true
+
+      - name: Subir report como artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: zap-scan-report-${{ github.run_id }}
+          path: |
+            report_html.html
+            report_md.md
+            report_json.json
+            zap-report.json
+          retention-days: 30

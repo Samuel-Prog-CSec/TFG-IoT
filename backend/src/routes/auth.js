@@ -16,8 +16,28 @@ const {
   refreshAccessToken
 } = require('../controllers/authController');
 
-const { authenticate, logout } = require('../middlewares/auth');
-const { registerRateLimiter } = require('../config/security');
+const { authenticate, logout, requireRole } = require('../middlewares/auth');
+const {
+  registerRateLimiter,
+  authRateLimiter,
+  authLooseRateLimiter
+} = require('../config/security');
+const { requireCaptchaIfFlagged } = require('../middlewares/turnstileGuard');
+const { requireMfa } = require('../middlewares/requireMfa');
+const {
+  setupInit,
+  setupVerify,
+  challenge: mfaChallenge,
+  verifyBackupCode,
+  regenerateBackupCodes,
+  disable: mfaDisable
+} = require('../controllers/mfaController');
+const {
+  setupVerifySchema,
+  challengeSchema,
+  verifyBackupCodeSchema,
+  disableSchema
+} = require('../validators/mfaValidator');
 const { validateBody, validateQuery } = require('../middlewares/validation');
 const { registerTeacherSchema, loginSchema } = require('../validators/userValidator');
 const {
@@ -97,8 +117,10 @@ router.post(
  */
 router.post(
   '/login',
+  authRateLimiter, // T-905 B4: strict 5/15min en prod, ataque brute-force
   validateQuery(emptyObjectSchema),
   validateBody(loginSchema),
+  asyncHandler(requireCaptchaIfFlagged), // T-905 B6: CAPTCHA tras 3 fallos (opt-in env)
   asyncHandler(login)
 );
 
@@ -115,7 +137,13 @@ router.post(
  *       200: { description: Perfil del usuario }
  *       401: { $ref: '#/components/responses/UnauthorizedError' }
  */
-router.get('/me', authenticate, validateQuery(emptyObjectSchema), asyncHandler(getProfile));
+router.get(
+  '/me',
+  authLooseRateLimiter, // T-905 B4: loose 20/15min — frecuente durante sesión activa
+  authenticate,
+  validateQuery(emptyObjectSchema),
+  asyncHandler(getProfile)
+);
 
 /**
  * @route   PUT /api/auth/me
@@ -153,6 +181,7 @@ router.put(
  */
 router.post(
   '/refresh',
+  authLooseRateLimiter, // T-905 B4: loose 20/15min — refresh ~cada 5min sesión activa
   validateQuery(emptyObjectSchema),
   validateBody(refreshTokenSchema),
   asyncHandler(refreshAccessToken)
@@ -170,6 +199,72 @@ router.post(
   validateQuery(emptyObjectSchema),
   validateBody(emptyObjectSchema),
   asyncHandler(logout)
+);
+
+// ============================================================================
+// MFA TOTP (T-905 B7) — super_admin
+// ============================================================================
+
+router.post(
+  '/mfa/setup-init',
+  authLooseRateLimiter,
+  authenticate,
+  requireRole('super_admin'),
+  validateQuery(emptyObjectSchema),
+  validateBody(emptyObjectSchema),
+  asyncHandler(setupInit)
+);
+
+router.post(
+  '/mfa/setup-verify',
+  authLooseRateLimiter,
+  authenticate,
+  requireRole('super_admin'),
+  validateQuery(emptyObjectSchema),
+  validateBody(setupVerifySchema),
+  asyncHandler(setupVerify)
+);
+
+router.post(
+  '/mfa/challenge',
+  authRateLimiter, // strict: este endpoint es el único gate antes de mfaToken
+  authenticate,
+  requireRole('super_admin'),
+  validateQuery(emptyObjectSchema),
+  validateBody(challengeSchema),
+  asyncHandler(mfaChallenge)
+);
+
+router.post(
+  '/mfa/verify-backup-code',
+  authRateLimiter,
+  authenticate,
+  requireRole('super_admin'),
+  validateQuery(emptyObjectSchema),
+  validateBody(verifyBackupCodeSchema),
+  asyncHandler(verifyBackupCode)
+);
+
+router.post(
+  '/mfa/backup-codes/regenerate',
+  authLooseRateLimiter,
+  authenticate,
+  requireRole('super_admin'),
+  requireMfa,
+  validateQuery(emptyObjectSchema),
+  validateBody(emptyObjectSchema),
+  asyncHandler(regenerateBackupCodes)
+);
+
+router.delete(
+  '/mfa',
+  authRateLimiter,
+  authenticate,
+  requireRole('super_admin'),
+  requireMfa,
+  validateQuery(emptyObjectSchema),
+  validateBody(disableSchema),
+  asyncHandler(mfaDisable)
 );
 
 module.exports = router;

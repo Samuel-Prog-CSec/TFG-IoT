@@ -343,9 +343,28 @@ Cuatro capas complementarias de observabilidad: Sentry Performance (trazas + p95
 
 ---
 
-### T-905: ☁️ Seguridad producción (CSP/HSTS + rate limits recalibrados + OWASP ZAP + MFA super_admin) 📋
+### T-905: ☁️ Seguridad producción (CSP/HSTS + rate limits recalibrados + OWASP ZAP + MFA super_admin) ✅ DONE
 
-**Consolida:** PROP-113 + PROP-114 + PROP-115 + PROP-116
+**Cierre:** 2026-05-17. Implementado en alcance ampliado (4 fases originales + 6 hardenings adicionales). Ver `documentation/SECURITY.md` (maestro consolidado, 20 secciones) + ADR-148 a ADR-157.
+
+| Bloque | Descripción | ADR |
+|---|---|---|
+| B1 | JWT algorithms whitelist + entropy + account lockout per-user | 148 |
+| B2 | AES-256-GCM cryptoUtils + DTO sanitization + Cache-Control anti-leak + Pino/Sentry redact comprehensive | 149 |
+| B3 | Magic bytes multer + health endpoint sanitization | 150 |
+| B4 | Rate limits recalibrados + Nginx edge `limit_req_zone` | 151 |
+| B5 | Helmet split dev/prod + CSP strict + `/api/csp-report` endpoint | 152 |
+| B6 | Open redirect whitelist + Cloudflare Turnstile backend + política divulgación | 153 |
+| B7 | MFA TOTP super_admin (totp.js propio + AES-256-GCM secret + 8 backup codes) — backend completo + frontend funcional | 154 |
+| B8 | RFID firmware HMAC-SHA256 + counter EEPROM + anti-replay backend (flag migración) | 155 |
+| B9 | Suite tests seguridad adversariales (~140 tests en `backend/tests/security/`) | 156 |
+| B10 | OWASP ZAP workflow + ejecución local procedure | 157 |
+| B11 | QA E2E con sensor RFID simulado — procedimiento documentado en SECURITY.md §16.8 (manual, sensor físico roto) | — |
+| B12 | Consolidación `documentation/SECURITY.md` maestro (20 secciones, absorbe 4 .md) + ADRs 148-157 + actualización CLAUDE.md catalog | — |
+
+**Tests post-cierre:** 1249+ tests backend (`security/`: 11 suites, ~140 tests) + 439 frontend. 0 errores lint.
+
+**Consolida:** PROP-113 + PROP-114 + PROP-115 + PROP-116 + (ampliado: B1, B2, B3, B6, B8, B9)
 **Prioridad:** P0 | **Tamaño:** L (1-2 días) | **Dependencias:** T-901, T-903
 **Origen:** Headers actuales permisivos para HMR de dev; rate limits pensados para 1 profesor; MFA inexistente para super_admin con poder total
 

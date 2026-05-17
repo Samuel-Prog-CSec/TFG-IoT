@@ -221,7 +221,10 @@ const updateUserSchema = z
 const loginSchema = z
   .object({
     email: emailSchema,
-    password: z.string().min(1, 'La contraseña es requerida')
+    password: z.string().min(1, 'La contraseña es requerida'),
+    // T-905 B6: opcional, Turnstile siteverify lo procesa el middleware turnstileGuard.
+    // Frontend lo adjunta cuando el widget Turnstile genera un token (≥3 fallos).
+    captchaToken: z.string().max(2048).optional()
   })
   .strict();
 

@@ -52,12 +52,36 @@ function initSentry() {
       if (event.request) {
         delete event.request.cookies;
 
-        // Remover datos sensibles del body
+        // Remover datos sensibles del body (incluye T-905 B2 + B7: MFA, CAPTCHA, etc.)
         if (event.request.data) {
           delete event.request.data.password;
+          delete event.request.data.currentPassword;
+          delete event.request.data.newPassword;
           delete event.request.data.token;
           delete event.request.data.accessToken;
           delete event.request.data.refreshToken;
+          delete event.request.data.captchaToken;
+          delete event.request.data.code; // TOTP MFA
+          delete event.request.data.backupCode;
+          delete event.request.data.mfa;
+        }
+
+        // Remover query strings con tokens en URL
+        if (event.request.query_string) {
+          event.request.query_string = String(event.request.query_string).replaceAll(
+            /(token|code|secret)=[^&]+/gi,
+            '$1=HIDDEN'
+          );
+        }
+
+        // Remover headers de auth/MFA en respuestas capturadas
+        if (event.request.headers) {
+          delete event.request.headers.authorization;
+          delete event.request.headers.Authorization;
+          delete event.request.headers['x-csrf-token'];
+          delete event.request.headers['X-CSRF-Token'];
+          delete event.request.headers['x-mfa-token'];
+          delete event.request.headers['X-MFA-Token'];
         }
       }
 
@@ -65,11 +89,26 @@ function initSentry() {
       if (event.contexts?.user) {
         delete event.contexts.user.password;
         delete event.contexts.user.email; // Opcional: remover email por GDPR
+        delete event.contexts.user.mfa;
+        delete event.contexts.user.mfaSecret;
+        delete event.contexts.user.backupCodes;
       }
 
-      // Filtrar PII de menores en breadcrumbs y extras (Art. 25 RGPD, AT-06 RAT).
-      // Sentry es procesador internacional (Art. 28): minimizar datos transferidos.
-      const piiKeys = ['studentName', 'playerName', 'name', 'classroom'];
+      // Filtrar PII de menores y secretos en breadcrumbs y extras
+      // (Art. 25 RGPD, AT-06 RAT). Sentry es procesador internacional (Art. 28):
+      // minimizar datos transferidos.
+      const piiKeys = [
+        'studentName',
+        'playerName',
+        'name',
+        'classroom',
+        'mfa',
+        'mfaSecret',
+        'backupCodes',
+        'password',
+        'token',
+        'refreshToken'
+      ];
       if (event.breadcrumbs) {
         for (const bc of event.breadcrumbs) {
           if (bc.data) {

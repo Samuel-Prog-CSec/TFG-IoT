@@ -11,7 +11,11 @@ const socketRateLimitDefaults = {
 
 /**
  * Límites específicos por evento (ventana deslizante).
- * - rfid_scan_from_client: 2 eventos cada 3s (≈ 1 evento cada 1.5s) con burst corto.
+ *
+ * T-905 B4: rfid_scan_from_client recalibrado a 60/min para clases activas con
+ * múltiples alumnos rotando rápido + dedupe RFID que ya filtra chattering del
+ * sensor (ver `rfidDedupeConfig`). Valor antiguo (2/3s) era restrictivo en
+ * partidas Secuencia con respuestas rápidas.
  *
  * @type {Record<string, {windowMs:number, max:number}>}
  */
@@ -22,7 +26,7 @@ const socketRateLimits = {
   pause_play: { windowMs: 1000, max: 2 },
   resume_play: { windowMs: 1000, max: 2 },
   next_round: { windowMs: 1000, max: 5 },
-  rfid_scan_from_client: { windowMs: 3000, max: 2 },
+  rfid_scan_from_client: { windowMs: 60 * 1000, max: 60 },
   play_state_sync: { windowMs: 1000, max: 2 }
 };
 

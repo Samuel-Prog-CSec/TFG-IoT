@@ -20,6 +20,15 @@ const SECURITY_EVENTS = {
     sentry: { threshold: 10, windowMs: 60 * 1000, level: 'warning' },
     severityThreshold: 5
   },
+  AUTH_ACCOUNT_LOCKED: {
+    level: 'warn',
+    message: 'Cuenta bloqueada temporalmente por intentos fallidos',
+    sentry: { threshold: 3, windowMs: 60 * 1000, level: 'warning' }
+  },
+  AUTH_ACCOUNT_LOCKOUT_BYPASS: {
+    level: 'info',
+    message: 'Cuenta desbloqueada manualmente por admin'
+  },
   AUTH_REGISTER_SUCCESS: {
     level: 'info',
     message: 'Registro de profesor exitoso'

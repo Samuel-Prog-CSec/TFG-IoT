@@ -8199,3 +8199,153 @@ Para que estos workflows realmente bloqueen merges, configurar en repo Settings 
   - `Gitleaks / Scan secrets`
   - `Dependency Review / Dependency Review` (sólo en PRs)
 
+
+
+---
+
+## ADR-148: JWT hardening profundo + Account lockout per-user [Backend, Security]
+
+**Contexto:** T-905 B1. La sesión es el principal vector de seguridad de la app. Tres áreas a reforzar:
+1. **Algorithm confusion**: `jwt.verify` sin whitelist permite tokens forjados con `alg:none` u otros algoritmos.
+2. **Secrets débiles**: validación previa exigía solo 32 chars y permitía secrets repetitivos.
+3. **Credential stuffing distribuido**: rate limiter por IP no detecta ataque a un mismo email desde múltiples IPs.
+
+**Decisión:**
+- `algorithms: ['HS256']` whitelist explícito en `verifyAccessToken`/`verifyRefreshToken`. `algorithm: 'HS256'` explícito en sign.
+- `clockTolerance: 0` + validación strict de claims: `jti`, `iat`, `iat`-no-futuro, `type`, `issuer`, `audience`.
+- `envValidator.validateJWTSecrets()` exige >=64 chars + entropía Shannon >=3.5 + distintos entre access y refresh.
+- `accountLockoutService` Redis-backed: tras 5 fallos en 15min por email lowercased -> lockout 15min. Mensaje genérico (anti-enumeración). Fail-open si Redis cae.
+- Endpoint emergencia `POST /api/admin/lockouts/unlock` (super_admin, luego requireMfa).
+- Tolerancia 1s en `checkSecurityFlag` para evitar falso "token anterior al flag" por rounding de iat (segundos vs ms).
+
+**Detalle completo:** `documentation/SECURITY.md` §4.
+
+---
+
+## ADR-149: Cifrado AES-256-GCM + DTO sanitization + Cache-Control anti-leak [Backend, Security]
+
+**Contexto:** T-905 B2. Datos de menores (RGPD) requieren defensa en profundidad contra leaks por cache compartido (Cloudflare), DTOs accidentalmente verbose, y logs/Sentry con PII.
+
+**Decisión:**
+- `utils/cryptoUtils.js`: `encryptField`/`decryptField` AES-256-GCM + AAD para domain separation. IV 96b + auth tag 128b. Clave `MFA_ENCRYPTION_KEY` (deriva de JWT_SECRET en dev/test).
+- `middlewares/cachePolicy.js`: `noStoreSensitive` aplica `Cache-Control: private, no-store` + `Pragma`, `Expires`, `Surrogate-Control` globalmente a `/api/*`.
+- Test sistemático `dtoOutputSanitization.test.js` verifica que DTOs nunca exponen password, mfa.secret/backupCodes, consent.ipAddress/userAgent/channel, currentSessionId, __v.
+- Pino redact ampliado: x-csrf-token, x-mfa-token, mfa.*, captchaToken, backupCode, etc.
+- Sentry beforeSend ampliado: headers auth/MFA/CSRF, query strings con token|code|secret, contexts/extras/tags con PII de menores.
+
+**Detalle completo:** `documentation/SECURITY.md` §10, §11.
+
+---
+
+## ADR-150: Magic bytes file validation + Health endpoint PII sanitization [Backend, Security]
+
+**Contexto:** T-905 B3. Multer validaba MIME declarado por el cliente (mentible). `/api/health` exponía host y database name de Mongo (revelan infra).
+
+**Decisión:**
+- `middlewares/fileValidation.js`: detección magic bytes propia (PNG, JPEG, GIF, WebP, MP3 ID3/sync, OGG, WAV) sin libs externas — `file-type@22` es ESM-only e incompatible con Jest sin Babel. Aplicado tras `multer.single` en routes/contexts.js.
+- `utils/healthCheck.js`: gatea host y database por `NODE_ENV !== 'production'`. En dev/staging sí (útil diagnóstico), en prod no.
+
+**Detalle completo:** `documentation/SECURITY.md` §9.4, §11.4.
+
+---
+
+## ADR-151: Rate limits recalibración + Nginx edge limit_req [Backend, DevOps]
+
+**Contexto:** T-905 B4. Valores anteriores eran restrictivos para clases con 10-30 docentes + picos de 100 alumnos. Cero defensa en Nginx (todo el peso en express-rate-limit).
+
+**Decisión:**
+- `globalRateLimiter` 100->1000/15min prod. `creationLimiter` 10/min -> 50/hora. WS `rfid_scan_from_client` 2/3s -> 60/min.
+- Nuevo `authLooseRateLimiter` 20/15min para `/refresh` y `/me`.
+- `frontend/nginx-zones.conf` (montado en `/etc/nginx/conf.d/00-zones.conf`): `limit_req_zone api_limit 20r/s burst=40` para `/api/*`; `ws_limit 10r/s burst=20` para `/socket.io/*`.
+
+**Detalle completo:** `documentation/SECURITY.md` §8.
+
+---
+
+## ADR-152: Helmet split dev/prod + CSP strict + report endpoint [Backend, Security]
+
+**Contexto:** T-905 B5. CSP anterior era único dev/prod, demasiado permisivo para prod. Sin endpoint de violations. Sin plan de rollout gradual.
+
+**Decisión:**
+- `buildHelmetOptions(env)` función que devuelve config diferenciada:
+  - Prod: scriptSrc sin unsafe-inline ni unsafe-eval; con Sentry + Cloudflare Turnstile. HSTS preload 2 años.
+  - Dev: connectSrc incluye `ws:/wss:` para Vite HMR. HSTS más corto.
+- `routes/cspReport.js`: POST `/api/csp-report` recibe csp-report/reports+json, loguea Pino warn + Sentry tag. Rate limit dedicado. Sin auth/CSRF.
+- Env `CSP_REPORT_ONLY=true` para deploy gradual a staging.
+- Nginx frontend CSP sincronizada con backend.
+
+**Detalle completo:** `documentation/SECURITY.md` §6.
+
+---
+
+## ADR-153: Open redirect whitelist + Turnstile CAPTCHA + Política divulgación [Frontend, Security]
+
+**Contexto:** T-905 B6. `redirectByRole` usaba blacklist débil permitiendo URLs externas. Sin CAPTCHA tras fallos. Sin política de divulgación.
+
+**Decisión:**
+- `frontend/src/constants/routes.js` exporta `isSafeRedirectPath(path)`: whitelist positiva de prefijos + rechazo schemes peligrosos + protocol-relative.
+- `backend/src/middlewares/turnstileGuard.js`: opt-in cuando `TURNSTILE_SECRET` está set Y email tiene >=3 fallos previos -> exige captchaToken body + verify contra Cloudflare siteverify. Fail-closed.
+- `loginSchema` extiende con `captchaToken: string.optional()`.
+- `ForbiddenError` constructor extendido con `code` opcional.
+- `documentation/SECURITY.md` §1 incluye política completa de divulgación.
+
+**Detalle completo:** `documentation/SECURITY.md` §7.3, §8.3, §1.
+
+---
+
+## ADR-154: MFA TOTP super_admin con totp.js propio + AES-256-GCM secret + 8 backup codes [Backend, Frontend, Security]
+
+**Contexto:** T-905 B7. Sin doble factor para acciones críticas (hard delete usuarios, GDPR purge, unlock cuentas). Sin enrollment ni recovery via backup codes.
+
+**Decisión:**
+- `utils/totp.js` implementación propia RFC 6238 (~190 líneas, sin deps). Razón: otplib@13 depende de @scure/base que es ESM-only.
+- Modelo User extendido con subschema mfa (enabled, secret cifrado AES-256-GCM AAD 'mfa', backupCodes array de bcrypt hashes, enabledAt, lastUsedAt).
+- `mfaController.js`: 6 endpoints (setup-init, setup-verify, challenge, verify-backup-code, backup-codes/regenerate, disable).
+- `requireMfa` middleware aplica a `DELETE /api/users/:id/data`, `POST /api/admin/lockouts/unlock`. Devuelve 428 MFA_TOKEN_REQUIRED/MFA_ENROLLMENT_REQUIRED.
+- Frontend: pages/admin/MfaSetup.jsx (wizard QR + verify + backup codes download), components/auth/MfaChallengeModal.jsx (modal global), interceptor 428 en services/api.js con event-driven challenge/retry.
+- Emergency recovery: env `MFA_EMERGENCY_DISABLE_USER_ID` (operacional, redeploy).
+
+**Detalle completo:** `documentation/SECURITY.md` §4.8, §16.1, §16.2.
+
+---
+
+## ADR-155: RFID HMAC-SHA256 + counter monotónico EEPROM con migración gradual [IoT, Backend, Security]
+
+**Contexto:** T-905 B8. El firmware enviaba UID en texto plano al puerto serie. Vector de attack: clonar UID + emularlo. Sin anti-replay.
+
+**Decisión:**
+- Firmware: `rfid_scanner/src/main.cpp` calcula HMAC-SHA256(secret, uid:counter) con BearSSL (incluido en framework ESP8266, sin libs extra). Counter monotónico en EEPROM offset 0..3 (uint32 LE). Persistencia BATCHED cada 100 scans con counter "reservado".
+- Secret inyectado en build-time vía -DRFID_HMAC_SECRET en `platformio.ini`.
+- Backend `utils/rfidHmacValidator.js`: si `RFID_HMAC_ENABLED=false` (default migración) -> pasa todo + métrica de adopción. Si true -> exige HMAC + counter, valida con `crypto.timingSafeEqual`, anti-replay con `rfid:counter:<sensorId>` en Redis.
+- Schema `rfidClientEventSchema` extendido con counter y hmac opcionales.
+- Integrado en `socketHandlers.handleRfidScanFromClient` antes de procesar evento.
+- Activación: `RFID_HMAC_ENABLED=true` tras 100% adopción confirmada.
+
+**Detalle completo:** `documentation/SECURITY.md` §13.
+
+---
+
+## ADR-156: Suite tests seguridad adversariales consolidada [Backend, Security, Testing]
+
+**Contexto:** T-905 B9. Tests de seguridad dispersos en tests/. Sin red de seguridad explícita contra regresiones en hardenings nuevos.
+
+**Decisión:**
+- Carpeta dedicada `backend/tests/security/` con 14 archivos: jwtHardening, accountLockout, cryptoUtils, dtoOutputSanitization, cachePolicy, fileValidationMiddleware, cspReport, securityHeaders, mfaController, requireMfa, turnstileGuard, rfidHmacValidator, nosqlInjection, csrfBypass, rateLimitConfigs.
+- ~140 tests cubriendo cada bloque + adversariales comunes (alg confusion, prototype pollution, MIME spoofing, replay).
+- Comando: `npm test -- --testPathPatterns=security`.
+- Diferidos por refactor: idorCrossTeacher.test.js skipped (requiere factories CardDeck completas).
+
+**Detalle completo:** `documentation/SECURITY.md` §15.
+
+---
+
+## ADR-157: OWASP ZAP Baseline scan workflow + ejecución local [DevOps, Security]
+
+**Contexto:** T-905 B10. Sin scan automatizado de vulnerabilidades aplicación corriendo. Sin procedimiento de triage documentado.
+
+**Decisión:**
+- `.github/workflows/zap-scan.yml`: workflow_dispatch + schedule mensual día 1 04:00 UTC. `zaproxy/action-baseline@v0.13.0`. Artifact HTML+JSON+MD 30 días retention. Permission `issues: write` para auto-issue opcional.
+- `.zap/rules.tsv`: silencia falsos positivos esperados (cookie Secure en localhost HTTP, Permissions-Policy missing en dev, no-store en /api/*).
+- Procedimiento local con `docker run ghcr.io/zaproxy/zaproxy:stable zap-baseline.py` documentado en SECURITY.md §16.3.
+
+**Detalle completo:** `documentation/SECURITY.md` §16.3.

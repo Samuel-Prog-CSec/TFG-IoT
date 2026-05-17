@@ -225,11 +225,19 @@ app.use((req, res, next) => {
   next();
 });
 
-// Evitar cache en respuestas de la API para prevenir 304 sin body
-app.use('/api', (req, res, next) => {
-  res.setHeader('Cache-Control', 'no-store');
-  next();
-});
+// T-905 B5: Endpoint receptor de violaciones CSP (Content-Security-Policy reports).
+// Se monta ANTES de auth/CSRF/middlewares pesados porque el navegador envía estos
+// POST sin cookies ni headers de auth, y queremos minimizar overhead.
+const cspReportRoutes = require('./routes/cspReport');
+app.use('/api/csp-report', cspReportRoutes);
+
+// T-905 B2: Política Cache-Control anti-leak para TODAS las respuestas de /api.
+// Reemplaza el middleware previo que solo seteaba `Cache-Control: no-store` (evitar 304
+// sin body). El nuevo añade `Pragma`, `Expires` y `Surrogate-Control: no-store` para
+// reforzar la directiva en navegadores legacy, Cloudflare y proxies intermedios.
+// Defensa contra data leaks por cache compartido (datos de menores, RGPD Art. 25).
+const { noStoreSensitive } = require('./middlewares/cachePolicy');
+app.use('/api', noStoreSensitive);
 
 // Middleware de métricas de latencia (para /api/*)
 app.use('/api', (req, res, next) => {
@@ -250,8 +258,11 @@ app.use('/api', (req, res, next) => {
 // RUTAS DE LA API REST
 // ============================================================================
 
-// Rutas de autenticación (con rate limit específico)
-app.use('/api/auth', authRateLimiter, authRoutes);
+// noStoreSensitive ya está aplicado globalmente a /api arriba (línea ~229).
+
+// T-905 B4: rate limits específicos se aplican dentro de routes/auth.js por endpoint
+// (login/register strict 5/15min, refresh/me loose 20/15min). Aquí solo montamos.
+app.use('/api/auth', authRoutes);
 
 // Rutas de gestión de usuarios
 app.use('/api/users', userRoutes);

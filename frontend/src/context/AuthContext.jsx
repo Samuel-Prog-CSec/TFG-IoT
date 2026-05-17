@@ -20,7 +20,7 @@ import {
   AUTH_EVENTS
 } from '../services/api';
 import { socketService } from '../services/socket';
-import { ROUTES } from '../constants/routes';
+import { ROUTES, isSafeRedirectPath } from '../constants/routes';
 import { setUserContext, captureException } from '../lib/sentry';
 
 // T-957: ventana de cortesía del logout con undo. El cliente espera este
@@ -195,8 +195,10 @@ export function AuthProvider({ children }) {
    * @param {string} from - Ruta de origen (para volver después de login)
    */
   const redirectByRole = useCallback((user, from = null) => {
-    // Si hay una ruta guardada y no es de auth, ir ahí
-    if (from && !from.startsWith('/login') && !from.startsWith('/register')) {
+    // T-905 B6: whitelist positiva contra open redirect. Bloquea esquemas
+    // peligrosos (`javascript:`, `data:`), URLs protocol-relative (`//evil.com`)
+    // y cualquier path no incluido en `SAFE_REDIRECT_PREFIXES`.
+    if (from && isSafeRedirectPath(from)) {
       navigate(from, { replace: true });
       return;
     }
@@ -336,12 +338,15 @@ export function AuthProvider({ children }) {
    * @param {string} password - Contraseña
    * @returns {Promise<Object>} Usuario autenticado
    */
-  const login = useCallback(async (email, password) => {
+  const login = useCallback(async (email, password, captchaToken = null) => {
     dispatch({ type: AUTH_ACTIONS.SET_LOADING, payload: true });
     dispatch({ type: AUTH_ACTIONS.CLEAR_ERROR });
 
     try {
-      const response = await authAPI.login({ email, password });
+      // T-905 B6: captchaToken se adjunta solo cuando el widget Turnstile ya
+      // generó uno; el backend lo exige tras 3 fallos previos del mismo email.
+      const credentials = captchaToken ? { email, password, captchaToken } : { email, password };
+      const response = await authAPI.login(credentials);
       const { user, accessToken, accessTokenExpiresIn } = extractData(response);
 
       // Guardar tokens
@@ -372,18 +377,28 @@ export function AuthProvider({ children }) {
       return user;
     } catch (error) {
       const message = extractErrorMessage(error);
-      
-      // Manejar estados especiales de cuenta
-      if (error.accountStatus === 'pending_approval') {
-        dispatch({ 
-          type: AUTH_ACTIONS.SET_ERROR, 
-          payload: 'Tu cuenta está pendiente de aprobación. Un administrador la revisará pronto.' 
+      const errorCode = error?.response?.data?.code || error?.code;
+
+      // T-905 B6: backend pide CAPTCHA tras 3 fallos. Si Turnstile está configurado
+      // y el frontend tiene VITE_TURNSTILE_SITEKEY, aquí se renderizará el widget
+      // (implementación frontend completa diferida a v1.0.x). De momento mensaje claro.
+      if (errorCode === 'CAPTCHA_REQUIRED' || errorCode === 'CAPTCHA_INVALID') {
+        dispatch({
+          type: AUTH_ACTIONS.SET_ERROR,
+          payload:
+            'Demasiados intentos. Se requiere verificación adicional. Si el problema persiste, contacta con un administrador.'
+        });
+        toast.warning('Verificación adicional requerida');
+      } else if (error.accountStatus === 'pending_approval') {
+        dispatch({
+          type: AUTH_ACTIONS.SET_ERROR,
+          payload: 'Tu cuenta está pendiente de aprobación. Un administrador la revisará pronto.'
         });
         toast.warning('Cuenta pendiente de aprobación');
       } else if (error.accountStatus === 'rejected') {
-        dispatch({ 
-          type: AUTH_ACTIONS.SET_ERROR, 
-          payload: 'Tu cuenta ha sido rechazada. Contacta con el administrador para más información.' 
+        dispatch({
+          type: AUTH_ACTIONS.SET_ERROR,
+          payload: 'Tu cuenta ha sido rechazada. Contacta con el administrador para más información.'
         });
         toast.error('Cuenta rechazada', {
           description: 'Contacta con un administrador si crees que es un error.'

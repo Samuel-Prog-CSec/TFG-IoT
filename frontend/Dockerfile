@@ -42,8 +42,12 @@ LABEL org.opencontainers.image.version="${APP_VERSION}"
 # Copiar el build de Vite (carpeta dist)
 COPY --from=builder /app/dist /usr/share/nginx/html
 
-# Archivo nginx.conf personalizado
+# Archivo nginx.conf personalizado (server block + locations)
 COPY nginx.conf /etc/nginx/conf.d/default.conf
+
+# T-905 B4: zones globales (limit_req_zone) que requieren contexto http.
+# Se copia con prefijo `00-` para garantizar carga ANTES de default.conf.
+COPY nginx-zones.conf /etc/nginx/conf.d/00-zones.conf
 
 # Puerto de la aplicación
 EXPOSE 80

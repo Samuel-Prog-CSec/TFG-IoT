@@ -8,14 +8,17 @@ const express = require('express');
 const router = express.Router();
 
 const { authenticate, requireRole } = require('../middlewares/auth');
+const { requireMfa } = require('../middlewares/requireMfa');
 const {
   approveTeacher,
   rejectTeacher,
-  getPendingTeachers
+  getPendingTeachers,
+  unlockAccount
 } = require('../controllers/adminController');
-const { validateParams, validateQuery } = require('../middlewares/validation');
+const { validateParams, validateQuery, validateBody } = require('../middlewares/validation');
 const { userIdParamsSchema } = require('../validators/userValidator');
 const { emptyObjectSchema, paginationSchema } = require('../validators/commonValidator');
+const { unlockEmailSchema } = require('../validators/lockoutValidator');
 const asyncHandler = require('../utils/asyncHandler');
 
 // Todas las rutas de admin requieren autenticación + rol super_admin
@@ -53,6 +56,20 @@ router.post(
   validateParams(userIdParamsSchema),
   validateQuery(emptyObjectSchema),
   asyncHandler(rejectTeacher)
+);
+
+/**
+ * @route   POST /api/admin/lockouts/unlock
+ * @desc    Desbloquea manualmente una cuenta bloqueada por intentos fallidos.
+ * @access  Private (super_admin). Cuando MFA esté operativo (B7), añadir `requireMfa`.
+ * @validation body: unlockEmailSchema
+ */
+router.post(
+  '/lockouts/unlock',
+  requireMfa, // T-905 B7: unlock manual requiere MFA reciente
+  validateQuery(emptyObjectSchema),
+  validateBody(unlockEmailSchema),
+  asyncHandler(unlockAccount)
 );
 
 module.exports = router;

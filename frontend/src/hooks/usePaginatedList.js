@@ -144,8 +144,7 @@ export function usePaginatedList({
   // al aplicar un filtro nuevo que tiene menos resultados.
   const setFilters = useCallback((updater) => {
     setFiltersState((prev) => {
-      const next = typeof updater === 'function' ? updater(prev) : updater;
-      return next;
+      return typeof updater === 'function' ? updater(prev) : updater;
     });
     setPageState(1);
   }, []);

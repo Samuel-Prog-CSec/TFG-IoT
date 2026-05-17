@@ -1,6 +1,12 @@
 const mongoose = require('mongoose');
 const logger = require('../src/utils/logger');
 
+// T-905 cleanup: Sentry + Mongoose + Pino + graceful shutdown registran cada uno
+// listeners sobre `process` (SIGTERM/SIGINT/exit). En la suite de Jest se acumulan
+// (especialmente al importar el server) y disparan MaxListenersExceededWarning.
+// Subir el límite específicamente para tests — no afecta runtime de producción.
+process.setMaxListeners(50);
+
 // Mock de Redis ANTES de importar cualquier módulo que lo use
 // Usar prefijo 'mock' para que Jest permita la referencia
 require('ioredis-mock');

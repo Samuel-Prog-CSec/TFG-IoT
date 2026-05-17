@@ -72,7 +72,13 @@ const NAMESPACES = {
   AUTH_USER: 'auth:user',
 
   /** Lock distribuido de idempotencia para startPlay (TTL: 60s) */
-  PLAY_INIT_LOCK: 'play:init'
+  PLAY_INIT_LOCK: 'play:init',
+
+  /** Contador sliding de intentos fallidos de login por email (TTL: window) */
+  AUTH_FAILED: 'auth:fail',
+
+  /** Cuenta bloqueada temporalmente por intentos fallidos (TTL: lockout duration) */
+  AUTH_LOCKED: 'auth:lock'
 };
 
 /**
@@ -603,6 +609,41 @@ const delManyIfValueMatches = async (namespace, entries = []) => {
     logger.error('Redis delManyIfValueMatches error:', { namespace, error: error.message });
     redisBreaker.recordFailure();
     return { ok: false, deletedIds, skippedIds };
+  }
+};
+
+/**
+ * Incrementa atomicamente un contador. Si la key no existe, la crea con valor 1.
+ * Opcionalmente establece TTL en el primer incremento (cuando newValue === 1).
+ *
+ * Usado por accountLockoutService para contar intentos fallidos de login.
+ *
+ * @param {string} namespace - Namespace de la key.
+ * @param {string} id - Identificador único.
+ * @param {number} [ttlSecondsIfNew] - TTL en segundos solo si la key se crea ahora.
+ * @returns {Promise<number>} Valor tras incrementar. 0 si Redis no disponible.
+ */
+const incr = async (namespace, id, ttlSecondsIfNew = null) => {
+  if (!checkRedisAvailable()) {
+    return 0;
+  }
+
+  try {
+    const redis = getRedis();
+    const key = buildKey(namespace, id);
+    const newValue = await redis.incr(key);
+
+    // Establecer TTL solo en la primera escritura (sliding window).
+    if (newValue === 1 && Number.isInteger(ttlSecondsIfNew) && ttlSecondsIfNew > 0) {
+      await redis.expire(key, ttlSecondsIfNew);
+    }
+
+    redisBreaker.recordSuccess();
+    return newValue;
+  } catch (error) {
+    logger.error('Redis incr error:', { namespace, id, error: error.message });
+    redisBreaker.recordFailure();
+    return 0;
   }
 };
 
@@ -1369,6 +1410,7 @@ module.exports = {
   expire,
   expireIfValueMatches,
   expireManyIfValueMatches,
+  incr,
   ttl,
 
   // Hashes

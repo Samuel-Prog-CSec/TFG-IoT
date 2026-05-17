@@ -24,6 +24,7 @@ import RFIDModeHandler from './components/game/RFIDModeHandler';
 import TopProgressBar from './components/ui/TopProgressBar';
 import { RfidModeProvider } from './context/RfidModeContext';
 import GlobalShortcuts from './components/system/GlobalShortcuts';
+import MfaChallengeModal from './components/auth/MfaChallengeModal'; // T-905 B7
 
 // Lazy loaded pages for better performance
 const Dashboard = lazy(() => import('./pages/Dashboard'));
@@ -61,6 +62,7 @@ const NotFound = lazy(() => import('./pages/NotFound'));
 const ApprovalPanel = lazy(() => import('./pages/admin/ApprovalPanel'));
 const StudentManagement = lazy(() => import('./pages/admin/StudentManagement'));
 const AdminContexts = lazy(() => import('./pages/admin/AdminContexts'));
+const MfaSetupPage = lazy(() => import('./pages/admin/MfaSetup')); // T-905 B7
 
 // Public pages
 const PrivacyPage = lazy(() => import('./pages/PrivacyPage'));
@@ -215,6 +217,7 @@ function AppContent() {
           <Route path="students" element={<SuspenseWrapper><StudentManagement /></SuspenseWrapper>} />
           <Route path="students/transfer" element={<SuspenseWrapper><TransferStudents /></SuspenseWrapper>} />
           <Route path="contexts" element={<SuspenseWrapper><AdminContexts /></SuspenseWrapper>} />
+          <Route path="mfa-setup" element={<SuspenseWrapper><MfaSetupPage /></SuspenseWrapper>} />
           {/* 404 dentro del layout admin */}
           <Route path="*" element={<SuspenseWrapper><NotFound /></SuspenseWrapper>} />
         </Route>
@@ -286,6 +289,7 @@ export default function App() {
               <ShortcutRegistryProvider>
                 <GlobalShortcuts />
                 <AppContent />
+                <MfaChallengeModal />
                 <ThemeAwareToaster />
               </ShortcutRegistryProvider>
             </RfidModeProvider>

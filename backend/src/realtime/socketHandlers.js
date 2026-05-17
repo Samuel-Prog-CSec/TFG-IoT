@@ -15,6 +15,7 @@ const { objectIdSchema } = require('../validators/commonValidator');
 const { getRfidState } = require('../states/rfid');
 const { getSocketCommand, getCommandNames } = require('../commands/socket');
 const { findDangerousPayloadPath } = require('../utils/payloadSecurity');
+const rfidHmacValidator = require('../utils/rfidHmacValidator'); // T-905 B8
 const { socketConnectionLimits } = require('../config/socketRateLimits');
 const { getRedis } = require('../config/redis');
 const Sentry = require('@sentry/node');
@@ -1098,6 +1099,24 @@ const handleRfidScanFromClient = async (socket, data, gameEngine, rfidService, l
 
   const payload = parseRfidClientPayload(socket, data);
   if (!payload) {
+    return;
+  }
+
+  // T-905 B8: validación HMAC + counter anti-replay (gated por RFID_HMAC_ENABLED).
+  // Si la flag está off, retorna `valid:true` siempre — coexisten firmware
+  // viejo y nuevo durante la migración.
+  const hmacResult = await rfidHmacValidator.validate(payload);
+  if (!hmacResult.valid) {
+    logSecurityEvent('SECURITY_RFID_EVENT_INVALID', {
+      userId: socket.data?.userId,
+      reason: hmacResult.reason,
+      sensorId: payload.sensorId,
+      uid: payload.uid
+    });
+    socket.emit('rfid_scan_error', {
+      code: 'RFID_HMAC_INVALID',
+      reason: hmacResult.reason
+    });
     return;
   }
 

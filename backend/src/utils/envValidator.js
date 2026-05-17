@@ -69,15 +69,22 @@ function validateEnv() {
   const isProduction = process.env.NODE_ENV === 'production';
   const isTest = process.env.NODE_ENV === 'test';
 
-  // En tests, permitir defaults para no bloquear la suite
+  // En tests, permitir defaults para no bloquear la suite.
+  // Generados pseudo-aleatoriamente al arrancar para cumplir los requisitos B1
+  // (≥64 chars + entropía ≥3.5 bits/char) sin necesidad de configurar nada.
   if (isTest) {
     if (!process.env.JWT_SECRET) {
-      process.env.JWT_SECRET = 'test-jwt-secret-'.padEnd(40, 'x');
+      process.env.JWT_SECRET = require('node:crypto').randomBytes(48).toString('hex'); // 96 chars
       warnings.push('JWT_SECRET (default test)');
     }
     if (!process.env.JWT_REFRESH_SECRET) {
-      process.env.JWT_REFRESH_SECRET = 'test-jwt-refresh-secret-'.padEnd(48, 'y');
+      process.env.JWT_REFRESH_SECRET = require('node:crypto').randomBytes(48).toString('hex');
       warnings.push('JWT_REFRESH_SECRET (default test)');
+    }
+    // T-905 B7: JWT_MFA_SECRET para firmar MFA tokens cortos (5min). Default test.
+    if (!process.env.JWT_MFA_SECRET) {
+      process.env.JWT_MFA_SECRET = require('node:crypto').randomBytes(48).toString('hex');
+      warnings.push('JWT_MFA_SECRET (default test)');
     }
     if (!process.env.MONGO_URI) {
       process.env.MONGO_URI = 'mongodb://127.0.0.1:27017/rfid-games-test';
@@ -239,26 +246,75 @@ function validateEnv() {
 }
 
 /**
+ * Calcula la entropía de Shannon (bits/símbolo) para un string.
+ * Útil para detectar secrets repetitivos (ej. "aaaaaa..." tiene entropía 0).
+ *
+ * @param {string} str
+ * @returns {number} Entropía en bits por símbolo (0 - 8 aprox).
+ */
+function shannonEntropy(str) {
+  if (!str || str.length === 0) {
+    return 0;
+  }
+  const freq = new Map();
+  for (const char of str) {
+    freq.set(char, (freq.get(char) || 0) + 1);
+  }
+  const len = str.length;
+  let entropy = 0;
+  for (const count of freq.values()) {
+    const p = count / len;
+    entropy -= p * Math.log2(p);
+  }
+  return entropy;
+}
+
+/**
  * Valida que los JWT secrets tengan longitud y complejidad adecuadas.
+ *
+ * Hardening B1 (T-905):
+ * - Longitud mínima 64 caracteres (era 32) — entropía suficiente para HS256.
+ * - Entropía Shannon ≥ 3.5 bits/char — rechaza secrets repetitivos.
+ * - Diferentes entre sí — falla en lugar de solo warn.
+ * - Defaults conocidos bloqueados (mantenido).
+ *
  * @throws {Error} Si algún secret es inseguro
  */
 function validateJWTSecrets() {
   const jwtSecret = process.env.JWT_SECRET;
   const jwtRefreshSecret = process.env.JWT_REFRESH_SECRET;
+  const MIN_LENGTH = 64;
+  const MIN_ENTROPY = 3.5;
 
-  if (jwtSecret.length < 32) {
+  if (jwtSecret.length < MIN_LENGTH) {
     throw new Error(
       `JWT_SECRET es demasiado corto (${jwtSecret.length} caracteres).\n` +
-        `Debe tener al menos 32 caracteres para ser seguro.\n` +
+        `Debe tener al menos ${MIN_LENGTH} caracteres para ser seguro.\n` +
         `Genera uno aleatorio con: node -e "console.log(require('crypto').randomBytes(64).toString('hex'))"`
     );
   }
 
-  if (jwtRefreshSecret.length < 32) {
+  if (jwtRefreshSecret.length < MIN_LENGTH) {
     throw new Error(
       `JWT_REFRESH_SECRET es demasiado corto (${jwtRefreshSecret.length} caracteres).\n` +
-        `Debe tener al menos 32 caracteres para ser seguro.\n` +
+        `Debe tener al menos ${MIN_LENGTH} caracteres para ser seguro.\n` +
         `Genera uno aleatorio con: node -e "console.log(require('crypto').randomBytes(64).toString('hex'))"`
+    );
+  }
+
+  // Validar entropía: bloquea secrets repetitivos como "aaaa..." o "abcabcabc..."
+  const jwtEntropy = shannonEntropy(jwtSecret);
+  if (jwtEntropy < MIN_ENTROPY) {
+    throw new Error(
+      `JWT_SECRET tiene entropía baja (${jwtEntropy.toFixed(2)} bits/char, mínimo ${MIN_ENTROPY}).\n` +
+        `Indica un secret poco aleatorio. Regenera con crypto.randomBytes.`
+    );
+  }
+  const refreshEntropy = shannonEntropy(jwtRefreshSecret);
+  if (refreshEntropy < MIN_ENTROPY) {
+    throw new Error(
+      `JWT_REFRESH_SECRET tiene entropía baja (${refreshEntropy.toFixed(2)} bits/char, mínimo ${MIN_ENTROPY}).\n` +
+        `Indica un secret poco aleatorio. Regenera con crypto.randomBytes.`
     );
   }
 
@@ -285,11 +341,11 @@ function validateJWTSecrets() {
     );
   }
 
-  // Validar que access y refresh secrets sean diferentes
+  // Validar que access y refresh secrets sean diferentes — ahora estricto (fail-fast)
   if (jwtSecret === jwtRefreshSecret) {
-    logger.warn(
-      'JWT_SECRET y JWT_REFRESH_SECRET son idénticos. ' +
-        'Se recomienda usar secrets diferentes para mayor seguridad.'
+    throw new Error(
+      'JWT_SECRET y JWT_REFRESH_SECRET no pueden ser idénticos. ' +
+        'Usa secrets independientes (compromiso de uno no debe comprometer el otro).'
     );
   }
 }

@@ -218,7 +218,12 @@ const checkSecurityFlag = async (userId, tokenIssuedAt) => {
   const flagTime = Number.parseInt(flagTimestamp, 10);
   const tokenTimeMs = tokenIssuedAt * 1000; // iat está en segundos
 
-  if (tokenTimeMs < flagTime) {
+  // Tolerancia 1s para el rounding de `iat` (segundos vs ms del flag). Sin
+  // esto, un re-login inmediatamente tras revokeAllUserTokens dentro del mismo
+  // segundo (típico en setupVerify de MFA, B7) sería rechazado erróneamente.
+  // El flag protege contra tokens emitidos ANTES de la revocación; los emitidos
+  // en el mismo segundo o posteriores son los nuevos legítimos.
+  if (tokenTimeMs + 1000 < flagTime) {
     return {
       revoked: true,
       reason: 'SESSION_REVOKED_SECURITY'
@@ -382,6 +387,7 @@ const generateAccessToken = (user, deviceFingerprint, sessionId) => {
     payload,
     process.env.JWT_SECRET, // Sin fallback inseguro - validado en envValidator
     {
+      algorithm: 'HS256', // Explícito: bloquea downgrade a "none" o swap a RS256
       expiresIn,
       issuer: 'rfid-games-platform',
       audience: 'rfid-games-client'
@@ -422,6 +428,7 @@ const generateRefreshToken = (user, deviceFingerprint, sessionId) => {
     payload,
     process.env.JWT_REFRESH_SECRET, // Sin fallback inseguro - validado en envValidator
     {
+      algorithm: 'HS256', // Explícito: bloquea downgrade a "none" o swap a RS256
       expiresIn,
       issuer: 'rfid-games-platform',
       audience: 'rfid-games-client'
@@ -491,10 +498,37 @@ const verifyAccessToken = async (token, req) => {
       token,
       process.env.JWT_SECRET, // Sin fallback inseguro - validado en envValidator
       {
+        algorithms: ['HS256'], // Whitelist: bloquea "alg: none" y algorithm confusion (HS↔RS)
         issuer: 'rfid-games-platform',
-        audience: 'rfid-games-client'
+        audience: 'rfid-games-client',
+        clockTolerance: 0 // No permitir clock skew para tokens cortos (15min)
       }
     );
+
+    // Strict claims: jti e iat son obligatorios
+    if (!decoded.jti) {
+      logSecurityEvent('AUTH_TOKEN_INVALID', {
+        ...getRequestContext(req),
+        reason: 'ACCESS_TOKEN_MISSING_JTI'
+      });
+      throw new UnauthorizedError('Token sin JTI', 'TOKEN_INVALID');
+    }
+    if (!decoded.iat) {
+      logSecurityEvent('AUTH_TOKEN_INVALID', {
+        ...getRequestContext(req),
+        reason: 'ACCESS_TOKEN_MISSING_IAT'
+      });
+      throw new UnauthorizedError('Token sin iat', 'TOKEN_INVALID');
+    }
+    // iat no puede estar en el futuro (clock skew o token forjado)
+    if (decoded.iat * 1000 > Date.now() + 5000) {
+      logSecurityEvent('AUTH_TOKEN_INVALID', {
+        ...getRequestContext(req),
+        reason: 'ACCESS_TOKEN_IAT_FUTURE',
+        iat: decoded.iat
+      });
+      throw new UnauthorizedError('Token con iat en futuro', 'TOKEN_INVALID');
+    }
 
     // Verificar que es un access token
     if (decoded.type !== 'access') {
@@ -609,10 +643,23 @@ const verifyRefreshToken = async (token, req) => {
       token,
       process.env.JWT_REFRESH_SECRET, // Sin fallback inseguro - validado en envValidator
       {
+        algorithms: ['HS256'], // Whitelist: bloquea "alg: none" y algorithm confusion (HS↔RS)
         issuer: 'rfid-games-platform',
-        audience: 'rfid-games-client'
+        audience: 'rfid-games-client',
+        clockTolerance: 0 // No permitir clock skew
       }
     );
+
+    // Strict claims: jti e iat obligatorios
+    if (!decoded.jti) {
+      throw new UnauthorizedError('Refresh token sin JTI');
+    }
+    if (!decoded.iat) {
+      throw new UnauthorizedError('Refresh token sin iat');
+    }
+    if (decoded.iat * 1000 > Date.now() + 5000) {
+      throw new UnauthorizedError('Refresh token con iat en futuro');
+    }
 
     // Verificar que es un refresh token
     if (decoded.type !== 'refresh') {

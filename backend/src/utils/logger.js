@@ -49,17 +49,30 @@ const redactPaths = [
   'req.headers.authorization',
   'req.headers.cookie',
   'req.headers.set-cookie',
+  'req.headers["x-csrf-token"]',
+  'req.headers["x-mfa-token"]',
   'req.body.password',
+  'req.body.currentPassword',
+  'req.body.newPassword',
   'req.body.token',
   'req.body.accessToken',
   'req.body.refreshToken',
+  'req.body.captchaToken',
+  'req.body.code',
+  'req.body.backupCode',
+  'req.body.mfa',
   'res.headers.set-cookie',
   'user.password',
   'user.email',
+  'user.mfa',
+  'user.mfa.secret',
+  'user.mfa.backupCodes',
   'token',
   'accessToken',
   'refreshToken',
-  'authorization'
+  'authorization',
+  'mfaSecret',
+  'backupCodes'
 ];
 
 const logger = pino(
