@@ -1,11 +1,16 @@
 /**
- * @fileoverview Métricas runtime en memoria (HTTP + RFID) para observabilidad.
- * Se expone vía endpoint protegido /api/metrics.
+ * @fileoverview Métricas runtime en memoria (HTTP + RFID + WebSocket + Redis)
+ * para observabilidad. Se expone vía endpoint protegido /api/metrics.
  *
- * NOTA: Esto NO sustituye Prometheus/OpenTelemetry; es un MVP interno.
+ * NOTA: Esto NO sustituye Prometheus/OpenTelemetry; es un MVP interno suficiente
+ * para el TFG. Incluye telemetría de Upstash command budget (T-907 Fase D) y
+ * cache en memoria complementaria al cache Redis (LRU TTL).
  *
  * @module utils/runtimeMetrics
  */
+
+const redisCommandTracker = require('./redisCommandTracker');
+const inMemoryCache = require('./inMemoryCache');
 
 const DEFAULT_EWMA_ALPHA = 0.2;
 
@@ -34,6 +39,15 @@ const state = {
     deduped: 0,
     authCacheHits: 0,
     authCacheMisses: 0,
+    // T-907 D: caches en memoria de Socket.IO (authRevalidationCache y
+    // playOwnershipCache en socketHandlers.js). Antes solo veíamos el
+    // hit/miss del cache `auth:user` global (Redis); ahora también
+    // observamos las dos capas en memoria del proceso para detectar
+    // contención o ráfagas de revalidación.
+    authRevalidationCacheHits: 0,
+    authRevalidationCacheMisses: 0,
+    playOwnershipCacheHits: 0,
+    playOwnershipCacheMisses: 0,
     byEvent: {},
     lastEventAt: null
   },
@@ -129,6 +143,36 @@ function recordSocketAuthCache(outcome) {
 }
 
 /**
+ * Registra acceso al cache de revalidación de auth de Socket.IO (TTL 30s en
+ * memoria local del proceso, no Redis). T-907 D.
+ * @param {'hit'|'miss'} outcome
+ */
+function recordSocketRevalidationCache(outcome) {
+  if (outcome === 'hit') {
+    state.websocket.authRevalidationCacheHits += 1;
+    return;
+  }
+  if (outcome === 'miss') {
+    state.websocket.authRevalidationCacheMisses += 1;
+  }
+}
+
+/**
+ * Registra acceso al cache de ownership de partida de Socket.IO (TTL 5s en
+ * memoria local del proceso). T-907 D.
+ * @param {'hit'|'miss'} outcome
+ */
+function recordPlayOwnershipCache(outcome) {
+  if (outcome === 'hit') {
+    state.websocket.playOwnershipCacheHits += 1;
+    return;
+  }
+  if (outcome === 'miss') {
+    state.websocket.playOwnershipCacheMisses += 1;
+  }
+}
+
+/**
  * Incrementa el contador de fallback a MemoryStore del rate limiter HTTP.
  * @param {string} [prefix] - Nombre del limiter que hizo fallback (para logging)
  */
@@ -152,9 +196,15 @@ function recordAuthUserCache(outcome) {
 
 /**
  * Snapshot de métricas runtime.
+ * Enriquecido en T-907 D con la telemetría de comandos Upstash y el cache LRU
+ * en memoria. Se calcula al vuelo para reflejar el estado actual del tracker.
+ *
  * @returns {Object}
  */
 function getSnapshot() {
+  const commandsSnapshot = redisCommandTracker.getSnapshot();
+  const inMemoryStats = inMemoryCache.getAllStats();
+
   return {
     startedAt: new Date(state.startedAt).toISOString(),
     uptimeSeconds: Math.floor((Date.now() - state.startedAt) / 1000),
@@ -171,7 +221,17 @@ function getSnapshot() {
       ...state.websocket
     },
     redis: {
-      ...state.redis
+      ...state.redis,
+      // Telemetría de comandos Upstash (T-907 D): granularidad por categoría
+      // funcional + estimación lineal de consumo diario, útil para detectar
+      // proximidad al techo del free tier (10K/día) antes de tocarlo.
+      commandsTotal: commandsSnapshot.total,
+      commandsByCategory: commandsSnapshot.byCategory,
+      commandsEstimatedDaily: commandsSnapshot.estimatedDaily,
+      // Cache LRU en memoria complementario al cache Redis. Hit ratio alto
+      // indica que la app evita comandos Redis adicionales para keys
+      // calientes (auth:user, cache:mechanic, cache:context).
+      inMemoryCache: inMemoryStats
     }
   };
 }
@@ -201,12 +261,29 @@ function reset() {
   state.websocket.deduped = 0;
   state.websocket.authCacheHits = 0;
   state.websocket.authCacheMisses = 0;
+  state.websocket.authRevalidationCacheHits = 0;
+  state.websocket.authRevalidationCacheMisses = 0;
+  state.websocket.playOwnershipCacheHits = 0;
+  state.websocket.playOwnershipCacheMisses = 0;
   state.websocket.byEvent = {};
   state.websocket.lastEventAt = null;
 
   state.redis.rateLimitStoreFallbackCount = 0;
   state.redis.authUserCacheHits = 0;
   state.redis.authUserCacheMisses = 0;
+
+  // Reset también la telemetría agregada (T-907 D).
+  redisCommandTracker.reset();
+  // Tests que verifican el cache deben empezar siempre limpio. Vaciamos
+  // contenido + contadores de las tres instancias LRU para que un test no
+  // herede entradas de otro previo (especialmente importante porque las
+  // instancias son singletons que viven entre tests dentro del mismo file).
+  inMemoryCache.authUserCache.clear();
+  inMemoryCache.authUserCache.resetStats();
+  inMemoryCache.mechanicCache.clear();
+  inMemoryCache.mechanicCache.resetStats();
+  inMemoryCache.contextCache.clear();
+  inMemoryCache.contextCache.resetStats();
 }
 
 module.exports = {
@@ -214,6 +291,8 @@ module.exports = {
   recordRfidEvent,
   recordWebsocketEvent,
   recordSocketAuthCache,
+  recordSocketRevalidationCache,
+  recordPlayOwnershipCache,
   recordRateLimitStoreFallback,
   recordAuthUserCache,
   getSnapshot,

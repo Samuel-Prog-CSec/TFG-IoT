@@ -290,14 +290,17 @@ const getAuthCacheEntry = accessToken => {
 
   const cached = authRevalidationCache.get(accessToken);
   if (!cached) {
+    runtimeMetrics.recordSocketRevalidationCache('miss');
     return null;
   }
 
   if (cached.expiresAt <= Date.now()) {
     authRevalidationCache.delete(accessToken);
+    runtimeMetrics.recordSocketRevalidationCache('miss');
     return null;
   }
 
+  runtimeMetrics.recordSocketRevalidationCache('hit');
   return cached;
 };
 
@@ -331,14 +334,17 @@ const buildOwnershipCacheKey = ({ userId, userRole, playId, includeSessionRuntim
 const getOwnershipCacheEntry = cacheKey => {
   const cached = playOwnershipCache.get(cacheKey);
   if (!cached) {
+    runtimeMetrics.recordPlayOwnershipCache('miss');
     return null;
   }
 
   if (cached.expiresAt <= Date.now()) {
     playOwnershipCache.delete(cacheKey);
+    runtimeMetrics.recordPlayOwnershipCache('miss');
     return null;
   }
 
+  runtimeMetrics.recordPlayOwnershipCache('hit');
   return cached.value;
 };
 
@@ -1367,6 +1373,39 @@ const registerSocketHandlers = ({
       userId: socket.data.userId,
       role: socket.data.userRole
     });
+
+    // T-907 OP2: handlers de validación del Socket.IO Redis adapter en
+    // escenario multi-instancia. Solo activos fuera de producción para que
+    // el script `test:multi-instance` pueda usar el namespace `/game` real
+    // sin acoplarse a la lógica de juego ni añadir endpoints HTTP de test.
+    // En producción quedan desactivados — son rutas inertes que no exponen
+    // datos ni superficie de ataque.
+    if (process.env.NODE_ENV !== 'production') {
+      socket.on('test:join', (payload = {}, ack) => {
+        const room = typeof payload.room === 'string' ? payload.room : null;
+        if (!room) {
+          if (typeof ack === 'function') {
+            ack({ ok: false, error: 'room required' });
+          }
+          return;
+        }
+        socket.join(room);
+        if (typeof ack === 'function') {
+          ack({ ok: true, room, socketId: socket.id });
+        }
+      });
+
+      socket.on('test:broadcast', (payload = {}) => {
+        const room = typeof payload.room === 'string' ? payload.room : null;
+        const event = typeof payload.event === 'string' ? payload.event : null;
+        if (!room || !event) {
+          return;
+        }
+        // Adapter Redis publica este emit a todas las instancias y sus
+        // sockets en la room reciben el mensaje, esté donde esté cada uno.
+        gameNsp.to(room).emit(event, payload.data ?? null);
+      });
+    }
 
     const sensitiveEvents = new Set([
       'join_play',

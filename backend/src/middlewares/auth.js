@@ -14,6 +14,7 @@ const { logSecurityEvent, getRequestContext } = require('../utils/securityLogger
 const redisService = require('../services/redisService');
 const { cacheInvalidate } = require('../utils/cacheHelper');
 const { recordAuthUserCache } = require('../utils/runtimeMetrics');
+const { authUserCache } = require('../utils/inMemoryCache');
 const { Sentry } = require('../config/sentry');
 const { authEventBus } = require('../utils/authEvents');
 
@@ -42,6 +43,21 @@ const invalidateUserCache = async userId => {
     return;
   }
   const id = typeof userId === 'string' ? userId : userId.toString();
+  // T-907 D: limpiamos primero el LRU local (síncrono) para que el siguiente
+  // request en esta instancia recoja el cambio sin esperar.
+  authUserCache.delete(id);
+
+  // T-907 INT5: notificar al resto de instancias del cluster vía pub/sub
+  // `cache:invalidate`. Cada subscriber limpia su LRU local. Si Redis no
+  // está disponible, publishInvalidate falla silenciosamente y el TTL
+  // (30s) actúa como fallback. Lazy require para evitar ciclos.
+  try {
+    const { publishInvalidate } = require('../realtime/cacheInvalidateSubscriber');
+    publishInvalidate('auth:user', id).catch(() => {});
+  } catch {
+    // Si el módulo no carga (entorno de tests sin Redis pub/sub), seguir.
+  }
+
   await cacheInvalidate('auth:user', id).catch(err => {
     logger.debug('invalidateUserCache: fallo al invalidar (ignorado)', {
       userId: id,
@@ -59,12 +75,27 @@ const invalidateUserCache = async userId => {
  * @returns {Promise<Object|null>} POJO con los campos seleccionados o null
  */
 const fetchUserForAuth = async (userId, select = '-password +currentSessionId') => {
-  // Obtener del cache Redis (slim POJO). Si hit, incrementa métrica.
+  // T-907 D: lookup en LRU local primero. En picos cortos (varios requests
+  // del mismo usuario en <30s) evitamos un GET a Upstash por cada uno y
+  // bajamos el consumo del free tier (10K cmds/día) sin sacrificar consistencia
+  // material — invalidateUserCache limpia esta capa cuando hay cambios.
+  const cacheKey = typeof userId === 'string' ? userId : String(userId);
+  const localHit = authUserCache.get(cacheKey);
+  if (localHit !== undefined) {
+    recordAuthUserCache('hit');
+    return localHit;
+  }
+
+  // Segundo nivel: cache Redis (slim POJO compartido entre instancias).
   const cached = await redisService.get('auth:user', userId);
   if (cached !== null) {
     try {
+      const parsed = JSON.parse(cached);
       recordAuthUserCache('hit');
-      return JSON.parse(cached);
+      // Repoblar el LRU local para que el siguiente request del mismo
+      // proceso evite el round-trip Redis.
+      authUserCache.set(cacheKey, parsed);
+      return parsed;
     } catch {
       // Valor cacheado corrupto: continuar con fetch.
     }
@@ -83,10 +114,142 @@ const fetchUserForAuth = async (userId, select = '-password +currentSessionId') 
   // Eliminar password si se coló (defensa en profundidad — select ya lo excluye).
   delete plain.password;
 
+  // Cachear en ambos niveles. El LRU local es síncrono; Redis es fire-and-forget.
+  authUserCache.set(cacheKey, plain);
   redisService
     .setWithTTL('auth:user', userId, JSON.stringify(plain), AUTH_USER_CACHE_TTL_SECONDS)
     .catch(err => {
       logger.debug('fetchUserForAuth: fallo al cachear (ignorado)', {
+        userId,
+        error: err.message
+      });
+    });
+
+  return plain;
+};
+
+/**
+ * T-907 INT1: combina blacklist + security flag + lookup auth:user en un
+ * único pipeline a Redis. Implementa la misma semántica que
+ * `verifyAccessToken` + `fetchUserForAuth` ejecutadas por separado, pero con
+ * 1 round-trip a Upstash en miss (y 0 si el LRU local hace hit).
+ *
+ * Reglas de validación (deben coincidir con `verifyAccessToken` y
+ * `checkSecurityFlag` para no regresar bugs):
+ *   - Si `EXISTS blacklist:<jti>` → revocado → UnauthorizedError TOKEN_REVOKED.
+ *   - Si `GET security:<userId>` devuelve flag y `iat * 1000 + 1000 < flagMs`
+ *     → SESSION_REVOKED.
+ *   - Si `GET auth:user:<userId>` hit → parse y retornar; cachear en LRU.
+ *   - Si auth:user miss → fallback a Mongo + cachear en ambas capas.
+ *
+ * @param {Object} decoded - JWT decodificado (id, jti, iat, ...)
+ * @param {import('express').Request} req
+ * @returns {Promise<Object|null>} POJO usuario o null si no existe en BD.
+ * @throws {UnauthorizedError} si el token está revocado o sesión cerrada.
+ */
+const fetchUserForAuthWithChecks = async (decoded, req) => {
+  const userId = decoded.id;
+  const cacheKey = typeof userId === 'string' ? userId : String(userId);
+
+  // 1) LRU local first. Si hit, todavía hay que comprobar blacklist + security
+  //    porque el LRU no los almacena.
+  const localUser = authUserCache.get(cacheKey);
+
+  // 2) Pipeline batched. Incluye GET auth:user solo si el LRU hizo miss
+  //    (evita un GET innecesario al servidor).
+  const pipelineResults = await redisService.runPipeline(p => {
+    p.exists(`${redisService.NAMESPACES.BLACKLIST}:${decoded.jti}`);
+    p.get(`${redisService.NAMESPACES.SECURITY}:${userId}`);
+    if (!localUser) {
+      p.get(`${redisService.NAMESPACES.AUTH_USER}:${userId}`);
+    }
+  }, 'auth');
+
+  // Si Redis no está disponible, runPipeline devuelve null: degradamos a la
+  // ruta tradicional sin perder funcionalidad (igual que el resto del servicio).
+  if (!pipelineResults) {
+    if (localUser) {
+      recordAuthUserCache('hit');
+      return localUser;
+    }
+    return await fetchUserForAuth(userId);
+  }
+
+  const [blacklistResult, securityResult, redisUserResult] = pipelineResults;
+
+  // 3) Blacklist check
+  const revoked = blacklistResult?.[1] === 1;
+  if (revoked) {
+    logSecurityEvent('AUTH_TOKEN_INVALID', {
+      ...getRequestContext(req),
+      userId,
+      jti: decoded.jti,
+      reason: 'ACCESS_TOKEN_REVOKED'
+    });
+    throw new UnauthorizedError('Token revocado', 'TOKEN_REVOKED');
+  }
+
+  // 4) Security flag check (logout forzado). Misma tolerancia 1s que
+  //    `checkSecurityFlag` para no rechazar re-logins inmediatos tras
+  //    revokeAllUserTokens.
+  const flagTimestamp = securityResult?.[1];
+  if (flagTimestamp) {
+    const flagTime = Number.parseInt(flagTimestamp, 10);
+    const tokenTimeMs = decoded.iat * 1000;
+    if (Number.isFinite(flagTime) && tokenTimeMs + 1000 < flagTime) {
+      logSecurityEvent('AUTH_TOKEN_INVALID', {
+        ...getRequestContext(req),
+        userId,
+        reason: 'SESSION_REVOKED_SECURITY'
+      });
+      throw new UnauthorizedError(
+        'Tu sesión fue cerrada por motivos de seguridad. Por favor, inicia sesión de nuevo.',
+        'SESSION_REVOKED'
+      );
+    }
+  }
+
+  // 5) Resolver el slim-user
+  if (localUser) {
+    recordAuthUserCache('hit');
+    return localUser;
+  }
+
+  const cachedRaw = redisUserResult?.[1];
+  if (cachedRaw) {
+    try {
+      const parsed = JSON.parse(cachedRaw);
+      recordAuthUserCache('hit');
+      authUserCache.set(cacheKey, parsed);
+      return parsed;
+    } catch {
+      // Valor cacheado corrupto: cae al fetch Mongo.
+    }
+  }
+
+  // 6) Miss real: Mongo + populación de ambas capas.
+  recordAuthUserCache('miss');
+  const userDoc = await userRepository.findById(userId, {
+    select: '-password +currentSessionId'
+  });
+  if (!userDoc) {
+    return null;
+  }
+
+  const plain =
+    typeof userDoc.toObject === 'function' ? userDoc.toObject({ virtuals: true }) : { ...userDoc };
+  delete plain.password;
+
+  authUserCache.set(cacheKey, plain);
+  redisService
+    .setWithTTL(
+      redisService.NAMESPACES.AUTH_USER,
+      userId,
+      JSON.stringify(plain),
+      AUTH_USER_CACHE_TTL_SECONDS
+    )
+    .catch(err => {
+      logger.debug('fetchUserForAuthWithChecks: fallo al cachear (ignorado)', {
         userId,
         error: err.message
       });
@@ -492,7 +655,7 @@ const generateTokenPair = async (user, req, sessionId, existingFamilyId = null) 
  * @returns {Promise<Object>} Payload decodificado
  * @throws {UnauthorizedError} Si el token es inválido, expirado o revocado
  */
-const verifyAccessToken = async (token, req) => {
+const verifyAccessToken = async (token, req, { skipRedisChecks = false } = {}) => {
   try {
     const decoded = jwt.verify(
       token,
@@ -540,30 +703,36 @@ const verifyAccessToken = async (token, req) => {
       throw new UnauthorizedError('Token type inválido', 'TOKEN_INVALID');
     }
 
-    // Verificar blacklist en Redis
-    const revoked = await isTokenRevoked(decoded.jti);
-    if (revoked) {
-      logSecurityEvent('AUTH_TOKEN_INVALID', {
-        ...getRequestContext(req),
-        userId: decoded.id,
-        jti: decoded.jti,
-        reason: 'ACCESS_TOKEN_REVOKED'
-      });
-      throw new UnauthorizedError('Token revocado', 'TOKEN_REVOKED');
-    }
+    // T-907 INT1: el caller puede saltarse las consultas Redis aquí cuando ya
+    // las hizo agrupadas en un pipeline (un solo round-trip a Upstash) — útil
+    // para `authenticate`/`optionalAuth`. Los consumers de socket siguen sin
+    // pasar la opción y mantienen el flujo secuencial.
+    if (!skipRedisChecks) {
+      // Verificar blacklist en Redis
+      const revoked = await isTokenRevoked(decoded.jti);
+      if (revoked) {
+        logSecurityEvent('AUTH_TOKEN_INVALID', {
+          ...getRequestContext(req),
+          userId: decoded.id,
+          jti: decoded.jti,
+          reason: 'ACCESS_TOKEN_REVOKED'
+        });
+        throw new UnauthorizedError('Token revocado', 'TOKEN_REVOKED');
+      }
 
-    // Verificar flag de seguridad (logout forzado)
-    const securityCheck = await checkSecurityFlag(decoded.id, decoded.iat);
-    if (securityCheck.revoked) {
-      logSecurityEvent('AUTH_TOKEN_INVALID', {
-        ...getRequestContext(req),
-        userId: decoded.id,
-        reason: securityCheck.reason || 'SESSION_REVOKED_SECURITY'
-      });
-      throw new UnauthorizedError(
-        'Tu sesión fue cerrada por motivos de seguridad. Por favor, inicia sesión de nuevo.',
-        'SESSION_REVOKED'
-      );
+      // Verificar flag de seguridad (logout forzado)
+      const securityCheck = await checkSecurityFlag(decoded.id, decoded.iat);
+      if (securityCheck.revoked) {
+        logSecurityEvent('AUTH_TOKEN_INVALID', {
+          ...getRequestContext(req),
+          userId: decoded.id,
+          reason: securityCheck.reason || 'SESSION_REVOKED_SECURITY'
+        });
+        throw new UnauthorizedError(
+          'Tu sesión fue cerrada por motivos de seguridad. Por favor, inicia sesión de nuevo.',
+          'SESSION_REVOKED'
+        );
+      }
     }
 
     // Verificar fingerprint del dispositivo
@@ -769,11 +938,15 @@ const authenticate = async (req, res, next) => {
       throw new UnauthorizedError('Access token no proporcionado', 'TOKEN_MISSING');
     }
 
-    // Verificar access token (incluye validación de fingerprint)
-    const decoded = await verifyAccessToken(token, req);
+    // T-907 INT1: decode local (sync JWT verify + fingerprint), checks Redis
+    // se agrupan después en una pipeline. Antes esto requería 2 round-trips
+    // secuenciales (`isTokenRevoked` + `checkSecurityFlag`) más un tercero
+    // dentro de `fetchUserForAuth`. Ahora son 0 round-trips si el LRU local
+    // hace hit, o 1 round-trip combinado en miss.
+    const decoded = await verifyAccessToken(token, req, { skipRedisChecks: true });
 
-    // Buscar usuario (cache-aside Redis, TTL 60s). Invalidación explícita en updates.
-    const user = await fetchUserForAuth(decoded.id);
+    // Buscar usuario y validar blacklist + security flag en un único viaje.
+    const user = await fetchUserForAuthWithChecks(decoded, req);
 
     if (!user) {
       logSecurityEvent('AUTH_TOKEN_INVALID', {
@@ -938,8 +1111,10 @@ const optionalAuth = async (req, res, next) => {
     if (!token) {
       return next(); // Sin token, continuar sin error
     }
-    const decoded = await verifyAccessToken(token, req);
-    const user = await fetchUserForAuth(decoded.id, '-password');
+    // T-907 INT1: pipeline batch como en authenticate; si lanza el catch lo
+    // tragamos abajo igual que el comportamiento previo del modo opcional.
+    const decoded = await verifyAccessToken(token, req, { skipRedisChecks: true });
+    const user = await fetchUserForAuthWithChecks(decoded, req);
 
     if (user?.status === 'active') {
       req.user = user;

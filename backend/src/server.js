@@ -434,6 +434,19 @@ const startServer = async () => {
         logger.warn('rfidModeSubscriber: no se pudo iniciar', { error: subErr.message });
       }
 
+      // T-907 INT5: subscriber pub/sub de invalidaciones del LRU local
+      // (auth:user / cache:mechanic / cache:context). Permite consistencia
+      // cross-instance sin esperar al TTL. En single-instance es no-op útil
+      // (publica al canal pero nadie escucha, coste despreciable).
+      try {
+        const { startCacheInvalidateSubscriber } = require('./realtime/cacheInvalidateSubscriber');
+        await startCacheInvalidateSubscriber();
+      } catch (subErr) {
+        logger.warn('cacheInvalidateSubscriber: no se pudo iniciar', {
+          error: subErr.message
+        });
+      }
+
       // ADR-071 (PROP-62): programar el cron de retención RGPD vía BullMQ.
       // El job se procesa en el contenedor `worker` (proceso separado),
       // pero el SCHEDULING vive en el backend para que esté garantizado
@@ -550,6 +563,14 @@ const gracefulShutdown = async signal => {
       await stopRfidModeSubscriber();
     } catch (subErr) {
       logger.warn('rfidModeSubscriber: error al cerrar', { error: subErr.message });
+    }
+
+    // 6a-bis (T-907 INT5). Cerrar el subscriber de cache:invalidate.
+    try {
+      const { stopCacheInvalidateSubscriber } = require('./realtime/cacheInvalidateSubscriber');
+      await stopCacheInvalidateSubscriber();
+    } catch (subErr) {
+      logger.warn('cacheInvalidateSubscriber: error al cerrar', { error: subErr.message });
     }
 
     // 6b. Cerrar el server de Socket.IO. Espera a que los sockets cuelguen.
