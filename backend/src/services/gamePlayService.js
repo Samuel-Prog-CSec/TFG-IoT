@@ -223,8 +223,17 @@ async function addEventToPlay(playId, eventData) {
  * @throws {ValidationError} Si la partida ya no está en progreso
  */
 async function completePlay(playId) {
+  // T-907 INT6: el populate original traía documentos completos de User
+  // (RGPD: PII innecesaria) y GameSession (cardMappings grande). Acotamos:
+  //   - playerId: solo _id basta para `play.playerId._id` (línea 280) y el
+  //     refetch a `userRepository.findById` (línea 243) cuando hay consent.
+  //   - sessionId: necesitamos `config` (pointsPerCorrect, numberOfRounds
+  //     para `calculateRating`) y `_id` para `recalculateSessionStatusFromPlays`.
   const play = await gamePlayRepository.findById(playId, {
-    populate: [{ path: 'playerId' }, { path: 'sessionId' }]
+    populate: [
+      { path: 'playerId', select: '_id' },
+      { path: 'sessionId', select: 'config' }
+    ]
   });
 
   if (!play) {

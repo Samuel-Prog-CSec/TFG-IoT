@@ -30,17 +30,38 @@ const startDataRetentionWorker = () => {
     return worker;
   }
 
+  // T-907 INT4: concurrency configurable. Si está activo el sharding
+  // (`DATA_RETENTION_SHARDS > 1`), normalmente conviene subir esto a igual
+  // valor para que el mismo proceso worker procese los N shards en paralelo.
+  // Default 1 para no cambiar el comportamiento existente.
+  const concurrency = Math.max(
+    1,
+    Number.parseInt(process.env.DATA_RETENTION_WORKER_CONCURRENCY, 10) || 1
+  );
+
   worker = new Worker(
     QUEUE_NAMES.DATA_RETENTION,
     async job => {
       logger.info('Ejecutando job de retención de datos', {
         jobId: job.id,
         name: job.name,
-        attempts: job.attemptsMade
+        attempts: job.attemptsMade,
+        shardIndex: job.data?.shardIndex ?? null,
+        shardCount: job.data?.shardCount ?? null
       });
 
       const dryRun = job.data?.dryRun === true;
-      const summary = await runDataRetention({ dryRun });
+      // T-907 INT4: si el job viene con windowStart/windowEnd (shard), se
+      // pasan al service para que filtre el subset temporal correspondiente.
+      const windowStart = job.data?.windowStart ? new Date(job.data.windowStart) : null;
+      const windowEnd = job.data?.windowEnd ? new Date(job.data.windowEnd) : null;
+      const summary = await runDataRetention({
+        dryRun,
+        windowStart,
+        windowEnd,
+        shardIndex: job.data?.shardIndex ?? null,
+        shardCount: job.data?.shardCount ?? null
+      });
 
       logger.info('Job de retención completado', { jobId: job.id, summary });
       return summary;
@@ -48,7 +69,7 @@ const startDataRetentionWorker = () => {
     {
       connection,
       prefix: `${KEY_PREFIX}bull`,
-      concurrency: 1
+      concurrency
     }
   );
 

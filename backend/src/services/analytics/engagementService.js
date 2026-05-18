@@ -11,6 +11,17 @@
 const gamePlayRepository = require('../../repositories/gamePlayRepository');
 const userRepository = require('../../repositories/userRepository');
 const { toObjectId, getStartDate, enrichMetric } = require('./analyticsHelpers');
+const { cacheGet } = require('../../utils/cacheHelper');
+
+// T-907 INT3: TTL 10 min para el cache de engagement individual. El sub-pipeline
+// `abandonmentDetails` (2 $lookup anidados sobre GameSession y GameContext) es
+// la parte más cara: ~300-800 ms en Atlas M0 cuando el alumno acumula 50+
+// partidas. La invalidación llega automáticamente desde
+// `GameEngine.endPlay → cacheInvalidateNamespace('cache:analytics')`, por lo
+// que el dato del docente refresca tras cada partida terminada — aceptamos
+// que entre fin de partida y dashboard del docente haya hasta ~200 ms de
+// staleness real al regenerar.
+const STUDENT_ENGAGEMENT_TTL_SECONDS = 600;
 
 // Pesos del engagement score (ver Analytics_Design_Rationale.md)
 const ENGAGEMENT_WEIGHTS = {
@@ -34,6 +45,24 @@ const ENGAGEMENT_WEIGHTS = {
  * @returns {Promise<Object>} { engagementScore, components, abandonmentAnalysis }
  */
 async function getStudentEngagement(studentId, { timeRange = '30d' } = {}) {
+  return cacheGet(
+    'cache:analytics',
+    `engagement:student:${studentId}:${timeRange}`,
+    () => computeStudentEngagement(studentId, timeRange),
+    STUDENT_ENGAGEMENT_TTL_SECONDS
+  );
+}
+
+/**
+ * Implementación no cacheada de `getStudentEngagement`. Extraída para que el
+ * wrapper de cache sea independiente y un caller que necesite datos frescos
+ * pueda llamarla directamente (no usado hoy pero deja la puerta abierta).
+ *
+ * @param {string} studentId
+ * @param {string} timeRange
+ * @returns {Promise<Object>}
+ */
+async function computeStudentEngagement(studentId, timeRange) {
   const startDate = getStartDate(timeRange);
   const days = timeRange === '90d' ? 90 : 30;
 
