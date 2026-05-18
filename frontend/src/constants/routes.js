@@ -45,6 +45,7 @@ export const ROUTES = {
   ADMIN_APPROVALS: '/admin/approvals',
   STUDENT_MANAGEMENT: '/admin/students',
   ADMIN_CONTEXTS: '/admin/contexts',
+  ADMIN_SYSTEM_ALERTS: '/admin/system-alerts',
   ADMIN_MFA_SETUP: '/admin/mfa-setup',
 
   // Publicas
@@ -181,6 +182,12 @@ export const ADMIN_NAV_ROUTES = [
     label: 'Contextos',
     icon: 'Palette',
     dataTour: 'admin-contexts',
+  },
+  {
+    path: ROUTES.ADMIN_SYSTEM_ALERTS,
+    label: 'Alertas y avisos',
+    icon: 'ShieldAlert',
+    dataTour: 'admin-system-alerts',
   },
   {
     path: ROUTES.ADMIN_MFA_SETUP,

@@ -758,4 +758,36 @@ El evento Socket.IO `notification:created` con `type='student_at_risk'` incluye 
 
 ---
 
-**Última actualización:** T-941 cierre (2026-05-18).
+## 22. Sistema de alertas operativas para super_admin (T-942 / ADR-162)
+
+Complemento al § 21 con foco en **operación del sistema**: Redis, MongoDB, memoria, colas BullMQ, seguridad (lockouts, brute force, token theft), moderación (profesores pendientes envejecidos, contextos sin assets, profesores inactivos) y compliance (lag del job de retención RGPD, picos de retirada de consentimiento). Aislamiento total: el `super_admin` no ve `SmartAlert` por defecto y el `teacher` no tiene acceso a `SystemAlert` (los endpoints `/api/admin/system-alerts/*` requieren `requireRole('super_admin')`).
+
+### 22.1 Runbooks
+
+Los detectores incluyen un `runbookUrl` por defecto y el card UI muestra un link "Ver runbook" si está presente. Anclas relevantes documentadas como guía operativa:
+
+- `#redis-latencia` — SLOWLOG, contadores `runtimeMetrics.redis.commandsByCategory`, circuit breaker, fallback memoryStore en runtime.
+- `#mongo-disconnect` — revisar Atlas cluster, IP whitelist, credenciales, replica set, reinicio controlado.
+- `#account-lockout` — credential stuffing: `auth:fail:*` y `auth:lock:*`, IPs en `securityLogger`, refuerzo CAPTCHA, unlock manual via `POST /api/admin/lockouts/unlock`.
+- `#brute-force` — pico de fallos: logs `AUTH_LOGIN_FAILED`, bots, Cloudflare WAF.
+- `#token-theft` — `AUTH_TOKEN_THEFT_DETECTED`: revocación global de tokens del usuario, cambio de contraseña forzado, audit de fingerprints.
+
+### 22.2 Contadores sliding-window
+
+`services/security/securityCountersService.js` mantiene contadores 1 h vía `ZADD/ZCOUNT` en Redis (`security:counter:<eventType>`). `securityLogger.logSecurityEvent` invoca `bumpSecurityCounter(eventCode, meta)` fire-and-forget en `AUTH_LOGIN_FAILED`, `AUTH_ACCOUNT_LOCKED`, `AUTH_TOKEN_THEFT_DETECTED`, `DATA_CONSENT_CHANGE` (withdrawn). Fail-open: si Redis cae, no rompe auth ni propaga errores; el detector cuenta 0 en esa corrida.
+
+### 22.3 Notificación crítica a super_admins
+
+Las SystemAlert críticas disparan `notificationService.notify({ type: 'system_alert_critical', ... })` para cada usuario con `role:'super_admin'`. Persistido en `Notification` y emitido via Socket.IO `notification:created` al room `user_<id>` de cada admin. Link a `/admin/system-alerts?alertId=<id>`.
+
+### 22.4 Avisos a profesores (SystemAnnouncement)
+
+La dirección publica avisos visibles como banner top en `AppLayout` para `role:'teacher'`. Audit completo en BD: `createdBy`, `archivedAt`, `archivedBy`. Sin email ni canal externo: la comunicación operativa permanece dentro del centro. Dismiss por usuario en `localStorage` (sin endpoint server-side; telemetría mínima).
+
+### 22.5 Endpoint debug protegido
+
+`POST /api/admin/system-alerts/_debug/run-now` dispara una corrida de detección inmediata. 403 si `NODE_ENV === 'production'`. Solo super_admin. Útil para QA y nuevos detectores.
+
+---
+
+**Última actualización:** T-942 cierre (2026-05-18).

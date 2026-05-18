@@ -64,6 +64,7 @@ const NotFound = lazy(() => import('./pages/NotFound'));
 const ApprovalPanel = lazy(() => import('./pages/admin/ApprovalPanel'));
 const StudentManagement = lazy(() => import('./pages/admin/StudentManagement'));
 const AdminContexts = lazy(() => import('./pages/admin/AdminContexts'));
+const SystemAlertsPage = lazy(() => import('./pages/admin/SystemAlertsPage')); // T-942
 const MfaSetupPage = lazy(() => import('./pages/admin/MfaSetup')); // T-905 B7
 
 // Public pages
@@ -219,6 +220,7 @@ function AppContent() {
           <Route path="students" element={<SuspenseWrapper><StudentManagement /></SuspenseWrapper>} />
           <Route path="students/transfer" element={<SuspenseWrapper><TransferStudents /></SuspenseWrapper>} />
           <Route path="contexts" element={<SuspenseWrapper><AdminContexts /></SuspenseWrapper>} />
+          <Route path="system-alerts" element={<SuspenseWrapper><SystemAlertsPage /></SuspenseWrapper>} />
           <Route path="mfa-setup" element={<SuspenseWrapper><MfaSetupPage /></SuspenseWrapper>} />
           {/* 404 dentro del layout admin */}
           <Route path="*" element={<SuspenseWrapper><NotFound /></SuspenseWrapper>} />

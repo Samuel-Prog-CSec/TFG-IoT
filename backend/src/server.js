@@ -70,6 +70,10 @@ const metricsRoutes = require('./routes/metrics');
 const analyticsRoutes = require('./routes/analytics');
 const healthRoutes = require('./routes/health');
 const notificationRoutes = require('./routes/notifications');
+const {
+  adminRouter: systemAlertsAdminRouter,
+  publicRouter: announcementsPublicRouter
+} = require('./routes/systemAlerts');
 
 // Crear aplicación Express
 const app = express();
@@ -285,6 +289,12 @@ app.use('/api/decks', deckRoutes);
 // Rutas de administración (solo super admin)
 app.use('/api/admin', adminRoutes);
 
+// Rutas de SystemAlerts y SystemAnnouncements para super_admin (T-942)
+app.use('/api/admin', systemAlertsAdminRouter);
+
+// Rutas de announcements públicos (listado activo para teacher)
+app.use('/api/announcements', announcementsPublicRouter);
+
 // Rutas de analíticas
 app.use('/api/analytics', analyticsRoutes);
 
@@ -469,6 +479,17 @@ const startServer = async () => {
         await scheduleAlertDetectionCron();
       } catch (cronErr) {
         logger.warn('queues: no se pudo programar el cron de alertas', {
+          error: cronErr.message
+        });
+      }
+
+      // T-942: cron de detección de SystemAlerts (super_admin). Cada 5 min
+      // por defecto. Mismo patrón idempotente.
+      try {
+        const { scheduleSystemAlertDetectionCron } = require('./queues');
+        await scheduleSystemAlertDetectionCron();
+      } catch (cronErr) {
+        logger.warn('queues: no se pudo programar el cron de system-alerts', {
           error: cronErr.message
         });
       }

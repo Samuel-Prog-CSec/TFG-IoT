@@ -8537,3 +8537,46 @@ Configurar manualmente en el panel Cloudflare (free tier basta):
 - **Carpeta `backend/src/jobs/`**: el sprint la sugería, pero la convención del repo usa `backend/src/workers/`.
 
 **Backfill:** `npm run migrate:alerts-backfill` (idempotente). 4 pasadas con `referenceDate` retrocedido 30 d cada una para reconstruir historial verosímil para la demo del tribunal.
+
+---
+
+## ADR-162: Alertas inteligentes para super_admin con modelo separado + broadcast de avisos a profesores [Full-stack, Backend, Frontend, Security]
+
+**Contexto:** T-942 (Sprint 6, P1, XL). El sistema de SmartAlerts del ADR-161 cubre alertas pedagógicas con `teacherId` como dueño y aislamiento perfecto entre profesores. El super_admin tiene acceso a botón "Insights" pero la ruta `/analytics/insights` está restringida a `teacher` (redirige a `/admin/approvals`). Sin entrada en `ADMIN_NAV_ROUTES`. No hay alertas operacionales del sistema (Redis, MongoDB, colas BullMQ, seguridad, moderación, compliance) pensadas para el rol que las debería gestionar. Además, no existe mecanismo para que la dirección informe a todo el claustro a la vez.
+
+**Decisión:** crear un sistema paralelo de **SystemAlerts** (globales por incidente) y un módulo de **SystemAnnouncements** (broadcast manual a profesores) aislados totalmente del sistema pedagógico. 10 decisiones de diseño:
+
+1. **Modelo `SystemAlert`** nuevo (no extender `SmartAlert` con `scope`). Sin `teacherId`/`studentId`/`studentPseudoId`/`gamePlayId`. Campos propios: `title`, `description`, `recommendation`, `source` (redis/mongo/memory/queue/auth/moderation/compliance), `component`, `data` (Mixed), `runbookUrl`. Lifecycle idéntico al de SmartAlert (`active|resolved|dismissed|snoozed`) para reutilizar UI compartida. Audit `resolvedBy`/`dismissedBy`/`snoozedBy`/`pinnedBy`.
+2. **Audiencia global por incidente**: una sola SystemAlert activa por `type` simultáneamente. Cualquier super_admin puede gestionarla y el cambio es visible para todos. Aislamiento limpio entre roles a nivel BD: ningún teacher accede a la colección `systemalerts`; ningún super_admin recibe `SmartAlert` ajenas.
+3. **Índices**: `{ status, pinned: -1, severity: 1, detectedAt: -1 }`, `{ severity, status }`, `{ source, status }`, `{ status, snoozedUntil }` partial, **`{ type, status='active' }` unique partial → dedup global**, `{ status, updatedAt }` partial (hard-delete).
+4. **12 detectores nuevos** en `services/analytics/systemDetectors/`: 4 sistema (`redisHighLatency`, `mongoDisconnected`, `memoryPressure`, `queueBacklog`); 3 seguridad (`accountLockoutSpike`, `authFailedSpike`, `tokenTheftDetected`); 3 moderación (`pendingTeachersAging`, `inactiveTeachers`, `contextWithoutAssets`); 2 compliance (`dataRetentionLag`, `consentWithdrawalSpike`). Cada uno extiende `SystemAlertDetector` base, no escribe en BD y nunca propaga errores fatales.
+5. **`securityCountersService`** sliding-window 1 h en Redis (ZADD/ZCOUNT) para responder en O(1) a los detectores de auth. `securityLogger.logSecurityEvent` incrementa fire-and-forget en eventos `AUTH_LOGIN_FAILED`, `AUTH_ACCOUNT_LOCKED`, `AUTH_TOKEN_THEFT_DETECTED`, `DATA_CONSENT_CHANGE` (acción `withdrawn`).
+6. **Escalas temporales operacionales** (horas, no días) en `SYSTEM_DETECTION_CONFIG`: cron `*/5 * * * *`, `escalateWarningAfterHours=2`, `reopenAfterHours=12`, `hardDeleteAfterDays=90`, `cacheTtlSeconds=30`.
+7. **Worker BullMQ separado** `systemAlertDetectionWorker.js` + queue `system-alert-detection` con cron propio. Notificación crítica enviada a TODOS los super_admins via `notificationService.notify({ type: 'system_alert_critical', ... })`.
+8. **Endpoints REST** bajo `/api/admin/system-alerts/*` con `requireRole('super_admin')`: list, summary, effectiveness, getById, history, dismiss, resolve, snooze (HORAS además de días), pin/unpin, bulk-action. Endpoint debug `_debug/run-now` solo en `NODE_ENV !== 'production'` para QA. Cache Redis namespace `cache:system-alerts` con invalidación en cada acción lifecycle.
+9. **Frontend UI super_admin**: nueva ruta `/admin/system-alerts` (lazy + RequireRole). Página `SystemAlertsPage` con dos tabs (Alertas + Avisos). Componentes nuevos `SystemAlertsHub`, `SystemAlertCard`, `SystemAlertActionsMenu` (presets de snooze en horas: 1h/6h/24h/72h). Reutiliza `AlertStatusFilter`, `AlertBulkBar`, `AlertHistoryModal`, `EscalationBadge`. Filtro adicional por **source**. Entry en `ADMIN_NAV_ROUTES` con icono `ShieldAlert` (label "Alertas y avisos"). Atajo `g r` para super_admin.
+10. **SystemAnnouncements** (broadcast a profesores): modelo `SystemAnnouncement` (`title`, `body`, `severity: info/warning/urgent`, `audience: all_teachers/all_users`, `linkUrl/linkLabel`, `expiresAt`, `active`). Endpoints `/api/admin/announcements` (CRUD super_admin) y `/api/announcements/active` (público autenticado). Componente `<TeacherAnnouncementBanner />` montado en `AppLayout` solo para profesores, apila hasta 3 banners (urgent > warning > info), dismiss persistido en `localStorage`. Form con preview en `SystemAnnouncementsManager`. Límite `SYSTEM_ANNOUNCEMENT_MAX_ACTIVE=3` por audiencia.
+
+**Garantías de aislamiento (test-cubierto):**
+- Teacher recibe 403 en `/api/admin/system-alerts/*`.
+- `/api/analytics/alerts/*` no cambia: SmartAlert siguen filtradas por `teacherId === user._id` salvo bypass `allowSuperAdmin` (rutas de soporte, no usadas desde nueva UI).
+- Cache keys disjuntas: `cache:alerts:teacher:*` vs `cache:system-alerts:*` vs `cache:announcements:*`.
+- Notificaciones `student_at_risk` solo llegan al teacher dueño; `system_alert_critical` solo a `role:'super_admin'`.
+- Cron y workers distintos sin compartir colas.
+
+**Consecuencias:**
+- 12 alertas listas que cubren el ciclo operativo completo (rendimiento, disponibilidad, seguridad, compliance, salud de datos).
+- Banner urgent de super_admin permite comunicación de incidencias a todos los profesores sin email.
+- Cobertura: 1364 backend (+34) y 478 frontend (+39). Bundle inicial sigue en 60.32 KB gzipped (lazy + chunk admin separado).
+- Latencia operacional: detectores ligeros (mayoría O(1) sobre métricas in-memory + Redis sliding sets); solo `pending_teachers_aging`/`inactive_teachers`/`context_without_assets` ejecutan find en BD con índices ya existentes.
+
+**Alternativas descartadas:**
+- **Extender SmartAlert con campo `scope: 'teacher'|'system'`**: forzaría `teacherId=null` y rompería el unique partial `(studentId,type,active)`. Mayor riesgo de fuga cruzada teacher↔super_admin por query mal filtrada.
+- **Alertas personales por super_admin**: añadía complejidad (multiplicar registros o `userAcks[]`) sin valor real cuando los super_admins de un centro normalmente son 1-3 y comparten visión de la operación.
+- **Banner como modal al login**: invasivo, rompe el flujo del docente. Stack de banners con dismiss persistente es menos intrusivo.
+- **Cron a la misma frecuencia que SmartAlert (15 min)**: detecciones operativas necesitan respuesta más rápida; 5 min es el equilibrio (no satura BD ni notifica con demasiado retraso).
+
+**Pendientes documentados:**
+- Endpoint `POST /api/announcements/:id/ack` server-side (hoy solo localStorage). Trivial añadir si se necesita auditoría de lectura.
+- Detector `disk_full` cuando se contrate volumen persistente (Koyeb actualmente no expone disk usage en runtime).
+- Personalización por super_admin (filtros recordados, dismissals individuales) si en el futuro hay 5+ super_admins por centro.

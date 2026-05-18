@@ -269,7 +269,65 @@ Namespace dedicado `cache:alerts` con TTL 60 s, invalidación granular por teach
 
 ---
 
-### 2.6. Datos para Reportes y Exportación (Endpoints E17-E19)
+### 2.6. Sistema de Alertas Operativas para super_admin (T-942, ADR-162)
+
+Espejo conceptual del § 2.5 para alertas operacionales (Redis, MongoDB, colas BullMQ, seguridad, moderación, compliance) gestionadas por la dirección del centro.
+
+#### Diferencias clave frente a SmartAlert
+
+| Dimensión | SmartAlert (teacher) | SystemAlert (super_admin) |
+|---|---|---|
+| Dueño | `teacherId` obligatorio | Sin dueño: alerta global por incidente |
+| Dedup unique | `(studentId, type, status='active')` | `(type, status='active')` |
+| Audiencia notificación | Teacher dueño (`student_at_risk`) | Todos los super_admins (`system_alert_critical`) |
+| Cron detección | `*/15 * * * *` | `*/5 * * * *` (más frecuente) |
+| Escalation warning→critical | 7 días + 3 ocurrencias | 2 horas + 3 ocurrencias |
+| Reopen tras dismiss | 60 días | 12 horas |
+| Hard-delete | 365 días | 90 días |
+| Snooze presets | 1/7/14/30 días | 1/6/24/72 horas |
+| Cache TTL | 60 s | 30 s |
+| Cache namespace | `cache:alerts:teacher:*` | `cache:system-alerts:*` |
+
+#### Catálogo de 12 detectores
+
+**Sistema/Operación (4):**
+- `redis_high_latency`: ≥3 muestras consecutivas con avgLatency superior al umbral (100ms warning / 500ms critical).
+- `mongo_disconnected`: `mongoose.connection.readyState ≠ 1` durante 2 muestras consecutivas → critical inmediato.
+- `memory_pressure`: heap percent usado >85% (warning) / >95% (critical).
+- `queue_backlog`: cualquier queue BullMQ con jobs pending > umbral o failed > 0.
+
+**Seguridad (3):**
+- `account_lockout_spike`: ≥5/h warning, ≥20/h critical. Lee `securityCounters.account_locked` (sliding 1 h en Redis).
+- `auth_failed_spike`: ≥50/h warning, ≥200/h critical. Lee `securityCounters.auth_failed`.
+- `token_theft_detected`: cualquier ocurrencia → critical inmediato. Lee `securityCounters.token_theft`.
+
+**Moderación (3):**
+- `pending_teachers_aging`: warning si oldest pending ≥48h, critical ≥7 días. Lookup en `User` por `accountStatus:'pending_approval'`.
+- `inactive_teachers`: info ≥30 días, warning ≥90 días sin login. Agregado: el finding cita el count y un ejemplo.
+- `context_without_assets`: warning si hay contextos con `assets:[]` creados hace >24h.
+
+**Compliance (2):**
+- `data_retention_lag`: warning si última ejecución del job de retención RGPD >48h, critical >7d. Lee timestamp escrito por `dataRetentionWorker` en Redis (`system:meta:lastRetentionRun`).
+- `consent_withdrawal_spike`: info ≥5/día, warning ≥20/día. Agregado sobre `consent.history` por action='withdrawn'.
+
+#### `securityCountersService`
+
+Servicio nuevo en `services/security/securityCountersService.js`. Para cada evento auth importante (`AUTH_LOGIN_FAILED`, `AUTH_ACCOUNT_LOCKED`, `AUTH_TOKEN_THEFT_DETECTED`, `DATA_CONSENT_CHANGE` con action='withdrawn'), `securityLogger.logSecurityEvent` invoca `securityCounters.increment(eventType)` fire-and-forget. Implementación: `ZADD security:counter:<eventType> <timestamp> <member>` + `ZCOUNT` en ventana de 1 h. Fail-open: si Redis cae, no bloquea autenticación ni propaga errores. Limpieza perezosa cada 50 llamadas vía `ZREMRANGEBYSCORE`.
+
+#### Persistencia + lifecycle
+
+Mismo modelo que SmartAlert (active/resolved/dismissed/snoozed/snoozedUntil/severityHistory). Pero:
+- Sin `teacherId/studentId/studentPseudoId/gamePlayId`.
+- Con `title`, `source`, `component`, `data` (Mixed), `runbookUrl` (link a doc interna).
+- Audit `resolvedBy/dismissedBy/snoozedBy/pinnedBy` (`role: 'super_admin'`).
+
+#### Avisos a profesores (SystemAnnouncement)
+
+Mecanismo complementario manual: la dirección publica avisos (`title`, `body`, `severity: info/warning/urgent`, `linkUrl`, `expiresAt`) dirigidos a `all_teachers` o `all_users`. Persiste en `systemannouncements`. El backend expone `/api/announcements/active` (cualquier rol autenticado) y el frontend renderiza `<TeacherAnnouncementBanner />` en `AppLayout` (solo teacher) con stack máx. 3 visibles ordenados por severidad. Dismiss persistente en `localStorage` por usuario. Límite `SYSTEM_ANNOUNCEMENT_MAX_ACTIVE=3` por audience.
+
+---
+
+### 2.7. Datos para Reportes y Exportación (Endpoints E17-E19)
 
 #### Fundamento pedagógico
 

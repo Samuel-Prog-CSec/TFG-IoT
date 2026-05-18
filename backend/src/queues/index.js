@@ -48,7 +48,8 @@ const QUEUE_NAMES = Object.freeze({
   DATA_RETENTION: 'data-retention',
   GDPR_EXPORTS: 'gdpr-exports',
   NOTIFICATIONS: 'notifications',
-  ALERT_DETECTION: 'alert-detection'
+  ALERT_DETECTION: 'alert-detection',
+  SYSTEM_ALERT_DETECTION: 'system-alert-detection'
 });
 
 const dataRetentionQueue = new Queue(QUEUE_NAMES.DATA_RETENTION, {
@@ -75,7 +76,19 @@ const alertDetectionQueue = new Queue(QUEUE_NAMES.ALERT_DETECTION, {
   defaultJobOptions
 });
 
-const allQueues = [dataRetentionQueue, gdprExportsQueue, notificationsQueue, alertDetectionQueue];
+const systemAlertDetectionQueue = new Queue(QUEUE_NAMES.SYSTEM_ALERT_DETECTION, {
+  connection,
+  prefix: `${KEY_PREFIX}bull`,
+  defaultJobOptions
+});
+
+const allQueues = [
+  dataRetentionQueue,
+  gdprExportsQueue,
+  notificationsQueue,
+  alertDetectionQueue,
+  systemAlertDetectionQueue
+];
 
 /**
  * Programa el cron diario de retención de datos. Idempotente: usar siempre el
@@ -190,6 +203,36 @@ const scheduleAlertDetectionCron = async () => {
 };
 
 /**
+ * Programa el cron del detector de alertas de sistema (T-942).
+ *
+ * Patrón por defecto: cada 5 minutos (env `SYSTEM_ALERT_DETECTION_CRON`).
+ * Más frecuente que el de teacher porque las señales operacionales (Redis
+ * lento, memoria al límite) necesitan respuesta más rápida.
+ *
+ * @returns {Promise<void>}
+ */
+const scheduleSystemAlertDetectionCron = async () => {
+  const { SYSTEM_DETECTION_CONFIG } = require('../config/systemAlerts');
+  try {
+    await systemAlertDetectionQueue.add(
+      'periodic-system-alert-detection',
+      { triggeredAt: new Date().toISOString() },
+      {
+        jobId: 'system-alert-detection-cron',
+        repeat: { pattern: SYSTEM_DETECTION_CONFIG.cronPattern }
+      }
+    );
+    logger.info('queues: cron de detección de system-alerts programado', {
+      pattern: SYSTEM_DETECTION_CONFIG.cronPattern
+    });
+  } catch (err) {
+    logger.warn('queues: no se pudo programar el cron de system-alerts', {
+      error: err.message
+    });
+  }
+};
+
+/**
  * Cierra todas las queues. Llamado en gracefulShutdown.
  *
  * @returns {Promise<void>}
@@ -212,7 +255,9 @@ module.exports = {
   gdprExportsQueue,
   notificationsQueue,
   alertDetectionQueue,
+  systemAlertDetectionQueue,
   scheduleDataRetentionCron,
   scheduleAlertDetectionCron,
+  scheduleSystemAlertDetectionCron,
   closeAllQueues
 };

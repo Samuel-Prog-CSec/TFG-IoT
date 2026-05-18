@@ -295,6 +295,35 @@ const resolveLevel = (baseLevel, correlationMissing, eventConfig, state) => {
   return level;
 };
 
+// T-942: mapeo de eventos de seguridad → contador sliding 1h consumido por
+// los detectores `auth_failed_spike`, `account_lockout_spike`, etc.
+// Fire-and-forget: el incremento en Redis nunca debe bloquear ni propagar.
+const COUNTER_MAP = {
+  AUTH_LOGIN_FAILED: 'auth_failed',
+  AUTH_REFRESH_FAILED: 'auth_failed',
+  AUTH_ACCOUNT_LOCKED: 'account_locked',
+  AUTH_TOKEN_THEFT_DETECTED: 'token_theft',
+  DATA_CONSENT_CHANGE: 'consent_withdrawn' // se filtra dentro: solo si action=withdrawn
+};
+
+const bumpSecurityCounter = (eventCode, meta) => {
+  const counterType = COUNTER_MAP[eventCode];
+  if (!counterType) {
+    return;
+  }
+  // Para DATA_CONSENT_CHANGE distinguimos withdrawn vs granted via meta.action
+  if (counterType === 'consent_withdrawn' && meta?.action && meta.action !== 'withdrawn') {
+    return;
+  }
+  try {
+    // Lazy require para evitar dependencia circular con redisService.
+    const securityCounters = require('../services/security/securityCountersService');
+    securityCounters.increment(counterType).catch(() => {});
+  } catch {
+    // Si el módulo no está disponible (durante boot), simplemente no contamos.
+  }
+};
+
 const logSecurityEvent = (eventCode, meta = {}) => {
   const eventConfig = SECURITY_EVENTS[eventCode] || {
     level: 'info',
@@ -303,6 +332,9 @@ const logSecurityEvent = (eventCode, meta = {}) => {
 
   const windowMs = eventConfig?.sentry?.windowMs || 60 * 1000;
   const { now, state } = updateCounter(eventCode, windowMs);
+
+  // Incrementa contadores sliding-window para detectores de SystemAlerts.
+  bumpSecurityCounter(eventCode, meta);
 
   const correlationMissing =
     (meta?.source === 'http' && !meta?.requestId) || (meta?.source === 'ws' && !meta?.socketId);

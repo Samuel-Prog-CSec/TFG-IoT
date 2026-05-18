@@ -9,7 +9,7 @@ import {
   LayoutDashboard, CalendarClock, Palette, PlusCircle,
   UserCheck, ArrowRightLeft, Users, TrendingUp, Zap, ZapOff,
   ChevronRight, GraduationCap, PanelLeftClose, PanelLeft, Keyboard,
-  KeyRound
+  KeyRound, ShieldAlert
 } from 'lucide-react';
 import EduPlayIcon from '../icons/EduPlayIcon';
 
@@ -23,6 +23,7 @@ const ICON_MAP = {
   ArrowRightLeft,
   Users,
   Shield,
+  ShieldAlert,
   TrendingUp,
   KeyRound,
 };
@@ -38,6 +39,23 @@ import OnboardingOverlay from '../onboarding/OnboardingOverlay';
 import { useOnboarding } from '../../hooks/useOnboarding';
 import { getTrackForRole } from '../../constants/onboardingTracks';
 import { useRegisterShortcutSource, useShortcutRegistry } from '../../context/ShortcutRegistryContext';
+import TeacherAnnouncementBanner from './TeacherAnnouncementBanner';
+import { useActiveAnnouncements } from '../../hooks/useActiveAnnouncements';
+
+/**
+ * Slot que carga y renderiza los avisos del super_admin. Aislado en su
+ * propio componente para que el hook `useActiveAnnouncements` solo se
+ * ejecute para teachers (cuando el AppLayout decide montar el slot).
+ */
+function BannerSlot() {
+  const { announcements, dismissOne } = useActiveAnnouncements();
+  if (!announcements?.length) return null;
+  return (
+    <div className="relative z-20 px-4 md:px-6 pt-3">
+      <TeacherAnnouncementBanner announcements={announcements} onDismiss={dismissOne} />
+    </div>
+  );
+}
 
 // eslint-disable-next-line sonarjs/cyclomatic-complexity -- layout principal con sidebar, hooks de tema, atajos, onboarding, modal y mascota
 export default function AppLayout() {
@@ -99,6 +117,7 @@ export default function AppLayout() {
                 { key: 'g x', description: 'Ir a Aprobaciones', handler: () => navigate(ROUTES.ADMIN_APPROVALS) },
                 { key: 'g a', description: 'Ir al alumnado del centro', handler: () => navigate(ROUTES.STUDENT_MANAGEMENT) },
                 { key: 'g c', description: 'Ir a Contextos', handler: () => navigate(ROUTES.ADMIN_CONTEXTS) },
+                { key: 'g r', description: 'Ir a Alertas y avisos', handler: () => navigate(ROUTES.ADMIN_SYSTEM_ALERTS) },
               ],
             },
             {
@@ -636,6 +655,12 @@ export default function AppLayout() {
           (PROP-100). El `pb-16` sigue reservando margen bajo el widget RFID
           flotante para que no tape la última fila de la página. */}
       <main id="main-content" className="flex-1 relative pb-16 min-w-0">
+        {/* Banner con avisos del centro publicados por super_admin (T-942).
+            Solo se renderiza para roles teacher; super_admin gestiona los
+            avisos pero no los recibe como banner. */}
+        {!isSuperAdmin && (
+          <BannerSlot />
+        )}
         {/* Subtle Grid Pattern for Depth */}
         <div className="absolute inset-0 bg-grid opacity-20 pointer-events-none" />
 

@@ -64,6 +64,15 @@ const startDataRetentionWorker = () => {
       });
 
       logger.info('Job de retención completado', { jobId: job.id, summary });
+      // T-942: marcar timestamp para el detector `data_retention_lag` del
+      // sistema de SystemAlerts. Persistimos en Redis para compartirlo entre
+      // el proceso worker y el backend HTTP (lazy require para evitar ciclos).
+      try {
+        const redisService = require('../services/redisService');
+        await redisService.set('system:meta', 'lastRetentionRun', new Date().toISOString());
+      } catch {
+        // No bloquea el job.
+      }
       return summary;
     },
     {
