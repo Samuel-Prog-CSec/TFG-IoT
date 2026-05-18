@@ -8,7 +8,8 @@ import {
   Shield, Layers, X, Menu, LogOut,
   LayoutDashboard, CalendarClock, Palette, PlusCircle,
   UserCheck, ArrowRightLeft, Users, TrendingUp, Zap, ZapOff,
-  ChevronRight, GraduationCap, PanelLeftClose, PanelLeft, Keyboard
+  ChevronRight, GraduationCap, PanelLeftClose, PanelLeft, Keyboard,
+  KeyRound
 } from 'lucide-react';
 import EduPlayIcon from '../icons/EduPlayIcon';
 
@@ -23,6 +24,7 @@ const ICON_MAP = {
   Users,
   Shield,
   TrendingUp,
+  KeyRound,
 };
 import { useAuth } from '../../context/AuthContext';
 import { cn, motionConfig } from '../../lib/utils';

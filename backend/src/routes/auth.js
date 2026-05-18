@@ -30,7 +30,8 @@ const {
   challenge: mfaChallenge,
   verifyBackupCode,
   regenerateBackupCodes,
-  disable: mfaDisable
+  disable: mfaDisable,
+  status: mfaStatus
 } = require('../controllers/mfaController');
 const {
   setupVerifySchema,
@@ -204,6 +205,14 @@ router.post(
 // ============================================================================
 // MFA TOTP (T-905 B7) — super_admin
 // ============================================================================
+
+router.get(
+  '/mfa/status',
+  authenticate,
+  requireRole('super_admin'),
+  validateQuery(emptyObjectSchema),
+  asyncHandler(mfaStatus)
+);
 
 router.post(
   '/mfa/setup-init',

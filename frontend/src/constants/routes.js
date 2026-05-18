@@ -45,6 +45,7 @@ export const ROUTES = {
   ADMIN_APPROVALS: '/admin/approvals',
   STUDENT_MANAGEMENT: '/admin/students',
   ADMIN_CONTEXTS: '/admin/contexts',
+  ADMIN_MFA_SETUP: '/admin/mfa-setup',
 
   // Publicas
   PRIVACY: '/privacy',
@@ -180,6 +181,12 @@ export const ADMIN_NAV_ROUTES = [
     label: 'Contextos',
     icon: 'Palette',
     dataTour: 'admin-contexts',
+  },
+  {
+    path: ROUTES.ADMIN_MFA_SETUP,
+    label: 'Seguridad (MFA)',
+    icon: 'KeyRound',
+    dataTour: 'admin-mfa',
   },
 ];
 

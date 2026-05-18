@@ -26,6 +26,7 @@ import TopProgressBar from './components/ui/TopProgressBar';
 import { RfidModeProvider } from './context/RfidModeContext';
 import GlobalShortcuts from './components/system/GlobalShortcuts';
 import MfaChallengeModal from './components/auth/MfaChallengeModal'; // T-905 B7
+import MfaEnrollmentRedirect from './components/auth/MfaEnrollmentRedirect'; // T-905 B7
 
 // Lazy loaded pages for better performance
 const Dashboard = lazy(() => import('./pages/Dashboard'));
@@ -302,6 +303,7 @@ export default function App() {
                   <GlobalShortcuts />
                   <AppContent />
                   <MfaChallengeModal />
+                  <MfaEnrollmentRedirect />
                   <ThemeAwareToaster />
                 </ShortcutRegistryProvider>
               </RfidModeProvider>

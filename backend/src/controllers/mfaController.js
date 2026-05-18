@@ -328,11 +328,50 @@ const disable = async (req, res) => {
   sendSuccess(res, null, 'MFA deshabilitado. Inicia sesión de nuevo para confirmar.');
 };
 
+/**
+ * GET /api/auth/mfa/status
+ * Estado del MFA del super_admin actual: enabled, fechas y códigos restantes.
+ * Cuando enabled=false el frontend pinta el wizard de setup; cuando true,
+ * el panel de gestión (regenerar / deshabilitar).
+ */
+const status = async (req, res) => {
+  assertSuperAdmin(req);
+  const userId = String(req.user._id);
+
+  // backupCodes tiene `select:false` por defecto — explícito para contar restantes.
+  const userDoc = await userRepository.findById(userId, {
+    select: '+mfa.backupCodes +mfa.enabled'
+  });
+
+  if (!userDoc?.mfa?.enabled) {
+    sendSuccess(res, {
+      enabled: false,
+      enabledAt: null,
+      lastUsedAt: null,
+      backupCodesTotal: 0,
+      backupCodesRemaining: 0
+    });
+    return;
+  }
+
+  const codes = Array.isArray(userDoc.mfa.backupCodes) ? userDoc.mfa.backupCodes : [];
+  const remaining = codes.filter(entry => !entry.usedAt).length;
+
+  sendSuccess(res, {
+    enabled: true,
+    enabledAt: userDoc.mfa.enabledAt,
+    lastUsedAt: userDoc.mfa.lastUsedAt,
+    backupCodesTotal: codes.length,
+    backupCodesRemaining: remaining
+  });
+};
+
 module.exports = {
   setupInit,
   setupVerify,
   challenge,
   verifyBackupCode,
   regenerateBackupCodes,
-  disable
+  disable,
+  status
 };

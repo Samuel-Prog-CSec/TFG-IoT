@@ -182,6 +182,18 @@ api.interceptors.response.use(
         return handleTokenRefresh(originalRequest);
       }
 
+      // T-905 B7: códigos MFA (TOTP/backup invalido o token MFA expirado/invalido)
+      // NO son fallos de la sesión principal — el usuario solo se equivocó en el
+      // segundo factor. Propagamos el error sin disparar logout para que la UI
+      // (modal MfaChallenge, formularios) muestre el mensaje y permita reintentar.
+      const isMfaSecondaryFailure =
+        errCode === 'MFA_CODE_INVALID' ||
+        errCode === 'MFA_TOKEN_EXPIRED' ||
+        errCode === 'MFA_TOKEN_INVALID';
+      if (isMfaSecondaryFailure) {
+        throw error;
+      }
+
       // Si no hay refresh token o el refresh falló, emitir evento.
       // Nota: el 401 en /auth/refresh sin tokens activos es comportamiento
       // esperado (usuario sin sesion previa). El AuthContext usa un session
@@ -567,6 +579,12 @@ export const authAPI = {
   // ============================================
   // MFA TOTP (T-905 B7) — super_admin
   // ============================================
+
+  /**
+   * Estado actual del MFA del super_admin: { enabled, enabledAt, lastUsedAt,
+   * backupCodesTotal, backupCodesRemaining }. Driver del panel de gestión vs wizard.
+   */
+  mfaStatus: () => api.get('/auth/mfa/status'),
 
   /**
    * Iniciar setup MFA. Devuelve otpauthUrl + secret base32 + issuer.

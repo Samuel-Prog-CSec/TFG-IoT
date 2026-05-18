@@ -789,7 +789,12 @@ const revalidateSocketAuth = async (socket, eventName) => {
     // Usar cache-aside Redis (slim-user, TTL 60s) en vez de hit directo a Mongo
     // por cada revalidación WebSocket. El cache local authRevalidationCache
     // sigue actuando como primer nivel (TTL 30s, per-process).
-    const user = await fetchUserForAuth(decoded.id, 'role status accountStatus +currentSessionId');
+    // T-905 B7 fix: usamos el select por defecto para compartir entrada de
+    // `authUserCache` con `authenticate` HTTP. Si pasamos un select inclusivo
+    // (`role status …`) Mongoose responde solo esos campos y la entrada cacheada
+    // pierde `mfa`, rompiendo `requireMfa` cuando luego entra una request HTTP
+    // del mismo usuario y consume el cache slim del socket.
+    const user = await fetchUserForAuth(decoded.id);
 
     if (!user) {
       throw new Error('Usuario no encontrado');
@@ -1202,10 +1207,9 @@ const createAuthMiddleware =
 
       // Cache-aside Redis (slim-user, TTL 60s) en el handshake de Socket.IO.
       // Reduce queries repetidas a Mongo en reconexiones rápidas (WiFi inestable de aulas).
-      const user = await fetchUserForAuth(
-        decoded.id,
-        'role status accountStatus +currentSessionId'
-      );
+      // T-905 B7 fix: select por defecto para compartir cache con `authenticate`
+      // HTTP (ver explicación en revalidatePerEvent).
+      const user = await fetchUserForAuth(decoded.id);
       if (!user) {
         logSocketSecurityEvent('WS_AUTH_FAILED', socket, {
           reason: 'USER_NOT_FOUND',

@@ -239,7 +239,8 @@ const corsOptions = {
     'Authorization',
     'X-Requested-With',
     'Accept',
-    'X-CSRF-Token' // Para protección CSRF
+    'X-CSRF-Token', // Para protección CSRF
+    'X-MFA-Token' // T-905 B7: token MFA corto para endpoints protegidos por requireMfa
   ],
   exposedHeaders: ['X-Total-Count', 'X-Page-Count'],
   maxAge: 86400 // Cache preflight por 24 horas
