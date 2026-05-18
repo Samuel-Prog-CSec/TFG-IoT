@@ -1,4 +1,4 @@
-import { motion } from 'framer-motion';
+import { m as motion } from 'framer-motion';
 import { cva } from 'class-variance-authority';
 import { cn, motionConfig } from '../../lib/utils';
 

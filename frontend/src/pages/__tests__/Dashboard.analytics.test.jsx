@@ -26,27 +26,62 @@ vi.mock('../../hooks/useRefetchOnFocus', () => ({ useRefetchOnFocus: () => {} })
 vi.mock('../../lib/sentry', () => ({ captureException: vi.fn() }));
 
 // ── Mock framer-motion ──
-vi.mock('framer-motion', () => ({
-  motion: new Proxy({}, {
-    get: (_, tag) => {
-      const Component = (props) => {
-        const { children, initial, animate, exit, variants, transition, whileHover, whileTap, layout, ...rest } = props;
-        const domProps = {};
-        for (const [key, val] of Object.entries(rest)) {
-          if (typeof val !== 'object' || key === 'className' || key === 'style' || key.startsWith('data-') || key.startsWith('aria-') || key === 'role' || key === 'id' || key === 'onClick' || key === 'dateTime') {
-            domProps[key] = val;
+// T-907 INT2: la app migró a `<LazyMotion>` + `m` para reducir bundle. Los
+// componentes ahora importan `m as motion` desde framer-motion. Este mock
+// expone `motion` y `m` (mismo proxy) para cubrir ambos patrones. El proxy
+// se construye DENTRO del factory porque `vi.mock` se hoist al top del
+// archivo y no puede referenciar variables externas.
+vi.mock('framer-motion', () => {
+  const proxy = new Proxy(
+    {},
+    {
+      get: (_, tag) => {
+        const Component = props => {
+          const {
+            children,
+            initial,
+            animate,
+            exit,
+            variants,
+            transition,
+            whileHover,
+            whileTap,
+            layout,
+            ...rest
+          } = props;
+          const domProps = {};
+          for (const [key, val] of Object.entries(rest)) {
+            if (
+              typeof val !== 'object' ||
+              key === 'className' ||
+              key === 'style' ||
+              key.startsWith('data-') ||
+              key.startsWith('aria-') ||
+              key === 'role' ||
+              key === 'id' ||
+              key === 'onClick' ||
+              key === 'dateTime'
+            ) {
+              domProps[key] = val;
+            }
           }
-        }
-        const Tag = typeof tag === 'string' ? tag : 'div';
-        return <Tag {...domProps}>{children}</Tag>;
-      };
-      Component.displayName = `motion.${String(tag)}`;
-      return Component;
+          const Tag = typeof tag === 'string' ? tag : 'div';
+          return <Tag {...domProps}>{children}</Tag>;
+        };
+        Component.displayName = `motion.${String(tag)}`;
+        return Component;
+      }
     }
-  }),
-  AnimatePresence: ({ children }) => <>{children}</>,
-  animate: vi.fn(() => ({ stop: vi.fn() })),
-}));
+  );
+  return {
+    motion: proxy,
+    m: proxy,
+    AnimatePresence: ({ children }) => <>{children}</>,
+    LazyMotion: ({ children }) => <>{children}</>,
+    domAnimation: {},
+    animate: vi.fn(() => ({ stop: vi.fn() }))
+  };
+});
 
 // ── Mock analytics service (vi.hoisted para que este disponible antes de vi.mock) ──
 const mockAnalyticsService = vi.hoisted(() => ({

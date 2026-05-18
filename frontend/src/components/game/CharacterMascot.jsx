@@ -1,5 +1,5 @@
-import { motion, AnimatePresence } from 'framer-motion';
-import { useRef, useMemo } from 'react';
+import { m as motion, AnimatePresence } from 'framer-motion';
+import { useRef, useMemo, memo } from 'react';
 import PropTypes from 'prop-types';
 import { Star, Sparkles } from 'lucide-react';
 import { cn, EASING } from '../../lib/utils';
@@ -103,7 +103,11 @@ const greetingPool = ['¡Hola!', '¿Jugamos?', '¡Vamos!'];
  *   del fade-scale habitual. Útil al montarse en GameSession por primera
  *   vez para que el alumno note el "saludo" sin necesidad de mood nuevo.
  */
-export default function CharacterMascot({
+// T-907 F: memo evita re-render por cambios irrelevantes de props del padre
+// (GameSession.jsx re-renderiza por cada scan; las props de la mascota solo
+// cambian en eventos significativos — mood, message, mechanicType — y el
+// shallow-compare por defecto detecta eso correctamente).
+function CharacterMascot({
   mood = 'idle',
   message,
   position = 'left',
@@ -309,3 +313,5 @@ CharacterMascot.propTypes = {
   isFirstAppearance: PropTypes.bool,
   className: PropTypes.string
 };
+
+export default memo(CharacterMascot);

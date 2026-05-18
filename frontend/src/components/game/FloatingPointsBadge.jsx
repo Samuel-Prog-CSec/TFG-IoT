@@ -5,7 +5,7 @@
  * @module components/game/FloatingPointsBadge
  */
 
-import { motion, AnimatePresence } from 'framer-motion';
+import { m as motion, AnimatePresence } from 'framer-motion';
 import PropTypes from 'prop-types';
 import { cn } from '../../lib/utils';
 import { useReducedMotion } from '../../hooks/useReducedMotion';

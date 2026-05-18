@@ -12,10 +12,24 @@
  * Diseño minimal compatible con el sistema visual del proyecto. Polish futuro.
  */
 
-import { useState } from 'react';
-import { QRCodeSVG } from 'qrcode.react';
+import { useState, lazy, Suspense } from 'react';
 import { toast } from 'sonner';
 import { authAPI, extractErrorMessage } from '../../services/api';
+
+// T-907 Fase B: qrcode.react solo se necesita en el paso Step.QR (uno de cuatro
+// pasos del wizard). Lazificarlo evita cargar la lib (~12 KB gzipped) durante
+// los pasos INTRO/BACKUP/DONE. El chunk `qrcode` queda definido en vite.config
+// `manualChunks` para asegurar el split.
+const QRCodeSVG = lazy(() =>
+  import('qrcode.react').then((mod) => ({ default: mod.QRCodeSVG }))
+);
+const QRPlaceholder = () => (
+  <div
+    className="bg-white p-3 rounded-lg border border-border-default"
+    style={{ width: 210, height: 210 }}
+    aria-label="Generando código QR"
+  />
+);
 
 const Step = {
   INTRO: 'intro',
@@ -114,9 +128,11 @@ const MfaSetupPage = () => {
         <div className="bg-background-elevated border border-border-default rounded-2xl p-6 shadow-sm">
           <h2 className="text-xl font-semibold mb-3 text-text-primary">1 · Escanea el QR</h2>
           <div className="flex flex-col md:flex-row gap-6 items-start">
-            <div className="bg-white p-3 rounded-lg border border-border-default">
-              <QRCodeSVG value={setupData.otpauthUrl} size={192} level="M" />
-            </div>
+            <Suspense fallback={<QRPlaceholder />}>
+              <div className="bg-white p-3 rounded-lg border border-border-default">
+                <QRCodeSVG value={setupData.otpauthUrl} size={192} level="M" />
+              </div>
+            </Suspense>
             <div className="flex-1 space-y-3">
               <p className="text-sm text-text-muted">
                 ¿No puedes escanear? Introduce el siguiente código manualmente en tu app:

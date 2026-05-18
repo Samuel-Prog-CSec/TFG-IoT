@@ -6,7 +6,7 @@
  * @module components/ui/WizardStepper
  */
 
-import { motion, AnimatePresence } from 'framer-motion';
+import { m as motion, AnimatePresence } from 'framer-motion';
 import { Check } from 'lucide-react';
 import { cn } from '../../lib/utils';
 import { memo, useEffect, useMemo, useRef } from 'react';

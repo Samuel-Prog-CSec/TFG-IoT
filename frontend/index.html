@@ -41,6 +41,10 @@
            producto educativo: tiene calidez sin ser infantil. Sustituye a Outfit (mas generico). -->
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <!-- preload as=style baja la prioridad de bloqueo del CSS sin perder el descubrimiento temprano:
+         el navegador empieza a descargar la hoja en paralelo a HTML parsing en lugar de esperar al
+         <link rel=stylesheet>. Combinado con display=swap evita FOIT y reduce el LCP percibido. -->
+    <link rel="preload" as="style" href="https://fonts.googleapis.com/css2?family=Inter+Tight:wght@400;500;600;700&family=Bricolage+Grotesque:opsz,wght@12..96,500;12..96,600;12..96,700;12..96,800&display=swap">
     <link href="https://fonts.googleapis.com/css2?family=Inter+Tight:wght@400;500;600;700&family=Bricolage+Grotesque:opsz,wght@12..96,500;12..96,600;12..96,700;12..96,800&display=swap" rel="stylesheet">
 
     <!-- Tema inicial pre-React (FOUC < 50ms).

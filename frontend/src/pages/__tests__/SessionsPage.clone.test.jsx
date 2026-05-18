@@ -17,15 +17,25 @@ vi.mock('react-router-dom', async () => {
   };
 });
 
-vi.mock('framer-motion', () => ({
-  motion: new Proxy(
+// T-907 INT2: exponer `motion`, `m` y `LazyMotion` desde dentro del factory
+// (vi.mock se hoist y no puede leer variables externas).
+vi.mock('framer-motion', () => {
+  const proxy = new Proxy(
     {},
     {
-      get: () => ({ children, ...props }) => <div {...props}>{children}</div>
+      get: () =>
+        ({ children, ...props }) =>
+          <div {...props}>{children}</div>
     }
-  ),
-  AnimatePresence: ({ children }) => <>{children}</>
-}));
+  );
+  return {
+    motion: proxy,
+    m: proxy,
+    AnimatePresence: ({ children }) => <>{children}</>,
+    LazyMotion: ({ children }) => <>{children}</>,
+    domAnimation: {}
+  };
+});
 
 vi.mock('../../hooks/useContexts', () => ({
   useContexts: () => ({ contexts: [] })
