@@ -42,7 +42,7 @@ describe('NoSQL injection prevention (B9)', () => {
       .post('/api/auth/login')
       .send({ email: 'target@test.com', password: 'x', __proto__: { adminInjected: true } });
     expect(Object.prototype.adminInjected).toBeUndefined();
-    // eslint-disable-next-line no-prototype-builtins -- verificación intencional
+
     expect({}.adminInjected).toBeUndefined();
   });
 
@@ -81,7 +81,7 @@ describe('NoSQL injection prevention (B9)', () => {
       .post('/api/auth/login')
       .send({ email: 'target@test.com', password: 'x', __proto__: { polluted: true } });
     // Si el guard funciona, Object.prototype no fue contaminado
-    // eslint-disable-next-line no-prototype-builtins -- intencional para verificar el guard
+
     expect({}.polluted).toBeUndefined();
     expect(Object.prototype.polluted).toBeUndefined();
   });
